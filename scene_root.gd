@@ -8,6 +8,8 @@ extends Node3D
 
 const DICE_COUNT := 5
 const MAX_ROLLS := 3
+const BASE_GOAL := 150
+const GOAL_INCREMENT := 50
 
 # Lokale Achsen des Würfelmodells (feste Richtungen in RigidBody3D-Lokalraum).
 const AXIS_DIRECTIONS := {
@@ -48,6 +50,8 @@ const UPPER_KEYS := ["ones", "twos", "threes", "fours", "fives", "sixes"]
 const UPPER_BONUS_THRESHOLD := 63
 const UPPER_BONUS_VALUE := 35
 
+enum GameState { PLAYING, SHOP, SELECT_DICE, GAME_OVER }
+
 @onready var dice_roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5]
 @onready var dice_bodies: Array[RigidBody3D] = [
 	$Dice1/RigidBody3D,
@@ -66,11 +70,26 @@ const UPPER_BONUS_VALUE := 35
 
 @onready var throw_button: Button = $UI/ThrowButton
 @onready var reset_button: Button = $UI/ResetButton
+@onready var debug_win_round_button: Button = $UI/DebugWinRoundButton
+@onready var round_label: Label = $UI/RoundLabel
 @onready var rolls_label: Label = $UI/RollsLabel
-@onready var scorecard_left: VBoxContainer = $UI/ScoreCard/LeftColumn
-@onready var scorecard_right: VBoxContainer = $UI/ScoreCard/RightColumn
+@onready var hint_label: Label = $UI/HintLabel
+@onready var scorecard: VBoxContainer = $UI/ScoreCard
+
+@onready var shop_panel: Panel = $UI/ShopPanel
+@onready var shop_button_6: Button = $UI/ShopPanel/VBoxContainer/Button6
+@onready var shop_button_5: Button = $UI/ShopPanel/VBoxContainer/Button5
+@onready var shop_button_4: Button = $UI/ShopPanel/VBoxContainer/Button4
+
+@onready var dice_select_panel: Panel = $UI/DiceSelectPanel
+@onready var dice_toggle_list: VBoxContainer = $UI/DiceSelectPanel/VBoxContainer/DiceToggleList
+@onready var start_round_button: Button = $UI/DiceSelectPanel/VBoxContainer/StartRoundButton
+
+@onready var game_over_panel: Panel = $UI/GameOverPanel
+@onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 
 var hold_highlight_material: StandardMaterial3D
+var kind_tint_materials: Dictionary = {}
 
 var start_transforms: Array[Transform3D] = []
 var held: Array[bool] = [false, false, false, false, false]
@@ -86,6 +105,14 @@ var category_buttons: Dictionary = {}
 var bonus_label: Label
 var total_label: Label
 
+var game_state: GameState = GameState.PLAYING
+var owned_dice: Array[String] = []
+var active_slot_kinds: Array[String] = []
+var round_number: int = 1
+var round_goal: int = BASE_GOAL
+var dice_select_selected: Array[bool] = []
+var dice_toggle_buttons: Array[Button] = []
+
 func _ready() -> void:
 	hold_highlight_material = StandardMaterial3D.new()
 	hold_highlight_material.albedo_color = Color(1.0, 0.85, 0.2)
@@ -93,12 +120,30 @@ func _ready() -> void:
 	hold_highlight_material.emission = Color(1.0, 0.75, 0.1)
 	hold_highlight_material.emission_energy_multiplier = 0.6
 
+	kind_tint_materials["fixed_6"] = _make_tint_material(Color(0.55, 0.15, 0.75))
+	kind_tint_materials["fixed_5"] = _make_tint_material(Color(0.15, 0.35, 0.85))
+	kind_tint_materials["fixed_4"] = _make_tint_material(Color(0.15, 0.65, 0.3))
+
 	for i in DICE_COUNT:
 		start_transforms.append(dice_bodies[i].global_transform)
 		dice_roots[i].visible = false
 
+	shop_button_6.pressed.connect(_on_shop_choice.bind("fixed_6"))
+	shop_button_5.pressed.connect(_on_shop_choice.bind("fixed_5"))
+	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
+	start_round_button.pressed.connect(_on_start_round_pressed)
+	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
+
 	_build_scorecard()
-	_refresh_ui()
+	_reset_game()
+
+func _make_tint_material(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 0.4
+	return mat
 
 func _physics_process(delta: float) -> void:
 	if not is_rolling:
@@ -113,7 +158,7 @@ func _physics_process(delta: float) -> void:
 			rest_timers[i] += delta
 			if rest_timers[i] >= rest_time_required:
 				settled[i] = true
-				die_values[i] = AXIS_VALUES[_get_top_axis(body)]
+				die_values[i] = _value_for_slot(i, body)
 		else:
 			rest_timers[i] = 0.0
 		if not settled[i]:
@@ -121,6 +166,17 @@ func _physics_process(delta: float) -> void:
 
 	if all_settled:
 		_on_roll_finished()
+
+func _value_for_slot(index: int, body: RigidBody3D) -> int:
+	match active_slot_kinds[index]:
+		"fixed_6":
+			return 6
+		"fixed_5":
+			return 5
+		"fixed_4":
+			return 4
+		_:
+			return AXIS_VALUES[_get_top_axis(body)]
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton):
@@ -135,7 +191,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_set_held(index, not held[index])
 
 func _can_toggle_hold() -> bool:
-	return not is_rolling and rolls_left > 0 and rolls_left < MAX_ROLLS
+	return game_state == GameState.PLAYING and not is_rolling and rolls_left > 0 and rolls_left < MAX_ROLLS
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -155,10 +211,10 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 
 func _set_held(index: int, is_held: bool) -> void:
 	held[index] = is_held
-	dice_meshes[index].set_surface_override_material(0, hold_highlight_material if is_held else null)
+	dice_meshes[index].set_surface_override_material(1, hold_highlight_material if is_held else null)
 
 func _on_throw_button_pressed() -> void:
-	if is_rolling or rolls_left <= 0:
+	if game_state != GameState.PLAYING or is_rolling or rolls_left <= 0:
 		return
 
 	is_rolling = true
@@ -197,19 +253,35 @@ func _on_roll_finished() -> void:
 	_refresh_ui()
 
 func _on_reset_button_pressed() -> void:
+	_reset_game()
+
+func _reset_game() -> void:
 	is_rolling = false
+	game_state = GameState.PLAYING
+	owned_dice = ["normal", "normal", "normal", "normal", "normal"]
+	active_slot_kinds = owned_dice.duplicate()
+	round_number = 1
+	round_goal = BASE_GOAL
+	shop_panel.visible = false
+	dice_select_panel.visible = false
+	game_over_panel.visible = false
+	_set_gameplay_ui_visible(true)
+	_apply_slot_kind_tints()
+	_start_new_round_line()
+
+func _start_new_turn() -> void:
 	rolls_left = MAX_ROLLS
-	for cat in CATEGORIES:
-		category_used[cat["key"]] = false
-		category_scores[cat["key"]] = 0
 	_reset_dice()
 	throw_button.disabled = false
 	_refresh_ui()
 
-func _start_new_round() -> void:
+func _start_new_round_line() -> void:
+	for cat in CATEGORIES:
+		category_used[cat["key"]] = false
+		category_scores[cat["key"]] = 0
 	rolls_left = MAX_ROLLS
 	_reset_dice()
-	throw_button.disabled = _all_categories_used()
+	throw_button.disabled = false
 	_refresh_ui()
 
 func _reset_dice() -> void:
@@ -219,7 +291,12 @@ func _reset_dice() -> void:
 		settled[i] = true
 		rest_timers[i] = 0.0
 		dice_roots[i].visible = false
-		dice_meshes[i].set_surface_override_material(0, null)
+		dice_meshes[i].set_surface_override_material(1, null)
+
+func _apply_slot_kind_tints() -> void:
+	for i in DICE_COUNT:
+		var kind: String = active_slot_kinds[i]
+		dice_meshes[i].set_surface_override_material(0, kind_tint_materials.get(kind))
 
 func _get_top_axis(body: RigidBody3D) -> String:
 	var basis := body.global_transform.basis
@@ -272,20 +349,22 @@ func _add_category_row(parent: VBoxContainer, key: String, label_text: String) -
 
 func _build_scorecard() -> void:
 	for cat in CATEGORIES:
-		var key: String = cat["key"]
-		var column := scorecard_left if key in UPPER_KEYS else scorecard_right
-		_add_category_row(column, key, cat["label"])
+		_add_category_row(scorecard, cat["key"], cat["label"])
 
-	bonus_label = _add_score_row(scorecard_left, "Bonus (63+)")
-	total_label = _add_score_row(scorecard_right, "Gesamt")
+	bonus_label = _add_score_row(scorecard, "Bonus (63+)")
+	total_label = _add_score_row(scorecard, "Gesamt")
 
 func _on_category_pressed(key: String) -> void:
-	if category_used[key] or is_rolling or rolls_left >= MAX_ROLLS:
+	if game_state != GameState.PLAYING or category_used[key] or is_rolling or rolls_left >= MAX_ROLLS:
 		return
 	category_scores[key] = _score_category(key, die_values)
 	category_used[key] = true
 	_refresh_ui()
-	_start_new_round()
+
+	if _all_categories_used():
+		_on_round_line_complete()
+	else:
+		_start_new_turn()
 
 func _all_categories_used() -> bool:
 	for cat in CATEGORIES:
@@ -293,13 +372,138 @@ func _all_categories_used() -> bool:
 			return false
 	return true
 
-func _refresh_ui() -> void:
-	if _all_categories_used():
-		rolls_label.text = "Spiel beendet!"
+func _on_round_line_complete() -> void:
+	throw_button.disabled = true
+	var total := _calculate_total()
+	if total >= round_goal:
+		game_state = GameState.SHOP
+		_show_shop()
 	else:
-		rolls_label.text = "Würfe übrig: %d" % rolls_left
+		game_state = GameState.GAME_OVER
+		_show_game_over(total)
 
-	var can_select := not is_rolling and rolls_left < MAX_ROLLS
+func _on_debug_win_round_pressed() -> void:
+	if game_state != GameState.PLAYING:
+		return
+	is_rolling = false
+	throw_button.disabled = true
+	game_state = GameState.SHOP
+	_show_shop()
+
+func _set_gameplay_ui_visible(is_visible: bool) -> void:
+	hint_label.visible = is_visible
+	scorecard.visible = is_visible
+
+func _show_shop() -> void:
+	_set_gameplay_ui_visible(false)
+	shop_panel.visible = true
+
+func _on_shop_choice(kind: String) -> void:
+	if game_state != GameState.SHOP:
+		return
+	owned_dice.append(kind)
+	round_number += 1
+	round_goal += GOAL_INCREMENT
+	shop_panel.visible = false
+	game_state = GameState.SELECT_DICE
+	_show_dice_select()
+
+func _show_dice_select() -> void:
+	for child in dice_toggle_list.get_children():
+		child.queue_free()
+	dice_toggle_buttons.clear()
+	dice_select_selected.clear()
+
+	for i in owned_dice.size():
+		dice_select_selected.append(i < 5)
+
+	for i in owned_dice.size():
+		var btn := Button.new()
+		btn.toggle_mode = true
+		btn.button_pressed = dice_select_selected[i]
+		btn.text = _dice_kind_label(owned_dice[i])
+		btn.toggled.connect(_on_dice_toggle.bind(i))
+		dice_toggle_list.add_child(btn)
+		dice_toggle_buttons.append(btn)
+
+	dice_select_panel.visible = true
+	_refresh_dice_select_ui()
+
+func _dice_kind_label(kind: String) -> String:
+	match kind:
+		"fixed_6":
+			return "Würfel (immer 6)"
+		"fixed_5":
+			return "Würfel (immer 5)"
+		"fixed_4":
+			return "Würfel (immer 4)"
+		_:
+			return "Normaler Würfel"
+
+func _on_dice_toggle(is_pressed: bool, index: int) -> void:
+	var selected_count := 0
+	for v in dice_select_selected:
+		if v:
+			selected_count += 1
+
+	if is_pressed:
+		if selected_count >= 5:
+			dice_toggle_buttons[index].button_pressed = false
+			return
+		dice_select_selected[index] = true
+	else:
+		dice_select_selected[index] = false
+
+	_refresh_dice_select_ui()
+
+func _refresh_dice_select_ui() -> void:
+	var selected_count := 0
+	for v in dice_select_selected:
+		if v:
+			selected_count += 1
+	start_round_button.disabled = selected_count != 5
+
+func _on_start_round_pressed() -> void:
+	var chosen: Array[String] = []
+	for i in owned_dice.size():
+		if dice_select_selected[i]:
+			chosen.append(owned_dice[i])
+	active_slot_kinds = chosen
+
+	dice_select_panel.visible = false
+	game_state = GameState.PLAYING
+	_set_gameplay_ui_visible(true)
+	_apply_slot_kind_tints()
+	_start_new_round_line()
+
+func _show_game_over(total: int) -> void:
+	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, round_goal]
+	_set_gameplay_ui_visible(false)
+	game_over_panel.visible = true
+
+func _calculate_bonus() -> int:
+	var upper_sum := 0
+	for key in UPPER_KEYS:
+		if category_used[key]:
+			upper_sum += category_scores[key]
+	return UPPER_BONUS_VALUE if upper_sum >= UPPER_BONUS_THRESHOLD else 0
+
+func _calculate_total() -> int:
+	var total := _calculate_bonus()
+	for cat in CATEGORIES:
+		if category_used[cat["key"]]:
+			total += category_scores[cat["key"]]
+	return total
+
+func _refresh_ui() -> void:
+	round_label.text = "Runde %d · Ziel: %d Punkte" % [round_number, round_goal]
+
+	if game_state == GameState.PLAYING:
+		rolls_label.text = "Würfe übrig: %d" % rolls_left
+	else:
+		rolls_label.text = ""
+
+	var can_select := game_state == GameState.PLAYING and not is_rolling and rolls_left < MAX_ROLLS
 	for cat in CATEGORIES:
 		var key: String = cat["key"]
 		var button: Button = category_buttons[key]
@@ -313,18 +517,8 @@ func _refresh_ui() -> void:
 			button.text = "-"
 			button.disabled = true
 
-	var upper_sum := 0
-	for key in UPPER_KEYS:
-		if category_used[key]:
-			upper_sum += category_scores[key]
-	var bonus := UPPER_BONUS_VALUE if upper_sum >= UPPER_BONUS_THRESHOLD else 0
-	bonus_label.text = str(bonus)
-
-	var total := bonus
-	for cat in CATEGORIES:
-		if category_used[cat["key"]]:
-			total += category_scores[cat["key"]]
-	total_label.text = str(total)
+	bonus_label.text = str(_calculate_bonus())
+	total_label.text = str(_calculate_total())
 
 func _score_category(key: String, dice: Array[int]) -> int:
 	match key:
