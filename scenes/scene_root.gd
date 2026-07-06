@@ -308,5 +308,5 @@ func _refresh_ui() -> void:
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
-		hand_label.text = "%s  →  %s (%d Punkte)" % [" ".join(value_strings), hand["label"], hand["score"]]
+		hand_label.text = "%s  →  %s ×%d  =  %d Punkte" % [" ".join(value_strings), hand["label"], hand["mult"], hand["score"]]
 		throw_button.text = "Neu würfeln (%d)" % rerolls_left
