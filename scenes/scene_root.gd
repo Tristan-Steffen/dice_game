@@ -1,13 +1,15 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
-## Wertung: KniffelScoring · Würfelphysik: DiceController · Look: PageStyle.
+## Wertung: KniffelScoring · Würfelphysik: DiceController · Pool-Anzeige:
+## DicePoolView · Look: PageStyle.
 ##
 ## Würfel-Pool statt Hände-/Reroll-Zähler: die Sammlung besteht aus fest 30
 ## Würfeln (anfangs alle "normal"; ein Shop-Kauf ersetzt einen zufälligen
 ## bestehenden Eintrag durch den neuen Spezialwürfel, der Pool bleibt also
-## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt; jede neue Hand
-## zieht 5 Würfel daraus. Wer beim Rerollen einen Würfel aussortiert, bekommt
-## dafür einen frischen aus dem Pool - der aussortierte kommt nicht zurück.
+## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt und komplett sichtbar
+## im DicePoolView aufgestellt. Die als Nächstes gezogenen Würfel (5 beim
+## Rundenstart, oder so viele wie gerade nicht gehalten werden) sind dort
+## farblich markiert; beim tatsächlichen Wurf verschwinden sie aus dem Pool.
 ## Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
 
 @export var throw_force: float = 12.0
@@ -40,6 +42,8 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 
+@onready var dice_pool_view: DicePoolView = $DicePoolView
+
 var dice: DiceController
 
 var is_rolling: bool = false
@@ -51,7 +55,8 @@ var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
 var owned_pool: Array[String] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
-var round_pool: Array[String] = []  # gemischter Rest-Pool der laufenden Runde
+var round_pool_kinds: Array[String] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
+var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
 var active_kinds: Array[String] = []  # aktuell den 5 Würfel-Slots zugewiesene Arten
 
 func _ready() -> void:
@@ -96,9 +101,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	var index := _pick_die_index(event.position)
 	if index != -1:
 		dice.set_held(index, not dice.held[index])
+		_update_pool_queue_highlight()
 
 func _can_toggle_hold() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and not round_pool.is_empty()
+	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and _remaining_in_pool() > 0
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -116,16 +122,53 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 
 	return dice.index_of_body(result.collider)
 
+func _remaining_in_pool() -> int:
+	return round_pool_kinds.size() - next_draw_index
+
+func _draw_one() -> String:
+	var kind: String = round_pool_kinds[next_draw_index]
+	dice_pool_view.mark_used(next_draw_index)
+	next_draw_index += 1
+	return kind
+
+## Wie viele Würfel als Nächstes markiert werden sollen: vor dem ersten Wurf
+## einer Hand immer HAND_SIZE, danach genau so viele wie aktuell nicht
+## gehalten werden (begrenzt auf das, was der Pool noch hergibt).
+func _current_queue_size() -> int:
+	var wanted := HAND_SIZE
+	if has_rolled_current_hand:
+		wanted = 0
+		for i in dice.count():
+			if not dice.held[i]:
+				wanted += 1
+	return min(wanted, _remaining_in_pool())
+
+func _update_pool_queue_highlight() -> void:
+	var queue_size := _current_queue_size()
+	var indices: Array[int] = []
+	for i in queue_size:
+		indices.append(next_draw_index + i)
+	dice_pool_view.set_queued(indices)
+
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:
 		return
-	if has_rolled_current_hand:
-		if round_pool.is_empty():
-			return
-		# Reroll: nicht gehaltene Würfel aussortieren, Ersatz aus dem Pool ziehen.
+	if _remaining_in_pool() <= 0:
+		return
+
+	if not has_rolled_current_hand:
+		# Erster Wurf der Hand: die markierten (gequeuten) Würfel jetzt wirklich ziehen.
+		active_kinds = []
+		for i in HAND_SIZE:
+			if _remaining_in_pool() <= 0:
+				break
+			active_kinds.append(_draw_one())
+		dice.set_slot_kinds(active_kinds)
+	else:
+		# Reroll: nicht gehaltene Würfel aussortieren, markierten Ersatz ziehen.
 		for i in dice.count():
-			if not dice.held[i] and not round_pool.is_empty():
-				active_kinds[i] = round_pool.pop_back()
+			if not dice.held[i] and _remaining_in_pool() > 0:
+				active_kinds[i] = _draw_one()
 		dice.set_slot_kinds(active_kinds)
 
 	is_rolling = true
@@ -138,7 +181,8 @@ func _on_roll_finished() -> void:
 	is_rolling = false
 	has_rolled_current_hand = true
 	take_button.disabled = false
-	throw_button.disabled = round_pool.is_empty()
+	throw_button.disabled = _remaining_in_pool() <= 0
+	_update_pool_queue_highlight()
 	_refresh_ui()
 
 func _on_take_button_pressed() -> void:
@@ -148,7 +192,7 @@ func _on_take_button_pressed() -> void:
 	var hand := KniffelScoring.best_hand(dice.values)
 	hand_total += hand["score"]
 
-	if round_pool.size() < HAND_SIZE:
+	if _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -170,27 +214,21 @@ func _reset_game() -> void:
 	_start_new_round()
 
 func _start_new_round() -> void:
-	round_pool = owned_pool.duplicate()
-	round_pool.shuffle()
+	round_pool_kinds = owned_pool.duplicate()
+	round_pool_kinds.shuffle()
+	next_draw_index = 0
+	dice_pool_view.set_layout(round_pool_kinds)
 	hand_total = 0
 	_start_new_hand()
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
-	active_kinds = _draw_from_pool(HAND_SIZE)
-	dice.set_slot_kinds(active_kinds)
+	active_kinds = []
 	dice.reset()
 	throw_button.disabled = false
 	take_button.disabled = true
+	_update_pool_queue_highlight()
 	_refresh_ui()
-
-func _draw_from_pool(n: int) -> Array[String]:
-	var drawn: Array[String] = []
-	for i in n:
-		if round_pool.is_empty():
-			break
-		drawn.append(round_pool.pop_back())
-	return drawn
 
 func _on_round_complete() -> void:
 	throw_button.disabled = true
@@ -254,7 +292,7 @@ func _show_game_over(total: int) -> void:
 
 func _refresh_ui() -> void:
 	round_label.text = "Runde %d · Ziel: %d Punkte · Bisher: %d" % [round_number, round_goal, hand_total]
-	pool_label.text = "Würfel im Pool: %d" % round_pool.size()
+	pool_label.text = "Würfel im Pool: %d" % _remaining_in_pool()
 
 	if not has_rolled_current_hand:
 		hand_label.text = "Würfle, um deine Hand zu sehen"
