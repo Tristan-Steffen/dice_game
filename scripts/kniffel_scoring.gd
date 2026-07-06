@@ -17,8 +17,15 @@ const CATEGORIES := [
 	{"key": "chance", "label": "Chance"},
 ]
 const UPPER_KEYS := ["ones", "twos", "threes", "fours", "fives", "sixes"]
-const UPPER_BONUS_THRESHOLD := 63
-const UPPER_BONUS_VALUE := 35
+
+# Von der prestigeträchtigsten zur schwächsten Hand - entscheidet bei
+# Punktgleichstand (z.B. Viererpasch und Dreierpasch treffen beide zu).
+const HAND_PRIORITY := [
+	"yahtzee", "large_straight", "small_straight", "full_house",
+	"four_kind", "three_kind",
+	"sixes", "fives", "fours", "threes", "twos", "ones",
+	"chance",
+]
 
 static func score_category(key: String, dice: Array[int]) -> int:
 	match key:
@@ -50,19 +57,24 @@ static func score_category(key: String, dice: Array[int]) -> int:
 			return _sum(dice)
 	return 0
 
-static func calculate_bonus(category_used: Dictionary, category_scores: Dictionary) -> int:
-	var upper_sum := 0
-	for key in UPPER_KEYS:
-		if category_used.get(key, false):
-			upper_sum += category_scores[key]
-	return UPPER_BONUS_VALUE if upper_sum >= UPPER_BONUS_THRESHOLD else 0
-
-static func calculate_total(category_used: Dictionary, category_scores: Dictionary) -> int:
-	var total := calculate_bonus(category_used, category_scores)
+static func label_for(key: String) -> String:
 	for cat in CATEGORIES:
-		if category_used.get(cat["key"], false):
-			total += category_scores[cat["key"]]
-	return total
+		if cat["key"] == key:
+			return cat["label"]
+	return key
+
+## Bestimmt die bestmögliche Hand für den aktuellen Wurf (höchster Punktwert;
+## bei Gleichstand gewinnt der prestigeträchtigere Kategorie gemäß HAND_PRIORITY,
+## z.B. Viererpasch statt Dreierpasch statt Chance bei gleicher Summe).
+static func best_hand(dice: Array[int]) -> Dictionary:
+	var best_key: String = HAND_PRIORITY[-1]
+	var best_score := -1
+	for key in HAND_PRIORITY:
+		var score := score_category(key, dice)
+		if score > best_score:
+			best_score = score
+			best_key = key
+	return {"key": best_key, "label": label_for(best_key), "score": best_score}
 
 static func _counts(dice: Array[int]) -> Dictionary:
 	var result := {}

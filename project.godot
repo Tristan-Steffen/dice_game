@@ -13,7 +13,7 @@ config_version=5
 config/name="Die"
 run/main_scene="uid://uklph2nfxkkr"
 config/features=PackedStringArray("4.7", "GL Compatibility")
-config/icon="res://icon.svg"
+config/icon="res://assets/icon.svg"
 
 [display]
 

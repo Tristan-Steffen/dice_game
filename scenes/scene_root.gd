@@ -1,7 +1,12 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfelauswahl und UI-Verdrahtung.
-## Wertung: KniffelScoring · Würfelphysik: DiceController ·
-## Scorecard: ScorecardUI · Protokoll: GameLogUI · Look: PageStyle.
+## Wertung: KniffelScoring · Würfelphysik: DiceController · Look: PageStyle.
+##
+## Balatro-artiger Ablauf: pro Runde gibt es 3 Hände zum Nehmen und 5 Rerolls,
+## die sich alle Hände einer Runde teilen. Jede Hand beginnt mit einem
+## kostenlosen ersten Wurf; jeder weitere Wurf innerhalb der Hand kostet einen
+## der gemeinsamen Rerolls. "Nehmen" verbucht die aktuell beste Hand
+## (automatisch ermittelt) und schließt die Hand ab.
 
 @export var throw_force: float = 12.0
 @export var spin_strength: float = 10.0
@@ -9,22 +14,22 @@ extends Node3D
 @export var rest_angular_threshold: float = 0.05
 @export var rest_time_required: float = 0.5
 
-const MAX_ROLLS := 3
+const MAX_HANDS := 3
+const MAX_REROLLS := 5
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
 
 enum GameState { PLAYING, SHOP, SELECT_DICE, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
+@onready var take_button: Button = $UI/TakeButton
 @onready var reset_button: Button = $UI/ResetButton
 @onready var debug_win_round_button: Button = $UI/DebugWinRoundButton
 @onready var round_label: Label = $UI/RoundLabel
-@onready var rolls_label: Label = $UI/RollsLabel
+@onready var hands_label: Label = $UI/HandsLabel
+@onready var rerolls_label: Label = $UI/RerollsLabel
 @onready var hint_label: Label = $UI/HintLabel
-
-@onready var scorecard: ScorecardUI = $UI/ScoreCard
-@onready var game_log: GameLogUI = $UI/GameLog
-@onready var game_log_icon: Button = $UI/GameLogIcon
+@onready var hand_label: Label = $UI/HandLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
 @onready var shop_button_6: Button = $UI/ShopPanel/VBoxContainer/Button6
@@ -41,16 +46,15 @@ enum GameState { PLAYING, SHOP, SELECT_DICE, GAME_OVER }
 var dice: DiceController
 
 var is_rolling: bool = false
-var rolls_left: int = MAX_ROLLS
-
-var category_used: Dictionary = {}
-var category_scores: Dictionary = {}
+var has_rolled_current_hand: bool = false
+var hands_left: int = MAX_HANDS
+var rerolls_left: int = MAX_REROLLS
+var hand_total: int = 0
 
 var game_state: GameState = GameState.PLAYING
 var owned_dice: Array[String] = []
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
-var round_history: Array[Dictionary] = []
 var dice_select_selected: Array[bool] = []
 var dice_toggle_buttons: Array[Button] = []
 
@@ -77,10 +81,7 @@ func _ready() -> void:
 	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
 	start_round_button.pressed.connect(_on_start_round_pressed)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
-	scorecard.category_selected.connect(_on_category_pressed)
-	game_log.closed.connect(func() -> void: game_log_icon.visible = true)
 
-	PageStyle.style_icon_button(game_log_icon)
 	_reset_game()
 
 func _physics_process(delta: float) -> void:
@@ -102,7 +103,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		dice.set_held(index, not dice.held[index])
 
 func _can_toggle_hold() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and rolls_left > 0 and rolls_left < MAX_ROLLS
+	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and rerolls_left > 0
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -121,19 +122,39 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 	return dice.index_of_body(result.collider)
 
 func _on_throw_button_pressed() -> void:
-	if game_state != GameState.PLAYING or is_rolling or rolls_left <= 0:
+	if game_state != GameState.PLAYING or is_rolling:
 		return
+	if has_rolled_current_hand and rerolls_left <= 0:
+		return
+
+	if has_rolled_current_hand:
+		rerolls_left -= 1
 
 	is_rolling = true
 	throw_button.disabled = true
+	take_button.disabled = true
 	dice.throw_unheld(throw_force, spin_strength)
-	rolls_left -= 1
 	_refresh_ui()
 
 func _on_roll_finished() -> void:
 	is_rolling = false
-	throw_button.disabled = rolls_left <= 0
+	has_rolled_current_hand = true
+	take_button.disabled = false
+	throw_button.disabled = rerolls_left <= 0
 	_refresh_ui()
+
+func _on_take_button_pressed() -> void:
+	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
+		return
+
+	var hand := KniffelScoring.best_hand(dice.values)
+	hand_total += hand["score"]
+	hands_left -= 1
+
+	if hands_left <= 0:
+		_on_round_complete()
+	else:
+		_start_new_hand()
 
 func _on_reset_button_pressed() -> void:
 	_reset_game()
@@ -145,97 +166,48 @@ func _reset_game() -> void:
 	dice.set_slot_kinds(owned_dice)
 	round_number = 1
 	round_goal = BASE_GOAL
-	round_history.clear()
 	shop_panel.visible = false
 	dice_select_panel.visible = false
 	game_over_panel.visible = false
-	game_log.visible = false
-	game_log_icon.visible = true
 	_set_gameplay_ui_visible(true)
-	_start_new_round_line()
+	_start_new_round()
 
-func _start_new_turn() -> void:
-	rolls_left = MAX_ROLLS
+func _start_new_round() -> void:
+	hands_left = MAX_HANDS
+	rerolls_left = MAX_REROLLS
+	hand_total = 0
+	_start_new_hand()
+
+func _start_new_hand() -> void:
+	has_rolled_current_hand = false
 	dice.reset()
 	throw_button.disabled = false
+	take_button.disabled = true
 	_refresh_ui()
 
-func _start_new_round_line() -> void:
-	for cat in KniffelScoring.CATEGORIES:
-		category_used[cat["key"]] = false
-		category_scores[cat["key"]] = 0
-	rolls_left = MAX_ROLLS
-	dice.reset()
-	throw_button.disabled = false
-	_refresh_ui()
-
-func _on_category_pressed(key: String) -> void:
-	if game_state != GameState.PLAYING or category_used[key] or is_rolling or rolls_left >= MAX_ROLLS:
-		return
-	category_scores[key] = KniffelScoring.score_category(key, dice.values)
-	category_used[key] = true
-	_refresh_ui()
-
-	if _all_categories_used():
-		_on_round_line_complete()
-	else:
-		_start_new_turn()
-
-func _all_categories_used() -> bool:
-	for cat in KniffelScoring.CATEGORIES:
-		if not category_used[cat["key"]]:
-			return false
-	return true
-
-func _on_round_line_complete() -> void:
+func _on_round_complete() -> void:
 	throw_button.disabled = true
-	var total := KniffelScoring.calculate_total(category_used, category_scores)
-	round_history.append(_make_round_snapshot(total))
-	if total >= round_goal:
+	take_button.disabled = true
+	if hand_total >= round_goal:
 		game_state = GameState.SHOP
 		_show_shop()
 	else:
 		game_state = GameState.GAME_OVER
-		_show_game_over(total)
-
-func _make_round_snapshot(total: int) -> Dictionary:
-	return {
-		"goal": round_goal,
-		"scores": category_scores.duplicate(),
-		"used": category_used.duplicate(),
-		"bonus": KniffelScoring.calculate_bonus(category_used, category_scores),
-		"total": total,
-	}
+		_show_game_over(hand_total)
 
 func _on_debug_win_round_pressed() -> void:
 	if game_state != GameState.PLAYING:
 		return
 	is_rolling = false
+	hand_total = round_goal
 	throw_button.disabled = true
-	# Force a win regardless of what's actually been scored so far, but still
-	# record it in the log like a real round (with whatever categories were
-	# already filled in; the total is forced up to the goal).
-	round_history.append(_make_round_snapshot(round_goal))
+	take_button.disabled = true
 	game_state = GameState.SHOP
 	_show_shop()
 
 func _set_gameplay_ui_visible(is_visible: bool) -> void:
 	hint_label.visible = is_visible
-	scorecard.visible = is_visible
-
-func _on_game_log_icon_pressed() -> void:
-	var round_datas: Array = []
-	for i in GameLogUI.TOTAL_COLUMNS:
-		var round_num := i + 1
-		if i < round_history.size():
-			round_datas.append(round_history[i])
-		elif round_num == round_number:
-			round_datas.append(_make_round_snapshot(KniffelScoring.calculate_total(category_used, category_scores)))
-		else:
-			round_datas.append(null)
-
-	game_log_icon.visible = false
-	game_log.open(round_datas)
+	hand_label.visible = is_visible
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
@@ -316,7 +288,7 @@ func _on_start_round_pressed() -> void:
 	dice_select_panel.visible = false
 	game_state = GameState.PLAYING
 	_set_gameplay_ui_visible(true)
-	_start_new_round_line()
+	_start_new_round()
 
 func _show_game_over(total: int) -> void:
 	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, round_goal]
@@ -324,16 +296,17 @@ func _show_game_over(total: int) -> void:
 	game_over_panel.visible = true
 
 func _refresh_ui() -> void:
-	round_label.text = "Runde %d · Ziel: %d Punkte" % [round_number, round_goal]
+	round_label.text = "Runde %d · Ziel: %d Punkte · Bisher: %d" % [round_number, round_goal, hand_total]
+	hands_label.text = "Hände übrig: %d" % hands_left
+	rerolls_label.text = "Rerolls übrig: %d" % rerolls_left
 
-	if game_state == GameState.PLAYING:
-		rolls_label.text = "Würfe übrig: %d" % rolls_left
+	if not has_rolled_current_hand:
+		hand_label.text = "Würfle, um deine Hand zu sehen"
+		throw_button.text = "Würfeln"
 	else:
-		rolls_label.text = ""
-
-	var preview_scores := {}
-	for cat in KniffelScoring.CATEGORIES:
-		preview_scores[cat["key"]] = KniffelScoring.score_category(cat["key"], dice.values)
-
-	var can_select := game_state == GameState.PLAYING and not is_rolling and rolls_left < MAX_ROLLS
-	scorecard.refresh(category_used, category_scores, preview_scores, can_select)
+		var hand := KniffelScoring.best_hand(dice.values)
+		var value_strings: Array[String] = []
+		for v in dice.values:
+			value_strings.append(str(v))
+		hand_label.text = "%s  →  %s (%d Punkte)" % [" ".join(value_strings), hand["label"], hand["score"]]
+		throw_button.text = "Neu würfeln (%d)" % rerolls_left

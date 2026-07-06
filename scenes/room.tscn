@@ -1,0 +1,99 @@
+[gd_scene format=3 uid="uid://dq8j5n2h1x3w"]
+
+[ext_resource type="Texture2D" path="res://assets/textures/floor_wood.png" id="1_floor_tex"]
+[ext_resource type="Texture2D" path="res://assets/textures/wall_plaster.png" id="2_wall_tex"]
+[ext_resource type="Texture2D" path="res://assets/textures/table_wood.png" id="3_table_tex"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_Floor"]
+albedo_texture = ExtResource("1_floor_tex")
+uv1_scale = Vector3(12, 12, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="Mat_Wall"]
+albedo_texture = ExtResource("2_wall_tex")
+uv1_scale = Vector3(12, 6, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="Mat_Table"]
+albedo_texture = ExtResource("3_table_tex")
+uv1_scale = Vector3(8, 8, 1)
+roughness = 0.6
+
+[sub_resource type="StandardMaterial3D" id="Mat_TableLeg"]
+albedo_texture = ExtResource("3_table_tex")
+uv1_scale = Vector3(2, 4, 1)
+roughness = 0.6
+
+[sub_resource type="BoxMesh" id="Mesh_Floor"]
+size = Vector3(100, 2, 100)
+material = SubResource("Mat_Floor")
+
+[sub_resource type="BoxShape3D" id="Shape_Floor"]
+size = Vector3(100, 2, 100)
+
+[sub_resource type="BoxMesh" id="Mesh_WallNS"]
+size = Vector3(100, 50, 2)
+material = SubResource("Mat_Wall")
+
+[sub_resource type="BoxMesh" id="Mesh_WallEW"]
+size = Vector3(2, 50, 100)
+material = SubResource("Mat_Wall")
+
+[sub_resource type="BoxMesh" id="Mesh_Tabletop"]
+size = Vector3(60, 2, 60)
+material = SubResource("Mat_Table")
+
+[sub_resource type="BoxMesh" id="Mesh_Leg"]
+size = Vector3(5, 14, 5)
+material = SubResource("Mat_TableLeg")
+
+[node name="Room" type="Node3D"]
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -21, 0)
+mesh = SubResource("Mesh_Floor")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Floor"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor/StaticBody3D"]
+shape = SubResource("Shape_Floor")
+
+[node name="Walls" type="Node3D" parent="."]
+
+[node name="North" type="MeshInstance3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, -50)
+mesh = SubResource("Mesh_WallNS")
+
+[node name="South" type="MeshInstance3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 50)
+mesh = SubResource("Mesh_WallNS")
+
+[node name="East" type="MeshInstance3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 5, 0)
+mesh = SubResource("Mesh_WallEW")
+
+[node name="West" type="MeshInstance3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -50, 5, 0)
+mesh = SubResource("Mesh_WallEW")
+
+[node name="Table" type="Node3D" parent="."]
+
+[node name="Tabletop" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -5, 0)
+mesh = SubResource("Mesh_Tabletop")
+
+[node name="LegFrontLeft" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -13, -26)
+mesh = SubResource("Mesh_Leg")
+
+[node name="LegFrontRight" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, -13, -26)
+mesh = SubResource("Mesh_Leg")
+
+[node name="LegBackLeft" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -13, 26)
+mesh = SubResource("Mesh_Leg")
+
+[node name="LegBackRight" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, -13, 26)
+mesh = SubResource("Mesh_Leg")
