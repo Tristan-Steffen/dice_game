@@ -212,6 +212,10 @@ func _on_debug_win_round_pressed() -> void:
 		return
 	is_rolling = false
 	throw_button.disabled = true
+	# Force a win regardless of what's actually been scored so far, but still
+	# record it in the log like a real round (with whatever categories were
+	# already filled in; the total is forced up to the goal).
+	round_history.append(_make_round_snapshot(round_goal))
 	game_state = GameState.SHOP
 	_show_shop()
 
