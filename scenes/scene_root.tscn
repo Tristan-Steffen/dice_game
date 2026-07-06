@@ -90,25 +90,18 @@ offset_right = 340.0
 offset_bottom = 148.0
 text = "Runde 1 · Ziel: 150 Punkte"
 
-[node name="HandsLabel" type="Label" parent="UI" unique_id=1734005890]
+[node name="PoolLabel" type="Label" parent="UI" unique_id=1734005890]
 offset_left = 24.0
 offset_top = 148.0
 offset_right = 264.0
 offset_bottom = 172.0
-text = "Hände übrig: 3"
-
-[node name="RerollsLabel" type="Label" parent="UI"]
-offset_left = 24.0
-offset_top = 172.0
-offset_right = 264.0
-offset_bottom = 196.0
-text = "Rerolls übrig: 5"
+text = "Würfel im Pool: 30"
 
 [node name="HintLabel" type="Label" parent="UI" unique_id=241729091]
 offset_left = 24.0
-offset_top = 196.0
+offset_top = 172.0
 offset_right = 424.0
-offset_bottom = 220.0
+offset_bottom = 196.0
 text = "Klicke auf einen Würfel, um ihn zu halten"
 
 [node name="GameLogIcon" type="Button" parent="UI" unique_id=1280906586]
@@ -190,35 +183,6 @@ text = "Würfel: immer 5"
 [node name="Button4" type="Button" parent="UI/ShopPanel/VBoxContainer" unique_id=1123465420]
 layout_mode = 2
 text = "Würfel: immer 4"
-
-[node name="DiceSelectPanel" type="Panel" parent="UI" unique_id=1318098426]
-visible = false
-offset_left = 300.0
-offset_top = 100.0
-offset_right = 900.0
-offset_bottom = 600.0
-
-[node name="VBoxContainer" type="VBoxContainer" parent="UI/DiceSelectPanel" unique_id=2087985470]
-layout_mode = 0
-offset_left = 24.0
-offset_top = 24.0
-offset_right = 576.0
-offset_bottom = 476.0
-theme_override_constants/separation = 12
-
-[node name="TitleLabel" type="Label" parent="UI/DiceSelectPanel/VBoxContainer" unique_id=517788701]
-layout_mode = 2
-text = "Wähle genau 5 Würfel für die nächste Runde:"
-autowrap_mode = 2
-
-[node name="DiceToggleList" type="VBoxContainer" parent="UI/DiceSelectPanel/VBoxContainer" unique_id=1487867599]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="StartRoundButton" type="Button" parent="UI/DiceSelectPanel/VBoxContainer" unique_id=1282941420]
-layout_mode = 2
-disabled = true
-text = "Runde starten"
 
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false

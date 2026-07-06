@@ -1,12 +1,14 @@
 extends Node3D
-## Spielablauf-Koordinator: Rundenziele, Shop, Würfelauswahl und UI-Verdrahtung.
+## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
 ## Wertung: KniffelScoring · Würfelphysik: DiceController · Look: PageStyle.
 ##
-## Balatro-artiger Ablauf: pro Runde gibt es 3 Hände zum Nehmen und 5 Rerolls,
-## die sich alle Hände einer Runde teilen. Jede Hand beginnt mit einem
-## kostenlosen ersten Wurf; jeder weitere Wurf innerhalb der Hand kostet einen
-## der gemeinsamen Rerolls. "Nehmen" verbucht die aktuell beste Hand
-## (automatisch ermittelt) und schließt die Hand ab.
+## Würfel-Pool statt Hände-/Reroll-Zähler: die Sammlung besteht aus fest 30
+## Würfeln (anfangs alle "normal"; ein Shop-Kauf ersetzt einen zufälligen
+## bestehenden Eintrag durch den neuen Spezialwürfel, der Pool bleibt also
+## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt; jede neue Hand
+## zieht 5 Würfel daraus. Wer beim Rerollen einen Würfel aussortiert, bekommt
+## dafür einen frischen aus dem Pool - der aussortierte kommt nicht zurück.
+## Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
 
 @export var throw_force: float = 12.0
 @export var spin_strength: float = 10.0
@@ -14,20 +16,19 @@ extends Node3D
 @export var rest_angular_threshold: float = 0.05
 @export var rest_time_required: float = 0.5
 
-const MAX_HANDS := 3
-const MAX_REROLLS := 5
+const POOL_SIZE := 30
+const HAND_SIZE := 5
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
 
-enum GameState { PLAYING, SHOP, SELECT_DICE, GAME_OVER }
+enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
 @onready var take_button: Button = $UI/TakeButton
 @onready var reset_button: Button = $UI/ResetButton
 @onready var debug_win_round_button: Button = $UI/DebugWinRoundButton
 @onready var round_label: Label = $UI/RoundLabel
-@onready var hands_label: Label = $UI/HandsLabel
-@onready var rerolls_label: Label = $UI/RerollsLabel
+@onready var pool_label: Label = $UI/PoolLabel
 @onready var hint_label: Label = $UI/HintLabel
 @onready var hand_label: Label = $UI/HandLabel
 
@@ -36,10 +37,6 @@ enum GameState { PLAYING, SHOP, SELECT_DICE, GAME_OVER }
 @onready var shop_button_5: Button = $UI/ShopPanel/VBoxContainer/Button5
 @onready var shop_button_4: Button = $UI/ShopPanel/VBoxContainer/Button4
 
-@onready var dice_select_panel: Panel = $UI/DiceSelectPanel
-@onready var dice_toggle_list: VBoxContainer = $UI/DiceSelectPanel/VBoxContainer/DiceToggleList
-@onready var start_round_button: Button = $UI/DiceSelectPanel/VBoxContainer/StartRoundButton
-
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 
@@ -47,16 +44,15 @@ var dice: DiceController
 
 var is_rolling: bool = false
 var has_rolled_current_hand: bool = false
-var hands_left: int = MAX_HANDS
-var rerolls_left: int = MAX_REROLLS
 var hand_total: int = 0
 
 var game_state: GameState = GameState.PLAYING
-var owned_dice: Array[String] = []
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
-var dice_select_selected: Array[bool] = []
-var dice_toggle_buttons: Array[Button] = []
+
+var owned_pool: Array[String] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
+var round_pool: Array[String] = []  # gemischter Rest-Pool der laufenden Runde
+var active_kinds: Array[String] = []  # aktuell den 5 Würfel-Slots zugewiesene Arten
 
 func _ready() -> void:
 	var roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5]
@@ -79,7 +75,6 @@ func _ready() -> void:
 	shop_button_6.pressed.connect(_on_shop_choice.bind("fixed_6"))
 	shop_button_5.pressed.connect(_on_shop_choice.bind("fixed_5"))
 	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
-	start_round_button.pressed.connect(_on_start_round_pressed)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 
 	_reset_game()
@@ -103,7 +98,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		dice.set_held(index, not dice.held[index])
 
 func _can_toggle_hold() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and rerolls_left > 0
+	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and not round_pool.is_empty()
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -124,11 +119,14 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:
 		return
-	if has_rolled_current_hand and rerolls_left <= 0:
-		return
-
 	if has_rolled_current_hand:
-		rerolls_left -= 1
+		if round_pool.is_empty():
+			return
+		# Reroll: nicht gehaltene Würfel aussortieren, Ersatz aus dem Pool ziehen.
+		for i in dice.count():
+			if not dice.held[i] and not round_pool.is_empty():
+				active_kinds[i] = round_pool.pop_back()
+		dice.set_slot_kinds(active_kinds)
 
 	is_rolling = true
 	throw_button.disabled = true
@@ -140,7 +138,7 @@ func _on_roll_finished() -> void:
 	is_rolling = false
 	has_rolled_current_hand = true
 	take_button.disabled = false
-	throw_button.disabled = rerolls_left <= 0
+	throw_button.disabled = round_pool.is_empty()
 	_refresh_ui()
 
 func _on_take_button_pressed() -> void:
@@ -149,9 +147,8 @@ func _on_take_button_pressed() -> void:
 
 	var hand := KniffelScoring.best_hand(dice.values)
 	hand_total += hand["score"]
-	hands_left -= 1
 
-	if hands_left <= 0:
+	if round_pool.size() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -162,28 +159,38 @@ func _on_reset_button_pressed() -> void:
 func _reset_game() -> void:
 	is_rolling = false
 	game_state = GameState.PLAYING
-	owned_dice = ["normal", "normal", "normal", "normal", "normal"]
-	dice.set_slot_kinds(owned_dice)
+	owned_pool.clear()
+	for i in POOL_SIZE:
+		owned_pool.append("normal")
 	round_number = 1
 	round_goal = BASE_GOAL
 	shop_panel.visible = false
-	dice_select_panel.visible = false
 	game_over_panel.visible = false
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
 func _start_new_round() -> void:
-	hands_left = MAX_HANDS
-	rerolls_left = MAX_REROLLS
+	round_pool = owned_pool.duplicate()
+	round_pool.shuffle()
 	hand_total = 0
 	_start_new_hand()
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
+	active_kinds = _draw_from_pool(HAND_SIZE)
+	dice.set_slot_kinds(active_kinds)
 	dice.reset()
 	throw_button.disabled = false
 	take_button.disabled = true
 	_refresh_ui()
+
+func _draw_from_pool(n: int) -> Array[String]:
+	var drawn: Array[String] = []
+	for i in n:
+		if round_pool.is_empty():
+			break
+		drawn.append(round_pool.pop_back())
+	return drawn
 
 func _on_round_complete() -> void:
 	throw_button.disabled = true
@@ -216,79 +223,29 @@ func _show_shop() -> void:
 func _on_shop_choice(kind: String) -> void:
 	if game_state != GameState.SHOP:
 		return
-	owned_dice.append(kind)
+	_replace_pool_entry(kind)
 	round_number += 1
 	round_goal += GOAL_INCREMENT
 	shop_panel.visible = false
-	game_state = GameState.SELECT_DICE
-	_show_dice_select()
-
-func _show_dice_select() -> void:
-	for child in dice_toggle_list.get_children():
-		child.queue_free()
-	dice_toggle_buttons.clear()
-	dice_select_selected.clear()
-
-	for i in owned_dice.size():
-		dice_select_selected.append(i < 5)
-
-	for i in owned_dice.size():
-		var btn := Button.new()
-		btn.toggle_mode = true
-		btn.button_pressed = dice_select_selected[i]
-		btn.text = _dice_kind_label(owned_dice[i])
-		btn.toggled.connect(_on_dice_toggle.bind(i))
-		dice_toggle_list.add_child(btn)
-		dice_toggle_buttons.append(btn)
-
-	dice_select_panel.visible = true
-	_refresh_dice_select_ui()
-
-func _dice_kind_label(kind: String) -> String:
-	match kind:
-		"fixed_6":
-			return "Würfel (immer 6)"
-		"fixed_5":
-			return "Würfel (immer 5)"
-		"fixed_4":
-			return "Würfel (immer 4)"
-		_:
-			return "Normaler Würfel"
-
-func _on_dice_toggle(is_pressed: bool, index: int) -> void:
-	var selected_count := 0
-	for v in dice_select_selected:
-		if v:
-			selected_count += 1
-
-	if is_pressed:
-		if selected_count >= 5:
-			dice_toggle_buttons[index].button_pressed = false
-			return
-		dice_select_selected[index] = true
-	else:
-		dice_select_selected[index] = false
-
-	_refresh_dice_select_ui()
-
-func _refresh_dice_select_ui() -> void:
-	var selected_count := 0
-	for v in dice_select_selected:
-		if v:
-			selected_count += 1
-	start_round_button.disabled = selected_count != 5
-
-func _on_start_round_pressed() -> void:
-	var chosen: Array[String] = []
-	for i in owned_dice.size():
-		if dice_select_selected[i]:
-			chosen.append(owned_dice[i])
-	dice.set_slot_kinds(chosen)
-
-	dice_select_panel.visible = false
 	game_state = GameState.PLAYING
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
+
+## Ersetzt einen zufälligen Pool-Eintrag durch den neu gekauften Würfel
+## (bevorzugt einen "normalen", damit bereits gekaufte Spezialwürfel nicht
+## versehentlich wieder verdrängt werden). Der Pool bleibt immer POOL_SIZE groß.
+func _replace_pool_entry(kind: String) -> void:
+	var normal_indices: Array[int] = []
+	for i in owned_pool.size():
+		if owned_pool[i] == "normal":
+			normal_indices.append(i)
+
+	var target_index: int
+	if not normal_indices.is_empty():
+		target_index = normal_indices[randi() % normal_indices.size()]
+	else:
+		target_index = randi() % owned_pool.size()
+	owned_pool[target_index] = kind
 
 func _show_game_over(total: int) -> void:
 	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, round_goal]
@@ -297,8 +254,7 @@ func _show_game_over(total: int) -> void:
 
 func _refresh_ui() -> void:
 	round_label.text = "Runde %d · Ziel: %d Punkte · Bisher: %d" % [round_number, round_goal, hand_total]
-	hands_label.text = "Hände übrig: %d" % hands_left
-	rerolls_label.text = "Rerolls übrig: %d" % rerolls_left
+	pool_label.text = "Würfel im Pool: %d" % round_pool.size()
 
 	if not has_rolled_current_hand:
 		hand_label.text = "Würfle, um deine Hand zu sehen"
@@ -309,4 +265,4 @@ func _refresh_ui() -> void:
 		for v in dice.values:
 			value_strings.append(str(v))
 		hand_label.text = "%s  →  %s ×%d  =  %d Punkte" % [" ".join(value_strings), hand["label"], hand["mult"], hand["score"]]
-		throw_button.text = "Neu würfeln (%d)" % rerolls_left
+		throw_button.text = "Neu würfeln"
