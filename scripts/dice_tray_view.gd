@@ -141,6 +141,12 @@ func add_die(def: DieDefinition) -> void:
 func _style_tint(def: DieDefinition) -> Color:
 	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)
 
+## Weltposition des Slots mit Index index - auch für leere/unsichtbare Slots,
+## z.B. als Start-/Zielpunkt der Aufrück-Animation (siehe scene_root.gd:
+## _animate_deck_shift).
+func slot_global_position(index: int) -> Vector3:
+	return slot_roots[index].global_position
+
 ## Liefert den Slot-Index für einen per Raycast getroffenen RigidBody3D, oder
 ## -1, wenn collider zu keinem sichtbaren Slot dieses Trays gehört (auch
 ## unsichtbare/leere Slots behalten ihre Kollisionsform, siehe SLOT_PICK_LAYER

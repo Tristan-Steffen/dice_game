@@ -45,6 +45,8 @@ const GOAL_INCREMENT := 50
 const QUEUE_TRAY_PIT_POSITION := Vector3(-13.0, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
 
+const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
+
 enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
@@ -98,6 +100,9 @@ var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrub
 
 var queue_tray_home_position: Vector3  # Normalplatz neben dem Pool-Tray, siehe _ready
 var queue_tray_tween: Tween
+
+var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
+var deck_shift_tween: Tween
 
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
 ## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
@@ -305,6 +310,8 @@ func _current_queue_size() -> int:
 ## nie einzeln ausgeblendet - dadurch rückt beim Ziehen immer alles kompakt
 ## nach, die Lücke entsteht hinten (unten rechts) statt mittendrin.
 func _refresh_deck_trays() -> void:
+	if not deck_shift_ghosts.is_empty():
+		return  # Aufrück-Animation läuft noch - sie ruft am Ende selbst _refresh_deck_trays auf
 	var queue_size := _current_queue_size()
 	var window_size: int = min(HAND_SIZE, _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + window_size)
@@ -312,12 +319,67 @@ func _refresh_deck_trays() -> void:
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
+## Weltposition, an der der Deck-Eintrag deck_index angezeigt wird, wenn der
+## Zieh-Cursor bei cursor steht: die ersten HAND_SIZE Einträge nach dem Cursor
+## liegen im Warteschlangen-Tray, alles danach im Pool-Tray (gleiche Aufteilung
+## wie _refresh_deck_trays).
+func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
+	var offset := deck_index - cursor
+	if offset < HAND_SIZE:
+		return queue_tray_view.slot_global_position(offset)
+	return pool_tray_view.slot_global_position(offset - HAND_SIZE)
+
+## Lässt die verbleibenden Deck-Würfel sichtbar aufrücken, nachdem shift Würfel
+## gezogen wurden (Aufruf direkt nach den _draw_one()-Aufrufen eines Wurfs):
+## beide Trays werden geleert und durch temporäre Geister-Würfel ersetzt, die
+## von ihrer alten zu ihrer neuen Slot-Position gleiten - die vordersten
+## Pool-Würfel wandern dabei sichtbar hinüber ins Warteschlangen-Tray. Danach
+## übernimmt wieder die normale Slot-Anzeige (_refresh_deck_trays).
+func _animate_deck_shift(shift: int) -> void:
+	if shift <= 0:
+		return
+	_cancel_deck_shift()
+	var old_cursor := next_draw_index - shift
+	queue_tray_view.clear()
+	pool_tray_view.clear()
+	deck_shift_tween = create_tween()
+	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	deck_shift_tween.set_parallel(true)
+	for deck_index in range(next_draw_index, round_pool_kinds.size()):
+		var ghost := DieBuilder.build()
+		add_child(ghost)
+		ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
+		ghost.global_position = _deck_slot_position(deck_index, old_cursor)
+		var body: RigidBody3D = ghost.get_node("RigidBody3D")
+		body.freeze = true
+		body.collision_layer = 0
+		body.collision_mask = 0
+		var faces: DieFaceDisplay = ghost.get_node("RigidBody3D/Faces")
+		faces.apply_definition(round_pool_kinds[deck_index])
+		faces.set_tint(DiceController.KIND_TINTS.get(round_pool_kinds[deck_index].style_id, Color.WHITE))
+		deck_shift_ghosts.append(ghost)
+		deck_shift_tween.tween_property(ghost, "global_position", _deck_slot_position(deck_index, next_draw_index), DECK_SHIFT_DURATION)
+	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
+
+func _finish_deck_shift() -> void:
+	_cancel_deck_shift()
+	_refresh_deck_trays()
+
+func _cancel_deck_shift() -> void:
+	if deck_shift_tween:
+		deck_shift_tween.kill()
+		deck_shift_tween = null
+	for ghost in deck_shift_ghosts:
+		ghost.queue_free()
+	deck_shift_ghosts.clear()
+
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:
 		return
 	if _remaining_in_pool() <= 0:
 		return
 
+	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
 	if not has_rolled_current_hand:
 		# Erster Wurf der Hand: die markierten (gequeuten) Würfel jetzt wirklich ziehen.
@@ -337,6 +399,7 @@ func _on_throw_button_pressed() -> void:
 				_discard_kind(active_kinds[i])
 				active_kinds[i] = _draw_one()
 		dice.set_slot_defs(active_kinds)
+	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	is_rolling = true
 	throw_button.disabled = true
@@ -396,6 +459,7 @@ func _on_reset_button_pressed() -> void:
 
 func _reset_game() -> void:
 	is_rolling = false
+	_cancel_deck_shift()
 	game_state = GameState.PLAYING
 	hand_note = ""
 	last_throw_was_reroll = false
@@ -410,6 +474,7 @@ func _reset_game() -> void:
 	_start_new_round()
 
 func _start_new_round() -> void:
+	_cancel_deck_shift()
 	round_pool_kinds = owned_pool.duplicate()
 	round_pool_kinds.shuffle()
 	next_draw_index = 0
