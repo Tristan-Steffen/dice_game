@@ -38,22 +38,24 @@ environment = SubResource("Environment_p52qu")
 transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.8365962, -0.84949386, -0.4413869, 0.28902903, 57.105812, 140.23296, 47.27364)
 light_energy = 4.555
 
-[node name="Dice1" parent="." unique_id=159914309 instance=ExtResource("2_6twid")]
+[node name="Dice" type="Node3D" parent="."]
+
+[node name="Dice1" parent="Dice" unique_id=159914309 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -8.5, 13.695267, -5.5573406)
 
-[node name="Dice2" parent="." unique_id=434940248 instance=ExtResource("2_6twid")]
+[node name="Dice2" parent="Dice" unique_id=434940248 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -5.1, 13.695267, -5.5573406)
 
-[node name="Dice3" parent="." unique_id=1552895481 instance=ExtResource("2_6twid")]
+[node name="Dice3" parent="Dice" unique_id=1552895481 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -1.7, 13.695267, -5.5573406)
 
-[node name="Dice4" parent="." unique_id=1285812630 instance=ExtResource("2_6twid")]
+[node name="Dice4" parent="Dice" unique_id=1285812630 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 1.7, 13.695267, -5.5573406)
 
-[node name="Dice5" parent="." unique_id=1220268484 instance=ExtResource("2_6twid")]
+[node name="Dice5" parent="Dice" unique_id=1220268484 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 5.1, 13.695267, -5.5573406)
 
-[node name="Dice6" parent="." unique_id=1220268485 instance=ExtResource("2_6twid")]
+[node name="Dice6" parent="Dice" unique_id=1220268485 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 8.5, 13.695267, -5.5573406)
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]

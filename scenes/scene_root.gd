@@ -80,22 +80,22 @@ var gameplay_ui_state_visible: bool = true  # true während PLAYING, false währ
 var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrube gezoomt ist
 
 func _ready() -> void:
-	var roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5, $Dice6]
+	var roots: Array[Node3D] = [$Dice/Dice1, $Dice/Dice2, $Dice/Dice3, $Dice/Dice4, $Dice/Dice5, $Dice/Dice6]
 	var bodies: Array[RigidBody3D] = [
-		$Dice1/RigidBody3D,
-		$Dice2/RigidBody3D,
-		$Dice3/RigidBody3D,
-		$Dice4/RigidBody3D,
-		$Dice5/RigidBody3D,
-		$Dice6/RigidBody3D,
+		$Dice/Dice1/RigidBody3D,
+		$Dice/Dice2/RigidBody3D,
+		$Dice/Dice3/RigidBody3D,
+		$Dice/Dice4/RigidBody3D,
+		$Dice/Dice5/RigidBody3D,
+		$Dice/Dice6/RigidBody3D,
 	]
 	var meshes: Array[MeshInstance3D] = [
-		$Dice1/RigidBody3D/Die,
-		$Dice2/RigidBody3D/Die,
-		$Dice3/RigidBody3D/Die,
-		$Dice4/RigidBody3D/Die,
-		$Dice5/RigidBody3D/Die,
-		$Dice6/RigidBody3D/Die,
+		$Dice/Dice1/RigidBody3D/Die,
+		$Dice/Dice2/RigidBody3D/Die,
+		$Dice/Dice3/RigidBody3D/Die,
+		$Dice/Dice4/RigidBody3D/Die,
+		$Dice/Dice5/RigidBody3D/Die,
+		$Dice/Dice6/RigidBody3D/Die,
 	]
 	dice = DiceController.new(roots, bodies, meshes)
 
