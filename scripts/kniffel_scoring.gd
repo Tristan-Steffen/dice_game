@@ -9,18 +9,30 @@ const CATEGORIES := [
 	{"key": "one_kind", "label": "Höchste Zahl", "mult": 1},
 	{"key": "two_kind", "label": "Paar", "mult": 2},
 	{"key": "three_kind", "label": "Dreierpasch", "mult": 3},
-	{"key": "small_straight", "label": "Kleine Straße", "mult": 3},
+	{"key": "small_straight", "label": "Kleine Straße", "mult": 4},
 	{"key": "four_kind", "label": "Viererpasch", "mult": 4},
 	{"key": "full_house", "label": "Full House", "mult": 4},
+	{"key": "three_pairs", "label": "Drei Zweierpäsche", "mult": 5},
+	{"key": "double_three_kind", "label": "Doppelter Dreierpasch", "mult": 5},
+	{"key": "four_kind_and_pair", "label": "Viererpasch mit Paar", "mult": 6},
+	{"key": "large_straight", "label": "Große Straße", "mult": 8},
 	{"key": "yahtzee", "label": "Kniffel", "mult": 10},
+	{"key": "six_kind", "label": "Sechserpasch", "mult": 15},
 ]
 
 # Von der prestigeträchtigsten zur schwächsten Hand. best_hand() nimmt die
 # erste Kategorie, die zutrifft - Rang schlägt rohen Punktwert (ein Paar
 # Einsen soll trotzdem "Paar" heißen, nicht von "Höchste Zahl" überboten
 # werden, nur weil eine 6 mehr Basispunkte hätte).
+#
+# Kleine Straße braucht 5 Würfel in Folge, Große Straße alle 6 (1-2-3-4-5-6).
+# Full House (3+2, ein Würfel bleibt außen vor) ist mit den spezifischeren
+# 6-Würfel-"Haus"-Varianten kombiniert: Doppelter Dreierpasch (3+3) und
+# Viererpasch mit Paar (4+2) werden zuerst geprüft, da sie sonst auch als
+# Full House durchgehen würden, aber prestigeträchtiger sind.
 const HAND_PRIORITY := [
-	"yahtzee", "four_kind", "full_house", "small_straight", "three_kind", "two_kind", "one_kind",
+	"six_kind", "yahtzee", "large_straight", "four_kind_and_pair", "double_three_kind",
+	"three_pairs", "four_kind", "full_house", "small_straight", "three_kind", "two_kind", "one_kind",
 ]
 
 static func label_for(key: String) -> String:
@@ -37,14 +49,24 @@ static func mult_for(key: String) -> int:
 
 static func qualifies(key: String, dice: Array[int]) -> bool:
 	match key:
+		"six_kind":
+			return _has_count_at_least(dice, 6)
 		"yahtzee":
 			return _has_count_at_least(dice, 5)
+		"large_straight":
+			return _has_straight_of_length(dice, 6)
+		"four_kind_and_pair":
+			return _has_count_and_other_count(dice, 4, 2)
+		"double_three_kind":
+			return _has_two_groups_with_at_least(dice, 3)
+		"three_pairs":
+			return _count_groups_with_at_least(dice, 2) >= 3
 		"four_kind":
 			return _has_count_at_least(dice, 4)
 		"full_house":
-			return _is_full_house(dice)
+			return _has_count_and_other_count(dice, 3, 2)
 		"small_straight":
-			return _has_small_straight(dice)
+			return _has_straight_of_length(dice, 5)
 		"three_kind":
 			return _has_count_at_least(dice, 3)
 		"two_kind":
@@ -68,7 +90,9 @@ static func score_category(key: String, dice: Array[int]) -> int:
 			return _best_value_with_count(dice, 4) * 4 * mult
 		"yahtzee":
 			return _best_value_with_count(dice, 5) * 5 * mult
-		"full_house", "small_straight":
+		"six_kind":
+			return _best_value_with_count(dice, 6) * 6 * mult
+		"four_kind_and_pair", "double_three_kind", "three_pairs", "full_house", "small_straight", "large_straight":
 			return _sum(dice) * mult
 	return 0
 
@@ -85,6 +109,15 @@ static func best_hand(dice: Array[int]) -> Dictionary:
 				"score": score_category(key, dice),
 			}
 	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice)}
+
+## Vergleicht zwei Würfe anhand ihres Punktwerts: liefert true, wenn der neue
+## Wurf strikt mehr Punkte bringt als der alte. Grundlage der Farkle-Regel:
+## ein Neu-Würfeln, das NICHT mehr Punkte bringt (gleich viele oder weniger),
+## gilt als Farkle - unabhängig davon, welche Hand-Kategorie jeweils vorliegt.
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int]) -> bool:
+	var new_score: int = best_hand(new_dice)["score"]
+	var old_score: int = best_hand(old_dice)["score"]
+	return new_score > old_score
 
 static func _counts(dice: Array[int]) -> Dictionary:
 	var result := {}
@@ -119,22 +152,45 @@ static func _has_count_at_least(dice: Array[int], n: int) -> bool:
 			return true
 	return false
 
-static func _is_full_house(dice: Array[int]) -> bool:
-	var counts: Array = _counts(dice).values()
-	counts.sort()
-	return counts == [2, 3]
+## Anzahl unterschiedlicher Augenzahlen, die je mindestens n-mal vorkommen.
+static func _count_groups_with_at_least(dice: Array[int], n: int) -> int:
+	var qualifying := 0
+	for count in _counts(dice).values():
+		if count >= n:
+			qualifying += 1
+	return qualifying
 
-static func _has_small_straight(dice: Array[int]) -> bool:
+## True, wenn mindestens zwei unterschiedliche Augenzahlen je mindestens n-mal
+## vorkommen (z.B. n=3 für "zwei Dreierpasche").
+static func _has_two_groups_with_at_least(dice: Array[int], n: int) -> bool:
+	return _count_groups_with_at_least(dice, n) >= 2
+
+## True, wenn eine Augenzahl mindestens n-mal und eine ANDERE Augenzahl
+## mindestens other_n-mal vorkommt (z.B. n=4, other_n=2 für "Vierer mit Paar").
+static func _has_count_and_other_count(dice: Array[int], n: int, other_n: int) -> bool:
+	var counts := _counts(dice)
+	for value in counts:
+		if counts[value] < n:
+			continue
+		for other_value in counts:
+			if other_value != value and counts[other_value] >= other_n:
+				return true
+	return false
+
+## True, wenn die Würfel `length` aufeinanderfolgende Augenzahlen abdecken
+## (z.B. length=5 für die kleine, length=6 für die große Straße).
+static func _has_straight_of_length(dice: Array[int], length: int) -> bool:
 	var unique := {}
 	for value in dice:
 		unique[value] = true
-	var runs := [[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]]
-	for run in runs:
+	var start := 1
+	while start + length - 1 <= 6:
 		var has_all := true
-		for value in run:
+		for value in range(start, start + length):
 			if not unique.has(value):
 				has_all = false
 				break
 		if has_all:
 			return true
+		start += 1
 	return false

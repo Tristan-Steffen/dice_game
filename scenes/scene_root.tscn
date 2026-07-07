@@ -5,7 +5,7 @@
 [ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scenes/scene_root.gd" id="3_script"]
 [ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
-[ext_resource type="Script" path="res://scripts/dice_pool_view.gd" id="7_poolview"]
+[ext_resource type="Script" uid="uid://ctise2e82s3gd" path="res://scripts/dice_pool_view.gd" id="7_poolview"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
@@ -17,7 +17,7 @@ script = ExtResource("3_script")
 
 [node name="board" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
-[node name="DicePoolView" type="Node3D" parent="."]
+[node name="DicePoolView" type="Node3D" parent="." unique_id=263660363]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, 0, -3)
 script = ExtResource("7_poolview")
 
@@ -46,18 +46,21 @@ transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.61673
 [node name="Dice5" parent="." unique_id=1220268484 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 5.0279293, 13.695267, -5.5573406)
 
+[node name="Dice6" parent="." unique_id=1220268485 instance=ExtResource("2_6twid")]
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 9.027929, 13.695267, -5.5573406)
+
 [node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]
 
-[node name="HandLabel" type="Label" parent="UI"]
+[node name="HandLabel" type="Label" parent="UI" unique_id=953162703]
 offset_left = 340.0
 offset_top = 20.0
 offset_right = 940.0
 offset_bottom = 100.0
 theme_override_font_sizes/font_size = 26
+text = "Würfle, um deine Hand zu sehen"
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 2
-text = "Würfle, um deine Hand zu sehen"
 
 [node name="ThrowButton" type="Button" parent="UI" unique_id=1607168676]
 offset_left = 24.0
@@ -66,7 +69,7 @@ offset_right = 164.0
 offset_bottom = 64.0
 text = "Würfeln"
 
-[node name="TakeButton" type="Button" parent="UI"]
+[node name="TakeButton" type="Button" parent="UI" unique_id=1516444737]
 offset_left = 180.0
 offset_top = 24.0
 offset_right = 320.0
@@ -156,6 +159,30 @@ text = "Schließen"
 
 [node name="LogColumns" type="HBoxContainer" parent="UI/GameLog/Page/Margin/Content" unique_id=1092832511]
 layout_mode = 2
+
+[node name="LegendPanel" type="Panel" parent="UI" unique_id=1220268486]
+offset_left = 950.0
+offset_top = 20.0
+offset_right = 1256.0
+offset_bottom = 640.0
+
+[node name="Margin" type="MarginContainer" parent="UI/LegendPanel" unique_id=1220268487]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="LegendContentLabel" type="Label" parent="UI/LegendPanel/Margin" unique_id=1220268488]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Kombinationen"
+autowrap_mode = 2
 
 [node name="ShopPanel" type="Panel" parent="UI" unique_id=321928818]
 visible = false

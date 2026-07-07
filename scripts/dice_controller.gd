@@ -1,6 +1,6 @@
 class_name DiceController
 extends RefCounted
-## Physik und Zustand der 5 Würfel-Slots: Werfen, Halten, Ruheerkennung, Spezialwürfel-Tints.
+## Physik und Zustand der 6 Würfel-Slots: Werfen, Halten, Ruheerkennung, Spezialwürfel-Tints.
 
 # Lokale Achsen des Würfelmodells (feste Richtungen in RigidBody3D-Lokalraum).
 const AXIS_DIRECTIONS := {
@@ -47,11 +47,14 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_meshes: Array
 	bodies = p_bodies
 	meshes = p_meshes
 
+	# Deutlich gedämpft: dieses Material ersetzt Oberfläche 1 (die Augen/Pips
+	# des Würfels) komplett, ein zu heller Farbton macht die Punktezahl
+	# unleserlich, sobald ein Würfel gehalten wird.
 	hold_highlight_material = StandardMaterial3D.new()
-	hold_highlight_material.albedo_color = Color(1.0, 0.85, 0.2)
+	hold_highlight_material.albedo_color = Color(0.45, 0.34, 0.05)
 	hold_highlight_material.emission_enabled = true
-	hold_highlight_material.emission = Color(1.0, 0.75, 0.1)
-	hold_highlight_material.emission_energy_multiplier = 0.6
+	hold_highlight_material.emission = Color(0.4, 0.28, 0.04)
+	hold_highlight_material.emission_energy_multiplier = 0.2
 
 	for kind in KIND_TINTS:
 		var mat := StandardMaterial3D.new()

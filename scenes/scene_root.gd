@@ -7,10 +7,15 @@ extends Node3D
 ## Würfeln (anfangs alle "normal"; ein Shop-Kauf ersetzt einen zufälligen
 ## bestehenden Eintrag durch den neuen Spezialwürfel, der Pool bleibt also
 ## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt und komplett sichtbar
-## im DicePoolView aufgestellt. Die als Nächstes gezogenen Würfel (5 beim
+## im DicePoolView aufgestellt. Die als Nächstes gezogenen Würfel (6 beim
 ## Rundenstart, oder so viele wie gerade nicht gehalten werden) sind dort
 ## farblich markiert; beim tatsächlichen Wurf verschwinden sie aus dem Pool.
 ## Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
+##
+## Farkle (wie im gleichnamigen Spiel): Ein Neu-Würfeln, das NICHT mehr Punkte
+## bringt als der Stand davor (gleich viele oder weniger), "farklet" – die
+## aktuelle Hand wird ohne Punkte verworfen und die nächste Hand aus dem
+## Rest-Pool gezogen. Der erste Wurf einer Hand kann nie farkeln.
 
 @export var throw_force: float = 12.0
 @export var spin_strength: float = 10.0
@@ -19,7 +24,7 @@ extends Node3D
 @export var rest_time_required: float = 0.5
 
 const POOL_SIZE := 30
-const HAND_SIZE := 5
+const HAND_SIZE := 6
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
 
@@ -42,6 +47,8 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 
+@onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
+
 @onready var dice_pool_view: DicePoolView = $DicePoolView
 
 var dice: DiceController
@@ -57,16 +64,21 @@ var round_goal: int = BASE_GOAL
 var owned_pool: Array[String] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
 var round_pool_kinds: Array[String] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
-var active_kinds: Array[String] = []  # aktuell den 5 Würfel-Slots zugewiesene Arten
+var active_kinds: Array[String] = []  # aktuell den 6 Würfel-Slots zugewiesene Arten
+
+var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein Neu-Würfeln?
+var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (für Farkle-Vergleich)
+var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zwischen Händen
 
 func _ready() -> void:
-	var roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5]
+	var roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5, $Dice6]
 	var bodies: Array[RigidBody3D] = [
 		$Dice1/RigidBody3D,
 		$Dice2/RigidBody3D,
 		$Dice3/RigidBody3D,
 		$Dice4/RigidBody3D,
 		$Dice5/RigidBody3D,
+		$Dice6/RigidBody3D,
 	]
 	var meshes: Array[MeshInstance3D] = [
 		$Dice1/RigidBody3D/Die,
@@ -74,6 +86,7 @@ func _ready() -> void:
 		$Dice3/RigidBody3D/Die,
 		$Dice4/RigidBody3D/Die,
 		$Dice5/RigidBody3D/Die,
+		$Dice6/RigidBody3D/Die,
 	]
 	dice = DiceController.new(roots, bodies, meshes)
 
@@ -82,7 +95,19 @@ func _ready() -> void:
 	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 
+	_populate_legend()
 	_reset_game()
+
+## Baut den Text der Legende einmalig aus KniffelScoring.CATEGORIES auf –
+## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),
+## damit die Anzeige immer zur tatsächlichen Wertungslogik passt.
+func _populate_legend() -> void:
+	var lines: Array[String] = ["Kombinationen (Basis × Mult):"]
+	for key in KniffelScoring.HAND_PRIORITY:
+		var label: String = KniffelScoring.label_for(key)
+		var mult: int = KniffelScoring.mult_for(key)
+		lines.append("%s  ×%d" % [label, mult])
+	legend_content_label.text = "\n".join(lines)
 
 func _physics_process(delta: float) -> void:
 	if not is_rolling:
@@ -156,8 +181,10 @@ func _on_throw_button_pressed() -> void:
 	if _remaining_in_pool() <= 0:
 		return
 
+	last_throw_was_reroll = has_rolled_current_hand
 	if not has_rolled_current_hand:
 		# Erster Wurf der Hand: die markierten (gequeuten) Würfel jetzt wirklich ziehen.
+		hand_note = ""
 		active_kinds = []
 		for i in HAND_SIZE:
 			if _remaining_in_pool() <= 0:
@@ -165,7 +192,9 @@ func _on_throw_button_pressed() -> void:
 			active_kinds.append(_draw_one())
 		dice.set_slot_kinds(active_kinds)
 	else:
-		# Reroll: nicht gehaltene Würfel aussortieren, markierten Ersatz ziehen.
+		# Reroll: Hand vor dem Wurf merken (für Farkle-Vergleich), nicht gehaltene
+		# Würfel aussortieren, markierten Ersatz ziehen.
+		pre_reroll_values = dice.values.duplicate()
 		for i in dice.count():
 			if not dice.held[i] and _remaining_in_pool() > 0:
 				active_kinds[i] = _draw_one()
@@ -179,11 +208,36 @@ func _on_throw_button_pressed() -> void:
 
 func _on_roll_finished() -> void:
 	is_rolling = false
+
+	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
+	# einer Hand nie, und auch kein "Neu würfeln" ohne freie Würfel (alles
+	# gehalten = kein Risiko). Bringt der Wurf nicht mehr Punkte als vorher
+	# (gleich viele oder weniger), ist die Hand verloren.
+	if last_throw_was_reroll and _any_unheld() and not KniffelScoring.is_strictly_better(dice.values, pre_reroll_values):
+		_on_farkle()
+		return
+
 	has_rolled_current_hand = true
 	take_button.disabled = false
 	throw_button.disabled = _remaining_in_pool() <= 0
 	_update_pool_queue_highlight()
 	_refresh_ui()
+
+func _any_unheld() -> bool:
+	for i in dice.count():
+		if not dice.held[i]:
+			return true
+	return false
+
+## Farkle: die aktuelle Hand wird ohne Punkte verworfen. Die verbrauchten Würfel
+## sind bereits aus dem Pool gezogen; es geht direkt mit der nächsten Hand
+## weiter (bzw. die Runde endet, wenn der Pool keine volle Hand mehr hergibt).
+func _on_farkle() -> void:
+	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
+	if _remaining_in_pool() < HAND_SIZE:
+		_on_round_complete()
+	else:
+		_start_new_hand()
 
 func _on_take_button_pressed() -> void:
 	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
@@ -203,6 +257,8 @@ func _on_reset_button_pressed() -> void:
 func _reset_game() -> void:
 	is_rolling = false
 	game_state = GameState.PLAYING
+	hand_note = ""
+	last_throw_was_reroll = false
 	owned_pool.clear()
 	for i in POOL_SIZE:
 		owned_pool.append("normal")
@@ -219,6 +275,7 @@ func _start_new_round() -> void:
 	next_draw_index = 0
 	dice_pool_view.set_layout(round_pool_kinds)
 	hand_total = 0
+	hand_note = ""
 	_start_new_hand()
 
 func _start_new_hand() -> void:
@@ -295,7 +352,7 @@ func _refresh_ui() -> void:
 	pool_label.text = "Würfel im Pool: %d" % _remaining_in_pool()
 
 	if not has_rolled_current_hand:
-		hand_label.text = "Würfle, um deine Hand zu sehen"
+		hand_label.text = hand_note if hand_note != "" else "Würfle, um deine Hand zu sehen"
 		throw_button.text = "Würfeln"
 	else:
 		var hand := KniffelScoring.best_hand(dice.values)
