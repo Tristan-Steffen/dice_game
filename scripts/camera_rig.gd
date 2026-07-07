@@ -23,7 +23,7 @@ const PIT_ZOOM_DISTANCE := 25.0
 const TRAY_ZOOM_DISTANCE := 15.0
 const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
 
-const PIT_TARGET := Vector3(0, -4, 0)
+const PIT_TARGET := Vector3(-8, -5, 0)
 const POOL_TARGET := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView, siehe scene_root.tscn
 const DISCARD_TARGET := Vector3(-26, -3, -12)
 

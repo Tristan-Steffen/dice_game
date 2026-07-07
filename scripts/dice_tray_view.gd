@@ -101,14 +101,21 @@ func _build_slots() -> void:
 ## Slots werden ausgeblendet. Dadurch entsteht nie eine Lücke mittendrin, wenn
 ## der Aufrufer nach und nach weniger Würfel übergibt (z.B. weil vorne welche
 ## verbraucht wurden) - die freie Fläche wächst immer von hinten (unten rechts).
-func fill(defs: Array[DieDefinition]) -> void:
+##
+## Die ersten highlight_count sichtbaren Slots werden statt ihrer Art-Farbe in
+## DiceController.HOLD_TINT eingefärbt (gleiche Farbsprache wie gehaltene
+## Würfel in der Grube) - für das Warteschlangen-Tray: zeigt an, welche der
+## angezeigten Würfel beim nächsten Wurf tatsächlich gezogen werden, ohne dass
+## sich die Slots selbst durch Halten/Loslassen verschieben (siehe
+## scene_root.gd: _refresh_deck_trays/_current_queue_size).
+func fill(defs: Array[DieDefinition], highlight_count: int = 0) -> void:
 	for i in slot_roots.size():
 		if i < defs.size():
 			var def: DieDefinition = defs[i]
 			slot_roots[i].visible = true
 			slot_defs[i] = def
 			slot_face_displays[i].apply_definition(def)
-			slot_face_displays[i].set_tint(_style_tint(def))
+			slot_face_displays[i].set_tint(DiceController.HOLD_TINT if i < highlight_count else _style_tint(def))
 		else:
 			slot_roots[i].visible = false
 

@@ -42,7 +42,7 @@ const GOAL_INCREMENT := 50
 ## das sichtbare Tischmodell ist größer als diese Kollisionsboxen). Danach
 ## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
 ## (siehe _update_queue_tray_dock).
-const QUEUE_TRAY_PIT_POSITION := Vector3(-8.0, -3.4, 0.0)
+const QUEUE_TRAY_PIT_POSITION := Vector3(-13.0, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
 
 enum GameState { PLAYING, SHOP, GAME_OVER }
@@ -280,9 +280,10 @@ func _discard_active_hand() -> void:
 	for kind in active_kinds:
 		_discard_kind(kind)
 
-## Wie viele Würfel als Nächstes markiert werden sollen: vor dem ersten Wurf
-## einer Hand immer HAND_SIZE, danach genau so viele wie aktuell nicht
-## gehalten werden (begrenzt auf das, was der Pool noch hergibt).
+## Wie viele der im Warteschlangen-Tray angezeigten Würfel beim nächsten Wurf
+## tatsächlich gezogen werden (siehe fill()-Aufruf in _refresh_deck_trays):
+## vor dem ersten Wurf einer Hand immer HAND_SIZE, danach genau so viele wie
+## aktuell nicht gehalten werden (begrenzt auf das, was der Pool noch hergibt).
 func _current_queue_size() -> int:
 	var wanted := HAND_SIZE
 	if has_rolled_current_hand:
@@ -294,16 +295,20 @@ func _current_queue_size() -> int:
 
 ## Pool-Tray und Warteschlangen-Tray zusammen zeigen genau den noch nicht
 ## gezogenen Teil des Pools (POOL_SIZE Würfel insgesamt): die Warteschlange
-## ist ein fest reserviertes 6er-Fenster direkt am Zieh-Cursor (die Würfel,
-## die der nächste Wurf tatsächlich zieht - siehe _draw_one), der Pool zeigt
-## alles danach. Beide werden bei jeder Änderung komplett neu befüllt (siehe
-## DiceTrayView.fill), nie einzeln ausgeblendet - dadurch rückt beim Ziehen
-## immer alles kompakt nach, die Lücke entsteht hinten (unten rechts) statt
-## mittendrin.
+## ist ein fest reserviertes 6er-Fenster direkt am Zieh-Cursor, der Pool zeigt
+## alles danach. Das Fenster selbst ändert sich nur, wenn next_draw_index
+## vorrückt (siehe _draw_one) - also erst beim tatsächlichen Wurf, nicht schon
+## beim Halten/Loslassen einzelner Würfel in der Grube. Stattdessen werden nur
+## die ersten _current_queue_size() Würfel im Fenster hervorgehoben (siehe
+## DiceTrayView.fill/highlight_count) - das sind die, die der nächste Wurf
+## wirklich zieht. Beide Trays werden bei jeder Änderung komplett neu befüllt,
+## nie einzeln ausgeblendet - dadurch rückt beim Ziehen immer alles kompakt
+## nach, die Lücke entsteht hinten (unten rechts) statt mittendrin.
 func _refresh_deck_trays() -> void:
 	var queue_size := _current_queue_size()
-	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size)
-	queue_tray_view.fill(queue_defs)
+	var window_size: int = min(HAND_SIZE, _remaining_in_pool())
+	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + window_size)
+	queue_tray_view.fill(queue_defs, queue_size)
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
