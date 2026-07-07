@@ -159,12 +159,24 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	_try_zoom_click(event.position)
 
-## Klick auf einen einzelnen (sichtbaren) Würfel in einem der beiden Trays
+## Klick auf einen einzelnen (sichtbaren) Würfel im GERADE FOKUSSIERTEN Tray
 ## (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie 3D-
-## Vorschau (DieInspectorView) für genau diesen Würfel. Feuert nur, wenn die
-## Kamera tatsächlich nah genug an einem Tray ist, um dessen Würfel zu
-## treffen - kein gesonderter Zoom-Zustand-Check nötig.
+## Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die Kamera
+## bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt sich
+## so ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz
+## normal den Zoom aus (siehe _try_zoom_click). Ohne diese Gate wäre ein
+## Würfel theoretisch schon aus der Übersicht per Raycast treffbar, auch
+## wenn er auf dem Bildschirm winzig ist.
 func _try_tray_die_click(screen_pos: Vector2) -> bool:
+	var target_tray: DiceTrayView
+	match camera_rig.mode:
+		CameraRig.Mode.POOL:
+			target_tray = pool_tray_view
+		CameraRig.Mode.DISCARD:
+			target_tray = discard_tray_view
+		_:
+			return false
+
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
 		return false
@@ -177,13 +189,11 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	if result.is_empty():
 		return false
 
-	var collider: Object = result.collider
-	for tray in [pool_tray_view, discard_tray_view]:
-		var index: int = tray.find_slot_index(collider)
-		if index != -1:
-			die_inspector.show_die(tray.slot_defs[index])
-			return true
-	return false
+	var index: int = target_tray.find_slot_index(result.collider)
+	if index == -1:
+		return false
+	die_inspector.show_die(target_tray.slot_defs[index])
+	return true
 
 ## Klick auf die Würfelgrube oder eines der beiden Trays (Layer 4) -> Kamera
 ## fährt näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).

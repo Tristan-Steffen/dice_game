@@ -20,10 +20,10 @@ script = ExtResource("3_script")
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -14)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, 12)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, 10)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]

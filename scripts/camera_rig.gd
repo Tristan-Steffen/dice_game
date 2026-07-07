@@ -23,8 +23,8 @@ const PIT_ZOOM_DISTANCE := 14.0
 const TRAY_ZOOM_DISTANCE := 15.0
 
 const PIT_TARGET := Vector3(0, -4, 0)
-const POOL_TARGET := Vector3(-26, -3, -14)
-const DISCARD_TARGET := Vector3(-26, -3, 10)
+const POOL_TARGET := Vector3(-26, -3, 12)
+const DISCARD_TARGET := Vector3(-26, -3, -12)
 
 ## Feste, steile Draufsicht für die Zoom-Ziele (Grube/Trays) - unabhängig von
 ## der frei im Editor einstellbaren (jetzt flacheren) Übersichts-Kamera, damit
