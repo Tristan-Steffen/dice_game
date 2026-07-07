@@ -37,7 +37,6 @@ transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.836
 light_energy = 4.555
 
 [node name="Dice" type="Node3D" parent="." unique_id=219306191]
-visible = false
 
 [node name="Dice1" parent="Dice" unique_id=159914309 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -8.5, 13.695267, -5.5573406)
