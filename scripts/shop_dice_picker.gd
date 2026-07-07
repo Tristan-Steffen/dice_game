@@ -12,6 +12,7 @@ signal die_chosen(def: DieDefinition)
 const DRAG_THRESHOLD := 6.0
 const DRAG_SENSITIVITY := 0.01
 const DIE_SPACING := 3.0
+const PICK_RADIUS := 110.0  # Pixel-Toleranz um die projizierte Würfelmitte
 
 @onready var viewport: SubViewport = $SubViewport
 
@@ -72,7 +73,7 @@ func set_choices(defs: Array[DieDefinition]) -> void:
 
 		var body: RigidBody3D = die.get_node("RigidBody3D")
 		body.freeze = true
-		body.collision_layer = 1
+		body.collision_layer = 0
 		body.collision_mask = 0
 
 		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
@@ -101,19 +102,20 @@ func _gui_input(event: InputEvent) -> void:
 			die.global_rotate(camera.global_transform.basis.x.normalized(), -event.relative.y * DRAG_SENSITIVITY)
 
 ## Findet den Würfel unter local_pos (Container-lokale Pixelkoordinaten,
-## entspricht dank stretch=true 1:1 den Viewport-Pixeln) per Raycast in die
-## isolierte World3D des Vorschau-Viewports.
+## entspricht dank stretch=true 1:1 den Viewport-Pixeln): wählt den Würfel,
+## dessen auf den Bildschirm projizierte Mitte am nächsten liegt (innerhalb
+## PICK_RADIUS). Kein Physik-Raycast nötig - vermeidet direct_space_state,
+## das für den isolierten Vorschau-Viewport zum Klickzeitpunkt noch nicht
+## zuverlässig verfügbar ist.
 func _pick_die(local_pos: Vector2) -> int:
 	if camera == null:
 		return -1
-	var from := camera.project_ray_origin(local_pos)
-	var to := from + camera.project_ray_normal(local_pos) * 1000.0
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	var result := viewport.world_3d.direct_space_state.intersect_ray(query)
-	if result.is_empty():
-		return -1
-	var collider: Object = result.collider
+	var best_index := -1
+	var best_dist := PICK_RADIUS
 	for i in die_roots.size():
-		if die_roots[i].get_node("RigidBody3D") == collider:
-			return i
-	return -1
+		var screen_pos := camera.unproject_position(die_roots[i].global_position)
+		var dist := screen_pos.distance_to(local_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best_index = i
+	return best_index
