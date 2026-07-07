@@ -301,17 +301,7 @@ func _handle_reorder_input(event: InputEvent) -> void:
 func _begin_reorder_drag() -> void:
 	var def: DieDefinition = queue_tray_view.slot_defs[reorder_drag_index]
 	queue_tray_view.set_slot_visible(reorder_drag_index, false)
-
-	reorder_ghost = DieBuilder.build()
-	add_child(reorder_ghost)
-	reorder_ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
-	var body: RigidBody3D = reorder_ghost.get_node("RigidBody3D")
-	body.freeze = true
-	body.collision_layer = 0
-	body.collision_mask = 0
-	var faces: DieFaceDisplay = reorder_ghost.get_node("RigidBody3D/Faces")
-	faces.apply_definition(def)
-	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	reorder_ghost = _spawn_deck_ghost(def)
 	reorder_ghost.global_position = queue_tray_view.slot_global_position(reorder_drag_index) + Vector3.UP * REORDER_LIFT_HEIGHT
 
 ## Lässt den Ghost-Würfel der Maus folgen: projiziert screen_pos auf eine
@@ -327,26 +317,21 @@ func _update_reorder_drag(screen_pos: Vector2) -> void:
 	if hit != null:
 		reorder_ghost.global_position = hit
 
-## Loslassen nach einem Zieh-Drag: sortiert bei einem gültigen Zielslot um
-## (siehe _reorder_queue), sonst stellt _refresh_deck_trays einfach den
-## ursprünglich versteckten Slot wieder her.
+## Loslassen nach einem Zieh-Drag: sortiert bei einem gültigen Zielslot um und
+## lässt alle davon betroffenen Würfel gleiten (siehe _animate_reorder_move),
+## sonst gleitet der gezogene Würfel einfach zu seinem ursprünglichen Slot
+## zurück (siehe _animate_reorder_snapback).
 func _finish_reorder_drag(screen_pos: Vector2) -> void:
 	var target_index := _nearest_queue_slot(screen_pos)
-	if reorder_ghost:
-		reorder_ghost.queue_free()
-		reorder_ghost = null
 	if target_index != -1 and target_index != reorder_drag_index:
-		_reorder_queue(reorder_drag_index, target_index)
+		_animate_reorder_move(reorder_drag_index, target_index)
 	else:
-		_refresh_deck_trays()
+		_animate_reorder_snapback()
 
 func _cancel_reorder_drag() -> void:
-	if reorder_ghost:
-		reorder_ghost.queue_free()
-		reorder_ghost = null
+	_animate_reorder_snapback()
 	reorder_drag_index = -1
 	reorder_is_dragging = false
-	_refresh_deck_trays()
 
 ## Bildschirmnächster belegter Slot im Warteschlangen-Tray zu screen_pos
 ## (analog zu RotatableDieView._pick_die: Bildschirm-Projektion statt Physik-
@@ -366,20 +351,82 @@ func _nearest_queue_slot(screen_pos: Vector2) -> int:
 			best_index = i
 	return best_index
 
+## Kein gültiger Zielslot (oder auf dem eigenen Slot losgelassen): der
+## gezogene Ghost-Würfel gleitet zu seinem ursprünglichen Platz zurück - statt
+## einfach zu verschwinden, während der Slot sich schlagartig wieder füllt.
+func _animate_reorder_snapback() -> void:
+	if reorder_ghost == null:
+		_refresh_deck_trays()
+		return
+	var ghost := reorder_ghost
+	reorder_ghost = null
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(ghost, "global_position", queue_tray_view.slot_global_position(reorder_drag_index), DECK_SHIFT_DURATION)
+	tween.tween_callback(func() -> void:
+		ghost.queue_free()
+		_refresh_deck_trays()
+	)
+
+## Wie sich ein alter Slot-Index innerhalb des Warteschlangen-Fensters durch
+## das Verschieben von from_index nach to_index verändert (Standard "Element
+## verschieben"-Semantik, wie bei remove_at()+insert() auf einem Array).
+func _queue_index_after_move(old_index: int, from_index: int, to_index: int) -> int:
+	if old_index == from_index:
+		return to_index
+	if from_index < to_index:
+		if old_index > from_index and old_index <= to_index:
+			return old_index - 1
+	else:
+		if old_index >= to_index and old_index < from_index:
+			return old_index + 1
+	return old_index
+
 ## Sortiert einen Würfel innerhalb des sichtbaren Warteschlangen-Fensters um:
 ## entfernt ihn bei from_index und fügt ihn bei to_index wieder ein (wie eine
 ## Karte in der Hand verschieben - dazwischenliegende Würfel rücken nach).
 ## Wirkt nur innerhalb von round_pool_kinds[next_draw_index ..
 ## next_draw_index+queue_window_size) - der Pool-Teil des Decks ist davon nie
 ## betroffen, da beide Indizes aus diesem Fenster stammen (siehe
-## _try_start_queue_reorder/_nearest_queue_slot).
-func _reorder_queue(from_index: int, to_index: int) -> void:
+## _try_start_queue_reorder/_nearest_queue_slot). Alle zwischen from_index und
+## to_index liegenden Würfel gleiten sichtbar zu ihrem neuen Slot (gleiche
+## Ghost-Technik wie die Aufrück-Animation nach einem Wurf, siehe
+## _animate_deck_shift) - der gezogene Würfel ist dabei schon sein eigener
+## Ghost (reorder_ghost) und gleitet einfach zur Zielposition weiter, statt
+## neu gespawnt zu werden.
+func _animate_reorder_move(from_index: int, to_index: int) -> void:
+	_cancel_deck_shift()
+	var lo: int = min(from_index, to_index)
+	var hi: int = max(from_index, to_index)
+
+	var old_defs: Array[DieDefinition] = []
+	for i in range(lo, hi + 1):
+		old_defs.append(round_pool_kinds[next_draw_index + i])
+
 	var abs_from := next_draw_index + from_index
 	var abs_to := next_draw_index + to_index
 	var moved: DieDefinition = round_pool_kinds[abs_from]
 	round_pool_kinds.remove_at(abs_from)
 	round_pool_kinds.insert(abs_to, moved)
-	_refresh_deck_trays()
+
+	deck_shift_tween = create_tween()
+	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	deck_shift_tween.set_parallel(true)
+	for offset in old_defs.size():
+		var old_index := lo + offset
+		var new_index := _queue_index_after_move(old_index, from_index, to_index)
+		var target_pos := queue_tray_view.slot_global_position(new_index)
+		var ghost: Node3D
+		if old_index == from_index:
+			ghost = reorder_ghost
+			reorder_ghost = null
+		else:
+			queue_tray_view.set_slot_visible(old_index, false)
+			ghost = _spawn_deck_ghost(old_defs[offset])
+			ghost.global_position = queue_tray_view.slot_global_position(old_index)
+		deck_shift_ghosts.append(ghost)
+		deck_shift_tween.tween_property(ghost, "global_position", target_pos, DECK_SHIFT_DURATION)
+	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
 
 ## Klick auf die Würfelgrube oder eines der Trays (Layer 4) -> Kamera fährt
 ## näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
@@ -485,6 +532,22 @@ func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 		return queue_tray_view.slot_global_position(offset)
 	return pool_tray_view.slot_global_position(offset - HAND_SIZE)
 
+## Baut einen freien, nicht-kollidierenden Würfel für die diversen Gleit-
+## Animationen (Aufrücken nach einem Wurf, Umsortieren im Warteschlangen-Tray)
+## - zeigt def in der passenden Art-Farbe, ist aber keinem Tray-Slot zugeordnet.
+func _spawn_deck_ghost(def: DieDefinition) -> Node3D:
+	var ghost := DieBuilder.build()
+	add_child(ghost)
+	ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
+	var body: RigidBody3D = ghost.get_node("RigidBody3D")
+	body.freeze = true
+	body.collision_layer = 0
+	body.collision_mask = 0
+	var faces: DieFaceDisplay = ghost.get_node("RigidBody3D/Faces")
+	faces.apply_definition(def)
+	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	return ghost
+
 ## Lässt die verbleibenden Deck-Würfel sichtbar aufrücken, nachdem shift Würfel
 ## gezogen wurden (Aufruf direkt nach den _draw_one()-Aufrufen eines Wurfs):
 ## beide Trays werden geleert und durch temporäre Geister-Würfel ersetzt, die
@@ -502,17 +565,8 @@ func _animate_deck_shift(shift: int) -> void:
 	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	deck_shift_tween.set_parallel(true)
 	for deck_index in range(next_draw_index, round_pool_kinds.size()):
-		var ghost := DieBuilder.build()
-		add_child(ghost)
-		ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
+		var ghost := _spawn_deck_ghost(round_pool_kinds[deck_index])
 		ghost.global_position = _deck_slot_position(deck_index, old_cursor)
-		var body: RigidBody3D = ghost.get_node("RigidBody3D")
-		body.freeze = true
-		body.collision_layer = 0
-		body.collision_mask = 0
-		var faces: DieFaceDisplay = ghost.get_node("RigidBody3D/Faces")
-		faces.apply_definition(round_pool_kinds[deck_index])
-		faces.set_tint(DiceController.KIND_TINTS.get(round_pool_kinds[deck_index].style_id, Color.WHITE))
 		deck_shift_ghosts.append(ghost)
 		deck_shift_tween.tween_property(ghost, "global_position", _deck_slot_position(deck_index, next_draw_index), DECK_SHIFT_DURATION)
 	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
