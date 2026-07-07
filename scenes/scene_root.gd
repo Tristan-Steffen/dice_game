@@ -54,6 +54,9 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 
+@onready var camera_rig: CameraRig = $Camera3D
+@onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
+
 var dice: DiceController
 
 var is_rolling: bool = false
@@ -119,17 +122,47 @@ func _physics_process(delta: float) -> void:
 		_on_roll_finished()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton):
-		return
-	if event.button_index != MOUSE_BUTTON_LEFT or not event.pressed:
-		return
-	if not _can_toggle_hold():
+	if not (event is InputEventMouseButton) or not event.pressed:
 		return
 
-	var index := _pick_die_index(event.position)
-	if index != -1:
-		dice.set_held(index, not dice.held[index])
-		_update_pool_queue_highlight()
+	if event.button_index == MOUSE_BUTTON_RIGHT:
+		camera_rig.zoom_out()
+		return
+
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	if _can_toggle_hold():
+		var index := _pick_die_index(event.position)
+		if index != -1:
+			dice.set_held(index, not dice.held[index])
+			_update_pool_queue_highlight()
+			return
+
+	_try_zoom_click(event.position)
+
+## Klick auf die Würfelgrube oder eines der beiden Trays (Layer 4) -> Kamera
+## fährt näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
+func _try_zoom_click(screen_pos: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 1000.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = 8
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return
+
+	var collider: Object = result.collider
+	if collider == pit_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.PIT)
+	elif collider == pool_tray_view.click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.POOL)
+	elif collider == discard_tray_view.click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
 
 func _can_toggle_hold() -> bool:
 	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and _remaining_in_pool() > 0

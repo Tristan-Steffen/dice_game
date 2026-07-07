@@ -24,6 +24,10 @@ var queued_material: StandardMaterial3D
 
 var next_free_index: int = 0  # nächster freier Slot im Ablage-Modus (add_die)
 
+## Unsichtbarer Klickbereich über dem ganzen Tray (Layer 4), damit die
+## Kamera per Klick auf dieses Tray zoomen kann - siehe CameraRig.
+var click_zone: StaticBody3D
+
 func _ready() -> void:
 	for kind in DiceController.KIND_TINTS:
 		var mat := StandardMaterial3D.new()
@@ -83,6 +87,17 @@ func _build_tray_mesh() -> void:
 	for col in range(1, COLUMNS):
 		var x := (col - (COLUMNS - 1) / 2.0 - 0.5) * SPACING.x
 		_add_mesh(lane_mesh, Vector3(x, lane_h / 2.0, 0))
+
+	click_zone = StaticBody3D.new()
+	click_zone.collision_layer = 8  # Layer 4: Kamera-Klickziele
+	click_zone.collision_mask = 0
+	var click_shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(inner_w + wall_t * 2.0, wall_h + 2.0, inner_d + wall_t * 2.0)
+	click_shape.shape = box
+	click_zone.add_child(click_shape)
+	click_zone.position = Vector3(0, wall_h / 2.0, 0)
+	add_child(click_zone)
 
 func _add_mesh(mesh: Mesh, pos: Vector3) -> void:
 	var instance := MeshInstance3D.new()

@@ -9,6 +9,9 @@ size = Vector3(22, 8, 1)
 [sub_resource type="BoxShape3D" id="Shape_WallEW"]
 size = Vector3(1, 8, 19)
 
+[sub_resource type="BoxShape3D" id="Shape_PitClickZone"]
+size = Vector3(22, 10, 19)
+
 [node name="DiceTray" type="Node3D"]
 
 [node name="Floor" type="StaticBody3D" parent="."]
@@ -45,3 +48,11 @@ collision_mask = 0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="West"]
 shape = SubResource("Shape_WallEW")
+
+[node name="PitClickZone" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.23, 0)
+collision_layer = 8
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PitClickZone"]
+shape = SubResource("Shape_PitClickZone")
