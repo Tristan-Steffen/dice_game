@@ -28,7 +28,7 @@ script = ExtResource("7_trayview")
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
-transform = Transform3D(-4.371139e-08, 0.12186935, -0.99254614, 0, 0.99254614, 0.12186935, 1, 5.3270783e-09, -4.338557e-08, -41.950504, 21.13977, 0)
+transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)
 script = ExtResource("8_camerarig")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=879093562]
