@@ -42,10 +42,12 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var hand_label: Label = $UI/HandLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
-@onready var shop_dice_picker: ShopDicePicker = $UI/ShopPanel/VBoxContainer/DicePicker
+@onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
+
+@onready var die_inspector: DieInspectorView = $UI/DieInspectorView
 
 @onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
 
@@ -65,6 +67,7 @@ var game_state: GameState = GameState.PLAYING
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
+var shop_defs: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker)
 var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
@@ -103,13 +106,13 @@ func _ready() -> void:
 		face_displays.append(die.get_node("RigidBody3D/Faces"))
 	dice = DiceController.new(roots, bodies, face_displays)
 
-	var shop_defs: Array[DieDefinition] = [
+	shop_defs = [
 		DieDefinition.fixed(6, "Immer 6"),
 		DieDefinition.fixed(5, "Immer 5"),
 		DieDefinition.fixed(4, "Immer 4"),
 	]
-	shop_dice_picker.set_choices(shop_defs)
-	shop_dice_picker.die_chosen.connect(_on_shop_choice)
+	shop_dice_picker.set_dice(shop_defs)
+	shop_dice_picker.die_clicked.connect(_on_shop_die_clicked)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
@@ -151,7 +154,36 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_pool_queue_highlight()
 			return
 
+	if not is_rolling and _try_tray_die_click(event.position):
+		return
+
 	_try_zoom_click(event.position)
+
+## Klick auf einen einzelnen (sichtbaren) Würfel in einem der beiden Trays
+## (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie 3D-
+## Vorschau (DieInspectorView) für genau diesen Würfel. Feuert nur, wenn die
+## Kamera tatsächlich nah genug an einem Tray ist, um dessen Würfel zu
+## treffen - kein gesonderter Zoom-Zustand-Check nötig.
+func _try_tray_die_click(screen_pos: Vector2) -> bool:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return false
+
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 1000.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = 16
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return false
+
+	var collider: Object = result.collider
+	for tray in [pool_tray_view, discard_tray_view]:
+		var index: int = tray.find_slot_index(collider)
+		if index != -1:
+			die_inspector.show_die(tray.slot_defs[index])
+			return true
+	return false
 
 ## Klick auf die Würfelgrube oder eines der beiden Trays (Layer 4) -> Kamera
 ## fährt näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
@@ -395,6 +427,9 @@ func _update_gameplay_ui_visibility() -> void:
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
 	shop_panel.visible = true
+
+func _on_shop_die_clicked(index: int) -> void:
+	_on_shop_choice(shop_defs[index])
 
 func _on_shop_choice(def: DieDefinition) -> void:
 	if game_state != GameState.SHOP:

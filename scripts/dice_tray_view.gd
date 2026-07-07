@@ -32,7 +32,12 @@ const QUEUED_TINT := Color(1.0, 0.85, 0.2)
 ## Kamera per Klick auf dieses Tray zoomen kann - siehe CameraRig.
 @onready var click_zone: StaticBody3D = $ClickZone
 
+## Kollisions-Layer der Slot-RigidBody3D, damit ein einzelner Würfel im
+## gezoomten Tray anklickbar ist (siehe scene_root.gd: _try_tray_die_click).
+const SLOT_PICK_LAYER := 16
+
 var slot_roots: Array[Node3D] = []
+var slot_bodies: Array[RigidBody3D] = []
 var slot_face_displays: Array[DieFaceDisplay] = []
 var slot_defs: Array[DieDefinition] = []
 var plastic_material: StandardMaterial3D
@@ -57,6 +62,7 @@ func _apply_tray_color() -> void:
 ## den Kollisions-Layern genommen - kein Physik-Overhead nötig).
 func _build_slots() -> void:
 	slot_roots.clear()
+	slot_bodies.clear()
 	slot_face_displays.clear()
 	slot_defs.clear()
 	for i in COLUMNS * ROWS:
@@ -73,10 +79,11 @@ func _build_slots() -> void:
 
 		var body: RigidBody3D = die.get_node("RigidBody3D")
 		body.freeze = true
-		body.collision_layer = 0
+		body.collision_layer = SLOT_PICK_LAYER
 		body.collision_mask = 0
 
 		slot_roots.append(die)
+		slot_bodies.append(body)
 		slot_face_displays.append(die.get_node("RigidBody3D/Faces"))
 		slot_defs.append(DieDefinition.standard())
 
@@ -130,3 +137,13 @@ func add_die(def: DieDefinition) -> void:
 
 func _style_tint(def: DieDefinition) -> Color:
 	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)
+
+## Liefert den Slot-Index für einen per Raycast getroffenen RigidBody3D, oder
+## -1, wenn collider zu keinem sichtbaren Slot dieses Trays gehört (auch
+## unsichtbare/leere Slots behalten ihre Kollisionsform, siehe SLOT_PICK_LAYER
+## - deshalb hier zusätzlich auf Sichtbarkeit prüfen).
+func find_slot_index(collider: Object) -> int:
+	var i := slot_bodies.find(collider)
+	if i == -1 or not slot_roots[i].visible:
+		return -1
+	return i

@@ -1,23 +1,28 @@
-class_name ShopDicePicker
+class_name RotatableDieView
 extends SubViewportContainer
-## Zeigt die Würfel-Kandidaten des Shops als echte 3D-Würfel nebeneinander in
-## einem eigenen SubViewport (eigene, isolierte World3D - siehe _build_scene).
-## Ziehen mit gedrückter Maustaste dreht den Würfel unter dem Cursor frei
-## (nur Ansicht, keine Physik); ein Klick ohne nennenswerte Bewegung löst
-## die_chosen aus. Die Unterscheidung Klick/Ziehen läuft über DRAG_THRESHOLD
-## in Pixeln, gemessen ab dem Maus-Down.
+## Zeigt 1..n Würfel nebeneinander in einem eigenen SubViewport (eigene,
+## isolierte World3D - siehe _build_scene). Ziehen mit gedrückter Maustaste
+## dreht den Würfel unter dem Cursor frei (nur Ansicht, keine Physik); ein
+## Klick ohne nennenswerte Bewegung löst die_clicked(index) aus - was das
+## für den Aufrufer bedeutet (kaufen, schließen, ...) entscheidet dieser
+## selbst. Verwendet vom Shop (mehrere Würfel, siehe scene_root.gd) und vom
+## DieInspectorView (ein einzelner Würfel).
+##
+## Die Unterscheidung Klick/Ziehen läuft über DRAG_THRESHOLD in Pixeln,
+## gemessen ab dem Maus-Down.
 
-signal die_chosen(def: DieDefinition)
+signal die_clicked(index: int)
 
 const DRAG_THRESHOLD := 6.0
 const DRAG_SENSITIVITY := 0.01
 const DIE_SPACING := 3.0
-const PICK_RADIUS := 110.0  # Pixel-Toleranz um die projizierte Würfelmitte
+
+@export var pick_radius: float = 110.0  # Pixel-Toleranz um die projizierte Würfelmitte
+@export var camera_distance: float = 6.0
 
 @onready var viewport: SubViewport = $SubViewport
 
 var die_roots: Array[Node3D] = []
-var die_defs: Array[DieDefinition] = []
 var camera: Camera3D
 
 var drag_index: int = -1
@@ -51,16 +56,15 @@ func _build_scene() -> void:
 	camera = Camera3D.new()
 	camera.fov = 30.0
 	viewport.add_child(camera)
-	camera.position = Vector3(0, 3.2, 6.0)
+	camera.position = Vector3(0, 3.2, camera_distance)
 	camera.look_at(Vector3.ZERO, Vector3.UP)
 
-## Baut die Kandidaten-Würfel neu auf (Reihenfolge = Anzeigereihenfolge
-## links nach rechts).
-func set_choices(defs: Array[DieDefinition]) -> void:
+## Baut die Würfel neu auf (Reihenfolge = Anzeigereihenfolge links nach
+## rechts; bei nur einem Eintrag steht der Würfel mittig).
+func set_dice(defs: Array[DieDefinition]) -> void:
 	for root in die_roots:
 		root.queue_free()
 	die_roots.clear()
-	die_defs = defs.duplicate()
 	drag_index = -1
 	is_dragging = false
 
@@ -90,7 +94,7 @@ func _gui_input(event: InputEvent) -> void:
 			is_dragging = false
 		elif drag_index != -1:
 			if not is_dragging:
-				die_chosen.emit(die_defs[drag_index])
+				die_clicked.emit(drag_index)
 			drag_index = -1
 			is_dragging = false
 	elif event is InputEventMouseMotion and drag_index != -1:
@@ -98,20 +102,20 @@ func _gui_input(event: InputEvent) -> void:
 			is_dragging = true
 		if is_dragging:
 			var die := die_roots[drag_index]
-			die.global_rotate(Vector3.UP, -event.relative.x * DRAG_SENSITIVITY)
-			die.global_rotate(camera.global_transform.basis.x.normalized(), -event.relative.y * DRAG_SENSITIVITY)
+			die.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)
+			die.global_rotate(camera.global_transform.basis.x.normalized(), event.relative.y * DRAG_SENSITIVITY)
 
 ## Findet den Würfel unter local_pos (Container-lokale Pixelkoordinaten,
 ## entspricht dank stretch=true 1:1 den Viewport-Pixeln): wählt den Würfel,
 ## dessen auf den Bildschirm projizierte Mitte am nächsten liegt (innerhalb
-## PICK_RADIUS). Kein Physik-Raycast nötig - vermeidet direct_space_state,
+## pick_radius). Kein Physik-Raycast nötig - vermeidet direct_space_state,
 ## das für den isolierten Vorschau-Viewport zum Klickzeitpunkt noch nicht
 ## zuverlässig verfügbar ist.
 func _pick_die(local_pos: Vector2) -> int:
 	if camera == null:
 		return -1
 	var best_index := -1
-	var best_dist := PICK_RADIUS
+	var best_dist := pick_radius
 	for i in die_roots.size():
 		var screen_pos := camera.unproject_position(die_roots[i].global_position)
 		var dist := screen_pos.distance_to(local_pos)
