@@ -42,9 +42,9 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var hand_label: Label = $UI/HandLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
-@onready var shop_button_6: Button = $UI/ShopPanel/VBoxContainer/Button6
-@onready var shop_button_5: Button = $UI/ShopPanel/VBoxContainer/Button5
-@onready var shop_button_4: Button = $UI/ShopPanel/VBoxContainer/Button4
+@onready var shop_choice_6: TextureButton = $UI/ShopPanel/VBoxContainer/ChoicesRow/Choice6/Icon
+@onready var shop_choice_5: TextureButton = $UI/ShopPanel/VBoxContainer/ChoicesRow/Choice5/Icon
+@onready var shop_choice_4: TextureButton = $UI/ShopPanel/VBoxContainer/ChoicesRow/Choice4/Icon
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
@@ -105,9 +105,9 @@ func _ready() -> void:
 		face_displays.append(die.get_node("RigidBody3D/Faces"))
 	dice = DiceController.new(roots, bodies, face_displays)
 
-	shop_button_6.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(6, "Immer 6")))
-	shop_button_5.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(5, "Immer 5")))
-	shop_button_4.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(4, "Immer 4")))
+	shop_choice_6.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(6, "Immer 6")))
+	shop_choice_5.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(5, "Immer 5")))
+	shop_choice_4.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(4, "Immer 4")))
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
