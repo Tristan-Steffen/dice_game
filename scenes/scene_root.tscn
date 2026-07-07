@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
 [ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
+[ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/rotatable_die_view.gd" id="9_dicepicker"]
 [ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/die_inspector_view.gd" id="12_dieinspector"]
@@ -20,8 +21,8 @@ script = ExtResource("3_script")
 
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
-[node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, 12)
+[node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.1, -3.4, 12)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)

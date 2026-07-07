@@ -2,19 +2,21 @@ class_name DiceTrayView
 extends Node3D
 ## Zeigt Würfel in einem Raster auf einem Kunststoff-Tray (wie ein Casino-
 ## Chip-Tray). Tray-Mesh und Klickbereich sind echte Kindknoten dieser Szene
-## (siehe scenes/dice_chip_tray.tscn für die 30er-Pool-/Ablage-Variante,
-## scenes/dice_queue_tray.tscn für die kleine 1x6-Warteschlange); die Würfel
-## werden bei _ready() per DieBuilder gebaut und unter $Slots eingehängt
-## (siehe rows/columns/SPACING für das Raster - je Tray-Instanz per Export
-## einstellbar: 5x6 beim Pool-/Ablage-Tray, 1x6 beim Warteschlangen-Tray).
+## (siehe scenes/dice_chip_tray.tscn für die 30er-Ablage-Variante,
+## scenes/dice_pool_tray.tscn für das 24er-Pool-Tray, scenes/dice_queue_tray.tscn
+## für die kleine 1x6-Warteschlange); die Würfel werden bei _ready() per
+## DieBuilder gebaut und unter $Slots eingehängt (siehe rows/columns/SPACING
+## für das Raster - je Tray-Instanz per Export einstellbar). Pool- (24) und
+## Warteschlangen-Tray (6) bilden zusammen die vollen POOL_SIZE=30 Würfel der
+## laufenden Runde (siehe scene_root.gd: _refresh_deck_trays).
 ##
 ## Slot-Reihenfolge liest wie ein Buch: Index 0 = oberste Zeile, ganz links,
 ## dann zeilenweise nach unten (siehe _build_slots).
 ##
-## Wird in drei Rollen verwendet: als Pool-Tray (alle Slots vorbelegt, werden
-## beim Ziehen ausgeblendet - siehe set_layout/mark_used), als Ablage-Tray
-## und als Warteschlangen-Tray für die als Nächstes gezogenen Würfel (beide
-## starten leer und füllen sich Würfel für Würfel - siehe clear/add_die).
+## Wird in drei Rollen verwendet: als Pool-Tray und als Warteschlangen-Tray
+## (beide zeigen bei jeder Änderung ihren kompletten Inhalt neu, immer von
+## vorne kompakt gepackt - siehe fill()) sowie als Ablage-Tray (startet leer
+## und füllt sich Würfel für Würfel an - siehe clear/add_die).
 
 @export var rows: int = 5  # Anzahl Zeilen, jede mit `columns` Würfeln nebeneinander
 @export var columns: int = 6  # Würfel pro Zeile, links nach rechts
@@ -92,24 +94,25 @@ func _build_slots() -> void:
 		slot_face_displays.append(die.get_node("RigidBody3D/Faces"))
 		slot_defs.append(DieDefinition.standard())
 
-## --- Pool-Modus: alle Slots vorbelegt, werden einzeln ausgeblendet ---
+## --- Pool-/Warteschlangen-Modus: kompletter Inhalt wird bei jeder Änderung neu gesetzt ---
 
-## Setzt das komplette Layout für eine neue Runde: alle 30 Slots sichtbar,
-## eingefärbt nach Würfelart.
-func set_layout(defs: Array[DieDefinition]) -> void:
+## Setzt den sichtbaren Inhalt komplett neu: die ersten defs.size() Slots
+## zeigen die übergebenen Würfel (von vorne kompakt gepackt), alle weiteren
+## Slots werden ausgeblendet. Dadurch entsteht nie eine Lücke mittendrin, wenn
+## der Aufrufer nach und nach weniger Würfel übergibt (z.B. weil vorne welche
+## verbraucht wurden) - die freie Fläche wächst immer von hinten (unten rechts).
+func fill(defs: Array[DieDefinition]) -> void:
 	for i in slot_roots.size():
-		slot_roots[i].visible = true
-		var def: DieDefinition = defs[i] if i < defs.size() else DieDefinition.standard()
-		slot_defs[i] = def
-		slot_face_displays[i].apply_definition(def)
-		slot_face_displays[i].set_tint(_style_tint(def))
+		if i < defs.size():
+			var def: DieDefinition = defs[i]
+			slot_roots[i].visible = true
+			slot_defs[i] = def
+			slot_face_displays[i].apply_definition(def)
+			slot_face_displays[i].set_tint(_style_tint(def))
+		else:
+			slot_roots[i].visible = false
 
-## Blendet einen einzelnen Slot aus (Würfel wurde tatsächlich gezogen/verbraucht).
-func mark_used(index: int) -> void:
-	if index >= 0 and index < slot_roots.size():
-		slot_roots[index].visible = false
-
-## --- Ablage-/Warteschlangen-Modus: startet leer, füllt sich Würfel für Würfel ---
+## --- Ablage-Modus: startet leer, füllt sich Würfel für Würfel an ---
 
 ## Leert das Tray (z.B. zu Rundenbeginn), bereit für neue Ablagen.
 func clear() -> void:

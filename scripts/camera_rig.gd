@@ -21,9 +21,10 @@ const ZOOM_DURATION := 0.6
 
 const PIT_ZOOM_DISTANCE := 14.0
 const TRAY_ZOOM_DISTANCE := 15.0
+const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
 
 const PIT_TARGET := Vector3(0, -4, 0)
-const POOL_TARGET := Vector3(-26, -3, 12)
+const POOL_TARGET := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView, siehe scene_root.tscn
 const DISCARD_TARGET := Vector3(-26, -3, -12)
 
 ## Feste, steile Draufsicht für die Zoom-Ziele (Grube/Trays) - unabhängig von
@@ -85,7 +86,7 @@ func zoom_to(target_mode: Mode) -> void:
 			distance = PIT_ZOOM_DISTANCE
 		Mode.POOL:
 			target_point = POOL_TARGET
-			distance = TRAY_ZOOM_DISTANCE
+			distance = POOL_ZOOM_DISTANCE
 		Mode.DISCARD:
 			target_point = DISCARD_TARGET
 			distance = TRAY_ZOOM_DISTANCE

@@ -1,18 +1,22 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
-## Wertung: DiceScoring · Würfelphysik: DiceController · Pool-/Ablage-
-## Anzeige: DiceTrayView (zwei Instanzen) · Look: PageStyle.
+## Wertung: DiceScoring · Würfelphysik: DiceController · Pool-/Warteschlangen-/
+## Ablage-Anzeige: DiceTrayView (drei Instanzen) · Look: PageStyle.
 ##
 ## Würfel-Pool statt Hände-/Reroll-Zähler: die Sammlung besteht aus fest 30
 ## Würfeln (anfangs alle "normal"; ein Shop-Kauf ersetzt einen zufälligen
 ## bestehenden Eintrag durch den neuen Spezialwürfel, der Pool bleibt also
-## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt und komplett sichtbar
-## im Pool-Tray aufgestellt. Die als Nächstes gezogenen Würfel (6 beim
-## Rundenstart, oder so viele wie gerade nicht gehalten werden) sind dort
-## farblich markiert; beim tatsächlichen Wurf verschwinden sie aus dem Pool-Tray
-## und wandern - sobald sie nicht mehr im Spiel sind (Neu-Würfeln ersetzt sie,
-## oder die ganze Hand wird genommen/verworfen) - ins Ablage-Tray. Die Runde
-## endet, sobald der Pool keine volle Hand mehr hergibt.
+## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt; die noch nicht
+## gezogenen 30 Würfel verteilen sich sichtbar auf zwei Trays, die zusammen
+## eine Einheit bilden (siehe _refresh_deck_trays): die kleine Warteschlange
+## (immer die als Nächstes gezogenen, max. 6 Würfel - beim Wurf werden genau
+## diese tatsächlich verbraucht) und dahinter das größere Pool-Tray mit dem
+## Rest. Beim tatsächlichen Wurf verschwinden die gezogenen Würfel aus der
+## Warteschlange, alles rückt nach (die Lücke entsteht hinten, nicht
+## mittendrin) und die Würfel wandern - sobald sie nicht mehr im Spiel sind
+## (Neu-Würfeln ersetzt sie, oder die ganze Hand wird genommen/verworfen) -
+## ins Ablage-Tray. Die Runde endet, sobald der Pool keine volle Hand mehr
+## hergibt.
 ##
 ## Farkle (wie im gleichnamigen Spiel): Ein Neu-Würfeln, das NICHT mehr Punkte
 ## bringt als der Stand davor (gleich viele oder weniger), "farklet" – die
@@ -152,7 +156,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var index := _pick_die_index(event.position)
 		if index != -1:
 			dice.set_held(index, not dice.held[index])
-			_update_pool_queue_highlight()
+			_refresh_deck_trays()
 			return
 
 	if not is_rolling and _try_tray_die_click(event.position):
@@ -160,21 +164,24 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	_try_zoom_click(event.position)
 
-## Klick auf einen einzelnen (sichtbaren) Würfel im GERADE FOKUSSIERTEN Tray
-## (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie 3D-
-## Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die Kamera
-## bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt sich
-## so ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz
+## Klick auf einen einzelnen (sichtbaren) Würfel in den GERADE FOKUSSIERTEN
+## Tray(s) (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie
+## 3D-Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die
+## Kamera bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt
+## sich so ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz
 ## normal den Zoom aus (siehe _try_zoom_click). Ohne diese Gate wäre ein
 ## Würfel theoretisch schon aus der Übersicht per Raycast treffbar, auch
 ## wenn er auf dem Bildschirm winzig ist.
+## Pool- und Warteschlangen-Tray gelten als eine Einheit (siehe POOL_TARGET/
+## _refresh_deck_trays): beide werden gemeinsam nach dem angeklickten Würfel
+## durchsucht.
 func _try_tray_die_click(screen_pos: Vector2) -> bool:
-	var target_tray: DiceTrayView
+	var candidate_trays: Array[DiceTrayView] = []
 	match camera_rig.mode:
 		CameraRig.Mode.POOL:
-			target_tray = pool_tray_view
+			candidate_trays = [pool_tray_view, queue_tray_view]
 		CameraRig.Mode.DISCARD:
-			target_tray = discard_tray_view
+			candidate_trays = [discard_tray_view]
 		_:
 			return false
 
@@ -190,14 +197,15 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	if result.is_empty():
 		return false
 
-	var index: int = target_tray.find_slot_index(result.collider)
-	if index == -1:
-		return false
-	die_inspector.show_die(target_tray.slot_defs[index])
-	return true
+	for target_tray in candidate_trays:
+		var index: int = target_tray.find_slot_index(result.collider)
+		if index != -1:
+			die_inspector.show_die(target_tray.slot_defs[index])
+			return true
+	return false
 
-## Klick auf die Würfelgrube oder eines der beiden Trays (Layer 4) -> Kamera
-## fährt näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
+## Klick auf die Würfelgrube oder eines der Trays (Layer 4) -> Kamera fährt
+## näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -214,7 +222,7 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 	var collider: Object = result.collider
 	if collider == pit_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.PIT)
-	elif collider == pool_tray_view.click_zone:
+	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.POOL)
 	elif collider == discard_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
@@ -243,7 +251,6 @@ func _remaining_in_pool() -> int:
 
 func _draw_one() -> DieDefinition:
 	var def: DieDefinition = round_pool_kinds[next_draw_index]
-	pool_tray_view.mark_used(next_draw_index)
 	next_draw_index += 1
 	return def
 
@@ -269,14 +276,19 @@ func _current_queue_size() -> int:
 				wanted += 1
 	return min(wanted, _remaining_in_pool())
 
-## Zeigt die als Nächstes gezogenen Würfel im kleinen Warteschlangen-Tray
-## (siehe QueueTrayView) - unabhängig vom Pool-Tray, das seine Würfel erst
-## beim tatsächlichen Wurf verliert (siehe _draw_one/mark_used).
-func _update_pool_queue_highlight() -> void:
+## Pool-Tray und Warteschlangen-Tray zusammen zeigen genau den noch nicht
+## gezogenen Teil des Pools (POOL_SIZE Würfel insgesamt): die Warteschlange
+## ist ein fest reserviertes 6er-Fenster direkt am Zieh-Cursor (die Würfel,
+## die der nächste Wurf tatsächlich zieht - siehe _draw_one), der Pool zeigt
+## alles danach. Beide werden bei jeder Änderung komplett neu befüllt (siehe
+## DiceTrayView.fill), nie einzeln ausgeblendet - dadurch rückt beim Ziehen
+## immer alles kompakt nach, die Lücke entsteht hinten (unten rechts) statt
+## mittendrin.
+func _refresh_deck_trays() -> void:
 	var queue_size := _current_queue_size()
-	queue_tray_view.clear()
-	for i in queue_size:
-		queue_tray_view.add_die(round_pool_kinds[next_draw_index + i])
+	queue_tray_view.fill(round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size))
+	var pool_start := next_draw_index + HAND_SIZE
+	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:
@@ -324,7 +336,7 @@ func _on_roll_finished() -> void:
 	has_rolled_current_hand = true
 	take_button.disabled = false
 	throw_button.disabled = _remaining_in_pool() <= 0
-	_update_pool_queue_highlight()
+	_refresh_deck_trays()
 	_refresh_ui()
 
 func _any_unheld() -> bool:
@@ -379,7 +391,6 @@ func _start_new_round() -> void:
 	round_pool_kinds = owned_pool.duplicate()
 	round_pool_kinds.shuffle()
 	next_draw_index = 0
-	pool_tray_view.set_layout(round_pool_kinds)
 	discard_tray_view.clear()
 	hand_total = 0
 	hand_note = ""
@@ -391,7 +402,7 @@ func _start_new_hand() -> void:
 	dice.reset()
 	throw_button.disabled = false
 	take_button.disabled = true
-	_update_pool_queue_highlight()
+	_refresh_deck_trays()
 	_refresh_ui()
 
 func _on_round_complete() -> void:
