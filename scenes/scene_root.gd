@@ -1,16 +1,18 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
-## Wertung: KniffelScoring · Würfelphysik: DiceController · Pool-Anzeige:
-## DicePoolView · Look: PageStyle.
+## Wertung: KniffelScoring · Würfelphysik: DiceController · Pool-/Ablage-
+## Anzeige: DiceTrayView (zwei Instanzen) · Look: PageStyle.
 ##
 ## Würfel-Pool statt Hände-/Reroll-Zähler: die Sammlung besteht aus fest 30
 ## Würfeln (anfangs alle "normal"; ein Shop-Kauf ersetzt einen zufälligen
 ## bestehenden Eintrag durch den neuen Spezialwürfel, der Pool bleibt also
 ## immer 30 groß). Zu Rundenbeginn wird der Pool gemischt und komplett sichtbar
-## im DicePoolView aufgestellt. Die als Nächstes gezogenen Würfel (6 beim
+## im Pool-Tray aufgestellt. Die als Nächstes gezogenen Würfel (6 beim
 ## Rundenstart, oder so viele wie gerade nicht gehalten werden) sind dort
-## farblich markiert; beim tatsächlichen Wurf verschwinden sie aus dem Pool.
-## Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
+## farblich markiert; beim tatsächlichen Wurf verschwinden sie aus dem Pool-Tray
+## und wandern - sobald sie nicht mehr im Spiel sind (Neu-Würfeln ersetzt sie,
+## oder die ganze Hand wird genommen/verworfen) - ins Ablage-Tray. Die Runde
+## endet, sobald der Pool keine volle Hand mehr hergibt.
 ##
 ## Farkle (wie im gleichnamigen Spiel): Ein Neu-Würfeln, das NICHT mehr Punkte
 ## bringt als der Stand davor (gleich viele oder weniger), "farklet" – die
@@ -49,7 +51,8 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
 
-@onready var dice_pool_view: DicePoolView = $DicePoolView
+@onready var pool_tray_view: DiceTrayView = $PoolTrayView
+@onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 
 var dice: DiceController
 
@@ -152,9 +155,19 @@ func _remaining_in_pool() -> int:
 
 func _draw_one() -> String:
 	var kind: String = round_pool_kinds[next_draw_index]
-	dice_pool_view.mark_used(next_draw_index)
+	pool_tray_view.mark_used(next_draw_index)
 	next_draw_index += 1
 	return kind
+
+## Schickt einen einzelnen gebrauchten Würfel ins Ablage-Tray.
+func _discard_kind(kind: String) -> void:
+	discard_tray_view.add_die(kind)
+
+## Schickt die komplette aktuelle Hand (alle 6 Slots, egal ob gehalten) ins
+## Ablage-Tray - wird aufgerufen, sobald eine Hand genommen oder verworfen wird.
+func _discard_active_hand() -> void:
+	for kind in active_kinds:
+		_discard_kind(kind)
 
 ## Wie viele Würfel als Nächstes markiert werden sollen: vor dem ersten Wurf
 ## einer Hand immer HAND_SIZE, danach genau so viele wie aktuell nicht
@@ -173,7 +186,7 @@ func _update_pool_queue_highlight() -> void:
 	var indices: Array[int] = []
 	for i in queue_size:
 		indices.append(next_draw_index + i)
-	dice_pool_view.set_queued(indices)
+	pool_tray_view.set_queued(indices)
 
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:
@@ -193,10 +206,11 @@ func _on_throw_button_pressed() -> void:
 		dice.set_slot_kinds(active_kinds)
 	else:
 		# Reroll: Hand vor dem Wurf merken (für Farkle-Vergleich), nicht gehaltene
-		# Würfel aussortieren, markierten Ersatz ziehen.
+		# Würfel aussortieren (-> Ablage-Tray), markierten Ersatz ziehen.
 		pre_reroll_values = dice.values.duplicate()
 		for i in dice.count():
 			if not dice.held[i] and _remaining_in_pool() > 0:
+				_discard_kind(active_kinds[i])
 				active_kinds[i] = _draw_one()
 		dice.set_slot_kinds(active_kinds)
 
@@ -234,6 +248,7 @@ func _any_unheld() -> bool:
 ## weiter (bzw. die Runde endet, wenn der Pool keine volle Hand mehr hergibt).
 func _on_farkle() -> void:
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
+	_discard_active_hand()
 	if _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
@@ -245,6 +260,7 @@ func _on_take_button_pressed() -> void:
 
 	var hand := KniffelScoring.best_hand(dice.values)
 	hand_total += hand["score"]
+	_discard_active_hand()
 
 	if _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
@@ -273,7 +289,8 @@ func _start_new_round() -> void:
 	round_pool_kinds = owned_pool.duplicate()
 	round_pool_kinds.shuffle()
 	next_draw_index = 0
-	dice_pool_view.set_layout(round_pool_kinds)
+	pool_tray_view.set_layout(round_pool_kinds)
+	discard_tray_view.clear()
 	hand_total = 0
 	hand_note = ""
 	_start_new_hand()
