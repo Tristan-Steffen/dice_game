@@ -79,25 +79,31 @@ var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zw
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
 var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrube gezoomt ist
 
+## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
+## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
+## daraus, die Rotation ist irrelevant, da die Würfel bis zum ersten Wurf
+## unsichtbar sind).
+const DICE_START_POSITIONS: Array[Vector3] = [
+	Vector3(-8.5, 13.695267, -5.5573406),
+	Vector3(-5.1, 13.695267, -5.5573406),
+	Vector3(-1.7, 13.695267, -5.5573406),
+	Vector3(1.7, 13.695267, -5.5573406),
+	Vector3(5.1, 13.695267, -5.5573406),
+	Vector3(8.5, 13.695267, -5.5573406),
+]
+
 func _ready() -> void:
-	var roots: Array[Node3D] = [$Dice/Dice1, $Dice/Dice2, $Dice/Dice3, $Dice/Dice4, $Dice/Dice5, $Dice/Dice6]
-	var bodies: Array[RigidBody3D] = [
-		$Dice/Dice1/RigidBody3D,
-		$Dice/Dice2/RigidBody3D,
-		$Dice/Dice3/RigidBody3D,
-		$Dice/Dice4/RigidBody3D,
-		$Dice/Dice5/RigidBody3D,
-		$Dice/Dice6/RigidBody3D,
-	]
-	var meshes: Array[MeshInstance3D] = [
-		$Dice/Dice1/RigidBody3D/Die,
-		$Dice/Dice2/RigidBody3D/Die,
-		$Dice/Dice3/RigidBody3D/Die,
-		$Dice/Dice4/RigidBody3D/Die,
-		$Dice/Dice5/RigidBody3D/Die,
-		$Dice/Dice6/RigidBody3D/Die,
-	]
-	dice = DiceController.new(roots, bodies, meshes)
+	var roots: Array[Node3D] = []
+	var bodies: Array[RigidBody3D] = []
+	var face_displays: Array[DieFaceDisplay] = []
+	for i in DICE_START_POSITIONS.size():
+		var die := DieBuilder.build()
+		$Dice.add_child(die)
+		die.position = DICE_START_POSITIONS[i]
+		roots.append(die)
+		bodies.append(die.get_node("RigidBody3D"))
+		face_displays.append(die.get_node("RigidBody3D/Faces"))
+	dice = DiceController.new(roots, bodies, face_displays)
 
 	shop_button_6.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(6, "Immer 6")))
 	shop_button_5.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(5, "Immer 5")))

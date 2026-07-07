@@ -3,7 +3,8 @@ extends RefCounted
 ## Physik und Zustand der 6 Würfel-Slots: Werfen, Halten, Ruheerkennung, Spezialwürfel-Tints.
 ## Welcher Wert gezeigt wird, kommt aus der DieDefinition jedes Slots
 ## (slot_defs) - die Physik liefert nur, welche der 6 physischen Seiten
-## gerade oben liegt.
+## gerade oben liegt. Die 6 Würfel selbst werden von DieBuilder rein per Code
+## gebaut, es gibt keine .tscn-Datei mehr dafür.
 
 # Lokale Achsen des Würfelmodells (feste Richtungen in RigidBody3D-Lokalraum).
 const AXIS_DIRECTIONS := {
@@ -16,8 +17,7 @@ const AXIS_DIRECTIONS := {
 }
 
 # Kalibrierung: welcher Index in DieDefinition.faces liegt physisch auf
-# welcher Achse (bisher fest verdrahtet auf die im Mesh eingebrannten Pips:
-# OBEN zeigte immer die 4, also Index 3, usw.).
+# welcher Achse.
 const AXIS_FACE_INDEX := {
 	"OBEN": 3,
 	"UNTEN": 2,
@@ -33,9 +33,11 @@ const KIND_TINTS := {
 	"fixed_4": Color(0.15, 0.65, 0.3),
 }
 
+const HOLD_TINT := Color(1.0, 0.82, 0.2)
+
 var roots: Array[Node3D]
 var bodies: Array[RigidBody3D]
-var meshes: Array[MeshInstance3D]
+var face_displays: Array[DieFaceDisplay] = []
 
 var start_transforms: Array[Transform3D] = []
 var held: Array[bool] = []
@@ -44,30 +46,10 @@ var settled: Array[bool] = []
 var rest_timers: Array[float] = []
 var slot_defs: Array[DieDefinition] = []
 
-var hold_highlight_material: StandardMaterial3D
-var kind_tint_materials: Dictionary = {}
-
-func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_meshes: Array[MeshInstance3D]) -> void:
+func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays: Array[DieFaceDisplay]) -> void:
 	roots = p_roots
 	bodies = p_bodies
-	meshes = p_meshes
-
-	# Deutlich gedämpft: dieses Material ersetzt Oberfläche 1 (die Augen/Pips
-	# des Würfels) komplett, ein zu heller Farbton macht die Punktezahl
-	# unleserlich, sobald ein Würfel gehalten wird.
-	hold_highlight_material = StandardMaterial3D.new()
-	hold_highlight_material.albedo_color = Color(0.45, 0.34, 0.05)
-	hold_highlight_material.emission_enabled = true
-	hold_highlight_material.emission = Color(0.4, 0.28, 0.04)
-	hold_highlight_material.emission_energy_multiplier = 0.2
-
-	for kind in KIND_TINTS:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = KIND_TINTS[kind]
-		mat.emission_enabled = true
-		mat.emission = KIND_TINTS[kind]
-		mat.emission_energy_multiplier = 0.4
-		kind_tint_materials[kind] = mat
+	face_displays = p_face_displays
 
 	for i in bodies.size():
 		start_transforms.append(bodies[i].global_transform)
@@ -126,7 +108,7 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 
 func set_held(index: int, is_held: bool) -> void:
 	held[index] = is_held
-	meshes[index].set_surface_override_material(1, hold_highlight_material if is_held else null)
+	face_displays[index].set_tint(HOLD_TINT if is_held else _style_tint(slot_defs[index]))
 
 func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
@@ -138,12 +120,16 @@ func reset() -> void:
 		settled[i] = true
 		rest_timers[i] = 0.0
 		roots[i].visible = false
-		meshes[i].set_surface_override_material(1, null)
+		face_displays[i].set_tint(_style_tint(slot_defs[i]))
 
 func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	slot_defs = defs.duplicate()
 	for i in count():
-		meshes[i].set_surface_override_material(0, kind_tint_materials.get(slot_defs[i].style_id))
+		face_displays[i].apply_definition(slot_defs[i])
+		face_displays[i].set_tint(_style_tint(slot_defs[i]))
+
+func _style_tint(def: DieDefinition) -> Color:
+	return KIND_TINTS.get(def.style_id, Color.WHITE)
 
 func _value_for_slot(index: int) -> int:
 	var face_index: int = AXIS_FACE_INDEX[_get_top_axis(bodies[index])]

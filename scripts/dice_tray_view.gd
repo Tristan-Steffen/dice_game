@@ -1,9 +1,10 @@
 class_name DiceTrayView
 extends Node3D
 ## Zeigt bis zu 30 Würfel in einem Raster auf einem Kunststoff-Tray (wie ein
-## Casino-Chip-Tray). Tray-Mesh, Klickbereich und die 30 Würfel-Slots sind
-## echte Kindknoten dieser Szene (siehe scenes/dice_chip_tray.tscn), nicht
-## zur Laufzeit gebaut - dieses Skript färbt/steuert sie nur noch.
+## Casino-Chip-Tray). Tray-Mesh und Klickbereich sind echte Kindknoten dieser
+## Szene (siehe scenes/dice_chip_tray.tscn); die 30 Würfel werden bei _ready()
+## per DieBuilder gebaut und unter $Slots eingehängt (siehe COLUMNS/ROWS/
+## SPACING für das Raster).
 ##
 ## Wird in zwei Rollen verwendet: als Pool-Tray (alle 30 sichtbar, werden
 ## beim Ziehen ausgeblendet - siehe set_layout/mark_used/set_queued) und als
@@ -12,6 +13,11 @@ extends Node3D
 
 const COLUMNS := 5
 const ROWS := 6
+const SPACING := Vector2(1.8, 1.8)
+const DIE_SCALE := 0.5
+const REST_Y := 0.5  # Höhe der Würfel über dem Tray-Boden (lokal, Boden = y 0)
+
+const QUEUED_TINT := Color(1.0, 0.85, 0.2)
 
 @export var tray_color: Color = Color(0.15, 0.35, 0.75):
 	set(value):
@@ -27,30 +33,15 @@ const ROWS := 6
 @onready var click_zone: StaticBody3D = $ClickZone
 
 var slot_roots: Array[Node3D] = []
-var slot_meshes: Array[MeshInstance3D] = []
-var kind_tint_materials: Dictionary = {}
-var queued_material: StandardMaterial3D
+var slot_face_displays: Array[DieFaceDisplay] = []
+var slot_defs: Array[DieDefinition] = []
 var plastic_material: StandardMaterial3D
 
 var next_free_index: int = 0  # nächster freier Slot im Ablage-Modus (add_die)
 
 func _ready() -> void:
-	for kind in DiceController.KIND_TINTS:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = DiceController.KIND_TINTS[kind]
-		mat.emission_enabled = true
-		mat.emission = DiceController.KIND_TINTS[kind]
-		mat.emission_energy_multiplier = 0.4
-		kind_tint_materials[kind] = mat
-
-	queued_material = StandardMaterial3D.new()
-	queued_material.albedo_color = Color(1.0, 0.85, 0.2)
-	queued_material.emission_enabled = true
-	queued_material.emission = Color(1.0, 0.75, 0.1)
-	queued_material.emission_energy_multiplier = 0.7
-
 	_apply_tray_color()
-	_collect_slots()
+	_build_slots()
 
 ## Färbt die Tray-Mesh-Teile (Boden, Wände, Trennstege) in tray_color ein.
 func _apply_tray_color() -> void:
@@ -62,23 +53,32 @@ func _apply_tray_color() -> void:
 		if mesh_instance is MeshInstance3D:
 			mesh_instance.set_surface_override_material(0, plastic_material)
 
-## Liest die 30 vorhandenen Würfel-Slots (Kindknoten von $Slots) aus und
-## macht sie zu rein dekorativen, eingefrorenen Würfeln (kein Kollisions-
-## Overhead). Wird zur Laufzeit gesetzt statt in der Szene gebacken, weil
-## alle 30 Slot-Instanzen intern denselben unique_id aus der Basisszene
-## (die.tscn) teilen - eigene Node-Overrides dafür würden Godot beim Laden
-## der Szene zu Duplikaten verleiten.
-func _collect_slots() -> void:
+## Baut die 30 dekorativen Würfel-Slots im 5x6-Raster (eingefroren und aus
+## den Kollisions-Layern genommen - kein Physik-Overhead nötig).
+func _build_slots() -> void:
 	slot_roots.clear()
-	slot_meshes.clear()
-	for slot in slots_container.get_children():
-		var body: RigidBody3D = slot.get_node("RigidBody3D")
+	slot_face_displays.clear()
+	slot_defs.clear()
+	for i in COLUMNS * ROWS:
+		var col := i % COLUMNS
+		var row := i / COLUMNS
+		var x := (col - (COLUMNS - 1) / 2.0) * SPACING.x
+		var z := (row - (ROWS - 1) / 2.0) * SPACING.y
+
+		var die := DieBuilder.build()
+		slots_container.add_child(die)
+		die.position = Vector3(x, REST_Y, z)
+		die.scale = Vector3.ONE * DIE_SCALE
+		die.visible = false
+
+		var body: RigidBody3D = die.get_node("RigidBody3D")
 		body.freeze = true
 		body.collision_layer = 0
 		body.collision_mask = 0
-		var mesh: MeshInstance3D = body.get_node("Die")
-		slot_roots.append(slot)
-		slot_meshes.append(mesh)
+
+		slot_roots.append(die)
+		slot_face_displays.append(die.get_node("RigidBody3D/Faces"))
+		slot_defs.append(DieDefinition.standard())
 
 ## --- Pool-Modus: alle Slots vorbelegt, werden einzeln ausgeblendet ---
 
@@ -87,9 +87,9 @@ func _collect_slots() -> void:
 func set_layout(defs: Array[DieDefinition]) -> void:
 	for i in slot_roots.size():
 		slot_roots[i].visible = true
-		var style_id: String = defs[i].style_id if i < defs.size() else "normal"
-		slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(style_id))
-		slot_meshes[i].set_surface_override_material(1, null)
+		var def: DieDefinition = defs[i] if i < defs.size() else DieDefinition.standard()
+		slot_defs[i] = def
+		slot_face_displays[i].set_tint(_style_tint(def))
 
 ## Blendet einen einzelnen Slot aus (Würfel wurde tatsächlich gezogen/verbraucht).
 func mark_used(index: int) -> void:
@@ -102,10 +102,11 @@ func set_queued(indices: Array[int]) -> void:
 	var queued := {}
 	for i in indices:
 		queued[i] = true
-	for i in slot_meshes.size():
+	for i in slot_roots.size():
 		if not slot_roots[i].visible:
 			continue
-		slot_meshes[i].set_surface_override_material(1, queued_material if queued.has(i) else null)
+		var tint: Color = QUEUED_TINT if queued.has(i) else _style_tint(slot_defs[i])
+		slot_face_displays[i].set_tint(tint)
 
 ## --- Ablage-Modus: startet leer, füllt sich Würfel für Würfel ---
 
@@ -122,5 +123,8 @@ func add_die(def: DieDefinition) -> void:
 	var i := next_free_index
 	next_free_index += 1
 	slot_roots[i].visible = true
-	slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(def.style_id))
-	slot_meshes[i].set_surface_override_material(1, null)
+	slot_defs[i] = def
+	slot_face_displays[i].set_tint(_style_tint(def))
+
+func _style_tint(def: DieDefinition) -> Color:
+	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)
