@@ -76,6 +76,9 @@ var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein N
 var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (für Farkle-Vergleich)
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zwischen Händen
 
+var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
+var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrube gezoomt ist
+
 func _ready() -> void:
 	var roots: Array[Node3D] = [$Dice1, $Dice2, $Dice3, $Dice4, $Dice5, $Dice6]
 	var bodies: Array[RigidBody3D] = [
@@ -100,6 +103,7 @@ func _ready() -> void:
 	shop_button_5.pressed.connect(_on_shop_choice.bind("fixed_5"))
 	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
+	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
 	_populate_legend()
 	_reset_game()
@@ -357,9 +361,28 @@ func _on_debug_win_round_pressed() -> void:
 	game_state = GameState.SHOP
 	_show_shop()
 
+## Steuert die Sichtbarkeit der Spiel-UI (Text + Würfel-Buttons) anhand des
+## Spielzustands (false während Shop/GameOver) - kombiniert mit dem
+## Kamera-Fokus (siehe _on_camera_mode_changed) in _update_gameplay_ui_visibility.
 func _set_gameplay_ui_visible(is_visible: bool) -> void:
-	hint_label.visible = is_visible
-	hand_label.visible = is_visible
+	gameplay_ui_state_visible = is_visible
+	_update_gameplay_ui_visibility()
+
+func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
+	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	_update_gameplay_ui_visibility()
+
+## UI-Text und Würfeln/Nehmen-Buttons sind nur sichtbar, wenn die Kamera auf
+## die Grube fokussiert ist UND der Spielzustand sie erlaubt (nicht während
+## Shop/GameOver).
+func _update_gameplay_ui_visibility() -> void:
+	var show_ui := gameplay_ui_state_visible and is_pit_focused
+	hint_label.visible = show_ui
+	hand_label.visible = show_ui
+	round_label.visible = show_ui
+	pool_label.visible = show_ui
+	throw_button.visible = show_ui
+	take_button.visible = show_ui
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)

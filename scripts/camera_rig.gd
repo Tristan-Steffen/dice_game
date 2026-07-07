@@ -9,6 +9,10 @@ extends Camera3D
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD }
 
+## Wird ausgelöst, sobald sich der Modus ändert (zoom_to/zoom_out) - dient
+## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
+signal mode_changed(new_mode: Mode)
+
 const TILT_MAX_DEGREES := 7.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
@@ -45,7 +49,8 @@ func _process(delta: float) -> void:
 	var mouse := get_viewport().get_mouse_position()
 	var nx: float = clamp((mouse.x / vp_size.x) * 2.0 - 1.0, -1.0, 1.0)
 	var ny: float = clamp((mouse.y / vp_size.y) * 2.0 - 1.0, -1.0, 1.0)
-	var target_tilt := Vector2(ny, nx) * TILT_MAX_DEGREES
+	# Negiert, damit sich die Kamera zur Maus hin ausrichtet statt von ihr weg.
+	var target_tilt := Vector2(-ny, -nx) * TILT_MAX_DEGREES
 	tilt_offset = tilt_offset.lerp(target_tilt, clamp(delta * TILT_SMOOTHING, 0.0, 1.0))
 
 	var yaw := Basis(base_basis.y, deg_to_rad(tilt_offset.y))
@@ -57,7 +62,6 @@ func _process(delta: float) -> void:
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
 		return
-	mode = target_mode
 	var target_point: Vector3
 	var distance: float
 	match target_mode:
@@ -72,6 +76,8 @@ func zoom_to(target_mode: Mode) -> void:
 			distance = TRAY_ZOOM_DISTANCE
 		_:
 			return
+	mode = target_mode
+	mode_changed.emit(mode)
 	var new_origin := target_point - forward * distance
 	_animate_to(new_origin, base_basis)
 
@@ -80,6 +86,7 @@ func zoom_out() -> void:
 	if mode == Mode.OVERVIEW:
 		return
 	mode = Mode.OVERVIEW
+	mode_changed.emit(mode)
 	tilt_offset = Vector2.ZERO
 	_animate_to(base_origin, base_basis)
 
