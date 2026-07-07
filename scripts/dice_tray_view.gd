@@ -89,6 +89,7 @@ func set_layout(defs: Array[DieDefinition]) -> void:
 		slot_roots[i].visible = true
 		var def: DieDefinition = defs[i] if i < defs.size() else DieDefinition.standard()
 		slot_defs[i] = def
+		slot_face_displays[i].apply_definition(def)
 		slot_face_displays[i].set_tint(_style_tint(def))
 
 ## Blendet einen einzelnen Slot aus (Würfel wurde tatsächlich gezogen/verbraucht).
@@ -124,6 +125,7 @@ func add_die(def: DieDefinition) -> void:
 	next_free_index += 1
 	slot_roots[i].visible = true
 	slot_defs[i] = def
+	slot_face_displays[i].apply_definition(def)
 	slot_face_displays[i].set_tint(_style_tint(def))
 
 func _style_tint(def: DieDefinition) -> Color:
