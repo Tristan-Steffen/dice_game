@@ -5,11 +5,11 @@
 [ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
 [ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
-[ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/rotatable_die_view.gd" id="9_dicepicker"]
 [ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/die_inspector_view.gd" id="12_dieinspector"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
+[ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
@@ -28,7 +28,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.1, -3.4, 12)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
-[node name="QueueTrayView" parent="." instance=ExtResource("13_queuetray")]
+[node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.3, -3.4, 12)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
@@ -111,6 +111,31 @@ offset_right = 424.0
 offset_bottom = 196.0
 theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
 text = "Klicke auf einen Würfel, um ihn zu halten"
+
+[node name="PitQueueLabel" type="Label" parent="UI" unique_id=1300426511]
+offset_left = 280.0
+offset_top = 726.0
+offset_right = 1000.0
+offset_bottom = 750.0
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+text = "Als Nächstes:"
+horizontal_alignment = 1
+
+[node name="PitQueueView" type="SubViewportContainer" parent="UI" unique_id=1300426512]
+offset_left = 280.0
+offset_top = 750.0
+offset_right = 1000.0
+offset_bottom = 880.0
+stretch = true
+script = ExtResource("9_dicepicker")
+camera_distance = 6.5
+
+[node name="SubViewport" type="SubViewport" parent="UI/PitQueueView" unique_id=1300426513]
+own_world_3d = true
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(720, 130)
+render_target_update_mode = 0
 
 [node name="GameLogIcon" type="Button" parent="UI" unique_id=1280906586]
 visible = false
@@ -204,17 +229,18 @@ layout_mode = 2
 text = "Rundenziel erreicht! Ziehe zum Drehen, klicke zum Wählen:"
 autowrap_mode = 2
 
-[node name="DicePicker" type="SubViewportContainer" parent="UI/ShopPanel/VBoxContainer"]
+[node name="DicePicker" type="SubViewportContainer" parent="UI/ShopPanel/VBoxContainer" unique_id=2061541776]
 custom_minimum_size = Vector2(588, 260)
 layout_mode = 2
 stretch = true
 script = ExtResource("9_dicepicker")
 
-[node name="SubViewport" type="SubViewport" parent="UI/ShopPanel/VBoxContainer/DicePicker"]
+[node name="SubViewport" type="SubViewport" parent="UI/ShopPanel/VBoxContainer/DicePicker" unique_id=2141214459]
+own_world_3d = true
 transparent_bg = true
 handle_input_locally = false
-own_world_3d = true
 size = Vector2i(588, 260)
+render_target_update_mode = 0
 
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false
@@ -240,44 +266,48 @@ autowrap_mode = 2
 layout_mode = 2
 text = "Neues Spiel"
 
-[node name="DieInspectorView" type="Control" parent="UI"]
+[node name="DieInspectorView" type="Control" parent="UI" unique_id=1154820333]
 visible = false
+layout_mode = 3
+anchors_preset = 0
 offset_right = 1280.0
 offset_bottom = 900.0
 mouse_filter = 1
 script = ExtResource("12_dieinspector")
 
-[node name="Backdrop" type="ColorRect" parent="UI/DieInspectorView"]
+[node name="Backdrop" type="ColorRect" parent="UI/DieInspectorView" unique_id=1842075712]
+layout_mode = 0
 offset_right = 1280.0
 offset_bottom = 900.0
 color = Color(0, 0, 0, 0.6)
 
-[node name="Center" type="CenterContainer" parent="UI/DieInspectorView"]
+[node name="Center" type="CenterContainer" parent="UI/DieInspectorView" unique_id=1082420542]
+layout_mode = 0
 offset_right = 1280.0
 offset_bottom = 900.0
 mouse_filter = 2
 
-[node name="HintLabelInspector" type="Label" parent="UI/DieInspectorView"]
+[node name="DieView" type="SubViewportContainer" parent="UI/DieInspectorView/Center" unique_id=1072448557]
+custom_minimum_size = Vector2(480, 480)
+layout_mode = 2
+stretch = true
+script = ExtResource("9_dicepicker")
+
+[node name="SubViewport" type="SubViewport" parent="UI/DieInspectorView/Center/DieView" unique_id=623573709]
+own_world_3d = true
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(480, 480)
+render_target_update_mode = 0
+
+[node name="HintLabelInspector" type="Label" parent="UI/DieInspectorView" unique_id=712240631]
+layout_mode = 0
 offset_left = 440.0
 offset_top = 130.0
 offset_right = 840.0
 offset_bottom = 170.0
-horizontal_alignment = 1
 text = "Ziehe zum Drehen - Klick daneben oder Rechtsklick zum Schließen"
-
-[node name="DieView" type="SubViewportContainer" parent="UI/DieInspectorView/Center"]
-custom_minimum_size = Vector2(480, 480)
-layout_mode = 2
-stretch = true
-camera_distance = 7.0
-pick_radius = 200.0
-script = ExtResource("9_dicepicker")
-
-[node name="SubViewport" type="SubViewport" parent="UI/DieInspectorView/Center/DieView"]
-transparent_bg = true
-handle_input_locally = false
-own_world_3d = true
-size = Vector2i(480, 480)
+horizontal_alignment = 1
 
 [connection signal="pressed" from="UI/ThrowButton" to="." method="_on_throw_button_pressed"]
 [connection signal="pressed" from="UI/TakeButton" to="." method="_on_take_button_pressed"]

@@ -13,13 +13,13 @@ enum Mode { OVERVIEW, PIT, POOL, DISCARD }
 ## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
 signal mode_changed(new_mode: Mode)
 
-const TILT_MAX_UP_DEGREES := 5.0  # Freiheit nach oben (von der Übersicht aus)
-const TILT_MAX_DOWN_DEGREES := 20.0  # Freiheit nach unten, Richtung Tisch/Grube
-const TILT_MAX_YAW_DEGREES := 10.0
+const TILT_MAX_UP_DEGREES := 10.0  # Freiheit nach oben (von der Übersicht aus)
+const TILT_MAX_DOWN_DEGREES := 30.0  # Freiheit nach unten, Richtung Tisch/Grube
+const TILT_MAX_YAW_DEGREES := 30.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
-const PIT_ZOOM_DISTANCE := 14.0
+const PIT_ZOOM_DISTANCE := 25.0
 const TRAY_ZOOM_DISTANCE := 15.0
 const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
 

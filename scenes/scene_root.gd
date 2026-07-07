@@ -45,6 +45,9 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var hint_label: Label = $UI/HintLabel
 @onready var hand_label: Label = $UI/HandLabel
 
+@onready var pit_queue_label: Label = $UI/PitQueueLabel
+@onready var pit_queue_view: RotatableDieView = $UI/PitQueueView
+
 @onready var shop_panel: Panel = $UI/ShopPanel
 @onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
 
@@ -286,7 +289,9 @@ func _current_queue_size() -> int:
 ## mittendrin.
 func _refresh_deck_trays() -> void:
 	var queue_size := _current_queue_size()
-	queue_tray_view.fill(round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size))
+	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size)
+	queue_tray_view.fill(queue_defs)
+	pit_queue_view.set_dice(queue_defs)
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
@@ -447,6 +452,8 @@ func _update_gameplay_ui_visibility() -> void:
 	pool_label.visible = show_ui
 	throw_button.visible = show_ui
 	take_button.visible = show_ui
+	pit_queue_label.visible = show_ui
+	pit_queue_view.visible = show_ui
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
