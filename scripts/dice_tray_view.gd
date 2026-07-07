@@ -147,6 +147,13 @@ func _style_tint(def: DieDefinition) -> Color:
 func slot_global_position(index: int) -> Vector3:
 	return slot_roots[index].global_position
 
+## Blendet genau einen Slot aus/ein, ohne seinen Inhalt zu ändern - z.B. um den
+## Würfel eines laufenden Umsortier-Drags kurzzeitig zu verstecken, während ein
+## Ghost-Würfel ihn an der Mausposition zeigt (siehe scene_root.gd:
+## _begin_reorder_drag). fill() stellt die normale Sichtbarkeit danach wieder her.
+func set_slot_visible(index: int, is_visible: bool) -> void:
+	slot_roots[index].visible = is_visible
+
 ## Liefert den Slot-Index für einen per Raycast getroffenen RigidBody3D, oder
 ## -1, wenn collider zu keinem sichtbaren Slot dieses Trays gehört (auch
 ## unsichtbare/leere Slots behalten ihre Kollisionsform, siehe SLOT_PICK_LAYER

@@ -47,6 +47,10 @@ const QUEUE_TRAY_MOVE_DURATION := 0.6
 
 const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
 
+const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick auf einen Warteschlangen-Würfel als Zieh-Geste zählt
+const REORDER_LIFT_HEIGHT := 0.8  # Wie weit der gezogene Würfel über das Tray angehoben wird
+const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen, siehe _nearest_queue_slot
+
 enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
@@ -103,6 +107,14 @@ var queue_tray_tween: Tween
 
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
 var deck_shift_tween: Tween
+
+var queue_window_size: int = 0  # wie viele Slots im Warteschlangen-Tray gerade belegt sind, siehe _refresh_deck_trays
+
+## Umsortieren im Warteschlangen-Tray per Ziehen - siehe _try_start_queue_reorder/_handle_reorder_input.
+var reorder_drag_index: int = -1  # Slot-Index im QueueTrayView, der gerade gezogen wird, oder -1
+var reorder_drag_start_pos: Vector2
+var reorder_is_dragging: bool = false
+var reorder_ghost: Node3D
 
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
 ## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
@@ -163,6 +175,10 @@ func _physics_process(delta: float) -> void:
 		_on_roll_finished()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if reorder_drag_index != -1:
+		_handle_reorder_input(event)
+		return
+
 	if not (event is InputEventMouseButton) or not event.pressed:
 		return
 
@@ -180,27 +196,30 @@ func _unhandled_input(event: InputEvent) -> void:
 			_refresh_deck_trays()
 			return
 
+	if not is_rolling and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+		return
+
 	if not is_rolling and _try_tray_die_click(event.position):
 		return
 
 	_try_zoom_click(event.position)
 
-## Klick auf einen einzelnen (sichtbaren) Würfel in den GERADE FOKUSSIERTEN
-## Tray(s) (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie
-## 3D-Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die
-## Kamera bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt
-## sich so ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz
-## normal den Zoom aus (siehe _try_zoom_click). Ohne diese Gate wäre ein
-## Würfel theoretisch schon aus der Übersicht per Raycast treffbar, auch
-## wenn er auf dem Bildschirm winzig ist.
-## Pool- und Warteschlangen-Tray gelten als eine Einheit (siehe POOL_TARGET/
-## _refresh_deck_trays): beide werden gemeinsam nach dem angeklickten Würfel
-## durchsucht.
+## Klick auf einen einzelnen (sichtbaren) Würfel im GERADE FOKUSSIERTEN Tray
+## (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie 3D-
+## Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die Kamera
+## bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt sich so
+## ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz normal
+## den Zoom aus (siehe _try_zoom_click). Ohne diese Gate wäre ein Würfel
+## theoretisch schon aus der Übersicht per Raycast treffbar, auch wenn er auf
+## dem Bildschirm winzig ist.
+## Das Warteschlangen-Tray läuft NICHT mehr über diese Funktion - dort
+## entscheidet _try_start_queue_reorder/_handle_reorder_input zwischen Klick
+## (öffnet ebenfalls die Vorschau) und Zieh-Geste (sortiert um).
 func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	var candidate_trays: Array[DiceTrayView] = []
 	match camera_rig.mode:
 		CameraRig.Mode.POOL:
-			candidate_trays = [pool_tray_view, queue_tray_view]
+			candidate_trays = [pool_tray_view]
 		CameraRig.Mode.DISCARD:
 			candidate_trays = [discard_tray_view]
 		_:
@@ -224,6 +243,143 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 			die_inspector.show_die(target_tray.slot_defs[index])
 			return true
 	return false
+
+## Klick auf einen Würfel im Warteschlangen-Tray (Layer 16) - startet einen
+## POTENZIELLEN Umsortier-Drag (siehe reorder_drag_index/_handle_reorder_input).
+## Ob daraus wirklich ein Umsortieren wird oder nur die Würfel-Vorschau wie bei
+## den anderen Trays öffnet, entscheidet sich erst beim Loslassen anhand von
+## REORDER_DRAG_THRESHOLD. Exklusiv fürs Warteschlangen-Tray - Pool-/Ablage-
+## Tray laufen weiterhin nur über _try_tray_die_click.
+func _try_start_queue_reorder(screen_pos: Vector2) -> bool:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return false
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 1000.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = DiceTrayView.SLOT_PICK_LAYER
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return false
+	var index: int = queue_tray_view.find_slot_index(result.collider)
+	if index == -1:
+		return false
+	reorder_drag_index = index
+	reorder_drag_start_pos = screen_pos
+	reorder_is_dragging = false
+	return true
+
+## Verarbeitet Maus-Bewegung/-Loslassen während eines potenziellen/aktiven
+## Umsortier-Drags (siehe _try_start_queue_reorder). Ein Rechtsklick bricht
+## ihn ab; Bewegung über REORDER_DRAG_THRESHOLD hinaus hebt den Würfel sichtbar
+## an (siehe _begin_reorder_drag) und lässt ihn der Maus folgen; Loslassen ohne
+## Bewegung öffnet stattdessen die Würfel-Vorschau wie bei den anderen Trays.
+func _handle_reorder_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel_reorder_drag()
+		return
+
+	if event is InputEventMouseMotion:
+		if not reorder_is_dragging and event.position.distance_to(reorder_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			reorder_is_dragging = true
+			_begin_reorder_drag()
+		if reorder_is_dragging:
+			_update_reorder_drag(event.position)
+		return
+
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if reorder_is_dragging:
+			_finish_reorder_drag(event.position)
+		else:
+			die_inspector.show_die(queue_tray_view.slot_defs[reorder_drag_index])
+		reorder_drag_index = -1
+		reorder_is_dragging = false
+
+## Versteckt den Original-Slot und lässt einen freien Ghost-Würfel (gleiches
+## Muster wie die Ghosts der Aufrück-Animation, siehe _animate_deck_shift) an
+## seiner Stelle schweben - ab jetzt folgt er der Maus (_update_reorder_drag).
+func _begin_reorder_drag() -> void:
+	var def: DieDefinition = queue_tray_view.slot_defs[reorder_drag_index]
+	queue_tray_view.set_slot_visible(reorder_drag_index, false)
+
+	reorder_ghost = DieBuilder.build()
+	add_child(reorder_ghost)
+	reorder_ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
+	var body: RigidBody3D = reorder_ghost.get_node("RigidBody3D")
+	body.freeze = true
+	body.collision_layer = 0
+	body.collision_mask = 0
+	var faces: DieFaceDisplay = reorder_ghost.get_node("RigidBody3D/Faces")
+	faces.apply_definition(def)
+	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	reorder_ghost.global_position = queue_tray_view.slot_global_position(reorder_drag_index) + Vector3.UP * REORDER_LIFT_HEIGHT
+
+## Lässt den Ghost-Würfel der Maus folgen: projiziert screen_pos auf eine
+## waagerechte Ebene auf Anhebehöhe über dem Warteschlangen-Tray.
+func _update_reorder_drag(screen_pos: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or reorder_ghost == null:
+		return
+	var plane := Plane(Vector3.UP, queue_tray_view.global_position.y + REORDER_LIFT_HEIGHT)
+	var from := camera.project_ray_origin(screen_pos)
+	var dir := camera.project_ray_normal(screen_pos)
+	var hit = plane.intersects_ray(from, dir)
+	if hit != null:
+		reorder_ghost.global_position = hit
+
+## Loslassen nach einem Zieh-Drag: sortiert bei einem gültigen Zielslot um
+## (siehe _reorder_queue), sonst stellt _refresh_deck_trays einfach den
+## ursprünglich versteckten Slot wieder her.
+func _finish_reorder_drag(screen_pos: Vector2) -> void:
+	var target_index := _nearest_queue_slot(screen_pos)
+	if reorder_ghost:
+		reorder_ghost.queue_free()
+		reorder_ghost = null
+	if target_index != -1 and target_index != reorder_drag_index:
+		_reorder_queue(reorder_drag_index, target_index)
+	else:
+		_refresh_deck_trays()
+
+func _cancel_reorder_drag() -> void:
+	if reorder_ghost:
+		reorder_ghost.queue_free()
+		reorder_ghost = null
+	reorder_drag_index = -1
+	reorder_is_dragging = false
+	_refresh_deck_trays()
+
+## Bildschirmnächster belegter Slot im Warteschlangen-Tray zu screen_pos
+## (analog zu RotatableDieView._pick_die: Bildschirm-Projektion statt Physik-
+## Raycast, da der gezogene Würfel selbst keine Kollision mehr hat). -1, wenn
+## außerhalb von REORDER_DROP_RADIUS losgelassen wurde.
+func _nearest_queue_slot(screen_pos: Vector2) -> int:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return -1
+	var best_index := -1
+	var best_dist := REORDER_DROP_RADIUS
+	for i in queue_window_size:
+		var slot_screen := camera.unproject_position(queue_tray_view.slot_global_position(i))
+		var dist := slot_screen.distance_to(screen_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best_index = i
+	return best_index
+
+## Sortiert einen Würfel innerhalb des sichtbaren Warteschlangen-Fensters um:
+## entfernt ihn bei from_index und fügt ihn bei to_index wieder ein (wie eine
+## Karte in der Hand verschieben - dazwischenliegende Würfel rücken nach).
+## Wirkt nur innerhalb von round_pool_kinds[next_draw_index ..
+## next_draw_index+queue_window_size) - der Pool-Teil des Decks ist davon nie
+## betroffen, da beide Indizes aus diesem Fenster stammen (siehe
+## _try_start_queue_reorder/_nearest_queue_slot).
+func _reorder_queue(from_index: int, to_index: int) -> void:
+	var abs_from := next_draw_index + from_index
+	var abs_to := next_draw_index + to_index
+	var moved: DieDefinition = round_pool_kinds[abs_from]
+	round_pool_kinds.remove_at(abs_from)
+	round_pool_kinds.insert(abs_to, moved)
+	_refresh_deck_trays()
 
 ## Klick auf die Würfelgrube oder eines der Trays (Layer 4) -> Kamera fährt
 ## näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
@@ -313,8 +469,8 @@ func _refresh_deck_trays() -> void:
 	if not deck_shift_ghosts.is_empty():
 		return  # Aufrück-Animation läuft noch - sie ruft am Ende selbst _refresh_deck_trays auf
 	var queue_size := _current_queue_size()
-	var window_size: int = min(HAND_SIZE, _remaining_in_pool())
-	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + window_size)
+	queue_window_size = min(HAND_SIZE, _remaining_in_pool())
+	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
 	queue_tray_view.fill(queue_defs, queue_size)
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
@@ -460,6 +616,7 @@ func _on_reset_button_pressed() -> void:
 func _reset_game() -> void:
 	is_rolling = false
 	_cancel_deck_shift()
+	_cancel_reorder_drag()
 	game_state = GameState.PLAYING
 	hand_note = ""
 	last_throw_was_reroll = false
@@ -475,6 +632,7 @@ func _reset_game() -> void:
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
+	_cancel_reorder_drag()
 	round_pool_kinds = owned_pool.duplicate()
 	round_pool_kinds.shuffle()
 	next_draw_index = 0
