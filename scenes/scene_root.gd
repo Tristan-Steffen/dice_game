@@ -34,6 +34,17 @@ const HAND_SIZE := 6
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
 
+## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
+## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
+## Bildschirmrand der gezoomten Grubenansicht, da Welt-X = Bildschirm-oben
+## und Welt-Z = Bildschirm-rechts gilt (siehe CameraRig.ZOOM_BASIS). Empirisch
+## getroffen (siehe scenes/dice_tray.tscn für die Kollisions-Maße der Grube;
+## das sichtbare Tischmodell ist größer als diese Kollisionsboxen). Danach
+## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
+## (siehe _update_queue_tray_dock).
+const QUEUE_TRAY_PIT_POSITION := Vector3(-8.0, -3.4, 0.0)
+const QUEUE_TRAY_MOVE_DURATION := 0.6
+
 enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
@@ -44,9 +55,6 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var pool_label: Label = $UI/PoolLabel
 @onready var hint_label: Label = $UI/HintLabel
 @onready var hand_label: Label = $UI/HandLabel
-
-@onready var pit_queue_label: Label = $UI/PitQueueLabel
-@onready var pit_queue_view: RotatableDieView = $UI/PitQueueView
 
 @onready var shop_panel: Panel = $UI/ShopPanel
 @onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
@@ -88,6 +96,9 @@ var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zw
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
 var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrube gezoomt ist
 
+var queue_tray_home_position: Vector3  # Normalplatz neben dem Pool-Tray, siehe _ready
+var queue_tray_tween: Tween
+
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
 ## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
 ## daraus, die Rotation ist irrelevant, da die Würfel bis zum ersten Wurf
@@ -113,6 +124,8 @@ func _ready() -> void:
 		bodies.append(die.get_node("RigidBody3D"))
 		face_displays.append(die.get_node("RigidBody3D/Faces"))
 	dice = DiceController.new(roots, bodies, face_displays)
+
+	queue_tray_home_position = queue_tray_view.position
 
 	shop_defs = [
 		DieDefinition.fixed(6, "Immer 6"),
@@ -291,7 +304,6 @@ func _refresh_deck_trays() -> void:
 	var queue_size := _current_queue_size()
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size)
 	queue_tray_view.fill(queue_defs)
-	pit_queue_view.set_dice(queue_defs)
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
@@ -440,6 +452,20 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
 	_update_gameplay_ui_visibility()
+	_update_queue_tray_dock()
+
+## Lässt das Warteschlangen-Tray zur Grube andocken, sobald die Kamera dorthin
+## zoomt (siehe QUEUE_TRAY_PIT_POSITION), und wieder zurück an seinen
+## Normalplatz, sobald sie das nicht mehr tut - so ist immer sichtbar, welche
+## Würfel als Nächstes geworfen werden, ohne aus der Grube heraus zoomen zu
+## müssen.
+func _update_queue_tray_dock() -> void:
+	var target := QUEUE_TRAY_PIT_POSITION if is_pit_focused else queue_tray_home_position
+	if queue_tray_tween:
+		queue_tray_tween.kill()
+	queue_tray_tween = create_tween()
+	queue_tray_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	queue_tray_tween.tween_property(queue_tray_view, "position", target, QUEUE_TRAY_MOVE_DURATION)
 
 ## UI-Text und Würfeln/Nehmen-Buttons sind nur sichtbar, wenn die Kamera auf
 ## die Grube fokussiert ist UND der Spielzustand sie erlaubt (nicht während
@@ -452,8 +478,6 @@ func _update_gameplay_ui_visibility() -> void:
 	pool_label.visible = show_ui
 	throw_button.visible = show_ui
 	take_button.visible = show_ui
-	pit_queue_label.visible = show_ui
-	pit_queue_view.visible = show_ui
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
