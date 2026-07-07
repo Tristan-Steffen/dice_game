@@ -67,10 +67,10 @@ var game_state: GameState = GameState.PLAYING
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
-var owned_pool: Array[String] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
-var round_pool_kinds: Array[String] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
+var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
+var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
-var active_kinds: Array[String] = []  # aktuell den 6 Würfel-Slots zugewiesene Arten
+var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Würfel-Slots zugewiesene Würfel
 
 var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein Neu-Würfeln?
 var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (für Farkle-Vergleich)
@@ -99,9 +99,9 @@ func _ready() -> void:
 	]
 	dice = DiceController.new(roots, bodies, meshes)
 
-	shop_button_6.pressed.connect(_on_shop_choice.bind("fixed_6"))
-	shop_button_5.pressed.connect(_on_shop_choice.bind("fixed_5"))
-	shop_button_4.pressed.connect(_on_shop_choice.bind("fixed_4"))
+	shop_button_6.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(6, "Immer 6")))
+	shop_button_5.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(5, "Immer 5")))
+	shop_button_4.pressed.connect(_on_shop_choice.bind(DieDefinition.fixed(4, "Immer 4")))
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
@@ -190,15 +190,15 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 func _remaining_in_pool() -> int:
 	return round_pool_kinds.size() - next_draw_index
 
-func _draw_one() -> String:
-	var kind: String = round_pool_kinds[next_draw_index]
+func _draw_one() -> DieDefinition:
+	var def: DieDefinition = round_pool_kinds[next_draw_index]
 	pool_tray_view.mark_used(next_draw_index)
 	next_draw_index += 1
-	return kind
+	return def
 
 ## Schickt einen einzelnen gebrauchten Würfel ins Ablage-Tray.
-func _discard_kind(kind: String) -> void:
-	discard_tray_view.add_die(kind)
+func _discard_kind(def: DieDefinition) -> void:
+	discard_tray_view.add_die(def)
 
 ## Schickt die komplette aktuelle Hand (alle 6 Slots, egal ob gehalten) ins
 ## Ablage-Tray - wird aufgerufen, sobald eine Hand genommen oder verworfen wird.
@@ -240,7 +240,7 @@ func _on_throw_button_pressed() -> void:
 			if _remaining_in_pool() <= 0:
 				break
 			active_kinds.append(_draw_one())
-		dice.set_slot_kinds(active_kinds)
+		dice.set_slot_defs(active_kinds)
 	else:
 		# Reroll: Hand vor dem Wurf merken (für Farkle-Vergleich), nicht gehaltene
 		# Würfel aussortieren (-> Ablage-Tray), markierten Ersatz ziehen.
@@ -249,7 +249,7 @@ func _on_throw_button_pressed() -> void:
 			if not dice.held[i] and _remaining_in_pool() > 0:
 				_discard_kind(active_kinds[i])
 				active_kinds[i] = _draw_one()
-		dice.set_slot_kinds(active_kinds)
+		dice.set_slot_defs(active_kinds)
 
 	is_rolling = true
 	throw_button.disabled = true
@@ -314,7 +314,7 @@ func _reset_game() -> void:
 	last_throw_was_reroll = false
 	owned_pool.clear()
 	for i in POOL_SIZE:
-		owned_pool.append("normal")
+		owned_pool.append(DieDefinition.standard())
 	round_number = 1
 	round_goal = BASE_GOAL
 	shop_panel.visible = false
@@ -388,10 +388,10 @@ func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
 	shop_panel.visible = true
 
-func _on_shop_choice(kind: String) -> void:
+func _on_shop_choice(def: DieDefinition) -> void:
 	if game_state != GameState.SHOP:
 		return
-	_replace_pool_entry(kind)
+	_replace_pool_entry(def)
 	round_number += 1
 	round_goal += GOAL_INCREMENT
 	shop_panel.visible = false
@@ -399,13 +399,15 @@ func _on_shop_choice(kind: String) -> void:
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
-## Ersetzt einen zufälligen Pool-Eintrag durch den neu gekauften Würfel
-## (bevorzugt einen "normalen", damit bereits gekaufte Spezialwürfel nicht
-## versehentlich wieder verdrängt werden). Der Pool bleibt immer POOL_SIZE groß.
-func _replace_pool_entry(kind: String) -> void:
+## Ersetzt einen zufälligen Pool-Eintrag durch eine unabhängige Kopie des neu
+## gekauften Würfels (bevorzugt einen "normalen", damit bereits gekaufte
+## Spezialwürfel nicht versehentlich wieder verdrängt werden). Der Pool
+## bleibt immer POOL_SIZE groß. Die Kopie (statt der geteilten Shop-Vorlage)
+## stellt sicher, dass spätere Upgrades nur diesen einen Würfel verändern.
+func _replace_pool_entry(def: DieDefinition) -> void:
 	var normal_indices: Array[int] = []
 	for i in owned_pool.size():
-		if owned_pool[i] == "normal":
+		if owned_pool[i].style_id == "normal":
 			normal_indices.append(i)
 
 	var target_index: int
@@ -413,7 +415,7 @@ func _replace_pool_entry(kind: String) -> void:
 		target_index = normal_indices[randi() % normal_indices.size()]
 	else:
 		target_index = randi() % owned_pool.size()
-	owned_pool[target_index] = kind
+	owned_pool[target_index] = def.instantiate()
 
 func _show_game_over(total: int) -> void:
 	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, round_goal]

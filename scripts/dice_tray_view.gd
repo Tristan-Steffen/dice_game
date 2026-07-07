@@ -84,11 +84,11 @@ func _collect_slots() -> void:
 
 ## Setzt das komplette Layout für eine neue Runde: alle 30 Slots sichtbar,
 ## eingefärbt nach Würfelart.
-func set_layout(kinds: Array[String]) -> void:
+func set_layout(defs: Array[DieDefinition]) -> void:
 	for i in slot_roots.size():
 		slot_roots[i].visible = true
-		var kind: String = kinds[i] if i < kinds.size() else "normal"
-		slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(kind))
+		var style_id: String = defs[i].style_id if i < defs.size() else "normal"
+		slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(style_id))
 		slot_meshes[i].set_surface_override_material(1, null)
 
 ## Blendet einen einzelnen Slot aus (Würfel wurde tatsächlich gezogen/verbraucht).
@@ -116,11 +116,11 @@ func clear() -> void:
 		root.visible = false
 
 ## Legt einen weiteren gebrauchten Würfel in den nächsten freien Slot.
-func add_die(kind: String) -> void:
+func add_die(def: DieDefinition) -> void:
 	if next_free_index >= slot_roots.size():
 		return
 	var i := next_free_index
 	next_free_index += 1
 	slot_roots[i].visible = true
-	slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(kind))
+	slot_meshes[i].set_surface_override_material(0, kind_tint_materials.get(def.style_id))
 	slot_meshes[i].set_surface_override_material(1, null)

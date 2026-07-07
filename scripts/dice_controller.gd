@@ -1,6 +1,9 @@
 class_name DiceController
 extends RefCounted
 ## Physik und Zustand der 6 Würfel-Slots: Werfen, Halten, Ruheerkennung, Spezialwürfel-Tints.
+## Welcher Wert gezeigt wird, kommt aus der DieDefinition jedes Slots
+## (slot_defs) - die Physik liefert nur, welche der 6 physischen Seiten
+## gerade oben liegt.
 
 # Lokale Achsen des Würfelmodells (feste Richtungen in RigidBody3D-Lokalraum).
 const AXIS_DIRECTIONS := {
@@ -12,14 +15,16 @@ const AXIS_DIRECTIONS := {
 	"HINTEN": Vector3(0, 0, -1),
 }
 
-# Kalibrierung: welche Augenzahl liegt physisch auf welcher Achse.
-const AXIS_VALUES := {
-	"OBEN": 4,
-	"UNTEN": 3,
-	"RECHTS": 5,
-	"LINKS": 2,
-	"VORNE": 1,
-	"HINTEN": 6,
+# Kalibrierung: welcher Index in DieDefinition.faces liegt physisch auf
+# welcher Achse (bisher fest verdrahtet auf die im Mesh eingebrannten Pips:
+# OBEN zeigte immer die 4, also Index 3, usw.).
+const AXIS_FACE_INDEX := {
+	"OBEN": 3,
+	"UNTEN": 2,
+	"RECHTS": 4,
+	"LINKS": 1,
+	"VORNE": 0,
+	"HINTEN": 5,
 }
 
 const KIND_TINTS := {
@@ -37,7 +42,7 @@ var held: Array[bool] = []
 var values: Array[int] = []
 var settled: Array[bool] = []
 var rest_timers: Array[float] = []
-var slot_kinds: Array[String] = []
+var slot_defs: Array[DieDefinition] = []
 
 var hold_highlight_material: StandardMaterial3D
 var kind_tint_materials: Dictionary = {}
@@ -70,7 +75,7 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_meshes: Array
 		values.append(0)
 		settled.append(true)
 		rest_timers.append(0.0)
-		slot_kinds.append("normal")
+		slot_defs.append(DieDefinition.standard())
 		roots[i].visible = false
 
 func count() -> int:
@@ -135,21 +140,14 @@ func reset() -> void:
 		roots[i].visible = false
 		meshes[i].set_surface_override_material(1, null)
 
-func set_slot_kinds(kinds: Array[String]) -> void:
-	slot_kinds = kinds.duplicate()
+func set_slot_defs(defs: Array[DieDefinition]) -> void:
+	slot_defs = defs.duplicate()
 	for i in count():
-		meshes[i].set_surface_override_material(0, kind_tint_materials.get(slot_kinds[i]))
+		meshes[i].set_surface_override_material(0, kind_tint_materials.get(slot_defs[i].style_id))
 
 func _value_for_slot(index: int) -> int:
-	match slot_kinds[index]:
-		"fixed_6":
-			return 6
-		"fixed_5":
-			return 5
-		"fixed_4":
-			return 4
-		_:
-			return AXIS_VALUES[_get_top_axis(bodies[index])]
+	var face_index: int = AXIS_FACE_INDEX[_get_top_axis(bodies[index])]
+	return slot_defs[index].faces[face_index]
 
 func _get_top_axis(body: RigidBody3D) -> String:
 	var basis := body.global_transform.basis
