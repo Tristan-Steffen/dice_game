@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://uklph2nfxkkr"]
 
-[ext_resource type="PackedScene" uid="uid://v7a1e243vyl3" path="res://scenes/board.tscn" id="1_w2g3p"]
+[ext_resource type="PackedScene" path="res://scenes/dice_tray.tscn" id="1_w2g3p"]
 [ext_resource type="PackedScene" uid="uid://bbs36n868wscm" path="res://scenes/die.tscn" id="2_6twid"]
 [ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scenes/scene_root.gd" id="3_script"]
 [ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
@@ -15,7 +15,7 @@ script = ExtResource("3_script")
 
 [node name="Room" parent="." unique_id=756922948 instance=ExtResource("6_room")]
 
-[node name="board" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
+[node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="DicePoolView" type="Node3D" parent="." unique_id=263660363]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, 0, -3)
@@ -32,22 +32,22 @@ transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.836
 light_energy = 4.555
 
 [node name="Dice1" parent="." unique_id=159914309 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -10.972071, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -8.5, 13.695267, -5.5573406)
 
 [node name="Dice2" parent="." unique_id=434940248 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -6.9720707, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -5.1, 13.695267, -5.5573406)
 
 [node name="Dice3" parent="." unique_id=1552895481 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -2.9720705, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -1.7, 13.695267, -5.5573406)
 
 [node name="Dice4" parent="." unique_id=1285812630 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 1.0279295, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 1.7, 13.695267, -5.5573406)
 
 [node name="Dice5" parent="." unique_id=1220268484 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 5.0279293, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 5.1, 13.695267, -5.5573406)
 
 [node name="Dice6" parent="." unique_id=1220268485 instance=ExtResource("2_6twid")]
-transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 9.027929, 13.695267, -5.5573406)
+transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, 8.5, 13.695267, -5.5573406)
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]
 

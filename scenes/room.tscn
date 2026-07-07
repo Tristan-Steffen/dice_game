@@ -2,7 +2,7 @@
 
 [ext_resource type="Texture2D" path="res://assets/textures/floor_wood.png" id="1_floor_tex"]
 [ext_resource type="Texture2D" path="res://assets/textures/wall_plaster.png" id="2_wall_tex"]
-[ext_resource type="Texture2D" path="res://assets/textures/table_wood.png" id="3_table_tex"]
+[ext_resource type="PackedScene" uid="uid://dpg3lrgi0bi88" path="res://assets/models/poker+table+3d+model.glb" id="4_poker_table"]
 
 [sub_resource type="StandardMaterial3D" id="Mat_Floor"]
 albedo_texture = ExtResource("1_floor_tex")
@@ -13,16 +13,6 @@ roughness = 0.85
 albedo_texture = ExtResource("2_wall_tex")
 uv1_scale = Vector3(12, 6, 1)
 roughness = 0.9
-
-[sub_resource type="StandardMaterial3D" id="Mat_Table"]
-albedo_texture = ExtResource("3_table_tex")
-uv1_scale = Vector3(8, 8, 1)
-roughness = 0.6
-
-[sub_resource type="StandardMaterial3D" id="Mat_TableLeg"]
-albedo_texture = ExtResource("3_table_tex")
-uv1_scale = Vector3(2, 4, 1)
-roughness = 0.6
 
 [sub_resource type="BoxMesh" id="Mesh_Floor"]
 size = Vector3(100, 2, 100)
@@ -38,14 +28,6 @@ material = SubResource("Mat_Wall")
 [sub_resource type="BoxMesh" id="Mesh_WallEW"]
 size = Vector3(2, 50, 100)
 material = SubResource("Mat_Wall")
-
-[sub_resource type="BoxMesh" id="Mesh_Tabletop"]
-size = Vector3(60, 2, 60)
-material = SubResource("Mat_Table")
-
-[sub_resource type="BoxMesh" id="Mesh_Leg"]
-size = Vector3(5, 14, 5)
-material = SubResource("Mat_TableLeg")
 
 [node name="Room" type="Node3D"]
 
@@ -76,24 +58,5 @@ mesh = SubResource("Mesh_WallEW")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -50, 5, 0)
 mesh = SubResource("Mesh_WallEW")
 
-[node name="Table" type="Node3D" parent="."]
-
-[node name="Tabletop" type="MeshInstance3D" parent="Table"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -5, 0)
-mesh = SubResource("Mesh_Tabletop")
-
-[node name="LegFrontLeft" type="MeshInstance3D" parent="Table"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -13, -26)
-mesh = SubResource("Mesh_Leg")
-
-[node name="LegFrontRight" type="MeshInstance3D" parent="Table"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, -13, -26)
-mesh = SubResource("Mesh_Leg")
-
-[node name="LegBackLeft" type="MeshInstance3D" parent="Table"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -13, 26)
-mesh = SubResource("Mesh_Leg")
-
-[node name="LegBackRight" type="MeshInstance3D" parent="Table"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26, -13, 26)
-mesh = SubResource("Mesh_Leg")
+[node name="Table" parent="." instance=ExtResource("4_poker_table")]
+transform = Transform3D(85, 0, 0, 0, 85, 0, 0, 0, 85, 0, -49.05, 0)
