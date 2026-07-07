@@ -44,7 +44,7 @@ func open(round_datas: Array) -> void:
 		header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		grid.add_child(header)
 
-	for cat in KniffelScoring.CATEGORIES:
+	for cat in DiceScoring.CATEGORIES:
 		var key: String = cat["key"]
 		grid.add_child(PageStyle.make_label(cat["label"], 12))
 		for data in round_datas:

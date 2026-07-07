@@ -1,4 +1,4 @@
-class_name KniffelScoring
+class_name DiceScoring
 ## Reine Wertungslogik (Balatro-artig) – keine Nodes, nur Rechnen.
 ##
 ## Jede Hand hat einen festen Multiplikator. Punkte = Basiswert × Multiplikator,
@@ -16,7 +16,7 @@ const CATEGORIES := [
 	{"key": "double_three_kind", "label": "Doppelter Dreierpasch", "mult": 5},
 	{"key": "four_kind_and_pair", "label": "Viererpasch mit Paar", "mult": 6},
 	{"key": "large_straight", "label": "Große Straße", "mult": 8},
-	{"key": "yahtzee", "label": "Kniffel", "mult": 10},
+	{"key": "five_kind", "label": "5 of a Kind", "mult": 10},
 	{"key": "six_kind", "label": "Sechserpasch", "mult": 15},
 ]
 
@@ -31,7 +31,7 @@ const CATEGORIES := [
 # Viererpasch mit Paar (4+2) werden zuerst geprüft, da sie sonst auch als
 # Full House durchgehen würden, aber prestigeträchtiger sind.
 const HAND_PRIORITY := [
-	"six_kind", "yahtzee", "large_straight", "four_kind_and_pair", "double_three_kind",
+	"six_kind", "five_kind", "large_straight", "four_kind_and_pair", "double_three_kind",
 	"three_pairs", "four_kind", "full_house", "small_straight", "three_kind", "two_kind", "one_kind",
 ]
 
@@ -51,7 +51,7 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 	match key:
 		"six_kind":
 			return _has_count_at_least(dice, 6)
-		"yahtzee":
+		"five_kind":
 			return _has_count_at_least(dice, 5)
 		"large_straight":
 			return _has_straight_of_length(dice, 6)
@@ -88,7 +88,7 @@ static func score_category(key: String, dice: Array[int]) -> int:
 			return _best_value_with_count(dice, 3) * 3 * mult
 		"four_kind":
 			return _best_value_with_count(dice, 4) * 4 * mult
-		"yahtzee":
+		"five_kind":
 			return _best_value_with_count(dice, 5) * 5 * mult
 		"six_kind":
 			return _best_value_with_count(dice, 6) * 6 * mult

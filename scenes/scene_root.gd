@@ -1,6 +1,6 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
-## Wertung: KniffelScoring · Würfelphysik: DiceController · Pool-/Ablage-
+## Wertung: DiceScoring · Würfelphysik: DiceController · Pool-/Ablage-
 ## Anzeige: DiceTrayView (zwei Instanzen) · Look: PageStyle.
 ##
 ## Würfel-Pool statt Hände-/Reroll-Zähler: die Sammlung besteht aus fest 30
@@ -119,14 +119,14 @@ func _ready() -> void:
 	_populate_legend()
 	_reset_game()
 
-## Baut den Text der Legende einmalig aus KniffelScoring.CATEGORIES auf –
+## Baut den Text der Legende einmalig aus DiceScoring.CATEGORIES auf –
 ## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),
 ## damit die Anzeige immer zur tatsächlichen Wertungslogik passt.
 func _populate_legend() -> void:
 	var lines: Array[String] = ["Kombinationen (Basis × Mult):"]
-	for key in KniffelScoring.HAND_PRIORITY:
-		var label: String = KniffelScoring.label_for(key)
-		var mult: int = KniffelScoring.mult_for(key)
+	for key in DiceScoring.HAND_PRIORITY:
+		var label: String = DiceScoring.label_for(key)
+		var mult: int = DiceScoring.mult_for(key)
 		lines.append("%s  ×%d" % [label, mult])
 	legend_content_label.text = "\n".join(lines)
 
@@ -314,7 +314,7 @@ func _on_roll_finished() -> void:
 	# einer Hand nie, und auch kein "Neu würfeln" ohne freie Würfel (alles
 	# gehalten = kein Risiko). Bringt der Wurf nicht mehr Punkte als vorher
 	# (gleich viele oder weniger), ist die Hand verloren.
-	if last_throw_was_reroll and _any_unheld() and not KniffelScoring.is_strictly_better(dice.values, pre_reroll_values):
+	if last_throw_was_reroll and _any_unheld() and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values):
 		_on_farkle()
 		return
 
@@ -345,7 +345,7 @@ func _on_take_button_pressed() -> void:
 	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
 		return
 
-	var hand := KniffelScoring.best_hand(dice.values)
+	var hand := DiceScoring.best_hand(dice.values)
 	hand_total += hand["score"]
 	_discard_active_hand()
 
@@ -483,7 +483,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Würfle, um deine Hand zu sehen"
 		throw_button.text = "Würfeln"
 	else:
-		var hand := KniffelScoring.best_hand(dice.values)
+		var hand := DiceScoring.best_hand(dice.values)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
