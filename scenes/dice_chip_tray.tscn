@@ -1,0 +1,190 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/dice_tray_view.gd" id="1_42muw"]
+[ext_resource type="PackedScene" path="res://scenes/die.tscn" id="2_y3dbj"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_x54e5"]
+size = Vector3(10.2, 0.6, 12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ix1v5"]
+size = Vector3(10.2, 1.2, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_v0sxg"]
+size = Vector3(0.5, 1.2, 12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_oxrd5"]
+size = Vector3(0.25, 0.8, 11)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_p8sdg"]
+size = Vector3(10.2, 3.2, 12)
+
+[node name="DiceChipTray" type="Node3D" unique_id=1584236747]
+script = ExtResource("1_42muw")
+
+[node name="TrayMesh" type="Node3D" parent="." unique_id=2136847183]
+
+[node name="Base" type="MeshInstance3D" parent="TrayMesh" unique_id=1002997202]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
+mesh = SubResource("BoxMesh_x54e5")
+
+[node name="WallNorth" type="MeshInstance3D" parent="TrayMesh" unique_id=1197355481]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 5.75)
+mesh = SubResource("BoxMesh_ix1v5")
+
+[node name="WallSouth" type="MeshInstance3D" parent="TrayMesh" unique_id=1894623921]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, -5.75)
+mesh = SubResource("BoxMesh_ix1v5")
+
+[node name="WallEast" type="MeshInstance3D" parent="TrayMesh" unique_id=1711440411]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.85, 0.6, 0)
+mesh = SubResource("BoxMesh_v0sxg")
+
+[node name="WallWest" type="MeshInstance3D" parent="TrayMesh" unique_id=411070286]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.85, 0.6, 0)
+mesh = SubResource("BoxMesh_v0sxg")
+
+[node name="Lane1" type="MeshInstance3D" parent="TrayMesh" unique_id=1017566029]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.6999998, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="Lane2" type="MeshInstance3D" parent="TrayMesh" unique_id=954152027]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="Lane3" type="MeshInstance3D" parent="TrayMesh" unique_id=171150685]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="Lane4" type="MeshInstance3D" parent="TrayMesh" unique_id=1258718296]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.6999998, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="ClickZone" type="StaticBody3D" parent="." unique_id=861517135]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+collision_layer = 8
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ClickZone" unique_id=1299401693]
+shape = SubResource("BoxShape3D_p8sdg")
+
+[node name="Slots" type="Node3D" parent="." unique_id=476073436]
+
+[node name="Slot0" type="Node3D" parent="Slots" unique_id=1632800596 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, -4.5)
+visible = false
+
+[node name="Slot1" type="Node3D" parent="Slots" unique_id=1240386380 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, -4.5)
+visible = false
+
+[node name="Slot2" type="Node3D" parent="Slots" unique_id=794117610 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, -4.5)
+visible = false
+
+[node name="Slot3" type="Node3D" parent="Slots" unique_id=887777630 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, -4.5)
+visible = false
+
+[node name="Slot4" type="Node3D" parent="Slots" unique_id=1788606673 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, -4.5)
+visible = false
+
+[node name="Slot5" type="Node3D" parent="Slots" unique_id=2106566550 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, -2.6999998)
+visible = false
+
+[node name="Slot6" type="Node3D" parent="Slots" unique_id=1575556170 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, -2.6999998)
+visible = false
+
+[node name="Slot7" type="Node3D" parent="Slots" unique_id=228157503 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, -2.6999998)
+visible = false
+
+[node name="Slot8" type="Node3D" parent="Slots" unique_id=893380046 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, -2.6999998)
+visible = false
+
+[node name="Slot9" type="Node3D" parent="Slots" unique_id=1053099253 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, -2.6999998)
+visible = false
+
+[node name="Slot10" type="Node3D" parent="Slots" unique_id=1143794662 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, -0.9)
+visible = false
+
+[node name="Slot11" type="Node3D" parent="Slots" unique_id=2049205062 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, -0.9)
+visible = false
+
+[node name="Slot12" type="Node3D" parent="Slots" unique_id=1467187635 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, -0.9)
+visible = false
+
+[node name="Slot13" type="Node3D" parent="Slots" unique_id=1468923419 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, -0.9)
+visible = false
+
+[node name="Slot14" type="Node3D" parent="Slots" unique_id=2113554706 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, -0.9)
+visible = false
+
+[node name="Slot15" type="Node3D" parent="Slots" unique_id=760099526 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, 0.9)
+visible = false
+
+[node name="Slot16" type="Node3D" parent="Slots" unique_id=831389077 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, 0.9)
+visible = false
+
+[node name="Slot17" type="Node3D" parent="Slots" unique_id=1811405946 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, 0.9)
+visible = false
+
+[node name="Slot18" type="Node3D" parent="Slots" unique_id=360658998 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, 0.9)
+visible = false
+
+[node name="Slot19" type="Node3D" parent="Slots" unique_id=1966816722 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, 0.9)
+visible = false
+
+[node name="Slot20" type="Node3D" parent="Slots" unique_id=1780439776 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, 2.6999998)
+visible = false
+
+[node name="Slot21" type="Node3D" parent="Slots" unique_id=2139640162 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, 2.6999998)
+visible = false
+
+[node name="Slot22" type="Node3D" parent="Slots" unique_id=1681203569 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, 2.6999998)
+visible = false
+
+[node name="Slot23" type="Node3D" parent="Slots" unique_id=447120879 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, 2.6999998)
+visible = false
+
+[node name="Slot24" type="Node3D" parent="Slots" unique_id=1261708643 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, 2.6999998)
+visible = false
+
+[node name="Slot25" type="Node3D" parent="Slots" unique_id=956738857 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -3.6, 0.5, 4.5)
+visible = false
+
+[node name="Slot26" type="Node3D" parent="Slots" unique_id=219077571 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, -1.8, 0.5, 4.5)
+visible = false
+
+[node name="Slot27" type="Node3D" parent="Slots" unique_id=1759303973 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 0, 0.5, 4.5)
+visible = false
+
+[node name="Slot28" type="Node3D" parent="Slots" unique_id=797786448 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 1.8, 0.5, 4.5)
+visible = false
+
+[node name="Slot29" type="Node3D" parent="Slots" unique_id=921793305 instance=ExtResource("2_y3dbj")]
+transform = Transform3D(-0.5, 7.54979e-08, 0, -7.54979e-08, -0.5, 0, 0, 0, 0.5, 3.6, 0.5, 4.5)
+visible = false

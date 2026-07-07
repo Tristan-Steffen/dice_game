@@ -5,7 +5,7 @@
 [ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scenes/scene_root.gd" id="3_script"]
 [ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
-[ext_resource type="Script" uid="uid://bgs8utmla86t6" path="res://scripts/dice_tray_view.gd" id="7_trayview"]
+[ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
@@ -18,13 +18,11 @@ script = ExtResource("3_script")
 
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
-[node name="PoolTrayView" type="Node3D" parent="." unique_id=263660363]
+[node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("7_chiptray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -14)
-script = ExtResource("7_trayview")
 
-[node name="DiscardTrayView" type="Node3D" parent="." unique_id=263660364]
+[node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, 10)
-script = ExtResource("7_trayview")
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
@@ -38,7 +36,8 @@ environment = SubResource("Environment_p52qu")
 transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.8365962, -0.84949386, -0.4413869, 0.28902903, 57.105812, 140.23296, 47.27364)
 light_energy = 4.555
 
-[node name="Dice" type="Node3D" parent="."]
+[node name="Dice" type="Node3D" parent="." unique_id=219306191]
+visible = false
 
 [node name="Dice1" parent="Dice" unique_id=159914309 instance=ExtResource("2_6twid")]
 transform = Transform3D(0.38804534, -0.78711283, -0.47945213, 0.5072491, 0.6167342, -0.6019446, 0.76949275, -0.009619877, 0.63858306, -8.5, 13.695267, -5.5573406)

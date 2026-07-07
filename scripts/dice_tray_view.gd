@@ -1,32 +1,38 @@
 class_name DiceTrayView
 extends Node3D
-## Zeigt bis zu 30 Würfel in einem Raster auf einem prozedural gebauten
-## Kunststoff-Tray (wie ein Casino-Chip-Tray). Wird in zwei Rollen verwendet:
-## als Pool-Tray (alle 30 sichtbar, werden beim Ziehen ausgeblendet - siehe
-## set_layout/mark_used/set_queued) und als Ablage-Tray für bereits benutzte
-## Würfel (startet leer, gebrauchte Würfel werden nacheinander eingeblendet -
-## siehe clear/add_die).
+## Zeigt bis zu 30 Würfel in einem Raster auf einem Kunststoff-Tray (wie ein
+## Casino-Chip-Tray). Tray-Mesh, Klickbereich und die 30 Würfel-Slots sind
+## echte Kindknoten dieser Szene (siehe scenes/dice_chip_tray.tscn), nicht
+## zur Laufzeit gebaut - dieses Skript färbt/steuert sie nur noch.
+##
+## Wird in zwei Rollen verwendet: als Pool-Tray (alle 30 sichtbar, werden
+## beim Ziehen ausgeblendet - siehe set_layout/mark_used/set_queued) und als
+## Ablage-Tray für bereits benutzte Würfel (startet leer, gebrauchte Würfel
+## werden nacheinander eingeblendet - siehe clear/add_die).
 
 const COLUMNS := 5
 const ROWS := 6
-const SPACING := Vector2(1.8, 1.8)
-const DIE_SCALE := 0.5
-const REST_Y := 0.5  # Höhe der Würfel über dem Tray-Boden (lokal, Boden = y 0)
 
-@export var tray_color: Color = Color(0.15, 0.35, 0.75)
+@export var tray_color: Color = Color(0.15, 0.35, 0.75):
+	set(value):
+		tray_color = value
+		if is_inside_tree():
+			_apply_tray_color()
 
-var die_scene: PackedScene = preload("res://scenes/die.tscn")
+@onready var tray_mesh_root: Node3D = $TrayMesh
+@onready var slots_container: Node3D = $Slots
+
+## Unsichtbarer Klickbereich über dem ganzen Tray (Layer 4), damit die
+## Kamera per Klick auf dieses Tray zoomen kann - siehe CameraRig.
+@onready var click_zone: StaticBody3D = $ClickZone
 
 var slot_roots: Array[Node3D] = []
 var slot_meshes: Array[MeshInstance3D] = []
 var kind_tint_materials: Dictionary = {}
 var queued_material: StandardMaterial3D
+var plastic_material: StandardMaterial3D
 
 var next_free_index: int = 0  # nächster freier Slot im Ablage-Modus (add_die)
-
-## Unsichtbarer Klickbereich über dem ganzen Tray (Layer 4), damit die
-## Kamera per Klick auf dieses Tray zoomen kann - siehe CameraRig.
-var click_zone: StaticBody3D
 
 func _ready() -> void:
 	for kind in DiceController.KIND_TINTS:
@@ -43,88 +49,35 @@ func _ready() -> void:
 	queued_material.emission = Color(1.0, 0.75, 0.1)
 	queued_material.emission_energy_multiplier = 0.7
 
-	_build_tray_mesh()
-	_build_slots()
+	_apply_tray_color()
+	_collect_slots()
 
-## Baut den sichtbaren Kunststoff-Tray: eine Bodenplatte, ein umlaufender
-## Rand und dünne Trennstege zwischen den Spalten (wie die Bahnen eines
-## echten Chip-Trays) - rein dekorativ, ohne Kollision.
-func _build_tray_mesh() -> void:
-	var plastic := StandardMaterial3D.new()
-	plastic.albedo_color = tray_color
-	plastic.roughness = 0.25
-	plastic.metallic = 0.05
+## Färbt die Tray-Mesh-Teile (Boden, Wände, Trennstege) in tray_color ein.
+func _apply_tray_color() -> void:
+	plastic_material = StandardMaterial3D.new()
+	plastic_material.albedo_color = tray_color
+	plastic_material.roughness = 0.25
+	plastic_material.metallic = 0.05
+	for mesh_instance in tray_mesh_root.get_children():
+		if mesh_instance is MeshInstance3D:
+			mesh_instance.set_surface_override_material(0, plastic_material)
 
-	var inner_w: float = (COLUMNS - 1) * SPACING.x + 2.0
-	var inner_d: float = (ROWS - 1) * SPACING.y + 2.0
-	var wall_t := 0.5
-	var base_h := 0.6
-	var wall_h := 1.2
-
-	var base_mesh := BoxMesh.new()
-	base_mesh.size = Vector3(inner_w + wall_t * 2.0, base_h, inner_d + wall_t * 2.0)
-	base_mesh.material = plastic
-	_add_mesh(base_mesh, Vector3(0, -base_h / 2.0, 0))
-
-	var half_w := inner_w / 2.0 + wall_t / 2.0
-	var half_d := inner_d / 2.0 + wall_t / 2.0
-	var ns_wall := BoxMesh.new()
-	ns_wall.size = Vector3(inner_w + wall_t * 2.0, wall_h, wall_t)
-	ns_wall.material = plastic
-	_add_mesh(ns_wall, Vector3(0, wall_h / 2.0, half_d))
-	_add_mesh(ns_wall, Vector3(0, wall_h / 2.0, -half_d))
-
-	var ew_wall := BoxMesh.new()
-	ew_wall.size = Vector3(wall_t, wall_h, inner_d + wall_t * 2.0)
-	ew_wall.material = plastic
-	_add_mesh(ew_wall, Vector3(half_w, wall_h / 2.0, 0))
-	_add_mesh(ew_wall, Vector3(-half_w, wall_h / 2.0, 0))
-
-	var lane_h := 0.8
-	var lane_mesh := BoxMesh.new()
-	lane_mesh.size = Vector3(0.25, lane_h, inner_d)
-	lane_mesh.material = plastic
-	for col in range(1, COLUMNS):
-		var x := (col - (COLUMNS - 1) / 2.0 - 0.5) * SPACING.x
-		_add_mesh(lane_mesh, Vector3(x, lane_h / 2.0, 0))
-
-	click_zone = StaticBody3D.new()
-	click_zone.collision_layer = 8  # Layer 4: Kamera-Klickziele
-	click_zone.collision_mask = 0
-	var click_shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(inner_w + wall_t * 2.0, wall_h + 2.0, inner_d + wall_t * 2.0)
-	click_shape.shape = box
-	click_zone.add_child(click_shape)
-	click_zone.position = Vector3(0, wall_h / 2.0, 0)
-	add_child(click_zone)
-
-func _add_mesh(mesh: Mesh, pos: Vector3) -> void:
-	var instance := MeshInstance3D.new()
-	instance.mesh = mesh
-	instance.position = pos
-	add_child(instance)
-
-func _build_slots() -> void:
-	for i in COLUMNS * ROWS:
-		var col := i % COLUMNS
-		var row := i / COLUMNS
-		var x := (col - (COLUMNS - 1) / 2.0) * SPACING.x
-		var z := (row - (ROWS - 1) / 2.0) * SPACING.y
-
-		var instance: Node3D = die_scene.instantiate()
-		add_child(instance)
-		instance.position = Vector3(x, REST_Y, z)
-		instance.scale = Vector3.ONE * DIE_SCALE
-		instance.visible = false
-
-		var body: RigidBody3D = instance.get_node("RigidBody3D")
+## Liest die 30 vorhandenen Würfel-Slots (Kindknoten von $Slots) aus und
+## macht sie zu rein dekorativen, eingefrorenen Würfeln (kein Kollisions-
+## Overhead). Wird zur Laufzeit gesetzt statt in der Szene gebacken, weil
+## alle 30 Slot-Instanzen intern denselben unique_id aus der Basisszene
+## (die.tscn) teilen - eigene Node-Overrides dafür würden Godot beim Laden
+## der Szene zu Duplikaten verleiten.
+func _collect_slots() -> void:
+	slot_roots.clear()
+	slot_meshes.clear()
+	for slot in slots_container.get_children():
+		var body: RigidBody3D = slot.get_node("RigidBody3D")
 		body.freeze = true
 		body.collision_layer = 0
 		body.collision_mask = 0
-
 		var mesh: MeshInstance3D = body.get_node("Die")
-		slot_roots.append(instance)
+		slot_roots.append(slot)
 		slot_meshes.append(mesh)
 
 ## --- Pool-Modus: alle Slots vorbelegt, werden einzeln ausgeblendet ---
