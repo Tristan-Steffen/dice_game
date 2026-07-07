@@ -76,6 +76,9 @@ transform = Transform3D(-1, 8.742278e-08, 0, -8.742278e-08, -1, 0, 0, 0, 1, 0, 0
 [node name="RigidBody3D" type="RigidBody3D" parent="." unique_id=1480892251]
 collision_layer = 2
 collision_mask = 3
+gravity_scale = 2.5
+linear_damp = 0.6
+angular_damp = 0.6
 
 [node name="Die" type="MeshInstance3D" parent="RigidBody3D" unique_id=1316239601]
 transform = Transform3D(0.04145, 0, 0, 0, 2.2235513e-08, -0.041449998, 0, 0.041449998, 2.2235513e-08, 0, 0, 0)

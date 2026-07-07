@@ -17,11 +17,11 @@ extends Node3D
 ## aktuelle Hand wird ohne Punkte verworfen und die nächste Hand aus dem
 ## Rest-Pool gezogen. Der erste Wurf einer Hand kann nie farkeln.
 
-@export var throw_force: float = 12.0
-@export var spin_strength: float = 10.0
-@export var rest_linear_threshold: float = 0.05
-@export var rest_angular_threshold: float = 0.05
-@export var rest_time_required: float = 0.5
+@export var throw_force: float = 16.0
+@export var spin_strength: float = 14.0
+@export var rest_linear_threshold: float = 0.15
+@export var rest_angular_threshold: float = 0.15
+@export var rest_time_required: float = 0.2
 
 const POOL_SIZE := 30
 const HAND_SIZE := 6
