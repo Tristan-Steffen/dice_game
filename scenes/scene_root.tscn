@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/rotatable_die_view.gd" id="9_dicepicker"]
 [ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/die_inspector_view.gd" id="12_dieinspector"]
+[ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
@@ -25,6 +26,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, 12)
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)
 tray_color = Color(0.55, 0.08, 0.08, 1)
+
+[node name="QueueTrayView" parent="." instance=ExtResource("13_queuetray")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.3, -3.4, 12)
+tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
 transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)

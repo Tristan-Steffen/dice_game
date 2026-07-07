@@ -53,6 +53,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
+@onready var queue_tray_view: DiceTrayView = $QueueTrayView
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
@@ -268,12 +269,14 @@ func _current_queue_size() -> int:
 				wanted += 1
 	return min(wanted, _remaining_in_pool())
 
+## Zeigt die als Nächstes gezogenen Würfel im kleinen Warteschlangen-Tray
+## (siehe QueueTrayView) - unabhängig vom Pool-Tray, das seine Würfel erst
+## beim tatsächlichen Wurf verliert (siehe _draw_one/mark_used).
 func _update_pool_queue_highlight() -> void:
 	var queue_size := _current_queue_size()
-	var indices: Array[int] = []
+	queue_tray_view.clear()
 	for i in queue_size:
-		indices.append(next_draw_index + i)
-	pool_tray_view.set_queued(indices)
+		queue_tray_view.add_die(round_pool_kinds[next_draw_index + i])
 
 func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING or is_rolling:

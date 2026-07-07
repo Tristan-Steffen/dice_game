@@ -1,23 +1,26 @@
 class_name DiceTrayView
 extends Node3D
-## Zeigt bis zu 30 Würfel in einem Raster auf einem Kunststoff-Tray (wie ein
-## Casino-Chip-Tray). Tray-Mesh und Klickbereich sind echte Kindknoten dieser
-## Szene (siehe scenes/dice_chip_tray.tscn); die 30 Würfel werden bei _ready()
-## per DieBuilder gebaut und unter $Slots eingehängt (siehe COLUMNS/ROWS/
-## SPACING für das Raster).
+## Zeigt Würfel in einem Raster auf einem Kunststoff-Tray (wie ein Casino-
+## Chip-Tray). Tray-Mesh und Klickbereich sind echte Kindknoten dieser Szene
+## (siehe scenes/dice_chip_tray.tscn für die 30er-Pool-/Ablage-Variante,
+## scenes/dice_queue_tray.tscn für die kleine 1x6-Warteschlange); die Würfel
+## werden bei _ready() per DieBuilder gebaut und unter $Slots eingehängt
+## (siehe rows/columns/SPACING für das Raster - je Tray-Instanz per Export
+## einstellbar: 5x6 beim Pool-/Ablage-Tray, 1x6 beim Warteschlangen-Tray).
 ##
-## Wird in zwei Rollen verwendet: als Pool-Tray (alle 30 sichtbar, werden
-## beim Ziehen ausgeblendet - siehe set_layout/mark_used/set_queued) und als
-## Ablage-Tray für bereits benutzte Würfel (startet leer, gebrauchte Würfel
-## werden nacheinander eingeblendet - siehe clear/add_die).
+## Slot-Reihenfolge liest wie ein Buch: Index 0 = oberste Zeile, ganz links,
+## dann zeilenweise nach unten (siehe _build_slots).
+##
+## Wird in drei Rollen verwendet: als Pool-Tray (alle Slots vorbelegt, werden
+## beim Ziehen ausgeblendet - siehe set_layout/mark_used), als Ablage-Tray
+## und als Warteschlangen-Tray für die als Nächstes gezogenen Würfel (beide
+## starten leer und füllen sich Würfel für Würfel - siehe clear/add_die).
 
-const COLUMNS := 5
-const ROWS := 6
+@export var rows: int = 5  # Anzahl Zeilen, jede mit `columns` Würfeln nebeneinander
+@export var columns: int = 6  # Würfel pro Zeile, links nach rechts
 const SPACING := Vector2(1.8, 1.8)
 const DIE_SCALE := 0.5
 const REST_Y := 0.5  # Höhe der Würfel über dem Tray-Boden (lokal, Boden = y 0)
-
-const QUEUED_TINT := Color(1.0, 0.85, 0.2)
 
 @export var tray_color: Color = Color(0.15, 0.35, 0.75):
 	set(value):
@@ -58,18 +61,20 @@ func _apply_tray_color() -> void:
 		if mesh_instance is MeshInstance3D:
 			mesh_instance.set_surface_override_material(0, plastic_material)
 
-## Baut die 30 dekorativen Würfel-Slots im 5x6-Raster (eingefroren und aus
-## den Kollisions-Layern genommen - kein Physik-Overhead nötig).
+## Baut die dekorativen Würfel-Slots im `rows`x`columns`-Raster (eingefroren
+## und aus den Kollisions-Layern genommen - kein Physik-Overhead nötig).
+## Index-Reihenfolge wie ein Buch: i=0 ist oben links, dann zeilenweise nach
+## rechts und unten - siehe Klassenkommentar.
 func _build_slots() -> void:
 	slot_roots.clear()
 	slot_bodies.clear()
 	slot_face_displays.clear()
 	slot_defs.clear()
-	for i in COLUMNS * ROWS:
-		var col := i % COLUMNS
-		var row := i / COLUMNS
-		var x := (col - (COLUMNS - 1) / 2.0) * SPACING.x
-		var z := (row - (ROWS - 1) / 2.0) * SPACING.y
+	for i in rows * columns:
+		var line := i / columns  # 0 = oberste Zeile
+		var pos_in_line := i % columns  # 0 = ganz links
+		var x := ((rows - 1) / 2.0 - line) * SPACING.x
+		var z := (pos_in_line - (columns - 1) / 2.0) * SPACING.y
 
 		var die := DieBuilder.build()
 		slots_container.add_child(die)
@@ -104,19 +109,7 @@ func mark_used(index: int) -> void:
 	if index >= 0 and index < slot_roots.size():
 		slot_roots[index].visible = false
 
-## Markiert genau die übergebenen (noch sichtbaren) Slots als "als Nächstes
-## dran" - alle anderen verlieren die Markierung.
-func set_queued(indices: Array[int]) -> void:
-	var queued := {}
-	for i in indices:
-		queued[i] = true
-	for i in slot_roots.size():
-		if not slot_roots[i].visible:
-			continue
-		var tint: Color = QUEUED_TINT if queued.has(i) else _style_tint(slot_defs[i])
-		slot_face_displays[i].set_tint(tint)
-
-## --- Ablage-Modus: startet leer, füllt sich Würfel für Würfel ---
+## --- Ablage-/Warteschlangen-Modus: startet leer, füllt sich Würfel für Würfel ---
 
 ## Leert das Tray (z.B. zu Rundenbeginn), bereit für neue Ablagen.
 func clear() -> void:
