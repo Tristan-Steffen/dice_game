@@ -29,13 +29,14 @@ const DISCARD_TARGET := Vector3(-26, -3, 10)
 ## Feste, steile Draufsicht für die Zoom-Ziele (Grube/Trays) - unabhängig von
 ## der frei im Editor einstellbaren (jetzt flacheren) Übersichts-Kamera, damit
 ## Grube und Trays beim Heranzoomen immer aus derselben Vogelperspektive
-## gezeigt werden. Entspricht der ursprünglichen Übersichts-Ausrichtung.
+## gezeigt werden. Entspricht der ursprünglichen Übersichts-Ausrichtung
+## (Basis-Achsen als Spalten, nicht als Zeilen der Transform3D-Zahlenliste!).
 const ZOOM_BASIS := Basis(
-	Vector3(-4.371139e-08, 0.9659258, -0.25881907),
-	Vector3(0, 0.25881907, 0.9659258),
-	Vector3(1, 4.222196e-08, -1.1313341e-08)
+	Vector3(-4.371139e-08, 0.0, 1.0),
+	Vector3(0.9659258, 0.25881907, 4.222196e-08),
+	Vector3(-0.25881907, 0.9659258, -1.1313341e-08)
 )
-const ZOOM_FORWARD := Vector3(-1, -4.222196e-08, 1.1313341e-08)  # = -ZOOM_BASIS.z
+const ZOOM_FORWARD := Vector3(0.25881907, -0.9659258, 1.1313341e-08)  # = -ZOOM_BASIS.z
 
 var base_basis: Basis
 var base_origin: Vector3
