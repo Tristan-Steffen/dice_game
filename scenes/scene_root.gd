@@ -51,6 +51,9 @@ const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick auf einen Wartes
 const REORDER_LIFT_HEIGHT := 0.8  # Wie weit der gezogene Würfel über das Tray angehoben wird
 const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen, siehe _nearest_queue_slot
 
+const CUP_FLY_DURATION := 0.4  # wie lange die gezogenen Würfel zum Becher fliegen, siehe _play_cup_roll
+const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, siehe DiceCup.play_shake
+
 enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var throw_button: Button = $UI/ThrowButton
@@ -75,6 +78,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
+@onready var dice_cup: DiceCup = $DiceCup
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
@@ -82,6 +86,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 var dice: DiceController
 
 var is_rolling: bool = false
+var is_cup_animating: bool = false  # true während Würfel in den Becher fliegen/er schüttelt, siehe _play_cup_roll
 var has_rolled_current_hand: bool = false
 var hand_total: int = 0
 
@@ -119,14 +124,19 @@ var reorder_ghost: Node3D
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
 ## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
 ## daraus, die Rotation ist irrelevant, da die Würfel bis zum ersten Wurf
-## unsichtbar sind).
+## unsichtbar sind). Das ist der ursprünglich für die Grube austarierte
+## Fächer aus 6 Positionen (siehe throw_unheld: Wurfrichtung = Richtung zum
+## Ursprung), nur um die Y-Achse gedreht, sodass er vom Würfelbecher (siehe
+## DiceCup, rechter Rand der Grube) her kommt statt von der alten,
+## becherlosen Seite - der Abstand jeder Position zum Ursprung (und damit
+## Wurfweite/-charakter) bleibt exakt erhalten.
 const DICE_START_POSITIONS: Array[Vector3] = [
-	Vector3(-8.5, 13.695267, -5.5573406),
-	Vector3(-5.1, 13.695267, -5.5573406),
-	Vector3(-1.7, 13.695267, -5.5573406),
-	Vector3(1.7, 13.695267, -5.5573406),
-	Vector3(5.1, 13.695267, -5.5573406),
-	Vector3(8.5, 13.695267, -5.5573406),
+	Vector3(6.5458, 13.695267, 7.7658),
+	Vector3(3.2886, 13.695267, 6.7886),
+	Vector3(0.0314, 13.695267, 5.8115),
+	Vector3(-3.2258, 13.695267, 4.8343),
+	Vector3(-6.4830, 13.695267, 3.8572),
+	Vector3(-9.7402, 13.695267, 2.8800),
 ]
 
 func _ready() -> void:
@@ -194,6 +204,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
 
+	if is_pit_focused and _try_cup_click(event.position):
+		return
+
 	if _can_toggle_hold():
 		var index := _pick_die_index(event.position)
 		if index != -1:
@@ -201,10 +214,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_refresh_deck_trays()
 			return
 
-	if not is_rolling and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+	if not is_rolling and not is_cup_animating and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
 		return
 
-	if not is_rolling and _try_tray_die_click(event.position):
+	if not is_rolling and not is_cup_animating and _try_tray_die_click(event.position):
 		return
 
 	_try_zoom_click(event.position)
@@ -456,8 +469,28 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 	elif collider == discard_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
 
+## Klick auf den Würfelbecher (eigene Kollisions-Ebene, siehe DiceCup.CLICK_LAYER)
+## löst denselben Wurf wie der Würfeln-/Neu-würfeln-Button aus - nur während
+## die Kamera auf die Grube fokussiert ist (dort ist der Becher auch sichtbar/
+## erreichbar, siehe Aufrufer in _unhandled_input). _on_throw_button_pressed
+## prüft alle Vorbedingungen selbst, ein "ungültiger" Klick auf den Becher
+## verhält sich also wie ein Klick auf den (ggf. deaktivierten) Button.
+func _try_cup_click(screen_pos: Vector2) -> bool:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return false
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 1000.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = DiceCup.CLICK_LAYER
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return false
+	_on_throw_button_pressed()
+	return true
+
 func _can_toggle_hold() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and has_rolled_current_hand and _remaining_in_pool() > 0
+	return game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand and _remaining_in_pool() > 0
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -589,10 +622,50 @@ func _cancel_deck_shift() -> void:
 	deck_shift_ghosts.clear()
 
 func _on_throw_button_pressed() -> void:
-	if game_state != GameState.PLAYING or is_rolling:
+	if game_state != GameState.PLAYING or is_rolling or is_cup_animating:
 		return
 	if _remaining_in_pool() <= 0:
 		return
+
+	# Die gerade sichtbaren Warteschlangen-Würfel VOR dem Ziehen merken (Position
+	# + Art) - das sind exakt die, die dieser Wurf tatsächlich zieht (siehe
+	# _current_queue_size) und die gleich sichtbar in den Becher fliegen sollen.
+	var used_count := _current_queue_size()
+	var fly_positions: Array[Vector3] = []
+	var fly_defs: Array[DieDefinition] = []
+	for i in used_count:
+		fly_positions.append(queue_tray_view.slot_global_position(i))
+		fly_defs.append(queue_tray_view.slot_defs[i])
+
+	# Beim Neu-Würfeln: welche Grube-Würfel gleich ausgetauscht werden (siehe
+	# Ersetzungsschleife unten), VOR dem Ziehen mit Position + Art merken und
+	# sofort ausblenden - sie sollen gleichzeitig mit den neuen Würfeln (siehe
+	# fly_positions/fly_defs oben) sichtbar Richtung Ablage-Tray fliegen,
+	# statt erst beim eigentlichen Wurf zu verschwinden (siehe _play_cup_roll).
+	# simulated_remaining bildet exakt dieselbe Pool-Abnahme wie die echte
+	# Ersetzungsschleife nach, damit hier genauso viele Würfel fliegen, wie
+	# dort tatsächlich ersetzt werden.
+	var discard_from: Array[Vector3] = []
+	var discard_defs: Array[DieDefinition] = []
+	var discard_to: Array[Vector3] = []
+	if has_rolled_current_hand:
+		var simulated_remaining := _remaining_in_pool()
+		var next_free := discard_tray_view.next_free_index
+		for i in dice.count():
+			if dice.held[i] or simulated_remaining <= 0:
+				continue
+			if next_free >= discard_tray_view.slot_roots.size():
+				break
+			discard_from.append(dice.bodies[i].global_position)
+			discard_defs.append(active_kinds[i])
+			discard_to.append(discard_tray_view.slot_global_position(next_free))
+			dice.roots[i].visible = false
+			simulated_remaining -= 1
+			next_free += 1
+
+	is_cup_animating = true
+	throw_button.disabled = true
+	take_button.disabled = true
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
@@ -607,20 +680,69 @@ func _on_throw_button_pressed() -> void:
 		dice.set_slot_defs(active_kinds)
 	else:
 		# Reroll: Hand vor dem Wurf merken (für Farkle-Vergleich), nicht gehaltene
-		# Würfel aussortieren (-> Ablage-Tray), markierten Ersatz ziehen.
+		# Würfel durch markierten Ersatz ersetzen (die Ablage passiert bereits
+		# fliegend oben in discard_from/discard_defs/discard_to).
 		pre_reroll_values = dice.values.duplicate()
 		for i in dice.count():
 			if not dice.held[i] and _remaining_in_pool() > 0:
-				_discard_kind(active_kinds[i])
 				active_kinds[i] = _draw_one()
 		dice.set_slot_defs(active_kinds)
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
+	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to)
+	is_cup_animating = false
+	if game_state != GameState.PLAYING:
+		return  # Spiel wurde während der Becher-Animation zurückgesetzt/beendet
+
+	dice_cup.play_pour()
 	is_rolling = true
-	throw_button.disabled = true
-	take_button.disabled = true
 	dice.throw_unheld(throw_force, spin_strength)
 	_refresh_ui()
+
+## Lässt die tatsächlich gezogenen Würfel (fly_defs, vorher an den
+## Warteschlangen-Positionen fly_positions) sichtbar in den Würfelbecher
+## fliegen, UND gleichzeitig die beim Neu-Würfeln ausgetauschten Grube-Würfel
+## (discard_defs, vorher an discard_from) sichtbar Richtung Ablage-Tray
+## (discard_to) - beides im selben parallelen Tween, damit es exakt
+## gleichzeitig passiert. Erst wenn beide Flüge fertig sind, werden die
+## Ablage-Würfel wirklich im Ablage-Tray sichtbar (siehe _discard_kind) und
+## der Becher schüttelt ein paar Mal (siehe DiceCup.play_shake) - rein
+## optisch, die _animate_deck_shift-Animation der übrigen Deck-Würfel läuft
+## ebenfalls parallel dazu. Der eigentliche Würfel-Wurf startet erst danach,
+## im Aufrufer (_on_throw_button_pressed), synchron zum Kippen des Bechers.
+func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3]) -> void:
+	if fly_defs.is_empty() and discard_defs.is_empty():
+		return
+
+	var fly_tween := create_tween()
+	fly_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	fly_tween.set_parallel(true)
+
+	var cup_ghosts: Array[Node3D] = []
+	var mouth := dice_cup.mouth_position()
+	for i in fly_defs.size():
+		var ghost := _spawn_deck_ghost(fly_defs[i])
+		ghost.global_position = fly_positions[i]
+		cup_ghosts.append(ghost)
+		var target := mouth + Vector3(randf_range(-0.4, 0.4), randf_range(-0.15, 0.15), randf_range(-0.4, 0.4))
+		fly_tween.tween_property(ghost, "global_position", target, CUP_FLY_DURATION)
+
+	var discard_ghosts: Array[Node3D] = []
+	for i in discard_defs.size():
+		var ghost := _spawn_deck_ghost(discard_defs[i])
+		ghost.global_position = discard_from[i]
+		discard_ghosts.append(ghost)
+		fly_tween.tween_property(ghost, "global_position", discard_to[i], CUP_FLY_DURATION)
+
+	await fly_tween.finished
+	for ghost in cup_ghosts:
+		ghost.queue_free()
+	for i in discard_ghosts.size():
+		discard_ghosts[i].queue_free()
+		_discard_kind(discard_defs[i])
+
+	if not fly_defs.is_empty():
+		await dice_cup.play_shake(CUP_SHAKE_COUNT).finished
 
 func _on_roll_finished() -> void:
 	is_rolling = false
@@ -674,6 +796,7 @@ func _on_reset_button_pressed() -> void:
 
 func _reset_game() -> void:
 	is_rolling = false
+	is_cup_animating = false
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
 	game_state = GameState.PLAYING
