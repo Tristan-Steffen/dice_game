@@ -31,23 +31,25 @@ const THROW_WINDUP_OFFSET := Vector3(-1.0, 0.6, 1.4)
 const THROW_WINDUP_TILT_DEGREES := 20.0
 const THROW_WINDUP_DURATION := 0.14
 
-## Bewusst mit kräftigem Anheben (+Y): der sichtbare Trichterrand der Grube
-## verdeckt Requisiten auf Tischhöhe schon ab knapp unter Z=19 relativ zur
-## Becher-Ruheposition (Z=20, siehe scene_root.tscn) - siehe Erfahrungswert
-## aus der ursprünglichen Becher-Platzierung. Angehoben bleibt der Becher
-## auch beim Schwenk Richtung Grube klar über der Silhouette des Rands.
-const THROW_SWING_OFFSET := Vector3(2.2, 3.2, -1.5)
-const THROW_SWING_TILT_DEGREES := 100.0
-const THROW_SWING_DURATION := 0.22
+## Schwingt den Becher wirklich deutlich Richtung Grube (nicht nur ein
+## kleiner Schwenk) - die echten Wurf-Würfel starten ab jetzt exakt an der
+## Mündung (siehe scene_root.gd: _throw_start_positions), sollen also flach
+## und aus Becher-Nähe in die Grube rollen statt aus großer Höhe zu fallen.
+## Kräftiges Anheben (+Y) hält den Becher dabei klar über der Silhouette des
+## Grubenrands, der Requisiten auf Tischhöhe schon ab knapp unter Z=19
+## relativ zur Becher-Ruheposition (Z=20, siehe scene_root.tscn) verdeckt.
+const THROW_SWING_OFFSET := Vector3(3.0, 6.0, -12.0)
+const THROW_SWING_TILT_DEGREES := 95.0
+const THROW_SWING_DURATION := 0.24
 
 const THROW_RETURN_DURATION := 0.45
 
 ## Gefeuert während play_throw(), genau im Tiefpunkt des Wurfschwungs (Becher
 ## am weitesten zur Grube geschwungen und gekippt) - scene_root.gd wartet
 ## darauf, um genau dann die Fake-Würfel im Becher verschwinden zu lassen und
-## die echten Wurf-Würfel loszuwerfen (siehe _on_throw_button_pressed), sodass
-## es zeitlich wirkt, als würfe der Becher sie in genau diesem Moment in die
-## Grube.
+## die echten Wurf-Würfel an der jetzt aktuellen Mündungsposition
+## loszuwerfen (siehe _on_throw_button_pressed/mouth_position), sodass sie
+## sichtbar aus dem Becher heraus in die Grube rollen statt zu teleportieren.
 signal poured_out
 
 @onready var mesh_root: Node3D = $MeshRoot
@@ -59,8 +61,11 @@ func _ready() -> void:
 	base_rotation = mesh_root.rotation
 
 ## Weltposition knapp über der Becheröffnung - Flugziel für hineinfliegende
-## Würfel (siehe scene_root.gd: _play_cup_roll). Nutzt mesh_root statt der
-## eigenen Transform, damit die Position auch während einer Wurf-Animation
+## Würfel (siehe scene_root.gd: _play_cup_roll) UND Startpunkt der echten
+## Wurf-Würfel im Moment von poured_out (siehe scene_root.gd:
+## _throw_start_positions) - die Würfel sollen nie teleportieren, sondern
+## immer sichtbar aus dieser Position heraus starten. Nutzt mesh_root statt
+## der eigenen Transform, damit die Position auch während der Wurf-Animation
 ## korrekt der tatsächlich sichtbaren (bewegten, gekippten) Öffnung folgt.
 func mouth_position() -> Vector3:
 	return mesh_root.global_transform * Vector3(0, MOUTH_LOCAL_HEIGHT, 0)

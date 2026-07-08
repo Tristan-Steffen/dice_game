@@ -705,11 +705,9 @@ func _on_throw_button_pressed() -> void:
 	# Der Becher schwingt tatsächlich durch den Raum Richtung Grube (siehe
 	# DiceCup.play_throw); poured_out feuert erst genau im Tiefpunkt dieses
 	# Schwungs - erst dann verschwinden die Fake-Würfel im Becher und die
-	# echten Wurf-Würfel starten (siehe DICE_START_POSITIONS - bewusst
-	# derselbe für die Grube austarierte Fächer wie zuvor, nur jetzt
-	# zeitlich exakt an den Tiefpunkt des sichtbaren Wurfschwungs gekoppelt
-	# statt fest ans Kippen), sodass es wirkt, als würfe der Becher sie
-	# selbst in die Grube.
+	# echten Wurf-Würfel starten an der dann aktuellen Mündungsposition
+	# (siehe _throw_start_positions), damit sie nie teleportieren, sondern
+	# sichtbar aus dem Becher heraus in die Grube rollen.
 	dice_cup.play_throw()
 	await dice_cup.poured_out
 	_clear_cup_interior_ghosts()
@@ -717,9 +715,26 @@ func _on_throw_button_pressed() -> void:
 	if game_state != GameState.PLAYING:
 		return  # Spiel wurde während des Wurfschwungs zurückgesetzt/beendet
 
+	var start_positions := _throw_start_positions()
+	for i in dice.count():
+		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[i])
 	is_rolling = true
 	dice.throw_unheld(throw_force, spin_strength)
 	_refresh_ui()
+
+## Startpositionen der echten Wurf-Würfel für den Moment von poured_out: ein
+## enges Bündel um die aktuelle (geschwungene) Becher-Mündung, mit kleinem
+## Zufalls-Versatz je Würfel für eine natürliche Streuung beim Landen -
+## sodass sie sichtbar aus der Mündung kommen statt an einer festen,
+## unabhängigen Stelle zu erscheinen (siehe DiceController.throw_unheld:
+## Wurfrichtung/-stärke ergeben sich pro Würfel automatisch aus seiner
+## Startposition relativ zum Grubenzentrum).
+func _throw_start_positions() -> Array[Vector3]:
+	var mouth := dice_cup.mouth_position()
+	var positions: Array[Vector3] = []
+	for i in dice.count():
+		positions.append(mouth + Vector3(randf_range(-0.6, 0.6), randf_range(-0.2, 0.2), randf_range(-0.6, 0.6)))
+	return positions
 
 ## Gibt die Fake-Würfel frei, die während des Schüttelns sichtbar im Becher
 ## liegen (siehe cup_interior_ghosts/_play_cup_roll) - aufgerufen im Moment
