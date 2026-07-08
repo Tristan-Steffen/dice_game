@@ -33,7 +33,9 @@ const KIND_TINTS := {
 	"fixed_4": Color(0.15, 0.65, 0.3),
 }
 
-const HOLD_TINT := Color(1.0, 0.82, 0.2)
+## Markiert Würfel, die der Spieler fürs nächste Neu-Würfeln ausgewählt hat
+## (siehe set_held: das sind die NICHT gehaltenen, also held[i] == false).
+const REROLL_TINT := Color(1.0, 0.82, 0.2)
 
 ## Ein Würfel gilt nur dann als "ruhig genug", wenn er zusätzlich fast flach
 ## auf einer Seite liegt (Dot der am besten ausgerichteten Achse mit UP) -
@@ -127,9 +129,13 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 			all_settled = false
 	return all_settled
 
+## Spieler klickt Würfel an, um sie fürs nächste Neu-Würfeln auszuwählen - der
+## Klick markiert also fürs Werfen, nicht fürs Halten (is_held=false heißt
+## hier "ausgewählt zum Neu-Würfeln", daher der REROLL_TINT genau dann, wenn
+## NICHT gehalten wird).
 func set_held(index: int, is_held: bool) -> void:
 	held[index] = is_held
-	face_displays[index].set_tint(HOLD_TINT if is_held else _style_tint(slot_defs[index]))
+	face_displays[index].set_tint(_style_tint(slot_defs[index]) if is_held else REROLL_TINT)
 
 func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
@@ -141,6 +147,16 @@ func reset() -> void:
 		settled[i] = true
 		rest_timers[i] = 0.0
 		roots[i].visible = false
+		face_displays[i].set_tint(_style_tint(slot_defs[i]))
+
+## Setzt die Neu-Würfeln-Auswahl zurück: nach jedem Wurf (erster Wurf einer
+## Hand oder Neu-Würfeln) startet die Auswahl wieder leer - alle Würfel gelten
+## als gehalten (werden also NICHT automatisch nochmal geworfen), bis der
+## Spieler gezielt welche fürs nächste Neu-Würfeln anklickt (siehe
+## scene_root.gd: _on_roll_finished/set_held).
+func mark_all_kept() -> void:
+	for i in count():
+		held[i] = true
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
 
 func set_slot_defs(defs: Array[DieDefinition]) -> void:

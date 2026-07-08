@@ -551,19 +551,16 @@ func _current_queue_size() -> int:
 ## ist ein fest reserviertes 6er-Fenster direkt am Zieh-Cursor, der Pool zeigt
 ## alles danach. Das Fenster selbst ändert sich nur, wenn next_draw_index
 ## vorrückt (siehe _draw_one) - also erst beim tatsächlichen Wurf, nicht schon
-## beim Halten/Loslassen einzelner Würfel in der Grube. Stattdessen werden nur
-## die ersten _current_queue_size() Würfel im Fenster hervorgehoben (siehe
-## DiceTrayView.fill/highlight_count) - das sind die, die der nächste Wurf
-## wirklich zieht. Beide Trays werden bei jeder Änderung komplett neu befüllt,
-## nie einzeln ausgeblendet - dadurch rückt beim Ziehen immer alles kompakt
-## nach, die Lücke entsteht hinten (unten rechts) statt mittendrin.
+## beim Halten/Loslassen einzelner Würfel in der Grube. Beide Trays werden bei
+## jeder Änderung komplett neu befüllt, nie einzeln ausgeblendet - dadurch
+## rückt beim Ziehen immer alles kompakt nach, die Lücke entsteht hinten
+## (unten rechts) statt mittendrin.
 func _refresh_deck_trays() -> void:
 	if not deck_shift_ghosts.is_empty():
 		return  # Aufrück-Animation läuft noch - sie ruft am Ende selbst _refresh_deck_trays auf
-	var queue_size := _current_queue_size()
 	queue_window_size = min(HAND_SIZE, _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
-	queue_tray_view.fill(queue_defs, queue_size)
+	queue_tray_view.fill(queue_defs)
 	var pool_start := next_draw_index + HAND_SIZE
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
@@ -805,6 +802,12 @@ func _on_roll_finished() -> void:
 	if last_throw_was_reroll and _any_unheld() and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values):
 		_on_farkle()
 		return
+
+	# Neu-Würfeln-Auswahl für die nächste Entscheidung leeren: der Spieler
+	# markiert gezielt, welche Würfel er als Nächstes neu würfeln will (siehe
+	# DiceController.mark_all_kept) - nach diesem Wurf gilt erstmal wieder
+	# "alle gehalten", bis er klickt.
+	dice.mark_all_kept()
 
 	has_rolled_current_hand = true
 	take_button.disabled = false
