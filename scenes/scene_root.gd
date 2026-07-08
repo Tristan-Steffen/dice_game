@@ -58,8 +58,6 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var reset_button: Button = $UI/ResetButton
 @onready var debug_win_round_button: Button = $UI/DebugWinRoundButton
 @onready var round_label: Label = $UI/RoundLabel
-@onready var pool_label: Label = $UI/PoolLabel
-@onready var hint_label: Label = $UI/HintLabel
 @onready var hand_label: Label = $UI/HandLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
@@ -70,6 +68,8 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var die_inspector: DieInspectorView = $UI/DieInspectorView
 
+@onready var legend_toggle_button: Button = $UI/LegendToggleButton
+@onready var legend_panel: Panel = $UI/LegendPanel
 @onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
 
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
@@ -153,9 +153,14 @@ func _ready() -> void:
 	shop_dice_picker.die_clicked.connect(_on_shop_die_clicked)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
+	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
 
 	_populate_legend()
 	_reset_game()
+
+## Klappt die Kombinationen-Übersicht auf/zu (siehe LegendToggleButton).
+func _on_legend_toggle_pressed() -> void:
+	legend_panel.visible = not legend_panel.visible
 
 ## Baut den Text der Legende einmalig aus DiceScoring.CATEGORIES auf –
 ## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),
@@ -754,10 +759,8 @@ func _update_queue_tray_dock() -> void:
 ## Shop/GameOver).
 func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
-	hint_label.visible = show_ui
 	hand_label.visible = show_ui
 	round_label.visible = show_ui
-	pool_label.visible = show_ui
 	throw_button.visible = show_ui
 	take_button.visible = show_ui
 
@@ -804,7 +807,6 @@ func _show_game_over(total: int) -> void:
 
 func _refresh_ui() -> void:
 	round_label.text = "Runde %d · Ziel: %d Punkte · Bisher: %d" % [round_number, round_goal, hand_total]
-	pool_label.text = "Würfel im Pool: %d" % _remaining_in_pool()
 
 	if not has_rolled_current_hand:
 		hand_label.text = hand_note if hand_note != "" else "Würfle, um deine Hand zu sehen"
