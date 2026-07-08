@@ -14,7 +14,7 @@ size = Vector3(22, 10, 19)
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_Pit"]
 friction = 0.4
-bounce = 0.45
+bounce = 0.25
 
 [node name="DiceTray" type="Node3D"]
 

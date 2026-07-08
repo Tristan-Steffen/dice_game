@@ -35,6 +35,20 @@ const KIND_TINTS := {
 
 const HOLD_TINT := Color(1.0, 0.82, 0.2)
 
+## Ein Würfel gilt nur dann als "ruhig genug", wenn er zusätzlich fast flach
+## auf einer Seite liegt (Dot der am besten ausgerichteten Achse mit UP) -
+## sonst kann er scheinbar zur Ruhe kommen, während er tatsächlich instabil
+## auf einer Kante oder Ecke balanciert (die scharfkantige BoxShape3D erlaubt
+## das, echte Würfel mit leicht gerundeten Kanten würden nie so liegen
+## bleiben). 1.0 = exakt flach, cos(~23°) ≈ 0.92 lässt kleine Nick-/Roll-Reste
+## noch durchgehen.
+const SETTLE_ALIGNMENT_MIN_DOT := 0.92
+
+## Kleiner Anstoß, der ein solches Kanten-/Eckengleichgewicht bricht - danach
+## übernimmt wieder ganz normal die Physik (Schwerkraft kippt den Würfel auf
+## eine Seite), siehe physics_step.
+const NUDGE_TORQUE := 0.5
+
 var roots: Array[Node3D]
 var bodies: Array[RigidBody3D]
 var face_displays: Array[DieFaceDisplay] = []
@@ -95,13 +109,20 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 		if settled[i]:
 			continue
 		var body := bodies[i]
-		if body.linear_velocity.length() < linear_threshold and body.angular_velocity.length() < angular_threshold:
+		var is_slow := body.linear_velocity.length() < linear_threshold and body.angular_velocity.length() < angular_threshold
+		if is_slow and _top_axis_info(body)[1] >= SETTLE_ALIGNMENT_MIN_DOT:
 			rest_timers[i] += delta
 			if rest_timers[i] >= rest_time_required:
 				settled[i] = true
 				values[i] = _value_for_slot(i)
 		else:
 			rest_timers[i] = 0.0
+			if is_slow:
+				body.apply_torque_impulse(Vector3(
+					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
+					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
+					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE)
+				))
 		if not settled[i]:
 			all_settled = false
 	return all_settled
@@ -132,10 +153,14 @@ func _style_tint(def: DieDefinition) -> Color:
 	return KIND_TINTS.get(def.style_id, Color.WHITE)
 
 func _value_for_slot(index: int) -> int:
-	var face_index: int = AXIS_FACE_INDEX[_get_top_axis(bodies[index])]
+	var face_index: int = AXIS_FACE_INDEX[_top_axis_info(bodies[index])[0]]
 	return slot_defs[index].faces[face_index]
 
-func _get_top_axis(body: RigidBody3D) -> String:
+## Gibt [Achsenname, Ausrichtungs-Dot] zurück: der Dot ist 1.0, wenn diese
+## Achse exakt nach oben zeigt (Würfel liegt flach auf der gegenüberliegenden
+## Seite), und deutlich niedriger (siehe SETTLE_ALIGNMENT_MIN_DOT), wenn der
+## Würfel stattdessen auf einer Kante oder Ecke balanciert.
+func _top_axis_info(body: RigidBody3D) -> Array:
 	var basis := body.global_transform.basis
 	var best_axis := "OBEN"
 	var best_dot := -INF
@@ -145,4 +170,4 @@ func _get_top_axis(body: RigidBody3D) -> String:
 		if d > best_dot:
 			best_dot = d
 			best_axis = axis
-	return best_axis
+	return [best_axis, best_dot]

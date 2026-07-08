@@ -17,7 +17,7 @@ const FACE_MARGIN := 0.02
 ## ersten Kontakt zu kleben (siehe scenes/dice_tray.tscn: dieselbe
 ## PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden, damit
 ## beide Seiten eines Aufpralls Energie zurückgeben).
-const BOUNCE := 0.45
+const BOUNCE := 0.25
 const FRICTION := 0.4
 
 ## Baut einen Würfel und gibt seinen Wurzelknoten ("Dice", Node3D) zurück.
@@ -30,7 +30,7 @@ static func build() -> Node3D:
 	body.name = "RigidBody3D"
 	body.collision_layer = 2
 	body.collision_mask = 3
-	body.gravity_scale = 2.5
+	body.gravity_scale = 3.5
 	body.linear_damp = 0.2
 	body.angular_damp = 0.2
 	body.continuous_cd = true  # verhindert Tunneln durch die dünnen Grubenwände bei hohem throw_force
