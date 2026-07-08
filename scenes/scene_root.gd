@@ -113,6 +113,13 @@ var queue_tray_tween: Tween
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
 var deck_shift_tween: Tween
 
+## Fake-Würfel, die nach dem Hineinfliegen sichtbar im Becher "liegen" (in
+## $DiceCup/MeshRoot eingehängt, siehe _play_cup_roll - dadurch wackeln sie
+## beim Schütteln automatisch mit, ganz ohne echte Physik). Verschwinden
+## wieder im Moment des Auskippens (DiceCup.poured_out), sobald die echten
+## Wurf-Würfel übernehmen - siehe _on_throw_button_pressed.
+var cup_interior_ghosts: Array[Node3D] = []
+
 var queue_window_size: int = 0  # wie viele Slots im Warteschlangen-Tray gerade belegt sind, siehe _refresh_deck_trays
 
 ## Umsortieren im Warteschlangen-Tray per Ziehen - siehe _try_start_queue_reorder/_handle_reorder_input.
@@ -690,14 +697,35 @@ func _on_throw_button_pressed() -> void:
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to)
-	is_cup_animating = false
 	if game_state != GameState.PLAYING:
+		is_cup_animating = false
+		_clear_cup_interior_ghosts()
 		return  # Spiel wurde während der Becher-Animation zurückgesetzt/beendet
 
+	# Kippen und Werfen laufen synchron: dice_cup.poured_out feuert erst genau
+	# dann, wenn der Becher seine Kipp-Bewegung erreicht hat (siehe
+	# DiceCup.play_pour) - erst dann verschwinden die Fake-Würfel im Becher
+	# und die echten Wurf-Würfel starten, sodass es wirkt, als würfe der
+	# Becher sie selbst in die Grube.
 	dice_cup.play_pour()
+	await dice_cup.poured_out
+	_clear_cup_interior_ghosts()
+	is_cup_animating = false
+	if game_state != GameState.PLAYING:
+		return  # Spiel wurde während des Auskippens zurückgesetzt/beendet
+
 	is_rolling = true
 	dice.throw_unheld(throw_force, spin_strength)
 	_refresh_ui()
+
+## Gibt die Fake-Würfel frei, die während des Schüttelns sichtbar im Becher
+## liegen (siehe cup_interior_ghosts/_play_cup_roll) - aufgerufen im Moment
+## des Auskippens, sobald die echten Wurf-Würfel übernehmen, sowie defensiv
+## bei einem Reset mitten in der Animation (siehe _reset_game).
+func _clear_cup_interior_ghosts() -> void:
+	for ghost in cup_interior_ghosts:
+		ghost.queue_free()
+	cup_interior_ghosts.clear()
 
 ## Lässt die tatsächlich gezogenen Würfel (fly_defs, vorher an den
 ## Warteschlangen-Positionen fly_positions) sichtbar in den Würfelbecher
@@ -705,11 +733,13 @@ func _on_throw_button_pressed() -> void:
 ## (discard_defs, vorher an discard_from) sichtbar Richtung Ablage-Tray
 ## (discard_to) - beides im selben parallelen Tween, damit es exakt
 ## gleichzeitig passiert. Erst wenn beide Flüge fertig sind, werden die
-## Ablage-Würfel wirklich im Ablage-Tray sichtbar (siehe _discard_kind) und
-## der Becher schüttelt ein paar Mal (siehe DiceCup.play_shake) - rein
-## optisch, die _animate_deck_shift-Animation der übrigen Deck-Würfel läuft
-## ebenfalls parallel dazu. Der eigentliche Würfel-Wurf startet erst danach,
-## im Aufrufer (_on_throw_button_pressed), synchron zum Kippen des Bechers.
+## Ablage-Würfel wirklich im Ablage-Tray sichtbar (siehe _discard_kind); die
+## im Becher angekommenen Würfel werden stattdessen NICHT gelöscht, sondern
+## in $DiceCup/MeshRoot eingehängt (siehe cup_interior_ghosts) - dadurch
+## liegen sie sichtbar im Becher und wackeln beim Schütteln (siehe
+## DiceCup.play_shake) automatisch mit, ganz ohne eigene Physik. Sie
+## verschwinden erst im Aufrufer (_on_throw_button_pressed), sobald der
+## Becher tatsächlich auskippt.
 func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3]) -> void:
 	if fly_defs.is_empty() and discard_defs.is_empty():
 		return
@@ -736,7 +766,10 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 
 	await fly_tween.finished
 	for ghost in cup_ghosts:
-		ghost.queue_free()
+		ghost.reparent(dice_cup.mesh_root, true)
+		ghost.position = Vector3(randf_range(-0.7, 0.7), randf_range(0.15, 0.5), randf_range(-0.7, 0.7))
+		ghost.rotation = Vector3(randf_range(0, TAU), randf_range(0, TAU), randf_range(0, TAU))
+		cup_interior_ghosts.append(ghost)
 	for i in discard_ghosts.size():
 		discard_ghosts[i].queue_free()
 		_discard_kind(discard_defs[i])
@@ -799,6 +832,7 @@ func _reset_game() -> void:
 	is_cup_animating = false
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	_clear_cup_interior_ghosts()
 	game_state = GameState.PLAYING
 	hand_note = ""
 	last_throw_was_reroll = false

@@ -25,6 +25,13 @@ const POUR_OUT_DURATION := 0.22
 const POUR_HOLD_DURATION := 0.12
 const POUR_RETURN_DURATION := 0.4
 
+## Gefeuert während play_pour(), genau in dem Moment, in dem der Becher seine
+## Kipp-Bewegung erreicht hat (Mündung am weitesten offen) - scene_root.gd
+## wartet darauf, um genau dann die Fake-Würfel im Becher verschwinden zu
+## lassen und die echten Wurf-Würfel loszuwerfen (siehe _on_throw_button_pressed),
+## sodass es wirkt, als würfe der Becher sie selbst in die Grube.
+signal poured_out
+
 @onready var mesh_root: Node3D = $MeshRoot
 
 var base_rotation: Vector3
@@ -34,9 +41,11 @@ func _ready() -> void:
 	base_rotation = mesh_root.rotation
 
 ## Weltposition knapp über der Becheröffnung - Flugziel für hineinfliegende
-## Würfel (siehe scene_root.gd: _play_cup_roll).
+## Würfel (siehe scene_root.gd: _play_cup_roll). Nutzt mesh_root statt der
+## eigenen Transform, damit die Position auch während einer Kipp-Animation
+## korrekt der tatsächlich sichtbaren Öffnung folgt.
 func mouth_position() -> Vector3:
-	return global_transform * Vector3(0, MOUTH_LOCAL_HEIGHT, 0)
+	return mesh_root.global_transform * Vector3(0, MOUTH_LOCAL_HEIGHT, 0)
 
 ## Rüttelt den Becher count-mal hin und her und kehrt danach zur Ausgangslage
 ## zurück. Gibt den Tween zurück, damit der Aufrufer per `await ...finished`
@@ -53,14 +62,16 @@ func play_shake(count: int) -> Tween:
 	return active_tween
 
 ## Kippt den Becher zur Grube hin (Mündung Richtung Tischmitte, siehe
-## POUR_ANGLE_DEGREES) und wieder zurück - fürs Ausschütten. Bewusst nicht
-## blockierend gedacht: der eigentliche Würfel-Wurf startet, sobald der Becher
-## zu kippen beginnt (siehe scene_root.gd: _on_throw_button_pressed).
+## POUR_ANGLE_DEGREES) und wieder zurück - fürs Ausschütten. Feuert
+## poured_out genau dann, wenn die Kipp-Bewegung ihren Umkehrpunkt erreicht
+## (siehe scene_root.gd: dort synchronisiert das den echten Würfel-Wurf mit
+## der sichtbaren Auskipp-Bewegung).
 func play_pour() -> void:
 	_kill_active_tween()
 	mesh_root.rotation = base_rotation
 	active_tween = create_tween()
 	active_tween.tween_property(mesh_root, "rotation:x", base_rotation.x - deg_to_rad(POUR_ANGLE_DEGREES), POUR_OUT_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	active_tween.tween_callback(poured_out.emit)
 	active_tween.tween_interval(POUR_HOLD_DURATION)
 	active_tween.tween_property(mesh_root, "rotation:x", base_rotation.x, POUR_RETURN_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
