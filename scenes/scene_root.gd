@@ -702,17 +702,20 @@ func _on_throw_button_pressed() -> void:
 		_clear_cup_interior_ghosts()
 		return  # Spiel wurde während der Becher-Animation zurückgesetzt/beendet
 
-	# Kippen und Werfen laufen synchron: dice_cup.poured_out feuert erst genau
-	# dann, wenn der Becher seine Kipp-Bewegung erreicht hat (siehe
-	# DiceCup.play_pour) - erst dann verschwinden die Fake-Würfel im Becher
-	# und die echten Wurf-Würfel starten, sodass es wirkt, als würfe der
-	# Becher sie selbst in die Grube.
-	dice_cup.play_pour()
+	# Der Becher schwingt tatsächlich durch den Raum Richtung Grube (siehe
+	# DiceCup.play_throw); poured_out feuert erst genau im Tiefpunkt dieses
+	# Schwungs - erst dann verschwinden die Fake-Würfel im Becher und die
+	# echten Wurf-Würfel starten (siehe DICE_START_POSITIONS - bewusst
+	# derselbe für die Grube austarierte Fächer wie zuvor, nur jetzt
+	# zeitlich exakt an den Tiefpunkt des sichtbaren Wurfschwungs gekoppelt
+	# statt fest ans Kippen), sodass es wirkt, als würfe der Becher sie
+	# selbst in die Grube.
+	dice_cup.play_throw()
 	await dice_cup.poured_out
 	_clear_cup_interior_ghosts()
 	is_cup_animating = false
 	if game_state != GameState.PLAYING:
-		return  # Spiel wurde während des Auskippens zurückgesetzt/beendet
+		return  # Spiel wurde während des Wurfschwungs zurückgesetzt/beendet
 
 	is_rolling = true
 	dice.throw_unheld(throw_force, spin_strength)
