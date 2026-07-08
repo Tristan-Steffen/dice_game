@@ -4,47 +4,56 @@
 size = Vector3(20, 2, 17)
 
 [sub_resource type="BoxShape3D" id="Shape_WallNS"]
-size = Vector3(22, 8, 1)
+size = Vector3(22, 20, 1)
 
 [sub_resource type="BoxShape3D" id="Shape_WallEW"]
-size = Vector3(1, 8, 19)
+size = Vector3(1, 20, 19)
 
 [sub_resource type="BoxShape3D" id="Shape_PitClickZone"]
 size = Vector3(22, 10, 19)
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_Pit"]
+friction = 0.4
+bounce = 0.45
 
 [node name="DiceTray" type="Node3D"]
 
 [node name="Floor" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -8.23, 0)
 collision_mask = 0
+physics_material_override = SubResource("PhysicsMaterial_Pit")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
 shape = SubResource("Shape_Floor")
 
 [node name="North" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.23, 9.0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.77, 9.0)
 collision_mask = 0
+physics_material_override = SubResource("PhysicsMaterial_Pit")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="North"]
 shape = SubResource("Shape_WallNS")
 
 [node name="South" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.23, -9.0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.77, -9.0)
 collision_mask = 0
+physics_material_override = SubResource("PhysicsMaterial_Pit")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="South"]
 shape = SubResource("Shape_WallNS")
 
 [node name="East" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.7, -3.23, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.7, 2.77, 0)
 collision_mask = 0
+physics_material_override = SubResource("PhysicsMaterial_Pit")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="East"]
 shape = SubResource("Shape_WallEW")
 
 [node name="West" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.7, -3.23, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10.7, 2.77, 0)
 collision_mask = 0
+physics_material_override = SubResource("PhysicsMaterial_Pit")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="West"]
 shape = SubResource("Shape_WallEW")
