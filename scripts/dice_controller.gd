@@ -33,9 +33,9 @@ const KIND_TINTS := {
 	"fixed_4": Color(0.15, 0.65, 0.3),
 }
 
-## Markiert Würfel, die der Spieler fürs nächste Neu-Würfeln ausgewählt hat
-## (siehe set_held: das sind die NICHT gehaltenen, also held[i] == false).
-const REROLL_TINT := Color(1.0, 0.82, 0.2)
+## Markiert Würfel, die der Spieler vor dem nächsten "Neu würfeln" schützen
+## will (siehe set_selected/selected) - "Nehmen" nimmt ohnehin immer alle 6.
+const SELECT_TINT := Color(1.0, 0.82, 0.2)
 
 ## Ein Würfel gilt nur dann als "ruhig genug", wenn er zusätzlich fast flach
 ## auf einer Seite liegt (Dot der am besten ausgerichteten Achse mit UP) -
@@ -56,7 +56,7 @@ var bodies: Array[RigidBody3D]
 var face_displays: Array[DieFaceDisplay] = []
 
 var start_transforms: Array[Transform3D] = []
-var held: Array[bool] = []
+var selected: Array[bool] = []  # true = vor dem nächsten Neu-Würfeln geschützt (siehe set_selected)
 var values: Array[int] = []
 var settled: Array[bool] = []
 var rest_timers: Array[float] = []
@@ -69,7 +69,7 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays
 
 	for i in bodies.size():
 		start_transforms.append(bodies[i].global_transform)
-		held.append(false)
+		selected.append(false)
 		values.append(0)
 		settled.append(true)
 		rest_timers.append(0.0)
@@ -79,15 +79,16 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays
 func count() -> int:
 	return bodies.size()
 
-func throw_unheld(throw_force: float, spin_strength: float) -> void:
-	for i in count():
-		if held[i]:
-			settled[i] = true
-			continue
-
+## Wirft genau die Würfel bei indices (siehe scene_root.gd: entweder alle 6
+## beim ersten Wurf einer Hand, oder beim Neu-Würfeln nur die nicht
+## geschützten Slots). Alle anderen (geschützten) Slots bleiben unangetastet
+## liegen, mit ihrem alten Wert.
+func throw_slots(indices: Array[int], throw_force: float, spin_strength: float) -> void:
+	for i in indices:
 		roots[i].visible = true
 		settled[i] = false
 		rest_timers[i] = 0.0
+		bodies[i].freeze = false  # falls der Slot zuletzt als ausgewählt an den oberen Grubenrand geglitten war (siehe scene_root.gd: _play_cup_roll)
 
 		var body := bodies[i]
 		var start_transform := start_transforms[i]
@@ -129,35 +130,38 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 			all_settled = false
 	return all_settled
 
-## Spieler klickt Würfel an, um sie fürs nächste Neu-Würfeln auszuwählen - der
-## Klick markiert also fürs Werfen, nicht fürs Halten (is_held=false heißt
-## hier "ausgewählt zum Neu-Würfeln", daher der REROLL_TINT genau dann, wenn
-## NICHT gehalten wird).
-func set_held(index: int, is_held: bool) -> void:
-	held[index] = is_held
-	face_displays[index].set_tint(_style_tint(slot_defs[index]) if is_held else REROLL_TINT)
+## Spieler klickt einen noch nicht genommenen Würfel an, um ihn fürs nächste
+## "Nehmen" zu markieren (siehe SELECT_TINT).
+func set_selected(index: int, is_selected: bool) -> void:
+	selected[index] = is_selected
+	face_displays[index].set_tint(SELECT_TINT if is_selected else _style_tint(slot_defs[index]))
 
 func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
 
 func reset() -> void:
 	for i in count():
-		held[i] = false
+		selected[i] = false
 		values[i] = 0
 		settled[i] = true
 		rest_timers[i] = 0.0
 		roots[i].visible = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
 
-## Setzt die Neu-Würfeln-Auswahl zurück: nach jedem Wurf (erster Wurf einer
-## Hand oder Neu-Würfeln) startet die Auswahl wieder leer - alle Würfel gelten
-## als gehalten (werden also NICHT automatisch nochmal geworfen), bis der
-## Spieler gezielt welche fürs nächste Neu-Würfeln anklickt (siehe
-## scene_root.gd: _on_roll_finished/set_held).
-func mark_all_kept() -> void:
+## Leert die Schutz-Auswahl (nach jedem Wurf, siehe scene_root.gd:
+## _on_roll_finished) - der Spieler markiert für jede neue Lage der Grube
+## wieder gezielt, welche Würfel er vor dem nächsten Neu-Würfeln schützen will.
+func clear_selection() -> void:
 	for i in count():
-		held[i] = true
+		selected[i] = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
+
+## Markiert alle Würfel als geschützt vor dem nächsten Neu-Würfeln (siehe
+## scene_root.gd: SelectAllButton).
+func select_all() -> void:
+	for i in count():
+		selected[i] = true
+		face_displays[i].set_tint(SELECT_TINT)
 
 func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	slot_defs = defs.duplicate()

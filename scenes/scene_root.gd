@@ -14,14 +14,25 @@ extends Node3D
 ## Rest. Beim tatsächlichen Wurf verschwinden die gezogenen Würfel aus der
 ## Warteschlange, alles rückt nach (die Lücke entsteht hinten, nicht
 ## mittendrin) und die Würfel wandern - sobald sie nicht mehr im Spiel sind
-## (Neu-Würfeln ersetzt sie, oder die ganze Hand wird genommen/verworfen) -
-## ins Ablage-Tray. Die Runde endet, sobald der Pool keine volle Hand mehr
-## hergibt.
+## (Neu-Würfeln ersetzt sie, oder sie werden genommen/verworfen) - ins
+## Ablage-Tray. Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
 ##
-## Farkle (wie im gleichnamigen Spiel): Ein Neu-Würfeln, das NICHT mehr Punkte
-## bringt als der Stand davor (gleich viele oder weniger), "farklet" – die
-## aktuelle Hand wird ohne Punkte verworfen und die nächste Hand aus dem
-## Rest-Pool gezogen. Der erste Wurf einer Hand kann nie farkeln.
+## Nehmen nimmt immer die komplette Hand (alle 6 Würfel, siehe
+## DiceScoring.best_hand über dice.values): ihr Wert wird verbucht, alle 6
+## wandern ins Ablage-Tray, danach beginnt die nächste Hand. Die Auswahl
+## einzelner Würfel (siehe DiceController.selected/DiceTray-Klick, "Alle
+## auswählen") entscheidet NICHT, was Nehmen nimmt, sondern nur, welche
+## Würfel vor dem nächsten "Neu würfeln" geschützt sind - ausgewählte Würfel
+## bleiben unangetastet liegen, alle anderen bekommen einen neu gezogenen
+## Würfel und werden geworfen (siehe throw_slots). Nach jedem Wurf markiert
+## das Spiel automatisch die aktuell beste offene Kombination zum Schutz vor
+## (siehe _auto_select_best_combo) - der Spieler kann das frei umklicken.
+##
+## Farkle (wie im gleichnamigen Spiel): Bringt ein Neu-Würfeln nicht mehr
+## Punkte als der Stand direkt davor (gleich viele oder weniger), "farklet" -
+## die komplette Hand wird ohne Punkte verworfen (nichts war ja schon
+## genommen, siehe _on_take_button_pressed). Der erste Wurf einer Hand kann
+## nie farkeln.
 
 @export var throw_force: float = 50.0
 @export var spin_strength: float = 14.0
@@ -54,20 +65,35 @@ const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen, siehe _near
 const CUP_FLY_DURATION := 0.4  # wie lange die gezogenen Würfel zum Becher fliegen, siehe _play_cup_roll
 const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, siehe DiceCup.play_shake
 
+## Wo geschützte (ausgewählte, noch nicht genommene) Würfel beim nächsten Wurf
+## hingleiten (siehe _pit_top_row_position/_play_cup_roll): eine mittig
+## zentrierte Reihe am oberen Rand der Grube (Welt-X positiv = Bildschirm-oben,
+## siehe QUEUE_TRAY_PIT_POSITION), innerhalb der elliptischen Grubenwand
+## (Halbachse 10.5, siehe scripts/dice_tray.gd) mit Sicherheitsabstand zur Wand.
+const PIT_TOP_ROW_X := 7.0
+const PIT_TOP_ROW_SPACING := 2.4
+
 enum GameState { PLAYING, SHOP, GAME_OVER }
 
-@onready var throw_button: Button = $UI/ThrowButton
 @onready var take_button: Button = $UI/TakeButton
-@onready var reset_button: Button = $UI/ResetButton
-@onready var debug_win_round_button: Button = $UI/DebugWinRoundButton
-@onready var round_label: Label = $UI/RoundLabel
+@onready var select_all_button: Button = $UI/SelectAllButton
+@onready var settings_menu: VBoxContainer = $UI/SettingsMenu
+@onready var settings_toggle_button: Button = $UI/SettingsToggleButton
+@onready var reset_button: Button = $UI/SettingsMenu/ResetButton
+@onready var debug_win_round_button: Button = $UI/SettingsMenu/DebugWinRoundButton
+@onready var round_hud: Control = $UI/RoundHud
+@onready var round_badge_label: Label = $UI/RoundHud/RoundBadgeLabel
+@onready var points_bar: ProgressBar = $UI/RoundHud/PointsBar
+@onready var points_label: Label = $UI/RoundHud/PointsBar/PointsLabel
 @onready var hand_label: Label = $UI/HandLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
+@onready var shop_title_label: Label = $UI/ShopPanel/VBoxContainer/TitleLabel
 @onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
+@onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
 
 @onready var die_inspector: DieInspectorView = $UI/DieInspectorView
 
@@ -89,6 +115,9 @@ var is_rolling: bool = false
 var is_cup_animating: bool = false  # true während Würfel in den Becher fliegen/er schüttelt, siehe _play_cup_roll
 var has_rolled_current_hand: bool = false
 var hand_total: int = 0
+
+var displayed_points: int = 0  # aktuell im Zielbalken/-text gezeigter Punktestand, läuft hand_total animiert hinterher (siehe _animate_points_to)
+var points_tween: Tween
 
 var game_state: GameState = GameState.PLAYING
 var round_number: int = 1
@@ -129,10 +158,10 @@ var reorder_is_dragging: bool = false
 var reorder_ghost: Node3D
 
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
-## werden (nur die Position zählt - throw_unheld() berechnet die Wurfrichtung
+## werden (nur die Position zählt - throw_slots() berechnet die Wurfrichtung
 ## daraus, die Rotation ist irrelevant, da die Würfel bis zum ersten Wurf
 ## unsichtbar sind). Das ist der ursprünglich für die Grube austarierte
-## Fächer aus 6 Positionen (siehe throw_unheld: Wurfrichtung = Richtung zum
+## Fächer aus 6 Positionen (siehe throw_slots: Wurfrichtung = Richtung zum
 ## Ursprung), nur um die Y-Achse gedreht, sodass er vom Würfelbecher (siehe
 ## DiceCup, rechter Rand der Grube) her kommt statt von der alten,
 ## becherlosen Seite - der Abstand jeder Position zum Ursprung (und damit
@@ -171,9 +200,41 @@ func _ready() -> void:
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
+	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
 
+	_style_ui()
 	_populate_legend()
 	_reset_game()
+
+## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
+## CasinoStyle) - jede Aktion bekommt ihre eigene Akzentfarbe: Nehmen = Gold,
+## Auswählen = Blau, Kombinationen = Grün, Einstellungen = Lila, Neues Spiel =
+## Rot (Gefahr), Debug = Blau. Der Punktetext leuchtet cremeweiß mit Umriss.
+func _style_ui() -> void:
+	CasinoStyle.style_score_label(hand_label, 30)
+	CasinoStyle.style_chip_label(round_badge_label, 20)
+	CasinoStyle.style_progress_bar(points_bar)
+	CasinoStyle.style_score_label(points_label, 17)
+
+	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
+	CasinoStyle.style_button(legend_toggle_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
+	CasinoStyle.style_button(settings_toggle_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 16)
+	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
+	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
+	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+
+	CasinoStyle.style_panel(shop_panel)
+	CasinoStyle.style_panel(game_over_panel)
+	CasinoStyle.style_panel(legend_panel)
+
+	CasinoStyle.style_score_label(shop_title_label, 22, CasinoStyle.GOLD)
+	CasinoStyle.style_score_label(game_over_label, 24)
+	CasinoStyle.style_body_label(legend_content_label, 15)
+
+## Klappt die Einstellungsleiste unten rechts (Neues Spiel / Debug) auf/zu.
+func _on_settings_toggle_pressed() -> void:
+	settings_menu.visible = not settings_menu.visible
 
 ## Klappt die Kombinationen-Übersicht auf/zu (siehe LegendToggleButton).
 func _on_legend_toggle_pressed() -> void:
@@ -214,11 +275,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_pit_focused and _try_cup_click(event.position):
 		return
 
-	if _can_toggle_hold():
+	if _can_toggle_selection():
 		var index := _pick_die_index(event.position)
 		if index != -1:
-			dice.set_held(index, not dice.held[index])
-			_refresh_deck_trays()
+			dice.set_selected(index, not dice.selected[index])
+			_refresh_action_buttons()
 			return
 
 	if not is_rolling and not is_cup_animating and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
@@ -496,8 +557,8 @@ func _try_cup_click(screen_pos: Vector2) -> bool:
 	_on_throw_button_pressed()
 	return true
 
-func _can_toggle_hold() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand and _remaining_in_pool() > 0
+func _can_toggle_selection() -> bool:
+	return game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -527,22 +588,18 @@ func _draw_one() -> DieDefinition:
 func _discard_kind(def: DieDefinition) -> void:
 	discard_tray_view.add_die(def)
 
-## Schickt die komplette aktuelle Hand (alle 6 Slots, egal ob gehalten) ins
-## Ablage-Tray - wird aufgerufen, sobald eine Hand genommen oder verworfen wird.
-func _discard_active_hand() -> void:
-	for kind in active_kinds:
-		_discard_kind(kind)
-
 ## Wie viele der im Warteschlangen-Tray angezeigten Würfel beim nächsten Wurf
 ## tatsächlich gezogen werden (siehe fill()-Aufruf in _refresh_deck_trays):
-## vor dem ersten Wurf einer Hand immer HAND_SIZE, danach genau so viele wie
-## aktuell nicht gehalten werden (begrenzt auf das, was der Pool noch hergibt).
+## vor dem ersten Wurf einer Hand immer HAND_SIZE, danach genau so viele, wie
+## nicht ausgewählte (also nicht geschützte) Slots neu geworfen werden
+## (begrenzt auf das, was der Pool noch hergibt) - ausgewählte Würfel
+## brauchen keinen Nachschub, siehe _on_throw_button_pressed.
 func _current_queue_size() -> int:
 	var wanted := HAND_SIZE
 	if has_rolled_current_hand:
 		wanted = 0
 		for i in dice.count():
-			if not dice.held[i]:
+			if not dice.selected[i]:
 				wanted += 1
 	return min(wanted, _remaining_in_pool())
 
@@ -641,22 +698,19 @@ func _on_throw_button_pressed() -> void:
 		fly_positions.append(queue_tray_view.slot_global_position(i))
 		fly_defs.append(queue_tray_view.slot_defs[i])
 
-	# Beim Neu-Würfeln: welche Grube-Würfel gleich ausgetauscht werden (siehe
-	# Ersetzungsschleife unten), VOR dem Ziehen mit Position + Art merken und
-	# sofort ausblenden - sie sollen gleichzeitig mit den neuen Würfeln (siehe
-	# fly_positions/fly_defs oben) sichtbar Richtung Ablage-Tray fliegen,
-	# statt erst beim eigentlichen Wurf zu verschwinden (siehe _play_cup_roll).
-	# simulated_remaining bildet exakt dieselbe Pool-Abnahme wie die echte
-	# Ersetzungsschleife nach, damit hier genauso viele Würfel fliegen, wie
-	# dort tatsächlich ersetzt werden.
+	# Alle nicht ausgewählten (also ungeschützten) Würfel, die dieser Wurf
+	# ersetzt (siehe _current_queue_size), fliegen jetzt sichtbar Richtung
+	# Ablage-Tray, gleichzeitig mit den neuen Würfeln, die aus der
+	# Warteschlange in den Becher fliegen (siehe _play_cup_roll). Vor dem
+	# allerersten Wurf einer Hand ist active_kinds noch leer, daher nur
+	# relevant, wenn schon mindestens einmal geworfen wurde.
 	var discard_from: Array[Vector3] = []
 	var discard_defs: Array[DieDefinition] = []
 	var discard_to: Array[Vector3] = []
 	if has_rolled_current_hand:
-		var simulated_remaining := _remaining_in_pool()
 		var next_free := discard_tray_view.next_free_index
 		for i in dice.count():
-			if dice.held[i] or simulated_remaining <= 0:
+			if dice.selected[i]:
 				continue
 			if next_free >= discard_tray_view.slot_roots.size():
 				break
@@ -664,36 +718,57 @@ func _on_throw_button_pressed() -> void:
 			discard_defs.append(active_kinds[i])
 			discard_to.append(discard_tray_view.slot_global_position(next_free))
 			dice.roots[i].visible = false
-			simulated_remaining -= 1
 			next_free += 1
 
+	# Ausgewählte, noch nicht genommene Würfel sind vor diesem Wurf geschützt
+	# (siehe _current_queue_size) - sie gleiten beim selben Wurf sichtbar an
+	# den oberen Rand der Grube (siehe _pit_top_row_position), statt zwischen
+	# den frisch geworfenen Würfeln unterzugehen.
+	var move_top_indices: Array[int] = []
+	var move_top_targets: Array[Vector3] = []
+	if has_rolled_current_hand:
+		var selected_indices: Array[int] = []
+		for i in dice.count():
+			if dice.selected[i]:
+				selected_indices.append(i)
+		for k in selected_indices.size():
+			var i: int = selected_indices[k]
+			move_top_indices.append(i)
+			move_top_targets.append(_pit_top_row_position(k, selected_indices.size(), dice.bodies[i].global_position.y))
+
 	is_cup_animating = true
-	throw_button.disabled = true
 	take_button.disabled = true
+	select_all_button.disabled = true
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
+	var thrown_indices: Array[int] = []
 	if not has_rolled_current_hand:
-		# Erster Wurf der Hand: die markierten (gequeuten) Würfel jetzt wirklich ziehen.
+		# Erster Wurf der Hand: die markierten (gequeuten) Würfel jetzt wirklich
+		# ziehen und alle gezogenen Slots werfen.
 		hand_note = ""
 		active_kinds = []
 		for i in HAND_SIZE:
 			if _remaining_in_pool() <= 0:
 				break
 			active_kinds.append(_draw_one())
+			thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
 	else:
-		# Reroll: Hand vor dem Wurf merken (für Farkle-Vergleich), nicht gehaltene
-		# Würfel durch markierten Ersatz ersetzen (die Ablage passiert bereits
-		# fliegend oben in discard_from/discard_defs/discard_to).
+		# Neu würfeln: alle NICHT ausgewählten (also nicht geschützten) Slots
+		# bekommen einen neu gezogenen Würfel und werden geworfen (siehe
+		# throw_slots). Ausgewählte Würfel (siehe set_selected/
+		# _auto_select_best_combo) sind geschützt und bleiben komplett
+		# unangetastet liegen.
 		pre_reroll_values = dice.values.duplicate()
 		for i in dice.count():
-			if not dice.held[i] and _remaining_in_pool() > 0:
+			if not dice.selected[i] and _remaining_in_pool() > 0:
 				active_kinds[i] = _draw_one()
+				thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
-	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to)
+	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
 	if game_state != GameState.PLAYING:
 		is_cup_animating = false
 		_clear_cup_interior_ghosts()
@@ -713,17 +788,18 @@ func _on_throw_button_pressed() -> void:
 		return  # Spiel wurde während des Wurfschwungs zurückgesetzt/beendet
 
 	var start_positions := _throw_start_positions()
-	for i in dice.count():
-		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[i])
+	for k in thrown_indices.size():
+		var i: int = thrown_indices[k]
+		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[k])
 	is_rolling = true
-	dice.throw_unheld(throw_force, spin_strength)
+	dice.throw_slots(thrown_indices, throw_force, spin_strength)
 	_refresh_ui()
 
 ## Startpositionen der echten Wurf-Würfel für den Moment von poured_out: ein
 ## enges Bündel um die aktuelle (geschwungene) Becher-Mündung, mit kleinem
 ## Zufalls-Versatz je Würfel für eine natürliche Streuung beim Landen -
 ## sodass sie sichtbar aus der Mündung kommen statt an einer festen,
-## unabhängigen Stelle zu erscheinen (siehe DiceController.throw_unheld:
+## unabhängigen Stelle zu erscheinen (siehe DiceController.throw_slots:
 ## Wurfrichtung/-stärke ergeben sich pro Würfel automatisch aus seiner
 ## Startposition relativ zum Grubenzentrum).
 func _throw_start_positions() -> Array[Vector3]:
@@ -732,6 +808,16 @@ func _throw_start_positions() -> Array[Vector3]:
 	for i in dice.count():
 		positions.append(mouth + Vector3(randf_range(-0.6, 0.6), randf_range(-0.2, 0.2), randf_range(-0.6, 0.6)))
 	return positions
+
+## Zielposition für einen geschützten (ausgewählten, noch nicht genommenen)
+## Würfel, der beim nächsten Wurf an den oberen Grubenrand gleitet (siehe
+## _on_throw_button_pressed): eine mittig zentrierte Reihe, deren Breite sich
+## nach der Anzahl geschützter Würfel richtet. y bleibt die des jeweiligen
+## Würfels selbst (flacher Boden - nur X/Z ändern sich, kein Höhensprung).
+func _pit_top_row_position(slot_number: int, count: int, y: float) -> Vector3:
+	var span := PIT_TOP_ROW_SPACING * float(count - 1)
+	var z := -span * 0.5 + PIT_TOP_ROW_SPACING * float(slot_number)
+	return Vector3(PIT_TOP_ROW_X, y, z)
 
 ## Gibt die Fake-Würfel frei, die während des Schüttelns sichtbar im Becher
 ## liegen (siehe cup_interior_ghosts/_play_cup_roll) - aufgerufen im Moment
@@ -742,21 +828,24 @@ func _clear_cup_interior_ghosts() -> void:
 		ghost.queue_free()
 	cup_interior_ghosts.clear()
 
-## Lässt die tatsächlich gezogenen Würfel (fly_defs, vorher an den
-## Warteschlangen-Positionen fly_positions) sichtbar in den Würfelbecher
-## fliegen, UND gleichzeitig die beim Neu-Würfeln ausgetauschten Grube-Würfel
-## (discard_defs, vorher an discard_from) sichtbar Richtung Ablage-Tray
-## (discard_to) - beides im selben parallelen Tween, damit es exakt
-## gleichzeitig passiert. Erst wenn beide Flüge fertig sind, werden die
+## Lässt beim Start eines Wurfs drei Bewegungen gleichzeitig ablaufen: die
+## tatsächlich gezogenen Würfel (fly_defs, vorher an den
+## Warteschlangen-Positionen fly_positions) fliegen sichtbar in den
+## Würfelbecher; die dadurch ersetzten Würfel (discard_defs, vorher an
+## discard_from) fliegen sichtbar Richtung Ablage-Tray (discard_to); und die
+## geschützten, ausgewählten Würfel (move_top_indices, ihre echten
+## RigidBody3D - keine Ghosts, sie bleiben ja im Spiel) gleiten an ihre neue
+## Position am oberen Grubenrand (move_top_targets, siehe
+## _pit_top_row_position). Erst wenn alles fertig geflogen ist, werden die
 ## Ablage-Würfel wirklich im Ablage-Tray sichtbar (siehe _discard_kind); die
-## im Becher angekommenen Würfel werden stattdessen NICHT gelöscht, sondern
-## in $DiceCup/MeshRoot eingehängt (siehe cup_interior_ghosts) - dadurch
-## liegen sie sichtbar im Becher und wackeln beim Schütteln (siehe
+## im Becher angekommenen Würfel werden NICHT gelöscht, sondern in
+## $DiceCup/MeshRoot eingehängt (siehe cup_interior_ghosts) - dadurch liegen
+## sie sichtbar im Becher und wackeln beim Schütteln (siehe
 ## DiceCup.play_shake) automatisch mit, ganz ohne eigene Physik. Sie
 ## verschwinden erst im Aufrufer (_on_throw_button_pressed), sobald der
 ## Becher tatsächlich auskippt.
-func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3]) -> void:
-	if fly_defs.is_empty() and discard_defs.is_empty():
+func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
+	if fly_defs.is_empty() and discard_defs.is_empty() and move_top_indices.is_empty():
 		return
 
 	var fly_tween := create_tween()
@@ -779,6 +868,11 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 		discard_ghosts.append(ghost)
 		fly_tween.tween_property(ghost, "global_position", discard_to[i], CUP_FLY_DURATION)
 
+	for k in move_top_indices.size():
+		var body := dice.bodies[move_top_indices[k]]
+		body.freeze = true
+		fly_tween.tween_property(body, "global_position", move_top_targets[k], CUP_FLY_DURATION)
+
 	await fly_tween.finished
 	for ghost in cup_ghosts:
 		ghost.reparent(dice_cup.mesh_root, true)
@@ -796,54 +890,86 @@ func _on_roll_finished() -> void:
 	is_rolling = false
 
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
-	# einer Hand nie, und auch kein "Neu würfeln" ohne freie Würfel (alles
-	# gehalten = kein Risiko). Bringt der Wurf nicht mehr Punkte als vorher
-	# (gleich viele oder weniger), ist die Hand verloren.
-	if last_throw_was_reroll and _any_unheld() and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values):
+	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
+	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values):
 		_on_farkle()
 		return
 
-	# Neu-Würfeln-Auswahl für die nächste Entscheidung leeren: der Spieler
-	# markiert gezielt, welche Würfel er als Nächstes neu würfeln will (siehe
-	# DiceController.mark_all_kept) - nach diesem Wurf gilt erstmal wieder
-	# "alle gehalten", bis er klickt.
-	dice.mark_all_kept()
+	# Nehmen-Auswahl für die jetzt liegenden Würfel neu setzen: automatisch die
+	# beste offene Kombination vorschlagen (siehe _auto_select_best_combo),
+	# der Spieler kann sie danach frei umklicken.
+	dice.clear_selection()
+	_auto_select_best_combo()
 
 	has_rolled_current_hand = true
-	take_button.disabled = false
-	throw_button.disabled = _remaining_in_pool() <= 0
+	_refresh_action_buttons()
 	_refresh_deck_trays()
 	_refresh_ui()
 
-func _any_unheld() -> bool:
-	for i in dice.count():
-		if not dice.held[i]:
-			return true
-	return false
-
-## Farkle: die aktuelle Hand wird ohne Punkte verworfen. Die verbrauchten Würfel
-## sind bereits aus dem Pool gezogen; es geht direkt mit der nächsten Hand
-## weiter (bzw. die Runde endet, wenn der Pool keine volle Hand mehr hergibt).
+## Farkle: die komplette Hand wird ohne Punkte verworfen (nichts war ja schon
+## genommen - Nehmen wirkt immer auf alle 6, siehe _on_take_button_pressed).
+## Die verbrauchten Würfel sind bereits aus dem Pool gezogen; es geht direkt
+## mit der nächsten Hand weiter (bzw. die Runde endet, wenn der Pool keine
+## volle Hand mehr hergibt).
 func _on_farkle() -> void:
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
-	_discard_active_hand()
+	for kind in active_kinds:
+		_discard_kind(kind)
 	if _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
 
+## Nimmt die komplette Hand (alle 6 Würfel, siehe DiceScoring.best_hand über
+## dice.values): der Wert wird zum Rundenstand addiert, alle 6 wandern ins
+## Ablage-Tray. Welche Würfel gerade ausgewählt (siehe DiceController.selected)
+## sind, spielt für Nehmen keine Rolle - die Auswahl steuert nur noch, welche
+## Würfel beim nächsten "Neu würfeln" geschützt sind (siehe
+## _on_throw_button_pressed).
 func _on_take_button_pressed() -> void:
 	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
 		return
 
 	var hand := DiceScoring.best_hand(dice.values)
 	hand_total += hand["score"]
-	_discard_active_hand()
+	_animate_points_to(hand_total)
+
+	for kind in active_kinds:
+		_discard_kind(kind)
 
 	if _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
+
+## Markiert alle Würfel fürs nächste "Neu würfeln" als geschützt (siehe
+## DiceController.select_all) - nützlich, um versehentliches Neu-Würfeln der
+## kompletten Hand zu vermeiden.
+func _on_select_all_button_pressed() -> void:
+	if game_state != GameState.PLAYING or is_rolling or is_cup_animating or not has_rolled_current_hand:
+		return
+	dice.select_all()
+	_refresh_action_buttons()
+
+## Markiert nach jedem Wurf automatisch die Würfel, die gerade die beste offene
+## Kombination bilden (siehe DiceScoring.best_hand_indices), z.B. bei 3 Vierern
+## + 2 Zweiern + einer 5 das Full House aus den 5 Vierern/Zweiern, ohne die
+## unbeteiligte 5 - reiner Vorschlag fürs Schützen vor dem nächsten
+## "Neu würfeln" (Nehmen nimmt ohnehin immer alle 6). Der Spieler kann die
+## Vorschläge danach frei umklicken.
+func _auto_select_best_combo() -> void:
+	for position in DiceScoring.best_hand_indices(dice.values):
+		dice.set_selected(position, true)
+
+## Aktualisiert Nehmen/Alle-auswählen: beide sind nutzbar, sobald eine Hand
+## liegt und weder gewürfelt noch der Becher gerade animiert wird - Nehmen
+## hängt (anders als in einer früheren Version) nicht mehr von einer Auswahl
+## ab, da es immer die komplette Hand nimmt (siehe _on_take_button_pressed).
+func _refresh_action_buttons() -> void:
+	var interactable := game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand
+	take_button.disabled = not interactable
+	select_all_button.disabled = not interactable
 
 func _on_reset_button_pressed() -> void:
 	_reset_game()
@@ -876,20 +1002,22 @@ func _start_new_round() -> void:
 	discard_tray_view.clear()
 	hand_total = 0
 	hand_note = ""
+	_refresh_round_hud()
+	_animate_points_to(0, false)
 	_start_new_hand()
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
 	active_kinds = []
 	dice.reset()
-	throw_button.disabled = false
 	take_button.disabled = true
+	select_all_button.disabled = true
 	_refresh_deck_trays()
 	_refresh_ui()
 
 func _on_round_complete() -> void:
-	throw_button.disabled = true
 	take_button.disabled = true
+	select_all_button.disabled = true
 	if hand_total >= round_goal:
 		game_state = GameState.SHOP
 		_show_shop()
@@ -902,8 +1030,8 @@ func _on_debug_win_round_pressed() -> void:
 		return
 	is_rolling = false
 	hand_total = round_goal
-	throw_button.disabled = true
 	take_button.disabled = true
+	select_all_button.disabled = true
 	game_state = GameState.SHOP
 	_show_shop()
 
@@ -938,9 +1066,9 @@ func _update_queue_tray_dock() -> void:
 func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
-	round_label.visible = show_ui
-	throw_button.visible = show_ui
+	round_hud.visible = show_ui
 	take_button.visible = show_ui
+	select_all_button.visible = show_ui
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
@@ -984,15 +1112,55 @@ func _show_game_over(total: int) -> void:
 	game_over_panel.visible = true
 
 func _refresh_ui() -> void:
-	round_label.text = "Runde %d · Ziel: %d Punkte · Bisher: %d" % [round_number, round_goal, hand_total]
+	_refresh_round_hud()
 
 	if not has_rolled_current_hand:
-		hand_label.text = hand_note if hand_note != "" else "Würfle, um deine Hand zu sehen"
-		throw_button.text = "Würfeln"
+		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 	else:
 		var hand := DiceScoring.best_hand(dice.values)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
 		hand_label.text = "%s  →  %s ×%d  =  %d Punkte" % [" ".join(value_strings), hand["label"], hand["mult"], hand["score"]]
-		throw_button.text = "Neu würfeln"
+
+## Aktualisiert die statischen Teile der Runden-Anzeige (Rundenzahl, Balken-
+## Obergrenze) - der aktuell gezeigte Punktestand läuft separat und animiert
+## über _animate_points_to, damit ein Zuwachs sichtbar hochzählt statt zu
+## springen. Harmlos, auch wenn mehrfach ohne echte Änderung aufgerufen (siehe
+## _refresh_ui - läuft nach jedem Wurf, nicht nur bei neuer Punktzahl).
+func _refresh_round_hud() -> void:
+	round_badge_label.text = "Runde %d" % round_number
+	points_bar.max_value = round_goal
+
+## Lässt die Punkteanzeige (Balken + Zahl) von ihrem aktuell gezeigten Wert
+## sichtbar zu target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt)
+## statt sofort zu springen - inklusive kurzem Aufplustern des Zahlentexts bei
+## einem Zuwachs (siehe _pulse_points_label). animate=false für den harten
+## Rundenreset auf 0 (siehe _start_new_round), da dort nichts "erspielt" wurde.
+func _animate_points_to(target: int, animate: bool = true) -> void:
+	if points_tween:
+		points_tween.kill()
+	if not animate:
+		_set_displayed_points(target)
+		return
+	var gained := target > displayed_points
+	points_tween = create_tween()
+	points_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	points_tween.tween_method(_set_displayed_points, displayed_points, target, 0.6)
+	if gained:
+		_pulse_points_label()
+
+func _set_displayed_points(value: int) -> void:
+	displayed_points = value
+	points_bar.value = value
+	points_label.text = "%d / %d Punkte" % [value, round_goal]
+
+## Kurzes elastisches Aufplustern des Punktetexts, sobald sich der Stand
+## erhöht - kleiner "Arcade-Pop", der einen Punktezuwachs zusätzlich zum
+## Hochzählen spürbar macht.
+func _pulse_points_label() -> void:
+	points_label.pivot_offset = points_label.size / 2.0
+	points_label.scale = Vector2(1.35, 1.35)
+	var pulse := create_tween()
+	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pulse.tween_property(points_label, "scale", Vector2.ONE, 0.4)
