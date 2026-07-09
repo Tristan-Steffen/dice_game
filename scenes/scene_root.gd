@@ -52,8 +52,6 @@ const GOAL_INCREMENT := 50
 
 const MONEY_PER_ROUND_CLEAR := 5  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
 const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rundenpool beim Rundenziel-Erreichen, siehe _on_round_complete/_remaining_in_pool
-const DIE_PRICE := 15  # Preis pro Shop-Würfel-Kauf, beliebig oft wiederholbar (siehe _on_shop_die_clicked)
-const CHARM_PRICE := 25  # Preis pro Charm-Kauf, je Charm nur einmal pro Besuch verfügbar (siehe _on_shop_charm_clicked)
 
 ## Auszahlungs-Animation der beiden Tisch-Texte (siehe blind_payout_label3d/
 ## dice_payout_label3d, _play_round_clear_payout) - PAYOUT_FLASH_DURATION ist
@@ -76,19 +74,6 @@ const PAYOUT_LABEL_BASE_COLOR := Color(0.58, 0.52, 0.4)  # gedämpfte Messingfar
 ## (siehe _update_queue_tray_dock).
 const QUEUE_TRAY_PIT_POSITION := Vector3(-13.0, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
-
-## Physische Charms auf dem Tisch (siehe _refresh_charm_models): sechs feste
-## Plätze auf einem symmetrischen Kreisbogen entlang des hinteren Tischrands
-## (hohes +X = Bildschirm-oben in der Grubenansicht, siehe QUEUE_TRAY_PIT_POSITION),
-## damit sie beim Würfeln immer sichtbar am oberen Bildrand liegen. Die Plätze
-## sind gleichmäßig um 25° versetzt und spiegelsymmetrisch zur X-Achse (Z=0);
-## die Reihenfolge der Plätze = Reihenfolge der Charms (Index 0 links). Jeder
-## Charm liegt flach, zur Grubenmitte gedreht.
-const CHARM_SPOT_ANGLES_DEG: Array[float] = [-62.5, -37.5, -12.5, 12.5, 37.5, 62.5]
-const CHARM_SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum, entlang des hinteren Tischrands
-const CHARM_SPOT_Y := -2.675  # Höhe der Tischoberfläche (siehe frühere Handplatzierung)
-const CHARM_MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
-const CHARM_MODEL_FALLBACK := "res://assets/models/lucky+charm+3d+model.glb"  # Platzhaltermodell für Charms ohne eigenes Modell (siehe Charm.model_path)
 
 const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
 
@@ -123,14 +108,11 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var charms_label: Label = $UI/CharmsLabel
 @onready var money_label: Label = $UI/MoneyLabel
 
-@onready var shop_panel: Panel = $UI/ShopPanel
-@onready var shop_title_label: Label = $UI/ShopPanel/VBoxContainer/TitleLabel
-@onready var shop_dice_section_label: Label = $UI/ShopPanel/VBoxContainer/DiceSectionLabel
-@onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
-@onready var shop_charm_section_label: Label = $UI/ShopPanel/VBoxContainer/CharmSectionLabel
-@onready var shop_charm_options_container: HBoxContainer = $UI/ShopPanel/VBoxContainer/CharmOptionsContainer
-@onready var shop_message_label: Label = $UI/ShopPanel/VBoxContainer/ShopMessageLabel
-@onready var shop_done_button: Button = $UI/ShopPanel/VBoxContainer/DoneButton
+## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
+## ShopController) - scene_root spricht ihn nur über charm_shop.open() an und
+## stellt ihm eine kleine öffentliche Spiel-API bereit (player_money,
+## owned_charm_ids, purchase_die, purchase_charm) sowie das closed-Signal.
+@onready var charm_shop: ShopController = $UI/ShopPanel
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
@@ -152,7 +134,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
-@onready var charms_container: Node3D = $Charms
+@onready var charm_row: CharmRowView = $Charms
 
 var dice: DiceController
 
@@ -171,21 +153,9 @@ var round_goal: int = BASE_GOAL
 var hands_taken_this_round: int = 0  # wie viele Hände in dieser Runde schon genommen wurden - für Charms, die nur die erste Hand betreffen (Zauberkarte, siehe _is_first_scored_hand)
 var chimney_sweep_used_this_round: bool = false  # ob der Schornsteinfeger-Charm seinen einmaligen Farkle-Erlass diese Runde schon verbraucht hat (siehe _on_farkle)
 
-var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids
-var charm_nodes: Array[Node3D] = []  # aktuell auf dem Tisch platzierte Charm-Modelle, eins je besessenem Charm (siehe _refresh_charm_models)
+var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids; physisch angezeigt über charm_row
 
 var money: int = 0  # Spielwährung, siehe _add_money/_refresh_money_label - läuft über einen ganzen Spiellauf, nicht nur eine Runde
-
-## Shop-Angebot: Käufe wirken sofort (siehe _on_shop_die_clicked/
-## _on_shop_charm_clicked), keine Bestätigung nötig - der Spieler kauft, so
-## viel er sich leisten will/kann, und schließt selbst mit "Fertig" ab
-## (siehe _on_shop_done_pressed). Jede Kategorie (Würfel, Charms, künftig
-## weitere) bekommt ihre eigene Optionsliste nach diesem Vorbild.
-var shop_die_options: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker), beliebig oft nachkaufbar
-
-var shop_charm_options: Array[Charm] = []  # aktuell im Shop angebotene Charm-Kandidaten (Reihenfolge = shop_charm_options_container)
-var shop_charm_buttons: Array[Button] = []  # dynamisch gebaute Buttons für shop_charm_options, siehe _populate_shop_charm_options
-var shop_charm_bought: Array[bool] = []  # welche shop_charm_options in diesem Besuch schon gekauft wurden (nicht erneut kaufbar)
 var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
@@ -252,14 +222,8 @@ func _ready() -> void:
 
 	queue_tray_home_position = queue_tray_view.position
 
-	shop_die_options = [
-		DieDefinition.fixed(6, "Immer 6"),
-		DieDefinition.fixed(5, "Immer 5"),
-		DieDefinition.fixed(4, "Immer 4"),
-	]
-	shop_dice_picker.set_dice(shop_die_options)
-	shop_dice_picker.die_clicked.connect(_on_shop_die_clicked)
-	shop_done_button.pressed.connect(_on_shop_done_pressed)
+	charm_shop.game = self
+	charm_shop.closed.connect(_on_shop_closed)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
@@ -288,18 +252,13 @@ func _style_ui() -> void:
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
-	CasinoStyle.style_button(shop_done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
-	CasinoStyle.style_panel(shop_panel)
 	CasinoStyle.style_panel(game_over_panel)
 	CasinoStyle.style_panel(legend_panel)
 
-	CasinoStyle.style_score_label(shop_title_label, 22, CasinoStyle.GOLD)
-	CasinoStyle.style_chip_label(shop_dice_section_label, 18, CasinoStyle.BLUE)
-	CasinoStyle.style_chip_label(shop_charm_section_label, 18, CasinoStyle.PURPLE)
-	CasinoStyle.style_body_label(shop_message_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_score_label(game_over_label, 24)
 	CasinoStyle.style_body_label(legend_content_label, 15)
+	# Der Shop stylt sich selbst (siehe ShopController._ready).
 
 ## Klappt die Einstellungsleiste unten rechts (Neues Spiel / Debug) auf/zu.
 func _on_settings_toggle_pressed() -> void:
@@ -338,43 +297,6 @@ func _refresh_charms_label() -> void:
 	for charm in owned_charms:
 		names.append(charm.display_name)
 	charms_label.text = "Charms: %s" % ", ".join(names)
-
-## Baut die physischen Charm-Modelle auf dem Tisch neu auf (siehe
-## charms_container/CHARM_SPOT_*): je besessenem Charm ein Modell auf dem
-## nächsten festen Platz, in der Reihenfolge von owned_charms (Index 0 = erster
-## Platz links). Wird bei jeder Änderung an owned_charms aufgerufen (Kauf,
-## Reset). Owned-getrieben - freie Plätze bleiben leer.
-func _refresh_charm_models() -> void:
-	for node in charm_nodes:
-		node.queue_free()
-	charm_nodes.clear()
-	for i in owned_charms.size():
-		if i >= CHARM_SPOT_ANGLES_DEG.size():
-			break  # mehr Charms als Plätze - sollte durch die Shop-Obergrenze nie passieren
-		var model := _load_charm_model(owned_charms[i])
-		charms_container.add_child(model)
-		model.transform = _charm_spot_transform(i)
-		charm_nodes.append(model)
-
-## Instanziert das 3D-Modell eines Charms (Charm.model_path), oder ersatzweise
-## das Platzhaltermodell (CHARM_MODEL_FALLBACK), solange der Charm noch kein
-## eigenes hat.
-func _load_charm_model(charm: Charm) -> Node3D:
-	var path := charm.model_path
-	if path == "" or not ResourceLoader.exists(path):
-		path = CHARM_MODEL_FALLBACK
-	var packed: PackedScene = load(path)
-	return packed.instantiate()
-
-## Transform des festen Charm-Platzes i: Position auf dem symmetrischen
-## Kreisbogen (siehe CHARM_SPOT_*), flach liegend und zur Grubenmitte (Ursprung)
-## gedreht.
-func _charm_spot_transform(i: int) -> Transform3D:
-	var angle := deg_to_rad(CHARM_SPOT_ANGLES_DEG[i])
-	var pos := Vector3(cos(angle) * CHARM_SPOT_RADIUS, CHARM_SPOT_Y, sin(angle) * CHARM_SPOT_RADIUS)
-	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()
-	var basis := Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * CHARM_MODEL_SCALE)
-	return Transform3D(basis, pos)
 
 ## Gutschrift für den Spieler (z.B. Rundenziel-Belohnung, siehe
 ## _on_round_complete, oder ein Shop-Kauf mit negativem Betrag).
@@ -1190,11 +1112,11 @@ func _reset_game() -> void:
 		owned_pool.append(DieDefinition.standard())
 	round_number = 1
 	round_goal = BASE_GOAL
-	shop_panel.visible = false
+	charm_shop.visible = false
 	game_over_panel.visible = false
 	owned_charms.clear()
 	_refresh_charms_label()
-	_refresh_charm_models()
+	charm_row.set_charms(owned_charms)
 	money = 0
 	_refresh_money_label()
 	_set_gameplay_ui_visible(true)
@@ -1265,7 +1187,9 @@ func _on_round_complete() -> void:
 		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids)  # Glücksgroschen
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		await _play_round_clear_payout(blind, per_die)
-		_show_shop()
+		_set_gameplay_ui_visible(false)
+		_refresh_money_label()
+		charm_shop.open()
 	else:
 		game_state = GameState.GAME_OVER
 		_show_game_over(hand_total)
@@ -1398,112 +1322,41 @@ func _update_gameplay_ui_visibility() -> void:
 	take_button.visible = show_ui
 	select_all_button.visible = show_ui
 
-func _show_shop() -> void:
-	_set_gameplay_ui_visible(false)
-	shop_dice_picker.set_highlighted(-1)
-	shop_message_label.text = ""
-	# Würfel-Sektionstitel zeigt den (ggf. rabattierten) Effektivpreis, siehe
-	# CharmEffects.die_price / Trickdieb-Manschette.
-	shop_dice_section_label.text = "Würfel (je $%d)" % CharmEffects.die_price(DIE_PRICE, _active_charm_ids())
-	_populate_shop_charm_options()
-	_refresh_money_label()
-	shop_panel.visible = true
+# --- Shop-API (aufgerufen von ShopController) --------------------------------
+# Der Shop (ShopController auf dem ShopPanel) übernimmt die komplette Shop-UI
+# und Kauf-Interaktion; scene_root stellt ihm nur diese schmale Spiel-API
+# bereit (Geld/Charms/Pool sind hier die einzige Wahrheit) und reagiert auf sein
+# closed-Signal. So bleibt die Shop-Logik beim Shop, die Spielzustands-Mutation
+# hier.
 
-## Würfelt die Charm-Angebote dieses Shop-Besuchs aus - alle Charm-Archetypen
-## (siehe Charm.all), die der Spieler noch nicht besitzt, max. zwei Stück.
-## Baut dafür die Charm-Buttons komplett neu auf, da sich das Angebot bei
-## jedem Shop-Besuch ändern kann (weniger übrige Charms, künftig auch mehr
-## Archetypen).
-func _populate_shop_charm_options() -> void:
-	for button in shop_charm_buttons:
-		button.queue_free()
-	shop_charm_buttons.clear()
+## Aktueller Geldstand - der Shop liest ihn für Kaufbarkeit und Preisanzeige.
+func player_money() -> int:
+	return money
 
-	var owned_ids: Array[String] = _active_charm_ids()
-	var available: Array[Charm] = []
-	for charm in Charm.all():
-		if not owned_ids.has(charm.id):
-			available.append(charm)
-	available.shuffle()
+## Ids der besessenen Charms - der Shop filtert damit sein Charm-Angebot und
+## berechnet Würfel-Rabatte (siehe CharmEffects.die_price).
+func owned_charm_ids() -> Array[String]:
+	return _active_charm_ids()
 
-	shop_charm_options = []
-	for i in mini(2, available.size()):
-		shop_charm_options.append(available[i])
-	shop_charm_bought = []
-	shop_charm_bought.resize(shop_charm_options.size())
-	shop_charm_bought.fill(false)
-
-	shop_charm_section_label.visible = not shop_charm_options.is_empty()
-	for i in shop_charm_options.size():
-		var charm := shop_charm_options[i]
-		var button := Button.new()
-		button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, CHARM_PRICE]
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(280, 84)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.tooltip_text = charm.description
-		button.pressed.connect(_on_shop_charm_clicked.bind(i))
-		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 14)
-		shop_charm_options_container.add_child(button)
-		shop_charm_buttons.append(button)
-	_refresh_shop_charm_afford_state()
-
-## Kauft sofort eine unabhängige Kopie des angeklickten Würfels in den Pool
-## (siehe _replace_pool_entry) - beliebig oft wiederholbar, solange genug Geld
-## da ist, da das Würfel-Angebot selbst nie "aufgebraucht" wird.
-func _on_shop_die_clicked(index: int) -> void:
-	if game_state != GameState.SHOP:
-		return
-	var def := shop_die_options[index]
-	var price := CharmEffects.die_price(DIE_PRICE, _active_charm_ids())  # Trickdieb-Manschette-Rabatt
-	if money < price:
-		_show_shop_message("Nicht genug Geld für %s ($%d)." % [def.display_name, price])
-		return
+## Kauf eines Würfels: Geld abziehen und eine Kopie in den Pool legen (siehe
+## _replace_pool_entry). Der Shop hat die Kaufbarkeit bereits geprüft.
+func purchase_die(def: DieDefinition, price: int) -> void:
 	_add_money(-price)
 	_replace_pool_entry(def)
-	shop_dice_picker.set_highlighted(index)
-	_show_shop_message("Gekauft: %s (-$%d)" % [def.display_name, price])
-	_refresh_shop_charm_afford_state()
 
-## Kauft den angeklickten Charm sofort (siehe owned_charms) - jeder Charm ist
-## pro Shop-Besuch nur einmal kaufbar (siehe shop_charm_bought), da er danach
-## sofort besessen ist. Der Button selbst ist bei fehlendem Geld schon
-## deaktiviert (siehe _refresh_shop_charm_afford_state), Godot liefert für
-## deaktivierte Buttons kein pressed-Signal - ein Klick kann hier also nur bei
-## ausreichend Geld ankommen.
-func _on_shop_charm_clicked(index: int) -> void:
-	if game_state != GameState.SHOP or shop_charm_bought[index]:
-		return
-	var charm := shop_charm_options[index]
-	_add_money(-CHARM_PRICE)
+## Kauf eines Charms: Geld abziehen, Charm übernehmen und beide Anzeigen
+## aktualisieren (2D-Namensliste + physische Charms auf dem Tisch).
+func purchase_charm(charm: Charm, price: int) -> void:
+	_add_money(-price)
 	owned_charms.append(charm)
 	_refresh_charms_label()
-	_refresh_charm_models()
-	shop_charm_bought[index] = true
-	shop_charm_buttons[index].disabled = true
-	shop_charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
-	_show_shop_message("Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE])
-	_refresh_shop_charm_afford_state()
+	charm_row.set_charms(owned_charms)
 
-## Deaktiviert alle noch nicht gekauften Charm-Buttons, sobald das Geld für
-## CHARM_PRICE nicht mehr reicht - Geld sinkt innerhalb eines Shop-Besuchs nur
-## (kein Einkommen mittendrin), ein einmal deaktivierter Button muss also
-## nicht wieder aktiviert werden.
-func _refresh_shop_charm_afford_state() -> void:
-	for i in shop_charm_buttons.size():
-		if shop_charm_bought[i]:
-			continue
-		shop_charm_buttons[i].disabled = money < CHARM_PRICE
-
-func _show_shop_message(text: String) -> void:
-	shop_message_label.text = text
-
-func _on_shop_done_pressed() -> void:
-	if game_state != GameState.SHOP:
-		return
+## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): nächste
+## Runde vorbereiten und ins Spiel zurückkehren.
+func _on_shop_closed() -> void:
 	round_number += 1
 	round_goal += GOAL_INCREMENT
-	shop_panel.visible = false
 	game_state = GameState.PLAYING
 	_set_gameplay_ui_visible(true)
 	_start_new_round()

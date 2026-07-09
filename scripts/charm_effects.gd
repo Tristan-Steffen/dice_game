@@ -1,14 +1,19 @@
 class_name CharmEffects
 ## Reine Effekt-Logik der Charms (siehe Charm) - keine Nodes, nur Rechnen,
 ## analog zu DiceScoring. Jeder Charm wirkt über seine id (Charm.id) und wird
-## hier zentral per match aufgelöst, damit ein neuer Charm nur hier + als neue
-## Fabrikmethode in charm.gd ergänzt werden muss.
+## hier zentral aufgelöst; die ids kommen als Konstanten aus Charm (z.B.
+## Charm.RABBITS_FOOT), damit ein Tippfehler ein Compilerfehler ist statt eines
+## stillen No-ops. Ein neuer Charm braucht nur hier + als neue Fabrikmethode in
+## charm.gd einen Eintrag.
 ##
 ## Die Effekte sind nach Wirkungsort in Gruppen sortiert: Augenwert (einzelner
 ## Würfel), Wertung (Multiplikator/Bonus/Verdopplung ganzer Hände), Geld,
 ## Farkle-Milderung und Pool/Shop. Jede öffentliche Funktion nimmt die Liste
 ## der besessenen Charm-ids und summiert/kombiniert die passenden Beiträge -
-## mehrere Charms stapeln sich also.
+## mehrere Charms stapeln sich also. Diese Gruppierung ist bewusst am AUFRUFER
+## orientiert (DiceScoring fragt z.B. nur einmal mult_bonus() und bekommt die
+## Summe); der Preis ist, dass die Wirkung EINES Charms über mehrere Funktionen
+## verteilt liegt (siehe charm.gd für Metadaten desselben Charms).
 
 # --- Augenwert (einzelner Würfel) -------------------------------------------
 
@@ -26,17 +31,17 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 
 static func _apply_eye_value(charm_id: String, face_value: int, value: int) -> int:
 	match charm_id:
-		"rabbits_foot":
+		Charm.RABBITS_FOOT:
 			return value + face_value if face_value == 6 else value
-		"four_leaf_clover":
+		Charm.FOUR_LEAF_CLOVER:
 			return value + face_value if face_value == 4 else value
-		"golden_scarab":
+		Charm.GOLDEN_SCARAB:
 			return value + face_value if face_value == 5 else value
-		"lucky_cigarettes":
+		Charm.LUCKY_CIGARETTES:
 			return 6 if face_value == 1 else value
-		"fox_tail":
+		Charm.FOX_TAIL:
 			return 4 if face_value == 3 else value
-		"pencil_stub":
+		Charm.PENCIL_STUB:
 			return 3 if face_value == 2 else value
 		_:
 			return value
@@ -49,13 +54,13 @@ static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
 		match charm_id:
-			"horseshoe":
+			Charm.HORSESHOE:
 				if key == "full_house":
 					bonus += 1
-			"ladybug":
+			Charm.LADYBUG:
 				if key == "two_kind" or key == "two_pair":
 					bonus += 1
-			"pearl_necklace":
+			Charm.PEARL_NECKLACE:
 				if key == "four_kind_and_pair" or key == "three_pairs" or key == "double_three_kind":
 					bonus += 2
 	return bonus
@@ -68,10 +73,10 @@ static func flat_bonus(key: String, charm_ids: Array[String]) -> int:
 	var other_charms := maxi(0, charm_ids.size() - 1)
 	for charm_id in charm_ids:
 		match charm_id:
-			"rainbow_trout":
+			Charm.RAINBOW_TROUT:
 				if key == "small_straight" or key == "large_straight":
 					bonus += 10
-			"collectors_amulet":
+			Charm.COLLECTORS_AMULET:
 				bonus += other_charms
 	return bonus
 
@@ -82,7 +87,7 @@ static func score_multiplier(charm_ids: Array[String], is_first_hand: bool) -> i
 	var mult := 1
 	if is_first_hand:
 		for charm_id in charm_ids:
-			if charm_id == "magic_card":
+			if charm_id == Charm.MAGIC_CARD:
 				mult *= 2
 	return mult
 
@@ -93,7 +98,7 @@ static func score_multiplier(charm_ids: Array[String], is_first_hand: bool) -> i
 static func round_clear_bonus(charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
-		if charm_id == "old_penny":
+		if charm_id == Charm.OLD_PENNY:
 			bonus += 2
 	return bonus
 
@@ -102,7 +107,7 @@ static func round_clear_bonus(charm_ids: Array[String]) -> int:
 static func unused_die_bonus(charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
-		if charm_id == "piggy_bank":
+		if charm_id == Charm.PIGGY_BANK:
 			bonus += 1
 	return bonus
 
@@ -111,7 +116,7 @@ static func unused_die_bonus(charm_ids: Array[String]) -> int:
 static func farkle_survival_income(charm_ids: Array[String]) -> int:
 	var income := 0
 	for charm_id in charm_ids:
-		if charm_id == "crystal_ball":
+		if charm_id == Charm.CRYSTAL_BALL:
 			income += 1
 	return income
 
@@ -121,7 +126,7 @@ static func farkle_survival_income(charm_ids: Array[String]) -> int:
 ## weiter statt verworfen zu werden) - Schornsteinfeger, siehe
 ## scene_root.gd: _on_farkle.
 static func forgives_first_farkle(charm_ids: Array[String]) -> bool:
-	return charm_ids.has("chimney_sweep")
+	return charm_ids.has(Charm.CHIMNEY_SWEEP)
 
 ## Anteil der Punkte, der bei einem (nicht verziehenen) Farkle erhalten bleibt
 ## statt null - Umgedrehter Spiegel: 0.5, sonst 0.0. Bei mehreren solchen
@@ -129,7 +134,7 @@ static func forgives_first_farkle(charm_ids: Array[String]) -> bool:
 static func farkle_kept_fraction(charm_ids: Array[String]) -> float:
 	var fraction := 0.0
 	for charm_id in charm_ids:
-		if charm_id == "backwards_mirror":
+		if charm_id == Charm.BACKWARDS_MIRROR:
 			fraction = maxf(fraction, 0.5)
 	return fraction
 
@@ -140,7 +145,7 @@ static func farkle_kept_fraction(charm_ids: Array[String]) -> float:
 static func extra_round_dice(charm_ids: Array[String]) -> int:
 	var extra := 0
 	for charm_id in charm_ids:
-		if charm_id == "lucky_knot":
+		if charm_id == Charm.LUCKY_KNOT:
 			extra += 1
 	return extra
 
@@ -148,13 +153,13 @@ static func extra_round_dice(charm_ids: Array[String]) -> int:
 ## werden, damit sie zuerst gezogen werden - Wünschelrute, siehe
 ## scene_root.gd: _start_new_round.
 static func draws_specials_first(charm_ids: Array[String]) -> bool:
-	return charm_ids.has("dowsing_rod")
+	return charm_ids.has(Charm.DOWSING_ROD)
 
-## Effektiver Würfelpreis im Shop nach Rabatt-Charms (siehe
-## scene_root.gd: _on_shop_die_clicked) - Trickdieb-Manschette: -20%.
+## Effektiver Würfelpreis im Shop nach Rabatt-Charms (siehe ShopController) -
+## Trickdieb-Manschette: -20%.
 static func die_price(base_price: int, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
 	for charm_id in charm_ids:
-		if charm_id == "con_artist_cuff":
+		if charm_id == Charm.CON_ARTIST_CUFF:
 			price *= 0.8
 	return int(round(price))

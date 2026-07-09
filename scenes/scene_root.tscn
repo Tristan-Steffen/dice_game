@@ -8,6 +8,8 @@
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/rotatable_die_view.gd" id="9_dicepicker"]
 [ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/die_inspector_view.gd" id="12_dieinspector"]
+[ext_resource type="Script" path="res://scripts/charm_row_view.gd" id="16_charmrow"]
+[ext_resource type="Script" path="res://scripts/shop_controller.gd" id="17_shopctrl"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 [ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
@@ -66,6 +68,7 @@ light_energy = 4.555
 [node name="Dice" type="Node3D" parent="." unique_id=219306191]
 
 [node name="Charms" type="Node3D" parent="." unique_id=219306192]
+script = ExtResource("16_charmrow")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]
 
@@ -269,6 +272,7 @@ offset_left = 260.0
 offset_top = 40.0
 offset_right = 920.0
 offset_bottom = 680.0
+script = ExtResource("17_shopctrl")
 
 [node name="VBoxContainer" type="VBoxContainer" parent="UI/ShopPanel" unique_id=353283564]
 layout_mode = 0
