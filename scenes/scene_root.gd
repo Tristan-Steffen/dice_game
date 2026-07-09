@@ -107,6 +107,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var hand_label: Label = $UI/HandLabel
 @onready var charms_label: Label = $UI/CharmsLabel
 @onready var money_label: Label = $UI/MoneyLabel
+@onready var coupons_label: Label = $UI/CouponsLabel
 
 ## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
 ## ShopController) - scene_root spricht ihn nur über charm_shop.open() an und
@@ -154,6 +155,7 @@ var hands_taken_this_round: int = 0  # wie viele Hände in dieser Runde schon ge
 var chimney_sweep_used_this_round: bool = false  # ob der Schornsteinfeger-Charm seinen einmaligen Farkle-Erlass diese Runde schon verbraucht hat (siehe _on_farkle)
 
 var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids; physisch angezeigt über charm_row
+var owned_coupons: Array[Coupon] = []  # gehortete Coupons (verbrauchbare Ätzungen, siehe Coupon) - unbegrenzt, im Shop als Pack gekauft (siehe buy_coupon_pack)
 
 var money: int = 0  # Spielwährung, siehe _add_money/_refresh_money_label - läuft über einen ganzen Spiellauf, nicht nur eine Runde
 var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
@@ -243,6 +245,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_progress_bar(points_bar)
 	CasinoStyle.style_score_label(points_label, 17)
 	CasinoStyle.style_body_label(charms_label, 15, CasinoStyle.PURPLE)
+	CasinoStyle.style_body_label(coupons_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GOLD)
 
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
@@ -297,6 +300,25 @@ func _refresh_charms_label() -> void:
 	for charm in owned_charms:
 		names.append(charm.display_name)
 	charms_label.text = "Charms: %s" % ", ".join(names)
+
+## Aktualisiert die Coupon-Anzeige - gleiche Coupons werden als "Name ×Anzahl"
+## zusammengefasst, da man beliebig viele horten kann (siehe owned_coupons).
+func _refresh_coupons_label() -> void:
+	if owned_coupons.is_empty():
+		coupons_label.text = "Keine Coupons"
+		return
+	var counts := {}
+	var order: Array[String] = []  # erste Auftrittsreihenfolge beibehalten
+	for coupon in owned_coupons:
+		if not counts.has(coupon.display_name):
+			counts[coupon.display_name] = 0
+			order.append(coupon.display_name)
+		counts[coupon.display_name] += 1
+	var parts: Array[String] = []
+	for name in order:
+		var count: int = counts[name]
+		parts.append("%s ×%d" % [name, count] if count > 1 else name)
+	coupons_label.text = "Coupons: %s" % ", ".join(parts)
 
 ## Gutschrift für den Spieler (z.B. Rundenziel-Belohnung, siehe
 ## _on_round_complete, oder ein Shop-Kauf mit negativem Betrag).
@@ -1117,6 +1139,8 @@ func _reset_game() -> void:
 	owned_charms.clear()
 	_refresh_charms_label()
 	charm_row.set_charms(owned_charms)
+	owned_coupons.clear()
+	_refresh_coupons_label()
 	money = 0
 	_refresh_money_label()
 	_set_gameplay_ui_visible(true)
@@ -1319,6 +1343,7 @@ func _update_gameplay_ui_visibility() -> void:
 	hand_label.visible = show_ui
 	round_hud.visible = show_ui
 	charms_label.visible = show_ui
+	coupons_label.visible = show_ui
 	take_button.visible = show_ui
 	select_all_button.visible = show_ui
 
@@ -1351,6 +1376,16 @@ func purchase_charm(charm: Charm, price: int) -> void:
 	owned_charms.append(charm)
 	_refresh_charms_label()
 	charm_row.set_charms(owned_charms)
+
+## Kauf eines Coupon-Packs: Geld abziehen, size zufällige Ätzungen ins Inventar
+## legen (unbegrenzt, siehe owned_coupons) und die gezogenen Coupons zurückgeben,
+## damit der Shop sie anzeigen kann (siehe ShopController._on_coupon_pack_pressed).
+func buy_coupon_pack(price: int, size: int) -> Array[Coupon]:
+	_add_money(-price)
+	var pack := Coupon.random_etching_pack(size)
+	owned_coupons.append_array(pack)
+	_refresh_coupons_label()
+	return pack
 
 ## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): nächste
 ## Runde vorbereiten und ins Spiel zurückkehren.

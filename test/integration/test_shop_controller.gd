@@ -29,6 +29,13 @@ class FakeGame extends RefCounted:
 		bought_charms.append(charm)
 		owned.append(charm.id)
 
+	var bought_coupons: Array = []
+	func buy_coupon_pack(price: int, size: int) -> Array[Coupon]:
+		money -= price
+		var pack := Coupon.random_etching_pack(size)
+		bought_coupons.append_array(pack)
+		return pack
+
 var shop
 var fake: FakeGame
 
@@ -97,6 +104,30 @@ func test_charm_buttons_disabled_when_broke():
 	shop.open()  # neu bestücken mit wenig Geld
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
+
+# --- Coupon-Pack --------------------------------------------------------------
+
+func test_buy_coupon_pack_deducts_and_grants_three():
+	shop._on_coupon_pack_pressed()
+	assert_eq(fake.money, 90)  # 100 - 10
+	assert_eq(fake.bought_coupons.size(), 3, "Pack liefert alle 3 Karten")
+
+func test_coupon_packs_are_repeatable():
+	shop._on_coupon_pack_pressed()
+	shop._on_coupon_pack_pressed()
+	assert_eq(fake.money, 80)
+	assert_eq(fake.bought_coupons.size(), 6)
+
+func test_cannot_buy_coupon_pack_without_funds():
+	fake.money = 5
+	shop._on_coupon_pack_pressed()
+	assert_eq(fake.money, 5, "kein Abzug bei zu wenig Geld")
+	assert_eq(fake.bought_coupons.size(), 0)
+
+func test_coupon_pack_button_disabled_when_broke():
+	fake.money = 5
+	shop.open()
+	assert_true(shop.coupon_pack_button.disabled)
 
 # --- Abschluss ----------------------------------------------------------------
 

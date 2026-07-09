@@ -17,6 +17,8 @@ signal closed
 
 const DIE_PRICE := 15  # Preis pro Würfel-Kauf (vor Rabatt-Charms, siehe CharmEffects.die_price)
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf
+const COUPON_PACK_PRICE := 10  # Preis pro Coupon-Pack (siehe Coupon)
+const COUPON_PACK_SIZE := 3  # Karten je Coupon-Pack - man erhält alle (siehe Balatro-Packs)
 
 ## Vom Besitzer (scene_root) gesetzte Spiel-API (siehe scene_root.gd:
 ## player_money/owned_charm_ids/purchase_die/purchase_charm). Bewusst untypisiert,
@@ -28,6 +30,8 @@ var game
 @onready var dice_picker: RotatableDieView = $VBoxContainer/DicePicker
 @onready var charm_section_label: Label = $VBoxContainer/CharmSectionLabel
 @onready var charm_options_container: HBoxContainer = $VBoxContainer/CharmOptionsContainer
+@onready var coupon_section_label: Label = $VBoxContainer/CouponSectionLabel
+@onready var coupon_pack_button: Button = $VBoxContainer/CouponPackButton
 @onready var message_label: Label = $VBoxContainer/ShopMessageLabel
 @onready var done_button: Button = $VBoxContainer/DoneButton
 
@@ -45,6 +49,8 @@ func _ready() -> void:
 	]
 	dice_picker.set_dice(die_options)
 	dice_picker.die_clicked.connect(_on_die_clicked)
+	coupon_pack_button.text = "%d Ätzungen kaufen ($%d)" % [COUPON_PACK_SIZE, COUPON_PACK_PRICE]
+	coupon_pack_button.pressed.connect(_on_coupon_pack_pressed)
 	done_button.pressed.connect(_on_done_pressed)
 
 ## Casino-Look des Shops (siehe CasinoStyle) - der Shop stylt sich selbst, damit
@@ -54,6 +60,8 @@ func _style() -> void:
 	CasinoStyle.style_score_label(title_label, 22, CasinoStyle.GOLD)
 	CasinoStyle.style_chip_label(dice_section_label, 18, CasinoStyle.BLUE)
 	CasinoStyle.style_chip_label(charm_section_label, 18, CasinoStyle.PURPLE)
+	CasinoStyle.style_chip_label(coupon_section_label, 18, CasinoStyle.GREEN)
+	CasinoStyle.style_button(coupon_pack_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
 	CasinoStyle.style_body_label(message_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
@@ -64,6 +72,7 @@ func open() -> void:
 	message_label.text = ""
 	# Würfel-Sektionstitel zeigt den (ggf. rabattierten) Effektivpreis.
 	dice_section_label.text = "Würfel (je $%d)" % _die_price()
+	coupon_section_label.text = "Coupon-Pack (%d Ätzungen)" % COUPON_PACK_SIZE
 	_populate_charm_options()
 	visible = true
 
@@ -102,7 +111,7 @@ func _populate_charm_options() -> void:
 		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 14)
 		charm_options_container.add_child(button)
 		charm_buttons.append(button)
-	_refresh_charm_afford_state()
+	_refresh_afford_state()
 
 ## Effektiver Würfelpreis nach Rabatt-Charms (Trickdieb-Manschette).
 func _die_price() -> int:
@@ -119,11 +128,11 @@ func _on_die_clicked(index: int) -> void:
 	game.purchase_die(def, price)
 	dice_picker.set_highlighted(index)
 	message_label.text = "Gekauft: %s (-$%d)" % [def.display_name, price]
-	_refresh_charm_afford_state()
+	_refresh_afford_state()
 
 ## Kauft den angeklickten Charm sofort (siehe game.purchase_charm) - je Charm
 ## nur einmal pro Besuch. Der Button ist bei fehlendem Geld schon deaktiviert
-## (siehe _refresh_charm_afford_state), Godot liefert für deaktivierte Buttons
+## (siehe _refresh_afford_state), Godot liefert für deaktivierte Buttons
 ## kein pressed-Signal - ein Klick kann hier also nur bei ausreichend Geld ankommen.
 func _on_charm_clicked(index: int) -> void:
 	if charm_bought[index]:
@@ -134,16 +143,32 @@ func _on_charm_clicked(index: int) -> void:
 	charm_buttons[index].disabled = true
 	charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
 	message_label.text = "Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE]
-	_refresh_charm_afford_state()
+	_refresh_afford_state()
 
-## Deaktiviert alle noch nicht gekauften Charm-Buttons, sobald das Geld für
-## CHARM_PRICE nicht mehr reicht - Geld sinkt innerhalb eines Besuchs nur (kein
-## Einkommen mittendrin), ein deaktivierter Button muss also nie reaktiviert werden.
-func _refresh_charm_afford_state() -> void:
-	var can_afford: bool = game.player_money() >= CHARM_PRICE
+## Kauft ein Coupon-Pack (COUPON_PACK_SIZE zufällige Ätzungen, siehe
+## Coupon.random_etching_pack / game.buy_coupon_pack) - beliebig oft
+## nachkaufbar. Zeigt anschließend an, welche Karten das Pack enthielt.
+func _on_coupon_pack_pressed() -> void:
+	if game.player_money() < COUPON_PACK_PRICE:
+		message_label.text = "Nicht genug Geld für ein Coupon-Pack ($%d)." % COUPON_PACK_PRICE
+		return
+	var granted: Array = game.buy_coupon_pack(COUPON_PACK_PRICE, COUPON_PACK_SIZE)
+	var names: Array[String] = []
+	for coupon in granted:
+		names.append(coupon.display_name)
+	message_label.text = "Coupon-Pack: %s (-$%d)" % [", ".join(names), COUPON_PACK_PRICE]
+	_refresh_afford_state()
+
+## Deaktiviert Käufe, die sich der Spieler nicht mehr leisten kann - noch nicht
+## gekaufte Charm-Buttons (CHARM_PRICE) und den Coupon-Pack-Button
+## (COUPON_PACK_PRICE). Geld sinkt innerhalb eines Besuchs nur (kein Einkommen
+## mittendrin), ein deaktivierter Button muss also nie reaktiviert werden.
+func _refresh_afford_state() -> void:
+	var money: int = game.player_money()
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
-			charm_buttons[i].disabled = not can_afford
+			charm_buttons[i].disabled = money < CHARM_PRICE
+	coupon_pack_button.disabled = money < COUPON_PACK_PRICE
 
 func _on_done_pressed() -> void:
 	visible = false

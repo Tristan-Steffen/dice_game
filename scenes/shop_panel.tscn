@@ -50,6 +50,15 @@ custom_minimum_size = Vector2(588, 90)
 layout_mode = 2
 theme_override_constants/separation = 16
 
+[node name="CouponSectionLabel" type="Label" parent="VBoxContainer"]
+layout_mode = 2
+text = "Coupon-Pack"
+
+[node name="CouponPackButton" type="Button" parent="VBoxContainer"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "3 Ätzungen kaufen"
+
 [node name="ShopMessageLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
 autowrap_mode = 2
