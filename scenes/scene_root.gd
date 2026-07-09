@@ -86,10 +86,15 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var points_bar: ProgressBar = $UI/RoundHud/PointsBar
 @onready var points_label: Label = $UI/RoundHud/PointsBar/PointsLabel
 @onready var hand_label: Label = $UI/HandLabel
+@onready var charms_label: Label = $UI/CharmsLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
 @onready var shop_title_label: Label = $UI/ShopPanel/VBoxContainer/TitleLabel
+@onready var shop_dice_section_label: Label = $UI/ShopPanel/VBoxContainer/DiceSectionLabel
 @onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
+@onready var shop_charm_section_label: Label = $UI/ShopPanel/VBoxContainer/CharmSectionLabel
+@onready var shop_charm_options_container: HBoxContainer = $UI/ShopPanel/VBoxContainer/CharmOptionsContainer
+@onready var shop_continue_button: Button = $UI/ShopPanel/VBoxContainer/ContinueButton
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
@@ -123,7 +128,19 @@ var game_state: GameState = GameState.PLAYING
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
-var shop_defs: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker)
+var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids
+
+## Shop-Angebot und Auswahl. Jede Kategorie (Würfel, Charms, künftig weitere)
+## folgt demselben Muster: eine Optionsliste für den aktuellen Besuch + ein
+## gewählter Index (-1 = noch keine Wahl) - siehe _shop_can_continue/
+## _on_shop_continue_pressed. Neue Kategorien ergänzen einfach ein weiteres
+## Optionen/Auswahl-Paar nach diesem Vorbild.
+var shop_die_options: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker)
+var shop_selected_die_index: int = -1
+
+var shop_charm_options: Array[Charm] = []  # aktuell im Shop angebotene Charm-Kandidaten (Reihenfolge = shop_charm_options_container)
+var shop_selected_charm_index: int = -1
+var shop_charm_buttons: Array[Button] = []  # dynamisch gebaute Buttons für shop_charm_options, siehe _populate_shop_charm_options
 var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
@@ -190,13 +207,14 @@ func _ready() -> void:
 
 	queue_tray_home_position = queue_tray_view.position
 
-	shop_defs = [
+	shop_die_options = [
 		DieDefinition.fixed(6, "Immer 6"),
 		DieDefinition.fixed(5, "Immer 5"),
 		DieDefinition.fixed(4, "Immer 4"),
 	]
-	shop_dice_picker.set_dice(shop_defs)
-	shop_dice_picker.die_clicked.connect(_on_shop_die_clicked)
+	shop_dice_picker.set_dice(shop_die_options)
+	shop_dice_picker.die_clicked.connect(_on_shop_die_picked)
+	shop_continue_button.pressed.connect(_on_shop_continue_pressed)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
@@ -215,6 +233,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_chip_label(round_badge_label, 20)
 	CasinoStyle.style_progress_bar(points_bar)
 	CasinoStyle.style_score_label(points_label, 17)
+	CasinoStyle.style_body_label(charms_label, 15, CasinoStyle.PURPLE)
 
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
@@ -223,12 +242,15 @@ func _style_ui() -> void:
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+	CasinoStyle.style_button(shop_continue_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
 	CasinoStyle.style_panel(shop_panel)
 	CasinoStyle.style_panel(game_over_panel)
 	CasinoStyle.style_panel(legend_panel)
 
 	CasinoStyle.style_score_label(shop_title_label, 22, CasinoStyle.GOLD)
+	CasinoStyle.style_chip_label(shop_dice_section_label, 18, CasinoStyle.BLUE)
+	CasinoStyle.style_chip_label(shop_charm_section_label, 18, CasinoStyle.PURPLE)
 	CasinoStyle.style_score_label(game_over_label, 24)
 	CasinoStyle.style_body_label(legend_content_label, 15)
 
@@ -250,6 +272,25 @@ func _populate_legend() -> void:
 		var mult: int = DiceScoring.mult_for(key)
 		lines.append("%s  ×%d" % [label, mult])
 	legend_content_label.text = "\n".join(lines)
+
+## Ids der aktuell besessenen Charms (siehe owned_charms) - Grundlage für
+## jede Wertung dieses Runs (siehe DiceScoring.best_hand/is_strictly_better).
+func _active_charm_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for charm in owned_charms:
+		ids.append(charm.id)
+	return ids
+
+## Aktualisiert die Charm-Anzeige (Namen, durch Komma getrennt) - rein
+## informativ, damit besessene Charms beim Testen sichtbar sind.
+func _refresh_charms_label() -> void:
+	if owned_charms.is_empty():
+		charms_label.text = "Keine Charms"
+		return
+	var names: Array[String] = []
+	for charm in owned_charms:
+		names.append(charm.display_name)
+	charms_label.text = "Charms: %s" % ", ".join(names)
 
 func _physics_process(delta: float) -> void:
 	if not is_rolling:
@@ -892,7 +933,7 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, _active_charm_ids()):
 		_on_farkle()
 		return
 
@@ -931,7 +972,7 @@ func _on_take_button_pressed() -> void:
 	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
 		return
 
-	var hand := DiceScoring.best_hand(dice.values)
+	var hand := DiceScoring.best_hand(dice.values, _active_charm_ids())
 	hand_total += hand["score"]
 	_animate_points_to(hand_total)
 
@@ -990,6 +1031,8 @@ func _reset_game() -> void:
 	round_goal = BASE_GOAL
 	shop_panel.visible = false
 	game_over_panel.visible = false
+	owned_charms.clear()
+	_refresh_charms_label()
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
@@ -1067,20 +1110,94 @@ func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
 	round_hud.visible = show_ui
+	charms_label.visible = show_ui
 	take_button.visible = show_ui
 	select_all_button.visible = show_ui
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
+	shop_selected_die_index = -1
+	shop_dice_picker.set_highlighted(-1)
+	_populate_shop_charm_options()
+	_refresh_shop_continue_button()
 	shop_panel.visible = true
 
-func _on_shop_die_clicked(index: int) -> void:
-	_on_shop_choice(shop_defs[index])
+## Würfelt die Charm-Angebote dieses Shop-Besuchs aus - alle Charm-Archetypen
+## (siehe Charm.all), die der Spieler noch nicht besitzt, max. zwei Stück.
+## Baut dafür die Charm-Buttons komplett neu auf, da sich das Angebot bei
+## jedem Shop-Besuch ändern kann (weniger übrige Charms, künftig auch mehr
+## Archetypen).
+func _populate_shop_charm_options() -> void:
+	for button in shop_charm_buttons:
+		button.queue_free()
+	shop_charm_buttons.clear()
+	shop_selected_charm_index = -1
 
-func _on_shop_choice(def: DieDefinition) -> void:
+	var owned_ids: Array[String] = _active_charm_ids()
+	var available: Array[Charm] = []
+	for charm in Charm.all():
+		if not owned_ids.has(charm.id):
+			available.append(charm)
+	available.shuffle()
+
+	shop_charm_options = []
+	for i in mini(2, available.size()):
+		shop_charm_options.append(available[i])
+
+	shop_charm_section_label.visible = not shop_charm_options.is_empty()
+	for i in shop_charm_options.size():
+		var charm := shop_charm_options[i]
+		var button := Button.new()
+		button.text = "%s\n%s" % [charm.display_name, charm.description]
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.custom_minimum_size = Vector2(280, 84)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.tooltip_text = charm.description
+		button.pressed.connect(_on_shop_charm_picked.bind(i))
+		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 14)
+		shop_charm_options_container.add_child(button)
+		shop_charm_buttons.append(button)
+	_refresh_shop_charm_highlight()
+
+func _on_shop_die_picked(index: int) -> void:
 	if game_state != GameState.SHOP:
 		return
-	_replace_pool_entry(def)
+	shop_selected_die_index = index
+	shop_dice_picker.set_highlighted(index)
+	_refresh_shop_continue_button()
+
+func _on_shop_charm_picked(index: int) -> void:
+	if game_state != GameState.SHOP:
+		return
+	shop_selected_charm_index = index
+	_refresh_shop_charm_highlight()
+	_refresh_shop_continue_button()
+
+## Dimmt alle nicht gewählten Charm-Buttons ab, damit die aktuelle Auswahl
+## sofort erkennbar ist - analog zu RotatableDieView.set_highlighted für die
+## Würfelauswahl.
+func _refresh_shop_charm_highlight() -> void:
+	for i in shop_charm_buttons.size():
+		shop_charm_buttons[i].modulate = Color(1, 1, 1) if i == shop_selected_charm_index else Color(0.55, 0.55, 0.55)
+
+## "Weiter" ist erst klickbar, wenn jede angebotene Kategorie mit Optionen
+## eine Auswahl hat (eine Kategorie ohne Optionen - z.B. keine Charms mehr
+## übrig - gilt automatisch als erfüllt).
+func _shop_can_continue() -> bool:
+	var die_ok := shop_selected_die_index != -1
+	var charm_ok := shop_charm_options.is_empty() or shop_selected_charm_index != -1
+	return die_ok and charm_ok
+
+func _refresh_shop_continue_button() -> void:
+	shop_continue_button.disabled = not _shop_can_continue()
+
+func _on_shop_continue_pressed() -> void:
+	if game_state != GameState.SHOP or not _shop_can_continue():
+		return
+	_replace_pool_entry(shop_die_options[shop_selected_die_index])
+	if shop_selected_charm_index != -1:
+		owned_charms.append(shop_charm_options[shop_selected_charm_index])
+		_refresh_charms_label()
 	round_number += 1
 	round_goal += GOAL_INCREMENT
 	shop_panel.visible = false
@@ -1117,7 +1234,7 @@ func _refresh_ui() -> void:
 	if not has_rolled_current_hand:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 	else:
-		var hand := DiceScoring.best_hand(dice.values)
+		var hand := DiceScoring.best_hand(dice.values, _active_charm_ids())
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))

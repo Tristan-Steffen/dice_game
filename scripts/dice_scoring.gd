@@ -4,6 +4,10 @@ class_name DiceScoring
 ## Jede Hand hat einen festen Multiplikator. Punkte = Basiswert × Multiplikator,
 ## wobei der Basiswert je nach Hand die beteiligten Würfelaugen widerspiegelt
 ## (z.B. Dreierpasch aus 3x Fünfen: Basis 15 × Mult 3 = 45 Punkte).
+##
+## Optionale charm_ids (siehe Charm/CharmEffects) verändern, wie stark ein
+## einzelner Würfelwert zum Basiswert zählt (z.B. Hasenpfote: jede 6 zählt
+## doppelt) - beeinflussen aber nie, welche Kategorie überhaupt zutrifft.
 
 const CATEGORIES := [
 	{"key": "one_kind", "label": "Höchste Zahl", "mult": 1},
@@ -82,40 +86,43 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 			return true
 	return false
 
-static func score_category(key: String, dice: Array[int]) -> int:
+## charm_ids (siehe Charm.id) wirken nur auf den Punktwert (siehe
+## CharmEffects.eye_value) - welche Kategorie überhaupt zutrifft, entscheidet
+## weiterhin allein qualifies() anhand der rohen Würfelwerte.
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = []) -> int:
 	if not qualifies(key, dice):
 		return 0
 	var mult := mult_for(key)
 	match key:
 		"one_kind":
-			return _highest_value(dice) * mult
+			return CharmEffects.eye_value(_highest_value(dice), charm_ids) * mult
 		"two_kind":
-			return _best_value_with_count(dice, 2) * 2 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 2), charm_ids) * 2 * mult
 		"three_kind":
-			return _best_value_with_count(dice, 3) * 3 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 3), charm_ids) * 3 * mult
 		"four_kind":
-			return _best_value_with_count(dice, 4) * 4 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 4), charm_ids) * 4 * mult
 		"five_kind":
-			return _best_value_with_count(dice, 5) * 5 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 5), charm_ids) * 5 * mult
 		"six_kind":
-			return _best_value_with_count(dice, 6) * 6 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 6), charm_ids) * 6 * mult
 		"four_kind_and_pair", "double_three_kind", "three_pairs", "full_house", "small_straight", "large_straight", "two_pair":
-			return _sum(dice) * mult
+			return _sum(dice, charm_ids) * mult
 	return 0
 
 ## Bestimmt die bestmögliche Hand für den aktuellen Wurf: die
 ## prestigeträchtigste Kategorie, die zutrifft (siehe HAND_PRIORITY),
-## nicht einfach die mit dem höchsten Punktwert.
-static func best_hand(dice: Array[int]) -> Dictionary:
+## nicht einfach die mit dem höchsten Punktwert. charm_ids siehe score_category.
+static func best_hand(dice: Array[int], charm_ids: Array[String] = []) -> Dictionary:
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
 				"key": key,
 				"label": label_for(key),
 				"mult": mult_for(key),
-				"score": score_category(key, dice),
+				"score": score_category(key, dice, charm_ids),
 			}
-	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice)}
+	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice, charm_ids)}
 
 ## Wie best_hand(), liefert aber zusätzlich die Positionen in dice, die zur
 ## besten Kategorie gehören (z.B. beim Full House die drei- und zweifach
@@ -166,9 +173,9 @@ static func best_hand_indices(dice: Array[int]) -> Array[int]:
 ## Wurf strikt mehr Punkte bringt als der alte. Grundlage der Farkle-Regel:
 ## ein Neu-Würfeln, das NICHT mehr Punkte bringt (gleich viele oder weniger),
 ## gilt als Farkle - unabhängig davon, welche Hand-Kategorie jeweils vorliegt.
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int]) -> bool:
-	var new_score: int = best_hand(new_dice)["score"]
-	var old_score: int = best_hand(old_dice)["score"]
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = []) -> bool:
+	var new_score: int = best_hand(new_dice, charm_ids)["score"]
+	var old_score: int = best_hand(old_dice, charm_ids)["score"]
 	return new_score > old_score
 
 static func _counts(dice: Array[int]) -> Dictionary:
@@ -177,10 +184,10 @@ static func _counts(dice: Array[int]) -> Dictionary:
 		result[value] = result.get(value, 0) + 1
 	return result
 
-static func _sum(dice: Array[int]) -> int:
+static func _sum(dice: Array[int], charm_ids: Array[String] = []) -> int:
 	var total := 0
 	for value in dice:
-		total += value
+		total += CharmEffects.eye_value(value, charm_ids)
 	return total
 
 static func _highest_value(dice: Array[int]) -> int:

@@ -10,7 +10,7 @@
 [ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/die_inspector_view.gd" id="12_dieinspector"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
-[ext_resource type="PackedScene" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
+[ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
@@ -62,6 +62,7 @@ vertical_alignment = 1
 autowrap_mode = 2
 
 [node name="TakeButton" type="Button" parent="UI" unique_id=1516444737]
+anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 24.0
@@ -71,7 +72,8 @@ offset_bottom = -24.0
 disabled = true
 text = "Nehmen"
 
-[node name="SelectAllButton" type="Button" parent="UI"]
+[node name="SelectAllButton" type="Button" parent="UI" unique_id=1958053695]
+anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 230.0
@@ -81,8 +83,9 @@ offset_bottom = -24.0
 disabled = true
 text = "Alle auswählen"
 
-[node name="SettingsMenu" type="VBoxContainer" parent="UI"]
+[node name="SettingsMenu" type="VBoxContainer" parent="UI" unique_id=492819085]
 visible = false
+anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
@@ -93,8 +96,8 @@ offset_right = -16.0
 offset_bottom = -80.0
 grow_horizontal = 0
 grow_vertical = 0
-alignment = 2
 theme_override_constants/separation = 8
+alignment = 2
 
 [node name="ResetButton" type="Button" parent="UI/SettingsMenu" unique_id=1378124555]
 custom_minimum_size = Vector2(0, 48)
@@ -106,7 +109,8 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Debug: Runde gewinnen"
 
-[node name="SettingsToggleButton" type="Button" parent="UI"]
+[node name="SettingsToggleButton" type="Button" parent="UI" unique_id=875518473]
+anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
@@ -126,18 +130,17 @@ offset_right = 370.0
 offset_bottom = 92.0
 theme_override_constants/separation = 6
 
-[node name="RoundBadgeLabel" type="Label" parent="UI/RoundHud"]
+[node name="RoundBadgeLabel" type="Label" parent="UI/RoundHud" unique_id=284679518]
 layout_mode = 2
 text = "Runde 1"
 
-[node name="PointsBar" type="ProgressBar" parent="UI/RoundHud"]
+[node name="PointsBar" type="ProgressBar" parent="UI/RoundHud" unique_id=2135659550]
 custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
-show_percentage = false
-value = 0.0
 max_value = 150.0
+show_percentage = false
 
-[node name="PointsLabel" type="Label" parent="UI/RoundHud/PointsBar"]
+[node name="PointsLabel" type="Label" parent="UI/RoundHud/PointsBar" unique_id=440801283]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -147,6 +150,13 @@ grow_vertical = 2
 text = "0 / 150 Punkte"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="CharmsLabel" type="Label" parent="UI" unique_id=80467152]
+offset_left = 24.0
+offset_top = 100.0
+offset_right = 370.0
+offset_bottom = 124.0
+text = "Keine Charms"
 
 [node name="GameLogIcon" type="Button" parent="UI" unique_id=1280906586]
 visible = false
@@ -231,25 +241,29 @@ autowrap_mode = 2
 [node name="ShopPanel" type="Panel" parent="UI" unique_id=321928818]
 visible = false
 offset_left = 260.0
-offset_top = 120.0
+offset_top = 60.0
 offset_right = 920.0
-offset_bottom = 500.0
+offset_bottom = 660.0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="UI/ShopPanel" unique_id=353283564]
 layout_mode = 0
 offset_left = 24.0
 offset_top = 24.0
 offset_right = 636.0
-offset_bottom = 356.0
-theme_override_constants/separation = 16
+offset_bottom = 576.0
+theme_override_constants/separation = 12
 
 [node name="TitleLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325232]
 layout_mode = 2
-text = "Rundenziel erreicht! Ziehe zum Drehen, klicke zum Wählen:"
+text = "Rundenziel erreicht! Wähle einen Würfel und einen Charm:"
 autowrap_mode = 2
 
+[node name="DiceSectionLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325233]
+layout_mode = 2
+text = "Würfel"
+
 [node name="DicePicker" type="SubViewportContainer" parent="UI/ShopPanel/VBoxContainer" unique_id=2061541776]
-custom_minimum_size = Vector2(588, 260)
+custom_minimum_size = Vector2(588, 220)
 layout_mode = 2
 stretch = true
 script = ExtResource("9_dicepicker")
@@ -258,8 +272,22 @@ script = ExtResource("9_dicepicker")
 own_world_3d = true
 transparent_bg = true
 handle_input_locally = false
-size = Vector2i(588, 260)
+size = Vector2i(588, 220)
 render_target_update_mode = 0
+
+[node name="CharmSectionLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325234]
+layout_mode = 2
+text = "Charms"
+
+[node name="CharmOptionsContainer" type="HBoxContainer" parent="UI/ShopPanel/VBoxContainer" unique_id=2061541777]
+custom_minimum_size = Vector2(588, 90)
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="ContinueButton" type="Button" parent="UI/ShopPanel/VBoxContainer" unique_id=353283565]
+layout_mode = 2
+text = "Weiter"
+disabled = true
 
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false

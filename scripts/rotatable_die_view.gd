@@ -105,6 +105,14 @@ func _gui_input(event: InputEvent) -> void:
 			die.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)
 			die.global_rotate(camera.global_transform.basis.x.normalized(), event.relative.y * DRAG_SENSITIVITY)
 
+## Hebt den Würfel an index optisch hervor (leicht vergrößert), alle anderen
+## zurück auf Normalgröße - index == -1 zeigt keine Auswahl. Verwendet vom
+## Shop, um die aktuell gewählte Würfeloption erkennbar zu machen (siehe
+## scene_root.gd: _on_shop_die_picked).
+func set_highlighted(index: int) -> void:
+	for i in die_roots.size():
+		die_roots[i].scale = Vector3.ONE * (1.15 if i == index else 1.0)
+
 ## Findet den Würfel unter local_pos (Container-lokale Pixelkoordinaten,
 ## entspricht dank stretch=true 1:1 den Viewport-Pixeln): wählt den Würfel,
 ## dessen auf den Bildschirm projizierte Mitte am nächsten liegt (innerhalb
