@@ -15,7 +15,12 @@ extends Node3D
 ## Warteschlange, alles rückt nach (die Lücke entsteht hinten, nicht
 ## mittendrin) und die Würfel wandern - sobald sie nicht mehr im Spiel sind
 ## (Neu-Würfeln ersetzt sie, oder sie werden genommen/verworfen) - ins
-## Ablage-Tray. Die Runde endet, sobald der Pool keine volle Hand mehr hergibt.
+## Ablage-Tray. Die Runde endet sofort, sobald der Rundenstand das Rundenziel
+## erreicht (siehe _on_round_complete) - oder, falls das nie gelingt, sobald
+## der Pool keine volle Hand mehr hergibt (dann Game Over statt Shop). Beim
+## Rundenziel-Erreichen gibt es Geld: einmalig MONEY_PER_ROUND_CLEAR plus
+## MONEY_PER_UNUSED_DIE je Würfel, der im Pool noch gar nicht gezogen wurde -
+## frühes Erreichen mit vielen übrigen Würfeln lohnt sich also.
 ##
 ## Nehmen nimmt immer die komplette Hand (alle 6 Würfel, siehe
 ## DiceScoring.best_hand über dice.values): ihr Wert wird verbucht, alle 6
@@ -44,6 +49,11 @@ const POOL_SIZE := 30
 const HAND_SIZE := 6
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
+
+const MONEY_PER_ROUND_CLEAR := 5  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
+const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rundenpool beim Rundenziel-Erreichen, siehe _on_round_complete/_remaining_in_pool
+const DIE_PRICE := 15  # Preis pro Shop-Würfel-Kauf, beliebig oft wiederholbar (siehe _on_shop_die_clicked)
+const CHARM_PRICE := 25  # Preis pro Charm-Kauf, je Charm nur einmal pro Besuch verfügbar (siehe _on_shop_charm_clicked)
 
 ## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
 ## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
@@ -87,6 +97,7 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var points_label: Label = $UI/RoundHud/PointsBar/PointsLabel
 @onready var hand_label: Label = $UI/HandLabel
 @onready var charms_label: Label = $UI/CharmsLabel
+@onready var money_label: Label = $UI/MoneyLabel
 
 @onready var shop_panel: Panel = $UI/ShopPanel
 @onready var shop_title_label: Label = $UI/ShopPanel/VBoxContainer/TitleLabel
@@ -94,7 +105,8 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var shop_dice_picker: RotatableDieView = $UI/ShopPanel/VBoxContainer/DicePicker
 @onready var shop_charm_section_label: Label = $UI/ShopPanel/VBoxContainer/CharmSectionLabel
 @onready var shop_charm_options_container: HBoxContainer = $UI/ShopPanel/VBoxContainer/CharmOptionsContainer
-@onready var shop_continue_button: Button = $UI/ShopPanel/VBoxContainer/ContinueButton
+@onready var shop_message_label: Label = $UI/ShopPanel/VBoxContainer/ShopMessageLabel
+@onready var shop_done_button: Button = $UI/ShopPanel/VBoxContainer/DoneButton
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
@@ -130,17 +142,18 @@ var round_goal: int = BASE_GOAL
 
 var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids
 
-## Shop-Angebot und Auswahl. Jede Kategorie (Würfel, Charms, künftig weitere)
-## folgt demselben Muster: eine Optionsliste für den aktuellen Besuch + ein
-## gewählter Index (-1 = noch keine Wahl) - siehe _shop_can_continue/
-## _on_shop_continue_pressed. Neue Kategorien ergänzen einfach ein weiteres
-## Optionen/Auswahl-Paar nach diesem Vorbild.
-var shop_die_options: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker)
-var shop_selected_die_index: int = -1
+var money: int = 0  # Spielwährung, siehe _add_money/_refresh_money_label - läuft über einen ganzen Spiellauf, nicht nur eine Runde
+
+## Shop-Angebot: Käufe wirken sofort (siehe _on_shop_die_clicked/
+## _on_shop_charm_clicked), keine Bestätigung nötig - der Spieler kauft, so
+## viel er sich leisten will/kann, und schließt selbst mit "Fertig" ab
+## (siehe _on_shop_done_pressed). Jede Kategorie (Würfel, Charms, künftig
+## weitere) bekommt ihre eigene Optionsliste nach diesem Vorbild.
+var shop_die_options: Array[DieDefinition] = []  # aktuell im Shop angebotene Würfel-Kandidaten (Reihenfolge = shop_dice_picker), beliebig oft nachkaufbar
 
 var shop_charm_options: Array[Charm] = []  # aktuell im Shop angebotene Charm-Kandidaten (Reihenfolge = shop_charm_options_container)
-var shop_selected_charm_index: int = -1
 var shop_charm_buttons: Array[Button] = []  # dynamisch gebaute Buttons für shop_charm_options, siehe _populate_shop_charm_options
+var shop_charm_bought: Array[bool] = []  # welche shop_charm_options in diesem Besuch schon gekauft wurden (nicht erneut kaufbar)
 var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
@@ -213,8 +226,8 @@ func _ready() -> void:
 		DieDefinition.fixed(4, "Immer 4"),
 	]
 	shop_dice_picker.set_dice(shop_die_options)
-	shop_dice_picker.die_clicked.connect(_on_shop_die_picked)
-	shop_continue_button.pressed.connect(_on_shop_continue_pressed)
+	shop_dice_picker.die_clicked.connect(_on_shop_die_clicked)
+	shop_done_button.pressed.connect(_on_shop_done_pressed)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
@@ -234,6 +247,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_progress_bar(points_bar)
 	CasinoStyle.style_score_label(points_label, 17)
 	CasinoStyle.style_body_label(charms_label, 15, CasinoStyle.PURPLE)
+	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GREEN)
 
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
@@ -242,7 +256,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
-	CasinoStyle.style_button(shop_continue_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+	CasinoStyle.style_button(shop_done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
 	CasinoStyle.style_panel(shop_panel)
 	CasinoStyle.style_panel(game_over_panel)
@@ -251,6 +265,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_score_label(shop_title_label, 22, CasinoStyle.GOLD)
 	CasinoStyle.style_chip_label(shop_dice_section_label, 18, CasinoStyle.BLUE)
 	CasinoStyle.style_chip_label(shop_charm_section_label, 18, CasinoStyle.PURPLE)
+	CasinoStyle.style_body_label(shop_message_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_score_label(game_over_label, 24)
 	CasinoStyle.style_body_label(legend_content_label, 15)
 
@@ -291,6 +306,15 @@ func _refresh_charms_label() -> void:
 	for charm in owned_charms:
 		names.append(charm.display_name)
 	charms_label.text = "Charms: %s" % ", ".join(names)
+
+## Gutschrift für den Spieler (z.B. Rundenziel-Belohnung, siehe
+## _on_round_complete, oder ein Shop-Kauf mit negativem Betrag).
+func _add_money(amount: int) -> void:
+	money += amount
+	_refresh_money_label()
+
+func _refresh_money_label() -> void:
+	money_label.text = "$%d" % money
 
 func _physics_process(delta: float) -> void:
 	if not is_rolling:
@@ -952,12 +976,13 @@ func _on_roll_finished() -> void:
 ## genommen - Nehmen wirkt immer auf alle 6, siehe _on_take_button_pressed).
 ## Die verbrauchten Würfel sind bereits aus dem Pool gezogen; es geht direkt
 ## mit der nächsten Hand weiter (bzw. die Runde endet, wenn der Pool keine
-## volle Hand mehr hergibt).
+## volle Hand mehr hergibt - das Rundenziel kann ein Farkle selbst nie
+## auslösen, da es keine Punkte einbringt).
 func _on_farkle() -> void:
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
 	for kind in active_kinds:
 		_discard_kind(kind)
-	if _remaining_in_pool() < HAND_SIZE:
+	if hand_total >= round_goal or _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -979,7 +1004,7 @@ func _on_take_button_pressed() -> void:
 	for kind in active_kinds:
 		_discard_kind(kind)
 
-	if _remaining_in_pool() < HAND_SIZE:
+	if hand_total >= round_goal or _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -1033,6 +1058,8 @@ func _reset_game() -> void:
 	game_over_panel.visible = false
 	owned_charms.clear()
 	_refresh_charms_label()
+	money = 0
+	_refresh_money_label()
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
@@ -1058,10 +1085,15 @@ func _start_new_hand() -> void:
 	_refresh_deck_trays()
 	_refresh_ui()
 
+## Rundenende: bei erreichtem Ziel gibt's einmalig MONEY_PER_ROUND_CLEAR plus
+## MONEY_PER_UNUSED_DIE je Würfel, der im Rundenpool noch gar nicht gezogen
+## wurde (siehe _remaining_in_pool) - wer das Ziel früh erreicht und den Rest
+## des Pools ungenutzt lässt, wird also fürs Nicht-Ausreizen belohnt.
 func _on_round_complete() -> void:
 	take_button.disabled = true
 	select_all_button.disabled = true
 	if hand_total >= round_goal:
+		_add_money(MONEY_PER_ROUND_CLEAR + _remaining_in_pool() * MONEY_PER_UNUSED_DIE)
 		game_state = GameState.SHOP
 		_show_shop()
 	else:
@@ -1073,10 +1105,7 @@ func _on_debug_win_round_pressed() -> void:
 		return
 	is_rolling = false
 	hand_total = round_goal
-	take_button.disabled = true
-	select_all_button.disabled = true
-	game_state = GameState.SHOP
-	_show_shop()
+	_on_round_complete()
 
 ## Steuert die Sichtbarkeit der Spiel-UI (Text + Würfel-Buttons) anhand des
 ## Spielzustands (false während Shop/GameOver) - kombiniert mit dem
@@ -1116,10 +1145,10 @@ func _update_gameplay_ui_visibility() -> void:
 
 func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
-	shop_selected_die_index = -1
 	shop_dice_picker.set_highlighted(-1)
+	shop_message_label.text = ""
 	_populate_shop_charm_options()
-	_refresh_shop_continue_button()
+	_refresh_money_label()
 	shop_panel.visible = true
 
 ## Würfelt die Charm-Angebote dieses Shop-Besuchs aus - alle Charm-Archetypen
@@ -1131,7 +1160,6 @@ func _populate_shop_charm_options() -> void:
 	for button in shop_charm_buttons:
 		button.queue_free()
 	shop_charm_buttons.clear()
-	shop_selected_charm_index = -1
 
 	var owned_ids: Array[String] = _active_charm_ids()
 	var available: Array[Charm] = []
@@ -1143,61 +1171,76 @@ func _populate_shop_charm_options() -> void:
 	shop_charm_options = []
 	for i in mini(2, available.size()):
 		shop_charm_options.append(available[i])
+	shop_charm_bought = []
+	shop_charm_bought.resize(shop_charm_options.size())
+	shop_charm_bought.fill(false)
 
 	shop_charm_section_label.visible = not shop_charm_options.is_empty()
 	for i in shop_charm_options.size():
 		var charm := shop_charm_options[i]
 		var button := Button.new()
-		button.text = "%s\n%s" % [charm.display_name, charm.description]
+		button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, CHARM_PRICE]
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.custom_minimum_size = Vector2(280, 84)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.tooltip_text = charm.description
-		button.pressed.connect(_on_shop_charm_picked.bind(i))
+		button.pressed.connect(_on_shop_charm_clicked.bind(i))
 		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 14)
 		shop_charm_options_container.add_child(button)
 		shop_charm_buttons.append(button)
-	_refresh_shop_charm_highlight()
+	_refresh_shop_charm_afford_state()
 
-func _on_shop_die_picked(index: int) -> void:
+## Kauft sofort eine unabhängige Kopie des angeklickten Würfels in den Pool
+## (siehe _replace_pool_entry) - beliebig oft wiederholbar, solange genug Geld
+## da ist, da das Würfel-Angebot selbst nie "aufgebraucht" wird.
+func _on_shop_die_clicked(index: int) -> void:
 	if game_state != GameState.SHOP:
 		return
-	shop_selected_die_index = index
+	var def := shop_die_options[index]
+	if money < DIE_PRICE:
+		_show_shop_message("Nicht genug Geld für %s (%d$)." % [def.display_name, DIE_PRICE])
+		return
+	_add_money(-DIE_PRICE)
+	_replace_pool_entry(def)
 	shop_dice_picker.set_highlighted(index)
-	_refresh_shop_continue_button()
+	_show_shop_message("Gekauft: %s (-$%d)" % [def.display_name, DIE_PRICE])
+	_refresh_shop_charm_afford_state()
 
-func _on_shop_charm_picked(index: int) -> void:
+## Kauft den angeklickten Charm sofort (siehe owned_charms) - jeder Charm ist
+## pro Shop-Besuch nur einmal kaufbar (siehe shop_charm_bought), da er danach
+## sofort besessen ist. Der Button selbst ist bei fehlendem Geld schon
+## deaktiviert (siehe _refresh_shop_charm_afford_state), Godot liefert für
+## deaktivierte Buttons kein pressed-Signal - ein Klick kann hier also nur bei
+## ausreichend Geld ankommen.
+func _on_shop_charm_clicked(index: int) -> void:
+	if game_state != GameState.SHOP or shop_charm_bought[index]:
+		return
+	var charm := shop_charm_options[index]
+	_add_money(-CHARM_PRICE)
+	owned_charms.append(charm)
+	_refresh_charms_label()
+	shop_charm_bought[index] = true
+	shop_charm_buttons[index].disabled = true
+	shop_charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
+	_show_shop_message("Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE])
+	_refresh_shop_charm_afford_state()
+
+## Deaktiviert alle noch nicht gekauften Charm-Buttons, sobald das Geld für
+## CHARM_PRICE nicht mehr reicht - Geld sinkt innerhalb eines Shop-Besuchs nur
+## (kein Einkommen mittendrin), ein einmal deaktivierter Button muss also
+## nicht wieder aktiviert werden.
+func _refresh_shop_charm_afford_state() -> void:
+	for i in shop_charm_buttons.size():
+		if shop_charm_bought[i]:
+			continue
+		shop_charm_buttons[i].disabled = money < CHARM_PRICE
+
+func _show_shop_message(text: String) -> void:
+	shop_message_label.text = text
+
+func _on_shop_done_pressed() -> void:
 	if game_state != GameState.SHOP:
 		return
-	shop_selected_charm_index = index
-	_refresh_shop_charm_highlight()
-	_refresh_shop_continue_button()
-
-## Dimmt alle nicht gewählten Charm-Buttons ab, damit die aktuelle Auswahl
-## sofort erkennbar ist - analog zu RotatableDieView.set_highlighted für die
-## Würfelauswahl.
-func _refresh_shop_charm_highlight() -> void:
-	for i in shop_charm_buttons.size():
-		shop_charm_buttons[i].modulate = Color(1, 1, 1) if i == shop_selected_charm_index else Color(0.55, 0.55, 0.55)
-
-## "Weiter" ist erst klickbar, wenn jede angebotene Kategorie mit Optionen
-## eine Auswahl hat (eine Kategorie ohne Optionen - z.B. keine Charms mehr
-## übrig - gilt automatisch als erfüllt).
-func _shop_can_continue() -> bool:
-	var die_ok := shop_selected_die_index != -1
-	var charm_ok := shop_charm_options.is_empty() or shop_selected_charm_index != -1
-	return die_ok and charm_ok
-
-func _refresh_shop_continue_button() -> void:
-	shop_continue_button.disabled = not _shop_can_continue()
-
-func _on_shop_continue_pressed() -> void:
-	if game_state != GameState.SHOP or not _shop_can_continue():
-		return
-	_replace_pool_entry(shop_die_options[shop_selected_die_index])
-	if shop_selected_charm_index != -1:
-		owned_charms.append(shop_charm_options[shop_selected_charm_index])
-		_refresh_charms_label()
 	round_number += 1
 	round_goal += GOAL_INCREMENT
 	shop_panel.visible = false

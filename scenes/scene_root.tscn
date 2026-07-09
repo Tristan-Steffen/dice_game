@@ -158,6 +158,13 @@ offset_right = 370.0
 offset_bottom = 124.0
 text = "Keine Charms"
 
+[node name="MoneyLabel" type="Label" parent="UI" unique_id=80467153]
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 370.0
+offset_bottom = 160.0
+text = "$0"
+
 [node name="GameLogIcon" type="Button" parent="UI" unique_id=1280906586]
 visible = false
 offset_left = 660.0
@@ -241,29 +248,29 @@ autowrap_mode = 2
 [node name="ShopPanel" type="Panel" parent="UI" unique_id=321928818]
 visible = false
 offset_left = 260.0
-offset_top = 60.0
+offset_top = 40.0
 offset_right = 920.0
-offset_bottom = 660.0
+offset_bottom = 680.0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="UI/ShopPanel" unique_id=353283564]
 layout_mode = 0
 offset_left = 24.0
 offset_top = 24.0
 offset_right = 636.0
-offset_bottom = 576.0
-theme_override_constants/separation = 12
+offset_bottom = 616.0
+theme_override_constants/separation = 10
 
 [node name="TitleLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325232]
 layout_mode = 2
-text = "Rundenziel erreicht! Wähle einen Würfel und einen Charm:"
+text = "Rundenziel erreicht! Kaufe, was du dir leisten kannst:"
 autowrap_mode = 2
 
 [node name="DiceSectionLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325233]
 layout_mode = 2
-text = "Würfel"
+text = "Würfel (je $15)"
 
 [node name="DicePicker" type="SubViewportContainer" parent="UI/ShopPanel/VBoxContainer" unique_id=2061541776]
-custom_minimum_size = Vector2(588, 220)
+custom_minimum_size = Vector2(588, 210)
 layout_mode = 2
 stretch = true
 script = ExtResource("9_dicepicker")
@@ -272,22 +279,26 @@ script = ExtResource("9_dicepicker")
 own_world_3d = true
 transparent_bg = true
 handle_input_locally = false
-size = Vector2i(588, 220)
+size = Vector2i(588, 210)
 render_target_update_mode = 0
 
 [node name="CharmSectionLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325234]
 layout_mode = 2
-text = "Charms"
+text = "Charms (je $25)"
 
 [node name="CharmOptionsContainer" type="HBoxContainer" parent="UI/ShopPanel/VBoxContainer" unique_id=2061541777]
 custom_minimum_size = Vector2(588, 90)
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="ContinueButton" type="Button" parent="UI/ShopPanel/VBoxContainer" unique_id=353283565]
+[node name="ShopMessageLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325235]
 layout_mode = 2
-text = "Weiter"
-disabled = true
+text = ""
+autowrap_mode = 2
+
+[node name="DoneButton" type="Button" parent="UI/ShopPanel/VBoxContainer" unique_id=353283565]
+layout_mode = 2
+text = "Fertig"
 
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false
