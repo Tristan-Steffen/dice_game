@@ -36,6 +36,22 @@ tray_color = Color(0.65, 0.5, 0.12, 1)
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -3.4, 20)
 
+[node name="BlindPayoutLabel3D" type="Label3D" parent="." unique_id=80467160]
+transform = Transform3D(0.013962303, 0.99977916, -0.015705837, 1.3731816e-09, 0.015707368, 0.9998766, 0.9999025, -0.013960581, 0.00021930967, -22.195, -3.899632, -0.8107245)
+modulate = Color(0.58, 0.52, 0.4, 1)
+outline_modulate = Color(0.05, 0.05, 0.05, 1)
+text = "5$ pro Blind"
+font_size = 90
+outline_size = 14
+
+[node name="DicePayoutLabel3D" type="Label3D" parent="." unique_id=80467161]
+transform = Transform3D(-4.371139e-08, 1, 4.371139e-08, 0, -4.371139e-08, 1, 1, 4.371139e-08, 1.9106855e-15, -23.325, -3.942277, 0)
+modulate = Color(0.58, 0.52, 0.4, 1)
+outline_modulate = Color(0.05, 0.05, 0.05, 1)
+text = "1$ pro Würfel übrig"
+font_size = 90
+outline_size = 14
+
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
 transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)
 script = ExtResource("8_camerarig")
@@ -48,6 +64,8 @@ transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.836
 light_energy = 4.555
 
 [node name="Dice" type="Node3D" parent="." unique_id=219306191]
+
+[node name="Charms" type="Node3D" parent="." unique_id=219306192]
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]
 
@@ -293,7 +311,6 @@ theme_override_constants/separation = 16
 
 [node name="ShopMessageLabel" type="Label" parent="UI/ShopPanel/VBoxContainer" unique_id=1875325235]
 layout_mode = 2
-text = ""
 autowrap_mode = 2
 
 [node name="DoneButton" type="Button" parent="UI/ShopPanel/VBoxContainer" unique_id=353283565]
@@ -366,6 +383,7 @@ offset_right = 840.0
 offset_bottom = 170.0
 text = "Ziehe zum Drehen - Klick daneben oder Rechtsklick zum Schließen"
 horizontal_alignment = 1
+
 
 [connection signal="pressed" from="UI/TakeButton" to="." method="_on_take_button_pressed"]
 [connection signal="pressed" from="UI/SelectAllButton" to="." method="_on_select_all_button_pressed"]

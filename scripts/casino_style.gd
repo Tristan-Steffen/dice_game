@@ -5,8 +5,9 @@ class_name CasinoStyle
 ## dicke Ränder, satte runde Buttons und plakativen Punktetext mit Umriss.
 
 # Kräftige Casino-/Neon-Palette
-const GOLD := Color("ffbf3f")
+const GOLD := Color("ffbf3f")  # Geld-Farbe (Geldanzeige, "+$"-Popups) - siehe scene_root.gd
 const GOLD_DARK := Color("c8912a")
+const GOLD_INTENSE := Color("ffcc00")  # kräftigeres, gesättigteres Gold für kurze Aufleucht-Effekte (Tisch-Texte/Würfel beim Auszahlen, siehe scene_root.gd: _light_up_payout_label/_flash_die_tint)
 const RED := Color("fe5f55")
 const RED_DARK := Color("c73a31")
 const BLUE := Color("2f9ff0")

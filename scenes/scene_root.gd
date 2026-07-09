@@ -55,6 +55,17 @@ const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rund
 const DIE_PRICE := 15  # Preis pro Shop-Würfel-Kauf, beliebig oft wiederholbar (siehe _on_shop_die_clicked)
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf, je Charm nur einmal pro Besuch verfügbar (siehe _on_shop_charm_clicked)
 
+## Auszahlungs-Animation der beiden Tisch-Texte (siehe blind_payout_label3d/
+## dice_payout_label3d, _play_round_clear_payout) - PAYOUT_FLASH_DURATION ist
+## die Zeit zum Auf-/Abblenden ins/aus dem Gold, PAYOUT_TEXT_HOLD_DURATION die
+## Pause, in der der Blind-Text golden stehen bleibt, bevor die Würfel dran
+## sind, und DIE_PAYOUT_STEP_INTERVAL der Takt, in dem die Würfel nacheinander
+## mit aufleuchten.
+const PAYOUT_FLASH_DURATION := 0.3
+const PAYOUT_TEXT_HOLD_DURATION := 0.35
+const DIE_PAYOUT_STEP_INTERVAL := 0.09
+const PAYOUT_LABEL_BASE_COLOR := Color(0.58, 0.52, 0.4)  # gedämpfte Messingfarbe, "unbeleuchtet"
+
 ## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
 ## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
 ## Bildschirmrand der gezoomten Grubenansicht, da Welt-X = Bildschirm-oben
@@ -65,6 +76,19 @@ const CHARM_PRICE := 25  # Preis pro Charm-Kauf, je Charm nur einmal pro Besuch 
 ## (siehe _update_queue_tray_dock).
 const QUEUE_TRAY_PIT_POSITION := Vector3(-13.0, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
+
+## Physische Charms auf dem Tisch (siehe _refresh_charm_models): sechs feste
+## Plätze auf einem symmetrischen Kreisbogen entlang des hinteren Tischrands
+## (hohes +X = Bildschirm-oben in der Grubenansicht, siehe QUEUE_TRAY_PIT_POSITION),
+## damit sie beim Würfeln immer sichtbar am oberen Bildrand liegen. Die Plätze
+## sind gleichmäßig um 25° versetzt und spiegelsymmetrisch zur X-Achse (Z=0);
+## die Reihenfolge der Plätze = Reihenfolge der Charms (Index 0 links). Jeder
+## Charm liegt flach, zur Grubenmitte gedreht.
+const CHARM_SPOT_ANGLES_DEG: Array[float] = [-62.5, -37.5, -12.5, 12.5, 37.5, 62.5]
+const CHARM_SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum, entlang des hinteren Tischrands
+const CHARM_SPOT_Y := -2.675  # Höhe der Tischoberfläche (siehe frühere Handplatzierung)
+const CHARM_MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
+const CHARM_MODEL_FALLBACK := "res://assets/models/lucky+charm+3d+model.glb"  # Platzhaltermodell für Charms ohne eigenes Modell (siehe Charm.model_path)
 
 const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
 
@@ -123,8 +147,12 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
 @onready var dice_cup: DiceCup = $DiceCup
 
+@onready var blind_payout_label3d: Label3D = $BlindPayoutLabel3D
+@onready var dice_payout_label3d: Label3D = $DicePayoutLabel3D
+
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
+@onready var charms_container: Node3D = $Charms
 
 var dice: DiceController
 
@@ -140,7 +168,11 @@ var game_state: GameState = GameState.PLAYING
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
+var hands_taken_this_round: int = 0  # wie viele Hände in dieser Runde schon genommen wurden - für Charms, die nur die erste Hand betreffen (Zauberkarte, siehe _is_first_scored_hand)
+var chimney_sweep_used_this_round: bool = false  # ob der Schornsteinfeger-Charm seinen einmaligen Farkle-Erlass diese Runde schon verbraucht hat (siehe _on_farkle)
+
 var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids
+var charm_nodes: Array[Node3D] = []  # aktuell auf dem Tisch platzierte Charm-Modelle, eins je besessenem Charm (siehe _refresh_charm_models)
 
 var money: int = 0  # Spielwährung, siehe _add_money/_refresh_money_label - läuft über einen ganzen Spiellauf, nicht nur eine Runde
 
@@ -247,7 +279,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_progress_bar(points_bar)
 	CasinoStyle.style_score_label(points_label, 17)
 	CasinoStyle.style_body_label(charms_label, 15, CasinoStyle.PURPLE)
-	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GREEN)
+	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GOLD)
 
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
@@ -307,6 +339,43 @@ func _refresh_charms_label() -> void:
 		names.append(charm.display_name)
 	charms_label.text = "Charms: %s" % ", ".join(names)
 
+## Baut die physischen Charm-Modelle auf dem Tisch neu auf (siehe
+## charms_container/CHARM_SPOT_*): je besessenem Charm ein Modell auf dem
+## nächsten festen Platz, in der Reihenfolge von owned_charms (Index 0 = erster
+## Platz links). Wird bei jeder Änderung an owned_charms aufgerufen (Kauf,
+## Reset). Owned-getrieben - freie Plätze bleiben leer.
+func _refresh_charm_models() -> void:
+	for node in charm_nodes:
+		node.queue_free()
+	charm_nodes.clear()
+	for i in owned_charms.size():
+		if i >= CHARM_SPOT_ANGLES_DEG.size():
+			break  # mehr Charms als Plätze - sollte durch die Shop-Obergrenze nie passieren
+		var model := _load_charm_model(owned_charms[i])
+		charms_container.add_child(model)
+		model.transform = _charm_spot_transform(i)
+		charm_nodes.append(model)
+
+## Instanziert das 3D-Modell eines Charms (Charm.model_path), oder ersatzweise
+## das Platzhaltermodell (CHARM_MODEL_FALLBACK), solange der Charm noch kein
+## eigenes hat.
+func _load_charm_model(charm: Charm) -> Node3D:
+	var path := charm.model_path
+	if path == "" or not ResourceLoader.exists(path):
+		path = CHARM_MODEL_FALLBACK
+	var packed: PackedScene = load(path)
+	return packed.instantiate()
+
+## Transform des festen Charm-Platzes i: Position auf dem symmetrischen
+## Kreisbogen (siehe CHARM_SPOT_*), flach liegend und zur Grubenmitte (Ursprung)
+## gedreht.
+func _charm_spot_transform(i: int) -> Transform3D:
+	var angle := deg_to_rad(CHARM_SPOT_ANGLES_DEG[i])
+	var pos := Vector3(cos(angle) * CHARM_SPOT_RADIUS, CHARM_SPOT_Y, sin(angle) * CHARM_SPOT_RADIUS)
+	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()
+	var basis := Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * CHARM_MODEL_SCALE)
+	return Transform3D(basis, pos)
+
 ## Gutschrift für den Spieler (z.B. Rundenziel-Belohnung, siehe
 ## _on_round_complete, oder ein Shop-Kauf mit negativem Betrag).
 func _add_money(amount: int) -> void:
@@ -315,6 +384,28 @@ func _add_money(amount: int) -> void:
 
 func _refresh_money_label() -> void:
 	money_label.text = "$%d" % money
+
+## Kurzes elastisches Aufplustern des Geldtexts, analog zu _pulse_points_label.
+func _pulse_money_label() -> void:
+	money_label.pivot_offset = money_label.size / 2.0
+	money_label.scale = Vector2(1.35, 1.35)
+	var pulse := create_tween()
+	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pulse.tween_property(money_label, "scale", Vector2.ONE, 0.4)
+
+## Kleiner "+$N"-Text, der neben der Geldanzeige aufsteigt und ausblendet -
+## z.B. für jeden Auszahlungsschritt in _play_round_clear_payout.
+func _show_money_popup(amount: int) -> void:
+	var popup := Label.new()
+	popup.text = "+$%d" % amount
+	CasinoStyle.style_chip_label(popup, 16, CasinoStyle.GOLD)
+	money_label.add_child(popup)
+	popup.position = Vector2(64, -2)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(popup, "position:y", popup.position.y - 26.0, 0.7)
+	tween.tween_property(popup, "modulate:a", 0.0, 0.7)
+	tween.chain().tween_callback(popup.queue_free)
 
 func _physics_process(delta: float) -> void:
 	if not is_rolling:
@@ -972,19 +1063,60 @@ func _on_roll_finished() -> void:
 	_refresh_deck_trays()
 	_refresh_ui()
 
-## Farkle: die komplette Hand wird ohne Punkte verworfen (nichts war ja schon
-## genommen - Nehmen wirkt immer auf alle 6, siehe _on_take_button_pressed).
-## Die verbrauchten Würfel sind bereits aus dem Pool gezogen; es geht direkt
-## mit der nächsten Hand weiter (bzw. die Runde endet, wenn der Pool keine
-## volle Hand mehr hergibt - das Rundenziel kann ein Farkle selbst nie
-## auslösen, da es keine Punkte einbringt).
+## Farkle: die komplette Hand wird normalerweise ohne Punkte verworfen (nichts
+## war ja schon genommen - Nehmen wirkt immer auf alle 6, siehe
+## _on_take_button_pressed). Charms können das mildern (siehe CharmEffects):
+## der Schornsteinfeger verzeiht den ersten Farkle jeder Runde (die Hand läuft
+## einfach weiter), der Umgedrehte Spiegel rettet die Hälfte der Punkte, und
+## die Kristallkugel zahlt Geld für jeden überlebten Farkle. Die verbrauchten
+## Würfel sind bereits aus dem Pool gezogen; danach geht es mit der nächsten
+## Hand weiter (bzw. die Runde endet, wenn das Ziel jetzt doch erreicht wurde -
+## etwa durch geretteten Punkte - oder der Pool keine volle Hand mehr hergibt).
 func _on_farkle() -> void:
+	var ids := _active_charm_ids()
+
+	# Schornsteinfeger: erster Farkle der Runde wird verziehen - die Hand wird
+	# NICHT verworfen, sondern läuft mit den aktuellen Würfeln weiter (der
+	# Spieler kann nehmen oder erneut würfeln), als hätte der schlechte Wurf
+	# nur nicht verbessert.
+	if CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
+		chimney_sweep_used_this_round = true
+		hand_note = "Schornsteinfeger: Farkle verziehen – die Hand darf weiterlaufen."
+		dice.clear_selection()
+		_auto_select_best_combo()
+		has_rolled_current_hand = true
+		last_throw_was_reroll = false
+		_refresh_action_buttons()
+		_refresh_deck_trays()
+		_refresh_ui()
+		return
+
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
+
+	# Umgedrehter Spiegel: statt null bleibt ein Anteil der Punkte erhalten, die
+	# die Hand vor dem farkelnden Wurf wert war (pre_reroll_values, ihr
+	# Höchststand).
+	var kept := CharmEffects.farkle_kept_fraction(ids)
+	if kept > 0.0:
+		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids)["score"]
+		var salvage := int(floor(peak * kept))
+		if salvage > 0:
+			hand_total += salvage
+			_animate_points_to(hand_total)
+			hand_note = "Umgedrehter Spiegel: Farkle – %d Punkte (Hälfte) gerettet." % salvage
+
 	for kind in active_kinds:
 		_discard_kind(kind)
+
 	if hand_total >= round_goal or _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
+		# Überlebter Farkle (Runde geht weiter): Kristallkugel zahlt Geld.
+		var income := CharmEffects.farkle_survival_income(ids)
+		if income > 0:
+			_add_money(income)
+			_pulse_money_label()
+			_show_money_popup(income)
 		_start_new_hand()
 
 ## Nimmt die komplette Hand (alle 6 Würfel, siehe DiceScoring.best_hand über
@@ -997,8 +1129,12 @@ func _on_take_button_pressed() -> void:
 	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
 		return
 
-	var hand := DiceScoring.best_hand(dice.values, _active_charm_ids())
+	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
+	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
+	# auswerten.
+	var hand := DiceScoring.best_hand(dice.values, _active_charm_ids(), hands_taken_this_round == 0)
 	hand_total += hand["score"]
+	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
 
 	for kind in active_kinds:
@@ -1058,6 +1194,7 @@ func _reset_game() -> void:
 	game_over_panel.visible = false
 	owned_charms.clear()
 	_refresh_charms_label()
+	_refresh_charm_models()
 	money = 0
 	_refresh_money_label()
 	_set_gameplay_ui_visible(true)
@@ -1066,8 +1203,22 @@ func _reset_game() -> void:
 func _start_new_round() -> void:
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	hands_taken_this_round = 0
+	chimney_sweep_used_this_round = false
+
+	var ids := _active_charm_ids()
 	round_pool_kinds = owned_pool.duplicate()
+	# Glücksknoten (siehe CharmEffects.extra_round_dice): jede Runde bekommt
+	# zusätzliche Standardwürfel in den Pool - mehr Hände und mehr Geld für
+	# übrige Würfel.
+	for i in CharmEffects.extra_round_dice(ids):
+		round_pool_kinds.append(DieDefinition.standard())
 	round_pool_kinds.shuffle()
+	# Wünschelrute (siehe CharmEffects.draws_specials_first): Spezialwürfel nach
+	# vorne, damit sie in den frühesten Händen gezogen werden.
+	if CharmEffects.draws_specials_first(ids):
+		round_pool_kinds = _specials_first(round_pool_kinds)
+
 	next_draw_index = 0
 	discard_tray_view.clear()
 	hand_total = 0
@@ -1075,6 +1226,18 @@ func _start_new_round() -> void:
 	_refresh_round_hud()
 	_animate_points_to(0, false)
 	_start_new_hand()
+
+## Sortiert die Spezialwürfel (nicht "normal") stabil an den Anfang, normale
+## dahinter - Grundlage der Wünschelrute (siehe _start_new_round).
+func _specials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
+	var specials: Array[DieDefinition] = []
+	var normals: Array[DieDefinition] = []
+	for def in pool:
+		if def.style_id == "normal":
+			normals.append(def)
+		else:
+			specials.append(def)
+	return specials + normals
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
@@ -1088,17 +1251,109 @@ func _start_new_hand() -> void:
 ## Rundenende: bei erreichtem Ziel gibt's einmalig MONEY_PER_ROUND_CLEAR plus
 ## MONEY_PER_UNUSED_DIE je Würfel, der im Rundenpool noch gar nicht gezogen
 ## wurde (siehe _remaining_in_pool) - wer das Ziel früh erreicht und den Rest
-## des Pools ungenutzt lässt, wird also fürs Nicht-Ausreizen belohnt.
+## des Pools ungenutzt lässt, wird also fürs Nicht-Ausreizen belohnt. Die
+## Auszahlung läuft erst als Tisch-Animation ab (siehe
+## _play_round_clear_payout), bevor der Shop aufgeht - game_state springt
+## dafür schon jetzt auf SHOP, damit während der Animation nichts anklickbar
+## bleibt, obwohl Grube und Rundenanzeige optisch noch stehen bleiben.
 func _on_round_complete() -> void:
 	take_button.disabled = true
 	select_all_button.disabled = true
 	if hand_total >= round_goal:
-		_add_money(MONEY_PER_ROUND_CLEAR + _remaining_in_pool() * MONEY_PER_UNUSED_DIE)
 		game_state = GameState.SHOP
+		var ids := _active_charm_ids()
+		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids)  # Glücksgroschen
+		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
+		await _play_round_clear_payout(blind, per_die)
 		_show_shop()
 	else:
 		game_state = GameState.GAME_OVER
 		_show_game_over(hand_total)
+
+## Lässt die beiden Tisch-Texte (siehe blind_payout_label3d/dice_payout_label3d)
+## nacheinander golden aufleuchten, synchron zur tatsächlichen Gutschrift: erst
+## der Fixbetrag blind, dann - falls noch Würfel im Pool übrig sind - je per_die
+## pro übrigem Würfel, während die betroffenen Würfel in Warteschlangen- und
+## Pool-Tray im selben Takt mit aufleuchten (siehe _unused_die_entries). blind
+## und per_die kommen schon inklusive Charm-Boni herein (siehe
+## _on_round_complete). Die Auszahlung folgt der wahren Anzahl übriger Würfel
+## (_remaining_in_pool), auch falls mehr Würfel übrig sind, als das Pool-Tray
+## anzeigen kann - dann zahlen die überzähligen ohne eigenes Aufblitzen.
+func _play_round_clear_payout(blind: int, per_die: int) -> void:
+	await _light_up_payout_label(blind_payout_label3d)
+	_add_money(blind)
+	_pulse_money_label()
+	_show_money_popup(blind)
+	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
+	_fade_payout_label(blind_payout_label3d)
+
+	var remaining := _remaining_in_pool()
+	if remaining <= 0:
+		return
+	await _light_up_payout_label(dice_payout_label3d)
+
+	# Kamera fährt raus auf Warteschlangen- + Pool-Tray zusammen (siehe
+	# CameraRig.Mode.POOL), damit die gleich folgenden Würfel-Blitze auch
+	# sichtbar sind - am Pit-Text wären sie außerhalb des Bildes.
+	camera_rig.zoom_to(CameraRig.Mode.POOL)
+	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
+
+	var die_entries := _unused_die_entries()
+	for i in remaining:
+		if i < die_entries.size():
+			_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
+		_add_money(per_die)
+		_pulse_money_label()
+		_show_money_popup(per_die)
+		await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
+	_fade_payout_label(dice_payout_label3d)
+
+	camera_rig.zoom_to(CameraRig.Mode.PIT)
+	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
+
+## Alle Würfel-Anzeigen, die gerade einen noch nicht gezogenen Würfel dieser
+## Runde zeigen - Warteschlangen-Tray zuerst, dann Pool-Tray, in genau der
+## Reihenfolge, in der sie als Nächstes gezogen würden (siehe
+## _refresh_deck_trays). Zusammen genau _remaining_in_pool() Einträge.
+func _unused_die_entries() -> Array:
+	var entries: Array = []
+	for tray in [queue_tray_view, pool_tray_view]:
+		for i in tray.slot_roots.size():
+			if not tray.slot_roots[i].visible:
+				continue
+			var def: DieDefinition = tray.slot_defs[i]
+			entries.append({
+				"display": tray.slot_face_displays[i],
+				"tint": DiceController.KIND_TINTS.get(def.style_id, Color.WHITE),
+			})
+	return entries
+
+## Blendet einen Tisch-Text von seiner aktuellen Farbe auf CasinoStyle.GOLD auf
+## und lässt ihn dabei leicht aufplustern - wartet, bis das fertig ist (siehe
+## _play_round_clear_payout, das die eigentliche Gutschrift danach auslöst).
+func _light_up_payout_label(label: Label3D) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, CasinoStyle.GOLD_INTENSE, PAYOUT_FLASH_DURATION)
+	tween.tween_property(label, "scale", Vector3.ONE * 1.3, PAYOUT_FLASH_DURATION)
+	await tween.finished
+
+## Blendet einen Tisch-Text zurück in seine gedämpfte Ruhefarbe - läuft im
+## Hintergrund weiter, blockiert die aufrufende Animation also nicht.
+func _fade_payout_label(label: Label3D) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, PAYOUT_LABEL_BASE_COLOR, PAYOUT_FLASH_DURATION)
+	tween.tween_property(label, "scale", Vector3.ONE, PAYOUT_FLASH_DURATION)
+
+## Lässt einen einzelnen Würfel kurz golden aufblitzen und zu seiner
+## tatsächlichen Stilfarbe zurückblenden - läuft im Hintergrund weiter, damit
+## sich aufeinanderfolgende Würfel in _play_round_clear_payout wie eine Welle
+## überlappen statt strikt nacheinander zu warten.
+func _flash_die_tint(display: DieFaceDisplay, original_tint: Color) -> void:
+	var tween := create_tween()
+	tween.tween_method(display.set_tint, original_tint, CasinoStyle.GOLD_INTENSE, DIE_PAYOUT_STEP_INTERVAL)
+	tween.tween_method(display.set_tint, CasinoStyle.GOLD_INTENSE, original_tint, DIE_PAYOUT_STEP_INTERVAL * 2.0)
 
 func _on_debug_win_round_pressed() -> void:
 	if game_state != GameState.PLAYING:
@@ -1147,6 +1402,9 @@ func _show_shop() -> void:
 	_set_gameplay_ui_visible(false)
 	shop_dice_picker.set_highlighted(-1)
 	shop_message_label.text = ""
+	# Würfel-Sektionstitel zeigt den (ggf. rabattierten) Effektivpreis, siehe
+	# CharmEffects.die_price / Trickdieb-Manschette.
+	shop_dice_section_label.text = "Würfel (je $%d)" % CharmEffects.die_price(DIE_PRICE, _active_charm_ids())
 	_populate_shop_charm_options()
 	_refresh_money_label()
 	shop_panel.visible = true
@@ -1197,13 +1455,14 @@ func _on_shop_die_clicked(index: int) -> void:
 	if game_state != GameState.SHOP:
 		return
 	var def := shop_die_options[index]
-	if money < DIE_PRICE:
-		_show_shop_message("Nicht genug Geld für %s (%d$)." % [def.display_name, DIE_PRICE])
+	var price := CharmEffects.die_price(DIE_PRICE, _active_charm_ids())  # Trickdieb-Manschette-Rabatt
+	if money < price:
+		_show_shop_message("Nicht genug Geld für %s ($%d)." % [def.display_name, price])
 		return
-	_add_money(-DIE_PRICE)
+	_add_money(-price)
 	_replace_pool_entry(def)
 	shop_dice_picker.set_highlighted(index)
-	_show_shop_message("Gekauft: %s (-$%d)" % [def.display_name, DIE_PRICE])
+	_show_shop_message("Gekauft: %s (-$%d)" % [def.display_name, price])
 	_refresh_shop_charm_afford_state()
 
 ## Kauft den angeklickten Charm sofort (siehe owned_charms) - jeder Charm ist
@@ -1219,6 +1478,7 @@ func _on_shop_charm_clicked(index: int) -> void:
 	_add_money(-CHARM_PRICE)
 	owned_charms.append(charm)
 	_refresh_charms_label()
+	_refresh_charm_models()
 	shop_charm_bought[index] = true
 	shop_charm_buttons[index].disabled = true
 	shop_charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
@@ -1277,7 +1537,7 @@ func _refresh_ui() -> void:
 	if not has_rolled_current_hand:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 	else:
-		var hand := DiceScoring.best_hand(dice.values, _active_charm_ids())
+		var hand := DiceScoring.best_hand(dice.values, _active_charm_ids(), hands_taken_this_round == 0)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))

@@ -5,9 +5,11 @@ class_name DiceScoring
 ## wobei der Basiswert je nach Hand die beteiligten Würfelaugen widerspiegelt
 ## (z.B. Dreierpasch aus 3x Fünfen: Basis 15 × Mult 3 = 45 Punkte).
 ##
-## Optionale charm_ids (siehe Charm/CharmEffects) verändern, wie stark ein
-## einzelner Würfelwert zum Basiswert zählt (z.B. Hasenpfote: jede 6 zählt
-## doppelt) - beeinflussen aber nie, welche Kategorie überhaupt zutrifft.
+## Optionale charm_ids (siehe Charm/CharmEffects) verändern die Wertung an
+## mehreren Stellen - Augenwert einzelner Würfel (z.B. Hasenpfote: jede 6 zählt
+## doppelt), Kombi-Multiplikator (z.B. Hufeisen), feste Bonuspunkte (z.B.
+## Regenbogenforelle) und Verdopplung ganzer Hände (z.B. Zauberkarte) -
+## beeinflussen aber nie, welche Kategorie überhaupt zutrifft.
 
 const CATEGORIES := [
 	{"key": "one_kind", "label": "Höchste Zahl", "mult": 1},
@@ -86,43 +88,55 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 			return true
 	return false
 
-## charm_ids (siehe Charm.id) wirken nur auf den Punktwert (siehe
-## CharmEffects.eye_value) - welche Kategorie überhaupt zutrifft, entscheidet
-## weiterhin allein qualifies() anhand der rohen Würfelwerte.
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = []) -> int:
+## charm_ids (siehe Charm.id) wirken auf den Punktwert (siehe CharmEffects) -
+## welche Kategorie überhaupt zutrifft, entscheidet weiterhin allein
+## qualifies() anhand der rohen Würfelwerte. Reihenfolge der Charm-Wirkungen:
+## Augenwert je Würfel (schon im Basiswert) → Kombi-Multiplikator (+mult_bonus)
+## → feste Bonuspunkte (flat_bonus) → Verdopplung der ganzen Hand
+## (score_multiplier, z.B. Zauberkarte für die erste Hand der Runde, daher der
+## is_first_hand-Parameter).
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false) -> int:
 	if not qualifies(key, dice):
 		return 0
-	var mult := mult_for(key)
+	var base := _base_value(key, dice, charm_ids)
+	var mult := mult_for(key) + CharmEffects.mult_bonus(key, charm_ids)
+	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids)
+	return score * CharmEffects.score_multiplier(charm_ids, is_first_hand)
+
+## Basiswert einer Kategorie VOR Kombi-Multiplikator: die beteiligten
+## (charm-angepassten) Würfelaugen. Paschs zählen n×Augenwert, die
+## Summen-Kombinationen die gesamte (angepasste) Augensumme.
+static func _base_value(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
 	match key:
 		"one_kind":
-			return CharmEffects.eye_value(_highest_value(dice), charm_ids) * mult
+			return CharmEffects.eye_value(_highest_value(dice), charm_ids)
 		"two_kind":
-			return CharmEffects.eye_value(_best_value_with_count(dice, 2), charm_ids) * 2 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 2), charm_ids) * 2
 		"three_kind":
-			return CharmEffects.eye_value(_best_value_with_count(dice, 3), charm_ids) * 3 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 3), charm_ids) * 3
 		"four_kind":
-			return CharmEffects.eye_value(_best_value_with_count(dice, 4), charm_ids) * 4 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 4), charm_ids) * 4
 		"five_kind":
-			return CharmEffects.eye_value(_best_value_with_count(dice, 5), charm_ids) * 5 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 5), charm_ids) * 5
 		"six_kind":
-			return CharmEffects.eye_value(_best_value_with_count(dice, 6), charm_ids) * 6 * mult
+			return CharmEffects.eye_value(_best_value_with_count(dice, 6), charm_ids) * 6
 		"four_kind_and_pair", "double_three_kind", "three_pairs", "full_house", "small_straight", "large_straight", "two_pair":
-			return _sum(dice, charm_ids) * mult
+			return _sum(dice, charm_ids)
 	return 0
 
 ## Bestimmt die bestmögliche Hand für den aktuellen Wurf: die
 ## prestigeträchtigste Kategorie, die zutrifft (siehe HAND_PRIORITY),
 ## nicht einfach die mit dem höchsten Punktwert. charm_ids siehe score_category.
-static func best_hand(dice: Array[int], charm_ids: Array[String] = []) -> Dictionary:
+static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false) -> Dictionary:
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
 				"key": key,
 				"label": label_for(key),
-				"mult": mult_for(key),
-				"score": score_category(key, dice, charm_ids),
+				"mult": mult_for(key) + CharmEffects.mult_bonus(key, charm_ids),
+				"score": score_category(key, dice, charm_ids, is_first_hand),
 			}
-	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice, charm_ids)}
+	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice, charm_ids, is_first_hand)}
 
 ## Wie best_hand(), liefert aber zusätzlich die Positionen in dice, die zur
 ## besten Kategorie gehören (z.B. beim Full House die drei- und zweifach

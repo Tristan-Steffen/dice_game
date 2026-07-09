@@ -19,13 +19,25 @@ const TILT_MAX_YAW_DEGREES := 30.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
-const PIT_ZOOM_DISTANCE := 25.0
 const TRAY_ZOOM_DISTANCE := 15.0
 const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
 
-const PIT_TARGET := Vector3(-8, -5, 0)
 const POOL_TARGET := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView, siehe scene_root.tscn
 const DISCARD_TARGET := Vector3(-26, -3, -12)
+
+## Grubenzoom als exakte Referenz-Kamera: Position + Ausrichtung wurden im
+## Editor eingerichtet (eine testweise platzierte Camera3D) und hier
+## eingefroren, statt wie bei Pool/Ablage aus Ziel+Distanz+ZOOM_BASIS
+## abgeleitet zu werden. Ergibt einen flacheren, weiter zurückgesetzten Blick
+## auf die Grube. Beim Aktualisieren einfach die neue Test-Kamera speichern und
+## ihre Transform3D-Zahlen hier übertragen (Basis-Achsen als Spalten der
+## Transform3D-Liste, siehe ZOOM_BASIS).
+const PIT_ZOOM_ORIGIN := Vector3(-17.284252, 21.13977, 0)
+const PIT_ZOOM_BASIS := Basis(
+	Vector3(-3.344888e-08, 2.8139967e-08, 1),
+	Vector3(0.79413176, 0.6077457, 9.4608765e-09),
+	Vector3(-0.6077457, 0.79413176, -4.2675254e-08)
+)
 
 ## Feste, steile Draufsicht für die Zoom-Ziele (Grube/Trays) - unabhängig von
 ## der frei im Editor einstellbaren (jetzt flacheren) Übersichts-Kamera, damit
@@ -78,24 +90,24 @@ func _process(delta: float) -> void:
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
 		return
-	var target_point: Vector3
-	var distance: float
+	# Die Grube nutzt eine fest eingerichtete Referenz-Kamera (PIT_ZOOM_*), die
+	# Trays werden weiterhin aus Ziel+Distanz entlang ZOOM_FORWARD mit der
+	# gemeinsamen ZOOM_BASIS abgeleitet.
+	var target_origin: Vector3
+	var target_basis := ZOOM_BASIS
 	match target_mode:
 		Mode.PIT:
-			target_point = PIT_TARGET
-			distance = PIT_ZOOM_DISTANCE
+			target_origin = PIT_ZOOM_ORIGIN
+			target_basis = PIT_ZOOM_BASIS
 		Mode.POOL:
-			target_point = POOL_TARGET
-			distance = POOL_ZOOM_DISTANCE
+			target_origin = POOL_TARGET - ZOOM_FORWARD * POOL_ZOOM_DISTANCE
 		Mode.DISCARD:
-			target_point = DISCARD_TARGET
-			distance = TRAY_ZOOM_DISTANCE
+			target_origin = DISCARD_TARGET - ZOOM_FORWARD * TRAY_ZOOM_DISTANCE
 		_:
 			return
 	mode = target_mode
 	mode_changed.emit(mode)
-	var new_origin := target_point - ZOOM_FORWARD * distance
-	_animate_to(new_origin, ZOOM_BASIS)
+	_animate_to(target_origin, target_basis)
 
 ## Springt zurück zur Übersicht (No-Op, falls bereits dort).
 func zoom_out() -> void:
