@@ -45,10 +45,7 @@ extends Node3D
 @export var rest_angular_threshold: float = 0.15
 @export var rest_time_required: float = 0.2
 
-const POOL_SIZE := 30
 const HAND_SIZE := 6
-const BASE_GOAL := 150
-const GOAL_INCREMENT := 50
 
 const MONEY_PER_ROUND_CLEAR := 5  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
 const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rundenpool beim Rundenziel-Erreichen, siehe _on_round_complete/_remaining_in_pool
@@ -137,9 +134,9 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var coupons_label: Label = $UI/CouponsLabel
 
 ## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
-## ShopController) - scene_root spricht ihn nur über charm_shop.open() an und
-## stellt ihm eine kleine öffentliche Spiel-API bereit (player_money,
-## owned_charm_ids, purchase_die, purchase_charm) sowie das closed-Signal.
+## ShopController) - scene_root spricht ihn nur über charm_shop.open() an,
+## reicht ihm den laufenden GameRun (run) herein und reagiert auf sein
+## closed-Signal.
 @onready var charm_shop: ShopController = $UI/ShopPanel
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
@@ -159,7 +156,7 @@ var dice_list_panel: Panel  # komplett per Code aufgebaut (siehe _build_dice_lis
 var dice_list_rows: VBoxContainer  # Zeilencontainer; bei jedem Öffnen neu befüllt
 
 # Enthüllungs-Overlay für einen gekauften Coupon-Bogen (siehe _build_sheet_preview
-## / buy_coupon_sheet / CouponSheet).
+## / GameRun.buy_coupon_sheet / CouponSheet).
 var sheet_preview: Control
 var sheet_preview_backdrop: ColorRect
 var sheet_preview_view: CouponSheetView
@@ -197,18 +194,18 @@ var displayed_points: int = 0  # aktuell im Zielbalken/-text gezeigter Punktesta
 var points_tween: Tween
 
 var game_state: GameState = GameState.PLAYING
-var round_number: int = 1
-var round_goal: int = BASE_GOAL
+
+## Der persistente Zustand des laufenden Spiellaufs: Geld, Würfel-Sammlung,
+## Charms, Coupons, Rundenfortschritt (siehe GameRun - reine Daten + Ökonomie,
+## kein Node). Wird bei jedem Neustart frisch erzeugt (siehe _reset_game) und
+## an Shop (charm_shop.run) und Gravur-Station (die_inspector.run) gereicht;
+## seine Signale halten die HUD-Anzeigen aktuell (siehe _connect_run).
+var run: GameRun
 
 var hands_taken_this_round: int = 0  # wie viele Hände in dieser Runde schon genommen wurden - für Charms, die nur die erste Hand betreffen (Zauberkarte, siehe _is_first_scored_hand)
 var chimney_sweep_used_this_round: bool = false  # ob der Schornsteinfeger-Charm seinen einmaligen Farkle-Erlass diese Runde schon verbraucht hat (siehe _on_farkle)
 
-var owned_charms: Array[Charm] = []  # aktuell besessene Charms (siehe Charm/CharmEffects) - wirken auf jede Wertung dieses Runs, siehe _active_charm_ids; physisch angezeigt über charm_row
-var owned_coupons: Array[Coupon] = []  # gehortete Coupons (verbrauchbare Ätzungen, siehe Coupon) - unbegrenzt, im Shop als Pack gekauft (siehe buy_coupon_pack)
-
-var money: int = 0  # Spielwährung, siehe _add_money/_refresh_money_label - läuft über einen ganzen Spiellauf, nicht nur eine Runde
-var owned_pool: Array[DieDefinition] = []  # persistente Sammlung, immer genau POOL_SIZE Einträge
-var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (POOL_SIZE Einträge)
+var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (GameRun.POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
 var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Würfel-Slots zugewiesene Würfel
 
@@ -273,9 +270,7 @@ func _ready() -> void:
 
 	queue_tray_home_position = queue_tray_view.position
 
-	charm_shop.game = self
 	charm_shop.closed.connect(_on_shop_closed)
-	die_inspector.game = self
 	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
@@ -348,7 +343,8 @@ func _clear_dice_list() -> void:
 
 ## Baut die Coupon-Bogen-Enthüllung auf: abgedunkelter Vollbild-Hintergrund +
 ## zentrierter Titel + CouponSheetView. Wird beim Kauf eines Bogens im Shop
-## gezeigt (siehe buy_coupon_sheet); Klick auf den Hintergrund schließt sie wieder.
+## gezeigt (siehe run.sheet_purchased -> _show_sheet_reveal); Klick auf den
+## Hintergrund schließt sie wieder.
 func _build_sheet_preview() -> void:
 	sheet_preview = Control.new()
 	sheet_preview.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -506,14 +502,14 @@ func _play_sheet_finish_animation() -> void:
 
 ## Ein Geld-Coupon ist am Geldzähler angekommen: Chips gutschreiben + pulsen.
 func _grant_chip_coupon() -> void:
-	_add_money(CHIP_COUPON_VALUE)
+	run.add_money(CHIP_COUPON_VALUE)
 	_pulse_money_label()
 
-## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen, Zähler
+## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen (die
+## HUD-Coupon-Zeile aktualisiert sich über run.coupons_changed), Zähler
 ## hochzählen und die Zeile kurz aufpulsen.
 func _grant_etching(coupon: Coupon, data: Dictionary) -> void:
-	owned_coupons.append(coupon)
-	_refresh_coupons_label()
+	run.grant_coupon(coupon)
 	data["count"] += 1
 	data["label"].text = "%s  ×%d" % [coupon.display_name, data["count"]]
 	_pulse_control(data["label"])
@@ -581,7 +577,7 @@ func _build_dice_list_panel() -> void:
 func _rebuild_dice_list() -> void:
 	for child in dice_list_rows.get_children():
 		child.queue_free()
-	var sorted := owned_pool.duplicate()
+	var sorted := run.owned_pool.duplicate()
 	sorted.sort_custom(func(a: DieDefinition, b: DieDefinition) -> bool: return _die_eye_total(a) > _die_eye_total(b))
 	for def in sorted:
 		dice_list_rows.add_child(_build_die_row(def))
@@ -742,34 +738,32 @@ func _tween_combo_label(label: Label3D, color: Color, target_scale: float) -> vo
 	tween.tween_property(label, "modulate", color, PAYOUT_FLASH_DURATION)
 	tween.tween_property(label, "scale", Vector3.ONE * target_scale, PAYOUT_FLASH_DURATION)
 
-## Ids der aktuell besessenen Charms (siehe owned_charms) - Grundlage für
-## jede Wertung dieses Runs (siehe DiceScoring.best_hand/is_strictly_better).
-func _active_charm_ids() -> Array[String]:
-	var ids: Array[String] = []
-	for charm in owned_charms:
-		ids.append(charm.id)
-	return ids
+## Der Charm-Besitz hat sich geändert (siehe run.charms_changed): 2D-Namensliste
+## und physische Tisch-Charms gemeinsam aktualisieren.
+func _on_charms_changed() -> void:
+	_refresh_charms_label()
+	charm_row.set_charms(run.owned_charms)
 
 ## Aktualisiert die Charm-Anzeige (Namen, durch Komma getrennt) - rein
 ## informativ, damit besessene Charms beim Testen sichtbar sind.
 func _refresh_charms_label() -> void:
-	if owned_charms.is_empty():
+	if run.owned_charms.is_empty():
 		charms_label.text = "Keine Charms"
 		return
 	var names: Array[String] = []
-	for charm in owned_charms:
+	for charm in run.owned_charms:
 		names.append(charm.display_name)
 	charms_label.text = "Charms: %s" % ", ".join(names)
 
-## Aktualisiert die Coupon-Anzeige - gleiche Coupons werden als "Name ×Anzahl"
-## zusammengefasst, da man beliebig viele horten kann (siehe owned_coupons).
+## Aktualisiert die Coupon-Anzeige (siehe run.coupons_changed) - gleiche Coupons
+## werden als "Name ×Anzahl" zusammengefasst, da man beliebig viele horten kann.
 func _refresh_coupons_label() -> void:
-	if owned_coupons.is_empty():
+	if run.owned_coupons.is_empty():
 		coupons_label.text = "Keine Coupons"
 		return
 	var counts := {}
 	var order: Array[String] = []  # erste Auftrittsreihenfolge beibehalten
-	for coupon in owned_coupons:
+	for coupon in run.owned_coupons:
 		if not counts.has(coupon.display_name):
 			counts[coupon.display_name] = 0
 			order.append(coupon.display_name)
@@ -780,14 +774,10 @@ func _refresh_coupons_label() -> void:
 		parts.append("%s ×%d" % [name, count] if count > 1 else name)
 	coupons_label.text = "Coupons: %s" % ", ".join(parts)
 
-## Gutschrift für den Spieler (z.B. Rundenziel-Belohnung, siehe
-## _on_round_complete, oder ein Shop-Kauf mit negativem Betrag).
-func _add_money(amount: int) -> void:
-	money += amount
-	_refresh_money_label()
-
-func _refresh_money_label() -> void:
-	money_label.text = "$%d" % money
+## Der Geldstand hat sich geändert (siehe run.money_changed) - jede Gutschrift
+## und jeder Kauf laufen über GameRun, die Anzeige folgt hier automatisch.
+func _on_money_changed(new_money: int) -> void:
+	money_label.text = "$%d" % new_money
 
 ## Kurzes elastisches Aufplustern des Geldtexts, analog zu _pulse_points_label.
 func _pulse_money_label() -> void:
@@ -1452,7 +1442,7 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, _active_charm_ids()):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids()):
 		_on_farkle()
 		return
 
@@ -1477,7 +1467,7 @@ func _on_roll_finished() -> void:
 ## Hand weiter (bzw. die Runde endet, wenn das Ziel jetzt doch erreicht wurde -
 ## etwa durch geretteten Punkte - oder der Pool keine volle Hand mehr hergibt).
 func _on_farkle() -> void:
-	var ids := _active_charm_ids()
+	var ids := run.charm_ids()
 
 	# Schornsteinfeger: erster Farkle der Runde wird verziehen - die Hand wird
 	# NICHT verworfen, sondern läuft mit den aktuellen Würfeln weiter (der
@@ -1512,13 +1502,13 @@ func _on_farkle() -> void:
 	for kind in active_kinds:
 		_discard_kind(kind)
 
-	if hand_total >= round_goal or _remaining_in_pool() < HAND_SIZE:
+	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		# Überlebter Farkle (Runde geht weiter): Kristallkugel zahlt Geld.
 		var income := CharmEffects.farkle_survival_income(ids)
 		if income > 0:
-			_add_money(income)
+			run.add_money(income)
 			_pulse_money_label()
 			_show_money_popup(income)
 		_start_new_hand()
@@ -1536,7 +1526,7 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
 	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
 	# auswerten.
-	var hand := DiceScoring.best_hand(dice.values, _active_charm_ids(), hands_taken_this_round == 0)
+	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0)
 	hand_total += hand["score"]
 	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
@@ -1544,7 +1534,7 @@ func _on_take_button_pressed() -> void:
 	for kind in active_kinds:
 		_discard_kind(kind)
 
-	if hand_total >= round_goal or _remaining_in_pool() < HAND_SIZE:
+	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -1589,22 +1579,27 @@ func _reset_game() -> void:
 	game_state = GameState.PLAYING
 	hand_note = ""
 	last_throw_was_reroll = false
-	owned_pool.clear()
-	for i in POOL_SIZE:
-		owned_pool.append(DieDefinition.standard())
-	round_number = 1
-	round_goal = BASE_GOAL
+	run = GameRun.new_run()
+	_connect_run()
 	charm_shop.visible = false
 	game_over_panel.visible = false
-	owned_charms.clear()
-	_refresh_charms_label()
-	charm_row.set_charms(owned_charms)
-	owned_coupons.clear()
-	_refresh_coupons_label()
-	money = 0
-	_refresh_money_label()
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
+
+## Verdrahtet einen frisch erzeugten Run (siehe _reset_game): Shop und
+## Gravur-Station bekommen ihn gereicht, seine Signale halten die HUD-Anzeigen
+## aktuell, und alle Anzeigen werden einmal auf den Startzustand gebracht.
+## Der alte Run wird mitsamt seinen Verbindungen freigegeben (RefCounted).
+func _connect_run() -> void:
+	charm_shop.run = run
+	die_inspector.run = run
+	run.money_changed.connect(_on_money_changed)
+	run.charms_changed.connect(_on_charms_changed)
+	run.coupons_changed.connect(_refresh_coupons_label)
+	run.sheet_purchased.connect(_show_sheet_reveal)
+	_on_money_changed(run.money)
+	_on_charms_changed()
+	_refresh_coupons_label()
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
@@ -1612,8 +1607,8 @@ func _start_new_round() -> void:
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
 
-	var ids := _active_charm_ids()
-	round_pool_kinds = owned_pool.duplicate()
+	var ids := run.charm_ids()
+	round_pool_kinds = run.owned_pool.duplicate()
 	# Glücksknoten (siehe CharmEffects.extra_round_dice): jede Runde bekommt
 	# zusätzliche Standardwürfel in den Pool - mehr Hände und mehr Geld für
 	# übrige Würfel.
@@ -1665,14 +1660,13 @@ func _start_new_hand() -> void:
 func _on_round_complete() -> void:
 	take_button.disabled = true
 	select_all_button.disabled = true
-	if hand_total >= round_goal:
+	if hand_total >= run.round_goal:
 		game_state = GameState.SHOP
-		var ids := _active_charm_ids()
+		var ids := run.charm_ids()
 		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids)  # Glücksgroschen
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		await _play_round_clear_payout(blind, per_die)
 		_set_gameplay_ui_visible(false)
-		_refresh_money_label()
 		charm_shop.open()
 	else:
 		game_state = GameState.GAME_OVER
@@ -1696,7 +1690,7 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
 	await _light_up_payout_label(blind_payout_label3d)
-	_add_money(blind)
+	run.add_money(blind)
 	_pulse_money_label()
 	_show_money_popup(blind)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
@@ -1709,7 +1703,7 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 		for i in remaining:
 			if i < die_entries.size():
 				_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
-			_add_money(per_die)
+			run.add_money(per_die)
 			_pulse_money_label()
 			_show_money_popup(per_die)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
@@ -1776,7 +1770,7 @@ func _on_debug_win_round_pressed() -> void:
 	if game_state != GameState.PLAYING:
 		return
 	is_rolling = false
-	hand_total = round_goal
+	hand_total = run.round_goal
 	_on_round_complete()
 
 ## Steuert die Sichtbarkeit der Spiel-UI (Text + Würfel-Buttons) anhand des
@@ -1816,67 +1810,11 @@ func _update_gameplay_ui_visibility() -> void:
 	take_button.visible = show_ui
 	select_all_button.visible = show_ui
 
-# --- Shop-API (aufgerufen von ShopController) --------------------------------
-# Der Shop (ShopController auf dem ShopPanel) übernimmt die komplette Shop-UI
-# und Kauf-Interaktion; scene_root stellt ihm nur diese schmale Spiel-API
-# bereit (Geld/Charms/Pool sind hier die einzige Wahrheit) und reagiert auf sein
-# closed-Signal. So bleibt die Shop-Logik beim Shop, die Spielzustands-Mutation
-# hier.
-
-## Aktueller Geldstand - der Shop liest ihn für Kaufbarkeit und Preisanzeige.
-func player_money() -> int:
-	return money
-
-## Ids der besessenen Charms - der Shop filtert damit sein Charm-Angebot und
-## berechnet Würfel-Rabatte (siehe CharmEffects.die_price).
-func owned_charm_ids() -> Array[String]:
-	return _active_charm_ids()
-
-## Kauf eines Würfels: Geld abziehen und eine Kopie in den Pool legen (siehe
-## _replace_pool_entry). Der Shop hat die Kaufbarkeit bereits geprüft.
-func purchase_die(def: DieDefinition, price: int) -> void:
-	_add_money(-price)
-	_replace_pool_entry(def)
-
-## Kauf eines Charms: Geld abziehen, Charm übernehmen und beide Anzeigen
-## aktualisieren (2D-Namensliste + physische Charms auf dem Tisch).
-func purchase_charm(charm: Charm, price: int) -> void:
-	_add_money(-price)
-	owned_charms.append(charm)
-	_refresh_charms_label()
-	charm_row.set_charms(owned_charms)
-
-## Kauf eines Coupon-Bogens (siehe CouponSheet / ShopController): Geld abziehen,
-## Bogen des Typs kind auswürfeln und als Enthüllung über dem Shop zeigen. Die
-## Gutschrift (Ätzungen ins Inventar, Chips je Geld-Coupon) erfolgt erst in der
-## Abschluss-Animation, wenn der Spieler den Bogen verabschiedet (siehe
-## _play_sheet_finish_animation). Zurückgegeben wird nur die Anzahl echter
-## Ätzungen darauf, damit der Shop eine kurze Rückmeldung zeigen kann.
-func buy_coupon_sheet(kind: int, price: int) -> int:
-	_add_money(-price)
-	var sheet := CouponSheet.generate(kind)
-	var etch_count := 0
-	for tile in sheet.tiles:
-		if tile["kind"] == "etching":
-			etch_count += 1
-	_show_sheet_reveal(sheet, kind)
-	return etch_count
-
-## Gehortete Coupons - die Gravur-Station (DieInspectorView) liest sie, um ihr
-## Angebot zu bauen und die Kaufbarkeit/Anzahl je Ätzung zu bestimmen.
-func player_coupons() -> Array[Coupon]:
-	return owned_coupons
-
-## Verbraucht genau einen Coupon der gegebenen id (siehe Coupon-Konstanten) -
-## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung
-## gerufen; aktualisiert die HUD-Coupon-Anzeige.
-func consume_coupon(id: String) -> bool:
-	for i in owned_coupons.size():
-		if owned_coupons[i].id == id:
-			owned_coupons.remove_at(i)
-			_refresh_coupons_label()
-			return true
-	return false
+# --- Reaktionen auf Shop/Gravur-Station --------------------------------------
+# Käufe und Coupon-Verbrauch mutieren den GameRun direkt (ShopController.run /
+# DieInspectorView.run); die HUD-Anzeigen folgen über die Run-Signale (siehe
+# _connect_run). Hier stehen nur noch die Reaktionen, die echte Szenen-Arbeit
+# brauchen (Trays neu zeichnen, Rundenwechsel).
 
 ## Eine Ätzung wurde in der Gravur-Station angewandt (siehe DieInspectorView):
 ## die faces des Pool-Würfels sind bereits verändert, hier nur die Tray-Anzeigen
@@ -1889,32 +1827,13 @@ func _on_die_engraved() -> void:
 ## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): nächste
 ## Runde vorbereiten und ins Spiel zurückkehren.
 func _on_shop_closed() -> void:
-	round_number += 1
-	round_goal += GOAL_INCREMENT
+	run.advance_round()
 	game_state = GameState.PLAYING
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
-## Ersetzt einen zufälligen Pool-Eintrag durch eine unabhängige Kopie des neu
-## gekauften Würfels (bevorzugt einen "normalen", damit bereits gekaufte
-## Spezialwürfel nicht versehentlich wieder verdrängt werden). Der Pool
-## bleibt immer POOL_SIZE groß. Die Kopie (statt der geteilten Shop-Vorlage)
-## stellt sicher, dass spätere Upgrades nur diesen einen Würfel verändern.
-func _replace_pool_entry(def: DieDefinition) -> void:
-	var normal_indices: Array[int] = []
-	for i in owned_pool.size():
-		if owned_pool[i].style_id == "normal":
-			normal_indices.append(i)
-
-	var target_index: int
-	if not normal_indices.is_empty():
-		target_index = normal_indices[randi() % normal_indices.size()]
-	else:
-		target_index = randi() % owned_pool.size()
-	owned_pool[target_index] = def.instantiate()
-
 func _show_game_over(total: int) -> void:
-	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, round_goal]
+	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
 	_set_gameplay_ui_visible(false)
 	game_over_panel.visible = true
 
@@ -1925,7 +1844,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
 	else:
-		var hand := DiceScoring.best_hand(dice.values, _active_charm_ids(), hands_taken_this_round == 0)
+		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
@@ -1938,8 +1857,8 @@ func _refresh_ui() -> void:
 ## springen. Harmlos, auch wenn mehrfach ohne echte Änderung aufgerufen (siehe
 ## _refresh_ui - läuft nach jedem Wurf, nicht nur bei neuer Punktzahl).
 func _refresh_round_hud() -> void:
-	round_badge_label.text = "Runde %d" % round_number
-	points_bar.max_value = round_goal
+	round_badge_label.text = "Runde %d" % run.round_number
+	points_bar.max_value = run.round_goal
 
 ## Lässt die Punkteanzeige (Balken + Zahl) von ihrem aktuell gezeigten Wert
 ## sichtbar zu target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt)
@@ -1962,7 +1881,7 @@ func _animate_points_to(target: int, animate: bool = true) -> void:
 func _set_displayed_points(value: int) -> void:
 	displayed_points = value
 	points_bar.value = value
-	points_label.text = "%d / %d Punkte" % [value, round_goal]
+	points_label.text = "%d / %d Punkte" % [value, run.round_goal]
 
 ## Kurzes elastisches Aufplustern des Punktetexts, sobald sich der Stand
 ## erhöht - kleiner "Arcade-Pop", der einen Punktezuwachs zusätzlich zum

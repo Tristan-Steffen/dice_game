@@ -38,9 +38,9 @@ const CROSS_DIE_COUPONS: Array[String] = [
 	Coupon.TRANSPLANT, Coupon.CONNECT_UP, Coupon.IMPRINT, Coupon.BLUEPRINT,
 ]
 
-## Von scene_root gesetzte Spiel-API (player_coupons/consume_coupon). Bewusst
-## untypisiert, um keine zyklische class_name-Abhängigkeit mit scene_root zu erzeugen.
-var game
+## Der laufende Spiellauf (von scene_root gesetzt) - liefert den Coupon-Bestand
+## (owned_coupons) und verbucht den Verbrauch (consume_coupon), siehe GameRun.
+var run: GameRun
 
 @onready var backdrop: ColorRect = $Backdrop
 @onready var die_view: RotatableDieView = $Center/DieView
@@ -220,8 +220,8 @@ func _complete_two_step(second_face: int) -> void:
 ## Verbraucht den Coupon, aktualisiert Würfel- und Panel-Anzeige und meldet die
 ## Änderung. Die gewählte Seite bleibt gewählt, damit man direkt weitergravieren kann.
 func _finish_apply(coupon_id: String, message: String) -> void:
-	if game != null:
-		game.consume_coupon(coupon_id)
+	if run != null:
+		run.consume_coupon(coupon_id)
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	die_view.refresh_faces([current_def])
@@ -399,7 +399,7 @@ func _chip_box(fill: Color, border: Color) -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 2)
 	return box
 
-## Baut die Coupon-Buttons neu aus dem Bestand (game.player_coupons), gruppiert
+## Baut die Coupon-Buttons neu aus dem Bestand (run.owned_coupons), gruppiert
 ## nach Typ mit Anzahl. Reihenfolge = kanonische Coupon.all()-Reihenfolge.
 func _build_coupon_buttons() -> void:
 	coupon_entries.clear()
@@ -441,9 +441,9 @@ func _build_coupon_buttons() -> void:
 ## Zählt den Coupon-Bestand nach id (id -> Anzahl).
 func _coupon_counts() -> Dictionary:
 	var counts := {}
-	if game == null:
+	if run == null:
 		return counts
-	for coupon in game.player_coupons():
+	for coupon in run.owned_coupons:
 		counts[coupon.id] = counts.get(coupon.id, 0) + 1
 	return counts
 

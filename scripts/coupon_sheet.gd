@@ -23,6 +23,15 @@ var rows: int = 0
 ## coupon == null bedeutet Füller (Marke/Werbung).
 var tiles: Array[Dictionary] = []
 
+## Anzahl echter Gravur-Coupons auf dem Bogen (der Rest sind 1×1-Marken/
+## Werbeflächen) - z.B. für die Shop-Rückmeldung nach dem Kauf.
+func etching_count() -> int:
+	var count := 0
+	for tile in tiles:
+		if tile["kind"] == "etching":
+			count += 1
+	return count
+
 ## Rastergröße (Spalten × Zeilen) eines Bogentyps.
 static func grid_size(kind: int) -> Vector2i:
 	match kind:

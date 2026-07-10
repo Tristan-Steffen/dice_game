@@ -2,10 +2,11 @@ class_name ShopController
 extends Panel
 ## Der Shop als eigenständiger Controller auf dem ShopPanel (siehe
 ## scenes/scene_root.tscn). Übernimmt die komplette Shop-UI und Kauf-Interaktion;
-## die Spielzustands-Mutation (Geld, Charms, Pool, Rundenwechsel) bleibt bei
-## scene_root, das dem Shop dafür eine schmale API bereitstellt (game.*) und auf
-## das closed-Signal reagiert. So wächst scene_root nicht weiter mit, und
-## künftige Shop-Kategorien bekommen hier ihren Platz.
+## die Spielzustands-Mutation (Geld, Charms, Pool) liegt beim GameRun (siehe
+## scripts/game_run.gd), den der Besitzer (scene_root) über run hereinreicht.
+## Auf das closed-Signal reagiert weiterhin scene_root (Rundenwechsel). So
+## wächst scene_root nicht weiter mit, und künftige Shop-Kategorien bekommen
+## hier ihren Platz.
 ##
 ## Käufe wirken sofort (kein Bestätigen nötig): der Spieler kauft, so viel er
 ## sich leisten will/kann, und schließt selbst mit "Fertig" ab. Würfel sind
@@ -27,10 +28,9 @@ const SHEET_OFFERS := [
 	{"kind": CouponSheet.Kind.LARGE, "name": "Großbogen", "price": 16},
 ]
 
-## Vom Besitzer (scene_root) gesetzte Spiel-API (siehe scene_root.gd:
-## player_money/owned_charm_ids/purchase_die/purchase_charm). Bewusst untypisiert,
-## um keine zyklische class_name-Abhängigkeit mit scene_root zu erzeugen.
-var game
+## Der laufende Spiellauf (vom Besitzer scene_root gesetzt) - alle Käufe
+## mutieren den Zustand ausschließlich über seine Methoden (siehe GameRun).
+var run: GameRun
 
 @onready var title_label: Label = $VBoxContainer/TitleLabel
 @onready var dice_section_label: Label = $VBoxContainer/DiceSectionLabel
@@ -106,7 +106,7 @@ func _populate_charm_options() -> void:
 		button.queue_free()
 	charm_buttons.clear()
 
-	var owned_ids: Array[String] = game.owned_charm_ids()
+	var owned_ids: Array[String] = run.charm_ids()
 	var available: Array[Charm] = []
 	for charm in Charm.all():
 		if not owned_ids.has(charm.id):
@@ -137,22 +137,22 @@ func _populate_charm_options() -> void:
 
 ## Effektiver Würfelpreis nach Rabatt-Charms (Trickdieb-Manschette).
 func _die_price() -> int:
-	return CharmEffects.die_price(DIE_PRICE, game.owned_charm_ids())
+	return CharmEffects.die_price(DIE_PRICE, run.charm_ids())
 
 ## Kauft eine unabhängige Kopie des angeklickten Würfels in den Pool (siehe
-## game.purchase_die) - beliebig oft wiederholbar, solange genug Geld da ist.
+## run.purchase_die) - beliebig oft wiederholbar, solange genug Geld da ist.
 func _on_die_clicked(index: int) -> void:
 	var def := die_options[index]
 	var price := _die_price()
-	if game.player_money() < price:
+	if run.money < price:
 		message_label.text = "Nicht genug Geld für %s ($%d)." % [def.display_name, price]
 		return
-	game.purchase_die(def, price)
+	run.purchase_die(def, price)
 	dice_picker.set_highlighted(index)
 	message_label.text = "Gekauft: %s (-$%d)" % [def.display_name, price]
 	_refresh_afford_state()
 
-## Kauft den angeklickten Charm sofort (siehe game.purchase_charm) - je Charm
+## Kauft den angeklickten Charm sofort (siehe run.purchase_charm) - je Charm
 ## nur einmal pro Besuch. Der Button ist bei fehlendem Geld schon deaktiviert
 ## (siehe _refresh_afford_state), Godot liefert für deaktivierte Buttons
 ## kein pressed-Signal - ein Klick kann hier also nur bei ausreichend Geld ankommen.
@@ -160,23 +160,23 @@ func _on_charm_clicked(index: int) -> void:
 	if charm_bought[index]:
 		return
 	var charm := charm_options[index]
-	game.purchase_charm(charm, CHARM_PRICE)
+	run.purchase_charm(charm, CHARM_PRICE)
 	charm_bought[index] = true
 	charm_buttons[index].disabled = true
 	charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
 	message_label.text = "Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE]
 	_refresh_afford_state()
 
-## Kauft einen Coupon-Bogen (siehe game.buy_coupon_sheet / CouponSheet) - beliebig
-## oft nachkaufbar. game zeigt den Bogen als Enthüllung; hier steht nur die kurze
-## Rückmeldung, wie viele echte Ätzungen darauf lagen.
+## Kauft einen Coupon-Bogen (siehe run.buy_coupon_sheet / CouponSheet) - beliebig
+## oft nachkaufbar. Die Enthüllung zeigt scene_root (hört auf run.sheet_purchased);
+## hier steht nur die kurze Rückmeldung, wie viele echte Ätzungen darauf lagen.
 func _on_sheet_pressed(index: int) -> void:
 	var offer: Dictionary = SHEET_OFFERS[index]
-	if game.player_money() < offer["price"]:
+	if run.money < offer["price"]:
 		message_label.text = "Nicht genug Geld für %s ($%d)." % [offer["name"], offer["price"]]
 		return
-	var etch_count: int = game.buy_coupon_sheet(offer["kind"], offer["price"])
-	message_label.text = "%s: %d Ätzung(en) (-$%d)." % [offer["name"], etch_count, offer["price"]]
+	var sheet := run.buy_coupon_sheet(offer["kind"], offer["price"])
+	message_label.text = "%s: %d Ätzung(en) (-$%d)." % [offer["name"], sheet.etching_count(), offer["price"]]
 	_refresh_afford_state()
 
 ## Deaktiviert Käufe, die sich der Spieler nicht mehr leisten kann - noch nicht
@@ -184,7 +184,7 @@ func _on_sheet_pressed(index: int) -> void:
 ## Geld sinkt innerhalb eines Besuchs nur (kein Einkommen mittendrin), ein
 ## deaktivierter Button muss also nie reaktiviert werden.
 func _refresh_afford_state() -> void:
-	var money: int = game.player_money()
+	var money: int = run.money
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < CHARM_PRICE
