@@ -62,6 +62,18 @@ const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rund
 const PAYOUT_FLASH_DURATION := 0.3
 const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
+
+## Würfel-Blitz beim Auszahlen (siehe _flash_die_tint): schneller Anstieg auf
+## ein überstrahltes Gold (heller als GOLD_INTENSE, wirkt wie ein Aufblitzen)
+## plus kurzer Größen-Pop, danach deutlich langsameres Abklingen zurück zur
+## Stilfarbe - die Blitze der Würfel überlappen sich dadurch wie eine Welle.
+const DIE_FLASH_PEAK_COLOR := Color(1.9, 1.55, 0.6)
+const DIE_FLASH_RAMP_UP := 0.07
+const DIE_FLASH_RAMP_DOWN := 0.38
+const DIE_FLASH_SCALE := 1.25
+
+## Kantenlänge (Pixel) der Mini-3D-Würfelvorschau je Zeile der Würfel-Sammlung.
+const DICE_THUMB_SIZE := 72
 ## Ruhefarbe der Tisch-Texte (Belohnungen UND Kombinationsliste): helles Weiß mit
 ## schwarzem Umriss (siehe .tscn: outline_modulate). Beim Aufleuchten (Auszahlung
 ## bzw. gerade gewürfelte Kombination) wechseln sie nach CasinoStyle.GOLD_INTENSE.
@@ -1274,6 +1286,13 @@ func _on_round_complete() -> void:
 ## (_remaining_in_pool), auch falls mehr Würfel übrig sind, als das Pool-Tray
 ## anzeigen kann - dann zahlen die überzähligen ohne eigenes Aufblitzen.
 func _play_round_clear_payout(blind: int, per_die: int) -> void:
+	# Die ganze Zählsequenz läuft unfokussiert in der Übersicht: Tisch-Texte,
+	# Geldanzeige und beide Trays sind gleichzeitig im Bild, statt auf ein
+	# einzelnes Tray zu fokussieren. Am Ende geht es zurück in die Grubensicht,
+	# damit nach dem Shop die normale Spielansicht steht.
+	camera_rig.zoom_out()
+	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
+
 	await _light_up_payout_label(blind_payout_label3d)
 	_add_money(blind)
 	_pulse_money_label()
@@ -1282,25 +1301,17 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 	_fade_payout_label(blind_payout_label3d)
 
 	var remaining := _remaining_in_pool()
-	if remaining <= 0:
-		return
-	await _light_up_payout_label(dice_payout_label3d)
-
-	# Kamera fährt raus auf Warteschlangen- + Pool-Tray zusammen (siehe
-	# CameraRig.Mode.POOL), damit die gleich folgenden Würfel-Blitze auch
-	# sichtbar sind - am Pit-Text wären sie außerhalb des Bildes.
-	camera_rig.zoom_to(CameraRig.Mode.POOL)
-	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
-
-	var die_entries := _unused_die_entries()
-	for i in remaining:
-		if i < die_entries.size():
-			_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
-		_add_money(per_die)
-		_pulse_money_label()
-		_show_money_popup(per_die)
-		await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
-	_fade_payout_label(dice_payout_label3d)
+	if remaining > 0:
+		await _light_up_payout_label(dice_payout_label3d)
+		var die_entries := _unused_die_entries()
+		for i in remaining:
+			if i < die_entries.size():
+				_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
+			_add_money(per_die)
+			_pulse_money_label()
+			_show_money_popup(per_die)
+			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
+		_fade_payout_label(dice_payout_label3d)
 
 	camera_rig.zoom_to(CameraRig.Mode.PIT)
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
@@ -1340,14 +1351,24 @@ func _fade_payout_label(label: Label3D) -> void:
 	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, PAYOUT_LABEL_BASE_COLOR, PAYOUT_FLASH_DURATION)
 	tween.tween_property(label, "scale", Vector3.ONE, PAYOUT_FLASH_DURATION)
 
-## Lässt einen einzelnen Würfel kurz golden aufblitzen und zu seiner
-## tatsächlichen Stilfarbe zurückblenden - läuft im Hintergrund weiter, damit
-## sich aufeinanderfolgende Würfel in _play_round_clear_payout wie eine Welle
-## überlappen statt strikt nacheinander zu warten.
+## Lässt einen einzelnen Würfel beim Auszahlen aufblitzen: sehr schneller
+## Anstieg (ease-out) auf überstrahltes Gold plus Größen-Pop, danach deutlich
+## langsameres Abklingen (ease-out = schneller Abfall mit sanftem Ausläufer,
+## wie ein echtes Aufblitzen) zurück zu Stilfarbe und Normalgröße. Läuft im
+## Hintergrund weiter, damit sich aufeinanderfolgende Würfel in
+## _play_round_clear_payout wie eine Welle überlappen statt zu warten.
 func _flash_die_tint(display: DieFaceDisplay, original_tint: Color) -> void:
-	var tween := create_tween()
-	tween.tween_method(display.set_tint, original_tint, CasinoStyle.GOLD_INTENSE, DIE_PAYOUT_STEP_INTERVAL)
-	tween.tween_method(display.set_tint, CasinoStyle.GOLD_INTENSE, original_tint, DIE_PAYOUT_STEP_INTERVAL * 2.0)
+	var tint_tween := create_tween()
+	tint_tween.tween_method(display.set_tint, original_tint, DIE_FLASH_PEAK_COLOR, DIE_FLASH_RAMP_UP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tint_tween.tween_method(display.set_tint, DIE_FLASH_PEAK_COLOR, original_tint, DIE_FLASH_RAMP_DOWN) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var scale_tween := create_tween()
+	scale_tween.tween_property(display, "scale", Vector3.ONE * DIE_FLASH_SCALE, DIE_FLASH_RAMP_UP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	scale_tween.tween_property(display, "scale", Vector3.ONE, DIE_FLASH_RAMP_DOWN) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_debug_win_round_pressed() -> void:
 	if game_state != GameState.PLAYING:
