@@ -46,7 +46,7 @@ var active_coupon_id: String = ""  # Coupon, dessen zweiten Schritt wir gerade a
 var panel: Panel
 var prompt_label: Label
 var coupon_list: VBoxContainer
-var value_row: HBoxContainer
+var value_row: GridContainer  # Feingravur-Wertauswahl 1..FINE_ENGRAVING_MAX (6 Spalten)
 var coupon_entries: Array[Dictionary] = []  # [{button:Button, id:String}]
 
 # Links angebaute Seiten-Übersicht (siehe _build_summary_panel): je vorkommendem
@@ -137,7 +137,7 @@ func _on_coupon_pressed(coupon_id: String) -> void:
 			mode = Mode.PICK_VALUE
 			active_coupon_id = coupon_id
 			_show_value_picker()
-			prompt_label.text = "Feingravur: Zielwert 1–6 wählen."
+			prompt_label.text = "Feingravur: Zielwert 1–12 wählen."
 			_refresh_coupon_enabled()
 		Coupon.CHISEL:
 			mode = Mode.AWAIT_SECOND_FACE
@@ -156,9 +156,6 @@ func _on_coupon_pressed(coupon_id: String) -> void:
 			EtchingEffects.file_down(current_def, selected_face)
 			_finish_apply(coupon_id, "Feile: Seite −1")
 		Coupon.DOUBLE_NOTCH:
-			if not EtchingEffects.can_notch(current_def, selected_face):
-				prompt_label.text = "Doppelkerbe: gewählte Seite ist schon 6."
-				return
 			mode = Mode.AWAIT_SECOND_FACE
 			active_coupon_id = coupon_id
 			prompt_label.text = "Doppelkerbe: gewählte Seite +1 – klicke die zweite Seite (auch +1)."
@@ -216,18 +213,12 @@ func _complete_two_step(second_face: int) -> void:
 			EtchingEffects.grindstone(current_def, second_face, selected_face)  # −1=zweite, +1=gewählte
 			_finish_apply(active_coupon_id, "Schleifstein: +1 / −1 angewandt")
 		Coupon.DOUBLE_NOTCH:
-			if not EtchingEffects.can_notch(current_def, second_face):
-				prompt_label.text = "Doppelkerbe: diese Seite ist schon 6 – wähle eine andere."
-				return
 			EtchingEffects.double_notch(current_def, selected_face, second_face)
 			_finish_apply(active_coupon_id, "Doppelkerbe: zwei Seiten +1")
 		Coupon.AVERAGING:
 			EtchingEffects.averaging(current_def, selected_face, second_face)
 			_finish_apply(active_coupon_id, "Mittelung: zwei Seiten gemittelt")
 		Coupon.CONNECT_UP:
-			if not EtchingEffects.can_connect_up(current_def, second_face):
-				prompt_label.text = "Anschluss: aus dieser Quellseite würde 7 – wähle eine kleinere (≤ 5)."
-				return  # Wart-Modus bleibt, Coupon noch nicht verbraucht
 			EtchingEffects.connect_up(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
 			_finish_apply(active_coupon_id, "Anschluss: gewählte Seite = Quellwert + 1")
 
@@ -297,10 +288,12 @@ func _build_panel() -> void:
 	coupon_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(coupon_list)
 
-	value_row = HBoxContainer.new()
-	value_row.add_theme_constant_override("separation", 6)
+	value_row = GridContainer.new()
+	value_row.columns = 6  # 1..6 in der oberen, 7..FINE_ENGRAVING_MAX in der unteren Reihe
+	value_row.add_theme_constant_override("h_separation", 6)
+	value_row.add_theme_constant_override("v_separation", 6)
 	value_row.visible = false
-	for value in range(1, EtchingEffects.MAX_ENGRAVING_VALUE + 1):
+	for value in range(1, EtchingEffects.FINE_ENGRAVING_MAX + 1):
 		var value_button := Button.new()
 		value_button.text = str(value)
 		value_button.custom_minimum_size = Vector2(0, 44)

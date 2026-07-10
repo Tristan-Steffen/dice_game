@@ -9,8 +9,12 @@ class_name EtchingEffects
 ## DieDefinition.faces). Welche Seite gemeint ist, wählt die Anwendungs-UI (siehe
 ## DieInspectorView); hier steht nur die Wirkung selbst, deterministisch testbar.
 
-const MIN_FACE_VALUE := 1  # Würfelseiten fallen nie unter 1 (nach oben offen via Überzahl-Gravur)
-const MAX_ENGRAVING_VALUE := 6  # Feingravur wählt frei aus 1..6
+const MIN_FACE_VALUE := 1  # Würfelseiten fallen nie unter 1; nach oben sind sie offen (Überzahlen)
+## Höchster frei wählbarer Feingravur-Wert. KEINE allgemeine Obergrenze mehr:
+## die +1-Ätzungen (Doppelkerbe/Anschluss/Begradigung) und der Schleifstein
+## dürfen bewusst über 6 hinausgehen - nur die Feingravur-Wertauswahl braucht ein
+## endliches Ende für ihre Knopfreihe.
+const FINE_ENGRAVING_MAX := 12
 
 ## Meißel: kopiert den Wert der Quellseite auf die Zielseite desselben Würfels.
 static func chisel(die: DieDefinition, source_face: int, dest_face: int) -> void:
@@ -37,13 +41,13 @@ static func grindstone(die: DieDefinition, minus_face: int, plus_face: int) -> v
 static func can_grindstone_minus(die: DieDefinition, minus_face: int) -> bool:
 	return die.faces[minus_face] > MIN_FACE_VALUE
 
-## Feingravur: setzt eine Seite auf einen frei gewählten Wert (1..6).
+## Feingravur: setzt eine Seite auf einen frei gewählten Wert (1..FINE_ENGRAVING_MAX).
 static func fine_engraving(die: DieDefinition, face: int, value: int) -> void:
 	die.faces[face] = value
 
-## Ob value ein zulässiger Feingravur-Wert ist (1..6).
+## Ob value ein zulässiger Feingravur-Wert ist (1..FINE_ENGRAVING_MAX).
 static func is_valid_engraving_value(value: int) -> bool:
-	return value >= MIN_FACE_VALUE and value <= MAX_ENGRAVING_VALUE
+	return value >= MIN_FACE_VALUE and value <= FINE_ENGRAVING_MAX
 
 ## Überzahl-Gravur: +1 auf eine Seite, ausdrücklich OHNE Obergrenze (darf über 6
 ## hinausgehen, siehe Überzahlen-Konzept).
@@ -59,16 +63,11 @@ static func file_down(die: DieDefinition, face: int) -> void:
 static func can_file_down(die: DieDefinition, face: int) -> bool:
 	return die.faces[face] > MIN_FACE_VALUE
 
-## Doppelkerbe: +1 auf zwei verschiedene Seiten desselben Würfels (je max. 6,
-## siehe can_notch). Roh-Addition - die Deckelung prüft der Aufrufer je Seite.
+## Doppelkerbe: +1 auf zwei verschiedene Seiten desselben Würfels - ohne
+## Obergrenze (darf über 6 hinausgehen).
 static func double_notch(die: DieDefinition, face_a: int, face_b: int) -> void:
 	die.faces[face_a] += 1
 	die.faces[face_b] += 1
-
-## Ob face ein zulässiges Kerben-Ziel ist (bliebe ≤ MAX_ENGRAVING_VALUE; über 6
-## geht ausschließlich die Überzahl-Gravur).
-static func can_notch(die: DieDefinition, face: int) -> bool:
-	return die.faces[face] < MAX_ENGRAVING_VALUE
 
 ## Mittelung: setzt zwei Seiten desselben Würfels auf ihren aufgerundeten
 ## Mittelwert (z.B. 1 und 6 → 4 und 4) - tauscht die beste Seite gegen Pasch-Material.
@@ -78,15 +77,10 @@ static func averaging(die: DieDefinition, face_a: int, face_b: int) -> void:
 	die.faces[face_b] = mean
 
 ## Anschluss: setzt die Zielseite auf (Quellseitenwert + 1) DESSELBEN Würfels -
-## der Straßen-Bauer (schließt an einen vorhandenen Wert an). Nur zulässig,
-## solange der Quellwert < 6 bleibt (über 6 geht nur die Überzahl-Gravur, siehe
-## can_connect_up).
+## der Straßen-Bauer (schließt an einen vorhandenen Wert an). Ohne Obergrenze
+## (darf über 6 hinausgehen).
 static func connect_up(die: DieDefinition, source_face: int, target_face: int) -> void:
 	die.faces[target_face] = die.faces[source_face] + 1
-
-## Ob source_face als Anschluss-Quelle taugt (Ergebnis Quellwert+1 bliebe ≤ 6).
-static func can_connect_up(die: DieDefinition, source_face: int) -> bool:
-	return die.faces[source_face] < MAX_ENGRAVING_VALUE
 
 ## Spiegelung: invertiert alle Seiten eines Würfels über Wert → (Min + Max) − Wert
 ## (Min/Max aus den aktuellen Seiten - gleiche Formel wie die Inversion). Standard
@@ -115,12 +109,12 @@ static func _two_lowest_other_faces(die: DieDefinition, exclude: int) -> Array[i
 	order.sort_custom(func(a: int, b: int) -> bool: return die.faces[a] < die.faces[b])
 	return order.slice(0, 2)
 
-## Begradigung: +1 auf alle ungeraden Seiten eines Würfels, aber nur solange sie
-## unter 6 bleiben (über 6 nur via Überzahl) - der Paar-Former. Standard 1–6 →
-## 2,2,4,4,6,6.
+## Begradigung: +1 auf alle ungeraden Seiten eines Würfels - der Paar-Former,
+## ohne Obergrenze (ein ungerader Wert über 6, z.B. eine 7, wird zur 8).
+## Standard 1–6 → 2,2,4,4,6,6.
 static func straighten(die: DieDefinition) -> void:
 	for i in die.faces.size():
-		if die.faces[i] % 2 == 1 and die.faces[i] < MAX_ENGRAVING_VALUE:
+		if die.faces[i] % 2 == 1:
 			die.faces[i] += 1
 
 ## Blaupause: prägt den GESAMTEN Würfel auf den Wert der gewählten Seite - alle

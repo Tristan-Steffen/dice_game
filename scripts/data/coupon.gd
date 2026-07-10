@@ -93,9 +93,9 @@ static func transplant() -> Coupon:
 static func grindstone() -> Coupon:
 	return _make(GRINDSTONE, "Schleifstein", "−1 auf eine Seite, +1 auf eine andere Seite desselben Würfels.", Rarity.COMMON)
 
-## Setze eine Seite auf einen frei gewählten Wert 1–6.
+## Setze eine Seite auf einen frei gewählten Wert 1–12.
 static func fine_engraving() -> Coupon:
-	return _make(FINE_ENGRAVING, "Feingravur", "Setze eine Seite auf einen frei gewählten Wert 1–6.", Rarity.UNCOMMON)
+	return _make(FINE_ENGRAVING, "Feingravur", "Setze eine Seite auf einen frei gewählten Wert 1–12.", Rarity.UNCOMMON)
 
 ## +1 auf eine Seite, darf über 6 hinausgehen (siehe Überzahlen).
 static func overcount_engraving() -> Coupon:
@@ -107,7 +107,7 @@ static func file_down() -> Coupon:
 
 ## Doppelkerbe (Fläche 1×2): +1 auf zwei verschiedene Seiten desselben Würfels.
 static func double_notch() -> Coupon:
-	return _make(DOUBLE_NOTCH, "Doppelkerbe", "+1 auf zwei verschiedene Seiten desselben Würfels (max. 6).", Rarity.COMMON)
+	return _make(DOUBLE_NOTCH, "Doppelkerbe", "+1 auf zwei verschiedene Seiten desselben Würfels (darf über 6 hinaus).", Rarity.COMMON)
 
 ## Mittelung (Fläche 2×2): zwei Seiten eines Würfels werden ihr aufgerundeter Mittelwert.
 static func averaging() -> Coupon:
@@ -115,7 +115,7 @@ static func averaging() -> Coupon:
 
 ## Anschluss (Fläche 2×2): setzt eine Seite auf (Wert einer anderen Seite +1) desselben Würfels.
 static func connect_up() -> Coupon:
-	return _make(CONNECT_UP, "Anschluss", "Setze eine Seite auf den Wert einer anderen Seite desselben Würfels +1 (max. 6).", Rarity.UNCOMMON)
+	return _make(CONNECT_UP, "Anschluss", "Setze eine Seite auf den Wert einer anderen Seite desselben Würfels +1 (darf über 6 hinaus).", Rarity.UNCOMMON)
 
 ## Spiegelung (Fläche 2×2): invertiert alle Seiten eines Würfels.
 static func mirror() -> Coupon:
@@ -127,7 +127,7 @@ static func imprint() -> Coupon:
 
 ## Begradigung (Fläche 2×3): +1 auf alle ungeraden Seiten eines Würfels.
 static func straighten() -> Coupon:
-	return _make(STRAIGHTEN, "Begradigung", "+1 auf alle ungeraden Seiten eines Würfels (max. 6).", Rarity.UNCOMMON)
+	return _make(STRAIGHTEN, "Begradigung", "+1 auf alle ungeraden Seiten eines Würfels (darf über 6 hinaus).", Rarity.UNCOMMON)
 
 ## Blaupause (Fläche 3×3): setzt alle Seiten des Würfels auf den Wert einer gewählten Seite.
 static func blueprint() -> Coupon:

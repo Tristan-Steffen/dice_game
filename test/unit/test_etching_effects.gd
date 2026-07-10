@@ -60,11 +60,17 @@ func test_fine_engraving_sets_chosen_value():
 	EtchingEffects.fine_engraving(d, 2, 6)
 	assert_eq(d.faces[2], 6)
 
+func test_fine_engraving_can_set_above_six():
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.fine_engraving(d, 0, 11)
+	assert_eq(d.faces[0], 11, "Feingravur reicht jetzt bis 12")
+
 func test_engraving_value_bounds():
 	assert_true(EtchingEffects.is_valid_engraving_value(1))
-	assert_true(EtchingEffects.is_valid_engraving_value(6))
+	assert_true(EtchingEffects.is_valid_engraving_value(7), "über 6 ist jetzt gültig")
+	assert_true(EtchingEffects.is_valid_engraving_value(12))
 	assert_false(EtchingEffects.is_valid_engraving_value(0))
-	assert_false(EtchingEffects.is_valid_engraving_value(7))
+	assert_false(EtchingEffects.is_valid_engraving_value(13))
 
 # --- Überzahl-Gravur ---------------------------------------------------------
 
@@ -97,10 +103,10 @@ func test_double_notch_bumps_both_faces():
 	EtchingEffects.double_notch(d, 0, 2)  # +1 auf Index 0 und 2
 	assert_eq(d.faces, [2, 2, 4, 4, 5, 6])
 
-func test_can_notch_respects_ceiling():
+func test_double_notch_may_exceed_six():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	assert_true(EtchingEffects.can_notch(d, 4), "eine 5 darf auf 6")
-	assert_false(EtchingEffects.can_notch(d, 5), "eine 6 nicht weiter (über 6 nur via Überzahl)")
+	EtchingEffects.double_notch(d, 5, 4)  # 6 -> 7, 5 -> 6
+	assert_eq(d.faces, [1, 2, 3, 4, 6, 7], "Doppelkerbe darf über 6 hinaus")
 
 # --- Mittelung ---------------------------------------------------------------
 
@@ -124,10 +130,10 @@ func test_connect_up_sets_target_to_source_plus_one_same_die():
 	assert_eq(d.faces[0], 4)
 	assert_eq(d.faces[2], 3, "Quelle bleibt")
 
-func test_can_connect_up_forbidden_over_six():
+func test_connect_up_may_exceed_six():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	assert_true(EtchingEffects.can_connect_up(d, 4), "aus 5 wird 6")
-	assert_false(EtchingEffects.can_connect_up(d, 5), "aus 6 würde 7 - verboten")
+	EtchingEffects.connect_up(d, 5, 0)  # Quelle Index 5 (=6) -> Ziel = 7
+	assert_eq(d.faces[0], 7, "Anschluss darf über 6 hinaus")
 
 # --- Spiegelung --------------------------------------------------------------
 
@@ -164,10 +170,10 @@ func test_straighten_bumps_odd_faces():
 	EtchingEffects.straighten(d)
 	assert_eq(d.faces, [2, 2, 4, 4, 6, 6])
 
-func test_straighten_caps_at_six():
-	var d := _die([5, 7, 1, 2, 4, 6])  # 5->6, 7 (ungerade, aber >=6) bleibt, 1->2
+func test_straighten_bumps_odd_faces_above_six_too():
+	var d := _die([5, 7, 1, 2, 4, 6])  # ungerade: 5->6, 7->8, 1->2; gerade bleiben
 	EtchingEffects.straighten(d)
-	assert_eq(d.faces, [6, 7, 2, 2, 4, 6])
+	assert_eq(d.faces, [6, 8, 2, 2, 4, 6])
 
 # --- Blaupause ---------------------------------------------------------------
 
