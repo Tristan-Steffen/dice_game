@@ -25,10 +25,23 @@ func test_factory_id_matches_constant():
 	assert_eq(Charm.collectors_amulet().id, Charm.COLLECTORS_AMULET)
 	assert_eq(Charm.con_artist_cuff().id, Charm.CON_ARTIST_CUFF)
 
-func test_rabbits_foot_has_a_model():
-	# Der einzige bereits modellierte Charm zeigt auf sein GLB; die anderen
-	# fallen (in CharmRowView) auf das Platzhaltermodell zurück.
-	assert_ne(Charm.rabbits_foot().model_path, "")
+func test_mapped_models_exist_on_disk():
+	# Jeder Charm mit gesetztem model_path (aus Charm.MODEL_FILE) muss auf eine
+	# real vorhandene GLB-Datei zeigen - fängt Tippfehler im Dateinamen ab.
+	for charm in Charm.all():
+		if charm.model_path != "":
+			assert_true(FileAccess.file_exists(charm.model_path),
+				"Modell fehlt: %s (%s)" % [charm.model_path, charm.id])
+
+func test_most_charms_have_a_model():
+	# Aktuell haben 19 der 20 Charms ein eigenes Modell; nur der Glücksgroschen
+	# (OLD_PENNY) fällt noch auf das Platzhaltermodell zurück (siehe CharmRowView).
+	var without: Array[String] = []
+	for charm in Charm.all():
+		if charm.model_path == "":
+			without.append(charm.id)
+	assert_eq(without, [Charm.OLD_PENNY],
+		"nur der Glücksgroschen sollte (noch) ohne Modell sein")
 
 func test_instantiate_is_independent_copy():
 	# DieDefinition ist eine geteilte Resource - hier stellvertretend der Vertrag,
