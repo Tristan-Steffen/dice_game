@@ -38,39 +38,19 @@ const LUCKY_KNOT := "lucky_knot"
 const COLLECTORS_AMULET := "collectors_amulet"
 
 ## Ordner der Charm-Modelle (siehe CharmRowView, das sie auf dem Tisch zeigt).
+## Konvention: Dateiname = Charm-id (rabbits_foot.glb, horseshoe.glb, ...) -
+## ein neuer Charm braucht keine Modell-Registrierung, nur die richtig benannte
+## Datei. Fehlt sie (aktuell OLD_PENNY; lucky_knot.glb ist eine goldene Hand
+## als Ersatzmodell), bleibt model_path leer und CharmRowView zeigt das
+## Platzhalter-Modell (siehe MODEL_FALLBACK).
 const MODEL_DIR := "res://assets/models/"
-
-## Modelldatei je Charm-id (Single Source of Truth für die Modell-Zuordnung,
-## in _make ausgewertet). Ein Charm ohne Eintrag zeigt vorerst das
-## Platzhalter-Modell (siehe CharmRowView.MODEL_FALLBACK).
-const MODEL_FILE := {
-	RABBITS_FOOT: "lucky+charm+3d+model.glb",
-	LUCKY_CIGARETTES: "cigarette+pack+3d+model.glb",
-	FOUR_LEAF_CLOVER: "Four-Leaf Clover+3d+model (1).glb",
-	GOLDEN_SCARAB: "scarab+beetle+3d+model.glb",
-	FOX_TAIL: "fox+charm+3d+model.glb",
-	PENCIL_STUB: "pencil+3d+model.glb",
-	HORSESHOE: "lucky+horseshoe+3d+model.glb",
-	LADYBUG: "ladybug+charm+3d+model.glb",
-	PEARL_NECKLACE: "pearl+bracelet+3d+model.glb",
-	MAGIC_CARD: "playing+card+3d+model.glb",
-	RAINBOW_TROUT: "colorful+fish+charm+3d+model.glb",
-	PIGGY_BANK: "pink+piggy+bank+3d+model.glb",
-	CRYSTAL_BALL: "fortune-telling+crystal+ball+3d+model.glb",
-	CHIMNEY_SWEEP: "chimney+sweep+figurine+3d+model.glb",
-	BACKWARDS_MIRROR: "ornate+mirror+3d+model.glb",
-	DOWSING_ROD: "divining+rod+3d+model.glb",
-	CON_ARTIST_CUFF: "trickdieb+manschette+3d-modell.glb",
-	LUCKY_KNOT: "golden+hand+charm+3d+model.glb",  # Ersatzmodell (goldene Hand als Glückstalisman); OLD_PENNY hat noch kein Münzmodell
-	COLLECTORS_AMULET: "goldenes+amulett+3d-modell.glb",
-}
 
 @export var id: String = ""
 @export var display_name: String = ""
 @export var description: String = ""
 ## Pfad zum 3D-Modell dieses Charms (auf dem Tisch, siehe CharmRowView). Wird in
-## _make aus MODEL_FILE gesetzt; Charms ohne Modell bleiben leer und zeigen das
-## Platzhalter-Modell.
+## _make per Konvention aus der id abgeleitet; Charms ohne Modelldatei bleiben
+## leer und zeigen das Platzhalter-Modell.
 @export var model_path: String = ""
 
 static func _make(charm_id: String, name: String, desc: String) -> Charm:
@@ -78,8 +58,9 @@ static func _make(charm_id: String, name: String, desc: String) -> Charm:
 	charm.id = charm_id
 	charm.display_name = name
 	charm.description = desc
-	if MODEL_FILE.has(charm_id):
-		charm.model_path = MODEL_DIR + MODEL_FILE[charm_id]
+	var candidate := MODEL_DIR + charm_id + ".glb"
+	if ResourceLoader.exists(candidate):
+		charm.model_path = candidate
 	return charm
 
 # --- Augenwert-Charms: verändern, wie stark ein einzelner Würfelwert zur

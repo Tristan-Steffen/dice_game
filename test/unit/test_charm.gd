@@ -26,8 +26,8 @@ func test_factory_id_matches_constant():
 	assert_eq(Charm.con_artist_cuff().id, Charm.CON_ARTIST_CUFF)
 
 func test_mapped_models_exist_on_disk():
-	# Jeder Charm mit gesetztem model_path (aus Charm.MODEL_FILE) muss auf eine
-	# real vorhandene GLB-Datei zeigen - fängt Tippfehler im Dateinamen ab.
+	# Jeder Charm mit gesetztem model_path (Konvention: MODEL_DIR + id + ".glb",
+	# siehe Charm._make) muss auf eine real vorhandene GLB-Datei zeigen.
 	for charm in Charm.all():
 		if charm.model_path != "":
 			assert_true(FileAccess.file_exists(charm.model_path),

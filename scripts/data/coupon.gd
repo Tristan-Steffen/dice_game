@@ -32,7 +32,9 @@ const BLUEPRINT := "blueprint"
 
 # Ordner der Coupon-Texturen (randlose Motive; Perforation/Rahmen zeichnet die
 # Anzeige, siehe CouponSheetView / Obsidian "Coupon-Textur-Prompts").
-const TEXTURE_DIR := "res://assets/textures/egnravings/"
+# Konvention: Dateiname = Coupon-id (chisel.jpg, blueprint.jpg, ...) - ein
+# neuer Coupon braucht keine Textur-Registrierung, nur die richtig benannte Datei.
+const TEXTURE_DIR := "res://assets/textures/engravings/"
 
 # Fläche (Breite × Höhe in Rasterzellen) je Coupon - die Fläche IST die Rarität
 # (siehe Obsidian "02 Gravuren"). Bestimmt Platzbedarf auf dem Bogen und das
@@ -53,23 +55,6 @@ const FOOTPRINT := {
 	BLUEPRINT: Vector2i(3, 3),
 }
 
-# Texturdatei je Coupon (im TEXTURE_DIR).
-const TEXTURE_FILE := {
-	CHISEL: "Meißel3x2.jpg",
-	TRANSPLANT: "Transplantat2x2.jpg",
-	GRINDSTONE: "Schleifstein-horizontal2x1.jpg",
-	FINE_ENGRAVING: "Feingravur3x3.jpg",
-	OVERCOUNT_ENGRAVING: "Überzahl-Gravur3x3.jpg",
-	FILE_DOWN: "Feiel1x1.jpg",
-	DOUBLE_NOTCH: "doppelkerbe-vertikal1x2.jpg",
-	AVERAGING: "Mittelung2x2.jpg",
-	CONNECT_UP: "Anschluss2x2.jpg",
-	MIRROR: "Spiegelung2x2.jpg",
-	IMPRINT: "Abdruck3x2.jpg",
-	STRAIGHTEN: "Begradigung2x3.jpg",
-	BLUEPRINT: "Blaupause3x3.jpg",
-}
-
 @export var id: String = ""
 @export var display_name: String = ""
 @export var description: String = ""
@@ -77,7 +62,7 @@ const TEXTURE_FILE := {
 @export var rarity: Rarity = Rarity.COMMON
 @export var width: int = 1  # Fläche in Rasterzellen (siehe FOOTPRINT)
 @export var height: int = 1
-@export var texture_path: String = ""  # Motiv-Textur (siehe TEXTURE_FILE)
+@export var texture_path: String = ""  # Motiv-Textur (Konvention: TEXTURE_DIR + id + ".jpg")
 
 static func _make(coupon_id: String, name: String, desc: String, rarity: Rarity, kind := KIND_ETCHING) -> Coupon:
 	var coupon := Coupon.new()
@@ -89,8 +74,7 @@ static func _make(coupon_id: String, name: String, desc: String, rarity: Rarity,
 	var size: Vector2i = FOOTPRINT.get(coupon_id, Vector2i.ONE)
 	coupon.width = size.x
 	coupon.height = size.y
-	if TEXTURE_FILE.has(coupon_id):
-		coupon.texture_path = TEXTURE_DIR + TEXTURE_FILE[coupon_id]
+	coupon.texture_path = TEXTURE_DIR + coupon_id + ".jpg"
 	return coupon
 
 # --- Ätzungen (etchings): verändern die Seiten eines/zweier Würfel (siehe

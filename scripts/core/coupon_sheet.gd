@@ -38,8 +38,8 @@ class SheetTile:
 		coupon = p_coupon
 
 ## 1×1-Füller für die Restzellen (Texturdateien in Coupon.TEXTURE_DIR).
-const FILLER_CHIP := "Chip-coupon1x1.jpg"  # der Standard-Füller (kleine Auszahlung)
-const FILLER_ADS := ["chip-ad1x1.jpg", "cup-ad1x1.jpg", "politur-ad1x1.jpg"]  # reine Werbeflächen (Flavor)
+const FILLER_CHIP := "chip_coupon.jpg"  # der Standard-Füller (kleine Auszahlung)
+const FILLER_ADS := ["ad_chip.jpg", "ad_cup.jpg", "ad_polish.jpg"]  # reine Werbeflächen (Flavor)
 const AD_CHANCE := 0.3  # Anteil Werbeflächen unter den Füllern (Rest: Chip-Coupons)
 
 ## Wie viele "echte" Gravur-Coupons je Bogentyp platziert werden (Rest = Füller).
