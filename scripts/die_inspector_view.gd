@@ -97,6 +97,32 @@ func _on_face_clicked(_die_index: int, face_index: int) -> void:
 	_update_prompt()
 	_refresh_coupon_enabled()
 
+## Klick auf einen Wert-Chip der Seiten-Übersicht (siehe _face_chip): wählt eine
+## Seite dieses Werts und leitet sie durch dieselbe Logik wie ein Klick auf die
+## 3D-Würfelseite (_on_face_clicked) - so lassen sich Ätzungen auch komplett über
+## die Übersicht setzen. Beim zweiten Schritt (Meißel-Quelle, Schleifstein-Minus)
+## wird möglichst eine ANDERE Seite als die gewählte genommen (siehe
+## _face_index_for_value), damit gleiche Werte nicht auf sich selbst verweisen.
+func _on_chip_clicked(value: int) -> void:
+	if current_def == null:
+		return
+	var exclude: int = selected_face if mode == Mode.AWAIT_SECOND_FACE else -1
+	var face_index := _face_index_for_value(value, exclude)
+	if face_index != -1:
+		_on_face_clicked(0, face_index)
+
+## Index einer Seite mit dem gegebenen Wert, möglichst ungleich exclude (für den
+## Zweitschritt einer Ätzung). Fällt auf die passende Seite zurück, wenn nur die
+## ausgeschlossene den Wert trägt; -1, wenn der Wert gar nicht vorkommt.
+func _face_index_for_value(value: int, exclude: int) -> int:
+	var fallback := -1
+	for i in current_def.faces.size():
+		if current_def.faces[i] == value:
+			if i != exclude:
+				return i
+			fallback = i
+	return fallback
+
 ## Klick auf einen Coupon-Button. Einstufige Ätzungen wirken sofort auf die
 ## gewählte Seite; mehrstufige gehen in den passenden Wart-Modus über.
 func _on_coupon_pressed(coupon_id: String) -> void:
@@ -295,27 +321,40 @@ func _refresh_face_summary() -> void:
 	# Panel-Höhe an die Zeilenzahl anpassen (46er-Chips + 8 Abstand + Kopf/Fuß).
 	summary_panel.offset_bottom = summary_panel.offset_top + 124.0 + values.size() * 54.0
 
-## Ein Mini-Würfelseiten-Chip im Look der echten Würfel (weiß, abgerundet,
-## dunkle Ziffer); highlighted = goldener Auswahl-Look (siehe
-## RotatableDieView.SELECT_FACE_COLOR).
-func _face_chip(value: int, highlighted: bool) -> Label:
-	var chip := Label.new()
+## Ein anklickbarer Mini-Würfelseiten-Chip im Look der echten Würfel (weiß,
+## abgerundet, dunkle Ziffer); highlighted = goldener Auswahl-Look (siehe
+## RotatableDieView.SELECT_FACE_COLOR). Ein Klick wählt eine Seite dieses Werts
+## zum Gravieren - dieselbe Wirkung wie ein Klick auf die 3D-Würfelseite (siehe
+## _on_chip_clicked), damit man Ätzungen auch über die Übersicht steuern kann.
+func _face_chip(value: int, highlighted: bool) -> Button:
+	var chip := Button.new()
 	chip.text = str(value)
 	chip.custom_minimum_size = Vector2(46, 46)
-	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	chip.focus_mode = Control.FOCUS_NONE
+	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	chip.add_theme_font_size_override("font_size", 24)
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
+	chip.add_theme_color_override("font_hover_color", CasinoStyle.INK)
+	chip.add_theme_color_override("font_pressed_color", CasinoStyle.INK)
+	var fill := RotatableDieView.SELECT_FACE_COLOR if highlighted else Color.WHITE
+	var border := CasinoStyle.GOLD_DARK if highlighted else Color(0.72, 0.76, 0.8)
+	chip.add_theme_stylebox_override("normal", _chip_box(fill, border))
+	chip.add_theme_stylebox_override("hover", _chip_box(fill.lightened(0.12), CasinoStyle.GOLD))
+	chip.add_theme_stylebox_override("pressed", _chip_box(fill.darkened(0.1), border))
+	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	chip.pressed.connect(_on_chip_clicked.bind(value))
+	return chip
+
+func _chip_box(fill: Color, border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
-	box.bg_color = RotatableDieView.SELECT_FACE_COLOR if highlighted else Color.WHITE
-	box.border_color = CasinoStyle.GOLD_DARK if highlighted else Color(0.72, 0.76, 0.8)
+	box.bg_color = fill
+	box.border_color = border
 	box.set_border_width_all(2)
 	box.set_corner_radius_all(10)
 	box.shadow_color = CasinoStyle.SHADOW
 	box.shadow_size = 3
 	box.shadow_offset = Vector2(0, 2)
-	chip.add_theme_stylebox_override("normal", box)
-	return chip
+	return box
 
 ## Baut die Coupon-Buttons neu aus dem Bestand (game.player_coupons), gruppiert
 ## nach Typ mit Anzahl. Reihenfolge = kanonische Coupon.all()-Reihenfolge.
