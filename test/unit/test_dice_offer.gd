@@ -31,6 +31,17 @@ func test_offers_have_one_to_three_dice_and_positive_price():
 		for die in offer.dice:
 			assert_eq(die.faces.size(), 6, "sechs Seiten je Würfel")
 
+func test_pack_dice_are_all_the_same_type():
+	# Ein Angebot bündelt nur EINEN Würfeltyp: gleiche Seiten, nur die Anzahl
+	# variiert - aber jeder Würfel ist eine eigene Instanz.
+	for offer in DiceOffer.roll_offers(DiceOffer.TEMPLATES.size()):
+		var first := offer.dice[0]
+		var seen_ids := {}
+		for die in offer.dice:
+			assert_eq(die.faces, first.faces, "alle Würfel eines Bündels haben dieselben Seiten")
+			assert_false(seen_ids.has(die.get_instance_id()), "eigene Instanz je Würfel")
+			seen_ids[die.get_instance_id()] = true
+
 func test_dice_carry_a_non_normal_style_id():
 	# Gekaufte Würfel müssen "besonders" sein (nicht "normal"), sonst würden sie
 	# im Pool verdrängt und nicht als Spezialwürfel behandelt (siehe GameRun).

@@ -4,18 +4,18 @@
 
 [node name="ShopPanel" type="Panel"]
 visible = false
-offset_left = 260.0
-offset_top = 40.0
-offset_right = 920.0
-offset_bottom = 680.0
+offset_left = 250.0
+offset_top = 20.0
+offset_right = 980.0
+offset_bottom = 748.0
 script = ExtResource("1_shopctrl")
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 0
 offset_left = 24.0
 offset_top = 24.0
-offset_right = 636.0
-offset_bottom = 616.0
+offset_right = 706.0
+offset_bottom = 724.0
 theme_override_constants/separation = 10
 
 [node name="TitleLabel" type="Label" parent="VBoxContainer"]
@@ -27,10 +27,15 @@ autowrap_mode = 2
 layout_mode = 2
 text = "Würfel-Angebote"
 
-[node name="DiceOffersContainer" type="HBoxContainer" parent="VBoxContainer"]
-custom_minimum_size = Vector2(588, 232)
+[node name="DiceOffersScroll" type="ScrollContainer" parent="VBoxContainer"]
+custom_minimum_size = Vector2(658, 262)
 layout_mode = 2
-theme_override_constants/separation = 12
+horizontal_scroll_mode = 0
+
+[node name="OffersList" type="VBoxContainer" parent="VBoxContainer/DiceOffersScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
 
 [node name="CharmSectionLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2

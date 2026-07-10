@@ -45,13 +45,17 @@ static func roll_offers(count: int) -> Array[DiceOffer]:
 		offers.append(_from_template(templates[i]))
 	return offers
 
+## Ein Angebot bündelt immer NUR EINEN Würfeltyp: es wird ein Würfel ausgewürfelt
+## und count-mal als unabhängige Kopie ins Bündel gelegt (gleiche Seiten, nur die
+## Anzahl variiert je Vorlage).
 static func _from_template(t: Dictionary) -> DiceOffer:
 	var offer := DiceOffer.new()
 	offer.display_name = t["name"]
 	offer.price = t["price"]
 	offer.dice = []
+	var base := _make_die(t)
 	for i in int(t["count"]):
-		offer.dice.append(_make_die(t))
+		offer.dice.append(base.instantiate())
 	return offer
 
 ## Erzeugt einen einzelnen Würfel gemäß Vorlage: entweder aus dem erlaubten

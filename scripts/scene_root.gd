@@ -69,9 +69,6 @@ const DIE_FLASH_RAMP_UP := 0.07
 const DIE_FLASH_RAMP_DOWN := 0.38
 const DIE_FLASH_SCALE := 1.25
 
-## Kantenlänge (Pixel) der Mini-3D-Würfelvorschau je Zeile der Würfel-Sammlung.
-const DICE_THUMB_SIZE := 72
-
 ## Abschluss-Animation eines gekauften Bogens (siehe _play_sheet_finish_animation):
 ## Kacheln lösen sich, Geld-Coupons fliegen nach oben links (Geldzähler), Ätzungen
 ## nach rechts (Zähler je Ätzungstyp), Werbeflächen verblassen.
@@ -590,121 +587,9 @@ func _rebuild_dice_list() -> void:
 	for child in dice_list_rows.get_children():
 		child.queue_free()
 	var sorted := run.owned_pool.duplicate()
-	sorted.sort_custom(func(a: DieDefinition, b: DieDefinition) -> bool: return _die_eye_total(a) > _die_eye_total(b))
+	sorted.sort_custom(func(a: DieDefinition, b: DieDefinition) -> bool: return DiceRowView.eye_total(a) > DiceRowView.eye_total(b))
 	for def in sorted:
-		dice_list_rows.add_child(_build_die_row(def))
-
-## Augensumme (Summe aller Seiten) eines Würfels - Sortier- und Anzeigewert.
-func _die_eye_total(def: DieDefinition) -> int:
-	var total := 0
-	for value in def.faces:
-		total += value
-	return total
-
-## Eine Zeile der Sammlung: Mini-3D-Vorschau des Würfels, seine Augensumme und
-## die Seiten-Übersicht (je vorkommender Wert ein Chip mit ×Anzahl, wie im
-## Würfel-Inspektor).
-func _build_die_row(def: DieDefinition) -> PanelContainer:
-	var row_panel := PanelContainer.new()
-	var row_box := StyleBoxFlat.new()
-	row_box.bg_color = Color(1, 1, 1, 0.05)
-	row_box.set_corner_radius_all(8)
-	row_box.set_content_margin_all(8)
-	row_panel.add_theme_stylebox_override("panel", row_box)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	row_panel.add_child(row)
-
-	row.add_child(_build_die_thumb(def))
-
-	var total_label := Label.new()
-	total_label.text = "%d" % _die_eye_total(def)
-	total_label.custom_minimum_size = Vector2(52, 0)
-	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	total_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	CasinoStyle.style_score_label(total_label, 26, CasinoStyle.GOLD)
-	row.add_child(total_label)
-
-	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 6)
-	chips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var counts := {}
-	for value in def.faces:
-		counts[value] = counts.get(value, 0) + 1
-	var values := counts.keys()
-	values.sort()
-	for value in values:
-		chips.add_child(_build_collection_chip(value, counts[value]))
-	row.add_child(chips)
-	return row_panel
-
-## Kleiner Seiten-Chip für die Sammlung (weiß, abgerundet, dunkle Ziffer, im Look
-## der echten Würfel); count > 1 hängt ein "×N" an. Rein informativ (kein Klick).
-func _build_collection_chip(value: int, count: int) -> Control:
-	var chip := Label.new()
-	chip.text = "%d" % value if count == 1 else "%d ×%d" % [value, count]
-	chip.custom_minimum_size = Vector2(34, 34)
-	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	chip.add_theme_font_size_override("font_size", 18)
-	chip.add_theme_color_override("font_color", CasinoStyle.INK)
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color.WHITE
-	box.border_color = Color(0.72, 0.76, 0.8)
-	box.set_border_width_all(2)
-	box.set_corner_radius_all(8)
-	box.set_content_margin_all(5)
-	chip.add_theme_stylebox_override("normal", box)
-	return chip
-
-## Kleine statische 3D-Vorschau eines Würfels für die Sammlung (eigener
-## SubViewport, rendert dank UPDATE_ONCE nur ein Bild und kostet danach nichts).
-## Baut denselben Würfel wie überall (DieBuilder) und stellt ihn schräg dar.
-func _build_die_thumb(def: DieDefinition) -> SubViewportContainer:
-	var container := SubViewportContainer.new()
-	container.custom_minimum_size = Vector2(DICE_THUMB_SIZE, DICE_THUMB_SIZE)
-	container.stretch = true
-	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var viewport := SubViewport.new()
-	viewport.own_world_3d = true
-	viewport.transparent_bg = true
-	viewport.size = Vector2i(DICE_THUMB_SIZE, DICE_THUMB_SIZE)
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	container.add_child(viewport)
-
-	var env := Environment.new()
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1, 1, 1)
-	env.ambient_light_energy = 0.9
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	viewport.add_child(world_env)
-
-	var key_light := DirectionalLight3D.new()
-	key_light.rotation_degrees = Vector3(-50, 35, 0)
-	key_light.light_energy = 1.1
-	viewport.add_child(key_light)
-
-	var camera := Camera3D.new()
-	camera.fov = 30.0
-	# looking_at als reine Transform-Mathematik statt camera.look_at, das den
-	# Knoten schon im Baum bräuchte (hier wird der Würfel noch losgelöst gebaut).
-	camera.transform = Transform3D(Basis(), Vector3(0, 2.6, 5.4)).looking_at(Vector3.ZERO, Vector3.UP)
-	viewport.add_child(camera)
-
-	var die := DieBuilder.build()
-	viewport.add_child(die)
-	die.rotation_degrees = Vector3(-20, 30, 0)
-	var body: RigidBody3D = die.get_node("RigidBody3D")
-	body.freeze = true
-	body.collision_layer = 0
-	body.collision_mask = 0
-	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
-	faces.apply_definition(def)
-	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
-	return container
+		dice_list_rows.add_child(DiceRowView.build_row(def))
 
 ## Baut den Text der Legende einmalig aus DiceScoring.CATEGORIES auf –
 ## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),
