@@ -24,19 +24,15 @@ func test_chisel_leaves_source_unchanged():
 
 # --- Transplantat ------------------------------------------------------------
 
-func test_transplant_swaps_faces_between_two_dice():
-	var a := _die([1, 1, 1, 1, 1, 1])
-	var b := _die([6, 6, 6, 6, 6, 6])
-	EtchingEffects.transplant(a, 0, b, 5)
-	assert_eq(a.faces[0], 6)
-	assert_eq(b.faces[5], 1)
+func test_transplant_raises_face_to_die_max():
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.transplant(d, 0)  # Seite mit 1 -> Höchstwert 6
+	assert_eq(d.faces, [6, 2, 3, 4, 5, 6])
 
-func test_transplant_only_touches_the_two_faces():
-	var a := _die([1, 2, 3, 4, 5, 6])
-	var b := _die([6, 5, 4, 3, 2, 1])
-	EtchingEffects.transplant(a, 2, b, 2)
-	assert_eq(a.faces, [1, 2, 4, 4, 5, 6])
-	assert_eq(b.faces, [6, 5, 3, 3, 2, 1])
+func test_can_transplant_only_below_max():
+	var d := _die([6, 2, 3, 4, 5, 6])
+	assert_false(EtchingEffects.can_transplant(d, 0), "schon Höchstwert")
+	assert_true(EtchingEffects.can_transplant(d, 1), "unter dem Höchstwert")
 
 # --- Schleifstein ------------------------------------------------------------
 
@@ -122,17 +118,16 @@ func test_averaging_rounds_up():
 
 # --- Anschluss ---------------------------------------------------------------
 
-func test_connect_up_sets_target_to_source_plus_one():
-	var a := _die([1, 2, 3, 4, 5, 6])
-	var b := _die([1, 1, 1, 1, 1, 1])
-	EtchingEffects.connect_up(a, 2, b, 0)  # Quelle 3 -> Ziel 4
-	assert_eq(b.faces[0], 4)
-	assert_eq(a.faces[2], 3, "Quelle bleibt")
+func test_connect_up_sets_target_to_source_plus_one_same_die():
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.connect_up(d, 2, 0)  # Quelle Index 2 (=3) -> Ziel Index 0 = 4
+	assert_eq(d.faces[0], 4)
+	assert_eq(d.faces[2], 3, "Quelle bleibt")
 
 func test_can_connect_up_forbidden_over_six():
-	var a := _die([1, 2, 3, 4, 5, 6])
-	assert_true(EtchingEffects.can_connect_up(a, 4), "aus 5 wird 6")
-	assert_false(EtchingEffects.can_connect_up(a, 5), "aus 6 würde 7 - verboten")
+	var d := _die([1, 2, 3, 4, 5, 6])
+	assert_true(EtchingEffects.can_connect_up(d, 4), "aus 5 wird 6")
+	assert_false(EtchingEffects.can_connect_up(d, 5), "aus 6 würde 7 - verboten")
 
 # --- Spiegelung --------------------------------------------------------------
 
@@ -148,12 +143,19 @@ func test_mirror_uses_actual_min_and_max():
 
 # --- Abdruck -----------------------------------------------------------------
 
-func test_imprint_copies_across_dice():
-	var a := _die([1, 2, 3, 4, 5, 6])
-	var b := _die([1, 1, 1, 1, 1, 1])
-	EtchingEffects.imprint(a, 5, b, 0)  # kopiere 6 auf b[0]
-	assert_eq(b.faces[0], 6)
-	assert_eq(a.faces[5], 6, "Quelle bleibt")
+func test_imprint_stamps_value_onto_two_lowest_others():
+	# Gewählt Index 0 (=5); niedrigste ANDERE Seiten sind Index 1 (1) und Index 2 (2).
+	var d := _die([5, 1, 2, 3, 4, 6])
+	EtchingEffects.imprint(d, 0)
+	assert_eq(d.faces, [5, 5, 5, 3, 4, 6])
+	assert_eq(d.faces[0], 5, "Quelle bleibt")
+
+func test_imprint_ignores_the_source_face_when_it_is_lowest():
+	# Quelle selbst ist der kleinste Wert - sie darf nicht als eines der beiden
+	# Ziele gelten; geprägt werden die zwei kleinsten der ÜBRIGEN Seiten.
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.imprint(d, 0)  # Quelle 1; zwei niedrigste andere: 2 (Idx1), 3 (Idx2)
+	assert_eq(d.faces, [1, 1, 1, 4, 5, 6])
 
 # --- Begradigung -------------------------------------------------------------
 
@@ -169,16 +171,12 @@ func test_straighten_caps_at_six():
 
 # --- Blaupause ---------------------------------------------------------------
 
-func test_blueprint_copies_whole_value_set():
-	var a := _die([6, 6, 6, 2, 2, 2])
-	var b := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.blueprint(a, b)
-	assert_eq(b.faces, [6, 6, 6, 2, 2, 2])
-	assert_eq(a.faces, [6, 6, 6, 2, 2, 2], "Quelle unverändert")
+func test_blueprint_sets_all_faces_to_selected_value():
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.blueprint(d, 3)  # gewählt Index 3 (=4)
+	assert_eq(d.faces, [4, 4, 4, 4, 4, 4])
 
-func test_blueprint_target_is_independent_copy():
-	var a := _die([6, 6, 6, 2, 2, 2])
-	var b := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.blueprint(a, b)
-	b.faces[0] = 1
-	assert_eq(a.faces[0], 6, "Ziel-Kopie ist unabhängig von der Quelle")
+func test_blueprint_from_a_six_makes_an_always_six_die():
+	var d := _die([1, 2, 3, 4, 5, 6])
+	EtchingEffects.blueprint(d, 5)  # gewählt Index 5 (=6)
+	assert_eq(d.faces, [6, 6, 6, 6, 6, 6])

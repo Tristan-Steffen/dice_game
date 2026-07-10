@@ -9,9 +9,9 @@ extends Control
 ## Hier wendet der Spieler seine Ätzungs-Coupons an (siehe Coupon/EtchingEffects):
 ## Er klickt eine Würfelseite (Auswahl, gold hervorgehoben) und danach eine
 ## Ätzung im rechten Panel - beliebig oft, solange er Coupons hat. Ätzungen, die
-## eine zweite Seite brauchen (Meißel = Quellseite, Schleifstein = −1-Seite),
-## fragen diese per zweitem Seiten-Klick ab. Transplantat (tauscht zwischen zwei
-## Würfeln) ist hier bewusst nicht anwendbar und bleibt deaktiviert.
+## eine zweite Seite brauchen (Meißel = Quellseite, Schleifstein = −1-Seite,
+## Anschluss = Quellseite), fragen diese per zweitem Seiten-Klick ab. Jede Ätzung
+## wirkt auf genau DIESEN Würfel - es gibt keine Zwei-Würfel-Ätzungen mehr.
 ##
 ## Der gezeigte Würfel ist DIESELBE DieDefinition-Instanz wie im Pool (siehe
 ## scene_root.gd: round_pool_kinds = owned_pool.duplicate() ist eine flache
@@ -26,17 +26,9 @@ extends Control
 signal changed
 
 ## Ablauf-Zustand der Station: normale Seiten-Auswahl, Warten auf die zweite
-## Seite (Meißel/Schleifstein/Doppelkerbe/Mittelung) oder Warten auf den Zielwert
-## (Feingravur).
+## Seite (Meißel/Schleifstein/Doppelkerbe/Mittelung/Anschluss) oder Warten auf
+## den Zielwert (Feingravur).
 enum Mode { SELECT, AWAIT_SECOND_FACE, PICK_VALUE }
-
-## Ätzungen, die einen ZWEITEN Würfel brauchen - in dieser Einzelwürfel-Station
-## noch nicht anwendbar, daher sichtbar, aber gesperrt ("braucht 2 Würfel"). Die
-## Zwei-Würfel-Auswahl kommt mit dem späteren Ausbau (siehe Obsidian: Anschluss/
-## Abdruck/Blaupause/Transplantat).
-const CROSS_DIE_COUPONS: Array[String] = [
-	Coupon.TRANSPLANT, Coupon.CONNECT_UP, Coupon.IMPRINT, Coupon.BLUEPRINT,
-]
 
 ## Der laufende Spiellauf (von scene_root gesetzt) - liefert den Coupon-Bestand
 ## (owned_coupons) und verbucht den Verbrauch (consume_coupon), siehe GameRun.
@@ -182,7 +174,23 @@ func _on_coupon_pressed(coupon_id: String) -> void:
 		Coupon.STRAIGHTEN:
 			EtchingEffects.straighten(current_def)
 			_finish_apply(coupon_id, "Begradigung: ungerade Seiten +1")
-		# Cross-Würfel-Ätzungen (siehe CROSS_DIE_COUPONS) sind hier gesperrt - kein Fall nötig.
+		Coupon.TRANSPLANT:
+			if not EtchingEffects.can_transplant(current_def, selected_face):
+				prompt_label.text = "Transplantat: diese Seite ist schon der Höchstwert."
+				return
+			EtchingEffects.transplant(current_def, selected_face)
+			_finish_apply(coupon_id, "Transplantat: Seite auf Höchstwert gehoben")
+		Coupon.CONNECT_UP:
+			mode = Mode.AWAIT_SECOND_FACE
+			active_coupon_id = coupon_id
+			prompt_label.text = "Anschluss: klicke die Quellseite – die gewählte Seite wird ihr Wert + 1."
+			_refresh_coupon_enabled()
+		Coupon.IMPRINT:
+			EtchingEffects.imprint(current_def, selected_face)
+			_finish_apply(coupon_id, "Abdruck: auf die zwei niedrigsten Seiten geprägt")
+		Coupon.BLUEPRINT:
+			EtchingEffects.blueprint(current_def, selected_face)
+			_finish_apply(coupon_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
 
 ## Wertauswahl der Feingravur (siehe _show_value_picker).
 func _on_value_pressed(value: int) -> void:
@@ -216,6 +224,12 @@ func _complete_two_step(second_face: int) -> void:
 		Coupon.AVERAGING:
 			EtchingEffects.averaging(current_def, selected_face, second_face)
 			_finish_apply(active_coupon_id, "Mittelung: zwei Seiten gemittelt")
+		Coupon.CONNECT_UP:
+			if not EtchingEffects.can_connect_up(current_def, second_face):
+				prompt_label.text = "Anschluss: aus dieser Quellseite würde 7 – wähle eine kleinere (≤ 5)."
+				return  # Wart-Modus bleibt, Coupon noch nicht verbraucht
+			EtchingEffects.connect_up(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
+			_finish_apply(active_coupon_id, "Anschluss: gewählte Seite = Quellwert + 1")
 
 ## Verbraucht den Coupon, aktualisiert Würfel- und Panel-Anzeige und meldet die
 ## Änderung. Die gewählte Seite bleibt gewählt, damit man direkt weitergravieren kann.
@@ -425,15 +439,9 @@ func _build_coupon_buttons() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.tooltip_text = archetype.description
 		var accent := _rarity_accent(archetype.rarity)
-		if archetype.id in CROSS_DIE_COUPONS:
-			# Hier nicht anwendbar (braucht zwei Würfel) - sichtbar, aber gesperrt.
-			button.text = "%s ×%d\nHier nicht anwendbar (braucht 2 Würfel)" % [archetype.display_name, count]
-			CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 14)
-			button.disabled = true
-		else:
-			button.text = "%s ×%d\n%s" % [archetype.display_name, count, archetype.description]
-			button.pressed.connect(_on_coupon_pressed.bind(archetype.id))
-			CasinoStyle.style_button(button, accent[0], accent[1], 14)
+		button.text = "%s ×%d\n%s" % [archetype.display_name, count, archetype.description]
+		button.pressed.connect(_on_coupon_pressed.bind(archetype.id))
+		CasinoStyle.style_button(button, accent[0], accent[1], 14)
 		coupon_list.add_child(button)
 		coupon_entries.append({"button": button, "id": archetype.id})
 	_refresh_coupon_enabled()
@@ -448,14 +456,11 @@ func _coupon_counts() -> Dictionary:
 	return counts
 
 ## Sperrt Coupon-Buttons, wenn keine Seite gewählt ist oder gerade ein zweiter
-## Schritt läuft; Cross-Würfel-Ätzungen (CROSS_DIE_COUPONS) bleiben immer gesperrt.
+## Schritt läuft (dann ist nur der zweite Seiten-Klick dran).
 func _refresh_coupon_enabled() -> void:
 	var can_apply: bool = selected_face != -1 and mode == Mode.SELECT
 	for entry in coupon_entries:
-		if entry["id"] in CROSS_DIE_COUPONS:
-			entry["button"].disabled = true
-		else:
-			entry["button"].disabled = not can_apply
+		entry["button"].disabled = not can_apply
 
 func _show_value_picker() -> void:
 	value_row.visible = true

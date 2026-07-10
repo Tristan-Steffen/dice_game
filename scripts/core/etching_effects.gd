@@ -1,14 +1,13 @@
 class_name EtchingEffects
 ## Reine Seiten-Transformationen der Ätzungs-Coupons (siehe Coupon) - analog zu
 ## CharmEffects: keine Nodes, nur Rechnen. Jede Funktion verändert die faces
-## eines DieDefinition IN PLACE; die Aufrufer übergeben eindeutige Pool-Würfel
-## (jeder owned_pool-Eintrag ist eine eigene DieDefinition-Instanz, siehe
-## scene_root.gd), sodass die Mutation keinen anderen Würfel trifft.
+## EINES DieDefinition IN PLACE; keine Ätzung berührt zwei Würfel (die physische
+## Seitenlage ist ohnehin gleichgültig - beim Wurf zählt nur der Multiset der
+## sechs Werte, ein reines Umsortieren innerhalb eines Würfels wäre also wirkungslos).
 ##
 ## Face-Parameter sind Seiten-Indizes 0..5 (physische Seiten, siehe
-## DieDefinition.faces). Die eigentliche Ziel-Auswahl (welcher Würfel, welche
-## Seite) übernimmt später die Anwendungs-UI; hier steht nur die Wirkung selbst,
-## damit sie deterministisch testbar bleibt.
+## DieDefinition.faces). Welche Seite gemeint ist, wählt die Anwendungs-UI (siehe
+## DieInspectorView); hier steht nur die Wirkung selbst, deterministisch testbar.
 
 const MIN_FACE_VALUE := 1  # Würfelseiten fallen nie unter 1 (nach oben offen via Überzahl-Gravur)
 const MAX_ENGRAVING_VALUE := 6  # Feingravur wählt frei aus 1..6
@@ -17,11 +16,15 @@ const MAX_ENGRAVING_VALUE := 6  # Feingravur wählt frei aus 1..6
 static func chisel(die: DieDefinition, source_face: int, dest_face: int) -> void:
 	die.faces[dest_face] = die.faces[source_face]
 
-## Transplantat: tauscht je eine Seite zwischen zwei verschiedenen Würfeln.
-static func transplant(die_a: DieDefinition, face_a: int, die_b: DieDefinition, face_b: int) -> void:
-	var tmp := die_a.faces[face_a]
-	die_a.faces[face_a] = die_b.faces[face_b]
-	die_b.faces[face_b] = tmp
+## Transplantat: hebt die gewählte Seite auf den aktuell höchsten Wert des
+## Würfels (verpflanzt den stärksten Wert auf diese Seite) - schneller
+## Pasch-Bauer. Sinnlos, wenn die Seite schon der Höchstwert ist (siehe can_transplant).
+static func transplant(die: DieDefinition, face: int) -> void:
+	die.faces[face] = die.faces.max()
+
+## Ob face als Transplantat-Ziel taugt (liegt unter dem aktuellen Höchstwert).
+static func can_transplant(die: DieDefinition, face: int) -> bool:
+	return die.faces[face] < die.faces.max()
 
 ## Schleifstein: −1 auf minus_face, +1 auf plus_face desselben Würfels - die
 ## Augensumme des Würfels bleibt gleich. Nur zulässig, solange die verringerte
@@ -74,15 +77,16 @@ static func averaging(die: DieDefinition, face_a: int, face_b: int) -> void:
 	die.faces[face_a] = mean
 	die.faces[face_b] = mean
 
-## Anschluss: setzt eine Seite eines ANDEREN Würfels auf (Quellwert + 1) - der
-## Straßen-Bauer. Nur zulässig, solange der Quellwert < 6 bleibt (über 6 geht nur
-## die Überzahl-Gravur, siehe can_connect_up).
-static func connect_up(source_die: DieDefinition, source_face: int, target_die: DieDefinition, target_face: int) -> void:
-	target_die.faces[target_face] = source_die.faces[source_face] + 1
+## Anschluss: setzt die Zielseite auf (Quellseitenwert + 1) DESSELBEN Würfels -
+## der Straßen-Bauer (schließt an einen vorhandenen Wert an). Nur zulässig,
+## solange der Quellwert < 6 bleibt (über 6 geht nur die Überzahl-Gravur, siehe
+## can_connect_up).
+static func connect_up(die: DieDefinition, source_face: int, target_face: int) -> void:
+	die.faces[target_face] = die.faces[source_face] + 1
 
 ## Ob source_face als Anschluss-Quelle taugt (Ergebnis Quellwert+1 bliebe ≤ 6).
-static func can_connect_up(source_die: DieDefinition, source_face: int) -> bool:
-	return source_die.faces[source_face] < MAX_ENGRAVING_VALUE
+static func can_connect_up(die: DieDefinition, source_face: int) -> bool:
+	return die.faces[source_face] < MAX_ENGRAVING_VALUE
 
 ## Spiegelung: invertiert alle Seiten eines Würfels über Wert → (Min + Max) − Wert
 ## (Min/Max aus den aktuellen Seiten - gleiche Formel wie die Inversion). Standard
@@ -93,11 +97,23 @@ static func mirror_die(die: DieDefinition) -> void:
 	for i in die.faces.size():
 		die.faces[i] = (lo + hi) - die.faces[i]
 
-## Abdruck: kopiert eine Seite auf eine Seite eines ANDEREN Würfels (Meißel über
-## Würfelgrenzen - der eigentliche Pasch-Motor, da gleiche Werte auf verschiedenen
-## Würfeln liegen).
-static func imprint(source_die: DieDefinition, source_face: int, target_die: DieDefinition, target_face: int) -> void:
-	target_die.faces[target_face] = source_die.faces[source_face]
+## Abdruck: prägt den Wert der gewählten Seite auf die beiden NIEDRIGSTEN anderen
+## Seiten desselben Würfels (ein doppelter Meißel Richtung Pasch - der
+## Pasch-Motor). Bei Gleichstand entscheidet die Seitenreihenfolge; da nur der
+## Multiset zählt, ist das Ergebnis so oder so eindeutig.
+static func imprint(die: DieDefinition, source_face: int) -> void:
+	var value: int = die.faces[source_face]
+	for target in _two_lowest_other_faces(die, source_face):
+		die.faces[target] = value
+
+## Die (bis zu) zwei Seitenindizes mit dem niedrigsten Wert, exclude ausgenommen.
+static func _two_lowest_other_faces(die: DieDefinition, exclude: int) -> Array[int]:
+	var order: Array[int] = []
+	for i in die.faces.size():
+		if i != exclude:
+			order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool: return die.faces[a] < die.faces[b])
+	return order.slice(0, 2)
 
 ## Begradigung: +1 auf alle ungeraden Seiten eines Würfels, aber nur solange sie
 ## unter 6 bleiben (über 6 nur via Überzahl) - der Paar-Former. Standard 1–6 →
@@ -107,7 +123,10 @@ static func straighten(die: DieDefinition) -> void:
 		if die.faces[i] % 2 == 1 and die.faces[i] < MAX_ENGRAVING_VALUE:
 			die.faces[i] += 1
 
-## Blaupause: kopiert den kompletten Seitensatz (nur Werte) eines Würfels auf
-## einen anderen. Das Ziel bekommt eine eigene faces-Kopie (unabhängig von der Quelle).
-static func blueprint(source_die: DieDefinition, target_die: DieDefinition) -> void:
-	target_die.faces = source_die.faces.duplicate()
+## Blaupause: prägt den GESAMTEN Würfel auf den Wert der gewählten Seite - alle
+## sechs Seiten bekommen diesen Wert, der Würfel zeigt fortan also immer diesen
+## Wert (wie ein fester Shop-Würfel). Der stärkste Pasch-Bauer, entsprechend selten.
+static func blueprint(die: DieDefinition, face: int) -> void:
+	var value: int = die.faces[face]
+	for i in die.faces.size():
+		die.faces[i] = value

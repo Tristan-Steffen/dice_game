@@ -77,17 +77,17 @@ static func _make(coupon_id: String, name: String, desc: String, rarity: Rarity,
 	coupon.texture_path = TEXTURE_DIR + coupon_id + ".jpg"
 	return coupon
 
-# --- Ätzungen (etchings): verändern die Seiten eines/zweier Würfel (siehe
-# EtchingEffects). Face-Parameter der eigentlichen Wirkung folgen erst mit der
-# Anwendungs-UI; hier zählen nur Metadaten. ---
+# --- Ätzungen (etchings): verändern die Seiten EINES Würfels (siehe
+# EtchingEffects; keine Ätzung berührt zwei Würfel). Face-Parameter der
+# eigentlichen Wirkung wählt die Anwendungs-UI; hier zählen nur Metadaten. ---
 
 ## Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.
 static func chisel() -> Coupon:
 	return _make(CHISEL, "Meißel", "Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.", Rarity.COMMON)
 
-## Tausche zwei Seiten zwischen zwei verschiedenen Würfeln.
+## Transplantat (Fläche 2×2): hebt eine Seite auf den höchsten Wert des Würfels.
 static func transplant() -> Coupon:
-	return _make(TRANSPLANT, "Transplantat", "Tausche zwei Seiten zwischen zwei verschiedenen Würfeln.", Rarity.COMMON)
+	return _make(TRANSPLANT, "Transplantat", "Hebe eine Seite auf den aktuell höchsten Wert des Würfels.", Rarity.COMMON)
 
 ## −1 auf eine Seite, +1 auf eine andere Seite desselben Würfels (Summe bleibt).
 static func grindstone() -> Coupon:
@@ -113,25 +113,25 @@ static func double_notch() -> Coupon:
 static func averaging() -> Coupon:
 	return _make(AVERAGING, "Mittelung", "Zwei Seiten eines Würfels werden auf ihren aufgerundeten Mittelwert gesetzt.", Rarity.UNCOMMON)
 
-## Anschluss (Fläche 2×2): setzt eine Seite eines ANDEREN Würfels auf (gewählte Seite +1).
+## Anschluss (Fläche 2×2): setzt eine Seite auf (Wert einer anderen Seite +1) desselben Würfels.
 static func connect_up() -> Coupon:
-	return _make(CONNECT_UP, "Anschluss", "Setze eine Seite eines anderen Würfels auf den Wert der gewählten Seite +1 (max. 6).", Rarity.UNCOMMON)
+	return _make(CONNECT_UP, "Anschluss", "Setze eine Seite auf den Wert einer anderen Seite desselben Würfels +1 (max. 6).", Rarity.UNCOMMON)
 
 ## Spiegelung (Fläche 2×2): invertiert alle Seiten eines Würfels.
 static func mirror() -> Coupon:
 	return _make(MIRROR, "Spiegelung", "Invertiere alle Seiten eines Würfels ((Min+Max) − Wert).", Rarity.UNCOMMON)
 
-## Abdruck (Fläche 2×3): kopiert eine Seite auf eine Seite eines ANDEREN Würfels.
+## Abdruck (Fläche 2×3): prägt eine Seite auf die beiden niedrigsten anderen Seiten desselben Würfels.
 static func imprint() -> Coupon:
-	return _make(IMPRINT, "Abdruck", "Kopiere eine Seite auf eine Seite eines anderen Würfels.", Rarity.UNCOMMON)
+	return _make(IMPRINT, "Abdruck", "Präge den Wert einer Seite auf die beiden niedrigsten anderen Seiten desselben Würfels.", Rarity.UNCOMMON)
 
 ## Begradigung (Fläche 2×3): +1 auf alle ungeraden Seiten eines Würfels.
 static func straighten() -> Coupon:
 	return _make(STRAIGHTEN, "Begradigung", "+1 auf alle ungeraden Seiten eines Würfels (max. 6).", Rarity.UNCOMMON)
 
-## Blaupause (Fläche 3×3): kopiert den kompletten Seitensatz eines Würfels auf einen anderen.
+## Blaupause (Fläche 3×3): setzt alle Seiten des Würfels auf den Wert einer gewählten Seite.
 static func blueprint() -> Coupon:
-	return _make(BLUEPRINT, "Blaupause", "Kopiere den kompletten Seitensatz eines Würfels auf einen anderen.", Rarity.RARE)
+	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.RARE)
 
 ## Alle existierenden Coupon-Archetypen (kanonische Registrierung) - Grundlage
 ## für die Pack-Auswürfelung. Ein neuer Coupon wird hier eingehängt.
