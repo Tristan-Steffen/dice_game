@@ -9,6 +9,34 @@ extends RefCounted
 ## Bogentypen mit ihren Rastergrößen (siehe Obsidian "10 Shop und Ökonomie").
 enum Kind { SNIPPET, SHEET, LARGE }  # Schnipsel 2×2, Bogen 3×3, Großbogen 5×5
 
+## Was eine einzelne Kachel beim "Abreißen" bewirkt (siehe scene_root:
+## _play_sheet_finish_animation): ETCHING = echter Gravur-Coupon (coupon
+## gesetzt), MONEY = 1×1-Chip-Marke (kleine Auszahlung), AD = reine Werbefläche.
+enum TileKind { ETCHING, MONEY, AD }
+
+## Eine platzierte Kachel des Bogens - typisiert statt als Dictionary, damit
+## Tippfehler in Feldnamen Compilerfehler sind statt stiller Animations-Bugs.
+class SheetTile:
+	extends RefCounted
+
+	var kind: CouponSheet.TileKind
+	var coupon: Coupon = null  # nur bei kind == ETCHING gesetzt
+	var texture: String = ""  # Pfad der Motiv-Textur
+	var col: int = 0  # linke obere Rasterzelle
+	var row: int = 0
+	var w: int = 1  # Fläche in Rasterzellen (siehe Coupon.width/height)
+	var h: int = 1
+
+	func _init(p_kind: CouponSheet.TileKind, p_texture: String, p_col: int, p_row: int,
+			p_w: int = 1, p_h: int = 1, p_coupon: Coupon = null) -> void:
+		kind = p_kind
+		texture = p_texture
+		col = p_col
+		row = p_row
+		w = p_w
+		h = p_h
+		coupon = p_coupon
+
 ## 1×1-Füller für die Restzellen (Texturdateien in Coupon.TEXTURE_DIR).
 const FILLER_CHIP := "Chip-coupon1x1.jpg"  # der Standard-Füller (kleine Auszahlung)
 const FILLER_ADS := ["chip-ad1x1.jpg", "cup-ad1x1.jpg", "politur-ad1x1.jpg"]  # reine Werbeflächen (Flavor)
@@ -19,16 +47,15 @@ const REAL_COUPONS_PER_KIND := { Kind.SNIPPET: 1, Kind.SHEET: 2, Kind.LARGE: 3 }
 
 var cols: int = 0
 var rows: int = 0
-## Platzierte Kacheln: je {coupon: Coupon|null, texture: String, col, row, w, h}.
-## coupon == null bedeutet Füller (Marke/Werbung).
-var tiles: Array[Dictionary] = []
+## Platzierte Kacheln (siehe SheetTile) - Coupons zuerst, dann die Füller.
+var tiles: Array[SheetTile] = []
 
 ## Anzahl echter Gravur-Coupons auf dem Bogen (der Rest sind 1×1-Marken/
 ## Werbeflächen) - z.B. für die Shop-Rückmeldung nach dem Kauf.
 func etching_count() -> int:
 	var count := 0
 	for tile in tiles:
-		if tile["kind"] == "etching":
+		if tile.kind == TileKind.ETCHING:
 			count += 1
 	return count
 
@@ -67,10 +94,8 @@ static func generate(kind: int) -> CouponSheet:
 		var spot := _find_free_spot(occupied, size, coupon.width, coupon.height)
 		if spot.x < 0:
 			continue  # kein Platz mehr - überspringen
-		sheet.tiles.append({
-			"coupon": coupon, "texture": coupon.texture_path, "kind": "etching",
-			"col": spot.x, "row": spot.y, "w": coupon.width, "h": coupon.height,
-		})
+		sheet.tiles.append(SheetTile.new(TileKind.ETCHING, coupon.texture_path,
+			spot.x, spot.y, coupon.width, coupon.height, coupon))
 		_mark(occupied, spot, coupon.width, coupon.height)
 
 	for r in size.y:
@@ -79,10 +104,8 @@ static func generate(kind: int) -> CouponSheet:
 				continue
 			var is_ad := randf() < AD_CHANCE
 			var tex: String = FILLER_ADS[randi() % FILLER_ADS.size()] if is_ad else FILLER_CHIP
-			sheet.tiles.append({
-				"coupon": null, "texture": Coupon.TEXTURE_DIR + tex, "kind": "ad" if is_ad else "money",
-				"col": c, "row": r, "w": 1, "h": 1,
-			})
+			sheet.tiles.append(SheetTile.new(TileKind.AD if is_ad else TileKind.MONEY,
+				Coupon.TEXTURE_DIR + tex, c, r))
 			occupied[r][c] = true
 	return sheet
 

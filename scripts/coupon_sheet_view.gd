@@ -14,16 +14,27 @@ const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Bogenpapier (passt zum Cou
 const PERF_COLOR := Color("6b4a2f")   # warmes Braun für die Perforationslinien
 const FILLER_TINT := Color(1, 1, 1, 0.82)  # Marken/Werbeflächen leicht zurückgenommen
 
-## Je gezeigter Kachel {node: TextureRect, coupon: Coupon|null, kind: String}
-## ("etching"/"money"/"ad") - Grundlage der Abschluss-Animation (siehe scene_root).
-var tile_infos: Array[Dictionary] = []
+## Eine gezeigte Kachel: ihr TextureRect plus die Bogen-Daten dahinter -
+## Grundlage der Abschluss-Animation (siehe scene_root, das die Nodes zum
+## Fliegen in seine Overlay-Ebene umhängt).
+class TileView:
+	extends RefCounted
+
+	var node: TextureRect
+	var tile: CouponSheet.SheetTile
+
+	func _init(p_node: TextureRect, p_tile: CouponSheet.SheetTile) -> void:
+		node = p_node
+		tile = p_tile
+
+var tile_views: Array[TileView] = []
 
 ## Baut die Kacheln des Bogens neu auf. cell_px = Kantenlänge einer Rasterzelle
 ## in Pixeln; die Gesamtgröße (inkl. Papierrand) ergibt sich daraus.
 func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 	for child in get_children():
 		child.queue_free()
-	tile_infos.clear()
+	tile_views.clear()
 
 	var full := Vector2(sheet.cols * cell_px + SHEET_PAD * 2.0, sheet.rows * cell_px + SHEET_PAD * 2.0)
 	custom_minimum_size = full
@@ -45,25 +56,25 @@ func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 		cell_tile.append(row_cells)
 
 	for i in sheet.tiles.size():
-		var tile: Dictionary = sheet.tiles[i]
-		for r in range(tile["row"], tile["row"] + tile["h"]):
-			for c in range(tile["col"], tile["col"] + tile["w"]):
+		var tile: CouponSheet.SheetTile = sheet.tiles[i]
+		for r in range(tile.row, tile.row + tile.h):
+			for c in range(tile.col, tile.col + tile.w):
 				cell_tile[r][c] = i
 
 		var tex := TextureRect.new()
 		tex.position = Vector2(
-			SHEET_PAD + tile["col"] * cell_px + TILE_MARGIN,
-			SHEET_PAD + tile["row"] * cell_px + TILE_MARGIN)
+			SHEET_PAD + tile.col * cell_px + TILE_MARGIN,
+			SHEET_PAD + tile.row * cell_px + TILE_MARGIN)
 		tex.size = Vector2(
-			tile["w"] * cell_px - TILE_MARGIN * 2.0,
-			tile["h"] * cell_px - TILE_MARGIN * 2.0)
-		tex.texture = load(tile["texture"])
+			tile.w * cell_px - TILE_MARGIN * 2.0,
+			tile.h * cell_px - TILE_MARGIN * 2.0)
+		tex.texture = load(tile.texture)
 		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tex.stretch_mode = TextureRect.STRETCH_SCALE  # auf die Zelle strecken - Quell-Seitenverhältnis egal
-		tex.modulate = Color.WHITE if tile["coupon"] != null else FILLER_TINT
+		tex.modulate = Color.WHITE if tile.kind == CouponSheet.TileKind.ETCHING else FILLER_TINT
 		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(tex)
-		tile_infos.append({"node": tex, "coupon": tile["coupon"], "kind": tile["kind"]})
+		tile_views.append(TileView.new(tex, tile))
 
 	var perforation := _Perforation.new()
 	perforation.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

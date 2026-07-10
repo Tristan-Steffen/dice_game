@@ -417,17 +417,25 @@ func _on_sheet_preview_input(event: InputEvent) -> void:
 ## Stück), Ätzungen zu je einem Zähler rechts (Anzahl je Ätzungstyp; hier landen
 ## sie auch endgültig im Inventar) und Werbeflächen verblassen einfach. Danach
 ## wird alles aufgeräumt und die Enthüllung geschlossen.
+## Laufender Zähler einer Ätzungs-Sorte während der Abschluss-Animation (die
+## Zeile rechts, zu der die Kacheln fliegen) - typisiert statt als Dictionary.
+class EtchCounter:
+	extends RefCounted
+
+	var label: Label
+	var count: int = 0
+	var target: Vector2  # Flugziel der Kacheln (etwas rechts der Zeilenmitte)
+
 func _play_sheet_finish_animation() -> void:
 	sheet_animating = true
-	var infos: Array = sheet_preview_view.tile_infos.duplicate()
+	var views: Array[CouponSheetView.TileView] = sheet_preview_view.tile_views.duplicate()
 
 	# Streuzentrum = Mittel der Kachelmitten (Bildschirmkoordinaten).
 	var center := Vector2.ZERO
-	for info in infos:
-		var node: Control = info["node"]
-		center += node.global_position + node.size * 0.5
-	if not infos.is_empty():
-		center /= float(infos.size())
+	for view in views:
+		center += view.node.global_position + view.node.size * 0.5
+	if not views.is_empty():
+		center /= float(views.size())
 
 	# Rest des Bogens (Papier/Perforation/Titel) ausblenden, Hintergrund aufhellen,
 	# damit der Geldzähler oben links sichtbar wird.
@@ -438,41 +446,38 @@ func _play_sheet_finish_animation() -> void:
 	dim.tween_property(sheet_preview_backdrop, "color:a", 0.18, 0.3)
 
 	# Kacheln in die Overlay-Ebene umhängen (Bildschirmkoordinaten, Position bleibt).
-	var tiles: Array = []
-	for info in infos:
-		var node: Control = info["node"]
-		node.reparent(sheet_preview, true)
-		node.pivot_offset = node.size * 0.5
-		sheet_anim_nodes.append(node)
-		tiles.append({"node": node, "coupon": info["coupon"], "kind": info["kind"]})
+	for view in views:
+		view.node.reparent(sheet_preview, true)
+		view.node.pivot_offset = view.node.size * 0.5
+		sheet_anim_nodes.append(view.node)
 
 	# Zähler je Ätzungstyp rechts anlegen (Reihenfolge des ersten Auftretens).
-	var etch_names: Array[String] = []
-	var etch_data := {}  # display_name -> {label, count, target}
-	for t in tiles:
-		if t["kind"] == "etching":
-			var nm: String = t["coupon"].display_name
-			if not etch_data.has(nm):
-				etch_names.append(nm)
-				etch_data[nm] = {}
-	for i in etch_names.size():
-		var nm: String = etch_names[i]
+	var etch_counters := {}  # display_name -> EtchCounter
+	for view in views:
+		if view.tile.kind != CouponSheet.TileKind.ETCHING:
+			continue
+		var nm: String = view.tile.coupon.display_name
+		if etch_counters.has(nm):
+			continue
 		var label := Label.new()
-		label.position = Vector2(SHEET_ANIM_COUNTER_X, SHEET_ANIM_COUNTER_TOP + i * SHEET_ANIM_COUNTER_ROW)
+		label.position = Vector2(SHEET_ANIM_COUNTER_X, SHEET_ANIM_COUNTER_TOP + etch_counters.size() * SHEET_ANIM_COUNTER_ROW)
 		label.text = "%s  ×0" % nm
 		CasinoStyle.style_chip_label(label, 20, CasinoStyle.GREEN)
 		label.modulate.a = 0.0
 		sheet_preview.add_child(label)
 		sheet_anim_nodes.append(label)
-		etch_data[nm] = {"label": label, "count": 0, "target": label.position + Vector2(150, 14)}
+		var counter := EtchCounter.new()
+		counter.label = label
+		counter.target = label.position + Vector2(150, 14)
+		etch_counters[nm] = counter
 		var appear := create_tween()
 		appear.tween_property(label, "modulate:a", 1.0, 0.3)
 
 	# Jede Kachel: erst nach außen lösen, dann an ihr Ziel fliegen (gestaffelt).
 	var last_end := 0.0
-	for idx in tiles.size():
-		var t: Dictionary = tiles[idx]
-		var node: Control = t["node"]
+	for idx in views.size():
+		var view: CouponSheetView.TileView = views[idx]
+		var node: Control = view.node
 		var home := node.position + node.size * 0.5
 		var out_dir := (home - center).normalized() if home.distance_to(center) > 1.0 else Vector2.UP
 		var scattered := node.position + out_dir * 46.0
@@ -483,22 +488,21 @@ func _play_sheet_finish_animation() -> void:
 		tw.tween_property(node, "position", scattered, SHEET_ANIM_SEPARATE_TIME) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-		match t["kind"]:
-			"money":
+		match view.tile.kind:
+			CouponSheet.TileKind.MONEY:
 				tw.tween_property(node, "position", SHEET_ANIM_MONEY_TARGET - node.size * 0.5, SHEET_ANIM_FLY_TIME) \
 					.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 				tw.parallel().tween_property(node, "scale", Vector2(0.18, 0.18), SHEET_ANIM_FLY_TIME)
 				tw.parallel().tween_property(node, "modulate:a", 0.0, SHEET_ANIM_FLY_TIME)
 				tw.tween_callback(_grant_chip_coupon)
-			"etching":
-				var data: Dictionary = etch_data[t["coupon"].display_name]
-				var coupon: Coupon = t["coupon"]
-				tw.tween_property(node, "position", data["target"] - node.size * 0.5, SHEET_ANIM_FLY_TIME) \
+			CouponSheet.TileKind.ETCHING:
+				var counter: EtchCounter = etch_counters[view.tile.coupon.display_name]
+				tw.tween_property(node, "position", counter.target - node.size * 0.5, SHEET_ANIM_FLY_TIME) \
 					.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 				tw.parallel().tween_property(node, "scale", Vector2(0.28, 0.28), SHEET_ANIM_FLY_TIME)
 				tw.parallel().tween_property(node, "modulate:a", 0.0, SHEET_ANIM_FLY_TIME)
-				tw.tween_callback(_grant_etching.bind(coupon, data))
-			_:  # "ad": einfach verblassen
+				tw.tween_callback(_grant_etching.bind(view.tile.coupon, counter))
+			_:  # AD: Werbefläche verblasst einfach
 				tw.tween_property(node, "scale", Vector2(0.7, 0.7), 0.3)
 				tw.parallel().tween_property(node, "modulate:a", 0.0, 0.3)
 
@@ -516,11 +520,11 @@ func _grant_chip_coupon() -> void:
 ## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen (die
 ## HUD-Coupon-Zeile aktualisiert sich über run.coupons_changed), Zähler
 ## hochzählen und die Zeile kurz aufpulsen.
-func _grant_etching(coupon: Coupon, data: Dictionary) -> void:
+func _grant_etching(coupon: Coupon, counter: EtchCounter) -> void:
 	run.grant_coupon(coupon)
-	data["count"] += 1
-	data["label"].text = "%s  ×%d" % [coupon.display_name, data["count"]]
-	_pulse_control(data["label"])
+	counter.count += 1
+	counter.label.text = "%s  ×%d" % [coupon.display_name, counter.count]
+	_pulse_control(counter.label)
 
 ## Räumt die Abschluss-Animation ab: temporäre Nodes freigeben, Overlay schließen
 ## und die Enthüllungs-Ansicht für den nächsten Kauf zurücksetzen.
