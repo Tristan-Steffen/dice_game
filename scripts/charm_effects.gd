@@ -55,13 +55,13 @@ static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.HORSESHOE:
-				if key == "full_house":
+				if key == DiceScoring.FULL_HOUSE:
 					bonus += 1
 			Charm.LADYBUG:
-				if key == "two_kind" or key == "two_pair":
+				if key == DiceScoring.TWO_KIND or key == DiceScoring.TWO_PAIR:
 					bonus += 1
 			Charm.PEARL_NECKLACE:
-				if key == "four_kind_and_pair" or key == "three_pairs" or key == "double_three_kind":
+				if key == DiceScoring.FOUR_KIND_AND_PAIR or key == DiceScoring.THREE_PAIRS or key == DiceScoring.DOUBLE_THREE_KIND:
 					bonus += 2
 	return bonus
 
@@ -74,7 +74,7 @@ static func flat_bonus(key: String, charm_ids: Array[String]) -> int:
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.RAINBOW_TROUT:
-				if key == "small_straight" or key == "large_straight":
+				if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
 					bonus += 10
 			Charm.COLLECTORS_AMULET:
 				bonus += other_charms

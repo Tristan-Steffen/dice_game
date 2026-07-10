@@ -11,20 +11,41 @@ class_name DiceScoring
 ## Regenbogenforelle) und Verdopplung ganzer Hände (z.B. Zauberkarte) -
 ## beeinflussen aber nie, welche Kategorie überhaupt zutrifft.
 
+# --- Kategorie-Keys (Single Source of Truth) ----------------------------------
+# Wie bei Charm/Coupon-ids: einmal als Konstante definiert und überall darüber
+# referenziert (CATEGORIES, HAND_PRIORITY, qualifies, _base_value,
+# best_hand_indices, CharmEffects) - ein Tippfehler wird so zum Compilerfehler
+# statt zu einer still nie zutreffenden Kategorie. Die Kombinations-Labels der
+# Tischliste (siehe scene_root._collect_combo_labels) sind in der Szene nach
+# genau diesen Werten benannt.
+const ONE_KIND := "one_kind"
+const TWO_KIND := "two_kind"
+const TWO_PAIR := "two_pair"
+const THREE_KIND := "three_kind"
+const SMALL_STRAIGHT := "small_straight"
+const FOUR_KIND := "four_kind"
+const FULL_HOUSE := "full_house"
+const THREE_PAIRS := "three_pairs"
+const DOUBLE_THREE_KIND := "double_three_kind"
+const FOUR_KIND_AND_PAIR := "four_kind_and_pair"
+const LARGE_STRAIGHT := "large_straight"
+const FIVE_KIND := "five_kind"
+const SIX_KIND := "six_kind"
+
 const CATEGORIES := [
-	{"key": "one_kind", "label": "Höchste Zahl", "mult": 1},
-	{"key": "two_kind", "label": "Paar", "mult": 2},
-	{"key": "two_pair", "label": "Zwei Paare", "mult": 3},
-	{"key": "three_kind", "label": "Dreierpasch", "mult": 3},
-	{"key": "small_straight", "label": "Kleine Straße", "mult": 4},
-	{"key": "four_kind", "label": "Viererpasch", "mult": 4},
-	{"key": "full_house", "label": "Full House", "mult": 4},
-	{"key": "three_pairs", "label": "Drei Zweierpäsche", "mult": 5},
-	{"key": "double_three_kind", "label": "Doppelter Dreierpasch", "mult": 5},
-	{"key": "four_kind_and_pair", "label": "Viererpasch mit Paar", "mult": 6},
-	{"key": "large_straight", "label": "Große Straße", "mult": 8},
-	{"key": "five_kind", "label": "5 of a Kind", "mult": 10},
-	{"key": "six_kind", "label": "Sechserpasch", "mult": 15},
+	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1},
+	{"key": TWO_KIND, "label": "Paar", "mult": 2},
+	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3},
+	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3},
+	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4},
+	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4},
+	{"key": FULL_HOUSE, "label": "Full House", "mult": 4},
+	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5},
+	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5},
+	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6},
+	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8},
+	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10},
+	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15},
 ]
 
 # Von der prestigeträchtigsten zur schwächsten Hand. best_hand() nimmt die
@@ -42,8 +63,8 @@ const CATEGORIES := [
 # Dreierpasch, Viererpasch mit Paar, Drei Zweierpäsche) werden zuerst geprüft,
 # da ein Wert mit Zählung ≥3 auch Zwei Paare lose erfüllen würde.
 const HAND_PRIORITY := [
-	"six_kind", "five_kind", "large_straight", "four_kind_and_pair", "double_three_kind",
-	"three_pairs", "four_kind", "full_house", "small_straight", "three_kind", "two_pair", "two_kind", "one_kind",
+	SIX_KIND, FIVE_KIND, LARGE_STRAIGHT, FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND,
+	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
 ]
 
 static func label_for(key: String) -> String:
@@ -60,31 +81,31 @@ static func mult_for(key: String) -> int:
 
 static func qualifies(key: String, dice: Array[int]) -> bool:
 	match key:
-		"six_kind":
+		SIX_KIND:
 			return _has_count_at_least(dice, 6)
-		"five_kind":
+		FIVE_KIND:
 			return _has_count_at_least(dice, 5)
-		"large_straight":
+		LARGE_STRAIGHT:
 			return _has_straight_of_length(dice, 6)
-		"four_kind_and_pair":
+		FOUR_KIND_AND_PAIR:
 			return _has_count_and_other_count(dice, 4, 2)
-		"double_three_kind":
+		DOUBLE_THREE_KIND:
 			return _has_two_groups_with_at_least(dice, 3)
-		"three_pairs":
+		THREE_PAIRS:
 			return _count_groups_with_at_least(dice, 2) >= 3
-		"four_kind":
+		FOUR_KIND:
 			return _has_count_at_least(dice, 4)
-		"full_house":
+		FULL_HOUSE:
 			return _has_count_and_other_count(dice, 3, 2)
-		"small_straight":
+		SMALL_STRAIGHT:
 			return _has_straight_of_length(dice, 5)
-		"three_kind":
+		THREE_KIND:
 			return _has_count_at_least(dice, 3)
-		"two_pair":
+		TWO_PAIR:
 			return _count_groups_with_at_least(dice, 2) >= 2
-		"two_kind":
+		TWO_KIND:
 			return _has_count_at_least(dice, 2)
-		"one_kind":
+		ONE_KIND:
 			return true
 	return false
 
@@ -108,19 +129,19 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 ## Summen-Kombinationen die gesamte (angepasste) Augensumme.
 static func _base_value(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
 	match key:
-		"one_kind":
+		ONE_KIND:
 			return CharmEffects.eye_value(_highest_value(dice), charm_ids)
-		"two_kind":
+		TWO_KIND:
 			return CharmEffects.eye_value(_best_value_with_count(dice, 2), charm_ids) * 2
-		"three_kind":
+		THREE_KIND:
 			return CharmEffects.eye_value(_best_value_with_count(dice, 3), charm_ids) * 3
-		"four_kind":
+		FOUR_KIND:
 			return CharmEffects.eye_value(_best_value_with_count(dice, 4), charm_ids) * 4
-		"five_kind":
+		FIVE_KIND:
 			return CharmEffects.eye_value(_best_value_with_count(dice, 5), charm_ids) * 5
-		"six_kind":
+		SIX_KIND:
 			return CharmEffects.eye_value(_best_value_with_count(dice, 6), charm_ids) * 6
-		"four_kind_and_pair", "double_three_kind", "three_pairs", "full_house", "small_straight", "large_straight", "two_pair":
+		FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND, THREE_PAIRS, FULL_HOUSE, SMALL_STRAIGHT, LARGE_STRAIGHT, TWO_PAIR:
 			return _sum(dice, charm_ids)
 	return 0
 
@@ -136,7 +157,7 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 				"mult": mult_for(key) + CharmEffects.mult_bonus(key, charm_ids),
 				"score": score_category(key, dice, charm_ids, is_first_hand),
 			}
-	return {"key": "one_kind", "label": label_for("one_kind"), "mult": 1, "score": score_category("one_kind", dice, charm_ids, is_first_hand)}
+	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": 1, "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand)}
 
 ## Wie best_hand(), liefert aber zusätzlich die Positionen in dice, die zur
 ## besten Kategorie gehören (z.B. beim Full House die drei- und zweifach
@@ -146,40 +167,40 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 static func best_hand_indices(dice: Array[int]) -> Array[int]:
 	var key: String = best_hand(dice)["key"]
 	match key:
-		"six_kind":
+		SIX_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 6), 6)
-		"five_kind":
+		FIVE_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 5), 5)
-		"four_kind":
+		FOUR_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 4), 4)
-		"three_kind":
+		THREE_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 3), 3)
-		"two_pair":
+		TWO_PAIR:
 			var result: Array[int] = []
 			for value in _values_with_count_at_least(dice, 2):
 				result.append_array(_indices_for_value(dice, value, 2))
 			return result
-		"two_kind":
+		TWO_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 2), 2)
-		"one_kind":
+		ONE_KIND:
 			return [_index_of_highest(dice)]
-		"four_kind_and_pair":
+		FOUR_KIND_AND_PAIR:
 			var pair := _find_count_and_other_count(dice, 4, 2)
 			return _indices_for_value(dice, pair[0], 4) + _indices_for_value(dice, pair[1], 2)
-		"full_house":
+		FULL_HOUSE:
 			var pair := _find_count_and_other_count(dice, 3, 2)
 			return _indices_for_value(dice, pair[0], 3) + _indices_for_value(dice, pair[1], 2)
-		"double_three_kind":
+		DOUBLE_THREE_KIND:
 			var pair := _find_two_groups_with_at_least(dice, 3)
 			return _indices_for_value(dice, pair[0], 3) + _indices_for_value(dice, pair[1], 3)
-		"three_pairs":
+		THREE_PAIRS:
 			var result: Array[int] = []
 			for value in _values_with_count_at_least(dice, 2):
 				result.append_array(_indices_for_value(dice, value, 2))
 			return result
-		"small_straight":
+		SMALL_STRAIGHT:
 			return _indices_for_straight(dice, 5)
-		"large_straight":
+		LARGE_STRAIGHT:
 			return _indices_for_straight(dice, 6)
 	return []
 
