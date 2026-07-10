@@ -64,12 +64,24 @@ func charm_ids() -> Array[String]:
 func add_money(amount: int) -> void:
 	money += amount
 
-## Kauft eine unabhängige Kopie des Würfels in den Pool: ersetzt einen
-## zufälligen "normalen" Eintrag (bevorzugt, damit früher gekaufte
-## Spezialwürfel nicht verdrängt werden), der Pool bleibt immer POOL_SIZE groß.
-## Die Kaufbarkeit hat der Shop bereits geprüft.
+## Kauft eine unabhängige Kopie des Würfels in den Pool (siehe
+## _replace_pool_entry). Die Kaufbarkeit hat der Shop bereits geprüft.
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
+	_replace_pool_entry(def)
+
+## Kauft ein ganzes Würfel-Bündel (siehe DiceOffer) für EINEN Preis: jeder
+## Würfel ersetzt einen Pool-Eintrag (siehe _replace_pool_entry). Angebote mit
+## mehr Würfeln sind einzeln schwächer (siehe DiceOffer) - Menge gegen Qualität.
+func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
+	add_money(-price)
+	for def in defs:
+		_replace_pool_entry(def)
+
+## Legt eine unabhängige Kopie von def in den Pool: ersetzt einen zufälligen
+## "normalen" Eintrag (bevorzugt, damit früher gekaufte Spezialwürfel nicht
+## verdrängt werden), der Pool bleibt immer POOL_SIZE groß.
+func _replace_pool_entry(def: DieDefinition) -> void:
 	var normal_indices: Array[int] = []
 	for i in owned_pool.size():
 		if owned_pool[i].style_id == "normal":

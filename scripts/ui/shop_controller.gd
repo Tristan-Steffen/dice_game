@@ -16,8 +16,8 @@ extends Panel
 ## Wird ausgelöst, wenn der Spieler den Shop mit "Fertig" verlässt.
 signal closed
 
-const DIE_PRICE := 15  # Preis pro Würfel-Kauf (vor Rabatt-Charms, siehe CharmEffects.die_price)
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf
+const DICE_OFFER_COUNT := 3  # wie viele Würfel-Angebote je Besuch ausliegen (siehe DiceOffer)
 
 ## Angebotene Coupon-Bögen (siehe CouponSheet): je größer das Raster, desto teurer
 ## und desto größere Coupons können darauf liegen (die Fläche IST die Rarität).
@@ -34,7 +34,7 @@ var run: GameRun
 
 @onready var title_label: Label = $VBoxContainer/TitleLabel
 @onready var dice_section_label: Label = $VBoxContainer/DiceSectionLabel
-@onready var dice_picker: RotatableDieView = $VBoxContainer/DicePicker
+@onready var dice_offers_container: HBoxContainer = $VBoxContainer/DiceOffersContainer
 @onready var charm_section_label: Label = $VBoxContainer/CharmSectionLabel
 @onready var charm_options_container: HBoxContainer = $VBoxContainer/CharmOptionsContainer
 @onready var coupon_section_label: Label = $VBoxContainer/CouponSectionLabel
@@ -42,7 +42,8 @@ var run: GameRun
 @onready var message_label: Label = $VBoxContainer/ShopMessageLabel
 @onready var done_button: Button = $VBoxContainer/DoneButton
 
-var die_options: Array[DieDefinition] = []  # feste Würfel-Kandidaten (Reihenfolge = dice_picker), beliebig oft nachkaufbar
+var dice_offers: Array[DiceOffer] = []  # Würfel-Angebote dieses Besuchs (Reihenfolge = dice_offers_container)
+var offer_buy_buttons: Array[Button] = []  # Kauf-Buttons je Angebot, für die Kaufbarkeits-Aktualisierung
 var charm_options: Array[Charm] = []  # Charm-Angebot dieses Besuchs (Reihenfolge = charm_options_container)
 var charm_buttons: Array[Button] = []  # dynamisch gebaute Buttons für charm_options
 var charm_bought: Array[bool] = []  # welche charm_options in diesem Besuch schon gekauft wurden
@@ -50,13 +51,6 @@ var sheet_buttons: Array[Button] = []  # feste Bogen-Kauf-Buttons (Reihenfolge =
 
 func _ready() -> void:
 	_style()
-	die_options = [
-		DieDefinition.fixed(6, "Immer 6"),
-		DieDefinition.fixed(5, "Immer 5"),
-		DieDefinition.fixed(4, "Immer 4"),
-	]
-	dice_picker.set_dice(die_options)
-	dice_picker.die_clicked.connect(_on_die_clicked)
 	_build_sheet_buttons()
 	done_button.pressed.connect(_on_done_pressed)
 
@@ -89,14 +83,104 @@ func _style() -> void:
 ## Öffnet den Shop: Angebot frisch auswürfeln und anzeigen. Sichtbarkeit/
 ## Spielzustand steuert der Aufrufer (scene_root._on_round_complete).
 func open() -> void:
-	dice_picker.set_highlighted(-1)
 	message_label.text = ""
-	# Würfel-Sektionstitel zeigt den (ggf. rabattierten) Effektivpreis.
-	dice_section_label.text = "Würfel (je $%d)" % _die_price()
+	dice_section_label.text = "Würfel-Angebote"
 	coupon_section_label.text = "Coupon-Bögen"
+	_populate_dice_offers()
 	_populate_charm_options()
 	_refresh_afford_state()
 	visible = true
+
+## Würfelt die Würfel-Angebote dieses Besuchs frisch aus (siehe DiceOffer) und
+## baut je Angebot eine Karte: Titel, die Augenverteilung jedes Würfels als Chips
+## und einen Kauf-Button mit dem (ggf. rabattierten) Preis. Angebote sind beliebig
+## oft nachkaufbar; mehr Würfel je Bündel = einzeln schwächere Würfel.
+func _populate_dice_offers() -> void:
+	for child in dice_offers_container.get_children():
+		child.queue_free()
+	offer_buy_buttons.clear()
+
+	dice_offers = DiceOffer.roll_offers(DICE_OFFER_COUNT)
+	for i in dice_offers.size():
+		var card := _build_offer_card(dice_offers[i], i)
+		dice_offers_container.add_child(card)
+
+## Eine Angebotskarte: Panel mit Titel, "N Würfel", je Würfel eine Chip-Reihe
+## der Augenverteilung und einem Kauf-Button (Preis nach Rabatt-Charms).
+func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(1, 1, 1, 0.05)
+	box.set_corner_radius_all(8)
+	box.set_content_margin_all(8)
+	card.add_theme_stylebox_override("panel", box)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	card.add_child(vbox)
+
+	var name_label := Label.new()
+	name_label.text = offer.display_name
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	CasinoStyle.style_chip_label(name_label, 15, CasinoStyle.BLUE)
+	vbox.add_child(name_label)
+
+	var count_label := Label.new()
+	count_label.text = "%d Würfel" % offer.size()
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	CasinoStyle.style_body_label(count_label, 12, CasinoStyle.MUTED)
+	vbox.add_child(count_label)
+
+	for die in offer.dice:
+		vbox.add_child(_build_die_faces_row(die))
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(spacer)
+
+	var buy := Button.new()
+	buy.text = "Kaufen · $%d" % _offer_price(offer)
+	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buy.pressed.connect(_on_offer_pressed.bind(index))
+	CasinoStyle.style_button(buy, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
+	vbox.add_child(buy)
+	offer_buy_buttons.append(buy)
+	return card
+
+## Eine Zeile aus Augen-Chips für einen Würfel: je vorkommendem Wert (aufsteigend)
+## ein weißer Chip mit "×Anzahl" - dieselbe Optik wie die echten Würfel und die
+## Sammlung, damit man das Angebot auf einen Blick einschätzen kann.
+func _build_die_faces_row(die: DieDefinition) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 4)
+	var counts := {}
+	for value in die.faces:
+		counts[value] = counts.get(value, 0) + 1
+	var values := counts.keys()
+	values.sort()
+	for value in values:
+		row.add_child(_face_chip(value, counts[value]))
+	return row
+
+## Kleiner Augen-Chip (weiß, abgerundet, dunkle Ziffer); count > 1 hängt "×N" an.
+func _face_chip(value: int, count: int) -> Label:
+	var chip := Label.new()
+	chip.text = "%d" % value if count == 1 else "%d×%d" % [value, count]
+	chip.custom_minimum_size = Vector2(28, 28)
+	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	chip.add_theme_font_size_override("font_size", 15)
+	chip.add_theme_color_override("font_color", CasinoStyle.INK)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color.WHITE
+	box.border_color = Color(0.72, 0.76, 0.8)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(6)
+	box.set_content_margin_all(4)
+	chip.add_theme_stylebox_override("normal", box)
+	return chip
 
 ## Würfelt die Charm-Angebote dieses Besuchs aus - alle Charm-Archetypen (siehe
 ## Charm.all), die der Spieler noch nicht besitzt, max. zwei Stück. Baut die
@@ -135,21 +219,20 @@ func _populate_charm_options() -> void:
 		charm_buttons.append(button)
 	_refresh_afford_state()
 
-## Effektiver Würfelpreis nach Rabatt-Charms (Trickdieb-Manschette).
-func _die_price() -> int:
-	return CharmEffects.die_price(DIE_PRICE, run.charm_ids())
+## Effektiver Angebotspreis nach Rabatt-Charms (Trickdieb-Manschette).
+func _offer_price(offer: DiceOffer) -> int:
+	return CharmEffects.die_price(offer.price, run.charm_ids())
 
-## Kauft eine unabhängige Kopie des angeklickten Würfels in den Pool (siehe
-## run.purchase_die) - beliebig oft wiederholbar, solange genug Geld da ist.
-func _on_die_clicked(index: int) -> void:
-	var def := die_options[index]
-	var price := _die_price()
+## Kauft das komplette Würfel-Bündel des Angebots (siehe run.purchase_dice) -
+## beliebig oft wiederholbar, solange genug Geld da ist.
+func _on_offer_pressed(index: int) -> void:
+	var offer := dice_offers[index]
+	var price := _offer_price(offer)
 	if run.money < price:
-		message_label.text = "Nicht genug Geld für %s ($%d)." % [def.display_name, price]
+		message_label.text = "Nicht genug Geld für %s ($%d)." % [offer.display_name, price]
 		return
-	run.purchase_die(def, price)
-	dice_picker.set_highlighted(index)
-	message_label.text = "Gekauft: %s (-$%d)" % [def.display_name, price]
+	run.purchase_dice(offer.dice, price)
+	message_label.text = "Gekauft: %s – %d Würfel (-$%d)" % [offer.display_name, offer.size(), price]
 	_refresh_afford_state()
 
 ## Kauft den angeklickten Charm sofort (siehe run.purchase_charm) - je Charm
@@ -179,12 +262,14 @@ func _on_sheet_pressed(index: int) -> void:
 	message_label.text = "%s: %d Ätzung(en) (-$%d)." % [offer["name"], sheet.etching_count(), offer["price"]]
 	_refresh_afford_state()
 
-## Deaktiviert Käufe, die sich der Spieler nicht mehr leisten kann - noch nicht
-## gekaufte Charm-Buttons (CHARM_PRICE) und je Bogen-Button den eigenen Preis.
-## Geld sinkt innerhalb eines Besuchs nur (kein Einkommen mittendrin), ein
-## deaktivierter Button muss also nie reaktiviert werden.
+## Deaktiviert Käufe, die sich der Spieler nicht mehr leisten kann - je Angebot
+## seinen (rabattierten) Preis, noch nicht gekaufte Charm-Buttons (CHARM_PRICE)
+## und je Bogen-Button den eigenen Preis. Geld sinkt innerhalb eines Besuchs nur
+## (kein Einkommen mittendrin), ein deaktivierter Button muss also nie reaktiviert werden.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
+	for i in offer_buy_buttons.size():
+		offer_buy_buttons[i].disabled = money < _offer_price(dice_offers[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < CHARM_PRICE

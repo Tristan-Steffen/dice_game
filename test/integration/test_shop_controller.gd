@@ -19,10 +19,12 @@ func before_each() -> void:
 	shop.open()
 
 ## Anzahl Pool-Würfel mit der gegebenen style_id (Spezialwürfel-Zählung).
-func _count_style(style_id: String) -> int:
+## Anzahl Pool-Würfel, die KEIN Standardwürfel ("normal") sind - also gekaufte
+## Spezialwürfel (jedes Angebot vergibt nicht-"normale" style_ids, siehe DiceOffer).
+func _count_special() -> int:
 	var count := 0
 	for def in run.owned_pool:
-		if def.style_id == style_id:
+		if def.style_id != "normal":
 			count += 1
 	return count
 
@@ -39,32 +41,40 @@ func test_offer_excludes_already_owned_charms():
 	for charm in shop.charm_options:
 		assert_ne(charm.id, Charm.RABBITS_FOOT, "besessener Charm nicht erneut angeboten")
 
+func test_open_rolls_three_dice_offers():
+	assert_eq(shop.dice_offers.size(), 3, "drei Würfel-Angebote je Besuch")
+	for offer in shop.dice_offers:
+		assert_between(offer.size(), 1, 3, "je Angebot 1..3 Würfel")
+
 # --- Würfelkauf ---------------------------------------------------------------
 
-func test_buy_die_deducts_money_and_replaces_pool_entry():
-	shop._on_die_clicked(0)  # "Immer 6"
-	assert_eq(run.money, 85)  # 100 - 15
+func test_buy_offer_deducts_its_price_and_adds_its_dice():
+	var offer = shop.dice_offers[0]
+	shop._on_offer_pressed(0)
+	assert_eq(run.money, 100 - offer.price)
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool bleibt konstant groß")
-	assert_eq(_count_style("fixed_6"), 1, "genau ein Spezialwürfel im Pool")
+	assert_eq(_count_special(), offer.size(), "das ganze Bündel liegt jetzt im Pool")
 
-func test_dice_are_repeatable():
-	shop._on_die_clicked(0)  # "Immer 6"
-	shop._on_die_clicked(1)  # "Immer 5"
-	assert_eq(run.money, 70)
-	assert_eq(_count_style("fixed_6"), 1)
-	assert_eq(_count_style("fixed_5"), 1)
+func test_offers_are_repeatable():
+	var first = shop.dice_offers[0]
+	var second = shop.dice_offers[1]
+	shop._on_offer_pressed(0)
+	shop._on_offer_pressed(1)
+	assert_eq(run.money, 100 - first.price - second.price)
+	assert_eq(_count_special(), first.size() + second.size())
 
-func test_cannot_buy_die_without_funds():
-	run.money = 10
-	shop._on_die_clicked(0)
-	assert_eq(run.money, 10, "kein Abzug bei zu wenig Geld")
-	assert_eq(_count_style("fixed_6"), 0, "kein Würfel in den Pool gelegt")
+func test_cannot_buy_offer_without_funds():
+	run.money = 3  # unter jedem Angebotspreis
+	shop._on_offer_pressed(0)
+	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
+	assert_eq(_count_special(), 0, "kein Würfel in den Pool gelegt")
 
-func test_con_artist_cuff_discounts_dice_price():
+func test_con_artist_cuff_discounts_offer_price():
 	run.owned_charms.append(Charm.con_artist_cuff())
 	shop.open()
-	shop._on_die_clicked(0)
-	assert_eq(run.money, 88, "100 - 12 (20% Rabatt)")
+	var offer = shop.dice_offers[0]
+	shop._on_offer_pressed(0)
+	assert_eq(run.money, 100 - int(round(offer.price * 0.8)), "20% Rabatt auf den Angebotspreis")
 
 # --- Charmkauf ----------------------------------------------------------------
 

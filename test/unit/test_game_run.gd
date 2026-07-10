@@ -63,6 +63,18 @@ func test_purchase_die_prefers_replacing_normal_dice():
 	assert_eq(_count_style("fixed_6"), GameRun.POOL_SIZE - 1)
 	assert_eq(_count_style("normal"), 1)
 
+func test_purchase_dice_bundle_deducts_once_and_adds_all():
+	run.money = 30
+	var bundle: Array[DieDefinition] = [
+		DieDefinition.fixed(2, "A"), DieDefinition.fixed(2, "B"), DieDefinition.fixed(2, "C"),
+	]
+	for def in bundle:
+		def.style_id = "low"
+	run.purchase_dice(bundle, 15)
+	assert_eq(run.money, 15, "nur ein Preis fürs ganze Bündel")
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool bleibt konstant groß")
+	assert_eq(_count_style("low"), 3, "alle drei Würfel liegen im Pool")
+
 # --- Charms ---------------------------------------------------------------------
 
 func test_purchase_charm_grants_deducts_and_emits():

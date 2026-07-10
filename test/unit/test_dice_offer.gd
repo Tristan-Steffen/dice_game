@@ -1,0 +1,74 @@
+extends GutTest
+## Tier-1-Tests der Würfel-Angebots-Erzeugung (DiceOffer). Prüft, dass jedes
+## Angebot 1..3 Würfel bündelt und die erzeugten Augen im erlaubten Bereich der
+## Vorlage liegen - insbesondere die Regel "mehr Würfel = schwächer" (die
+## 3er-Bündel bleiben niedrig, das 2er-Gerade-Bündel nur gerade).
+
+## Sucht eine Vorlage nach style_id (siehe DiceOffer.TEMPLATES).
+func _template(style_id: String) -> Dictionary:
+	for t in DiceOffer.TEMPLATES:
+		if t["style_id"] == style_id:
+			return t
+	return {}
+
+## Erzeugt so lange Angebote, bis eines mit der gesuchten style_id dabei ist,
+## und liefert dessen erzeugten Würfel (die Vorlagen werden zufällig gezogen).
+func _sample_die(style_id: String) -> DieDefinition:
+	for _attempt in 200:
+		for offer in DiceOffer.roll_offers(DiceOffer.TEMPLATES.size()):
+			if not offer.dice.is_empty() and offer.dice[0].style_id == style_id:
+				return offer.dice[0]
+	return null
+
+func test_roll_offers_returns_requested_count():
+	assert_eq(DiceOffer.roll_offers(3).size(), 3)
+	assert_eq(DiceOffer.roll_offers(1).size(), 1)
+
+func test_offers_have_one_to_three_dice_and_positive_price():
+	for offer in DiceOffer.roll_offers(DiceOffer.TEMPLATES.size()):
+		assert_between(offer.size(), 1, 3, "1..3 Würfel je Angebot")
+		assert_gt(offer.price, 0, "Preis gesetzt")
+		for die in offer.dice:
+			assert_eq(die.faces.size(), 6, "sechs Seiten je Würfel")
+
+func test_dice_carry_a_non_normal_style_id():
+	# Gekaufte Würfel müssen "besonders" sein (nicht "normal"), sonst würden sie
+	# im Pool verdrängt und nicht als Spezialwürfel behandelt (siehe GameRun).
+	for offer in DiceOffer.roll_offers(DiceOffer.TEMPLATES.size()):
+		for die in offer.dice:
+			assert_ne(die.style_id, "normal")
+
+func test_even_bundle_has_two_dice_with_only_even_faces():
+	var t := _template("even")
+	assert_eq(t["count"], 2, "Gerade Würfel bündelt zwei Würfel")
+	var die := _sample_die("even")
+	assert_not_null(die)
+	for value in die.faces:
+		assert_eq(value % 2, 0, "nur gerade Augen (2/4/6)")
+
+func test_low_bundle_has_three_dice_all_below_three():
+	var t := _template("low")
+	assert_eq(t["count"], 3, "Niedrige Serie bündelt drei Würfel")
+	var die := _sample_die("low")
+	assert_not_null(die)
+	for value in die.faces:
+		assert_lt(value, 3, "alle Augen unter 3 (1/2)")
+
+func test_power_die_is_a_single_high_value_die():
+	var t := _template("power")
+	assert_eq(t["count"], 1, "Kraftwürfel ist ein einzelner Würfel")
+	var die := _sample_die("power")
+	assert_not_null(die)
+	for value in die.faces:
+		assert_between(value, 3, 6, "nur hohe Augen (3..6)")
+
+func test_pasch_die_has_at_least_three_equal_faces():
+	var die := _sample_die("pasch")
+	assert_not_null(die)
+	var counts := {}
+	for value in die.faces:
+		counts[value] = counts.get(value, 0) + 1
+	var best := 0
+	for c in counts.values():
+		best = maxi(best, c)
+	assert_gte(best, 3, "mindestens drei gleiche Seiten (garantierter Pasch)")

@@ -41,10 +41,16 @@ const AXIS_FACE_INDEX := {
 	"HINTEN": 5,
 }
 
+## Körperfarbe je Würfel-Art (style_id). Nicht gelistete Arten (u.a. "normal")
+## bleiben weiß. Die Shop-Angebots-Arten (siehe DiceOffer.TEMPLATES) sind hier
+## eingefärbt, damit gekaufte Spezialwürfel im Pool erkennbar sind.
 const KIND_TINTS := {
-	"fixed_6": Color(0.55, 0.15, 0.75),
-	"fixed_5": Color(0.15, 0.35, 0.85),
-	"fixed_4": Color(0.15, 0.65, 0.3),
+	"power": Color(0.78, 0.2, 0.2),    # Kraftwürfel - kräftiges Rot
+	"pasch": Color(0.82, 0.6, 0.15),   # Paschwürfel - Gold
+	"even": Color(0.15, 0.55, 0.55),   # Gerade Würfel - Blaugrün
+	"odd": Color(0.8, 0.45, 0.15),     # Ungerade Würfel - Orange
+	"low": Color(0.42, 0.44, 0.48),    # Niedrige Serie - Grau (schwach)
+	"small": Color(0.5, 0.38, 0.28),   # Kleinserie - Braun (schwach)
 }
 
 ## Markiert Würfel, die der Spieler vor dem nächsten "Neu würfeln" schützen
