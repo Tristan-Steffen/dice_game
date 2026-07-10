@@ -2,7 +2,6 @@
 
 [ext_resource type="PackedScene" path="res://scenes/dice_tray.tscn" id="1_w2g3p"]
 [ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scenes/scene_root.gd" id="3_script"]
-[ext_resource type="Script" uid="uid://bwdo1uy7d6jei" path="res://scripts/game_log_ui.gd" id="5_logui"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
 [ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/camera_rig.gd" id="8_camerarig"]
@@ -301,54 +300,6 @@ offset_top = 164.0
 offset_right = 370.0
 offset_bottom = 188.0
 text = "Keine Coupons"
-
-[node name="GameLogIcon" type="Button" parent="UI" unique_id=1280906586]
-visible = false
-offset_left = 660.0
-offset_top = 760.0
-offset_right = 800.0
-offset_bottom = 860.0
-text = "Spiel-
-Protokoll"
-
-[node name="GameLog" type="CenterContainer" parent="UI" unique_id=1420224016]
-visible = false
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-script = ExtResource("5_logui")
-
-[node name="Page" type="PanelContainer" parent="UI/GameLog" unique_id=1569314559]
-layout_mode = 2
-
-[node name="Margin" type="MarginContainer" parent="UI/GameLog/Page" unique_id=747917557]
-layout_mode = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 12
-
-[node name="Content" type="VBoxContainer" parent="UI/GameLog/Page/Margin" unique_id=356405649]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="TopBar" type="HBoxContainer" parent="UI/GameLog/Page/Margin/Content" unique_id=1965331969]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="TitleLabel" type="Label" parent="UI/GameLog/Page/Margin/Content/TopBar" unique_id=149166574]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Spielprotokoll"
-
-[node name="CloseButton" type="Button" parent="UI/GameLog/Page/Margin/Content/TopBar" unique_id=982373588]
-layout_mode = 2
-text = "Schließen"
-
-[node name="LogColumns" type="HBoxContainer" parent="UI/GameLog/Page/Margin/Content" unique_id=1092832511]
-layout_mode = 2
 
 [node name="LegendToggleButton" type="Button" parent="UI" unique_id=1220268485]
 offset_left = 1100.0

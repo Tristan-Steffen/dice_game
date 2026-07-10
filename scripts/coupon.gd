@@ -1,7 +1,7 @@
 class_name Coupon
 extends Resource
-## Ein verbrauchbarer "Coupon" - Karten, die man in Coupon-Packs (je 3 Karten)
-## im Shop kauft (siehe ShopController) und unbegrenzt hortet. Aktuell sind alle
+## Ein verbrauchbarer "Coupon" - kommt über Coupon-Bögen aus dem Shop (siehe
+## CouponSheet/ShopController) und wird unbegrenzt gehortet. Aktuell sind alle
 ## Coupons Ätzungen (etchings), die die Seiten eines Würfels verändern; künftig
 ## kommen weitere kinds dazu (Materialien für einen ganzen Würfel, Sigille für
 ## eine Seite). Die eigentliche Wirkung wird - wie bei Charm/CharmEffects - über
@@ -179,25 +179,3 @@ static func _rarity_weight(value: Rarity) -> int:
 			return 1
 	return 1
 
-## Eine zufällige Ätzung, gewichtet nach Seltenheit (siehe _rarity_weight).
-## Jeder Aufruf liefert eine eigene, unabhängige Instanz (Coupons sind
-## verbrauchbar).
-static func random_etching() -> Coupon:
-	var pool := all()
-	var total := 0
-	for coupon in pool:
-		total += _rarity_weight(coupon.rarity)
-	var roll := randi() % total
-	for coupon in pool:
-		roll -= _rarity_weight(coupon.rarity)
-		if roll < 0:
-			return coupon
-	return pool[0]  # unerreichbar, nur zur Absicherung
-
-## Ein Coupon-Pack: count zufällige Ätzungen (mit Wiederholung möglich, siehe
-## Balatro-Packs - man erhält ALLE Karten), jede eine eigene Instanz.
-static func random_etching_pack(count: int) -> Array[Coupon]:
-	var pack: Array[Coupon] = []
-	for i in count:
-		pack.append(random_etching())
-	return pack

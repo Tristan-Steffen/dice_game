@@ -1,5 +1,6 @@
 extends GutTest
-## Tier-1-Tests des Coupon-Datensatzes und der Pack-Auswürfelung.
+## Tier-1-Tests des Coupon-Datensatzes (die Bogen-Auswürfelung testet
+## CouponSheet, siehe scripts/coupon_sheet.gd).
 
 func test_all_returns_thirteen_etchings():
 	assert_eq(Coupon.all().size(), 13)
@@ -38,24 +39,3 @@ func test_rarity_name_is_german():
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.COMMON), "häufig")
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.UNCOMMON), "ungewöhnlich")
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.RARE), "selten")
-
-# --- Pack-Auswürfelung -------------------------------------------------------
-
-func test_pack_has_requested_size():
-	assert_eq(Coupon.random_etching_pack(3).size(), 3)
-	assert_eq(Coupon.random_etching_pack(1).size(), 1)
-
-func test_pack_only_contains_known_etchings():
-	var valid_ids := {}
-	for coupon in Coupon.all():
-		valid_ids[coupon.id] = true
-	for coupon in Coupon.random_etching_pack(20):
-		assert_true(valid_ids.has(coupon.id), "unbekannte id im Pack: %s" % coupon.id)
-
-func test_pack_entries_are_independent_instances():
-	# Zwei gleiche Coupons im Pack dürfen nicht dieselbe Instanz sein
-	# (Coupons sind verbrauchbar).
-	var pack := Coupon.random_etching_pack(6)
-	for i in pack.size():
-		for j in range(i + 1, pack.size()):
-			assert_ne(pack[i].get_instance_id(), pack[j].get_instance_id())
