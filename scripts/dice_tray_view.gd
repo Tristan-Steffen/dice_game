@@ -134,6 +134,16 @@ func add_die(def: DieDefinition) -> void:
 func _style_tint(def: DieDefinition) -> Color:
 	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)
 
+## Zeichnet die Augenzahlen aller sichtbaren Slots neu aus slot_defs - nötig,
+## nachdem eine Ätzung die faces eines Würfels verändert hat (siehe
+## DieInspectorView; slot_defs hält dieselbe DieDefinition-Instanz wie der Pool,
+## die Mutation ist also schon passiert). Positionen/Sichtbarkeit bleiben gleich.
+func refresh_faces() -> void:
+	for i in slot_roots.size():
+		if slot_roots[i].visible:
+			slot_face_displays[i].apply_definition(slot_defs[i])
+			slot_face_displays[i].set_tint(_style_tint(slot_defs[i]))
+
 ## Weltposition des Slots mit Index index - auch für leere/unsichtbare Slots,
 ## z.B. als Start-/Zielpunkt der Aufrück-Animation (siehe scene_root.gd:
 ## _animate_deck_shift).

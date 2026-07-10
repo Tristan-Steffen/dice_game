@@ -12,10 +12,22 @@ extends SubViewportContainer
 ## gemessen ab dem Maus-Down.
 
 signal die_clicked(index: int)
+## Wie die_clicked, aber zusätzlich mit der angeklickten physischen Seite
+## (face_index 0..5, siehe DiceController.AXIS_FACE_INDEX). Nur sinnvoll bei
+## Einzelwürfel-Nutzung (Gravur-Station, siehe DieInspectorView); der Shop
+## verbindet nur die_clicked und ignoriert dies.
+signal face_clicked(die_index: int, face_index: int)
 
 const DRAG_THRESHOLD := 6.0
 const DRAG_SENSITIVITY := 0.01
 const DIE_SPACING := 3.0
+
+## Body-Tint der hervorgehobenen (gewählten) Seite in der Gravur-Station -
+## helles Gold, damit die dunkle Ziffer darauf lesbar bleibt (siehe highlight_face).
+const SELECT_FACE_COLOR := Color(1.0, 0.85, 0.42)
+## Mindest-Ausrichtung (Skalarprodukt Seitennormale · Blickrichtung zur Kamera),
+## ab der eine Seite als "dem Betrachter zugewandt" und damit anklickbar gilt.
+const FACE_FRONT_MIN_DOT := 0.15
 
 @export var pick_radius: float = 110.0  # Pixel-Toleranz um die projizierte Würfelmitte
 @export var camera_distance: float = 6.0
@@ -95,6 +107,9 @@ func _gui_input(event: InputEvent) -> void:
 		elif drag_index != -1:
 			if not is_dragging:
 				die_clicked.emit(drag_index)
+				var face := _pick_face(drag_index, event.position)
+				if face != -1:
+					face_clicked.emit(drag_index, face)
 			drag_index = -1
 			is_dragging = false
 	elif event is InputEventMouseMotion and drag_index != -1:
@@ -112,6 +127,54 @@ func _gui_input(event: InputEvent) -> void:
 func set_highlighted(index: int) -> void:
 	for i in die_roots.size():
 		die_roots[i].scale = Vector3.ONE * (1.15 if i == index else 1.0)
+
+## Findet die angeklickte physische Seite des Würfels die_index (face_index
+## 0..5, siehe DiceController.AXIS_FACE_INDEX), oder -1. Betrachtet nur dem
+## Betrachter zugewandte Seiten (FACE_FRONT_MIN_DOT) und wählt darunter die,
+## deren projizierte Mitte dem Klick am nächsten liegt - analog zu _pick_die,
+## ohne Physik-Raycast (der im isolierten Vorschau-Viewport unzuverlässig ist).
+func _pick_face(die_index: int, local_pos: Vector2) -> int:
+	if camera == null or die_index < 0 or die_index >= die_roots.size():
+		return -1
+	var faces: DieFaceDisplay = die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
+	if faces == null:
+		return -1
+	var best_face := -1
+	var best_dist := pick_radius
+	for axis in faces.quads:
+		var quad: MeshInstance3D = faces.quads[axis]
+		var to_cam: Vector3 = (camera.global_position - quad.global_position).normalized()
+		var normal: Vector3 = quad.global_transform.basis.z.normalized()  # nach außen (siehe DieBuilder._face_basis)
+		if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
+			continue  # Seite zeigt vom Betrachter weg
+		var screen: Vector2 = camera.unproject_position(quad.global_position)
+		var dist := screen.distance_to(local_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best_face = DiceController.AXIS_FACE_INDEX[axis]
+	return best_face
+
+## Hebt genau eine Seite des Würfels die_index farblich hervor (Body-Tint,
+## siehe SELECT_FACE_COLOR), alle anderen Seiten zurück auf Weiß. face_index ==
+## -1 = keine Hervorhebung. Für die Auswahl in der Gravur-Station (DieInspectorView).
+func highlight_face(die_index: int, face_index: int) -> void:
+	if die_index < 0 or die_index >= die_roots.size():
+		return
+	var faces: DieFaceDisplay = die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
+	if faces == null:
+		return
+	faces.set_tint(Color.WHITE)
+	if face_index != -1:
+		faces.set_face_tint(face_index, SELECT_FACE_COLOR)
+
+## Zeichnet die Augenzahlen der angezeigten Würfel neu aus ihren DieDefinitionen
+## (z.B. nachdem eine Ätzung die faces verändert hat, siehe DieInspectorView).
+## Tönungen bleiben unberührt - der Aufrufer setzt danach ggf. highlight_face neu.
+func refresh_faces(defs: Array[DieDefinition]) -> void:
+	for i in mini(defs.size(), die_roots.size()):
+		var faces: DieFaceDisplay = die_roots[i].get_node_or_null("RigidBody3D/Faces")
+		if faces != null:
+			faces.apply_definition(defs[i])
 
 ## Findet den Würfel unter local_pos (Container-lokale Pixelkoordinaten,
 ## entspricht dank stretch=true 1:1 den Viewport-Pixeln): wählt den Würfel,

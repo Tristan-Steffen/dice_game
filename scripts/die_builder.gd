@@ -5,9 +5,10 @@ extends RefCounted
 ## nötig. Wird sowohl für die 6 Spielwürfel (scene_root.gd) als auch die 30
 ## Tray-Würfel (dice_tray_view.gd) verwendet.
 ##
-## Die 6 Quads bilden den kompletten sichtbaren Würfel (jedes SVG-Icon
-## enthält schon Rand+Punkte auf schwarzem Grund) - es gibt keinen separaten
-## Körper-Mesh mehr.
+## Die 6 Quads bilden den weißen Würfelkörper (kein separater Körper-Mesh);
+## jedes trägt ein Label3D-Kind, das die Augenzahl als Ziffer zeigt (siehe
+## DieFaceDisplay). Die konkreten Werte/Tönungen setzt der Aufrufer danach über
+## DieFaceDisplay.apply_definition / set_tint.
 
 const HALF_EXTENT := 1.0
 const FACE_SIZE := 1.9
@@ -62,23 +63,45 @@ static func build() -> Node3D:
 		quad.mesh = quad_mesh
 
 		quad.position = direction * (HALF_EXTENT + FACE_MARGIN)
-		quad.basis = _face_basis(direction)
+		quad.basis = _face_basis(direction, DiceController.FACE_TEXT_UP[axis])
 
 		var default_value: int = DiceController.AXIS_FACE_INDEX[axis] + 1
 		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = DieFaceDisplay.FACE_TEXTURES[default_value]
+		mat.albedo_color = DieFaceDisplay.BODY_COLOR
+		mat.roughness = 0.55
 		quad.set_surface_override_material(0, mat)
 
 		faces.add_child(quad)
 		faces.quads[axis] = quad
 
+		var label := _build_label(default_value)
+		quad.add_child(label)
+		faces.labels[axis] = label
+		DieFaceDisplay.fit_label(label)
+
 	return root
 
-static func _face_basis(direction: Vector3) -> Basis:
-	var up_hint := Vector3(0, 0, -1)
-	if absf(direction.dot(up_hint)) > 0.99:
-		up_hint = Vector3.RIGHT
+## Baut das Ziffern-Label eines Gesichts. Kind des Körper-Quads, minimal davor
+## (+Z) gesetzt, damit es plan aufliegt, aber nicht mit dem Quad z-fightet; erbt
+## dessen nach außen gerichtete Orientierung (siehe _face_basis).
+static func _build_label(value: int) -> Label3D:
+	var label := Label3D.new()
+	label.name = "Value"
+	label.text = str(value)
+	label.font_size = DieFaceDisplay.LABEL_FONT_SIZE
+	label.pixel_size = DieFaceDisplay.LABEL_PIXEL_SIZE
+	label.modulate = DieFaceDisplay.NUMBER_COLOR
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS  # schreibt Tiefe + kantenglatt, korrektes Sortieren bei vielen Würfeln
+	label.position = Vector3(0, 0, 0.01)  # Schauseite (+Z) zeigt nach außen (Quad-Normale), Ziffer liest sich seitenrichtig
+	return label
+
+## Orientierung eines Gesichts-Quads: z (Normale) zeigt nach außen (direction),
+## y (Ziffern-"oben") entlang up (siehe DiceController.FACE_TEXT_UP), damit die
+## Zahl frontal aufrecht steht. up muss senkrecht auf direction stehen.
+static func _face_basis(direction: Vector3, up: Vector3) -> Basis:
 	var z_axis := direction.normalized()
-	var x_axis := up_hint.cross(z_axis).normalized()
+	var x_axis := up.cross(z_axis).normalized()
 	var y_axis := z_axis.cross(x_axis).normalized()
 	return Basis(x_axis, y_axis, z_axis)

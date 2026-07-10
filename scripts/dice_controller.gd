@@ -16,6 +16,20 @@ const AXIS_DIRECTIONS := {
 	"HINTEN": Vector3(0, 0, -1),
 }
 
+# "Oben"-Richtung der Ziffer je Seite (lokaler Würfelraum), damit die Zahl auf
+# jeder Seite aufrecht steht, wenn man sie frontal ansieht (siehe DieBuilder.
+# _face_basis / DieFaceDisplay). Ohne feste Vorgabe stünde die Ziffer je Seite
+# unterschiedlich verdreht. Für die 4 Seitenflächen zeigt "oben" nach +Y, für
+# Ober-/Unterseite entlang der Z-Achse (die Y-Achse ist dort die Normale).
+const FACE_TEXT_UP := {
+	"OBEN": Vector3(0, 0, -1),
+	"UNTEN": Vector3(0, 0, 1),
+	"RECHTS": Vector3(0, 1, 0),
+	"LINKS": Vector3(0, 1, 0),
+	"VORNE": Vector3(0, 1, 0),
+	"HINTEN": Vector3(0, 1, 0),
+}
+
 # Kalibrierung: welcher Index in DieDefinition.faces liegt physisch auf
 # welcher Achse.
 const AXIS_FACE_INDEX := {

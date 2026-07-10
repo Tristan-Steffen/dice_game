@@ -226,6 +226,8 @@ func _ready() -> void:
 
 	charm_shop.game = self
 	charm_shop.closed.connect(_on_shop_closed)
+	die_inspector.game = self
+	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
@@ -1386,6 +1388,30 @@ func buy_coupon_pack(price: int, size: int) -> Array[Coupon]:
 	owned_coupons.append_array(pack)
 	_refresh_coupons_label()
 	return pack
+
+## Gehortete Coupons - die Gravur-Station (DieInspectorView) liest sie, um ihr
+## Angebot zu bauen und die Kaufbarkeit/Anzahl je Ätzung zu bestimmen.
+func player_coupons() -> Array[Coupon]:
+	return owned_coupons
+
+## Verbraucht genau einen Coupon der gegebenen id (siehe Coupon-Konstanten) -
+## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung
+## gerufen; aktualisiert die HUD-Coupon-Anzeige.
+func consume_coupon(id: String) -> bool:
+	for i in owned_coupons.size():
+		if owned_coupons[i].id == id:
+			owned_coupons.remove_at(i)
+			_refresh_coupons_label()
+			return true
+	return false
+
+## Eine Ätzung wurde in der Gravur-Station angewandt (siehe DieInspectorView):
+## die faces des Pool-Würfels sind bereits verändert, hier nur die Tray-Anzeigen
+## neu zeichnen (slot_defs teilen die Instanz, siehe refresh_faces).
+func _on_die_engraved() -> void:
+	pool_tray_view.refresh_faces()
+	queue_tray_view.refresh_faces()
+	discard_tray_view.refresh_faces()
 
 ## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): nächste
 ## Runde vorbereiten und ins Spiel zurückkehren.
