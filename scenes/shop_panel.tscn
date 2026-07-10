@@ -52,12 +52,12 @@ theme_override_constants/separation = 16
 
 [node name="CouponSectionLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2
-text = "Coupon-Pack"
+text = "Coupon-Bögen"
 
-[node name="CouponPackButton" type="Button" parent="VBoxContainer"]
-custom_minimum_size = Vector2(0, 48)
+[node name="CouponSheetContainer" type="HBoxContainer" parent="VBoxContainer"]
+custom_minimum_size = Vector2(0, 58)
 layout_mode = 2
-text = "3 Ätzungen kaufen"
+theme_override_constants/separation = 12
 
 [node name="ShopMessageLabel" type="Label" parent="VBoxContainer"]
 layout_mode = 2

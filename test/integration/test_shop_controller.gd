@@ -29,12 +29,16 @@ class FakeGame extends RefCounted:
 		bought_charms.append(charm)
 		owned.append(charm.id)
 
-	var bought_coupons: Array = []
-	func buy_coupon_pack(price: int, size: int) -> Array[Coupon]:
+	var bought_sheets: Array = []  # gekaufte Bogentypen (siehe buy_coupon_sheet)
+	func buy_coupon_sheet(kind: int, price: int) -> int:
 		money -= price
-		var pack := Coupon.random_etching_pack(size)
-		bought_coupons.append_array(pack)
-		return pack
+		bought_sheets.append(kind)
+		var sheet := CouponSheet.generate(kind)
+		var etch_count := 0
+		for tile in sheet.tiles:
+			if tile["kind"] == "etching":
+				etch_count += 1
+		return etch_count
 
 var shop
 var fake: FakeGame
@@ -105,29 +109,32 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-# --- Coupon-Pack --------------------------------------------------------------
+# --- Coupon-Bögen -------------------------------------------------------------
 
-func test_buy_coupon_pack_deducts_and_grants_three():
-	shop._on_coupon_pack_pressed()
-	assert_eq(fake.money, 90)  # 100 - 10
-	assert_eq(fake.bought_coupons.size(), 3, "Pack liefert alle 3 Karten")
+func test_buy_snippet_sheet_deducts_price():
+	shop._on_sheet_pressed(0)  # Schnipsel, $6
+	assert_eq(fake.money, 94)  # 100 - 6
+	assert_eq(fake.bought_sheets.size(), 1)
+	assert_eq(fake.bought_sheets[0], CouponSheet.Kind.SNIPPET)
 
-func test_coupon_packs_are_repeatable():
-	shop._on_coupon_pack_pressed()
-	shop._on_coupon_pack_pressed()
-	assert_eq(fake.money, 80)
-	assert_eq(fake.bought_coupons.size(), 6)
+func test_sheets_are_repeatable():
+	shop._on_sheet_pressed(0)  # -6
+	shop._on_sheet_pressed(1)  # Bogen -10
+	assert_eq(fake.money, 84)  # 100 - 6 - 10
+	assert_eq(fake.bought_sheets.size(), 2)
 
-func test_cannot_buy_coupon_pack_without_funds():
-	fake.money = 5
-	shop._on_coupon_pack_pressed()
-	assert_eq(fake.money, 5, "kein Abzug bei zu wenig Geld")
-	assert_eq(fake.bought_coupons.size(), 0)
+func test_cannot_buy_sheet_without_funds():
+	fake.money = 3
+	shop._on_sheet_pressed(2)  # Großbogen, $16
+	assert_eq(fake.money, 3, "kein Abzug bei zu wenig Geld")
+	assert_eq(fake.bought_sheets.size(), 0)
 
-func test_coupon_pack_button_disabled_when_broke():
-	fake.money = 5
+func test_sheet_buttons_disabled_by_price():
+	fake.money = 8  # reicht für Schnipsel ($6), nicht für Bogen ($10)/Großbogen ($16)
 	shop.open()
-	assert_true(shop.coupon_pack_button.disabled)
+	assert_false(shop.sheet_buttons[0].disabled, "Schnipsel leistbar")
+	assert_true(shop.sheet_buttons[1].disabled, "Bogen zu teuer")
+	assert_true(shop.sheet_buttons[2].disabled, "Großbogen zu teuer")
 
 # --- Abschluss ----------------------------------------------------------------
 

@@ -17,8 +17,15 @@ signal closed
 
 const DIE_PRICE := 15  # Preis pro Würfel-Kauf (vor Rabatt-Charms, siehe CharmEffects.die_price)
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf
-const COUPON_PACK_PRICE := 10  # Preis pro Coupon-Pack (siehe Coupon)
-const COUPON_PACK_SIZE := 3  # Karten je Coupon-Pack - man erhält alle (siehe Balatro-Packs)
+
+## Angebotene Coupon-Bögen (siehe CouponSheet): je größer das Raster, desto teurer
+## und desto größere Coupons können darauf liegen (die Fläche IST die Rarität).
+## Man erhält alle echten Ätzungen des Bogens; Lücken sind Marken/Werbeflächen.
+const SHEET_OFFERS := [
+	{"kind": CouponSheet.Kind.SNIPPET, "name": "Schnipsel", "price": 6},
+	{"kind": CouponSheet.Kind.SHEET, "name": "Bogen", "price": 10},
+	{"kind": CouponSheet.Kind.LARGE, "name": "Großbogen", "price": 16},
+]
 
 ## Vom Besitzer (scene_root) gesetzte Spiel-API (siehe scene_root.gd:
 ## player_money/owned_charm_ids/purchase_die/purchase_charm). Bewusst untypisiert,
@@ -31,7 +38,7 @@ var game
 @onready var charm_section_label: Label = $VBoxContainer/CharmSectionLabel
 @onready var charm_options_container: HBoxContainer = $VBoxContainer/CharmOptionsContainer
 @onready var coupon_section_label: Label = $VBoxContainer/CouponSectionLabel
-@onready var coupon_pack_button: Button = $VBoxContainer/CouponPackButton
+@onready var coupon_sheet_container: HBoxContainer = $VBoxContainer/CouponSheetContainer
 @onready var message_label: Label = $VBoxContainer/ShopMessageLabel
 @onready var done_button: Button = $VBoxContainer/DoneButton
 
@@ -39,6 +46,7 @@ var die_options: Array[DieDefinition] = []  # feste Würfel-Kandidaten (Reihenfo
 var charm_options: Array[Charm] = []  # Charm-Angebot dieses Besuchs (Reihenfolge = charm_options_container)
 var charm_buttons: Array[Button] = []  # dynamisch gebaute Buttons für charm_options
 var charm_bought: Array[bool] = []  # welche charm_options in diesem Besuch schon gekauft wurden
+var sheet_buttons: Array[Button] = []  # feste Bogen-Kauf-Buttons (Reihenfolge = SHEET_OFFERS)
 
 func _ready() -> void:
 	_style()
@@ -49,9 +57,23 @@ func _ready() -> void:
 	]
 	dice_picker.set_dice(die_options)
 	dice_picker.die_clicked.connect(_on_die_clicked)
-	coupon_pack_button.text = "%d Ätzungen kaufen ($%d)" % [COUPON_PACK_SIZE, COUPON_PACK_PRICE]
-	coupon_pack_button.pressed.connect(_on_coupon_pack_pressed)
+	_build_sheet_buttons()
 	done_button.pressed.connect(_on_done_pressed)
+
+## Baut die drei festen Bogen-Kauf-Buttons (Schnipsel/Bogen/Großbogen, siehe
+## SHEET_OFFERS) - beliebig oft nachkaufbar, solange genug Geld da ist.
+func _build_sheet_buttons() -> void:
+	for i in SHEET_OFFERS.size():
+		var offer: Dictionary = SHEET_OFFERS[i]
+		var grid: Vector2i = CouponSheet.grid_size(offer["kind"])
+		var button := Button.new()
+		button.text = "%s\n%d×%d · $%d" % [offer["name"], grid.x, grid.y, offer["price"]]
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.pressed.connect(_on_sheet_pressed.bind(i))
+		CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 14)
+		coupon_sheet_container.add_child(button)
+		sheet_buttons.append(button)
 
 ## Casino-Look des Shops (siehe CasinoStyle) - der Shop stylt sich selbst, damit
 ## scene_root._style_ui nichts davon kennen muss.
@@ -61,7 +83,6 @@ func _style() -> void:
 	CasinoStyle.style_chip_label(dice_section_label, 18, CasinoStyle.BLUE)
 	CasinoStyle.style_chip_label(charm_section_label, 18, CasinoStyle.PURPLE)
 	CasinoStyle.style_chip_label(coupon_section_label, 18, CasinoStyle.GREEN)
-	CasinoStyle.style_button(coupon_pack_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
 	CasinoStyle.style_body_label(message_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
@@ -72,8 +93,9 @@ func open() -> void:
 	message_label.text = ""
 	# Würfel-Sektionstitel zeigt den (ggf. rabattierten) Effektivpreis.
 	dice_section_label.text = "Würfel (je $%d)" % _die_price()
-	coupon_section_label.text = "Coupon-Pack (%d Ätzungen)" % COUPON_PACK_SIZE
+	coupon_section_label.text = "Coupon-Bögen"
 	_populate_charm_options()
+	_refresh_afford_state()
 	visible = true
 
 ## Würfelt die Charm-Angebote dieses Besuchs aus - alle Charm-Archetypen (siehe
@@ -145,30 +167,29 @@ func _on_charm_clicked(index: int) -> void:
 	message_label.text = "Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE]
 	_refresh_afford_state()
 
-## Kauft ein Coupon-Pack (COUPON_PACK_SIZE zufällige Ätzungen, siehe
-## Coupon.random_etching_pack / game.buy_coupon_pack) - beliebig oft
-## nachkaufbar. Zeigt anschließend an, welche Karten das Pack enthielt.
-func _on_coupon_pack_pressed() -> void:
-	if game.player_money() < COUPON_PACK_PRICE:
-		message_label.text = "Nicht genug Geld für ein Coupon-Pack ($%d)." % COUPON_PACK_PRICE
+## Kauft einen Coupon-Bogen (siehe game.buy_coupon_sheet / CouponSheet) - beliebig
+## oft nachkaufbar. game zeigt den Bogen als Enthüllung; hier steht nur die kurze
+## Rückmeldung, wie viele echte Ätzungen darauf lagen.
+func _on_sheet_pressed(index: int) -> void:
+	var offer: Dictionary = SHEET_OFFERS[index]
+	if game.player_money() < offer["price"]:
+		message_label.text = "Nicht genug Geld für %s ($%d)." % [offer["name"], offer["price"]]
 		return
-	var granted: Array = game.buy_coupon_pack(COUPON_PACK_PRICE, COUPON_PACK_SIZE)
-	var names: Array[String] = []
-	for coupon in granted:
-		names.append(coupon.display_name)
-	message_label.text = "Coupon-Pack: %s (-$%d)" % [", ".join(names), COUPON_PACK_PRICE]
+	var etch_count: int = game.buy_coupon_sheet(offer["kind"], offer["price"])
+	message_label.text = "%s: %d Ätzung(en) (-$%d)." % [offer["name"], etch_count, offer["price"]]
 	_refresh_afford_state()
 
 ## Deaktiviert Käufe, die sich der Spieler nicht mehr leisten kann - noch nicht
-## gekaufte Charm-Buttons (CHARM_PRICE) und den Coupon-Pack-Button
-## (COUPON_PACK_PRICE). Geld sinkt innerhalb eines Besuchs nur (kein Einkommen
-## mittendrin), ein deaktivierter Button muss also nie reaktiviert werden.
+## gekaufte Charm-Buttons (CHARM_PRICE) und je Bogen-Button den eigenen Preis.
+## Geld sinkt innerhalb eines Besuchs nur (kein Einkommen mittendrin), ein
+## deaktivierter Button muss also nie reaktiviert werden.
 func _refresh_afford_state() -> void:
 	var money: int = game.player_money()
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < CHARM_PRICE
-	coupon_pack_button.disabled = money < COUPON_PACK_PRICE
+	for i in sheet_buttons.size():
+		sheet_buttons[i].disabled = money < SHEET_OFFERS[i]["price"]
 
 func _on_done_pressed() -> void:
 	visible = false

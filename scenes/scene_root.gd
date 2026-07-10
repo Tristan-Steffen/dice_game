@@ -74,6 +74,18 @@ const DIE_FLASH_SCALE := 1.25
 
 ## Kantenlänge (Pixel) der Mini-3D-Würfelvorschau je Zeile der Würfel-Sammlung.
 const DICE_THUMB_SIZE := 72
+
+## Abschluss-Animation eines gekauften Bogens (siehe _play_sheet_finish_animation):
+## Kacheln lösen sich, Geld-Coupons fliegen nach oben links (Geldzähler), Ätzungen
+## nach rechts (Zähler je Ätzungstyp), Werbeflächen verblassen.
+const CHIP_COUPON_VALUE := 1  # Chips je Geld-Coupon (Chip-Coupon, siehe Obsidian "02 Gravuren")
+const SHEET_ANIM_MONEY_TARGET := Vector2(72, 148)  # Bildschirmziel der Geld-Coupons (nahe money_label)
+const SHEET_ANIM_COUNTER_X := 980.0  # linke Kante der Ätzungs-Zähler rechts
+const SHEET_ANIM_COUNTER_TOP := 250.0
+const SHEET_ANIM_COUNTER_ROW := 48.0
+const SHEET_ANIM_SEPARATE_TIME := 0.28
+const SHEET_ANIM_FLY_TIME := 0.45
+const SHEET_ANIM_STAGGER := 0.05
 ## Ruhefarbe der Tisch-Texte (Belohnungen UND Kombinationsliste): helles Weiß mit
 ## schwarzem Umriss (siehe .tscn: outline_modulate). Beim Aufleuchten (Auszahlung
 ## bzw. gerade gewürfelte Kombination) wechseln sie nach CasinoStyle.GOLD_INTENSE.
@@ -145,6 +157,15 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var dice_list_toggle_button: Button = $UI/DiceListToggleButton
 var dice_list_panel: Panel  # komplett per Code aufgebaut (siehe _build_dice_list_panel)
 var dice_list_rows: VBoxContainer  # Zeilencontainer; bei jedem Öffnen neu befüllt
+
+# Enthüllungs-Overlay für einen gekauften Coupon-Bogen (siehe _build_sheet_preview
+## / buy_coupon_sheet / CouponSheet).
+var sheet_preview: Control
+var sheet_preview_backdrop: ColorRect
+var sheet_preview_view: CouponSheetView
+var sheet_preview_title: Label
+var sheet_animating: bool = false  # true während der Abschluss-Animation (Klicks ignorieren)
+var sheet_anim_nodes: Array[Node] = []  # temporäre Animations-Nodes (Kacheln/Zähler), am Ende freigegeben
 
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
@@ -266,6 +287,7 @@ func _ready() -> void:
 	_populate_legend()
 	_collect_combo_labels()
 	_build_dice_list_panel()
+	_build_sheet_preview()
 	_reset_game()
 
 ## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
@@ -323,6 +345,199 @@ func _on_dice_list_toggle_pressed() -> void:
 func _clear_dice_list() -> void:
 	for child in dice_list_rows.get_children():
 		child.queue_free()
+
+## Baut die Coupon-Bogen-Enthüllung auf: abgedunkelter Vollbild-Hintergrund +
+## zentrierter Titel + CouponSheetView. Wird beim Kauf eines Bogens im Shop
+## gezeigt (siehe buy_coupon_sheet); Klick auf den Hintergrund schließt sie wieder.
+func _build_sheet_preview() -> void:
+	sheet_preview = Control.new()
+	sheet_preview.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sheet_preview.visible = false
+	$UI.add_child(sheet_preview)
+
+	sheet_preview_backdrop = ColorRect.new()
+	sheet_preview_backdrop.color = Color(0, 0, 0, 0.6)
+	sheet_preview_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sheet_preview_backdrop.gui_input.connect(_on_sheet_preview_input)
+	sheet_preview.add_child(sheet_preview_backdrop)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sheet_preview.add_child(center)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(column)
+
+	sheet_preview_title = Label.new()
+	sheet_preview_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sheet_preview_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_score_label(sheet_preview_title, 24, CasinoStyle.GOLD)
+	column.add_child(sheet_preview_title)
+
+	sheet_preview_view = CouponSheetView.new()
+	sheet_preview_view.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	# IGNORE, damit ein Klick auf den Bogen selbst (nicht nur daneben) bis zum
+	# Backdrop durchfällt und die Abschluss-Animation startet (siehe _on_sheet_preview_input).
+	sheet_preview_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(sheet_preview_view)
+
+## Zeigt einen gekauften Bogen als Enthüllung über dem Shop (Klick schließt).
+func _show_sheet_reveal(sheet: CouponSheet, kind: int) -> void:
+	sheet_preview_title.text = "%s (%d×%d)" % [_sheet_kind_name(kind), sheet.cols, sheet.rows]
+	sheet_preview_view.show_sheet(sheet, 120.0)
+	sheet_preview.visible = true
+
+func _sheet_kind_name(kind: int) -> String:
+	match kind:
+		CouponSheet.Kind.SNIPPET:
+			return "Schnipsel"
+		CouponSheet.Kind.SHEET:
+			return "Bogen"
+		CouponSheet.Kind.LARGE:
+			return "Großbogen"
+	return "Bogen"
+
+## Klick auf die Bogen-Enthüllung "verabschiedet" den Bogen: die Abschluss-
+## Animation zerlegt ihn (siehe _play_sheet_finish_animation). Während sie läuft,
+## werden weitere Klicks ignoriert.
+func _on_sheet_preview_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if not sheet_animating:
+			_play_sheet_finish_animation()
+
+## Abschluss-Animation des gekauften Bogens: alle Kacheln lösen sich vom Bogen,
+## dann fliegen Geld-Coupons zum Geldzähler (oben links, +CHIP_COUPON_VALUE je
+## Stück), Ätzungen zu je einem Zähler rechts (Anzahl je Ätzungstyp; hier landen
+## sie auch endgültig im Inventar) und Werbeflächen verblassen einfach. Danach
+## wird alles aufgeräumt und die Enthüllung geschlossen.
+func _play_sheet_finish_animation() -> void:
+	sheet_animating = true
+	var infos: Array = sheet_preview_view.tile_infos.duplicate()
+
+	# Streuzentrum = Mittel der Kachelmitten (Bildschirmkoordinaten).
+	var center := Vector2.ZERO
+	for info in infos:
+		var node: Control = info["node"]
+		center += node.global_position + node.size * 0.5
+	if not infos.is_empty():
+		center /= float(infos.size())
+
+	# Rest des Bogens (Papier/Perforation/Titel) ausblenden, Hintergrund aufhellen,
+	# damit der Geldzähler oben links sichtbar wird.
+	var dim := create_tween()
+	dim.set_parallel(true)
+	dim.tween_property(sheet_preview_view, "modulate:a", 0.0, 0.22)
+	dim.tween_property(sheet_preview_title, "modulate:a", 0.0, 0.22)
+	dim.tween_property(sheet_preview_backdrop, "color:a", 0.18, 0.3)
+
+	# Kacheln in die Overlay-Ebene umhängen (Bildschirmkoordinaten, Position bleibt).
+	var tiles: Array = []
+	for info in infos:
+		var node: Control = info["node"]
+		node.reparent(sheet_preview, true)
+		node.pivot_offset = node.size * 0.5
+		sheet_anim_nodes.append(node)
+		tiles.append({"node": node, "coupon": info["coupon"], "kind": info["kind"]})
+
+	# Zähler je Ätzungstyp rechts anlegen (Reihenfolge des ersten Auftretens).
+	var etch_names: Array[String] = []
+	var etch_data := {}  # display_name -> {label, count, target}
+	for t in tiles:
+		if t["kind"] == "etching":
+			var nm: String = t["coupon"].display_name
+			if not etch_data.has(nm):
+				etch_names.append(nm)
+				etch_data[nm] = {}
+	for i in etch_names.size():
+		var nm: String = etch_names[i]
+		var label := Label.new()
+		label.position = Vector2(SHEET_ANIM_COUNTER_X, SHEET_ANIM_COUNTER_TOP + i * SHEET_ANIM_COUNTER_ROW)
+		label.text = "%s  ×0" % nm
+		CasinoStyle.style_chip_label(label, 20, CasinoStyle.GREEN)
+		label.modulate.a = 0.0
+		sheet_preview.add_child(label)
+		sheet_anim_nodes.append(label)
+		etch_data[nm] = {"label": label, "count": 0, "target": label.position + Vector2(150, 14)}
+		var appear := create_tween()
+		appear.tween_property(label, "modulate:a", 1.0, 0.3)
+
+	# Jede Kachel: erst nach außen lösen, dann an ihr Ziel fliegen (gestaffelt).
+	var last_end := 0.0
+	for idx in tiles.size():
+		var t: Dictionary = tiles[idx]
+		var node: Control = t["node"]
+		var home := node.position + node.size * 0.5
+		var out_dir := (home - center).normalized() if home.distance_to(center) > 1.0 else Vector2.UP
+		var scattered := node.position + out_dir * 46.0
+		var delay := idx * SHEET_ANIM_STAGGER
+
+		var tw := create_tween()
+		tw.tween_interval(delay)
+		tw.tween_property(node, "position", scattered, SHEET_ANIM_SEPARATE_TIME) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+		match t["kind"]:
+			"money":
+				tw.tween_property(node, "position", SHEET_ANIM_MONEY_TARGET - node.size * 0.5, SHEET_ANIM_FLY_TIME) \
+					.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				tw.parallel().tween_property(node, "scale", Vector2(0.18, 0.18), SHEET_ANIM_FLY_TIME)
+				tw.parallel().tween_property(node, "modulate:a", 0.0, SHEET_ANIM_FLY_TIME)
+				tw.tween_callback(_grant_chip_coupon)
+			"etching":
+				var data: Dictionary = etch_data[t["coupon"].display_name]
+				var coupon: Coupon = t["coupon"]
+				tw.tween_property(node, "position", data["target"] - node.size * 0.5, SHEET_ANIM_FLY_TIME) \
+					.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				tw.parallel().tween_property(node, "scale", Vector2(0.28, 0.28), SHEET_ANIM_FLY_TIME)
+				tw.parallel().tween_property(node, "modulate:a", 0.0, SHEET_ANIM_FLY_TIME)
+				tw.tween_callback(_grant_etching.bind(coupon, data))
+			_:  # "ad": einfach verblassen
+				tw.tween_property(node, "scale", Vector2(0.7, 0.7), 0.3)
+				tw.parallel().tween_property(node, "modulate:a", 0.0, 0.3)
+
+		last_end = maxf(last_end, delay + SHEET_ANIM_SEPARATE_TIME + SHEET_ANIM_FLY_TIME)
+
+	var finish := create_tween()
+	finish.tween_interval(last_end + 0.25)
+	finish.tween_callback(_cleanup_sheet_animation)
+
+## Ein Geld-Coupon ist am Geldzähler angekommen: Chips gutschreiben + pulsen.
+func _grant_chip_coupon() -> void:
+	_add_money(CHIP_COUPON_VALUE)
+	_pulse_money_label()
+
+## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen, Zähler
+## hochzählen und die Zeile kurz aufpulsen.
+func _grant_etching(coupon: Coupon, data: Dictionary) -> void:
+	owned_coupons.append(coupon)
+	_refresh_coupons_label()
+	data["count"] += 1
+	data["label"].text = "%s  ×%d" % [coupon.display_name, data["count"]]
+	_pulse_control(data["label"])
+
+## Räumt die Abschluss-Animation ab: temporäre Nodes freigeben, Overlay schließen
+## und die Enthüllungs-Ansicht für den nächsten Kauf zurücksetzen.
+func _cleanup_sheet_animation() -> void:
+	for node in sheet_anim_nodes:
+		if is_instance_valid(node):
+			node.queue_free()
+	sheet_anim_nodes.clear()
+	sheet_preview.visible = false
+	sheet_preview_view.modulate.a = 1.0
+	sheet_preview_title.modulate.a = 1.0
+	sheet_preview_backdrop.color.a = 0.6
+	sheet_animating = false
+
+## Kurzer elastischer Größen-Puls eines UI-Elements (wie _pulse_money_label).
+func _pulse_control(control: Control) -> void:
+	control.pivot_offset = control.size / 2.0
+	control.scale = Vector2(1.4, 1.4)
+	var pulse := create_tween()
+	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pulse.tween_property(control, "scale", Vector2.ONE, 0.35)
 
 ## Baut Rahmen der Würfel-Sammlung einmalig auf (Panel + Titel + scrollbare
 ## Zeilenliste). Die Zeilen selbst füllt _rebuild_dice_list bei jedem Öffnen neu.
@@ -1631,15 +1846,21 @@ func purchase_charm(charm: Charm, price: int) -> void:
 	_refresh_charms_label()
 	charm_row.set_charms(owned_charms)
 
-## Kauf eines Coupon-Packs: Geld abziehen, size zufällige Ätzungen ins Inventar
-## legen (unbegrenzt, siehe owned_coupons) und die gezogenen Coupons zurückgeben,
-## damit der Shop sie anzeigen kann (siehe ShopController._on_coupon_pack_pressed).
-func buy_coupon_pack(price: int, size: int) -> Array[Coupon]:
+## Kauf eines Coupon-Bogens (siehe CouponSheet / ShopController): Geld abziehen,
+## Bogen des Typs kind auswürfeln und als Enthüllung über dem Shop zeigen. Die
+## Gutschrift (Ätzungen ins Inventar, Chips je Geld-Coupon) erfolgt erst in der
+## Abschluss-Animation, wenn der Spieler den Bogen verabschiedet (siehe
+## _play_sheet_finish_animation). Zurückgegeben wird nur die Anzahl echter
+## Ätzungen darauf, damit der Shop eine kurze Rückmeldung zeigen kann.
+func buy_coupon_sheet(kind: int, price: int) -> int:
 	_add_money(-price)
-	var pack := Coupon.random_etching_pack(size)
-	owned_coupons.append_array(pack)
-	_refresh_coupons_label()
-	return pack
+	var sheet := CouponSheet.generate(kind)
+	var etch_count := 0
+	for tile in sheet.tiles:
+		if tile["kind"] == "etching":
+			etch_count += 1
+	_show_sheet_reveal(sheet, kind)
+	return etch_count
 
 ## Gehortete Coupons - die Gravur-Station (DieInspectorView) liest sie, um ihr
 ## Angebot zu bauen und die Kaufbarkeit/Anzahl je Ätzung zu bestimmen.
