@@ -116,7 +116,18 @@ const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, s
 const PIT_TOP_ROW_X := 7.0
 const PIT_TOP_ROW_SPACING := 2.4
 
-enum GameState { PLAYING, SHOP, GAME_OVER }
+## Grobe Spielphase - genau EINE zur Zeit (ersetzt die frühere Kombination aus
+## game_state + is_rolling + is_cup_animating, deren Konjunktionen an jeder
+## Eingabe-Stelle einzeln stimmen mussten). Eingabe-Gates prüfen gegen die Phase
+## (siehe _can_toggle_selection/_dice_in_motion/_is_playing): IDLE = wartet auf
+## Spieler-Eingabe · CUP_ANIMATING = gezogene Würfel fliegen zum Becher, er
+## schüttelt und kippt · ROLLING = Physikwurf läuft · PAYOUT = Rundenziel-
+## Auszahlung (Tisch-Animation vor dem Shop) · SHOP/GAME_OVER = entsprechendes
+## Panel offen. Nebenläufige Kosmetik (Deck-Aufrücken, Umsortier-Drag,
+## Bogen-Abschluss) ist bewusst KEINE Phase - sie hat ihre eigenen kleinen
+## Zustände (deck_shift_ghosts/reorder_drag_index/sheet_animating) und darf
+## parallel zu einer Phase laufen.
+enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
 
 @onready var take_button: Button = $UI/TakeButton
 @onready var select_all_button: Button = $UI/SelectAllButton
@@ -185,15 +196,12 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 
 var dice: DiceController
 
-var is_rolling: bool = false
-var is_cup_animating: bool = false  # true während Würfel in den Becher fliegen/er schüttelt, siehe _play_cup_roll
+var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
 var hand_total: int = 0
 
 var displayed_points: int = 0  # aktuell im Zielbalken/-text gezeigter Punktestand, läuft hand_total animiert hinterher (siehe _animate_points_to)
 var points_tween: Tween
-
-var game_state: GameState = GameState.PLAYING
 
 ## Der persistente Zustand des laufenden Spiellaufs: Geld, Würfel-Sammlung,
 ## Charms, Coupons, Rundenfortschritt (siehe GameRun - reine Daten + Ökonomie,
@@ -802,7 +810,7 @@ func _show_money_popup(amount: int) -> void:
 	tween.chain().tween_callback(popup.queue_free)
 
 func _physics_process(delta: float) -> void:
-	if not is_rolling:
+	if phase != Phase.ROLLING:
 		return
 	if dice.physics_step(delta, rest_linear_threshold, rest_angular_threshold, rest_time_required):
 		_on_roll_finished()
@@ -832,10 +840,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_refresh_action_buttons()
 			return
 
-	if not is_rolling and not is_cup_animating and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+	if not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
 		return
 
-	if not is_rolling and not is_cup_animating and _try_tray_die_click(event.position):
+	if not _dice_in_motion() and _try_tray_die_click(event.position):
 		return
 
 	_try_zoom_click(event.position)
@@ -1107,8 +1115,18 @@ func _try_cup_click(screen_pos: Vector2) -> bool:
 	_on_throw_button_pressed()
 	return true
 
+## True, solange der aktuelle Wurf sichtbar läuft (Becher-Animation oder
+## Physik) - währenddessen sind Tray-Klicks und Umsortieren gesperrt.
+func _dice_in_motion() -> bool:
+	return phase == Phase.CUP_ANIMATING or phase == Phase.ROLLING
+
+## True in allen Phasen VOR dem Rundenabschluss (inklusive laufender Würfe) -
+## das frühere game_state == PLAYING (siehe _on_debug_win_round_pressed).
+func _is_playing() -> bool:
+	return phase == Phase.IDLE or _dice_in_motion()
+
 func _can_toggle_selection() -> bool:
-	return game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand
+	return phase == Phase.IDLE and has_rolled_current_hand
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var camera := get_viewport().get_camera_3d()
@@ -1233,7 +1251,7 @@ func _cancel_deck_shift() -> void:
 	deck_shift_ghosts.clear()
 
 func _on_throw_button_pressed() -> void:
-	if game_state != GameState.PLAYING or is_rolling or is_cup_animating:
+	if phase != Phase.IDLE:
 		return
 	if _remaining_in_pool() <= 0:
 		return
@@ -1286,7 +1304,7 @@ func _on_throw_button_pressed() -> void:
 			move_top_indices.append(i)
 			move_top_targets.append(_pit_top_row_position(k, selected_indices.size(), dice.bodies[i].global_position.y))
 
-	is_cup_animating = true
+	phase = Phase.CUP_ANIMATING
 	take_button.disabled = true
 	select_all_button.disabled = true
 
@@ -1319,8 +1337,7 @@ func _on_throw_button_pressed() -> void:
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
-	if game_state != GameState.PLAYING:
-		is_cup_animating = false
+	if phase != Phase.CUP_ANIMATING:
 		_clear_cup_interior_ghosts()
 		return  # Spiel wurde während der Becher-Animation zurückgesetzt/beendet
 
@@ -1333,15 +1350,14 @@ func _on_throw_button_pressed() -> void:
 	dice_cup.play_throw()
 	await dice_cup.poured_out
 	_clear_cup_interior_ghosts()
-	is_cup_animating = false
-	if game_state != GameState.PLAYING:
+	if phase != Phase.CUP_ANIMATING:
 		return  # Spiel wurde während des Wurfschwungs zurückgesetzt/beendet
 
 	var start_positions := _throw_start_positions()
 	for k in thrown_indices.size():
 		var i: int = thrown_indices[k]
 		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[k])
-	is_rolling = true
+	phase = Phase.ROLLING
 	dice.throw_slots(thrown_indices, throw_force, spin_strength)
 	_refresh_ui()
 
@@ -1437,7 +1453,7 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 		await dice_cup.play_shake(CUP_SHAKE_COUNT).finished
 
 func _on_roll_finished() -> void:
-	is_rolling = false
+	phase = Phase.IDLE
 
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
@@ -1520,7 +1536,7 @@ func _on_farkle() -> void:
 ## Würfel beim nächsten "Neu würfeln" geschützt sind (siehe
 ## _on_throw_button_pressed).
 func _on_take_button_pressed() -> void:
-	if game_state != GameState.PLAYING or not has_rolled_current_hand or is_rolling:
+	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 
 	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
@@ -1543,7 +1559,7 @@ func _on_take_button_pressed() -> void:
 ## DiceController.select_all) - nützlich, um versehentliches Neu-Würfeln der
 ## kompletten Hand zu vermeiden.
 func _on_select_all_button_pressed() -> void:
-	if game_state != GameState.PLAYING or is_rolling or is_cup_animating or not has_rolled_current_hand:
+	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 	dice.select_all()
 	_refresh_action_buttons()
@@ -1563,7 +1579,7 @@ func _auto_select_best_combo() -> void:
 ## hängt (anders als in einer früheren Version) nicht mehr von einer Auswahl
 ## ab, da es immer die komplette Hand nimmt (siehe _on_take_button_pressed).
 func _refresh_action_buttons() -> void:
-	var interactable := game_state == GameState.PLAYING and not is_rolling and not is_cup_animating and has_rolled_current_hand
+	var interactable := phase == Phase.IDLE and has_rolled_current_hand
 	take_button.disabled = not interactable
 	select_all_button.disabled = not interactable
 
@@ -1571,12 +1587,10 @@ func _on_reset_button_pressed() -> void:
 	_reset_game()
 
 func _reset_game() -> void:
-	is_rolling = false
-	is_cup_animating = false
+	phase = Phase.IDLE  # bricht auch laufende Wurf-Koroutinen ab (siehe _on_throw_button_pressed)
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
 	_clear_cup_interior_ghosts()
-	game_state = GameState.PLAYING
 	hand_note = ""
 	last_throw_was_reroll = false
 	run = GameRun.new_run()
@@ -1654,22 +1668,25 @@ func _start_new_hand() -> void:
 ## wurde (siehe _remaining_in_pool) - wer das Ziel früh erreicht und den Rest
 ## des Pools ungenutzt lässt, wird also fürs Nicht-Ausreizen belohnt. Die
 ## Auszahlung läuft erst als Tisch-Animation ab (siehe
-## _play_round_clear_payout), bevor der Shop aufgeht - game_state springt
-## dafür schon jetzt auf SHOP, damit während der Animation nichts anklickbar
+## _play_round_clear_payout), bevor der Shop aufgeht - die Phase springt dafür
+## schon jetzt auf PAYOUT, damit während der Animation nichts anklickbar
 ## bleibt, obwohl Grube und Rundenanzeige optisch noch stehen bleiben.
 func _on_round_complete() -> void:
 	take_button.disabled = true
 	select_all_button.disabled = true
 	if hand_total >= run.round_goal:
-		game_state = GameState.SHOP
+		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
 		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids)  # Glücksgroschen
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		await _play_round_clear_payout(blind, per_die)
+		if phase != Phase.PAYOUT:
+			return  # Spiel wurde während der Auszahlungs-Animation zurückgesetzt
+		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
 		charm_shop.open()
 	else:
-		game_state = GameState.GAME_OVER
+		phase = Phase.GAME_OVER
 		_show_game_over(hand_total)
 
 ## Lässt die beiden Tisch-Texte (siehe blind_payout_label3d/dice_payout_label3d)
@@ -1767,11 +1784,10 @@ func _flash_die_tint(display: DieFaceDisplay, original_tint: Color) -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_debug_win_round_pressed() -> void:
-	if game_state != GameState.PLAYING:
+	if not _is_playing():
 		return
-	is_rolling = false
 	hand_total = run.round_goal
-	_on_round_complete()
+	_on_round_complete()  # setzt die Phase - stoppt damit auch einen laufenden Wurf
 
 ## Steuert die Sichtbarkeit der Spiel-UI (Text + Würfel-Buttons) anhand des
 ## Spielzustands (false während Shop/GameOver) - kombiniert mit dem
@@ -1828,7 +1844,7 @@ func _on_die_engraved() -> void:
 ## Runde vorbereiten und ins Spiel zurückkehren.
 func _on_shop_closed() -> void:
 	run.advance_round()
-	game_state = GameState.PLAYING
+	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
 
