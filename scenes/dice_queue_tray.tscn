@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/dice_tray_view.gd" id="1_42muw"]
+[ext_resource type="Script" path="res://scripts/dice/dice_tray_view.gd" id="1_42muw"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_x54e5"]
 size = Vector3(2.2, 0.6, 12)

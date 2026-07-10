@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://c8shoppanel0001"]
 
-[ext_resource type="Script" uid="uid://s1fhqo1vjccy" path="res://scripts/shop_controller.gd" id="1_shopctrl"]
-[ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/rotatable_die_view.gd" id="2_dicepicker"]
+[ext_resource type="Script" uid="uid://s1fhqo1vjccy" path="res://scripts/ui/shop_controller.gd" id="1_shopctrl"]
+[ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/dice/rotatable_die_view.gd" id="2_dicepicker"]
 
 [node name="ShopPanel" type="Panel"]
 visible = false

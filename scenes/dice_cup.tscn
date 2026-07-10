@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://be61njol6udos"]
 
-[ext_resource type="Script" uid="uid://davr1dh7gjb2n" path="res://scripts/dice_cup.gd" id="1_cup"]
+[ext_resource type="Script" uid="uid://davr1dh7gjb2n" path="res://scripts/table/dice_cup.gd" id="1_cup"]
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_body"]
 top_radius = 1.9

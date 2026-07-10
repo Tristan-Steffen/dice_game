@@ -50,7 +50,7 @@ static func build() -> Node3D:
 
 	var faces := Node3D.new()
 	faces.name = "Faces"
-	faces.set_script(load("res://scripts/die_face_display.gd"))
+	faces.set_script(load("res://scripts/dice/die_face_display.gd"))
 	body.add_child(faces)
 
 	for axis: String in DiceController.AXIS_DIRECTIONS:

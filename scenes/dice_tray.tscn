@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/dice_tray.gd" id="1_trayscript"]
+[ext_resource type="Script" path="res://scripts/table/dice_tray.gd" id="1_trayscript"]
 
 [sub_resource type="BoxShape3D" id="Shape_PitClickZone"]
 size = Vector3(22, 10, 19)
