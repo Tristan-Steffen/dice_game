@@ -21,6 +21,7 @@ ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
 script = ExtResource("3_script")
 
 [node name="Room" parent="." unique_id=756922948 instance=ExtResource("6_room")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
@@ -40,19 +41,127 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -3.4, 20)
 
 [node name="BlindPayoutLabel3D" type="Label3D" parent="." unique_id=80467160]
 transform = Transform3D(0.013962303, 0.99977916, -0.015705837, 1.3731816e-09, 0.015707368, 0.9998766, 0.9999025, -0.013960581, 0.00021930967, -22.195, -3.899632, -0.8107245)
-modulate = Color(0.58, 0.52, 0.4, 1)
-outline_modulate = Color(0.05, 0.05, 0.05, 1)
+modulate = Color(0.96, 0.96, 0.93, 1)
 text = "5$ pro Blind"
 font_size = 90
 outline_size = 14
 
 [node name="DicePayoutLabel3D" type="Label3D" parent="." unique_id=80467161]
 transform = Transform3D(-4.371139e-08, 1, 4.371139e-08, 0, -4.371139e-08, 1, 1, 4.371139e-08, 1.9106855e-15, -23.325, -3.942277, 0)
-modulate = Color(0.58, 0.52, 0.4, 1)
-outline_modulate = Color(0.05, 0.05, 0.05, 1)
+modulate = Color(0.96, 0.96, 0.93, 1)
 text = "1$ pro Würfel übrig"
 font_size = 90
 outline_size = 14
+
+[node name="Combinations" type="Label3D" parent="." unique_id=1443500857]
+transform = Transform3D(-6.9938224e-08, 1.6, 6.9938224e-08, 0, -6.9938224e-08, 1.6, 1.6, 6.9938224e-08, 3.0570967e-15, 11.536203, -3.7829065, -26.109495)
+modulate = Color(0.96, 0.96, 0.93, 1)
+font_size = 90
+outline_size = 14
+
+[node name="six_kind" type="Label3D" parent="Combinations" unique_id=466432246]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -4.7683716e-07, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Sechserpasch  ×15"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="five_kind" type="Label3D" parent="Combinations" unique_id=9495057]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -1.1500001, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "5 of a Kind  ×10"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="large_straight" type="Label3D" parent="Combinations" unique_id=411345368]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -2.3000007, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Große Straße  ×8"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="four_kind_and_pair" type="Label3D" parent="Combinations" unique_id=592368218]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -3.45, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Viererpasch mit Paar  ×6"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="double_three_kind" type="Label3D" parent="Combinations" unique_id=1992806477]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -4.6000004, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Doppelter Dreierpasch  ×5"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="three_pairs" type="Label3D" parent="Combinations" unique_id=1236955472]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -5.75, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Drei Zweierpäsche  ×5"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="four_kind" type="Label3D" parent="Combinations" unique_id=169973240]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -6.9, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Viererpasch  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="full_house" type="Label3D" parent="Combinations" unique_id=2087469292]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -8.05, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Full House  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="small_straight" type="Label3D" parent="Combinations" unique_id=2076040635]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -9.2, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Kleine Straße  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="three_kind" type="Label3D" parent="Combinations" unique_id=2016251528]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -10.35, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Dreierpasch  ×3"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="two_pair" type="Label3D" parent="Combinations" unique_id=1699846036]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -11.5, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Zwei Paare  ×3"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="two_kind" type="Label3D" parent="Combinations" unique_id=1051314301]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -12.65, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Paar  ×2"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="one_kind" type="Label3D" parent="Combinations" unique_id=1409986892]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543907, -13.8, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Höchste Zahl  ×1"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
 transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)

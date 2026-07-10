@@ -62,7 +62,10 @@ const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rund
 const PAYOUT_FLASH_DURATION := 0.3
 const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
-const PAYOUT_LABEL_BASE_COLOR := Color(0.58, 0.52, 0.4)  # gedämpfte Messingfarbe, "unbeleuchtet"
+## Ruhefarbe der Tisch-Texte (Belohnungen UND Kombinationsliste): helles Weiß mit
+## schwarzem Umriss (siehe .tscn: outline_modulate). Beim Aufleuchten (Auszahlung
+## bzw. gerade gewürfelte Kombination) wechseln sie nach CasinoStyle.GOLD_INTENSE.
+const PAYOUT_LABEL_BASE_COLOR := Color(0.96, 0.96, 0.93)
 
 ## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
 ## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
@@ -132,6 +135,13 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 
 @onready var blind_payout_label3d: Label3D = $BlindPayoutLabel3D
 @onready var dice_payout_label3d: Label3D = $DicePayoutLabel3D
+## Anker der Tisch-Kombinationsliste (Position/Ausrichtung/Größe) - die 13
+## Zeilen-Labels sind feste Kinder in der Szene, je nach DiceScoring-Key benannt
+## (siehe _collect_combo_labels). Der Anker selbst rendert nichts (Text leer).
+@onready var combos_anchor: Label3D = $Combinations
+
+var combo_labels: Dictionary = {}  # DiceScoring-key -> Label3D (eine Zeile der Tischliste)
+var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination (siehe _refresh_combos)
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
@@ -235,6 +245,7 @@ func _ready() -> void:
 
 	_style_ui()
 	_populate_legend()
+	_collect_combo_labels()
 	_reset_game()
 
 ## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
@@ -283,6 +294,39 @@ func _populate_legend() -> void:
 		var mult: int = DiceScoring.mult_for(key)
 		lines.append("%s  ×%d" % [label, mult])
 	legend_content_label.text = "\n".join(lines)
+
+## Sammelt die fest in der Szene angelegten Kombinations-Labels (Kinder des
+## Combinations-Ankers, je nach DiceScoring-Key benannt) in combo_labels ein,
+## damit _refresh_combos genau die gewürfelte Hand aufleuchten lassen kann.
+## Die Labels selbst (Text, Größe, Umriss, Position) pflegt man in der Szene.
+func _collect_combo_labels() -> void:
+	for key in DiceScoring.HAND_PRIORITY:
+		var node: Node = combos_anchor.get_node_or_null(NodePath(key))
+		if node is Label3D:
+			combo_labels[key] = node
+		else:
+			push_warning("Kombinations-Label fehlt in der Szene: Combinations/%s" % key)
+
+## Hebt genau die Kombination der gerade gewürfelten Hand golden hervor (analog
+## zum Aufleuchten der Belohnungstexte), alle anderen bleiben im Ruhe-Weiß.
+## active_key == "" (noch nicht gewürfelt) = keine Hervorhebung.
+func _refresh_combos(active_key: String) -> void:
+	if active_key == highlighted_combo_key:
+		return
+	var previous := highlighted_combo_key
+	highlighted_combo_key = active_key
+	if previous != "" and combo_labels.has(previous):
+		_tween_combo_label(combo_labels[previous], PAYOUT_LABEL_BASE_COLOR, 1.0)
+	if active_key != "" and combo_labels.has(active_key):
+		_tween_combo_label(combo_labels[active_key], CasinoStyle.GOLD_INTENSE, 1.18)
+
+## Blendet eine Kombinationszeile weich in Farbe/Größe (Aufleuchten oder zurück
+## in die Ruhefarbe) - gleiche Dauer wie die Belohnungstexte (PAYOUT_FLASH_DURATION).
+func _tween_combo_label(label: Label3D, color: Color, target_scale: float) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "modulate", color, PAYOUT_FLASH_DURATION)
+	tween.tween_property(label, "scale", Vector3.ONE * target_scale, PAYOUT_FLASH_DURATION)
 
 ## Ids der aktuell besessenen Charms (siehe owned_charms) - Grundlage für
 ## jede Wertung dieses Runs (siehe DiceScoring.best_hand/is_strictly_better).
@@ -1450,12 +1494,14 @@ func _refresh_ui() -> void:
 
 	if not has_rolled_current_hand:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
+		_refresh_combos("")
 	else:
 		var hand := DiceScoring.best_hand(dice.values, _active_charm_ids(), hands_taken_this_round == 0)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
 		hand_label.text = "%s  →  %s ×%d  =  %d Punkte" % [" ".join(value_strings), hand["label"], hand["mult"], hand["score"]]
+		_refresh_combos(hand["key"])
 
 ## Aktualisiert die statischen Teile der Runden-Anzeige (Rundenzahl, Balken-
 ## Obergrenze) - der aktuell gezeigte Punktestand läuft separat und animiert
