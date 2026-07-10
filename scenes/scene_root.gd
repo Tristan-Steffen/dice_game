@@ -140,6 +140,12 @@ enum GameState { PLAYING, SHOP, GAME_OVER }
 @onready var legend_panel: Panel = $UI/LegendPanel
 @onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
 
+## Öffnet die Würfel-Sammlung (siehe _on_dice_list_toggle_pressed) - alle Würfel
+## des Pools, nach Augensumme sortiert, mit Mini-Vorschau + Seiten-Übersicht.
+@onready var dice_list_toggle_button: Button = $UI/DiceListToggleButton
+var dice_list_panel: Panel  # komplett per Code aufgebaut (siehe _build_dice_list_panel)
+var dice_list_rows: VBoxContainer  # Zeilencontainer; bei jedem Öffnen neu befüllt
+
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
@@ -253,11 +259,13 @@ func _ready() -> void:
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
+	dice_list_toggle_button.pressed.connect(_on_dice_list_toggle_pressed)
 	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
 
 	_style_ui()
 	_populate_legend()
 	_collect_combo_labels()
+	_build_dice_list_panel()
 	_reset_game()
 
 ## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
@@ -276,6 +284,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
 	CasinoStyle.style_button(legend_toggle_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
+	CasinoStyle.style_button(dice_list_toggle_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 16)
 	CasinoStyle.style_button(settings_toggle_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 16)
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
@@ -295,6 +304,184 @@ func _on_settings_toggle_pressed() -> void:
 ## Klappt die Kombinationen-Übersicht auf/zu (siehe LegendToggleButton).
 func _on_legend_toggle_pressed() -> void:
 	legend_panel.visible = not legend_panel.visible
+	if legend_panel.visible:
+		dice_list_panel.visible = false  # nicht beide rechten Panels gleichzeitig
+
+## Klappt die Würfel-Sammlung auf/zu (siehe DiceListToggleButton). Beim Öffnen
+## wird die Liste frisch aus owned_pool gebaut (bildet Käufe/Ätzungen ab); beim
+## Schließen werden die Zeilen samt ihrer Mini-Vorschau-Viewports wieder
+## freigegeben, damit im Hintergrund nichts weiterrendert.
+func _on_dice_list_toggle_pressed() -> void:
+	dice_list_panel.visible = not dice_list_panel.visible
+	if dice_list_panel.visible:
+		legend_panel.visible = false
+		_rebuild_dice_list()
+	else:
+		_clear_dice_list()
+
+## Gibt alle Zeilen der Würfel-Sammlung frei (siehe _on_dice_list_toggle_pressed).
+func _clear_dice_list() -> void:
+	for child in dice_list_rows.get_children():
+		child.queue_free()
+
+## Baut Rahmen der Würfel-Sammlung einmalig auf (Panel + Titel + scrollbare
+## Zeilenliste). Die Zeilen selbst füllt _rebuild_dice_list bei jedem Öffnen neu.
+func _build_dice_list_panel() -> void:
+	dice_list_panel = Panel.new()
+	dice_list_panel.visible = false
+	dice_list_panel.offset_left = 812.0
+	dice_list_panel.offset_top = 64.0
+	dice_list_panel.offset_right = 1256.0
+	dice_list_panel.offset_bottom = 726.0
+	CasinoStyle.style_panel(dice_list_panel)
+	$UI.add_child(dice_list_panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left = 16.0
+	vbox.offset_top = 14.0
+	vbox.offset_right = -16.0
+	vbox.offset_bottom = -14.0
+	vbox.add_theme_constant_override("separation", 10)
+	dice_list_panel.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "Würfel-Sammlung"
+	CasinoStyle.style_score_label(title, 22, CasinoStyle.GOLD)
+	vbox.add_child(title)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+
+	dice_list_rows = VBoxContainer.new()
+	dice_list_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dice_list_rows.add_theme_constant_override("separation", 8)
+	scroll.add_child(dice_list_rows)
+
+## Befüllt die Würfel-Sammlung neu: eine Zeile pro Pool-Würfel, absteigend nach
+## Augensumme (die "eyes-reichsten" oben). Alte Zeilen werden vorher freigegeben
+## (samt ihrer Mini-Vorschau-Viewports).
+func _rebuild_dice_list() -> void:
+	for child in dice_list_rows.get_children():
+		child.queue_free()
+	var sorted := owned_pool.duplicate()
+	sorted.sort_custom(func(a: DieDefinition, b: DieDefinition) -> bool: return _die_eye_total(a) > _die_eye_total(b))
+	for def in sorted:
+		dice_list_rows.add_child(_build_die_row(def))
+
+## Augensumme (Summe aller Seiten) eines Würfels - Sortier- und Anzeigewert.
+func _die_eye_total(def: DieDefinition) -> int:
+	var total := 0
+	for value in def.faces:
+		total += value
+	return total
+
+## Eine Zeile der Sammlung: Mini-3D-Vorschau des Würfels, seine Augensumme und
+## die Seiten-Übersicht (je vorkommender Wert ein Chip mit ×Anzahl, wie im
+## Würfel-Inspektor).
+func _build_die_row(def: DieDefinition) -> PanelContainer:
+	var row_panel := PanelContainer.new()
+	var row_box := StyleBoxFlat.new()
+	row_box.bg_color = Color(1, 1, 1, 0.05)
+	row_box.set_corner_radius_all(8)
+	row_box.set_content_margin_all(8)
+	row_panel.add_theme_stylebox_override("panel", row_box)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row_panel.add_child(row)
+
+	row.add_child(_build_die_thumb(def))
+
+	var total_label := Label.new()
+	total_label.text = "%d" % _die_eye_total(def)
+	total_label.custom_minimum_size = Vector2(52, 0)
+	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	total_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	CasinoStyle.style_score_label(total_label, 26, CasinoStyle.GOLD)
+	row.add_child(total_label)
+
+	var chips := HBoxContainer.new()
+	chips.add_theme_constant_override("separation", 6)
+	chips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var counts := {}
+	for value in def.faces:
+		counts[value] = counts.get(value, 0) + 1
+	var values := counts.keys()
+	values.sort()
+	for value in values:
+		chips.add_child(_build_collection_chip(value, counts[value]))
+	row.add_child(chips)
+	return row_panel
+
+## Kleiner Seiten-Chip für die Sammlung (weiß, abgerundet, dunkle Ziffer, im Look
+## der echten Würfel); count > 1 hängt ein "×N" an. Rein informativ (kein Klick).
+func _build_collection_chip(value: int, count: int) -> Control:
+	var chip := Label.new()
+	chip.text = "%d" % value if count == 1 else "%d ×%d" % [value, count]
+	chip.custom_minimum_size = Vector2(34, 34)
+	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	chip.add_theme_font_size_override("font_size", 18)
+	chip.add_theme_color_override("font_color", CasinoStyle.INK)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color.WHITE
+	box.border_color = Color(0.72, 0.76, 0.8)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(8)
+	box.set_content_margin_all(5)
+	chip.add_theme_stylebox_override("normal", box)
+	return chip
+
+## Kleine statische 3D-Vorschau eines Würfels für die Sammlung (eigener
+## SubViewport, rendert dank UPDATE_ONCE nur ein Bild und kostet danach nichts).
+## Baut denselben Würfel wie überall (DieBuilder) und stellt ihn schräg dar.
+func _build_die_thumb(def: DieDefinition) -> SubViewportContainer:
+	var container := SubViewportContainer.new()
+	container.custom_minimum_size = Vector2(DICE_THUMB_SIZE, DICE_THUMB_SIZE)
+	container.stretch = true
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var viewport := SubViewport.new()
+	viewport.own_world_3d = true
+	viewport.transparent_bg = true
+	viewport.size = Vector2i(DICE_THUMB_SIZE, DICE_THUMB_SIZE)
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	container.add_child(viewport)
+
+	var env := Environment.new()
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1, 1, 1)
+	env.ambient_light_energy = 0.9
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	viewport.add_child(world_env)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-50, 35, 0)
+	key_light.light_energy = 1.1
+	viewport.add_child(key_light)
+
+	var camera := Camera3D.new()
+	camera.fov = 30.0
+	# looking_at als reine Transform-Mathematik statt camera.look_at, das den
+	# Knoten schon im Baum bräuchte (hier wird der Würfel noch losgelöst gebaut).
+	camera.transform = Transform3D(Basis(), Vector3(0, 2.6, 5.4)).looking_at(Vector3.ZERO, Vector3.UP)
+	viewport.add_child(camera)
+
+	var die := DieBuilder.build()
+	viewport.add_child(die)
+	die.rotation_degrees = Vector3(-20, 30, 0)
+	var body: RigidBody3D = die.get_node("RigidBody3D")
+	body.freeze = true
+	body.collision_layer = 0
+	body.collision_mask = 0
+	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+	faces.apply_definition(def)
+	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	return container
 
 ## Baut den Text der Legende einmalig aus DiceScoring.CATEGORIES auf –
 ## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),

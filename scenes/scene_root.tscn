@@ -357,6 +357,13 @@ offset_right = 1256.0
 offset_bottom = 60.0
 text = "Kombinationen"
 
+[node name="DiceListToggleButton" type="Button" parent="UI" unique_id=1220268490]
+offset_left = 944.0
+offset_top = 20.0
+offset_right = 1088.0
+offset_bottom = 60.0
+text = "Würfel"
+
 [node name="LegendPanel" type="Panel" parent="UI" unique_id=1220268486]
 visible = false
 offset_left = 950.0
