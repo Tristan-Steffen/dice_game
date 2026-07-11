@@ -534,12 +534,14 @@ func _build_coupon_board() -> void:
 	var edges: Array[Coupon] = []
 	for archetype in Coupon.all():
 		match archetype.kind:
+			Coupon.KIND_ETCHING:
+				etchings.append(archetype)
 			Coupon.KIND_MATERIAL:
 				materials.append(archetype)
 			Coupon.KIND_EDGE:
 				edges.append(archetype)
 			_:
-				etchings.append(archetype)
+				pass  # Menü-Coupons (KIND_MEAL) wirken sofort und liegen nie im Bestand
 	_add_board_section("Ätzungen", _sorted_by_rarity(etchings), counts)
 	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
 	_add_board_section("Kanten", _sorted_by_rarity(edges), counts)

@@ -73,10 +73,14 @@ static func label_for(key: String) -> String:
 			return cat["label"]
 	return key
 
-static func mult_for(key: String) -> int:
+## Multiplikator einer Kategorie - optional mit Menü-Stufen (combo_levels:
+## key -> wie oft das zugehörige Gericht gegessen wurde, siehe GameRun/
+## Coupon.KIND_MEAL): jede Stufe addiert den Basis-Multiplikator erneut
+## (Paar ×2 -> ×4 -> ×6, ...), analog zu Balatros Planetenkarten.
+static func mult_for(key: String, combo_levels: Dictionary = {}) -> int:
 	for cat in CATEGORIES:
 		if cat["key"] == key:
-			return cat["mult"]
+			return cat["mult"] * (1 + int(combo_levels.get(key, 0)))
 	return 1
 
 static func qualifies(key: String, dice: Array[int]) -> bool:
@@ -122,11 +126,14 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ## Wertungs-Boni der Materialien ein (siehe MaterialEffects) - nur für Würfel,
 ## die zur Kombination gehören (siehe participating_indices). Beide leer =
 ## keine Materialien (Verhalten wie zuvor).
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = []) -> int:
+##
+## combo_levels (optional): Menü-Stufen der Kombinationen (siehe mult_for) -
+## leer = alles Grundstufe.
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> int:
 	if not qualifies(key, dice):
 		return 0
 	var base := _base_value(key, dice, charm_ids)
-	var mult := mult_for(key) + CharmEffects.mult_bonus(key, charm_ids)
+	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
 		var participating := participating_indices(key, dice)
 		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
@@ -160,22 +167,22 @@ static func _base_value(key: String, dice: Array[int], charm_ids: Array[String])
 ## nicht einfach die mit dem höchsten Punktwert. charm_ids/materials siehe
 ## score_category (das "mult"-Feld enthält auch die Material-Mult-Boni, damit
 ## die Anzeige zur tatsächlichen Rechnung passt).
-static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = []) -> Dictionary:
+static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> Dictionary:
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
 				"key": key,
 				"label": label_for(key),
-				"mult": _display_mult(key, dice, charm_ids, materials, edge_materials),
-				"score": score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials),
+				"mult": _display_mult(key, dice, charm_ids, materials, edge_materials, combo_levels),
+				"score": score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels),
 			}
-	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _display_mult(ONE_KIND, dice, charm_ids, materials, edge_materials), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials)}
+	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _display_mult(ONE_KIND, dice, charm_ids, materials, edge_materials, combo_levels), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels)}
 
-## Der in best_hand angezeigte Multiplikator: Kategorie-Mult + Charm-Boni +
-## Material-Mult-Boni der beteiligten Würfel (Seiten und Kanten) - identisch
-## zur Rechnung in score_category.
-static func _display_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String] = []) -> int:
-	var mult := mult_for(key) + CharmEffects.mult_bonus(key, charm_ids)
+## Der in best_hand angezeigte Multiplikator: Kategorie-Mult (inkl. Menü-Stufen)
+## + Charm-Boni + Material-Mult-Boni der beteiligten Würfel (Seiten und Kanten)
+## - identisch zur Rechnung in score_category.
+static func _display_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> int:
+	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
 		mult += MaterialEffects.mult_bonus(dice, materials, participating_indices(key, dice), edge_materials)
 	return mult
@@ -236,9 +243,9 @@ static func participating_indices(key: String, dice: Array[int]) -> Array[int]:
 ## ein Neu-Würfeln, das NICHT mehr Punkte bringt (gleich viele oder weniger),
 ## gilt als Farkle - unabhängig davon, welche Hand-Kategorie jeweils vorliegt.
 ## Materialien zählen auf beiden Seiten mit (jeweils die damals oben liegenden).
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = []) -> bool:
-	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials)["score"]
-	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials)["score"]
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> bool:
+	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels)["score"]
+	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels)["score"]
 	return new_score > old_score
 
 static func _counts(dice: Array[int]) -> Dictionary:

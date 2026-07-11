@@ -2,9 +2,10 @@ extends GutTest
 ## Tier-1-Tests des Coupon-Datensatzes (die Bogen-Auswürfelung testet
 ## CouponSheet, siehe scripts/coupon_sheet.gd).
 
-func test_all_returns_etchings_plus_material_and_edge_coupons():
-	# 13 Ätzungen + 6 Material-Coupons + 6 Kanten-Coupons (siehe DieMaterial.all).
-	assert_eq(Coupon.all().size(), 25)
+func test_all_returns_etchings_materials_edges_and_meals():
+	# 13 Ätzungen + 6 Material-Coupons + 6 Kanten-Coupons + 13 Menü-Coupons
+	# (siehe DieMaterial.all / DiceScoring.CATEGORIES).
+	assert_eq(Coupon.all().size(), 38)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -17,7 +18,7 @@ func test_every_coupon_has_filled_metadata():
 		assert_ne(coupon.id, "", "id fehlt")
 		assert_ne(coupon.display_name, "", "display_name fehlt bei %s" % coupon.id)
 		assert_ne(coupon.description, "", "description fehlt bei %s" % coupon.id)
-		assert_true(coupon.kind in [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE],
+		assert_true(coupon.kind in [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE, Coupon.KIND_MEAL],
 			"bekannter kind bei %s" % coupon.id)
 
 func test_material_coupons_use_the_material_id():
@@ -79,6 +80,35 @@ func test_edge_coupons_are_rarer_than_their_face_variant():
 		var face_rarity: int = Coupon.MATERIAL_RARITY.get(material.id, Coupon.Rarity.UNCOMMON)
 		var edge_rarity: int = Coupon.EDGE_RARITY.get(material.id, Coupon.Rarity.RARE)
 		assert_true(edge_rarity >= face_rarity, "%s-Kanten mindestens so selten wie die Seite" % material.id)
+
+func test_meal_coupons_cover_every_combination():
+	# Je Kombination genau ein Gericht (siehe MEAL_NAMES); id = MEAL_PREFIX + Key,
+	# meal_combo_key() löst zurück auf, Fläche und Motiv-Textur sind registriert.
+	var seen := {}
+	for coupon in Coupon.all():
+		if coupon.kind != Coupon.KIND_MEAL:
+			continue
+		var key := coupon.meal_combo_key()
+		assert_true(DiceScoring.HAND_PRIORITY.has(key), "%s zielt auf eine echte Kombination" % coupon.id)
+		assert_false(seen.has(key), "doppeltes Gericht für %s" % key)
+		assert_true(Coupon.FOOTPRINT.has(coupon.id), "Fläche definiert für %s" % coupon.id)
+		assert_true(ResourceLoader.exists(coupon.texture_path), "Motiv fehlt: %s" % coupon.texture_path)
+		seen[key] = true
+	assert_eq(seen.size(), DiceScoring.CATEGORIES.size(), "je Kombination genau ein Gericht")
+
+func test_meal_coupon_names_match_the_menu():
+	assert_eq(Coupon.meal_coupon(DiceScoring.ONE_KIND).display_name, "Tagessuppe")
+	assert_eq(Coupon.meal_coupon(DiceScoring.THREE_KIND).display_name, "Drei im Weggla")
+	assert_eq(Coupon.meal_coupon(DiceScoring.SIX_KIND).display_name, "Spezialität des Hauses")
+
+func test_meal_combo_key_is_empty_for_other_kinds():
+	assert_eq(Coupon.chisel().meal_combo_key(), "")
+	assert_eq(Coupon.material_coupon(DieMaterial.gold(), Coupon.Rarity.COMMON).meal_combo_key(), "")
+
+func test_meal_rarity_follows_combo_strength():
+	assert_eq(Coupon.meal_coupon(DiceScoring.ONE_KIND).rarity, Coupon.Rarity.COMMON)
+	assert_eq(Coupon.meal_coupon(DiceScoring.FULL_HOUSE).rarity, Coupon.Rarity.UNCOMMON)
+	assert_eq(Coupon.meal_coupon(DiceScoring.SIX_KIND).rarity, Coupon.Rarity.RARE)
 
 func test_rarity_name_is_german():
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.COMMON), "häufig")

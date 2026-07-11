@@ -197,6 +197,12 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
 @onready var charm_row: CharmRowView = $Charms
 
+# Hover-Tooltip der Charm-Ansicht (siehe _build_charm_tooltip /
+# _update_charm_tooltip): folgt dem Cursor, zeigt Name + Wirkung des Charms.
+var charm_tooltip: PanelContainer
+var charm_tooltip_title: Label
+var charm_tooltip_body: Label
+
 var dice: DiceController
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
@@ -299,6 +305,7 @@ func _ready() -> void:
 	_collect_combo_labels()
 	_build_dice_list_panel()
 	_build_sheet_preview()
+	_build_charm_tooltip()
 	_reset_game()
 
 ## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
@@ -629,6 +636,22 @@ func _collect_combo_labels() -> void:
 	# .tscn-Werte sind das alte, stumpfe Weiß).
 	blind_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
 	dice_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
+
+## Ein Gericht wurde gegessen (siehe GameRun.eat_meal): die Tischliste zeigt
+## den neuen Multiplikator der Kombination und blitzt die Zeile kurz golden auf.
+func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
+	_refresh_combo_label_texts()
+	if combo_labels.has(combo_key) and combo_key != highlighted_combo_key:
+		var label: Label3D = combo_labels[combo_key]
+		var flash := create_tween()
+		flash.tween_method(func(c: Color) -> void: label.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
+
+## Schreibt die Texte der Tisch-Kombinationsliste neu: "Label  ×Mult", wobei
+## der Multiplikator die Menü-Stufen einrechnet (siehe DiceScoring.mult_for /
+## GameRun.combo_levels) - die festen Szenen-Texte gelten nur als Platzhalter.
+func _refresh_combo_label_texts() -> void:
+	for key in combo_labels:
+		combo_labels[key].text = "%s  ×%d" % [DiceScoring.label_for(key), DiceScoring.mult_for(key, run.combo_levels)]
 
 ## Hebt genau die Kombination der gerade gewürfelten Hand golden hervor (analog
 ## zum Aufleuchten der Belohnungstexte), alle anderen bleiben im Ruhe-Weiß.
@@ -999,6 +1022,57 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.POOL)
 	elif collider == discard_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
+
+## Baut den (zunächst verdeckten) Hover-Tooltip der Charms: Name in Gold,
+## darunter die Wirkung. Folgt in _update_charm_tooltip dem Cursor.
+func _build_charm_tooltip() -> void:
+	charm_tooltip = PanelContainer.new()
+	charm_tooltip.visible = false
+	charm_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_panel(charm_tooltip)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	charm_tooltip.add_child(box)
+	charm_tooltip_title = Label.new()
+	charm_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_score_label(charm_tooltip_title, 20, CasinoStyle.GOLD)
+	box.add_child(charm_tooltip_title)
+	charm_tooltip_body = Label.new()
+	charm_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	charm_tooltip_body.custom_minimum_size = Vector2(280, 0)
+	charm_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_body_label(charm_tooltip_body, 15, CasinoStyle.CREAM)
+	box.add_child(charm_tooltip_body)
+	$UI.add_child(charm_tooltip)
+
+func _process(_delta: float) -> void:
+	_update_charm_tooltip()
+
+## Hover-Tooltip der Charms: aktiv in der Grubenansicht (dort liegen die
+## Charms sichtbar am oberen Bildrand), nicht während der Kamerafahrt. Zeigt
+## Name + Wirkung des Charms unter dem Cursor (siehe
+## CharmRowView.charm_at_screen_pos) und folgt der Maus, am Bildrand eingeklemmt.
+func _update_charm_tooltip() -> void:
+	if charm_tooltip == null:
+		return
+	if camera_rig.mode != CameraRig.Mode.PIT or camera_rig.is_animating:
+		charm_tooltip.visible = false
+		return
+	var mouse := get_viewport().get_mouse_position()
+	var charm := charm_row.charm_at_screen_pos(camera_rig, mouse)
+	if charm == null:
+		charm_tooltip.visible = false
+		return
+	charm_tooltip_title.text = charm.display_name
+	charm_tooltip_body.text = charm.description
+	charm_tooltip.visible = true
+	charm_tooltip.reset_size()
+	var viewport_size := get_viewport().get_visible_rect().size
+	var pos := mouse + Vector2(18, 18)
+	pos.x = minf(pos.x, viewport_size.x - charm_tooltip.size.x - 8.0)
+	pos.y = minf(pos.y, viewport_size.y - charm_tooltip.size.y - 8.0)
+	charm_tooltip.position = pos
 
 ## Klick auf den Würfelbecher (eigene Kollisions-Ebene, siehe DiceCup.CLICK_LAYER)
 ## löst denselben Wurf wie der Würfeln-/Neu-würfeln-Button aus - nur während
@@ -1396,7 +1470,7 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels):
 		_on_farkle()
 		return
 
@@ -1446,7 +1520,7 @@ func _on_farkle() -> void:
 	# Höchststand).
 	var kept := CharmEffects.farkle_kept_fraction(ids)
 	if kept > 0.0:
-		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials)["score"]
+		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials, run.combo_levels)["score"]
 		var salvage := int(floor(peak * kept))
 		if salvage > 0:
 			hand_total += salvage
@@ -1482,7 +1556,7 @@ func _on_take_button_pressed() -> void:
 	# auswerten.
 	var materials := _rolled_materials()
 	var edge_materials := _edge_materials()
-	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials, edge_materials)
+	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials, edge_materials, run.combo_levels)
 	hand_total += hand["score"]
 	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
@@ -1563,9 +1637,11 @@ func _connect_run() -> void:
 	run.charms_changed.connect(_on_charms_changed)
 	run.coupons_changed.connect(_refresh_coupons_label)
 	run.sheet_purchased.connect(_show_sheet_reveal)
+	run.combo_upgraded.connect(_on_combo_upgraded)
 	_on_money_changed(run.money)
 	_on_charms_changed()
 	_refresh_coupons_label()
+	_refresh_combo_label_texts()
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
@@ -1812,7 +1888,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
 	else:
-		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials())
+		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials(), run.combo_levels)
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))

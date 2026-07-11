@@ -19,6 +19,34 @@ func _ids(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
+# --- Menü-Stufen (Meal Deals, siehe Coupon.KIND_MEAL / GameRun.eat_meal) --------
+
+func test_mult_for_scales_with_meal_levels():
+	# Jede Stufe addiert den Basis-Multiplikator erneut: Paar ×2 -> ×4 -> ×6.
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 4)
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 2}), 6)
+
+func test_score_category_uses_combo_levels():
+	# Paar Fünfer: Basis 10 × Mult 2 = 20; eine Stufe -> × 4 = 40.
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats: Array[String] = []
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice), 20)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 1}), 40)
+
+func test_best_hand_reports_upgraded_mult():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats: Array[String] = []
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 1})
+	assert_eq(hand["mult"], 4, "angezeigter Mult = aufgewerteter Mult")
+	assert_eq(hand["score"], 40)
+
+func test_levels_of_other_combos_do_not_leak():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats: Array[String] = []
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.SIX_KIND: 3})
+	assert_eq(hand["score"], 20, "Stufe auf Sechserpasch ändert das Paar nicht")
+
 # --- Kategorie-Erkennung: best_hand wählt die richtige Kombination ------------
 
 func test_detects_six_of_a_kind():

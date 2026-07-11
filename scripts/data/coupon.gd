@@ -16,14 +16,19 @@ enum Rarity { COMMON, UNCOMMON, RARE }
 # EtchingEffects), Materialien belegen genau eine Seite mit einer Veredelung
 # (siehe DieMaterial/MaterialEffects; die Coupon-id IST die Material-id),
 # Kanten-Materialien veredeln den GANZEN Würfel (siehe
-# DieDefinition.edge_material; Coupon-id = EDGE_PREFIX + Material-id).
+# DieDefinition.edge_material; Coupon-id = EDGE_PREFIX + Material-id),
+# Menü-Gerichte werten dauerhaft eine Kombination auf (siehe GameRun.eat_meal /
+# DiceScoring.mult_for; Coupon-id = MEAL_PREFIX + DiceScoring-Kategorie-Key).
 const KIND_ETCHING := "etching"
 const KIND_MATERIAL := "material"
 const KIND_EDGE := "edge"
+const KIND_MEAL := "meal"
 
 ## Präfix der Kanten-Coupon-ids vor der Material-id ("edge_gold", ...) - damit
 ## kollidieren sie nie mit den Seiten-Material-Coupons (id = Material-id).
 const EDGE_PREFIX := "edge_"
+## Präfix der Menü-Coupon-ids vor dem Kombinations-Key ("meal_two_kind", ...).
+const MEAL_PREFIX := "meal_"
 
 # --- Coupon-ids (Single Source of Truth; genutzt in coupon.gd + EtchingEffects) ---
 const CHISEL := "chisel"
@@ -78,6 +83,57 @@ const FOOTPRINT := {
 	EDGE_PREFIX + DieMaterial.BONE: Vector2i(3, 2),
 	EDGE_PREFIX + DieMaterial.RUBY: Vector2i(3, 2),
 	EDGE_PREFIX + DieMaterial.MERCURY: Vector2i(3, 3),
+	# Menü-Coupons (Kombinations-Aufwertung, siehe KIND_MEAL): je stärker die
+	# Kombination, desto größer das Gericht (Fläche = Rarität, wie überall).
+	MEAL_PREFIX + DiceScoring.ONE_KIND: Vector2i(1, 1),
+	MEAL_PREFIX + DiceScoring.TWO_KIND: Vector2i(1, 1),
+	MEAL_PREFIX + DiceScoring.TWO_PAIR: Vector2i(2, 1),
+	MEAL_PREFIX + DiceScoring.THREE_KIND: Vector2i(2, 1),
+	MEAL_PREFIX + DiceScoring.SMALL_STRAIGHT: Vector2i(2, 2),
+	MEAL_PREFIX + DiceScoring.FOUR_KIND: Vector2i(2, 2),
+	MEAL_PREFIX + DiceScoring.FULL_HOUSE: Vector2i(2, 2),
+	MEAL_PREFIX + DiceScoring.THREE_PAIRS: Vector2i(2, 2),
+	MEAL_PREFIX + DiceScoring.DOUBLE_THREE_KIND: Vector2i(3, 2),
+	MEAL_PREFIX + DiceScoring.FOUR_KIND_AND_PAIR: Vector2i(3, 2),
+	MEAL_PREFIX + DiceScoring.LARGE_STRAIGHT: Vector2i(3, 2),
+	MEAL_PREFIX + DiceScoring.FIVE_KIND: Vector2i(3, 3),
+	MEAL_PREFIX + DiceScoring.SIX_KIND: Vector2i(3, 3),
+}
+
+## Gericht je Kombination (siehe Obsidian "Meal Deals"): der Anzeigename des
+## Menü-Coupons. Reihenfolge/Vollständigkeit = DiceScoring.CATEGORIES.
+const MEAL_NAMES := {
+	DiceScoring.ONE_KIND: "Tagessuppe",
+	DiceScoring.TWO_KIND: "Zwei Spiegeleier",
+	DiceScoring.TWO_PAIR: "Doppelter Espresso",
+	DiceScoring.THREE_KIND: "Drei im Weggla",
+	DiceScoring.SMALL_STRAIGHT: "Kleine Street-Food-Platte",
+	DiceScoring.FOUR_KIND: "Vier-Käse-Pizza",
+	DiceScoring.FULL_HOUSE: "Full-House-Burger",
+	DiceScoring.THREE_PAIRS: "Tapas-Trio",
+	DiceScoring.DOUBLE_THREE_KIND: "Doppeltes Tagesmenü",
+	DiceScoring.FOUR_KIND_AND_PAIR: "Vier-Käse-Pizza mit Beilage",
+	DiceScoring.LARGE_STRAIGHT: "Große Street-Food-Platte",
+	DiceScoring.FIVE_KIND: "Fünf-Gänge-Menü",
+	DiceScoring.SIX_KIND: "Spezialität des Hauses",
+}
+
+## Seltenheit je Menü-Coupon: folgt der Stärke der Kombination (schwache
+## Kombinationen häufig, die Spitzenhände selten).
+const MEAL_RARITY := {
+	DiceScoring.ONE_KIND: Rarity.COMMON,
+	DiceScoring.TWO_KIND: Rarity.COMMON,
+	DiceScoring.TWO_PAIR: Rarity.COMMON,
+	DiceScoring.THREE_KIND: Rarity.COMMON,
+	DiceScoring.SMALL_STRAIGHT: Rarity.UNCOMMON,
+	DiceScoring.FOUR_KIND: Rarity.UNCOMMON,
+	DiceScoring.FULL_HOUSE: Rarity.UNCOMMON,
+	DiceScoring.THREE_PAIRS: Rarity.UNCOMMON,
+	DiceScoring.DOUBLE_THREE_KIND: Rarity.RARE,
+	DiceScoring.FOUR_KIND_AND_PAIR: Rarity.RARE,
+	DiceScoring.LARGE_STRAIGHT: Rarity.RARE,
+	DiceScoring.FIVE_KIND: Rarity.RARE,
+	DiceScoring.SIX_KIND: Rarity.RARE,
 }
 
 @export var id: String = ""
@@ -172,6 +228,17 @@ static func material_coupon(material: DieMaterial, rarity: Rarity) -> Coupon:
 static func edge_coupon(material: DieMaterial, rarity: Rarity) -> Coupon:
 	return _make(EDGE_PREFIX + material.id, "%s-Kanten" % material.display_name, material.edge_description, rarity, KIND_EDGE)
 
+## Menü-Coupon ("Meal Deal", wie Balatros Planetenkarten) zu einer Kombination
+## (combo_key = DiceScoring-Kategorie-Key): wird er vom Bogen gelöst, ist das
+## Gericht sofort gegessen und wertet die Kombination DAUERHAFT um ihren
+## Basis-Multiplikator auf (siehe GameRun.grant_coupon/eat_meal,
+## DiceScoring.mult_for) - er landet nie im Coupon-Inventar.
+static func meal_coupon(combo_key: String) -> Coupon:
+	var description := "Wertet %s dauerhaft auf: +%d auf den Multiplikator." % [
+		DiceScoring.label_for(combo_key), DiceScoring.mult_for(combo_key)]
+	return _make(MEAL_PREFIX + combo_key, MEAL_NAMES.get(combo_key, combo_key),
+		description, MEAL_RARITY.get(combo_key, Rarity.UNCOMMON), KIND_MEAL)
+
 ## Seltenheit je Material-Coupon: Gold/Bernstein häufig (kleine, stetige
 ## Effekte), Glas/Knochen/Rubin ungewöhnlich, Quecksilber (Doppel-Zählung) selten.
 const MATERIAL_RARITY := {
@@ -196,7 +263,8 @@ const EDGE_RARITY := {
 
 ## Alle existierenden Coupon-Archetypen (kanonische Registrierung) - Grundlage
 ## für die Bogen-Auswürfelung. Ein neuer Coupon wird hier eingehängt; die
-## Material- und Kanten-Coupons kommen automatisch aus DieMaterial.all().
+## Material- und Kanten-Coupons kommen automatisch aus DieMaterial.all(), die
+## Menü-Coupons aus DiceScoring.CATEGORIES.
 static func all() -> Array[Coupon]:
 	var result: Array[Coupon] = [
 		chisel(), transplant(), grindstone(), fine_engraving(), overcount_engraving(),
@@ -206,6 +274,8 @@ static func all() -> Array[Coupon]:
 		result.append(material_coupon(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
 	for material in DieMaterial.all():
 		result.append(edge_coupon(material, EDGE_RARITY.get(material.id, Rarity.RARE)))
+	for cat in DiceScoring.CATEGORIES:
+		result.append(meal_coupon(cat["key"]))
 	return result
 
 ## True, wenn coupon_id einen Kanten-Coupon bezeichnet (EDGE_PREFIX + gültige
@@ -223,6 +293,11 @@ func material_id() -> String:
 		KIND_EDGE:
 			return id.trim_prefix(EDGE_PREFIX)
 	return ""
+
+## Der DiceScoring-Kategorie-Key hinter einem Menü-Coupon ("" bei allen
+## anderen kinds) - Ziel der Aufwertung (siehe GameRun.grant_coupon).
+func meal_combo_key() -> String:
+	return id.trim_prefix(MEAL_PREFIX) if kind == KIND_MEAL else ""
 
 ## Anzeigename der Seltenheit (deutsch).
 static func rarity_name(value: Rarity) -> String:

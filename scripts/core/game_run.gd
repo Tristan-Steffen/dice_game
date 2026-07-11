@@ -19,6 +19,9 @@ signal money_changed(money: int)
 signal charms_changed
 ## Coupon-Bestand hat sich geändert (Gutschrift oder Verbrauch) - HUD hört zu.
 signal coupons_changed
+## Ein Gericht wurde gegessen (siehe eat_meal): die Kombination combo_key steht
+## jetzt auf new_level - die Tischliste zeichnet ihren Multiplikator neu.
+signal combo_upgraded(combo_key: String, new_level: int)
 ## Ein Coupon-Bogen wurde gekauft - scene_root zeigt ihn als Enthüllung. Die
 ## Gutschrift der Kacheln folgt erst in der Abschluss-Animation (siehe
 ## grant_coupon/add_money, gerufen aus _play_sheet_finish_animation).
@@ -44,6 +47,10 @@ var round_goal: int = BASE_GOAL
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []  # wirken auf jede Wertung dieses Runs (siehe charm_ids)
 var owned_coupons: Array[Coupon] = []  # gehortete Ätzungs-Coupons, unbegrenzt (siehe grant_coupon)
+## Menü-Stufen der Kombinationen (DiceScoring-Key -> gegessene Gerichte, siehe
+## eat_meal): jede Stufe addiert den Basis-Multiplikator der Kombination erneut
+## (siehe DiceScoring.mult_for) - Balatros Planetenkarten als Tagesmenü.
+var combo_levels: Dictionary = {}
 
 ## Ein frischer Run: leere Taschen, Runde 1, Pool voller Standardwürfel.
 static func new_run() -> GameRun:
@@ -113,8 +120,20 @@ func buy_coupon_sheet(kind: int, price: int) -> CouponSheet:
 ## Legt einen Coupon ins Inventar (z.B. eine Ätzung, die vom gekauften Bogen
 ## "abgerissen" wurde) - meldet coupons_changed.
 func grant_coupon(coupon: Coupon) -> void:
+	# Menü-Coupons werden nicht gehortet: das Gericht ist sofort gegessen und
+	# wertet seine Kombination dauerhaft auf (siehe eat_meal/combo_levels).
+	if coupon.kind == Coupon.KIND_MEAL:
+		eat_meal(coupon.meal_combo_key())
+		return
 	owned_coupons.append(coupon)
 	coupons_changed.emit()
+
+## Isst ein Gericht (siehe Coupon.KIND_MEAL): hebt die Menü-Stufe der
+## Kombination um 1 - ihr Multiplikator wächst damit dauerhaft um seinen
+## Basiswert (siehe DiceScoring.mult_for). Unbegrenzt stapelbar.
+func eat_meal(combo_key: String) -> void:
+	combo_levels[combo_key] = int(combo_levels.get(combo_key, 0)) + 1
+	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Verbraucht genau einen Coupon der gegebenen id (siehe Coupon-Konstanten) -
 ## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung

@@ -130,6 +130,34 @@ func test_buy_coupon_sheet_does_not_grant_coupons_immediately():
 	run.buy_coupon_sheet(CouponSheet.Kind.LARGE, 16)
 	assert_eq(run.owned_coupons.size(), 0)
 
+# --- Menü-Stufen (Meal Deals) ------------------------------------------------------
+
+func test_eat_meal_raises_the_combo_level():
+	run.eat_meal(DiceScoring.TWO_KIND)
+	run.eat_meal(DiceScoring.TWO_KIND)
+	run.eat_meal(DiceScoring.SIX_KIND)
+	assert_eq(run.combo_levels[DiceScoring.TWO_KIND], 2)
+	assert_eq(run.combo_levels[DiceScoring.SIX_KIND], 1)
+
+func test_eat_meal_emits_combo_upgraded():
+	watch_signals(run)
+	run.eat_meal(DiceScoring.FULL_HOUSE)
+	assert_signal_emitted_with_parameters(run, "combo_upgraded", [DiceScoring.FULL_HOUSE, 1])
+
+func test_granting_a_meal_coupon_eats_it_immediately():
+	# Menü-Coupons landen NIE im Inventar - das Gericht wirkt sofort als Stufe.
+	run.grant_coupon(Coupon.meal_coupon(DiceScoring.THREE_KIND))
+	assert_eq(run.owned_coupons.size(), 0, "kein Inventar-Eintrag")
+	assert_eq(run.combo_levels[DiceScoring.THREE_KIND], 1, "Stufe sofort erhöht")
+
+func test_granting_other_coupons_still_stores_them():
+	run.grant_coupon(Coupon.chisel())
+	assert_eq(run.owned_coupons.size(), 1)
+	assert_false(run.combo_levels.has(Coupon.CHISEL))
+
+func test_new_run_starts_without_levels():
+	assert_true(GameRun.new_run().combo_levels.is_empty())
+
 # --- Rundenfortschritt -----------------------------------------------------------
 
 func test_advance_round_increments_number_and_goal():

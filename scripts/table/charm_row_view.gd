@@ -9,9 +9,9 @@ extends Node3D
 ## = Reihenfolge der übergebenen Charms (Index 0 = erster Platz). Jeder Charm
 ## liegt flach, zur Grubenmitte (Ursprung des Elternknotens) gedreht.
 ##
-## Rein anzeigend: set_charms() baut die Modelle bei jeder Änderung neu auf.
-## Künftige Charm-Interaktion (Umsortieren per Ziehen, Zoom-Ziel) findet hier
-## ihren Platz, statt scene_root weiter zu füllen.
+## set_charms() baut die Modelle bei jeder Änderung neu auf. Zusätzlich löst
+## der Knoten den Hover für die Charm-Tooltips der Grubenansicht auf
+## (charm_at_screen_pos, siehe scene_root._update_charm_tooltip).
 
 const SPOT_ANGLES_DEG: Array[float] = [-62.5, -37.5, -12.5, 12.5, 37.5, 62.5]
 const SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum, entlang des hinteren Tischrands
@@ -22,7 +22,13 @@ const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"  # Platzhalter f�
 ## Anzahl fester Plätze - zugleich die Obergrenze besitzbarer Charms.
 const SPOT_COUNT := 6
 
+## Bildschirm-Toleranz der Hover-Erkennung um die projizierte Charm-Mitte
+## (siehe charm_at_screen_pos) - in der Grubenansicht liegen die Charms am
+## oberen Bildrand und recht klein, daher großzügig gewählt.
+const PICK_RADIUS_PX := 70.0
+
 var charm_nodes: Array[Node3D] = []  # aktuell platzierte Modelle, eins je Charm
+var current_charms: Array[Charm] = []  # parallel zu charm_nodes (für Tooltips)
 
 ## Baut die Charm-Modelle neu auf: je Charm ein Modell auf dem nächsten festen
 ## Platz, in der Reihenfolge von charms (Index 0 = erster Platz). Freie Plätze
@@ -32,11 +38,30 @@ func set_charms(charms: Array[Charm]) -> void:
 	for node in charm_nodes:
 		node.queue_free()
 	charm_nodes.clear()
+	current_charms = []
 	for i in mini(charms.size(), SPOT_COUNT):
 		var model := _load_model(charms[i])
 		add_child(model)
 		model.transform = _spot_transform(i)
 		charm_nodes.append(model)
+		current_charms.append(charms[i])
+
+## Der Charm, dessen Modell auf dem Bildschirm am nächsten an screen_pos liegt
+## (innerhalb PICK_RADIUS_PX), oder null. Reine Projektions-Nähe statt
+## Physik-Raycast - die GLB-Modelle bringen keine (verlässlichen) Kollider mit.
+## Grundlage der Hover-Tooltips in der Grubenansicht (siehe scene_root).
+func charm_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> Charm:
+	var best: Charm = null
+	var best_dist := PICK_RADIUS_PX
+	for i in charm_nodes.size():
+		var world_pos := charm_nodes[i].global_position
+		if camera.is_position_behind(world_pos):
+			continue
+		var dist := camera.unproject_position(world_pos).distance_to(screen_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best = current_charms[i]
+	return best
 
 ## Instanziert das 3D-Modell eines Charms (Charm.model_path), oder ersatzweise
 ## das Platzhaltermodell (MODEL_FALLBACK), solange der Charm noch kein eigenes hat.
