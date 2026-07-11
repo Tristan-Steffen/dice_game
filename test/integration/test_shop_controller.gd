@@ -75,6 +75,16 @@ func test_con_artist_cuff_discounts_offer_price():
 	shop._on_offer_pressed(0)
 	assert_eq(run.money, 100 - int(round(offer.price * 0.8)), "20% Rabatt auf den Angebotspreis")
 
+func test_offer_price_is_raw_price_without_discount():
+	var offer = shop.dice_offers[0]
+	assert_eq(shop._offer_price(offer), offer.price, "ohne Rabatt-Charm der volle Preis")
+
+func test_offer_buttons_disabled_by_price():
+	run.money = 5  # unter jedem Angebotspreis (≥ $15)
+	shop.open()
+	for button in shop.offer_buy_buttons:
+		assert_true(button.disabled, "Würfel-Angebot bei zu wenig Geld nicht kaufbar")
+
 # --- Charmkauf ----------------------------------------------------------------
 
 func test_buy_charm_grants_and_deducts():
@@ -133,6 +143,23 @@ func test_sheet_buttons_disabled_by_price():
 	assert_true(shop.sheet_buttons[1].disabled, "Bogen zu teuer")
 	assert_true(shop.sheet_buttons[2].disabled, "Großbogen zu teuer")
 
+# --- Kaufbarkeit bei Geldänderung (Chip-Coupons o.ä.) --------------------------
+# Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
+# ist (z.B. durch die Chip-Coupons der Bogen-Abschluss-Animation), werden zuvor
+# gesperrte Käufe SOFORT wieder freigeschaltet - ohne dass der Shop neu öffnet.
+
+func test_money_gain_re_enables_offer_buttons():
+	run.money = 5
+	assert_true(shop.offer_buy_buttons[0].disabled, "erst gesperrt")
+	run.add_money(50)
+	assert_false(shop.offer_buy_buttons[0].disabled, "nach Geldzuwachs wieder kaufbar")
+
+func test_money_gain_re_enables_flip_corner():
+	run.money = 1  # unter der Blätter-Gebühr ($2)
+	assert_true(shop.page_next_button.disabled, "Umblättern erst gesperrt")
+	run.add_money(10)
+	assert_false(shop.page_next_button.disabled, "nach Geldzuwachs wieder umblätterbar")
+
 # --- Blättern (Menü-Seiten) -----------------------------------------------------
 
 func test_open_starts_on_first_spread():
@@ -183,6 +210,31 @@ func test_charm_bought_stays_bought_after_flipping():
 	assert_true(shop.charm_bought[0], "Kauf bleibt auf der Seite vermerkt")
 	shop._on_charm_clicked(0)  # erneuter Klick darf nichts abziehen
 	assert_eq(run.money, money_after - 2, "nur die Blätter-Gebühr, kein Doppelkauf")
+
+func test_bought_charm_not_offered_on_next_new_spread():
+	var bought_id = shop.charm_options[0].id
+	shop._on_charm_clicked(0)  # jetzt besessen
+	shop._on_page_next_pressed()  # frische Doppelseite
+	for charm in shop.charm_options:
+		assert_ne(charm.id, bought_id, "besessener Charm nicht auf der neuen Seite")
+
+# --- Blätter-Ecken (Navigation auf den Seiten) --------------------------------
+
+func test_back_corner_disabled_on_first_spread():
+	assert_true(shop.page_back_button.disabled, "auf Seite 1 kein Zurückblättern")
+	shop._on_page_next_pressed()  # neue Doppelseite
+	assert_false(shop.page_back_button.disabled, "ab Seite 2 zurückblätterbar")
+
+func test_next_corner_shows_increasing_flip_fee():
+	assert_true("$2" in shop.page_next_button.text, "Blätter-Ecke zeigt die fällige Gebühr")
+	shop._on_page_next_pressed()  # jetzt letzte Seite; nächste NEUE kostet $3
+	assert_true("$3" in shop.page_next_button.text)
+
+func test_next_corner_is_free_on_already_seen_page():
+	shop._on_page_next_pressed()  # -$2, neue Seite 2
+	shop._on_page_back_pressed()  # zurück auf Seite 1
+	assert_false(shop.page_next_button.disabled, "Vor auf bekannte Seite immer möglich")
+	assert_false("$" in shop.page_next_button.text, "keine Gebühr für eine bereits gesehene Seite")
 
 # --- Abschluss ----------------------------------------------------------------
 
