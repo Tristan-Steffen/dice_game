@@ -150,3 +150,78 @@ func test_is_strictly_better_uses_materials_on_both_sides():
 		"Rubin im neuen Wurf macht ihn strikt besser")
 	assert_false(DiceScoring.is_strictly_better(new_dice, old_dice, NO_CHARMS, none, ruby_first),
 		"Rubin im alten Wurf: der neue ist schlechter")
+
+# --- Randfälle & Stapelung über Effekt-Arten hinweg ------------------------------
+
+func test_none_and_unknown_materials_have_no_effect():
+	var vals := _d([5, 5, 1, 2, 3, 4])
+	var part := _p([0, 1])
+	assert_eq(MaterialEffects.base_bonus(vals, _m(["", "", "", "", "", ""]), part, NO_CHARMS), 0)
+	assert_eq(MaterialEffects.mult_bonus(vals, _m([DieMaterial.NONE, DieMaterial.NONE, "", "", "", ""]), part), 0)
+	# Eine unbekannte id (kein registriertes Material) wirkt ebenfalls nicht.
+	assert_eq(MaterialEffects.mult_bonus(vals, _m(["chisel", "", "", "", "", ""]), part), 0,
+		"Ätzungs-/Fremd-id ist kein Material")
+
+func test_base_bonus_stacks_amber_and_mercury():
+	# Bernstein (+20) und Quecksilber (+Augen) auf zwei beteiligten Seiten stapeln.
+	var bonus := MaterialEffects.base_bonus(_d([5, 4, 1, 2, 3, 6]), _m([DieMaterial.AMBER, DieMaterial.MERCURY, "", "", "", ""]), _p([0, 1]), NO_CHARMS)
+	assert_eq(bonus, 24, "Bernstein 20 + Quecksilber (4) = 24")
+
+func test_multiple_amber_faces_each_add_twenty():
+	var bonus := MaterialEffects.base_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.AMBER, DieMaterial.AMBER, "", "", "", ""]), _p([0, 1]), NO_CHARMS)
+	assert_eq(bonus, 40, "zwei Bernstein-Seiten = 2 × 20")
+
+func test_materials_shorter_than_values_are_safe():
+	# materials kürzer als die beteiligten Indizes: der Guard überspringt still.
+	var bonus := MaterialEffects.base_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.AMBER]), _p([0, 1]), NO_CHARMS)
+	assert_eq(bonus, 20, "nur Slot 0 hat ein Material; Slot 1 wird übersprungen")
+	var mult := MaterialEffects.mult_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.RUBY]), _p([0, 1]))
+	assert_eq(mult, 4)
+
+# --- apply_take_effects: weitere Randfälle ---------------------------------------
+
+func test_bone_grows_without_upper_cap():
+	# Knochen ist nach oben offen (wie Überzahlen) - eine 6 wächst zu 7.
+	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 1])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
+	assert_eq(defs[0].faces[0], 7, "Knochen kennt keine Obergrenze")
+
+func test_take_effects_skip_unrolled_face():
+	# face_indices[i] < 0 (Slot lag nicht oben / kein Wert) -> kein Effekt.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([-1]), _m([DieMaterial.GOLD]), _p([0]))
+	assert_eq(report.money, 0, "ohne oben liegende Seite zahlt Gold nicht")
+	assert_eq(defs[0].faces[0], 5)
+
+func test_take_effects_combined_report_across_slots():
+	# Gold + Knochen + Glas gleichzeitig auf drei beteiligten Seiten.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE, DieMaterial.GLASS]), _p([0, 1, 2]))
+	assert_eq(report.money, 1, "eine Gold-Seite")
+	assert_eq(report.grown, [1], "Slot 1 ist gewachsen")
+	assert_eq(report.shrunk, [2], "Slot 2 ist geschrumpft")
+	assert_eq(defs[1].faces[0], 6)
+	assert_eq(defs[2].faces[0], 4)
+
+func test_multiple_bone_faces_each_grow():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([3, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.BONE, DieMaterial.BONE]), _p([0, 1]))
+	assert_eq(report.grown, [0, 1])
+	assert_eq(defs[0].faces[0], 6)
+	assert_eq(defs[1].faces[0], 4)
+
+# --- Glas: Mult fließt durch best_hand, abhängig vom aktuellen Seitenwert --------
+
+func test_glass_mult_flows_through_best_hand():
+	# Paar Sechser: Basis 12, Mult 2 -> 24. Glas auf einer Paar-Seite: Mult += 6.
+	var dice := _d([6, 6, 1, 2, 3, 5])
+	var glass_first := _m([DieMaterial.GLASS, "", "", "", "", ""])
+	assert_eq(DiceScoring.best_hand(dice)["score"], 24)
+	assert_eq(DiceScoring.best_hand(dice, NO_CHARMS, false, glass_first)["score"], 96, "(6+6) × (2+6)")
+
+func test_glass_mult_scales_with_face_value():
+	# Dieselbe Position, kleinerer Augenwert -> kleinerer Glas-Bonus.
+	var high := MaterialEffects.mult_bonus(_d([6, 6, 1, 2, 3, 4]), _m([DieMaterial.GLASS, "", "", "", "", ""]), _p([0]))
+	var low := MaterialEffects.mult_bonus(_d([2, 2, 1, 3, 4, 5]), _m([DieMaterial.GLASS, "", "", "", "", ""]), _p([0]))
+	assert_eq(high, 6)
+	assert_eq(low, 2, "Glas skaliert mit der Augenzahl der Seite")
