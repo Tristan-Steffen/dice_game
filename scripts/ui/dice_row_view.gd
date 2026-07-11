@@ -19,11 +19,15 @@ static func eye_total(def: DieDefinition) -> int:
 		total += value
 	return total
 
-## Eine komplette Würfel-Zeile: PanelContainer mit (optionalem Stück-Multiplikator)
-## Mini-Vorschau, Augensumme und Seiten-Chips (aufsteigend, je Wert ein Chip mit
-## ×Anzahl). thumb_size steuert die Kantenlänge der 3D-Vorschau; quantity > 1
-## stellt ein "N ×" links vor die Vorschau (für Shop-Bündel gleicher Würfel, die
-## nur einmal gezeigt werden - siehe ShopController).
+## Eine komplette Würfel-Zeile: PanelContainer mit zwei übereinander liegenden
+## Zeilen.
+##   Zeile 1 (Kopf): (optionaler Stück-Multiplikator) Mini-Vorschau "=" Augensumme
+##                   - liest sich als "N Würfel = so viele Augen".
+##   Zeile 2 (Zusammensetzung): die Seiten-Chips (aufsteigend, je Wert ein Chip
+##                   mit ×Anzahl) - woraus der Würfel besteht.
+## thumb_size steuert die Kantenlänge der 3D-Vorschau; quantity > 1 stellt ein
+## "N ×" links vor die Vorschau (für Shop-Bündel gleicher Würfel, die nur einmal
+## gezeigt werden - siehe ShopController).
 static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, quantity: int = 1) -> PanelContainer:
 	var row_panel := PanelContainer.new()
 	var row_box := StyleBoxFlat.new()
@@ -32,32 +36,41 @@ static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, 
 	row_box.set_content_margin_all(8)
 	row_panel.add_theme_stylebox_override("panel", row_box)
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	row_panel.add_child(row)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	row_panel.add_child(col)
+
+	# --- Zeile 1: (Stückzahl ×) Vorschau = Augensumme ---
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	col.add_child(head)
 
 	if quantity > 1:
 		var qty := Label.new()
 		qty.text = "%d×" % quantity
 		qty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		CasinoStyle.style_score_label(qty, 30, CasinoStyle.GOLD)
-		row.add_child(qty)
+		head.add_child(qty)
 
-	row.add_child(build_thumb(def, thumb_size))
+	head.add_child(build_thumb(def, thumb_size))
+
+	var equals := Label.new()
+	equals.text = "="
+	equals.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	CasinoStyle.style_score_label(equals, 26, CasinoStyle.CREAM)
+	head.add_child(equals)
 
 	var total_label := Label.new()
 	total_label.text = "%d" % eye_total(def)
-	total_label.custom_minimum_size = Vector2(52, 0)
-	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	total_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	CasinoStyle.style_score_label(total_label, 26, CasinoStyle.GOLD)
-	row.add_child(total_label)
+	head.add_child(total_label)
 
+	# --- Zeile 2: Zusammensetzung (Seiten-Übersicht) ---
 	# Weiter Abstand ZWISCHEN den Wert-Gruppen (der Multiplikator klebt eng an
 	# seinem eigenen Chip, siehe _count_chip).
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 16)
-	chips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var counts := {}
 	for value in def.faces:
 		counts[value] = counts.get(value, 0) + 1
@@ -65,7 +78,7 @@ static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, 
 	values.sort()
 	for value in values:
 		chips.add_child(_count_chip(value, counts[value]))
-	row.add_child(chips)
+	col.add_child(chips)
 	return row_panel
 
 ## Ein Seiten-Eintrag: bei mehrfachem Vorkommen ein "N ×" davor, dann der weiße
