@@ -18,7 +18,6 @@ func before_each() -> void:
 	shop.run = run
 	shop.open()
 
-## Anzahl Pool-Würfel mit der gegebenen style_id (Spezialwürfel-Zählung).
 ## Anzahl Pool-Würfel, die KEIN Standardwürfel ("normal") sind - also gekaufte
 ## Spezialwürfel (jedes Angebot vergibt nicht-"normale" style_ids, siehe DiceOffer).
 func _count_special() -> int:
@@ -133,6 +132,57 @@ func test_sheet_buttons_disabled_by_price():
 	assert_false(shop.sheet_buttons[0].disabled, "Schnipsel leistbar")
 	assert_true(shop.sheet_buttons[1].disabled, "Bogen zu teuer")
 	assert_true(shop.sheet_buttons[2].disabled, "Großbogen zu teuer")
+
+# --- Blättern (Menü-Seiten) -----------------------------------------------------
+
+func test_open_starts_on_first_spread():
+	assert_eq(shop.spreads.size(), 1, "eine Doppelseite beim Öffnen")
+	assert_eq(shop.current_spread_index, 0)
+
+func test_flip_to_new_page_charges_increasing_fee():
+	shop._on_page_next_pressed()  # neue Seite: -$2
+	assert_eq(run.money, 98)
+	assert_eq(shop.spreads.size(), 2)
+	assert_eq(shop.current_spread_index, 1)
+	shop._on_page_next_pressed()  # nächste neue Seite: -$3
+	assert_eq(run.money, 95)
+	assert_eq(shop.spreads.size(), 3)
+
+func test_flip_back_is_free_and_shows_same_offers():
+	var first_offers = shop.dice_offers
+	shop._on_page_next_pressed()  # -$2
+	var second_offers = shop.dice_offers
+	shop._on_page_back_pressed()
+	assert_eq(run.money, 98, "Zurückblättern kostet nichts")
+	assert_true(shop.dice_offers == first_offers, "dieselben Angebote wie zuvor (gleiche Instanz)")
+	shop._on_page_next_pressed()  # vor auf BEREITS gesehene Seite
+	assert_eq(run.money, 98, "Vorblättern auf bekannte Seite kostet nichts")
+	assert_true(shop.dice_offers == second_offers)
+	assert_eq(shop.spreads.size(), 2, "keine neue Seite ausgewürfelt")
+
+func test_cannot_flip_to_new_page_without_money():
+	run.money = 1
+	shop._on_page_next_pressed()
+	assert_eq(run.money, 1, "keine Gebühr abgezogen")
+	assert_eq(shop.spreads.size(), 1, "keine neue Seite")
+	assert_eq(shop.current_spread_index, 0)
+
+func test_fee_resets_on_reopen():
+	shop._on_page_next_pressed()  # -$2
+	shop._on_done_pressed()
+	shop.open()
+	assert_eq(shop.spreads.size(), 1, "frisches Menü beim nächsten Besuch")
+	shop._on_page_next_pressed()
+	assert_eq(run.money, 96, "Gebühr beginnt wieder bei $2 (100 - 2 - 2)")
+
+func test_charm_bought_stays_bought_after_flipping():
+	shop._on_charm_clicked(0)  # -$25 auf Seite 1
+	var money_after := run.money
+	shop._on_page_next_pressed()  # -$2, neue Seite
+	shop._on_page_back_pressed()  # zurück zu Seite 1
+	assert_true(shop.charm_bought[0], "Kauf bleibt auf der Seite vermerkt")
+	shop._on_charm_clicked(0)  # erneuter Klick darf nichts abziehen
+	assert_eq(run.money, money_after - 2, "nur die Blätter-Gebühr, kein Doppelkauf")
 
 # --- Abschluss ----------------------------------------------------------------
 
