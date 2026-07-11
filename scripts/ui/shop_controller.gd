@@ -19,6 +19,7 @@ signal closed
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf
 const DICE_OFFER_COUNT := 3  # Würfel-Angebote je Doppelseite (siehe DiceOffer)
 const OFFER_THUMB_SIZE := 52  # Kantenlänge der Mini-Vorschau je Angebots-Würfel (siehe DiceRowView)
+const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (siehe _build_charm_thumb)
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: erst $2, dann $3, $4 ...
 ## (fee = FLIP_FEE_BASE + bereits existierende Seiten - 1). Je Besuch zurückgesetzt.
@@ -36,7 +37,7 @@ const SHEET_OFFERS := [
 const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Menü-Papier (wie die Coupon-Bögen)
 const PAPER_EDGE := Color("c9b98f")   # abgedunkelter Papierrand
 const INK := Color(0.16, 0.14, 0.1)   # dunkle "Druckfarbe" für Überschriften auf Papier
-const FLIP_DURATION := 0.22  # rein kosmetisches Auffalten der neuen Doppelseite
+const FLIP_DURATION := 0.3  # Gesamtdauer des kosmetischen Blatt-Umschlagens (siehe _play_flip_animation)
 
 ## Eine aufgeschlagene Doppelseite des Menüs: ihre Würfel-Angebote, ihr
 ## Charm-Angebot und welche Charms darauf schon gekauft wurden. Bleibt für den
@@ -152,7 +153,7 @@ func _on_page_next_pressed() -> void:
 		message_label.text = "Neue Doppelseite aufgeschlagen (-$%d)." % fee
 	current_spread_index += 1
 	_show_spread()
-	_play_flip_animation()
+	_play_flip_animation(true)
 
 ## Zurückblättern ist immer gratis - die Seite steht ja schon im Buch.
 func _on_page_back_pressed() -> void:
@@ -160,17 +161,58 @@ func _on_page_back_pressed() -> void:
 		return
 	current_spread_index -= 1
 	_show_spread()
-	_play_flip_animation()
+	_play_flip_animation(false)
 
-## Rein kosmetisches "Auffalten" der (bereits umgebauten) Doppelseite - der
-## Spielzustand ist zu diesem Zeitpunkt schon vollständig gewechselt, die
-## Animation gate also nichts (wichtig für Tests und schnelles Klicken).
-func _play_flip_animation() -> void:
-	book.pivot_offset = book.size / 2.0
-	book.scale = Vector2(0.08, 1.0)
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.tween_property(book, "scale", Vector2.ONE, FLIP_DURATION)
+var flip_sheets: Array[Node] = []  # temporäre Papier-Blätter der laufenden Flip-Animation
+var flip_tween: Tween
+
+## Rein kosmetisches Blatt-Umschlagen über der (bereits umgebauten) Doppelseite:
+## ein papierfarbenes Blatt klappt von der Ausgangsseite zum Buchrücken zu
+## (verdeckt dabei kurz die neue Seite und gibt sie beim Zuklappen frei), dann
+## klappt es auf der Zielseite vom Rücken her auf und verblasst. Der Spielzustand
+## ist zu diesem Zeitpunkt schon vollständig gewechselt, die Animation gate also
+## nichts (wichtig für Tests und schnelles Klicken - ein neuer Flip räumt die
+## vorige Animation einfach weg).
+func _play_flip_animation(forward: bool) -> void:
+	_clear_flip_sheets()
+	var from_page := right_page if forward else left_page
+	var to_page := left_page if forward else right_page
+
+	# Falz liegt immer am Buchrücken: rechte Seite = linke Kante, linke = rechte.
+	var sheet_from := _make_flip_sheet(from_page, forward)
+	var sheet_to := _make_flip_sheet(to_page, not forward)
+	sheet_to.scale.x = 0.0
+
+	var half := FLIP_DURATION * 0.5
+	flip_tween = create_tween()
+	flip_tween.tween_property(sheet_from, "scale:x", 0.0, half) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	flip_tween.tween_property(sheet_to, "scale:x", 1.0, half) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	flip_tween.tween_property(sheet_to, "modulate:a", 0.0, 0.12)
+	flip_tween.tween_callback(_clear_flip_sheets)
+
+## Ein papierfarbenes "Blatt" exakt über einer Menü-Seite, mit Falz-Pivot am
+## Buchrücken (spine_left = Falz an der linken Blattkante). Als Kind des Panels
+## über allen Seiteninhalten gezeichnet.
+func _make_flip_sheet(page: PanelContainer, spine_left: bool) -> Panel:
+	var sheet := Panel.new()
+	sheet.add_theme_stylebox_override("panel", _paper_box())
+	sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(sheet)
+	sheet.global_position = page.global_position
+	sheet.size = page.size
+	sheet.pivot_offset = Vector2(0.0 if spine_left else sheet.size.x, sheet.size.y * 0.5)
+	flip_sheets.append(sheet)
+	return sheet
+
+func _clear_flip_sheets() -> void:
+	if flip_tween != null and flip_tween.is_valid():
+		flip_tween.kill()
+	for sheet in flip_sheets:
+		if is_instance_valid(sheet):
+			sheet.queue_free()
+	flip_sheets.clear()
 
 # --- Doppelseiten bauen ---------------------------------------------------------
 
@@ -239,10 +281,15 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 	right_content.add_child(_menu_heading("Charms (je $%d)" % CHARM_PRICE))
 	for i in spread.charm_options.size():
 		var charm := spread.charm_options[i]
+		var entry := HBoxContainer.new()
+		entry.add_theme_constant_override("separation", 8)
+		entry.add_child(_build_charm_thumb(charm, CHARM_THUMB_SIZE))
+
 		var button := Button.new()
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(0, 78)
+		button.custom_minimum_size = Vector2(0, CHARM_THUMB_SIZE)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.tooltip_text = charm.description
 		if spread.charm_bought[i] or run.charm_ids().has(charm.id):
 			button.text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
@@ -251,7 +298,8 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 			button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, CHARM_PRICE]
 			button.pressed.connect(_on_charm_clicked.bind(i))
 		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 13)
-		right_content.add_child(button)
+		entry.add_child(button)
+		right_content.add_child(entry)
 		charm_buttons.append(button)
 
 	right_content.add_child(_menu_heading("Coupon-Bögen"))
@@ -319,6 +367,79 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	vbox.add_child(buy)
 	offer_buy_buttons.append(buy)
 	return card
+
+## Statische 3D-Vorschau eines Charm-Modells (eigener SubViewport mit eigener
+## World3D, gleiche Beleuchtung wie die Würfel-Vorschauen in DiceRowView). Da
+## die GLB-Modelle unterschiedlich groß sind, wird das Modell über seine
+## Gesamt-AABB auf Einheitsgröße normiert und zentriert (siehe _merged_aabb).
+func _build_charm_thumb(charm: Charm, size: int) -> SubViewportContainer:
+	var container := SubViewportContainer.new()
+	container.custom_minimum_size = Vector2(size, size)
+	container.stretch = true
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var viewport := SubViewport.new()
+	viewport.own_world_3d = true
+	viewport.transparent_bg = true
+	viewport.size = Vector2i(size, size)
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	container.add_child(viewport)
+
+	var env := Environment.new()
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1, 1, 1)
+	env.ambient_light_energy = 0.9
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	viewport.add_child(world_env)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-50, 35, 0)
+	key_light.light_energy = 1.1
+	viewport.add_child(key_light)
+
+	var camera := Camera3D.new()
+	camera.fov = 30.0
+	camera.transform = Transform3D(Basis(), Vector3(0, 1.4, 6.0)).looking_at(Vector3.ZERO, Vector3.UP)
+	viewport.add_child(camera)
+
+	var path := charm.model_path
+	if path == "" or not ResourceLoader.exists(path):
+		path = CharmRowView.MODEL_FALLBACK
+	var model := (load(path) as PackedScene).instantiate() as Node3D
+
+	# Modell über seine AABB einheitlich einpassen: auf ~2.2 Einheiten skalieren
+	# und um sein Zentrum drehbar aufhängen (Pivot), leicht angekippt wie die Würfel.
+	var pivot := Node3D.new()
+	viewport.add_child(pivot)
+	pivot.rotation_degrees = Vector3(-15, 30, 0)
+	var aabb := _merged_aabb(model)
+	var max_dim: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
+	var fit: float = 2.2 / maxf(max_dim, 0.001)
+	model.scale = Vector3.ONE * fit
+	model.position = -aabb.get_center() * fit
+	pivot.add_child(model)
+	return container
+
+## Gesamt-AABB aller MeshInstance3D unter node (im Raum von node) - Grundlage
+## fürs Einpassen unterschiedlich großer Charm-Modelle in die Vorschau.
+func _merged_aabb(node: Node) -> AABB:
+	var result := AABB()
+	var found := false
+	var stack: Array = [[node, Transform3D()]]
+	while not stack.is_empty():
+		var pair: Array = stack.pop_back()
+		var current: Node = pair[0]
+		var xform: Transform3D = pair[1]
+		if current is Node3D and current != node:
+			xform = xform * (current as Node3D).transform
+		if current is MeshInstance3D and (current as MeshInstance3D).mesh != null:
+			var mesh_aabb: AABB = xform * (current as MeshInstance3D).mesh.get_aabb()
+			result = mesh_aabb if not found else result.merge(mesh_aabb)
+			found = true
+		for child in current.get_children():
+			stack.push_back([child, xform])
+	return result
 
 # --- Käufe ----------------------------------------------------------------------
 
@@ -392,6 +513,7 @@ func _on_run_money_changed(_money: int) -> void:
 		_refresh_afford_state()
 
 func _on_done_pressed() -> void:
+	_clear_flip_sheets()
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern nach dem Schließen)
 	visible = false
 	closed.emit()
