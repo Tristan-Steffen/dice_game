@@ -64,12 +64,32 @@ func charm_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> Charm:
 	return best
 
 ## Instanziert das 3D-Modell eines Charms (Charm.model_path), oder ersatzweise
-## das Platzhaltermodell (MODEL_FALLBACK), solange der Charm noch kein eigenes hat.
+## eine Platzhalter-Karte (siehe placeholder_model), solange der Charm noch
+## kein eigenes Modell hat.
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
 	if path == "" or not ResourceLoader.exists(path):
-		path = MODEL_FALLBACK
+		return placeholder_model(charm.id)
 	return (load(path) as PackedScene).instantiate()
+
+## Platzhalter für Charms ohne Modelldatei: eine flache rechteckige "Karte" in
+## einer aus der id abgeleiteten Farbe (stabil je Charm, damit man sie auf dem
+## Tisch auseinanderhalten kann). Auch der Shop nutzt sie für seine 3D-Vorschau
+## (siehe ShopController._build_charm_thumb).
+static func placeholder_model(charm_id: String) -> Node3D:
+	var root := Node3D.new()
+	var mesh_instance := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(1.0, 0.14, 1.4)
+	mesh_instance.mesh = box
+	var material := StandardMaterial3D.new()
+	# Stabile, kräftige Farbe aus der id (Hash -> Farbton).
+	var hue := float(abs(charm_id.hash()) % 360) / 360.0
+	material.albedo_color = Color.from_hsv(hue, 0.55, 0.85)
+	material.roughness = 0.4
+	mesh_instance.material_override = material
+	root.add_child(mesh_instance)
+	return root
 
 ## Transform des festen Platzes i (lokal zu diesem Knoten): Position auf dem
 ## symmetrischen Kreisbogen (siehe SPOT_*), flach liegend und zur Mitte

@@ -73,9 +73,18 @@ static func grid_size(kind: int) -> Vector2i:
 ## Würfelt einen Bogen aus: erst 1–3 echte Coupons (gewichtet nach Seltenheit,
 ## nur wenn ihre Fläche passt) an zufällige freie Stellen, dann alle Restzellen
 ## mit 1×1-Marken/Werbeflächen füllen.
-static func generate(kind: int) -> CouponSheet:
+##
+## allowed_kinds (optional): beschränkt die echten Coupons auf diese
+## Coupon-kinds (siehe Coupon.KIND_*) - Grundlage der sortenreinen Packs im
+## Shop (Werkstatt-Prospekt nur Ätzungen, Tageskarte nur Gerichte, ...).
+## Leer = alle Arten gemischt.
+##
+## extra_size (optional): vergrößert das Raster um N in beide Richtungen
+## (Großformat-Charm: alle Packs 1×1 größer). no_ads (optional): Werbeflächen
+## werden zu Chip-Coupons (Hausmarke-Charm für das gemischte Heft).
+static func generate(kind: int, allowed_kinds: Array[String] = [], extra_size: int = 0, no_ads: bool = false) -> CouponSheet:
 	var sheet := CouponSheet.new()
-	var size := grid_size(kind)
+	var size := grid_size(kind) + Vector2i(extra_size, extra_size)
 	sheet.cols = size.x
 	sheet.rows = size.y
 
@@ -88,7 +97,7 @@ static func generate(kind: int) -> CouponSheet:
 
 	var wanted: int = REAL_COUPONS_PER_KIND.get(kind, 1)
 	for i in wanted:
-		var coupon := _pick_fitting_coupon(size)
+		var coupon := _pick_fitting_coupon(size, allowed_kinds)
 		if coupon == null:
 			continue
 		var spot := _find_free_spot(occupied, size, coupon.width, coupon.height)
@@ -102,19 +111,22 @@ static func generate(kind: int) -> CouponSheet:
 		for c in size.x:
 			if occupied[r][c]:
 				continue
-			var is_ad := randf() < AD_CHANCE
+			var is_ad := randf() < AD_CHANCE and not no_ads
 			var tex: String = FILLER_ADS[randi() % FILLER_ADS.size()] if is_ad else FILLER_CHIP
 			sheet.tiles.append(SheetTile.new(TileKind.AD if is_ad else TileKind.MONEY,
 				Coupon.TEXTURE_DIR + tex, c, r))
 			occupied[r][c] = true
 	return sheet
 
-## Ein zufälliger Coupon, dessen Fläche in size passt, gewichtet nach Seltenheit
+## Ein zufälliger Coupon, dessen Fläche in size passt (und dessen kind in
+## allowed_kinds liegt, falls gesetzt), gewichtet nach Seltenheit
 ## (kleinere/häufigere öfter, siehe Coupon._rarity_weight).
-static func _pick_fitting_coupon(size: Vector2i) -> Coupon:
+static func _pick_fitting_coupon(size: Vector2i, allowed_kinds: Array[String] = []) -> Coupon:
 	var candidates: Array[Coupon] = []
 	var total := 0
 	for coupon in Coupon.all():
+		if not allowed_kinds.is_empty() and not allowed_kinds.has(coupon.kind):
+			continue
 		if coupon.width <= size.x and coupon.height <= size.y:
 			candidates.append(coupon)
 			total += Coupon._rarity_weight(coupon.rarity)

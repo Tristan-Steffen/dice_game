@@ -40,19 +40,23 @@ class TakeReport:
 ## (charm-angepassten) Augenwert erneut - Seite ×2, Kanten ×2, beides ×4
 ## (bonus = Wert × (Faktor − 1), der Grundwert steckt schon im Basiswert).
 static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = []) -> int:
+	# Charm-Verstärker (siehe Charm/CharmEffects): Bernsteinzimmer hebt Bernstein
+	# auf +30, Quecksilberdampf lässt Quecksilber je Träger dreifach zählen.
+	var amber_value := 30 if charm_ids.has(Charm.AMBER_ROOM) else 20
+	var mercury_factor := 3 if charm_ids.has(Charm.MERCURY_VAPOR) else 2
 	var bonus := 0
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 		if face_material == DieMaterial.AMBER:
-			bonus += 20
+			bonus += amber_value
 		if edge_material == DieMaterial.AMBER:
-			bonus += 20
+			bonus += amber_value
 		var factor := 1
 		if face_material == DieMaterial.MERCURY:
-			factor *= 2
+			factor *= mercury_factor
 		if edge_material == DieMaterial.MERCURY:
-			factor *= 2
+			factor *= mercury_factor
 		if factor > 1:
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (factor - 1)
 	return bonus
@@ -61,15 +65,17 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 ## Rubin +4 fest (Seite und/oder Kanten); Glas + rohe Augenzahl der oben
 ## liegenden Seite (je höher die Seite, desto stärker - und desto mehr hat
 ## sie beim Schrumpfen zu verlieren).
-static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = []) -> int:
+static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = []) -> int:
+	# Rubinschleifer (siehe CharmEffects) hebt Rubin auf +6 Mult.
+	var ruby_value := 6 if charm_ids.has(Charm.RUBY_GRINDER) else 4
 	var bonus := 0
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 		if face_material == DieMaterial.RUBY:
-			bonus += 4
+			bonus += ruby_value
 		if edge_material == DieMaterial.RUBY:
-			bonus += 4
+			bonus += ruby_value
 		if face_material == DieMaterial.GLASS:
 			bonus += values[i]
 		if edge_material == DieMaterial.GLASS:
@@ -83,7 +89,12 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## Wurf, siehe roll_money); Knochen wächst die oben liegende Seite +1 je Träger
 ## (nach oben offen, wie Überzahlen); Glas schrumpft sie −1 je Träger, aber nie
 ## unter MIN_FACE_VALUE.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = []) -> TakeReport:
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = []) -> TakeReport:
+	# Charm-Verstärker (siehe CharmEffects): Goldschmied $2 je Gold-Seite,
+	# Knochenleim +2 Wachstum, Glasbläserlunge schützt Glas bis min. 3.
+	var gold_payout := 2 if charm_ids.has(Charm.GOLDSMITH) else 1
+	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
+	var glass_floor := 3 if charm_ids.has(Charm.GLASSBLOWER_LUNG) else EtchingEffects.MIN_FACE_VALUE
 	var report := TakeReport.new()
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
@@ -95,13 +106,13 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 
 		if face_material == DieMaterial.GOLD:
-			report.money += 1
+			report.money += gold_payout
 
 		var growth := 0
 		if face_material == DieMaterial.BONE:
-			growth += 1
+			growth += bone_growth
 		if edge_material == DieMaterial.BONE:
-			growth += 1
+			growth += bone_growth
 		if growth > 0:
 			defs[i].faces[face] += growth
 			report.grown.append(i)
@@ -109,7 +120,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var shrink_steps := int(face_material == DieMaterial.GLASS) + int(edge_material == DieMaterial.GLASS)
 		var shrunk_any := false
 		for step in shrink_steps:
-			if defs[i].faces[face] > EtchingEffects.MIN_FACE_VALUE:
+			if defs[i].faces[face] > glass_floor:
 				defs[i].faces[face] -= 1
 				shrunk_any = true
 		if shrunk_any:
@@ -120,9 +131,11 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ## Gold-Kanten (thrown = Slot-Indizes der tatsächlich geworfenen Würfel;
 ## geschützte, liegen gebliebene Würfel zahlen nicht). Zahlt bei JEDEM Wurf -
 ## auch wenn der Wurf danach farkelt.
-static func roll_money(edge_materials: Array[String], thrown: Array[int]) -> int:
+static func roll_money(edge_materials: Array[String], thrown: Array[int], charm_ids: Array[String] = []) -> int:
+	# Rahmenvergolder (siehe CharmEffects): Gold-Kanten zahlen $2 je Wurf.
+	var per_die := 2 if charm_ids.has(Charm.FRAME_GILDER) else 1
 	var money := 0
 	for i in thrown:
 		if i < edge_materials.size() and edge_materials[i] == DieMaterial.GOLD:
-			money += 1
+			money += per_die
 	return money

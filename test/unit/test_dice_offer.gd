@@ -49,6 +49,61 @@ func test_dice_carry_a_non_normal_style_id():
 		for die in offer.dice:
 			assert_ne(die.style_id, "normal")
 
+# --- Veredelungen (Material-Seiten / Kanten, siehe _roll_refinements) -----------
+
+func test_refinement_surcharge_matches_applied_content():
+	# Der gemeldete Aufpreis passt exakt zu dem, was auf dem Würfel gelandet ist.
+	for i in 60:
+		var def := DieDefinition.standard()
+		var surcharge: int = DiceOffer._roll_refinements(def)
+		var expected := 0
+		for material_id in def.materials:
+			if material_id != "":
+				expected += DiceOffer.FACE_MATERIAL_SURCHARGE
+				assert_true(DieMaterial.is_valid_id(material_id), "gültiges Seiten-Material")
+		if def.edge_material != "":
+			expected += DiceOffer.EDGE_MATERIAL_SURCHARGE
+			assert_true(DieMaterial.is_valid_id(def.edge_material), "gültiges Kanten-Material")
+		assert_eq(surcharge, expected)
+
+func test_refinements_apply_at_most_two_face_materials():
+	for i in 60:
+		var def := DieDefinition.standard()
+		DiceOffer._roll_refinements(def)
+		var count := 0
+		for material_id in def.materials:
+			if material_id != "":
+				count += 1
+		assert_lte(count, 2, "höchstens zwei Material-Seiten je Angebots-Würfel")
+
+func test_refinements_appear_sometimes_but_not_always():
+	# Über viele Angebote: Veredelungen kommen vor, aber nicht auf jedem Würfel.
+	var refined := 0
+	var total := 0
+	for i in 80:
+		var def := DieDefinition.standard()
+		DiceOffer._roll_refinements(def)
+		total += 1
+		if def.edge_material != "" or def.materials.count("") < 6:
+			refined += 1
+	assert_gt(refined, 0, "Veredelungen tauchen auf")
+	assert_lt(refined, total, "aber nicht auf jedem Würfel")
+
+func test_bundle_copies_share_refinements_as_independent_instances():
+	# Alle Würfel eines Bündels tragen dieselben Materialien/Kanten (ein Typ je
+	# Angebot) - aber als eigene Kopien, damit spätere Gravuren nur einen treffen.
+	for attempt in 120:
+		for offer in DiceOffer.roll_offers(DiceOffer.TEMPLATES.size()):
+			var first := offer.dice[0]
+			for die in offer.dice:
+				assert_eq(die.materials, first.materials, "gleiche Material-Seiten im Bündel")
+				assert_eq(die.edge_material, first.edge_material, "gleiche Kanten im Bündel")
+			if offer.size() > 1 and (first.edge_material != "" or first.materials.count("") < 6):
+				offer.dice[1].materials[0] = "test_sentinel"
+				assert_ne(first.materials[0], "test_sentinel", "Kopien sind unabhängig")
+				return  # ein veredeltes Mehrfach-Bündel gefunden und geprüft - fertig
+	fail_test("kein veredeltes Mehrfach-Bündel in 120 Versuchen gefunden")
+
 func test_even_bundle_has_two_dice_with_only_even_faces():
 	var t := _template("even")
 	assert_eq(t["count"], 2, "Gerade Würfel bündelt zwei Würfel")

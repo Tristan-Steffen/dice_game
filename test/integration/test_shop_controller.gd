@@ -107,7 +107,7 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-# --- Coupon-Bögen -------------------------------------------------------------
+# --- Coupon-Packs ---------------------------------------------------------------
 
 ## Sammelt die kinds aller sheet_purchased-Signale ein (siehe GameRun) - die
 ## Enthüllung selbst zeigt im echten Spiel scene_root, hier zählt nur das Signal.
@@ -116,32 +116,117 @@ func _capture_sheet_kinds() -> Array:
 	run.sheet_purchased.connect(func(_sheet: CouponSheet, kind: int) -> void: kinds.append(kind))
 	return kinds
 
-func test_buy_snippet_sheet_deducts_price_and_emits_sheet():
+func test_buy_general_snippet_deducts_price_and_emits_sheet():
 	var kinds := _capture_sheet_kinds()
-	shop._on_sheet_pressed(0)  # Schnipsel, $6
+	shop._on_sheet_pressed(0, 0)  # Coupon-Heft 2×2, $6
 	assert_eq(run.money, 94)  # 100 - 6
 	assert_eq(kinds, [CouponSheet.Kind.SNIPPET])
 
-func test_sheets_are_repeatable():
+func test_packs_are_repeatable():
 	var kinds := _capture_sheet_kinds()
-	shop._on_sheet_pressed(0)  # -6
-	shop._on_sheet_pressed(1)  # Bogen -10
+	shop._on_sheet_pressed(0, 0)  # -6
+	shop._on_sheet_pressed(0, 1)  # Coupon-Heft 3×3, -10
 	assert_eq(run.money, 84)  # 100 - 6 - 10
 	assert_eq(kinds, [CouponSheet.Kind.SNIPPET, CouponSheet.Kind.SHEET])
 
-func test_cannot_buy_sheet_without_funds():
+func test_cannot_buy_pack_without_funds():
 	var kinds := _capture_sheet_kinds()
 	run.money = 3
-	shop._on_sheet_pressed(2)  # Großbogen, $16
+	shop._on_sheet_pressed(0, 2)  # Coupon-Heft 5×5, $16
 	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
 	assert_eq(kinds.size(), 0, "kein Bogen ausgewürfelt")
 
-func test_sheet_buttons_disabled_by_price():
-	run.money = 8  # reicht für Schnipsel ($6), nicht für Bogen ($10)/Großbogen ($16)
+func test_pack_buttons_disabled_by_price():
+	# Das Sortiment ist zufällig - erwartete Preise daher aus den Angeboten der
+	# Seite (pack_offers) abgeleitet statt über feste Button-Indizes.
+	run.money = 8
 	shop.open()
-	assert_false(shop.sheet_buttons[0].disabled, "Schnipsel leistbar")
-	assert_true(shop.sheet_buttons[1].disabled, "Bogen zu teuer")
-	assert_true(shop.sheet_buttons[2].disabled, "Großbogen zu teuer")
+	assert_eq(shop.sheet_buttons.size(), shop.pack_offers.size())
+	for i in shop.pack_offers.size():
+		var offer: Vector2i = shop.pack_offers[i]
+		var price: int = ShopController.PACKS[offer.x]["prices"][offer.y]
+		assert_eq(shop.sheet_buttons[i].disabled, run.money < price,
+			"Kaufbarkeit von %s (%s)" % [ShopController.PACKS[offer.x]["name"], ShopController.PACK_SIZES[offer.y]["label"]])
+
+func test_spread_offers_nine_distinct_packs():
+	# 9 aus den 12 möglichen Sorte-×-Größe-Kombinationen, ohne Doppelte.
+	assert_eq(shop.pack_offers.size(), ShopController.PACK_OFFER_COUNT)
+	var seen := {}
+	for offer in shop.pack_offers:
+		assert_true(offer.x >= 0 and offer.x < ShopController.PACKS.size(), "gültige Pack-Sorte")
+		assert_true(offer.y >= 0 and offer.y < ShopController.PACK_SIZES.size(), "gültige Größe")
+		assert_false(seen.has(offer), "doppeltes Angebot %s" % offer)
+		seen[offer] = true
+
+func test_pack_offers_persist_when_flipping_back():
+	var first_offers: Array[Vector2i] = shop.pack_offers.duplicate()
+	shop._on_page_next_pressed()  # neue Doppelseite (kostet Gebühr)
+	shop._on_page_back_pressed()
+	assert_eq(shop.pack_offers, first_offers, "zurückgeblättert = dasselbe Sortiment")
+
+func test_specialized_pack_only_contains_its_kinds():
+	# Tageskarte (nur Gerichte) und Juwelier-Katalog (nur Veredelungen): jeder
+	# echte Coupon des gekauften Bogens trägt eine erlaubte Art.
+	var sheets: Array = []
+	run.sheet_purchased.connect(func(sheet: CouponSheet, _kind: int) -> void: sheets.append(sheet))
+	run.money = 1000
+	for i in 5:
+		shop._on_sheet_pressed(3, 2)  # Tageskarte 5×5
+		shop._on_sheet_pressed(2, 2)  # Juwelier-Katalog 5×5
+	for s in sheets.size():
+		var expected: Array = [Coupon.KIND_MEAL] if s % 2 == 0 else [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE]
+		for tile in sheets[s].tiles:
+			if tile.kind == CouponSheet.TileKind.ETCHING:
+				assert_true(expected.has(tile.coupon.kind),
+					"%s gehört nicht in dieses Pack" % tile.coupon.id)
+
+func test_general_pack_is_cheaper_than_specialized():
+	for size_index in ShopController.PACK_SIZES.size():
+		var general_price: int = ShopController.PACKS[0]["prices"][size_index]
+		for pack_index in range(1, ShopController.PACKS.size()):
+			assert_gt(int(ShopController.PACKS[pack_index]["prices"][size_index]), general_price,
+				"%s teurer als das gemischte Heft" % ShopController.PACKS[pack_index]["name"])
+
+# --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Feinschmecker, Mengenrabatt) ----
+
+func test_cash_discount_lowers_charm_price():
+	run.owned_charms.append(Charm.cash_discount())
+	shop.open()  # Seite mit Rabatt neu bestücken
+	run.money = 100
+	if shop.charm_options.is_empty():
+		pass_test("keine Charm-Angebote auf dieser Seite ausgewürfelt")
+		return
+	shop._on_charm_clicked(0)
+	assert_eq(run.money, 80, "Skonto: $20 statt $25")
+
+func test_small_change_lowers_flip_fee():
+	run.owned_charms.append(Charm.small_change())
+	run.money = 100
+	shop.open()
+	shop._on_page_next_pressed()
+	assert_eq(run.money, 99, "Blätter-Gebühr $1 statt $2")
+
+func test_gourmet_halves_tageskarte_packs():
+	run.owned_charms.append(Charm.gourmet())
+	run.money = 100
+	# Tageskarte ist Pack-Index 3 (siehe ShopController.PACKS); Größe 3×3 kostet
+	# normal $13 - mit Feinschmecker $7.
+	shop._on_sheet_pressed(3, 1)
+	assert_eq(run.money, 93)
+
+func test_bulk_discount_only_hits_triple_bundles():
+	run.owned_charms.append(Charm.bulk_discount())
+	for offer in shop.dice_offers:
+		var expected: int = offer.price - 5 if offer.size() >= 3 else offer.price
+		assert_eq(shop._offer_price(offer), maxi(1, expected))
+
+func test_every_pack_has_a_cover_and_valid_kinds():
+	var known := [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE, Coupon.KIND_MEAL]
+	for pack in ShopController.PACKS:
+		assert_true(ResourceLoader.exists(ShopController.PACK_COVER_DIR + pack["id"] + ".jpg"),
+			"Cover fehlt für %s" % pack["id"])
+		for kind in pack["kinds"]:
+			assert_true(known.has(kind), "unbekannter kind %s in %s" % [kind, pack["id"]])
 
 # --- Kaufbarkeit bei Geldänderung (Chip-Coupons o.ä.) --------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen

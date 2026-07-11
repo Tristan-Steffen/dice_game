@@ -41,17 +41,12 @@ const AXIS_FACE_INDEX := {
 	"HINTEN": 5,
 }
 
-## Körperfarbe je Würfel-Art (style_id). Nicht gelistete Arten (u.a. "normal")
-## bleiben weiß. Die Shop-Angebots-Arten (siehe DiceOffer.TEMPLATES) sind hier
-## eingefärbt, damit gekaufte Spezialwürfel im Pool erkennbar sind.
-const KIND_TINTS := {
-	"power": Color(0.78, 0.2, 0.2),    # Kraftwürfel - kräftiges Rot
-	"pasch": Color(0.82, 0.6, 0.15),   # Paschwürfel - Gold
-	"even": Color(0.15, 0.55, 0.55),   # Gerade Würfel - Blaugrün
-	"odd": Color(0.8, 0.45, 0.15),     # Ungerade Würfel - Orange
-	"low": Color(0.42, 0.44, 0.48),    # Niedrige Serie - Grau (schwach)
-	"small": Color(0.5, 0.38, 0.28),   # Kleinserie - Braun (schwach)
-}
+## Körperfarbe je Würfel-Art (style_id) - bewusst LEER: Shop-Würfel sehen wie
+## normale Würfel aus (weiß); besonders machen sie ihre Seiten/Materialien/
+## Kanten (siehe DieMaterial, DiceOffer). style_id bleibt trotzdem gesetzt -
+## es schützt gekaufte Würfel vor Verdrängung und steuert die Wünschelrute
+## (siehe GameRun/scene_root), färbt nur nichts mehr ein.
+const KIND_TINTS := {}
 
 ## Markiert Würfel, die der Spieler vor dem nächsten "Neu würfeln" schützen
 ## will (siehe set_selected/selected) - "Nehmen" nimmt ohnehin immer alle 6.
@@ -74,6 +69,9 @@ const NUDGE_TORQUE := 0.5
 var roots: Array[Node3D]
 var bodies: Array[RigidBody3D]
 var face_displays: Array[DieFaceDisplay] = []
+## Slot des zuletzt zur Ruhe gekommenen Würfels (-1 = keiner) - Grundlage des
+## Nachzügler-Charms (siehe CharmEffects.charm_base_bonus, ctx "last_settled").
+var last_settled_index: int = -1
 
 var start_transforms: Array[Transform3D] = []
 var selected: Array[bool] = []  # true = vor dem nächsten Neu-Würfeln geschützt (siehe set_selected)
@@ -141,6 +139,7 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 				settled[i] = true
 				face_indices[i] = AXIS_FACE_INDEX[_top_axis_info(body)[0]]
 				values[i] = slot_defs[i].faces[face_indices[i]]
+				last_settled_index = i  # Nachzügler-Charm: der zuletzt ruhende Würfel
 		else:
 			rest_timers[i] = 0.0
 			if is_slow:
@@ -163,6 +162,7 @@ func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
 
 func reset() -> void:
+	last_settled_index = -1
 	for i in count():
 		selected[i] = false
 		values[i] = 0

@@ -123,6 +123,16 @@ func test_buy_coupon_sheet_deducts_and_emits_the_sheet():
 	assert_eq(captured[0][0], sheet, "Signal liefert denselben Bogen wie der Rückgabewert")
 	assert_eq(captured[0][1], CouponSheet.Kind.SNIPPET)
 
+func test_buy_coupon_sheet_respects_allowed_kinds():
+	# Sortenreine Packs (siehe ShopController.PACKS): der Filter wird bis in die
+	# Auswürfelung durchgereicht.
+	run.money = 100
+	var allowed: Array[String] = [Coupon.KIND_MEAL]
+	var sheet := run.buy_coupon_sheet(CouponSheet.Kind.LARGE, 16, allowed)
+	for tile in sheet.tiles:
+		if tile.kind == CouponSheet.TileKind.ETCHING:
+			assert_eq(tile.coupon.kind, Coupon.KIND_MEAL, "nur Gerichte im Food-Pack")
+
 func test_buy_coupon_sheet_does_not_grant_coupons_immediately():
 	# Die Gutschrift der Kacheln übernimmt erst die Abschluss-Animation
 	# (grant_coupon/add_money je Kachel, siehe scene_root).

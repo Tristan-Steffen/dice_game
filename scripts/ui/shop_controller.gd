@@ -1,8 +1,8 @@
 class_name ShopController
 extends Panel
 ## Der Shop als aufgeschlagene Speisekarte: zwei cremefarbene Seiten nebeneinander
-## (links die Würfel-Angebote, rechts Charms und Coupon-Bögen), durch die man wie
-## in einem kleinen Buch blättert. Umblättern auf eine NOCH NICHT gesehene Seite
+## (links die Würfel-Angebote, rechts Charms und die vier Coupon-Packs), durch die
+## man wie in einem kleinen Buch blättert. Umblättern auf eine NOCH NICHT gesehene Seite
 ## würfelt frische Angebote aus und kostet eine steigende Gebühr (siehe
 ## FLIP_FEE_BASE - das ist der "Reroll"); Zurückblättern und erneutes
 ## Vorblättern auf bereits aufgeschlagene Seiten ist gratis, denn die Seiten
@@ -25,14 +25,39 @@ const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (s
 ## (fee = FLIP_FEE_BASE + bereits existierende Seiten - 1). Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
 
-## Angebotene Coupon-Bögen (siehe CouponSheet): je größer das Raster, desto teurer
-## und desto größere Coupons können darauf liegen (die Fläche IST die Rarität).
-## Als festes "Getränke-Sortiment" auf jeder Doppelseite identisch.
-const SHEET_OFFERS := [
-	{"kind": CouponSheet.Kind.SNIPPET, "name": "Schnipsel", "price": 6},
-	{"kind": CouponSheet.Kind.SHEET, "name": "Bogen", "price": 10},
-	{"kind": CouponSheet.Kind.LARGE, "name": "Großbogen", "price": 16},
+## Die vier Coupon-Pack-Sorten (siehe CouponSheet.generate: allowed_kinds).
+## Jedes Pack gibt es in den drei Bogengrößen (siehe PACK_SIZES); je größer das
+## Raster, desto teurer und desto größere Coupons können darauf liegen (die
+## Fläche IST die Rarität). Das gemischte Heft ist bewusst etwas GÜNSTIGER als
+## die sortenreinen Packs - wer gezielt zieht, zahlt für die Auswahl. Cover-
+## Motive nach Dateinamens-Konvention: PACK_COVER_DIR + id + ".jpg". Als festes
+## "Getränke-Sortiment" auf jeder Doppelseite identisch.
+const PACKS := [
+	{"id": "general", "name": "Coupon-Heft", "kinds": [], "prices": [6, 10, 16],
+		"tooltip": "Alle Coupon-Arten gemischt - dafür etwas günstiger."},
+	{"id": "werkstatt", "name": "Werkstatt-Prospekt", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20],
+		"tooltip": "Nur Ätzungen: verändern die Augen deiner Würfel."},
+	{"id": "juwelier", "name": "Juwelier-Katalog", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20],
+		"tooltip": "Nur Würfel-Veredelungen: Seiten-Materialien und Kanten."},
+	{"id": "tageskarte", "name": "Tageskarte", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20],
+		"tooltip": "Nur Gerichte: werten Kombinationen dauerhaft auf."},
 ]
+
+## Die drei Bogengrößen jedes Packs (Index = Preis-Index in PACKS.prices).
+const PACK_SIZES := [
+	{"kind": CouponSheet.Kind.SNIPPET, "label": "2×2"},
+	{"kind": CouponSheet.Kind.SHEET, "label": "3×3"},
+	{"kind": CouponSheet.Kind.LARGE, "label": "5×5"},
+]
+
+const PACK_COVER_DIR := "res://assets/textures/packs/"
+const PACK_COVER_SIZE := 58  # Kantenlänge des Cover-Motivs je Pack-Karte
+
+## Das Pack-Sortiment einer Doppelseite: PACK_OFFER_COUNT zufällig gezogene,
+## verschiedene Kombinationen aus Pack-Sorte × Bogengröße (von 4 × 3 = 12
+## möglichen), als 3×3-Raster gezeigt. Umblättern würfelt ein neues Sortiment.
+const PACK_GRID_COLUMNS := 3
+const PACK_OFFER_COUNT := 9
 
 const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Menü-Papier (wie die Coupon-Bögen)
 const PAPER_EDGE := Color("c9b98f")   # abgedunkelter Papierrand
@@ -48,6 +73,8 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
+	## Die 9 Pack-Angebote der Seite (x = PACKS-Index, y = PACK_SIZES-Index).
+	var pack_offers: Array[Vector2i] = []
 
 ## Der laufende Spiellauf (vom Besitzer scene_root gesetzt) - alle Käufe
 ## mutieren den Zustand ausschließlich über seine Methoden (siehe GameRun). Der
@@ -84,7 +111,11 @@ var offer_buy_buttons: Array[Button] = []
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 var charm_bought: Array[bool] = []
+## Kaufknöpfe der Pack-Karten (Reihenfolge = pack_offers der aktuellen Seite) -
+## parallel dazu die Preise für die Kaufbarkeits-Prüfung.
+var pack_offers: Array[Vector2i] = []
 var sheet_buttons: Array[Button] = []
+var sheet_button_prices: Array[int] = []
 
 func _ready() -> void:
 	_style()
@@ -123,9 +154,10 @@ func open() -> void:
 
 # --- Blättern ------------------------------------------------------------------
 
-## Gebühr fürs Aufschlagen der nächsten NEUEN Doppelseite (steigt je Besuch).
+## Gebühr fürs Aufschlagen der nächsten NEUEN Doppelseite (steigt je Besuch);
+## Wechselgeld-Charm senkt sie (min. $1, siehe CharmEffects.flip_fee).
 func _next_flip_fee() -> int:
-	return FLIP_FEE_BASE + spreads.size() - 1
+	return CharmEffects.flip_fee(FLIP_FEE_BASE + spreads.size() - 1, run.charm_ids())
 
 ## True, wenn Vorblättern eine neue Doppelseite auswürfeln würde (statt eine
 ## bereits aufgeschlagene wieder zu zeigen).
@@ -210,9 +242,11 @@ func _clear_flip_sheets() -> void:
 ## DiceOffer) und bis zu zwei noch nicht besessene Charms.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
-	spread.dice_offers = DiceOffer.roll_offers(DICE_OFFER_COUNT)
+	spread.dice_offers = DiceOffer.roll_offers(DICE_OFFER_COUNT, run.charm_ids())  # Gütesiegel erzwingt Veredelungen
 
-	var owned_ids: Array[String] = run.charm_ids()
+	# Besitz-Prüfung über die ROHEN ids (Totems lösen sich in charm_ids() zu
+	# ihren Nachbarn auf und würden sonst doppelt angeboten).
+	var owned_ids: Array[String] = run.owned_charm_ids()
 	var available: Array[Charm] = []
 	for charm in Charm.all():
 		if not owned_ids.has(charm.id):
@@ -222,6 +256,14 @@ func _build_spread() -> MenuSpread:
 		spread.charm_options.append(available[i])
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
+
+	# Pack-Sortiment: 9 verschiedene aus allen Sorte-×-Größe-Kombinationen.
+	var combos: Array[Vector2i] = []
+	for p in PACKS.size():
+		for s in PACK_SIZES.size():
+			combos.append(Vector2i(p, s))
+	combos.shuffle()
+	spread.pack_offers = combos.slice(0, PACK_OFFER_COUNT)
 	return spread
 
 ## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, beide Seiten neu
@@ -231,6 +273,7 @@ func _show_spread() -> void:
 	dice_offers = spread.dice_offers
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
+	pack_offers = spread.pack_offers
 
 	_rebuild_left_page(spread)
 	_rebuild_right_page(spread)
@@ -246,6 +289,7 @@ func _clear_pages() -> void:
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
 	sheet_buttons.clear()
+	sheet_button_prices.clear()
 	page_back_button = null
 	page_next_button = null
 
@@ -269,8 +313,9 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 		child.queue_free()
 	charm_buttons.clear()
 	sheet_buttons.clear()
+	sheet_button_prices.clear()
 
-	right_content.add_child(_menu_heading("Charms (je $%d)" % CHARM_PRICE))
+	right_content.add_child(_menu_heading("Charms (je $%d)" % _charm_price()))
 	for i in spread.charm_options.size():
 		var charm := spread.charm_options[i]
 		var entry := HBoxContainer.new()
@@ -283,33 +328,71 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.tooltip_text = charm.description
-		if spread.charm_bought[i] or run.charm_ids().has(charm.id):
+		if spread.charm_bought[i] or run.owned_charm_ids().has(charm.id):
 			button.text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
 			button.disabled = true
 		else:
-			button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, CHARM_PRICE]
+			button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, _charm_price()]
 			button.pressed.connect(_on_charm_clicked.bind(i))
 		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 13)
 		entry.add_child(button)
 		right_content.add_child(entry)
 		charm_buttons.append(button)
 
-	right_content.add_child(_menu_heading("Coupon-Bögen"))
-	for i in SHEET_OFFERS.size():
-		var offer: Dictionary = SHEET_OFFERS[i]
-		var grid: Vector2i = CouponSheet.grid_size(offer["kind"])
-		var button := Button.new()
-		button.text = "%s · %d×%d · $%d" % [offer["name"], grid.x, grid.y, offer["price"]]
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0, 40)
-		button.pressed.connect(_on_sheet_pressed.bind(i))
-		CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 13)
-		right_content.add_child(button)
-		sheet_buttons.append(button)
+	right_content.add_child(_menu_heading("Coupon-Packs"))
+	var grid := GridContainer.new()
+	grid.columns = PACK_GRID_COLUMNS
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 6)
+	right_content.add_child(grid)
+	for offer in spread.pack_offers:
+		grid.add_child(_build_pack_card(offer.x, offer.y))
 
 	page_next_button = _corner_button("›")
 	page_next_button.pressed.connect(_on_page_next_pressed)
 	right_content.add_child(_page_footer(current_spread_index * 2 + 2, page_next_button, false))
+
+## Eine Pack-Karte des 3×3-Sortiments: Cover-Motiv, darunter der Pack-Name
+## (klein) und der Kaufknopf mit Größe · Preis. Der Tooltip (auf der ganzen
+## Karte) erklärt, welche Coupon-Arten drin sind.
+func _build_pack_card(pack_index: int, size_index: int) -> Control:
+	var pack: Dictionary = PACKS[pack_index]
+	var price := _pack_price(pack_index, size_index)  # inkl. Feinschmecker/Schnäppchenjäger
+	var size_label: String = PACK_SIZES[size_index]["label"]
+
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", 2)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.tooltip_text = "%s (%s)\n%s" % [pack["name"], size_label, pack["tooltip"]]
+
+	var cover_path: String = PACK_COVER_DIR + pack["id"] + ".jpg"
+	if ResourceLoader.exists(cover_path):
+		var cover := TextureRect.new()
+		cover.texture = load(cover_path)
+		cover.custom_minimum_size = Vector2(PACK_COVER_SIZE, PACK_COVER_SIZE)
+		cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		cover.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		card.add_child(cover)
+
+	var name_label := Label.new()
+	name_label.text = pack["name"]
+	name_label.clip_text = true
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.add_theme_font_size_override("font_size", 11)
+	name_label.add_theme_color_override("font_color", INK)
+	card.add_child(name_label)
+
+	var button := Button.new()
+	button.text = "%s $%d" % [size_label, price]
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(0, 25)
+	button.pressed.connect(_on_sheet_pressed.bind(pack_index, size_index))
+	CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 12)
+	card.add_child(button)
+	sheet_buttons.append(button)
+	sheet_button_prices.append(price)
+	return card
 
 ## Überschrift in dunkler "Druckfarbe" auf dem Menü-Papier.
 func _menu_heading(text: String) -> Label:
@@ -377,6 +460,18 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 
 	vbox.add_child(DiceRowView.build_row(offer.dice[0], OFFER_THUMB_SIZE, offer.size()))
 
+	# Veredelte Angebote (Material-Seiten/Kanten, siehe DiceOffer._roll_refinements)
+	# benennen ihre Veredelungen - die Mini-Vorschau allein ist dafür zu klein,
+	# und der Aufpreis soll lesbar begründet sein.
+	var refinements := _refinement_text(offer.dice[0])
+	if refinements != "":
+		var refined_label := Label.new()
+		refined_label.text = "Veredelt: %s" % refinements
+		refined_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		refined_label.add_theme_font_size_override("font_size", 12)
+		refined_label.add_theme_color_override("font_color", CasinoStyle.GOLD)
+		vbox.add_child(refined_label)
+
 	var buy := Button.new()
 	buy.text = "%s · $%d" % [offer.display_name, _offer_price(offer)]
 	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -421,10 +516,11 @@ func _build_charm_thumb(charm: Charm, size: int) -> SubViewportContainer:
 	camera.transform = Transform3D(Basis(), Vector3(0, 1.4, 6.0)).looking_at(Vector3.ZERO, Vector3.UP)
 	viewport.add_child(camera)
 
-	var path := charm.model_path
-	if path == "" or not ResourceLoader.exists(path):
-		path = CharmRowView.MODEL_FALLBACK
-	var model := (load(path) as PackedScene).instantiate() as Node3D
+	var model: Node3D
+	if charm.model_path != "" and ResourceLoader.exists(charm.model_path):
+		model = (load(charm.model_path) as PackedScene).instantiate() as Node3D
+	else:
+		model = CharmRowView.placeholder_model(charm.id)  # flache Platzhalter-Karte
 
 	# Modell über seine AABB einheitlich einpassen: auf ~2.2 Einheiten skalieren
 	# und um sein Zentrum drehbar aufhängen (Pivot), leicht angekippt wie die Würfel.
@@ -459,11 +555,41 @@ func _merged_aabb(node: Node) -> AABB:
 			stack.push_back([child, xform])
 	return result
 
+## Kurzbeschreibung der Veredelungen eines Angebots-Würfels ("" = keine):
+## Material-Seiten (mit Anzahl bei mehreren gleichen) und Kanten-Material,
+## z.B. "2× Bernstein-Seite · Gold-Kanten".
+func _refinement_text(def: DieDefinition) -> String:
+	var parts: Array[String] = []
+	var counts := {}
+	for material_id in def.materials:
+		if material_id != "":
+			counts[material_id] = counts.get(material_id, 0) + 1
+	for material_id in counts:
+		var material_name: String = DieMaterial.by_id(material_id).display_name
+		if counts[material_id] > 1:
+			parts.append("%d× %s-Seite" % [counts[material_id], material_name])
+		else:
+			parts.append("%s-Seite" % material_name)
+	if def.edge_material != "":
+		parts.append("%s-Kanten" % DieMaterial.by_id(def.edge_material).display_name)
+	return " · ".join(parts)
+
 # --- Käufe ----------------------------------------------------------------------
 
-## Effektiver Angebotspreis nach Rabatt-Charms (Trickdieb-Manschette).
+## Effektiver Angebotspreis nach Rabatt-Charms (Trickdieb-Manschette,
+## Mengenrabatt für 3er-Bündel).
 func _offer_price(offer: DiceOffer) -> int:
-	return CharmEffects.die_price(offer.price, run.charm_ids())
+	return CharmEffects.die_price(offer.price, run.charm_ids(), offer.size())
+
+## Effektiver Charm-Preis nach Skonto (siehe CharmEffects.charm_price).
+func _charm_price() -> int:
+	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())
+
+## Effektiver Pack-Preis nach Feinschmecker/Schnäppchenjäger (siehe
+## CharmEffects.pack_price).
+func _pack_price(pack_index: int, size_index: int) -> int:
+	var pack: Dictionary = PACKS[pack_index]
+	return CharmEffects.pack_price(pack["prices"][size_index], pack["id"], run.charm_ids())
 
 ## Kauft das komplette Würfel-Bündel des Angebots (siehe run.purchase_dice) -
 ## beliebig oft wiederholbar, solange genug Geld da ist.
@@ -480,22 +606,29 @@ func _on_offer_pressed(index: int) -> void:
 ## Doppelseiten dieses Besuchs angeboten wurde und schon woanders gekauft ist.
 func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
-	if charm_bought[index] or run.charm_ids().has(charm.id):
+	if charm_bought[index] or run.owned_charm_ids().has(charm.id):
 		return
-	run.purchase_charm(charm, CHARM_PRICE)
+	run.purchase_charm(charm, _charm_price())  # Skonto-Rabatt inklusive
 	charm_bought[index] = true
 	charm_buttons[index].disabled = true
 	charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
 	_refresh_afford_state()
 
-## Kauft einen Coupon-Bogen (siehe run.buy_coupon_sheet / CouponSheet) - beliebig
-## oft nachkaufbar. Die Enthüllung zeigt scene_root (hört auf run.sheet_purchased);
-## hier steht nur die kurze Rückmeldung, wie viele echte Ätzungen darauf lagen.
-func _on_sheet_pressed(index: int) -> void:
-	var offer: Dictionary = SHEET_OFFERS[index]
-	if run.money < offer["price"]:
+## Kauft ein Coupon-Pack in der gewählten Größe (siehe run.buy_coupon_sheet /
+## CouponSheet) - beliebig oft nachkaufbar. Sortenreine Packs geben ihre
+## erlaubten Coupon-Arten an die Bogen-Auswürfelung weiter (siehe PACKS:
+## kinds); die Enthüllung zeigt scene_root (hört auf run.sheet_purchased).
+func _on_sheet_pressed(pack_index: int, size_index: int) -> void:
+	var pack: Dictionary = PACKS[pack_index]
+	var price := _pack_price(pack_index, size_index)
+	if run.money < price:
 		return  # Button ist bei zu wenig Geld ohnehin deaktiviert
-	run.buy_coupon_sheet(offer["kind"], offer["price"])
+	var allowed: Array[String] = []
+	allowed.assign(pack["kinds"])
+	run.buy_coupon_sheet(PACK_SIZES[size_index]["kind"], price, allowed)
+	# Kleingedrucktes: Chance auf volle Rückerstattung des Kaufpreises.
+	if randf() < CharmEffects.pack_refund_chance(run.charm_ids()):
+		run.add_money(price)
 	_refresh_afford_state()
 
 ## Deaktiviert alles, was sich der Spieler gerade nicht leisten kann - je Angebot
@@ -507,9 +640,9 @@ func _refresh_afford_state() -> void:
 		offer_buy_buttons[i].disabled = money < _offer_price(dice_offers[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
-			charm_buttons[i].disabled = money < CHARM_PRICE or run.charm_ids().has(charm_options[i].id)
+			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
 	for i in sheet_buttons.size():
-		sheet_buttons[i].disabled = money < SHEET_OFFERS[i]["price"]
+		sheet_buttons[i].disabled = money < sheet_button_prices[i]
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

@@ -295,7 +295,14 @@ func _complete_two_step(second_face: int) -> void:
 ## Änderung. Die gewählte Seite bleibt gewählt, damit man direkt weitergravieren kann.
 func _finish_apply(coupon_id: String, message: String) -> void:
 	if run != null:
-		run.consume_coupon(coupon_id)
+		# Gravierstift: einmal pro Runde wird eine ÄTZUNG (kein Material/Kanten-
+		# Coupon) beim Anwenden nicht verbraucht (siehe CharmEffects).
+		var is_etching := not DieMaterial.is_valid_id(coupon_id) and not Coupon.is_edge_id(coupon_id)
+		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
+			run.gravierstift_used_this_round = true
+			message += " Gravierstift: Coupon nicht verbraucht!"
+		else:
+			run.consume_coupon(coupon_id)
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	die_view.refresh_faces([current_def])

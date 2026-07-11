@@ -129,17 +129,39 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ##
 ## combo_levels (optional): Menü-Stufen der Kombinationen (siehe mult_for) -
 ## leer = alles Grundstufe.
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> int:
+##
+## ctx (optional): Wurf-/Runden-Zustand für die Effektkatalog-Charms (Pendel,
+## Momentum, Nachzügler, ... - Schlüssel siehe CharmEffects). Leer = neutral.
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	if not qualifies(key, dice):
 		return 0
+	var participating := participating_indices(key, dice)
 	var base := _base_value(key, dice, charm_ids)
+	if not materials.is_empty() or not edge_materials.is_empty():
+		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
+	if not charm_ids.is_empty():
+		base += CharmEffects.charm_base_bonus(key, dice, participating, charm_ids, ctx, materials, edge_materials)
+		base *= CharmEffects.base_factor(dice, charm_ids)  # Einserkult
+	var mult := _total_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
+	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids) \
+		+ CharmEffects.charm_flat_bonus(dice, participating, charm_ids, materials, edge_materials)
+	score *= CharmEffects.score_multiplier(charm_ids, is_first_hand)
+	score = int(round(score * CharmEffects.hand_factor(key, charm_ids, ctx)))
+	score += CharmEffects.post_score_bonus(score, charm_ids)
+	return score
+
+## Der komplette Kombi-Multiplikator: Kategorie-Mult (inkl. Menü-Stufen) +
+## Charm-Boni + Material-Boni + Effektkatalog-Boni, dann Einserkult-Faktor -
+## auf min. 1 geklemmt (das Pendel kann negativ beitragen). Eine Quelle für
+## Rechnung UND Anzeige (siehe score_category/_display_mult).
+static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> int:
 	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
-		var participating := participating_indices(key, dice)
-		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
-		mult += MaterialEffects.mult_bonus(dice, materials, participating, edge_materials)
-	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids)
-	return score * CharmEffects.score_multiplier(charm_ids, is_first_hand)
+		mult += MaterialEffects.mult_bonus(dice, materials, participating_indices(key, dice), edge_materials, charm_ids)
+	if not charm_ids.is_empty():
+		mult += CharmEffects.charm_mult_bonus(key, dice, materials, charm_ids, ctx, combo_levels)
+		mult *= CharmEffects.mult_factor(dice, charm_ids)  # Einserkult
+	return maxi(1, mult)
 
 ## Basiswert einer Kategorie VOR Kombi-Multiplikator: die beteiligten
 ## (charm-angepassten) Würfelaugen. Paschs zählen n×Augenwert, die
@@ -167,25 +189,16 @@ static func _base_value(key: String, dice: Array[int], charm_ids: Array[String])
 ## nicht einfach die mit dem höchsten Punktwert. charm_ids/materials siehe
 ## score_category (das "mult"-Feld enthält auch die Material-Mult-Boni, damit
 ## die Anzeige zur tatsächlichen Rechnung passt).
-static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> Dictionary:
+static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
 				"key": key,
 				"label": label_for(key),
-				"mult": _display_mult(key, dice, charm_ids, materials, edge_materials, combo_levels),
-				"score": score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels),
+				"mult": _total_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx),
+				"score": score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx),
 			}
-	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _display_mult(ONE_KIND, dice, charm_ids, materials, edge_materials, combo_levels), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels)}
-
-## Der in best_hand angezeigte Multiplikator: Kategorie-Mult (inkl. Menü-Stufen)
-## + Charm-Boni + Material-Mult-Boni der beteiligten Würfel (Seiten und Kanten)
-## - identisch zur Rechnung in score_category.
-static func _display_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> int:
-	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
-	if not materials.is_empty() or not edge_materials.is_empty():
-		mult += MaterialEffects.mult_bonus(dice, materials, participating_indices(key, dice), edge_materials)
-	return mult
+	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _total_mult(ONE_KIND, dice, charm_ids, materials, edge_materials, combo_levels, ctx), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)}
 
 ## Wie best_hand(), liefert aber zusätzlich die Positionen in dice, die zur
 ## besten Kategorie gehören - Grundlage fürs automatische Vorauswählen der
@@ -243,9 +256,11 @@ static func participating_indices(key: String, dice: Array[int]) -> Array[int]:
 ## ein Neu-Würfeln, das NICHT mehr Punkte bringt (gleich viele oder weniger),
 ## gilt als Farkle - unabhängig davon, welche Hand-Kategorie jeweils vorliegt.
 ## Materialien zählen auf beiden Seiten mit (jeweils die damals oben liegenden).
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}) -> bool:
-	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels)["score"]
-	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels)["score"]
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> bool:
+	# ctx gilt für BEIDE Seiten gleich (Streak, Farkle-Stapel, ... sind für
+	# alten und neuen Wurf identisch) - der Vergleich bleibt damit fair.
+	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels, ctx)["score"]
+	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx)["score"]
 	return new_score > old_score
 
 static func _counts(dice: Array[int]) -> Dictionary:

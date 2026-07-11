@@ -4,8 +4,9 @@ extends GutTest
 ## eindeutige ids, gefüllte Anzeigefelder und Konsistenz zwischen id-Konstante
 ## und Fabrikmethode.
 
-func test_all_returns_twenty_charms():
-	assert_eq(Charm.all().size(), 20)
+func test_all_returns_all_charms():
+	# 20 ursprüngliche + 69 aus dem Effektkatalog (siehe Obsidian "12 Charms").
+	assert_eq(Charm.all().size(), 89)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -33,15 +34,22 @@ func test_mapped_models_exist_on_disk():
 			assert_true(FileAccess.file_exists(charm.model_path),
 				"Modell fehlt: %s (%s)" % [charm.model_path, charm.id])
 
-func test_most_charms_have_a_model():
-	# Aktuell haben 19 der 20 Charms ein eigenes Modell; nur der Glücksgroschen
-	# (OLD_PENNY) fällt noch auf das Platzhaltermodell zurück (siehe CharmRowView).
-	var without: Array[String] = []
-	for charm in Charm.all():
-		if charm.model_path == "":
-			without.append(charm.id)
-	assert_eq(without, [Charm.OLD_PENNY],
-		"nur der Glücksgroschen sollte (noch) ohne Modell sein")
+func test_original_charms_have_models():
+	# Die 19 ursprünglichen Modelle bleiben verdrahtet; alle Effektkatalog-Charms
+	# (und der Glücksgroschen) fallen bewusst auf die Platzhalter-Karte zurück
+	# (siehe CharmRowView.placeholder_model).
+	assert_ne(Charm.rabbits_foot().model_path, "", "Hasenpfote hat ihr Modell")
+	assert_ne(Charm.horseshoe().model_path, "", "Hufeisen hat sein Modell")
+	assert_eq(Charm.old_penny().model_path, "", "Glücksgroschen nutzt den Platzhalter")
+
+func test_placeholder_model_is_a_colored_card():
+	var model: Node3D = autofree(CharmRowView.placeholder_model(Charm.PENDULUM))
+	var mesh_instance: MeshInstance3D = model.get_child(0)
+	assert_true(mesh_instance.mesh is BoxMesh, "Platzhalter ist ein flacher Kasten")
+	var other: Node3D = autofree(CharmRowView.placeholder_model(Charm.BLACKJACK))
+	var color_a: Color = mesh_instance.material_override.albedo_color
+	var color_b: Color = (other.get_child(0) as MeshInstance3D).material_override.albedo_color
+	assert_ne(color_a, color_b, "verschiedene Charms bekommen verschiedene Kartenfarben")
 
 func test_instantiate_is_independent_copy():
 	# DieDefinition ist eine geteilte Resource - hier stellvertretend der Vertrag,

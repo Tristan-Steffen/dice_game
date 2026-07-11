@@ -231,6 +231,18 @@ var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (fü
 var pre_reroll_materials: Array[String] = []  # oben liegende Seiten-Materialien VOR dem Neu-Würfeln (siehe _rolled_materials)
 var pre_reroll_edge_materials: Array[String] = []  # Kanten-Materialien VOR dem Neu-Würfeln (siehe _edge_materials; Neu-Würfeln kann Slots neu besetzen)
 var last_thrown_indices: Array[int] = []  # Slots des zuletzt gestarteten Wurfs - für die Gold-Kanten-Auszahlung je Wurf (siehe _on_roll_finished)
+
+# --- Zustand der Effektkatalog-Charms (siehe CharmEffects: ctx-Schlüssel) ---
+var rerolled_dice_this_hand: int = 0  # Pendel (+2 Mult je neu geworfenem Würfel)
+var rerolls_this_hand: int = 0  # Anker (der ERSTE Neuwurf kann nicht farkeln)
+var taken_dice_this_round: int = 0  # Pendel (−1 Mult je genommenem Würfel)
+var last_throw_full_reroll: bool = false  # Alles-oder-nichts (alle 6 neu geworfen)
+var momentum_streak: int = 0  # Momentum (+1 Mult je Hand in Folge ohne Farkle)
+var previous_taken_key: String = ""  # Serientäter (dieselbe Kombination erneut)
+var first_hand_after_farkle: bool = false  # Galgenhumor (+3 Mult nach Farkle)
+var recycling_used_this_round: bool = false  # Recycling wirkt nur auf die erste Hand
+var slot_draw_positions: Array[int] = []  # je Slot die Zieh-Position im Stapel (Bodensatz)
+var discarded_this_round: Array[DieDefinition] = []  # Ablage der Runde (Phönixfeder)
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zwischen Händen
 
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
@@ -528,8 +540,9 @@ func _play_sheet_finish_animation() -> void:
 	finish.tween_callback(_cleanup_sheet_animation)
 
 ## Ein Geld-Coupon ist am Geldzähler angekommen: Chips gutschreiben + pulsen.
+## Doppelte Perforation hebt den Chip-Wert (siehe CharmEffects.chip_coupon_value).
 func _grant_chip_coupon() -> void:
-	run.add_money(CHIP_COUPON_VALUE)
+	run.add_money(CharmEffects.chip_coupon_value(CHIP_COUPON_VALUE, run.charm_ids()))
 	_pulse_money_label()
 
 ## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen (die
@@ -1145,6 +1158,33 @@ func _edge_materials() -> Array[String]:
 		materials.append(dice.slot_defs[i].edge_material)
 	return materials
 
+## Wurf-/Runden-Zustand für die Effektkatalog-Charms (ctx-Schlüssel siehe
+## CharmEffects) - wird in JEDE Wertung gereicht (Vorschau, Nehmen,
+## Farkle-Vergleich), damit Anzeige und Rechnung identisch bleiben.
+func _score_ctx() -> Dictionary:
+	return {
+		"rerolled": rerolled_dice_this_hand,
+		"taken_dice": taken_dice_this_round,
+		"full_reroll": last_throw_full_reroll,
+		"streak": momentum_streak,
+		"last_hand": _remaining_in_pool() < HAND_SIZE,  # nach dieser Hand geht keine volle mehr
+		"prev_key": previous_taken_key,
+		"after_farkle": first_hand_after_farkle,
+		"farkle_stacks": run.farkle_count,
+		"last_settled": dice.last_settled_index,
+		"late_slots": _late_slots(),
+	}
+
+## Slots, deren Würfel aus den letzten 6 Positionen des Nachziehstapels gezogen
+## wurden (Bodensatz-Charm, siehe slot_draw_positions).
+func _late_slots() -> Array:
+	var late: Array = []
+	var threshold := round_pool_kinds.size() - 6
+	for i in slot_draw_positions.size():
+		if slot_draw_positions[i] >= threshold:
+			late.append(i)
+	return late
+
 func _remaining_in_pool() -> int:
 	return round_pool_kinds.size() - next_draw_index
 
@@ -1153,8 +1193,10 @@ func _draw_one() -> DieDefinition:
 	next_draw_index += 1
 	return def
 
-## Schickt einen einzelnen gebrauchten Würfel ins Ablage-Tray.
+## Schickt einen einzelnen gebrauchten Würfel ins Ablage-Tray (und merkt ihn
+## sich für die Phönixfeder, siehe discarded_this_round/_on_farkle).
 func _discard_kind(def: DieDefinition) -> void:
+	discarded_this_round.append(def)
 	discard_tray_view.add_die(def)
 
 ## Wie viele der im Warteschlangen-Tray angezeigten Würfel beim nächsten Wurf
@@ -1317,9 +1359,11 @@ func _on_throw_button_pressed() -> void:
 		# ziehen und alle gezogenen Slots werfen.
 		hand_note = ""
 		active_kinds = []
+		slot_draw_positions = []
 		for i in HAND_SIZE:
 			if _remaining_in_pool() <= 0:
 				break
+			slot_draw_positions.append(next_draw_index)  # Bodensatz (siehe _late_slots)
 			active_kinds.append(_draw_one())
 			thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
@@ -1334,9 +1378,16 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_edge_materials = _edge_materials()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
+				if i < slot_draw_positions.size():
+					slot_draw_positions[i] = next_draw_index  # Bodensatz (siehe _late_slots)
 				active_kinds[i] = _draw_one()
 				thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
+		# Effektkatalog-Zähler: Pendel zählt neu geworfene Würfel, der Anker den
+		# WIEVIELTEN Neuwurf die Hand hat, Alles-oder-nichts den vollen Neuwurf.
+		rerolls_this_hand += 1
+		rerolled_dice_this_hand += thrown_indices.size()
+		last_throw_full_reroll = thrown_indices.size() == dice.count()
 	last_thrown_indices = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
@@ -1460,8 +1511,9 @@ func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
 	# Gold-Kanten zahlen bei JEDEM Wurf der betroffenen Würfel - noch vor der
-	# Farkle-Prüfung (auch ein farkelnder Wurf ist ein Wurf).
-	var roll_income := MaterialEffects.roll_money(_edge_materials(), last_thrown_indices)
+	# Farkle-Prüfung (auch ein farkelnder Wurf ist ein Wurf). Der Rahmenvergolder
+	# verdoppelt die Auszahlung (siehe MaterialEffects.roll_money).
+	var roll_income := MaterialEffects.roll_money(_edge_materials(), last_thrown_indices, run.charm_ids())
 	if roll_income > 0:
 		run.add_money(roll_income)
 		_pulse_money_label()
@@ -1470,7 +1522,19 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx()):
+		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln - der Wurf
+		# zählt, die Hand läuft einfach weiter (wie ein verziehener Farkle).
+		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
+			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
+			dice.clear_selection()
+			_auto_select_best_combo()
+			has_rolled_current_hand = true
+			last_throw_was_reroll = false
+			_refresh_action_buttons()
+			_refresh_deck_trays()
+			_refresh_ui()
+			return
 		_on_farkle()
 		return
 
@@ -1500,7 +1564,7 @@ func _on_farkle() -> void:
 	# Schornsteinfeger: erster Farkle der Runde wird verziehen - die Hand wird
 	# NICHT verworfen, sondern läuft mit den aktuellen Würfeln weiter (der
 	# Spieler kann nehmen oder erneut würfeln), als hätte der schlechte Wurf
-	# nur nicht verbessert.
+	# nur nicht verbessert. Ein verziehener Farkle löst KEINE Farkle-Effekte aus.
 	if CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
 		chimney_sweep_used_this_round = true
 		hand_note = "Schornsteinfeger: Farkle verziehen – die Hand darf weiterlaufen."
@@ -1515,12 +1579,39 @@ func _on_farkle() -> void:
 
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
 
+	# Effektkatalog: der Farkle zählt für den Zerbrochenen Spiegel (dauerhafter
+	# Mult je Farkle), reißt die Momentum-Serie ab und markiert die nächste
+	# Hand für den Galgenhumor.
+	run.farkle_count += 1
+	momentum_streak = 0
+	first_hand_after_farkle = true
+
+	# Scherbengericht: der Farkle zahlt $1 je verworfenem Würfel.
+	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
+	if shard_income > 0:
+		run.add_money(shard_income)
+		_pulse_money_label()
+		_show_money_popup(shard_income)
+
+	# Standuhr: der Farkle verdoppelt die aktuellen Rundenpunkte.
+	if CharmEffects.farkle_doubles_points(ids) and hand_total > 0:
+		hand_total *= 2
+		_animate_points_to(hand_total)
+		hand_note = "Standuhr: Farkle – die Rundenpunkte verdoppeln sich!"
+
+	# Flickenteppich: die Höchste-Zahl-Wertung des farkelnden Wurfs bleibt.
+	if CharmEffects.farkle_keeps_high_card(ids):
+		var high_card := DiceScoring.score_category(DiceScoring.ONE_KIND, dice.values, ids, false, _rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
+		if high_card > 0:
+			hand_total += high_card
+			_animate_points_to(hand_total)
+
 	# Umgedrehter Spiegel: statt null bleibt ein Anteil der Punkte erhalten, die
 	# die Hand vor dem farkelnden Wurf wert war (pre_reroll_values, ihr
 	# Höchststand).
 	var kept := CharmEffects.farkle_kept_fraction(ids)
 	if kept > 0.0:
-		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials, run.combo_levels)["score"]
+		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials, run.combo_levels, _score_ctx())["score"]
 		var salvage := int(floor(peak * kept))
 		if salvage > 0:
 			hand_total += salvage
@@ -1531,6 +1622,17 @@ func _on_farkle() -> void:
 		_discard_kind(kind)
 
 	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
+		# Phönixfeder: rettet EINMAL pro Run eine Runde, die ein Farkle sonst
+		# unter dem Ziel beenden würde - die Ablage kehrt in den Nachziehstapel
+		# zurück, die Punkte bleiben stehen.
+		if hand_total < run.round_goal and CharmEffects.has_phoenix(ids) and not run.phoenix_used:
+			run.phoenix_used = true
+			round_pool_kinds.append_array(discarded_this_round)
+			discarded_this_round = []
+			discard_tray_view.clear()
+			hand_note = "Phönixfeder: Die Runde lebt weiter – die Ablage kehrt zurück!"
+			_start_new_hand()
+			return
 		_on_round_complete()
 	else:
 		# Überlebter Farkle (Runde geht weiter): Kristallkugel zahlt Geld.
@@ -1554,9 +1656,10 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
 	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
 	# auswerten.
+	var ids := run.charm_ids()
 	var materials := _rolled_materials()
 	var edge_materials := _edge_materials()
-	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials, edge_materials, run.combo_levels)
+	var hand := DiceScoring.best_hand(dice.values, ids, hands_taken_this_round == 0, materials, edge_materials, run.combo_levels, _score_ctx())
 	hand_total += hand["score"]
 	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
@@ -1565,13 +1668,45 @@ func _on_take_button_pressed() -> void:
 	# schrumpft - Seiten wie Kanten) - nur für Würfel der genommenen
 	# Kombination, genau einmal hier (nie in der Vorschau). Knochen/Glas
 	# verändern die Pool-Würfel dauerhaft; das Ablage-Tray zeigt gleich die
-	# schon veränderten Werte.
+	# schon veränderten Werte. Charms verstärken einzelne Materialien (siehe
+	# MaterialEffects: Goldschmied/Knochenleim/Glasbläserlunge).
 	var participating := DiceScoring.participating_indices(hand["key"], dice.values)
-	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials)
-	if report.money > 0:
-		run.add_money(report.money)
+	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids)
+	var take_money := report.money
+
+	# --- Effektkatalog-Charms beim Nehmen ---
+	# Straßenmusiker: jede genommene Hand zahlt $1.
+	take_money += CharmEffects.take_income(ids)
+	# Lumpensammler: die gleich abgelegten Würfel mit der Glückszahl oben zahlen.
+	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
+	if take_money > 0:
+		run.add_money(take_money)
 		_pulse_money_label()
-		_show_money_popup(report.money)
+		_show_money_popup(take_money)
+	# Goldrausch: nutzt die Kombination alle 6 Würfel, wächst das Geld um 50%.
+	if CharmEffects.gold_rush_applies(ids, participating.size()):
+		var rush := run.money / 2
+		if rush > 0:
+			run.add_money(rush)
+			_pulse_money_label()
+			_show_money_popup(rush)
+	# Hausrezept: die Kombination mit den meisten Menü-Stufen steigt beim
+	# Nehmen erneut (nur wenn sie überhaupt Stufen hat).
+	if ids.has(Charm.HOUSE_RECIPE):
+		var level: int = run.combo_levels.get(hand["key"], 0)
+		if level > 0 and level >= _max_combo_level():
+			run.eat_meal(hand["key"])
+	# Momentum/Galgenhumor/Serientäter/Pendel: Zähler fortschreiben.
+	momentum_streak += 1
+	first_hand_after_farkle = false
+	previous_taken_key = hand["key"]
+	taken_dice_this_round += dice.count()
+
+	# Recycling: die erste genommene Hand der Runde kehrt ans Ende des
+	# Nachziehstapels zurück (die Würfel liegen trotzdem sichtbar in der Ablage).
+	if CharmEffects.recycles_first_hand(ids) and not recycling_used_this_round:
+		recycling_used_this_round = true
+		round_pool_kinds.append_array(active_kinds)
 
 	for kind in active_kinds:
 		_discard_kind(kind)
@@ -1580,6 +1715,14 @@ func _on_take_button_pressed() -> void:
 		_on_round_complete()
 	else:
 		_start_new_hand()
+
+## Die höchste Menü-Stufe über alle Kombinationen (0 = keine Gerichte gegessen)
+## - Grundlage des Hausrezepts (siehe _on_take_button_pressed).
+func _max_combo_level() -> int:
+	var best := 0
+	for key in run.combo_levels:
+		best = maxi(best, int(run.combo_levels[key]))
+	return best
 
 ## Markiert alle Würfel fürs nächste "Neu würfeln" als geschützt (siehe
 ## DiceController.select_all) - nützlich, um versehentliches Neu-Würfeln der
@@ -1619,6 +1762,11 @@ func _reset_game() -> void:
 	_clear_cup_interior_ghosts()
 	hand_note = ""
 	last_throw_was_reroll = false
+	momentum_streak = 0
+	previous_taken_key = ""
+	rerolled_dice_this_hand = 0
+	rerolls_this_hand = 0
+	last_throw_full_reroll = false
 	run = GameRun.new_run()
 	_connect_run()
 	charm_shop.visible = false
@@ -1648,6 +1796,16 @@ func _start_new_round() -> void:
 	_cancel_reorder_drag()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
+	taken_dice_this_round = 0
+	recycling_used_this_round = false
+	first_hand_after_farkle = false
+	discarded_this_round = []
+	slot_draw_positions = []
+
+	# Rundenbeginn-Wirkungen der Effektkatalog-Charms (Mitternachtssnack,
+	# Frankiermaschine, Schmuckkästchen; setzt auch den Gravierstift zurück) -
+	# VOR dem Poolaufbau, damit frische Materialien sofort mitspielen.
+	run.apply_round_start_charms()
 
 	var ids := run.charm_ids()
 	round_pool_kinds = run.owned_pool.duplicate()
@@ -1657,10 +1815,16 @@ func _start_new_round() -> void:
 	for i in CharmEffects.extra_round_dice(ids):
 		round_pool_kinds.append(DieDefinition.standard())
 	round_pool_kinds.shuffle()
-	# Wünschelrute (siehe CharmEffects.draws_specials_first): Spezialwürfel nach
-	# vorne, damit sie in den frühesten Händen gezogen werden.
+	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - die
+	# ZULETZT angewandte gewinnt die vorderste Position (Frische Ware > Magnetring
+	# > Wünschelrute).
 	if CharmEffects.draws_specials_first(ids):
 		round_pool_kinds = _specials_first(round_pool_kinds)
+	if CharmEffects.draws_edges_first(ids):
+		round_pool_kinds = _edges_first(round_pool_kinds)
+	if CharmEffects.draws_fresh_first(ids):
+		round_pool_kinds = _fresh_first(round_pool_kinds)
+	run.newly_purchased = []  # Frische gilt nur für die nächste Runde nach dem Kauf
 
 	next_draw_index = 0
 	discard_tray_view.clear()
@@ -1682,9 +1846,35 @@ func _specials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
 			specials.append(def)
 	return specials + normals
 
+## Sortiert Würfel mit Kanten-Material stabil an den Anfang (Magnetring).
+func _edges_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
+	var edged: Array[DieDefinition] = []
+	var rest: Array[DieDefinition] = []
+	for def in pool:
+		if def.edge_material != "":
+			edged.append(def)
+		else:
+			rest.append(def)
+	return edged + rest
+
+## Sortiert die zuletzt gekauften Würfel stabil an den Anfang (Frische Ware,
+## siehe GameRun.newly_purchased - dieselben Pool-Instanzen).
+func _fresh_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
+	var fresh: Array[DieDefinition] = []
+	var rest: Array[DieDefinition] = []
+	for def in pool:
+		if run.newly_purchased.has(def):
+			fresh.append(def)
+		else:
+			rest.append(def)
+	return fresh + rest
+
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
 	active_kinds = []
+	rerolled_dice_this_hand = 0
+	rerolls_this_hand = 0
+	last_throw_full_reroll = false
 	dice.reset()
 	take_button.disabled = true
 	select_all_button.disabled = true
@@ -1710,6 +1900,17 @@ func _on_round_complete() -> void:
 		await _play_round_clear_payout(blind, per_die)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlungs-Animation zurückgesetzt
+		# Rundenende-Geld der Effektkatalog-Charms: Zinsgroschen (auf den Stand
+		# NACH der Auszahlung), Vollversammlung, Überflieger - danach hält der
+		# Notgroschen den Mindeststand.
+		var extra := CharmEffects.round_end_income(run.money, run.owned_charms.size(), hand_total - run.round_goal, ids)
+		if extra > 0:
+			run.add_money(extra)
+			_pulse_money_label()
+			_show_money_popup(extra)
+		var floor_value := CharmEffects.money_floor(ids)
+		if run.money < floor_value:
+			run.money = floor_value
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
 		charm_shop.open()
@@ -1888,7 +2089,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
 	else:
-		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials(), run.combo_levels)
+		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))
