@@ -14,7 +14,16 @@
 [ext_resource type="PackedScene" uid="uid://3ejwutgaggb5" path="res://scenes/shop_panel.tscn" id="17_shoppanel"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
-ambient_light_color = Color(0.9955804, 0.99558026, 0.99558026, 1)
+background_mode = 1
+background_color = Color(0.03, 0.025, 0.04, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.45, 0.38, 1)
+ambient_light_energy = 0.3
+glow_enabled = true
+glow_intensity = 0.8
+glow_strength = 1.0
+glow_bloom = 0.1
+glow_hdr_threshold = 0.95
 
 [node name="SceneRoot" type="Node3D" unique_id=948145352]
 script = ExtResource("3_script")
@@ -171,7 +180,15 @@ environment = SubResource("Environment_p52qu")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=821656404]
 transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.8365962, -0.84949386, -0.4413869, 0.28902903, 57.105812, 140.23296, 47.27364)
-light_energy = 4.555
+light_color = Color(1, 0.88, 0.72, 1)
+light_energy = 0.35
+
+[node name="TableLight" type="OmniLight3D" parent="." unique_id=821656405]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, 0)
+light_color = Color(1, 0.84, 0.58, 1)
+light_energy = 3.4
+omni_range = 55.0
+omni_attenuation = 1.6
 
 [node name="Dice" type="Node3D" parent="." unique_id=219306191]
 

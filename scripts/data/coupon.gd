@@ -14,9 +14,16 @@ enum Rarity { COMMON, UNCOMMON, RARE }
 
 # kind eines Coupons: Ätzungen verändern die Augen eines Würfels (siehe
 # EtchingEffects), Materialien belegen genau eine Seite mit einer Veredelung
-# (siehe DieMaterial/MaterialEffects; die Coupon-id IST die Material-id).
+# (siehe DieMaterial/MaterialEffects; die Coupon-id IST die Material-id),
+# Kanten-Materialien veredeln den GANZEN Würfel (siehe
+# DieDefinition.edge_material; Coupon-id = EDGE_PREFIX + Material-id).
 const KIND_ETCHING := "etching"
 const KIND_MATERIAL := "material"
+const KIND_EDGE := "edge"
+
+## Präfix der Kanten-Coupon-ids vor der Material-id ("edge_gold", ...) - damit
+## kollidieren sie nie mit den Seiten-Material-Coupons (id = Material-id).
+const EDGE_PREFIX := "edge_"
 
 # --- Coupon-ids (Single Source of Truth; genutzt in coupon.gd + EtchingEffects) ---
 const CHISEL := "chisel"
@@ -63,6 +70,14 @@ const FOOTPRINT := {
 	DieMaterial.BONE: Vector2i(2, 2),
 	DieMaterial.RUBY: Vector2i(2, 2),
 	DieMaterial.MERCURY: Vector2i(3, 2),
+	# Kanten-Coupons (ganzer Würfel, siehe KIND_EDGE) - stärker als die
+	# Seiten-Variante, darum durchweg größere Flächen.
+	EDGE_PREFIX + DieMaterial.GOLD: Vector2i(2, 2),
+	EDGE_PREFIX + DieMaterial.AMBER: Vector2i(2, 2),
+	EDGE_PREFIX + DieMaterial.GLASS: Vector2i(2, 2),
+	EDGE_PREFIX + DieMaterial.BONE: Vector2i(3, 2),
+	EDGE_PREFIX + DieMaterial.RUBY: Vector2i(3, 2),
+	EDGE_PREFIX + DieMaterial.MERCURY: Vector2i(3, 3),
 }
 
 @export var id: String = ""
@@ -151,6 +166,12 @@ static func blueprint() -> Coupon:
 static func material_coupon(material: DieMaterial, rarity: Rarity) -> Coupon:
 	return _make(material.id, material.display_name, material.description, rarity, KIND_MATERIAL)
 
+## Kanten-Coupon zu einem DieMaterial: veredelt den GANZEN Würfel (siehe
+## DieDefinition.edge_material) statt einer Seite - Wirkung siehe
+## DieMaterial.edge_description / MaterialEffects.
+static func edge_coupon(material: DieMaterial, rarity: Rarity) -> Coupon:
+	return _make(EDGE_PREFIX + material.id, "%s-Kanten" % material.display_name, material.edge_description, rarity, KIND_EDGE)
+
 ## Seltenheit je Material-Coupon: Gold/Bernstein häufig (kleine, stetige
 ## Effekte), Glas/Knochen/Rubin ungewöhnlich, Quecksilber (Doppel-Zählung) selten.
 const MATERIAL_RARITY := {
@@ -162,9 +183,20 @@ const MATERIAL_RARITY := {
 	DieMaterial.MERCURY: Rarity.RARE,
 }
 
+## Seltenheit je Kanten-Coupon: eine Stufe über der Seiten-Variante (wirken
+## bei jedem Wurf-Ergebnis des Würfels, nicht nur bei einer von 6 Seiten).
+const EDGE_RARITY := {
+	DieMaterial.GOLD: Rarity.UNCOMMON,
+	DieMaterial.AMBER: Rarity.UNCOMMON,
+	DieMaterial.GLASS: Rarity.RARE,
+	DieMaterial.BONE: Rarity.RARE,
+	DieMaterial.RUBY: Rarity.RARE,
+	DieMaterial.MERCURY: Rarity.RARE,
+}
+
 ## Alle existierenden Coupon-Archetypen (kanonische Registrierung) - Grundlage
 ## für die Bogen-Auswürfelung. Ein neuer Coupon wird hier eingehängt; die
-## Material-Coupons kommen automatisch aus DieMaterial.all().
+## Material- und Kanten-Coupons kommen automatisch aus DieMaterial.all().
 static func all() -> Array[Coupon]:
 	var result: Array[Coupon] = [
 		chisel(), transplant(), grindstone(), fine_engraving(), overcount_engraving(),
@@ -172,7 +204,25 @@ static func all() -> Array[Coupon]:
 	]
 	for material in DieMaterial.all():
 		result.append(material_coupon(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
+	for material in DieMaterial.all():
+		result.append(edge_coupon(material, EDGE_RARITY.get(material.id, Rarity.RARE)))
 	return result
+
+## True, wenn coupon_id einen Kanten-Coupon bezeichnet (EDGE_PREFIX + gültige
+## Material-id) - für die Anwendungs-UI (siehe DieInspectorView).
+static func is_edge_id(coupon_id: String) -> bool:
+	return coupon_id.begins_with(EDGE_PREFIX) and DieMaterial.is_valid_id(coupon_id.trim_prefix(EDGE_PREFIX))
+
+## Die DieMaterial-id hinter diesem Coupon: direkt (Seiten-Material), ohne
+## EDGE_PREFIX (Kanten) - oder "" bei Ätzungen. Für Material-Tints in der
+## Anzeige (siehe CouponSheetView/DieInspectorView).
+func material_id() -> String:
+	match kind:
+		KIND_MATERIAL:
+			return id
+		KIND_EDGE:
+			return id.trim_prefix(EDGE_PREFIX)
+	return ""
 
 ## Anzeigename der Seltenheit (deutsch).
 static func rarity_name(value: Rarity) -> String:

@@ -17,6 +17,11 @@ signal die_clicked(index: int)
 ## Einzelwürfel-Nutzung (Gravur-Station, siehe DieInspectorView); der Shop
 ## verbindet nur die_clicked und ignoriert dies.
 signal face_clicked(die_index: int, face_index: int)
+## Klick auf den Kanten-Rahmen des Würfels (statt einer Seite) - für die
+## Kanten-Auswahl in der Gravur-Station (Kanten-Materialien, siehe
+## DieDefinition.edge_material). Gewinnt gegen face_clicked, wenn der Klick
+## einer Kanten-Mitte näher liegt als jeder Seiten-Mitte (siehe _gui_input).
+signal edges_clicked(die_index: int)
 
 const DRAG_THRESHOLD := 6.0
 const DRAG_SENSITIVITY := 0.01
@@ -107,9 +112,13 @@ func _gui_input(event: InputEvent) -> void:
 		elif drag_index != -1:
 			if not is_dragging:
 				die_clicked.emit(drag_index)
-				var face := _pick_face(drag_index, event.position)
-				if face != -1:
-					face_clicked.emit(drag_index, face)
+				# Seite ODER Kanten-Rahmen: was dem Klick näher liegt, gewinnt.
+				var face_pick := _pick_face(drag_index, event.position)
+				var edge_dist := _pick_edges_distance(drag_index, event.position)
+				if edge_dist < face_pick[1]:
+					edges_clicked.emit(drag_index)
+				elif face_pick[0] != -1:
+					face_clicked.emit(drag_index, face_pick[0])
 			drag_index = -1
 			is_dragging = false
 	elif event is InputEventMouseMotion and drag_index != -1:
@@ -128,19 +137,20 @@ func set_highlighted(index: int) -> void:
 	for i in die_roots.size():
 		die_roots[i].scale = Vector3.ONE * (1.15 if i == index else 1.0)
 
-## Findet die angeklickte physische Seite des Würfels die_index (face_index
-## 0..5, siehe DiceController.AXIS_FACE_INDEX), oder -1. Betrachtet nur dem
-## Betrachter zugewandte Seiten (FACE_FRONT_MIN_DOT) und wählt darunter die,
-## deren projizierte Mitte dem Klick am nächsten liegt - analog zu _pick_die,
-## ohne Physik-Raycast (der im isolierten Vorschau-Viewport unzuverlässig ist).
-func _pick_face(die_index: int, local_pos: Vector2) -> int:
-	if camera == null or die_index < 0 or die_index >= die_roots.size():
-		return -1
-	var faces: DieFaceDisplay = die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
-	if faces == null:
-		return -1
+## Findet die angeklickte physische Seite des Würfels die_index - liefert
+## [face_index (0..5, siehe DiceController.AXIS_FACE_INDEX; -1 = keine),
+## Distanz des Klicks zur projizierten Seiten-Mitte (INF bei keiner)].
+## Betrachtet nur dem Betrachter zugewandte Seiten (FACE_FRONT_MIN_DOT) und
+## wählt darunter die, deren projizierte Mitte dem Klick am nächsten liegt -
+## analog zu _pick_die, ohne Physik-Raycast (der im isolierten
+## Vorschau-Viewport unzuverlässig ist). Die Distanz erlaubt dem Aufrufer den
+## Vergleich mit dem Kanten-Rahmen (siehe _pick_edges_distance).
+func _pick_face(die_index: int, local_pos: Vector2) -> Array:
 	var best_face := -1
-	var best_dist := pick_radius
+	var best_dist := INF
+	var faces := _face_display(die_index)
+	if faces == null:
+		return [best_face, best_dist]
 	for axis in faces.quads:
 		var quad: MeshInstance3D = faces.quads[axis]
 		var to_cam: Vector3 = (camera.global_position - quad.global_position).normalized()
@@ -149,10 +159,41 @@ func _pick_face(die_index: int, local_pos: Vector2) -> int:
 			continue  # Seite zeigt vom Betrachter weg
 		var screen: Vector2 = camera.unproject_position(quad.global_position)
 		var dist := screen.distance_to(local_pos)
-		if dist < best_dist:
+		if dist < best_dist and dist < pick_radius:
 			best_dist = dist
 			best_face = DiceController.AXIS_FACE_INDEX[axis]
-	return best_face
+	return [best_face, best_dist]
+
+## Distanz des Klicks zur nächsten dem Betrachter zugewandten KANTEN-Mitte des
+## Würfels (INF = keine in pick_radius). Jedes Paar senkrechter Achsrichtungen
+## bezeichnet eine Kante (Mitte bei (a+b)·HALF_EXTENT, wie die Balken in
+## DieBuilder); ihre "Normale" ist die Winkelhalbierende beider Seiten-Normalen.
+func _pick_edges_distance(die_index: int, local_pos: Vector2) -> float:
+	var best_dist := INF
+	var faces := _face_display(die_index)
+	if faces == null:
+		return best_dist
+	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
+	for i in directions.size():
+		for j in range(i + 1, directions.size()):
+			var a: Vector3 = directions[i]
+			var b: Vector3 = directions[j]
+			if not is_zero_approx(a.dot(b)):
+				continue  # (anti)parallel = keine gemeinsame Kante
+			var mid_global: Vector3 = faces.global_transform * ((a + b) * DieBuilder.HALF_EXTENT)
+			var to_cam: Vector3 = (camera.global_position - mid_global).normalized()
+			var normal: Vector3 = (faces.global_transform.basis * (a + b)).normalized()
+			if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
+				continue  # Kante liegt auf der abgewandten Seite
+			var dist := camera.unproject_position(mid_global).distance_to(local_pos)
+			if dist < best_dist and dist < pick_radius:
+				best_dist = dist
+	return best_dist
+
+func _face_display(die_index: int) -> DieFaceDisplay:
+	if camera == null or die_index < 0 or die_index >= die_roots.size():
+		return null
+	return die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
 
 ## Hebt genau eine Seite des Würfels die_index farblich hervor (Body-Tint,
 ## siehe SELECT_FACE_COLOR), alle anderen Seiten zurück auf Weiß. face_index ==
@@ -163,9 +204,21 @@ func highlight_face(die_index: int, face_index: int) -> void:
 	var faces: DieFaceDisplay = die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
 	if faces == null:
 		return
-	faces.set_tint(Color.WHITE)
+	faces.set_tint(Color.WHITE)  # setzt Seiten UND Kanten-Rahmen zurück
 	if face_index != -1:
 		faces.set_face_tint(face_index, SELECT_FACE_COLOR)
+
+## Hebt den KANTEN-Rahmen des Würfels die_index hervor (für die Kanten-Auswahl
+## in der Gravur-Station); alle Seiten zurück auf Normal. highlight_face setzt
+## die Hervorhebung wieder zurück (set_tint stellt die Rahmenfarbe wieder her).
+func highlight_edges(die_index: int) -> void:
+	if die_index < 0 or die_index >= die_roots.size():
+		return
+	var faces: DieFaceDisplay = die_roots[die_index].get_node_or_null("RigidBody3D/Faces")
+	if faces == null:
+		return
+	faces.set_tint(Color.WHITE)
+	faces.set_edge_tint(SELECT_FACE_COLOR)
 
 ## Zeichnet die Augenzahlen der angezeigten Würfel neu aus ihren DieDefinitionen
 ## (z.B. nachdem eine Ätzung die faces verändert hat, siehe DieInspectorView).

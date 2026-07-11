@@ -2,9 +2,9 @@ extends GutTest
 ## Tier-1-Tests des Coupon-Datensatzes (die Bogen-Auswürfelung testet
 ## CouponSheet, siehe scripts/coupon_sheet.gd).
 
-func test_all_returns_etchings_plus_material_coupons():
-	# 13 Ätzungen + 6 Material-Coupons (siehe DieMaterial.all).
-	assert_eq(Coupon.all().size(), 19)
+func test_all_returns_etchings_plus_material_and_edge_coupons():
+	# 13 Ätzungen + 6 Material-Coupons + 6 Kanten-Coupons (siehe DieMaterial.all).
+	assert_eq(Coupon.all().size(), 25)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -17,7 +17,7 @@ func test_every_coupon_has_filled_metadata():
 		assert_ne(coupon.id, "", "id fehlt")
 		assert_ne(coupon.display_name, "", "display_name fehlt bei %s" % coupon.id)
 		assert_ne(coupon.description, "", "description fehlt bei %s" % coupon.id)
-		assert_true(coupon.kind in [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL],
+		assert_true(coupon.kind in [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE],
 			"bekannter kind bei %s" % coupon.id)
 
 func test_material_coupons_use_the_material_id():
@@ -52,6 +52,33 @@ func test_rarities_match_the_spec():
 	assert_eq(Coupon.double_notch().rarity, Coupon.Rarity.COMMON)
 	assert_eq(Coupon.averaging().rarity, Coupon.Rarity.UNCOMMON)
 	assert_eq(Coupon.blueprint().rarity, Coupon.Rarity.RARE)
+
+func test_edge_coupons_use_prefixed_material_ids():
+	# Kanten-Coupon-id = EDGE_PREFIX + Material-id; material_id() löst zurück auf.
+	var edge_ids := {}
+	for coupon in Coupon.all():
+		if coupon.kind == Coupon.KIND_EDGE:
+			assert_true(Coupon.is_edge_id(coupon.id), "%s ist eine Kanten-id" % coupon.id)
+			assert_true(DieMaterial.is_valid_id(coupon.material_id()), "%s löst auf ein Material auf" % coupon.id)
+			assert_true(Coupon.FOOTPRINT.has(coupon.id), "Fläche definiert für %s" % coupon.id)
+			edge_ids[coupon.id] = true
+	assert_eq(edge_ids.size(), DieMaterial.all().size(), "je Material genau ein Kanten-Coupon")
+
+func test_is_edge_id_rejects_non_edges():
+	assert_false(Coupon.is_edge_id(DieMaterial.GOLD), "Seiten-Material ist kein Kanten-Coupon")
+	assert_false(Coupon.is_edge_id(Coupon.CHISEL), "Ätzung ist kein Kanten-Coupon")
+	assert_false(Coupon.is_edge_id("edge_unobtainium"), "unbekanntes Material zählt nicht")
+
+func test_material_id_resolution_per_kind():
+	assert_eq(Coupon.material_coupon(DieMaterial.gold(), Coupon.Rarity.COMMON).material_id(), DieMaterial.GOLD)
+	assert_eq(Coupon.edge_coupon(DieMaterial.gold(), Coupon.Rarity.UNCOMMON).material_id(), DieMaterial.GOLD)
+	assert_eq(Coupon.chisel().material_id(), "", "Ätzungen haben kein Material")
+
+func test_edge_coupons_are_rarer_than_their_face_variant():
+	for material in DieMaterial.all():
+		var face_rarity: int = Coupon.MATERIAL_RARITY.get(material.id, Coupon.Rarity.UNCOMMON)
+		var edge_rarity: int = Coupon.EDGE_RARITY.get(material.id, Coupon.Rarity.RARE)
+		assert_true(edge_rarity >= face_rarity, "%s-Kanten mindestens so selten wie die Seite" % material.id)
 
 func test_rarity_name_is_german():
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.COMMON), "häufig")

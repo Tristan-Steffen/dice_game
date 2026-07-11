@@ -17,6 +17,7 @@ func test_every_material_has_filled_metadata():
 		assert_ne(material.id, "", "id fehlt")
 		assert_ne(material.display_name, "", "display_name fehlt bei %s" % material.id)
 		assert_ne(material.description, "", "description fehlt bei %s" % material.id)
+		assert_ne(material.edge_description, "", "edge_description fehlt bei %s" % material.id)
 		assert_ne(material.tint, Color.WHITE, "eigene Seitenfarbe fehlt bei %s" % material.id)
 
 func test_by_id_resolves_and_rejects():

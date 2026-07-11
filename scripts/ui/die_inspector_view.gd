@@ -7,8 +7,11 @@ extends Control
 ## sichtbaren Würfel geklickt wird.
 ##
 ## Hier wendet der Spieler seine Ätzungs-Coupons an (siehe Coupon/EtchingEffects):
-## Er klickt eine Würfelseite (Auswahl, gold hervorgehoben) und danach eine
-## Ätzung im rechten Panel - beliebig oft, solange er Coupons hat. Ätzungen, die
+## Er klickt eine Würfelseite (Auswahl, gold hervorgehoben) und danach einen
+## Coupon auf dem Gravur-Bord rechts - beliebig oft, solange er Coupons hat.
+## Das Bord zeigt JEDEN Coupon-Archetyp auf seinem festen Platz (Reihenfolge =
+## Coupon.all()): Besitz liegt als physischer Coupon darauf (Mehrfache als
+## versetzter Stapel mit ×Anzahl), nicht Besessenes ist ausgegraut. Ätzungen, die
 ## eine zweite Seite brauchen (Meißel = Quellseite, Schleifstein = −1-Seite,
 ## Anschluss = Quellseite), fragen diese per zweitem Seiten-Klick ab. Jede Ätzung
 ## wirkt auf genau DIESEN Würfel - es gibt keine Zwei-Würfel-Ätzungen mehr.
@@ -39,15 +42,32 @@ var run: GameRun
 
 var current_def: DieDefinition = null
 var selected_face: int = -1  # gewählte physische Seite (0..5), -1 = keine
+## True, wenn statt einer Seite der KANTEN-Rahmen gewählt ist (Klick auf den
+## Rahmen des 3D-Würfels oder den Kanten-Chip der Übersicht) - Ziel der
+## Kanten-Coupons (siehe Coupon.KIND_EDGE). Schließt selected_face aus.
+var edges_selected: bool = false
 var mode: int = Mode.SELECT
 var active_coupon_id: String = ""  # Coupon, dessen zweiten Schritt wir gerade auflösen
 
 # Rechts angebautes Gravur-Panel (komplett per Code, siehe _build_panel).
 var panel: Panel
 var prompt_label: Label
-var coupon_list: VBoxContainer
+var board_box: VBoxContainer  # Gravur-Bord: Abschnitts-Header + Slot-Raster (siehe _build_coupon_board)
 var value_row: GridContainer  # Feingravur-Wertauswahl 1..FINE_ENGRAVING_MAX (6 Spalten)
-var coupon_entries: Array[Dictionary] = []  # [{button:Button, id:String}]
+var slot_entries: Array[Dictionary] = []  # [{button:Button, id:String, count:int}]
+
+# --- Maße des Gravur-Bords: 5 Slots je Zeile, jeder Slot fest so breit wie
+# Coupon-Kachel + Innenrand + Platz für den Stapel-Versatz (damit alle Slots
+# gleich groß sind, egal ob gestapelt wird). ---
+const SLOT_COLUMNS := 5
+const TILE_SIZE := Vector2(52, 44)     # sichtbare Coupon-Kachel im Slot
+const SLOT_PAD := 3.0                  # Innenrand des Slots um die Kachel
+const STACK_OFFSET := Vector2(3.5, 3.5)  # Versatz je tieferem Coupon im Stapel
+const STACK_MAX_VISIBLE := 3           # mehr Exemplare zeigt nur noch die ×Anzahl
+## Ausgegraut-Färbung eines leeren Platzes: der Coupon liegt als dunkelgraue
+## Silhouette auf seinem Platz - klar "noch nicht bekommen", aber die Form
+## bleibt erkennbar (welcher Coupon hierher gehört, sagt auch der Tooltip).
+const EMPTY_SLOT_TINT := Color(0.3, 0.3, 0.34, 0.9)
 
 # Links angebaute Seiten-Übersicht (siehe _build_summary_panel): je vorkommendem
 # Wert ein Mini-Würfelseiten-Chip mit "×Anzahl", darunter die Augensumme.
@@ -59,6 +79,12 @@ func _ready() -> void:
 	visible = false
 	backdrop.gui_input.connect(_on_backdrop_input)
 	die_view.face_clicked.connect(_on_face_clicked)
+	die_view.edges_clicked.connect(_on_edges_clicked)
+	# Der einzelne Würfel füllt die Vorschau fast ganz - der Kanten-Rahmen
+	# (Silhouette) projiziert deutlich weiter von der Würfelmitte weg als die
+	# Seiten-Mitten, darum braucht die Klick-Toleranz hier mehr Radius als der
+	# Shop-Standardwert (mehrere kleine Würfel nebeneinander).
+	die_view.pick_radius = 230.0
 	_build_panel()
 	_build_summary_panel()
 
@@ -67,12 +93,13 @@ func _ready() -> void:
 func show_die(def: DieDefinition) -> void:
 	current_def = def
 	selected_face = -1
+	edges_selected = false
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	die_view.set_dice([def])
 	die_view.highlight_face(0, -1)
 	_hide_value_picker()
-	_build_coupon_buttons()
+	_build_coupon_board()
 	_refresh_face_summary()
 	_update_prompt()
 	visible = true
@@ -90,11 +117,30 @@ func _on_face_clicked(_die_index: int, face_index: int) -> void:
 		return
 	# Neue Auswahl - bricht eine offene Wertauswahl (Feingravur) mit ab.
 	selected_face = face_index
+	edges_selected = false
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	_hide_value_picker()
 	die_view.highlight_face(0, selected_face)
 	_refresh_face_summary()  # Chip des gewählten Werts hervorheben
+	_update_prompt()
+	_refresh_coupon_enabled()
+
+## Klick auf den KANTEN-Rahmen des 3D-Würfels (oder den Kanten-Chip der
+## Übersicht): wählt die Kanten als Gravur-Ziel - danach lassen sich die
+## Kanten-Coupons anwenden. Läuft gerade der zweite Schritt einer Ätzung,
+## zählt der Rahmen nicht als Seite und wird ignoriert.
+func _on_edges_clicked(_die_index: int = 0) -> void:
+	if mode == Mode.AWAIT_SECOND_FACE:
+		prompt_label.text = "Bitte eine SEITE anklicken - Kanten sind hier kein Ziel."
+		return
+	edges_selected = true
+	selected_face = -1
+	mode = Mode.SELECT
+	active_coupon_id = ""
+	_hide_value_picker()
+	die_view.highlight_edges(0)
+	_refresh_face_summary()  # Kanten-Chip hervorheben
 	_update_prompt()
 	_refresh_coupon_enabled()
 
@@ -128,8 +174,22 @@ func _face_index_for_value(value: int, exclude: int) -> int:
 ## gewählte Seite; mehrstufige gehen in den passenden Wart-Modus über.
 ## Material-Coupons (Coupon-id = Material-id, siehe DieMaterial) belegen die
 ## gewählte Seite sofort - ein neues Material ersetzt ein vorhandenes.
+## Kanten-Coupons (siehe Coupon.KIND_EDGE) veredeln den GANZEN Würfel - ihr
+## Ziel ist der gewählte KANTEN-Rahmen (edges_selected) statt einer Seite.
 func _on_coupon_pressed(coupon_id: String) -> void:
-	if selected_face == -1 or mode != Mode.SELECT:
+	if mode != Mode.SELECT:
+		return
+	if Coupon.is_edge_id(coupon_id):
+		if not edges_selected:
+			return
+		var material_id := coupon_id.trim_prefix(Coupon.EDGE_PREFIX)
+		if current_def.edge_material == material_id:
+			prompt_label.text = "Die Kanten tragen bereits %s." % DieMaterial.by_id(material_id).display_name
+			return
+		current_def.edge_material = material_id
+		_finish_apply(coupon_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
+		return
+	if selected_face == -1:
 		return
 	if DieMaterial.is_valid_id(coupon_id):
 		if current_def.materials[selected_face] == coupon_id:
@@ -239,9 +299,12 @@ func _finish_apply(coupon_id: String, message: String) -> void:
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	die_view.refresh_faces([current_def])
-	die_view.highlight_face(0, selected_face)
+	if edges_selected:
+		die_view.highlight_edges(0)
+	else:
+		die_view.highlight_face(0, selected_face)
 	changed.emit()
-	_build_coupon_buttons()  # Anzahl hat sich geändert
+	_build_coupon_board()  # Anzahl hat sich geändert
 	_refresh_face_summary()
 	prompt_label.text = "%s. Weiter gravieren oder Rechtsklick zum Schließen." % message
 
@@ -253,22 +316,24 @@ func _cancel_pending() -> void:
 	_refresh_coupon_enabled()
 
 func _update_prompt() -> void:
-	if selected_face == -1:
-		prompt_label.text = "Klicke eine Würfelseite, um sie zu wählen."
+	if edges_selected:
+		prompt_label.text = "Kanten gewählt. Wähle ein Kanten-Material."
+	elif selected_face == -1:
+		prompt_label.text = "Klicke eine Würfelseite (oder die Kanten), um sie zu wählen."
 	else:
 		prompt_label.text = "Seite gewählt (Wert %d). Wähle eine Ätzung." % current_def.faces[selected_face]
 
 # --- Panel-Aufbau ------------------------------------------------------------
 
 ## Baut das rechte Gravur-Panel einmalig per Code auf (Titel, Hinweiszeile,
-## Coupon-Liste, Wertauswahl-Reihe). Die Coupon-Buttons selbst entstehen später
-## je Öffnung neu aus dem Bestand (_build_coupon_buttons).
+## Gravur-Bord, Wertauswahl-Reihe). Die Slots des Bords entstehen später je
+## Öffnung neu aus dem Bestand (_build_coupon_board).
 func _build_panel() -> void:
 	panel = Panel.new()
 	panel.offset_left = 858.0
-	panel.offset_top = 150.0
+	panel.offset_top = 110.0
 	panel.offset_right = 1240.0
-	panel.offset_bottom = 752.0
+	panel.offset_bottom = 812.0
 	CasinoStyle.style_panel(panel)
 	add_child(panel)
 
@@ -292,10 +357,10 @@ func _build_panel() -> void:
 	CasinoStyle.style_body_label(prompt_label, 15, CasinoStyle.CREAM)
 	vbox.add_child(prompt_label)
 
-	coupon_list = VBoxContainer.new()
-	coupon_list.add_theme_constant_override("separation", 8)
-	coupon_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(coupon_list)
+	board_box = VBoxContainer.new()
+	board_box.add_theme_constant_override("separation", 8)
+	board_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(board_box)
 
 	value_row = GridContainer.new()
 	value_row.columns = 6  # 1..6 in der oberen, 7..FINE_ENGRAVING_MAX in der unteren Reihe
@@ -376,9 +441,23 @@ func _refresh_face_summary() -> void:
 		row.add_child(count_label)
 		summary_list.add_child(row)
 
+	# Kanten-Zeile: anklickbarer Chip (wählt den Kanten-Rahmen als Gravur-Ziel,
+	# wie ein Klick auf den Rahmen des 3D-Würfels) + aktuelles Kanten-Material.
+	var edge_row := HBoxContainer.new()
+	edge_row.add_theme_constant_override("separation", 12)
+	edge_row.add_child(_edge_chip(edges_selected))
+	var edge_label := Label.new()
+	edge_label.text = DieMaterial.by_id(current_def.edge_material).display_name \
+		if DieMaterial.is_valid_id(current_def.edge_material) else "ohne"
+	edge_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	CasinoStyle.style_body_label(edge_label, 15, CasinoStyle.CREAM)
+	edge_row.add_child(edge_label)
+	summary_list.add_child(edge_row)
+
 	summary_sum_label.text = "Augensumme: %d" % total
-	# Panel-Höhe an die Zeilenzahl anpassen (46er-Chips + 8 Abstand + Kopf/Fuß).
-	summary_panel.offset_bottom = summary_panel.offset_top + 124.0 + values.size() * 54.0
+	# Panel-Höhe an die Zeilenzahl anpassen (46er-Chips + 8 Abstand + Kopf/Fuß)
+	# plus die Kanten-Zeile.
+	summary_panel.offset_bottom = summary_panel.offset_top + 124.0 + (values.size() + 1) * 54.0
 
 ## Ein anklickbarer Mini-Würfelseiten-Chip im Look der echten Würfel (weiß,
 ## abgerundet, dunkle Ziffer); highlighted = goldener Auswahl-Look (siehe
@@ -404,6 +483,31 @@ func _face_chip(value: int, highlighted: bool) -> Button:
 	chip.pressed.connect(_on_chip_clicked.bind(value))
 	return chip
 
+## Der anklickbare "Kanten"-Chip der Seiten-Übersicht: gefüllt mit dem Tint des
+## aktuellen Kanten-Materials (Rahmen-Neutral ohne), gold hervorgehoben, wenn
+## der Kanten-Rahmen gerade das Gravur-Ziel ist. Ein Klick wählt die Kanten -
+## dieselbe Wirkung wie ein Klick auf den Rahmen des 3D-Würfels.
+func _edge_chip(highlighted: bool) -> Button:
+	var chip := Button.new()
+	chip.text = "Kanten"
+	chip.custom_minimum_size = Vector2(86, 46)
+	chip.focus_mode = Control.FOCUS_NONE
+	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	chip.add_theme_font_size_override("font_size", 16)
+	chip.add_theme_color_override("font_color", CasinoStyle.INK)
+	chip.add_theme_color_override("font_hover_color", CasinoStyle.INK)
+	chip.add_theme_color_override("font_pressed_color", CasinoStyle.INK)
+	var material_tint := DieMaterial.tint_for(current_def.edge_material)
+	var neutral := material_tint if material_tint != Color.WHITE else DieFaceDisplay.EDGE_COLOR
+	var fill := RotatableDieView.SELECT_FACE_COLOR if highlighted else neutral
+	var border := CasinoStyle.GOLD_DARK if highlighted else Color(0.72, 0.76, 0.8)
+	chip.add_theme_stylebox_override("normal", _chip_box(fill, border))
+	chip.add_theme_stylebox_override("hover", _chip_box(fill.lightened(0.12), CasinoStyle.GOLD))
+	chip.add_theme_stylebox_override("pressed", _chip_box(fill.darkened(0.1), border))
+	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	chip.pressed.connect(_on_edges_clicked)
+	return chip
+
 func _chip_box(fill: Color, border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
@@ -415,38 +519,152 @@ func _chip_box(fill: Color, border: Color) -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 2)
 	return box
 
-## Baut die Coupon-Buttons neu aus dem Bestand (run.owned_coupons), gruppiert
-## nach Typ mit Anzahl. Reihenfolge = kanonische Coupon.all()-Reihenfolge.
-func _build_coupon_buttons() -> void:
-	coupon_entries.clear()
-	for child in coupon_list.get_children():
+## Baut das Gravur-Bord neu: JEDER Coupon-Archetyp bekommt seinen festen Platz
+## (Reihenfolge = kanonische Coupon.all()-Reihenfolge, getrennt nach Ätzungen
+## und Materialien). Besitz liegt als physischer Coupon auf dem Platz - Mehrfache
+## als versetzter Stapel mit ×Anzahl -, nicht Besessenes als ausgegrauter Schatten.
+func _build_coupon_board() -> void:
+	slot_entries.clear()
+	for child in board_box.get_children():
 		child.queue_free()
 
 	var counts := _coupon_counts()
-	if counts.is_empty():
-		var empty := Label.new()
-		empty.text = "Keine Ätzungen im Bestand.\nKaufe Coupon-Packs im Shop."
-		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		CasinoStyle.style_body_label(empty, 15, CasinoStyle.MUTED)
-		coupon_list.add_child(empty)
-		return
-
+	var etchings: Array[Coupon] = []
+	var materials: Array[Coupon] = []
+	var edges: Array[Coupon] = []
 	for archetype in Coupon.all():
-		var count: int = counts.get(archetype.id, 0)
-		if count == 0:
-			continue
-		var button := Button.new()
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(0, 62)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.tooltip_text = archetype.description
-		var accent := _rarity_accent(archetype.rarity)
-		button.text = "%s ×%d\n%s" % [archetype.display_name, count, archetype.description]
-		button.pressed.connect(_on_coupon_pressed.bind(archetype.id))
-		CasinoStyle.style_button(button, accent[0], accent[1], 14)
-		coupon_list.add_child(button)
-		coupon_entries.append({"button": button, "id": archetype.id})
+		match archetype.kind:
+			Coupon.KIND_MATERIAL:
+				materials.append(archetype)
+			Coupon.KIND_EDGE:
+				edges.append(archetype)
+			_:
+				etchings.append(archetype)
+	_add_board_section("Ätzungen", _sorted_by_rarity(etchings), counts)
+	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
+	_add_board_section("Kanten", _sorted_by_rarity(edges), counts)
 	_refresh_coupon_enabled()
+
+## Sortiert Archetypen nach Seltenheit (häufig → ungewöhnlich → selten);
+## innerhalb einer Seltenheit bleibt die kanonische Coupon.all()-Reihenfolge
+## erhalten, damit die Plätze über Sitzungen hinweg stabil liegen.
+func _sorted_by_rarity(archetypes: Array[Coupon]) -> Array[Coupon]:
+	var sorted: Array[Coupon] = []
+	for rarity in [Coupon.Rarity.COMMON, Coupon.Rarity.UNCOMMON, Coupon.Rarity.RARE]:
+		for archetype in archetypes:
+			if archetype.rarity == rarity:
+				sorted.append(archetype)
+	return sorted
+
+## Ein Bord-Abschnitt: kleiner Header + festes Slot-Raster (SLOT_COLUMNS breit).
+func _add_board_section(title: String, archetypes: Array[Coupon], counts: Dictionary) -> void:
+	var header := Label.new()
+	header.text = title
+	CasinoStyle.style_body_label(header, 14, CasinoStyle.MUTED)
+	board_box.add_child(header)
+
+	var grid := GridContainer.new()
+	grid.columns = SLOT_COLUMNS
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	board_box.add_child(grid)
+
+	for archetype in archetypes:
+		var count: int = counts.get(archetype.id, 0)
+		var slot := _coupon_slot(archetype, count)
+		grid.add_child(slot)
+		slot_entries.append({"button": slot, "id": archetype.id, "count": count})
+
+## Ein einzelner Bord-Platz: Button als "Mulde" (fester Rahmen), darin der
+## Coupon als Kachel - bei Mehrfachbesitz als Stapel (bis STACK_MAX_VISIBLE
+## sichtbar versetzte Exemplare, die tieferen leicht abgedunkelt) plus
+## ×Anzahl-Abzeichen. Ohne Besitz liegt nur der ausgegraute Schatten der Kachel
+## im Slot. Klick = Coupon anwenden (wie bisher _on_coupon_pressed).
+func _coupon_slot(archetype: Coupon, count: int) -> Button:
+	var slot := Button.new()
+	var stack_margin := STACK_OFFSET * float(STACK_MAX_VISIBLE - 1)
+	slot.custom_minimum_size = TILE_SIZE + Vector2.ONE * (SLOT_PAD * 2.0) + stack_margin
+	slot.focus_mode = Control.FOCUS_NONE
+	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var state := ("×%d im Bestand" % count) if count > 0 else "nicht im Bestand"
+	slot.tooltip_text = "%s (%s)\n%s" % [archetype.display_name, state, archetype.description]
+	slot.pressed.connect(_on_coupon_pressed.bind(archetype.id))
+	slot.add_theme_stylebox_override("normal", _slot_box(Color(1, 1, 1, 0.12)))
+	slot.add_theme_stylebox_override("hover", _slot_box(CasinoStyle.GOLD))
+	slot.add_theme_stylebox_override("pressed", _slot_box(CasinoStyle.GOLD_DARK))
+	slot.add_theme_stylebox_override("disabled", _slot_box(Color(1, 1, 1, 0.08)))
+	slot.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	# Stapel von hinten nach vorn aufbauen (tiefere Exemplare zuerst = untendrunter).
+	var depth: int = clampi(count, 1, STACK_MAX_VISIBLE)
+	for i in range(depth - 1, -1, -1):
+		var tile := _coupon_tile(archetype)
+		tile.position = Vector2.ONE * SLOT_PAD + STACK_OFFSET * float(i)
+		tile.size = TILE_SIZE
+		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if count == 0:
+			tile.modulate = EMPTY_SLOT_TINT  # nur der Schatten des Coupons
+		elif i > 0:
+			tile.modulate = Color(0.78, 0.78, 0.78)  # tiefere Stapel-Exemplare dunkler
+		slot.add_child(tile)
+
+	if count > 1:
+		var badge := Label.new()
+		badge.text = "×%d" % count
+		badge.position = Vector2(SLOT_PAD + TILE_SIZE.x - 26.0, SLOT_PAD + TILE_SIZE.y - 16.0)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.add_theme_font_size_override("font_size", 13)
+		badge.add_theme_color_override("font_color", CasinoStyle.GOLD)
+		var badge_box := StyleBoxFlat.new()
+		badge_box.bg_color = Color(0, 0, 0, 0.72)
+		badge_box.set_corner_radius_all(6)
+		badge_box.set_content_margin_all(3)
+		badge.add_theme_stylebox_override("normal", badge_box)
+		slot.add_child(badge)
+	return slot
+
+## Die Coupon-Kachel eines Slots: das Motiv als TextureRect - oder, falls die
+## Motiv-Datei (noch) fehlt (z.B. Material-Coupons ohne Artwork), derselbe
+## Platzhalter-Look wie auf den Bögen (siehe CouponSheetView._tile_node):
+## Material-/Papierfarbe mit dem Coupon-Namen.
+func _coupon_tile(archetype: Coupon) -> Control:
+	if ResourceLoader.exists(archetype.texture_path):
+		var tex := TextureRect.new()
+		tex.texture = load(archetype.texture_path)
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_SCALE  # auf den Slot strecken - Quell-Seitenverhältnis egal
+		return tex
+
+	var placeholder := Panel.new()
+	var box := StyleBoxFlat.new()
+	var tint := DieMaterial.tint_for(archetype.material_id())
+	box.bg_color = tint.lerp(CouponSheetView.PAPER_COLOR, 0.35)
+	box.border_color = CouponSheetView.PERF_COLOR
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(4)
+	placeholder.add_theme_stylebox_override("panel", box)
+
+	var label := Label.new()
+	label.text = archetype.display_name
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.clip_text = true
+	label.add_theme_font_size_override("font_size", 11)
+	label.add_theme_color_override("font_color", CouponSheetView.PERF_COLOR)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	placeholder.add_child(label)
+	return placeholder
+
+## Die "Mulde" eines Bord-Platzes: dunkel eingelassene Fläche mit dünnem Rand.
+func _slot_box(border: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0, 0, 0, 0.22)
+	box.border_color = border
+	box.set_border_width_all(1)
+	box.set_corner_radius_all(6)
+	return box
 
 ## Zählt den Coupon-Bestand nach id (id -> Anzahl).
 func _coupon_counts() -> Dictionary:
@@ -457,30 +675,21 @@ func _coupon_counts() -> Dictionary:
 		counts[coupon.id] = counts.get(coupon.id, 0) + 1
 	return counts
 
-## Sperrt Coupon-Buttons, wenn keine Seite gewählt ist oder gerade ein zweiter
-## Schritt läuft (dann ist nur der zweite Seiten-Klick dran).
+## Sperrt Bord-Slots, wenn kein passendes Ziel gewählt ist, gerade ein zweiter
+## Schritt läuft (dann ist nur der zweite Seiten-Klick dran) - oder der Platz
+## leer ist. Ätzungen/Seiten-Materialien brauchen eine gewählte SEITE,
+## Kanten-Coupons den gewählten KANTEN-Rahmen (edges_selected).
 func _refresh_coupon_enabled() -> void:
-	var can_apply: bool = selected_face != -1 and mode == Mode.SELECT
-	for entry in coupon_entries:
-		entry["button"].disabled = not can_apply
+	for entry in slot_entries:
+		var is_edge: bool = Coupon.is_edge_id(entry["id"])
+		var has_target: bool = edges_selected if is_edge else selected_face != -1
+		entry["button"].disabled = entry["count"] == 0 or mode != Mode.SELECT or not has_target
 
 func _show_value_picker() -> void:
 	value_row.visible = true
 
 func _hide_value_picker() -> void:
 	value_row.visible = false
-
-## Akzentfarbe (Füllung, Rand) je Seltenheit - häufig blau, ungewöhnlich lila,
-## selten gold (siehe CasinoStyle).
-func _rarity_accent(rarity: int) -> Array:
-	match rarity:
-		Coupon.Rarity.COMMON:
-			return [CasinoStyle.BLUE, CasinoStyle.BLUE_DARK]
-		Coupon.Rarity.UNCOMMON:
-			return [CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK]
-		Coupon.Rarity.RARE:
-			return [CasinoStyle.GOLD, CasinoStyle.GOLD_DARK]
-	return [CasinoStyle.GREEN, CasinoStyle.GREEN_DARK]
 
 # --- Schließen ---------------------------------------------------------------
 

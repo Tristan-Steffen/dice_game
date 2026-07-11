@@ -80,10 +80,16 @@ const SHEET_ANIM_COUNTER_ROW := 48.0
 const SHEET_ANIM_SEPARATE_TIME := 0.28
 const SHEET_ANIM_FLY_TIME := 0.45
 const SHEET_ANIM_STAGGER := 0.05
-## Ruhefarbe der Tisch-Texte (Belohnungen UND Kombinationsliste): helles Weiß mit
-## schwarzem Umriss (siehe .tscn: outline_modulate). Beim Aufleuchten (Auszahlung
-## bzw. gerade gewürfelte Kombination) wechseln sie nach CasinoStyle.GOLD_INTENSE.
-const PAYOUT_LABEL_BASE_COLOR := Color(0.96, 0.96, 0.93)
+## Ruhefarbe der Tisch-Texte (Belohnungen UND Kombinationsliste): leicht
+## ÜBERHELLES Weiß (> 1.0), damit sie mit dem Szenen-Glow (siehe
+## scene_root.tscn: Environment) dezent weiß leuchten. Beim Aufleuchten
+## (Auszahlung bzw. gerade gewürfelte Kombination) wechseln sie auf das noch
+## deutlich hellere PAYOUT_LABEL_GLOW_COLOR - dann strahlen sie golden.
+const PAYOUT_LABEL_BASE_COLOR := Color(1.35, 1.35, 1.3)
+## Aufleucht-Gold der Tisch-Texte: stark überhelles Gold (Basis
+## CasinoStyle.GOLD_INTENSE), damit der Glow beim Hervorheben sichtbar
+## "aufgedreht" wird statt nur die Farbe zu wechseln.
+const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 
 ## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
 ## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
@@ -217,6 +223,8 @@ var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Würfel-Slots zugew
 var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein Neu-Würfeln?
 var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (für Farkle-Vergleich)
 var pre_reroll_materials: Array[String] = []  # oben liegende Seiten-Materialien VOR dem Neu-Würfeln (siehe _rolled_materials)
+var pre_reroll_edge_materials: Array[String] = []  # Kanten-Materialien VOR dem Neu-Würfeln (siehe _edge_materials; Neu-Würfeln kann Slots neu besetzen)
+var last_thrown_indices: Array[int] = []  # Slots des zuletzt gestarteten Wurfs - für die Gold-Kanten-Auszahlung je Wurf (siehe _on_roll_finished)
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zwischen Händen
 
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
@@ -271,7 +279,9 @@ func _ready() -> void:
 		die.position = DICE_START_POSITIONS[i]
 		roots.append(die)
 		bodies.append(die.get_node("RigidBody3D"))
-		face_displays.append(die.get_node("RigidBody3D/Faces"))
+		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+		faces.set_light_enabled(true)  # nur die 6 Spielwürfel beleuchten ihre Umgebung
+		face_displays.append(faces)
 	dice = DiceController.new(roots, bodies, face_displays)
 
 	queue_tray_home_position = queue_tray_view.position
@@ -612,8 +622,13 @@ func _collect_combo_labels() -> void:
 		var node: Node = combos_anchor.get_node_or_null(NodePath(key))
 		if node is Label3D:
 			combo_labels[key] = node
+			node.modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
 		else:
 			push_warning("Kombinations-Label fehlt in der Szene: Combinations/%s" % key)
+	# Auch die Belohnungs-Texte starten in der leuchtenden Ruhefarbe (die
+	# .tscn-Werte sind das alte, stumpfe Weiß).
+	blind_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
+	dice_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
 
 ## Hebt genau die Kombination der gerade gewürfelten Hand golden hervor (analog
 ## zum Aufleuchten der Belohnungstexte), alle anderen bleiben im Ruhe-Weiß.
@@ -626,7 +641,7 @@ func _refresh_combos(active_key: String) -> void:
 	if previous != "" and combo_labels.has(previous):
 		_tween_combo_label(combo_labels[previous], PAYOUT_LABEL_BASE_COLOR, 1.0)
 	if active_key != "" and combo_labels.has(active_key):
-		_tween_combo_label(combo_labels[active_key], CasinoStyle.GOLD_INTENSE, 1.18)
+		_tween_combo_label(combo_labels[active_key], PAYOUT_LABEL_GLOW_COLOR, 1.18)
 
 ## Blendet eine Kombinationszeile weich in Farbe/Größe (Aufleuchten oder zurück
 ## in die Ruhefarbe) - gleiche Dauer wie die Belohnungstexte (PAYOUT_FLASH_DURATION).
@@ -1048,6 +1063,14 @@ func _rolled_materials() -> Array[String]:
 			materials.append("")
 	return materials
 
+## Kanten-Material je Wurf-Slot ("" = keins) - parallel zu dice.values. Wirkt
+## unabhängig von der oben liegenden Seite (siehe MaterialEffects).
+func _edge_materials() -> Array[String]:
+	var materials: Array[String] = []
+	for i in dice.count():
+		materials.append(dice.slot_defs[i].edge_material)
+	return materials
+
 func _remaining_in_pool() -> int:
 	return round_pool_kinds.size() - next_draw_index
 
@@ -1234,11 +1257,13 @@ func _on_throw_button_pressed() -> void:
 		# unangetastet liegen.
 		pre_reroll_values = dice.values.duplicate()
 		pre_reroll_materials = _rolled_materials()
+		pre_reroll_edge_materials = _edge_materials()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				active_kinds[i] = _draw_one()
 				thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
+	last_thrown_indices = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
@@ -1360,10 +1385,18 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
+	# Gold-Kanten zahlen bei JEDEM Wurf der betroffenen Würfel - noch vor der
+	# Farkle-Prüfung (auch ein farkelnder Wurf ist ein Wurf).
+	var roll_income := MaterialEffects.roll_money(_edge_materials(), last_thrown_indices)
+	if roll_income > 0:
+		run.add_money(roll_income)
+		_pulse_money_label()
+		_show_money_popup(roll_income)
+
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials):
 		_on_farkle()
 		return
 
@@ -1413,7 +1446,7 @@ func _on_farkle() -> void:
 	# Höchststand).
 	var kept := CharmEffects.farkle_kept_fraction(ids)
 	if kept > 0.0:
-		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials)["score"]
+		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials)["score"]
 		var salvage := int(floor(peak * kept))
 		if salvage > 0:
 			hand_total += salvage
@@ -1448,17 +1481,19 @@ func _on_take_button_pressed() -> void:
 	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
 	# auswerten.
 	var materials := _rolled_materials()
-	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials)
+	var edge_materials := _edge_materials()
+	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials, edge_materials)
 	hand_total += hand["score"]
 	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
 
-	# Nehmen-Effekte der Seiten-Materialien (Gold zahlt, Knochen wächst, Glas
-	# schrumpft) - nur für Seiten der genommenen Kombination, genau einmal hier
-	# (nie in der Vorschau). Knochen/Glas verändern die Pool-Würfel dauerhaft;
-	# das Ablage-Tray zeigt gleich die schon veränderten Werte.
+	# Nehmen-Effekte der Materialien (Gold-Seite zahlt, Knochen wächst, Glas
+	# schrumpft - Seiten wie Kanten) - nur für Würfel der genommenen
+	# Kombination, genau einmal hier (nie in der Vorschau). Knochen/Glas
+	# verändern die Pool-Würfel dauerhaft; das Ablage-Tray zeigt gleich die
+	# schon veränderten Werte.
 	var participating := DiceScoring.participating_indices(hand["key"], dice.values)
-	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating)
+	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials)
 	if report.money > 0:
 		run.add_money(report.money)
 		_pulse_money_label()
@@ -1669,7 +1704,7 @@ func _unused_die_entries() -> Array:
 func _light_up_payout_label(label: Label3D) -> void:
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, CasinoStyle.GOLD_INTENSE, PAYOUT_FLASH_DURATION)
+	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_FLASH_DURATION)
 	tween.tween_property(label, "scale", Vector3.ONE * 1.3, PAYOUT_FLASH_DURATION)
 	await tween.finished
 
@@ -1777,7 +1812,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
 	else:
-		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials())
+		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials())
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))

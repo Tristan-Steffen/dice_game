@@ -16,6 +16,13 @@ extends Resource
 ## zu faces. Angebracht über Material-Coupons in der Gravur-Station (siehe
 ## DieInspectorView); die Wirkung löst MaterialEffects beim Werten/Nehmen auf.
 @export var materials: Array[String] = ["", "", "", "", "", ""]
+## Kanten-Material des GANZEN Würfels (DieMaterial-id, "" = keins): der
+## durchgehende Rahmen zwischen den Seiten (siehe DieFaceDisplay). Wirkt wie
+## das Seiten-Material, aber egal welche Seite oben liegt - und stapelt mit
+## einem gleichen Seiten-Material (siehe MaterialEffects, z.B. Quecksilber-
+## Kanten + Quecksilber-Seite = vierfach). Angebracht über Kanten-Coupons
+## (siehe Coupon.KIND_EDGE) in der Gravur-Station.
+@export var edge_material: String = ""
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 

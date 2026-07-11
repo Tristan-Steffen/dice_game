@@ -93,7 +93,7 @@ func _tile_node(tile: CouponSheet.SheetTile) -> Control:
 
 	var placeholder := Panel.new()
 	var box := StyleBoxFlat.new()
-	var tint := DieMaterial.tint_for(tile.coupon.id) if tile.coupon != null else PAPER_COLOR
+	var tint := DieMaterial.tint_for(tile.coupon.material_id()) if tile.coupon != null else PAPER_COLOR
 	box.bg_color = tint.lerp(PAPER_COLOR, 0.35)
 	box.border_color = PERF_COLOR
 	box.set_border_width_all(2)

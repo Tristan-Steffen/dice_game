@@ -60,3 +60,14 @@ func test_instantiate_copies_materials_independently():
 	assert_eq(copy.materials[2], DieMaterial.RUBY, "Material wird übernommen")
 	copy.materials[0] = DieMaterial.GOLD
 	assert_eq(original.materials[0], "", "Original bleibt unverändert")
+
+func test_standard_has_no_edge_material():
+	assert_eq(DieDefinition.standard().edge_material, "")
+
+func test_instantiate_copies_edge_material_independently():
+	var original := DieDefinition.standard()
+	original.edge_material = DieMaterial.MERCURY
+	var copy := original.instantiate()
+	assert_eq(copy.edge_material, DieMaterial.MERCURY, "Kanten-Material wird übernommen")
+	copy.edge_material = DieMaterial.GOLD
+	assert_eq(original.edge_material, DieMaterial.MERCURY, "Original bleibt unverändert")
