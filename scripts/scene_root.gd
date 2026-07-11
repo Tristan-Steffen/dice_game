@@ -216,6 +216,7 @@ var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Würfel-Slots zugew
 
 var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein Neu-Würfeln?
 var pre_reroll_values: Array[int] = []  # Würfelwerte VOR dem Neu-Würfeln (für Farkle-Vergleich)
+var pre_reroll_materials: Array[String] = []  # oben liegende Seiten-Materialien VOR dem Neu-Würfeln (siehe _rolled_materials)
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zwischen Händen
 
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
@@ -1033,6 +1034,20 @@ func _pick_die_index(screen_pos: Vector2) -> int:
 
 	return dice.index_of_body(result.collider)
 
+## Seiten-Material der aktuell oben liegenden Seite je Wurf-Slot ("" = keins
+## oder noch nicht gewürfelt) - parallel zu dice.values, Grundlage der
+## Material-Wertung (siehe MaterialEffects/DiceScoring).
+func _rolled_materials() -> Array[String]:
+	var materials: Array[String] = []
+	for i in dice.count():
+		var face: int = dice.face_indices[i]
+		var def: DieDefinition = dice.slot_defs[i]
+		if face >= 0 and face < def.materials.size():
+			materials.append(def.materials[face])
+		else:
+			materials.append("")
+	return materials
+
 func _remaining_in_pool() -> int:
 	return round_pool_kinds.size() - next_draw_index
 
@@ -1218,6 +1233,7 @@ func _on_throw_button_pressed() -> void:
 		# _auto_select_best_combo) sind geschützt und bleiben komplett
 		# unangetastet liegen.
 		pre_reroll_values = dice.values.duplicate()
+		pre_reroll_materials = _rolled_materials()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				active_kinds[i] = _draw_one()
@@ -1347,7 +1363,7 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
 	# davor (gleich viele oder weniger), ist die ganze Hand verloren.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids()):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials):
 		_on_farkle()
 		return
 
@@ -1397,7 +1413,7 @@ func _on_farkle() -> void:
 	# Höchststand).
 	var kept := CharmEffects.farkle_kept_fraction(ids)
 	if kept > 0.0:
-		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids)["score"]
+		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials)["score"]
 		var salvage := int(floor(peak * kept))
 		if salvage > 0:
 			hand_total += salvage
@@ -1431,10 +1447,22 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
 	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
 	# auswerten.
-	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0)
+	var materials := _rolled_materials()
+	var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, materials)
 	hand_total += hand["score"]
 	hands_taken_this_round += 1
 	_animate_points_to(hand_total)
+
+	# Nehmen-Effekte der Seiten-Materialien (Gold zahlt, Knochen wächst, Glas
+	# schrumpft) - nur für Seiten der genommenen Kombination, genau einmal hier
+	# (nie in der Vorschau). Knochen/Glas verändern die Pool-Würfel dauerhaft;
+	# das Ablage-Tray zeigt gleich die schon veränderten Werte.
+	var participating := DiceScoring.participating_indices(hand["key"], dice.values)
+	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating)
+	if report.money > 0:
+		run.add_money(report.money)
+		_pulse_money_label()
+		_show_money_popup(report.money)
 
 	for kind in active_kinds:
 		_discard_kind(kind)
@@ -1749,7 +1777,7 @@ func _refresh_ui() -> void:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
 	else:
-		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0)
+		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials())
 		var value_strings: Array[String] = []
 		for v in dice.values:
 			value_strings.append(str(v))

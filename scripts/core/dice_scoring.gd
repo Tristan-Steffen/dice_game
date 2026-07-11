@@ -116,11 +116,20 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ## → feste Bonuspunkte (flat_bonus) → Verdopplung der ganzen Hand
 ## (score_multiplier, z.B. Zauberkarte für die erste Hand der Runde, daher der
 ## is_first_hand-Parameter).
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false) -> int:
+##
+## materials (optional, parallel zu dice: DieMaterial-id der oben liegenden
+## Seite je Slot, "" = keins) rechnet die Wertungs-Boni der Seiten-Materialien
+## ein (siehe MaterialEffects) - nur für Seiten, die zur Kombination gehören
+## (siehe participating_indices). Leer = keine Materialien (Verhalten wie zuvor).
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = []) -> int:
 	if not qualifies(key, dice):
 		return 0
 	var base := _base_value(key, dice, charm_ids)
 	var mult := mult_for(key) + CharmEffects.mult_bonus(key, charm_ids)
+	if not materials.is_empty():
+		var participating := participating_indices(key, dice)
+		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids)
+		mult += MaterialEffects.mult_bonus(dice, materials, participating)
 	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids)
 	return score * CharmEffects.score_multiplier(charm_ids, is_first_hand)
 
@@ -147,25 +156,42 @@ static func _base_value(key: String, dice: Array[int], charm_ids: Array[String])
 
 ## Bestimmt die bestmögliche Hand für den aktuellen Wurf: die
 ## prestigeträchtigste Kategorie, die zutrifft (siehe HAND_PRIORITY),
-## nicht einfach die mit dem höchsten Punktwert. charm_ids siehe score_category.
-static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false) -> Dictionary:
+## nicht einfach die mit dem höchsten Punktwert. charm_ids/materials siehe
+## score_category (das "mult"-Feld enthält auch die Material-Mult-Boni, damit
+## die Anzeige zur tatsächlichen Rechnung passt).
+static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = []) -> Dictionary:
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
 				"key": key,
 				"label": label_for(key),
-				"mult": mult_for(key) + CharmEffects.mult_bonus(key, charm_ids),
-				"score": score_category(key, dice, charm_ids, is_first_hand),
+				"mult": _display_mult(key, dice, charm_ids, materials),
+				"score": score_category(key, dice, charm_ids, is_first_hand, materials),
 			}
-	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": 1, "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand)}
+	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _display_mult(ONE_KIND, dice, charm_ids, materials), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials)}
+
+## Der in best_hand angezeigte Multiplikator: Kategorie-Mult + Charm-Boni +
+## Material-Mult-Boni der beteiligten Seiten - identisch zur Rechnung in
+## score_category.
+static func _display_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String]) -> int:
+	var mult := mult_for(key) + CharmEffects.mult_bonus(key, charm_ids)
+	if not materials.is_empty():
+		mult += MaterialEffects.mult_bonus(dice, materials, participating_indices(key, dice))
+	return mult
 
 ## Wie best_hand(), liefert aber zusätzlich die Positionen in dice, die zur
-## besten Kategorie gehören (z.B. beim Full House die drei- und zweifach
-## vorkommenden Würfel, aber nicht einen unbeteiligten sechsten Würfel) -
-## Grundlage fürs automatische Vorauswählen der besten Kombination nach jedem
-## Wurf (siehe scene_root.gd: _auto_select_best_combo).
+## besten Kategorie gehören - Grundlage fürs automatische Vorauswählen der
+## besten Kombination nach jedem Wurf (siehe scene_root.gd:
+## _auto_select_best_combo). Die eigentliche Zuordnung macht
+## participating_indices, damit auch die Material-Wertung dieselbe Regel nutzt.
 static func best_hand_indices(dice: Array[int]) -> Array[int]:
-	var key: String = best_hand(dice)["key"]
+	return participating_indices(best_hand(dice)["key"], dice)
+
+## Die Positionen in dice, die zur Kategorie key gehören (z.B. beim Full House
+## die drei- und zweifach vorkommenden Würfel, aber nicht einen unbeteiligten
+## sechsten Würfel). Genau diese Seiten zählen für den Basiswert - und nur auf
+## ihnen wirken Seiten-Materialien (siehe MaterialEffects).
+static func participating_indices(key: String, dice: Array[int]) -> Array[int]:
 	match key:
 		SIX_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 6), 6)
@@ -208,9 +234,10 @@ static func best_hand_indices(dice: Array[int]) -> Array[int]:
 ## Wurf strikt mehr Punkte bringt als der alte. Grundlage der Farkle-Regel:
 ## ein Neu-Würfeln, das NICHT mehr Punkte bringt (gleich viele oder weniger),
 ## gilt als Farkle - unabhängig davon, welche Hand-Kategorie jeweils vorliegt.
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = []) -> bool:
-	var new_score: int = best_hand(new_dice, charm_ids)["score"]
-	var old_score: int = best_hand(old_dice, charm_ids)["score"]
+## Materialien zählen auf beiden Seiten mit (jeweils die damals oben liegenden).
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = []) -> bool:
+	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials)["score"]
+	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials)["score"]
 	return new_score > old_score
 
 static func _counts(dice: Array[int]) -> Dictionary:

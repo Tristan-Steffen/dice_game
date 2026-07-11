@@ -78,6 +78,7 @@ var face_displays: Array[DieFaceDisplay] = []
 var start_transforms: Array[Transform3D] = []
 var selected: Array[bool] = []  # true = vor dem nächsten Neu-Würfeln geschützt (siehe set_selected)
 var values: Array[int] = []
+var face_indices: Array[int] = []  # welche physische Seite (0..5) oben liegt, -1 = noch nicht gewürfelt - Grundlage der Seiten-Materialien (siehe scene_root._rolled_materials)
 var settled: Array[bool] = []
 var rest_timers: Array[float] = []
 var slot_defs: Array[DieDefinition] = []
@@ -91,6 +92,7 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays
 		start_transforms.append(bodies[i].global_transform)
 		selected.append(false)
 		values.append(0)
+		face_indices.append(-1)
 		settled.append(true)
 		rest_timers.append(0.0)
 		slot_defs.append(DieDefinition.standard())
@@ -137,7 +139,8 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 			rest_timers[i] += delta
 			if rest_timers[i] >= rest_time_required:
 				settled[i] = true
-				values[i] = _value_for_slot(i)
+				face_indices[i] = AXIS_FACE_INDEX[_top_axis_info(body)[0]]
+				values[i] = slot_defs[i].faces[face_indices[i]]
 		else:
 			rest_timers[i] = 0.0
 			if is_slow:
@@ -163,6 +166,7 @@ func reset() -> void:
 	for i in count():
 		selected[i] = false
 		values[i] = 0
+		face_indices[i] = -1
 		settled[i] = true
 		rest_timers[i] = 0.0
 		roots[i].visible = false
@@ -191,10 +195,6 @@ func set_slot_defs(defs: Array[DieDefinition]) -> void:
 
 func _style_tint(def: DieDefinition) -> Color:
 	return KIND_TINTS.get(def.style_id, Color.WHITE)
-
-func _value_for_slot(index: int) -> int:
-	var face_index: int = AXIS_FACE_INDEX[_top_axis_info(bodies[index])[0]]
-	return slot_defs[index].faces[face_index]
 
 ## Gibt [Achsenname, Ausrichtungs-Dot] zurück: der Dot ist 1.0, wenn diese
 ## Achse exakt nach oben zeigt (Würfel liegt flach auf der gegenüberliegenden

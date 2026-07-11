@@ -126,8 +126,17 @@ func _face_index_for_value(value: int, exclude: int) -> int:
 
 ## Klick auf einen Coupon-Button. Einstufige Ätzungen wirken sofort auf die
 ## gewählte Seite; mehrstufige gehen in den passenden Wart-Modus über.
+## Material-Coupons (Coupon-id = Material-id, siehe DieMaterial) belegen die
+## gewählte Seite sofort - ein neues Material ersetzt ein vorhandenes.
 func _on_coupon_pressed(coupon_id: String) -> void:
 	if selected_face == -1 or mode != Mode.SELECT:
+		return
+	if DieMaterial.is_valid_id(coupon_id):
+		if current_def.materials[selected_face] == coupon_id:
+			prompt_label.text = "Diese Seite trägt bereits %s." % DieMaterial.by_id(coupon_id).display_name
+			return
+		current_def.materials[selected_face] = coupon_id
+		_finish_apply(coupon_id, "Material angebracht: %s" % DieMaterial.by_id(coupon_id).display_name)
 		return
 	match coupon_id:
 		Coupon.OVERCOUNT_ENGRAVING:

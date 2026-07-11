@@ -47,3 +47,16 @@ func test_two_standards_are_independent():
 	var b := DieDefinition.standard()
 	a.faces[2] = 7
 	assert_eq(b.faces[2], 3, "zweite Standard-Definition unberührt")
+
+func test_standard_has_no_materials():
+	assert_eq(DieDefinition.standard().materials, ["", "", "", "", "", ""])
+
+func test_instantiate_copies_materials_independently():
+	# Derselbe Unabhängigkeits-Vertrag wie für faces: ein Material auf der Kopie
+	# darf nie auf dem Original (oder anderen Kopien) erscheinen.
+	var original := DieDefinition.standard()
+	original.materials[2] = DieMaterial.RUBY
+	var copy := original.instantiate()
+	assert_eq(copy.materials[2], DieMaterial.RUBY, "Material wird übernommen")
+	copy.materials[0] = DieMaterial.GOLD
+	assert_eq(original.materials[0], "", "Original bleibt unverändert")

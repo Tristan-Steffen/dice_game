@@ -12,6 +12,10 @@ extends Resource
 ## Würfel, der dieselbe Definition teilt.
 
 @export var faces: Array[int] = [1, 2, 3, 4, 5, 6]
+## Seiten-Material je physischer Seite (DieMaterial-id, "" = keins) - parallel
+## zu faces. Angebracht über Material-Coupons in der Gravur-Station (siehe
+## DieInspectorView); die Wirkung löst MaterialEffects beim Werten/Nehmen auf.
+@export var materials: Array[String] = ["", "", "", "", "", ""]
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 
@@ -19,6 +23,7 @@ extends Resource
 func instantiate() -> DieDefinition:
 	var copy: DieDefinition = duplicate()
 	copy.faces = faces.duplicate()
+	copy.materials = materials.duplicate()
 	return copy
 
 static func standard() -> DieDefinition:

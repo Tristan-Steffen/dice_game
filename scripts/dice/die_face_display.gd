@@ -33,13 +33,25 @@ const LABEL_FIT_EXTENT := 1.5
 var quads: Dictionary = {}   # Achse (String, siehe AXIS_DIRECTIONS) -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse (String) -> Label3D (Augenzahl)
 
+## Material-Grundfarbe je Achse (siehe DieMaterial.tint_for; Weiß = kein
+## Material). set_tint multipliziert seinen Würfel-Tint (Stil/Auswahl-Gold)
+## DARÜBER, damit Material-Seiten unter jeder Tönung erkennbar bleiben.
+var face_base: Dictionary = {}
+## Zuletzt per set_tint gesetzter Würfel-Tint - damit apply_definition die
+## Seitenfarben neu aufbauen kann, ohne die Tönung zu verlieren.
+var body_tint: Color = Color.WHITE
+
 ## Stellt alle 6 Seiten gemäß def.faces ein (Index über
-## DiceController.AXIS_FACE_INDEX, siehe dort für die Achsen-Zuordnung).
+## DiceController.AXIS_FACE_INDEX, siehe dort für die Achsen-Zuordnung) und
+## übernimmt die Material-Grundfarben aus def.materials.
 func apply_definition(def: DieDefinition) -> void:
 	for axis in DiceController.AXIS_FACE_INDEX:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 		_set_face_value(axis, value)
+		var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
+		face_base[axis] = DieMaterial.tint_for(material_id)
+	_refresh_face_colors()
 
 func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
@@ -47,11 +59,17 @@ func _set_face_value(axis: String, value: int) -> void:
 	DieFaceDisplay.fit_label(label)
 
 ## Färbt den Körper aller 6 Seiten ein (Spezialwürfel-Tint oder Halten-Gold) -
-## Color.WHITE = weiße Grundfarbe (Normalzustand). Die Ziffern bleiben dunkel.
+## Color.WHITE = weiße Grundfarbe (Normalzustand). Multipliziert über die
+## Material-Grundfarbe der jeweiligen Seite; die Ziffern bleiben dunkel.
 func set_tint(color: Color) -> void:
+	body_tint = color
+	_refresh_face_colors()
+
+func _refresh_face_colors() -> void:
 	for axis in quads:
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		material.albedo_color = BODY_COLOR * color
+		var base: Color = face_base.get(axis, Color.WHITE)
+		material.albedo_color = BODY_COLOR * base * body_tint
 
 ## Färbt den Körper genau einer Seite (face_index 0..5, siehe
 ## DiceController.AXIS_FACE_INDEX) - für die Auswahl-Hervorhebung in der

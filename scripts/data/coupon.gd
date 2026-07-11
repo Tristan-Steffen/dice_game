@@ -12,8 +12,11 @@ extends Resource
 
 enum Rarity { COMMON, UNCOMMON, RARE }
 
-# kind eines Coupons (aktuell nur Ätzungen; künftig MATERIAL, SIGIL).
+# kind eines Coupons: Ätzungen verändern die Augen eines Würfels (siehe
+# EtchingEffects), Materialien belegen genau eine Seite mit einer Veredelung
+# (siehe DieMaterial/MaterialEffects; die Coupon-id IST die Material-id).
 const KIND_ETCHING := "etching"
+const KIND_MATERIAL := "material"
 
 # --- Coupon-ids (Single Source of Truth; genutzt in coupon.gd + EtchingEffects) ---
 const CHISEL := "chisel"
@@ -53,6 +56,13 @@ const FOOTPRINT := {
 	IMPRINT: Vector2i(3, 2),
 	STRAIGHTEN: Vector2i(2, 3),
 	BLUEPRINT: Vector2i(3, 3),
+	# Material-Coupons (Coupon-id = Material-id, siehe DieMaterial).
+	DieMaterial.GOLD: Vector2i(1, 1),
+	DieMaterial.AMBER: Vector2i(2, 1),
+	DieMaterial.GLASS: Vector2i(1, 2),
+	DieMaterial.BONE: Vector2i(2, 2),
+	DieMaterial.RUBY: Vector2i(2, 2),
+	DieMaterial.MERCURY: Vector2i(3, 2),
 }
 
 @export var id: String = ""
@@ -133,13 +143,36 @@ static func straighten() -> Coupon:
 static func blueprint() -> Coupon:
 	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.RARE)
 
+# --- Materialien (materials): belegen genau eine Würfelseite mit einer
+# Veredelung (siehe DieMaterial/MaterialEffects). Die Coupon-id ist die
+# Material-id; Name/Beschreibung kommen direkt vom Material - eine Quelle. ---
+
+## Material-Coupon zu einem DieMaterial (siehe DieMaterial.all).
+static func material_coupon(material: DieMaterial, rarity: Rarity) -> Coupon:
+	return _make(material.id, material.display_name, material.description, rarity, KIND_MATERIAL)
+
+## Seltenheit je Material-Coupon: Gold/Bernstein häufig (kleine, stetige
+## Effekte), Glas/Knochen/Rubin ungewöhnlich, Quecksilber (Doppel-Zählung) selten.
+const MATERIAL_RARITY := {
+	DieMaterial.GOLD: Rarity.COMMON,
+	DieMaterial.AMBER: Rarity.COMMON,
+	DieMaterial.GLASS: Rarity.UNCOMMON,
+	DieMaterial.BONE: Rarity.UNCOMMON,
+	DieMaterial.RUBY: Rarity.UNCOMMON,
+	DieMaterial.MERCURY: Rarity.RARE,
+}
+
 ## Alle existierenden Coupon-Archetypen (kanonische Registrierung) - Grundlage
-## für die Pack-Auswürfelung. Ein neuer Coupon wird hier eingehängt.
+## für die Bogen-Auswürfelung. Ein neuer Coupon wird hier eingehängt; die
+## Material-Coupons kommen automatisch aus DieMaterial.all().
 static func all() -> Array[Coupon]:
-	return [
+	var result: Array[Coupon] = [
 		chisel(), transplant(), grindstone(), fine_engraving(), overcount_engraving(),
 		file_down(), double_notch(), averaging(), connect_up(), mirror(), imprint(), straighten(), blueprint(),
 	]
+	for material in DieMaterial.all():
+		result.append(material_coupon(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
+	return result
 
 ## Anzeigename der Seltenheit (deutsch).
 static func rarity_name(value: Rarity) -> String:

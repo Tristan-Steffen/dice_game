@@ -14,16 +14,17 @@ const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Bogenpapier (passt zum Cou
 const PERF_COLOR := Color("6b4a2f")   # warmes Braun für die Perforationslinien
 const FILLER_TINT := Color(1, 1, 1, 0.82)  # Marken/Werbeflächen leicht zurückgenommen
 
-## Eine gezeigte Kachel: ihr TextureRect plus die Bogen-Daten dahinter -
-## Grundlage der Abschluss-Animation (siehe scene_root, das die Nodes zum
-## Fliegen in seine Overlay-Ebene umhängt).
+## Eine gezeigte Kachel: ihr Anzeige-Control (TextureRect oder Platzhalter für
+## Coupons ohne Motiv-Datei) plus die Bogen-Daten dahinter - Grundlage der
+## Abschluss-Animation (siehe scene_root, das die Nodes zum Fliegen in seine
+## Overlay-Ebene umhängt).
 class TileView:
 	extends RefCounted
 
-	var node: TextureRect
+	var node: Control
 	var tile: CouponSheet.SheetTile
 
-	func _init(p_node: TextureRect, p_tile: CouponSheet.SheetTile) -> void:
+	func _init(p_node: Control, p_tile: CouponSheet.SheetTile) -> void:
 		node = p_node
 		tile = p_tile
 
@@ -61,26 +62,55 @@ func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 			for c in range(tile.col, tile.col + tile.w):
 				cell_tile[r][c] = i
 
-		var tex := TextureRect.new()
-		tex.position = Vector2(
+		var node := _tile_node(tile)
+		node.position = Vector2(
 			SHEET_PAD + tile.col * cell_px + TILE_MARGIN,
 			SHEET_PAD + tile.row * cell_px + TILE_MARGIN)
-		tex.size = Vector2(
+		node.size = Vector2(
 			tile.w * cell_px - TILE_MARGIN * 2.0,
 			tile.h * cell_px - TILE_MARGIN * 2.0)
-		tex.texture = load(tile.texture)
-		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex.stretch_mode = TextureRect.STRETCH_SCALE  # auf die Zelle strecken - Quell-Seitenverhältnis egal
-		tex.modulate = Color.WHITE if tile.kind == CouponSheet.TileKind.ETCHING else FILLER_TINT
-		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(tex)
-		tile_views.append(TileView.new(tex, tile))
+		node.modulate = Color.WHITE if tile.kind == CouponSheet.TileKind.ETCHING else FILLER_TINT
+		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(node)
+		tile_views.append(TileView.new(node, tile))
 
 	var perforation := _Perforation.new()
 	perforation.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	perforation.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	perforation.setup(sheet.cols, sheet.rows, cell_px, SHEET_PAD, cell_tile)
 	add_child(perforation)  # zuletzt = über den Texturen
+
+## Anzeige-Node einer Kachel: das Motiv als TextureRect, oder - falls die
+## Motiv-Datei (noch) fehlt, z.B. bei neuen Material-Coupons ohne Artwork - ein
+## Platzhalter in Material-/Papierfarbe mit dem Coupon-Namen.
+func _tile_node(tile: CouponSheet.SheetTile) -> Control:
+	if ResourceLoader.exists(tile.texture):
+		var tex := TextureRect.new()
+		tex.texture = load(tile.texture)
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_SCALE  # auf die Zelle strecken - Quell-Seitenverhältnis egal
+		return tex
+
+	var placeholder := Panel.new()
+	var box := StyleBoxFlat.new()
+	var tint := DieMaterial.tint_for(tile.coupon.id) if tile.coupon != null else PAPER_COLOR
+	box.bg_color = tint.lerp(PAPER_COLOR, 0.35)
+	box.border_color = PERF_COLOR
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(4)
+	placeholder.add_theme_stylebox_override("panel", box)
+
+	var label := Label.new()
+	label.text = tile.coupon.display_name if tile.coupon != null else ""
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_color_override("font_color", PERF_COLOR)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	placeholder.add_child(label)
+	return placeholder
 
 func _paper_box() -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
