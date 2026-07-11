@@ -62,17 +62,16 @@ var run: GameRun:
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 
-@onready var title_label: Label = $VBoxContainer/TitleLabel
-@onready var book: HBoxContainer = $VBoxContainer/Book
-@onready var left_page: PanelContainer = $VBoxContainer/Book/LeftPage
-@onready var left_content: VBoxContainer = $VBoxContainer/Book/LeftPage/LeftContent
-@onready var right_page: PanelContainer = $VBoxContainer/Book/RightPage
-@onready var right_content: VBoxContainer = $VBoxContainer/Book/RightPage/RightContent
-@onready var page_back_button: Button = $VBoxContainer/NavRow/PageBackButton
-@onready var page_info_label: Label = $VBoxContainer/NavRow/PageInfoLabel
-@onready var page_next_button: Button = $VBoxContainer/NavRow/PageNextButton
-@onready var message_label: Label = $VBoxContainer/ShopMessageLabel
+@onready var left_page: PanelContainer = $VBoxContainer/Book/LeftHolder/LeftPage
+@onready var left_content: VBoxContainer = $VBoxContainer/Book/LeftHolder/LeftPage/LeftContent
+@onready var right_page: PanelContainer = $VBoxContainer/Book/RightHolder/RightPage
+@onready var right_content: VBoxContainer = $VBoxContainer/Book/RightHolder/RightPage/RightContent
 @onready var done_button: Button = $VBoxContainer/DoneButton
+
+## Blätter-Ecken der aktuellen Doppelseite (je Seiten-Fußzeile neu gebaut,
+## siehe _page_footer): links zurück, rechts vor (mit Gebühr bei neuer Seite).
+var page_back_button: Button
+var page_next_button: Button
 
 ## Alle in diesem Besuch aufgeschlagenen Doppelseiten (Index 0 = erste).
 var spreads: Array[MenuSpread] = []
@@ -89,20 +88,14 @@ var sheet_buttons: Array[Button] = []
 
 func _ready() -> void:
 	_style()
-	page_back_button.pressed.connect(_on_page_back_pressed)
-	page_next_button.pressed.connect(_on_page_next_pressed)
 	done_button.pressed.connect(_on_done_pressed)
 
-## Casino-Look des Rahmens + Papier-Look der beiden Menü-Seiten. Der Shop stylt
-## sich selbst, damit scene_root._style_ui nichts davon kennen muss.
+## Nur das Menü selbst ist sichtbar: der Panel-Hintergrund bleibt leer (kein
+## dunkler Kasten hinter dem Buch), gestylt werden allein die Papier-Seiten und
+## der kleine Fertig-Knopf darunter.
 func _style() -> void:
-	CasinoStyle.style_panel(self)
-	CasinoStyle.style_score_label(title_label, 22, CasinoStyle.GOLD)
-	CasinoStyle.style_body_label(message_label, 15, CasinoStyle.GREEN)
-	CasinoStyle.style_chip_label(page_info_label, 15, CasinoStyle.GOLD)
-	CasinoStyle.style_button(page_back_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 15)
-	CasinoStyle.style_button(page_next_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 15)
-	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 16)
 	left_page.add_theme_stylebox_override("panel", _paper_box())
 	right_page.add_theme_stylebox_override("panel", _paper_box())
 
@@ -123,7 +116,6 @@ func _paper_box() -> StyleBoxFlat:
 ## Seiten des vorigen Besuchs sind Geschichte, die Blätter-Gebühr startet neu).
 ## Sichtbarkeit/Spielzustand steuert der Aufrufer (scene_root._on_round_complete).
 func open() -> void:
-	message_label.text = ""
 	spreads = [_build_spread()]
 	current_spread_index = 0
 	_show_spread()
@@ -146,11 +138,9 @@ func _on_page_next_pressed() -> void:
 	if _next_flip_is_new():
 		var fee := _next_flip_fee()
 		if run.money < fee:
-			message_label.text = "Nicht genug Geld zum Umblättern ($%d)." % fee
-			return
+			return  # die Blätter-Ecke ist bei zu wenig Geld ohnehin deaktiviert
 		run.add_money(-fee)
 		spreads.append(_build_spread())
-		message_label.text = "Neue Doppelseite aufgeschlagen (-$%d)." % fee
 	current_spread_index += 1
 	_show_spread()
 	_play_flip_animation(true)
@@ -244,9 +234,6 @@ func _show_spread() -> void:
 
 	_rebuild_left_page(spread)
 	_rebuild_right_page(spread)
-
-	page_info_label.text = "Seiten %d–%d" % [current_spread_index * 2 + 1, current_spread_index * 2 + 2]
-	page_back_button.disabled = current_spread_index == 0
 	_refresh_afford_state()
 
 ## Gibt die Inhalte beider Seiten frei - auch beim Schließen wichtig, damit die
@@ -259,6 +246,8 @@ func _clear_pages() -> void:
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
 	sheet_buttons.clear()
+	page_back_button = null
+	page_next_button = null
 
 ## Linke Menü-Seite: Überschrift + die Würfel-Angebote der Doppelseite.
 func _rebuild_left_page(spread: MenuSpread) -> void:
@@ -269,7 +258,10 @@ func _rebuild_left_page(spread: MenuSpread) -> void:
 	left_content.add_child(_menu_heading("Würfel"))
 	for i in spread.dice_offers.size():
 		left_content.add_child(_build_offer_card(spread.dice_offers[i], i))
-	left_content.add_child(_page_footer(current_spread_index * 2 + 1))
+
+	page_back_button = _corner_button("‹")
+	page_back_button.pressed.connect(_on_page_back_pressed)
+	left_content.add_child(_page_footer(current_spread_index * 2 + 1, page_back_button, true))
 
 ## Rechte Menü-Seite: Charms (je einmal kaufbar) + das feste Bogen-Sortiment.
 func _rebuild_right_page(spread: MenuSpread) -> void:
@@ -315,7 +307,9 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 		right_content.add_child(button)
 		sheet_buttons.append(button)
 
-	right_content.add_child(_page_footer(current_spread_index * 2 + 2))
+	page_next_button = _corner_button("›")
+	page_next_button.pressed.connect(_on_page_next_pressed)
+	right_content.add_child(_page_footer(current_spread_index * 2 + 2, page_next_button, false))
 
 ## Überschrift in dunkler "Druckfarbe" auf dem Menü-Papier.
 func _menu_heading(text: String) -> Label:
@@ -325,21 +319,45 @@ func _menu_heading(text: String) -> Label:
 	label.add_theme_color_override("font_color", INK)
 	return label
 
-## Seitenzahl-Fußzeile ("– N –", mittig, unten) wie in einer echten Speisekarte.
-## Der davor gesetzte Streckplatz drückt sie ans Seitenende.
-func _page_footer(page_number: int) -> Control:
+## Seitenzahl-Fußzeile wie in einer echten Speisekarte: "– N –" mittig, dazu die
+## Blätter-Ecke der Seite (nav_on_left = linke Blattecke, sonst rechte). Ein
+## unsichtbarer Gegen-Platzhalter in Eckengröße hält die Seitenzahl exakt mittig;
+## der davor gesetzte Streckplatz drückt die Zeile ans Seitenende.
+func _page_footer(page_number: int, corner: Button, nav_on_left: bool) -> Control:
 	var holder := VBoxContainer.new()
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	holder.add_child(spacer)
+
+	var row := HBoxContainer.new()
 	var label := Label.new()
 	label.text = "– %d –" % page_number
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("font_size", 13)
 	label.add_theme_color_override("font_color", INK)
-	holder.add_child(label)
+
+	var ghost := Control.new()  # Gegenstück zur Ecke, hält die Seitenzahl mittig
+	ghost.custom_minimum_size = corner.custom_minimum_size
+	if nav_on_left:
+		row.add_child(corner)
+		row.add_child(label)
+		row.add_child(ghost)
+	else:
+		row.add_child(ghost)
+		row.add_child(label)
+		row.add_child(corner)
+	holder.add_child(row)
 	return holder
+
+## Kleine Blätter-Ecke am unteren Seitenrand (wie ein Eselsohr zum Umblättern).
+func _corner_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(96, 30)
+	CasinoStyle.style_button(button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 13)
+	return button
 
 ## Eine Angebotskarte auf der linken Seite: dunkle "gedruckte" Karte mit der
 ## Würfel-Zeile im Sammlungs-Look (mit "N ×"-Stück-Multiplikator, alle Würfel
@@ -453,10 +471,8 @@ func _on_offer_pressed(index: int) -> void:
 	var offer := dice_offers[index]
 	var price := _offer_price(offer)
 	if run.money < price:
-		message_label.text = "Nicht genug Geld für %s ($%d)." % [offer.display_name, price]
-		return
+		return  # Button ist bei zu wenig Geld ohnehin deaktiviert
 	run.purchase_dice(offer.dice, price)
-	message_label.text = "Gekauft: %s – %d Würfel (-$%d)" % [offer.display_name, offer.size(), price]
 	_refresh_afford_state()
 
 ## Kauft den angeklickten Charm sofort (siehe run.purchase_charm) - je Charm nur
@@ -470,7 +486,6 @@ func _on_charm_clicked(index: int) -> void:
 	charm_bought[index] = true
 	charm_buttons[index].disabled = true
 	charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
-	message_label.text = "Gekauft: %s (-$%d)" % [charm.display_name, CHARM_PRICE]
 	_refresh_afford_state()
 
 ## Kauft einen Coupon-Bogen (siehe run.buy_coupon_sheet / CouponSheet) - beliebig
@@ -479,10 +494,8 @@ func _on_charm_clicked(index: int) -> void:
 func _on_sheet_pressed(index: int) -> void:
 	var offer: Dictionary = SHEET_OFFERS[index]
 	if run.money < offer["price"]:
-		message_label.text = "Nicht genug Geld für %s ($%d)." % [offer["name"], offer["price"]]
-		return
-	var sheet := run.buy_coupon_sheet(offer["kind"], offer["price"])
-	message_label.text = "%s: %d Ätzung(en) (-$%d)." % [offer["name"], sheet.etching_count(), offer["price"]]
+		return  # Button ist bei zu wenig Geld ohnehin deaktiviert
+	run.buy_coupon_sheet(offer["kind"], offer["price"])
 	_refresh_afford_state()
 
 ## Deaktiviert alles, was sich der Spieler gerade nicht leisten kann - je Angebot
@@ -497,12 +510,15 @@ func _refresh_afford_state() -> void:
 			charm_buttons[i].disabled = money < CHARM_PRICE or run.charm_ids().has(charm_options[i].id)
 	for i in sheet_buttons.size():
 		sheet_buttons[i].disabled = money < SHEET_OFFERS[i]["price"]
-	if _next_flip_is_new():
-		page_next_button.text = "Umblättern · $%d ›" % _next_flip_fee()
-		page_next_button.disabled = money < _next_flip_fee()
-	else:
-		page_next_button.text = "Weiter ›"
-		page_next_button.disabled = false
+	if page_back_button != null and is_instance_valid(page_back_button):
+		page_back_button.disabled = current_spread_index == 0
+	if page_next_button != null and is_instance_valid(page_next_button):
+		if _next_flip_is_new():
+			page_next_button.text = "$%d ›" % _next_flip_fee()
+			page_next_button.disabled = money < _next_flip_fee()
+		else:
+			page_next_button.text = "›"
+			page_next_button.disabled = false
 
 ## Das Geld hat sich geändert, während der Shop offen ist (siehe run-Setter):
 ## Kaufbarkeit neu bewerten. Wichtig, wenn das Geld NICHT durch einen Shop-Kauf
