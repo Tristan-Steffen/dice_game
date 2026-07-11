@@ -85,7 +85,13 @@ func apply_definition(def: DieDefinition) -> void:
 		_set_face_value(axis, value)
 		var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
 		face_base[axis] = DieMaterial.tint_for(material_id)
+		# Oberflächen-Textur der Seite (Basis-Muster ohne Material) - die Farbe
+		# multipliziert weiterhin albedo_color (siehe _set_body_color).
+		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
+		quad_material.albedo_texture = DieMaterial.die_texture_for(material_id)
 	edge_base = DieMaterial.tint_for(def.edge_material) if DieMaterial.is_valid_id(def.edge_material) else EDGE_COLOR
+	if edge_material_res != null:
+		edge_material_res.albedo_texture = DieMaterial.die_texture_for(def.edge_material)
 	_refresh_face_colors()
 
 func _set_face_value(axis: String, value: int) -> void:

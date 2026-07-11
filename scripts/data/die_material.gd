@@ -109,3 +109,23 @@ static func is_valid_id(material_id: String) -> bool:
 static func tint_for(material_id: String) -> Color:
 	var material := by_id(material_id)
 	return material.tint if material != null else Color.WHITE
+
+# --- Oberflächen-Texturen der Würfel (siehe assets/textures/dice/) ---------------
+# Prozedural erzeugte, nahtlose Muster (Facetten, Bläschen, Bürstenstriche, ...),
+# bewusst hell und fast farblos - die kräftige Materialfarbe liefert weiterhin
+# tint_for (Albedo = Textur × Tint, siehe DieFaceDisplay). Konvention:
+# Dateiname = Material-id; Seiten ohne Material nutzen BASE_TEXTURE_ID.
+
+const DIE_TEXTURE_DIR := "res://assets/textures/dice/"
+const BASE_TEXTURE_ID := "dice_base"
+
+static var _die_textures := {}  # Textur-id -> Texture2D oder null (einmal geladen)
+
+## Oberflächen-Textur für eine Seite/Kante mit material_id (""/unbekannt = die
+## Basis-Textur des weißen Würfelkörpers); null, falls die Datei fehlt.
+static func die_texture_for(material_id: String) -> Texture2D:
+	var texture_id := material_id if is_valid_id(material_id) else BASE_TEXTURE_ID
+	if not _die_textures.has(texture_id):
+		var path := DIE_TEXTURE_DIR + texture_id + ".png"
+		_die_textures[texture_id] = load(path) if ResourceLoader.exists(path) else null
+	return _die_textures[texture_id]

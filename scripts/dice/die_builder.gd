@@ -64,6 +64,7 @@ static func build() -> Node3D:
 	# Kanten-Material-Tint, siehe DieDefinition.edge_material).
 	var edge_material := StandardMaterial3D.new()
 	edge_material.albedo_color = DieFaceDisplay.EDGE_COLOR
+	edge_material.albedo_texture = DieMaterial.die_texture_for("")  # Basis-Muster (siehe DieFaceDisplay)
 	edge_material.roughness = 0.55
 	edge_material.emission_enabled = true  # leichtes Eigenleuchten (siehe DieFaceDisplay.GLOW_STRENGTH)
 	edge_material.emission = DieFaceDisplay.EDGE_COLOR * DieFaceDisplay.GLOW_STRENGTH
@@ -132,6 +133,7 @@ static func build() -> Node3D:
 		var default_value: int = DiceController.AXIS_FACE_INDEX[axis] + 1
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = DieFaceDisplay.BODY_COLOR
+		mat.albedo_texture = DieMaterial.die_texture_for("")  # Basis-Muster (siehe DieFaceDisplay)
 		mat.roughness = 0.55
 		mat.emission_enabled = true  # leichtes Eigenleuchten (siehe DieFaceDisplay.GLOW_STRENGTH)
 		mat.emission = DieFaceDisplay.BODY_COLOR * DieFaceDisplay.GLOW_STRENGTH

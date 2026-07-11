@@ -40,3 +40,26 @@ func test_chip_line_groups_by_distinct_value():
 	var fixed_lines := _lines(DieDefinition.fixed(2, "Zwei"), 1)
 	assert_eq(fixed_lines[1].get_child_count(), 1, "Einheitswürfel: eine Gruppe")
 	assert_eq(_label_texts(fixed_lines[1].get_child(0)), ["6×", "2"], "6 × [2]")
+
+func test_material_faces_get_their_own_group():
+	# Ein Einheitswürfel mit EINER Bernstein-Seite: die Material-Seite zählt
+	# getrennt von den fünf einfachen Seiten desselben Werts.
+	var def := DieDefinition.fixed(2, "Zwei")
+	def.materials[0] = DieMaterial.AMBER
+	var lines := _lines(def, 1)
+	assert_eq(lines[1].get_child_count(), 2, "einfache und Material-Seiten getrennt")
+	assert_eq(_label_texts(lines[1].get_child(0)), ["5×", "2"], "fünf einfache Zweien zuerst")
+	assert_eq(_label_texts(lines[1].get_child(1)), ["2"], "die Material-Zwei einzeln")
+	var material_chip: Label = lines[1].get_child(1).get_child(0)
+	var box: StyleBoxFlat = material_chip.get_theme_stylebox("normal")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER), "Chip trägt die Materialfarbe")
+	assert_true(material_chip.tooltip_text.begins_with("Bernstein"), "Tooltip nennt das Material")
+
+func test_same_material_faces_group_together():
+	var def := DieDefinition.fixed(4, "Vier")
+	def.materials[1] = DieMaterial.GOLD
+	def.materials[3] = DieMaterial.GOLD
+	var lines := _lines(def, 1)
+	assert_eq(lines[1].get_child_count(), 2)
+	assert_eq(_label_texts(lines[1].get_child(0)), ["4×", "4"], "vier einfache Vieren")
+	assert_eq(_label_texts(lines[1].get_child(1)), ["2×", "4"], "zwei Gold-Vieren gebündelt")

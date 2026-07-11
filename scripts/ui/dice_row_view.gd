@@ -67,24 +67,34 @@ static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, 
 	head.add_child(total_label)
 
 	# --- Zeile 2: Zusammensetzung (Seiten-Übersicht) ---
+	# Gruppiert nach Wert UND Seiten-Material: eine Material-Seite bekommt ihre
+	# eigene (getönte) Gruppe neben den einfachen Seiten desselben Werts.
 	# Weiter Abstand ZWISCHEN den Wert-Gruppen (der Multiplikator klebt eng an
 	# seinem eigenen Chip, siehe _count_chip).
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 16)
-	var counts := {}
-	for value in def.faces:
-		counts[value] = counts.get(value, 0) + 1
-	var values := counts.keys()
-	values.sort()
-	for value in values:
-		chips.add_child(_count_chip(value, counts[value]))
+	var groups := {}  # "wert|material" -> {value, material, count}
+	for i in def.faces.size():
+		var material_id: String = def.materials[i] if i < def.materials.size() else ""
+		var key := "%d|%s" % [def.faces[i], material_id]
+		if not groups.has(key):
+			groups[key] = {"value": def.faces[i], "material": material_id, "count": 0}
+		groups[key]["count"] += 1
+	var entries: Array = groups.values()
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["value"] != b["value"]:
+			return a["value"] < b["value"]
+		return a["material"] < b["material"])  # "" (ohne Material) vor Material-Gruppen
+	for entry in entries:
+		chips.add_child(_count_chip(entry["value"], entry["count"], entry["material"]))
 	col.add_child(chips)
 	return row_panel
 
-## Ein Seiten-Eintrag: bei mehrfachem Vorkommen ein "N ×" davor, dann der weiße
-## Würfelseiten-Chip mit NUR der Augenzahl (keine weitere Zahl im weißen Feld) -
-## also z.B. "4 × [6]". Bei count == 1 nur der Chip.
-static func _count_chip(value: int, count: int) -> Control:
+## Ein Seiten-Eintrag: bei mehrfachem Vorkommen ein "N ×" davor, dann der
+## Würfelseiten-Chip mit NUR der Augenzahl (keine weitere Zahl im Feld) - also
+## z.B. "4 × [6]". Bei count == 1 nur der Chip. material_id ("" = keins) tönt
+## den Chip in der Materialfarbe (siehe _value_chip).
+static func _count_chip(value: int, count: int, material_id: String = "") -> Control:
 	var entry := HBoxContainer.new()
 	entry.add_theme_constant_override("separation", 2)
 	entry.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -95,12 +105,14 @@ static func _count_chip(value: int, count: int) -> Control:
 		mult.add_theme_font_size_override("font_size", 18)
 		mult.add_theme_color_override("font_color", CasinoStyle.CREAM)
 		entry.add_child(mult)
-	entry.add_child(_value_chip(value))
+	entry.add_child(_value_chip(value, material_id))
 	return entry
 
-## Der weiße, abgerundete Würfelseiten-Chip mit der dunklen Augenzahl (im Look
-## der echten Würfel) - enthält ausschließlich den Seitenwert.
-static func _value_chip(value: int) -> Label:
+## Der abgerundete Würfelseiten-Chip mit der dunklen Augenzahl (im Look der
+## echten Würfel) - enthält ausschließlich den Seitenwert. Mit material_id
+## übernimmt er die Materialfarbe der Seite (wie auf dem 3D-Würfel) und nennt
+## das Material im Tooltip.
+static func _value_chip(value: int, material_id: String = "") -> Label:
 	var chip := Label.new()
 	chip.text = "%d" % value
 	chip.custom_minimum_size = Vector2(34, 34)
@@ -109,12 +121,15 @@ static func _value_chip(value: int) -> Label:
 	chip.add_theme_font_size_override("font_size", 18)
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color.WHITE
+	box.bg_color = DieMaterial.tint_for(material_id)  # Weiß ohne Material
 	box.border_color = CHIP_BORDER
 	box.set_border_width_all(2)
 	box.set_corner_radius_all(8)
 	box.set_content_margin_all(5)
 	chip.add_theme_stylebox_override("normal", box)
+	if DieMaterial.is_valid_id(material_id):
+		chip.tooltip_text = "%s: %s" % [DieMaterial.by_id(material_id).display_name, DieMaterial.by_id(material_id).description]
+		chip.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignorieren Maus sonst - nötig für den Tooltip
 	return chip
 
 ## Statische 3D-Vorschau eines Würfels (eigener SubViewport mit eigener World3D).
