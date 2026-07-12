@@ -30,7 +30,7 @@ func _ready() -> void:
 	material.bounce = BOUNCE
 	material.friction = FRICTION
 
-	_add_box("Floor", Vector3(0, FLOOR_Y, 0), Basis.IDENTITY, FLOOR_SIZE, material)
+	_add_box("Floor", Vector3(0, FLOOR_Y, 0), Basis.IDENTITY, FLOOR_SIZE, material, "pit_floor")
 
 	for i in WALL_SEGMENTS:
 		var theta := TAU * float(i) / float(WALL_SEGMENTS)
@@ -42,12 +42,14 @@ func _ready() -> void:
 		var y_axis := Vector3.UP
 		var z_axis := x_axis.cross(y_axis).normalized()  # radial = Wanddicke
 		var segment_length := point.distance_to(next_point) + WALL_OVERLAP
-		_add_box("Wall%d" % i, mid, Basis(x_axis, y_axis, z_axis), Vector3(segment_length, WALL_HEIGHT, WALL_THICKNESS), material)
+		_add_box("Wall%d" % i, mid, Basis(x_axis, y_axis, z_axis), Vector3(segment_length, WALL_HEIGHT, WALL_THICKNESS), material, "pit_wall")
 
-func _add_box(node_name: String, box_position: Vector3, box_basis: Basis, size: Vector3, material: PhysicsMaterial) -> void:
+## group unterscheidet Boden- und Wandkontakte für den Würfel-Sound (siehe DiceAudio).
+func _add_box(node_name: String, box_position: Vector3, box_basis: Basis, size: Vector3, material: PhysicsMaterial, group: String) -> void:
 	var body := StaticBody3D.new()
 	body.name = node_name
 	body.collision_mask = 0
+	body.add_to_group(group)
 	body.physics_material_override = material
 	body.transform = Transform3D(box_basis, box_position)
 	add_child(body)

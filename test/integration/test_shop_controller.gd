@@ -116,23 +116,43 @@ func _capture_sheet_kinds() -> Array:
 	run.sheet_purchased.connect(func(_sheet: CouponSheet, kind: int) -> void: kinds.append(kind))
 	return kinds
 
+## Erzwingt ein bestimmtes Pack-Sortiment auf der aktuellen Doppelseite (das echte
+## ist zufällig, siehe _build_spread) und setzt die "vergriffen"-Marken zurück, um
+## einen bestimmten Pack-Typ gezielt kaufen zu können. Die _on_sheet_pressed-Aufrufe
+## adressieren danach die Angebote per Index in dieser Reihenfolge.
+func _force_pack_offers(offers: Array) -> void:
+	var spread = shop.spreads[shop.current_spread_index]
+	var typed: Array[Vector2i] = []
+	typed.assign(offers)
+	spread.pack_offers = typed
+	spread.pack_bought.resize(typed.size())
+	spread.pack_bought.fill(false)
+	shop._show_spread()
+
 func test_buy_general_snippet_deducts_price_and_emits_sheet():
 	var kinds := _capture_sheet_kinds()
-	shop._on_sheet_pressed(0, 0)  # Coupon-Heft 2×2, $6
+	_force_pack_offers([Vector2i(0, 0)])  # Coupon-Heft 2×2, $6
+	shop._on_sheet_pressed(0)
 	assert_eq(run.money, 94)  # 100 - 6
 	assert_eq(kinds, [CouponSheet.Kind.SNIPPET])
 
-func test_packs_are_repeatable():
+func test_pack_offer_is_single_use():
+	# Jedes Pack-Angebot lässt sich nur EINMAL kaufen; der zweite Klick prallt ab
+	# und die Karte ist danach "vergriffen".
 	var kinds := _capture_sheet_kinds()
-	shop._on_sheet_pressed(0, 0)  # -6
-	shop._on_sheet_pressed(0, 1)  # Coupon-Heft 3×3, -10
-	assert_eq(run.money, 84)  # 100 - 6 - 10
-	assert_eq(kinds, [CouponSheet.Kind.SNIPPET, CouponSheet.Kind.SHEET])
+	_force_pack_offers([Vector2i(0, 0)])  # Coupon-Heft 2×2, $6
+	shop._on_sheet_pressed(0)
+	shop._on_sheet_pressed(0)  # zweiter Kauf desselben Angebots
+	assert_eq(run.money, 94, "nur einmal abgezogen")
+	assert_eq(kinds, [CouponSheet.Kind.SNIPPET], "nur ein Bogen ausgewürfelt")
+	assert_true(shop.sheet_buttons[0].disabled, "Karte ist danach vergriffen")
+	assert_true(shop.pack_bought[0], "als gekauft vermerkt")
 
 func test_cannot_buy_pack_without_funds():
 	var kinds := _capture_sheet_kinds()
 	run.money = 3
-	shop._on_sheet_pressed(0, 2)  # Coupon-Heft 5×5, $16
+	_force_pack_offers([Vector2i(0, 2)])  # Coupon-Heft 5×5, $16
+	shop._on_sheet_pressed(0)
 	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
 	assert_eq(kinds.size(), 0, "kein Bogen ausgewürfelt")
 
@@ -148,8 +168,8 @@ func test_pack_buttons_disabled_by_price():
 		assert_eq(shop.sheet_buttons[i].disabled, run.money < price,
 			"Kaufbarkeit von %s (%s)" % [ShopController.PACKS[offer.x]["name"], ShopController.PACK_SIZES[offer.y]["label"]])
 
-func test_spread_offers_nine_distinct_packs():
-	# 9 aus den 12 möglichen Sorte-×-Größe-Kombinationen, ohne Doppelte.
+func test_spread_offers_distinct_packs():
+	# PACK_OFFER_COUNT aus den 12 möglichen Sorte-×-Größe-Kombinationen, ohne Doppelte.
 	assert_eq(shop.pack_offers.size(), ShopController.PACK_OFFER_COUNT)
 	var seen := {}
 	for offer in shop.pack_offers:
@@ -171,8 +191,10 @@ func test_specialized_pack_only_contains_its_kinds():
 	run.sheet_purchased.connect(func(sheet: CouponSheet, _kind: int) -> void: sheets.append(sheet))
 	run.money = 1000
 	for i in 5:
-		shop._on_sheet_pressed(3, 2)  # Tageskarte 5×5
-		shop._on_sheet_pressed(2, 2)  # Juwelier-Katalog 5×5
+		# Jedes Angebot ist einmalig - je Generation das Sortiment neu erzwingen.
+		_force_pack_offers([Vector2i(3, 2), Vector2i(2, 2)])  # Tageskarte, Juwelier (5×5)
+		shop._on_sheet_pressed(0)  # Tageskarte 5×5
+		shop._on_sheet_pressed(1)  # Juwelier-Katalog 5×5
 	for s in sheets.size():
 		var expected: Array = [Coupon.KIND_MEAL] if s % 2 == 0 else [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE]
 		for tile in sheets[s].tiles:
@@ -211,7 +233,8 @@ func test_gourmet_halves_tageskarte_packs():
 	run.money = 100
 	# Tageskarte ist Pack-Index 3 (siehe ShopController.PACKS); Größe 3×3 kostet
 	# normal $13 - mit Feinschmecker $7.
-	shop._on_sheet_pressed(3, 1)
+	_force_pack_offers([Vector2i(3, 1)])
+	shop._on_sheet_pressed(0)
 	assert_eq(run.money, 93)
 
 func test_bulk_discount_only_hits_triple_bundles():

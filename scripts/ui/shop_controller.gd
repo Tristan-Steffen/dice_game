@@ -1,8 +1,11 @@
 class_name ShopController
 extends Panel
-## Der Shop als aufgeschlagene Speisekarte: zwei cremefarbene Seiten nebeneinander
-## (links die Würfel-Angebote, rechts Charms und die vier Coupon-Packs), durch die
-## man wie in einem kleinen Buch blättert. Umblättern auf eine NOCH NICHT gesehene Seite
+## Der Shop als kleines ringgebundenes Menü-Büchlein: zwei cremefarbene Seiten
+## (links die Würfel-Angebote, rechts Charms und die Coupon-Packs), verbunden
+## durch Metall-Binderinge am Falz (siehe RingSpine). Die linke Seite ist bewusst
+## etwas kleiner und dunkler - sie liest sich als das "umgeschlagene" Blatt des
+## Ringbuchs, unter dem der restliche Blattstapel hervorlugt.
+## Umblättern auf eine NOCH NICHT gesehene Seite
 ## würfelt frische Angebote aus und kostet eine steigende Gebühr (siehe
 ## FLIP_FEE_BASE - das ist der "Reroll"); Zurückblättern und erneutes
 ## Vorblättern auf bereits aufgeschlagene Seiten ist gratis, denn die Seiten
@@ -18,7 +21,7 @@ signal closed
 
 const CHARM_PRICE := 25  # Preis pro Charm-Kauf
 const DICE_OFFER_COUNT := 3  # Würfel-Angebote je Doppelseite (siehe DiceOffer)
-const OFFER_THUMB_SIZE := 52  # Kantenlänge der Mini-Vorschau je Angebots-Würfel (siehe DiceRowView)
+const OFFER_THUMB_SIZE := 46  # Kantenlänge der Mini-Vorschau je Angebots-Würfel (siehe DiceRowView)
 const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (siehe _build_charm_thumb)
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: erst $2, dann $3, $4 ...
@@ -55,9 +58,11 @@ const PACK_COVER_SIZE := 58  # Kantenlänge des Cover-Motivs je Pack-Karte
 
 ## Das Pack-Sortiment einer Doppelseite: PACK_OFFER_COUNT zufällig gezogene,
 ## verschiedene Kombinationen aus Pack-Sorte × Bogengröße (von 4 × 3 = 12
-## möglichen), als 3×3-Raster gezeigt. Umblättern würfelt ein neues Sortiment.
+## möglichen), nebeneinander gezeigt. Jedes Angebot ist nur EINMAL kaufbar
+## (danach greift man zum Umblättern für frische Packs). Umblättern würfelt ein
+## neues Sortiment.
 const PACK_GRID_COLUMNS := 3
-const PACK_OFFER_COUNT := 9
+const PACK_OFFER_COUNT := 3
 
 const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Menü-Papier (wie die Coupon-Bögen)
 const PAPER_EDGE := Color("c9b98f")   # abgedunkelter Papierrand
@@ -73,8 +78,108 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	## Die 9 Pack-Angebote der Seite (x = PACKS-Index, y = PACK_SIZES-Index).
+	## Die Pack-Angebote der Seite (x = PACKS-Index, y = PACK_SIZES-Index).
 	var pack_offers: Array[Vector2i] = []
+	## Je Angebot, ob es auf dieser Seite schon gekauft wurde (nur einmal kaufbar).
+	var pack_bought: Array[bool] = []
+
+## Die Metall-Ringbindung des Menü-Büchleins: ein zeichnendes Overlay über dem
+## ganzen Shop (fängt keine Maus), damit die Bügel über BEIDEN Papierseiten
+## liegen dürfen. Je Ring: Stanzlöcher in beiden Seiten, ein Metallbügel mit
+## Licht- und Schattenkante quer über den Falz-Spalt, plus ein weicher
+## Falz-Schatten an den Papier-Innenkanten. Unter der (etwas kleineren) rechten
+## Seite lugen zusätzlich die Kanten der übrigen Blätter des Stapels hervor - sie
+## liest sich so als oberstes Blatt des noch nicht durchgeblätterten Rests.
+class RingSpine:
+	extends Control
+
+	const RING_COUNT := 8        # Bügel der Wire-Bindung, gleichmäßig verteilt
+	const RING_MARGIN := 30.0    # Abstand des ersten/letzten Rings vom Seitenrand
+	const HOLE_INSET := 11.0     # wie weit die Stanzlöcher im Papier sitzen
+	const HOLE_RADIUS := 4.5
+	const RING_WIDTH := 6.0
+	const METAL := Color(0.58, 0.60, 0.65)
+	const METAL_LIGHT := Color(0.88, 0.90, 0.94)
+	const METAL_DARK := Color(0.30, 0.32, 0.36)
+	const HOLE_COLOR := Color(0.2, 0.17, 0.12)   # dunkles Stanzloch im Papier
+	const STACK_PAPER := Color("ddd0b0")         # Blattstapel-Kanten unter der linken Seite
+	const STACK_LAYERS := 5      # sichtbare Blätter unter dem obersten (der linken Seite)
+	const STACK_STEP := 3.0      # wie weit jedes tiefere Blatt nach außen absteht
+
+	var left_page: Control
+	var right_page: Control
+
+	func _draw() -> void:
+		if left_page == null or right_page == null:
+			return
+		var lr := Rect2(left_page.global_position - global_position, left_page.size)
+		var rr := Rect2(right_page.global_position - global_position, right_page.size)
+
+		_draw_sheet_stack(rr, true)  # Stapel unter der rechten Seite (freie Außenkante = rechts)
+		_draw_spine_shadow(lr, true)
+		_draw_spine_shadow(rr, false)
+
+		# Ringe über die gemeinsame Höhe beider Seiten verteilen (die linke ist
+		# kürzer - alle Löcher müssen in BEIDEN Blättern sitzen).
+		var top := maxf(lr.position.y, rr.position.y) + RING_MARGIN
+		var bottom := minf(lr.end.y, rr.end.y) - RING_MARGIN
+		for i in RING_COUNT:
+			var y := lerpf(top, bottom, float(i) / float(RING_COUNT - 1))
+			_draw_ring(lr.end.x - HOLE_INSET, rr.position.x + HOLE_INSET, y)
+
+	## Ein Bügel der Bindung: durch beide Stanzlöcher, mit Schlagschatten aufs
+	## Papier, Glanzlinie oben und Schattenkante unten (liest sich als rundes Metall).
+	func _draw_ring(xl: float, xr: float, y: float) -> void:
+		draw_circle(Vector2(xl, y), HOLE_RADIUS, HOLE_COLOR)
+		draw_circle(Vector2(xr, y), HOLE_RADIUS, HOLE_COLOR)
+		draw_line(Vector2(xl, y + 3.0), Vector2(xr, y + 3.0), Color(0, 0, 0, 0.25), RING_WIDTH)
+		draw_line(Vector2(xl, y), Vector2(xr, y), METAL, RING_WIDTH)
+		draw_circle(Vector2(xl, y), RING_WIDTH * 0.5, METAL)
+		draw_circle(Vector2(xr, y), RING_WIDTH * 0.5, METAL)
+		draw_line(Vector2(xl, y - 1.2), Vector2(xr, y - 1.2), METAL_LIGHT, 1.8)
+		draw_line(Vector2(xl, y + 1.8), Vector2(xr, y + 1.8), METAL_DARK, 1.2)
+
+	## Weicher Schatten am Falz: die Papier-Innenkante dunkelt zum Spalt hin ab
+	## (per-Vertex-Farben des Polygons ergeben den Verlauf).
+	func _draw_spine_shadow(rect: Rect2, inner_edge_is_right: bool) -> void:
+		var width := 14.0
+		var x_inner := rect.end.x if inner_edge_is_right else rect.position.x
+		var x_outer := x_inner - width if inner_edge_is_right else x_inner + width
+		var points := PackedVector2Array([
+			Vector2(x_outer, rect.position.y), Vector2(x_inner, rect.position.y),
+			Vector2(x_inner, rect.end.y), Vector2(x_outer, rect.end.y)])
+		var dark := Color(0, 0, 0, 0.16)
+		var clear := Color(0, 0, 0, 0.0)
+		draw_polygon(points, PackedColorArray([clear, dark, dark, clear]))
+
+	## Der Blattstapel unter einer Seite: mehrere Papierblätter treppen sich nach
+	## unten und zur freien Außenkante hin ab, sodass ihre Kanten dort hervorlugen -
+	## die Seite liest sich so als oberstes Blatt eines Stapels. outer_is_right
+	## wählt die freie Außenkante (rechts = Spine links, für die rechte Menü-Seite).
+	## Da das Overlay ÜBER dem Seiteninhalt zeichnet, werden nur die Rand-Bänder
+	## AUSSERHALB der Seite gemalt (keine Flächen über dem Inhalt); tiefere Blätter
+	## zuerst, damit nähere sie überdecken.
+	func _draw_sheet_stack(rect: Rect2, outer_is_right: bool) -> void:
+		var s := 1.0 if outer_is_right else -1.0          # Richtung "nach außen"
+		var edge_x := rect.end.x if outer_is_right else rect.position.x  # freie Außenkante
+		var spine_x := rect.position.x if outer_is_right else rect.end.x  # Falz-Seite (fest)
+		var edge := Color(0, 0, 0, 0.16)
+		for i in range(STACK_LAYERS, 0, -1):
+			var out := i * STACK_STEP
+			var inn := (i - 1) * STACK_STEP
+			var paper := STACK_PAPER.darkened(i * 0.035)
+			var outer := edge_x + s * out    # Außenkante DIESES Blattes
+			# Unterkante (von der Falz-Seite bis zur abstehenden Außenkante).
+			draw_rect(Rect2(minf(spine_x, outer), rect.end.y + inn,
+				absf(outer - spine_x), out - inn), paper)
+			# Außenkante (ab der um "out" nach unten verschobenen Oberkante).
+			draw_rect(Rect2(minf(edge_x + s * inn, outer), rect.position.y + out,
+				STACK_STEP, rect.size.y), paper)
+			# Dünne Schattenlinie an der Außen- und Unterkante jedes Blattes.
+			draw_line(Vector2(outer, rect.position.y + out),
+				Vector2(outer, rect.end.y + out), edge, 1.0)
+			draw_line(Vector2(minf(spine_x, outer), rect.end.y + out),
+				Vector2(maxf(spine_x, outer), rect.end.y + out), edge, 1.0)
 
 ## Der laufende Spiellauf (vom Besitzer scene_root gesetzt) - alle Käufe
 ## mutieren den Zustand ausschließlich über seine Methoden (siehe GameRun). Der
@@ -100,6 +205,9 @@ var run: GameRun:
 var page_back_button: Button
 var page_next_button: Button
 
+## Das Ringbinder-Overlay (siehe RingSpine), in _style einmalig aufgebaut.
+var ring_spine: RingSpine
+
 ## Alle in diesem Besuch aufgeschlagenen Doppelseiten (Index 0 = erste).
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
@@ -114,6 +222,7 @@ var charm_bought: Array[bool] = []
 ## Kaufknöpfe der Pack-Karten (Reihenfolge = pack_offers der aktuellen Seite) -
 ## parallel dazu die Preise für die Kaufbarkeits-Prüfung.
 var pack_offers: Array[Vector2i] = []
+var pack_bought: Array[bool] = []
 var sheet_buttons: Array[Button] = []
 var sheet_button_prices: Array[int] = []
 
@@ -123,17 +232,28 @@ func _ready() -> void:
 
 ## Nur das Menü selbst ist sichtbar: der Panel-Hintergrund bleibt leer (kein
 ## dunkler Kasten hinter dem Buch), gestylt werden allein die Papier-Seiten und
-## der kleine Fertig-Knopf darunter.
+## der kleine Fertig-Knopf darunter. Obendrauf kommt die Metall-Ringbindung als
+## Overlay - und unter der rechten Seite der Blattstapel (siehe RingSpine).
 func _style() -> void:
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 16)
 	left_page.add_theme_stylebox_override("panel", _paper_box())
 	right_page.add_theme_stylebox_override("panel", _paper_box())
 
+	ring_spine = RingSpine.new()
+	ring_spine.left_page = left_page
+	ring_spine.right_page = right_page
+	ring_spine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring_spine.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(ring_spine)  # letztes Kind: zeichnet ÜBER beiden Papierseiten
+	# Erst nach dem ersten Container-Layout stehen die Seiten-Rechtecke fest.
+	left_page.item_rect_changed.connect(ring_spine.queue_redraw)
+	right_page.item_rect_changed.connect(ring_spine.queue_redraw)
+
 ## Cremefarbenes Seitenpapier mit dunklerem Rand und weichem Schatten.
-func _paper_box() -> StyleBoxFlat:
+func _paper_box(paper: Color = PAPER_COLOR) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
-	box.bg_color = PAPER_COLOR
+	box.bg_color = paper
 	box.border_color = PAPER_EDGE
 	box.set_border_width_all(2)
 	box.set_corner_radius_all(6)
@@ -264,6 +384,8 @@ func _build_spread() -> MenuSpread:
 			combos.append(Vector2i(p, s))
 	combos.shuffle()
 	spread.pack_offers = combos.slice(0, PACK_OFFER_COUNT)
+	spread.pack_bought.resize(spread.pack_offers.size())
+	spread.pack_bought.fill(false)
 	return spread
 
 ## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, beide Seiten neu
@@ -274,6 +396,7 @@ func _show_spread() -> void:
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
 	pack_offers = spread.pack_offers
+	pack_bought = spread.pack_bought
 
 	_rebuild_left_page(spread)
 	_rebuild_right_page(spread)
@@ -345,17 +468,19 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 6)
 	right_content.add_child(grid)
-	for offer in spread.pack_offers:
-		grid.add_child(_build_pack_card(offer.x, offer.y))
+	for i in spread.pack_offers.size():
+		var offer := spread.pack_offers[i]
+		grid.add_child(_build_pack_card(offer.x, offer.y, i))
 
 	page_next_button = _corner_button("›")
 	page_next_button.pressed.connect(_on_page_next_pressed)
 	right_content.add_child(_page_footer(current_spread_index * 2 + 2, page_next_button, false))
 
-## Eine Pack-Karte des 3×3-Sortiments: Cover-Motiv, darunter der Pack-Name
-## (klein) und der Kaufknopf mit Größe · Preis. Der Tooltip (auf der ganzen
-## Karte) erklärt, welche Coupon-Arten drin sind.
-func _build_pack_card(pack_index: int, size_index: int) -> Control:
+## Eine Pack-Karte des Sortiments: Cover-Motiv, darunter der Pack-Name (klein)
+## und der Kaufknopf mit Größe · Preis. Nach dem Kauf ist die Karte "leer" und
+## deaktiviert (nur einmal kaufbar, siehe pack_bought). Der Tooltip (auf der
+## ganzen Karte) erklärt, welche Coupon-Arten drin sind.
+func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Control:
 	var pack: Dictionary = PACKS[pack_index]
 	var price := _pack_price(pack_index, size_index)  # inkl. Feinschmecker/Schnäppchenjäger
 	var size_label: String = PACK_SIZES[size_index]["label"]
@@ -384,10 +509,14 @@ func _build_pack_card(pack_index: int, size_index: int) -> Control:
 	card.add_child(name_label)
 
 	var button := Button.new()
-	button.text = "%s $%d" % [size_label, price]
+	if pack_bought[offer_index]:
+		button.text = "vergriffen"
+		button.disabled = true
+	else:
+		button.text = "%s $%d" % [size_label, price]
+		button.pressed.connect(_on_sheet_pressed.bind(offer_index))
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.custom_minimum_size = Vector2(0, 25)
-	button.pressed.connect(_on_sheet_pressed.bind(pack_index, size_index))
 	CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 12)
 	card.add_child(button)
 	sheet_buttons.append(button)
@@ -451,11 +580,11 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color(0.09, 0.13, 0.18, 0.96)
 	box.set_corner_radius_all(8)
-	box.set_content_margin_all(7)
+	box.set_content_margin_all(6)
 	card.add_theme_stylebox_override("panel", box)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 5)
+	vbox.add_theme_constant_override("separation", 4)
 	card.add_child(vbox)
 
 	vbox.add_child(DiceRowView.build_row(offer.dice[0], OFFER_THUMB_SIZE, offer.size()))
@@ -615,20 +744,27 @@ func _on_charm_clicked(index: int) -> void:
 	_refresh_afford_state()
 
 ## Kauft ein Coupon-Pack in der gewählten Größe (siehe run.buy_coupon_sheet /
-## CouponSheet) - beliebig oft nachkaufbar. Sortenreine Packs geben ihre
-## erlaubten Coupon-Arten an die Bogen-Auswürfelung weiter (siehe PACKS:
-## kinds); die Enthüllung zeigt scene_root (hört auf run.sheet_purchased).
-func _on_sheet_pressed(pack_index: int, size_index: int) -> void:
-	var pack: Dictionary = PACKS[pack_index]
-	var price := _pack_price(pack_index, size_index)
+## CouponSheet) - jedes Angebot nur EINMAL (danach vergriffen; frische Packs gibt
+## es beim Umblättern). Sortenreine Packs geben ihre erlaubten Coupon-Arten an
+## die Bogen-Auswürfelung weiter (siehe PACKS: kinds); die Enthüllung zeigt
+## scene_root (hört auf run.sheet_purchased).
+func _on_sheet_pressed(offer_index: int) -> void:
+	if pack_bought[offer_index]:
+		return
+	var offer := pack_offers[offer_index]
+	var pack: Dictionary = PACKS[offer.x]
+	var price := _pack_price(offer.x, offer.y)
 	if run.money < price:
 		return  # Button ist bei zu wenig Geld ohnehin deaktiviert
 	var allowed: Array[String] = []
 	allowed.assign(pack["kinds"])
-	run.buy_coupon_sheet(PACK_SIZES[size_index]["kind"], price, allowed)
+	run.buy_coupon_sheet(PACK_SIZES[offer.y]["kind"], price, allowed)
 	# Kleingedrucktes: Chance auf volle Rückerstattung des Kaufpreises.
 	if randf() < CharmEffects.pack_refund_chance(run.charm_ids()):
 		run.add_money(price)
+	pack_bought[offer_index] = true
+	sheet_buttons[offer_index].disabled = true
+	sheet_buttons[offer_index].text = "vergriffen"
 	_refresh_afford_state()
 
 ## Deaktiviert alles, was sich der Spieler gerade nicht leisten kann - je Angebot
@@ -642,7 +778,7 @@ func _refresh_afford_state() -> void:
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
 	for i in sheet_buttons.size():
-		sheet_buttons[i].disabled = money < sheet_button_prices[i]
+		sheet_buttons[i].disabled = pack_bought[i] or money < sheet_button_prices[i]
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

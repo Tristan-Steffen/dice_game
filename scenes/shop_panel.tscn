@@ -4,25 +4,25 @@
 
 [node name="ShopPanel" type="Panel"]
 visible = false
-offset_left = 264.0
+offset_left = 240.0
 offset_top = 56.0
-offset_right = 1016.0
-offset_bottom = 726.0
+offset_right = 1040.0
+offset_bottom = 760.0
 script = ExtResource("1_shopctrl")
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 0
-offset_right = 752.0
-offset_bottom = 670.0
+offset_right = 800.0
+offset_bottom = 704.0
 theme_override_constants/separation = 12
 
 [node name="Book" type="HBoxContainer" parent="VBoxContainer"]
-custom_minimum_size = Vector2(752, 610)
+custom_minimum_size = Vector2(800, 656)
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 28
 
 [node name="LeftHolder" type="Control" parent="VBoxContainer/Book"]
-custom_minimum_size = Vector2(371, 610)
+custom_minimum_size = Vector2(380, 656)
 layout_mode = 2
 
 [node name="LeftPage" type="PanelContainer" parent="VBoxContainer/Book/LeftHolder"]
@@ -39,7 +39,7 @@ layout_mode = 2
 theme_override_constants/separation = 8
 
 [node name="RightHolder" type="Control" parent="VBoxContainer/Book"]
-custom_minimum_size = Vector2(371, 610)
+custom_minimum_size = Vector2(392, 656)
 layout_mode = 2
 
 [node name="RightPage" type="PanelContainer" parent="VBoxContainer/Book/RightHolder"]
@@ -48,6 +48,9 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_top = 12.0
+offset_right = -20.0
+offset_bottom = -18.0
 grow_horizontal = 2
 grow_vertical = 2
 

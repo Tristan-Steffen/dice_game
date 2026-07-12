@@ -143,9 +143,7 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
 @onready var points_bar: ProgressBar = $UI/RoundHud/PointsBar
 @onready var points_label: Label = $UI/RoundHud/PointsBar/PointsLabel
 @onready var hand_label: Label = $UI/HandLabel
-@onready var charms_label: Label = $UI/CharmsLabel
 @onready var money_label: Label = $UI/MoneyLabel
-@onready var coupons_label: Label = $UI/CouponsLabel
 
 ## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
 ## ShopController) - scene_root spricht ihn nur über charm_shop.open() an,
@@ -158,16 +156,6 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
 
 @onready var die_inspector: DieInspectorView = $UI/DieInspectorView
-
-@onready var legend_toggle_button: Button = $UI/LegendToggleButton
-@onready var legend_panel: Panel = $UI/LegendPanel
-@onready var legend_content_label: Label = $UI/LegendPanel/Margin/LegendContentLabel
-
-## Öffnet die Würfel-Sammlung (siehe _on_dice_list_toggle_pressed) - alle Würfel
-## des Pools, nach Augensumme sortiert, mit Mini-Vorschau + Seiten-Übersicht.
-@onready var dice_list_toggle_button: Button = $UI/DiceListToggleButton
-var dice_list_panel: Panel  # komplett per Code aufgebaut (siehe _build_dice_list_panel)
-var dice_list_rows: VBoxContainer  # Zeilencontainer; bei jedem Öffnen neu befüllt
 
 # Enthüllungs-Overlay für einen gekauften Coupon-Bogen (siehe _build_sheet_preview
 ## / GameRun.buy_coupon_sheet / CouponSheet).
@@ -204,6 +192,7 @@ var charm_tooltip_title: Label
 var charm_tooltip_body: Label
 
 var dice: DiceController
+var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _ready)
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -302,20 +291,21 @@ func _ready() -> void:
 		face_displays.append(faces)
 	dice = DiceController.new(roots, bodies, face_displays)
 
+	dice_audio = DiceAudio.new()
+	dice_audio.name = "DiceAudio"
+	add_child(dice_audio)
+	dice_audio.setup(bodies, dice)
+
 	queue_tray_home_position = queue_tray_view.position
 
 	charm_shop.closed.connect(_on_shop_closed)
 	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
-	legend_toggle_button.pressed.connect(_on_legend_toggle_pressed)
-	dice_list_toggle_button.pressed.connect(_on_dice_list_toggle_pressed)
 	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
 
 	_style_ui()
-	_populate_legend()
 	_collect_combo_labels()
-	_build_dice_list_panel()
 	_build_sheet_preview()
 	_build_charm_tooltip()
 	_reset_game()
@@ -329,52 +319,23 @@ func _style_ui() -> void:
 	CasinoStyle.style_chip_label(round_badge_label, 20)
 	CasinoStyle.style_progress_bar(points_bar)
 	CasinoStyle.style_score_label(points_label, 17)
-	CasinoStyle.style_body_label(charms_label, 15, CasinoStyle.PURPLE)
-	CasinoStyle.style_body_label(coupons_label, 15, CasinoStyle.GREEN)
 	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GOLD)
 
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
-	CasinoStyle.style_button(legend_toggle_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
-	CasinoStyle.style_button(dice_list_toggle_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 16)
 	CasinoStyle.style_button(settings_toggle_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 16)
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 
 	CasinoStyle.style_panel(game_over_panel)
-	CasinoStyle.style_panel(legend_panel)
 
 	CasinoStyle.style_score_label(game_over_label, 24)
-	CasinoStyle.style_body_label(legend_content_label, 15)
 	# Der Shop stylt sich selbst (siehe ShopController._ready).
 
 ## Klappt die Einstellungsleiste unten rechts (Neues Spiel / Debug) auf/zu.
 func _on_settings_toggle_pressed() -> void:
 	settings_menu.visible = not settings_menu.visible
-
-## Klappt die Kombinationen-Übersicht auf/zu (siehe LegendToggleButton).
-func _on_legend_toggle_pressed() -> void:
-	legend_panel.visible = not legend_panel.visible
-	if legend_panel.visible:
-		dice_list_panel.visible = false  # nicht beide rechten Panels gleichzeitig
-
-## Klappt die Würfel-Sammlung auf/zu (siehe DiceListToggleButton). Beim Öffnen
-## wird die Liste frisch aus owned_pool gebaut (bildet Käufe/Ätzungen ab); beim
-## Schließen werden die Zeilen samt ihrer Mini-Vorschau-Viewports wieder
-## freigegeben, damit im Hintergrund nichts weiterrendert.
-func _on_dice_list_toggle_pressed() -> void:
-	dice_list_panel.visible = not dice_list_panel.visible
-	if dice_list_panel.visible:
-		legend_panel.visible = false
-		_rebuild_dice_list()
-	else:
-		_clear_dice_list()
-
-## Gibt alle Zeilen der Würfel-Sammlung frei (siehe _on_dice_list_toggle_pressed).
-func _clear_dice_list() -> void:
-	for child in dice_list_rows.get_children():
-		child.queue_free()
 
 ## Baut die Coupon-Bogen-Enthüllung auf: abgedunkelter Vollbild-Hintergrund +
 ## zentrierter Titel + CouponSheetView. Wird beim Kauf eines Bogens im Shop
@@ -545,8 +506,7 @@ func _grant_chip_coupon() -> void:
 	run.add_money(CharmEffects.chip_coupon_value(CHIP_COUPON_VALUE, run.charm_ids()))
 	_pulse_money_label()
 
-## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen (die
-## HUD-Coupon-Zeile aktualisiert sich über run.coupons_changed), Zähler
+## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen, Zähler
 ## hochzählen und die Zeile kurz aufpulsen.
 func _grant_etching(coupon: Coupon, counter: EtchCounter) -> void:
 	run.grant_coupon(coupon)
@@ -574,64 +534,6 @@ func _pulse_control(control: Control) -> void:
 	var pulse := create_tween()
 	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	pulse.tween_property(control, "scale", Vector2.ONE, 0.35)
-
-## Baut Rahmen der Würfel-Sammlung einmalig auf (Panel + Titel + scrollbare
-## Zeilenliste). Die Zeilen selbst füllt _rebuild_dice_list bei jedem Öffnen neu.
-func _build_dice_list_panel() -> void:
-	dice_list_panel = Panel.new()
-	dice_list_panel.visible = false
-	dice_list_panel.offset_left = 812.0
-	dice_list_panel.offset_top = 64.0
-	dice_list_panel.offset_right = 1256.0
-	dice_list_panel.offset_bottom = 726.0
-	CasinoStyle.style_panel(dice_list_panel)
-	$UI.add_child(dice_list_panel)
-
-	var vbox := VBoxContainer.new()
-	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vbox.offset_left = 16.0
-	vbox.offset_top = 14.0
-	vbox.offset_right = -16.0
-	vbox.offset_bottom = -14.0
-	vbox.add_theme_constant_override("separation", 10)
-	dice_list_panel.add_child(vbox)
-
-	var title := Label.new()
-	title.text = "Würfel-Sammlung"
-	CasinoStyle.style_score_label(title, 22, CasinoStyle.GOLD)
-	vbox.add_child(title)
-
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(scroll)
-
-	dice_list_rows = VBoxContainer.new()
-	dice_list_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	dice_list_rows.add_theme_constant_override("separation", 8)
-	scroll.add_child(dice_list_rows)
-
-## Befüllt die Würfel-Sammlung neu: eine Zeile pro Pool-Würfel, absteigend nach
-## Augensumme (die "eyes-reichsten" oben). Alte Zeilen werden vorher freigegeben
-## (samt ihrer Mini-Vorschau-Viewports).
-func _rebuild_dice_list() -> void:
-	for child in dice_list_rows.get_children():
-		child.queue_free()
-	var sorted := run.owned_pool.duplicate()
-	sorted.sort_custom(func(a: DieDefinition, b: DieDefinition) -> bool: return DiceRowView.eye_total(a) > DiceRowView.eye_total(b))
-	for def in sorted:
-		dice_list_rows.add_child(DiceRowView.build_row(def))
-
-## Baut den Text der Legende einmalig aus DiceScoring.CATEGORIES auf –
-## von der prestigeträchtigsten zur schwächsten Hand (siehe HAND_PRIORITY),
-## damit die Anzeige immer zur tatsächlichen Wertungslogik passt.
-func _populate_legend() -> void:
-	var lines: Array[String] = ["Kombinationen (Basis × Mult):"]
-	for key in DiceScoring.HAND_PRIORITY:
-		var label: String = DiceScoring.label_for(key)
-		var mult: int = DiceScoring.mult_for(key)
-		lines.append("%s  ×%d" % [label, mult])
-	legend_content_label.text = "\n".join(lines)
 
 ## Sammelt die fest in der Szene angelegten Kombinations-Labels (Kinder des
 ## Combinations-Ankers, je nach DiceScoring-Key benannt) in combo_labels ein,
@@ -687,41 +589,10 @@ func _tween_combo_label(label: Label3D, color: Color, target_scale: float) -> vo
 	tween.tween_property(label, "modulate", color, PAYOUT_FLASH_DURATION)
 	tween.tween_property(label, "scale", Vector3.ONE * target_scale, PAYOUT_FLASH_DURATION)
 
-## Der Charm-Besitz hat sich geändert (siehe run.charms_changed): 2D-Namensliste
-## und physische Tisch-Charms gemeinsam aktualisieren.
+## Der Charm-Besitz hat sich geändert (siehe run.charms_changed): die physischen
+## Tisch-Charms aktualisieren.
 func _on_charms_changed() -> void:
-	_refresh_charms_label()
 	charm_row.set_charms(run.owned_charms)
-
-## Aktualisiert die Charm-Anzeige (Namen, durch Komma getrennt) - rein
-## informativ, damit besessene Charms beim Testen sichtbar sind.
-func _refresh_charms_label() -> void:
-	if run.owned_charms.is_empty():
-		charms_label.text = "Keine Charms"
-		return
-	var names: Array[String] = []
-	for charm in run.owned_charms:
-		names.append(charm.display_name)
-	charms_label.text = "Charms: %s" % ", ".join(names)
-
-## Aktualisiert die Coupon-Anzeige (siehe run.coupons_changed) - gleiche Coupons
-## werden als "Name ×Anzahl" zusammengefasst, da man beliebig viele horten kann.
-func _refresh_coupons_label() -> void:
-	if run.owned_coupons.is_empty():
-		coupons_label.text = "Keine Coupons"
-		return
-	var counts := {}
-	var order: Array[String] = []  # erste Auftrittsreihenfolge beibehalten
-	for coupon in run.owned_coupons:
-		if not counts.has(coupon.display_name):
-			counts[coupon.display_name] = 0
-			order.append(coupon.display_name)
-		counts[coupon.display_name] += 1
-	var parts: Array[String] = []
-	for name in order:
-		var count: int = counts[name]
-		parts.append("%s ×%d" % [name, count] if count > 1 else name)
-	coupons_label.text = "Coupons: %s" % ", ".join(parts)
 
 ## Der Geldstand hat sich geändert (siehe run.money_changed) - jede Gutschrift
 ## und jeder Kauf laufen über GameRun, die Anzeige folgt hier automatisch.
@@ -1783,12 +1654,10 @@ func _connect_run() -> void:
 	die_inspector.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
-	run.coupons_changed.connect(_refresh_coupons_label)
 	run.sheet_purchased.connect(_show_sheet_reveal)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	_on_money_changed(run.money)
 	_on_charms_changed()
-	_refresh_coupons_label()
 	_refresh_combo_label_texts()
 
 func _start_new_round() -> void:
@@ -2050,8 +1919,6 @@ func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
 	round_hud.visible = show_ui
-	charms_label.visible = show_ui
-	coupons_label.visible = show_ui
 	take_button.visible = show_ui
 	select_all_button.visible = show_ui
 
