@@ -67,6 +67,27 @@ const HAND_PRIORITY := [
 	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
 ]
 
+## Anschauungs-Beispiel je Kategorie: die BETEILIGTEN Würfel einer typischen
+## Hand (Full House = 6 6 6 1 1 usw.). Reine Anzeige-Daten für die Piktogramm-
+## Zeilen der Tisch-Kombinationsliste (siehe ComboRowView) - aber bewusst hier
+## definiert, damit jedes Beispiel per Test gegen die echte Wertung geprüft
+## werden kann (best_hand(Beispiel) muss genau seine Kategorie liefern).
+const EXAMPLE_DICE := {
+	ONE_KIND: [6],
+	TWO_KIND: [6, 6],
+	TWO_PAIR: [6, 6, 5, 5],
+	THREE_KIND: [6, 6, 6],
+	SMALL_STRAIGHT: [1, 2, 3, 4, 5],
+	FOUR_KIND: [6, 6, 6, 6],
+	FULL_HOUSE: [6, 6, 6, 1, 1],
+	THREE_PAIRS: [6, 6, 5, 5, 4, 4],
+	DOUBLE_THREE_KIND: [6, 6, 6, 5, 5, 5],
+	FOUR_KIND_AND_PAIR: [6, 6, 6, 6, 1, 1],
+	LARGE_STRAIGHT: [1, 2, 3, 4, 5, 6],
+	FIVE_KIND: [6, 6, 6, 6, 6],
+	SIX_KIND: [6, 6, 6, 6, 6, 6],
+}
+
 static func label_for(key: String) -> String:
 	for cat in CATEGORIES:
 		if cat["key"] == key:

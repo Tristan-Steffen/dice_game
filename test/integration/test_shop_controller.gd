@@ -90,7 +90,7 @@ func test_offer_buttons_disabled_by_price():
 func test_buy_charm_grants_and_deducts():
 	var charm = shop.charm_options[0]
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 75)  # 100 - 25
+	assert_eq(run.money, 85)  # 100 - 15
 	assert_eq(run.owned_charms.size(), 1)
 	assert_true(run.charm_ids().has(charm.id))
 
@@ -209,7 +209,53 @@ func test_general_pack_is_cheaper_than_specialized():
 			assert_gt(int(ShopController.PACKS[pack_index]["prices"][size_index]), general_price,
 				"%s teurer als das gemischte Heft" % ShopController.PACKS[pack_index]["name"])
 
+func test_every_pack_has_a_price_per_size():
+	# Fünf Bogengrößen (2×2..9×9) - jede Preisliste muss genauso lang sein,
+	# und größere Bögen kosten strikt mehr.
+	assert_eq(ShopController.PACK_SIZES.size(), 5)
+	for pack in ShopController.PACKS:
+		var prices: Array = pack["prices"]
+		assert_eq(prices.size(), ShopController.PACK_SIZES.size(),
+			"Preisliste von %s deckt alle Größen ab" % pack["id"])
+		for i in range(1, prices.size()):
+			assert_gt(int(prices[i]), int(prices[i - 1]),
+				"%s: Größe %d teurer als %d" % [pack["id"], i, i - 1])
+
 # --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Feinschmecker, Mengenrabatt) ----
+
+## Zwingt bestimmte Charms als Angebot auf die aktuelle Doppelseite (das echte
+## Angebot ist zufällig) - für Tests, die einen Shop-Charm IM Besuch kaufen.
+func _force_charm_options(charms: Array) -> void:
+	var spread = shop.spreads[shop.current_spread_index]
+	var typed: Array[Charm] = []
+	typed.assign(charms)
+	spread.charm_options = typed
+	var bought: Array[bool] = []
+	bought.resize(typed.size())
+	bought.fill(false)
+	spread.charm_bought = bought
+	shop._show_spread()
+
+func test_discount_charm_applies_within_the_same_visit():
+	# Schnäppchenjäger IM Shop kaufen: alle Pack-Preisschilder (und die
+	# Kaufbarkeits-Schwellen, siehe sheet_button_prices) rabattieren sofort -
+	# nicht erst beim nächsten Besuch.
+	_force_charm_options([Charm.bargain_hunter()])
+	var before: Array[int] = shop.sheet_button_prices.duplicate()
+	shop._on_charm_clicked(0)
+	assert_eq(shop.sheet_button_prices.size(), before.size(), "Sortiment bleibt dasselbe")
+	for i in before.size():
+		assert_eq(shop.sheet_button_prices[i], maxi(1, before[i] - 2),
+			"Pack-Preis %d sofort $2 günstiger" % i)
+
+func test_cash_discount_lowers_the_second_charm_in_the_same_visit():
+	# Skonto kaufen ($15), danach kostet der zweite Charm sofort $10.
+	_force_charm_options([Charm.cash_discount(), Charm.rabbits_foot()])
+	shop._on_charm_clicked(0)
+	assert_eq(run.money, 85, "Skonto selbst kostet den vollen Preis")
+	shop._on_charm_clicked(1)
+	assert_eq(run.money, 75, "der nächste Charm kostet im selben Besuch $10")
+	assert_true(shop.charm_bought[0] and shop.charm_bought[1], "beide als gekauft vermerkt")
 
 func test_cash_discount_lowers_charm_price():
 	run.owned_charms.append(Charm.cash_discount())
@@ -219,7 +265,7 @@ func test_cash_discount_lowers_charm_price():
 		pass_test("keine Charm-Angebote auf dieser Seite ausgewürfelt")
 		return
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 80, "Skonto: $20 statt $25")
+	assert_eq(run.money, 90, "Skonto: $10 statt $15")
 
 func test_small_change_lowers_flip_fee():
 	run.owned_charms.append(Charm.small_change())
@@ -311,7 +357,7 @@ func test_fee_resets_on_reopen():
 	assert_eq(run.money, 96, "Gebühr beginnt wieder bei $2 (100 - 2 - 2)")
 
 func test_charm_bought_stays_bought_after_flipping():
-	shop._on_charm_clicked(0)  # -$25 auf Seite 1
+	shop._on_charm_clicked(0)  # -$15 auf Seite 1
 	var money_after := run.money
 	shop._on_page_next_pressed()  # -$2, neue Seite
 	shop._on_page_back_pressed()  # zurück zu Seite 1

@@ -6,9 +6,9 @@ extends Node3D
 ## die Lautstärke skaliert mit der Aufprallgeschwindigkeit, denn nichts klingt
 ## künstlicher als sechs gleichlaute Klicks.
 ##
-## Die Samples liegen als kleine Bänke unter SFX_DIR (Platzhalter, synthetisch
-## erzeugt - echte Aufnahmen einfach gleich benennen und ersetzen). Je Bank ein
-## AudioStreamRandomizer mit Pitch-/Lautstärke-Streuung: 4-6 Dateien klingen so
+## Die Samples liegen als kleine Bänke unter SFX_DIR (mp3, von ElevenLabs erzeugt
+## - neue Aufnahmen einfach gleich benennen und ersetzen). Je Bank ein
+## AudioStreamRandomizer mit Pitch-/Lautstärke-Streuung: 3-6 Dateien klingen so
 ## wie Dutzende. Der Ordner ist nach Würfel-Material benannt (plastic/), damit
 ## Glas-/Metallwürfel später eigene Bänke bekommen können (siehe DieMaterial).
 
@@ -17,11 +17,11 @@ const SFX_DIR := "res://assets/sfx/dice/plastic/"
 
 ## Dateilisten je Kontaktart (Bank-Name -> Dateinamen ohne Ordner).
 const _BANKS := {
-	"click": ["click_1.wav", "click_2.wav", "click_3.wav", "click_4.wav", "click_5.wav"],
-	"floor": ["floor_1.wav", "floor_2.wav", "floor_3.wav", "floor_4.wav", "floor_5.wav"],
-	"wall": ["wall_1.wav", "wall_2.wav", "wall_3.wav", "wall_4.wav"],
-	"tick": ["tick_1.wav", "tick_2.wav", "tick_3.wav", "tick_4.wav"],
-	"settle": ["settle_1.wav", "settle_2.wav", "settle_3.wav"],
+	"click": ["click_1.mp3", "click_2.mp3", "click_3.mp3", "click_4.mp3", "click_5.mp3", "click_6.mp3"],
+	"floor": ["floor_1.mp3", "floor_2.mp3", "floor_3.mp3"],
+	"wall": ["wall_1.mp3", "wall_2.mp3", "wall_3.mp3", "wall_4.mp3"],
+	"tick": ["tick_1.mp3", "tick_2.mp3", "tick_3.mp3"],
+	"settle": ["settle_1.mp3", "settle_2.mp3", "settle_3.mp3"],
 }
 
 ## Zufallsstreuung je Abspielvorgang - macht aus wenigen Samples viele.

@@ -2,12 +2,14 @@ class_name CouponSheet
 extends RefCounted
 ## Ein perforierter Coupon-Bogen (siehe Obsidian "02 Gravuren - Seiten editieren"):
 ## ein Raster, in das Coupons ihrer Fläche (Coupon.width/height) entsprechend
-## gelegt werden; freie Zellen füllen 1×1-Marken/Werbeflächen. Die Fläche IST die
-## Rarität - ein 3×3-Coupon passt gar nicht auf einen kleinen Bogen. Reine Daten
-## + Erzeugung; die Anzeige übernimmt CouponSheetView.
+## gelegt werden; freie Zellen füllen wenige 1×1-Geld-Marken (festes Budget je
+## Bogentyp, siehe CHIP_TILES_PER_KIND) und ansonsten Werbeflächen. Die Fläche
+## IST die Rarität - ein 3×3-Coupon passt gar nicht auf einen kleinen Bogen.
+## Reine Daten + Erzeugung; die Anzeige übernimmt CouponSheetView.
 
 ## Bogentypen mit ihren Rastergrößen (siehe Obsidian "10 Shop und Ökonomie").
-enum Kind { SNIPPET, SHEET, LARGE }  # Schnipsel 2×2, Bogen 3×3, Großbogen 5×5
+## Schnipsel 2×2, Bogen 3×3, Großbogen 5×5, Plakat 7×7, Riesenbogen 9×9.
+enum Kind { SNIPPET, SHEET, LARGE, POSTER, JUMBO }
 
 ## Was eine einzelne Kachel beim "Abreißen" bewirkt (siehe scene_root:
 ## _play_sheet_finish_animation): ETCHING = echter Gravur-Coupon (coupon
@@ -38,12 +40,21 @@ class SheetTile:
 		coupon = p_coupon
 
 ## 1×1-Füller für die Restzellen (Texturdateien in Coupon.TEXTURE_DIR).
-const FILLER_CHIP := "chip_coupon.jpg"  # der Standard-Füller (kleine Auszahlung)
+const FILLER_CHIP := "chip_coupon.jpg"  # Geld-Marke (kleine Auszahlung)
 const FILLER_ADS := ["ad_chip.jpg", "ad_cup.jpg", "ad_polish.jpg"]  # reine Werbeflächen (Flavor)
-const AD_CHANCE := 0.3  # Anteil Werbeflächen unter den Füllern (Rest: Chip-Coupons)
+
+## FESTES Geld-Marken-Budget je Bogentyp statt eines Flächen-Anteils: große
+## Bögen haben viele Restzellen, und als Anteil gerechnet würde ein Riesenbogen
+## fast seinen Kaufpreis in Chips zurückzahlen. Der Kaufpreis soll Coupons
+## kaufen, nicht Geld wechseln - alle Zellen über dem Budget sind Werbeflächen.
+const CHIP_TILES_PER_KIND := {
+	Kind.SNIPPET: 1, Kind.SHEET: 2, Kind.LARGE: 3, Kind.POSTER: 4, Kind.JUMBO: 5,
+}
 
 ## Wie viele "echte" Gravur-Coupons je Bogentyp platziert werden (Rest = Füller).
-const REAL_COUPONS_PER_KIND := { Kind.SNIPPET: 1, Kind.SHEET: 2, Kind.LARGE: 3 }
+const REAL_COUPONS_PER_KIND := {
+	Kind.SNIPPET: 1, Kind.SHEET: 2, Kind.LARGE: 3, Kind.POSTER: 5, Kind.JUMBO: 8,
+}
 
 var cols: int = 0
 var rows: int = 0
@@ -68,6 +79,10 @@ static func grid_size(kind: int) -> Vector2i:
 			return Vector2i(3, 3)
 		Kind.LARGE:
 			return Vector2i(5, 5)
+		Kind.POSTER:
+			return Vector2i(7, 7)
+		Kind.JUMBO:
+			return Vector2i(9, 9)
 	return Vector2i(2, 2)
 
 ## Würfelt einen Bogen aus: erst 1–3 echte Coupons (gewichtet nach Seltenheit,
@@ -107,15 +122,23 @@ static func generate(kind: int, allowed_kinds: Array[String] = [], extra_size: i
 			spot.x, spot.y, coupon.width, coupon.height, coupon))
 		_mark(occupied, spot, coupon.width, coupon.height)
 
+	# Restzellen füllen: zufällig verteilte Geld-Marken bis zum festen Budget
+	# (siehe CHIP_TILES_PER_KIND), alles darüber sind Werbeflächen - außer mit
+	# no_ads (Hausmarke-Charm), das auch die Werbeflächen zu Geld-Marken macht.
+	var free_cells: Array[Vector2i] = []
 	for r in size.y:
 		for c in size.x:
-			if occupied[r][c]:
-				continue
-			var is_ad := randf() < AD_CHANCE and not no_ads
-			var tex: String = FILLER_ADS[randi() % FILLER_ADS.size()] if is_ad else FILLER_CHIP
-			sheet.tiles.append(SheetTile.new(TileKind.AD if is_ad else TileKind.MONEY,
-				Coupon.TEXTURE_DIR + tex, c, r))
-			occupied[r][c] = true
+			if not occupied[r][c]:
+				free_cells.append(Vector2i(c, r))
+	free_cells.shuffle()
+	var chip_budget: int = CHIP_TILES_PER_KIND.get(kind, 1)
+	for i in free_cells.size():
+		var cell := free_cells[i]
+		var is_money := i < chip_budget or no_ads
+		var tex: String = FILLER_CHIP if is_money else FILLER_ADS[randi() % FILLER_ADS.size()]
+		sheet.tiles.append(SheetTile.new(TileKind.MONEY if is_money else TileKind.AD,
+			Coupon.TEXTURE_DIR + tex, cell.x, cell.y))
+		occupied[cell.y][cell.x] = true
 	return sheet
 
 ## Ein zufälliger Coupon, dessen Fläche in size passt (und dessen kind in

@@ -19,10 +19,10 @@ extends Panel
 ## Wird ausgelöst, wenn der Spieler den Shop mit "Fertig" verlässt.
 signal closed
 
-const CHARM_PRICE := 25  # Preis pro Charm-Kauf
+const CHARM_PRICE := 15  # Preis pro Charm-Kauf
 const DICE_OFFER_COUNT := 3  # Würfel-Angebote je Doppelseite (siehe DiceOffer)
 const OFFER_THUMB_SIZE := 46  # Kantenlänge der Mini-Vorschau je Angebots-Würfel (siehe DiceRowView)
-const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (siehe _build_charm_thumb)
+const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (siehe CharmThumb)
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: erst $2, dann $3, $4 ...
 ## (fee = FLIP_FEE_BASE + bereits existierende Seiten - 1). Je Besuch zurückgesetzt.
@@ -36,33 +36,34 @@ const FLIP_FEE_BASE := 2
 ## Motive nach Dateinamens-Konvention: PACK_COVER_DIR + id + ".jpg". Als festes
 ## "Getränke-Sortiment" auf jeder Doppelseite identisch.
 const PACKS := [
-	{"id": "general", "name": "Coupon-Heft", "kinds": [], "prices": [6, 10, 16],
+	{"id": "general", "name": "Coupon-Heft", "kinds": [], "prices": [6, 10, 16, 25, 36],
 		"tooltip": "Alle Coupon-Arten gemischt - dafür etwas günstiger."},
-	{"id": "werkstatt", "name": "Werkstatt-Prospekt", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20],
+	{"id": "werkstatt", "name": "Werkstatt-Prospekt", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Ätzungen: verändern die Augen deiner Würfel."},
-	{"id": "juwelier", "name": "Juwelier-Katalog", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20],
+	{"id": "juwelier", "name": "Juwelier-Katalog", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Würfel-Veredelungen: Seiten-Materialien und Kanten."},
-	{"id": "tageskarte", "name": "Tageskarte", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20],
+	{"id": "tageskarte", "name": "Tageskarte", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Gerichte: werten Kombinationen dauerhaft auf."},
 ]
 
-## Die drei Bogengrößen jedes Packs (Index = Preis-Index in PACKS.prices).
+## Die fünf Bogengrößen jedes Packs (Index = Preis-Index in PACKS.prices).
 const PACK_SIZES := [
 	{"kind": CouponSheet.Kind.SNIPPET, "label": "2×2"},
 	{"kind": CouponSheet.Kind.SHEET, "label": "3×3"},
 	{"kind": CouponSheet.Kind.LARGE, "label": "5×5"},
+	{"kind": CouponSheet.Kind.POSTER, "label": "7×7"},
+	{"kind": CouponSheet.Kind.JUMBO, "label": "9×9"},
 ]
 
 const PACK_COVER_DIR := "res://assets/textures/packs/"
-const PACK_COVER_SIZE := 58  # Kantenlänge des Cover-Motivs je Pack-Karte
 
 ## Das Pack-Sortiment einer Doppelseite: PACK_OFFER_COUNT zufällig gezogene,
-## verschiedene Kombinationen aus Pack-Sorte × Bogengröße (von 4 × 3 = 12
-## möglichen), nebeneinander gezeigt. Jedes Angebot ist nur EINMAL kaufbar
+## verschiedene Kombinationen aus Pack-Sorte × Bogengröße (von 4 × 5 = 20
+## möglichen), als Raster gezeigt. Jedes Angebot ist nur EINMAL kaufbar
 ## (danach greift man zum Umblättern für frische Packs). Umblättern würfelt ein
 ## neues Sortiment.
 const PACK_GRID_COLUMNS := 3
-const PACK_OFFER_COUNT := 3
+const PACK_OFFER_COUNT := 6
 
 const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Menü-Papier (wie die Coupon-Bögen)
 const PAPER_EDGE := Color("c9b98f")   # abgedunkelter Papierrand
@@ -180,6 +181,49 @@ class RingSpine:
 				Vector2(outer, rect.end.y + out), edge, 1.0)
 			draw_line(Vector2(minf(spine_x, outer), rect.end.y + out),
 				Vector2(maxf(spine_x, outer), rect.end.y + out), edge, 1.0)
+
+## Die Bogen-Miniatur einer Pack-Karte: das Cover-Motiv liegt als "Papier" in
+## Bogengröße auf der Karte, überzogen mit dem ECHTEN Raster des Packs als
+## Perforationslinien. Die Bogengröße ist so auf einen Blick sichtbar - ein
+## großes Pack hat sichtbar größeres Papier UND ein feineres Raster als ein
+## Schnipsel. Unten bündig ausgerichtet, damit alle Karten einer Zeile auf
+## einer gemeinsamen Grundlinie stehen.
+class PackSheetThumb:
+	extends Control
+
+	const PAPER := Color("efe4c8")                   # Bogenpapier hinter dem Motiv
+	const PERF := Color(0.42, 0.29, 0.18, 0.7)       # Perforations-Braun (siehe CouponSheetView)
+	const SIDE_BASE := 34.0                          # Kantenlänge: SIDE_BASE + dims × SIDE_PER_CELL
+	const SIDE_PER_CELL := 4.0                       # 2×2 -> 42px ... 9×9 -> 70px
+
+	var texture: Texture2D
+	var dims: int
+	var side: float
+
+	func _init(p_texture: Texture2D, p_dims: int) -> void:
+		texture = p_texture
+		dims = p_dims
+		side = SIDE_BASE + p_dims * SIDE_PER_CELL
+		custom_minimum_size = Vector2(side, side)
+
+	func _draw() -> void:
+		var rect := Rect2((size.x - side) * 0.5, size.y - side, side, side)
+		draw_rect(rect, PAPER)
+		if texture != null:
+			# Motiv seitengetreu ins Papier einpassen (Cover sind nicht zwingend quadratisch).
+			var inner := rect.grow(-2.0)
+			var tex_size := texture.get_size()
+			var fit := minf(inner.size.x / tex_size.x, inner.size.y / tex_size.y)
+			var draw_size := tex_size * fit
+			draw_texture_rect(texture, Rect2(inner.position + (inner.size - draw_size) * 0.5, draw_size), false)
+		# Das echte Raster des Bogens als Perforationslinien über dem Motiv.
+		var cell := rect.size.x / float(dims)
+		for i in range(1, dims):
+			draw_line(Vector2(rect.position.x + i * cell, rect.position.y),
+				Vector2(rect.position.x + i * cell, rect.end.y), PERF, 1.0)
+			draw_line(Vector2(rect.position.x, rect.position.y + i * cell),
+				Vector2(rect.end.x, rect.position.y + i * cell), PERF, 1.0)
+		draw_rect(rect, PERF, false, 1.0)
 
 ## Der laufende Spiellauf (vom Besitzer scene_root gesetzt) - alle Käufe
 ## mutieren den Zustand ausschließlich über seine Methoden (siehe GameRun). Der
@@ -443,7 +487,7 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 		var charm := spread.charm_options[i]
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", 8)
-		entry.add_child(_build_charm_thumb(charm, CHARM_THUMB_SIZE))
+		entry.add_child(CharmThumb.new(charm, CHARM_THUMB_SIZE))
 
 		var button := Button.new()
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -476,10 +520,11 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 	page_next_button.pressed.connect(_on_page_next_pressed)
 	right_content.add_child(_page_footer(current_spread_index * 2 + 2, page_next_button, false))
 
-## Eine Pack-Karte des Sortiments: Cover-Motiv, darunter der Pack-Name (klein)
-## und der Kaufknopf mit Größe · Preis. Nach dem Kauf ist die Karte "leer" und
-## deaktiviert (nur einmal kaufbar, siehe pack_bought). Der Tooltip (auf der
-## ganzen Karte) erklärt, welche Coupon-Arten drin sind.
+## Eine Pack-Karte des Sortiments: die Bogen-Miniatur (Cover-Motiv in
+## Bogengröße mit echtem Raster, siehe PackSheetThumb), darunter der Pack-Name
+## (klein) und der Kaufknopf mit Größe · Preis. Nach dem Kauf ist die Karte
+## "vergriffen" und deaktiviert (nur einmal kaufbar, siehe pack_bought). Der
+## Tooltip (auf der ganzen Karte) erklärt, welche Coupon-Arten drin sind.
 func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Control:
 	var pack: Dictionary = PACKS[pack_index]
 	var price := _pack_price(pack_index, size_index)  # inkl. Feinschmecker/Schnäppchenjäger
@@ -491,14 +536,12 @@ func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Con
 	card.tooltip_text = "%s (%s)\n%s" % [pack["name"], size_label, pack["tooltip"]]
 
 	var cover_path: String = PACK_COVER_DIR + pack["id"] + ".jpg"
-	if ResourceLoader.exists(cover_path):
-		var cover := TextureRect.new()
-		cover.texture = load(cover_path)
-		cover.custom_minimum_size = Vector2(PACK_COVER_SIZE, PACK_COVER_SIZE)
-		cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		cover.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		card.add_child(cover)
+	var cover: Texture2D = load(cover_path) if ResourceLoader.exists(cover_path) else null
+	var dims: int = CouponSheet.grid_size(PACK_SIZES[size_index]["kind"]).x
+	var thumb := PackSheetThumb.new(cover, dims)
+	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Miniaturen einer Zeile stehen unten bündig
+	card.add_child(thumb)
 
 	var name_label := Label.new()
 	name_label.text = pack["name"]
@@ -610,80 +653,6 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	offer_buy_buttons.append(buy)
 	return card
 
-## Statische 3D-Vorschau eines Charm-Modells (eigener SubViewport mit eigener
-## World3D, gleiche Beleuchtung wie die Würfel-Vorschauen in DiceRowView). Da
-## die GLB-Modelle unterschiedlich groß sind, wird das Modell über seine
-## Gesamt-AABB auf Einheitsgröße normiert und zentriert (siehe _merged_aabb).
-func _build_charm_thumb(charm: Charm, size: int) -> SubViewportContainer:
-	var container := SubViewportContainer.new()
-	container.custom_minimum_size = Vector2(size, size)
-	container.stretch = true
-	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var viewport := SubViewport.new()
-	viewport.own_world_3d = true
-	viewport.transparent_bg = true
-	viewport.size = Vector2i(size, size)
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	container.add_child(viewport)
-
-	var env := Environment.new()
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1, 1, 1)
-	env.ambient_light_energy = 0.9
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	viewport.add_child(world_env)
-
-	var key_light := DirectionalLight3D.new()
-	key_light.rotation_degrees = Vector3(-50, 35, 0)
-	key_light.light_energy = 1.1
-	viewport.add_child(key_light)
-
-	var camera := Camera3D.new()
-	camera.fov = 30.0
-	camera.transform = Transform3D(Basis(), Vector3(0, 1.4, 6.0)).looking_at(Vector3.ZERO, Vector3.UP)
-	viewport.add_child(camera)
-
-	var model: Node3D
-	if charm.model_path != "" and ResourceLoader.exists(charm.model_path):
-		model = (load(charm.model_path) as PackedScene).instantiate() as Node3D
-	else:
-		model = CharmRowView.placeholder_model(charm.id)  # flache Platzhalter-Karte
-
-	# Modell über seine AABB einheitlich einpassen: auf ~2.2 Einheiten skalieren
-	# und um sein Zentrum drehbar aufhängen (Pivot), leicht angekippt wie die Würfel.
-	var pivot := Node3D.new()
-	viewport.add_child(pivot)
-	pivot.rotation_degrees = Vector3(-15, 30, 0)
-	var aabb := _merged_aabb(model)
-	var max_dim: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
-	var fit: float = 2.2 / maxf(max_dim, 0.001)
-	model.scale = Vector3.ONE * fit
-	model.position = -aabb.get_center() * fit
-	pivot.add_child(model)
-	return container
-
-## Gesamt-AABB aller MeshInstance3D unter node (im Raum von node) - Grundlage
-## fürs Einpassen unterschiedlich großer Charm-Modelle in die Vorschau.
-func _merged_aabb(node: Node) -> AABB:
-	var result := AABB()
-	var found := false
-	var stack: Array = [[node, Transform3D()]]
-	while not stack.is_empty():
-		var pair: Array = stack.pop_back()
-		var current: Node = pair[0]
-		var xform: Transform3D = pair[1]
-		if current is Node3D and current != node:
-			xform = xform * (current as Node3D).transform
-		if current is MeshInstance3D and (current as MeshInstance3D).mesh != null:
-			var mesh_aabb: AABB = xform * (current as MeshInstance3D).mesh.get_aabb()
-			result = mesh_aabb if not found else result.merge(mesh_aabb)
-			found = true
-		for child in current.get_children():
-			stack.push_back([child, xform])
-	return result
-
 ## Kurzbeschreibung der Veredelungen eines Angebots-Würfels ("" = keine):
 ## Material-Seiten (mit Anzahl bei mehreren gleichen) und Kanten-Material,
 ## z.B. "2× Bernstein-Seite · Gold-Kanten".
@@ -733,15 +702,18 @@ func _on_offer_pressed(index: int) -> void:
 ## Kauft den angeklickten Charm sofort (siehe run.purchase_charm) - je Charm nur
 ## einmal. Der Besitz-Check fängt auch den Fall ab, dass derselbe Charm auf zwei
 ## Doppelseiten dieses Besuchs angeboten wurde und schon woanders gekauft ist.
+## Danach wird die ganze Doppelseite neu bebaut (statt nur den Knopf zu
+## deaktivieren): Shop-Charms (Skonto, Wechselgeld, Feinschmecker,
+## Schnäppchenjäger, Mengenrabatt, Trickdieb-Manschette ...) wirken schon in
+## DIESEM Besuch - alle Preisschilder, die Kaufbarkeits-Schwellen der Packs
+## (sheet_button_prices) und die Blätter-Gebühr zeigen sonst alte Preise.
 func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
 	if charm_bought[index] or run.owned_charm_ids().has(charm.id):
 		return
 	run.purchase_charm(charm, _charm_price())  # Skonto-Rabatt inklusive
-	charm_bought[index] = true
-	charm_buttons[index].disabled = true
-	charm_buttons[index].text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
-	_refresh_afford_state()
+	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	_show_spread()
 
 ## Kauft ein Coupon-Pack in der gewählten Größe (siehe run.buy_coupon_sheet /
 ## CouponSheet) - jedes Angebot nur EINMAL (danach vergriffen; frische Packs gibt

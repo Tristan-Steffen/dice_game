@@ -47,7 +47,7 @@ extends Node3D
 
 const HAND_SIZE := 6
 
-const MONEY_PER_ROUND_CLEAR := 5  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
+const MONEY_PER_ROUND_CLEAR := 10  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
 const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rundenpool beim Rundenziel-Erreichen, siehe _on_round_complete/_remaining_in_pool
 
 ## Auszahlungs-Animation der beiden Tisch-Texte (siehe blind_payout_label3d/
@@ -119,6 +119,12 @@ const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, s
 const PIT_TOP_ROW_X := 7.0
 const PIT_TOP_ROW_SPACING := 2.4
 
+## Nach dem Ausrollen gleiten ALLE Würfel in eine mittig zentrierte Reihe in
+## der Grubenmitte (siehe _line_up_settled_dice) - gleiche Abstände wie die
+## Reihe der geschützten Würfel am oberen Rand, nur auf Höhe der Grubenmitte.
+const PIT_CENTER_ROW_X := 0.0
+const LINEUP_DURATION := 0.35  # Gleitdauer der Aufreihung nach dem Ausrollen
+
 ## Grobe Spielphase - genau EINE zur Zeit (ersetzt die frühere Kombination aus
 ## game_state + is_rolling + is_cup_animating, deren Konjunktionen an jeder
 ## Eingabe-Stelle einzeln stimmen mussten). Eingabe-Gates prüfen gegen die Phase
@@ -138,6 +144,11 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
 @onready var settings_toggle_button: Button = $UI/SettingsToggleButton
 @onready var reset_button: Button = $UI/SettingsMenu/ResetButton
 @onready var debug_win_round_button: Button = $UI/SettingsMenu/DebugWinRoundButton
+@onready var library_button: Button = $UI/SettingsMenu/LibraryButton
+
+## Die Charm-Bibliothek (alle Charms + Beschreibungen, siehe CharmLibraryView),
+## per Bibliothek-Knopf im Einstellungs-Menü auf-/zugeklappt.
+var charm_library: CharmLibraryView
 @onready var round_hud: Control = $UI/RoundHud
 @onready var round_badge_label: Label = $UI/RoundHud/RoundBadgeLabel
 @onready var points_bar: ProgressBar = $UI/RoundHud/PointsBar
@@ -178,7 +189,7 @@ var sheet_anim_nodes: Array[Node] = []  # temporäre Animations-Nodes (Kacheln/Z
 ## (siehe _collect_combo_labels). Der Anker selbst rendert nichts (Text leer).
 @onready var combos_anchor: Label3D = $Combinations
 
-var combo_labels: Dictionary = {}  # DiceScoring-key -> Label3D (eine Zeile der Tischliste)
+var combo_labels: Dictionary = {}  # DiceScoring-key -> ComboRowView (eine Piktogramm-Zeile der Tischliste)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination (siehe _refresh_combos)
 
 @onready var camera_rig: CameraRig = $Camera3D
@@ -239,6 +250,8 @@ var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrub
 
 var queue_tray_home_position: Vector3  # Normalplatz neben dem Pool-Tray, siehe _ready
 var queue_tray_tween: Tween
+
+var lineup_tween: Tween  # Aufreihung der ausgerollten Würfel, siehe _line_up_settled_dice
 
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
 var deck_shift_tween: Tween
@@ -304,6 +317,10 @@ func _ready() -> void:
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
 
+	charm_library = CharmLibraryView.new()
+	$UI.add_child(charm_library)
+	library_button.pressed.connect(charm_library.toggle)
+
 	_style_ui()
 	_collect_combo_labels()
 	_build_sheet_preview()
@@ -324,6 +341,7 @@ func _style_ui() -> void:
 	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
 	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
 	CasinoStyle.style_button(settings_toggle_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 16)
+	CasinoStyle.style_button(library_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
 	CasinoStyle.style_button(debug_win_round_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	CasinoStyle.style_button(game_over_reset_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
@@ -377,9 +395,13 @@ func _build_sheet_preview() -> void:
 	column.add_child(sheet_preview_view)
 
 ## Zeigt einen gekauften Bogen als Enthüllung über dem Shop (Klick schließt).
+## Die Zellgröße schrumpft bei großen Bögen, damit auch ein Riesenbogen (9×9,
+## mit Großformat-Charm 10×10) samt Titel auf den Schirm passt - kleine Bögen
+## behalten ihre großen Zellen.
 func _show_sheet_reveal(sheet: CouponSheet, kind: int) -> void:
 	sheet_preview_title.text = "%s (%d×%d)" % [_sheet_kind_name(kind), sheet.cols, sheet.rows]
-	sheet_preview_view.show_sheet(sheet, 120.0)
+	var cell_px := minf(120.0, 640.0 / float(maxi(sheet.cols, sheet.rows)))
+	sheet_preview_view.show_sheet(sheet, cell_px)
 	sheet_preview.visible = true
 
 func _sheet_kind_name(kind: int) -> String:
@@ -390,6 +412,10 @@ func _sheet_kind_name(kind: int) -> String:
 			return "Bogen"
 		CouponSheet.Kind.LARGE:
 			return "Großbogen"
+		CouponSheet.Kind.POSTER:
+			return "Plakat"
+		CouponSheet.Kind.JUMBO:
+			return "Riesenbogen"
 	return "Bogen"
 
 ## Klick auf die Bogen-Enthüllung "verabschiedet" den Bogen: die Abschluss-
@@ -462,6 +488,9 @@ func _play_sheet_finish_animation() -> void:
 		appear.tween_property(label, "modulate:a", 1.0, 0.3)
 
 	# Jede Kachel: erst nach außen lösen, dann an ihr Ziel fliegen (gestaffelt).
+	# Bei großen Bögen (Plakat/Riesenbogen: bis zu 81+ Kacheln) schrumpft der
+	# Stagger, damit die Gesamtdauer gedeckelt bleibt.
+	var stagger := minf(SHEET_ANIM_STAGGER, 2.5 / float(maxi(1, views.size())))
 	var last_end := 0.0
 	for idx in views.size():
 		var view: CouponSheetView.TileView = views[idx]
@@ -469,7 +498,7 @@ func _play_sheet_finish_animation() -> void:
 		var home := node.position + node.size * 0.5
 		var out_dir := (home - center).normalized() if home.distance_to(center) > 1.0 else Vector2.UP
 		var scattered := node.position + out_dir * 46.0
-		var delay := idx * SHEET_ANIM_STAGGER
+		var delay := idx * stagger
 
 		var tw := create_tween()
 		tw.tween_interval(delay)
@@ -535,16 +564,24 @@ func _pulse_control(control: Control) -> void:
 	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	pulse.tween_property(control, "scale", Vector2.ONE, 0.35)
 
-## Sammelt die fest in der Szene angelegten Kombinations-Labels (Kinder des
-## Combinations-Ankers, je nach DiceScoring-Key benannt) in combo_labels ein,
-## damit _refresh_combos genau die gewürfelte Hand aufleuchten lassen kann.
-## Die Labels selbst (Text, Größe, Umriss, Position) pflegt man in der Szene.
+## Ersetzt die fest in der Szene angelegten Kombinations-Labels (Kinder des
+## Combinations-Ankers, je nach DiceScoring-Key benannt) durch Piktogramm-
+## Zeilen (siehe ComboRowView: Beispiel-Würfel statt Text, z.B. Full House als
+## 6 6 6 1 1). Die Szenen-Labels bleiben unsichtbar als Autoren-Anker bestehen
+## - Position/Größe/Ebene jeder Zeile pflegt man weiter in der Szene.
 func _collect_combo_labels() -> void:
 	for key in DiceScoring.HAND_PRIORITY:
 		var node: Node = combos_anchor.get_node_or_null(NodePath(key))
 		if node is Label3D:
-			combo_labels[key] = node
-			node.modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
+			var anchor := node as Label3D
+			anchor.visible = false
+			var row := ComboRowView.new()
+			combos_anchor.add_child(row)
+			row.transform = anchor.transform
+			row.base_scale = anchor.scale
+			row.setup(DiceScoring.EXAMPLE_DICE[key], DiceScoring.mult_for(key))
+			row.modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
+			combo_labels[key] = row
 		else:
 			push_warning("Kombinations-Label fehlt in der Szene: Combinations/%s" % key)
 	# Auch die Belohnungs-Texte starten in der leuchtenden Ruhefarbe (die
@@ -557,16 +594,16 @@ func _collect_combo_labels() -> void:
 func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
 	_refresh_combo_label_texts()
 	if combo_labels.has(combo_key) and combo_key != highlighted_combo_key:
-		var label: Label3D = combo_labels[combo_key]
+		var row: ComboRowView = combo_labels[combo_key]
 		var flash := create_tween()
-		flash.tween_method(func(c: Color) -> void: label.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
+		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
-## Schreibt die Texte der Tisch-Kombinationsliste neu: "Label  ×Mult", wobei
-## der Multiplikator die Menü-Stufen einrechnet (siehe DiceScoring.mult_for /
-## GameRun.combo_levels) - die festen Szenen-Texte gelten nur als Platzhalter.
+## Schreibt die Multiplikatoren der Tisch-Kombinationsliste neu ("×Mult" hinter
+## den Beispiel-Würfeln), wobei der Multiplikator die Menü-Stufen einrechnet
+## (siehe DiceScoring.mult_for / GameRun.combo_levels).
 func _refresh_combo_label_texts() -> void:
 	for key in combo_labels:
-		combo_labels[key].text = "%s  ×%d" % [DiceScoring.label_for(key), DiceScoring.mult_for(key, run.combo_levels)]
+		combo_labels[key].set_mult(DiceScoring.mult_for(key, run.combo_levels))
 
 ## Hebt genau die Kombination der gerade gewürfelten Hand golden hervor (analog
 ## zum Aufleuchten der Belohnungstexte), alle anderen bleiben im Ruhe-Weiß.
@@ -583,11 +620,13 @@ func _refresh_combos(active_key: String) -> void:
 
 ## Blendet eine Kombinationszeile weich in Farbe/Größe (Aufleuchten oder zurück
 ## in die Ruhefarbe) - gleiche Dauer wie die Belohnungstexte (PAYOUT_FLASH_DURATION).
-func _tween_combo_label(label: Label3D, color: Color, target_scale: float) -> void:
+## Die Größe wächst relativ zur Szenen-Grundgröße der Zeile (base_scale), statt
+## auf einen absoluten Wert zu springen.
+func _tween_combo_label(row: ComboRowView, color: Color, target_scale: float) -> void:
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(label, "modulate", color, PAYOUT_FLASH_DURATION)
-	tween.tween_property(label, "scale", Vector3.ONE * target_scale, PAYOUT_FLASH_DURATION)
+	tween.tween_property(row, "modulate", color, PAYOUT_FLASH_DURATION)
+	tween.tween_property(row, "scale", row.base_scale * target_scale, PAYOUT_FLASH_DURATION)
 
 ## Der Charm-Besitz hat sich geändert (siehe run.charms_changed): die physischen
 ## Tisch-Charms aktualisieren.
@@ -649,6 +688,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		var index := _pick_die_index(event.position)
 		if index != -1:
 			dice.set_selected(index, not dice.selected[index])
+			# Umsortieren wie im Warteschlangen-Tray: die Reihe gleitet in ihre
+			# neue Ordnung (Kombination links), bleibt aber Reihe (siehe
+			# _line_up_settled_dice - _can_toggle_selection garantiert, dass die
+			# Würfel gerade ausgerollt daliegen).
+			_line_up_settled_dice()
 			_refresh_action_buttons()
 			return
 
@@ -1119,6 +1163,7 @@ func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 func _spawn_deck_ghost(def: DieDefinition) -> Node3D:
 	var ghost := DieBuilder.build()
 	add_child(ghost)
+	ghost.rotation.y = -PI / 2.0  # gleiche Ausrichtung wie die Tray-Würfel (siehe DiceTrayView._build_slots)
 	ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
 	var body: RigidBody3D = ghost.get_node("RigidBody3D")
 	body.freeze = true
@@ -1169,6 +1214,9 @@ func _on_throw_button_pressed() -> void:
 		return
 	if _remaining_in_pool() <= 0:
 		return
+	# Eine evtl. noch laufende Aufreihung des letzten Wurfs beenden - der neue
+	# Wurf übernimmt die Würfel (siehe _line_up_settled_dice).
+	_cancel_lineup()
 
 	# Die gerade sichtbaren Warteschlangen-Würfel VOR dem Ziehen merken (Position
 	# + Art) - das sind exakt die, die dieser Wurf tatsächlich zieht (siehe
@@ -1213,6 +1261,12 @@ func _on_throw_button_pressed() -> void:
 		for i in dice.count():
 			if dice.selected[i]:
 				selected_indices.append(i)
+		# In der aktuellen Reihen-Reihenfolge belassen (siehe _line_up_settled_dice):
+		# die Würfel liegen entlang der Z-Achse aufgereiht, der obere Rand nutzt
+		# dieselbe Achse - nach Z sortiert behalten sie beim Hochgleiten ihre
+		# Ordnung, statt in die Slot-Reihenfolge zurückzuspringen.
+		selected_indices.sort_custom(func(a: int, b: int) -> bool:
+			return dice.bodies[a].global_position.z < dice.bodies[b].global_position.z)
 		for k in selected_indices.size():
 			var i: int = selected_indices[k]
 			move_top_indices.append(i)
@@ -1311,6 +1365,93 @@ func _pit_top_row_position(slot_number: int, count: int, y: float) -> Vector3:
 	var z := -span * 0.5 + PIT_TOP_ROW_SPACING * float(slot_number)
 	return Vector3(PIT_TOP_ROW_X, y, z)
 
+## Rückt die gerade ausgerollten Würfel in eine mittig zentrierte Reihe in der
+## Grubenmitte auf - wie die geschützten Würfel am oberen Rand, nur für ALLE 6.
+## Sortiert von links nach rechts: erst die Würfel der aktuellen Kombination
+## (die Auswahl, siehe _auto_select_best_combo - daher NACH ihr aufrufen),
+## dann alle übrigen, beide Gruppen mit den höchsten Augen zuerst. Reine
+## Kosmetik nach dem Wurf: die Augen sind zu diesem Zeitpunkt schon gelesen,
+## und jeder Würfel behält seine gewürfelte Oben-Seite - er dreht sich nur
+## gerade (siehe _snapped_upright_basis), damit die Reihe ordentlich liegt.
+## Die Körper werden dafür eingefroren und erst vom nächsten Wurf wieder
+## freigegeben (siehe DiceController.throw_slots); ein neuer Wurf während des
+## Gleitens bricht die Aufreihung ab (_cancel_lineup), damit Tween und Physik
+## nicht um die Würfel ringen.
+func _line_up_settled_dice() -> void:
+	_cancel_lineup()
+	# Nur sichtbare Würfel aufreihen - am Rundenende sind weniger als 6 im
+	# Spiel (leergezogener Pool), und unsichtbare Slots sollen keine Lücken in
+	# die Reihe reißen.
+	var indices: Array[int] = []
+	for i in dice.count():
+		if dice.roots[i].visible:
+			indices.append(i)
+	if indices.is_empty():
+		return
+	indices.sort_custom(func(a: int, b: int) -> bool:
+		if dice.selected[a] != dice.selected[b]:
+			return dice.selected[a]  # Kombinations-Würfel nach links
+		if dice.values[a] != dice.values[b]:
+			return dice.values[a] > dice.values[b]  # dann absteigend nach Augen
+		return a < b)
+	# Alle auf die niedrigste Ruhehöhe der Gruppe setzen - ein Würfel, der auf
+	# einem Nachbarn liegen geblieben ist, würde sonst in der Reihe schweben.
+	var rest_y := INF
+	for i in indices:
+		rest_y = minf(rest_y, dice.bodies[i].global_position.y)
+	lineup_tween = create_tween()
+	lineup_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	lineup_tween.set_parallel(true)
+	var span := PIT_TOP_ROW_SPACING * float(indices.size() - 1)
+	for k in indices.size():
+		var body := dice.bodies[indices[k]]
+		body.freeze = true
+		var target := Vector3(PIT_CENTER_ROW_X, rest_y,
+			-span * 0.5 + PIT_TOP_ROW_SPACING * float(k))
+		lineup_tween.tween_property(body, "global_transform",
+			Transform3D(_readable_upright_basis(body.global_basis), target), LINEUP_DURATION)
+
+## Wie _snapped_upright_basis, aber zusätzlich so um die Hochachse gedreht,
+## dass die Ziffer der Oben-Seite für den Spieler aufrecht steht: ihr
+## "oben" (siehe DiceController.FACE_TEXT_UP) zeigt nach Bildschirm-oben
+## (= Welt +X, siehe PIT_TOP_ROW_X). Die gewürfelte Oben-Seite bleibt dabei
+## unverändert oben - es dreht nur die Lesbarkeit zurecht.
+func _readable_upright_basis(basis: Basis) -> Basis:
+	var snapped := _snapped_upright_basis(basis)
+	for axis: String in DiceController.AXIS_DIRECTIONS:
+		if (snapped * DiceController.AXIS_DIRECTIONS[axis]).dot(Vector3.UP) < 0.9:
+			continue
+		var text_up: Vector3 = snapped * DiceController.FACE_TEXT_UP[axis]
+		return Basis(Vector3.UP, atan2(text_up.z, text_up.x)) * snapped
+	return snapped
+
+## Die nächstgelegene achsenparallele Ausrichtung einer Würfel-Basis: jede
+## Achse rastet auf die Weltachse mit dem größten Anteil ein. Ein ausgerollter
+## Würfel liegt ohnehin fast flach - so bleibt seine Oben-Seite oben, aber die
+## Kanten werden parallel zur Reihe gerade gezogen.
+func _snapped_upright_basis(basis: Basis) -> Basis:
+	var x := _nearest_world_axis(basis.x, Vector3.ZERO)
+	var y := _nearest_world_axis(basis.y, x)
+	return Basis(x, y, x.cross(y))
+
+## Die Weltachse (±X/±Y/±Z) mit dem größten Anteil an v - ausgenommen die
+## bereits vergebene Achsrichtung blocked (Schutz gegen entartete Basen).
+func _nearest_world_axis(v: Vector3, blocked: Vector3) -> Vector3:
+	var best := Vector3.ZERO
+	var best_dot := -INF
+	for axis: Vector3 in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
+		if absf(axis.dot(blocked)) > 0.5:
+			continue
+		for candidate: Vector3 in [axis, -axis]:
+			if candidate.dot(v) > best_dot:
+				best_dot = candidate.dot(v)
+				best = candidate
+	return best
+
+func _cancel_lineup() -> void:
+	if lineup_tween != null and lineup_tween.is_valid():
+		lineup_tween.kill()
+
 ## Gibt die Fake-Würfel frei, die während des Schüttelns sichtbar im Becher
 ## liegen (siehe cup_interior_ghosts/_play_cup_roll) - aufgerufen im Moment
 ## des Auskippens, sobald die echten Wurf-Würfel übernehmen, sowie defensiv
@@ -1400,6 +1541,7 @@ func _on_roll_finished() -> void:
 			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
 			dice.clear_selection()
 			_auto_select_best_combo()
+			_line_up_settled_dice()
 			has_rolled_current_hand = true
 			last_throw_was_reroll = false
 			_refresh_action_buttons()
@@ -1410,10 +1552,12 @@ func _on_roll_finished() -> void:
 		return
 
 	# Nehmen-Auswahl für die jetzt liegenden Würfel neu setzen: automatisch die
-	# beste offene Kombination vorschlagen (siehe _auto_select_best_combo),
-	# der Spieler kann sie danach frei umklicken.
+	# beste offene Kombination vorschlagen (siehe _auto_select_best_combo), der
+	# Spieler kann sie danach frei umklicken. Erst DANACH aufreihen - die Reihe
+	# sortiert die Kombinations-Würfel nach links (siehe _line_up_settled_dice).
 	dice.clear_selection()
 	_auto_select_best_combo()
+	_line_up_settled_dice()
 
 	has_rolled_current_hand = true
 	_refresh_action_buttons()
@@ -1602,6 +1746,7 @@ func _on_select_all_button_pressed() -> void:
 	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 	dice.select_all()
+	_line_up_settled_dice()  # neue Ordnung (alle in der Kombination) angleiten
 	_refresh_action_buttons()
 
 ## Markiert nach jedem Wurf automatisch die Würfel, die gerade die beste offene
@@ -1630,6 +1775,7 @@ func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-Koroutinen ab (siehe _on_throw_button_pressed)
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	_cancel_lineup()
 	_clear_cup_interior_ghosts()
 	hand_note = ""
 	last_throw_was_reroll = false
@@ -1652,6 +1798,7 @@ func _reset_game() -> void:
 func _connect_run() -> void:
 	charm_shop.run = run
 	die_inspector.run = run
+	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
 	run.sheet_purchased.connect(_show_sheet_reveal)
@@ -1663,6 +1810,7 @@ func _connect_run() -> void:
 func _start_new_round() -> void:
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	_cancel_lineup()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
 	taken_dice_this_round = 0

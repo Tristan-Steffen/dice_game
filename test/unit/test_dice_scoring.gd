@@ -175,3 +175,14 @@ func test_label_for_falls_back_to_key():
 func test_qualifies_two_pair_needs_two_groups():
 	assert_true(DiceScoring.qualifies("two_pair", _d([2,2,5,5,1,6])))
 	assert_false(DiceScoring.qualifies("two_pair", _d([2,2,1,3,4,6])))
+
+func test_example_dice_score_their_own_category():
+	# Die Piktogramm-Beispiele der Tischliste (siehe EXAMPLE_DICE/ComboRowView)
+	# müssen echte Vertreter ihrer Kategorie sein: best_hand über genau diese
+	# Würfel liefert genau den zugehörigen Key - sonst zeigt der Tisch ein Bild,
+	# das die Wertung so nie einordnen würde.
+	for key in DiceScoring.HAND_PRIORITY:
+		assert_true(DiceScoring.EXAMPLE_DICE.has(key), "Beispiel fehlt für %s" % key)
+		var example := _d(DiceScoring.EXAMPLE_DICE[key])
+		assert_eq(DiceScoring.best_hand(example)["key"], key,
+			"Beispiel %s wertet als seine eigene Kategorie" % key)

@@ -81,6 +81,10 @@ func _build_slots() -> void:
 		var die := DieBuilder.build()
 		slots_container.add_child(die)
 		die.position = Vector3(x, REST_Y, z)
+		# 90° nach rechts (aus der Draufsicht): die Ziffer der Oben-Seite steht
+		# damit für den Spieler aufrecht (ihr FACE_TEXT_UP -Z dreht auf Welt +X
+		# = Bildschirm-oben; die Trays selbst stehen ungedreht in der Szene).
+		die.rotation.y = -PI / 2.0
 		die.scale = Vector3.ONE * DIE_SCALE
 		die.visible = false
 

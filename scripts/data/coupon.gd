@@ -320,4 +320,3 @@ static func _rarity_weight(value: Rarity) -> int:
 		Rarity.RARE:
 			return 1
 	return 1
-

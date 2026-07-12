@@ -72,6 +72,13 @@ func _load_model(charm: Charm) -> Node3D:
 		return placeholder_model(charm.id)
 	return (load(path) as PackedScene).instantiate()
 
+## Stabile, kräftige Farbe aus der Charm-id (Hash -> Farbton) - die Farbe der
+## Platzhalter-Karte. Auch die Charm-Bibliothek nutzt sie als Farbfeld, damit
+## Karte auf dem Tisch und Bibliothekseintrag zusammenfinden.
+static func placeholder_color(charm_id: String) -> Color:
+	var hue := float(abs(charm_id.hash()) % 360) / 360.0
+	return Color.from_hsv(hue, 0.55, 0.85)
+
 ## Platzhalter für Charms ohne Modelldatei: eine flache rechteckige "Karte" in
 ## einer aus der id abgeleiteten Farbe (stabil je Charm, damit man sie auf dem
 ## Tisch auseinanderhalten kann). Auch der Shop nutzt sie für seine 3D-Vorschau
@@ -83,9 +90,7 @@ static func placeholder_model(charm_id: String) -> Node3D:
 	box.size = Vector3(1.0, 0.14, 1.4)
 	mesh_instance.mesh = box
 	var material := StandardMaterial3D.new()
-	# Stabile, kräftige Farbe aus der id (Hash -> Farbton).
-	var hue := float(abs(charm_id.hash()) % 360) / 360.0
-	material.albedo_color = Color.from_hsv(hue, 0.55, 0.85)
+	material.albedo_color = placeholder_color(charm_id)
 	material.roughness = 0.4
 	mesh_instance.material_override = material
 	root.add_child(mesh_instance)
