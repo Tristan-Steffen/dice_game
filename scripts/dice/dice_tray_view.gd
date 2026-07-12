@@ -100,6 +100,20 @@ func _build_slots() -> void:
 
 ## --- Pool-/Warteschlangen-Modus: kompletter Inhalt wird bei jeder Änderung neu gesetzt ---
 
+## Erweitert das Raster bei Bedarf um zusätzliche Spalten, bis mindestens
+## capacity Slots existieren (Ausziehtisch: die Warteschlange wächst dauerhaft,
+## siehe scene_root._queue_capacity). Baut die Slots neu auf; den sichtbaren
+## Inhalt setzt der nächste fill()-Aufruf wieder. Die zusätzlichen Slots ragen
+## über das Tray-Mesh hinaus - bewusst in Kauf genommen, statt das Mesh zu
+## skalieren.
+func ensure_capacity(capacity: int) -> void:
+	if rows * columns >= capacity:
+		return
+	columns = int(ceil(float(capacity) / rows))
+	for child in slots_container.get_children():
+		child.queue_free()
+	_build_slots()
+
 ## Setzt den sichtbaren Inhalt komplett neu: die ersten defs.size() Slots
 ## zeigen die übergebenen Würfel (von vorne kompakt gepackt), alle weiteren
 ## Slots werden ausgeblendet. Dadurch entsteht nie eine Lücke mittendrin, wenn

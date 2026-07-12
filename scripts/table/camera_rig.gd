@@ -4,8 +4,8 @@ extends Camera3D
 ## per Maus (nur Blickrichtung, keine Bewegung über die Karte hinweg), plus
 ## drei Zoom-Ziele (Würfelgrube, Pool-Tray, Ablage-Tray). Ein Linksklick auf
 ## eines dieser Ziele fährt die Kamera näher heran; ein Rechtsklick springt
-## zur Übersicht zurück. Während eines Zooms ist das Rundschauen gesperrt -
-## die Kamera bleibt exakt auf das jeweilige Ziel ausgerichtet.
+## zur Übersicht zurück. Auch im Zoom bleibt ein leichtes Rundschauen möglich -
+## mit deutlich kleinerem Winkelbereich, damit das Ziel im Blick bleibt.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD }
 
@@ -16,6 +16,10 @@ signal mode_changed(new_mode: Mode)
 const TILT_MAX_UP_DEGREES := 10.0  # Freiheit nach oben (von der Übersicht aus)
 const TILT_MAX_DOWN_DEGREES := 30.0  # Freiheit nach unten, Richtung Tisch/Grube
 const TILT_MAX_YAW_DEGREES := 30.0
+# Leichtes Rundschauen im Zoom: bewusst kleine Winkel, damit die Kamera nah
+# an der eingerichteten Ziel-Ausrichtung bleibt.
+const ZOOM_TILT_MAX_PITCH_DEGREES := 5.0
+const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
@@ -54,6 +58,11 @@ const ZOOM_FORWARD := Vector3(0.25881907, -0.9659258, 1.1313341e-08)  # = -ZOOM_
 var base_basis: Basis
 var base_origin: Vector3
 
+# Ruhelage des aktuellen Modus, um die herum das Rundschauen pendelt: in der
+# Übersicht base_basis/base_origin, im Zoom die jeweilige Ziel-Ausrichtung.
+var anchor_basis: Basis
+var anchor_origin: Vector3
+
 var mode: Mode = Mode.OVERVIEW
 var is_animating: bool = false
 var tilt_offset := Vector2.ZERO  # aktuelle geglättete Blickabweichung (Grad: x=Pitch, y=Yaw)
@@ -63,9 +72,11 @@ var active_tween: Tween
 func _ready() -> void:
 	base_basis = global_transform.basis
 	base_origin = global_transform.origin
+	anchor_basis = base_basis
+	anchor_origin = base_origin
 
 func _process(delta: float) -> void:
-	if mode != Mode.OVERVIEW or is_animating:
+	if is_animating:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -75,15 +86,22 @@ func _process(delta: float) -> void:
 	var nx: float = clamp((mouse.x / vp_size.x) * 2.0 - 1.0, -1.0, 1.0)
 	var ny: float = clamp((mouse.y / vp_size.y) * 2.0 - 1.0, -1.0, 1.0)
 
-	# ny > 0 heißt Maus in der unteren Bildhälfte -> Blick nach unten Richtung
-	# Tisch; dafür steht ein größerer Winkelbereich zur Verfügung als nach oben.
-	var pitch_max: float = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
-	var target_tilt := Vector2(-ny * pitch_max, -nx * TILT_MAX_YAW_DEGREES)
+	var pitch_max: float
+	var yaw_max: float
+	if mode == Mode.OVERVIEW:
+		# ny > 0 heißt Maus in der unteren Bildhälfte -> Blick nach unten Richtung
+		# Tisch; dafür steht ein größerer Winkelbereich zur Verfügung als nach oben.
+		pitch_max = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
+		yaw_max = TILT_MAX_YAW_DEGREES
+	else:
+		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
+		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
+	var target_tilt := Vector2(-ny * pitch_max, -nx * yaw_max)
 	tilt_offset = tilt_offset.lerp(target_tilt, clamp(delta * TILT_SMOOTHING, 0.0, 1.0))
 
-	var yaw := Basis(base_basis.y, deg_to_rad(tilt_offset.y))
-	var pitch := Basis(base_basis.x, deg_to_rad(tilt_offset.x))
-	global_transform = Transform3D(yaw * pitch * base_basis, base_origin)
+	var yaw := Basis(anchor_basis.y, deg_to_rad(tilt_offset.y))
+	var pitch := Basis(anchor_basis.x, deg_to_rad(tilt_offset.x))
+	global_transform = Transform3D(yaw * pitch * anchor_basis, anchor_origin)
 
 ## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
 ## Modus tut nichts (schon dort).
@@ -107,6 +125,9 @@ func zoom_to(target_mode: Mode) -> void:
 			return
 	mode = target_mode
 	mode_changed.emit(mode)
+	anchor_basis = target_basis
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
 	_animate_to(target_origin, target_basis)
 
 ## Springt zurück zur Übersicht (No-Op, falls bereits dort).
@@ -115,6 +136,8 @@ func zoom_out() -> void:
 		return
 	mode = Mode.OVERVIEW
 	mode_changed.emit(mode)
+	anchor_basis = base_basis
+	anchor_origin = base_origin
 	tilt_offset = Vector2.ZERO
 	_animate_to(base_origin, base_basis)
 

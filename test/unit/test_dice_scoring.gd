@@ -124,12 +124,14 @@ func test_rabbits_foot_doubles_sixes():
 
 func test_horseshoe_raises_full_house_mult():
 	var hand := DiceScoring.best_hand(_d([2,2,2,5,5,1]), _ids([Charm.HORSESHOE]))
-	assert_eq(hand["mult"], 5, "Full-House-Mult inkl. Hufeisen-Bonus")
-	assert_eq(hand["score"], 17 * 5)  # _sum 17 × (4+1)
+	assert_eq(hand["mult"], 16, "Full-House-Mult inkl. Hufeisen-Bonus (+12)")
+	assert_eq(hand["score"], 17 * 16)  # _sum 17 × (4+12)
 
-func test_pearl_necklace_boosts_three_pairs():
-	# _sum 18 × (5+2)
-	assert_eq(DiceScoring.best_hand(_d([1,1,3,3,5,5]), _ids([Charm.PEARL_NECKLACE]))["score"], 18 * 7)
+func test_pearl_necklace_boosts_only_three_kind():
+	# Dreierpasch 3er: Basis 9 × (3+8).
+	assert_eq(DiceScoring.best_hand(_d([3,3,3,1,2,6]), _ids([Charm.PEARL_NECKLACE]))["score"], 9 * 11)
+	# Drei Zweierpäsche bleiben unberührt: _sum 18 × 5.
+	assert_eq(DiceScoring.best_hand(_d([1,1,3,3,5,5]), _ids([Charm.PEARL_NECKLACE]))["score"], 18 * 5)
 
 func test_rainbow_trout_adds_flat_to_straight():
 	# kleine Straße _sum 20 × 4 + 10
@@ -140,10 +142,11 @@ func test_magic_card_only_doubles_first_hand():
 	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, true)["score"], 24, "erste Hand verdoppelt")
 	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, false)["score"], 12, "spätere Hand normal")
 
-func test_collectors_amulet_adds_one_per_other_charm():
+func test_collectors_amulet_adds_mult_per_other_charm():
 	# Nur das Amulett greift bei einem Paar 3er; die anderen sind neutral.
+	# +2 Mult je anderem Charm: Basis 6 × (2 + 4) = 36.
 	var ids := _ids([Charm.COLLECTORS_AMULET, Charm.RABBITS_FOOT, Charm.GOLDEN_SCARAB])
-	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids)["score"], 12 + 2)
+	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids)["score"], 36)
 
 func test_charms_never_change_the_category():
 	# Ein Paar bleibt ein Paar, auch wenn ein Charm den Augenwert hebt.

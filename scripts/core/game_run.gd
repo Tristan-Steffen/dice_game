@@ -54,9 +54,9 @@ var combo_levels: Dictionary = {}
 
 # --- Zustand der Effektkatalog-Charms (siehe Obsidian "12 Charms") ---
 var farkle_count: int = 0  # Farkles des gesamten Runs (Zerbrochener Spiegel)
-var lumpensammler_value: int = 0  # Glückszahl des Lumpensammlers (beim Kauf gewürfelt, 0 = keiner)
-var phoenix_used: bool = false  # Phönixfeder rettet nur EINE Runde je Run
+var lumpensammler_value: int = 0  # Glückszahl des Lumpensammlers (je Runde neu gewürfelt, 0 = keiner)
 var gravierstift_used_this_round: bool = false  # Gravierstift wirkt einmal je Runde (Reset siehe apply_round_start_charms)
+var queue_bonus_slots: int = 0  # Ausziehtisch: dauerhafte Extra-Plätze der Warteschlange (siehe scene_root)
 ## Frisch gekaufte Würfel des letzten Shop-Besuchs (dieselben Pool-Instanzen) -
 ## Frische Ware zieht sie in der nächsten Runde zuerst; danach geleert.
 var newly_purchased: Array[DieDefinition] = []
@@ -152,6 +152,21 @@ func purchase_charm(charm: Charm, price: int) -> void:
 		lumpensammler_value = randi_range(1, 6)
 	charms_changed.emit()
 
+## Verschiebt einen besessenen Charm an eine andere Position (Drag-and-Drop
+## auf dem Tisch, siehe scene_root) - Standard "Element verschieben"-Semantik
+## (remove_at + insert, dazwischenliegende rücken nach). Die Reihenfolge ist
+## spielrelevant: die Totems kopieren ihre NACHBARN (siehe charm_ids), und sie
+## bestimmt die Tisch-Plätze (siehe CharmRowView). Meldet charms_changed.
+func move_charm(from_index: int, to_index: int) -> void:
+	if from_index == to_index \
+			or from_index < 0 or from_index >= owned_charms.size() \
+			or to_index < 0 or to_index >= owned_charms.size():
+		return
+	var charm := owned_charms[from_index]
+	owned_charms.remove_at(from_index)
+	owned_charms.insert(to_index, charm)
+	charms_changed.emit()
+
 ## Kauft einen Coupon-Bogen: Geld abziehen, Bogen des Typs kind auswürfeln und
 ## per sheet_purchased zur Enthüllung melden. Die Kacheln werden hier bewusst
 ## NICHT gutgeschrieben - das übernimmt die Abschluss-Animation Stück für Stück
@@ -191,13 +206,15 @@ func eat_meal(combo_key: String) -> void:
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Rundenbeginn-Wirkungen der Effektkatalog-Charms (von scene_root._start_new_round
-## gerufen): Mitternachtssnack isst ein zufälliges Gericht, Frankiermaschine
-## schenkt einen zufälligen Ätzungs-Coupon, Schmuckkästchen veredelt eine
-## zufällige Seite eines zufälligen Pool-Würfels - je Vorkommen einmal.
-## Setzt außerdem die Runden-Marken zurück (Gravierstift).
+## gerufen): Mitternachtssnack isst ein zufälliges Gericht, die Frankiermaschine
+## schenkt drei zufällige Ätzungs-Coupons, der Lumpensammler würfelt seine
+## Glückszahl neu - je Vorkommen einmal. Setzt außerdem die Runden-Marken
+## zurück (Gravierstift).
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
+	if ids.has(Charm.RAG_COLLECTOR):
+		lumpensammler_value = randi_range(1, 6)
 	for i in ids.count(Charm.MIDNIGHT_SNACK):
 		eat_meal(DiceScoring.CATEGORIES[randi() % DiceScoring.CATEGORIES.size()]["key"])
 	for i in ids.count(Charm.STAMP_MACHINE):
@@ -205,11 +222,23 @@ func apply_round_start_charms() -> void:
 		for coupon in Coupon.all():
 			if coupon.kind == Coupon.KIND_ETCHING:
 				etchings.append(coupon)
-		grant_coupon(etchings[randi() % etchings.size()])
-	for i in ids.count(Charm.JEWELRY_BOX):
-		var die: DieDefinition = owned_pool[randi() % owned_pool.size()]
-		var material: DieMaterial = DieMaterial.all().pick_random()
-		die.materials[randi() % die.materials.size()] = material.id
+		for j in 3:
+			grant_coupon(etchings[randi() % etchings.size()])
+
+## Schmuckkästchen: bei der Rundenziel-Auszahlung erhält jeder übergebene
+## (übrige) Würfel mit 10% Chance eine zufällige Material-Seite auf einer
+## zufälligen Seite - dauerhaft, da die Einträge dieselben Pool-Instanzen sind.
+## Je Vorkommen des Charms ein eigener Durchgang. Liefert die Anzahl der
+## veredelten Würfel (für ein UI-Feedback in scene_root).
+func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
+	var upgraded := 0
+	for i in charm_ids().count(Charm.JEWELRY_BOX):
+		for die in unused_dice:
+			if randf() < 0.1:
+				var material: DieMaterial = DieMaterial.all().pick_random()
+				die.materials[randi() % die.materials.size()] = material.id
+				upgraded += 1
+	return upgraded
 
 ## Verbraucht genau einen Coupon der gegebenen id (siehe Coupon-Konstanten) -
 ## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung

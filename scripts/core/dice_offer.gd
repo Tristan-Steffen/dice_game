@@ -13,10 +13,9 @@ extends RefCounted
 ## Anzahl Würfel im Bündel; values = erlaubte Augenzahlen je Seite (zufällig
 ## gezogen). pasch=true erzeugt stattdessen einen Würfel mit mehreren gleichen
 ## hohen Seiten (garantierter Pasch). style_id (≠ "normal") schützt gekaufte
-## Würfel vor Verdrängung und lässt die Wünschelrute sie zuerst ziehen (siehe
-## GameRun/scene_root) - eingefärbt wird danach NICHT mehr (Shop-Würfel sehen
-## wie normale Würfel aus; besonders machen sie Seitenwerte und Veredelungen,
-## siehe _roll_refinements).
+## Würfel vor Verdrängung (siehe GameRun) - eingefärbt wird danach NICHT mehr
+## (Shop-Würfel sehen wie normale Würfel aus; besonders machen sie Seitenwerte
+## und Veredelungen, siehe _roll_refinements).
 const TEMPLATES := [
 	# 1 Würfel - stark (hohe bzw. gehäufte Werte).
 	{"name": "Kraftwürfel", "style_id": "power", "count": 1, "price": 15, "values": [3, 4, 5, 6]},
@@ -48,12 +47,30 @@ func size() -> int:
 
 ## Würfelt count verschiedene Angebote aus (verschiedene Vorlagen, jeweils frisch
 ## erzeugte Würfel). Grundlage der Shop-Auslage (siehe ShopController).
-## charm_ids (optional): das Gütesiegel erzwingt mindestens eine Veredelung.
+## charm_ids (optional): das Gütesiegel erzwingt mindestens eine Veredelung;
+## der Mengenrabatt lässt 3er-Bündel öfter auftreten (mindestens ein Bündel
+## je Auslage).
 static func roll_offers(count: int, charm_ids: Array[String] = []) -> Array[DiceOffer]:
 	var templates := TEMPLATES.duplicate()
 	templates.shuffle()
+	var window := mini(count, templates.size())
+	# Mengenrabatt (siehe CharmEffects.die_price): garantiert ein 3er-Bündel in
+	# der Auslage - fehlt eines im Fenster, tauscht das letzte Angebot dagegen.
+	if charm_ids.has(Charm.BULK_DISCOUNT) and window > 0:
+		var has_bundle := false
+		for i in window:
+			if int(templates[i]["count"]) >= 3:
+				has_bundle = true
+				break
+		if not has_bundle:
+			for j in range(window, templates.size()):
+				if int(templates[j]["count"]) >= 3:
+					var bundle: Dictionary = templates[j]
+					templates[j] = templates[window - 1]
+					templates[window - 1] = bundle
+					break
 	var offers: Array[DiceOffer] = []
-	for i in mini(count, templates.size()):
+	for i in window:
 		offers.append(_from_template(templates[i], charm_ids))
 	return offers
 

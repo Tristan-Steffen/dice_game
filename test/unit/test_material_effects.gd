@@ -303,3 +303,62 @@ func test_is_strictly_better_sees_edge_materials():
 	var none := _m(["", "", "", "", "", ""])
 	assert_true(DiceScoring.is_strictly_better(same, same, NO_CHARMS, none, none, ruby_edges, none),
 		"Rubin-Kanten im neuen Wurf machen ihn strikt besser")
+
+# --- Quecksilber als Retrigger: der Würfel aktiviert sich doppelt -----------------
+# Jede Aktivierung zählt die Augen UND feuert die übrigen Material-Effekte des
+# Würfels erneut (siehe MaterialEffects.activation_count).
+
+func test_activation_count_doubles_per_mercury_carrier():
+	var mercury_first := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var none := _m(["", "", "", "", "", ""])
+	assert_eq(MaterialEffects.activation_count(0, none, none, NO_CHARMS), 1)
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, none, NO_CHARMS), 2)
+	assert_eq(MaterialEffects.activation_count(0, none, mercury_first, NO_CHARMS), 2)
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, mercury_first, NO_CHARMS), 4, "Seite × Kanten stapeln multiplikativ")
+
+func test_mercury_edge_doubles_amber_face_on_same_die():
+	# Bernstein-Seite (20) feuert je Aktivierung; Quecksilber-Kanten aktivieren
+	# den Würfel doppelt: 2×20 + Augen (5) ein zweites Mal = 45.
+	var bonus := MaterialEffects.base_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.AMBER, "", "", "", "", ""]), _p([0, 1]), NO_CHARMS, _m([DieMaterial.MERCURY, "", "", "", "", ""]))
+	assert_eq(bonus, 45, "Bernstein 2×20 + zweite Augen-Zählung 5")
+
+func test_mercury_edge_doubles_ruby_face_mult():
+	var bonus := MaterialEffects.mult_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.RUBY, "", "", "", "", ""]), _p([0, 1]), _m([DieMaterial.MERCURY, "", "", "", "", ""]))
+	assert_eq(bonus, 8, "Rubin +4 feuert zweimal")
+
+func test_mercury_edge_doubles_glass_face_mult():
+	var bonus := MaterialEffects.mult_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.GLASS, "", "", "", "", ""]), _p([0, 1]), _m([DieMaterial.MERCURY, "", "", "", "", ""]))
+	assert_eq(bonus, 10, "Glas (+5 Augen) feuert zweimal")
+
+func test_mercury_face_doubles_ruby_edge_mult():
+	# Umgekehrte Träger: Quecksilber-SEITE oben, Rubin-KANTEN -> Rubin zweimal.
+	var bonus := MaterialEffects.mult_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), _m([DieMaterial.RUBY, "", "", "", "", ""]))
+	assert_eq(bonus, 8, "Rubin-Kanten +4 feuern zweimal")
+
+func test_mercury_edge_doubles_gold_face_payout():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.MERCURY]))
+	assert_eq(report.money, 2, "Gold-Seite zahlt je Aktivierung: 2 × $1")
+
+func test_mercury_edge_doubles_bone_face_growth():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([DieMaterial.MERCURY]))
+	assert_eq(defs[0].faces[0], 7, "Knochen wächst je Aktivierung: +1 zweimal")
+
+func test_mercury_edge_doubles_glass_face_shrink():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _m([DieMaterial.MERCURY]))
+	assert_eq(defs[0].faces[0], 3, "Glas schrumpft je Aktivierung: −1 zweimal")
+
+func test_mercury_vapor_triples_activations_of_take_effects():
+	# Quecksilberdampf: Quecksilber aktiviert dreifach -> Gold zahlt 3 × $1.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.MERCURY]), _ids([Charm.MERCURY_VAPOR]))
+	assert_eq(report.money, 3)
+
+func test_mercury_retrigger_flows_through_best_hand():
+	# Paar Fünfer, Slot 0 mit Rubin-Seite + Quecksilber-Kanten:
+	# Basis 10 + zweite Augen-Zählung 5 = 15; Mult 2 + 2×4 (Rubin) = 10 -> 150.
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m([DieMaterial.RUBY, "", "", "", "", ""]), _m([DieMaterial.MERCURY, "", "", "", "", ""]))["score"]
+	assert_eq(score, 150, "(5+5+5) × (2+8)")
