@@ -1,0 +1,385 @@
+[gd_scene format=3 uid="uid://uklph2nfxkkr"]
+
+[ext_resource type="PackedScene" path="res://scenes/dice_tray.tscn" id="1_w2g3p"]
+[ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scripts/scene_root.gd" id="3_script"]
+[ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
+[ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
+[ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/table/camera_rig.gd" id="8_camerarig"]
+[ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/dice/rotatable_die_view.gd" id="9_dicepicker"]
+[ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/ui/die_inspector_view.gd" id="12_dieinspector"]
+[ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
+[ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
+[ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
+[ext_resource type="Script" uid="uid://d1e1kpuirytqv" path="res://scripts/table/charm_row_view.gd" id="16_charmrow"]
+[ext_resource type="PackedScene" uid="uid://3ejwutgaggb5" path="res://scenes/shop_panel.tscn" id="17_shoppanel"]
+
+[sub_resource type="Environment" id="Environment_p52qu"]
+background_mode = 1
+background_color = Color(0.03, 0.025, 0.04, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.45, 0.38, 1)
+ambient_light_energy = 0.3
+glow_enabled = true
+glow_intensity = 0.8
+glow_strength = 1.0
+glow_bloom = 0.1
+glow_hdr_threshold = 0.95
+
+[node name="SceneRoot" type="Node3D" unique_id=948145352]
+script = ExtResource("3_script")
+
+[node name="Room" parent="." unique_id=756922948 instance=ExtResource("6_room")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
+
+[node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
+
+[node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.1, -3.4, 12)
+
+[node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)
+tray_color = Color(0.55, 0.08, 0.08, 1)
+
+[node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.3, -3.4, 12)
+tray_color = Color(0.65, 0.5, 0.12, 1)
+
+[node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -3.4, 20)
+
+[node name="BlindPayoutLabel3D" type="Label3D" parent="." unique_id=80467160]
+transform = Transform3D(0.013962303, 0.99977916, -0.015705837, 1.3731816e-09, 0.015707368, 0.9998766, 0.9999025, -0.013960581, 0.00021930967, -22.195, -3.899632, -0.8107245)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "5$ pro Blind"
+font_size = 90
+outline_size = 14
+
+[node name="DicePayoutLabel3D" type="Label3D" parent="." unique_id=80467161]
+transform = Transform3D(-4.371139e-08, 1, 4.371139e-08, 0, -4.371139e-08, 1, 1, 4.371139e-08, 1.9106855e-15, -23.325, -3.942277, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "1$ pro Würfel übrig"
+font_size = 90
+outline_size = 14
+
+[node name="Combinations" type="Label3D" parent="." unique_id=1443500857]
+transform = Transform3D(-6.9938224e-08, 1.6, 6.9938224e-08, 0, -6.9938224e-08, 1.6, 1.6, 6.9938224e-08, 3.0570967e-15, 11.536203, -3.7829065, -26.109495)
+modulate = Color(0.96, 0.96, 0.93, 1)
+font_size = 90
+outline_size = 14
+
+[node name="six_kind" type="Label3D" parent="Combinations" unique_id=466432246]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -4.7683716e-07, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Sechserpasch  ×15"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="five_kind" type="Label3D" parent="Combinations" unique_id=9495057]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -1.1500001, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "5 of a Kind  ×10"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="large_straight" type="Label3D" parent="Combinations" unique_id=411345368]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -2.3000007, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Große Straße  ×8"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="four_kind_and_pair" type="Label3D" parent="Combinations" unique_id=592368218]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -3.45, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Viererpasch mit Paar  ×6"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="double_three_kind" type="Label3D" parent="Combinations" unique_id=1992806477]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -4.6000004, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Doppelter Dreierpasch  ×5"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="three_pairs" type="Label3D" parent="Combinations" unique_id=1236955472]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -5.75, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Drei Zweierpäsche  ×5"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="four_kind" type="Label3D" parent="Combinations" unique_id=169973240]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -6.9, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Viererpasch  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="full_house" type="Label3D" parent="Combinations" unique_id=2087469292]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -8.05, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Full House  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="small_straight" type="Label3D" parent="Combinations" unique_id=2076040635]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -9.2, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Kleine Straße  ×4"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="three_kind" type="Label3D" parent="Combinations" unique_id=2016251528]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -10.35, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Dreierpasch  ×3"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="two_pair" type="Label3D" parent="Combinations" unique_id=1699846036]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -11.5, -2.3841858e-07)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Zwei Paare  ×3"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="two_kind" type="Label3D" parent="Combinations" unique_id=1051314301]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543888, -12.65, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Paar  ×2"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="one_kind" type="Label3D" parent="Combinations" unique_id=1409986892]
+transform = Transform3D(1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, 7.1054274e-15, 2.1175824e-22, -7.1054274e-15, 1.4, -0.7543907, -13.8, 0)
+modulate = Color(0.96, 0.96, 0.93, 1)
+text = "Höchste Zahl  ×1"
+font_size = 60
+outline_size = 10
+horizontal_alignment = 0
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
+transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)
+script = ExtResource("8_camerarig")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=879093562]
+environment = SubResource("Environment_p52qu")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=821656404]
+transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.8365962, -0.84949386, -0.4413869, 0.28902903, 57.105812, 140.23296, 47.27364)
+light_color = Color(1, 0.88, 0.72, 1)
+light_energy = 0.35
+
+[node name="TableLight" type="OmniLight3D" parent="." unique_id=821656405]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, 0)
+light_color = Color(1, 0.84, 0.58, 1)
+light_energy = 3.4
+omni_range = 55.0
+omni_attenuation = 1.6
+
+[node name="Dice" type="Node3D" parent="." unique_id=219306191]
+
+[node name="Charms" type="Node3D" parent="." unique_id=219306192]
+script = ExtResource("16_charmrow")
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=1838034136]
+
+[node name="HandLabel" type="Label" parent="UI" unique_id=953162703]
+offset_left = 390.0
+offset_top = 16.0
+offset_right = 1080.0
+offset_bottom = 96.0
+text = "Würfle, um deine Hand zu sehen"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="TakeButton" type="Button" parent="UI" unique_id=1516444737]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -88.0
+offset_right = 214.0
+offset_bottom = -24.0
+disabled = true
+text = "Nehmen"
+
+[node name="SelectAllButton" type="Button" parent="UI" unique_id=1958053695]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 230.0
+offset_top = -88.0
+offset_right = 470.0
+offset_bottom = -24.0
+disabled = true
+text = "Alle auswählen"
+
+[node name="SettingsMenu" type="VBoxContainer" parent="UI" unique_id=492819085]
+visible = false
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -276.0
+offset_top = -252.0
+offset_right = -16.0
+offset_bottom = -80.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 8
+alignment = 2
+
+[node name="LibraryButton" type="Button" parent="UI/SettingsMenu" unique_id=1378124560]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "📖  Charm-Bibliothek"
+
+[node name="ResetButton" type="Button" parent="UI/SettingsMenu" unique_id=1378124555]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Neues Spiel"
+
+[node name="DebugWinRoundButton" type="Button" parent="UI/SettingsMenu" unique_id=2012263267]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Debug: Runde gewinnen"
+
+[node name="SettingsToggleButton" type="Button" parent="UI" unique_id=875518473]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -216.0
+offset_top = -64.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "⚙  Einstellungen"
+
+[node name="RoundHud" type="VBoxContainer" parent="UI" unique_id=858313649]
+offset_left = 24.0
+offset_top = 16.0
+offset_right = 370.0
+offset_bottom = 92.0
+theme_override_constants/separation = 6
+
+[node name="RoundBadgeLabel" type="Label" parent="UI/RoundHud" unique_id=284679518]
+layout_mode = 2
+text = "Runde 1"
+
+[node name="PointsBar" type="ProgressBar" parent="UI/RoundHud" unique_id=2135659550]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+max_value = 150.0
+show_percentage = false
+
+[node name="PointsLabel" type="Label" parent="UI/RoundHud/PointsBar" unique_id=440801283]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "0 / 150 Punkte"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MoneyLabel" type="Label" parent="UI" unique_id=80467153]
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 370.0
+offset_bottom = 160.0
+text = "$0"
+
+[node name="ShopPanel" parent="UI" unique_id=1069223745 instance=ExtResource("17_shoppanel")]
+
+[node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
+visible = false
+offset_left = 350.0
+offset_top = 200.0
+offset_right = 850.0
+offset_bottom = 420.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/GameOverPanel" unique_id=599418913]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 476.0
+offset_bottom = 196.0
+theme_override_constants/separation = 12
+
+[node name="GameOverLabel" type="Label" parent="UI/GameOverPanel/VBoxContainer" unique_id=50349217]
+layout_mode = 2
+text = "Ziel verfehlt!"
+autowrap_mode = 2
+
+[node name="GameOverResetButton" type="Button" parent="UI/GameOverPanel/VBoxContainer" unique_id=1886111894]
+layout_mode = 2
+text = "Neues Spiel"
+
+[node name="DieInspectorView" type="Control" parent="UI" unique_id=1154820333]
+visible = false
+layout_mode = 3
+anchors_preset = 0
+offset_right = 1280.0
+offset_bottom = 900.0
+mouse_filter = 1
+script = ExtResource("12_dieinspector")
+
+[node name="Backdrop" type="ColorRect" parent="UI/DieInspectorView" unique_id=1842075712]
+layout_mode = 0
+offset_right = 1280.0
+offset_bottom = 900.0
+color = Color(0, 0, 0, 0.6)
+
+[node name="Center" type="CenterContainer" parent="UI/DieInspectorView" unique_id=1082420542]
+layout_mode = 0
+offset_left = 300.0
+offset_right = 820.0
+offset_bottom = 900.0
+mouse_filter = 2
+
+[node name="DieView" type="SubViewportContainer" parent="UI/DieInspectorView/Center" unique_id=1072448557]
+custom_minimum_size = Vector2(480, 480)
+layout_mode = 2
+stretch = true
+script = ExtResource("9_dicepicker")
+
+[node name="SubViewport" type="SubViewport" parent="UI/DieInspectorView/Center/DieView" unique_id=623573709]
+own_world_3d = true
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(480, 480)
+render_target_update_mode = 0
+
+[node name="HintLabelInspector" type="Label" parent="UI/DieInspectorView" unique_id=712240631]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 120.0
+offset_right = 720.0
+offset_bottom = 150.0
+text = "Ziehe zum Drehen - Seite anklicken zum Gravieren - Klick daneben/Rechtsklick schließt"
+horizontal_alignment = 1
+
+[connection signal="pressed" from="UI/TakeButton" to="." method="_on_take_button_pressed"]
+[connection signal="pressed" from="UI/SelectAllButton" to="." method="_on_select_all_button_pressed"]
+[connection signal="pressed" from="UI/SettingsMenu/ResetButton" to="." method="_on_reset_button_pressed"]
+[connection signal="pressed" from="UI/GameOverPanel/VBoxContainer/GameOverResetButton" to="." method="_on_reset_button_pressed"]

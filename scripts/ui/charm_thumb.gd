@@ -1,0 +1,103 @@
+class_name CharmThumb
+extends SubViewportContainer
+## 3D-Vorschau eines Charm-Modells in eigenem SubViewport (eigene World3D,
+## gleiche Beleuchtung wie die Würfel-Vorschauen). Da die GLB-Modelle
+## unterschiedlich groß sind, wird das Modell über seine Gesamt-AABB auf
+## Einheitsgröße normiert und um sein Zentrum drehbar aufgehängt (pivot);
+## Charms ohne Modelldatei fallen auf die Platzhalter-Karte zurück (siehe
+## CharmRowView.placeholder_model).
+##
+## rotatable=false (Standard): statische Miniatur - rendert genau EIN Bild
+## (UPDATE_ONCE) und ignoriert die Maus. Billig genug für die 89 Zeilen der
+## Charm-Bibliothek. rotatable=true: Ziehen mit gedrückter Maustaste dreht das
+## Modell frei, wie die Würfel in der Gravur-Station (siehe RotatableDieView) -
+## für die Nahansicht der Bibliothek. Verwendet auch vom Shop (Charm-Angebote).
+
+const DRAG_SENSITIVITY := 0.01  # Drehgeschwindigkeit, wie RotatableDieView
+const FIT_SIZE := 2.2           # Zielgröße des Modells in Welteinheiten
+
+var pivot: Node3D
+var camera: Camera3D
+var dragging := false
+
+func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
+	custom_minimum_size = Vector2(size, size)
+	stretch = true
+	mouse_filter = Control.MOUSE_FILTER_STOP if rotatable else Control.MOUSE_FILTER_IGNORE
+
+	var viewport := SubViewport.new()
+	viewport.own_world_3d = true
+	viewport.transparent_bg = true
+	viewport.size = Vector2i(size, size)
+	viewport.render_target_update_mode = \
+		SubViewport.UPDATE_ALWAYS if rotatable else SubViewport.UPDATE_ONCE
+	add_child(viewport)
+
+	var env := Environment.new()
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1, 1, 1)
+	env.ambient_light_energy = 0.9
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	viewport.add_child(world_env)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-50, 35, 0)
+	key_light.light_energy = 1.1
+	viewport.add_child(key_light)
+
+	camera = Camera3D.new()
+	camera.fov = 30.0
+	camera.transform = Transform3D(Basis(), Vector3(0, 1.4, 6.0)).looking_at(Vector3.ZERO, Vector3.UP)
+	viewport.add_child(camera)
+
+	var model: Node3D
+	if charm.model_path != "" and ResourceLoader.exists(charm.model_path):
+		model = (load(charm.model_path) as PackedScene).instantiate() as Node3D
+	else:
+		# Die flache Platzhalter-Karte liegt auf dem Tisch (Normale +Y) - hier
+		# aufgestellt, damit die Kamera ihre FLÄCHE sieht statt der dünnen Kante.
+		model = CharmRowView.placeholder_model(charm.id)
+		model.rotation_degrees.x = 90.0
+
+	# Modell über seine AABB einheitlich einpassen (auf FIT_SIZE skaliert) und
+	# um sein Zentrum drehbar aufhängen, leicht angekippt wie die Würfel.
+	pivot = Node3D.new()
+	viewport.add_child(pivot)
+	pivot.rotation_degrees = Vector3(-15, 30, 0)
+	var aabb := merged_aabb(model)
+	var max_dim: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
+	var fit: float = FIT_SIZE / maxf(max_dim, 0.001)
+	model.scale = Vector3.ONE * fit
+	model.position = -aabb.get_center() * fit
+	pivot.add_child(model)
+
+## Freies Drehen per Maus-Ziehen (nur rotatable=true, sonst kommt hier wegen
+## MOUSE_FILTER_IGNORE nie ein Ereignis an) - gleiche Achsen wie
+## RotatableDieView: horizontal um die Hochachse, vertikal um die Kamera-Rechte.
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		dragging = event.pressed
+	elif event is InputEventMouseMotion and dragging:
+		pivot.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)
+		pivot.global_rotate(camera.global_transform.basis.x.normalized(), event.relative.y * DRAG_SENSITIVITY)
+
+## Gesamt-AABB aller MeshInstance3D unter node (im Raum von node) - Grundlage
+## fürs Einpassen unterschiedlich großer Charm-Modelle.
+static func merged_aabb(node: Node) -> AABB:
+	var result := AABB()
+	var found := false
+	var stack: Array = [[node, Transform3D()]]
+	while not stack.is_empty():
+		var pair: Array = stack.pop_back()
+		var current: Node = pair[0]
+		var xform: Transform3D = pair[1]
+		if current is Node3D and current != node:
+			xform = xform * (current as Node3D).transform
+		if current is MeshInstance3D and (current as MeshInstance3D).mesh != null:
+			var mesh_aabb: AABB = xform * (current as MeshInstance3D).mesh.get_aabb()
+			result = mesh_aabb if not found else result.merge(mesh_aabb)
+			found = true
+		for child in current.get_children():
+			stack.push_back([child, xform])
+	return result

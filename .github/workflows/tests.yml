@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gut:
+    name: GUT unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_VERSION: "4.7-stable"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Godot ${{ env.GODOT_VERSION }} (headless)
+        run: |
+          set -e
+          url="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          wget -q "$url" -O godot.zip
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot
+          chmod +x /usr/local/bin/godot
+          godot --version
+
+      # Imports resources and registers global class_names (GutTest, Charm, ...)
+      # so the test run can resolve them. Import warnings must not fail the job -
+      # the test step below is the real gate (it errors if classes are missing).
+      - name: Import project
+        run: godot --headless --editor --quit || true
+
+      - name: Run unit tests
+        run: godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json

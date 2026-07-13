@@ -1,0 +1,67 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/dice/dice_tray_view.gd" id="1_42muw"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_x54e5"]
+size = Vector3(8.4, 0.6, 12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_ix1v5"]
+size = Vector3(8.4, 1.2, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_v0sxg"]
+size = Vector3(0.5, 1.2, 12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_oxrd5"]
+size = Vector3(0.25, 0.8, 11)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_p8sdg"]
+size = Vector3(8.4, 3.2, 12)
+
+[node name="DicePoolTray" type="Node3D" unique_id=1584236749]
+script = ExtResource("1_42muw")
+rows = 4
+columns = 6
+
+[node name="TrayMesh" type="Node3D" parent="." unique_id=2136847185]
+
+[node name="Base" type="MeshInstance3D" parent="TrayMesh" unique_id=1002997204]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
+mesh = SubResource("BoxMesh_x54e5")
+
+[node name="WallNorth" type="MeshInstance3D" parent="TrayMesh" unique_id=1197355483]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 5.75)
+mesh = SubResource("BoxMesh_ix1v5")
+
+[node name="WallSouth" type="MeshInstance3D" parent="TrayMesh" unique_id=1894623923]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, -5.75)
+mesh = SubResource("BoxMesh_ix1v5")
+
+[node name="WallEast" type="MeshInstance3D" parent="TrayMesh" unique_id=1711440413]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.95, 0.6, 0)
+mesh = SubResource("BoxMesh_v0sxg")
+
+[node name="WallWest" type="MeshInstance3D" parent="TrayMesh" unique_id=411070288]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.95, 0.6, 0)
+mesh = SubResource("BoxMesh_v0sxg")
+
+[node name="Lane1" type="MeshInstance3D" parent="TrayMesh" unique_id=1017566031]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.8, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="Lane2" type="MeshInstance3D" parent="TrayMesh" unique_id=954152029]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="Lane3" type="MeshInstance3D" parent="TrayMesh" unique_id=171150687]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.8, 0.4, 0)
+mesh = SubResource("BoxMesh_oxrd5")
+
+[node name="ClickZone" type="StaticBody3D" parent="." unique_id=861517137]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+collision_layer = 8
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ClickZone" unique_id=1299401695]
+shape = SubResource("BoxShape3D_p8sdg")
+
+[node name="Slots" type="Node3D" parent="." unique_id=476073438]
