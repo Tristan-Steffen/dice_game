@@ -90,6 +90,44 @@ func test_charm_ids_lists_owned_ids_in_order():
 	run.owned_charms.append(Charm.horseshoe())
 	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
 
+# --- Charms umsortieren (Drag-and-Drop auf dem Tisch, siehe scene_root) ----------
+
+func _own_three_charms() -> void:
+	run.owned_charms.append(Charm.rabbits_foot())
+	run.owned_charms.append(Charm.horseshoe())
+	run.owned_charms.append(Charm.magic_card())
+
+func test_move_charm_reorders_and_emits():
+	_own_three_charms()
+	watch_signals(run)
+	run.move_charm(0, 2)
+	assert_eq(run.owned_charm_ids(), [Charm.HORSESHOE, Charm.MAGIC_CARD, Charm.RABBITS_FOOT] as Array[String])
+	assert_signal_emitted(run, "charms_changed")
+
+func test_move_charm_backwards_shifts_neighbors_up():
+	_own_three_charms()
+	run.move_charm(2, 0)
+	assert_eq(run.owned_charm_ids(), [Charm.MAGIC_CARD, Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
+
+func test_move_charm_ignores_invalid_or_same_indices():
+	_own_three_charms()
+	watch_signals(run)
+	run.move_charm(1, 1)
+	run.move_charm(-1, 2)
+	run.move_charm(0, 3)
+	assert_eq(run.owned_charm_ids(), [Charm.RABBITS_FOOT, Charm.HORSESHOE, Charm.MAGIC_CARD] as Array[String])
+	assert_signal_not_emitted(run, "charms_changed")
+
+func test_move_charm_changes_totem_neighbor_resolution():
+	# Die Reihenfolge ist spielrelevant: das Papagei-Totem kopiert seinen LINKEN
+	# Nachbarn (siehe charm_ids) - nach dem Umsortieren also einen anderen Charm.
+	run.owned_charms.append(Charm.rabbits_foot())
+	run.owned_charms.append(Charm.horseshoe())
+	run.owned_charms.append(Charm.parrot_totem())
+	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.HORSESHOE, Charm.HORSESHOE] as Array[String])
+	run.move_charm(2, 1)
+	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
+
 # --- Coupons --------------------------------------------------------------------
 
 func test_grant_and_consume_coupon():

@@ -164,24 +164,28 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 		base += CharmEffects.charm_base_bonus(key, dice, participating, charm_ids, ctx, materials, edge_materials)
 		base *= CharmEffects.base_factor(dice, charm_ids)  # Einserkult
 	var mult := _total_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
-	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids) \
-		+ CharmEffects.charm_flat_bonus(dice, participating, charm_ids, materials, edge_materials)
+	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids)
 	score *= CharmEffects.score_multiplier(charm_ids, is_first_hand)
 	score = int(round(score * CharmEffects.hand_factor(key, charm_ids, ctx)))
-	score += CharmEffects.post_score_bonus(score, charm_ids)
 	return score
 
 ## Der komplette Kombi-Multiplikator: Kategorie-Mult (inkl. Menü-Stufen) +
-## Charm-Boni + Material-Boni + Effektkatalog-Boni, dann Einserkult-Faktor -
-## auf min. 1 geklemmt (das Pendel kann negativ beitragen). Eine Quelle für
-## Rechnung UND Anzeige (siehe score_category/_display_mult).
+## Charm-Boni + Material-Boni + Effektkatalog-Boni, dann die multiplikativen
+## Faktoren: Einserkult (×2 je 1) und der KRIT-Pool (× (1 + Summe der
+## Krit-Boni), siehe CharmEffects.crit_bonus und das Glossar) - auf min. 1
+## geklemmt. Eine Quelle für Rechnung UND Anzeige (siehe
+## score_category/best_hand).
 static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> int:
+	var participating := participating_indices(key, dice)
 	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
-		mult += MaterialEffects.mult_bonus(dice, materials, participating_indices(key, dice), edge_materials, charm_ids)
+		mult += MaterialEffects.mult_bonus(dice, materials, participating, edge_materials, charm_ids)
 	if not charm_ids.is_empty():
-		mult += CharmEffects.charm_mult_bonus(key, dice, materials, charm_ids, ctx, combo_levels)
+		mult += CharmEffects.charm_mult_bonus(key, dice, materials, charm_ids, ctx, combo_levels, participating)
 		mult *= CharmEffects.mult_factor(dice, charm_ids)  # Einserkult
+		var crit := CharmEffects.crit_bonus(key, charm_ids, ctx, combo_levels)
+		if crit > 0:
+			mult *= 1 + crit
 	return maxi(1, mult)
 
 ## Basiswert einer Kategorie VOR Kombi-Multiplikator: die beteiligten

@@ -19,7 +19,7 @@ const RUBY := "ruby"          # Rubin: +4 Mult
 const AMBER := "amber"        # Bernstein: +20 Augen beim Zählen
 const GOLD := "gold"          # Gold: +$1 beim Nehmen
 const BONE := "bone"          # Knochen: Seite wächst +1 beim Nehmen
-const MERCURY := "mercury"    # Quecksilber: Seite zählt doppelt
+const MERCURY := "mercury"    # Quecksilber: der Würfel aktiviert sich doppelt (Retrigger)
 const GLASS := "glass"        # Glas: Mult += Augen der Seite, Seite schrumpft −1 beim Nehmen
 
 ## "Kein Material" - der Standardwert jeder Seite (siehe DieDefinition.materials).
@@ -74,11 +74,12 @@ static func bone() -> DieMaterial:
 		"Die oben liegende Seite wächst dauerhaft +1, wenn der Würfel in der genommenen Kombination liegt.",
 		Color(0.93, 0.9, 0.78))
 
-## Quecksilber: die Seite zählt doppelt (Kanten: der ganze Würfel).
+## Quecksilber: der Würfel aktiviert sich doppelt - Augen und alle seine
+## Material-Effekte zählen zweimal (siehe MaterialEffects.activation_count).
 static func mercury() -> DieMaterial:
 	return _make(MERCURY, "Quecksilber",
-		"Diese Seite zählt doppelt, wenn sie in der Kombination liegt.",
-		"Dieser Würfel zählt doppelt - liegt zusätzlich eine Quecksilber-Seite oben, vierfach.",
+		"Der Würfel aktiviert sich doppelt, wenn diese Seite in der Kombination liegt: Augen und Material-Effekte zählen zweimal.",
+		"Der Würfel aktiviert sich doppelt, wenn er in der Kombination liegt - liegt zusätzlich eine Quecksilber-Seite oben, vierfach.",
 		Color(0.78, 0.83, 0.92))
 
 ## Glas: Mult += Augen der Seite, danach schrumpft sie dauerhaft um −1.

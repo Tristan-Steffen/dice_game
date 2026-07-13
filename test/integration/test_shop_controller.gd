@@ -73,7 +73,7 @@ func test_con_artist_cuff_discounts_offer_price():
 	shop.open()
 	var offer = shop.dice_offers[0]
 	shop._on_offer_pressed(0)
-	assert_eq(run.money, 100 - int(round(offer.price * 0.8)), "20% Rabatt auf den Angebotspreis")
+	assert_eq(run.money, 100 - CharmEffects.die_price(offer.price, run.charm_ids(), offer.size()), "33% Rabatt auf den Angebotspreis")
 
 func test_offer_price_is_raw_price_without_discount():
 	var offer = shop.dice_offers[0]

@@ -1,8 +1,9 @@
 extends GutTest
 ## Tier-2-Tests der physischen Charm-Reihe (CharmRowView). Prüft, dass je Charm
 ## ein Modell auf einem festen Platz landet, die Plätze bei mehr Charms als
-## Plätzen gekappt werden, und dass die sechs Plätze einen gleichmäßigen,
-## spiegelsymmetrischen Bogen auf gleicher Tischhöhe bilden.
+## Plätzen gekappt werden, dass die sechs Plätze einen gleichmäßigen,
+## spiegelsymmetrischen Bogen auf gleicher Tischhöhe bilden, und dass die
+## Untersetzer je nach Belegung weiß bzw. grau leuchten.
 
 var row: CharmRowView
 
@@ -46,8 +47,9 @@ func test_spots_mirror_across_z_axis():
 	assert_almost_eq(t0.origin.z, -t5.origin.z, 0.001)
 
 func test_all_spots_share_table_height():
+	# Die Charms stehen auf den Untersetzern, also um COASTER_HEIGHT über dem Tisch.
 	for i in CharmRowView.SPOT_COUNT:
-		assert_almost_eq(row._spot_transform(i).origin.y, CharmRowView.SPOT_Y, 0.001)
+		assert_almost_eq(row._spot_transform(i).origin.y, CharmRowView.SPOT_Y + CharmRowView.COASTER_HEIGHT, 0.001)
 
 func test_spot_angles_symmetric_and_evenly_spaced():
 	var angles: Array = CharmRowView.SPOT_ANGLES_DEG
@@ -58,3 +60,21 @@ func test_spot_angles_symmetric_and_evenly_spaced():
 	assert_almost_eq(angles[2], -angles[3], 0.001)
 	# gleichmäßiger Abstand
 	assert_almost_eq(angles[1] - angles[0], angles[2] - angles[1], 0.001)
+
+# --- Untersetzer ----------------------------------------------------------------
+
+func test_builds_one_coaster_per_spot():
+	assert_eq(row.coaster_materials.size(), CharmRowView.SPOT_COUNT)
+
+func test_occupied_coasters_glow_white_the_rest_grey():
+	row.set_charms(_charms(2))
+	assert_eq(row.coaster_materials[0].emission, CharmRowView.COASTER_EMISSION_OCCUPIED)
+	assert_eq(row.coaster_materials[1].emission, CharmRowView.COASTER_EMISSION_OCCUPIED)
+	for i in range(2, CharmRowView.SPOT_COUNT):
+		assert_eq(row.coaster_materials[i].emission, CharmRowView.COASTER_EMISSION_EMPTY)
+
+func test_clearing_charms_reverts_coasters_to_grey():
+	row.set_charms(_charms(3))
+	row.set_charms([])
+	for material in row.coaster_materials:
+		assert_eq(material.emission, CharmRowView.COASTER_EMISSION_EMPTY)

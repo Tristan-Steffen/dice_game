@@ -108,6 +108,9 @@ const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick auf einen Wartes
 const REORDER_LIFT_HEIGHT := 0.8  # Wie weit der gezogene Würfel über das Tray angehoben wird
 const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen, siehe _nearest_queue_slot
 
+const CHARM_LIFT_HEIGHT := 1.2  # Wie weit der gezogene Charm über seinen Untersetzer angehoben wird
+const CHARM_DROP_RADIUS := 90.0  # Pixel-Toleranz beim Loslassen über einem Charm-Platz, siehe _nearest_charm_spot
+
 const CUP_FLY_DURATION := 0.4  # wie lange die gezogenen Würfel zum Becher fliegen, siehe _play_cup_roll
 const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, siehe DiceCup.play_shake
 
@@ -236,10 +239,9 @@ var last_thrown_indices: Array[int] = []  # Slots des zuletzt gestarteten Wurfs 
 var rerolled_dice_this_hand: int = 0  # Pendel (+2 Mult je neu geworfenem Würfel)
 var rerolls_this_hand: int = 0  # Anker (der ERSTE Neuwurf kann nicht farkeln)
 var taken_dice_this_round: int = 0  # Pendel (−1 Mult je genommenem Würfel)
-var last_throw_full_reroll: bool = false  # Alles-oder-nichts (alle 6 neu geworfen)
+var full_reroll_stacks: int = 0  # Alles-oder-nichts: volle Neuwürfe seit dem letzten Nehmen (stapelt)
 var momentum_streak: int = 0  # Momentum (+1 Mult je Hand in Folge ohne Farkle)
-var previous_taken_key: String = ""  # Serientäter (dieselbe Kombination erneut)
-var first_hand_after_farkle: bool = false  # Galgenhumor (+3 Mult nach Farkle)
+var first_hand_after_farkle: bool = false  # Galgenhumor (+3 Krit nach Farkle)
 var recycling_used_this_round: bool = false  # Recycling wirkt nur auf die erste Hand
 var slot_draw_positions: Array[int] = []  # je Slot die Zieh-Position im Stapel (Bodensatz)
 var discarded_this_round: Array[DieDefinition] = []  # Ablage der Runde (Phönixfeder)
@@ -270,6 +272,12 @@ var reorder_drag_index: int = -1  # Slot-Index im QueueTrayView, der gerade gezo
 var reorder_drag_start_pos: Vector2
 var reorder_is_dragging: bool = false
 var reorder_ghost: Node3D
+
+## Umsortieren der Tisch-Charms per Ziehen (gleiche Klick-oder-Drag-Logik wie
+## das Warteschlangen-Tray) - siehe _try_start_charm_reorder/_handle_charm_drag_input.
+var charm_drag_index: int = -1  # Position in charm_row/run.owned_charms, die gerade gezogen wird, oder -1
+var charm_drag_start_pos: Vector2
+var charm_is_dragging: bool = false
 
 ## Startpositionen der 6 Spielwürfel, bevor sie zum ersten Mal geworfen
 ## werden (nur die Position zählt - throw_slots() berechnet die Wurfrichtung
@@ -671,6 +679,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_reorder_input(event)
 		return
 
+	if charm_drag_index != -1:
+		_handle_charm_drag_input(event)
+		return
+
 	if not (event is InputEventMouseButton) or not event.pressed:
 		return
 
@@ -682,6 +694,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if is_pit_focused and _try_cup_click(event.position):
+		return
+
+	if is_pit_focused and _try_start_charm_reorder(event.position):
 		return
 
 	if _can_toggle_selection():
@@ -928,6 +943,101 @@ func _animate_reorder_move(from_index: int, to_index: int) -> void:
 		deck_shift_tween.tween_property(ghost, "global_position", target_pos, DECK_SHIFT_DURATION)
 	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
 
+## Klick auf einen Tisch-Charm in der Grubenansicht - startet einen POTENZIELLEN
+## Umsortier-Drag (siehe charm_drag_index/_handle_charm_drag_input). Ob daraus
+## ein Umsortieren wird, entscheidet REORDER_DRAG_THRESHOLD beim Bewegen; ein
+## Loslassen ohne Bewegung tut nichts (Name + Wirkung zeigt schon der Hover-
+## Tooltip, siehe _update_charm_tooltip).
+func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
+	if camera_rig.is_animating:
+		return false
+	var index := charm_row.charm_index_at_screen_pos(camera_rig, screen_pos)
+	if index == -1:
+		return false
+	charm_drag_index = index
+	charm_drag_start_pos = screen_pos
+	charm_is_dragging = false
+	return true
+
+## Verarbeitet Maus-Bewegung/-Loslassen während eines potenziellen/aktiven
+## Charm-Drags (siehe _try_start_charm_reorder). Ein Rechtsklick bricht ab;
+## Bewegung über REORDER_DRAG_THRESHOLD hinaus hebt den Charm an und lässt ihn
+## der Maus folgen; Loslassen über einem anderen belegten Platz sortiert um
+## (run.move_charm -> charms_changed baut die Reihe neu), sonst gleitet der
+## Charm zu seinem Platz zurück.
+func _handle_charm_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel_charm_drag()
+		return
+
+	if event is InputEventMouseMotion:
+		if not charm_is_dragging and event.position.distance_to(charm_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			charm_is_dragging = true
+			_begin_charm_drag()
+		if charm_is_dragging:
+			_update_charm_drag(event.position)
+		return
+
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if charm_is_dragging:
+			_finish_charm_drag(event.position)
+		charm_drag_index = -1
+		charm_is_dragging = false
+
+## Hebt das Charm-Modell von seinem Untersetzer an - ab jetzt folgt es der
+## Maus (_update_charm_drag). Anders als beim Warteschlangen-Tray braucht es
+## keinen Ghost: die Charm-Modelle sind freie Nodes ohne Physik.
+func _begin_charm_drag() -> void:
+	var node: Node3D = charm_row.charm_nodes[charm_drag_index]
+	node.global_position = charm_row.spot_global_position(charm_drag_index) + Vector3.UP * CHARM_LIFT_HEIGHT
+
+## Lässt den gezogenen Charm der Maus folgen: projiziert screen_pos auf eine
+## waagerechte Ebene auf Anhebehöhe über den Charm-Plätzen.
+func _update_charm_drag(screen_pos: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var plane := Plane(Vector3.UP, charm_row.spot_global_position(charm_drag_index).y + CHARM_LIFT_HEIGHT)
+	var from := camera.project_ray_origin(screen_pos)
+	var dir := camera.project_ray_normal(screen_pos)
+	var hit = plane.intersects_ray(from, dir)
+	if hit != null:
+		charm_row.charm_nodes[charm_drag_index].global_position = hit
+
+## Loslassen nach einem Charm-Drag: über einem anderen belegten Platz wird
+## umsortiert (die Reihenfolge ist spielrelevant - Totems kopieren Nachbarn,
+## siehe GameRun.charm_ids), sonst gleitet der Charm zurück.
+func _finish_charm_drag(screen_pos: Vector2) -> void:
+	var target_index := _nearest_charm_spot(screen_pos)
+	if target_index != -1 and target_index != charm_drag_index:
+		run.move_charm(charm_drag_index, target_index)  # charms_changed -> _on_charms_changed baut die Reihe neu
+	else:
+		charm_row.glide_charm_to_spot(charm_drag_index)
+
+func _cancel_charm_drag() -> void:
+	if charm_is_dragging:
+		charm_row.glide_charm_to_spot(charm_drag_index)
+	charm_drag_index = -1
+	charm_is_dragging = false
+
+## Bildschirmnächster BELEGTER Charm-Platz zu screen_pos (gleiche Projektions-
+## Logik wie _nearest_queue_slot). -1, wenn außerhalb von CHARM_DROP_RADIUS
+## losgelassen wurde - leere Plätze sind keine Ziele, die Reihe bleibt lückenlos
+## (set_charms packt in Besitz-Reihenfolge).
+func _nearest_charm_spot(screen_pos: Vector2) -> int:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return -1
+	var best_index := -1
+	var best_dist := CHARM_DROP_RADIUS
+	for i in charm_row.current_charms.size():
+		var spot_screen := camera.unproject_position(charm_row.spot_global_position(i))
+		var dist := spot_screen.distance_to(screen_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best_index = i
+	return best_index
+
 ## Klick auf die Würfelgrube oder eines der Trays (Layer 4) -> Kamera fährt
 ## näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
 func _try_zoom_click(screen_pos: Vector2) -> void:
@@ -984,7 +1094,7 @@ func _process(_delta: float) -> void:
 func _update_charm_tooltip() -> void:
 	if charm_tooltip == null:
 		return
-	if camera_rig.mode != CameraRig.Mode.PIT or camera_rig.is_animating:
+	if camera_rig.mode != CameraRig.Mode.PIT or camera_rig.is_animating or charm_is_dragging:
 		charm_tooltip.visible = false
 		return
 	var mouse := get_viewport().get_mouse_position()
@@ -1080,10 +1190,9 @@ func _score_ctx() -> Dictionary:
 	return {
 		"rerolled": rerolled_dice_this_hand,
 		"taken_dice": taken_dice_this_round,
-		"full_reroll": last_throw_full_reroll,
+		"full_rerolls": full_reroll_stacks,
 		"streak": momentum_streak,
 		"last_hand": _remaining_in_pool() < HAND_SIZE,  # nach dieser Hand geht keine volle mehr
-		"prev_key": previous_taken_key,
 		"after_farkle": first_hand_after_farkle,
 		"farkle_stacks": run.farkle_count,
 		"last_settled": dice.last_settled_index,
@@ -1141,21 +1250,31 @@ func _current_queue_size() -> int:
 func _refresh_deck_trays() -> void:
 	if not deck_shift_ghosts.is_empty():
 		return  # Aufrück-Animation läuft noch - sie ruft am Ende selbst _refresh_deck_trays auf
-	queue_window_size = min(HAND_SIZE, _remaining_in_pool())
+	queue_tray_view.ensure_capacity(_queue_capacity())
+	queue_window_size = min(_queue_capacity(), _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
 	queue_tray_view.fill(queue_defs)
-	var pool_start := next_draw_index + HAND_SIZE
+	var pool_start := next_draw_index + _queue_capacity()
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
+## Größe des Warteschlangen-Fensters: die üblichen HAND_SIZE Plätze plus die
+## dauerhaften Extra-Plätze des Ausziehtischs (siehe GameRun.queue_bonus_slots
+## und _on_round_complete). Beim allerersten Aufbau (_reset_game räumt auf,
+## BEVOR der Run existiert) gibt es noch keinen Run - dann gilt die Basisgröße.
+func _queue_capacity() -> int:
+	if run == null:
+		return HAND_SIZE
+	return HAND_SIZE + run.queue_bonus_slots
+
 ## Weltposition, an der der Deck-Eintrag deck_index angezeigt wird, wenn der
-## Zieh-Cursor bei cursor steht: die ersten HAND_SIZE Einträge nach dem Cursor
-## liegen im Warteschlangen-Tray, alles danach im Pool-Tray (gleiche Aufteilung
-## wie _refresh_deck_trays).
+## Zieh-Cursor bei cursor steht: die ersten _queue_capacity() Einträge nach dem
+## Cursor liegen im Warteschlangen-Tray, alles danach im Pool-Tray (gleiche
+## Aufteilung wie _refresh_deck_trays).
 func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 	var offset := deck_index - cursor
-	if offset < HAND_SIZE:
+	if offset < _queue_capacity():
 		return queue_tray_view.slot_global_position(offset)
-	return pool_tray_view.slot_global_position(offset - HAND_SIZE)
+	return pool_tray_view.slot_global_position(offset - _queue_capacity())
 
 ## Baut einen freien, nicht-kollidierenden Würfel für die diversen Gleit-
 ## Animationen (Aufrücken nach einem Wurf, Umsortieren im Warteschlangen-Tray)
@@ -1309,10 +1428,12 @@ func _on_throw_button_pressed() -> void:
 				thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
 		# Effektkatalog-Zähler: Pendel zählt neu geworfene Würfel, der Anker den
-		# WIEVIELTEN Neuwurf die Hand hat, Alles-oder-nichts den vollen Neuwurf.
+		# WIEVIELTEN Neuwurf die Hand hat, Alles-oder-nichts stapelt volle
+		# Neuwürfe bis zum nächsten Nehmen (+5 Mult je Stapel).
 		rerolls_this_hand += 1
 		rerolled_dice_this_hand += thrown_indices.size()
-		last_throw_full_reroll = thrown_indices.size() == dice.count()
+		if thrown_indices.size() == dice.count():
+			full_reroll_stacks += 1
 	last_thrown_indices = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
@@ -1568,11 +1689,11 @@ func _on_roll_finished() -> void:
 ## war ja schon genommen - Nehmen wirkt immer auf alle 6, siehe
 ## _on_take_button_pressed). Charms können das mildern (siehe CharmEffects):
 ## der Schornsteinfeger verzeiht den ersten Farkle jeder Runde (die Hand läuft
-## einfach weiter), der Umgedrehte Spiegel rettet die Hälfte der Punkte, und
-## die Kristallkugel zahlt Geld für jeden überlebten Farkle. Die verbrauchten
-## Würfel sind bereits aus dem Pool gezogen; danach geht es mit der nächsten
-## Hand weiter (bzw. die Runde endet, wenn das Ziel jetzt doch erreicht wurde -
-## etwa durch geretteten Punkte - oder der Pool keine volle Hand mehr hergibt).
+## einfach weiter), die Phönixfeder schickt die Würfel zurück in den
+## Nachziehstapel, und die Kristallkugel zahlt Geld für jeden überlebten
+## Farkle. Die verbrauchten Würfel sind bereits aus dem Pool gezogen; danach
+## geht es mit der nächsten Hand weiter (bzw. die Runde endet, wenn das Ziel
+## jetzt doch erreicht wurde oder der Pool keine volle Hand mehr hergibt).
 func _on_farkle() -> void:
 	var ids := run.charm_ids()
 
@@ -1601,7 +1722,7 @@ func _on_farkle() -> void:
 	momentum_streak = 0
 	first_hand_after_farkle = true
 
-	# Scherbengericht: der Farkle zahlt $1 je verworfenem Würfel.
+	# Scherbengericht: der Farkle zahlt $2 je verworfenem Würfel.
 	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
 	if shard_income > 0:
 		run.add_money(shard_income)
@@ -1621,33 +1742,17 @@ func _on_farkle() -> void:
 			hand_total += high_card
 			_animate_points_to(hand_total)
 
-	# Umgedrehter Spiegel: statt null bleibt ein Anteil der Punkte erhalten, die
-	# die Hand vor dem farkelnden Wurf wert war (pre_reroll_values, ihr
-	# Höchststand).
-	var kept := CharmEffects.farkle_kept_fraction(ids)
-	if kept > 0.0:
-		var peak: int = DiceScoring.best_hand(pre_reroll_values, ids, false, pre_reroll_materials, pre_reroll_edge_materials, run.combo_levels, _score_ctx())["score"]
-		var salvage := int(floor(peak * kept))
-		if salvage > 0:
-			hand_total += salvage
-			_animate_points_to(hand_total)
-			hand_note = "Umgedrehter Spiegel: Farkle – %d Punkte (Hälfte) gerettet." % salvage
-
-	for kind in active_kinds:
-		_discard_kind(kind)
+	# Phönixfeder: die geworfenen Würfel wandern bei JEDEM Farkle ans Ende des
+	# Nachziehstapels zurück statt in die Ablage - sie kommen später in der
+	# Runde wieder (die Hand selbst bleibt trotzdem verloren).
+	if CharmEffects.has_phoenix(ids):
+		round_pool_kinds.append_array(active_kinds)
+		hand_note = "Phönixfeder: Farkle – die Würfel kehren in den Nachziehstapel zurück."
+	else:
+		for kind in active_kinds:
+			_discard_kind(kind)
 
 	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
-		# Phönixfeder: rettet EINMAL pro Run eine Runde, die ein Farkle sonst
-		# unter dem Ziel beenden würde - die Ablage kehrt in den Nachziehstapel
-		# zurück, die Punkte bleiben stehen.
-		if hand_total < run.round_goal and CharmEffects.has_phoenix(ids) and not run.phoenix_used:
-			run.phoenix_used = true
-			round_pool_kinds.append_array(discarded_this_round)
-			discarded_this_round = []
-			discard_tray_view.clear()
-			hand_note = "Phönixfeder: Die Runde lebt weiter – die Ablage kehrt zurück!"
-			_start_new_hand()
-			return
 		_on_round_complete()
 	else:
 		# Überlebter Farkle (Runde geht weiter): Kristallkugel zahlt Geld.
@@ -1690,17 +1795,18 @@ func _on_take_button_pressed() -> void:
 	var take_money := report.money
 
 	# --- Effektkatalog-Charms beim Nehmen ---
-	# Straßenmusiker: jede genommene Hand zahlt $1.
-	take_money += CharmEffects.take_income(ids)
+	# Straßenmusiker: jede genommene Hand zahlt $1 je beteiligtem Würfel.
+	take_money += CharmEffects.take_income(ids, participating.size())
 	# Lumpensammler: die gleich abgelegten Würfel mit der Glückszahl oben zahlen.
 	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
 	if take_money > 0:
 		run.add_money(take_money)
 		_pulse_money_label()
 		_show_money_popup(take_money)
-	# Goldrausch: nutzt die Kombination alle 6 Würfel, wächst das Geld um 50%.
-	if CharmEffects.gold_rush_applies(ids, participating.size()):
-		var rush := run.money / 2
+	# Goldrausch: nutzt die Kombination ALLE liegenden Würfel, wächst das Geld
+	# um 50% (gedeckelt auf $50 Zuwachs).
+	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count()):
+		var rush := mini(run.money / 2, 50)
 		if rush > 0:
 			run.add_money(rush)
 			_pulse_money_label()
@@ -1711,11 +1817,12 @@ func _on_take_button_pressed() -> void:
 		var level: int = run.combo_levels.get(hand["key"], 0)
 		if level > 0 and level >= _max_combo_level():
 			run.eat_meal(hand["key"])
-	# Momentum/Galgenhumor/Serientäter/Pendel: Zähler fortschreiben.
+	# Momentum/Galgenhumor/Pendel/Alles-oder-nichts: Zähler fortschreiben
+	# (die Alles-oder-nichts-Stapel sind mit dieser Hand verbraucht).
 	momentum_streak += 1
 	first_hand_after_farkle = false
-	previous_taken_key = hand["key"]
 	taken_dice_this_round += dice.count()
+	full_reroll_stacks = 0
 
 	# Recycling: die erste genommene Hand der Runde kehrt ans Ende des
 	# Nachziehstapels zurück (die Würfel liegen trotzdem sichtbar in der Ablage).
@@ -1775,15 +1882,15 @@ func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-Koroutinen ab (siehe _on_throw_button_pressed)
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	_cancel_charm_drag()
 	_cancel_lineup()
 	_clear_cup_interior_ghosts()
 	hand_note = ""
 	last_throw_was_reroll = false
 	momentum_streak = 0
-	previous_taken_key = ""
 	rerolled_dice_this_hand = 0
 	rerolls_this_hand = 0
-	last_throw_full_reroll = false
+	full_reroll_stacks = 0
 	run = GameRun.new_run()
 	_connect_run()
 	charm_shop.visible = false
@@ -1810,6 +1917,7 @@ func _connect_run() -> void:
 func _start_new_round() -> void:
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
+	_cancel_charm_drag()
 	_cancel_lineup()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
@@ -1833,10 +1941,7 @@ func _start_new_round() -> void:
 		round_pool_kinds.append(DieDefinition.standard())
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - die
-	# ZULETZT angewandte gewinnt die vorderste Position (Frische Ware > Magnetring
-	# > Wünschelrute).
-	if CharmEffects.draws_specials_first(ids):
-		round_pool_kinds = _specials_first(round_pool_kinds)
+	# ZULETZT angewandte gewinnt die vorderste Position (Frische Ware > Magnetring).
 	if CharmEffects.draws_edges_first(ids):
 		round_pool_kinds = _edges_first(round_pool_kinds)
 	if CharmEffects.draws_fresh_first(ids):
@@ -1850,18 +1955,6 @@ func _start_new_round() -> void:
 	_refresh_round_hud()
 	_animate_points_to(0, false)
 	_start_new_hand()
-
-## Sortiert die Spezialwürfel (nicht "normal") stabil an den Anfang, normale
-## dahinter - Grundlage der Wünschelrute (siehe _start_new_round).
-func _specials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
-	var specials: Array[DieDefinition] = []
-	var normals: Array[DieDefinition] = []
-	for def in pool:
-		if def.style_id == "normal":
-			normals.append(def)
-		else:
-			specials.append(def)
-	return specials + normals
 
 ## Sortiert Würfel mit Kanten-Material stabil an den Anfang (Magnetring).
 func _edges_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
@@ -1891,7 +1984,8 @@ func _start_new_hand() -> void:
 	active_kinds = []
 	rerolled_dice_this_hand = 0
 	rerolls_this_hand = 0
-	last_throw_full_reroll = false
+	# full_reroll_stacks bleibt bewusst stehen - Alles-oder-nichts stapelt bis
+	# zum nächsten NEHMEN (siehe _on_take_button_pressed), nicht je Hand.
 	dice.reset()
 	take_button.disabled = true
 	select_all_button.disabled = true
@@ -1912,15 +2006,24 @@ func _on_round_complete() -> void:
 	if hand_total >= run.round_goal:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
-		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids)  # Glücksgroschen
+		# Glücksgroschen skaliert mit bereits erreichten Zielen (Runde N = das
+		# (N-1)-te Ziel war schon geschafft).
+		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids, run.round_number - 1)
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
+		# Schmuckkästchen: die übrigen (jetzt ausgezahlten) Würfel haben je 10%
+		# Chance auf eine zufällige Material-Seite - dauerhaft im Pool.
+		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+		# Ausziehtisch: Rundenziel doppelt übertroffen -> die Warteschlange
+		# wächst dauerhaft um einen Platz (siehe _queue_capacity).
+		if ids.has(Charm.EXTENSION_TABLE) and hand_total >= run.round_goal * 2:
+			run.queue_bonus_slots += 1
 		await _play_round_clear_payout(blind, per_die)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlungs-Animation zurückgesetzt
 		# Rundenende-Geld der Effektkatalog-Charms: Zinsgroschen (auf den Stand
-		# NACH der Auszahlung), Vollversammlung, Überflieger - danach hält der
-		# Notgroschen den Mindeststand.
-		var extra := CharmEffects.round_end_income(run.money, run.owned_charms.size(), hand_total - run.round_goal, ids)
+		# NACH der Auszahlung, max. $50) und Überflieger (max. $50) - danach
+		# hält der Notgroschen den Mindeststand ($25).
+		var extra := CharmEffects.round_end_income(run.money, hand_total - run.round_goal, ids)
 		if extra > 0:
 			run.add_money(extra)
 			_pulse_money_label()
