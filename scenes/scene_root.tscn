@@ -33,18 +33,18 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.1, -3.4, 12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.863043, -3.4, 20.779545)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26, -3.4, -12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.4, -19.793337)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.3, -3.4, 12)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.063042, -3.4, 20.779545)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -3.4, 20)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.4, 20)
 
 [node name="BlindPayoutLabel3D" type="Label3D" parent="." unique_id=80467160]
 transform = Transform3D(0.013962303, 0.99977916, -0.015705837, 1.3731816e-09, 0.015707368, 0.9998766, 0.9999025, -0.013960581, 0.00021930967, -22.195, -3.899632, -0.8107245)
@@ -171,16 +171,11 @@ outline_size = 10
 horizontal_alignment = 0
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
-transform = Transform3D(-4.371139e-08, 0.21643962, -0.976296, 0, 0.976296, 0.21643962, 1, 9.4608765e-09, -4.2675254e-08, -41.950504, 21.13977, 0)
+transform = Transform3D(-4.371139e-08, 0.9396926, -0.34202015, 0, 0.34202015, 0.9396926, 1, 4.1075268e-08, -1.4950176e-08, -26.1217, 42.5528, 0)
 script = ExtResource("8_camerarig")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=879093562]
 environment = SubResource("Environment_p52qu")
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=821656404]
-transform = Transform3D(0.5275985, -0.71068335, 0.46536976, 0, 0.54782003, 0.8365962, -0.84949386, -0.4413869, 0.28902903, 57.105812, 140.23296, 47.27364)
-light_color = Color(1, 0.88, 0.72, 1)
-light_energy = 0.35
 
 [node name="TableLight" type="OmniLight3D" parent="." unique_id=821656405]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, 0)

@@ -180,7 +180,7 @@ func test_qualifies_two_pair_needs_two_groups():
 	assert_false(DiceScoring.qualifies("two_pair", _d([2,2,1,3,4,6])))
 
 func test_example_dice_score_their_own_category():
-	# Die Piktogramm-Beispiele der Tischliste (siehe EXAMPLE_DICE/ComboRowView)
+	# Die Piktogramm-Beispiele der Bildschirmliste (siehe EXAMPLE_DICE/ComboCellView)
 	# müssen echte Vertreter ihrer Kategorie sein: best_hand über genau diese
 	# Würfel liefert genau den zugehörigen Key - sonst zeigt der Tisch ein Bild,
 	# das die Wertung so nie einordnen würde.

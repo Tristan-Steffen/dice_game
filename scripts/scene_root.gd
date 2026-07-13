@@ -99,7 +99,9 @@ const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 ## das sichtbare Tischmodell ist größer als diese Kollisionsboxen). Danach
 ## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
 ## (siehe _update_queue_tray_dock).
-const QUEUE_TRAY_PIT_POSITION := Vector3(-13.0, 0.0, 0.0)
+## Knapp unterhalb (Bildschirm-unten = -X) der Grubenwand: kurze Halbachse 7.6
+## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand.
+const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
 
 const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
@@ -118,9 +120,12 @@ const CUP_SHAKE_COUNT := 3  # wie oft der Becher vor dem Ausschütten wackelt, s
 ## hingleiten (siehe _pit_top_row_position/_play_cup_roll): eine mittig
 ## zentrierte Reihe am oberen Rand der Grube (Welt-X positiv = Bildschirm-oben,
 ## siehe QUEUE_TRAY_PIT_POSITION), innerhalb der elliptischen Grubenwand
-## (Halbachse 10.5, siehe scripts/dice_tray.gd) mit Sicherheitsabstand zur Wand.
-const PIT_TOP_ROW_X := 7.0
-const PIT_TOP_ROW_SPACING := 2.4
+## (um DicePit.PIT_CENTER, kurze Halbachse 7.6 in X, lange 8.4 in Z - siehe
+## scripts/table/dice_tray.gd). Reihe nah an der Mitte und eng gestellt, damit
+## eine volle 6er-Reihe nicht in der Wand steckt (bei x=4 erlaubt die Ellipse
+## |z| bis ~7.1, die Reihe endet bei 6.25 inkl. Würfelbreite).
+const PIT_TOP_ROW_X := 4.0
+const PIT_TOP_ROW_SPACING := 2.1
 
 ## Nach dem Ausrollen gleiten ALLE Würfel in eine mittig zentrierte Reihe in
 ## der Grubenmitte (siehe _line_up_settled_dice) - gleiche Abstände wie die
@@ -192,7 +197,7 @@ var sheet_anim_nodes: Array[Node] = []  # temporäre Animations-Nodes (Kacheln/Z
 ## (siehe _collect_combo_labels). Der Anker selbst rendert nichts (Text leer).
 @onready var combos_anchor: Label3D = $Combinations
 
-var combo_labels: Dictionary = {}  # DiceScoring-key -> ComboRowView (eine Piktogramm-Zeile der Tischliste)
+var combo_labels: Dictionary = {}  # DiceScoring-key -> ComboCellView (Sic-Bo-Zelle auf dem TableScreen)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination (siehe _refresh_combos)
 
 @onready var camera_rig: CameraRig = $Camera3D
@@ -207,6 +212,7 @@ var charm_tooltip_body: Label
 
 var dice: DiceController
 var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _ready)
+var table_screen: TableScreen  # Display auf der Tischfläche (siehe _ready)
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -317,7 +323,28 @@ func _ready() -> void:
 	add_child(dice_audio)
 	dice_audio.setup(bodies, dice)
 
+	# Tisch-Display: ViewportTexture auf das "Screen"-Mesh des importierten
+	# Tischs legen (siehe TableScreen). Fehlt das Mesh (anderes Tischmodell),
+	# läuft das Spiel einfach ohne Anzeige weiter.
+	table_screen = TableScreen.new()
+	table_screen.name = "TableScreen"
+	add_child(table_screen)
+	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
+	if screen_mesh != null:
+		table_screen.attach_to(screen_mesh)
+	else:
+		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
+
 	queue_tray_home_position = queue_tray_view.position
+
+	# Kamera-Zoomziele der Trays aus ihren echten Positionen ableiten, damit ein
+	# Verschieben der Trays im Editor den Zoom automatisch mitnimmt (siehe
+	# CameraRig.configure_tray_targets). Der Pool-Zoom zeigt Pool- UND
+	# Warteschlangen-Tray zusammen -> ihr Mittelpunkt; der Ablage-Zoom das
+	# Ablage-Tray. queue_tray_view steht hier noch auf seinem Normalplatz.
+	camera_rig.configure_tray_targets(
+		(pool_tray_view.global_position + queue_tray_view.global_position) * 0.5,
+		discard_tray_view.global_position)
 
 	charm_shop.closed.connect(_on_shop_closed)
 	die_inspector.changed.connect(_on_die_engraved)
@@ -572,26 +599,16 @@ func _pulse_control(control: Control) -> void:
 	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	pulse.tween_property(control, "scale", Vector2.ONE, 0.35)
 
-## Ersetzt die fest in der Szene angelegten Kombinations-Labels (Kinder des
-## Combinations-Ankers, je nach DiceScoring-Key benannt) durch Piktogramm-
-## Zeilen (siehe ComboRowView: Beispiel-Würfel statt Text, z.B. Full House als
-## 6 6 6 1 1). Die Szenen-Labels bleiben unsichtbar als Autoren-Anker bestehen
-## - Position/Größe/Ebene jeder Zeile pflegt man weiter in der Szene.
+## Verdrahtet die Kombinationsliste: Die Zellen liegen als gedrucktes Layout
+## auf dem Tisch-Display (siehe TableScreen.combo_cells, Sic-Bo-Stil) - hier
+## werden sie eingesammelt und in die leuchtende Ruhefarbe versetzt. Die alte
+## 3D-Tischliste (Combinations-Anker samt Label3D-Kindern in der Szene) bleibt
+## als Altbestand unsichtbar.
 func _collect_combo_labels() -> void:
-	for key in DiceScoring.HAND_PRIORITY:
-		var node: Node = combos_anchor.get_node_or_null(NodePath(key))
-		if node is Label3D:
-			var anchor := node as Label3D
-			anchor.visible = false
-			var row := ComboRowView.new()
-			combos_anchor.add_child(row)
-			row.transform = anchor.transform
-			row.base_scale = anchor.scale
-			row.setup(DiceScoring.EXAMPLE_DICE[key], DiceScoring.mult_for(key))
-			row.modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
-			combo_labels[key] = row
-		else:
-			push_warning("Kombinations-Label fehlt in der Szene: Combinations/%s" % key)
+	combos_anchor.visible = false
+	combo_labels = table_screen.combo_cells
+	for key: String in combo_labels:
+		combo_labels[key].modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
 	# Auch die Belohnungs-Texte starten in der leuchtenden Ruhefarbe (die
 	# .tscn-Werte sind das alte, stumpfe Weiß).
 	blind_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
@@ -602,7 +619,7 @@ func _collect_combo_labels() -> void:
 func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
 	_refresh_combo_label_texts()
 	if combo_labels.has(combo_key) and combo_key != highlighted_combo_key:
-		var row: ComboRowView = combo_labels[combo_key]
+		var row: ComboCellView = combo_labels[combo_key]
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
@@ -626,11 +643,11 @@ func _refresh_combos(active_key: String) -> void:
 	if active_key != "" and combo_labels.has(active_key):
 		_tween_combo_label(combo_labels[active_key], PAYOUT_LABEL_GLOW_COLOR, 1.18)
 
-## Blendet eine Kombinationszeile weich in Farbe/Größe (Aufleuchten oder zurück
+## Blendet eine Kombinationszelle weich in Farbe/Größe (Aufleuchten oder zurück
 ## in die Ruhefarbe) - gleiche Dauer wie die Belohnungstexte (PAYOUT_FLASH_DURATION).
-## Die Größe wächst relativ zur Szenen-Grundgröße der Zeile (base_scale), statt
-## auf einen absoluten Wert zu springen.
-func _tween_combo_label(row: ComboRowView, color: Color, target_scale: float) -> void:
+## Die Größe wächst relativ zur Grundgröße der Zelle (base_scale, um die
+## Zellenmitte dank pivot_offset), statt auf einen absoluten Wert zu springen.
+func _tween_combo_label(row: ComboCellView, color: Color, target_scale: float) -> void:
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(row, "modulate", color, PAYOUT_FLASH_DURATION)
@@ -1459,7 +1476,7 @@ func _on_throw_button_pressed() -> void:
 		var i: int = thrown_indices[k]
 		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[k])
 	phase = Phase.ROLLING
-	dice.throw_slots(thrown_indices, throw_force, spin_strength)
+	dice.throw_slots(thrown_indices, throw_force, spin_strength, DicePit.PIT_CENTER)
 	_refresh_ui()
 
 ## Startpositionen der echten Wurf-Würfel für den Moment von poured_out: ein
@@ -1484,7 +1501,7 @@ func _throw_start_positions() -> Array[Vector3]:
 func _pit_top_row_position(slot_number: int, count: int, y: float) -> Vector3:
 	var span := PIT_TOP_ROW_SPACING * float(count - 1)
 	var z := -span * 0.5 + PIT_TOP_ROW_SPACING * float(slot_number)
-	return Vector3(PIT_TOP_ROW_X, y, z)
+	return Vector3(DicePit.PIT_CENTER.x + PIT_TOP_ROW_X, y, DicePit.PIT_CENTER.z + z)
 
 ## Rückt die gerade ausgerollten Würfel in eine mittig zentrierte Reihe in der
 ## Grubenmitte auf - wie die geschützten Würfel am oberen Rand, nur für ALLE 6.
@@ -1527,8 +1544,8 @@ func _line_up_settled_dice() -> void:
 	for k in indices.size():
 		var body := dice.bodies[indices[k]]
 		body.freeze = true
-		var target := Vector3(PIT_CENTER_ROW_X, rest_y,
-			-span * 0.5 + PIT_TOP_ROW_SPACING * float(k))
+		var target := Vector3(DicePit.PIT_CENTER.x + PIT_CENTER_ROW_X, rest_y,
+			DicePit.PIT_CENTER.z - span * 0.5 + PIT_TOP_ROW_SPACING * float(k))
 		lineup_tween.tween_property(body, "global_transform",
 			Transform3D(_readable_upright_basis(body.global_basis), target), LINEUP_DURATION)
 

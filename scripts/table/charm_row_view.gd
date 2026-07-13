@@ -18,8 +18,8 @@ extends Node3D
 ## Glow-Schwellwert der WorldEnvironment hinaus, siehe scene_root.tscn).
 
 const SPOT_ANGLES_DEG: Array[float] = [-62.5, -37.5, -12.5, 12.5, 37.5, 62.5]
-const SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum, entlang des hinteren Tischrands
-const SPOT_Y := -2.675  # Höhe der Tischoberfläche
+const SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum - liegt auf dem Filz des ScreenTable
+const SPOT_Y := -3.4  # Höhe der Tischoberfläche (Filz-Oberkante des ScreenTable, siehe room.tscn)
 const MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
 const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"  # Platzhalter für Charms ohne eigenes Modell (siehe Charm.model_path)
 

@@ -69,9 +69,10 @@ const HAND_PRIORITY := [
 
 ## Anschauungs-Beispiel je Kategorie: die BETEILIGTEN Würfel einer typischen
 ## Hand (Full House = 6 6 6 1 1 usw.). Reine Anzeige-Daten für die Piktogramm-
-## Zeilen der Tisch-Kombinationsliste (siehe ComboRowView) - aber bewusst hier
-## definiert, damit jedes Beispiel per Test gegen die echte Wertung geprüft
-## werden kann (best_hand(Beispiel) muss genau seine Kategorie liefern).
+## Zellen der Bildschirm-Kombinationsliste (siehe ComboCellView/TableScreen) -
+## aber bewusst hier definiert, damit jedes Beispiel per Test gegen die echte
+## Wertung geprüft werden kann (best_hand(Beispiel) muss genau seine Kategorie
+## liefern).
 const EXAMPLE_DICE := {
 	ONE_KIND: [6],
 	TWO_KIND: [6, 6],

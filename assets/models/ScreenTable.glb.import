@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ca0a8up0ksnuk"
-path="res://.godot/imported/Table.glb-5f9dc24db610905b6e0cd324e13d3e2c.scn"
+uid="uid://da734v63nfpm3"
+path="res://.godot/imported/ScreenTable.glb-138abbb2567b07f5e75eb23e98c50210.scn"
 
 [deps]
 
-source_file="res://assets/models/Table.glb"
-dest_files=["res://.godot/imported/Table.glb-5f9dc24db610905b6e0cd324e13d3e2c.scn"]
+source_file="res://assets/models/ScreenTable.glb"
+dest_files=["res://.godot/imported/ScreenTable.glb-138abbb2567b07f5e75eb23e98c50210.scn"]
 
 [params]
 

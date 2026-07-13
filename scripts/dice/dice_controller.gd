@@ -102,8 +102,9 @@ func count() -> int:
 ## Wirft genau die Würfel bei indices (siehe scene_root.gd: entweder alle 6
 ## beim ersten Wurf einer Hand, oder beim Neu-Würfeln nur die nicht
 ## geschützten Slots). Alle anderen (geschützten) Slots bleiben unangetastet
-## liegen, mit ihrem alten Wert.
-func throw_slots(indices: Array[int], throw_force: float, spin_strength: float) -> void:
+## liegen, mit ihrem alten Wert. target ist das Wurfziel (die Grubenmitte,
+## siehe DicePit.PIT_CENTER - die Grube liegt nicht mehr im Weltursprung).
+func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, target: Vector3 = Vector3.ZERO) -> void:
 	for i in indices:
 		roots[i].visible = true
 		settled[i] = false
@@ -117,7 +118,7 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float) 
 		body.angular_velocity = Vector3.ZERO
 		body.sleeping = false
 
-		var throw_direction := (Vector3.ZERO - start_transform.origin).normalized()
+		var throw_direction := (target - start_transform.origin).normalized()
 		body.apply_central_impulse(throw_direction * throw_force + Vector3.DOWN * 2.0)
 		body.apply_torque_impulse(Vector3(
 			randf_range(-spin_strength, spin_strength),

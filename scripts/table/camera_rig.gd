@@ -13,9 +13,9 @@ enum Mode { OVERVIEW, PIT, POOL, DISCARD }
 ## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
 signal mode_changed(new_mode: Mode)
 
-const TILT_MAX_UP_DEGREES := 10.0  # Freiheit nach oben (von der Übersicht aus)
-const TILT_MAX_DOWN_DEGREES := 30.0  # Freiheit nach unten, Richtung Tisch/Grube
-const TILT_MAX_YAW_DEGREES := 30.0
+const TILT_MAX_UP_DEGREES := 5.0  # Freiheit nach oben (von der Übersicht aus)
+const TILT_MAX_DOWN_DEGREES := 5.0  # Freiheit nach unten, Richtung Tisch/Grube
+const TILT_MAX_YAW_DEGREES := 5.0
 # Leichtes Rundschauen im Zoom: bewusst kleine Winkel, damit die Kamera nah
 # an der eingerichteten Ziel-Ausrichtung bleibt.
 const ZOOM_TILT_MAX_PITCH_DEGREES := 5.0
@@ -26,8 +26,12 @@ const ZOOM_DURATION := 0.6
 const TRAY_ZOOM_DISTANCE := 15.0
 const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
 
-const POOL_TARGET := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView, siehe scene_root.tscn
-const DISCARD_TARGET := Vector3(-26, -3, -12)
+## Zoom-Ziele der beiden Tray-Ansichten. Nur Rückfall-Standardwerte: scene_root
+## überschreibt sie in _ready aus den echten Tray-Weltpositionen (siehe
+## configure_tray_targets), damit ein Verschieben der Trays im Editor den Zoom
+## automatisch mitnimmt, ohne diese Koordinaten doppelt zu pflegen.
+var pool_target := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
+var discard_target := Vector3(-26, -3, -12)  # DiscardTrayView
 
 ## Grubenzoom als exakte Referenz-Kamera: Position + Ausrichtung wurden im
 ## Editor eingerichtet (eine testweise platzierte Camera3D) und hier
@@ -103,6 +107,14 @@ func _process(delta: float) -> void:
 	var pitch := Basis(anchor_basis.x, deg_to_rad(tilt_offset.x))
 	global_transform = Transform3D(yaw * pitch * anchor_basis, anchor_origin)
 
+## Setzt die Zoom-Blickpunkte der beiden Trays aus deren echten Weltpositionen
+## (siehe scene_root._ready). Dadurch folgt der Tray-Zoom automatisch, wenn die
+## Trays im Editor verschoben werden - die Koordinaten leben nur an einer Stelle
+## (im Szenenbaum), nicht zusätzlich hier als Konstanten.
+func configure_tray_targets(pool: Vector3, discard: Vector3) -> void:
+	pool_target = pool
+	discard_target = discard
+
 ## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
 ## Modus tut nichts (schon dort).
 func zoom_to(target_mode: Mode) -> void:
@@ -118,9 +130,9 @@ func zoom_to(target_mode: Mode) -> void:
 			target_origin = PIT_ZOOM_ORIGIN
 			target_basis = PIT_ZOOM_BASIS
 		Mode.POOL:
-			target_origin = POOL_TARGET - ZOOM_FORWARD * POOL_ZOOM_DISTANCE
+			target_origin = pool_target - ZOOM_FORWARD * POOL_ZOOM_DISTANCE
 		Mode.DISCARD:
-			target_origin = DISCARD_TARGET - ZOOM_FORWARD * TRAY_ZOOM_DISTANCE
+			target_origin = discard_target - ZOOM_FORWARD * TRAY_ZOOM_DISTANCE
 		_:
 			return
 	mode = target_mode
