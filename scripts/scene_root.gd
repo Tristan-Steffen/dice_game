@@ -110,7 +110,7 @@ const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick auf einen Wartes
 const REORDER_LIFT_HEIGHT := 0.8  # Wie weit der gezogene Würfel über das Tray angehoben wird
 const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen, siehe _nearest_queue_slot
 
-const CHARM_LIFT_HEIGHT := 1.2  # Wie weit der gezogene Charm über seinen Untersetzer angehoben wird
+const CHARM_LIFT_HEIGHT := 1.2  # Wie weit der gezogene Charm über die Tischfläche angehoben wird
 const CHARM_DROP_RADIUS := 90.0  # Pixel-Toleranz beim Loslassen über einem Charm-Platz, siehe _nearest_charm_spot
 
 const CUP_FLY_DURATION := 0.4  # wie lange die gezogenen Würfel zum Becher fliegen, siehe _play_cup_roll
@@ -213,6 +213,7 @@ var charm_tooltip_body: Label
 var dice: DiceController
 var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _ready)
 var table_screen: TableScreen  # Display auf der Tischfläche (siehe _ready)
+var combos_click_zone: StaticBody3D  # Klickfläche über dem Kombi-Cluster (Zoom, siehe _setup_combos_zoom)
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -332,6 +333,7 @@ func _ready() -> void:
 	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
 	if screen_mesh != null:
 		table_screen.attach_to(screen_mesh)
+		_setup_combos_zoom()
 	else:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
 
@@ -1001,7 +1003,7 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 		charm_drag_index = -1
 		charm_is_dragging = false
 
-## Hebt das Charm-Modell von seinem Untersetzer an - ab jetzt folgt es der
+## Hebt das Charm-Modell von der Tischfläche an - ab jetzt folgt es der
 ## Maus (_update_charm_drag). Anders als beim Warteschlangen-Tray braucht es
 ## keinen Ghost: die Charm-Modelle sind freie Nodes ohne Physik.
 func _begin_charm_drag() -> void:
@@ -1057,6 +1059,33 @@ func _nearest_charm_spot(screen_pos: Vector2) -> int:
 
 ## Klick auf die Würfelgrube oder eines der Trays (Layer 4) -> Kamera fährt
 ## näher heran. Läuft unabhängig vom Halten-Klick auf Würfel (Layer 2).
+## Richtet Zoom-Ziel und Klickfläche des Kombinations-Clusters ein: Blickpunkt
+## aus der Cluster-Mitte des Displays (TableScreen.pixel_to_world), plus eine
+## flache Klickbox (Layer 8 wie PitClickZone) über der Cluster-Fläche, damit ein
+## Linksklick darauf heranzoomt (siehe _try_zoom_click). Folgt automatisch, wenn
+## der Cluster auf dem Display umzieht.
+func _setup_combos_zoom() -> void:
+	var rect := table_screen.cluster_rect
+	var center := table_screen.pixel_to_world(rect.get_center())
+	camera_rig.configure_combos_target(center)
+
+	# Weltausdehnung der Cluster-Fläche aus zwei gegenüberliegenden Ecken (die
+	# Abbildung ist achsenparallel: Screen-x -> Welt-z, Screen-y -> Welt-x).
+	var corner_a := table_screen.pixel_to_world(rect.position)
+	var corner_b := table_screen.pixel_to_world(rect.end)
+	var box := BoxShape3D.new()
+	box.size = Vector3(absf(corner_a.x - corner_b.x), 4.0, absf(corner_a.z - corner_b.z))
+
+	combos_click_zone = StaticBody3D.new()
+	combos_click_zone.name = "CombosClickZone"
+	combos_click_zone.collision_layer = 8  # Kamera-Klickebene, wie PitClickZone
+	combos_click_zone.collision_mask = 0
+	combos_click_zone.position = center
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	combos_click_zone.add_child(shape)
+	add_child(combos_click_zone)
+
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -1077,6 +1106,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.POOL)
 	elif collider == discard_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
+	elif collider == combos_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.COMBOS)
 
 ## Baut den (zunächst verdeckten) Hover-Tooltip der Charms: Name in Gold,
 ## darunter die Wirkung. Folgt in _update_charm_tooltip dem Cursor.

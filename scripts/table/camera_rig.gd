@@ -7,7 +7,7 @@ extends Camera3D
 ## zur Übersicht zurück. Auch im Zoom bleibt ein leichtes Rundschauen möglich -
 ## mit deutlich kleinerem Winkelbereich, damit das Ziel im Blick bleibt.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS }
 
 ## Wird ausgelöst, sobald sich der Modus ändert (zoom_to/zoom_out) - dient
 ## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
@@ -25,6 +25,7 @@ const ZOOM_DURATION := 0.6
 
 const TRAY_ZOOM_DISTANCE := 15.0
 const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
+const COMBOS_ZOOM_DISTANCE := 20.0  # der Kombi-Cluster ist breit (unter der Grube), daher weiter zurück
 
 ## Zoom-Ziele der beiden Tray-Ansichten. Nur Rückfall-Standardwerte: scene_root
 ## überschreibt sie in _ready aus den echten Tray-Weltpositionen (siehe
@@ -32,6 +33,9 @@ const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind br
 ## automatisch mitnimmt, ohne diese Koordinaten doppelt zu pflegen.
 var pool_target := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
 var discard_target := Vector3(-26, -3, -12)  # DiscardTrayView
+## Blickpunkt des Kombi-Clusters auf dem Tisch-Display; scene_root setzt ihn in
+## _ready aus TableScreen.pixel_to_world (siehe configure_combos_target).
+var combos_target := Vector3(-8, -3.4, 0)
 
 ## Grubenzoom als exakte Referenz-Kamera: Position + Ausrichtung wurden im
 ## Editor eingerichtet (eine testweise platzierte Camera3D) und hier
@@ -115,6 +119,12 @@ func configure_tray_targets(pool: Vector3, discard: Vector3) -> void:
 	pool_target = pool
 	discard_target = discard
 
+## Setzt den Zoom-Blickpunkt des Kombinations-Clusters aus seiner Weltposition
+## (siehe scene_root._ready / TableScreen.pixel_to_world) - folgt so automatisch,
+## wenn sich der Cluster auf dem Display verschiebt.
+func configure_combos_target(target: Vector3) -> void:
+	combos_target = target
+
 ## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
 ## Modus tut nichts (schon dort).
 func zoom_to(target_mode: Mode) -> void:
@@ -133,6 +143,8 @@ func zoom_to(target_mode: Mode) -> void:
 			target_origin = pool_target - ZOOM_FORWARD * POOL_ZOOM_DISTANCE
 		Mode.DISCARD:
 			target_origin = discard_target - ZOOM_FORWARD * TRAY_ZOOM_DISTANCE
+		Mode.COMBOS:
+			target_origin = combos_target - ZOOM_FORWARD * COMBOS_ZOOM_DISTANCE
 		_:
 			return
 	mode = target_mode

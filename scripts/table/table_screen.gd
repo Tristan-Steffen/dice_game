@@ -19,27 +19,44 @@ extends SubViewport
 ## (siehe _collect_combo_labels/_tween_combo_label - unverändert gegenüber der
 ## alten 3D-Tischliste).
 
-const RESOLUTION := Vector2i(1560, 1060)  # Seitenverhältnis der Screen-Fläche (31.2 x 21.2)
+## Überabtastung: Das Display bespielt eine große Tischfläche; beim Heranzoomen
+## wird die Textur stark vergrößert. Eine höher aufgelöste Zeichenfläche (Basis
+## 1560x1060 mal SUPERSAMPLE) gibt Text und Linien deutlich mehr Texel, ohne die
+## Welt-Abbildung zu ändern (die rechnet in Anteilen pixel/size). Alle Layout-
+## Maße wachsen mit demselben Faktor mit, ComboCellView skaliert ohnehin relativ.
+const SUPERSAMPLE := 3
+const RESOLUTION := Vector2i(1560, 1060) * SUPERSAMPLE
 const BACKGROUND_COLOR := Color(0.015, 0.025, 0.05)
 const EMISSION_ENERGY := 1.2  # lässt die Anzeige im dunklen Raum als Display leuchten
 
-## Kombinations-Cluster unter der Grube: kleine Zellen (~1/4 der Ablage-Tray-
-## Fläche) in 3 Spalten, Reihenfolge = DiceScoring.HAND_PRIORITY (stärkste
-## zuerst), unvollständige letzte Zeile mittig. Grube endet bei ca. Pixel 625.
-const CELL_SIZE := Vector2(140, 44)
-const CELL_GAP := Vector2(8, 6)
+## Kombinations-Cluster unter der Grube: kleine Zellen in 3 Spalten, Reihenfolge
+## = DiceScoring.HAND_PRIORITY (stärkste zuerst), unvollständige letzte Zeile
+## mittig. CENTER_X bewusst links der Bildmitte (780) - der Block sitzt um etwa
+## eine Blockbreite nach links versetzt unter der Grube.
+const CELL_SIZE := Vector2(98, 31) * SUPERSAMPLE
+const CELL_GAP := Vector2(6, 4) * SUPERSAMPLE
 const CLUSTER_COLUMNS := 3
-const CLUSTER_TOP := 648.0
-const CLUSTER_CENTER_X := 780.0
+const CLUSTER_TOP := 648.0 * SUPERSAMPLE
+const CLUSTER_CENTER_X := 400.0 * SUPERSAMPLE
+
+## Neon-Rahmen um den ganzen Cluster (Padding rund um die äußersten Zellen).
+const CLUSTER_PADDING := 13.0 * SUPERSAMPLE
+const FRAME_COLOR := Color(0.4, 0.78, 0.88)
+const FRAME_BG := Color(0.04, 0.09, 0.14, 0.55)
 
 ## DiceScoring-Key -> ComboCellView (siehe scene_root._collect_combo_labels).
 var combo_cells: Dictionary = {}
+
+## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (nach _build_content) -
+## Grundlage für Kamera-Zoomziel und Klickzone (siehe scene_root, cluster_*).
+var cluster_rect := Rect2()
 
 ## Weltgrenzen der Screen-Fläche (aus attach_to); Mapping siehe world_to_pixel.
 var _z_min := 0.0
 var _z_span := 1.0
 var _x_max := 0.0
 var _x_span := 1.0
+var _surface_y := 0.0  # Welthöhe der Screen-Oberfläche (für pixel_to_world)
 
 func _ready() -> void:
 	size = RESOLUTION
@@ -66,6 +83,7 @@ func attach_to(screen_mesh: MeshInstance3D) -> void:
 		max_x = maxf(max_x, corner.x)
 		min_z = minf(min_z, corner.z)
 		max_z = maxf(max_z, corner.z)
+		_surface_y = corner.y  # flache Fläche -> alle Ecken (fast) gleiche Höhe
 	_z_min = min_z
 	_z_span = max_z - min_z
 	_x_max = max_x
@@ -87,6 +105,14 @@ func world_to_pixel(world: Vector3) -> Vector2:
 	var v := (_x_max - world.x) / _x_span
 	return Vector2(u * float(size.x), v * float(size.y))
 
+## Pixel auf dem Screen -> Weltposition auf der Tischfläche (Umkehr von
+## world_to_pixel; y = Screen-Oberfläche). Für Kamera-Zoomziel und Klickzone
+## des Kombi-Clusters (siehe scene_root).
+func pixel_to_world(pixel: Vector2) -> Vector3:
+	var u := pixel.x / float(size.x)
+	var v := pixel.y / float(size.y)
+	return Vector3(_x_max - v * _x_span, _surface_y, _z_min + u * _z_span)
+
 ## Baut den Bildschirm-Inhalt: dunkler Grund, dezenter Schriftzug in der Mitte
 ## (liegt unter der Grube) und die Kombinationsliste als Zellen-Bänder.
 func _build_content() -> void:
@@ -99,14 +125,18 @@ func _build_content() -> void:
 	var label := Label.new()
 	label.name = "Wordmark"
 	label.text = "FUMBLE"
-	label.add_theme_font_size_override("font_size", 150)
+	label.add_theme_font_size_override("font_size", 150 * SUPERSAMPLE)
 	label.modulate = Color(0.3, 0.9, 1.0, 0.18)
 	label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	add_child(label)
 
+	# Zellpositionen vorab berechnen, um die Cluster-Ausdehnung zu kennen (der
+	# Neon-Rahmen muss VOR den Zellen hinter sie gelegt werden).
 	var total := DiceScoring.HAND_PRIORITY.size()
+	var positions: Array[Vector2] = []
+	var bounds := Rect2()
 	for i in total:
 		var row := i / CLUSTER_COLUMNS
 		var column := i % CLUSTER_COLUMNS
@@ -115,7 +145,29 @@ func _build_content() -> void:
 		var at := Vector2(
 			CLUSTER_CENTER_X - row_width / 2.0 + float(column) * (CELL_SIZE.x + CELL_GAP.x),
 			CLUSTER_TOP + float(row) * (CELL_SIZE.y + CELL_GAP.y))
-		_add_combo_cell(DiceScoring.HAND_PRIORITY[i], at)
+		positions.append(at)
+		var cell_rect := Rect2(at, CELL_SIZE)
+		bounds = cell_rect if i == 0 else bounds.merge(cell_rect)
+
+	cluster_rect = bounds.grow(CLUSTER_PADDING)
+	_add_cluster_frame(cluster_rect)
+	for i in total:
+		_add_combo_cell(DiceScoring.HAND_PRIORITY[i], positions[i])
+
+## Neon-Rahmen mit dezent abgesetztem Hintergrund um den ganzen Cluster.
+func _add_cluster_frame(rect: Rect2) -> void:
+	var frame := Panel.new()
+	frame.name = "ClusterFrame"
+	frame.position = rect.position
+	frame.size = rect.size
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = FRAME_BG
+	style.border_color = FRAME_COLOR
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(10)
+	frame.add_theme_stylebox_override("panel", style)
+	add_child(frame)
 
 func _add_combo_cell(key: String, at: Vector2) -> void:
 	var cell := ComboCellView.new()

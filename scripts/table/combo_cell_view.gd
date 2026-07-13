@@ -5,6 +5,10 @@ extends Control
 ## Beispiel-Würfel als reine NEON-UMRISSE mit Leucht-Pips (kein gefülltes
 ## Plättchen) und rechts der Multiplikator "×N" in gedämpftem Magenta.
 ##
+## Alle Maße sind ANTEILE der Zellengröße (siehe _draw) - so bleibt die Zelle
+## bei jeder Display-Auflösung scharf (TableScreen rendert bewusst überabgetastet,
+## siehe SUPERSAMPLE), ohne dass hier Zahlen mitgezogen werden müssen.
+##
 ## scene_root hält diese Zellen in combo_labels und tweent modulate/scale fürs
 ## Aufleuchten der gewürfelten Kombination - die Basisfarben hier sind bewusst
 ## gedämpft, Ruhe- und Glühfarben kommen als modulate von außen (Überhell > 1
@@ -13,13 +17,6 @@ extends Control
 const NEON_DIM := Color(0.4, 0.75, 0.85, 0.75)   # Rahmen, Name, Würfel-Umrisse
 const NEON_PIP := Color(0.55, 0.95, 1.0)          # Leucht-Pips (Augen)
 const MULT_COLOR := Color(0.85, 0.55, 0.8)        # Multiplikator, gedämpftes Magenta
-const BORDER_WIDTH := 1.5
-const NAME_FONT_SIZE := 10
-const MULT_FONT_SIZE := 15
-const DIE_MAX_SIZE := 14.0
-const DIE_GAP := 2.0
-const PADDING_X := 8.0
-const MULT_WIDTH := 30.0  # rechts reservierter Platz für "×N"
 
 ## Pip-Anordnungen je Augenzahl (Anteile der Würfelfläche).
 const PIP_LAYOUTS := {
@@ -37,19 +34,12 @@ var mult := 1
 ## Bezugsgröße fürs Highlight-Wachsen (siehe scene_root._tween_combo_label).
 var base_scale := Vector2.ONE
 
-var _die_style: StyleBoxFlat
-
 ## Befüllt die Zelle; Position/Größe setzt der TableScreen vorher.
 func setup(p_name: String, p_values: Array, p_mult: int) -> void:
 	combo_name = p_name
 	values = p_values
 	mult = p_mult
 	pivot_offset = size / 2.0  # Highlight skaliert um die Zellenmitte
-	_die_style = StyleBoxFlat.new()
-	_die_style.draw_center = false  # nur Umriss - der Würfel ist eine Neonlinie
-	_die_style.border_color = NEON_DIM
-	_die_style.set_border_width_all(1)
-	_die_style.set_corner_radius_all(3)
 	queue_redraw()
 
 ## Schreibt den Multiplikator neu (Menü-Stufen, siehe DiceScoring.mult_for).
@@ -58,25 +48,39 @@ func set_mult(p_mult: int) -> void:
 	queue_redraw()
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), NEON_DIM, false, BORDER_WIDTH)
+	var h := size.y
+	var w := size.x
+	var pad := h * 0.16
+	var name_font := int(h * 0.22)
+	var mult_font := int(h * 0.34)
+	var mult_width := w * 0.22
+	var border := maxf(2.0, h * 0.03)
+
+	draw_rect(Rect2(Vector2.ZERO, size), NEON_DIM, false, border)
 
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(PADDING_X, 4.0 + NAME_FONT_SIZE), combo_name,
-		HORIZONTAL_ALIGNMENT_CENTER, size.x - PADDING_X * 2.0, NAME_FONT_SIZE, NEON_DIM)
+	draw_string(font, Vector2(pad, pad + float(name_font)), combo_name,
+		HORIZONTAL_ALIGNMENT_CENTER, w - pad * 2.0, name_font, NEON_DIM)
 
-	# Untere Zeile: Würfelreihe links, "×N" rechtsbündig daneben.
+	# Untere Zeile: Würfelreihe links (nur Neon-Umriss + Leucht-Pips), "×N" rechts.
 	var count := values.size()
 	if count > 0:
-		var avail := size.x - PADDING_X * 2.0 - MULT_WIDTH
-		var die_size: float = minf(DIE_MAX_SIZE, (avail - DIE_GAP * float(count - 1)) / float(count))
-		var x := PADDING_X
-		var y := size.y - die_size - 6.0
+		var die_gap := h * 0.05
+		var avail := w - pad * 2.0 - mult_width
+		var die_size: float = minf(h * 0.42, (avail - die_gap * float(count - 1)) / float(count))
+		var die_style := StyleBoxFlat.new()
+		die_style.draw_center = false  # nur Umriss - der Würfel ist eine Neonlinie
+		die_style.border_color = NEON_DIM
+		die_style.set_border_width_all(int(maxf(1.5, h * 0.022)))
+		die_style.set_corner_radius_all(int(die_size * 0.18))
+		var x := pad
+		var y := h - die_size - pad * 0.4
 		for value: int in values:
 			var rect := Rect2(Vector2(x, y), Vector2.ONE * die_size)
-			draw_style_box(_die_style, rect)
+			draw_style_box(die_style, rect)
 			for pip: Vector2 in PIP_LAYOUTS.get(value, []):
 				draw_circle(rect.position + pip * die_size, die_size * 0.11, NEON_PIP)
-			x += die_size + DIE_GAP
+			x += die_size + die_gap
 
-	draw_string(font, Vector2(size.x - PADDING_X - MULT_WIDTH, size.y - 8.0), "×%d" % mult,
-		HORIZONTAL_ALIGNMENT_RIGHT, MULT_WIDTH, MULT_FONT_SIZE, MULT_COLOR)
+	draw_string(font, Vector2(w - pad - mult_width, h - pad * 0.5), "×%d" % mult,
+		HORIZONTAL_ALIGNMENT_RIGHT, mult_width, mult_font, MULT_COLOR)

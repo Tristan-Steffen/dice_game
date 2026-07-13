@@ -13,9 +13,8 @@ extends Node3D
 ## der Knoten den Hover für die Charm-Tooltips der Grubenansicht auf
 ## (charm_at_screen_pos, siehe scene_root._update_charm_tooltip).
 ##
-## Unter jedem Platz liegt dauerhaft ein "Untersetzer" (flache Scheibe als
-## Podest): leere Plätze glimmen dezent grau, besetzte leuchten weiß (über den
-## Glow-Schwellwert der WorldEnvironment hinaus, siehe scene_root.tscn).
+## Es gibt kein physisches Podest mehr: Der Charm ist eine Lichtprojektion, die
+## direkt aus der Tischfläche aufsteigt (siehe Hologramm-Look unten).
 
 const SPOT_ANGLES_DEG: Array[float] = [-62.5, -37.5, -12.5, 12.5, 37.5, 62.5]
 const SPOT_RADIUS := 26.0  # Abstand vom Grubenzentrum - liegt auf dem Filz des ScreenTable
@@ -23,21 +22,17 @@ const SPOT_Y := -3.4  # Höhe der Tischoberfläche (Filz-Oberkante des ScreenTab
 const MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
 const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"  # Platzhalter für Charms ohne eigenes Modell (siehe Charm.model_path)
 
-## Untersetzer-Scheiben: Maße passend zur Platzhalter-Karte (4 x 5.6 Welt-
-## einheiten Grundfläche bei MODEL_SCALE 4), die Scheibe ragt rundum etwas
-## darüber hinaus. Die Charms stehen auf der Scheibe (siehe _spot_transform).
-const COASTER_RADIUS := 3.6
-const COASTER_HEIGHT := 0.3
-const COASTER_ALBEDO := Color(0.16, 0.16, 0.18)  # dunkle Scheibe, das Leuchten kommt aus der Emission
-## Leer: dezentes Grau unterhalb des Glow-Schwellwerts (glimmt nur leicht).
-## Besetzt: überhelles Weiß, das sichtbar bloomt.
-const COASTER_EMISSION_EMPTY := Color(0.45, 0.45, 0.5)
-const COASTER_EMISSION_EMPTY_ENERGY := 0.6
-const COASTER_EMISSION_OCCUPIED := Color(1.0, 1.0, 1.0)
-const COASTER_EMISSION_OCCUPIED_ENERGY := 1.8
-
 ## Anzahl fester Plätze - zugleich die Obergrenze besitzbarer Charms.
 const SPOT_COUNT := 6
+
+## Hologramm-Look: Der Charm wird als projizierte Lichtgestalt gezeigt (Star-
+## Wars-Stil) - das Modell selbst bekommt den Hologramm-Shader übergestülpt, und
+## aus der Tischfläche steigt für JEDEN Charm derselbe Lichtzylinder auf (siehe
+## assets/shaders/charm_hologram.gdshader + hologram_beam.gdshader).
+const HOLOGRAM_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
+const BEAM_SHADER := preload("res://assets/shaders/hologram_beam.gdshader")
+const BEAM_RADIUS := 3.6  # Lichtzylinder-Radius (Emitter-Fußabdruck auf dem Tisch)
+const BEAM_HEIGHT := 9.0  # Höhe des Lichtkegels über der Tischfläche
 
 ## Bildschirm-Toleranz der Hover-Erkennung um die projizierte Charm-Mitte
 ## (siehe charm_at_screen_pos) - in der Grubenansicht liegen die Charms am
@@ -46,21 +41,26 @@ const PICK_RADIUS_PX := 70.0
 
 var charm_nodes: Array[Node3D] = []  # aktuell platzierte Modelle, eins je Charm
 var current_charms: Array[Charm] = []  # parallel zu charm_nodes (für Tooltips)
-var coaster_materials: Array[StandardMaterial3D] = []  # ein Material je Platz (Index = Platz), für das Umschalten grau/weiß
+var beam_nodes: Array[MeshInstance3D] = []  # Lichtzylinder je besetztem Platz (parallel zu charm_nodes)
 
-func _ready() -> void:
-	_ensure_coasters()
+## Gemeinsame Hologramm-Ressourcen (einmal gebaut, von allen Charms geteilt -
+## sie animieren über TIME ohnehin gleich). Siehe _ensure_holo_resources.
+var _holo_material: ShaderMaterial
+var _beam_material: ShaderMaterial
+var _beam_mesh: CylinderMesh
 
 ## Baut die Charm-Modelle neu auf: je Charm ein Modell auf dem nächsten festen
-## Platz, in der Reihenfolge von charms (Index 0 = erster Platz). Freie Plätze
-## bleiben leer (ihr Untersetzer glimmt grau). Mehr Charms als Plätze werden
-## abgeschnitten (die Shop-Obergrenze sollte das ohnehin verhindern, siehe
-## ShopController).
+## Platz, in der Reihenfolge von charms (Index 0 = erster Platz). Mehr Charms als
+## Plätze werden abgeschnitten (die Shop-Obergrenze sollte das ohnehin
+## verhindern, siehe ShopController). Freie Plätze bleiben komplett leer.
 func set_charms(charms: Array[Charm]) -> void:
-	_ensure_coasters()
+	_ensure_holo_resources()
 	for node in charm_nodes:
 		node.queue_free()
 	charm_nodes.clear()
+	for beam in beam_nodes:
+		beam.queue_free()
+	beam_nodes.clear()
 	current_charms = []
 	var count := mini(charms.size(), SPOT_COUNT)
 	for i in count:
@@ -69,38 +69,44 @@ func set_charms(charms: Array[Charm]) -> void:
 		model.transform = _spot_transform(i)
 		charm_nodes.append(model)
 		current_charms.append(charms[i])
-	for i in SPOT_COUNT:
-		_set_coaster_occupied(i, i < count)
+		_add_beam(i)
 
-## Erzeugt die Untersetzer-Scheiben einmalig (ein fester Untersetzer je Platz,
-## unabhängig davon, ob dort ein Charm steht). Anfangs alle "leer" (grau).
-func _ensure_coasters() -> void:
-	if not coaster_materials.is_empty():
+## Baut die geteilten Hologramm-Ressourcen einmalig: das Shader-Material für die
+## Charm-Modelle und Material + Mesh des Lichtzylinders (dessen Höhengrenzen an
+## der Tischfläche beginnen, damit der Kegel aus dem Tisch aufsteigt).
+func _ensure_holo_resources() -> void:
+	if _holo_material != null:
 		return
-	for i in SPOT_COUNT:
-		var mesh_instance := MeshInstance3D.new()
-		var disk := CylinderMesh.new()
-		disk.top_radius = COASTER_RADIUS
-		disk.bottom_radius = COASTER_RADIUS
-		disk.height = COASTER_HEIGHT
-		mesh_instance.mesh = disk
-		var material := StandardMaterial3D.new()
-		material.albedo_color = COASTER_ALBEDO
-		material.roughness = 0.35
-		material.metallic = 0.2
-		material.emission_enabled = true
-		mesh_instance.material_override = material
-		add_child(mesh_instance)
-		var spot := _spot_position(i)
-		mesh_instance.position = Vector3(spot.x, SPOT_Y + COASTER_HEIGHT * 0.5, spot.z)
-		coaster_materials.append(material)
-		_set_coaster_occupied(i, false)
+	_holo_material = ShaderMaterial.new()
+	_holo_material.shader = HOLOGRAM_SHADER
+	_beam_material = ShaderMaterial.new()
+	_beam_material.shader = BEAM_SHADER
+	_beam_material.set_shader_parameter("bottom_y", SPOT_Y)
+	_beam_material.set_shader_parameter("top_y", SPOT_Y + BEAM_HEIGHT)
+	_beam_mesh = CylinderMesh.new()
+	_beam_mesh.top_radius = BEAM_RADIUS
+	_beam_mesh.bottom_radius = BEAM_RADIUS
+	_beam_mesh.height = BEAM_HEIGHT
+	_beam_mesh.radial_segments = 24
 
-## Schaltet das Leuchten eines Untersetzers um: weiß (besetzt) oder dezent grau (leer).
-func _set_coaster_occupied(i: int, occupied: bool) -> void:
-	var material := coaster_materials[i]
-	material.emission = COASTER_EMISSION_OCCUPIED if occupied else COASTER_EMISSION_EMPTY
-	material.emission_energy_multiplier = COASTER_EMISSION_OCCUPIED_ENERGY if occupied else COASTER_EMISSION_EMPTY_ENERGY
+## Stülpt den Hologramm-Shader über jedes MeshInstance3D des Modells (ersetzt
+## dessen Originaltextur) - macht aus dem festen Modell die Lichtprojektion.
+func _apply_hologram(node: Node) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = _holo_material
+	for child in node.get_children():
+		_apply_hologram(child)
+
+## Setzt den Lichtzylinder aus der Tischfläche des Platzes i (senkrecht, keine
+## Charm-Drehung - für jeden Charm identisch).
+func _add_beam(i: int) -> void:
+	var beam := MeshInstance3D.new()
+	beam.mesh = _beam_mesh
+	beam.material_override = _beam_material
+	var spot := _spot_position(i)
+	beam.position = Vector3(spot.x, SPOT_Y + BEAM_HEIGHT * 0.5, spot.z)
+	add_child(beam)
+	beam_nodes.append(beam)
 
 ## Der Charm, dessen Modell auf dem Bildschirm am nächsten an screen_pos liegt
 ## (innerhalb PICK_RADIUS_PX), oder null. Reine Projektions-Nähe statt
@@ -126,7 +132,7 @@ func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 			best = i
 	return best
 
-## Globale Position des festen Platzes i (Charm-Standpunkt auf dem Untersetzer) -
+## Globale Position des festen Platzes i (Charm-Standpunkt auf der Tischfläche) -
 ## Drop-Ziel und Rückgleit-Anker des Umsortier-Drags (siehe scene_root).
 func spot_global_position(i: int) -> Vector3:
 	return to_global(_spot_transform(i).origin)
@@ -145,9 +151,13 @@ func glide_charm_to_spot(i: int) -> void:
 ## kein eigenes Modell hat.
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
+	var model: Node3D
 	if path == "" or not ResourceLoader.exists(path):
-		return placeholder_model(charm.id)
-	return (load(path) as PackedScene).instantiate()
+		model = placeholder_model(charm.id)
+	else:
+		model = (load(path) as PackedScene).instantiate()
+	_apply_hologram(model)  # nur die Tisch-Charms werden Hologramme, nicht die Shop-Vorschau
+	return model
 
 ## Stabile, kräftige Farbe aus der Charm-id (Hash -> Farbton) - die Farbe der
 ## Platzhalter-Karte. Auch die Charm-Bibliothek nutzt sie als Farbfeld, damit
@@ -174,16 +184,15 @@ static func placeholder_model(charm_id: String) -> Node3D:
 	return root
 
 ## Tischposition des festen Platzes i auf dem symmetrischen Kreisbogen
-## (siehe SPOT_*), y = Tischoberfläche. Der Untersetzer sitzt direkt hier,
-## der Charm um COASTER_HEIGHT erhöht obendrauf (siehe _spot_transform).
+## (siehe SPOT_*), y = Tischoberfläche - hier steigt das Hologramm auf.
 func _spot_position(i: int) -> Vector3:
 	var angle := deg_to_rad(SPOT_ANGLES_DEG[i])
 	return Vector3(cos(angle) * SPOT_RADIUS, SPOT_Y, sin(angle) * SPOT_RADIUS)
 
-## Transform des festen Platzes i (lokal zu diesem Knoten): Position auf dem
-## Untersetzer des Platzes, flach liegend und zur Mitte (Ursprung) gedreht.
+## Transform des festen Platzes i (lokal zu diesem Knoten): Position auf der
+## Tischfläche, flach liegend und zur Mitte (Ursprung) gedreht.
 func _spot_transform(i: int) -> Transform3D:
-	var pos := _spot_position(i) + Vector3(0.0, COASTER_HEIGHT, 0.0)
+	var pos := _spot_position(i)
 	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()
 	var basis := Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * MODEL_SCALE)
 	return Transform3D(basis, pos)
