@@ -153,6 +153,16 @@ const SCORE_FLY_TIME := 0.55  # Flugdauer der Gesamtzahl in den Zielbalken
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Kantenlänge des Würfel-Glow-Rechtecks als Vielfaches der Würfelgröße (50% größer)
 const SCORE_TRAIL_TIME := 0.3  # Flugdauer eines Licht-Trails Quelle -> Zahl (die Zahl wächst beim Einschlag)
 
+## Geld-Lichtanimation (siehe _play_money_light): Gutschriften schicken ein
+## GOLDENES Licht vom Hub-Rand zu den Pokerchips (der Hub-Rahmen leuchtet dabei
+## golden auf); Käufe schicken je bezahltem Chip einen Puls in dessen Farbe
+## (8$ = 1 rot + 3 blau) von den Chips zurück zum Hub - gleiche Leiterbahn-Optik
+## wie die Zähl-Animation (siehe TableScreen.spawn_trace).
+const MONEY_TRAIL_TIME := 0.45  # Flugdauer eines Geld-Lichts Hub <-> Chips
+const MONEY_PULSE_GAP := 0.12   # Versatz zwischen den Kauf-Pulsen (je Chip einer)
+const MONEY_GAIN_COLOR := Color(2.0, 1.6, 0.3, 0.9)  # überhelles Gold (wie TRAIL_MULT_COLOR)
+const MONEY_PULSE_BOOST := 2.2  # Chip-Farbe -> überhelle Leiterbahn-Farbe (bloomt)
+
 ## Energiefeld-Blitz bei Wandkontakt (siehe _on_die_wall_contact / DicePit): unter
 ## FIELD_FLASH_MIN_SPEED bleibt das Feld ruhig (fast unsichtbar), ab
 ## FIELD_FLASH_FULL_SPEED blitzt es voll auf; auch der leiseste zählende Treffer
@@ -284,6 +294,11 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 ## Der Geldstand als physische Neon-Pokerchips auf dem Tisch (zwischen Pool und
 ## Becher, siehe ChipStackView) - folgt automatisch jeder Geldänderung.
 @onready var chip_stack: ChipStackView = $ChipStack
+## Zuletzt ANGEZEIGTER Geldstand - Vergleichsbasis der Geld-Lichtanimation
+## (Vorzeichen der Änderung, siehe _play_money_light). Wird beim Verdrahten
+## eines frischen Runs still auf dessen Startgeld gesetzt (kein Licht beim
+## Spielstart, siehe _connect_run).
+var _shown_money := 0
 
 # Hover-Tooltip der Charm-Ansicht (siehe _build_charm_tooltip /
 # _update_charm_tooltip): folgt dem Cursor, zeigt Name + Wirkung des Charms.
@@ -835,9 +850,46 @@ func _on_charms_changed() -> void:
 ## Der Geldstand hat sich geändert (siehe run.money_changed) - jede Gutschrift
 ## und jeder Kauf laufen über GameRun, die Anzeige folgt hier automatisch.
 func _on_money_changed(new_money: int) -> void:
+	var delta := new_money - _shown_money
+	_shown_money = new_money
 	money_label.text = "$%d" % new_money
 	chip_stack.set_money(new_money)
 	_refresh_hub_info()
+	_play_money_light(delta)
+
+## Die Geld-Lichtanimation auf dem Tisch-Display (gleiche Leiterbahn-Optik wie
+## die Zähl-Animation, siehe TableScreen.spawn_trace): Bei einer GUTSCHRIFT
+## leuchtet der Hub-Rahmen golden auf und ein goldenes Licht wandert vom
+## Hub-Rand zu den Pokerchips (die beim Einschlag pulsen). Bei einem KAUF
+## wandert je bezahltem Chip ein Puls in dessen Farbe (8$ = 1 rot + 3 blau,
+## siehe ChipStackView.pulse_colors) von den Chips zum Hub, dessen Rahmen bei
+## jeder Ankunft in der Puls-Farbe aufleuchtet.
+func _play_money_light(delta: int) -> void:
+	if delta == 0 or table_screen == null or table_screen.hub == null:
+		return
+	var hub := table_screen.hub
+	var chips_px := table_screen.world_to_pixel(chip_stack.global_position)
+	# Der Hub-Randpunkt Richtung Chips: Chip-Pixel auf das Hub-Rechteck geklemmt.
+	var hub_rect := Rect2(hub.position, hub.size)
+	var hub_px := chips_px.clamp(hub_rect.position, hub_rect.end)
+	if delta > 0:
+		hub.flash_frame(HubView.GOLD_COLOR)
+		table_screen.spawn_trace(hub_px, chips_px, MONEY_GAIN_COLOR, MONEY_TRAIL_TIME)
+		get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(chip_stack.pulse)
+		return
+	var pulses := ChipStackView.pulse_colors(-delta)
+	for i in pulses.size():
+		var chip_color: Color = pulses[i]
+		var trail_color := Color(chip_color.r * MONEY_PULSE_BOOST,
+			chip_color.g * MONEY_PULSE_BOOST, chip_color.b * MONEY_PULSE_BOOST, 0.9)
+		var fire := func() -> void:
+			table_screen.spawn_trace(chips_px, hub_px, trail_color, MONEY_TRAIL_TIME)
+			get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(
+				func() -> void: hub.flash_frame(chip_color))
+		if i == 0:
+			fire.call()
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
 
 ## Spiegelt die Lauf-Übersicht in den Hub (siehe HubView.set_run_info) - nach
 ## jeder Geld-/Runden-/Ziel-Änderung. null-tolerant: vor dem ersten Spielstart
@@ -2508,6 +2560,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if not await _score_step_wait(SCORE_TRAIL_TIME):
 			return
 		table_screen.pulse_pit_score()
+		_spawn_score_gains(cell_px, breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
 	table_screen.update_pit_score(breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
 	if not await _score_step_wait(SCORE_STEP_TIME):
 		return
@@ -2529,10 +2582,17 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			charm_row.flash_charm(charm_index)
 			table_screen.spawn_score_trail(_charm_trail_source_px([charm_index]), "base", SCORE_TRAIL_TIME)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
+		# Schwebende Zuwachs-Zahlen steigen aus dem Goldlicht-Podest unter dem
+		# Würfel auf (nicht aus dem schwebenden Würfelkörper), siehe glow_by_slot.
+		var gain_px := die_px
+		if glow_by_slot.has(slot):
+			var glow: Control = glow_by_slot[slot]
+			gain_px = glow.position + glow.size / 2.0
 		table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
 		if not await _score_step_wait(SCORE_TRAIL_TIME):
 			return
 		var mult_before_material: int = step["mult_after"] - step["mat_mult_add"]
+		_spawn_score_gains(gain_px, step["eye_add"], 0)
 		table_screen.update_pit_score(step["base_after_eye"], mult_before_material)
 		if step["mat_base_add"] != 0 or step["mat_mult_add"] != 0:
 			if not await _score_step_wait(SCORE_SUBSTEP_TIME):
@@ -2544,6 +2604,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 				table_screen.spawn_score_trail(die_px, "mult", SCORE_TRAIL_TIME)
 			if not await _score_step_wait(SCORE_TRAIL_TIME):
 				return
+			_spawn_score_gains(gain_px, step["mat_base_add"], step["mat_mult_add"])
 			table_screen.update_pit_score(step["base_after"], step["mult_after"])
 		if not await _score_step_wait(SCORE_STEP_TIME):
 			return
@@ -2561,6 +2622,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			table_screen.spawn_score_trail(source_px, "mult", SCORE_TRAIL_TIME)
 		if not await _score_step_wait(SCORE_TRAIL_TIME):
 			return
+		_spawn_score_gains(source_px, step["base_add"], step["mult_add"], step["base_x"], step["mult_x"])
 		table_screen.update_pit_score(step["base_after"], step["mult_after"])
 		if not await _score_step_wait(SCORE_STEP_TIME):
 			return
@@ -2574,9 +2636,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for step: Dictionary in breakdown["post_steps"]:
 		for charm_index: int in step["charm_indices"]:
 			charm_row.flash_charm(charm_index)
-		table_screen.spawn_score_trail(_charm_trail_source_px(step["charm_indices"]), "total", SCORE_TRAIL_TIME)
+		var post_source := _charm_trail_source_px(step["charm_indices"])
+		table_screen.spawn_score_trail(post_source, "total", SCORE_TRAIL_TIME)
 		if not await _score_step_wait(SCORE_TRAIL_TIME):
 			return
+		_spawn_total_gain(post_source, step["total_add"], step["total_x"])
 		table_screen.show_pit_total(step["total_after"])
 		if not await _score_step_wait(SCORE_STEP_TIME):
 			return
@@ -2587,6 +2651,33 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	_animate_points_to(new_total)
 	await fly.finished
 	_cleanup_take_animation()
+
+## Lässt den GENAUEN Zuwachs eines Zählschritts als schwebende Zahl aus der
+## Quelle (Würfel/Kombi-Zelle/Charm) aufsteigen und ausblendend nach unten
+## gleiten - rein schmückend, zusätzlich zu den Leiterbahnen (siehe
+## TableScreen.spawn_gain_number). base_add/mult_add sind additive Zuwächse
+## ("+N"), base_x/mult_x multiplikative Faktoren ("×N", 1 = keiner); die
+## Basis-Zahlen (Punkte) leuchten cyan, die Mult-Zahlen gold. Alle Zahlen steigen
+## aus DEMSELBEN Quellpunkt (der Podest-Mitte) auf.
+func _spawn_score_gains(source_px: Vector2, base_add: int, mult_add: int, base_x: int = 1, mult_x: int = 1) -> void:
+	if base_add != 0:
+		table_screen.spawn_gain_number(source_px, "+%d" % base_add, table_screen.TRAIL_BASE_COLOR)
+	if base_x != 1:
+		table_screen.spawn_gain_number(source_px, "×%d" % base_x, table_screen.TRAIL_BASE_COLOR)
+	if mult_add != 0:
+		table_screen.spawn_gain_number(source_px, "+%d" % mult_add, table_screen.TRAIL_MULT_COLOR)
+	if mult_x != 1:
+		table_screen.spawn_gain_number(source_px, "×%d" % mult_x, table_screen.TRAIL_MULT_COLOR)
+
+## Schwebende Zuwachs-Zahl eines Nach-Schritts (auf der GESAMTZAHL, siehe
+## post_steps): additiver Zuwachs "+N" oder Faktor "×N" in der Gesamtzahl-Farbe.
+## Ganzzahlige Faktoren als "×N", sonst mit einer Nachkommastelle.
+func _spawn_total_gain(source_px: Vector2, total_add: int, total_x: float) -> void:
+	if total_add != 0:
+		table_screen.spawn_gain_number(source_px, "+%d" % total_add, PitScoreView.TOTAL_COLOR)
+	if not is_equal_approx(total_x, 1.0):
+		var text := "×%d" % int(total_x) if is_equal_approx(total_x, float(int(total_x))) else "×%.1f" % total_x
+		table_screen.spawn_gain_number(source_px, text, PitScoreView.TOTAL_COLOR)
 
 ## Wartet einen Zählschritt ab. false = die Animation wurde abgebrochen (Reset
 ## hat die Phase umgesetzt) - dann ist hier schon aufgeräumt und der Aufrufer
@@ -2759,6 +2850,7 @@ func _connect_run() -> void:
 	run.charms_changed.connect(_on_charms_changed)
 	run.sheet_purchased.connect(_show_sheet_reveal)
 	run.combo_upgraded.connect(_on_combo_upgraded)
+	_shown_money = run.money  # kein Geld-Licht beim Spielstart (siehe _play_money_light)
 	_on_money_changed(run.money)
 	_on_charms_changed()
 	_refresh_combo_label_texts()

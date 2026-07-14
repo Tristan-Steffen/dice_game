@@ -31,21 +31,21 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.863043, 0, 20.779545)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -22.863043, 0, 20.779545)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.072744, 0, -19.793337)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.063042, 0, 20.779545)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.063042, 0, 20.779545)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 20)
 
 [node name="ChipStack" type="Node3D" parent="." unique_id=1800299089]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 20.779545)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 0, 20.779545)
 script = ExtResource("17_chipstack")
 
 [node name="ScreenAnchors" type="Node3D" parent="." unique_id=1443500857]

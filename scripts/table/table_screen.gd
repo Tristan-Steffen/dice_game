@@ -416,6 +416,97 @@ func fly_total_to_goal(duration: float) -> Tween:
 		pulse_goal_bar())
 	return tween
 
+## Schwebende Zuwachs-Zahl der Zähl-Animation: der GENAUE Betrag, der gerade zu
+## Basis/Mult/Gesamtzahl addiert wird (z.B. "+3" oder "×2"), steigt an from_px
+## aus dem Würfel auf und gleitet ausblendend nach unten weg (siehe
+## scene_root._spawn_score_gains). Rein schmückend - die maßgeblichen Zahlen
+## laufen weiter über die Zähler (update_pit_score). Räumt sich selbst weg.
+const GAIN_FONT := 19 * SUPERSAMPLE
+const GAIN_DRIFT := 170.0 * SUPERSAMPLE  # Gleitweg nach unten (Display-Pixel = Bildschirm-unten)
+const GAIN_TIME := 1.6  # Lebensdauer der schwebenden Zahl (langsames Absinken)
+const GAIN_OUTLINE := Color(0.05, 0.03, 0.08)  # dunkler Umriss für Lesbarkeit
+## Bewegungs-Unschärfe: HINTER der Zahl läuft ein durchgehender Farbschleier mit,
+## der am Glyph voll deckt und zum Schwanz hin ausläuft (vertikaler Verlauf) -
+## eine KONTINUIERLICHE Schleppe statt einzelner Nachbilder. Der Schleier folgt
+## dem Kopf und ist auf GAIN_BLUR_LENGTH Länge begrenzt (kurze Unschärfe).
+const GAIN_BLUR_LENGTH := 55.0 * SUPERSAMPLE  # Länge der Unschärfe-Schleppe
+const GAIN_BLUR_WIDTH := 0.8   # Breite der Schleppe als Anteil der Zahlbreite
+const GAIN_BLUR_ALPHA := 0.6   # Grunddeckkraft der Schleppe (× Verlauf)
+
+## Geteilter vertikaler Verlauf der Unschärfe-Schleppe (weiß, oben transparent →
+## unten deckend) - über modulate eingefärbt, einmalig gebaut.
+var _gain_blur_texture: GradientTexture2D
+
+func spawn_gain_number(from_px: Vector2, text: String, color: Color) -> void:
+	var label := _make_gain_label(text, color)
+	var streak := _make_gain_blur(color)
+	add_child(streak)  # zuerst = unter der Zahl
+	add_child(label)
+	label.reset_size()
+	label.pivot_offset = label.size / 2.0
+	var start := from_px - label.size / 2.0
+	label.position = start
+	label.scale = Vector2.ONE * 1.35  # kurzer Aufplopp beim Erscheinen
+	var width := label.size.x * GAIN_BLUR_WIDTH
+	var center_x := start.x + label.size.x / 2.0
+	var half_h := label.size.y / 2.0
+	var tween := create_tween()
+	tween.set_parallel(true)
+	# Absinken UND Schleier-Nachführung in einem: die Methode setzt die y-Position
+	# der Zahl und zieht den Schleier von der aktuellen Kopfhöhe nach oben aus.
+	tween.tween_method(
+		func(dist: float) -> void: _advance_gain_number(label, streak, start, center_x, width, half_h, dist),
+		0.0, GAIN_DRIFT, GAIN_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "scale", Vector2.ONE, 0.3) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "modulate:a", 0.0, GAIN_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(streak, "modulate:a", 0.0, GAIN_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(func() -> void:
+		label.queue_free()
+		streak.queue_free())
+
+## Rückt die schwebende Zahl auf ihre Gleithöhe (start.y + dist) und spannt den
+## Unschärfe-Schleier von der Kopfmitte um bis zu GAIN_BLUR_LENGTH nach oben auf.
+func _advance_gain_number(label: Label, streak: TextureRect, start: Vector2, center_x: float, width: float, half_h: float, dist: float) -> void:
+	label.position.y = start.y + dist
+	var bottom := start.y + dist + half_h  # Kopfmitte (deckendes Ende des Verlaufs)
+	var top := maxf(start.y + half_h, bottom - GAIN_BLUR_LENGTH)
+	streak.position = Vector2(center_x - width / 2.0, top)
+	streak.size = Vector2(width, maxf(bottom - top, 1.0))
+
+## Baut den Unschärfe-Schleier (TextureRect mit geteiltem vertikalem Verlauf),
+## in der Farbe der Zahl (überhell → blüht wie die Zahl selbst).
+func _make_gain_blur(color: Color) -> TextureRect:
+	if _gain_blur_texture == null:
+		var gradient := Gradient.new()
+		gradient.offsets = PackedFloat32Array([0.0, 1.0])
+		gradient.colors = PackedColorArray([Color(1, 1, 1, 0.0), Color(1, 1, 1, 1.0)])
+		_gain_blur_texture = GradientTexture2D.new()
+		_gain_blur_texture.gradient = gradient
+		_gain_blur_texture.fill_from = Vector2(0, 0)  # oben (Schwanz) transparent
+		_gain_blur_texture.fill_to = Vector2(0, 1)     # unten (Kopf) deckend
+		_gain_blur_texture.width = 8
+		_gain_blur_texture.height = 64
+	var streak := TextureRect.new()
+	streak.texture = _gain_blur_texture
+	streak.stretch_mode = TextureRect.STRETCH_SCALE
+	streak.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	streak.modulate = Color(color.r, color.g, color.b, GAIN_BLUR_ALPHA)
+	return streak
+
+## Baut ein Zahl-Label im Zuwachs-Stil (Farbe + dunkler Umriss, klickneutral).
+func _make_gain_label(text: String, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", GAIN_FONT)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", GAIN_OUTLINE)
+	label.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
 ## Ein goldenes, abgerundetes Leucht-RECHTECK auf dem Display - liegt während
 ## der Zähl-Animation als "Podest" unter jedem zählenden Würfel (der Würfel sitzt
 ## mittig darauf). side_px = Kantenlänge (scene_root ~150% der Würfelgröße). Der

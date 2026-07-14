@@ -55,6 +55,10 @@ var content_root: MarginContainer
 
 var _built := false
 
+## Der StyleBox des Neon-Rahmens (für flash_frame) + laufender Abkling-Tween.
+var _frame_style: StyleBoxFlat
+var _frame_tween: Tween
+
 ## Baut den Inhalt passend zur (von TableScreen.place_hub gesetzten) Größe auf -
 ## einmalig, direkt nach dem Platzieren.
 func layout() -> void:
@@ -76,6 +80,7 @@ func layout() -> void:
 	style.set_corner_radius_all(int(u * 1.6))
 	frame.add_theme_stylebox_override("panel", style)
 	add_child(frame)
+	_frame_style = style
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -138,6 +143,19 @@ func layout() -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	_show_info_page()
+
+## Lässt den Neon-Rahmen kurz in color aufleuchten und zur Grundfarbe (Cyan)
+## abklingen - Teil der Geld-Lichtanimation: Gold bei Gutschriften, Chip-Farbe
+## je ankommendem Kauf-Puls (siehe scene_root._play_money_light).
+func flash_frame(color: Color) -> void:
+	if _frame_style == null:
+		return
+	if _frame_tween != null:
+		_frame_tween.kill()
+	_frame_style.border_color = color
+	_frame_tween = create_tween()
+	_frame_tween.tween_property(_frame_style, "border_color", FRAME_COLOR, 0.5) \
+		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 ## Hängt ein Vollflächen-Panel (Shop, Gravur-Station, ...) über die Hub-Fläche -
 ## es bleibt unsichtbar, bis scene_root es öffnet. Der Neon-Rahmen des Hubs
