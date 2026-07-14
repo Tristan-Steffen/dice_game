@@ -961,6 +961,13 @@ func _coupon_counts() -> Dictionary:
 	var counts := {}
 	if run == null:
 		return counts
+	# Testmodus: unbegrenzter Zugriff auf ALLE Coupon-Effekte (Ätzungen, Materialien,
+	# Kanten) - jeder Archetyp liegt "im Bestand" und wird beim Anwenden nicht
+	# verbraucht (siehe GameRun.unlimited_coupons / consume_coupon).
+	if run.unlimited_coupons:
+		for archetype in Coupon.all():
+			counts[archetype.id] = 1
+		return counts
 	for coupon in run.owned_coupons:
 		counts[coupon.id] = counts.get(coupon.id, 0) + 1
 	return counts

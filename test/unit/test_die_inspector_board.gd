@@ -27,3 +27,23 @@ func test_sorted_by_rarity_is_stable_within_a_tier():
 func test_sorted_by_rarity_keeps_all_entries():
 	var everything: Array[Coupon] = Coupon.all()
 	assert_eq(_view()._sorted_by_rarity(everything).size(), everything.size())
+
+# --- Testmodus: unbegrenzte Coupons -------------------------------------------
+
+func test_coupon_counts_reads_owned_inventory_normally():
+	var view := _view()
+	view.run = GameRun.new_run()
+	view.run.grant_coupon(Coupon.chisel())
+	var counts := view._coupon_counts()
+	assert_eq(counts.get(Coupon.CHISEL, 0), 1)
+	assert_eq(counts.get(Coupon.BLUEPRINT, 0), 0, "nicht besessene Coupons fehlen")
+
+func test_unlimited_coupons_reports_every_archetype_in_stock():
+	# Testmodus: JEDER Coupon-Archetyp gilt als vorhanden (jede Ätzung, jedes
+	# Material, jede Kante), damit das Gravur-Bord alles freischaltet.
+	var view := _view()
+	view.run = GameRun.new_run()
+	view.run.unlimited_coupons = true
+	var counts := view._coupon_counts()
+	for archetype in Coupon.all():
+		assert_gt(counts.get(archetype.id, 0), 0, "verfügbar: %s" % archetype.id)

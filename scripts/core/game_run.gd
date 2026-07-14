@@ -47,6 +47,11 @@ var round_goal: int = BASE_GOAL
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []  # wirken auf jede Wertung dieses Runs (siehe charm_ids)
 var owned_coupons: Array[Coupon] = []  # gehortete Ätzungs-Coupons, unbegrenzt (siehe grant_coupon)
+## Testmodus (siehe scene_root Einstellungs-Menü): unerschöpflicher Zugriff auf ALLE
+## Coupon-Effekte in der Gravur-Station - jeder Archetyp gilt als "im Bestand" (siehe
+## DieInspectorView._coupon_counts) und consume_coupon verbraucht nichts. Läuft
+## parallel zu den zufälligen Testmaterialien (randomize_all_materials).
+var unlimited_coupons: bool = false
 ## Menü-Stufen der Kombinationen (DiceScoring-Key -> gegessene Gerichte, siehe
 ## eat_meal): jede Stufe addiert den Basis-Multiplikator der Kombination erneut
 ## (siehe DiceScoring.mult_for) - Balatros Planetenkarten als Tagesmenü.
@@ -244,6 +249,8 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 ## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung
 ## gerufen; meldet coupons_changed.
 func consume_coupon(id: String) -> bool:
+	if unlimited_coupons:
+		return true  # Testmodus: Coupons sind unerschöpflich (siehe scene_root)
 	for i in owned_coupons.size():
 		if owned_coupons[i].id == id:
 			owned_coupons.remove_at(i)

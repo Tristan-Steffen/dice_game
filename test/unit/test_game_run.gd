@@ -149,6 +149,21 @@ func test_consume_removes_only_one_of_a_kind():
 	run.consume_coupon(Coupon.CHISEL)
 	assert_eq(run.owned_coupons.size(), 1)
 
+func test_unlimited_coupons_consume_is_a_noop_and_reports_success():
+	# Testmodus (siehe scene_root): Coupons sind unerschöpflich - consume verbraucht
+	# nichts, meldet aber Erfolg, auch wenn gar kein Exemplar im Inventar liegt.
+	run.unlimited_coupons = true
+	watch_signals(run)
+	assert_true(run.consume_coupon(Coupon.CHISEL), "meldet Erfolg trotz leerem Inventar")
+	assert_eq(run.owned_coupons.size(), 0, "nichts verbraucht")
+	assert_signal_emit_count(run, "coupons_changed", 0, "kein Bestandswechsel")
+
+func test_unlimited_coupons_keeps_owned_stock_intact():
+	run.unlimited_coupons = true
+	run.grant_coupon(Coupon.chisel())
+	run.consume_coupon(Coupon.CHISEL)
+	assert_eq(run.owned_coupons.size(), 1, "vorhandene Coupons bleiben liegen")
+
 # --- Coupon-Bögen ---------------------------------------------------------------
 
 func test_buy_coupon_sheet_deducts_and_emits_the_sheet():

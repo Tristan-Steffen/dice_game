@@ -223,8 +223,9 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 @onready var library_button: Button = $UI/SettingsMenu/LibraryButton
 
 ## Testmodus-Knopf (im Einstellungs-Menü, per Code angehängt - siehe _ready):
-## schaltet zufällige Seiten- + Kanten-Materialien auf ALLEN Würfeln an/aus
-## (siehe _on_test_materials_pressed / GameRun.randomize_all_materials).
+## schaltet zufällige Seiten- + Kanten-Materialien auf ALLEN Würfeln UND
+## unerschöpfliche Coupons in der Gravur-Station an/aus (siehe
+## _on_test_materials_pressed / GameRun.randomize_all_materials / unlimited_coupons).
 var test_materials_button: Button
 var test_materials_enabled: bool = false
 
@@ -2813,9 +2814,11 @@ func _on_reset_button_pressed() -> void:
 	_reset_game()
 
 ## Testmodus umschalten: An = jede Runde bekommen ALLE Würfel zufällige Seiten-
-## und Kanten-Materialien (siehe _start_new_round / GameRun.randomize_all_materials);
-## Aus = Materialien werden von allen Würfeln entfernt. Beides startet die Runde
-## neu, damit die geänderten Würfel sofort in Grube und Trays sichtbar sind.
+## und Kanten-Materialien (siehe _start_new_round / GameRun.randomize_all_materials)
+## und die Gravur-Station bietet alle Coupon-Effekte unbegrenzt (unlimited_coupons);
+## Aus = Materialien werden von allen Würfeln entfernt, der Coupon-Zugriff endet.
+## Beides startet die Runde neu, damit die geänderten Würfel sofort in Grube und
+## Trays sichtbar sind.
 func _on_test_materials_pressed() -> void:
 	test_materials_enabled = not test_materials_enabled
 	if not test_materials_enabled:
@@ -2895,7 +2898,11 @@ func _start_new_round() -> void:
 
 	# Testmodus (siehe Einstellungs-Menü): jede Runde bekommen ALLE Würfel neue
 	# zufällige Seiten- + Kanten-Materialien, plus die festen Testmodus-Charms
-	# (Goldener Skarabäus, Goldschmied, Kleinvieh) - zum Ausprobieren der Wertung.
+	# (Goldener Skarabäus, Goldschmied, Kleinvieh) und unerschöpfliche Coupons in
+	# der Gravur-Station - zum Ausprobieren der Wertung. Unbedingt gesetzt, damit
+	# der Zugriff beim Ausschalten (und auf frischen Runs, siehe _reset_game) mit
+	# umschaltet.
+	run.unlimited_coupons = test_materials_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
 		run.grant_charms(_test_mode_charms())
