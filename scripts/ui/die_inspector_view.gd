@@ -808,6 +808,7 @@ func _chip_box(fill: Color, border: Color, border_width: int) -> StyleBoxFlat:
 func _build_coupon_board() -> void:
 	if board_box == null:
 		return
+	_hide_face_tooltip()  # die alten Slots (mit ihren Hover-Verbindungen) fallen weg
 	slot_entries.clear()
 	for child in board_box.get_children():
 		child.queue_free()
@@ -876,8 +877,12 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 	slot.custom_minimum_size = _tile_size() + Vector2.ONE * (pad * 2.0) + stack_margin
 	slot.focus_mode = Control.FOCUS_NONE
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var state := ("×%d im Bestand" % count) if count > 0 else "nicht im Bestand"
-	slot.tooltip_text = "%s (%s)\n%s" % [archetype.display_name, state, archetype.description]
+	# Wirkungs-Tooltip im Charm-Look direkt auf dem Display - derselbe handgesteuerte
+	# Overlay wie bei den Seiten-Chips (siehe _show_face_tooltip); Godots eingebauter
+	# Tooltip feuert im Tisch-SubViewport nicht. Der Bestand steht bereits als
+	# ×Anzahl-Abzeichen auf der Kachel, hier zählt die Wirkung.
+	slot.mouse_entered.connect(_show_face_tooltip.bind(slot, archetype.display_name, archetype.description))
+	slot.mouse_exited.connect(_hide_face_tooltip)
 	slot.pressed.connect(_on_coupon_pressed.bind(archetype.id))
 	slot.add_theme_stylebox_override("normal", _slot_box(Color(0.545, 0.914, 0.992, 0.35)))
 	slot.add_theme_stylebox_override("hover", _slot_box(NEON_GOLD))
@@ -1056,9 +1061,11 @@ func _build_face_tooltip() -> void:
 	box.add_child(face_tooltip_body)
 	add_child(face_tooltip)
 
-## Zeigt den Material-Tooltip über dem überfahrenen Seiten-Chip (chip): Text setzen,
-## Größe neu messen und knapp unter dem Chip platzieren, dabei innerhalb des Panels
-## eingeklemmt (clip_contents schneidet Überstände sonst ab).
+## Zeigt den Wirkungs-Tooltip (Charm-Look) über oder unter dem überfahrenen Element
+## (Seiten-/Kanten-Chip ODER Coupon-Slot): Text setzen, Größe neu messen und knapp
+## darunter platzieren - passt der Tooltip dort nicht mehr ins Panel (tief liegendes
+## Gravur-Bord), klappt er nach oben über das Element. Immer im Panel eingeklemmt,
+## weil clip_contents Überstände sonst abschneidet.
 func _show_face_tooltip(chip: Control, title: String, body: String) -> void:
 	if face_tooltip == null:
 		return
@@ -1067,7 +1074,11 @@ func _show_face_tooltip(chip: Control, title: String, body: String) -> void:
 	face_tooltip.visible = true
 	face_tooltip.reset_size()
 	var local := chip.get_global_rect().position - get_global_rect().position
-	var pos := local + Vector2(0.0, chip.size.y + u * 0.6)
+	var below := local.y + chip.size.y + u * 0.6
+	var above := local.y - face_tooltip.size.y - u * 0.6
+	var pos := Vector2(local.x, below)
+	if below + face_tooltip.size.y > size.y - u * 1.0 and above >= u * 1.0:
+		pos.y = above  # unten kein Platz -> über das Element klappen
 	pos.x = clampf(pos.x, u * 1.0, maxf(u * 1.0, size.x - face_tooltip.size.x - u * 1.0))
 	pos.y = clampf(pos.y, u * 1.0, maxf(u * 1.0, size.y - face_tooltip.size.y - u * 1.0))
 	face_tooltip.position = pos
