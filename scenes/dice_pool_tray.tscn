@@ -19,7 +19,7 @@ size = Vector3(8.4, 3.2, 12)
 
 [node name="DicePoolTray" type="Node3D" unique_id=1584236749]
 script = ExtResource("1_42muw")
-rows = 4
+rows = 5
 columns = 6
 
 [node name="TrayMesh" type="Node3D" parent="." unique_id=2136847185]

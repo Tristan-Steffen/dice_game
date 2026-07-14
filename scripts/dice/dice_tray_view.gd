@@ -3,12 +3,14 @@ extends Node3D
 ## Zeigt Würfel in einem Raster auf einem Kunststoff-Tray (wie ein Casino-
 ## Chip-Tray). Tray-Mesh und Klickbereich sind echte Kindknoten dieser Szene
 ## (siehe scenes/dice_chip_tray.tscn für die 30er-Ablage-Variante,
-## scenes/dice_pool_tray.tscn für das 24er-Pool-Tray, scenes/dice_queue_tray.tscn
-## für die kleine 1x6-Warteschlange); die Würfel werden bei _ready() per
+## scenes/dice_pool_tray.tscn für das 30er-Dice-Tray, scenes/dice_queue_tray.tscn
+## für das kleine 1x6-Nachschub-Tray); die Würfel werden bei _ready() per
 ## DieBuilder gebaut und unter $Slots eingehängt (siehe rows/columns/SPACING
-## für das Raster - je Tray-Instanz per Export einstellbar). Pool- (24) und
-## Warteschlangen-Tray (6) bilden zusammen die vollen POOL_SIZE=30 Würfel der
-## laufenden Runde (siehe scene_root.gd: _refresh_deck_trays).
+## für das Raster - je Tray-Instanz per Export einstellbar). Das Dice-Tray zeigt
+## zu Rundenbeginn ALLE POOL_SIZE=30 Würfel; sobald der Spieler zum ersten Mal in
+## die Grube zoomt, lösen sich die nächsten 6 ins Nachschub-Tray vor der Grube und
+## das Dice-Tray zeigt den Rest (siehe scene_root.gd: _refresh_deck_trays /
+## _queue_display_capacity).
 ##
 ## Slot-Reihenfolge liest wie ein Buch: Index 0 = oberste Zeile, ganz links,
 ## dann zeilenweise nach unten (siehe _build_slots).

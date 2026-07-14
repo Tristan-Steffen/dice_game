@@ -91,20 +91,18 @@ const PAYOUT_LABEL_BASE_COLOR := Color(1.35, 1.35, 1.3)
 ## "aufgedreht" wird statt nur die Farbe zu wechseln.
 const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 
-## Position, an die das Warteschlangen-Tray andockt, solange die Kamera auf
-## die Grube fokussiert ist: knapp vor deren Südrand, mittig - am unteren
-## Bildschirmrand der gezoomten Grubenansicht, da Welt-X = Bildschirm-oben
-## und Welt-Z = Bildschirm-rechts gilt (siehe CameraRig.ZOOM_BASIS). Empirisch
-## getroffen (siehe scenes/dice_tray.tscn für die Kollisions-Maße der Grube;
-## das sichtbare Tischmodell ist größer als diese Kollisionsboxen). Danach
-## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
-## (siehe _update_queue_tray_dock).
+## Feste Position des Nachschub-Trays: knapp vor dem Südrand der Grube, mittig -
+## am unteren Bildschirmrand der gezoomten Grubenansicht, da Welt-X = Bildschirm-
+## oben und Welt-Z = Bildschirm-rechts gilt (siehe CameraRig.ZOOM_BASIS).
+## Empirisch getroffen (siehe scenes/dice_tray.tscn für die Kollisions-Maße der
+## Grube; das sichtbare Tischmodell ist größer als diese Kollisionsboxen).
+## Das Tray steht hier dauerhaft (kein Andocken/Zurückziehen mehr) und wird erst
+## beim ersten Grubenzoom einer Runde befüllt (siehe _activate_queue).
 ## Knapp unterhalb (Bildschirm-unten = -X) der Grubenwand: kurze Halbachse 7.6
 ## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand. Y = 0 (die
 ## Tischbildschirm-Oberfläche, siehe SPOT_Y/Tray-Ausgangshöhe), damit die
-## Würfel im angedockten Tray AUF dem Screen liegen statt darüber zu schweben.
+## Würfel im Tray AUF dem Screen liegen statt darüber zu schweben.
 const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
-const QUEUE_TRAY_MOVE_DURATION := 0.6
 
 ## POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern - je
 ## einem Marker3D unter $ScreenAnchors: CombosBlock (Kombi-Cluster), ScoreBar
@@ -343,6 +341,12 @@ var chimney_sweep_used_this_round: bool = false  # ob der Schornsteinfeger-Charm
 
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der laufenden Runde (GameRun.POOL_SIZE Einträge)
 var next_draw_index: int = 0  # wie viele davon schon gezogen wurden
+## Ob das Nachschub-Tray dieser Runde schon aktiviert ist: es materialisiert erst
+## vor der Grube, sobald der Spieler zum ersten Mal in die Grube zoomt (siehe
+## _activate_queue). Davor liegen ALLE Würfel im großen Dice-Tray, das Nachschub-
+## Tray ist leer/unsichtbar. Einmal aktiviert, bleiben die 6 Würfel dort (sie
+## kehren nicht ins Dice-Tray zurück). Reset zu Rundenbeginn (_start_new_round).
+var queue_activated: bool = false
 var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Würfel-Slots zugewiesene Würfel
 
 var last_throw_was_reroll: bool = false  # war der zuletzt gestartete Wurf ein Neu-Würfeln?
@@ -365,9 +369,6 @@ var hand_note: String = ""  # transiente Meldung (z.B. Farkle) für die Pause zw
 
 var gameplay_ui_state_visible: bool = true  # true während PLAYING, false während Shop/GameOver
 var is_pit_focused: bool = false  # true, solange die Kamera auf die Würfelgrube gezoomt ist
-
-var queue_tray_home_position: Vector3  # Normalplatz neben dem Pool-Tray, siehe _ready
-var queue_tray_tween: Tween
 
 var lineup_tween: Tween  # Aufreihung der ausgerollten Würfel, siehe _line_up_settled_dice
 
@@ -501,15 +502,18 @@ func _ready() -> void:
 	else:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
 
-	queue_tray_home_position = queue_tray_view.position
+	# Das Nachschub-Tray lebt fest VOR der Grube (siehe QUEUE_TRAY_PIT_POSITION) -
+	# es materialisiert erst beim ersten Grubenzoom einer Runde (siehe
+	# _activate_queue) und hat keinen Normalplatz mehr neben dem Dice-Tray.
+	queue_tray_view.position = QUEUE_TRAY_PIT_POSITION
 
 	# Kamera-Zoomziele der Trays aus ihren echten Positionen ableiten, damit ein
 	# Verschieben der Trays im Editor den Zoom automatisch mitnimmt (siehe
-	# CameraRig.configure_tray_targets). Der Pool-Zoom zeigt Pool- UND
-	# Warteschlangen-Tray zusammen -> ihr Mittelpunkt; der Ablage-Zoom das
-	# Ablage-Tray. queue_tray_view steht hier noch auf seinem Normalplatz.
+	# CameraRig.configure_tray_targets). Der Pool-Zoom zeigt nur noch das große
+	# Dice-Tray (das Nachschub-Tray gehört jetzt zur Grube), der Ablage-Zoom das
+	# Ablage-Tray.
 	camera_rig.configure_tray_targets(
-		(pool_tray_view.global_position + queue_tray_view.global_position) * 0.5,
+		pool_tray_view.global_position,
 		discard_tray_view.global_position)
 	# Grubenziel auf Tisch-Screen-Höhe (0) - damit die Grubenkamera genau so hoch
 	# steht wie alle anderen Zooms (gleiche Höhe UND Winkel; die Y der Grubenmitte
@@ -901,7 +905,7 @@ func _play_money_light(delta: int) -> void:
 func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
-	table_screen.hub.set_run_info(run.round_number, run.money, run.round_goal)
+	table_screen.hub.set_run_info(run.round_number, run.money)
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -1909,10 +1913,13 @@ func _refresh_deck_trays() -> void:
 	if not deck_shift_ghosts.is_empty():
 		return  # Aufrück-Animation läuft noch - sie ruft am Ende selbst _refresh_deck_trays auf
 	queue_tray_view.ensure_capacity(_queue_capacity())
-	queue_window_size = min(_queue_capacity(), _remaining_in_pool())
+	# Solange das Nachschub-Tray dieser Runde noch nicht aktiviert ist, liegen ALLE
+	# Würfel im großen Dice-Tray (Fenster = 0). Nach dem ersten Grubenzoom zeigt das
+	# Nachschub-Tray die nächsten _queue_capacity() Würfel, das Dice-Tray den Rest.
+	queue_window_size = min(_queue_display_capacity(), _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
-	queue_tray_view.fill(queue_defs)
-	var pool_start := next_draw_index + _queue_capacity()
+	queue_tray_view.fill(queue_defs)  # leer, solange nicht aktiviert
+	var pool_start := next_draw_index + _queue_display_capacity()
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
 ## Größe des Warteschlangen-Fensters: die üblichen HAND_SIZE Plätze plus die
@@ -1924,15 +1931,22 @@ func _queue_capacity() -> int:
 		return HAND_SIZE
 	return HAND_SIZE + run.queue_bonus_slots
 
+## Wie viele Würfel gerade SICHTBAR im Nachschub-Tray liegen (und damit aus dem
+## großen Dice-Tray herausgelöst sind): 0, solange das Tray dieser Runde noch nicht
+## aktiviert ist (siehe queue_activated / _activate_queue), sonst die volle
+## _queue_capacity(). Steuert die Aufteilung zwischen Nachschub- und Dice-Tray.
+func _queue_display_capacity() -> int:
+	return _queue_capacity() if queue_activated else 0
+
 ## Weltposition, an der der Deck-Eintrag deck_index angezeigt wird, wenn der
 ## Zieh-Cursor bei cursor steht: die ersten _queue_capacity() Einträge nach dem
 ## Cursor liegen im Warteschlangen-Tray, alles danach im Pool-Tray (gleiche
 ## Aufteilung wie _refresh_deck_trays).
 func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 	var offset := deck_index - cursor
-	if offset < _queue_capacity():
+	if offset < _queue_display_capacity():
 		return queue_tray_view.slot_global_position(offset)
-	return pool_tray_view.slot_global_position(offset - _queue_capacity())
+	return pool_tray_view.slot_global_position(offset - _queue_display_capacity())
 
 ## Baut einen freien, nicht-kollidierenden Würfel für die diversen Gleit-
 ## Animationen (Aufrücken nach einem Wurf, Umsortieren im Warteschlangen-Tray)
@@ -2872,6 +2886,7 @@ func _start_new_round() -> void:
 	first_hand_after_farkle = false
 	discarded_this_round = []
 	slot_draw_positions = []
+	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom dieser Runde materialisieren
 
 	# Rundenbeginn-Wirkungen der Effektkatalog-Charms (Mitternachtssnack,
 	# Frankiermaschine, Schmuckkästchen; setzt auch den Gravierstift zurück) -
@@ -3106,21 +3121,21 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray vor der
+	# Grube: die nächsten 6 Würfel lösen sich aus dem großen Dice-Tray und bleiben
+	# dort (siehe _activate_queue / queue_activated).
+	if is_pit_focused and not queue_activated and _is_playing():
+		_activate_queue()
 	_update_gameplay_ui_visibility()
-	_update_queue_tray_dock()
 
-## Lässt das Warteschlangen-Tray zur Grube andocken, sobald die Kamera dorthin
-## zoomt (siehe QUEUE_TRAY_PIT_POSITION), und wieder zurück an seinen
-## Normalplatz, sobald sie das nicht mehr tut - so ist immer sichtbar, welche
-## Würfel als Nächstes geworfen werden, ohne aus der Grube heraus zoomen zu
-## müssen.
-func _update_queue_tray_dock() -> void:
-	var target := QUEUE_TRAY_PIT_POSITION if is_pit_focused else queue_tray_home_position
-	if queue_tray_tween:
-		queue_tray_tween.kill()
-	queue_tray_tween = create_tween()
-	queue_tray_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	queue_tray_tween.tween_property(queue_tray_view, "position", target, QUEUE_TRAY_MOVE_DURATION)
+## Aktiviert das Nachschub-Tray dieser Runde (einmalig, beim ersten Grubenzoom):
+## das Nachschub-Fenster wird sichtbar (siehe _queue_display_capacity), die
+## nächsten Würfel wandern aus dem Dice-Tray hierher. Das Tray steht fest vor der
+## Grube (QUEUE_TRAY_PIT_POSITION, siehe _ready) - es dockt nicht mehr an einen
+## Normalplatz neben dem Dice-Tray an.
+func _activate_queue() -> void:
+	queue_activated = true
+	_refresh_deck_trays()
 
 ## Der Hand-Hinweistext ist nur sichtbar, wenn die Kamera auf die Grube fokussiert
 ## ist UND der Spielzustand ihn erlaubt (nicht während Shop/GameOver). Die
