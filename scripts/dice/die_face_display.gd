@@ -65,7 +65,7 @@ var die_light: OmniLight3D = null
 var light_allowed: bool = false
 
 ## Material-Grundfarbe je Achse (siehe DieMaterial.tint_for; Weiß = kein
-## Material). set_tint multipliziert seinen Würfel-Tint (Stil/Auswahl-Gold)
+## Material). set_tint multipliziert seinen Würfel-Tint (Stilfarbe, i.d.R. Weiß)
 ## DARÜBER, damit Material-Seiten unter jeder Tönung erkennbar bleiben.
 var face_base: Dictionary = {}
 ## Grundfarbe des Kanten-Körpers: neutral (EDGE_COLOR) ohne Kanten-Material,
@@ -135,7 +135,7 @@ func set_light_enabled(on: bool) -> void:
 ## Farbe/Stärke des Würfel-Lichts aus dem aktuellen Zustand: Material-Tints
 ## (Kanten und/oder Seiten) mischen sich zur Lichtfarbe und leuchten stark
 ## (LIGHT_MATERIAL_ENERGY); ohne Material bleibt ein schwacher warmweißer
-## Schein. body_tint (Stilfarbe/Halten-Gold) färbt das Licht mit.
+## Schein. body_tint (Stilfarbe, i.d.R. Weiß) färbt das Licht mit.
 func _refresh_die_light() -> void:
 	if die_light == null:
 		return

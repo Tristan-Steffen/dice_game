@@ -60,8 +60,17 @@ const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # leicht überhelles Weiß 
 ## Goldlicht unter den zählenden Würfeln während der Zähl-Animation (siehe
 ## spawn_glow) + Licht-Trails von der Punktquelle in die Zahlen (spawn_score_trail).
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
-const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
+const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt) - Zähl- UND Auswahl-Podest
 const TOTAL_FLY_FONT := 44 * SUPERSAMPLE  # Schriftgröße der Gesamtzahl am Zielbalken
+
+## Zwei Aktions-Buttons unten mittig in der Grube (siehe place_pit_actions und
+## scene_root._forward_screen_mouse / _sync_screen_action_buttons): "Nehmen"
+## (Gold) nimmt die Hand, "Würfeln" (Grün) wirft. Sie liegen AUF dem Display und
+## werden über die Maus-Weiterleitung bedient - nur in der Grubenansicht, über
+## ihrer Fläche. Maße supersampled wie alles andere auf dem Screen.
+const PIT_ACTION_SIZE := Vector2(79, 28) * SUPERSAMPLE
+const PIT_ACTION_GAP := 10.0 * SUPERSAMPLE
+const PIT_ACTION_FONT := 14 * SUPERSAMPLE
 
 ## Licht-Trails der Zähl-Animation: LEITERBAHNEN (siehe ScoreTraceView) - feste,
 ## rein achsenparallele Linien (nur waagerecht/senkrecht, keine Schrägen), die
@@ -98,6 +107,14 @@ var hub: HubView
 ## Grube (nicht in der Grubenmitte, die vom Käfig verdeckt wäre) und schrumpft
 ## am Ende in den Balken (siehe show_pit_total/fly_total_to_goal).
 var pit_total_label: Label
+
+## Aktions-Buttons unten in der Grube (siehe _build_pit_actions/place_pit_actions).
+## pit_actions_root ist die (klick-durchlässige) Trägerfläche; die beiden Buttons
+## fangen ihre Klicks selbst. scene_root verbindet ihre pressed-Signale mit
+## _on_take_button_pressed / _on_throw_button_pressed und steuert sichtbar/aktiv.
+var pit_actions_root: Control
+var take_action_button: Button
+var roll_action_button: Button
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (nach _build_content) -
 ## Grundlage für Kamera-Zoomziel und Klickzone (siehe scene_root, cluster_*).
@@ -220,6 +237,8 @@ func _build_content() -> void:
 	hub = HubView.new()
 	hub.name = "Hub"
 	add_child(hub)
+
+	_build_pit_actions()
 
 ## Neon-Rahmen mit dezent abgesetztem Hintergrund um den ganzen Cluster.
 func _add_cluster_frame(rect: Rect2) -> void:
@@ -518,7 +537,7 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	glow.pivot_offset = glow.size / 2.0
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = GLOW_COLOR  # überhelles Gold (bloomt dank use_hdr_2d)
+	box.bg_color = GLOW_COLOR  # überhelles Gold (bloomt dank use_hdr_2d) - Zählen wie Auswahl
 	box.set_corner_radius_all(int(side_px * 0.22))
 	glow.add_theme_stylebox_override("panel", box)
 	glow.modulate = Color(1, 1, 1, 0)
@@ -589,6 +608,73 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 	hub.size = size_px
 	hub.position = center_px - size_px / 2.0
 	hub.layout()
+
+## Baut die beiden Grubenaktions-Buttons (verdeckt/an Standardplatz, bis
+## place_pit_actions sie mittig setzt). Die Trägerfläche schluckt selbst keine
+## Klicks (MOUSE_FILTER_IGNORE); nur die Buttons fangen ihre eigenen.
+func _build_pit_actions() -> void:
+	pit_actions_root = Control.new()
+	pit_actions_root.name = "PitActions"
+	pit_actions_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_actions_root.size = Vector2(PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP, PIT_ACTION_SIZE.y)
+	add_child(pit_actions_root)
+
+	take_action_button = _make_pit_button("Nehmen", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
+	take_action_button.position = Vector2.ZERO
+	pit_actions_root.add_child(take_action_button)
+
+	roll_action_button = _make_pit_button("Würfeln", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK)
+	roll_action_button.position = Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
+	pit_actions_root.add_child(roll_action_button)
+
+## Ein satter Neon-Button im Casino-Look, aber mit supersampled-skalierten Rändern/
+## Radien (CasinoStyle rechnet in Fenster-Pixeln; auf dem großen Display wären die
+## festen 3px-Ränder sonst fast unsichtbar). Farben/Textkontrast aus CasinoStyle.
+func _make_pit_button(text: String, accent: Color, dark: Color) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.size = PIT_ACTION_SIZE
+	button.custom_minimum_size = PIT_ACTION_SIZE
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_stylebox_override("normal", _pit_button_box(accent, dark))
+	button.add_theme_stylebox_override("hover", _pit_button_box(accent.lightened(0.14), CasinoStyle.GOLD))
+	button.add_theme_stylebox_override("pressed", _pit_button_box(dark, dark.darkened(0.2)))
+	button.add_theme_stylebox_override("disabled", _pit_button_box(CasinoStyle.DISABLED_FILL, CasinoStyle.DISABLED_BORDER))
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	button.add_theme_font_size_override("font_size", PIT_ACTION_FONT)
+	button.add_theme_color_override("font_color", CasinoStyle._readable_text(accent))
+	button.add_theme_color_override("font_hover_color", CasinoStyle._readable_text(accent.lightened(0.14)))
+	button.add_theme_color_override("font_pressed_color", CasinoStyle.CREAM)
+	button.add_theme_color_override("font_disabled_color", CasinoStyle.MUTED)
+	button.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
+	button.add_theme_constant_override("outline_size", 1 * SUPERSAMPLE)
+	return button
+
+func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = border
+	box.set_border_width_all(2 * SUPERSAMPLE)
+	box.set_corner_radius_all(7 * SUPERSAMPLE)
+	box.set_content_margin_all(4 * SUPERSAMPLE)
+	box.shadow_color = CasinoStyle.SHADOW
+	box.shadow_size = 3 * SUPERSAMPLE
+	box.shadow_offset = Vector2(0, 2) * SUPERSAMPLE
+	return box
+
+## Setzt die Aktions-Buttons mittig auf center_px (Display-Pixel; scene_root
+## leitet das aus der Grubengeometrie ab - unten mittig in der Grube).
+func place_pit_actions(center_px: Vector2) -> void:
+	if pit_actions_root == null:
+		return
+	pit_actions_root.position = center_px - pit_actions_root.size / 2.0
+
+## Bildschirm-Rechteck der Aktions-Buttons (für die Maus-Weiterleitung in der
+## Grubenansicht, siehe scene_root._screen_input_rect).
+func pit_actions_rect() -> Rect2:
+	if pit_actions_root == null:
+		return Rect2()
+	return Rect2(pit_actions_root.position, pit_actions_root.size)
 
 ## Schneidet einen Kamerastrahl (Ursprung + Richtung, siehe scene_root:
 ## _forward_screen_mouse) mit der Tischbildschirm-Ebene und liefert den

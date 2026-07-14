@@ -91,32 +91,9 @@ offset_left = 390.0
 offset_top = 16.0
 offset_right = 1080.0
 offset_bottom = 96.0
-text = "Würfle, um deine Hand zu sehen"
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 2
-
-[node name="TakeButton" type="Button" parent="UI" unique_id=1516444737]
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 24.0
-offset_top = -88.0
-offset_right = 214.0
-offset_bottom = -24.0
-disabled = true
-text = "Nehmen"
-
-[node name="SelectAllButton" type="Button" parent="UI" unique_id=1958053695]
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 230.0
-offset_top = -88.0
-offset_right = 470.0
-offset_bottom = -24.0
-disabled = true
-text = "Alle auswählen"
 
 [node name="SettingsMenu" type="VBoxContainer" parent="UI" unique_id=492819085]
 visible = false
@@ -163,41 +140,6 @@ grow_horizontal = 0
 grow_vertical = 0
 text = "⚙  Einstellungen"
 
-[node name="RoundHud" type="VBoxContainer" parent="UI" unique_id=858313649]
-offset_left = 24.0
-offset_top = 16.0
-offset_right = 370.0
-offset_bottom = 92.0
-theme_override_constants/separation = 6
-
-[node name="RoundBadgeLabel" type="Label" parent="UI/RoundHud" unique_id=284679518]
-layout_mode = 2
-text = "Runde 1"
-
-[node name="PointsBar" type="ProgressBar" parent="UI/RoundHud" unique_id=2135659550]
-custom_minimum_size = Vector2(0, 34)
-layout_mode = 2
-max_value = 150.0
-show_percentage = false
-
-[node name="PointsLabel" type="Label" parent="UI/RoundHud/PointsBar" unique_id=440801283]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-text = "0 / 150 Punkte"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="MoneyLabel" type="Label" parent="UI" unique_id=80467153]
-offset_left = 24.0
-offset_top = 132.0
-offset_right = 370.0
-offset_bottom = 160.0
-text = "$0"
-
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false
 offset_left = 350.0
@@ -222,7 +164,5 @@ autowrap_mode = 2
 layout_mode = 2
 text = "Neues Spiel"
 
-[connection signal="pressed" from="UI/TakeButton" to="." method="_on_take_button_pressed"]
-[connection signal="pressed" from="UI/SelectAllButton" to="." method="_on_select_all_button_pressed"]
 [connection signal="pressed" from="UI/SettingsMenu/ResetButton" to="." method="_on_reset_button_pressed"]
 [connection signal="pressed" from="UI/GameOverPanel/VBoxContainer/GameOverResetButton" to="." method="_on_reset_button_pressed"]

@@ -50,7 +50,9 @@ const KIND_TINTS := {}
 
 ## Markiert Würfel, die der Spieler vor dem nächsten "Neu würfeln" schützen
 ## will (siehe set_selected/selected) - "Nehmen" nimmt ohnehin immer alle 6.
-const SELECT_TINT := Color(1.0, 0.82, 0.2)
+## Sichtbar gemacht wird die Auswahl NICHT mehr am Würfelkörper (kein Tint),
+## sondern durch ein goldenes Leucht-Podest unter dem Würfel auf dem Tisch-Display
+## (siehe scene_root._update_selection_glows) - dieselbe Optik wie beim Zählen.
 
 ## Ein Würfel gilt nur dann als "ruhig genug", wenn er zusätzlich fast flach
 ## auf einer Seite liegt (Dot der am besten ausgerichteten Achse mit UP) -
@@ -154,10 +156,10 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 	return all_settled
 
 ## Spieler klickt einen noch nicht genommenen Würfel an, um ihn fürs nächste
-## "Nehmen" zu markieren (siehe SELECT_TINT).
+## "Nehmen" zu markieren. Rein Zustand - die Auswahl wird durch ein weißes
+## Podest auf dem Display gezeigt (siehe scene_root._update_selection_glows).
 func set_selected(index: int, is_selected: bool) -> void:
 	selected[index] = is_selected
-	face_displays[index].set_tint(SELECT_TINT if is_selected else _style_tint(slot_defs[index]))
 
 func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
@@ -180,13 +182,6 @@ func clear_selection() -> void:
 	for i in count():
 		selected[i] = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
-
-## Markiert alle Würfel als geschützt vor dem nächsten Neu-Würfeln (siehe
-## scene_root.gd: SelectAllButton).
-func select_all() -> void:
-	for i in count():
-		selected[i] = true
-		face_displays[i].set_tint(SELECT_TINT)
 
 func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	slot_defs = defs.duplicate()

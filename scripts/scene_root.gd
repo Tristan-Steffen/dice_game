@@ -73,7 +73,7 @@ const DIE_FLASH_SCALE := 1.25
 ## Kacheln lösen sich, Geld-Coupons fliegen nach oben links (Geldzähler), Ätzungen
 ## nach rechts (Zähler je Ätzungstyp), Werbeflächen verblassen.
 const CHIP_COUPON_VALUE := 1  # Chips je Geld-Coupon (Chip-Coupon, siehe Obsidian "02 Gravuren")
-const SHEET_ANIM_MONEY_TARGET := Vector2(72, 148)  # Bildschirmziel der Geld-Coupons (nahe money_label)
+const SHEET_ANIM_MONEY_TARGET := Vector2(72, 148)  # Bildschirmziel der Geld-Coupons (oben links, wo Geld angeschrieben wird)
 const SHEET_ANIM_COUNTER_X := 980.0  # linke Kante der Ätzungs-Zähler rechts
 const SHEET_ANIM_COUNTER_TOP := 250.0
 const SHEET_ANIM_COUNTER_ROW := 48.0
@@ -152,6 +152,10 @@ const SCORE_MERGE_TIME := 0.75  # Standzeit der verschmolzenen Gesamtzahl
 const SCORE_FLY_TIME := 0.55  # Flugdauer der Gesamtzahl in den Zielbalken
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Kantenlänge des Würfel-Glow-Rechtecks als Vielfaches der Würfelgröße (50% größer)
 const SCORE_TRAIL_TIME := 0.3  # Flugdauer eines Licht-Trails Quelle -> Zahl (die Zahl wächst beim Einschlag)
+## Weltabstand der Aktions-Buttons (Nehmen/Würfeln) unter die Grubenmitte in
+## Richtung Bildschirm-unten (Welt -X) - so landen sie unten mittig in der Grube,
+## noch innerhalb des Randes (PIT_HALF_X = 7.6, siehe DicePit).
+const PIT_ACTION_BAR_INSET_X := 5.6
 
 ## Geld-Lichtanimation (siehe _play_money_light): Gutschriften schicken ein
 ## GOLDENES Licht vom Hub-Rand zu den Pokerchips (der Hub-Rahmen leuchtet dabei
@@ -214,8 +218,6 @@ const LINEUP_DURATION := 0.35  # Gleitdauer der Aufreihung nach dem Ausrollen
 ## parallel zu einer Phase laufen.
 enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 
-@onready var take_button: Button = $UI/TakeButton
-@onready var select_all_button: Button = $UI/SelectAllButton
 @onready var settings_menu: VBoxContainer = $UI/SettingsMenu
 @onready var settings_toggle_button: Button = $UI/SettingsToggleButton
 @onready var reset_button: Button = $UI/SettingsMenu/ResetButton
@@ -235,12 +237,7 @@ const TEST_MODE_CHARM_IDS := [Charm.GOLDEN_SCARAB, Charm.GOLDSMITH, Charm.SMALL_
 ## Die Charm-Bibliothek (alle Charms + Beschreibungen, siehe CharmLibraryView),
 ## per Bibliothek-Knopf im Einstellungs-Menü auf-/zugeklappt.
 var charm_library: CharmLibraryView
-@onready var round_hud: Control = $UI/RoundHud
-@onready var round_badge_label: Label = $UI/RoundHud/RoundBadgeLabel
-@onready var points_bar: ProgressBar = $UI/RoundHud/PointsBar
-@onready var points_label: Label = $UI/RoundHud/PointsBar/PointsLabel
 @onready var hand_label: Label = $UI/HandLabel
-@onready var money_label: Label = $UI/MoneyLabel
 
 ## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
 ## ShopController) - seit dem Hub-Umbau lebt er als Neon-Panel AUF dem
@@ -379,6 +376,13 @@ var lineup_tween: Tween  # Aufreihung der ausgerollten Würfel, siehe _line_up_s
 ## (siehe _cleanup_take_animation).
 var take_anim_glows: Array[Control] = []
 
+## Goldene Leucht-Podeste unter den aktuell AUSGEWÄHLTEN Würfeln (Slot-Index ->
+## Display-Knoten, siehe _update_selection_glows) - dieselbe Optik wie die
+## Goldpodeste beim Zählen. Folgen den Würfeln jeden Frame und werden
+## freigegeben, sobald der Würfel abgewählt wird, verschwindet oder die
+## Auswahlphase (IDLE) endet.
+var _select_glows: Dictionary = {}
+
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
 var deck_shift_tween: Tween
 
@@ -487,6 +491,13 @@ func _ready() -> void:
 			Vector2(HUB_WIDTH_WORLD * ppw, HUB_HEIGHT_WORLD * ppw))
 		_setup_hub_zoom()
 		_refresh_hub_info()
+		# Aktions-Buttons unten mittig in der Grube (Bildschirm-unten = Welt -X,
+		# horizontale Mitte = Welt-Z der Grubenmitte). Nehmen/Würfeln lösen dieselben
+		# Aktionen aus wie die Fenster-Steuerung; bedient über _forward_screen_mouse.
+		table_screen.place_pit_actions(table_screen.world_to_pixel(Vector3(
+			DicePit.PIT_CENTER.x - PIT_ACTION_BAR_INSET_X, 0.0, DicePit.PIT_CENTER.z)))
+		table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
+		table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	else:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
 
@@ -551,19 +562,13 @@ func _ready() -> void:
 	_build_charm_tooltip()
 	_reset_game()
 
-## Verpasst der gesamten 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
-## CasinoStyle) - jede Aktion bekommt ihre eigene Akzentfarbe: Nehmen = Gold,
-## Auswählen = Blau, Kombinationen = Grün, Einstellungen = Lila, Neues Spiel =
-## Rot (Gefahr), Debug = Blau. Der Punktetext leuchtet cremeweiß mit Umriss.
+## Verpasst der verbliebenen 2D-Spiel-UI den bunten Casino-/Balatro-Look (siehe
+## CasinoStyle): Einstellungen = Lila, Bibliothek = Grün, Neues Spiel = Rot,
+## Debug = Blau. Punkte, Geld und die Nehmen/Würfeln-Aktionen leben inzwischen
+## auf dem Tisch-Display (siehe HubView, ChipStackView, TableScreen-Aktionsbuttons).
 func _style_ui() -> void:
 	CasinoStyle.style_score_label(hand_label, 30)
-	CasinoStyle.style_chip_label(round_badge_label, 20)
-	CasinoStyle.style_progress_bar(points_bar)
-	CasinoStyle.style_score_label(points_label, 17)
-	CasinoStyle.style_chip_label(money_label, 20, CasinoStyle.GOLD)
 
-	CasinoStyle.style_button(take_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
-	CasinoStyle.style_button(select_all_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
 	CasinoStyle.style_button(settings_toggle_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 16)
 	CasinoStyle.style_button(library_button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 16)
 	CasinoStyle.style_button(reset_button, CasinoStyle.RED, CasinoStyle.RED_DARK, 16)
@@ -753,11 +758,11 @@ func _play_sheet_finish_animation() -> void:
 	finish.tween_interval(last_end + 0.25)
 	finish.tween_callback(_cleanup_sheet_animation)
 
-## Ein Geld-Coupon ist am Geldzähler angekommen: Chips gutschreiben + pulsen.
+## Ein Geld-Coupon ist am Geldzähler angekommen: gutschreiben (Chips + Hub-Licht
+## folgen über run.money_changed, siehe _on_money_changed/_play_money_light).
 ## Doppelte Perforation hebt den Chip-Wert (siehe CharmEffects.chip_coupon_value).
 func _grant_chip_coupon() -> void:
 	run.add_money(CharmEffects.chip_coupon_value(CHIP_COUPON_VALUE, run.charm_ids()))
-	_pulse_money_label()
 
 ## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen, Zähler
 ## hochzählen und die Zeile kurz aufpulsen.
@@ -780,7 +785,7 @@ func _cleanup_sheet_animation() -> void:
 	sheet_preview_backdrop.color.a = 0.6
 	sheet_animating = false
 
-## Kurzer elastischer Größen-Puls eines UI-Elements (wie _pulse_money_label).
+## Kurzer elastischer Größen-Puls eines UI-Elements (Arcade-Pop).
 func _pulse_control(control: Control) -> void:
 	control.pivot_offset = control.size / 2.0
 	control.scale = Vector2(1.4, 1.4)
@@ -852,7 +857,6 @@ func _on_charms_changed() -> void:
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
 	_shown_money = new_money
-	money_label.text = "$%d" % new_money
 	chip_stack.set_money(new_money)
 	_refresh_hub_info()
 	_play_money_light(delta)
@@ -898,28 +902,6 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, run.round_goal)
-
-## Kurzes elastisches Aufplustern des Geldtexts, analog zu _pulse_points_label.
-func _pulse_money_label() -> void:
-	money_label.pivot_offset = money_label.size / 2.0
-	money_label.scale = Vector2(1.35, 1.35)
-	var pulse := create_tween()
-	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	pulse.tween_property(money_label, "scale", Vector2.ONE, 0.4)
-
-## Kleiner "+$N"-Text, der neben der Geldanzeige aufsteigt und ausblendet -
-## z.B. für jeden Auszahlungsschritt in _play_round_clear_payout.
-func _show_money_popup(amount: int) -> void:
-	var popup := Label.new()
-	popup.text = "+$%d" % amount
-	CasinoStyle.style_chip_label(popup, 16, CasinoStyle.GOLD)
-	money_label.add_child(popup)
-	popup.position = Vector2(64, -2)
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(popup, "position:y", popup.position.y - 26.0, 0.7)
-	tween.tween_property(popup, "modulate:a", 0.0, 0.7)
-	tween.chain().tween_callback(popup.queue_free)
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -992,7 +974,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			# _line_up_settled_dice - _can_toggle_selection garantiert, dass die
 			# Würfel gerade ausgerollt daliegen).
 			_line_up_settled_dice()
-			_refresh_action_buttons()
 			# Kombination und Basis richten sich nach der Auswahl (siehe
 			# _refresh_ui / _scoring_slots) - sofort mitziehen lassen.
 			_refresh_ui()
@@ -1600,17 +1581,22 @@ func _setup_hub_zoom() -> void:
 ## SubViewport gedrückt (push_input) - dort verhalten sich Buttons/Hover wie
 ## normale Godot-UI. Rechtsklicks werden nie weitergereicht (Zoom-out).
 func _forward_screen_mouse(event: InputEventMouse) -> bool:
-	if camera_rig.mode != CameraRig.Mode.HUB or camera_rig.is_animating:
+	if camera_rig.is_animating or table_screen == null:
 		return false
 	if event is InputEventMouseButton and event.button_index != MOUSE_BUTTON_LEFT:
 		return false
+	# Nur bestimmte Flächen des Displays sind je Ansicht interaktiv (Hub-Panel in
+	# der Hub-Sicht, Aktions-Buttons in der Grubensicht) - alles andere bleibt 3D.
+	var target_rect := _screen_input_rect()
+	if target_rect.size == Vector2.ZERO:
+		return false
 	var camera := get_viewport().get_camera_3d()
-	if camera == null or table_screen == null or table_screen.hub == null:
+	if camera == null:
 		return false
 	var pixel := table_screen.pixel_from_ray(
 		camera.project_ray_origin(event.position),
 		camera.project_ray_normal(event.position))
-	if pixel.x < 0.0 or not table_screen.hub.get_rect().has_point(pixel):
+	if pixel.x < 0.0 or not target_rect.has_point(pixel):
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 		return false
 	var forwarded := event.duplicate() as InputEventMouse
@@ -1623,6 +1609,19 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	last_screen_pixel = pixel
 	table_screen.push_input(forwarded)
 	return true
+
+## Die aktuell interaktive Fläche des Tisch-Displays je Kameraansicht (siehe
+## _forward_screen_mouse): in der Hub-Sicht das ganze Hub-Panel, in der Grubensicht
+## nur die Aktions-Buttons (Nehmen/Würfeln) - der Rest der Grube bleibt 3D (Würfel
+## wählen, Becher, Charms). Leeres Rect = in dieser Ansicht nichts weiterreichen.
+func _screen_input_rect() -> Rect2:
+	match camera_rig.mode:
+		CameraRig.Mode.HUB:
+			return table_screen.hub.get_rect() if table_screen.hub != null else Rect2()
+		CameraRig.Mode.PIT:
+			if table_screen.pit_actions_root != null and table_screen.pit_actions_root.visible:
+				return table_screen.pit_actions_rect()
+	return Rect2()
 
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
@@ -1685,6 +1684,48 @@ func _build_charm_tooltip() -> void:
 
 func _process(_delta: float) -> void:
 	_update_charm_tooltip()
+	_update_selection_glows()
+	_sync_screen_action_buttons()
+
+## Hält die On-Screen-Buttons (Nehmen/Würfeln) im Takt des Spielzustands: sichtbar
+## nur in der Grubenansicht während des Spiels; "Nehmen" verlangt eine ausgewählte
+## Hand, "Würfeln" freien Vorrat und Ruhephase (siehe _on_throw_button_pressed).
+## Läuft jeden Frame, damit die Buttons unabhängig von den verstreuten
+## Zustandswechseln immer stimmen.
+func _sync_screen_action_buttons() -> void:
+	if table_screen == null or table_screen.pit_actions_root == null:
+		return
+	var show := gameplay_ui_state_visible and is_pit_focused
+	table_screen.pit_actions_root.visible = show
+	if not show:
+		return
+	var interactable := phase == Phase.IDLE and has_rolled_current_hand
+	table_screen.take_action_button.disabled = not interactable or _scoring_slots().is_empty()
+	table_screen.roll_action_button.disabled = not (phase == Phase.IDLE and _remaining_in_pool() > 0)
+
+## Zeigt die geschützte Auswahl (siehe DiceController.selected) als goldenes
+## Leucht-Podest unter jedem ausgewählten Würfel auf dem Tisch-Display - dieselbe
+## Optik wie die Goldpodeste beim Zählen (siehe TableScreen.spawn_glow /
+## _play_take_animation). Die Podeste folgen den Würfeln jeden Frame
+## (auch während sie sich in die Reihe schieben, siehe _line_up_settled_dice) und
+## sind nur während der Auswahlphase sichtbar: sobald gezählt wird (SCORING)
+## übernehmen die Goldpodeste, außerhalb von IDLE gibt es keine Auswahl.
+func _update_selection_glows() -> void:
+	var want := phase == Phase.IDLE and has_rolled_current_hand
+	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
+	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
+	for i in dice.count():
+		var show_glow := want and dice.roots[i].visible and dice.selected[i]
+		if show_glow:
+			var center := table_screen.world_to_pixel(dice.bodies[i].global_position)
+			if _select_glows.has(i):
+				var g: Control = _select_glows[i]
+				g.position = center - g.size / 2.0
+			else:
+				_select_glows[i] = table_screen.spawn_glow(center, glow_side)
+		elif _select_glows.has(i):
+			_select_glows[i].queue_free()
+			_select_glows.erase(i)
 
 ## Hover-Tooltip der Charms: aktiv aus JEDER Ansicht, sobald der Cursor über
 ## einem Charm liegt (Projektions-Nähe, siehe CharmRowView.charm_at_screen_pos) -
@@ -2009,8 +2050,6 @@ func _on_throw_button_pressed() -> void:
 			move_top_targets.append(_pit_top_row_position(k, selected_indices.size(), dice.bodies[i].global_position.y))
 
 	phase = Phase.CUP_ANIMATING
-	take_button.disabled = true
-	select_all_button.disabled = true
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
@@ -2266,8 +2305,6 @@ func _on_roll_finished() -> void:
 	var roll_income := MaterialEffects.roll_money(_edge_materials(), last_thrown_indices, run.charm_ids())
 	if roll_income > 0:
 		run.add_money(roll_income)
-		_pulse_money_label()
-		_show_money_popup(roll_income)
 
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln – der erste Wurf
 	# einer Hand nie. Bringt der Wurf nicht mehr Punkte als der Stand direkt
@@ -2282,7 +2319,6 @@ func _on_roll_finished() -> void:
 			_line_up_settled_dice()
 			has_rolled_current_hand = true
 			last_throw_was_reroll = false
-			_refresh_action_buttons()
 			_refresh_deck_trays()
 			_refresh_ui()
 			return
@@ -2298,7 +2334,6 @@ func _on_roll_finished() -> void:
 	_line_up_settled_dice()
 
 	has_rolled_current_hand = true
-	_refresh_action_buttons()
 	_refresh_deck_trays()
 	_refresh_ui()
 
@@ -2325,7 +2360,6 @@ func _on_farkle() -> void:
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
 		last_throw_was_reroll = false
-		_refresh_action_buttons()
 		_refresh_deck_trays()
 		_refresh_ui()
 		return
@@ -2343,8 +2377,6 @@ func _on_farkle() -> void:
 	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
 	if shard_income > 0:
 		run.add_money(shard_income)
-		_pulse_money_label()
-		_show_money_popup(shard_income)
 
 	# Standuhr: der Farkle verdoppelt die aktuellen Rundenpunkte.
 	if CharmEffects.farkle_doubles_points(ids) and hand_total > 0:
@@ -2376,8 +2408,6 @@ func _on_farkle() -> void:
 		var income := CharmEffects.farkle_survival_income(ids)
 		if income > 0:
 			run.add_money(income)
-			_pulse_money_label()
-			_show_money_popup(income)
 		_start_new_hand()
 
 ## Nimmt die aktuell AUSGEWÄHLTEN Würfel als Hand (siehe _scoring_slots /
@@ -2385,7 +2415,7 @@ func _on_farkle() -> void:
 ## Basispunkte. Der Wert wird zum Rundenstand addiert; physisch wandern danach
 ## weiterhin alle liegenden Würfel ins Ablage-Tray. Ohne Auswahl gibt es nichts
 ## zu nehmen (der Nehmen-Knopf ist dann ohnehin gesperrt, siehe
-## _refresh_action_buttons).
+## _sync_screen_action_buttons).
 func _on_take_button_pressed() -> void:
 	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
@@ -2448,16 +2478,12 @@ func _on_take_button_pressed() -> void:
 	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
 	if take_money > 0:
 		run.add_money(take_money)
-		_pulse_money_label()
-		_show_money_popup(take_money)
 	# Goldrausch: nutzt die Kombination ALLE liegenden Würfel, wächst das Geld
 	# um 50% (gedeckelt auf $50 Zuwachs).
 	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count()):
 		var rush := mini(run.money / 2, 50)
 		if rush > 0:
 			run.add_money(rush)
-			_pulse_money_label()
-			_show_money_popup(rush)
 	# Hausrezept: die Kombination mit den meisten Menü-Stufen steigt beim
 	# Nehmen erneut (nur wenn sie überhaupt Stufen hat).
 	if ids.has(Charm.HOUSE_RECIPE):
@@ -2497,8 +2523,6 @@ func _on_take_button_pressed() -> void:
 ## der Aufrufer erkennt das an phase != SCORING und wendet nichts mehr an.
 func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	phase = Phase.SCORING
-	take_button.disabled = true
-	select_all_button.disabled = true
 	_cancel_lineup()
 
 	# 1) Schwebende Reihe: zählende Würfel zuerst (= Reihenfolge der
@@ -2730,16 +2754,6 @@ func _max_combo_level() -> int:
 		best = maxi(best, int(run.combo_levels[key]))
 	return best
 
-## Markiert alle Würfel fürs nächste "Neu würfeln" als geschützt (siehe
-## DiceController.select_all) - nützlich, um versehentliches Neu-Würfeln der
-## kompletten Hand zu vermeiden.
-func _on_select_all_button_pressed() -> void:
-	if phase != Phase.IDLE or not has_rolled_current_hand:
-		return
-	dice.select_all()
-	_line_up_settled_dice()  # neue Ordnung (alle in der Kombination) angleiten
-	_refresh_action_buttons()
-	_refresh_ui()  # jetzt zählen alle Würfel - Kombination/Basis sofort nachziehen
 
 ## Markiert nach jedem Wurf automatisch die Würfel, die gerade die beste offene
 ## Kombination bilden (siehe DiceScoring.best_hand_indices), z.B. bei 3 Vierern
@@ -2780,15 +2794,6 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 	breakdown["participating"] = mapped_part
 	for step: Dictionary in breakdown["die_steps"]:
 		step["slot"] = slots[step["slot"]]
-
-## Aktualisiert Nehmen/Alle-auswählen: beide sind nutzbar, sobald eine Hand
-## liegt und weder gewürfelt noch der Becher gerade animiert wird. Nehmen
-## verlangt zusätzlich mindestens einen ausgewählten Würfel - ohne Auswahl gibt
-## es keine Hand zu nehmen (siehe _scoring_slots / _on_take_button_pressed).
-func _refresh_action_buttons() -> void:
-	var interactable := phase == Phase.IDLE and has_rolled_current_hand
-	take_button.disabled = not interactable or _scoring_slots().is_empty()
-	select_all_button.disabled = not interactable
 
 func _on_reset_button_pressed() -> void:
 	_reset_game()
@@ -2935,8 +2940,6 @@ func _start_new_hand() -> void:
 	# full_reroll_stacks bleibt bewusst stehen - Alles-oder-nichts stapelt bis
 	# zum nächsten NEHMEN (siehe _on_take_button_pressed), nicht je Hand.
 	dice.reset()
-	take_button.disabled = true
-	select_all_button.disabled = true
 	_refresh_deck_trays()
 	_refresh_ui()
 
@@ -2949,8 +2952,6 @@ func _start_new_hand() -> void:
 ## schon jetzt auf PAYOUT, damit während der Animation nichts anklickbar
 ## bleibt, obwohl Grube und Rundenanzeige optisch noch stehen bleiben.
 func _on_round_complete() -> void:
-	take_button.disabled = true
-	select_all_button.disabled = true
 	if hand_total >= run.round_goal:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
@@ -2974,8 +2975,6 @@ func _on_round_complete() -> void:
 		var extra := CharmEffects.round_end_income(run.money, hand_total - run.round_goal, ids)
 		if extra > 0:
 			run.add_money(extra)
-			_pulse_money_label()
-			_show_money_popup(extra)
 		var floor_value := CharmEffects.money_floor(ids)
 		if run.money < floor_value:
 			run.money = floor_value
@@ -3012,8 +3011,6 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 	var hub := table_screen.hub
 	await _light_up_payout_label(hub.blind_payout_label if hub != null else null)
 	run.add_money(blind)
-	_pulse_money_label()
-	_show_money_popup(blind)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 	_fade_payout_label(hub.blind_payout_label if hub != null else null)
 
@@ -3025,8 +3022,6 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 			if i < die_entries.size():
 				_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
 			run.add_money(per_die)
-			_pulse_money_label()
-			_show_money_popup(per_die)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
 		_fade_payout_label(hub.die_payout_label if hub != null else null)
 	# Wohin es nach dem Auszählen geht, entscheidet der Aufrufer (der Shop
@@ -3127,15 +3122,13 @@ func _update_queue_tray_dock() -> void:
 	queue_tray_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	queue_tray_tween.tween_property(queue_tray_view, "position", target, QUEUE_TRAY_MOVE_DURATION)
 
-## UI-Text und Würfeln/Nehmen-Buttons sind nur sichtbar, wenn die Kamera auf
-## die Grube fokussiert ist UND der Spielzustand sie erlaubt (nicht während
-## Shop/GameOver).
+## Der Hand-Hinweistext ist nur sichtbar, wenn die Kamera auf die Grube fokussiert
+## ist UND der Spielzustand ihn erlaubt (nicht während Shop/GameOver). Die
+## Nehmen/Würfeln-Buttons auf dem Display steuern ihre Sichtbarkeit selbst (siehe
+## _sync_screen_action_buttons).
 func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
-	round_hud.visible = show_ui
-	take_button.visible = show_ui
-	select_all_button.visible = show_ui
 
 # --- Reaktionen auf Shop/Gravur-Station --------------------------------------
 # Käufe und Coupon-Verbrauch mutieren den GameRun direkt (ShopController.run /
@@ -3172,7 +3165,9 @@ func _refresh_ui() -> void:
 	_refresh_round_hud()
 
 	if not has_rolled_current_hand:
-		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
+		# Nur transiente Meldungen anzeigen (Farkle/Anker o.Ä.), sonst leer - der
+		# frühere Dauer-Hinweis "Klicke den Würfelbecher zum Würfeln" entfällt.
+		hand_label.text = hand_note
 		_refresh_combos("")
 		if phase != Phase.SCORING:
 			table_screen.update_pit_score(0, 0)  # Daueranzeige in Ruhestellung
@@ -3205,49 +3200,30 @@ func _refresh_ui() -> void:
 					DiceScoring.points_for(hand["key"], run.combo_levels),
 					DiceScoring.mult_for(hand["key"], run.combo_levels))
 
-## Aktualisiert die statischen Teile der Runden-Anzeige (Rundenzahl, Balken-
-## Obergrenze) - der aktuell gezeigte Punktestand läuft separat und animiert
-## über _animate_points_to, damit ein Zuwachs sichtbar hochzählt statt zu
-## springen. Harmlos, auch wenn mehrfach ohne echte Änderung aufgerufen (siehe
-## _refresh_ui - läuft nach jedem Wurf, nicht nur bei neuer Punktzahl).
+## Aktualisiert die statischen Teile der Runden-Anzeige (Rundenziel) - der aktuell
+## gezeigte Punktestand läuft separat und animiert über _animate_points_to, damit
+## ein Zuwachs sichtbar hochzählt statt zu springen. Harmlos, auch wenn mehrfach
+## ohne echte Änderung aufgerufen (siehe _refresh_ui - läuft nach jedem Wurf).
 func _refresh_round_hud() -> void:
-	round_badge_label.text = "Runde %d" % run.round_number
-	points_bar.max_value = run.round_goal
-	# Der Zielbalken auf dem Tisch-Display zeigt dasselbe (z.B. neues Rundenziel
-	# nach dem Shop, auch ohne Punktänderung); die Hub-Übersicht läuft mit.
+	# Rundenstand + Ziel leben jetzt auf dem Tisch-Display (Zielbalken + Hub-
+	# Übersicht) - z.B. neues Rundenziel nach dem Shop, auch ohne Punktänderung.
 	table_screen.set_goal_progress(displayed_points, run.round_goal)
 	_refresh_hub_info()
 
-## Lässt die Punkteanzeige (Balken + Zahl) von ihrem aktuell gezeigten Wert
-## sichtbar zu target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt)
-## statt sofort zu springen - inklusive kurzem Aufplustern des Zahlentexts bei
-## einem Zuwachs (siehe _pulse_points_label). animate=false für den harten
-## Rundenreset auf 0 (siehe _start_new_round), da dort nichts "erspielt" wurde.
+## Lässt den erspielten Punktestand von seinem aktuell gezeigten Wert sichtbar zu
+## target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt) statt sofort zu
+## springen - der Zielbalken auf dem Tisch-Display läuft dabei mit. animate=false
+## für den harten Rundenreset auf 0 (siehe _start_new_round).
 func _animate_points_to(target: int, animate: bool = true) -> void:
 	if points_tween:
 		points_tween.kill()
 	if not animate:
 		_set_displayed_points(target)
 		return
-	var gained := target > displayed_points
 	points_tween = create_tween()
 	points_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	points_tween.tween_method(_set_displayed_points, displayed_points, target, 0.6)
-	if gained:
-		_pulse_points_label()
 
 func _set_displayed_points(value: int) -> void:
 	displayed_points = value
-	points_bar.value = value
-	points_label.text = "%d / %d Punkte" % [value, run.round_goal]
-	table_screen.set_goal_progress(value, run.round_goal)  # Display-Balken läuft synchron mit
-
-## Kurzes elastisches Aufplustern des Punktetexts, sobald sich der Stand
-## erhöht - kleiner "Arcade-Pop", der einen Punktezuwachs zusätzlich zum
-## Hochzählen spürbar macht.
-func _pulse_points_label() -> void:
-	points_label.pivot_offset = points_label.size / 2.0
-	points_label.scale = Vector2(1.35, 1.35)
-	var pulse := create_tween()
-	pulse.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	pulse.tween_property(points_label, "scale", Vector2.ONE, 0.4)
+	table_screen.set_goal_progress(value, run.round_goal)  # Display-Zielbalken läuft synchron mit
