@@ -100,10 +100,10 @@ const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 ## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
 ## (siehe _update_queue_tray_dock).
 ## Knapp unterhalb (Bildschirm-unten = -X) der Grubenwand: kurze Halbachse 7.6
-## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand. Y = -3.4 (die
+## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand. Y = 0 (die
 ## Tischbildschirm-Oberfläche, siehe SPOT_Y/Tray-Ausgangshöhe), damit die
 ## Würfel im angedockten Tray AUF dem Screen liegen statt darüber zu schweben.
-const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, -3.4, 0.0)
+const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
 
 ## POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern - je
@@ -124,20 +124,19 @@ const HUB_WIDTH_WORLD := 28.5   # ~ Grubenbreite (2 × DicePit.PIT_HALF_Z)
 const HUB_HEIGHT_WORLD := 30.0  # ~ doppelte Gruben-Bildschirmhöhe (2 × 2 × PIT_HALF_X)
 
 ## Gravur-Zeremonie (siehe _open_engraving): der im Tray geklickte Würfel wird
-## GEGRIFFEN - sein Tray-Platz leert sich, ein schwebender Zeremonien-Würfel
-## fliegt auf die Bühne im oberen Teil des Hub-Panels (siehe DieInspectorView.
-## STAGE_FRACTION) und dreht sich dort langsam. Jede angewandte Ätzung schickt
-## eine goldene Leiterbahn von der Coupon-Kachel in den Würfel; bei der Ankunft
-## "absorbiert" er die Kraft (Gold-Blitz + Dreh-Schub, siehe
-## _on_engraving_applied). Beim Schließen fliegt er zurück an seinen Platz.
-const ENGRAVE_DIE_SCALE := 1.5        # Größe des schwebenden Würfels
-const ENGRAVE_HOVER_HEIGHT := 2.4     # Schwebehöhe über der Screen-Oberfläche (-3.4)
-const ENGRAVE_STAGE_FRACTION := 0.2   # Bühnenmitte: so weit unter der Hub-Oberkante (Anteil der Hub-Höhe)
-const ENGRAVE_FLY_TIME := 0.55        # Flugzeit Tray <-> Bühne
+## zum GRAVUR-ZIEL - sein Tray-Platz leert sich und der ECHTE Würfel (ein
+## Weltobjekt) fliegt aus dem Tray herüber und schwebt über der Hub-Bühne (siehe
+## _grab_engraving_die / DieInspectorView.stage). Es ist kein gerendertes Abbild,
+## sondern derselbe Würfel, der zum Hub gleitet. Jede angewandte Ätzung schickt
+## eine goldene Leiterbahn von der Coupon-Kachel zum schwebenden Würfel; bei der
+## Ankunft "absorbiert" er die Kraft (Gold-Blitz-Pop, siehe _on_engraving_applied).
+## Die Kamera bleibt frei: ein Klick auf einen ANDEREN Tray-Würfel macht ihn zum
+## neuen Ziel und springt zum Hub; die Würfel-Leiste im Panel wechselt auch bei
+## Hub-Zoom (siehe _refresh_engraving_tray_strip). Fertig (Panel) schließt.
 const ENGRAVE_TRAIL_TIME := 0.5       # Leiterbahn Coupon -> Würfel (dann Absorption)
-const ENGRAVE_SPIN_SPEED := 0.9       # Grunddrehung des schwebenden Würfels (rad/s)
-const ENGRAVE_ABSORB_SPIN := 9.0      # Dreh-Schub beim Absorbieren (klingt auf Grunddrehung ab)
 const ENGRAVE_ABSORB_COLOR := Color(2.0, 1.6, 0.3, 0.9)  # überhelles Gold (wie der Mult-Trail)
+const ENGRAVE_FLY_TIME := 0.55        # Flug des Würfels vom Tray über die Hub-Bühne
+const ENGRAVE_HOVER := DiceTrayView.REST_Y  # Auflagehöhe: der Würfel BERÜHRT den Tisch (wie im Tray), er schwebt nicht
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation): die Würfel gleiten
 ## in eine schwebende Reihe in der oberen Grubenhälfte (X positiv =
@@ -300,13 +299,16 @@ var hub_click_zone: StaticBody3D  # Klickfläche über dem Hub (Zoom, siehe _set
 var last_screen_pixel := Vector2(-1, -1)
 
 ## Zustand der Gravur-Zeremonie (siehe _open_engraving/_end_engraving_ceremony).
+## Der ECHTE Würfel fliegt als eigenes Weltobjekt (engraving_die) aus dem Tray
+## über die Hub-Bühne; sein Tray-Slot bleibt solange versteckt (kehrt beim
+## Schließen/Wechsel zurück).
 var engraving_active := false
-var engraving_die: Node3D                 # der schwebende Zeremonien-Würfel (ohne Physik)
-var engraving_display: DieFaceDisplay
-var engraving_source_root: Node3D         # versteckter Tray-Slot (kehrt beim Schließen zurück)
+var engraving_die: Node3D                 # der schwebende Würfel über dem Hub (freies Weltobjekt)
+var engraving_fly_tween: Tween            # laufender Flug/Umwähl-Tween (wird bei Wechsel/Ende gekillt)
+var engraving_source_root: Node3D         # versteckter Tray-Slot (das aktuelle Gravur-Ziel)
+var engraving_source_tray: DiceTrayView   # Tray des Ziels (fürs Umwählen, siehe _refresh_engraving_tray_strip)
+var engraving_tray_slots: Array[int] = [] # echte Slot-Indizes hinter den Kacheln der Würfel-Leiste (parallel, siehe _on_tray_die_selected)
 var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
-var engraving_spin := ENGRAVE_SPIN_SPEED  # aktuelle Drehgeschwindigkeit (Absorb-Schub klingt ab)
-var engraving_spin_tween: Tween
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -394,12 +396,12 @@ var charm_is_dragging: bool = false
 ## becherlosen Seite - der Abstand jeder Position zum Ursprung (und damit
 ## Wurfweite/-charakter) bleibt exakt erhalten.
 const DICE_START_POSITIONS: Array[Vector3] = [
-	Vector3(6.5458, 13.695267, 7.7658),
-	Vector3(3.2886, 13.695267, 6.7886),
-	Vector3(0.0314, 13.695267, 5.8115),
-	Vector3(-3.2258, 13.695267, 4.8343),
-	Vector3(-6.4830, 13.695267, 3.8572),
-	Vector3(-9.7402, 13.695267, 2.8800),
+	Vector3(6.5458, 17.095267, 7.7658),
+	Vector3(3.2886, 17.095267, 6.7886),
+	Vector3(0.0314, 17.095267, 5.8115),
+	Vector3(-3.2258, 17.095267, 4.8343),
+	Vector3(-6.4830, 17.095267, 3.8572),
+	Vector3(-9.7402, 17.095267, 2.8800),
 ]
 
 func _ready() -> void:
@@ -481,10 +483,10 @@ func _ready() -> void:
 	camera_rig.configure_tray_targets(
 		(pool_tray_view.global_position + queue_tray_view.global_position) * 0.5,
 		discard_tray_view.global_position)
-	# Grubenziel auf Tisch-Screen-Höhe (-3.4) statt PIT_CENTER.y (0), damit die
-	# Grubenkamera genau so hoch steht wie alle anderen Zooms (gleiche Höhe UND
-	# Winkel; die Y der Grubenmitte ist fürs Werfen ohnehin bedeutungslos).
-	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x, -3.4, DicePit.PIT_CENTER.z))
+	# Grubenziel auf Tisch-Screen-Höhe (0) - damit die Grubenkamera genau so hoch
+	# steht wie alle anderen Zooms (gleiche Höhe UND Winkel; die Y der Grubenmitte
+	# ist fürs Werfen ohnehin bedeutungslos).
+	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z))
 	_setup_charms_zoom()
 
 	# Shop als Neon-Panel in die Hub-Fläche hängen (siehe HubView.attach_shop) -
@@ -507,6 +509,7 @@ func _ready() -> void:
 		$UI.add_child(die_inspector)
 	die_inspector.closed.connect(_end_engraving_ceremony)
 	die_inspector.applied.connect(_on_engraving_applied)
+	die_inspector.select_tray_die.connect(_on_tray_die_selected)
 	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
@@ -902,26 +905,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event.button_index == MOUSE_BUTTON_RIGHT:
-		# Während der Gravur-Zeremonie: Rechtsklick bricht erst einen laufenden
-		# Zweitschritt (zweite Seite/Zielwert) ab, dann schließt er die Station
-		# (closed -> _end_engraving_ceremony, der Würfel fliegt zurück).
-		if engraving_active:
-			if die_inspector.mode != DieInspectorView.Mode.SELECT:
-				die_inspector._cancel_pending()
-			else:
-				die_inspector.close()
+		# Während der Gravur-Zeremonie bricht ein Rechtsklick erst einen laufenden
+		# Zweitschritt (zweite Seite/Zielwert) ab; sonst navigiert er wie sonst
+		# (Herauszoomen). Geschlossen wird die Station über den Fertig-Knopf.
+		if engraving_active and die_inspector.mode != DieInspectorView.Mode.SELECT:
+			die_inspector._cancel_pending()
 			return
 		camera_rig.zoom_out()
 		return
 
-	# Während der Gravur-Zeremonie zählt nur das Display-UI (oben weitergereicht)
-	# und der Rechtsklick - keine 3D-Klicks (Zoom/Würfel/Becher), die Kamera
-	# bleibt auf dem Hub.
-	if engraving_active:
-		return
-
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
+
+	# Die Kamera bleibt während der Zeremonie FREI: Linksklicks laufen ganz
+	# normal weiter (Zoom-Zonen navigieren, ein Klick auf einen Tray-Würfel
+	# wechselt über _open_engraving das Ziel und springt zum Hub). Die Hub-UI
+	# (Panel/Würfel-Leiste) ist oben schon weitergereicht.
 
 	if is_pit_focused and _try_cup_click(event.position):
 		return
@@ -944,7 +943,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_refresh_ui()
 			return
 
-	if not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+	# Warteschlangen-Umsortieren nur außerhalb der Zeremonie - läuft sie, soll ein
+	# Klick auf einen Warteschlangen-Würfel ihn ins Edit-Panel holen (siehe
+	# _try_tray_die_click), nicht eine Zieh-Geste starten.
+	if not engraving_active and not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
 		return
 
 	if not _dice_in_motion() and _try_tray_die_click(event.position):
@@ -952,26 +954,29 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	_try_zoom_click(event.position)
 
-## Klick auf einen einzelnen (sichtbaren) Würfel im GERADE FOKUSSIERTEN Tray
-## (Layer 16, siehe DiceTrayView.SLOT_PICK_LAYER) - öffnet die freie 3D-
-## Vorschau (DieInspectorView) für genau diesen Würfel. Erst wenn die Kamera
-## bereits auf das jeweilige Tray gezoomt ist (camera_rig.mode), lässt sich so
-## ein Würfel darin anklicken - ein Klick davor löst stattdessen ganz normal
-## den Zoom aus (siehe _try_zoom_click). Ohne diese Gate wäre ein Würfel
-## theoretisch schon aus der Übersicht per Raycast treffbar, auch wenn er auf
-## dem Bildschirm winzig ist.
-## Das Warteschlangen-Tray läuft NICHT mehr über diese Funktion - dort
-## entscheidet _try_start_queue_reorder/_handle_reorder_input zwischen Klick
-## (öffnet ebenfalls die Vorschau) und Zieh-Geste (sortiert um).
+## Klick auf einen einzelnen (sichtbaren) Würfel eines Trays (Layer 16, siehe
+## DiceTrayView.SLOT_PICK_LAYER) - öffnet die Gravur-Zeremonie für genau diesen
+## Würfel (bzw. wechselt das Ziel, wenn sie schon läuft).
+##
+## Am Hub (Zeremonie läuft ODER Übersicht) holt ein Klick auf IRGENDEINEN
+## sichtbaren Tray-Würfel (auch Ablage oder Warteschlange, egal wohin die Kamera
+## zeigt) ihn direkt ins Edit-Panel - statt in das Tray zu zoomen: am Hub will der
+## Nutzer den Würfel bearbeiten, nicht navigieren. Sonst zählt nur das GERADE
+## FOKUSSIERTE Tray (Pool/Ablage) - ein Klick aus der Übersicht löst dort nur den
+## Zoom aus (siehe _try_zoom_click), sonst wäre ein winziger Würfel schon von weit
+## weg treffbar.
 func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	var candidate_trays: Array[DiceTrayView] = []
-	match camera_rig.mode:
-		CameraRig.Mode.POOL:
-			candidate_trays = [pool_tray_view]
-		CameraRig.Mode.DISCARD:
-			candidate_trays = [discard_tray_view]
-		_:
-			return false
+	if engraving_active or camera_rig.mode == CameraRig.Mode.HUB:
+		candidate_trays = [pool_tray_view, discard_tray_view, queue_tray_view]
+	else:
+		match camera_rig.mode:
+			CameraRig.Mode.POOL:
+				candidate_trays = [pool_tray_view]
+			CameraRig.Mode.DISCARD:
+				candidate_trays = [discard_tray_view]
+			_:
+				return false
 
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -988,128 +993,200 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	for target_tray in candidate_trays:
 		var index: int = target_tray.find_slot_index(result.collider)
 		if index != -1:
-			_open_engraving(target_tray.slot_defs[index], target_tray.slot_roots[index])
+			_open_engraving(target_tray.slot_defs[index], target_tray.slot_roots[index], target_tray)
 			return true
 	return false
 
 # --- Gravur-Zeremonie ----------------------------------------------------------
-# Der geklickte Würfel wird "gegriffen": sein Tray-Platz leert sich, ein
-# schwebender Zeremonien-Würfel fliegt auf die Bühne über dem Hub-Panel (siehe
-# ENGRAVE_*-Konstanten und DieInspectorView.STAGE_FRACTION), die Kamera zoomt
-# auf den Hub und die Gravur-Station übernimmt das Display. Jede Ätzung schickt
-# eine goldene Leiterbahn von der Coupon-Kachel in den Würfel (Absorption).
-# Beim Schließen fliegt der Würfel zurück an seinen Platz.
+# Der geklickte Würfel wird zum GRAVUR-ZIEL: sein Tray-Platz leert sich, das
+# Hub-Panel zeigt ihn als 3D-Miniatur AUF dem Display (siehe DieInspectorView),
+# die Kamera zoomt auf den Hub. Die Kamera bleibt frei: rechtsklick/Klick auf
+# Zonen navigieren; ein Klick auf einen anderen Tray-Würfel macht ihn zum neuen
+# Ziel (und springt zurück auf den Hub, siehe _grab_engraving_die). Fertig
+# schließt. Jede Ätzung schickt eine goldene Leiterbahn von der Coupon-Kachel in
+# die Miniatur (Absorption).
 
-## Startet die Zeremonie für def (die echte Pool-Instanz); source_root ist der
-## Tray-Slot, aus dem der Würfel gegriffen wird. Ohne Hub (kein Screen-Mesh)
-## öffnet nur das Panel als Fenster-UI - ohne Flug und Kamera.
-func _open_engraving(def: DieDefinition, source_root: Node3D) -> void:
-	if engraving_active:
-		return
+## Öffnet die Zeremonie ODER wechselt das Ziel (wenn schon offen). def ist die
+## echte Pool-Instanz, source_root ihr Tray-Slot, source_tray ihr Tray. Ohne Hub
+## (kein Screen-Mesh) öffnet nur das Panel als Fenster-UI.
+func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
 	if table_screen == null or table_screen.hub == null:
 		die_inspector.show_die(def)
 		return
-	engraving_active = true
-	engraving_prev_mode = camera_rig.mode
+	if not engraving_active:
+		engraving_active = true
+		engraving_prev_mode = camera_rig.mode
+		engraving_source_root = null
+		table_screen.hub.set_content_visible(false)
+	_grab_engraving_die(def, source_root, source_tray)
+
+## Macht (def, source_root im Tray source_tray) zum aktuellen Gravur-Ziel: der
+## bisherige Slot wird wieder sichtbar, der neue verschwindet, und AN SEINER
+## STELLE hebt der echte Würfel ab und gleitet über die Hub-Bühne (derselbe
+## Würfel, kein Abbild). Das Panel stellt um, die Kamera springt auf den Hub.
+func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
+	if source_root == engraving_source_root:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)  # schon das Ziel - nur wieder herzoomen
+		return
+	if engraving_source_root != null and is_instance_valid(engraving_source_root):
+		engraving_source_root.visible = true  # alten Slot wieder zeigen (Würfel kehrt zurück)
 	engraving_source_root = source_root
+	engraving_source_tray = source_tray
+	var start_pos: Vector3 = source_root.global_position  # exakte Abhebestelle im Tray
 	source_root.visible = false
-
-	# Schwebender Zeremonien-Würfel: gleicher Bau wie die Spielwürfel (DieBuilder),
-	# aber eingefroren und ohne Kollision - reine Bühnen-Requisite.
-	engraving_die = DieBuilder.build()
-	var body: RigidBody3D = engraving_die.get_node("RigidBody3D")
-	body.freeze = true
-	body.collision_layer = 0
-	body.collision_mask = 0
-	engraving_display = body.get_node("Faces")
-	add_child(engraving_die)
-	engraving_die.scale = Vector3.ONE * ENGRAVE_DIE_SCALE
-	engraving_die.rotation = Vector3(0.5, 0.0, 0.35)  # angekippt: drei Seiten sichtbar
-	engraving_display.apply_definition(def)
-	engraving_die.global_position = source_root.global_position
-	engraving_spin = ENGRAVE_SPIN_SPEED
-	var fly := create_tween()
-	fly.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	fly.tween_property(engraving_die, "global_position", _engraving_stage_position(), ENGRAVE_FLY_TIME)
-
-	table_screen.hub.set_content_visible(false)
 	die_inspector.show_die(def)
+	_refresh_engraving_tray_strip()
 	camera_rig.zoom_to(CameraRig.Mode.HUB)
+	_fly_engraving_die(def, start_pos)
 
-## Weltposition der Bühne: mittig in der Hub-Breite, ENGRAVE_STAGE_FRACTION der
-## Hub-Höhe unter der Oberkante, in Schwebehöhe über der Screen-Oberfläche.
-func _engraving_stage_position() -> Vector3:
-	var anchor := hub_anchor.global_position
-	return Vector3(anchor.x + HUB_HEIGHT_WORLD * (0.5 - ENGRAVE_STAGE_FRACTION),
-		-3.4 + ENGRAVE_HOVER_HEIGHT, anchor.z)
+## Lässt den echten Würfel von seinem Tray-Slot (start_pos) über die Hub-Bühne
+## gleiten - in Tray-Größe (er wächst NICHT). Der alte schwebende Würfel (bei
+## einem Wechsel) wird zuvor freigegeben. Das Landeziel ergibt sich aus der
+## Bühnen-Mitte des Panels, so projiziert, dass der schwebende Würfel dort mittig
+## über der Hub-Fläche erscheint (siehe _hub_hover_target).
+func _fly_engraving_die(def: DieDefinition, start_pos: Vector3) -> void:
+	if engraving_fly_tween != null and engraving_fly_tween.is_valid():
+		engraving_fly_tween.kill()
+	if engraving_die != null and is_instance_valid(engraving_die):
+		engraving_die.queue_free()
+	engraving_die = _spawn_deck_ghost(def)  # schon in DiceTrayView.DIE_SCALE
+	engraving_die.global_position = start_pos
+
+	# Landeziel erst berechnen, wenn das frisch gebaute Panel einmal ausgelegt ist
+	# (die Bühnen-Rect steht sonst noch auf null).
+	await get_tree().process_frame
+	if not engraving_active or engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	var target: Vector3 = _hub_hover_target()
+	engraving_fly_tween = create_tween()
+	engraving_fly_tween.tween_property(engraving_die, "global_position", target, ENGRAVE_FLY_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+## Weltpunkt, an dem der Würfel landet: die Bühnen-Mitte (Display-Pixel) auf die
+## Tisch-Oberfläche zurückprojiziert, dann auf Auflagehöhe (ENGRAVE_HOVER) gehoben,
+## sodass er den Tisch berührt und - vom festen Hub-Blickwinkel aus - genau mittig
+## über der Bühne erscheint (Parallaxe entlang des Kamerastrahls kompensiert).
+func _hub_hover_target() -> Vector3:
+	var stage_px: Vector2 = die_inspector.stage_center_px()
+	var surface: Vector3 = table_screen.pixel_to_world(stage_px)  # auf Y = 0 (Screen-Oberfläche)
+	var cam_pos: Vector3 = camera_rig.hub_target - CameraRig.ZOOM_FORWARD * CameraRig.ZOOM_DISTANCE
+	var hover_y := surface.y + ENGRAVE_HOVER
+	# Punkt auf dem Strahl Kamera -> Bühnenpunkt in Auflagehöhe (projiziert mittig).
+	var denom := surface.y - cam_pos.y
+	if is_zero_approx(denom):
+		return Vector3(surface.x, hover_y, surface.z)
+	var t := (hover_y - cam_pos.y) / denom
+	return cam_pos + (surface - cam_pos) * t
 
 ## Eine Ätzung wurde angewandt (siehe DieInspectorView.applied): eine goldene
-## Leiterbahn läuft von der Coupon-Kachel zum schwebenden Würfel; bei der
-## Ankunft absorbiert er die Kraft - die Seiten übernehmen die neue Definition,
-## dazu Gold-Blitz (siehe _flash_die_tint) und ein abklingender Dreh-Schub.
+## Leiterbahn läuft von der Coupon-Kachel zum schwebenden Würfel über der Bühne;
+## bei der Ankunft absorbiert er die Kraft (Seiten nachziehen + Gold-Blitz-Pop,
+## siehe _refresh_engraving_die_faces / _flash_engraving_die).
 func _on_engraving_applied(_coupon_id: String, slot_px: Vector2) -> void:
-	if not engraving_active or engraving_die == null:
+	if not engraving_active:
 		return
-	var die_px := table_screen.world_to_pixel(engraving_die.global_position)
-	table_screen.spawn_trace(slot_px, die_px, ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
+	# Der schwebende Würfel ist so platziert, dass er genau auf die Bühnen-Mitte
+	# projiziert - dort endet die Absorptions-Bahn.
+	table_screen.spawn_trace(slot_px, die_inspector.stage_center_px(), ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
 	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
-	if not engraving_active or engraving_die == null:
+	if not engraving_active:
 		return
-	engraving_display.apply_definition(die_inspector.current_def)
-	_flash_die_tint(engraving_display, Color.WHITE)
-	if engraving_spin_tween != null and engraving_spin_tween.is_valid():
-		engraving_spin_tween.kill()
-	engraving_spin = ENGRAVE_ABSORB_SPIN
-	engraving_spin_tween = create_tween()
-	engraving_spin_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	engraving_spin_tween.tween_property(self, "engraving_spin", ENGRAVE_SPIN_SPEED, 0.9)
+	_refresh_engraving_die_faces()  # geätzte Seiten am schwebenden Würfel nachziehen
+	_flash_engraving_die()          # Gold-Blitz-Pop bei der Ankunft
 
-## Beendet die Zeremonie (siehe DieInspectorView.closed): der Würfel fliegt
-## zurück in seinen Tray-Slot, der Hub zeigt wieder seine Übersicht, die Kamera
-## kehrt in die Ansicht von vor der Zeremonie zurück.
+## Zieht die Augenzahlen des schwebenden Würfels aus current_def nach (nach einer
+## Ätzung, die die Definition mutiert hat).
+func _refresh_engraving_die_faces() -> void:
+	if engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	if die_inspector.current_def == null:
+		return
+	var faces: DieFaceDisplay = engraving_die.get_node("RigidBody3D/Faces")
+	faces.apply_definition(die_inspector.current_def)
+	faces.set_tint(DiceController.KIND_TINTS.get(die_inspector.current_def.style_id, Color.WHITE))
+
+## Kurzer Absorptions-Blitz: heller Aufpluster-Pop des schwebenden Würfels bei der
+## Ankunft der Leiterbahn.
+func _flash_engraving_die() -> void:
+	if engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	var base := Vector3.ONE * DiceTrayView.DIE_SCALE
+	var pop := create_tween()
+	pop.tween_property(engraving_die, "scale", base * 1.18, 0.12) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	pop.tween_property(engraving_die, "scale", base, 0.28) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Beendet die Zeremonie (siehe DieInspectorView.closed): der Tray-Slot wird
+## wieder sichtbar, der Hub zeigt seine Übersicht, die Kamera kehrt in die
+## Ansicht von vor der Zeremonie zurück.
 func _end_engraving_ceremony() -> void:
 	if not engraving_active:
 		return
 	engraving_active = false
+	_free_engraving_die()
 	if table_screen.hub != null:
 		table_screen.hub.set_content_visible(true)
+	if engraving_source_root != null and is_instance_valid(engraving_source_root):
+		engraving_source_root.visible = true
+	engraving_source_root = null
+	engraving_source_tray = null
 	if engraving_prev_mode == CameraRig.Mode.OVERVIEW:
 		camera_rig.zoom_out()
 	else:
 		camera_rig.zoom_to(engraving_prev_mode)
-
-	var die := engraving_die
-	var source := engraving_source_root
-	engraving_die = null
-	engraving_display = null
-	engraving_source_root = null
-	if die != null:
-		var back := create_tween()
-		back.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		if source != null and is_instance_valid(source):
-			back.tween_property(die, "global_position", source.global_position, ENGRAVE_FLY_TIME)
-		back.tween_callback(_finish_engraving_return.bind(die, source))
 	_on_die_engraved()  # Trays sicher aktuell (die Werte können sich geändert haben)
 
-## Landung des zurückfliegenden Zeremonien-Würfels: Tray-Slot wieder zeigen,
-## Requisite entsorgen.
-func _finish_engraving_return(die: Node3D, source: Node3D) -> void:
-	if source != null and is_instance_valid(source):
-		source.visible = true
-	if is_instance_valid(die):
-		die.queue_free()
+## Die Würfel-Leiste des Panels wurde angeklickt (siehe DieInspectorView.
+## select_tray_die): strip_index zeigt in engraving_tray_slots -> echter
+## Tray-Slot. Wechselt auf diesen Würfel (No-Op, wenn es der bereits gegriffene
+## ist - _grab_engraving_die fängt das ab).
+func _on_tray_die_selected(strip_index: int) -> void:
+	if not engraving_active or engraving_source_tray == null:
+		return
+	if strip_index < 0 or strip_index >= engraving_tray_slots.size():
+		return
+	var slot: int = engraving_tray_slots[strip_index]
+	_grab_engraving_die(engraving_source_tray.slot_defs[slot], engraving_source_tray.slot_roots[slot], engraving_source_tray)
+
+## Baut die Würfel-Leiste des Panels neu: alle Würfel des Ziel-Trays (die
+## sichtbaren plus den gerade gegriffenen, der als aktueller markiert wird) als
+## anklickbare Kacheln - so lässt sich das Ziel auch bei Hub-Zoom wechseln, wo die
+## echten Tray-Würfel nicht im Bild sind.
+func _refresh_engraving_tray_strip() -> void:
+	engraving_tray_slots.clear()
+	if engraving_source_tray == null:
+		return
+	var defs: Array[DieDefinition] = []
+	var current := -1
+	for i in engraving_source_tray.slot_roots.size():
+		var is_grabbed: bool = engraving_source_tray.slot_roots[i] == engraving_source_root
+		if not engraving_source_tray.slot_roots[i].visible and not is_grabbed:
+			continue  # leerer Slot
+		engraving_tray_slots.append(i)
+		defs.append(engraving_source_tray.slot_defs[i])
+		if is_grabbed:
+			current = engraving_tray_slots.size() - 1
+	die_inspector.set_tray_context(defs, current)
 
 ## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset, siehe _reset_game).
 func _abort_engraving() -> void:
 	engraving_active = false
-	if engraving_die != null and is_instance_valid(engraving_die):
-		engraving_die.queue_free()
-	engraving_die = null
-	engraving_display = null
+	_free_engraving_die()
 	if engraving_source_root != null and is_instance_valid(engraving_source_root):
 		engraving_source_root.visible = true
 	engraving_source_root = null
-	die_inspector.visible = false  # ohne closed-Signal (kein Rückflug nötig)
+	engraving_source_tray = null
+	die_inspector.visible = false  # ohne closed-Signal
+
+## Gibt den schwebenden Zeremonien-Würfel frei und stoppt seinen Flug-Tween.
+func _free_engraving_die() -> void:
+	if engraving_fly_tween != null and engraving_fly_tween.is_valid():
+		engraving_fly_tween.kill()
+	engraving_fly_tween = null
+	if engraving_die != null and is_instance_valid(engraving_die):
+		engraving_die.queue_free()
+	engraving_die = null
 
 ## Klick auf einen Würfel im Warteschlangen-Tray (Layer 16) - startet einen
 ## POTENZIELLEN Umsortier-Drag (siehe reorder_drag_index/_handle_reorder_input).
@@ -1158,7 +1235,7 @@ func _handle_reorder_input(event: InputEvent) -> void:
 		if reorder_is_dragging:
 			_finish_reorder_drag(event.position)
 		else:
-			_open_engraving(queue_tray_view.slot_defs[reorder_drag_index], queue_tray_view.slot_roots[reorder_drag_index])
+			_open_engraving(queue_tray_view.slot_defs[reorder_drag_index], queue_tray_view.slot_roots[reorder_drag_index], queue_tray_view)
 		reorder_drag_index = -1
 		reorder_is_dragging = false
 
@@ -1447,7 +1524,7 @@ func _setup_charms_zoom() -> void:
 ## Klickzone automatisch mit.
 func _setup_hub_zoom() -> void:
 	var anchor := hub_anchor.global_position
-	var center := Vector3(anchor.x, -3.4, anchor.z)  # -3.4 = Screen-Oberfläche
+	var center := Vector3(anchor.x, 0.0, anchor.z)  # 0 = Screen-Oberfläche
 	camera_rig.configure_hub_target(center)
 
 	# Welt-X = Bildschirm-Höhe des Hubs, Welt-Z = seine Breite (siehe world_to_pixel).
@@ -1557,12 +1634,8 @@ func _build_charm_tooltip() -> void:
 	box.add_child(charm_tooltip_body)
 	$UI.add_child(charm_tooltip)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_update_charm_tooltip()
-	# Der Zeremonien-Würfel dreht sich stetig über der Bühne; der Absorb-Schub
-	# hebt engraving_spin kurz an und klingt per Tween wieder ab.
-	if engraving_die != null and is_instance_valid(engraving_die):
-		engraving_die.rotate_y(delta * engraving_spin)
 
 ## Hover-Tooltip der Charms: aktiv aus JEDER Ansicht, sobald der Cursor über
 ## einem Charm liegt (Projektions-Nähe, siehe CharmRowView.charm_at_screen_pos) -

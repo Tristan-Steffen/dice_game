@@ -30,18 +30,18 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.863043, -3.4, 20.779545)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.863043, 0, 20.779545)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.072744, -3.4, -19.793337)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.072744, 0, -19.793337)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.063042, -3.4, 20.779545)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12.063042, 0, 20.779545)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.4, 20)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 20)
 
 [node name="ScreenAnchors" type="Node3D" parent="." unique_id=1443500857]
 
@@ -61,14 +61,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, 12)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, 0)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
-transform = Transform3D(-4.371139e-08, 0.9396926, -0.34202015, 0, 0.34202015, 0.9396926, 1, 4.1075268e-08, -1.4950176e-08, -26.1217, 42.5528, 0)
+transform = Transform3D(-4.371139e-08, 0.9396926, -0.34202015, 0, 0.34202015, 0.9396926, 1, 4.1075268e-08, -1.4950176e-08, -26.1217, 45.9528, 0)
 script = ExtResource("8_camerarig")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=879093562]
 environment = SubResource("Environment_p52qu")
 
 [node name="TableLight" type="OmniLight3D" parent="." unique_id=821656405]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 17.4, 0)
 light_color = Color(1, 0.84, 0.58, 1)
 light_energy = 3.4
 omni_range = 55.0

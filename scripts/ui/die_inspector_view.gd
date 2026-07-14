@@ -33,6 +33,10 @@ signal applied(coupon_id: String, slot_px: Vector2)
 ## Der Spieler hat die Station geschlossen (Fertig-Knopf oder Rechtsklick über
 ## scene_root) - scene_root beendet die Zeremonie (Würfel fliegt zurück).
 signal closed
+## Eine Kachel der Würfel-Leiste wurde angeklickt (siehe set_tray_context) -
+## scene_root wechselt das Gravur-Ziel auf diesen Würfel (der Index zeigt in die
+## zuletzt übergebene Def-Liste).
+signal select_tray_die(index: int)
 
 ## Ablauf-Zustand der Station: normale Seiten-Auswahl, Warten auf die zweite
 ## Seite (Meißel/Schleifstein/Doppelkerbe/Mittelung/Anschluss) oder Warten auf
@@ -53,10 +57,11 @@ const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
 ## bleibt erkennbar (welcher Coupon hierher gehört, sagt auch der Tooltip).
 const EMPTY_SLOT_TINT := Color(0.3, 0.3, 0.34, 0.9)
 
-## Anteil der Panel-Höhe, der oben als BÜHNE frei bleibt (dort schwebt der
-## gegriffene 3D-Würfel, siehe scene_root.ENGRAVE_STAGE_FRACTION - beide Werte
-## beschreiben dieselbe Fläche).
-const STAGE_FRACTION := 0.24
+## Anteil der Panel-Höhe, der oben als BÜHNE frei bleibt - dort schwebt der ECHTE
+## Würfel (Weltobjekt in Tray-Größe, fliegt aus dem Tray herüber, siehe
+## scene_root), kein im Panel gerendertes Abbild. Knapp gehalten, damit über dem
+## (kleinen) Würfel kein großer Leerraum steht und die UI weiter oben sitzt.
+const STAGE_FRACTION := 0.15
 
 ## Der laufende Spiellauf (von scene_root gesetzt) - liefert den Coupon-Bestand
 ## (owned_coupons) und verbucht den Verbrauch (consume_coupon), siehe GameRun.
@@ -82,6 +87,19 @@ var value_row: GridContainer  # Feingravur-Wertauswahl 1..FINE_ENGRAVING_MAX (6 
 var slot_entries: Array[Dictionary] = []  # [{button:Button, id:String, count:int}]
 var summary_list: HFlowContainer  # Seiten-Chips (je Wert+Material eine Gruppe) + Kanten-Chip
 var summary_sum_label: Label
+## Würfel-Leiste unter der Bühne: alle Würfel des Ursprungs-Trays als
+## anklickbare Kacheln (siehe set_tray_context) - der aktuell bearbeitete ist
+## hervorgehoben. Ihr Inhalt kommt von scene_root und übersteht den Neuaufbau
+## des Gerüsts (in _build_layout aus dem gespeicherten Kontext neu gezeichnet).
+var tray_strip: HFlowContainer
+var tray_context_defs: Array[DieDefinition] = []
+var tray_context_current: int = -1
+
+## Die BÜHNE: leere Landefläche oben im Panel, über der der ECHTE Würfel schwebt
+## (er fliegt aus seinem Tray herüber, siehe scene_root._grab_engraving_die - kein
+## im Panel gerendertes Abbild mehr). Reserviert nur den Platz; ihre Mitte
+## (stage_center_px) ist das Landeziel und der Endpunkt der Absorptions-Bahn.
+var stage: Control
 
 ## Öffnet die Station für def (die tatsächliche Pool-Instanz) und setzt den
 ## Auswahl-/Ablaufzustand zurück. Baut Gerüst und Coupon-Bord frisch aus der
@@ -123,7 +141,7 @@ func _build_layout() -> void:
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", int(u * 3.0))
 	margin.add_theme_constant_override("margin_right", int(u * 3.0))
-	margin.add_theme_constant_override("margin_top", int(u * 2.0))
+	margin.add_theme_constant_override("margin_top", int(u * 1.2))
 	margin.add_theme_constant_override("margin_bottom", int(u * 2.0))
 	add_child(margin)
 
@@ -143,13 +161,22 @@ func _build_layout() -> void:
 	done.pressed.connect(close)
 	header.add_child(done)
 
-	# Bühne: bewusst leerer Bereich - hier schwebt der gegriffene 3D-Würfel
-	# ÜBER dem Display (siehe scene_root._open_engraving).
-	var stage := Control.new()
+	# Bühne: leere Landefläche. Der ECHTE Würfel schwebt als Weltobjekt darüber -
+	# er fliegt beim Öffnen/Wechsel aus seinem Tray herüber (siehe scene_root.
+	# _grab_engraving_die). Hier wird nur der Platz reserviert.
+	stage = CenterContainer.new()
 	stage.name = "Stage"
 	stage.custom_minimum_size = Vector2(0, size.y * STAGE_FRACTION)
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(stage)
+
+	# Würfel-Leiste (Filmstreifen der Tray-Würfel) - direkt unter der Bühne, wo
+	# der aktuelle Würfel steht: ein Klick holt einen anderen hoch.
+	tray_strip = HFlowContainer.new()
+	tray_strip.name = "TrayStrip"
+	tray_strip.add_theme_constant_override("h_separation", int(u * 0.8))
+	tray_strip.add_theme_constant_override("v_separation", int(u * 0.8))
+	root.add_child(tray_strip)
 
 	prompt_label = _label("", u * 2.2, NEON_TEXT)
 	prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -184,6 +211,87 @@ func _build_layout() -> void:
 		value_button.pressed.connect(_on_value_pressed.bind(value))
 		value_row.add_child(value_button)
 	root.add_child(value_row)
+
+	_rebuild_tray_strip()  # aus dem gespeicherten Kontext (übersteht den Neuaufbau)
+
+# --- Bühne (Landefläche des schwebenden Würfels) -------------------------------
+
+## Mittelpunkt der Bühne in Display-Pixeln: Landeziel des herüberfliegenden
+## Würfels und Endpunkt der Absorptions-Bahn (siehe scene_root). Panel-Mitte als
+## Rückfall, falls die Bühne (noch) nicht existiert.
+func stage_center_px() -> Vector2:
+	if stage != null and is_instance_valid(stage):
+		return stage.get_global_rect().get_center()
+	return get_global_rect().get_center()
+
+# --- Würfel-Leiste (Umwählen) --------------------------------------------------
+
+## Übernimmt die Würfel des Ursprungs-Trays (defs) und welcher davon gerade
+## bearbeitet wird (current_index) - von scene_root nach jedem Öffnen/Wechsel
+## gesetzt (siehe _refresh_engraving_tray_strip) und danach als Leiste gezeigt.
+func set_tray_context(defs: Array[DieDefinition], current_index: int) -> void:
+	tray_context_defs = defs
+	tray_context_current = current_index
+	_rebuild_tray_strip()
+
+## Zeichnet die Würfel-Leiste neu: je Würfel eine kleine Kachel (Augensumme groß,
+## Seitenwerte klein); die aktuell bearbeitete trägt den goldenen Auswahl-Look.
+## Ein Klick meldet select_tray_die mit dem Index.
+func _rebuild_tray_strip() -> void:
+	if tray_strip == null:
+		return
+	for child in tray_strip.get_children():
+		child.queue_free()
+	for i in tray_context_defs.size():
+		tray_strip.add_child(_tray_tile(tray_context_defs[i], i == tray_context_current, i))
+
+## Eine Würfel-Kachel der Leiste: Augensumme (Gold) über den kompakt gelisteten
+## Seitenwerten (gedämpft), im Neon-Karten-Look; highlighted = goldener Rahmen.
+func _tray_tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
+	var tile := Button.new()
+	tile.focus_mode = Control.FOCUS_NONE
+	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	tile.custom_minimum_size = Vector2(u * 6.5, u * 6.5)
+	var total := 0
+	var values: Array[int] = []
+	for v in def.faces:
+		total += v
+		values.append(v)
+	values.sort()
+	var value_text := ""
+	for v in values:
+		value_text += ("%d " % v)
+	tile.tooltip_text = "Augensumme %d\nSeiten: %s" % [total, value_text.strip_edges()]
+	tile.pressed.connect(func() -> void: select_tray_die.emit(index))
+
+	var accent := NEON_GOLD if highlighted else NEON_CYAN
+	var bg := Color("#2c2757dd") if highlighted else Color("#221e46cc")
+	tile.add_theme_stylebox_override("normal", _tile_box(bg, accent))
+	tile.add_theme_stylebox_override("hover", _tile_box(Color("#2c2757dd"), NEON_GOLD))
+	tile.add_theme_stylebox_override("pressed", _tile_box(Color("#3a2f66"), NEON_GOLD))
+	tile.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	tile.add_child(box)
+	var sum_label := _label(str(total), u * 2.8, NEON_GOLD if highlighted else NEON_TEXT)
+	sum_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(sum_label)
+	var faces_label := _label(value_text.strip_edges(), u * 1.1, NEON_MUTED)
+	faces_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	faces_label.clip_text = true
+	box.add_child(faces_label)
+	return tile
+
+func _tile_box(bg: Color, border: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = bg
+	box.border_color = border
+	box.set_border_width_all(maxi(1, int(u * 0.25)))
+	box.set_corner_radius_all(int(u * 0.9))
+	return box
 
 # --- Seiten-Auswahl / Ätzungs-Anwendung -------------------------------------
 
@@ -387,6 +495,7 @@ func _finish_apply(coupon_id: String, message: String) -> void:
 	applied.emit(coupon_id, _slot_center_px(coupon_id))
 	_build_coupon_board()  # Anzahl hat sich geändert
 	_refresh_face_summary()
+	_rebuild_tray_strip()  # Augensumme des bearbeiteten Würfels kann sich geändert haben
 	prompt_label.text = "%s. Weiter gravieren oder Rechtsklick zum Schließen." % message
 
 ## Display-Pixel der Bord-Kachel eines Coupons (Quelle der Absorptions-Bahn) -

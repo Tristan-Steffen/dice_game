@@ -16,8 +16,8 @@ uniform float impact : hint_range(0.0, 1.0) = 0.0;       // 0 = ruhig, 1 = frisc
 uniform float impact_alpha : hint_range(0.0, 1.0) = 0.5; // zusätzlicher Deckkraft-Blitz beim Aufprall
 uniform float stripe_density = 0.35; // Streifen je Welteinheit Höhe
 uniform float stripe_speed = 0.6;    // Streifen-Wanderung nach oben (Einheiten/s)
-uniform float bottom_y = -3.4;       // Filz-Oberkante (Feld-Unterkante)
-uniform float top_y = 1.9;           // sichtbare Feldhöhe (nicht die Kollisionshöhe)
+uniform float bottom_y = 0.0;        // Filz-Oberkante (Feld-Unterkante) - wird zur Laufzeit gesetzt (DicePit)
+uniform float top_y = 5.3;           // sichtbare Feldhöhe (nicht die Kollisionshöhe) - wird zur Laufzeit gesetzt
 uniform float top_fade : hint_range(0.0, 1.0) = 0.0; // Restdeckkraft an der Oberkante
 
 varying vec3 world_pos;

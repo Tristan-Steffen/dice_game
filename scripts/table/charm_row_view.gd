@@ -16,7 +16,7 @@ extends Node3D
 
 const LINE_X := 31.0  # fester Abstand der Reihe vom Grubenzentrum (hinterer Tischrand, +X)
 const LINE_SPACING := 9.0  # Z-Abstand zwischen benachbarten Charms in der Reihe
-const SPOT_Y := -3.4  # Höhe der Tischoberfläche (Filz-Oberkante des ScreenTable, siehe room.tscn)
+const SPOT_Y := 0.0  # Höhe der Tischoberfläche (Filz-Oberkante des ScreenTable, siehe room.tscn)
 const MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
 const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"  # Platzhalter für Charms ohne eigenes Modell (siehe Charm.model_path)
 

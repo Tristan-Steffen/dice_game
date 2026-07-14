@@ -35,12 +35,12 @@ const ZOOM_DISTANCE := 20.0
 ## Verschieben im Editor den Zoom automatisch mitnimmt, ohne die Koordinaten
 ## doppelt zu pflegen. ALLE Zoom-Ziele nutzen dieselbe Ausrichtung ZOOM_BASIS
 ## (Ablage-Winkel) - nur Ziel + Distanz unterscheiden sich.
-var pool_target := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
-var discard_target := Vector3(-26, -3, -12)  # DiscardTrayView
-var combos_target := Vector3(-8, -3.4, 0)  # Kombi-Cluster auf dem Tisch-Display
+var pool_target := Vector3(-23.75, 0.4, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
+var discard_target := Vector3(-26, 0.4, -12)  # DiscardTrayView
+var combos_target := Vector3(-8, 0, 0)  # Kombi-Cluster auf dem Tisch-Display
 var pit_target := Vector3.ZERO  # Grubenmitte (DicePit.PIT_CENTER)
-var charms_target := Vector3(24, -3.4, 0)  # Mitte der Charm-Reihe
-var hub_target := Vector3(-24, -3.4, 0)  # Hub-Fläche unter der Grube (siehe HubView)
+var charms_target := Vector3(24, 0, 0)  # Mitte der Charm-Reihe
+var hub_target := Vector3(-24, 0, 0)  # Hub-Fläche unter der Grube (siehe HubView)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele (Grube/Trays/Kombis/Charms) -
 ## unabhängig von der frei im Editor einstellbaren (flacheren) Übersichts-Kamera,

@@ -10,7 +10,7 @@ extends Node3D
 ## Der frühere goldene Emitter-Ring des Tischmodells ist entfernt, die Form ist
 ## damit frei: Grubenmitte im Weltursprung, halbe Höhe PIT_HALF_X entlang Welt-X,
 ## halbe Breite PIT_HALF_Z entlang Welt-Z (deutlich breiter als hoch), Würfel
-## landen auf dem Screen (Oberkante -3.4). Der Rand entsteht aus einer
+## landen auf dem Screen (Oberkante 0 = Tisch-Oberfläche). Der Rand entsteht aus einer
 ## Punktkette (siehe _rounded_rect_points): gerade Kanten als lange Boxen, Ecken
 ## als kurze Bogen-Segmente.
 ##
@@ -23,7 +23,7 @@ extends Node3D
 const PIT_CENTER := Vector3(0.0, 0.0, 0.0)
 
 const FLOOR_SIZE := Vector3(17, 2, 31)  # Z groß genug für die breitere Grube (siehe PIT_HALF_Z)
-const FLOOR_Y := -4.4  # Oberkante -3.4 = Screen-Oberfläche des Tischs
+const FLOOR_Y := -1.0  # Oberkante 0 = Screen-Oberfläche des Tischs
 
 ## RECHTECKIGE Grube mit leicht abgerundeten Ecken (der frühere goldene
 ## Emitter-Ring ist raus, die Form ist jetzt frei). PIT_HALF_X = halbe Höhe auf
@@ -34,9 +34,9 @@ const PIT_HALF_X := 7.6           # halbe Höhe (Welt-X) - "so hoch wie bisher"
 const PIT_HALF_Z := 14.28         # halbe Breite (Welt-Z) - ~70% breiter als bisher (8.4 × 1.7)
 const CORNER_RADIUS := 2.0        # leichte Rundung der Ecken
 const CORNER_STEPS := 4           # Bogen-Segmente je Ecke (4 Ecken -> 4·(CORNER_STEPS+1) Wandsegmente)
-const WALL_HEIGHT := 16.0  # Oberkante 12.6 - bleibt unter den Wurf-Startpositionen (Y 13.695)
+const WALL_HEIGHT := 16.0  # Oberkante 16.0 - bleibt unter den Wurf-Startpositionen (Y 17.095)
 const WALL_THICKNESS := 1.0
-const WALL_CENTER_Y := 4.6  # Unterkante bündig mit der Bodenoberseite (FLOOR_Y + FLOOR_SIZE.y / 2 + WALL_HEIGHT / 2)
+const WALL_CENTER_Y := 8.0  # Unterkante bündig mit der Bodenoberseite (FLOOR_Y + FLOOR_SIZE.y / 2 + WALL_HEIGHT / 2)
 const WALL_OVERLAP := 0.05  # kleine Überlappung zwischen Segmenten, keine Lücken im Rand
 
 const BOUNCE := 0.25
