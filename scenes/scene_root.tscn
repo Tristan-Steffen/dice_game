@@ -5,13 +5,10 @@
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
 [ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/table/camera_rig.gd" id="8_camerarig"]
-[ext_resource type="Script" uid="uid://bht2qs4671w8l" path="res://scripts/dice/rotatable_die_view.gd" id="9_dicepicker"]
-[ext_resource type="Script" uid="uid://deu73sus7id5e" path="res://scripts/ui/die_inspector_view.gd" id="12_dieinspector"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 [ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
 [ext_resource type="Script" uid="uid://d1e1kpuirytqv" path="res://scripts/table/charm_row_view.gd" id="16_charmrow"]
-[ext_resource type="PackedScene" uid="uid://3ejwutgaggb5" path="res://scenes/shop_panel.tscn" id="17_shoppanel"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 background_mode = 1
@@ -46,33 +43,22 @@ tray_color = Color(0.65, 0.5, 0.12, 1)
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3.4, 20)
 
-[node name="BlindPayoutLabel3D" type="Label3D" parent="." unique_id=80467160]
-transform = Transform3D(0.013962303, 0.99977916, -0.015705837, 1.3731816e-09, 0.015707368, 0.9998766, 0.9999025, -0.013960581, 0.00021930967, -22.195, -3.899632, -0.8107245)
-modulate = Color(0.96, 0.96, 0.93, 1)
-text = "5$ pro Blind"
-font_size = 90
-outline_size = 14
-
-[node name="DicePayoutLabel3D" type="Label3D" parent="." unique_id=80467161]
-transform = Transform3D(-4.371139e-08, 1, 4.371139e-08, 0, -4.371139e-08, 1, 1, 4.371139e-08, 1.9106855e-15, -23.325, -3.942277, 0)
-modulate = Color(0.96, 0.96, 0.93, 1)
-text = "1$ pro Würfel übrig"
-font_size = 90
-outline_size = 14
-
 [node name="ScreenAnchors" type="Node3D" parent="." unique_id=1443500857]
 
 [node name="CombosBlock" type="Marker3D" parent="ScreenAnchors" unique_id=1443500858]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.354022, 0, -30.31956)
 
 [node name="ScoreBar" type="Marker3D" parent="ScreenAnchors" unique_id=1443500859]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.5, 0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, 0)
 
 [node name="BaseCounter" type="Marker3D" parent="ScreenAnchors" unique_id=1443500860]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, -1.2125)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, -12)
 
 [node name="MultCounter" type="Marker3D" parent="ScreenAnchors" unique_id=1443500861]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 1.2125)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, 12)
+
+[node name="Hub" type="Marker3D" parent="ScreenAnchors" unique_id=1443500862]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, 0)
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=259912335]
 transform = Transform3D(-4.371139e-08, 0.9396926, -0.34202015, 0, 0.34202015, 0.9396926, 1, 4.1075268e-08, -1.4950176e-08, -26.1217, 42.5528, 0)
@@ -207,8 +193,6 @@ offset_right = 370.0
 offset_bottom = 160.0
 text = "$0"
 
-[node name="ShopPanel" parent="UI" unique_id=1069223745 instance=ExtResource("17_shoppanel")]
-
 [node name="GameOverPanel" type="Panel" parent="UI" unique_id=325311000]
 visible = false
 offset_left = 350.0
@@ -232,50 +216,6 @@ autowrap_mode = 2
 [node name="GameOverResetButton" type="Button" parent="UI/GameOverPanel/VBoxContainer" unique_id=1886111894]
 layout_mode = 2
 text = "Neues Spiel"
-
-[node name="DieInspectorView" type="Control" parent="UI" unique_id=1154820333]
-visible = false
-layout_mode = 3
-anchors_preset = 0
-offset_right = 1280.0
-offset_bottom = 900.0
-mouse_filter = 1
-script = ExtResource("12_dieinspector")
-
-[node name="Backdrop" type="ColorRect" parent="UI/DieInspectorView" unique_id=1842075712]
-layout_mode = 0
-offset_right = 1280.0
-offset_bottom = 900.0
-color = Color(0, 0, 0, 0.6)
-
-[node name="Center" type="CenterContainer" parent="UI/DieInspectorView" unique_id=1082420542]
-layout_mode = 0
-offset_left = 300.0
-offset_right = 820.0
-offset_bottom = 900.0
-mouse_filter = 2
-
-[node name="DieView" type="SubViewportContainer" parent="UI/DieInspectorView/Center" unique_id=1072448557]
-custom_minimum_size = Vector2(480, 480)
-layout_mode = 2
-stretch = true
-script = ExtResource("9_dicepicker")
-
-[node name="SubViewport" type="SubViewport" parent="UI/DieInspectorView/Center/DieView" unique_id=623573709]
-own_world_3d = true
-transparent_bg = true
-handle_input_locally = false
-size = Vector2i(480, 480)
-render_target_update_mode = 0
-
-[node name="HintLabelInspector" type="Label" parent="UI/DieInspectorView" unique_id=712240631]
-layout_mode = 0
-offset_left = 120.0
-offset_top = 120.0
-offset_right = 720.0
-offset_bottom = 150.0
-text = "Ziehe zum Drehen - Seite anklicken zum Gravieren - Klick daneben/Rechtsklick schließt"
-horizontal_alignment = 1
 
 [connection signal="pressed" from="UI/TakeButton" to="." method="_on_take_button_pressed"]
 [connection signal="pressed" from="UI/SelectAllButton" to="." method="_on_select_all_button_pressed"]

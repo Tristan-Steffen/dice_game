@@ -1,40 +1,43 @@
 class_name ShopController
-extends Panel
-## Der Shop als kleines ringgebundenes Menü-Büchlein: zwei cremefarbene Seiten
-## (links die Würfel-Angebote, rechts Charms und die Coupon-Packs), verbunden
-## durch Metall-Binderinge am Falz (siehe RingSpine). Die linke Seite ist bewusst
-## etwas kleiner und dunkler - sie liest sich als das "umgeschlagene" Blatt des
-## Ringbuchs, unter dem der restliche Blattstapel hervorlugt.
-## Umblättern auf eine NOCH NICHT gesehene Seite
-## würfelt frische Angebote aus und kostet eine steigende Gebühr (siehe
-## FLIP_FEE_BASE - das ist der "Reroll"); Zurückblättern und erneutes
-## Vorblättern auf bereits aufgeschlagene Seiten ist gratis, denn die Seiten
-## eines Buchs bleiben ja stehen (siehe MenuSpread - inklusive gekaufter Charms).
+extends Control
+## Der Shop zwischen den Runden - seit dem Hub-Umbau ein NEON-PANEL direkt AUF
+## dem Tisch-Display: er füllt die Hub-Fläche unter der Grube (siehe HubView.
+## attach_shop) und übernimmt deren Stil - dunkles Violett, Cyan-Überschriften,
+## Magenta-Titel, Gold für Geld/Abschluss, Neon-Grün für die Coupon-Packs.
+## Bedient wird er über die Maus-Weiterleitung in den Tisch-SubViewport (siehe
+## scene_root._forward_screen_mouse), sobald die Kamera auf den Hub gezoomt ist.
+##
+## Links die Würfel-Angebote, rechts Charms und Coupon-Packs. "Umblättern" auf
+## eine NOCH NICHT gesehene Seite würfelt frische Angebote aus und kostet eine
+## steigende Gebühr (siehe FLIP_FEE_BASE - das ist der "Reroll"); Zurückblättern
+## und erneutes Vorblättern auf bereits gesehene Seiten ist gratis, denn die
+## Seiten bleiben stehen (siehe MenuSpread - inklusive gekaufter Charms).
 ##
 ## Die Spielzustands-Mutation (Geld, Charms, Pool) liegt beim GameRun (siehe
 ## scripts/core/game_run.gd), den der Besitzer (scene_root) über run hereinreicht;
 ## auf das closed-Signal reagiert scene_root (Rundenwechsel). Käufe wirken sofort
 ## und sind beliebig oft wiederholbar (Charms je einmal - danach besitzt man sie).
+##
+## Alle Maße leiten sich aus der eigenen Größe ab (Einheit u = Breite/100, wie
+## HubView) - der Shop skaliert also mit der Hub-Fläche; freistehend (Tests)
+## greift die Standardgröße aus shop_panel.tscn.
 
 ## Wird ausgelöst, wenn der Spieler den Shop mit "Fertig" verlässt.
 signal closed
 
 const CHARM_PRICE := 15  # Preis pro Charm-Kauf
 const DICE_OFFER_COUNT := 3  # Würfel-Angebote je Doppelseite (siehe DiceOffer)
-const OFFER_THUMB_SIZE := 46  # Kantenlänge der Mini-Vorschau je Angebots-Würfel (siehe DiceRowView)
-const CHARM_THUMB_SIZE := 84  # Kantenlänge der 3D-Vorschau je Charm-Angebot (siehe CharmThumb)
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: erst $2, dann $3, $4 ...
 ## (fee = FLIP_FEE_BASE + bereits existierende Seiten - 1). Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
 
 ## Die vier Coupon-Pack-Sorten (siehe CouponSheet.generate: allowed_kinds).
-## Jedes Pack gibt es in den drei Bogengrößen (siehe PACK_SIZES); je größer das
+## Jedes Pack gibt es in den fünf Bogengrößen (siehe PACK_SIZES); je größer das
 ## Raster, desto teurer und desto größere Coupons können darauf liegen (die
 ## Fläche IST die Rarität). Das gemischte Heft ist bewusst etwas GÜNSTIGER als
 ## die sortenreinen Packs - wer gezielt zieht, zahlt für die Auswahl. Cover-
-## Motive nach Dateinamens-Konvention: PACK_COVER_DIR + id + ".jpg". Als festes
-## "Getränke-Sortiment" auf jeder Doppelseite identisch.
+## Motive nach Dateinamens-Konvention: PACK_COVER_DIR + id + ".jpg".
 const PACKS := [
 	{"id": "general", "name": "Coupon-Heft", "kinds": [], "prices": [6, 10, 16, 25, 36],
 		"tooltip": "Alle Coupon-Arten gemischt - dafür etwas günstiger."},
@@ -60,18 +63,23 @@ const PACK_COVER_DIR := "res://assets/textures/packs/"
 ## Das Pack-Sortiment einer Doppelseite: PACK_OFFER_COUNT zufällig gezogene,
 ## verschiedene Kombinationen aus Pack-Sorte × Bogengröße (von 4 × 5 = 20
 ## möglichen), als Raster gezeigt. Jedes Angebot ist nur EINMAL kaufbar
-## (danach greift man zum Umblättern für frische Packs). Umblättern würfelt ein
-## neues Sortiment.
+## (danach greift man zum Umblättern für frische Packs).
 const PACK_GRID_COLUMNS := 3
 const PACK_OFFER_COUNT := 6
 
-const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Menü-Papier (wie die Coupon-Bögen)
-const PAPER_EDGE := Color("c9b98f")   # abgedunkelter Papierrand
-const INK := Color(0.16, 0.14, 0.1)   # dunkle "Druckfarbe" für Überschriften auf Papier
-const FLIP_DURATION := 0.3  # Gesamtdauer des kosmetischen Blatt-Umschlagens (siehe _play_flip_animation)
+## Farben im Display-Stil (siehe HubView/TableScreen: 80s Neon).
+const NEON_CYAN := Color("#8be9fd")     # Überschriften der Rubriken, Würfel-Akzent
+const NEON_MAGENTA := Color("#ff79c6")  # Titel, Charm-Akzent
+const NEON_GOLD := Color("#ffd319")     # Geld, Preise, Fertig-Knopf
+const NEON_GREEN := Color("#50fa7b")    # Coupon-Packs
+const NEON_TEXT := Color(1.35, 1.35, 1.3)   # überhelles Weiß (leichter Glow)
+const NEON_MUTED := Color(0.75, 0.78, 0.9)  # gedämpfte Hinweistexte
+const CARD_BG := Color("#241f4a99")     # Karten-Hintergrund auf dem dunklen Violett
 
-## Eine aufgeschlagene Doppelseite des Menüs: ihre Würfel-Angebote, ihr
-## Charm-Angebot und welche Charms darauf schon gekauft wurden. Bleibt für den
+const FLIP_DURATION := 0.25  # Einblendzeit der neuen Seite (siehe _play_flip_animation)
+
+## Eine aufgeschlagene Doppelseite des Sortiments: ihre Würfel-Angebote, ihr
+## Charm-Angebot und welche Angebote darauf schon gekauft wurden. Bleibt für den
 ## ganzen Besuch bestehen - Zurückblättern zeigt exakt diese Seite wieder.
 class MenuSpread:
 	extends RefCounted
@@ -84,110 +92,13 @@ class MenuSpread:
 	## Je Angebot, ob es auf dieser Seite schon gekauft wurde (nur einmal kaufbar).
 	var pack_bought: Array[bool] = []
 
-## Die Metall-Ringbindung des Menü-Büchleins: ein zeichnendes Overlay über dem
-## ganzen Shop (fängt keine Maus), damit die Bügel über BEIDEN Papierseiten
-## liegen dürfen. Je Ring: Stanzlöcher in beiden Seiten, ein Metallbügel mit
-## Licht- und Schattenkante quer über den Falz-Spalt, plus ein weicher
-## Falz-Schatten an den Papier-Innenkanten. Unter der (etwas kleineren) rechten
-## Seite lugen zusätzlich die Kanten der übrigen Blätter des Stapels hervor - sie
-## liest sich so als oberstes Blatt des noch nicht durchgeblätterten Rests.
-class RingSpine:
-	extends Control
-
-	const RING_COUNT := 8        # Bügel der Wire-Bindung, gleichmäßig verteilt
-	const RING_MARGIN := 30.0    # Abstand des ersten/letzten Rings vom Seitenrand
-	const HOLE_INSET := 11.0     # wie weit die Stanzlöcher im Papier sitzen
-	const HOLE_RADIUS := 4.5
-	const RING_WIDTH := 6.0
-	const METAL := Color(0.58, 0.60, 0.65)
-	const METAL_LIGHT := Color(0.88, 0.90, 0.94)
-	const METAL_DARK := Color(0.30, 0.32, 0.36)
-	const HOLE_COLOR := Color(0.2, 0.17, 0.12)   # dunkles Stanzloch im Papier
-	const STACK_PAPER := Color("ddd0b0")         # Blattstapel-Kanten unter der linken Seite
-	const STACK_LAYERS := 5      # sichtbare Blätter unter dem obersten (der linken Seite)
-	const STACK_STEP := 3.0      # wie weit jedes tiefere Blatt nach außen absteht
-
-	var left_page: Control
-	var right_page: Control
-
-	func _draw() -> void:
-		if left_page == null or right_page == null:
-			return
-		var lr := Rect2(left_page.global_position - global_position, left_page.size)
-		var rr := Rect2(right_page.global_position - global_position, right_page.size)
-
-		_draw_sheet_stack(rr, true)  # Stapel unter der rechten Seite (freie Außenkante = rechts)
-		_draw_spine_shadow(lr, true)
-		_draw_spine_shadow(rr, false)
-
-		# Ringe über die gemeinsame Höhe beider Seiten verteilen (die linke ist
-		# kürzer - alle Löcher müssen in BEIDEN Blättern sitzen).
-		var top := maxf(lr.position.y, rr.position.y) + RING_MARGIN
-		var bottom := minf(lr.end.y, rr.end.y) - RING_MARGIN
-		for i in RING_COUNT:
-			var y := lerpf(top, bottom, float(i) / float(RING_COUNT - 1))
-			_draw_ring(lr.end.x - HOLE_INSET, rr.position.x + HOLE_INSET, y)
-
-	## Ein Bügel der Bindung: durch beide Stanzlöcher, mit Schlagschatten aufs
-	## Papier, Glanzlinie oben und Schattenkante unten (liest sich als rundes Metall).
-	func _draw_ring(xl: float, xr: float, y: float) -> void:
-		draw_circle(Vector2(xl, y), HOLE_RADIUS, HOLE_COLOR)
-		draw_circle(Vector2(xr, y), HOLE_RADIUS, HOLE_COLOR)
-		draw_line(Vector2(xl, y + 3.0), Vector2(xr, y + 3.0), Color(0, 0, 0, 0.25), RING_WIDTH)
-		draw_line(Vector2(xl, y), Vector2(xr, y), METAL, RING_WIDTH)
-		draw_circle(Vector2(xl, y), RING_WIDTH * 0.5, METAL)
-		draw_circle(Vector2(xr, y), RING_WIDTH * 0.5, METAL)
-		draw_line(Vector2(xl, y - 1.2), Vector2(xr, y - 1.2), METAL_LIGHT, 1.8)
-		draw_line(Vector2(xl, y + 1.8), Vector2(xr, y + 1.8), METAL_DARK, 1.2)
-
-	## Weicher Schatten am Falz: die Papier-Innenkante dunkelt zum Spalt hin ab
-	## (per-Vertex-Farben des Polygons ergeben den Verlauf).
-	func _draw_spine_shadow(rect: Rect2, inner_edge_is_right: bool) -> void:
-		var width := 14.0
-		var x_inner := rect.end.x if inner_edge_is_right else rect.position.x
-		var x_outer := x_inner - width if inner_edge_is_right else x_inner + width
-		var points := PackedVector2Array([
-			Vector2(x_outer, rect.position.y), Vector2(x_inner, rect.position.y),
-			Vector2(x_inner, rect.end.y), Vector2(x_outer, rect.end.y)])
-		var dark := Color(0, 0, 0, 0.16)
-		var clear := Color(0, 0, 0, 0.0)
-		draw_polygon(points, PackedColorArray([clear, dark, dark, clear]))
-
-	## Der Blattstapel unter einer Seite: mehrere Papierblätter treppen sich nach
-	## unten und zur freien Außenkante hin ab, sodass ihre Kanten dort hervorlugen -
-	## die Seite liest sich so als oberstes Blatt eines Stapels. outer_is_right
-	## wählt die freie Außenkante (rechts = Spine links, für die rechte Menü-Seite).
-	## Da das Overlay ÜBER dem Seiteninhalt zeichnet, werden nur die Rand-Bänder
-	## AUSSERHALB der Seite gemalt (keine Flächen über dem Inhalt); tiefere Blätter
-	## zuerst, damit nähere sie überdecken.
-	func _draw_sheet_stack(rect: Rect2, outer_is_right: bool) -> void:
-		var s := 1.0 if outer_is_right else -1.0          # Richtung "nach außen"
-		var edge_x := rect.end.x if outer_is_right else rect.position.x  # freie Außenkante
-		var spine_x := rect.position.x if outer_is_right else rect.end.x  # Falz-Seite (fest)
-		var edge := Color(0, 0, 0, 0.16)
-		for i in range(STACK_LAYERS, 0, -1):
-			var out := i * STACK_STEP
-			var inn := (i - 1) * STACK_STEP
-			var paper := STACK_PAPER.darkened(i * 0.035)
-			var outer := edge_x + s * out    # Außenkante DIESES Blattes
-			# Unterkante (von der Falz-Seite bis zur abstehenden Außenkante).
-			draw_rect(Rect2(minf(spine_x, outer), rect.end.y + inn,
-				absf(outer - spine_x), out - inn), paper)
-			# Außenkante (ab der um "out" nach unten verschobenen Oberkante).
-			draw_rect(Rect2(minf(edge_x + s * inn, outer), rect.position.y + out,
-				STACK_STEP, rect.size.y), paper)
-			# Dünne Schattenlinie an der Außen- und Unterkante jedes Blattes.
-			draw_line(Vector2(outer, rect.position.y + out),
-				Vector2(outer, rect.end.y + out), edge, 1.0)
-			draw_line(Vector2(minf(spine_x, outer), rect.end.y + out),
-				Vector2(maxf(spine_x, outer), rect.end.y + out), edge, 1.0)
-
 ## Die Bogen-Miniatur einer Pack-Karte: das Cover-Motiv liegt als "Papier" in
 ## Bogengröße auf der Karte, überzogen mit dem ECHTEN Raster des Packs als
 ## Perforationslinien. Die Bogengröße ist so auf einen Blick sichtbar - ein
 ## großes Pack hat sichtbar größeres Papier UND ein feineres Raster als ein
-## Schnipsel. Unten bündig ausgerichtet, damit alle Karten einer Zeile auf
-## einer gemeinsamen Grundlinie stehen.
+## Schnipsel. Der Bogen bleibt bewusst cremefarbenes Papier (das PRODUKT im
+## Regal), nur die Karte drumherum trägt den Neon-Stil. ui_scale skaliert die
+## Miniatur mit der Shop-Größe (siehe _build_pack_card).
 class PackSheetThumb:
 	extends Control
 
@@ -200,10 +111,10 @@ class PackSheetThumb:
 	var dims: int
 	var side: float
 
-	func _init(p_texture: Texture2D, p_dims: int) -> void:
+	func _init(p_texture: Texture2D, p_dims: int, ui_scale: float = 1.0) -> void:
 		texture = p_texture
 		dims = p_dims
-		side = SIDE_BASE + p_dims * SIDE_PER_CELL
+		side = (SIDE_BASE + p_dims * SIDE_PER_CELL) * ui_scale
 		custom_minimum_size = Vector2(side, side)
 
 	func _draw() -> void:
@@ -238,19 +149,21 @@ var run: GameRun:
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 
-@onready var left_page: PanelContainer = $VBoxContainer/Book/LeftHolder/LeftPage
-@onready var left_content: VBoxContainer = $VBoxContainer/Book/LeftHolder/LeftPage/LeftContent
-@onready var right_page: PanelContainer = $VBoxContainer/Book/RightHolder/RightPage
-@onready var right_content: VBoxContainer = $VBoxContainer/Book/RightHolder/RightPage/RightContent
-@onready var done_button: Button = $VBoxContainer/DoneButton
+## Breiteneinheit (size.x / 100) - alle Maße/Schriften relativ zur Shop-Breite,
+## in _build_layout gesetzt (Mindestwert für freistehende Instanzen ohne Größe).
+var u := 8.0
 
-## Blätter-Ecken der aktuellen Doppelseite (je Seiten-Fußzeile neu gebaut,
-## siehe _page_footer): links zurück, rechts vor (mit Gebühr bei neuer Seite).
+## Gerüst-Referenzen (je open() in _build_layout frisch gebaut).
+var money_label: Label
+var content_root: VBoxContainer  # Seiteninhalt (für die Umblätter-Einblendung)
+var left_column: VBoxContainer   # Würfel-Angebote
+var right_column: VBoxContainer  # Charms + Coupon-Packs
+var page_label: Label
+var done_button: Button
+## Blätter-Knöpfe im festen Fußbereich: links zurück, rechts vor (mit Gebühr bei
+## neuer Seite) - Zustand siehe _refresh_afford_state.
 var page_back_button: Button
 var page_next_button: Button
-
-## Das Ringbinder-Overlay (siehe RingSpine), in _style einmalig aufgebaut.
-var ring_spine: RingSpine
 
 ## Alle in diesem Besuch aufgeschlagenen Doppelseiten (Index 0 = erste).
 var spreads: Array[MenuSpread] = []
@@ -270,51 +183,102 @@ var pack_bought: Array[bool] = []
 var sheet_buttons: Array[Button] = []
 var sheet_button_prices: Array[int] = []
 
-func _ready() -> void:
-	_style()
-	done_button.pressed.connect(_on_done_pressed)
+var flip_tween: Tween
 
-## Nur das Menü selbst ist sichtbar: der Panel-Hintergrund bleibt leer (kein
-## dunkler Kasten hinter dem Buch), gestylt werden allein die Papier-Seiten und
-## der kleine Fertig-Knopf darunter. Obendrauf kommt die Metall-Ringbindung als
-## Overlay - und unter der rechten Seite der Blattstapel (siehe RingSpine).
-func _style() -> void:
-	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	CasinoStyle.style_button(done_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 16)
-	left_page.add_theme_stylebox_override("panel", _paper_box())
-	right_page.add_theme_stylebox_override("panel", _paper_box())
-
-	ring_spine = RingSpine.new()
-	ring_spine.left_page = left_page
-	ring_spine.right_page = right_page
-	ring_spine.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring_spine.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(ring_spine)  # letztes Kind: zeichnet ÜBER beiden Papierseiten
-	# Erst nach dem ersten Container-Layout stehen die Seiten-Rechtecke fest.
-	left_page.item_rect_changed.connect(ring_spine.queue_redraw)
-	right_page.item_rect_changed.connect(ring_spine.queue_redraw)
-
-## Cremefarbenes Seitenpapier mit dunklerem Rand und weichem Schatten.
-func _paper_box(paper: Color = PAPER_COLOR) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = paper
-	box.border_color = PAPER_EDGE
-	box.set_border_width_all(2)
-	box.set_corner_radius_all(6)
-	box.shadow_color = Color(0, 0, 0, 0.45)
-	box.shadow_size = 8
-	box.shadow_offset = Vector2(0, 3)
-	box.set_content_margin_all(14)
-	return box
-
-## Öffnet den Shop: das Menü beginnt frisch auf der ersten Doppelseite (alle
-## Seiten des vorigen Besuchs sind Geschichte, die Blätter-Gebühr startet neu).
-## Sichtbarkeit/Spielzustand steuert der Aufrufer (scene_root._on_round_complete).
+## Öffnet den Shop: das Sortiment beginnt frisch auf der ersten Doppelseite
+## (alle Seiten des vorigen Besuchs sind Geschichte, die Blätter-Gebühr startet
+## neu). Baut das Gerüst passend zur AKTUELLEN Größe neu auf (im Hub = die
+## Hub-Fläche). Sichtbarkeit/Spielzustand steuert der Aufrufer
+## (scene_root._on_round_complete).
 func open() -> void:
+	_build_layout()
 	spreads = [_build_spread()]
 	current_spread_index = 0
 	_show_spread()
 	visible = true
+
+# --- Gerüst (Neon-Panel) --------------------------------------------------------
+
+## Baut das feste Gerüst des Panels: Kopfzeile (Titel + Geld), zwei Rubriken-
+## Spalten und der feste Fußbereich (Blättern + Fertig). Der Neon-Rahmen kommt
+## vom Hub darunter (siehe HubView) - der Shop füllt nur dessen Fläche.
+func _build_layout() -> void:
+	for child in get_children():
+		child.queue_free()
+	u = maxf(size.x, 640.0) / 100.0
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Sicherheitsnetz: Inhalt darf nie über den Hub-Rahmen hinausragen (die
+	# Maus-Weiterleitung endet an der Hub-Fläche, siehe _forward_screen_mouse).
+	clip_contents = true
+
+	var margin := MarginContainer.new()
+	margin.name = "Margin"
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", int(u * 3.0))
+	margin.add_theme_constant_override("margin_right", int(u * 3.0))
+	margin.add_theme_constant_override("margin_top", int(u * 2.0))
+	margin.add_theme_constant_override("margin_bottom", int(u * 2.0))
+	add_child(margin)
+
+	var root := VBoxContainer.new()
+	root.name = "Root"
+	root.add_theme_constant_override("separation", int(u * 1.2))
+	margin.add_child(root)
+
+	# Kopfzeile: Titel links (Magenta), Geldstand rechts (Gold).
+	var header := HBoxContainer.new()
+	header.name = "Header"
+	root.add_child(header)
+	var title := _label("SHOP", u * 4.5, NEON_MAGENTA)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	money_label = _label("$0", u * 4.0, NEON_GOLD)
+	header.add_child(money_label)
+
+	# Seiteninhalt: zwei Rubriken-Spalten (links Würfel, rechts Charms + Packs).
+	content_root = VBoxContainer.new()
+	content_root.name = "Content"
+	content_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(content_root)
+	var columns := HBoxContainer.new()
+	columns.name = "Columns"
+	columns.add_theme_constant_override("separation", int(u * 2.5))
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_root.add_child(columns)
+	left_column = VBoxContainer.new()
+	left_column.name = "DiceColumn"
+	left_column.add_theme_constant_override("separation", int(u * 1.2))
+	left_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_column.size_flags_stretch_ratio = 1.0
+	columns.add_child(left_column)
+	right_column = VBoxContainer.new()
+	right_column.name = "CharmPackColumn"
+	right_column.add_theme_constant_override("separation", int(u * 1.2))
+	right_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_column.size_flags_stretch_ratio = 1.0
+	columns.add_child(right_column)
+
+	# Fester Fußbereich: ‹ Seite N › links, Fertig rechts.
+	var footer := HBoxContainer.new()
+	footer.name = "Footer"
+	footer.add_theme_constant_override("separation", int(u * 1.5))
+	root.add_child(footer)
+	page_back_button = _neon_button("‹", NEON_CYAN, u * 3.2, Vector2(u * 7.0, u * 5.0))
+	page_back_button.pressed.connect(_on_page_back_pressed)
+	footer.add_child(page_back_button)
+	page_label = _label("Seite 1", u * 2.8, NEON_MUTED)
+	page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	footer.add_child(page_label)
+	page_next_button = _neon_button("›", NEON_CYAN, u * 3.2, Vector2(u * 12.0, u * 5.0))
+	page_next_button.pressed.connect(_on_page_next_pressed)
+	footer.add_child(page_next_button)
+	var footer_spacer := Control.new()
+	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	footer.add_child(footer_spacer)
+	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
+	done_button.pressed.connect(_on_done_pressed)
+	footer.add_child(done_button)
 
 # --- Blättern ------------------------------------------------------------------
 
@@ -328,77 +292,39 @@ func _next_flip_fee() -> int:
 func _next_flip_is_new() -> bool:
 	return current_spread_index == spreads.size() - 1
 
-## Vorblättern: auf eine bereits gesehene Seite gratis; ans Buchende blättern
+## Vorblättern: auf eine bereits gesehene Seite gratis; ans Ende blättern
 ## würfelt eine neue Doppelseite aus und kostet die steigende Gebühr.
 func _on_page_next_pressed() -> void:
 	if _next_flip_is_new():
 		var fee := _next_flip_fee()
 		if run.money < fee:
-			return  # die Blätter-Ecke ist bei zu wenig Geld ohnehin deaktiviert
+			return  # der Knopf ist bei zu wenig Geld ohnehin deaktiviert
 		run.add_money(-fee)
 		spreads.append(_build_spread())
 	current_spread_index += 1
 	_show_spread()
-	_play_flip_animation(true)
+	_play_flip_animation()
 
-## Zurückblättern ist immer gratis - die Seite steht ja schon im Buch.
+## Zurückblättern ist immer gratis - die Seite steht ja schon im Sortiment.
 func _on_page_back_pressed() -> void:
 	if current_spread_index == 0:
 		return
 	current_spread_index -= 1
 	_show_spread()
-	_play_flip_animation(false)
+	_play_flip_animation()
 
-var flip_sheets: Array[Node] = []  # temporäre Papier-Blätter der laufenden Flip-Animation
-var flip_tween: Tween
-
-## Rein kosmetisches Blatt-Umschlagen über der (bereits umgebauten) Doppelseite:
-## ein papierfarbenes Blatt klappt von der Ausgangsseite zum Buchrücken zu
-## (verdeckt dabei kurz die neue Seite und gibt sie beim Zuklappen frei), dann
-## klappt es auf der Zielseite vom Rücken her auf und verblasst. Der Spielzustand
-## ist zu diesem Zeitpunkt schon vollständig gewechselt, die Animation gate also
-## nichts (wichtig für Tests und schnelles Klicken - ein neuer Flip räumt die
-## vorige Animation einfach weg).
-func _play_flip_animation(forward: bool) -> void:
-	_clear_flip_sheets()
-	var from_page := right_page if forward else left_page
-	var to_page := left_page if forward else right_page
-
-	# Falz liegt immer am Buchrücken: rechte Seite = linke Kante, linke = rechte.
-	var sheet_from := _make_flip_sheet(from_page, forward)
-	var sheet_to := _make_flip_sheet(to_page, not forward)
-	sheet_to.scale.x = 0.0
-
-	var half := FLIP_DURATION * 0.5
-	flip_tween = create_tween()
-	flip_tween.tween_property(sheet_from, "scale:x", 0.0, half) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	flip_tween.tween_property(sheet_to, "scale:x", 1.0, half) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	flip_tween.tween_property(sheet_to, "modulate:a", 0.0, 0.12)
-	flip_tween.tween_callback(_clear_flip_sheets)
-
-## Ein papierfarbenes "Blatt" exakt über einer Menü-Seite, mit Falz-Pivot am
-## Buchrücken (spine_left = Falz an der linken Blattkante). Als Kind des Panels
-## über allen Seiteninhalten gezeichnet.
-func _make_flip_sheet(page: PanelContainer, spine_left: bool) -> Panel:
-	var sheet := Panel.new()
-	sheet.add_theme_stylebox_override("panel", _paper_box())
-	sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(sheet)
-	sheet.global_position = page.global_position
-	sheet.size = page.size
-	sheet.pivot_offset = Vector2(0.0 if spine_left else sheet.size.x, sheet.size.y * 0.5)
-	flip_sheets.append(sheet)
-	return sheet
-
-func _clear_flip_sheets() -> void:
+## Rein kosmetischer Seitenwechsel im Display-Stil: der (bereits umgebaute)
+## Seiteninhalt blendet kurz aus dem Dunkel ein - wie ein Bildschirm, der neu
+## zeichnet. Der Spielzustand ist zu diesem Zeitpunkt schon vollständig
+## gewechselt, die Animation gate also nichts (wichtig für Tests und schnelles
+## Klicken - ein neuer Wechsel ersetzt die vorige Einblendung einfach).
+func _play_flip_animation() -> void:
 	if flip_tween != null and flip_tween.is_valid():
 		flip_tween.kill()
-	for sheet in flip_sheets:
-		if is_instance_valid(sheet):
-			sheet.queue_free()
-	flip_sheets.clear()
+	content_root.modulate = Color(1, 1, 1, 0)
+	flip_tween = create_tween()
+	flip_tween.tween_property(content_root, "modulate:a", 1.0, FLIP_DURATION) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 # --- Doppelseiten bauen ---------------------------------------------------------
 
@@ -426,7 +352,7 @@ func _build_spread() -> MenuSpread:
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	# Pack-Sortiment: 9 verschiedene aus allen Sorte-×-Größe-Kombinationen.
+	# Pack-Sortiment: PACK_OFFER_COUNT verschiedene aus allen Sorte-×-Größe-Kombinationen.
 	var combos: Array[Vector2i] = []
 	for p in PACKS.size():
 		for s in PACK_SIZES.size():
@@ -437,8 +363,8 @@ func _build_spread() -> MenuSpread:
 	spread.pack_bought.fill(false)
 	return spread
 
-## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, beide Seiten neu
-## bebauen, Navigation und Kaufbarkeit aktualisieren.
+## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, beide Rubriken-
+## Spalten neu bebauen, Navigation und Kaufbarkeit aktualisieren.
 func _show_spread() -> void:
 	var spread := spreads[current_spread_index]
 	dice_offers = spread.dice_offers
@@ -447,56 +373,53 @@ func _show_spread() -> void:
 	pack_offers = spread.pack_offers
 	pack_bought = spread.pack_bought
 
-	_rebuild_left_page(spread)
-	_rebuild_right_page(spread)
+	_rebuild_left_column(spread)
+	_rebuild_right_column(spread)
+	page_label.text = "Seite %d" % (current_spread_index + 1)
 	_refresh_afford_state()
 
-## Gibt die Inhalte beider Seiten frei - auch beim Schließen wichtig, damit die
+## Gibt die Inhalte beider Spalten frei - auch beim Schließen wichtig, damit die
 ## 3D-Vorschau-Viewports der Würfelzeilen nicht im Hintergrund weiterrendern.
 func _clear_pages() -> void:
-	for child in left_content.get_children():
-		child.queue_free()
-	for child in right_content.get_children():
-		child.queue_free()
+	if left_column != null:
+		for child in left_column.get_children():
+			child.queue_free()
+	if right_column != null:
+		for child in right_column.get_children():
+			child.queue_free()
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
 	sheet_buttons.clear()
 	sheet_button_prices.clear()
-	page_back_button = null
-	page_next_button = null
 
-## Linke Menü-Seite: Überschrift + die Würfel-Angebote der Doppelseite.
-func _rebuild_left_page(spread: MenuSpread) -> void:
-	for child in left_content.get_children():
+## Linke Rubrik: Überschrift + die Würfel-Angebote der Doppelseite.
+func _rebuild_left_column(spread: MenuSpread) -> void:
+	for child in left_column.get_children():
 		child.queue_free()
 	offer_buy_buttons.clear()
 
-	left_content.add_child(_menu_heading("Würfel"))
+	left_column.add_child(_section_heading("WÜRFEL"))
 	for i in spread.dice_offers.size():
-		left_content.add_child(_build_offer_card(spread.dice_offers[i], i))
+		left_column.add_child(_build_offer_card(spread.dice_offers[i], i))
 
-	page_back_button = _corner_button("‹")
-	page_back_button.pressed.connect(_on_page_back_pressed)
-	left_content.add_child(_page_footer(current_spread_index * 2 + 1, page_back_button, true))
-
-## Rechte Menü-Seite: Charms (je einmal kaufbar) + das feste Bogen-Sortiment.
-func _rebuild_right_page(spread: MenuSpread) -> void:
-	for child in right_content.get_children():
+## Rechte Rubrik: Charms (je einmal kaufbar) + das Bogen-Sortiment.
+func _rebuild_right_column(spread: MenuSpread) -> void:
+	for child in right_column.get_children():
 		child.queue_free()
 	charm_buttons.clear()
 	sheet_buttons.clear()
 	sheet_button_prices.clear()
 
-	right_content.add_child(_menu_heading("Charms (je $%d)" % _charm_price()))
+	right_column.add_child(_section_heading("CHARMS – je $%d" % _charm_price()))
 	for i in spread.charm_options.size():
 		var charm := spread.charm_options[i]
 		var entry := HBoxContainer.new()
-		entry.add_theme_constant_override("separation", 8)
-		entry.add_child(CharmThumb.new(charm, CHARM_THUMB_SIZE))
+		entry.add_theme_constant_override("separation", int(u * 1.0))
+		entry.add_child(CharmThumb.new(charm, int(u * 8.0)))
 
-		var button := Button.new()
+		var button := _neon_button("", NEON_MAGENTA, u * 2.0)
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(0, CHARM_THUMB_SIZE)
+		button.custom_minimum_size = Vector2(0, u * 8.0)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.tooltip_text = charm.description
@@ -506,24 +429,19 @@ func _rebuild_right_page(spread: MenuSpread) -> void:
 		else:
 			button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, _charm_price()]
 			button.pressed.connect(_on_charm_clicked.bind(i))
-		CasinoStyle.style_button(button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, 13)
 		entry.add_child(button)
-		right_content.add_child(entry)
+		right_column.add_child(entry)
 		charm_buttons.append(button)
 
-	right_content.add_child(_menu_heading("Coupon-Packs"))
+	right_column.add_child(_section_heading("COUPON-PACKS"))
 	var grid := GridContainer.new()
 	grid.columns = PACK_GRID_COLUMNS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 6)
-	right_content.add_child(grid)
+	grid.add_theme_constant_override("h_separation", int(u * 1.0))
+	grid.add_theme_constant_override("v_separation", int(u * 0.8))
+	right_column.add_child(grid)
 	for i in spread.pack_offers.size():
 		var offer := spread.pack_offers[i]
 		grid.add_child(_build_pack_card(offer.x, offer.y, i))
-
-	page_next_button = _corner_button("›")
-	page_next_button.pressed.connect(_on_page_next_pressed)
-	right_content.add_child(_page_footer(current_spread_index * 2 + 2, page_next_button, false))
 
 ## Eine Pack-Karte des Sortiments: die Bogen-Miniatur (Cover-Motiv in
 ## Bogengröße mit echtem Raster, siehe PackSheetThumb), darunter der Pack-Name
@@ -536,27 +454,24 @@ func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Con
 	var size_label: String = PACK_SIZES[size_index]["label"]
 
 	var card := VBoxContainer.new()
-	card.add_theme_constant_override("separation", 2)
+	card.add_theme_constant_override("separation", int(u * 0.4))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.tooltip_text = "%s (%s)\n%s" % [pack["name"], size_label, pack["tooltip"]]
 
 	var cover_path: String = PACK_COVER_DIR + pack["id"] + ".jpg"
 	var cover: Texture2D = load(cover_path) if ResourceLoader.exists(cover_path) else null
 	var dims: int = CouponSheet.grid_size(PACK_SIZES[size_index]["kind"]).x
-	var thumb := PackSheetThumb.new(cover, dims)
+	var thumb := PackSheetThumb.new(cover, dims, u * 0.13)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Miniaturen einer Zeile stehen unten bündig
 	card.add_child(thumb)
 
-	var name_label := Label.new()
-	name_label.text = pack["name"]
+	var name_label := _label(pack["name"], u * 1.8, NEON_MUTED)
 	name_label.clip_text = true
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_label.add_theme_font_size_override("font_size", 11)
-	name_label.add_theme_color_override("font_color", INK)
 	card.add_child(name_label)
 
-	var button := Button.new()
+	var button := _neon_button("", NEON_GREEN, u * 2.0, Vector2(0, u * 4.0))
 	if pack_bought[offer_index]:
 		button.text = "vergriffen"
 		button.disabled = true
@@ -564,96 +479,43 @@ func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Con
 		button.text = "%s $%d" % [size_label, price]
 		button.pressed.connect(_on_sheet_pressed.bind(offer_index))
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(0, 25)
-	CasinoStyle.style_button(button, CasinoStyle.GREEN, CasinoStyle.GREEN_DARK, 12)
 	card.add_child(button)
 	sheet_buttons.append(button)
 	sheet_button_prices.append(price)
 	return card
 
-## Überschrift in dunkler "Druckfarbe" auf dem Menü-Papier.
-func _menu_heading(text: String) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", INK)
-	return label
-
-## Seitenzahl-Fußzeile wie in einer echten Speisekarte: "– N –" mittig, dazu die
-## Blätter-Ecke der Seite (nav_on_left = linke Blattecke, sonst rechte). Ein
-## unsichtbarer Gegen-Platzhalter in Eckengröße hält die Seitenzahl exakt mittig;
-## der davor gesetzte Streckplatz drückt die Zeile ans Seitenende.
-func _page_footer(page_number: int, corner: Button, nav_on_left: bool) -> Control:
-	var holder := VBoxContainer.new()
-	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	holder.add_child(spacer)
-
-	var row := HBoxContainer.new()
-	var label := Label.new()
-	label.text = "– %d –" % page_number
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.add_theme_font_size_override("font_size", 13)
-	label.add_theme_color_override("font_color", INK)
-
-	var ghost := Control.new()  # Gegenstück zur Ecke, hält die Seitenzahl mittig
-	ghost.custom_minimum_size = corner.custom_minimum_size
-	if nav_on_left:
-		row.add_child(corner)
-		row.add_child(label)
-		row.add_child(ghost)
-	else:
-		row.add_child(ghost)
-		row.add_child(label)
-		row.add_child(corner)
-	holder.add_child(row)
-	return holder
-
-## Kleine Blätter-Ecke am unteren Seitenrand (wie ein Eselsohr zum Umblättern).
-func _corner_button(text: String) -> Button:
-	var button := Button.new()
-	button.text = text
-	button.custom_minimum_size = Vector2(96, 30)
-	CasinoStyle.style_button(button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 13)
-	return button
-
-## Eine Angebotskarte auf der linken Seite: dunkle "gedruckte" Karte mit der
-## Würfel-Zeile im Sammlungs-Look (mit "N ×"-Stück-Multiplikator, alle Würfel
-## eines Bündels sind gleich - siehe DiceOffer) und dem Kauf-Button darunter.
+## Eine Angebotskarte der Würfel-Rubrik: dunkle Neon-Karte mit der Würfel-Zeile
+## im Sammlungs-Look (mit "N ×"-Stück-Multiplikator, alle Würfel eines Bündels
+## sind gleich - siehe DiceOffer) und dem Kauf-Button darunter.
 func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.09, 0.13, 0.18, 0.96)
-	box.set_corner_radius_all(8)
-	box.set_content_margin_all(6)
+	box.bg_color = CARD_BG
+	box.border_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.45)
+	box.set_border_width_all(maxi(1, int(u * 0.2)))
+	box.set_corner_radius_all(int(u * 1.0))
+	box.set_content_margin_all(int(u * 0.8))
 	card.add_theme_stylebox_override("panel", box)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
+	vbox.add_theme_constant_override("separation", int(u * 0.5))
 	card.add_child(vbox)
 
-	vbox.add_child(DiceRowView.build_row(offer.dice[0], OFFER_THUMB_SIZE, offer.size()))
+	vbox.add_child(DiceRowView.build_row(offer.dice[0], int(u * 6.0), offer.size()))
 
 	# Veredelte Angebote (Material-Seiten/Kanten, siehe DiceOffer._roll_refinements)
 	# benennen ihre Veredelungen - die Mini-Vorschau allein ist dafür zu klein,
 	# und der Aufpreis soll lesbar begründet sein.
 	var refinements := _refinement_text(offer.dice[0])
 	if refinements != "":
-		var refined_label := Label.new()
-		refined_label.text = "Veredelt: %s" % refinements
+		var refined_label := _label("Veredelt: %s" % refinements, u * 2.0, NEON_GOLD)
 		refined_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		refined_label.add_theme_font_size_override("font_size", 12)
-		refined_label.add_theme_color_override("font_color", CasinoStyle.GOLD)
 		vbox.add_child(refined_label)
 
-	var buy := Button.new()
-	buy.text = "%s · $%d" % [offer.display_name, _offer_price(offer)]
+	var buy := _neon_button("%s · $%d" % [offer.display_name, _offer_price(offer)], NEON_CYAN, u * 2.2, Vector2(0, u * 4.2))
 	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	buy.pressed.connect(_on_offer_pressed.bind(index))
-	CasinoStyle.style_button(buy, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, 14)
 	vbox.add_child(buy)
 	offer_buy_buttons.append(buy)
 	return card
@@ -676,6 +538,49 @@ func _refinement_text(def: DieDefinition) -> String:
 	if def.edge_material != "":
 		parts.append("%s-Kanten" % DieMaterial.by_id(def.edge_material).display_name)
 	return " · ".join(parts)
+
+# --- Neon-Bausteine ---------------------------------------------------------------
+
+## Rubriken-Überschrift in Cyan (Display-Stil, siehe HubView).
+func _section_heading(text: String) -> Label:
+	return _label(text, u * 2.8, NEON_CYAN)
+
+func _label(text: String, font_size: float, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
+	label.modulate = color
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+## Ein Knopf im Neon-Stil des Displays: dunkler Grund, Rahmen in der Akzentfarbe
+## der Rubrik (Cyan Würfel, Magenta Charms, Grün Packs, Gold Abschluss); Hover
+## und Druck wechseln auf Gold, deaktiviert dimmt alles ab.
+func _neon_button(text: String, accent: Color, font_size: float, min_size: Vector2 = Vector2.ZERO) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = min_size
+	button.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
+	button.add_theme_color_override("font_color", NEON_TEXT)
+	button.add_theme_color_override("font_hover_color", NEON_GOLD)
+	button.add_theme_color_override("font_pressed_color", NEON_GOLD)
+	button.add_theme_color_override("font_disabled_color", Color(NEON_MUTED.r, NEON_MUTED.g, NEON_MUTED.b, 0.45))
+	button.add_theme_stylebox_override("normal", _button_box(Color("#221e46cc"), accent))
+	button.add_theme_stylebox_override("hover", _button_box(Color("#2c2757dd"), NEON_GOLD))
+	button.add_theme_stylebox_override("pressed", _button_box(Color("#3a2f66"), NEON_GOLD))
+	button.add_theme_stylebox_override("focus", _button_box(Color("#221e46cc"), accent))
+	button.add_theme_stylebox_override("disabled", _button_box(Color("#1a183666"), Color(accent.r, accent.g, accent.b, 0.25)))
+	return button
+
+func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = bg
+	box.border_color = border
+	box.set_border_width_all(maxi(1, int(u * 0.22)))
+	box.set_corner_radius_all(int(u * 0.9))
+	box.set_content_margin_all(int(u * 0.8))
+	return box
 
 # --- Käufe ----------------------------------------------------------------------
 
@@ -746,9 +651,12 @@ func _on_sheet_pressed(offer_index: int) -> void:
 
 ## Deaktiviert alles, was sich der Spieler gerade nicht leisten kann - je Angebot
 ## seinen (rabattierten) Preis, unverkaufte Charms, Bögen und das Umblättern auf
-## eine neue Doppelseite (dessen Button auch die fällige Gebühr anzeigt).
+## eine neue Doppelseite (dessen Knopf auch die fällige Gebühr anzeigt). Hält
+## außerdem den Geldstand der Kopfzeile aktuell.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
+	if money_label != null:
+		money_label.text = "$%d" % money
 	for i in offer_buy_buttons.size():
 		offer_buy_buttons[i].disabled = money < _offer_price(dice_offers[i])
 	for i in charm_buttons.size():
@@ -775,7 +683,6 @@ func _on_run_money_changed(_money: int) -> void:
 		_refresh_afford_state()
 
 func _on_done_pressed() -> void:
-	_clear_flip_sheets()
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern nach dem Schließen)
 	visible = false
 	closed.emit()

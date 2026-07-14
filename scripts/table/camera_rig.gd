@@ -7,7 +7,7 @@ extends Camera3D
 ## zur Übersicht zurück. Auch im Zoom bleibt ein leichtes Rundschauen möglich -
 ## mit deutlich kleinerem Winkelbereich, damit das Ziel im Blick bleibt.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB }
 
 ## Wird ausgelöst, sobald sich der Modus ändert (zoom_to/zoom_out) - dient
 ## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
@@ -40,6 +40,7 @@ var discard_target := Vector3(-26, -3, -12)  # DiscardTrayView
 var combos_target := Vector3(-8, -3.4, 0)  # Kombi-Cluster auf dem Tisch-Display
 var pit_target := Vector3.ZERO  # Grubenmitte (DicePit.PIT_CENTER)
 var charms_target := Vector3(24, -3.4, 0)  # Mitte der Charm-Reihe
+var hub_target := Vector3(-24, -3.4, 0)  # Hub-Fläche unter der Grube (siehe HubView)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele (Grube/Trays/Kombis/Charms) -
 ## unabhängig von der frei im Editor einstellbaren (flacheren) Übersichts-Kamera,
@@ -123,6 +124,10 @@ func configure_pit_target(target: Vector3) -> void:
 func configure_charms_target(target: Vector3) -> void:
 	charms_target = target
 
+## Blickpunkt des Hubs (siehe scene_root._setup_hub_zoom / ScreenAnchors/Hub).
+func configure_hub_target(target: Vector3) -> void:
+	hub_target = target
+
 ## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
 ## Modus tut nichts (schon dort).
 func zoom_to(target_mode: Mode) -> void:
@@ -143,6 +148,8 @@ func zoom_to(target_mode: Mode) -> void:
 			target_point = combos_target
 		Mode.CHARMS:
 			target_point = charms_target
+		Mode.HUB:
+			target_point = hub_target
 		_:
 			return
 	var target_origin := target_point - ZOOM_FORWARD * ZOOM_DISTANCE

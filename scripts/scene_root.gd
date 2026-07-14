@@ -50,12 +50,12 @@ const HAND_SIZE := 6
 const MONEY_PER_ROUND_CLEAR := 10  # Belohnung fürs Rundenziel-Erreichen (einmalig, nicht pro Hand), siehe _on_round_complete
 const MONEY_PER_UNUSED_DIE := 1  # Bonus je noch nicht gezogenem Würfel im Rundenpool beim Rundenziel-Erreichen, siehe _on_round_complete/_remaining_in_pool
 
-## Auszahlungs-Animation der beiden Tisch-Texte (siehe blind_payout_label3d/
-## dice_payout_label3d, _play_round_clear_payout) - PAYOUT_FLASH_DURATION ist
-## die Zeit zum Auf-/Abblenden ins/aus dem Gold, PAYOUT_TEXT_HOLD_DURATION die
-## Pause, in der der Blind-Text golden stehen bleibt, bevor die Würfel dran
-## sind, und DIE_PAYOUT_STEP_INTERVAL der Takt, in dem die Würfel nacheinander
-## mit aufleuchten.
+## Auszahlungs-Animation der beiden Rundenbonus-Zeilen im Hub (siehe
+## HubView.blind_payout_label/die_payout_label, _play_round_clear_payout) -
+## PAYOUT_FLASH_DURATION ist die Zeit zum Auf-/Abblenden ins/aus dem Gold,
+## PAYOUT_TEXT_HOLD_DURATION die Pause, in der die Blind-Zeile golden stehen
+## bleibt, bevor die Würfel dran sind, und DIE_PAYOUT_STEP_INTERVAL der Takt,
+## in dem die Würfel nacheinander mit aufleuchten.
 const PAYOUT_FLASH_DURATION := 0.3
 const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
@@ -116,6 +116,28 @@ const QUEUE_TRAY_MOVE_DURATION := 0.6
 ## TableScreen.configure_pit_score).
 const PIT_SCORE_WIDTH_WORLD := 14.0   # Breite der Zähler-Fläche (Zahl bleibt zentriert)
 const PIT_SCORE_HEIGHT_WORLD := 3.5   # Höhe der Zähler (Schriftgröße folgt daraus)
+
+## Der HUB (siehe HubView): reservierter Display-Abschnitt unter der Grube,
+## zwischen Pool- und Ablage-Tray - etwa grubenbreit und doppelt so hoch wie die
+## Grube. Position über den Anker ScreenAnchors/Hub, Größe hier als Weltmaß.
+const HUB_WIDTH_WORLD := 28.5   # ~ Grubenbreite (2 × DicePit.PIT_HALF_Z)
+const HUB_HEIGHT_WORLD := 30.0  # ~ doppelte Gruben-Bildschirmhöhe (2 × 2 × PIT_HALF_X)
+
+## Gravur-Zeremonie (siehe _open_engraving): der im Tray geklickte Würfel wird
+## GEGRIFFEN - sein Tray-Platz leert sich, ein schwebender Zeremonien-Würfel
+## fliegt auf die Bühne im oberen Teil des Hub-Panels (siehe DieInspectorView.
+## STAGE_FRACTION) und dreht sich dort langsam. Jede angewandte Ätzung schickt
+## eine goldene Leiterbahn von der Coupon-Kachel in den Würfel; bei der Ankunft
+## "absorbiert" er die Kraft (Gold-Blitz + Dreh-Schub, siehe
+## _on_engraving_applied). Beim Schließen fliegt er zurück an seinen Platz.
+const ENGRAVE_DIE_SCALE := 1.5        # Größe des schwebenden Würfels
+const ENGRAVE_HOVER_HEIGHT := 2.4     # Schwebehöhe über der Screen-Oberfläche (-3.4)
+const ENGRAVE_STAGE_FRACTION := 0.2   # Bühnenmitte: so weit unter der Hub-Oberkante (Anteil der Hub-Höhe)
+const ENGRAVE_FLY_TIME := 0.55        # Flugzeit Tray <-> Bühne
+const ENGRAVE_TRAIL_TIME := 0.5       # Leiterbahn Coupon -> Würfel (dann Absorption)
+const ENGRAVE_SPIN_SPEED := 0.9       # Grunddrehung des schwebenden Würfels (rad/s)
+const ENGRAVE_ABSORB_SPIN := 9.0      # Dreh-Schub beim Absorbieren (klingt auf Grunddrehung ab)
+const ENGRAVE_ABSORB_COLOR := Color(2.0, 1.6, 0.3, 0.9)  # überhelles Gold (wie der Mult-Trail)
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation): die Würfel gleiten
 ## in eine schwebende Reihe in der oberen Grubenhälfte (X positiv =
@@ -212,16 +234,22 @@ var charm_library: CharmLibraryView
 @onready var money_label: Label = $UI/MoneyLabel
 
 ## Der Shop ist ein eigenständiger Controller auf dem ShopPanel (siehe
-## ShopController) - scene_root spricht ihn nur über charm_shop.open() an,
-## reicht ihm den laufenden GameRun (run) herein und reagiert auf sein
-## closed-Signal.
-@onready var charm_shop: ShopController = $UI/ShopPanel
+## ShopController) - seit dem Hub-Umbau lebt er als Neon-Panel AUF dem
+## Tisch-Display in der Hub-Fläche (siehe HubView.attach_shop; ohne Screen-Mesh
+## ersatzweise als Fenster-UI). scene_root spricht ihn nur über charm_shop.open()
+## an, reicht ihm den laufenden GameRun (run) herein und reagiert auf sein
+## closed-Signal. Erzeugt in _ready (siehe SHOP_SCENE).
+const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
+var charm_shop: ShopController
 
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
 
-@onready var die_inspector: DieInspectorView = $UI/DieInspectorView
+## Die Gravur-Station - seit dem Hub-Umbau ein Neon-Panel auf dem Tisch-Display
+## (siehe HubView.attach_panel), Teil der Gravur-Zeremonie (_open_engraving).
+## Erzeugt in _ready.
+var die_inspector: DieInspectorView
 
 # Enthüllungs-Overlay für einen gekauften Coupon-Bogen (siehe _build_sheet_preview
 ## / GameRun.buy_coupon_sheet / CouponSheet).
@@ -237,15 +265,15 @@ var sheet_anim_nodes: Array[Node] = []  # temporäre Animations-Nodes (Kacheln/Z
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
 @onready var dice_cup: DiceCup = $DiceCup
 
-@onready var blind_payout_label3d: Label3D = $BlindPayoutLabel3D
-@onready var dice_payout_label3d: Label3D = $DicePayoutLabel3D
-## Editor-Anker der drei Screen-Elemente (Marker3D unter $ScreenAnchors): im
+## Editor-Anker der Screen-Elemente (Marker3D unter $ScreenAnchors): im
 ## Editor frei verschiebbar, _ready rechnet ihre Weltposition auf den Screen um
-## (siehe TableScreen.place_combo_cluster/place_goal_bar/configure_pit_score).
+## (siehe TableScreen.place_combo_cluster/place_goal_bar/configure_pit_score/
+## place_hub).
 @onready var combos_anchor: Marker3D = $ScreenAnchors/CombosBlock
 @onready var goal_bar_anchor: Marker3D = $ScreenAnchors/ScoreBar
 @onready var base_counter_anchor: Marker3D = $ScreenAnchors/BaseCounter
 @onready var mult_counter_anchor: Marker3D = $ScreenAnchors/MultCounter
+@onready var hub_anchor: Marker3D = $ScreenAnchors/Hub
 
 var combo_labels: Dictionary = {}  # DiceScoring-key -> ComboCellView (Sic-Bo-Zelle auf dem TableScreen)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination (siehe _refresh_combos)
@@ -266,6 +294,19 @@ var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _read
 var table_screen: TableScreen  # Display auf der Tischfläche (siehe _ready)
 var combos_click_zone: StaticBody3D  # Klickfläche über dem Kombi-Cluster (Zoom, siehe _setup_combos_zoom)
 var charms_click_zone: StaticBody3D  # Klickfläche über der Charm-Reihe (Zoom, siehe _setup_charms_zoom)
+var hub_click_zone: StaticBody3D  # Klickfläche über dem Hub (Zoom, siehe _setup_hub_zoom)
+## Letzter Display-Pixel der Maus-Weiterleitung in den Hub (siehe
+## _forward_screen_mouse) - Grundlage für das relative-Feld der Motion-Events.
+var last_screen_pixel := Vector2(-1, -1)
+
+## Zustand der Gravur-Zeremonie (siehe _open_engraving/_end_engraving_ceremony).
+var engraving_active := false
+var engraving_die: Node3D                 # der schwebende Zeremonien-Würfel (ohne Physik)
+var engraving_display: DieFaceDisplay
+var engraving_source_root: Node3D         # versteckter Tray-Slot (kehrt beim Schließen zurück)
+var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
+var engraving_spin := ENGRAVE_SPIN_SPEED  # aktuelle Drehgeschwindigkeit (Absorb-Schub klingt ab)
+var engraving_spin_tween: Tween
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -420,6 +461,13 @@ func _ready() -> void:
 			table_screen.world_to_pixel(base_counter_anchor.global_position),
 			table_screen.world_to_pixel(mult_counter_anchor.global_position),
 			score_size)
+		# Hub unter der Grube (siehe HubView): Fläche aufspannen, Kamera-Zoomziel
+		# + Klickzone einrichten und die Lauf-Übersicht erstmalig füllen.
+		table_screen.place_hub(
+			table_screen.world_to_pixel(hub_anchor.global_position),
+			Vector2(HUB_WIDTH_WORLD * ppw, HUB_HEIGHT_WORLD * ppw))
+		_setup_hub_zoom()
+		_refresh_hub_info()
 	else:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
 
@@ -439,7 +487,26 @@ func _ready() -> void:
 	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x, -3.4, DicePit.PIT_CENTER.z))
 	_setup_charms_zoom()
 
+	# Shop als Neon-Panel in die Hub-Fläche hängen (siehe HubView.attach_shop) -
+	# bedient über die Maus-Weiterleitung (_forward_screen_mouse). Ohne
+	# Screen-Mesh (kein Hub) ersatzweise als normales Fenster-UI.
+	charm_shop = SHOP_SCENE.instantiate()
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(charm_shop)
+	else:
+		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
+
+	# Gravur-Station ebenfalls als Hub-Panel (siehe _open_engraving); ohne
+	# Screen-Mesh ersatzweise als Fenster-UI (dann ohne Zeremonie).
+	die_inspector = DieInspectorView.new()
+	die_inspector.visible = false
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(die_inspector)
+	else:
+		$UI.add_child(die_inspector)
+	die_inspector.closed.connect(_end_engraving_ceremony)
+	die_inspector.applied.connect(_on_engraving_applied)
 	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
@@ -708,10 +775,11 @@ func _collect_combo_labels() -> void:
 	combo_labels = table_screen.combo_cells
 	for key: String in combo_labels:
 		combo_labels[key].modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
-	# Auch die Belohnungs-Texte starten in der leuchtenden Ruhefarbe (die
-	# .tscn-Werte sind das alte, stumpfe Weiß).
-	blind_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
-	dice_payout_label3d.modulate = PAYOUT_LABEL_BASE_COLOR
+	# Auch die Rundenbonus-Zeilen im Hub starten in der leuchtenden Ruhefarbe
+	# (sie blitzen beim Rundenende golden auf, siehe _play_round_clear_payout).
+	if table_screen.hub != null and table_screen.hub.blind_payout_label != null:
+		table_screen.hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
+		table_screen.hub.die_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 
 ## Ein Gericht wurde gegessen (siehe GameRun.eat_meal): die Tischliste zeigt
 ## den neuen Multiplikator der Kombination und blitzt die Zeile kurz golden auf.
@@ -763,6 +831,15 @@ func _on_charms_changed() -> void:
 ## und jeder Kauf laufen über GameRun, die Anzeige folgt hier automatisch.
 func _on_money_changed(new_money: int) -> void:
 	money_label.text = "$%d" % new_money
+	_refresh_hub_info()
+
+## Spiegelt die Lauf-Übersicht in den Hub (siehe HubView.set_run_info) - nach
+## jeder Geld-/Runden-/Ziel-Änderung. null-tolerant: vor dem ersten Spielstart
+## (run fehlt noch) und ohne Screen-Mesh (hub fehlt) passiert einfach nichts.
+func _refresh_hub_info() -> void:
+	if run == null or table_screen == null or table_screen.hub == null:
+		return
+	table_screen.hub.set_run_info(run.round_number, run.money, run.round_goal)
 
 ## Kurzes elastisches Aufplustern des Geldtexts, analog zu _pulse_points_label.
 func _pulse_money_label() -> void:
@@ -814,11 +891,33 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_charm_drag_input(event)
 		return
 
+	# Display-UI: In der Hub-Ansicht gehen Mausereignisse über der Hub-Fläche an
+	# die Controls AUF dem Tisch-Display (Buttons/Hover, siehe
+	# _forward_screen_mouse) - ein weitergereichter Klick löst keine 3D-Aktion
+	# mehr aus. Rechtsklick bleibt Zoom-out (wird nicht weitergereicht).
+	if event is InputEventMouse and _forward_screen_mouse(event):
+		return
+
 	if not (event is InputEventMouseButton) or not event.pressed:
 		return
 
 	if event.button_index == MOUSE_BUTTON_RIGHT:
+		# Während der Gravur-Zeremonie: Rechtsklick bricht erst einen laufenden
+		# Zweitschritt (zweite Seite/Zielwert) ab, dann schließt er die Station
+		# (closed -> _end_engraving_ceremony, der Würfel fliegt zurück).
+		if engraving_active:
+			if die_inspector.mode != DieInspectorView.Mode.SELECT:
+				die_inspector._cancel_pending()
+			else:
+				die_inspector.close()
+			return
 		camera_rig.zoom_out()
+		return
+
+	# Während der Gravur-Zeremonie zählt nur das Display-UI (oben weitergereicht)
+	# und der Rechtsklick - keine 3D-Klicks (Zoom/Würfel/Becher), die Kamera
+	# bleibt auf dem Hub.
+	if engraving_active:
 		return
 
 	if event.button_index != MOUSE_BUTTON_LEFT:
@@ -889,9 +988,128 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	for target_tray in candidate_trays:
 		var index: int = target_tray.find_slot_index(result.collider)
 		if index != -1:
-			die_inspector.show_die(target_tray.slot_defs[index])
+			_open_engraving(target_tray.slot_defs[index], target_tray.slot_roots[index])
 			return true
 	return false
+
+# --- Gravur-Zeremonie ----------------------------------------------------------
+# Der geklickte Würfel wird "gegriffen": sein Tray-Platz leert sich, ein
+# schwebender Zeremonien-Würfel fliegt auf die Bühne über dem Hub-Panel (siehe
+# ENGRAVE_*-Konstanten und DieInspectorView.STAGE_FRACTION), die Kamera zoomt
+# auf den Hub und die Gravur-Station übernimmt das Display. Jede Ätzung schickt
+# eine goldene Leiterbahn von der Coupon-Kachel in den Würfel (Absorption).
+# Beim Schließen fliegt der Würfel zurück an seinen Platz.
+
+## Startet die Zeremonie für def (die echte Pool-Instanz); source_root ist der
+## Tray-Slot, aus dem der Würfel gegriffen wird. Ohne Hub (kein Screen-Mesh)
+## öffnet nur das Panel als Fenster-UI - ohne Flug und Kamera.
+func _open_engraving(def: DieDefinition, source_root: Node3D) -> void:
+	if engraving_active:
+		return
+	if table_screen == null or table_screen.hub == null:
+		die_inspector.show_die(def)
+		return
+	engraving_active = true
+	engraving_prev_mode = camera_rig.mode
+	engraving_source_root = source_root
+	source_root.visible = false
+
+	# Schwebender Zeremonien-Würfel: gleicher Bau wie die Spielwürfel (DieBuilder),
+	# aber eingefroren und ohne Kollision - reine Bühnen-Requisite.
+	engraving_die = DieBuilder.build()
+	var body: RigidBody3D = engraving_die.get_node("RigidBody3D")
+	body.freeze = true
+	body.collision_layer = 0
+	body.collision_mask = 0
+	engraving_display = body.get_node("Faces")
+	add_child(engraving_die)
+	engraving_die.scale = Vector3.ONE * ENGRAVE_DIE_SCALE
+	engraving_die.rotation = Vector3(0.5, 0.0, 0.35)  # angekippt: drei Seiten sichtbar
+	engraving_display.apply_definition(def)
+	engraving_die.global_position = source_root.global_position
+	engraving_spin = ENGRAVE_SPIN_SPEED
+	var fly := create_tween()
+	fly.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	fly.tween_property(engraving_die, "global_position", _engraving_stage_position(), ENGRAVE_FLY_TIME)
+
+	table_screen.hub.set_content_visible(false)
+	die_inspector.show_die(def)
+	camera_rig.zoom_to(CameraRig.Mode.HUB)
+
+## Weltposition der Bühne: mittig in der Hub-Breite, ENGRAVE_STAGE_FRACTION der
+## Hub-Höhe unter der Oberkante, in Schwebehöhe über der Screen-Oberfläche.
+func _engraving_stage_position() -> Vector3:
+	var anchor := hub_anchor.global_position
+	return Vector3(anchor.x + HUB_HEIGHT_WORLD * (0.5 - ENGRAVE_STAGE_FRACTION),
+		-3.4 + ENGRAVE_HOVER_HEIGHT, anchor.z)
+
+## Eine Ätzung wurde angewandt (siehe DieInspectorView.applied): eine goldene
+## Leiterbahn läuft von der Coupon-Kachel zum schwebenden Würfel; bei der
+## Ankunft absorbiert er die Kraft - die Seiten übernehmen die neue Definition,
+## dazu Gold-Blitz (siehe _flash_die_tint) und ein abklingender Dreh-Schub.
+func _on_engraving_applied(_coupon_id: String, slot_px: Vector2) -> void:
+	if not engraving_active or engraving_die == null:
+		return
+	var die_px := table_screen.world_to_pixel(engraving_die.global_position)
+	table_screen.spawn_trace(slot_px, die_px, ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
+	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
+	if not engraving_active or engraving_die == null:
+		return
+	engraving_display.apply_definition(die_inspector.current_def)
+	_flash_die_tint(engraving_display, Color.WHITE)
+	if engraving_spin_tween != null and engraving_spin_tween.is_valid():
+		engraving_spin_tween.kill()
+	engraving_spin = ENGRAVE_ABSORB_SPIN
+	engraving_spin_tween = create_tween()
+	engraving_spin_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	engraving_spin_tween.tween_property(self, "engraving_spin", ENGRAVE_SPIN_SPEED, 0.9)
+
+## Beendet die Zeremonie (siehe DieInspectorView.closed): der Würfel fliegt
+## zurück in seinen Tray-Slot, der Hub zeigt wieder seine Übersicht, die Kamera
+## kehrt in die Ansicht von vor der Zeremonie zurück.
+func _end_engraving_ceremony() -> void:
+	if not engraving_active:
+		return
+	engraving_active = false
+	if table_screen.hub != null:
+		table_screen.hub.set_content_visible(true)
+	if engraving_prev_mode == CameraRig.Mode.OVERVIEW:
+		camera_rig.zoom_out()
+	else:
+		camera_rig.zoom_to(engraving_prev_mode)
+
+	var die := engraving_die
+	var source := engraving_source_root
+	engraving_die = null
+	engraving_display = null
+	engraving_source_root = null
+	if die != null:
+		var back := create_tween()
+		back.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		if source != null and is_instance_valid(source):
+			back.tween_property(die, "global_position", source.global_position, ENGRAVE_FLY_TIME)
+		back.tween_callback(_finish_engraving_return.bind(die, source))
+	_on_die_engraved()  # Trays sicher aktuell (die Werte können sich geändert haben)
+
+## Landung des zurückfliegenden Zeremonien-Würfels: Tray-Slot wieder zeigen,
+## Requisite entsorgen.
+func _finish_engraving_return(die: Node3D, source: Node3D) -> void:
+	if source != null and is_instance_valid(source):
+		source.visible = true
+	if is_instance_valid(die):
+		die.queue_free()
+
+## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset, siehe _reset_game).
+func _abort_engraving() -> void:
+	engraving_active = false
+	if engraving_die != null and is_instance_valid(engraving_die):
+		engraving_die.queue_free()
+	engraving_die = null
+	engraving_display = null
+	if engraving_source_root != null and is_instance_valid(engraving_source_root):
+		engraving_source_root.visible = true
+	engraving_source_root = null
+	die_inspector.visible = false  # ohne closed-Signal (kein Rückflug nötig)
 
 ## Klick auf einen Würfel im Warteschlangen-Tray (Layer 16) - startet einen
 ## POTENZIELLEN Umsortier-Drag (siehe reorder_drag_index/_handle_reorder_input).
@@ -940,7 +1158,7 @@ func _handle_reorder_input(event: InputEvent) -> void:
 		if reorder_is_dragging:
 			_finish_reorder_drag(event.position)
 		else:
-			die_inspector.show_die(queue_tray_view.slot_defs[reorder_drag_index])
+			_open_engraving(queue_tray_view.slot_defs[reorder_drag_index], queue_tray_view.slot_roots[reorder_drag_index])
 		reorder_drag_index = -1
 		reorder_is_dragging = false
 
@@ -1223,6 +1441,63 @@ func _setup_charms_zoom() -> void:
 	charms_click_zone.add_child(shape)
 	add_child(charms_click_zone)
 
+## Richtet Kamera-Zoomziel und Klickzone des Hubs ein (siehe HubView): Blickpunkt
+## = Hub-Anker auf Tischhöhe, Klickbox (Layer 8) über der ganzen Hub-Fläche.
+## Maße folgen HUB_*_WORLD - ein Verschieben des Ankers im Editor zieht Zoom und
+## Klickzone automatisch mit.
+func _setup_hub_zoom() -> void:
+	var anchor := hub_anchor.global_position
+	var center := Vector3(anchor.x, -3.4, anchor.z)  # -3.4 = Screen-Oberfläche
+	camera_rig.configure_hub_target(center)
+
+	# Welt-X = Bildschirm-Höhe des Hubs, Welt-Z = seine Breite (siehe world_to_pixel).
+	var box := BoxShape3D.new()
+	box.size = Vector3(HUB_HEIGHT_WORLD, 4.0, HUB_WIDTH_WORLD)
+
+	hub_click_zone = StaticBody3D.new()
+	hub_click_zone.name = "HubClickZone"
+	hub_click_zone.collision_layer = 8  # Kamera-Klickebene, wie PitClickZone
+	hub_click_zone.collision_mask = 0
+	hub_click_zone.position = center
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	hub_click_zone.add_child(shape)
+	add_child(hub_click_zone)
+
+## Reicht ein Mausereignis an die Controls auf dem Tisch-Display weiter (siehe
+## HubView) - liefert true, wenn es weitergereicht wurde (der Aufrufer soll es
+## dann nicht mehr als 3D-Klick behandeln). Nur in der Hub-Ansicht aktiv
+## (CameraRig.Mode.HUB, nicht während der Kamerafahrt) und nur für Ereignisse,
+## deren Kamerastrahl die Hub-Fläche trifft: Der Strahl wird analytisch mit der
+## Tischebene geschnitten (TableScreen.pixel_from_ray, kein Physik-Raycast), der
+## Treffer in Display-Pixel übersetzt und als geklontes Ereignis in den
+## SubViewport gedrückt (push_input) - dort verhalten sich Buttons/Hover wie
+## normale Godot-UI. Rechtsklicks werden nie weitergereicht (Zoom-out).
+func _forward_screen_mouse(event: InputEventMouse) -> bool:
+	if camera_rig.mode != CameraRig.Mode.HUB or camera_rig.is_animating:
+		return false
+	if event is InputEventMouseButton and event.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or table_screen == null or table_screen.hub == null:
+		return false
+	var pixel := table_screen.pixel_from_ray(
+		camera.project_ray_origin(event.position),
+		camera.project_ray_normal(event.position))
+	if pixel.x < 0.0 or not table_screen.hub.get_rect().has_point(pixel):
+		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
+		return false
+	var forwarded := event.duplicate() as InputEventMouse
+	forwarded.position = pixel
+	forwarded.global_position = pixel
+	if forwarded is InputEventMouseMotion:
+		# relative aus dem letzten weitergereichten Pixel ableiten (der
+		# Original-Wert ist in Fenster-Pixeln, nicht in Display-Pixeln).
+		forwarded.relative = (pixel - last_screen_pixel) if last_screen_pixel.x >= 0.0 else Vector2.ZERO
+	last_screen_pixel = pixel
+	table_screen.push_input(forwarded)
+	return true
+
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -1256,6 +1531,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.COMBOS)
 	elif collider == charms_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.CHARMS)
+	elif collider == hub_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
 
 ## Baut den (zunächst verdeckten) Hover-Tooltip der Charms: Name in Gold,
 ## darunter die Wirkung. Folgt in _update_charm_tooltip dem Cursor.
@@ -1280,8 +1557,12 @@ func _build_charm_tooltip() -> void:
 	box.add_child(charm_tooltip_body)
 	$UI.add_child(charm_tooltip)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_charm_tooltip()
+	# Der Zeremonien-Würfel dreht sich stetig über der Bühne; der Absorb-Schub
+	# hebt engraving_spin kurz an und klingt per Tween wieder ab.
+	if engraving_die != null and is_instance_valid(engraving_die):
+		engraving_die.rotate_y(delta * engraving_spin)
 
 ## Hover-Tooltip der Charms: aktiv aus JEDER Ansicht, sobald der Cursor über
 ## einem Charm liegt (Projektions-Nähe, siehe CharmRowView.charm_at_screen_pos) -
@@ -2142,21 +2423,33 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		glow_by_slot[i] = glow
 
 	# 2) Kombination: ihre Werte stehen SCHON in der Daueranzeige (seit dem
-	# Ausrollen, siehe _refresh_ui) - hier nur das Startsignal: die Zelle der
-	# Kombination popt, die Zahlen werden defensiv auf die Kombi-Werte gestellt
-	# (No-Op, wenn sie schon stimmen).
-	table_screen.update_pit_score(breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
+	# Ausrollen, siehe _refresh_ui) - als Startsignal popt die Zelle der
+	# Kombination, und je eine Leiterbahn verbindet sie kurz mit Basis- UND
+	# Mult-Zähler (die Kombination ist die Quelle beider Startwerte). Bei der
+	# Ankunft popen die Zähler; die Werte werden defensiv gestellt (No-Op, wenn
+	# sie schon stimmen).
 	var key: String = breakdown["key"]
 	if combo_labels.has(key):
 		_tween_combo_label(combo_labels[key], PAYOUT_LABEL_GLOW_COLOR, 1.3)
+		var cell: Control = combo_labels[key]
+		var cell_px: Vector2 = cell.position + cell.size / 2.0
+		table_screen.spawn_score_trail(cell_px, "base", SCORE_TRAIL_TIME)
+		table_screen.spawn_score_trail(cell_px, "mult", SCORE_TRAIL_TIME)
+		if not await _score_step_wait(SCORE_TRAIL_TIME):
+			return
+		table_screen.pulse_pit_score()
+	table_screen.update_pit_score(breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
 	if not await _score_step_wait(SCORE_STEP_TIME):
 		return
 
-	# 3) Würfel-Schritte von links nach rechts: je Zuwachs fliegt ein Licht-Trail
-	# vom Würfel in die wachsende Zahl (Cyan -> Basis, Gold -> Mult); die Zahl
-	# springt erst beim Einschlag hoch. Erst die Augen, dann (falls vorhanden)
-	# der Material-Zuwachs als eigener kleiner Schritt; Charms, die am Augenwert
-	# dieses Würfels drehen, blitzen sofort mit auf.
+	# 3) Würfel-Schritte von links nach rechts: je Zuwachs leuchtet eine
+	# Leiterbahn vom Würfel in die wachsende Zahl auf (Cyan -> Basis, Gold ->
+	# Mult, siehe ScoreTraceView); die Zahl springt erst bei der Ankunft hoch.
+	# Erst die Augen, dann (falls vorhanden) der Material-Zuwachs als eigener
+	# kleiner Schritt. Charms, die am Augenwert dieses Würfels drehen (z.B.
+	# Kleinvieh, Hasenpfote), blitzen auf UND schicken GLEICHZEITIG mit dem
+	# Würfel eine eigene Leiterbahn in die Basis - der Zuwachs kommt sichtbar
+	# aus beiden Quellen.
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
 		_flash_scoring_die(slot)
@@ -2164,6 +2457,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			_pulse_glow(glow_by_slot[slot])
 		for charm_index: int in step["eye_charm_indices"]:
 			charm_row.flash_charm(charm_index)
+			table_screen.spawn_score_trail(_charm_trail_source_px([charm_index]), "base", SCORE_TRAIL_TIME)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
 		if not await _score_step_wait(SCORE_TRAIL_TIME):
@@ -2376,6 +2670,9 @@ func _reset_game() -> void:
 	run = GameRun.new_run()
 	_connect_run()
 	charm_shop.visible = false
+	_abort_engraving()  # falls der Reset mitten in der Gravur-Zeremonie kam
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_content_visible(true)  # falls der Reset mitten im Shop kam
 	game_over_panel.visible = false
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
@@ -2522,38 +2819,45 @@ func _on_round_complete() -> void:
 			run.money = floor_value
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
+		# Der Shop übernimmt die Hub-Fläche auf dem Display: Hub-Inhalt weg,
+		# Shop auf, Kamera auf den Hub (dort läuft die Maus-Weiterleitung).
+		if table_screen.hub != null:
+			table_screen.hub.set_content_visible(false)
 		charm_shop.open()
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
 	else:
 		phase = Phase.GAME_OVER
 		_show_game_over(hand_total)
 
-## Lässt die beiden Tisch-Texte (siehe blind_payout_label3d/dice_payout_label3d)
-## nacheinander golden aufleuchten, synchron zur tatsächlichen Gutschrift: erst
-## der Fixbetrag blind, dann - falls noch Würfel im Pool übrig sind - je per_die
-## pro übrigem Würfel, während die betroffenen Würfel in Warteschlangen- und
-## Pool-Tray im selben Takt mit aufleuchten (siehe _unused_die_entries). blind
-## und per_die kommen schon inklusive Charm-Boni herein (siehe
-## _on_round_complete). Die Auszahlung folgt der wahren Anzahl übriger Würfel
-## (_remaining_in_pool), auch falls mehr Würfel übrig sind, als das Pool-Tray
-## anzeigen kann - dann zahlen die überzähligen ohne eigenes Aufblitzen.
+## Lässt die beiden Rundenbonus-Zeilen im Hub (siehe HubView.blind_payout_label/
+## die_payout_label) nacheinander golden aufleuchten, synchron zur tatsächlichen
+## Gutschrift: erst der Fixbetrag blind, dann - falls noch Würfel im Pool übrig
+## sind - je per_die pro übrigem Würfel, während die betroffenen Würfel in
+## Warteschlangen- und Pool-Tray im selben Takt mit aufleuchten (siehe
+## _unused_die_entries). blind und per_die kommen schon inklusive Charm-Boni
+## herein (siehe _on_round_complete). Die Auszahlung folgt der wahren Anzahl
+## übriger Würfel (_remaining_in_pool), auch falls mehr Würfel übrig sind, als
+## das Pool-Tray anzeigen kann - dann zahlen die überzähligen ohne eigenes
+## Aufblitzen.
 func _play_round_clear_payout(blind: int, per_die: int) -> void:
-	# Die ganze Zählsequenz läuft unfokussiert in der Übersicht: Tisch-Texte,
-	# Geldanzeige und beide Trays sind gleichzeitig im Bild, statt auf ein
-	# einzelnes Tray zu fokussieren. Am Ende geht es zurück in die Grubensicht,
-	# damit nach dem Shop die normale Spielansicht steht.
+	# Die ganze Zählsequenz läuft unfokussiert in der Übersicht: Hub (mit den
+	# Bonus-Zeilen), Geldanzeige und beide Trays sind gleichzeitig im Bild, statt
+	# auf ein einzelnes Element zu fokussieren. Am Ende geht es zurück in die
+	# Grubensicht, damit nach dem Shop die normale Spielansicht steht.
 	camera_rig.zoom_out()
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
-	await _light_up_payout_label(blind_payout_label3d)
+	var hub := table_screen.hub
+	await _light_up_payout_label(hub.blind_payout_label if hub != null else null)
 	run.add_money(blind)
 	_pulse_money_label()
 	_show_money_popup(blind)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
-	_fade_payout_label(blind_payout_label3d)
+	_fade_payout_label(hub.blind_payout_label if hub != null else null)
 
 	var remaining := _remaining_in_pool()
 	if remaining > 0:
-		await _light_up_payout_label(dice_payout_label3d)
+		await _light_up_payout_label(hub.die_payout_label if hub != null else null)
 		var die_entries := _unused_die_entries()
 		for i in remaining:
 			if i < die_entries.size():
@@ -2562,10 +2866,9 @@ func _play_round_clear_payout(blind: int, per_die: int) -> void:
 			_pulse_money_label()
 			_show_money_popup(per_die)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
-		_fade_payout_label(dice_payout_label3d)
-
-	camera_rig.zoom_to(CameraRig.Mode.PIT)
-	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
+		_fade_payout_label(hub.die_payout_label if hub != null else null)
+	# Wohin es nach dem Auszählen geht, entscheidet der Aufrufer (der Shop
+	# zoomt auf den Hub, siehe _on_round_complete).
 
 ## Alle Würfel-Anzeigen, die gerade einen noch nicht gezogenen Würfel dieser
 ## Runde zeigen - Warteschlangen-Tray zuerst, dann Pool-Tray, in genau der
@@ -2584,23 +2887,31 @@ func _unused_die_entries() -> Array:
 			})
 	return entries
 
-## Blendet einen Tisch-Text von seiner aktuellen Farbe auf CasinoStyle.GOLD auf
-## und lässt ihn dabei leicht aufplustern - wartet, bis das fertig ist (siehe
+## Blendet eine Rundenbonus-Zeile im Hub von ihrer aktuellen Farbe auf Gold auf
+## und lässt sie dabei leicht aufplustern - wartet, bis das fertig ist (siehe
 ## _play_round_clear_payout, das die eigentliche Gutschrift danach auslöst).
-func _light_up_payout_label(label: Label3D) -> void:
+## null-tolerant (kein Screen-Mesh -> kein Hub): dann nur die Flash-Zeit warten,
+## damit der Auszahlungs-Takt gleich bleibt.
+func _light_up_payout_label(label: Label) -> void:
+	if label == null:
+		await get_tree().create_timer(PAYOUT_FLASH_DURATION).timeout
+		return
+	label.pivot_offset = label.size / 2.0
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_FLASH_DURATION)
-	tween.tween_property(label, "scale", Vector3.ONE * 1.3, PAYOUT_FLASH_DURATION)
+	tween.tween_property(label, "scale", Vector2.ONE * 1.3, PAYOUT_FLASH_DURATION)
 	await tween.finished
 
-## Blendet einen Tisch-Text zurück in seine gedämpfte Ruhefarbe - läuft im
+## Blendet eine Rundenbonus-Zeile zurück in ihre gedämpfte Ruhefarbe - läuft im
 ## Hintergrund weiter, blockiert die aufrufende Animation also nicht.
-func _fade_payout_label(label: Label3D) -> void:
+func _fade_payout_label(label: Label) -> void:
+	if label == null:
+		return
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_method(func(c: Color) -> void: label.modulate = c, label.modulate, PAYOUT_LABEL_BASE_COLOR, PAYOUT_FLASH_DURATION)
-	tween.tween_property(label, "scale", Vector3.ONE, PAYOUT_FLASH_DURATION)
+	tween.tween_property(label, "scale", Vector2.ONE, PAYOUT_FLASH_DURATION)
 
 ## Lässt einen einzelnen Würfel beim Auszahlen aufblitzen: sehr schneller
 ## Anstieg (ease-out) auf überstrahltes Gold plus Größen-Pop, danach deutlich
@@ -2678,12 +2989,16 @@ func _on_die_engraved() -> void:
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
 
-## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): nächste
-## Runde vorbereiten und ins Spiel zurückkehren.
+## Der Shop wurde mit "Fertig" geschlossen (er blendet sich selbst aus): der Hub
+## zeigt wieder seine Lauf-Übersicht, die Kamera kehrt in die Grubensicht zurück,
+## nächste Runde vorbereiten.
 func _on_shop_closed() -> void:
+	if table_screen.hub != null:
+		table_screen.hub.set_content_visible(true)
 	run.advance_round()
 	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
+	camera_rig.zoom_to(CameraRig.Mode.PIT)
 	_start_new_round()
 
 func _show_game_over(total: int) -> void:
@@ -2737,8 +3052,9 @@ func _refresh_round_hud() -> void:
 	round_badge_label.text = "Runde %d" % run.round_number
 	points_bar.max_value = run.round_goal
 	# Der Zielbalken auf dem Tisch-Display zeigt dasselbe (z.B. neues Rundenziel
-	# nach dem Shop, auch ohne Punktänderung).
+	# nach dem Shop, auch ohne Punktänderung); die Hub-Übersicht läuft mit.
 	table_screen.set_goal_progress(displayed_points, run.round_goal)
+	_refresh_hub_info()
 
 ## Lässt die Punkteanzeige (Balken + Zahl) von ihrem aktuell gezeigten Wert
 ## sichtbar zu target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt)

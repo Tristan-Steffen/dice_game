@@ -63,14 +63,21 @@ const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
 const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
 const TOTAL_FLY_FONT := 44 * SUPERSAMPLE  # Schriftgröße der Gesamtzahl am Zielbalken
 
-## Licht-Trails der Zähl-Animation: ein kleiner Lichtpunkt fliegt in leichtem
-## Bogen von der Punktquelle (Würfel/Charm auf dem Display) in die Zahl, die er
-## erhöht - Cyan in die Basis, Gold in den Mult/die Gesamtzahl. Dauer siehe
-## scene_root.SCORE_TRAIL_TIME (dort wird auf den Einschlag gewartet).
-const TRAIL_RADIUS := 26.0 * SUPERSAMPLE
+## Licht-Trails der Zähl-Animation: LEITERBAHNEN (siehe ScoreTraceView) - feste,
+## rein achsenparallele Linien (nur waagerecht/senkrecht, keine Schrägen), die
+## von der Punktquelle (Würfel/Charm/Kombi-Zelle) aus zum Ziel aufleuchten und
+## die beiden für einen Moment sichtbar verbinden - Cyan in die Basis, Gold in
+## den Mult/die Gesamtzahl. Dauer bis zum Ziel siehe scene_root.SCORE_TRAIL_TIME
+## (dort wird auf die Ankunft gewartet).
+const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb des Displays
 const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)  # überhelles Cyan
 const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)  # überhelles Gold
-const TRAIL_ARC := 0.18  # seitliche Bogenstärke (Anteil der Flugstrecke)
+const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE  # heller Kern der Leiterbahn
+const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE  # breiter, schwacher Schein darunter
+## Erster senkrechter Hub der Leiterbahn aus der Quelle heraus (~2.4 Weltmeter):
+## hebt die Querstrecke über die Nachbar-Würfel samt Gold-Podest, und hält sie
+## unterhalb von Zählern und Punktebalken (siehe _orthogonal_path).
+const TRACE_RISE := 30.0 * SUPERSAMPLE
 
 ## DiceScoring-Key -> ComboCellView (siehe scene_root._collect_combo_labels).
 var combo_cells: Dictionary = {}
@@ -83,11 +90,14 @@ var goal_bar_label: Label
 ## ScreenAnchors) - einzeln über den Bildschirm verschiebbar.
 var base_counter: PitScoreView
 var mult_counter: PitScoreView
+## Der HUB unter der Grube (siehe HubView): Lauf-Übersicht, Rundenbonus-Zeilen,
+## Boss-Vorschau - und später Shop/Aufwertung. Position/Größe setzt scene_root
+## über place_hub (Anker ScreenAnchors/Hub + HUB_*_WORLD).
+var hub: HubView
 ## Die verschmolzene Gesamtzahl (Basis × Mult): erscheint AM Zielbalken über der
 ## Grube (nicht in der Grubenmitte, die vom Käfig verdeckt wäre) und schrumpft
 ## am Ende in den Balken (siehe show_pit_total/fly_total_to_goal).
 var pit_total_label: Label
-var _glow_texture: GradientTexture2D  # weicher Punkt (Score-Trails)
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (nach _build_content) -
 ## Grundlage für Kamera-Zoomziel und Klickzone (siehe scene_root, cluster_*).
@@ -204,6 +214,12 @@ func _build_content() -> void:
 
 	_build_goal_bar()
 	_build_pit_score()
+
+	# Hub unter der Grube - Inhalt entsteht erst in place_hub (die Maße leiten
+	# sich aus der endgültigen Größe ab, siehe HubView.layout).
+	hub = HubView.new()
+	hub.name = "Hub"
+	add_child(hub)
 
 ## Neon-Rahmen mit dezent abgesetztem Hintergrund um den ganzen Cluster.
 func _add_cluster_frame(rect: Rect2) -> void:
@@ -353,6 +369,13 @@ func update_pit_score(base: int, mult: int) -> void:
 		mult_counter.set_value(mult)
 		_pop(mult_counter, 1.12)
 
+## Kurzer Pop BEIDER Zähler ohne Wertänderung - für die Ankunft der Kombi-
+## Leiterbahnen (die Kombi-Werte stehen meist schon seit dem Ausrollen drin,
+## der Pop macht die Verbindung trotzdem spürbar, siehe scene_root).
+func pulse_pit_score() -> void:
+	_pop(base_counter, 1.12)
+	_pop(mult_counter, 1.12)
+
 ## Verschmilzt die beiden Seiten-Zahlen zur Gesamtzahl: die Seiten-Zahlen
 ## verschwinden, die Gesamtzahl erscheint groß AM Zielbalken über der Grube
 ## (nicht in der Grubenmitte - dort läge sie hinter dem Käfig).
@@ -413,73 +436,85 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	tween.tween_property(glow, "modulate:a", 1.0, 0.25)
 	return glow
 
-## Schickt einen kleinen Lichtpunkt in leichtem Bogen von from_px in die Zahl,
-## die gerade wächst (target: "base"/"mult"/"total" - Cyan in die Basis, Gold in
-## Mult/Gesamtzahl). Quellen außerhalb des Displays (z.B. die Charm-Reihe hinter
-## der Oberkante) werden an den Rand geklemmt - der Trail kommt dann sichtbar
-## "aus ihrer Richtung". Räumt sich selbst weg; der Aufrufer wartet
-## SCORE_TRAIL_TIME, bevor er die Zahl hochsetzt (siehe scene_root).
+## Lässt eine LEITERBAHN von from_px zur Zahl aufleuchten, die gerade wächst
+## (target: "base"/"mult"/"total" - Cyan in die Basis, Gold in Mult/Gesamtzahl):
+## eine feste, rein achsenparallele Strecke (senkrecht aus der Quelle heraus,
+## dann waagerecht ins Ziel - siehe _orthogonal_path/ScoreTraceView), die Quelle
+## und Zähler für einen Moment sichtbar verbindet. Quellen außerhalb des
+## Displays (z.B. die Charm-Reihe hinter der Oberkante) werden an den Rand
+## geklemmt - die Bahn kommt dann sichtbar "aus ihrer Richtung". Räumt sich
+## selbst weg; der Aufrufer wartet SCORE_TRAIL_TIME, bevor er die Zahl hochsetzt
+## (der Moment, in dem die Bahn das Ziel erreicht, siehe scene_root).
 func spawn_score_trail(from_px: Vector2, target: String, duration: float) -> void:
-	# "total" fliegt zur Gesamtzahl am Balken (über der Grube), Basis/Mult in die
-	# jeweilige Seiten-Zahl (siehe PitScoreView.value_anchor).
+	# "total" führt zur Gesamtzahl am Balken (über der Grube), Basis/Mult in die
+	# jeweilige Zähler-Zahl (siehe PitScoreView.value_anchor).
 	var to_px: Vector2
 	if target == "total":
 		to_px = goal_bar.position + goal_bar.size / 2.0
 	else:
 		var counter := base_counter if target == "base" else mult_counter
 		to_px = counter.position + counter.value_anchor()
-	from_px = from_px.clamp(Vector2.ONE * TRAIL_RADIUS, Vector2(size) - Vector2.ONE * TRAIL_RADIUS)
-	var dot := _make_glow_dot(TRAIL_RADIUS, _soft_glow_texture())
 	var color := TRAIL_BASE_COLOR if target == "base" else TRAIL_MULT_COLOR
-	dot.modulate = color
-	dot.position = from_px - dot.size / 2.0
-	add_child(dot)
-	# Leichter Bogen: Kontrollpunkt seitlich der Flugstrecke (quadratisches Bézier).
-	var flight := to_px - from_px
-	var control := (from_px + to_px) / 2.0 + Vector2(-flight.y, flight.x).normalized() * flight.length() * TRAIL_ARC
-	var tween := create_tween()
-	tween.tween_method(_move_trail.bind(dot, from_px, control, to_px), 0.0, 1.0, duration) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_callback(dot.queue_free)
+	spawn_trace(from_px, to_px, color, duration)
 
-## Setzt den Trail-Punkt auf die Bézier-Position zu Fortschritt t (siehe
-## spawn_score_trail; die gebundenen Argumente folgen hinter dem Tween-Wert).
-func _move_trail(t: float, dot: Control, from_px: Vector2, control: Vector2, to_px: Vector2) -> void:
-	var a := from_px.lerp(control, t)
-	var b := control.lerp(to_px, t)
-	dot.position = a.lerp(b, t) - dot.size / 2.0
+## Allgemeine Leiterbahn zwischen zwei Display-Punkten (achsenparallele Treppe,
+## siehe _orthogonal_path/ScoreTraceView) - auch für Bahnen außerhalb der
+## Zähl-Animation, z.B. Coupon -> schwebender Würfel in der Gravur-Zeremonie
+## (siehe scene_root._on_engraving_applied).
+func spawn_trace(from_px: Vector2, to_px: Vector2, color: Color, duration: float) -> void:
+	from_px = from_px.clamp(Vector2.ONE * TRAIL_MARGIN, Vector2(size) - Vector2.ONE * TRAIL_MARGIN)
+	var trace := ScoreTraceView.new()
+	add_child(trace)
+	trace.setup(_orthogonal_path(from_px, to_px), color, TRACE_CORE_WIDTH, TRACE_GLOW_WIDTH, duration)
 
-## Ein runder Lichtpunkt mit der übergebenen Radial-Textur (weich oder scharf) -
-## Grundbaustein für Würfel-Glows und Score-Trails.
-func _make_glow_dot(radius_px: float, texture: GradientTexture2D) -> TextureRect:
-	var dot := TextureRect.new()
-	dot.texture = texture
-	dot.stretch_mode = TextureRect.STRETCH_SCALE
-	dot.size = Vector2.ONE * radius_px * 2.0
-	dot.pivot_offset = dot.size / 2.0
-	return dot
+## Die feste Leiterbahn-Strecke zwischen Quelle und Ziel: nur waagerechte und
+## senkrechte Segmente (keine Schrägen), als TREPPE in drei Stufen - erst ein
+## kurzes Stück SENKRECHT aus der Quelle heraus (TRACE_RISE, über die
+## Nachbar-Würfel hinweg), dann WAAGERECHT auf die Ziel-Spalte, dann wieder
+## SENKRECHT ins Ziel hinein. Die Querstrecke läuft so knapp über den Würfeln
+## statt auf Zähler-Höhe - sie kreuzt weder den Punktebalken noch die anderen
+## Würfel; und der letzte Hub steigt in der Ziel-Spalte (neben dem Balken) in
+## den Zähler ein. Liegen Quelle und Ziel schon auf einer Achse, reicht die
+## gerade Linie.
+func _orthogonal_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
+	var path := PackedVector2Array()
+	path.append(from_px)
+	if absf(to_px.x - from_px.x) <= 1.0 or absf(to_px.y - from_px.y) <= 1.0:
+		path.append(to_px)
+		return path
+	# Hub in Zielrichtung, aber höchstens bis zur halben Strecke (kein Überschwingen
+	# über die Zielhöhe hinaus - die Treppe steigt immer NUR Richtung Ziel).
+	var direction := signf(to_px.y - from_px.y)
+	var lane_y := from_px.y + direction * minf(TRACE_RISE, absf(to_px.y - from_px.y) * 0.5)
+	path.append(Vector2(from_px.x, lane_y))
+	path.append(Vector2(to_px.x, lane_y))
+	path.append(to_px)
+	return path
 
-## Weicher radialer Verlauf (voll -> transparent von der Mitte zum Rand) - für
-## die kleinen Score-Trails.
-func _soft_glow_texture() -> GradientTexture2D:
-	if _glow_texture == null:
-		var gradient := Gradient.new()
-		gradient.set_color(0, Color(1, 1, 1, 1))
-		gradient.set_color(1, Color(1, 1, 1, 0))
-		_glow_texture = _radial_texture(gradient)
-	return _glow_texture
+## Spannt den Hub auf: Mitte + Größe in Display-Pixeln (zur Laufzeit aus dem
+## Editor-Anker ScreenAnchors/Hub und den HUB_*_WORLD-Maßen abgeleitet, siehe
+## scene_root._ready). Baut danach den Inhalt (siehe HubView.layout).
+func place_hub(center_px: Vector2, size_px: Vector2) -> void:
+	hub.size = size_px
+	hub.position = center_px - size_px / 2.0
+	hub.layout()
 
-## Baut eine 256er-Radial-GradientTexture2D aus dem gegebenen Verlauf (Mitte
-## -> Rand).
-func _radial_texture(gradient: Gradient) -> GradientTexture2D:
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(0.5, 0.0)
-	texture.width = 256
-	texture.height = 256
-	return texture
+## Schneidet einen Kamerastrahl (Ursprung + Richtung, siehe scene_root:
+## _forward_screen_mouse) mit der Tischbildschirm-Ebene und liefert den
+## getroffenen Display-Pixel - oder (-1,-1), wenn der Strahl die Ebene verfehlt
+## oder außerhalb der Screen-Fläche auftrifft. Kein Physik-Raycast nötig: die
+## Ebene (Höhe _surface_y) und die Weltgrenzen sind aus attach_to bekannt.
+func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
+	if absf(direction.y) < 0.0001:
+		return Vector2(-1, -1)  # Strahl (fast) parallel zur Tischebene
+	var t := (_surface_y - origin.y) / direction.y
+	if t <= 0.0:
+		return Vector2(-1, -1)  # Ebene liegt hinter der Kamera
+	var hit := origin + direction * t
+	var pixel := world_to_pixel(hit)
+	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
+		return Vector2(-1, -1)
+	return pixel
 
 ## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite) - für
 ## Radien/Größen, die in Weltmaßen gedacht sind (siehe scene_root: Glow-Radius).
