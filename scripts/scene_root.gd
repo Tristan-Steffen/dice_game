@@ -281,6 +281,9 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 @onready var dice_pit: DicePit = $DiceTray  # Grube samt Energiefeld (siehe DicePit.flash_wall)
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
 @onready var charm_row: CharmRowView = $Charms
+## Der Geldstand als physische Neon-Pokerchips auf dem Tisch (zwischen Pool und
+## Becher, siehe ChipStackView) - folgt automatisch jeder Geldänderung.
+@onready var chip_stack: ChipStackView = $ChipStack
 
 # Hover-Tooltip der Charm-Ansicht (siehe _build_charm_tooltip /
 # _update_charm_tooltip): folgt dem Cursor, zeigt Name + Wirkung des Charms.
@@ -833,6 +836,7 @@ func _on_charms_changed() -> void:
 ## und jeder Kauf laufen über GameRun, die Anzeige folgt hier automatisch.
 func _on_money_changed(new_money: int) -> void:
 	money_label.text = "$%d" % new_money
+	chip_stack.set_money(new_money)
 	_refresh_hub_info()
 
 ## Spiegelt die Lauf-Übersicht in den Hub (siehe HubView.set_run_info) - nach

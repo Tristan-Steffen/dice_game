@@ -9,6 +9,7 @@
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
 [ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
 [ext_resource type="Script" uid="uid://d1e1kpuirytqv" path="res://scripts/table/charm_row_view.gd" id="16_charmrow"]
+[ext_resource type="Script" uid="uid://bv44s37lwsxvs" path="res://scripts/table/chip_stack_view.gd" id="17_chipstack"]
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 background_mode = 1
@@ -42,6 +43,10 @@ tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 20)
+
+[node name="ChipStack" type="Node3D" parent="." unique_id=1800299089]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 20.779545)
+script = ExtResource("17_chipstack")
 
 [node name="ScreenAnchors" type="Node3D" parent="." unique_id=1443500857]
 
