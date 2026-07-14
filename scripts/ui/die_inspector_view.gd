@@ -67,11 +67,10 @@ const STAGE_FRACTION := 0.15
 ## Kantenlänge einer Zelle des Würfel-Rasters (Breiteneinheiten u) - groß genug,
 ## dass Augensumme UND alle Seitenwerte lesbar sind, klein genug, dass das ganze
 ## rows×columns-Tray neben Bühne und Seiten-Übersicht in die Reihe passt.
-## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u): so gewählt,
-## dass Seiten-Übersicht (2 Spalten, links) und Würfel-Raster (6 Spalten, rechts)
-## zusammen die Reihe fast füllen - es bleibt nur etwa eine halbe Kachel Luft
-## dazwischen (siehe _build_top_row).
-const TRAY_TILE := 9.9
+## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u): gilt für die
+## Seiten-Übersicht (3×2, links) UND das Würfel-Raster (6 Spalten, rechts) - eine
+## Änderung skaliert beide Listen gemeinsam (siehe _build_top_row).
+const TRAY_TILE := 8.91
 
 ## Der laufende Spiellauf (von scene_root gesetzt) - liefert den Coupon-Bestand
 ## (owned_coupons) und verbucht den Verbrauch (consume_coupon), siehe GameRun.
@@ -97,6 +96,17 @@ var value_row: GridContainer  # Feingravur-Wertauswahl 1..FINE_ENGRAVING_MAX (6 
 var slot_entries: Array[Dictionary] = []  # [{button:Button, id:String, count:int}]
 var summary_list: VBoxContainer  # Seiten als 2×3-Raster (je physische Seite ein Chip) + Kanten-Chip darunter
 var summary_sum_label: Label
+
+## Handgesteuerter Material-Tooltip der Seiten-Chips (Charm-Look) - ein Overlay im
+## Panel selbst, das beim Überfahren eines Seiten-Chips mit Material erscheint.
+## NICHT über Godots eingebautes Tooltip-System: dessen Timer feuert im
+## Tisch-SubViewport nicht zuverlässig (deshalb rollt auch der Charm-Tooltip in
+## scene_root seinen eigenen, siehe _update_charm_tooltip). Gesteuert über die
+## mouse_entered/mouse_exited der Chips (die Maus-Weiterleitung liefert Motion,
+## siehe scene_root._forward_screen_mouse - daher greifen Hover-Signale hier).
+var face_tooltip: PanelContainer
+var face_tooltip_title: Label
+var face_tooltip_body: Label
 ## Würfel-Raster rechts neben der Bühne: SPIEGELT das Ursprungs-Tray (gleiches
 ## rows×columns-Raster, gleiche Buchreihenfolge, leere Slots als leere Zellen),
 ## der aktuell bearbeitete ist hervorgehoben. Ein Klick meldet den ECHTEN Slot-
@@ -139,10 +149,9 @@ func close() -> void:
 
 # --- Gerüst (Neon-Panel) --------------------------------------------------------
 
-## Baut das feste Gerüst: Kopfzeile (Titel + Fertig), obere Reihe (Seiten-
-## Übersicht + Würfel-Raster), Hinweiszeile, untere Reihe (Gravur-Bord + die
-## BÜHNE mit dem schwebenden Würfel) und die (zunächst verborgene)
-## Feingravur-Wertreihe.
+## Baut das feste Gerüst: Kopfzeile (Titel + Fertig), obere Reihe (links Seiten-
+## Übersicht über der Würfel-Bühne, rechts das Würfel-Raster), Hinweiszeile, das
+## Gravur-Bord und die (zunächst verborgene) Feingravur-Wertreihe.
 func _build_layout() -> void:
 	for child in get_children():
 		child.queue_free()
@@ -167,10 +176,11 @@ func _build_layout() -> void:
 	_build_header(root)
 	_build_top_row(root)
 	_build_prompt(root)
-	_build_board_row(root)
+	_build_board(root)
 	_build_value_row(root)
 
 	_rebuild_tray_grid()  # aus dem gespeicherten Kontext (übersteht den Neuaufbau)
+	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem im Panel
 
 ## Kopfzeile: Titel links (Magenta), Fertig rechts (Gold).
 func _build_header(root: Control) -> void:
@@ -184,24 +194,38 @@ func _build_header(root: Control) -> void:
 	done.pressed.connect(close)
 	header.add_child(done)
 
-## Obere Reihe: Seiten-Übersicht bündig LINKS (2×3-Seiten-Raster + Kanten, siehe
-## _refresh_face_summary - gleiche linke Kante wie das Gravur-Bord darunter),
-## Würfel-Raster bündig RECHTS (spiegelt das Tray, kein rechter Rand). Der ECHTE
-## Würfel schwebt NICHT mehr hier, sondern unten neben dem Gravur-Bord (siehe
-## _build_board_row/stage). Ein dehnbarer Platzhalter DAZWISCHEN drückt die beiden
-## an ihre Ränder; die Kachelgröße (TRAY_TILE) ist so groß gewählt, dass nur noch
-## etwa eine halbe Kachel Luft zwischen ihnen bleibt. Beide oben ausgerichtet.
+## Obere Reihe: LINKS eine Spalte aus Seiten-Übersicht (3×2-Seiten-Raster + Kanten,
+## siehe _refresh_face_summary - gleiche linke Kante wie das Gravur-Bord darunter)
+## und DARUNTER die BÜHNE, über der der ECHTE Würfel als Weltobjekt landet (er
+## fliegt aus seinem Tray herüber, siehe scene_root._grab_engraving_die). RECHTS,
+## bündig am rechten Rand, das Würfel-Raster (spiegelt das Tray). Ein dehnbarer
+## Platzhalter DAZWISCHEN drückt beide Seiten an ihre Ränder.
 func _build_top_row(root: Control) -> void:
 	var top_row := HBoxContainer.new()
 	top_row.name = "TopRow"
 	top_row.add_theme_constant_override("separation", 0)
+	top_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(top_row)
+
+	# Linke Spalte: Seiten-Übersicht oben, darunter der schwebende Würfel.
+	var left_col := VBoxContainer.new()
+	left_col.name = "LeftColumn"
+	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_col.add_theme_constant_override("separation", int(u * 1.2))
+	top_row.add_child(left_col)
 
 	summary_list = VBoxContainer.new()
 	summary_list.name = "FaceSummary"
 	summary_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	summary_list.add_theme_constant_override("separation", int(u * 0.8))
-	top_row.add_child(summary_list)
+	left_col.add_child(summary_list)
+
+	stage = CenterContainer.new()
+	stage.name = "Stage"
+	stage.custom_minimum_size = Vector2(0, size.y * STAGE_FRACTION)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	left_col.add_child(stage)
 
 	top_row.add_child(_expanding_spacer())
 
@@ -219,30 +243,15 @@ func _build_prompt(root: Control) -> void:
 	prompt_label.custom_minimum_size = Vector2(0, u * 5.5)
 	root.add_child(prompt_label)
 
-## Untere Reihe: Gravur-Bord links (Ätzungen/Materialien/Kanten), rechts die
-## BÜHNE, über der der ECHTE Würfel als Weltobjekt landet (er fliegt aus seinem
-## Tray herüber, siehe scene_root._grab_engraving_die) - direkt UNTER dem
-## Würfel-Raster, NEBEN den Ätzungen.
-func _build_board_row(root: Control) -> void:
-	var board_row := HBoxContainer.new()
-	board_row.name = "BoardRow"
-	board_row.add_theme_constant_override("separation", int(u * 2.0))
-	board_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(board_row)
-
+## Gravur-Bord (Ätzungen/Materialien/Kanten) über die volle Breite unter der oberen
+## Reihe. Der schwebende Würfel sitzt jetzt links unter der Seiten-Übersicht (siehe
+## _build_top_row/stage), nicht mehr neben dem Bord.
+func _build_board(root: Control) -> void:
 	board_box = VBoxContainer.new()
 	board_box.name = "Board"
 	board_box.add_theme_constant_override("separation", int(u * 0.8))
 	board_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	board_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	board_row.add_child(board_box)
-
-	stage = CenterContainer.new()
-	stage.name = "Stage"
-	stage.custom_minimum_size = Vector2(u * 24.0, size.y * STAGE_FRACTION)
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	board_row.add_child(stage)
+	root.add_child(board_box)
 
 ## Feingravur-Wertreihe (1..FINE_ENGRAVING_MAX) - erst sichtbar, wenn die
 ## Feingravur eine Zielwert-Auswahl verlangt (siehe _show_value_picker).
@@ -345,7 +354,7 @@ func _tray_tile(def: DieDefinition, highlighted: bool, slot: int) -> Button:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", maxi(1, int(u * 0.3)))
 	tile.add_child(box)
-	var sum_label := _label(str(total), u * 1.6, NEON_GOLD if highlighted else NEON_TEXT)
+	var sum_label := _label(str(total), u * 2.08, NEON_GOLD if highlighted else NEON_TEXT)  # ~30% größer als früher (1.6)
 	sum_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sum_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(sum_label)
@@ -389,7 +398,7 @@ func _material_of(def: DieDefinition, face_index: int) -> String:
 ## Seite (weiß ohne Material), Augenzahl dunkel zentriert.
 func _tray_face_cell(value: int, material_id: String) -> Control:
 	var cell := Panel.new()
-	cell.custom_minimum_size = Vector2.ONE * u * 1.5
+	cell.custom_minimum_size = Vector2.ONE * u * 2.1  # ~40% größer als früher (1.5)
 	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
 	box.bg_color = DieMaterial.tint_for(material_id)  # Weiß ohne Material
@@ -402,7 +411,7 @@ func _tray_face_cell(value: int, material_id: String) -> Control:
 	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", maxi(8, int(u * 1.1)))
+	label.add_theme_font_size_override("font_size", maxi(8, int(u * 1.54)))  # mit der Zelle mitgewachsen (~40%)
 	label.add_theme_color_override("font_color", CasinoStyle.INK)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cell.add_child(label)
@@ -681,15 +690,16 @@ func _update_prompt() -> void:
 func _refresh_face_summary() -> void:
 	if summary_list == null:
 		return
+	_hide_face_tooltip()  # die alten Chips (mit ihren Hover-Verbindungen) fallen weg
 	for child in summary_list.get_children():
 		child.queue_free()
 	if current_def == null:
 		return
 
-	# Seiten-Chips im 2 breiten, 3 hohen Raster, nach Wert sortiert (siehe
+	# Seiten-Chips im 3 breiten, 2 hohen Raster, nach Wert sortiert (siehe
 	# _faces_sorted_by_value) - jede Kachel bleibt aber ihre EIGENE Seite.
 	var face_grid := GridContainer.new()
-	face_grid.columns = 2
+	face_grid.columns = 3
 	face_grid.add_theme_constant_override("h_separation", int(u * 0.8))
 	face_grid.add_theme_constant_override("v_separation", int(u * 0.8))
 	summary_list.add_child(face_grid)
@@ -725,11 +735,16 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	chip.text = str(value)
 	chip.custom_minimum_size = Vector2.ONE * u * TRAY_TILE  # so groß wie eine Kachel der Würfelliste
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
-	# Gewählt: goldener Auswahl-Look; sonst die Materialfarbe der Seite (weiß ohne).
+	# Gewählt: Ziffer + Rahmen leuchten in der Pit-Auswahlfarbe; sonst die
+	# Materialfarbe der Seite (weiß ohne).
 	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted)
 	if DieMaterial.is_valid_id(material_id):
 		var material := DieMaterial.by_id(material_id)
-		chip.tooltip_text = "%s: %s" % [material.display_name, material.description]
+		# Material-Tooltip im Charm-Look direkt auf dem Display: handgesteuert über
+		# die Hover-Signale des Chips (siehe face_tooltip / _show_face_tooltip),
+		# weil Godots eingebauter Tooltip im Tisch-SubViewport nicht feuert.
+		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, material.display_name, material.description))
+		chip.mouse_exited.connect(_hide_face_tooltip)
 	chip.pressed.connect(_on_chip_clicked.bind(value, face_index))
 	return chip
 
@@ -744,30 +759,43 @@ func _edge_chip(highlighted: bool) -> Button:
 	var material_tint := DieMaterial.tint_for(current_def.edge_material)
 	var base := material_tint if material_tint != Color.WHITE else DieFaceDisplay.EDGE_COLOR
 	_style_chip(chip, base, highlighted)
+	if DieMaterial.is_valid_id(current_def.edge_material):
+		var edge := DieMaterial.by_id(current_def.edge_material)
+		# Gleicher handgesteuerter Charm-Tooltip wie bei den Seiten-Chips - hier mit
+		# der KANTEN-Wirkung (siehe RotatableDieView._get_tooltip).
+		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, edge.display_name, edge.edge_description))
+		chip.mouse_exited.connect(_hide_face_tooltip)
 	chip.pressed.connect(_on_edges_clicked)
 	return chip
 
-## Gemeinsamer Look der Seiten-/Kanten-Chips: dunkle Ziffer (INK), gefüllt mit
-## base_fill - oder, wenn highlighted, mit dem goldenen Auswahl-Look; Hover/Pressed
-## leiten sich aus der Füllfarbe ab. base_fill ist ohne Auswahl die Material-/
-## Kantenfarbe; die Größe/Schrift/Text setzt der Aufrufer.
+## Gemeinsamer Look der Seiten-/Kanten-Chips: die FÜLLUNG bleibt immer die Material-/
+## Kantenfarbe (base_fill). Ist der Chip GEWÄHLT, leuchten stattdessen die ZIFFER
+## und der RAHMEN in der Pit-Auswahlfarbe (überhelles Gold, das dank HDR-2D bloomt -
+## siehe TableScreen.GLOW_COLOR, dasselbe Leuchten wie unter den gewählten Würfeln in
+## der Grube), und der Rahmen wird dicker. Sonst dunkle Ziffer (INK) auf einem dünnen,
+## neutralen Rahmen. Größe/Schrift/Text setzt der Aufrufer.
 func _style_chip(chip: Button, base_fill: Color, highlighted: bool) -> void:
 	chip.focus_mode = Control.FOCUS_NONE
 	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var font_color := TableScreen.GLOW_COLOR if highlighted else CasinoStyle.INK
 	for state in ["font_color", "font_hover_color", "font_pressed_color"]:
-		chip.add_theme_color_override(state, CasinoStyle.INK)
-	var fill := RotatableDieView.SELECT_FACE_COLOR if highlighted else base_fill
-	var border := CasinoStyle.GOLD_DARK if highlighted else CHIP_BORDER
-	chip.add_theme_stylebox_override("normal", _chip_box(fill, border))
-	chip.add_theme_stylebox_override("hover", _chip_box(fill.lightened(0.12), CasinoStyle.GOLD))
-	chip.add_theme_stylebox_override("pressed", _chip_box(fill.darkened(0.1), border))
+		chip.add_theme_color_override(state, font_color)
+	# Gewählt: schwarzer Umriss um die leuchtende Ziffer, damit sie auf jeder
+	# Materialfarbe lesbar bleibt (sonst geht das helle Gold auf hellen Seiten unter).
+	chip.add_theme_color_override("font_outline_color", CasinoStyle.INK)
+	chip.add_theme_constant_override("outline_size", int(u * 0.45) if highlighted else 0)
+	var border := TableScreen.GLOW_COLOR if highlighted else CHIP_BORDER
+	var border_width := int(u * 0.6) if highlighted else maxi(2, int(u * 0.2))
+	chip.add_theme_stylebox_override("normal", _chip_box(base_fill, border, border_width))
+	chip.add_theme_stylebox_override("hover", _chip_box(base_fill.lightened(0.12), border, border_width))
+	chip.add_theme_stylebox_override("pressed", _chip_box(base_fill.darkened(0.1), border, border_width))
 	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
-func _chip_box(fill: Color, border: Color) -> StyleBoxFlat:
+func _chip_box(fill: Color, border: Color, border_width: int) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
 	box.border_color = border
-	box.set_border_width_all(2)
+	box.set_border_width_all(maxi(1, border_width))
 	box.set_corner_radius_all(int(u * 1.0))
 	return box
 
@@ -990,3 +1018,53 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.9))
 	box.set_content_margin_all(int(u * 0.8))
 	return box
+
+# --- Material-Tooltip der Seiten-Chips (handgesteuertes Overlay) ----------------
+
+## Baut das (zunächst verborgene) Tooltip-Overlay im Charm-Look: Casino-Panel,
+## Name in Gold, Wirkung in Creme darunter. Die Schriftgrößen/Textbreite sind
+## u-skaliert, damit der Tooltip auf dem hoch aufgelösten Tisch-Display lesbar
+## bleibt (die Charm-Standardgrößen wären dort winzig). Als LETZTES Kind des Panels
+## angehängt, liegt es über allem im Panel; folgt keiner Maus, sondern erscheint
+## über dem überfahrenen Chip (siehe _show_face_tooltip).
+func _build_face_tooltip() -> void:
+	face_tooltip = PanelContainer.new()
+	face_tooltip.name = "FaceTooltip"
+	face_tooltip.visible = false
+	face_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_panel(face_tooltip)
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", int(u * 0.4))
+	face_tooltip.add_child(box)
+	face_tooltip_title = Label.new()
+	face_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_score_label(face_tooltip_title, int(u * 2.6), CasinoStyle.GOLD)
+	box.add_child(face_tooltip_title)
+	face_tooltip_body = Label.new()
+	face_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	face_tooltip_body.custom_minimum_size = Vector2(u * 26.0, 0)
+	CasinoStyle.style_body_label(face_tooltip_body, int(u * 1.9), CasinoStyle.CREAM)
+	box.add_child(face_tooltip_body)
+	add_child(face_tooltip)
+
+## Zeigt den Material-Tooltip über dem überfahrenen Seiten-Chip (chip): Text setzen,
+## Größe neu messen und knapp unter dem Chip platzieren, dabei innerhalb des Panels
+## eingeklemmt (clip_contents schneidet Überstände sonst ab).
+func _show_face_tooltip(chip: Control, title: String, body: String) -> void:
+	if face_tooltip == null:
+		return
+	face_tooltip_title.text = title
+	face_tooltip_body.text = body
+	face_tooltip.visible = true
+	face_tooltip.reset_size()
+	var local := chip.get_global_rect().position - get_global_rect().position
+	var pos := local + Vector2(0.0, chip.size.y + u * 0.6)
+	pos.x = clampf(pos.x, u * 1.0, maxf(u * 1.0, size.x - face_tooltip.size.x - u * 1.0))
+	pos.y = clampf(pos.y, u * 1.0, maxf(u * 1.0, size.y - face_tooltip.size.y - u * 1.0))
+	face_tooltip.position = pos
+
+func _hide_face_tooltip() -> void:
+	if face_tooltip != null:
+		face_tooltip.visible = false

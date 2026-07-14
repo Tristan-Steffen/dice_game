@@ -107,6 +107,34 @@ static func style_progress_bar(bar: ProgressBar) -> void:
 	fill.set_corner_radius_all(8)
 	bar.add_theme_stylebox_override("fill", fill)
 
+## Baut einen Material-/Hinweis-Tooltip im Charm-Look aus einem "Name\nWirkung"-
+## String: dunkles Casino-Panel, Name in Gold, Wirkung in Creme darunter. Geteilt
+## von den 3D-Würfelseiten (RotatableDieView) und den Seiten-Chips der Gravur-
+## Station (DieInspectorView). Die Schriftgrößen und die Textbreite sind Parameter,
+## damit derselbe Look auf der niedrig aufgelösten 2D-UI wie auf dem hoch
+## aufgelösten Tisch-Display passt. Leerer String -> null (kein Tooltip).
+static func build_material_tooltip(for_text: String, title_size: int = 20, body_size: int = 15, body_width: float = 280.0) -> Control:
+	if for_text == "":
+		return null
+	var panel := PanelContainer.new()
+	style_panel(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	panel.add_child(box)
+	var parts := for_text.split("\n", false, 1)  # 1× trennen: [Name, Wirkung]
+	var title := Label.new()
+	title.text = parts[0]
+	style_score_label(title, title_size, GOLD)
+	box.add_child(title)
+	if parts.size() > 1:
+		var body := Label.new()
+		body.text = parts[1]
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(body_width, 0)
+		style_body_label(body, body_size, CREAM)
+		box.add_child(body)
+	return panel
+
 ## Dunkles Casino-Panel mit dickem Goldrahmen und Schatten - für Shop,
 ## Game-Over, Kombinationen-Übersicht usw.
 static func style_panel(panel: Control) -> void:

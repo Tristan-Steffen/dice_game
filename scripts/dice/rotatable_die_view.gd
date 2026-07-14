@@ -132,30 +132,10 @@ func _get_tooltip(at_position: Vector2) -> String:
 	return ""
 
 ## Rendert den Material-Tooltip im GLEICHEN Look wie die Charm-Tooltips (siehe
-## scene_root._build_charm_tooltip): Casino-Panel, Name in Gold, Wirkung in Creme
-## darunter. for_text ist der String aus _get_tooltip ("Name\nWirkung"); die
-## erste Zeile wird zum Titel, der Rest zur (umgebrochenen) Beschreibung.
+## CasinoStyle.build_material_tooltip): Casino-Panel, Name in Gold, Wirkung in
+## Creme darunter. for_text ist der String aus _get_tooltip ("Name\nWirkung").
 func _make_custom_tooltip(for_text: String) -> Object:
-	if for_text == "":
-		return null
-	var panel := PanelContainer.new()
-	CasinoStyle.style_panel(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	panel.add_child(box)
-	var parts := for_text.split("\n", false, 1)  # 1× trennen: [Name, Wirkung]
-	var title := Label.new()
-	title.text = parts[0]
-	CasinoStyle.style_score_label(title, 20, CasinoStyle.GOLD)
-	box.add_child(title)
-	if parts.size() > 1:
-		var body := Label.new()
-		body.text = parts[1]
-		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size = Vector2(280, 0)
-		CasinoStyle.style_body_label(body, 15, CasinoStyle.CREAM)
-		box.add_child(body)
-	return panel
+	return CasinoStyle.build_material_tooltip(for_text)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
