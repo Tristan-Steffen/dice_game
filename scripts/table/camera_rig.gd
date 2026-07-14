@@ -7,7 +7,7 @@ extends Camera3D
 ## zur Übersicht zurück. Auch im Zoom bleibt ein leichtes Rundschauen möglich -
 ## mit deutlich kleinerem Winkelbereich, damit das Ziel im Blick bleibt.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS }
 
 ## Wird ausgelöst, sobald sich der Modus ändert (zoom_to/zoom_out) - dient
 ## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
@@ -23,38 +23,28 @@ const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
-const TRAY_ZOOM_DISTANCE := 15.0
-const POOL_ZOOM_DISTANCE := 16.5  # Pool- + Warteschlangen-Tray zusammen sind breiter als ein einzelnes Tray
-const COMBOS_ZOOM_DISTANCE := 20.0  # der Kombi-Cluster ist breit (unter der Grube), daher weiter zurück
+## EINE gemeinsame Zoom-Distanz für ALLE Ziele - zusammen mit der gemeinsamen
+## ZOOM_BASIS steht die Kamera damit bei jedem Zoom in derselben Höhe und im
+## selben Winkel über ihrem Ziel (nur der Zielpunkt wandert). Breite Ziele wie
+## die Charm-Reihe zeigen dann ihre Mitte; der Rest lässt sich per leichtem
+## Rundschauen (ZOOM_TILT_MAX_*) einsehen.
+const ZOOM_DISTANCE := 20.0
 
-## Zoom-Ziele der beiden Tray-Ansichten. Nur Rückfall-Standardwerte: scene_root
-## überschreibt sie in _ready aus den echten Tray-Weltpositionen (siehe
-## configure_tray_targets), damit ein Verschieben der Trays im Editor den Zoom
-## automatisch mitnimmt, ohne diese Koordinaten doppelt zu pflegen.
+## Zoom-Blickpunkte. Nur Rückfall-Standardwerte: scene_root überschreibt sie in
+## _ready aus den echten Weltpositionen (siehe configure_*_target), damit ein
+## Verschieben im Editor den Zoom automatisch mitnimmt, ohne die Koordinaten
+## doppelt zu pflegen. ALLE Zoom-Ziele nutzen dieselbe Ausrichtung ZOOM_BASIS
+## (Ablage-Winkel) - nur Ziel + Distanz unterscheiden sich.
 var pool_target := Vector3(-23.75, -3, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
 var discard_target := Vector3(-26, -3, -12)  # DiscardTrayView
-## Blickpunkt des Kombi-Clusters auf dem Tisch-Display; scene_root setzt ihn in
-## _ready aus TableScreen.pixel_to_world (siehe configure_combos_target).
-var combos_target := Vector3(-8, -3.4, 0)
+var combos_target := Vector3(-8, -3.4, 0)  # Kombi-Cluster auf dem Tisch-Display
+var pit_target := Vector3.ZERO  # Grubenmitte (DicePit.PIT_CENTER)
+var charms_target := Vector3(24, -3.4, 0)  # Mitte der Charm-Reihe
 
-## Grubenzoom als exakte Referenz-Kamera: Position + Ausrichtung wurden im
-## Editor eingerichtet (eine testweise platzierte Camera3D) und hier
-## eingefroren, statt wie bei Pool/Ablage aus Ziel+Distanz+ZOOM_BASIS
-## abgeleitet zu werden. Ergibt einen flacheren, weiter zurückgesetzten Blick
-## auf die Grube. Beim Aktualisieren einfach die neue Test-Kamera speichern und
-## ihre Transform3D-Zahlen hier übertragen (Basis-Achsen als Spalten der
-## Transform3D-Liste, siehe ZOOM_BASIS).
-const PIT_ZOOM_ORIGIN := Vector3(-17.284252, 21.13977, 0)
-const PIT_ZOOM_BASIS := Basis(
-	Vector3(-3.344888e-08, 2.8139967e-08, 1),
-	Vector3(0.79413176, 0.6077457, 9.4608765e-09),
-	Vector3(-0.6077457, 0.79413176, -4.2675254e-08)
-)
-
-## Feste, steile Draufsicht für die Zoom-Ziele (Grube/Trays) - unabhängig von
-## der frei im Editor einstellbaren (jetzt flacheren) Übersichts-Kamera, damit
-## Grube und Trays beim Heranzoomen immer aus derselben Vogelperspektive
-## gezeigt werden. Entspricht der ursprünglichen Übersichts-Ausrichtung
+## Feste, steile Draufsicht für ALLE Zoom-Ziele (Grube/Trays/Kombis/Charms) -
+## unabhängig von der frei im Editor einstellbaren (flacheren) Übersichts-Kamera,
+## damit alles beim Heranzoomen aus derselben Vogelperspektive gezeigt wird (der
+## Blickwinkel der Ablage). Entspricht der ursprünglichen Übersichts-Ausrichtung
 ## (Basis-Achsen als Spalten, nicht als Zeilen der Transform3D-Zahlenliste!).
 const ZOOM_BASIS := Basis(
 	Vector3(-4.371139e-08, 0.0, 1.0),
@@ -125,34 +115,43 @@ func configure_tray_targets(pool: Vector3, discard: Vector3) -> void:
 func configure_combos_target(target: Vector3) -> void:
 	combos_target = target
 
+## Blickpunkt der Grube (siehe scene_root._ready / DicePit.PIT_CENTER).
+func configure_pit_target(target: Vector3) -> void:
+	pit_target = target
+
+## Blickpunkt der Charm-Reihe (siehe scene_root._ready / CharmRowView-Mitte).
+func configure_charms_target(target: Vector3) -> void:
+	charms_target = target
+
 ## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
 ## Modus tut nichts (schon dort).
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
 		return
-	# Die Grube nutzt eine fest eingerichtete Referenz-Kamera (PIT_ZOOM_*), die
-	# Trays werden weiterhin aus Ziel+Distanz entlang ZOOM_FORWARD mit der
-	# gemeinsamen ZOOM_BASIS abgeleitet.
-	var target_origin: Vector3
-	var target_basis := ZOOM_BASIS
+	# ALLE Ziele mit derselben Ausrichtung (ZOOM_BASIS) und derselben Distanz
+	# (ZOOM_DISTANCE) entlang ZOOM_FORWARD - gleiche Höhe UND gleicher Winkel
+	# überall, nur der Zielpunkt unterscheidet sich.
+	var target_point: Vector3
 	match target_mode:
 		Mode.PIT:
-			target_origin = PIT_ZOOM_ORIGIN
-			target_basis = PIT_ZOOM_BASIS
+			target_point = pit_target
 		Mode.POOL:
-			target_origin = pool_target - ZOOM_FORWARD * POOL_ZOOM_DISTANCE
+			target_point = pool_target
 		Mode.DISCARD:
-			target_origin = discard_target - ZOOM_FORWARD * TRAY_ZOOM_DISTANCE
+			target_point = discard_target
 		Mode.COMBOS:
-			target_origin = combos_target - ZOOM_FORWARD * COMBOS_ZOOM_DISTANCE
+			target_point = combos_target
+		Mode.CHARMS:
+			target_point = charms_target
 		_:
 			return
+	var target_origin := target_point - ZOOM_FORWARD * ZOOM_DISTANCE
 	mode = target_mode
 	mode_changed.emit(mode)
-	anchor_basis = target_basis
+	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO
-	_animate_to(target_origin, target_basis)
+	_animate_to(target_origin, ZOOM_BASIS)
 
 ## Springt zurück zur Übersicht (No-Op, falls bereits dort).
 func zoom_out() -> void:

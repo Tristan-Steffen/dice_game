@@ -27,7 +27,7 @@ const EDGE_COLOR := Color(0.8, 0.8, 0.83)
 ## Casino-Licht (siehe scene_root.tscn: Environment/TableLight) sind die
 ## Würfel damit selbst die hellsten Punkte auf dem Tisch und blühen über den
 ## Szenen-Glow sichtbar auf.
-const GLOW_STRENGTH := 0.75
+const GLOW_STRENGTH := 0.95
 ## Emission von MATERIAL-Seiten/-Kanten (Gold, Quecksilber, ...): bewusst
 ## überhell (> 1.0), damit veredelte Flächen deutlich stärker strahlen als der
 ## weiße Grundkörper.
@@ -39,9 +39,9 @@ const MATERIAL_GLOW_STRENGTH := 1.6
 ## sprengen). Ohne Material ein schwacher warmweißer Schein; trägt der Würfel
 ## Materialien (Seiten oder Kanten), leuchtet er DEUTLICH stärker in deren Farbe.
 const LIGHT_BASE_COLOR := Color(1.0, 0.95, 0.85)
-const LIGHT_BASE_ENERGY := 0.55
-const LIGHT_MATERIAL_ENERGY := 2.6
-const LIGHT_RANGE := 6.5
+const LIGHT_BASE_ENERGY := 0.9
+const LIGHT_MATERIAL_ENERGY := 3.2
+const LIGHT_RANGE := 7.5
 
 ## Interne Auflösung der Ziffern-Glyphen (Font-Atlas-Pixel) - je höher, desto
 ## schärfer bei starkem Heranzoomen, unabhängig von der Weltgröße (die steuert

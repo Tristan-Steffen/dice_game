@@ -38,6 +38,11 @@ func test_rebuild_replaces_previous_models():
 
 # --- Platz-Geometrie ----------------------------------------------------------
 
+func test_row_is_a_straight_line():
+	# Gerade Reihe: alle Plätze teilen dasselbe X (fester hinterer Rand).
+	for i in CharmRowView.SPOT_COUNT:
+		assert_almost_eq(row._spot_transform(i).origin.x, CharmRowView.LINE_X, 0.001)
+
 func test_spots_mirror_across_z_axis():
 	# Äußerste Plätze (0 und 5) spiegeln sich über Z=0: gleiches X, entgegengesetztes Z.
 	var t0 := row._spot_transform(0)
@@ -50,15 +55,13 @@ func test_all_spots_share_table_height():
 	for i in CharmRowView.SPOT_COUNT:
 		assert_almost_eq(row._spot_transform(i).origin.y, CharmRowView.SPOT_Y, 0.001)
 
-func test_spot_angles_symmetric_and_evenly_spaced():
-	var angles: Array = CharmRowView.SPOT_ANGLES_DEG
-	assert_eq(angles.size(), 6)
-	# Spiegelpaare
-	assert_almost_eq(angles[0], -angles[5], 0.001)
-	assert_almost_eq(angles[1], -angles[4], 0.001)
-	assert_almost_eq(angles[2], -angles[3], 0.001)
-	# gleichmäßiger Abstand
-	assert_almost_eq(angles[1] - angles[0], angles[2] - angles[1], 0.001)
+func test_row_evenly_spaced_in_z():
+	# Benachbarte Plätze haben in Z stets denselben Abstand (LINE_SPACING).
+	var z: Array = []
+	for i in CharmRowView.SPOT_COUNT:
+		z.append(row._spot_transform(i).origin.z)
+	for i in range(1, CharmRowView.SPOT_COUNT):
+		assert_almost_eq(z[i] - z[i - 1], CharmRowView.LINE_SPACING, 0.001)
 
 # --- Lichtzylinder --------------------------------------------------------------
 
@@ -70,3 +73,19 @@ func test_beams_cleared_with_charms():
 	row.set_charms(_charms(3))
 	row.set_charms([])
 	assert_eq(row.beam_nodes.size(), 0, "leere Reihe hat keine Lichtzylinder mehr")
+
+func test_beam_color_follows_rarity():
+	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) bekommen
+	# unterschiedlich getönte Kegel-Materialien; gleiche Rarität teilt ihres.
+	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.broken_mirror(), Charm.lucky_cigarettes()]
+	row.set_charms(charms)
+	assert_ne(row.beam_nodes[0].material_override, row.beam_nodes[1].material_override,
+		"Gewöhnlich und Legendär schimmern verschieden")
+	assert_eq(row.beam_nodes[0].material_override, row.beam_nodes[2].material_override,
+		"gleiche Rarität teilt dasselbe Kegel-Material")
+
+func test_flash_charm_tolerates_invalid_index():
+	row.set_charms(_charms(1))
+	row.flash_charm(-1)
+	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
+	assert_eq(row.charm_nodes.size(), 1)

@@ -3,7 +3,8 @@ extends Control
 ## Eine kompakte Zelle der Bildschirm-Kombinationsliste (siehe TableScreen):
 ## gedämpfter Neon-Rahmen, Kombinationsname klein darüber, darunter die
 ## Beispiel-Würfel als reine NEON-UMRISSE mit Leucht-Pips (kein gefülltes
-## Plättchen) und rechts der Multiplikator "×N" in gedämpftem Magenta.
+## Plättchen) und rechts die Wertung: feste Basispunkte (Cyan) neben dem
+## Multiplikator "×N" (Gold) - siehe DiceScoring.points_for/mult_for.
 ##
 ## Alle Maße sind ANTEILE der Zellengröße (siehe _draw) - so bleibt die Zelle
 ## bei jeder Display-Auflösung scharf (TableScreen rendert bewusst überabgetastet,
@@ -14,9 +15,11 @@ extends Control
 ## gedämpft, Ruhe- und Glühfarben kommen als modulate von außen (Überhell > 1
 ## bloomt dank use_hdr_2d des TableScreen-Viewports).
 
-const NEON_DIM := Color(0.4, 0.75, 0.85, 0.75)   # Rahmen, Name, Würfel-Umrisse
-const NEON_PIP := Color(0.55, 0.95, 1.0)          # Leucht-Pips (Augen)
-const MULT_COLOR := Color(0.85, 0.55, 0.8)        # Multiplikator, gedämpftes Magenta
+## Farbwelt = Obsidian-Theme "80s Neon" (siehe TableScreen): Pink für Rahmen/
+## Text, Cyan für die Leucht-Pips, Gold (Theme-Highlight) für den Multiplikator.
+const NEON_DIM := Color("#ff79c6cc")   # --accent-1-muted (Pink): Rahmen, Name, Würfel-Umrisse
+const NEON_PIP := Color("#00ffff")     # --accent-2 (Cyan): Leucht-Pips (Augen)
+const MULT_COLOR := Color("#ffd319")   # --text-highlight-bg (Gold): Multiplikator
 
 ## Pip-Anordnungen je Augenzahl (Anteile der Würfelfläche).
 const PIP_LAYOUTS := {
@@ -30,20 +33,24 @@ const PIP_LAYOUTS := {
 
 var combo_name := ""
 var values: Array = []
+var points := 0
 var mult := 1
 ## Bezugsgröße fürs Highlight-Wachsen (siehe scene_root._tween_combo_label).
 var base_scale := Vector2.ONE
 
 ## Befüllt die Zelle; Position/Größe setzt der TableScreen vorher.
-func setup(p_name: String, p_values: Array, p_mult: int) -> void:
+func setup(p_name: String, p_values: Array, p_points: int, p_mult: int) -> void:
 	combo_name = p_name
 	values = p_values
+	points = p_points
 	mult = p_mult
 	pivot_offset = size / 2.0  # Highlight skaliert um die Zellenmitte
 	queue_redraw()
 
-## Schreibt den Multiplikator neu (Menü-Stufen, siehe DiceScoring.mult_for).
-func set_mult(p_mult: int) -> void:
+## Schreibt Basispunkte + Multiplikator neu (Menü-Stufen, siehe
+## DiceScoring.points_for/mult_for - beide wachsen gemeinsam je Stufe).
+func set_score(p_points: int, p_mult: int) -> void:
+	points = p_points
 	mult = p_mult
 	queue_redraw()
 
@@ -53,7 +60,8 @@ func _draw() -> void:
 	var pad := h * 0.16
 	var name_font := int(h * 0.22)
 	var mult_font := int(h * 0.34)
-	var mult_width := w * 0.22
+	var points_font := int(h * 0.26)
+	var mult_width := w * 0.3  # rechte Wertungs-Spalte: Punkte (Cyan) + "×N" (Gold)
 	var border := maxf(2.0, h * 0.03)
 
 	draw_rect(Rect2(Vector2.ZERO, size), NEON_DIM, false, border)
@@ -82,5 +90,12 @@ func _draw() -> void:
 				draw_circle(rect.position + pip * die_size, die_size * 0.11, NEON_PIP)
 			x += die_size + die_gap
 
-	draw_string(font, Vector2(w - pad - mult_width, h - pad * 0.5), "×%d" % mult,
+	# Wertung unten rechts: "×N" (Gold) ganz außen, die festen Basispunkte (Cyan)
+	# direkt links davor - gleiche Grundlinie, gemeinsame Spalte mult_width.
+	var mult_text := "×%d" % mult
+	var mult_text_width := font.get_string_size(mult_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, mult_font).x
+	var baseline := h - pad * 0.5
+	draw_string(font, Vector2(w - pad - mult_width, baseline), mult_text,
 		HORIZONTAL_ALIGNMENT_RIGHT, mult_width, mult_font, MULT_COLOR)
+	draw_string(font, Vector2(0.0, baseline), str(points),
+		HORIZONTAL_ALIGNMENT_RIGHT, w - pad - mult_text_width - h * 0.12, points_font, NEON_PIP)

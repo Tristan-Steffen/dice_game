@@ -256,3 +256,53 @@ func consume_coupon(id: String) -> bool:
 func advance_round() -> void:
 	round_number += 1
 	round_goal += GOAL_INCREMENT
+
+# --- Testhilfen (siehe scene_root Testmodus im Einstellungs-Menü) -----------------
+
+## Belegt JEDE Seite jedes Würfels im Pool mit einem zufälligen Seiten-Material
+## und die Kante mit einem zufälligen Kanten-Material - zum schnellen Ausprobieren
+## der Material-Wertung. Jeder Würfel erhält ein FRISCHES materials-Array (nie
+## geteilt), damit die Zufallsbelegung wirklich nur diesen Würfel trifft.
+func randomize_all_materials() -> void:
+	var ids: Array[String] = []
+	for material in DieMaterial.all():
+		ids.append(material.id)
+	for die in owned_pool:
+		var mats: Array[String] = []
+		for i in die.materials.size():
+			mats.append(ids.pick_random())
+		die.materials = mats
+		die.edge_material = ids.pick_random()
+
+## Entfernt alle Seiten- UND Kanten-Materialien aller Pool-Würfel (Testmodus aus).
+func clear_all_materials() -> void:
+	for die in owned_pool:
+		var mats: Array[String] = []
+		for i in die.materials.size():
+			mats.append("")
+		die.materials = mats
+		die.edge_material = ""
+
+## Stellt sicher, dass die gegebenen Charms besessen sind (fügt fehlende hinten
+## an, doppelt nichts) - für den Testmodus (siehe scene_root). Meldet
+## charms_changed nur, wenn wirklich etwas dazukam.
+func grant_charms(charms: Array[Charm]) -> void:
+	var owned := owned_charm_ids()
+	var added := false
+	for charm in charms:
+		if not owned.has(charm.id):
+			owned_charms.append(charm)
+			added = true
+	if added:
+		charms_changed.emit()
+
+## Entfernt alle Charms mit einer der gegebenen ids (Testmodus aus). Meldet
+## charms_changed nur bei tatsächlicher Änderung.
+func remove_charms(ids: Array) -> void:
+	var kept: Array[Charm] = []
+	for charm in owned_charms:
+		if not ids.has(charm.id):
+			kept.append(charm)
+	if kept.size() != owned_charms.size():
+		owned_charms = kept
+		charms_changed.emit()

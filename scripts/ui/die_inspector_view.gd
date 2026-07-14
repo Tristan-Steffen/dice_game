@@ -144,19 +144,22 @@ func _on_edges_clicked(_die_index: int = 0) -> void:
 	_update_prompt()
 	_refresh_coupon_enabled()
 
-## Klick auf einen Wert-Chip der Seiten-Übersicht (siehe _face_chip): wählt eine
-## Seite dieses Werts und leitet sie durch dieselbe Logik wie ein Klick auf die
-## 3D-Würfelseite (_on_face_clicked) - so lassen sich Ätzungen auch komplett über
-## die Übersicht setzen. Beim zweiten Schritt (Meißel-Quelle, Schleifstein-Minus)
-## wird möglichst eine ANDERE Seite als die gewählte genommen (siehe
-## _face_index_for_value), damit gleiche Werte nicht auf sich selbst verweisen.
-func _on_chip_clicked(value: int) -> void:
+## Klick auf einen Chip der Seiten-Übersicht (siehe _face_chip): leitet ihn durch
+## dieselbe Logik wie ein Klick auf die 3D-Würfelseite (_on_face_clicked) - so
+## lassen sich Ätzungen auch komplett über die Übersicht setzen. Normalerweise
+## wählt der Klick genau die Seite face_index der Chip-Gruppe (Wert + Material).
+## Beim zweiten Schritt (Meißel-Quelle, Schleifstein-Minus) wird stattdessen
+## möglichst eine ANDERE Seite desselben Werts genommen (siehe _face_index_for_value),
+## damit gleiche Werte nicht auf sich selbst verweisen.
+func _on_chip_clicked(value: int, face_index: int) -> void:
 	if current_def == null:
 		return
-	var exclude: int = selected_face if mode == Mode.AWAIT_SECOND_FACE else -1
-	var face_index := _face_index_for_value(value, exclude)
-	if face_index != -1:
-		_on_face_clicked(0, face_index)
+	if mode == Mode.AWAIT_SECOND_FACE:
+		var second := _face_index_for_value(value, selected_face)
+		if second != -1:
+			_on_face_clicked(0, second)
+		return
+	_on_face_clicked(0, face_index)
 
 ## Index einer Seite mit dem gegebenen Wert, möglichst ungleich exclude (für den
 ## Zweitschritt einer Ätzung). Fällt auf die passende Seite zurück, wenn nur die
@@ -391,7 +394,7 @@ func _build_summary_panel() -> void:
 	summary_panel = Panel.new()
 	summary_panel.offset_left = 40.0
 	summary_panel.offset_top = 150.0
-	summary_panel.offset_right = 280.0
+	summary_panel.offset_right = 320.0  # etwas breiter: Platz für den Materialnamen neben "×N"
 	summary_panel.offset_bottom = 620.0
 	CasinoStyle.style_panel(summary_panel)
 	add_child(summary_panel)
@@ -418,40 +421,66 @@ func _build_summary_panel() -> void:
 	CasinoStyle.style_chip_label(summary_sum_label, 16, CasinoStyle.GOLD)
 	vbox.add_child(summary_sum_label)
 
-## Baut die Wert-Chips der Seiten-Übersicht neu aus current_def.faces: je
-## vorkommendem Wert (aufsteigend) ein Mini-Würfelseiten-Chip mit "×Anzahl";
-## der Wert der gerade gewählten Seite bekommt den goldenen Auswahl-Look des
-## 3D-Würfels. Darunter die Augensumme (bleibt z.B. beim Schleifstein gleich).
+## Baut die Wert-Chips der Seiten-Übersicht neu aus current_def.faces - gruppiert
+## nach Wert UND Seiten-Material (wie DiceRowView): eine Material-Seite bildet
+## ihre eigene, in der Materialfarbe getönte Gruppe neben den einfachen Seiten
+## desselben Werts, mit "×Anzahl" und dem Materialnamen daneben (Tooltip nennt
+## die Wirkung). Die Gruppe der gerade gewählten Seite bekommt den goldenen
+## Auswahl-Look des 3D-Würfels. Darunter die Augensumme.
 func _refresh_face_summary() -> void:
 	for child in summary_list.get_children():
 		child.queue_free()
 	if current_def == null:
 		return
 
-	var counts := {}
+	# Gruppieren nach "Wert|Material"; je Gruppe der erste Seitenindex (face) -
+	# ein Klick auf den Chip wählt genau diese Seite zum Gravieren.
+	var groups := {}
 	var total := 0
-	for value in current_def.faces:
-		counts[value] = counts.get(value, 0) + 1
+	for i in current_def.faces.size():
+		var value: int = current_def.faces[i]
 		total += value
-	var values := counts.keys()
-	values.sort()
-	var selected_value: int = current_def.faces[selected_face] if selected_face != -1 else -1
+		var material_id: String = current_def.materials[i] if i < current_def.materials.size() else ""
+		var key := "%d|%s" % [value, material_id]
+		if not groups.has(key):
+			groups[key] = {"value": value, "material": material_id, "count": 0, "face": i}
+		groups[key]["count"] += 1
+	var entries: Array = groups.values()
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["value"] != b["value"]:
+			return a["value"] < b["value"]
+		return a["material"] < b["material"])  # "" (ohne Material) vor Material-Gruppen
 
-	for value in values:
+	var selected_value: int = current_def.faces[selected_face] if selected_face != -1 else -1
+	var selected_material: String = current_def.materials[selected_face] \
+		if selected_face != -1 and selected_face < current_def.materials.size() else ""
+
+	for entry in entries:
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 12)
-		row.add_child(_face_chip(value, value == selected_value))
+		row.add_theme_constant_override("separation", 10)
+		var highlighted: bool = selected_face != -1 \
+			and entry["value"] == selected_value and entry["material"] == selected_material
+		row.add_child(_face_chip(entry["value"], entry["material"], highlighted, entry["face"]))
 		var count_label := Label.new()
-		count_label.text = "× %d" % counts[value]
+		count_label.text = "× %d" % entry["count"]
 		count_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		CasinoStyle.style_score_label(count_label, 20, CasinoStyle.CREAM)
 		row.add_child(count_label)
+		# Materialname neben der Anzahl (nur bei Material-Seiten) - sagt direkt,
+		# WAS die Seite trägt; die Wirkung steht im Tooltip des Chips.
+		if DieMaterial.is_valid_id(entry["material"]):
+			var mat_label := Label.new()
+			mat_label.text = DieMaterial.by_id(entry["material"]).display_name
+			mat_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			mat_label.clip_text = true
+			CasinoStyle.style_body_label(mat_label, 13, CasinoStyle.MUTED)
+			row.add_child(mat_label)
 		summary_list.add_child(row)
 
 	# Kanten-Zeile: anklickbarer Chip (wählt den Kanten-Rahmen als Gravur-Ziel,
 	# wie ein Klick auf den Rahmen des 3D-Würfels) + aktuelles Kanten-Material.
 	var edge_row := HBoxContainer.new()
-	edge_row.add_theme_constant_override("separation", 12)
+	edge_row.add_theme_constant_override("separation", 10)
 	edge_row.add_child(_edge_chip(edges_selected))
 	var edge_label := Label.new()
 	edge_label.text = DieMaterial.by_id(current_def.edge_material).display_name \
@@ -464,14 +493,15 @@ func _refresh_face_summary() -> void:
 	summary_sum_label.text = "Augensumme: %d" % total
 	# Panel-Höhe an die Zeilenzahl anpassen (46er-Chips + 8 Abstand + Kopf/Fuß)
 	# plus die Kanten-Zeile.
-	summary_panel.offset_bottom = summary_panel.offset_top + 124.0 + (values.size() + 1) * 54.0
+	summary_panel.offset_bottom = summary_panel.offset_top + 124.0 + (entries.size() + 1) * 54.0
 
-## Ein anklickbarer Mini-Würfelseiten-Chip im Look der echten Würfel (weiß,
-## abgerundet, dunkle Ziffer); highlighted = goldener Auswahl-Look (siehe
-## RotatableDieView.SELECT_FACE_COLOR). Ein Klick wählt eine Seite dieses Werts
-## zum Gravieren - dieselbe Wirkung wie ein Klick auf die 3D-Würfelseite (siehe
-## _on_chip_clicked), damit man Ätzungen auch über die Übersicht steuern kann.
-func _face_chip(value: int, highlighted: bool) -> Button:
+## Ein anklickbarer Mini-Würfelseiten-Chip im Look der echten Würfel (getönt in
+## der Materialfarbe der Seite - weiß ohne Material - mit dunkler Ziffer);
+## highlighted = goldener Auswahl-Look (siehe RotatableDieView.SELECT_FACE_COLOR).
+## Trägt die Seite ein Material, nennt der Tooltip dessen Wirkung. Ein Klick
+## wählt die Seite face_index zum Gravieren - dieselbe Wirkung wie ein Klick auf
+## die 3D-Würfelseite (siehe _on_chip_clicked).
+func _face_chip(value: int, material_id: String, highlighted: bool, face_index: int) -> Button:
 	var chip := Button.new()
 	chip.text = str(value)
 	chip.custom_minimum_size = Vector2(46, 46)
@@ -481,13 +511,17 @@ func _face_chip(value: int, highlighted: bool) -> Button:
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
 	chip.add_theme_color_override("font_hover_color", CasinoStyle.INK)
 	chip.add_theme_color_override("font_pressed_color", CasinoStyle.INK)
-	var fill := RotatableDieView.SELECT_FACE_COLOR if highlighted else Color.WHITE
+	var material_tint := DieMaterial.tint_for(material_id)  # Weiß ohne Material
+	var fill := RotatableDieView.SELECT_FACE_COLOR if highlighted else material_tint
 	var border := CasinoStyle.GOLD_DARK if highlighted else Color(0.72, 0.76, 0.8)
 	chip.add_theme_stylebox_override("normal", _chip_box(fill, border))
 	chip.add_theme_stylebox_override("hover", _chip_box(fill.lightened(0.12), CasinoStyle.GOLD))
 	chip.add_theme_stylebox_override("pressed", _chip_box(fill.darkened(0.1), border))
 	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	chip.pressed.connect(_on_chip_clicked.bind(value))
+	if DieMaterial.is_valid_id(material_id):
+		var material := DieMaterial.by_id(material_id)
+		chip.tooltip_text = "%s: %s" % [material.display_name, material.description]
+	chip.pressed.connect(_on_chip_clicked.bind(value, face_index))
 	return chip
 
 ## Der anklickbare "Kanten"-Chip der Seiten-Übersicht: gefüllt mit dem Tint des

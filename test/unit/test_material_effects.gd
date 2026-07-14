@@ -108,27 +108,28 @@ func test_take_effects_ignore_non_participating_faces():
 # --- Einrechnung in DiceScoring ---------------------------------------------------
 
 func test_ruby_raises_pair_score():
-	# Paar Fünfer: Basis 10, Mult 2 -> 20. Mit Rubin auf einer Paar-Seite: Mult 6 -> 60.
+	# Paar Fünfer: Basis (10 Punkte + 10 Augen), Mult 2 -> 40.
+	# Mit Rubin auf einer Paar-Seite: Mult 6 -> 120.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var plain: int = DiceScoring.best_hand(dice)["score"]
 	var with_ruby: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m([DieMaterial.RUBY, "", "", "", "", ""]))["score"]
-	assert_eq(plain, 20)
-	assert_eq(with_ruby, 60, "(5+5) × (2+4)")
+	assert_eq(plain, 40)
+	assert_eq(with_ruby, 120, "(10+5+5) × (2+4)")
 
 func test_ruby_outside_combo_changes_nothing():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m(["", "", DieMaterial.RUBY, "", "", ""]))["score"]
-	assert_eq(score, 20, "Rubin auf der 1 (unbeteiligt) wirkt nicht")
+	assert_eq(score, 40, "Rubin auf der 1 (unbeteiligt) wirkt nicht")
 
 func test_amber_raises_base_of_pair():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, _m([DieMaterial.AMBER, "", "", "", "", ""]))
-	assert_eq(score, 60, "(5+5+20) × 2")
+	assert_eq(score, 80, "(10+5+5+20) × 2")
 
 func test_mercury_double_counts_in_pair():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, _m([DieMaterial.MERCURY, "", "", "", "", ""]))
-	assert_eq(score, 30, "(5+5+5) × 2")
+	assert_eq(score, 50, "(10+5+5+5) × 2")
 
 func test_best_hand_mult_field_includes_material_bonus():
 	var dice := _d([5, 5, 1, 2, 3, 6])
@@ -213,11 +214,11 @@ func test_multiple_bone_faces_each_grow():
 # --- Glas: Mult fließt durch best_hand, abhängig vom aktuellen Seitenwert --------
 
 func test_glass_mult_flows_through_best_hand():
-	# Paar Sechser: Basis 12, Mult 2 -> 24. Glas auf einer Paar-Seite: Mult += 6.
+	# Paar Sechser: Basis (10+12), Mult 2 -> 44. Glas auf einer Paar-Seite: Mult += 6.
 	var dice := _d([6, 6, 1, 2, 3, 5])
 	var glass_first := _m([DieMaterial.GLASS, "", "", "", "", ""])
-	assert_eq(DiceScoring.best_hand(dice)["score"], 24)
-	assert_eq(DiceScoring.best_hand(dice, NO_CHARMS, false, glass_first)["score"], 96, "(6+6) × (2+6)")
+	assert_eq(DiceScoring.best_hand(dice)["score"], 44)
+	assert_eq(DiceScoring.best_hand(dice, NO_CHARMS, false, glass_first)["score"], 176, "(10+6+6) × (2+6)")
 
 func test_glass_mult_scales_with_face_value():
 	# Dieselbe Position, kleinerer Augenwert -> kleinerer Glas-Bonus.
@@ -291,11 +292,11 @@ func test_roll_money_pays_per_thrown_gold_edge():
 	assert_eq(MaterialEffects.roll_money(_m(["", "", "", "", "", ""]), _p([0, 1, 2, 3, 4, 5])), 0)
 
 func test_edge_materials_flow_through_best_hand():
-	# Paar Fünfer: Basis 10, Mult 2 -> 20. Rubin-Kanten auf einem Paar-Würfel:
-	# Mult 6 -> 60 - unabhängig davon, welche Seite oben liegt.
+	# Paar Fünfer: Basis (10+10), Mult 2 -> 40. Rubin-Kanten auf einem Paar-Würfel:
+	# Mult 6 -> 120 - unabhängig davon, welche Seite oben liegt.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m(NO_FACE_MATS), _m([DieMaterial.RUBY, "", "", "", "", ""]))["score"]
-	assert_eq(score, 60, "(5+5) × (2+4) über Kanten-Rubin")
+	assert_eq(score, 120, "(10+5+5) × (2+4) über Kanten-Rubin")
 
 func test_is_strictly_better_sees_edge_materials():
 	var same := _d([5, 5, 1, 2, 3, 6])
@@ -358,7 +359,7 @@ func test_mercury_vapor_triples_activations_of_take_effects():
 
 func test_mercury_retrigger_flows_through_best_hand():
 	# Paar Fünfer, Slot 0 mit Rubin-Seite + Quecksilber-Kanten:
-	# Basis 10 + zweite Augen-Zählung 5 = 15; Mult 2 + 2×4 (Rubin) = 10 -> 150.
+	# Basis (10+10) + zweite Augen-Zählung 5 = 25; Mult 2 + 2×4 (Rubin) = 10 -> 250.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m([DieMaterial.RUBY, "", "", "", "", ""]), _m([DieMaterial.MERCURY, "", "", "", "", ""]))["score"]
-	assert_eq(score, 150, "(5+5+5) × (2+8)")
+	assert_eq(score, 250, "(10+5+5+5) × (2+8)")

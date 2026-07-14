@@ -125,9 +125,145 @@ const HERMIT_CRAB := "hermit_crab"
 ## Platzhalter-Modell (siehe MODEL_FALLBACK).
 const MODEL_DIR := "res://assets/models/"
 
+# --- Raritäten (siehe Obsidian "12 Charms - Effektkatalog": Abschnitt
+# "Raritäten") - bemessen an der Stärke des Charms. Die Rarität steuert, wie
+# oft ein Charm im Shop auftaucht (siehe rarity_weight/pick_weighted und
+# ShopController._build_spread) und färbt seinen Hologramm-Lichtkegel auf dem
+# Tisch (siehe rarity_color/CharmRowView).
+const RARITY_COMMON := "common"        # ⚪ Gewöhnlich
+const RARITY_UNCOMMON := "uncommon"    # 🟢 Ungewöhnlich
+const RARITY_RARE := "rare"            # 🔵 Selten
+const RARITY_LEGENDARY := "legendary"  # 🟣 Legendär
+
+## Rarität je Charm-id - 1:1 die Katalog-Tabellen aus dem Obsidian (Vorlage).
+## Jeder Charm in all() MUSS hier stehen (per Test abgesichert, siehe
+## test_charm_catalog) - _make schlägt die Rarität nach, Standard COMMON.
+## Ausziehtisch (EXTENSION_TABLE) hat im Katalog (noch) keine Rarität und ist
+## hier als Ungewöhnlich eingeordnet (dauerhafter Solid-Nutzen).
+const RARITIES := {
+	# Wurf & Neuwurf
+	PENDULUM: RARITY_UNCOMMON,
+	ALL_OR_NOTHING: RARITY_UNCOMMON,
+	ANCHOR: RARITY_RARE,
+	STRAGGLER: RARITY_COMMON,
+	# Augen & Werte
+	RABBITS_FOOT: RARITY_COMMON,
+	LUCKY_CIGARETTES: RARITY_COMMON,
+	FOUR_LEAF_CLOVER: RARITY_COMMON,
+	GOLDEN_SCARAB: RARITY_COMMON,
+	FOX_TAIL: RARITY_COMMON,
+	PENCIL_STUB: RARITY_COMMON,
+	ECHO_CHAMBER: RARITY_UNCOMMON,
+	TWIN_RING: RARITY_UNCOMMON,
+	DOUBLE_SIX: RARITY_RARE,
+	CULT_OF_ONE: RARITY_RARE,
+	STREET_SWEEPER: RARITY_UNCOMMON,
+	EQUALIZER: RARITY_COMMON,
+	SMALL_FRY: RARITY_COMMON,
+	# Kombinationen & Wertung
+	HORSESHOE: RARITY_COMMON,
+	RAINBOW_TROUT: RARITY_COMMON,
+	PEARL_NECKLACE: RARITY_COMMON,
+	LADYBUG: RARITY_COMMON,
+	MAGIC_CARD: RARITY_RARE,
+	FULL_COUNTER: RARITY_RARE,
+	LIGHTHOUSE: RARITY_COMMON,
+	MOMENTUM: RARITY_RARE,
+	AFTER_WORK_BEER: RARITY_RARE,
+	BLACKJACK: RARITY_COMMON,
+	ROUND_NUMBER: RARITY_COMMON,
+	BROADBAND: RARITY_COMMON,
+	EVEN_COMPANY: RARITY_UNCOMMON,
+	ODD_PATH: RARITY_UNCOMMON,
+	SNAKE_EYES: RARITY_COMMON,
+	# Farkle
+	CHIMNEY_SWEEP: RARITY_RARE,
+	BROKEN_MIRROR: RARITY_LEGENDARY,
+	GRANDFATHER_CLOCK: RARITY_RARE,
+	SHARD_COURT: RARITY_COMMON,
+	GALLOWS_HUMOR: RARITY_COMMON,
+	PHOENIX_FEATHER: RARITY_LEGENDARY,
+	PATCHWORK_RUG: RARITY_UNCOMMON,
+	# Geld
+	OLD_PENNY: RARITY_COMMON,
+	PIGGY_BANK: RARITY_UNCOMMON,
+	CRYSTAL_BALL: RARITY_COMMON,
+	GOLD_RUSH: RARITY_RARE,
+	RAG_COLLECTOR: RARITY_UNCOMMON,
+	INTEREST_PENNY: RARITY_UNCOMMON,
+	STREET_MUSICIAN: RARITY_COMMON,
+	SMALL_CHANGE: RARITY_COMMON,
+	EMERGENCY_FUND: RARITY_COMMON,
+	CASH_DISCOUNT: RARITY_UNCOMMON,
+	HIGH_FLYER: RARITY_UNCOMMON,
+	# Materialien (Seiten)
+	GOLDSMITH: RARITY_UNCOMMON,
+	AMBER_ROOM: RARITY_UNCOMMON,
+	RUBY_GRINDER: RARITY_UNCOMMON,
+	BONE_GLUE: RARITY_UNCOMMON,
+	GLASSBLOWER_LUNG: RARITY_COMMON,
+	MERCURY_VAPOR: RARITY_LEGENDARY,
+	DISPLAY_CASE: RARITY_RARE,
+	JEWELRY_BOX: RARITY_RARE,
+	ALLOY: RARITY_RARE,
+	# Kanten
+	FRAME_GILDER: RARITY_UNCOMMON,
+	MAGNET_RING: RARITY_UNCOMMON,
+	EDGE_GLEAM: RARITY_UNCOMMON,
+	# Gerichte & Menü-Stufen
+	REGULAR_GUEST: RARITY_RARE,
+	GOURMET: RARITY_UNCOMMON,
+	MIDNIGHT_SNACK: RARITY_RARE,
+	RESTAURANT_CRITIC: RARITY_LEGENDARY,
+	HOUSE_RECIPE: RARITY_RARE,
+	# Coupons & Packs
+	LARGE_FORMAT: RARITY_RARE,
+	BARGAIN_HUNTER: RARITY_COMMON,
+	DOUBLE_PERFORATION: RARITY_UNCOMMON,
+	ENGRAVING_PEN: RARITY_RARE,
+	STAMP_MACHINE: RARITY_RARE,
+	FINE_PRINT: RARITY_UNCOMMON,
+	# Pool & Trays
+	LUCKY_KNOT: RARITY_UNCOMMON,
+	RECYCLING: RARITY_UNCOMMON,
+	FRESH_GOODS: RARITY_COMMON,
+	SEDIMENT: RARITY_UNCOMMON,
+	EXTENSION_TABLE: RARITY_UNCOMMON,
+	# Shop & Angebote
+	CON_ARTIST_CUFF: RARITY_COMMON,
+	SEAL_OF_QUALITY: RARITY_UNCOMMON,
+	BULK_DISCOUNT: RARITY_COMMON,
+	HOUSE_BRAND: RARITY_LEGENDARY,
+	# Meta & Totem-Reihe
+	COLLECTORS_AMULET: RARITY_UNCOMMON,
+	PARROT_TOTEM: RARITY_LEGENDARY,
+	ECHO_TOTEM: RARITY_LEGENDARY,
+	HERMIT_CRAB: RARITY_COMMON,
+}
+
+## Wie oft eine Rarität im Shop auftaucht, relativ zueinander (siehe
+## pick_weighted): Gewöhnlich am häufigsten, Legendär selten.
+const RARITY_WEIGHTS := {
+	RARITY_COMMON: 1.0,
+	RARITY_UNCOMMON: 0.55,
+	RARITY_RARE: 0.25,
+	RARITY_LEGENDARY: 0.1,
+}
+
+## Signalfarbe je Rarität (klassisches Schema): Weiß / Grün / Blau / Violett -
+## färbt u.a. den Hologramm-Lichtkegel auf dem Tisch (siehe CharmRowView).
+const RARITY_COLORS := {
+	RARITY_COMMON: Color(0.85, 0.9, 1.0),
+	RARITY_UNCOMMON: Color(0.3, 1.0, 0.5),
+	RARITY_RARE: Color(0.25, 0.55, 1.0),
+	RARITY_LEGENDARY: Color(0.75, 0.35, 1.0),
+}
+
 @export var id: String = ""
 @export var display_name: String = ""
 @export var description: String = ""
+## Rarität (siehe RARITY_*-Konstanten) - aus RARITIES nachgeschlagen (in _make).
+@export var rarity: String = RARITY_COMMON
 ## Pfad zum 3D-Modell dieses Charms (auf dem Tisch, siehe CharmRowView). Wird in
 ## _make per Konvention aus der id abgeleitet; Charms ohne Modelldatei bleiben
 ## leer und zeigen das Platzhalter-Modell.
@@ -138,10 +274,34 @@ static func _make(charm_id: String, name: String, desc: String) -> Charm:
 	charm.id = charm_id
 	charm.display_name = name
 	charm.description = desc
+	charm.rarity = RARITIES.get(charm_id, RARITY_COMMON)
 	var candidate := MODEL_DIR + charm_id + ".glb"
 	if ResourceLoader.exists(candidate):
 		charm.model_path = candidate
 	return charm
+
+## Shop-Gewicht dieses Charms (siehe RARITY_WEIGHTS).
+func rarity_weight() -> float:
+	return RARITY_WEIGHTS.get(rarity, 1.0)
+
+## Signalfarbe dieser Rarität (siehe RARITY_COLORS).
+func rarity_color() -> Color:
+	return RARITY_COLORS.get(rarity, RARITY_COLORS[RARITY_COMMON])
+
+## Zieht einen Charm gewichtet nach Rarität aus candidates (Gewöhnliche
+## erscheinen am häufigsten, Legendäre selten - siehe RARITY_WEIGHTS).
+## Grundlage der Shop-Angebote (siehe ShopController._build_spread); candidates
+## darf nicht leer sein.
+static func pick_weighted(candidates: Array[Charm]) -> Charm:
+	var total := 0.0
+	for charm in candidates:
+		total += charm.rarity_weight()
+	var roll := randf() * total
+	for charm in candidates:
+		roll -= charm.rarity_weight()
+		if roll <= 0.0:
+			return charm
+	return candidates.back()
 
 # --- Augenwert-Charms: verändern, wie stark ein einzelner Würfelwert zur
 # Augensumme zählt (siehe CharmEffects.eye_value), ohne je die Kategorie zu

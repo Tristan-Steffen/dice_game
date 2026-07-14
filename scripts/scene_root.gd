@@ -100,9 +100,45 @@ const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 ## zieht sich das Tray wieder an seinen Normalplatz neben dem Pool-Tray zurück
 ## (siehe _update_queue_tray_dock).
 ## Knapp unterhalb (Bildschirm-unten = -X) der Grubenwand: kurze Halbachse 7.6
-## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand.
-const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
+## um PIT_CENTER.x 0 -> Wand bei -7.6, plus 1 Einheit Abstand. Y = -3.4 (die
+## Tischbildschirm-Oberfläche, siehe SPOT_Y/Tray-Ausgangshöhe), damit die
+## Würfel im angedockten Tray AUF dem Screen liegen statt darüber zu schweben.
+const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, -3.4, 0.0)
 const QUEUE_TRAY_MOVE_DURATION := 0.6
+
+## POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern - je
+## einem Marker3D unter $ScreenAnchors: CombosBlock (Kombi-Cluster), ScoreBar
+## (Rundenziel-Balken) sowie BaseCounter und MultCounter (die beiden Zähler,
+## einzeln verschiebbar). _ready rechnet ihre Weltposition per
+## TableScreen.world_to_pixel auf den Screen um. Um etwas zu verschieben, einfach
+## den Marker im Editor greifen (kein Code nötig). Nur die GRÖSSE der Zähler-
+## Fläche bleibt hier als Weltmaß (die Schriftgröße folgt daraus, siehe
+## TableScreen.configure_pit_score).
+const PIT_SCORE_WIDTH_WORLD := 14.0   # Breite der Zähler-Fläche (Zahl bleibt zentriert)
+const PIT_SCORE_HEIGHT_WORLD := 3.5   # Höhe der Zähler (Schriftgröße folgt daraus)
+
+## Zähl-Animation beim Nehmen (siehe _play_take_animation): die Würfel gleiten
+## in eine schwebende Reihe in der oberen Grubenhälfte (X positiv =
+## Bildschirm-oben), jeder zählende Würfel bekommt ein Goldlicht auf dem
+## Display, dann werden Basis/Mult Schritt für Schritt hochgezählt.
+const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
+const SCORE_ROW_SPACING := 2.9  # Z-Abstand der Würfel in der Zählreihe (weiter auseinander = besser sichtbar)
+const SCORE_HOVER_HEIGHT := 0.0  # 0 = die Würfel liegen beim Zählen auf dem Tisch (kein Schweben)
+const SCORE_LIFT_TIME := 0.5  # Gleitdauer in die schwebende Reihe
+const SCORE_STEP_TIME := 0.45  # Takt der Zählschritte (Kombination/Würfel/Charms)
+const SCORE_SUBSTEP_TIME := 0.25  # kürzere Pause zwischen Augen- und Material-Zuwachs
+const SCORE_MERGE_TIME := 0.75  # Standzeit der verschmolzenen Gesamtzahl
+const SCORE_FLY_TIME := 0.55  # Flugdauer der Gesamtzahl in den Zielbalken
+const SCORE_GLOW_SIZE_FACTOR := 1.5  # Kantenlänge des Würfel-Glow-Rechtecks als Vielfaches der Würfelgröße (50% größer)
+const SCORE_TRAIL_TIME := 0.3  # Flugdauer eines Licht-Trails Quelle -> Zahl (die Zahl wächst beim Einschlag)
+
+## Energiefeld-Blitz bei Wandkontakt (siehe _on_die_wall_contact / DicePit): unter
+## FIELD_FLASH_MIN_SPEED bleibt das Feld ruhig (fast unsichtbar), ab
+## FIELD_FLASH_FULL_SPEED blitzt es voll auf; auch der leiseste zählende Treffer
+## zeigt mindestens FIELD_FLASH_MIN_STRENGTH.
+const FIELD_FLASH_MIN_SPEED := 2.0
+const FIELD_FLASH_FULL_SPEED := 14.0
+const FIELD_FLASH_MIN_STRENGTH := 0.35
 
 const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel nach einem Wurf, siehe _animate_deck_shift
 
@@ -138,13 +174,14 @@ const LINEUP_DURATION := 0.35  # Gleitdauer der Aufreihung nach dem Ausrollen
 ## Eingabe-Stelle einzeln stimmen mussten). Eingabe-Gates prüfen gegen die Phase
 ## (siehe _can_toggle_selection/_dice_in_motion/_is_playing): IDLE = wartet auf
 ## Spieler-Eingabe · CUP_ANIMATING = gezogene Würfel fliegen zum Becher, er
-## schüttelt und kippt · ROLLING = Physikwurf läuft · PAYOUT = Rundenziel-
+## schüttelt und kippt · ROLLING = Physikwurf läuft · SCORING = Zähl-Animation
+## einer genommenen Hand (siehe _play_take_animation) · PAYOUT = Rundenziel-
 ## Auszahlung (Tisch-Animation vor dem Shop) · SHOP/GAME_OVER = entsprechendes
 ## Panel offen. Nebenläufige Kosmetik (Deck-Aufrücken, Umsortier-Drag,
 ## Bogen-Abschluss) ist bewusst KEINE Phase - sie hat ihre eigenen kleinen
 ## Zustände (deck_shift_ghosts/reorder_drag_index/sheet_animating) und darf
 ## parallel zu einer Phase laufen.
-enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
+enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 
 @onready var take_button: Button = $UI/TakeButton
 @onready var select_all_button: Button = $UI/SelectAllButton
@@ -153,6 +190,16 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, PAYOUT, SHOP, GAME_OVER }
 @onready var reset_button: Button = $UI/SettingsMenu/ResetButton
 @onready var debug_win_round_button: Button = $UI/SettingsMenu/DebugWinRoundButton
 @onready var library_button: Button = $UI/SettingsMenu/LibraryButton
+
+## Testmodus-Knopf (im Einstellungs-Menü, per Code angehängt - siehe _ready):
+## schaltet zufällige Seiten- + Kanten-Materialien auf ALLEN Würfeln an/aus
+## (siehe _on_test_materials_pressed / GameRun.randomize_all_materials).
+var test_materials_button: Button
+var test_materials_enabled: bool = false
+
+## Charms, die der Testmodus von Anfang an mitgibt (siehe _test_mode_charms /
+## _on_test_materials_pressed): Goldener Skarabäus, Goldschmied, Kleinvieh.
+const TEST_MODE_CHARM_IDS := [Charm.GOLDEN_SCARAB, Charm.GOLDSMITH, Charm.SMALL_FRY]
 
 ## Die Charm-Bibliothek (alle Charms + Beschreibungen, siehe CharmLibraryView),
 ## per Bibliothek-Knopf im Einstellungs-Menü auf-/zugeklappt.
@@ -192,15 +239,19 @@ var sheet_anim_nodes: Array[Node] = []  # temporäre Animations-Nodes (Kacheln/Z
 
 @onready var blind_payout_label3d: Label3D = $BlindPayoutLabel3D
 @onready var dice_payout_label3d: Label3D = $DicePayoutLabel3D
-## Anker der Tisch-Kombinationsliste (Position/Ausrichtung/Größe) - die 13
-## Zeilen-Labels sind feste Kinder in der Szene, je nach DiceScoring-Key benannt
-## (siehe _collect_combo_labels). Der Anker selbst rendert nichts (Text leer).
-@onready var combos_anchor: Label3D = $Combinations
+## Editor-Anker der drei Screen-Elemente (Marker3D unter $ScreenAnchors): im
+## Editor frei verschiebbar, _ready rechnet ihre Weltposition auf den Screen um
+## (siehe TableScreen.place_combo_cluster/place_goal_bar/configure_pit_score).
+@onready var combos_anchor: Marker3D = $ScreenAnchors/CombosBlock
+@onready var goal_bar_anchor: Marker3D = $ScreenAnchors/ScoreBar
+@onready var base_counter_anchor: Marker3D = $ScreenAnchors/BaseCounter
+@onready var mult_counter_anchor: Marker3D = $ScreenAnchors/MultCounter
 
 var combo_labels: Dictionary = {}  # DiceScoring-key -> ComboCellView (Sic-Bo-Zelle auf dem TableScreen)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination (siehe _refresh_combos)
 
 @onready var camera_rig: CameraRig = $Camera3D
+@onready var dice_pit: DicePit = $DiceTray  # Grube samt Energiefeld (siehe DicePit.flash_wall)
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
 @onready var charm_row: CharmRowView = $Charms
 
@@ -214,6 +265,7 @@ var dice: DiceController
 var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _ready)
 var table_screen: TableScreen  # Display auf der Tischfläche (siehe _ready)
 var combos_click_zone: StaticBody3D  # Klickfläche über dem Kombi-Cluster (Zoom, siehe _setup_combos_zoom)
+var charms_click_zone: StaticBody3D  # Klickfläche über der Charm-Reihe (Zoom, siehe _setup_charms_zoom)
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
 var has_rolled_current_hand: bool = false
@@ -261,6 +313,11 @@ var queue_tray_home_position: Vector3  # Normalplatz neben dem Pool-Tray, siehe 
 var queue_tray_tween: Tween
 
 var lineup_tween: Tween  # Aufreihung der ausgerollten Würfel, siehe _line_up_settled_dice
+
+## Goldlichter der laufenden Zähl-Animation (Display-Knoten, siehe
+## TableScreen.spawn_glow) - am Ende bzw. bei einem Reset freigegeben
+## (siehe _cleanup_take_animation).
+var take_anim_glows: Array[Control] = []
 
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation, siehe _animate_deck_shift
 var deck_shift_tween: Tween
@@ -312,17 +369,33 @@ func _ready() -> void:
 		var die := DieBuilder.build()
 		$Dice.add_child(die)
 		die.position = DICE_START_POSITIONS[i]
-		roots.append(die)
-		bodies.append(die.get_node("RigidBody3D"))
+		# Gleiche Würfelgröße wie in den Trays, ABER nur Kollision + Optik skalieren
+		# und den RigidBody3D selbst auf Einheitsskala lassen: Ein skalierter Körper
+		# trägt den Faktor in seiner Basis, und die Ruheerkennung (siehe
+		# DiceController._top_axis_info) liest genau diese Basis per Skalarprodukt
+		# gegen oben - mit skalierter Basis erreicht der Würfel den Ausrichtungs-
+		# Schwellwert nie und käme nie zur Ruhe (Auswahl bliebe gesperrt).
+		var body: RigidBody3D = die.get_node("RigidBody3D")
+		var die_scale := Vector3.ONE * DiceTrayView.DIE_SCALE
+		(body.get_node("CollisionShape3D") as CollisionShape3D).scale = die_scale
 		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+		faces.scale = die_scale
 		faces.set_light_enabled(true)  # nur die 6 Spielwürfel beleuchten ihre Umgebung
+		roots.append(die)
+		bodies.append(body)
 		face_displays.append(faces)
 	dice = DiceController.new(roots, bodies, face_displays)
 
 	dice_audio = DiceAudio.new()
 	dice_audio.name = "DiceAudio"
 	add_child(dice_audio)
-	dice_audio.setup(bodies, dice)
+	dice_audio.setup(bodies, dice)  # aktiviert auch contact_monitor der Würfel
+
+	# Energiefeld-Blitz bei Wandkontakt: DiceAudio hat die Kontaktmeldung schon
+	# eingeschaltet, hier hört ein zweiter Handler mit und blitzt das getroffene
+	# Feldsegment auf (siehe _on_die_wall_contact / DicePit.flash_wall).
+	for body in bodies:
+		body.body_entered.connect(_on_die_wall_contact.bind(body))
 
 	# Tisch-Display: ViewportTexture auf das "Screen"-Mesh des importierten
 	# Tischs legen (siehe TableScreen). Fehlt das Mesh (anderes Tischmodell),
@@ -333,7 +406,20 @@ func _ready() -> void:
 	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
 	if screen_mesh != null:
 		table_screen.attach_to(screen_mesh)
+		# Alle drei Screen-Elemente hängen an frei verschiebbaren Editor-Ankern
+		# (Marker3D unter $ScreenAnchors); Pixel-Positionen erst nach attach_to
+		# ableitbar. Den Kombi-Cluster ERST an seinen Anker setzen, DANN den Zoom
+		# einrichten (er liest das nun verschobene cluster_rect).
+		table_screen.place_combo_cluster(table_screen.world_to_pixel(combos_anchor.global_position))
 		_setup_combos_zoom()
+		table_screen.place_goal_bar(table_screen.world_to_pixel(goal_bar_anchor.global_position))
+		var ppw := table_screen.pixels_per_world()
+		# Basis- und Mult-Zähler getrennt: jeder zentriert sich auf seinem Anker.
+		var score_size := Vector2(PIT_SCORE_WIDTH_WORLD * ppw, PIT_SCORE_HEIGHT_WORLD * ppw)
+		table_screen.configure_pit_score(
+			table_screen.world_to_pixel(base_counter_anchor.global_position),
+			table_screen.world_to_pixel(mult_counter_anchor.global_position),
+			score_size)
 	else:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
 
@@ -347,6 +433,11 @@ func _ready() -> void:
 	camera_rig.configure_tray_targets(
 		(pool_tray_view.global_position + queue_tray_view.global_position) * 0.5,
 		discard_tray_view.global_position)
+	# Grubenziel auf Tisch-Screen-Höhe (-3.4) statt PIT_CENTER.y (0), damit die
+	# Grubenkamera genau so hoch steht wie alle anderen Zooms (gleiche Höhe UND
+	# Winkel; die Y der Grubenmitte ist fürs Werfen ohnehin bedeutungslos).
+	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x, -3.4, DicePit.PIT_CENTER.z))
+	_setup_charms_zoom()
 
 	charm_shop.closed.connect(_on_shop_closed)
 	die_inspector.changed.connect(_on_die_engraved)
@@ -357,6 +448,15 @@ func _ready() -> void:
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
 	library_button.pressed.connect(charm_library.toggle)
+
+	# Testmodus-Knopf ans Ende des Einstellungs-Menüs hängen (im Code, damit die
+	# Szene unverändert bleibt) - siehe _on_test_materials_pressed.
+	test_materials_button = Button.new()
+	test_materials_button.custom_minimum_size = Vector2(0, 48)
+	test_materials_button.pressed.connect(_on_test_materials_pressed)
+	settings_menu.add_child(test_materials_button)
+	CasinoStyle.style_button(test_materials_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
+	_refresh_test_materials_button()
 
 	_style_ui()
 	_collect_combo_labels()
@@ -603,11 +703,8 @@ func _pulse_control(control: Control) -> void:
 
 ## Verdrahtet die Kombinationsliste: Die Zellen liegen als gedrucktes Layout
 ## auf dem Tisch-Display (siehe TableScreen.combo_cells, Sic-Bo-Stil) - hier
-## werden sie eingesammelt und in die leuchtende Ruhefarbe versetzt. Die alte
-## 3D-Tischliste (Combinations-Anker samt Label3D-Kindern in der Szene) bleibt
-## als Altbestand unsichtbar.
+## werden sie eingesammelt und in die leuchtende Ruhefarbe versetzt.
 func _collect_combo_labels() -> void:
-	combos_anchor.visible = false
 	combo_labels = table_screen.combo_cells
 	for key: String in combo_labels:
 		combo_labels[key].modulate = PAYOUT_LABEL_BASE_COLOR  # überhelle Ruhefarbe (leichter Glow)
@@ -625,12 +722,14 @@ func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
-## Schreibt die Multiplikatoren der Tisch-Kombinationsliste neu ("×Mult" hinter
-## den Beispiel-Würfeln), wobei der Multiplikator die Menü-Stufen einrechnet
-## (siehe DiceScoring.mult_for / GameRun.combo_levels).
+## Schreibt Basispunkte + Multiplikatoren der Tisch-Kombinationsliste neu,
+## wobei beide die Menü-Stufen einrechnen (siehe DiceScoring.points_for/
+## mult_for / GameRun.combo_levels).
 func _refresh_combo_label_texts() -> void:
 	for key in combo_labels:
-		combo_labels[key].set_mult(DiceScoring.mult_for(key, run.combo_levels))
+		combo_labels[key].set_score(
+			DiceScoring.points_for(key, run.combo_levels),
+			DiceScoring.mult_for(key, run.combo_levels))
 
 ## Hebt genau die Kombination der gerade gewürfelten Hand golden hervor (analog
 ## zum Aufleuchten der Belohnungstexte), alle anderen bleiben im Ruhe-Weiß.
@@ -693,6 +792,19 @@ func _physics_process(delta: float) -> void:
 	if dice.physics_step(delta, rest_linear_threshold, rest_angular_threshold, rest_time_required):
 		_on_roll_finished()
 
+## Ein Würfel hat etwas berührt (body_entered, siehe _ready): war es eine
+## Grubenwand, blitzt das getroffene Feldsegment aufprallabhängig auf - sonst
+## bleibt das Feld ruhig (fast unsichtbar). Andere Kontakte (Boden, Würfel↔
+## Würfel) ignorieren wir; der Sound läuft getrennt über DiceAudio.
+func _on_die_wall_contact(other: Node, body: RigidBody3D) -> void:
+	if not other.is_in_group("pit_wall"):
+		return
+	var speed := body.linear_velocity.length()
+	if speed < FIELD_FLASH_MIN_SPEED:
+		return
+	var strength := clampf((speed - FIELD_FLASH_MIN_SPEED) / (FIELD_FLASH_FULL_SPEED - FIELD_FLASH_MIN_SPEED), 0.0, 1.0)
+	dice_pit.flash_wall(other, lerpf(FIELD_FLASH_MIN_STRENGTH, 1.0, strength))
+
 func _unhandled_input(event: InputEvent) -> void:
 	if reorder_drag_index != -1:
 		_handle_reorder_input(event)
@@ -728,6 +840,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Würfel gerade ausgerollt daliegen).
 			_line_up_settled_dice()
 			_refresh_action_buttons()
+			# Kombination und Basis richten sich nach der Auswahl (siehe
+			# _refresh_ui / _scoring_slots) - sofort mitziehen lassen.
+			_refresh_ui()
 			return
 
 	if not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
@@ -1086,6 +1201,28 @@ func _setup_combos_zoom() -> void:
 	combos_click_zone.add_child(shape)
 	add_child(combos_click_zone)
 
+## Richtet Zoom-Ziel und Klickfläche der Charm-Reihe ein: Blickpunkt = Mitte der
+## Linie (siehe CharmRowView.LINE_X), plus eine flache Klickbox (Layer 8) über
+## der ganzen Reihe. Maße folgen den CharmRowView-Konstanten, damit ein
+## Verschieben/Umbau der Reihe automatisch mitgezogen wird.
+func _setup_charms_zoom() -> void:
+	var center: Vector3 = charm_row.to_global(Vector3(CharmRowView.LINE_X, CharmRowView.SPOT_Y, 0.0))
+	camera_rig.configure_charms_target(center)
+
+	var half_z := float(CharmRowView.SPOT_COUNT - 1) * 0.5 * CharmRowView.LINE_SPACING + CharmRowView.BEAM_RADIUS
+	var box := BoxShape3D.new()
+	box.size = Vector3(CharmRowView.BEAM_RADIUS * 2.0, 4.0, half_z * 2.0)
+
+	charms_click_zone = StaticBody3D.new()
+	charms_click_zone.name = "CharmsClickZone"
+	charms_click_zone.collision_layer = 8  # Kamera-Klickebene, wie PitClickZone
+	charms_click_zone.collision_mask = 0
+	charms_click_zone.position = center
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	charms_click_zone.add_child(shape)
+	add_child(charms_click_zone)
+
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -1101,13 +1238,24 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 
 	var collider: Object = result.collider
 	if collider == pit_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.PIT)
+		# Grubenklick, je nach aktueller Ansicht:
+		# - schon in der Grubenansicht: wirft den nächsten Wurf (wie Becher/
+		#   Würfeln-Button - _on_throw_button_pressed prüft selbst, ob das gerade
+		#   erlaubt ist).
+		# - sonst (Übersicht oder ein anderer Zoom): in die (einzige) Grubenansicht.
+		# Herauszoomen weiterhin per Rechtsklick.
+		if camera_rig.mode == CameraRig.Mode.PIT:
+			_on_throw_button_pressed()
+		else:
+			camera_rig.zoom_to(CameraRig.Mode.PIT)
 	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.POOL)
 	elif collider == discard_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
 	elif collider == combos_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.COMBOS)
+	elif collider == charms_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.CHARMS)
 
 ## Baut den (zunächst verdeckten) Hover-Tooltip der Charms: Name in Gold,
 ## darunter die Wirkung. Folgt in _update_charm_tooltip dem Cursor.
@@ -1135,14 +1283,14 @@ func _build_charm_tooltip() -> void:
 func _process(_delta: float) -> void:
 	_update_charm_tooltip()
 
-## Hover-Tooltip der Charms: aktiv in der Grubenansicht (dort liegen die
-## Charms sichtbar am oberen Bildrand), nicht während der Kamerafahrt. Zeigt
-## Name + Wirkung des Charms unter dem Cursor (siehe
-## CharmRowView.charm_at_screen_pos) und folgt der Maus, am Bildrand eingeklemmt.
+## Hover-Tooltip der Charms: aktiv aus JEDER Ansicht, sobald der Cursor über
+## einem Charm liegt (Projektions-Nähe, siehe CharmRowView.charm_at_screen_pos) -
+## nur nicht während der Kamerafahrt oder beim Umsortier-Drag. Zeigt Name +
+## Wirkung des Charms und folgt der Maus, am Bildrand eingeklemmt.
 func _update_charm_tooltip() -> void:
 	if charm_tooltip == null:
 		return
-	if camera_rig.mode != CameraRig.Mode.PIT or camera_rig.is_animating or charm_is_dragging:
+	if camera_rig.is_animating or charm_is_dragging:
 		charm_tooltip.visible = false
 		return
 	var mouse := get_viewport().get_mouse_position()
@@ -1246,6 +1394,24 @@ func _score_ctx() -> Dictionary:
 		"last_settled": dice.last_settled_index,
 		"late_slots": _late_slots(),
 	}
+
+## Wie _score_ctx, aber auf einen Auswahl-Teilwurf (siehe _scoring_slots)
+## umgerechnet: die SLOT-bezogenen ctx-Werte (last_settled, late_slots) tragen
+## echte Würfel-Slots, die Wertung des Teilwurfs indiziert aber gefiltert
+## (0..len-1). Ohne diese Übersetzung würden slot-abhängige Charms (Nachzügler,
+## Bodensatz) beim Wählen einzelner Würfel auf die falschen Positionen zeigen.
+func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
+	var ctx := _score_ctx()
+	var to_filtered := {}
+	for k in slots.size():
+		to_filtered[slots[k]] = k
+	ctx["last_settled"] = to_filtered.get(ctx["last_settled"], -1)
+	var mapped_late: Array = []
+	for s in ctx.get("late_slots", []):
+		if to_filtered.has(s):
+			mapped_late.append(to_filtered[s])
+	ctx["late_slots"] = mapped_late
+	return ctx
 
 ## Slots, deren Würfel aus den letzten 6 Positionen des Nachziehstapels gezogen
 ## wurden (Bodensatz-Charm, siehe slot_draw_positions).
@@ -1811,26 +1977,51 @@ func _on_farkle() -> void:
 			_show_money_popup(income)
 		_start_new_hand()
 
-## Nimmt die komplette Hand (alle 6 Würfel, siehe DiceScoring.best_hand über
-## dice.values): der Wert wird zum Rundenstand addiert, alle 6 wandern ins
-## Ablage-Tray. Welche Würfel gerade ausgewählt (siehe DiceController.selected)
-## sind, spielt für Nehmen keine Rolle - die Auswahl steuert nur noch, welche
-## Würfel beim nächsten "Neu würfeln" geschützt sind (siehe
-## _on_throw_button_pressed).
+## Nimmt die aktuell AUSGEWÄHLTEN Würfel als Hand (siehe _scoring_slots /
+## DiceController.selected): nur sie bilden die Kombination und liefern die
+## Basispunkte. Der Wert wird zum Rundenstand addiert; physisch wandern danach
+## weiterhin alle liegenden Würfel ins Ablage-Tray. Ohne Auswahl gibt es nichts
+## zu nehmen (der Nehmen-Knopf ist dann ohnehin gesperrt, siehe
+## _refresh_action_buttons).
 func _on_take_button_pressed() -> void:
 	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 
-	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
-	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
-	# auswerten.
+	# Auswahl-Teilwurf: nur die gewählten Würfel zählen. participating u.Ä. zeigen
+	# danach in diesen Teilwurf und werden über slots auf echte Slots
+	# zurückgerechnet (siehe _remap_breakdown_to_slots).
+	var slots := _scoring_slots()
+	if slots.is_empty():
+		return
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
 	var edge_materials := _edge_materials()
-	var hand := DiceScoring.best_hand(dice.values, ids, hands_taken_this_round == 0, materials, edge_materials, run.combo_levels, _score_ctx())
-	hand_total += hand["score"]
+	var sel_values: Array[int] = []
+	var sel_materials: Array[String] = []
+	var sel_edges: Array[String] = []
+	for s in slots:
+		sel_values.append(dice.values[s])
+		sel_materials.append(materials[s])
+		sel_edges.append(edge_materials[s])
+
+	# is_first_hand für Charms, die nur die erste genommene Hand der Runde
+	# betreffen (Zauberkarte) - VOR dem Hochzählen von hands_taken_this_round
+	# auswerten.
+	var sel_ctx := _score_ctx_for_slots(slots)
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	# Die Zähl-Animation braucht die Wertung in Einzelschritten (Kombination →
+	# Würfel → Charms → Verschmelzen) - VOR den Nehmen-Effekten bauen, da
+	# Knochen/Glas gleich die Seiten der Pool-Würfel verändern. Die Slot-Indizes
+	# der Schritte werden auf echte Würfel zurückgerechnet.
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	_remap_breakdown_to_slots(breakdown, slots)
 	hands_taken_this_round += 1
-	_animate_points_to(hand_total)
+	var new_total: int = hand_total + int(breakdown["total"])
+	await _play_take_animation(breakdown, new_total)
+	if phase != Phase.SCORING:
+		return  # Reset/Neustart während der Animation - nichts mehr anwenden
+	phase = Phase.IDLE
+	hand_total = new_total
 
 	# Nehmen-Effekte der Materialien (Gold-Seite zahlt, Knochen wächst, Glas
 	# schrumpft - Seiten wie Kanten) - nur für Würfel der genommenen
@@ -1838,7 +2029,12 @@ func _on_take_button_pressed() -> void:
 	# verändern die Pool-Würfel dauerhaft; das Ablage-Tray zeigt gleich die
 	# schon veränderten Werte. Charms verstärken einzelne Materialien (siehe
 	# MaterialEffects: Goldschmied/Knochenleim/Glasbläserlunge).
-	var participating := DiceScoring.participating_indices(hand["key"], dice.values)
+	# participating auf dem Auswahl-Teilwurf berechnen und auf echte Slots
+	# zurückrechnen - nur die beteiligten AUSGEWÄHLTEN Würfel tragen Material-
+	# Nehmen-Effekte (Gold zahlt, Knochen wächst, Glas schrumpft).
+	var participating: Array[int] = []
+	for p in DiceScoring.participating_indices(hand["key"], sel_values):
+		participating.append(slots[p])
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids)
 	var take_money := report.money
 
@@ -1886,6 +2082,191 @@ func _on_take_button_pressed() -> void:
 	else:
 		_start_new_hand()
 
+## Die Zähl-Animation beim Nehmen einer Hand (siehe ScoreBreakdown): Alle
+## sichtbaren Würfel gleiten in eine schwebende Reihe über der Grube (zählende
+## links, in Wertungsreihenfolge), jeder zählende Würfel bekommt ein Goldlicht
+## auf dem Display. Dann bauen sich BASIS × MULT in der Grube Schritt für
+## Schritt auf: erst die Kombination (feste Punkte + Kategorie-Mult), dann je
+## Würfel von links nach rechts Augen- und Material-Zuwachs, dann die Charms
+## (jeder feuernde blitzt auf, siehe CharmRowView.flash_charm), zum Schluss
+## verschmelzen beide Zahlen zur Gesamtzahl und fliegen in den Zielbalken.
+## Ein Reset während der Animation bricht sauber ab (siehe _score_step_wait) -
+## der Aufrufer erkennt das an phase != SCORING und wendet nichts mehr an.
+func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
+	phase = Phase.SCORING
+	take_button.disabled = true
+	select_all_button.disabled = true
+	_cancel_lineup()
+
+	# 1) Schwebende Reihe: zählende Würfel zuerst (= Reihenfolge der
+	# Zählschritte), unbeteiligte rechts daneben.
+	var counting: Array[int] = []
+	for slot: int in breakdown["eye_slots"]:
+		if slot < dice.count() and dice.roots[slot].visible:
+			counting.append(slot)
+	var row := counting.duplicate()
+	for i in dice.count():
+		if dice.roots[i].visible and not row.has(i):
+			row.append(i)
+	if not row.is_empty():
+		# Gemeinsame Ruhehöhe wie bei der Aufreihung (siehe _line_up_settled_dice).
+		var rest_y := INF
+		for i in row:
+			rest_y = minf(rest_y, dice.bodies[i].global_position.y)
+		var hover_y := rest_y + SCORE_HOVER_HEIGHT
+		var span := SCORE_ROW_SPACING * float(row.size() - 1)
+		var lift := create_tween()
+		lift.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		lift.set_parallel(true)
+		for k in row.size():
+			var body := dice.bodies[row[k]]
+			body.freeze = true
+			var target := Vector3(DicePit.PIT_CENTER.x + SCORE_ROW_X, hover_y,
+				DicePit.PIT_CENTER.z - span * 0.5 + SCORE_ROW_SPACING * float(k))
+			lift.tween_property(body, "global_transform",
+				Transform3D(_readable_upright_basis(body.global_basis), target), SCORE_LIFT_TIME)
+		await lift.finished
+	if phase != Phase.SCORING:
+		_cleanup_take_animation()
+		return
+
+	# Goldenes, abgerundetes Leucht-Rechteck als "Podest" unter jedem zählenden
+	# Würfel - ~150% der Würfelgröße (siehe SCORE_GLOW_SIZE_FACTOR).
+	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
+	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
+	var glow_by_slot := {}
+	for i in counting:
+		var glow := table_screen.spawn_glow(
+			table_screen.world_to_pixel(dice.bodies[i].global_position), glow_side)
+		take_anim_glows.append(glow)
+		glow_by_slot[i] = glow
+
+	# 2) Kombination: ihre Werte stehen SCHON in der Daueranzeige (seit dem
+	# Ausrollen, siehe _refresh_ui) - hier nur das Startsignal: die Zelle der
+	# Kombination popt, die Zahlen werden defensiv auf die Kombi-Werte gestellt
+	# (No-Op, wenn sie schon stimmen).
+	table_screen.update_pit_score(breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
+	var key: String = breakdown["key"]
+	if combo_labels.has(key):
+		_tween_combo_label(combo_labels[key], PAYOUT_LABEL_GLOW_COLOR, 1.3)
+	if not await _score_step_wait(SCORE_STEP_TIME):
+		return
+
+	# 3) Würfel-Schritte von links nach rechts: je Zuwachs fliegt ein Licht-Trail
+	# vom Würfel in die wachsende Zahl (Cyan -> Basis, Gold -> Mult); die Zahl
+	# springt erst beim Einschlag hoch. Erst die Augen, dann (falls vorhanden)
+	# der Material-Zuwachs als eigener kleiner Schritt; Charms, die am Augenwert
+	# dieses Würfels drehen, blitzen sofort mit auf.
+	for step: Dictionary in breakdown["die_steps"]:
+		var slot: int = step["slot"]
+		_flash_scoring_die(slot)
+		if glow_by_slot.has(slot):
+			_pulse_glow(glow_by_slot[slot])
+		for charm_index: int in step["eye_charm_indices"]:
+			charm_row.flash_charm(charm_index)
+		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
+		table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
+		if not await _score_step_wait(SCORE_TRAIL_TIME):
+			return
+		var mult_before_material: int = step["mult_after"] - step["mat_mult_add"]
+		table_screen.update_pit_score(step["base_after_eye"], mult_before_material)
+		if step["mat_base_add"] != 0 or step["mat_mult_add"] != 0:
+			if not await _score_step_wait(SCORE_SUBSTEP_TIME):
+				return
+			_flash_scoring_die(slot)
+			if step["mat_base_add"] != 0:
+				table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
+			if step["mat_mult_add"] != 0:
+				table_screen.spawn_score_trail(die_px, "mult", SCORE_TRAIL_TIME)
+			if not await _score_step_wait(SCORE_TRAIL_TIME):
+				return
+			table_screen.update_pit_score(step["base_after"], step["mult_after"])
+		if not await _score_step_wait(SCORE_STEP_TIME):
+			return
+
+	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): Charm blitzt, sein
+	# Trail fliegt vom Charm-Platz (hinter der Display-Oberkante - der Trail
+	# startet sichtbar aus seiner Richtung am Rand) in die betroffene Zahl.
+	for step: Dictionary in breakdown["charm_steps"]:
+		for charm_index: int in step["charm_indices"]:
+			charm_row.flash_charm(charm_index)
+		var source_px := _charm_trail_source_px(step["charm_indices"])
+		if step["base_add"] != 0 or step["base_x"] != 1:
+			table_screen.spawn_score_trail(source_px, "base", SCORE_TRAIL_TIME)
+		if step["mult_add"] != 0 or step["mult_x"] != 1:
+			table_screen.spawn_score_trail(source_px, "mult", SCORE_TRAIL_TIME)
+		if not await _score_step_wait(SCORE_TRAIL_TIME):
+			return
+		table_screen.update_pit_score(step["base_after"], step["mult_after"])
+		if not await _score_step_wait(SCORE_STEP_TIME):
+			return
+
+	# 5) Verschmelzen zu Basis × Mult; die Nach-Schritte (Regenbogenforelle,
+	# Zauberkarte, Feierabendbier) arbeiten auf der Gesamtzahl weiter - auch
+	# hier je ein Trail vom Charm in die Gesamtzahl.
+	table_screen.show_pit_total(breakdown["merge_total"])
+	if not await _score_step_wait(SCORE_MERGE_TIME):
+		return
+	for step: Dictionary in breakdown["post_steps"]:
+		for charm_index: int in step["charm_indices"]:
+			charm_row.flash_charm(charm_index)
+		table_screen.spawn_score_trail(_charm_trail_source_px(step["charm_indices"]), "total", SCORE_TRAIL_TIME)
+		if not await _score_step_wait(SCORE_TRAIL_TIME):
+			return
+		table_screen.show_pit_total(step["total_after"])
+		if not await _score_step_wait(SCORE_STEP_TIME):
+			return
+
+	# 6) Die Gesamtzahl fliegt in den Zielbalken, der Punktestand zählt synchron
+	# hoch (HUD-Balken UND Display-Balken, siehe _set_displayed_points).
+	var fly := table_screen.fly_total_to_goal(SCORE_FLY_TIME)
+	_animate_points_to(new_total)
+	await fly.finished
+	_cleanup_take_animation()
+
+## Wartet einen Zählschritt ab. false = die Animation wurde abgebrochen (Reset
+## hat die Phase umgesetzt) - dann ist hier schon aufgeräumt und der Aufrufer
+## soll sofort aussteigen.
+func _score_step_wait(seconds: float) -> bool:
+	await get_tree().create_timer(seconds).timeout
+	if phase != Phase.SCORING:
+		_cleanup_take_animation()
+		return false
+	return true
+
+## Räumt die Display-Reste der Zähl-Animation weg (Goldlichter) und stellt die
+## Daueranzeige still auf 0 × 0 - am normalen Ende, bei Abbruch und defensiv
+## beim Reset (_refresh_ui setzt danach wieder die passenden Kombi-Werte).
+func _cleanup_take_animation() -> void:
+	for glow in take_anim_glows:
+		glow.queue_free()
+	take_anim_glows.clear()
+	table_screen.reset_pit_score()
+
+## Startpunkt (Display-Pixel) des Licht-Trails eines Charm-Schritts: der
+## Tisch-Platz des ersten beteiligten Charms. Die Charm-Reihe steht hinter der
+## Display-Oberkante - spawn_score_trail klemmt den Punkt an den Rand, der
+## Trail kommt dann sichtbar aus der Richtung des Charms.
+func _charm_trail_source_px(charm_indices: Array) -> Vector2:
+	if charm_indices.is_empty():
+		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
+	return table_screen.world_to_pixel(charm_row.spot_global_position(int(charm_indices[0])))
+
+## Lässt den Wurf-Würfel in Slot slot golden aufblitzen (Zähl-Animation) -
+## mit der halben Tray-Größe der Grubenwürfel als Ruhegröße (siehe _ready).
+func _flash_scoring_die(slot: int) -> void:
+	if slot < 0 or slot >= dice.count() or not dice.roots[slot].visible:
+		return
+	var tint: Color = DiceController.KIND_TINTS.get(dice.slot_defs[slot].style_id, Color.WHITE)
+	_flash_die_tint(dice.face_displays[slot], tint, Vector3.ONE * DiceTrayView.DIE_SCALE)
+
+## Kleiner Größen-Pop eines Goldlichts, wenn sein Würfel gezählt wird.
+func _pulse_glow(glow: Control) -> void:
+	glow.scale = Vector2.ONE * 1.35
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(glow, "scale", Vector2.ONE, 0.3)
+
 ## Die höchste Menü-Stufe über alle Kombinationen (0 = keine Gerichte gegessen)
 ## - Grundlage des Hausrezepts (siehe _on_take_button_pressed).
 func _max_combo_level() -> int:
@@ -1903,35 +2284,88 @@ func _on_select_all_button_pressed() -> void:
 	dice.select_all()
 	_line_up_settled_dice()  # neue Ordnung (alle in der Kombination) angleiten
 	_refresh_action_buttons()
+	_refresh_ui()  # jetzt zählen alle Würfel - Kombination/Basis sofort nachziehen
 
 ## Markiert nach jedem Wurf automatisch die Würfel, die gerade die beste offene
 ## Kombination bilden (siehe DiceScoring.best_hand_indices), z.B. bei 3 Vierern
 ## + 2 Zweiern + einer 5 das Full House aus den 5 Vierern/Zweiern, ohne die
-## unbeteiligte 5 - reiner Vorschlag fürs Schützen vor dem nächsten
-## "Neu würfeln" (Nehmen nimmt ohnehin immer alle 6). Der Spieler kann die
-## Vorschläge danach frei umklicken.
+## unbeteiligte 5 - ein Vorschlag, den der Spieler danach frei umklicken kann.
+## Die Auswahl bestimmt sowohl, welche Würfel beim nächsten "Neu würfeln"
+## geschützt sind, ALS AUCH, welche für die Hand zählen (siehe _scoring_slots).
 func _auto_select_best_combo() -> void:
 	for position in DiceScoring.best_hand_indices(dice.values):
 		dice.set_selected(position, true)
 
+## Die echten Slot-Indizes der aktuell AUSGEWÄHLTEN, sichtbaren Würfel (siehe
+## DiceController.selected / _auto_select_best_combo). NUR diese Würfel bilden die
+## Hand: sie bestimmen die Kombination und liefern die Basispunkte. Ein abgewählter
+## Würfel gehört nicht zur Hand - deselektiert der Spieler bei drei Dreien eine
+## Drei, bleibt ein Paar (statt Dreierpasch), und die abgewählte Drei zählt keine
+## Basispunkte mehr.
+func _scoring_slots() -> Array[int]:
+	var slots: Array[int] = []
+	for i in dice.count():
+		if dice.selected[i] and dice.roots[i].visible:
+			slots.append(i)
+	return slots
+
+## Rechnet die Slot-Indizes einer über die AUSGEWÄHLTEN Würfel gebauten
+## Schrittliste (ScoreBreakdown.build wurde mit dem Auswahl-Teilwurf gefüttert,
+## seine Indizes zeigen also in diesen Teilwurf) auf die echten Würfel-Slots
+## zurück: slots[gefilterter_index] = echter Slot. So leuchten in der
+## Zähl-Animation genau die tatsächlich gewählten Würfel auf.
+func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void:
+	var mapped_eyes: Array[int] = []
+	for idx: int in breakdown["eye_slots"]:
+		mapped_eyes.append(slots[idx])
+	breakdown["eye_slots"] = mapped_eyes
+	var mapped_part: Array[int] = []
+	for idx: int in breakdown["participating"]:
+		mapped_part.append(slots[idx])
+	breakdown["participating"] = mapped_part
+	for step: Dictionary in breakdown["die_steps"]:
+		step["slot"] = slots[step["slot"]]
+
 ## Aktualisiert Nehmen/Alle-auswählen: beide sind nutzbar, sobald eine Hand
-## liegt und weder gewürfelt noch der Becher gerade animiert wird - Nehmen
-## hängt (anders als in einer früheren Version) nicht mehr von einer Auswahl
-## ab, da es immer die komplette Hand nimmt (siehe _on_take_button_pressed).
+## liegt und weder gewürfelt noch der Becher gerade animiert wird. Nehmen
+## verlangt zusätzlich mindestens einen ausgewählten Würfel - ohne Auswahl gibt
+## es keine Hand zu nehmen (siehe _scoring_slots / _on_take_button_pressed).
 func _refresh_action_buttons() -> void:
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
-	take_button.disabled = not interactable
+	take_button.disabled = not interactable or _scoring_slots().is_empty()
 	select_all_button.disabled = not interactable
 
 func _on_reset_button_pressed() -> void:
 	_reset_game()
 
+## Testmodus umschalten: An = jede Runde bekommen ALLE Würfel zufällige Seiten-
+## und Kanten-Materialien (siehe _start_new_round / GameRun.randomize_all_materials);
+## Aus = Materialien werden von allen Würfeln entfernt. Beides startet die Runde
+## neu, damit die geänderten Würfel sofort in Grube und Trays sichtbar sind.
+func _on_test_materials_pressed() -> void:
+	test_materials_enabled = not test_materials_enabled
+	if not test_materials_enabled:
+		run.clear_all_materials()
+		run.remove_charms(TEST_MODE_CHARM_IDS)
+	_refresh_test_materials_button()
+	_start_new_round()
+
+## Frische Instanzen der Testmodus-Charms (siehe TEST_MODE_CHARM_IDS).
+func _test_mode_charms() -> Array[Charm]:
+	return [Charm.golden_scarab(), Charm.goldsmith(), Charm.small_fry()]
+
+## Aktualisiert die Beschriftung des Testmodus-Knopfs nach dem aktuellen Zustand.
+func _refresh_test_materials_button() -> void:
+	if test_materials_button != null:
+		test_materials_button.text = "🧪 Testmaterialien: %s" % ("AN" if test_materials_enabled else "aus")
+
 func _reset_game() -> void:
-	phase = Phase.IDLE  # bricht auch laufende Wurf-Koroutinen ab (siehe _on_throw_button_pressed)
+	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab (siehe _on_throw_button_pressed/_play_take_animation)
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
 	_cancel_charm_drag()
 	_cancel_lineup()
+	_cleanup_take_animation()
 	_clear_cup_interior_ghosts()
 	hand_note = ""
 	last_throw_was_reroll = false
@@ -1979,6 +2413,13 @@ func _start_new_round() -> void:
 	# Frankiermaschine, Schmuckkästchen; setzt auch den Gravierstift zurück) -
 	# VOR dem Poolaufbau, damit frische Materialien sofort mitspielen.
 	run.apply_round_start_charms()
+
+	# Testmodus (siehe Einstellungs-Menü): jede Runde bekommen ALLE Würfel neue
+	# zufällige Seiten- + Kanten-Materialien, plus die festen Testmodus-Charms
+	# (Goldener Skarabäus, Goldschmied, Kleinvieh) - zum Ausprobieren der Wertung.
+	if test_materials_enabled:
+		run.randomize_all_materials()
+		run.grant_charms(_test_mode_charms())
 
 	var ids := run.charm_ids()
 	round_pool_kinds = run.owned_pool.duplicate()
@@ -2167,17 +2608,19 @@ func _fade_payout_label(label: Label3D) -> void:
 ## wie ein echtes Aufblitzen) zurück zu Stilfarbe und Normalgröße. Läuft im
 ## Hintergrund weiter, damit sich aufeinanderfolgende Würfel in
 ## _play_round_clear_payout wie eine Welle überlappen statt zu warten.
-func _flash_die_tint(display: DieFaceDisplay, original_tint: Color) -> void:
+func _flash_die_tint(display: DieFaceDisplay, original_tint: Color, base_scale: Vector3 = Vector3.ONE) -> void:
 	var tint_tween := create_tween()
 	tint_tween.tween_method(display.set_tint, original_tint, DIE_FLASH_PEAK_COLOR, DIE_FLASH_RAMP_UP) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tint_tween.tween_method(display.set_tint, DIE_FLASH_PEAK_COLOR, original_tint, DIE_FLASH_RAMP_DOWN) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
+	# base_scale = Ruhegröße der Anzeige (die Grubenwürfel sind auf Tray-Größe
+	# skaliert, siehe _ready - Tray-Slots bleiben bei 1).
 	var scale_tween := create_tween()
-	scale_tween.tween_property(display, "scale", Vector3.ONE * DIE_FLASH_SCALE, DIE_FLASH_RAMP_UP) \
+	scale_tween.tween_property(display, "scale", base_scale * DIE_FLASH_SCALE, DIE_FLASH_RAMP_UP) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	scale_tween.tween_property(display, "scale", Vector3.ONE, DIE_FLASH_RAMP_DOWN) \
+	scale_tween.tween_property(display, "scale", base_scale, DIE_FLASH_RAMP_DOWN) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_debug_win_round_pressed() -> void:
@@ -2254,13 +2697,36 @@ func _refresh_ui() -> void:
 	if not has_rolled_current_hand:
 		hand_label.text = hand_note if hand_note != "" else "Klicke den Würfelbecher zum Würfeln"
 		_refresh_combos("")
+		if phase != Phase.SCORING:
+			table_screen.update_pit_score(0, 0)  # Daueranzeige in Ruhestellung
 	else:
-		var hand := DiceScoring.best_hand(dice.values, run.charm_ids(), hands_taken_this_round == 0, _rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
-		var value_strings: Array[String] = []
-		for v in dice.values:
-			value_strings.append(str(v))
-		hand_label.text = "%s  →  %s ×%d  =  %d Punkte" % [" ".join(value_strings), hand["label"], hand["mult"], hand["score"]]
-		_refresh_combos(hand["key"])
+		# Keine Punkte-Vorschau mehr im HUD-Text: Die Dauerzahlen über der Grube
+		# zeigen die Kombination (Basispunkte × Mult inkl. Menü-Stufen) der aktuell
+		# AUSGEWÄHLTEN Würfel (siehe _scoring_slots) - sie springen sofort mit,
+		# sobald der Spieler per Klick um-/abwählt, und die Zähl-Animation beim
+		# Nehmen zählt darauf weiter. Nichts ausgewählt = keine Hand (0 / 0).
+		hand_label.text = ""
+		var slots := _scoring_slots()
+		if slots.is_empty():
+			_refresh_combos("")
+			if phase != Phase.SCORING:
+				table_screen.update_pit_score(0, 0)
+		else:
+			var all_materials := _rolled_materials()
+			var all_edges := _edge_materials()
+			var sel_values: Array[int] = []
+			var sel_materials: Array[String] = []
+			var sel_edges: Array[String] = []
+			for s in slots:
+				sel_values.append(dice.values[s])
+				sel_materials.append(all_materials[s])
+				sel_edges.append(all_edges[s])
+			var hand := DiceScoring.best_hand(sel_values, run.charm_ids(), hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+			_refresh_combos(hand["key"])
+			if phase != Phase.SCORING:
+				table_screen.update_pit_score(
+					DiceScoring.points_for(hand["key"], run.combo_levels),
+					DiceScoring.mult_for(hand["key"], run.combo_levels))
 
 ## Aktualisiert die statischen Teile der Runden-Anzeige (Rundenzahl, Balken-
 ## Obergrenze) - der aktuell gezeigte Punktestand läuft separat und animiert
@@ -2270,6 +2736,9 @@ func _refresh_ui() -> void:
 func _refresh_round_hud() -> void:
 	round_badge_label.text = "Runde %d" % run.round_number
 	points_bar.max_value = run.round_goal
+	# Der Zielbalken auf dem Tisch-Display zeigt dasselbe (z.B. neues Rundenziel
+	# nach dem Shop, auch ohne Punktänderung).
+	table_screen.set_goal_progress(displayed_points, run.round_goal)
 
 ## Lässt die Punkteanzeige (Balken + Zahl) von ihrem aktuell gezeigten Wert
 ## sichtbar zu target hochzählen (Balatro-artiger "Chips fliegen rein"-Effekt)
@@ -2293,6 +2762,7 @@ func _set_displayed_points(value: int) -> void:
 	displayed_points = value
 	points_bar.value = value
 	points_label.text = "%d / %d Punkte" % [value, run.round_goal]
+	table_screen.set_goal_progress(value, run.round_goal)  # Display-Balken läuft synchron mit
 
 ## Kurzes elastisches Aufplustern des Punktetexts, sobald sich der Stand
 ## erhöht - kleiner "Arcade-Pop", der einen Punktezuwachs zusätzlich zum

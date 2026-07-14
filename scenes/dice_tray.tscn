@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://scripts/table/dice_tray.gd" id="1_trayscript"]
 
 [sub_resource type="BoxShape3D" id="Shape_PitClickZone"]
-size = Vector3(17, 8, 19)
+size = Vector3(17, 8, 31)
 
 [node name="DiceTray" type="Node3D"]
 script = ExtResource("1_trayscript")

@@ -214,6 +214,47 @@ func test_advance_round_increments_number_and_goal():
 	assert_eq(run.round_number, 3)
 	assert_eq(run.round_goal, GameRun.BASE_GOAL + 2 * GameRun.GOAL_INCREMENT)
 
+# --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
+
+func test_randomize_all_materials_fills_every_face_and_edge():
+	run.randomize_all_materials()
+	for die in run.owned_pool:
+		assert_eq(die.materials.size(), 6, "weiterhin 6 Seiten-Materialien")
+		for material_id: String in die.materials:
+			assert_true(DieMaterial.is_valid_id(material_id), "gültiges Seiten-Material (%s)" % material_id)
+		assert_true(DieMaterial.is_valid_id(die.edge_material), "gültiges Kanten-Material (%s)" % die.edge_material)
+
+func test_randomize_gives_each_die_an_independent_array():
+	# Kein geteiltes materials-Array: eine In-place-Änderung an einem Würfel darf
+	# keinen anderen mitverändern (Sentinel-Wert, deterministisch).
+	run.randomize_all_materials()
+	run.owned_pool[0].materials[0] = "SENTINEL"
+	for i in range(1, run.owned_pool.size()):
+		assert_ne(run.owned_pool[i].materials[0], "SENTINEL", "Würfel %d teilt kein Array mit Würfel 0" % i)
+
+func test_clear_all_materials_empties_faces_and_edges():
+	run.randomize_all_materials()
+	run.clear_all_materials()
+	for die in run.owned_pool:
+		for material_id: String in die.materials:
+			assert_eq(material_id, "", "Seiten-Material geleert")
+		assert_eq(die.edge_material, "", "Kanten-Material geleert")
+
+func test_grant_charms_adds_missing_without_duplicates():
+	watch_signals(run)
+	var charms: Array[Charm] = [Charm.golden_scarab(), Charm.goldsmith()]
+	run.grant_charms(charms)
+	assert_eq(run.owned_charm_ids(), [Charm.GOLDEN_SCARAB, Charm.GOLDSMITH])
+	assert_signal_emitted(run, "charms_changed")
+	# Erneutes Gewähren fügt nichts hinzu (schon besessen).
+	run.grant_charms([Charm.golden_scarab()])
+	assert_eq(run.owned_charm_ids().count(Charm.GOLDEN_SCARAB), 1, "kein Duplikat")
+
+func test_remove_charms_strips_given_ids():
+	run.grant_charms([Charm.golden_scarab(), Charm.goldsmith(), Charm.small_fry()])
+	run.remove_charms([Charm.GOLDSMITH])
+	assert_eq(run.owned_charm_ids(), [Charm.GOLDEN_SCARAB, Charm.SMALL_FRY], "nur Goldschmied entfernt")
+
 # --- Helfer -----------------------------------------------------------------------
 
 func _count_style(style_id: String) -> int:

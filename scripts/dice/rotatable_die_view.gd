@@ -40,6 +40,9 @@ const FACE_FRONT_MIN_DOT := 0.15
 @onready var viewport: SubViewport = $SubViewport
 
 var die_roots: Array[Node3D] = []
+## Die aktuell gezeigten Definitionen (parallel zu die_roots) - Grundlage der
+## Material-Tooltips beim Überfahren einer Seite/Kante (siehe _get_tooltip).
+var current_defs: Array[DieDefinition] = []
 var camera: Camera3D
 
 var drag_index: int = -1
@@ -82,6 +85,7 @@ func set_dice(defs: Array[DieDefinition]) -> void:
 	for root in die_roots:
 		root.queue_free()
 	die_roots.clear()
+	current_defs = defs
 	drag_index = -1
 	is_dragging = false
 
@@ -102,6 +106,56 @@ func set_dice(defs: Array[DieDefinition]) -> void:
 		faces.set_tint(DiceController.KIND_TINTS.get(defs[i].style_id, Color.WHITE))
 
 		die_roots.append(die)
+
+## Tooltip beim Überfahren einer Würfelseite (oder des Kanten-Rahmens): nennt das
+## Material der Seite/Kante unter dem Cursor und seine Wirkung - leer, wenn dort
+## kein Material sitzt. Godot fragt diese Methode beim Stillstehen der Maus neu
+## ab, sie folgt also dem Cursor über die Seiten. at_position ist Control-lokal
+## und entspricht dank stretch=true den Viewport-Pixeln (wie in _pick_face).
+func _get_tooltip(at_position: Vector2) -> String:
+	var die_index := _pick_die(at_position)
+	if die_index < 0 or die_index >= current_defs.size():
+		return ""
+	var def := current_defs[die_index]
+	# Kante vs. Seite: das Nähere gewinnt (wie beim Klick, siehe _gui_input).
+	var face_pick := _pick_face(die_index, at_position)
+	var edge_dist := _pick_edges_distance(die_index, at_position)
+	if edge_dist < float(face_pick[1]):
+		if DieMaterial.is_valid_id(def.edge_material):
+			var edge := DieMaterial.by_id(def.edge_material)
+			return "Kanten – %s\n%s" % [edge.display_name, edge.edge_description]
+		return ""
+	var face_index: int = face_pick[0]
+	if face_index != -1 and face_index < def.materials.size() and DieMaterial.is_valid_id(def.materials[face_index]):
+		var material := DieMaterial.by_id(def.materials[face_index])
+		return "%s\n%s" % [material.display_name, material.description]
+	return ""
+
+## Rendert den Material-Tooltip im GLEICHEN Look wie die Charm-Tooltips (siehe
+## scene_root._build_charm_tooltip): Casino-Panel, Name in Gold, Wirkung in Creme
+## darunter. for_text ist der String aus _get_tooltip ("Name\nWirkung"); die
+## erste Zeile wird zum Titel, der Rest zur (umgebrochenen) Beschreibung.
+func _make_custom_tooltip(for_text: String) -> Object:
+	if for_text == "":
+		return null
+	var panel := PanelContainer.new()
+	CasinoStyle.style_panel(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	panel.add_child(box)
+	var parts := for_text.split("\n", false, 1)  # 1× trennen: [Name, Wirkung]
+	var title := Label.new()
+	title.text = parts[0]
+	CasinoStyle.style_score_label(title, 20, CasinoStyle.GOLD)
+	box.add_child(title)
+	if parts.size() > 1:
+		var body := Label.new()
+		body.text = parts[1]
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(280, 0)
+		CasinoStyle.style_body_label(body, 15, CasinoStyle.CREAM)
+		box.add_child(body)
+	return panel
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:

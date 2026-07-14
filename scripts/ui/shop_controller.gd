@@ -415,9 +415,14 @@ func _build_spread() -> MenuSpread:
 	for charm in Charm.all():
 		if not owned_ids.has(charm.id):
 			available.append(charm)
-	available.shuffle()
-	for i in mini(2, available.size()):
-		spread.charm_options.append(available[i])
+	# Gewichtet nach Rarität ziehen (ohne Zurücklegen): Gewöhnliche erscheinen
+	# am häufigsten, Legendäre selten - siehe Charm.RARITY_WEIGHTS.
+	for i in 2:
+		if available.is_empty():
+			break
+		var pick := Charm.pick_weighted(available)
+		spread.charm_options.append(pick)
+		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 

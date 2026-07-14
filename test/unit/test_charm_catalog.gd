@@ -24,7 +24,7 @@ func _p(values: Array) -> Array[int]:
 	typed.assign(values)
 	return typed
 
-const PAIR := [5, 5, 1, 2, 3, 6]  # Paar Fünfer: Basis 10, Mult 2 -> 20
+const PAIR := [5, 5, 1, 2, 3, 6]  # Paar Fünfer: Basis (10 Punkte + 10 Augen), Mult 2 -> 40
 const NO_MATS: Array[String] = []
 
 # --- Augenwerte -------------------------------------------------------------------
@@ -120,25 +120,26 @@ func test_display_case_counts_face_up_materials():
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), materials, _ids([Charm.DISPLAY_CASE])), 2)
 
 func test_lighthouse_mult_follows_highest_value():
-	# Höchste Zahl 4: Mult 1 + 4 = 5, Basis 4 -> 20.
+	# Höchste Zahl 4: Mult 1 + 4 = 5, Basis (5 Punkte + 4 Augen) -> 45.
 	var score := DiceScoring.score_category(DiceScoring.ONE_KIND, _d([1, 2, 3, 1, 2, 4]), _ids([Charm.LIGHTHOUSE]))
-	assert_eq(score, 20, "Basis 4 × Mult (1+4)")
+	assert_eq(score, 45, "Basis (5+4) × Mult (1+4)")
 
 # --- Krit (multipliziert den Mult, siehe CharmEffects.crit_bonus) --------------------
 
 func test_gallows_humor_gives_crit_after_a_farkle():
 	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.GALLOWS_HUMOR]), {"after_farkle": true}), 3)
 	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.GALLOWS_HUMOR]), {"after_farkle": false}), 0)
-	# Ende-zu-Ende: Paar Fünfer, Mult 2 × (1 + 3 Krit) = 8 -> 80.
+	# Ende-zu-Ende: Paar Fünfer, Mult 2 × (1 + 3 Krit) = 8 -> Basis 20 × 8 = 160.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.GALLOWS_HUMOR]), false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
-	assert_eq(score, 80)
+	assert_eq(score, 160)
 
 func test_restaurant_critic_gives_crit_per_menu_level():
 	var levels := {DiceScoring.TWO_KIND: 2}
 	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.RESTAURANT_CRITIC]), {}, levels), 4)
-	# Ende-zu-Ende: Menü-Stufe 2 hebt den Paar-Mult auf 6; Krit ×(1+4) -> 30 -> 300.
+	# Ende-zu-Ende: Menü-Stufe 2 hebt Paar-Punkte auf 30 und -Mult auf 6;
+	# Krit ×(1+4) -> Basis (30+10) × Mult 30 = 1200.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.RESTAURANT_CRITIC]), false, NO_MATS, NO_MATS, levels)
-	assert_eq(score, 300)
+	assert_eq(score, 1200)
 
 func test_crit_sources_pool_additively():
 	# Galgenhumor (+3) und Restaurantkritiker (+2×2) teilen sich EINEN Pool:
@@ -147,7 +148,7 @@ func test_crit_sources_pool_additively():
 	var ids := _ids([Charm.GALLOWS_HUMOR, Charm.RESTAURANT_CRITIC])
 	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": true}, levels), 7)
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, levels, {"after_farkle": true})
-	assert_eq(score, 480, "Basis 10 × (Mult 6 × Krit-Faktor 8)")
+	assert_eq(score, 1920, "Basis (30+10) × (Mult 6 × Krit-Faktor 8)")
 
 # --- Basis-Boni & Faktoren -----------------------------------------------------------
 
@@ -173,20 +174,20 @@ func test_alloy_doubles_material_effects_of_dual_carriers():
 	assert_eq(single_report.money, 1)
 
 func test_cult_of_one_doubles_base_and_mult_per_one():
-	# Paar Fünfer mit EINER 1: Basis 10×2 × Mult 2×2 = 80.
+	# Paar Fünfer mit EINER 1: Basis 20×2 × Mult 2×2 = 160.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.CULT_OF_ONE]))
-	assert_eq(score, 80)
+	assert_eq(score, 160)
 
 func test_after_work_beer_doubles_the_last_hand():
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.AFTER_WORK_BEER]), false, NO_MATS, NO_MATS, {}, {"last_hand": true})
-	assert_eq(score, 40)
+	assert_eq(score, 80)
 
 func test_round_number_rewards_hand_sum_ending_on_zero():
-	# Paar Fünfer: Augensumme der Kombination = 10 -> +100 Bonus-Augen: (10+100)×2.
+	# Paar Fünfer: Augensumme der Kombination = 10 -> +100 Bonus-Augen: (10+10+100)×2.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.ROUND_NUMBER]))
-	assert_eq(score, 220)
+	assert_eq(score, 240)
 	var no_zero := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 6]), _ids([Charm.ROUND_NUMBER]))
-	assert_eq(no_zero, 16, "Augensumme 8 endet nicht auf 0")
+	assert_eq(no_zero, 36, "Augensumme 8 endet nicht auf 0")
 
 # --- Material-Verstärker -------------------------------------------------------------
 
@@ -384,7 +385,7 @@ func test_totem_copy_actually_doubles_a_scoring_charm():
 	run.owned_charms.append(Charm.broadband())
 	run.owned_charms.append(Charm.parrot_totem())
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), run.charm_ids())
-	assert_eq(score, 60, "(10 + 2×10) × 2")
+	assert_eq(score, 80, "(10 Punkte + 10 Augen + 2×10) × 2")
 
 func test_totem_chain_resolves_each_neighbor_independently():
 	# [Breitband, Papagei, Echo, Hufeisen]: Papagei kopiert links (Breitband),
@@ -441,8 +442,44 @@ func test_purchases_are_tracked_as_fresh_pool_instances():
 # --- Wertungs-Reihenfolge: Bonus-Augen vor Faktoren --------------------------------
 
 func test_round_number_bonus_is_multiplied_by_hand_factor():
-	# Runde Sache legt +100 auf den Basiswert (10 -> 110), Paar-Mult 2 -> 220,
-	# Feierabendbier verdoppelt die ganze Hand -> 440.
+	# Runde Sache legt +100 auf den Basiswert (20 -> 120), Paar-Mult 2 -> 240,
+	# Feierabendbier verdoppelt die ganze Hand -> 480.
 	var ids := _ids([Charm.AFTER_WORK_BEER, Charm.ROUND_NUMBER])
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, {"last_hand": true})
-	assert_eq(score, 440)
+	assert_eq(score, 480)
+
+# --- Raritäten (siehe Obsidian "12 Charms": Abschnitt "Raritäten") -------------
+
+func test_every_charm_has_an_explicit_rarity():
+	# Jeder Charm aus all() muss in Charm.RARITIES stehen (Katalog-Sync) und
+	# eine der vier bekannten Raritäten tragen - sonst fiele ein neuer Charm
+	# still auf COMMON zurück.
+	var valid := [Charm.RARITY_COMMON, Charm.RARITY_UNCOMMON, Charm.RARITY_RARE, Charm.RARITY_LEGENDARY]
+	for charm in Charm.all():
+		assert_true(Charm.RARITIES.has(charm.id), "Rarität fehlt für '%s'" % charm.id)
+		assert_true(valid.has(charm.rarity), "unbekannte Rarität '%s' für '%s'" % [charm.rarity, charm.id])
+
+func test_rarities_table_has_no_orphan_ids():
+	var known: Array[String] = []
+	for charm in Charm.all():
+		known.append(charm.id)
+	for charm_id: String in Charm.RARITIES:
+		assert_true(known.has(charm_id), "RARITIES-Eintrag '%s' gehört zu keinem Charm" % charm_id)
+
+func test_rarity_spot_checks_match_the_catalog():
+	# Stichproben gegen die Obsidian-Tabellen: eine je Rarität.
+	assert_eq(Charm.rabbits_foot().rarity, Charm.RARITY_COMMON)
+	assert_eq(Charm.pendulum().rarity, Charm.RARITY_UNCOMMON)
+	assert_eq(Charm.anchor().rarity, Charm.RARITY_RARE)
+	assert_eq(Charm.broken_mirror().rarity, Charm.RARITY_LEGENDARY)
+
+func test_pick_weighted_favors_common_over_legendary():
+	# Deterministisch (fester Seed): Gewicht 1.0 vs 0.1 - der Gewöhnliche muss
+	# in einer längeren Ziehreihe klar vorn liegen.
+	seed(12345)
+	var candidates: Array[Charm] = [Charm.rabbits_foot(), Charm.broken_mirror()]
+	var common_hits := 0
+	for i in 200:
+		if Charm.pick_weighted(candidates).id == Charm.RABBITS_FOOT:
+			common_hits += 1
+	assert_gt(common_hits, 140, "Gewöhnlich (Gewicht 1.0) schlägt Legendär (0.1) deutlich")

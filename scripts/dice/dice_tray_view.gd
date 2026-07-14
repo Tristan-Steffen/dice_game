@@ -21,17 +21,31 @@ extends Node3D
 @export var rows: int = 5  # Anzahl Zeilen, jede mit `columns` Würfeln nebeneinander
 @export var columns: int = 6  # Würfel pro Zeile, links nach rechts
 const SPACING := Vector2(1.8, 1.8)
-const DIE_SCALE := 0.5
-const REST_Y := 0.5  # Höhe der Würfel über dem Tray-Boden (lokal, Boden = y 0)
+const DIE_SCALE := 0.6  # gemeinsame Würfelgröße (Tray + Grube, siehe scene_root._ready)
+## Höhe der Würfel-MITTE über dem Tray-Boden (lokal, Boden = y 0): gleich der
+## skalierten Würfel-Halbhöhe (DieBuilder.HALF_EXTENT 1.0 × DIE_SCALE), damit
+## die Unterseite genau auf dem Tray-Boden (= Tischbildschirm) aufliegt. Wächst
+## automatisch mit DIE_SCALE mit, sonst würden größere Würfel einsinken.
+const REST_Y := DIE_SCALE
 
 @export var tray_color: Color = Color(0.15, 0.35, 0.75):
 	set(value):
 		tray_color = value
 		if is_inside_tree():
-			_apply_tray_color()
+			_rebuild_grid()
 
 @onready var tray_mesh_root: Node3D = $TrayMesh
 @onready var slots_container: Node3D = $Slots
+
+## Lichtgitter statt Plastik-Tray: dünne, leuchtende Balken bilden ein Raster,
+## in dem jeder Würfel eine Zelle belegt (siehe _rebuild_grid). GRID_Y liegt
+## knapp über dem Tischfilz (unter den Würfeln), die Balken sind unbeleuchtet
+## und leuchten in tray_color über den Glow-Schwellwert hinaus.
+const GRID_Y := 0.03
+const GRID_LINE_WIDTH := 0.09
+const GRID_LINE_HEIGHT := 0.05
+const GRID_EMISSION_ENERGY := 2.6
+var grid_root: Node3D
 
 ## Unsichtbarer Klickbereich über dem ganzen Tray (Layer 4), damit die
 ## Kamera per Klick auf dieses Tray zoomen kann - siehe CameraRig.
@@ -45,23 +59,52 @@ var slot_roots: Array[Node3D] = []
 var slot_bodies: Array[RigidBody3D] = []
 var slot_face_displays: Array[DieFaceDisplay] = []
 var slot_defs: Array[DieDefinition] = []
-var plastic_material: StandardMaterial3D
 
 var next_free_index: int = 0  # nächster freier Slot im Ablage-Modus (add_die)
 
 func _ready() -> void:
-	_apply_tray_color()
+	tray_mesh_root.visible = false  # Plastik-Tray entfällt - das Lichtgitter ersetzt es
 	_build_slots()
+	_rebuild_grid()
 
-## Färbt die Tray-Mesh-Teile (Boden, Wände, Trennstege) in tray_color ein.
-func _apply_tray_color() -> void:
-	plastic_material = StandardMaterial3D.new()
-	plastic_material.albedo_color = tray_color
-	plastic_material.roughness = 0.25
-	plastic_material.metallic = 0.05
-	for mesh_instance in tray_mesh_root.get_children():
-		if mesh_instance is MeshInstance3D:
-			mesh_instance.set_surface_override_material(0, plastic_material)
+## Baut das Lichtgitter neu: ein Lattengitter aus leuchtenden Balken, das genau
+## das rows x columns-Raster der Slots nachzeichnet (jede Zelle = ein Würfel-
+## Platz). Wird bei Größenänderungen (ensure_capacity) und Farbwechsel erneuert.
+func _rebuild_grid() -> void:
+	if grid_root != null:
+		grid_root.queue_free()
+	grid_root = Node3D.new()
+	grid_root.name = "Grid"
+	add_child(grid_root)
+
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = tray_color
+	material.emission_enabled = true
+	material.emission = tray_color
+	material.emission_energy_multiplier = GRID_EMISSION_ENERGY
+
+	var half_x := rows * 0.5 * SPACING.x
+	var half_z := columns * 0.5 * SPACING.y
+	# Zeilenlinien (feste x, laufen entlang z) - rows+1 Stück.
+	for k in rows + 1:
+		var x := half_x - float(k) * SPACING.x
+		_add_grid_bar(material, Vector3(x, GRID_Y, 0.0),
+			Vector3(GRID_LINE_WIDTH, GRID_LINE_HEIGHT, half_z * 2.0))
+	# Spaltenlinien (festes z, laufen entlang x) - columns+1 Stück.
+	for k in columns + 1:
+		var z := -half_z + float(k) * SPACING.y
+		_add_grid_bar(material, Vector3(0.0, GRID_Y, z),
+			Vector3(half_x * 2.0, GRID_LINE_HEIGHT, GRID_LINE_WIDTH))
+
+func _add_grid_bar(material: StandardMaterial3D, at: Vector3, size: Vector3) -> void:
+	var bar := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	bar.mesh = mesh
+	bar.material_override = material
+	bar.position = at
+	grid_root.add_child(bar)
 
 ## Baut die dekorativen Würfel-Slots im `rows`x`columns`-Raster (eingefroren
 ## und aus den Kollisions-Layern genommen - kein Physik-Overhead nötig).
@@ -113,6 +156,7 @@ func ensure_capacity(capacity: int) -> void:
 	for child in slots_container.get_children():
 		child.queue_free()
 	_build_slots()
+	_rebuild_grid()  # Gitter an die neue Spaltenzahl anpassen (Ausziehtisch)
 
 ## Setzt den sichtbaren Inhalt komplett neu: die ersten defs.size() Slots
 ## zeigen die übergebenen Würfel (von vorne kompakt gepackt), alle weiteren

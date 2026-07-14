@@ -19,6 +19,7 @@ func test_every_combo_has_a_cell_matching_scoring():
 		var cell: ComboCellView = screen.combo_cells[key]
 		assert_eq(cell.combo_name, DiceScoring.label_for(key))
 		assert_eq(cell.values, DiceScoring.EXAMPLE_DICE[key])
+		assert_eq(cell.points, DiceScoring.points_for(key))
 		assert_eq(cell.mult, DiceScoring.mult_for(key))
 
 func test_cell_count_matches_hand_priority():

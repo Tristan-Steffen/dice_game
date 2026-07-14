@@ -1,9 +1,11 @@
 class_name DiceScoring
 ## Reine Wertungslogik (Balatro-artig) – keine Nodes, nur Rechnen.
 ##
-## Jede Hand hat einen festen Multiplikator. Punkte = Basiswert × Multiplikator,
-## wobei der Basiswert je nach Hand die beteiligten Würfelaugen widerspiegelt
-## (z.B. Dreierpasch aus 3x Fünfen: Basis 15 × Mult 3 = 45 Punkte).
+## Jede Hand hat einen festen Multiplikator UND feste Basispunkte ("points",
+## siehe CATEGORIES - Balatros Chips). Punkte = Basiswert × Multiplikator,
+## wobei der Basiswert die festen Kategorie-Punkte plus die beteiligten
+## Würfelaugen ist (z.B. Dreierpasch aus 3x Fünfen: Basis 18 + 15 = 33,
+## × Mult 3 = 99 Punkte).
 ##
 ## Optionale charm_ids (siehe Charm/CharmEffects) verändern die Wertung an
 ## mehreren Stellen - Augenwert einzelner Würfel (z.B. Hasenpfote: jede 6 zählt
@@ -32,20 +34,23 @@ const LARGE_STRAIGHT := "large_straight"
 const FIVE_KIND := "five_kind"
 const SIX_KIND := "six_kind"
 
+## "points" = feste Basispunkte der Kategorie (Balatros Chips): sie fließen
+## zusätzlich zu den Würfelaugen in den Basiswert ein (siehe score_category)
+## und wachsen - wie der Multiplikator - mit den Menü-Stufen (siehe points_for).
 const CATEGORIES := [
-	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1},
-	{"key": TWO_KIND, "label": "Paar", "mult": 2},
-	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3},
-	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3},
-	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4},
-	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4},
-	{"key": FULL_HOUSE, "label": "Full House", "mult": 4},
-	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5},
-	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5},
-	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6},
-	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8},
-	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10},
-	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15},
+	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5},
+	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10},
+	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15},
+	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18},
+	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4, "points": 22},
+	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4, "points": 25},
+	{"key": FULL_HOUSE, "label": "Full House", "mult": 4, "points": 28},
+	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5, "points": 32},
+	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5, "points": 36},
+	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6, "points": 40},
+	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8, "points": 45},
+	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10, "points": 50},
+	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60},
 ]
 
 # Von der prestigeträchtigsten zur schwächsten Hand. best_hand() nimmt die
@@ -105,6 +110,15 @@ static func mult_for(key: String, combo_levels: Dictionary = {}) -> int:
 			return cat["mult"] * (1 + int(combo_levels.get(key, 0)))
 	return 1
 
+## Feste Basispunkte einer Kategorie (die "Chips" der Hand) - skalieren mit den
+## Menü-Stufen genauso wie der Multiplikator (siehe mult_for): jede Stufe
+## addiert die Basispunkte erneut.
+static func points_for(key: String, combo_levels: Dictionary = {}) -> int:
+	for cat in CATEGORIES:
+		if cat["key"] == key:
+			return cat["points"] * (1 + int(combo_levels.get(key, 0)))
+	return 0
+
 static func qualifies(key: String, dice: Array[int]) -> bool:
 	match key:
 		SIX_KIND:
@@ -158,7 +172,8 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 	if not qualifies(key, dice):
 		return 0
 	var participating := participating_indices(key, dice)
-	var base := _base_value(key, dice, charm_ids)
+	# Basis = feste Kategorie-Punkte (inkl. Menü-Stufen) + beteiligte Würfelaugen.
+	var base := points_for(key, combo_levels) + _base_value(key, dice, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
 		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
 	if not charm_ids.is_empty():
@@ -189,26 +204,23 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 			mult *= 1 + crit
 	return maxi(1, mult)
 
-## Basiswert einer Kategorie VOR Kombi-Multiplikator: die beteiligten
-## (charm-angepassten) Würfelaugen. Paschs zählen n×Augenwert, die
-## Summen-Kombinationen die gesamte (angepasste) Augensumme.
+## Basiswert einer Kategorie VOR Kombi-Multiplikator: die Summe der (charm-
+## angepassten) Augenwerte NUR der beteiligten Würfel (siehe participating_indices
+## / _sum_participating). Für normale 1-6-Würfel identisch zur früheren
+## n×Augenwert-Rechnung; bei Überzahlen zählt jeder beteiligte Würfel seinen
+## ECHTEN Wert (die Kombination selbst richtet sich nach der letzten Ziffer,
+## siehe _digit/_counts). Ein unbeteiligter Würfel zählt nicht mit (Vollzähler
+## holt die Unbeteiligten bewusst zurück, siehe CharmEffects.charm_base_bonus).
 static func _base_value(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
-	match key:
-		ONE_KIND:
-			return CharmEffects.eye_value(_highest_value(dice), charm_ids)
-		TWO_KIND:
-			return CharmEffects.eye_value(_best_value_with_count(dice, 2), charm_ids) * 2
-		THREE_KIND:
-			return CharmEffects.eye_value(_best_value_with_count(dice, 3), charm_ids) * 3
-		FOUR_KIND:
-			return CharmEffects.eye_value(_best_value_with_count(dice, 4), charm_ids) * 4
-		FIVE_KIND:
-			return CharmEffects.eye_value(_best_value_with_count(dice, 5), charm_ids) * 5
-		SIX_KIND:
-			return CharmEffects.eye_value(_best_value_with_count(dice, 6), charm_ids) * 6
-		FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND, THREE_PAIRS, FULL_HOUSE, SMALL_STRAIGHT, LARGE_STRAIGHT, TWO_PAIR:
-			return _sum(dice, charm_ids)
-	return 0
+	return _sum_participating(key, dice, charm_ids)
+
+## Summe der (charm-angepassten) Augenwerte nur der beteiligten Würfel
+## (siehe _base_value / participating_indices).
+static func _sum_participating(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
+	var total := 0
+	for i in participating_indices(key, dice):
+		total += CharmEffects.eye_value(dice[i], charm_ids)
+	return total
 
 ## Bestimmt die bestmögliche Hand für den aktuellen Wurf: die
 ## prestigeträchtigste Kategorie, die zutrifft (siehe HAND_PRIORITY),
@@ -289,10 +301,19 @@ static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm
 	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx)["score"]
 	return new_score > old_score
 
+## Die "Kombinationsziffer" eines Würfelwerts: für die Kombinationsbildung zählt
+## nur die LETZTE Ziffer (1, 11, 21 gehören alle zur Ziffer 1 -> Dreierpasch).
+## Der volle Wert zählt weiterhin für die Punkte (siehe _base_value/eye_value).
+static func _digit(value: int) -> int:
+	return value % 10
+
+## Häufigkeit je Kombinationsziffer (letzte Ziffer, siehe _digit) - Grundlage
+## aller Pasch-/Paar-Erkennungen.
 static func _counts(dice: Array[int]) -> Dictionary:
 	var result := {}
 	for value in dice:
-		result[value] = result.get(value, 0) + 1
+		var d := _digit(value)
+		result[d] = result.get(d, 0) + 1
 	return result
 
 static func _sum(dice: Array[int], charm_ids: Array[String] = []) -> int:
@@ -308,13 +329,20 @@ static func _highest_value(dice: Array[int]) -> int:
 			best = value
 	return best
 
+## Die Kombinationsziffer (siehe _digit) einer Gruppe mit mindestens n Würfeln,
+## und zwar die des Würfels mit dem HÖCHSTEN echten Wert - so gewinnt bei
+## mehreren möglichen Paschs die punktträchtigste Gruppe (z.B. zwei 11er vor
+## zwei 5ern). -1, wenn keine Gruppe groß genug ist.
 static func _best_value_with_count(dice: Array[int], n: int) -> int:
-	var best := 0
 	var counts := _counts(dice)
-	for value in counts:
-		if counts[value] >= n and value > best:
-			best = value
-	return best
+	var best_digit := -1
+	var best_value := -1
+	for i in dice.size():
+		var d := _digit(dice[i])
+		if counts.get(d, 0) >= n and dice[i] > best_value:
+			best_value = dice[i]
+			best_digit = d
+	return best_digit
 
 static func _has_count_at_least(dice: Array[int], n: int) -> bool:
 	for count in _counts(dice).values():
@@ -347,12 +375,13 @@ static func _has_count_and_other_count(dice: Array[int], n: int, other_n: int) -
 				return true
 	return false
 
-## True, wenn die Würfel `length` aufeinanderfolgende Augenzahlen abdecken
-## (z.B. length=5 für die kleine, length=6 für die große Straße).
+## True, wenn die Würfel `length` aufeinanderfolgende Kombinationsziffern (1..6,
+## siehe _digit) abdecken (z.B. length=5 für die kleine, length=6 für die große
+## Straße) - 11-12-13-14-15 gilt also wie 1-2-3-4-5.
 static func _has_straight_of_length(dice: Array[int], length: int) -> bool:
 	var unique := {}
 	for value in dice:
-		unique[value] = true
+		unique[_digit(value)] = true
 	var start := 1
 	while start + length - 1 <= 6:
 		var has_all := true
@@ -376,12 +405,12 @@ static func _index_of_highest(dice: Array[int]) -> int:
 			best_index = i
 	return best_index
 
-## Erste n Indizes in dice, deren Wert value entspricht (z.B. die 3 Vierer
-## eines Full House) - Grundlage für best_hand_indices.
-static func _indices_for_value(dice: Array[int], value: int, n: int) -> Array[int]:
+## Erste n Indizes in dice mit der Kombinationsziffer digit (siehe _digit; z.B.
+## die 3 Würfel, deren letzte Ziffer 4 ist) - Grundlage für best_hand_indices.
+static func _indices_for_value(dice: Array[int], digit: int, n: int) -> Array[int]:
 	var result: Array[int] = []
 	for i in dice.size():
-		if dice[i] == value:
+		if _digit(dice[i]) == digit:
 			result.append(i)
 			if result.size() >= n:
 				break
@@ -427,8 +456,9 @@ static func _values_with_count_at_least(dice: Array[int], n: int) -> Array[int]:
 static func _indices_for_straight(dice: Array[int], length: int) -> Array[int]:
 	var first_index_of := {}
 	for i in dice.size():
-		if not first_index_of.has(dice[i]):
-			first_index_of[dice[i]] = i
+		var d := _digit(dice[i])
+		if not first_index_of.has(d):
+			first_index_of[d] = i
 	var start := 1
 	while start + length - 1 <= 6:
 		var has_all := true

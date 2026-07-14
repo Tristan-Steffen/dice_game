@@ -46,33 +46,37 @@ static func _make(material_id: String, name: String, desc: String, edge_desc: St
 	material.tint = face_tint
 	return material
 
+# Materialfarben: kräftig gesättigt, gut voneinander unterscheidbar und etwas
+# dunkler als früher (die dunkle Ziffer NUMBER_COLOR bleibt darauf lesbar).
+# Farbräder: Rot / Orange / Gelb / Sandbraun / Stahlblau / Türkis.
+
 ## Rubin: +4 Mult, wenn die Seite in der genommenen Kombination liegt.
 static func ruby() -> DieMaterial:
 	return _make(RUBY, "Rubin",
 		"+4 Mult, wenn diese Seite in der Kombination liegt.",
 		"+4 Mult, wenn dieser Würfel in der Kombination liegt.",
-		Color(0.94, 0.45, 0.5))
+		Color(0.82, 0.16, 0.26))
 
 ## Bernstein: +20 Augen beim Zählen.
 static func amber() -> DieMaterial:
 	return _make(AMBER, "Bernstein",
 		"+20 Augen beim Zählen, wenn diese Seite in der Kombination liegt.",
 		"+20 Augen beim Zählen, wenn dieser Würfel in der Kombination liegt.",
-		Color(1.0, 0.78, 0.42))
+		Color(0.88, 0.5, 0.11))
 
 ## Gold: +$1 beim Nehmen (als Kanten-Material: bei jedem Wurf).
 static func gold() -> DieMaterial:
 	return _make(GOLD, "Gold",
 		"+$1, wenn diese Seite in der genommenen Kombination liegt.",
 		"+$1 bei jedem Wurf dieses Würfels.",
-		Color(1.0, 0.88, 0.45))
+		Color(0.92, 0.74, 0.1))
 
 ## Knochen: die Seite wächst beim Nehmen dauerhaft um +1.
 static func bone() -> DieMaterial:
 	return _make(BONE, "Knochen",
 		"Diese Seite wächst dauerhaft +1, wenn sie in der genommenen Kombination liegt.",
 		"Die oben liegende Seite wächst dauerhaft +1, wenn der Würfel in der genommenen Kombination liegt.",
-		Color(0.93, 0.9, 0.78))
+		Color(0.76, 0.69, 0.5))
 
 ## Quecksilber: der Würfel aktiviert sich doppelt - Augen und alle seine
 ## Material-Effekte zählen zweimal (siehe MaterialEffects.activation_count).
@@ -80,14 +84,14 @@ static func mercury() -> DieMaterial:
 	return _make(MERCURY, "Quecksilber",
 		"Der Würfel aktiviert sich doppelt, wenn diese Seite in der Kombination liegt: Augen und Material-Effekte zählen zweimal.",
 		"Der Würfel aktiviert sich doppelt, wenn er in der Kombination liegt - liegt zusätzlich eine Quecksilber-Seite oben, vierfach.",
-		Color(0.78, 0.83, 0.92))
+		Color(0.5, 0.58, 0.7))
 
 ## Glas: Mult += Augen der Seite, danach schrumpft sie dauerhaft um −1.
 static func glass() -> DieMaterial:
 	return _make(GLASS, "Glas",
 		"Mult += Augen dieser Seite; beim Nehmen schrumpft sie dauerhaft −1 (min. 1).",
 		"Mult += Augen der oben liegenden Seite; beim Nehmen schrumpft sie dauerhaft −1 (min. 1).",
-		Color(0.68, 0.88, 0.95))
+		Color(0.3, 0.66, 0.78))
 
 ## Alle existierenden Materialien (kanonische Registrierung) - Grundlage für die
 ## Material-Coupons (siehe Coupon.all). Ein neues Material wird hier eingehängt.
