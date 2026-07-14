@@ -307,7 +307,6 @@ var engraving_die: Node3D                 # der schwebende Würfel über dem Hub
 var engraving_fly_tween: Tween            # laufender Flug/Umwähl-Tween (wird bei Wechsel/Ende gekillt)
 var engraving_source_root: Node3D         # versteckter Tray-Slot (das aktuelle Gravur-Ziel)
 var engraving_source_tray: DiceTrayView   # Tray des Ziels (fürs Umwählen, siehe _refresh_engraving_tray_strip)
-var engraving_tray_slots: Array[int] = [] # echte Slot-Indizes hinter den Kacheln der Würfel-Leiste (parallel, siehe _on_tray_die_selected)
 var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
 
 var phase: Phase = Phase.IDLE  # siehe Phase - jeder Übergang setzt genau einen neuen Wert
@@ -1137,37 +1136,31 @@ func _end_engraving_ceremony() -> void:
 		camera_rig.zoom_to(engraving_prev_mode)
 	_on_die_engraved()  # Trays sicher aktuell (die Werte können sich geändert haben)
 
-## Die Würfel-Leiste des Panels wurde angeklickt (siehe DieInspectorView.
-## select_tray_die): strip_index zeigt in engraving_tray_slots -> echter
-## Tray-Slot. Wechselt auf diesen Würfel (No-Op, wenn es der bereits gegriffene
-## ist - _grab_engraving_die fängt das ab).
-func _on_tray_die_selected(strip_index: int) -> void:
+## Das Würfel-Raster des Panels wurde angeklickt (siehe DieInspectorView.
+## select_tray_die): slot ist der ECHTE Slot-Index im Ziel-Tray. Wechselt auf
+## diesen Würfel (No-Op, wenn es der bereits gegriffene ist - _grab_engraving_die
+## fängt das ab).
+func _on_tray_die_selected(slot: int) -> void:
 	if not engraving_active or engraving_source_tray == null:
 		return
-	if strip_index < 0 or strip_index >= engraving_tray_slots.size():
+	if slot < 0 or slot >= engraving_source_tray.slot_roots.size():
 		return
-	var slot: int = engraving_tray_slots[strip_index]
 	_grab_engraving_die(engraving_source_tray.slot_defs[slot], engraving_source_tray.slot_roots[slot], engraving_source_tray)
 
-## Baut die Würfel-Leiste des Panels neu: alle Würfel des Ziel-Trays (die
-## sichtbaren plus den gerade gegriffenen, der als aktueller markiert wird) als
-## anklickbare Kacheln - so lässt sich das Ziel auch bei Hub-Zoom wechseln, wo die
-## echten Tray-Würfel nicht im Bild sind.
+## Baut das Würfel-Raster des Panels neu: das komplette rows×columns-Raster des
+## Ziel-Trays in Buchreihenfolge (leere Slots als leere Zellen), der gegriffene
+## als aktueller markiert - spiegelt so das Tray und lässt das Ziel auch bei
+## Hub-Zoom wechseln, wo die echten Tray-Würfel nicht im Bild sind.
 func _refresh_engraving_tray_strip() -> void:
-	engraving_tray_slots.clear()
 	if engraving_source_tray == null:
 		return
-	var defs: Array[DieDefinition] = []
-	var current := -1
-	for i in engraving_source_tray.slot_roots.size():
-		var is_grabbed: bool = engraving_source_tray.slot_roots[i] == engraving_source_root
-		if not engraving_source_tray.slot_roots[i].visible and not is_grabbed:
-			continue  # leerer Slot
-		engraving_tray_slots.append(i)
-		defs.append(engraving_source_tray.slot_defs[i])
-		if is_grabbed:
-			current = engraving_tray_slots.size() - 1
-	die_inspector.set_tray_context(defs, current)
+	var tray := engraving_source_tray
+	var slot_defs: Array[DieDefinition] = []
+	for i in tray.slot_roots.size():
+		var occupied: bool = tray.slot_roots[i].visible or tray.slot_roots[i] == engraving_source_root
+		slot_defs.append(tray.slot_defs[i] if occupied else null)
+	var current_slot: int = tray.slot_roots.find(engraving_source_root)
+	die_inspector.set_tray_grid(tray.rows, tray.columns, slot_defs, current_slot)
 
 ## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset, siehe _reset_game).
 func _abort_engraving() -> void:
