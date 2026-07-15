@@ -135,8 +135,9 @@ func _ready() -> void:
 
 ## Legt die ViewportTexture als Material auf das Screen-Mesh und leitet die
 ## Weltgrenzen aus dessen globaler AABB ab (alle 8 Ecken transformieren -
-## robust gegen künftige Tisch-Verschiebungen/Drehungen um Y).
-func attach_to(screen_mesh: MeshInstance3D) -> void:
+## robust gegen künftige Tisch-Verschiebungen/Drehungen um Y). Mit reflection
+## spiegelt das Glas zusätzlich die Würfel (siehe ScreenReflection).
+func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null) -> void:
 	var aabb := screen_mesh.get_aabb()
 	var to_world := screen_mesh.global_transform
 	var min_x := INF
@@ -158,19 +159,17 @@ func attach_to(screen_mesh: MeshInstance3D) -> void:
 	_x_max = max_x
 	_x_span = max_x - min_x
 
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color.WHITE
-	material.albedo_texture = get_texture()
-	material.emission_enabled = true
-	material.emission_texture = get_texture()
-	material.emission_energy_multiplier = EMISSION_ENERGY
-	# Leicht spiegelnd wie ein echtes Display-Glas: niedrige Rauheit + etwas
-	# Metallanteil geben glänzende Specular-Reflexe der Würfellichter auf der
-	# Fläche (die Würfel "spiegeln" sich dezent - echte SSR-Spiegelung gibt es im
-	# Compatibility-Renderer nicht, siehe DieFaceDisplay: die Würfel leuchten).
-	material.roughness = 0.18
-	material.metallic = 0.3
-	material.metallic_specular = 0.6
+	# Display-Glas (siehe assets/shaders/screen_glass.gdshader): leuchtende
+	# Anzeige + Glanz wie das frühere StandardMaterial - und darüber die planare
+	# Spiegelung der Würfel aus dem ScreenReflection-Viewport (echte SSR gibt es
+	# im Compatibility-Renderer nicht, deshalb die gespiegelte Zweitkamera).
+	var material := ShaderMaterial.new()
+	material.shader = load("res://assets/shaders/screen_glass.gdshader")
+	material.set_shader_parameter("screen_texture", get_texture())
+	material.set_shader_parameter("emission_energy", EMISSION_ENERGY)
+	if reflection != null:
+		reflection.plane_height = _surface_y
+		material.set_shader_parameter("reflection_texture", reflection.get_texture())
 	screen_mesh.material_override = material
 
 ## Weltposition -> Pixel auf dem Screen (für Anzeigen unter den Würfeln:

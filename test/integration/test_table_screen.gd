@@ -27,10 +27,23 @@ func before_each() -> void:
 	screen.attach_to(mesh)
 
 func test_attach_sets_viewport_material():
-	var material := mesh.material_override as StandardMaterial3D
+	# Display-Glas als ShaderMaterial (siehe screen_glass.gdshader): die
+	# UI-ViewportTexture ist die Anzeige, emission_energy lässt sie leuchten.
+	var material := mesh.material_override as ShaderMaterial
 	assert_not_null(material)
-	assert_eq(material.albedo_texture, screen.get_texture())
-	assert_true(material.emission_enabled, "ohne Emission liest sich die Anzeige nicht als Display")
+	assert_eq(material.get_shader_parameter("screen_texture"), screen.get_texture())
+	assert_gt(float(material.get_shader_parameter("emission_energy")), 0.0,
+		"ohne Emission liest sich die Anzeige nicht als Display")
+
+func test_attach_wires_reflection_into_the_glass():
+	# Mit ScreenReflection bekommt das Glas die Spiegeltextur, und die
+	# Spiegelebene liegt auf der Glas-Oberfläche (Tisch bei -3.8, siehe unten).
+	var reflection := ScreenReflection.new()
+	add_child_autofree(reflection)
+	screen.attach_to(mesh, reflection)
+	var material := mesh.material_override as ShaderMaterial
+	assert_eq(material.get_shader_parameter("reflection_texture"), reflection.get_texture())
+	assert_almost_eq(reflection.plane_height, -3.8 + 0.2 / 2.0 * 4.0, 0.5)
 
 func test_center_maps_to_screen_center():
 	var pixel := screen.world_to_pixel(Vector3.ZERO)

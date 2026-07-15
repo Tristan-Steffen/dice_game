@@ -305,6 +305,7 @@ var charm_tooltip_body: Label
 var dice: DiceController
 var dice_audio: DiceAudio  # Aufprall-/Roll-Sounds der Spielwürfel (siehe _ready)
 var table_screen: TableScreen  # Display auf der Tischfläche (siehe _ready)
+var screen_reflection: ScreenReflection  # Würfel-Spiegelung auf dem Display-Glas (siehe _ready)
 var combos_click_zone: StaticBody3D  # Klickfläche über dem Kombi-Cluster (Zoom, siehe _setup_combos_zoom)
 var charms_click_zone: StaticBody3D  # Klickfläche über der Charm-Reihe (Zoom, siehe _setup_charms_zoom)
 var hub_click_zone: StaticBody3D  # Klickfläche über dem Hub (Zoom, siehe _setup_hub_zoom)
@@ -447,6 +448,8 @@ func _ready() -> void:
 		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
 		faces.scale = die_scale
 		faces.set_light_enabled(true)  # nur die 6 Spielwürfel beleuchten ihre Umgebung
+		# ... und nur sie spiegeln sich im Display-Glas (siehe ScreenReflection).
+		ScreenReflection.mark_reflective(die)
 		roots.append(die)
 		bodies.append(body)
 		face_displays.append(faces)
@@ -471,7 +474,14 @@ func _ready() -> void:
 	add_child(table_screen)
 	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
 	if screen_mesh != null:
-		table_screen.attach_to(screen_mesh)
+		# Spiegelung der Grubenwürfel auf dem Display-Glas (siehe ScreenReflection):
+		# eine gespiegelte Zweitkamera rendert nur die als spiegelnd markierten
+		# Würfel; das Glas-Shader-Material mischt das Bild über die Anzeige.
+		screen_reflection = ScreenReflection.new()
+		screen_reflection.name = "ScreenReflection"
+		screen_reflection.main_camera = camera_rig
+		add_child(screen_reflection)
+		table_screen.attach_to(screen_mesh, screen_reflection)
 		# Alle drei Screen-Elemente hängen an frei verschiebbaren Editor-Ankern
 		# (Marker3D unter $ScreenAnchors); Pixel-Positionen erst nach attach_to
 		# ableitbar. Den Kombi-Cluster ERST an seinen Anker setzen, DANN den Zoom
@@ -546,7 +556,13 @@ func _ready() -> void:
 	die_inspector.changed.connect(_on_die_engraved)
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
+	# Der Einstellungen-Knopf sitzt jetzt unten rechts auf der Hub-Home-Seite (auf
+	# dem Display, siehe HubView.settings_button) - der alte 2D-Fensterknopf wird
+	# ausgeblendet. Ohne Tisch-Display bleibt er als Rückfall sichtbar.
 	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.settings_pressed.connect(_on_settings_toggle_pressed)
+		settings_toggle_button.visible = false
 
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
@@ -959,6 +975,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
 
+	# Auch bei offenem Shop laufen Linksklicks daneben normal weiter: ein Klick
+	# auf einen Tray-Würfel öffnet die Gravur-Station als NEUE Hub-Seite - der Hub
+	# verdrängt den Shop dabei sauber und holt ihn beim Schließen der Station
+	# zurück (siehe HubView._on_page_visibility_changed), nichts überlappt mehr.
+
 	# Die Kamera bleibt während der Zeremonie FREI: Linksklicks laufen ganz
 	# normal weiter (Zoom-Zonen navigieren, ein Klick auf einen Tray-Würfel
 	# wechselt über _open_engraving das Ziel und springt zum Hub). Die Hub-UI
@@ -1058,7 +1079,9 @@ func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceT
 		engraving_active = true
 		engraving_prev_mode = camera_rig.mode
 		engraving_source_root = null
-		table_screen.hub.set_content_visible(false)
+	# Die Hub-Fläche übernimmt die Seiten-Verwaltung selbst: show_die (in
+	# _grab_engraving_die) macht das Panel sichtbar, der Hub blendet Home/andere
+	# Seiten aus (siehe HubView._on_page_visibility_changed).
 	_grab_engraving_die(def, source_root, source_tray)
 
 ## Macht (def, source_root im Tray source_tray) zum aktuellen Gravur-Ziel: der
@@ -1159,15 +1182,15 @@ func _flash_engraving_die() -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## Beendet die Zeremonie (siehe DieInspectorView.closed): der Tray-Slot wird
-## wieder sichtbar, der Hub zeigt seine Übersicht, die Kamera kehrt in die
-## Ansicht von vor der Zeremonie zurück.
+## wieder sichtbar, die Kamera kehrt in die Ansicht von vor der Zeremonie zurück.
+## Was der Hub danach zeigt, entscheidet er selbst (Home-Übersicht - oder die
+## Seite, die die Station verdrängt hatte, z.B. den Shop; siehe
+## HubView._on_page_visibility_changed).
 func _end_engraving_ceremony() -> void:
 	if not engraving_active:
 		return
 	engraving_active = false
 	_free_engraving_die()
-	if table_screen.hub != null:
-		table_screen.hub.set_content_visible(true)
 	if engraving_source_root != null and is_instance_valid(engraving_source_root):
 		engraving_source_root.visible = true
 	engraving_source_root = null
@@ -2852,10 +2875,10 @@ func _reset_game() -> void:
 	full_reroll_stacks = 0
 	run = GameRun.new_run()
 	_connect_run()
-	charm_shop.visible = false
 	_abort_engraving()  # falls der Reset mitten in der Gravur-Zeremonie kam
+	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub; sonst räumt reset_pages auf
 	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_content_visible(true)  # falls der Reset mitten im Shop kam
+		table_screen.hub.reset_pages()  # alle Seiten zu, Verdrängungs-Gedächtnis leer, Home zeigt sich
 	game_over_panel.visible = false
 	_set_gameplay_ui_visible(true)
 	_start_new_round()
@@ -3002,10 +3025,16 @@ func _on_round_complete() -> void:
 			run.money = floor_value
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
-		# Der Shop übernimmt die Hub-Fläche auf dem Display: Hub-Inhalt weg,
-		# Shop auf, Kamera auf den Hub (dort läuft die Maus-Weiterleitung).
-		if table_screen.hub != null:
-			table_screen.hub.set_content_visible(false)
+		# Läuft noch die Gravur-Zeremonie, sauber beenden (der Würfel kehrt in sein
+		# Tray zurück) - sonst schwebte der ECHTE Zeremonien-Würfel als Weltobjekt
+		# weiter über der Hub-Fläche und verdeckte den Shop.
+		if engraving_active:
+			die_inspector.close()
+		# Der Shop übernimmt die Hub-Fläche auf dem Display: open() macht ihn
+		# sichtbar, der Hub blendet Home/andere Seiten selbst aus (siehe
+		# HubView._on_page_visibility_changed). Kamera auf den Hub (dort läuft
+		# die Maus-Weiterleitung) - NACH dem Zeremonien-Ende, damit dessen
+		# Kamera-Rückkehr nicht das letzte Wort hat.
 		charm_shop.open()
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 	else:
@@ -3170,8 +3199,6 @@ func _on_die_engraved() -> void:
 ## zeigt wieder seine Lauf-Übersicht, die Kamera kehrt in die Grubensicht zurück,
 ## nächste Runde vorbereiten.
 func _on_shop_closed() -> void:
-	if table_screen.hub != null:
-		table_screen.hub.set_content_visible(true)
 	run.advance_round()
 	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
