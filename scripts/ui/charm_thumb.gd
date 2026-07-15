@@ -1,17 +1,10 @@
 class_name CharmThumb
 extends SubViewportContainer
-## 3D-Vorschau eines Charm-Modells in eigenem SubViewport (eigene World3D,
-## gleiche Beleuchtung wie die Würfel-Vorschauen). Da die GLB-Modelle
-## unterschiedlich groß sind, wird das Modell über seine Gesamt-AABB auf
-## Einheitsgröße normiert und um sein Zentrum drehbar aufgehängt (pivot);
-## Charms ohne Modelldatei fallen auf die Platzhalter-Karte zurück (siehe
-## CharmRowView.placeholder_model).
-##
-## rotatable=false (Standard): statische Miniatur - rendert genau EIN Bild
-## (UPDATE_ONCE) und ignoriert die Maus. Billig genug für die 89 Zeilen der
-## Charm-Bibliothek. rotatable=true: Ziehen mit gedrückter Maustaste dreht das
-## Modell frei, wie die Würfel in der Gravur-Station (siehe RotatableDieView) -
-## für die Nahansicht der Bibliothek. Verwendet auch vom Shop (Charm-Angebote).
+## 3D-Vorschau eines Charm-Modells in eigenem SubViewport: über die
+## Gesamt-AABB auf Einheitsgröße normiert und um sein Zentrum aufgehängt;
+## ohne Modelldatei greift die Platzhalter-Karte. rotatable=false rendert
+## genau EIN Bild (billig für die vielen Bibliothekszeilen), rotatable=true
+## erlaubt freies Drehen per Ziehen (Nahansicht, Shop).
 
 const DRAG_SENSITIVITY := 0.01  # Drehgeschwindigkeit, wie RotatableDieView
 const FIT_SIZE := 2.2           # Zielgröße des Modells in Welteinheiten
@@ -72,9 +65,8 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 	model.position = -aabb.get_center() * fit
 	pivot.add_child(model)
 
-## Freies Drehen per Maus-Ziehen (nur rotatable=true, sonst kommt hier wegen
-## MOUSE_FILTER_IGNORE nie ein Ereignis an) - gleiche Achsen wie
-## RotatableDieView: horizontal um die Hochachse, vertikal um die Kamera-Rechte.
+## Freies Drehen per Ziehen (nur rotatable=true - sonst kommt wegen
+## MOUSE_FILTER_IGNORE nie ein Ereignis an).
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		dragging = event.pressed
@@ -82,8 +74,7 @@ func _gui_input(event: InputEvent) -> void:
 		pivot.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)
 		pivot.global_rotate(camera.global_transform.basis.x.normalized(), event.relative.y * DRAG_SENSITIVITY)
 
-## Gesamt-AABB aller MeshInstance3D unter node (im Raum von node) - Grundlage
-## fürs Einpassen unterschiedlich großer Charm-Modelle.
+## Gesamt-AABB aller MeshInstance3D unter node (im Raum von node).
 static func merged_aabb(node: Node) -> AABB:
 	var result := AABB()
 	var found := false

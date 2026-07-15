@@ -1,38 +1,20 @@
 class_name GameRun
 extends RefCounted
-## Der persistente Zustand eines Spiellaufs ("Run"): Geld, Würfel-Sammlung,
-## Charms, Coupons und Rundenfortschritt - reine Daten + Ökonomie-Logik, keine
-## Nodes (analog zu DiceScoring/CharmEffects). scene_root besitzt genau eine
-## Instanz und verdrahtet die Signale mit der UI; Shop (ShopController) und
-## Gravur-Station (DieInspectorView) bekommen dieselbe Instanz typisiert
-## gereicht und verändern den Zustand NUR über die Methoden hier.
-##
-## Vorher lag all das direkt auf scene_root (2000 Zeilen Node3D), das dem Shop
-## eine untypisierte "game"-API reichte - testbar nur über ein FakeGame-Double,
-## das die Kauflogik nachbauen musste. Jetzt testen Shop-Tests gegen den echten
-## Run (siehe test/unit/test_game_run.gd, test/integration/test_shop_controller.gd),
-## und ein späteres Speichern/Laden muss nur diese Klasse serialisieren.
+## Persistenter Zustand eines Spiellaufs: Geld, Würfel-Pool, Charms, Coupons,
+## Rundenfortschritt. Reine Daten + Ökonomie, keine Nodes; UI mutiert den
+## Zustand nur über die Methoden hier und hört auf die Signale.
 
-## Geldstand hat sich geändert (Gutschrift ODER Kauf) - die HUD-Anzeige hört zu.
 signal money_changed(money: int)
-## Charm-Besitz hat sich geändert - HUD-Liste + physische Tisch-Charms hören zu.
 signal charms_changed
-## Coupon-Bestand hat sich geändert (Gutschrift oder Verbrauch) - HUD hört zu.
 signal coupons_changed
-## Ein Gericht wurde gegessen (siehe eat_meal): die Kombination combo_key steht
-## jetzt auf new_level - die Tischliste zeichnet ihren Multiplikator neu.
 signal combo_upgraded(combo_key: String, new_level: int)
-## Ein Coupon-Bogen wurde gekauft - scene_root zeigt ihn als Enthüllung. Die
-## Gutschrift der Kacheln folgt erst in der Abschluss-Animation (siehe
-## grant_coupon/add_money, gerufen aus _play_sheet_finish_animation).
+## Gutschrift der Kacheln folgt erst in der Abschluss-Animation (grant_coupon/add_money).
 signal sheet_purchased(sheet: CouponSheet, kind: int)
 
-const POOL_SIZE := 30  # feste Größe der Würfel-Sammlung (siehe purchase_die)
-const BASE_GOAL := 150  # Rundenziel der ersten Runde
-const GOAL_INCREMENT := 50  # Zielzuwachs je weiterer Runde (siehe advance_round)
+const POOL_SIZE := 30
+const BASE_GOAL := 150
+const GOAL_INCREMENT := 50
 
-## Spielwährung - läuft über den ganzen Run, nicht nur eine Runde. Jede
-## Zuweisung meldet money_changed; für relative Änderungen siehe add_money.
 var money: int = 0:
 	set(value):
 		money = value
@@ -41,44 +23,31 @@ var money: int = 0:
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
-## Persistente Würfel-Sammlung, immer genau POOL_SIZE Einträge - jeder eine
-## EIGENE DieDefinition-Instanz (siehe DieDefinition.instantiate), damit eine
-## Ätzung nie versehentlich mehrere Würfel zugleich verändert.
+## Immer genau POOL_SIZE Einträge, jeder eine EIGENE DieDefinition-Instanz,
+## damit eine Ätzung nie mehrere Würfel zugleich verändert.
 var owned_pool: Array[DieDefinition] = []
-var owned_charms: Array[Charm] = []  # wirken auf jede Wertung dieses Runs (siehe charm_ids)
-var owned_coupons: Array[Coupon] = []  # gehortete Ätzungs-Coupons, unbegrenzt (siehe grant_coupon)
-## Testmodus (siehe scene_root Einstellungs-Menü): unerschöpflicher Zugriff auf ALLE
-## Coupon-Effekte in der Gravur-Station - jeder Archetyp gilt als "im Bestand" (siehe
-## DieInspectorView._coupon_counts) und consume_coupon verbraucht nichts. Läuft
-## parallel zu den zufälligen Testmaterialien (randomize_all_materials).
-var unlimited_coupons: bool = false
-## Menü-Stufen der Kombinationen (DiceScoring-Key -> gegessene Gerichte, siehe
-## eat_meal): jede Stufe addiert den Basis-Multiplikator der Kombination erneut
-## (siehe DiceScoring.mult_for) - Balatros Planetenkarten als Tagesmenü.
+var owned_charms: Array[Charm] = []
+var owned_coupons: Array[Coupon] = []
+var unlimited_coupons: bool = false  # Testmodus: consume_coupon verbraucht nichts
+## Menü-Stufen je Kombination (Key -> gegessene Gerichte); jede Stufe addiert
+## Basis-Mult und Basispunkte erneut (siehe DiceScoring).
 var combo_levels: Dictionary = {}
 
-# --- Zustand der Effektkatalog-Charms (siehe Obsidian "12 Charms") ---
-var farkle_count: int = 0  # Farkles des gesamten Runs (Zerbrochener Spiegel)
-var lumpensammler_value: int = 0  # Glückszahl des Lumpensammlers (je Runde neu gewürfelt, 0 = keiner)
-var gravierstift_used_this_round: bool = false  # Gravierstift wirkt einmal je Runde (Reset siehe apply_round_start_charms)
-var queue_bonus_slots: int = 0  # Ausziehtisch: dauerhafte Extra-Plätze der Warteschlange (siehe scene_root)
-## Frisch gekaufte Würfel des letzten Shop-Besuchs (dieselben Pool-Instanzen) -
-## Frische Ware zieht sie in der nächsten Runde zuerst; danach geleert.
-var newly_purchased: Array[DieDefinition] = []
+# Zustand der Effektkatalog-Charms:
+var farkle_count: int = 0  # Zerbrochener Spiegel
+var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
+var gravierstift_used_this_round: bool = false
+var queue_bonus_slots: int = 0  # Ausziehtisch: dauerhafte Extra-Warteschlangenplätze
+var newly_purchased: Array[DieDefinition] = []  # Frische Ware: zieht nächste Runde zuerst
 
-## Ein frischer Run: leere Taschen, Runde 1, Pool voller Standardwürfel.
 static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
 	return run
 
-## Ids der besessenen Charms - Grundlage jeder Wertung (siehe DiceScoring/
-## CharmEffects) und der Shop-Angebotsfilterung. Die Totems (Papagei/Echo)
-## werden hier aufgelöst: sie liefern die id ihres NACHBARN (links bzw. rechts
-## in der Besitz-Reihenfolge = Tisch-Reihenfolge, siehe CharmRowView) statt der
-## eigenen - additive Effekte stapeln dadurch doppelt. Ein Totem, das auf ein
-## anderes Totem oder ins Leere zeigt, bleibt wirkungslos.
+## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
+## Nachbarn statt der eigenen; ein Totem auf Totem/Leere bleibt wirkungslos.
 func charm_ids() -> Array[String]:
 	var ids: Array[String] = []
 	for i in owned_charms.size():
@@ -92,46 +61,35 @@ func charm_ids() -> Array[String]:
 			ids.append(charm_id)
 	return ids
 
-## Die ROHEN ids der besessenen Charms (ohne Totem-Auflösung) - für
-## Besitz-Prüfungen (Shop: "schon gekauft") und Anzeige; für Wirkungen siehe
-## charm_ids().
+## Rohe ids ohne Totem-Auflösung - für Besitz-Prüfungen und Anzeige.
 func owned_charm_ids() -> Array[String]:
 	var ids: Array[String] = []
 	for charm in owned_charms:
 		ids.append(charm.id)
 	return ids
 
-## Die kopierbare id des Charms an Position index ("" bei Totem/außerhalb).
 func _neighbor_id(index: int) -> String:
 	if index < 0 or index >= owned_charms.size():
 		return ""
 	var neighbor_id := owned_charms[index].id
 	if neighbor_id == Charm.PARROT_TOTEM or neighbor_id == Charm.ECHO_TOTEM:
-		return ""  # Totems kopieren keine Totems (keine Endlos-Spiegel)
+		return ""  # Totems kopieren keine Totems
 	return neighbor_id
 
-## Gutschrift (positiv) oder Abzug (negativ) - meldet money_changed.
 func add_money(amount: int) -> void:
 	money += amount
 
-## Kauft eine unabhängige Kopie des Würfels in den Pool (siehe
-## _replace_pool_entry). Die Kaufbarkeit hat der Shop bereits geprüft.
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
 	newly_purchased.append(_replace_pool_entry(def))
 
-## Kauft ein ganzes Würfel-Bündel (siehe DiceOffer) für EINEN Preis: jeder
-## Würfel ersetzt einen Pool-Eintrag (siehe _replace_pool_entry). Angebote mit
-## mehr Würfeln sind einzeln schwächer (siehe DiceOffer) - Menge gegen Qualität.
 func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
 	add_money(-price)
 	for def in defs:
 		newly_purchased.append(_replace_pool_entry(def))
 
-## Legt eine unabhängige Kopie von def in den Pool: ersetzt einen zufälligen
-## "normalen" Eintrag (bevorzugt, damit früher gekaufte Spezialwürfel nicht
-## verdrängt werden), der Pool bleibt immer POOL_SIZE groß. Liefert die neue
-## Pool-Instanz (siehe newly_purchased / Frische Ware).
+## Ersetzt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
+## Käufe nicht verdrängt werden) durch eine unabhängige Kopie von def.
 func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 	var normal_indices: Array[int] = []
 	for i in owned_pool.size():
@@ -147,9 +105,6 @@ func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 	owned_pool[target_index] = copy
 	return copy
 
-## Kauft einen Charm - meldet charms_changed (HUD + Tisch-Anzeige hören zu).
-## Der Lumpensammler würfelt beim Kauf seine Glückszahl (siehe
-## lumpensammler_value / CharmEffects.rag_collector_income).
 func purchase_charm(charm: Charm, price: int) -> void:
 	add_money(-price)
 	owned_charms.append(charm)
@@ -157,11 +112,8 @@ func purchase_charm(charm: Charm, price: int) -> void:
 		lumpensammler_value = randi_range(1, 6)
 	charms_changed.emit()
 
-## Verschiebt einen besessenen Charm an eine andere Position (Drag-and-Drop
-## auf dem Tisch, siehe scene_root) - Standard "Element verschieben"-Semantik
-## (remove_at + insert, dazwischenliegende rücken nach). Die Reihenfolge ist
-## spielrelevant: die Totems kopieren ihre NACHBARN (siehe charm_ids), und sie
-## bestimmt die Tisch-Plätze (siehe CharmRowView). Meldet charms_changed.
+## Reihenfolge ist spielrelevant: Totems kopieren Nachbarn, sie bestimmt die
+## Tisch-Plätze (CharmRowView).
 func move_charm(from_index: int, to_index: int) -> void:
 	if from_index == to_index \
 			or from_index < 0 or from_index >= owned_charms.size() \
@@ -172,17 +124,12 @@ func move_charm(from_index: int, to_index: int) -> void:
 	owned_charms.insert(to_index, charm)
 	charms_changed.emit()
 
-## Kauft einen Coupon-Bogen: Geld abziehen, Bogen des Typs kind auswürfeln und
-## per sheet_purchased zur Enthüllung melden. Die Kacheln werden hier bewusst
-## NICHT gutgeschrieben - das übernimmt die Abschluss-Animation Stück für Stück
-## (siehe grant_coupon/add_money), damit die Zähler sichtbar hochzählen.
-## allowed_kinds (optional): beschränkt die echten Coupons des Bogens auf diese
-## Coupon-kinds - für die sortenreinen Packs des Shops (siehe
-## CouponSheet.generate / ShopController.PACKS). Leer = alle Arten gemischt.
+## Kacheln werden hier bewusst NICHT gutgeschrieben - das macht die
+## Abschluss-Animation Stück für Stück. allowed_kinds beschränkt die Coupons
+## auf diese Arten (sortenreine Packs); leer = gemischt.
 func buy_coupon_sheet(kind: int, price: int, allowed_kinds: Array[String] = []) -> CouponSheet:
 	add_money(-price)
-	# Großformat: alle Packs 1×1 größer; Hausmarke: das gemischte Heft
-	# (leerer Filter) enthält nie Werbeflächen.
+	# Großformat: alle Packs 1×1 größer; Hausmarke: das gemischte Heft ohne Werbung.
 	var ids := charm_ids()
 	var extra_size := 1 if ids.has(Charm.LARGE_FORMAT) else 0
 	var no_ads: bool = ids.has(Charm.HOUSE_BRAND) and allowed_kinds.is_empty()
@@ -190,31 +137,24 @@ func buy_coupon_sheet(kind: int, price: int, allowed_kinds: Array[String] = []) 
 	sheet_purchased.emit(sheet, kind)
 	return sheet
 
-## Legt einen Coupon ins Inventar (z.B. eine Ätzung, die vom gekauften Bogen
-## "abgerissen" wurde) - meldet coupons_changed.
 func grant_coupon(coupon: Coupon) -> void:
-	# Menü-Coupons werden nicht gehortet: das Gericht ist sofort gegessen und
-	# wertet seine Kombination dauerhaft auf (siehe eat_meal/combo_levels).
+	# Menü-Coupons werden nicht gehortet: das Gericht wirkt sofort.
 	if coupon.kind == Coupon.KIND_MEAL:
 		eat_meal(coupon.meal_combo_key())
 		return
 	owned_coupons.append(coupon)
 	coupons_changed.emit()
 
-## Isst ein Gericht (siehe Coupon.KIND_MEAL): hebt die Menü-Stufe der
-## Kombination um 1 - ihr Multiplikator wächst damit dauerhaft um seinen
-## Basiswert (siehe DiceScoring.mult_for). Unbegrenzt stapelbar. Der Stammgast
-## lässt jedes Gericht als zwei Stufen zählen (je Vorkommen +1 weitere).
+## Hebt die Menü-Stufe der Kombination; der Stammgast zählt jedes Gericht
+## je Vorkommen als eine Stufe mehr.
 func eat_meal(combo_key: String) -> void:
 	var levels := 1 + charm_ids().count(Charm.REGULAR_GUEST)
 	combo_levels[combo_key] = int(combo_levels.get(combo_key, 0)) + levels
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
-## Rundenbeginn-Wirkungen der Effektkatalog-Charms (von scene_root._start_new_round
-## gerufen): Mitternachtssnack isst ein zufälliges Gericht, die Frankiermaschine
-## schenkt drei zufällige Ätzungs-Coupons, der Lumpensammler würfelt seine
-## Glückszahl neu - je Vorkommen einmal. Setzt außerdem die Runden-Marken
-## zurück (Gravierstift).
+## Rundenbeginn: Runden-Marken zurücksetzen, Mitternachtssnack isst ein
+## zufälliges Gericht, Frankiermaschine schenkt 3 zufällige Ätzungen,
+## Lumpensammler würfelt seine Glückszahl neu - je Vorkommen einmal.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
@@ -230,11 +170,8 @@ func apply_round_start_charms() -> void:
 		for j in 3:
 			grant_coupon(etchings[randi() % etchings.size()])
 
-## Schmuckkästchen: bei der Rundenziel-Auszahlung erhält jeder übergebene
-## (übrige) Würfel mit 10% Chance eine zufällige Material-Seite auf einer
-## zufälligen Seite - dauerhaft, da die Einträge dieselben Pool-Instanzen sind.
-## Je Vorkommen des Charms ein eigener Durchgang. Liefert die Anzahl der
-## veredelten Würfel (für ein UI-Feedback in scene_root).
+## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
+## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert die Anzahl.
 func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 	var upgraded := 0
 	for i in charm_ids().count(Charm.JEWELRY_BOX):
@@ -245,12 +182,10 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 				upgraded += 1
 	return upgraded
 
-## Verbraucht genau einen Coupon der gegebenen id (siehe Coupon-Konstanten) -
-## true, wenn einer da war. Von der Gravur-Station beim Anwenden einer Ätzung
-## gerufen; meldet coupons_changed.
+## Verbraucht genau einen Coupon der id; true, wenn einer da war.
 func consume_coupon(id: String) -> bool:
 	if unlimited_coupons:
-		return true  # Testmodus: Coupons sind unerschöpflich (siehe scene_root)
+		return true
 	for i in owned_coupons.size():
 		if owned_coupons[i].id == id:
 			owned_coupons.remove_at(i)
@@ -258,18 +193,14 @@ func consume_coupon(id: String) -> bool:
 			return true
 	return false
 
-## Nächste Runde: Nummer hoch, Ziel wächst (siehe GOAL_INCREMENT). Gerufen,
-## wenn der Shop nach einer geschafften Runde geschlossen wird.
 func advance_round() -> void:
 	round_number += 1
 	round_goal += GOAL_INCREMENT
 
-# --- Testhilfen (siehe scene_root Testmodus im Einstellungs-Menü) -----------------
+# --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
-## Belegt JEDE Seite jedes Würfels im Pool mit einem zufälligen Seiten-Material
-## und die Kante mit einem zufälligen Kanten-Material - zum schnellen Ausprobieren
-## der Material-Wertung. Jeder Würfel erhält ein FRISCHES materials-Array (nie
-## geteilt), damit die Zufallsbelegung wirklich nur diesen Würfel trifft.
+## Belegt jede Seite/Kante aller Pool-Würfel mit zufälligen Materialien.
+## Jeder Würfel bekommt ein frisches materials-Array (nie geteilt).
 func randomize_all_materials() -> void:
 	var ids: Array[String] = []
 	for material in DieMaterial.all():
@@ -281,7 +212,6 @@ func randomize_all_materials() -> void:
 		die.materials = mats
 		die.edge_material = ids.pick_random()
 
-## Entfernt alle Seiten- UND Kanten-Materialien aller Pool-Würfel (Testmodus aus).
 func clear_all_materials() -> void:
 	for die in owned_pool:
 		var mats: Array[String] = []
@@ -290,9 +220,7 @@ func clear_all_materials() -> void:
 		die.materials = mats
 		die.edge_material = ""
 
-## Stellt sicher, dass die gegebenen Charms besessen sind (fügt fehlende hinten
-## an, doppelt nichts) - für den Testmodus (siehe scene_root). Meldet
-## charms_changed nur, wenn wirklich etwas dazukam.
+## Fügt fehlende Charms hinten an (nichts doppelt); meldet nur bei Änderung.
 func grant_charms(charms: Array[Charm]) -> void:
 	var owned := owned_charm_ids()
 	var added := false
@@ -303,8 +231,7 @@ func grant_charms(charms: Array[Charm]) -> void:
 	if added:
 		charms_changed.emit()
 
-## Entfernt alle Charms mit einer der gegebenen ids (Testmodus aus). Meldet
-## charms_changed nur bei tatsächlicher Änderung.
+## Entfernt alle Charms mit einer der ids; meldet nur bei Änderung.
 func remove_charms(ids: Array) -> void:
 	var kept: Array[Charm] = []
 	for charm in owned_charms:

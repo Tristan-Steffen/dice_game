@@ -1,149 +1,99 @@
 class_name TableScreen
 extends SubViewport
-## Der Tisch-Bildschirm: rendert eine 2D-Oberfläche (Kinder dieses SubViewports)
-## in eine ViewportTexture und legt sie als leuchtendes Display-Material auf
-## das "Screen"-Mesh des Tischs (Tisch.glb, siehe attach_to). Die gesamte
-## Spielfläche innerhalb der LED-Rinne ist damit ein Bildschirm - die Würfel
-## liegen buchstäblich AUF der Anzeige.
-##
-## Koordaten-Versprechen (siehe world_to_pixel): Pixel (0,0) ist die obere
-## linke Bildschirmecke aus Sicht der Grubenkamera - u wächst entlang Welt+Z,
-## v entlang Welt-X ("Bildschirm-oben" = +X, wie überall am Tisch). Die
-## Weltgrenzen werden beim attach_to aus der globalen AABB des Screen-Meshs
-## abgeleitet, nicht hart codiert - der Tisch darf also weiter umziehen.
-##
-## Inhalt: die Kombinationsliste als kompakte Legende im gedämpften Neon-Look
-## (siehe ComboCellView) - kleine Zellen, dicht gebündelt direkt UNTERHALB der
-## Grube (Bildschirm-unten = Welt -X), sortiert nach Wertigkeit. scene_root
-## holt sich die Zellen über combo_cells und steuert Aufleuchten/Menü-Stufen
-## (siehe _collect_combo_labels/_tween_combo_label - unverändert gegenüber der
-## alten 3D-Tischliste).
+## Der Tisch-Bildschirm: rendert die 2D-Oberfläche (Kinder dieses SubViewports)
+## in eine ViewportTexture auf dem "Screen"-Mesh des Tischs (attach_to).
+## Koordinaten-Versprechen (world_to_pixel): Pixel (0,0) = obere linke Ecke aus
+## Sicht der Grubenkamera; u wächst entlang Welt+Z, v entlang Welt−X
+## ("Bildschirm-oben" = +X). Weltgrenzen kommen aus der AABB des Meshs.
 
-## Überabtastung: Das Display bespielt eine große Tischfläche; beim Heranzoomen
-## wird die Textur stark vergrößert. Eine höher aufgelöste Zeichenfläche (Basis
-## 1560x1060 mal SUPERSAMPLE) gibt Text und Linien deutlich mehr Texel, ohne die
-## Welt-Abbildung zu ändern (die rechnet in Anteilen pixel/size). Alle Layout-
-## Maße wachsen mit demselben Faktor mit, ComboCellView skaliert ohnehin relativ.
+## Überabtastung: beim Heranzoomen wird die Textur stark vergrößert; alle
+## Layout-Maße wachsen mit demselben Faktor mit.
 const SUPERSAMPLE := 3
 const RESOLUTION := Vector2i(1560, 1060) * SUPERSAMPLE
-## Farbwelt = Obsidian-Theme "80s Neon" (Vault .obsidian/themes/80s Neon):
-## dunkles Violett als Grund, Magenta/Pink für Text, Cyan für Rahmen/Interaktion,
-## Gold als Highlight - siehe auch ComboCellView.
-const BACKGROUND_COLOR := Color("#171520")  # --background-primary-alt
-const EMISSION_ENERGY := 1.2  # lässt die Anzeige im dunklen Raum als Display leuchten
+## Farbwelt = Obsidian-Theme "80s Neon".
+const BACKGROUND_COLOR := Color("#171520")
+const EMISSION_ENERGY := 1.2
 
-## Kombinations-Cluster unter der Grube: kleine Zellen in 3 Spalten, Reihenfolge
-## = DiceScoring.HAND_PRIORITY (stärkste zuerst), unvollständige letzte Zeile
-## mittig. CENTER_X bewusst links der Bildmitte (780) - der Block sitzt um etwa
-## eine Blockbreite nach links versetzt unter der Grube.
+## Kombinations-Cluster: kleine Zellen in 3 Spalten, Reihenfolge =
+## DiceScoring.HAND_PRIORITY, unvollständige letzte Zeile mittig.
 const CELL_SIZE := Vector2(98, 31) * SUPERSAMPLE
 const CELL_GAP := Vector2(6, 4) * SUPERSAMPLE
 const CLUSTER_COLUMNS := 3
 const CLUSTER_TOP := 440.0 * SUPERSAMPLE
 const CLUSTER_CENTER_X := 400.0 * SUPERSAMPLE
 
-## Neon-Rahmen um den ganzen Cluster (Padding rund um die äußersten Zellen).
 const CLUSTER_PADDING := 13.0 * SUPERSAMPLE
-const FRAME_COLOR := Color("#8be9fd")  # 80s Neon --accent-2-muted (Cyan)
-const FRAME_BG := Color("#1a1836aa")  # 80s Neon --background-secondary, leicht durchscheinend
+const FRAME_COLOR := Color("#8be9fd")  # Neon-Cyan
+const FRAME_BG := Color("#1a1836aa")
 
-## Rundenziel-Balken (unterhalb des angedockten Warteschlangen-Trays, siehe
-## scene_root: ScreenAnchors/ScoreBar/place_goal_bar): goldene Füllung =
-## erspielte Punkte, Text "Punkte / Ziel" darüber. Die Zähl-Animation lässt
-## die verschmolzene Gesamtzahl hierhin fliegen (siehe fly_total_to_goal).
+## Rundenziel-Balken: goldene Füllung = erspielte Punkte.
 const GOAL_BAR_SIZE := Vector2(220, 30) * SUPERSAMPLE
-const GOAL_BAR_INSET := 5.0 * SUPERSAMPLE  # Abstand der Füllung zum Rahmen
-const GOAL_BAR_FILL_COLOR := Color("#ffd319aa")  # 80s Neon Gold, leicht durchscheinend
-const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # leicht überhelles Weiß (Glow)
+const GOAL_BAR_INSET := 5.0 * SUPERSAMPLE
+const GOAL_BAR_FILL_COLOR := Color("#ffd319aa")
+const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 
-## Wertungszahlen oberhalb der Grube (Daueranzeige, siehe PitScoreView) +
-## Goldlicht unter den zählenden Würfeln während der Zähl-Animation (siehe
-## spawn_glow) + Licht-Trails von der Punktquelle in die Zahlen (spawn_score_trail).
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
-const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt) - Zähl- UND Auswahl-Podest
-const TOTAL_FLY_FONT := 44 * SUPERSAMPLE  # Schriftgröße der Gesamtzahl am Zielbalken
+const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
+const TOTAL_FLY_FONT := 44 * SUPERSAMPLE
 
-## Zwei Aktions-Buttons unten mittig in der Grube (siehe place_pit_actions und
-## scene_root._forward_screen_mouse / _sync_screen_action_buttons): "Nehmen"
-## (Gold) nimmt die Hand, "Würfeln" (Grün) wirft. Sie liegen AUF dem Display und
-## werden über die Maus-Weiterleitung bedient - nur in der Grubenansicht, über
-## ihrer Fläche. Maße supersampled wie alles andere auf dem Screen.
+## Aktions-Buttons unten mittig in der Grube, bedient über die Maus-Weiterleitung.
 const PIT_ACTION_SIZE := Vector2(79, 28) * SUPERSAMPLE
 const PIT_ACTION_GAP := 10.0 * SUPERSAMPLE
 const PIT_ACTION_FONT := 14 * SUPERSAMPLE
 
-## Licht-Trails der Zähl-Animation: LEITERBAHNEN (siehe ScoreTraceView) - feste,
-## rein achsenparallele Linien (nur waagerecht/senkrecht, keine Schrägen), die
-## von der Punktquelle (Würfel/Charm/Kombi-Zelle) aus zum Ziel aufleuchten und
-## die beiden für einen Moment sichtbar verbinden - Cyan in die Basis, Gold in
-## den Mult/die Gesamtzahl. Dauer bis zum Ziel siehe scene_root.SCORE_TRAIL_TIME
-## (dort wird auf die Ankunft gewartet).
-const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb des Displays
-const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)  # überhelles Cyan
-const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)  # überhelles Gold
-const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE  # heller Kern der Leiterbahn
-const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE  # breiter, schwacher Schein darunter
-## Erster senkrechter Hub der Leiterbahn aus der Quelle heraus (~2.4 Weltmeter):
-## hebt die Querstrecke über die Nachbar-Würfel samt Gold-Podest, und hält sie
-## unterhalb von Zählern und Punktebalken (siehe _orthogonal_path).
+## Licht-Trails: LEITERBAHNEN (rein achsenparallel, siehe ScoreTraceView) -
+## Cyan in die Basis, Gold in Mult/Gesamtzahl.
+const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb
+const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)
+const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)
+const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE
+const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
+## Erster senkrechter Hub aus der Quelle (~2.4 Weltmeter): hebt die Querstrecke
+## über Nachbar-Würfel, hält sie unter Zählern und Punktebalken.
 const TRACE_RISE := 30.0 * SUPERSAMPLE
 
-## DiceScoring-Key -> ComboCellView (siehe scene_root._collect_combo_labels).
-var combo_cells: Dictionary = {}
+var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 
-var cluster_frame: Panel  # Neon-Rahmen um den Kombi-Cluster (für place_combo_cluster)
-## Das Gruben-Fenster: die Grube ist ein eigenes "Fenster" des Tisch-Displays
-## im selben Look wie Kombi-Cluster und Hub (siehe place_pit_window).
+var cluster_frame: Panel
 var pit_window: Panel
-## Das Display-Glas-Material (siehe attach_to): bekommt über
-## _sync_reflection_windows die Fenster-Rechtecke gemeldet - NUR dort spiegelt
-## das Glas, der Filz dazwischen (siehe table_felt.gdshader) bleibt matt.
+## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
+## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
 var goal_bar: Panel
 var goal_bar_fill: ColorRect
 var goal_bar_label: Label
-## Basis- und Mult-Zähler getrennt (je an eigenem Editor-Anker, siehe scene_root
-## ScreenAnchors) - einzeln über den Bildschirm verschiebbar.
+## Basis- und Mult-Zähler getrennt, je an eigenem Editor-Anker.
 var base_counter: PitScoreView
 var mult_counter: PitScoreView
-## Der HUB unter der Grube (siehe HubView): Lauf-Übersicht, Rundenbonus-Zeilen,
-## Boss-Vorschau - und später Shop/Aufwertung. Position/Größe setzt scene_root
-## über place_hub (Anker ScreenAnchors/Hub + HUB_*_WORLD).
 var hub: HubView
-## Die verschmolzene Gesamtzahl (Basis × Mult): erscheint AM Zielbalken über der
-## Grube (nicht in der Grubenmitte, die vom Käfig verdeckt wäre) und schrumpft
-## am Ende in den Balken (siehe show_pit_total/fly_total_to_goal).
+## Verschmolzene Gesamtzahl: erscheint AM Zielbalken (die Grubenmitte wäre
+## vom Käfig verdeckt) und schrumpft am Ende in den Balken.
 var pit_total_label: Label
 
-## Aktions-Buttons unten in der Grube (siehe _build_pit_actions/place_pit_actions).
-## pit_actions_root ist die (klick-durchlässige) Trägerfläche; die beiden Buttons
-## fangen ihre Klicks selbst. scene_root verbindet ihre pressed-Signale mit
-## _on_take_button_pressed / _on_throw_button_pressed und steuert sichtbar/aktiv.
+## Trägerfläche ist klick-durchlässig; nur die Buttons fangen ihre Klicks.
 var pit_actions_root: Control
 var take_action_button: Button
 var roll_action_button: Button
 
-## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (nach _build_content) -
-## Grundlage für Kamera-Zoomziel und Klickzone (siehe scene_root, cluster_*).
+## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
 
-## Weltgrenzen der Screen-Fläche (aus attach_to); Mapping siehe world_to_pixel.
+## Weltgrenzen der Screen-Fläche (aus attach_to).
 var _z_min := 0.0
 var _z_span := 1.0
 var _x_max := 0.0
 var _x_span := 1.0
-var _surface_y := 0.0  # Welthöhe der Screen-Oberfläche (für pixel_to_world)
+var _surface_y := 0.0
 
 func _ready() -> void:
 	size = RESOLUTION
 	render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	use_hdr_2d = true  # Überhell-Farben (Glow-Highlights der Zellen) dürfen blühen
+	use_hdr_2d = true  # Überhell-Farben dürfen blühen
 	_build_content()
 
-## Legt die ViewportTexture als Material auf das Screen-Mesh und leitet die
-## Weltgrenzen aus dessen globaler AABB ab (alle 8 Ecken transformieren -
-## robust gegen künftige Tisch-Verschiebungen/Drehungen um Y). Mit reflection
-## spiegelt das Glas zusätzlich die Würfel (siehe ScreenReflection).
+## Legt die ViewportTexture aufs Screen-Mesh und leitet die Weltgrenzen aus
+## dessen globaler AABB ab (robust gegen Tisch-Verschiebungen). Mit reflection
+## spiegelt das Glas zusätzlich die Würfel (kein SSR im Compatibility-Renderer).
 func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null) -> void:
 	var aabb := screen_mesh.get_aabb()
 	var to_world := screen_mesh.global_transform
@@ -160,16 +110,12 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 		max_x = maxf(max_x, corner.x)
 		min_z = minf(min_z, corner.z)
 		max_z = maxf(max_z, corner.z)
-		_surface_y = corner.y  # flache Fläche -> alle Ecken (fast) gleiche Höhe
+		_surface_y = corner.y  # flache Fläche - alle Ecken (fast) gleich hoch
 	_z_min = min_z
 	_z_span = max_z - min_z
 	_x_max = max_x
 	_x_span = max_x - min_x
 
-	# Display-Glas (siehe assets/shaders/screen_glass.gdshader): leuchtende
-	# Anzeige + Glanz wie das frühere StandardMaterial - und darüber die planare
-	# Spiegelung der Würfel aus dem ScreenReflection-Viewport (echte SSR gibt es
-	# im Compatibility-Renderer nicht, deshalb die gespiegelte Zweitkamera).
 	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/screen_glass.gdshader")
 	material.set_shader_parameter("screen_texture", get_texture())
@@ -182,28 +128,20 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_glass_material = material
 	_sync_reflection_windows()
 
-## Weltposition -> Pixel auf dem Screen (für Anzeigen unter den Würfeln:
-## Punktzahlen, Aufprall-Effekte, Markierungen). y der Weltposition ist egal.
+## Weltposition -> Display-Pixel (y der Weltposition ist egal).
 func world_to_pixel(world: Vector3) -> Vector2:
 	var u := (world.z - _z_min) / _z_span
 	var v := (_x_max - world.x) / _x_span
 	return Vector2(u * float(size.x), v * float(size.y))
 
-## Pixel auf dem Screen -> Weltposition auf der Tischfläche (Umkehr von
-## world_to_pixel; y = Screen-Oberfläche). Für Kamera-Zoomziel und Klickzone
-## des Kombi-Clusters (siehe scene_root).
+## Display-Pixel -> Weltposition auf der Tischfläche (y = Screen-Oberfläche).
 func pixel_to_world(pixel: Vector2) -> Vector3:
 	var u := pixel.x / float(size.x)
 	var v := pixel.y / float(size.y)
 	return Vector3(_x_max - v * _x_span, _surface_y, _z_min + u * _z_span)
 
-## Baut den Bildschirm-Inhalt: Casino-Filz als Grund und die Kombinationsliste
-## als Zellen-Bänder.
 func _build_content() -> void:
-	# Grundfläche = Casino-Filz (siehe table_felt.gdshader): alles außerhalb
-	# der "Fenster" liest sich als matter violetter Stoff; die Fenster-Panels
-	# (Glasscheiben) liegen darüber und spiegeln als einzige (siehe
-	# _sync_reflection_windows / screen_glass.gdshader).
+	# Grundfläche = Casino-Filz; die Fenster-Panels darüber spiegeln als einzige.
 	var background := ColorRect.new()
 	background.name = "Background"
 	background.color = BACKGROUND_COLOR  # Rückfall, falls der Shader fehlt
@@ -212,11 +150,8 @@ func _build_content() -> void:
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
-	# Gruben-Fenster: gleicher Look wie alle anderen Tisch-"Fenster" (siehe
-	# window_style). Position/Größe setzt scene_root über place_pit_window
-	# (erst nach attach_to berechenbar) - bis dahin unsichtbar. Bewusst früh
-	# gebaut: liegt über dem Schriftzug, aber HINTER allem, was später
-	# dazukommt (Buttons, Gold-Podeste, Leiterbahnen, Zähler).
+	# Gruben-Fenster: bewusst früh gebaut - hinter allem, was später dazukommt.
+	# Position/Größe setzt scene_root über place_pit_window; bis dahin unsichtbar.
 	pit_window = Panel.new()
 	pit_window.name = "PitWindow"
 	pit_window.visible = false
@@ -224,8 +159,7 @@ func _build_content() -> void:
 	pit_window.add_theme_stylebox_override("panel", window_style())
 	add_child(pit_window)
 
-	# Zellpositionen vorab berechnen, um die Cluster-Ausdehnung zu kennen (der
-	# Neon-Rahmen muss VOR den Zellen hinter sie gelegt werden).
+	# Zellpositionen vorab berechnen - der Neon-Rahmen muss hinter die Zellen.
 	var total := DiceScoring.HAND_PRIORITY.size()
 	var positions: Array[Vector2] = []
 	var bounds := Rect2()
@@ -249,8 +183,7 @@ func _build_content() -> void:
 	_build_goal_bar()
 	_build_pit_score()
 
-	# Hub unter der Grube - Inhalt entsteht erst in place_hub (die Maße leiten
-	# sich aus der endgültigen Größe ab, siehe HubView.layout).
+	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
 	add_child(hub)
@@ -258,9 +191,7 @@ func _build_content() -> void:
 	_build_pit_actions()
 
 ## DER Fenster-Stil des Tisch-Displays: dunkler, leicht durchscheinender Grund
-## + Neon-Rahmen. Jedes "Fenster" auf dem Tisch (Kombi-Cluster, Zielbalken,
-## Gruben-Fenster - und der Hub, siehe HubView mit denselben Farben) trägt
-## diesen einen Look.
+## + Neon-Rahmen - jedes "Fenster" trägt diesen einen Look.
 static func window_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = FRAME_BG
@@ -269,7 +200,6 @@ static func window_style() -> StyleBoxFlat:
 	style.set_corner_radius_all(10)
 	return style
 
-## Neon-Rahmen mit dezent abgesetztem Hintergrund um den ganzen Cluster.
 func _add_cluster_frame(rect: Rect2) -> void:
 	var frame := Panel.new()
 	frame.name = "ClusterFrame"
@@ -280,10 +210,8 @@ func _add_cluster_frame(rect: Rect2) -> void:
 	add_child(frame)
 	cluster_frame = frame
 
-## Spannt das Gruben-Fenster über rect auf (Pixel): scene_root übergibt exakt
-## die Weltmaße der Energiewände (DicePit.PIT_HALF_*), corner_radius ist deren
-## Eckenrundung (DicePit.CORNER_RADIUS) in Pixeln - der Rahmen ZEICHNET die
-## Kollisionslinie der Wände nach.
+## Spannt das Gruben-Fenster über rect auf: der Rahmen zeichnet exakt die
+## Kollisionslinie der Energiewände nach (Radius = DicePit.CORNER_RADIUS in px).
 func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	pit_window.position = rect.position
 	pit_window.size = rect.size
@@ -292,11 +220,8 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	pit_window.visible = true
 	_sync_reflection_windows()
 
-## Meldet dem Display-Glas (siehe screen_glass.gdshader) die aktuellen
-## Fenster-Rechtecke samt Eckenradius: NUR dort spiegelt das Glas, der Filz
-## dazwischen bleibt matt. Nach jedem place_* neu aufgerufen; solange kein
-## Glas anliegt (attach_to fehlt, z.B. headless ohne Screen-Mesh), passiert
-## nichts.
+## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
+## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
 func _sync_reflection_windows() -> void:
 	if _glass_material == null:
 		return
@@ -323,11 +248,8 @@ func _sync_reflection_windows() -> void:
 	_glass_material.set_shader_parameter("window_rects", rects)
 	_glass_material.set_shader_parameter("window_radius", radii)
 
-## Verschiebt den ganzen Kombi-Cluster (Rahmen + alle Zellen), so dass seine
-## Mitte auf center_px landet - scene_root ruft das nach attach_to mit der
-## Pixelposition des Editor-Ankers CombosBlock auf (siehe ScreenAnchors), damit
-## sich der Block im Editor frei positionieren lässt. cluster_rect (Grundlage von
-## Kamera-Zoom und Klickzone) wandert mit.
+## Verschiebt den ganzen Kombi-Cluster (Rahmen + Zellen) mittig auf center_px
+## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.
 func place_combo_cluster(center_px: Vector2) -> void:
 	var delta := center_px - cluster_rect.get_center()
 	if cluster_frame != null:
@@ -349,8 +271,6 @@ func _add_combo_cell(key: String, at: Vector2) -> void:
 
 ## --- Rundenziel-Balken -------------------------------------------------------
 
-## Baut den Balken an einer neutralen Standardposition - scene_root schiebt ihn
-## nach attach_to unter das angedockte Warteschlangen-Tray (place_goal_bar).
 func _build_goal_bar() -> void:
 	goal_bar = Panel.new()
 	goal_bar.name = "GoalBar"
@@ -377,19 +297,16 @@ func _build_goal_bar() -> void:
 	goal_bar.add_child(goal_bar_label)
 	set_goal_progress(0, 1)
 
-## Zentriert den Balken auf das gegebene Display-Pixel (siehe scene_root._ready:
-## world_to_pixel unter dem Warteschlangen-Dock).
+## Zentriert den Balken auf das gegebene Display-Pixel.
 func place_goal_bar(center_px: Vector2) -> void:
 	goal_bar.position = center_px - GOAL_BAR_SIZE / 2.0
 	_sync_reflection_windows()
 
-## Schreibt Punktestand/Ziel neu und füllt den Balken anteilig (geklemmt).
 func set_goal_progress(points: int, goal: int) -> void:
 	var fraction := clampf(float(points) / float(maxi(1, goal)), 0.0, 1.0)
 	goal_bar_fill.size.x = (GOAL_BAR_SIZE.x - GOAL_BAR_INSET * 2.0) * fraction
 	goal_bar_label.text = "%d / %d" % [points, goal]
 
-## Kurzer elastischer Pop des Balkens - z.B. wenn die Gesamtzahl einschlägt.
 func pulse_goal_bar() -> void:
 	goal_bar.scale = Vector2(1.18, 1.18)
 	var tween := create_tween()
@@ -399,8 +316,6 @@ func pulse_goal_bar() -> void:
 ## --- Wertungszahlen & Goldlicht der Zähl-Animation ----------------------------
 
 func _build_pit_score() -> void:
-	# Daueranzeige: beide Zähler immer sichtbar, starten auf 0 (siehe
-	# scene_root._refresh_ui); scene_root._ready setzt danach ihre Anker-Position.
 	base_counter = _make_counter("BaseCounter", PitScoreView.BASE_COLOR)
 	mult_counter = _make_counter("MultCounter", PitScoreView.MULT_COLOR)
 
@@ -412,7 +327,6 @@ func _build_pit_score() -> void:
 	pit_total_label.visible = false
 	add_child(pit_total_label)
 
-## Ein einzelner Wertungszähler (Basis/Mult), zentriert auf seinem Anker.
 func _make_counter(node_name: String, counter_color: Color) -> PitScoreView:
 	var counter := PitScoreView.new()
 	counter.name = node_name
@@ -423,9 +337,7 @@ func _make_counter(node_name: String, counter_color: Color) -> PitScoreView:
 	add_child(counter)
 	return counter
 
-## Setzt Größe und Mitte BEIDER Zähler (zur Laufzeit aus den Anker-Weltpositionen
-## abgeleitet, siehe scene_root._ready) - Basis- und Mult-Anker sind getrennt, die
-## Zähler zentrieren sich jeweils auf ihrem eigenen Anker.
+## Setzt Größe und Mitte BEIDER Zähler (aus den Anker-Weltpositionen).
 func configure_pit_score(base_center_px: Vector2, mult_center_px: Vector2, new_size: Vector2) -> void:
 	_place_counter(base_counter, base_center_px, new_size)
 	_place_counter(mult_counter, mult_center_px, new_size)
@@ -436,9 +348,8 @@ func _place_counter(counter: PitScoreView, center_px: Vector2, new_size: Vector2
 	counter.position = center_px - new_size / 2.0
 	counter.queue_redraw()
 
-## Setzt Basis + Mult der Daueranzeige - mit kleinem Pop nur auf dem jeweils
-## GEÄNDERTEN Zähler, und nur bei echter Änderung (wird auch aus _refresh_ui
-## wiederholt gerufen). Blendet eine evtl. noch stehende Gesamtzahl wieder aus.
+## Setzt Basis + Mult - Pop nur auf dem GEÄNDERTEN Zähler und nur bei echter
+## Änderung (wird wiederholt gerufen). Blendet eine stehende Gesamtzahl aus.
 func update_pit_score(base: int, mult: int) -> void:
 	if base_counter.visible and base_counter.value == base and mult_counter.value == mult:
 		return
@@ -452,16 +363,12 @@ func update_pit_score(base: int, mult: int) -> void:
 		mult_counter.set_value(mult)
 		_pop(mult_counter, 1.12)
 
-## Kurzer Pop BEIDER Zähler ohne Wertänderung - für die Ankunft der Kombi-
-## Leiterbahnen (die Kombi-Werte stehen meist schon seit dem Ausrollen drin,
-## der Pop macht die Verbindung trotzdem spürbar, siehe scene_root).
+## Pop BEIDER Zähler ohne Wertänderung (Ankunft der Kombi-Leiterbahnen).
 func pulse_pit_score() -> void:
 	_pop(base_counter, 1.12)
 	_pop(mult_counter, 1.12)
 
-## Verschmilzt die beiden Seiten-Zahlen zur Gesamtzahl: die Seiten-Zahlen
-## verschwinden, die Gesamtzahl erscheint groß AM Zielbalken über der Grube
-## (nicht in der Grubenmitte - dort läge sie hinter dem Käfig).
+## Verschmilzt die Seiten-Zahlen zur Gesamtzahl am Zielbalken.
 func show_pit_total(total: int) -> void:
 	base_counter.visible = false
 	mult_counter.visible = false
@@ -472,8 +379,7 @@ func show_pit_total(total: int) -> void:
 	pit_total_label.position = goal_bar.position + goal_bar.size / 2.0 - pit_total_label.size / 2.0
 	_pop(pit_total_label, 1.4)
 
-## Setzt die Daueranzeige still auf 0 / 0 zurück und blendet die Gesamtzahl aus
-## (ohne Pop) - z.B. nach dem Einschlag in den Zielbalken oder bei einem Reset.
+## Setzt die Daueranzeige still auf 0 / 0 und blendet die Gesamtzahl aus.
 func reset_pit_score() -> void:
 	pit_total_label.visible = false
 	base_counter.visible = true
@@ -481,9 +387,8 @@ func reset_pit_score() -> void:
 	base_counter.set_value(0)
 	mult_counter.set_value(0)
 
-## Lässt die (schon am Balken stehende) Gesamtzahl in den Zielbalken schrumpfen
-## und ausblenden; der Balken pocht beim Einschlag. Liefert den Tween, damit der
-## Aufrufer auf finished warten kann.
+## Lässt die Gesamtzahl in den Zielbalken schrumpfen; der Balken pocht beim
+## Einschlag. Liefert den Tween (für await finished).
 func fly_total_to_goal(duration: float) -> Tween:
 	var target := goal_bar.position + goal_bar.size / 2.0 - pit_total_label.size / 2.0
 	var tween := create_tween()
@@ -493,32 +398,26 @@ func fly_total_to_goal(duration: float) -> Tween:
 	tween.tween_property(pit_total_label, "scale", Vector2(0.4, 0.4), duration)
 	tween.tween_property(pit_total_label, "modulate:a", 0.0, duration)
 	tween.chain().tween_callback(func() -> void:
-		pit_total_label.modulate = PitScoreView.TOTAL_COLOR  # für den nächsten Einsatz zurücksetzen
+		pit_total_label.modulate = PitScoreView.TOTAL_COLOR
 		pit_total_label.scale = Vector2.ONE
 		reset_pit_score()
 		pulse_goal_bar())
 	return tween
 
-## Schwebende Zuwachs-Zahl der Zähl-Animation: der GENAUE Betrag, der gerade zu
-## Basis/Mult/Gesamtzahl addiert wird (z.B. "+3" oder "×2"), steigt an from_px
-## aus dem Würfel auf und gleitet ausblendend nach unten weg (siehe
-## scene_root._spawn_score_gains). Rein schmückend - die maßgeblichen Zahlen
-## laufen weiter über die Zähler (update_pit_score). Räumt sich selbst weg.
+## Schwebende Zuwachs-Zahl der Zähl-Animation ("+3", "×2"): steigt aus dem
+## Würfel auf und gleitet ausblendend nach unten weg. Rein schmückend -
+## die maßgeblichen Zahlen laufen über die Zähler. Räumt sich selbst weg.
 const GAIN_FONT := 19 * SUPERSAMPLE
-const GAIN_DRIFT := 170.0 * SUPERSAMPLE  # Gleitweg nach unten (Display-Pixel = Bildschirm-unten)
-const GAIN_TIME := 1.6  # Lebensdauer der schwebenden Zahl (langsames Absinken)
-const GAIN_OUTLINE := Color(0.05, 0.03, 0.08)  # dunkler Umriss für Lesbarkeit
-## Bewegungs-Unschärfe: HINTER der Zahl läuft ein durchgehender Farbschleier mit,
-## der am Glyph voll deckt und zum Schwanz hin ausläuft (vertikaler Verlauf) -
-## eine KONTINUIERLICHE Schleppe statt einzelner Nachbilder. Der Schleier folgt
-## dem Kopf und ist auf GAIN_BLUR_LENGTH Länge begrenzt (kurze Unschärfe).
-const GAIN_BLUR_LENGTH := 55.0 * SUPERSAMPLE  # Länge der Unschärfe-Schleppe
-const GAIN_BLUR_WIDTH := 0.8   # Breite der Schleppe als Anteil der Zahlbreite
-const GAIN_BLUR_ALPHA := 0.6   # Grunddeckkraft der Schleppe (× Verlauf)
+const GAIN_DRIFT := 170.0 * SUPERSAMPLE
+const GAIN_TIME := 1.6
+const GAIN_OUTLINE := Color(0.05, 0.03, 0.08)
+## Bewegungs-Unschärfe: kontinuierlicher Farbschleier hinter der Zahl (am
+## Glyph deckend, zum Schwanz auslaufend), begrenzt auf GAIN_BLUR_LENGTH.
+const GAIN_BLUR_LENGTH := 55.0 * SUPERSAMPLE
+const GAIN_BLUR_WIDTH := 0.8   # Anteil der Zahlbreite
+const GAIN_BLUR_ALPHA := 0.6
 
-## Geteilter vertikaler Verlauf der Unschärfe-Schleppe (weiß, oben transparent →
-## unten deckend) - über modulate eingefärbt, einmalig gebaut.
-var _gain_blur_texture: GradientTexture2D
+var _gain_blur_texture: GradientTexture2D  # geteilter Verlauf, einmalig gebaut
 
 func spawn_gain_number(from_px: Vector2, text: String, color: Color) -> void:
 	var label := _make_gain_label(text, color)
@@ -529,14 +428,12 @@ func spawn_gain_number(from_px: Vector2, text: String, color: Color) -> void:
 	label.pivot_offset = label.size / 2.0
 	var start := from_px - label.size / 2.0
 	label.position = start
-	label.scale = Vector2.ONE * 1.35  # kurzer Aufplopp beim Erscheinen
+	label.scale = Vector2.ONE * 1.35
 	var width := label.size.x * GAIN_BLUR_WIDTH
 	var center_x := start.x + label.size.x / 2.0
 	var half_h := label.size.y / 2.0
 	var tween := create_tween()
 	tween.set_parallel(true)
-	# Absinken UND Schleier-Nachführung in einem: die Methode setzt die y-Position
-	# der Zahl und zieht den Schleier von der aktuellen Kopfhöhe nach oben aus.
 	tween.tween_method(
 		func(dist: float) -> void: _advance_gain_number(label, streak, start, center_x, width, half_h, dist),
 		0.0, GAIN_DRIFT, GAIN_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -550,17 +447,15 @@ func spawn_gain_number(from_px: Vector2, text: String, color: Color) -> void:
 		label.queue_free()
 		streak.queue_free())
 
-## Rückt die schwebende Zahl auf ihre Gleithöhe (start.y + dist) und spannt den
-## Unschärfe-Schleier von der Kopfmitte um bis zu GAIN_BLUR_LENGTH nach oben auf.
+## Rückt die Zahl auf ihre Gleithöhe und spannt den Schleier von der Kopfmitte
+## um bis zu GAIN_BLUR_LENGTH nach oben auf.
 func _advance_gain_number(label: Label, streak: TextureRect, start: Vector2, center_x: float, width: float, half_h: float, dist: float) -> void:
 	label.position.y = start.y + dist
-	var bottom := start.y + dist + half_h  # Kopfmitte (deckendes Ende des Verlaufs)
+	var bottom := start.y + dist + half_h
 	var top := maxf(start.y + half_h, bottom - GAIN_BLUR_LENGTH)
 	streak.position = Vector2(center_x - width / 2.0, top)
 	streak.size = Vector2(width, maxf(bottom - top, 1.0))
 
-## Baut den Unschärfe-Schleier (TextureRect mit geteiltem vertikalem Verlauf),
-## in der Farbe der Zahl (überhell → blüht wie die Zahl selbst).
 func _make_gain_blur(color: Color) -> TextureRect:
 	if _gain_blur_texture == null:
 		var gradient := Gradient.new()
@@ -569,7 +464,7 @@ func _make_gain_blur(color: Color) -> TextureRect:
 		_gain_blur_texture = GradientTexture2D.new()
 		_gain_blur_texture.gradient = gradient
 		_gain_blur_texture.fill_from = Vector2(0, 0)  # oben (Schwanz) transparent
-		_gain_blur_texture.fill_to = Vector2(0, 1)     # unten (Kopf) deckend
+		_gain_blur_texture.fill_to = Vector2(0, 1)    # unten (Kopf) deckend
 		_gain_blur_texture.width = 8
 		_gain_blur_texture.height = 64
 	var streak := TextureRect.new()
@@ -579,7 +474,6 @@ func _make_gain_blur(color: Color) -> TextureRect:
 	streak.modulate = Color(color.r, color.g, color.b, GAIN_BLUR_ALPHA)
 	return streak
 
-## Baut ein Zahl-Label im Zuwachs-Stil (Farbe + dunkler Umriss, klickneutral).
 func _make_gain_label(text: String, color: Color) -> Label:
 	var label := Label.new()
 	label.text = text
@@ -590,10 +484,8 @@ func _make_gain_label(text: String, color: Color) -> Label:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
-## Ein goldenes, abgerundetes Leucht-RECHTECK auf dem Display - liegt während
-## der Zähl-Animation als "Podest" unter jedem zählenden Würfel (der Würfel sitzt
-## mittig darauf). side_px = Kantenlänge (scene_root ~150% der Würfelgröße). Der
-## Aufrufer hält und entsorgt die Knoten (siehe scene_root._cleanup_take_animation).
+## Goldenes Leucht-Podest unter einem zählenden/ausgewählten Würfel.
+## side_px = Kantenlänge; der Aufrufer hält und entsorgt die Knoten.
 func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	var glow := Panel.new()
 	glow.size = Vector2(side_px, side_px)
@@ -601,7 +493,7 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	glow.pivot_offset = glow.size / 2.0
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = GLOW_COLOR  # überhelles Gold (bloomt dank use_hdr_2d) - Zählen wie Auswahl
+	box.bg_color = GLOW_COLOR
 	box.set_corner_radius_all(int(side_px * 0.22))
 	glow.add_theme_stylebox_override("panel", box)
 	glow.modulate = Color(1, 1, 1, 0)
@@ -610,18 +502,10 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	tween.tween_property(glow, "modulate:a", 1.0, 0.25)
 	return glow
 
-## Lässt eine LEITERBAHN von from_px zur Zahl aufleuchten, die gerade wächst
-## (target: "base"/"mult"/"total" - Cyan in die Basis, Gold in Mult/Gesamtzahl):
-## eine feste, rein achsenparallele Strecke (senkrecht aus der Quelle heraus,
-## dann waagerecht ins Ziel - siehe _orthogonal_path/ScoreTraceView), die Quelle
-## und Zähler für einen Moment sichtbar verbindet. Quellen außerhalb des
-## Displays (z.B. die Charm-Reihe hinter der Oberkante) werden an den Rand
-## geklemmt - die Bahn kommt dann sichtbar "aus ihrer Richtung". Räumt sich
-## selbst weg; der Aufrufer wartet SCORE_TRAIL_TIME, bevor er die Zahl hochsetzt
-## (der Moment, in dem die Bahn das Ziel erreicht, siehe scene_root).
+## Leiterbahn von from_px zur wachsenden Zahl (target: "base"/"mult"/"total").
+## Quellen außerhalb des Displays werden an den Rand geklemmt. Räumt sich
+## selbst weg; der Aufrufer wartet die Trail-Zeit ab, bevor die Zahl steigt.
 func spawn_score_trail(from_px: Vector2, target: String, duration: float) -> void:
-	# "total" führt zur Gesamtzahl am Balken (über der Grube), Basis/Mult in die
-	# jeweilige Zähler-Zahl (siehe PitScoreView.value_anchor).
 	var to_px: Vector2
 	if target == "total":
 		to_px = goal_bar.position + goal_bar.size / 2.0
@@ -631,33 +515,23 @@ func spawn_score_trail(from_px: Vector2, target: String, duration: float) -> voi
 	var color := TRAIL_BASE_COLOR if target == "base" else TRAIL_MULT_COLOR
 	spawn_trace(from_px, to_px, color, duration)
 
-## Allgemeine Leiterbahn zwischen zwei Display-Punkten (achsenparallele Treppe,
-## siehe _orthogonal_path/ScoreTraceView) - auch für Bahnen außerhalb der
-## Zähl-Animation, z.B. Coupon -> schwebender Würfel in der Gravur-Zeremonie
-## (siehe scene_root._on_engraving_applied).
+## Allgemeine Leiterbahn zwischen zwei Display-Punkten (achsenparallele Treppe).
 func spawn_trace(from_px: Vector2, to_px: Vector2, color: Color, duration: float) -> void:
 	from_px = from_px.clamp(Vector2.ONE * TRAIL_MARGIN, Vector2(size) - Vector2.ONE * TRAIL_MARGIN)
 	var trace := ScoreTraceView.new()
 	add_child(trace)
 	trace.setup(_orthogonal_path(from_px, to_px), color, TRACE_CORE_WIDTH, TRACE_GLOW_WIDTH, duration)
 
-## Die feste Leiterbahn-Strecke zwischen Quelle und Ziel: nur waagerechte und
-## senkrechte Segmente (keine Schrägen), als TREPPE in drei Stufen - erst ein
-## kurzes Stück SENKRECHT aus der Quelle heraus (TRACE_RISE, über die
-## Nachbar-Würfel hinweg), dann WAAGERECHT auf die Ziel-Spalte, dann wieder
-## SENKRECHT ins Ziel hinein. Die Querstrecke läuft so knapp über den Würfeln
-## statt auf Zähler-Höhe - sie kreuzt weder den Punktebalken noch die anderen
-## Würfel; und der letzte Hub steigt in der Ziel-Spalte (neben dem Balken) in
-## den Zähler ein. Liegen Quelle und Ziel schon auf einer Achse, reicht die
-## gerade Linie.
+## Treppe in drei Stufen: senkrecht aus der Quelle (TRACE_RISE, über die
+## Nachbar-Würfel), waagerecht auf die Ziel-Spalte, senkrecht ins Ziel.
+## Liegen Quelle und Ziel auf einer Achse, reicht die gerade Linie.
 func _orthogonal_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 	var path := PackedVector2Array()
 	path.append(from_px)
 	if absf(to_px.x - from_px.x) <= 1.0 or absf(to_px.y - from_px.y) <= 1.0:
 		path.append(to_px)
 		return path
-	# Hub in Zielrichtung, aber höchstens bis zur halben Strecke (kein Überschwingen
-	# über die Zielhöhe hinaus - die Treppe steigt immer NUR Richtung Ziel).
+	# Hub Richtung Ziel, höchstens bis zur halben Strecke (kein Überschwingen).
 	var direction := signf(to_px.y - from_px.y)
 	var lane_y := from_px.y + direction * minf(TRACE_RISE, absf(to_px.y - from_px.y) * 0.5)
 	path.append(Vector2(from_px.x, lane_y))
@@ -665,18 +539,13 @@ func _orthogonal_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 	path.append(to_px)
 	return path
 
-## Spannt den Hub auf: Mitte + Größe in Display-Pixeln (zur Laufzeit aus dem
-## Editor-Anker ScreenAnchors/Hub und den HUB_*_WORLD-Maßen abgeleitet, siehe
-## scene_root._ready). Baut danach den Inhalt (siehe HubView.layout).
+## Spannt den Hub auf (Mitte + Größe in Display-Pixeln) und baut den Inhalt.
 func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 	hub.size = size_px
 	hub.position = center_px - size_px / 2.0
 	hub.layout()
 	_sync_reflection_windows()
 
-## Baut die beiden Grubenaktions-Buttons (verdeckt/an Standardplatz, bis
-## place_pit_actions sie mittig setzt). Die Trägerfläche schluckt selbst keine
-## Klicks (MOUSE_FILTER_IGNORE); nur die Buttons fangen ihre eigenen.
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()
 	pit_actions_root.name = "PitActions"
@@ -692,9 +561,8 @@ func _build_pit_actions() -> void:
 	roll_action_button.position = Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.add_child(roll_action_button)
 
-## Ein satter Neon-Button im Casino-Look, aber mit supersampled-skalierten Rändern/
-## Radien (CasinoStyle rechnet in Fenster-Pixeln; auf dem großen Display wären die
-## festen 3px-Ränder sonst fast unsichtbar). Farben/Textkontrast aus CasinoStyle.
+## Neon-Button im Casino-Look mit supersampled-skalierten Rändern/Radien
+## (CasinoStyle rechnet in Fenster-Pixeln - 3px wären hier fast unsichtbar).
 func _make_pit_button(text: String, accent: Color, dark: Color) -> Button:
 	var button := Button.new()
 	button.text = text
@@ -727,43 +595,36 @@ func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 2) * SUPERSAMPLE
 	return box
 
-## Setzt die Aktions-Buttons mittig auf center_px (Display-Pixel; scene_root
-## leitet das aus der Grubengeometrie ab - unten mittig in der Grube).
+## Setzt die Aktions-Buttons mittig auf center_px.
 func place_pit_actions(center_px: Vector2) -> void:
 	if pit_actions_root == null:
 		return
 	pit_actions_root.position = center_px - pit_actions_root.size / 2.0
 
-## Bildschirm-Rechteck der Aktions-Buttons (für die Maus-Weiterleitung in der
-## Grubenansicht, siehe scene_root._screen_input_rect).
+## Bildschirm-Rechteck der Aktions-Buttons (für die Maus-Weiterleitung).
 func pit_actions_rect() -> Rect2:
 	if pit_actions_root == null:
 		return Rect2()
 	return Rect2(pit_actions_root.position, pit_actions_root.size)
 
-## Schneidet einen Kamerastrahl (Ursprung + Richtung, siehe scene_root:
-## _forward_screen_mouse) mit der Tischbildschirm-Ebene und liefert den
-## getroffenen Display-Pixel - oder (-1,-1), wenn der Strahl die Ebene verfehlt
-## oder außerhalb der Screen-Fläche auftrifft. Kein Physik-Raycast nötig: die
-## Ebene (Höhe _surface_y) und die Weltgrenzen sind aus attach_to bekannt.
+## Schneidet einen Kamerastrahl mit der Bildschirm-Ebene und liefert den
+## Display-Pixel - (-1,-1) bei Verfehlen oder außerhalb der Fläche.
 func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 	if absf(direction.y) < 0.0001:
 		return Vector2(-1, -1)  # Strahl (fast) parallel zur Tischebene
 	var t := (_surface_y - origin.y) / direction.y
 	if t <= 0.0:
-		return Vector2(-1, -1)  # Ebene liegt hinter der Kamera
+		return Vector2(-1, -1)  # Ebene hinter der Kamera
 	var hit := origin + direction * t
 	var pixel := world_to_pixel(hit)
 	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
 		return Vector2(-1, -1)
 	return pixel
 
-## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite) - für
-## Radien/Größen, die in Weltmaßen gedacht sind (siehe scene_root: Glow-Radius).
+## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite).
 func pixels_per_world() -> float:
 	return float(size.x) / _z_span
 
-## Kurzer elastischer Größen-Pop eines Display-Elements (Pivot = Mitte).
 func _pop(control: Control, strength: float) -> void:
 	control.scale = Vector2.ONE * strength
 	var tween := create_tween()

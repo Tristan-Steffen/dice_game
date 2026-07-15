@@ -1,59 +1,43 @@
 class_name CameraRig
 extends Camera3D
-## Spielkamera: feste Übersichtsposition mit leicht begrenztem Rundschauen
-## per Maus (nur Blickrichtung, keine Bewegung über die Karte hinweg), plus
-## drei Zoom-Ziele (Würfelgrube, Pool-Tray, Ablage-Tray). Ein Linksklick auf
-## eines dieser Ziele fährt die Kamera näher heran; ein Rechtsklick springt
-## zur Übersicht zurück. Auch im Zoom bleibt ein leichtes Rundschauen möglich -
-## mit deutlich kleinerem Winkelbereich, damit das Ziel im Blick bleibt.
+## Spielkamera: feste Übersicht mit begrenztem Maus-Rundschauen plus
+## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
+## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB }
 
-## Wird ausgelöst, sobald sich der Modus ändert (zoom_to/zoom_out) - dient
-## z.B. dazu, die Spiel-UI nur einzublenden, wenn die Grube fokussiert ist.
 signal mode_changed(new_mode: Mode)
 
-const TILT_MAX_UP_DEGREES := 5.0  # Freiheit nach oben (von der Übersicht aus)
-const TILT_MAX_DOWN_DEGREES := 5.0  # Freiheit nach unten, Richtung Tisch/Grube
+const TILT_MAX_UP_DEGREES := 5.0
+const TILT_MAX_DOWN_DEGREES := 5.0
 const TILT_MAX_YAW_DEGREES := 5.0
-# Leichtes Rundschauen im Zoom: bewusst kleine Winkel, damit die Kamera nah
-# an der eingerichteten Ziel-Ausrichtung bleibt.
+# Im Zoom bewusst kleine Winkel, damit das Ziel im Blick bleibt.
 const ZOOM_TILT_MAX_PITCH_DEGREES := 5.0
 const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
-## Nach dem Freigeben einer Tilt-Sperre (Ende einer Würfel-Dreh-Geste, siehe
-## set_tilt_locked): die Kamera bleibt erst TILT_RESUME_HOLD Sekunden stehen und
-## blendet das Rundschauen dann über TILT_RESUME_EASE Sekunden sanft wieder ein -
-## kein harter Sprung zur Mausposition.
-const TILT_RESUME_HOLD := 0.25
+## Nach dem Freigeben einer Tilt-Sperre: erst TILT_RESUME_HOLD stehen bleiben,
+## dann über TILT_RESUME_EASE sanft wieder einblenden - kein harter Sprung.
+const TILT_RESUME_HOLD := 0.5
 const TILT_RESUME_EASE := 0.5
 
-## EINE gemeinsame Zoom-Distanz für ALLE Ziele - zusammen mit der gemeinsamen
-## ZOOM_BASIS steht die Kamera damit bei jedem Zoom in derselben Höhe und im
-## selben Winkel über ihrem Ziel (nur der Zielpunkt wandert). Breite Ziele wie
-## die Charm-Reihe zeigen dann ihre Mitte; der Rest lässt sich per leichtem
-## Rundschauen (ZOOM_TILT_MAX_*) einsehen.
+## EINE Zoom-Distanz für alle Ziele: zusammen mit ZOOM_BASIS steht die Kamera
+## bei jedem Zoom in derselben Höhe und im selben Winkel, nur das Ziel wandert.
 const ZOOM_DISTANCE := 20.0
 
-## Zoom-Blickpunkte. Nur Rückfall-Standardwerte: scene_root überschreibt sie in
-## _ready aus den echten Weltpositionen (siehe configure_*_target), damit ein
-## Verschieben im Editor den Zoom automatisch mitnimmt, ohne die Koordinaten
-## doppelt zu pflegen. ALLE Zoom-Ziele nutzen dieselbe Ausrichtung ZOOM_BASIS
-## (Ablage-Winkel) - nur Ziel + Distanz unterscheiden sich.
-var pool_target := Vector3(-23.75, 0.4, 12)  # Mittelpunkt zwischen PoolTrayView und QueueTrayView
-var discard_target := Vector3(-26, 0.4, -12)  # DiscardTrayView
-var combos_target := Vector3(-8, 0, 0)  # Kombi-Cluster auf dem Tisch-Display
-var pit_target := Vector3.ZERO  # Grubenmitte (DicePit.PIT_CENTER)
-var charms_target := Vector3(24, 0, 0)  # Mitte der Charm-Reihe
-var hub_target := Vector3(-24, 0, 0)  # Hub-Fläche unter der Grube (siehe HubView)
+## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
+## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
+## Zoom automatisch mitnehmen.
+var pool_target := Vector3(-23.75, 0.4, 12)
+var discard_target := Vector3(-26, 0.4, -12)
+var combos_target := Vector3(-8, 0, 0)
+var pit_target := Vector3.ZERO
+var charms_target := Vector3(24, 0, 0)
+var hub_target := Vector3(-24, 0, 0)
 
-## Feste, steile Draufsicht für ALLE Zoom-Ziele (Grube/Trays/Kombis/Charms) -
-## unabhängig von der frei im Editor einstellbaren (flacheren) Übersichts-Kamera,
-## damit alles beim Heranzoomen aus derselben Vogelperspektive gezeigt wird (der
-## Blickwinkel der Ablage). Entspricht der ursprünglichen Übersichts-Ausrichtung
-## (Basis-Achsen als Spalten, nicht als Zeilen der Transform3D-Zahlenliste!).
+## Feste, steile Draufsicht für ALLE Zoom-Ziele, unabhängig von der flacheren
+## Übersichts-Kamera (Basis-Achsen als Spalten!).
 const ZOOM_BASIS := Basis(
 	Vector3(-4.371139e-08, 0.0, 1.0),
 	Vector3(0.9659258, 0.25881907, 4.222196e-08),
@@ -64,29 +48,21 @@ const ZOOM_FORWARD := Vector3(0.25881907, -0.9659258, 1.1313341e-08)  # = -ZOOM_
 var base_basis: Basis
 var base_origin: Vector3
 
-# Ruhelage des aktuellen Modus, um die herum das Rundschauen pendelt: in der
-# Übersicht base_basis/base_origin, im Zoom die jeweilige Ziel-Ausrichtung.
+# Ruhelage des aktuellen Modus, um die das Rundschauen pendelt.
 var anchor_basis: Basis
 var anchor_origin: Vector3
 
 var mode: Mode = Mode.OVERVIEW
 var is_animating: bool = false
-## Solange gesetzt, hält die Kamera ihre aktuelle Ausrichtung und ignoriert das
-## Maus-Rundschauen - z.B. während der Spieler die Würfel-Projektion in der
-## Gravur-Station dreht (siehe DieInspectorView.rotating_die/scene_root), damit
-## die Ziehbewegung nicht zugleich die Kamera schwenkt.
+## Solange gesetzt, hält die Kamera ihre Ausrichtung (z.B. während der Spieler
+## die Würfel-Projektion dreht), damit die Geste nicht zugleich den Blick schwenkt.
 var tilt_locked: bool = false
-var tilt_offset := Vector2.ZERO  # aktuelle geglättete Blickabweichung (Grad: x=Pitch, y=Yaw)
-## Nachlauf nach dem Freigeben der Sperre: Zeit seit der Freigabe (Sekunden);
-## < 0 heißt "kein Nachlauf, Rundschauen voll aktiv". _frozen_offset ist die
-## Blickabweichung im Moment der Freigabe, aus der heraus über Halte- + Ease-
-## Phase auf das lebende Rundschauen geblendet wird (siehe _process).
+var tilt_offset := Vector2.ZERO  # geglättete Blickabweichung (Grad: x=Pitch, y=Yaw)
+## Nachlauf nach dem Entsperren: Zeit seit Freigabe (< 0 = kein Nachlauf).
 var _tilt_resume_time := -1.0
 var _frozen_offset := Vector2.ZERO
-## Zuletzt TATSÄCHLICH auf die Kamera angewandte Blickabweichung (nach Nachlauf-
-## Blende). Weicht während eines Nachlaufs von tilt_offset ab (das schon zur Maus
-## vorläuft) - beim erneuten Sperren MUSS von HIER eingefroren werden, sonst
-## springt die Kamera beim nächsten Loslassen auf das vorgelaufene tilt_offset.
+## Zuletzt TATSÄCHLICH angewandte Abweichung - beim erneuten Sperren muss von
+## hier eingefroren werden, nicht vom vorgelaufenen tilt_offset (sonst Sprung).
 var _applied_offset := Vector2.ZERO
 
 var active_tween: Tween
@@ -111,20 +87,17 @@ func _process(delta: float) -> void:
 	var pitch_max: float
 	var yaw_max: float
 	if mode == Mode.OVERVIEW:
-		# ny > 0 heißt Maus in der unteren Bildhälfte -> Blick nach unten Richtung
-		# Tisch; dafür steht ein größerer Winkelbereich zur Verfügung als nach oben.
+		# ny > 0 = Maus unten -> Blick Richtung Tisch (eigener Winkelbereich).
 		pitch_max = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
 		yaw_max = TILT_MAX_YAW_DEGREES
 	else:
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
 	var target_tilt := Vector2(-ny * pitch_max, -nx * yaw_max)
-	# Das lebende Rundschauen verfolgt die Maus wie immer weiter ...
 	tilt_offset = tilt_offset.lerp(target_tilt, clamp(delta * TILT_SMOOTHING, 0.0, 1.0))
 
-	# ... im Nachlauf nach einer Sperre wird aber vom eingefrorenen Blick sanft
-	# darauf geblendet: erst TILT_RESUME_HOLD halten (gain 0), dann über
-	# TILT_RESUME_EASE weich einblenden (gain 0->1) - kein Sprung zur Maus.
+	# Im Nachlauf vom eingefrorenen Blick sanft auf das lebende Rundschauen
+	# blenden: halten (gain 0), dann weich einblenden (gain 0->1).
 	var applied := tilt_offset
 	if _tilt_resume_time >= 0.0:
 		_tilt_resume_time += delta
@@ -133,71 +106,53 @@ func _process(delta: float) -> void:
 			gain = 0.0
 		elif _tilt_resume_time >= TILT_RESUME_HOLD + TILT_RESUME_EASE:
 			gain = 1.0
-			_tilt_resume_time = -1.0  # Nachlauf beendet, wieder voll frei
+			_tilt_resume_time = -1.0
 		else:
 			gain = smoothstep(0.0, 1.0, (_tilt_resume_time - TILT_RESUME_HOLD) / TILT_RESUME_EASE)
 		applied = _frozen_offset.lerp(tilt_offset, gain)
 
-	_applied_offset = applied  # Merke die gezeigte Abweichung für ein erneutes Sperren
+	_applied_offset = applied
 	var yaw := Basis(anchor_basis.y, deg_to_rad(applied.y))
 	var pitch := Basis(anchor_basis.x, deg_to_rad(applied.x))
 	global_transform = Transform3D(yaw * pitch * anchor_basis, anchor_origin)
 
-## Sperrt/entsperrt das Maus-Rundschauen (siehe scene_root beim Drehen der
-## Würfel-Projektion). Beim Entsperren startet der sanfte Nachlauf: erst halten,
-## dann einblenden (siehe _process / TILT_RESUME_*) - nie ein harter Sprung.
+## Sperrt/entsperrt das Maus-Rundschauen; das Entsperren startet den Nachlauf.
 func set_tilt_locked(locked: bool) -> void:
 	if locked:
 		tilt_locked = true
-		_tilt_resume_time = -1.0  # laufenden Nachlauf abbrechen, hart einfrieren
+		_tilt_resume_time = -1.0
 	elif tilt_locked:
 		tilt_locked = false
-		# Von der zuletzt GEZEIGTEN Abweichung aus einblenden - nicht von tilt_offset,
-		# das während eines unterbrochenen Nachlaufs schon zur Maus vorgelaufen ist
-		# (sonst Sprung beim Loslassen mitten im Nachlauf).
 		_frozen_offset = _applied_offset
 		_tilt_resume_time = 0.0
 
-## Hebt eine Sperre SOFORT und ohne Nachlauf auf (Sicherheitsnetz beim Schließen
-## der Gravur-Station, siehe scene_root._end_engraving_ceremony).
+## Hebt eine Sperre SOFORT und ohne Nachlauf auf (Sicherheitsnetz beim
+## Schließen der Gravur-Station).
 func release_tilt_immediately() -> void:
 	tilt_locked = false
 	_tilt_resume_time = -1.0
 
-## Setzt die Zoom-Blickpunkte der beiden Trays aus deren echten Weltpositionen
-## (siehe scene_root._ready). Dadurch folgt der Tray-Zoom automatisch, wenn die
-## Trays im Editor verschoben werden - die Koordinaten leben nur an einer Stelle
-## (im Szenenbaum), nicht zusätzlich hier als Konstanten.
+## Tray-Blickpunkte aus den echten Weltpositionen (Editor bleibt die Quelle).
 func configure_tray_targets(pool: Vector3, discard: Vector3) -> void:
 	pool_target = pool
 	discard_target = discard
 
-## Setzt den Zoom-Blickpunkt des Kombinations-Clusters aus seiner Weltposition
-## (siehe scene_root._ready / TableScreen.pixel_to_world) - folgt so automatisch,
-## wenn sich der Cluster auf dem Display verschiebt.
 func configure_combos_target(target: Vector3) -> void:
 	combos_target = target
 
-## Blickpunkt der Grube (siehe scene_root._ready / DicePit.PIT_CENTER).
 func configure_pit_target(target: Vector3) -> void:
 	pit_target = target
 
-## Blickpunkt der Charm-Reihe (siehe scene_root._ready / CharmRowView-Mitte).
 func configure_charms_target(target: Vector3) -> void:
 	charms_target = target
 
-## Blickpunkt des Hubs (siehe scene_root._setup_hub_zoom / ScreenAnchors/Hub).
 func configure_hub_target(target: Vector3) -> void:
 	hub_target = target
 
-## Fährt die Kamera zum angegebenen Zoom-Ziel. Erneuter Aufruf mit demselben
-## Modus tut nichts (schon dort).
+## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
 		return
-	# ALLE Ziele mit derselben Ausrichtung (ZOOM_BASIS) und derselben Distanz
-	# (ZOOM_DISTANCE) entlang ZOOM_FORWARD - gleiche Höhe UND gleicher Winkel
-	# überall, nur der Zielpunkt unterscheidet sich.
 	var target_point: Vector3
 	match target_mode:
 		Mode.PIT:
@@ -222,7 +177,7 @@ func zoom_to(target_mode: Mode) -> void:
 	tilt_offset = Vector2.ZERO
 	_animate_to(target_origin, ZOOM_BASIS)
 
-## Springt zurück zur Übersicht (No-Op, falls bereits dort).
+## Zurück zur Übersicht; No-Op, falls bereits dort.
 func zoom_out() -> void:
 	if mode == Mode.OVERVIEW:
 		return

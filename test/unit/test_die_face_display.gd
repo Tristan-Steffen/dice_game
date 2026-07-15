@@ -47,8 +47,34 @@ func test_set_edge_tint_highlights_and_set_tint_restores():
 	display.apply_definition(def)
 	display.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
 	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * RotatableDieView.SELECT_FACE_COLOR)
+	# Unschattiert, damit der Rahmen die FLACHE Auswahl-Farbe zeigt (wie die 2D-Chips
+	# und die Ziffern) - nicht beleuchtet+leuchtend nach Pink klemmend.
+	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_UNSHADED,
+		"der hervorgehobene Rahmen wird unschattiert gezeigt")
 	display.set_tint(Color.WHITE)
 	assert_eq(display.edge_material_res.albedo_color, DieMaterial.tint_for(DieMaterial.GOLD) * Color.WHITE)
+	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_PER_PIXEL,
+		"set_tint nimmt die unschattierte Auswahl wieder zurück")
+
+func test_set_face_number_tint_colors_only_that_digit_and_leaves_the_body():
+	# Seiten-Auswahl in der Gravur-Station: nur die ZIFFER der gewählten Seite
+	# leuchtet (set_face_number_tint), der Würfelkörper bleibt neutral.
+	var display := _display()
+	display.apply_definition(DieDefinition.standard())
+	display.set_face_number_tint(2, RotatableDieView.SELECT_FACE_COLOR)
+	assert_eq(display.labels[_axis_for(2)].modulate, RotatableDieView.SELECT_FACE_COLOR,
+		"die gewählte Ziffer leuchtet")
+	assert_eq(display.labels[_axis_for(3)].modulate, DieFaceDisplay.NUMBER_COLOR,
+		"andere Ziffern bleiben dunkel")
+	assert_eq(_face_material(display, 2).albedo_color, DieFaceDisplay.BODY_COLOR,
+		"der Körper der gewählten Seite bleibt neutral")
+
+func test_reset_number_tints_restores_all_digits():
+	var display := _display()
+	display.apply_definition(DieDefinition.standard())
+	display.set_face_number_tint(2, RotatableDieView.SELECT_FACE_COLOR)
+	display.reset_number_tints()
+	assert_eq(display.labels[_axis_for(2)].modulate, DieFaceDisplay.NUMBER_COLOR)
 
 # --- Eigenleuchten (Emission) ---------------------------------------------------
 

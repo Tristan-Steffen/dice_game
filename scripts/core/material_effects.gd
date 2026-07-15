@@ -1,50 +1,22 @@
 class_name MaterialEffects
-## Reine Wirkung der Materialien (siehe DieMaterial) - analog zu CharmEffects:
-## keine Nodes, nur Rechnen. Zwei Träger:
-## - SEITEN-Material (materials[i], siehe DieDefinition.materials): wirkt nur,
-##   wenn genau diese Seite oben liegt UND zur gewerteten Kombination gehört
-##   (participating, siehe DiceScoring.participating_indices).
-## - KANTEN-Material (edge_materials[i], siehe DieDefinition.edge_material):
-##   wirkt für den GANZEN Würfel, egal welche Seite oben liegt - sobald der
-##   Würfel zur Kombination gehört. Gleiche Grundwirkung wie das Seiten-Material;
-##   tragen Seite UND Kanten dasselbe Material, stapeln beide.
-##
-## Quecksilber ist ein RETRIGGER: der Würfel aktiviert sich doppelt (siehe
-## activation_count). Jede Aktivierung zählt die Augen des Würfels UND feuert
-## seine übrigen Material-Effekte (Bernstein/Rubin/Glas-Boni, Gold/Knochen/
-## Glas-Nehmen-Effekte) erneut. Seite und Kanten stapeln multiplikativ
-## (Kanten ×2 und Seite ×2 = vierfach); die Wurf-Effekte der Gold-Kanten
-## (roll_money) zählen nicht als Aktivierung und bleiben unberührt.
-##
-## Zwei Arten von Wirkung, drei Aufrufpunkte:
-## - Wertungs-Boni (base_bonus/mult_bonus): reine Mathematik, von DiceScoring
-##   in die Punktformel eingerechnet - zählen damit auch in der Live-Vorschau
-##   und im Farkle-Vergleich.
-## - Nehmen-Effekte (apply_take_effects): Nebenwirkungen (Geld, dauerhafte
-##   Seitenänderung), die genau EINMAL beim tatsächlichen Nehmen feuern -
-##   gerufen von scene_root, nie aus der Vorschau. Verwirft ein Farkle die
-##   Hand, feuern sie nicht.
-## - Wurf-Effekte (roll_money): Gold-KANTEN zahlen bei jedem Wurf des Würfels
-##   (nicht erst beim Nehmen) - gerufen von scene_root, sobald ein Wurf liegt.
-##
-## values/materials/edge_materials sind parallele Arrays je Wurf-Slot
-## (materials[i] = Material der oben liegenden Seite von Slot i, siehe
-## scene_root._rolled_materials; edge_materials[i] = Kanten-Material des
-## Würfels in Slot i, siehe scene_root._edge_materials).
+## Reine Wirkung der Materialien (siehe DieMaterial). Zwei Träger:
+## SEITEN-Material wirkt nur, wenn die Seite oben liegt UND zur Kombination
+## gehört; KANTEN-Material wirkt für den ganzen beteiligten Würfel. Beide
+## stapeln. Drei Aufrufpunkte: Wertungs-Boni (base_bonus/mult_bonus, auch in
+## Vorschau/Farkle-Vergleich), Nehmen-Effekte (apply_take_effects, einmal beim
+## echten Nehmen) und Wurf-Effekte (roll_money, je Wurf).
+## values/materials/edge_materials sind parallele Arrays je Wurf-Slot.
 
-## Bericht der Nehmen-Effekte - was die UI anzeigen soll (Geld-Popup, welche
-## Slots gewachsen/geschrumpft sind).
+## Bericht der Nehmen-Effekte für die UI.
 class TakeReport:
 	extends RefCounted
 
-	var money: int = 0  # Gold-Seite: +$1 je beteiligter Gold-Seite
-	var grown: Array[int] = []  # Slot-Indizes, deren Seite gewachsen ist (Knochen)
-	var shrunk: Array[int] = []  # Slot-Indizes, deren Seite geschrumpft ist (Glas)
+	var money: int = 0
+	var grown: Array[int] = []  # Slots, deren Seite gewachsen ist (Knochen)
+	var shrunk: Array[int] = []  # Slots, deren Seite geschrumpft ist (Glas)
 
-## Wie oft sich der Würfel in Slot i aktiviert: 1 normal, ×2 je Quecksilber-
-## Träger (Seite oben und/oder Kanten), mit Quecksilberdampf (siehe Charm)
-## ×3 je Träger. Jede Aktivierung zählt Augen und Material-Effekte des
-## Würfels erneut (siehe base_bonus/mult_bonus/apply_take_effects).
+## Aktivierungen des Würfels in Slot i: 1 normal, ×2 je Quecksilber-Träger
+## (×3 mit Quecksilberdampf). Jede Aktivierung zählt Augen und Effekte erneut.
 static func activation_count(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
 	var mercury_factor := 3 if charm_ids.has(Charm.MERCURY_VAPOR) else 2
 	var count := 1
@@ -54,11 +26,8 @@ static func activation_count(i: int, materials: Array[String], edge_materials: A
 		count *= mercury_factor
 	return count
 
-## Wie oft die MATERIAL-EFFEKTE des Würfels in Slot i feuern: die Aktivierungen
-## (Quecksilber, siehe activation_count), zusätzlich ×2 durch die Legierung
-## (siehe Charm.ALLOY), wenn der Würfel Material-Seite oben UND Kanten-Material
-## trägt. Anders als Quecksilber verdoppelt die Legierung NUR die Effekte,
-## nicht das Augen-Zählen (das bleibt an activation_count).
+## Wie oft die MATERIAL-EFFEKTE feuern: Aktivierungen, zusätzlich ×2 durch die
+## Legierung bei Seite+Kante - anders als Quecksilber ohne das Augen-Zählen.
 static func effect_activations(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
 	var count := activation_count(i, materials, edge_materials, charm_ids)
 	if charm_ids.has(Charm.ALLOY):
@@ -68,14 +37,9 @@ static func effect_activations(i: int, materials: Array[String], edge_materials:
 			count *= 2
 	return count
 
-## Zusätzliche Augen der beteiligten Material-Träger, VOR dem Multiplikator:
-## Bernstein +20 fest (Seite und/oder Kanten), je Aktivierung; Quecksilber
-## aktiviert den Würfel doppelt - die (charm-angepassten) Augen zählen je
-## zusätzlicher Aktivierung erneut (bonus = Wert × (Aktivierungen − 1), der
-## Grundwert steckt schon im Basiswert).
+## Basis-Boni der beteiligten Träger: Bernstein +20 fest (Bernsteinzimmer: +50);
+## Quecksilber zählt die Augen je Extra-Aktivierung erneut.
 static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = []) -> int:
-	# Charm-Verstärker (siehe Charm/CharmEffects): Bernsteinzimmer hebt Bernstein
-	# auf +50, Quecksilberdampf lässt Quecksilber dreifach statt doppelt aktivieren.
 	var amber_value := 50 if charm_ids.has(Charm.AMBER_ROOM) else 20
 	var bonus := 0
 	for i in participating:
@@ -91,13 +55,9 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (activations - 1)
 	return bonus
 
-## Zusätzlicher Kombinations-Multiplikator der beteiligten Material-Träger,
-## je Aktivierung (Quecksilber verdoppelt, siehe activation_count):
-## Rubin +4 fest (Seite und/oder Kanten); Glas + rohe Augenzahl der oben
-## liegenden Seite (je höher die Seite, desto stärker - und desto mehr hat
-## sie beim Schrumpfen zu verlieren).
+## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer: +10);
+## Glas + rohe Augenzahl der oben liegenden Seite.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = []) -> int:
-	# Rubinschleifer (siehe CharmEffects) hebt Rubin auf +10 Mult.
 	var ruby_value := 10 if charm_ids.has(Charm.RUBY_GRINDER) else 4
 	var bonus := 0
 	for i in participating:
@@ -114,17 +74,11 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 			bonus += values[i] * effect_count
 	return bonus
 
-## Führt die Nehmen-Effekte der beteiligten Material-Träger aus - mutiert die
-## faces der betroffenen Würfel DIREKT (wie EtchingEffects; die Änderung ist
-## dauerhaft, da die Pool-Würfel dieselben Instanzen sind) und liefert einen
-## Bericht für die UI. Gold-SEITE zahlt +$1 (Gold-Kanten zahlen stattdessen je
-## Wurf, siehe roll_money); Knochen wächst die oben liegende Seite +1 je Träger
-## (nach oben offen, wie Überzahlen); Glas schrumpft sie −1 je Träger, aber nie
-## unter MIN_FACE_VALUE. Alles je Aktivierung: Quecksilber am selben Würfel
-## lässt diese Effekte doppelt feuern (siehe activation_count).
+## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
+## Gold-Seite zahlt +$1 (Goldschmied: $2); Knochen +1 je Träger (Knochenleim:
+## +2, nach oben offen); Glas −1 je Träger, nie unter das Floor
+## (Glasbläserlunge: min. 3). Alles je Effekt-Aktivierung.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = []) -> TakeReport:
-	# Charm-Verstärker (siehe CharmEffects): Goldschmied $2 je Gold-Seite,
-	# Knochenleim +2 Wachstum, Glasbläserlunge schützt Glas bis min. 3.
 	var gold_payout := 2 if charm_ids.has(Charm.GOLDSMITH) else 1
 	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
 	var glass_floor := 3 if charm_ids.has(Charm.GLASSBLOWER_LUNG) else EtchingEffects.MIN_FACE_VALUE
@@ -161,12 +115,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			report.shrunk.append(i)
 	return report
 
-## Geld der Gold-KANTEN für einen Wurf: +$1 je geworfenem Würfel mit
-## Gold-Kanten (thrown = Slot-Indizes der tatsächlich geworfenen Würfel;
-## geschützte, liegen gebliebene Würfel zahlen nicht). Zahlt bei JEDEM Wurf -
-## auch wenn der Wurf danach farkelt.
+## Gold-KANTEN zahlen je Wurf (+$1, Rahmenvergolder: $2) - auch wenn der Wurf
+## danach farkelt. thrown = Slots der tatsächlich geworfenen Würfel.
 static func roll_money(edge_materials: Array[String], thrown: Array[int], charm_ids: Array[String] = []) -> int:
-	# Rahmenvergolder (siehe CharmEffects): Gold-Kanten zahlen $2 je Wurf.
 	var per_die := 2 if charm_ids.has(Charm.FRAME_GILDER) else 1
 	var money := 0
 	for i in thrown:

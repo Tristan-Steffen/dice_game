@@ -92,7 +92,9 @@ func test_buy_charm_grants_and_deducts():
 	shop._on_charm_clicked(0)
 	assert_eq(run.money, 85)  # 100 - 15
 	assert_eq(run.owned_charms.size(), 1)
-	assert_true(run.charm_ids().has(charm.id))
+	# owned_charm_ids statt charm_ids: Totems lösen sich in charm_ids() zu
+	# ihren Nachbarn auf - der Test war sonst flaky, wenn ein Totem gezogen wurde.
+	assert_true(run.owned_charm_ids().has(charm.id))
 
 func test_charm_cannot_be_bought_twice():
 	shop._on_charm_clicked(0)

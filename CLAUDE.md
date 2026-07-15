@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Fumble** — a Balatro-like 3D dice roguelike built in **Godot 4.7** (`gl_compatibility` renderer, Jolt physics). Code comments and in-game text are in **German**; identifiers are a mix. The whole game plays on a single table surface at world **Y = 0**, viewed as a "casino table screen": 2D UI is rendered into a `SubViewport` and displayed on a mesh (see Architecture).
 
+**Comments:** keep them to the necessary minimum — short German one-liners that state a non-obvious rule, constraint, or design decision. Don't restate what the code already says, don't duplicate a `description` string that sits one line below, and don't write essay-length narrative blocks or "siehe X" cross-reference chains. When in doubt, cut it.
+
 ## Commands
 
 The Godot binary lives outside the repo at `E:/Godot/Godot_v4.7-stable_win64_console.exe` (use the `_console` build so stdout/stderr are captured).
@@ -40,10 +42,10 @@ CI (`.github/workflows/tests.yml`) runs the same GUT command on Linux after a `-
 - **`core/`** — pure logic, **no Nodes** (all `RefCounted`/static): `DiceScoring` (Balatro-style hand values = base points × multiplier), `CharmEffects`/`EtchingEffects`/`MaterialEffects` (id-dispatched effect resolution), `GameRun` (the persistent run state — money, 30-die pool, charms, coupons, round progress; owns all economy methods and emits signals to the UI), `ScoreBreakdown`, `CouponSheet`, `DiceOffer`.
 - **`dice/`** — the physical die: `DiceController` (physics of the 6 dice slots — throw/hold/rest-detection; which value shows comes from each slot's `DieDefinition`, physics only reports which physical face is up), `DieBuilder` (builds dice entirely in code — no `.tscn`), `DieFaceDisplay`, `RotatableDieView` (isolated-world drag-to-rotate preview with face/edge picking).
 - **`table/`** — 3D props, camera, and the on-table screen system (see below).
-- **`ui/`** — 2D panels and styling shown inside the table screen (`ShopController`, `DieInspectorView` engraving station, `CharmLibraryView`, `CasinoStyle`).
+- **`ui/`** — 2D panels and styling shown inside the table screen (`ShopController`, `DieInspectorView` engraving station, `CharmLibraryView`, `CasinoStyle`, plus the shared builders `DiceRowView`/`CharmThumb`, the `CouponSheetView` sheet renderer, and `SheetRevealView` — the coupon-sheet purchase overlay + its finish animation; it emits `money_coupon_redeemed`/`etching_redeemed` and `scene_root` books the payout).
 
 ### `scene_root.gd` — the single coordinator
-Top-level `Node3D` (not in a subfolder). Owns exactly one `GameRun`, wires its signals to the UI, drives round flow (throw → score → take/reroll → round-goal → shop), and passes the same `GameRun` instance (typed) to `ShopController` and `DieInspectorView`, which mutate state **only** through `GameRun` methods. It also does mouse-forwarding: `_forward_screen_mouse` projects window clicks onto the table plane and `push_input`s them into the `SubViewport`; `_screen_forwards_pixel` gates which rects forward per camera mode.
+Top-level `Node3D` (not in a subfolder). Owns exactly one `GameRun`, wires its signals to the UI, drives round flow (throw → score → take/reroll → round-goal → shop), and passes the same `GameRun` instance (typed) to `ShopController` and `DieInspectorView`, which mutate state **only** through `GameRun` methods. It also does mouse-forwarding: `_forward_screen_mouse` projects window clicks onto the table plane and `push_input`s them into the `SubViewport`; `_screen_forwards_pixel` gates which rects forward per camera mode. `_ready` is split into named setup steps (`_setup_dice`/`_setup_table_screen`/`_setup_camera_targets`/`_setup_panels`/`_setup_settings_ui`); camera raycasts go through the shared `_ray_pick(pos, mask)` helper and click zones through `_add_click_zone`.
 
 ### The table-as-screen display system (`table/`)
 - **`TableScreen`** (`table_screen.gd`) — a `SubViewport` rendering 2D UI to a `ViewportTexture` on the "Screen" mesh. Hub pages (`HubView`, `DieInspectorView`) live inside it.

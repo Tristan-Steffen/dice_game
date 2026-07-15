@@ -1,106 +1,78 @@
 class_name EtchingEffects
-## Reine Seiten-Transformationen der Ätzungs-Coupons (siehe Coupon) - analog zu
-## CharmEffects: keine Nodes, nur Rechnen. Jede Funktion verändert die faces
-## EINES DieDefinition IN PLACE; keine Ätzung berührt zwei Würfel (die physische
-## Seitenlage ist ohnehin gleichgültig - beim Wurf zählt nur der Multiset der
-## sechs Werte, ein reines Umsortieren innerhalb eines Würfels wäre also wirkungslos).
-##
-## Face-Parameter sind Seiten-Indizes 0..5 (physische Seiten, siehe
-## DieDefinition.faces). Welche Seite gemeint ist, wählt die Anwendungs-UI (siehe
-## DieInspectorView); hier steht nur die Wirkung selbst, deterministisch testbar.
+## Seiten-Transformationen der Ätzungs-Coupons: jede Funktion verändert die
+## faces EINES DieDefinition in place. face-Parameter sind Seiten-Indizes 0..5;
+## welche Seite gemeint ist, wählt die Anwendungs-UI (DieInspectorView).
 
-const MIN_FACE_VALUE := 1  # Würfelseiten fallen nie unter 1; nach oben sind sie offen (Überzahlen)
-## Höchster frei wählbarer Feingravur-Wert. KEINE allgemeine Obergrenze mehr:
-## die +1-Ätzungen (Doppelkerbe/Anschluss/Begradigung) und der Schleifstein
-## dürfen bewusst über 6 hinausgehen - nur die Feingravur-Wertauswahl braucht ein
-## endliches Ende für ihre Knopfreihe.
+const MIN_FACE_VALUE := 1  # Seiten fallen nie unter 1; nach oben offen (Überzahlen)
+## Höchster frei wählbarer Feingravur-Wert - nur die Wertauswahl braucht ein
+## endliches Ende, +1-Ätzungen dürfen bewusst über 6 hinaus.
 const FINE_ENGRAVING_MAX := 12
 
-## Meißel: kopiert den Wert der Quellseite auf die Zielseite desselben Würfels.
+## Meißel: kopiert den Wert der Quellseite auf die Zielseite.
 static func chisel(die: DieDefinition, source_face: int, dest_face: int) -> void:
 	die.faces[dest_face] = die.faces[source_face]
 
-## Transplantat: hebt die gewählte Seite auf den aktuell höchsten Wert des
-## Würfels (verpflanzt den stärksten Wert auf diese Seite) - schneller
-## Pasch-Bauer. Sinnlos, wenn die Seite schon der Höchstwert ist (siehe can_transplant).
+## Transplantat: hebt die Seite auf den aktuell höchsten Wert des Würfels.
 static func transplant(die: DieDefinition, face: int) -> void:
 	die.faces[face] = die.faces.max()
 
-## Ob face als Transplantat-Ziel taugt (liegt unter dem aktuellen Höchstwert).
 static func can_transplant(die: DieDefinition, face: int) -> bool:
 	return die.faces[face] < die.faces.max()
 
-## Schleifstein: −1 auf minus_face, +1 auf plus_face desselben Würfels - die
-## Augensumme des Würfels bleibt gleich. Nur zulässig, solange die verringerte
-## Seite nicht unter MIN_FACE_VALUE fällt (siehe can_grindstone_minus).
+## Schleifstein: −1/+1 auf zwei Seiten - die Augensumme bleibt gleich.
 static func grindstone(die: DieDefinition, minus_face: int, plus_face: int) -> void:
 	die.faces[minus_face] -= 1
 	die.faces[plus_face] += 1
 
-## Ob minus_face als "−1"-Ziel taugt (bliebe ≥ MIN_FACE_VALUE).
 static func can_grindstone_minus(die: DieDefinition, minus_face: int) -> bool:
 	return die.faces[minus_face] > MIN_FACE_VALUE
 
-## Feingravur: setzt eine Seite auf einen frei gewählten Wert (1..FINE_ENGRAVING_MAX).
+## Feingravur: setzt eine Seite auf einen Wert (1..FINE_ENGRAVING_MAX).
 static func fine_engraving(die: DieDefinition, face: int, value: int) -> void:
 	die.faces[face] = value
 
-## Ob value ein zulässiger Feingravur-Wert ist (1..FINE_ENGRAVING_MAX).
 static func is_valid_engraving_value(value: int) -> bool:
 	return value >= MIN_FACE_VALUE and value <= FINE_ENGRAVING_MAX
 
-## Überzahl-Gravur: +1 auf eine Seite, ausdrücklich OHNE Obergrenze (darf über 6
-## hinausgehen, siehe Überzahlen-Konzept).
+## Überzahl-Gravur: +1 auf eine Seite, ohne Obergrenze.
 static func overcount_engraving(die: DieDefinition, face: int) -> void:
 	die.faces[face] += 1
 
-## Feile: −1 auf eine Seite (min. 1, siehe can_file_down). Klingt nach Abwertung,
-## ist aber der billigste Weg, Werte anzugleichen (Paare!).
+## Feile: −1 auf eine Seite (min. 1) - billigster Weg, Werte anzugleichen.
 static func file_down(die: DieDefinition, face: int) -> void:
 	die.faces[face] -= 1
 
-## Ob face als Feile-Ziel taugt (bliebe ≥ MIN_FACE_VALUE).
 static func can_file_down(die: DieDefinition, face: int) -> bool:
 	return die.faces[face] > MIN_FACE_VALUE
 
-## Doppelkerbe: +1 auf zwei verschiedene Seiten desselben Würfels - ohne
-## Obergrenze (darf über 6 hinausgehen).
+## Doppelkerbe: +1 auf zwei verschiedene Seiten, ohne Obergrenze.
 static func double_notch(die: DieDefinition, face_a: int, face_b: int) -> void:
 	die.faces[face_a] += 1
 	die.faces[face_b] += 1
 
-## Mittelung: setzt zwei Seiten desselben Würfels auf ihren aufgerundeten
-## Mittelwert (z.B. 1 und 6 → 4 und 4) - tauscht die beste Seite gegen Pasch-Material.
+## Mittelung: setzt zwei Seiten auf ihren aufgerundeten Mittelwert.
 static func averaging(die: DieDefinition, face_a: int, face_b: int) -> void:
 	var mean := int(ceil((die.faces[face_a] + die.faces[face_b]) / 2.0))
 	die.faces[face_a] = mean
 	die.faces[face_b] = mean
 
-## Anschluss: setzt die Zielseite auf (Quellseitenwert + 1) DESSELBEN Würfels -
-## der Straßen-Bauer (schließt an einen vorhandenen Wert an). Ohne Obergrenze
-## (darf über 6 hinausgehen).
+## Anschluss: Zielseite = Quellseitenwert + 1 (Straßen-Bauer), ohne Obergrenze.
 static func connect_up(die: DieDefinition, source_face: int, target_face: int) -> void:
 	die.faces[target_face] = die.faces[source_face] + 1
 
-## Spiegelung: invertiert alle Seiten eines Würfels über Wert → (Min + Max) − Wert
-## (Min/Max aus den aktuellen Seiten - gleiche Formel wie die Inversion). Standard
-## 1–6 → 6,5,4,3,2,1.
+## Spiegelung: invertiert alle Seiten über Wert → (Min + Max) − Wert.
 static func mirror_die(die: DieDefinition) -> void:
 	var lo: int = die.faces.min()
 	var hi: int = die.faces.max()
 	for i in die.faces.size():
 		die.faces[i] = (lo + hi) - die.faces[i]
 
-## Abdruck: prägt den Wert der gewählten Seite auf die beiden NIEDRIGSTEN anderen
-## Seiten desselben Würfels (ein doppelter Meißel Richtung Pasch - der
-## Pasch-Motor). Bei Gleichstand entscheidet die Seitenreihenfolge; da nur der
-## Multiset zählt, ist das Ergebnis so oder so eindeutig.
+## Abdruck: prägt den Wert der Seite auf die zwei niedrigsten anderen Seiten.
 static func imprint(die: DieDefinition, source_face: int) -> void:
 	var value: int = die.faces[source_face]
 	for target in _two_lowest_other_faces(die, source_face):
 		die.faces[target] = value
 
-## Die (bis zu) zwei Seitenindizes mit dem niedrigsten Wert, exclude ausgenommen.
 static func _two_lowest_other_faces(die: DieDefinition, exclude: int) -> Array[int]:
 	var order: Array[int] = []
 	for i in die.faces.size():
@@ -109,17 +81,13 @@ static func _two_lowest_other_faces(die: DieDefinition, exclude: int) -> Array[i
 	order.sort_custom(func(a: int, b: int) -> bool: return die.faces[a] < die.faces[b])
 	return order.slice(0, 2)
 
-## Begradigung: +1 auf alle ungeraden Seiten eines Würfels - der Paar-Former,
-## ohne Obergrenze (ein ungerader Wert über 6, z.B. eine 7, wird zur 8).
-## Standard 1–6 → 2,2,4,4,6,6.
+## Begradigung: +1 auf alle ungeraden Seiten (1–6 → 2,2,4,4,6,6), ohne Obergrenze.
 static func straighten(die: DieDefinition) -> void:
 	for i in die.faces.size():
 		if die.faces[i] % 2 == 1:
 			die.faces[i] += 1
 
-## Blaupause: prägt den GESAMTEN Würfel auf den Wert der gewählten Seite - alle
-## sechs Seiten bekommen diesen Wert, der Würfel zeigt fortan also immer diesen
-## Wert (wie ein fester Shop-Würfel). Der stärkste Pasch-Bauer, entsprechend selten.
+## Blaupause: alle sechs Seiten bekommen den Wert der gewählten Seite.
 static func blueprint(die: DieDefinition, face: int) -> void:
 	var value: int = die.faces[face]
 	for i in die.faces.size():

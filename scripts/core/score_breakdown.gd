@@ -1,52 +1,28 @@
 class_name ScoreBreakdown
-## Zerlegt die Wertung einer Hand in eine GEORDNETE Schrittliste für die
-## Zähl-Animation beim Nehmen (siehe scene_root._play_take_animation) - reine
-## Rechenlogik ohne Nodes, analog zu DiceScoring. Die Schritte spiegeln exakt
-## die Formel von DiceScoring.score_category wider; jeder Schritt trägt die
-## Zwischenstände ("base_after"/"mult_after"), damit die Anzeige nie von der
-## echten Rechnung abweichen kann. Reihenfolge = Bühnenreihenfolge:
-##   1. combo:       feste Kategorie-Punkte + Kategorie-Multiplikator
-##   2. die_steps:   je zählendem Würfel Augenwert, dann Material-Boni
-##   3. charm_steps: additive Charm-Boni (je Besitz-Position), dann die
-##                   Faktoren (Einserkult auf Basis+Mult, Krit auf den Mult)
-##   4. merge:       base × mult (geklemmter Mult, siehe _total_mult)
-##   5. post_steps:  Effekte NACH dem Verschmelzen (Regenbogenforelle,
-##                   Zauberkarte, Feierabendbier)
-##
-## Charm-Zuordnung läuft über PRÄFIX-MARGINALE: Beitrag der Besitz-Position j =
-## f(ids[0..j]) − f(ids[0..j−1]). Die Teleskopsumme ergibt IMMER exakt den
-## Gesamtwert - auch bei nichtlinear verschränkten Charms (Einsiedlerkrebs,
-## Sammler-Amulett) bleibt die Summe korrekt, nur die Zuordnung ist dann
-## näherungsweise. "charm_indices" sind Positionen in GameRun.charm_ids() =
-## Besitz-Reihenfolge = Tisch-Plätze (siehe CharmRowView) - Totem-Kopien
-## blinken so beim Totem selbst auf, dessen Platz den Effekt beisteuert.
+## Zerlegt die Wertung einer Hand in eine geordnete Schrittliste für die
+## Zähl-Animation. Die Schritte spiegeln exakt die Formel von
+## DiceScoring.score_category; jeder trägt Zwischenstände (base_after/
+## mult_after), damit die Anzeige nie von der echten Rechnung abweicht.
+## Charm-Zuordnung über Präfix-Marginale: Beitrag der Position j =
+## f(ids[0..j]) − f(ids[0..j−1]); die Teleskopsumme ergibt immer den
+## Gesamtwert, auch bei verschränkten Charms.
 
-## Baut die Schrittliste - Parameter identisch zu DiceScoring.score_category.
-## Ergebnis-Dictionary:
-##   key, participating, eye_slots, combo {base_add, mult_add},
-##   die_steps [{slot, eye_add, base_after_eye, mat_base_add, mat_mult_add,
-##               base_after, mult_after, eye_charm_indices}],
-##   charm_steps [{charm_indices, base_add, mult_add, base_x, mult_x,
-##                 base_after, mult_after}],
-##   base, mult (geklemmt), merge_total, post_steps [{charm_indices, total_add,
-##   total_x, total_after}], total (== score_category).
+## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
+## Ergebnis: key, participating, eye_slots, combo, die_steps, charm_steps,
+## base, mult, merge_total, post_steps, total (== score_category).
 static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	var participating := DiceScoring.participating_indices(key, dice)
-	# Nur die beteiligten Würfel zählen ihre Augen in den Basiswert (auch die
-	# Summen-Kategorien, siehe DiceScoring._base_value) - ein unbeteiligter
-	# sechster Würfel bleibt in der Zähl-Animation dunkel.
+	# Nur beteiligte Würfel zählen Augen - Unbeteiligte bleiben dunkel.
 	var eye_slots := participating.duplicate()
 	var has_materials := not materials.is_empty() or not edge_materials.is_empty()
 
-	# 1. Kombination: feste Punkte + Kategorie-Mult (beide inkl. Menü-Stufen).
+	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen).
 	var base := DiceScoring.points_for(key, combo_levels)
 	var mult := DiceScoring.mult_for(key, combo_levels)
 	var combo := {"base_add": base, "mult_add": mult}
 
-	# 2. Würfel-Schritte: erst der (charm-angepasste) Augenwert, dann die
-	# Material-Boni GENAU dieses Würfels (base_bonus/mult_bonus mit
-	# participating=[i] - die Summe über alle Würfel ergibt exakt den
-	# Gesamtbonus, da beide Funktionen je beteiligtem Slot addieren).
+	# 2. Würfel-Schritte: Augenwert, dann die Material-Boni genau dieses
+	# Würfels (participating=[i] - die Summe ergibt exakt den Gesamtbonus).
 	var die_steps: Array[Dictionary] = []
 	for i in eye_slots:
 		var eye := CharmEffects.eye_value(dice[i], charm_ids)
@@ -98,8 +74,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				"base_x": 1, "mult_x": 1,
 				"base_after": base, "mult_after": mult,
 			})
-		# Einserkult: Faktor auf Basis UND Mult - NACH den additiven Charm-Boni
-		# (siehe score_category: base *= base_factor erst nach charm_base_bonus).
+		# Einserkult: Faktor auf Basis UND Mult, NACH den additiven Boni.
 		var factor := CharmEffects.base_factor(dice, charm_ids)
 		if factor != 1:
 			base *= factor
@@ -110,8 +85,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				"base_x": factor, "mult_x": factor,
 				"base_after": base, "mult_after": mult,
 			})
-		# Krit-Pool: multipliziert den fertigen Mult mit (1 + Summe) - ein
-		# gemeinsamer Schritt, der alle beitragenden Charms aufblinken lässt.
+		# Krit-Pool: ein gemeinsamer Schritt, alle Beitragenden blinken.
 		var crit := CharmEffects.crit_bonus(key, charm_ids, ctx, combo_levels)
 		if crit > 0:
 			mult *= 1 + crit
@@ -151,10 +125,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"total_add": 0, "total_x": hand_factor, "total_after": total,
 		})
 
-	# Sicherheitsnetz: Die Schritte MÜSSEN die echte Wertung ergeben (per Test
-	# abgesichert, siehe test_score_breakdown). Falls eine künftige Änderung an
-	# DiceScoring hier vergessen wird, gewinnt die echte Wertung - die Anzeige
-	# springt dann am Ende auf den korrekten Wert, statt falsche Punkte zu zahlen.
+	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je
+	# hinter einer DiceScoring-Änderung zurückbleibt.
 	var expected := DiceScoring.score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
 	if total != expected:
 		push_warning("ScoreBreakdown weicht von DiceScoring ab (%d statt %d) - Schrittliste veraltet?" % [total, expected])
@@ -174,9 +146,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"total": total,
 	}
 
-## Besitz-Positionen der Charms, die den Augenwert DIESES Wurfwerts verändern
-## (Hasenpfote, Glückszigaretten, ...): Position j zählt, wenn der Augenwert
-## ohne sie anders ausfiele (Leave-one-out gegen den vollen Wert).
+## Besitz-Positionen, die den Augenwert dieses Werts verändern (Leave-one-out).
 static func _eye_charm_indices(value: int, charm_ids: Array[String]) -> Array[int]:
 	var full := CharmEffects.eye_value(value, charm_ids)
 	var result: Array[int] = []
@@ -191,7 +161,7 @@ static func _eye_charm_indices(value: int, charm_ids: Array[String]) -> Array[in
 			result.append(j)
 	return result
 
-## Alle Besitz-Positionen mit der gegebenen Charm-id (z.B. beide Einserkulte).
+## Alle Besitz-Positionen mit der gegebenen Charm-id.
 static func _indices_of(charm_ids: Array[String], charm_id: String) -> Array[int]:
 	var result: Array[int] = []
 	for j in charm_ids.size():
@@ -199,8 +169,7 @@ static func _indices_of(charm_ids: Array[String], charm_id: String) -> Array[int
 			result.append(j)
 	return result
 
-## Besitz-Positionen, die zum Krit-Pool beitragen (Präfix-Marginale über
-## CharmEffects.crit_bonus - Positionen mit Beitrag 0 blinken nicht).
+## Besitz-Positionen mit Krit-Beitrag (Präfix-Marginale über crit_bonus).
 static func _crit_charm_indices(key: String, charm_ids: Array[String], ctx: Dictionary, combo_levels: Dictionary) -> Array[int]:
 	var result: Array[int] = []
 	var prev := 0

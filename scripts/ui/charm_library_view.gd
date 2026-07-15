@@ -1,20 +1,14 @@
 class_name CharmLibraryView
 extends Panel
-## Die Charm-Bibliothek: ein Nachschlage-Panel mit ALLEN Charms des Spiels
-## (Charm.all(), alphabetisch), je Eintrag eine 3D-Miniatur des echten Modells
-## (siehe CharmThumb; Platzhalter-Karte bei Charms ohne Modelldatei) plus Name
-## und Beschreibung; bereits besessene Charms sind gold markiert. Klick auf
-## einen Eintrag wechselt in die Nahansicht: das Modell groß und frei drehbar
-## (Ziehen mit der Maus, wie die Würfel in der Gravur-Station) - "‹ Zurück"
-## führt zur Liste. Aufgeklappt über den Bibliothek-Knopf im Einstellungs-Menü
-## (siehe scene_root); die Zeilen werden bei jedem Öffnen frisch gebaut
-## (Besitz ändert sich ja) und beim Schließen wieder freigegeben.
+## Nachschlage-Panel mit ALLEN Charms (alphabetisch): je Eintrag 3D-Miniatur,
+## Name und Beschreibung; besessene gold markiert. Klick wechselt in die
+## Nahansicht (großes, frei drehbares Modell). Zeilen werden bei jedem Öffnen
+## frisch gebaut (Besitz ändert sich) und beim Schließen freigegeben.
 
-const THUMB_SIZE := 44          # Kantenlänge der Zeilen-Miniaturen
-const INSPECT_THUMB_SIZE := 360  # Kantenlänge der drehbaren Nahansicht
+const THUMB_SIZE := 44
+const INSPECT_THUMB_SIZE := 360
 
-## Der laufende Spiellauf - nur für die Besitz-Markierung (vom Besitzer
-## scene_root bei jedem neuen Run gesetzt, siehe _connect_run).
+## Nur für die Besitz-Markierung (setzt scene_root je Run).
 var run: GameRun
 
 var rows: VBoxContainer
@@ -26,11 +20,11 @@ var inspect_name_label: Label
 var inspect_desc_label: Label
 var inspect_thumb: CharmThumb
 var inspect_grant_button: Button
-var inspect_charm: Charm  # gerade in der Nahansicht gezeigter Charm
+var inspect_charm: Charm
 
 func _ready() -> void:
 	visible = false
-	# Rechte Bildschirmseite, gleiche Zone wie früher die Würfel-Sammlung.
+	# Rechte Bildschirmseite.
 	offset_left = 812.0
 	offset_top = 64.0
 	offset_right = 1256.0
@@ -63,8 +57,6 @@ func _ready() -> void:
 
 	_build_inspect_root(vbox)
 
-## Baut die (zunächst versteckte) Nahansicht: Zurück-Knopf, großes drehbares
-## Modell (pro inspect() ersetzt), Name und Beschreibung.
 func _build_inspect_root(parent: VBoxContainer) -> void:
 	inspect_root = VBoxContainer.new()
 	inspect_root.visible = false
@@ -91,8 +83,7 @@ func _build_inspect_root(parent: VBoxContainer) -> void:
 	CasinoStyle.style_body_label(inspect_desc_label, 14)
 	inspect_root.add_child(inspect_desc_label)
 
-	# Debug-Knopf: den gezeigten Charm gratis in den laufenden Run legen (kein
-	# Preis, siehe GameRun.purchase_charm) - zum Ausprobieren von Charm-Effekten.
+	# Debug: den gezeigten Charm gratis in den laufenden Run legen.
 	inspect_grant_button = Button.new()
 	inspect_grant_button.custom_minimum_size = Vector2(0, 34)
 	inspect_grant_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -117,8 +108,7 @@ func close() -> void:
 	for child in rows.get_children():
 		child.queue_free()
 
-## Wechselt in die Nahansicht des Charms: großes, frei drehbares Modell
-## (CharmThumb rotatable, dreht wie die Würfel der Gravur-Station).
+## Nahansicht: großes, frei drehbares Modell.
 func inspect(charm: Charm) -> void:
 	inspect_charm = charm
 	if inspect_thumb != null:
@@ -133,8 +123,6 @@ func inspect(charm: Charm) -> void:
 	list_root.visible = false
 	inspect_root.visible = true
 
-## Aktualisiert den Debug-Grant-Knopf: bereits besessene Charms sind nicht mehr
-## holbar (deaktiviert, Text zeigt den Besitz).
 func _refresh_grant_button() -> void:
 	if run != null and _owned_ids().has(inspect_charm.id):
 		inspect_grant_button.text = "Debug: bereits im Run"
@@ -143,9 +131,6 @@ func _refresh_grant_button() -> void:
 		inspect_grant_button.text = "Debug: Für diesen Run holen"
 		inspect_grant_button.disabled = run == null
 
-## Debug: legt den gezeigten Charm gratis in den laufenden Run (siehe
-## GameRun.purchase_charm mit Preis 0 - meldet charms_changed, sodass Tisch und
-## HUD ihn sofort übernehmen). Danach Name (✓) und Knopf auffrischen.
 func _on_grant_pressed() -> void:
 	if run == null or _owned_ids().has(inspect_charm.id):
 		return
@@ -163,7 +148,6 @@ func close_inspect() -> void:
 	if list_root != null:
 		list_root.visible = true
 
-## Baut die Einträge frisch: alle Charms alphabetisch, besessene gold markiert.
 func _rebuild() -> void:
 	for child in rows.get_children():
 		child.queue_free()

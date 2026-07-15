@@ -1,13 +1,8 @@
 class_name DiceRowView
-## Baut die gemeinsame "Würfel-Zeile": Mini-3D-Vorschau des Würfels, seine
-## Augensumme und die Seiten-Übersicht (je vorkommender Wert ein Chip mit
-## ×Anzahl). Genau dieser Look wird sowohl in der Würfel-Sammlung (scene_root)
-## als auch bei den Shop-Angeboten (ShopController) verwendet, damit beide
-## identisch aussehen. Reine statische Bauhelfer - keine eigene Node-Instanz.
-##
-## Die 3D-Vorschau rendert dauerhaft (UPDATE_ALWAYS); der Aufrufer gibt die
-## Zeilen frei, sobald die Liste geschlossen wird, damit im Hintergrund nichts
-## weiterrendert (siehe scene_root._clear_dice_list / ShopController._clear_offers).
+## Statische Bauhelfer der gemeinsamen "Würfel-Zeile": Mini-3D-Vorschau,
+## Augensumme und Seiten-Chips - identischer Look in Sammlung und Shop.
+## Die 3D-Vorschau rendert dauerhaft; der Aufrufer gibt die Zeilen beim
+## Schließen frei, damit im Hintergrund nichts weiterrendert.
 
 const DEFAULT_THUMB_SIZE := 72
 const CHIP_BORDER := Color(0.72, 0.76, 0.8)  # dezenter Rand der Seiten-Chips (wie die echten Würfel)
@@ -19,15 +14,9 @@ static func eye_total(def: DieDefinition) -> int:
 		total += value
 	return total
 
-## Eine komplette Würfel-Zeile: PanelContainer mit zwei übereinander liegenden
-## Zeilen.
-##   Zeile 1 (Kopf): (optionaler Stück-Multiplikator) Mini-Vorschau "=" Augensumme
-##                   - liest sich als "N Würfel = so viele Augen".
-##   Zeile 2 (Zusammensetzung): die Seiten-Chips (aufsteigend, je Wert ein Chip
-##                   mit ×Anzahl) - woraus der Würfel besteht.
-## thumb_size steuert die Kantenlänge der 3D-Vorschau; quantity > 1 stellt ein
-## "N ×" links vor die Vorschau (für Shop-Bündel gleicher Würfel, die nur einmal
-## gezeigt werden - siehe ShopController).
+## Komplette Würfel-Zeile: Kopf "(N ×) Vorschau = Augensumme", darunter die
+## Seiten-Chips (aufsteigend, je Wert ein Chip mit ×Anzahl). quantity > 1
+## zeigt Shop-Bündel gleicher Würfel nur einmal mit Stückzahl.
 static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, quantity: int = 1) -> PanelContainer:
 	var row_panel := PanelContainer.new()
 	var row_box := StyleBoxFlat.new()
@@ -66,11 +55,8 @@ static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, 
 	CasinoStyle.style_score_label(total_label, 26, CasinoStyle.GOLD)
 	head.add_child(total_label)
 
-	# --- Zeile 2: Zusammensetzung (Seiten-Übersicht) ---
-	# Gruppiert nach Wert UND Seiten-Material: eine Material-Seite bekommt ihre
-	# eigene (getönte) Gruppe neben den einfachen Seiten desselben Werts.
-	# Weiter Abstand ZWISCHEN den Wert-Gruppen (der Multiplikator klebt eng an
-	# seinem eigenen Chip, siehe _count_chip).
+	# Zeile 2: gruppiert nach Wert UND Seiten-Material - eine Material-Seite
+	# bekommt ihre eigene getönte Gruppe neben den einfachen Seiten des Werts.
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 16)
 	var groups := {}  # "wert|material" -> {value, material, count}
@@ -90,10 +76,7 @@ static func build_row(def: DieDefinition, thumb_size: int = DEFAULT_THUMB_SIZE, 
 	col.add_child(chips)
 	return row_panel
 
-## Ein Seiten-Eintrag: bei mehrfachem Vorkommen ein "N ×" davor, dann der
-## Würfelseiten-Chip mit NUR der Augenzahl (keine weitere Zahl im Feld) - also
-## z.B. "4 × [6]". Bei count == 1 nur der Chip. material_id ("" = keins) tönt
-## den Chip in der Materialfarbe (siehe _value_chip).
+## Seiten-Eintrag: "N ×" vor dem Chip bei mehrfachem Vorkommen, z.B. "4× [6]".
 static func _count_chip(value: int, count: int, material_id: String = "") -> Control:
 	var entry := HBoxContainer.new()
 	entry.add_theme_constant_override("separation", 2)
@@ -108,10 +91,8 @@ static func _count_chip(value: int, count: int, material_id: String = "") -> Con
 	entry.add_child(_value_chip(value, material_id))
 	return entry
 
-## Der abgerundete Würfelseiten-Chip mit der dunklen Augenzahl (im Look der
-## echten Würfel) - enthält ausschließlich den Seitenwert. Mit material_id
-## übernimmt er die Materialfarbe der Seite (wie auf dem 3D-Würfel) und nennt
-## das Material im Tooltip.
+## Würfelseiten-Chip im Look der echten Würfel; material_id tönt ihn in der
+## Materialfarbe und nennt das Material im Tooltip.
 static func _value_chip(value: int, material_id: String = "") -> Label:
 	var chip := Label.new()
 	chip.text = "%d" % value
@@ -132,9 +113,7 @@ static func _value_chip(value: int, material_id: String = "") -> Label:
 		chip.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignorieren Maus sonst - nötig für den Tooltip
 	return chip
 
-## Statische 3D-Vorschau eines Würfels (eigener SubViewport mit eigener World3D).
-## Baut denselben Würfel wie überall (DieBuilder), stellt ihn schräg dar und
-## tönt ihn nach seiner Art (siehe DiceController.KIND_TINTS).
+## Statische 3D-Vorschau eines Würfels (eigener SubViewport/World3D).
 static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE) -> SubViewportContainer:
 	var container := SubViewportContainer.new()
 	container.custom_minimum_size = Vector2(size, size)

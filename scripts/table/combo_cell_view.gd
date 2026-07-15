@@ -1,25 +1,13 @@
 class_name ComboCellView
 extends Control
-## Eine kompakte Zelle der Bildschirm-Kombinationsliste (siehe TableScreen):
-## gedämpfter Neon-Rahmen, Kombinationsname klein darüber, darunter die
-## Beispiel-Würfel als reine NEON-UMRISSE mit Leucht-Pips (kein gefülltes
-## Plättchen) und rechts die Wertung: feste Basispunkte (Cyan) neben dem
-## Multiplikator "×N" (Gold) - siehe DiceScoring.points_for/mult_for.
-##
-## Alle Maße sind ANTEILE der Zellengröße (siehe _draw) - so bleibt die Zelle
-## bei jeder Display-Auflösung scharf (TableScreen rendert bewusst überabgetastet,
-## siehe SUPERSAMPLE), ohne dass hier Zahlen mitgezogen werden müssen.
-##
-## scene_root hält diese Zellen in combo_labels und tweent modulate/scale fürs
-## Aufleuchten der gewürfelten Kombination - die Basisfarben hier sind bewusst
-## gedämpft, Ruhe- und Glühfarben kommen als modulate von außen (Überhell > 1
-## bloomt dank use_hdr_2d des TableScreen-Viewports).
+## Eine Zelle der Bildschirm-Kombinationsliste: Neon-Rahmen, Name, Beispiel-
+## Würfel als Neon-Umrisse mit Leucht-Pips, rechts Basispunkte (Cyan) + "×N"
+## (Gold). Alle Maße sind Anteile der Zellengröße - skaliert mit jeder
+## Auflösung. Ruhe-/Glühfarben kommen als modulate von außen (scene_root).
 
-## Farbwelt = Obsidian-Theme "80s Neon" (siehe TableScreen): Pink für Rahmen/
-## Text, Cyan für die Leucht-Pips, Gold (Theme-Highlight) für den Multiplikator.
-const NEON_DIM := Color("#ff79c6cc")   # --accent-1-muted (Pink): Rahmen, Name, Würfel-Umrisse
-const NEON_PIP := Color("#00ffff")     # --accent-2 (Cyan): Leucht-Pips (Augen)
-const MULT_COLOR := Color("#ffd319")   # --text-highlight-bg (Gold): Multiplikator
+const NEON_DIM := Color("#ff79c6cc")   # Pink: Rahmen, Name, Würfel-Umrisse
+const NEON_PIP := Color("#00ffff")     # Cyan: Leucht-Pips
+const MULT_COLOR := Color("#ffd319")   # Gold: Multiplikator
 
 ## Pip-Anordnungen je Augenzahl (Anteile der Würfelfläche).
 const PIP_LAYOUTS := {
@@ -35,7 +23,7 @@ var combo_name := ""
 var values: Array = []
 var points := 0
 var mult := 1
-## Bezugsgröße fürs Highlight-Wachsen (siehe scene_root._tween_combo_label).
+## Bezugsgröße fürs Highlight-Wachsen.
 var base_scale := Vector2.ONE
 
 ## Befüllt die Zelle; Position/Größe setzt der TableScreen vorher.
@@ -47,8 +35,7 @@ func setup(p_name: String, p_values: Array, p_points: int, p_mult: int) -> void:
 	pivot_offset = size / 2.0  # Highlight skaliert um die Zellenmitte
 	queue_redraw()
 
-## Schreibt Basispunkte + Multiplikator neu (Menü-Stufen, siehe
-## DiceScoring.points_for/mult_for - beide wachsen gemeinsam je Stufe).
+## Schreibt Basispunkte + Multiplikator neu (Menü-Stufen).
 func set_score(p_points: int, p_mult: int) -> void:
 	points = p_points
 	mult = p_mult
@@ -61,7 +48,7 @@ func _draw() -> void:
 	var name_font := int(h * 0.22)
 	var mult_font := int(h * 0.34)
 	var points_font := int(h * 0.26)
-	var mult_width := w * 0.3  # rechte Wertungs-Spalte: Punkte (Cyan) + "×N" (Gold)
+	var mult_width := w * 0.3  # rechte Wertungs-Spalte
 	var border := maxf(2.0, h * 0.03)
 
 	draw_rect(Rect2(Vector2.ZERO, size), NEON_DIM, false, border)
@@ -70,7 +57,7 @@ func _draw() -> void:
 	draw_string(font, Vector2(pad, pad + float(name_font)), combo_name,
 		HORIZONTAL_ALIGNMENT_CENTER, w - pad * 2.0, name_font, NEON_DIM)
 
-	# Untere Zeile: Würfelreihe links (nur Neon-Umriss + Leucht-Pips), "×N" rechts.
+	# Untere Zeile: Würfelreihe links, Wertung rechts.
 	var count := values.size()
 	if count > 0:
 		var die_gap := h * 0.05
@@ -90,8 +77,7 @@ func _draw() -> void:
 				draw_circle(rect.position + pip * die_size, die_size * 0.11, NEON_PIP)
 			x += die_size + die_gap
 
-	# Wertung unten rechts: "×N" (Gold) ganz außen, die festen Basispunkte (Cyan)
-	# direkt links davor - gleiche Grundlinie, gemeinsame Spalte mult_width.
+	# "×N" (Gold) ganz außen, Basispunkte (Cyan) links davor, gleiche Grundlinie.
 	var mult_text := "×%d" % mult
 	var mult_text_width := font.get_string_size(mult_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, mult_font).x
 	var baseline := h - pad * 0.5

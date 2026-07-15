@@ -3,7 +3,8 @@ extends GutTest
 ## rechts neben der Bühne sitzt ein RotatableDieView auf seinem eigenen kleinen
 ## Unter-Bildschirm (Rahmen + abgesetzte Grundfarbe). Klicks auf seine Seiten/
 ## Kanten laufen in DIESELBE Auswahl-Logik wie die Seiten-Chips, die Auswahl
-## spiegelt sich als goldene Hervorhebung zurück (siehe _sync_die_view).
+## spiegelt sich als violette Hervorhebung zurück (Ziffer bzw. Kanten-Rahmen,
+## siehe _sync_die_view).
 
 var view: DieInspectorView
 
@@ -54,18 +55,21 @@ func test_clicking_the_projected_edges_selects_the_edges() -> void:
 	assert_true(view.edges_selected, "Klick auf den projizierten Kanten-Rahmen wählt die Kanten")
 	assert_eq(view.selected_face, -1)
 
-func test_selection_highlights_the_projected_face_in_gold() -> void:
-	view._on_face_clicked(0, 2)
+func test_selection_highlights_the_projected_face_number() -> void:
+	view._on_face_clicked(0, 1)  # Seite 1 trägt kein Material (Körper bleibt weiß)
 	var faces: DieFaceDisplay = view.die_view.die_roots[0].get_node("RigidBody3D/Faces")
-	# Seite 2 ("z_neg"? - AXIS_FACE_INDEX invers) trägt den goldenen Auswahl-Look.
+	# Nur die ZIFFER der gewählten Seite leuchtet violett - der Körper bleibt neutral.
 	var selected_axis := ""
 	for axis in DiceController.AXIS_FACE_INDEX:
-		if DiceController.AXIS_FACE_INDEX[axis] == 2:
+		if DiceController.AXIS_FACE_INDEX[axis] == 1:
 			selected_axis = axis
+	var label: Label3D = faces.labels[selected_axis]
+	assert_eq(label.modulate, RotatableDieView.SELECT_FACE_COLOR,
+		"die gewählte projizierte Ziffer leuchtet violett")
 	var quad: MeshInstance3D = faces.quads[selected_axis]
 	var material: StandardMaterial3D = quad.get_surface_override_material(0)
-	assert_eq(material.albedo_color, DieFaceDisplay.BODY_COLOR * RotatableDieView.SELECT_FACE_COLOR,
-		"die gewählte projizierte Seite leuchtet gold")
+	assert_eq(material.albedo_color, DieFaceDisplay.BODY_COLOR,
+		"der Würfelkörper der gewählten Seite bleibt neutral")
 
 func test_chip_selection_also_highlights_the_projection() -> void:
 	# Auswahl über die SEITEN-CHIPS spiegelt sich in die Projektion (eine Logik).
@@ -75,8 +79,8 @@ func test_chip_selection_also_highlights_the_projection() -> void:
 	for candidate in DiceController.AXIS_FACE_INDEX:
 		if DiceController.AXIS_FACE_INDEX[candidate] == 3:
 			axis = candidate
-	var material: StandardMaterial3D = (faces.quads[axis] as MeshInstance3D).get_surface_override_material(0)
-	assert_eq(material.albedo_color, DieFaceDisplay.BODY_COLOR * RotatableDieView.SELECT_FACE_COLOR)
+	var label: Label3D = faces.labels[axis]
+	assert_eq(label.modulate, RotatableDieView.SELECT_FACE_COLOR)
 
 func test_edge_selection_highlights_the_projected_frame() -> void:
 	view._on_edges_clicked()
@@ -107,6 +111,21 @@ func test_a_pure_click_does_not_lock_the_camera() -> void:
 	_press(view.die_view, Vector2(50, 50), true)
 	_press(view.die_view, Vector2(51, 50), false)  # kaum bewegt
 	assert_eq(events, [], "ein reiner Klick sperrt nichts")
+
+func test_selection_changed_reports_the_selected_face() -> void:
+	# selection_changed treibt die violette Hervorhebung am ECHTEN schwebenden
+	# Würfel über dem Hub (siehe scene_root._highlight_engraving_die). bool-Parameter
+	# selbst aufzeichnen (GUTs Signal-Parameter-Diff stolpert darüber).
+	var events: Array = []
+	view.selection_changed.connect(func(face: int, edges: bool) -> void: events.append([face, edges]))
+	view._on_face_clicked(0, 2)
+	assert_eq(events.back(), [2, false], "die gewählte Seite wird gemeldet (keine Kanten)")
+
+func test_selection_changed_reports_the_edges() -> void:
+	var events: Array = []
+	view.selection_changed.connect(func(face: int, edges: bool) -> void: events.append([face, edges]))
+	view._on_edges_clicked()
+	assert_eq(events.back(), [-1, true], "die Kanten-Auswahl wird gemeldet (keine Seite)")
 
 func _press(target: Control, pos: Vector2, pressed: bool) -> void:
 	var ev := InputEventMouseButton.new()

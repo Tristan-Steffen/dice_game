@@ -1,34 +1,18 @@
 class_name CharmEffects
-## Reine Effekt-Logik der Charms (siehe Charm) - keine Nodes, nur Rechnen,
-## analog zu DiceScoring. Jeder Charm wirkt über seine id (Charm.id) und wird
-## hier zentral aufgelöst; die ids kommen als Konstanten aus Charm (z.B.
-## Charm.RABBITS_FOOT), damit ein Tippfehler ein Compilerfehler ist statt eines
-## stillen No-ops. Ein neuer Charm braucht nur hier + als neue Fabrikmethode in
-## charm.gd einen Eintrag.
-##
-## Die Effekte sind nach Wirkungsort in Gruppen sortiert: Augenwert (einzelner
-## Würfel), Wertung (Multiplikator/Bonus/Verdopplung ganzer Hände), Geld,
-## Farkle-Milderung und Pool/Shop. Jede öffentliche Funktion nimmt die Liste
-## der besessenen Charm-ids und summiert/kombiniert die passenden Beiträge -
-## mehrere Charms stapeln sich also. Diese Gruppierung ist bewusst am AUFRUFER
-## orientiert (DiceScoring fragt z.B. nur einmal mult_bonus() und bekommt die
-## Summe); der Preis ist, dass die Wirkung EINES Charms über mehrere Funktionen
-## verteilt liegt (siehe charm.gd für Metadaten desselben Charms).
+## Reine Effekt-Logik der Charms, id-dispatcht (ids: Konstanten in Charm).
+## Nach Wirkungsort gruppiert; jede Funktion summiert die Beiträge aller
+## übergebenen ids - mehrere/duplizierte Charms stapeln sich.
+## Ein neuer Charm braucht nur hier + eine Fabrikmethode in charm.gd.
 
 # --- Augenwert (einzelner Würfel) -------------------------------------------
 
-## Augenwert, den face_value (ein tatsächlich gewürfelter Wert) nach allen
-## aktiven Charms zur Punktsumme beiträgt (siehe DiceScoring._sum und die
-## Pasch-Zweige von score_category) - wirkt NICHT auf die Kategorie-Erkennung
-## (Paare, Straßen, ...), die bleibt am tatsächlich gewürfelten Wert; nur wie
-## stark er zählt, ändert sich. Mehrere Charms wirken nacheinander, ihre
-## Effekte stapeln sich also.
+## Punktbeitrag eines gewürfelten Werts nach allen Charms - wirkt NICHT auf
+## die Kategorie-Erkennung, nur auf die Punktsumme.
 static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	var value := face_value
 	for charm_id in charm_ids:
 		value = _apply_eye_value(charm_id, face_value, value)
-	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): kein Würfel
-	# zählt unter 5 Augen.
+	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 5 Augen.
 	if charm_ids.has(Charm.EQUALIZER):
 		value = maxi(value, 5)
 	return value
@@ -54,8 +38,7 @@ static func _apply_eye_value(charm_id: String, face_value: int, value: int) -> i
 
 # --- Wertung (ganze Hand) ----------------------------------------------------
 
-## Zusätzlicher Kombi-Multiplikator für die Kategorie key (siehe
-## DiceScoring.score_category) - z.B. Hufeisen: Full House +12.
+## Zusätzlicher Kombi-Multiplikator für die Kategorie key.
 static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -71,8 +54,7 @@ static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
 					bonus += 8
 	return bonus
 
-## Feste Bonuspunkte, die NACH dem Multiplikator auf die Hand addiert werden
-## (siehe DiceScoring.score_category) - Regenbogenforelle: +10 auf Straßen.
+## Feste Bonuspunkte NACH dem Multiplikator.
 static func flat_bonus(key: String, charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -82,9 +64,7 @@ static func flat_bonus(key: String, charm_ids: Array[String]) -> int:
 					bonus += 10
 	return bonus
 
-## Multiplikator auf die GESAMTE Hand (nach mult/flat), nur unter bestimmten
-## Bedingungen - z.B. Zauberkarte: erste genommene Hand der Runde ×2. Liefert
-## sonst 1.
+## Multiplikator auf die gesamte Hand (Zauberkarte: erste Hand der Runde ×2).
 static func score_multiplier(charm_ids: Array[String], is_first_hand: bool) -> int:
 	var mult := 1
 	if is_first_hand:
@@ -95,9 +75,7 @@ static func score_multiplier(charm_ids: Array[String], is_first_hand: bool) -> i
 
 # --- Geld --------------------------------------------------------------------
 
-## Fester Extra-Betrag beim Erreichen des Rundenziels (siehe
-## scene_root.gd: _on_round_complete) - Glücksgroschen: +$3, wächst um $1 je
-## bereits erreichtem Rundenziel (goals_reached = Ziele VOR diesem).
+## Glücksgroschen: +$3 beim Rundenziel, wächst um $1 je bereits erreichtem Ziel.
 static func round_clear_bonus(charm_ids: Array[String], goals_reached: int = 0) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -105,8 +83,7 @@ static func round_clear_bonus(charm_ids: Array[String], goals_reached: int = 0) 
 			bonus += 3 + maxi(0, goals_reached)
 	return bonus
 
-## Extra-Auszahlung je noch nicht gezogenem Würfel, zusätzlich zum Basiswert
-## (siehe scene_root.gd: MONEY_PER_UNUSED_DIE) - z.B. Sparschwein +1$/Würfel.
+## Sparschwein: +$1 je noch nicht gezogenem Würfel bei der Auszahlung.
 static func unused_die_bonus(charm_ids: Array[String]) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -114,8 +91,7 @@ static func unused_die_bonus(charm_ids: Array[String]) -> int:
 			bonus += 1
 	return bonus
 
-## Sofort-Einkommen für einen überlebten Farkle (Runde geht weiter, siehe
-## scene_root.gd: _on_farkle) - Kristallkugel: +$7.
+## Kristallkugel: +$7 für einen überlebten Farkle.
 static func farkle_survival_income(charm_ids: Array[String]) -> int:
 	var income := 0
 	for charm_id in charm_ids:
@@ -125,16 +101,13 @@ static func farkle_survival_income(charm_ids: Array[String]) -> int:
 
 # --- Farkle-Milderung --------------------------------------------------------
 
-## True, wenn der erste Farkle einer Runde verziehen werden soll (Hand läuft
-## weiter statt verworfen zu werden) - Schornsteinfeger, siehe
-## scene_root.gd: _on_farkle.
+## Schornsteinfeger: der erste Farkle einer Runde wird verziehen.
 static func forgives_first_farkle(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.CHIMNEY_SWEEP)
 
 # --- Pool / Shop -------------------------------------------------------------
 
-## Zusätzliche Würfel, die dem Rundenpool beigemischt werden (siehe
-## scene_root.gd: _start_new_round) - Glücksknoten: +1.
+## Glücksknoten: +1 Würfel im Rundenpool.
 static func extra_round_dice(charm_ids: Array[String]) -> int:
 	var extra := 0
 	for charm_id in charm_ids:
@@ -142,8 +115,7 @@ static func extra_round_dice(charm_ids: Array[String]) -> int:
 			extra += 1
 	return extra
 
-## Effektiver Würfelpreis im Shop nach Rabatt-Charms (siehe ShopController) -
-## Trickdieb-Manschette: -33%; Mengenrabatt: 3er-Bündel $5 günstiger.
+## Würfelpreis nach Rabatten (Trickdieb -33%, Mengenrabatt: 3er-Bündel -$5).
 static func die_price(base_price: int, charm_ids: Array[String], bundle_size: int = 1) -> int:
 	var price := float(base_price)
 	for charm_id in charm_ids:
@@ -156,35 +128,27 @@ static func die_price(base_price: int, charm_ids: Array[String], bundle_size: in
 	return maxi(1, int(round(price)))
 
 # ==============================================================================
-# Effektkatalog-Hooks (siehe Obsidian "12 Charms - Effektkatalog"). Viele der
-# neuen Charms brauchen Wurf-/Runden-Zustand, den weder key noch values
-# hergeben - der Aufrufer (scene_root) reicht ihn als ctx-Dictionary in die
-# Wertung (siehe DiceScoring.score_category). Alle ctx-Schlüssel sind optional:
+# Effektkatalog-Hooks: brauchen Wurf-/Runden-Zustand als ctx-Dictionary
+# (alle Schlüssel optional):
 #   "rerolled":      int   - diese Hand neu geworfene Würfel (Pendel)
 #   "taken_dice":    int   - diese Runde bereits genommene Würfel (Pendel)
-#   "full_rerolls":  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts, stapelt)
+#   "full_rerolls":  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts)
 #   "streak":        int   - genommene Hände in Folge ohne Farkle (Momentum)
-#   "last_hand":     bool  - dies ist die letzte Hand der Runde (Feierabendbier)
+#   "last_hand":     bool  - letzte Hand der Runde (Feierabendbier)
 #   "after_farkle":  bool  - erste Hand nach einem Farkle (Galgenhumor)
 #   "farkle_stacks": int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
 #   "last_settled":  int   - Slot des zuletzt zur Ruhe gekommenen Würfels (Nachzügler)
-#   "late_slots":    Array - Slots, die aus den letzten 6 des Stapels gezogen wurden (Bodensatz)
-# Additive Effekte stapeln je VORKOMMEN der id (wichtig für die Totems, die
-# Nachbar-ids duplizieren, siehe GameRun.charm_ids).
+#   "late_slots":    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
 # ==============================================================================
 
-# --- Wertung: zusätzlicher Basiswert ------------------------------------------
-
-## Zusätzliche Basispunkte der Effektkatalog-Charms, VOR dem Multiplikator
-## (siehe DiceScoring.score_category). participating = Positionen der
-## Kombination (siehe DiceScoring.participating_indices).
+## Zusätzliche Basispunkte VOR dem Multiplikator.
 static func charm_base_bonus(key: String, values: Array[int], participating: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, materials: Array[String] = [], edge_materials: Array[String] = []) -> int:
 	var bonus := 0
 	var edge_count := 0
 	for material_id in edge_materials:
 		if material_id != "":
 			edge_count += 1
-	var roll_sum := 0  # rohe Augensumme des ganzen Wurfs (Blackjack)
+	var roll_sum := 0  # rohe Augensumme des Wurfs (Blackjack)
 	for value in values:
 		roll_sum += value
 	var hand_sum := 0  # rohe Augensumme der beteiligten Würfel (Runde Sache)
@@ -233,14 +197,9 @@ static func _distinct(values: Array[int]) -> Array[int]:
 			seen.append(value)
 	return seen
 
-# --- Wertung: zusätzlicher Multiplikator ---------------------------------------
-
-## Zusätzlicher Kombi-Multiplikator der Effektkatalog-Charms (siehe
-## DiceScoring.score_category; kann durch das Pendel NIE negativ beitragen -
-## sein gespeicherter Stand fällt nicht unter 0). participating = Positionen
-## der Kombination (Doppelte Sechs/Snake Eyes zählen beteiligte vs.
-## unbeteiligte Würfel).
-static func charm_mult_bonus(key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, combo_levels: Dictionary = {}, participating: Array[int] = []) -> int:
+## Zusätzlicher Kombi-Multiplikator der Effektkatalog-Charms (Pendel kann nie
+## negativ beitragen).
+static func charm_mult_bonus(key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, _combo_levels: Dictionary = {}, participating: Array[int] = []) -> int:
 	var bonus := 0
 	var other_charms := maxi(0, charm_ids.size() - 1)
 	for charm_id in charm_ids:
@@ -267,16 +226,16 @@ static func charm_mult_bonus(key: String, values: Array[int], materials: Array[S
 					if material_id != "":
 						bonus += 1
 			Charm.LIGHTHOUSE:
-				# Höchste Zahl erhält Mult in Höhe der höchsten Augenzahl der Hand.
+				# Höchste Zahl: Mult in Höhe der höchsten Augenzahl.
 				if key == DiceScoring.ONE_KIND and not values.is_empty():
 					bonus += values.max()
 			Charm.TWIN_RING:
-				# Jedes exakte Paar im Wurf erhöht den Mult um seine Augenzahl.
+				# Jedes exakte Paar im Wurf: Mult += Augenzahl.
 				for value in _distinct(values):
 					if values.count(value) == 2:
 						bonus += value
 			Charm.DOUBLE_SIX:
-				# Jede 6 nach der zweiten 6 in der Kombination: +1 Mult.
+				# Jede 6 nach der zweiten in der Kombination: +1 Mult.
 				var sixes := 0
 				for i in participating:
 					if i < values.size() and values[i] == 6:
@@ -292,7 +251,6 @@ static func charm_mult_bonus(key: String, values: Array[int], materials: Array[S
 				bonus += 2 * other_charms
 	return bonus
 
-## True, wenn die beteiligten Würfel genau zwei 1er sind (Snake Eyes).
 static func _participating_are_ones(values: Array[int], participating: Array[int]) -> bool:
 	if participating.size() != 2:
 		return false
@@ -301,13 +259,8 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 			return false
 	return true
 
-# --- Wertung: Krit (multipliziert den Mult) ---------------------------------------
-
-## Der KRIT-Pool: additive Beiträge, die den fertigen Kombi-Multiplikator als
-## Faktor (1 + Summe) multiplizieren (siehe DiceScoring._total_mult und das
-## Glossar: "Krit = multiplikativ auf den Mult"). Galgenhumor: +3 auf die erste
-## Hand nach einem Farkle; Restaurantkritiker: +2 je Menü-Stufe der genommenen
-## Kombination. Einserkult wirkt zusätzlich als eigener Faktor (mult_factor).
+## Krit-Pool: additive Beiträge, die den fertigen Mult als Faktor (1 + Summe)
+## multiplizieren. Galgenhumor +3 nach Farkle; Restaurantkritiker +2 je Menü-Stufe.
 static func crit_bonus(key: String, charm_ids: Array[String], ctx: Dictionary = {}, combo_levels: Dictionary = {}) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -319,9 +272,7 @@ static func crit_bonus(key: String, charm_ids: Array[String], ctx: Dictionary = 
 				bonus += 2 * int(combo_levels.get(key, 0))
 	return bonus
 
-# --- Wertung: Faktoren auf Basis/Mult/Gesamt -------------------------------------
-
-## Faktor auf den BASISWERT (Einserkult: ×2 je gewürfelter 1, je Vorkommen).
+## Faktor auf den Basiswert (Einserkult: ×2 je gewürfelter 1, je Vorkommen).
 static func base_factor(values: Array[int], charm_ids: Array[String]) -> int:
 	var factor := 1
 	for charm_id in charm_ids:
@@ -329,12 +280,12 @@ static func base_factor(values: Array[int], charm_ids: Array[String]) -> int:
 			factor *= 1 << values.count(1)
 	return factor
 
-## Faktor auf den MULTIPLIKATOR (Einserkult: ×2 je gewürfelter 1, je Vorkommen).
+## Faktor auf den Multiplikator - gleiche Regel wie base_factor.
 static func mult_factor(values: Array[int], charm_ids: Array[String]) -> int:
-	return base_factor(values, charm_ids)  # identische Regel, getrennt benannt für Lesbarkeit
+	return base_factor(values, charm_ids)
 
-## Faktor auf die GESAMTE Hand (nach mult/flat) - Feierabendbier (letzte Hand ×2).
-static func hand_factor(key: String, charm_ids: Array[String], ctx: Dictionary = {}) -> float:
+## Faktor auf die gesamte Hand - Feierabendbier (letzte Hand ×2).
+static func hand_factor(_key: String, charm_ids: Array[String], ctx: Dictionary = {}) -> float:
 	var factor := 1.0
 	for charm_id in charm_ids:
 		match charm_id:
@@ -343,9 +294,9 @@ static func hand_factor(key: String, charm_ids: Array[String], ctx: Dictionary =
 					factor *= 2.0
 	return factor
 
-# --- Geld: Effektkatalog ---------------------------------------------------------
+# --- Geld: Effektkatalog -------------------------------------------------------
 
-## Einkommen beim Nehmen einer Hand (Straßenmusiker: $1 je beteiligtem Würfel).
+## Straßenmusiker: $1 je beteiligtem Würfel beim Nehmen.
 static func take_income(charm_ids: Array[String], participating_count: int = 1) -> int:
 	var income := 0
 	for charm_id in charm_ids:
@@ -353,13 +304,11 @@ static func take_income(charm_ids: Array[String], participating_count: int = 1) 
 			income += participating_count
 	return income
 
-## True, wenn eine Kombination aus ALLEN liegenden Würfeln das Geld um 50%
-## wachsen lässt (Goldrausch; Cap siehe GOLD_RUSH_CAP im Aufrufer scene_root).
+## Goldrausch: Kombination aus ALLEN liegenden Würfeln lässt das Geld um 50% wachsen.
 static func gold_rush_applies(charm_ids: Array[String], participating_count: int, dice_count: int = 6) -> bool:
 	return charm_ids.has(Charm.GOLD_RUSH) and dice_count > 0 and participating_count >= dice_count
 
 ## Lumpensammler: $4 je abgelegtem Würfel mit der Glückszahl oben (je Vorkommen).
-## Die Glückszahl wird jede Runde neu gewürfelt (siehe GameRun.apply_round_start_charms).
 static func rag_collector_income(values: Array[int], lucky_value: int, charm_ids: Array[String]) -> int:
 	if lucky_value < 1:
 		return 0
@@ -377,8 +326,8 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 			income += 2 * dice_count
 	return income
 
-## Rundenende-Einkommen: Zinsgroschen ($1 je volle $10, max. $50) und
-## Überflieger ($1 je 25 Punkte über Ziel, max. $50).
+## Rundenende: Zinsgroschen ($1 je volle $10) und Überflieger ($1 je 25 Punkte
+## über Ziel), beide max. $50.
 static func round_end_income(money: int, overflow_points: int, charm_ids: Array[String]) -> int:
 	var income := 0
 	for charm_id in charm_ids:
@@ -389,14 +338,14 @@ static func round_end_income(money: int, overflow_points: int, charm_ids: Array[
 				income += mini(maxi(0, overflow_points) / 25, 50)
 	return income
 
-## Notgroschen: Mindest-Geldstand am Rundenende ($25), sonst 0 (kein Minimum).
+## Notgroschen: Mindest-Geldstand am Rundenende ($25), sonst 0.
 static func money_floor(charm_ids: Array[String]) -> int:
 	return 25 if charm_ids.has(Charm.EMERGENCY_FUND) else 0
 
-# --- Farkle: Effektkatalog --------------------------------------------------------
+# --- Farkle: Effektkatalog -----------------------------------------------------
 
-## Anker: der erste Neuwurf jeder Hand kann nicht farkeln (reroll_index = wie
-## viele Neuwürfe diese Hand schon hatte, INKLUSIVE des aktuellen).
+## Anker: der erste Neuwurf jeder Hand kann nicht farkeln (reroll_index
+## inklusive des aktuellen).
 static func anchor_saves(charm_ids: Array[String], reroll_index: int) -> bool:
 	return charm_ids.has(Charm.ANCHOR) and reroll_index == 1
 
@@ -408,12 +357,11 @@ static func farkle_doubles_points(charm_ids: Array[String]) -> bool:
 static func farkle_keeps_high_card(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PATCHWORK_RUG)
 
-## Phönixfeder: bei jedem Farkle kehren die geworfenen Würfel ans Ende des
-## Nachziehstapels zurück statt in die Ablage (siehe scene_root._on_farkle).
+## Phönixfeder: geworfene Würfel kehren beim Farkle in den Stapel zurück.
 static func has_phoenix(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PHOENIX_FEATHER)
 
-# --- Pool / Shop: Effektkatalog ----------------------------------------------------
+# --- Pool / Shop: Effektkatalog --------------------------------------------------
 
 ## Magnetring: Würfel mit Kanten-Material werden zuerst gezogen.
 static func draws_edges_first(charm_ids: Array[String]) -> bool:
@@ -427,7 +375,7 @@ static func draws_fresh_first(charm_ids: Array[String]) -> bool:
 static func recycles_first_hand(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.RECYCLING)
 
-## Charm-Preis nach Skonto (min. $1, je Vorkommen $5 Rabatt).
+## Charm-Preis nach Skonto (je Vorkommen -$5, min. $1).
 static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
 	var price := base_price
 	for charm_id in charm_ids:
@@ -435,7 +383,7 @@ static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
 			price -= 5
 	return maxi(1, price)
 
-## Blätter-Gebühr nach Wechselgeld (min. $1, je Vorkommen $2 Rabatt).
+## Blätter-Gebühr nach Wechselgeld (je Vorkommen -$2, min. $1).
 static func flip_fee(base_fee: int, charm_ids: Array[String]) -> int:
 	var fee := base_fee
 	for charm_id in charm_ids:
@@ -443,8 +391,8 @@ static func flip_fee(base_fee: int, charm_ids: Array[String]) -> int:
 			fee -= 2
 	return maxi(1, fee)
 
-## Pack-Preis nach Feinschmecker (Tageskarte halbiert) und Schnäppchenjäger
-## ($2 Rabatt je Vorkommen); min. $1. pack_id siehe ShopController.PACKS.
+## Pack-Preis: Feinschmecker halbiert die Tageskarte, Schnäppchenjäger -$2 je
+## Vorkommen; min. $1.
 static func pack_price(base_price: int, pack_id: String, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
 	if pack_id == "tageskarte" and charm_ids.has(Charm.GOURMET):
@@ -454,8 +402,7 @@ static func pack_price(base_price: int, pack_id: String, charm_ids: Array[String
 			price -= 2.0
 	return maxi(1, int(round(price)))
 
-## Kleingedrucktes: Chance auf volle Rückerstattung eines Pack-Kaufs
-## (20% je Vorkommen, gedeckelt bei 80%).
+## Kleingedrucktes: Chance auf volle Pack-Rückerstattung (20% je Vorkommen, max. 80%).
 static func pack_refund_chance(charm_ids: Array[String]) -> float:
 	var chance := 0.0
 	for charm_id in charm_ids:
@@ -463,7 +410,7 @@ static func pack_refund_chance(charm_ids: Array[String]) -> float:
 			chance += 0.2
 	return minf(chance, 0.8)
 
-## Gütesiegel: Shop-Würfel sind immer veredelt (siehe DiceOffer).
+## Gütesiegel: Shop-Würfel sind immer veredelt.
 static func forces_refinement(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.SEAL_OF_QUALITY)
 

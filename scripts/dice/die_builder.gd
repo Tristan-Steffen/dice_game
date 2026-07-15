@@ -1,32 +1,22 @@
 class_name DieBuilder
 extends RefCounted
-## Baut einen kompletten Würfel (RigidBody3D + Kollision + 6 Gesichts-Quads,
-## siehe DieFaceDisplay) komplett per Code zusammen - keine .tscn-Datei mehr
-## nötig. Wird sowohl für die 6 Spielwürfel (scene_root.gd) als auch die 30
-## Tray-Würfel (dice_tray_view.gd) verwendet.
-##
-## Die 6 Quads bilden den weißen Würfelkörper (kein separater Körper-Mesh);
-## jedes trägt ein Label3D-Kind, das die Augenzahl als Ziffer zeigt (siehe
-## DieFaceDisplay). Die konkreten Werte/Tönungen setzt der Aufrufer danach über
-## DieFaceDisplay.apply_definition / set_tint.
+## Baut einen kompletten Würfel (RigidBody3D + Kollision + 6 Gesichts-Quads +
+## Kanten-Rahmen) rein per Code - keine .tscn. Genutzt für Spiel- und
+## Tray-Würfel; Werte/Tönungen setzt der Aufrufer über DieFaceDisplay.
 
 const HALF_EXTENT := 1.0
 const FACE_SIZE := 1.9
 const FACE_MARGIN := 0.02
-## Kantenstärke des Rahmen-Körpers (Balken-Querschnitt): ragt EDGE_THICKNESS/2
-## über die Würfeloberfläche hinaus - also spürbar VOR den Gesichts-Quads
-## (HALF_EXTENT + FACE_MARGIN), damit die Kanten als Rahmen hervortreten.
+## Balken-Querschnitt der Kanten: ragt EDGE_THICKNESS/2 über die Oberfläche
+## hinaus, also vor die Gesichts-Quads - die Kanten treten als Rahmen hervor.
 const EDGE_THICKNESS := 0.16
 
-## Lässt Würfel spürbar von Wänden/Boden der Grube abprallen statt beim
-## ersten Kontakt zu kleben (siehe scenes/dice_tray.tscn: dieselbe
-## PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden, damit
-## beide Seiten eines Aufpralls Energie zurückgeben).
+## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
+## damit beide Seiten eines Aufpralls Energie zurückgeben.
 const BOUNCE := 0.25
 const FRICTION := 0.4
 
-## Baut einen Würfel und gibt seinen Wurzelknoten ("Dice", Node3D) zurück.
-## Der Aufrufer muss den Knoten noch in den Baum einhängen und positionieren.
+## Baut einen Würfel; der Aufrufer hängt den Wurzelknoten ein und positioniert ihn.
 static func build() -> Node3D:
 	var root := Node3D.new()
 	root.name = "Dice"
@@ -38,7 +28,7 @@ static func build() -> Node3D:
 	body.gravity_scale = 3.5
 	body.linear_damp = 0.2
 	body.angular_damp = 0.2
-	body.continuous_cd = true  # verhindert Tunneln durch die dünnen Grubenwände bei hohem throw_force
+	body.continuous_cd = true  # kein Tunneln durch dünne Grubenwände bei hohem throw_force
 	var material := PhysicsMaterial.new()
 	material.bounce = BOUNCE
 	material.friction = FRICTION
@@ -57,23 +47,18 @@ static func build() -> Node3D:
 	faces.set_script(load("res://scripts/dice/die_face_display.gd"))
 	body.add_child(faces)
 
-	# Durchgehender Kanten-Körper: 12 Balken entlang der Würfelkanten, die ein
-	# Stück ÜBER die Gesichts-Quads hinausragen (Rahmen-Optik), plus eine
-	# Füll-Box dahinter, die die Lücken zwischen den Balken schließt. Alle
-	# teilen EIN Material - dessen Farbe setzt DieFaceDisplay (neutral bzw.
-	# Kanten-Material-Tint, siehe DieDefinition.edge_material).
+	# Kanten-Körper: 12 Balken plus Füll-Box, alle mit EINEM Material - dessen
+	# Farbe setzt DieFaceDisplay (neutral bzw. Kanten-Material-Tint).
 	var edge_material := StandardMaterial3D.new()
 	edge_material.albedo_color = DieFaceDisplay.EDGE_COLOR
-	edge_material.albedo_texture = DieMaterial.die_texture_for("")  # Basis-Muster (siehe DieFaceDisplay)
+	edge_material.albedo_texture = DieMaterial.die_texture_for("")
 	edge_material.roughness = 0.55
-	edge_material.emission_enabled = true  # leichtes Eigenleuchten (siehe DieFaceDisplay.GLOW_STRENGTH)
+	edge_material.emission_enabled = true
 	edge_material.emission = DieFaceDisplay.EDGE_COLOR * DieFaceDisplay.GLOW_STRENGTH
 	faces.edge_material_res = edge_material
 
-	# Umgebungslicht des Würfels (standardmäßig aus; nur die Spielwürfel
-	# schalten es frei, siehe DieFaceDisplay.set_light_enabled) - lässt den
-	# Würfel seine Umgebung tatsächlich beleuchten, Farbe/Stärke folgen den
-	# Materialien (siehe DieFaceDisplay._refresh_die_light).
+	# Umgebungslicht des Würfels - standardmäßig aus, nur die Spielwürfel
+	# schalten es frei (DieFaceDisplay.set_light_enabled).
 	var die_light := OmniLight3D.new()
 	die_light.name = "DieLight"
 	die_light.omni_range = DieFaceDisplay.LIGHT_RANGE
@@ -96,9 +81,9 @@ static func build() -> Node3D:
 	fill.material_override = edge_material
 	edges_root.add_child(fill)
 
-	# Je Kante ein Balken: jedes Paar senkrechter Achsrichtungen (a, b) bezeichnet
-	# genau eine Kante (Mitte bei (a+b)·HALF_EXTENT, lang entlang der dritten
-	# Achse) - 12 Paare = 12 Kanten. Balken gleicher Richtung teilen ihr BoxMesh.
+	# Je Kante ein Balken: jedes Paar senkrechter Achsrichtungen (a, b) ist
+	# genau eine Kante (Mitte (a+b)·HALF_EXTENT, lang entlang der dritten
+	# Achse). Balken gleicher Richtung teilen ihr BoxMesh.
 	var beam_meshes := {}
 	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
 	for i in directions.size():
@@ -133,9 +118,9 @@ static func build() -> Node3D:
 		var default_value: int = DiceController.AXIS_FACE_INDEX[axis] + 1
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = DieFaceDisplay.BODY_COLOR
-		mat.albedo_texture = DieMaterial.die_texture_for("")  # Basis-Muster (siehe DieFaceDisplay)
+		mat.albedo_texture = DieMaterial.die_texture_for("")
 		mat.roughness = 0.55
-		mat.emission_enabled = true  # leichtes Eigenleuchten (siehe DieFaceDisplay.GLOW_STRENGTH)
+		mat.emission_enabled = true
 		mat.emission = DieFaceDisplay.BODY_COLOR * DieFaceDisplay.GLOW_STRENGTH
 		quad.set_surface_override_material(0, mat)
 
@@ -149,9 +134,8 @@ static func build() -> Node3D:
 
 	return root
 
-## Baut das Ziffern-Label eines Gesichts. Kind des Körper-Quads, minimal davor
-## (+Z) gesetzt, damit es plan aufliegt, aber nicht mit dem Quad z-fightet; erbt
-## dessen nach außen gerichtete Orientierung (siehe _face_basis).
+## Ziffern-Label eines Gesichts: minimal vor dem Quad (+Z), erbt dessen
+## nach außen gerichtete Orientierung.
 static func _build_label(value: int) -> Label3D:
 	var label := Label3D.new()
 	label.name = "Value"
@@ -161,13 +145,12 @@ static func _build_label(value: int) -> Label3D:
 	label.modulate = DieFaceDisplay.NUMBER_COLOR
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS  # schreibt Tiefe + kantenglatt, korrektes Sortieren bei vielen Würfeln
-	label.position = Vector3(0, 0, 0.01)  # Schauseite (+Z) zeigt nach außen (Quad-Normale), Ziffer liest sich seitenrichtig
+	label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS  # schreibt Tiefe: korrektes Sortieren bei vielen Würfeln
+	label.position = Vector3(0, 0, 0.01)
 	return label
 
-## Orientierung eines Gesichts-Quads: z (Normale) zeigt nach außen (direction),
-## y (Ziffern-"oben") entlang up (siehe DiceController.FACE_TEXT_UP), damit die
-## Zahl frontal aufrecht steht. up muss senkrecht auf direction stehen.
+## Quad-Orientierung: z (Normale) nach außen, y (Ziffern-"oben") entlang up;
+## up muss senkrecht auf direction stehen.
 static func _face_basis(direction: Vector3, up: Vector3) -> Basis:
 	var z_axis := direction.normalized()
 	var x_axis := up.cross(z_axis).normalized()

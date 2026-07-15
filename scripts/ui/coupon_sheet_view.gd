@@ -1,23 +1,19 @@
 class_name CouponSheetView
 extends Control
-## Zeigt einen CouponSheet als perforierten Bogen: cremefarbenes "Papier" mit
-## einem Raster aus Coupon-Texturen (jede auf ihre Zellfläche gestreckt, siehe
-## show_sheet). Zwischen den Coupons - und um den Bogen herum - laufen gestrichelte
-## Perforationslinien wie bei echten Coupon-Bögen; sie werden nur entlang echter
-## Kanten zwischen VERSCHIEDENEN Coupons gezogen (ein 2×2-Coupon hat also keine
-## Perforation quer durch seine Mitte). Reine Anzeige - die Daten liefert CouponSheet.
+## Zeigt einen CouponSheet als perforierten Bogen: cremefarbenes Papier mit
+## Coupon-Texturen im Raster. Perforationslinien laufen nur entlang echter
+## Kanten zwischen VERSCHIEDENEN Coupons (nie mitten durch einen) plus der
+## Außenkante. Reine Anzeige - die Daten liefert CouponSheet.
 
 const SHEET_PAD := 16.0    # Papierrand um das Raster
-const TILE_MARGIN := 9.0   # Abstand der Textur zur Zellkante (Perforation läuft dazwischen)
+const TILE_MARGIN := 9.0   # Abstand der Textur zur Zellkante
 
-const PAPER_COLOR := Color("efe4c8")  # cremefarbenes Bogenpapier (passt zum Coupon-Vintage-Look)
-const PERF_COLOR := Color("6b4a2f")   # warmes Braun für die Perforationslinien
-const FILLER_TINT := Color(1, 1, 1, 0.82)  # Marken/Werbeflächen leicht zurückgenommen
+const PAPER_COLOR := Color("efe4c8")
+const PERF_COLOR := Color("6b4a2f")
+const FILLER_TINT := Color(1, 1, 1, 0.82)  # Marken/Werbeflächen zurückgenommen
 
-## Eine gezeigte Kachel: ihr Anzeige-Control (TextureRect oder Platzhalter für
-## Coupons ohne Motiv-Datei) plus die Bogen-Daten dahinter - Grundlage der
-## Abschluss-Animation (siehe scene_root, das die Nodes zum Fliegen in seine
-## Overlay-Ebene umhängt).
+## Eine gezeigte Kachel: Anzeige-Control + Bogen-Daten - Grundlage der
+## Abschluss-Animation (scene_root hängt die Nodes zum Fliegen um).
 class TileView:
 	extends RefCounted
 
@@ -30,8 +26,7 @@ class TileView:
 
 var tile_views: Array[TileView] = []
 
-## Baut die Kacheln des Bogens neu auf. cell_px = Kantenlänge einer Rasterzelle
-## in Pixeln; die Gesamtgröße (inkl. Papierrand) ergibt sich daraus.
+## Baut die Kacheln neu auf; cell_px = Kantenlänge einer Rasterzelle.
 func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 	for child in get_children():
 		child.queue_free()
@@ -47,8 +42,8 @@ func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 	paper.add_theme_stylebox_override("panel", _paper_box())
 	add_child(paper)
 
-	# Zelle -> Kachelindex, damit die Perforation nur zwischen VERSCHIEDENEN
-	# Coupons gezogen wird (siehe _Perforation).
+	# Zelle -> Kachelindex, damit die Perforation nur zwischen verschiedenen
+	# Coupons gezogen wird.
 	var cell_tile: Array = []
 	for r in sheet.rows:
 		var row_cells: Array = []
@@ -80,15 +75,14 @@ func show_sheet(sheet: CouponSheet, cell_px: float) -> void:
 	perforation.setup(sheet.cols, sheet.rows, cell_px, SHEET_PAD, cell_tile)
 	add_child(perforation)  # zuletzt = über den Texturen
 
-## Anzeige-Node einer Kachel: das Motiv als TextureRect, oder - falls die
-## Motiv-Datei (noch) fehlt, z.B. bei neuen Material-Coupons ohne Artwork - ein
-## Platzhalter in Material-/Papierfarbe mit dem Coupon-Namen.
+## Anzeige-Node einer Kachel: Motiv als TextureRect, oder Platzhalter mit
+## Coupon-Namen, falls die Motiv-Datei fehlt.
 func _tile_node(tile: CouponSheet.SheetTile) -> Control:
 	if ResourceLoader.exists(tile.texture):
 		var tex := TextureRect.new()
 		tex.texture = load(tile.texture)
 		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex.stretch_mode = TextureRect.STRETCH_SCALE  # auf die Zelle strecken - Quell-Seitenverhältnis egal
+		tex.stretch_mode = TextureRect.STRETCH_SCALE
 		return tex
 
 	var placeholder := Panel.new()
@@ -121,9 +115,7 @@ func _paper_box() -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 4)
 	return box
 
-## Zeichnet die gestrichelten Perforationslinien über dem Raster: entlang jeder
-## Zellkante zwischen zwei VERSCHIEDENEN Coupons (nie mitten durch einen) plus
-## der Außenkante des ganzen Bogens.
+## Gestrichelte Perforationslinien über dem Raster.
 class _Perforation:
 	extends Control
 

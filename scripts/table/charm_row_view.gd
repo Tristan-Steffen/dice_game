@@ -1,72 +1,52 @@
 class_name CharmRowView
 extends Node3D
-## Zeigt die besessenen Charms als physische 3D-Modelle auf dem Tisch (siehe
-## Charm). Sechs feste Plätze in einer geraden Reihe entlang des hinteren
-## Tischrands (fester Abstand LINE_X in +X = Bildschirm-oben in der Grubenansicht,
-## siehe scene_root.gd: QUEUE_TRAY_PIT_POSITION), gleichmäßig in Z verteilt und
-## spiegelsymmetrisch zur X-Achse (Z=0). Die Reihenfolge der Plätze = Reihenfolge
-## der übergebenen Charms (Index 0 = erster Platz, ganz links = niedrigstes Z).
-##
-## set_charms() baut die Modelle bei jeder Änderung neu auf. Zusätzlich löst
-## der Knoten den Hover für die Charm-Tooltips der Grubenansicht auf
-## (charm_at_screen_pos, siehe scene_root._update_charm_tooltip).
-##
-## Es gibt kein physisches Podest mehr: Der Charm ist eine Lichtprojektion, die
-## direkt aus der Tischfläche aufsteigt (siehe Hologramm-Look unten).
+## Zeigt die besessenen Charms als Hologramme auf dem Tisch: sechs feste
+## Plätze in einer Reihe am hinteren Tischrand, Reihenfolge = Besitz-
+## Reihenfolge. set_charms() baut bei jeder Änderung neu auf; zusätzlich löst
+## der Knoten den Hover/Drag der Grubenansicht auf (charm_*_at_screen_pos).
 
-const LINE_X := 31.0  # fester Abstand der Reihe vom Grubenzentrum (hinterer Tischrand, +X)
-const LINE_SPACING := 9.0  # Z-Abstand zwischen benachbarten Charms in der Reihe
-const SPOT_Y := 0.0  # Höhe der Tischoberfläche (Filz-Oberkante des ScreenTable, siehe room.tscn)
-const MODEL_SCALE := 4.0  # Grundskalierung des Charm-Modells auf Tischgröße
-const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"  # Platzhalter für Charms ohne eigenes Modell (siehe Charm.model_path)
+const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben)
+const LINE_SPACING := 9.0
+const SPOT_Y := 0.0  # Tischoberfläche
+const MODEL_SCALE := 4.0
+const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"
 
 ## Anzahl fester Plätze - zugleich die Obergrenze besitzbarer Charms.
 const SPOT_COUNT := 6
 
-## Hologramm-Look: Der Charm wird als projizierte Lichtgestalt gezeigt (Star-
-## Wars-Stil) - das Modell selbst bekommt den Hologramm-Shader übergestülpt, und
-## aus der Tischfläche steigt für JEDEN Charm derselbe Lichtzylinder auf (siehe
-## assets/shaders/charm_hologram.gdshader + hologram_beam.gdshader).
+## Hologramm-Look: Modell bekommt den Hologramm-Shader, aus der Tischfläche
+## steigt je Charm ein Lichtzylinder auf.
 const HOLOGRAM_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
 const BEAM_SHADER := preload("res://assets/shaders/hologram_beam.gdshader")
-const BEAM_RADIUS := 3.6  # Lichtzylinder-Radius (Emitter-Fußabdruck auf dem Tisch)
-const BEAM_HEIGHT := 9.0  # Höhe des Lichtkegels über der Tischfläche
+const BEAM_RADIUS := 3.6
+const BEAM_HEIGHT := 9.0
 
-## Bildschirm-Toleranz der Hover-Erkennung um die projizierte Charm-Mitte
-## (siehe charm_at_screen_pos) - in der Grubenansicht liegen die Charms am
-## oberen Bildrand und recht klein, daher großzügig gewählt.
+## Hover-Toleranz um die projizierte Charm-Mitte - die Charms liegen in der
+## Grubenansicht klein am oberen Bildrand, daher großzügig.
 const PICK_RADIUS_PX := 70.0
 
-## Placement-Pivots (eins je Charm): DIESE trägt Platz-Transform und wird beim
-## Umsortier-Drag bewegt (siehe scene_root). Das eigentliche Modell hängt darin
-## und dreht sich langsam (siehe _process) - so kollidiert die Dauerrotation
-## nie mit Drag/Gleiten, die nur den Pivot anfassen.
+## Placement-Pivots (je Charm): tragen Platz-Transform und werden beim Drag
+## bewegt; das Modell darin dreht sich dauerhaft - so kollidiert die Rotation
+## nie mit Drag/Gleiten.
 var charm_nodes: Array[Node3D] = []
-var charm_models: Array[Node3D] = []  # das rotierende Modell je Pivot (parallel zu charm_nodes)
-var current_charms: Array[Charm] = []  # parallel zu charm_nodes (für Tooltips)
-var beam_nodes: Array[MeshInstance3D] = []  # Lichtzylinder je besetztem Platz (parallel zu charm_nodes)
-var charm_materials: Array = []  # je Charm die Hologramm-ShaderMaterials aller Flächen (für flash_charm)
+var charm_models: Array[Node3D] = []
+var current_charms: Array[Charm] = []
+var beam_nodes: Array[MeshInstance3D] = []
+var charm_materials: Array = []  # je Charm die Hologramm-Materialien (für flash_charm)
 
-## Drehgeschwindigkeit der Hologramme (rad/s) - langsamer Plattenteller-Spin.
-const ROTATION_SPEED := 0.5
+const ROTATION_SPEED := 0.5  # rad/s, langsamer Plattenteller-Spin
 
-## Geteilte Ressourcen des Lichtzylinders: EIN Material je Rarität (der Kegel
-## schimmert in der Raritätsfarbe des Charms, siehe Charm.rarity_color - Weiß/
-## Grün/Blau/Violett), von allen Charms derselben Rarität geteilt (er animiert
-## über TIME ohnehin gleich). Der Hologramm-Shader wird dagegen je Fläche
-## instanziiert (Originalfarbe erhalten, siehe _apply_hologram).
+## Geteilte Beam-Ressourcen: EIN Material je Rarität (Kegel schimmert in der
+## Raritätsfarbe); der Hologramm-Shader wird je Fläche instanziiert.
 var _beam_materials: Dictionary = {}  # Rarität -> ShaderMaterial
 var _beam_mesh: CylinderMesh
 
-## Wie stark die Raritätsfarbe in den Kegel mischt: dezent Richtung Grundton
-## des Beams, damit der Kegel weiter als Lichtprojektion liest und die Farbe
-## nur "anschimmert" (siehe _beam_material_for).
+## Wie stark die Raritätsfarbe in den Kegel mischt (dezent - der Kegel soll
+## weiter als Lichtprojektion lesen).
 const BEAM_RARITY_MIX := 0.65
 
-## Baut die Charm-Modelle neu auf: je Charm ein Modell auf dem nächsten festen
-## Platz, in der Reihenfolge von charms (Index 0 = erster Platz). Mehr Charms als
-## Plätze werden abgeschnitten (die Shop-Obergrenze sollte das ohnehin
-## verhindern, siehe ShopController). Freie Plätze bleiben komplett leer.
+## Baut die Charm-Modelle neu: je Charm ein Modell auf dem nächsten Platz;
+## mehr Charms als Plätze werden abgeschnitten.
 func set_charms(charms: Array[Charm]) -> void:
 	_ensure_holo_resources()
 	for node in charm_nodes:
@@ -80,7 +60,6 @@ func set_charms(charms: Array[Charm]) -> void:
 	charm_materials.clear()
 	var count := mini(charms.size(), SPOT_COUNT)
 	for i in count:
-		# Pivot am Platz, Modell darin (dreht sich, ohne Drag/Gleiten zu stören).
 		var pivot := Node3D.new()
 		add_child(pivot)
 		pivot.transform = _spot_transform(i)
@@ -94,16 +73,10 @@ func set_charms(charms: Array[Charm]) -> void:
 		charm_materials.append(materials)
 		_add_beam(i)
 
-## Langsame Dauerrotation der Hologramme um die Hochachse (nur die Modelle, nicht
-## die Pivots - siehe charm_models). Der Lichtzylinder steht still.
 func _process(delta: float) -> void:
 	for model in charm_models:
 		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
 
-## Baut die geteilten Ressourcen des Lichtzylinders einmalig (Mesh); die
-## Rarität-Materialien entstehen bei Bedarf (siehe _beam_material_for). Die
-## Höhengrenzen beginnen an der Tischfläche, damit der Kegel aus dem Tisch
-## aufsteigt.
 func _ensure_holo_resources() -> void:
 	if _beam_mesh != null:
 		return
@@ -113,9 +86,8 @@ func _ensure_holo_resources() -> void:
 	_beam_mesh.height = BEAM_HEIGHT
 	_beam_mesh.radial_segments = 24
 
-## Das (geteilte) Kegel-Material für eine Rarität: der Standard-Blauton des
-## Beam-Shaders, dezent Richtung Raritätsfarbe gemischt (Weiß/Grün/Blau/Violett,
-## siehe Charm.RARITY_COLORS) - einmal je Rarität gebaut, dann wiederverwendet.
+## Kegel-Material einer Rarität: Shader-Grundton, dezent Richtung
+## Raritätsfarbe gemischt - einmal gebaut, dann wiederverwendet.
 func _beam_material_for(rarity: String) -> ShaderMaterial:
 	if _beam_materials.has(rarity):
 		return _beam_materials[rarity]
@@ -123,25 +95,21 @@ func _beam_material_for(rarity: String) -> ShaderMaterial:
 	material.shader = BEAM_SHADER
 	material.set_shader_parameter("bottom_y", SPOT_Y)
 	material.set_shader_parameter("top_y", SPOT_Y + BEAM_HEIGHT)
-	var base_color := Color(0.3, 0.68, 1.0)  # Grundton des Shaders (beam_color-Default)
+	var base_color := Color(0.3, 0.68, 1.0)  # beam_color-Default des Shaders
 	var rarity_color: Color = Charm.RARITY_COLORS.get(rarity, Charm.RARITY_COLORS[Charm.RARITY_COMMON])
 	var tinted := base_color.lerp(rarity_color, BEAM_RARITY_MIX)
 	material.set_shader_parameter("beam_color", Vector3(tinted.r, tinted.g, tinted.b))
 	_beam_materials[rarity] = material
 	return material
 
-## Macht aus dem festen Modell die Lichtprojektion: legt je Fläche ein eigenes
-## Hologramm-Shader-Material an, das die ORIGINALFARBE (Textur + albedo_color der
-## Fläche) übernimmt - so bleiben die Charm-Farben erhalten, statt einfarbig zu
-## werden. out_materials sammelt die erzeugten Materialien des Charms ein (für
-## den flash-Parameter, siehe flash_charm).
+## Stülpt je Fläche ein Hologramm-Material über, das die Originalfarbe
+## (Textur + albedo_color) übernimmt; out_materials sammelt sie für flash_charm.
 func _apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
 		var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
-		# Originalmaterialien zuerst lesen (material_override würde sonst pro
-		# Fläche gleich sein und die Flächen-Overrides überstrahlen) und den
-		# Voll-Override lösen, damit die Flächen-Hologramme greifen.
+		# Originalmaterialien zuerst lesen und den Voll-Override lösen, damit
+		# die Flächen-Hologramme greifen.
 		var originals: Array = []
 		for s in surface_count:
 			originals.append(mesh_instance.get_active_material(s))
@@ -160,9 +128,8 @@ func _apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
 	for child in node.get_children():
 		_apply_hologram(child, out_materials)
 
-## Lässt den Charm auf Platz index kurz aufblitzen (Zähl-Animation: "dieser
-## Charm feuert gerade") - Helligkeits-Puls über den flash-Shader-Parameter
-## plus kleiner Größen-Pop des Modells. Läuft im Hintergrund (blockiert nicht).
+## Lässt den Charm auf Platz index kurz aufblitzen ("dieser Charm feuert"):
+## Helligkeits-Puls über den flash-Parameter plus kleiner Größen-Pop.
 func flash_charm(index: int) -> void:
 	if index < 0 or index >= charm_models.size():
 		return
@@ -183,8 +150,6 @@ func flash_charm(index: int) -> void:
 	scale_tween.tween_property(model, "scale", Vector3.ONE, 0.4) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-## Setzt den Lichtzylinder aus der Tischfläche des Platzes i (senkrecht, keine
-## Charm-Drehung) - der Kegel schimmert in der Raritätsfarbe des Charms.
 func _add_beam(i: int) -> void:
 	var beam := MeshInstance3D.new()
 	beam.mesh = _beam_mesh
@@ -194,17 +159,14 @@ func _add_beam(i: int) -> void:
 	add_child(beam)
 	beam_nodes.append(beam)
 
-## Der Charm, dessen Modell auf dem Bildschirm am nächsten an screen_pos liegt
-## (innerhalb PICK_RADIUS_PX), oder null. Reine Projektions-Nähe statt
-## Physik-Raycast - die GLB-Modelle bringen keine (verlässlichen) Kollider mit.
-## Grundlage der Hover-Tooltips in der Grubenansicht (siehe scene_root).
+## Charm, dessen Modell screen_pos am nächsten liegt (innerhalb
+## PICK_RADIUS_PX), oder null. Projektions-Nähe statt Physik-Raycast - die
+## GLB-Modelle bringen keine verlässlichen Kollider mit.
 func charm_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> Charm:
 	var index := charm_index_at_screen_pos(camera, screen_pos)
 	return current_charms[index] if index != -1 else null
 
-## Index-Variante von charm_at_screen_pos (Position in current_charms =
-## Besitz-Reihenfolge), oder -1. Grundlage des Umsortier-Drags (siehe
-## scene_root._try_start_charm_reorder).
+## Index-Variante (Position in current_charms = Besitz-Reihenfolge), oder -1.
 func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 	var best := -1
 	var best_dist := PICK_RADIUS_PX
@@ -218,13 +180,11 @@ func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 			best = i
 	return best
 
-## Globale Position des festen Platzes i (Charm-Standpunkt auf der Tischfläche) -
-## Drop-Ziel und Rückgleit-Anker des Umsortier-Drags (siehe scene_root).
+## Globale Position des festen Platzes i (Drop-Ziel/Rückgleit-Anker).
 func spot_global_position(i: int) -> Vector3:
 	return to_global(_spot_transform(i).origin)
 
-## Lässt das Charm-Modell i zu seinem festen Platz zurückgleiten - Abbruch bzw.
-## ungültiges Ziel des Umsortier-Drags (siehe scene_root._cancel_charm_drag).
+## Lässt das Charm-Modell i zu seinem festen Platz zurückgleiten.
 func glide_charm_to_spot(i: int) -> void:
 	if i < 0 or i >= charm_nodes.size():
 		return
@@ -232,9 +192,6 @@ func glide_charm_to_spot(i: int) -> void:
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(charm_nodes[i], "transform", _spot_transform(i), 0.3)
 
-## Instanziert das 3D-Modell eines Charms (Charm.model_path), oder ersatzweise
-## eine Platzhalter-Karte (siehe placeholder_model), solange der Charm noch
-## kein eigenes Modell hat.
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
 	var model: Node3D
@@ -244,17 +201,13 @@ func _load_model(charm: Charm) -> Node3D:
 		model = (load(path) as PackedScene).instantiate()
 	return model
 
-## Stabile, kräftige Farbe aus der Charm-id (Hash -> Farbton) - die Farbe der
-## Platzhalter-Karte. Auch die Charm-Bibliothek nutzt sie als Farbfeld, damit
-## Karte auf dem Tisch und Bibliothekseintrag zusammenfinden.
+## Stabile Farbe aus der Charm-id (Hash -> Farbton) - auch die Bibliothek
+## nutzt sie, damit Tisch-Karte und Eintrag zusammenfinden.
 static func placeholder_color(charm_id: String) -> Color:
 	var hue := float(abs(charm_id.hash()) % 360) / 360.0
 	return Color.from_hsv(hue, 0.55, 0.85)
 
-## Platzhalter für Charms ohne Modelldatei: eine flache rechteckige "Karte" in
-## einer aus der id abgeleiteten Farbe (stabil je Charm, damit man sie auf dem
-## Tisch auseinanderhalten kann). Auch der Shop nutzt sie für seine 3D-Vorschau
-## (siehe ShopController._build_charm_thumb).
+## Platzhalter für Charms ohne Modelldatei: flache Karte in stabiler id-Farbe.
 static func placeholder_model(charm_id: String) -> Node3D:
 	var root := Node3D.new()
 	var mesh_instance := MeshInstance3D.new()
@@ -268,15 +221,11 @@ static func placeholder_model(charm_id: String) -> Node3D:
 	root.add_child(mesh_instance)
 	return root
 
-## Tischposition des festen Platzes i in der geraden Reihe (fester X = LINE_X,
-## Z gleichmäßig um die Mitte verteilt), y = Tischoberfläche - hier steigt das
-## Hologramm auf.
 func _spot_position(i: int) -> Vector3:
 	var z := (float(i) - float(SPOT_COUNT - 1) * 0.5) * LINE_SPACING
 	return Vector3(LINE_X, SPOT_Y, z)
 
-## Transform des festen Platzes i (lokal zu diesem Knoten): Position auf der
-## Tischfläche, flach liegend und zur Mitte (Ursprung) gedreht.
+## Transform des Platzes i: auf der Tischfläche, zur Mitte gedreht.
 func _spot_transform(i: int) -> Transform3D:
 	var pos := _spot_position(i)
 	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()

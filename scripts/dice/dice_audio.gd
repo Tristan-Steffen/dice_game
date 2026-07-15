@@ -1,21 +1,13 @@
 class_name DiceAudio
 extends Node3D
-## Physik-Sound der 6 Spielwürfel: Aufprall-Klicks (Würfel↔Würfel, Boden,
-## Grubenwand), Roll-Ticks während des Taumelns und ein kleines Wackeln beim
-## Zur-Ruhe-Kommen. Hört direkt auf die Kontakte der RigidBodys (siehe setup) -
-## die Lautstärke skaliert mit der Aufprallgeschwindigkeit, denn nichts klingt
-## künstlicher als sechs gleichlaute Klicks.
-##
-## Die Samples liegen als kleine Bänke unter SFX_DIR (mp3, von ElevenLabs erzeugt
-## - neue Aufnahmen einfach gleich benennen und ersetzen). Je Bank ein
-## AudioStreamRandomizer mit Pitch-/Lautstärke-Streuung: 3-6 Dateien klingen so
-## wie Dutzende. Der Ordner ist nach Würfel-Material benannt (plastic/), damit
-## Glas-/Metallwürfel später eigene Bänke bekommen können (siehe DieMaterial).
+## Physik-Sound der 6 Spielwürfel: Aufprall-Klicks, Roll-Ticks und ein
+## Settle-Wackeln. Lautstärke skaliert mit der Aufprallgeschwindigkeit.
+## Samples: kleine Bänke unter SFX_DIR, je Bank ein AudioStreamRandomizer
+## mit Pitch-/Lautstärke-Streuung. Ordner nach Würfel-Material benannt,
+## damit Glas-/Metallwürfel später eigene Bänke bekommen können.
 
-## Materialordner der Sample-Bänke; Dateinamen je Kontaktart siehe _BANKS.
 const SFX_DIR := "res://assets/sfx/dice/plastic/"
 
-## Dateilisten je Kontaktart (Bank-Name -> Dateinamen ohne Ordner).
 const _BANKS := {
 	"click": ["click_1.mp3", "click_2.mp3", "click_3.mp3", "click_4.mp3", "click_5.mp3", "click_6.mp3"],
 	"floor": ["floor_1.mp3", "floor_2.mp3", "floor_3.mp3"],
@@ -24,24 +16,18 @@ const _BANKS := {
 	"settle": ["settle_1.mp3", "settle_2.mp3", "settle_3.mp3"],
 }
 
-## Zufallsstreuung je Abspielvorgang - macht aus wenigen Samples viele.
 const RANDOM_PITCH := 1.1
 const RANDOM_VOLUME_DB := 2.5
 
-## Aufpralle unterhalb dieser Relativgeschwindigkeit bleiben stumm (werden vom
-## Roll-Ticken abgedeckt) - verhindert Dauergeklicker beim Ausrollen.
+## Leisere Aufpralle bleiben stumm (das Roll-Ticken deckt sie ab).
 const MIN_IMPACT_SPEED := 1.5
-## Ab dieser Geschwindigkeit spielt ein Aufprall mit voller Lautstärke.
 const FULL_VOLUME_SPEED := 14.0
-## Leisester Aufprall (bei MIN_IMPACT_SPEED); dazwischen wird interpoliert.
 const MIN_VOLUME_DB := -22.0
 
-## Frühestens alle so viele Millisekunden ein Aufprall-Sound je Würfel - sechs
-## Würfel in der Grube feuern sonst wie ein Maschinengewehr.
+## Cooldown je Würfel - sechs Würfel feuern sonst wie ein Maschinengewehr.
 const IMPACT_COOLDOWN_MS := 60
 
-## Roll-Ticks: nur wenn der Würfel Bodenkontakt hat und schneller dreht als
-## TICK_MIN_ANGULAR; Abstand und Lautstärke folgen der Drehgeschwindigkeit.
+## Roll-Ticks nur bei Bodenkontakt und ausreichender Drehgeschwindigkeit.
 const TICK_MIN_ANGULAR := 3.0
 const TICK_FULL_ANGULAR := 12.0
 const TICK_INTERVAL_MIN := 0.05
@@ -51,27 +37,22 @@ const TICK_MAX_DB := -8.0
 
 const SETTLE_VOLUME_DB := -10.0
 
-## Gleichzeitig spielende 3D-Player; bei Vollauslastung wird der älteste
-## überschrieben (Voice Stealing).
+## Gleichzeitige 3D-Player; bei Vollauslastung wird der älteste geopfert.
 const PLAYER_POOL_SIZE := 12
-## Ab dieser Entfernung (in Einheiten) beginnt die 3D-Abschwächung spürbar zu
-## greifen - grob auf Grubenradius und Kamerahöhe abgestimmt.
+## Ab hier greift die 3D-Abschwächung spürbar (auf Grube/Kamerahöhe abgestimmt).
 const UNIT_SIZE := 14.0
 
 var bodies: Array[RigidBody3D] = []
-## Ruheerkennung fürs Settle-Geräusch (siehe _physics_process); optional.
-var controller: DiceController
+var controller: DiceController  # Ruheerkennung fürs Settle-Geräusch
 
-var _streams := {}  # Bank-Name -> AudioStreamRandomizer (leer, wenn Dateien fehlen)
+var _streams := {}  # Bank-Name -> AudioStreamRandomizer (fehlt bei leerer Bank)
 var _players: Array[AudioStreamPlayer3D] = []
-var _player_started_ms: Array[int] = []  # Startzeit je Pool-Player (Voice Stealing)
-var _last_impact_ms: Array[int] = []  # je Würfel: letzter Aufprall-Sound (Cooldown)
-var _tick_timers: Array[float] = []  # je Würfel: Restzeit bis zum nächsten Roll-Tick
-var _prev_settled: Array[bool] = []  # Ruhezustand des letzten Ticks (Flanke -> Settle-Sound)
+var _player_started_ms: Array[int] = []
+var _last_impact_ms: Array[int] = []
+var _tick_timers: Array[float] = []
+var _prev_settled: Array[bool] = []
 
-## Verdrahtet die Würfelkörper: aktiviert deren Kontaktmeldung und baut den
-## Player-Pool. controller liefert die Ruheerkennung (Settle-Sound) und die
-## Sichtbarkeit (reset() lässt sonst unsichtbare Würfel "einrasten").
+## Verdrahtet die Würfelkörper (aktiviert deren Kontaktmeldung) und baut den Player-Pool.
 func setup(p_bodies: Array[RigidBody3D], p_controller: DiceController) -> void:
 	bodies = p_bodies
 	controller = p_controller
@@ -94,8 +75,6 @@ func setup(p_bodies: Array[RigidBody3D], p_controller: DiceController) -> void:
 		_players.append(player)
 		_player_started_ms.append(0)
 
-## Aufprall eines Würfels (body_entered): Kontaktart am Gegenüber ablesen und
-## mit geschwindigkeitsabhängiger Lautstärke abspielen.
 func _on_die_contact(other: Node, index: int) -> void:
 	var body := bodies[index]
 	var speed := body.linear_velocity.length()
@@ -123,9 +102,8 @@ func _physics_process(delta: float) -> void:
 		_process_rolling(i, delta)
 		_process_settle(i)
 
-## Roll-Ticks: Ein taumelnder Würfel erzeugt keine body_entered-Ereignisse
-## (Dauerkontakt), also streuen wir leise Ticks, solange er sich in Kontakt
-## drehend bewegt - Abstand zufällig, Lautstärke nach Drehgeschwindigkeit.
+## Ein taumelnder Würfel erzeugt keine body_entered-Ereignisse (Dauerkontakt) -
+## darum gestreute Ticks, solange er sich in Kontakt drehend bewegt.
 func _process_rolling(index: int, delta: float) -> void:
 	var body := bodies[index]
 	var angular := body.angular_velocity.length()
@@ -138,9 +116,8 @@ func _process_rolling(index: int, delta: float) -> void:
 	var strength := clampf((angular - TICK_MIN_ANGULAR) / (TICK_FULL_ANGULAR - TICK_MIN_ANGULAR), 0.0, 1.0)
 	_play("tick", body.global_position, lerpf(TICK_MIN_DB, TICK_MAX_DB, strength))
 
-## Settle-Wackeln genau auf der Flanke "kommt zur Ruhe" (settled false -> true).
-## Nur für sichtbare Würfel - controller.reset() setzt settled ebenfalls auf
-## true, aber dann liegen die Würfel unsichtbar außerhalb des Spiels.
+## Settle-Wackeln auf der Flanke false -> true; nur für sichtbare Würfel
+## (reset() setzt settled ebenfalls, aber unsichtbar außerhalb des Spiels).
 func _process_settle(index: int) -> void:
 	if controller == null:
 		return
@@ -150,9 +127,7 @@ func _process_settle(index: int) -> void:
 	if now_settled and not was_settled and controller.roots[index].visible:
 		_play("settle", bodies[index].global_position, SETTLE_VOLUME_DB)
 
-## Spielt eine Bank an einer Weltposition über den Pool ab; sind alle Player
-## beschäftigt, wird der am längsten laufende geopfert (unhörbar bei so kurzen
-## Samples). Fehlende Bänke (Dateien nicht importiert/gelöscht) sind stumm.
+## Spielt eine Bank über den Pool; fehlende Bänke sind stumm.
 func _play(bank: String, at: Vector3, volume_db: float) -> void:
 	var stream: AudioStreamRandomizer = _streams.get(bank)
 	if stream == null:
@@ -173,10 +148,8 @@ func _play(bank: String, at: Vector3, volume_db: float) -> void:
 	player.play()
 	_player_started_ms[best] = Time.get_ticks_msec()
 
-## Lädt jede Bank in einen AudioStreamRandomizer; fehlende Dateien werden
-## übersprungen, eine komplett leere Bank bleibt aus dem Dictionary (siehe
-## _play) - so bricht weder ein Headless-Testlauf noch ein halb gefüllter
-## Sample-Ordner irgendetwas.
+## Fehlende Dateien werden übersprungen, leere Bänke bleiben aus dem
+## Dictionary - weder Headless-Tests noch halbe Sample-Ordner brechen etwas.
 func _load_banks() -> void:
 	for bank: String in _BANKS:
 		var randomizer := AudioStreamRandomizer.new()
