@@ -73,14 +73,25 @@ func _build_scene() -> void:
 
 ## Baut die Würfel neu auf (links nach rechts; ein einzelner steht mittig).
 func set_dice(defs: Array[DieDefinition]) -> void:
-	for root in die_roots:
-		root.queue_free()
-	die_roots.clear()
 	current_defs = defs
 	drag_index = -1
 	is_dragging = false
-
 	var count := defs.size()
+
+	# Bei gleicher Anzahl die vorhandenen Würfel weiterverwenden (nur Werte neu
+	# setzen, Drehung/Skalierung zurück) statt sie neu zu bauen - spart den
+	# Neuaufbau und die GPU-Material-Kompilierung bei jedem Ziel-Wechsel.
+	if die_roots.size() == count:
+		for i in count:
+			die_roots[i].scale = Vector3.ONE
+			die_roots[i].rotation_degrees = Vector3(-18, 30, 0)
+			_apply_die(i, defs[i])
+		return
+
+	for root in die_roots:
+		root.queue_free()
+	die_roots.clear()
+
 	for i in count:
 		var die := DieBuilder.build()
 		viewport.add_child(die)
@@ -92,11 +103,13 @@ func set_dice(defs: Array[DieDefinition]) -> void:
 		body.collision_layer = 0
 		body.collision_mask = 0
 
-		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
-		faces.apply_definition(defs[i])
-		faces.set_tint(DiceController.KIND_TINTS.get(defs[i].style_id, Color.WHITE))
-
 		die_roots.append(die)
+		_apply_die(i, defs[i])
+
+func _apply_die(index: int, def: DieDefinition) -> void:
+	var faces: DieFaceDisplay = die_roots[index].get_node("RigidBody3D/Faces")
+	faces.apply_definition(def)
+	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
 
 ## Tooltip: Material der Seite/Kante unter dem Cursor samt Wirkung; leer,
 ## wenn dort keins sitzt. at_position ist Control-lokal (= Viewport-Pixel).

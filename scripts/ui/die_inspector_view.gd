@@ -102,14 +102,21 @@ var die_view_panel: PanelContainer
 ## Öffnet die Station für def (die echte Pool-Instanz) und setzt den Zustand
 ## zurück; baut Gerüst und Bord frisch.
 func show_die(def: DieDefinition) -> void:
+	# Gerüst + Bord nur beim frischen Öffnen bauen. Beim Ziel-Wechsel bleiben
+	# beide stehen (sie hängen am Lauf, nicht am Würfel) - der Bord-Aufbau
+	# kostet ~17 ms und verursachte den Ruckler bei jeder Neu-Auswahl.
+	var fresh_open := not visible or board_box == null or not is_instance_valid(board_box)
 	current_def = def
 	selected_face = -1
 	edges_selected = false
 	mode = Mode.SELECT
 	active_coupon_id = ""
-	_build_layout()
+	if fresh_open:
+		_build_layout()
+		_build_coupon_board()
+	else:
+		_refresh_coupon_enabled()
 	die_view.set_dice([current_def] as Array[DieDefinition])
-	_build_coupon_board()
 	_refresh_face_summary()
 	_update_prompt()
 	visible = true
