@@ -1,12 +1,23 @@
 class_name HubView
 extends Control
+## Der Einstellungen-Knopf unten rechts auf der Home-Seite wurde gedrückt -
+## scene_root klappt daraufhin das Einstellungs-Menü auf/zu (siehe
+## _on_settings_toggle_pressed). Früher ein 2D-Knopf in der Fensterecke.
+signal settings_pressed
+
 ## Der HUB auf dem Tisch-Display: ein fest reservierter Bildschirm-Abschnitt
 ## UNTER der Grube, zwischen Pool- und Ablage-Tray (Position/Größe siehe
 ## scene_root: ScreenAnchors/Hub + HUB_*_WORLD). Er bündelt alles, was nicht
-## direkt zum Wurf gehört - heute die Lauf-Übersicht (Runde oben links, Geld oben
-## rechts, Rundenziel und die Rundenbonus-Zeilen, die früher als 3D-Tischtexte
-## neben der Ablage lagen); später zieht hier der Shop zwischen den Runden und
-## die Würfel-Aufwertung ein.
+## direkt zum Wurf gehört: die Lauf-Übersicht als HOME-SEITE (Runde oben links,
+## Geld oben rechts, Rundenbonus-Zeilen) und beliebig viele angehängte SEITEN
+## (Shop, Gravur-Station, künftige Panels - siehe attach_panel).
+##
+## Der Hub ist der EINZIGE Verwalter dessen, was auf seiner Fläche sichtbar ist:
+## zu jeder Zeit genau eine Seite ODER die Home-Übersicht, nie mehreres zugleich.
+## Die Seiten öffnen/schließen sich weiter selbst über ihr visible; der Hub hört
+## auf die Sichtbarkeits-Signale und setzt die Regel durch (verdrängte Seiten
+## kehren beim Schließen der verdrängenden zurück, siehe
+## _on_page_visibility_changed).
 ##
 ## Alle Maße leiten sich aus der eigenen Größe ab (Einheit u = Breite/100,
 ## siehe _layout) - der Hub skaliert also mit, wenn scene_root ihn über den
@@ -31,9 +42,28 @@ var die_payout_label: Label
 
 var info_page: VBoxContainer
 
-## Der eigene Inhalt (alles außer dem Rahmen) - wird ausgeblendet, solange der
-## Shop die Hub-Fläche belegt (siehe attach_shop/set_content_visible).
+## Der Einstellungen-Knopf unten rechts auf der Home-Seite (auf dem Display, Teil
+## von content_root - blendet also mit der Home-Seite aus, wenn eine andere Seite
+## offen ist). Bedient über die Maus-Weiterleitung im Hub (siehe
+## scene_root._forward_screen_mouse); meldet settings_pressed.
+var settings_button: Button
+
+## Der eigene Inhalt (alles außer dem Rahmen) - die HOME-SEITE des Hubs. Sichtbar
+## nur, solange KEINE angehängte Seite (Shop, Gravur-Station, ...) offen ist
+## (siehe _on_page_visibility_changed).
 var content_root: MarginContainer
+
+## Seiten-Verwaltung: der Hub zeigt zu JEDER ZEIT höchstens EINE Seite (oder die
+## Home-Übersicht). Jedes über attach_panel angehängte Vollflächen-Panel ist eine
+## Seite; öffnet sich eine (visible = true, z.B. shop.open()/show_die()), blendet
+## der Hub alle anderen und den Home-Inhalt aus. Eine dabei VERDRÄNGTE Seite merkt
+## er sich (LIFO) und holt sie zurück, sobald die verdrängende schließt - so kehrt
+## z.B. der Shop wieder, wenn die zwischendurch geöffnete Gravur-Station zugeht.
+## Ohne offene Seite zeigt der Hub die Home-Übersicht.
+var _pages: Array[Control] = []
+var _suppressed: Array[Control] = []  # verdrängte Seiten, kehren beim Schließen zurück
+var _page_shown: Dictionary = {}  # Control -> zuletzt bekanntes visible (entprellt Baum-Signale)
+var _switching := false  # wahr, während der Hub selbst Sichtbarkeiten umschaltet
 
 var _built := false
 
@@ -112,6 +142,22 @@ func layout() -> void:
 	blind_payout_label = _make_line(info_page, "5$ pro Blind", u * 4.4, TEXT_COLOR)
 	die_payout_label = _make_line(info_page, "1$ pro Würfel übrig", u * 4.4, TEXT_COLOR)
 
+	# --- Einstellungen unten rechts --------------------------------------------
+	# info_page dehnt sich senkrecht (SIZE_EXPAND_FILL), diese Fußzeile landet also
+	# am unteren Rand; der dehnbare Platzhalter drückt den Knopf nach rechts.
+	var footer := HBoxContainer.new()
+	footer.name = "Footer"
+	column.add_child(footer)
+	footer.add_child(_make_h_spacer())
+	settings_button = Button.new()
+	settings_button.name = "SettingsButton"
+	settings_button.text = "⚙  Einstellungen"
+	settings_button.focus_mode = Control.FOCUS_NONE
+	settings_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(settings_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, int(u * 3.4))
+	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
+	footer.add_child(settings_button)
+
 ## Lässt den Neon-Rahmen kurz in color aufleuchten und zur Grundfarbe (Cyan)
 ## abklingen - Teil der Geld-Lichtanimation: Gold bei Gutschriften, Chip-Farbe
 ## je ankommendem Kauf-Puls (siehe scene_root._play_money_light).
@@ -125,20 +171,97 @@ func flash_frame(color: Color) -> void:
 	_frame_tween.tween_property(_frame_style, "border_color", FRAME_COLOR, 0.5) \
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
-## Hängt ein Vollflächen-Panel (Shop, Gravur-Station, ...) über die Hub-Fläche -
-## es bleibt unsichtbar, bis scene_root es öffnet. Der Neon-Rahmen des Hubs
-## bleibt dabei stehen und rahmt auch das Panel.
+## Hängt ein Vollflächen-Panel (Shop, Gravur-Station, ...) als SEITE über die
+## Hub-Fläche und meldet es bei der Seiten-Verwaltung an: ab jetzt sorgt der Hub
+## selbst dafür, dass immer nur diese ODER eine andere Seite ODER die Home-
+## Übersicht sichtbar ist - die Panels öffnen/schließen sich weiter selbst über
+## ihr visible (shop.open(), die_inspector.show_die()/close(), ...). Der
+## Neon-Rahmen des Hubs bleibt stehen und rahmt auch die Seite.
 func attach_panel(panel: Control) -> void:
 	add_child(panel)
 	# set_anchors_AND_offsets: eine Standardgröße aus einer .tscn (für
 	# freistehende Instanzen, siehe Tests) würde sonst als Offset stehen bleiben.
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pages.append(panel)
+	_page_shown[panel] = panel.visible
+	panel.visibility_changed.connect(_on_page_visibility_changed.bind(panel))
+	if panel.visible:
+		_apply_page_opened(panel)
 
-## Blendet den EIGENEN Inhalt (Titel, Tabs, Seiten) aus/ein - aus, solange der
-## Shop die Fläche belegt (siehe scene_root._on_round_complete/_on_shop_closed).
-func set_content_visible(content_visible: bool) -> void:
+## Reagiert auf JEDE Sichtbarkeits-Änderung einer Seite - egal ob durch die Seite
+## selbst (open()/close()) oder von außen - und stellt die EINE-SEITE-Regel wieder
+## her. Entprellt über _page_shown: Baum-Signale (ein Vorfahr wurde umgeschaltet)
+## ändern das eigene visible nicht und werden ignoriert; _switching verhindert
+## Kaskaden, während der Hub selbst umschaltet.
+func _on_page_visibility_changed(panel: Control) -> void:
+	if _switching or not is_instance_valid(panel):
+		return
+	if _page_shown.get(panel, false) == panel.visible:
+		return  # nur ein Baum-Signal - die Seite selbst hat nicht gewechselt
+	_page_shown[panel] = panel.visible
+	if panel.visible:
+		_apply_page_opened(panel)
+	else:
+		_apply_page_closed(panel)
+
+## Eine Seite hat sich geöffnet: alle anderen offenen Seiten verdrängen (sie
+## kehren beim Schließen zurück) und den Home-Inhalt ausblenden.
+func _apply_page_opened(panel: Control) -> void:
+	_switching = true
+	for other in _pages:
+		if other != panel and is_instance_valid(other) and other.visible:
+			other.visible = false
+			_page_shown[other] = false
+			_suppressed.append(other)
+	_suppressed.erase(panel)  # falls sie selbst verdrängt war und nun zurück ist
 	if content_root != null:
-		content_root.visible = content_visible
+		content_root.visible = false
+	_switching = false
+
+## Eine Seite hat sich geschlossen: die zuletzt verdrängte Seite zurückholen -
+## oder, wenn keine mehr wartet, die Home-Übersicht zeigen. Schließt sie sich,
+## während eine ANDERE Seite offen ist, passiert nichts (die bleibt vorn).
+func _apply_page_closed(panel: Control) -> void:
+	_suppressed.erase(panel)  # von außen geschlossen -> kehrt nicht mehr zurück
+	if _any_page_visible():
+		return
+	var restore := _pop_suppressed()
+	if restore != null:
+		_switching = true
+		restore.visible = true
+		_page_shown[restore] = true
+		_switching = false
+		if content_root != null:
+			content_root.visible = false
+	elif content_root != null:
+		content_root.visible = true
+
+## Harter Reset (Spiel-Neustart, siehe scene_root._reset_game): alle Seiten zu,
+## Verdrängungs-Gedächtnis leer, die Home-Übersicht zeigt sich wieder.
+func reset_pages() -> void:
+	_switching = true
+	_suppressed.clear()
+	for page in _pages:
+		if is_instance_valid(page):
+			page.visible = false
+			_page_shown[page] = false
+	if content_root != null:
+		content_root.visible = true
+	_switching = false
+
+func _any_page_visible() -> bool:
+	for page in _pages:
+		if is_instance_valid(page) and page.visible:
+			return true
+	return false
+
+## Die zuletzt verdrängte, noch gültige Seite (LIFO) - null, wenn keine wartet.
+func _pop_suppressed() -> Control:
+	while not _suppressed.is_empty():
+		var candidate: Control = _suppressed.pop_back()
+		if is_instance_valid(candidate):
+			return candidate
+	return null
 
 ## Aktualisiert die Lauf-Übersicht (siehe scene_root._refresh_hub_info).
 ## Das Rundenziel wird nicht mehr im Hub gezeigt (es steht auf der Tisch-Zielleiste,
@@ -161,5 +284,13 @@ func _make_line(parent: Control, text: String, font_size: float, color: Color) -
 func _make_spacer(height: float) -> Control:
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, height)
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return spacer
+
+## Ein waagerecht dehnbarer, durchsichtiger Platzhalter (drückt den Einstellungen-
+## Knopf in der Fußzeile nach rechts).
+func _make_h_spacer() -> Control:
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return spacer
