@@ -45,6 +45,43 @@ func test_attach_wires_reflection_into_the_glass():
 	assert_eq(material.get_shader_parameter("reflection_texture"), reflection.get_texture())
 	assert_almost_eq(reflection.plane_height, -3.8 + 0.2 / 2.0 * 4.0, 0.5)
 
+func test_pit_window_hidden_until_placed_then_traces_the_walls():
+	# Die Grube ist ein eigenes "Fenster" des Displays: vor place_pit_window
+	# (Maße erst nach attach_to bekannt) unsichtbar, danach exakt das Rechteck
+	# der Energiewände - samt DEREN Eckenrundung (der Rahmen zeichnet die
+	# Kollisionslinie nach).
+	assert_false(screen.pit_window.visible)
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	assert_true(screen.pit_window.visible)
+	assert_eq(screen.pit_window.position, Vector2(100, 200))
+	assert_eq(screen.pit_window.size, Vector2(800, 400))
+	var style: StyleBoxFlat = screen.pit_window.get_theme_stylebox("panel")
+	assert_eq(style.corner_radius_top_left, 75)
+
+func test_pit_window_shares_the_one_window_look():
+	# Alle Tisch-"Fenster" tragen denselben Stil (window_style): das Gruben-
+	# Fenster muss in Grund- und Rahmenfarbe dem Kombi-Cluster gleichen.
+	var pit_style: StyleBoxFlat = screen.pit_window.get_theme_stylebox("panel")
+	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")
+	assert_eq(pit_style.bg_color, cluster_style.bg_color)
+	assert_eq(pit_style.border_color, cluster_style.border_color)
+	assert_eq(pit_style.border_width_top, cluster_style.border_width_top)
+
+func test_glass_gets_the_window_rects_for_reflection_masking():
+	# NUR die Fenster spiegeln (der Filz dazwischen nicht): das Glas-Material
+	# muss die Fenster-Rechtecke kennen (siehe _sync_reflection_windows) -
+	# nach attach_to mindestens Cluster + Zielbalken, mit dem Gruben-Fenster
+	# eines mehr.
+	var material := mesh.material_override as ShaderMaterial
+	var before: int = material.get_shader_parameter("window_count")
+	assert_gt(before, 0, "Cluster/Zielbalken sind schon gemeldet")
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	var count: int = material.get_shader_parameter("window_count")
+	assert_eq(count, before + 1, "das Gruben-Fenster kommt dazu")
+	var rects: PackedVector4Array = material.get_shader_parameter("window_rects")
+	assert_eq(rects.size(), count)
+	assert_eq(rects[0], Vector4(100, 200, 900, 600), "Gruben-Rechteck in Pixeln (Min/Max)")
+
 func test_center_maps_to_screen_center():
 	var pixel := screen.world_to_pixel(Vector3.ZERO)
 	assert_almost_eq(pixel.x, float(screen.size.x) / 2.0, 0.5)

@@ -92,6 +92,13 @@ const TRACE_RISE := 30.0 * SUPERSAMPLE
 var combo_cells: Dictionary = {}
 
 var cluster_frame: Panel  # Neon-Rahmen um den Kombi-Cluster (für place_combo_cluster)
+## Das Gruben-Fenster: die Grube ist ein eigenes "Fenster" des Tisch-Displays
+## im selben Look wie Kombi-Cluster und Hub (siehe place_pit_window).
+var pit_window: Panel
+## Das Display-Glas-Material (siehe attach_to): bekommt über
+## _sync_reflection_windows die Fenster-Rechtecke gemeldet - NUR dort spiegelt
+## das Glas, der Filz dazwischen (siehe table_felt.gdshader) bleibt matt.
+var _glass_material: ShaderMaterial
 var goal_bar: Panel
 var goal_bar_fill: ColorRect
 var goal_bar_label: Label
@@ -170,7 +177,10 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	if reflection != null:
 		reflection.plane_height = _surface_y
 		material.set_shader_parameter("reflection_texture", reflection.get_texture())
+	material.set_shader_parameter("screen_px", Vector2(size))
 	screen_mesh.material_override = material
+	_glass_material = material
+	_sync_reflection_windows()
 
 ## Weltposition -> Pixel auf dem Screen (für Anzeigen unter den Würfeln:
 ## Punktzahlen, Aufprall-Effekte, Markierungen). y der Weltposition ist egal.
@@ -187,24 +197,32 @@ func pixel_to_world(pixel: Vector2) -> Vector3:
 	var v := pixel.y / float(size.y)
 	return Vector3(_x_max - v * _x_span, _surface_y, _z_min + u * _z_span)
 
-## Baut den Bildschirm-Inhalt: dunkler Grund, dezenter Schriftzug in der Mitte
-## (liegt unter der Grube) und die Kombinationsliste als Zellen-Bänder.
+## Baut den Bildschirm-Inhalt: Casino-Filz als Grund und die Kombinationsliste
+## als Zellen-Bänder.
 func _build_content() -> void:
+	# Grundfläche = Casino-Filz (siehe table_felt.gdshader): alles außerhalb
+	# der "Fenster" liest sich als matter violetter Stoff; die Fenster-Panels
+	# (Glasscheiben) liegen darüber und spiegeln als einzige (siehe
+	# _sync_reflection_windows / screen_glass.gdshader).
 	var background := ColorRect.new()
 	background.name = "Background"
-	background.color = BACKGROUND_COLOR
+	background.color = BACKGROUND_COLOR  # Rückfall, falls der Shader fehlt
+	background.material = ShaderMaterial.new()
+	background.material.shader = load("res://assets/shaders/table_felt.gdshader")
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
-	var label := Label.new()
-	label.name = "Wordmark"
-	label.text = "FUMBLE"
-	label.add_theme_font_size_override("font_size", 150 * SUPERSAMPLE)
-	label.modulate = Color("#bd93f92e")  # 80s Neon --accent-6-muted (Violett), sehr dezent
-	label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	add_child(label)
+	# Gruben-Fenster: gleicher Look wie alle anderen Tisch-"Fenster" (siehe
+	# window_style). Position/Größe setzt scene_root über place_pit_window
+	# (erst nach attach_to berechenbar) - bis dahin unsichtbar. Bewusst früh
+	# gebaut: liegt über dem Schriftzug, aber HINTER allem, was später
+	# dazukommt (Buttons, Gold-Podeste, Leiterbahnen, Zähler).
+	pit_window = Panel.new()
+	pit_window.name = "PitWindow"
+	pit_window.visible = false
+	pit_window.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_window.add_theme_stylebox_override("panel", window_style())
+	add_child(pit_window)
 
 	# Zellpositionen vorab berechnen, um die Cluster-Ausdehnung zu kennen (der
 	# Neon-Rahmen muss VOR den Zellen hinter sie gelegt werden).
@@ -239,6 +257,18 @@ func _build_content() -> void:
 
 	_build_pit_actions()
 
+## DER Fenster-Stil des Tisch-Displays: dunkler, leicht durchscheinender Grund
+## + Neon-Rahmen. Jedes "Fenster" auf dem Tisch (Kombi-Cluster, Zielbalken,
+## Gruben-Fenster - und der Hub, siehe HubView mit denselben Farben) trägt
+## diesen einen Look.
+static func window_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = FRAME_BG
+	style.border_color = FRAME_COLOR
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(10)
+	return style
+
 ## Neon-Rahmen mit dezent abgesetztem Hintergrund um den ganzen Cluster.
 func _add_cluster_frame(rect: Rect2) -> void:
 	var frame := Panel.new()
@@ -246,14 +276,52 @@ func _add_cluster_frame(rect: Rect2) -> void:
 	frame.position = rect.position
 	frame.size = rect.size
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = FRAME_BG
-	style.border_color = FRAME_COLOR
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(10)
-	frame.add_theme_stylebox_override("panel", style)
+	frame.add_theme_stylebox_override("panel", window_style())
 	add_child(frame)
 	cluster_frame = frame
+
+## Spannt das Gruben-Fenster über rect auf (Pixel): scene_root übergibt exakt
+## die Weltmaße der Energiewände (DicePit.PIT_HALF_*), corner_radius ist deren
+## Eckenrundung (DicePit.CORNER_RADIUS) in Pixeln - der Rahmen ZEICHNET die
+## Kollisionslinie der Wände nach.
+func place_pit_window(rect: Rect2, corner_radius: float) -> void:
+	pit_window.position = rect.position
+	pit_window.size = rect.size
+	var style: StyleBoxFlat = pit_window.get_theme_stylebox("panel")
+	style.set_corner_radius_all(int(corner_radius))
+	pit_window.visible = true
+	_sync_reflection_windows()
+
+## Meldet dem Display-Glas (siehe screen_glass.gdshader) die aktuellen
+## Fenster-Rechtecke samt Eckenradius: NUR dort spiegelt das Glas, der Filz
+## dazwischen bleibt matt. Nach jedem place_* neu aufgerufen; solange kein
+## Glas anliegt (attach_to fehlt, z.B. headless ohne Screen-Mesh), passiert
+## nichts.
+func _sync_reflection_windows() -> void:
+	if _glass_material == null:
+		return
+	var rects := PackedVector4Array()
+	var radii := PackedFloat32Array()
+	if pit_window != null and pit_window.visible:
+		var style: StyleBoxFlat = pit_window.get_theme_stylebox("panel")
+		rects.append(Vector4(pit_window.position.x, pit_window.position.y,
+			pit_window.position.x + pit_window.size.x, pit_window.position.y + pit_window.size.y))
+		radii.append(float(style.corner_radius_top_left))
+	if cluster_frame != null:
+		rects.append(Vector4(cluster_rect.position.x, cluster_rect.position.y,
+			cluster_rect.end.x, cluster_rect.end.y))
+		radii.append(10.0)
+	if goal_bar != null:
+		rects.append(Vector4(goal_bar.position.x, goal_bar.position.y,
+			goal_bar.position.x + goal_bar.size.x, goal_bar.position.y + goal_bar.size.y))
+		radii.append(10.0)
+	if hub != null and hub.size.x > 0.0:
+		rects.append(Vector4(hub.position.x, hub.position.y,
+			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
+		radii.append(hub.size.x / 100.0 * 1.6)  # = Rahmenradius aus HubView.layout
+	_glass_material.set_shader_parameter("window_count", rects.size())
+	_glass_material.set_shader_parameter("window_rects", rects)
+	_glass_material.set_shader_parameter("window_radius", radii)
 
 ## Verschiebt den ganzen Kombi-Cluster (Rahmen + alle Zellen), so dass seine
 ## Mitte auf center_px landet - scene_root ruft das nach attach_to mit der
@@ -267,6 +335,7 @@ func place_combo_cluster(center_px: Vector2) -> void:
 	for key in combo_cells:
 		combo_cells[key].position += delta
 	cluster_rect.position += delta
+	_sync_reflection_windows()
 
 func _add_combo_cell(key: String, at: Vector2) -> void:
 	var cell := ComboCellView.new()
@@ -288,12 +357,7 @@ func _build_goal_bar() -> void:
 	goal_bar.size = GOAL_BAR_SIZE
 	goal_bar.position = (Vector2(RESOLUTION) - GOAL_BAR_SIZE) / 2.0
 	goal_bar.pivot_offset = GOAL_BAR_SIZE / 2.0
-	var style := StyleBoxFlat.new()
-	style.bg_color = FRAME_BG
-	style.border_color = FRAME_COLOR
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(10)
-	goal_bar.add_theme_stylebox_override("panel", style)
+	goal_bar.add_theme_stylebox_override("panel", window_style())
 	add_child(goal_bar)
 
 	goal_bar_fill = ColorRect.new()
@@ -317,6 +381,7 @@ func _build_goal_bar() -> void:
 ## world_to_pixel unter dem Warteschlangen-Dock).
 func place_goal_bar(center_px: Vector2) -> void:
 	goal_bar.position = center_px - GOAL_BAR_SIZE / 2.0
+	_sync_reflection_windows()
 
 ## Schreibt Punktestand/Ziel neu und füllt den Balken anteilig (geklemmt).
 func set_goal_progress(points: int, goal: int) -> void:
@@ -607,6 +672,7 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 	hub.size = size_px
 	hub.position = center_px - size_px / 2.0
 	hub.layout()
+	_sync_reflection_windows()
 
 ## Baut die beiden Grubenaktions-Buttons (verdeckt/an Standardplatz, bis
 ## place_pit_actions sie mittig setzt). Die Trägerfläche schluckt selbst keine

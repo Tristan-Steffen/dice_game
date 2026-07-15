@@ -104,6 +104,68 @@ func test_settings_button_emits_signal_when_pressed() -> void:
 	hub.settings_button.pressed.emit()
 	assert_signal_emitted(hub, "settings_pressed")
 
+func test_settings_menu_is_built_hidden_and_toggles_on_the_display() -> void:
+	# Das Einstellungs-Menü lebt jetzt AUF dem Hub (kein 2D-Dropdown mehr):
+	# anfangs verborgen, der Knopf klappt es auf und wieder zu.
+	assert_not_null(hub.settings_menu, "das Menü ist gebaut")
+	assert_false(hub.settings_menu.visible, "anfangs zu")
+	hub.settings_button.pressed.emit()
+	assert_true(hub.settings_menu.visible, "erster Druck öffnet")
+	hub.settings_button.pressed.emit()
+	assert_false(hub.settings_menu.visible, "zweiter Druck schließt")
+
+func test_settings_menu_entries_emit_their_action_and_close_the_menu() -> void:
+	watch_signals(hub)
+	hub.settings_button.pressed.emit()  # aufklappen
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var wanted := {
+		"Neues Spiel": "new_game_requested",
+		"Debug: Runde gewinnen": "debug_win_round_requested",
+	}
+	for button: Button in box.get_children():
+		for label: String in wanted:
+			if button.text == label:
+				button.pressed.emit()
+				assert_signal_emitted(hub, wanted[label], "'%s' meldet %s" % [label, wanted[label]])
+	assert_false(hub.settings_menu.visible, "eine Aktion schließt das Menü wieder")
+
+func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:
+	hub.settings_button.pressed.emit()  # Menü offen auf der Home-Seite
+	assert_true(hub.settings_menu.visible)
+	page_a.visible = true  # eine Seite verdrängt Home
+	assert_false(hub.settings_menu.visible, "das Menü gehört zur Home-Seite und weicht mit ihr")
+
+func test_interactive_at_detects_buttons_but_not_empty_felt() -> void:
+	# Grundlage der neuen Klick-Regel (scene_root): ein Klick auf einen Knopf
+	# DRÜCKT ihn, ein Klick auf leere Hub-Fläche ZOOMT in den Hub.
+	await wait_frames(2)  # Container erst sortieren lassen (echte Knopf-Rechtecke)
+	var on_button := hub.settings_button.get_global_rect().get_center()
+	assert_true(hub.interactive_at(on_button), "der Einstellungen-Knopf ist ein interaktiver Punkt")
+	# Ein Punkt WEIT über dem (unten sitzenden) Knopf - in der Kopfzeile (nur
+	# Labels mit mouse IGNORE) - ist leere Fläche.
+	var top_center := Vector2(hub.get_global_rect().get_center().x, hub.get_global_rect().position.y + 4)
+	assert_false(hub.interactive_at(top_center),
+		"die Kopfzeile ist leere Hub-Fläche (dort wird gezoomt, nicht gedrückt)")
+
+func test_interactive_at_ignores_a_hidden_button() -> void:
+	# Ist der Knopf verborgen (eine Seite hat die Home-Übersicht verdrängt), ist
+	# seine Fläche NICHT interaktiv - der Klick dort zoomt.
+	await wait_frames(2)
+	var center := hub.settings_button.get_global_rect().get_center()
+	page_a.visible = true
+	assert_false(hub.settings_button.is_visible_in_tree())
+	assert_false(hub.interactive_at(center), "ein verborgener Knopf zählt nicht")
+
+func test_test_materials_label_can_be_updated() -> void:
+	hub.set_test_materials_label("🧪 Testmaterialien: AN")
+	hub.settings_button.pressed.emit()
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var found := false
+	for button: Button in box.get_children():
+		if button.text == "🧪 Testmaterialien: AN":
+			found = true
+	assert_true(found, "die Testmaterialien-Beschriftung ist aktualisiert")
+
 func test_attaching_an_already_visible_panel_takes_the_page() -> void:
 	var eager := Control.new()
 	eager.visible = true

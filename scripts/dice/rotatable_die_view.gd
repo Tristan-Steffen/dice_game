@@ -22,6 +22,13 @@ signal face_clicked(die_index: int, face_index: int)
 ## DieDefinition.edge_material). Gewinnt gegen face_clicked, wenn der Klick
 ## einer Kanten-Mitte näher liegt als jeder Seiten-Mitte (siehe _gui_input).
 signal edges_clicked(die_index: int)
+## Der Spieler hat begonnen, einen Würfel per Ziehen zu drehen bzw. wieder
+## losgelassen - der Aufrufer kann währenddessen z.B. die Kamera sperren, damit
+## die Ziehbewegung nicht zugleich den Blick schwenkt (siehe DieInspectorView.
+## rotating_die -> CameraRig.tilt_locked). drag_ended folgt IMMER auf ein
+## drag_started (auch wenn die Maus dabei die Fläche verlässt).
+signal drag_started
+signal drag_ended
 
 const DRAG_THRESHOLD := 6.0
 const DRAG_SENSITIVITY := 0.01
@@ -153,11 +160,14 @@ func _gui_input(event: InputEvent) -> void:
 					edges_clicked.emit(drag_index)
 				elif face_pick[0] != -1:
 					face_clicked.emit(drag_index, face_pick[0])
+			else:
+				drag_ended.emit()  # Ende der Dreh-Geste (Gegenstück zu drag_started)
 			drag_index = -1
 			is_dragging = false
 	elif event is InputEventMouseMotion and drag_index != -1:
 		if not is_dragging and event.position.distance_to(drag_start_pos) > DRAG_THRESHOLD:
 			is_dragging = true
+			drag_started.emit()  # ab jetzt Drehen, nicht mehr Klicken
 		if is_dragging:
 			var die := die_roots[drag_index]
 			die.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)

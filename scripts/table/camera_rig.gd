@@ -23,6 +23,13 @@ const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
 const ZOOM_DURATION := 0.6
 
+## Nach dem Freigeben einer Tilt-Sperre (Ende einer Würfel-Dreh-Geste, siehe
+## set_tilt_locked): die Kamera bleibt erst TILT_RESUME_HOLD Sekunden stehen und
+## blendet das Rundschauen dann über TILT_RESUME_EASE Sekunden sanft wieder ein -
+## kein harter Sprung zur Mausposition.
+const TILT_RESUME_HOLD := 0.25
+const TILT_RESUME_EASE := 0.5
+
 ## EINE gemeinsame Zoom-Distanz für ALLE Ziele - zusammen mit der gemeinsamen
 ## ZOOM_BASIS steht die Kamera damit bei jedem Zoom in derselben Höhe und im
 ## selben Winkel über ihrem Ziel (nur der Zielpunkt wandert). Breite Ziele wie
@@ -64,7 +71,23 @@ var anchor_origin: Vector3
 
 var mode: Mode = Mode.OVERVIEW
 var is_animating: bool = false
+## Solange gesetzt, hält die Kamera ihre aktuelle Ausrichtung und ignoriert das
+## Maus-Rundschauen - z.B. während der Spieler die Würfel-Projektion in der
+## Gravur-Station dreht (siehe DieInspectorView.rotating_die/scene_root), damit
+## die Ziehbewegung nicht zugleich die Kamera schwenkt.
+var tilt_locked: bool = false
 var tilt_offset := Vector2.ZERO  # aktuelle geglättete Blickabweichung (Grad: x=Pitch, y=Yaw)
+## Nachlauf nach dem Freigeben der Sperre: Zeit seit der Freigabe (Sekunden);
+## < 0 heißt "kein Nachlauf, Rundschauen voll aktiv". _frozen_offset ist die
+## Blickabweichung im Moment der Freigabe, aus der heraus über Halte- + Ease-
+## Phase auf das lebende Rundschauen geblendet wird (siehe _process).
+var _tilt_resume_time := -1.0
+var _frozen_offset := Vector2.ZERO
+## Zuletzt TATSÄCHLICH auf die Kamera angewandte Blickabweichung (nach Nachlauf-
+## Blende). Weicht während eines Nachlaufs von tilt_offset ab (das schon zur Maus
+## vorläuft) - beim erneuten Sperren MUSS von HIER eingefroren werden, sonst
+## springt die Kamera beim nächsten Loslassen auf das vorgelaufene tilt_offset.
+var _applied_offset := Vector2.ZERO
 
 var active_tween: Tween
 
@@ -75,7 +98,7 @@ func _ready() -> void:
 	anchor_origin = base_origin
 
 func _process(delta: float) -> void:
-	if is_animating:
+	if is_animating or tilt_locked:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -96,11 +119,50 @@ func _process(delta: float) -> void:
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
 	var target_tilt := Vector2(-ny * pitch_max, -nx * yaw_max)
+	# Das lebende Rundschauen verfolgt die Maus wie immer weiter ...
 	tilt_offset = tilt_offset.lerp(target_tilt, clamp(delta * TILT_SMOOTHING, 0.0, 1.0))
 
-	var yaw := Basis(anchor_basis.y, deg_to_rad(tilt_offset.y))
-	var pitch := Basis(anchor_basis.x, deg_to_rad(tilt_offset.x))
+	# ... im Nachlauf nach einer Sperre wird aber vom eingefrorenen Blick sanft
+	# darauf geblendet: erst TILT_RESUME_HOLD halten (gain 0), dann über
+	# TILT_RESUME_EASE weich einblenden (gain 0->1) - kein Sprung zur Maus.
+	var applied := tilt_offset
+	if _tilt_resume_time >= 0.0:
+		_tilt_resume_time += delta
+		var gain: float
+		if _tilt_resume_time <= TILT_RESUME_HOLD:
+			gain = 0.0
+		elif _tilt_resume_time >= TILT_RESUME_HOLD + TILT_RESUME_EASE:
+			gain = 1.0
+			_tilt_resume_time = -1.0  # Nachlauf beendet, wieder voll frei
+		else:
+			gain = smoothstep(0.0, 1.0, (_tilt_resume_time - TILT_RESUME_HOLD) / TILT_RESUME_EASE)
+		applied = _frozen_offset.lerp(tilt_offset, gain)
+
+	_applied_offset = applied  # Merke die gezeigte Abweichung für ein erneutes Sperren
+	var yaw := Basis(anchor_basis.y, deg_to_rad(applied.y))
+	var pitch := Basis(anchor_basis.x, deg_to_rad(applied.x))
 	global_transform = Transform3D(yaw * pitch * anchor_basis, anchor_origin)
+
+## Sperrt/entsperrt das Maus-Rundschauen (siehe scene_root beim Drehen der
+## Würfel-Projektion). Beim Entsperren startet der sanfte Nachlauf: erst halten,
+## dann einblenden (siehe _process / TILT_RESUME_*) - nie ein harter Sprung.
+func set_tilt_locked(locked: bool) -> void:
+	if locked:
+		tilt_locked = true
+		_tilt_resume_time = -1.0  # laufenden Nachlauf abbrechen, hart einfrieren
+	elif tilt_locked:
+		tilt_locked = false
+		# Von der zuletzt GEZEIGTEN Abweichung aus einblenden - nicht von tilt_offset,
+		# das während eines unterbrochenen Nachlaufs schon zur Maus vorgelaufen ist
+		# (sonst Sprung beim Loslassen mitten im Nachlauf).
+		_frozen_offset = _applied_offset
+		_tilt_resume_time = 0.0
+
+## Hebt eine Sperre SOFORT und ohne Nachlauf auf (Sicherheitsnetz beim Schließen
+## der Gravur-Station, siehe scene_root._end_engraving_ceremony).
+func release_tilt_immediately() -> void:
+	tilt_locked = false
+	_tilt_resume_time = -1.0
 
 ## Setzt die Zoom-Blickpunkte der beiden Trays aus deren echten Weltpositionen
 ## (siehe scene_root._ready). Dadurch folgt der Tray-Zoom automatisch, wenn die

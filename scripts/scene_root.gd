@@ -482,6 +482,12 @@ func _ready() -> void:
 		screen_reflection.main_camera = camera_rig
 		add_child(screen_reflection)
 		table_screen.attach_to(screen_mesh, screen_reflection)
+		# JEDES Fenster des Displays ist spiegelndes Glas, nicht nur die Grube:
+		# auch was neben der Grube auf dem Glas steht, spiegelt sich - die Trays
+		# samt ihrer Würfel und der Würfelbecher. (Die 6 Spielwürfel sind schon
+		# beim Bau markiert, Deck-Geister bei _spawn_deck_ghost.)
+		for prop: Node in [pool_tray_view, queue_tray_view, discard_tray_view, dice_cup]:
+			ScreenReflection.mark_reflective(prop)
 		# Alle drei Screen-Elemente hängen an frei verschiebbaren Editor-Ankern
 		# (Marker3D unter $ScreenAnchors); Pixel-Positionen erst nach attach_to
 		# ableitbar. Den Kombi-Cluster ERST an seinen Anker setzen, DANN den Zoom
@@ -508,6 +514,20 @@ func _ready() -> void:
 		# Aktionen aus wie die Fenster-Steuerung; bedient über _forward_screen_mouse.
 		table_screen.place_pit_actions(table_screen.world_to_pixel(Vector3(
 			DicePit.PIT_CENTER.x - PIT_ACTION_BAR_INSET_X, 0.0, DicePit.PIT_CENTER.z)))
+		# Gruben-Fenster: denselben Fenster-Look wie Kombi-Cluster und Hub, und
+		# der Rahmen zeichnet EXAKT die Kollisionslinie der Energiewände nach -
+		# Rechteck = ±PIT_HALF um die Grubenmitte, Eckenrundung = die der Wände
+		# (DicePit.CORNER_RADIUS; zwei gegenüberliegende Ecken reichen für das
+		# Pixel-Rechteck).
+		var pit_corner_a := table_screen.world_to_pixel(Vector3(
+			DicePit.PIT_CENTER.x + DicePit.PIT_HALF_X, 0.0,
+			DicePit.PIT_CENTER.z - DicePit.PIT_HALF_Z))
+		var pit_corner_b := table_screen.world_to_pixel(Vector3(
+			DicePit.PIT_CENTER.x - DicePit.PIT_HALF_X, 0.0,
+			DicePit.PIT_CENTER.z + DicePit.PIT_HALF_Z))
+		table_screen.place_pit_window(
+			Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b),
+			DicePit.CORNER_RADIUS * ppw)
 		table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 		table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	else:
@@ -554,19 +574,30 @@ func _ready() -> void:
 	die_inspector.applied.connect(_on_engraving_applied)
 	die_inspector.select_tray_die.connect(_on_tray_die_selected)
 	die_inspector.changed.connect(_on_die_engraved)
+	# Beim Drehen der Würfel-Projektion die Kamera festhalten (siehe
+	# DieInspectorView.rotating_die / CameraRig.tilt_locked).
+	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
 	debug_win_round_button.pressed.connect(_on_debug_win_round_pressed)
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
-	# Der Einstellungen-Knopf sitzt jetzt unten rechts auf der Hub-Home-Seite (auf
-	# dem Display, siehe HubView.settings_button) - der alte 2D-Fensterknopf wird
-	# ausgeblendet. Ohne Tisch-Display bleibt er als Rückfall sichtbar.
+	# Einstellungen: der Knopf sitzt unten rechts auf der Hub-Home-Seite und klappt
+	# jetzt das Menü DIREKT AUF DEM DISPLAY auf (siehe HubView._build_settings_menu),
+	# nicht mehr das 2D-Dropdown. Dessen Einträge kommen als Signale zurück und
+	# lösen dieselben Aktionen aus wie die alten 2D-Knöpfe. Der alte 2D-Knopf/das
+	# 2D-Menü bleiben nur als Rückfall, wenn es kein Tisch-Display gibt.
 	settings_toggle_button.pressed.connect(_on_settings_toggle_pressed)
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.settings_pressed.connect(_on_settings_toggle_pressed)
+	var have_hub := table_screen != null and table_screen.hub != null
+	if have_hub:
 		settings_toggle_button.visible = false
+		settings_menu.visible = false
+		table_screen.hub.new_game_requested.connect(_on_reset_button_pressed)
+		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
+		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
 	library_button.pressed.connect(charm_library.toggle)
+	if have_hub:
+		table_screen.hub.library_requested.connect(charm_library.toggle)
 
 	# Testmodus-Knopf ans Ende des Einstellungs-Menüs hängen (im Code, damit die
 	# Szene unverändert bleibt) - siehe _on_test_materials_pressed.
@@ -1190,6 +1221,7 @@ func _end_engraving_ceremony() -> void:
 	if not engraving_active:
 		return
 	engraving_active = false
+	camera_rig.release_tilt_immediately()  # Sicherheitsnetz, falls beim Schließen noch eine Dreh-Geste "hängt"
 	_free_engraving_die()
 	if engraving_source_root != null and is_instance_valid(engraving_source_root):
 		engraving_source_root.visible = true
@@ -1613,18 +1645,13 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 		return false
 	if event is InputEventMouseButton and event.button_index != MOUSE_BUTTON_LEFT:
 		return false
-	# Nur bestimmte Flächen des Displays sind je Ansicht interaktiv (Hub-Panel in
-	# der Hub-Sicht, Aktions-Buttons in der Grubensicht) - alles andere bleibt 3D.
-	var target_rect := _screen_input_rect()
-	if target_rect.size == Vector2.ZERO:
-		return false
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
 		return false
 	var pixel := table_screen.pixel_from_ray(
 		camera.project_ray_origin(event.position),
 		camera.project_ray_normal(event.position))
-	if pixel.x < 0.0 or not target_rect.has_point(pixel):
+	if pixel.x < 0.0 or not _screen_forwards_pixel(pixel, event is InputEventMouseButton):
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 		return false
 	var forwarded := event.duplicate() as InputEventMouse
@@ -1638,18 +1665,24 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	table_screen.push_input(forwarded)
 	return true
 
-## Die aktuell interaktive Fläche des Tisch-Displays je Kameraansicht (siehe
-## _forward_screen_mouse): in der Hub-Sicht das ganze Hub-Panel, in der Grubensicht
-## nur die Aktions-Buttons (Nehmen/Würfeln) - der Rest der Grube bleibt 3D (Würfel
-## wählen, Becher, Charms). Leeres Rect = in dieser Ansicht nichts weiterreichen.
-func _screen_input_rect() -> Rect2:
+## Ob ein Display-Pixel in der aktuellen Ansicht an die Bildschirm-UI geht (statt
+## eine 3D-Aktion/einen Zoom auszulösen). is_click = Maustaste (sonst Bewegung):
+## - Hub-Sicht: das ganze Hub-Panel (voll bedienbar).
+## - Grubensicht: nur die Aktions-Buttons (Nehmen/Würfeln); der Rest bleibt 3D.
+## - sonst (Übersicht/andere Zooms): das Hub-Panel ist sichtbar, aber ein KLICK
+##   geht nur an INTERAKTIVE Punkte (eine HUD-Option drücken) - leere Hub-Fläche
+##   bleibt Zoom (siehe _try_zoom_click). Bewegungen laufen über der ganzen
+##   Fläche mit, damit der Hover der Knöpfe sauber ein- und ausblendet.
+func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	match camera_rig.mode:
 		CameraRig.Mode.HUB:
-			return table_screen.hub.get_rect() if table_screen.hub != null else Rect2()
+			return table_screen.hub != null and table_screen.hub.get_rect().has_point(pixel)
 		CameraRig.Mode.PIT:
-			if table_screen.pit_actions_root != null and table_screen.pit_actions_root.visible:
-				return table_screen.pit_actions_rect()
-	return Rect2()
+			return table_screen.pit_actions_root != null and table_screen.pit_actions_root.visible \
+				and table_screen.pit_actions_rect().has_point(pixel)
+	if table_screen.hub == null or not table_screen.hub.get_rect().has_point(pixel):
+		return false
+	return not is_click or table_screen.hub.interactive_at(pixel)
 
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var camera := get_viewport().get_camera_3d()
@@ -1978,6 +2011,7 @@ func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 func _spawn_deck_ghost(def: DieDefinition) -> Node3D:
 	var ghost := DieBuilder.build()
 	add_child(ghost)
+	ScreenReflection.mark_reflective(ghost)  # gleitet über das Glas -> spiegelt sich
 	ghost.rotation.y = -PI / 2.0  # gleiche Ausrichtung wie die Tray-Würfel (siehe DiceTrayView._build_slots)
 	ghost.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
 	var body: RigidBody3D = ghost.get_node("RigidBody3D")
@@ -2854,10 +2888,14 @@ func _on_test_materials_pressed() -> void:
 func _test_mode_charms() -> Array[Charm]:
 	return [Charm.golden_scarab(), Charm.goldsmith(), Charm.small_fry()]
 
-## Aktualisiert die Beschriftung des Testmodus-Knopfs nach dem aktuellen Zustand.
+## Aktualisiert die Beschriftung des Testmodus-Knopfs nach dem aktuellen Zustand -
+## auf dem 2D-Rückfallknopf UND im Einstellungs-Menü des Hubs.
 func _refresh_test_materials_button() -> void:
+	var label := "🧪 Testmaterialien: %s" % ("AN" if test_materials_enabled else "aus")
 	if test_materials_button != null:
-		test_materials_button.text = "🧪 Testmaterialien: %s" % ("AN" if test_materials_enabled else "aus")
+		test_materials_button.text = label
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_test_materials_label(label)
 
 func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab (siehe _on_throw_button_pressed/_play_take_animation)

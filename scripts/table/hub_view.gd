@@ -1,9 +1,16 @@
 class_name HubView
 extends Control
-## Der Einstellungen-Knopf unten rechts auf der Home-Seite wurde gedrückt -
-## scene_root klappt daraufhin das Einstellungs-Menü auf/zu (siehe
-## _on_settings_toggle_pressed). Früher ein 2D-Knopf in der Fensterecke.
+## Der Einstellungen-Knopf unten rechts auf der Home-Seite wurde gedrückt - der
+## Hub klappt daraufhin sein eigenes Einstellungs-Menü auf dem Display auf/zu
+## (siehe _toggle_settings_menu). Früher ein 2D-Knopf/Dropdown in der Fensterecke.
 signal settings_pressed
+## Einträge des Einstellungs-Menüs (auf dem Display, siehe _build_settings_menu):
+## scene_root verbindet sie mit den bestehenden Aktionen (Neues Spiel, Debug-
+## Rundensieg, Charm-Bibliothek, Testmaterialien umschalten).
+signal new_game_requested
+signal debug_win_round_requested
+signal library_requested
+signal test_materials_requested
 
 ## Der HUB auf dem Tisch-Display: ein fest reservierter Bildschirm-Abschnitt
 ## UNTER der Grube, zwischen Pool- und Ablage-Tray (Position/Größe siehe
@@ -45,8 +52,15 @@ var info_page: VBoxContainer
 ## Der Einstellungen-Knopf unten rechts auf der Home-Seite (auf dem Display, Teil
 ## von content_root - blendet also mit der Home-Seite aus, wenn eine andere Seite
 ## offen ist). Bedient über die Maus-Weiterleitung im Hub (siehe
-## scene_root._forward_screen_mouse); meldet settings_pressed.
+## scene_root._forward_screen_mouse); klappt das Einstellungs-Menü auf/zu.
 var settings_button: Button
+## Das aufklappbare Einstellungs-Menü auf dem Display (Neues Spiel, Debug,
+## Charm-Bibliothek, Testmaterialien) - ersetzt das alte 2D-Dropdown. Liegt über
+## dem Home-Inhalt und öffnet sich per settings_button nach OBEN über dem Knopf
+## (siehe _toggle_settings_menu/_position_settings_menu).
+var settings_menu: PanelContainer
+var _test_materials_button: Button
+var _menu_u := 1.0  # Breiteneinheit, für die Neupositionierung gemerkt
 
 ## Der eigene Inhalt (alles außer dem Rahmen) - die HOME-SEITE des Hubs. Sichtbar
 ## nur, solange KEINE angehängte Seite (Shop, Gravur-Station, ...) offen ist
@@ -155,8 +169,106 @@ func layout() -> void:
 	settings_button.focus_mode = Control.FOCUS_NONE
 	settings_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	CasinoStyle.style_button(settings_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, int(u * 3.4))
-	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
+	settings_button.pressed.connect(_toggle_settings_menu)
 	footer.add_child(settings_button)
+
+	_menu_u = u
+	_build_settings_menu(u)
+
+## Baut das aufklappbare Einstellungs-Menü auf dem Display (Kind der Hub-Fläche,
+## über allem, anfangs verborgen). Die Einträge melden ihre Aktionen als Signale;
+## scene_root verbindet sie mit den bestehenden Handlern. Positioniert wird es
+## erst beim Öffnen (siehe _position_settings_menu).
+func _build_settings_menu(u: float) -> void:
+	settings_menu = PanelContainer.new()
+	settings_menu.name = "SettingsMenu"
+	settings_menu.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#1a1836")  # wie FRAME_BG, aber deckend (Dropdown)
+	style.border_color = FRAME_COLOR
+	style.set_border_width_all(maxi(2, int(u * 0.3)))
+	style.set_corner_radius_all(int(u * 1.2))
+	style.set_content_margin_all(int(u * 1.6))
+	settings_menu.add_theme_stylebox_override("panel", style)
+	add_child(settings_menu)
+
+	var box := VBoxContainer.new()
+	box.name = "Box"
+	box.add_theme_constant_override("separation", int(u * 1.4))
+	settings_menu.add_child(box)
+
+	_make_menu_button(box, "📖  Charm-Bibliothek", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
+		u, library_requested.emit)
+	_make_menu_button(box, "Neues Spiel", CasinoStyle.RED, CasinoStyle.RED_DARK,
+		u, new_game_requested.emit)
+	_make_menu_button(box, "Debug: Runde gewinnen", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
+		u, debug_win_round_requested.emit)
+	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
+		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
+
+## Ein Menü-Eintrag (voll breit, im Display-Stil). Gibt den Knopf zurück, damit
+## der Aufrufer ihn behalten kann (Testmaterialien-Beschriftung, siehe
+## set_test_materials_label).
+func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,
+		u: float, on_pressed: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.custom_minimum_size = Vector2(u * 34.0, u * 6.0)
+	CasinoStyle.style_button(button, accent, dark, int(u * 3.0))
+	button.pressed.connect(func() -> void:
+		on_pressed.call()
+		settings_menu.visible = false)
+	parent.add_child(button)
+	return button
+
+## Aktualisiert die Beschriftung des Testmaterialien-Eintrags (AN/aus) - scene_root
+## ruft das nach dem Umschalten auf (siehe _refresh_test_materials_button).
+func set_test_materials_label(text: String) -> void:
+	if _test_materials_button != null:
+		_test_materials_button.text = text
+
+## Klappt das Einstellungs-Menü auf/zu. settings_pressed bleibt als Signal
+## erhalten (Rückwärtskompatibilität/Tests), meldet jetzt aber das Umschalten.
+func _toggle_settings_menu() -> void:
+	settings_pressed.emit()
+	if settings_menu == null:
+		return
+	settings_menu.visible = not settings_menu.visible
+	if settings_menu.visible:
+		_position_settings_menu()
+
+## Setzt das Menü rechtsbündig ÜBER den Einstellungen-Knopf (klappt nach oben auf,
+## damit es nicht über den unteren Rahmen hinausragt).
+func _position_settings_menu() -> void:
+	settings_menu.reset_size()
+	var anchor := settings_button.get_global_rect()
+	var top_left := Vector2(
+		anchor.end.x - settings_menu.size.x,
+		anchor.position.y - settings_menu.size.y - _menu_u * 1.2)
+	settings_menu.position = top_left - global_position  # Viewport -> Hub-lokal
+
+## Ob unter dem Display-Pixel point (Viewport-/Display-Koordinaten) ein
+## interaktiver Punkt liegt - ein sichtbarer, nicht deaktivierter Knopf. Damit
+## unterscheidet scene_root: ein Klick auf eine HUD-Option DRÜCKT den Knopf,
+## ein Klick auf leere Hub-Fläche ZOOMT in den Hub (siehe _try_zoom_click).
+func interactive_at(point: Vector2) -> bool:
+	return _interactive_under(self, point)
+
+func _interactive_under(node: Node, point: Vector2) -> bool:
+	for child in node.get_children():
+		var control := child as Control
+		if control != null:
+			if not control.visible:
+				continue
+			if control is BaseButton and not (control as BaseButton).disabled \
+					and control.mouse_filter != Control.MOUSE_FILTER_IGNORE \
+					and control.get_global_rect().has_point(point):
+				return true
+		if _interactive_under(child, point):
+			return true
+	return false
 
 ## Lässt den Neon-Rahmen kurz in color aufleuchten und zur Grundfarbe (Cyan)
 ## abklingen - Teil der Geld-Lichtanimation: Gold bei Gutschriften, Chip-Farbe
@@ -216,6 +328,8 @@ func _apply_page_opened(panel: Control) -> void:
 	_suppressed.erase(panel)  # falls sie selbst verdrängt war und nun zurück ist
 	if content_root != null:
 		content_root.visible = false
+	if settings_menu != null:
+		settings_menu.visible = false  # das Menü gehört zur Home-Seite, weicht mit ihr
 	_switching = false
 
 ## Eine Seite hat sich geschlossen: die zuletzt verdrängte Seite zurückholen -

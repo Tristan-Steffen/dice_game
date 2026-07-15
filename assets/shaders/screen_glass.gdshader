@@ -27,13 +27,40 @@ uniform float reflection_strength : hint_range(0.0, 2.0) = 0.9;
 uniform float fresnel_base : hint_range(0.0, 1.0) = 0.4;
 uniform float fresnel_power : hint_range(0.5, 8.0) = 3.0;
 
+// NUR die "Fenster" des Displays sind spiegelndes Glas - der Rest der Fläche
+// ist Casino-Filz (matt, siehe table_felt.gdshader als 2D-Hintergrund der
+// Anzeige) und spiegelt NICHT. TableScreen meldet die Fenster-Rechtecke in
+// Display-Pixeln samt Eckenradius (siehe _sync_reflection_windows).
+const int MAX_WINDOWS = 8;
+uniform int window_count = 0;
+uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
+uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln
+uniform vec2 screen_px = vec2(1.0, 1.0);  // Display-Auflösung (UV -> Pixel)
+
+// Abdeckung eines abgerundeten Fenster-Rechtecks am Pixel p (SDF, weiche
+// 4-Pixel-Kante, damit die Spiegelung am Rahmen nicht hart abreißt).
+float window_mask(vec2 p, vec4 rect, float radius) {
+	vec2 center = (rect.xy + rect.zw) * 0.5;
+	vec2 half_size = (rect.zw - rect.xy) * 0.5 - vec2(radius);
+	vec2 d = abs(p - center) - half_size;
+	float dist = length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0) - radius;
+	return 1.0 - smoothstep(-4.0, 4.0, dist);
+}
+
 void fragment() {
 	vec3 ui = texture(screen_texture, UV).rgb;
 	vec2 mirror_uv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y);
 	vec4 reflection = texture(reflection_texture, mirror_uv);
 	float grazing = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), fresnel_power);
 	float amount = reflection_strength * mix(fresnel_base, 1.0, grazing);
+
+	float glass = 0.0;
+	vec2 pixel = UV * screen_px;
+	for (int i = 0; i < window_count; i++) {
+		glass = max(glass, window_mask(pixel, window_rects[i], window_radius[i]));
+	}
+
 	// Alles ins ALBEDO (unshaded gibt ALBEDO unverändert aus); überhelle Werte
 	// blühen weiterhin über den Umgebungs-Glow (WorldEnvironment.glow).
-	ALBEDO = ui * emission_energy + reflection.rgb * reflection.a * amount;
+	ALBEDO = ui * emission_energy + reflection.rgb * reflection.a * amount * glass;
 }

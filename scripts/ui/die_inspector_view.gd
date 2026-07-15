@@ -37,6 +37,10 @@ signal closed
 ## scene_root wechselt das Gravur-Ziel auf diesen Würfel (slot = ECHTER Slot-
 ## Index im Ursprungs-Tray).
 signal select_tray_die(slot: int)
+## Der Spieler dreht gerade die Würfel-Projektion per Ziehen (active = true) bzw.
+## hat losgelassen (false) - scene_root sperrt derweil das Kamera-Rundschauen
+## (siehe CameraRig.tilt_locked), damit die Ziehbewegung nicht den Blick schwenkt.
+signal rotating_die(active: bool)
 
 ## Ablauf-Zustand der Station: normale Seiten-Auswahl, Warten auf die zweite
 ## Seite (Meißel/Schleifstein/Doppelkerbe/Mittelung/Anschluss) oder Warten auf
@@ -58,6 +62,12 @@ const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
 ## Silhouette auf seinem Platz - klar "noch nicht bekommen", aber die Form
 ## bleibt erkennbar (welcher Coupon hierher gehört, sagt auch der Tooltip).
 const EMPTY_SLOT_TINT := Color(0.3, 0.3, 0.34, 0.9)
+
+## Der eigene kleine UNTER-BILDSCHIRM der Würfel-Projektion (rechts neben der
+## Bühne): eigener Rahmen + eigene, von den übrigen Fenstern abgesetzte
+## Grundfarbe (dunkles Petrol statt Violett) - liest sich als eingelassener
+## Extra-Schirm im Panel.
+const DIE_VIEW_BG := Color("#0d2430")
 
 ## Anteil der Panel-Höhe, der oben als BÜHNE frei bleibt - dort schwebt der ECHTE
 ## Würfel (Weltobjekt in Tray-Größe, fliegt aus dem Tray herüber, siehe
@@ -122,7 +132,15 @@ var tray_context_columns: int = 0
 ## (er fliegt aus seinem Tray herüber, siehe scene_root._grab_engraving_die - kein
 ## im Panel gerendertes Abbild mehr). Reserviert nur den Platz; ihre Mitte
 ## (stage_center_px) ist das Landeziel und der Endpunkt der Absorptions-Bahn.
+## Sitzt LINKS in der Bühnen-Reihe - rechts daneben die drehbare Projektion.
 var stage: Control
+## Die drehbare 3D-PROJEKTION des Würfels rechts neben der Bühne (eigener kleiner
+## Unter-Bildschirm, siehe DIE_VIEW_BG): Ziehen dreht sie frei, ein Klick auf eine
+## Seite/den Kanten-Rahmen wählt sie - dieselbe Logik wie die Seiten-Chips
+## (face_clicked/edges_clicked -> _on_face_clicked/_on_edges_clicked). Auswahl und
+## Ätzungs-Ergebnisse spiegeln sich zurück (siehe _sync_die_view).
+var die_view: RotatableDieView
+var die_view_panel: PanelContainer
 
 ## Öffnet die Station für def (die tatsächliche Pool-Instanz) und setzt den
 ## Auswahl-/Ablaufzustand zurück. Baut Gerüst und Coupon-Bord frisch aus der
@@ -134,6 +152,7 @@ func show_die(def: DieDefinition) -> void:
 	mode = Mode.SELECT
 	active_coupon_id = ""
 	_build_layout()
+	die_view.set_dice([current_def] as Array[DieDefinition])
 	_build_coupon_board()
 	_refresh_face_summary()
 	_update_prompt()
@@ -220,12 +239,23 @@ func _build_top_row(root: Control) -> void:
 	summary_list.add_theme_constant_override("separation", int(u * 0.8))
 	left_col.add_child(summary_list)
 
+	# Bühnen-Reihe: LINKS die (schmale) Bühne, über der der echte Würfel schwebt -
+	# er rückt damit an den linken Rand -, RECHTS daneben die drehbare Projektion
+	# auf ihrem eigenen Unter-Bildschirm.
+	var stage_row := HBoxContainer.new()
+	stage_row.name = "StageRow"
+	stage_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage_row.add_theme_constant_override("separation", int(u * 2.5))
+	left_col.add_child(stage_row)
+
 	stage = CenterContainer.new()
 	stage.name = "Stage"
-	stage.custom_minimum_size = Vector2(0, size.y * STAGE_FRACTION)
+	stage.custom_minimum_size = Vector2(u * 12.0, size.y * STAGE_FRACTION)
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.add_child(stage)
+	stage_row.add_child(stage)
+
+	_build_die_view(stage_row)
 
 	top_row.add_child(_expanding_spacer())
 
@@ -275,6 +305,54 @@ func _expanding_spacer() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return spacer
+
+## Baut die drehbare 3D-Projektion des Würfels samt ihrem eigenen kleinen
+## Unter-Bildschirm (Rahmen + abgesetzte Grundfarbe, siehe DIE_VIEW_BG). Der
+## RotatableDieView bekommt seinen SubViewport per Code (es gibt keine .tscn;
+## eigene World3D, sonst filmt die Vorschau-Kamera die Tischszene). Klicks auf
+## Seiten/Kanten laufen in DIESELBEN Handler wie die Seiten-Chips; gefüllt wird
+## die Ansicht in show_die (set_dice), die Auswahl spiegelt _sync_die_view.
+func _build_die_view(parent: Control) -> void:
+	die_view_panel = PanelContainer.new()
+	die_view_panel.name = "DieViewScreen"
+	var style := StyleBoxFlat.new()
+	style.bg_color = DIE_VIEW_BG
+	style.border_color = NEON_CYAN
+	style.set_border_width_all(maxi(2, int(u * 0.3)))
+	style.set_corner_radius_all(int(u * 1.2))
+	style.set_content_margin_all(int(u * 0.8))
+	die_view_panel.add_theme_stylebox_override("panel", style)
+	die_view_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(die_view_panel)
+
+	die_view = RotatableDieView.new()
+	die_view.name = "DieView"
+	var sub := SubViewport.new()
+	sub.name = "SubViewport"
+	sub.transparent_bg = true  # der Unter-Bildschirm liefert den Grund
+	sub.own_world_3d = true  # isolierte Vorschau-Welt (siehe RotatableDieView)
+	die_view.add_child(sub)
+	die_view.stretch = true  # Container-Pixel == Viewport-Pixel (Pick-Mathe)
+	die_view.custom_minimum_size = Vector2(u * 20.0, u * 16.0)
+	die_view.pick_radius = u * 10.0
+	die_view.face_clicked.connect(_on_face_clicked)
+	die_view.edges_clicked.connect(_on_edges_clicked)
+	# Dreh-Geste an scene_root melden (Kamera sperren, siehe rotating_die).
+	die_view.drag_started.connect(func() -> void: rotating_die.emit(true))
+	die_view.drag_ended.connect(func() -> void: rotating_die.emit(false))
+	die_view_panel.add_child(die_view)
+
+## Spiegelt Zustand und Auswahl in die 3D-Projektion: Seitenwerte neu auslesen
+## (nach Ätzungen) und die gewählte Seite bzw. den Kanten-Rahmen golden
+## hervorheben (keine Auswahl = alles neutral).
+func _sync_die_view() -> void:
+	if die_view == null or current_def == null:
+		return
+	die_view.refresh_faces([current_def] as Array[DieDefinition])
+	if edges_selected:
+		die_view.highlight_edges(0)
+	else:
+		die_view.highlight_face(0, selected_face)
 
 # --- Bühne (Landefläche des schwebenden Würfels) -------------------------------
 
@@ -724,6 +802,10 @@ func _refresh_face_summary() -> void:
 	# geleert wird).
 	summary_sum_label = _label("Augensumme: %d" % total, u * 2.2, NEON_MUTED)
 	summary_list.add_child(summary_sum_label)
+
+	# Die 3D-Projektion zieht mit: neue Seitenwerte (nach Ätzungen) und die
+	# aktuelle Auswahl (Seite/Kanten) golden hervorgehoben.
+	_sync_die_view()
 
 ## Ein anklickbarer Mini-Würfelseiten-Chip im Look der echten Würfel (getönt in
 ## der Materialfarbe der Seite - weiß ohne Material - mit dunkler Ziffer);

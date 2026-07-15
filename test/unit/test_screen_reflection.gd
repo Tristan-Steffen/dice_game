@@ -48,6 +48,18 @@ func test_mirror_basis_stays_right_handed() -> void:
 	# Die Spiegelkamera schaut nach OBEN zur Glasfläche (Blick = -z).
 	assert_gt((-basis.z).y, 0.0, "der Spiegelblick geht von unten gegen das Glas")
 
+func test_mark_reflective_covers_a_whole_tray_with_dice() -> void:
+	# Auch die Trays samt ihrer Slot-Würfel stehen auf dem Glas und spiegeln
+	# sich (scene_root markiert die kompletten Tray-Knoten rekursiv).
+	var tray: DiceTrayView = load("res://scenes/dice_pool_tray.tscn").instantiate()
+	add_child_autofree(tray)
+	ScreenReflection.mark_reflective(tray)
+	var visuals := tray.find_children("*", "VisualInstance3D", true, false)
+	assert_gt(visuals.size(), 0)
+	for visual in visuals:
+		assert_true((visual.layers & ScreenReflection.LAYER) != 0,
+			"%s fehlt der Spiegel-Layer" % visual.name)
+
 func test_mark_reflective_layers_every_visual_part_of_a_die() -> void:
 	var die := DieBuilder.build()
 	add_child_autofree(die)
