@@ -9,6 +9,8 @@ extends Control
 ## closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
+## Öffnet die Systemkonsole (Übertakten); scene_root verdrahtet die Seite.
+signal console_requested
 
 const CHARM_PRICE := 15
 
@@ -184,6 +186,9 @@ func _build_layout() -> void:
 	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_child(footer_spacer)
+	var console_button := _neon_button("⚙ Systemkonsole", NEON_CYAN, u * 2.6, Vector2(u * 22.0, u * 5.0))
+	console_button.pressed.connect(console_requested.emit)
+	footer.add_child(console_button)
 	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)

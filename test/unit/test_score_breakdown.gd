@@ -80,7 +80,7 @@ func test_every_category_example_matches():
 
 func test_combo_levels_flow_into_combo_step():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, NO_MATS, NO_MATS, {DiceScoring.TWO_KIND: 1})
-	assert_eq(breakdown["combo"]["base_add"], 20, "Menü-Stufe verdoppelt die festen Punkte")
+	assert_eq(breakdown["combo"]["base_add"], 20, "Übertaktungs-Stufe verdoppelt die festen Punkte")
 	assert_eq(breakdown["combo"]["mult_add"], 4)
 
 # --- Material-Schritte ----------------------------------------------------------
@@ -145,13 +145,12 @@ func test_cult_of_one_becomes_factor_step():
 	assert_eq(steps[0]["charm_indices"], [0])
 
 func test_crit_pool_is_one_shared_step():
-	var levels := {DiceScoring.TWO_KIND: 2}
-	var ids := _ids([Charm.GALLOWS_HUMOR, Charm.RESTAURANT_CRITIC])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, levels, {"after_farkle": true})
+	var ids := _ids([Charm.GALLOWS_HUMOR])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
 	var crit_steps: Array = breakdown["charm_steps"].filter(func(s: Dictionary) -> bool: return s["mult_x"] > 1)
 	assert_eq(crit_steps.size(), 1, "ein gemeinsamer Krit-Schritt")
-	assert_eq(crit_steps[0]["mult_x"], 8, "×(1 + 3 + 4)")
-	assert_eq(crit_steps[0]["charm_indices"], [0, 1], "beide Krit-Quellen blinken")
+	assert_eq(crit_steps[0]["mult_x"], 4, "×(1 + 3)")
+	assert_eq(crit_steps[0]["charm_indices"], [0])
 
 # --- Nach-Schritte (auf die fertige Punktzahl) ------------------------------------
 
@@ -176,7 +175,7 @@ func test_magic_card_and_beer_are_total_factors():
 
 func test_kitchen_sink_scenario_matches_scoring():
 	# Materialien + Augen-Charm + additive Charms + Einserkult + Krit + Totem-
-	# aufgelöste ids + Menü-Stufen + Kontext: die Zerlegung muss exakt bleiben.
+	# aufgelöste ids + Übertaktungs-Stufen + Kontext: die Zerlegung muss exakt bleiben.
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.broadband())
 	run.owned_charms.append(Charm.parrot_totem())

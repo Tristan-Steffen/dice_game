@@ -133,22 +133,11 @@ func test_gallows_humor_gives_crit_after_a_farkle():
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.GALLOWS_HUMOR]), false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
 	assert_eq(score, 160)
 
-func test_restaurant_critic_gives_crit_per_menu_level():
-	var levels := {DiceScoring.TWO_KIND: 2}
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.RESTAURANT_CRITIC]), {}, levels), 4)
-	# Ende-zu-Ende: Menü-Stufe 2 hebt Paar-Punkte auf 30 und -Mult auf 6;
-	# Krit ×(1+4) -> Basis (30+10) × Mult 30 = 1200.
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.RESTAURANT_CRITIC]), false, NO_MATS, NO_MATS, levels)
-	assert_eq(score, 1200)
-
-func test_crit_sources_pool_additively():
-	# Galgenhumor (+3) und Restaurantkritiker (+2×2) teilen sich EINEN Pool:
-	# Krit-Faktor = 1 + 3 + 4 = 8 (nicht ×4 × ×5).
-	var levels := {DiceScoring.TWO_KIND: 2}
-	var ids := _ids([Charm.GALLOWS_HUMOR, Charm.RESTAURANT_CRITIC])
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": true}, levels), 7)
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, levels, {"after_farkle": true})
-	assert_eq(score, 1920, "Basis (30+10) × (Mult 6 × Krit-Faktor 8)")
+func test_gallows_humor_crit_after_farkle():
+	# Galgenhumor gibt nur nach einem Farkle +3 in den Krit-Pool.
+	var ids := _ids([Charm.GALLOWS_HUMOR])
+	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": true}), 3)
+	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": false}), 0, "ohne Farkle kein Krit")
 
 # --- Basis-Boni & Faktoren -----------------------------------------------------------
 
@@ -263,8 +252,6 @@ func test_shop_price_hooks():
 	assert_eq(CharmEffects.charm_price(25, _ids([Charm.CASH_DISCOUNT])), 20)
 	assert_eq(CharmEffects.flip_fee(2, _ids([Charm.SMALL_CHANGE])), 1)
 	assert_eq(CharmEffects.flip_fee(1, _ids([Charm.SMALL_CHANGE])), 1, "nie unter $1")
-	assert_eq(CharmEffects.pack_price(13, "tageskarte", _ids([Charm.GOURMET])), 7, "Tageskarte halbiert (gerundet)")
-	assert_eq(CharmEffects.pack_price(13, "werkstatt", _ids([Charm.GOURMET])), 13, "andere Packs unberührt")
 	assert_eq(CharmEffects.pack_price(10, "general", _ids([Charm.BARGAIN_HUNTER])), 8)
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 3), 10)
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 1), 15, "kein Rabatt auf Einzelwürfel")
@@ -298,15 +285,8 @@ func test_totems_do_not_copy_totems_or_nothing():
 	assert_eq(run.charm_ids(), [], "Totems ohne kopierbare Nachbarn sind wirkungslos")
 	assert_eq(run.owned_charm_ids(), ["parrot_totem", "echo_totem"], "die rohen ids bleiben sichtbar")
 
-func test_regular_guest_eats_double_portions():
-	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.regular_guest())
-	run.eat_meal(DiceScoring.TWO_KIND)
-	assert_eq(run.combo_levels[DiceScoring.TWO_KIND], 2)
-
 func test_round_start_charms_grant_their_gifts():
 	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.midnight_snack())
 	run.owned_charms.append(Charm.stamp_machine())
 	run.gravierstift_used_this_round = true
 	run.apply_round_start_charms()
@@ -314,10 +294,6 @@ func test_round_start_charms_grant_their_gifts():
 	assert_eq(run.owned_sigils.size(), 3, "Frankiermaschine schenkt drei Sigille")
 	for sigil in run.owned_sigils:
 		assert_eq(sigil.category, Sigil.CATEGORY_NUMBER)
-	var total_levels := 0
-	for key in run.combo_levels:
-		total_levels += int(run.combo_levels[key])
-	assert_gt(total_levels, 0, "Mitternachtssnack hat gegessen")
 
 func test_jewelry_box_upgrades_unused_dice_at_payout():
 	var run := GameRun.new_run()
@@ -381,13 +357,6 @@ func test_totem_chain_resolves_each_neighbor_independently():
 	run.owned_charms.append(Charm.horseshoe())
 	assert_eq(run.charm_ids(), ["broadband", "broadband", "horseshoe", "horseshoe"])
 
-func test_two_regular_guests_eat_triple_portions():
-	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.regular_guest())
-	run.owned_charms.append(Charm.parrot_totem())  # kopiert den Stammgast
-	run.eat_meal(DiceScoring.SIX_KIND)
-	assert_eq(run.combo_levels[DiceScoring.SIX_KIND], 3, "1 + 2× Stammgast")
-
 # --- Zusammenspiel mit Augenwert-Charms ---------------------------------------------
 
 func test_echo_chamber_respects_eye_charms():
@@ -401,11 +370,6 @@ func test_full_counter_respects_eye_charms():
 	assert_eq(bonus, 17, "6+2+3+6 statt 1+2+3+6")
 
 # --- Kombinierte Shop-Preise ---------------------------------------------------------
-
-func test_gourmet_and_bargain_hunter_combine():
-	var ids := _ids([Charm.GOURMET, Charm.BARGAIN_HUNTER])
-	assert_eq(CharmEffects.pack_price(13, "tageskarte", ids), 5, "erst halbiert (7), dann −2")
-	assert_eq(CharmEffects.pack_price(6, "tageskarte", _ids([Charm.GOURMET, Charm.BARGAIN_HUNTER, Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
 
 func test_refund_chance_caps_at_eighty_percent():
 	var five := _ids([Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT])

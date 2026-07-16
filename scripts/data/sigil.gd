@@ -4,23 +4,20 @@ extends Resource
 ## Wirkung löst EtchingEffects/MaterialEffects/GameRun über die id auf. ids sind
 ## Konstanten, damit Tippfehler Compilerfehler sind. Sigille kommen in drei
 ## Kategorien: Zahl (verändert Augen), Material (belegt eine Seite), Würfel
-## (veredelt die Kanten). Menü bleibt intern erhalten (Gerichte werten
-## Kombinationen auf), ist aber keine käufliche Kategorie.
+## (veredelt die Kanten). Kombinationen wertet die Systemkonsole auf (Übertakten).
 
 enum Rarity { COMMON, UNCOMMON, RARE }
 
 # categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
 # (id = Material-id), WÜRFEL die Kanten des ganzen Würfels (id = EDGE_PREFIX +
-# Material-id), MENÜ wertet eine Kombination auf (id = MEAL_PREFIX + Key).
+# Material-id).
 const CATEGORY_NUMBER := "number"
 const CATEGORY_MATERIAL := "material"
 const CATEGORY_DICE := "dice"
-const CATEGORY_MEAL := "meal"
 
 const EDGE_PREFIX := "edge_"
-const MEAL_PREFIX := "meal_"
 
-## Die drei käuflichen/ziehbaren Kategorien (Menü bleibt außen vor).
+## Die drei käuflichen/ziehbaren Kategorien.
 const CATEGORIES := [CATEGORY_NUMBER, CATEGORY_MATERIAL, CATEGORY_DICE]
 
 ## Deutscher Anzeigename je Kategorie.
@@ -28,7 +25,6 @@ const CATEGORY_NAMES := {
 	CATEGORY_NUMBER: "Zahlen",
 	CATEGORY_MATERIAL: "Materialien",
 	CATEGORY_DICE: "Würfel",
-	CATEGORY_MEAL: "Menü",
 }
 
 # --- Zahl-Sigill-ids (Single Source of Truth) ---
@@ -50,8 +46,7 @@ const BLUEPRINT := "blueprint"
 const TEXTURE_DIR := "res://assets/textures/engravings/"
 
 ## Fläche (Breite × Höhe in Rasterzellen) je Sigill - die Fläche IST die
-## Rarität (bestimmt die Ziehgewichtung). Menü-Sigille tragen sie noch für die
-## kommende Überarbeitung.
+## Rarität (bestimmt die Ziehgewichtung).
 const FOOTPRINT := {
 	CHISEL: Vector2i(3, 2),
 	TRANSPLANT: Vector2i(2, 2),
@@ -80,54 +75,6 @@ const FOOTPRINT := {
 	EDGE_PREFIX + DieMaterial.BONE: Vector2i(3, 2),
 	EDGE_PREFIX + DieMaterial.RUBY: Vector2i(3, 2),
 	EDGE_PREFIX + DieMaterial.MERCURY: Vector2i(3, 3),
-	# Menü-Sigille - je stärker die Kombination, desto größer das Gericht
-	MEAL_PREFIX + DiceScoring.ONE_KIND: Vector2i(1, 1),
-	MEAL_PREFIX + DiceScoring.TWO_KIND: Vector2i(1, 1),
-	MEAL_PREFIX + DiceScoring.TWO_PAIR: Vector2i(2, 1),
-	MEAL_PREFIX + DiceScoring.THREE_KIND: Vector2i(2, 1),
-	MEAL_PREFIX + DiceScoring.SMALL_STRAIGHT: Vector2i(2, 2),
-	MEAL_PREFIX + DiceScoring.FOUR_KIND: Vector2i(2, 2),
-	MEAL_PREFIX + DiceScoring.FULL_HOUSE: Vector2i(2, 2),
-	MEAL_PREFIX + DiceScoring.THREE_PAIRS: Vector2i(2, 2),
-	MEAL_PREFIX + DiceScoring.DOUBLE_THREE_KIND: Vector2i(3, 2),
-	MEAL_PREFIX + DiceScoring.FOUR_KIND_AND_PAIR: Vector2i(3, 2),
-	MEAL_PREFIX + DiceScoring.LARGE_STRAIGHT: Vector2i(3, 2),
-	MEAL_PREFIX + DiceScoring.FIVE_KIND: Vector2i(3, 3),
-	MEAL_PREFIX + DiceScoring.SIX_KIND: Vector2i(3, 3),
-}
-
-## Gericht je Kombination - Anzeigename des Menü-Sigills.
-const MEAL_NAMES := {
-	DiceScoring.ONE_KIND: "Tagessuppe",
-	DiceScoring.TWO_KIND: "Zwei Spiegeleier",
-	DiceScoring.TWO_PAIR: "Doppelter Espresso",
-	DiceScoring.THREE_KIND: "Drei im Weggla",
-	DiceScoring.SMALL_STRAIGHT: "Kleine Street-Food-Platte",
-	DiceScoring.FOUR_KIND: "Vier-Käse-Pizza",
-	DiceScoring.FULL_HOUSE: "Full-House-Burger",
-	DiceScoring.THREE_PAIRS: "Tapas-Trio",
-	DiceScoring.DOUBLE_THREE_KIND: "Doppeltes Tagesmenü",
-	DiceScoring.FOUR_KIND_AND_PAIR: "Vier-Käse-Pizza mit Beilage",
-	DiceScoring.LARGE_STRAIGHT: "Große Street-Food-Platte",
-	DiceScoring.FIVE_KIND: "Fünf-Gänge-Menü",
-	DiceScoring.SIX_KIND: "Spezialität des Hauses",
-}
-
-## Seltenheit je Menü-Sigill: folgt der Stärke der Kombination.
-const MEAL_RARITY := {
-	DiceScoring.ONE_KIND: Rarity.COMMON,
-	DiceScoring.TWO_KIND: Rarity.COMMON,
-	DiceScoring.TWO_PAIR: Rarity.COMMON,
-	DiceScoring.THREE_KIND: Rarity.COMMON,
-	DiceScoring.SMALL_STRAIGHT: Rarity.UNCOMMON,
-	DiceScoring.FOUR_KIND: Rarity.UNCOMMON,
-	DiceScoring.FULL_HOUSE: Rarity.UNCOMMON,
-	DiceScoring.THREE_PAIRS: Rarity.UNCOMMON,
-	DiceScoring.DOUBLE_THREE_KIND: Rarity.RARE,
-	DiceScoring.FOUR_KIND_AND_PAIR: Rarity.RARE,
-	DiceScoring.LARGE_STRAIGHT: Rarity.RARE,
-	DiceScoring.FIVE_KIND: Rarity.RARE,
-	DiceScoring.SIX_KIND: Rarity.RARE,
 }
 
 @export var id: String = ""
@@ -202,14 +149,6 @@ static func material_sigil(material: DieMaterial, rarity: Rarity) -> Sigil:
 static func edge_sigil(material: DieMaterial, rarity: Rarity) -> Sigil:
 	return _make(EDGE_PREFIX + material.id, "%s-Kanten" % material.display_name, material.edge_description, rarity, CATEGORY_DICE)
 
-## Menü-Sigill: einmal gewährt ist das Gericht sofort gegessen und wertet die
-## Kombination dauerhaft auf - es landet nie im Inventar.
-static func meal_sigil(combo_key: String) -> Sigil:
-	var description := "Wertet %s dauerhaft auf: +%d auf den Multiplikator." % [
-		DiceScoring.label_for(combo_key), DiceScoring.mult_for(combo_key)]
-	return _make(MEAL_PREFIX + combo_key, MEAL_NAMES.get(combo_key, combo_key),
-		description, MEAL_RARITY.get(combo_key, Rarity.UNCOMMON), CATEGORY_MEAL)
-
 const MATERIAL_RARITY := {
 	DieMaterial.GOLD: Rarity.COMMON,
 	DieMaterial.AMBER: Rarity.COMMON,
@@ -230,7 +169,7 @@ const EDGE_RARITY := {
 }
 
 ## Kanonische Registrierung aller Sigill-Archetypen; Material-/Würfel-Sigille
-## kommen aus DieMaterial.all(), Menü-Sigille aus DiceScoring.CATEGORIES.
+## kommen aus DieMaterial.all().
 static func all() -> Array[Sigil]:
 	var result: Array[Sigil] = [
 		chisel(), transplant(), grindstone(), fine_engraving(), overcount_engraving(),
@@ -240,15 +179,12 @@ static func all() -> Array[Sigil]:
 		result.append(material_sigil(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
 	for material in DieMaterial.all():
 		result.append(edge_sigil(material, EDGE_RARITY.get(material.id, Rarity.RARE)))
-	for cat in DiceScoring.CATEGORIES:
-		result.append(meal_sigil(cat["key"]))
 	return result
 
 static func is_edge_id(sigil_id: String) -> bool:
 	return sigil_id.begins_with(EDGE_PREFIX) and DieMaterial.is_valid_id(sigil_id.trim_prefix(EDGE_PREFIX))
 
-## Kategorien, die sicher im Inventar landen (kein Menü) - Shop und Ziehung
-## zeigen nur diese.
+## Kategorien, die sicher im Inventar landen - Shop und Ziehung zeigen nur diese.
 const DRAFT_CATEGORIES := [CATEGORY_NUMBER, CATEGORY_MATERIAL, CATEGORY_DICE]
 
 ## Zieht count VERSCHIEDENE Sigill-Archetypen für die Lichtgravur-Ziehung: nur
@@ -294,7 +230,7 @@ static func _draft_pool(floor: Rarity) -> Array[Sigil]:
 			pool.append(sigil)
 	return pool
 
-## DieMaterial-id hinter diesem Sigill ("" bei Zahl-/Menü-Sigillen).
+## DieMaterial-id hinter diesem Sigill ("" bei Zahl-Sigillen).
 func material_id() -> String:
 	match category:
 		CATEGORY_MATERIAL:
@@ -302,10 +238,6 @@ func material_id() -> String:
 		CATEGORY_DICE:
 			return id.trim_prefix(EDGE_PREFIX)
 	return ""
-
-## Kategorie-Key hinter einem Menü-Sigill ("" bei allen anderen Kategorien).
-func meal_combo_key() -> String:
-	return id.trim_prefix(MEAL_PREFIX) if category == CATEGORY_MEAL else ""
 
 static func rarity_name(value: Rarity) -> String:
 	match value:

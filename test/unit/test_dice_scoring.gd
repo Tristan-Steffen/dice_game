@@ -19,16 +19,16 @@ func _ids(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Menü-Stufen (Meal Deals, siehe Sigil.CATEGORY_MEAL / GameRun.eat_meal) --------
+# --- Übertaktungs-Stufen (Systemkonsole, siehe GameRun.overclock_combo) ------------
 
-func test_mult_for_scales_with_meal_levels():
+func test_mult_for_scales_with_combo_levels():
 	# Jede Stufe addiert den Basis-Multiplikator erneut: Paar ×2 -> ×4 -> ×6.
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 4)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 2}), 6)
 
-func test_points_for_scales_with_meal_levels():
-	# Die festen Kategorie-Punkte wachsen mit den Menü-Stufen wie der Mult.
+func test_points_for_scales_with_combo_levels():
+	# Die festen Kategorie-Punkte wachsen mit den Übertaktungs-Stufen wie der Mult.
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND), 10)
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 20)
 	assert_eq(DiceScoring.points_for(DiceScoring.SIX_KIND), 60)

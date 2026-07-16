@@ -80,12 +80,6 @@ const ALLOY := "alloy"
 const FRAME_GILDER := "frame_gilder"
 const MAGNET_RING := "magnet_ring"
 const EDGE_GLEAM := "edge_gleam"
-# Gerichte & Menü-Stufen
-const REGULAR_GUEST := "regular_guest"
-const GOURMET := "gourmet"
-const MIDNIGHT_SNACK := "midnight_snack"
-const RESTAURANT_CRITIC := "restaurant_critic"
-const HOUSE_RECIPE := "house_recipe"
 # Coupons & Packs
 const LARGE_FORMAT := "large_format"
 const BARGAIN_HUNTER := "bargain_hunter"
@@ -190,12 +184,6 @@ const RARITIES := {
 	FRAME_GILDER: RARITY_UNCOMMON,
 	MAGNET_RING: RARITY_UNCOMMON,
 	EDGE_GLEAM: RARITY_UNCOMMON,
-	# Gerichte & Menü-Stufen
-	REGULAR_GUEST: RARITY_RARE,
-	GOURMET: RARITY_UNCOMMON,
-	MIDNIGHT_SNACK: RARITY_RARE,
-	RESTAURANT_CRITIC: RARITY_LEGENDARY,
-	HOUSE_RECIPE: RARITY_RARE,
 	# Coupons & Packs
 	LARGE_FORMAT: RARITY_RARE,
 	BARGAIN_HUNTER: RARITY_COMMON,
@@ -494,23 +482,6 @@ static func magnet_ring() -> Charm:
 static func edge_gleam() -> Charm:
 	return _make(EDGE_GLEAM, "Zargenglanz", "Würfel mit Kanten-Material zählen +1 Auge je Kanten-Würfel im Wurf.")
 
-# --- Gerichte & Menü-Stufen ---
-
-static func regular_guest() -> Charm:
-	return _make(REGULAR_GUEST, "Stammgast", "Jedes gegessene Gericht zählt als zwei Menü-Stufen.")
-
-static func gourmet() -> Charm:
-	return _make(GOURMET, "Feinschmecker", "Tageskarte-Packs kosten die Hälfte.")
-
-static func midnight_snack() -> Charm:
-	return _make(MIDNIGHT_SNACK, "Mitternachtssnack", "Zu Beginn jeder Runde isst du automatisch ein zufälliges Gericht gratis.")
-
-static func restaurant_critic() -> Charm:
-	return _make(RESTAURANT_CRITIC, "Restaurantkritiker", "Aufgewertete Kombinationen erhalten zusätzlich +2 Krit je Menü-Stufe.")
-
-static func house_recipe() -> Charm:
-	return _make(HOUSE_RECIPE, "Hausrezept", "Nimmst du die Kombination mit den meisten Menü-Stufen, steigt ihre Stufe erneut.")
-
 # --- Coupons & Packs ---
 
 static func large_format() -> Charm:
@@ -588,7 +559,6 @@ static func all() -> Array[Charm]:
 		goldsmith(), amber_room(), ruby_grinder(), bone_glue(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(), alloy(),
 		frame_gilder(), magnet_ring(), edge_gleam(),
-		regular_guest(), gourmet(), midnight_snack(), restaurant_critic(), house_recipe(),
 		large_format(), bargain_hunter(), double_perforation(), engraving_pen(), stamp_machine(), fine_print(),
 		recycling(), fresh_goods(), sediment(), extension_table(),
 		seal_of_quality(), bulk_discount(), house_brand(),

@@ -172,26 +172,6 @@ func test_purchase_sigil_deducts_and_stores():
 	assert_eq(run.money, 15, "Preis abgezogen")
 	assert_eq(run.owned_sigils.size(), 1, "Sigill im Inventar")
 
-# --- Menü-Stufen (Meal Deals) ------------------------------------------------------
-
-func test_eat_meal_raises_the_combo_level():
-	run.eat_meal(DiceScoring.TWO_KIND)
-	run.eat_meal(DiceScoring.TWO_KIND)
-	run.eat_meal(DiceScoring.SIX_KIND)
-	assert_eq(run.combo_levels[DiceScoring.TWO_KIND], 2)
-	assert_eq(run.combo_levels[DiceScoring.SIX_KIND], 1)
-
-func test_eat_meal_emits_combo_upgraded():
-	watch_signals(run)
-	run.eat_meal(DiceScoring.FULL_HOUSE)
-	assert_signal_emitted_with_parameters(run, "combo_upgraded", [DiceScoring.FULL_HOUSE, 1])
-
-func test_granting_a_meal_sigil_eats_it_immediately():
-	# Menü-Sigille landen NIE im Inventar - das Gericht wirkt sofort als Stufe.
-	run.grant_sigil(Sigil.meal_sigil(DiceScoring.THREE_KIND))
-	assert_eq(run.owned_sigils.size(), 0, "kein Inventar-Eintrag")
-	assert_eq(run.combo_levels[DiceScoring.THREE_KIND], 1, "Stufe sofort erhöht")
-
 func test_granting_other_sigils_still_stores_them():
 	run.grant_sigil(Sigil.chisel())
 	assert_eq(run.owned_sigils.size(), 1)
@@ -303,6 +283,39 @@ func _template(id: String) -> Dictionary:
 		if t["id"] == id:
 			return t
 	return {}
+
+# --- Übertakten (Systemkonsole) ------------------------------------------------
+
+func test_overclock_price_scales_with_combo_strength():
+	# Basis = 4 + Basis-Mult: schwache Chips billig, starke teuer.
+	assert_eq(GameRun.overclock_price_at(DiceScoring.TWO_KIND, 0), 6)
+	assert_eq(GameRun.overclock_price_at(DiceScoring.SIX_KIND, 0), 19)
+
+func test_overclock_price_rises_per_stage_without_cap():
+	var base := GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 0)
+	assert_eq(GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 1), base * 2)
+	assert_eq(GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 7), base * 8, "kein Limit, Preis steigt weiter")
+
+func test_overclock_combo_deducts_and_levels():
+	watch_signals(run)
+	run.money = 50
+	var price := run.overclock_price(DiceScoring.FULL_HOUSE)
+	run.overclock_combo(DiceScoring.FULL_HOUSE)
+	assert_eq(run.money, 50 - price, "Preis abgezogen")
+	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1)
+	assert_signal_emitted(run, "combo_upgraded")
+
+func test_overclock_raises_scoring():
+	run.money = 100
+	run.overclock_combo(DiceScoring.TWO_KIND)
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, run.combo_levels), 4, "Stufe 1 verdoppelt den Mult")
+	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, run.combo_levels), 20)
+
+func test_can_overclock_checks_money():
+	run.money = GameRun.overclock_price_at(DiceScoring.TWO_KIND, 0)
+	assert_true(run.can_overclock(DiceScoring.TWO_KIND))
+	run.money -= 1
+	assert_false(run.can_overclock(DiceScoring.TWO_KIND))
 
 # --- Helfer -----------------------------------------------------------------------
 

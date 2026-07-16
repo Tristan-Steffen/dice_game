@@ -777,8 +777,6 @@ func _build_sigil_board() -> void:
 				materials.append(archetype)
 			Sigil.CATEGORY_DICE:
 				edges.append(archetype)
-			_:
-				pass  # Menü-Sigille wirken sofort und liegen nie im Bestand
 	_add_board_section("Zahlen", _sorted_by_rarity(etchings), counts)
 	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
 	_add_board_section("Würfel", _sorted_by_rarity(edges), counts)

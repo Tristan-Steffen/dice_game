@@ -260,7 +260,7 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 	return true
 
 ## Krit-Pool: additive Beiträge, die den fertigen Mult als Faktor (1 + Summe)
-## multiplizieren. Galgenhumor +3 nach Farkle; Restaurantkritiker +2 je Menü-Stufe.
+## multiplizieren. Galgenhumor +3 nach Farkle.
 static func crit_bonus(key: String, charm_ids: Array[String], ctx: Dictionary = {}, combo_levels: Dictionary = {}) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
@@ -268,8 +268,6 @@ static func crit_bonus(key: String, charm_ids: Array[String], ctx: Dictionary = 
 			Charm.GALLOWS_HUMOR:
 				if ctx.get("after_farkle", false):
 					bonus += 3
-			Charm.RESTAURANT_CRITIC:
-				bonus += 2 * int(combo_levels.get(key, 0))
 	return bonus
 
 ## Faktor auf den Basiswert (Einserkult: ×2 je gewürfelter 1, je Vorkommen).
@@ -391,12 +389,9 @@ static func flip_fee(base_fee: int, charm_ids: Array[String]) -> int:
 			fee -= 2
 	return maxi(1, fee)
 
-## Pack-Preis: Feinschmecker halbiert die Tageskarte, Schnäppchenjäger -$2 je
-## Vorkommen; min. $1.
+## Pack-Preis: Schnäppchenjäger -$2 je Vorkommen; min. $1.
 static func pack_price(base_price: int, pack_id: String, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
-	if pack_id == "tageskarte" and charm_ids.has(Charm.GOURMET):
-		price /= 2.0
 	for charm_id in charm_ids:
 		if charm_id == Charm.BARGAIN_HUNTER:
 			price -= 2.0

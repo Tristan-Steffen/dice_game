@@ -1,10 +1,9 @@
 extends GutTest
 ## Tier-1-Tests des Sigill-Datensatzes (Kategorien, Materialien, Ziehung).
 
-func test_all_returns_etchings_materials_edges_and_meals():
-	# 13 Ätzungen + 6 Material-Sigille + 6 Kanten-Sigille + 13 Menü-Sigille
-	# (siehe DieMaterial.all / DiceScoring.CATEGORIES).
-	assert_eq(Sigil.all().size(), 38)
+func test_all_returns_etchings_materials_and_edges():
+	# 13 Ätzungen + 6 Material-Sigille + 6 Kanten-Sigille (siehe DieMaterial.all).
+	assert_eq(Sigil.all().size(), 25)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -17,7 +16,7 @@ func test_every_sigil_has_filled_metadata():
 		assert_ne(sigil.id, "", "id fehlt")
 		assert_ne(sigil.display_name, "", "display_name fehlt bei %s" % sigil.id)
 		assert_ne(sigil.description, "", "description fehlt bei %s" % sigil.id)
-		assert_true(sigil.category in [Sigil.CATEGORY_NUMBER, Sigil.CATEGORY_MATERIAL, Sigil.CATEGORY_DICE, Sigil.CATEGORY_MEAL],
+		assert_true(sigil.category in [Sigil.CATEGORY_NUMBER, Sigil.CATEGORY_MATERIAL, Sigil.CATEGORY_DICE],
 			"bekannter kind bei %s" % sigil.id)
 
 func test_material_sigils_use_the_material_id():
@@ -80,34 +79,10 @@ func test_edge_sigils_are_rarer_than_their_face_variant():
 		var edge_rarity: int = Sigil.EDGE_RARITY.get(material.id, Sigil.Rarity.RARE)
 		assert_true(edge_rarity >= face_rarity, "%s-Kanten mindestens so selten wie die Seite" % material.id)
 
-func test_meal_sigils_cover_every_combination():
-	# Je Kombination genau ein Gericht (siehe MEAL_NAMES); id = MEAL_PREFIX + Key,
-	# meal_combo_key() löst zurück auf, Fläche und Motiv-Textur sind registriert.
-	var seen := {}
+func test_all_categories_are_inventory_kinds():
+	# Nach dem Wegfall der Menü-Sigille sind alle Archetypen inventarfähig.
 	for sigil in Sigil.all():
-		if sigil.category != Sigil.CATEGORY_MEAL:
-			continue
-		var key := sigil.meal_combo_key()
-		assert_true(DiceScoring.HAND_PRIORITY.has(key), "%s zielt auf eine echte Kombination" % sigil.id)
-		assert_false(seen.has(key), "doppeltes Gericht für %s" % key)
-		assert_true(Sigil.FOOTPRINT.has(sigil.id), "Fläche definiert für %s" % sigil.id)
-		assert_true(ResourceLoader.exists(sigil.texture_path), "Motiv fehlt: %s" % sigil.texture_path)
-		seen[key] = true
-	assert_eq(seen.size(), DiceScoring.CATEGORIES.size(), "je Kombination genau ein Gericht")
-
-func test_meal_sigil_names_match_the_menu():
-	assert_eq(Sigil.meal_sigil(DiceScoring.ONE_KIND).display_name, "Tagessuppe")
-	assert_eq(Sigil.meal_sigil(DiceScoring.THREE_KIND).display_name, "Drei im Weggla")
-	assert_eq(Sigil.meal_sigil(DiceScoring.SIX_KIND).display_name, "Spezialität des Hauses")
-
-func test_meal_combo_key_is_empty_for_other_kinds():
-	assert_eq(Sigil.chisel().meal_combo_key(), "")
-	assert_eq(Sigil.material_sigil(DieMaterial.gold(), Sigil.Rarity.COMMON).meal_combo_key(), "")
-
-func test_meal_rarity_follows_combo_strength():
-	assert_eq(Sigil.meal_sigil(DiceScoring.ONE_KIND).rarity, Sigil.Rarity.COMMON)
-	assert_eq(Sigil.meal_sigil(DiceScoring.FULL_HOUSE).rarity, Sigil.Rarity.UNCOMMON)
-	assert_eq(Sigil.meal_sigil(DiceScoring.SIX_KIND).rarity, Sigil.Rarity.RARE)
+		assert_true(Sigil.DRAFT_CATEGORIES.has(sigil.category), "%s ist inventarfähig" % sigil.id)
 
 func test_rarity_name_is_german():
 	assert_eq(Sigil.rarity_name(Sigil.Rarity.COMMON), "häufig")

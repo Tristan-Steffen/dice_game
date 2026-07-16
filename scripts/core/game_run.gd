@@ -30,8 +30,8 @@ var owned_sigils: Array[Sigil] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
 var unlimited_sigils: bool = false  # Testmodus: consume_sigil verbraucht nichts
-## Menü-Stufen je Kombination (Key -> gegessene Gerichte); jede Stufe addiert
-## Basis-Mult und Basispunkte erneut (siehe DiceScoring).
+## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert
+## Basis-Mult und Basispunkte erneut (siehe DiceScoring/Systemkonsole).
 var combo_levels: Dictionary = {}
 
 # Zustand der Effektkatalog-Charms:
@@ -131,30 +131,43 @@ func purchase_sigil(sigil: Sigil, price: int) -> void:
 	grant_sigil(sigil)
 
 func grant_sigil(sigil: Sigil) -> void:
-	# Menü-Sigille werden nicht gehortet: das Gericht wirkt sofort.
-	if sigil.category == Sigil.CATEGORY_MEAL:
-		eat_meal(sigil.meal_combo_key())
-		return
 	owned_sigils.append(sigil)
 	sigils_changed.emit()
 
-## Hebt die Menü-Stufe der Kombination; der Stammgast zählt jedes Gericht
-## je Vorkommen als eine Stufe mehr.
-func eat_meal(combo_key: String) -> void:
-	var levels := 1 + charm_ids().count(Charm.REGULAR_GUEST)
-	combo_levels[combo_key] = int(combo_levels.get(combo_key, 0)) + levels
+# --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
+
+## Aktuelle Übertaktungs-Stufe einer Kombination.
+func combo_level(combo_key: String) -> int:
+	return int(combo_levels.get(combo_key, 0))
+
+## Preis der Stufe level+1: Basis folgt der Kombinationsstärke (Basis-Mult),
+## jede weitere Stufe desselben Chips kostet die Basis erneut obendrauf -
+## kein Stufen-Limit, die Preiskurve ist die einzige Bremse.
+static func overclock_price_at(combo_key: String, level: int) -> int:
+	return (4 + DiceScoring.mult_for(combo_key)) * (level + 1)
+
+## Preis der nächsten Stufe dieser Kombination.
+func overclock_price(combo_key: String) -> int:
+	return overclock_price_at(combo_key, combo_level(combo_key))
+
+func can_overclock(combo_key: String) -> bool:
+	return money >= overclock_price(combo_key)
+
+## Kauft die nächste Stufe: Preis abziehen, Stufe heben (hebt Basispunkte und
+## Multiplikator der Kombination, siehe DiceScoring).
+func overclock_combo(combo_key: String) -> void:
+	add_money(-overclock_price(combo_key))
+	combo_levels[combo_key] = combo_level(combo_key) + 1
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
-## Rundenbeginn: Runden-Marken zurücksetzen, Mitternachtssnack isst ein
-## zufälliges Gericht, Frankiermaschine schenkt 3 zufällige Zahl-Sigille,
-## Lumpensammler würfelt seine Glückszahl neu - je Vorkommen einmal.
+## Rundenbeginn: Runden-Marken zurücksetzen, Frankiermaschine schenkt 3
+## zufällige Zahl-Sigille, Lumpensammler würfelt seine Glückszahl neu - je
+## Vorkommen einmal.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		lumpensammler_value = randi_range(1, 6)
-	for i in ids.count(Charm.MIDNIGHT_SNACK):
-		eat_meal(DiceScoring.CATEGORIES[randi() % DiceScoring.CATEGORIES.size()]["key"])
 	for i in ids.count(Charm.STAMP_MACHINE):
 		var number_sigils: Array[Sigil] = []
 		for sigil in Sigil.all():

@@ -144,6 +144,9 @@ var die_inspector: DieInspectorView
 
 ## Lichtgravur-Ziehung nach der Runde (siehe SigilDraftView).
 var sigil_draft: SigilDraftView
+
+## Systemkonsole: Hub-Seite zum Übertakten der Kombinationen.
+var system_console: SystemConsoleView
 ## Anzahl gezogener Siegel je Runde.
 const SIGIL_DRAFT_COUNT := 3
 
@@ -443,6 +446,15 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(sigil_draft)
 
+	# Systemkonsole als Hub-Seite; öffnet aus dem Shop, "Zurück" holt ihn wieder.
+	system_console = SystemConsoleView.new()
+	system_console.name = "SystemConsole"
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(system_console)
+	else:
+		$UI.add_child(system_console)
+	charm_shop.console_requested.connect(func() -> void: system_console.open())
+
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
 ## ohne Tisch-Display.
@@ -498,7 +510,7 @@ func _collect_combo_labels() -> void:
 		table_screen.hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 		table_screen.hub.die_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 
-## Ein Gericht wurde gegessen: neuen Multiplikator zeigen, Zeile golden aufblitzen.
+## Kombination übertaktet: neuen Multiplikator zeigen, Zeile golden aufblitzen.
 func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
 	_refresh_combo_label_texts()
 	if combo_labels.has(combo_key) and combo_key != highlighted_combo_key:
@@ -506,12 +518,13 @@ func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
-## Schreibt Basispunkte + Multiplikatoren inkl. Menü-Stufen neu.
+## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu.
 func _refresh_combo_label_texts() -> void:
 	for key in combo_labels:
 		combo_labels[key].set_score(
 			DiceScoring.points_for(key, run.combo_levels),
 			DiceScoring.mult_for(key, run.combo_levels))
+		combo_labels[key].set_level(run.combo_level(key))
 
 ## Hebt genau die Kombination der gewürfelten Hand golden hervor ("" = keine).
 func _refresh_combos(active_key: String) -> void:
@@ -1913,11 +1926,6 @@ func _on_take_button_pressed() -> void:
 		var rush := mini(run.money / 2, 50)
 		if rush > 0:
 			run.add_money(rush)
-	# Hausrezept: die meistaufgewertete Kombination steigt beim Nehmen erneut.
-	if ids.has(Charm.HOUSE_RECIPE):
-		var level: int = run.combo_levels.get(hand["key"], 0)
-		if level > 0 and level >= _max_combo_level():
-			run.eat_meal(hand["key"])
 	# Momentum/Galgenhumor/Pendel/Alles-oder-nichts fortschreiben.
 	momentum_streak += 1
 	first_hand_after_farkle = false
@@ -2143,13 +2151,6 @@ func _pulse_glow(glow: Control) -> void:
 	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(glow, "scale", Vector2.ONE, 0.3)
 
-## Höchste Menü-Stufe über alle Kombinationen (Hausrezept).
-func _max_combo_level() -> int:
-	var best := 0
-	for key in run.combo_levels:
-		best = maxi(best, int(run.combo_levels[key]))
-	return best
-
 ## Markiert nach jedem Wurf automatisch die Würfel der besten offenen
 ## Kombination - ein Vorschlag, den der Spieler frei umklicken kann.
 func _auto_select_best_combo() -> void:
@@ -2238,6 +2239,7 @@ func _reset_game() -> void:
 func _connect_run() -> void:
 	charm_shop.run = run
 	die_inspector.run = run
+	system_console.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
 	charm_library.run = run
