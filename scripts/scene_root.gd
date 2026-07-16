@@ -144,9 +144,6 @@ var die_inspector: DieInspectorView
 
 ## Lichtgravur-Ziehung nach der Runde (siehe SigilDraftView).
 var sigil_draft: SigilDraftView
-
-## Systemkonsole: Hub-Seite zum Übertakten der Kombinationen.
-var system_console: SystemConsoleView
 ## Anzahl gezogener Siegel je Runde.
 const SIGIL_DRAFT_COUNT := 3
 
@@ -388,6 +385,9 @@ func _setup_table_screen() -> void:
 	table_screen.place_pit_window(
 		Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b),
 		DicePit.CORNER_RADIUS * ppw)
+	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
+	# deren endgültiges Rechteck.
+	table_screen.link_hub_to_cluster()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 
@@ -397,6 +397,16 @@ func _setup_table_screen() -> void:
 	var win_pos := Vector2(cup_px.x + table_screen.size.x * 0.045, cup_px.y - win_size.y / 2.0)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
+
+	# Schatz-Screen als goldene Truhe UNTER dem Chip-Turm: die echten 3D-Chips
+	# bleiben und stehen darauf. Größe füllt die Lücke rechts des Hubs.
+	var chip_px := table_screen.world_to_pixel(chip_stack.global_position)
+	var hub_right := table_screen.hub.position.x + table_screen.hub.size.x
+	var t_half_w := maxf(chip_px.x - hub_right - table_screen.size.x * 0.004, table_screen.size.x * 0.06)
+	var t_size := Vector2(t_half_w * 2.0, t_half_w * 1.5) * 0.7  # etwa halbe Fläche
+	var t_center := Vector2(chip_px.x, chip_px.y + t_size.y * 0.16)
+	table_screen.place_treasure_window(Rect2(t_center - t_size / 2.0, t_size))
+	table_screen.link_hub_to_treasure()
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
@@ -445,15 +455,6 @@ func _setup_panels() -> void:
 		table_screen.hub.attach_panel(sigil_draft)
 	else:
 		$UI.add_child(sigil_draft)
-
-	# Systemkonsole als Hub-Seite; öffnet aus dem Shop, "Zurück" holt ihn wieder.
-	system_console = SystemConsoleView.new()
-	system_console.name = "SystemConsole"
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.attach_panel(system_console)
-	else:
-		$UI.add_child(system_console)
-	charm_shop.console_requested.connect(func() -> void: system_console.open())
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -510,17 +511,35 @@ func _collect_combo_labels() -> void:
 		table_screen.hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 		table_screen.hub.die_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 
-## Kombination übertaktet: neuen Multiplikator zeigen, Zeile golden aufblitzen.
+## Kombinationen, deren Kauf-Licht gerade unterwegs ist: ihre Zellen zeigen
+## bis zur Ankunft die ALTEN Werte (siehe _on_combo_upgraded).
+var _pulsing_combos: Dictionary = {}
+
+## Kombination übertaktet: das Licht läuft vom Hub über die Filz-Leiterbahnen
+## zum Chip (TableScreen.play_overclock_pulse); erst bei Ankunft zeigt die
+## Zelle die neuen Werte und blitzt golden auf.
 func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
-	_refresh_combo_label_texts()
-	if combo_labels.has(combo_key) and combo_key != highlighted_combo_key:
-		var row: ComboCellView = combo_labels[combo_key]
+	if table_screen == null or not combo_labels.has(combo_key):
+		_refresh_combo_label_texts()
+		return
+	_pulsing_combos[combo_key] = true
+	await table_screen.play_overclock_pulse(combo_key)
+	_pulsing_combos.erase(combo_key)
+	var row: ComboCellView = combo_labels[combo_key]
+	row.set_score(
+		DiceScoring.points_for(combo_key, run.combo_levels),
+		DiceScoring.mult_for(combo_key, run.combo_levels))
+	row.set_level(run.combo_level(combo_key))
+	if combo_key != highlighted_combo_key:
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
-## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu.
+## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu;
+## Zellen mit laufendem Kauf-Licht bleiben bis zur Ankunft unangetastet.
 func _refresh_combo_label_texts() -> void:
 	for key in combo_labels:
+		if _pulsing_combos.has(key):
+			continue
 		combo_labels[key].set_score(
 			DiceScoring.points_for(key, run.combo_levels),
 			DiceScoring.mult_for(key, run.combo_levels))
@@ -550,24 +569,23 @@ func _on_charms_changed() -> void:
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
 	_shown_money = new_money
-	chip_stack.set_money(new_money)
+	chip_stack.set_money(new_money)  # physischer Chip-Turm (bleibt bestehen)
 	_refresh_hub_info()
 	_play_money_light(delta)
 
-## Geld-Lichtanimation: Gutschrift = goldenes Licht Hub -> Chips (Hub-Rahmen
-## leuchtet); Kauf = je bezahltem Chip ein Puls in dessen Farbe zurück zum Hub.
+## Geld-Lichtlauf im Übertaktungs-Stil (Komet auf der Hub<->Schatz-Leiste):
+## Gutschrift = goldener Komet Hub -> Schatz (Hub pulst golden, Schatz glänzt);
+## Kauf = je bezahltem Chip ein Komet in dessen Farbe zurück zum Hub.
 func _play_money_light(delta: int) -> void:
 	if delta == 0 or table_screen == null or table_screen.hub == null:
 		return
 	var hub := table_screen.hub
-	var chips_px := table_screen.world_to_pixel(chip_stack.global_position)
-	# Hub-Randpunkt Richtung Chips: Chip-Pixel auf das Hub-Rechteck geklemmt.
-	var hub_rect := Rect2(hub.position, hub.size)
-	var hub_px := chips_px.clamp(hub_rect.position, hub_rect.end)
+	var treasure := table_screen.treasure_window
 	if delta > 0:
 		hub.flash_frame(HubView.GOLD_COLOR)
-		table_screen.spawn_trace(hub_px, chips_px, MONEY_GAIN_COLOR, MONEY_TRAIL_TIME)
-		get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(chip_stack.pulse)
+		table_screen.money_comet(true, MONEY_GAIN_COLOR, MONEY_TRAIL_TIME)
+		if treasure != null:
+			get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(treasure.glint)
 		return
 	var pulses := ChipStackView.pulse_colors(-delta)
 	for i in pulses.size():
@@ -575,7 +593,7 @@ func _play_money_light(delta: int) -> void:
 		var trail_color := Color(chip_color.r * MONEY_PULSE_BOOST,
 			chip_color.g * MONEY_PULSE_BOOST, chip_color.b * MONEY_PULSE_BOOST, 0.9)
 		var fire := func() -> void:
-			table_screen.spawn_trace(chips_px, hub_px, trail_color, MONEY_TRAIL_TIME)
+			table_screen.money_comet(false, trail_color, MONEY_TRAIL_TIME)
 			get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(
 				func() -> void: hub.flash_frame(chip_color))
 		if i == 0:
@@ -2239,7 +2257,6 @@ func _reset_game() -> void:
 func _connect_run() -> void:
 	charm_shop.run = run
 	die_inspector.run = run
-	system_console.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
 	charm_library.run = run

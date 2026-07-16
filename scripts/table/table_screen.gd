@@ -55,6 +55,14 @@ const TRACE_RISE := 30.0 * SUPERSAMPLE
 var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 
 var cluster_frame: Panel
+## Platinen-Ebene zwischen Rahmen und Chips (Leiterbahnen/Vias).
+var circuit_board: CircuitBoardView
+## LED-Leiste Hub <-> Kombinationen (Geometrie via link_hub_to_cluster).
+var led_strip: LedStripView
+## Schatz-Screen (Geldstand als goldene Truhe) rechts des Hubs, plus die
+## LED-Leiste Hub <-> Schatz (Geld-Lichtläufe wie beim Übertakten).
+var treasure_window: TreasureChestView
+var treasure_strip: LedStripView
 var pit_window: Panel
 ## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
 var side_bet_window: SideBetPanel
@@ -152,6 +160,25 @@ func _build_content() -> void:
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
+	# LED-Leisten (Hub<->Kombinationen, Hub<->Schatz): bewusst früh gebaut, damit
+	# sie UNTER allen Fenstern liegen; verlegt werden sie erst in
+	# link_hub_to_cluster/_treasure (brauchen die endgültigen Fenster-Positionen).
+	led_strip = LedStripView.new()
+	led_strip.name = "LedStrip"
+	led_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(led_strip)
+
+	treasure_strip = LedStripView.new()
+	treasure_strip.name = "TreasureStrip"
+	treasure_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(treasure_strip)
+
+	# Schatz-Screen: Position/Größe setzt scene_root über place_treasure_window.
+	treasure_window = TreasureChestView.new()
+	treasure_window.name = "TreasureWindow"
+	treasure_window.visible = false
+	add_child(treasure_window)
+
 	# Gruben-Fenster: bewusst früh gebaut - hinter allem, was später dazukommt.
 	# Position/Größe setzt scene_root über place_pit_window; bis dahin unsichtbar.
 	pit_window = Panel.new()
@@ -179,6 +206,16 @@ func _build_content() -> void:
 
 	cluster_rect = bounds.grow(CLUSTER_PADDING)
 	_add_cluster_frame(cluster_rect)
+	# Platine unter die Chips: Leiterbahnen setzen an den Zell-Pins an.
+	circuit_board = CircuitBoardView.new()
+	circuit_board.name = "CircuitBoard"
+	circuit_board.position = cluster_rect.position
+	circuit_board.size = cluster_rect.size
+	add_child(circuit_board)
+	var local_cells: Array[Rect2] = []
+	for i in total:
+		local_cells.append(Rect2(positions[i] - cluster_rect.position, CELL_SIZE))
+	circuit_board.setup(local_cells, CELL_GAP.x * 0.5)
 	for i in total:
 		_add_combo_cell(DiceScoring.HAND_PRIORITY[i], positions[i])
 
@@ -236,6 +273,13 @@ func place_side_bet_window(rect: Rect2) -> void:
 	side_bet_window.visible = true
 	_sync_reflection_windows()
 
+## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
+func place_treasure_window(rect: Rect2) -> void:
+	treasure_window.position = rect.position
+	treasure_window.size = rect.size
+	treasure_window.visible = true
+	_sync_reflection_windows()
+
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
 func _sync_reflection_windows() -> void:
@@ -260,6 +304,10 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(side_bet_window.position.x, side_bet_window.position.y,
 			side_bet_window.position.x + side_bet_window.size.x, side_bet_window.position.y + side_bet_window.size.y))
 		radii.append(10.0)
+	if treasure_window != null and treasure_window.visible:
+		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
+			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
+		radii.append(treasure_window.size.x / 100.0 * 3.0)
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,
 			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
@@ -274,6 +322,8 @@ func place_combo_cluster(center_px: Vector2) -> void:
 	var delta := center_px - cluster_rect.get_center()
 	if cluster_frame != null:
 		cluster_frame.position += delta
+	if circuit_board != null:
+		circuit_board.position += delta
 	for key in combo_cells:
 		combo_cells[key].position += delta
 	cluster_rect.position += delta
@@ -565,6 +615,87 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 	hub.position = center_px - size_px / 2.0
 	hub.layout()
 	_sync_reflection_windows()
+
+## Verlegt die LED-Leiste zwischen Hub und Kombinationen-Fenster
+## (nach place_hub UND place_combo_cluster rufen).
+func link_hub_to_cluster() -> void:
+	if led_strip == null or hub == null or hub.size.x <= 0.0:
+		return
+	var pit_rect := Rect2()
+	if pit_window != null and pit_window.visible:
+		pit_rect = Rect2(pit_window.position, pit_window.size)
+	led_strip.link(Rect2(hub.position, hub.size), cluster_rect, 4.5 * SUPERSAMPLE, pit_rect)
+
+## Verlegt die LED-Leiste zwischen Hub und Schatz-Screen (seitlich).
+func link_hub_to_treasure() -> void:
+	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \
+			or treasure_window == null or not treasure_window.visible:
+		return
+	treasure_strip.link_side(Rect2(hub.position, hub.size),
+		Rect2(treasure_window.position, treasure_window.size), 4.5 * SUPERSAMPLE)
+
+## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
+
+const OVERCLOCK_LINK_TIME := 0.62   # Hub -> Kombinationen-Fenster (gemächlich)
+const OVERCLOCK_BOARD_TIME := 0.58  # Fensterrand -> Chip (alle Pfade gleich)
+const OVERCLOCK_FLASH_COLOR := Color("#ffd319")
+## Kurzer, gedämpfter Komet (deutlich dünner/dunkler als die Wertungs-Trails).
+const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
+const OVERCLOCK_PULSE_CORE := 3.0 * SUPERSAMPLE
+const OVERCLOCK_PULSE_GLOW := 7.0 * SUPERSAMPLE
+const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
+
+var _cluster_flash_tween: Tween
+
+## Das ganze Hub-Panel pulst golden, ein kurzer Komet fährt die LED-Leiste
+## entlang, der Fenster-Rahmen pulst, dann laufen vier Bus-Kometen GLEICHZEITIG
+## von den Randkontakten zum Chip. Der Aufrufer wartet das await ab und wendet
+## erst bei Ankunft die sichtbare Wert-Änderung an.
+func play_overclock_pulse(combo_key: String) -> void:
+	if hub != null:
+		hub.pulse_gold()
+	if led_strip != null:
+		_pulse_along(led_strip.strip_path, OVERCLOCK_LINK_TIME)
+	await get_tree().create_timer(OVERCLOCK_LINK_TIME).timeout
+	flash_cluster_frame(OVERCLOCK_FLASH_COLOR)
+	var index := DiceScoring.HAND_PRIORITY.find(combo_key)
+	if circuit_board != null and index != -1:
+		for path in circuit_board.paths_to_cell(index):
+			var screen_path := PackedVector2Array()
+			for p in path:
+				screen_path.append(p + circuit_board.position)
+			_pulse_along(screen_path, OVERCLOCK_BOARD_TIME)
+	await get_tree().create_timer(OVERCLOCK_BOARD_TIME).timeout
+
+## Kurzer, gedämpfter Komet entlang eines FESTEN Pfads (siehe TracePulseView).
+func _pulse_along(path: PackedVector2Array, duration: float, color := OVERCLOCK_PULSE_COLOR) -> void:
+	if path.size() < 2:
+		return
+	var pulse := TracePulseView.new()
+	add_child(pulse)
+	pulse.setup(path, color, OVERCLOCK_PULSE_CORE, OVERCLOCK_PULSE_GLOW, duration, OVERCLOCK_COMET)
+
+## Geld-Lichtlauf im Übertaktungs-Stil: ein kurzer Komet fährt die Hub<->Schatz-
+## Leiste (to_treasure = Gutschrift Hub->Schatz, sonst Kauf Schatz->Hub).
+func money_comet(to_treasure: bool, color: Color, duration: float) -> void:
+	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
+		return
+	var path := treasure_strip.strip_path.duplicate()
+	if not to_treasure:
+		path.reverse()
+	_pulse_along(path, duration, color)
+
+## Lässt den Neon-Rahmen des Kombinationen-Fensters kurz in color aufleuchten.
+func flash_cluster_frame(color: Color) -> void:
+	if cluster_frame == null:
+		return
+	var style: StyleBoxFlat = cluster_frame.get_theme_stylebox("panel")
+	if _cluster_flash_tween != null:
+		_cluster_flash_tween.kill()
+	style.border_color = color
+	_cluster_flash_tween = create_tween()
+	_cluster_flash_tween.tween_property(style, "border_color", FRAME_COLOR, 0.5) \
+		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()

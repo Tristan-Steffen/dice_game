@@ -115,6 +115,30 @@ func test_pixel_to_world_uses_surface_height():
 	var world := screen.pixel_to_world(Vector2(780, 530))
 	assert_almost_eq(world.y, -3.8 + 0.2 / 2.0 * 4.0, 0.5)
 
+# --- Platine & Kauf-Lichtlauf ---------------------------------------------------
+
+func test_circuit_board_paths_converge_on_cell():
+	# Vier Zulauf-Pfade: gleiche Zielhöhe, Enden an linker bzw. rechter
+	# Gehäusekante - gestartet mit gleicher Laufzeit treffen sie gleichzeitig ein.
+	var paths := screen.circuit_board.paths_to_cell(0)
+	assert_eq(paths.size(), 4, "vier Zulauf-Pfade")
+	var target_y: float = paths[0][paths[0].size() - 1].y
+	for path in paths:
+		assert_eq(path[path.size() - 1].y, target_y, "alle enden auf derselben Höhe")
+	assert_eq(paths[0][paths[0].size() - 1].x, paths[1][paths[1].size() - 1].x, "links: gleiche Kante")
+	assert_eq(paths[2][paths[2].size() - 1].x, paths[3][paths[3].size() - 1].x, "rechts: gleiche Kante")
+
+func test_circuit_board_paths_start_at_window_border():
+	for path in screen.circuit_board.paths_to_cell(3):
+		var start_y: float = path[0].y
+		assert_true(is_equal_approx(start_y, 0.0) or is_equal_approx(start_y, screen.circuit_board.size.y),
+			"Pfad startet am Ober- oder Unterrand des Fensters")
+
+func test_link_hub_to_cluster_builds_led_strip():
+	screen.place_hub(Vector2(3400, 2200), Vector2(1500, 1500))
+	screen.link_hub_to_cluster()
+	assert_gt(screen.led_strip.strip_path.size(), 2, "eine Ader in Z-Führung mit Knicken")
+
 func test_cluster_rect_covers_all_cells():
 	# Der Neon-Rahmen (cluster_rect) muss jede Zelle umschließen.
 	assert_gt(screen.cluster_rect.size.x, 0.0)

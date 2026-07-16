@@ -151,17 +151,61 @@ func test_sigil_buttons_disabled_by_price():
 	for button in shop.sigil_buttons:
 		assert_true(button.disabled, "Sigill bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_mixed_sigils_and_dice():
-	# Unterer Bereich: acht Plätze = Würfel-Bündel + Sigille.
-	assert_eq(shop.sigil_offers.size(), ShopController.SIGIL_OFFER_COUNT, "fünf Sigil-Angebote")
+func test_spread_offers_mixed_sigils_dice_and_overclocks():
+	# Unterer Bereich: acht Plätze = Würfel-Bündel + Sigille + Übertaktungen.
+	assert_eq(shop.sigil_offers.size(), ShopController.SIGIL_OFFER_COUNT)
 	assert_eq(shop.dice_offers.size(), ShopController.DICE_OFFER_COUNT, "drei Würfel-Bündel")
-	assert_eq(shop.dice_offers.size() + shop.sigil_offers.size(), ShopController.BOTTOM_SLOT_COUNT,
-		"zusammen acht Plätze (2×4)")
+	assert_eq(shop.overclock_offers.size(), ShopController.OVERCLOCK_OFFER_COUNT, "zwei Übertaktungen")
+	assert_eq(shop.dice_offers.size() + shop.sigil_offers.size() + shop.overclock_offers.size(),
+		ShopController.BOTTOM_SLOT_COUNT, "zusammen acht Plätze (2×4)")
 	var seen := {}
 	for sigil in shop.sigil_offers:
 		assert_true(Sigil.DRAFT_CATEGORIES.has(sigil.category), "inventarfähige Kategorie")
 		assert_false(seen.has(sigil.id), "keine doppelten Sigille: %s" % sigil.id)
 		seen[sigil.id] = true
+
+# --- Übertaktungen ---------------------------------------------------------------
+
+## Erzwingt ein bestimmtes Übertaktungs-Sortiment auf der aktuellen Doppelseite.
+func _force_overclock_offers(keys: Array) -> void:
+	var spread = shop.spreads[shop.current_spread_index]
+	var typed: Array[String] = []
+	typed.assign(keys)
+	spread.overclock_offers = typed
+	spread.overclock_bought.resize(typed.size())
+	spread.overclock_bought.fill(false)
+	shop._show_spread()
+
+func test_overclock_offers_are_distinct_valid_combos():
+	var seen := {}
+	for key in shop.overclock_offers:
+		assert_true(DiceScoring.HAND_PRIORITY.has(key), "%s ist eine echte Kombination" % key)
+		assert_false(seen.has(key), "keine doppelte Kombination: %s" % key)
+		seen[key] = true
+
+func test_buy_overclock_levels_combo_and_deducts():
+	_force_overclock_offers([DiceScoring.FULL_HOUSE])
+	var price := run.overclock_price(DiceScoring.FULL_HOUSE)
+	shop._on_overclock_buy_pressed(0)
+	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1, "Stufe gekauft")
+	assert_eq(run.money, 100 - price, "Preis abgezogen")
+	assert_true(shop.overclock_bought[0], "als gekauft vermerkt")
+
+func test_overclock_offer_is_single_use():
+	_force_overclock_offers([DiceScoring.TWO_KIND])
+	shop._on_overclock_buy_pressed(0)
+	var money_after := run.money
+	shop._on_overclock_buy_pressed(0)  # zweiter Kauf desselben Angebots
+	assert_eq(run.combo_level(DiceScoring.TWO_KIND), 1, "nur eine Stufe")
+	assert_eq(run.money, money_after, "nur einmal abgezogen")
+	assert_true(shop.overclock_buttons[0].disabled, "Karte ist danach gekauft")
+
+func test_cannot_buy_overclock_without_funds():
+	run.money = 0
+	_force_overclock_offers([DiceScoring.SIX_KIND])
+	shop._on_overclock_buy_pressed(0)
+	assert_eq(run.combo_level(DiceScoring.SIX_KIND), 0, "ohne Geld keine Stufe")
+	assert_eq(run.money, 0)
 
 func test_sigil_offers_persist_when_flipping_back():
 	var first_ids: Array = []

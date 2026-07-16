@@ -9,8 +9,6 @@ extends Control
 ## closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
-## Öffnet die Systemkonsole (Übertakten); scene_root verdrahtet die Seite.
-signal console_requested
 
 const CHARM_PRICE := 15
 
@@ -18,13 +16,15 @@ const CHARM_PRICE := 15
 ## Hover-Dropdown).
 const CHARM_OFFER_COUNT := 4
 
-## Unterer Bereich: zwei Reihen à vier Angeboten (Würfel-Bündel ODER Sigill).
+## Unterer Bereich: zwei Reihen à vier Angeboten (Würfel-Bündel, Sigille,
+## Übertaktungen).
 const BOTTOM_SLOT_COUNT := 8
 const BOTTOM_GRID_COLUMNS := 4
 
-## Würfel-Bündel im unteren Bereich; der Rest der acht Plätze sind Sigille.
+## Aufteilung der acht Plätze: Würfel-Bündel, Übertaktungen, Rest Sigille.
 const DICE_OFFER_COUNT := 3
-const SIGIL_OFFER_COUNT := BOTTOM_SLOT_COUNT - DICE_OFFER_COUNT
+const OVERCLOCK_OFFER_COUNT := 2
+const SIGIL_OFFER_COUNT := BOTTOM_SLOT_COUNT - DICE_OFFER_COUNT - OVERCLOCK_OFFER_COUNT
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
@@ -56,8 +56,10 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var sigil_offers: Array[Sigil] = []  # fünf gemischte Sigille für den unteren Bereich
+	var sigil_offers: Array[Sigil] = []  # gemischte Sigille für den unteren Bereich
 	var sigil_bought: Array[bool] = []
+	var overclock_offers: Array[String] = []  # Kombinations-Keys zum Übertakten
+	var overclock_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
@@ -98,6 +100,9 @@ var sigil_offers: Array[Sigil] = []
 var sigil_bought: Array[bool] = []
 var sigil_buttons: Array[Button] = []
 var sigil_button_prices: Array[int] = []
+var overclock_offers: Array[String] = []
+var overclock_bought: Array[bool] = []
+var overclock_buttons: Array[Button] = []
 
 var flip_tween: Tween
 
@@ -186,9 +191,6 @@ func _build_layout() -> void:
 	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_child(footer_spacer)
-	var console_button := _neon_button("⚙ Systemkonsole", NEON_CYAN, u * 2.6, Vector2(u * 22.0, u * 5.0))
-	console_button.pressed.connect(console_requested.emit)
-	footer.add_child(console_button)
 	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)
@@ -262,6 +264,14 @@ func _build_spread() -> MenuSpread:
 	spread.sigil_offers = Sigil.roll_draft(SIGIL_OFFER_COUNT, Sigil.Rarity.COMMON)
 	spread.sigil_bought.resize(spread.sigil_offers.size())
 	spread.sigil_bought.fill(false)
+
+	# Übertaktungen: verschiedene Kombinationen, je Angebot einmal kaufbar.
+	var keys := DiceScoring.HAND_PRIORITY.duplicate()
+	keys.shuffle()
+	for i in OVERCLOCK_OFFER_COUNT:
+		spread.overclock_offers.append(keys[i])
+	spread.overclock_bought.resize(spread.overclock_offers.size())
+	spread.overclock_bought.fill(false)
 	return spread
 
 ## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, Spalten neu
@@ -273,6 +283,8 @@ func _show_spread() -> void:
 	charm_bought = spread.charm_bought
 	sigil_offers = spread.sigil_offers
 	sigil_bought = spread.sigil_bought
+	overclock_offers = spread.overclock_offers
+	overclock_bought = spread.overclock_bought
 
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
@@ -288,6 +300,7 @@ func _clear_pages() -> void:
 	charm_buttons.clear()
 	sigil_buttons.clear()
 	sigil_button_prices.clear()
+	overclock_buttons.clear()
 
 ## Baut die zwei Zonen: oben die vier Charms (nur Symbol), unten das 2×4-Raster
 ## aus Würfel-Bündeln und Sigillen.
@@ -298,6 +311,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	charm_buttons.clear()
 	sigil_buttons.clear()
 	sigil_button_prices.clear()
+	overclock_buttons.clear()
 
 	# Zone 1: Charms auf eigenem Glas-Panel (nur Symbol; Beschreibung im Hover-Dropdown).
 	var charm_zone := _make_zone(NEON_MAGENTA, "CHARMS", "je $%d" % _charm_price())
@@ -321,6 +335,8 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		options.add_child(_build_offer_card(spread.dice_offers[i], i))
 	for i in spread.sigil_offers.size():
 		options.add_child(_build_sigil_card(spread.sigil_offers[i], i))
+	for i in spread.overclock_offers.size():
+		options.add_child(_build_overclock_card(spread.overclock_offers[i], i))
 
 ## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum und weichem Außen-Glow,
 ## darin die Kopfzeile (Raute + Titel + Lichtschiene + rechter Hinweis).
@@ -518,6 +534,65 @@ func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
 	sigil_button_prices.append(price)
 	return panel
 
+## Übertaktungs-Karte: einmaliger Verbrauchsartikel, hebt die Stufe EINER
+## Kombination; der Preis steigt mit ihrer Stufe (GameRun.overclock_price).
+func _build_overclock_card(combo_key: String, index: int) -> Control:
+	var level := run.combo_level(combo_key)
+	var price := run.overclock_price(combo_key)
+
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color("#1b1738b3")
+	box.border_color = Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.4)
+	box.set_border_width_all(maxi(1, int(u * 0.16)))
+	box.set_corner_radius_all(int(u * 1.2))
+	box.set_content_margin_all(int(u * 0.8))
+	box.shadow_color = Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.1)
+	box.shadow_size = int(u * 0.7)
+	panel.add_theme_stylebox_override("panel", box)
+
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", int(u * 0.4))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(card)
+
+	var bolt := _label("⚡", u * 5.2, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	bolt.custom_minimum_size = Vector2(0, u * 8.0)
+	bolt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	card.add_child(bolt)
+
+	var name_label := _label(DiceScoring.label_for(combo_key), u * 1.8, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.clip_text = true
+	card.add_child(name_label)
+	card.add_child(_label("Stufe %d → %d" % [level, level + 1], u * 1.6, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(spacer)
+
+	var next_levels: Dictionary = run.combo_levels.duplicate()
+	next_levels[combo_key] = level + 1
+	var button := _neon_button("", NEON_GOLD, u * 2.0, Vector2(0, u * 4.0))
+	button.mouse_entered.connect(_show_shop_tooltip.bind(button,
+		"Übertaktung – %s" % DiceScoring.label_for(combo_key),
+		"Jetzt: %d Punkte × %d. Nach dem Kauf: %d Punkte × %d." % [
+			DiceScoring.points_for(combo_key, run.combo_levels), DiceScoring.mult_for(combo_key, run.combo_levels),
+			DiceScoring.points_for(combo_key, next_levels), DiceScoring.mult_for(combo_key, next_levels)]))
+	button.mouse_exited.connect(_hide_shop_tooltip)
+	if overclock_bought[index]:
+		button.text = "gekauft"
+		button.disabled = true
+	else:
+		button.text = "$%d" % price
+		button.pressed.connect(_on_overclock_buy_pressed.bind(index))
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_child(button)
+	overclock_buttons.append(button)
+	return panel
+
 ## Angebotskarte der Würfel-Rubrik: Würfel-Zeile mit "N ×"-Multiplikator
 ## (alle Würfel eines Bündels sind gleich) und Kauf-Button.
 func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
@@ -705,6 +780,18 @@ func _on_sigil_buy_pressed(offer_index: int) -> void:
 	sigil_buttons[offer_index].text = "gekauft"
 	_refresh_afford_state()
 
+## Kauft die Übertaktung (je Angebot einmal); die Doppelseite wird neu bebaut,
+## damit Stufen-Anzeige und Preisschild sofort den neuen Stand zeigen.
+func _on_overclock_buy_pressed(index: int) -> void:
+	if overclock_bought[index]:
+		return
+	var combo_key := overclock_offers[index]
+	if not run.can_overclock(combo_key):
+		return
+	run.overclock_combo(combo_key)
+	overclock_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	_show_spread()
+
 ## Deaktiviert alles Unbezahlbare und hält den Geldstand der Kopfzeile aktuell.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
@@ -717,6 +804,8 @@ func _refresh_afford_state() -> void:
 			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
 	for i in sigil_buttons.size():
 		sigil_buttons[i].disabled = sigil_bought[i] or money < sigil_button_prices[i]
+	for i in overclock_buttons.size():
+		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):
