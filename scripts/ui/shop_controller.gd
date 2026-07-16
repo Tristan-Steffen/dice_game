@@ -139,13 +139,18 @@ func _build_layout() -> void:
 	root.add_theme_constant_override("separation", int(u * 1.2))
 	margin.add_child(root)
 
+	# Kopfzeile: überhelle Farben blühen im HDR-Display (use_hdr_2d).
 	var header := HBoxContainer.new()
 	header.name = "Header"
+	header.add_theme_constant_override("separation", int(u * 2.0))
 	root.add_child(header)
-	var title := _label("SHOP", u * 4.5, NEON_MAGENTA)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var title := _label("S H O P", u * 4.5, Color(1.5, 0.72, 1.2))
 	header.add_child(title)
-	money_label = _label("$0", u * 4.0, NEON_GOLD)
+	var title_rail := _rail(NEON_MAGENTA)
+	title_rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(title_rail)
+	money_label = _label("$0", u * 4.0, Color(1.5, 1.24, 0.15))
 	header.add_child(money_label)
 
 	# Nebenwetten-Ergebnis der letzten Runde (einmalig, dann verbraucht).
@@ -289,52 +294,149 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	sigil_buttons.clear()
 	sigil_button_prices.clear()
 
-	# Zone 1: Charms (nur Symbol; Beschreibung erscheint als Hover-Dropdown).
-	content_root.add_child(_section_heading("CHARMS – je $%d" % _charm_price()))
+	# Zone 1: Charms auf eigenem Glas-Panel (nur Symbol; Beschreibung im Hover-Dropdown).
+	var charm_zone := _make_zone(NEON_MAGENTA, "CHARMS", "je $%d" % _charm_price())
 	var charm_row := GridContainer.new()
 	charm_row.columns = CHARM_OFFER_COUNT
 	charm_row.add_theme_constant_override("h_separation", int(u * 1.5))
 	charm_row.add_theme_constant_override("v_separation", int(u * 1.0))
-	content_root.add_child(charm_row)
+	charm_zone.add_child(charm_row)
 	for i in spread.charm_options.size():
 		charm_row.add_child(_build_charm_card(spread.charm_options[i], i))
 
 	# Zone 2: Angebote - zwei Reihen à vier (Würfel-Bündel zuerst, dann Sigille).
-	content_root.add_child(_section_heading("ANGEBOTE"))
+	var offer_zone := _make_zone(NEON_CYAN, "ANGEBOTE", "", true)
 	var options := GridContainer.new()
 	options.columns = BOTTOM_GRID_COLUMNS
 	options.add_theme_constant_override("h_separation", int(u * 1.2))
-	options.add_theme_constant_override("v_separation", int(u * 1.0))
+	options.add_theme_constant_override("v_separation", int(u * 1.2))
 	options.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content_root.add_child(options)
+	offer_zone.add_child(options)
 	for i in spread.dice_offers.size():
 		options.add_child(_build_offer_card(spread.dice_offers[i], i))
 	for i in spread.sigil_offers.size():
 		options.add_child(_build_sigil_card(spread.sigil_offers[i], i))
 
+## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum und weichem Außen-Glow,
+## darin die Kopfzeile (Raute + Titel + Lichtschiene + rechter Hinweis).
+## Liefert die Inhalts-Spalte der Zone.
+func _make_zone(accent: Color, heading: String, right_hint: String, expand := false) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color("#14112eb0")
+	box.border_color = Color(accent.r, accent.g, accent.b, 0.32)
+	box.set_border_width_all(maxi(1, int(u * 0.16)))
+	box.set_corner_radius_all(int(u * 1.5))
+	box.set_content_margin_all(int(u * 1.6))
+	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.14)
+	box.shadow_size = int(u * 1.1)
+	panel.add_theme_stylebox_override("panel", box)
+	if expand:
+		panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_root.add_child(panel)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", int(u * 1.2))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(column)
+	column.add_child(_heading_row(heading, accent, right_hint))
+	return column
+
+## Zonen-Kopf: Akzent-Raute, gesperrter Titel, auslaufende Lichtschiene,
+## optional ein rechter Hinweis (z.B. der Charm-Preis).
+func _heading_row(text: String, accent: Color, right_hint: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(u * 1.2))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_label("◆", u * 2.2, accent))
+	row.add_child(_label(_spaced(text), u * 2.6, Color(accent.r * 1.3, accent.g * 1.3, accent.b * 1.3)))
+	var rail := _rail(accent)
+	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(rail)
+	if right_hint != "":
+		row.add_child(_label(right_hint, u * 2.2, NEON_GOLD))
+	return row
+
+## Gesperrte Schrift ("CHARMS" -> "C H A R M S") - Premium-Look der Zonen-Titel.
+func _spaced(text: String) -> String:
+	var chars := PackedStringArray()
+	for i in text.length():
+		chars.append(text[i])
+	return " ".join(chars)
+
+## Dünne Lichtschiene, die nach rechts ausläuft (Neon-Zierlinie).
+func _rail(accent: Color) -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(accent.r, accent.g, accent.b, 0.7), Color(accent.r, accent.g, accent.b, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	texture.height = 4
+	var rail := TextureRect.new()
+	rail.texture = texture
+	rail.stretch_mode = TextureRect.STRETCH_SCALE
+	rail.custom_minimum_size = Vector2(u * 4.0, u * 0.35)
+	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rail
+
+## Weicher radialer Lichtfleck (liegt hinter Charm-Modellen).
+func _glow_disc(tint: Color, side: float) -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(tint.r, tint.g, tint.b, 0.38), Color(tint.r, tint.g, tint.b, 0.14), Color(tint.r, tint.g, tint.b, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 96
+	texture.height = 96
+	var disc := TextureRect.new()
+	disc.texture = texture
+	disc.stretch_mode = TextureRect.STRETCH_SCALE
+	disc.custom_minimum_size = Vector2(side, side)
+	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return disc
+
 ## Charm-Karte: nur das Symbol + Preis; Name und Wirkung zeigt der Hover-Dropdown.
+## Rahmen und Lichtfleck tragen die Charm-Rarität (weiß/grün/blau/violett).
 func _build_charm_card(charm: Charm, index: int) -> Control:
 	var owned := charm_bought[index] or run.owned_charm_ids().has(charm.id)
-	var card := _neon_button("", NEON_MAGENTA, u * 2.0)
-	card.custom_minimum_size = Vector2(0, u * 12.0)
+	var tint := charm.rarity_color()
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.custom_minimum_size = Vector2(0, u * 13.0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("normal", _charm_card_box(Color("#1d1840cc"), tint, 0.65, 0.22))
+	card.add_theme_stylebox_override("hover", _charm_card_box(Color("#2a2158dd"), NEON_GOLD, 0.9, 0.3))
+	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
+	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
+	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	card.mouse_entered.connect(_show_shop_tooltip.bind(card, charm.display_name, charm.description))
 	card.mouse_exited.connect(_hide_shop_tooltip)
 
 	var column := VBoxContainer.new()
 	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", int(u * 0.4))
+	column.add_theme_constant_override("separation", int(u * 0.3))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(column)
 
-	var thumb_holder := CenterContainer.new()
-	thumb_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	thumb_holder.add_child(CharmThumb.new(charm, int(u * 7.5)))
-	column.add_child(thumb_holder)
+	# Lichtfleck hinter dem Modell (CenterContainer stapelt beide mittig).
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(_glow_disc(tint if not owned else Color(tint.r, tint.g, tint.b, 0.3), u * 9.5))
+	stage.add_child(CharmThumb.new(charm, int(u * 7.5)))
+	column.add_child(stage)
 
 	column.add_child(_label("gekauft" if owned else "$%d" % _charm_price(),
-		u * 2.0, NEON_MUTED if owned else NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+		u * 2.0, NEON_MUTED if owned else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
 	if owned:
 		card.disabled = true
@@ -343,23 +445,56 @@ func _build_charm_card(charm: Charm, index: int) -> Control:
 	charm_buttons.append(card)
 	return card
 
-## Sigil-Karte im Angebots-Raster: prozedurales Siegel, Name, Kaufknopf mit Preis;
-## Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown. Nach dem Kauf "gekauft".
+## Kartenrahmen im Raritäts-Tint: Saum + weicher Außen-Glow (StyleBox-Schatten).
+func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = Color(border.r, border.g, border.b, border_alpha)
+	box.set_border_width_all(maxi(1, int(u * 0.22)))
+	box.set_corner_radius_all(int(u * 1.2))
+	box.set_content_margin_all(int(u * 0.7))
+	if glow_alpha > 0.0:
+		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
+		box.shadow_size = int(u * 0.9)
+	return box
+
+## Sigil-Karte im Angebots-Raster: Glas-Kachel mit Seltenheits-Saum, darin
+## Siegel, Name, Kaufknopf; Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown.
 func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
 	var price := _sigil_price(sigil)
+	var seam: Color = SigilRenderer.SEAM_COLORS[sigil.rarity]
+
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color("#1b1738b3")
+	box.border_color = Color(seam.r, seam.g, seam.b, 0.4)
+	box.set_border_width_all(maxi(1, int(u * 0.16)))
+	box.set_corner_radius_all(int(u * 1.2))
+	box.set_content_margin_all(int(u * 0.8))
+	box.shadow_color = Color(seam.r, seam.g, seam.b, 0.1)
+	box.shadow_size = int(u * 0.7)
+	panel.add_theme_stylebox_override("panel", box)
 
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", int(u * 0.4))
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(card)
 
 	var thumb := SigilRenderer.for_sigil(sigil)
 	thumb.custom_minimum_size = Vector2(u * 8.0, u * 8.0)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card.add_child(thumb)
 
-	var name_label := _label(sigil.display_name, u * 1.8, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var name_label := _label(sigil.display_name, u * 1.8, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	name_label.clip_text = true
 	card.add_child(name_label)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(spacer)
 
 	var button := _neon_button("", NEON_GREEN, u * 2.0, Vector2(0, u * 4.0))
 	button.mouse_entered.connect(_show_shop_tooltip.bind(button,
@@ -376,7 +511,7 @@ func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
 	card.add_child(button)
 	sigil_buttons.append(button)
 	sigil_button_prices.append(price)
-	return card
+	return panel
 
 ## Angebotskarte der Würfel-Rubrik: Würfel-Zeile mit "N ×"-Multiplikator
 ## (alle Würfel eines Bündels sind gleich) und Kauf-Button.
@@ -385,10 +520,12 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := StyleBoxFlat.new()
 	box.bg_color = CARD_BG
-	box.border_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.45)
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
-	box.set_corner_radius_all(int(u * 1.0))
+	box.border_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.5)
+	box.set_border_width_all(maxi(1, int(u * 0.16)))
+	box.set_corner_radius_all(int(u * 1.2))
 	box.set_content_margin_all(int(u * 0.8))
+	box.shadow_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.12)
+	box.shadow_size = int(u * 0.7)
 	card.add_theme_stylebox_override("panel", box)
 
 	var vbox := VBoxContainer.new()
@@ -433,9 +570,6 @@ func _refinement_text(def: DieDefinition) -> String:
 	return " · ".join(parts)
 
 # --- Neon-Bausteine --------------------------------------------------------------
-
-func _section_heading(text: String) -> Label:
-	return _label(text, u * 2.8, NEON_CYAN)
 
 func _label(text: String, font_size: float, color: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var label := Label.new()
