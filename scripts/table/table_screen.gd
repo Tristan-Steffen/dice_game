@@ -636,8 +636,9 @@ func link_hub_to_treasure() -> void:
 
 ## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
 
-const OVERCLOCK_LINK_TIME := 0.62   # Hub -> Kombinationen-Fenster (gemächlich)
-const OVERCLOCK_BOARD_TIME := 0.58  # Fensterrand -> Chip (alle Pfade gleich)
+## EINE Licht-Geschwindigkeit für ALLE Leisten-Läufe zwischen Screens (px/s):
+## die Dauer folgt aus der Pfadlänge, damit jede Verbindung gleich schnell wirkt.
+const PULSE_SPEED := 680.0 * SUPERSAMPLE
 const OVERCLOCK_FLASH_COLOR := Color("#ffd319")
 ## Kurzer, gedämpfter Komet (deutlich dünner/dunkler als die Wertungs-Trails).
 const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
@@ -647,25 +648,37 @@ const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
 
 var _cluster_flash_tween: Tween
 
-## Das ganze Hub-Panel pulst golden, ein kurzer Komet fährt die LED-Leiste
-## entlang, der Fenster-Rahmen pulst, dann laufen vier Bus-Kometen GLEICHZEITIG
+## Der (durch die Geld-Ankünfte) voll geladene Hub entlädt sich RESTLOS in die
+## Leiste: das Licht schießt los, der Rahmen erlischt ohne Nachglühen, der
+## Fenster-Rahmen pulst bei Ankunft, dann laufen vier Bus-Kometen GLEICHZEITIG
 ## von den Randkontakten zum Chip. Der Aufrufer wartet das await ab und wendet
 ## erst bei Ankunft die sichtbare Wert-Änderung an.
 func play_overclock_pulse(combo_key: String) -> void:
+	var link_time := 0.4
+	if led_strip != null and led_strip.strip_path.size() >= 2:
+		link_time = _travel_time(led_strip.strip_path)
+		_pulse_along(led_strip.strip_path, link_time)
 	if hub != null:
-		hub.pulse_gold()
-	if led_strip != null:
-		_pulse_along(led_strip.strip_path, OVERCLOCK_LINK_TIME)
-	await get_tree().create_timer(OVERCLOCK_LINK_TIME).timeout
+		hub.charge_gold(1.0)  # sicherstellen: voll geladen, dann komplett abgeben
+		hub.discharge_gold(minf(0.35, link_time * 0.6))
+	await get_tree().create_timer(link_time).timeout
 	flash_cluster_frame(OVERCLOCK_FLASH_COLOR)
 	var index := DiceScoring.HAND_PRIORITY.find(combo_key)
+	var board_time := 0.3
 	if circuit_board != null and index != -1:
-		for path in circuit_board.paths_to_cell(index):
+		var paths := circuit_board.paths_to_cell(index)
+		# Gleiche Dauer für alle vier Pfade (gleichzeitige Ankunft); die Dauer
+		# folgt dem LÄNGSTEN Pfad bei einheitlicher Geschwindigkeit.
+		var longest := 0.0
+		for path in paths:
+			longest = maxf(longest, _path_length(path))
+		board_time = maxf(0.12, longest / PULSE_SPEED)
+		for path in paths:
 			var screen_path := PackedVector2Array()
 			for p in path:
 				screen_path.append(p + circuit_board.position)
-			_pulse_along(screen_path, OVERCLOCK_BOARD_TIME)
-	await get_tree().create_timer(OVERCLOCK_BOARD_TIME).timeout
+			_pulse_along(screen_path, board_time)
+	await get_tree().create_timer(board_time).timeout
 
 ## Kurzer, gedämpfter Komet entlang eines FESTEN Pfads (siehe TracePulseView).
 func _pulse_along(path: PackedVector2Array, duration: float, color := OVERCLOCK_PULSE_COLOR) -> void:
@@ -675,15 +688,34 @@ func _pulse_along(path: PackedVector2Array, duration: float, color := OVERCLOCK_
 	add_child(pulse)
 	pulse.setup(path, color, OVERCLOCK_PULSE_CORE, OVERCLOCK_PULSE_GLOW, duration, OVERCLOCK_COMET)
 
+func _path_length(path: PackedVector2Array) -> float:
+	var length := 0.0
+	for i in path.size() - 1:
+		length += path[i].distance_to(path[i + 1])
+	return length
+
+## Laufzeit eines Pfads bei der einheitlichen Licht-Geschwindigkeit.
+func _travel_time(path: PackedVector2Array) -> float:
+	return maxf(0.12, _path_length(path) / PULSE_SPEED)
+
+## Laufzeit der Geld-Leiste (Schatz <-> Hub) für die Ablauf-Planung außen.
+func money_travel_time() -> float:
+	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
+		return 0.4
+	return _travel_time(treasure_strip.strip_path)
+
 ## Geld-Lichtlauf im Übertaktungs-Stil: ein kurzer Komet fährt die Hub<->Schatz-
 ## Leiste (to_treasure = Gutschrift Hub->Schatz, sonst Kauf Schatz->Hub).
-func money_comet(to_treasure: bool, color: Color, duration: float) -> void:
+## Liefert die Laufzeit für die Ankunfts-Planung.
+func money_comet(to_treasure: bool, color: Color) -> float:
 	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
-		return
+		return 0.0
 	var path := treasure_strip.strip_path.duplicate()
 	if not to_treasure:
 		path.reverse()
-	_pulse_along(path, duration, color)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
 
 ## Lässt den Neon-Rahmen des Kombinationen-Fensters kurz in color aufleuchten.
 func flash_cluster_frame(color: Color) -> void:

@@ -77,10 +77,11 @@ const PIT_ACTION_BAR_INSET_X := 5.6
 
 ## Geld-Lichtanimation: Gutschriften schicken goldenes Licht Hub -> Chips,
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
-const MONEY_TRAIL_TIME := 0.45
 const MONEY_PULSE_GAP := 0.12
-const MONEY_GAIN_COLOR := Color(2.0, 1.6, 0.3, 0.9)
 const MONEY_PULSE_BOOST := 2.2  # Chip-Farbe -> überhelle Leiterbahn-Farbe
+## Kleiner Nachlauf, nachdem das letzte Geld-Licht den Hub erreicht hat, bevor
+## der Übertaktungs-Puls losläuft (klare Kette Geld -> Hub -> Aufwertung).
+const OVERCLOCK_MONEY_MARGIN := 0.12
 
 ## Energiefeld-Blitz bei Wandkontakt (siehe _on_die_wall_contact).
 const FIELD_FLASH_MIN_SPEED := 2.0
@@ -515,14 +516,26 @@ func _collect_combo_labels() -> void:
 ## bis zur Ankunft die ALTEN Werte (siehe _on_combo_upgraded).
 var _pulsing_combos: Dictionary = {}
 
-## Kombination übertaktet: das Licht läuft vom Hub über die Filz-Leiterbahnen
-## zum Chip (TableScreen.play_overclock_pulse); erst bei Ankunft zeigt die
-## Zelle die neuen Werte und blitzt golden auf.
-func _on_combo_upgraded(combo_key: String, _new_level: int) -> void:
+## Kombination übertaktet: erst wandert das bezahlte Geld zum Hub (der Kauf
+## löste zugleich _play_money_light aus), dann - nach OVERCLOCK_MONEY_DELAY -
+## zündet der Hub und schickt das Licht über die Leiterbahnen zum Chip
+## (play_overclock_pulse). Erst bei Ankunft zeigt die Zelle die neuen Werte.
+func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 	if table_screen == null or not combo_labels.has(combo_key):
 		_refresh_combo_label_texts()
 		return
 	_pulsing_combos[combo_key] = true
+	# Warten, bis das letzte bezahlte Geld-Licht den Hub erreicht hat (der Kauf
+	# löste zugleich die Kometen Schatz -> Hub aus): so viele Chips wie der
+	# Preis; jede Ankunft lädt den Hub eine Stufe weiter golden auf.
+	var price := GameRun.overclock_price_at(combo_key, maxi(0, new_level - 1))
+	var chips := ChipStackView.pulse_colors(price).size()
+	_hub_charge_expected += chips
+	var delay := float(maxi(0, chips - 1)) * MONEY_PULSE_GAP \
+		+ table_screen.money_travel_time() + OVERCLOCK_MONEY_MARGIN
+	await get_tree().create_timer(delay).timeout
+	_hub_charge_expected = 0
+	_hub_charge_received = 0
 	await table_screen.play_overclock_pulse(combo_key)
 	_pulsing_combos.erase(combo_key)
 	var row: ComboCellView = combo_labels[combo_key]
@@ -573,29 +586,38 @@ func _on_money_changed(new_money: int) -> void:
 	_refresh_hub_info()
 	_play_money_light(delta)
 
+## Offene Gold-Ladung des Hubs: Chips, die für einen Übertaktungs-Kauf
+## unterwegs sind - jede Ankunft lädt den Hub eine Stufe weiter auf statt zu
+## blitzen (siehe _on_combo_upgraded).
+var _hub_charge_expected := 0
+var _hub_charge_received := 0
+
 ## Geld-Lichtlauf im Übertaktungs-Stil (Komet auf der Hub<->Schatz-Leiste):
-## Gutschrift = goldener Komet Hub -> Schatz (Hub pulst golden, Schatz glänzt);
-## Kauf = je bezahltem Chip ein Komet in dessen Farbe zurück zum Hub.
+## je bezahltem/erhaltenem Chip EIN Komet in dessen Stückelungs-Farbe.
+## Gutschrift = Hub -> Schatz (Schatz glänzt bei Ankunft); Kauf = Schatz -> Hub
+## (Hub lädt sich golden auf, falls eine Übertaktung wartet, sonst blitzt er).
 func _play_money_light(delta: int) -> void:
 	if delta == 0 or table_screen == null or table_screen.hub == null:
 		return
 	var hub := table_screen.hub
 	var treasure := table_screen.treasure_window
-	if delta > 0:
-		hub.flash_frame(HubView.GOLD_COLOR)
-		table_screen.money_comet(true, MONEY_GAIN_COLOR, MONEY_TRAIL_TIME)
-		if treasure != null:
-			get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(treasure.glint)
-		return
-	var pulses := ChipStackView.pulse_colors(-delta)
+	var to_treasure := delta > 0
+	var pulses := ChipStackView.pulse_colors(absi(delta))
 	for i in pulses.size():
 		var chip_color: Color = pulses[i]
 		var trail_color := Color(chip_color.r * MONEY_PULSE_BOOST,
 			chip_color.g * MONEY_PULSE_BOOST, chip_color.b * MONEY_PULSE_BOOST, 0.9)
 		var fire := func() -> void:
-			table_screen.money_comet(false, trail_color, MONEY_TRAIL_TIME)
-			get_tree().create_timer(MONEY_TRAIL_TIME).timeout.connect(
-				func() -> void: hub.flash_frame(chip_color))
+			var travel: float = table_screen.money_comet(to_treasure, trail_color)
+			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+				if to_treasure:
+					if treasure != null:
+						treasure.glint()
+				elif _hub_charge_expected > 0:
+					_hub_charge_received = mini(_hub_charge_received + 1, _hub_charge_expected)
+					hub.charge_gold(float(_hub_charge_received) / float(_hub_charge_expected))
+				else:
+					hub.flash_frame(chip_color))
 		if i == 0:
 			fire.call()
 		else:

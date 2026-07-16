@@ -42,7 +42,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.063042, 0, 20.779545)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
 [node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 20)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.116337, 0, 20)
 
 [node name="ChipStack" type="Node3D" parent="." unique_id=1800299089]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 0, 20.779545)

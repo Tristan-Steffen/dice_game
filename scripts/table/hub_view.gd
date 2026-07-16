@@ -229,8 +229,9 @@ func flash_frame(color: Color) -> void:
 		return
 	if _frame_tween != null:
 		_frame_tween.kill()
-	# Füllung/Randbreite auf Grundwerte zurücksetzen - räumt einen etwaigen
-	# unterbrochenen Gold-Puls (pulse_gold) auf, sonst bliebe der Hub golden.
+	# Füllung/Randbreite auf Grundwerte zurücksetzen - räumt eine etwaige
+	# unterbrochene Gold-Ladung auf, sonst bliebe der Hub golden.
+	_charge = 0.0
 	_frame_style.bg_color = FRAME_BG
 	_frame_style.set_border_width_all(maxi(2, int(size.x / 100.0 * 0.3)))
 	_frame_style.border_color = color
@@ -238,32 +239,38 @@ func flash_frame(color: Color) -> void:
 	_frame_tween.tween_property(_frame_style, "border_color", FRAME_COLOR, 0.5) \
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
-## Voller Gold-Puls beim Übertaktungs-Kauf: das GANZE Hub-Panel leuchtet kurz
-## golden auf, der Rahmen pulst besonders intensiv (überhell -> blüht) und dick.
-const PULSE_BORDER := Color(3.2, 2.5, 0.8)       # noch heller (starker HDR-Bloom)
+## Gold-Ladung des Hubs (Übertaktungs-Kauf): jeder ankommende Geld-Chip lädt
+## das Panel eine Stufe weiter golden auf; beim Abschuss in die Leiste entlädt
+## es sich RESTLOS (linear, ohne Nachglühen).
+const PULSE_BORDER := Color(3.2, 2.5, 0.8)       # voll geladen (starker HDR-Bloom)
 const PULSE_FILL := Color(0.82, 0.66, 0.18, 0.97)  # ganzes Panel kräftig golden
-## Kurz halten, bevor der Puls abklingt - so leuchtet der Hub etwas länger.
-const PULSE_HOLD := 0.22
-const PULSE_FADE := 0.8
-func pulse_gold() -> void:
+
+var _charge := 0.0  # 0..1 aktuelle Gold-Ladung
+
+## Setzt die Ladung direkt (fraction 0..1) - ein Schritt je angekommenem Chip.
+func charge_gold(fraction: float) -> void:
 	if _frame_style == null:
 		return
 	if _frame_tween != null:
 		_frame_tween.kill()
-	var u := size.x / 100.0
-	var base_width := maxi(2, int(u * 0.3))
-	_frame_style.border_color = PULSE_BORDER
-	_frame_style.bg_color = PULSE_FILL
-	_frame_style.set_border_width_all(int(u * 0.8))
+	_apply_charge(clampf(fraction, 0.0, 1.0))
+
+## Restlose Entladung: die gesamte Ladung schießt in die Leiste, der Rahmen
+## kehrt LINEAR über duration zum Grundzustand zurück - kein Nachglühen.
+func discharge_gold(duration: float) -> void:
+	if _frame_style == null or _charge <= 0.0:
+		return
+	if _frame_tween != null:
+		_frame_tween.kill()
 	_frame_tween = create_tween()
-	_frame_tween.set_parallel(true)
-	_frame_tween.tween_property(_frame_style, "border_color", FRAME_COLOR, PULSE_FADE) \
-		.set_delay(PULSE_HOLD).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_frame_tween.tween_property(_frame_style, "bg_color", FRAME_BG, PULSE_FADE) \
-		.set_delay(PULSE_HOLD).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_frame_tween.tween_method(func(w: float) -> void: _frame_style.set_border_width_all(int(w)),
-		float(u * 0.8), float(base_width), PULSE_FADE).set_delay(PULSE_HOLD) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_frame_tween.tween_method(_apply_charge, _charge, 0.0, duration)
+
+func _apply_charge(value: float) -> void:
+	_charge = value
+	var u := size.x / 100.0
+	_frame_style.border_color = FRAME_COLOR.lerp(PULSE_BORDER, value)
+	_frame_style.bg_color = FRAME_BG.lerp(PULSE_FILL, value)
+	_frame_style.set_border_width_all(maxi(2, int(lerpf(u * 0.3, u * 0.8, value))))
 
 ## Hängt ein Vollflächen-Panel als SEITE an: ab jetzt setzt der Hub die
 ## Eine-Seite-Regel durch; die Panels öffnen/schließen sich weiter selbst
