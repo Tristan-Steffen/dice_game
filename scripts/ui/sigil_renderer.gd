@@ -129,20 +129,34 @@ func _draw_stroke(points: PackedVector2Array, color: Color, glow: bool) -> void:
 		draw_polyline(px, Color(color.r, color.g, color.b, 0.22), w * 2.4, true)
 	draw_polyline(px, color, w, true)
 
-## Material: Ring + gefüllter Lichtkern im Material-Tint.
+## Material: Ring + gefüllter Lichtkern im Material-Tint. Die Kernform
+## unterscheidet die Materialien zusätzlich zur Farbe (Farben liegen z.T. nah
+## beieinander). coupon_id ist hier die Material-id.
 func _draw_material_core() -> void:
-	var center := size * 0.5
-	var core_radius := _content_side() * 0.115
-	var color := accent if owned else CHANNEL_COLOR
+	var ring_color := accent if owned else CHANNEL_COLOR
 	# Ring deutlich vom Kern abgesetzt, sonst verschmilzt beides zum Klecks.
-	_draw_stroke(_circle_points(Vector2(0.5, 0.5), 0.33), color, owned)
-	if not owned:
-		draw_circle(center, core_radius, Color(CHANNEL_COLOR.r, CHANNEL_COLOR.g, CHANNEL_COLOR.b, 0.25))
-		return
-	var lit := Color(accent.r, accent.g, accent.b, ignite)
-	draw_circle(center, core_radius * 1.8, Color(lit.r, lit.g, lit.b, lit.a * 0.12))
-	draw_circle(center, core_radius * 1.3, Color(lit.r, lit.g, lit.b, lit.a * 0.25))
-	draw_circle(center, core_radius, lit)
+	_draw_stroke(_circle_points(Vector2(0.5, 0.5), 0.33), ring_color, owned)
+	var lit := Color(accent.r, accent.g, accent.b, ignite) if owned \
+		else Color(CHANNEL_COLOR.r, CHANNEL_COLOR.g, CHANNEL_COLOR.b, 0.25)
+	var mid := Vector2(0.5, 0.5)
+	match coupon_id:
+		DieMaterial.RUBY:  # Edelstein: spitzer Diamant
+			_fill_poly(_diamond(mid, 0.17), lit)
+		DieMaterial.AMBER:  # Kristall: Sechseck
+			_fill_poly(_ngon(mid, 0.15, 6), lit)
+		DieMaterial.BONE:  # Fläche: gefülltes Quadrat
+			_fill_poly(_square_poly(mid, 0.125), lit)
+		DieMaterial.MERCURY:  # Tropfen: zwei Kugeln
+			_fill_circle(Vector2(0.41, 0.5), 0.078, lit)
+			_fill_circle(Vector2(0.59, 0.5), 0.078, lit)
+		DieMaterial.GLASS:  # klar: hohler Diamant
+			var frame := _close(_diamond(mid, 0.16))
+			if owned:
+				_draw_strokes([frame])
+			else:
+				_draw_stroke(frame, CHANNEL_COLOR, false)
+		_:  # Gold u.a.: Münz-Kreis
+			_fill_circle(mid, 0.115, lit)
 
 ## Kanten: leuchtender Innen-Rahmen, Mitte bleibt leer.
 func _draw_edge_frame() -> void:
@@ -179,7 +193,8 @@ func _draw_plaque() -> void:
 
 # --- Sigil-Geometrie (Einheitsraum 0..1) --------------------------------------------
 
-## Pfade je Ätzungs-id. Wiederkehrendes Atom: kleines Quadrat = eine Würfelseite.
+## Pfade je Ätzungs-id. Wiederkehrendes Atom: kleines Quadrat = eine Würfelseite;
+## + / − = die Wertänderung, Pfeil = Übertrag, "=" = frei gesetzter Wert.
 func _strokes_for(id: String) -> Array:
 	match id:
 		Coupon.CHISEL:
@@ -193,12 +208,115 @@ func _strokes_for(id: String) -> Array:
 		Coupon.MIRROR:
 			# Achse in der Mitte, gespiegelte Quadrate links/rechts.
 			return [
-				PackedVector2Array([Vector2(0.5, 0.18), Vector2(0.5, 0.82)]),
+				_seg(Vector2(0.5, 0.18), Vector2(0.5, 0.82)),
 				_square(Vector2(0.29, 0.5), 0.125),
 				_square(Vector2(0.71, 0.5), 0.125),
 			]
+		Coupon.GRINDSTONE:
+			# −1 auf eine, +1 auf eine andere Seite.
+			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
+			s.append_array(_minus(Vector2(0.29, 0.5), 0.06))
+			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
+			return s
+		Coupon.FILE_DOWN:
+			# Eine Seite −1.
+			var s: Array = [_square(Vector2(0.5, 0.5), 0.17)]
+			s.append_array(_minus(Vector2(0.5, 0.5), 0.08))
+			return s
+		Coupon.DOUBLE_NOTCH:
+			# Zwei Seiten je +1.
+			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
+			s.append_array(_plus(Vector2(0.29, 0.5), 0.06))
+			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
+			return s
+		Coupon.OVERCOUNT_ENGRAVING:
+			# +1, dessen Stiel die obere Kante durchstößt (darf über 6).
+			return [
+				_square(Vector2(0.5, 0.6), 0.16),
+				_seg(Vector2(0.5, 0.52), Vector2(0.5, 0.16)),
+				_seg(Vector2(0.4, 0.27), Vector2(0.6, 0.27)),
+			]
+		Coupon.FINE_ENGRAVING:
+			# Freier Zielwert: Quadrat mit "=".
+			var s: Array = [_square(Vector2(0.5, 0.5), 0.18)]
+			s.append_array(_equals(Vector2(0.5, 0.5), 0.08))
+			return s
+		Coupon.TRANSPLANT:
+			# Kleine Seite -> Pfeil hoch -> große Seite (Höchstwert).
+			var s: Array = [_square(Vector2(0.5, 0.73), 0.09), _square(Vector2(0.5, 0.29), 0.15)]
+			s.append_array(_up_arrow(Vector2(0.5, 0.62), Vector2(0.5, 0.47)))
+			return s
+		Coupon.CONNECT_UP:
+			# Quelle -> Ziel, +1 sitzt auf der Verbindung.
+			return [
+				_square(Vector2(0.27, 0.5), 0.12), _square(Vector2(0.73, 0.5), 0.12),
+				_seg(Vector2(0.39, 0.5), Vector2(0.61, 0.5)),
+				_seg(Vector2(0.5, 0.4), Vector2(0.5, 0.6)),
+			]
+		Coupon.AVERAGING:
+			# Zwei Seiten treffen sich in der Mitte (Mittelwert).
+			var s: Array = [_square(Vector2(0.22, 0.5), 0.11), _square(Vector2(0.78, 0.5), 0.11),
+				_seg(Vector2(0.5, 0.35), Vector2(0.5, 0.65))]
+			s.append_array(_arrow_to(Vector2(0.33, 0.5), Vector2(0.44, 0.5)))
+			s.append_array(_arrow_to(Vector2(0.67, 0.5), Vector2(0.56, 0.5)))
+			return s
+		Coupon.IMPRINT:
+			# Obere Seite prägt sich auf die zwei niedrigsten unten.
+			var s: Array = [_square(Vector2(0.5, 0.27), 0.13),
+				_square(Vector2(0.32, 0.71), 0.1), _square(Vector2(0.68, 0.71), 0.1)]
+			s.append_array(_arrow_to(Vector2(0.45, 0.42), Vector2(0.36, 0.58)))
+			s.append_array(_arrow_to(Vector2(0.55, 0.42), Vector2(0.64, 0.58)))
+			return s
+		Coupon.STRAIGHTEN:
+			# Treppe aufwärts: ungerade Seiten +1.
+			return [_staircase()]
+		Coupon.BLUEPRINT:
+			# Ganzer Würfel auf einen Wert: 3x2-Raster leuchtet.
+			return _grid()
 		_:
-			return [_square(Vector2(0.5, 0.5), 0.16)]  # Platzhalter für noch offene ids
+			return [_square(Vector2(0.5, 0.5), 0.16)]
+
+# --- Sigil-Primitive (Einheitsraum) -------------------------------------------------
+
+func _seg(a: Vector2, b: Vector2) -> PackedVector2Array:
+	return PackedVector2Array([a, b])
+
+func _plus(center: Vector2, radius: float) -> Array:
+	return [_seg(center + Vector2(-radius, 0), center + Vector2(radius, 0)),
+		_seg(center + Vector2(0, -radius), center + Vector2(0, radius))]
+
+func _minus(center: Vector2, radius: float) -> Array:
+	return [_seg(center + Vector2(-radius, 0), center + Vector2(radius, 0))]
+
+func _equals(center: Vector2, radius: float) -> Array:
+	return [_seg(center + Vector2(-radius, -radius * 0.45), center + Vector2(radius, -radius * 0.45)),
+		_seg(center + Vector2(-radius, radius * 0.45), center + Vector2(radius, radius * 0.45))]
+
+## Linie a->b plus Pfeilspitze bei b (nach oben zeigend).
+func _up_arrow(a: Vector2, b: Vector2) -> Array:
+	return [_seg(a, b), PackedVector2Array([b + Vector2(-0.05, 0.055), b, b + Vector2(0.05, 0.055)])]
+
+## Kurze Linie a->b mit Pfeilspitze bei b (beliebige Richtung).
+func _arrow_to(a: Vector2, b: Vector2) -> Array:
+	var dir := (b - a).normalized()
+	var perp := Vector2(-dir.y, dir.x)
+	var back := b - dir * 0.055
+	return [_seg(a, b), PackedVector2Array([back + perp * 0.045, b, back - perp * 0.045])]
+
+## Aufsteigende Treppe (Begradigung).
+func _staircase() -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(0.18, 0.75), Vector2(0.37, 0.75), Vector2(0.37, 0.57),
+		Vector2(0.57, 0.57), Vector2(0.57, 0.39), Vector2(0.77, 0.39), Vector2(0.77, 0.23),
+	])
+
+## 3x2-Raster kleiner Seiten (Blaupause).
+func _grid() -> Array:
+	var squares: Array = []
+	for y in [0.38, 0.62]:
+		for x in [0.3, 0.5, 0.7]:
+			squares.append(_square(Vector2(x, y), 0.078))
+	return squares
 
 func _square(center: Vector2, half: float) -> PackedVector2Array:
 	return PackedVector2Array([
@@ -226,6 +344,57 @@ func _circle_points(center: Vector2, radius: float, steps := 40) -> PackedVector
 		var angle := TAU * float(i) / float(steps)
 		points.append(center + Vector2(cos(angle), sin(angle)) * radius)
 	return points
+
+func _diamond(center: Vector2, radius: float) -> PackedVector2Array:
+	return PackedVector2Array([center + Vector2(0, -radius), center + Vector2(radius, 0),
+		center + Vector2(0, radius), center + Vector2(-radius, 0)])
+
+func _square_poly(center: Vector2, half: float) -> PackedVector2Array:
+	return PackedVector2Array([center + Vector2(-half, -half), center + Vector2(half, -half),
+		center + Vector2(half, half), center + Vector2(-half, half)])
+
+## Regelmäßiges n-Eck, Spitze nach oben.
+func _ngon(center: Vector2, radius: float, n: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for i in n:
+		var angle := -PI / 2.0 + TAU * float(i) / float(n)
+		points.append(center + Vector2(cos(angle), sin(angle)) * radius)
+	return points
+
+func _close(points: PackedVector2Array) -> PackedVector2Array:
+	var out := points.duplicate()
+	out.append(points[0])
+	return out
+
+## Gefüllter Kreis-Kern mit weichem Glow-Halo.
+func _fill_circle(center_u: Vector2, radius_u: float, lit: Color) -> void:
+	var c := _unit_to_px(center_u)
+	var r := radius_u * _content_side()
+	draw_circle(c, r * 1.8, Color(lit.r, lit.g, lit.b, lit.a * 0.12))
+	draw_circle(c, r * 1.3, Color(lit.r, lit.g, lit.b, lit.a * 0.25))
+	draw_circle(c, r, lit)
+
+## Gefülltes Polygon mit weichem Glow-Halo (um den Schwerpunkt skaliert).
+func _fill_poly(points_u: PackedVector2Array, lit: Color) -> void:
+	var center := _poly_center(points_u)
+	draw_colored_polygon(_scaled(_scale_about(points_u, center, 1.7)), Color(lit.r, lit.g, lit.b, lit.a * 0.12))
+	draw_colored_polygon(_scaled(_scale_about(points_u, center, 1.3)), Color(lit.r, lit.g, lit.b, lit.a * 0.25))
+	draw_colored_polygon(_scaled(points_u), lit)
+
+func _poly_center(points: PackedVector2Array) -> Vector2:
+	var sum := Vector2.ZERO
+	for p in points:
+		sum += p
+	return sum / float(points.size())
+
+func _scale_about(points: PackedVector2Array, center: Vector2, factor: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p in points:
+		out.append(center + (p - center) * factor)
+	return out
+
+func _unit_to_px(p: Vector2) -> Vector2:
+	return _scaled(PackedVector2Array([p]))[0]
 
 # --- Helfer -----------------------------------------------------------------------
 

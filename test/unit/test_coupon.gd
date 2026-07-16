@@ -114,3 +114,25 @@ func test_rarity_name_is_german():
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.COMMON), "häufig")
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.UNCOMMON), "ungewöhnlich")
 	assert_eq(Coupon.rarity_name(Coupon.Rarity.RARE), "selten")
+
+# --- Lichtgravur-Ziehung -----------------------------------------------------
+
+func test_roll_draft_returns_distinct_inventory_coupons():
+	var draft := Coupon.roll_draft(3, Coupon.Rarity.COMMON)
+	assert_eq(draft.size(), 3, "drei Siegel")
+	var seen := {}
+	for coupon in draft:
+		assert_true(Coupon.DRAFT_KINDS.has(coupon.kind), "nur inventarfähige Sorten (keine Menüs)")
+		assert_false(seen.has(coupon.id), "keine Dubletten: %s" % coupon.id)
+		seen[coupon.id] = true
+
+func test_roll_draft_respects_rarity_floor():
+	for i in 20:
+		for coupon in Coupon.roll_draft(3, Coupon.Rarity.UNCOMMON):
+			assert_true(coupon.rarity >= Coupon.Rarity.UNCOMMON, "kein häufiges Siegel unter der Grenze")
+
+func test_roll_draft_lowers_floor_when_pool_too_small():
+	# Mehr Siegel verlangt als es seltene gibt (7) -> die Untergrenze fällt,
+	# damit die Auslage voll wird (statt leer zu bleiben).
+	var draft := Coupon.roll_draft(9, Coupon.Rarity.RARE)
+	assert_eq(draft.size(), 9, "Auslage voll trotz knapper seltener Siegel")

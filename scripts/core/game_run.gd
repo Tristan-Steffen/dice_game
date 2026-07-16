@@ -10,6 +10,7 @@ signal coupons_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 ## Gutschrift der Kacheln folgt erst in der Abschluss-Animation (grant_coupon/add_money).
 signal sheet_purchased(sheet: CouponSheet, kind: int)
+signal side_bets_changed
 
 const POOL_SIZE := 30
 const BASE_GOAL := 150
@@ -28,6 +29,8 @@ var round_goal: int = BASE_GOAL
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
 var owned_coupons: Array[Coupon] = []
+## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
+var active_side_bets: Array[SideBet] = []
 var unlimited_coupons: bool = false  # Testmodus: consume_coupon verbraucht nichts
 ## Menü-Stufen je Kombination (Key -> gegessene Gerichte); jede Stufe addiert
 ## Basis-Mult und Basispunkte erneut (siehe DiceScoring).
@@ -192,6 +195,48 @@ func consume_coupon(id: String) -> bool:
 			coupons_changed.emit()
 			return true
 	return false
+
+## Ob der Einsatz einer Wette bezahlbar ist (Geld bzw. genug Sigille im Inventar).
+func can_place_side_bet(bet: SideBet) -> bool:
+	if bet.stake_kind == SideBet.Stake.SIGILS:
+		return owned_coupons.size() >= bet.stake_sigils
+	return money >= bet.stake
+
+## Platziert eine Nebenwette: Einsatz sofort fällig (Geld oder geopferte
+## Sigille), Auswertung am Rundenende.
+func place_side_bet(bet: SideBet) -> void:
+	if bet.stake_kind == SideBet.Stake.SIGILS:
+		_consume_coupons(bet.stake_sigils)
+	else:
+		add_money(-bet.stake)
+	active_side_bets.append(bet)
+	side_bets_changed.emit()
+
+## Opfert n Coupons vom Anfang des Inventars (Einsatz einer Sigill-Wette).
+func _consume_coupons(count: int) -> void:
+	var removed := false
+	for i in mini(count, owned_coupons.size()):
+		owned_coupons.remove_at(0)
+		removed = true
+	if removed:
+		coupons_changed.emit()
+
+## Wertet alle platzierten Wetten gegen die Rundenbilanz aus, schüttet die
+## Gewinne aus (Sigille oder Bargeld je payout_kind) und leert die Auslage.
+## Liefert die gewonnenen Wetten für die Auszahlungs-Anzeige.
+func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
+	var won: Array[SideBet] = []
+	for bet in active_side_bets:
+		if bet.evaluate(result):
+			won.append(bet)
+			if bet.payout_kind == SideBet.Payout.MONEY:
+				add_money(bet.payout_money)
+			else:
+				for coupon in bet.reward_list():
+					grant_coupon(coupon)
+	active_side_bets.clear()
+	side_bets_changed.emit()
+	return won
 
 func advance_round() -> void:
 	round_number += 1

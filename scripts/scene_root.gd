@@ -147,6 +147,11 @@ var die_inspector: DieInspectorView
 ## Enthüllungs-Overlay eines gekauften Coupon-Bogens (siehe SheetRevealView).
 var sheet_reveal: SheetRevealView
 
+## Lichtgravur-Ziehung nach der Runde (siehe SigilDraftView).
+var sigil_draft: SigilDraftView
+## Anzahl gezogener Siegel je Runde.
+const SIGIL_DRAFT_COUNT := 3
+
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
@@ -184,6 +189,7 @@ var screen_reflection: ScreenReflection
 var combos_click_zone: StaticBody3D
 var charms_click_zone: StaticBody3D
 var hub_click_zone: StaticBody3D
+var side_bets_click_zone: StaticBody3D
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -234,6 +240,13 @@ var recycling_used_this_round: bool = false
 var slot_draw_positions: Array[int] = []  # je Slot die Zieh-Position (Bodensatz)
 var discarded_this_round: Array[DieDefinition] = []  # Phönixfeder
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle)
+
+# Rundenbilanz für die Nebenwetten-Auswertung (je Rundenbeginn zurückgesetzt).
+var round_best_combo_rank: int = -1  # bester genommener Kombi-Rang (SideBet.combo_rank)
+var round_best_hand_score: int = 0   # höchster Einzel-Hand-Score
+var round_farkled: bool = false
+## Wett-Fenster ist offen (nur vom Rundenbeginn bis zum ERSTEN Wurf platzierbar).
+var betting_open: bool = false
 
 var gameplay_ui_state_visible: bool = true  # false während Shop/GameOver
 var is_pit_focused: bool = false
@@ -380,6 +393,13 @@ func _setup_table_screen() -> void:
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 
+	# Nebenwetten-Fenster rechts vom Becher, in den Maßen des Kombi-Fensters.
+	var cup_px := table_screen.world_to_pixel(dice_cup.global_position)
+	var win_size := table_screen.cluster_rect.size
+	var win_pos := Vector2(cup_px.x + table_screen.size.x * 0.045, cup_px.y - win_size.y / 2.0)
+	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
+	_setup_side_bets_zoom()
+
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
 func _setup_camera_targets() -> void:
@@ -425,6 +445,14 @@ func _setup_panels() -> void:
 	$UI.add_child(sheet_reveal)
 	sheet_reveal.money_coupon_redeemed.connect(_on_money_coupon_redeemed)
 	sheet_reveal.etching_redeemed.connect(_on_etching_redeemed)
+
+	# Lichtgravur-Ziehung als Hub-Seite (ohne Hub ersatzweise als Overlay).
+	sigil_draft = SigilDraftView.new()
+	sigil_draft.name = "SigilDraft"
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(sigil_draft)
+	else:
+		$UI.add_child(sigil_draft)
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -1100,16 +1128,28 @@ func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> S
 	add_child(zone)
 	return zone
 
-## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten.
-func _setup_combos_zoom() -> void:
-	var rect := table_screen.cluster_rect
+## Zoom-Ziel + Klickzone EINES Display-Fensters aus seinem Screen-Rechteck -
+## einheitlich für alle Tisch-Fenster (Kombis, Wettannahme, künftige Screens):
+## Klick zoomt heran, Rechtsklick zurück, im Zoom leichtes Rundschauen.
+func _screen_zoom_zone(zone_name: String, rect: Rect2, configure_target: Callable) -> StaticBody3D:
 	var center := table_screen.pixel_to_world(rect.get_center())
-	camera_rig.configure_combos_target(center)
+	configure_target.call(center)
 	# Weltausdehnung aus zwei gegenüberliegenden Ecken (Abbildung achsenparallel).
 	var corner_a := table_screen.pixel_to_world(rect.position)
 	var corner_b := table_screen.pixel_to_world(rect.end)
-	combos_click_zone = _add_click_zone("CombosClickZone", center,
+	return _add_click_zone(zone_name, center,
 		Vector3(absf(corner_a.x - corner_b.x), 4.0, absf(corner_a.z - corner_b.z)))
+
+## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten.
+func _setup_combos_zoom() -> void:
+	combos_click_zone = _screen_zoom_zone("CombosClickZone",
+		table_screen.cluster_rect, camera_rig.configure_combos_target)
+
+## Zoom-Ziel + Klickzone der Wettannahme (gleiche Mechanik wie der Kombi-Cluster).
+func _setup_side_bets_zoom() -> void:
+	var window := table_screen.side_bet_window
+	side_bets_click_zone = _screen_zoom_zone("SideBetsClickZone",
+		Rect2(window.position, window.size), camera_rig.configure_side_bets_target)
 
 ## Zoom-Ziel + Klickzone der Charm-Reihe (Maße folgen den CharmRowView-Konstanten).
 func _setup_charms_zoom() -> void:
@@ -1168,9 +1208,20 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.PIT:
 			return table_screen.pit_actions_root != null and table_screen.pit_actions_root.visible \
 				and table_screen.pit_actions_rect().has_point(pixel)
+		CameraRig.Mode.SIDE_BETS:
+			# Im Zoom auf die Wettannahme gehen Klicks/Hover an die Setzen-Knöpfe.
+			return _side_bet_window_has_point(pixel)
 	if table_screen.hub == null or not table_screen.hub.get_rect().has_point(pixel):
 		return false
 	return not is_click or table_screen.hub.interactive_at(pixel)
+
+## Ob ein Display-Pixel im sichtbaren Wettannahme-Fenster liegt.
+func _side_bet_window_has_point(pixel: Vector2) -> bool:
+	if table_screen == null:
+		return false
+	var window := table_screen.side_bet_window
+	return window != null and window.visible \
+		and Rect2(window.position, window.size).has_point(pixel)
 
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Grubenklick wirft
 ## in der Grubensicht stattdessen den nächsten Wurf.
@@ -1195,6 +1246,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.CHARMS)
 	elif collider == hub_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
+	elif collider == side_bets_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
 
 ## Baut den (verdeckten) Hover-Tooltip der Charms: Name in Gold, Wirkung darunter.
 func _build_charm_tooltip() -> void:
@@ -1476,6 +1529,7 @@ func _on_throw_button_pressed() -> void:
 		return
 	# Eine laufende Aufreihung beenden - der neue Wurf übernimmt die Würfel.
 	_cancel_lineup()
+	_close_side_bet_betting()  # der erste Wurf schließt die Wettannahme
 
 	# Warteschlangen-Würfel VOR dem Ziehen merken (Position + Art) - genau die
 	# fliegen gleich sichtbar in den Becher.
@@ -1774,6 +1828,10 @@ func _on_farkle() -> void:
 
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
 
+	# Ein verziehener Farkle (oben) zählt bewusst NICHT gegen die "Saubere Runde".
+	round_farkled = true
+	_refresh_side_bet_panel()
+
 	# Zerbrochener Spiegel zählt, die Momentum-Serie reißt, Galgenhumor merkt vor.
 	run.farkle_count += 1
 	momentum_streak = 0
@@ -1851,6 +1909,11 @@ func _on_take_button_pressed() -> void:
 	phase = Phase.IDLE
 	hand_total = new_total
 
+	# Rundenbilanz für die Nebenwetten fortschreiben (beste Kombi + höchste Hand;
+	# taken_dice_this_round folgt weiter unten, daher Fenster-Refresh erst danach).
+	round_best_combo_rank = maxi(round_best_combo_rank, SideBet.combo_rank(hand["key"]))
+	round_best_hand_score = maxi(round_best_hand_score, int(breakdown["total"]))
+
 	# Nehmen-Effekte der Materialien - nur beteiligte AUSGEWÄHLTE Würfel,
 	# genau einmal hier (nie in der Vorschau); Knochen/Glas verändern die
 	# Pool-Würfel dauerhaft.
@@ -1880,6 +1943,7 @@ func _on_take_button_pressed() -> void:
 	first_hand_after_farkle = false
 	taken_dice_this_round += dice.count()
 	full_reroll_stacks = 0
+	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
 	# Recycling: die erste genommene Hand kehrt ans Stapel-Ende zurück.
 	if CharmEffects.recycles_first_hand(ids) and not recycling_used_this_round:
@@ -2178,6 +2242,9 @@ func _reset_game() -> void:
 	run = GameRun.new_run()
 	_connect_run()
 	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
+	if sigil_draft != null:
+		sigil_draft.cancel()  # offene Ziehung schließen (Seite nicht stehen lassen)
+	betting_open = false  # frische Auslage eröffnet die erste Runde
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.reset_pages()
@@ -2191,6 +2258,8 @@ func _reset_game() -> void:
 func _connect_run() -> void:
 	charm_shop.run = run
 	die_inspector.run = run
+	if table_screen != null and table_screen.side_bet_window != null:
+		table_screen.side_bet_window.run = run
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
@@ -2211,6 +2280,9 @@ func _start_new_round() -> void:
 	taken_dice_this_round = 0
 	recycling_used_this_round = false
 	first_hand_after_farkle = false
+	round_best_combo_rank = -1
+	round_best_hand_score = 0
+	round_farkled = false
 	discarded_this_round = []
 	slot_draw_positions = []
 	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom
@@ -2246,6 +2318,10 @@ func _start_new_round() -> void:
 	hand_note = ""
 	_refresh_round_hud()
 	_animate_points_to(0, false)
+	# Nebenwetten laufen ab dem Shop; die erste Runde (kein vorheriger Shop)
+	# eröffnet die Auslage hier. Eine schon offene bleibt samt Einsätzen stehen.
+	if not betting_open:
+		_open_side_bet_betting()
 	_start_new_hand()
 
 ## Sortiert Würfel mit Kanten-Material stabil an den Anfang (Magnetring).
@@ -2308,19 +2384,103 @@ func _on_round_complete() -> void:
 		var floor_value := CharmEffects.money_floor(ids)
 		if run.money < floor_value:
 			run.money = floor_value
+		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
+		# als Coupons im Inventar, sichtbar im Shop/an der Gravur-Station).
+		_resolve_side_bets(true)
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
 		# Läuft noch die Zeremonie, sauber beenden - sonst schwebte der echte
-		# Zeremonien-Würfel weiter über der Hub-Fläche und verdeckte den Shop.
+		# Zeremonien-Würfel weiter über der Hub-Fläche und verdeckte die Seiten.
 		if engraving_active:
 			die_inspector.close()
-		# Kamera auf den Hub NACH dem Zeremonien-Ende, damit dessen
-		# Kamera-Rückkehr nicht das letzte Wort hat.
-		charm_shop.open()
+		# Kamera auf den Hub, dann die Ziehung als Hub-Seite; erst nach der Wahl
+		# öffnet der Shop.
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
+		await _run_sigil_draft()
+		if phase != Phase.SHOP:
+			return  # Spiel wurde während der Ziehung zurückgesetzt
+		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
+		_open_side_bet_betting()
+		charm_shop.open()
 	else:
 		phase = Phase.GAME_OVER
 		_show_game_over(hand_total)
+
+## Wertet die platzierten Nebenwetten gegen die Rundenbilanz aus. cleared =
+## Runde geräumt (sonst verliert jede Wette). Das Ergebnis erscheint als Banner
+## im gleich darauf öffnenden Shop.
+func _resolve_side_bets(cleared: bool) -> void:
+	if run.active_side_bets.is_empty():
+		return
+	var result := {
+		"cleared": cleared,
+		"best_combo_rank": round_best_combo_rank,
+		"best_hand_score": round_best_hand_score,
+		"dice_taken": taken_dice_this_round,
+		"farkled": round_farkled,
+	}
+	var placed := run.active_side_bets.size()
+	var won := run.resolve_side_bets(result)
+	_refresh_side_bet_panel()  # Wetten geleert -> Fenster zeigt "keine aktiv"
+	if won.is_empty():
+		charm_shop.pending_bet_notice = "Nebenwetten: 0/%d gewonnen." % placed
+		return
+	var names: Array[String] = []
+	for bet in won:
+		names.append(bet.display_name)
+	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben." \
+		% [won.size(), placed, ", ".join(names)]
+
+## Lichtgravur-Ziehung: Auslage nach Rundenmarge würfeln, Overlay zeigen und auf
+## die Wahl warten; das gewählte Siegel wird als Coupon gutgeschrieben.
+func _run_sigil_draft() -> void:
+	if sigil_draft == null:
+		return
+	var coupons := Coupon.roll_draft(SIGIL_DRAFT_COUNT, _draft_floor_rarity())
+	if coupons.is_empty():
+		return
+	sigil_draft.show_draft(coupons)
+	var picked: Coupon = await sigil_draft.resolved
+	# Nur gutschreiben, wenn wir noch im Shop-Abschnitt sind (kein Reset hat
+	# derweil die Ziehung abgebrochen).
+	if picked != null and phase == Phase.SHOP:
+		run.grant_coupon(picked)
+
+## Mindest-Seltenheit der Ziehung: je deutlicher das Ziel übertroffen wurde,
+## desto höher der Boden (1.75× = ungewöhnlich, 3× = selten).
+func _draft_floor_rarity() -> Coupon.Rarity:
+	var ratio := float(hand_total) / float(maxi(1, run.round_goal))
+	if ratio >= 3.0:
+		return Coupon.Rarity.RARE
+	if ratio >= 1.75:
+		return Coupon.Rarity.UNCOMMON
+	return Coupon.Rarity.COMMON
+
+## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
+func _open_side_bet_betting() -> void:
+	betting_open = true
+	if table_screen != null and table_screen.side_bet_window != null:
+		table_screen.side_bet_window.open_betting(SideBet.roll_offers(SideBetPanel.OFFER_COUNT))
+
+## Schließt die Wettannahme (erster Wurf) - ab jetzt zeigt das Fenster Fortschritt.
+func _close_side_bet_betting() -> void:
+	if not betting_open:
+		return
+	betting_open = false
+	if table_screen != null and table_screen.side_bet_window != null:
+		table_screen.side_bet_window.close_betting()
+	_refresh_side_bet_panel()
+
+## Aktualisiert den Live-Fortschritt der aktiven Wetten (Fortschritts-Modus).
+func _refresh_side_bet_panel() -> void:
+	if table_screen == null or table_screen.side_bet_window == null or run == null:
+		return
+	table_screen.side_bet_window.update_progress({
+		"best_combo_rank": round_best_combo_rank,
+		"best_hand_score": round_best_hand_score,
+		"dice_taken": taken_dice_this_round,
+		"farkled": round_farkled,
+	})
 
 ## Lässt die Rundenbonus-Zeilen im Hub nacheinander golden aufleuchten,
 ## synchron zur tatsächlichen Gutschrift; die übrigen Tray-Würfel blitzen im
@@ -2441,12 +2601,13 @@ func _on_die_engraved() -> void:
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
 
-## Shop mit "Fertig" geschlossen: zurück in die Grubensicht, nächste Runde.
+## Shop mit "Fertig" geschlossen: zurück in die Übersicht (dort ist das
+## Wettannahme-Fenster im Blick und platzierbar), dann die nächste Runde.
 func _on_shop_closed() -> void:
 	run.advance_round()
 	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
-	camera_rig.zoom_to(CameraRig.Mode.PIT)
+	camera_rig.zoom_out()
 	_start_new_round()
 
 func _show_game_over(total: int) -> void:

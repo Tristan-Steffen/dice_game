@@ -270,6 +270,61 @@ func test_remove_charms_strips_given_ids():
 	run.remove_charms([Charm.GOLDSMITH])
 	assert_eq(run.owned_charm_ids(), [Charm.GOLDEN_SCARAB, Charm.SMALL_FRY], "nur Goldschmied entfernt")
 
+# --- Nebenwetten --------------------------------------------------------------
+
+func test_place_side_bet_deducts_stake_and_stores():
+	watch_signals(run)
+	run.money = 20
+	var bet := SideBet._from_template(_template("two_pair"))  # Geld-Einsatz
+	run.place_side_bet(bet)
+	assert_eq(run.money, 20 - bet.stake, "Einsatz sofort fällig")
+	assert_eq(run.active_side_bets.size(), 1)
+	assert_signal_emitted(run, "side_bets_changed")
+
+func test_place_sigil_stake_consumes_coupons():
+	run.grant_coupon(Coupon.chisel())
+	run.grant_coupon(Coupon.file_down())
+	var before := run.owned_coupons.size()
+	var bet := SideBet._from_template(_template("pawn"))  # 1 Sigill Einsatz
+	assert_true(run.can_place_side_bet(bet), "mit Coupons bezahlbar")
+	run.place_side_bet(bet)
+	assert_eq(run.owned_coupons.size(), before - 1, "ein Sigill geopfert")
+
+func test_cannot_place_sigil_stake_without_coupons():
+	var bet := SideBet._from_template(_template("collateral"))  # 2 Sigille Einsatz
+	assert_false(run.can_place_side_bet(bet), "ohne genug Sigille nicht setzbar")
+
+func test_resolve_sigil_payout_grants_coupons_and_clears():
+	run.money = 50
+	var win := SideBet._from_template(_template("full_house"))  # Sigill-Gewinn
+	var lose := SideBet._from_template(_template("big_hand"))
+	run.place_side_bet(win)
+	run.place_side_bet(lose)
+	var before := run.owned_coupons.size()
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	var won := run.resolve_side_bets(result)
+	assert_eq(won.size(), 1, "nur das volle Haus gewinnt")
+	assert_eq(won[0].id, "full_house")
+	assert_eq(run.owned_coupons.size(), before + win.reward_coupons, "Sigille ausgeschüttet")
+	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
+
+func test_resolve_money_payout_adds_cash():
+	run.money = 50
+	var bet := SideBet._from_template(_template("jackpot"))  # Geld-Gewinn
+	run.place_side_bet(bet)
+	var after_stake := run.money  # Einsatz bereits abgezogen
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	run.resolve_side_bets(result)
+	assert_eq(run.money, after_stake + bet.payout_money, "Barauszahlung gutgeschrieben")
+
+func _template(id: String) -> Dictionary:
+	for t in SideBet.TEMPLATES:
+		if t["id"] == id:
+			return t
+	return {}
+
 # --- Helfer -----------------------------------------------------------------------
 
 func _count_style(style_id: String) -> int:

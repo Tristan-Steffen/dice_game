@@ -291,11 +291,9 @@ func test_bulk_discount_only_hits_triple_bundles():
 		var expected: int = offer.price - 5 if offer.size() >= 3 else offer.price
 		assert_eq(shop._offer_price(offer), maxi(1, expected))
 
-func test_every_pack_has_a_cover_and_valid_kinds():
+func test_every_pack_has_valid_kinds():
 	var known := [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE, Coupon.KIND_MEAL]
 	for pack in ShopController.PACKS:
-		assert_true(ResourceLoader.exists(ShopController.PACK_COVER_DIR + pack["id"] + ".jpg"),
-			"Cover fehlt für %s" % pack["id"])
 		for kind in pack["kinds"]:
 			assert_true(known.has(kind), "unbekannter kind %s in %s" % [kind, pack["id"]])
 

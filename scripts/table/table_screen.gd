@@ -56,6 +56,8 @@ var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 
 var cluster_frame: Panel
 var pit_window: Panel
+## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
+var side_bet_window: SideBetPanel
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -183,6 +185,13 @@ func _build_content() -> void:
 	_build_goal_bar()
 	_build_pit_score()
 
+	# Nebenwetten-Fenster: Position/Größe setzt scene_root über
+	# place_side_bet_window; bis dahin unsichtbar.
+	side_bet_window = SideBetPanel.new()
+	side_bet_window.name = "SideBetWindow"
+	side_bet_window.visible = false
+	add_child(side_bet_window)
+
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
@@ -220,6 +229,13 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	pit_window.visible = true
 	_sync_reflection_windows()
 
+## Spannt das Nebenwetten-Fenster über rect auf (rechts vom Becher).
+func place_side_bet_window(rect: Rect2) -> void:
+	side_bet_window.position = rect.position
+	side_bet_window.size = rect.size
+	side_bet_window.visible = true
+	_sync_reflection_windows()
+
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
 func _sync_reflection_windows() -> void:
@@ -239,6 +255,10 @@ func _sync_reflection_windows() -> void:
 	if goal_bar != null:
 		rects.append(Vector4(goal_bar.position.x, goal_bar.position.y,
 			goal_bar.position.x + goal_bar.size.x, goal_bar.position.y + goal_bar.size.y))
+		radii.append(10.0)
+	if side_bet_window != null and side_bet_window.visible:
+		rects.append(Vector4(side_bet_window.position.x, side_bet_window.position.y,
+			side_bet_window.position.x + side_bet_window.size.x, side_bet_window.position.y + side_bet_window.size.y))
 		radii.append(10.0)
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,

@@ -17,30 +17,27 @@ const DICE_OFFER_COUNT := 3
 ## Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
 
-## Pack-Sorten (kinds -> CouponSheet.generate). Das gemischte Heft ist bewusst
-## günstiger - wer gezielt zieht, zahlt für die Auswahl. Cover-Konvention:
-## PACK_COVER_DIR + id + ".jpg".
+## Präge-Chargen der Prägestätte (kinds -> CouponSheet.generate). Die gemischte
+## Hausserie ist bewusst günstiger - wer gezielt prägt, zahlt für die Auswahl.
 const PACKS := [
-	{"id": "general", "name": "Coupon-Heft", "kinds": [], "prices": [6, 10, 16, 25, 36],
-		"tooltip": "Alle Coupon-Arten gemischt - dafür etwas günstiger."},
-	{"id": "werkstatt", "name": "Werkstatt-Prospekt", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20, 30, 42],
+	{"id": "general", "name": "Hausserie", "kinds": [], "prices": [6, 10, 16, 25, 36],
+		"tooltip": "Alle Sigil-Arten gemischt - dafür etwas günstiger."},
+	{"id": "werkstatt", "name": "Gravur-Charge", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Ätzungen: verändern die Augen deiner Würfel."},
-	{"id": "juwelier", "name": "Juwelier-Katalog", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20, 30, 42],
+	{"id": "juwelier", "name": "Veredelungs-Charge", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Würfel-Veredelungen: Seiten-Materialien und Kanten."},
-	{"id": "tageskarte", "name": "Tageskarte", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20, 30, 42],
+	{"id": "tageskarte", "name": "Küchen-Charge", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20, 30, 42],
 		"tooltip": "Nur Gerichte: werten Kombinationen dauerhaft auf."},
 ]
 
-## Bogengrößen (Index = Preis-Index in PACKS.prices).
+## Kapselgrößen (Index = Preis-Index in PACKS.prices); mehr Fächer = mehr Sigils.
 const PACK_SIZES := [
-	{"kind": CouponSheet.Kind.SNIPPET, "label": "2×2"},
-	{"kind": CouponSheet.Kind.SHEET, "label": "3×3"},
-	{"kind": CouponSheet.Kind.LARGE, "label": "5×5"},
-	{"kind": CouponSheet.Kind.POSTER, "label": "7×7"},
-	{"kind": CouponSheet.Kind.JUMBO, "label": "9×9"},
+	{"kind": CouponSheet.Kind.SNIPPET, "label": "Probe"},
+	{"kind": CouponSheet.Kind.SHEET, "label": "Klein"},
+	{"kind": CouponSheet.Kind.LARGE, "label": "Mittel"},
+	{"kind": CouponSheet.Kind.POSTER, "label": "Groß"},
+	{"kind": CouponSheet.Kind.JUMBO, "label": "Jumbo"},
 ]
-
-const PACK_COVER_DIR := "res://assets/textures/packs/"
 
 ## Pack-Sortiment je Doppelseite: zufällige Kombinationen aus Sorte × Größe,
 ## jedes Angebot nur einmal kaufbar.
@@ -69,44 +66,45 @@ class MenuSpread:
 	var pack_offers: Array[Vector2i] = []  # x = PACKS-Index, y = PACK_SIZES-Index
 	var pack_bought: Array[bool] = []
 
-## Bogen-Miniatur einer Pack-Karte: Cover-Motiv als "Papier" in Bogengröße,
-## überzogen mit dem echten Raster als Perforationslinien - die Bogengröße ist
-## auf einen Blick sichtbar.
-class PackSheetThumb:
+## Kapsel-Miniatur einer Präge-Charge: dunkles Rauchglas mit Neon-Lichtsaum,
+## darin ein Raster kleiner glimmender Sigil-Fächer - die Größe (Anzahl Fächer)
+## ist auf einen Blick sichtbar. Rein prozedural (passt zum Sigil-Look).
+class CapsuleThumb:
 	extends Control
 
-	const PAPER := Color("efe4c8")
-	const PERF := Color(0.42, 0.29, 0.18, 0.7)
+	const GLASS := Color("#0c1018")
+	const SEAM := Color("#8be9fd")
+	const PIP := Color("#8be9fd")
 	const SIDE_BASE := 34.0
-	const SIDE_PER_CELL := 4.0  # 2×2 -> 42px ... 9×9 -> 70px
+	const SIDE_PER_CELL := 4.0  # kleine Kapsel -> große Kapsel
 
-	var texture: Texture2D
 	var dims: int
 	var side: float
 
-	func _init(p_texture: Texture2D, p_dims: int, ui_scale: float = 1.0) -> void:
-		texture = p_texture
+	func _init(p_dims: int, ui_scale: float = 1.0) -> void:
 		dims = p_dims
 		side = (SIDE_BASE + p_dims * SIDE_PER_CELL) * ui_scale
 		custom_minimum_size = Vector2(side, side)
 
 	func _draw() -> void:
 		var rect := Rect2((size.x - side) * 0.5, size.y - side, side, side)
-		draw_rect(rect, PAPER)
-		if texture != null:
-			# Motiv seitengetreu einpassen (Cover sind nicht zwingend quadratisch).
-			var inner := rect.grow(-2.0)
-			var tex_size := texture.get_size()
-			var fit := minf(inner.size.x / tex_size.x, inner.size.y / tex_size.y)
-			var draw_size := tex_size * fit
-			draw_texture_rect(texture, Rect2(inner.position + (inner.size - draw_size) * 0.5, draw_size), false)
+		# Rauchglas-Körper + weicher Außen-Glow + scharfer Lichtsaum.
+		draw_rect(rect, GLASS)
+		_rounded_border(rect, Color(SEAM.r, SEAM.g, SEAM.b, 0.2), maxf(2.0, side * 0.06))
+		_rounded_border(rect, SEAM, maxf(1.0, side * 0.02))
+		# Fächer als glimmende Punkte im Raster (Anzahl = Kapselgröße).
 		var cell := rect.size.x / float(dims)
-		for i in range(1, dims):
-			draw_line(Vector2(rect.position.x + i * cell, rect.position.y),
-				Vector2(rect.position.x + i * cell, rect.end.y), PERF, 1.0)
-			draw_line(Vector2(rect.position.x, rect.position.y + i * cell),
-				Vector2(rect.end.x, rect.position.y + i * cell), PERF, 1.0)
-		draw_rect(rect, PERF, false, 1.0)
+		var dot := maxf(1.0, cell * 0.22)
+		for r in dims:
+			for c in dims:
+				var center := rect.position + Vector2((c + 0.5) * cell, (r + 0.5) * cell)
+				draw_circle(center, dot * 1.8, Color(PIP.r, PIP.g, PIP.b, 0.12))
+				draw_circle(center, dot, Color(PIP.r, PIP.g, PIP.b, 0.85))
+
+	## Rechteck-Rahmen ohne Ecken-Rundung (draw_rect kann keine Radien) - für die
+	## Miniatur genügt ein einfacher Rahmen; der Sigil-Look lebt vom Glimmen.
+	func _rounded_border(rect: Rect2, color: Color, width: float) -> void:
+		draw_rect(rect, color, false, width)
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert
@@ -147,6 +145,10 @@ var sheet_buttons: Array[Button] = []
 var sheet_button_prices: Array[int] = []
 
 var flip_tween: Tween
+
+## Einmalige Meldung, die beim nächsten Öffnen oben erscheint (Nebenwetten-
+## Ergebnis der geräumten Runde); von scene_root vor open() gesetzt.
+var pending_bet_notice: String = ""
 
 ## Öffnet den Shop frisch auf der ersten Doppelseite (Gebühr startet neu);
 ## baut das Gerüst passend zur aktuellen Größe.
@@ -192,6 +194,13 @@ func _build_layout() -> void:
 	header.add_child(title)
 	money_label = _label("$0", u * 4.0, NEON_GOLD)
 	header.add_child(money_label)
+
+	# Nebenwetten-Ergebnis der letzten Runde (einmalig, dann verbraucht).
+	if pending_bet_notice != "":
+		var notice := _label(pending_bet_notice, u * 2.3, NEON_GREEN)
+		notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		root.add_child(notice)
+		pending_bet_notice = ""
 
 	content_root = VBoxContainer.new()
 	content_root.name = "Content"
@@ -377,7 +386,7 @@ func _rebuild_right_column(spread: MenuSpread) -> void:
 		right_column.add_child(entry)
 		charm_buttons.append(button)
 
-	right_column.add_child(_section_heading("COUPON-PACKS"))
+	right_column.add_child(_section_heading("PRÄGESTÄTTE"))
 	var grid := GridContainer.new()
 	grid.columns = PACK_GRID_COLUMNS
 	grid.add_theme_constant_override("h_separation", int(u * 1.0))
@@ -399,10 +408,8 @@ func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Con
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.tooltip_text = "%s (%s)\n%s" % [pack["name"], size_label, pack["tooltip"]]
 
-	var cover_path: String = PACK_COVER_DIR + pack["id"] + ".jpg"
-	var cover: Texture2D = load(cover_path) if ResourceLoader.exists(cover_path) else null
 	var dims: int = CouponSheet.grid_size(PACK_SIZES[size_index]["kind"]).x
-	var thumb := PackSheetThumb.new(cover, dims, u * 0.13)
+	var thumb := CapsuleThumb.new(dims, u * 0.13)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Zeile steht unten bündig
 	card.add_child(thumb)

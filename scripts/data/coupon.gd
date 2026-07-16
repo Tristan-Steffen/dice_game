@@ -230,6 +230,38 @@ static func all() -> Array[Coupon]:
 		result.append(meal_coupon(cat["key"]))
 	return result
 
+## Kinds, die sicher im Inventar landen (kein Menü) - die Ziehung zeigt nur diese.
+const DRAFT_KINDS := [KIND_ETCHING, KIND_MATERIAL, KIND_EDGE]
+
+## Zieht count VERSCHIEDENE Coupon-Archetypen für die Lichtgravur-Ziehung:
+## nur inventarfähige Sorten, mindestens von Seltenheit floor, seltenheits-
+## gewichtet ohne Zurücklegen. Zu kleiner Pool senkt die Untergrenze automatisch.
+static func roll_draft(count: int, floor: Rarity) -> Array[Coupon]:
+	var pool := _draft_pool(floor)
+	while pool.size() < count and floor > Rarity.COMMON:
+		floor = (floor - 1) as Rarity
+		pool = _draft_pool(floor)
+	var chosen: Array[Coupon] = []
+	for i in mini(count, pool.size()):
+		var total := 0
+		for c in pool:
+			total += _rarity_weight(c.rarity)
+		var pick := randi() % total
+		for j in pool.size():
+			pick -= _rarity_weight(pool[j].rarity)
+			if pick < 0:
+				chosen.append(pool[j])
+				pool.remove_at(j)
+				break
+	return chosen
+
+static func _draft_pool(floor: Rarity) -> Array[Coupon]:
+	var pool: Array[Coupon] = []
+	for coupon in all():
+		if DRAFT_KINDS.has(coupon.kind) and coupon.rarity >= floor:
+			pool.append(coupon)
+	return pool
+
 static func is_edge_id(coupon_id: String) -> bool:
 	return coupon_id.begins_with(EDGE_PREFIX) and DieMaterial.is_valid_id(coupon_id.trim_prefix(EDGE_PREFIX))
 

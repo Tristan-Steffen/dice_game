@@ -40,9 +40,6 @@ const CHIP_BORDER := Color(0.72, 0.76, 0.8)
 
 const SLOT_COLUMNS := 8  # Bord-Plätze je Zeile
 const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
-## Leerer Platz: der Coupon liegt als dunkelgraue Silhouette da - klar "noch
-## nicht bekommen", die Form bleibt erkennbar.
-const EMPTY_SLOT_TINT := Color(0.3, 0.3, 0.34, 0.9)
 
 ## Unter-Bildschirm der Würfel-Projektion: abgesetzte Grundfarbe (Petrol).
 const DIE_VIEW_BG := Color("#0d2430")
@@ -839,13 +836,11 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 	# Stapel von hinten nach vorn (tiefere Exemplare zuerst).
 	var depth: int = clampi(count, 1, STACK_MAX_VISIBLE)
 	for i in range(depth - 1, -1, -1):
-		var tile := _coupon_tile(archetype)
+		var tile := _coupon_tile(archetype, count > 0)
 		tile.position = Vector2.ONE * pad + stack_offset * float(i)
 		tile.size = _tile_size()
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if count == 0:
-			tile.modulate = EMPTY_SLOT_TINT
-		elif i > 0:
+		if count > 0 and i > 0:
 			tile.modulate = Color(0.78, 0.78, 0.78)
 		slot.add_child(tile)
 
@@ -864,36 +859,12 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 		slot.add_child(badge)
 	return slot
 
-## Coupon-Kachel: Motiv als TextureRect, oder Platzhalter wie auf den Bögen.
-func _coupon_tile(archetype: Coupon) -> Control:
-	if ResourceLoader.exists(archetype.texture_path):
-		var tex := TextureRect.new()
-		tex.texture = load(archetype.texture_path)
-		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex.stretch_mode = TextureRect.STRETCH_SCALE
-		return tex
-
-	var placeholder := Panel.new()
-	var box := StyleBoxFlat.new()
-	var tint := DieMaterial.tint_for(archetype.material_id())
-	box.bg_color = tint.lerp(CouponSheetView.PAPER_COLOR, 0.35)
-	box.border_color = CouponSheetView.PERF_COLOR
-	box.set_border_width_all(2)
-	box.set_corner_radius_all(4)
-	placeholder.add_theme_stylebox_override("panel", box)
-
-	var label := Label.new()
-	label.text = archetype.display_name
-	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = true
-	label.add_theme_font_size_override("font_size", int(u * 1.3))
-	label.add_theme_color_override("font_color", CouponSheetView.PERF_COLOR)
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	placeholder.add_child(label)
-	return placeholder
+## Coupon-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
+## unbeleuchtete Gravur-Rille als "noch nicht bekommen").
+func _coupon_tile(archetype: Coupon, owned: bool) -> Control:
+	var sigil := SigilRenderer.for_coupon(archetype)
+	sigil.owned = owned
+	return sigil
 
 func _slot_box(border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
