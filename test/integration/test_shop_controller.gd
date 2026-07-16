@@ -29,10 +29,10 @@ func _count_special() -> int:
 
 # --- Angebot ------------------------------------------------------------------
 
-func test_open_shows_panel_and_offers_up_to_two_charms():
+func test_open_shows_panel_and_offers_up_to_four_charms():
 	assert_true(shop.visible)
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
-	assert_true(shop.charm_options.size() <= 2, "höchstens zwei Charms")
+	assert_true(shop.charm_options.size() <= ShopController.CHARM_OFFER_COUNT, "höchstens vier Charms")
 
 func test_offer_excludes_already_owned_charms():
 	run.owned_charms.append(Charm.rabbits_foot())
@@ -151,14 +151,17 @@ func test_sigil_buttons_disabled_by_price():
 	for button in shop.sigil_buttons:
 		assert_true(button.disabled, "Sigill bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_sigils_across_three_categories():
-	var per := ShopController.SIGIL_OFFERS_PER_CATEGORY
-	assert_eq(shop.sigil_offers.size(), Sigil.CATEGORIES.size() * per, "je Kategorie feste Anzahl")
-	var by_category := {}
+func test_spread_offers_mixed_sigils_and_dice():
+	# Unterer Bereich: acht Plätze = Würfel-Bündel + Sigille.
+	assert_eq(shop.sigil_offers.size(), ShopController.SIGIL_OFFER_COUNT, "fünf Sigil-Angebote")
+	assert_eq(shop.dice_offers.size(), ShopController.DICE_OFFER_COUNT, "drei Würfel-Bündel")
+	assert_eq(shop.dice_offers.size() + shop.sigil_offers.size(), ShopController.BOTTOM_SLOT_COUNT,
+		"zusammen acht Plätze (2×4)")
+	var seen := {}
 	for sigil in shop.sigil_offers:
-		by_category[sigil.category] = int(by_category.get(sigil.category, 0)) + 1
-	for category in Sigil.CATEGORIES:
-		assert_eq(by_category.get(category, 0), per, "je Kategorie %d Angebote" % per)
+		assert_true(Sigil.DRAFT_CATEGORIES.has(sigil.category), "inventarfähige Kategorie")
+		assert_false(seen.has(sigil.id), "keine doppelten Sigille: %s" % sigil.id)
+		seen[sigil.id] = true
 
 func test_sigil_offers_persist_when_flipping_back():
 	var first_ids: Array = []

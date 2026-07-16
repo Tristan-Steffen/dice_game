@@ -11,7 +11,18 @@ extends Control
 signal closed
 
 const CHARM_PRICE := 15
+
+## Oberer Bereich: vier Charms je Doppelseite (nur Symbol, Beschreibung erst im
+## Hover-Dropdown).
+const CHARM_OFFER_COUNT := 4
+
+## Unterer Bereich: zwei Reihen à vier Angeboten (Würfel-Bündel ODER Sigill).
+const BOTTOM_SLOT_COUNT := 8
+const BOTTOM_GRID_COLUMNS := 4
+
+## Würfel-Bündel im unteren Bereich; der Rest der acht Plätze sind Sigille.
 const DICE_OFFER_COUNT := 3
+const SIGIL_OFFER_COUNT := BOTTOM_SLOT_COUNT - DICE_OFFER_COUNT
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
@@ -23,13 +34,6 @@ const SIGIL_PRICES := {
 	Sigil.Rarity.UNCOMMON: 9,
 	Sigil.Rarity.RARE: 15,
 }
-
-## Angebote je Kategorie (Zahlen/Materialien/Würfel) auf einer Doppelseite;
-## jedes Sigill nur einmal kaufbar.
-const SIGIL_OFFERS_PER_CATEGORY := 2
-
-## Grid-Spalten der Sigil-Auslage (eine Zeile je Kategorie).
-const SIGIL_GRID_COLUMNS := 2
 
 ## Farben im Display-Stil (80s Neon).
 const NEON_CYAN := Color("#8be9fd")
@@ -50,7 +54,7 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var sigil_offers: Array[Sigil] = []  # nach Kategorie geordnet (Zahlen, Materialien, Würfel)
+	var sigil_offers: Array[Sigil] = []  # fünf gemischte Sigille für den unteren Bereich
 	var sigil_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
@@ -68,13 +72,16 @@ var u := 8.0
 
 ## Gerüst-Referenzen (je open() frisch gebaut).
 var money_label: Label
-var content_root: VBoxContainer
-var left_column: VBoxContainer   # Würfel-Angebote
-var right_column: VBoxContainer  # Charms + Sigille
+var content_root: VBoxContainer  # trägt Charm-Bereich + Angebots-Bereich
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
 var page_next_button: Button
+
+## Hover-Dropdown (Charm-/Sigil-Beschreibung), wie die Gravur-Station.
+var shop_tooltip: PanelContainer
+var shop_tooltip_title: Label
+var shop_tooltip_body: Label
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
@@ -107,8 +114,8 @@ func open() -> void:
 
 # --- Gerüst (Neon-Panel) -----------------------------------------------------
 
-## Kopfzeile (Titel + Geld), zwei Rubriken-Spalten, Fußbereich (Blättern +
-## Fertig). Der Neon-Rahmen kommt vom Hub darunter.
+## Kopfzeile (Titel + Geld), Inhalts-Bereich (Charms oben, Angebote unten),
+## Fußbereich (Blättern + Fertig). Der Neon-Rahmen kommt vom Hub darunter.
 func _build_layout() -> void:
 	for child in get_children():
 		child.queue_free()
@@ -148,27 +155,12 @@ func _build_layout() -> void:
 		root.add_child(notice)
 		pending_bet_notice = ""
 
+	# Inhalts-Bereich: die zwei Zonen (Charms / Angebote) baut _rebuild_content je Seite.
 	content_root = VBoxContainer.new()
 	content_root.name = "Content"
+	content_root.add_theme_constant_override("separation", int(u * 1.6))
 	content_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(content_root)
-	var columns := HBoxContainer.new()
-	columns.name = "Columns"
-	columns.add_theme_constant_override("separation", int(u * 2.5))
-	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content_root.add_child(columns)
-	left_column = VBoxContainer.new()
-	left_column.name = "DiceColumn"
-	left_column.add_theme_constant_override("separation", int(u * 1.2))
-	left_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_column.size_flags_stretch_ratio = 1.0
-	columns.add_child(left_column)
-	right_column = VBoxContainer.new()
-	right_column.name = "CharmSigilColumn"
-	right_column.add_theme_constant_override("separation", int(u * 1.2))
-	right_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_column.size_flags_stretch_ratio = 1.0
-	columns.add_child(right_column)
 
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
@@ -190,6 +182,8 @@ func _build_layout() -> void:
 	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)
+
+	_build_shop_tooltip()  # zuletzt: liegt als Overlay über allem
 
 # --- Blättern ------------------------------------------------------------------
 
@@ -232,7 +226,7 @@ func _play_flip_animation() -> void:
 
 # --- Doppelseiten bauen --------------------------------------------------------
 
-## Frische Doppelseite: Würfel-Angebote plus bis zu zwei unbesessene Charms.
+## Frische Doppelseite: vier Charms oben, unten drei Würfel-Bündel + fünf Sigille.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
 	spread.dice_offers = DiceOffer.roll_offers(DICE_OFFER_COUNT, run.charm_ids())
@@ -245,7 +239,7 @@ func _build_spread() -> MenuSpread:
 		if not owned_ids.has(charm.id):
 			available.append(charm)
 	# Gewichtet nach Rarität ziehen, ohne Zurücklegen.
-	for i in 2:
+	for i in CHARM_OFFER_COUNT:
 		if available.is_empty():
 			break
 		var pick := Charm.pick_weighted(available)
@@ -254,11 +248,8 @@ func _build_spread() -> MenuSpread:
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	# Einzel-Sigille je Kategorie (Zahlen, Materialien, Würfel) in fester Reihenfolge.
-	var sigils: Array[Sigil] = []
-	for category in Sigil.CATEGORIES:
-		sigils.append_array(Sigil.roll_in_category(category, SIGIL_OFFERS_PER_CATEGORY))
-	spread.sigil_offers = sigils
+	# Gemischte Einzel-Sigille (alle Kategorien, seltenheits-gewichtet).
+	spread.sigil_offers = Sigil.roll_draft(SIGIL_OFFER_COUNT, Sigil.Rarity.COMMON)
 	spread.sigil_bought.resize(spread.sigil_offers.size())
 	spread.sigil_bought.fill(false)
 	return spread
@@ -273,104 +264,108 @@ func _show_spread() -> void:
 	sigil_offers = spread.sigil_offers
 	sigil_bought = spread.sigil_bought
 
-	_rebuild_left_column(spread)
-	_rebuild_right_column(spread)
+	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
 	_refresh_afford_state()
 
-## Gibt beide Spalten frei - auch beim Schließen wichtig, damit die
+## Gibt den Inhalt frei - auch beim Schließen wichtig, damit die
 ## 3D-Vorschau-Viewports nicht im Hintergrund weiterrendern.
 func _clear_pages() -> void:
-	if left_column != null:
-		for child in left_column.get_children():
-			child.queue_free()
-	if right_column != null:
-		for child in right_column.get_children():
+	if content_root != null:
+		for child in content_root.get_children():
 			child.queue_free()
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
 	sigil_buttons.clear()
 	sigil_button_prices.clear()
 
-func _rebuild_left_column(spread: MenuSpread) -> void:
-	for child in left_column.get_children():
+## Baut die zwei Zonen: oben die vier Charms (nur Symbol), unten das 2×4-Raster
+## aus Würfel-Bündeln und Sigillen.
+func _rebuild_content(spread: MenuSpread) -> void:
+	for child in content_root.get_children():
 		child.queue_free()
 	offer_buy_buttons.clear()
-
-	left_column.add_child(_section_heading("WÜRFEL"))
-	for i in spread.dice_offers.size():
-		left_column.add_child(_build_offer_card(spread.dice_offers[i], i))
-
-func _rebuild_right_column(spread: MenuSpread) -> void:
-	for child in right_column.get_children():
-		child.queue_free()
 	charm_buttons.clear()
 	sigil_buttons.clear()
 	sigil_button_prices.clear()
 
-	right_column.add_child(_section_heading("CHARMS – je $%d" % _charm_price()))
+	# Zone 1: Charms (nur Symbol; Beschreibung erscheint als Hover-Dropdown).
+	content_root.add_child(_section_heading("CHARMS – je $%d" % _charm_price()))
+	var charm_row := GridContainer.new()
+	charm_row.columns = CHARM_OFFER_COUNT
+	charm_row.add_theme_constant_override("h_separation", int(u * 1.5))
+	charm_row.add_theme_constant_override("v_separation", int(u * 1.0))
+	content_root.add_child(charm_row)
 	for i in spread.charm_options.size():
-		var charm := spread.charm_options[i]
-		var entry := HBoxContainer.new()
-		entry.add_theme_constant_override("separation", int(u * 1.0))
-		entry.add_child(CharmThumb.new(charm, int(u * 8.0)))
+		charm_row.add_child(_build_charm_card(spread.charm_options[i], i))
 
-		var button := _neon_button("", NEON_MAGENTA, u * 2.0)
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(0, u * 8.0)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		button.tooltip_text = charm.description
-		if spread.charm_bought[i] or run.owned_charm_ids().has(charm.id):
-			button.text = "%s (gekauft)\n%s" % [charm.display_name, charm.description]
-			button.disabled = true
-		else:
-			button.text = "%s\n%s\n$%d" % [charm.display_name, charm.description, _charm_price()]
-			button.pressed.connect(_on_charm_clicked.bind(i))
-		entry.add_child(button)
-		right_column.add_child(entry)
-		charm_buttons.append(button)
-
-	# Einzel-Sigille nach Kategorie gruppiert (Zahlen, Materialien, Würfel).
-	right_column.add_child(_section_heading("SIGILLE"))
-	var by_category := {}
+	# Zone 2: Angebote - zwei Reihen à vier (Würfel-Bündel zuerst, dann Sigille).
+	content_root.add_child(_section_heading("ANGEBOTE"))
+	var options := GridContainer.new()
+	options.columns = BOTTOM_GRID_COLUMNS
+	options.add_theme_constant_override("h_separation", int(u * 1.2))
+	options.add_theme_constant_override("v_separation", int(u * 1.0))
+	options.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_root.add_child(options)
+	for i in spread.dice_offers.size():
+		options.add_child(_build_offer_card(spread.dice_offers[i], i))
 	for i in spread.sigil_offers.size():
-		var cat: String = spread.sigil_offers[i].category
-		if not by_category.has(cat):
-			by_category[cat] = []
-		by_category[cat].append(i)
-	for category in Sigil.CATEGORIES:
-		if not by_category.has(category):
-			continue
-		right_column.add_child(_label(Sigil.CATEGORY_NAMES[category], u * 2.2, NEON_MUTED))
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", int(u * 1.0))
-		right_column.add_child(row)
-		for i in by_category[category]:
-			row.add_child(_build_sigil_card(spread.sigil_offers[i], i))
+		options.add_child(_build_sigil_card(spread.sigil_offers[i], i))
 
-## Sigil-Karte: prozedurales Siegel, Name, Kaufknopf mit Preis. Nach dem Kauf
-## "gekauft" (jedes Sigill nur einmal je Doppelseite).
+## Charm-Karte: nur das Symbol + Preis; Name und Wirkung zeigt der Hover-Dropdown.
+func _build_charm_card(charm: Charm, index: int) -> Control:
+	var owned := charm_bought[index] or run.owned_charm_ids().has(charm.id)
+	var card := _neon_button("", NEON_MAGENTA, u * 2.0)
+	card.custom_minimum_size = Vector2(0, u * 12.0)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, charm.display_name, charm.description))
+	card.mouse_exited.connect(_hide_shop_tooltip)
+
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", int(u * 0.4))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(column)
+
+	var thumb_holder := CenterContainer.new()
+	thumb_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	thumb_holder.add_child(CharmThumb.new(charm, int(u * 7.5)))
+	column.add_child(thumb_holder)
+
+	column.add_child(_label("gekauft" if owned else "$%d" % _charm_price(),
+		u * 2.0, NEON_MUTED if owned else NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+
+	if owned:
+		card.disabled = true
+	else:
+		card.pressed.connect(_on_charm_clicked.bind(index))
+	charm_buttons.append(card)
+	return card
+
+## Sigil-Karte im Angebots-Raster: prozedurales Siegel, Name, Kaufknopf mit Preis;
+## Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown. Nach dem Kauf "gekauft".
 func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
 	var price := _sigil_price(sigil)
 
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", int(u * 0.4))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.tooltip_text = "%s – %s (%s)\n%s" % [
-		sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity), sigil.description]
 
 	var thumb := SigilRenderer.for_sigil(sigil)
-	thumb.custom_minimum_size = Vector2(u * 9.0, u * 9.0)
+	thumb.custom_minimum_size = Vector2(u * 8.0, u * 8.0)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card.add_child(thumb)
 
-	var name_label := _label(sigil.display_name, u * 1.8, NEON_MUTED)
+	var name_label := _label(sigil.display_name, u * 1.8, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	name_label.clip_text = true
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(name_label)
 
 	var button := _neon_button("", NEON_GREEN, u * 2.0, Vector2(0, u * 4.0))
+	button.mouse_entered.connect(_show_shop_tooltip.bind(button,
+		"%s – %s (%s)" % [sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity)],
+		sigil.description))
+	button.mouse_exited.connect(_hide_shop_tooltip)
 	if sigil_bought[offer_index]:
 		button.text = "gekauft"
 		button.disabled = true
@@ -400,13 +395,15 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 	vbox.add_theme_constant_override("separation", int(u * 0.5))
 	card.add_child(vbox)
 
-	vbox.add_child(DiceRowView.build_row(offer.dice[0], int(u * 6.0), offer.size()))
+	var dice_row := DiceRowView.build_row(offer.dice[0], int(u * 5.0), offer.size())
+	dice_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(dice_row)
 
 	# Veredelungen benennen - die Mini-Vorschau allein ist zu klein, und der
 	# Aufpreis soll lesbar begründet sein.
 	var refinements := _refinement_text(offer.dice[0])
 	if refinements != "":
-		var refined_label := _label("Veredelt: %s" % refinements, u * 2.0, NEON_GOLD)
+		var refined_label := _label("Veredelt: %s" % refinements, u * 1.7, NEON_GOLD)
 		refined_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vbox.add_child(refined_label)
 
@@ -440,13 +437,61 @@ func _refinement_text(def: DieDefinition) -> String:
 func _section_heading(text: String) -> Label:
 	return _label(text, u * 2.8, NEON_CYAN)
 
-func _label(text: String, font_size: float, color: Color) -> Label:
+func _label(text: String, font_size: float, color: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
 	label.modulate = color
+	label.horizontal_alignment = align
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
+
+# --- Hover-Dropdown (wie die Gravur-Station) -----------------------------------
+
+func _build_shop_tooltip() -> void:
+	shop_tooltip = PanelContainer.new()
+	shop_tooltip.name = "ShopTooltip"
+	shop_tooltip.visible = false
+	shop_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_panel(shop_tooltip)
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", int(u * 0.4))
+	shop_tooltip.add_child(box)
+	shop_tooltip_title = Label.new()
+	shop_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_score_label(shop_tooltip_title, int(u * 2.6), CasinoStyle.GOLD)
+	box.add_child(shop_tooltip_title)
+	shop_tooltip_body = Label.new()
+	shop_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shop_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	shop_tooltip_body.custom_minimum_size = Vector2(u * 28.0, 0)
+	CasinoStyle.style_body_label(shop_tooltip_body, int(u * 1.9), CasinoStyle.CREAM)
+	box.add_child(shop_tooltip_body)
+	add_child(shop_tooltip)
+
+## Zeigt den Dropdown unter (oder notfalls über) dem überfahrenen Element,
+## immer im Panel eingeklemmt (clip_contents schneidet Überstände ab).
+func _show_shop_tooltip(anchor: Control, title: String, body: String) -> void:
+	if shop_tooltip == null:
+		return
+	shop_tooltip_title.text = title
+	shop_tooltip_body.text = body
+	shop_tooltip.visible = true
+	shop_tooltip.reset_size()
+	var local := anchor.get_global_rect().position - get_global_rect().position
+	var below := local.y + anchor.size.y + u * 0.6
+	var above := local.y - shop_tooltip.size.y - u * 0.6
+	var pos := Vector2(local.x, below)
+	if below + shop_tooltip.size.y > size.y - u * 1.0 and above >= u * 1.0:
+		pos.y = above  # unten kein Platz -> über das Element klappen
+	pos.x = clampf(pos.x, u * 1.0, maxf(u * 1.0, size.x - shop_tooltip.size.x - u * 1.0))
+	pos.y = clampf(pos.y, u * 1.0, maxf(u * 1.0, size.y - shop_tooltip.size.y - u * 1.0))
+	shop_tooltip.position = pos
+
+func _hide_shop_tooltip() -> void:
+	if shop_tooltip != null:
+		shop_tooltip.visible = false
 
 ## Knopf im Display-Neon-Stil: dunkler Grund, Rahmen in der Rubriken-Farbe;
 ## Hover/Druck wechseln auf Gold, deaktiviert dimmt ab.
