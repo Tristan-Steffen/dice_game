@@ -40,15 +40,15 @@ func test_place_bet_deducts_and_registers():
 	assert_eq(run.active_side_bets.size(), 1, "Wette registriert")
 	assert_true(panel.placed[0])
 
-func test_place_sigil_stake_bet_consumes_coupon():
-	run.grant_coupon(Coupon.chisel())
+func test_place_sigil_stake_bet_consumes_sigil():
+	run.grant_sigil(Sigil.chisel())
 	var pawn: Array[SideBet] = []
 	for t in SideBet.TEMPLATES:
 		if t["id"] == "pawn":  # 1 Sigill Einsatz
 			pawn.append(SideBet._from_template(t))
 	panel.open_betting(pawn)
 	panel._on_bet_pressed(0)
-	assert_eq(run.owned_coupons.size(), 0, "Sigill als Einsatz geopfert")
+	assert_eq(run.owned_sigils.size(), 0, "Sigill als Einsatz geopfert")
 	assert_eq(run.active_side_bets.size(), 1, "Sigill-Wette registriert")
 
 func test_cannot_place_twice():

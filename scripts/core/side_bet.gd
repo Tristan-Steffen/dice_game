@@ -2,7 +2,7 @@ class_name SideBet
 extends RefCounted
 ## Eine Nebenwette der "Bank": vor einer Runde platziert (Einsatz sofort fällig),
 ## wird sie am Rundenende gegen die Rundenbilanz geprüft. Gewinn = eine
-## Aufwertungs-Ausschüttung (Coupons). Reine Daten/Logik, keine Nodes.
+## Aufwertungs-Ausschüttung (Sigille). Reine Daten/Logik, keine Nodes.
 
 ## Bedingung, die die Runde erfüllen muss:
 ## COMBO       - eine genommene Hand mindestens vom Rang target_combo,
@@ -11,9 +11,9 @@ extends RefCounted
 ## NO_FARKLE   - die Runde ohne einen einzigen Farkle räumen.
 enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE }
 
-## Womit der Einsatz bezahlt wird: Geld oder geopferte Sigille (Coupons).
+## Womit der Einsatz bezahlt wird: Geld oder geopferte Sigille.
 enum Stake { MONEY, SIGILS }
-## Was der Gewinn ausschüttet: Geld oder Sigille (Aufwertungs-Coupons).
+## Was der Gewinn ausschüttet: Geld oder Sigille (Aufwertungen).
 enum Payout { SIGILS, MONEY }
 
 var id: String = ""
@@ -22,9 +22,9 @@ var target: int = 0             # HAND_SCORE: Punkte; FEW_DICE: max. Würfel
 var target_combo: String = ""   # nur COMBO: DiceScoring-Kategorie-Key
 var stake_kind: int = Stake.MONEY
 var stake: int = 0              # nur Stake.MONEY: Einsatz in Geld
-var stake_sigils: int = 0      # nur Stake.SIGILS: Anzahl geopferter Coupons
+var stake_sigils: int = 0      # nur Stake.SIGILS: Anzahl geopferter Sigille
 var payout_kind: int = Payout.SIGILS
-var reward_coupons: int = 1     # nur Payout.SIGILS: Anzahl gewürfelter Aufwertungen
+var reward_sigils: int = 1     # nur Payout.SIGILS: Anzahl gewürfelter Aufwertungen
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var display_name: String = ""
 var description: String = ""
@@ -74,9 +74,9 @@ const TEMPLATES := [
 		"desc": "Setze 1 Sigill; räume die Runde ohne Farkle für zwei neue."},
 ]
 
-## Aufwertungs-Sorten, die ein Gewinn ausschüttet (Ätzungen + Materialien;
-## keine Menü-/Kanten-Sonderfälle, damit die Belohnung immer im Inventar landet).
-const REWARD_KINDS := [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL]
+## Sigill-Kategorien, die ein Gewinn ausschüttet (Zahl + Material; kein Menü/
+## Würfel-Sonderfall, damit die Belohnung immer im Inventar landet).
+const REWARD_KINDS := [Sigil.CATEGORY_NUMBER, Sigil.CATEGORY_MATERIAL]
 
 static func _from_template(t: Dictionary) -> SideBet:
 	var bet := SideBet.new()
@@ -88,7 +88,7 @@ static func _from_template(t: Dictionary) -> SideBet:
 	bet.stake = int(t.get("stake", 0))
 	bet.stake_sigils = int(t.get("stake_sigils", 0))
 	bet.payout_kind = int(t.get("payout", Payout.SIGILS))
-	bet.reward_coupons = int(t.get("reward", 1))
+	bet.reward_sigils = int(t.get("reward", 1))
 	bet.payout_money = int(t.get("payout_money", 0))
 	bet.display_name = t["name"]
 	bet.description = t["desc"]
@@ -172,16 +172,16 @@ func status_label(result: Dictionary) -> String:
 			return "Farkle!" if bool(result.get("farkled", false)) else "sauber"
 	return ""
 
-## Die bei Gewinn gutzuschreibenden Coupons (zufällig aus REWARD_KINDS).
-func reward_list() -> Array[Coupon]:
-	var pool: Array[Coupon] = []
-	for coupon in Coupon.all():
-		if REWARD_KINDS.has(coupon.kind):
-			pool.append(coupon)
-	var result: Array[Coupon] = []
+## Die bei Gewinn gutzuschreibenden Sigille (zufällig aus REWARD_KINDS).
+func reward_list() -> Array[Sigil]:
+	var pool: Array[Sigil] = []
+	for sigil in Sigil.all():
+		if REWARD_KINDS.has(sigil.category):
+			pool.append(sigil)
+	var result: Array[Sigil] = []
 	if pool.is_empty():
 		return result
-	for i in reward_coupons:
+	for i in reward_sigils:
 		result.append(pool[randi() % pool.size()])
 	return result
 
@@ -195,4 +195,4 @@ func stake_label() -> String:
 func reward_label() -> String:
 	if payout_kind == Payout.MONEY:
 		return "$%d" % payout_money
-	return "%d×" % reward_coupons
+	return "%d×" % reward_sigils

@@ -1,5 +1,5 @@
 class_name EtchingEffects
-## Seiten-Transformationen der Ätzungs-Coupons: jede Funktion verändert die
+## Seiten-Transformationen der Zahl-Sigille: jede Funktion verändert die
 ## faces EINES DieDefinition in place. face-Parameter sind Seiten-Indizes 0..5;
 ## welche Seite gemeint ist, wählt die Anwendungs-UI (DieInspectorView).
 

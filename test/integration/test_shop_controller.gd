@@ -109,121 +109,74 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-# --- Coupon-Packs ---------------------------------------------------------------
+# --- Einzel-Sigille ------------------------------------------------------------
 
-## Sammelt die kinds aller sheet_purchased-Signale ein (siehe GameRun) - die
-## Enthüllung selbst zeigt im echten Spiel scene_root, hier zählt nur das Signal.
-func _capture_sheet_kinds() -> Array:
-	var kinds: Array = []
-	run.sheet_purchased.connect(func(_sheet: CouponSheet, kind: int) -> void: kinds.append(kind))
-	return kinds
-
-## Erzwingt ein bestimmtes Pack-Sortiment auf der aktuellen Doppelseite (das echte
-## ist zufällig, siehe _build_spread) und setzt die "vergriffen"-Marken zurück, um
-## einen bestimmten Pack-Typ gezielt kaufen zu können. Die _on_sheet_pressed-Aufrufe
-## adressieren danach die Angebote per Index in dieser Reihenfolge.
-func _force_pack_offers(offers: Array) -> void:
+## Erzwingt ein bestimmtes Sigil-Sortiment auf der aktuellen Doppelseite (das
+## echte ist zufällig, siehe _build_spread) und setzt die "gekauft"-Marken zurück.
+func _force_sigil_offers(sigils: Array) -> void:
 	var spread = shop.spreads[shop.current_spread_index]
-	var typed: Array[Vector2i] = []
-	typed.assign(offers)
-	spread.pack_offers = typed
-	spread.pack_bought.resize(typed.size())
-	spread.pack_bought.fill(false)
+	var typed: Array[Sigil] = []
+	typed.assign(sigils)
+	spread.sigil_offers = typed
+	spread.sigil_bought.resize(typed.size())
+	spread.sigil_bought.fill(false)
 	shop._show_spread()
 
-func test_buy_general_snippet_deducts_price_and_emits_sheet():
-	var kinds := _capture_sheet_kinds()
-	_force_pack_offers([Vector2i(0, 0)])  # Coupon-Heft 2×2, $6
-	shop._on_sheet_pressed(0)
-	assert_eq(run.money, 94)  # 100 - 6
-	assert_eq(kinds, [CouponSheet.Kind.SNIPPET])
+func test_buy_sigil_deducts_price_and_stores():
+	_force_sigil_offers([Sigil.chisel()])  # häufig, $5
+	shop._on_sigil_buy_pressed(0)
+	assert_eq(run.money, 95, "Preis (häufig $5) abgezogen")
+	assert_eq(run.owned_sigils.size(), 1, "Sigill sofort im Inventar")
 
-func test_pack_offer_is_single_use():
-	# Jedes Pack-Angebot lässt sich nur EINMAL kaufen; der zweite Klick prallt ab
-	# und die Karte ist danach "vergriffen".
-	var kinds := _capture_sheet_kinds()
-	_force_pack_offers([Vector2i(0, 0)])  # Coupon-Heft 2×2, $6
-	shop._on_sheet_pressed(0)
-	shop._on_sheet_pressed(0)  # zweiter Kauf desselben Angebots
-	assert_eq(run.money, 94, "nur einmal abgezogen")
-	assert_eq(kinds, [CouponSheet.Kind.SNIPPET], "nur ein Bogen ausgewürfelt")
-	assert_true(shop.sheet_buttons[0].disabled, "Karte ist danach vergriffen")
-	assert_true(shop.pack_bought[0], "als gekauft vermerkt")
+func test_sigil_offer_is_single_use():
+	_force_sigil_offers([Sigil.chisel()])
+	shop._on_sigil_buy_pressed(0)
+	shop._on_sigil_buy_pressed(0)  # zweiter Kauf desselben Angebots
+	assert_eq(run.money, 95, "nur einmal abgezogen")
+	assert_eq(run.owned_sigils.size(), 1)
+	assert_true(shop.sigil_buttons[0].disabled, "Karte ist danach gekauft")
+	assert_true(shop.sigil_bought[0], "als gekauft vermerkt")
 
-func test_cannot_buy_pack_without_funds():
-	var kinds := _capture_sheet_kinds()
+func test_cannot_buy_sigil_without_funds():
 	run.money = 3
-	_force_pack_offers([Vector2i(0, 2)])  # Coupon-Heft 5×5, $16
-	shop._on_sheet_pressed(0)
+	_force_sigil_offers([Sigil.chisel()])
+	shop._on_sigil_buy_pressed(0)
 	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
-	assert_eq(kinds.size(), 0, "kein Bogen ausgewürfelt")
+	assert_eq(run.owned_sigils.size(), 0, "kein Sigill gewährt")
 
-func test_pack_buttons_disabled_by_price():
-	# Das Sortiment ist zufällig - erwartete Preise daher aus den Angeboten der
-	# Seite (pack_offers) abgeleitet statt über feste Button-Indizes.
-	run.money = 8
+func test_sigil_buttons_disabled_by_price():
+	run.money = 2  # unter jedem Sigil-Preis
 	shop.open()
-	assert_eq(shop.sheet_buttons.size(), shop.pack_offers.size())
-	for i in shop.pack_offers.size():
-		var offer: Vector2i = shop.pack_offers[i]
-		var price: int = ShopController.PACKS[offer.x]["prices"][offer.y]
-		assert_eq(shop.sheet_buttons[i].disabled, run.money < price,
-			"Kaufbarkeit von %s (%s)" % [ShopController.PACKS[offer.x]["name"], ShopController.PACK_SIZES[offer.y]["label"]])
+	assert_gt(shop.sigil_buttons.size(), 0)
+	for button in shop.sigil_buttons:
+		assert_true(button.disabled, "Sigill bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_distinct_packs():
-	# PACK_OFFER_COUNT aus den 12 möglichen Sorte-×-Größe-Kombinationen, ohne Doppelte.
-	assert_eq(shop.pack_offers.size(), ShopController.PACK_OFFER_COUNT)
-	var seen := {}
-	for offer in shop.pack_offers:
-		assert_true(offer.x >= 0 and offer.x < ShopController.PACKS.size(), "gültige Pack-Sorte")
-		assert_true(offer.y >= 0 and offer.y < ShopController.PACK_SIZES.size(), "gültige Größe")
-		assert_false(seen.has(offer), "doppeltes Angebot %s" % offer)
-		seen[offer] = true
+func test_spread_offers_sigils_across_three_categories():
+	var per := ShopController.SIGIL_OFFERS_PER_CATEGORY
+	assert_eq(shop.sigil_offers.size(), Sigil.CATEGORIES.size() * per, "je Kategorie feste Anzahl")
+	var by_category := {}
+	for sigil in shop.sigil_offers:
+		by_category[sigil.category] = int(by_category.get(sigil.category, 0)) + 1
+	for category in Sigil.CATEGORIES:
+		assert_eq(by_category.get(category, 0), per, "je Kategorie %d Angebote" % per)
 
-func test_pack_offers_persist_when_flipping_back():
-	var first_offers: Array[Vector2i] = shop.pack_offers.duplicate()
+func test_sigil_offers_persist_when_flipping_back():
+	var first_ids: Array = []
+	for sigil in shop.sigil_offers:
+		first_ids.append(sigil.id)
 	shop._on_page_next_pressed()  # neue Doppelseite (kostet Gebühr)
 	shop._on_page_back_pressed()
-	assert_eq(shop.pack_offers, first_offers, "zurückgeblättert = dasselbe Sortiment")
+	var back_ids: Array = []
+	for sigil in shop.sigil_offers:
+		back_ids.append(sigil.id)
+	assert_eq(back_ids, first_ids, "zurückgeblättert = dasselbe Sortiment")
 
-func test_specialized_pack_only_contains_its_kinds():
-	# Tageskarte (nur Gerichte) und Juwelier-Katalog (nur Veredelungen): jeder
-	# echte Coupon des gekauften Bogens trägt eine erlaubte Art.
-	var sheets: Array = []
-	run.sheet_purchased.connect(func(sheet: CouponSheet, _kind: int) -> void: sheets.append(sheet))
-	run.money = 1000
-	for i in 5:
-		# Jedes Angebot ist einmalig - je Generation das Sortiment neu erzwingen.
-		_force_pack_offers([Vector2i(3, 2), Vector2i(2, 2)])  # Tageskarte, Juwelier (5×5)
-		shop._on_sheet_pressed(0)  # Tageskarte 5×5
-		shop._on_sheet_pressed(1)  # Juwelier-Katalog 5×5
-	for s in sheets.size():
-		var expected: Array = [Coupon.KIND_MEAL] if s % 2 == 0 else [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE]
-		for tile in sheets[s].tiles:
-			if tile.kind == CouponSheet.TileKind.ETCHING:
-				assert_true(expected.has(tile.coupon.kind),
-					"%s gehört nicht in dieses Pack" % tile.coupon.id)
+func test_sigil_price_follows_rarity():
+	assert_eq(shop._sigil_price(Sigil.chisel()), ShopController.SIGIL_PRICES[Sigil.Rarity.COMMON])
+	assert_eq(shop._sigil_price(Sigil.fine_engraving()), ShopController.SIGIL_PRICES[Sigil.Rarity.UNCOMMON])
+	assert_eq(shop._sigil_price(Sigil.blueprint()), ShopController.SIGIL_PRICES[Sigil.Rarity.RARE])
 
-func test_general_pack_is_cheaper_than_specialized():
-	for size_index in ShopController.PACK_SIZES.size():
-		var general_price: int = ShopController.PACKS[0]["prices"][size_index]
-		for pack_index in range(1, ShopController.PACKS.size()):
-			assert_gt(int(ShopController.PACKS[pack_index]["prices"][size_index]), general_price,
-				"%s teurer als das gemischte Heft" % ShopController.PACKS[pack_index]["name"])
-
-func test_every_pack_has_a_price_per_size():
-	# Fünf Bogengrößen (2×2..9×9) - jede Preisliste muss genauso lang sein,
-	# und größere Bögen kosten strikt mehr.
-	assert_eq(ShopController.PACK_SIZES.size(), 5)
-	for pack in ShopController.PACKS:
-		var prices: Array = pack["prices"]
-		assert_eq(prices.size(), ShopController.PACK_SIZES.size(),
-			"Preisliste von %s deckt alle Größen ab" % pack["id"])
-		for i in range(1, prices.size()):
-			assert_gt(int(prices[i]), int(prices[i - 1]),
-				"%s: Größe %d teurer als %d" % [pack["id"], i, i - 1])
-
-# --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Feinschmecker, Mengenrabatt) ----
+# --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Mengenrabatt) -------------------
 
 ## Zwingt bestimmte Charms als Angebot auf die aktuelle Doppelseite (das echte
 ## Angebot ist zufällig) - für Tests, die einen Shop-Charm IM Besuch kaufen.
@@ -237,18 +190,6 @@ func _force_charm_options(charms: Array) -> void:
 	bought.fill(false)
 	spread.charm_bought = bought
 	shop._show_spread()
-
-func test_discount_charm_applies_within_the_same_visit():
-	# Schnäppchenjäger IM Shop kaufen: alle Pack-Preisschilder (und die
-	# Kaufbarkeits-Schwellen, siehe sheet_button_prices) rabattieren sofort -
-	# nicht erst beim nächsten Besuch.
-	_force_charm_options([Charm.bargain_hunter()])
-	var before: Array[int] = shop.sheet_button_prices.duplicate()
-	shop._on_charm_clicked(0)
-	assert_eq(shop.sheet_button_prices.size(), before.size(), "Sortiment bleibt dasselbe")
-	for i in before.size():
-		assert_eq(shop.sheet_button_prices[i], maxi(1, before[i] - 2),
-			"Pack-Preis %d sofort $2 günstiger" % i)
 
 func test_cash_discount_lowers_the_second_charm_in_the_same_visit():
 	# Skonto kaufen ($15), danach kostet der zweite Charm sofort $10.
@@ -276,31 +217,16 @@ func test_small_change_lowers_flip_fee():
 	shop._on_page_next_pressed()
 	assert_eq(run.money, 99, "Blätter-Gebühr $1 statt $2")
 
-func test_gourmet_halves_tageskarte_packs():
-	run.owned_charms.append(Charm.gourmet())
-	run.money = 100
-	# Tageskarte ist Pack-Index 3 (siehe ShopController.PACKS); Größe 3×3 kostet
-	# normal $13 - mit Feinschmecker $7.
-	_force_pack_offers([Vector2i(3, 1)])
-	shop._on_sheet_pressed(0)
-	assert_eq(run.money, 93)
-
 func test_bulk_discount_only_hits_triple_bundles():
 	run.owned_charms.append(Charm.bulk_discount())
 	for offer in shop.dice_offers:
 		var expected: int = offer.price - 5 if offer.size() >= 3 else offer.price
 		assert_eq(shop._offer_price(offer), maxi(1, expected))
 
-func test_every_pack_has_valid_kinds():
-	var known := [Coupon.KIND_ETCHING, Coupon.KIND_MATERIAL, Coupon.KIND_EDGE, Coupon.KIND_MEAL]
-	for pack in ShopController.PACKS:
-		for kind in pack["kinds"]:
-			assert_true(known.has(kind), "unbekannter kind %s in %s" % [kind, pack["id"]])
-
-# --- Kaufbarkeit bei Geldänderung (Chip-Coupons o.ä.) --------------------------
+# --- Kaufbarkeit bei Geldänderung ----------------------------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
-# ist (z.B. durch die Chip-Coupons der Bogen-Abschluss-Animation), werden zuvor
-# gesperrte Käufe SOFORT wieder freigeschaltet - ohne dass der Shop neu öffnet.
+# ist, werden zuvor gesperrte Käufe SOFORT wieder freigeschaltet - ohne dass der
+# Shop neu öffnet.
 
 func test_money_gain_re_enables_offer_buttons():
 	run.money = 5

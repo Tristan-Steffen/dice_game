@@ -120,12 +120,12 @@ func test_edge_chip_has_no_tooltip_without_edge_material() -> void:
 	view.show_die(def)
 	assert_eq(_edge_chip().mouse_entered.get_connections().size(), 0, "kahle Kanten -> kein Tooltip")
 
-func test_coupon_slots_wire_a_hover_tooltip() -> void:
-	# Auch die Coupon-Slots des Gravur-Bords (Ätzungen/Materialien/Kanten) tragen den
+func test_sigil_slots_wire_a_hover_tooltip() -> void:
+	# Auch die Sigil-Slots des Gravur-Bords (Ätzungen/Materialien/Kanten) tragen den
 	# handgesteuerten Wirkungs-Tooltip - nicht nur die Seiten-Chips.
 	view.run = GameRun.new_run()
-	view.run.grant_coupon(Coupon.chisel())
-	view._build_coupon_board()
+	view.run.grant_sigil(Sigil.chisel())
+	view._build_sigil_board()
 	assert_gt(view.slot_entries.size(), 0, "das Bord hat Slots")
 	for entry in view.slot_entries:
 		var slot: Button = entry["button"]

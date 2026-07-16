@@ -3,7 +3,7 @@ extends Control
 ## Die Gravur-Station für einen einzelnen Würfel - ein Neon-Panel auf dem
 ## Tisch-Display (HubView.attach_panel). Der gegriffene Würfel schwebt als
 ## ECHTES Weltobjekt über der Bühne oben im Panel; darunter die Bedienung:
-## Seite (oder Kanten) über die Chips wählen, dann einen Coupon auf dem
+## Seite (oder Kanten) über die Chips wählen, dann einen Sigil auf dem
 ## Gravur-Bord klicken. Mehrstufige Ätzungen fragen die zweite Seite bzw. den
 ## Zielwert nach. Der gezeigte Würfel ist DIESELBE DieDefinition-Instanz wie
 ## im Pool - die Ätzung wirkt dauerhaft. Bedient über die Maus-Weiterleitung;
@@ -12,7 +12,7 @@ extends Control
 ## Nach dem Anwenden einer Ätzung - scene_root zeichnet die Trays neu.
 signal changed
 ## Nach dem Anwenden, mit Quelle für die Absorptions-Animation.
-signal applied(coupon_id: String, slot_px: Vector2)
+signal applied(sigil_id: String, slot_px: Vector2)
 signal closed
 ## Zelle des Würfel-Rasters angeklickt: scene_root wechselt das Gravur-Ziel
 ## (slot = ECHTER Slot-Index im Ursprungs-Tray).
@@ -51,16 +51,16 @@ const STAGE_FRACTION := 0.15
 ## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
 const TRAY_TILE := 8.91
 
-## Der laufende Spiellauf (setzt scene_root) - Coupon-Bestand und -Verbrauch.
+## Der laufende Spiellauf (setzt scene_root) - Sigil-Bestand und -Verbrauch.
 var run: GameRun
 
 var current_def: DieDefinition = null
 var selected_face: int = -1  # gewählte physische Seite (0..5), -1 = keine
 ## True, wenn statt einer Seite der KANTEN-Rahmen gewählt ist (Ziel der
-## Kanten-Coupons); schließt selected_face aus.
+## Kanten-Sigille); schließt selected_face aus.
 var edges_selected: bool = false
 var mode: int = Mode.SELECT
-var active_coupon_id: String = ""  # Coupon des laufenden Zweitschritts
+var active_sigil_id: String = ""  # Sigil des laufenden Zweitschritts
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
@@ -107,12 +107,12 @@ func show_die(def: DieDefinition) -> void:
 	selected_face = -1
 	edges_selected = false
 	mode = Mode.SELECT
-	active_coupon_id = ""
+	active_sigil_id = ""
 	if fresh_open:
 		_build_layout()
-		_build_coupon_board()
+		_build_sigil_board()
 	else:
-		_refresh_coupon_enabled()
+		_refresh_sigil_enabled()
 	die_view.set_dice([current_def] as Array[DieDefinition])
 	_refresh_face_summary()
 	_update_prompt()
@@ -458,11 +458,11 @@ func _on_edges_clicked(_die_index: int = 0) -> void:
 ## Wertauswahl schließen, Anzeige/Sperren anpassen.
 func _refresh_after_selection() -> void:
 	mode = Mode.SELECT
-	active_coupon_id = ""
+	active_sigil_id = ""
 	_hide_value_picker()
 	_refresh_face_summary()
 	_update_prompt()
-	_refresh_coupon_enabled()
+	_refresh_sigil_enabled()
 
 ## Klick auf einen Seiten-Chip. Im Zweitschritt wird möglichst eine ANDERE
 ## Seite desselben Werts genommen, damit gleiche Werte nicht auf sich selbst verweisen.
@@ -487,153 +487,153 @@ func _face_index_for_value(value: int, exclude: int) -> int:
 			fallback = i
 	return fallback
 
-## Verteilt einen Coupon-Klick nach Art: Kanten-Coupons brauchen den
-## Kanten-Chip, Material-/Ätzungs-Coupons eine gewählte Seite. Nur im
+## Verteilt einen Sigil-Klick nach Art: Kanten-Sigille brauchen den
+## Kanten-Chip, Material-/Ätzungs-Sigille eine gewählte Seite. Nur im
 ## Grundmodus - im Zweitschritt ist das Bord gesperrt.
-func _on_coupon_pressed(coupon_id: String) -> void:
+func _on_sigil_pressed(sigil_id: String) -> void:
 	if mode != Mode.SELECT:
 		return
-	if Coupon.is_edge_id(coupon_id):
-		_apply_edge_coupon(coupon_id)
+	if Sigil.is_edge_id(sigil_id):
+		_apply_edge_sigil(sigil_id)
 	elif selected_face == -1:
 		return
-	elif DieMaterial.is_valid_id(coupon_id):
-		_apply_material_coupon(coupon_id)
+	elif DieMaterial.is_valid_id(sigil_id):
+		_apply_material_sigil(sigil_id)
 	else:
-		_apply_etching_coupon(coupon_id)
+		_apply_number_sigil(sigil_id)
 
 ## Setzt das Kanten-Material (ein neues ersetzt ein vorhandenes).
-func _apply_edge_coupon(coupon_id: String) -> void:
+func _apply_edge_sigil(sigil_id: String) -> void:
 	if not edges_selected:
 		return
-	var material_id := coupon_id.trim_prefix(Coupon.EDGE_PREFIX)
+	var material_id := sigil_id.trim_prefix(Sigil.EDGE_PREFIX)
 	if current_def.edge_material == material_id:
 		prompt_label.text = "Die Kanten tragen bereits %s." % DieMaterial.by_id(material_id).display_name
 		return
 	current_def.edge_material = material_id
-	_finish_apply(coupon_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
+	_finish_apply(sigil_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
 
 ## Belegt die gewählte Seite; ein neues Material ersetzt ein vorhandenes.
-func _apply_material_coupon(coupon_id: String) -> void:
-	if current_def.materials[selected_face] == coupon_id:
-		prompt_label.text = "Diese Seite trägt bereits %s." % DieMaterial.by_id(coupon_id).display_name
+func _apply_material_sigil(sigil_id: String) -> void:
+	if current_def.materials[selected_face] == sigil_id:
+		prompt_label.text = "Diese Seite trägt bereits %s." % DieMaterial.by_id(sigil_id).display_name
 		return
-	current_def.materials[selected_face] = coupon_id
-	_finish_apply(coupon_id, "Material angebracht: %s" % DieMaterial.by_id(coupon_id).display_name)
+	current_def.materials[selected_face] = sigil_id
+	_finish_apply(sigil_id, "Material angebracht: %s" % DieMaterial.by_id(sigil_id).display_name)
 
 ## Einstufige Ätzungen wirken sofort; mehrstufige gehen in den Wart-Modus.
-func _apply_etching_coupon(coupon_id: String) -> void:
-	match coupon_id:
-		Coupon.OVERCOUNT_ENGRAVING:
+func _apply_number_sigil(sigil_id: String) -> void:
+	match sigil_id:
+		Sigil.OVERCOUNT_ENGRAVING:
 			EtchingEffects.overcount_engraving(current_def, selected_face)
-			_finish_apply(coupon_id, "Überzahl-Gravur: Seite +1")
-		Coupon.FINE_ENGRAVING:
-			_begin_value_pick(coupon_id)
-		Coupon.CHISEL:
-			_await_second_face(coupon_id, "Meißel: klicke die Quellseite (ihr Wert wird auf die gewählte Seite kopiert).")
-		Coupon.GRINDSTONE:
-			_await_second_face(coupon_id, "Schleifstein: gewählte Seite bekommt +1 – klicke jetzt die Seite für −1.")
-		Coupon.FILE_DOWN:
+			_finish_apply(sigil_id, "Überzahl-Gravur: Seite +1")
+		Sigil.FINE_ENGRAVING:
+			_begin_value_pick(sigil_id)
+		Sigil.CHISEL:
+			_await_second_face(sigil_id, "Meißel: klicke die Quellseite (ihr Wert wird auf die gewählte Seite kopiert).")
+		Sigil.GRINDSTONE:
+			_await_second_face(sigil_id, "Schleifstein: gewählte Seite bekommt +1 – klicke jetzt die Seite für −1.")
+		Sigil.FILE_DOWN:
 			if not EtchingEffects.can_file_down(current_def, selected_face):
 				prompt_label.text = "Feile: diese Seite ist schon 1."
 				return
 			EtchingEffects.file_down(current_def, selected_face)
-			_finish_apply(coupon_id, "Feile: Seite −1")
-		Coupon.DOUBLE_NOTCH:
-			_await_second_face(coupon_id, "Doppelkerbe: gewählte Seite +1 – klicke die zweite Seite (auch +1).")
-		Coupon.AVERAGING:
-			_await_second_face(coupon_id, "Mittelung: klicke die zweite Seite – beide werden ihr aufgerundeter Mittelwert.")
-		Coupon.MIRROR:
+			_finish_apply(sigil_id, "Feile: Seite −1")
+		Sigil.DOUBLE_NOTCH:
+			_await_second_face(sigil_id, "Doppelkerbe: gewählte Seite +1 – klicke die zweite Seite (auch +1).")
+		Sigil.AVERAGING:
+			_await_second_face(sigil_id, "Mittelung: klicke die zweite Seite – beide werden ihr aufgerundeter Mittelwert.")
+		Sigil.MIRROR:
 			EtchingEffects.mirror_die(current_def)
-			_finish_apply(coupon_id, "Spiegelung: Würfel invertiert")
-		Coupon.STRAIGHTEN:
+			_finish_apply(sigil_id, "Spiegelung: Würfel invertiert")
+		Sigil.STRAIGHTEN:
 			EtchingEffects.straighten(current_def)
-			_finish_apply(coupon_id, "Begradigung: ungerade Seiten +1")
-		Coupon.TRANSPLANT:
+			_finish_apply(sigil_id, "Begradigung: ungerade Seiten +1")
+		Sigil.TRANSPLANT:
 			if not EtchingEffects.can_transplant(current_def, selected_face):
 				prompt_label.text = "Transplantat: diese Seite ist schon der Höchstwert."
 				return
 			EtchingEffects.transplant(current_def, selected_face)
-			_finish_apply(coupon_id, "Transplantat: Seite auf Höchstwert gehoben")
-		Coupon.CONNECT_UP:
-			_await_second_face(coupon_id, "Anschluss: klicke die Quellseite – die gewählte Seite wird ihr Wert + 1.")
-		Coupon.IMPRINT:
+			_finish_apply(sigil_id, "Transplantat: Seite auf Höchstwert gehoben")
+		Sigil.CONNECT_UP:
+			_await_second_face(sigil_id, "Anschluss: klicke die Quellseite – die gewählte Seite wird ihr Wert + 1.")
+		Sigil.IMPRINT:
 			EtchingEffects.imprint(current_def, selected_face)
-			_finish_apply(coupon_id, "Abdruck: auf die zwei niedrigsten Seiten geprägt")
-		Coupon.BLUEPRINT:
+			_finish_apply(sigil_id, "Abdruck: auf die zwei niedrigsten Seiten geprägt")
+		Sigil.BLUEPRINT:
 			EtchingEffects.blueprint(current_def, selected_face)
-			_finish_apply(coupon_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
+			_finish_apply(sigil_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
 
-func _await_second_face(coupon_id: String, prompt: String) -> void:
+func _await_second_face(sigil_id: String, prompt: String) -> void:
 	mode = Mode.AWAIT_SECOND_FACE
-	active_coupon_id = coupon_id
+	active_sigil_id = sigil_id
 	prompt_label.text = prompt
-	_refresh_coupon_enabled()
+	_refresh_sigil_enabled()
 
-func _begin_value_pick(coupon_id: String) -> void:
+func _begin_value_pick(sigil_id: String) -> void:
 	mode = Mode.PICK_VALUE
-	active_coupon_id = coupon_id
+	active_sigil_id = sigil_id
 	_show_value_picker()
 	prompt_label.text = "Feingravur: Zielwert 1–12 wählen."
-	_refresh_coupon_enabled()
+	_refresh_sigil_enabled()
 
 func _on_value_pressed(value: int) -> void:
 	if mode != Mode.PICK_VALUE or selected_face == -1:
 		return
 	EtchingEffects.fine_engraving(current_def, selected_face, value)
 	_hide_value_picker()
-	_finish_apply(Coupon.FINE_ENGRAVING, "Feingravur: Seite = %d" % value)
+	_finish_apply(Sigil.FINE_ENGRAVING, "Feingravur: Seite = %d" % value)
 
 ## Schließt eine mehrschrittige Ätzung mit der zweiten Seite ab.
 func _complete_two_step(second_face: int) -> void:
 	if second_face == selected_face:
 		prompt_label.text = "Bitte eine ANDERE Seite als die gewählte anklicken."
 		return
-	match active_coupon_id:
-		Coupon.CHISEL:
+	match active_sigil_id:
+		Sigil.CHISEL:
 			EtchingEffects.chisel(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
-			_finish_apply(active_coupon_id, "Meißel: Seite kopiert")
-		Coupon.GRINDSTONE:
+			_finish_apply(active_sigil_id, "Meißel: Seite kopiert")
+		Sigil.GRINDSTONE:
 			if not EtchingEffects.can_grindstone_minus(current_def, second_face):
 				prompt_label.text = "Diese Seite ist schon 1 – wähle eine andere für −1."
-				return  # Wart-Modus bleibt, Coupon noch nicht verbraucht
+				return  # Wart-Modus bleibt, Sigil noch nicht verbraucht
 			EtchingEffects.grindstone(current_def, second_face, selected_face)  # −1=zweite, +1=gewählte
-			_finish_apply(active_coupon_id, "Schleifstein: +1 / −1 angewandt")
-		Coupon.DOUBLE_NOTCH:
+			_finish_apply(active_sigil_id, "Schleifstein: +1 / −1 angewandt")
+		Sigil.DOUBLE_NOTCH:
 			EtchingEffects.double_notch(current_def, selected_face, second_face)
-			_finish_apply(active_coupon_id, "Doppelkerbe: zwei Seiten +1")
-		Coupon.AVERAGING:
+			_finish_apply(active_sigil_id, "Doppelkerbe: zwei Seiten +1")
+		Sigil.AVERAGING:
 			EtchingEffects.averaging(current_def, selected_face, second_face)
-			_finish_apply(active_coupon_id, "Mittelung: zwei Seiten gemittelt")
-		Coupon.CONNECT_UP:
+			_finish_apply(active_sigil_id, "Mittelung: zwei Seiten gemittelt")
+		Sigil.CONNECT_UP:
 			EtchingEffects.connect_up(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
-			_finish_apply(active_coupon_id, "Anschluss: gewählte Seite = Quellwert + 1")
+			_finish_apply(active_sigil_id, "Anschluss: gewählte Seite = Quellwert + 1")
 
-## Verbraucht den Coupon, aktualisiert die Anzeige und meldet changed/applied.
+## Verbraucht den Sigil, aktualisiert die Anzeige und meldet changed/applied.
 ## Die gewählte Seite bleibt gewählt (direkt weitergravieren).
-func _finish_apply(coupon_id: String, message: String) -> void:
+func _finish_apply(sigil_id: String, message: String) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht.
-		var is_etching := not DieMaterial.is_valid_id(coupon_id) and not Coupon.is_edge_id(coupon_id)
+		var is_etching := not DieMaterial.is_valid_id(sigil_id) and not Sigil.is_edge_id(sigil_id)
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
-			message += " Gravierstift: Coupon nicht verbraucht!"
+			message += " Gravierstift: Sigil nicht verbraucht!"
 		else:
-			run.consume_coupon(coupon_id)
+			run.consume_sigil(sigil_id)
 	mode = Mode.SELECT
-	active_coupon_id = ""
+	active_sigil_id = ""
 	changed.emit()
-	applied.emit(coupon_id, _slot_center_px(coupon_id))
-	_build_coupon_board()  # Anzahl hat sich geändert
+	applied.emit(sigil_id, _slot_center_px(sigil_id))
+	_build_sigil_board()  # Anzahl hat sich geändert
 	_refresh_face_summary()
 	_rebuild_tray_grid()  # Augensumme kann sich geändert haben
 	prompt_label.text = "%s. Weiter gravieren oder Rechtsklick zum Schließen." % message
 
-## Display-Pixel der Bord-Kachel eines Coupons (Quelle der Absorptions-Bahn);
+## Display-Pixel der Bord-Kachel eines Sigille (Quelle der Absorptions-Bahn);
 ## Panel-Mitte als Rückfall.
-func _slot_center_px(coupon_id: String) -> Vector2:
+func _slot_center_px(sigil_id: String) -> Vector2:
 	for entry in slot_entries:
-		if entry["id"] == coupon_id and is_instance_valid(entry["button"]):
+		if entry["id"] == sigil_id and is_instance_valid(entry["button"]):
 			return (entry["button"] as Control).get_global_rect().get_center()
 	return get_global_rect().get_center()
 
@@ -641,10 +641,10 @@ func _slot_center_px(coupon_id: String) -> Vector2:
 ## siehe scene_root).
 func cancel_pending() -> void:
 	mode = Mode.SELECT
-	active_coupon_id = ""
+	active_sigil_id = ""
 	_hide_value_picker()
 	_update_prompt()
-	_refresh_coupon_enabled()
+	_refresh_sigil_enabled()
 
 func _update_prompt() -> void:
 	if edges_selected:
@@ -754,10 +754,10 @@ func _chip_box(fill: Color, border: Color, border_width: int) -> StyleBoxFlat:
 
 # --- Gravur-Bord -------------------------------------------------------------------
 
-## Baut das Bord neu: JEDER Coupon-Archetyp hat seinen festen Platz (nach
+## Baut das Bord neu: JEDER Sigil-Archetyp hat seinen festen Platz (nach
 ## Seltenheit sortiert, getrennt nach Ätzungen/Materialien/Kanten). Besitz
-## liegt als Coupon-Stapel darauf, nicht Besessenes als Schatten.
-func _build_coupon_board() -> void:
+## liegt als Sigil-Stapel darauf, nicht Besessenes als Schatten.
+func _build_sigil_board() -> void:
 	if board_box == null:
 		return
 	_hide_face_tooltip()  # die alten Slots (mit Hover-Verbindungen) fallen weg
@@ -765,36 +765,36 @@ func _build_coupon_board() -> void:
 	for child in board_box.get_children():
 		child.queue_free()
 
-	var counts := _coupon_counts()
-	var etchings: Array[Coupon] = []
-	var materials: Array[Coupon] = []
-	var edges: Array[Coupon] = []
-	for archetype in Coupon.all():
-		match archetype.kind:
-			Coupon.KIND_ETCHING:
+	var counts := _sigil_counts()
+	var etchings: Array[Sigil] = []
+	var materials: Array[Sigil] = []
+	var edges: Array[Sigil] = []
+	for archetype in Sigil.all():
+		match archetype.category:
+			Sigil.CATEGORY_NUMBER:
 				etchings.append(archetype)
-			Coupon.KIND_MATERIAL:
+			Sigil.CATEGORY_MATERIAL:
 				materials.append(archetype)
-			Coupon.KIND_EDGE:
+			Sigil.CATEGORY_DICE:
 				edges.append(archetype)
 			_:
-				pass  # Menü-Coupons wirken sofort und liegen nie im Bestand
-	_add_board_section("Ätzungen", _sorted_by_rarity(etchings), counts)
+				pass  # Menü-Sigille wirken sofort und liegen nie im Bestand
+	_add_board_section("Zahlen", _sorted_by_rarity(etchings), counts)
 	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
-	_add_board_section("Kanten", _sorted_by_rarity(edges), counts)
-	_refresh_coupon_enabled()
+	_add_board_section("Würfel", _sorted_by_rarity(edges), counts)
+	_refresh_sigil_enabled()
 
 ## Nach Seltenheit sortiert; innerhalb einer Seltenheit bleibt die kanonische
 ## Reihenfolge, damit die Plätze stabil liegen.
-func _sorted_by_rarity(archetypes: Array[Coupon]) -> Array[Coupon]:
-	var sorted: Array[Coupon] = []
-	for rarity in [Coupon.Rarity.COMMON, Coupon.Rarity.UNCOMMON, Coupon.Rarity.RARE]:
+func _sorted_by_rarity(archetypes: Array[Sigil]) -> Array[Sigil]:
+	var sorted: Array[Sigil] = []
+	for rarity in [Sigil.Rarity.COMMON, Sigil.Rarity.UNCOMMON, Sigil.Rarity.RARE]:
 		for archetype in archetypes:
 			if archetype.rarity == rarity:
 				sorted.append(archetype)
 	return sorted
 
-func _add_board_section(title: String, archetypes: Array[Coupon], counts: Dictionary) -> void:
+func _add_board_section(title: String, archetypes: Array[Sigil], counts: Dictionary) -> void:
 	var header := _label(title, u * 2.0, NEON_CYAN)
 	board_box.add_child(header)
 
@@ -806,17 +806,17 @@ func _add_board_section(title: String, archetypes: Array[Coupon], counts: Dictio
 
 	for archetype in archetypes:
 		var count: int = counts.get(archetype.id, 0)
-		var slot := _coupon_slot(archetype, count)
+		var slot := _sigil_slot(archetype, count)
 		grid.add_child(slot)
 		slot_entries.append({"button": slot, "id": archetype.id, "count": count})
 
 func _tile_size() -> Vector2:
 	return Vector2(u * 6.0, u * 5.0)
 
-## Ein Bord-Platz: Button als "Mulde", darin der Coupon als Kachel - bei
+## Ein Bord-Platz: Button als "Mulde", darin der Sigil als Kachel - bei
 ## Mehrfachbesitz als versetzter Stapel plus ×Anzahl; ohne Besitz nur der
 ## ausgegraute Schatten. Klick = anwenden.
-func _coupon_slot(archetype: Coupon, count: int) -> Button:
+func _sigil_slot(archetype: Sigil, count: int) -> Button:
 	var slot := Button.new()
 	var pad := u * 0.35
 	var stack_offset := Vector2.ONE * u * 0.4
@@ -826,7 +826,7 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	slot.mouse_entered.connect(_show_face_tooltip.bind(slot, archetype.display_name, archetype.description))
 	slot.mouse_exited.connect(_hide_face_tooltip)
-	slot.pressed.connect(_on_coupon_pressed.bind(archetype.id))
+	slot.pressed.connect(_on_sigil_pressed.bind(archetype.id))
 	slot.add_theme_stylebox_override("normal", _slot_box(Color(0.545, 0.914, 0.992, 0.35)))
 	slot.add_theme_stylebox_override("hover", _slot_box(NEON_GOLD))
 	slot.add_theme_stylebox_override("pressed", _slot_box(NEON_GOLD.darkened(0.25)))
@@ -836,7 +836,7 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 	# Stapel von hinten nach vorn (tiefere Exemplare zuerst).
 	var depth: int = clampi(count, 1, STACK_MAX_VISIBLE)
 	for i in range(depth - 1, -1, -1):
-		var tile := _coupon_tile(archetype, count > 0)
+		var tile := _sigil_tile(archetype, count > 0)
 		tile.position = Vector2.ONE * pad + stack_offset * float(i)
 		tile.size = _tile_size()
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -859,10 +859,10 @@ func _coupon_slot(archetype: Coupon, count: int) -> Button:
 		slot.add_child(badge)
 	return slot
 
-## Coupon-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
+## Sigil-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
 ## unbeleuchtete Gravur-Rille als "noch nicht bekommen").
-func _coupon_tile(archetype: Coupon, owned: bool) -> Control:
-	var sigil := SigilRenderer.for_coupon(archetype)
+func _sigil_tile(archetype: Sigil, owned: bool) -> Control:
+	var sigil := SigilRenderer.for_sigil(archetype)
 	sigil.owned = owned
 	return sigil
 
@@ -874,25 +874,25 @@ func _slot_box(border: Color) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.7))
 	return box
 
-## Coupon-Bestand nach id (id -> Anzahl). Testmodus: jeder Archetyp gilt als
+## Sigil-Bestand nach id (id -> Anzahl). Testmodus: jeder Archetyp gilt als
 ## im Bestand und wird nicht verbraucht.
-func _coupon_counts() -> Dictionary:
+func _sigil_counts() -> Dictionary:
 	var counts := {}
 	if run == null:
 		return counts
-	if run.unlimited_coupons:
-		for archetype in Coupon.all():
+	if run.unlimited_sigils:
+		for archetype in Sigil.all():
 			counts[archetype.id] = 1
 		return counts
-	for coupon in run.owned_coupons:
-		counts[coupon.id] = counts.get(coupon.id, 0) + 1
+	for sigil in run.owned_sigils:
+		counts[sigil.id] = counts.get(sigil.id, 0) + 1
 	return counts
 
 ## Sperrt Bord-Slots ohne passendes Ziel, während eines Zweitschritts oder
 ## bei leerem Platz.
-func _refresh_coupon_enabled() -> void:
+func _refresh_sigil_enabled() -> void:
 	for entry in slot_entries:
-		var is_edge: bool = Coupon.is_edge_id(entry["id"])
+		var is_edge: bool = Sigil.is_edge_id(entry["id"])
 		var has_target: bool = edges_selected if is_edge else selected_face != -1
 		entry["button"].disabled = entry["count"] == 0 or mode != Mode.SELECT or not has_target
 

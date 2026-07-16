@@ -144,10 +144,10 @@ func test_second_face_step_accepts_a_projected_face_click() -> void:
 	# Zweitschritt einer Ätzung (z.B. Meißel): der Klick auf die Projektion
 	# liefert die zweite Seite - wie ein Chip-Klick.
 	view.run = GameRun.new_run()
-	view.run.grant_coupon(Coupon.chisel())
+	view.run.grant_sigil(Sigil.chisel())
 	view._on_face_clicked(0, 1)
 	view.mode = DieInspectorView.Mode.AWAIT_SECOND_FACE
-	view.active_coupon_id = Coupon.CHISEL
+	view.active_sigil_id = Sigil.CHISEL
 	view.die_view.face_clicked.emit(0, 4)
 	# Meißel: Quelle (4) wird auf Ziel (1) gemeißelt - der Modus löst sich auf.
 	assert_eq(view.mode, DieInspectorView.Mode.SELECT, "der Zweitschritt ist aufgelöst")

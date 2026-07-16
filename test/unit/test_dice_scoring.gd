@@ -19,7 +19,7 @@ func _ids(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Menü-Stufen (Meal Deals, siehe Coupon.KIND_MEAL / GameRun.eat_meal) --------
+# --- Menü-Stufen (Meal Deals, siehe Sigil.CATEGORY_MEAL / GameRun.eat_meal) --------
 
 func test_mult_for_scales_with_meal_levels():
 	# Jede Stufe addiert den Basis-Multiplikator erneut: Paar ×2 -> ×4 -> ×6.

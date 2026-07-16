@@ -1,6 +1,6 @@
 extends GutTest
 ## Tier-1-Tests des DieMaterial-Datensatzes und der Registrierung (all) -
-## analog zu test_charm/test_coupon: Vollständigkeit, eindeutige ids, gefüllte
+## analog zu test_charm/test_sigil: Vollständigkeit, eindeutige ids, gefüllte
 ## Anzeigefelder und die Auflösungs-Helfer (by_id/is_valid_id/tint_for).
 
 func test_all_returns_six_materials():

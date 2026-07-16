@@ -311,9 +311,9 @@ func test_round_start_charms_grant_their_gifts():
 	run.gravierstift_used_this_round = true
 	run.apply_round_start_charms()
 	assert_false(run.gravierstift_used_this_round, "Gravierstift-Marke zurückgesetzt")
-	assert_eq(run.owned_coupons.size(), 3, "Frankiermaschine schenkt drei Coupons")
-	for coupon in run.owned_coupons:
-		assert_eq(coupon.kind, Coupon.KIND_ETCHING)
+	assert_eq(run.owned_sigils.size(), 3, "Frankiermaschine schenkt drei Sigille")
+	for sigil in run.owned_sigils:
+		assert_eq(sigil.category, Sigil.CATEGORY_NUMBER)
 	var total_levels := 0
 	for key in run.combo_levels:
 		total_levels += int(run.combo_levels[key])
@@ -352,22 +352,6 @@ func test_rag_collector_rerolls_lucky_value_each_round():
 	run.owned_charms.append(Charm.rag_collector())
 	run.apply_round_start_charms()
 	assert_between(run.lumpensammler_value, 1, 6, "die Glückszahl wird jede Runde (neu) gewürfelt")
-
-func test_large_format_grows_sheets():
-	var run := GameRun.new_run()
-	run.money = 100
-	run.owned_charms.append(Charm.large_format())
-	var sheet := run.buy_coupon_sheet(CouponSheet.Kind.SNIPPET, 6)
-	assert_eq(Vector2i(sheet.cols, sheet.rows), Vector2i(3, 3), "2×2 wird 3×3")
-
-func test_house_brand_removes_ads_from_general_sheets():
-	var run := GameRun.new_run()
-	run.money = 1000
-	run.owned_charms.append(Charm.house_brand())
-	for i in 6:
-		var sheet := run.buy_coupon_sheet(CouponSheet.Kind.LARGE, 16)  # leerer Filter = gemischtes Heft
-		for tile in sheet.tiles:
-			assert_ne(tile.kind, CouponSheet.TileKind.AD, "Hausmarke: keine Werbeflächen")
 
 # --- Stapelung je Vorkommen (der Mechanismus hinter den Totems) --------------------
 

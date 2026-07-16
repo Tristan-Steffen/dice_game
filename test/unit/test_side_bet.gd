@@ -92,9 +92,9 @@ func test_status_label_reads_progress():
 func test_reward_list_size_and_kinds():
 	var bet := _bet("full_house")
 	var rewards := bet.reward_list()
-	assert_eq(rewards.size(), bet.reward_coupons)
-	for coupon in rewards:
-		assert_true(SideBet.REWARD_KINDS.has(coupon.kind), "Belohnung ist Ätzung/Material")
+	assert_eq(rewards.size(), bet.reward_sigils)
+	for sigil in rewards:
+		assert_true(SideBet.REWARD_KINDS.has(sigil.category), "Belohnung ist Ätzung/Material")
 
 # --- Wett-Sorten (Geld/Sigill × Einsatz/Gewinn) ------------------------------
 
@@ -128,4 +128,4 @@ func test_money_payout_reward_label():
 func test_sigil_payout_reward_label():
 	var bet := _bet("full_house")
 	assert_eq(bet.payout_kind, SideBet.Payout.SIGILS)
-	assert_eq(bet.reward_label(), "%d×" % bet.reward_coupons)
+	assert_eq(bet.reward_label(), "%d×" % bet.reward_sigils)

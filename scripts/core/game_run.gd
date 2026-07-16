@@ -1,15 +1,13 @@
 class_name GameRun
 extends RefCounted
-## Persistenter Zustand eines Spiellaufs: Geld, Würfel-Pool, Charms, Coupons,
+## Persistenter Zustand eines Spiellaufs: Geld, Würfel-Pool, Charms, Sigille,
 ## Rundenfortschritt. Reine Daten + Ökonomie, keine Nodes; UI mutiert den
 ## Zustand nur über die Methoden hier und hört auf die Signale.
 
 signal money_changed(money: int)
 signal charms_changed
-signal coupons_changed
+signal sigils_changed
 signal combo_upgraded(combo_key: String, new_level: int)
-## Gutschrift der Kacheln folgt erst in der Abschluss-Animation (grant_coupon/add_money).
-signal sheet_purchased(sheet: CouponSheet, kind: int)
 signal side_bets_changed
 
 const POOL_SIZE := 30
@@ -28,10 +26,10 @@ var round_goal: int = BASE_GOAL
 ## damit eine Ätzung nie mehrere Würfel zugleich verändert.
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
-var owned_coupons: Array[Coupon] = []
+var owned_sigils: Array[Sigil] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
-var unlimited_coupons: bool = false  # Testmodus: consume_coupon verbraucht nichts
+var unlimited_sigils: bool = false  # Testmodus: consume_sigil verbraucht nichts
 ## Menü-Stufen je Kombination (Key -> gegessene Gerichte); jede Stufe addiert
 ## Basis-Mult und Basispunkte erneut (siehe DiceScoring).
 var combo_levels: Dictionary = {}
@@ -127,26 +125,18 @@ func move_charm(from_index: int, to_index: int) -> void:
 	owned_charms.insert(to_index, charm)
 	charms_changed.emit()
 
-## Kacheln werden hier bewusst NICHT gutgeschrieben - das macht die
-## Abschluss-Animation Stück für Stück. allowed_kinds beschränkt die Coupons
-## auf diese Arten (sortenreine Packs); leer = gemischt.
-func buy_coupon_sheet(kind: int, price: int, allowed_kinds: Array[String] = []) -> CouponSheet:
+## Kauft ein einzelnes Sigill (Shop): Preis abziehen, sofort ins Inventar.
+func purchase_sigil(sigil: Sigil, price: int) -> void:
 	add_money(-price)
-	# Großformat: alle Packs 1×1 größer; Hausmarke: das gemischte Heft ohne Werbung.
-	var ids := charm_ids()
-	var extra_size := 1 if ids.has(Charm.LARGE_FORMAT) else 0
-	var no_ads: bool = ids.has(Charm.HOUSE_BRAND) and allowed_kinds.is_empty()
-	var sheet := CouponSheet.generate(kind, allowed_kinds, extra_size, no_ads)
-	sheet_purchased.emit(sheet, kind)
-	return sheet
+	grant_sigil(sigil)
 
-func grant_coupon(coupon: Coupon) -> void:
-	# Menü-Coupons werden nicht gehortet: das Gericht wirkt sofort.
-	if coupon.kind == Coupon.KIND_MEAL:
-		eat_meal(coupon.meal_combo_key())
+func grant_sigil(sigil: Sigil) -> void:
+	# Menü-Sigille werden nicht gehortet: das Gericht wirkt sofort.
+	if sigil.category == Sigil.CATEGORY_MEAL:
+		eat_meal(sigil.meal_combo_key())
 		return
-	owned_coupons.append(coupon)
-	coupons_changed.emit()
+	owned_sigils.append(sigil)
+	sigils_changed.emit()
 
 ## Hebt die Menü-Stufe der Kombination; der Stammgast zählt jedes Gericht
 ## je Vorkommen als eine Stufe mehr.
@@ -156,7 +146,7 @@ func eat_meal(combo_key: String) -> void:
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Mitternachtssnack isst ein
-## zufälliges Gericht, Frankiermaschine schenkt 3 zufällige Ätzungen,
+## zufälliges Gericht, Frankiermaschine schenkt 3 zufällige Zahl-Sigille,
 ## Lumpensammler würfelt seine Glückszahl neu - je Vorkommen einmal.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
@@ -166,12 +156,12 @@ func apply_round_start_charms() -> void:
 	for i in ids.count(Charm.MIDNIGHT_SNACK):
 		eat_meal(DiceScoring.CATEGORIES[randi() % DiceScoring.CATEGORIES.size()]["key"])
 	for i in ids.count(Charm.STAMP_MACHINE):
-		var etchings: Array[Coupon] = []
-		for coupon in Coupon.all():
-			if coupon.kind == Coupon.KIND_ETCHING:
-				etchings.append(coupon)
+		var number_sigils: Array[Sigil] = []
+		for sigil in Sigil.all():
+			if sigil.category == Sigil.CATEGORY_NUMBER:
+				number_sigils.append(sigil)
 		for j in 3:
-			grant_coupon(etchings[randi() % etchings.size()])
+			grant_sigil(number_sigils[randi() % number_sigils.size()])
 
 ## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
 ## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert die Anzahl.
@@ -185,41 +175,41 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 				upgraded += 1
 	return upgraded
 
-## Verbraucht genau einen Coupon der id; true, wenn einer da war.
-func consume_coupon(id: String) -> bool:
-	if unlimited_coupons:
+## Verbraucht genau ein Sigill der id; true, wenn eines da war.
+func consume_sigil(id: String) -> bool:
+	if unlimited_sigils:
 		return true
-	for i in owned_coupons.size():
-		if owned_coupons[i].id == id:
-			owned_coupons.remove_at(i)
-			coupons_changed.emit()
+	for i in owned_sigils.size():
+		if owned_sigils[i].id == id:
+			owned_sigils.remove_at(i)
+			sigils_changed.emit()
 			return true
 	return false
 
 ## Ob der Einsatz einer Wette bezahlbar ist (Geld bzw. genug Sigille im Inventar).
 func can_place_side_bet(bet: SideBet) -> bool:
 	if bet.stake_kind == SideBet.Stake.SIGILS:
-		return owned_coupons.size() >= bet.stake_sigils
+		return owned_sigils.size() >= bet.stake_sigils
 	return money >= bet.stake
 
 ## Platziert eine Nebenwette: Einsatz sofort fällig (Geld oder geopferte
 ## Sigille), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
 	if bet.stake_kind == SideBet.Stake.SIGILS:
-		_consume_coupons(bet.stake_sigils)
+		_consume_sigils(bet.stake_sigils)
 	else:
 		add_money(-bet.stake)
 	active_side_bets.append(bet)
 	side_bets_changed.emit()
 
-## Opfert n Coupons vom Anfang des Inventars (Einsatz einer Sigill-Wette).
-func _consume_coupons(count: int) -> void:
+## Opfert n Sigille vom Anfang des Inventars (Einsatz einer Sigill-Wette).
+func _consume_sigils(count: int) -> void:
 	var removed := false
-	for i in mini(count, owned_coupons.size()):
-		owned_coupons.remove_at(0)
+	for i in mini(count, owned_sigils.size()):
+		owned_sigils.remove_at(0)
 		removed = true
 	if removed:
-		coupons_changed.emit()
+		sigils_changed.emit()
 
 ## Wertet alle platzierten Wetten gegen die Rundenbilanz aus, schüttet die
 ## Gewinne aus (Sigille oder Bargeld je payout_kind) und leert die Auslage.
@@ -232,8 +222,8 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 			if bet.payout_kind == SideBet.Payout.MONEY:
 				add_money(bet.payout_money)
 			else:
-				for coupon in bet.reward_list():
-					grant_coupon(coupon)
+				for sigil in bet.reward_list():
+					grant_sigil(sigil)
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won

@@ -2,11 +2,11 @@ class_name ShopController
 extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
 ## Tisch-Displays, bedient über die Maus-Weiterleitung. Links Würfel-Angebote,
-## rechts Charms und Coupon-Packs. "Umblättern" auf eine NEUE Seite würfelt
-## frische Angebote aus und kostet eine steigende Gebühr; bereits gesehene
-## Seiten bleiben stehen (MenuSpread) und sind gratis erreichbar.
-## Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf closed
-## reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
+## rechts Charms und einzelne Sigille (Zahlen/Materialien/Würfel). "Umblättern"
+## auf eine NEUE Seite würfelt frische Angebote aus und kostet eine steigende
+## Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind gratis
+## erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf
+## closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
 
@@ -17,32 +17,19 @@ const DICE_OFFER_COUNT := 3
 ## Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
 
-## Präge-Chargen der Prägestätte (kinds -> CouponSheet.generate). Die gemischte
-## Hausserie ist bewusst günstiger - wer gezielt prägt, zahlt für die Auswahl.
-const PACKS := [
-	{"id": "general", "name": "Hausserie", "kinds": [], "prices": [6, 10, 16, 25, 36],
-		"tooltip": "Alle Sigil-Arten gemischt - dafür etwas günstiger."},
-	{"id": "werkstatt", "name": "Gravur-Charge", "kinds": [Coupon.KIND_ETCHING], "prices": [8, 13, 20, 30, 42],
-		"tooltip": "Nur Ätzungen: verändern die Augen deiner Würfel."},
-	{"id": "juwelier", "name": "Veredelungs-Charge", "kinds": [Coupon.KIND_MATERIAL, Coupon.KIND_EDGE], "prices": [8, 13, 20, 30, 42],
-		"tooltip": "Nur Würfel-Veredelungen: Seiten-Materialien und Kanten."},
-	{"id": "tageskarte", "name": "Küchen-Charge", "kinds": [Coupon.KIND_MEAL], "prices": [8, 13, 20, 30, 42],
-		"tooltip": "Nur Gerichte: werten Kombinationen dauerhaft auf."},
-]
+## Preis je einzelnem Sigill nach Seltenheit.
+const SIGIL_PRICES := {
+	Sigil.Rarity.COMMON: 5,
+	Sigil.Rarity.UNCOMMON: 9,
+	Sigil.Rarity.RARE: 15,
+}
 
-## Kapselgrößen (Index = Preis-Index in PACKS.prices); mehr Fächer = mehr Sigils.
-const PACK_SIZES := [
-	{"kind": CouponSheet.Kind.SNIPPET, "label": "Probe"},
-	{"kind": CouponSheet.Kind.SHEET, "label": "Klein"},
-	{"kind": CouponSheet.Kind.LARGE, "label": "Mittel"},
-	{"kind": CouponSheet.Kind.POSTER, "label": "Groß"},
-	{"kind": CouponSheet.Kind.JUMBO, "label": "Jumbo"},
-]
+## Angebote je Kategorie (Zahlen/Materialien/Würfel) auf einer Doppelseite;
+## jedes Sigill nur einmal kaufbar.
+const SIGIL_OFFERS_PER_CATEGORY := 2
 
-## Pack-Sortiment je Doppelseite: zufällige Kombinationen aus Sorte × Größe,
-## jedes Angebot nur einmal kaufbar.
-const PACK_GRID_COLUMNS := 3
-const PACK_OFFER_COUNT := 6
+## Grid-Spalten der Sigil-Auslage (eine Zeile je Kategorie).
+const SIGIL_GRID_COLUMNS := 2
 
 ## Farben im Display-Stil (80s Neon).
 const NEON_CYAN := Color("#8be9fd")
@@ -63,52 +50,11 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var pack_offers: Array[Vector2i] = []  # x = PACKS-Index, y = PACK_SIZES-Index
-	var pack_bought: Array[bool] = []
-
-## Kapsel-Miniatur einer Präge-Charge: dunkles Rauchglas mit Neon-Lichtsaum,
-## darin ein Raster kleiner glimmender Sigil-Fächer - die Größe (Anzahl Fächer)
-## ist auf einen Blick sichtbar. Rein prozedural (passt zum Sigil-Look).
-class CapsuleThumb:
-	extends Control
-
-	const GLASS := Color("#0c1018")
-	const SEAM := Color("#8be9fd")
-	const PIP := Color("#8be9fd")
-	const SIDE_BASE := 34.0
-	const SIDE_PER_CELL := 4.0  # kleine Kapsel -> große Kapsel
-
-	var dims: int
-	var side: float
-
-	func _init(p_dims: int, ui_scale: float = 1.0) -> void:
-		dims = p_dims
-		side = (SIDE_BASE + p_dims * SIDE_PER_CELL) * ui_scale
-		custom_minimum_size = Vector2(side, side)
-
-	func _draw() -> void:
-		var rect := Rect2((size.x - side) * 0.5, size.y - side, side, side)
-		# Rauchglas-Körper + weicher Außen-Glow + scharfer Lichtsaum.
-		draw_rect(rect, GLASS)
-		_rounded_border(rect, Color(SEAM.r, SEAM.g, SEAM.b, 0.2), maxf(2.0, side * 0.06))
-		_rounded_border(rect, SEAM, maxf(1.0, side * 0.02))
-		# Fächer als glimmende Punkte im Raster (Anzahl = Kapselgröße).
-		var cell := rect.size.x / float(dims)
-		var dot := maxf(1.0, cell * 0.22)
-		for r in dims:
-			for c in dims:
-				var center := rect.position + Vector2((c + 0.5) * cell, (r + 0.5) * cell)
-				draw_circle(center, dot * 1.8, Color(PIP.r, PIP.g, PIP.b, 0.12))
-				draw_circle(center, dot, Color(PIP.r, PIP.g, PIP.b, 0.85))
-
-	## Rechteck-Rahmen ohne Ecken-Rundung (draw_rect kann keine Radien) - für die
-	## Miniatur genügt ein einfacher Rahmen; der Sigil-Look lebt vom Glimmen.
-	func _rounded_border(rect: Rect2, color: Color, width: float) -> void:
-		draw_rect(rect, color, false, width)
+	var sigil_offers: Array[Sigil] = []  # nach Kategorie geordnet (Zahlen, Materialien, Würfel)
+	var sigil_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
-## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert
-## (z.B. Chip-Coupons der Bogen-Abschluss-Animation).
+## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
 var run: GameRun:
 	set(value):
 		if run != null and run.money_changed.is_connected(_on_run_money_changed):
@@ -124,7 +70,7 @@ var u := 8.0
 var money_label: Label
 var content_root: VBoxContainer
 var left_column: VBoxContainer   # Würfel-Angebote
-var right_column: VBoxContainer  # Charms + Coupon-Packs
+var right_column: VBoxContainer  # Charms + Sigille
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
@@ -139,10 +85,10 @@ var offer_buy_buttons: Array[Button] = []
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 var charm_bought: Array[bool] = []
-var pack_offers: Array[Vector2i] = []
-var pack_bought: Array[bool] = []
-var sheet_buttons: Array[Button] = []
-var sheet_button_prices: Array[int] = []
+var sigil_offers: Array[Sigil] = []
+var sigil_bought: Array[bool] = []
+var sigil_buttons: Array[Button] = []
+var sigil_button_prices: Array[int] = []
 
 var flip_tween: Tween
 
@@ -218,7 +164,7 @@ func _build_layout() -> void:
 	left_column.size_flags_stretch_ratio = 1.0
 	columns.add_child(left_column)
 	right_column = VBoxContainer.new()
-	right_column.name = "CharmPackColumn"
+	right_column.name = "CharmSigilColumn"
 	right_column.add_theme_constant_override("separation", int(u * 1.2))
 	right_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_column.size_flags_stretch_ratio = 1.0
@@ -308,14 +254,13 @@ func _build_spread() -> MenuSpread:
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	var combos: Array[Vector2i] = []
-	for p in PACKS.size():
-		for s in PACK_SIZES.size():
-			combos.append(Vector2i(p, s))
-	combos.shuffle()
-	spread.pack_offers = combos.slice(0, PACK_OFFER_COUNT)
-	spread.pack_bought.resize(spread.pack_offers.size())
-	spread.pack_bought.fill(false)
+	# Einzel-Sigille je Kategorie (Zahlen, Materialien, Würfel) in fester Reihenfolge.
+	var sigils: Array[Sigil] = []
+	for category in Sigil.CATEGORIES:
+		sigils.append_array(Sigil.roll_in_category(category, SIGIL_OFFERS_PER_CATEGORY))
+	spread.sigil_offers = sigils
+	spread.sigil_bought.resize(spread.sigil_offers.size())
+	spread.sigil_bought.fill(false)
 	return spread
 
 ## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, Spalten neu
@@ -325,8 +270,8 @@ func _show_spread() -> void:
 	dice_offers = spread.dice_offers
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
-	pack_offers = spread.pack_offers
-	pack_bought = spread.pack_bought
+	sigil_offers = spread.sigil_offers
+	sigil_bought = spread.sigil_bought
 
 	_rebuild_left_column(spread)
 	_rebuild_right_column(spread)
@@ -344,8 +289,8 @@ func _clear_pages() -> void:
 			child.queue_free()
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
-	sheet_buttons.clear()
-	sheet_button_prices.clear()
+	sigil_buttons.clear()
+	sigil_button_prices.clear()
 
 func _rebuild_left_column(spread: MenuSpread) -> void:
 	for child in left_column.get_children():
@@ -360,8 +305,8 @@ func _rebuild_right_column(spread: MenuSpread) -> void:
 	for child in right_column.get_children():
 		child.queue_free()
 	charm_buttons.clear()
-	sheet_buttons.clear()
-	sheet_button_prices.clear()
+	sigil_buttons.clear()
+	sigil_button_prices.clear()
 
 	right_column.add_child(_section_heading("CHARMS – je $%d" % _charm_price()))
 	for i in spread.charm_options.size():
@@ -386,50 +331,56 @@ func _rebuild_right_column(spread: MenuSpread) -> void:
 		right_column.add_child(entry)
 		charm_buttons.append(button)
 
-	right_column.add_child(_section_heading("PRÄGESTÄTTE"))
-	var grid := GridContainer.new()
-	grid.columns = PACK_GRID_COLUMNS
-	grid.add_theme_constant_override("h_separation", int(u * 1.0))
-	grid.add_theme_constant_override("v_separation", int(u * 0.8))
-	right_column.add_child(grid)
-	for i in spread.pack_offers.size():
-		var offer := spread.pack_offers[i]
-		grid.add_child(_build_pack_card(offer.x, offer.y, i))
+	# Einzel-Sigille nach Kategorie gruppiert (Zahlen, Materialien, Würfel).
+	right_column.add_child(_section_heading("SIGILLE"))
+	var by_category := {}
+	for i in spread.sigil_offers.size():
+		var cat: String = spread.sigil_offers[i].category
+		if not by_category.has(cat):
+			by_category[cat] = []
+		by_category[cat].append(i)
+	for category in Sigil.CATEGORIES:
+		if not by_category.has(category):
+			continue
+		right_column.add_child(_label(Sigil.CATEGORY_NAMES[category], u * 2.2, NEON_MUTED))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", int(u * 1.0))
+		right_column.add_child(row)
+		for i in by_category[category]:
+			row.add_child(_build_sigil_card(spread.sigil_offers[i], i))
 
-## Pack-Karte: Bogen-Miniatur, Pack-Name, Kaufknopf mit Größe · Preis.
-## Nach dem Kauf "vergriffen" (nur einmal kaufbar).
-func _build_pack_card(pack_index: int, size_index: int, offer_index: int) -> Control:
-	var pack: Dictionary = PACKS[pack_index]
-	var price := _pack_price(pack_index, size_index)
-	var size_label: String = PACK_SIZES[size_index]["label"]
+## Sigil-Karte: prozedurales Siegel, Name, Kaufknopf mit Preis. Nach dem Kauf
+## "gekauft" (jedes Sigill nur einmal je Doppelseite).
+func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
+	var price := _sigil_price(sigil)
 
 	var card := VBoxContainer.new()
 	card.add_theme_constant_override("separation", int(u * 0.4))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.tooltip_text = "%s (%s)\n%s" % [pack["name"], size_label, pack["tooltip"]]
+	card.tooltip_text = "%s – %s (%s)\n%s" % [
+		sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity), sigil.description]
 
-	var dims: int = CouponSheet.grid_size(PACK_SIZES[size_index]["kind"]).x
-	var thumb := CapsuleThumb.new(dims, u * 0.13)
+	var thumb := SigilRenderer.for_sigil(sigil)
+	thumb.custom_minimum_size = Vector2(u * 9.0, u * 9.0)
 	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Zeile steht unten bündig
 	card.add_child(thumb)
 
-	var name_label := _label(pack["name"], u * 1.8, NEON_MUTED)
+	var name_label := _label(sigil.display_name, u * 1.8, NEON_MUTED)
 	name_label.clip_text = true
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(name_label)
 
 	var button := _neon_button("", NEON_GREEN, u * 2.0, Vector2(0, u * 4.0))
-	if pack_bought[offer_index]:
-		button.text = "vergriffen"
+	if sigil_bought[offer_index]:
+		button.text = "gekauft"
 		button.disabled = true
 	else:
-		button.text = "%s $%d" % [size_label, price]
-		button.pressed.connect(_on_sheet_pressed.bind(offer_index))
+		button.text = "$%d" % price
+		button.pressed.connect(_on_sigil_buy_pressed.bind(offer_index))
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_child(button)
-	sheet_buttons.append(button)
-	sheet_button_prices.append(price)
+	sigil_buttons.append(button)
+	sigil_button_prices.append(price)
 	return card
 
 ## Angebotskarte der Würfel-Rubrik: Würfel-Zeile mit "N ×"-Multiplikator
@@ -533,9 +484,8 @@ func _offer_price(offer: DiceOffer) -> int:
 func _charm_price() -> int:
 	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())
 
-func _pack_price(pack_index: int, size_index: int) -> int:
-	var pack: Dictionary = PACKS[pack_index]
-	return CharmEffects.pack_price(pack["prices"][size_index], pack["id"], run.charm_ids())
+func _sigil_price(sigil: Sigil) -> int:
+	return SIGIL_PRICES.get(sigil.rarity, SIGIL_PRICES[Sigil.Rarity.UNCOMMON])
 
 ## Kauft das komplette Würfel-Bündel - beliebig oft wiederholbar.
 func _on_offer_pressed(index: int) -> void:
@@ -557,25 +507,18 @@ func _on_charm_clicked(index: int) -> void:
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
-## Kauft ein Coupon-Pack (jedes Angebot nur einmal); die Enthüllung zeigt
-## scene_root (hört auf run.sheet_purchased).
-func _on_sheet_pressed(offer_index: int) -> void:
-	if pack_bought[offer_index]:
+## Kauft ein einzelnes Sigill (jedes Angebot nur einmal); landet sofort im Inventar.
+func _on_sigil_buy_pressed(offer_index: int) -> void:
+	if sigil_bought[offer_index]:
 		return
-	var offer := pack_offers[offer_index]
-	var pack: Dictionary = PACKS[offer.x]
-	var price := _pack_price(offer.x, offer.y)
+	var sigil := sigil_offers[offer_index]
+	var price := _sigil_price(sigil)
 	if run.money < price:
 		return
-	var allowed: Array[String] = []
-	allowed.assign(pack["kinds"])
-	run.buy_coupon_sheet(PACK_SIZES[offer.y]["kind"], price, allowed)
-	# Kleingedrucktes: Chance auf volle Rückerstattung.
-	if randf() < CharmEffects.pack_refund_chance(run.charm_ids()):
-		run.add_money(price)
-	pack_bought[offer_index] = true
-	sheet_buttons[offer_index].disabled = true
-	sheet_buttons[offer_index].text = "vergriffen"
+	run.purchase_sigil(sigil, price)
+	sigil_bought[offer_index] = true
+	sigil_buttons[offer_index].disabled = true
+	sigil_buttons[offer_index].text = "gekauft"
 	_refresh_afford_state()
 
 ## Deaktiviert alles Unbezahlbare und hält den Geldstand der Kopfzeile aktuell.
@@ -588,8 +531,8 @@ func _refresh_afford_state() -> void:
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
-	for i in sheet_buttons.size():
-		sheet_buttons[i].disabled = pack_bought[i] or money < sheet_button_prices[i]
+	for i in sigil_buttons.size():
+		sigil_buttons[i].disabled = sigil_bought[i] or money < sigil_button_prices[i]
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

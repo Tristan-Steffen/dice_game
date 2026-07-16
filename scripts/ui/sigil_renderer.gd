@@ -11,20 +11,18 @@ const ETCH_COLOR := Color("#8be9fd")
 const GOLD := Color("#ffd319")
 ## Seltenheit -> Farbe des Lichtsaums.
 const SEAM_COLORS := {
-	Coupon.Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
-	Coupon.Rarity.UNCOMMON: Color("#8be9fd"),
-	Coupon.Rarity.RARE: Color("#ffd319"),
+	Sigil.Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
+	Sigil.Rarity.UNCOMMON: Color("#8be9fd"),
+	Sigil.Rarity.RARE: Color("#ffd319"),
 }
 ## Unbeleuchtete Gravur-Rille (nicht besessen / noch nicht gezündet).
 const CHANNEL_COLOR := Color(0.32, 0.36, 0.46, 0.4)
 const RARE_PULSE_PERIOD := 2.0
 
-const KIND_MONEY := "money"  # Sonderfall: Wert-Plakette statt Kachel
-
-var coupon_id: String = ""
-var kind: String = Coupon.KIND_ETCHING
-var rarity: int = Coupon.Rarity.COMMON
-var accent: Color = ETCH_COLOR  # Sigil-Farbe (Material-Tint bei Material/Kanten)
+var sigil_id: String = ""
+var category: String = Sigil.CATEGORY_NUMBER
+var rarity: int = Sigil.Rarity.COMMON
+var accent: Color = ETCH_COLOR  # Sigil-Farbe (Material-Tint bei Material/Würfel)
 var owned: bool = true
 var ignite: float = 1.0:
 	set(value):
@@ -33,25 +31,18 @@ var ignite: float = 1.0:
 
 var _pulse_time := 0.0
 
-static func for_coupon(coupon: Coupon) -> SigilRenderer:
+static func for_sigil(source: Sigil) -> SigilRenderer:
 	var sigil := SigilRenderer.new()
-	sigil.coupon_id = coupon.id
-	sigil.kind = coupon.kind
-	sigil.rarity = coupon.rarity
-	if coupon.kind == Coupon.KIND_MATERIAL or coupon.kind == Coupon.KIND_EDGE:
-		sigil.accent = DieMaterial.tint_for(coupon.material_id())
-	return sigil
-
-static func for_money() -> SigilRenderer:
-	var sigil := SigilRenderer.new()
-	sigil.kind = KIND_MONEY
-	sigil.rarity = Coupon.Rarity.COMMON
-	sigil.accent = GOLD
+	sigil.sigil_id = source.id
+	sigil.category = source.category
+	sigil.rarity = source.rarity
+	if source.category == Sigil.CATEGORY_MATERIAL or source.category == Sigil.CATEGORY_DICE:
+		sigil.accent = DieMaterial.tint_for(source.material_id())
 	return sigil
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process(rarity == Coupon.Rarity.RARE and owned)
+	set_process(rarity == Sigil.Rarity.RARE and owned)
 
 func _process(delta: float) -> void:
 	_pulse_time += delta
@@ -60,9 +51,6 @@ func _process(delta: float) -> void:
 # --- Zeichnen ---------------------------------------------------------------------
 
 func _draw() -> void:
-	if kind == KIND_MONEY:
-		_draw_plaque()
-		return
 	_draw_tile()
 	_draw_seam()
 	_draw_sigil()
@@ -81,7 +69,7 @@ func _draw_seam() -> void:
 	if not owned:
 		return
 	var color: Color = SEAM_COLORS[rarity]
-	if rarity == Coupon.Rarity.RARE:
+	if rarity == Sigil.Rarity.RARE:
 		var breath := 0.75 + 0.25 * sin(_pulse_time * TAU / RARE_PULSE_PERIOD)
 		color.a *= breath
 	var width := maxf(1.0, size.x * 0.022)
@@ -91,13 +79,13 @@ func _draw_seam() -> void:
 	draw_style_box(_border_box(color, width, radius), Rect2(Vector2.ZERO, size))
 
 func _draw_sigil() -> void:
-	match kind:
-		Coupon.KIND_MATERIAL:
+	match category:
+		Sigil.CATEGORY_MATERIAL:
 			_draw_material_core()
-		Coupon.KIND_EDGE:
+		Sigil.CATEGORY_DICE:
 			_draw_edge_frame()
 		_:
-			_draw_strokes(_strokes_for(coupon_id))
+			_draw_strokes(_strokes_for(sigil_id))
 
 ## Ätzungs-Sigil: Monoline-Pfade, mit ignite als Zündschnur entlang der Gesamtlänge.
 func _draw_strokes(strokes: Array) -> void:
@@ -131,7 +119,7 @@ func _draw_stroke(points: PackedVector2Array, color: Color, glow: bool) -> void:
 
 ## Material: Ring + gefüllter Lichtkern im Material-Tint. Die Kernform
 ## unterscheidet die Materialien zusätzlich zur Farbe (Farben liegen z.T. nah
-## beieinander). coupon_id ist hier die Material-id.
+## beieinander). sigil_id ist hier die Material-id.
 func _draw_material_core() -> void:
 	var ring_color := accent if owned else CHANNEL_COLOR
 	# Ring deutlich vom Kern abgesetzt, sonst verschmilzt beides zum Klecks.
@@ -139,7 +127,7 @@ func _draw_material_core() -> void:
 	var lit := Color(accent.r, accent.g, accent.b, ignite) if owned \
 		else Color(CHANNEL_COLOR.r, CHANNEL_COLOR.g, CHANNEL_COLOR.b, 0.25)
 	var mid := Vector2(0.5, 0.5)
-	match coupon_id:
+	match sigil_id:
 		DieMaterial.RUBY:  # Edelstein: spitzer Diamant
 			_fill_poly(_diamond(mid, 0.17), lit)
 		DieMaterial.AMBER:  # Kristall: Sechseck
@@ -171,33 +159,13 @@ func _draw_edge_frame() -> void:
 	else:
 		_draw_stroke(frame, CHANNEL_COLOR, false)
 
-## Geld: rechteckige Wert-Plakette, graviertes $-Zeichen.
-func _draw_plaque() -> void:
-	var radius := _corner_radius() * 0.7
-	draw_style_box(_box(Color("#141008"), radius), Rect2(Vector2.ZERO, size))
-	draw_style_box(_box(TILE_HIGHLIGHT, radius), Rect2(Vector2.ZERO, Vector2(size.x, size.y * 0.45)))
-	var seam := GOLD if owned else CHANNEL_COLOR
-	var width := maxf(1.0, size.y * 0.03)
-	if owned:
-		draw_style_box(_border_box(Color(seam.r, seam.g, seam.b, 0.22), width * 3.0, radius), Rect2(Vector2.ZERO, size))
-	draw_style_box(_border_box(seam, width, radius), Rect2(Vector2.ZERO, size))
-	var font := ThemeDB.fallback_font
-	var font_size := int(size.y * 0.52)
-	var text := "$"
-	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1.0, font_size)
-	var pos := Vector2((size.x - text_size.x) * 0.5, (size.y + text_size.y * 0.62) * 0.5)
-	var ink := GOLD if owned else CHANNEL_COLOR
-	if owned:
-		draw_circle(size * 0.5, size.y * 0.34, Color(GOLD.r, GOLD.g, GOLD.b, 0.10 * ignite))
-	draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size, Color(ink.r, ink.g, ink.b, ink.a * (0.35 + 0.65 * ignite)))
-
 # --- Sigil-Geometrie (Einheitsraum 0..1) --------------------------------------------
 
-## Pfade je Ätzungs-id. Wiederkehrendes Atom: kleines Quadrat = eine Würfelseite;
-## + / − = die Wertänderung, Pfeil = Übertrag, "=" = frei gesetzter Wert.
+## Pfade je Zahl-Sigill-id. Wiederkehrendes Atom: kleines Quadrat = eine
+## Würfelseite; + / − = die Wertänderung, Pfeil = Übertrag, "=" = frei gesetzter Wert.
 func _strokes_for(id: String) -> Array:
 	match id:
-		Coupon.CHISEL:
+		Sigil.CHISEL:
 			# Quelle-Quadrat, Bogenpfeil hinüber, Ziel-Quadrat.
 			return [
 				_square(Vector2(0.27, 0.66), 0.115),
@@ -205,72 +173,72 @@ func _strokes_for(id: String) -> Array:
 				_arrow_head(Vector2(0.73, 0.48), Vector2(0.085, 0.115)),
 				_square(Vector2(0.73, 0.66), 0.115),
 			]
-		Coupon.MIRROR:
+		Sigil.MIRROR:
 			# Achse in der Mitte, gespiegelte Quadrate links/rechts.
 			return [
 				_seg(Vector2(0.5, 0.18), Vector2(0.5, 0.82)),
 				_square(Vector2(0.29, 0.5), 0.125),
 				_square(Vector2(0.71, 0.5), 0.125),
 			]
-		Coupon.GRINDSTONE:
+		Sigil.GRINDSTONE:
 			# −1 auf eine, +1 auf eine andere Seite.
 			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
 			s.append_array(_minus(Vector2(0.29, 0.5), 0.06))
 			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
 			return s
-		Coupon.FILE_DOWN:
+		Sigil.FILE_DOWN:
 			# Eine Seite −1.
 			var s: Array = [_square(Vector2(0.5, 0.5), 0.17)]
 			s.append_array(_minus(Vector2(0.5, 0.5), 0.08))
 			return s
-		Coupon.DOUBLE_NOTCH:
+		Sigil.DOUBLE_NOTCH:
 			# Zwei Seiten je +1.
 			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
 			s.append_array(_plus(Vector2(0.29, 0.5), 0.06))
 			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
 			return s
-		Coupon.OVERCOUNT_ENGRAVING:
+		Sigil.OVERCOUNT_ENGRAVING:
 			# +1, dessen Stiel die obere Kante durchstößt (darf über 6).
 			return [
 				_square(Vector2(0.5, 0.6), 0.16),
 				_seg(Vector2(0.5, 0.52), Vector2(0.5, 0.16)),
 				_seg(Vector2(0.4, 0.27), Vector2(0.6, 0.27)),
 			]
-		Coupon.FINE_ENGRAVING:
+		Sigil.FINE_ENGRAVING:
 			# Freier Zielwert: Quadrat mit "=".
 			var s: Array = [_square(Vector2(0.5, 0.5), 0.18)]
 			s.append_array(_equals(Vector2(0.5, 0.5), 0.08))
 			return s
-		Coupon.TRANSPLANT:
+		Sigil.TRANSPLANT:
 			# Kleine Seite -> Pfeil hoch -> große Seite (Höchstwert).
 			var s: Array = [_square(Vector2(0.5, 0.73), 0.09), _square(Vector2(0.5, 0.29), 0.15)]
 			s.append_array(_up_arrow(Vector2(0.5, 0.62), Vector2(0.5, 0.47)))
 			return s
-		Coupon.CONNECT_UP:
+		Sigil.CONNECT_UP:
 			# Quelle -> Ziel, +1 sitzt auf der Verbindung.
 			return [
 				_square(Vector2(0.27, 0.5), 0.12), _square(Vector2(0.73, 0.5), 0.12),
 				_seg(Vector2(0.39, 0.5), Vector2(0.61, 0.5)),
 				_seg(Vector2(0.5, 0.4), Vector2(0.5, 0.6)),
 			]
-		Coupon.AVERAGING:
+		Sigil.AVERAGING:
 			# Zwei Seiten treffen sich in der Mitte (Mittelwert).
 			var s: Array = [_square(Vector2(0.22, 0.5), 0.11), _square(Vector2(0.78, 0.5), 0.11),
 				_seg(Vector2(0.5, 0.35), Vector2(0.5, 0.65))]
 			s.append_array(_arrow_to(Vector2(0.33, 0.5), Vector2(0.44, 0.5)))
 			s.append_array(_arrow_to(Vector2(0.67, 0.5), Vector2(0.56, 0.5)))
 			return s
-		Coupon.IMPRINT:
+		Sigil.IMPRINT:
 			# Obere Seite prägt sich auf die zwei niedrigsten unten.
 			var s: Array = [_square(Vector2(0.5, 0.27), 0.13),
 				_square(Vector2(0.32, 0.71), 0.1), _square(Vector2(0.68, 0.71), 0.1)]
 			s.append_array(_arrow_to(Vector2(0.45, 0.42), Vector2(0.36, 0.58)))
 			s.append_array(_arrow_to(Vector2(0.55, 0.42), Vector2(0.64, 0.58)))
 			return s
-		Coupon.STRAIGHTEN:
+		Sigil.STRAIGHTEN:
 			# Treppe aufwärts: ungerade Seiten +1.
 			return [_staircase()]
-		Coupon.BLUEPRINT:
+		Sigil.BLUEPRINT:
 			# Ganzer Würfel auf einen Wert: 3x2-Raster leuchtet.
 			return _grid()
 		_:

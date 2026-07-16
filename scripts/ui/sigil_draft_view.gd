@@ -2,20 +2,20 @@ class_name SigilDraftView
 extends Control
 ## Lichtgravur-Ziehung als HUB-SEITE nach geräumter Runde: drei Siegel zünden
 ## nacheinander ins Bild, der Spieler wählt genau eines - die anderen verlöschen.
-## Das gewählte Siegel wird über resolved(coupon) gemeldet (null = verzichtet);
+## Das gewählte Siegel wird über resolved(sigil_data) gemeldet (null = verzichtet);
 ## scene_root verbucht die Gutschrift und öffnet danach den Shop. Alle Maße
 ## leiten sich aus der eigenen Breite ab (u = Breite/100), damit die Seite den
 ## Hub füllt wie Shop und Gravur-Station.
 
-## Ausgang der Ziehung: der gewählte Coupon oder null (verzichtet).
-signal resolved(coupon: Coupon)
+## Ausgang der Ziehung: der gewählte Sigil oder null (verzichtet).
+signal resolved(sigil_data: Sigil)
 
 const IGNITE_TIME := 0.5
 const IGNITE_STAGGER := 0.14
 const TITLE_COLOR := Color("#ff79c6")
 const MUTED := Color(0.75, 0.78, 0.9)
 
-var offers: Array[Coupon] = []
+var offers: Array[Sigil] = []
 var card_row: HBoxContainer
 var _content: VBoxContainer
 var _cards: Array[Control] = []
@@ -28,8 +28,8 @@ func _ready() -> void:
 	visible = false
 
 ## Öffnet die Ziehung mit der Auslage; die Siegel zünden gestaffelt ins Bild.
-func show_draft(coupons: Array[Coupon]) -> void:
-	offers = coupons
+func show_draft(sigils: Array[Sigil]) -> void:
+	offers = sigils
 	resolving = false
 	visible = true
 	_rebuild()
@@ -74,7 +74,7 @@ func _rebuild() -> void:
 	_content.add_child(skip)
 
 ## Ein Siegel-Karten-Button: Sigil + Name + Seltenheit, klickbar.
-func _build_card(coupon: Coupon, index: int, u: float) -> Control:
+func _build_card(sigil_data: Sigil, index: int, u: float) -> Control:
 	var card_size := Vector2(u * 26.0, u * 36.0)
 	var sigil_size := Vector2(u * 17.0, u * 17.0)
 	var card := Button.new()
@@ -82,7 +82,7 @@ func _build_card(coupon: Coupon, index: int, u: float) -> Control:
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	card.custom_minimum_size = card_size
 	card.pivot_offset = card_size / 2.0
-	var seam: Color = SigilRenderer.SEAM_COLORS[coupon.rarity]
+	var seam: Color = SigilRenderer.SEAM_COLORS[sigil_data.rarity]
 	card.add_theme_stylebox_override("normal", _card_box(seam, 0.0, u))
 	card.add_theme_stylebox_override("hover", _card_box(seam, 0.14, u))
 	card.add_theme_stylebox_override("pressed", _card_box(seam, 0.14, u))
@@ -99,19 +99,19 @@ func _build_card(coupon: Coupon, index: int, u: float) -> Control:
 	var sigil_holder := CenterContainer.new()
 	sigil_holder.custom_minimum_size = sigil_size
 	sigil_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sigil := SigilRenderer.for_coupon(coupon)
+	var sigil := SigilRenderer.for_sigil(sigil_data)
 	sigil.custom_minimum_size = sigil_size
 	sigil.ignite = 0.0  # zündet gleich per Tween ein
 	sigil_holder.add_child(sigil)
 	column.add_child(sigil_holder)
 	_sigils.append(sigil)
 
-	var name_label := _label(coupon.display_name, u * 3.2, CasinoStyle.CREAM, HORIZONTAL_ALIGNMENT_CENTER)
+	var name_label := _label(sigil_data.display_name, u * 3.2, CasinoStyle.CREAM, HORIZONTAL_ALIGNMENT_CENTER)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_label.custom_minimum_size = Vector2(card_size.x - u * 2.0, 0)
 	column.add_child(name_label)
 
-	column.add_child(_label(Coupon.rarity_name(coupon.rarity), u * 2.4, seam, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(_label(Sigil.rarity_name(sigil_data.rarity), u * 2.4, seam, HORIZONTAL_ALIGNMENT_CENTER))
 	return card
 
 ## Zündet die Siegel nacheinander ein (ignite 0 -> 1).
@@ -153,14 +153,14 @@ func cancel() -> void:
 	resolving = true
 	_close(null)
 
-func _close(coupon: Coupon) -> void:
+func _close(sigil_data: Sigil) -> void:
 	visible = false
 	if _content != null and is_instance_valid(_content):
 		_content.queue_free()
 		_content = null
 	_cards.clear()
 	_sigils.clear()
-	resolved.emit(coupon)
+	resolved.emit(sigil_data)
 
 ## Neon-Rahmen der Karte; highlight hebt bei Hover die Füllung leicht an.
 func _card_box(seam: Color, highlight: float, u: float) -> StyleBoxFlat:

@@ -1,6 +1,6 @@
 extends GutTest
 ## Tier-1-Tests des GameRun (siehe scripts/game_run.gd): der persistente
-## Run-Zustand (Geld, Pool, Charms, Coupons, Rundenfortschritt) als reine
+## Run-Zustand (Geld, Pool, Charms, Sigille, Rundenfortschritt) als reine
 ## Daten-Klasse - komplett ohne Szene testbar. Shop und Gravur-Station mutieren
 ## den Zustand ausschließlich über diese Methoden; die HUD hört auf die Signale.
 
@@ -16,7 +16,7 @@ func test_new_run_starts_empty_handed():
 	assert_eq(run.round_number, 1)
 	assert_eq(run.round_goal, GameRun.BASE_GOAL)
 	assert_eq(run.owned_charms.size(), 0)
-	assert_eq(run.owned_coupons.size(), 0)
+	assert_eq(run.owned_sigils.size(), 0)
 
 func test_new_run_fills_pool_with_standard_dice():
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
@@ -128,70 +128,49 @@ func test_move_charm_changes_totem_neighbor_resolution():
 	run.move_charm(2, 1)
 	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
 
-# --- Coupons --------------------------------------------------------------------
+# --- Sigille --------------------------------------------------------------------
 
-func test_grant_and_consume_coupon():
+func test_grant_and_consume_sigil():
 	watch_signals(run)
-	run.grant_coupon(Coupon.chisel())
-	assert_eq(run.owned_coupons.size(), 1)
-	assert_true(run.consume_coupon(Coupon.CHISEL))
-	assert_eq(run.owned_coupons.size(), 0)
-	assert_signal_emit_count(run, "coupons_changed", 2)
+	run.grant_sigil(Sigil.chisel())
+	assert_eq(run.owned_sigils.size(), 1)
+	assert_true(run.consume_sigil(Sigil.CHISEL))
+	assert_eq(run.owned_sigils.size(), 0)
+	assert_signal_emit_count(run, "sigils_changed", 2)
 
-func test_consume_missing_coupon_returns_false_without_signal():
+func test_consume_missing_sigil_returns_false_without_signal():
 	watch_signals(run)
-	assert_false(run.consume_coupon(Coupon.CHISEL))
-	assert_signal_emit_count(run, "coupons_changed", 0)
+	assert_false(run.consume_sigil(Sigil.CHISEL))
+	assert_signal_emit_count(run, "sigils_changed", 0)
 
 func test_consume_removes_only_one_of_a_kind():
-	run.grant_coupon(Coupon.chisel())
-	run.grant_coupon(Coupon.chisel())
-	run.consume_coupon(Coupon.CHISEL)
-	assert_eq(run.owned_coupons.size(), 1)
+	run.grant_sigil(Sigil.chisel())
+	run.grant_sigil(Sigil.chisel())
+	run.consume_sigil(Sigil.CHISEL)
+	assert_eq(run.owned_sigils.size(), 1)
 
-func test_unlimited_coupons_consume_is_a_noop_and_reports_success():
-	# Testmodus (siehe scene_root): Coupons sind unerschöpflich - consume verbraucht
+func test_unlimited_sigils_consume_is_a_noop_and_reports_success():
+	# Testmodus (siehe scene_root): Sigille sind unerschöpflich - consume verbraucht
 	# nichts, meldet aber Erfolg, auch wenn gar kein Exemplar im Inventar liegt.
-	run.unlimited_coupons = true
+	run.unlimited_sigils = true
 	watch_signals(run)
-	assert_true(run.consume_coupon(Coupon.CHISEL), "meldet Erfolg trotz leerem Inventar")
-	assert_eq(run.owned_coupons.size(), 0, "nichts verbraucht")
-	assert_signal_emit_count(run, "coupons_changed", 0, "kein Bestandswechsel")
+	assert_true(run.consume_sigil(Sigil.CHISEL), "meldet Erfolg trotz leerem Inventar")
+	assert_eq(run.owned_sigils.size(), 0, "nichts verbraucht")
+	assert_signal_emit_count(run, "sigils_changed", 0, "kein Bestandswechsel")
 
-func test_unlimited_coupons_keeps_owned_stock_intact():
-	run.unlimited_coupons = true
-	run.grant_coupon(Coupon.chisel())
-	run.consume_coupon(Coupon.CHISEL)
-	assert_eq(run.owned_coupons.size(), 1, "vorhandene Coupons bleiben liegen")
+func test_unlimited_sigils_keeps_owned_stock_intact():
+	run.unlimited_sigils = true
+	run.grant_sigil(Sigil.chisel())
+	run.consume_sigil(Sigil.CHISEL)
+	assert_eq(run.owned_sigils.size(), 1, "vorhandene Sigille bleiben liegen")
 
-# --- Coupon-Bögen ---------------------------------------------------------------
+# --- Einzel-Sigill-Kauf ----------------------------------------------------------
 
-func test_buy_coupon_sheet_deducts_and_emits_the_sheet():
+func test_purchase_sigil_deducts_and_stores():
 	run.money = 20
-	var captured: Array = []
-	run.sheet_purchased.connect(func(sheet: CouponSheet, kind: int) -> void: captured.append([sheet, kind]))
-	var sheet := run.buy_coupon_sheet(CouponSheet.Kind.SNIPPET, 6)
-	assert_eq(run.money, 14)
-	assert_eq(captured.size(), 1)
-	assert_eq(captured[0][0], sheet, "Signal liefert denselben Bogen wie der Rückgabewert")
-	assert_eq(captured[0][1], CouponSheet.Kind.SNIPPET)
-
-func test_buy_coupon_sheet_respects_allowed_kinds():
-	# Sortenreine Packs (siehe ShopController.PACKS): der Filter wird bis in die
-	# Auswürfelung durchgereicht.
-	run.money = 100
-	var allowed: Array[String] = [Coupon.KIND_MEAL]
-	var sheet := run.buy_coupon_sheet(CouponSheet.Kind.LARGE, 16, allowed)
-	for tile in sheet.tiles:
-		if tile.kind == CouponSheet.TileKind.ETCHING:
-			assert_eq(tile.coupon.kind, Coupon.KIND_MEAL, "nur Gerichte im Food-Pack")
-
-func test_buy_coupon_sheet_does_not_grant_coupons_immediately():
-	# Die Gutschrift der Kacheln übernimmt erst die Abschluss-Animation
-	# (grant_coupon/add_money je Kachel, siehe scene_root).
-	run.money = 20
-	run.buy_coupon_sheet(CouponSheet.Kind.LARGE, 16)
-	assert_eq(run.owned_coupons.size(), 0)
+	run.purchase_sigil(Sigil.chisel(), 5)
+	assert_eq(run.money, 15, "Preis abgezogen")
+	assert_eq(run.owned_sigils.size(), 1, "Sigill im Inventar")
 
 # --- Menü-Stufen (Meal Deals) ------------------------------------------------------
 
@@ -207,16 +186,16 @@ func test_eat_meal_emits_combo_upgraded():
 	run.eat_meal(DiceScoring.FULL_HOUSE)
 	assert_signal_emitted_with_parameters(run, "combo_upgraded", [DiceScoring.FULL_HOUSE, 1])
 
-func test_granting_a_meal_coupon_eats_it_immediately():
-	# Menü-Coupons landen NIE im Inventar - das Gericht wirkt sofort als Stufe.
-	run.grant_coupon(Coupon.meal_coupon(DiceScoring.THREE_KIND))
-	assert_eq(run.owned_coupons.size(), 0, "kein Inventar-Eintrag")
+func test_granting_a_meal_sigil_eats_it_immediately():
+	# Menü-Sigille landen NIE im Inventar - das Gericht wirkt sofort als Stufe.
+	run.grant_sigil(Sigil.meal_sigil(DiceScoring.THREE_KIND))
+	assert_eq(run.owned_sigils.size(), 0, "kein Inventar-Eintrag")
 	assert_eq(run.combo_levels[DiceScoring.THREE_KIND], 1, "Stufe sofort erhöht")
 
-func test_granting_other_coupons_still_stores_them():
-	run.grant_coupon(Coupon.chisel())
-	assert_eq(run.owned_coupons.size(), 1)
-	assert_false(run.combo_levels.has(Coupon.CHISEL))
+func test_granting_other_sigils_still_stores_them():
+	run.grant_sigil(Sigil.chisel())
+	assert_eq(run.owned_sigils.size(), 1)
+	assert_false(run.combo_levels.has(Sigil.CHISEL))
 
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
@@ -281,32 +260,32 @@ func test_place_side_bet_deducts_stake_and_stores():
 	assert_eq(run.active_side_bets.size(), 1)
 	assert_signal_emitted(run, "side_bets_changed")
 
-func test_place_sigil_stake_consumes_coupons():
-	run.grant_coupon(Coupon.chisel())
-	run.grant_coupon(Coupon.file_down())
-	var before := run.owned_coupons.size()
+func test_place_sigil_stake_consumes_sigils():
+	run.grant_sigil(Sigil.chisel())
+	run.grant_sigil(Sigil.file_down())
+	var before := run.owned_sigils.size()
 	var bet := SideBet._from_template(_template("pawn"))  # 1 Sigill Einsatz
-	assert_true(run.can_place_side_bet(bet), "mit Coupons bezahlbar")
+	assert_true(run.can_place_side_bet(bet), "mit Sigille bezahlbar")
 	run.place_side_bet(bet)
-	assert_eq(run.owned_coupons.size(), before - 1, "ein Sigill geopfert")
+	assert_eq(run.owned_sigils.size(), before - 1, "ein Sigill geopfert")
 
-func test_cannot_place_sigil_stake_without_coupons():
+func test_cannot_place_sigil_stake_without_sigils():
 	var bet := SideBet._from_template(_template("collateral"))  # 2 Sigille Einsatz
 	assert_false(run.can_place_side_bet(bet), "ohne genug Sigille nicht setzbar")
 
-func test_resolve_sigil_payout_grants_coupons_and_clears():
+func test_resolve_sigil_payout_grants_sigils_and_clears():
 	run.money = 50
 	var win := SideBet._from_template(_template("full_house"))  # Sigill-Gewinn
 	var lose := SideBet._from_template(_template("big_hand"))
 	run.place_side_bet(win)
 	run.place_side_bet(lose)
-	var before := run.owned_coupons.size()
+	var before := run.owned_sigils.size()
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	var won := run.resolve_side_bets(result)
 	assert_eq(won.size(), 1, "nur das volle Haus gewinnt")
 	assert_eq(won[0].id, "full_house")
-	assert_eq(run.owned_coupons.size(), before + win.reward_coupons, "Sigille ausgeschüttet")
+	assert_eq(run.owned_sigils.size(), before + win.reward_sigils, "Sigille ausgeschüttet")
 	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
 
 func test_resolve_money_payout_adds_cash():

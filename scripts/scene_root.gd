@@ -33,8 +33,6 @@ const DIE_FLASH_RAMP_UP := 0.07
 const DIE_FLASH_RAMP_DOWN := 0.38
 const DIE_FLASH_SCALE := 1.25
 
-const CHIP_COUPON_VALUE := 1  # Chips je Geld-Coupon der Bogen-Abschluss-Animation
-
 ## Ruhefarbe der Tisch-Texte: leicht ÜBERHELLES Weiß (> 1.0), damit sie mit dem
 ## Szenen-Glow dezent leuchten; beim Aufleuchten wechseln sie auf das Gold.
 const PAYOUT_LABEL_BASE_COLOR := Color(1.35, 1.35, 1.3)
@@ -122,7 +120,7 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 @onready var library_button: Button = $UI/SettingsMenu/LibraryButton
 
 ## Testmodus-Knopf (per Code angehängt): zufällige Materialien auf ALLEN
-## Würfeln + unerschöpfliche Coupons an/aus.
+## Würfeln + unerschöpfliche Sigille an/aus.
 var test_materials_button: Button
 var test_materials_enabled: bool = false
 
@@ -143,9 +141,6 @@ var charm_shop: ShopController
 
 ## Die Gravur-Station - ebenfalls ein Hub-Panel (siehe _open_engraving).
 var die_inspector: DieInspectorView
-
-## Enthüllungs-Overlay eines gekauften Coupon-Bogens (siehe SheetRevealView).
-var sheet_reveal: SheetRevealView
 
 ## Lichtgravur-Ziehung nach der Runde (siehe SigilDraftView).
 var sigil_draft: SigilDraftView
@@ -440,12 +435,6 @@ func _setup_panels() -> void:
 	# Auswahl auch am ECHTEN schwebenden Würfel violett hervorheben.
 	die_inspector.selection_changed.connect(func(_face: int, _edges: bool) -> void: _highlight_engraving_die())
 
-	sheet_reveal = SheetRevealView.new()
-	sheet_reveal.name = "SheetReveal"
-	$UI.add_child(sheet_reveal)
-	sheet_reveal.money_coupon_redeemed.connect(_on_money_coupon_redeemed)
-	sheet_reveal.etching_redeemed.connect(_on_etching_redeemed)
-
 	# Lichtgravur-Ziehung als Hub-Seite (ohne Hub ersatzweise als Overlay).
 	sigil_draft = SigilDraftView.new()
 	sigil_draft.name = "SigilDraft"
@@ -498,15 +487,6 @@ func _style_ui() -> void:
 
 func _on_settings_toggle_pressed() -> void:
 	settings_menu.visible = not settings_menu.visible
-
-## Ein Geld-Coupon ist am Geldzähler angekommen (siehe SheetRevealView);
-## Doppelte Perforation hebt den Chip-Wert.
-func _on_money_coupon_redeemed() -> void:
-	run.add_money(CharmEffects.chip_coupon_value(CHIP_COUPON_VALUE, run.charm_ids()))
-
-## Eine Ätzung ist an ihrem Zähler angekommen: ins Inventar legen.
-func _on_etching_redeemed(coupon: Coupon) -> void:
-	run.grant_coupon(coupon)
 
 ## Sammelt die Kombinationszellen des Displays ein und versetzt sie (und die
 ## Rundenbonus-Zeilen) in die leuchtende Ruhefarbe.
@@ -782,9 +762,9 @@ func _hub_hover_target() -> Vector3:
 	var t := (hover_y - cam_pos.y) / denom
 	return cam_pos + (surface - cam_pos) * t
 
-## Ätzung angewandt: goldene Leiterbahn Coupon-Kachel -> schwebender Würfel;
+## Ätzung angewandt: goldene Leiterbahn Sigill-Kachel -> schwebender Würfel;
 ## bei der Ankunft absorbiert er die Kraft (Seiten nachziehen + Blitz-Pop).
-func _on_engraving_applied(_coupon_id: String, slot_px: Vector2) -> void:
+func _on_engraving_applied(_sigil_id: String, slot_px: Vector2) -> void:
 	if not engraving_active:
 		return
 	table_screen.spawn_trace(slot_px, die_inspector.stage_center_px(), ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
@@ -2203,7 +2183,7 @@ func _on_reset_button_pressed() -> void:
 	_reset_game()
 
 ## Testmodus umschalten: An = zufällige Materialien auf allen Würfeln,
-## Testmodus-Charms + unbegrenzte Coupons; Aus = alles entfernen. Beides
+## Testmodus-Charms + unbegrenzte Sigille; Aus = alles entfernen. Beides
 ## startet die Runde neu, damit die Änderung sofort sichtbar ist.
 func _on_test_materials_pressed() -> void:
 	test_materials_enabled = not test_materials_enabled
@@ -2263,7 +2243,6 @@ func _connect_run() -> void:
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
-	run.sheet_purchased.connect(sheet_reveal.show_reveal)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
@@ -2293,7 +2272,7 @@ func _start_new_round() -> void:
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
-	run.unlimited_coupons = test_materials_enabled
+	run.unlimited_sigils = test_materials_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
 		run.grant_charms(_test_mode_charms())
@@ -2385,7 +2364,7 @@ func _on_round_complete() -> void:
 		if run.money < floor_value:
 			run.money = floor_value
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
-		# als Coupons im Inventar, sichtbar im Shop/an der Gravur-Station).
+		# als Sigille im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
@@ -2431,30 +2410,30 @@ func _resolve_side_bets(cleared: bool) -> void:
 	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben." \
 		% [won.size(), placed, ", ".join(names)]
 
-## Lichtgravur-Ziehung: Auslage nach Rundenmarge würfeln, Overlay zeigen und auf
-## die Wahl warten; das gewählte Siegel wird als Coupon gutgeschrieben.
+## Lichtgravur-Ziehung: Auslage nach Rundenmarge würfeln, Seite zeigen und auf
+## die Wahl warten; das gewählte Siegel wird gutgeschrieben.
 func _run_sigil_draft() -> void:
 	if sigil_draft == null:
 		return
-	var coupons := Coupon.roll_draft(SIGIL_DRAFT_COUNT, _draft_floor_rarity())
-	if coupons.is_empty():
+	var sigils := Sigil.roll_draft(SIGIL_DRAFT_COUNT, _draft_floor_rarity())
+	if sigils.is_empty():
 		return
-	sigil_draft.show_draft(coupons)
-	var picked: Coupon = await sigil_draft.resolved
+	sigil_draft.show_draft(sigils)
+	var picked: Sigil = await sigil_draft.resolved
 	# Nur gutschreiben, wenn wir noch im Shop-Abschnitt sind (kein Reset hat
 	# derweil die Ziehung abgebrochen).
 	if picked != null and phase == Phase.SHOP:
-		run.grant_coupon(picked)
+		run.grant_sigil(picked)
 
 ## Mindest-Seltenheit der Ziehung: je deutlicher das Ziel übertroffen wurde,
 ## desto höher der Boden (1.75× = ungewöhnlich, 3× = selten).
-func _draft_floor_rarity() -> Coupon.Rarity:
+func _draft_floor_rarity() -> Sigil.Rarity:
 	var ratio := float(hand_total) / float(maxi(1, run.round_goal))
 	if ratio >= 3.0:
-		return Coupon.Rarity.RARE
+		return Sigil.Rarity.RARE
 	if ratio >= 1.75:
-		return Coupon.Rarity.UNCOMMON
-	return Coupon.Rarity.COMMON
+		return Sigil.Rarity.UNCOMMON
+	return Sigil.Rarity.COMMON
 
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:
@@ -2592,7 +2571,7 @@ func _update_gameplay_ui_visibility() -> void:
 	hand_label.visible = show_ui
 
 # --- Reaktionen auf Shop/Gravur-Station -------------------------------------
-# Käufe und Coupon-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
+# Käufe und Sigill-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
 # über die Run-Signale. Hier nur Reaktionen, die echte Szenen-Arbeit brauchen.
 
 ## Ätzung angewandt: die faces sind schon verändert, nur Trays neu zeichnen.
