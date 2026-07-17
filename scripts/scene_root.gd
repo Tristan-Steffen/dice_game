@@ -38,15 +38,15 @@ const DIE_FLASH_SCALE := 1.25
 const PAYOUT_LABEL_BASE_COLOR := Color(1.35, 1.35, 1.3)
 const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 
-## Feste Position des Nachschub-Trays: knapp vor dem Südrand der Grube, mittig
-## (Welt-X = Bildschirm-oben). Empirisch getroffen; Y = 0 = Tischbildschirm-
-## Oberfläche, damit die Tray-Würfel AUF dem Screen liegen.
-const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
+## Feste Position des Nachschub-Trays: mittig (Welt-Z = 0) und in der Höhe
+## gleichmäßig zwischen Gruben-Südrand (X = -7.6) und Hub-Oberkante (X = -11),
+## also X = -9.3. Y = 0 = Tischbildschirm-Oberfläche.
+const QUEUE_TRAY_PIT_POSITION := Vector3(-9.3, 0.0, 0.0)
 
 ## Die POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern
 ## (Marker3D unter $ScreenAnchors); nur die GRÖSSEN stehen hier als Weltmaß.
 const PIT_SCORE_WIDTH_WORLD := 10.0
-const PIT_SCORE_HEIGHT_WORLD := 2.6
+const PIT_SCORE_HEIGHT_WORLD := 6.0  # höher: Platz für die Wertungs-Orbs
 
 ## Hub-Fläche unter der Grube (~grubenbreit, doppelte Gruben-Bildschirmhöhe).
 const HUB_WIDTH_WORLD := 28.5
@@ -116,6 +116,9 @@ const PIT_TOP_ROW_SPACING := 2.1
 ## Nach dem Ausrollen gleiten ALLE Würfel in eine Reihe in der Grubenmitte.
 const PIT_CENTER_ROW_X := 0.0
 const LINEUP_DURATION := 0.35
+
+## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben).
+const PIT_ZOOM_UP := 4.0
 
 ## Grobe Spielphase - genau EINE zur Zeit; Eingabe-Gates prüfen gegen sie.
 ## Nebenläufige Kosmetik (Deck-Aufrücken, Drags, Bogen-Abschluss) ist bewusst
@@ -453,8 +456,9 @@ func _setup_camera_targets() -> void:
 	camera_rig.configure_tray_targets(
 		pool_tray_view.global_position,
 		discard_tray_view.global_position)
-	# Grubenziel auf Tisch-Screen-Höhe (0): gleiche Höhe und Winkel wie alle Zooms.
-	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z))
+	# Grubenziel auf Tisch-Screen-Höhe (0), etwas Richtung Charms (+X = oben)
+	# verschoben, damit die Charm-Konsolen mit im Blick sind.
+	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0, DicePit.PIT_CENTER.z))
 	_setup_charms_zoom()
 
 ## Shop, Gravur-Station und Bogen-Enthüllung anlegen und verdrahten.
@@ -1070,7 +1074,7 @@ func _begin_reorder_drag() -> void:
 func _update_reorder_drag(screen_pos: Vector2) -> void:
 	if reorder_ghost == null:
 		return
-	var hit: Variant = _mouse_on_plane(screen_pos, queue_tray_view.global_position.y + REORDER_LIFT_HEIGHT)
+	var hit: Variant = _mouse_on_plane(screen_pos, queue_tray_view.global_position.y + DiceTrayView.FLOAT_HEIGHT + REORDER_LIFT_HEIGHT)
 	if hit != null:
 		reorder_ghost.global_position = hit
 
@@ -2209,7 +2213,8 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# 5) Auf alle fliegenden Kometen warten, dann zu Basis × Mult verschmelzen.
 	if not await _wait_score_comets():
 		return
-	table_screen.show_pit_total(breakdown["merge_total"])
+	var clears_goal := new_total >= run.round_goal
+	table_screen.merge_orbs(breakdown["merge_total"], clears_goal)
 	if not await _score_step_wait(SCORE_MERGE_TIME):
 		return
 
@@ -2221,7 +2226,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		var total_after: int = step["total_after"]
 		_spawn_total_gain(post_source, step["total_add"], step["total_x"])
 		_fire_score_light(post_source, "charm", ["total"],
-			func() -> void: table_screen.show_pit_total(total_after))
+			func() -> void: table_screen.update_pit_total(total_after, clears_goal))
 		if not await _score_cadence():
 			return
 	if not await _wait_score_comets():

@@ -26,6 +26,9 @@ const TILT_RESUME_EASE := 0.5
 ## bei jedem Zoom in derselben Höhe und im selben Winkel, nur das Ziel wandert.
 const ZOOM_DISTANCE := 20.0
 
+## Die Grube wird bewusst etwas weiter weg gezeigt (mehr vom Screen im Blick).
+const PIT_ZOOM_DISTANCE_BONUS := 5.0
+
 ## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
 ## Zoom automatisch mitnehmen.
@@ -181,7 +184,10 @@ func zoom_to(target_mode: Mode) -> void:
 			target_point = score_target
 		_:
 			return
-	var target_origin := target_point - ZOOM_FORWARD * ZOOM_DISTANCE
+	var distance := ZOOM_DISTANCE
+	if target_mode == Mode.PIT:
+		distance += PIT_ZOOM_DISTANCE_BONUS
+	var target_origin := target_point - ZOOM_FORWARD * distance
 	mode = target_mode
 	mode_changed.emit(mode)
 	anchor_basis = ZOOM_BASIS

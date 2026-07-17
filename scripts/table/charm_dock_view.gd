@@ -9,9 +9,17 @@ extends Control
 ## Konsolen (scene_root steuert den Zieh-Automaten über
 ## pad_index_at/begin_drag/drag_to/drop_target/end_drag).
 
-const SOCKET_FILL := Color(0.05, 0.05, 0.10, 0.85)     # leer = dunkler Sockel
-const SOCKET_BORDER := Color(0.72, 0.76, 0.86, 0.18)   # kaum sichtbarer Saum
-const THUMB_INSET := 0.82  # Bild-Anteil an der Karten-Kante (Rest = Raritätsrahmen)
+## Kantenlicht-Glas-Look (statt bunter Vollflächen): dunkles Glas, Platin-
+## Haarlinien wie die LED-Leisten, Rarität NUR als dünnes, überhelles Kantenlicht
+## (bloomt auf dem HDR-Screen). Hover wärmt die Haarlinie Richtung Casino-Gold.
+const PLATINUM := Color(0.75, 0.79, 0.9)               # poliertes Platin (Haarlinie)
+const GLASS_FILL := Color(0.02, 0.02, 0.055, 0.9)      # dunkles Glas des Chassis
+const CARD_FILL := Color(0.014, 0.014, 0.03, 0.95)     # Bild-Screen, noch dunkler
+const LENS_CORE := Color(0.008, 0.008, 0.02, 0.96)     # Linsen-Tiefe
+const HAIRLINE_ALPHA := 0.22   # Deckkraft der Platin-Haarlinie
+const EDGE_ALPHA := 0.5        # Grund-Deckkraft des Raritäts-Kantenlichts
+const RARITY_TINT := 0.06      # winziger Raritäts-Anteil im Karten-Glas
+const THUMB_INSET := 0.82  # Bild-Anteil an der Karten-Kante (Rest = Rahmen)
 const DRAG_SCALE := 1.12    # gezogene Karte hebt sich leicht ab
 
 ## Konsolen-Maße relativ zur Kartengröße (_pad_size). Der Projektor sitzt exakt
@@ -292,44 +300,75 @@ func _clear_thumbs() -> void:
 	_thumbs.clear()
 	_thumb_home.clear()
 
+## Platin-Haarlinie; leer schwächer, bei Hover Richtung Casino-Gold gewärmt.
+func _hairline(occupied: bool, lit: bool) -> Color:
+	var a := HAIRLINE_ALPHA if occupied else HAIRLINE_ALPHA * 0.5
+	if lit:
+		var g := CasinoStyle.GOLD
+		return Color(lerpf(PLATINUM.r, g.r, 0.7), lerpf(PLATINUM.g, g.g, 0.7),
+			lerpf(PLATINUM.b, g.b, 0.7), a + 0.28)
+	return Color(PLATINUM.r, PLATINUM.g, PLATINUM.b, a)
+
+## Raritäts-Kantenlicht: überhelle Raritätsfarbe (bloomt), Hover/Flash heben an.
+func _edge_light(rarity: Color, lit: bool, flash: float) -> Color:
+	var b := 1.7 + flash * 2.2 + (0.5 if lit else 0.0)
+	var a := EDGE_ALPHA + flash * 0.4 + (0.18 if lit else 0.0)
+	return Color(rarity.r * b, rarity.g * b, rarity.b * b, clampf(a, 0.0, 1.0))
+
+## Projektor als Glaslinse: dunkler Kern (Tiefe), Platin-Linsenringe, innen ein
+## überhelles Raritäts-Ringlicht - dort tritt der Strahl aus.
+func _draw_lens(c: Vector2, pr: float, rarity: Color, occupied: bool, lit: bool,
+		flash: float, hair: Color, hair_w: float, edge_w: float) -> void:
+	draw_circle(c, pr, GLASS_FILL)
+	draw_circle(c, pr * 0.62, LENS_CORE)
+	draw_arc(c, pr, 0.0, TAU, 64, hair, hair_w)
+	draw_arc(c, pr * 0.72, 0.0, TAU, 48, Color(hair.r, hair.g, hair.b, hair.a * 0.6), hair_w * 0.7)
+	if occupied:
+		draw_arc(c, pr * 0.86, 0.0, TAU, 64, _edge_light(rarity, lit, flash), edge_w)
+
 func _draw() -> void:
 	if _pad_offsets.is_empty():
 		return
 	var radius := console_corner_radius()
+	var hair_w := maxf(1.5, _pad_size.y * 0.014)   # Haarlinie statt Klotz-Rahmen
+	var edge_w := maxf(2.0, _pad_size.y * 0.02)
+	var card_radius := int(_pad_size.y * 0.16)
 	for i in _pad_offsets.size():
 		var occupied := i < _occupied
-		var accent: Color = _pad_colors[i] if occupied else SOCKET_BORDER
-		var fill := SOCKET_FILL
-		if occupied:
-			fill = Color(accent.r * 0.18, accent.g * 0.18, accent.b * 0.18, 0.9)
+		var rarity: Color = _pad_colors[i] if occupied else PLATINUM
 		var lit := occupied and (i == _hover or (i == _drop_hint and _drag_index >= 0))
-		if lit:
-			accent = accent.lerp(Color(1.8, 1.8, 1.9), 0.6)
 		var flash: float = _flash[i] if i < _flash.size() else 0.0
-		if flash > 0.0:
-			fill = fill.lerp(Color(accent.r * 2.0, accent.g * 2.0, accent.b * 2.0, 1.0), flash)
-			accent = accent.lerp(Color(2.2, 2.2, 2.2), flash * 0.6)
-		var border_w := maxi(1, int(_pad_size.y * 0.05))
-		# Konsolen-Screen: eigenes rundes Fenster je Charm; der Rahmen leuchtet
-		# beim Hervorheben mit.
-		var console := TableScreen.window_style()
-		console.set_corner_radius_all(int(radius))
-		if lit or flash > 0.0:
-			console.border_color = accent
-		draw_style_box(console, _console_rects[i])
-		# Runder Projektor oben (= Kraftfeld-Durchmesser): Ring + Linsenkern.
-		var ap := _aperture_offsets[i]
-		var pr := _projector_r()
-		draw_circle(ap, pr, fill)
-		draw_arc(ap, pr, 0.0, TAU, 48, accent, float(border_w))
+		var hair := _hairline(occupied, lit)
+		var card_rect := Rect2(_pad_offsets[i] - _pad_size / 2.0, _pad_size)
+
+		# Chassis: gleicher Fenster-Grund wie alle Screens; Linse und Karte bleiben
+		# dunkler (Kraftfeld-Generator bzw. Bild/Text). Platin-Haarlinie.
+		var chassis := StyleBoxFlat.new()
+		chassis.bg_color = TableScreen.FRAME_BG
+		chassis.border_color = hair
+		chassis.set_border_width_all(int(hair_w))
+		chassis.set_corner_radius_all(int(radius))
+		draw_style_box(chassis, _console_rects[i])
+
+		_draw_lens(_aperture_offsets[i], _projector_r(), rarity, occupied, lit, flash,
+			hair, hair_w, edge_w)
+
+		# Bild-Screen: dunkles Glas (Hauch Rarität), Platin-Haarlinie.
+		var card_fill := CARD_FILL
 		if occupied:
-			# Linsenkern: gedimmter Akzent, aus dem der Strahl austritt.
-			draw_circle(ap, pr * 0.45, Color(accent.r * 0.55, accent.g * 0.55, accent.b * 0.55,
-				0.9 + flash))
-		# Bild-Screen unten (Rahmen um Kachel bzw. Hover-Text).
-		var pad := StyleBoxFlat.new()
-		pad.bg_color = fill
-		pad.border_color = accent
-		pad.set_border_width_all(border_w)
-		pad.set_corner_radius_all(int(_pad_size.y * 0.16))
-		draw_style_box(pad, Rect2(_pad_offsets[i] - _pad_size / 2.0, _pad_size))
+			card_fill = CARD_FILL.lerp(Color(rarity.r, rarity.g, rarity.b, CARD_FILL.a), RARITY_TINT)
+		var card := StyleBoxFlat.new()
+		card.bg_color = card_fill
+		card.border_color = hair
+		card.set_border_width_all(int(hair_w))
+		card.set_corner_radius_all(card_radius)
+		draw_style_box(card, card_rect)
+		# Raritäts-Kantenlicht: dünne, überhelle Innenlinie (kantenbeleuchtetes Acryl).
+		if occupied:
+			var inset := edge_w * 1.6
+			var edge_box := StyleBoxFlat.new()
+			edge_box.draw_center = false
+			edge_box.border_color = _edge_light(rarity, lit, flash)
+			edge_box.set_border_width_all(int(edge_w))
+			edge_box.set_corner_radius_all(maxi(1, card_radius - int(inset * 0.5)))
+			draw_style_box(edge_box, card_rect.grow(-inset))

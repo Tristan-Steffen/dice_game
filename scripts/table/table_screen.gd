@@ -34,7 +34,16 @@ const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
 const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
-const TOTAL_FLY_FONT := 44 * SUPERSAMPLE
+
+## Wachstumskonstanten der Orbs (1 - exp(-value/K)): Basis-Werte laufen groß,
+## Mult klein, die Gesamtzahl am größten.
+const BASE_GROWTH_K := 260.0
+const MULT_GROWTH_K := 20.0
+const TOTAL_GROWTH_K := 650.0
+## Verschmelzung: Basis/Mult bogen zur Mitte (beschleunigend), dann Einschlag.
+const MERGE_ORBIT_TIME := 0.42
+const MERGE_ARC_FRAC := 0.5   # Bogenhöhe als Anteil des Abstands zur Mitte
+const DRAIN_SPARKS := 5
 
 ## Aktions-Buttons unten mittig in der Grube, bedient über die Maus-Weiterleitung.
 const PIT_ACTION_SIZE := Vector2(79, 28) * SUPERSAMPLE
@@ -95,9 +104,12 @@ var goal_bar_label: Label
 var base_counter: PitScoreView
 var mult_counter: PitScoreView
 var hub: HubView
-## Verschmolzene Gesamtzahl: erscheint AM Zielbalken (die Grubenmitte wäre
-## vom Käfig verdeckt) und schrumpft am Ende in den Balken.
-var pit_total_label: Label
+## Verschmolzene Gesamtzahl als dritter Orb: erscheint AM Zielbalken (die
+## Grubenmitte wäre vom Käfig verdeckt) und drainiert am Ende in den Balken.
+var total_orb: PitScoreView
+## Ruhepositionen der Zähler (die Merge zieht sie zur Mitte; danach zurück).
+var _base_home := Vector2.ZERO
+var _mult_home := Vector2.ZERO
 
 ## Trägerfläche ist klick-durchlässig; nur die Buttons fangen ihre Klicks.
 var pit_actions_root: Control
@@ -472,31 +484,32 @@ func pulse_goal_bar() -> void:
 ## --- Wertungszahlen & Goldlicht der Zähl-Animation ----------------------------
 
 func _build_pit_score() -> void:
-	base_counter = _make_counter("BaseCounter", PitScoreView.BASE_COLOR)
-	mult_counter = _make_counter("MultCounter", PitScoreView.MULT_COLOR)
+	base_counter = _make_counter("BaseCounter", PitScoreView.BASE_COLOR, BASE_GROWTH_K)
+	mult_counter = _make_counter("MultCounter", PitScoreView.MULT_COLOR, MULT_GROWTH_K)
+	total_orb = _make_counter("TotalOrb", PitScoreView.TOTAL_COLOR, TOTAL_GROWTH_K)
+	total_orb.is_total = true
+	total_orb.visible = false
 
-	pit_total_label = Label.new()
-	pit_total_label.name = "PitTotal"
-	pit_total_label.add_theme_font_size_override("font_size", TOTAL_FLY_FONT)
-	pit_total_label.modulate = PitScoreView.TOTAL_COLOR
-	pit_total_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pit_total_label.visible = false
-	add_child(pit_total_label)
-
-func _make_counter(node_name: String, counter_color: Color) -> PitScoreView:
+func _make_counter(node_name: String, counter_color: Color, k: float) -> PitScoreView:
 	var counter := PitScoreView.new()
 	counter.name = node_name
 	counter.color = counter_color
+	counter.growth_k = k
 	counter.size = PIT_SCORE_SIZE
 	counter.position = (Vector2(RESOLUTION) - PIT_SCORE_SIZE) / 2.0
 	counter.pivot_offset = PIT_SCORE_SIZE / 2.0
+	counter.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(counter)
 	return counter
 
-## Setzt Größe und Mitte BEIDER Zähler (aus den Anker-Weltpositionen).
+## Setzt Größe und Mitte BEIDER Zähler (aus den Anker-Weltpositionen); der
+## Gesamt-Orb sitzt mittig auf dem Zielbalken.
 func configure_pit_score(base_center_px: Vector2, mult_center_px: Vector2, new_size: Vector2) -> void:
 	_place_counter(base_counter, base_center_px, new_size)
 	_place_counter(mult_counter, mult_center_px, new_size)
+	_base_home = base_counter.position
+	_mult_home = mult_counter.position
+	_place_counter(total_orb, goal_bar.position + goal_bar.size / 2.0, new_size)
 
 func _place_counter(counter: PitScoreView, center_px: Vector2, new_size: Vector2) -> void:
 	counter.size = new_size
@@ -504,61 +517,111 @@ func _place_counter(counter: PitScoreView, center_px: Vector2, new_size: Vector2
 	counter.position = center_px - new_size / 2.0
 	counter.queue_redraw()
 
-## Setzt Basis + Mult - Pop nur auf dem GEÄNDERTEN Zähler und nur bei echter
-## Änderung (wird wiederholt gerufen). Blendet eine stehende Gesamtzahl aus.
+## Setzt Basis + Mult (die Orbs ploppen bei echter Änderung selbst). Blendet
+## den Gesamt-Orb aus und holt die Zähler an ihre Ruheplätze zurück.
 func update_pit_score(base: int, mult: int) -> void:
 	if base_counter.visible and base_counter.value == base and mult_counter.value == mult:
 		return
-	pit_total_label.visible = false
+	total_orb.visible = false
+	base_counter.position = _base_home
+	mult_counter.position = _mult_home
 	base_counter.visible = true
 	mult_counter.visible = true
-	if base_counter.value != base:
-		base_counter.set_value(base)
-		_pop(base_counter, 1.12)
-	if mult_counter.value != mult:
-		mult_counter.set_value(mult)
-		_pop(mult_counter, 1.12)
+	base_counter.set_value(base)
+	mult_counter.set_value(mult)
 
-## Pop BEIDER Zähler ohne Wertänderung (Ankunft der Kombi-Leiterbahnen).
+## Pop BEIDER Orbs ohne Wertänderung (Ankunft der Kombi-Leiterbahnen).
 func pulse_pit_score() -> void:
-	_pop(base_counter, 1.12)
-	_pop(mult_counter, 1.12)
+	base_counter.pop()
+	mult_counter.pop()
 
-## Verschmilzt die Seiten-Zahlen zur Gesamtzahl am Zielbalken.
-func show_pit_total(total: int) -> void:
+## Verschmelzung: Basis- und Mult-Orb bogen beschleunigend zur Zielbalken-Mitte,
+## dann schlägt der Gesamt-Orb überheiß ein (Stoßwelle). clears_goal = Ziel
+## geknackt -> weiß-heißer Blitz.
+func merge_orbs(total: int, clears_goal: bool) -> void:
+	var gc := goal_bar.position + goal_bar.size / 2.0
+	var base_target := gc - base_counter.size / 2.0
+	var mult_target := gc - mult_counter.size / 2.0
+	var base_start := base_counter.position
+	var mult_start := mult_counter.position
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)  # in den Einschlag beschleunigen
+	tween.tween_method(func(p: float) -> void:
+		base_counter.position = _merge_arc(base_start, base_target, p, 1.0)
+		mult_counter.position = _merge_arc(mult_start, mult_target, p, -1.0),
+		0.0, 1.0, MERGE_ORBIT_TIME)
+	tween.tween_callback(func() -> void: _slam_total(total, clears_goal))
+
+## Bogen von a nach b: Grundfahrt plus seitlicher Ausschlag (sin), Seite je Orb.
+func _merge_arc(a: Vector2, b: Vector2, p: float, side: float) -> Vector2:
+	var straight := a.lerp(b, p)
+	var span := a.distance_to(b)
+	var dir := (b - a).normalized() if span > 0.001 else Vector2.RIGHT
+	var perp := Vector2(-dir.y, dir.x) * side
+	return straight + perp * sin(p * PI) * span * MERGE_ARC_FRAC
+
+func _slam_total(total: int, clears_goal: bool) -> void:
 	base_counter.visible = false
 	mult_counter.visible = false
-	pit_total_label.text = str(total)
-	pit_total_label.visible = true
-	pit_total_label.reset_size()
-	pit_total_label.pivot_offset = pit_total_label.size / 2.0
-	pit_total_label.position = goal_bar.position + goal_bar.size / 2.0 - pit_total_label.size / 2.0
-	_pop(pit_total_label, 1.4)
+	base_counter.position = _base_home
+	mult_counter.position = _mult_home
+	var gc := goal_bar.position + goal_bar.size / 2.0
+	total_orb.position = gc - total_orb.size / 2.0
+	total_orb.scale = Vector2.ONE
+	total_orb.modulate = Color.WHITE
+	total_orb.set_overbright(clears_goal)
+	total_orb.set_value_silent(0)  # von 0 hochploppen
+	total_orb.visible = true
+	total_orb.set_value(total)     # eigener Squash-Pop
+	total_orb.pop()
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	var wave_color := Color(2.4, 2.2, 1.6, 0.9) if clears_goal else Color(2.0, 1.6, 0.3, 0.85)
+	wave.setup(gc, wave_color, total_orb.size.y * 0.9, 0.5)
 
-## Setzt die Daueranzeige still auf 0 / 0 und blendet die Gesamtzahl aus.
+## Aktualisiert die Gesamtzahl (Nach-Schritte auf der Summe) - kein neuer Merge.
+func update_pit_total(total: int, clears_goal: bool) -> void:
+	total_orb.set_overbright(clears_goal)
+	total_orb.set_value(total)
+
+## Setzt die Daueranzeige still auf 0 / 0 und blendet den Gesamt-Orb aus.
 func reset_pit_score() -> void:
-	pit_total_label.visible = false
+	total_orb.visible = false
+	base_counter.position = _base_home
+	mult_counter.position = _mult_home
 	base_counter.visible = true
 	mult_counter.visible = true
-	base_counter.set_value(0)
-	mult_counter.set_value(0)
+	base_counter.set_value_silent(0)
+	mult_counter.set_value_silent(0)
 
-## Lässt die Gesamtzahl in den Zielbalken schrumpfen; der Balken pocht beim
-## Einschlag. Liefert den Tween (für await finished).
+## Drain: der Gesamt-Orb schrumpft in den Balken, ein paar Funken strömen mit;
+## der Balken pocht beim Einschlag. Liefert den Tween (für await finished).
 func fly_total_to_goal(duration: float) -> Tween:
-	var target := goal_bar.position + goal_bar.size / 2.0 - pit_total_label.size / 2.0
+	var gc := goal_bar.position + goal_bar.size / 2.0
+	for i in DRAIN_SPARKS:
+		var delay := duration * float(i) / float(DRAIN_SPARKS)
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			_drain_spark(gc, duration * 0.5))
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.set_parallel(true)
-	tween.tween_property(pit_total_label, "position", target, duration)
-	tween.tween_property(pit_total_label, "scale", Vector2(0.4, 0.4), duration)
-	tween.tween_property(pit_total_label, "modulate:a", 0.0, duration)
+	tween.tween_property(total_orb, "scale", Vector2(0.25, 0.25), duration)
+	tween.tween_property(total_orb, "modulate:a", 0.0, duration)
 	tween.chain().tween_callback(func() -> void:
-		pit_total_label.modulate = PitScoreView.TOTAL_COLOR
-		pit_total_label.scale = Vector2.ONE
+		total_orb.scale = Vector2.ONE
+		total_orb.modulate = Color.WHITE
 		reset_pit_score()
 		pulse_goal_bar())
 	return tween
+
+## Ein kurzer Funke vom schrumpfenden Orb in den Balken (kleiner Radialversatz).
+func _drain_spark(center_px: Vector2, travel: float) -> void:
+	var angle := randf() * TAU
+	var from := center_px + Vector2(cos(angle), sin(angle)) * total_orb.size.y * 0.35
+	var pulse := TracePulseView.new()
+	add_child(pulse)
+	pulse.setup(PackedVector2Array([from, center_px]), PitScoreView.TOTAL_COLOR,
+		SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET * 0.5)
 
 ## Schwebende Zuwachs-Zahl der Zähl-Animation ("+3", "×2"): steigt aus dem
 ## Würfel auf und gleitet ausblendend nach unten weg. Rein schmückend -
@@ -1099,9 +1162,3 @@ func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 ## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite).
 func pixels_per_world() -> float:
 	return float(size.x) / _z_span
-
-func _pop(control: Control, strength: float) -> void:
-	control.scale = Vector2.ONE * strength
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(control, "scale", Vector2.ONE, 0.3)
