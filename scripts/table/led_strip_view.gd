@@ -24,18 +24,22 @@ var _thickness := 9.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-## Verlegt eine Ader von der Hub-OBERKANTE (Austritt bei exit_x) senkrecht in den
-## gemeinsamen Korridor lane_y, waagerecht bis zur Ziel-Mitte und senkrecht in
-## dessen UNTERKANTE - so kreuzt sie kein anderes Fenster. Kombi- und Schatz-Leiste
-## nutzen dieselbe Führung, an der Hub-Oberkante gespiegelt (exit_x links/rechts).
-func link_from_hub_top(hub_rect: Rect2, target_rect: Rect2, width: float, exit_x: float, lane_y: float) -> void:
+## Grund-Führung: senkrechter Austritt an (exit_x, from_edge_y), waagerecht durch
+## den gemeinsamen Korridor lane_y, senkrecht in (enter_x, to_edge_y). Richtungs-
+## agnostisch - der Korridor darf über ODER unter der Quelle liegen (Pit->Score,
+## Kombis->Score von unten; Charm-Dock->Score von oben). So kreuzt die Ader kein
+## Fenster, solange lane_y in der Lücke zwischen Quell- und Zielkante liegt.
+func link_edges(from_edge_y: float, exit_x: float, to_edge_y: float, enter_x: float, lane_y: float, width: float) -> void:
 	_thickness = width
-	var enter_x := target_rect.get_center().x
 	strip_path = PackedVector2Array([
-		Vector2(exit_x, hub_rect.position.y), Vector2(exit_x, lane_y),
-		Vector2(enter_x, lane_y), Vector2(enter_x, target_rect.end.y)])
+		Vector2(exit_x, from_edge_y), Vector2(exit_x, lane_y),
+		Vector2(enter_x, lane_y), Vector2(enter_x, to_edge_y)])
 	branch_path = PackedVector2Array()
 	queue_redraw()
+
+## Bequem-Wrapper: Hub-OBERKANTE -> Ziel-UNTERKANTE (Eintritt mittig), wie bisher.
+func link_from_hub_top(hub_rect: Rect2, target_rect: Rect2, width: float, exit_x: float, lane_y: float) -> void:
+	link_edges(hub_rect.position.y, exit_x, target_rect.end.y, target_rect.get_center().x, lane_y, width)
 
 ## Zweigt an der Korridor-Ecke (unter dem Hauptziel) ab: waagerecht weiter bis
 ## unter target, senkrecht in dessen UNTERKANTE. Erst nach link_from_hub_top rufen.

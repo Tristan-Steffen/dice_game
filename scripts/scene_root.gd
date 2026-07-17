@@ -367,6 +367,8 @@ func _setup_table_screen() -> void:
 		table_screen.world_to_pixel(base_counter_anchor.global_position),
 		table_screen.world_to_pixel(mult_counter_anchor.global_position),
 		score_size)
+	# Zielbalken + Zähler zu EINEM Wertungs-Bildschirm rahmen.
+	table_screen.place_score_screen()
 	table_screen.place_hub(
 		table_screen.world_to_pixel(hub_anchor.global_position),
 		Vector2(HUB_WIDTH_WORLD * ppw, HUB_HEIGHT_WORLD * ppw))
@@ -389,6 +391,17 @@ func _setup_table_screen() -> void:
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
+	# Charm-Dock unter der 3D-Charm-Reihe: je Platz ein Kontakt-Pad (Pixel aus den
+	# festen Plätzen der Charm-Reihe abgeleitet).
+	var pad_centers := PackedVector2Array()
+	for i in CharmRowView.SPOT_COUNT:
+		pad_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
+	var pad_spacing := pad_centers[0].distance_to(pad_centers[1]) if pad_centers.size() > 1 else 200.0
+	table_screen.place_charm_dock(pad_centers, Vector2(pad_spacing * 0.58, pad_spacing * 0.2))
+	if run != null:
+		table_screen.charm_dock.set_charms(run.owned_charms)
+	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
+	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 
@@ -592,6 +605,8 @@ func _tween_combo_label(row: ComboCellView, color: Color, target_scale: float) -
 
 func _on_charms_changed() -> void:
 	charm_row.set_charms(run.owned_charms)
+	if table_screen != null and table_screen.charm_dock != null:
+		table_screen.charm_dock.set_charms(run.owned_charms)
 
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money

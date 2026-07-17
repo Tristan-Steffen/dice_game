@@ -69,6 +69,18 @@ var side_bet_window: SideBetPanel
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
+## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
+## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
+## die Zähl-Animation rechnet unverändert weiter). Analog zu cluster_frame.
+var score_frame: Panel
+var score_rect := Rect2()
+## Leisten, die in den Wertungs-Bildschirm münden: Grube (dicker Datenbus, von
+## unten), Kombinationen (von unten-links), Charm-Dock (von oben).
+var pit_score_strip: LedStripView
+var combos_score_strip: LedStripView
+var charm_dock_score_strip: LedStripView
+## Charm-Dock (Kontakt-Pads unter der 3D-Charm-Reihe); mündet von oben in den Score.
+var charm_dock: CharmDockView
 var goal_bar: Panel
 var goal_bar_fill: ColorRect
 var goal_bar_label: Label
@@ -173,6 +185,30 @@ func _build_content() -> void:
 	treasure_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(treasure_strip)
 
+	# Wertungs-Leisten (Grube/Kombis -> Score): früh gebaut, damit sie UNTER den
+	# Fenstern liegen; verlegt werden sie in link_score_strips.
+	pit_score_strip = LedStripView.new()
+	pit_score_strip.name = "PitScoreStrip"
+	pit_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(pit_score_strip)
+
+	combos_score_strip = LedStripView.new()
+	combos_score_strip.name = "CombosScoreStrip"
+	combos_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(combos_score_strip)
+
+	charm_dock_score_strip = LedStripView.new()
+	charm_dock_score_strip.name = "CharmDockScoreStrip"
+	charm_dock_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(charm_dock_score_strip)
+
+	# Charm-Dock: über den Leisten, aber unter den restlichen Fenstern; Position
+	# setzt scene_root über place_charm_dock (Maße aus den Charm-Plätzen).
+	charm_dock = CharmDockView.new()
+	charm_dock.name = "CharmDock"
+	charm_dock.visible = false
+	add_child(charm_dock)
+
 	# Schatz-Screen: Position/Größe setzt scene_root über place_treasure_window.
 	treasure_window = TreasureChestView.new()
 	treasure_window.name = "TreasureWindow"
@@ -218,6 +254,15 @@ func _build_content() -> void:
 	circuit_board.setup(local_cells, CELL_GAP.x * 0.5)
 	for i in total:
 		_add_combo_cell(DiceScoring.HAND_PRIORITY[i], positions[i])
+
+	# Wertungs-Bildschirm-Rahmen: VOR Zielbalken/Zählern gebaut, damit er HINTER
+	# ihnen zeichnet; Position/Größe setzt scene_root über place_score_screen.
+	score_frame = Panel.new()
+	score_frame.name = "ScoreFrame"
+	score_frame.visible = false
+	score_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	score_frame.add_theme_stylebox_override("panel", window_style())
+	add_child(score_frame)
 
 	_build_goal_bar()
 	_build_pit_score()
@@ -296,6 +341,14 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(cluster_rect.position.x, cluster_rect.position.y,
 			cluster_rect.end.x, cluster_rect.end.y))
 		radii.append(10.0)
+	if score_frame != null and score_frame.visible:
+		rects.append(Vector4(score_rect.position.x, score_rect.position.y,
+			score_rect.end.x, score_rect.end.y))
+		radii.append(10.0)
+	if charm_dock != null and charm_dock.visible:
+		rects.append(Vector4(charm_dock.position.x, charm_dock.position.y,
+			charm_dock.position.x + charm_dock.size.x, charm_dock.position.y + charm_dock.size.y))
+		radii.append(10.0)
 	if goal_bar != null:
 		rects.append(Vector4(goal_bar.position.x, goal_bar.position.y,
 			goal_bar.position.x + goal_bar.size.x, goal_bar.position.y + goal_bar.size.y))
@@ -370,6 +423,22 @@ func _build_goal_bar() -> void:
 ## Zentriert den Balken auf das gegebene Display-Pixel.
 func place_goal_bar(center_px: Vector2) -> void:
 	goal_bar.position = center_px - GOAL_BAR_SIZE / 2.0
+	_sync_reflection_windows()
+
+## Rahmt Basis-Zähler, Zielbalken und Mult-Zähler zu EINEM Bildschirm (Rahmen
+## hinter den Elementen). NACH place_goal_bar UND configure_pit_score rufen.
+const SCORE_SCREEN_PADDING := 16.0 * SUPERSAMPLE
+
+func place_score_screen() -> void:
+	if score_frame == null or base_counter == null or mult_counter == null or goal_bar == null:
+		return
+	var r := Rect2(base_counter.position, base_counter.size)
+	r = r.merge(Rect2(mult_counter.position, mult_counter.size))
+	r = r.merge(Rect2(goal_bar.position, goal_bar.size))
+	score_rect = r.grow(SCORE_SCREEN_PADDING)
+	score_frame.position = score_rect.position
+	score_frame.size = score_rect.size
+	score_frame.visible = true
 	_sync_reflection_windows()
 
 func set_goal_progress(points: int, goal: int) -> void:
@@ -654,6 +723,56 @@ func link_hub_to_treasure() -> void:
 	# T-Stück: die Geld-Ader zweigt im Korridor zusätzlich zu den Nebenwetten ab.
 	if side_bet_window != null and side_bet_window.visible:
 		treasure_strip.fork_to(Rect2(side_bet_window.position, side_bet_window.size))
+
+## --- Wertungs-Leisten (Grube/Kombis -> Score) ----------------------------------
+
+## Die Grube-Leiste ist der Datenbus (dicker); die Kombi-Leiste bleibt schlank.
+const SCORE_STRIP_WIDTH := 3.4 * SUPERSAMPLE
+const SCORE_BUS_WIDTH := 4.8 * SUPERSAMPLE
+
+## Korridor zwischen Score-Unterkante und Grube-Oberkante (dort läuft der
+## waagerechte Teil der Kombi-Leiste, klar über der Grube).
+func _score_lane_y() -> float:
+	var score_bottom := score_rect.end.y
+	var pit_top := score_bottom + 24.0 * SUPERSAMPLE
+	if pit_window != null and pit_window.visible:
+		pit_top = pit_window.position.y
+	return (score_bottom + pit_top) * 0.5
+
+## Verlegt die Grube- und Kombi-Leiste in den Wertungs-Bildschirm (nach
+## place_score_screen, place_pit_window UND place_combo_cluster rufen).
+func link_score_strips() -> void:
+	if score_frame == null or not score_frame.visible:
+		return
+	var lane := _score_lane_y()
+	var score_bottom := score_rect.end.y
+	# Grube -> Score: senkrechter Datenbus (Grubenmitte in die Score-Mitte).
+	if pit_score_strip != null and pit_window != null and pit_window.visible:
+		var pit_cx := pit_window.position.x + pit_window.size.x * 0.5
+		pit_score_strip.link_edges(pit_window.position.y, pit_cx, score_bottom, pit_cx,
+			lane, SCORE_BUS_WIDTH)
+	# Kombinationen -> Score: von der Kombi-Oberkante in einen linken Score-Port.
+	if combos_score_strip != null and cluster_frame != null:
+		var exit_x := cluster_rect.get_center().x + cluster_rect.size.x * 0.25
+		var enter_x := score_rect.position.x + score_rect.size.x * 0.25
+		combos_score_strip.link_edges(cluster_rect.position.y, exit_x, score_bottom, enter_x,
+			lane, SCORE_STRIP_WIDTH)
+	# Charm-Dock -> Score: von der Dock-UNTERKANTE senkrecht in die Score-OBERKANTE.
+	if charm_dock_score_strip != null and charm_dock != null and charm_dock.visible:
+		var dock_bottom := charm_dock.position.y + charm_dock.size.y
+		var dock_cx := charm_dock.position.x + charm_dock.size.x * 0.5
+		var score_top := score_rect.position.y
+		var up_lane := (dock_bottom + score_top) * 0.5
+		charm_dock_score_strip.link_edges(dock_bottom, dock_cx, score_top, dock_cx,
+			up_lane, SCORE_STRIP_WIDTH)
+
+## Spannt das Charm-Dock über die 6 Platz-Pixelmitten auf (pad_size = Kachel).
+func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2) -> void:
+	if charm_dock == null:
+		return
+	charm_dock.place(pad_centers_px, pad_size)
+	charm_dock.visible = true
+	_sync_reflection_windows()
 
 ## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
 
