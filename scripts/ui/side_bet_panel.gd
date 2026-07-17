@@ -7,6 +7,10 @@ extends Panel
 
 ## Nach dem Platzieren einer Wette - scene_root aktualisiert ggf. die Anzeige.
 signal changed
+## VOR der Einsatz-Zahlung (scene_root unterdrückt das generische Geld-Licht und
+## merkt sich die Knopfmitte) bzw. DANACH (scene_root startet das Einsatz-Licht).
+signal bet_selected(index: int)
+signal bet_placed(index: int)
 
 enum Mode { BETTING, PROGRESS }
 
@@ -19,6 +23,7 @@ const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
+const SIGIL_GLOW := Color("#c77dff")  # Sigill-Licht (violett)
 const BAR_BG := Color("#100e20")
 
 var run: GameRun
@@ -28,6 +33,10 @@ var mode: int = Mode.PROGRESS
 var offers: Array[SideBet] = []
 var placed: Array[bool] = []
 var bet_buttons: Array[Button] = []
+## Platzierte Wetten, deren Einsatz-Licht angekommen ist: index -> Glühfarbe.
+## Getrennt von placed, damit der Knopf erst bei ANKUNFT golden leuchtet (und
+## nach jedem _rebuild wieder). Von scene_root über glow_bet gesetzt.
+var bet_glow: Dictionary = {}
 
 var _result: Dictionary = {}
 var _content: VBoxContainer
@@ -45,6 +54,7 @@ func open_betting(new_offers: Array[SideBet]) -> void:
 	offers = new_offers
 	placed.resize(offers.size())
 	placed.fill(false)
+	bet_glow.clear()
 	_rebuild()
 
 ## Schließt den Wett-Modus (erster Wurf) - ab jetzt nur noch Fortschritt.
@@ -127,17 +137,55 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 	# Bar-Gewinn goldgelb, Sigill-Gewinn grün - die Farbe verrät die Wett-Sorte.
 	var accent := GOLD if bet.payout_kind == SideBet.Payout.MONEY else GREEN
 	_style_button(button, accent if enabled else MUTED_COLOR)
+	# Angekommener Einsatz: den platzierten Knopf golden/violett glühen lassen.
+	if placed[index] and bet_glow.has(index):
+		_apply_stake_glow(button, bet_glow[index], false)
 	return button
+
+## Legt einen glühenden Einsatz-Rahmen auf den (platzierten) Knopf. animate =
+## Ankunft (Rahmen fährt hell hoch + kurzer Pop), sonst sofort (Neuaufbau).
+func _apply_stake_glow(button: Button, color: Color, animate: bool) -> void:
+	var box := _button_box(Color(color.r * 0.28, color.g * 0.28, color.b * 0.28, 0.85), color)
+	button.add_theme_stylebox_override("disabled", box)
+	button.add_theme_color_override("font_disabled_color", color)
+	if not animate:
+		return
+	box.border_color = Color(color, 0.0)
+	var tween := create_tween()
+	tween.tween_property(box, "border_color", color, 0.35).set_trans(Tween.TRANS_SINE)
+	button.pivot_offset = button.size / 2.0
+	button.scale = Vector2.ONE * 1.12
+	var pop := create_tween()
+	pop.tween_property(button, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_bet_pressed(index: int) -> void:
 	if mode != Mode.BETTING or placed[index] or run == null:
 		return
 	if not run.can_place_side_bet(offers[index]):
 		return
+	bet_selected.emit(index)  # scene_root: Geld-Licht unterdrücken, Knopfmitte merken
 	run.place_side_bet(offers[index])
 	placed[index] = true
 	_rebuild()
+	bet_placed.emit(index)  # scene_root: Einsatz-Licht starten
 	changed.emit()
+
+## Bildschirm-Mitte des Setzen-Knopfs (SubViewport-Pixel) - Ziel des
+## Diffusions-Lichts. (-1,-1), falls der Knopf (noch) nicht existiert.
+func bet_button_center(index: int) -> Vector2:
+	if index < 0 or index >= bet_buttons.size() or not is_instance_valid(bet_buttons[index]):
+		return Vector2(-1, -1)
+	var button := bet_buttons[index]
+	if button.size.x < 1.0 or button.size.y < 1.0:
+		return Vector2(-1, -1)  # noch nicht ausgelegt (erster Frame) - kein Diffusions-Ziel
+	return button.global_position + button.size / 2.0
+
+## Der Einsatz ist "angekommen": der Setzen-Knopf glüht ab jetzt in color (bleibt
+## über _rebuild erhalten, solange die Wette platziert ist).
+func glow_bet(index: int, color: Color) -> void:
+	bet_glow[index] = color
+	if index >= 0 and index < bet_buttons.size() and is_instance_valid(bet_buttons[index]):
+		_apply_stake_glow(bet_buttons[index], color, true)
 
 ## Fortschritts-Modus: je aktiver Wette eine Zeile mit Balken.
 func _build_progress(u: float) -> void:

@@ -616,23 +616,44 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 	hub.layout()
 	_sync_reflection_windows()
 
-## Verlegt die LED-Leiste zwischen Hub und Kombinationen-Fenster
+## Aderbreite beider Hub-Leisten (schlank = zurückhaltend).
+const HUB_STRIP_WIDTH := 3.4 * SUPERSAMPLE
+
+## Gemeinsame Korridor-Höhe beider Hub-Leisten: mittig zwischen Grube-Unterkante
+## und Hub-Oberkante - dort läuft ihr waagerechter Teil (unter der Grube).
+func _hub_strip_lane_y() -> float:
+	var hub_top := hub.position.y
+	var obstacle_bottom := hub_top
+	if pit_window != null and pit_window.visible:
+		obstacle_bottom = pit_window.position.y + pit_window.size.y
+	var lane_y := (obstacle_bottom + hub_top) * 0.5
+	return minf(lane_y, hub_top - 6.0 * SUPERSAMPLE)  # zur Not knapp über der Hub-Oberkante
+
+## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Schatz rechts).
+func _hub_strip_exit_x(to_right: bool) -> float:
+	var cx := hub.position.x + hub.size.x * 0.5
+	var d := hub.size.x * 0.25
+	return cx + d if to_right else cx - d
+
+## Verlegt die LED-Leiste zwischen Hub (oben links) und Kombinationen-Fenster
 ## (nach place_hub UND place_combo_cluster rufen).
 func link_hub_to_cluster() -> void:
 	if led_strip == null or hub == null or hub.size.x <= 0.0:
 		return
-	var pit_rect := Rect2()
-	if pit_window != null and pit_window.visible:
-		pit_rect = Rect2(pit_window.position, pit_window.size)
-	led_strip.link(Rect2(hub.position, hub.size), cluster_rect, 4.5 * SUPERSAMPLE, pit_rect)
+	led_strip.link_from_hub_top(Rect2(hub.position, hub.size), cluster_rect,
+		HUB_STRIP_WIDTH, _hub_strip_exit_x(false), _hub_strip_lane_y())
 
-## Verlegt die LED-Leiste zwischen Hub und Schatz-Screen (seitlich).
+## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:
 	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \
 			or treasure_window == null or not treasure_window.visible:
 		return
-	treasure_strip.link_side(Rect2(hub.position, hub.size),
-		Rect2(treasure_window.position, treasure_window.size), 4.5 * SUPERSAMPLE)
+	treasure_strip.link_from_hub_top(Rect2(hub.position, hub.size),
+		Rect2(treasure_window.position, treasure_window.size),
+		HUB_STRIP_WIDTH, _hub_strip_exit_x(true), _hub_strip_lane_y())
+	# T-Stück: die Geld-Ader zweigt im Korridor zusätzlich zu den Nebenwetten ab.
+	if side_bet_window != null and side_bet_window.visible:
+		treasure_strip.fork_to(Rect2(side_bet_window.position, side_bet_window.size))
 
 ## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
 
@@ -714,6 +735,65 @@ func money_comet(to_treasure: bool, color: Color) -> float:
 	if not to_treasure:
 		path.reverse()
 	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## --- Nebenwetten-Lichter (Einsatz/Auszahlung über die Schatz-Leiste) ----------
+
+## Farben der Nebenwetten-Lichter: Geld goldgelb (Schatz-seitig), Sigill violett
+## (Hub-seitig) - so verrät die Farbe schon die Herkunft des Lichts.
+const SIDE_MONEY_COLOR := Color(2.0, 1.55, 0.35, 0.9)
+const SIDE_SIGIL_COLOR := Color(1.5, 0.7, 2.0, 0.9)
+
+## Pfad Schatz <-> Nebenwetten (Geld-Einsatz): Truhen-Unterkante in den Korridor,
+## über die Abzweigung zur Nebenwetten-Unterkante. Leer, falls die Adern fehlen.
+func _treasure_to_side_path() -> PackedVector2Array:
+	var trunk := treasure_strip.strip_path
+	var branch := treasure_strip.branch_path
+	if trunk.size() < 4 or branch.size() < 3:
+		return PackedVector2Array()
+	return PackedVector2Array([trunk[3], trunk[2], branch[1], branch[2]])
+
+## Pfad Hub <-> Nebenwetten (Sigill-Einsatz): Hub-Austritt über den Korridor und
+## die Abzweigung zur Nebenwetten-Unterkante.
+func _hub_to_side_path() -> PackedVector2Array:
+	var trunk := treasure_strip.strip_path
+	var branch := treasure_strip.branch_path
+	if trunk.size() < 4 or branch.size() < 3:
+		return PackedVector2Array()
+	return PackedVector2Array([trunk[0], trunk[1], trunk[2], branch[1], branch[2]])
+
+## Einsatz-Komet ZUM Nebenwetten-Fenster (from_hub = Sigill-Einsatz vom Hub,
+## sonst Geld-Einsatz vom Schatz). Liefert die Laufzeit für die Ankunfts-Planung.
+func side_bet_stake_comet(from_hub: bool, color: Color) -> float:
+	var path := _hub_to_side_path() if from_hub else _treasure_to_side_path()
+	if path.size() < 2:
+		return 0.0
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Auszahlungs-Komet VOM Nebenwetten-Fenster (to_hub = Sigill-Gewinn zum Hub,
+## sonst Geld-Gewinn zum Schatz). Liefert die Laufzeit.
+func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
+	var path := _hub_to_side_path() if to_hub else _treasure_to_side_path()
+	if path.size() < 2:
+		return 0.0
+	path.reverse()
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Lässt das Einsatz-Licht am Fenster-Eintritt weiter "in den Setzen-Knopf
+## diffundieren": ein kurzer, gedämpfter Komet vom Ader-Eintritt zur Knopfmitte
+## (Screen-Pixel). Liefert die Laufzeit.
+func diffuse_into_side_bet(button_center_px: Vector2, color: Color) -> float:
+	var branch := treasure_strip.branch_path
+	if branch.size() < 3:
+		return 0.0
+	var entry := branch[branch.size() - 1]
+	var path := _orthogonal_path(entry, button_center_px)
+	var travel := maxf(0.18, _path_length(path) / PULSE_SPEED)
 	_pulse_along(path, travel, color)
 	return travel
 

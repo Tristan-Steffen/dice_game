@@ -125,7 +125,9 @@ func test_money_payout_reward_label():
 	assert_eq(bet.payout_kind, SideBet.Payout.MONEY)
 	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
 
-func test_sigil_payout_reward_label():
-	var bet := _bet("full_house")
-	assert_eq(bet.payout_kind, SideBet.Payout.SIGILS)
-	assert_eq(bet.reward_label(), "%d×" % bet.reward_sigils)
+func test_sigil_payout_reward_label_pluralizes():
+	var single := _bet("two_pair")  # 1 Sigill Gewinn
+	assert_eq(single.payout_kind, SideBet.Payout.SIGILS)
+	assert_eq(single.reward_label(), "1 Sigill")
+	var many := _bet("full_house")  # 2 Sigille Gewinn
+	assert_eq(many.reward_label(), "2 Sigille")

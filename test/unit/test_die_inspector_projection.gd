@@ -86,7 +86,7 @@ func test_edge_selection_highlights_the_projected_frame() -> void:
 	view._on_edges_clicked()
 	var faces: DieFaceDisplay = view.die_view.die_roots[0].get_node("RigidBody3D/Faces")
 	assert_eq(faces.edge_material_res.albedo_color,
-		DieFaceDisplay.BODY_COLOR * RotatableDieView.SELECT_FACE_COLOR,
+		RotatableDieView.SELECT_FACE_COLOR,
 		"der projizierte Kanten-Rahmen leuchtet gold")
 
 func test_dragging_the_projection_reports_rotating_die() -> void:

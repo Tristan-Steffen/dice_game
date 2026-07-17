@@ -717,7 +717,7 @@ func _edge_chip(highlighted: bool) -> Button:
 	chip.custom_minimum_size = Vector2(u * TRAY_TILE * 1.7, u * TRAY_TILE)
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.34))
 	var material_tint := DieMaterial.tint_for(current_def.edge_material)
-	var base := material_tint if material_tint != Color.WHITE else DieFaceDisplay.EDGE_COLOR
+	var base := material_tint if material_tint != Color.WHITE else DieFaceDisplay.EDGE_NEON
 	_style_chip(chip, base, highlighted)
 	if DieMaterial.is_valid_id(current_def.edge_material):
 		var edge := DieMaterial.by_id(current_def.edge_material)

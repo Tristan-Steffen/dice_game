@@ -95,13 +95,36 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 		body.angular_velocity = Vector3.ZERO
 		body.sleeping = false
 
-		var throw_direction := (target - start_transform.origin).normalized()
-		body.apply_central_impulse(throw_direction * throw_force + Vector3.DOWN * 2.0)
+		# Wurf ballistisch über die FLUGZEIT gelöst: Ziel (Grubenmitte + Streuung je
+		# Würfel) und Bogen sind fix, die Geschwindigkeit folgt daraus - so landen
+		# die Würfel unabhängig von der Becherposition sanft genug, dass die
+		# Grubenwände sie halten (voller throw_force schoss über die Wände hinaus).
+		var g_eff := 9.8 * body.gravity_scale
+		var jitter := Vector3(
+			randf_range(-TARGET_JITTER.x, TARGET_JITTER.x), 0.0,
+			randf_range(-TARGET_JITTER.z, TARGET_JITTER.z))
+		body.linear_velocity = _throw_velocity(
+			start_transform.origin, target + jitter, g_eff, throw_force)
 		body.apply_torque_impulse(Vector3(
 			randf_range(-spin_strength, spin_strength),
 			randf_range(-spin_strength, spin_strength),
 			randf_range(-spin_strength, spin_strength)
 		))
+
+## Flugzeit des Wurfbogens und Landestreuung um die Grubenmitte je Würfel.
+const THROW_FLIGHT_TIME := 0.6
+const TARGET_JITTER := Vector3(2.2, 0.0, 3.2)
+
+## Startgeschwindigkeit, die from nach genau THROW_FLIGHT_TIME auf to
+## einschlagen lässt (Schwerkraft g); max_speed kappt Extremfälle (sehr weite
+## Würfe landen dann etwas kurz statt als Geschoss).
+static func _throw_velocity(from: Vector3, to: Vector3, g: float, max_speed: float) -> Vector3:
+	var t := THROW_FLIGHT_TIME
+	var velocity := Vector3(to.x - from.x, 0.0, to.z - from.z) / t
+	velocity.y = (to.y - from.y + 0.5 * g * t * t) / t
+	if velocity.length() > max_speed:
+		velocity = velocity.normalized() * max_speed
+	return velocity
 
 ## Ein Physik-Tick; true, sobald alle Würfel zur Ruhe gekommen sind.
 func physics_step(delta: float, linear_threshold: float, angular_threshold: float, rest_time_required: float) -> bool:

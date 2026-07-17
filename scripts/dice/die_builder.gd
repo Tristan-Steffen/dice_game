@@ -48,26 +48,49 @@ static func build() -> Node3D:
 	body.add_child(faces)
 
 	# Kanten-Körper: 12 Balken plus Füll-Box, alle mit EINEM Material - dessen
-	# Farbe setzt DieFaceDisplay (neutral bzw. Kanten-Material-Tint).
+	# Neon setzt DieFaceDisplay (neutral bzw. Kanten-Material-Tint). Der Körper
+	# ist dunkles poliertes Glas, die Kanten tragen das Licht (Tron-Prinzip).
 	var edge_material := StandardMaterial3D.new()
-	edge_material.albedo_color = DieFaceDisplay.EDGE_COLOR
+	edge_material.albedo_color = DieFaceDisplay.BODY_COLOR
 	edge_material.albedo_texture = DieMaterial.die_texture_for("")
-	edge_material.roughness = 0.55
+	edge_material.emission_texture = edge_material.albedo_texture
+	# MULTIPLY statt (Standard) ADD - sonst ADDIERT die helle Textur Vollweiß.
+	edge_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	edge_material.roughness = 0.25
+	edge_material.metallic = 0.35
 	edge_material.emission_enabled = true
-	edge_material.emission = DieFaceDisplay.EDGE_COLOR * DieFaceDisplay.GLOW_STRENGTH
+	edge_material.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW
 	faces.edge_material_res = edge_material
 
 	# Umgebungslicht des Würfels - standardmäßig aus, nur die Spielwürfel
-	# schalten es frei (DieFaceDisplay.set_light_enabled).
+	# schalten es frei (DieFaceDisplay.set_light_enabled). Eng + hart abfallend,
+	# damit eine sichtbare Licht-Lache unter dem Würfel liegt (Erdung).
 	var die_light := OmniLight3D.new()
 	die_light.name = "DieLight"
 	die_light.omni_range = DieFaceDisplay.LIGHT_RANGE
+	die_light.omni_attenuation = 2.0
 	die_light.light_color = DieFaceDisplay.LIGHT_BASE_COLOR
 	die_light.light_energy = DieFaceDisplay.LIGHT_BASE_ENERGY
 	die_light.shadow_enabled = false
 	die_light.visible = false
 	faces.add_child(die_light)
 	faces.die_light = die_light
+
+	_build_glow_pool(faces)
+
+	# Fresnel-Hülle knapp über dem Körper: additiver Schimmer, der mit flacherem
+	# Blickwinkel zunimmt - das Licht scheint aus dem Glasvolumen zu kommen.
+	var shell := MeshInstance3D.new()
+	shell.name = "FresnelShell"
+	var shell_mesh := BoxMesh.new()
+	shell_mesh.size = Vector3.ONE * (HALF_EXTENT * 2.0 + EDGE_THICKNESS)
+	shell.mesh = shell_mesh
+	var shell_material := ShaderMaterial.new()
+	shell_material.shader = load("res://assets/shaders/die_fresnel.gdshader")
+	shell.material_override = shell_material
+	shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	faces.add_child(shell)
+	faces.shell_material = shell_material
 
 	var edges_root := Node3D.new()
 	edges_root.name = "Edges"
@@ -119,9 +142,11 @@ static func build() -> Node3D:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = DieFaceDisplay.BODY_COLOR
 		mat.albedo_texture = DieMaterial.die_texture_for("")
-		mat.roughness = 0.55
+		mat.emission_texture = mat.albedo_texture
+		mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+		mat.roughness = 0.2
 		mat.emission_enabled = true
-		mat.emission = DieFaceDisplay.BODY_COLOR * DieFaceDisplay.GLOW_STRENGTH
+		mat.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.FACE_GLOW
 		quad.set_surface_override_material(0, mat)
 
 		faces.add_child(quad)
@@ -133,6 +158,43 @@ static func build() -> Node3D:
 		DieFaceDisplay.fit_label(label)
 
 	return root
+
+## Additive Licht-Lache am Boden unter dem Würfel (Neon-Kontaktschatten).
+## top_level: folgt NICHT der Würfeldrehung - DieFaceDisplay._process setzt
+## Position/Verblassen je Frame. Farbe/Sichtbarkeit steuert _refresh_die_light.
+static func _build_glow_pool(faces: DieFaceDisplay) -> void:
+	var pool := MeshInstance3D.new()
+	pool.name = "GlowPool"
+	pool.top_level = true
+	pool.visible = false
+	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pool_mesh := QuadMesh.new()
+	pool_mesh.size = Vector2.ONE * HALF_EXTENT * 4.4
+	pool_mesh.orientation = PlaneMesh.FACE_Y
+	pool.mesh = pool_mesh
+
+	# Radialer Verlauf (Mitte voll, Rand transparent) als weiche Lache.
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1, 1, 1, 1))
+	gradient.set_color(1, Color(1, 1, 1, 0))
+	var falloff := GradientTexture2D.new()
+	falloff.gradient = gradient
+	falloff.fill = GradientTexture2D.FILL_RADIAL
+	falloff.fill_from = Vector2(0.5, 0.5)
+	falloff.fill_to = Vector2(0.5, 0.0)
+	falloff.width = 128
+	falloff.height = 128
+
+	var pool_material := StandardMaterial3D.new()
+	pool_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pool_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pool_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	pool_material.albedo_texture = falloff
+	pool.material_override = pool_material
+
+	faces.add_child(pool)
+	faces.glow_pool = pool
+	faces.pool_material = pool_material
 
 ## Ziffern-Label eines Gesichts: minimal vor dem Quad (+Z), erbt dessen
 ## nach außen gerichtete Orientierung.

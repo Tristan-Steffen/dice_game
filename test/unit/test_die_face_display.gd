@@ -25,11 +25,14 @@ func test_apply_definition_sets_face_values():
 	for axis in display.labels:
 		assert_eq(display.labels[axis].text, "9")
 
-func test_plain_die_uses_neutral_edge_color():
+func test_plain_die_uses_neutral_edge_neon():
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
 	assert_eq(display.edge_base, DieFaceDisplay.EDGE_COLOR)
-	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.EDGE_COLOR * Color.WHITE)
+	# Körper überall dunkles Glas; das Neon liegt in der Emission der Kanten.
+	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * Color.WHITE)
+	assert_eq(display.edge_material_res.emission,
+		DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW * Color.WHITE)
 
 func test_edge_material_tints_the_frame():
 	var def := DieDefinition.standard()
@@ -46,13 +49,16 @@ func test_set_edge_tint_highlights_and_set_tint_restores():
 	var display := _display()
 	display.apply_definition(def)
 	display.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
-	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * RotatableDieView.SELECT_FACE_COLOR)
+	assert_eq(display.edge_material_res.albedo_color, RotatableDieView.SELECT_FACE_COLOR)
 	# Unschattiert, damit der Rahmen die FLACHE Auswahl-Farbe zeigt (wie die 2D-Chips
 	# und die Ziffern) - nicht beleuchtet+leuchtend nach Pink klemmend.
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_UNSHADED,
 		"der hervorgehobene Rahmen wird unschattiert gezeigt")
 	display.set_tint(Color.WHITE)
-	assert_eq(display.edge_material_res.albedo_color, DieMaterial.tint_for(DieMaterial.GOLD) * Color.WHITE)
+	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * Color.WHITE)
+	assert_eq(display.edge_material_res.emission,
+		DieMaterial.tint_for(DieMaterial.GOLD) * DieFaceDisplay.MATERIAL_EDGE_GLOW * Color.WHITE,
+		"das Gold-Neon der Kanten kehrt zurück")
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_PER_PIXEL,
 		"set_tint nimmt die unschattierte Auswahl wieder zurück")
 
@@ -63,9 +69,9 @@ func test_set_face_number_tint_colors_only_that_digit_and_leaves_the_body():
 	display.apply_definition(DieDefinition.standard())
 	display.set_face_number_tint(2, RotatableDieView.SELECT_FACE_COLOR)
 	assert_eq(display.labels[_axis_for(2)].modulate, RotatableDieView.SELECT_FACE_COLOR,
-		"die gewählte Ziffer leuchtet")
+		"die gewählte Ziffer leuchtet in der Auswahlfarbe")
 	assert_eq(display.labels[_axis_for(3)].modulate, DieFaceDisplay.NUMBER_COLOR,
-		"andere Ziffern bleiben dunkel")
+		"andere Ziffern behalten ihr Neutral-Neon")
 	assert_eq(_face_material(display, 2).albedo_color, DieFaceDisplay.BODY_COLOR,
 		"der Körper der gewählten Seite bleibt neutral")
 
@@ -86,8 +92,8 @@ func test_material_faces_glow_overbright_plain_faces_dim():
 	var amber_emission: Color = _face_material(display, 0).emission
 	var plain_emission: Color = _face_material(display, 1).emission
 	assert_gt(amber_emission.r, 1.0, "Material-Seite strahlt überhell (> 1.0)")
-	assert_almost_eq(plain_emission.r, DieFaceDisplay.GLOW_STRENGTH, 0.001,
-		"weiße Seite glimmt nur mit GLOW_STRENGTH")
+	assert_almost_eq(plain_emission.r, DieFaceDisplay.EDGE_NEON.r * DieFaceDisplay.FACE_GLOW, 0.001,
+		"neutrale Seite glimmt nur schwach (dunkles Glas)")
 
 func test_material_edges_glow_overbright():
 	var def := DieDefinition.standard()
@@ -96,7 +102,7 @@ func test_material_edges_glow_overbright():
 	display.apply_definition(def)
 	var gold_tint := DieMaterial.tint_for(DieMaterial.GOLD)
 	assert_almost_eq(display.edge_material_res.emission.r,
-		gold_tint.r * DieFaceDisplay.MATERIAL_GLOW_STRENGTH, 0.001)
+		gold_tint.r * DieFaceDisplay.MATERIAL_EDGE_GLOW, 0.001)
 
 # --- Umgebungslicht ------------------------------------------------------------
 
@@ -105,7 +111,7 @@ func test_light_stays_hidden_without_permission():
 	display.apply_definition(DieDefinition.standard())
 	assert_false(display.die_light.visible, "ohne set_light_enabled bleibt das Licht aus")
 
-func test_plain_die_light_is_faint_warm_white():
+func test_plain_die_light_is_cool_neon():
 	var display := _display()
 	display.set_light_enabled(true)
 	display.apply_definition(DieDefinition.standard())

@@ -32,6 +32,7 @@ var description: String = ""
 ## Vorlagen der Auslage (id -> Parameter). Vier Wett-Sorten über zwei Achsen:
 ## Einsatz in Geld ODER geopferten Sigillen, Gewinn in Sigillen ODER Geld.
 ## Fehlende Schlüssel = Standard (Geld-Einsatz, Sigill-Gewinn).
+## desc = NUR die Gewinnbedingung; Einsatz und Gewinn stehen bereits auf dem Knopf.
 const TEMPLATES := [
 	# Geld -> Sigille: der Brotalltag der Bank.
 	{"id": "two_pair", "condition": Condition.COMBO, "combo": DiceScoring.TWO_PAIR,
@@ -52,26 +53,26 @@ const TEMPLATES := [
 	# Geld -> Geld: reines Glücksspiel, hohe Quote.
 	{"id": "jackpot", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
 		"stake": 6, "payout": Payout.MONEY, "payout_money": 18, "name": "Jackpot",
-		"desc": "Nimm ein Full House oder besser – Auszahlung in bar."},
+		"desc": "Nimm ein Full House oder besser."},
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target": 900,
 		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
-		"desc": "Werte eine Hand mit 900+ Punkten – Auszahlung in bar."},
+		"desc": "Werte eine Hand mit 900+ Punkten."},
 	# Sigill -> Geld: ein Siegel verpfänden und auf Bargeld hoffen.
 	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.SIGILS, "stake_sigils": 1,
 		"payout": Payout.MONEY, "payout_money": 16, "name": "Pfandleihe",
-		"desc": "Verpfände 1 Sigill; räume die Runde ohne Farkle für Bargeld."},
+		"desc": "Räume die Runde ohne Farkle."},
 	{"id": "collateral", "condition": Condition.HAND_SCORE, "target": 500,
 		"stake_kind": Stake.SIGILS, "stake_sigils": 2,
 		"payout": Payout.MONEY, "payout_money": 34, "name": "Sicherheit",
-		"desc": "Verpfände 2 Sigille; werte eine Hand mit 500+ für Bargeld."},
+		"desc": "Werte eine Hand mit 500+ Punkten."},
 	# Sigill -> Sigille: ein Siegel riskieren, um bessere zu prägen.
 	{"id": "refinement", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
 		"stake_kind": Stake.SIGILS, "stake_sigils": 1, "reward": 3, "name": "Veredelung",
-		"desc": "Setze 1 Sigill; nimm eine Große Straße für drei neue."},
+		"desc": "Nimm eine Große Straße."},
 	# Sigill -> Sigille: saubere Runde tauscht eins gegen zwei.
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.SIGILS, "stake_sigils": 1,
 		"reward": 2, "name": "Saubere Runde",
-		"desc": "Setze 1 Sigill; räume die Runde ohne Farkle für zwei neue."},
+		"desc": "Räume die Runde ohne Farkle."},
 ]
 
 ## Sigill-Kategorien, die ein Gewinn ausschüttet (Zahl + Material; kein Menü/
@@ -191,8 +192,9 @@ func stake_label() -> String:
 		return "%d Sigill%s" % [stake_sigils, "" if stake_sigils == 1 else "e"]
 	return "$%d" % stake
 
-## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Sigille.
+## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Sigille (klar benannt, damit
+## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt).
 func reward_label() -> String:
 	if payout_kind == Payout.MONEY:
 		return "$%d" % payout_money
-	return "%d×" % reward_sigils
+	return "%d Sigill%s" % [reward_sigils, "" if reward_sigils == 1 else "e"]

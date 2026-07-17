@@ -392,21 +392,35 @@ func _setup_table_screen() -> void:
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 
-	# Nebenwetten-Fenster rechts vom Becher, in den Maßen des Kombi-Fensters.
+	# Nebenwetten-Fenster rechts vom Becher, in den Maßen des Kombi-Fensters;
+	# Unterkante bündig mit Grube und Kombinationen-Fenster.
 	var cup_px := table_screen.world_to_pixel(dice_cup.global_position)
+	var pit_r := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var win_size := table_screen.cluster_rect.size
-	var win_pos := Vector2(cup_px.x + table_screen.size.x * 0.045, cup_px.y - win_size.y / 2.0)
+	var win_pos := Vector2(cup_px.x + table_screen.size.x * 0.045, pit_r.end.y - win_size.y)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
+	# Einsatz/Auszahlung als Licht über die Schatz-Leiste (einmalig verdrahtet -
+	# das Fenster überlebt Run-Wechsel, nur sein run wird neu gesetzt).
+	table_screen.side_bet_window.bet_selected.connect(_on_side_bet_selected)
+	table_screen.side_bet_window.bet_placed.connect(_on_side_bet_placed)
 
-	# Schatz-Screen als goldene Truhe UNTER dem Chip-Turm: die echten 3D-Chips
-	# bleiben und stehen darauf. Größe füllt die Lücke rechts des Hubs.
-	var chip_px := table_screen.world_to_pixel(chip_stack.global_position)
-	var hub_right := table_screen.hub.position.x + table_screen.hub.size.x
-	var t_half_w := maxf(chip_px.x - hub_right - table_screen.size.x * 0.004, table_screen.size.x * 0.06)
-	var t_size := Vector2(t_half_w * 2.0, t_half_w * 1.5) * 0.7  # etwa halbe Fläche
-	var t_center := Vector2(chip_px.x, chip_px.y + t_size.y * 0.16)
-	table_screen.place_treasure_window(Rect2(t_center - t_size / 2.0, t_size))
+	# Schatz-Screen unter dem Becher, in der Lücke zwischen Grube und
+	# Nebenwetten; die echten 3D-Chips werden mittig-oben darauf gestellt.
+	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
+	var gap_left := pit_r.end.x
+	var gap_right := side_r.position.x
+	var t_w := minf((gap_right - gap_left) * 0.9, table_screen.size.x * 0.15)
+	var t_size := Vector2(t_w, t_w * 0.62)
+	var t_top := pit_r.end.y - t_size.y  # Unterkante auf der gemeinsamen Linie
+	# Waagerecht unter den Becher, aber in der Lücke gehalten.
+	var t_cx := clampf(cup_px.x, gap_left + t_w * 0.5, gap_right - t_w * 0.5)
+	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
+	table_screen.place_treasure_window(Rect2(t_pos, t_size))
+	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
+	var chip_px := Vector2(t_cx, t_top + t_size.y * (0.5 - 0.16))
+	var chip_world := table_screen.pixel_to_world(chip_px)
+	chip_stack.global_position = Vector3(chip_world.x, chip_stack.global_position.y, chip_world.z)
 	table_screen.link_hub_to_treasure()
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
@@ -592,11 +606,21 @@ func _on_money_changed(new_money: int) -> void:
 var _hub_charge_expected := 0
 var _hub_charge_received := 0
 
+## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
+## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
+var _suppress_money_light := false
+## Knopfmitte der zuletzt gesetzten Wette (Screen-Pixel), Ziel des Diffusions-Lichts.
+var _pending_bet_center := Vector2(-1, -1)
+
 ## Geld-Lichtlauf im Übertaktungs-Stil (Komet auf der Hub<->Schatz-Leiste):
 ## je bezahltem/erhaltenem Chip EIN Komet in dessen Stückelungs-Farbe.
 ## Gutschrift = Hub -> Schatz (Schatz glänzt bei Ankunft); Kauf = Schatz -> Hub
 ## (Hub lädt sich golden auf, falls eine Übertaktung wartet, sonst blitzt er).
 func _play_money_light(delta: int) -> void:
+	# Nebenwetten-Transaktionen fahren ihr eigenes Licht (Schatz/Hub <-> Nebenwetten)
+	# und unterdrücken hier das generische Schatz<->Hub-Licht.
+	if _suppress_money_light:
+		return
 	if delta == 0 or table_screen == null or table_screen.hub == null:
 		return
 	var hub := table_screen.hub
@@ -618,6 +642,57 @@ func _play_money_light(delta: int) -> void:
 					hub.charge_gold(float(_hub_charge_received) / float(_hub_charge_expected))
 				else:
 					hub.flash_frame(chip_color))
+		if i == 0:
+			fire.call()
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
+
+## Wette angeklickt (vor der Zahlung): das generische Geld-Licht unterdrücken und
+## die Knopfmitte merken (sie ist gleich, nachdem der Knopf zu "platziert" wird).
+func _on_side_bet_selected(index: int) -> void:
+	_suppress_money_light = true
+	if table_screen != null and table_screen.side_bet_window != null:
+		_pending_bet_center = table_screen.side_bet_window.bet_button_center(index)
+
+## Wette platziert (nach der Zahlung): der Einsatz reist als Licht zum Fenster
+## (Geld vom Schatz, Sigill vom Hub), diffundiert in den Knopf und lässt ihn
+## golden/violett glühen. Reines Schmuckwerk - der Einsatz ist bereits gebucht.
+func _on_side_bet_placed(index: int) -> void:
+	_suppress_money_light = false
+	var panel := table_screen.side_bet_window if table_screen != null else null
+	if panel == null or index < 0 or index >= panel.offers.size():
+		return
+	var bet: SideBet = panel.offers[index]
+	var from_hub := bet.stake_kind == SideBet.Stake.SIGILS
+	var comet_color := TableScreen.SIDE_SIGIL_COLOR if from_hub else TableScreen.SIDE_MONEY_COLOR
+	var glow_color := SideBetPanel.SIGIL_GLOW if from_hub else SideBetPanel.GOLD
+	var center := _pending_bet_center
+	var travel := table_screen.side_bet_stake_comet(from_hub, comet_color)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if center.x < 0.0:
+			panel.glow_bet(index, glow_color)
+			return
+		var diffuse: float = table_screen.diffuse_into_side_bet(center, comet_color)
+		get_tree().create_timer(maxf(diffuse, 0.05)).timeout.connect(func() -> void:
+			panel.glow_bet(index, glow_color)))
+
+## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Komet vom Nebenwetten-
+## Fenster zurück (Geld zum Schatz, Sigill zum Hub), leicht gestaffelt.
+func _play_side_bet_payouts(won: Array[SideBet]) -> void:
+	if table_screen == null or won.is_empty():
+		return
+	for i in won.size():
+		var bet: SideBet = won[i]
+		var to_hub := bet.payout_kind == SideBet.Payout.SIGILS
+		var color := TableScreen.SIDE_SIGIL_COLOR if to_hub else TableScreen.SIDE_MONEY_COLOR
+		var fire := func() -> void:
+			var travel: float = table_screen.side_bet_payout_comet(to_hub, color)
+			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+				if to_hub:
+					if table_screen.hub != null:
+						table_screen.hub.flash_frame(SideBetPanel.SIGIL_GLOW)
+				elif table_screen.treasure_window != null:
+					table_screen.treasure_window.glint())
 		if i == 0:
 			fire.call()
 		else:
@@ -1666,13 +1741,28 @@ func _on_throw_button_pressed() -> void:
 	dice.throw_slots(thrown_indices, throw_force, spin_strength, DicePit.PIT_CENTER)
 	_refresh_ui()
 
-## Startpositionen der Wurf-Würfel: enges Bündel um die (geschwungene)
-## Becher-Mündung mit kleinem Zufalls-Versatz je Würfel.
+## Startpositionen der Wurf-Würfel: 3x2-Raster quer zur Flugrichtung an der
+## (geschwungenen) Becher-Mündung. Abstand > Würfelbreite - überschneidungsfrei,
+## sonst katapultiert die Physik-Depenetration die Würfel aus der Wurfbahn.
+## Das Rasterzentrum wird in den Grubep-Innenraum geklemmt: die Energiewände
+## sind 16 hoch - eine Mündung außerhalb des Rands spawnt sonst IN der Wand.
 func _throw_start_positions() -> Array[Vector3]:
 	var mouth := dice_cup.mouth_position()
+	var center := mouth
+	var lim_x := DicePit.PIT_HALF_X - 4.6  # Rasterarm (2.3) + Würfel-/Wandrand
+	var lim_z := DicePit.PIT_HALF_Z - 4.6
+	center.x = clampf(center.x, DicePit.PIT_CENTER.x - lim_x, DicePit.PIT_CENTER.x + lim_x)
+	center.z = clampf(center.z, DicePit.PIT_CENTER.z - lim_z, DicePit.PIT_CENTER.z + lim_z)
+	var dir := DicePit.PIT_CENTER - center
+	dir.y = 0.0
+	dir = dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
+	var right := dir.cross(Vector3.UP).normalized()
 	var positions: Array[Vector3] = []
 	for i in dice.count():
-		positions.append(mouth + Vector3(randf_range(-0.6, 0.6), randf_range(-0.2, 0.2), randf_range(-0.6, 0.6)))
+		var col := float(i % 3) - 1.0
+		var row := float(int(i / 3.0))
+		positions.append(center + right * col * 2.3 + Vector3.UP * row * 2.3
+			+ dir * randf_range(-0.3, 0.3))
 	return positions
 
 ## Zielposition eines geschützten Würfels am oberen Grubenrand: mittig
@@ -2440,8 +2530,13 @@ func _resolve_side_bets(cleared: bool) -> void:
 		"farkled": round_farkled,
 	}
 	var placed := run.active_side_bets.size()
+	# Auszahlung bucht Geld (add_money) - das generische Licht unterdrücken, damit
+	# stattdessen die Nebenwetten-Kometen laufen.
+	_suppress_money_light = true
 	var won := run.resolve_side_bets(result)
+	_suppress_money_light = false
 	_refresh_side_bet_panel()  # Wetten geleert -> Fenster zeigt "keine aktiv"
+	_play_side_bet_payouts(won)
 	if won.is_empty():
 		charm_shop.pending_bet_notice = "Nebenwetten: 0/%d gewonnen." % placed
 		return

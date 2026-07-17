@@ -12,6 +12,7 @@ const CLICK_LAYER := 32
 
 const SHAKE_ANGLE_DEGREES := 9.0
 const SHAKE_STEP_DURATION := 0.11
+const SHAKE_DIP := 0.6  # Becher senkt sich beim Schütteln leicht ab
 
 ## Wurfbewegung: Ausholen (zurück/hoch), Schwung Richtung Grube (lokale
 ## Koordinaten; die Grube liegt in -Z/+X vom Becher aus), Zurückschwingen.
@@ -49,12 +50,16 @@ func mouth_position() -> Vector3:
 func play_shake(count: int) -> Tween:
 	_kill_active_tween()
 	mesh_root.rotation = base_rotation
+	mesh_root.position = Vector3.ZERO
 	active_tween = create_tween()
 	active_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	# Senkt sich zu Beginn leicht ab, schüttelt unten und hebt sich am Ende wieder.
+	active_tween.tween_property(mesh_root, "position:y", -SHAKE_DIP, SHAKE_STEP_DURATION)
 	for i in count:
 		active_tween.tween_property(mesh_root, "rotation:z", base_rotation.z + deg_to_rad(SHAKE_ANGLE_DEGREES), SHAKE_STEP_DURATION)
 		active_tween.tween_property(mesh_root, "rotation:z", base_rotation.z - deg_to_rad(SHAKE_ANGLE_DEGREES), SHAKE_STEP_DURATION)
 	active_tween.tween_property(mesh_root, "rotation:z", base_rotation.z, SHAKE_STEP_DURATION * 0.5)
+	active_tween.parallel().tween_property(mesh_root, "position:y", 0.0, SHAKE_STEP_DURATION * 0.5)
 	return active_tween
 
 ## Schwingt den Becher durch den Raum Richtung Grube und zurück; poured_out

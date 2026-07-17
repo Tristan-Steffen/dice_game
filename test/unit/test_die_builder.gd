@@ -38,7 +38,7 @@ func test_die_light_exists_but_starts_disabled():
 	assert_false(faces.die_light.visible, "Licht ist standardmäßig aus")
 
 func test_all_body_materials_have_emission_enabled():
-	# Eigenleuchten (siehe DieFaceDisplay.GLOW_STRENGTH) braucht emission_enabled
+	# Das Neon (siehe DieFaceDisplay.EDGE_GLOW/FACE_GLOW) braucht emission_enabled
 	# schon beim Bau - sonst wäre jede spätere emission-Zuweisung wirkungslos.
 	var die: Node3D = autofree(DieBuilder.build())
 	var faces := _faces(die)
