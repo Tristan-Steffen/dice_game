@@ -641,18 +641,62 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	tween.tween_property(glow, "modulate:a", 1.0, 0.25)
 	return glow
 
-## Leiterbahn von from_px zur wachsenden Zahl (target: "base"/"mult"/"total").
-## Quellen außerhalb des Displays werden an den Rand geklemmt. Räumt sich
-## selbst weg; der Aufrufer wartet die Trail-Zeit ab, bevor die Zahl steigt.
-func spawn_score_trail(from_px: Vector2, target: String, duration: float) -> void:
-	var to_px: Vector2
+## --- Wertungs-Kometen (Zähl-Animation über die Score-Leisten) ------------------
+
+## EINE Licht-Geschwindigkeit für alle Zähl-Kometen (px/s im SUPERSAMPLE-Raum):
+## die Dauer folgt der Pfadlänge, so überholt kein Komet auf gleicher Leiste.
+const SCORE_PULSE_SPEED := 1400.0 * SUPERSAMPLE
+const SCORE_PULSE_CORE := 4.0 * SUPERSAMPLE
+const SCORE_PULSE_GLOW := 12.0 * SUPERSAMPLE
+const SCORE_COMET := 90.0 * SUPERSAMPLE  # Kometen-Fensterlänge
+
+## Farben der Zähl-Kometen (überhell, bloomen): Basis cyan, Mult gold.
+const SCORE_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.95)
+const SCORE_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.95)
+
+func _score_strip(source: String) -> LedStripView:
+	match source:
+		"combos": return combos_score_strip
+		"charm": return charm_dock_score_strip
+		_: return pit_score_strip
+
+## Ziel-Ankerpunkt (Screen-px) im Score-Bildschirm.
+func _score_target_px(target: String) -> Vector2:
 	if target == "total":
-		to_px = goal_bar.position + goal_bar.size / 2.0
-	else:
-		var counter := base_counter if target == "base" else mult_counter
-		to_px = counter.position + counter.value_anchor()
-	var color := TRAIL_BASE_COLOR if target == "base" else TRAIL_MULT_COLOR
-	spawn_trace(from_px, to_px, color, duration)
+		return goal_bar.position + goal_bar.size / 2.0
+	var counter := base_counter if target == "base" else mult_counter
+	return counter.position + counter.value_anchor()
+
+## Vollständige Route eines Zähl-Kometen: Quelle -> passende Leiste -> Zähler.
+## L-Anschlüsse an beiden Enden halten alles achsenparallel (Leiterbahn-Look).
+func score_route(from_px: Vector2, source: String, target: String) -> PackedVector2Array:
+	var strip := _score_strip(source)
+	var to_px := _score_target_px(target)
+	var path := PackedVector2Array([from_px])
+	if strip != null and strip.strip_path.size() >= 2:
+		var entry := strip.strip_path[0]
+		var exit := strip.strip_path[strip.strip_path.size() - 1]
+		path.append(Vector2(from_px.x, entry.y))  # senkrecht auf die Quell-Kante
+		for p in strip.strip_path:
+			path.append(p)
+		path.append(Vector2(exit.x, to_px.y))     # senkrecht auf Zähler-Höhe
+	path.append(to_px)
+	return path
+
+## Feuert einen Zähl-Kometen entlang der Route und liefert seine Laufzeit
+## (Ankunft = wenn der Aufrufer die Zahl setzt).
+func score_comet(from_px: Vector2, source: String, target: String) -> float:
+	var path := score_route(from_px, source, target)
+	if path.size() < 2:
+		return 0.0
+	var travel := maxf(0.15, _path_length(path) / SCORE_PULSE_SPEED)
+	var color := SCORE_BASE_COLOR if target == "base" else SCORE_MULT_COLOR
+	if target == "total":
+		color = PitScoreView.TOTAL_COLOR
+	var pulse := TracePulseView.new()
+	add_child(pulse)
+	pulse.setup(path, color, SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET)
+	return travel
 
 ## Allgemeine Leiterbahn zwischen zwei Display-Punkten (achsenparallele Treppe).
 func spawn_trace(from_px: Vector2, to_px: Vector2, color: Color, duration: float) -> void:

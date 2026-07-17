@@ -70,6 +70,17 @@ const SCORE_MERGE_TIME := 0.75
 const SCORE_FLY_TIME := 0.55
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Glow-Kantenlänge als Vielfaches der Würfelgröße
 const SCORE_TRAIL_TIME := 0.3
+## Takt zwischen zwei Zähl-Schritten: kürzer als die Kometen-Laufzeit, damit
+## mehrere Kometen zugleich über die Leisten strömen (die Zahl springt bei
+## Ankunft, nicht beim Start).
+const SCORE_LAUNCH_GAP := 0.22
+
+## Streamende Zähl-Animation: Schritt-Index (seq) des nächsten Kometen, höchster
+## bereits angewandter Index (hält die Anzeige monoton bei Ankunft in anderer
+## Reihenfolge) und Zahl der noch fliegenden Kometen (Verschmelzungs-Gate).
+var _score_seq := 0
+var _score_applied := -1
+var _score_pending := 0
 
 ## Weltabstand der Aktions-Buttons unter die Grubenmitte Richtung
 ## Bildschirm-unten (Welt -X) - unten mittig, innerhalb des Randes.
@@ -2097,6 +2108,9 @@ func _on_take_button_pressed() -> void:
 ## bricht sauber ab (phase != SCORING) - der Aufrufer wendet nichts mehr an.
 func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	phase = Phase.SCORING
+	_score_seq = 0
+	_score_applied = -1
+	_score_pending = 0
 	_cancel_lineup()
 
 	# 1) Schwebende Reihe: zählende Würfel zuerst, unbeteiligte rechts daneben.
@@ -2139,102 +2153,152 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		take_anim_glows.append(glow)
 		glow_by_slot[i] = glow
 
-	# 2) Kombination: ihre Werte stehen schon in der Daueranzeige - als
-	# Startsignal popt die Zelle, je eine Leiterbahn verbindet sie mit Basis-
-	# UND Mult-Zähler (die Werte werden defensiv gestellt).
+	# 2) Kombination: Basis UND Mult reisen als Kometen über die Kombi-Leiste in
+	# den Score; die Zahlen springen bei Ankunft. Zuwachs-Zahlen sofort an der Zelle.
 	var key: String = breakdown["key"]
+	var combo_base: int = breakdown["combo"]["base_add"]
+	var combo_mult: int = breakdown["combo"]["mult_add"]
 	if combo_labels.has(key):
 		_tween_combo_label(combo_labels[key], PAYOUT_LABEL_GLOW_COLOR, 1.3)
 		var cell: Control = combo_labels[key]
 		var cell_px: Vector2 = cell.position + cell.size / 2.0
-		table_screen.spawn_score_trail(cell_px, "base", SCORE_TRAIL_TIME)
-		table_screen.spawn_score_trail(cell_px, "mult", SCORE_TRAIL_TIME)
-		if not await _score_step_wait(SCORE_TRAIL_TIME):
-			return
-		table_screen.pulse_pit_score()
-		_spawn_score_gains(cell_px, breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
-	table_screen.update_pit_score(breakdown["combo"]["base_add"], breakdown["combo"]["mult_add"])
-	if not await _score_step_wait(SCORE_STEP_TIME):
+		_spawn_score_gains(cell_px, combo_base, combo_mult)
+		_fire_score_light(cell_px, "combos", ["base", "mult"],
+			func() -> void: table_screen.update_pit_score(combo_base, combo_mult))
+	else:
+		table_screen.update_pit_score(combo_base, combo_mult)
+	if not await _score_cadence():
 		return
 
-	# 3) Würfel-Schritte links nach rechts: je Zuwachs eine Leiterbahn in die
-	# wachsende Zahl (die springt erst bei der Ankunft hoch); erst Augen, dann
-	# der Material-Zuwachs als eigener Schritt. Augenwert-Charms blitzen und
-	# schicken gleichzeitig ihre eigene Bahn in die Basis.
+	# 3) Würfel-Schritte links nach rechts: Augen (Basis) und Material (Basis/Mult)
+	# je als eigener Komet über den Grube-Datenbus; Augenwert-Charms feuern
+	# zusätzlich von ihrem Dock-Pad. Alles strömt - die Zahlen springen bei Ankunft.
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
 		_flash_scoring_die(slot)
 		if glow_by_slot.has(slot):
 			_pulse_glow(glow_by_slot[slot])
-		for charm_index: int in step["eye_charm_indices"]:
-			charm_row.flash_charm(charm_index)
-			table_screen.spawn_score_trail(_charm_trail_source_px([charm_index]), "base", SCORE_TRAIL_TIME)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		# Zuwachs-Zahlen steigen aus dem Podest unter dem Würfel auf.
 		var gain_px := die_px
 		if glow_by_slot.has(slot):
 			var glow: Control = glow_by_slot[slot]
 			gain_px = glow.position + glow.size / 2.0
-		table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
-		if not await _score_step_wait(SCORE_TRAIL_TIME):
-			return
+		var base_after_eye: int = step["base_after_eye"]
 		var mult_before_material: int = step["mult_after"] - step["mat_mult_add"]
+		# Augenwert-Charms: eigener Komet vom Dock-Pad in die Basis (gleicher Zielwert).
+		for charm_index: int in step["eye_charm_indices"]:
+			_flash_charm_and_pad(charm_index)
+			_fire_score_light(table_screen.charm_dock.pad_center(charm_index), "charm", ["base"],
+				func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material))
 		_spawn_score_gains(gain_px, step["eye_add"], 0)
-		table_screen.update_pit_score(step["base_after_eye"], mult_before_material)
-		if step["mat_base_add"] != 0 or step["mat_mult_add"] != 0:
-			if not await _score_step_wait(SCORE_SUBSTEP_TIME):
-				return
-			_flash_scoring_die(slot)
-			if step["mat_base_add"] != 0:
-				table_screen.spawn_score_trail(die_px, "base", SCORE_TRAIL_TIME)
-			if step["mat_mult_add"] != 0:
-				table_screen.spawn_score_trail(die_px, "mult", SCORE_TRAIL_TIME)
-			if not await _score_step_wait(SCORE_TRAIL_TIME):
-				return
-			_spawn_score_gains(gain_px, step["mat_base_add"], step["mat_mult_add"])
-			table_screen.update_pit_score(step["base_after"], step["mult_after"])
-		if not await _score_step_wait(SCORE_STEP_TIME):
+		_fire_score_light(die_px, "pit", ["base"],
+			func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material))
+		# Material-Zuwachs als eigener Puls (Basis und/oder Mult).
+		var mat_base: int = step["mat_base_add"]
+		var mat_mult: int = step["mat_mult_add"]
+		if mat_base != 0 or mat_mult != 0:
+			var base_after: int = step["base_after"]
+			var mult_after: int = step["mult_after"]
+			var mtargets: Array[String] = []
+			if mat_base != 0:
+				mtargets.append("base")
+			if mat_mult != 0:
+				mtargets.append("mult")
+			_spawn_score_gains(gain_px, mat_base, mat_mult)
+			_fire_score_light(die_px, "pit", mtargets,
+				func() -> void: table_screen.update_pit_score(base_after, mult_after))
+		if not await _score_cadence():
 			return
 
-	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): Charm blitzt, sein
-	# Trail fliegt vom Charm-Platz in die betroffene Zahl.
+	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): je Komet vom Dock-Pad in
+	# die betroffene Zahl.
 	for step: Dictionary in breakdown["charm_steps"]:
 		for charm_index: int in step["charm_indices"]:
-			charm_row.flash_charm(charm_index)
+			_flash_charm_and_pad(charm_index)
 		var source_px := _charm_trail_source_px(step["charm_indices"])
+		var ctargets: Array[String] = []
 		if step["base_add"] != 0 or step["base_x"] != 1:
-			table_screen.spawn_score_trail(source_px, "base", SCORE_TRAIL_TIME)
+			ctargets.append("base")
 		if step["mult_add"] != 0 or step["mult_x"] != 1:
-			table_screen.spawn_score_trail(source_px, "mult", SCORE_TRAIL_TIME)
-		if not await _score_step_wait(SCORE_TRAIL_TIME):
-			return
+			ctargets.append("mult")
+		var cbase: int = step["base_after"]
+		var cmult: int = step["mult_after"]
 		_spawn_score_gains(source_px, step["base_add"], step["mult_add"], step["base_x"], step["mult_x"])
-		table_screen.update_pit_score(step["base_after"], step["mult_after"])
-		if not await _score_step_wait(SCORE_STEP_TIME):
+		if not ctargets.is_empty():
+			_fire_score_light(source_px, "charm", ctargets,
+				func() -> void: table_screen.update_pit_score(cbase, cmult))
+		if not await _score_cadence():
 			return
 
-	# 5) Verschmelzen zu Basis × Mult; die Nach-Schritte arbeiten auf der
-	# Gesamtzahl weiter - auch hier je ein Trail vom Charm.
+	# 5) Auf alle fliegenden Kometen warten, dann zu Basis × Mult verschmelzen.
+	if not await _wait_score_comets():
+		return
 	table_screen.show_pit_total(breakdown["merge_total"])
 	if not await _score_step_wait(SCORE_MERGE_TIME):
 		return
+
+	# 6) Nach-Schritte arbeiten auf der Gesamtzahl - Kometen vom Dock in die Summe.
 	for step: Dictionary in breakdown["post_steps"]:
 		for charm_index: int in step["charm_indices"]:
-			charm_row.flash_charm(charm_index)
+			_flash_charm_and_pad(charm_index)
 		var post_source := _charm_trail_source_px(step["charm_indices"])
-		table_screen.spawn_score_trail(post_source, "total", SCORE_TRAIL_TIME)
-		if not await _score_step_wait(SCORE_TRAIL_TIME):
-			return
+		var total_after: int = step["total_after"]
 		_spawn_total_gain(post_source, step["total_add"], step["total_x"])
-		table_screen.show_pit_total(step["total_after"])
-		if not await _score_step_wait(SCORE_STEP_TIME):
+		_fire_score_light(post_source, "charm", ["total"],
+			func() -> void: table_screen.show_pit_total(total_after))
+		if not await _score_cadence():
 			return
+	if not await _wait_score_comets():
+		return
 
-	# 6) Die Gesamtzahl fliegt in den Zielbalken, der Punktestand zählt synchron hoch.
+	# 7) Die Gesamtzahl fliegt in den Zielbalken, der Punktestand zählt synchron hoch.
 	var fly := table_screen.fly_total_to_goal(SCORE_FLY_TIME)
 	_animate_points_to(new_total)
 	await fly.finished
 	_cleanup_take_animation()
+
+## Feuert die Zähl-Kometen eines Schritts (Quelle -> Score-Leiste -> Zähler) und
+## plant apply auf ihre ANKUNFT. Absolutwerte + Schritt-Index (seq) halten die
+## Anzeige monoton: ein später gestarteter Schritt darf einen früheren nie
+## zurücksetzen, auch wenn Kometen verschiedener Leisten anders lange brauchen.
+func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: Callable) -> void:
+	var seq := _score_seq
+	_score_seq += 1
+	_score_pending += 1
+	var travel := 0.0
+	for t: String in targets:
+		travel = maxf(travel, table_screen.score_comet(from_px, source, t))
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		_score_pending = maxi(0, _score_pending - 1)
+		if phase != Phase.SCORING:
+			return
+		if seq > _score_applied:
+			_score_applied = seq
+			apply.call())
+
+## Takt zwischen zwei Zähl-Schritten (die Kometen strömen weiter); false = Abbruch.
+func _score_cadence() -> bool:
+	await get_tree().create_timer(SCORE_LAUNCH_GAP).timeout
+	if phase != Phase.SCORING:
+		_cleanup_take_animation()
+		return false
+	return true
+
+## Wartet, bis alle Zähl-Kometen angekommen sind (Verschmelzungs-Gate); false = Abbruch.
+func _wait_score_comets() -> bool:
+	while _score_pending > 0:
+		await get_tree().create_timer(0.03).timeout
+		if phase != Phase.SCORING:
+			_cleanup_take_animation()
+			return false
+	return true
+
+## Blitzt einen Charm im 3D-Hologramm UND seinem Dock-Pad ("dieser Charm feuert").
+func _flash_charm_and_pad(index: int) -> void:
+	charm_row.flash_charm(index)
+	if table_screen != null and table_screen.charm_dock != null:
+		table_screen.charm_dock.flash_pad(index)
 
 ## Zuwachs eines Zählschritts als schwebende Zahl aus der Quelle: "+N" bzw.
 ## "×N"; Basis cyan, Mult gold. Rein schmückend, zusätzlich zu den Leiterbahnen.
@@ -2272,15 +2336,17 @@ func _cleanup_take_animation() -> void:
 	for glow in take_anim_glows:
 		glow.queue_free()
 	take_anim_glows.clear()
+	_score_seq = 0
+	_score_applied = -1
+	_score_pending = 0
 	table_screen.reset_pit_score()
 
-## Startpunkt des Licht-Trails eines Charm-Schritts: der Tisch-Platz des
-## ersten beteiligten Charms (liegt hinter der Display-Oberkante -
-## spawn_score_trail klemmt an den Rand, der Trail kommt aus seiner Richtung).
+## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
+## beteiligten Charms im Dock (von dort läuft das Licht über die Dock-Leiste).
 func _charm_trail_source_px(charm_indices: Array) -> Vector2:
-	if charm_indices.is_empty():
+	if charm_indices.is_empty() or table_screen.charm_dock == null:
 		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
-	return table_screen.world_to_pixel(charm_row.spot_global_position(int(charm_indices[0])))
+	return table_screen.charm_dock.pad_center(int(charm_indices[0]))
 
 ## Lässt den Wurf-Würfel in slot golden aufblitzen (Zähl-Animation).
 func _flash_scoring_die(slot: int) -> void:
