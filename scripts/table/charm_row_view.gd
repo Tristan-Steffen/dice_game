@@ -34,7 +34,7 @@ var current_charms: Array[Charm] = []
 var beam_nodes: Array[MeshInstance3D] = []
 var charm_materials: Array = []  # je Charm die Hologramm-Materialien (für flash_charm)
 
-const ROTATION_SPEED := 0.5  # rad/s, langsamer Plattenteller-Spin
+const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesbar
 
 ## Geteilte Beam-Ressourcen: EIN Material je Rarität (Kegel schimmert in der
 ## Raritätsfarbe); der Hologramm-Shader wird je Fläche instanziiert.
@@ -42,8 +42,8 @@ var _beam_materials: Dictionary = {}  # Rarität -> ShaderMaterial
 var _beam_mesh: CylinderMesh
 
 ## Wie stark die Raritätsfarbe in den Kegel mischt (dezent - der Kegel soll
-## weiter als Lichtprojektion lesen).
-const BEAM_RARITY_MIX := 0.65
+## weiter als Lichtprojektion lesen, nicht jeden Charm gleich einfärben).
+const BEAM_RARITY_MIX := 0.35
 
 ## Baut die Charm-Modelle neu: je Charm ein Modell auf dem nächsten Platz;
 ## mehr Charms als Plätze werden abgeschnitten.
@@ -159,14 +159,10 @@ func _add_beam(i: int) -> void:
 	add_child(beam)
 	beam_nodes.append(beam)
 
-## Charm, dessen Modell screen_pos am nächsten liegt (innerhalb
-## PICK_RADIUS_PX), oder null. Projektions-Nähe statt Physik-Raycast - die
-## GLB-Modelle bringen keine verlässlichen Kollider mit.
-func charm_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> Charm:
-	var index := charm_index_at_screen_pos(camera, screen_pos)
-	return current_charms[index] if index != -1 else null
-
-## Index-Variante (Position in current_charms = Besitz-Reihenfolge), oder -1.
+## Charm-Index (Position in current_charms = Besitz-Reihenfolge), dessen Modell
+## screen_pos am nächsten liegt (innerhalb PICK_RADIUS_PX), oder -1.
+## Projektions-Nähe statt Physik-Raycast - die GLB-Modelle bringen keine
+## verlässlichen Kollider mit.
 func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 	var best := -1
 	var best_dist := PICK_RADIUS_PX
@@ -183,14 +179,6 @@ func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 ## Globale Position des festen Platzes i (Drop-Ziel/Rückgleit-Anker).
 func spot_global_position(i: int) -> Vector3:
 	return to_global(_spot_transform(i).origin)
-
-## Lässt das Charm-Modell i zu seinem festen Platz zurückgleiten.
-func glide_charm_to_spot(i: int) -> void:
-	if i < 0 or i >= charm_nodes.size():
-		return
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(charm_nodes[i], "transform", _spot_transform(i), 0.3)
 
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path

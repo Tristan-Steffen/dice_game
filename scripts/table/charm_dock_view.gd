@@ -1,62 +1,177 @@
 class_name CharmDockView
 extends Control
-## Charm-Dock: schmales Terminal-Fenster unter der (3D-)Charm-Reihe. Je fester
-## Platz EIN getrenntes Kontakt-Pad - so bleibt bei der Zählung erkennbar, aus
-## welchem Charm das Licht stammt (Pads mit Lücke). Belegte Pads leuchten in der
-## Raritätsfarbe, leere bleiben dunkle Sockel. Rein zeichnend; scene_root hält es
-## über set_charms synchron, die Zähl-Animation ruft flash_pad + pad_center.
+## Charm-Terminal unter der (3D-)Charm-Reihe: je Platz EIN eigener, senkrechter
+## Konsolen-Screen mit runden Ecken - OBEN ein runder Projektor (dort tritt der
+## 3D-Strahl aus dem Screen), DARUNTER der Bild-Screen mit gerendertem Charm
+## (CharmThumb) im Raritätsrahmen. Beim Überfahren (Karte ODER Hologramm) wechselt
+## der Bild-Screen dieser EINEN Konsole auf Name + Wirkung - kein geteiltes
+## Info-Band, jeder Charm bleibt gekapselt. Umsortieren läuft in 2D über die
+## Konsolen (scene_root steuert den Zieh-Automaten über
+## pad_index_at/begin_drag/drag_to/drop_target/end_drag).
 
-## Rand des Fensters um die äußersten Pads (Screen-px, SUPERSAMPLE-Raum).
-const DOCK_MARGIN := 18.0 * TableScreen.SUPERSAMPLE
-const SOCKET_FILL := Color(0.05, 0.05, 0.10, 0.85)     # leeres Pad = dunkler Sockel
+const SOCKET_FILL := Color(0.05, 0.05, 0.10, 0.85)     # leer = dunkler Sockel
 const SOCKET_BORDER := Color(0.72, 0.76, 0.86, 0.18)   # kaum sichtbarer Saum
+const THUMB_INSET := 0.82  # Bild-Anteil an der Karten-Kante (Rest = Raritätsrahmen)
+const DRAG_SCALE := 1.12    # gezogene Karte hebt sich leicht ab
 
-## Pad-Mitten als lokale Offsets (Fenster-relativ) und je Platz Rarität/Flash.
+## Konsolen-Maße relativ zur Kartengröße (_pad_size). Der Projektor sitzt exakt
+## auf der Blenden-Mitte (= Auftreffpunkt des 3D-Strahls) und hat GENAU den
+## Durchmesser des Hologramm-Kraftfelds (scene_root setzt projector_radius aus
+## dem Beam-Radius). Karten-Abstand + Konsolen-Höhe folgen dem Projektorradius.
+const PROJECTOR_GAP := 0.18       # Abstand Projektor-Unterkante -> Kartenoberkante
+const PROJECTOR_FALLBACK := 0.24  # Projektor-Radius (Kartenhöhen), bis scene_root den Beam meldet
+const CONSOLE_PAD_X := 0.09       # seitlicher Mindest-Rand der Konsole um die Karte
+const CONSOLE_PAD_Y := 0.14       # Rand über Projektor / unter Karte
+
+## Projektor-Radius in Viewport-Pixeln (= Beam-Radius). Fallback bis scene_root
+## ihn setzt: knapp ein Viertel der Kartenhöhe.
+var projector_radius := 0.0
+
+## Projektor- und Kartenmitten als lokale Offsets (Fenster-relativ), je Platz
+## Konsolen-Rect, Rarität und Flash.
+var _aperture_offsets: PackedVector2Array = PackedVector2Array()
 var _pad_offsets: PackedVector2Array = PackedVector2Array()
+var _console_rects: Array[Rect2] = []
 var _pad_size := Vector2.ZERO
 var _occupied := 0
 var _pad_colors: Array[Color] = []
 var _flash: Array[float] = []
+## Gerenderte Charm-Kacheln (Index = Platz), ihre Ruhe-Position (Dock-lokal) und
+## die Charms selbst (für den Hover-Text).
+var _thumbs: Array[CharmThumb] = []
+var _thumb_home: Array[Vector2] = []
+var _charms: Array[Charm] = []
+## Zieh-/Hover-Zustand.
+var _drag_index := -1
+var _drop_hint := -1
+var _hover := -1
+## Hover-Text (wandert in die überflogene Konsole; nur eine ist je hovert).
+var _name_label: Label
+var _body_label: Label
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = true
+	_ensure_labels()
 
-## Spannt das Dock über die (Viewport-)Pad-Mitten auf; pad_size = Kachelgröße.
-## NACH dem Platzieren rufen (die Plätze liegen fest, unabhängig vom Besitz).
-func place(pad_centers_px: PackedVector2Array, pad_size: Vector2) -> void:
-	if pad_centers_px.is_empty():
+## Spannt das Dock über die (Viewport-)Blenden-Mitten auf (dort münden die
+## 3D-Strahlen); je Mitte entsteht eine Konsole, die Karte liegt darunter.
+## pad_size = Kartengröße, proj_radius = Beam-/Kraftfeld-Radius in px (Projektor).
+## NACH dem Platzieren rufen.
+func place(aperture_centers_px: PackedVector2Array, pad_size: Vector2, proj_radius := 0.0) -> void:
+	if aperture_centers_px.is_empty():
 		return
+	_ensure_labels()
 	_pad_size = pad_size
-	var r := Rect2(pad_centers_px[0] - pad_size / 2.0, pad_size)
-	for c in pad_centers_px:
-		r = r.merge(Rect2(c - pad_size / 2.0, pad_size))
-	r = r.grow(DOCK_MARGIN)
+	projector_radius = proj_radius
+	var drop := _card_drop_px()
+	var r := _console_rect_for(aperture_centers_px[0])
+	for c in aperture_centers_px:
+		r = r.merge(_console_rect_for(c))
 	position = r.position
 	size = r.size
+	_aperture_offsets = PackedVector2Array()
 	_pad_offsets = PackedVector2Array()
-	for c in pad_centers_px:
-		_pad_offsets.append(c - position)
+	_console_rects.clear()
+	for c in aperture_centers_px:
+		_aperture_offsets.append(c - position)
+		_pad_offsets.append(c + Vector2(0, drop) - position)
+		var console := _console_rect_for(c)
+		_console_rects.append(Rect2(console.position - position, console.size))
 	_flash.resize(_pad_offsets.size())
 	_flash.fill(0.0)
+	_style_labels()
+	_clear_thumbs()
 	queue_redraw()
 
-## Übernimmt Belegung + Raritätsfarben (Reihenfolge = Besitz), damit belegte Pads
-## in ihrer Farbe leuchten. Überzählige Charms (> Plätze) werden abgeschnitten.
+## Projektor-Radius (Beam-Radius, sonst Fallback aus der Kartenhöhe).
+func _projector_r() -> float:
+	return projector_radius if projector_radius > 0.0 else _pad_size.y * PROJECTOR_FALLBACK
+
+## Pixel-Abstand Blendenmitte -> Kartenmitte (Projektor + Lücke + halbe Karte).
+func _card_drop_px() -> float:
+	return _projector_r() + _pad_size.y * PROJECTOR_GAP + _pad_size.y * 0.5
+
+## Konsolen-Rect (Viewport-Koordinaten) um eine Blenden-Mitte; breit genug für
+## Projektor UND Karte, hoch genug für beide.
+func _console_rect_for(aperture: Vector2) -> Rect2:
+	var pr := _projector_r()
+	var margin := _pad_size.x * CONSOLE_PAD_X
+	var half_w := maxf(_pad_size.x * 0.5, pr) + margin
+	var top := aperture.y - pr - _pad_size.y * CONSOLE_PAD_Y
+	var bottom := aperture.y + _card_drop_px() + _pad_size.y * (0.5 + CONSOLE_PAD_Y)
+	return Rect2(aperture.x - half_w, top, half_w * 2.0, bottom - top)
+
+## Konsolen-Rects in Viewport-Koordinaten (für die Reflexions-Fenstermaske).
+func console_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for r in _console_rects:
+		out.append(Rect2(position + r.position, r.size))
+	return out
+
+## Eck-Radius der Konsolen (auch für die Reflexionsmaske).
+func console_corner_radius() -> float:
+	return _pad_size.x * 0.16
+
+## Übernimmt Belegung + Raritätsfarben (Reihenfolge = Besitz) und rendert je
+## belegtem Platz eine Charm-Kachel. Überzählige Charms (> Plätze) fallen weg.
 func set_charms(charms: Array[Charm]) -> void:
+	set_hover(-1)
 	_occupied = mini(charms.size(), _pad_offsets.size())
 	_pad_colors.clear()
+	_charms = charms.duplicate()
+	_clear_thumbs()
+	var inner := maxf(1.0, _pad_size.y * THUMB_INSET)
 	for i in _occupied:
 		_pad_colors.append(Charm.RARITY_COLORS.get(charms[i].rarity,
 			Charm.RARITY_COLORS[Charm.RARITY_COMMON]))
+		var thumb := CharmThumb.new(charms[i], int(inner), false)
+		thumb.pivot_offset = Vector2(inner, inner) / 2.0
+		var home := _pad_offsets[i] - Vector2(inner, inner) / 2.0
+		thumb.position = home
+		add_child(thumb)
+		_thumbs.append(thumb)
+		_thumb_home.append(home)
 	queue_redraw()
 
-## Viewport-Mitte des Pads i (Quelle des Zähl-Lichts).
+## Viewport-Mitte der KARTE i (Quelle des Zähl-Lichts, Zieh-Anker).
 func pad_center(i: int) -> Vector2:
 	if i < 0 or i >= _pad_offsets.size():
 		return position + size / 2.0
 	return position + _pad_offsets[i]
 
-## Kurzer Helligkeits-Puls auf Pad i ("dieser Charm feuert") - synchron zum
+## Belegter Platz, dessen KONSOLE unter dem (Viewport-)Pixel liegt (Projektor
+## zählt mit - dieselbe Einheit), oder -1.
+func pad_index_at(pixel: Vector2) -> int:
+	for i in _occupied:
+		if Rect2(position + _console_rects[i].position, _console_rects[i].size).has_point(pixel):
+			return i
+	return -1
+
+## Konsole i hervorheben und ihren Bild-Screen auf Name + Wirkung umschalten
+## (Hover über Karte ODER Hologramm); -1 stellt das Bild zurück. Kein Effekt
+## während eines Drags (dort führt das Ablageziel).
+func set_hover(i: int) -> void:
+	if _drag_index >= 0 or i == _hover:
+		return
+	if _hover >= 0 and _hover < _thumbs.size() and _thumbs[_hover] != null:
+		_thumbs[_hover].visible = true
+	_hover = i
+	if i >= 0 and i < _charms.size():
+		if i < _thumbs.size() and _thumbs[i] != null:
+			_thumbs[i].visible = false
+		_name_label.text = _charms[i].display_name
+		_body_label.text = _charms[i].description
+		_place_labels_in_card(i)
+	else:
+		_name_label.text = ""
+		_body_label.text = ""
+	_name_label.visible = _hover >= 0
+	_body_label.visible = _hover >= 0
+	queue_redraw()
+
+## Kurzer Helligkeits-Puls auf Konsole i ("dieser Charm feuert") - Projektor UND
+## Karte überstrahlen kurz (bloomt auf dem HDR-Screen), synchron zum
 ## 3D-flash_charm.
 func flash_pad(i: int) -> void:
 	if i < 0 or i >= _flash.size():
@@ -65,26 +180,156 @@ func flash_pad(i: int) -> void:
 	tween.tween_method(func(v: float) -> void:
 		_flash[i] = v
 		queue_redraw(), 1.0, 0.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if i < _thumbs.size() and _thumbs[i] != null:
+		var thumb := _thumbs[i]
+		var mod := create_tween()
+		mod.tween_property(thumb, "self_modulate", Color(2.2, 2.2, 2.2), 0.08)
+		mod.tween_property(thumb, "self_modulate", Color.WHITE, 0.42)
+
+## --- Umsortieren (2D-Drag, von scene_root gesteuert) ---------------------------
+
+## Hebt die Karte des Platzes i an (nach vorn, leicht vergrößert).
+func begin_drag(i: int) -> void:
+	if i < 0 or i >= _thumbs.size() or _thumbs[i] == null:
+		return
+	set_hover(-1)  # Hover-Text schließen, BEVOR der Drag ihn sperrt
+	_drag_index = i
+	_drop_hint = i
+	move_child(_thumbs[i], get_child_count() - 1)
+	_thumbs[i].scale = Vector2.ONE * DRAG_SCALE
+	queue_redraw()
+
+## Zieht die gehobene Karte zum (Viewport-)Pixel; markiert den nächsten Platz
+## (nach x) als Ablageziel.
+func drag_to(pixel: Vector2) -> void:
+	if _drag_index < 0:
+		return
+	var thumb := _thumbs[_drag_index]
+	thumb.position = (pixel - position) - thumb.size / 2.0
+	_drop_hint = _nearest_slot_by_x((pixel - position).x)
+	queue_redraw()
+
+## Aktuelles Ablageziel (Platz-Index) oder -1.
+func drop_target() -> int:
+	return _drop_hint
+
+## Beendet den Drag: Karte zurück auf ihren Platz, Zustand löschen. (Bei echtem
+## Umsortieren baut set_charms die Karten ohnehin neu.)
+func end_drag() -> void:
+	if _drag_index >= 0 and _drag_index < _thumbs.size() and _thumbs[_drag_index] != null:
+		_thumbs[_drag_index].scale = Vector2.ONE
+		_thumbs[_drag_index].position = _thumb_home[_drag_index]
+	_drag_index = -1
+	_drop_hint = -1
+	queue_redraw()
+
+## Belegter Platz, dessen Karten-Mitte in x am nächsten liegt.
+func _nearest_slot_by_x(local_x: float) -> int:
+	var best := -1
+	var best_dist := INF
+	for i in _occupied:
+		var dist := absf(_pad_offsets[i].x - local_x)
+		if dist < best_dist:
+			best_dist = dist
+			best = i
+	return best
+
+func _ensure_labels() -> void:
+	if _name_label != null:
+		return
+	_name_label = Label.new()
+	_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_name_label.visible = false
+	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(_name_label)
+	_body_label = Label.new()
+	_body_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_body_label.visible = false
+	_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_body_label)
+
+## Schriftgrößen an der Kartengröße ausrichten (Name in Gold, Wirkung in Creme).
+func _style_labels() -> void:
+	CasinoStyle.style_score_label(_name_label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
+	CasinoStyle.style_body_label(_body_label, int(_pad_size.y * 0.105), CasinoStyle.CREAM)
+
+## Legt die Hover-Texte in die Karten-Fläche der Konsole i; der Wirkungstext
+## schrumpft schrittweise, bis er in die verfügbare Höhe passt.
+func _place_labels_in_card(i: int) -> void:
+	var inset := _pad_size.x * 0.09
+	var card_top_left := _pad_offsets[i] - _pad_size / 2.0
+	var inner_w := _pad_size.x - inset * 2.0
+	var body_h := _pad_size.y - inset * 1.2 - _pad_size.y * 0.18
+	_name_label.position = card_top_left + Vector2(inset, inset * 0.6)
+	_name_label.size = Vector2(inner_w, _pad_size.y * 0.18)
+	_body_label.position = card_top_left + Vector2(inset, inset * 0.6 + _pad_size.y * 0.18)
+	_body_label.size = Vector2(inner_w, body_h)
+	_fit_body_font(inner_w, body_h)
+	# Text über die Kachel-Kinder heben.
+	move_child(_name_label, get_child_count() - 1)
+	move_child(_body_label, get_child_count() - 1)
+
+## Verkleinert die Wirkungs-Schrift, bis der umgebrochene Text in die Karten-
+## Fläche passt (gemessen über die Font-Metrik, nicht per Frame-Layout).
+func _fit_body_font(width: float, height: float) -> void:
+	var font := _body_label.get_theme_font("font")
+	if font == null:
+		return
+	var font_size := int(_pad_size.y * 0.105)
+	var min_size := maxi(8, int(_pad_size.y * 0.055))
+	while font_size > min_size:
+		var text_size := font.get_multiline_string_size(_body_label.text,
+			HORIZONTAL_ALIGNMENT_LEFT, width, font_size)
+		if text_size.y <= height:
+			break
+		font_size -= 2
+	_body_label.add_theme_font_size_override("font_size", font_size)
+
+func _clear_thumbs() -> void:
+	for thumb in _thumbs:
+		if thumb != null:
+			thumb.queue_free()
+	_thumbs.clear()
+	_thumb_home.clear()
 
 func _draw() -> void:
 	if _pad_offsets.is_empty():
 		return
-	draw_style_box(TableScreen.window_style(), Rect2(Vector2.ZERO, size))
-	var radius := int(_pad_size.y * 0.28)
+	var radius := console_corner_radius()
 	for i in _pad_offsets.size():
 		var occupied := i < _occupied
 		var accent: Color = _pad_colors[i] if occupied else SOCKET_BORDER
 		var fill := SOCKET_FILL
 		if occupied:
-			fill = Color(accent.r * 0.22, accent.g * 0.22, accent.b * 0.22, 0.9)
+			fill = Color(accent.r * 0.18, accent.g * 0.18, accent.b * 0.18, 0.9)
+		var lit := occupied and (i == _hover or (i == _drop_hint and _drag_index >= 0))
+		if lit:
+			accent = accent.lerp(Color(1.8, 1.8, 1.9), 0.6)
 		var flash: float = _flash[i] if i < _flash.size() else 0.0
 		if flash > 0.0:
-			# Im Puls überhell in Richtung Akzentfarbe (bloomt).
 			fill = fill.lerp(Color(accent.r * 2.0, accent.g * 2.0, accent.b * 2.0, 1.0), flash)
 			accent = accent.lerp(Color(2.2, 2.2, 2.2), flash * 0.6)
+		var border_w := maxi(1, int(_pad_size.y * 0.05))
+		# Konsolen-Screen: eigenes rundes Fenster je Charm; der Rahmen leuchtet
+		# beim Hervorheben mit.
+		var console := TableScreen.window_style()
+		console.set_corner_radius_all(int(radius))
+		if lit or flash > 0.0:
+			console.border_color = accent
+		draw_style_box(console, _console_rects[i])
+		# Runder Projektor oben (= Kraftfeld-Durchmesser): Ring + Linsenkern.
+		var ap := _aperture_offsets[i]
+		var pr := _projector_r()
+		draw_circle(ap, pr, fill)
+		draw_arc(ap, pr, 0.0, TAU, 48, accent, float(border_w))
+		if occupied:
+			# Linsenkern: gedimmter Akzent, aus dem der Strahl austritt.
+			draw_circle(ap, pr * 0.45, Color(accent.r * 0.55, accent.g * 0.55, accent.b * 0.55,
+				0.9 + flash))
+		# Bild-Screen unten (Rahmen um Kachel bzw. Hover-Text).
 		var pad := StyleBoxFlat.new()
 		pad.bg_color = fill
 		pad.border_color = accent
-		pad.set_border_width_all(maxi(1, int(_pad_size.y * 0.06)))
-		pad.set_corner_radius_all(radius)
+		pad.set_border_width_all(border_w)
+		pad.set_corner_radius_all(int(_pad_size.y * 0.16))
 		draw_style_box(pad, Rect2(_pad_offsets[i] - _pad_size / 2.0, _pad_size))

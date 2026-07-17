@@ -45,8 +45,8 @@ const QUEUE_TRAY_PIT_POSITION := Vector3(-8.6, 0.0, 0.0)
 
 ## Die POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern
 ## (Marker3D unter $ScreenAnchors); nur die GRÖSSEN stehen hier als Weltmaß.
-const PIT_SCORE_WIDTH_WORLD := 14.0
-const PIT_SCORE_HEIGHT_WORLD := 3.5
+const PIT_SCORE_WIDTH_WORLD := 10.0
+const PIT_SCORE_HEIGHT_WORLD := 2.6
 
 ## Hub-Fläche unter der Grube (~grubenbreit, doppelte Gruben-Bildschirmhöhe).
 const HUB_WIDTH_WORLD := 28.5
@@ -104,9 +104,6 @@ const DECK_SHIFT_DURATION := 0.45  # Aufrück-Animation der Deck-Würfel
 const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick als Zieh-Geste zählt
 const REORDER_LIFT_HEIGHT := 0.8
 const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen
-
-const CHARM_LIFT_HEIGHT := 1.2
-const CHARM_DROP_RADIUS := 90.0
 
 const CUP_FLY_DURATION := 0.4
 const CUP_SHAKE_COUNT := 3
@@ -184,11 +181,6 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 ## Zuletzt ANGEZEIGTER Geldstand - Vergleichsbasis der Geld-Lichtanimation.
 var _shown_money := 0
 
-## Hover-Tooltip der Charm-Ansicht (folgt dem Cursor).
-var charm_tooltip: PanelContainer
-var charm_tooltip_title: Label
-var charm_tooltip_body: Label
-
 var dice: DiceController
 var dice_audio: DiceAudio
 var table_screen: TableScreen
@@ -197,6 +189,7 @@ var combos_click_zone: StaticBody3D
 var charms_click_zone: StaticBody3D
 var hub_click_zone: StaticBody3D
 var side_bets_click_zone: StaticBody3D
+var score_click_zone: StaticBody3D
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -308,7 +301,6 @@ func _ready() -> void:
 
 	_style_ui()
 	_collect_combo_labels()
-	_build_charm_tooltip()
 	_reset_game()
 
 ## Baut die 6 Spielwürfel samt Audio und Wandkontakt-Handlern.
@@ -378,8 +370,9 @@ func _setup_table_screen() -> void:
 		table_screen.world_to_pixel(base_counter_anchor.global_position),
 		table_screen.world_to_pixel(mult_counter_anchor.global_position),
 		score_size)
-	# Zielbalken + Zähler zu EINEM Wertungs-Bildschirm rahmen.
+	# Zielbalken + Zähler zu EINEM Wertungs-Bildschirm rahmen, dann Zoom-Zone.
 	table_screen.place_score_screen()
+	_setup_score_zoom()
 	table_screen.place_hub(
 		table_screen.world_to_pixel(hub_anchor.global_position),
 		Vector2(HUB_WIDTH_WORLD * ppw, HUB_HEIGHT_WORLD * ppw))
@@ -402,13 +395,16 @@ func _setup_table_screen() -> void:
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
-	# Charm-Dock unter der 3D-Charm-Reihe: je Platz ein Kontakt-Pad (Pixel aus den
-	# festen Plätzen der Charm-Reihe abgeleitet).
-	var pad_centers := PackedVector2Array()
+	# Charm-Konsolen unter der 3D-Charm-Reihe: je Charm eine Blende dort, wo der
+	# 3D-Strahl auf den Screen trifft (= projizierter Platz), Karte darunter. Die
+	# übergebenen Pixel sind die Blenden-Mitten; die Karten legt das Dock ab.
+	var aperture_centers := PackedVector2Array()
 	for i in CharmRowView.SPOT_COUNT:
-		pad_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
-	var pad_spacing := pad_centers[0].distance_to(pad_centers[1]) if pad_centers.size() > 1 else 200.0
-	table_screen.place_charm_dock(pad_centers, Vector2(pad_spacing * 0.58, pad_spacing * 0.2))
+		aperture_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
+	var pad_spacing := aperture_centers[0].distance_to(aperture_centers[1]) if aperture_centers.size() > 1 else 200.0
+	# Projektor = Kraftfeld-Durchmesser: Beam-Radius (Welt) -> Screen-Pixel.
+	var proj_radius := CharmRowView.BEAM_RADIUS * table_screen.pixels_per_world()
+	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
 	if run != null:
 		table_screen.charm_dock.set_charms(run.owned_charms)
 	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
@@ -779,7 +775,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if is_pit_focused and _try_cup_click(event.position):
 		return
 
-	if is_pit_focused and _try_start_charm_reorder(event.position):
+	if _try_start_charm_reorder(event.position):
 		return
 
 	if _can_toggle_selection():
@@ -1173,12 +1169,22 @@ func _animate_reorder_move(from_index: int, to_index: int) -> void:
 		deck_shift_tween.tween_property(ghost, "global_position", target_pos, DECK_SHIFT_DURATION)
 	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
 
-## Klick auf einen Tisch-Charm: startet einen POTENZIELLEN Umsortier-Drag;
+## Klick auf eine Dock-Kachel: startet einen POTENZIELLEN 2D-Umsortier-Drag.
+## Nur in Gruben-/Charm-Sicht (in der Übersicht bleibt der Klick ein Zoom);
 ## Loslassen ohne Bewegung tut nichts (der Hover-Tooltip zeigt schon alles).
 func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
-	if camera_rig.is_animating:
+	if camera_rig.is_animating or table_screen.charm_dock == null:
 		return false
-	var index := charm_row.charm_index_at_screen_pos(camera_rig, screen_pos)
+	if not (is_pit_focused or camera_rig.mode == CameraRig.Mode.CHARMS):
+		return false
+	# Konsolen-Karte ODER das schwebende 3D-Hologramm treffen denselben Charm -
+	# so recentert/zieht ein Klick auf beides (das Hologramm schwebt über der Karte).
+	var index := -1
+	var pixel := _screen_pixel(screen_pos)
+	if pixel.x >= 0.0:
+		index = table_screen.charm_dock.pad_index_at(pixel)
+	if index == -1:
+		index = charm_row.charm_index_at_screen_pos(camera_rig, screen_pos)
 	if index == -1:
 		return false
 	charm_drag_index = index
@@ -1187,7 +1193,7 @@ func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
 	return true
 
 ## Maus-Bewegung/-Loslassen während eines Charm-Drags (analog zum
-## Warteschlangen-Drag); Loslassen über einem anderen belegten Platz sortiert um.
+## Warteschlangen-Drag); Loslassen über einem anderen Platz sortiert um.
 func _handle_charm_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		_cancel_charm_drag()
@@ -1196,56 +1202,51 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if not charm_is_dragging and event.position.distance_to(charm_drag_start_pos) > REORDER_DRAG_THRESHOLD:
 			charm_is_dragging = true
-			_begin_charm_drag()
+			table_screen.charm_dock.begin_drag(charm_drag_index)
 		if charm_is_dragging:
-			_update_charm_drag(event.position)
+			var pixel := _screen_pixel(event.position)
+			if pixel.x >= 0.0:
+				table_screen.charm_dock.drag_to(pixel)
 		return
 
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if charm_is_dragging:
-			_finish_charm_drag(event.position)
+			_finish_charm_drag()
+		elif camera_rig.mode == CameraRig.Mode.CHARMS:
+			# Klick ohne Ziehen in der Charm-Sicht: Zoom auf diesen Charm schwenken.
+			_pan_zoom_to_charm(charm_drag_index)
 		charm_drag_index = -1
 		charm_is_dragging = false
 
-## Hebt das Charm-Modell an - kein Ghost nötig, die Modelle sind freie Nodes.
-func _begin_charm_drag() -> void:
-	var node: Node3D = charm_row.charm_nodes[charm_drag_index]
-	node.global_position = charm_row.spot_global_position(charm_drag_index) + Vector3.UP * CHARM_LIFT_HEIGHT
+## Schwenkt den Charm-Zoom mittig auf die Konsole i (deren Weltposition).
+func _pan_zoom_to_charm(i: int) -> void:
+	var consoles := table_screen.charm_dock.console_rects()
+	if i < 0 or i >= consoles.size():
+		return
+	camera_rig.pan_to(table_screen.pixel_to_world(consoles[i].get_center()))
 
-func _update_charm_drag(screen_pos: Vector2) -> void:
-	var hit: Variant = _mouse_on_plane(screen_pos, charm_row.spot_global_position(charm_drag_index).y + CHARM_LIFT_HEIGHT)
-	if hit != null:
-		charm_row.charm_nodes[charm_drag_index].global_position = hit
-
-## Loslassen: über einem anderen belegten Platz umsortieren (die Reihenfolge
-## ist spielrelevant - Totems kopieren Nachbarn), sonst zurückgleiten.
-func _finish_charm_drag(screen_pos: Vector2) -> void:
-	var target_index := _nearest_charm_spot(screen_pos)
+## Loslassen: auf einen anderen Platz umsortieren (die Reihenfolge ist
+## spielrelevant - Totems kopieren Nachbarn), sonst Kachel zurück auf ihren Platz.
+func _finish_charm_drag() -> void:
+	var target_index := table_screen.charm_dock.drop_target()
+	table_screen.charm_dock.end_drag()
 	if target_index != -1 and target_index != charm_drag_index:
-		run.move_charm(charm_drag_index, target_index)  # charms_changed baut die Reihe neu
-	else:
-		charm_row.glide_charm_to_spot(charm_drag_index)
+		run.move_charm(charm_drag_index, target_index)  # charms_changed baut Reihe + Dock neu
 
 func _cancel_charm_drag() -> void:
 	if charm_is_dragging:
-		charm_row.glide_charm_to_spot(charm_drag_index)
+		table_screen.charm_dock.end_drag()
 	charm_drag_index = -1
 	charm_is_dragging = false
 
-## Bildschirmnächster BELEGTER Charm-Platz; -1 außerhalb von CHARM_DROP_RADIUS.
-func _nearest_charm_spot(screen_pos: Vector2) -> int:
+## Display-Pixel unter der Fenster-Mausposition (Kamerastrahl auf die Screen-
+## Ebene), oder x<0 bei Verfehlen.
+func _screen_pixel(screen_pos: Vector2) -> Vector2:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
-		return -1
-	var best_index := -1
-	var best_dist := CHARM_DROP_RADIUS
-	for i in charm_row.current_charms.size():
-		var spot_screen := camera.unproject_position(charm_row.spot_global_position(i))
-		var dist := spot_screen.distance_to(screen_pos)
-		if dist < best_dist:
-			best_dist = dist
-			best_index = i
-	return best_index
+		return Vector2(-1, -1)
+	return table_screen.pixel_from_ray(
+		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> StaticBody3D:
@@ -1279,19 +1280,23 @@ func _setup_combos_zoom() -> void:
 	combos_click_zone = _screen_zoom_zone("CombosClickZone",
 		table_screen.cluster_rect, camera_rig.configure_combos_target)
 
+## Zoom-Ziel + Klickzone des Wertungs-Bildschirms (gleiche Mechanik wie der Kombi-Cluster).
+func _setup_score_zoom() -> void:
+	score_click_zone = _screen_zoom_zone("ScoreClickZone",
+		table_screen.score_rect, camera_rig.configure_score_target)
+
 ## Zoom-Ziel + Klickzone der Wettannahme (gleiche Mechanik wie der Kombi-Cluster).
 func _setup_side_bets_zoom() -> void:
 	var window := table_screen.side_bet_window
 	side_bets_click_zone = _screen_zoom_zone("SideBetsClickZone",
 		Rect2(window.position, window.size), camera_rig.configure_side_bets_target)
 
-## Zoom-Ziel + Klickzone der Charm-Reihe (Maße folgen den CharmRowView-Konstanten).
+## Zoom-Ziel + Klickzone der Charms aus dem Dock-Rect (rahmt Konsolen UND
+## Hologramme; Klick auf Karten/Info-Band zoomt ebenfalls heran).
 func _setup_charms_zoom() -> void:
-	var center: Vector3 = charm_row.to_global(Vector3(CharmRowView.LINE_X, CharmRowView.SPOT_Y, 0.0))
-	camera_rig.configure_charms_target(center)
-	var half_z := float(CharmRowView.SPOT_COUNT - 1) * 0.5 * CharmRowView.LINE_SPACING + CharmRowView.BEAM_RADIUS
-	charms_click_zone = _add_click_zone("CharmsClickZone", center,
-		Vector3(CharmRowView.BEAM_RADIUS * 2.0, 4.0, half_z * 2.0))
+	charms_click_zone = _screen_zoom_zone("CharmsClickZone",
+		Rect2(table_screen.charm_dock.position, table_screen.charm_dock.size),
+		camera_rig.configure_charms_target)
 
 ## Zoom-Ziel + Klickzone des Hubs (Anker + HUB_*_WORLD).
 func _setup_hub_zoom() -> void:
@@ -1357,8 +1362,8 @@ func _side_bet_window_has_point(pixel: Vector2) -> bool:
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
 
-## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Grubenklick wirft
-## in der Grubensicht stattdessen den nächsten Wurf.
+## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
+## nur noch (kein Wurf mehr - dafür Becher oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var result := _ray_pick(screen_pos, 8)
 	if result.is_empty():
@@ -1366,10 +1371,7 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 
 	var collider: Object = result.collider
 	if collider == pit_click_zone:
-		if camera_rig.mode == CameraRig.Mode.PIT:
-			_on_throw_button_pressed()
-		else:
-			camera_rig.zoom_to(CameraRig.Mode.PIT)
+		camera_rig.zoom_to(CameraRig.Mode.PIT)
 	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.POOL)
 	elif collider == discard_tray_view.click_zone:
@@ -1382,31 +1384,11 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 	elif collider == side_bets_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
-
-## Baut den (verdeckten) Hover-Tooltip der Charms: Name in Gold, Wirkung darunter.
-func _build_charm_tooltip() -> void:
-	charm_tooltip = PanelContainer.new()
-	charm_tooltip.visible = false
-	charm_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	CasinoStyle.style_panel(charm_tooltip)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	charm_tooltip.add_child(box)
-	charm_tooltip_title = Label.new()
-	charm_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	CasinoStyle.style_score_label(charm_tooltip_title, 20, CasinoStyle.GOLD)
-	box.add_child(charm_tooltip_title)
-	charm_tooltip_body = Label.new()
-	charm_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	charm_tooltip_body.custom_minimum_size = Vector2(280, 0)
-	charm_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	CasinoStyle.style_body_label(charm_tooltip_body, 15, CasinoStyle.CREAM)
-	box.add_child(charm_tooltip_body)
-	$UI.add_child(charm_tooltip)
+	elif collider == score_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 
 func _process(_delta: float) -> void:
-	_update_charm_tooltip()
+	_update_charm_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 
@@ -1442,28 +1424,21 @@ func _update_selection_glows() -> void:
 			_select_glows[i].queue_free()
 			_select_glows.erase(i)
 
-## Hover-Tooltip der Charms: aktiv aus jeder Ansicht (Projektions-Nähe), nur
-## nicht während Kamerafahrt oder Drag; folgt der Maus, am Rand eingeklemmt.
-func _update_charm_tooltip() -> void:
-	if charm_tooltip == null:
+## Hover-Info der Charms ins Dock-Band: Index erst über das 3D-Hologramm
+## (Projektions-Nähe), sonst über die Dock-Karte unter der Maus - so leuchtet die
+## Konsole aus jeder Sicht auf. Nicht während Kamerafahrt oder Drag.
+func _update_charm_hover() -> void:
+	if table_screen == null or table_screen.charm_dock == null:
 		return
 	if camera_rig.is_animating or charm_is_dragging:
-		charm_tooltip.visible = false
 		return
 	var mouse := get_viewport().get_mouse_position()
-	var charm := charm_row.charm_at_screen_pos(camera_rig, mouse)
-	if charm == null:
-		charm_tooltip.visible = false
-		return
-	charm_tooltip_title.text = charm.display_name
-	charm_tooltip_body.text = charm.description
-	charm_tooltip.visible = true
-	charm_tooltip.reset_size()
-	var viewport_size := get_viewport().get_visible_rect().size
-	var pos := mouse + Vector2(18, 18)
-	pos.x = minf(pos.x, viewport_size.x - charm_tooltip.size.x - 8.0)
-	pos.y = minf(pos.y, viewport_size.y - charm_tooltip.size.y - 8.0)
-	charm_tooltip.position = pos
+	var index := charm_row.charm_index_at_screen_pos(camera_rig, mouse)
+	if index == -1:
+		var pixel := _screen_pixel(mouse)
+		if pixel.x >= 0.0:
+			index = table_screen.charm_dock.pad_index_at(pixel)
+	table_screen.charm_dock.set_hover(index)
 
 ## Klick auf den Würfelbecher = derselbe Wurf wie der Würfeln-Button
 ## (_on_throw_button_pressed prüft alle Vorbedingungen selbst).

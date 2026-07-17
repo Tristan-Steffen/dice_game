@@ -75,11 +75,18 @@ var _glass_material: ShaderMaterial
 var score_frame: Panel
 var score_rect := Rect2()
 ## Leisten, die in den Wertungs-Bildschirm münden: Grube (dicker Datenbus, von
-## unten), Kombinationen (von unten-links), Charm-Dock (von oben).
+## unten), Kombinationen (von unten-links), und je Charm-Konsole eine kurze Ader
+## auf EINE gemeinsame Sammelschiene (charm_bus_strip), die als Stamm in den Score
+## läuft.
 var pit_score_strip: LedStripView
 var combos_score_strip: LedStripView
-var charm_dock_score_strip: LedStripView
-## Charm-Dock (Kontakt-Pads unter der 3D-Charm-Reihe); mündet von oben in den Score.
+var charm_score_strips: Array[LedStripView] = []
+var charm_bus_strip: LedStripView
+## Geometrie der Charm-Sammelschiene (für die Kometen-Route Konsole -> Schiene ->
+## Stamm -> Score).
+var _charm_rail_y := 0.0
+var _charm_trunk_x := 0.0
+## Charm-Dock (eigene Konsolen-Screens unter der 3D-Charm-Reihe).
 var charm_dock: CharmDockView
 var goal_bar: Panel
 var goal_bar_fill: ColorRect
@@ -197,10 +204,18 @@ func _build_content() -> void:
 	combos_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(combos_score_strip)
 
-	charm_dock_score_strip = LedStripView.new()
-	charm_dock_score_strip.name = "CharmDockScoreStrip"
-	charm_dock_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(charm_dock_score_strip)
+	# Sammelschiene zuerst (liegt unter den Konsolen-Adern), dann je Konsole eine
+	# kurze Ader auf die Schiene.
+	charm_bus_strip = LedStripView.new()
+	charm_bus_strip.name = "CharmBusStrip"
+	charm_bus_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(charm_bus_strip)
+	for i in CharmRowView.SPOT_COUNT:
+		var strip := LedStripView.new()
+		strip.name = "CharmScoreStrip%d" % i
+		strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(strip)
+		charm_score_strips.append(strip)
 
 	# Charm-Dock: über den Leisten, aber unter den restlichen Fenstern; Position
 	# setzt scene_root über place_charm_dock (Maße aus den Charm-Plätzen).
@@ -346,9 +361,11 @@ func _sync_reflection_windows() -> void:
 			score_rect.end.x, score_rect.end.y))
 		radii.append(10.0)
 	if charm_dock != null and charm_dock.visible:
-		rects.append(Vector4(charm_dock.position.x, charm_dock.position.y,
-			charm_dock.position.x + charm_dock.size.x, charm_dock.position.y + charm_dock.size.y))
-		radii.append(10.0)
+		# Je Charm-Konsole ein eigenes Glas-Fenster (gekapselte Sub-Screens).
+		for console in charm_dock.console_rects():
+			rects.append(Vector4(console.position.x, console.position.y,
+				console.end.x, console.end.y))
+			radii.append(charm_dock.console_corner_radius())
 	if goal_bar != null:
 		rects.append(Vector4(goal_bar.position.x, goal_bar.position.y,
 			goal_bar.position.x + goal_bar.size.x, goal_bar.position.y + goal_bar.size.y))
@@ -427,7 +444,7 @@ func place_goal_bar(center_px: Vector2) -> void:
 
 ## Rahmt Basis-Zähler, Zielbalken und Mult-Zähler zu EINEM Bildschirm (Rahmen
 ## hinter den Elementen). NACH place_goal_bar UND configure_pit_score rufen.
-const SCORE_SCREEN_PADDING := 16.0 * SUPERSAMPLE
+const SCORE_SCREEN_PADDING := 10.0 * SUPERSAMPLE
 
 func place_score_screen() -> void:
 	if score_frame == null or base_counter == null or mult_counter == null or goal_bar == null:
@@ -657,7 +674,6 @@ const SCORE_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.95)
 func _score_strip(source: String) -> LedStripView:
 	match source:
 		"combos": return combos_score_strip
-		"charm": return charm_dock_score_strip
 		_: return pit_score_strip
 
 ## Ziel-Ankerpunkt (Screen-px) im Score-Bildschirm.
@@ -669,9 +685,12 @@ func _score_target_px(target: String) -> Vector2:
 
 ## Vollständige Route eines Zähl-Kometen: Quelle -> passende Leiste -> Zähler.
 ## L-Anschlüsse an beiden Enden halten alles achsenparallel (Leiterbahn-Look).
+## Charm-Quellen laufen über die Sammelschiene (Konsole -> Schiene -> Stamm).
 func score_route(from_px: Vector2, source: String, target: String) -> PackedVector2Array:
-	var strip := _score_strip(source)
 	var to_px := _score_target_px(target)
+	if source == "charm":
+		return _charm_route(from_px, to_px)
+	var strip := _score_strip(source)
 	var path := PackedVector2Array([from_px])
 	if strip != null and strip.strip_path.size() >= 2:
 		var entry := strip.strip_path[0]
@@ -801,20 +820,50 @@ func link_score_strips() -> void:
 		var enter_x := score_rect.position.x + score_rect.size.x * 0.25
 		combos_score_strip.link_edges(cluster_rect.position.y, exit_x, score_bottom, enter_x,
 			lane, SCORE_STRIP_WIDTH)
-	# Charm-Dock -> Score: von der Dock-UNTERKANTE senkrecht in die Score-OBERKANTE.
-	if charm_dock_score_strip != null and charm_dock != null and charm_dock.visible:
-		var dock_bottom := charm_dock.position.y + charm_dock.size.y
-		var dock_cx := charm_dock.position.x + charm_dock.size.x * 0.5
-		var score_top := score_rect.position.y
-		var up_lane := (dock_bottom + score_top) * 0.5
-		charm_dock_score_strip.link_edges(dock_bottom, dock_cx, score_top, dock_cx,
-			up_lane, SCORE_STRIP_WIDTH)
+	# Charm-Konsolen -> Score: je Konsole eine Ader, gebündelt wie ein Kabelbaum.
+	_link_charm_strips()
 
-## Spannt das Charm-Dock über die 6 Platz-Pixelmitten auf (pad_size = Kachel).
-func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2) -> void:
+## Verlegt die Charm-Adern geordnet: je Konsole eine kurze senkrechte Ader auf
+## EINE gemeinsame waagerechte Sammelschiene unter den Charms; die Schiene läuft
+## als Stamm mittig in die Score-Oberkante.
+func _link_charm_strips() -> void:
+	if charm_dock == null or not charm_dock.visible or score_frame == null or not score_frame.visible:
+		return
+	var consoles := charm_dock.console_rects()
+	var n := mini(consoles.size(), charm_score_strips.size())
+	if n == 0:
+		return
+	var score_top := score_rect.position.y
+	var console_bottom := consoles[0].end.y
+	_charm_rail_y = lerpf(console_bottom, score_top, 0.32)  # Schiene knapp unter den Charms
+	_charm_trunk_x = score_rect.get_center().x
+	var rail_left := consoles[0].get_center().x
+	var rail_right := consoles[n - 1].get_center().x
+	for i in n:
+		var cx := consoles[i].get_center().x
+		# Kurze senkrechte Ader von der Konsolen-Unterkante auf die Schiene.
+		charm_score_strips[i].link_edges(console_bottom, cx, _charm_rail_y, cx,
+			_charm_rail_y, SCORE_STRIP_WIDTH)
+	charm_bus_strip.link_tee(minf(rail_left, _charm_trunk_x), maxf(rail_right, _charm_trunk_x),
+		_charm_rail_y, _charm_trunk_x, score_top, SCORE_BUS_WIDTH)
+
+## Kometen-Route eines Charm-Schritts: Karte -> senkrecht auf die Schiene ->
+## waagerecht zum Stamm -> senkrecht in den Score bis zur Zielzahl.
+func _charm_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
+	return PackedVector2Array([
+		from_px,
+		Vector2(from_px.x, _charm_rail_y),
+		Vector2(_charm_trunk_x, _charm_rail_y),
+		Vector2(_charm_trunk_x, score_rect.position.y),
+		Vector2(_charm_trunk_x, to_px.y),
+		to_px])
+
+## Spannt das Charm-Dock über die 6 Blenden-Pixelmitten auf (pad_size = Kachel,
+## proj_radius = Kraftfeld-/Beam-Radius in px für den Projektor).
+func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2, proj_radius: float) -> void:
 	if charm_dock == null:
 		return
-	charm_dock.place(pad_centers_px, pad_size)
+	charm_dock.place(pad_centers_px, pad_size, proj_radius)
 	charm_dock.visible = true
 	_sync_reflection_windows()
 

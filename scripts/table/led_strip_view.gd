@@ -37,6 +37,15 @@ func link_edges(from_edge_y: float, exit_x: float, to_edge_y: float, enter_x: fl
 	branch_path = PackedVector2Array()
 	queue_redraw()
 
+## Sammelschiene (T-Form): waagerechte Schiene rail_left..rail_right auf rail_y,
+## Stamm senkrecht von trunk_x bis trunk_bottom. Die Konsolen-Adern speisen die
+## Schiene; der Komet läuft nicht über diese Leiste selbst (rein zeichnend).
+func link_tee(rail_left: float, rail_right: float, rail_y: float, trunk_x: float, trunk_bottom: float, width: float) -> void:
+	_thickness = width
+	strip_path = PackedVector2Array([Vector2(rail_left, rail_y), Vector2(rail_right, rail_y)])
+	branch_path = PackedVector2Array([Vector2(trunk_x, rail_y), Vector2(trunk_x, trunk_bottom)])
+	queue_redraw()
+
 ## Bequem-Wrapper: Hub-OBERKANTE -> Ziel-UNTERKANTE (Eintritt mittig), wie bisher.
 func link_from_hub_top(hub_rect: Rect2, target_rect: Rect2, width: float, exit_x: float, lane_y: float) -> void:
 	link_edges(hub_rect.position.y, exit_x, target_rect.end.y, target_rect.get_center().x, lane_y, width)

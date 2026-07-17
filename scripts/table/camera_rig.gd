@@ -4,7 +4,7 @@ extends Camera3D
 ## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
 ## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE }
 
 signal mode_changed(new_mode: Mode)
 
@@ -36,6 +36,7 @@ var pit_target := Vector3.ZERO
 var charms_target := Vector3(24, 0, 0)
 var hub_target := Vector3(-24, 0, 0)
 var side_bets_target := Vector3(0, 0, 24)
+var score_target := Vector3(-4, 0, 0)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele, unabhängig von der flacheren
 ## Übersichts-Kamera (Basis-Achsen als Spalten!).
@@ -153,6 +154,9 @@ func configure_hub_target(target: Vector3) -> void:
 func configure_side_bets_target(target: Vector3) -> void:
 	side_bets_target = target
 
+func configure_score_target(target: Vector3) -> void:
+	score_target = target
+
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
@@ -173,11 +177,24 @@ func zoom_to(target_mode: Mode) -> void:
 			target_point = hub_target
 		Mode.SIDE_BETS:
 			target_point = side_bets_target
+		Mode.SCORE:
+			target_point = score_target
 		_:
 			return
 	var target_origin := target_point - ZOOM_FORWARD * ZOOM_DISTANCE
 	mode = target_mode
 	mode_changed.emit(mode)
+	anchor_basis = ZOOM_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_animate_to(target_origin, ZOOM_BASIS)
+
+## Verschiebt den Zoom-Blick auf target_point OHNE den Modus zu wechseln (z.B.
+## von Charm zu Charm) - gleicher Winkel/Abstand, nur der Blickpunkt wandert.
+func pan_to(target_point: Vector3) -> void:
+	if mode == Mode.OVERVIEW:
+		return
+	var target_origin := target_point - ZOOM_FORWARD * ZOOM_DISTANCE
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO

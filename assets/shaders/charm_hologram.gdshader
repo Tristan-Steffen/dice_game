@@ -11,7 +11,7 @@ uniform sampler2D albedo_tex : source_color, hint_default_white;
 uniform vec4 albedo_color : source_color = vec4(1.0);
 uniform bool use_texture = false;
 uniform vec3 holo_tint : source_color = vec3(0.45, 0.8, 1.0);
-uniform float tint_mix : hint_range(0.0, 1.0) = 0.15;  // 0 = reine Modellfarbe, höher = einheitlicher Blaustich
+uniform float tint_mix : hint_range(0.0, 1.0) = 0.08;  // 0 = reine Modellfarbe, höher = einheitlicher Blaustich
 uniform float brightness = 1.4;
 uniform float base_alpha : hint_range(0.0, 1.0) = 0.78;
 uniform float fresnel_gain : hint_range(0.0, 2.0) = 0.55;
