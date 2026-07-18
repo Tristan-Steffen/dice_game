@@ -34,7 +34,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.3, 0, 20.85)
 
 [node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.3, 0, -20.85)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.3, 0, 33)
 tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]

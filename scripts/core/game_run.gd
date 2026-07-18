@@ -34,13 +34,13 @@ const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Sal
 ## Kurzbeschreibung, was der jeweilige AUFSTIEG (auf Stufe = Index+2) freischaltet.
 const HUB_UPGRADE_UNLOCKS := [
 	"Blättern + mehr Chips",    # → 2 Spielecke
-	"Größerer Laden",           # → 3 Lizenz
+	"Größerer Laden + Automat I",  # → 3 Lizenz
 	"Nebenwetten",              # → 4 Parkett
 	"Überladung ×4",            # → 5 Salon
-	"Bessere Ware",             # → 6 VIP-Lounge
+	"Bessere Ware + Automat II",   # → 6 VIP-Lounge
 	"Überladung ×5 + 3. Bündel",# → 7 Suite
 	"Günstiges Blättern",       # → 8 Penthouse
-	"Erlesene Ware",            # → 9 Privatclub
+	"Erlesene Ware + Automat III", # → 9 Privatclub
 	"Legendäre Ware",           # → 10 High Roller
 ]
 
@@ -58,6 +58,10 @@ const HUB_RARITY_UNCOMMON_LEVEL := 6
 const HUB_CHEAP_FLIP_LEVEL := 8    # halbierte Blätter-Gebühr
 const HUB_RARITY_RARE_LEVEL := 9
 const HUB_RARITY_LEGENDARY_LEVEL := 10
+
+## Freischaltung der drei Fumble-Automaten (nacheinander): I ab Lizenz, II ab
+## VIP-Lounge, III ab Privatclub.
+const HUB_SLOT_LEVELS := [3, 6, 9]
 
 var money: int = 0:
 	set(value):
@@ -89,6 +93,10 @@ var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensa
 var gravierstift_used_this_round: bool = false
 var queue_bonus_slots: int = 0  # Ausziehtisch: dauerhafte Extra-Warteschlangenplätze
 var newly_purchased: Array[DieDefinition] = []  # Frische Ware: zieht nächste Runde zuerst
+
+## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
+## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
+var slot_bank := SlotMachine.new()
 
 static func new_run() -> GameRun:
 	var run := GameRun.new()
@@ -381,6 +389,64 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won
+
+# --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
+
+## Zahl freigeschalteter Automaten (0..3), abgeleitet aus der Hub-Stufe.
+func slots_unlocked() -> int:
+	var count := 0
+	for level in HUB_SLOT_LEVELS:
+		if hub_level >= level:
+			count += 1
+	return count
+
+## Einsatz für einen Dreh an Automat machine.
+func slot_spin_price(machine: int) -> int:
+	return SlotMachine.SPIN_PRICES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
+
+## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, in der
+## Sitzung noch frei und der Einsatz bezahlbar.
+func can_spin_slot(machine: int) -> bool:
+	return machine < slots_unlocked() and slot_bank.can_spin(machine) \
+		and money >= slot_spin_price(machine)
+
+## Bezahlt den Einsatz und dreht Automat machine. Der Gewinn wandert (bei kein
+## Fumble) in den Zwischenspeicher; gebucht wird erst beim Auszahlen. Liefert den
+## gelandeten Preis (oder null, wenn der Dreh nicht möglich war).
+func spin_slot(machine: int) -> SlotPrize:
+	if not can_spin_slot(machine):
+		return null
+	add_money(-slot_spin_price(machine))
+	return slot_bank.spin(machine)
+
+## Zahlt die Sitzung aus: bucht alle Treffer ×Multiplikator und setzt die Bank
+## zurück. Liefert die ausgezahlten Preise (für die Anzeige) samt Multiplikator
+## über slot_bank.multiplier() VOR dem Reset - hier als Rückgabe eingefroren.
+func redeem_slots() -> Dictionary:
+	var mult := slot_bank.multiplier()
+	var prizes := slot_bank.pending.duplicate()
+	for prize in prizes:
+		_book_slot_prize(prize, mult)
+	slot_bank.reset_session()
+	return {"prizes": prizes, "multiplier": mult}
+
+func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
+	match prize.kind:
+		SlotPrize.Kind.MONEY:
+			add_money(prize.money * mult)
+		SlotPrize.Kind.SIGIL:
+			for i in mult:
+				for sigil in prize.sigils:
+					grant_sigil(sigil)
+		SlotPrize.Kind.CHARM:
+			if prize.charm != null:
+				for i in mult:
+					owned_charms.append(prize.charm.duplicate())
+				charms_changed.emit()
+		SlotPrize.Kind.DIE:
+			if prize.die != null:
+				for i in mult:
+					newly_purchased.append(_replace_pool_entry(prize.die))
 
 func advance_round() -> void:
 	round_number += 1

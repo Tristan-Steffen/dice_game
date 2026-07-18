@@ -59,6 +59,11 @@ const PIT_SCORE_HEIGHT_WORLD := 6.0  # höher: Platz für die Wertungs-Orbs
 const HUB_WIDTH_WORLD := 28.5
 const HUB_HEIGHT_WORLD := 30.0
 
+## Automaten-Fenster: Unterkante höher als der Hub, damit die (linke) untere Ecke
+## in der elliptischen Filz-Fläche bleibt und nicht in den leuchtenden Tischrand ragt.
+const SLOTS_BOTTOM_INSET_WORLD := 7.5
+
+
 ## Gravur-Zeremonie: der geklickte Würfel wird zum Ziel - sein Tray-Slot leert
 ## sich und der ECHTE Würfel fliegt über die Hub-Bühne (kein Abbild).
 const ENGRAVE_TRAIL_TIME := 0.5
@@ -205,6 +210,7 @@ var charms_click_zone: StaticBody3D
 var hub_click_zone: StaticBody3D
 var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
+var slots_click_zone: StaticBody3D
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -459,6 +465,17 @@ func _setup_table_screen() -> void:
 	chip_stack.global_position = Vector3(chip_world.x, chip_stack.global_position.y, chip_world.z)
 	table_screen.link_hub_to_treasure()
 
+	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
+	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
+	# Pool-Tray gewandert, die linke Spalte also frei. Sichtbar erst ab Freischaltung.
+	var hub_r := Rect2(table_screen.hub.position, table_screen.hub.size)
+	var slots_rect := Rect2(
+		Vector2(table_screen.cluster_rect.position.x, hub_r.position.y),
+		Vector2(table_screen.cluster_rect.size.x, hub_r.size.y - SLOTS_BOTTOM_INSET_WORLD * ppw))
+	table_screen.place_slot_bank_window(slots_rect)
+	slots_click_zone = _screen_zoom_zone("SlotsClickZone", slots_rect, camera_rig.configure_slots_target)
+	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
+
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
 func _setup_camera_targets() -> void:
@@ -662,6 +679,9 @@ func _on_hub_level_changed(level: int) -> void:
 		table_screen.celebrate_side_bet_install(CasinoStyle.GOLD_INTENSE)
 		if phase == Phase.SHOP:
 			_open_side_bet_betting()
+	# Ein frisch freigeschalteter Fumble-Automat feiert mit einer Stoßwelle.
+	if level in GameRun.HUB_SLOT_LEVELS and table_screen != null:
+		table_screen.celebrate_slot_bank_install(CasinoStyle.GOLD_INTENSE)
 
 ## Wendet den aktuellen Hub-Stufen-Zustand überall an: Plakette + Knopf am Hub,
 ## Shop-Knopf, und die Installation des Nebenwetten-Fensters. Idempotent - auch
@@ -675,6 +695,9 @@ func _sync_hub_level_state() -> void:
 		table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 	if table_screen != null:
 		table_screen.set_side_bet_installed(run.side_bets_unlocked())
+		table_screen.set_slot_bank_installed(run.slots_unlocked() > 0)
+		if table_screen.slot_bank_window != null:
+			table_screen.slot_bank_window.refresh()
 
 ## Offene Gold-Ladung des Hubs: Chips, die für einen Übertaktungs-Kauf
 ## unterwegs sind - jede Ankunft lädt den Hub eine Stufe weiter auf statt zu
@@ -751,6 +774,12 @@ func _on_side_bet_placed(index: int) -> void:
 		var diffuse: float = table_screen.diffuse_into_side_bet(center, comet_color)
 		get_tree().create_timer(maxf(diffuse, 0.05)).timeout.connect(func() -> void:
 			panel.glow_bet(index, glow_color)))
+
+## Automaten-Sitzung ausgezahlt: der Baranteil floss bereits als Geld-Licht über
+## money_changed; der Hub-Rahmen quittiert den Gewinn mit einem goldenen Blitz.
+func _on_slot_cashed_out(_multiplier: int) -> void:
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 
 ## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Komet vom Nebenwetten-
 ## Fenster zurück (Geld zum Schatz, Sigill zum Hub), leicht gestaffelt.
@@ -1408,6 +1437,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.SIDE_BETS:
 			# Im Zoom auf die Wettannahme gehen Klicks/Hover an die Setzen-Knöpfe.
 			return _side_bet_window_has_point(pixel)
+		CameraRig.Mode.SLOTS:
+			# Im Zoom auf die Automaten gehen Klicks/Hover an die Dreh-/Auszahlen-Knöpfe.
+			return _slot_bank_window_has_point(pixel)
 	if table_screen.hub == null or not table_screen.hub.get_rect().has_point(pixel):
 		return false
 	return not is_click or table_screen.hub.interactive_at(pixel)
@@ -1417,6 +1449,14 @@ func _side_bet_window_has_point(pixel: Vector2) -> bool:
 	if table_screen == null:
 		return false
 	var window := table_screen.side_bet_window
+	return window != null and window.visible \
+		and Rect2(window.position, window.size).has_point(pixel)
+
+## Ob ein Display-Pixel im sichtbaren Automaten-Fenster liegt.
+func _slot_bank_window_has_point(pixel: Vector2) -> bool:
+	if table_screen == null:
+		return false
+	var window := table_screen.slot_bank_window
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
 
@@ -1442,6 +1482,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 	elif collider == side_bets_click_zone and run != null and run.side_bets_unlocked():
 		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
+	elif collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
+		camera_rig.zoom_to(CameraRig.Mode.SLOTS)
 	elif collider == score_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 
@@ -2542,6 +2584,9 @@ func _connect_run() -> void:
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
+	if table_screen != null and table_screen.slot_bank_window != null:
+		table_screen.slot_bank_window.run = run
+		table_screen.slot_bank_window.refresh()
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)

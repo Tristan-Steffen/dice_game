@@ -165,3 +165,54 @@ func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
 	assert_eq(run.goal_roadmap(6), [450, 500, 550, 600, 650, 700] as Array[int],
 		"nach dem sechsten Sieg liegt ein frischer Block aus")
 	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")
+
+# --- Fumble-Automaten (Freischaltung + Ökonomie) ------------------------------
+
+func test_slots_unlock_one_after_another() -> void:
+	var run := _run(9999)
+	assert_eq(run.slots_unlocked(), 0, "Stufe 1: kein Automat")
+	for i in 2:
+		run.upgrade_hub()  # -> 3 Lizenz
+	assert_eq(run.slots_unlocked(), 1, "Lizenz: Automat I")
+	for i in 3:
+		run.upgrade_hub()  # -> 6 VIP-Lounge
+	assert_eq(run.slots_unlocked(), 2, "VIP-Lounge: Automat II")
+	for i in 3:
+		run.upgrade_hub()  # -> 9 Privatclub
+	assert_eq(run.slots_unlocked(), 3, "Privatclub: Automat III")
+
+func test_spin_slot_pays_and_gates_on_unlock() -> void:
+	var run := _run(100)
+	run.hub_level = 3  # Automat I frei
+	run.slot_bank.fumble_chance = 0.0
+	assert_false(run.can_spin_slot(1), "Automat II noch gesperrt")
+	assert_true(run.can_spin_slot(0))
+	var before := run.money
+	run.spin_slot(0)
+	assert_eq(run.money, before - run.slot_spin_price(0), "Einsatz abgezogen")
+	assert_eq(run.slot_bank.hit_count(), 1)
+
+func test_cannot_spin_slot_without_money() -> void:
+	var run := _run(2)  # Einsatz Automat I = 4
+	run.hub_level = 3
+	assert_false(run.can_spin_slot(0))
+
+func test_redeem_books_prizes_times_multiplier() -> void:
+	var run := _run(9999)
+	run.hub_level = 9  # alle drei frei
+	run.slot_bank.fumble_chance = 0.0
+	var prizes: Array[SlotPrize] = [run.spin_slot(0), run.spin_slot(1), run.spin_slot(2)]
+	assert_eq(run.slot_bank.multiplier(), 3, "drei Treffer ×3")
+	var money_before := run.money
+	var sigils_before := run.owned_sigils.size()
+	var expected_money := 0
+	var expected_sigils := 0
+	for prize in prizes:
+		if prize.kind == SlotPrize.Kind.MONEY:
+			expected_money += prize.money * 3
+		elif prize.kind == SlotPrize.Kind.SIGIL:
+			expected_sigils += prize.sigils.size() * 3
+	run.redeem_slots()
+	assert_eq(run.money, money_before + expected_money, "Geld ×3 gebucht")
+	assert_eq(run.owned_sigils.size(), sigils_before + expected_sigils, "Sigille ×3 gebucht")
+	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")

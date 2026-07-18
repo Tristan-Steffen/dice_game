@@ -91,6 +91,9 @@ var treasure_strip: LedStripView
 var pit_window: Panel
 ## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
 var side_bet_window: SideBetPanel
+## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
+## eigenständig, sichtbar erst ab der ersten Automaten-Freischaltung.
+var slot_bank_window: SlotBankView
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -335,6 +338,13 @@ func _build_content() -> void:
 	side_bet_window.visible = false
 	add_child(side_bet_window)
 
+	# Fumble-Automaten: Position/Größe setzt scene_root über
+	# place_slot_bank_window; sichtbar erst ab Automaten-Freischaltung.
+	slot_bank_window = SlotBankView.new()
+	slot_bank_window.name = "SlotBankWindow"
+	slot_bank_window.visible = false
+	add_child(slot_bank_window)
+
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
@@ -379,6 +389,23 @@ func place_side_bet_window(rect: Rect2) -> void:
 	side_bet_window.visible = true
 	_sync_reflection_windows()
 
+## Spannt das Automaten-Fenster über rect auf (links vom Hub). Bleibt bis zur
+## ersten Freischaltung unsichtbar (set_slot_bank_installed).
+func place_slot_bank_window(rect: Rect2) -> void:
+	slot_bank_window.position = rect.position
+	slot_bank_window.size = rect.size
+	slot_bank_window.refresh()
+	_sync_reflection_windows()
+
+## Blendet das Automaten-Fenster ein/aus (erste Automaten-Stufe erreicht).
+func set_slot_bank_installed(installed: bool) -> void:
+	if slot_bank_window == null or slot_bank_window.size.x <= 0.0:
+		return  # noch nicht platziert
+	if slot_bank_window.visible == installed:
+		return
+	slot_bank_window.visible = installed
+	_sync_reflection_windows()
+
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -419,6 +446,10 @@ func _sync_reflection_windows() -> void:
 	if side_bet_window != null and side_bet_window.visible:
 		rects.append(Vector4(side_bet_window.position.x, side_bet_window.position.y,
 			side_bet_window.position.x + side_bet_window.size.x, side_bet_window.position.y + side_bet_window.size.y))
+		radii.append(10.0)
+	if slot_bank_window != null and slot_bank_window.visible:
+		rects.append(Vector4(slot_bank_window.position.x, slot_bank_window.position.y,
+			slot_bank_window.position.x + slot_bank_window.size.x, slot_bank_window.position.y + slot_bank_window.size.y))
 		radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
@@ -1034,6 +1065,15 @@ func celebrate_side_bet_install(color: Color) -> float:
 	add_child(wave)
 	wave.setup(center, Color(color.r, color.g, color.b, 0.9), side_bet_window.size.x * 0.6, 0.6)
 	return side_bet_stake_comet(true, color)
+
+## Freischaltungs-Zeremonie eines Automaten: Stoßwelle am Automaten-Fenster.
+func celebrate_slot_bank_install(color: Color) -> void:
+	if slot_bank_window == null or not slot_bank_window.visible:
+		return
+	var center := slot_bank_window.position + slot_bank_window.size * 0.5
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(color.r, color.g, color.b, 0.9), slot_bank_window.size.x * 0.6, 0.6)
 
 ## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:
