@@ -32,6 +32,18 @@ const GOAL_BAR_INSET := 5.0 * SUPERSAMPLE
 const GOAL_BAR_FILL_COLOR := Color("#ffd319aa")
 const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 
+## Überladung: je Stufe eine eigene Füllfarbe; jede neue Bahn liegt über der
+## vorigen (die gefüllt bleibt). GOAL_STAGE_COLOR/-DARK dienen auch dem Bank-Knopf.
+const GOAL_STAGE_COLOR := Color("#8be9fd")
+const GOAL_STAGE_DARK := Color("#1c4b57")
+const GOAL_STAGE_FILL_COLORS := [
+	Color("#ffd319ee"),  # 1 Gold
+	Color("#8be9fdee"),  # 2 Cyan
+	Color("#50fa7bee"),  # 3 Grün
+	Color("#ff79c6ee"),  # 4 Magenta
+	Color("#ff5555ee"),  # 5 Rot-heiß
+]
+
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
 const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
 
@@ -40,8 +52,12 @@ const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
 const BASE_GROWTH_K := 260.0
 const MULT_GROWTH_K := 20.0
 const TOTAL_GROWTH_K := 650.0
-## Verschmelzung: Basis/Mult bogen zur Mitte (beschleunigend), dann Einschlag.
-const MERGE_ORBIT_TIME := 0.42
+## Verschmelzungs-Zeremonie in vier Takten: Aufladen (Anticipation), Umkreisen
+## (beschleunigend), Hit-Stop (Einschlag-Freeze), Halten (das Produkt wirkt nach).
+const MERGE_CHARGE_TIME := 0.5
+const MERGE_ORBIT_TIME := 0.55
+const MERGE_HITSTOP := 0.1
+const MERGE_HOLD := 1.0
 const MERGE_ARC_FRAC := 0.5   # Bogenhöhe als Anteil des Abstands zur Mitte
 const DRAIN_SPARKS := 5
 
@@ -98,8 +114,15 @@ var _charm_trunk_x := 0.0
 ## Charm-Dock (eigene Konsolen-Screens unter der 3D-Charm-Reihe).
 var charm_dock: CharmDockView
 var goal_bar: Panel
+## Zwei Füllschichten: goal_bar_base = die bereits gefüllten Stufen (volle Breite,
+## Farbe der letzten Stufe), goal_bar_fill = die AKTUELLE Stufe darüber in neuer
+## Farbe. So bleibt der Balken nach jeder Überladung gefüllt, die nächste startet
+## eine neue Bahn obendrauf.
+var goal_bar_base: ColorRect
 var goal_bar_fill: ColorRect
 var goal_bar_label: Label
+## Rollover-Erkennung (Stufe frisch gefüllt) für Blitz + Stoßwelle.
+var _goal_last_cleared := 0
 ## Basis- und Mult-Zähler getrennt, je an eigenem Editor-Anker.
 var base_counter: PitScoreView
 var mult_counter: PitScoreView
@@ -115,6 +138,7 @@ var _mult_home := Vector2.ZERO
 var pit_actions_root: Control
 var take_action_button: Button
 var roll_action_button: Button
+var bank_action_button: Button  # Runde bei ≥1 Überladungs-Stufe vorzeitig beenden
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
@@ -432,6 +456,13 @@ func _build_goal_bar() -> void:
 	goal_bar.add_theme_stylebox_override("panel", window_style())
 	add_child(goal_bar)
 
+	# Basis-Bahn (bereits gefüllte Stufen, volle Breite) UNTER der aktuellen Bahn.
+	goal_bar_base = ColorRect.new()
+	goal_bar_base.name = "FillBase"
+	goal_bar_base.position = Vector2.ONE * GOAL_BAR_INSET
+	goal_bar_base.size = Vector2(0.0, GOAL_BAR_SIZE.y - GOAL_BAR_INSET * 2.0)
+	goal_bar.add_child(goal_bar_base)
+
 	goal_bar_fill = ColorRect.new()
 	goal_bar_fill.name = "Fill"
 	goal_bar_fill.color = GOAL_BAR_FILL_COLOR
@@ -445,11 +476,14 @@ func _build_goal_bar() -> void:
 	goal_bar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	goal_bar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	goal_bar_label.add_theme_font_size_override("font_size", 16 * SUPERSAMPLE)
+	# Dunkle Kontur, damit die Zahl auch auf heller (heißer) Füllung lesbar bleibt.
+	goal_bar_label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
+	goal_bar_label.add_theme_constant_override("outline_size", 4 * SUPERSAMPLE)
 	goal_bar_label.modulate = GOAL_BAR_TEXT_COLOR
 	goal_bar.add_child(goal_bar_label)
-	set_goal_progress(0, 1)
+	set_goal_progress(0, GameRun.BASE_GOAL, 1, 0)
 
-## Zentriert den Balken auf das gegebene Display-Pixel.
+## Zentriert den Balken auf das Display-Pixel.
 func place_goal_bar(center_px: Vector2) -> void:
 	goal_bar.position = center_px - GOAL_BAR_SIZE / 2.0
 	_sync_reflection_windows()
@@ -470,10 +504,40 @@ func place_score_screen() -> void:
 	score_frame.visible = true
 	_sync_reflection_windows()
 
-func set_goal_progress(points: int, goal: int) -> void:
-	var fraction := clampf(float(points) / float(maxi(1, goal)), 0.0, 1.0)
-	goal_bar_fill.size.x = (GOAL_BAR_SIZE.x - GOAL_BAR_INSET * 2.0) * fraction
-	goal_bar_label.text = "%d / %d" % [points, goal]
+## Fortschritt innerhalb der aktuellen Überladungs-Stufe: Füllung, Beschriftung
+## (mit ×N ab Stufe 1), Lämpchen und - beim frischen Füllen einer Stufe - der
+## Rollover-Blitz. into_stage/stage_size = Punkte in der Stufe, cleared = gefüllte Stufen.
+func set_goal_progress(into_stage: int, stage_size: int, _stage: int, cleared: int) -> void:
+	var full_w := GOAL_BAR_SIZE.x - GOAL_BAR_INSET * 2.0
+	# Basis-Bahn: bei ≥1 gefüllter Stufe volle Breite in der Farbe der LETZTEN Stufe.
+	goal_bar_base.size.x = full_w if cleared >= 1 else 0.0
+	goal_bar_base.color = _stage_fill_color(cleared)
+	# Aktuelle Bahn: Fortschritt der laufenden Stufe in der NÄCHSTEN Farbe, darüber.
+	var fraction := clampf(float(into_stage) / float(maxi(1, stage_size)), 0.0, 1.0)
+	goal_bar_fill.size.x = full_w * fraction
+	goal_bar_fill.color = _stage_fill_color(mini(cleared + 1, GameRun.OVERCHARGE_STAGES))
+	if cleared >= 1:
+		goal_bar_label.text = "%d / %d  ⚡×%d" % [into_stage, stage_size, cleared]
+	else:
+		goal_bar_label.text = "%d / %d" % [into_stage, stage_size]
+	# Rollover: eine Stufe wurde frisch gefüllt -> Blitz + Stoßwelle.
+	if cleared > _goal_last_cleared:
+		_goal_rollover()
+	_goal_last_cleared = cleared
+
+## Füllfarbe der Stufe (1-basiert, gedeckelt); Stufe 0 = keine Füllung.
+func _stage_fill_color(stage: int) -> Color:
+	if stage <= 0:
+		return Color.TRANSPARENT
+	return GOAL_STAGE_FILL_COLORS[mini(stage, GameRun.OVERCHARGE_STAGES) - 1]
+
+## Rollover-Moment: Balken pocht kurz auf, Stoßwelle am Balkenzentrum.
+func _goal_rollover() -> void:
+	pulse_goal_bar()
+	var center := goal_bar.position + goal_bar.size / 2.0
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(2.2, 2.0, 1.3, 0.9), GOAL_BAR_SIZE.x * 0.7, 0.55)
 
 func pulse_goal_bar() -> void:
 	goal_bar.scale = Vector2(1.18, 1.18)
@@ -535,22 +599,41 @@ func pulse_pit_score() -> void:
 	base_counter.pop()
 	mult_counter.pop()
 
-## Verschmelzung: Basis- und Mult-Orb bogen beschleunigend zur Zielbalken-Mitte,
-## dann schlägt der Gesamt-Orb überheiß ein (Stoßwelle). clears_goal = Ziel
-## geknackt -> weiß-heißer Blitz.
-func merge_orbs(total: int, clears_goal: bool) -> void:
+## Verschmelzungs-Zeremonie (siehe MERGE_*-Konstanten): Aufladen -> Umkreisen
+## (beschleunigend) -> Hit-Stop -> Einschlag (überheiß, Stoßwelle) -> Halten.
+## Liefert die GESAMTDAUER, damit der Aufrufer exakt so lange wartet.
+func merge_orbs(total: int, clears_goal: bool) -> float:
 	var gc := goal_bar.position + goal_bar.size / 2.0
 	var base_target := gc - base_counter.size / 2.0
 	var mult_target := gc - mult_counter.size / 2.0
 	var base_start := base_counter.position
 	var mult_start := mult_counter.position
 	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)  # in den Einschlag beschleunigen
+	# 1) Aufladen: beide Orbs leuchten heller, schwellen an und zittern.
+	tween.tween_method(_apply_merge_charge, 0.0, 1.0, MERGE_CHARGE_TIME)
+	# 2) Umkreisen: hart eingeblendet -> sichtbar in den Einschlag beschleunigen.
 	tween.tween_method(func(p: float) -> void:
 		base_counter.position = _merge_arc(base_start, base_target, p, 1.0)
 		mult_counter.position = _merge_arc(mult_start, mult_target, p, -1.0),
-		0.0, 1.0, MERGE_ORBIT_TIME)
+		0.0, 1.0, MERGE_ORBIT_TIME).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_IN)
+	# 3) Hit-Stop: kurzer Freeze am Kontaktpunkt, dann 4) Einschlag.
+	tween.tween_interval(MERGE_HITSTOP)
 	tween.tween_callback(func() -> void: _slam_total(total, clears_goal))
+	# 5) Halten: das Produkt wirkt nach, bevor irgendetwas weiterläuft.
+	tween.tween_interval(MERGE_HOLD)
+	return MERGE_CHARGE_TIME + MERGE_ORBIT_TIME + MERGE_HITSTOP + MERGE_HOLD
+
+## Auflade-Takt: Basis/Mult heller (überhell -> bloomt), größer, mit feinem Zittern.
+func _apply_merge_charge(c: float) -> void:
+	var glow := 1.0 + 0.9 * c
+	base_counter.modulate = Color(glow, glow, glow)
+	mult_counter.modulate = Color(glow, glow, glow)
+	var s := 1.0 + 0.14 * c
+	base_counter.scale = Vector2(s, s)
+	mult_counter.scale = Vector2(s, s)
+	var tr := c * 7.0
+	base_counter.position = _base_home + Vector2(randf_range(-tr, tr), randf_range(-tr, tr))
+	mult_counter.position = _mult_home + Vector2(randf_range(-tr, tr), randf_range(-tr, tr))
 
 ## Bogen von a nach b: Grundfahrt plus seitlicher Ausschlag (sin), Seite je Orb.
 func _merge_arc(a: Vector2, b: Vector2, p: float, side: float) -> Vector2:
@@ -565,6 +648,11 @@ func _slam_total(total: int, clears_goal: bool) -> void:
 	mult_counter.visible = false
 	base_counter.position = _base_home
 	mult_counter.position = _mult_home
+	# Auflade-Effekte zurücksetzen (die Orbs werden nächste Runde wiederverwendet).
+	base_counter.modulate = Color.WHITE
+	mult_counter.modulate = Color.WHITE
+	base_counter.scale = Vector2.ONE
+	mult_counter.scale = Vector2.ONE
 	var gc := goal_bar.position + goal_bar.size / 2.0
 	total_orb.position = gc - total_orb.size / 2.0
 	total_orb.scale = Vector2.ONE
@@ -594,25 +682,29 @@ func reset_pit_score() -> void:
 	base_counter.set_value_silent(0)
 	mult_counter.set_value_silent(0)
 
-## Drain: der Gesamt-Orb schrumpft in den Balken, ein paar Funken strömen mit;
-## der Balken pocht beim Einschlag. Liefert den Tween (für await finished).
-func fly_total_to_goal(duration: float) -> Tween:
+## Drain-API (der Aufrufer treibt einen segmentierten Tween, damit der Balken 1:1
+## mitfüllt und an jeder Überladungs-Schwelle kurz innehält):
+## begin_total_drain streut die Funken über die Gesamtdauer, set_total_drain(f)
+## schrumpft/verblasst den Orb nach Fortschritt f (0..1), finish räumt auf.
+func begin_total_drain(duration: float) -> void:
 	var gc := goal_bar.position + goal_bar.size / 2.0
-	for i in DRAIN_SPARKS:
-		var delay := duration * float(i) / float(DRAIN_SPARKS)
+	var sparks := maxi(DRAIN_SPARKS, int(duration * 6.0))
+	for i in sparks:
+		var delay := duration * float(i) / float(sparks)
 		get_tree().create_timer(delay).timeout.connect(func() -> void:
-			_drain_spark(gc, duration * 0.5))
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.set_parallel(true)
-	tween.tween_property(total_orb, "scale", Vector2(0.25, 0.25), duration)
-	tween.tween_property(total_orb, "modulate:a", 0.0, duration)
-	tween.chain().tween_callback(func() -> void:
-		total_orb.scale = Vector2.ONE
-		total_orb.modulate = Color.WHITE
-		reset_pit_score()
-		pulse_goal_bar())
-	return tween
+			_drain_spark(gc, 0.35))
+
+func set_total_drain(f: float) -> void:
+	var t := clampf(f, 0.0, 1.0)
+	var s := lerpf(1.0, 0.25, t)
+	total_orb.scale = Vector2(s, s)
+	total_orb.modulate.a = 1.0 - t
+
+func finish_total_drain() -> void:
+	total_orb.scale = Vector2.ONE
+	total_orb.modulate = Color.WHITE
+	reset_pit_score()
+	pulse_goal_bar()
 
 ## Ein kurzer Funke vom schrumpfenden Orb in den Balken (kleiner Radialversatz).
 func _drain_spark(center_px: Vector2, travel: float) -> void:
@@ -725,7 +817,8 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 
 ## EINE Licht-Geschwindigkeit für alle Zähl-Kometen (px/s im SUPERSAMPLE-Raum):
 ## die Dauer folgt der Pfadlänge, so überholt kein Komet auf gleicher Leiste.
-const SCORE_PULSE_SPEED := 1400.0 * SUPERSAMPLE
+## Schnell genug, dass die ankunfts-getaktete Sequenz nicht zäh wird.
+const SCORE_PULSE_SPEED := 2400.0 * SUPERSAMPLE
 const SCORE_PULSE_CORE := 4.0 * SUPERSAMPLE
 const SCORE_PULSE_GLOW := 12.0 * SUPERSAMPLE
 const SCORE_COMET := 90.0 * SUPERSAMPLE  # Kometen-Fensterlänge
@@ -1085,10 +1178,12 @@ func flash_cluster_frame(color: Color) -> void:
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func _build_pit_actions() -> void:
+	var row_width := PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP
 	pit_actions_root = Control.new()
 	pit_actions_root.name = "PitActions"
 	pit_actions_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pit_actions_root.size = Vector2(PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP, PIT_ACTION_SIZE.y)
+	# Zweite Reihe für den Bank-Knopf (Runde vorzeitig beenden).
+	pit_actions_root.size = Vector2(row_width, PIT_ACTION_SIZE.y * 2.0 + PIT_ACTION_GAP)
 	add_child(pit_actions_root)
 
 	take_action_button = _make_pit_button("Nehmen", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
@@ -1098,6 +1193,14 @@ func _build_pit_actions() -> void:
 	roll_action_button = _make_pit_button("Würfeln", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK)
 	roll_action_button.position = Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.add_child(roll_action_button)
+
+	# Bank-Knopf: über volle Breite unter den beiden, erscheint erst ab Stufe 1.
+	bank_action_button = _make_pit_button("Runde beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
+	bank_action_button.size = Vector2(row_width, PIT_ACTION_SIZE.y)
+	bank_action_button.custom_minimum_size = bank_action_button.size
+	bank_action_button.position = Vector2(0.0, PIT_ACTION_SIZE.y + PIT_ACTION_GAP)
+	bank_action_button.visible = false
+	pit_actions_root.add_child(bank_action_button)
 
 ## Neon-Button im Casino-Look mit supersampled-skalierten Rändern/Radien
 ## (CasinoStyle rechnet in Fenster-Pixeln - 3px wären hier fast unsichtbar).
@@ -1133,11 +1236,12 @@ func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 2) * SUPERSAMPLE
 	return box
 
-## Setzt die Aktions-Buttons mittig auf center_px.
+## Setzt die Aktions-Buttons so, dass die OBERE Reihe (Nehmen/Würfeln) mittig auf
+## center_px sitzt; der Bank-Knopf hängt darunter, ohne die Hauptreihe zu verschieben.
 func place_pit_actions(center_px: Vector2) -> void:
 	if pit_actions_root == null:
 		return
-	pit_actions_root.position = center_px - pit_actions_root.size / 2.0
+	pit_actions_root.position = center_px - Vector2(pit_actions_root.size.x / 2.0, PIT_ACTION_SIZE.y / 2.0)
 
 ## Bildschirm-Rechteck der Aktions-Buttons (für die Maus-Weiterleitung).
 func pit_actions_rect() -> Rect2:

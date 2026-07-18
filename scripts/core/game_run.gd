@@ -14,6 +14,11 @@ const POOL_SIZE := 30
 const BASE_GOAL := 150
 const GOAL_INCREMENT := 50
 
+## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
+## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
+## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter.
+const OVERCHARGE_STAGES := 5
+
 var money: int = 0:
 	set(value):
 		money = value
@@ -244,6 +249,45 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 func advance_round() -> void:
 	round_number += 1
 	round_goal += GOAL_INCREMENT
+
+## --- Überladung (Overcharge) --------------------------------------------------
+
+## Punktebedarf der Stufe (1-basiert): Basisziel × 2^(stufe-1) → 150, 300, 600 …
+func stage_size(stage: int) -> int:
+	return round_goal * (1 << (stage - 1))
+
+## Kumulative Punktschwelle zum ABSCHLUSS der Stufe: Basisziel × (2^stufe - 1)
+## → 150, 450, 1050, 2250, 4650.
+func cumulative_threshold(stage: int) -> int:
+	return round_goal * ((1 << stage) - 1)
+
+## Anzahl vollständig gefüllter Überladungs-Stufen bei points (0..OVERCHARGE_STAGES).
+func stages_cleared(points: int) -> int:
+	var cleared := 0
+	while cleared < OVERCHARGE_STAGES and points >= cumulative_threshold(cleared + 1):
+		cleared += 1
+	return cleared
+
+## Kumulative Stufen-Schwellen, die im Intervall (old_points, new_points] liegen
+## - die Rollover-Punkte, an denen der Drain kurz innehält.
+func thresholds_crossed(old_points: int, new_points: int) -> Array[int]:
+	var crossed: Array[int] = []
+	for stage in range(1, OVERCHARGE_STAGES + 1):
+		var t := cumulative_threshold(stage)
+		if t > old_points and t <= new_points:
+			crossed.append(t)
+	return crossed
+
+## Balken-Fortschritt bei points: aktuelle Stufe (1-basiert), gefüllte Stufen,
+## Punkte IN der aktuellen Stufe und deren Größe. Alles geräumt -> letzte Stufe voll.
+func stage_progress(points: int) -> Dictionary:
+	var cleared := stages_cleared(points)
+	if cleared >= OVERCHARGE_STAGES:
+		var full := stage_size(OVERCHARGE_STAGES)
+		return {"stage": OVERCHARGE_STAGES, "cleared": cleared, "into_stage": full, "stage_size": full}
+	var current := cleared + 1
+	return {"stage": current, "cleared": cleared,
+		"into_stage": points - cumulative_threshold(cleared), "stage_size": stage_size(current)}
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 

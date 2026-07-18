@@ -18,7 +18,7 @@ extends Node3D
 
 const HAND_SIZE := 6
 
-const MONEY_PER_ROUND_CLEAR := 10  # einmalig beim Rundenziel-Erreichen
+const MONEY_PER_ROUND_CLEAR := 5  # je gefüllter Überladungs-Stufe (× Stufen)
 const MONEY_PER_UNUSED_DIE := 1  # je noch nicht gezogenem Würfel im Rundenpool
 
 ## Auszahlungs-Animation der Rundenbonus-Zeilen im Hub.
@@ -64,16 +64,20 @@ const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
 const SCORE_ROW_SPACING := 2.9
 const SCORE_HOVER_HEIGHT := 0.0  # 0 = die Würfel liegen beim Zählen auf dem Tisch
 const SCORE_LIFT_TIME := 0.5
-const SCORE_STEP_TIME := 0.45
-const SCORE_SUBSTEP_TIME := 0.25
-const SCORE_MERGE_TIME := 0.75
-const SCORE_FLY_TIME := 0.55
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Glow-Kantenlänge als Vielfaches der Würfelgröße
 const SCORE_TRAIL_TIME := 0.3
-## Takt zwischen zwei Zähl-Schritten: kürzer als die Kometen-Laufzeit, damit
-## mehrere Kometen zugleich über die Leisten strömen (die Zahl springt bei
-## Ankunft, nicht beim Start).
-const SCORE_LAUNCH_GAP := 0.22
+## Rhythmus: jeder Schritt wartet die ANKUNFT seines Kometen ab (Ursache→Wirkung
+## sichtbar geschlossen), dann eine sich verkürzende Pause (Accelerando) - erste
+## Würfel wirken bedacht, lange Hände ziehen sich zu einem Trommelwirbel zusammen.
+const SCORE_STEP_GAP_START := 0.32
+const SCORE_STEP_GAP_DECAY := 0.85
+const SCORE_STEP_GAP_MIN := 0.1
+## Drain: Grunddauer + je Überladungs-Rollover; jeder Rollover hält kurz inne.
+const DRAIN_BASE_TIME := 0.8
+const DRAIN_PER_ROLLOVER := 0.4
+const DRAIN_MAX_TIME := 2.5
+const DRAIN_HOLD := 0.15
+const DRAIN_SEGMENT_MIN := 0.25
 
 ## Streamende Zähl-Animation: Schritt-Index (seq) des nächsten Kometen, höchster
 ## bereits angewandter Index (hält die Anzeige monoton bei Ankunft in anderer
@@ -81,6 +85,7 @@ const SCORE_LAUNCH_GAP := 0.22
 var _score_seq := 0
 var _score_applied := -1
 var _score_pending := 0
+var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurückgesetzt)
 
 ## Weltabstand der Aktions-Buttons unter die Grubenmitte Richtung
 ## Bildschirm-unten (Welt -X) - unten mittig, innerhalb des Randes.
@@ -414,6 +419,7 @@ func _setup_table_screen() -> void:
 	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
+	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 
 	# Nebenwetten-Fenster rechts vom Becher, in den Maßen des Kombi-Fensters;
 	# Unterkante bündig mit Grube und Kombinationen-Fenster.
@@ -1408,6 +1414,12 @@ func _sync_screen_action_buttons() -> void:
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
 	table_screen.take_action_button.disabled = not interactable or _scoring_slots().is_empty()
 	table_screen.roll_action_button.disabled = not (phase == Phase.IDLE and _remaining_in_pool() > 0)
+	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
+	var stages := run.stages_cleared(hand_total) if run != null else 0
+	var can_bank := phase == Phase.IDLE and stages >= 1
+	table_screen.bank_action_button.visible = can_bank
+	if can_bank:
+		table_screen.bank_action_button.text = "Runde beenden  ⚡×%d" % stages
 
 ## Zeigt die Auswahl als goldenes Leucht-Podest unter jedem ausgewählten
 ## Würfel; folgt den Würfeln jeden Frame, nur in der Auswahlphase sichtbar.
@@ -1992,7 +2004,7 @@ func _on_farkle() -> void:
 		for kind in active_kinds:
 			_discard_kind(kind)
 
-	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
+	if _round_should_end():
 		_on_round_complete()
 	else:
 		# Überlebter Farkle: Kristallkugel zahlt.
@@ -2076,7 +2088,7 @@ func _on_take_button_pressed() -> void:
 	for kind in active_kinds:
 		_discard_kind(kind)
 
-	if hand_total >= run.round_goal or _remaining_in_pool() < HAND_SIZE:
+	if _round_should_end():
 		_on_round_complete()
 	else:
 		_start_new_hand()
@@ -2090,6 +2102,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	_score_seq = 0
 	_score_applied = -1
 	_score_pending = 0
+	_score_gap = SCORE_STEP_GAP_START
 	_cancel_lineup()
 
 	# 1) Schwebende Reihe: zählende Würfel zuerst, unbeteiligte rechts daneben.
@@ -2137,16 +2150,17 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	var key: String = breakdown["key"]
 	var combo_base: int = breakdown["combo"]["base_add"]
 	var combo_mult: int = breakdown["combo"]["mult_add"]
+	var combo_travel := 0.0
 	if combo_labels.has(key):
 		_tween_combo_label(combo_labels[key], PAYOUT_LABEL_GLOW_COLOR, 1.3)
 		var cell: Control = combo_labels[key]
 		var cell_px: Vector2 = cell.position + cell.size / 2.0
 		_spawn_score_gains(cell_px, combo_base, combo_mult)
-		_fire_score_light(cell_px, "combos", ["base", "mult"],
+		combo_travel = _fire_score_light(cell_px, "combos", ["base", "mult"],
 			func() -> void: table_screen.update_pit_score(combo_base, combo_mult))
 	else:
 		table_screen.update_pit_score(combo_base, combo_mult)
-	if not await _score_cadence():
+	if not await _score_arrival_gap(combo_travel):
 		return
 
 	# 3) Würfel-Schritte links nach rechts: Augen (Basis) und Material (Basis/Mult)
@@ -2165,14 +2179,15 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			gain_px = glow.position + glow.size / 2.0
 		var base_after_eye: int = step["base_after_eye"]
 		var mult_before_material: int = step["mult_after"] - step["mat_mult_add"]
+		var step_travel := 0.0
 		# Augenwert-Charms: eigener Komet vom Dock-Pad in die Basis (gleicher Zielwert).
 		for charm_index: int in step["eye_charm_indices"]:
 			_flash_charm_and_pad(charm_index)
-			_fire_score_light(table_screen.charm_dock.pad_center(charm_index), "charm", ["base"],
-				func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material))
+			step_travel = maxf(step_travel, _fire_score_light(table_screen.charm_dock.pad_center(charm_index), "charm", ["base"],
+				func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material)))
 		_spawn_score_gains(gain_px, step["eye_add"], 0)
-		_fire_score_light(die_px, "pit", ["base"],
-			func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material))
+		step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", ["base"],
+			func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material)))
 		# Material-Zuwachs als eigener Puls (Basis und/oder Mult).
 		var mat_base: int = step["mat_base_add"]
 		var mat_mult: int = step["mat_mult_add"]
@@ -2185,10 +2200,13 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			if mat_mult != 0:
 				mtargets.append("mult")
 			_spawn_score_gains(gain_px, mat_base, mat_mult)
-			_fire_score_light(die_px, "pit", mtargets,
-				func() -> void: table_screen.update_pit_score(base_after, mult_after))
-		if not await _score_cadence():
+			step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", mtargets,
+				func() -> void: table_screen.update_pit_score(base_after, mult_after)))
+		if not await _score_arrival_gap(step_travel):
 			return
+		# Ursache→Wirkung geschlossen: das Podest dimmt bei Ankunft.
+		if glow_by_slot.has(slot):
+			_dim_glow(glow_by_slot[slot])
 
 	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): je Komet vom Dock-Pad in
 	# die betroffene Zahl.
@@ -2204,18 +2222,22 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		var cbase: int = step["base_after"]
 		var cmult: int = step["mult_after"]
 		_spawn_score_gains(source_px, step["base_add"], step["mult_add"], step["base_x"], step["mult_x"])
+		var charm_travel := 0.0
 		if not ctargets.is_empty():
-			_fire_score_light(source_px, "charm", ctargets,
+			charm_travel = _fire_score_light(source_px, "charm", ctargets,
 				func() -> void: table_screen.update_pit_score(cbase, cmult))
-		if not await _score_cadence():
+		if not await _score_arrival_gap(charm_travel):
 			return
 
 	# 5) Auf alle fliegenden Kometen warten, dann zu Basis × Mult verschmelzen.
 	if not await _wait_score_comets():
 		return
-	var clears_goal := new_total >= run.round_goal
-	table_screen.merge_orbs(breakdown["merge_total"], clears_goal)
-	if not await _score_step_wait(SCORE_MERGE_TIME):
+	# Überheiß, wenn diese Hand eine neue Überladungs-Stufe knackt.
+	var clears_goal := run.stages_cleared(new_total) > run.stages_cleared(hand_total)
+	# Verschmelzungs-Zeremonie (Aufladen→Umkreisen→Hit-Stop→Einschlag→Halten):
+	# genau ihre Gesamtdauer abwarten, dann weiter.
+	var merge_dur := table_screen.merge_orbs(breakdown["merge_total"], clears_goal)
+	if not await _score_step_wait(merge_dur):
 		return
 
 	# 6) Nach-Schritte arbeiten auf der Gesamtzahl - Kometen vom Dock in die Summe.
@@ -2225,24 +2247,56 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		var post_source := _charm_trail_source_px(step["charm_indices"])
 		var total_after: int = step["total_after"]
 		_spawn_total_gain(post_source, step["total_add"], step["total_x"])
-		_fire_score_light(post_source, "charm", ["total"],
+		var post_travel := _fire_score_light(post_source, "charm", ["total"],
 			func() -> void: table_screen.update_pit_total(total_after, clears_goal))
-		if not await _score_cadence():
+		if not await _score_arrival_gap(post_travel):
 			return
 	if not await _wait_score_comets():
 		return
 
-	# 7) Die Gesamtzahl fliegt in den Zielbalken, der Punktestand zählt synchron hoch.
-	var fly := table_screen.fly_total_to_goal(SCORE_FLY_TIME)
-	_animate_points_to(new_total)
-	await fly.finished
+	# 7) Drain: der Gesamt-Orb schrumpft in den Balken, der Balken füllt 1:1 mit -
+	# an jeder Überladungs-Schwelle hält beides kurz inne (magnitude-abhängig).
+	await _drain_total_to_goal(displayed_points, new_total)
 	_cleanup_take_animation()
+
+## Segmentierter Drain aus from_points auf to_points: Orb-Schrumpfen und
+## Balken-Füllung laufen 1:1 parallel, mit Mikro-Halt an jeder Überladungs-Schwelle.
+func _drain_total_to_goal(from_points: int, to_points: int) -> void:
+	if points_tween:
+		points_tween.kill()
+	var thresholds := run.thresholds_crossed(from_points, to_points)
+	var duration := minf(DRAIN_BASE_TIME + DRAIN_PER_ROLLOVER * float(thresholds.size()), DRAIN_MAX_TIME)
+	var span := maxi(1, to_points - from_points)
+	var bounds: Array[int] = [from_points]
+	bounds.append_array(thresholds)
+	bounds.append(to_points)
+	table_screen.begin_total_drain(duration)
+	var drain := create_tween()
+	var done := 0
+	for i in range(bounds.size() - 1):
+		var seg_from: int = bounds[i]
+		var seg_to: int = bounds[i + 1]
+		var seg_span := seg_to - seg_from
+		var seg_dur := maxf(DRAIN_SEGMENT_MIN, duration * float(seg_span) / float(span))
+		var frac_from := float(done) / float(span)
+		done += seg_span
+		var frac_to := float(done) / float(span)
+		drain.tween_method(func(t: float) -> void:
+			_set_displayed_points(int(round(lerpf(float(seg_from), float(seg_to), t))))
+			table_screen.set_total_drain(lerpf(frac_from, frac_to, t)),
+			0.0, 1.0, seg_dur)
+		if i < bounds.size() - 2:  # an jeder Schwelle (nicht am Ende) kurz halten
+			drain.tween_interval(DRAIN_HOLD)
+	drain.tween_callback(table_screen.finish_total_drain)
+	await drain.finished
 
 ## Feuert die Zähl-Kometen eines Schritts (Quelle -> Score-Leiste -> Zähler) und
 ## plant apply auf ihre ANKUNFT. Absolutwerte + Schritt-Index (seq) halten die
 ## Anzeige monoton: ein später gestarteter Schritt darf einen früheren nie
 ## zurücksetzen, auch wenn Kometen verschiedener Leisten anders lange brauchen.
-func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: Callable) -> void:
+## Feuert die Kometen und liefert ihre (längste) Laufzeit - der Aufrufer taktet
+## den nächsten Schritt auf die ANKUNFT (siehe _score_arrival_gap).
+func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: Callable) -> float:
 	var seq := _score_seq
 	_score_seq += 1
 	_score_pending += 1
@@ -2256,13 +2310,16 @@ func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: 
 		if seq > _score_applied:
 			_score_applied = seq
 			apply.call())
+	return travel
 
-## Takt zwischen zwei Zähl-Schritten (die Kometen strömen weiter); false = Abbruch.
-func _score_cadence() -> bool:
-	await get_tree().create_timer(SCORE_LAUNCH_GAP).timeout
-	if phase != Phase.SCORING:
-		_cleanup_take_animation()
+## Wartet die ANKUNFT der Kometen dieses Schritts ab (travel) und danach die
+## Accelerando-Pause; false = Abbruch (Reset).
+func _score_arrival_gap(travel: float) -> bool:
+	if not await _score_step_wait(maxf(travel, 0.05)):
 		return false
+	if not await _score_step_wait(_score_gap):
+		return false
+	_score_gap = maxf(SCORE_STEP_GAP_MIN, _score_gap * SCORE_STEP_GAP_DECAY)
 	return true
 
 ## Wartet, bis alle Zähl-Kometen angekommen sind (Verschmelzungs-Gate); false = Abbruch.
@@ -2341,6 +2398,11 @@ func _pulse_glow(glow: Control) -> void:
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(glow, "scale", Vector2.ONE, 0.3)
+
+## Dimmt das Podest eines Würfels bei Ankunft seines Kometen (Ursache→Wirkung).
+func _dim_glow(glow: Control) -> void:
+	var tween := create_tween()
+	tween.tween_property(glow, "modulate:a", 0.3, 0.2)
 
 ## Markiert nach jedem Wurf automatisch die Würfel der besten offenen
 ## Kombination - ein Vorschlag, den der Spieler frei umklicken kann.
@@ -2528,23 +2590,37 @@ func _start_new_hand() -> void:
 	_refresh_deck_trays()
 	_refresh_ui()
 
-## Rundenende: bei erreichtem Ziel MONEY_PER_ROUND_CLEAR plus je ungezogenem
-## Würfel MONEY_PER_UNUSED_DIE (frühes Erreichen lohnt). Die Auszahlung läuft
-## als Tisch-Animation, bevor der Shop aufgeht; die Phase springt schon auf
-## PAYOUT, damit derweil nichts anklickbar bleibt.
+## Bank-Knopf: Runde bei ≥1 gefüllter Überladungs-Stufe vorzeitig kassieren.
+func _on_bank_button_pressed() -> void:
+	if phase != Phase.IDLE or run.stages_cleared(hand_total) < 1:
+		return
+	_on_round_complete()
+
+## Runde endet automatisch nur bei voller Überladung oder erschöpftem Pool;
+## nach der ersten gefüllten Stufe kann der Spieler per Bank-Knopf früher beenden.
+func _round_should_end() -> bool:
+	return run.stages_cleared(hand_total) >= GameRun.OVERCHARGE_STAGES \
+		or _remaining_in_pool() < HAND_SIZE
+
+## Rundenende: je gefüllter Überladungs-Stufe MONEY_PER_ROUND_CLEAR (× Stufen)
+## plus je ungezogenem Würfel MONEY_PER_UNUSED_DIE. Die Auszahlung läuft als
+## Tisch-Animation, bevor der Shop aufgeht; die Phase springt schon auf PAYOUT,
+## damit derweil nichts anklickbar bleibt.
 func _on_round_complete() -> void:
-	if hand_total >= run.round_goal:
+	var stages := run.stages_cleared(hand_total)
+	if stages >= 1:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
-		# Glücksgroschen skaliert mit bereits erreichten Zielen.
-		var blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids, run.round_number - 1)
+		# Glücksgroschen skaliert mit bereits erreichten Zielen; ×Überladungsstufen.
+		var base_blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids, run.round_number - 1)
+		var blind := base_blind * stages
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		# Ausziehtisch: Ziel doppelt übertroffen -> Warteschlange wächst dauerhaft.
 		if ids.has(Charm.EXTENSION_TABLE) and hand_total >= run.round_goal * 2:
 			run.queue_bonus_slots += 1
-		await _play_round_clear_payout(blind, per_die)
+		await _play_round_clear_payout(blind, per_die, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Zinsgroschen (auf den Stand NACH der Auszahlung) und Überflieger,
@@ -2661,13 +2737,17 @@ func _refresh_side_bet_panel() -> void:
 ## Lässt die Rundenbonus-Zeilen im Hub nacheinander golden aufleuchten,
 ## synchron zur tatsächlichen Gutschrift; die übrigen Tray-Würfel blitzen im
 ## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen).
-func _play_round_clear_payout(blind: int, per_die: int) -> void:
+func _play_round_clear_payout(blind: int, per_die: int, stages: int) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
 	var hub := table_screen.hub
+	# Blind-Zeile zeigt die Überladungs-Stufen (×N), sonst schlicht der Betrag.
+	if hub != null and hub.blind_payout_label != null:
+		hub.blind_payout_label.text = ("%d$  (Überladung ×%d)" % [blind, stages]) if stages > 1 \
+			else "%d$ pro Blind" % blind
 	await _light_up_payout_label(hub.blind_payout_label if hub != null else null)
 	run.add_money(blind)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
@@ -2830,7 +2910,7 @@ func _refresh_ui() -> void:
 ## Statische Teile der Runden-Anzeige; der Punktestand läuft separat animiert
 ## über _animate_points_to. Harmlos bei Mehrfachaufruf ohne Änderung.
 func _refresh_round_hud() -> void:
-	table_screen.set_goal_progress(displayed_points, run.round_goal)
+	_sync_goal_bar(displayed_points)
 	_refresh_hub_info()
 
 ## Zählt den Punktestand sichtbar zu target hoch (Balatro-artig) statt zu
@@ -2847,4 +2927,10 @@ func _animate_points_to(target: int, animate: bool = true) -> void:
 
 func _set_displayed_points(value: int) -> void:
 	displayed_points = value
-	table_screen.set_goal_progress(value, run.round_goal)
+	_sync_goal_bar(value)
+
+## Übergibt den Balken den Überladungs-Fortschritt bei points (Stufe, Punkte in
+## der Stufe, Stufengröße, gefüllte Stufen).
+func _sync_goal_bar(points: int) -> void:
+	var p := run.stage_progress(points)
+	table_screen.set_goal_progress(p["into_stage"], p["stage_size"], p["stage"], p["cleared"])
