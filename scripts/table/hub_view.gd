@@ -561,7 +561,9 @@ func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
 	station.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
 	if current:
-		box.bg_color = Color(tier.r, tier.g, tier.b, 0.22)
+		# Dunkle Nabe: die helle Zahl bleibt lesbar, auch unter der überhellen
+		# High-Roller-Krone. Die Stufenfarbe trägt der Ring + Glow, nicht die Füllung.
+		box.bg_color = Color(0.10, 0.09, 0.22, 0.94)
 		box.border_color = tier
 		box.set_border_width_all(maxi(2, int(u * 0.4)))
 		box.shadow_color = Color(tier.r, tier.g, tier.b, 0.35)
