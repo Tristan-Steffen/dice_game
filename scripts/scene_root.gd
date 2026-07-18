@@ -779,6 +779,8 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money)
+	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position.
+	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6))
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 

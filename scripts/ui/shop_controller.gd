@@ -12,19 +12,10 @@ signal closed
 
 const CHARM_PRICE := 15
 
-## Oberer Bereich: vier Charms je Doppelseite (nur Symbol, Beschreibung erst im
-## Hover-Dropdown).
-const CHARM_OFFER_COUNT := 4
-
-## Unterer Bereich: zwei Reihen à vier Angeboten (Würfel-Bündel, Sigille,
-## Übertaktungen).
-const BOTTOM_SLOT_COUNT := 8
-const BOTTOM_GRID_COLUMNS := 4
-
-## Aufteilung der acht Plätze: Würfel-Bündel, Übertaktungen, Rest Sigille.
-const DICE_OFFER_COUNT := 3
-const OVERCLOCK_OFFER_COUNT := 2
-const SIGIL_OFFER_COUNT := BOTTOM_SLOT_COUNT - DICE_OFFER_COUNT - OVERCLOCK_OFFER_COUNT
+## Der Laden ist ELASTISCH: Anzahl der Plätze je Rubrik liefert GameRun (SHOP_*_SLOTS),
+## die Kartengröße skaliert gegenläufig - wenige, große Angebote am Anfang, viele
+## kleine später. Drei Rubriken/Segmente: Vitrine (Würfel) links, Charm-Regal +
+## Chip-Schale (Sigille + Übertaktungen) rechts.
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
@@ -108,6 +99,12 @@ var overclock_bought: Array[bool] = []
 var overclock_buttons: Array[Button] = []
 
 var flip_tween: Tween
+
+## Nach einem Hub-Aufstieg mitten im Shop: ab diesem Index je Rubrik flackern die
+## NEUEN Karten wie eine zündende Neonröhre auf (-1 = kein Flackern).
+var _flicker_charm_from: int = -1
+var _flicker_dice_from: int = -1
+var _flicker_chip_from: int = -1
 
 ## Einmalige Meldung, die beim nächsten Öffnen oben erscheint (Nebenwetten-
 ## Ergebnis der geräumten Runde); von scene_root vor open() gesetzt.
@@ -262,8 +259,13 @@ func _refresh_hub_footer() -> void:
 func refresh_after_hub_upgrade() -> void:
 	if not visible or run == null:
 		return
-	# Aktuelle Seite neu auswürfeln, damit die zusätzlichen Plätze erscheinen.
+	# Aktuelle Seite neu auswürfeln, damit die zusätzlichen Plätze erscheinen; die
+	# alten Platzzahlen merken, damit nur die NEUEN Karten aufflackern.
 	if not spreads.is_empty():
+		var old := spreads[current_spread_index]
+		_flicker_charm_from = old.charm_options.size()
+		_flicker_dice_from = old.dice_offers.size()
+		_flicker_chip_from = old.sigil_offers.size() + old.overclock_offers.size()
 		spreads[current_spread_index] = _build_spread()
 	_refresh_hub_footer()
 	_show_spread()
@@ -388,8 +390,9 @@ func _clear_pages() -> void:
 	sigil_button_prices.clear()
 	overclock_buttons.clear()
 
-## Baut die zwei Zonen: oben die vier Charms (nur Symbol), unten das 2×4-Raster
-## aus Würfel-Bündeln und Sigillen.
+## Baut die drei Segmente: links die Vitrine (Würfel-Bündel, senkrecht gestapelt),
+## rechts das Charm-Regal über der Chip-Schale (Sigille + Übertaktungen). Alle
+## Rubriken FÜLLEN ihre Fläche - bei wenigen Plätzen werden die Karten groß.
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
 		child.queue_free()
@@ -399,55 +402,168 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	sigil_button_prices.clear()
 	overclock_buttons.clear()
 
-	# Zone 1: Charms auf eigenem Glas-Panel (nur Symbol; Beschreibung im Hover-Dropdown).
-	var charm_zone := _make_zone(NEON_MAGENTA, "CHARMS", "je $%d" % _charm_price())
-	var charm_row := GridContainer.new()
-	charm_row.columns = CHARM_OFFER_COUNT
-	charm_row.add_theme_constant_override("h_separation", int(u * 1.5))
-	charm_row.add_theme_constant_override("v_separation", int(u * 1.0))
-	charm_zone.add_child(charm_row)
-	for i in spread.charm_options.size():
-		charm_row.add_child(_build_charm_card(spread.charm_options[i], i))
+	var main_row := HBoxContainer.new()
+	main_row.add_theme_constant_override("separation", int(u * 1.6))
+	main_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content_root.add_child(main_row)
 
-	# Zone 2: Angebote - zwei Reihen à vier (Würfel-Bündel zuerst, dann Sigille).
-	var offer_zone := _make_zone(NEON_CYAN, "ANGEBOTE", "", true)
-	var options := GridContainer.new()
-	options.columns = BOTTOM_GRID_COLUMNS
-	options.add_theme_constant_override("h_separation", int(u * 1.2))
-	options.add_theme_constant_override("v_separation", int(u * 1.2))
-	options.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	offer_zone.add_child(options)
+	# Segment 1: Vitrine (Würfel-Bündel) - eigene Spalte links, senkrecht gestapelt.
+	var vitrine := _make_zone(main_row, NEON_CYAN, "VITRINE", "", true, 0.34)
+	var dice_col := VBoxContainer.new()
+	dice_col.add_theme_constant_override("separation", int(u * 1.2))
+	dice_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dice_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitrine.add_child(dice_col)
+	var die_px := _die_px(spread.dice_offers.size())
 	for i in spread.dice_offers.size():
-		options.add_child(_build_offer_card(spread.dice_offers[i], i))
-	for i in spread.sigil_offers.size():
-		options.add_child(_build_sigil_card(spread.sigil_offers[i], i))
-	for i in spread.overclock_offers.size():
-		options.add_child(_build_overclock_card(spread.overclock_offers[i], i))
+		var dcard := _build_offer_card(spread.dice_offers[i], i, die_px)
+		dcard.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		dice_col.add_child(dcard)
+		_maybe_flicker(dcard, i, _flicker_dice_from)
 
-## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum und weichem Außen-Glow,
-## darin die Kopfzeile (Raute + Titel + Lichtschiene + rechter Hinweis).
-## Liefert die Inhalts-Spalte der Zone.
-func _make_zone(accent: Color, heading: String, right_hint: String, expand := false) -> VBoxContainer:
+	# Rechte Spalte: Charm-Regal (natürliche Höhe) über der Chip-Schale (füllt Rest).
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", int(u * 1.4))
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.size_flags_stretch_ratio = 0.66
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	main_row.add_child(right)
+
+	# Segment 2: Charm-Regal - eine Reihe dehnbarer Karten (nur Symbol; Rest im Hover).
+	var charm_zone := _make_zone(right, NEON_MAGENTA, "CHARM-REGAL", "je $%d" % _charm_price())
+	var charm_row := HBoxContainer.new()
+	charm_row.add_theme_constant_override("separation", int(u * 1.4))
+	charm_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	charm_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	charm_zone.add_child(charm_row)
+	var cm := _charm_metrics(spread.charm_options.size())
+	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
+	for i in spread.charm_options.size():
+		var podest := i == podest_index
+		var ccard := _build_charm_card(spread.charm_options[i], i, cm.x, int(cm.y), podest)
+		charm_row.add_child(ccard)
+		_maybe_flicker(ccard, i, _flicker_charm_from)
+
+	# Segment 3: Chip-Schale - runde Casino-Chips (Sigille + Übertaktungen gemischt),
+	# als Tablett umbrechend und in der Schale zentriert (schwebende Chips statt
+	# oben klebend). Füllt die restliche Höhe der rechten Spalte.
+	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "", true)
+	chip_zone.add_child(_v_spacer())
+	var tray := HFlowContainer.new()
+	tray.add_theme_constant_override("h_separation", int(u * 1.2))
+	tray.add_theme_constant_override("v_separation", int(u * 1.2))
+	tray.alignment = FlowContainer.ALIGNMENT_CENTER
+	tray.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip_zone.add_child(tray)
+	var dia := _chip_dia(spread.sigil_offers.size() + spread.overclock_offers.size())
+	var chip_i := 0
+	for i in spread.sigil_offers.size():
+		var scard := _build_sigil_chip(spread.sigil_offers[i], i, dia)
+		tray.add_child(scard)
+		_maybe_flicker(scard, chip_i, _flicker_chip_from)
+		chip_i += 1
+	for i in spread.overclock_offers.size():
+		var ocard := _build_overclock_chip(spread.overclock_offers[i], i, dia)
+		tray.add_child(ocard)
+		_maybe_flicker(ocard, chip_i, _flicker_chip_from)
+		chip_i += 1
+	chip_zone.add_child(_v_spacer())
+
+	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
+	_flicker_charm_from = -1
+	_flicker_dice_from = -1
+	_flicker_chip_from = -1
+
+## Signaturfarbe der aktuellen Hub-Stufe (wie der Hub-Rahmen); der Laden trägt sie
+## dezent auf seinen Segment-Säumen, damit er zur Hub-Stufe passt.
+func _tier_color() -> Color:
+	if run == null:
+		return Color.WHITE
+	var last := HubView.HUB_TIER_COLORS.size() - 1
+	return HubView.HUB_TIER_COLORS[clampi(run.hub_level - 1, 0, last)]
+
+## Akzentfarbe leicht zur Stufenfarbe ziehen (Zusammenhalt ohne die Rubrik-Farbe
+## zu verfälschen).
+func _tinted(accent: Color) -> Color:
+	return accent.lerp(_tier_color(), 0.15)
+
+## Senkrechter Dehn-Platzhalter (zentriert die Chip-Schale in ihrer Fläche).
+func _v_spacer() -> Control:
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return spacer
+
+## Neonröhren-Zündung einer frisch freigeschalteten Karte (ab index >= from).
+func _maybe_flicker(card: Control, index: int, from: int) -> void:
+	if from < 0 or index < from:
+		return
+	card.modulate = Color(1, 1, 1, 0)
+	var tw := create_tween()
+	tw.tween_interval(0.05 * (index - from))
+	tw.tween_property(card, "modulate:a", 0.9, 0.04)
+	tw.tween_property(card, "modulate:a", 0.15, 0.05)
+	tw.tween_property(card, "modulate:a", 1.0, 0.14).set_trans(Tween.TRANS_SINE)
+
+# --- Elastische Maße (Karten wachsen, wenn es wenige Plätze gibt) ---------------
+
+## Charm-Karte: (Mindesthöhe, Modell-Kantenlänge) je nach Anzahl der Charms.
+func _charm_metrics(count: int) -> Vector2:
+	if count <= 2:
+		return Vector2(u * 21.0, u * 11.0)
+	if count == 3:
+		return Vector2(u * 16.5, u * 9.0)
+	if count == 4:
+		return Vector2(u * 14.0, u * 8.0)
+	return Vector2(u * 12.5, u * 7.0)
+
+## Würfel-Kantenlänge in der Vitrine je nach Anzahl der Bündel.
+func _die_px(count: int) -> int:
+	if count <= 1:
+		return int(u * 9.5)
+	if count == 2:
+		return int(u * 6.5)
+	return int(u * 5.0)
+
+## Chip-Durchmesser je nach Gesamtzahl der Chips (Sigille + Übertaktungen).
+func _chip_dia(count: int) -> float:
+	if count <= 4:
+		return u * 12.0
+	if count <= 7:
+		return u * 9.5
+	return u * 7.8
+
+## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum (dezent stufengetönt) und
+## weichem Außen-Glow, darin die Kopfzeile. Wird an parent gehängt; liefert die
+## Inhalts-Spalte. h_stretch > 0 setzt das waagerechte Dehnverhältnis (Segment-Split).
+func _make_zone(parent: Container, accent: Color, heading: String, right_hint: String,
+		v_expand := false, h_stretch := 0.0) -> VBoxContainer:
+	var seam := _tinted(accent)
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color("#14112eb0")
-	box.border_color = Color(accent.r, accent.g, accent.b, 0.32)
+	box.border_color = Color(seam.r, seam.g, seam.b, 0.32)
 	box.set_border_width_all(maxi(1, int(u * 0.16)))
 	box.set_corner_radius_all(int(u * 1.5))
 	box.set_content_margin_all(int(u * 1.6))
-	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.14)
+	box.shadow_color = Color(seam.r, seam.g, seam.b, 0.14)
 	box.shadow_size = int(u * 1.1)
 	panel.add_theme_stylebox_override("panel", box)
-	if expand:
+	if v_expand:
 		panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content_root.add_child(panel)
+	if h_stretch > 0.0:
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		panel.size_flags_stretch_ratio = h_stretch
+	parent.add_child(panel)
 
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", int(u * 1.2))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(column)
-	column.add_child(_heading_row(heading, accent, right_hint))
+	column.add_child(_heading_row(heading, seam, right_hint))
 	return column
 
 ## Zonen-Kopf: Akzent-Raute, gesperrter Titel, auslaufende Lichtschiene,
@@ -511,16 +627,21 @@ func _glow_disc(tint: Color, side: float) -> TextureRect:
 	return disc
 
 ## Charm-Karte: nur das Symbol + Preis; Name und Wirkung zeigt der Hover-Dropdown.
-## Rahmen und Lichtfleck tragen die Charm-Rarität (weiß/grün/blau/violett).
-func _build_charm_card(charm: Charm, index: int) -> Control:
+## Rahmen und Lichtfleck tragen die Charm-Rarität (weiß/grün/blau/violett). card_h
+## und thumb_px kommen elastisch aus _charm_metrics; podest = garantierter
+## Premium-Charm (Rarität freigeschaltet): größer, stärkerer Lichtfleck, dickerer Saum.
+func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, podest := false) -> Control:
 	var owned := charm_bought[index] or run.owned_charm_ids().has(charm.id)
 	var tint := charm.rarity_color()
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.custom_minimum_size = Vector2(0, u * 13.0)
+	card.custom_minimum_size = Vector2(0, card_h * (1.12 if podest else 1.0))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_theme_stylebox_override("normal", _charm_card_box(Color("#1d1840cc"), tint, 0.65, 0.22))
+	if podest:
+		card.size_flags_stretch_ratio = 1.4  # das Podest bekommt mehr Breite
+	var seam_alpha := 0.9 if podest else 0.65
+	card.add_theme_stylebox_override("normal", _charm_card_box(Color("#1d1840cc"), tint, seam_alpha, 0.32 if podest else 0.22))
 	card.add_theme_stylebox_override("hover", _charm_card_box(Color("#2a2158dd"), NEON_GOLD, 0.9, 0.3))
 	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
 	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
@@ -536,10 +657,12 @@ func _build_charm_card(charm: Charm, index: int) -> Control:
 	card.add_child(column)
 
 	# Lichtfleck hinter dem Modell (CenterContainer stapelt beide mittig).
+	var glow := tint if not owned else Color(tint.r, tint.g, tint.b, 0.3)
+	var disc_side := thumb_px * (1.5 if podest else 1.27)
 	var stage := CenterContainer.new()
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(_glow_disc(tint if not owned else Color(tint.r, tint.g, tint.b, 0.3), u * 9.5))
-	stage.add_child(CharmThumb.new(charm, int(u * 7.5)))
+	stage.add_child(_glow_disc(glow, disc_side))
+	stage.add_child(CharmThumb.new(charm, thumb_px))
 	column.add_child(stage)
 
 	column.add_child(_label("gekauft" if owned else "$%d" % _charm_price(),
@@ -565,123 +688,98 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Sigil-Karte im Angebots-Raster: Glas-Kachel mit Seltenheits-Saum, darin
-## Siegel, Name, Kaufknopf; Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown.
-func _build_sigil_card(sigil: Sigil, offer_index: int) -> Control:
+## Sigil-Chip in der Schale: runde Rauchglas-Scheibe mit Seltenheits-Saum, darin
+## das Siegel + Preis; Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown.
+func _build_sigil_chip(sigil: Sigil, offer_index: int, dia: float) -> Control:
 	var price := _sigil_price(sigil)
 	var seam: Color = SigilRenderer.SEAM_COLORS[sigil.rarity]
-
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color("#1b1738b3")
-	box.border_color = Color(seam.r, seam.g, seam.b, 0.4)
-	box.set_border_width_all(maxi(1, int(u * 0.16)))
-	box.set_corner_radius_all(int(u * 1.2))
-	box.set_content_margin_all(int(u * 0.8))
-	box.shadow_color = Color(seam.r, seam.g, seam.b, 0.1)
-	box.shadow_size = int(u * 0.7)
-	panel.add_theme_stylebox_override("panel", box)
-
-	var card := VBoxContainer.new()
-	card.add_theme_constant_override("separation", int(u * 0.4))
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(card)
-
-	var thumb := SigilRenderer.for_sigil(sigil)
-	thumb.custom_minimum_size = Vector2(u * 8.0, u * 8.0)
-	thumb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	card.add_child(thumb)
-
-	var name_label := _label(sigil.display_name, u * 1.8, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	name_label.clip_text = true
-	card.add_child(name_label)
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(spacer)
-
-	var button := _neon_button("", NEON_GREEN, u * 2.0, Vector2(0, u * 4.0))
-	button.mouse_entered.connect(_show_shop_tooltip.bind(button,
-		"%s – %s (%s)" % [sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity)],
-		sigil.description))
-	button.mouse_exited.connect(_hide_shop_tooltip)
-	if sigil_bought[offer_index]:
-		button.text = "gekauft"
-		button.disabled = true
+	var face := SigilRenderer.for_sigil(sigil)
+	face.custom_minimum_size = Vector2(dia * 0.56, dia * 0.56)
+	var title := "%s – %s (%s)" % [sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity)]
+	var bought := sigil_bought[offer_index]
+	var chip := _chip_button(dia, seam, face, price, bought, title, sigil.description)
+	if bought:
+		chip.disabled = true
 	else:
-		button.text = "$%d" % price
-		button.pressed.connect(_on_sigil_buy_pressed.bind(offer_index))
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_child(button)
-	sigil_buttons.append(button)
+		chip.pressed.connect(_on_sigil_buy_pressed.bind(offer_index))
+	sigil_buttons.append(chip)
 	sigil_button_prices.append(price)
-	return panel
+	return chip
 
-## Übertaktungs-Karte: einmaliger Verbrauchsartikel, hebt die Stufe EINER
-## Kombination; der Preis steigt mit ihrer Stufe (GameRun.overclock_price).
-func _build_overclock_card(combo_key: String, index: int) -> Control:
+## Übertaktungs-Chip: goldene Scheibe mit ⚡; hebt die Stufe EINER Kombination
+## (Preis steigt mit ihrer Stufe). Aktuelle/nächste Werte im Hover-Dropdown.
+func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control:
 	var level := run.combo_level(combo_key)
 	var price := run.overclock_price(combo_key)
-
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color("#1b1738b3")
-	box.border_color = Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.4)
-	box.set_border_width_all(maxi(1, int(u * 0.16)))
-	box.set_corner_radius_all(int(u * 1.2))
-	box.set_content_margin_all(int(u * 0.8))
-	box.shadow_color = Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.1)
-	box.shadow_size = int(u * 0.7)
-	panel.add_theme_stylebox_override("panel", box)
-
-	var card := VBoxContainer.new()
-	card.add_theme_constant_override("separation", int(u * 0.4))
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(card)
-
-	var bolt := _label("⚡", u * 5.2, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	bolt.custom_minimum_size = Vector2(0, u * 8.0)
-	bolt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	card.add_child(bolt)
-
-	var name_label := _label(DiceScoring.label_for(combo_key), u * 1.8, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	name_label.clip_text = true
-	card.add_child(name_label)
-	card.add_child(_label("Stufe %d → %d" % [level, level + 1], u * 1.6, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(spacer)
-
+	var face := _label("⚡", dia * 0.42, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	face.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	face.custom_minimum_size = Vector2(dia * 0.56, dia * 0.56)
 	var next_levels: Dictionary = run.combo_levels.duplicate()
 	next_levels[combo_key] = level + 1
-	var button := _neon_button("", NEON_GOLD, u * 2.0, Vector2(0, u * 4.0))
-	button.mouse_entered.connect(_show_shop_tooltip.bind(button,
-		"Übertaktung – %s" % DiceScoring.label_for(combo_key),
-		"Jetzt: %d Punkte × %d. Nach dem Kauf: %d Punkte × %d." % [
-			DiceScoring.points_for(combo_key, run.combo_levels), DiceScoring.mult_for(combo_key, run.combo_levels),
-			DiceScoring.points_for(combo_key, next_levels), DiceScoring.mult_for(combo_key, next_levels)]))
-	button.mouse_exited.connect(_hide_shop_tooltip)
-	if overclock_bought[index]:
-		button.text = "gekauft"
-		button.disabled = true
+	var title := "Übertaktung – %s (Stufe %d → %d)" % [DiceScoring.label_for(combo_key), level, level + 1]
+	var body := "Jetzt: %d Punkte × %d. Nach dem Kauf: %d Punkte × %d." % [
+		DiceScoring.points_for(combo_key, run.combo_levels), DiceScoring.mult_for(combo_key, run.combo_levels),
+		DiceScoring.points_for(combo_key, next_levels), DiceScoring.mult_for(combo_key, next_levels)]
+	var bought := overclock_bought[index]
+	var chip := _chip_button(dia, NEON_GOLD, face, price, bought, title, body)
+	if bought:
+		chip.disabled = true
 	else:
-		button.text = "$%d" % price
-		button.pressed.connect(_on_overclock_buy_pressed.bind(index))
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.add_child(button)
-	overclock_buttons.append(button)
-	return panel
+		chip.pressed.connect(_on_overclock_buy_pressed.bind(index))
+	overclock_buttons.append(chip)
+	return chip
 
-## Angebotskarte der Würfel-Rubrik: Würfel-Zeile mit "N ×"-Multiplikator
-## (alle Würfel eines Bündels sind gleich) und Kauf-Button.
-func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
+## Runder Casino-Chip als Kauf-Knopf: Rauchglas-Scheibe mit Saum in seam, darin das
+## Gesicht (face) und der Preis. Gekaufte Chips zeigen ✓ und sind gedimmt.
+func _chip_button(dia: float, seam: Color, face: Control, price: int, bought: bool,
+		title: String, body: String) -> Button:
+	var radius := int(dia * 0.5)
+	var chip := Button.new()
+	chip.focus_mode = Control.FOCUS_NONE
+	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	chip.custom_minimum_size = Vector2(dia, dia)
+	chip.add_theme_stylebox_override("normal", _chip_box(Color("#1b1738e6"), seam, 0.75, radius))
+	chip.add_theme_stylebox_override("hover", _chip_box(Color("#2a2358f0"), NEON_GOLD, 0.95, radius))
+	chip.add_theme_stylebox_override("pressed", _chip_box(Color("#352a68"), NEON_GOLD, 1.0, radius))
+	chip.add_theme_stylebox_override("disabled", _chip_box(Color("#16133455"), seam, 0.28, radius))
+	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	chip.mouse_entered.connect(_show_shop_tooltip.bind(chip, title, body))
+	chip.mouse_exited.connect(_hide_shop_tooltip)
+
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 0)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(column)
+
+	if bought:
+		face.modulate = Color(1, 1, 1, 0.35)
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(face)
+	column.add_child(stage)
+
+	column.add_child(_label("✓" if bought else "$%d" % price, dia * 0.17,
+		NEON_MUTED if bought else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	return chip
+
+## Runde Chip-Scheibe (Saum + weicher Glow); radius = halber Durchmesser.
+func _chip_box(bg: Color, border: Color, border_alpha: float, radius: int) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = bg
+	box.border_color = Color(border.r, border.g, border.b, border_alpha)
+	box.set_border_width_all(maxi(1, int(u * 0.22)))
+	box.set_corner_radius_all(radius)
+	box.set_content_margin_all(int(u * 0.5))
+	box.shadow_color = Color(border.r, border.g, border.b, 0.12)
+	box.shadow_size = int(u * 0.5)
+	return box
+
+## Angebotskarte der Würfel-Rubrik (Vitrine): Würfel-Zeile mit "N ×"-Multiplikator
+## (alle Würfel eines Bündels sind gleich) und Kauf-Button. die_px skaliert die
+## Vorschau elastisch (bei einem Bündel groß, bei dreien kompakt).
+func _build_offer_card(offer: DiceOffer, index: int, die_px: int) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := StyleBoxFlat.new()
@@ -696,9 +794,10 @@ func _build_offer_card(offer: DiceOffer, index: int) -> PanelContainer:
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", int(u * 0.5))
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vbox)
 
-	var dice_row := DiceRowView.build_row(offer.dice[0], int(u * 5.0), offer.size())
+	var dice_row := DiceRowView.build_row(offer.dice[0], die_px, offer.size())
 	dice_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	vbox.add_child(dice_row)
 
@@ -853,6 +952,7 @@ func _on_charm_clicked(index: int) -> void:
 	_show_spread()
 
 ## Kauft ein einzelnes Sigill (jedes Angebot nur einmal); landet sofort im Inventar.
+## Danach wird die Schale neu bebaut, damit der Chip als gekauft (✓) erscheint.
 func _on_sigil_buy_pressed(offer_index: int) -> void:
 	if sigil_bought[offer_index]:
 		return
@@ -861,10 +961,8 @@ func _on_sigil_buy_pressed(offer_index: int) -> void:
 	if run.money < price:
 		return
 	run.purchase_sigil(sigil, price)
-	sigil_bought[offer_index] = true
-	sigil_buttons[offer_index].disabled = true
-	sigil_buttons[offer_index].text = "gekauft"
-	_refresh_afford_state()
+	sigil_bought[offer_index] = true  # liegt im Spread - übersteht den Neuaufbau
+	_show_spread()
 
 ## Kauft die Übertaktung (je Angebot einmal); die Doppelseite wird neu bebaut,
 ## damit Stufen-Anzeige und Preisschild sofort den neuen Stand zeigen.

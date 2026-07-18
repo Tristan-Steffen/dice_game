@@ -33,20 +33,26 @@ const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Sal
 	"VIP-Lounge", "Suite", "Penthouse", "Privatclub", "High Roller"]
 ## Kurzbeschreibung, was der jeweilige AUFSTIEG (auf Stufe = Index+2) freischaltet.
 const HUB_UPGRADE_UNLOCKS := [
-	"Blättern + mehr Würfel",   # → 2 Spielecke
-	"Voller Shop",              # → 3 Lizenz
+	"Blättern + mehr Chips",    # → 2 Spielecke
+	"Größerer Laden",           # → 3 Lizenz
 	"Nebenwetten",              # → 4 Parkett
 	"Überladung ×4",            # → 5 Salon
 	"Bessere Ware",             # → 6 VIP-Lounge
-	"Überladung ×5",            # → 7 Suite
+	"Überladung ×5 + 3. Bündel",# → 7 Suite
 	"Günstiges Blättern",       # → 8 Penthouse
 	"Erlesene Ware",            # → 9 Privatclub
 	"Legendäre Ware",           # → 10 High Roller
 ]
 
+## Shop-Platzzahlen je Hub-Stufe (1-basiert). Der Laden wächst nicht sprunghaft,
+## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
+## tauschen Kartengröße gegen Anzahl. "Chips" = Sigill- + Übertaktungs-Schale.
+const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
+const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+const SHOP_CHIP_SLOTS  := [2, 3, 5, 5, 6, 7, 8, 8, 9, 10]
+
 ## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
-const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern + 3. Würfel-Bündel
-const HUB_FULL_GRID_LEVEL := 3     # 4 Charms + 2 Übertaktungen (voller Laden)
+const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern
 const HUB_SIDE_BETS_LEVEL := 4     # Nebenwetten installiert
 const HUB_RARITY_UNCOMMON_LEVEL := 6
 const HUB_CHEAP_FLIP_LEVEL := 8    # halbierte Blätter-Gebühr
@@ -192,20 +198,28 @@ func shop_rarity_tier() -> int:
 		return 1
 	return 0
 
-## Shop-Platzzahlen je Hub-Stufe: Stufe 1 zeigt einen kleineren Laden, ab Stufe 3
-## das volle Raster (4 Charms / 3 Würfel / 2 Übertaktungen / 3 Sigille). Höhere
-## Stufen bringen QUALITÄT (Rarität) statt mehr Plätze - das Raster bleibt gedeckelt.
+## Shop-Platzzahlen je Hub-Stufe (siehe SHOP_*_SLOTS): wenige, große Angebote am
+## Anfang; mehr, kleinere später. Rarität kommt zusätzlich obendrauf (shop_rarity_tier).
+func _slot_at(ladder: Array, default_top: int) -> int:
+	var idx := clampi(hub_level, 1, HUB_MAX_LEVEL) - 1
+	return ladder[idx] if idx < ladder.size() else default_top
+
 func shop_charm_slots() -> int:
-	return 4 if hub_level >= HUB_FULL_GRID_LEVEL else 3
+	return _slot_at(SHOP_CHARM_SLOTS, 5)
 
 func shop_dice_slots() -> int:
-	return 3 if hub_level >= HUB_FLIPPING_LEVEL else 2
+	return _slot_at(SHOP_DICE_SLOTS, 3)
+
+## Chips = Sigille + Übertaktungen in einer gemeinsamen Schale. Grob ein Drittel
+## davon sind Übertaktungen (1..3), der Rest Sigille.
+func shop_chip_slots() -> int:
+	return _slot_at(SHOP_CHIP_SLOTS, 10)
 
 func shop_overclock_slots() -> int:
-	return 2 if hub_level >= HUB_FULL_GRID_LEVEL else 1
+	return clampi(shop_chip_slots() / 3, 1, 3)
 
 func shop_sigil_slots() -> int:
-	return 3
+	return shop_chip_slots() - shop_overclock_slots()
 
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
@@ -371,6 +385,23 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 func advance_round() -> void:
 	round_number += 1
 	round_goal += GOAL_INCREMENT
+
+## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
+## stehen, bis das letzte des Blocks geschafft ist - erst dann rückt ein frischer
+## Block nach. Rein für die Hub-Anzeige.
+func goal_roadmap(count: int) -> Array[int]:
+	var goals: Array[int] = []
+	if count <= 0:
+		return goals
+	var block_offset := -goal_roadmap_index(count)
+	for i in count:
+		goals.append(round_goal + (block_offset + i) * GOAL_INCREMENT)
+	return goals
+
+## Position des AKTUELLEN Ziels im Block (0-basiert): davor = geschafft, danach
+## = noch offen.
+func goal_roadmap_index(count: int) -> int:
+	return (round_number - 1) % maxi(1, count)
 
 ## --- Überladung (Overcharge) --------------------------------------------------
 

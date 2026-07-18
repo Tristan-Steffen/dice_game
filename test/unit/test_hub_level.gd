@@ -88,18 +88,32 @@ func test_cheap_flipping_at_penthouse() -> void:
 
 func test_shop_slots_scale_with_level() -> void:
 	var run := _run(9999)
-	# Stufe 1: kleinerer Laden (6 untere Plätze: 2 Würfel + 1 Übertaktung + 3 Sigille).
+	# Stufe 1: wenige, große Angebote (2 Charms / 1 Würfel / 2 Chips = 1 Übertaktung + 1 Sigill).
+	assert_eq(run.shop_charm_slots(), 2)
+	assert_eq(run.shop_dice_slots(), 1)
+	assert_eq(run.shop_chip_slots(), 2)
+	assert_eq(run.shop_overclock_slots(), 1)
+	assert_eq(run.shop_sigil_slots(), 1)
+	run.upgrade_hub()  # 2 Spielecke: mehr Chips, aber noch kein 3. Bündel
+	assert_eq(run.shop_chip_slots(), 3)
+	assert_eq(run.shop_dice_slots(), 1)
+	run.upgrade_hub()  # 3 Lizenz: größerer Laden
 	assert_eq(run.shop_charm_slots(), 3)
 	assert_eq(run.shop_dice_slots(), 2)
+	assert_eq(run.shop_chip_slots(), 5)
 	assert_eq(run.shop_overclock_slots(), 1)
-	run.upgrade_hub()  # 2 Spielecke: Blättern + 3. Würfel-Bündel
+	for i in 4:
+		run.upgrade_hub()  # -> 7 Suite: 3. Würfel-Bündel + 2. Übertaktung
 	assert_eq(run.shop_dice_slots(), 3)
-	assert_eq(run.shop_charm_slots(), 3, "volles Charm-Raster erst Stufe 3")
-	assert_eq(run.shop_overclock_slots(), 1)
-	run.upgrade_hub()  # 3 Lizenz: voller Shop
-	assert_eq(run.shop_charm_slots(), 4)
+	assert_eq(run.shop_chip_slots(), 8)
 	assert_eq(run.shop_overclock_slots(), 2)
-	assert_eq(run.shop_sigil_slots(), 3, "Sigille bleiben konstant")
+	assert_eq(run.shop_sigil_slots(), 6)
+	for i in 3:
+		run.upgrade_hub()  # -> 10 High Roller: voller Laden
+	assert_eq(run.shop_charm_slots(), 5)
+	assert_eq(run.shop_chip_slots(), 10)
+	assert_eq(run.shop_overclock_slots(), 3, "Übertaktungen gedeckelt bei 3")
+	assert_eq(run.shop_sigil_slots(), 7)
 
 func test_overcharge_capped_at_three_below_salon() -> void:
 	var run := _run()
@@ -128,3 +142,26 @@ func test_thresholds_crossed_respects_cap() -> void:
 	run.round_goal = 150
 	# 0 -> 99999 kreuzt nur die ersten drei Schwellen.
 	assert_eq(run.thresholds_crossed(0, 99999).size(), 3)
+
+# --- Fahrplan (Ziel-Block bleibt stehen, bis er geschafft ist) ----------------
+
+func test_goal_roadmap_block_starts_at_round_one() -> void:
+	var run := _run()  # Runde 1, Ziel 150
+	assert_eq(run.goal_roadmap(6), [150, 200, 250, 300, 350, 400] as Array[int])
+	assert_eq(run.goal_roadmap_index(6), 0, "Runde 1 = erste Station")
+
+func test_goal_roadmap_block_stays_fixed_while_position_advances() -> void:
+	var run := _run()
+	run.advance_round()  # Runde 2, Ziel 200
+	run.advance_round()  # Runde 3, Ziel 250
+	assert_eq(run.goal_roadmap(6), [150, 200, 250, 300, 350, 400] as Array[int],
+		"derselbe Block wie in Runde 1")
+	assert_eq(run.goal_roadmap_index(6), 2, "dritte Station ist dran")
+
+func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
+	var run := _run()
+	for i in 6:
+		run.advance_round()  # -> Runde 7, Ziel 450
+	assert_eq(run.goal_roadmap(6), [450, 500, 550, 600, 650, 700] as Array[int],
+		"nach dem sechsten Sieg liegt ein frischer Block aus")
+	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")

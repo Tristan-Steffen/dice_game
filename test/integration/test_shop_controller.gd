@@ -13,7 +13,7 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.hub_level = 3  # volles Raster (4 Charms/3 Würfel/2 Übertaktungen) + Blättern
+	run.hub_level = 7  # Suite: großer Laden (4 Charms / 3 Würfel / 8 Chips = 6 Sigille + 2 Übertaktungen)
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -33,7 +33,7 @@ func _count_special() -> int:
 func test_open_shows_panel_and_offers_up_to_four_charms():
 	assert_true(shop.visible)
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
-	assert_true(shop.charm_options.size() <= ShopController.CHARM_OFFER_COUNT, "höchstens vier Charms")
+	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Hub-Stufe erlaubt")
 
 func test_offer_excludes_already_owned_charms():
 	run.owned_charms.append(Charm.rabbits_foot())
@@ -153,12 +153,13 @@ func test_sigil_buttons_disabled_by_price():
 		assert_true(button.disabled, "Sigill bei zu wenig Geld nicht kaufbar")
 
 func test_spread_offers_mixed_sigils_dice_and_overclocks():
-	# Unterer Bereich: acht Plätze = Würfel-Bündel + Sigille + Übertaktungen.
-	assert_eq(shop.sigil_offers.size(), ShopController.SIGIL_OFFER_COUNT)
-	assert_eq(shop.dice_offers.size(), ShopController.DICE_OFFER_COUNT, "drei Würfel-Bündel")
-	assert_eq(shop.overclock_offers.size(), ShopController.OVERCLOCK_OFFER_COUNT, "zwei Übertaktungen")
-	assert_eq(shop.dice_offers.size() + shop.sigil_offers.size() + shop.overclock_offers.size(),
-		ShopController.BOTTOM_SLOT_COUNT, "zusammen acht Plätze (2×4)")
+	# Angebot = Würfel-Bündel (Vitrine) + Chip-Schale (Sigille + Übertaktungen);
+	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 6 Sigille, 2 Übertaktungen).
+	assert_eq(shop.sigil_offers.size(), run.shop_sigil_slots())
+	assert_eq(shop.dice_offers.size(), run.shop_dice_slots(), "drei Würfel-Bündel")
+	assert_eq(shop.overclock_offers.size(), run.shop_overclock_slots(), "zwei Übertaktungen")
+	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), run.shop_chip_slots(),
+		"Sigille + Übertaktungen füllen die Chip-Schale")
 	var seen := {}
 	for sigil in shop.sigil_offers:
 		assert_true(Sigil.DRAFT_CATEGORIES.has(sigil.category), "inventarfähige Kategorie")

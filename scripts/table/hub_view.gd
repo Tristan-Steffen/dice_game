@@ -52,7 +52,27 @@ var hub_next_label: Label
 var upgrade_button: Button
 var _hub_level := 1
 
-var info_page: VBoxContainer
+## Roulette-Rim: die Fahrplan-Stationen liegen auf einem Rad-Rand, die Lizenz-
+## Plakette in der Nabe. roadmap_stage trägt alles frei-positioniert; roadmap_row
+## sammelt die Stationen (Tests + Advance-Animation laufen dagegen).
+var roadmap_stage: Control
+var roadmap_row: Control  # loser Sammel-Node der Stationen (kein Layout-Container)
+var rim_arc: RimArc
+var current_ball: Panel
+var medallion_label: Label
+var _roadmap_goals: Array[int] = []
+var _roadmap_current := 0  # Position des aktuellen Ziels im Block (0-basiert)
+var _pips: Array[Panel] = []
+## Radgeometrie (in layout() aus der Bühnengröße gesetzt; Tests lesen sie).
+var _rim_center := Vector2.ZERO
+var _rim_radius := 0.0
+## Wieder-anwendbarer Stil für den Stufen-Re-Skin des Medaillons.
+var _medallion_style: StyleBoxFlat
+## Lizenz-Nabe (frei auf die Radmitte gesetzt) + die zwei Bonus-Chips.
+var _medallion_cluster: VBoxContainer
+var _chips: Array[Control] = []
+
+var info_page: Control  # Alias auf roadmap_stage (Rückwärts-Bezug)
 
 ## Einstellungen-Knopf unten rechts auf der Home-Seite (blendet mit ihr aus).
 var settings_button: Button
@@ -138,34 +158,24 @@ func layout() -> void:
 	money_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(money_label)
 
-	# Lauf-Übersicht: Rundenbonus-Zeilen.
-	info_page = VBoxContainer.new()
-	info_page.name = "InfoPage"
-	info_page.add_theme_constant_override("separation", int(u * 1.6))
-	info_page.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	column.add_child(info_page)
+	# Roulette-Rad: eine freie Bühne trägt den Rad-Rand (Fahrplan-Stationen), die
+	# Lizenz-Nabe in der Mitte und die Bonus-Chips seitlich. Kein Raster mehr - der
+	# Filz selbst ist der Hintergrund. Hier oben treffen die Bank-Kometen ein.
+	roadmap_stage = Control.new()
+	roadmap_stage.name = "RimStage"
+	roadmap_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roadmap_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roadmap_stage.clip_contents = false
+	column.add_child(roadmap_stage)
+	info_page = roadmap_stage
+	roadmap_stage.resized.connect(_on_stage_resized)
+	_build_rim_stage(u)
 
-	_make_line(info_page, "Rundenbonus", u * 4.4, TITLE_COLOR)
-	blind_payout_label = _make_line(info_page, "5$ pro Blind", u * 4.4, TEXT_COLOR)
-	die_payout_label = _make_line(info_page, "1$ pro Würfel übrig", u * 4.4, TEXT_COLOR)
-	# Lizenz-Zeile: aktuelle Hub-Stufe (golden, wie eine Casino-Lizenz) + der
-	# nächste Ausbau als Plan-Zeile darunter (cyan, dezenter).
-	hub_level_label = _make_line(info_page, "Hub: Hinterzimmer", u * 4.4, GOLD_COLOR)
-	hub_next_label = _make_line(info_page, "", u * 3.2, FRAME_COLOR)
-
-	# Fußzeile: Aufstieg-Knopf unten links, Platzhalter drückt Einstellungen rechts.
+	# Fußzeile: nur der Einstellungen-Knopf (der Aufstieg wohnt jetzt in der Plakette).
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
 	footer.add_theme_constant_override("separation", int(u * 2.0))
 	column.add_child(footer)
-	upgrade_button = Button.new()
-	upgrade_button.name = "UpgradeButton"
-	upgrade_button.text = "⬆ Ausbau"
-	upgrade_button.focus_mode = Control.FOCUS_NONE
-	upgrade_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	CasinoStyle.style_button(upgrade_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.2))
-	upgrade_button.pressed.connect(func() -> void: hub_upgrade_requested.emit())
-	footer.add_child(upgrade_button)
 	footer.add_child(_make_h_spacer())
 	settings_button = Button.new()
 	settings_button.name = "SettingsButton"
@@ -417,7 +427,9 @@ func set_hub_level(level: int, level_name: String, next_name: String, unlock: St
 	if not _built:
 		return
 	_hub_level = level
-	hub_level_label.text = "Hub: %s  (Stufe %d)" % [level_name, level]
+	hub_level_label.text = level_name  # nur der Lizenzname; die Stufe trägt das Medaillon
+	if medallion_label != null:
+		medallion_label.text = str(level)
 	if next_name == "":
 		upgrade_button.visible = false
 		hub_next_label.text = "voll ausgebaut"
@@ -453,15 +465,379 @@ func _apply_frame_tier() -> void:
 		_frame_style.border_color = _frame_base_color
 		_frame_style.bg_color = _frame_bg
 		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
+	_apply_tier_to_medallion(tier, last)
 
-func _make_line(parent: Control, text: String, font_size: float, color: Color) -> Label:
+## Zieht die Stufenfarbe durch die Nabe: Medaillon, die gefüllten Pips (bis zur
+## aktuellen Stufe, je in ihrer eigenen Farbe) und die aktuelle Rad-Station.
+func _apply_tier_to_medallion(tier: Color, last: int) -> void:
+	if _medallion_style != null:
+		_medallion_style.border_color = tier
+		_medallion_style.bg_color = FRAME_BG.lerp(Color(tier.r, tier.g, tier.b, 1.0), 0.18)
+	if medallion_label != null:
+		medallion_label.modulate = tier
+	for i in _pips.size():
+		var ps := _pips[i].get_theme_stylebox("panel") as StyleBoxFlat
+		if ps == null:
+			continue
+		if i < _hub_level:
+			var pc: Color = HUB_TIER_COLORS[clampi(i, 0, last)]
+			ps.bg_color = Color(pc.r, pc.g, pc.b, 0.95)
+		else:
+			ps.bg_color = Color(1, 1, 1, 0.12)
+	_layout_rim()  # Nabe neu zentrieren (Höhe ändert sich, z.B. Knopf weg bei Max)
+	if not _roadmap_goals.is_empty():
+		_rebuild_roadmap()
+
+# --- Fahrplan + Lizenz-Plakette (Home-Bänder) --------------------------------
+
+## Setzt den Fahrplan-BLOCK + die Position des aktuellen Ziels darin. Der Block
+## bleibt stehen, bis sein letztes Ziel geschafft ist: geschaffte Stationen sind
+## gefüllt, die aktuelle trägt die Kugel, kommende verblassen. Rückt die Position
+## im selben Block vor, blitzt die eben geschaffte Station auf; ein frischer
+## Block zündet alle Stationen im Lauf des Bogens.
+func set_goal_roadmap(goals: Array[int], current: int = 0) -> void:
+	if not _built:
+		return
+	var same_block := goals == _roadmap_goals
+	var cleared := same_block and current == _roadmap_current + 1
+	var fresh_block := not same_block and not _roadmap_goals.is_empty()
+	_roadmap_goals = goals.duplicate()
+	_roadmap_current = clampi(current, 0, maxi(0, goals.size() - 1))
+	_rebuild_roadmap()
+	if cleared:
+		_play_station_cleared()
+	elif fresh_block:
+		_play_roadmap_advance()
+
+## Setzt die Stationen auf den oberen Rad-Rand (180°→360°). Drei Zustände:
+## geschafft (gefüllt in Stufenfarbe), aktuell (groß + Kugel), offen (verblasst
+## mit dem Abstand zum aktuellen Ziel).
+func _rebuild_roadmap() -> void:
+	if roadmap_row == null:
+		return
+	for child in roadmap_row.get_children():
+		# Sofort aushängen: queue_free allein ließe bei zwei Aufbauten im selben
+		# Frame beide Generationen nebeneinander stehen.
+		roadmap_row.remove_child(child)
+		child.queue_free()
+	current_ball = null
+	if _roadmap_goals.is_empty() or _rim_radius <= 0.0:
+		if rim_arc != null:
+			rim_arc.set_rim(_rim_center, _rim_radius, PackedFloat32Array(), PackedFloat32Array(), FRAME_COLOR, 0.0)
+		return
+	var u := size.x / 100.0
+	var n := _roadmap_goals.size()
+	var angles := PackedFloat32Array()
+	var alphas := PackedFloat32Array()
+	for i in n:
+		var ang := deg_to_rad(180.0 + i * (180.0 / float(maxi(1, n - 1))))
+		angles.append(ang)
+		if i < n - 1:
+			# Rand-Segment am hellsten nahe der aktuellen Station.
+			var seg_dist := absf(float(i) + 0.5 - float(_roadmap_current))
+			alphas.append(clampf(0.5 - seg_dist * 0.09, 0.08, 0.5))
+		var st := _make_station(_roadmap_goals[i], i, u, _frame_base_color)
+		roadmap_row.add_child(st)
+		st.reset_size()
+		var st_center := _rim_center + Vector2(cos(ang), sin(ang)) * _rim_radius
+		st.position = st_center - st.size * 0.5
+		if i == _roadmap_current:  # Roulette-Kugel oben auf der aktuellen Station
+			current_ball = _make_ball(u)
+			st.add_child(current_ball)
+			var bd := current_ball.custom_minimum_size
+			current_ball.position = Vector2(st.size.x * 0.5 - bd.x * 0.5, -bd.y * 0.5)
+	if rim_arc != null:
+		rim_arc.set_rim(_rim_center, _rim_radius, angles, alphas, FRAME_COLOR, maxf(2.0, u * 0.18))
+
+## Runde Ziel-Station: geschafft = satt in Stufenfarbe gefüllt (dunkle Zahl),
+## aktuell = groß + Stufenfarbe + Glow, offen = dunkel und mit der Entfernung
+## zum aktuellen Ziel verblassend (die Zukunft dimmt aus).
+func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
+	var current := index == _roadmap_current
+	var done := index < _roadmap_current
+	var dia := (u * 9.0) if current else ((u * 5.6) if done else (u * 6.2))
+	var station := Panel.new()
+	station.custom_minimum_size = Vector2(dia, dia)
+	station.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	if current:
+		box.bg_color = Color(tier.r, tier.g, tier.b, 0.22)
+		box.border_color = tier
+		box.set_border_width_all(maxi(2, int(u * 0.4)))
+		box.shadow_color = Color(tier.r, tier.g, tier.b, 0.35)
+		box.shadow_size = int(u * 1.2)
+	elif done:
+		box.bg_color = Color(tier.r, tier.g, tier.b, 0.55)
+		box.border_color = Color(tier.r, tier.g, tier.b, 0.85)
+		box.set_border_width_all(maxi(1, int(u * 0.25)))
+	else:
+		var dist := index - _roadmap_current
+		var fade := clampf(1.0 - dist * 0.15, 0.32, 1.0)
+		box.bg_color = Color("#161033cc")
+		box.border_color = Color(FRAME_COLOR.r, FRAME_COLOR.g, FRAME_COLOR.b, 0.5 * fade)
+		box.set_border_width_all(maxi(1, int(u * 0.22)))
+	box.set_corner_radius_all(int(dia * 0.5))
+	station.add_theme_stylebox_override("panel", box)
+
 	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", int(font_size))
-	label.modulate = color
+	label.text = str(goal)
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", int((u * 2.9) if current else (u * 2.2)))
+	if done:  # dunkle Zahl auf der gefüllten Scheibe
+		label.modulate = Color(0.09, 0.08, 0.2)
+	else:
+		var lfade := 1.0 if current else clampf(1.0 - (index - _roadmap_current) * 0.13, 0.45, 1.0)
+		label.modulate = Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, lfade)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(label)
-	return label
+	station.add_child(label)
+	return station
+
+## Überhelle "Roulette-Kugel" auf der aktuellen Station (blüht im HDR).
+func _make_ball(u: float) -> Panel:
+	var d := u * 2.4
+	var ball := Panel.new()
+	ball.custom_minimum_size = Vector2(d, d)
+	ball.size = Vector2(d, d)
+	ball.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(1.7, 1.8, 1.9)
+	box.set_corner_radius_all(int(d * 0.5))
+	ball.add_theme_stylebox_override("panel", box)
+	return ball
+
+## Rundensieg IM Block: die eben geschaffte Station blitzt überhell auf, die
+## Kugel springt sichtbar auf das neue Ziel.
+func _play_station_cleared() -> void:
+	var stations := roadmap_row.get_children()
+	var done_index := _roadmap_current - 1
+	if done_index >= 0 and done_index < stations.size():
+		var st := stations[done_index] as Control
+		if st != null:
+			st.modulate = Color(2.2, 2.2, 2.0)
+			var tw := create_tween()
+			tw.tween_property(st, "modulate", Color.WHITE, 0.55) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if current_ball != null:
+		current_ball.modulate = Color(1, 1, 1, 0)
+		var btw := create_tween()
+		btw.tween_interval(0.2)
+		btw.tween_property(current_ball, "modulate:a", 1.0, 0.25).set_trans(Tween.TRANS_SINE)
+
+## Frischer Block: die Stationen zünden im Lauf des Bogens nacheinander auf.
+func _play_roadmap_advance() -> void:
+	var i := 0
+	for child in roadmap_row.get_children():
+		var c := child as Control
+		if c == null:
+			continue
+		c.modulate = Color(1, 1, 1, 0)
+		var tw := create_tween()
+		tw.tween_interval(0.05 * i)
+		tw.tween_property(c, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_SINE)
+		i += 1
+
+## Zeichnet den Rad-Rand: je zwei benachbarte Stationen ein Bogen-Segment, dessen
+## Deckkraft mit der Entfernung von "jetzt" verblasst (native draw_arc, kein Node).
+class RimArc:
+	extends Control
+	var center := Vector2.ZERO
+	var radius := 0.0
+	var angles := PackedFloat32Array()
+	var seg_alpha := PackedFloat32Array()
+	var base_color := Color("#8be9fd")
+	var width := 3.0
+
+	func set_rim(c: Vector2, r: float, angs: PackedFloat32Array, alphas: PackedFloat32Array, color: Color, w: float) -> void:
+		center = c
+		radius = r
+		angles = angs
+		seg_alpha = alphas
+		base_color = color
+		width = w
+		queue_redraw()
+
+	func _draw() -> void:
+		for i in range(angles.size() - 1):
+			var a: float = seg_alpha[i] if i < seg_alpha.size() else 0.3
+			var col := Color(base_color.r, base_color.g, base_color.b, a)
+			draw_arc(center, radius, angles[i], angles[i + 1], 32, col, width, true)
+
+## Baut die Rad-Bühne: Rand-Zeichner (hinten), Stationen-Sammler, Lizenz-Nabe,
+## Bonus-Chips. Positioniert wird erst, wenn die Bühne ihre Größe kennt (_on_stage_resized).
+func _build_rim_stage(u: float) -> void:
+	rim_arc = RimArc.new()
+	rim_arc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rim_arc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roadmap_stage.add_child(rim_arc)
+
+	roadmap_row = Control.new()
+	roadmap_row.name = "RoadmapRow"
+	roadmap_row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	roadmap_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roadmap_stage.add_child(roadmap_row)
+
+	_build_medallion_cluster(u)
+	_build_bonus_chips(u)
+
+## Lizenz-Nabe: Medaillon (Stufe) + Lizenzname + 10 Pips + Plan-Zeile + Aufstieg.
+## Frei auf die Radmitte gesetzt (_layout_rim); trägt die Signaturfarbe der Stufe.
+func _build_medallion_cluster(u: float) -> void:
+	_medallion_cluster = VBoxContainer.new()
+	_medallion_cluster.alignment = BoxContainer.ALIGNMENT_CENTER
+	_medallion_cluster.add_theme_constant_override("separation", int(u * 1.0))
+	_medallion_cluster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roadmap_stage.add_child(_medallion_cluster)
+
+	var med_stage := CenterContainer.new()
+	med_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medallion_cluster.add_child(med_stage)
+	var medallion := Panel.new()
+	medallion.custom_minimum_size = Vector2(u * 15.0, u * 15.0)
+	medallion.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medallion_style = StyleBoxFlat.new()
+	_medallion_style.bg_color = FRAME_BG
+	_medallion_style.border_color = GOLD_COLOR
+	_medallion_style.set_border_width_all(maxi(2, int(u * 0.55)))
+	_medallion_style.set_corner_radius_all(int(u * 7.5))
+	medallion.add_theme_stylebox_override("panel", _medallion_style)
+	med_stage.add_child(medallion)
+	medallion_label = Label.new()
+	medallion_label.text = "1"
+	medallion_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	medallion_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	medallion_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	medallion_label.add_theme_font_size_override("font_size", int(u * 7.5))
+	medallion_label.modulate = GOLD_COLOR
+	medallion_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	medallion.add_child(medallion_label)
+
+	# Lizenzname - behält den bisherigen Node (Payout/Tests referenzieren ihn).
+	hub_level_label = Label.new()
+	hub_level_label.text = "Hinterzimmer"
+	hub_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hub_level_label.add_theme_font_size_override("font_size", int(u * 4.2))
+	hub_level_label.modulate = GOLD_COLOR
+	hub_level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medallion_cluster.add_child(hub_level_label)
+
+	# 10 Stufen-Pips (gefüllt bis zur aktuellen Stufe in _apply_tier_to_medallion).
+	var pip_row := HBoxContainer.new()
+	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pip_row.add_theme_constant_override("separation", int(u * 0.8))
+	pip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medallion_cluster.add_child(pip_row)
+	_pips.clear()
+	for i in HUB_TIER_COLORS.size():
+		var pip := Panel.new()
+		pip.custom_minimum_size = Vector2(u * 1.6, u * 1.6)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ps := StyleBoxFlat.new()
+		ps.bg_color = Color(1, 1, 1, 0.12)
+		ps.set_corner_radius_all(int(u * 0.8))
+		pip.add_theme_stylebox_override("panel", ps)
+		pip_row.add_child(pip)
+		_pips.append(pip)
+
+	# Plan-Zeile: begrenzte Breite (bricht um), damit die Nabe schmal bleibt.
+	hub_next_label = Label.new()
+	hub_next_label.text = ""
+	hub_next_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hub_next_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hub_next_label.custom_minimum_size = Vector2(u * 34.0, 0)
+	hub_next_label.add_theme_font_size_override("font_size", int(u * 2.6))
+	hub_next_label.modulate = FRAME_COLOR
+	hub_next_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_medallion_cluster.add_child(hub_next_label)
+
+	upgrade_button = Button.new()
+	upgrade_button.name = "UpgradeButton"
+	upgrade_button.text = "⬆ Ausbau"
+	upgrade_button.focus_mode = Control.FOCUS_NONE
+	upgrade_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	upgrade_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	CasinoStyle.style_button(upgrade_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.0))
+	upgrade_button.pressed.connect(func() -> void: hub_upgrade_requested.emit())
+	_medallion_cluster.add_child(upgrade_button)
+
+## Zwei runde Bonus-Chips (Blind / Würfel) - die Auszahl-Labels leben darin und
+## bleiben referenziert (scene_root lässt sie beim Zählen golden aufleuchten).
+func _build_bonus_chips(u: float) -> void:
+	_chips.clear()
+	blind_payout_label = _make_bonus_chip(u, "je Blind", "5$")
+	die_payout_label = _make_bonus_chip(u, "je Würfel", "1$")
+
+func _make_bonus_chip(u: float, caption: String, value: String) -> Label:
+	var d := u * 16.0
+	var chip := Panel.new()
+	chip.custom_minimum_size = Vector2(d, d)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color("#191540e6")
+	box.border_color = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.7)
+	box.set_border_width_all(maxi(2, int(u * 0.3)))
+	box.set_corner_radius_all(int(d * 0.5))
+	box.shadow_color = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.16)
+	box.shadow_size = int(u * 0.8)
+	chip.add_theme_stylebox_override("panel", box)
+
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", int(u * 0.2))
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(col)
+	var cap := Label.new()
+	cap.text = caption
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cap.add_theme_font_size_override("font_size", int(u * 2.1))
+	cap.modulate = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.9)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(cap)
+	var val := Label.new()
+	val.text = value
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	val.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	val.custom_minimum_size = Vector2(d * 0.82, 0)
+	val.add_theme_font_size_override("font_size", int(u * 3.4))
+	val.modulate = TEXT_COLOR
+	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(val)
+
+	roadmap_stage.add_child(chip)
+	_chips.append(chip)
+	return val
+
+## Radgeometrie aus der Bühnengröße: Mitte etwas unter der geometrischen Mitte,
+## Radius aus der kleineren Kante. false, solange die Bühne noch keine Größe hat.
+func _compute_rim_geometry() -> bool:
+	var s := roadmap_stage.size
+	if s.x < 40.0 or s.y < 40.0:
+		return false
+	_rim_center = Vector2(s.x * 0.5, s.y * 0.56)
+	_rim_radius = minf(s.x * 0.42, s.y * 0.5)
+	return true
+
+func _on_stage_resized() -> void:
+	if not _compute_rim_geometry():
+		return
+	_layout_rim()
+	_rebuild_roadmap()
+
+## Positioniert Nabe + Chips relativ zur Radmitte (die Stationen macht _rebuild_roadmap).
+func _layout_rim() -> void:
+	if _rim_radius <= 0.0:
+		return
+	if _medallion_cluster != null:
+		_medallion_cluster.reset_size()
+		_medallion_cluster.position = _rim_center - _medallion_cluster.size * 0.5
+	var offs := [Vector2(-0.62, 0.46), Vector2(0.62, 0.46)]
+	for i in mini(_chips.size(), offs.size()):
+		var chip: Control = _chips[i]
+		chip.reset_size()
+		var p := _rim_center + Vector2(offs[i].x, offs[i].y) * _rim_radius
+		chip.position = p - chip.size * 0.5
 
 func _make_h_spacer() -> Control:
 	var spacer := Control.new()
