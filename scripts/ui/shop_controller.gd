@@ -81,6 +81,9 @@ var page_label: Label
 var done_button: Button
 var page_back_button: Button
 var page_next_button: Button
+## Blättern-Hinweis (Hub-Stufe 1) + Hub-Aufstieg-Knopf im Shop-Fuß.
+var flip_hint_label: Label
+var hub_upgrade_button: Button
 
 ## Hover-Dropdown (Charm-/Sigil-Beschreibung), wie die Gravur-Station.
 var shop_tooltip: PanelContainer
@@ -187,27 +190,40 @@ func _build_layout() -> void:
 	page_next_button = _neon_button("›", NEON_CYAN, u * 3.2, Vector2(u * 12.0, u * 5.0))
 	page_next_button.pressed.connect(_on_page_next_pressed)
 	footer.add_child(page_next_button)
+	# Hinweis, solange Blättern gesperrt ist (Hub-Stufe 1).
+	flip_hint_label = _label("Blättern ab Hub-Stufe 2", u * 2.4, NEON_MUTED)
+	flip_hint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	footer.add_child(flip_hint_label)
 	var footer_spacer := Control.new()
 	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_child(footer_spacer)
+	# Hub-Aufstieg direkt im Shop (der Hub-Rahmen ist von der Shop-Seite verdeckt).
+	hub_upgrade_button = _neon_button("⬆ Hub", NEON_GOLD, u * 2.8, Vector2(u * 20.0, u * 5.0))
+	hub_upgrade_button.pressed.connect(_on_hub_upgrade_pressed)
+	footer.add_child(hub_upgrade_button)
 	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)
+	_refresh_hub_footer()
 
 	_build_shop_tooltip()  # zuletzt: liegt als Overlay über allem
 
 # --- Blättern ------------------------------------------------------------------
 
-## Gebühr für die nächste NEUE Doppelseite; Wechselgeld-Charm senkt sie.
+## Gebühr für die nächste NEUE Doppelseite; Wechselgeld-Charm UND ein hoher
+## Hub-Ausbau (Penthouse) senken sie.
 func _next_flip_fee() -> int:
-	return CharmEffects.flip_fee(FLIP_FEE_BASE + spreads.size() - 1, run.charm_ids())
+	var base := CharmEffects.flip_fee(FLIP_FEE_BASE + spreads.size() - 1, run.charm_ids())
+	return maxi(0, roundi(base * run.shop_flip_fee_factor()))
 
 ## True, wenn Vorblättern eine neue Doppelseite auswürfeln würde.
 func _next_flip_is_new() -> bool:
 	return current_spread_index == spreads.size() - 1
 
 func _on_page_next_pressed() -> void:
+	if not run.shop_flipping_unlocked():
+		return  # Blättern erst ab Hub-Stufe 2
 	if _next_flip_is_new():
 		var fee := _next_flip_fee()
 		if run.money < fee:
@@ -217,6 +233,40 @@ func _on_page_next_pressed() -> void:
 	current_spread_index += 1
 	_show_spread()
 	_play_flip_animation()
+
+## Hub-Aufstieg im Shop gedrückt: Ausbau über GameRun buchen (No-op wenn nicht
+## bezahlbar/max). Die Zeremonie + refresh_after_hub_upgrade folgen aus dem
+## hub_level_changed-Signal (scene_root).
+func _on_hub_upgrade_pressed() -> void:
+	if run != null:
+		run.upgrade_hub()
+
+## Fuß-Zeile an die Hub-Stufe anpassen: Blättern-Knöpfe vs. Hinweis, Aufstieg-Knopf.
+func _refresh_hub_footer() -> void:
+	if run == null or page_back_button == null:
+		return
+	var can_flip := run.shop_flipping_unlocked()
+	page_back_button.visible = can_flip
+	page_next_button.visible = can_flip
+	page_label.visible = can_flip
+	flip_hint_label.visible = not can_flip
+	if run.hub_level >= GameRun.HUB_MAX_LEVEL:
+		hub_upgrade_button.visible = false
+	else:
+		hub_upgrade_button.visible = true
+		hub_upgrade_button.text = "⬆ %s ($%d)" % [run.hub_next_level_name(), run.hub_upgrade_price()]
+		hub_upgrade_button.disabled = not run.can_upgrade_hub()
+
+## Nach einem Hub-Aufstieg mitten im Shop: aktuelle Doppelseite an die neue Stufe
+## anpassen (mehr Plätze/Blättern werden sofort sichtbar) und Fuß-Zeile neu.
+func refresh_after_hub_upgrade() -> void:
+	if not visible or run == null:
+		return
+	# Aktuelle Seite neu auswürfeln, damit die zusätzlichen Plätze erscheinen.
+	if not spreads.is_empty():
+		spreads[current_spread_index] = _build_spread()
+	_refresh_hub_footer()
+	_show_spread()
 
 ## Zurückblättern ist immer gratis.
 func _on_page_back_pressed() -> void:
@@ -241,7 +291,7 @@ func _play_flip_animation() -> void:
 ## Frische Doppelseite: vier Charms oben, unten drei Würfel-Bündel + fünf Sigille.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
-	spread.dice_offers = DiceOffer.roll_offers(DICE_OFFER_COUNT, run.charm_ids())
+	spread.dice_offers = DiceOffer.roll_offers(run.shop_dice_slots(), run.charm_ids())
 
 	# Besitz-Prüfung über die ROHEN ids (Totems lösen sich in charm_ids() zu
 	# ihren Nachbarn auf und würden sonst doppelt angeboten).
@@ -250,29 +300,65 @@ func _build_spread() -> MenuSpread:
 	for charm in Charm.all():
 		if not owned_ids.has(charm.id):
 			available.append(charm)
-	# Gewichtet nach Rarität ziehen, ohne Zurücklegen.
-	for i in CHARM_OFFER_COUNT:
-		if available.is_empty():
-			break
+	var charm_slots := run.shop_charm_slots()
+	var rarity_tier := run.shop_rarity_tier()
+	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
+	# passenden Mindest-Rarität (Tier 1 ungewöhnlich, 2 selten, 3 legendär) - fällt
+	# auf die nächst-niedrigere Schwelle zurück, falls keiner verfügbar ist.
+	if rarity_tier >= 1 and charm_slots > 0:
+		var premium := _charms_at_least(available, rarity_tier)
+		if not premium.is_empty():
+			var top := Charm.pick_weighted(premium)
+			spread.charm_options.append(top)
+			available.erase(top)
+	# Restliche Plätze gewichtet nach Rarität ziehen, ohne Zurücklegen.
+	while spread.charm_options.size() < charm_slots and not available.is_empty():
 		var pick := Charm.pick_weighted(available)
 		spread.charm_options.append(pick)
 		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	# Gemischte Einzel-Sigille (alle Kategorien, seltenheits-gewichtet).
-	spread.sigil_offers = Sigil.roll_draft(SIGIL_OFFER_COUNT, Sigil.Rarity.COMMON)
+	# Gemischte Einzel-Sigille; höhere Raritäts-Stufen heben die Mindest-Seltenheit.
+	var sigil_floor := Sigil.Rarity.COMMON
+	if rarity_tier >= 2:
+		sigil_floor = Sigil.Rarity.RARE
+	elif rarity_tier >= 1:
+		sigil_floor = Sigil.Rarity.UNCOMMON
+	spread.sigil_offers = Sigil.roll_draft(run.shop_sigil_slots(), sigil_floor)
 	spread.sigil_bought.resize(spread.sigil_offers.size())
 	spread.sigil_bought.fill(false)
 
 	# Übertaktungen: verschiedene Kombinationen, je Angebot einmal kaufbar.
 	var keys := DiceScoring.HAND_PRIORITY.duplicate()
 	keys.shuffle()
-	for i in OVERCLOCK_OFFER_COUNT:
+	for i in run.shop_overclock_slots():
 		spread.overclock_offers.append(keys[i])
 	spread.overclock_bought.resize(spread.overclock_offers.size())
 	spread.overclock_bought.fill(false)
 	return spread
+
+## Charms mit mindestens der zur Raritäts-Stufe passenden Seltenheit; fällt bei
+## leerem Ergebnis schrittweise auf die nächst-niedrigere Schwelle zurück (nie
+## unter "ungewöhnlich").
+func _charms_at_least(pool: Array[Charm], tier: int) -> Array[Charm]:
+	var min_rank := clampi(tier, 1, 3)
+	while min_rank >= 1:
+		var out: Array[Charm] = []
+		for charm in pool:
+			if _charm_rank(charm) >= min_rank:
+				out.append(charm)
+		if not out.is_empty():
+			return out
+		min_rank -= 1
+	return []
+
+func _charm_rank(charm: Charm) -> int:
+	match charm.rarity:
+		Charm.RARITY_LEGENDARY: return 3
+		Charm.RARITY_RARE: return 2
+		Charm.RARITY_UNCOMMON: return 1
+		_: return 0
 
 ## Zeigt die aktuelle Doppelseite: Spiegel-Variablen umhängen, Spalten neu
 ## bebauen, Navigation und Kaufbarkeit aktualisieren.
@@ -815,6 +901,9 @@ func _refresh_afford_state() -> void:
 		else:
 			page_next_button.text = "›"
 			page_next_button.disabled = false
+	# Hub-Aufstieg-Knopf folgt dem Geldstand.
+	if hub_upgrade_button != null and is_instance_valid(hub_upgrade_button) and hub_upgrade_button.visible:
+		hub_upgrade_button.disabled = not run.can_upgrade_hub()
 
 func _on_run_money_changed(_money: int) -> void:
 	if visible:

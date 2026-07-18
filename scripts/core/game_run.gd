@@ -9,6 +9,7 @@ signal charms_changed
 signal sigils_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
+signal hub_level_changed(level: int)
 
 const POOL_SIZE := 30
 const BASE_GOAL := 150
@@ -16,8 +17,41 @@ const GOAL_INCREMENT := 50
 
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
 ## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
-## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter.
+## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter. Wie viele
+## Stufen tatsächlich zählen, deckelt die Hub-Stufe (max_overcharge_stages).
 const OVERCHARGE_STAGES := 5
+
+## Ausbaustufen des Hubs (Casino-Lizenz): gegen Gold jederzeit im Shop bzw. am
+## Hub kaufbar. Jede Stufe schaltet STRUKTUR frei (Shop-Plätze, Blättern,
+## Nebenwetten, Rarität, Überladungs-Deckel) - Zahlen-Boni bleiben Sache der Charms.
+## Zehn Stufen; die oberen sind bewusst teuer (Langzeit-Ziel eines Laufs).
+const HUB_MAX_LEVEL := 10
+## Preise für die Aufstiege 1→2 … 9→10 (steil steigend zum High Roller).
+const HUB_UPGRADE_PRICES := [8, 12, 18, 25, 35, 55, 80, 120, 170]
+## Lizenz-Namen je Stufe (1-basiert), aufsteigende Casino-Prestige-Tiers.
+const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Salon",
+	"VIP-Lounge", "Suite", "Penthouse", "Privatclub", "High Roller"]
+## Kurzbeschreibung, was der jeweilige AUFSTIEG (auf Stufe = Index+2) freischaltet.
+const HUB_UPGRADE_UNLOCKS := [
+	"Blättern + mehr Würfel",   # → 2 Spielecke
+	"Voller Shop",              # → 3 Lizenz
+	"Nebenwetten",              # → 4 Parkett
+	"Überladung ×4",            # → 5 Salon
+	"Bessere Ware",             # → 6 VIP-Lounge
+	"Überladung ×5",            # → 7 Suite
+	"Günstiges Blättern",       # → 8 Penthouse
+	"Erlesene Ware",            # → 9 Privatclub
+	"Legendäre Ware",           # → 10 High Roller
+]
+
+## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
+const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern + 3. Würfel-Bündel
+const HUB_FULL_GRID_LEVEL := 3     # 4 Charms + 2 Übertaktungen (voller Laden)
+const HUB_SIDE_BETS_LEVEL := 4     # Nebenwetten installiert
+const HUB_RARITY_UNCOMMON_LEVEL := 6
+const HUB_CHEAP_FLIP_LEVEL := 8    # halbierte Blätter-Gebühr
+const HUB_RARITY_RARE_LEVEL := 9
+const HUB_RARITY_LEGENDARY_LEVEL := 10
 
 var money: int = 0:
 	set(value):
@@ -26,6 +60,10 @@ var money: int = 0:
 
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
+
+## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
+## Rarität und den Überladungs-Deckel (siehe die shop_*/hub_*-Abfragen unten).
+var hub_level: int = 1
 
 ## Immer genau POOL_SIZE Einträge, jeder eine EIGENE DieDefinition-Instanz,
 ## damit eine Ätzung nie mehrere Würfel zugleich verändert.
@@ -84,6 +122,90 @@ func _neighbor_id(index: int) -> String:
 
 func add_money(amount: int) -> void:
 	money += amount
+
+# --- Hub-Ausbau ---------------------------------------------------------------
+
+## Preis des nächsten Aufstiegs; 0, wenn die Maximalstufe erreicht ist.
+func hub_upgrade_price() -> int:
+	if hub_level >= HUB_MAX_LEVEL:
+		return 0
+	return HUB_UPGRADE_PRICES[hub_level - 1]
+
+## Name der nächsten Stufe (leer bei Maximalstufe).
+func hub_next_level_name() -> String:
+	if hub_level >= HUB_MAX_LEVEL:
+		return ""
+	return HUB_LEVEL_NAMES[hub_level]
+
+## Freischaltung des nächsten Aufstiegs als Kurztext (leer bei Maximalstufe).
+func hub_next_unlock() -> String:
+	if hub_level >= HUB_MAX_LEVEL:
+		return ""
+	return HUB_UPGRADE_UNLOCKS[hub_level - 1]
+
+## Name der AKTUELLEN Stufe.
+func hub_level_name() -> String:
+	return HUB_LEVEL_NAMES[clampi(hub_level, 1, HUB_MAX_LEVEL) - 1]
+
+func can_upgrade_hub() -> bool:
+	return hub_level < HUB_MAX_LEVEL and money >= hub_upgrade_price()
+
+## Kauft den nächsten Aufstieg: Preis abziehen, Stufe heben, Signal. No-op, wenn
+## nicht bezahlbar oder bereits max.
+func upgrade_hub() -> void:
+	if not can_upgrade_hub():
+		return
+	add_money(-hub_upgrade_price())
+	hub_level += 1
+	hub_level_changed.emit(hub_level)
+
+## --- Aus der Hub-Stufe abgeleitete Struktur-Freischaltungen -------------------
+## Alles läuft über diese Abfragen, damit Aufrufer nie rohe Stufen vergleichen.
+
+## Wirksame Zahl an Überladungs-Stufen: 3 (bis Salon), 4 (Salon/VIP), 5 (ab Suite).
+func max_overcharge_stages() -> int:
+	if hub_level >= 7:
+		return 5
+	if hub_level >= 5:
+		return 4
+	return 3
+
+func side_bets_unlocked() -> bool:
+	return hub_level >= HUB_SIDE_BETS_LEVEL
+
+func shop_flipping_unlocked() -> bool:
+	return hub_level >= HUB_FLIPPING_LEVEL
+
+## Halbierte Blätter-Gebühr ab Penthouse (stapelt mit dem Wechselgeld-Charm).
+func shop_flip_fee_factor() -> float:
+	return 0.5 if hub_level >= HUB_CHEAP_FLIP_LEVEL else 1.0
+
+## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich (VIP-Lounge), 2 selten
+## (Privatclub), 3 legendär (High Roller). Steuert den garantierten Premium-Charm
+## + die Sigill-Mindestrarität.
+func shop_rarity_tier() -> int:
+	if hub_level >= HUB_RARITY_LEGENDARY_LEVEL:
+		return 3
+	if hub_level >= HUB_RARITY_RARE_LEVEL:
+		return 2
+	if hub_level >= HUB_RARITY_UNCOMMON_LEVEL:
+		return 1
+	return 0
+
+## Shop-Platzzahlen je Hub-Stufe: Stufe 1 zeigt einen kleineren Laden, ab Stufe 3
+## das volle Raster (4 Charms / 3 Würfel / 2 Übertaktungen / 3 Sigille). Höhere
+## Stufen bringen QUALITÄT (Rarität) statt mehr Plätze - das Raster bleibt gedeckelt.
+func shop_charm_slots() -> int:
+	return 4 if hub_level >= HUB_FULL_GRID_LEVEL else 3
+
+func shop_dice_slots() -> int:
+	return 3 if hub_level >= HUB_FLIPPING_LEVEL else 2
+
+func shop_overclock_slots() -> int:
+	return 2 if hub_level >= HUB_FULL_GRID_LEVEL else 1
+
+func shop_sigil_slots() -> int:
+	return 3
 
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
@@ -261,18 +383,19 @@ func stage_size(stage: int) -> int:
 func cumulative_threshold(stage: int) -> int:
 	return round_goal * ((1 << stage) - 1)
 
-## Anzahl vollständig gefüllter Überladungs-Stufen bei points (0..OVERCHARGE_STAGES).
+## Anzahl vollständig gefüllter Überladungs-Stufen bei points (0..max_overcharge_stages).
 func stages_cleared(points: int) -> int:
+	var cap := max_overcharge_stages()
 	var cleared := 0
-	while cleared < OVERCHARGE_STAGES and points >= cumulative_threshold(cleared + 1):
+	while cleared < cap and points >= cumulative_threshold(cleared + 1):
 		cleared += 1
 	return cleared
 
 ## Kumulative Stufen-Schwellen, die im Intervall (old_points, new_points] liegen
-## - die Rollover-Punkte, an denen der Drain kurz innehält.
+## - die Rollover-Punkte, an denen der Drain kurz innehält. Bis zum Deckel.
 func thresholds_crossed(old_points: int, new_points: int) -> Array[int]:
 	var crossed: Array[int] = []
-	for stage in range(1, OVERCHARGE_STAGES + 1):
+	for stage in range(1, max_overcharge_stages() + 1):
 		var t := cumulative_threshold(stage)
 		if t > old_points and t <= new_points:
 			crossed.append(t)
@@ -281,10 +404,11 @@ func thresholds_crossed(old_points: int, new_points: int) -> Array[int]:
 ## Balken-Fortschritt bei points: aktuelle Stufe (1-basiert), gefüllte Stufen,
 ## Punkte IN der aktuellen Stufe und deren Größe. Alles geräumt -> letzte Stufe voll.
 func stage_progress(points: int) -> Dictionary:
+	var cap := max_overcharge_stages()
 	var cleared := stages_cleared(points)
-	if cleared >= OVERCHARGE_STAGES:
-		var full := stage_size(OVERCHARGE_STAGES)
-		return {"stage": OVERCHARGE_STAGES, "cleared": cleared, "into_stage": full, "stage_size": full}
+	if cleared >= cap:
+		var full := stage_size(cap)
+		return {"stage": cap, "cleared": cleared, "into_stage": full, "stage_size": full}
 	var current := cleared + 1
 	return {"stage": current, "cleared": cleared,
 		"into_stage": points - cumulative_threshold(cleared), "stage_size": stage_size(current)}

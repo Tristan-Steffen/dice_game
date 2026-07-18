@@ -129,6 +129,20 @@ func test_settings_menu_entries_emit_their_action_and_close_the_menu() -> void:
 				assert_signal_emitted(hub, wanted[label], "'%s' meldet %s" % [label, wanted[label]])
 	assert_false(hub.settings_menu.visible, "eine Aktion schließt das Menü wieder")
 
+func test_debug_money_button_emits_and_keeps_menu_open() -> void:
+	watch_signals(hub)
+	hub.settings_button.pressed.emit()  # aufklappen
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var found := false
+	for button: Button in box.get_children():
+		if button.text == "Debug: +100$":
+			found = true
+			button.pressed.emit()
+			button.pressed.emit()  # zweimal für Mehrfach-Klick
+	assert_true(found, "der +100$-Knopf ist im Menü")
+	assert_signal_emit_count(hub, "debug_money_requested", 2, "je Klick ein Signal")
+	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+
 func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:
 	hub.settings_button.pressed.emit()  # Menü offen auf der Home-Seite
 	assert_true(hub.settings_menu.visible)

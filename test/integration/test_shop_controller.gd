@@ -13,6 +13,7 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
+	run.hub_level = 3  # volles Raster (4 Charms/3 Würfel/2 Übertaktungen) + Blättern
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run

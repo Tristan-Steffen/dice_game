@@ -12,8 +12,11 @@ signal settings_pressed
 ## Einträge des Einstellungs-Menüs; scene_root verbindet die Aktionen.
 signal new_game_requested
 signal debug_win_round_requested
+signal debug_money_requested
 signal library_requested
 signal test_materials_requested
+## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
+signal hub_upgrade_requested
 
 ## Farben im Stil des Displays (80s Neon).
 const FRAME_COLOR := Color("#8be9fd")
@@ -22,11 +25,32 @@ const TITLE_COLOR := Color("#ff79c6")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 const GOLD_COLOR := Color("#ffd319")
 
+## Signaturfarbe je Hub-Stufe (1..10): der ganze Hub wechselt Rahmen-, Hintergrund-
+## und Lizenz-Farbe, damit die Ausbaustufe schon aus der Ferne ablesbar ist. Kühl
+## (Hinterzimmer) über warm bis zur überhellen High-Roller-Krone (blüht).
+const HUB_TIER_COLORS := [
+	Color("#6478a8"),  # 1 Hinterzimmer - Schiefer
+	Color("#8be9fd"),  # 2 Spielecke - Cyan
+	Color("#2dd4bf"),  # 3 Lizenz - Türkis
+	Color("#50fa7b"),  # 4 Parkett - Grün
+	Color("#b6f24a"),  # 5 Salon - Limette
+	Color("#ffd319"),  # 6 VIP-Lounge - Gold
+	Color("#ff9e3d"),  # 7 Suite - Bernstein
+	Color("#ff79c6"),  # 8 Penthouse - Rosa
+	Color("#b06bff"),  # 9 Privatclub - Violett
+	Color("#ffe6a0"),  # 10 High Roller - Weißgold (wird überhell)
+]
+
 var round_label: Label
 var money_label: Label
 ## Rundenbonus-Zeilen - leuchten beim Auszählen des Rundenendes golden auf.
 var blind_payout_label: Label
 var die_payout_label: Label
+## Lizenz-Zeile + nächste Freischaltung als Plan + Aufstieg-Knopf.
+var hub_level_label: Label
+var hub_next_label: Label
+var upgrade_button: Button
+var _hub_level := 1
 
 var info_page: VBoxContainer
 
@@ -49,6 +73,11 @@ var _built := false
 
 var _frame_style: StyleBoxFlat
 var _frame_tween: Tween
+## Rahmen-Grundzustand je Hub-Stufe: flash_frame/Gold-Ladung kehren HIERHIN zurück
+## (nicht zum Stufe-1-Neon), damit der Ausbau am Rahmen sichtbar bleibt.
+var _frame_base_color := FRAME_COLOR
+var _frame_bg := FRAME_BG
+var _frame_base_width_u := 0.3
 
 ## Baut den Inhalt passend zur (von TableScreen.place_hub gesetzten) Größe -
 ## einmalig, direkt nach dem Platzieren.
@@ -119,12 +148,24 @@ func layout() -> void:
 	_make_line(info_page, "Rundenbonus", u * 4.4, TITLE_COLOR)
 	blind_payout_label = _make_line(info_page, "5$ pro Blind", u * 4.4, TEXT_COLOR)
 	die_payout_label = _make_line(info_page, "1$ pro Würfel übrig", u * 4.4, TEXT_COLOR)
+	# Lizenz-Zeile: aktuelle Hub-Stufe (golden, wie eine Casino-Lizenz) + der
+	# nächste Ausbau als Plan-Zeile darunter (cyan, dezenter).
+	hub_level_label = _make_line(info_page, "Hub: Hinterzimmer", u * 4.4, GOLD_COLOR)
+	hub_next_label = _make_line(info_page, "", u * 3.2, FRAME_COLOR)
 
-	# Fußzeile: info_page dehnt sich senkrecht, der Platzhalter drückt den
-	# Knopf nach rechts unten.
+	# Fußzeile: Aufstieg-Knopf unten links, Platzhalter drückt Einstellungen rechts.
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
+	footer.add_theme_constant_override("separation", int(u * 2.0))
 	column.add_child(footer)
+	upgrade_button = Button.new()
+	upgrade_button.name = "UpgradeButton"
+	upgrade_button.text = "⬆ Ausbau"
+	upgrade_button.focus_mode = Control.FOCUS_NONE
+	upgrade_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(upgrade_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.2))
+	upgrade_button.pressed.connect(func() -> void: hub_upgrade_requested.emit())
+	footer.add_child(upgrade_button)
 	footer.add_child(_make_h_spacer())
 	settings_button = Button.new()
 	settings_button.name = "SettingsButton"
@@ -164,11 +205,15 @@ func _build_settings_menu(u: float) -> void:
 		u, new_game_requested.emit)
 	_make_menu_button(box, "Debug: Runde gewinnen", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_win_round_requested.emit)
+	# Bleibt offen für schnelles Mehrfach-Klicken (+$100 je Klick).
+	_make_menu_button(box, "Debug: +100$", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
+		u, debug_money_requested.emit, true)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
 
+## keep_open = true lässt das Menü nach dem Klick offen (für Mehrfach-Klick-Debug).
 func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,
-		u: float, on_pressed: Callable) -> Button:
+		u: float, on_pressed: Callable, keep_open := false) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.focus_mode = Control.FOCUS_NONE
@@ -177,7 +222,8 @@ func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color
 	CasinoStyle.style_button(button, accent, dark, int(u * 3.0))
 	button.pressed.connect(func() -> void:
 		on_pressed.call()
-		settings_menu.visible = false)
+		if not keep_open:
+			settings_menu.visible = false)
 	parent.add_child(button)
 	return button
 
@@ -232,11 +278,11 @@ func flash_frame(color: Color) -> void:
 	# Füllung/Randbreite auf Grundwerte zurücksetzen - räumt eine etwaige
 	# unterbrochene Gold-Ladung auf, sonst bliebe der Hub golden.
 	_charge = 0.0
-	_frame_style.bg_color = FRAME_BG
-	_frame_style.set_border_width_all(maxi(2, int(size.x / 100.0 * 0.3)))
+	_frame_style.bg_color = _frame_bg
+	_frame_style.set_border_width_all(maxi(2, int(size.x / 100.0 * _frame_base_width_u)))
 	_frame_style.border_color = color
 	_frame_tween = create_tween()
-	_frame_tween.tween_property(_frame_style, "border_color", FRAME_COLOR, 0.5) \
+	_frame_tween.tween_property(_frame_style, "border_color", _frame_base_color, 0.5) \
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 ## Gold-Ladung des Hubs (Übertaktungs-Kauf): jeder ankommende Geld-Chip lädt
@@ -268,9 +314,9 @@ func discharge_gold(duration: float) -> void:
 func _apply_charge(value: float) -> void:
 	_charge = value
 	var u := size.x / 100.0
-	_frame_style.border_color = FRAME_COLOR.lerp(PULSE_BORDER, value)
-	_frame_style.bg_color = FRAME_BG.lerp(PULSE_FILL, value)
-	_frame_style.set_border_width_all(maxi(2, int(lerpf(u * 0.3, u * 0.8, value))))
+	_frame_style.border_color = _frame_base_color.lerp(PULSE_BORDER, value)
+	_frame_style.bg_color = _frame_bg.lerp(PULSE_FILL, value)
+	_frame_style.set_border_width_all(maxi(2, int(lerpf(u * _frame_base_width_u, u * 0.8, value))))
 
 ## Hängt ein Vollflächen-Panel als SEITE an: ab jetzt setzt der Hub die
 ## Eine-Seite-Regel durch; die Panels öffnen/schließen sich weiter selbst
@@ -363,6 +409,50 @@ func set_run_info(round_number: int, money: int) -> void:
 		return
 	round_label.text = "Runde %d" % round_number
 	money_label.text = "$%d" % money
+
+## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung
+## als Plan) und die Rahmen-Stufe (dicker + eine Spur goldener je Stufe). next_name
+## leer = Maximalstufe (Knopf verschwindet).
+func set_hub_level(level: int, level_name: String, next_name: String, unlock: String, price: int) -> void:
+	if not _built:
+		return
+	_hub_level = level
+	hub_level_label.text = "Hub: %s  (Stufe %d)" % [level_name, level]
+	if next_name == "":
+		upgrade_button.visible = false
+		hub_next_label.text = "voll ausgebaut"
+	else:
+		upgrade_button.visible = true
+		upgrade_button.text = "⬆ Ausbau  (%d$)" % price
+		hub_next_label.text = "→ %s: %s" % [next_name, unlock]
+	_apply_frame_tier()
+
+## Graut den Aufstieg-Knopf aus, wenn der Preis (noch) nicht bezahlbar ist.
+func set_hub_upgrade_affordable(affordable: bool) -> void:
+	if _built and upgrade_button != null and upgrade_button.visible:
+		upgrade_button.disabled = not affordable
+
+## Voller Re-Skin des Hubs aus der Stufe: Rahmenfarbe = Signaturfarbe der Stufe,
+## Rahmen dicker, Hintergrund leicht in die Farbe getönt (Fern-Erkennung) und die
+## Lizenz-Zeile in derselben Farbe. Höchststufe blüht überhell (Krone).
+func _apply_frame_tier() -> void:
+	if _frame_style == null:
+		return
+	var last := HUB_TIER_COLORS.size() - 1
+	var tier: Color = HUB_TIER_COLORS[clampi(_hub_level - 1, 0, last)]
+	if _hub_level > last:  # High Roller: überheller Rahmen (Bloom = Krone)
+		tier = Color(tier.r * 1.7, tier.g * 1.6, tier.b * 1.25)
+	_frame_base_color = tier
+	var t := clampf(float(_hub_level - 1) / float(maxi(1, last)), 0.0, 1.0)
+	_frame_base_width_u = 0.3 + t * 0.5
+	# Panel-Hintergrund eine Spur in die Tier-Farbe (dezent, damit Text lesbar bleibt).
+	_frame_bg = FRAME_BG.lerp(Color(tier.r, tier.g, tier.b, FRAME_BG.a), 0.16)
+	if hub_level_label != null:
+		hub_level_label.modulate = tier
+	if _charge <= 0.0:  # nicht mitten in einer Gold-Ladung übermalen
+		_frame_style.border_color = _frame_base_color
+		_frame_style.bg_color = _frame_bg
+		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
 
 func _make_line(parent: Control, text: String, font_size: float, color: Color) -> Label:
 	var label := Label.new()

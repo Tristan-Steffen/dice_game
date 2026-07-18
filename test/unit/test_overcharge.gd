@@ -6,6 +6,7 @@ extends GutTest
 func _run(goal: int = 150) -> GameRun:
 	var run := GameRun.new_run()
 	run.round_goal = goal
+	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle 5 Stufen (Deckel-Tests: eigener Helfer)
 	return run
 
 func test_stage_sizes_double_each_step() -> void:

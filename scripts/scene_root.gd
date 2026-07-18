@@ -521,7 +521,9 @@ func _setup_settings_ui() -> void:
 		settings_menu.visible = false
 		table_screen.hub.new_game_requested.connect(_on_reset_button_pressed)
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
+		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
+		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
@@ -639,6 +641,41 @@ func _on_money_changed(new_money: int) -> void:
 	_refresh_hub_info()
 	_play_money_light(delta)
 
+## Aufstieg-Knopf am Hub gedrückt: Ausbau über GameRun buchen (No-op wenn nicht
+## bezahlbar oder max). Die Zeremonie folgt aus hub_level_changed.
+func _on_hub_upgrade_pressed() -> void:
+	if run == null:
+		return
+	run.upgrade_hub()
+
+## Hub-Stufe gestiegen: Struktur-Freischaltungen anwenden + Aufstiegs-Zeremonie
+## (Rahmen blitzt golden, Stoßwelle am Hub).
+func _on_hub_level_changed(level: int) -> void:
+	_sync_hub_level_state()
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	if charm_shop != null and charm_shop.visible:
+		charm_shop.refresh_after_hub_upgrade()
+	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
+	# öffnen, damit sich der Kauf gleich auszahlt.
+	if level == GameRun.HUB_SIDE_BETS_LEVEL and table_screen != null:
+		table_screen.celebrate_side_bet_install(CasinoStyle.GOLD_INTENSE)
+		if phase == Phase.SHOP:
+			_open_side_bet_betting()
+
+## Wendet den aktuellen Hub-Stufen-Zustand überall an: Plakette + Knopf am Hub,
+## Shop-Knopf, und die Installation des Nebenwetten-Fensters. Idempotent - auch
+## bei Spielstart und nach Reset aufgerufen.
+func _sync_hub_level_state() -> void:
+	if run == null:
+		return
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_hub_level(run.hub_level, run.hub_level_name(),
+			run.hub_next_level_name(), run.hub_next_unlock(), run.hub_upgrade_price())
+		table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
+	if table_screen != null:
+		table_screen.set_side_bet_installed(run.side_bets_unlocked())
+
 ## Offene Gold-Ladung des Hubs: Chips, die für einen Übertaktungs-Kauf
 ## unterwegs sind - jede Ankunft lädt den Hub eine Stufe weiter auf statt zu
 ## blitzen (siehe _on_combo_upgraded).
@@ -742,6 +779,8 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money)
+	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
+	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -1399,7 +1438,7 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.CHARMS)
 	elif collider == hub_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
-	elif collider == side_bets_click_zone:
+	elif collider == side_bets_click_zone and run != null and run.side_bets_unlocked():
 		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
 	elif collider == score_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
@@ -2505,10 +2544,12 @@ func _connect_run() -> void:
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
+	run.hub_level_changed.connect(_on_hub_level_changed)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
 	_on_charms_changed()
 	_refresh_combo_label_texts()
+	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
@@ -2606,7 +2647,7 @@ func _on_bank_button_pressed() -> void:
 ## Runde endet automatisch nur bei voller Überladung oder erschöpftem Pool;
 ## nach der ersten gefüllten Stufe kann der Spieler per Bank-Knopf früher beenden.
 func _round_should_end() -> bool:
-	return run.stages_cleared(hand_total) >= GameRun.OVERCHARGE_STAGES \
+	return run.stages_cleared(hand_total) >= run.max_overcharge_stages() \
 		or _remaining_in_pool() < HAND_SIZE
 
 ## Rundenende: je gefüllter Überladungs-Stufe MONEY_PER_ROUND_CLEAR (× Stufen)
@@ -2716,6 +2757,8 @@ func _draft_floor_rarity() -> Sigil.Rarity:
 
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:
+	if run == null or not run.side_bets_unlocked():
+		return  # Nebenwetten erst ab Hub-Stufe 3 installiert
 	betting_open = true
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.open_betting(SideBet.roll_offers(SideBetPanel.OFFER_COUNT))
@@ -2867,6 +2910,11 @@ func _on_debug_win_round_pressed() -> void:
 		return
 	hand_total = run.round_goal
 	_on_round_complete()  # setzt die Phase - stoppt auch einen laufenden Wurf
+
+## Debug: +100$ je Klick (Menü bleibt offen für Mehrfach-Klick).
+func _on_debug_money_pressed() -> void:
+	if run != null:
+		run.add_money(100)
 
 ## Sichtbarkeit der Spiel-UI nach Spielzustand (false während Shop/GameOver).
 func _set_gameplay_ui_visible(is_visible: bool) -> void:

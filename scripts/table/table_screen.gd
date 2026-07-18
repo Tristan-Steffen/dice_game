@@ -1011,6 +1011,30 @@ func link_hub_to_cluster() -> void:
 	led_strip.link_from_hub_top(Rect2(hub.position, hub.size), cluster_rect,
 		HUB_STRIP_WIDTH, _hub_strip_exit_x(false), _hub_strip_lane_y())
 
+## Installiert bzw. entfernt das Nebenwetten-Fenster (Hub-Stufe 3). Blendet das
+## Fenster ein/aus, synchronisiert die Glas-Spiegelung und die Schatz-Ader-
+## Abzweigung (Fork). place_side_bet_window muss zuvor Position/Größe gesetzt haben.
+func set_side_bet_installed(installed: bool) -> void:
+	if side_bet_window == null or side_bet_window.size.x <= 0.0:
+		return  # noch nicht platziert
+	if side_bet_window.visible == installed:
+		return
+	side_bet_window.visible = installed
+	_sync_reflection_windows()
+	link_hub_to_treasure()  # Fork zum Fenster erscheint/verschwindet mit der Sichtbarkeit
+
+## Installations-Zeremonie (Hub-Stufe 3): Stoßwelle am frisch installierten
+## Nebenwetten-Fenster + ein Komet vom Hub die Schatz-Ader entlang zur neuen
+## Hardware. Liefert die Kometen-Laufzeit.
+func celebrate_side_bet_install(color: Color) -> float:
+	if side_bet_window == null or not side_bet_window.visible:
+		return 0.0
+	var center := side_bet_window.position + side_bet_window.size * 0.5
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(color.r, color.g, color.b, 0.9), side_bet_window.size.x * 0.6, 0.6)
+	return side_bet_stake_comet(true, color)
+
 ## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:
 	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \
