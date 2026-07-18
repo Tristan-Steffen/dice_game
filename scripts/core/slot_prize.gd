@@ -37,7 +37,7 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 			p.label = "%d Sigill%s" % [n, "" if n == 1 else "e"]
 		"charm":
 			p.kind = Kind.CHARM
-			p.charm = _roll_charm(String(spec.get("floor", Charm.RARITY_COMMON)))
+			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)))
 			p.label = p.charm.display_name if p.charm != null else "Charm"
 		"die":
 			p.kind = Kind.DIE
@@ -58,18 +58,20 @@ static func symbol_for(kind_value: int) -> String:
 		Kind.DIE: return "⬢"
 	return "✖"   # Fumble
 
-## Zufälliger Charm mindestens der Rarität floor_name, gewichtet (fällt auf den
-## vollen Pool zurück, falls die Untergrenze nichts übrig lässt).
-static func _roll_charm(floor_name: String) -> Charm:
+## Zufälliger Charm GENAU der Rarität rarity_name, gewichtet. Fehlt diese Stufe,
+## eine Stufe tiefer, bis der Pool nicht leer ist.
+static func _roll_charm(rarity_name: String) -> Charm:
 	var order := [Charm.RARITY_COMMON, Charm.RARITY_UNCOMMON, Charm.RARITY_RARE, Charm.RARITY_LEGENDARY]
-	var floor_idx := maxi(0, order.find(floor_name))
-	var pool: Array[Charm] = []
-	for charm in Charm.all():
-		if order.find(charm.rarity) >= floor_idx:
-			pool.append(charm)
-	if pool.is_empty():
-		pool = Charm.all()
-	return Charm.pick_weighted(pool)
+	var idx := maxi(0, order.find(rarity_name))
+	while idx >= 0:
+		var pool: Array[Charm] = []
+		for charm in Charm.all():
+			if charm.rarity == order[idx]:
+				pool.append(charm)
+		if not pool.is_empty():
+			return Charm.pick_weighted(pool)
+		idx -= 1
+	return Charm.pick_weighted(Charm.all())
 
 static func _roll_die() -> DieDefinition:
 	var offers := DiceOffer.roll_offers(1)

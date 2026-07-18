@@ -43,6 +43,8 @@ var _content: VBoxContainer
 ## Neon-Linien über den Walzen, die jede aktive Kombination verbinden (auf self,
 ## damit sie spaltenübergreifend über die Automaten-Lücken hinweg zeichnen).
 var _run_overlay: RunOverlay
+## Auszahlungs-Jubel am Sitzungsende: Sigill-Icons und Münzen ploppen auf.
+var _reveal: Control
 ## Je Automat MACHINE_COLS Spalten-Panels (geklammert, für die Streifen-Animation).
 var _reel_cols: Array = [[], [], []]
 ## Je Automat MACHINE_COLS Spalten à ROWS Symbol-Labels (Ruhe-Anzeige).
@@ -356,35 +358,89 @@ func _pot_tray(u: float) -> Control:
 	elif runs.is_empty():
 		box.add_child(_label("keine Reihe – noch nichts im Topf.", u * 2.8, MUTED_COLOR))
 	else:
-		var wins := HFlowContainer.new()
-		wins.add_theme_constant_override("h_separation", int(u * 1.2))
-		wins.add_theme_constant_override("v_separation", int(u * 0.6))
-		wins.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for descriptor: Dictionary in runs:
-			wins.add_child(_run_chip(descriptor, u))
-		box.add_child(wins)
+		box.add_child(_pot_summary_chips(u))
 
 	box.add_child(_cash_out_button(u, busted, runs.size()))
+	box.add_child(_legend_row(u))
 	box.add_child(_label("3+ gleiche nebeneinander = Gewinn. 3 Fumble nebeneinander = Topf weg.",
-		u * 2.2, MUTED_COLOR))
+		u * 2.0, MUTED_COLOR))
 	return box
 
-## Eine Gewinn-Reihe als Chip (Symbol-Farbe + Beschriftung aus dem Deskriptor).
-func _run_chip(descriptor: Dictionary, u: float) -> Control:
-	var color := _kind_color(int(descriptor["kind"]))
+## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Geld, Sigille,
+## Charms, Würfel) statt jeder einzelnen Reihe.
+func _pot_summary_chips(u: float) -> Control:
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", int(u * 1.2))
+	chips.add_theme_constant_override("v_separation", int(u * 0.6))
+	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var summary: Dictionary = run.slot_bank.pot_summary()
+	if int(summary["money"]) > 0:
+		chips.add_child(_summary_chip(GOLD, "$%d" % int(summary["money"]), u))
+	var sig := int(summary["sigils"])
+	if sig > 0:
+		chips.add_child(_summary_chip(SIGIL_GLOW, "%s %d Sigill%s"
+			% [SlotPrize.symbol_for(SlotPrize.Kind.SIGIL), sig, "" if sig == 1 else "e"], u))
+	var charms: Array = summary["charms"]
+	if not charms.is_empty():
+		chips.add_child(_summary_chip(GREEN, "%s %s"
+			% [SlotPrize.symbol_for(SlotPrize.Kind.CHARM), _charm_chip_text(charms)], u))
+	var dice := int(summary["dice"])
+	if dice > 0:
+		chips.add_child(_summary_chip(CYAN, "%s %d Würfel"
+			% [SlotPrize.symbol_for(SlotPrize.Kind.DIE), dice], u))
+	return chips
+
+## Ein zusammengefasster Gewinn-Chip (Symbol-Farbe + Text).
+func _summary_chip(color: Color, text: String, u: float) -> Control:
 	var chip := Label.new()
-	chip.text = String(descriptor["label"])
-	chip.add_theme_font_size_override("font_size", maxi(8, int(u * 2.4)))
+	chip.text = text
+	chip.add_theme_font_size_override("font_size", maxi(9, int(u * 2.8)))
 	chip.add_theme_color_override("font_color", TEXT_COLOR)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var pad := StyleBoxFlat.new()
-	pad.bg_color = Color(color.r * 0.22, color.g * 0.22, color.b * 0.22, 0.85)
+	pad.bg_color = Color(color.r * 0.22, color.g * 0.22, color.b * 0.22, 0.9)
 	pad.border_color = color
-	pad.set_border_width_all(maxi(1, int(u * 0.18)))
+	pad.set_border_width_all(maxi(1, int(u * 0.2)))
 	pad.set_corner_radius_all(int(u * 1.2))
-	pad.set_content_margin_all(int(u * 0.6))
+	pad.set_content_margin_all(int(u * 0.7))
 	chip.add_theme_stylebox_override("normal", pad)
 	return chip
+
+func _charm_chip_text(charms: Array) -> String:
+	if charms.size() == 1:
+		return "%s Charm" % _rarity_adjective(String(charms[0]))
+	return "%d Charms" % charms.size()
+
+func _rarity_adjective(rarity: String) -> String:
+	match rarity:
+		Charm.RARITY_COMMON: return "gewöhnlicher"
+		Charm.RARITY_UNCOMMON: return "ungewöhnlicher"
+		Charm.RARITY_RARE: return "seltener"
+		Charm.RARITY_LEGENDARY: return "legendärer"
+	return ""
+
+## Legende: was jedes Wand-Symbol bedeutet. Glyphen/Farben kommen aus SlotPrize/
+## _kind_color, damit sie nie von der Wand abweichen.
+func _legend_row(u: float) -> Control:
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", int(u * 1.6))
+	flow.add_theme_constant_override("v_separation", int(u * 0.3))
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var names := {
+		SlotPrize.Kind.MONEY: "Geld", SlotPrize.Kind.SIGIL: "Sigill",
+		SlotPrize.Kind.CHARM: "Charm", SlotPrize.Kind.DIE: "Würfel",
+		SlotPrize.Kind.FUMBLE: "Fumble"}
+	for kind in [SlotPrize.Kind.MONEY, SlotPrize.Kind.SIGIL, SlotPrize.Kind.CHARM,
+			SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
+		var entry := HBoxContainer.new()
+		entry.add_theme_constant_override("separation", int(u * 0.4))
+		entry.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		entry.add_child(_label(SlotPrize.symbol_for(kind), u * 2.4, _kind_color(kind)))
+		var word := _label(names[kind], u * 2.0, MUTED_COLOR)
+		word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		entry.add_child(word)
+		flow.add_child(entry)
+	return flow
 
 func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 	var button := Button.new()
@@ -527,6 +583,7 @@ func _on_cash_out_pressed() -> void:
 	cashed_out.emit(int(result["runs"].size()))
 	_build()
 	_flash_win()
+	_play_payout_reveal(result["prizes"])
 
 # --- Animation ------------------------------------------------------------------
 
@@ -556,6 +613,207 @@ func _flash_win() -> void:
 	var glow := create_tween()
 	glow.tween_property(self, "modulate", Color(1.5, 1.35, 0.7), 0.12)
 	glow.tween_property(self, "modulate", Color.WHITE, 0.4)
+
+# --- Auszahlungs-Jubel -----------------------------------------------------------
+
+const RARITY_COLORS := {
+	Sigil.Rarity.COMMON: Color("#8be9fd"),
+	Sigil.Rarity.UNCOMMON: Color("#50fa7b"),
+	Sigil.Rarity.RARE: Color("#ffd319"),
+}
+
+## Zeigt am Sitzungsende, WAS und WIE VIEL gewonnen wurde: Münzen für Geld, je ein
+## Icon je Sigill-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt
+## auf, halten kurz und blenden aus.
+func _play_payout_reveal(prizes: Array) -> void:
+	var money := 0
+	var sigil_counts := {}   # id -> {sigil, count}
+	var sigil_order: Array = []
+	var charms: Array = []
+	var dice := 0
+	for prize: SlotPrize in prizes:
+		match prize.kind:
+			SlotPrize.Kind.MONEY:
+				money += prize.money
+			SlotPrize.Kind.SIGIL:
+				for s: Sigil in prize.sigils:
+					if not sigil_counts.has(s.id):
+						sigil_counts[s.id] = {"sigil": s, "count": 0}
+						sigil_order.append(s.id)
+					sigil_counts[s.id]["count"] += 1
+			SlotPrize.Kind.CHARM:
+				if prize.charm != null:
+					charms.append(prize.charm)
+			SlotPrize.Kind.DIE:
+				dice += 1
+	if money <= 0 and sigil_order.is_empty() and charms.is_empty() and dice == 0:
+		return
+
+	var u := maxf(size.x, 200.0) / 100.0
+	if _reveal != null and is_instance_valid(_reveal):
+		_reveal.queue_free()
+	_reveal = Control.new()
+	_reveal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_reveal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_reveal)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.02, 0.01, 0.06, 0.35)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reveal.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reveal.add_child(center)
+
+	var flow := HFlowContainer.new()
+	flow.alignment = FlowContainer.ALIGNMENT_CENTER
+	flow.add_theme_constant_override("h_separation", int(u * 1.6))
+	flow.add_theme_constant_override("v_separation", int(u * 1.2))
+	flow.custom_minimum_size = Vector2(size.x * 0.86, 0)
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(flow)
+
+	var tokens: Array = []
+	if money > 0:
+		tokens.append(_coin_token(money, u))
+	for id in sigil_order:
+		tokens.append(_sigil_token(sigil_counts[id]["sigil"], int(sigil_counts[id]["count"]), u))
+	for charm in charms:
+		tokens.append(_glyph_token("✦", GREEN, charm.display_name, u))
+	if dice > 0:
+		tokens.append(_glyph_token("⬢", CYAN, "%d Würfel" % dice, u))
+	for token in tokens:
+		token.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
+		flow.add_child(token)
+
+	_animate_reveal(tokens)
+
+## Pop-in gestaffelt (Pivot erst nach dem Layout), halten, ausblenden, freigeben.
+func _animate_reveal(tokens: Array) -> void:
+	await get_tree().process_frame
+	if not is_instance_valid(_reveal):
+		return
+	var last := 0.0
+	for i in tokens.size():
+		var token: Control = tokens[i]
+		if not is_instance_valid(token):
+			continue
+		token.pivot_offset = token.size / 2.0
+		var pop := create_tween()
+		pop.tween_interval(i * 0.09)
+		pop.tween_property(token, "scale", Vector2.ONE, 0.42) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		last = i * 0.09
+	var fade := create_tween()
+	fade.tween_interval(last + 1.7)
+	fade.tween_property(_reveal, "modulate:a", 0.0, 0.5)
+	fade.tween_callback(func() -> void:
+		if is_instance_valid(_reveal):
+			_reveal.queue_free())
+
+## Münz-Token: gezeichneter Münzstapel + „+$N".
+func _coin_token(money: int, u: float) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", int(u * 0.6))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var stack := CoinStack.new()
+	stack.custom_minimum_size = Vector2(u * 12.0, u * 10.0)
+	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(stack)
+	var label := _label("+$%d" % money, u * 3.0, Color(GOLD.r * 1.5, GOLD.g * 1.4, GOLD.b * 0.9))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(label)
+	return box
+
+## Sigill-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
+## Plakette und Name.
+func _sigil_token(sigil: Sigil, count: int, u: float) -> Control:
+	var color: Color = RARITY_COLORS.get(sigil.rarity, MUTED_COLOR)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", int(u * 0.5))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var frame := Panel.new()
+	frame.custom_minimum_size = Vector2(u * 11.5, u * 11.5)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fbox := StyleBoxFlat.new()
+	fbox.bg_color = Color(color.r * 0.16, color.g * 0.16, color.b * 0.16, 0.95)
+	fbox.border_color = color
+	fbox.set_border_width_all(maxi(2, int(u * 0.5)))
+	fbox.set_corner_radius_all(int(u * 1.6))
+	frame.add_theme_stylebox_override("panel", fbox)
+
+	var icon := _sigil_icon_node(sigil, u)
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = u * 1.2
+	icon.offset_top = u * 1.2
+	icon.offset_right = -u * 1.2
+	icon.offset_bottom = -u * 1.2
+	frame.add_child(icon)
+
+	if count > 1:
+		var badge := _label("×%d" % count, u * 3.4, TEXT_COLOR)
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		badge.offset_right = -u * 0.8
+		badge.offset_bottom = -u * 0.4
+		var bg := StyleBoxFlat.new()
+		bg.bg_color = Color(0.05, 0.03, 0.12, 0.85)
+		badge.add_theme_stylebox_override("normal", bg)
+		frame.add_child(badge)
+	box.add_child(frame)
+
+	var name := _label(sigil.display_name, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name.custom_minimum_size = Vector2(u * 11.5, 0)
+	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(name)
+	return box
+
+## Icon eines Sigills: Textur, falls vorhanden, sonst eine Ersatz-Kachel mit Glyphe.
+func _sigil_icon_node(sigil: Sigil, u: float) -> Control:
+	if sigil.texture_path != "" and ResourceLoader.exists(sigil.texture_path):
+		var tex := TextureRect.new()
+		tex.texture = load(sigil.texture_path)
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return tex
+	var fallback := _label("◈", u * 6.2, RARITY_COLORS.get(sigil.rarity, SIGIL_GLOW))
+	fallback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fallback.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return fallback
+
+## Einfaches Glyph-Token (Charm/Würfel): großes Symbol + Name.
+func _glyph_token(glyph: String, color: Color, caption: String, u: float) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", int(u * 0.5))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var frame := Panel.new()
+	frame.custom_minimum_size = Vector2(u * 11.5, u * 11.5)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fbox := StyleBoxFlat.new()
+	fbox.bg_color = Color(color.r * 0.16, color.g * 0.16, color.b * 0.16, 0.95)
+	fbox.border_color = color
+	fbox.set_border_width_all(maxi(2, int(u * 0.5)))
+	fbox.set_corner_radius_all(int(u * 1.6))
+	frame.add_theme_stylebox_override("panel", fbox)
+	var glyph_label := _label(glyph, u * 6.2, Color(color.r * 1.3, color.g * 1.3, color.b * 1.3))
+	glyph_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glyph_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	frame.add_child(glyph_label)
+	box.add_child(frame)
+	var caption_label := _label(caption, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
+	caption_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption_label.custom_minimum_size = Vector2(u * 11.5, 0)
+	caption_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(caption_label)
+	return box
 
 # --- Bausteine -----------------------------------------------------------------
 
@@ -613,3 +871,20 @@ class RunOverlay:
 			draw_polyline(pts, Color(col.r, col.g, col.b, 0.9), w, true)
 			for p in pts:
 				draw_circle(p, w * 0.9, Color(col.r, col.g, col.b, 0.85))
+
+## Gezeichneter Münzstapel für das Auszahlungs-Token (drei überlappende Goldmünzen).
+class CoinStack:
+	extends Control
+
+	const GOLD := Color("#ffd319")
+	const GOLD_DARK := Color("#c8912a")
+
+	func _draw() -> void:
+		var r := minf(size.x, size.y) * 0.34
+		var cx := size.x * 0.5
+		for i in 3:
+			var cy := size.y * 0.72 - i * r * 0.55
+			draw_circle(Vector2(cx, cy + r * 0.16), r, Color(0, 0, 0, 0.35))       # Schatten
+			draw_circle(Vector2(cx, cy), r, GOLD_DARK)                              # Rand
+			draw_circle(Vector2(cx, cy), r * 0.82, GOLD)                            # Fläche
+			draw_circle(Vector2(cx, cy), r * 0.5, Color(GOLD.r * 1.4, GOLD.g * 1.3, GOLD.b * 0.8))  # Glanz

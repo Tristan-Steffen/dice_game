@@ -102,6 +102,22 @@ func _in_bounds(col: int, row: int) -> bool:
 func hit_count() -> int:
 	return runs().size()
 
+## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
+## Anzeige): {money:int, sigils:int, charms:Array[String]-Raritäten, dice:int}.
+func pot_summary() -> Dictionary:
+	var money := 0
+	var sigils := 0
+	var charms: Array = []
+	var dice := 0
+	for run in runs():
+		for spec: Dictionary in run["specs"]:
+			match String(spec["kind"]):
+				"money": money += int(spec["amount"])
+				"sigil": sigils += int(spec["count"])
+				"charm": charms.append(String(spec["rarity"]))
+				"die": dice += 1
+	return {"money": money, "sigils": sigils, "charms": charms, "dice": dice}
+
 ## Dreht Automat machine: füllt seine MACHINE_COLS Spalten mit gewichteten Symbolen
 ## und prüft die Wand auf einen Bust (drei Fumbles nebeneinander). Liefert den
 ## gedrehten Block (Array von MACHINE_COLS Spalten à ROWS Kinds) für die
@@ -156,7 +172,7 @@ func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 		SlotPrize.Kind.SIGIL:
 			return [{"kind": "sigil", "count": length - 1, "floor": _sigil_floor(run_cols)}]
 		SlotPrize.Kind.CHARM:
-			return [{"kind": "charm", "floor": _charm_floor(length)}]
+			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
 		SlotPrize.Kind.DIE:
 			var specs: Array = [{"kind": "die"}]
 			if length >= 4:
@@ -184,8 +200,9 @@ func _sigil_floor(run_cols: Array) -> int:
 		1: return Sigil.Rarity.UNCOMMON
 	return Sigil.Rarity.RARE
 
-## Charm-Untergrenze steigt mit der Reihenlänge (kürzeste Reihe ist 3).
-func _charm_floor(length: int) -> String:
+## Charm-Rarität GENAU nach Reihenlänge (immer nur ein Charm; die Länge bestimmt die
+## Rarität): 3→gewöhnlich, 4→ungewöhnlich, 5→selten, 6+→legendär.
+func _charm_rarity(length: int) -> String:
 	match length:
 		3: return Charm.RARITY_COMMON
 		4: return Charm.RARITY_UNCOMMON

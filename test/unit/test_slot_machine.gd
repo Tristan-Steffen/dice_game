@@ -115,6 +115,25 @@ func test_longer_run_pays_more() -> void:
 	var long_money := int(long_run["specs"][0]["amount"])
 	assert_gt(long_money, short_money * 2, "5er zahlt überproportional mehr als 3er")
 
+func test_pot_summary_sums_all_runs() -> void:
+	# Zeile 0: 3er-$ (Automat 0, $3). Zeile 2: 3er-Sigill (2 Sigille). Rest neutral.
+	var bank := _neutral()
+	for c in 3:
+		bank.cells[c][0] = M
+		bank.cells[c][2] = S
+	var summary := bank.pot_summary()
+	assert_eq(int(summary["money"]), 3, "Geld aller Geld-Reihen summiert")
+	assert_eq(int(summary["sigils"]), 2, "Sigille aller Sigill-Reihen summiert (3er → 2)")
+	assert_true((summary["charms"] as Array).is_empty())
+	assert_eq(int(summary["dice"]), 0)
+
+func test_pot_summary_empty_when_no_runs() -> void:
+	var summary := _neutral().pot_summary()
+	assert_eq(int(summary["money"]), 0)
+	assert_eq(int(summary["sigils"]), 0)
+	assert_true((summary["charms"] as Array).is_empty())
+	assert_eq(int(summary["dice"]), 0)
+
 func test_fumble_pair_is_harmless() -> void:
 	var bank := _neutral()
 	bank.cells[0][0] = F
