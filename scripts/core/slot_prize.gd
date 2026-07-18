@@ -47,7 +47,11 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 
 ## Neon-Glyphe der Walze (siehe SlotBankView).
 func symbol() -> String:
-	match kind:
+	return symbol_for(kind)
+
+## Symbol-Glyphe eines Kind (auch für bloße Wand-Symbole ohne aufgelösten Preis).
+static func symbol_for(kind_value: int) -> String:
+	match kind_value:
 		Kind.MONEY: return "$"
 		Kind.SIGIL: return "◈"
 		Kind.CHARM: return "✦"

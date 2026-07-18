@@ -410,25 +410,29 @@ func can_spin_slot(machine: int) -> bool:
 	return machine < slots_unlocked() and slot_bank.can_spin(machine) \
 		and money >= slot_spin_price(machine)
 
-## Bezahlt den Einsatz und dreht Automat machine. Der Gewinn wandert (bei kein
-## Fumble) in den Zwischenspeicher; gebucht wird erst beim Auszahlen. Liefert den
-## gelandeten Preis (oder null, wenn der Dreh nicht möglich war).
-func spin_slot(machine: int) -> SlotPrize:
+## Bezahlt den Einsatz und dreht Automat machine. Die gelandeten Faces wandern (bei
+## keinem Fumble) ins Gitter; gebucht wird erst beim Auszahlen. Liefert die FACES
+## gelandeten Faces (oder [], wenn der Dreh nicht möglich war).
+func spin_slot(machine: int) -> Array:
 	if not can_spin_slot(machine):
-		return null
+		return []
 	add_money(-slot_spin_price(machine))
 	return slot_bank.spin(machine)
 
-## Zahlt die Sitzung aus: bucht alle Treffer ×Multiplikator und setzt die Bank
-## zurück. Liefert die ausgezahlten Preise (für die Anzeige) samt Multiplikator
-## über slot_bank.multiplier() VOR dem Reset - hier als Rückgabe eingefroren.
+## Zahlt die Sitzung aus: löst jede Gewinn-Reihe in ihre Preise auf (der Längen-
+## Bonus steckt schon in den specs), bucht sie und setzt die Bank zurück. Liefert
+## die ausgezahlten Preise und die Reihen-Deskriptoren (für die Anzeige) - VOR dem
+## Reset eingefroren.
 func redeem_slots() -> Dictionary:
-	var mult := slot_bank.multiplier()
-	var prizes := slot_bank.pending.duplicate()
-	for prize in prizes:
-		_book_slot_prize(prize, mult)
+	var runs := slot_bank.runs()
+	var prizes: Array[SlotPrize] = []
+	for run in runs:
+		for spec: Dictionary in run["specs"]:
+			var prize := SlotPrize.from_spec(spec)
+			_book_slot_prize(prize, 1)
+			prizes.append(prize)
 	slot_bank.reset_session()
-	return {"prizes": prizes, "multiplier": mult}
+	return {"prizes": prizes, "runs": runs}
 
 func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:

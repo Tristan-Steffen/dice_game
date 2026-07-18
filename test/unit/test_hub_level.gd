@@ -190,29 +190,35 @@ func test_spin_slot_pays_and_gates_on_unlock() -> void:
 	var before := run.money
 	run.spin_slot(0)
 	assert_eq(run.money, before - run.slot_spin_price(0), "Einsatz abgezogen")
-	assert_eq(run.slot_bank.hit_count(), 1)
+	assert_false(run.slot_bank.can_spin(0), "Automat gedreht")
 
 func test_cannot_spin_slot_without_money() -> void:
-	var run := _run(2)  # Einsatz Automat I = 4
+	var run := _run(2)  # Einsatz Automat I = 8
 	run.hub_level = 3
 	assert_false(run.can_spin_slot(0))
 
-func test_redeem_books_prizes_times_multiplier() -> void:
+func test_redeem_books_run_prizes() -> void:
+	const M := SlotPrize.Kind.MONEY
+	const S := SlotPrize.Kind.SIGIL
+	const C := SlotPrize.Kind.CHARM
+	const D := SlotPrize.Kind.DIE
 	var run := _run(9999)
 	run.hub_level = 9  # alle drei frei
-	run.slot_bank.fumble_chance = 0.0
-	var prizes: Array[SlotPrize] = [run.spin_slot(0), run.spin_slot(1), run.spin_slot(2)]
-	assert_eq(run.slot_bank.multiplier(), 3, "drei Treffer ×3")
+	# Handgebaute 5×9-Wand: obere Zeile drei $ in Automat 0 (Zellwert 1, Länge-3-Bonus
+	# 1.0 ⇒ round(3×1.0)=3). Restzeilen im mod-4-Muster bilden in KEINER Richtung eine
+	# Reihe (nur so ist die Geld-Reihe die einzige).
+	var syms := [M, S, C, D]
+	for c in SlotMachine.TOTAL_COLS:
+		var col: Array = []
+		for r in SlotMachine.ROWS:
+			if r == 0:
+				col.append(M if c < 3 else [M, S, C, S, C, S, C, S, C][c])
+			else:
+				col.append(syms[(c + 2 * r) % 4])
+		run.slot_bank.cells[c] = col
+	run.slot_bank.spun = [true, true, true]
+	assert_eq(run.slot_bank.hit_count(), 1, "genau eine Reihe")
 	var money_before := run.money
-	var sigils_before := run.owned_sigils.size()
-	var expected_money := 0
-	var expected_sigils := 0
-	for prize in prizes:
-		if prize.kind == SlotPrize.Kind.MONEY:
-			expected_money += prize.money * 3
-		elif prize.kind == SlotPrize.Kind.SIGIL:
-			expected_sigils += prize.sigils.size() * 3
 	run.redeem_slots()
-	assert_eq(run.money, money_before + expected_money, "Geld ×3 gebucht")
-	assert_eq(run.owned_sigils.size(), sigils_before + expected_sigils, "Sigille ×3 gebucht")
+	assert_eq(run.money, money_before + 3, "3er-Geld-Reihe gebucht")
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
