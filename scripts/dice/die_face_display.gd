@@ -8,25 +8,25 @@ extends Node3D
 ## Glas (Albedo überall gleich), NUR Kanten-Linien und Ziffern leuchten -
 ## breite Flächen glimmen kaum. So wirken die Würfel massiv statt "Lampenschirm".
 const BODY_COLOR := Color(0.05, 0.05, 0.08)
-## Ziffern als Neonlicht (überhell -> Bloom), statt dunkler Tinte.
-const NUMBER_COLOR := Color(1.15, 1.8, 1.95)
+## Ziffern als sanftes Neonlicht (knapp überhell -> weicher Bloom, nicht grell).
+const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
 ## Sentinel "kein Kanten-Material" (Vergleichswert, siehe edge_base).
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
-## Neutrale Neon-Linienfarbe der Kanten (Casino-Cyan).
-const EDGE_NEON := Color(0.55, 0.91, 0.99)
-## Emissions-Stärken: dünne Linien dürfen weit überhell (Bloom), Flächen nicht.
+## Neutrale Neon-Linienfarbe der Kanten (warmes Teal-Weiß statt eisigem Cyan).
+const EDGE_NEON := Color(0.7, 0.86, 0.8)
+## Emissions-Stärken: dünne Linien knapp überhell (weicher Rand-Bloom), Flächen kaum.
 const FACE_GLOW := 0.16
-const EDGE_GLOW := 2.4
-const MATERIAL_FACE_GLOW := 1.5
-const MATERIAL_EDGE_GLOW := 3.0
+const EDGE_GLOW := 1.3
+const MATERIAL_FACE_GLOW := 0.7
+const MATERIAL_EDGE_GLOW := 1.5
 
 ## Echtes Umgebungslicht des Würfels - nur für die Spielwürfel aktiv, die
 ## 30+ Tray-Würfel würden das Per-Objekt-Lichtlimit des Renderers sprengen.
 ## Eng und hart abfallend: eine sichtbare Licht-Lache UNTER dem Würfel erdet
 ## ihn (die Neon-Version eines Kontaktschattens).
-const LIGHT_BASE_COLOR := Color(0.6, 0.88, 1.0)
-const LIGHT_BASE_ENERGY := 1.5
-const LIGHT_MATERIAL_ENERGY := 3.2
+const LIGHT_BASE_COLOR := Color(0.82, 0.86, 0.72)
+const LIGHT_BASE_ENERGY := 1.2
+const LIGHT_MATERIAL_ENERGY := 2.0
 const LIGHT_RANGE := 4.5
 
 ## Zusätzliche additive Glanz-Lache am Boden: folgt dem Würfel und verblasst

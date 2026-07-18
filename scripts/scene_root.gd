@@ -26,6 +26,13 @@ const PAYOUT_FLASH_DURATION := 0.3
 const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
 
+## Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken (oberste
+## Stufe zuerst). Der Abstand nach jeder Ankunft zieht leicht an (Accelerando).
+const BANK_STAGE_GAP_START := 0.28
+const BANK_STAGE_GAP_DECAY := 0.82
+const BANK_STAGE_GAP_MIN := 0.12
+const BANK_BAR_DRAIN_TIME := 0.45
+
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
 ## Größen-Pop, langsameres Abklingen - die Blitze überlappen wie eine Welle.
 const DIE_FLASH_PEAK_COLOR := Color(1.9, 1.55, 0.6)
@@ -2613,14 +2620,13 @@ func _on_round_complete() -> void:
 		var ids := run.charm_ids()
 		# Glücksgroschen skaliert mit bereits erreichten Zielen; ×Überladungsstufen.
 		var base_blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids, run.round_number - 1)
-		var blind := base_blind * stages
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		# Ausziehtisch: Ziel doppelt übertroffen -> Warteschlange wächst dauerhaft.
 		if ids.has(Charm.EXTENSION_TABLE) and hand_total >= run.round_goal * 2:
 			run.queue_bonus_slots += 1
-		await _play_round_clear_payout(blind, per_die, stages)
+		await _play_round_clear_payout(base_blind, per_die, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Zinsgroschen (auf den Stand NACH der Auszahlung) und Überflieger,
@@ -2737,19 +2743,23 @@ func _refresh_side_bet_panel() -> void:
 ## Lässt die Rundenbonus-Zeilen im Hub nacheinander golden aufleuchten,
 ## synchron zur tatsächlichen Gutschrift; die übrigen Tray-Würfel blitzen im
 ## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen).
-func _play_round_clear_payout(blind: int, per_die: int, stages: int) -> void:
+func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
 	var hub := table_screen.hub
-	# Blind-Zeile zeigt die Überladungs-Stufen (×N), sonst schlicht der Betrag.
+	var total_blind := base_blind * stages
+	# Blind-Zeile zeigt die Überladungs-Stufen (×N), sonst schlicht der Betrag; sie
+	# leuchtet erst mit den eintreffenden Kometen auf (Betrag baut sich pulsierend auf).
 	if hub != null and hub.blind_payout_label != null:
-		hub.blind_payout_label.text = ("%d$  (Überladung ×%d)" % [blind, stages]) if stages > 1 \
-			else "%d$ pro Blind" % blind
-	await _light_up_payout_label(hub.blind_payout_label if hub != null else null)
-	run.add_money(blind)
+		hub.blind_payout_label.text = ("%d$  (Überladung ×%d)" % [total_blind, stages]) if stages > 1 \
+			else "%d$ pro Blind" % total_blind
+		hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
+	# Bank-Entladung: je Stufe ein Komet aus dem Zielbalken um die Grube in den Hub;
+	# jede Ankunft blitzt den Hub-Rahmen und bucht eine Scheibe (base_blind).
+	await _play_bank_discharge(base_blind, stages, hub)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 	_fade_payout_label(hub.blind_payout_label if hub != null else null)
 
@@ -2763,6 +2773,41 @@ func _play_round_clear_payout(blind: int, per_die: int, stages: int) -> void:
 			run.add_money(per_die)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
 		_fade_payout_label(hub.die_payout_label if hub != null else null)
+
+## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
+## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine
+## Stufe, blitzt den Hub-Rahmen in der Stufenfarbe und bucht base_blind. So kommt
+## die ×N-Auszahlung in N Stößen an, statt schlagartig.
+func _play_bank_discharge(base_blind: int, stages: int, hub: HubView) -> void:
+	var gap := BANK_STAGE_GAP_START
+	for k in range(stages, 0, -1):
+		var color := table_screen.stage_fill_color(k)
+		# Balken auf die verbleibenden Stufen schrumpfen (in der nächst-tieferen Farbe).
+		var remaining_frac := float(k - 1) / float(stages)
+		var lower_color := table_screen.stage_fill_color(maxi(k - 1, 1))
+		table_screen.drain_goal_bar(remaining_frac, lower_color, BANK_BAR_DRAIN_TIME)
+		var travel: float = table_screen.bank_comet(color)
+		await get_tree().create_timer(travel).timeout
+		if phase != Phase.PAYOUT:
+			return  # Spiel während der Auszahlung zurückgesetzt
+		if hub != null:
+			hub.flash_frame(color)
+		run.add_money(base_blind)
+		_pop_payout_label(hub.blind_payout_label if hub != null else null)
+		await get_tree().create_timer(gap).timeout
+		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
+
+## Kurzer Größen-Pop + Aufleuchten einer Auszahlungs-Zeile (Bank-Komet trifft ein).
+func _pop_payout_label(label: Label) -> void:
+	if label == null:
+		return
+	label.pivot_offset = label.size / 2.0
+	label.modulate = PAYOUT_LABEL_GLOW_COLOR
+	var tween := create_tween()
+	tween.tween_property(label, "scale", Vector2.ONE * 1.28, 0.09) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "scale", Vector2.ONE, 0.2) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## Alle Anzeigen noch nicht gezogener Würfel (Warteschlange zuerst, dann
 ## Pool) in Zieh-Reihenfolge.

@@ -84,14 +84,19 @@ func test_reset_number_tints_restores_all_digits():
 
 # --- Eigenleuchten (Emission) ---------------------------------------------------
 
-func test_material_faces_glow_overbright_plain_faces_dim():
+func test_material_faces_glow_brighter_than_plain_faces():
 	var def := DieDefinition.standard()
 	def.materials[0] = DieMaterial.AMBER
 	var display := _display()
 	display.apply_definition(def)
 	var amber_emission: Color = _face_material(display, 0).emission
 	var plain_emission: Color = _face_material(display, 1).emission
-	assert_gt(amber_emission.r, 1.0, "Material-Seite strahlt überhell (> 1.0)")
+	var amber_tint := DieMaterial.tint_for(DieMaterial.AMBER)
+	# Material-Seite glimmt in Tint × MATERIAL_FACE_GLOW (gedämpft, nicht überhell -
+	# die breiten Flächen sollen nicht blühen), aber klar heller als das dunkle Glas.
+	assert_almost_eq(amber_emission.r, amber_tint.r * DieFaceDisplay.MATERIAL_FACE_GLOW, 0.001,
+		"Material-Seite = Tint × MATERIAL_FACE_GLOW")
+	assert_gt(amber_emission.r, plain_emission.r, "Material-Seite heller als neutrale Seite")
 	assert_almost_eq(plain_emission.r, DieFaceDisplay.EDGE_NEON.r * DieFaceDisplay.FACE_GLOW, 0.001,
 		"neutrale Seite glimmt nur schwach (dunkles Glas)")
 

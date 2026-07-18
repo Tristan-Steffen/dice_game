@@ -104,6 +104,9 @@ var score_rect := Rect2()
 ## auf EINE gemeinsame Sammelschiene (charm_bus_strip), die als Stamm in den Score
 ## läuft.
 var pit_score_strip: LedStripView
+## Bank-Leiste: Grube-Unterkante -> Hub-Oberkante. Über sie fährt der Bank-Komet
+## der Rundenauszahlung (Zielbalken -> um die Grube -> Hub).
+var pit_hub_strip: LedStripView
 var combos_score_strip: LedStripView
 var charm_score_strips: Array[LedStripView] = []
 var charm_bus_strip: LedStripView
@@ -234,6 +237,13 @@ func _build_content() -> void:
 	pit_score_strip.name = "PitScoreStrip"
 	pit_score_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(pit_score_strip)
+
+	# Bank-Leiste: Grube-Unterkante -> Hub-Oberkante (Rundenauszahlung fährt hier
+	# als Bank-Komet in den Hub). Vervollständigt die Verdrahtung der Hub-Oberkante.
+	pit_hub_strip = LedStripView.new()
+	pit_hub_strip.name = "PitHubStrip"
+	pit_hub_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(pit_hub_strip)
 
 	combos_score_strip = LedStripView.new()
 	combos_score_strip.name = "CombosScoreStrip"
@@ -827,6 +837,76 @@ const SCORE_COMET := 90.0 * SUPERSAMPLE  # Kometen-Fensterlänge
 const SCORE_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.95)
 const SCORE_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.95)
 
+## Bank-Entladung (Rundenauszahlung): gemächlicherer, dickerer Komet aus dem
+## Zielbalken, der die Grube umrundet und in den Hub fährt. Bewusst langsamer als
+## die Zähl-Kometen (feierlicher Abtransport der geronnenen Punkte).
+const BANK_PULSE_SPEED := 1500.0 * SUPERSAMPLE
+const BANK_PULSE_CORE := 5.5 * SUPERSAMPLE
+const BANK_PULSE_GLOW := 18.0 * SUPERSAMPLE
+const BANK_COMET := 170.0 * SUPERSAMPLE
+
+## Öffentlicher Zugriff auf die Stufenfarbe (scene_root taktet die Bank-Entladung).
+func stage_fill_color(stage: int) -> Color:
+	return _stage_fill_color(stage)
+
+## Bank-Komet: fährt vom Zielbalken senkrecht auf den Grube-Datenbus, an der
+## Grube-Oberkante SPALTET er sich (zwei Halb-Kometen um den Grubenrand, links und
+## rechts), vereint sich unten wieder und fährt über die Bank-Leiste in den Hub.
+## Beide Hälften teilen sich Bus und Bank-Leiste (dort überlagern sie zu EINEM
+## Kometen) und laufen nur um die Grube auseinander. Liefert die Laufzeit.
+func bank_comet(stage_color: Color) -> float:
+	var left := _bank_route(false)
+	var right := _bank_route(true)
+	if left.size() < 2:
+		return 0.0
+	var travel := maxf(0.2, _path_length(left) / BANK_PULSE_SPEED)
+	var color := _bank_comet_color(stage_color)
+	for route in [left, right]:
+		var pulse := TracePulseView.new()
+		add_child(pulse)
+		pulse.setup(route, color, BANK_PULSE_CORE, BANK_PULSE_GLOW, travel, BANK_COMET)
+	return travel
+
+## Überhelle Kometenfarbe aus einer Stufen-Füllfarbe (Alpha weg, Werte hoch -> Bloom).
+func _bank_comet_color(stage_color: Color) -> Color:
+	return Color(stage_color.r * 1.8, stage_color.g * 1.8, stage_color.b * 1.8, 0.95)
+
+## Halb-Route des Bank-Kometen (to_right = rechte Grubenhälfte, sonst linke).
+## Zielbalken -> Grube-Datenbus -> um die Grubenhälfte -> Bank-Leiste -> Hub-Oberkante.
+func _bank_route(to_right: bool) -> PackedVector2Array:
+	var path := PackedVector2Array()
+	if goal_bar == null or pit_window == null or hub == null:
+		return path
+	var gb := goal_bar.position + goal_bar.size * 0.5
+	var pr := Rect2(pit_window.position, pit_window.size)
+	var pcx := pr.get_center().x
+	var pit_top := pr.position.y
+	var pit_bottom := pr.end.y
+	var side_x := pr.end.x if to_right else pr.position.x
+	var hub_cx := hub.position.x + hub.size.x * 0.5
+	var hub_top := hub.position.y
+	path.append(gb)                          # Start: Zielbalken-Mitte
+	path.append(Vector2(gb.x, score_rect.end.y))  # runter auf die Score-Unterkante
+	path.append(Vector2(pcx, score_rect.end.y))   # rüber auf die Grubenspalte
+	path.append(Vector2(pcx, pit_top))       # Datenbus runter an die Grube-Oberkante
+	path.append(Vector2(side_x, pit_top))    # Spaltung: an die Ecke der Grubenhälfte
+	path.append(Vector2(side_x, pit_bottom)) # an der Grubenseite entlang nach unten
+	path.append(Vector2(pcx, pit_bottom))    # Wiedervereinigung unten mittig
+	path.append(Vector2(hub_cx, hub_top))    # Bank-Leiste in die Hub-Oberkante
+	return path
+
+## Entlädt den Zielbalken auf die gegebene Restfüllung (0..1) in der neuen Farbe -
+## eine Stufe „fließt" mit ihrem Bank-Komet aus dem Balken. Läuft nebenher.
+func drain_goal_bar(fraction: float, color: Color, duration: float) -> void:
+	if goal_bar_base == null:
+		return
+	goal_bar_fill.size.x = 0.0  # Teilstufe zuerst räumen (nur volle Stufen entladen)
+	var full_w := GOAL_BAR_SIZE.x - GOAL_BAR_INSET * 2.0
+	goal_bar_base.color = color
+	var tween := create_tween()
+	tween.tween_property(goal_bar_base, "size:x", full_w * clampf(fraction, 0.0, 1.0), duration) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+
 func _score_strip(source: String) -> LedStripView:
 	match source:
 		"combos": return combos_score_strip
@@ -970,6 +1050,16 @@ func link_score_strips() -> void:
 		var pit_cx := pit_window.position.x + pit_window.size.x * 0.5
 		pit_score_strip.link_edges(pit_window.position.y, pit_cx, score_bottom, pit_cx,
 			lane, SCORE_BUS_WIDTH)
+	# Grube -> Hub: Bank-Leiste im Korridor zwischen Grube-Unterkante und Hub-Oberkante
+	# (mittig, zwischen den beiden Hub-Ecken-Austritten von Kombi/Schatz).
+	if pit_hub_strip != null and pit_window != null and pit_window.visible \
+			and hub != null and hub.size.x > 0.0:
+		var pcx := pit_window.position.x + pit_window.size.x * 0.5
+		var pit_bottom := pit_window.position.y + pit_window.size.y
+		var hub_cx := hub.position.x + hub.size.x * 0.5
+		var hub_top := hub.position.y
+		pit_hub_strip.link_edges(pit_bottom, pcx, hub_top, hub_cx,
+			(pit_bottom + hub_top) * 0.5, SCORE_BUS_WIDTH)
 	# Kombinationen -> Score: von der Kombi-Oberkante in einen linken Score-Port.
 	if combos_score_strip != null and cluster_frame != null:
 		var exit_x := cluster_rect.get_center().x + cluster_rect.size.x * 0.25
