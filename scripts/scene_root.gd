@@ -171,11 +171,6 @@ var charm_shop: ShopController
 ## Die Gravur-Station - ebenfalls ein Hub-Panel (siehe _open_engraving).
 var die_inspector: DieInspectorView
 
-## Lichtgravur-Ziehung nach der Runde (siehe SigilDraftView).
-var sigil_draft: SigilDraftView
-## Anzahl gezogener Siegel je Runde.
-const SIGIL_DRAFT_COUNT := 3
-
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
@@ -212,6 +207,15 @@ var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var chips_click_zone: StaticBody3D
+## Chip-Umtausch (nur in der Chip-Zoomsicht): gezogener Turm als Geist zum
+## Einwurf-Schlitz; -1 = keine Geste aktiv.
+var chip_drag_value := -1
+var chip_drag_count := 0
+var chip_drag_ghost: Node3D
+## Laufender Umtausch blockiert eine neue Geste; jede Geldänderung entwertet
+## das Token und stoppt damit verspätete Umtausch-Etappen.
+var _exchange_token := 0
+var _exchange_busy := false
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -461,10 +465,17 @@ func _setup_table_screen() -> void:
 	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
 	table_screen.place_treasure_window(Rect2(t_pos, t_size))
 	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
-	# Leicht unter die Mitte: hohe Türme ragen optisch nach Bildschirm-oben.
-	var chip_px := Vector2(t_cx, t_top + t_size.y * 0.58)
+	# Weiter zur Hinterkante (kleineres Y): der Turm hält Abstand zu den Schlitzen
+	# an der Vorderkante, hohe Türme ragen optisch nach Bildschirm-oben.
+	var chip_px := Vector2(t_cx, t_top + t_size.y * 0.40)
 	var chip_world := table_screen.pixel_to_world(chip_px)
 	chip_stack.global_position = Vector3(chip_world.x, chip_stack.global_position.y, chip_world.z)
+	# Weltpositionen der beiden Münzschlitze als lokale XZ-Versätze des Turms:
+	# links wird gezahlt (Chips sinken), rechts kommt herein/Wechselgeld heraus.
+	var pay_world := table_screen.pixel_to_world(t_pos + t_size * TreasureChestView.PAY_SLOT_FRAC)
+	var rec_world := table_screen.pixel_to_world(t_pos + t_size * TreasureChestView.RECEIVE_SLOT_FRAC)
+	chip_stack.pay_slot_offset = Vector2(pay_world.x - chip_world.x, pay_world.z - chip_world.z)
+	chip_stack.receive_slot_offset = Vector2(rec_world.x - chip_world.x, rec_world.z - chip_world.z)
 	# Klickzone zum Heranzoomen an den Chip-Haufen (Truhen-Fußabdruck).
 	camera_rig.configure_chips_target(Vector3(chip_world.x, 1.5, chip_world.z))
 	var tr_a := table_screen.pixel_to_world(t_pos)
@@ -525,14 +536,6 @@ func _setup_panels() -> void:
 	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
 	# Auswahl auch am ECHTEN schwebenden Würfel violett hervorheben.
 	die_inspector.selection_changed.connect(func(_face: int, _edges: bool) -> void: _highlight_engraving_die())
-
-	# Lichtgravur-Ziehung als Hub-Seite (ohne Hub ersatzweise als Overlay).
-	sigil_draft = SigilDraftView.new()
-	sigil_draft.name = "SigilDraft"
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.attach_panel(sigil_draft)
-	else:
-		$UI.add_child(sigil_draft)
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -596,7 +599,7 @@ func _collect_combo_labels() -> void:
 var _pulsing_combos: Dictionary = {}
 
 ## Kombination übertaktet: erst wandert das bezahlte Geld zum Hub (der Kauf
-## löste zugleich _play_money_light aus), dann - nach OVERCLOCK_MONEY_DELAY -
+## löste zugleich _animate_money_spend aus), dann - nach OVERCLOCK_MONEY_DELAY -
 ## zündet der Hub und schickt das Licht über die Leiterbahnen zum Chip
 ## (play_overclock_pulse). Erst bei Ankunft zeigt die Zelle die neuen Werte.
 func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
@@ -605,13 +608,14 @@ func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 		return
 	_pulsing_combos[combo_key] = true
 	# Warten, bis das letzte bezahlte Geld-Licht den Hub erreicht hat (der Kauf
-	# löste zugleich die Kometen Schatz -> Hub aus): so viele Chips wie der
-	# Preis; jede Ankunft lädt den Hub eine Stufe weiter golden auf.
-	var price := GameRun.overclock_price_at(combo_key, maxi(0, new_level - 1))
-	var chips := ChipStackView.pulse_colors(price).size()
+	# löste über money_changed zugleich _animate_money_spend samt Kometen aus):
+	# so viele Kometen wie der Zahlplan Chips zog; jede Ankunft lädt den Hub
+	# eine Stufe weiter golden auf.
+	var chips := maxi(1, _last_payment_comets)
 	_hub_charge_expected += chips
+	# Jeder Zahlungs-Komet fährt erst NACH dem Absorbieren seines Chips (MINT_TIME).
 	var delay := float(maxi(0, chips - 1)) * MONEY_PULSE_GAP \
-		+ table_screen.money_travel_time() + OVERCLOCK_MONEY_MARGIN
+		+ ChipStackView.MINT_TIME + table_screen.money_travel_time() + OVERCLOCK_MONEY_MARGIN
 	await get_tree().create_timer(delay).timeout
 	_hub_charge_expected = 0
 	_hub_charge_received = 0
@@ -663,9 +667,43 @@ func _on_charms_changed() -> void:
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
 	_shown_money = new_money
-	chip_stack.set_money(new_money)  # physischer Chip-Turm (bleibt bestehen)
 	_refresh_hub_info()
-	_play_money_light(delta)
+	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
+	# verwerfen - die Börse ist bereits endgültig gebucht.
+	_exchange_token += 1
+	_exchange_busy = false
+	if chip_drag_value != -1:
+		_finish_chip_drag(false)
+	# Laufende Prägung abbrechen und die Anzeige auf die aktuelle Börse abgleichen
+	# (eine unterbrochene Zwischen-Etappe würde sonst stehen bleiben).
+	chip_stack.clear_mints()
+	if chip_stack.wallet_total() != new_money - delta:
+		chip_stack.seed_wallet(new_money - delta)  # Drift-Sicherung / Erstbefüllung
+	else:
+		chip_stack.show_wallet()
+	# Ohne Tisch-Display oder während einer eigenen Nebenwetten-Choreografie:
+	# Börse still mutieren, keine Präge-Animation.
+	if delta == 0:
+		return
+	if table_screen == null or table_screen.hub == null or _suppress_money_light:
+		_apply_wallet_delta(delta)
+		chip_stack.show_wallet()
+		return
+	if delta > 0:
+		_animate_money_gain(delta, new_money)
+	else:
+		_animate_money_spend(-delta)
+
+## Mutiert die Börse um delta OHNE Animation (Nebenwetten / Rückfall ohne Display):
+## Zuwachs kommt als gierige Chips herein, Zahlung folgt dem Zahlplan samt
+## Wechselgeld. Die Börse bleibt stets deckungsgleich mit GameRun.money.
+func _apply_wallet_delta(delta: int) -> void:
+	if delta > 0:
+		chip_stack.add_chips(ChipStackView.split_gain(delta))
+	else:
+		var plan := ChipStackView.payment_plan(chip_stack.wallet(), -delta)
+		chip_stack.remove_chips(plan["spend"])
+		chip_stack.add_chips(ChipStackView.split_gain(int(plan["change"])))
 
 ## Aufstieg-Knopf am Hub gedrückt: Ausbau über GameRun buchen (No-op wenn nicht
 ## bezahlbar oder max). Die Zeremonie folgt aus hub_level_changed.
@@ -713,6 +751,9 @@ func _sync_hub_level_state() -> void:
 ## blitzen (siehe _on_combo_upgraded).
 var _hub_charge_expected := 0
 var _hub_charge_received := 0
+## Anzahl Zahlungs-Kometen der letzten Ausgabe (= gezahlte Chips lt. Zahlplan).
+## _on_combo_upgraded liest sie, um den Hub-Goldlader richtig zu skalieren.
+var _last_payment_comets := 0
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
@@ -720,40 +761,252 @@ var _suppress_money_light := false
 ## Knopfmitte der zuletzt gesetzten Wette (Screen-Pixel), Ziel des Diffusions-Lichts.
 var _pending_bet_center := Vector2(-1, -1)
 
-## Geld-Lichtlauf im Übertaktungs-Stil (Komet auf der Hub<->Schatz-Leiste):
-## je bezahltem/erhaltenem Chip EIN Komet in dessen Stückelungs-Farbe.
-## Gutschrift = Hub -> Schatz (Schatz glänzt bei Ankunft); Kauf = Schatz -> Hub
-## (Hub lädt sich golden auf, falls eine Übertaktung wartet, sonst blitzt er).
-func _play_money_light(delta: int) -> void:
-	# Nebenwetten-Transaktionen fahren ihr eigenes Licht (Schatz/Hub <-> Nebenwetten)
-	# und unterdrücken hier das generische Schatz<->Hub-Licht.
-	if _suppress_money_light:
-		return
-	if delta == 0 or table_screen == null or table_screen.hub == null:
-		return
-	var hub := table_screen.hub
+## Überhellte Trail-Farbe eines Chips (fürs Bloom der Kometen).
+func _money_trail_color(chip_color: Color) -> Color:
+	return Color(chip_color.r * MONEY_PULSE_BOOST, chip_color.g * MONEY_PULSE_BOOST,
+		chip_color.b * MONEY_PULSE_BOOST, 0.9)
+
+## Gutschrift: die Börse bekommt die gierig gestückelten Chips SOFORT (bleibt
+## deckungsgleich mit dem Geld), die Anzeige zeigt aber noch den alten Turm.
+## Je Chip fährt ein Komet Hub -> Schatz; bei Ankunft leuchtet der Einzahlungs-
+## Schlitz und ein Chip steigt daraus auf und hüpft auf den Turm. Nach dem
+## Landen des letzten Chips baut sich der Turm neu auf (elastischer Pop).
+func _animate_money_gain(delta: int, new_money: int) -> void:
 	var treasure := table_screen.treasure_window
-	var to_treasure := delta > 0
-	var pulses := ChipStackView.pulse_colors(absi(delta))
-	for i in pulses.size():
-		var chip_color: Color = pulses[i]
-		var trail_color := Color(chip_color.r * MONEY_PULSE_BOOST,
-			chip_color.g * MONEY_PULSE_BOOST, chip_color.b * MONEY_PULSE_BOOST, 0.9)
+	var values := ChipStackView.split_gain(delta)
+	chip_stack.add_chips(values)  # Börse sofort korrekt; Turm zeigt weiter ALT
+	for i in values.size():
+		var value: int = values[i]
+		var chip_color := ChipStackView.denomination_color(value)
+		var trail := _money_trail_color(chip_color)
 		var fire := func() -> void:
-			var travel: float = table_screen.money_comet(to_treasure, trail_color)
+			var travel: float = table_screen.money_comet(true, trail)
 			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-				if to_treasure:
-					if treasure != null:
-						treasure.glint()
-				elif _hub_charge_expected > 0:
-					_hub_charge_received = mini(_hub_charge_received + 1, _hub_charge_expected)
-					hub.charge_gold(float(_hub_charge_received) / float(_hub_charge_expected))
-				else:
-					hub.flash_frame(chip_color))
+				if treasure != null:
+					treasure.glint()
+					treasure.flash_receive_slot(chip_color)
+				chip_stack.mint_chip(value, true))
 		if i == 0:
 			fire.call()
 		else:
 			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
+	var settle := float(maxi(0, values.size() - 1)) * MONEY_PULSE_GAP \
+		+ table_screen.money_travel_time() + ChipStackView.MINT_TIME
+	get_tree().create_timer(settle).timeout.connect(func() -> void:
+		if _shown_money == new_money:
+			chip_stack.show_wallet()
+			chip_stack.pulse())
+
+## Ausgabe: der Zahlplan bestimmt, welche Chips die Börse verlassen; die Börse
+## wird sofort korrekt (Chips raus, Wechselgeld rein). Der Turm zeigt zunächst
+## den Stand NACH der Zahlung (ohne Wechselgeld); je gezahltem Chip hebt einer
+## ab und sinkt in den Auszahlungs-Schlitz, dann fährt sein Komet zum Hub. Steht
+## Wechselgeld an, ploppt es danach aus dem Einzahlungs-Schlitz auf den Turm.
+func _animate_money_spend(amount: int) -> void:
+	var treasure := table_screen.treasure_window
+	var plan := ChipStackView.payment_plan(chip_stack.wallet(), amount)
+	var spend_values := _spend_list(plan["spend"])
+	var change_values := ChipStackView.split_gain(int(plan["change"]))
+	chip_stack.remove_chips(plan["spend"])
+	chip_stack.add_chips(change_values)  # Börse jetzt endgültig (netto -Preis)
+	# Zwischenbild: Börse OHNE das noch nicht sichtbare Wechselgeld.
+	chip_stack.show_counts(ChipStackView.without(chip_stack.wallet(), change_values))
+	_last_payment_comets = spend_values.size()
+
+	for i in spend_values.size():
+		var value: int = spend_values[i]
+		var chip_color := ChipStackView.denomination_color(value)
+		var lift := func() -> void:
+			chip_stack.mint_chip(value, false)
+			get_tree().create_timer(ChipStackView.MINT_TIME).timeout.connect(func() -> void:
+				if treasure != null:
+					treasure.flash_pay_slot(chip_color)
+				var travel: float = table_screen.money_comet(false, _money_trail_color(chip_color))
+				get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+					_on_payment_comet_arrived(chip_color)))
+		if i == 0:
+			lift.call()
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(lift)
+
+	# Wechselgeld tritt aus dem Einzahlungs-Schlitz, nachdem der letzte gezahlte
+	# Chip absorbiert wurde.
+	if change_values.is_empty():
+		return
+	var after_pay := float(maxi(0, spend_values.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
+	get_tree().create_timer(after_pay).timeout.connect(func() -> void:
+		_animate_change_out(change_values))
+
+## Wechselgeld: je Chip leuchtet der Einzahlungs-Schlitz und ein Chip hüpft auf
+## den Turm; danach steht der Turm endgültig (Pop).
+func _animate_change_out(change_values: Array) -> void:
+	var treasure := table_screen.treasure_window
+	for i in change_values.size():
+		var value: int = int(change_values[i])
+		var chip_color := ChipStackView.denomination_color(value)
+		var pop := func() -> void:
+			if treasure != null:
+				treasure.flash_receive_slot(chip_color)
+			chip_stack.mint_chip(value, true)
+		if i == 0:
+			pop.call()
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(pop)
+	var settle := float(maxi(0, change_values.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
+	get_tree().create_timer(settle).timeout.connect(func() -> void:
+		chip_stack.show_wallet()
+		chip_stack.pulse())
+
+## Zahlplan {value: count} zur größten-zuerst geordneten Chip-Liste ausrollen.
+func _spend_list(spend: Dictionary) -> Array:
+	var out: Array = []
+	for value in ChipStackView.VALUES:
+		for _k in int(spend.get(value, 0)):
+			out.append(value)
+	return out
+
+# --- Chip-Umtausch am Schlitz (Zieh-Geste in der Chip-Zoomsicht) -------------
+
+## Maus auf Turm-lokale XZ-Koordinaten projizieren (null = kein Schnitt).
+func _chip_local_at(screen_pos: Vector2) -> Variant:
+	var hit: Variant = _mouse_on_plane(screen_pos, 0.0)
+	if hit == null:
+		return null
+	var world: Vector3 = hit
+	return Vector2(world.x - chip_stack.global_position.x, world.z - chip_stack.global_position.z)
+
+## Beginnt das Ziehen eines ganzen Turms (nur in der Chip-Zoomsicht): der Turm
+## verschwindet aus dem Rack und folgt als Geist der Maus zum Einwurf-Schlitz.
+func _try_start_chip_drag(screen_pos: Vector2) -> bool:
+	if _exchange_busy or run == null:
+		return false
+	var local: Variant = _chip_local_at(screen_pos)
+	if local == null:
+		return false
+	var index := chip_stack.tower_at(local)
+	if index == -1:
+		return false
+	var tower: Dictionary = chip_stack.towers()[index]
+	chip_drag_value = int(tower["value"])
+	chip_drag_count = int(tower["count"])
+	# Anzeige ohne den gezogenen Turm; die Börse selbst bleibt unangetastet,
+	# bis die Geste am Schlitz endet.
+	var lifted: Array = []
+	for _k in chip_drag_count:
+		lifted.append(chip_drag_value)
+	chip_stack.show_counts(ChipStackView.without(chip_stack.wallet(), lifted))
+	chip_drag_ghost = chip_stack.build_ghost_tower(chip_drag_value, chip_drag_count)
+	var at: Vector2 = tower["at"]
+	chip_drag_ghost.position = Vector3(at.x, 0.8, at.y)
+	camera_rig.set_tilt_locked(true)
+	return true
+
+## Zieh-Geste: Bewegung führt den Geist, Loslassen über einem Schlitz tauscht,
+## sonst (oder per Rechtsklick) schnappt der Turm zurück.
+func _handle_chip_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var local: Variant = _chip_local_at(event.position)
+		if local != null and chip_drag_ghost != null:
+			var xz: Vector2 = local
+			chip_drag_ghost.position = Vector3(xz.x, 0.8, xz.y)
+		return
+	if not (event is InputEventMouseButton) or event.pressed:
+		return
+	if event.button_index == MOUSE_BUTTON_RIGHT:
+		_finish_chip_drag(false)
+		return
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	var local: Variant = _chip_local_at(event.position)
+	var over_slot := false
+	if local != null:
+		var xz: Vector2 = local
+		over_slot = xz.distance_to(chip_stack.pay_slot_offset) <= ChipStackView.CHIP_RADIUS * 3.0 \
+			or xz.distance_to(chip_stack.receive_slot_offset) <= ChipStackView.CHIP_RADIUS * 3.0
+	_finish_chip_drag(over_slot)
+
+## Beendet die Geste: drop=true versucht den Umtausch am Schlitz (nur wenn
+## dabei ein höherer Chip entsteht), sonst kehrt der Turm ins Rack zurück.
+func _finish_chip_drag(drop: bool) -> void:
+	var value := chip_drag_value
+	var count := chip_drag_count
+	var ghost := chip_drag_ghost
+	chip_drag_value = -1
+	chip_drag_count = 0
+	chip_drag_ghost = null
+	camera_rig.set_tilt_locked(false)
+	var upgraded := ChipStackView.exchange_values(value, count)
+	if not drop or upgraded.is_empty() or ghost == null:
+		# Kein Tausch: Geist verwerfen, Rack unverändert wieder zeigen.
+		if ghost != null:
+			ghost.queue_free()
+		chip_stack.show_wallet()
+		return
+	_run_chip_exchange(value, count, upgraded, ghost)
+
+## Umtausch-Zeremonie: der Geister-Turm sinkt in den Einwurf-Schlitz, dann
+## treten die aufgewerteten Chips aus dem Ausgabe-Schlitz. Geldstand bleibt
+## unverändert - nur die Stückelung der Börse ändert sich.
+func _run_chip_exchange(value: int, count: int, upgraded: Array[int], ghost: Node3D) -> void:
+	_exchange_busy = true
+	_exchange_token += 1
+	var token := _exchange_token
+	var treasure := table_screen.treasure_window if table_screen != null else null
+	var chip_color := ChipStackView.denomination_color(value)
+
+	# Börse sofort endgültig umbuchen (Anzeige folgt der Choreografie).
+	var swallowed: Dictionary = {}
+	swallowed[value] = count
+	chip_stack.remove_chips(swallowed)
+	chip_stack.add_chips(upgraded)
+
+	# Der Geist sinkt geschlossen in den Einwurf-Schlitz.
+	var slot := chip_stack.pay_slot_offset
+	if treasure != null:
+		treasure.flash_pay_slot(chip_color)
+	var sink := create_tween()
+	sink.set_parallel(true)
+	sink.tween_property(ghost, "position", Vector3(slot.x, 0.0, slot.y), 0.3) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	sink.tween_property(ghost, "scale", Vector3.ONE * 0.05, 0.3) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	sink.chain().tween_callback(ghost.queue_free)
+
+	# Danach treten die aufgewerteten Chips aus dem Ausgabe-Schlitz.
+	get_tree().create_timer(0.38).timeout.connect(func() -> void:
+		if token != _exchange_token:
+			return
+		for i in upgraded.size():
+			var out_value: int = upgraded[i]
+			var pop := func() -> void:
+				if token != _exchange_token:
+					return
+				if treasure != null:
+					treasure.flash_receive_slot(ChipStackView.denomination_color(out_value))
+				chip_stack.mint_chip(out_value, true)
+			if i == 0:
+				pop.call()
+			else:
+				get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(pop)
+		var settle := float(maxi(0, upgraded.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
+		get_tree().create_timer(settle).timeout.connect(func() -> void:
+			if token != _exchange_token:
+				return
+			_exchange_busy = false
+			chip_stack.show_wallet()
+			chip_stack.pulse()))
+
+## Ankunft eines Zahlungs-Kometen am Hub: lädt eine wartende Übertaktung weiter
+## golden auf (siehe _on_combo_upgraded), sonst blitzt der Rahmen in Chip-Farbe.
+func _on_payment_comet_arrived(chip_color: Color) -> void:
+	var hub := table_screen.hub if table_screen != null else null
+	if hub == null:
+		return
+	if _hub_charge_expected > 0:
+		_hub_charge_received = mini(_hub_charge_received + 1, _hub_charge_expected)
+		hub.charge_gold(float(_hub_charge_received) / float(_hub_charge_expected))
+	else:
+		hub.flash_frame(chip_color)
 
 ## Wette angeklickt (vor der Zahlung): das generische Geld-Licht unterdrücken und
 ## die Knopfmitte merken (sie ist gleich, nachdem der Knopf zu "platziert" wird).
@@ -848,6 +1101,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_charm_drag_input(event)
 		return
 
+	if chip_drag_value != -1:
+		_handle_chip_drag_input(event)
+		return
+
 	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
 	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
 	if event is InputEventMouse and _forward_screen_mouse(event):
@@ -888,6 +1145,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if not _dice_in_motion() and _try_tray_die_click(event.position):
+		return
+
+	if camera_rig.mode == CameraRig.Mode.CHIPS and _try_start_chip_drag(event.position):
 		return
 
 	_try_zoom_click(event.position)
@@ -2577,8 +2837,6 @@ func _reset_game() -> void:
 	run = GameRun.new_run()
 	_connect_run()
 	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
-	if sigil_draft != null:
-		sigil_draft.cancel()  # offene Ziehung schließen (Seite nicht stehen lassen)
 	betting_open = false  # frische Auslage eröffnet die erste Runde
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
 	if table_screen != null and table_screen.hub != null:
@@ -2745,12 +3003,8 @@ func _on_round_complete() -> void:
 		# Zeremonien-Würfel weiter über der Hub-Fläche und verdeckte die Seiten.
 		if engraving_active:
 			die_inspector.close()
-		# Kamera auf den Hub, dann die Ziehung als Hub-Seite; erst nach der Wahl
-		# öffnet der Shop.
+		# Kamera auf den Hub, dann den Shop öffnen.
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
-		await _run_sigil_draft()
-		if phase != Phase.SHOP:
-			return  # Spiel wurde während der Ziehung zurückgesetzt
 		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
 		_open_side_bet_betting()
 		charm_shop.open()
@@ -2787,31 +3041,6 @@ func _resolve_side_bets(cleared: bool) -> void:
 		names.append(bet.display_name)
 	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben." \
 		% [won.size(), placed, ", ".join(names)]
-
-## Lichtgravur-Ziehung: Auslage nach Rundenmarge würfeln, Seite zeigen und auf
-## die Wahl warten; das gewählte Siegel wird gutgeschrieben.
-func _run_sigil_draft() -> void:
-	if sigil_draft == null:
-		return
-	var sigils := Sigil.roll_draft(SIGIL_DRAFT_COUNT, _draft_floor_rarity())
-	if sigils.is_empty():
-		return
-	sigil_draft.show_draft(sigils)
-	var picked: Sigil = await sigil_draft.resolved
-	# Nur gutschreiben, wenn wir noch im Shop-Abschnitt sind (kein Reset hat
-	# derweil die Ziehung abgebrochen).
-	if picked != null and phase == Phase.SHOP:
-		run.grant_sigil(picked)
-
-## Mindest-Seltenheit der Ziehung: je deutlicher das Ziel übertroffen wurde,
-## desto höher der Boden (1.75× = ungewöhnlich, 3× = selten).
-func _draft_floor_rarity() -> Sigil.Rarity:
-	var ratio := float(hand_total) / float(maxi(1, run.round_goal))
-	if ratio >= 3.0:
-		return Sigil.Rarity.RARE
-	if ratio >= 1.75:
-		return Sigil.Rarity.UNCOMMON
-	return Sigil.Rarity.COMMON
 
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:

@@ -1,19 +1,17 @@
 class_name ChipStackView
 extends Node3D
-## Zeigt den Geldstand als Keramik-Pokerchips auf dem Tisch. Gestückelt wird
-## per "Color-Up" (chip_counts): jede Stückelung behält ihre Chips bis zur
-## Kappe, erst der Überschuss wandert in exakten Gruppen nach oben - große
-## Stapel bleiben so lange erhalten (Masse = Reichtum), statt früh zu wenigen
-## hohen Chips zu verschmelzen. Die Türme (max. COLUMN_CAP Chips) stehen als
-## Rack in Reihen entlang der Truhen-Längsachse, nach Stückelung gruppiert.
-## set_money() baut bei jeder Geldänderung neu auf. Nur der oberste Chip einer
-## Spalte trägt die Wertziffer; ein aus dem Index abgeleiteter Versatz lässt
-## die Türme handgesetzt statt maschinell wirken.
+## Zeigt den Geldstand als echte Chip-Börse (_wallet: Anzahl je Stückelung) auf
+## dem Tisch. Chips werden NIE zusammengelegt oder geteilt, sobald sie liegen:
+## Zuwachs kommt in gierig gestückelten Chips herein und bleibt in dieser Form;
+## bei Zahlung wird möglichst exakt bezahlt, sonst mit genau einem Chip zu viel,
+## und das Wechselgeld kommt aus dem Tisch zurück (siehe payment_plan). Die
+## Türme (max. COLUMN_CAP Chips) stehen als Rack in Reihen, nach Stückelung
+## gruppiert. Nur der oberste Chip einer Spalte trägt die Wertziffer; ein aus
+## dem Index abgeleiteter Versatz lässt die Türme handgesetzt wirken.
 
-## Stückelungen (absteigend; pulse_colors zerlegt gierig, die Anzeige über
-## chip_counts): Neon-Farbe (Geld-Lichtpulse/Ziffer) + satter Keramik-Körper +
-## Akzentring + Rand-Punkt-Farbe. Werte folgen der Casino-Konvention:
-## $1 blau, $5 rot, $25 grün, $100 schwarz-gold.
+## Stückelungen (absteigend für die gierige Zerlegung): Neon-Farbe (Geld-Licht-
+## puls/Ziffer) + satter Keramik-Körper + Akzentring + Rand-Punkt-Farbe. Werte
+## folgen der Casino-Konvention: $1 blau, $5 rot, $25 grün, $100 schwarz-gold.
 const DENOMINATIONS := [
 	{
 		"value": 100,
@@ -53,53 +51,172 @@ const ROW_LEN := 4                                # Türme je Reihe (Truhenbreit
 const JITTER_XZ := CHIP_RADIUS * 0.05             # winziger Stapelversatz
 const COLUMN_JITTER := CHIP_RADIUS * 0.06         # dezenter Versatz ganzer Türme
 
-## Color-Up-Kappen: erst über der Kappe wandert Überschuss eine Stufe hoch
-## (immer in exakten Gruppen: 5×$5 → $25, 4×$25 → $100). $100 ist offen -
-## der Endgame-Turm darf ewig wachsen.
-const FIVES_CAP := 24                             # 2 volle Türme Rot
-const QUARTERS_CAP := 12                          # 1 voller Turm Grün
+## Stückelungs-Werte, absteigend (Reihenfolge der gierigen Zerlegung/Anzeige).
+const VALUES := [100, 25, 5, 1]
+
+## Prägung/Absorption: ein einzelner Chip steigt am Münzschlitz auf und hüpft im
+## Bogen auf den Turm (Zuwachs) bzw. vom Turm in den Schlitz (Ausgabe).
+const MINT_TIME := 0.42
+const MINT_HOP := CHIP_RADIUS * 2.6               # Bogenhöhe des Hüpfers
+
+## Zwei Münzschlitze (lokaler XZ-Versatz vom Turm-Ursprung): links wird gezahlt
+## (Chips sinken hinein), rechts kommt herein/Wechselgeld heraus. scene_root
+## setzt beide aus den Weltpositionen der Schlitze auf der Truhe.
+var pay_slot_offset := Vector2.ZERO
+var receive_slot_offset := Vector2.ZERO
+
+## Die Börse: Anzahl je Stückelung. Einzige Wahrheit der Anzeige; scene_root
+## hält sie deckungsgleich mit GameRun.money.
+var _wallet := {100: 0, 25: 0, 5: 0, 1: 0}
 
 var _chip_nodes: Array[Node3D] = []
+var _mint_nodes: Array[Node3D] = []               # laufende Präge-/Absorptions-Chips
+var _top_y := CHIP_HEIGHT                          # Landehöhe über dem höchsten Turm
+var _towers: Array = []                            # zuletzt gebaute Türme {value, count, at}
 
 ## Geteilte Ressourcen.
 var _chip_mesh: CylinderMesh
 var _materials: Dictionary = {}   # value -> ShaderMaterial
 
-## Baut den Chip-Turm neu; nicht-positive Beträge lassen den Tisch leer.
-func set_money(amount: int) -> void:
+# --- Börse (Wahrheit der Anzeige) -------------------------------------------
+
+## Setzt die Börse gierig aus einem Betrag neu (Spielstart/Reset oder als
+## Sicherheitsnetz bei Abweichung) und zeigt sie sofort.
+func seed_wallet(amount: int) -> void:
+	_wallet = {100: 0, 25: 0, 5: 0, 1: 0}
+	for value in split_gain(amount):
+		_wallet[value] += 1
+	show_wallet()
+
+## Fügt der Börse Chips hinzu (ohne Neuaufbau - die Anzeige folgt getrennt).
+func add_chips(values: Array) -> void:
+	for value in values:
+		_wallet[int(value)] += 1
+
+## Entnimmt der Börse Chips (ohne Neuaufbau).
+func remove_chips(spend: Dictionary) -> void:
+	for value in spend:
+		_wallet[int(value)] -= int(spend[value])
+
+func wallet() -> Dictionary:
+	return _wallet.duplicate()
+
+func wallet_total() -> int:
+	var total := 0
+	for value in _wallet:
+		total += int(value) * int(_wallet[value])
+	return total
+
+## Zeigt die aktuelle Börse (Abgleich/Endzustand).
+func show_wallet() -> void:
+	_build_pile(_wallet)
+
+## Zeigt einen beliebigen Chip-Bestand (Zwischenbild einer Animation).
+func show_counts(counts: Dictionary) -> void:
+	_build_pile(counts)
+
+## Baut den Chip-Turm aus einem Bestand {value: count} neu auf.
+func _build_pile(counts: Dictionary) -> void:
 	_ensure_resources()
 	for node in _chip_nodes:
 		node.queue_free()
 	_chip_nodes.clear()
-	if amount <= 0:
-		return
 
-	var counts := chip_counts(amount)
 	var columns: Array = []  # {value, count} je Spalte, höchster Wert zuerst
-	for denom in DENOMINATIONS:
-		var value: int = denom["value"]
-		_append_columns(columns, value, int(counts[value]))
+	for value in VALUES:
+		_append_columns(columns, value, int(counts.get(value, 0)))
 
 	var offsets := _rack_offsets(columns.size())
+	var tallest := 0
+	_towers = []
 	for i in columns.size():
+		tallest = maxi(tallest, int(columns[i]["count"]))
 		_build_column(i, columns[i]["value"], columns[i]["count"], offsets[i])
+		_towers.append({"value": columns[i]["value"], "count": columns[i]["count"], "at": offsets[i]})
+	_top_y = float(tallest) * CHIP_HEIGHT + CHIP_HEIGHT * 0.5
 
-## Color-Up-Zerlegung eines Betrags in Chips je Stückelung (value -> Anzahl):
-## $1 nur als Rest unter $5, $5/$25 bis zur Kappe, Überschuss in exakten
-## Gruppen eine Stufe hoch. Die Kappen halten die Zerlegung stabil: kleine
-## Geldänderungen nehmen nur Chips vom Rand statt alles umzuschichten.
-static func chip_counts(amount: int) -> Dictionary:
-	var ones := maxi(0, amount) % 5
-	var fives := (maxi(0, amount) - ones) / 5
-	var quarters := 0
-	while fives > FIVES_CAP:
-		fives -= 5
-		quarters += 1
-	var hundreds := 0
-	while quarters > QUARTERS_CAP:
-		quarters -= 4
-		hundreds += 1
-	return {1: ones, 5: fives, 25: quarters, 100: hundreds}
+## Zuletzt gebaute Türme: {value, count, at: Vector2 (lokales XZ)} je Turm.
+func towers() -> Array:
+	return _towers
+
+## Turm-Index unter einem lokalen XZ-Punkt (-1 = keiner).
+func tower_at(local_xz: Vector2) -> int:
+	for i in _towers.size():
+		if local_xz.distance_to(_towers[i]["at"]) <= CHIP_RADIUS * 1.35:
+			return i
+	return -1
+
+## Baut einen frei beweglichen Geister-Turm (für die Zieh-Geste zum Schlitz);
+## der Aufrufer positioniert und befreit ihn.
+func build_ghost_tower(value: int, count: int) -> Node3D:
+	_ensure_resources()
+	var ghost := Node3D.new()
+	for j in count:
+		var chip := _build_chip(value, j == count - 1)
+		chip.position = Vector3(0.0, CHIP_HEIGHT * (float(j) + 0.5), 0.0)
+		chip.rotation.y = _jitter(j, 7) * TAU
+		ghost.add_child(chip)
+	add_child(ghost)
+	return ghost
+
+# --- Stückelungs-Mathematik (rein statisch, testbar) ------------------------
+
+## Gieriger Zerlegung eines Zuwachses in Chip-Werte, höchster zuerst:
+## 26 -> [25, 1]; 130 -> [100, 25, 5]. So kommt jeder Gewinn herein und bleibt.
+static func split_gain(amount: int) -> Array[int]:
+	var values: Array[int] = []
+	var rest := maxi(0, amount)
+	for value in VALUES:
+		while rest >= value:
+			rest -= value
+			values.append(value)
+	return values
+
+## Zahlplan aus der Börse für einen Preis: möglichst exakt (größte Chips zuerst),
+## sonst mit GENAU einem Chip zu viel; überflüssige kleine Chips werden wieder
+## einbehalten. Liefert {spend: {value: count}, change: int}. change > 0 kommt
+## als frische Chips (split_gain) aus dem Tisch zurück. Setzt Zahlbarkeit voraus
+## (Preis <= Summe der Börse).
+static func payment_plan(wallet_counts: Dictionary, price: int) -> Dictionary:
+	var spend := {100: 0, 25: 0, 5: 0, 1: 0}
+	var remaining := maxi(0, price)
+	for value in VALUES:
+		@warning_ignore("integer_division")
+		var take: int = mini(int(wallet_counts.get(value, 0)), remaining / value)
+		spend[value] += take
+		remaining -= take * value
+	if remaining > 0:
+		# Kein exakter Rest möglich: genau einen Chip drauflegen - den kleinsten
+		# verfügbaren, dessen Wert den Rest deckt.
+		for value in [1, 5, 25, 100]:
+			if value >= remaining and int(wallet_counts.get(value, 0)) > spend[value]:
+				spend[value] += 1
+				remaining -= value  # jetzt <= 0
+				break
+	var overpay := -remaining if remaining < 0 else 0
+	# Überzahlung mit den größten kleinen Chips wieder abbauen (Wechselgeld
+	# minimieren) - die Überschuss-Chips bleiben in der Börse.
+	for value in [25, 5, 1]:
+		while spend[value] > 0 and overpay >= value:
+			spend[value] -= 1
+			overpay -= value
+	return {"spend": spend, "change": overpay}
+
+## Umtausch eines ganzen Turms (count Chips zu value) am Schlitz: liefert die
+## gierig aufgewerteten Chips - oder leer, wenn kein höherer Chip entsteht
+## (dann bleibt der Turm, wie er ist; nichts wird sinnlos geschluckt).
+static func exchange_values(value: int, count: int) -> Array[int]:
+	var result := split_gain(value * count)
+	if result.size() == count:  # gleiche Chipzahl = keine Aufwertung möglich
+		return [] as Array[int]
+	return result
+
+## Ein Bestand minus einer Chip-Werteliste (für Zwischenbilder der Anzeige).
+static func without(counts: Dictionary, values: Array) -> Dictionary:
+	var result := counts.duplicate()
+	for value in values:
+		result[int(value)] = int(result.get(int(value), 0)) - 1
+	return result
 
 func _append_columns(columns: Array, value: int, count: int) -> void:
 	while count > 0:
@@ -146,17 +263,52 @@ func pulse() -> void:
 	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(self, "scale", Vector3.ONE, 0.35)
 
-## Zerlegt einen Betrag in die Chip-Farben seiner Stückelung: 8 -> [Rot, 3×Blau].
-## Grundlage der Kauf-Lichtpulse (ein Puls je Chip).
-static func pulse_colors(amount: int) -> Array[Color]:
-	var colors: Array[Color] = []
-	var rest := amount
-	for denom in DENOMINATIONS:
-		var value: int = denom["value"]
-		while rest >= value:
-			rest -= value
-			colors.append(denom["color"])
-	return colors
+## Prägt bzw. absorbiert EINEN Chip an einem Münzschlitz: incoming = er steigt
+## am Einzahlungs-Schlitz auf und hüpft auf den Turm; sonst hebt er vom Turm ab
+## und sinkt in den Auszahlungs-Schlitz. Der Chip materialisiert/entmaterialisiert
+## per Skalierung, damit die Prägung auch ohne Tisch-Verdeckung sauber wirkt.
+func mint_chip(value: int, incoming: bool) -> void:
+	_ensure_resources()
+	if not _materials.has(value):
+		return
+	var chip := _build_chip(value, true)
+	chip.rotation.y = randf() * TAU
+	add_child(chip)
+	_mint_nodes.append(chip)
+	var off := receive_slot_offset if incoming else pay_slot_offset
+	var slot := Vector3(off.x, CHIP_HEIGHT * 0.5, off.y)
+	var pile := Vector3(0.0, _top_y, 0.0)
+	var start := slot if incoming else pile
+	var end := pile if incoming else slot
+
+	var move := create_tween()
+	move.tween_method(func(a: float) -> void:
+		if not is_instance_valid(chip):
+			return
+		var p := start.lerp(end, a)
+		p.y += sin(a * PI) * MINT_HOP
+		chip.position = p, 0.0, 1.0, MINT_TIME).set_trans(Tween.TRANS_SINE)
+	move.tween_callback(func() -> void:
+		_mint_nodes.erase(chip)
+		if is_instance_valid(chip):
+			chip.queue_free())
+
+	var scale_tw := create_tween()
+	if incoming:
+		chip.scale = Vector3.ZERO
+		scale_tw.tween_property(chip, "scale", Vector3.ONE, MINT_TIME * 0.45) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		scale_tw.tween_interval(MINT_TIME * 0.55)
+		scale_tw.tween_property(chip, "scale", Vector3.ZERO, MINT_TIME * 0.45) \
+			.set_trans(Tween.TRANS_SINE)
+
+## Bricht laufende Prägungen sofort ab (neue Transaktion / Reset).
+func clear_mints() -> void:
+	for node in _mint_nodes:
+		if is_instance_valid(node):
+			node.queue_free()
+	_mint_nodes.clear()
 
 ## Ein Keramik-Pokerchip (geteiltes Mesh + Shader-Material je Wert). Nur der
 ## oberste Chip einer Spalte trägt die flache Wertziffer.
