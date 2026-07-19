@@ -211,6 +211,7 @@ var hub_click_zone: StaticBody3D
 var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
+var chips_click_zone: StaticBody3D
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -460,9 +461,17 @@ func _setup_table_screen() -> void:
 	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
 	table_screen.place_treasure_window(Rect2(t_pos, t_size))
 	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
-	var chip_px := Vector2(t_cx, t_top + t_size.y * (0.5 - 0.16))
+	# Leicht unter die Mitte: hohe Türme ragen optisch nach Bildschirm-oben.
+	var chip_px := Vector2(t_cx, t_top + t_size.y * 0.58)
 	var chip_world := table_screen.pixel_to_world(chip_px)
 	chip_stack.global_position = Vector3(chip_world.x, chip_stack.global_position.y, chip_world.z)
+	# Klickzone zum Heranzoomen an den Chip-Haufen (Truhen-Fußabdruck).
+	camera_rig.configure_chips_target(Vector3(chip_world.x, 1.5, chip_world.z))
+	var tr_a := table_screen.pixel_to_world(t_pos)
+	var tr_b := table_screen.pixel_to_world(t_pos + t_size)
+	chips_click_zone = _add_click_zone("ChipsClickZone",
+		Vector3(chip_world.x, 0.0, chip_world.z),
+		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
@@ -1486,6 +1495,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SLOTS)
 	elif collider == score_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
+	elif collider == chips_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
 
 func _process(_delta: float) -> void:
 	_update_charm_hover()

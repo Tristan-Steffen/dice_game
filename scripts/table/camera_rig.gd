@@ -4,7 +4,7 @@ extends Camera3D
 ## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
 ## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS }
 
 signal mode_changed(new_mode: Mode)
 
@@ -29,6 +29,9 @@ const ZOOM_DISTANCE := 20.0
 ## Die Grube wird bewusst etwas weiter weg gezeigt (mehr vom Screen im Blick).
 const PIT_ZOOM_DISTANCE_BONUS := 5.0
 
+## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
+const CHIPS_ZOOM_DISTANCE_CUT := 8.0
+
 ## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
 ## Zoom automatisch mitnehmen.
@@ -41,6 +44,7 @@ var hub_target := Vector3(-24, 0, 0)
 var side_bets_target := Vector3(0, 0, 24)
 var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
+var chips_target := Vector3(0, 1.5, 10)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele, unabhängig von der flacheren
 ## Übersichts-Kamera (Basis-Achsen als Spalten!).
@@ -164,6 +168,9 @@ func configure_score_target(target: Vector3) -> void:
 func configure_slots_target(target: Vector3) -> void:
 	slots_target = target
 
+func configure_chips_target(target: Vector3) -> void:
+	chips_target = target
+
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
@@ -188,11 +195,16 @@ func zoom_to(target_mode: Mode) -> void:
 			target_point = score_target
 		Mode.SLOTS:
 			target_point = slots_target
+		Mode.CHIPS:
+			target_point = chips_target
 		_:
 			return
 	var distance := ZOOM_DISTANCE
 	if target_mode == Mode.PIT:
 		distance += PIT_ZOOM_DISTANCE_BONUS
+	# Der Chip-Haufen ist klein: näher heranfahren als an die Screen-Fenster.
+	if target_mode == Mode.CHIPS:
+		distance -= CHIPS_ZOOM_DISTANCE_CUT
 	var target_origin := target_point - ZOOM_FORWARD * distance
 	mode = target_mode
 	mode_changed.emit(mode)
