@@ -31,7 +31,7 @@ uniform float fresnel_power : hint_range(0.5, 8.0) = 3.0;
 // ist Casino-Filz (matt, siehe table_felt.gdshader als 2D-Hintergrund der
 // Anzeige) und spiegelt NICHT. TableScreen meldet die Fenster-Rechtecke in
 // Display-Pixeln samt Eckenradius (siehe _sync_reflection_windows).
-const int MAX_WINDOWS = 16;  // Platz für die Einzel-Fenster der 6 Charm-Konsolen
+const int MAX_WINDOWS = 20;  // 6 Charm-Konsolen + 3 Vorrats-Schubladen + der Rest
 uniform int window_count = 0;
 uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln

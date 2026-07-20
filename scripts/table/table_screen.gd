@@ -96,6 +96,8 @@ var side_bet_window: SideBetPanel
 var slot_bank_window: SlotBankView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
+## Die drei Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Kanten).
+var supply_drawers: Array[SupplyDrawerView] = []
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -353,6 +355,15 @@ func _build_content() -> void:
 	workshop_window.visible = false
 	add_child(workshop_window)
 
+	# Vorrats-Schubladen: Maße/Position setzt scene_root über place_supply_drawers.
+	for drawer_category in Engraving.CATEGORIES:
+		var drawer := SupplyDrawerView.new()
+		drawer.name = "SupplyDrawer_%s" % drawer_category
+		drawer.category = drawer_category
+		drawer.visible = false
+		add_child(drawer)
+		supply_drawers.append(drawer)
+
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
@@ -422,6 +433,18 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.refresh()
 	_sync_reflection_windows()
 
+## Legt die drei Schubladen unter der Werkbank aus (Reihenfolge = CATEGORIES).
+func place_supply_drawers(rects: Array[Rect2], unit: float) -> void:
+	for i in mini(rects.size(), supply_drawers.size()):
+		supply_drawers[i].place(rects[i], unit)
+		supply_drawers[i].visible = true
+	_sync_reflection_windows()
+
+## Schaltet alle Schubladen in die Station-Betriebsart (Werkzeug-Bord) und zurück.
+func set_drawers_in_ceremony(active: bool) -> void:
+	for drawer in supply_drawers:
+		drawer.set_ceremony(active)
+
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -471,6 +494,11 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(workshop_window.position.x, workshop_window.position.y,
 			workshop_window.position.x + workshop_window.size.x, workshop_window.position.y + workshop_window.size.y))
 		radii.append(10.0)
+	for drawer in supply_drawers:
+		if drawer != null and drawer.visible:
+			rects.append(Vector4(drawer.position.x, drawer.position.y,
+				drawer.position.x + drawer.size.x, drawer.position.y + drawer.size.y))
+			radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))

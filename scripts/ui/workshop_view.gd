@@ -29,11 +29,9 @@ var run: GameRun:
 			return
 		if run != null and run.packs_changed.is_connected(refresh):
 			run.packs_changed.disconnect(refresh)
-			run.engravings_changed.disconnect(refresh)
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
-			run.engravings_changed.connect(refresh)  # das Vorräte-Regal zeigt den Bestand
 		refresh()
 
 ## Werkbank-Zustand: das Lager, oder die Zeremonie eines offenen Pakets.
@@ -110,7 +108,6 @@ func refresh() -> void:
 			return
 
 	_build_pack_shelf(u)
-	_build_supply_shelf(u)
 
 ## Oberes Regal: die versiegelten Pakete, je eines eine Karte.
 func _build_pack_shelf(u: float) -> void:
@@ -132,57 +129,6 @@ func _build_pack_shelf(u: float) -> void:
 	_content.add_child(shelf)
 	for i in packs.size():
 		shelf.add_child(_pack_card(packs[i], i, u))
-
-## Unteres Regal: der Gravur-Bestand auf einen Blick - je Sorte EIN Chip mit
-## ×Anzahl. Nur Anzeige; angewandt wird an der Station.
-func _build_supply_shelf(u: float) -> void:
-	var counts := _engraving_counts()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(u * 1.0))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(row)
-	row.add_child(_label("VORRÄTE", u * 2.2, TITLE_COLOR))
-	if counts.is_empty():
-		row.add_child(_label("leer", u * 2.2, MUTED_COLOR))
-		return
-
-	var strip := HFlowContainer.new()
-	strip.add_theme_constant_override("h_separation", int(u * 0.8))
-	strip.add_theme_constant_override("v_separation", int(u * 0.6))
-	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(strip)
-	# Kanonische Reihenfolge (Engraving.all()), damit die Chips nicht springen.
-	for archetype in Engraving.all():
-		if counts.has(archetype.id):
-			strip.add_child(_supply_chip(archetype, counts[archetype.id], u))
-
-## Bestand je Gravur-id (leer, wenn nichts auf Lager liegt).
-func _engraving_counts() -> Dictionary:
-	var counts := {}
-	if run == null:
-		return counts
-	for engraving in run.owned_engravings:
-		counts[engraving.id] = counts.get(engraving.id, 0) + 1
-	return counts
-
-## Ein Vorrats-Chip: Siegel im Seltenheits-Saum, daneben die Stückzahl.
-func _supply_chip(archetype: Engraving, count: int, u: float) -> Control:
-	var chip := PanelContainer.new()
-	chip.tooltip_text = "%s – %s" % [archetype.display_name, archetype.description]
-	chip.mouse_filter = Control.MOUSE_FILTER_STOP  # nur für den Tooltip
-	var seam: Color = EngravingRenderer.SEAM_COLORS[archetype.rarity]
-	chip.add_theme_stylebox_override("panel", _button_box(Color("#1b1738cc"), seam))
-
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", int(u * 0.4))
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(box)
-	var face := EngravingRenderer.for_engraving(archetype)
-	face.custom_minimum_size = Vector2(u * 3.4, u * 3.4)
-	box.add_child(face)
-	box.add_child(_label("×%d" % count, u * 2.0, GOLD))
-	return chip
 
 ## Lagerkarte: Siegel, Sorte, Inhaltsmenge - und der Öffnen-Knopf.
 func _pack_card(pack: Pack, index: int, u: float) -> Control:

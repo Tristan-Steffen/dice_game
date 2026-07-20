@@ -35,29 +35,6 @@ func test_clicking_a_card_opens_that_pack() -> void:
 	assert_eq(opened, [1] as Array[int], "der geklickte Platz wird gemeldet")
 	assert_eq(run.owned_packs.size(), 1, "das Kanten-Paket ist verbraucht")
 
-# --- Vorräte-Regal ---------------------------------------------------------------
-
-func test_supply_shelf_counts_each_engraving_once() -> void:
-	run.grant_engraving(Engraving.chisel())
-	run.grant_engraving(Engraving.chisel())
-	run.grant_engraving(Engraving.notch())
-	var counts := view._engraving_counts()
-	assert_eq(counts.size(), 2, "je Sorte EIN Eintrag")
-	assert_eq(counts[Engraving.CHISEL], 2, "Stückzahl gebündelt")
-	assert_eq(counts[Engraving.NOTCH], 1)
-
-func test_supply_shelf_is_empty_without_stock() -> void:
-	assert_true(view._engraving_counts().is_empty())
-
-func test_supply_shelf_follows_the_run() -> void:
-	# Der Bestand hängt an engravings_changed - auch ein Paket-Inhalt taucht auf.
-	run.purchase_pack(Pack.number_pack(), 0)
-	run.open_pack(0)
-	var total := 0
-	for id in view._engraving_counts():
-		total += view._engraving_counts()[id]
-	assert_eq(total, Pack.NUMBER_COUNT, "Paket-Inhalt liegt im Regal")
-
 # --- Zeremonie: Gravur-Pakete ---------------------------------------------------
 
 func test_opening_an_engraving_pack_shows_and_books_its_contents() -> void:

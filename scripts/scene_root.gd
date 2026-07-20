@@ -511,16 +511,34 @@ func _setup_table_screen() -> void:
 	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
 	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
 	var workshop_top := tray_bounds.end.y + slot_half * 2.0
+	var corner_width := tray_bounds.size.x + slot_half * 2.0
+	# EINE Maßeinheit für die ganze Werkbank-Ecke: die schmalen Schubladen dürfen
+	# ihre Schrift nicht aus der eigenen Breite ableiten, sonst wird sie winzig.
+	var corner_unit := corner_width / 100.0
+	var drawer_rects := _supply_drawer_rects(
+		Vector2(tray_bounds.position.x - slot_half, 0.0), corner_width, corner_unit)
+	var drawer_height: float = drawer_rects[0].size.y
+	var drawer_gap := slot_half
+	var workshop_height := hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top \
+		- drawer_height - drawer_gap
 	var workshop_rect := Rect2(
 		Vector2(tray_bounds.position.x - slot_half, workshop_top),
-		Vector2(tray_bounds.size.x + slot_half * 2.0,
-			hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top))
+		Vector2(corner_width, workshop_height))
 	table_screen.place_workshop_window(workshop_rect)
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
-	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster unten. Nur so
-	# liegt der Ziel-Würfel der Gravur-Station mit im Bild.
-	camera_rig.configure_workshop_target(
-		table_screen.pixel_to_world(workshop_rect.merge(tray_bounds).get_center()))
+
+	# Schubladen-Reihe direkt unter die Werkbank schieben.
+	var drawer_top := workshop_rect.end.y + drawer_gap
+	for i in drawer_rects.size():
+		drawer_rects[i].position.y = drawer_top
+	table_screen.place_supply_drawers(drawer_rects, corner_unit)
+
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster und
+	# Schubladen unten. Nur so liegt der Ziel-Würfel mit im Bild.
+	var corner := workshop_rect.merge(tray_bounds)
+	for rect in drawer_rects:
+		corner = corner.merge(rect)
+	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
@@ -1645,6 +1663,31 @@ func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> S
 	add_child(zone)
 	return zone
 
+## Die Schubladen-Reihe unter der Werkbank: je Kategorie so breit wie ihr Inhalt
+## (Zahlen am breitesten, Kanten am schmalsten), zusammen auf der Werkbank-Breite
+## verteilt. Die y-Position setzt der Aufrufer.
+func _supply_drawer_rects(origin: Vector2, total_width: float, unit: float) -> Array[Rect2]:
+	var sizes: Array[Vector2] = []
+	var content_width := 0.0
+	var height := 0.0
+	for drawer_category in Engraving.CATEGORIES:
+		var drawer_size := SupplyDrawerView.size_for(drawer_category, unit)
+		sizes.append(drawer_size)
+		content_width += drawer_size.x
+		height = maxf(height, drawer_size.y)
+	# Luft dazwischen, aber gedeckelt - sonst driften die drei Schubladen über die
+	# ganze Werkbank-Breite auseinander und wirken wie drei fremde Fenster.
+	var slack := maxf(0.0, total_width - content_width)
+	var gap := minf(slack / float(maxi(sizes.size() - 1, 1)), unit * 4.0)
+	var rects: Array[Rect2] = []
+	# Die Reihe mittig unter der Werkbank ausrichten.
+	var row_width := content_width + gap * float(sizes.size() - 1)
+	var x := origin.x + (total_width - row_width) * 0.5
+	for drawer_size in sizes:
+		rects.append(Rect2(Vector2(x, origin.y), Vector2(drawer_size.x, height)))
+		x += drawer_size.x + gap
+	return rects
+
 ## Zoom-Ziel + Klickzone EINES Display-Fensters aus seinem Screen-Rechteck -
 ## einheitlich für alle Tisch-Fenster (Kombis, Wettannahme, künftige Screens):
 ## Klick zoomt heran, Rechtsklick zurück, im Zoom leichtes Rundschauen.
@@ -1758,13 +1801,18 @@ func _slot_bank_window_has_point(pixel: Vector2) -> bool:
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
 
-## Ob ein Display-Pixel im sichtbaren Werkstatt-Fenster liegt.
+## Ob ein Display-Pixel in der Werkbank-Ecke liegt - Fenster ODER Schublade;
+## die Zeremonie reicht über beide (Werkzeug links unten, Würfel im Fenster).
 func _workshop_window_has_point(pixel: Vector2) -> bool:
 	if table_screen == null:
 		return false
 	var window := table_screen.workshop_window
-	return window != null and window.visible \
-		and Rect2(window.position, window.size).has_point(pixel)
+	if window != null and window.visible and Rect2(window.position, window.size).has_point(pixel):
+		return true
+	for drawer in table_screen.supply_drawers:
+		if drawer.visible and Rect2(drawer.position, drawer.size).has_point(pixel):
+			return true
+	return false
 
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Becher oder der "Würfeln"-Knopf).
@@ -2910,6 +2958,9 @@ func _connect_run() -> void:
 		table_screen.slot_bank_window.refresh()
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.run = run
+	if table_screen != null:
+		for drawer in table_screen.supply_drawers:
+			drawer.run = run
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
