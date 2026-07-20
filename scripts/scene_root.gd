@@ -206,6 +206,7 @@ var hub_click_zone: StaticBody3D
 var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
+var workshop_click_zone: StaticBody3D
 var chips_click_zone: StaticBody3D
 ## Chip-Umtausch (nur in der Chip-Zoomsicht): gezogener Turm als Geist zum
 ## Einwurf-Schlitz; -1 = keine Geste aktiv.
@@ -495,6 +496,20 @@ func _setup_table_screen() -> void:
 	table_screen.place_slot_bank_window(slots_rect)
 	slots_click_zone = _screen_zoom_zone("SlotsClickZone", slots_rect, camera_rig.configure_slots_target)
 	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
+
+	# Werkstatt: rechts NEBEN dem Pool-Tray und unter den Nebenwetten - der letzte
+	# freie Fleck des Tisches. Hier werden gekaufte Pakete geöffnet. Die linke
+	# Kante folgt dem Tray, damit die Würfel darauf nie ins Fenster ragen.
+	var tray_bottom := hub_r.position.y
+	for tray: DiceTrayView in [pool_tray_view, discard_tray_view]:
+		for i in tray.slot_roots.size():
+			tray_bottom = maxf(tray_bottom, table_screen.world_to_pixel(tray.slot_global_position(i)).y)
+	var workshop_top := tray_bottom + DiceTrayView.SPACING.y * ppw
+	var workshop_rect := Rect2(
+		Vector2(side_r.position.x, workshop_top),
+		Vector2(side_r.size.x, hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top))
+	table_screen.place_workshop_window(workshop_rect)
+	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
@@ -1727,6 +1742,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.SLOTS:
 			# Im Zoom auf die Automaten gehen Klicks/Hover an die Dreh-/Auszahlen-Knöpfe.
 			return _slot_bank_window_has_point(pixel)
+		CameraRig.Mode.WORKSHOP:
+			# Im Zoom auf die Werkstatt gehen Klicks/Hover an die Lager-Karten.
+			return _workshop_window_has_point(pixel)
 	if table_screen.hub == null or not table_screen.hub.get_rect().has_point(pixel):
 		return false
 	return not is_click or table_screen.hub.interactive_at(pixel)
@@ -1744,6 +1762,14 @@ func _slot_bank_window_has_point(pixel: Vector2) -> bool:
 	if table_screen == null:
 		return false
 	var window := table_screen.slot_bank_window
+	return window != null and window.visible \
+		and Rect2(window.position, window.size).has_point(pixel)
+
+## Ob ein Display-Pixel im sichtbaren Werkstatt-Fenster liegt.
+func _workshop_window_has_point(pixel: Vector2) -> bool:
+	if table_screen == null:
+		return false
+	var window := table_screen.workshop_window
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
 
@@ -1776,6 +1802,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
 	elif collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
 		camera_rig.zoom_to(CameraRig.Mode.SLOTS)
+	elif collider == workshop_click_zone:
+		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	elif collider == score_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 	elif collider == chips_click_zone:
@@ -2887,6 +2915,8 @@ func _connect_run() -> void:
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.run = run
 		table_screen.slot_bank_window.refresh()
+	if table_screen != null and table_screen.workshop_window != null:
+		table_screen.workshop_window.run = run
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)

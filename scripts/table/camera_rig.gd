@@ -4,7 +4,7 @@ extends Camera3D
 ## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
 ## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP }
 
 signal mode_changed(new_mode: Mode)
 
@@ -45,6 +45,7 @@ var side_bets_target := Vector3(0, 0, 24)
 var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
 var chips_target := Vector3(0, 1.5, 10)
+var workshop_target := Vector3(-24, 0, 22)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele, unabhängig von der flacheren
 ## Übersichts-Kamera (Basis-Achsen als Spalten!).
@@ -171,6 +172,9 @@ func configure_slots_target(target: Vector3) -> void:
 func configure_chips_target(target: Vector3) -> void:
 	chips_target = target
 
+func configure_workshop_target(target: Vector3) -> void:
+	workshop_target = target
+
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
 func zoom_to(target_mode: Mode) -> void:
 	if mode == target_mode:
@@ -197,6 +201,8 @@ func zoom_to(target_mode: Mode) -> void:
 			target_point = slots_target
 		Mode.CHIPS:
 			target_point = chips_target
+		Mode.WORKSHOP:
+			target_point = workshop_target
 		_:
 			return
 	var distance := ZOOM_DISTANCE

@@ -94,6 +94,8 @@ var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
 ## eigenständig, sichtbar erst ab der ersten Automaten-Freischaltung.
 var slot_bank_window: SlotBankView
+## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
+var workshop_window: WorkshopView
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -345,6 +347,12 @@ func _build_content() -> void:
 	slot_bank_window.visible = false
 	add_child(slot_bank_window)
 
+	# Werkstatt: Position/Größe setzt scene_root über place_workshop_window.
+	workshop_window = WorkshopView.new()
+	workshop_window.name = "WorkshopWindow"
+	workshop_window.visible = false
+	add_child(workshop_window)
+
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
@@ -406,6 +414,14 @@ func set_slot_bank_installed(installed: bool) -> void:
 	slot_bank_window.visible = installed
 	_sync_reflection_windows()
 
+## Spannt die Werkstatt über rect auf (rechter Zwilling der Automaten).
+func place_workshop_window(rect: Rect2) -> void:
+	workshop_window.position = rect.position
+	workshop_window.size = rect.size
+	workshop_window.visible = true
+	workshop_window.refresh()
+	_sync_reflection_windows()
+
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -450,6 +466,10 @@ func _sync_reflection_windows() -> void:
 	if slot_bank_window != null and slot_bank_window.visible:
 		rects.append(Vector4(slot_bank_window.position.x, slot_bank_window.position.y,
 			slot_bank_window.position.x + slot_bank_window.size.x, slot_bank_window.position.y + slot_bank_window.size.y))
+		radii.append(10.0)
+	if workshop_window != null and workshop_window.visible:
+		rects.append(Vector4(workshop_window.position.x, workshop_window.position.y,
+			workshop_window.position.x + workshop_window.size.x, workshop_window.position.y + workshop_window.size.y))
 		radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
