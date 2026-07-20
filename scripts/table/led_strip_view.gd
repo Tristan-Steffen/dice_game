@@ -37,6 +37,14 @@ func link_edges(from_edge_y: float, exit_x: float, to_edge_y: float, enter_x: fl
 	branch_path = PackedVector2Array()
 	queue_redraw()
 
+## Gerade waagerechte Ader zwischen zwei SEITEN-Kanten (Hub -> Werkstatt) - die
+## einzige Verbindung ohne Korridor, weil beide Fenster auf gleicher Höhe liegen.
+func link_horizontal(from_x: float, to_x: float, y: float, width: float) -> void:
+	_thickness = width
+	strip_path = PackedVector2Array([Vector2(from_x, y), Vector2(to_x, y)])
+	branch_path = PackedVector2Array()
+	queue_redraw()
+
 ## Sammelschiene (T-Form): waagerechte Schiene rail_left..rail_right auf rail_y,
 ## Stamm senkrecht von trunk_x bis trunk_bottom. Die Konsolen-Adern speisen die
 ## Schiene; der Komet läuft nicht über diese Leiste selbst (rein zeichnend).

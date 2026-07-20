@@ -67,8 +67,8 @@ const SLOTS_BOTTOM_INSET_WORLD := 7.5
 ## braucht Raum für Projektion, Seiten-Übersicht und das Tray-Raster.
 const WORKSHOP_HEIGHT_FACTOR := 1.4
 
-## Flugzeit eines Paket-Inhalts in seine Schublade und Abstand zwischen den Stücken.
-const PACK_FLY_TIME := 0.32
+## Abstand zwischen zwei Paket-Inhalten auf ihrem Weg in die Schubladen (die
+## Flugzeit selbst liefert die Ader-Laufzeit, siehe TableScreen.supply_comet).
 const PACK_FLY_STAGGER := 0.10
 
 
@@ -1418,14 +1418,26 @@ func _end_engraving_ceremony() -> void:
 		camera_rig.zoom_to(engraving_prev_mode)
 	_on_die_engraved()  # Trays sicher aktuell
 
-## Gravur-Paket geöffnet: der Inhalt fliegt sichtbar aus der Werkbank in seine
-## Schublade und lässt den Platz dort aufploppen - so lernt der Spieler, welches
-## Fach zu welcher Paketfarbe gehört.
-func _on_pack_engravings_revealed(engraving_ids: Array[String]) -> void:
+## Paket im Laden gekauft: es FÄHRT als Licht die Hub-Werkstatt-Ader entlang und
+## liegt erst bei Ankunft im Lager - der Komet ist das Paket, nicht seine Ankündigung.
+func _on_pack_purchased(from_px: Vector2, pack_type: String) -> void:
 	if table_screen == null or table_screen.workshop_window == null:
 		return
 	var window := table_screen.workshop_window
-	var from_px := window.position + window.size * 0.5
+	window.expect_delivery()
+	var tint: Color = PackIconRenderer.COLORS.get(pack_type, Color.WHITE)
+	var travel := table_screen.pack_delivery_comet(from_px, tint)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if is_instance_valid(window):
+		window.deliver_pack()
+
+## Gravur-Paket geöffnet: der Inhalt fährt über die Stichleitung seiner Kategorie
+## in die Schublade und lässt den Platz dort aufploppen - so lernt der Spieler,
+## welches Fach zu welcher Paketfarbe gehört.
+func _on_pack_engravings_revealed(engraving_ids: Array[String]) -> void:
+	if table_screen == null or table_screen.workshop_window == null:
+		return
 	for i in engraving_ids.size():
 		var engraving_id := engraving_ids[i]
 		for drawer in table_screen.supply_drawers:
@@ -1433,8 +1445,9 @@ func _on_pack_engravings_revealed(engraving_ids: Array[String]) -> void:
 			if target.x < 0.0:
 				continue
 			var tint: Color = SupplyDrawerView.COLORS.get(drawer.category, Color.WHITE)
-			table_screen.spawn_trace(from_px, target, tint, PACK_FLY_TIME)
-			await get_tree().create_timer(PACK_FLY_TIME).timeout
+			var travel := table_screen.supply_comet(drawer.category, target, tint)
+			if travel > 0.0:
+				await get_tree().create_timer(travel).timeout
 			if is_instance_valid(drawer):
 				drawer.pop(engraving_id)
 			break
@@ -3033,6 +3046,8 @@ func _connect_run() -> void:
 			table_screen.workshop_window.die_placed.connect(_on_pack_die_placed)
 		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
 			table_screen.workshop_window.pack_activated.connect(_on_pack_opened)
+	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
+		charm_shop.pack_purchased.connect(_on_pack_purchased)
 	if table_screen != null:
 		for drawer in table_screen.supply_drawers:
 			drawer.run = run

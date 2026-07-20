@@ -35,6 +35,41 @@ func test_clicking_a_card_opens_that_pack() -> void:
 	assert_eq(opened, [1] as Array[int], "der geklickte Platz wird gemeldet")
 	assert_eq(run.owned_packs.size(), 1, "das Kanten-Paket ist verbraucht")
 
+# --- Lieferung aus dem Laden (das Licht IST das Paket) --------------------------
+
+func test_pending_delivery_holds_the_newest_card_back() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	assert_eq(view._pack_buttons.size(), 1, "das ältere Paket liegt im Regal")
+	run.purchase_pack(Pack.material_pack(), 0)
+	view.expect_delivery()
+	assert_eq(view._pack_buttons.size(), 1, "das unterwegs befindliche Paket fehlt noch")
+	view.deliver_pack()
+	assert_eq(view._pack_buttons.size(), 2, "bei Ankunft erscheint es")
+
+func test_delivery_counter_survives_several_purchases_at_once() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	run.purchase_pack(Pack.material_pack(), 0)
+	view.expect_delivery()
+	view.expect_delivery()
+	assert_eq(view._pack_buttons.size(), 0, "beide Lichter sind noch unterwegs")
+	view.deliver_pack()
+	assert_eq(view._pack_buttons.size(), 1, "eines nach dem anderen")
+	view.deliver_pack()
+	assert_eq(view._pack_buttons.size(), 2)
+
+func test_extra_deliveries_are_ignored() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.deliver_pack()  # ohne angemeldete Lieferung
+	assert_eq(view._pack_buttons.size(), 1, "das Regal bleibt, wie es ist")
+
+func test_a_new_run_cancels_pending_deliveries() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.expect_delivery()
+	var fresh := GameRun.new_run()
+	fresh.purchase_pack(Pack.edge_pack(), 0)
+	view.run = fresh
+	assert_eq(view._pack_buttons.size(), 1, "der neue Lauf zeigt sein Lager vollständig")
+
 # --- Zeremonie: Gravur-Pakete ---------------------------------------------------
 
 func test_opening_an_engraving_pack_shows_and_books_its_contents() -> void:

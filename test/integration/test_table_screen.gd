@@ -146,3 +146,50 @@ func test_cluster_rect_covers_all_cells():
 		var cell: ComboCellView = screen.combo_cells[key]
 		assert_true(screen.cluster_rect.encloses(Rect2(cell.position, cell.size)),
 			"Zelle '%s' liegt außerhalb des Cluster-Rahmens" % key)
+
+# --- Liefer-Routen (Kauf/Inhalt fahren die Adern statt quer über den Filz) -------
+
+func _place_workbench_corner() -> void:
+	screen.place_hub(Vector2(2400, 2200), Vector2(1400, 1200))
+	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(900, 500)))
+	var rects: Array[Rect2] = []
+	for i in Engraving.CATEGORIES.size():
+		rects.append(Rect2(Vector2(3300 + i * 300, 2600), Vector2(280, 200)))
+	screen.place_supply_drawers(rects, 8.0)
+
+func test_pack_delivery_runs_along_the_hub_workshop_strip():
+	_place_workbench_corner()
+	var route := screen._route_via_strip(Vector2(2000, 2400),
+		screen.workshop_hub_strip, Vector2(3750, 2250))
+	assert_gt(route.size(), 2, "Route mit L-Anschlüssen, keine Luftlinie")
+	for point in screen.workshop_hub_strip.strip_path:
+		assert_true(route.has(point), "die Ader selbst liegt in der Route")
+
+func test_every_route_leg_is_axis_parallel():
+	# Leiterbahn-Look: keine Diagonalen, sonst sieht der Komet aus wie ein Flug.
+	_place_workbench_corner()
+	var route := screen._route_via_strip(Vector2(2000, 2400),
+		screen.workshop_hub_strip, Vector2(3750, 2250))
+	for i in route.size() - 1:
+		var leg: Vector2 = route[i + 1] - route[i]
+		assert_true(is_zero_approx(leg.x) or is_zero_approx(leg.y),
+			"Abschnitt %d läuft achsenparallel" % i)
+
+func test_route_starts_at_the_source_and_ends_at_the_target():
+	_place_workbench_corner()
+	var from := Vector2(2000, 2400)
+	var to := Vector2(3750, 2250)
+	var route := screen._route_via_strip(from, screen.workshop_hub_strip, to)
+	assert_eq(route[0], from)
+	assert_eq(route[route.size() - 1], to)
+
+func test_route_without_a_strip_falls_back_to_a_straight_line():
+	var route := screen._route_via_strip(Vector2(100, 100), null, Vector2(400, 400))
+	assert_eq(route.size(), 2, "ohne verlegte Ader bleibt die direkte Verbindung")
+
+func test_supply_comet_picks_the_strip_of_its_category():
+	_place_workbench_corner()
+	# Ohne sichtbare Werkstatt gäbe es keine Laufzeit - hier ist sie gesetzt.
+	var travel := screen.supply_comet(Engraving.CATEGORY_MATERIAL,
+		Vector2(3900, 2700), Color.WHITE)
+	assert_gt(travel, 0.0, "der Inhalt bekommt eine echte Laufzeit")

@@ -101,6 +101,7 @@ var workshop_window: WorkshopView
 ## drei fremde Fenster daneben.
 var supply_drawers: Array[SupplyDrawerView] = []
 var supply_strips: Array[LedStripView] = []
+var workshop_hub_strip: LedStripView
 var supply_info_bar: Panel
 var supply_info_label: Label
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
@@ -360,6 +361,11 @@ func _build_content() -> void:
 	workshop_window.visible = false
 	add_child(workshop_window)
 
+	# Ader Hub -> Werkstatt (verlegt place_workshop_window).
+	workshop_hub_strip = LedStripView.new()
+	workshop_hub_strip.name = "WorkshopHubStrip"
+	add_child(workshop_hub_strip)
+
 	# Vorrats-Schubladen: Maße/Position setzt scene_root über place_supply_drawers.
 	# Die Adern zuerst, damit sie UNTER den Schubladen liegen.
 	for i in Engraving.CATEGORIES.size():
@@ -458,19 +464,32 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.size = rect.size
 	workshop_window.visible = true
 	workshop_window.refresh()
+	_link_workshop_to_hub()
 	_sync_reflection_windows()
+
+## Ader Hub -> Werkstatt: gerade waagerecht durch die Lücke, auf halber Höhe der
+## Überlappung beider Fenster (dort liegt nur Filz).
+func _link_workshop_to_hub() -> void:
+	if workshop_hub_strip == null or hub == null or hub.size.x <= 0.0 			or workshop_window == null or not workshop_window.visible:
+		return
+	var top := maxf(hub.position.y, workshop_window.position.y)
+	var bottom := minf(hub.position.y + hub.size.y, workshop_window.position.y + workshop_window.size.y)
+	if bottom <= top:
+		return  # keine Höhen-Überlappung - keine gerade Ader möglich
+	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
+		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
 ## Legt die drei Schubladen unter der Werkbank aus (Reihenfolge = CATEGORIES).
 func place_supply_drawers(rects: Array[Rect2], unit: float) -> void:
 	for i in mini(rects.size(), supply_drawers.size()):
 		supply_drawers[i].place(rects[i], unit)
 		supply_drawers[i].visible = true
-	_link_supply_strips(unit)
+	_link_supply_strips()
 	_sync_reflection_windows()
 
 ## Je Schublade eine kurze Ader von der Werkbank-Unterkante in die Schubladen-
-## Oberkante; der Korridor liegt mittig in der Lücke.
-func _link_supply_strips(unit: float) -> void:
+## Oberkante - in DERSELBEN Breite wie alle anderen Adern des Tisches.
+func _link_supply_strips() -> void:
 	if workshop_window == null or not workshop_window.visible:
 		return
 	var bench_bottom := workshop_window.position.y + workshop_window.size.y
@@ -481,7 +500,7 @@ func _link_supply_strips(unit: float) -> void:
 		var enter_x := drawer.position.x + drawer.size.x * 0.5
 		var lane_y := (bench_bottom + drawer.position.y) * 0.5
 		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
-			lane_y, unit * SUPPLY_STRIP_WIDTH)
+			lane_y, HUB_STRIP_WIDTH)
 
 ## Spannt die Info-Leiste unter der Schubladen-Reihe auf.
 func place_supply_info_bar(rect: Rect2, unit: float) -> void:
@@ -1119,8 +1138,6 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 
 ## Aderbreite beider Hub-Leisten (schlank = zurückhaltend).
 const HUB_STRIP_WIDTH := 3.4 * SUPERSAMPLE
-## Schubladen-Adern sind kurze Stichleitungen - schmaler als die Hub-Adern.
-const SUPPLY_STRIP_WIDTH := 0.35
 
 ## Gemeinsame Korridor-Höhe beider Hub-Leisten: mittig zwischen Grube-Unterkante
 ## und Hub-Oberkante - dort läuft ihr waagerechter Teil (unter der Grube).
@@ -1326,6 +1343,47 @@ func play_overclock_pulse(combo_key: String) -> void:
 				screen_path.append(p + circuit_board.position)
 			_pulse_along(screen_path, board_time)
 	await get_tree().create_timer(board_time).timeout
+
+## Leiterbahn-Route Quelle -> Ader -> Ziel: L-Anschluss auf den Ader-Anfang, die
+## Ader selbst, L-Anschluss ins Ziel. Alles achsenparallel, wie score_route.
+## Ohne verlegte Ader bleibt die gerade Verbindung (headless/Tests).
+func _route_via_strip(from_px: Vector2, strip: LedStripView, to_px: Vector2) -> PackedVector2Array:
+	if strip == null or strip.strip_path.size() < 2:
+		return PackedVector2Array([from_px, to_px])
+	var entry := strip.strip_path[0]
+	var exit := strip.strip_path[strip.strip_path.size() - 1]
+	var path := PackedVector2Array([from_px, Vector2(entry.x, from_px.y)])
+	for p in strip.strip_path:
+		path.append(p)
+	path.append(Vector2(exit.x, to_px.y))
+	path.append(to_px)
+	return path
+
+## Liefer-Komet Laden -> Werkstatt: das gekaufte Paket FÄHRT als Licht die
+## Hub-Werkstatt-Ader entlang, statt im Lager zu erscheinen. Liefert die Laufzeit.
+func pack_delivery_comet(from_px: Vector2, color: Color) -> float:
+	if workshop_window == null or not workshop_window.visible:
+		return 0.0
+	var to_px := workshop_window.position + workshop_window.size * 0.5
+	var path := _route_via_strip(from_px, workshop_hub_strip, to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Inhalts-Komet Werkbank -> Vorrats-Schublade: läuft über die Stichleitung der
+## Kategorie, nicht quer über den Filz. Liefert die Laufzeit.
+func supply_comet(category: String, slot_px: Vector2, color: Color) -> float:
+	if workshop_window == null or not workshop_window.visible:
+		return 0.0
+	var from_px := workshop_window.position + workshop_window.size * 0.5
+	var strip: LedStripView = null
+	for i in mini(supply_drawers.size(), supply_strips.size()):
+		if supply_drawers[i].category == category:
+			strip = supply_strips[i]
+	var path := _route_via_strip(from_px, strip, slot_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
 
 ## Kurzer, gedämpfter Komet entlang eines FESTEN Pfads (siehe TracePulseView).
 func _pulse_along(path: PackedVector2Array, duration: float, color := OVERCLOCK_PULSE_COLOR) -> void:

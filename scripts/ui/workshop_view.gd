@@ -30,6 +30,7 @@ var run: GameRun:
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
+		_pending_deliveries = 0  # Lieferungen des alten Laufs verfallen
 		refresh()
 
 ## Werkbank-Zustand: das Lager, oder die Zeremonie eines offenen Pakets.
@@ -40,6 +41,10 @@ enum Phase { STASH, REVEAL_ENGRAVINGS, PLACE_DICE }
 var _content: VBoxContainer
 ## Öffnen-Knöpfe der Lagerkarten, Reihenfolge = owned_packs.
 var _pack_buttons: Array[Button] = []
+## Gekaufte Pakete, deren Liefer-Licht noch unterwegs ist: so viele der NEUESTEN
+## Karten bleiben im Regal verborgen. Der Komet IST das Paket - es darf nicht
+## schon im Lager liegen, während sein Licht noch fährt.
+var _pending_deliveries := 0
 
 ## Die Gravur-Station als angehängtes Vollflächen-Panel (setzt scene_root).
 var _station: Control
@@ -125,6 +130,9 @@ func _build_pack_shelf(u: float) -> void:
 	var packs: Array[Pack] = []
 	if run != null:
 		packs = run.owned_packs
+	var shown := maxi(packs.size() - _pending_deliveries, 0)
+	# Der Hinweis nur bei WIRKLICH leerem Lager - wartet eine Lieferung, bleibt
+	# das Regal leer stehen (der Hinweis würde sofort wieder verschwinden).
 	if packs.is_empty():
 		var hint := _label("Kein Paket im Lager – im Laden gibt es welche.", u * 2.4, MUTED_COLOR)
 		hint.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -138,7 +146,7 @@ func _build_pack_shelf(u: float) -> void:
 	shelf.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(shelf)
-	for i in packs.size():
+	for i in shown:
 		shelf.add_child(_pack_card(packs[i], i, u))
 
 ## Lagerkarte: Siegel, Sorte, Inhaltsmenge - und der Öffnen-Knopf.
@@ -187,6 +195,30 @@ func _content_text(pack: Pack) -> String:
 		# CATEGORY_NAMES sagt hier "Würfel" - neben echten Würfel-Paketen irreführend.
 		return "%d Kanten-Gravur" % pack.count if pack.count == 1 else "%d Kanten-Gravuren" % pack.count
 	return "%d %s" % [pack.count, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
+
+## Ein gekauftes Paket ist unterwegs: seine Karte bleibt verborgen, bis das Licht
+## ankommt (scene_root ruft das VOR dem Kometen).
+func expect_delivery() -> void:
+	_pending_deliveries += 1
+	refresh()
+
+## Das Liefer-Licht ist angekommen: die Karte erscheint und ploppt auf.
+func deliver_pack() -> void:
+	if _pending_deliveries <= 0:
+		return
+	_pending_deliveries -= 1
+	refresh()
+	if not _pack_buttons.is_empty():
+		_pop_card(_pack_buttons[_pack_buttons.size() - 1])
+
+## Ankunfts-Pluster der frisch gelieferten Karte (wie SupplyDrawerView.pop).
+func _pop_card(card: Control) -> void:
+	if not is_instance_valid(card):
+		return
+	card.pivot_offset = card.size * 0.5
+	var tween := create_tween()
+	tween.tween_property(card, "scale", Vector2.ONE * 1.18, 0.10) 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "scale", Vector2.ONE, 0.22) 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # --- Zeremonie: öffnen, zeigen, verwenden --------------------------------------
 

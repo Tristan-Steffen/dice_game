@@ -10,6 +10,9 @@ extends Control
 ## closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
+## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
+## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln).
+signal pack_purchased(from_px: Vector2, pack_type: String)
 
 const CHARM_PRICE := 15
 
@@ -915,12 +918,19 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	var price := _pack_price(pack)
 	if run.money < price:
 		return
+	# Startpunkt VOR dem Neuaufbau abgreifen - danach ist der Knopf weg.
+	var buttons := dice_pack_buttons if is_dice else engraving_pack_buttons
+	var from_px := Vector2.ZERO
+	if index < buttons.size() and is_instance_valid(buttons[index]):
+		from_px = buttons[index].get_global_rect().get_center()
 	run.purchase_pack(pack, price)
 	# Liegt im Spread - übersteht den Neuaufbau.
 	if is_dice:
 		dice_pack_bought[index] = true
 	else:
 		engraving_pack_bought[index] = true
+	if from_px != Vector2.ZERO:
+		pack_purchased.emit(from_px, pack.type)
 	_show_spread()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
