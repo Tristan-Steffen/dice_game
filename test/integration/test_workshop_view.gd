@@ -88,7 +88,7 @@ func test_placing_a_die_replaces_the_chosen_pool_slot() -> void:
 	var incoming: DieDefinition = view._revealed_dice[0]
 	view.begin_placement()
 	assert_eq(view._phase, WorkshopView.Phase.PICK_POOL)
-	assert_eq(view._pool_buttons.size(), GameRun.POOL_SIZE, "je Pool-Platz ein Knopf")
+	assert_eq(view._pool_grid.tiles.size(), GameRun.POOL_SIZE, "je Pool-Platz eine Kachel")
 	view.place_current_die(4)
 	assert_eq(run.owned_pool[4].style_id, incoming.style_id, "Platz 4 trägt den neuen Würfel")
 	assert_eq(run.owned_pool[5].style_id, "normal", "Nachbarplatz unberührt")

@@ -54,8 +54,8 @@ var _revealed_engravings: Array[Engraving] = []
 var _revealed_dice: Array[DieDefinition] = []
 ## Welcher Paket-Würfel gerade dran ist (Einsetzen oder Ablehnen).
 var _die_index := 0
-## Platz-Knöpfe der Pool-Auswahl (nur in PICK_POOL).
-var _pool_buttons: Array[Button] = []
+## Würfel-Raster der Pool-Auswahl (nur in PICK_POOL).
+var _pool_grid: DiceGridView
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -334,33 +334,18 @@ func _build_dice_reveal(u: float) -> void:
 ## Pool-Auswahl: welchen der Würfel im Pool ersetzt der Neue? Die Augensumme
 ## macht die schwachen Plätze auf einen Blick sichtbar.
 func _build_pool_picker(u: float) -> void:
-	_pool_buttons.clear()
 	_content.add_child(_label("Welchen Würfel ersetzen?", u * 2.6, MUTED_COLOR))
 	# Zehn Spalten: die 30 Plätze passen in drei Reihen ins flache Fenster.
-	var grid := GridContainer.new()
-	grid.columns = 10
-	grid.add_theme_constant_override("h_separation", int(u * 0.6))
-	grid.add_theme_constant_override("v_separation", int(u * 0.6))
-	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(grid)
+	_pool_grid = DiceGridView.new()
+	_pool_grid.place(10, u)
+	_pool_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_pool_grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_pool_grid.slot_pressed.connect(place_current_die)
+	_content.add_child(_pool_grid)
 	var pool: Array[DieDefinition] = []
 	if run != null:
 		pool = run.owned_pool
-	for i in pool.size():
-		var slot := Button.new()
-		slot.focus_mode = Control.FOCUS_NONE
-		slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		slot.custom_minimum_size = Vector2(u * 6.4, u * 4.6)
-		slot.text = "%d" % DiceRowView.eye_total(pool[i])
-		slot.tooltip_text = pool[i].display_name
-		slot.add_theme_font_size_override("font_size", maxi(8, int(u * 2.0)))
-		# Spezialwürfel tragen ihre Signatur, damit man sie nicht versehentlich opfert.
-		_style_button(slot, TITLE_COLOR if pool[i].style_id == "normal" else GOLD)
-		slot.pressed.connect(place_current_die.bind(i))
-		_pool_buttons.append(slot)
-		grid.add_child(slot)
+	_pool_grid.fill(pool)
 	_content.add_child(_action_button("Doch nicht", MUTED_COLOR, u, _cancel_placement))
 
 func _cancel_placement() -> void:
