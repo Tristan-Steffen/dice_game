@@ -183,6 +183,15 @@ func test_reset_session_clears_wall() -> void:
 	for i in SlotMachine.MACHINE_COUNT:
 		assert_true(bank.can_spin(i))
 
+func test_any_spun_tracks_the_session() -> void:
+	var bank := _bank()
+	bank.fumble_chance = 0.0
+	assert_false(bank.any_spun(), "frische Sitzung: nichts gedreht")
+	bank.spin(0)
+	assert_true(bank.any_spun(), "ein Automat gedreht")
+	bank.reset_session()
+	assert_false(bank.any_spun(), "nach dem Reset wieder leer")
+
 func test_run_specs_resolve_by_symbol() -> void:
 	var money_run: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
 	var money: Dictionary = money_run["specs"][0]

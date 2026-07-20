@@ -47,6 +47,11 @@ func _init() -> void:
 func can_spin(machine: int) -> bool:
 	return not busted and machine >= 0 and machine < MACHINE_COUNT and not spun[machine]
 
+## Ob die Sitzung läuft (mindestens ein Automat gedreht). Ohne Gewinn und ohne
+## Bust bleibt die Wand sonst stehen - die Anzeige braucht das für den Verwerfen-Knopf.
+func any_spun() -> bool:
+	return spun.has(true)
+
 ## Alle Gewinn-Reihen der Wand (leer bei Bust) - waagerecht, senkrecht UND diagonal.
 ## Je Reihe ein Deskriptor mit kind, length, cells (globale [col,row]), direction,
 ## specs (Belohnungs-Vorlagen für SlotPrize.from_spec) und label (Anzeigetext).

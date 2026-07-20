@@ -449,6 +449,7 @@ func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override("font_size", maxi(9, int(u * 3.0)))
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	var spun_out := run != null and run.slot_bank.any_spun()
 	if busted:
 		button.text = "Neue Sitzung"
 		button.disabled = _spinning
@@ -461,6 +462,14 @@ func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 		if not _spinning:
 			button.pressed.connect(_on_cash_out_pressed)
 		_style_button(button, GOLD)
+	elif spun_out:
+		# Gedreht, aber keine Reihe: Wand verwerfen, damit die Automaten wieder
+		# drehbar werden (sonst säße der Spieler fest - kein Gewinn, kein Bust).
+		button.text = "Neu drehen"
+		button.disabled = _spinning
+		if not _spinning:
+			button.pressed.connect(_on_cash_out_pressed)
+		_style_button(button, CYAN)
 	else:
 		button.text = "Auszahlen"
 		button.disabled = true
@@ -571,7 +580,8 @@ func _on_reel_landed(machine: int, block: Array) -> void:
 func _on_cash_out_pressed() -> void:
 	if _spinning or run == null:
 		return
-	if run.slot_bank.busted:
+	# Bust ODER gedreht-ohne-Gewinn: die Wand verwerfen und neu drehbar machen.
+	if run.slot_bank.busted or (run.slot_bank.hit_count() < 1 and run.slot_bank.any_spun()):
 		run.slot_bank.reset_session()
 		_reset_landed()
 		_build()

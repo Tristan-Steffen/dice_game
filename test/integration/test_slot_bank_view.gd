@@ -87,3 +87,25 @@ func test_new_session_after_a_bust() -> void:
 	await wait_frames(2)
 	assert_false(run.slot_bank.busted, "Sitzung frisch")
 	assert_true(run.can_spin_slot(0), "Automat wieder drehbar")
+
+func test_spun_without_a_win_can_reset_to_spin_again() -> void:
+	# Gedreht, aber keine Reihe und kein Bust: der Spieler saß bisher fest. Der
+	# Knopf verwirft die Wand und macht die Automaten wieder drehbar.
+	_set_wall([])  # neutrale Wand, alle Automaten gedreht
+	view.refresh()
+	await wait_frames(2)
+	assert_eq(run.slot_bank.hit_count(), 0, "keine Gewinn-Reihe")
+	assert_false(run.slot_bank.busted, "auch kein Bust")
+	assert_false(run.can_spin_slot(0), "vorher: Automat verbraucht")
+	view._on_cash_out_pressed()
+	await wait_frames(2)
+	assert_true(run.can_spin_slot(0), "nachher: Automat wieder drehbar")
+	assert_false(run.slot_bank.any_spun(), "Sitzung zurückgesetzt")
+
+func test_fresh_session_leaves_the_button_disabled() -> void:
+	# Nichts gedreht: kein Verwerfen anzubieten, „Auszahlen" bleibt gesperrt.
+	view.refresh()
+	await wait_frames(2)
+	var button := view._cash_out_button(9.0, false, 0)
+	assert_true(button.disabled, "ohne Dreh kein aktiver Knopf")
+	assert_eq(button.text, "Auszahlen")
