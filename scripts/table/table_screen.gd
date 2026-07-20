@@ -101,6 +101,8 @@ var workshop_window: WorkshopView
 ## drei fremde Fenster daneben.
 var supply_drawers: Array[SupplyDrawerView] = []
 var supply_strips: Array[LedStripView] = []
+var supply_info_bar: Panel
+var supply_info_label: Label
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -373,6 +375,22 @@ func _build_content() -> void:
 		add_child(drawer)
 		supply_drawers.append(drawer)
 
+	# Info-Leiste unter den Schubladen: die Hinweiszeile der Gravur-Station
+	# (die Station schreibt direkt in supply_info_label, siehe set_prompt_label).
+	supply_info_bar = Panel.new()
+	supply_info_bar.name = "SupplyInfoBar"
+	supply_info_bar.visible = false
+	supply_info_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	supply_info_bar.add_theme_stylebox_override("panel", window_style())
+	add_child(supply_info_bar)
+	supply_info_label = Label.new()
+	supply_info_label.name = "InfoLabel"
+	supply_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	supply_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	supply_info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	supply_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	supply_info_bar.add_child(supply_info_label)
+
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
 	hub.name = "Hub"
@@ -465,6 +483,17 @@ func _link_supply_strips(unit: float) -> void:
 		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
 			lane_y, unit * SUPPLY_STRIP_WIDTH)
 
+## Spannt die Info-Leiste unter der Schubladen-Reihe auf.
+func place_supply_info_bar(rect: Rect2, unit: float) -> void:
+	supply_info_bar.position = rect.position
+	supply_info_bar.size = rect.size
+	supply_info_label.offset_left = unit * 1.6
+	supply_info_label.offset_right = -unit * 1.6
+	supply_info_label.add_theme_font_size_override("font_size", maxi(8, int(unit * 2.4)))
+	supply_info_label.modulate = Color(1.35, 1.35, 1.3)
+	supply_info_bar.visible = true
+	_sync_reflection_windows()
+
 ## Schaltet alle Schubladen in die Station-Betriebsart (Werkzeug-Bord) und zurück.
 func set_drawers_in_ceremony(active: bool) -> void:
 	for drawer in supply_drawers:
@@ -524,6 +553,11 @@ func _sync_reflection_windows() -> void:
 			rects.append(Vector4(drawer.position.x, drawer.position.y,
 				drawer.position.x + drawer.size.x, drawer.position.y + drawer.size.y))
 			radii.append(10.0)
+	if supply_info_bar != null and supply_info_bar.visible:
+		rects.append(Vector4(supply_info_bar.position.x, supply_info_bar.position.y,
+			supply_info_bar.position.x + supply_info_bar.size.x,
+			supply_info_bar.position.y + supply_info_bar.size.y))
+		radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))

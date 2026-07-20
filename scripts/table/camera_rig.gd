@@ -32,9 +32,9 @@ const PIT_ZOOM_DISTANCE_BONUS := 5.0
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 
-## Die Werkbank rahmt Trays UND Fenster; die Würfel schweben zudem über dem
-## Tisch und ragen sonst oben aus dem Bild.
-const WORKSHOP_ZOOM_DISTANCE_BONUS := 6.0
+## Die Werkbank rahmt Trays UND Fenster; darunter schneidet der obere Bildrand
+## die erste Tray-Reihe an, und die ist Klickziel.
+const WORKSHOP_ZOOM_DISTANCE_BONUS := 1.0
 
 ## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den

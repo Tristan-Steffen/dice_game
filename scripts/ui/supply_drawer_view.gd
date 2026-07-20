@@ -25,7 +25,8 @@ const COLUMNS := {
 	Engraving.CATEGORY_MATERIAL: 3,
 	Engraving.CATEGORY_DICE: 3,
 }
-## Die Sorte erkennt man an Farbe und Siegeln - eine Überschrift kostet nur Höhe.
+## Kategorie-Farbe wie das passende Paket im Laden - färbt nur noch die
+## Leiterbahn eines ankommenden Paket-Inhalts (siehe scene_root), nicht die Plätze.
 const COLORS := {
 	Engraving.CATEGORY_NUMBER: Color("#50fa7b"),
 	Engraving.CATEGORY_MATERIAL: Color("#ff79c6"),
@@ -181,9 +182,10 @@ func _chip(archetype: Engraving, count: int) -> Button:
 		stack.add_child(badge)
 	return chip
 
-## Färbt die Plätze nach Bestand und Betriebsart: Schatten ohne Besitz, Saum in
-## der Seltenheitsfarbe mit Besitz, Gold für das Werkzeug in der Hand. In der
-## Lager-Betriebsart fängt kein Platz Klicks.
+## Färbt die Plätze nach Bestand und Betriebsart: Schatten ohne Besitz, volle
+## Deckung mit Besitz. Die Siegel stehen NACKT auf der Schublade - keine eigene
+## Kachel mit Rand; nur das Werkzeug in der Hand und das Überfahren an der
+## Station zeichnen einen goldenen Saum. Im Lager fängt kein Platz Klicks.
 func restyle() -> void:
 	for entry in slots:
 		var chip: Button = entry["button"]
@@ -197,20 +199,14 @@ func restyle() -> void:
 		chip.mouse_filter = Control.MOUSE_FILTER_STOP if _ceremony else Control.MOUSE_FILTER_IGNORE
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if usable \
 			else Control.CURSOR_ARROW
-		var seam: Color = EngravingRenderer.SEAM_COLORS[Engraving.Rarity.COMMON]
-		if id == _held_id:
-			seam = GOLD
-		elif owned:
-			seam = COLORS.get(category, TEXT_COLOR)
-		var alpha := 0.9 if owned else 0.22
-		chip.add_theme_stylebox_override("normal",
-			_chip_box(Color("#221e46cc") if owned else Color("#181534aa"), seam, alpha))
+		var resting: StyleBox = _chip_box(Color("#2c2757dd"), GOLD, 1.0) \
+			if id == _held_id else StyleBoxEmpty.new()
+		chip.add_theme_stylebox_override("normal", resting)
 		chip.add_theme_stylebox_override("hover", _chip_box(Color("#2c2757dd"), GOLD, 1.0))
 		chip.add_theme_stylebox_override("pressed", _chip_box(Color("#3a2f66"), GOLD, 1.0))
-		chip.add_theme_stylebox_override("disabled",
-			_chip_box(Color("#181534aa"), seam, alpha * 0.6))
+		chip.add_theme_stylebox_override("disabled", resting)
 		chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		chip.modulate = Color(1, 1, 1, 1.0 if owned else 0.55)
+		chip.modulate = Color(1, 1, 1, 1.0 if owned else 0.35)
 
 ## Bildschirm-Mitte des Platzes id (Ausgangspunkt der Anwende-Leiterbahn);
 ## Vector2(-1,-1), wenn diese Schublade ihn nicht führt.

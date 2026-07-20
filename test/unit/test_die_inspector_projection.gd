@@ -27,10 +27,10 @@ func test_projection_is_built_next_to_the_stage() -> void:
 	assert_not_null(view.die_view, "die Projektion ist gebaut")
 	assert_not_null(view.die_view_panel, "... auf ihrem eigenen Unter-Bildschirm")
 	var stage_row: Control = view.stage.get_parent()
-	assert_eq(stage_row.name, "StageRow", "Bühne und Projektion teilen sich eine Reihe")
+	assert_eq(stage_row.name, "StageRow", "Bühne und Projektion teilen sich eine Spalte")
 	assert_true(view.die_view_panel.get_parent() == stage_row)
 	assert_lt(view.stage.get_index(), view.die_view_panel.get_index(),
-		"die Bühne (echter Würfel) sitzt LINKS, die Projektion RECHTS daneben")
+		"die Bühne (echter Würfel) sitzt OBEN, die Projektion darunter")
 	assert_eq(view.die_view.die_roots.size(), 1, "die Projektion zeigt genau den bearbeiteten Würfel")
 
 func test_projection_screen_has_border_and_distinct_background() -> void:

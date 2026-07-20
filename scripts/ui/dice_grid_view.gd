@@ -33,6 +33,13 @@ var _highlight := -1
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+## Größte Maßeinheit, bei der ein detailliertes Raster columns×rows noch in avail
+## passt - damit ein Aufrufer das Raster seinen Platz ausfüllen lassen kann.
+static func unit_for(column_count: int, row_count: int, avail: Vector2) -> float:
+	var span_w := column_count * DETAIL_TILE + (column_count - 1) * 0.6
+	var span_h := row_count * DETAIL_TILE + (row_count - 1) * 0.6
+	return maxf(1.0, minf(avail.x / span_w, avail.y / span_h))
+
 ## Spaltenzahl, Maßeinheit und Ausführung festlegen (vor fill).
 func place(column_count: int, unit: float, with_faces: bool = false) -> void:
 	columns = maxi(column_count, 1)
@@ -47,6 +54,7 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 	_highlight = highlight_index
 	tiles.clear()
 	for child in get_children():
+		remove_child(child)  # erst abhängen: queue_free zählt sonst noch ins Mindestmaß
 		child.queue_free()
 	for i in defs.size():
 		if defs[i] == null:

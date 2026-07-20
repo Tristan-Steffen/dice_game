@@ -543,9 +543,17 @@ func _setup_table_screen() -> void:
 		drawer_rects[i].position.y = drawer_top
 	table_screen.place_supply_drawers(drawer_rects, corner_unit)
 
-	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster und
-	# Schubladen unten. Nur so liegt der Ziel-Würfel mit im Bild.
-	var corner := workshop_rect.merge(tray_bounds)
+	# Info-Leiste unter der Schubladen-Reihe: flach und so breit wie die Reihe -
+	# hier landet die Hinweiszeile der Gravur-Station statt im Editor-Panel.
+	var info_rect := Rect2(
+		Vector2(drawer_rects[0].position.x, drawer_top + drawer_height + drawer_gap * 0.5),
+		Vector2(drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x,
+			corner_unit * 6.0))
+	table_screen.place_supply_info_bar(info_rect, corner_unit)
+
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen
+	# und Info-Leiste unten. Nur so liegt der Ziel-Würfel mit im Bild.
+	var corner := workshop_rect.merge(tray_bounds).merge(info_rect)
 	for rect in drawer_rects:
 		corner = corner.merge(rect)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
@@ -585,6 +593,7 @@ func _setup_panels() -> void:
 		$UI.add_child(die_inspector)
 	if table_screen != null:
 		die_inspector.set_drawers(table_screen.supply_drawers)
+		die_inspector.set_prompt_label(table_screen.supply_info_label)
 	die_inspector.closed.connect(_end_engraving_ceremony)
 	die_inspector.applied.connect(_on_engraving_applied)
 	die_inspector.select_tray_die.connect(_on_tray_die_selected)

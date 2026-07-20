@@ -70,9 +70,10 @@ const STAGE_FRACTION := 0.15
 ## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u) - gilt für
 ## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
 const TRAY_TILE := 7.6
-## Das Ziel-Raster rechnet kleiner als der Rest des Panels - sechs Detail-Kacheln
-## nebeneinander passen sonst nicht in die rechte Spalte.
+## Rückfall-Skala des Ziel-Rasters, solange seine Spalte noch kein Maß hat.
 const GRID_UNIT_SCALE := 0.80
+## Rand des Rasters zu seiner Spalte (Breiteneinheiten u) - ringsum derselbe.
+const GRID_MARGIN := 1.2
 
 ## Der laufende Spiellauf (setzt scene_root) - Engraving-Bestand und -Verbrauch.
 var run: GameRun
@@ -92,8 +93,12 @@ var preview_active: bool = false
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
 
-# Gerüst-Referenzen (je show_die frisch gebaut).
+## Die Hinweiszeile lebt AUSSERHALB des Panels: in der Info-Leiste unter den
+## Schubladen (setzt scene_root über set_prompt_label). Ohne Leiste bleibt die
+## Station stumm - die leuchtenden Schubladen führen auch allein.
 var prompt_label: Label
+
+# Gerüst-Referenzen (je show_die frisch gebaut).
 var summary_list: VBoxContainer  # Seiten-Raster im Kanten-Rahmen
 ## Anzeige-Reihenfolge der Seiten-Chips (physische Indizes): beim Öffnen/Ziel-
 ## Wechsel nach Wert sortiert, während der Bearbeitung eingefroren - die Chips
@@ -127,6 +132,9 @@ var target_grid: DiceGridView
 var target_defs: Array[DieDefinition] = []
 var target_current := -1
 var target_columns := 10
+## Die Spalte, die das Raster misst, und die zuletzt daraus errechnete Einheit.
+var grid_host: Control
+var _grid_unit := 0.0
 
 ## Die Bühne: leere Landefläche, über der der ECHTE Würfel schwebt; ihre Mitte
 ## ist Landeziel und Endpunkt der Absorptions-Bahn.
@@ -166,6 +174,7 @@ func close() -> void:
 		return
 	for drawer in drawers:
 		drawer.set_ceremony(false)  # zurück in die Lager-Anzeige
+	_set_prompt("")  # die Info-Leiste gehört wieder dem Lager
 	visible = false
 	closed.emit()
 
@@ -178,13 +187,13 @@ func _build_layout() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true  # nichts ragt über den Hub-Rahmen hinaus
 
+	# Schmaler Rand ringsum: das Ziel-Raster soll das Fenster ausfüllen. Keine
+	# Kopfzeile - der schwebende Würfel sagt deutlich genug, was hier läuft.
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", int(u * 3.0))
-	margin.add_theme_constant_override("margin_right", int(u * 3.0))
-	margin.add_theme_constant_override("margin_top", int(u * 1.2))
-	margin.add_theme_constant_override("margin_bottom", int(u * 2.0))
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, int(u * GRID_MARGIN))
 	add_child(margin)
 
 	var root := VBoxContainer.new()
@@ -192,84 +201,65 @@ func _build_layout() -> void:
 	root.add_theme_constant_override("separation", int(u * 1.2))
 	margin.add_child(root)
 
-	_build_header(root)
 	_build_body(root)
 
 	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem
 
-## Kopfzeile ohne Schließen-Knopf: die Station schließt, sobald die Kamera die
-## Werkbank verlässt (siehe scene_root) - ein eigener Knopf wäre ein zweiter Weg
-## für dieselbe Geste.
-func _build_header(root: Control) -> void:
-	var header := HBoxContainer.new()
-	header.name = "Header"
-	root.add_child(header)
-	var title := _label("GRAVUR", u * 4.5, NEON_MAGENTA)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(title)
-
-## Querformat, weil das Werkstatt-Fenster flach ist: links die Bühne mit der
-## Projektion und der Seiten-Übersicht, rechts Hinweiszeile über dem Bord.
-## Ein Würfel-Raster braucht es hier nicht - die ECHTEN Trays liegen im selben
-## Zoom direkt über dem Fenster; ein Klick darauf wechselt das Ziel.
+## Querformat, weil das Werkstatt-Fenster flach ist: links gestapelt die Seiten-
+## Übersicht, darunter der echte schwebende Würfel neben seiner Projektion und
+## zuunterst die Hinweiszeile; rechts allein das Ziel-Raster. Die linke Spalte
+## nimmt nur ihre Mindestbreite - der Rest gehört dem Raster, das sonst
+## breitenbegrenzt wäre und oben/unten Luft stehen ließe.
 func _build_body(root: Control) -> void:
 	var body := HBoxContainer.new()
 	body.name = "Body"
-	body.add_theme_constant_override("separation", int(u * 2.0))
+	body.add_theme_constant_override("separation", int(u * GRID_MARGIN))
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(body)
 
-	# Seiten-Übersicht NEBEN der Projektion, nicht darüber: das Fenster ist seit
-	# den Schubladen flacher, übereinander ragte die Projektion unten heraus.
-	var left_col := HBoxContainer.new()
+	var left_col := VBoxContainer.new()
 	left_col.name = "LeftColumn"
-	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_col.size_flags_stretch_ratio = 0.45
+	left_col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left_col.add_theme_constant_override("separation", int(u * 1.0))
 	body.add_child(left_col)
 
-	summary_list = VBoxContainer.new()
-	summary_list.name = "FaceSummary"
-	summary_list.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	summary_list.add_theme_constant_override("separation", int(u * 0.8))
-	left_col.add_child(summary_list)
-
-	var stage_row := HBoxContainer.new()
+	# Von oben nach unten: der ECHTE schwebende Würfel, sein Hologramm, zuletzt
+	# die Seiten-Übersicht - dieselbe Sache dreimal, von körperlich zu abstrakt.
+	var stage_row := VBoxContainer.new()
 	stage_row.name = "StageRow"
+	stage_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	stage_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage_row.add_theme_constant_override("separation", int(u * 1.5))
+	stage_row.add_theme_constant_override("separation", int(u * 1.0))
 	left_col.add_child(stage_row)
 
 	stage = CenterContainer.new()
 	stage.name = "Stage"
-	stage.custom_minimum_size = Vector2(u * 4.0, size.y * STAGE_FRACTION)
-	# Die Bühne nimmt den Restplatz links - der quadratische Projektions-Screen
-	# schließt dadurch bündig mit der rechten Kante des Kanten-Rahmens ab.
-	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage.custom_minimum_size = Vector2(u * 10.0, size.y * STAGE_FRACTION)
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage_row.add_child(stage)
 
 	_build_die_view(stage_row)
 
-	var right_col := VBoxContainer.new()
+	summary_list = VBoxContainer.new()
+	summary_list.name = "FaceSummary"
+	summary_list.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	summary_list.size_flags_vertical = Control.SIZE_SHRINK_END
+	summary_list.add_theme_constant_override("separation", int(u * 0.8))
+	left_col.add_child(summary_list)
+
+	# Bewusst ein nacktes Control, KEIN Container: es misst den Platz für das
+	# Raster: ein Container würde dessen Mindestmaß zurückmelden und mit jedem
+	# Neuaufbau weiterwachsen. Das Raster wird darin von Hand zentriert.
+	var right_col := Control.new()
 	right_col.name = "RightColumn"
 	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_col.size_flags_stretch_ratio = 0.55
 	right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right_col.add_theme_constant_override("separation", int(u * 0.8))
 	body.add_child(right_col)
-
-	# Hinweiszeile über dem Würfel-Raster: sie erklärt, was der Stift sucht.
-	_build_prompt(right_col)
+	grid_host = right_col
+	grid_host.resized.connect(_refresh_target_grid)
 	_build_target_grid(right_col)
-
-func _build_prompt(root: Control) -> void:
-	prompt_label = _label("", u * 2.2, NEON_TEXT)
-	prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	prompt_label.custom_minimum_size = Vector2(0, u * 4.0)
-	root.add_child(prompt_label)
 
 ## Das Würfel-Raster des Ursprungs-Trays: ein Klick macht einen anderen Würfel
 ## zum Ziel, ohne den Blick von der Station zu nehmen. Die Augensummen zeigen
@@ -278,7 +268,6 @@ func _build_target_grid(root: Control) -> void:
 	target_grid = DiceGridView.new()
 	target_grid.name = "TargetGrid"
 	target_grid.place(target_columns, u * GRID_UNIT_SCALE, true)
-	target_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	target_grid.slot_pressed.connect(func(index: int) -> void: select_tray_die.emit(index))
 	root.add_child(target_grid)
 	_refresh_target_grid()
@@ -294,8 +283,37 @@ func set_target_grid(columns: int, defs: Array[DieDefinition], current_slot: int
 func _refresh_target_grid() -> void:
 	if target_grid == null or not is_instance_valid(target_grid):
 		return
-	target_grid.place(target_columns, u * GRID_UNIT_SCALE, true)
+	var unit := _target_grid_unit()
+	if is_equal_approx(unit, _grid_unit) and target_grid.get_child_count() > 0:
+		return  # resized feuert während des Layouts mehrfach - nicht neu bauen
+	_grid_unit = unit
+	target_grid.place(target_columns, unit, true)
 	target_grid.fill(target_defs, target_current)
+	_center_target_grid.call_deferred()
+
+## Setzt das Raster in seine Spalte (der nackte Control-Wirt legt nichts aus):
+## senkrecht mittig und rechts mit DEMSELBEN Abstand. Die Kacheln sind quadratisch,
+## also bleibt der Rest der Breite links stehen - dort federt ihn die Würfel-Spalte ab.
+func _center_target_grid() -> void:
+	if target_grid == null or not is_instance_valid(target_grid) \
+			or grid_host == null or not is_instance_valid(grid_host):
+		return
+	var span := target_grid.get_combined_minimum_size()
+	target_grid.size = span
+	var margin := maxf((grid_host.size.y - span.y) * 0.5, 0.0)
+	target_grid.position = Vector2(maxf(grid_host.size.x - span.x - margin, 0.0), margin)
+
+## Maßeinheit des Rasters: es füllt seine Spalte in BEIDEN Richtungen aus, statt
+## an einer festen Skala zu hängen (dann stand oben/unten Luft). Vor dem ersten
+## Layout ist die Spalte noch maßlos - der feste Anteil springt dann ein.
+func _target_grid_unit() -> float:
+	if grid_host == null or not is_instance_valid(grid_host) or grid_host.size.x <= 0.0:
+		return u * GRID_UNIT_SCALE
+	var columns := maxi(target_columns, 1)
+	var rows := maxi(int(ceil(float(target_defs.size()) / float(columns))), 1)
+	# Senkrecht ohne Abzug: der Wirt sitzt bereits im Fensterrand. Waagerecht geht
+	# nur der linke Abstand zur Würfel-Spalte ab.
+	return DiceGridView.unit_for(columns, rows, grid_host.size - Vector2(u * GRID_MARGIN, 0.0))
 
 ## Bestand je Gravur-id (Testmodus: alles einmal vorhanden) - entscheidet, ob
 ## ein Werkzeug nach dem Anwenden in der Hand bleibt.
@@ -318,6 +336,14 @@ func _sync_drawers() -> void:
 		if is_instance_valid(drawer):
 			drawer.set_state(held_id, [] as Array[String])
 
+## Verdrahtet die externe Hinweiszeile (Label der Info-Leiste).
+func set_prompt_label(label: Label) -> void:
+	prompt_label = label
+
+func _set_prompt(text: String) -> void:
+	if prompt_label != null and is_instance_valid(prompt_label):
+		prompt_label.text = text
+
 ## Verdrahtet die drei Schubladen als Werkzeug-Bord (setzt scene_root).
 func set_drawers(list: Array[SupplyDrawerView]) -> void:
 	drawers = list
@@ -338,9 +364,9 @@ func _build_die_view(parent: Control) -> void:
 	style.set_corner_radius_all(int(u * 1.2))
 	style.set_content_margin_all(int(u * 0.8))
 	die_view_panel.add_theme_stylebox_override("panel", style)
-	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand;
-	# mittig, damit er mit der Seiten-Übersicht daneben auf einer Höhe sitzt.
+	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand.
 	die_view_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	die_view_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	parent.add_child(die_view_panel)
 
 	die_view = RotatableDieView.new()
@@ -602,9 +628,9 @@ func _finish_apply(engraving_id: String, message: String) -> void:
 	_sync_drawers()  # der Bestand hat sich geändert (die Schubladen bauen selbst neu)
 	_refresh_face_summary()
 	if keep:
-		prompt_label.text = "%s. Nochmal anwenden oder Rechtsklick: ablegen." % message
+		_set_prompt("%s. Nochmal anwenden oder Rechtsklick: ablegen." % message)
 	else:
-		prompt_label.text = "%s. Nächste Gravur wählen oder Rechtsklick zum Schließen." % message
+		_set_prompt("%s. Nächste Gravur wählen oder Rechtsklick zum Schließen." % message)
 
 ## Display-Pixel der Bord-Kachel einer Gravur (Quelle der Absorptions-Bahn);
 ## Panel-Mitte als Rückfall.
@@ -837,12 +863,12 @@ func _restore_face_chips() -> void:
 
 func _update_prompt() -> void:
 	if held_id != "":
-		prompt_label.text = _held_prompt()
+		_set_prompt(_held_prompt())
 		return
 	if selected_face != -1:
-		prompt_label.text = "Seite gewählt (Wert %d)." % current_def.faces[selected_face]
+		_set_prompt("Seite gewählt (Wert %d)." % current_def.faces[selected_face])
 	else:
-		prompt_label.text = "Wähle eine Gravur vom Bord."
+		_set_prompt("")  # die leuchtenden Schubladen sagen es schon
 
 ## Führungstext der gehaltenen Gravur (Schritt-abhängig bei Paaren).
 func _held_prompt() -> String:
