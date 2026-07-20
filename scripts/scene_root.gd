@@ -1126,6 +1126,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if engraving_active and die_inspector.has_pending_action():
 			die_inspector.cancel_pending()
 			return
+		if _pit_locked() and camera_rig.mode == CameraRig.Mode.PIT:
+			hand_label.text = "Die Runde läuft – die Grube wird erst am Rundenende frei."
+			return
 		camera_rig.zoom_out()
 		return
 
@@ -1752,6 +1755,11 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		return
 
 	var collider: Object = result.collider
+	# Bei verriegelter Grube führt jede Zone nur zurück in die Grube.
+	if _pit_locked():
+		camera_rig.zoom_to(CameraRig.Mode.PIT)
+		return
+
 	if collider == pit_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.PIT)
 	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
@@ -1851,6 +1859,14 @@ func _is_playing() -> bool:
 
 func _can_toggle_selection() -> bool:
 	return phase == Phase.IDLE and has_rolled_current_hand
+
+## Ab dem ersten Wurf einer Runde bleibt der Spieler in der Grube, bis die Runde
+## aufgeht (Auszahlung/Shop/Game Over heben die Sperre wieder auf). Gilt nur für
+## Spieler-Eingaben - die Kamerafahrten der Auszahlung laufen weiter.
+func _pit_locked() -> bool:
+	if not (has_rolled_current_hand or hands_taken_this_round > 0):
+		return false
+	return phase in [Phase.IDLE, Phase.CUP_ANIMATING, Phase.ROLLING, Phase.SCORING]
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
