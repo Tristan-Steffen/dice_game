@@ -4,12 +4,19 @@ extends GutTest
 ## Abbruch verbraucht nichts; das Bord ist ohne Vorwahl bedienbar.
 
 var view: DieInspectorView
+## Die Zahlen-Schublade als Werkzeug-Bord der Station.
+var drawer: SupplyDrawerView
 
 func before_each() -> void:
 	view = DieInspectorView.new()
 	view.size = Vector2(1400, 1470)
 	add_child_autofree(view)
+	drawer = SupplyDrawerView.new()
+	drawer.category = Engraving.CATEGORY_NUMBER
+	add_child_autofree(drawer)
+	view.set_drawers([drawer] as Array[SupplyDrawerView])
 	view.run = GameRun.new_run()
+	drawer.run = view.run
 	view.run.grant_engraving(Engraving.chisel())
 	view.show_die(_die())
 
@@ -19,8 +26,9 @@ func _die() -> DieDefinition:
 	def.faces = faces
 	return def
 
+## Der Werkzeug-Platz liegt in der Vorrats-Schublade seiner Kategorie.
 func _slot_for(engraving_id: String) -> Button:
-	for entry in view.slot_entries:
+	for entry in drawer.slots:
 		if entry["id"] == engraving_id:
 			return entry["button"]
 	return null
@@ -40,7 +48,7 @@ func test_tool_stays_held_while_copies_remain() -> void:
 	# (direkt weitergravieren), nach der zweiten ist sie abgelegt.
 	view.run.grant_engraving(Engraving.notch())
 	view.run.grant_engraving(Engraving.notch())
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.NOTCH)
 	view._on_chip_clicked(1, 1)
 	assert_eq(view.current_def.faces[1], 2, "erste Kerbe angewandt")
@@ -54,7 +62,7 @@ func test_pair_tool_restarts_at_step_one_when_kept() -> void:
 	# Meißel ×2: nach dem ersten Paar beginnt der nächste Durchgang wieder bei
 	# der Quellseite (first_face zurückgesetzt).
 	view.run.grant_engraving(Engraving.chisel())
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.CHISEL)
 	view._on_chip_clicked(5, 0)
 	view._on_chip_clicked(1, 1)
@@ -76,7 +84,7 @@ func test_cancel_mid_pair_consumes_nothing() -> void:
 
 func test_whole_die_tool_applies_on_a_single_face_click() -> void:
 	view.run.grant_engraving(Engraving.mirror())
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.MIRROR)
 	view._on_chip_clicked(2, 2)  # ein Klick auf irgendeine Seite genügt
 	assert_eq(view.current_def.faces, [2, 6, 5, 4, 3, 1] as Array[int], "Würfel invertiert")
@@ -91,7 +99,7 @@ func test_edge_tool_applies_via_the_frame() -> void:
 	# Kanten-Gravur aufnehmen, in den Rahmen um die Seiten klicken -> Kanten
 	# veredelt, Gravur verbraucht. Keine Kanten-Auswahl nötig (es gibt nur einen).
 	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
 	view._handle_edge_target()
 	assert_eq(view.current_def.edge_material, DieMaterial.GOLD, "Rahmen trägt Gold")
@@ -99,14 +107,14 @@ func test_edge_tool_applies_via_the_frame() -> void:
 
 func test_edge_frame_glows_while_an_edge_tool_is_held() -> void:
 	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
 	var box: StyleBoxFlat = view.edge_frame.get_theme_stylebox("panel")
 	assert_eq(box.border_color, RotatableDieView.SELECT_FACE_COLOR, "Rahmen leuchtet als Ziel")
 
 func test_edge_frame_preview_tints_to_the_new_material() -> void:
 	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
 	view._preview_edge_frame(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
 	var box: StyleBoxFlat = view.edge_frame.get_theme_stylebox("panel")
@@ -120,7 +128,7 @@ func test_face_order_stays_frozen_while_editing() -> void:
 	# Beim Öffnen nach Wert sortiert: [5,1,2,3,4,6] -> Indizes [1,2,3,4,0,5].
 	assert_eq(view.face_order, [1, 2, 3, 4, 0, 5] as Array[int])
 	view.run.grant_engraving(Engraving.notch())
-	view._build_engraving_board()
+	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.NOTCH)
 	view._on_chip_clicked(1, 1)  # die 1 wird zur 2
 	assert_eq(view.current_def.faces[1], 2)

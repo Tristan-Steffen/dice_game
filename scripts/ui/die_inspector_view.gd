@@ -21,6 +21,9 @@ signal changed
 ## Nach dem Anwenden, mit Quelle für die Absorptions-Animation.
 signal applied(engraving_id: String, slot_px: Vector2)
 signal closed
+## Kachel des Würfel-Rasters angeklickt: scene_root wechselt das Gravur-Ziel
+## (slot = ECHTER Slot-Index im Ursprungs-Tray).
+signal select_tray_die(slot: int)
 ## Dreh-Geste an der Projektion läuft/endet - scene_root sperrt derweil das
 ## Kamera-Rundschauen.
 signal rotating_die(active: bool)
@@ -54,21 +57,22 @@ const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
 const DIM_NUMBER_COLOR := Color(0.35, 0.35, 0.42)
 const DIM_CHIP_ALPHA := 0.30
 
-const SLOT_COLUMNS := 6  # Bord-Plätze je Zeile (schmale Spalte im flachen Fenster)
-const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
 
 ## Unter-Bildschirm der Würfel-Projektion: abgesetzte Grundfarbe (Petrol).
 const DIE_VIEW_BG := Color("#0d2430")
 ## Innen-Kantenlänge des Projektions-Screens (Breiteneinheiten u) - exakt
 ## quadratisch, mit gleichmäßigem Rand bleibt auch der Außenkasten ein Quadrat.
-const DIE_VIEW_SIDE := 16.0
+const DIE_VIEW_SIDE := 11.0
 
 ## Anteil der Panel-Höhe, der oben als Bühne für den schwebenden Würfel frei
 ## bleibt - knapp, damit kein großer Leerraum entsteht.
 const STAGE_FRACTION := 0.15
 ## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u) - gilt für
 ## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
-const TRAY_TILE := 8.91
+const TRAY_TILE := 6.4
+## Das Ziel-Raster rechnet kleiner als der Rest des Panels - zehn Kacheln nebeneinander
+## passen sonst nicht in die rechte Spalte.
+const GRID_UNIT_SCALE := 0.9
 
 ## Der laufende Spiellauf (setzt scene_root) - Engraving-Bestand und -Verbrauch.
 var run: GameRun
@@ -90,8 +94,6 @@ var u := 8.0
 
 # Gerüst-Referenzen (je show_die frisch gebaut).
 var prompt_label: Label
-var board_box: VBoxContainer  # Gravur-Bord
-var slot_entries: Array[Dictionary] = []  # [{button:Button, id:String, count:int}]
 var summary_list: VBoxContainer  # Seiten-Raster im Kanten-Rahmen
 ## Anzeige-Reihenfolge der Seiten-Chips (physische Indizes): beim Öffnen/Ziel-
 ## Wechsel nach Wert sortiert, während der Bearbeitung eingefroren - die Chips
@@ -112,9 +114,19 @@ var edge_frame: PanelContainer
 var face_tooltip: PanelContainer
 var face_tooltip_title: Label
 var face_tooltip_body: Label
+
+## Das Gravur-Bord liegt NICHT im Panel, sondern in den drei Vorrats-Schubladen
+## unter der Werkbank (setzt scene_root über set_drawers). Die Station hält nur
+## den Ablauf; die Schubladen zeigen Bestand und Auswahl.
+var drawers: Array[SupplyDrawerView] = []
+
 ## Würfel-Raster rechts: spiegelt das Ursprungs-Tray (Buchreihenfolge, leere
 ## Slots als leere Zellen); Klick meldet den ECHTEN Slot-Index. Der Kontext
 ## kommt von scene_root und übersteht den Neuaufbau des Gerüsts.
+var target_grid: DiceGridView
+var target_defs: Array[DieDefinition] = []
+var target_current := -1
+var target_columns := 10
 
 ## Die Bühne: leere Landefläche, über der der ECHTE Würfel schwebt; ihre Mitte
 ## ist Landeziel und Endpunkt der Absorptions-Bahn.
@@ -130,7 +142,7 @@ func show_die(def: DieDefinition) -> void:
 	# Gerüst + Bord nur beim frischen Öffnen bauen. Beim Ziel-Wechsel bleiben
 	# beide stehen (sie hängen am Lauf, nicht am Würfel) - der Bord-Aufbau
 	# kostet ~17 ms und verursachte den Ruckler bei jeder Neu-Auswahl.
-	var fresh_open := not visible or board_box == null or not is_instance_valid(board_box)
+	var fresh_open := not visible or target_grid == null or not is_instance_valid(target_grid)
 	current_def = def
 	face_order = _faces_sorted_by_value(def)
 	selected_face = -1
@@ -140,18 +152,20 @@ func show_die(def: DieDefinition) -> void:
 	preview_active = false
 	if fresh_open:
 		_build_layout()
-		_build_engraving_board()
-	else:
-		_refresh_engraving_enabled()
-		_restyle_slots()
+	_sync_drawers()
 	die_view.set_dice([current_def] as Array[DieDefinition])
 	_refresh_face_summary()
 	_update_prompt()
+	for drawer in drawers:
+		drawer.set_ceremony(true)  # die Schubladen werden zum Werkzeug-Bord
+	_sync_drawers()
 	visible = true
 
 func close() -> void:
 	if not visible:
 		return
+	for drawer in drawers:
+		drawer.set_ceremony(false)  # zurück in die Lager-Anzeige
 	visible = false
 	closed.emit()
 
@@ -205,17 +219,19 @@ func _build_body(root: Control) -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(body)
 
-	var left_col := VBoxContainer.new()
+	# Seiten-Übersicht NEBEN der Projektion, nicht darüber: das Fenster ist seit
+	# den Schubladen flacher, übereinander ragte die Projektion unten heraus.
+	var left_col := HBoxContainer.new()
 	left_col.name = "LeftColumn"
 	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_col.size_flags_stretch_ratio = 0.4
+	left_col.size_flags_stretch_ratio = 0.45
 	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left_col.add_theme_constant_override("separation", int(u * 1.0))
 	body.add_child(left_col)
 
 	summary_list = VBoxContainer.new()
 	summary_list.name = "FaceSummary"
-	summary_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	summary_list.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	summary_list.add_theme_constant_override("separation", int(u * 0.8))
 	left_col.add_child(summary_list)
 
@@ -240,14 +256,14 @@ func _build_body(root: Control) -> void:
 	var right_col := VBoxContainer.new()
 	right_col.name = "RightColumn"
 	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_col.size_flags_stretch_ratio = 0.6
+	right_col.size_flags_stretch_ratio = 0.55
 	right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right_col.add_theme_constant_override("separation", int(u * 0.8))
 	body.add_child(right_col)
 
-	# Hinweiszeile über dem Bord: sie erklärt, was der aufgenommene Stift sucht.
+	# Hinweiszeile über dem Würfel-Raster: sie erklärt, was der Stift sucht.
 	_build_prompt(right_col)
-	_build_board(right_col)
+	_build_target_grid(right_col)
 
 func _build_prompt(root: Control) -> void:
 	prompt_label = _label("", u * 2.2, NEON_TEXT)
@@ -255,12 +271,60 @@ func _build_prompt(root: Control) -> void:
 	prompt_label.custom_minimum_size = Vector2(0, u * 4.0)
 	root.add_child(prompt_label)
 
-func _build_board(root: Control) -> void:
-	board_box = VBoxContainer.new()
-	board_box.name = "Board"
-	board_box.add_theme_constant_override("separation", int(u * 0.45))
-	board_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.add_child(board_box)
+## Das Würfel-Raster des Ursprungs-Trays: ein Klick macht einen anderen Würfel
+## zum Ziel, ohne den Blick von der Station zu nehmen. Die Augensummen zeigen
+## dabei, welcher Würfel eine Gravur am nötigsten hat.
+func _build_target_grid(root: Control) -> void:
+	target_grid = DiceGridView.new()
+	target_grid.name = "TargetGrid"
+	target_grid.place(target_columns, u * GRID_UNIT_SCALE)
+	target_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	target_grid.slot_pressed.connect(func(index: int) -> void: select_tray_die.emit(index))
+	root.add_child(target_grid)
+	_refresh_target_grid()
+
+## Übernimmt das Raster des Ursprungs-Trays (je ECHTEM Slot eine Def, null =
+## leer) und welcher Slot gerade bearbeitet wird.
+func set_target_grid(columns: int, defs: Array[DieDefinition], current_slot: int) -> void:
+	target_columns = maxi(columns, 1)
+	target_defs = defs
+	target_current = current_slot
+	_refresh_target_grid()
+
+func _refresh_target_grid() -> void:
+	if target_grid == null or not is_instance_valid(target_grid):
+		return
+	target_grid.place(target_columns, u * GRID_UNIT_SCALE)
+	target_grid.fill(target_defs, target_current)
+
+## Bestand je Gravur-id (Testmodus: alles einmal vorhanden) - entscheidet, ob
+## ein Werkzeug nach dem Anwenden in der Hand bleibt.
+func _engraving_counts() -> Dictionary:
+	var counts := {}
+	if run == null:
+		return counts
+	if run.unlimited_engravings:
+		for archetype in Engraving.all():
+			counts[archetype.id] = 1
+		return counts
+	for engraving in run.owned_engravings:
+		counts[engraving.id] = counts.get(engraving.id, 0) + 1
+	return counts
+
+## Reicht Werkzeug-Zustand und Eignung an die Schubladen weiter - sie sind das
+## Bord. Aufbau passiert dort (an engravings_changed), hier nur das Umfärben.
+func _sync_drawers() -> void:
+	for drawer in drawers:
+		if is_instance_valid(drawer):
+			drawer.set_state(held_id, [] as Array[String])
+
+## Verdrahtet die drei Schubladen als Werkzeug-Bord (setzt scene_root).
+func set_drawers(list: Array[SupplyDrawerView]) -> void:
+	drawers = list
+	for drawer in drawers:
+		if not drawer.tool_pressed.is_connected(_on_engraving_pressed):
+			drawer.tool_pressed.connect(_on_engraving_pressed)
+	_sync_drawers()
 
 ## Baut die drehbare 3D-Projektion samt Unter-Bildschirm. Der SubViewport
 ## kommt per Code (eigene World3D, sonst filmt die Kamera die Tischszene).
@@ -534,7 +598,7 @@ func _finish_apply(engraving_id: String, message: String) -> void:
 	preview_active = false
 	changed.emit()
 	applied.emit(engraving_id, _slot_center_px(engraving_id))
-	_build_engraving_board()  # Anzahl hat sich geändert (ruft _restyle_slots)
+	_sync_drawers()  # der Bestand hat sich geändert (die Schubladen bauen selbst neu)
 	_refresh_face_summary()
 	if keep:
 		prompt_label.text = "%s. Nochmal anwenden oder Rechtsklick: ablegen." % message
@@ -544,10 +608,12 @@ func _finish_apply(engraving_id: String, message: String) -> void:
 ## Display-Pixel der Bord-Kachel einer Gravur (Quelle der Absorptions-Bahn);
 ## Panel-Mitte als Rückfall.
 func _slot_center_px(engraving_id: String) -> Vector2:
-	for entry in slot_entries:
-		if entry["id"] == engraving_id and is_instance_valid(entry["button"]):
-			return (entry["button"] as Control).get_global_rect().get_center()
-	return get_global_rect().get_center()
+	for drawer in drawers:
+		if is_instance_valid(drawer):
+			var center := drawer.slot_center_px(engraving_id)
+			if center.x >= 0.0:
+				return center
+	return stage_center_px()
 
 # --- Eignung ---------------------------------------------------------------------
 
@@ -939,163 +1005,12 @@ func _chip_box(fill: Color, border: Color, border_width: int) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 1.0))
 	return box
 
-# --- Gravur-Bord -------------------------------------------------------------------
-
-## Baut das Bord neu: JEDER Engraving-Archetyp hat seinen festen Platz (nach
-## Seltenheit sortiert, getrennt nach Ätzungen/Materialien/Kanten). Besitz
-## liegt als Engraving-Stapel darauf, nicht Besessenes als Schatten.
-func _build_engraving_board() -> void:
-	if board_box == null:
-		return
-	_hide_face_tooltip()  # die alten Slots (mit Hover-Verbindungen) fallen weg
-	slot_entries.clear()
-	for child in board_box.get_children():
-		child.queue_free()
-
-	var counts := _engraving_counts()
-	var etchings: Array[Engraving] = []
-	var materials: Array[Engraving] = []
-	var edges: Array[Engraving] = []
-	for archetype in Engraving.all():
-		match archetype.category:
-			Engraving.CATEGORY_NUMBER:
-				etchings.append(archetype)
-			Engraving.CATEGORY_MATERIAL:
-				materials.append(archetype)
-			Engraving.CATEGORY_DICE:
-				edges.append(archetype)
-	_add_board_section("Zahlen", _sorted_by_rarity(etchings), counts)
-	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
-	_add_board_section("Würfel", _sorted_by_rarity(edges), counts)
-	_refresh_engraving_enabled()
-	_restyle_slots()
-
-## Nach Seltenheit sortiert; innerhalb einer Seltenheit bleibt die kanonische
-## Reihenfolge, damit die Plätze stabil liegen.
-func _sorted_by_rarity(archetypes: Array[Engraving]) -> Array[Engraving]:
-	var sorted: Array[Engraving] = []
-	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE]:
-		for archetype in archetypes:
-			if archetype.rarity == rarity:
-				sorted.append(archetype)
-	return sorted
-
-func _add_board_section(title: String, archetypes: Array[Engraving], counts: Dictionary) -> void:
-	var header := _label(title, u * 1.8, NEON_CYAN)
-	board_box.add_child(header)
-
-	var grid := GridContainer.new()
-	grid.columns = SLOT_COLUMNS
-	grid.add_theme_constant_override("h_separation", int(u * 0.6))
-	grid.add_theme_constant_override("v_separation", int(u * 0.6))
-	board_box.add_child(grid)
-
-	for archetype in archetypes:
-		var count: int = counts.get(archetype.id, 0)
-		var slot := _engraving_slot(archetype, count)
-		grid.add_child(slot)
-		slot_entries.append({"button": slot, "id": archetype.id, "count": count})
-
-func _tile_size() -> Vector2:
-	return Vector2(u * 5.4, u * 4.2)
-
-## Ein Bord-Platz: Button als "Mulde", darin der Engraving als Kachel - bei
-## Mehrfachbesitz als versetzter Stapel plus ×Anzahl; ohne Besitz nur der
-## ausgegraute Schatten. Klick = anwenden.
-func _engraving_slot(archetype: Engraving, count: int) -> Button:
-	var slot := Button.new()
-	var pad := u * 0.35
-	var stack_offset := Vector2.ONE * u * 0.4
-	var stack_margin := stack_offset * float(STACK_MAX_VISIBLE - 1)
-	slot.custom_minimum_size = _tile_size() + Vector2.ONE * (pad * 2.0) + stack_margin
-	slot.focus_mode = Control.FOCUS_NONE
-	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	slot.mouse_entered.connect(_show_face_tooltip.bind(slot, archetype.display_name, archetype.description))
-	slot.mouse_exited.connect(_hide_face_tooltip)
-	# Ganz-Würfel-/Kanten-Gravuren zeigen ihr Ergebnis schon beim Überfahren
-	# des Slots (Seitenwerte bzw. Rahmenfarbe).
-	var kind := _targeting_of(archetype.id)
-	if kind == TARGET_WHOLE_DIE or kind == TARGET_EDGES:
-		slot.mouse_entered.connect(_preview_slot_hover.bind(archetype.id))
-		slot.mouse_exited.connect(_on_face_hover_exit)
-	slot.pressed.connect(_on_engraving_pressed.bind(archetype.id))
-	slot.add_theme_stylebox_override("normal", _slot_box(Color(0.545, 0.914, 0.992, 0.35)))
-	slot.add_theme_stylebox_override("hover", _slot_box(NEON_GOLD))
-	slot.add_theme_stylebox_override("pressed", _slot_box(NEON_GOLD.darkened(0.25)))
-	slot.add_theme_stylebox_override("disabled", _slot_box(Color(1, 1, 1, 0.08)))
-	slot.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-
-	# Stapel von hinten nach vorn (tiefere Exemplare zuerst).
-	var depth: int = clampi(count, 1, STACK_MAX_VISIBLE)
-	for i in range(depth - 1, -1, -1):
-		var tile := _engraving_tile(archetype, count > 0)
-		tile.position = Vector2.ONE * pad + stack_offset * float(i)
-		tile.size = _tile_size()
-		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if count > 0 and i > 0:
-			tile.modulate = Color(0.78, 0.78, 0.78)
-		slot.add_child(tile)
-
-	if count > 1:
-		var badge := Label.new()
-		badge.text = "×%d" % count
-		badge.position = Vector2(pad + _tile_size().x - u * 3.0, pad + _tile_size().y - u * 2.0)
-		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		badge.add_theme_font_size_override("font_size", int(u * 1.6))
-		badge.add_theme_color_override("font_color", NEON_GOLD)
-		var badge_box := StyleBoxFlat.new()
-		badge_box.bg_color = Color(0, 0, 0, 0.72)
-		badge_box.set_corner_radius_all(int(u * 0.6))
-		badge_box.set_content_margin_all(int(u * 0.3))
-		badge.add_theme_stylebox_override("normal", badge_box)
-		slot.add_child(badge)
-	return slot
-
-## Engraving-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
-## unbeleuchtete Gravur-Rille als "noch nicht bekommen").
-func _engraving_tile(archetype: Engraving, owned: bool) -> Control:
-	var engraving := EngravingRenderer.for_engraving(archetype)
-	engraving.owned = owned
-	return engraving
-
-func _slot_box(border: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0, 0, 0, 0.28)
-	box.border_color = border
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(int(u * 0.7))
-	return box
-
-## Engraving-Bestand nach id (id -> Anzahl). Testmodus: jeder Archetyp gilt als
-## im Bestand und wird nicht verbraucht.
-func _engraving_counts() -> Dictionary:
-	var counts := {}
-	if run == null:
-		return counts
-	if run.unlimited_engravings:
-		for archetype in Engraving.all():
-			counts[archetype.id] = 1
-		return counts
-	for engraving in run.owned_engravings:
-		counts[engraving.id] = counts.get(engraving.id, 0) + 1
-	return counts
-
-## Sperrt nur unbesessene Plätze - im Werkzeug-zuerst-Modell ist das Bord immer
-## bedienbar (Auswahl folgt erst dem Aufnehmen).
+## Spiegelt Werkzeug-Zustand in die Schubladen (sie stylen ihre Plätze selbst).
 func _refresh_engraving_enabled() -> void:
-	for entry in slot_entries:
-		entry["button"].disabled = entry["count"] == 0
+	_sync_drawers()
 
-## Hebt den Platz der gehaltenen Gravur hervor (goldener Rahmen); alle anderen
-## normal.
 func _restyle_slots() -> void:
-	for entry in slot_entries:
-		var slot: Button = entry["button"]
-		if not is_instance_valid(slot):
-			continue
-		var is_held: bool = held_id != "" and entry["id"] == held_id
-		slot.add_theme_stylebox_override("normal",
-			_slot_box(NEON_GOLD if is_held else Color(0.545, 0.914, 0.992, 0.35)))
+	_sync_drawers()
 
 # --- Neon-Bausteine ----------------------------------------------------------------
 

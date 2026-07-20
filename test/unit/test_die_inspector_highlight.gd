@@ -133,16 +133,17 @@ func test_edge_frame_hover_shows_nothing_without_edge_material() -> void:
 	view._on_edge_frame_hover()
 	assert_false(view.face_tooltip.visible, "kahle Kanten -> kein Tooltip")
 
-func test_engraving_slots_wire_a_hover_tooltip() -> void:
-	# Auch die Engraving-Slots des Gravur-Bords (Ätzungen/Materialien/Kanten) tragen den
-	# handgesteuerten Wirkungs-Tooltip - nicht nur die Seiten-Chips.
-	view.run = GameRun.new_run()
-	view.run.grant_engraving(Engraving.chisel())
-	view._build_engraving_board()
-	assert_gt(view.slot_entries.size(), 0, "das Bord hat Slots")
-	for entry in view.slot_entries:
+func test_engraving_slots_carry_their_effect_tooltip() -> void:
+	# Die Werkzeug-Plätze liegen in den Vorrats-Schubladen und tragen dort die
+	# Wirkungs-Beschreibung (Godot-Tooltip, kein handgesteuerter wie die Chips).
+	var drawer: SupplyDrawerView = autofree(SupplyDrawerView.new())
+	drawer.category = Engraving.CATEGORY_NUMBER
+	add_child_autofree(drawer)
+	drawer.run = GameRun.new_run()
+	assert_gt(drawer.slots.size(), 0, "die Schublade hat Plätze")
+	for entry in drawer.slots:
 		var slot: Button = entry["button"]
-		assert_gt(slot.mouse_entered.get_connections().size(), 0, "Slot %s hat Tooltip" % entry["id"])
+		assert_ne(slot.tooltip_text, "", "Platz %s erklärt sich" % entry["id"])
 
 func test_show_and_hide_face_tooltip() -> void:
 	assert_false(view.face_tooltip.visible, "anfangs verborgen")

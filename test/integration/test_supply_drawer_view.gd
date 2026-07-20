@@ -100,3 +100,23 @@ func test_number_drawer_is_the_widest() -> void:
 	var edges := SupplyDrawerView.size_for(Engraving.CATEGORY_DICE, 8.0)
 	assert_gt(number.x, material.x, "Zahlen breiter als Materialien")
 	assert_eq(material.x, edges.x, "Materialien und Kanten teilen die Spaltenzahl")
+
+# --- Reihenfolge der Plätze (vom alten Gravur-Bord übernommen) -----------------
+
+func test_slots_run_common_before_uncommon_before_rare() -> void:
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	var ranks: Array[int] = []
+	for entry in drawer.slots:
+		for archetype in Engraving.all():
+			if archetype.id == entry["id"]:
+				ranks.append(int(archetype.rarity))
+	for i in range(1, ranks.size()):
+		assert_true(ranks[i] >= ranks[i - 1], "Seltenheit steigt monoton")
+
+func test_slots_cover_every_archetype_of_the_category() -> void:
+	for category in Engraving.CATEGORIES:
+		var expected := 0
+		for archetype in Engraving.all():
+			if archetype.category == category:
+				expected += 1
+		assert_eq(_drawer(category).slots.size(), expected, "%s vollständig" % category)

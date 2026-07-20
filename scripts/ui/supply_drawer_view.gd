@@ -81,11 +81,14 @@ static func size_for(drawer_category: String, unit: float) -> Vector2:
 		cols * chip.x + (cols - 1) * gap + pad * 2.0,
 		unit * 2.6 + rows * chip.y + (rows - 1) * gap + pad * 2.0)
 
+## Plätze nach Seltenheit sortiert; innerhalb einer Seltenheit bleibt die
+## kanonische Reihenfolge, damit die Geografie stabil liegt.
 static func _archetypes_of(drawer_category: String) -> Array[Engraving]:
 	var out: Array[Engraving] = []
-	for archetype in Engraving.all():
-		if archetype.category == drawer_category:
-			out.append(archetype)
+	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE]:
+		for archetype in Engraving.all():
+			if archetype.category == drawer_category and archetype.rarity == rarity:
+				out.append(archetype)
 	return out
 
 func place(rect: Rect2, unit: float) -> void:

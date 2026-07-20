@@ -573,8 +573,11 @@ func _setup_panels() -> void:
 		table_screen.workshop_window.attach_station(die_inspector)
 	else:
 		$UI.add_child(die_inspector)
+	if table_screen != null:
+		die_inspector.set_drawers(table_screen.supply_drawers)
 	die_inspector.closed.connect(_end_engraving_ceremony)
 	die_inspector.applied.connect(_on_engraving_applied)
+	die_inspector.select_tray_die.connect(_on_tray_die_selected)
 	die_inspector.changed.connect(_on_die_engraved)
 	# Beim Drehen der Würfel-Projektion die Kamera festhalten.
 	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
@@ -1290,6 +1293,7 @@ func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: D
 	var start_pos: Vector3 = source_root.global_position
 	source_root.visible = false
 	die_inspector.show_die(def)
+	_refresh_engraving_target_grid()
 	camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	_fly_engraving_die(def, start_pos)
 
@@ -1394,6 +1398,30 @@ func _end_engraving_ceremony() -> void:
 	else:
 		camera_rig.zoom_to(engraving_prev_mode)
 	_on_die_engraved()  # Trays sicher aktuell
+
+## Klick ins Würfel-Raster der Station: Ziel auf diesen Würfel wechseln
+## (No-Op, wenn es der bereits gegriffene ist).
+func _on_tray_die_selected(slot: int) -> void:
+	if not engraving_active or engraving_source_tray == null:
+		return
+	if slot < 0 or slot >= engraving_source_tray.slot_roots.size():
+		return
+	_grab_engraving_die(engraving_source_tray.slot_defs[slot],
+		engraving_source_tray.slot_roots[slot], engraving_source_tray)
+
+## Füllt das Würfel-Raster der Station mit dem Ursprungs-Tray (leere Slots als
+## leere Zellen), der gerade bearbeitete Würfel ist hervorgehoben.
+func _refresh_engraving_target_grid() -> void:
+	if engraving_source_tray == null:
+		return
+	var tray := engraving_source_tray
+	var slot_defs: Array[DieDefinition] = []
+	for i in tray.slot_roots.size():
+		var occupied: bool = tray.slot_roots[i].visible or tray.slot_roots[i] == engraving_source_root
+		slot_defs.append(tray.slot_defs[i] if occupied else null)
+	# Acht Spalten: vier flache Reihen füllen die rechte Spalte, ohne dass die
+	# Kacheln unter die Lesbarkeit schrumpfen (die Tray-Form 6×5 wäre zu hoch).
+	die_inspector.set_target_grid(8, slot_defs, tray.slot_roots.find(engraving_source_root))
 
 ## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset).
 func _abort_engraving() -> void:
