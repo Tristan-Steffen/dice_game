@@ -161,10 +161,18 @@ func test_goal_roadmap_block_stays_fixed_while_position_advances() -> void:
 func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
 	var run := _run()
 	for i in 6:
-		run.advance_round()  # -> Runde 7, Ziel 450
-	assert_eq(run.goal_roadmap(6), [450, 500, 550, 600, 650, 700] as Array[int],
+		run.advance_round()  # -> Runde 7, Ziel 500
+	# Der zweite Block steigt in 100er-Schritten (Zuwachs verdoppelt sich je Block).
+	assert_eq(run.goal_roadmap(6), [500, 600, 700, 800, 900, 1000] as Array[int],
 		"nach dem sechsten Sieg liegt ein frischer Block aus")
 	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")
+
+func test_goal_roadmap_matches_the_curve_across_blocks() -> void:
+	# Der Fahrplan zeigt exakt die Ziel-Kurve, auch im dritten Block (200er-Schritte).
+	var run := _run()
+	for i in 12:
+		run.advance_round()  # -> Runde 13
+	assert_eq(run.goal_roadmap(6), [1200, 1400, 1600, 1800, 2000, 2200] as Array[int])
 
 # --- Fumble-Automaten (Freischaltung + Ökonomie) ------------------------------
 

@@ -13,7 +13,12 @@ signal hub_level_changed(level: int)
 
 const POOL_SIZE := 30
 const BASE_GOAL := 150
+## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
 const GOAL_INCREMENT := 50
+## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen. Die
+## Wertung wächst multiplikativ (Übertaktung, Gravuren, Charms) - ein konstanter
+## Zuwachs würde daher von Block zu Block leichter.
+const GOAL_BLOCK := 6
 
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
 ## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
@@ -467,9 +472,18 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 				for i in mult:
 					newly_purchased.append(_replace_pool_entry(prize.die))
 
+## Ziel der Runde n (1-basiert) - EINZIGE Quelle der Ziel-Kurve; Rundenwechsel
+## und Fahrplan lesen beide hier. Je Block verdoppelt sich der Zuwachs:
+## 150 … 400 (R6), 500 … 1000 (R12), 1200 … 2200 (R18).
+static func goal_for_round(n: int) -> int:
+	var goal := BASE_GOAL
+	for step in range(2, n + 1):
+		goal += GOAL_INCREMENT * (1 << ((step - 1) / GOAL_BLOCK))
+	return goal
+
 func advance_round() -> void:
 	round_number += 1
-	round_goal += GOAL_INCREMENT
+	round_goal = goal_for_round(round_number)
 
 ## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
 ## stehen, bis das letzte des Blocks geschafft ist - erst dann rückt ein frischer
@@ -478,9 +492,9 @@ func goal_roadmap(count: int) -> Array[int]:
 	var goals: Array[int] = []
 	if count <= 0:
 		return goals
-	var block_offset := -goal_roadmap_index(count)
+	var first_round := round_number - goal_roadmap_index(count)
 	for i in count:
-		goals.append(round_goal + (block_offset + i) * GOAL_INCREMENT)
+		goals.append(goal_for_round(first_round + i))
 	return goals
 
 ## Position des AKTUELLEN Ziels im Block (0-basiert): davor = geschafft, danach
