@@ -14,12 +14,6 @@ var charm: Charm = null
 var die: DieDefinition = null
 var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 
-static func fumble() -> SlotPrize:
-	var p := SlotPrize.new()
-	p.kind = Kind.FUMBLE
-	p.label = "Fumble"
-	return p
-
 ## Löst eine Gewinn-Vorlage (SlotMachine.PRIZE_TABLES-Eintrag) in einen konkreten
 ## Preis auf - Inhalt wird sofort gewürfelt, damit ihn der Zwischenspeicher zeigt.
 static func from_spec(spec: Dictionary) -> SlotPrize:
@@ -44,10 +38,6 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 			p.die = _roll_die()
 			p.label = p.die.display_name if p.die != null else "Würfel"
 	return p
-
-## Neon-Glyphe der Walze (siehe SlotBankView).
-func symbol() -> String:
-	return symbol_for(kind)
 
 ## Symbol-Glyphe eines Kind (auch für bloße Wand-Symbole ohne aufgelösten Preis).
 static func symbol_for(kind_value: int) -> String:

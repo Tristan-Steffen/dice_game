@@ -71,33 +71,12 @@ static func style_score_label(label: Label, size: int = 30, color: Color = CREAM
 	label.add_theme_constant_override("shadow_offset_y", 3)
 	label.add_theme_constant_override("shadow_outline_size", 4)
 
-## Kleineres "Casino-Chip"-Label - goldener Text mit Umriss.
-static func style_chip_label(label: Label, size: int = 20, color: Color = GOLD) -> void:
-	label.add_theme_font_size_override("font_size", size)
-	label.add_theme_color_override("font_color", color)
-	label.add_theme_color_override("font_outline_color", INK)
-	label.add_theme_constant_override("outline_size", 5)
-
 ## Ruhiges Fließtext-Label auf dunklem Panel (dünner Umriss).
 static func style_body_label(label: Label, size: int = 15, color: Color = CREAM) -> void:
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", INK)
 	label.add_theme_constant_override("outline_size", 2)
-
-## Dunkler "Arcade"-Zielbalken mit Goldrahmen und Goldfüllung.
-static func style_progress_bar(bar: ProgressBar) -> void:
-	var background := StyleBoxFlat.new()
-	background.bg_color = Color("0d151d")
-	background.border_color = PANEL_BORDER
-	background.set_border_width_all(2)
-	background.set_corner_radius_all(8)
-	bar.add_theme_stylebox_override("background", background)
-
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = GOLD
-	fill.set_corner_radius_all(8)
-	bar.add_theme_stylebox_override("fill", fill)
 
 ## Tooltip aus einem "Name\nWirkung"-String: Name in Gold, Wirkung in Creme.
 ## Größen/Breite sind Parameter (2D-UI vs. hochaufgelöstes Display).

@@ -91,10 +91,6 @@ func _target_glow_radius() -> float:
 	var t := 1.0 - exp(-float(value) / maxf(1.0, growth_k))
 	return h * (R_MIN_FRAC + (R_MAX_FRAC - R_MIN_FRAC) * t)
 
-## Aktueller sichtbarer Radius inkl. Pop (für Verschmelzungs-Ziele).
-func current_radius() -> float:
-	return _glow_radius * _pop
-
 func _draw() -> void:
 	var h := size.y
 	var c := size / 2.0

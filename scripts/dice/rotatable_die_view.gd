@@ -196,11 +196,6 @@ func _update_hover(local_pos: Vector2) -> void:
 		_hover_die = die_index
 		face_hovered.emit(die_index, face_index)
 
-## Hebt den Würfel an index leicht vergrößert hervor (-1 = keine Auswahl).
-func set_highlighted(index: int) -> void:
-	for i in die_roots.size():
-		die_roots[i].scale = Vector3.ONE * (1.15 if i == index else 1.0)
-
 ## Angeklickte physische Seite: [face_index (-1 = keine), Distanz zur
 ## projizierten Seiten-Mitte (INF)]. Nur zugewandte Seiten zählen; Bildschirm-
 ## Projektion statt Physik-Raycast (der im isolierten Viewport unzuverlässig ist).

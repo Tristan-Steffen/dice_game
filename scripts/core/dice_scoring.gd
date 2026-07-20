@@ -242,13 +242,6 @@ static func _sum(dice: Array[int], charm_ids: Array[String] = []) -> int:
 		total += CharmEffects.eye_value(value, charm_ids)
 	return total
 
-static func _highest_value(dice: Array[int]) -> int:
-	var best := 0
-	for value in dice:
-		if value > best:
-			best = value
-	return best
-
 ## Kombinationsziffer einer Gruppe mit mindestens n Würfeln - die des Würfels
 ## mit dem höchsten echten Wert (punktträchtigste Gruppe gewinnt). -1 = keine.
 static func _best_value_with_count(dice: Array[int], n: int) -> int:

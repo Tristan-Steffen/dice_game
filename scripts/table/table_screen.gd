@@ -635,11 +635,6 @@ func update_pit_score(base: int, mult: int) -> void:
 	base_counter.set_value(base)
 	mult_counter.set_value(mult)
 
-## Pop BEIDER Orbs ohne Wertänderung (Ankunft der Kombi-Leiterbahnen).
-func pulse_pit_score() -> void:
-	base_counter.pop()
-	mult_counter.pop()
-
 ## Verschmelzungs-Zeremonie (siehe MERGE_*-Konstanten): Aufladen -> Umkreisen
 ## (beschleunigend) -> Hit-Stop -> Einschlag (überheiß, Stoßwelle) -> Halten.
 ## Liefert die GESAMTDAUER, damit der Aufrufer exakt so lange wartet.
