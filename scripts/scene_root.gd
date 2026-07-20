@@ -556,7 +556,6 @@ func _setup_panels() -> void:
 		$UI.add_child(die_inspector)
 	die_inspector.closed.connect(_end_engraving_ceremony)
 	die_inspector.applied.connect(_on_engraving_applied)
-	die_inspector.select_tray_die.connect(_on_tray_die_selected)
 	die_inspector.changed.connect(_on_die_engraved)
 	# Beim Drehen der Würfel-Projektion die Kamera festhalten.
 	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
@@ -1268,7 +1267,6 @@ func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: D
 	var start_pos: Vector3 = source_root.global_position
 	source_root.visible = false
 	die_inspector.show_die(def)
-	_refresh_engraving_tray_strip()
 	camera_rig.zoom_to(CameraRig.Mode.HUB)
 	_fly_engraving_die(def, start_pos)
 
@@ -1372,28 +1370,6 @@ func _end_engraving_ceremony() -> void:
 	else:
 		camera_rig.zoom_to(engraving_prev_mode)
 	_on_die_engraved()  # Trays sicher aktuell
-
-## Klick ins Würfel-Raster des Panels: Ziel auf diesen Würfel wechseln
-## (No-Op, wenn es der bereits gegriffene ist).
-func _on_tray_die_selected(slot: int) -> void:
-	if not engraving_active or engraving_source_tray == null:
-		return
-	if slot < 0 or slot >= engraving_source_tray.slot_roots.size():
-		return
-	_grab_engraving_die(engraving_source_tray.slot_defs[slot], engraving_source_tray.slot_roots[slot], engraving_source_tray)
-
-## Baut das Würfel-Raster des Panels neu: das komplette Raster des Ziel-Trays
-## in Buchreihenfolge (leere Slots als leere Zellen), der gegriffene markiert.
-func _refresh_engraving_tray_strip() -> void:
-	if engraving_source_tray == null:
-		return
-	var tray := engraving_source_tray
-	var slot_defs: Array[DieDefinition] = []
-	for i in tray.slot_roots.size():
-		var occupied: bool = tray.slot_roots[i].visible or tray.slot_roots[i] == engraving_source_root
-		slot_defs.append(tray.slot_defs[i] if occupied else null)
-	var current_slot: int = tray.slot_roots.find(engraving_source_root)
-	die_inspector.set_tray_grid(tray.rows, tray.columns, slot_defs, current_slot)
 
 ## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset).
 func _abort_engraving() -> void:

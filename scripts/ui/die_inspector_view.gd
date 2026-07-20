@@ -20,9 +20,6 @@ signal changed
 ## Nach dem Anwenden, mit Quelle für die Absorptions-Animation.
 signal applied(engraving_id: String, slot_px: Vector2)
 signal closed
-## Zelle des Würfel-Rasters angeklickt: scene_root wechselt das Gravur-Ziel
-## (slot = ECHTER Slot-Index im Ursprungs-Tray).
-signal select_tray_die(slot: int)
 ## Dreh-Geste an der Projektion läuft/endet - scene_root sperrt derweil das
 ## Kamera-Rundschauen.
 signal rotating_die(active: bool)
@@ -56,7 +53,7 @@ const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
 const DIM_NUMBER_COLOR := Color(0.35, 0.35, 0.42)
 const DIM_CHIP_ALPHA := 0.30
 
-const SLOT_COLUMNS := 8  # Bord-Plätze je Zeile
+const SLOT_COLUMNS := 6  # Bord-Plätze je Zeile (schmale Spalte im flachen Fenster)
 const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
 
 ## Unter-Bildschirm der Würfel-Projektion: abgesetzte Grundfarbe (Petrol).
@@ -117,11 +114,6 @@ var face_tooltip_body: Label
 ## Würfel-Raster rechts: spiegelt das Ursprungs-Tray (Buchreihenfolge, leere
 ## Slots als leere Zellen); Klick meldet den ECHTEN Slot-Index. Der Kontext
 ## kommt von scene_root und übersteht den Neuaufbau des Gerüsts.
-var tray_grid: GridContainer
-var tray_context_defs: Array[DieDefinition] = []  # je ECHTEM Slot (null = leer)
-var tray_context_current: int = -1
-var tray_context_rows: int = 0
-var tray_context_columns: int = 0
 
 ## Die Bühne: leere Landefläche, über der der ECHTE Würfel schwebt; ihre Mitte
 ## ist Landeziel und Endpunkt der Absorptions-Bahn.
@@ -186,11 +178,8 @@ func _build_layout() -> void:
 	margin.add_child(root)
 
 	_build_header(root)
-	_build_top_row(root)
-	_build_prompt(root)
-	_build_board(root)
+	_build_body(root)
 
-	_rebuild_tray_grid()  # aus dem gespeicherten Kontext
 	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem
 
 func _build_header(root: Control) -> void:
@@ -204,20 +193,24 @@ func _build_header(root: Control) -> void:
 	done.pressed.connect(close)
 	header.add_child(done)
 
-## Obere Reihe: links Seiten-Übersicht über der Bühne (+ Projektion daneben),
-## rechts das Würfel-Raster; ein dehnbarer Platzhalter drückt beide an die Ränder.
-func _build_top_row(root: Control) -> void:
-	var top_row := HBoxContainer.new()
-	top_row.name = "TopRow"
-	top_row.add_theme_constant_override("separation", 0)
-	top_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(top_row)
+## Querformat, weil das Werkstatt-Fenster flach ist: links die Bühne mit der
+## Projektion und der Seiten-Übersicht, rechts Hinweiszeile über dem Bord.
+## Ein Würfel-Raster braucht es hier nicht - die ECHTEN Trays liegen im selben
+## Zoom direkt über dem Fenster; ein Klick darauf wechselt das Ziel.
+func _build_body(root: Control) -> void:
+	var body := HBoxContainer.new()
+	body.name = "Body"
+	body.add_theme_constant_override("separation", int(u * 2.0))
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
 
 	var left_col := VBoxContainer.new()
 	left_col.name = "LeftColumn"
+	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.size_flags_stretch_ratio = 0.4
 	left_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left_col.add_theme_constant_override("separation", int(u * 1.2))
-	top_row.add_child(left_col)
+	left_col.add_theme_constant_override("separation", int(u * 1.0))
+	body.add_child(left_col)
 
 	summary_list = VBoxContainer.new()
 	summary_list.name = "FaceSummary"
@@ -228,7 +221,7 @@ func _build_top_row(root: Control) -> void:
 	var stage_row := HBoxContainer.new()
 	stage_row.name = "StageRow"
 	stage_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage_row.add_theme_constant_override("separation", int(u * 2.5))
+	stage_row.add_theme_constant_override("separation", int(u * 1.5))
 	left_col.add_child(stage_row)
 
 	stage = CenterContainer.new()
@@ -243,25 +236,28 @@ func _build_top_row(root: Control) -> void:
 
 	_build_die_view(stage_row)
 
-	top_row.add_child(_expanding_spacer())
+	var right_col := VBoxContainer.new()
+	right_col.name = "RightColumn"
+	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_col.size_flags_stretch_ratio = 0.6
+	right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_col.add_theme_constant_override("separation", int(u * 0.8))
+	body.add_child(right_col)
 
-	tray_grid = GridContainer.new()
-	tray_grid.name = "TrayGrid"
-	tray_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	tray_grid.add_theme_constant_override("h_separation", int(u * 0.6))
-	tray_grid.add_theme_constant_override("v_separation", int(u * 0.6))
-	top_row.add_child(tray_grid)
+	# Hinweiszeile über dem Bord: sie erklärt, was der aufgenommene Stift sucht.
+	_build_prompt(right_col)
+	_build_board(right_col)
 
 func _build_prompt(root: Control) -> void:
 	prompt_label = _label("", u * 2.2, NEON_TEXT)
 	prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	prompt_label.custom_minimum_size = Vector2(0, u * 5.5)
+	prompt_label.custom_minimum_size = Vector2(0, u * 4.0)
 	root.add_child(prompt_label)
 
 func _build_board(root: Control) -> void:
 	board_box = VBoxContainer.new()
 	board_box.name = "Board"
-	board_box.add_theme_constant_override("separation", int(u * 0.8))
+	board_box.add_theme_constant_override("separation", int(u * 0.45))
 	board_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(board_box)
 
@@ -335,81 +331,6 @@ func stage_center_px() -> Vector2:
 
 # --- Würfel-Raster (Umwählen) ----------------------------------------------------
 
-## Übernimmt das Raster des Ursprungs-Trays (je ECHTEM Slot eine Def, null =
-## leer) und welcher Slot gerade bearbeitet wird.
-func set_tray_grid(rows: int, columns: int, defs: Array[DieDefinition], current_slot: int) -> void:
-	tray_context_rows = rows
-	tray_context_columns = columns
-	tray_context_defs = defs
-	tray_context_current = current_slot
-	_rebuild_tray_grid()
-
-func _rebuild_tray_grid() -> void:
-	if tray_grid == null:
-		return
-	for child in tray_grid.get_children():
-		child.queue_free()
-	tray_grid.columns = maxi(tray_context_columns, 1)
-	for i in tray_context_defs.size():
-		var def: DieDefinition = tray_context_defs[i]
-		if def == null:
-			tray_grid.add_child(_empty_tray_cell())
-		else:
-			tray_grid.add_child(_tray_tile(def, i == tray_context_current, i))
-
-## Würfel-Kachel: Augensumme über einem 3×2-Raster der Seiten (in Material-
-## farbe); der Kachel-Rahmen trägt die Farbe des Kanten-Materials, gold beim
-## gerade bearbeiteten Würfel. Klick meldet den Slot-Index.
-func _tray_tile(def: DieDefinition, highlighted: bool, slot: int) -> Button:
-	var tile := Button.new()
-	tile.focus_mode = Control.FOCUS_NONE
-	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	tile.custom_minimum_size = Vector2(u * TRAY_TILE, u * TRAY_TILE)
-	var total := 0
-	var values: Array[int] = []
-	for v in def.faces:
-		total += v
-		values.append(v)
-	values.sort()
-	var value_text := ""
-	for v in values:
-		value_text += ("%d " % v)
-	value_text = value_text.strip_edges()
-	tile.tooltip_text = "Augensumme %d\nSeiten: %s" % [total, value_text]
-	tile.pressed.connect(func() -> void: select_tray_die.emit(slot))
-
-	var edge_tint := DieMaterial.tint_for(def.edge_material)
-	var border := NEON_GOLD if highlighted else edge_tint
-	var bg := Color("#2c2757dd") if highlighted else Color("#221e46cc")
-	tile.add_theme_stylebox_override("normal", _tile_box(bg, border))
-	tile.add_theme_stylebox_override("hover", _tile_box(Color("#2c2757dd"), NEON_GOLD))
-	tile.add_theme_stylebox_override("pressed", _tile_box(Color("#3a2f66"), NEON_GOLD))
-	tile.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-
-	var box := VBoxContainer.new()
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", maxi(1, int(u * 0.3)))
-	tile.add_child(box)
-	var sum_label := _label(str(total), u * 2.08, NEON_GOLD if highlighted else NEON_TEXT)
-	sum_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sum_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	box.add_child(sum_label)
-	box.add_child(_tray_face_grid(def))
-	return tile
-
-func _tray_face_grid(def: DieDefinition) -> GridContainer:
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	grid.add_theme_constant_override("h_separation", maxi(1, int(u * 0.25)))
-	grid.add_theme_constant_override("v_separation", maxi(1, int(u * 0.25)))
-	for face_index in _faces_sorted_by_value(def):
-		grid.add_child(_tray_face_cell(def.faces[face_index], _material_of(def, face_index)))
-	return grid
-
 ## Seiten-Indizes nach Augenzahl aufsteigend (bei Gleichstand nach Index) -
 ## Raster und Kacheln lesen wie "1-6", jede Kachel bleibt ihre EIGENE Seite.
 func _faces_sorted_by_value(def: DieDefinition) -> Array[int]:
@@ -424,40 +345,6 @@ func _faces_sorted_by_value(def: DieDefinition) -> Array[int]:
 
 func _material_of(def: DieDefinition, face_index: int) -> String:
 	return def.materials[face_index] if face_index < def.materials.size() else ""
-
-func _tray_face_cell(value: int, material_id: String) -> Control:
-	var cell := Panel.new()
-	cell.custom_minimum_size = Vector2.ONE * u * 2.1
-	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = DieMaterial.tint_for(material_id)
-	box.border_color = Color(0, 0, 0, 0.35)
-	box.set_border_width_all(maxi(1, int(u * 0.1)))
-	box.set_corner_radius_all(maxi(1, int(u * 0.3)))
-	cell.add_theme_stylebox_override("panel", box)
-	var label := Label.new()
-	label.text = str(value)
-	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", maxi(8, int(u * 1.54)))
-	label.add_theme_color_override("font_color", CasinoStyle.INK)
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cell.add_child(label)
-	return cell
-
-## Leerer Slot: stiller Platzhalter, damit das Raster die Tray-Lücken spiegelt.
-func _empty_tray_cell() -> Control:
-	var cell := Panel.new()
-	cell.custom_minimum_size = Vector2(u * TRAY_TILE, u * TRAY_TILE)
-	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color("#181534aa")
-	box.border_color = Color("#282350")
-	box.set_border_width_all(maxi(1, int(u * 0.15)))
-	box.set_corner_radius_all(int(u * 0.9))
-	cell.add_theme_stylebox_override("panel", box)
-	return cell
 
 func _tile_box(bg: Color, border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -654,7 +541,6 @@ func _finish_apply(engraving_id: String, message: String) -> void:
 	applied.emit(engraving_id, _slot_center_px(engraving_id))
 	_build_engraving_board()  # Anzahl hat sich geändert (ruft _restyle_slots)
 	_refresh_face_summary()
-	_rebuild_tray_grid()  # Augensumme kann sich geändert haben
 	if keep:
 		prompt_label.text = "%s. Nochmal anwenden oder Rechtsklick: ablegen." % message
 	else:
@@ -1100,7 +986,7 @@ func _sorted_by_rarity(archetypes: Array[Engraving]) -> Array[Engraving]:
 	return sorted
 
 func _add_board_section(title: String, archetypes: Array[Engraving], counts: Dictionary) -> void:
-	var header := _label(title, u * 2.0, NEON_CYAN)
+	var header := _label(title, u * 1.8, NEON_CYAN)
 	board_box.add_child(header)
 
 	var grid := GridContainer.new()
@@ -1116,7 +1002,7 @@ func _add_board_section(title: String, archetypes: Array[Engraving], counts: Dic
 		slot_entries.append({"button": slot, "id": archetype.id, "count": count})
 
 func _tile_size() -> Vector2:
-	return Vector2(u * 6.0, u * 5.0)
+	return Vector2(u * 5.4, u * 4.2)
 
 ## Ein Bord-Platz: Button als "Mulde", darin der Engraving als Kachel - bei
 ## Mehrfachbesitz als versetzter Stapel plus ×Anzahl; ohne Besitz nur der
