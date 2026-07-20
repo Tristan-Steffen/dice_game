@@ -187,14 +187,21 @@ static func roll_draft(count: int, floor: Rarity) -> Array[Engraving]:
 		pool = _draft_pool(floor)
 	return _weighted_distinct(pool, count)
 
-## Zieht count VERSCHIEDENE Gravuren einer Kategorie (Shop-Auslage), seltenheits-
-## gewichtet ohne Zurücklegen.
-static func roll_in_category(target_category: String, count: int) -> Array[Engraving]:
+## Zieht count VERSCHIEDENE Gravuren einer Kategorie (Paket-Inhalt), seltenheits-
+## gewichtet ohne Zurücklegen. Ein zu kleiner Pool senkt floor automatisch.
+static func roll_in_category(target_category: String, count: int, floor: Rarity = Rarity.COMMON) -> Array[Engraving]:
+	var pool := _category_pool(target_category, floor)
+	while pool.size() < count and floor > Rarity.COMMON:
+		floor = (floor - 1) as Rarity
+		pool = _category_pool(target_category, floor)
+	return _weighted_distinct(pool, count)
+
+static func _category_pool(target_category: String, floor: Rarity) -> Array[Engraving]:
 	var pool: Array[Engraving] = []
 	for engraving in all():
-		if engraving.category == target_category:
+		if engraving.category == target_category and engraving.rarity >= floor:
 			pool.append(engraving)
-	return _weighted_distinct(pool, count)
+	return pool
 
 ## Seltenheits-gewichtete Auswahl von count verschiedenen Gravuren aus pool.
 static func _weighted_distinct(pool: Array[Engraving], count: int) -> Array[Engraving]:

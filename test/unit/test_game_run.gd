@@ -203,6 +203,65 @@ func test_granting_other_engravings_still_stores_them():
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
 
+# --- Pakete (Kauf, Lager, Öffnen) ------------------------------------------------
+
+func test_purchase_pack_deducts_and_stores_sealed():
+	run.money = 20
+	watch_signals(run)
+	run.purchase_pack(Pack.number_pack(), Pack.NUMBER_PRICE)
+	assert_eq(run.money, 20 - Pack.NUMBER_PRICE, "Preis abgezogen")
+	assert_eq(run.owned_packs.size(), 1, "Paket liegt im Lager")
+	assert_eq(run.owned_engravings.size(), 0, "Kauf würfelt noch keinen Inhalt aus")
+	assert_signal_emitted(run, "packs_changed")
+
+func test_open_engraving_pack_grants_contents_and_clears_the_slot():
+	run.purchase_pack(Pack.number_pack(), 0)
+	var result := run.open_pack(0)
+	var engravings: Array = result["engravings"]
+	assert_eq(engravings.size(), Pack.NUMBER_COUNT)
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt in den Vorräten")
+	assert_eq(run.owned_packs.size(), 0, "Paket ist verbraucht")
+
+func test_open_dice_pack_hands_the_dice_to_the_ceremony():
+	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[2]), 0)
+	var result := run.open_pack(0)
+	var dice: Array = result["dice"]
+	assert_eq(dice.size(), int(DiceOffer.TEMPLATES[2]["count"]))
+	assert_eq(run.owned_engravings.size(), 0, "Würfel landen nicht in den Vorräten")
+	assert_eq(_count_style("normal"), GameRun.POOL_SIZE, "Pool erst nach dem Einsetzen")
+
+func test_open_pack_ignores_invalid_index():
+	run.purchase_pack(Pack.number_pack(), 0)
+	assert_eq(run.open_pack(-1)["engravings"].size(), 0)
+	assert_eq(run.open_pack(5)["engravings"].size(), 0)
+	assert_eq(run.owned_packs.size(), 1, "Lager unangetastet")
+
+func test_place_pack_die_replaces_the_chosen_slot_only():
+	var die := DieDefinition.fixed(6, "Immer 6")
+	run.place_pack_die(die, 7)
+	assert_eq(run.owned_pool[7].style_id, "fixed_6", "gewählter Platz getauscht")
+	assert_eq(_count_style("fixed_6"), 1, "nur dieser eine Platz")
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
+	assert_eq(run.newly_purchased.size(), 1, "frische Ware zieht zuerst")
+
+func test_place_pack_die_stores_an_independent_copy():
+	var die := DieDefinition.fixed(6, "Immer 6")
+	run.place_pack_die(die, 3)
+	run.owned_pool[3].faces[0] = 1
+	assert_eq(die.faces[0], 6, "Paket-Vorlage bleibt unverändert")
+
+func test_place_pack_die_ignores_slots_outside_the_pool():
+	run.place_pack_die(DieDefinition.fixed(6, "Immer 6"), GameRun.POOL_SIZE)
+	assert_eq(_count_style("fixed_6"), 0)
+	assert_eq(run.newly_purchased.size(), 0)
+
+func test_pack_content_floor_rises_with_the_hub():
+	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.COMMON, "Stufe 1: alles")
+	run.hub_level = GameRun.HUB_RARITY_UNCOMMON_LEVEL
+	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.UNCOMMON)
+	run.hub_level = GameRun.HUB_RARITY_RARE_LEVEL
+	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.RARE)
+
 # --- Rundenfortschritt -----------------------------------------------------------
 
 func test_advance_round_increments_number_and_goal():

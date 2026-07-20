@@ -7,6 +7,7 @@ extends RefCounted
 signal money_changed(money: int)
 signal charms_changed
 signal engravings_changed
+signal packs_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
 signal hub_level_changed(level: int)
@@ -85,6 +86,8 @@ var hub_level: int = 1
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
 var owned_engravings: Array[Engraving] = []
+## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange.
+var owned_packs: Array[Pack] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
 var unlimited_engravings: bool = false  # Testmodus: consume_engraving verbraucht nichts
@@ -302,6 +305,53 @@ func purchase_engraving(engraving: Engraving, price: int) -> void:
 func grant_engraving(engraving: Engraving) -> void:
 	owned_engravings.append(engraving)
 	engravings_changed.emit()
+
+# --- Pakete (Kauf im Laden, Öffnen in der Werkstatt) --------------------------
+
+func purchase_pack(pack: Pack, price: int) -> void:
+	add_money(-price)
+	owned_packs.append(pack)
+	packs_changed.emit()
+
+## Mindest-Seltenheit im Paketinhalt; steigt mit der Raritäts-Stufe des Hubs.
+func pack_engraving_floor() -> Engraving.Rarity:
+	match shop_rarity_tier():
+		0:
+			return Engraving.Rarity.COMMON
+		1:
+			return Engraving.Rarity.UNCOMMON
+	return Engraving.Rarity.RARE
+
+## Öffnet das Paket auf Platz index - der Inhalt wird ERST JETZT ausgewürfelt.
+## Gravuren wandern sofort in die Vorräte, Würfel gibt die Zeremonie zurück:
+## der Spieler bestimmt selbst, welchen Pool-Platz sie einnehmen.
+func open_pack(index: int) -> Dictionary:
+	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
+	if index < 0 or index >= owned_packs.size():
+		return empty
+	var pack := owned_packs[index]
+	owned_packs.remove_at(index)
+	var result := empty
+	if pack.is_dice_pack():
+		result["dice"] = pack.roll_dice()
+	else:
+		var engravings := pack.roll_engravings(pack_engraving_floor())
+		result["engravings"] = engravings
+		for engraving in engravings:
+			owned_engravings.append(engraving)
+		if not engravings.is_empty():
+			engravings_changed.emit()
+	packs_changed.emit()
+	return result
+
+## Setzt einen Paket-Würfel auf einen SELBST gewählten Pool-Platz; der bisherige
+## Würfel dort verfällt. Abgelehnte Würfel laufen hier nie ein.
+func place_pack_die(def: DieDefinition, pool_index: int) -> void:
+	if def == null or pool_index < 0 or pool_index >= owned_pool.size():
+		return
+	var copy := def.instantiate()
+	owned_pool[pool_index] = copy
+	newly_purchased.append(copy)
 
 # --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
 

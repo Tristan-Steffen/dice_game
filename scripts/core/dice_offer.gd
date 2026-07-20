@@ -60,8 +60,8 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = []) -> Dice
 	var offer := DiceOffer.new()
 	offer.display_name = t["name"]
 	offer.dice = []
-	var base := _make_die(t)
-	var surcharge := _roll_refinements(base)
+	var base := make_die(t)
+	var surcharge := roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
 	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" and base.materials.count("") == base.materials.size():
 		base.materials[randi() % base.materials.size()] = DieMaterial.all().pick_random().id
@@ -73,7 +73,7 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = []) -> Dice
 
 ## Würfelt Veredelungen aus (1-2 Material-Seiten, evtl. Kanten-Material);
 ## liefert den Aufpreis je Würfel.
-static func _roll_refinements(def: DieDefinition) -> int:
+static func roll_refinements(def: DieDefinition) -> int:
 	var surcharge := 0
 	if randf() < FACE_MATERIAL_CHANCE:
 		var face_count := 2 if randf() < SECOND_FACE_CHANCE else 1
@@ -89,7 +89,7 @@ static func _roll_refinements(def: DieDefinition) -> int:
 
 ## Einzelner Würfel gemäß Vorlage: Seiten aus values, oder bei pasch=true
 ## 3..4 gleiche hohe Seiten plus Rest zufällig.
-static func _make_die(t: Dictionary) -> DieDefinition:
+static func make_die(t: Dictionary) -> DieDefinition:
 	var def := DieDefinition.new()
 	var faces: Array[int] = []
 	if t.get("pasch", false):

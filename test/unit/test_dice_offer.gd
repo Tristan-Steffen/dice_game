@@ -49,13 +49,13 @@ func test_dice_carry_a_non_normal_style_id():
 		for die in offer.dice:
 			assert_ne(die.style_id, "normal")
 
-# --- Veredelungen (Material-Seiten / Kanten, siehe _roll_refinements) -----------
+# --- Veredelungen (Material-Seiten / Kanten, siehe roll_refinements) -----------
 
 func test_refinement_surcharge_matches_applied_content():
 	# Der gemeldete Aufpreis passt exakt zu dem, was auf dem Würfel gelandet ist.
 	for i in 60:
 		var def := DieDefinition.standard()
-		var surcharge: int = DiceOffer._roll_refinements(def)
+		var surcharge: int = DiceOffer.roll_refinements(def)
 		var expected := 0
 		for material_id in def.materials:
 			if material_id != "":
@@ -69,7 +69,7 @@ func test_refinement_surcharge_matches_applied_content():
 func test_refinements_apply_at_most_two_face_materials():
 	for i in 60:
 		var def := DieDefinition.standard()
-		DiceOffer._roll_refinements(def)
+		DiceOffer.roll_refinements(def)
 		var count := 0
 		for material_id in def.materials:
 			if material_id != "":
@@ -82,7 +82,7 @@ func test_refinements_appear_sometimes_but_not_always():
 	var total := 0
 	for i in 80:
 		var def := DieDefinition.standard()
-		DiceOffer._roll_refinements(def)
+		DiceOffer.roll_refinements(def)
 		total += 1
 		if def.edge_material != "" or def.materials.count("") < 6:
 			refined += 1

@@ -1,0 +1,56 @@
+extends GutTest
+## Tests der Paket-Datenklasse: Sorten bilden auf Gravur-Kategorien ab, der
+## Inhalt wird beim Öffnen gezogen, Würfel-Pakete folgen ihrer DiceOffer-Vorlage.
+
+func test_engraving_packs_map_to_their_category() -> void:
+	assert_eq(Pack.number_pack().engraving_category(), Engraving.CATEGORY_NUMBER)
+	assert_eq(Pack.material_pack().engraving_category(), Engraving.CATEGORY_MATERIAL)
+	assert_eq(Pack.edge_pack().engraving_category(), Engraving.CATEGORY_DICE)
+	assert_eq(Pack.dice_pack(DiceOffer.TEMPLATES[0]).engraving_category(), "",
+		"Würfel-Pakete haben keine Gravur-Kategorie")
+
+func test_engraving_pack_rolls_its_count_in_category() -> void:
+	var pack := Pack.material_pack()
+	var contents := pack.roll_engravings()
+	assert_eq(contents.size(), Pack.MATERIAL_COUNT)
+	for engraving in contents:
+		assert_eq(engraving.category, Engraving.CATEGORY_MATERIAL)
+
+func test_edge_pack_holds_exactly_one_edge_engraving() -> void:
+	var contents := Pack.edge_pack().roll_engravings()
+	assert_eq(contents.size(), 1)
+	assert_true(Engraving.is_edge_id(contents[0].id), "Kanten-Gravur im Kanten-Paket")
+
+func test_dice_pack_follows_its_template() -> void:
+	# "Ungerade Würfel": 2 Würfel, nur ungerade Augen.
+	var template: Dictionary = DiceOffer.TEMPLATES[3]
+	var pack := Pack.dice_pack(template)
+	assert_eq(pack.count, int(template["count"]))
+	assert_eq(pack.template_id, template["style_id"])
+	var dice := pack.roll_dice()
+	assert_eq(dice.size(), int(template["count"]))
+	for die in dice:
+		assert_eq(die.style_id, template["style_id"])
+		for face in die.faces:
+			assert_true([1, 3, 5].has(face), "nur Augen der Vorlage")
+
+func test_dice_pack_contents_are_independent_copies() -> void:
+	var dice := Pack.dice_pack(DiceOffer.TEMPLATES[4]).roll_dice()
+	assert_gt(dice.size(), 1, "Vorlage liefert ein Bündel")
+	dice[0].faces[0] = 6
+	assert_ne(dice[1].faces[0], 6, "Kopien teilen keine Seiten")
+
+func test_dice_pack_rolls_no_engravings() -> void:
+	assert_eq(Pack.dice_pack(DiceOffer.TEMPLATES[0]).roll_engravings().size(), 0)
+
+func test_edge_packs_appear_only_from_their_hub_level() -> void:
+	for i in 20:
+		assert_ne(Pack.roll_engraving_pack(Pack.EDGE_HUB_LEVEL - 1).type, Pack.TYPE_EDGE,
+			"unter der Freischaltstufe kein Kanten-Paket")
+	var seen: Array[String] = []
+	for i in 200:
+		var pack_type := Pack.roll_engraving_pack(Pack.EDGE_HUB_LEVEL).type
+		if not seen.has(pack_type):
+			seen.append(pack_type)
+	assert_true(seen.has(Pack.TYPE_EDGE), "ab der Stufe kommen Kanten-Pakete vor")
+	assert_true(seen.has(Pack.TYPE_NUMBER))
