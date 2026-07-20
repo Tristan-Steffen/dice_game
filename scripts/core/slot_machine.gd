@@ -4,6 +4,10 @@ extends RefCounted
 ## Einsätzen und Gewinnen. Reine Logik/Daten - die UI (SlotBankView) spiegelt den
 ## Zustand, GameRun bucht die Gewinne.
 ##
+## Symbole sind AUSSCHLIESSLICH Ware: die drei Gravur-Sorten (Zahlen/Material/
+## Kanten - dieselbe Dreiteilung wie Pakete und Schubladen), Charm, Würfel, Fumble.
+## Geld gibt es hier nicht; verdient wird an den Runden, der Automat setzt es um.
+##
 ## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=3 Symbole; alle
 ## drei gedreht ergeben eine 3×9-Wand. Symbole sind bloße Zeichen (kein Preis) -
 ## Gewinne entstehen erst durch REIHEN: 3+ gleiche Symbole waagerecht nebeneinander
@@ -22,10 +26,6 @@ const MIN_RUN := 3          # ab so vielen gleichen nebeneinander zahlt eine Rei
 const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
 const SPIN_PRICES := [8, 14, 24]
 const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
-
-## Geld je Zelle nach Automat (Spalte/MACHINE_COLS): Kupfer/Silber/Gold. Der
-## Reihenwert ist die Zellsumme × Längen-Bonus (siehe _length_bonus).
-const MONEY_CELL := [1, 2, 3]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.
 const DIRECTIONS := [[1, 0], [0, 1], [1, 1], [1, -1]]
@@ -108,20 +108,23 @@ func hit_count() -> int:
 	return runs().size()
 
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
-## Anzeige): {money:int, engravings:int, charms:Array[String]-Raritäten, dice:int}.
+## Anzeige): je Gravur-Sorte eine Zahl, dazu Charm-Raritäten und Würfel.
 func pot_summary() -> Dictionary:
-	var money := 0
-	var engravings := 0
+	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.EDGE: 0}
 	var charms: Array = []
 	var dice := 0
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
 			match String(spec["kind"]):
-				"money": money += int(spec["amount"])
-				"engraving": engravings += int(spec["count"])
+				"engraving": counts[int(spec["symbol"])] += int(spec["count"])
 				"charm": charms.append(String(spec["rarity"]))
 				"die": dice += 1
-	return {"money": money, "engravings": engravings, "charms": charms, "dice": dice}
+	return {
+		"engravings": counts[SlotPrize.Kind.ENGRAVING],
+		"materials": counts[SlotPrize.Kind.MATERIAL],
+		"edges": counts[SlotPrize.Kind.EDGE],
+		"charms": charms, "dice": dice,
+	}
 
 ## Dreht Automat machine: füllt seine MACHINE_COLS Spalten mit gewichteten Symbolen
 ## und prüft die Wand auf einen Bust (drei Fumbles nebeneinander). Liefert den
@@ -169,13 +172,9 @@ func _make_run(kind: int, run_cells: Array, direction: Array) -> Dictionary:
 ## und Rarität.
 func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 	match kind:
-		SlotPrize.Kind.MONEY:
-			var sum := 0.0
-			for col in run_cols:
-				sum += MONEY_CELL[col / MACHINE_COLS]
-			return [{"kind": "money", "amount": int(round(sum * _length_bonus(length)))}]
-		SlotPrize.Kind.ENGRAVING:
-			return [{"kind": "engraving", "count": length - 1, "floor": _engraving_floor(run_cols)}]
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+			return [{"kind": "engraving", "symbol": kind, "count": _engraving_count(kind, length),
+				"floor": _engraving_floor(run_cols)}]
 		SlotPrize.Kind.CHARM:
 			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
 		SlotPrize.Kind.DIE:
@@ -185,15 +184,13 @@ func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 			return specs
 	return []
 
-## Längen-Bonus: superlinear, damit lange (spaltenübergreifende) Reihen zünden.
-## Kürzeste zahlende Reihe ist jetzt 3 (MIN_RUN).
-func _length_bonus(length: int) -> float:
-	match length:
-		3: return 1.0
-		4: return 1.6
-		5: return 2.4
-		6: return 3.4
-	return 3.4 + (length - 6) * 1.2
+## Stückzahl einer Gravur-Reihe. Die Sorte steuert die Ausbeute wie im Laden:
+## viele Zahlen, mäßig Material, sehr wenige Kanten.
+func _engraving_count(kind: int, length: int) -> int:
+	match kind:
+		SlotPrize.Kind.MATERIAL: return maxi(1, length - 2)
+		SlotPrize.Kind.EDGE: return maxi(1, length - 3)
+	return length - 1
 
 ## Gravur-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
 func _engraving_floor(run_cols: Array) -> int:
@@ -217,11 +214,9 @@ func _charm_rarity(length: int) -> String:
 func _run_label(kind: int, length: int, specs: Array) -> String:
 	var sym := SlotPrize.symbol_for(kind)
 	match kind:
-		SlotPrize.Kind.MONEY:
-			return "%s ×%d → $%d" % [sym, length, int(specs[0]["amount"])]
-		SlotPrize.Kind.ENGRAVING:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
 			var n := int(specs[0]["count"])
-			return "%s ×%d → %d Gravur%s" % [sym, length, n, "" if n == 1 else "en"]
+			return "%s ×%d → %d %s" % [sym, length, n, SlotPrize.category_name(kind, n)]
 		SlotPrize.Kind.CHARM:
 			return "%s ×%d → Charm" % [sym, length]
 		SlotPrize.Kind.DIE:
@@ -262,17 +257,21 @@ func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool) -
 		pick -= float(entry[1])
 		if pick <= 0.0:
 			return entry[0]
-	return SlotPrize.Kind.MONEY
+	return SlotPrize.Kind.ENGRAVING
 
-## Symbol-Gewichte je Automat als [kind, weight]. Höhere Automaten: seltenere
-## Symbole (Charm/Würfel). Fumble überall ähnlich häufig.
+## Symbol-Gewichte je Automat als [kind, weight]. Innerhalb eines Automaten gilt
+## die Häufigkeits-Idee des Ladens (viele Zahlen, mäßig Material, wenige Kanten);
+## höhere Automaten führen zusätzlich die seltenen Symbole (Charm/Würfel).
+## Fumble überall ähnlich häufig.
 func _symbol_table(machine: int) -> Array:
 	match machine:
-		0: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.ENGRAVING, 6], [SlotPrize.Kind.FUMBLE, 3]]
-		1: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.ENGRAVING, 6],
-			[SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
-	return [[SlotPrize.Kind.MONEY, 6], [SlotPrize.Kind.ENGRAVING, 6],
-		[SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2], [SlotPrize.Kind.FUMBLE, 3]]
+		0: return [[SlotPrize.Kind.ENGRAVING, 7], [SlotPrize.Kind.MATERIAL, 4],
+			[SlotPrize.Kind.EDGE, 1], [SlotPrize.Kind.FUMBLE, 3]]
+		1: return [[SlotPrize.Kind.ENGRAVING, 6], [SlotPrize.Kind.MATERIAL, 4],
+			[SlotPrize.Kind.EDGE, 2], [SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
+	return [[SlotPrize.Kind.ENGRAVING, 5], [SlotPrize.Kind.MATERIAL, 4],
+		[SlotPrize.Kind.EDGE, 2], [SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2],
+		[SlotPrize.Kind.FUMBLE, 3]]
 
 func _fallback_rng() -> RandomNumberGenerator:
 	if _rng == null:

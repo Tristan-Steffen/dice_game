@@ -206,27 +206,29 @@ func test_cannot_spin_slot_without_money() -> void:
 	assert_false(run.can_spin_slot(0))
 
 func test_redeem_books_run_prizes() -> void:
-	const M := SlotPrize.Kind.MONEY
+	const M := SlotPrize.Kind.MATERIAL
 	const S := SlotPrize.Kind.ENGRAVING
 	const C := SlotPrize.Kind.CHARM
 	const D := SlotPrize.Kind.DIE
 	var run := _run(9999)
 	run.hub_level = 9  # alle drei frei
-	# Handgebaute 5×9-Wand: obere Zeile drei $ in Automat 0 (Zellwert 1, Länge-3-Bonus
-	# 1.0 ⇒ round(3×1.0)=3). Restzeilen im mod-4-Muster bilden in KEINER Richtung eine
-	# Reihe (nur so ist die Geld-Reihe die einzige).
+	# Handgebaute 5×9-Wand: obere Zeile drei Zahlen-Symbole in Automat 0 (3er-Reihe
+	# ⇒ 2 Gravuren). Restzeilen im mod-4-Muster bilden in KEINER Richtung eine
+	# Reihe (nur so ist die Zahlen-Reihe die einzige).
 	var syms := [M, S, C, D]
 	for c in SlotMachine.TOTAL_COLS:
 		var col: Array = []
 		for r in SlotMachine.ROWS:
 			if r == 0:
-				col.append(M if c < 3 else [M, S, C, S, C, S, C, S, C][c])
+				col.append(S if c < 3 else [M, S, C, M, C, M, C, M, C][c])
 			else:
 				col.append(syms[(c + 2 * r) % 4])
 		run.slot_bank.cells[c] = col
 	run.slot_bank.spun = [true, true, true]
 	assert_eq(run.slot_bank.hit_count(), 1, "genau eine Reihe")
 	var money_before := run.money
+	var engravings_before := run.owned_engravings.size()
 	run.redeem_slots()
-	assert_eq(run.money, money_before + 3, "3er-Geld-Reihe gebucht")
+	assert_eq(run.owned_engravings.size(), engravings_before + 2, "3er-Zahlen-Reihe gebucht")
+	assert_eq(run.money, money_before, "der Automat zahlt kein Geld")
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")

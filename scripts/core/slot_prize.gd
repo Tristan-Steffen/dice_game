@@ -1,14 +1,24 @@
 class_name SlotPrize
 extends RefCounted
-## Ergebnis eines Fumble-Automaten: ein Gewinn (Geld, Gravuren, Charm oder Würfel)
-## oder das Namensgeber-Symbol „Fumble" (die Niete, löscht den Topf). Der Inhalt
-## wird beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
+## Ergebnis eines Fumble-Automaten: ein Gewinn (Gravuren, Charm oder Würfel) oder
+## das Namensgeber-Symbol „Fumble" (die Niete, löscht den Topf). Der Inhalt wird
+## beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
 ## Auszahlen - mit Multiplikator je Trefferzahl. Reine Daten, keine Nodes.
+##
+## Die drei Gravur-Sorten sind EIGENE Symbole (Zahlen/Material/Kanten) - dieselbe
+## Dreiteilung wie Pakete im Laden und Schubladen an der Werkbank. Der Automat
+## zahlt NUR in Ware; Geld verdient man an den Runden, nicht am Automaten.
+enum Kind { FUMBLE, ENGRAVING, MATERIAL, EDGE, CHARM, DIE }
 
-enum Kind { FUMBLE, MONEY, ENGRAVING, CHARM, DIE }
+## Gravur-Kategorie eines Symbol-Kinds ("" = kein Gravur-Symbol).
+static func category_of(kind_value: int) -> String:
+	match kind_value:
+		Kind.ENGRAVING: return Engraving.CATEGORY_NUMBER
+		Kind.MATERIAL: return Engraving.CATEGORY_MATERIAL
+		Kind.EDGE: return Engraving.CATEGORY_DICE
+	return ""
 
 var kind: int = Kind.FUMBLE
-var money: int = 0
 var engravings: Array[Engraving] = []   # Basis-Ausschüttung (vor Multiplikator)
 var charm: Charm = null
 var die: DieDefinition = null
@@ -18,17 +28,18 @@ var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 ## Preis auf - Inhalt wird sofort gewürfelt, damit ihn der Zwischenspeicher zeigt.
 static func from_spec(spec: Dictionary) -> SlotPrize:
 	var p := SlotPrize.new()
-	match String(spec.get("kind", "money")):
-		"money":
-			p.kind = Kind.MONEY
-			p.money = int(spec.get("amount", 0))
-			p.label = "$%d" % p.money
+	match String(spec.get("kind", "engraving")):
 		"engraving":
-			p.kind = Kind.ENGRAVING
+			p.kind = int(spec.get("symbol", Kind.ENGRAVING))
 			var count := int(spec.get("count", 1))
-			p.engravings = Engraving.roll_draft(count, int(spec.get("floor", Engraving.Rarity.COMMON)))
+			var floor_rarity := int(spec.get("floor", Engraving.Rarity.COMMON))
+			var category := category_of(p.kind)
+			if category == "":
+				p.engravings = Engraving.roll_draft(count, floor_rarity)
+			else:
+				p.engravings = Engraving.roll_in_category(category, count, floor_rarity)
 			var n := maxi(1, p.engravings.size())
-			p.label = "%d Gravur%s" % [n, "" if n == 1 else "en"]
+			p.label = "%d %s" % [n, category_name(p.kind, n)]
 		"charm":
 			p.kind = Kind.CHARM
 			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)))
@@ -40,13 +51,26 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 	return p
 
 ## Symbol-Glyphe eines Kind (auch für bloße Wand-Symbole ohne aufgelösten Preis).
+## Die Zeichen folgen der Bildsprache der Paket-Siegel: Auge für Zahlen, Stein für
+## Material, Rahmen für Kanten (siehe PackIconRenderer).
 static func symbol_for(kind_value: int) -> String:
 	match kind_value:
-		Kind.MONEY: return "$"
-		Kind.ENGRAVING: return "◈"
+		Kind.ENGRAVING: return "◉"
+		Kind.MATERIAL: return "◆"
+		Kind.EDGE: return "▣"
 		Kind.CHARM: return "✦"
 		Kind.DIE: return "⬢"
 	return "✖"   # Fumble
+
+## Anzeigename eines Symbols; count steuert den Plural.
+static func category_name(kind_value: int, count: int = 1) -> String:
+	match kind_value:
+		Kind.ENGRAVING: return "Gravur" if count == 1 else "Gravuren"
+		Kind.MATERIAL: return "Material" if count == 1 else "Materialien"
+		Kind.EDGE: return "Kante" if count == 1 else "Kanten"
+		Kind.CHARM: return "Charm" if count == 1 else "Charms"
+		Kind.DIE: return "Würfel"
+	return "Fumble"
 
 ## Zufälliger Charm GENAU der Rarität rarity_name, gewichtet. Fehlt diese Stufe,
 ## eine Stufe tiefer, bis der Pool nicht leer ist.

@@ -5,8 +5,9 @@ extends GutTest
 ## (jede Richtung), Belohnungs-Vorlagen, Reset. Deterministisch über handgebaute
 ## Wände; eine „neutrale" Füllung (mod-4-Muster) bildet in KEINER Richtung eine Reihe.
 
-const M := SlotPrize.Kind.MONEY
+const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
+const E := SlotPrize.Kind.EDGE
 const C := SlotPrize.Kind.CHARM
 const D := SlotPrize.Kind.DIE
 const F := SlotPrize.Kind.FUMBLE
@@ -101,7 +102,7 @@ func test_diagonal_up_right_pays() -> void:
 	assert_eq(int(run["length"]), 3)
 
 func test_run_crosses_machine_boundary() -> void:
-	# Vier $ über die Grenze Automat 0→1 (Spalten 2,3,4,5).
+	# Vier Material-Symbole über die Grenze Automat 0→1 (Spalten 2,3,4,5).
 	var bank := _wall([[S, C, M, M, M, M, S, C, D]])
 	var run: Variant = _find_run(bank, [1, 0], M)
 	assert_not_null(run)
@@ -109,30 +110,52 @@ func test_run_crosses_machine_boundary() -> void:
 	assert_eq(int(run["start_col"]), 2)
 
 func test_longer_run_pays_more() -> void:
-	var short_run: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
-	var long_run: Variant = _find_run(_wall([[M, M, M, M, M, C, S, C, D]]), [1, 0], M)
-	var short_money := int(short_run["specs"][0]["amount"])
-	var long_money := int(long_run["specs"][0]["amount"])
-	assert_gt(long_money, short_money * 2, "5er zahlt überproportional mehr als 3er")
+	var short_run: Variant = _find_run(_wall([[S, S, S, M, C, D, S, C, D]]), [1, 0], S)
+	var long_run: Variant = _find_run(_wall([[S, S, S, S, S, C, M, C, D]]), [1, 0], S)
+	assert_gt(int(long_run["specs"][0]["count"]), int(short_run["specs"][0]["count"]),
+		"längere Reihe liefert mehr Stücke")
 
-func test_pot_summary_sums_all_runs() -> void:
-	# Zeile 0: 3er-$ (Automat 0, $3). Zeile 2: 3er-Gravur (2 Gravuren). Rest neutral.
-	var bank := _neutral()
-	for c in 3:
-		bank.cells[c][0] = M
-		bank.cells[c][2] = S
-	var summary := bank.pot_summary()
-	assert_eq(int(summary["money"]), 3, "Geld aller Geld-Reihen summiert")
-	assert_eq(int(summary["engravings"]), 2, "Gravuren aller Gravur-Reihen summiert (3er → 2)")
-	assert_true((summary["charms"] as Array).is_empty())
-	assert_eq(int(summary["dice"]), 0)
+func test_rarer_symbols_pay_out_fewer_pieces() -> void:
+	# Dieselbe Reihenlänge, andere Sorte: Zahlen sind reichlich, Kanten rar.
+	var numbers: Variant = _find_run(_wall([[S, S, S, M, C, D, S, C, D]]), [1, 0], S)
+	var materials: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
+	var edges: Variant = _find_run(_wall([[E, E, E, S, C, D, S, C, D]]), [1, 0], E)
+	assert_gt(int(numbers["specs"][0]["count"]), int(materials["specs"][0]["count"]),
+		"Zahlen ergiebiger als Material")
+	assert_gte(int(materials["specs"][0]["count"]), int(edges["specs"][0]["count"]),
+		"Material mindestens so ergiebig wie Kanten")
+	assert_eq(int(edges["specs"][0]["count"]), 1, "eine 3er-Kanten-Reihe gibt genau eine Kante")
+
+func test_pot_summary_keeps_the_three_kinds_apart() -> void:
+	# Je Sorte eine eigene Wand mit EINER 3er-Reihe (mehrere explizite Zeilen
+	# zugleich brächen die Neutralität der Füllung - dann entstünden Extra-Reihen).
+	assert_eq(int(_wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()["engravings"]), 2,
+		"3er-Zahlen-Reihe → 2 Gravuren")
+	assert_eq(int(_wall([[M, M, M, C, D, C, D, C, D]]).pot_summary()["materials"]), 1,
+		"3er-Material-Reihe → 1 Material")
+	assert_eq(int(_wall([[E, E, E, C, D, C, D, C, D]]).pot_summary()["edges"]), 1,
+		"3er-Kanten-Reihe → 1 Kante")
+	var numbers := _wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()
+	assert_eq(int(numbers["materials"]), 0, "eine Zahlen-Reihe zählt NICHT als Material")
+	assert_eq(int(numbers["edges"]), 0)
 
 func test_pot_summary_empty_when_no_runs() -> void:
 	var summary := _neutral().pot_summary()
-	assert_eq(int(summary["money"]), 0)
 	assert_eq(int(summary["engravings"]), 0)
+	assert_eq(int(summary["materials"]), 0)
+	assert_eq(int(summary["edges"]), 0)
 	assert_true((summary["charms"] as Array).is_empty())
 	assert_eq(int(summary["dice"]), 0)
+
+func test_no_symbol_pays_money() -> void:
+	# Der Automat setzt Geld um, er druckt keines - keine Reihe darf Geld liefern.
+	var bank := _neutral()
+	for c in SlotMachine.TOTAL_COLS:
+		for r in SlotMachine.ROWS:
+			bank.cells[c][r] = [S, M, E, C, D][(c + r) % 5]
+	for run in bank.runs():
+		for spec: Dictionary in run["specs"]:
+			assert_ne(String(spec["kind"]), "money", "kein Geld-Gewinn am Automaten")
 
 func test_fumble_pair_is_harmless() -> void:
 	var bank := _neutral()
@@ -193,10 +216,10 @@ func test_any_spun_tracks_the_session() -> void:
 	assert_false(bank.any_spun(), "nach dem Reset wieder leer")
 
 func test_run_specs_resolve_by_symbol() -> void:
-	var money_run: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
-	var money: Dictionary = money_run["specs"][0]
-	assert_eq(String(money["kind"]), "money")
-	assert_gt(int(money["amount"]), 0)
+	var material_run: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
+	var material: Dictionary = material_run["specs"][0]
+	assert_eq(String(material["kind"]), "engraving")
+	assert_eq(int(material["symbol"]), SlotPrize.Kind.MATERIAL, "die Sorte steht in der Vorlage")
 	var engraving_run: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
 	var engraving: Dictionary = engraving_run["specs"][0]
 	assert_eq(String(engraving["kind"]), "engraving")

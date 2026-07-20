@@ -35,7 +35,7 @@ const SPIN_BRAKE_TIME := 0.7
 const SETTLE_OVERSHOOT := 0.15
 const SETTLE_TIME := 0.15
 const COL_STAGGER := 0.18
-const REEL_SYMBOLS := ["$", "◈", "✦", "⬢"]
+const REEL_SYMBOLS := ["◉", "◆", "▣", "✦", "⬢"]
 
 var run: GameRun
 
@@ -374,15 +374,16 @@ func _pot_summary_chips(u: float) -> Control:
 	chips.add_theme_constant_override("v_separation", int(u * 0.6))
 	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var summary: Dictionary = run.slot_bank.pot_summary()
-	if int(summary["money"]) > 0:
-		chips.add_child(_summary_chip(GOLD, "$%d" % int(summary["money"]), u))
-	var sig := int(summary["engravings"])
-	if sig > 0:
-		chips.add_child(_summary_chip(ENGRAVING_GLOW, "%s %d Gravur%s"
-			% [SlotPrize.symbol_for(SlotPrize.Kind.ENGRAVING), sig, "" if sig == 1 else "en"], u))
+	for entry in [[SlotPrize.Kind.ENGRAVING, "engravings"], [SlotPrize.Kind.MATERIAL, "materials"],
+			[SlotPrize.Kind.EDGE, "edges"]]:
+		var count := int(summary[entry[1]])
+		if count > 0:
+			chips.add_child(_summary_chip(_kind_color(int(entry[0])), "%s %d %s"
+				% [SlotPrize.symbol_for(int(entry[0])), count,
+					SlotPrize.category_name(int(entry[0]), count)], u))
 	var charms: Array = summary["charms"]
 	if not charms.is_empty():
-		chips.add_child(_summary_chip(GREEN, "%s %s"
+		chips.add_child(_summary_chip(_kind_color(SlotPrize.Kind.CHARM), "%s %s"
 			% [SlotPrize.symbol_for(SlotPrize.Kind.CHARM), _charm_chip_text(charms)], u))
 	var dice := int(summary["dice"])
 	if dice > 0:
@@ -427,11 +428,11 @@ func _legend_row(u: float) -> Control:
 	flow.add_theme_constant_override("v_separation", int(u * 0.3))
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var names := {
-		SlotPrize.Kind.MONEY: "Geld", SlotPrize.Kind.ENGRAVING: "Gravur",
-		SlotPrize.Kind.CHARM: "Charm", SlotPrize.Kind.DIE: "Würfel",
-		SlotPrize.Kind.FUMBLE: "Fumble"}
-	for kind in [SlotPrize.Kind.MONEY, SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.CHARM,
-			SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
+		SlotPrize.Kind.ENGRAVING: "Zahlen", SlotPrize.Kind.MATERIAL: "Material",
+		SlotPrize.Kind.EDGE: "Kanten", SlotPrize.Kind.CHARM: "Charm",
+		SlotPrize.Kind.DIE: "Würfel", SlotPrize.Kind.FUMBLE: "Fumble"}
+	for kind in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE,
+			SlotPrize.Kind.CHARM, SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
 		entry.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -632,20 +633,17 @@ const RARITY_COLORS := {
 	Engraving.Rarity.RARE: Color("#ffd319"),
 }
 
-## Zeigt am Sitzungsende, WAS und WIE VIEL gewonnen wurde: Münzen für Geld, je ein
-## Icon je Gravur-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt
-## auf, halten kurz und blenden aus.
+## Zeigt am Sitzungsende, WAS und WIE VIEL gewonnen wurde: je ein Icon je
+## Gravur-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt auf,
+## halten kurz und blenden aus.
 func _play_payout_reveal(prizes: Array) -> void:
-	var money := 0
 	var engraving_counts := {}   # id -> {engraving, count}
 	var engraving_order: Array = []
 	var charms: Array = []
 	var dice := 0
 	for prize: SlotPrize in prizes:
 		match prize.kind:
-			SlotPrize.Kind.MONEY:
-				money += prize.money
-			SlotPrize.Kind.ENGRAVING:
+			SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
 				for s: Engraving in prize.engravings:
 					if not engraving_counts.has(s.id):
 						engraving_counts[s.id] = {"engraving": s, "count": 0}
@@ -656,7 +654,7 @@ func _play_payout_reveal(prizes: Array) -> void:
 					charms.append(prize.charm)
 			SlotPrize.Kind.DIE:
 				dice += 1
-	if money <= 0 and engraving_order.is_empty() and charms.is_empty() and dice == 0:
+	if engraving_order.is_empty() and charms.is_empty() and dice == 0:
 		return
 
 	var u := maxf(size.x, 200.0) / 100.0
@@ -687,12 +685,10 @@ func _play_payout_reveal(prizes: Array) -> void:
 	center.add_child(flow)
 
 	var tokens: Array = []
-	if money > 0:
-		tokens.append(_coin_token(money, u))
 	for id in engraving_order:
 		tokens.append(_engraving_token(engraving_counts[id]["engraving"], int(engraving_counts[id]["count"]), u))
 	for charm in charms:
-		tokens.append(_glyph_token("✦", GREEN, charm.display_name, u))
+		tokens.append(_glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), charm.display_name, u))
 	if dice > 0:
 		tokens.append(_glyph_token("⬢", CYAN, "%d Würfel" % dice, u))
 	for token in tokens:
@@ -723,20 +719,6 @@ func _animate_reveal(tokens: Array) -> void:
 	fade.tween_callback(func() -> void:
 		if is_instance_valid(_reveal):
 			_reveal.queue_free())
-
-## Münz-Token: gezeichneter Münzstapel + „+$N".
-func _coin_token(money: int, u: float) -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", int(u * 0.6))
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var stack := CoinStack.new()
-	stack.custom_minimum_size = Vector2(u * 12.0, u * 10.0)
-	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(stack)
-	var label := _label("+$%d" % money, u * 3.0, Color(GOLD.r * 1.5, GOLD.g * 1.4, GOLD.b * 0.9))
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(label)
-	return box
 
 ## Gravur-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
 ## Plakette und Name.
@@ -827,11 +809,14 @@ func _glyph_token(glyph: String, color: Color, caption: String, u: float) -> Con
 
 # --- Bausteine -----------------------------------------------------------------
 
+## Symbolfarben = Paket-/Schubladenfarben: dieselbe Ware, dieselbe Farbe -
+## egal ob im Laden, in der Schublade oder auf der Walze.
 func _kind_color(kind: int) -> Color:
 	match kind:
-		SlotPrize.Kind.MONEY: return GOLD
-		SlotPrize.Kind.ENGRAVING: return ENGRAVING_GLOW
-		SlotPrize.Kind.CHARM: return GREEN
+		SlotPrize.Kind.ENGRAVING: return PackIconRenderer.COLORS[Pack.TYPE_NUMBER]
+		SlotPrize.Kind.MATERIAL: return PackIconRenderer.COLORS[Pack.TYPE_MATERIAL]
+		SlotPrize.Kind.EDGE: return PackIconRenderer.COLORS[Pack.TYPE_EDGE]
+		SlotPrize.Kind.CHARM: return ENGRAVING_GLOW
 		SlotPrize.Kind.DIE: return CYAN
 	return RED  # Fumble
 
@@ -881,20 +866,3 @@ class RunOverlay:
 			draw_polyline(pts, Color(col.r, col.g, col.b, 0.9), w, true)
 			for p in pts:
 				draw_circle(p, w * 0.9, Color(col.r, col.g, col.b, 0.85))
-
-## Gezeichneter Münzstapel für das Auszahlungs-Token (drei überlappende Goldmünzen).
-class CoinStack:
-	extends Control
-
-	const GOLD := Color("#ffd319")
-	const GOLD_DARK := Color("#c8912a")
-
-	func _draw() -> void:
-		var r := minf(size.x, size.y) * 0.34
-		var cx := size.x * 0.5
-		for i in 3:
-			var cy := size.y * 0.72 - i * r * 0.55
-			draw_circle(Vector2(cx, cy + r * 0.16), r, Color(0, 0, 0, 0.35))       # Schatten
-			draw_circle(Vector2(cx, cy), r, GOLD_DARK)                              # Rand
-			draw_circle(Vector2(cx, cy), r * 0.82, GOLD)                            # Fläche
-			draw_circle(Vector2(cx, cy), r * 0.5, Color(GOLD.r * 1.4, GOLD.g * 1.3, GOLD.b * 0.8))  # Glanz

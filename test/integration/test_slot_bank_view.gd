@@ -4,7 +4,7 @@ extends GutTest
 ## umgangen, indem die Landung (_on_reel_landed mit dem 3×3-Block) direkt gerufen
 ## wird.
 
-const M := SlotPrize.Kind.MONEY
+const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
 const C := SlotPrize.Kind.CHARM
 const F := SlotPrize.Kind.FUMBLE
@@ -67,15 +67,36 @@ func test_fumble_triple_marks_the_session_busted() -> void:
 	assert_eq(run.slot_bank.hit_count(), 0, "Topf verloren")
 
 func test_cash_out_redeems_runs_and_resets() -> void:
-	# 3er-Geld-Reihe in Automat 0 (Zellwert 1, Bonus 1.0 ⇒ $3).
-	_set_wall([[M, M, M, S, C, S, C, S, C]])
+	# 3er-Zahlen-Reihe in Automat 0 → zwei Zahlen-Gravuren in die Vorräte.
+	_set_wall([[S, S, S, M, C, M, C, M, C]])
 	view.refresh()
 	await wait_frames(2)
 	var money_before := run.money
+	var engravings_before := run.owned_engravings.size()
 	view._on_cash_out_pressed()
 	await wait_frames(2)
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
-	assert_eq(run.money, money_before + 3, "Reihe ausgezahlt")
+	assert_eq(run.owned_engravings.size(), engravings_before + 2, "Reihe als Ware ausgezahlt")
+	assert_eq(run.money, money_before, "der Automat zahlt KEIN Geld aus")
+
+func test_each_engraving_symbol_pays_its_own_category() -> void:
+	# Zahlen-, Material- und Kanten-Reihe zahlen je in ihre eigene Sorte.
+	for entry in [[S, Engraving.CATEGORY_NUMBER], [M, Engraving.CATEGORY_MATERIAL],
+			[SlotPrize.Kind.EDGE, Engraving.CATEGORY_DICE]]:
+		var symbol: int = entry[0]
+		var fresh := GameRun.new_run()
+		fresh.hub_level = 9
+		run = fresh          # _set_wall schreibt in die Wand von run
+		view.run = fresh
+		_set_wall([[symbol, symbol, symbol, C, F, C, F, C, F]])
+		view.refresh()
+		await wait_frames(2)
+		view._on_cash_out_pressed()
+		await wait_frames(2)
+		assert_gt(fresh.owned_engravings.size(), 0, "Sorte %s zahlt aus" % entry[1])
+		for engraving in fresh.owned_engravings:
+			assert_eq(engraving.category, String(entry[1]),
+				"nur Gravuren der eigenen Sorte")
 
 func test_new_session_after_a_bust() -> void:
 	run.slot_bank.fumble_chance = 1.0

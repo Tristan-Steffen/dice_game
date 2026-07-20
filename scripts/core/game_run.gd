@@ -510,9 +510,7 @@ func redeem_slots() -> Dictionary:
 
 func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:
-		SlotPrize.Kind.MONEY:
-			add_money(prize.money * mult)
-		SlotPrize.Kind.ENGRAVING:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
 			for i in mult:
 				for engraving in prize.engravings:
 					grant_engraving(engraving)
