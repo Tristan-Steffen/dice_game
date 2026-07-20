@@ -134,7 +134,8 @@ func test_spread_offers_packs_and_overclocks():
 	assert_eq(shop.overclock_offers.size(), run.shop_overclock_slots(), "zwei Übertaktungen")
 	for pack in shop.engraving_packs:
 		assert_false(pack.is_dice_pack())
-		assert_true(Engraving.CATEGORIES.has(pack.engraving_category()), "echte Gravur-Kategorie")
+		assert_true(Engraving.CATEGORIES.has(pack.engraving_category())
+			or pack.type == Pack.TYPE_MIXED, "echte Gravur-Kategorie oder gemischt")
 
 # --- Übertaktungen ---------------------------------------------------------------
 

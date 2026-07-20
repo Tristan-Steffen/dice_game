@@ -21,6 +21,31 @@ func test_edge_pack_holds_exactly_one_edge_engraving() -> void:
 	assert_eq(contents.size(), 1)
 	assert_true(Engraving.is_edge_id(contents[0].id), "Kanten-Gravur im Kanten-Paket")
 
+func test_mixed_pack_rolls_across_all_categories() -> void:
+	var pack := Pack.mixed_pack()
+	assert_eq(pack.engraving_category(), "", "gemischt hat keine EINE Kategorie")
+	var contents := pack.roll_engravings()
+	assert_eq(contents.size(), Pack.MIXED_COUNT)
+	for engraving in contents:
+		assert_true(Engraving.CATEGORIES.has(engraving.category), "jedes Stück aus einer echten Kategorie")
+
+func test_mixed_pack_can_contain_more_than_one_category() -> void:
+	# Bei 6/3/1-Gewichten je Stück ist EIN Sortiment aus nur einer Kategorie über
+	# 60 Ziehungen praktisch ausgeschlossen.
+	var seen: Array[String] = []
+	for i in 15:
+		for engraving in Pack.mixed_pack().roll_engravings():
+			if not seen.has(engraving.category):
+				seen.append(engraving.category)
+	assert_gt(seen.size(), 1, "gemischt heißt gemischt")
+
+func test_mixed_packs_appear_on_the_shelf() -> void:
+	var seen := false
+	for i in 200:
+		if Pack.roll_engraving_pack(1).type == Pack.TYPE_MIXED:
+			seen = true
+	assert_true(seen, "gemischte Pakete liegen (auch früh) in der Auslage")
+
 func test_dice_pack_follows_its_template() -> void:
 	# "Ungerade Würfel": 2 Würfel, nur ungerade Augen.
 	var template: Dictionary = DiceOffer.TEMPLATES[3]

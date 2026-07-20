@@ -21,14 +21,6 @@ const GOLD := Color("#ffd319")
 ## damit das Raster wie das Tray darüber liest.
 const POOL_COLUMNS := 6
 
-## Farbe je Paketsorte - dieselbe Zuordnung wie im Laden.
-const PACK_COLORS := {
-	Pack.TYPE_DICE: Color("#8be9fd"),
-	Pack.TYPE_NUMBER: Color("#50fa7b"),
-	Pack.TYPE_MATERIAL: Color("#ff79c6"),
-	Pack.TYPE_EDGE: Color("#ffd319"),
-}
-
 var run: GameRun:
 	set(value):
 		if run == value:
@@ -151,7 +143,7 @@ func _build_pack_shelf(u: float) -> void:
 
 ## Lagerkarte: Siegel, Sorte, Inhaltsmenge - und der Öffnen-Knopf.
 func _pack_card(pack: Pack, index: int, u: float) -> Control:
-	var accent: Color = PACK_COLORS.get(pack.type, TITLE_COLOR)
+	var accent: Color = PackIconRenderer.COLORS.get(pack.type, TITLE_COLOR)
 	var button := Button.new()
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -168,9 +160,12 @@ func _pack_card(pack: Pack, index: int, u: float) -> Control:
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(column)
 
-	var seal := _label("✦", u * 4.6, accent)
-	seal.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(seal)
+	var seal := PackIconRenderer.for_type(pack.type)
+	seal.custom_minimum_size = Vector2.ONE * u * 5.6
+	var seal_stage := CenterContainer.new()
+	seal_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	seal_stage.add_child(seal)
+	column.add_child(seal_stage)
 	var name_label := _label(pack.display_name, u * 2.4, TEXT_COLOR)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -186,6 +181,11 @@ func _pack_card(pack: Pack, index: int, u: float) -> Control:
 func _content_text(pack: Pack) -> String:
 	if pack.is_dice_pack():
 		return "%d Würfel" % pack.count
+	if pack.type == Pack.TYPE_MIXED:
+		return "%d Gravuren, alle Sorten" % pack.count
+	if pack.type == Pack.TYPE_EDGE:
+		# CATEGORY_NAMES sagt hier "Würfel" - neben echten Würfel-Paketen irreführend.
+		return "%d Kanten-Gravur" % pack.count if pack.count == 1 else "%d Kanten-Gravuren" % pack.count
 	return "%d %s" % [pack.count, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
 
 # --- Zeremonie: öffnen, zeigen, verwenden --------------------------------------

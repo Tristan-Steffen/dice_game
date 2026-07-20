@@ -748,18 +748,10 @@ func _chip_box(bg: Color, border: Color, border_alpha: float, radius: int) -> St
 	box.shadow_size = int(u * 0.5)
 	return box
 
-## Farbe je Paketsorte (Saum, Siegel, Kauf-Knopf).
-const PACK_COLORS := {
-	Pack.TYPE_DICE: NEON_CYAN,
-	Pack.TYPE_NUMBER: NEON_GREEN,
-	Pack.TYPE_MATERIAL: NEON_MAGENTA,
-	Pack.TYPE_EDGE: NEON_GOLD,
-}
-
 ## Karte eines VERSIEGELTEN Pakets: Sorte, Inhaltsmenge und Preis - nie der
 ## Inhalt selbst. Gekaufte Pakete liegen im Werkstatt-Lager.
 func _build_pack_card(pack: Pack, index: int, is_dice: bool) -> PanelContainer:
-	var accent: Color = PACK_COLORS.get(pack.type, NEON_CYAN)
+	var accent: Color = PackIconRenderer.COLORS.get(pack.type, NEON_CYAN)
 	var bought: bool = dice_pack_bought[index] if is_dice else engraving_pack_bought[index]
 
 	var card := PanelContainer.new()
@@ -780,9 +772,13 @@ func _build_pack_card(pack: Pack, index: int, is_dice: bool) -> PanelContainer:
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vbox)
 
-	var seal := _label("✦", u * 4.2, Color(accent.r, accent.g, accent.b, 0.4 if bought else 1.0),
-		HORIZONTAL_ALIGNMENT_CENTER)
-	vbox.add_child(seal)
+	var seal := PackIconRenderer.for_type(pack.type)
+	seal.custom_minimum_size = Vector2.ONE * u * 5.0
+	seal.modulate = Color(1, 1, 1, 0.4 if bought else 1.0)
+	var seal_stage := CenterContainer.new()
+	seal_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	seal_stage.add_child(seal)
+	vbox.add_child(seal_stage)
 	vbox.add_child(_label(pack.display_name, u * 2.1, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
 	vbox.add_child(_label(_pack_content_text(pack), u * 1.7, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 
@@ -805,6 +801,11 @@ func _pack_content_text(pack: Pack) -> String:
 	if pack.is_dice_pack():
 		return "%d Würfel · ungeöffnet" % pack.count
 	var noun := "Gravur" if pack.count == 1 else "Gravuren"
+	if pack.type == Pack.TYPE_MIXED:
+		return "%d %s · alle Sorten" % [pack.count, noun]
+	if pack.type == Pack.TYPE_EDGE:
+		# CATEGORY_NAMES sagt hier "Würfel" - neben echten Würfel-Paketen irreführend.
+		return "%d %s · Kanten" % [pack.count, noun]
 	return "%d %s · %s" % [pack.count, noun, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
 
 # --- Neon-Bausteine --------------------------------------------------------------
