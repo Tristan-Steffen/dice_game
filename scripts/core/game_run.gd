@@ -56,6 +56,7 @@ const HUB_UPGRADE_UNLOCKS := [
 const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
 const SHOP_CHIP_SLOTS  := [2, 3, 5, 5, 6, 7, 8, 8, 9, 10]
+const SHOP_PACK_SLOTS  := [1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
 
 ## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
 const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern
@@ -226,16 +227,17 @@ func shop_charm_slots() -> int:
 func shop_dice_slots() -> int:
 	return _slot_at(SHOP_DICE_SLOTS, 3)
 
-## Chips = Gravuren + Übertaktungen in einer gemeinsamen Schale. Grob ein Drittel
-## davon sind Übertaktungen (1..3), der Rest Gravuren.
+## Gesamtbudget der Chip-Schale; ein Drittel davon sind Übertaktungen (1..3).
 func shop_chip_slots() -> int:
 	return _slot_at(SHOP_CHIP_SLOTS, 10)
 
 func shop_overclock_slots() -> int:
 	return clampi(shop_chip_slots() / 3, 1, 3)
 
-func shop_engraving_slots() -> int:
-	return shop_chip_slots() - shop_overclock_slots()
+## Gravur-Pakete im Regal. Deutlich weniger Plätze als früher Einzel-Gravuren -
+## ein Paket ersetzt drei bis vier davon.
+func shop_pack_slots() -> int:
+	return _slot_at(SHOP_PACK_SLOTS, 4)
 
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
@@ -333,7 +335,7 @@ func open_pack(index: int) -> Dictionary:
 	owned_packs.remove_at(index)
 	var result := empty
 	if pack.is_dice_pack():
-		result["dice"] = pack.roll_dice()
+		result["dice"] = pack.roll_dice(charm_ids())
 	else:
 		var engravings := pack.roll_engravings(pack_engraving_floor())
 		result["engravings"] = engravings

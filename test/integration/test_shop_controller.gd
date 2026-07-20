@@ -13,14 +13,14 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.hub_level = 7  # Suite: großer Laden (4 Charms / 3 Würfel / 8 Chips = 6 Gravuren + 2 Übertaktungen)
+	run.hub_level = 7  # Suite: großer Laden (4 Charms / 3 Würfel-Pakete / 3 Gravur-Pakete / 2 Übertaktungen)
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
 	shop.open()
 
-## Anzahl Pool-Würfel, die KEIN Standardwürfel ("normal") sind - also gekaufte
-## Spezialwürfel (jedes Angebot vergibt nicht-"normale" style_ids, siehe DiceOffer).
+## Anzahl Pool-Würfel, die KEIN Standardwürfel ("normal") sind - also eingesetzte
+## Spezialwürfel (jede Vorlage vergibt nicht-"normale" style_ids, siehe DiceOffer).
 func _count_special() -> int:
 	var count := 0
 	for def in run.owned_pool:
@@ -41,50 +41,66 @@ func test_offer_excludes_already_owned_charms():
 	for charm in shop.charm_options:
 		assert_ne(charm.id, Charm.RABBITS_FOOT, "besessener Charm nicht erneut angeboten")
 
-func test_open_rolls_three_dice_offers():
-	assert_eq(shop.dice_offers.size(), 3, "drei Würfel-Angebote je Besuch")
-	for offer in shop.dice_offers:
-		assert_between(offer.size(), 1, 3, "je Angebot 1..3 Würfel")
+func test_open_rolls_three_dice_packs():
+	assert_eq(shop.dice_packs.size(), 3, "drei Würfel-Pakete je Besuch")
+	for pack in shop.dice_packs:
+		assert_true(pack.is_dice_pack())
+		assert_between(pack.count, 1, 3, "je Paket 1..3 Würfel")
 
-# --- Würfelkauf ---------------------------------------------------------------
+# --- Paketkauf ----------------------------------------------------------------
+# Gekaufte Pakete wandern VERSIEGELT ins Lager; erst das Öffnen in der Werkstatt
+# würfelt den Inhalt aus (siehe GameRun.open_pack).
 
-func test_buy_offer_deducts_its_price_and_adds_its_dice():
-	var offer = shop.dice_offers[0]
-	shop._on_offer_pressed(0)
-	assert_eq(run.money, 100 - offer.price)
-	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool bleibt konstant groß")
-	assert_eq(_count_special(), offer.size(), "das ganze Bündel liegt jetzt im Pool")
+func test_buy_dice_pack_deducts_and_stores_it_sealed():
+	var pack = shop.dice_packs[0]
+	shop._on_pack_buy_pressed(0, true)
+	assert_eq(run.money, 100 - pack.price)
+	assert_eq(run.owned_packs.size(), 1, "Paket im Lager")
+	assert_eq(_count_special(), 0, "der Pool ändert sich erst beim Einsetzen")
 
-func test_offers_are_repeatable():
-	var first = shop.dice_offers[0]
-	var second = shop.dice_offers[1]
-	shop._on_offer_pressed(0)
-	shop._on_offer_pressed(1)
-	assert_eq(run.money, 100 - first.price - second.price)
-	assert_eq(_count_special(), first.size() + second.size())
+func test_buy_engraving_pack_deducts_and_grants_nothing_yet():
+	var pack = shop.engraving_packs[0]
+	shop._on_pack_buy_pressed(0, false)
+	assert_eq(run.money, 100 - pack.price)
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.owned_engravings.size(), 0, "Inhalt erst beim Öffnen")
 
-func test_cannot_buy_offer_without_funds():
-	run.money = 3  # unter jedem Angebotspreis
-	shop._on_offer_pressed(0)
+func test_pack_offer_is_single_use():
+	shop._on_pack_buy_pressed(0, true)
+	var money_after: int = run.money
+	shop._on_pack_buy_pressed(0, true)  # zweiter Kauf desselben Angebots
+	assert_eq(run.money, money_after, "nur einmal abgezogen")
+	assert_eq(run.owned_packs.size(), 1)
+	assert_true(shop.dice_pack_bought[0], "als gekauft vermerkt")
+	assert_true(shop.dice_pack_buttons[0].disabled, "Karte ist danach im Lager")
+
+func test_cannot_buy_pack_without_funds():
+	run.money = 3  # unter jedem Paketpreis
+	shop._on_pack_buy_pressed(0, true)
 	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
-	assert_eq(_count_special(), 0, "kein Würfel in den Pool gelegt")
+	assert_eq(run.owned_packs.size(), 0)
 
-func test_con_artist_cuff_discounts_offer_price():
+func test_con_artist_cuff_discounts_dice_pack_price():
 	run.owned_charms.append(Charm.con_artist_cuff())
 	shop.open()
-	var offer = shop.dice_offers[0]
-	shop._on_offer_pressed(0)
-	assert_eq(run.money, 100 - CharmEffects.die_price(offer.price, run.charm_ids(), offer.size()), "33% Rabatt auf den Angebotspreis")
+	var pack = shop.dice_packs[0]
+	shop._on_pack_buy_pressed(0, true)
+	assert_eq(run.money, 100 - CharmEffects.die_price(pack.price, run.charm_ids(), pack.count),
+		"33% Rabatt auf den Paketpreis")
 
-func test_offer_price_is_raw_price_without_discount():
-	var offer = shop.dice_offers[0]
-	assert_eq(shop._offer_price(offer), offer.price, "ohne Rabatt-Charm der volle Preis")
+func test_pack_price_is_raw_price_without_discount():
+	var pack = shop.dice_packs[0]
+	assert_eq(shop._pack_price(pack), pack.price, "ohne Rabatt-Charm der volle Preis")
+	var engraving_pack = shop.engraving_packs[0]
+	assert_eq(shop._pack_price(engraving_pack), engraving_pack.price, "Gravur-Pakete haben feste Preise")
 
-func test_offer_buttons_disabled_by_price():
-	run.money = 5  # unter jedem Angebotspreis (≥ $15)
+func test_pack_buttons_disabled_by_price():
+	run.money = 5  # unter jedem Paketpreis
 	shop.open()
-	for button in shop.offer_buy_buttons:
-		assert_true(button.disabled, "Würfel-Angebot bei zu wenig Geld nicht kaufbar")
+	for button in shop.dice_pack_buttons:
+		assert_true(button.disabled, "Würfel-Paket bei zu wenig Geld nicht kaufbar")
+	for button in shop.engraving_pack_buttons:
+		assert_true(button.disabled, "Gravur-Paket bei zu wenig Geld nicht kaufbar")
 
 # --- Charmkauf ----------------------------------------------------------------
 
@@ -110,61 +126,15 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-# --- Einzel-Gravuren ------------------------------------------------------------
-
-## Erzwingt ein bestimmtes Engraving-Sortiment auf der aktuellen Doppelseite (das
-## echte ist zufällig, siehe _build_spread) und setzt die "gekauft"-Marken zurück.
-func _force_engraving_offers(engravings: Array) -> void:
-	var spread = shop.spreads[shop.current_spread_index]
-	var typed: Array[Engraving] = []
-	typed.assign(engravings)
-	spread.engraving_offers = typed
-	spread.engraving_bought.resize(typed.size())
-	spread.engraving_bought.fill(false)
-	shop._show_spread()
-
-func test_buy_engraving_deducts_price_and_stores():
-	_force_engraving_offers([Engraving.chisel()])  # häufig, $5
-	shop._on_engraving_buy_pressed(0)
-	assert_eq(run.money, 95, "Preis (häufig $5) abgezogen")
-	assert_eq(run.owned_engravings.size(), 1, "Gravur sofort im Inventar")
-
-func test_engraving_offer_is_single_use():
-	_force_engraving_offers([Engraving.chisel()])
-	shop._on_engraving_buy_pressed(0)
-	shop._on_engraving_buy_pressed(0)  # zweiter Kauf desselben Angebots
-	assert_eq(run.money, 95, "nur einmal abgezogen")
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_true(shop.engraving_buttons[0].disabled, "Karte ist danach gekauft")
-	assert_true(shop.engraving_bought[0], "als gekauft vermerkt")
-
-func test_cannot_buy_engraving_without_funds():
-	run.money = 3
-	_force_engraving_offers([Engraving.chisel()])
-	shop._on_engraving_buy_pressed(0)
-	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
-	assert_eq(run.owned_engravings.size(), 0, "keine Gravur gewährt")
-
-func test_engraving_buttons_disabled_by_price():
-	run.money = 2  # unter jedem Engraving-Preis
-	shop.open()
-	assert_gt(shop.engraving_buttons.size(), 0)
-	for button in shop.engraving_buttons:
-		assert_true(button.disabled, "Gravur bei zu wenig Geld nicht kaufbar")
-
-func test_spread_offers_mixed_engravings_dice_and_overclocks():
-	# Angebot = Würfel-Bündel (Vitrine) + Chip-Schale (Gravuren + Übertaktungen);
-	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 6 Gravuren, 2 Übertaktungen).
-	assert_eq(shop.engraving_offers.size(), run.shop_engraving_slots())
-	assert_eq(shop.dice_offers.size(), run.shop_dice_slots(), "drei Würfel-Bündel")
+func test_spread_offers_packs_and_overclocks():
+	# Angebot = Lager (Würfel- + Gravur-Pakete) links, Übertaktungs-Chips rechts;
+	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 3 Pakete, 2 Übertaktungen).
+	assert_eq(shop.dice_packs.size(), run.shop_dice_slots(), "drei Würfel-Pakete")
+	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots(), "Gravur-Pakete im Regal")
 	assert_eq(shop.overclock_offers.size(), run.shop_overclock_slots(), "zwei Übertaktungen")
-	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), run.shop_chip_slots(),
-		"Gravuren + Übertaktungen füllen die Chip-Schale")
-	var seen := {}
-	for engraving in shop.engraving_offers:
-		assert_true(Engraving.DRAFT_CATEGORIES.has(engraving.category), "inventarfähige Kategorie")
-		assert_false(seen.has(engraving.id), "keine doppelten Gravuren: %s" % engraving.id)
-		seen[engraving.id] = true
+	for pack in shop.engraving_packs:
+		assert_false(pack.is_dice_pack())
+		assert_true(Engraving.CATEGORIES.has(pack.engraving_category()), "echte Gravur-Kategorie")
 
 # --- Übertaktungen ---------------------------------------------------------------
 
@@ -209,21 +179,16 @@ func test_cannot_buy_overclock_without_funds():
 	assert_eq(run.combo_level(DiceScoring.SIX_KIND), 0, "ohne Geld keine Stufe")
 	assert_eq(run.money, 0)
 
-func test_engraving_offers_persist_when_flipping_back():
-	var first_ids: Array = []
-	for engraving in shop.engraving_offers:
-		first_ids.append(engraving.id)
+func test_engraving_packs_persist_when_flipping_back():
+	var first_types: Array = []
+	for pack in shop.engraving_packs:
+		first_types.append(pack.type)
 	shop._on_page_next_pressed()  # neue Doppelseite (kostet Gebühr)
 	shop._on_page_back_pressed()
-	var back_ids: Array = []
-	for engraving in shop.engraving_offers:
-		back_ids.append(engraving.id)
-	assert_eq(back_ids, first_ids, "zurückgeblättert = dasselbe Sortiment")
-
-func test_engraving_price_follows_rarity():
-	assert_eq(shop._engraving_price(Engraving.chisel()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.COMMON])
-	assert_eq(shop._engraving_price(Engraving.averaging()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.UNCOMMON])
-	assert_eq(shop._engraving_price(Engraving.blueprint()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.RARE])
+	var back_types: Array = []
+	for pack in shop.engraving_packs:
+		back_types.append(pack.type)
+	assert_eq(back_types, first_types, "zurückgeblättert = dasselbe Sortiment")
 
 # --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Mengenrabatt) -------------------
 
@@ -266,22 +231,22 @@ func test_small_change_lowers_flip_fee():
 	shop._on_page_next_pressed()
 	assert_eq(run.money, 99, "Blätter-Gebühr $1 statt $2")
 
-func test_bulk_discount_only_hits_triple_bundles():
+func test_bulk_discount_only_hits_triple_packs():
 	run.owned_charms.append(Charm.bulk_discount())
-	for offer in shop.dice_offers:
-		var expected: int = offer.price - 5 if offer.size() >= 3 else offer.price
-		assert_eq(shop._offer_price(offer), maxi(1, expected))
+	for pack in shop.dice_packs:
+		var expected: int = pack.price - 5 if pack.count >= 3 else pack.price
+		assert_eq(shop._pack_price(pack), maxi(1, expected))
 
 # --- Kaufbarkeit bei Geldänderung ----------------------------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
 # ist, werden zuvor gesperrte Käufe SOFORT wieder freigeschaltet - ohne dass der
 # Shop neu öffnet.
 
-func test_money_gain_re_enables_offer_buttons():
+func test_money_gain_re_enables_pack_buttons():
 	run.money = 5
-	assert_true(shop.offer_buy_buttons[0].disabled, "erst gesperrt")
+	assert_true(shop.dice_pack_buttons[0].disabled, "erst gesperrt")
 	run.add_money(50)
-	assert_false(shop.offer_buy_buttons[0].disabled, "nach Geldzuwachs wieder kaufbar")
+	assert_false(shop.dice_pack_buttons[0].disabled, "nach Geldzuwachs wieder kaufbar")
 
 func test_money_gain_re_enables_flip_corner():
 	run.money = 1  # unter der Blätter-Gebühr ($2)
@@ -305,15 +270,15 @@ func test_flip_to_new_page_charges_increasing_fee():
 	assert_eq(shop.spreads.size(), 3)
 
 func test_flip_back_is_free_and_shows_same_offers():
-	var first_offers = shop.dice_offers
+	var first_packs = shop.dice_packs
 	shop._on_page_next_pressed()  # -$2
-	var second_offers = shop.dice_offers
+	var second_packs = shop.dice_packs
 	shop._on_page_back_pressed()
 	assert_eq(run.money, 98, "Zurückblättern kostet nichts")
-	assert_true(shop.dice_offers == first_offers, "dieselben Angebote wie zuvor (gleiche Instanz)")
+	assert_true(shop.dice_packs == first_packs, "dieselben Angebote wie zuvor (gleiche Instanz)")
 	shop._on_page_next_pressed()  # vor auf BEREITS gesehene Seite
 	assert_eq(run.money, 98, "Vorblättern auf bekannte Seite kostet nichts")
-	assert_true(shop.dice_offers == second_offers)
+	assert_true(shop.dice_packs == second_packs)
 	assert_eq(shop.spreads.size(), 2, "keine neue Seite ausgewürfelt")
 
 func test_cannot_flip_to_new_page_without_money():

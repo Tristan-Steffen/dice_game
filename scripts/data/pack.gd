@@ -104,7 +104,7 @@ func roll_engravings(floor: Engraving.Rarity = Engraving.Rarity.COMMON) -> Array
 ## Inhalt eines Würfel-Pakets: count unabhängige Kopien EINER frisch
 ## ausgewürfelten Würfelart. Veredelungen kosten hier nichts extra - der
 ## Blindkauf zahlt sich hier aus.
-func roll_dice() -> Array[DieDefinition]:
+func roll_dice(charm_ids: Array[String] = []) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
 		return dice
@@ -113,6 +113,10 @@ func roll_dice() -> Array[DieDefinition]:
 		return dice
 	var base := DiceOffer.make_die(template)
 	DiceOffer.roll_refinements(base)
+	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
+	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" \
+			and base.materials.count("") == base.materials.size():
+		base.materials[randi() % base.materials.size()] = DieMaterial.all().pick_random().id
 	for i in count:
 		dice.append(base.instantiate())
 	return dice

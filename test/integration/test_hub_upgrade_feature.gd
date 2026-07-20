@@ -104,9 +104,9 @@ func _shop(level: int) -> ShopController:
 func test_level_one_shop_is_smaller() -> void:
 	var shop := _shop(1)
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
-	assert_eq(shop.dice_offers.size(), 1, "Stufe 1: 1 Würfel-Bündel")
+	assert_eq(shop.dice_packs.size(), 1, "Stufe 1: 1 Würfel-Paket")
 	assert_eq(shop.overclock_offers.size(), 1, "Stufe 1: 1 Übertaktung")
-	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 2, "Stufe 1: 2 Chips")
+	assert_eq(shop.engraving_packs.size(), 1, "Stufe 1: 1 Gravur-Paket")
 
 func test_level_one_hides_flip_navigation() -> void:
 	var shop := _shop(1)
@@ -114,23 +114,23 @@ func test_level_one_hides_flip_navigation() -> void:
 	assert_false(shop.page_back_button.visible)
 	assert_true(shop.flip_hint_label.visible, "stattdessen der Hinweis")
 
-func test_level_two_unlocks_flipping_and_more_chips() -> void:
+func test_level_two_unlocks_flipping() -> void:
 	var shop := _shop(2)
-	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 3, "Stufe 2: 3 Chips")
-	assert_eq(shop.dice_offers.size(), 1, "Stufe 2: 3. Bündel erst später")
+	assert_eq(shop.engraving_packs.size(), 1, "Stufe 2: noch 1 Gravur-Paket")
+	assert_eq(shop.dice_packs.size(), 1, "Stufe 2: 2. Paket erst später")
 	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
 func test_level_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
-	assert_eq(shop.dice_offers.size(), 2, "Stufe 3: 2 Würfel-Bündel")
-	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 5, "Stufe 3: 5 Chips")
+	assert_eq(shop.dice_packs.size(), 2, "Stufe 3: 2 Würfel-Pakete")
+	assert_eq(shop.engraving_packs.size(), 2, "Stufe 3: 2 Gravur-Pakete")
 
-func test_level_seven_unlocks_third_bundle_and_second_overclock() -> void:
+func test_level_seven_unlocks_third_pack_and_second_overclock() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.dice_offers.size(), 3, "Suite: 3. Würfel-Bündel")
+	assert_eq(shop.dice_packs.size(), 3, "Suite: 3. Würfel-Paket")
 	assert_eq(shop.overclock_offers.size(), 2, "Suite: 2. Übertaktung")
-	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 8, "Suite: 8 Chips")
+	assert_eq(shop.engraving_packs.size(), 3, "Suite: 3 Gravur-Pakete")
 
 func test_level_six_spread_contains_a_non_common_charm() -> void:
 	# Über mehrere Läufe stabil: der erste Platz ist garantiert nicht-gewöhnlich.
@@ -143,10 +143,13 @@ func test_level_six_spread_contains_a_non_common_charm() -> void:
 
 # --- Elastisches Layout (wenige, große Karten -> viele, kleine) --------------
 
-func test_chip_tray_holds_a_button_per_offer() -> void:
+func test_every_offer_has_its_own_button() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.engraving_buttons.size() + shop.overclock_buttons.size(), shop.run.shop_chip_slots(),
+	assert_eq(shop.overclock_buttons.size(), shop.run.shop_overclock_slots(),
 		"jeder Chip der Schale ist ein Knopf")
+	assert_eq(shop.dice_pack_buttons.size() + shop.engraving_pack_buttons.size(),
+		shop.run.shop_dice_slots() + shop.run.shop_pack_slots(),
+		"jedes Paket im Lager ist ein Knopf")
 
 func test_charm_cards_grow_when_there_are_fewer() -> void:
 	var shop := _shop(1)
@@ -158,10 +161,6 @@ func test_charm_cards_grow_when_there_are_fewer() -> void:
 func test_chip_diameter_shrinks_as_the_tray_fills() -> void:
 	var shop := _shop(1)
 	assert_gt(shop._chip_dia(3), shop._chip_dia(10), "volle Schale -> kleinere Chips")
-
-func test_die_preview_shrinks_with_more_bundles() -> void:
-	var shop := _shop(1)
-	assert_gt(shop._die_px(1), shop._die_px(3), "ein Bündel wird groß gezeigt, drei kompakt")
 
 # --- Roulette-Rim: Rad-Rand (Fahrplan) + Lizenz-Nabe -------------------------
 

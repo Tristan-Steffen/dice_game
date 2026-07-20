@@ -33,6 +33,14 @@ func size() -> int:
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
 ## eine Veredelung; Mengenrabatt garantiert ein 3er-Bündel in der Auslage.
 static func roll_offers(count: int, charm_ids: Array[String] = []) -> Array[DiceOffer]:
+	var offers: Array[DiceOffer] = []
+	for t in pick_templates(count, charm_ids):
+		offers.append(_from_template(t, charm_ids))
+	return offers
+
+## Zieht count verschiedene Vorlagen (auch die Paket-Auslage nutzt das).
+## Mengenrabatt garantiert eine 3er-Vorlage im Fenster.
+static func pick_templates(count: int, charm_ids: Array[String] = []) -> Array[Dictionary]:
 	var templates := TEMPLATES.duplicate()
 	templates.shuffle()
 	var window := mini(count, templates.size())
@@ -49,10 +57,10 @@ static func roll_offers(count: int, charm_ids: Array[String] = []) -> Array[Dice
 					templates[j] = templates[window - 1]
 					templates[window - 1] = bundle
 					break
-	var offers: Array[DiceOffer] = []
+	var picked: Array[Dictionary] = []
 	for i in window:
-		offers.append(_from_template(templates[i], charm_ids))
-	return offers
+		picked.append(templates[i])
+	return picked
 
 ## Ein Angebot bündelt immer nur EINEN Würfeltyp: ein Würfel wird ausgewürfelt
 ## und count-mal als unabhängige Kopie ins Bündel gelegt.

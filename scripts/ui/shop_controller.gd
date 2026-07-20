@@ -1,8 +1,9 @@
 class_name ShopController
 extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
-## Tisch-Displays, bedient über die Maus-Weiterleitung. Links Würfel-Angebote,
-## rechts Charms und einzelne Gravuren (Zahlen/Materialien/Würfel). "Umblättern"
+## Tisch-Displays, bedient über die Maus-Weiterleitung. Links das Lager mit den
+## versiegelten Paketen (Würfel/Zahlen/Materialien/Kanten) - geöffnet werden sie
+## erst in der Werkstatt -, rechts Charms und Übertaktungen. "Umblättern"
 ## auf eine NEUE Seite würfelt frische Angebote aus und kostet eine steigende
 ## Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind gratis
 ## erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf
@@ -14,19 +15,12 @@ const CHARM_PRICE := 15
 
 ## Der Laden ist ELASTISCH: Anzahl der Plätze je Rubrik liefert GameRun (SHOP_*_SLOTS),
 ## die Kartengröße skaliert gegenläufig - wenige, große Angebote am Anfang, viele
-## kleine später. Drei Rubriken/Segmente: Vitrine (Würfel) links, Charm-Regal +
-## Chip-Schale (Gravuren + Übertaktungen) rechts.
+## kleine später. Drei Rubriken/Segmente: Lager (Pakete) links, Charm-Regal +
+## Chip-Schale (Übertaktungen) rechts.
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
-
-## Preis je einzelner Gravur nach Seltenheit.
-const ENGRAVING_PRICES := {
-	Engraving.Rarity.COMMON: 5,
-	Engraving.Rarity.UNCOMMON: 9,
-	Engraving.Rarity.RARE: 15,
-}
 
 ## Farben im Display-Stil (80s Neon).
 const NEON_CYAN := Color("#8be9fd")
@@ -44,11 +38,13 @@ const FLIP_DURATION := 0.25
 class MenuSpread:
 	extends RefCounted
 
-	var dice_offers: Array[DiceOffer] = []
+	## Versiegelte Pakete: Würfel-Pakete (Vitrine) und Gravur-Pakete (Regal).
+	var dice_packs: Array[Pack] = []
+	var dice_pack_bought: Array[bool] = []
+	var engraving_packs: Array[Pack] = []
+	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var engraving_offers: Array[Engraving] = []  # gemischte Gravuren für den unteren Bereich
-	var engraving_bought: Array[bool] = []
 	var overclock_offers: Array[String] = []  # Kombinations-Keys zum Übertakten
 	var overclock_bought: Array[bool] = []
 
@@ -85,15 +81,15 @@ var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
 
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
-var dice_offers: Array[DiceOffer] = []
-var offer_buy_buttons: Array[Button] = []
+var dice_packs: Array[Pack] = []
+var dice_pack_bought: Array[bool] = []
+var dice_pack_buttons: Array[Button] = []
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 var charm_bought: Array[bool] = []
-var engraving_offers: Array[Engraving] = []
-var engraving_bought: Array[bool] = []
-var engraving_buttons: Array[Button] = []
-var engraving_button_prices: Array[int] = []
+var engraving_packs: Array[Pack] = []
+var engraving_pack_bought: Array[bool] = []
+var engraving_pack_buttons: Array[Button] = []
 var overclock_offers: Array[String] = []
 var overclock_bought: Array[bool] = []
 var overclock_buttons: Array[Button] = []
@@ -264,8 +260,8 @@ func refresh_after_hub_upgrade() -> void:
 	if not spreads.is_empty():
 		var old := spreads[current_spread_index]
 		_flicker_charm_from = old.charm_options.size()
-		_flicker_dice_from = old.dice_offers.size()
-		_flicker_chip_from = old.engraving_offers.size() + old.overclock_offers.size()
+		_flicker_dice_from = old.dice_packs.size()
+		_flicker_chip_from = old.engraving_packs.size()
 		spreads[current_spread_index] = _build_spread()
 	_refresh_hub_footer()
 	_show_spread()
@@ -290,10 +286,13 @@ func _play_flip_animation() -> void:
 
 # --- Doppelseiten bauen --------------------------------------------------------
 
-## Frische Doppelseite: vier Charms oben, unten drei Würfel-Bündel + fünf Gravuren.
+## Frische Doppelseite: Charms oben, unten versiegelte Würfel- und Gravur-Pakete
+## plus die Übertaktungs-Chips.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
-	spread.dice_offers = DiceOffer.roll_offers(run.shop_dice_slots(), run.charm_ids())
+	spread.dice_packs = _roll_dice_packs(run.shop_dice_slots())
+	spread.dice_pack_bought.resize(spread.dice_packs.size())
+	spread.dice_pack_bought.fill(false)
 
 	# Besitz-Prüfung über die ROHEN ids (Totems lösen sich in charm_ids() zu
 	# ihren Nachbarn auf und würden sonst doppelt angeboten).
@@ -321,15 +320,12 @@ func _build_spread() -> MenuSpread:
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	# Gemischte Einzel-Gravuren; höhere Raritäts-Stufen heben die Mindest-Seltenheit.
-	var engraving_floor := Engraving.Rarity.COMMON
-	if rarity_tier >= 2:
-		engraving_floor = Engraving.Rarity.RARE
-	elif rarity_tier >= 1:
-		engraving_floor = Engraving.Rarity.UNCOMMON
-	spread.engraving_offers = Engraving.roll_draft(run.shop_engraving_slots(), engraving_floor)
-	spread.engraving_bought.resize(spread.engraving_offers.size())
-	spread.engraving_bought.fill(false)
+	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
+	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
+	for i in run.shop_pack_slots():
+		spread.engraving_packs.append(Pack.roll_engraving_pack(run.hub_level))
+	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
+	spread.engraving_pack_bought.fill(false)
 
 	# Übertaktungen: verschiedene Kombinationen, je Angebot einmal kaufbar.
 	var keys := DiceScoring.HAND_PRIORITY.duplicate()
@@ -339,6 +335,14 @@ func _build_spread() -> MenuSpread:
 	spread.overclock_bought.resize(spread.overclock_offers.size())
 	spread.overclock_bought.fill(false)
 	return spread
+
+## Würfel-Pakete der Auslage: je Platz eine andere Vorlage (Mengenrabatt sorgt
+## für ein 3er-Bündel), Inhalt bleibt bis zum Öffnen verborgen.
+func _roll_dice_packs(count: int) -> Array[Pack]:
+	var packs: Array[Pack] = []
+	for template in DiceOffer.pick_templates(count, run.charm_ids()):
+		packs.append(Pack.dice_pack(template))
+	return packs
 
 ## Charms mit mindestens der zur Raritäts-Stufe passenden Seltenheit; fällt bei
 ## leerem Ergebnis schrittweise auf die nächst-niedrigere Schwelle zurück (nie
@@ -366,11 +370,12 @@ func _charm_rank(charm: Charm) -> int:
 ## bebauen, Navigation und Kaufbarkeit aktualisieren.
 func _show_spread() -> void:
 	var spread := spreads[current_spread_index]
-	dice_offers = spread.dice_offers
+	dice_packs = spread.dice_packs
+	dice_pack_bought = spread.dice_pack_bought
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
-	engraving_offers = spread.engraving_offers
-	engraving_bought = spread.engraving_bought
+	engraving_packs = spread.engraving_packs
+	engraving_pack_bought = spread.engraving_pack_bought
 	overclock_offers = spread.overclock_offers
 	overclock_bought = spread.overclock_bought
 
@@ -384,10 +389,9 @@ func _clear_pages() -> void:
 	if content_root != null:
 		for child in content_root.get_children():
 			child.queue_free()
-	offer_buy_buttons.clear()
+	dice_pack_buttons.clear()
 	charm_buttons.clear()
-	engraving_buttons.clear()
-	engraving_button_prices.clear()
+	engraving_pack_buttons.clear()
 	overclock_buttons.clear()
 
 ## Baut die drei Segmente: links die Vitrine (Würfel-Bündel, senkrecht gestapelt),
@@ -396,10 +400,9 @@ func _clear_pages() -> void:
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
 		child.queue_free()
-	offer_buy_buttons.clear()
+	dice_pack_buttons.clear()
 	charm_buttons.clear()
-	engraving_buttons.clear()
-	engraving_button_prices.clear()
+	engraving_pack_buttons.clear()
 	overclock_buttons.clear()
 
 	var main_row := HBoxContainer.new()
@@ -408,19 +411,22 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	main_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content_root.add_child(main_row)
 
-	# Segment 1: Vitrine (Würfel-Bündel) - eigene Spalte links, senkrecht gestapelt.
-	var vitrine := _make_zone(main_row, NEON_CYAN, "VITRINE", "", true, 0.34)
-	var dice_col := VBoxContainer.new()
-	dice_col.add_theme_constant_override("separation", int(u * 1.2))
-	dice_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	dice_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vitrine.add_child(dice_col)
-	var die_px := _die_px(spread.dice_offers.size())
-	for i in spread.dice_offers.size():
-		var dcard := _build_offer_card(spread.dice_offers[i], i, die_px)
-		dcard.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		dice_col.add_child(dcard)
+	# Segment 1: Lager - alle versiegelten Pakete (Würfel oben, Gravuren darunter)
+	# in einer Spalte links. Geöffnet werden sie später in der Werkstatt.
+	var vitrine := _make_zone(main_row, NEON_CYAN, "LAGER", "versiegelt", true, 0.34)
+	var pack_col := VBoxContainer.new()
+	pack_col.add_theme_constant_override("separation", int(u * 1.2))
+	pack_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pack_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitrine.add_child(pack_col)
+	for i in spread.dice_packs.size():
+		var dcard := _build_pack_card(spread.dice_packs[i], i, true)
+		pack_col.add_child(dcard)
 		_maybe_flicker(dcard, i, _flicker_dice_from)
+	for i in spread.engraving_packs.size():
+		var ecard := _build_pack_card(spread.engraving_packs[i], i, false)
+		pack_col.add_child(ecard)
+		_maybe_flicker(ecard, i, _flicker_chip_from)
 
 	# Rechte Spalte: Charm-Regal (natürliche Höhe) über der Chip-Schale (füllt Rest).
 	var right := VBoxContainer.new()
@@ -446,9 +452,8 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		charm_row.add_child(ccard)
 		_maybe_flicker(ccard, i, _flicker_charm_from)
 
-	# Segment 3: Chip-Schale - runde Casino-Chips (Gravuren + Übertaktungen gemischt),
-	# als Tablett umbrechend und in der Schale zentriert (schwebende Chips statt
-	# oben klebend). Füllt die restliche Höhe der rechten Spalte.
+	# Segment 3: Chip-Schale - runde Casino-Chips (Übertaktungen), als Tablett
+	# umbrechend und in der Schale zentriert. Füllt die restliche Höhe rechts.
 	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "", true)
 	chip_zone.add_child(_v_spacer())
 	var tray := HFlowContainer.new()
@@ -457,18 +462,11 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	tray.alignment = FlowContainer.ALIGNMENT_CENTER
 	tray.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_zone.add_child(tray)
-	var dia := _chip_dia(spread.engraving_offers.size() + spread.overclock_offers.size())
-	var chip_i := 0
-	for i in spread.engraving_offers.size():
-		var scard := _build_engraving_chip(spread.engraving_offers[i], i, dia)
-		tray.add_child(scard)
-		_maybe_flicker(scard, chip_i, _flicker_chip_from)
-		chip_i += 1
+	var dia := _chip_dia(spread.overclock_offers.size())
 	for i in spread.overclock_offers.size():
 		var ocard := _build_overclock_chip(spread.overclock_offers[i], i, dia)
 		tray.add_child(ocard)
-		_maybe_flicker(ocard, chip_i, _flicker_chip_from)
-		chip_i += 1
+		_maybe_flicker(ocard, i, _flicker_chip_from)
 	chip_zone.add_child(_v_spacer())
 
 	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
@@ -519,15 +517,7 @@ func _charm_metrics(count: int) -> Vector2:
 		return Vector2(u * 14.0, u * 8.0)
 	return Vector2(u * 12.5, u * 7.0)
 
-## Würfel-Kantenlänge in der Vitrine je nach Anzahl der Bündel.
-func _die_px(count: int) -> int:
-	if count <= 1:
-		return int(u * 9.5)
-	if count == 2:
-		return int(u * 6.5)
-	return int(u * 5.0)
-
-## Chip-Durchmesser je nach Gesamtzahl der Chips (Gravuren + Übertaktungen).
+## Chip-Durchmesser je nach Anzahl der Übertaktungs-Chips.
 func _chip_dia(count: int) -> float:
 	if count <= 4:
 		return u * 12.0
@@ -688,24 +678,6 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Engraving-Chip in der Schale: runde Rauchglas-Scheibe mit Seltenheits-Saum, darin
-## das Siegel + Preis; Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown.
-func _build_engraving_chip(engraving: Engraving, offer_index: int, dia: float) -> Control:
-	var price := _engraving_price(engraving)
-	var seam: Color = EngravingRenderer.SEAM_COLORS[engraving.rarity]
-	var face := EngravingRenderer.for_engraving(engraving)
-	face.custom_minimum_size = Vector2(dia * 0.56, dia * 0.56)
-	var title := "%s – %s (%s)" % [engraving.display_name, engraving.category_name(), Engraving.rarity_name(engraving.rarity)]
-	var bought := engraving_bought[offer_index]
-	var chip := _chip_button(dia, seam, face, price, bought, title, engraving.description)
-	if bought:
-		chip.disabled = true
-	else:
-		chip.pressed.connect(_on_engraving_buy_pressed.bind(offer_index))
-	engraving_buttons.append(chip)
-	engraving_button_prices.append(price)
-	return chip
-
 ## Übertaktungs-Chip: goldene Scheibe mit ⚡; hebt die Stufe EINER Kombination
 ## (Preis steigt mit ihrer Stufe). Aktuelle/nächste Werte im Hover-Dropdown.
 func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control:
@@ -776,19 +748,30 @@ func _chip_box(bg: Color, border: Color, border_alpha: float, radius: int) -> St
 	box.shadow_size = int(u * 0.5)
 	return box
 
-## Angebotskarte der Würfel-Rubrik (Vitrine): Würfel-Zeile mit "N ×"-Multiplikator
-## (alle Würfel eines Bündels sind gleich) und Kauf-Button. die_px skaliert die
-## Vorschau elastisch (bei einem Bündel groß, bei dreien kompakt).
-func _build_offer_card(offer: DiceOffer, index: int, die_px: int) -> PanelContainer:
+## Farbe je Paketsorte (Saum, Siegel, Kauf-Knopf).
+const PACK_COLORS := {
+	Pack.TYPE_DICE: NEON_CYAN,
+	Pack.TYPE_NUMBER: NEON_GREEN,
+	Pack.TYPE_MATERIAL: NEON_MAGENTA,
+	Pack.TYPE_EDGE: NEON_GOLD,
+}
+
+## Karte eines VERSIEGELTEN Pakets: Sorte, Inhaltsmenge und Preis - nie der
+## Inhalt selbst. Gekaufte Pakete liegen im Werkstatt-Lager.
+func _build_pack_card(pack: Pack, index: int, is_dice: bool) -> PanelContainer:
+	var accent: Color = PACK_COLORS.get(pack.type, NEON_CYAN)
+	var bought: bool = dice_pack_bought[index] if is_dice else engraving_pack_bought[index]
+
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var box := StyleBoxFlat.new()
 	box.bg_color = CARD_BG
-	box.border_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.5)
+	box.border_color = Color(accent.r, accent.g, accent.b, 0.24 if bought else 0.5)
 	box.set_border_width_all(maxi(1, int(u * 0.16)))
 	box.set_corner_radius_all(int(u * 1.2))
 	box.set_content_margin_all(int(u * 0.8))
-	box.shadow_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.12)
+	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.12)
 	box.shadow_size = int(u * 0.7)
 	card.add_theme_stylebox_override("panel", box)
 
@@ -797,42 +780,32 @@ func _build_offer_card(offer: DiceOffer, index: int, die_px: int) -> PanelContai
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vbox)
 
-	var dice_row := DiceRowView.build_row(offer.dice[0], die_px, offer.size())
-	dice_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	vbox.add_child(dice_row)
+	var seal := _label("✦", u * 4.2, Color(accent.r, accent.g, accent.b, 0.4 if bought else 1.0),
+		HORIZONTAL_ALIGNMENT_CENTER)
+	vbox.add_child(seal)
+	vbox.add_child(_label(pack.display_name, u * 2.1, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
+	vbox.add_child(_label(_pack_content_text(pack), u * 1.7, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 
-	# Veredelungen benennen - die Mini-Vorschau allein ist zu klein, und der
-	# Aufpreis soll lesbar begründet sein.
-	var refinements := _refinement_text(offer.dice[0])
-	if refinements != "":
-		var refined_label := _label("Veredelt: %s" % refinements, u * 1.7, NEON_GOLD)
-		refined_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vbox.add_child(refined_label)
-
-	var buy := _neon_button("%s · $%d" % [offer.display_name, _offer_price(offer)], NEON_CYAN, u * 2.2, Vector2(0, u * 4.2))
+	var price := _pack_price(pack)
+	var buy := _neon_button("Im Lager" if bought else "$%d" % price, accent, u * 2.2, Vector2(0, u * 4.2))
 	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	buy.pressed.connect(_on_offer_pressed.bind(index))
+	if bought:
+		buy.disabled = true
+	else:
+		buy.pressed.connect(_on_pack_buy_pressed.bind(index, is_dice))
 	vbox.add_child(buy)
-	offer_buy_buttons.append(buy)
+	if is_dice:
+		dice_pack_buttons.append(buy)
+	else:
+		engraving_pack_buttons.append(buy)
 	return card
 
-## Kurzbeschreibung der Veredelungen ("" = keine), z.B.
-## "2× Bernstein-Seite · Gold-Kanten".
-func _refinement_text(def: DieDefinition) -> String:
-	var parts: Array[String] = []
-	var counts := {}
-	for material_id in def.materials:
-		if material_id != "":
-			counts[material_id] = counts.get(material_id, 0) + 1
-	for material_id in counts:
-		var material_name: String = DieMaterial.by_id(material_id).display_name
-		if counts[material_id] > 1:
-			parts.append("%d× %s-Seite" % [counts[material_id], material_name])
-		else:
-			parts.append("%s-Seite" % material_name)
-	if def.edge_material != "":
-		parts.append("%s-Kanten" % DieMaterial.by_id(def.edge_material).display_name)
-	return " · ".join(parts)
+## Inhaltszeile der Paketkarte: WAS drin ist, nicht welche Stücke.
+func _pack_content_text(pack: Pack) -> String:
+	if pack.is_dice_pack():
+		return "%d Würfel · ungeöffnet" % pack.count
+	var noun := "Gravur" if pack.count == 1 else "Gravuren"
+	return "%d %s · %s" % [pack.count, noun, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
 
 # --- Neon-Bausteine --------------------------------------------------------------
 
@@ -922,23 +895,32 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 
 # --- Käufe ----------------------------------------------------------------------
 
-func _offer_price(offer: DiceOffer) -> int:
-	return CharmEffects.die_price(offer.price, run.charm_ids(), offer.size())
+## Würfel-Pakete tragen die Würfel-Rabatte (Trickser, Mengenrabatt);
+## Gravur-Pakete haben ihren festen Sortenpreis.
+func _pack_price(pack: Pack) -> int:
+	if pack.is_dice_pack():
+		return CharmEffects.die_price(pack.price, run.charm_ids(), pack.count)
+	return pack.price
 
 func _charm_price() -> int:
 	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())
 
-func _engraving_price(engraving: Engraving) -> int:
-	return ENGRAVING_PRICES.get(engraving.rarity, ENGRAVING_PRICES[Engraving.Rarity.UNCOMMON])
-
-## Kauft das komplette Würfel-Bündel - beliebig oft wiederholbar.
-func _on_offer_pressed(index: int) -> void:
-	var offer := dice_offers[index]
-	var price := _offer_price(offer)
+## Kauft ein versiegeltes Paket (je Angebot einmal); es wandert ungeöffnet ins
+## Werkstatt-Lager. Danach wird die Doppelseite neu bebaut.
+func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
+	var pack: Pack = dice_packs[index] if is_dice else engraving_packs[index]
+	if (dice_pack_bought[index] if is_dice else engraving_pack_bought[index]):
+		return
+	var price := _pack_price(pack)
 	if run.money < price:
 		return
-	run.purchase_dice(offer.dice, price)
-	_refresh_afford_state()
+	run.purchase_pack(pack, price)
+	# Liegt im Spread - übersteht den Neuaufbau.
+	if is_dice:
+		dice_pack_bought[index] = true
+	else:
+		engraving_pack_bought[index] = true
+	_show_spread()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
 ## Shop-Charms (Skonto, Wechselgeld, ...) wirken schon in DIESEM Besuch -
@@ -949,19 +931,6 @@ func _on_charm_clicked(index: int) -> void:
 		return
 	run.purchase_charm(charm, _charm_price())
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	_show_spread()
-
-## Kauft eine einzelne Gravur (jedes Angebot nur einmal); landet sofort im Inventar.
-## Danach wird die Schale neu bebaut, damit der Chip als gekauft (✓) erscheint.
-func _on_engraving_buy_pressed(offer_index: int) -> void:
-	if engraving_bought[offer_index]:
-		return
-	var engraving := engraving_offers[offer_index]
-	var price := _engraving_price(engraving)
-	if run.money < price:
-		return
-	run.purchase_engraving(engraving, price)
-	engraving_bought[offer_index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
 ## Kauft die Übertaktung (je Angebot einmal); die Doppelseite wird neu bebaut,
@@ -981,13 +950,13 @@ func _refresh_afford_state() -> void:
 	var money: int = run.money
 	if money_label != null:
 		money_label.text = "$%d" % money
-	for i in offer_buy_buttons.size():
-		offer_buy_buttons[i].disabled = money < _offer_price(dice_offers[i])
+	for i in dice_pack_buttons.size():
+		dice_pack_buttons[i].disabled = dice_pack_bought[i] or money < _pack_price(dice_packs[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
-	for i in engraving_buttons.size():
-		engraving_buttons[i].disabled = engraving_bought[i] or money < engraving_button_prices[i]
+	for i in engraving_pack_buttons.size():
+		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
 	for i in overclock_buttons.size():
 		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
