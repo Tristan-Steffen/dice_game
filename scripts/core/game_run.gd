@@ -351,9 +351,11 @@ func open_pack(index: int) -> Dictionary:
 func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 	if def == null or pool_index < 0 or pool_index >= owned_pool.size():
 		return
-	var copy := def.instantiate()
-	owned_pool[pool_index] = copy
-	newly_purchased.append(copy)
+	# In den bestehenden Würfel hinein, nicht an seine Stelle: das Rundendeck und
+	# die Trays halten dieselbe Instanz und zeigen den Tausch dadurch sofort.
+	var target := owned_pool[pool_index]
+	target.become(def)
+	newly_purchased.append(target)
 
 # --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
 

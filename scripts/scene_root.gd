@@ -3029,6 +3029,10 @@ func _connect_run() -> void:
 		table_screen.workshop_window.run = run
 		if not table_screen.workshop_window.engravings_revealed.is_connected(_on_pack_engravings_revealed):
 			table_screen.workshop_window.engravings_revealed.connect(_on_pack_engravings_revealed)
+		if not table_screen.workshop_window.die_placed.is_connected(_on_pack_die_placed):
+			table_screen.workshop_window.die_placed.connect(_on_pack_die_placed)
+		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
+			table_screen.workshop_window.pack_activated.connect(_on_pack_opened)
 	if table_screen != null:
 		for drawer in table_screen.supply_drawers:
 			drawer.run = run
@@ -3417,6 +3421,22 @@ func _on_die_engraved() -> void:
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
+
+## Paket-Würfel eingesetzt: GameRun hat den Pool-Würfel an Ort und Stelle
+## überschrieben (place_pack_die) - die Trays halten dieselbe Instanz.
+func _on_pack_die_placed(_pool_index: int) -> void:
+	_on_die_engraved()
+
+## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
+## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben
+## links einen anderen Würfel als der Platz oben links auf dem Tisch.
+func _on_pack_opened(_index: int) -> void:
+	if table_screen == null or table_screen.workshop_window == null:
+		return
+	var slot_defs: Array[DieDefinition] = []
+	for i in pool_tray_view.slot_roots.size():
+		slot_defs.append(pool_tray_view.slot_defs[i] if pool_tray_view.slot_roots[i].visible else null)
+	table_screen.workshop_window.set_pool_order(slot_defs, pool_tray_view.columns)
 
 ## Shop mit "Fertig" geschlossen: zurück in die Übersicht (dort ist das
 ## Wettannahme-Fenster im Blick und platzierbar), dann die nächste Runde.

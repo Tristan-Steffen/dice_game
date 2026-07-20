@@ -14,6 +14,18 @@ extends Resource
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 
+## Übernimmt den Inhalt von other, OHNE die Instanz zu tauschen: Rundendeck und
+## Trays halten dieselbe Referenz wie der Pool und zeigen den neuen Würfel damit
+## sofort (ein Tausch ließe sie auf dem alten sitzen).
+func become(other: DieDefinition) -> void:
+	if other == null:
+		return
+	faces = other.faces.duplicate()
+	materials = other.materials.duplicate()
+	edge_material = other.edge_material
+	style_id = other.style_id
+	display_name = other.display_name
+
 ## Unabhängige Kopie, sicher zum Verändern.
 func instantiate() -> DieDefinition:
 	var copy: DieDefinition = duplicate()

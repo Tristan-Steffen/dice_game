@@ -28,7 +28,12 @@ var detailed := false
 var tiles: Array[Button] = []
 
 var _defs: Array[DieDefinition] = []
-var _highlight := -1
+## Hervorgehobene Plätze: EIN Ziel im Würfel-Editor, MEHRERE beim Einsetzen
+## eines Würfel-Pakets.
+var _highlights: Array[int] = []
+## Augensummen der Detail-Kacheln (nach Index) - so wechselt die Hervorhebung
+## ihre Farbe, ohne das teure Raster neu zu bauen.
+var _totals: Array[Label] = []
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -51,8 +56,12 @@ func place(column_count: int, unit: float, with_faces: bool = false) -> void:
 ## Füllt das Raster; null-Einträge sind leere Plätze (stille Platzhalter).
 func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 	_defs = defs
-	_highlight = highlight_index
+	_highlights.clear()
+	if highlight_index >= 0:
+		_highlights.append(highlight_index)
 	tiles.clear()
+	_totals.clear()
+	_totals.resize(defs.size())
 	for child in get_children():
 		remove_child(child)  # erst abhängen: queue_free zählt sonst noch ins Mindestmaß
 		child.queue_free()
@@ -67,15 +76,23 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 
 ## Hebt einen anderen Platz hervor, ohne das Raster neu zu bauen.
 func set_highlight(index: int) -> void:
-	if index == _highlight:
+	var single: Array[int] = []
+	if index >= 0:
+		single.append(index)
+	set_highlights(single)
+
+## Mehrere Plätze zugleich hervorheben (Paket-Würfel suchen ihre Plätze).
+func set_highlights(indices: Array[int]) -> void:
+	if indices == _highlights:
 		return
-	_highlight = index
-	if detailed:
-		fill(_defs, index)  # die Augensumme wechselt die Farbe mit
-		return
+	_highlights = indices.duplicate()
 	for i in tiles.size():
-		if tiles[i] != null and is_instance_valid(tiles[i]):
-			_style_tile(tiles[i], _defs[i], i == index)
+		if tiles[i] == null or not is_instance_valid(tiles[i]):
+			continue
+		var on := _highlights.has(i)
+		_style_tile(tiles[i], _defs[i], on)
+		if i < _totals.size() and _totals[i] != null and is_instance_valid(_totals[i]):
+			_totals[i].modulate = GOLD if on else TEXT_COLOR
 
 func _tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
 	var tile := Button.new()
@@ -85,7 +102,7 @@ func _tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
 	tile.tooltip_text = _describe(def)
 	tile.pressed.connect(func() -> void: slot_pressed.emit(index))
 	if detailed:
-		_fill_detailed(tile, def, highlighted)
+		_fill_detailed(tile, def, highlighted, index)
 	else:
 		tile.text = "%d" % DiceRowView.eye_total(def)
 		tile.add_theme_font_size_override("font_size", maxi(8, int(u * 2.0)))
@@ -98,7 +115,7 @@ func _tile_size() -> Vector2:
 	return Vector2(u * 6.4, u * 4.6)
 
 ## Detail-Kachel: Augensumme über dem 3×2-Raster der Seiten (Material-Tönung).
-func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool) -> void:
+func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -114,6 +131,8 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool) -> void
 	total.modulate = GOLD if highlighted else TEXT_COLOR
 	total.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(total)
+	if index < _totals.size():
+		_totals[index] = total
 
 	var faces := GridContainer.new()
 	faces.columns = 3
