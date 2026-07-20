@@ -497,17 +497,24 @@ func _setup_table_screen() -> void:
 	slots_click_zone = _screen_zoom_zone("SlotsClickZone", slots_rect, camera_rig.configure_slots_target)
 	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
 
-	# Werkstatt: rechts NEBEN dem Pool-Tray und unter den Nebenwetten - der letzte
-	# freie Fleck des Tisches. Hier werden gekaufte Pakete geöffnet. Die linke
-	# Kante folgt dem Tray, damit die Würfel darauf nie ins Fenster ragen.
-	var tray_bottom := hub_r.position.y
+	# Werkstatt: der letzte freie Fleck des Tisches, genau UNTER den beiden
+	# Würfel-Trays und bündig mit deren Außenkanten. Hier werden gekaufte Pakete
+	# geöffnet. Alle drei Kanten leiten sich aus den echten Slot-Positionen ab,
+	# damit ein späterer Tray-Umzug das Fenster automatisch mitnimmt.
+	var tray_bounds := Rect2()
+	var first_slot := true
 	for tray: DiceTrayView in [pool_tray_view, discard_tray_view]:
 		for i in tray.slot_roots.size():
-			tray_bottom = maxf(tray_bottom, table_screen.world_to_pixel(tray.slot_global_position(i)).y)
-	var workshop_top := tray_bottom + DiceTrayView.SPACING.y * ppw
+			var slot_px := table_screen.world_to_pixel(tray.slot_global_position(i))
+			tray_bounds = Rect2(slot_px, Vector2.ZERO) if first_slot else tray_bounds.expand(slot_px)
+			first_slot = false
+	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
+	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
+	var workshop_top := tray_bounds.end.y + slot_half * 2.0
 	var workshop_rect := Rect2(
-		Vector2(side_r.position.x, workshop_top),
-		Vector2(side_r.size.x, hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top))
+		Vector2(tray_bounds.position.x - slot_half, workshop_top),
+		Vector2(tray_bounds.size.x + slot_half * 2.0,
+			hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top))
 	table_screen.place_workshop_window(workshop_rect)
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
 
