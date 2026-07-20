@@ -25,11 +25,7 @@ const COLUMNS := {
 	Engraving.CATEGORY_MATERIAL: 3,
 	Engraving.CATEGORY_DICE: 3,
 }
-const TITLES := {
-	Engraving.CATEGORY_NUMBER: "ZAHLEN",
-	Engraving.CATEGORY_MATERIAL: "MATERIAL",
-	Engraving.CATEGORY_DICE: "KANTEN",
-}
+## Die Sorte erkennt man an Farbe und Siegeln - eine Überschrift kostet nur Höhe.
 const COLORS := {
 	Engraving.CATEGORY_NUMBER: Color("#50fa7b"),
 	Engraving.CATEGORY_MATERIAL: Color("#ff79c6"),
@@ -79,7 +75,7 @@ static func size_for(drawer_category: String, unit: float) -> Vector2:
 	var gap := unit * 0.5
 	return Vector2(
 		cols * chip.x + (cols - 1) * gap + pad * 2.0,
-		unit * 2.6 + rows * chip.y + (rows - 1) * gap + pad * 2.0)
+		rows * chip.y + (rows - 1) * gap + pad * 2.0)
 
 ## Plätze nach Seltenheit sortiert; innerhalb einer Seltenheit bleibt die
 ## kanonische Reihenfolge, damit die Geografie stabil liegt.
@@ -119,7 +115,6 @@ func rebuild() -> void:
 		child.queue_free()
 	slots.clear()
 
-	var accent: Color = COLORS.get(category, TEXT_COLOR)
 	var pad := int(u * 1.6)
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -130,7 +125,6 @@ func rebuild() -> void:
 	box.add_theme_constant_override("separation", int(u * 0.5))
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(box)
-	box.add_child(_label(TITLES.get(category, category), u * 2.2, accent))
 
 	_grid = GridContainer.new()
 	_grid.columns = COLUMNS.get(category, 4)

@@ -63,6 +63,10 @@ const HUB_HEIGHT_WORLD := 30.0
 ## in der elliptischen Filz-Fläche bleibt und nicht in den leuchtenden Tischrand ragt.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
 
+## Die Werkbank ist höher als der Platz bis zur Hub-Unterkante: der Würfel-Editor
+## braucht Raum für Projektion, Seiten-Übersicht und das Tray-Raster.
+const WORKSHOP_HEIGHT_FACTOR := 1.4
+
 ## Flugzeit eines Paket-Inhalts in seine Schublade und Abstand zwischen den Stücken.
 const PACK_FLY_TIME := 0.32
 const PACK_FLY_STAGGER := 0.10
@@ -523,8 +527,10 @@ func _setup_table_screen() -> void:
 		Vector2(tray_bounds.position.x - slot_half, 0.0), corner_width, corner_unit)
 	var drawer_height: float = drawer_rects[0].size.y
 	var drawer_gap := slot_half
-	var workshop_height := hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top \
-		- drawer_height - drawer_gap
+	# Die Werkbank trägt Station UND Zeremonien und darf dafür über die Hub-
+	# Unterkante hinausragen; die Schubladen rutschen mit nach unten.
+	var workshop_height := (hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top \
+		- drawer_height - drawer_gap) * WORKSHOP_HEIGHT_FACTOR
 	var workshop_rect := Rect2(
 		Vector2(tray_bounds.position.x - slot_half, workshop_top),
 		Vector2(corner_width, workshop_height))
@@ -1445,9 +1451,9 @@ func _refresh_engraving_target_grid() -> void:
 	for i in tray.slot_roots.size():
 		var occupied: bool = tray.slot_roots[i].visible or tray.slot_roots[i] == engraving_source_root
 		slot_defs.append(tray.slot_defs[i] if occupied else null)
-	# Acht Spalten: vier flache Reihen füllen die rechte Spalte, ohne dass die
-	# Kacheln unter die Lesbarkeit schrumpfen (die Tray-Form 6×5 wäre zu hoch).
-	die_inspector.set_target_grid(8, slot_defs, tray.slot_roots.find(engraving_source_root))
+	# In der FORM des Trays (Spaltenzahl übernommen): das Raster im Editor liest
+	# sich wie das echte Tray darüber, Platz für Platz.
+	die_inspector.set_target_grid(tray.columns, slot_defs, tray.slot_roots.find(engraving_source_root))
 
 ## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset).
 func _abort_engraving() -> void:
@@ -1734,9 +1740,9 @@ func _supply_drawer_rects(origin: Vector2, total_width: float, unit: float) -> A
 	var slack := maxf(0.0, total_width - content_width)
 	var gap := minf(slack / float(maxi(sizes.size() - 1, 1)), unit * 4.0)
 	var rects: Array[Rect2] = []
-	# Die Reihe mittig unter der Werkbank ausrichten.
-	var row_width := content_width + gap * float(sizes.size() - 1)
-	var x := origin.x + (total_width - row_width) * 0.5
+	# Linksbündig unter der Werkbank: die breiteste Schublade (Zahlen) beginnt an
+	# derselben Kante wie das Fenster darüber.
+	var x := origin.x
 	for drawer_size in sizes:
 		rects.append(Rect2(Vector2(x, origin.y), Vector2(drawer_size.x, height)))
 		x += drawer_size.x + gap
@@ -3371,6 +3377,11 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	# Die Gravur-Station lebt an der Werkbank: verlässt die Kamera sie, ist die
+	# Zeremonie vorbei. Kein Rekursions-Risiko - _end_engraving_ceremony löscht
+	# engraving_active, bevor es selbst zurückfährt.
+	if engraving_active and new_mode != CameraRig.Mode.WORKSHOP:
+		die_inspector.close()
 	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()

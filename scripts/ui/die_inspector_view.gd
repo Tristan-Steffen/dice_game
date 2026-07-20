@@ -62,17 +62,17 @@ const DIM_CHIP_ALPHA := 0.30
 const DIE_VIEW_BG := Color("#0d2430")
 ## Innen-Kantenlänge des Projektions-Screens (Breiteneinheiten u) - exakt
 ## quadratisch, mit gleichmäßigem Rand bleibt auch der Außenkasten ein Quadrat.
-const DIE_VIEW_SIDE := 11.0
+const DIE_VIEW_SIDE := 15.0
 
 ## Anteil der Panel-Höhe, der oben als Bühne für den schwebenden Würfel frei
 ## bleibt - knapp, damit kein großer Leerraum entsteht.
 const STAGE_FRACTION := 0.15
 ## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u) - gilt für
 ## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
-const TRAY_TILE := 6.4
-## Das Ziel-Raster rechnet kleiner als der Rest des Panels - zehn Kacheln nebeneinander
-## passen sonst nicht in die rechte Spalte.
-const GRID_UNIT_SCALE := 0.9
+const TRAY_TILE := 7.6
+## Das Ziel-Raster rechnet kleiner als der Rest des Panels - sechs Detail-Kacheln
+## nebeneinander passen sonst nicht in die rechte Spalte.
+const GRID_UNIT_SCALE := 0.80
 
 ## Der laufende Spiellauf (setzt scene_root) - Engraving-Bestand und -Verbrauch.
 var run: GameRun
@@ -197,6 +197,9 @@ func _build_layout() -> void:
 
 	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem
 
+## Kopfzeile ohne Schließen-Knopf: die Station schließt, sobald die Kamera die
+## Werkbank verlässt (siehe scene_root) - ein eigener Knopf wäre ein zweiter Weg
+## für dieselbe Geste.
 func _build_header(root: Control) -> void:
 	var header := HBoxContainer.new()
 	header.name = "Header"
@@ -204,9 +207,6 @@ func _build_header(root: Control) -> void:
 	var title := _label("GRAVUR", u * 4.5, NEON_MAGENTA)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
-	var done := _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
-	done.pressed.connect(close)
-	header.add_child(done)
 
 ## Querformat, weil das Werkstatt-Fenster flach ist: links die Bühne mit der
 ## Projektion und der Seiten-Übersicht, rechts Hinweiszeile über dem Bord.
@@ -277,7 +277,7 @@ func _build_prompt(root: Control) -> void:
 func _build_target_grid(root: Control) -> void:
 	target_grid = DiceGridView.new()
 	target_grid.name = "TargetGrid"
-	target_grid.place(target_columns, u * GRID_UNIT_SCALE)
+	target_grid.place(target_columns, u * GRID_UNIT_SCALE, true)
 	target_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	target_grid.slot_pressed.connect(func(index: int) -> void: select_tray_die.emit(index))
 	root.add_child(target_grid)
@@ -294,7 +294,7 @@ func set_target_grid(columns: int, defs: Array[DieDefinition], current_slot: int
 func _refresh_target_grid() -> void:
 	if target_grid == null or not is_instance_valid(target_grid):
 		return
-	target_grid.place(target_columns, u * GRID_UNIT_SCALE)
+	target_grid.place(target_columns, u * GRID_UNIT_SCALE, true)
 	target_grid.fill(target_defs, target_current)
 
 ## Bestand je Gravur-id (Testmodus: alles einmal vorhanden) - entscheidet, ob
@@ -338,8 +338,9 @@ func _build_die_view(parent: Control) -> void:
 	style.set_corner_radius_all(int(u * 1.2))
 	style.set_content_margin_all(int(u * 0.8))
 	die_view_panel.add_theme_stylebox_override("panel", style)
-	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand.
-	die_view_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand;
+	# mittig, damit er mit der Seiten-Übersicht daneben auf einer Höhe sitzt.
+	die_view_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	parent.add_child(die_view_panel)
 
 	die_view = RotatableDieView.new()
