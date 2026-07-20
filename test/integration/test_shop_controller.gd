@@ -13,7 +13,7 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.hub_level = 7  # Suite: großer Laden (4 Charms / 3 Würfel / 8 Chips = 6 Sigille + 2 Übertaktungen)
+	run.hub_level = 7  # Suite: großer Laden (4 Charms / 3 Würfel / 8 Chips = 6 Gravuren + 2 Übertaktungen)
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -110,61 +110,61 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-# --- Einzel-Sigille ------------------------------------------------------------
+# --- Einzel-Gravuren ------------------------------------------------------------
 
-## Erzwingt ein bestimmtes Sigil-Sortiment auf der aktuellen Doppelseite (das
+## Erzwingt ein bestimmtes Engraving-Sortiment auf der aktuellen Doppelseite (das
 ## echte ist zufällig, siehe _build_spread) und setzt die "gekauft"-Marken zurück.
-func _force_sigil_offers(sigils: Array) -> void:
+func _force_engraving_offers(engravings: Array) -> void:
 	var spread = shop.spreads[shop.current_spread_index]
-	var typed: Array[Sigil] = []
-	typed.assign(sigils)
-	spread.sigil_offers = typed
-	spread.sigil_bought.resize(typed.size())
-	spread.sigil_bought.fill(false)
+	var typed: Array[Engraving] = []
+	typed.assign(engravings)
+	spread.engraving_offers = typed
+	spread.engraving_bought.resize(typed.size())
+	spread.engraving_bought.fill(false)
 	shop._show_spread()
 
-func test_buy_sigil_deducts_price_and_stores():
-	_force_sigil_offers([Sigil.chisel()])  # häufig, $5
-	shop._on_sigil_buy_pressed(0)
+func test_buy_engraving_deducts_price_and_stores():
+	_force_engraving_offers([Engraving.chisel()])  # häufig, $5
+	shop._on_engraving_buy_pressed(0)
 	assert_eq(run.money, 95, "Preis (häufig $5) abgezogen")
-	assert_eq(run.owned_sigils.size(), 1, "Sigill sofort im Inventar")
+	assert_eq(run.owned_engravings.size(), 1, "Gravur sofort im Inventar")
 
-func test_sigil_offer_is_single_use():
-	_force_sigil_offers([Sigil.chisel()])
-	shop._on_sigil_buy_pressed(0)
-	shop._on_sigil_buy_pressed(0)  # zweiter Kauf desselben Angebots
+func test_engraving_offer_is_single_use():
+	_force_engraving_offers([Engraving.chisel()])
+	shop._on_engraving_buy_pressed(0)
+	shop._on_engraving_buy_pressed(0)  # zweiter Kauf desselben Angebots
 	assert_eq(run.money, 95, "nur einmal abgezogen")
-	assert_eq(run.owned_sigils.size(), 1)
-	assert_true(shop.sigil_buttons[0].disabled, "Karte ist danach gekauft")
-	assert_true(shop.sigil_bought[0], "als gekauft vermerkt")
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_true(shop.engraving_buttons[0].disabled, "Karte ist danach gekauft")
+	assert_true(shop.engraving_bought[0], "als gekauft vermerkt")
 
-func test_cannot_buy_sigil_without_funds():
+func test_cannot_buy_engraving_without_funds():
 	run.money = 3
-	_force_sigil_offers([Sigil.chisel()])
-	shop._on_sigil_buy_pressed(0)
+	_force_engraving_offers([Engraving.chisel()])
+	shop._on_engraving_buy_pressed(0)
 	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
-	assert_eq(run.owned_sigils.size(), 0, "kein Sigill gewährt")
+	assert_eq(run.owned_engravings.size(), 0, "keine Gravur gewährt")
 
-func test_sigil_buttons_disabled_by_price():
-	run.money = 2  # unter jedem Sigil-Preis
+func test_engraving_buttons_disabled_by_price():
+	run.money = 2  # unter jedem Engraving-Preis
 	shop.open()
-	assert_gt(shop.sigil_buttons.size(), 0)
-	for button in shop.sigil_buttons:
-		assert_true(button.disabled, "Sigill bei zu wenig Geld nicht kaufbar")
+	assert_gt(shop.engraving_buttons.size(), 0)
+	for button in shop.engraving_buttons:
+		assert_true(button.disabled, "Gravur bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_mixed_sigils_dice_and_overclocks():
-	# Angebot = Würfel-Bündel (Vitrine) + Chip-Schale (Sigille + Übertaktungen);
-	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 6 Sigille, 2 Übertaktungen).
-	assert_eq(shop.sigil_offers.size(), run.shop_sigil_slots())
+func test_spread_offers_mixed_engravings_dice_and_overclocks():
+	# Angebot = Würfel-Bündel (Vitrine) + Chip-Schale (Gravuren + Übertaktungen);
+	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 6 Gravuren, 2 Übertaktungen).
+	assert_eq(shop.engraving_offers.size(), run.shop_engraving_slots())
 	assert_eq(shop.dice_offers.size(), run.shop_dice_slots(), "drei Würfel-Bündel")
 	assert_eq(shop.overclock_offers.size(), run.shop_overclock_slots(), "zwei Übertaktungen")
-	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), run.shop_chip_slots(),
-		"Sigille + Übertaktungen füllen die Chip-Schale")
+	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), run.shop_chip_slots(),
+		"Gravuren + Übertaktungen füllen die Chip-Schale")
 	var seen := {}
-	for sigil in shop.sigil_offers:
-		assert_true(Sigil.DRAFT_CATEGORIES.has(sigil.category), "inventarfähige Kategorie")
-		assert_false(seen.has(sigil.id), "keine doppelten Sigille: %s" % sigil.id)
-		seen[sigil.id] = true
+	for engraving in shop.engraving_offers:
+		assert_true(Engraving.DRAFT_CATEGORIES.has(engraving.category), "inventarfähige Kategorie")
+		assert_false(seen.has(engraving.id), "keine doppelten Gravuren: %s" % engraving.id)
+		seen[engraving.id] = true
 
 # --- Übertaktungen ---------------------------------------------------------------
 
@@ -209,21 +209,21 @@ func test_cannot_buy_overclock_without_funds():
 	assert_eq(run.combo_level(DiceScoring.SIX_KIND), 0, "ohne Geld keine Stufe")
 	assert_eq(run.money, 0)
 
-func test_sigil_offers_persist_when_flipping_back():
+func test_engraving_offers_persist_when_flipping_back():
 	var first_ids: Array = []
-	for sigil in shop.sigil_offers:
-		first_ids.append(sigil.id)
+	for engraving in shop.engraving_offers:
+		first_ids.append(engraving.id)
 	shop._on_page_next_pressed()  # neue Doppelseite (kostet Gebühr)
 	shop._on_page_back_pressed()
 	var back_ids: Array = []
-	for sigil in shop.sigil_offers:
-		back_ids.append(sigil.id)
+	for engraving in shop.engraving_offers:
+		back_ids.append(engraving.id)
 	assert_eq(back_ids, first_ids, "zurückgeblättert = dasselbe Sortiment")
 
-func test_sigil_price_follows_rarity():
-	assert_eq(shop._sigil_price(Sigil.chisel()), ShopController.SIGIL_PRICES[Sigil.Rarity.COMMON])
-	assert_eq(shop._sigil_price(Sigil.fine_engraving()), ShopController.SIGIL_PRICES[Sigil.Rarity.UNCOMMON])
-	assert_eq(shop._sigil_price(Sigil.blueprint()), ShopController.SIGIL_PRICES[Sigil.Rarity.RARE])
+func test_engraving_price_follows_rarity():
+	assert_eq(shop._engraving_price(Engraving.chisel()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.COMMON])
+	assert_eq(shop._engraving_price(Engraving.averaging()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.UNCOMMON])
+	assert_eq(shop._engraving_price(Engraving.blueprint()), ShopController.ENGRAVING_PRICES[Engraving.Rarity.RARE])
 
 # --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Mengenrabatt) -------------------
 

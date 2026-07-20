@@ -1,12 +1,9 @@
 class_name EtchingEffects
-## Seiten-Transformationen der Zahl-Sigille: jede Funktion verändert die
+## Seiten-Transformationen der Zahl-Gravuren: jede Funktion verändert die
 ## faces EINES DieDefinition in place. face-Parameter sind Seiten-Indizes 0..5;
 ## welche Seite gemeint ist, wählt die Anwendungs-UI (DieInspectorView).
 
 const MIN_FACE_VALUE := 1  # Seiten fallen nie unter 1; nach oben offen (Überzahlen)
-## Höchster frei wählbarer Feingravur-Wert - nur die Wertauswahl braucht ein
-## endliches Ende, +1-Ätzungen dürfen bewusst über 6 hinaus.
-const FINE_ENGRAVING_MAX := 12
 
 ## Meißel: kopiert den Wert der Quellseite auf die Zielseite.
 static func chisel(die: DieDefinition, source_face: int, dest_face: int) -> void:
@@ -27,15 +24,8 @@ static func grindstone(die: DieDefinition, minus_face: int, plus_face: int) -> v
 static func can_grindstone_minus(die: DieDefinition, minus_face: int) -> bool:
 	return die.faces[minus_face] > MIN_FACE_VALUE
 
-## Feingravur: setzt eine Seite auf einen Wert (1..FINE_ENGRAVING_MAX).
-static func fine_engraving(die: DieDefinition, face: int, value: int) -> void:
-	die.faces[face] = value
-
-static func is_valid_engraving_value(value: int) -> bool:
-	return value >= MIN_FACE_VALUE and value <= FINE_ENGRAVING_MAX
-
-## Überzahl-Gravur: +1 auf eine Seite, ohne Obergrenze.
-static func overcount_engraving(die: DieDefinition, face: int) -> void:
+## Kerbe: +1 auf eine Seite.
+static func notch(die: DieDefinition, face: int) -> void:
 	die.faces[face] += 1
 
 ## Feile: −1 auf eine Seite (min. 1) - billigster Weg, Werte anzugleichen.
@@ -67,21 +57,7 @@ static func mirror_die(die: DieDefinition) -> void:
 	for i in die.faces.size():
 		die.faces[i] = (lo + hi) - die.faces[i]
 
-## Abdruck: prägt den Wert der Seite auf die zwei niedrigsten anderen Seiten.
-static func imprint(die: DieDefinition, source_face: int) -> void:
-	var value: int = die.faces[source_face]
-	for target in _two_lowest_other_faces(die, source_face):
-		die.faces[target] = value
-
-static func _two_lowest_other_faces(die: DieDefinition, exclude: int) -> Array[int]:
-	var order: Array[int] = []
-	for i in die.faces.size():
-		if i != exclude:
-			order.append(i)
-	order.sort_custom(func(a: int, b: int) -> bool: return die.faces[a] < die.faces[b])
-	return order.slice(0, 2)
-
-## Begradigung: +1 auf alle ungeraden Seiten (1–6 → 2,2,4,4,6,6), ohne Obergrenze.
+## Begradigung: +1 auf alle ungeraden Seiten (1–6 → 2,2,4,4,6,6).
 static func straighten(die: DieDefinition) -> void:
 	for i in die.faces.size():
 		if die.faces[i] % 2 == 1:

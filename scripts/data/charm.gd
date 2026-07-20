@@ -494,10 +494,10 @@ static func double_perforation() -> Charm:
 	return _make(DOUBLE_PERFORATION, "Doppelte Perforation", "Chip-Coupons zahlen $2 statt $1.")
 
 static func engraving_pen() -> Charm:
-	return _make(ENGRAVING_PEN, "Gravierstift", "Einmal pro Runde wird ein Zahl-Sigill beim Anwenden nicht verbraucht.")
+	return _make(ENGRAVING_PEN, "Gravierstift", "Einmal pro Runde wird ein Zahl-Gravur beim Anwenden nicht verbraucht.")
 
 static func stamp_machine() -> Charm:
-	return _make(STAMP_MACHINE, "Frankiermaschine", "Zu Beginn jeder Runde: +3 zufällige Zahl-Sigille.")
+	return _make(STAMP_MACHINE, "Frankiermaschine", "Zu Beginn jeder Runde: +3 zufällige Zahl-Gravuren.")
 
 static func fine_print() -> Charm:
 	return _make(FINE_PRINT, "Kleingedrucktes", "Nach jedem Pack-Kauf: 20% Chance auf volle Rückerstattung.")

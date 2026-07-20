@@ -1,6 +1,7 @@
 extends GutTest
 ## Tests der Auswahl-Optik und der Material-Tooltips der Seiten-Übersicht in der
-## Gravur-Station (DieInspectorView). Geprüft wird der Look der Seiten-/Kanten-Chips:
+## Gravur-Station (DieInspectorView). Die Kanten sind der RAHMEN um das Seiten-
+## Raster (Kanten-Materialfarbe, Tooltip beim Überfahren). Look der Seiten-Chips:
 ##  - GEWÄHLT leuchten Ziffer UND Rahmen in der Auswahlfarbe (kräftiges Violett,
 ##    RotatableDieView.SELECT_FACE_COLOR - dieselbe Farbe wie am 3D-Würfel), die
 ##    FÜLLUNG bleibt aber die Materialfarbe, und die Ziffer bekommt einen schwarzen
@@ -40,11 +41,13 @@ func _live_summary() -> Array:
 			live.append(c)
 	return live
 
+## Das Seiten-Raster sitzt IM Kanten-Rahmen (die Kanten sind der Rahmen um die
+## Seiten).
 func _face_grid() -> GridContainer:
-	return _live_summary()[0]
+	return _live_summary()[0].get_child(0)
 
-func _edge_chip() -> Button:
-	return _live_summary()[1].get_child(0)  # edge_group -> Kanten-Chip
+func _edge_frame() -> PanelContainer:
+	return _live_summary()[0]
 
 ## Der Chip, dessen Ziffer in der Pit-Auswahlfarbe leuchtet (genau der gewählte).
 func _glowing_chip() -> Button:
@@ -94,38 +97,48 @@ func test_exactly_one_chip_glows_for_a_selected_face() -> void:
 			glowing += 1
 	assert_eq(glowing, 1)
 
-func test_no_face_glows_when_edges_are_selected() -> void:
-	view.edges_selected = true
-	view.selected_face = -1
-	view._refresh_face_summary()
-	assert_null(_glowing_chip(), "keine SEITE leuchtet, wenn die Kanten gewählt sind")
-	assert_eq(_edge_chip().get_theme_color("font_color"), RotatableDieView.SELECT_FACE_COLOR, "der Kanten-Chip leuchtet")
+func test_edge_frame_carries_the_edge_material_tint() -> void:
+	# Der Rahmen um die Seiten-Chips trägt die Kanten-Materialfarbe (Bernstein) -
+	# wie die Kachel-Rahmen im Würfel-Raster.
+	var box: StyleBoxFlat = _edge_frame().get_theme_stylebox("panel")
+	assert_eq(box.border_color, DieMaterial.tint_for("amber"), "Rahmen = Kanten-Material")
+
+func test_edge_frame_is_neutral_without_edge_material() -> void:
+	var def := _die()
+	def.edge_material = ""
+	view.show_die(def)
+	var box: StyleBoxFlat = _edge_frame().get_theme_stylebox("panel")
+	assert_eq(box.border_color, DieFaceDisplay.EDGE_NEON, "kahle Kanten -> neutrales Kanten-Neon")
 
 # --- Material-Tooltip (handgesteuertes Overlay) -------------------------------
 
 func test_only_material_faces_wire_a_hover_tooltip() -> void:
-	# Vier belegte Seiten -> vier Chips mit Hover-Verbindung, zwei ohne.
+	# Jeder Chip hat die Vorschau-Hover-Verbindung; NUR die vier belegten Seiten
+	# tragen zusätzlich den Material-Tooltip (also zwei Verbindungen statt einer).
 	var with_tooltip := 0
 	for c in _face_grid().get_children():
-		if (c as Button).mouse_entered.get_connections().size() > 0:
+		if (c as Button).mouse_entered.get_connections().size() >= 2:
 			with_tooltip += 1
-	assert_eq(with_tooltip, 4, "nur Seiten mit Material bekommen einen Tooltip")
+	assert_eq(with_tooltip, 4, "nur Seiten mit Material bekommen zusätzlich einen Tooltip")
 
-func test_edge_chip_wires_a_hover_tooltip_when_edges_have_material() -> void:
-	assert_gt(_edge_chip().mouse_entered.get_connections().size(), 0, "Kanten mit Material -> Tooltip")
+func test_edge_frame_hover_shows_the_edge_material_tooltip() -> void:
+	view._on_edge_frame_hover()
+	assert_true(view.face_tooltip.visible, "Kanten mit Material -> Tooltip beim Überfahren")
+	assert_eq(view.face_tooltip_title.text, "Bernstein-Kanten")
 
-func test_edge_chip_has_no_tooltip_without_edge_material() -> void:
+func test_edge_frame_hover_shows_nothing_without_edge_material() -> void:
 	var def := _die()
 	def.edge_material = ""
 	view.show_die(def)
-	assert_eq(_edge_chip().mouse_entered.get_connections().size(), 0, "kahle Kanten -> kein Tooltip")
+	view._on_edge_frame_hover()
+	assert_false(view.face_tooltip.visible, "kahle Kanten -> kein Tooltip")
 
-func test_sigil_slots_wire_a_hover_tooltip() -> void:
-	# Auch die Sigil-Slots des Gravur-Bords (Ätzungen/Materialien/Kanten) tragen den
+func test_engraving_slots_wire_a_hover_tooltip() -> void:
+	# Auch die Engraving-Slots des Gravur-Bords (Ätzungen/Materialien/Kanten) tragen den
 	# handgesteuerten Wirkungs-Tooltip - nicht nur die Seiten-Chips.
 	view.run = GameRun.new_run()
-	view.run.grant_sigil(Sigil.chisel())
-	view._build_sigil_board()
+	view.run.grant_engraving(Engraving.chisel())
+	view._build_engraving_board()
 	assert_gt(view.slot_entries.size(), 0, "das Bord hat Slots")
 	for entry in view.slot_entries:
 		var slot: Button = entry["button"]
@@ -133,7 +146,7 @@ func test_sigil_slots_wire_a_hover_tooltip() -> void:
 
 func test_show_and_hide_face_tooltip() -> void:
 	assert_false(view.face_tooltip.visible, "anfangs verborgen")
-	view._show_face_tooltip(_edge_chip(), "Bernstein", "Kanten-Wirkung.")
+	view._show_face_tooltip(_edge_frame(), "Bernstein", "Kanten-Wirkung.")
 	assert_true(view.face_tooltip.visible)
 	assert_eq(view.face_tooltip_title.text, "Bernstein")
 	assert_eq(view.face_tooltip_body.text, "Kanten-Wirkung.")

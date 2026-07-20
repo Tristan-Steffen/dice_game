@@ -2,17 +2,23 @@ class_name DieInspectorView
 extends Control
 ## Die Gravur-Station für einen einzelnen Würfel - ein Neon-Panel auf dem
 ## Tisch-Display (HubView.attach_panel). Der gegriffene Würfel schwebt als
-## ECHTES Weltobjekt über der Bühne oben im Panel; darunter die Bedienung:
-## Seite (oder Kanten) über die Chips wählen, dann einen Sigil auf dem
-## Gravur-Bord klicken. Mehrstufige Ätzungen fragen die zweite Seite bzw. den
-## Zielwert nach. Der gezeigte Würfel ist DIESELBE DieDefinition-Instanz wie
-## im Pool - die Ätzung wirkt dauerhaft. Bedient über die Maus-Weiterleitung;
-## Rechtsklick behandelt scene_root.
+## ECHTES Weltobjekt über der Bühne oben im Panel; darunter die Bedienung.
+##
+## Werkzeug-zuerst: Klick auf eine Gravur am Bord NIMMT sie auf, dann führt die
+## Station zu ihren Zielen (gültige Seiten leuchten, ungültige dimmen; Überfahren
+## zeigt die Vorschau "3→5"). Gerichtete Paare lesen Quelle → Ziel. Ganz-Würfel-
+## Gravuren (Spiegelung/Begradigung) brauchen keine Seitenwahl - ein Klick auf den
+## Würfel genügt. Die KANTEN sind der Rahmen um die Seiten-Chips (wie an den
+## Tray-Kacheln): Klickziel der Kanten-Gravuren, keine eigene Auswahl (ein Würfel
+## hat nur einen Rahmen). Erneuter Klick aufs Werkzeug / Rechtsklick legt es ab. Der
+## gezeigte Würfel ist DIESELBE DieDefinition-Instanz wie im Pool - die Gravur
+## wirkt dauerhaft. Bedient über die Maus-Weiterleitung; Rechtsklick behandelt
+## scene_root.
 
 ## Nach dem Anwenden einer Ätzung - scene_root zeichnet die Trays neu.
 signal changed
 ## Nach dem Anwenden, mit Quelle für die Absorptions-Animation.
-signal applied(sigil_id: String, slot_px: Vector2)
+signal applied(engraving_id: String, slot_px: Vector2)
 signal closed
 ## Zelle des Würfel-Rasters angeklickt: scene_root wechselt das Gravur-Ziel
 ## (slot = ECHTER Slot-Index im Ursprungs-Tray).
@@ -21,13 +27,20 @@ signal select_tray_die(slot: int)
 ## Kamera-Rundschauen.
 signal rotating_die(active: bool)
 
-## Auswahl geändert: face_index (0..5, -1 = keine) bzw. edges - scene_root
-## spiegelt das auf den echten schwebenden Würfel.
-signal selection_changed(face_index: int, edges: bool)
+## Auswahl geändert: face_index (0..5, -1 = keine) - scene_root spiegelt das
+## auf den echten schwebenden Würfel (Kanten-Ziel siehe edges_targeted).
+signal selection_changed(face_index: int)
 
-## Ablauf-Zustand: normale Auswahl, Warten auf die zweite Seite oder auf den
-## Feingravur-Zielwert.
-enum Mode { SELECT, AWAIT_SECOND_FACE, PICK_VALUE }
+## Ablauf-Zustand: nichts in der Hand (Inspektion) oder Werkzeug hält und
+## wartet auf Ziel-Klicks.
+enum Mode { IDLE, TARGETING }
+
+## Ziel-Form je Gravur - steuert Eignung, Vorschau und Anwendung.
+const TARGET_FACE := "face"              # Kerbe, Feile, Transplantat, Blaupause, Materialien
+const TARGET_PAIR_DIRECTED := "pair_directed"  # Meißel, Schleifstein, Anschluss (Quelle→Ziel)
+const TARGET_PAIR := "pair"              # Doppelkerbe, Mittelung (ungeordnet)
+const TARGET_WHOLE_DIE := "whole_die"    # Spiegelung, Begradigung
+const TARGET_EDGES := "edges"            # Kanten-Gravuren
 
 ## Farben im Display-Stil (80s Neon).
 const NEON_CYAN := Color("#8be9fd")
@@ -37,12 +50,20 @@ const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
 ## Neutraler Rahmen unausgewählter Seiten-/Kanten-Chips.
 const CHIP_BORDER := Color(0.72, 0.76, 0.8)
+## Vorschau: Wert steigt grün, sinkt warm-rot; ungeeignete Ziffern dimmen grau.
+const PREVIEW_UP := Color(0.5, 1.0, 0.6)
+const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
+const DIM_NUMBER_COLOR := Color(0.35, 0.35, 0.42)
+const DIM_CHIP_ALPHA := 0.30
 
 const SLOT_COLUMNS := 8  # Bord-Plätze je Zeile
 const STACK_MAX_VISIBLE := 3  # mehr Exemplare zeigt nur noch die ×Anzahl
 
 ## Unter-Bildschirm der Würfel-Projektion: abgesetzte Grundfarbe (Petrol).
 const DIE_VIEW_BG := Color("#0d2430")
+## Innen-Kantenlänge des Projektions-Screens (Breiteneinheiten u) - exakt
+## quadratisch, mit gleichmäßigem Rand bleibt auch der Außenkasten ein Quadrat.
+const DIE_VIEW_SIDE := 16.0
 
 ## Anteil der Panel-Höhe, der oben als Bühne für den schwebenden Würfel frei
 ## bleibt - knapp, damit kein großer Leerraum entsteht.
@@ -51,16 +72,20 @@ const STAGE_FRACTION := 0.15
 ## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
 const TRAY_TILE := 8.91
 
-## Der laufende Spiellauf (setzt scene_root) - Sigil-Bestand und -Verbrauch.
+## Der laufende Spiellauf (setzt scene_root) - Engraving-Bestand und -Verbrauch.
 var run: GameRun
 
 var current_def: DieDefinition = null
-var selected_face: int = -1  # gewählte physische Seite (0..5), -1 = keine
-## True, wenn statt einer Seite der KANTEN-Rahmen gewählt ist (Ziel der
-## Kanten-Sigille); schließt selected_face aus.
-var edges_selected: bool = false
-var mode: int = Mode.SELECT
-var active_sigil_id: String = ""  # Sigil des laufenden Zweitschritts
+## Sichtbare Auswahl-Spiegelung (violette Hervorhebung an Chips + schwebendem
+## Würfel): bei Paaren der erste Klick, sonst reine Inspektions-Auswahl.
+var selected_face: int = -1  # -1 = keine
+var mode: int = Mode.IDLE
+## Aufgenommene Gravur ("" = nichts in der Hand); ihr _targeting_of führt die Klicks.
+var held_id: String = ""
+## Erster Klick eines Paares (-1 = noch keiner); der zweite Klick schließt ab.
+var first_face: int = -1
+## Vorschau aktiv (Chip-Texte zeigen das Ergebnis, noch nicht angewandt).
+var preview_active: bool = false
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
@@ -68,10 +93,20 @@ var u := 8.0
 # Gerüst-Referenzen (je show_die frisch gebaut).
 var prompt_label: Label
 var board_box: VBoxContainer  # Gravur-Bord
-var value_row: GridContainer  # Feingravur-Wertauswahl
 var slot_entries: Array[Dictionary] = []  # [{button:Button, id:String, count:int}]
-var summary_list: VBoxContainer  # Seiten-Raster + Kanten-Chip + Augensumme
-var summary_sum_label: Label
+var summary_list: VBoxContainer  # Seiten-Raster im Kanten-Rahmen
+## Anzeige-Reihenfolge der Seiten-Chips (physische Indizes): beim Öffnen/Ziel-
+## Wechsel nach Wert sortiert, während der Bearbeitung eingefroren - die Chips
+## springen beim Gravieren nicht um.
+var face_order: Array[int] = []
+## Seiten-Chips nach physischem Index (für Eignungs-Dimmung + Vorschau ohne
+## Neuaufbau): Button, Grundfüllung und die im Ruhezustand gesetzte Zifferfarbe.
+var face_chips: Array[Button] = []
+var face_chip_fills: Array[Color] = []
+var face_chip_font: Array[Color] = []
+## Der Kanten-Rahmen: Panel um das Seiten-Raster in der Kanten-Materialfarbe
+## (die Kanten SIND der Rahmen um die Seiten). Klickziel der Kanten-Gravuren.
+var edge_frame: PanelContainer
 
 ## Handgesteuerter Tooltip der Chips/Slots: Godots eingebautes Tooltip-System
 ## feuert im Tisch-SubViewport nicht zuverlässig - gesteuert über
@@ -104,15 +139,18 @@ func show_die(def: DieDefinition) -> void:
 	# kostet ~17 ms und verursachte den Ruckler bei jeder Neu-Auswahl.
 	var fresh_open := not visible or board_box == null or not is_instance_valid(board_box)
 	current_def = def
+	face_order = _faces_sorted_by_value(def)
 	selected_face = -1
-	edges_selected = false
-	mode = Mode.SELECT
-	active_sigil_id = ""
+	held_id = ""
+	first_face = -1
+	mode = Mode.IDLE
+	preview_active = false
 	if fresh_open:
 		_build_layout()
-		_build_sigil_board()
+		_build_engraving_board()
 	else:
-		_refresh_sigil_enabled()
+		_refresh_engraving_enabled()
+		_restyle_slots()
 	die_view.set_dice([current_def] as Array[DieDefinition])
 	_refresh_face_summary()
 	_update_prompt()
@@ -151,7 +189,6 @@ func _build_layout() -> void:
 	_build_top_row(root)
 	_build_prompt(root)
 	_build_board(root)
-	_build_value_row(root)
 
 	_rebuild_tray_grid()  # aus dem gespeicherten Kontext
 	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem
@@ -196,7 +233,10 @@ func _build_top_row(root: Control) -> void:
 
 	stage = CenterContainer.new()
 	stage.name = "Stage"
-	stage.custom_minimum_size = Vector2(u * 12.0, size.y * STAGE_FRACTION)
+	stage.custom_minimum_size = Vector2(u * 4.0, size.y * STAGE_FRACTION)
+	# Die Bühne nimmt den Restplatz links - der quadratische Projektions-Screen
+	# schließt dadurch bündig mit der rechten Kante des Kanten-Rahmens ab.
+	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage_row.add_child(stage)
@@ -225,21 +265,6 @@ func _build_board(root: Control) -> void:
 	board_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(board_box)
 
-## Feingravur-Wertreihe (1..FINE_ENGRAVING_MAX), erst bei Bedarf sichtbar.
-func _build_value_row(root: Control) -> void:
-	value_row = GridContainer.new()
-	value_row.name = "ValueRow"
-	value_row.columns = 6
-	value_row.add_theme_constant_override("h_separation", int(u * 0.6))
-	value_row.add_theme_constant_override("v_separation", int(u * 0.6))
-	value_row.visible = false
-	for value in range(1, EtchingEffects.FINE_ENGRAVING_MAX + 1):
-		var value_button := _neon_button(str(value), NEON_MAGENTA, u * 2.4, Vector2(0, u * 4.4))
-		value_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		value_button.pressed.connect(_on_value_pressed.bind(value))
-		value_row.add_child(value_button)
-	root.add_child(value_row)
-
 func _expanding_spacer() -> Control:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -258,7 +283,8 @@ func _build_die_view(parent: Control) -> void:
 	style.set_corner_radius_all(int(u * 1.2))
 	style.set_content_margin_all(int(u * 0.8))
 	die_view_panel.add_theme_stylebox_override("panel", style)
-	die_view_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand.
+	die_view_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	parent.add_child(die_view_panel)
 
 	die_view = RotatableDieView.new()
@@ -269,10 +295,11 @@ func _build_die_view(parent: Control) -> void:
 	sub.own_world_3d = true
 	die_view.add_child(sub)
 	die_view.stretch = true  # Container-Pixel == Viewport-Pixel (Pick-Mathe)
-	die_view.custom_minimum_size = Vector2(u * 20.0, u * 16.0)
+	die_view.custom_minimum_size = Vector2.ONE * u * DIE_VIEW_SIDE
 	die_view.pick_radius = u * 10.0
 	die_view.face_clicked.connect(_on_face_clicked)
 	die_view.edges_clicked.connect(_on_edges_clicked)
+	die_view.face_hovered.connect(_on_die_face_hovered)
 	die_view.drag_started.connect(func() -> void: rotating_die.emit(true))
 	die_view.drag_ended.connect(func() -> void: rotating_die.emit(false))
 	die_view_panel.add_child(die_view)
@@ -281,14 +308,21 @@ func _build_die_view(parent: Control) -> void:
 func _sync_die_view() -> void:
 	if current_def == null:
 		return
-	selection_changed.emit(selected_face, edges_selected)
+	selection_changed.emit(selected_face)
 	if die_view == null:
 		return
 	die_view.refresh_faces([current_def] as Array[DieDefinition])
-	if edges_selected:
-		die_view.highlight_edges(0)
+	if edges_targeted():
+		die_view.highlight_edges(0)  # gehaltene Kanten-Gravur: der Rahmen ist das Ziel
 	else:
 		die_view.highlight_face(0, selected_face)
+	# Werkzeug in der Hand: ungeeignete Ziffern grau dimmen (der erste Paar-Klick
+	# bleibt violett).
+	if held_id != "":
+		var eligible := _eligible_faces()
+		for i in 6:
+			if i != selected_face and not eligible[i]:
+				die_view.tint_face(0, i, DIM_NUMBER_COLOR)
 
 # --- Bühne ----------------------------------------------------------------------
 
@@ -433,232 +467,477 @@ func _tile_box(bg: Color, border: Color) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.9))
 	return box
 
-# --- Seiten-Auswahl / Ätzungs-Anwendung ------------------------------------------
+# --- Werkzeug-Zustand ------------------------------------------------------------
 
-## Wählt eine Seite - oder liefert die zweite Seite einer laufenden Ätzung.
-func _on_face_clicked(_die_index: int, face_index: int) -> void:
-	if mode == Mode.AWAIT_SECOND_FACE:
-		_complete_two_step(face_index)
-		return
-	# Neue Auswahl - bricht eine offene Wertauswahl (Feingravur) mit ab.
-	selected_face = face_index
-	edges_selected = false
-	_refresh_after_selection()
+## true, solange eine Gravur in der Hand ist (Rechtsklick legt sie ab, siehe scene_root).
+func has_pending_action() -> bool:
+	return held_id != ""
 
-## Wählt die Kanten als Gravur-Ziel; im Zweitschritt sind sie kein Ziel.
-func _on_edges_clicked(_die_index: int = 0) -> void:
-	if mode == Mode.AWAIT_SECOND_FACE:
-		prompt_label.text = "Bitte eine SEITE anklicken - Kanten sind hier kein Ziel."
-		return
-	edges_selected = true
-	selected_face = -1
-	_refresh_after_selection()
+## true, während eine Kanten-Gravur gehalten wird - der Rahmen ist das Ziel.
+func edges_targeted() -> bool:
+	return held_id != "" and _targeting_of(held_id) == TARGET_EDGES
 
-## Gemeinsamer Nachlauf nach neuer Ziel-Auswahl: Grundmodus, offene
-## Wertauswahl schließen, Anzeige/Sperren anpassen.
-func _refresh_after_selection() -> void:
-	mode = Mode.SELECT
-	active_sigil_id = ""
-	_hide_value_picker()
-	_refresh_face_summary()
-	_update_prompt()
-	_refresh_sigil_enabled()
+## Ziel-Form einer Gravur.
+func _targeting_of(engraving_id: String) -> String:
+	if Engraving.is_edge_id(engraving_id):
+		return TARGET_EDGES
+	if DieMaterial.is_valid_id(engraving_id):
+		return TARGET_FACE
+	match engraving_id:
+		Engraving.CHISEL, Engraving.GRINDSTONE, Engraving.CONNECT_UP:
+			return TARGET_PAIR_DIRECTED
+		Engraving.DOUBLE_NOTCH, Engraving.AVERAGING:
+			return TARGET_PAIR
+		Engraving.MIRROR, Engraving.STRAIGHTEN:
+			return TARGET_WHOLE_DIE
+	return TARGET_FACE  # Kerbe, Feile, Transplantat, Blaupause
 
-## Klick auf einen Seiten-Chip. Im Zweitschritt wird möglichst eine ANDERE
-## Seite desselben Werts genommen, damit gleiche Werte nicht auf sich selbst verweisen.
-func _on_chip_clicked(value: int, face_index: int) -> void:
+## Bord-Klick: dieselbe Gravur legt ab, sonst nimmt sie (neue) auf.
+func _on_engraving_pressed(engraving_id: String) -> void:
 	if current_def == null:
 		return
-	if mode == Mode.AWAIT_SECOND_FACE:
-		var second := _face_index_for_value(value, selected_face)
-		if second != -1:
-			_on_face_clicked(0, second)
-		return
-	_on_face_clicked(0, face_index)
-
-## Index einer Seite mit dem Wert, möglichst ungleich exclude; -1, wenn der
-## Wert nicht vorkommt.
-func _face_index_for_value(value: int, exclude: int) -> int:
-	var fallback := -1
-	for i in current_def.faces.size():
-		if current_def.faces[i] == value:
-			if i != exclude:
-				return i
-			fallback = i
-	return fallback
-
-## Verteilt einen Sigil-Klick nach Art: Kanten-Sigille brauchen den
-## Kanten-Chip, Material-/Ätzungs-Sigille eine gewählte Seite. Nur im
-## Grundmodus - im Zweitschritt ist das Bord gesperrt.
-func _on_sigil_pressed(sigil_id: String) -> void:
-	if mode != Mode.SELECT:
-		return
-	if Sigil.is_edge_id(sigil_id):
-		_apply_edge_sigil(sigil_id)
-	elif selected_face == -1:
-		return
-	elif DieMaterial.is_valid_id(sigil_id):
-		_apply_material_sigil(sigil_id)
+	if held_id == engraving_id:
+		_put_down_tool()
 	else:
-		_apply_number_sigil(sigil_id)
+		_pick_up_tool(engraving_id)
 
-## Setzt das Kanten-Material (ein neues ersetzt ein vorhandenes).
-func _apply_edge_sigil(sigil_id: String) -> void:
-	if not edges_selected:
-		return
-	var material_id := sigil_id.trim_prefix(Sigil.EDGE_PREFIX)
-	if current_def.edge_material == material_id:
-		prompt_label.text = "Die Kanten tragen bereits %s." % DieMaterial.by_id(material_id).display_name
-		return
-	current_def.edge_material = material_id
-	_finish_apply(sigil_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
+func _pick_up_tool(engraving_id: String) -> void:
+	held_id = engraving_id
+	first_face = -1
+	selected_face = -1
+	mode = Mode.TARGETING
+	preview_active = false
+	_restyle_slots()
+	_refresh_face_summary()
+	_update_prompt()
 
-## Belegt die gewählte Seite; ein neues Material ersetzt ein vorhandenes.
-func _apply_material_sigil(sigil_id: String) -> void:
-	if current_def.materials[selected_face] == sigil_id:
-		prompt_label.text = "Diese Seite trägt bereits %s." % DieMaterial.by_id(sigil_id).display_name
-		return
-	current_def.materials[selected_face] = sigil_id
-	_finish_apply(sigil_id, "Material angebracht: %s" % DieMaterial.by_id(sigil_id).display_name)
+func _put_down_tool() -> void:
+	held_id = ""
+	first_face = -1
+	selected_face = -1
+	mode = Mode.IDLE
+	preview_active = false
+	_restyle_slots()
+	_refresh_face_summary()
+	_update_prompt()
 
-## Einstufige Ätzungen wirken sofort; mehrstufige gehen in den Wart-Modus.
-func _apply_number_sigil(sigil_id: String) -> void:
-	match sigil_id:
-		Sigil.OVERCOUNT_ENGRAVING:
-			EtchingEffects.overcount_engraving(current_def, selected_face)
-			_finish_apply(sigil_id, "Überzahl-Gravur: Seite +1")
-		Sigil.FINE_ENGRAVING:
-			_begin_value_pick(sigil_id)
-		Sigil.CHISEL:
-			_await_second_face(sigil_id, "Meißel: klicke die Quellseite (ihr Wert wird auf die gewählte Seite kopiert).")
-		Sigil.GRINDSTONE:
-			_await_second_face(sigil_id, "Schleifstein: gewählte Seite bekommt +1 – klicke jetzt die Seite für −1.")
-		Sigil.FILE_DOWN:
-			if not EtchingEffects.can_file_down(current_def, selected_face):
-				prompt_label.text = "Feile: diese Seite ist schon 1."
+## Bricht das laufende Werkzeug ab (Rechtsklick, siehe scene_root).
+func cancel_pending() -> void:
+	if held_id == "":
+		return
+	_put_down_tool()
+
+# --- Ziel-Klicks -----------------------------------------------------------------
+
+## Klick auf eine Seite (Chip oder 3D). Ohne Werkzeug = reine Inspektions-Auswahl.
+func _handle_face_target(face_index: int) -> void:
+	if current_def == null:
+		return
+	if held_id == "":
+		selected_face = face_index
+		_refresh_face_summary()
+		_update_prompt()
+		return
+	match _targeting_of(held_id):
+		TARGET_EDGES:
+			return  # Seiten sind kein Ziel einer Kanten-Gravur
+		TARGET_WHOLE_DIE:
+			_apply_whole_die()
+		TARGET_FACE:
+			if _face_eligible(face_index):
+				_apply_single_face(face_index)
+		TARGET_PAIR, TARGET_PAIR_DIRECTED:
+			if not _face_eligible(face_index):
 				return
-			EtchingEffects.file_down(current_def, selected_face)
-			_finish_apply(sigil_id, "Feile: Seite −1")
-		Sigil.DOUBLE_NOTCH:
-			_await_second_face(sigil_id, "Doppelkerbe: gewählte Seite +1 – klicke die zweite Seite (auch +1).")
-		Sigil.AVERAGING:
-			_await_second_face(sigil_id, "Mittelung: klicke die zweite Seite – beide werden ihr aufgerundeter Mittelwert.")
-		Sigil.MIRROR:
+			if first_face == -1:
+				first_face = face_index
+				selected_face = face_index  # erster Klick violett hervorgehoben
+				_clear_preview()
+				_refresh_face_summary()
+				_update_prompt()
+			else:
+				_apply_pair(first_face, face_index)
+
+## Klick auf den Kanten-Rahmen (Rahmen-Panel oder 3D): Ziel der Kanten- und
+## Ganz-Würfel-Gravuren. Ohne Werkzeug passiert nichts - ein Würfel hat nur
+## einen Rahmen, es gibt nichts zu wählen.
+func _handle_edge_target() -> void:
+	if current_def == null or held_id == "":
+		return
+	match _targeting_of(held_id):
+		TARGET_WHOLE_DIE:
+			_apply_whole_die()  # Klick am Rahmen zählt als Würfel-Klick
+		TARGET_EDGES:
+			var material_id := held_id.trim_prefix(Engraving.EDGE_PREFIX)
+			if current_def.edge_material != material_id:
+				current_def.edge_material = material_id
+				_finish_apply(held_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
+
+func _on_face_clicked(_die_index: int, face_index: int) -> void:
+	_handle_face_target(face_index)
+
+func _on_edges_clicked(_die_index: int = 0) -> void:
+	_handle_edge_target()
+
+func _on_chip_clicked(_value: int, face_index: int) -> void:
+	_handle_face_target(face_index)
+
+# --- Anwendung -------------------------------------------------------------------
+
+## Einseitige Gravuren + Material auf die geklickte Seite.
+func _apply_single_face(face_index: int) -> void:
+	if DieMaterial.is_valid_id(held_id):
+		current_def.materials[face_index] = held_id
+		_finish_apply(held_id, "Material angebracht: %s" % DieMaterial.by_id(held_id).display_name)
+		return
+	match held_id:
+		Engraving.NOTCH:
+			EtchingEffects.notch(current_def, face_index)
+			_finish_apply(held_id, "Kerbe: Seite +1")
+		Engraving.FILE_DOWN:
+			EtchingEffects.file_down(current_def, face_index)
+			_finish_apply(held_id, "Feile: Seite −1")
+		Engraving.TRANSPLANT:
+			EtchingEffects.transplant(current_def, face_index)
+			_finish_apply(held_id, "Transplantat: Seite auf Höchstwert gehoben")
+		Engraving.BLUEPRINT:
+			EtchingEffects.blueprint(current_def, face_index)
+			_finish_apply(held_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
+
+## Gerichtete/ungeordnete Paare: a = erster Klick (Quelle/−1), b = zweiter (Ziel/+1).
+func _apply_pair(a: int, b: int) -> void:
+	match held_id:
+		Engraving.CHISEL:
+			EtchingEffects.chisel(current_def, a, b)  # Quelle a -> Ziel b
+			_finish_apply(held_id, "Meißel: Seite kopiert")
+		Engraving.GRINDSTONE:
+			EtchingEffects.grindstone(current_def, a, b)  # −1 auf a, +1 auf b
+			_finish_apply(held_id, "Schleifstein: −1 / +1 angewandt")
+		Engraving.CONNECT_UP:
+			EtchingEffects.connect_up(current_def, a, b)  # Ziel b = Quellwert a + 1
+			_finish_apply(held_id, "Anschluss: Zielseite = Quellwert + 1")
+		Engraving.DOUBLE_NOTCH:
+			EtchingEffects.double_notch(current_def, a, b)
+			_finish_apply(held_id, "Doppelkerbe: zwei Seiten +1")
+		Engraving.AVERAGING:
+			EtchingEffects.averaging(current_def, a, b)
+			_finish_apply(held_id, "Mittelung: zwei Seiten gemittelt")
+
+## Ganz-Würfel-Gravuren (ein Klick auf den Würfel genügt).
+func _apply_whole_die() -> void:
+	match held_id:
+		Engraving.MIRROR:
 			EtchingEffects.mirror_die(current_def)
-			_finish_apply(sigil_id, "Spiegelung: Würfel invertiert")
-		Sigil.STRAIGHTEN:
+			_finish_apply(held_id, "Spiegelung: Würfel invertiert")
+		Engraving.STRAIGHTEN:
 			EtchingEffects.straighten(current_def)
-			_finish_apply(sigil_id, "Begradigung: ungerade Seiten +1")
-		Sigil.TRANSPLANT:
-			if not EtchingEffects.can_transplant(current_def, selected_face):
-				prompt_label.text = "Transplantat: diese Seite ist schon der Höchstwert."
-				return
-			EtchingEffects.transplant(current_def, selected_face)
-			_finish_apply(sigil_id, "Transplantat: Seite auf Höchstwert gehoben")
-		Sigil.CONNECT_UP:
-			_await_second_face(sigil_id, "Anschluss: klicke die Quellseite – die gewählte Seite wird ihr Wert + 1.")
-		Sigil.IMPRINT:
-			EtchingEffects.imprint(current_def, selected_face)
-			_finish_apply(sigil_id, "Abdruck: auf die zwei niedrigsten Seiten geprägt")
-		Sigil.BLUEPRINT:
-			EtchingEffects.blueprint(current_def, selected_face)
-			_finish_apply(sigil_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
+			_finish_apply(held_id, "Begradigung: ungerade Seiten +1")
 
-func _await_second_face(sigil_id: String, prompt: String) -> void:
-	mode = Mode.AWAIT_SECOND_FACE
-	active_sigil_id = sigil_id
-	prompt_label.text = prompt
-	_refresh_sigil_enabled()
-
-func _begin_value_pick(sigil_id: String) -> void:
-	mode = Mode.PICK_VALUE
-	active_sigil_id = sigil_id
-	_show_value_picker()
-	prompt_label.text = "Feingravur: Zielwert 1–12 wählen."
-	_refresh_sigil_enabled()
-
-func _on_value_pressed(value: int) -> void:
-	if mode != Mode.PICK_VALUE or selected_face == -1:
-		return
-	EtchingEffects.fine_engraving(current_def, selected_face, value)
-	_hide_value_picker()
-	_finish_apply(Sigil.FINE_ENGRAVING, "Feingravur: Seite = %d" % value)
-
-## Schließt eine mehrschrittige Ätzung mit der zweiten Seite ab.
-func _complete_two_step(second_face: int) -> void:
-	if second_face == selected_face:
-		prompt_label.text = "Bitte eine ANDERE Seite als die gewählte anklicken."
-		return
-	match active_sigil_id:
-		Sigil.CHISEL:
-			EtchingEffects.chisel(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
-			_finish_apply(active_sigil_id, "Meißel: Seite kopiert")
-		Sigil.GRINDSTONE:
-			if not EtchingEffects.can_grindstone_minus(current_def, second_face):
-				prompt_label.text = "Diese Seite ist schon 1 – wähle eine andere für −1."
-				return  # Wart-Modus bleibt, Sigil noch nicht verbraucht
-			EtchingEffects.grindstone(current_def, second_face, selected_face)  # −1=zweite, +1=gewählte
-			_finish_apply(active_sigil_id, "Schleifstein: +1 / −1 angewandt")
-		Sigil.DOUBLE_NOTCH:
-			EtchingEffects.double_notch(current_def, selected_face, second_face)
-			_finish_apply(active_sigil_id, "Doppelkerbe: zwei Seiten +1")
-		Sigil.AVERAGING:
-			EtchingEffects.averaging(current_def, selected_face, second_face)
-			_finish_apply(active_sigil_id, "Mittelung: zwei Seiten gemittelt")
-		Sigil.CONNECT_UP:
-			EtchingEffects.connect_up(current_def, second_face, selected_face)  # Quelle=zweite, Ziel=gewählte
-			_finish_apply(active_sigil_id, "Anschluss: gewählte Seite = Quellwert + 1")
-
-## Verbraucht den Sigil, aktualisiert die Anzeige und meldet changed/applied.
-## Die gewählte Seite bleibt gewählt (direkt weitergravieren).
-func _finish_apply(sigil_id: String, message: String) -> void:
+## Verbraucht die Gravur und meldet changed/applied. Das Werkzeug bleibt in der
+## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
+func _finish_apply(engraving_id: String, message: String) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht.
-		var is_etching := not DieMaterial.is_valid_id(sigil_id) and not Sigil.is_edge_id(sigil_id)
+		var is_etching := not DieMaterial.is_valid_id(engraving_id) and not Engraving.is_edge_id(engraving_id)
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
-			message += " Gravierstift: Sigil nicht verbraucht!"
+			message += " Gravierstift: Engraving nicht verbraucht!"
 		else:
-			run.consume_sigil(sigil_id)
-	mode = Mode.SELECT
-	active_sigil_id = ""
+			run.consume_engraving(engraving_id)
+	var keep: bool = int(_engraving_counts().get(engraving_id, 0)) > 0
+	held_id = engraving_id if keep else ""
+	first_face = -1
+	selected_face = -1
+	mode = Mode.TARGETING if keep else Mode.IDLE
+	preview_active = false
 	changed.emit()
-	applied.emit(sigil_id, _slot_center_px(sigil_id))
-	_build_sigil_board()  # Anzahl hat sich geändert
+	applied.emit(engraving_id, _slot_center_px(engraving_id))
+	_build_engraving_board()  # Anzahl hat sich geändert (ruft _restyle_slots)
 	_refresh_face_summary()
 	_rebuild_tray_grid()  # Augensumme kann sich geändert haben
-	prompt_label.text = "%s. Weiter gravieren oder Rechtsklick zum Schließen." % message
+	if keep:
+		prompt_label.text = "%s. Nochmal anwenden oder Rechtsklick: ablegen." % message
+	else:
+		prompt_label.text = "%s. Nächste Gravur wählen oder Rechtsklick zum Schließen." % message
 
-## Display-Pixel der Bord-Kachel eines Sigille (Quelle der Absorptions-Bahn);
+## Display-Pixel der Bord-Kachel einer Gravur (Quelle der Absorptions-Bahn);
 ## Panel-Mitte als Rückfall.
-func _slot_center_px(sigil_id: String) -> Vector2:
+func _slot_center_px(engraving_id: String) -> Vector2:
 	for entry in slot_entries:
-		if entry["id"] == sigil_id and is_instance_valid(entry["button"]):
+		if entry["id"] == engraving_id and is_instance_valid(entry["button"]):
 			return (entry["button"] as Control).get_global_rect().get_center()
 	return get_global_rect().get_center()
 
-## Bricht einen laufenden Zweitschritt/eine Wertauswahl ab (Rechtsklick,
-## siehe scene_root).
-func cancel_pending() -> void:
-	mode = Mode.SELECT
-	active_sigil_id = ""
-	_hide_value_picker()
-	_update_prompt()
-	_refresh_sigil_enabled()
+# --- Eignung ---------------------------------------------------------------------
+
+## Je Seite: gültiges Ziel der gehaltenen Gravur im aktuellen Schritt. Ohne
+## Werkzeug ist alles gültig (Inspektion).
+func _eligible_faces() -> Array[bool]:
+	var e: Array[bool] = []
+	e.resize(6)
+	if current_def == null or held_id == "":
+		e.fill(true)
+		return e
+	e.fill(false)
+	var faces := current_def.faces
+	match held_id:
+		Engraving.FILE_DOWN:
+			for i in 6: e[i] = faces[i] > EtchingEffects.MIN_FACE_VALUE
+		Engraving.TRANSPLANT:
+			var mx: int = faces.max()
+			for i in 6: e[i] = faces[i] < mx
+		Engraving.GRINDSTONE:
+			if first_face == -1:
+				for i in 6: e[i] = faces[i] > EtchingEffects.MIN_FACE_VALUE  # die −1-Seite
+			else:
+				for i in 6: e[i] = i != first_face
+		_:
+			match _targeting_of(held_id):
+				TARGET_EDGES:
+					pass  # keine Seite ist Ziel
+				TARGET_FACE:
+					if DieMaterial.is_valid_id(held_id):
+						for i in 6: e[i] = current_def.materials[i] != held_id
+					else:
+						e.fill(true)
+				TARGET_WHOLE_DIE:
+					e.fill(true)
+				TARGET_PAIR, TARGET_PAIR_DIRECTED:
+					if first_face == -1:
+						e.fill(true)
+					else:
+						for i in 6: e[i] = i != first_face
+	return e
+
+func _face_eligible(face_index: int) -> bool:
+	return _eligible_faces()[face_index]
+
+## Rahmenfarbe des Kanten-Rahmens: violett als Ziel einer gehaltenen Kanten-
+## Gravur (die den Rahmen ändern würde), gedimmt unter einem Seiten-Werkzeug,
+## sonst die Kanten-Materialfarbe (neutral: Kanten-Neon).
+func _edge_frame_border() -> Color:
+	var tint := DieMaterial.tint_for(current_def.edge_material)
+	var base := tint if tint != Color.WHITE else DieFaceDisplay.EDGE_NEON
+	if held_id == "":
+		return base
+	match _targeting_of(held_id):
+		TARGET_EDGES:
+			if current_def.edge_material != held_id.trim_prefix(Engraving.EDGE_PREFIX):
+				return RotatableDieView.SELECT_FACE_COLOR
+		TARGET_WHOLE_DIE:
+			return base  # Klick am Rahmen zählt als Würfel-Klick
+	return Color(base.r, base.g, base.b, 0.3)
+
+# --- Vorschau (Überfahren) -------------------------------------------------------
+
+func _on_face_hover(face_index: int) -> void:
+	_preview_face(face_index)
+
+func _on_face_hover_exit() -> void:
+	_clear_preview()
+
+func _on_die_face_hovered(_die_index: int, face_index: int) -> void:
+	if face_index == -1:
+		_clear_preview()
+	else:
+		_preview_face(face_index)
+
+## Vorschau des Ergebnisses, wenn die gehaltene Gravur hier landet.
+func _preview_face(face_index: int) -> void:
+	if held_id == "" or current_def == null:
+		return
+	var kind := _targeting_of(held_id)
+	if kind == TARGET_WHOLE_DIE:
+		var gw := _ghost_after(-1)
+		if gw != null:
+			_show_preview(gw.faces)
+		return
+	if kind == TARGET_FACE:
+		if DieMaterial.is_valid_id(held_id):
+			return  # Material ändert keine Augenzahl
+		if not _face_eligible(face_index):
+			return
+		var g := _ghost_after(face_index)
+		if g != null:
+			_show_preview(g.faces)
+		return
+	if kind == TARGET_PAIR or kind == TARGET_PAIR_DIRECTED:
+		if first_face == -1 or not _face_eligible(face_index):
+			return  # erst nach dem ersten Klick sinnvoll
+		var gp := _ghost_after(face_index)
+		if gp != null:
+			_show_preview(gp.faces)
+
+## Vorschau eines Ganz-Würfel-/Kanten-Werkzeugs beim Überfahren seines Bord-Slots.
+func _preview_slot_hover(engraving_id: String) -> void:
+	if current_def == null:
+		return
+	if held_id != "" and held_id != engraving_id:
+		return  # ein anderes Werkzeug ist in der Hand
+	if Engraving.is_edge_id(engraving_id):
+		_preview_edge_frame(engraving_id)
+		return
+	var g := current_def.instantiate()
+	match engraving_id:
+		Engraving.MIRROR:
+			EtchingEffects.mirror_die(g)
+		Engraving.STRAIGHTEN:
+			EtchingEffects.straighten(g)
+		_:
+			return
+	_show_preview(g.faces)
+
+# --- Kanten-Rahmen ---------------------------------------------------------------
+
+## Klick in den Rahmen (auch zwischen/unter den Chips - bei gehaltener Kanten-
+## Gravur reichen die Chips durch).
+func _on_edge_frame_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_handle_edge_target()
+
+## Überfahren des Rahmens: Material-Tooltip + Vorschau der Kanten-Veredelung.
+func _on_edge_frame_hover() -> void:
+	if current_def == null:
+		return
+	if DieMaterial.is_valid_id(current_def.edge_material):
+		var edge := DieMaterial.by_id(current_def.edge_material)
+		_show_face_tooltip(edge_frame, "%s-Kanten" % edge.display_name, edge.edge_description)
+	if edges_targeted():
+		_preview_edge_frame(held_id)
+
+func _on_edge_frame_hover_exit() -> void:
+	_hide_face_tooltip()
+	_clear_preview()
+
+## Vorschau der Kanten-Veredelung: der Rahmen nimmt die neue Materialfarbe an.
+func _preview_edge_frame(engraving_id: String) -> void:
+	if current_def == null or edge_frame == null or not is_instance_valid(edge_frame):
+		return
+	var material_id := engraving_id.trim_prefix(Engraving.EDGE_PREFIX)
+	if current_def.edge_material == material_id:
+		return  # nichts würde sich ändern
+	preview_active = true
+	edge_frame.add_theme_stylebox_override("panel", _edge_frame_box(DieMaterial.tint_for(material_id)))
+
+## Klon nach Anwendung der gehaltenen Gravur (hover_face -1 bei Ganz-Würfel);
+## null, wenn hier nichts passiert. Nutzt die echten EtchingEffects (kein Duplikat).
+func _ghost_after(hover_face: int) -> DieDefinition:
+	var g := current_def.instantiate()
+	match _targeting_of(held_id):
+		TARGET_FACE:
+			match held_id:
+				Engraving.NOTCH: EtchingEffects.notch(g, hover_face)
+				Engraving.FILE_DOWN: EtchingEffects.file_down(g, hover_face)
+				Engraving.TRANSPLANT: EtchingEffects.transplant(g, hover_face)
+				Engraving.BLUEPRINT: EtchingEffects.blueprint(g, hover_face)
+				_: return null
+		TARGET_PAIR, TARGET_PAIR_DIRECTED:
+			match held_id:
+				Engraving.CHISEL: EtchingEffects.chisel(g, first_face, hover_face)
+				Engraving.GRINDSTONE: EtchingEffects.grindstone(g, first_face, hover_face)
+				Engraving.CONNECT_UP: EtchingEffects.connect_up(g, first_face, hover_face)
+				Engraving.DOUBLE_NOTCH: EtchingEffects.double_notch(g, first_face, hover_face)
+				Engraving.AVERAGING: EtchingEffects.averaging(g, first_face, hover_face)
+		TARGET_WHOLE_DIE:
+			match held_id:
+				Engraving.MIRROR: EtchingEffects.mirror_die(g)
+				Engraving.STRAIGHTEN: EtchingEffects.straighten(g)
+		_:
+			return null
+	return g
+
+## Zeigt das Ergebnis in den Chips ("3→5", grün/rot), ohne den echten Würfel
+## zu verändern.
+func _show_preview(new_faces: Array) -> void:
+	if current_def == null or face_chips.size() < 6:
+		return
+	preview_active = true
+	for i in 6:
+		var chip: Button = face_chips[i]
+		var old_v: int = current_def.faces[i]
+		var new_v: int = int(new_faces[i])
+		if chip == null or not is_instance_valid(chip):
+			continue
+		if new_v != old_v:
+			chip.text = "%d→%d" % [old_v, new_v]
+			chip.add_theme_font_size_override("font_size", maxi(8, int(u * TRAY_TILE * 0.30)))
+			var col := PREVIEW_UP if new_v > old_v else PREVIEW_DOWN
+			for st in ["font_color", "font_hover_color", "font_pressed_color"]:
+				chip.add_theme_color_override(st, col)
+
+## Stellt Chip-Texte/Rahmenfarbe aus current_def wieder her (Ende der Vorschau).
+func _clear_preview() -> void:
+	if not preview_active:
+		return
+	preview_active = false
+	_restore_face_chips()
+	if edge_frame != null and is_instance_valid(edge_frame) and current_def != null:
+		edge_frame.add_theme_stylebox_override("panel", _edge_frame_box(_edge_frame_border()))
+
+func _restore_face_chips() -> void:
+	if current_def == null:
+		return
+	for i in mini(6, face_chips.size()):
+		var chip: Button = face_chips[i]
+		if chip == null or not is_instance_valid(chip):
+			continue
+		chip.text = str(current_def.faces[i])
+		chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
+		var col: Color = face_chip_font[i] if i < face_chip_font.size() else CasinoStyle.INK
+		for st in ["font_color", "font_hover_color", "font_pressed_color"]:
+			chip.add_theme_color_override(st, col)
 
 func _update_prompt() -> void:
-	if edges_selected:
-		prompt_label.text = "Kanten gewählt. Wähle ein Kanten-Material."
-	elif selected_face == -1:
-		prompt_label.text = ""
+	if held_id != "":
+		prompt_label.text = _held_prompt()
+		return
+	if selected_face != -1:
+		prompt_label.text = "Seite gewählt (Wert %d)." % current_def.faces[selected_face]
 	else:
-		prompt_label.text = "Seite gewählt (Wert %d). Wähle eine Ätzung." % current_def.faces[selected_face]
+		prompt_label.text = "Wähle eine Gravur vom Bord."
+
+## Führungstext der gehaltenen Gravur (Schritt-abhängig bei Paaren).
+func _held_prompt() -> String:
+	var second := first_face != -1
+	match held_id:
+		Engraving.NOTCH:
+			return "Kerbe: klicke eine Seite (+1). Rechtsklick: ablegen."
+		Engraving.FILE_DOWN:
+			return "Feile: klicke eine Seite (−1). Rechtsklick: ablegen."
+		Engraving.TRANSPLANT:
+			return "Transplantat: klicke eine Seite – sie wird zum Höchstwert. Rechtsklick: ablegen."
+		Engraving.BLUEPRINT:
+			return "Blaupause: klicke die Vorlage-Seite (alle Seiten erhalten ihren Wert)."
+		Engraving.CHISEL:
+			return "Meißel: klicke die Zielseite (erhält den Quellwert)." if second \
+				else "Meißel: klicke die Quellseite. Rechtsklick: ablegen."
+		Engraving.GRINDSTONE:
+			return "Schleifstein: jetzt die Seite für +1." if second \
+				else "Schleifstein: klicke die Seite für −1. Rechtsklick: ablegen."
+		Engraving.CONNECT_UP:
+			return "Anschluss: klicke die Zielseite (wird Quellwert + 1)." if second \
+				else "Anschluss: klicke die Quellseite. Rechtsklick: ablegen."
+		Engraving.DOUBLE_NOTCH:
+			return "Doppelkerbe: klicke die zweite Seite (+1)." if second \
+				else "Doppelkerbe: klicke die erste Seite (+1). Rechtsklick: ablegen."
+		Engraving.AVERAGING:
+			return "Mittelung: klicke die zweite Seite." if second \
+				else "Mittelung: klicke die erste Seite. Rechtsklick: ablegen."
+		Engraving.MIRROR:
+			return "Spiegelung: klicke den Würfel."
+		Engraving.STRAIGHTEN:
+			return "Begradigung: klicke den Würfel."
+	if Engraving.is_edge_id(held_id):
+		return "%s-Kanten: klicke den Rahmen um die Seiten." % DieMaterial.by_id(held_id.trim_prefix(Engraving.EDGE_PREFIX)).display_name
+	if DieMaterial.is_valid_id(held_id):
+		return "%s: klicke eine Seite." % DieMaterial.by_id(held_id).display_name
+	return "Klicke ein Ziel."
 
 # --- Seiten-Übersicht -------------------------------------------------------------
 
 ## Baut die Seiten-Übersicht neu: je physischer Seite ein Chip (Wert +
-## Material-Tönung) im 3×2-Raster, nach Wert sortiert; darunter Kanten-Chip
-## und Augensumme. Klick wählt genau diese Seite.
+## Material-Tönung) im 3×2-Raster in der eingefrorenen face_order, eingefasst
+## vom KANTEN-Rahmen in der Kanten-Materialfarbe. Klick wählt genau diese Seite.
 func _refresh_face_summary() -> void:
 	if summary_list == null:
 		return
@@ -668,70 +947,97 @@ func _refresh_face_summary() -> void:
 	if current_def == null:
 		return
 
+	edge_frame = PanelContainer.new()
+	edge_frame.name = "EdgeFrame"
+	edge_frame.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	edge_frame.add_theme_stylebox_override("panel", _edge_frame_box(_edge_frame_border()))
+	edge_frame.gui_input.connect(_on_edge_frame_input)
+	edge_frame.mouse_entered.connect(_on_edge_frame_hover)
+	edge_frame.mouse_exited.connect(_on_edge_frame_hover_exit)
+	summary_list.add_child(edge_frame)
+
 	var face_grid := GridContainer.new()
 	face_grid.columns = 3
+	face_grid.mouse_filter = Control.MOUSE_FILTER_PASS  # Klicks erreichen den Rahmen
 	face_grid.add_theme_constant_override("h_separation", int(u * 0.8))
 	face_grid.add_theme_constant_override("v_separation", int(u * 0.8))
-	summary_list.add_child(face_grid)
-	var total := 0
-	for face_index in _faces_sorted_by_value(current_def):
+	edge_frame.add_child(face_grid)
+	# Chip-Referenzen nach physischem Index für Eignungs-Dimmung + Vorschau.
+	face_chips.clear()
+	face_chips.resize(6)
+	face_chip_fills.clear()
+	face_chip_fills.resize(6)
+	face_chip_font.clear()
+	face_chip_font.resize(6)
+	var eligible := _eligible_faces()
+	if face_order.size() != current_def.faces.size():
+		face_order = _faces_sorted_by_value(current_def)  # Rückfall (Tests/Direktzugriff)
+	for face_index in face_order:
 		var value: int = current_def.faces[face_index]
-		total += value
-		face_grid.add_child(_face_chip(value, _material_of(current_def, face_index), \
-			selected_face == face_index, face_index))
-
-	var edge_group := HBoxContainer.new()
-	edge_group.add_theme_constant_override("separation", int(u * 0.4))
-	edge_group.add_child(_edge_chip(edges_selected))
-	var edge_label := _label(DieMaterial.by_id(current_def.edge_material).display_name \
-		if DieMaterial.is_valid_id(current_def.edge_material) else "ohne", u * 2.0, NEON_MUTED)
-	edge_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	edge_group.add_child(edge_label)
-	summary_list.add_child(edge_group)
-
-	summary_sum_label = _label("Augensumme: %d" % total, u * 2.2, NEON_MUTED)
-	summary_list.add_child(summary_sum_label)
+		var material_id := _material_of(current_def, face_index)
+		# Gedimmt nur, wenn ein Werkzeug hält, die Seite kein Ziel und nicht der
+		# erste Paar-Klick ist.
+		var ok := held_id == "" or eligible[face_index] or face_index == first_face
+		var chip := _face_chip(value, material_id, selected_face == face_index, face_index, ok)
+		face_chips[face_index] = chip
+		face_chip_fills[face_index] = DieMaterial.tint_for(material_id)
+		face_chip_font[face_index] = chip.get_theme_color("font_color")
+		face_grid.add_child(chip)
 
 	_sync_die_view()
 
 ## Anklickbarer Seiten-Chip im Look der echten Würfel; highlighted = violetter
-## Auswahl-Look. Material-Tooltip handgesteuert (siehe face_tooltip).
-func _face_chip(value: int, material_id: String, highlighted: bool, face_index: int) -> Button:
+## Auswahl-Look, eligible = gültiges Ziel (sonst gedimmt/gesperrt). Material-
+## Tooltip + Vorschau-Hover handgesteuert (siehe face_tooltip).
+func _face_chip(value: int, material_id: String, highlighted: bool, face_index: int, eligible: bool) -> Button:
 	var chip := Button.new()
 	chip.text = str(value)
 	chip.custom_minimum_size = Vector2.ONE * u * TRAY_TILE
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
-	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted)
+	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted, eligible)
+	chip.disabled = held_id != "" and not eligible and not highlighted
+	# Bei gehaltener Kanten-Gravur reichen die Chips den Klick an den Rahmen
+	# durch - der ganze eingefasste Bereich ist dann EIN Ziel.
+	if edges_targeted():
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if DieMaterial.is_valid_id(material_id):
 		var material := DieMaterial.by_id(material_id)
 		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, material.display_name, material.description))
 		chip.mouse_exited.connect(_hide_face_tooltip)
+	# Vorschau beim Überfahren (alle Seiten) + Ziel-Klick.
+	chip.mouse_entered.connect(_on_face_hover.bind(face_index))
+	chip.mouse_exited.connect(_on_face_hover_exit)
 	chip.pressed.connect(_on_chip_clicked.bind(value, face_index))
 	return chip
 
-## Der "Kanten"-Chip: gefüllt mit dem Tint des Kanten-Materials, hervorgehoben,
-## wenn die Kanten das Gravur-Ziel sind.
-func _edge_chip(highlighted: bool) -> Button:
-	var chip := Button.new()
-	chip.text = "Kanten"
-	chip.custom_minimum_size = Vector2(u * TRAY_TILE * 1.7, u * TRAY_TILE)
-	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.34))
-	var material_tint := DieMaterial.tint_for(current_def.edge_material)
-	var base := material_tint if material_tint != Color.WHITE else DieFaceDisplay.EDGE_NEON
-	_style_chip(chip, base, highlighted)
-	if DieMaterial.is_valid_id(current_def.edge_material):
-		var edge := DieMaterial.by_id(current_def.edge_material)
-		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, edge.display_name, edge.edge_description))
-		chip.mouse_exited.connect(_hide_face_tooltip)
-	chip.pressed.connect(_on_edges_clicked)
-	return chip
+## Stylebox des Kanten-Rahmens: dicker Rand + hauchdünne Füllung in border.
+func _edge_frame_box(border: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(border.r, border.g, border.b, 0.10)
+	box.border_color = border
+	box.set_border_width_all(maxi(2, int(u * 0.7)))
+	box.set_corner_radius_all(int(u * 1.6))
+	box.set_content_margin_all(int(u * 1.1))
+	return box
 
 ## Gemeinsamer Chip-Look: Füllung bleibt die Material-/Kantenfarbe; gewählt
 ## leuchten Ziffer + Rahmen in der Auswahl-Farbe (mit dunklem Umriss, damit
-## das Violett auf hellen Seiten lesbar bleibt).
-func _style_chip(chip: Button, base_fill: Color, highlighted: bool) -> void:
+## das Violett auf hellen Seiten lesbar bleibt). Ungeeignete Chips dimmen aus.
+func _style_chip(chip: Button, base_fill: Color, highlighted: bool, eligible: bool = true) -> void:
 	chip.focus_mode = Control.FOCUS_NONE
 	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if not eligible and not highlighted:
+		var dim_fill := Color(base_fill.r, base_fill.g, base_fill.b, base_fill.a * DIM_CHIP_ALPHA)
+		var muted := Color(NEON_MUTED.r, NEON_MUTED.g, NEON_MUTED.b, 0.5)
+		for state in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
+			chip.add_theme_color_override(state, muted)
+		chip.add_theme_color_override("font_outline_color", CasinoStyle.INK)
+		chip.add_theme_constant_override("outline_size", 0)
+		var dim_box := _chip_box(dim_fill, CHIP_BORDER.darkened(0.35), maxi(2, int(u * 0.2)))
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			chip.add_theme_stylebox_override(state, dim_box)
+		chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		return
 	var font_color := RotatableDieView.SELECT_FACE_COLOR if highlighted else CasinoStyle.INK
 	for state in ["font_color", "font_hover_color", "font_pressed_color"]:
 		chip.add_theme_color_override(state, font_color)
@@ -754,10 +1060,10 @@ func _chip_box(fill: Color, border: Color, border_width: int) -> StyleBoxFlat:
 
 # --- Gravur-Bord -------------------------------------------------------------------
 
-## Baut das Bord neu: JEDER Sigil-Archetyp hat seinen festen Platz (nach
+## Baut das Bord neu: JEDER Engraving-Archetyp hat seinen festen Platz (nach
 ## Seltenheit sortiert, getrennt nach Ätzungen/Materialien/Kanten). Besitz
-## liegt als Sigil-Stapel darauf, nicht Besessenes als Schatten.
-func _build_sigil_board() -> void:
+## liegt als Engraving-Stapel darauf, nicht Besessenes als Schatten.
+func _build_engraving_board() -> void:
 	if board_box == null:
 		return
 	_hide_face_tooltip()  # die alten Slots (mit Hover-Verbindungen) fallen weg
@@ -765,34 +1071,35 @@ func _build_sigil_board() -> void:
 	for child in board_box.get_children():
 		child.queue_free()
 
-	var counts := _sigil_counts()
-	var etchings: Array[Sigil] = []
-	var materials: Array[Sigil] = []
-	var edges: Array[Sigil] = []
-	for archetype in Sigil.all():
+	var counts := _engraving_counts()
+	var etchings: Array[Engraving] = []
+	var materials: Array[Engraving] = []
+	var edges: Array[Engraving] = []
+	for archetype in Engraving.all():
 		match archetype.category:
-			Sigil.CATEGORY_NUMBER:
+			Engraving.CATEGORY_NUMBER:
 				etchings.append(archetype)
-			Sigil.CATEGORY_MATERIAL:
+			Engraving.CATEGORY_MATERIAL:
 				materials.append(archetype)
-			Sigil.CATEGORY_DICE:
+			Engraving.CATEGORY_DICE:
 				edges.append(archetype)
 	_add_board_section("Zahlen", _sorted_by_rarity(etchings), counts)
 	_add_board_section("Materialien", _sorted_by_rarity(materials), counts)
 	_add_board_section("Würfel", _sorted_by_rarity(edges), counts)
-	_refresh_sigil_enabled()
+	_refresh_engraving_enabled()
+	_restyle_slots()
 
 ## Nach Seltenheit sortiert; innerhalb einer Seltenheit bleibt die kanonische
 ## Reihenfolge, damit die Plätze stabil liegen.
-func _sorted_by_rarity(archetypes: Array[Sigil]) -> Array[Sigil]:
-	var sorted: Array[Sigil] = []
-	for rarity in [Sigil.Rarity.COMMON, Sigil.Rarity.UNCOMMON, Sigil.Rarity.RARE]:
+func _sorted_by_rarity(archetypes: Array[Engraving]) -> Array[Engraving]:
+	var sorted: Array[Engraving] = []
+	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE]:
 		for archetype in archetypes:
 			if archetype.rarity == rarity:
 				sorted.append(archetype)
 	return sorted
 
-func _add_board_section(title: String, archetypes: Array[Sigil], counts: Dictionary) -> void:
+func _add_board_section(title: String, archetypes: Array[Engraving], counts: Dictionary) -> void:
 	var header := _label(title, u * 2.0, NEON_CYAN)
 	board_box.add_child(header)
 
@@ -804,17 +1111,17 @@ func _add_board_section(title: String, archetypes: Array[Sigil], counts: Diction
 
 	for archetype in archetypes:
 		var count: int = counts.get(archetype.id, 0)
-		var slot := _sigil_slot(archetype, count)
+		var slot := _engraving_slot(archetype, count)
 		grid.add_child(slot)
 		slot_entries.append({"button": slot, "id": archetype.id, "count": count})
 
 func _tile_size() -> Vector2:
 	return Vector2(u * 6.0, u * 5.0)
 
-## Ein Bord-Platz: Button als "Mulde", darin der Sigil als Kachel - bei
+## Ein Bord-Platz: Button als "Mulde", darin der Engraving als Kachel - bei
 ## Mehrfachbesitz als versetzter Stapel plus ×Anzahl; ohne Besitz nur der
 ## ausgegraute Schatten. Klick = anwenden.
-func _sigil_slot(archetype: Sigil, count: int) -> Button:
+func _engraving_slot(archetype: Engraving, count: int) -> Button:
 	var slot := Button.new()
 	var pad := u * 0.35
 	var stack_offset := Vector2.ONE * u * 0.4
@@ -824,7 +1131,13 @@ func _sigil_slot(archetype: Sigil, count: int) -> Button:
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	slot.mouse_entered.connect(_show_face_tooltip.bind(slot, archetype.display_name, archetype.description))
 	slot.mouse_exited.connect(_hide_face_tooltip)
-	slot.pressed.connect(_on_sigil_pressed.bind(archetype.id))
+	# Ganz-Würfel-/Kanten-Gravuren zeigen ihr Ergebnis schon beim Überfahren
+	# des Slots (Seitenwerte bzw. Rahmenfarbe).
+	var kind := _targeting_of(archetype.id)
+	if kind == TARGET_WHOLE_DIE or kind == TARGET_EDGES:
+		slot.mouse_entered.connect(_preview_slot_hover.bind(archetype.id))
+		slot.mouse_exited.connect(_on_face_hover_exit)
+	slot.pressed.connect(_on_engraving_pressed.bind(archetype.id))
 	slot.add_theme_stylebox_override("normal", _slot_box(Color(0.545, 0.914, 0.992, 0.35)))
 	slot.add_theme_stylebox_override("hover", _slot_box(NEON_GOLD))
 	slot.add_theme_stylebox_override("pressed", _slot_box(NEON_GOLD.darkened(0.25)))
@@ -834,7 +1147,7 @@ func _sigil_slot(archetype: Sigil, count: int) -> Button:
 	# Stapel von hinten nach vorn (tiefere Exemplare zuerst).
 	var depth: int = clampi(count, 1, STACK_MAX_VISIBLE)
 	for i in range(depth - 1, -1, -1):
-		var tile := _sigil_tile(archetype, count > 0)
+		var tile := _engraving_tile(archetype, count > 0)
 		tile.position = Vector2.ONE * pad + stack_offset * float(i)
 		tile.size = _tile_size()
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -857,12 +1170,12 @@ func _sigil_slot(archetype: Sigil, count: int) -> Button:
 		slot.add_child(badge)
 	return slot
 
-## Sigil-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
+## Engraving-Kachel: prozedurales Lichtgravur-Siegel; owned = besessen (sonst
 ## unbeleuchtete Gravur-Rille als "noch nicht bekommen").
-func _sigil_tile(archetype: Sigil, owned: bool) -> Control:
-	var sigil := SigilRenderer.for_sigil(archetype)
-	sigil.owned = owned
-	return sigil
+func _engraving_tile(archetype: Engraving, owned: bool) -> Control:
+	var engraving := EngravingRenderer.for_engraving(archetype)
+	engraving.owned = owned
+	return engraving
 
 func _slot_box(border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -872,34 +1185,36 @@ func _slot_box(border: Color) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.7))
 	return box
 
-## Sigil-Bestand nach id (id -> Anzahl). Testmodus: jeder Archetyp gilt als
+## Engraving-Bestand nach id (id -> Anzahl). Testmodus: jeder Archetyp gilt als
 ## im Bestand und wird nicht verbraucht.
-func _sigil_counts() -> Dictionary:
+func _engraving_counts() -> Dictionary:
 	var counts := {}
 	if run == null:
 		return counts
-	if run.unlimited_sigils:
-		for archetype in Sigil.all():
+	if run.unlimited_engravings:
+		for archetype in Engraving.all():
 			counts[archetype.id] = 1
 		return counts
-	for sigil in run.owned_sigils:
-		counts[sigil.id] = counts.get(sigil.id, 0) + 1
+	for engraving in run.owned_engravings:
+		counts[engraving.id] = counts.get(engraving.id, 0) + 1
 	return counts
 
-## Sperrt Bord-Slots ohne passendes Ziel, während eines Zweitschritts oder
-## bei leerem Platz.
-func _refresh_sigil_enabled() -> void:
+## Sperrt nur unbesessene Plätze - im Werkzeug-zuerst-Modell ist das Bord immer
+## bedienbar (Auswahl folgt erst dem Aufnehmen).
+func _refresh_engraving_enabled() -> void:
 	for entry in slot_entries:
-		var is_edge: bool = Sigil.is_edge_id(entry["id"])
-		var has_target: bool = edges_selected if is_edge else selected_face != -1
-		entry["button"].disabled = entry["count"] == 0 or mode != Mode.SELECT or not has_target
+		entry["button"].disabled = entry["count"] == 0
 
-func _show_value_picker() -> void:
-	value_row.visible = true
-
-func _hide_value_picker() -> void:
-	if value_row != null:
-		value_row.visible = false
+## Hebt den Platz der gehaltenen Gravur hervor (goldener Rahmen); alle anderen
+## normal.
+func _restyle_slots() -> void:
+	for entry in slot_entries:
+		var slot: Button = entry["button"]
+		if not is_instance_valid(slot):
+			continue
+		var is_held: bool = held_id != "" and entry["id"] == held_id
+		slot.add_theme_stylebox_override("normal",
+			_slot_box(NEON_GOLD if is_held else Color(0.545, 0.914, 0.992, 0.35)))
 
 # --- Neon-Bausteine ----------------------------------------------------------------
 

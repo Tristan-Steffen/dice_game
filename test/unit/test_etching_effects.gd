@@ -53,36 +53,17 @@ func test_can_grindstone_minus_respects_floor():
 	assert_false(EtchingEffects.can_grindstone_minus(d, 0), "eine 1 darf nicht auf 0")
 	assert_true(EtchingEffects.can_grindstone_minus(d, 1), "eine 2 darf auf 1")
 
-# --- Feingravur --------------------------------------------------------------
+# --- Kerbe -------------------------------------------------------------------
 
-func test_fine_engraving_sets_chosen_value():
+func test_notch_increments():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.fine_engraving(d, 2, 6)
-	assert_eq(d.faces[2], 6)
-
-func test_fine_engraving_can_set_above_six():
-	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.fine_engraving(d, 0, 11)
-	assert_eq(d.faces[0], 11, "Feingravur reicht jetzt bis 12")
-
-func test_engraving_value_bounds():
-	assert_true(EtchingEffects.is_valid_engraving_value(1))
-	assert_true(EtchingEffects.is_valid_engraving_value(7), "über 6 ist jetzt gültig")
-	assert_true(EtchingEffects.is_valid_engraving_value(12))
-	assert_false(EtchingEffects.is_valid_engraving_value(0))
-	assert_false(EtchingEffects.is_valid_engraving_value(13))
-
-# --- Überzahl-Gravur ---------------------------------------------------------
-
-func test_overcount_engraving_increments():
-	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.overcount_engraving(d, 0)
+	EtchingEffects.notch(d, 0)
 	assert_eq(d.faces[0], 2)
 
-func test_overcount_engraving_may_exceed_six():
+func test_notch_may_exceed_six():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.overcount_engraving(d, 5)  # 6 -> 7
-	assert_eq(d.faces[5], 7, "Überzahl: darf über 6 hinaus")
+	EtchingEffects.notch(d, 5)  # 6 -> 7
+	assert_eq(d.faces[5], 7, "Kerbe: darf über 6 hinaus")
 
 # --- Feile -------------------------------------------------------------------
 
@@ -146,22 +127,6 @@ func test_mirror_uses_actual_min_and_max():
 	var d := _die([2, 2, 3, 3, 4, 4])  # Min 2, Max 4 -> Wert -> 6 - Wert
 	EtchingEffects.mirror_die(d)
 	assert_eq(d.faces, [4, 4, 3, 3, 2, 2])
-
-# --- Abdruck -----------------------------------------------------------------
-
-func test_imprint_stamps_value_onto_two_lowest_others():
-	# Gewählt Index 0 (=5); niedrigste ANDERE Seiten sind Index 1 (1) und Index 2 (2).
-	var d := _die([5, 1, 2, 3, 4, 6])
-	EtchingEffects.imprint(d, 0)
-	assert_eq(d.faces, [5, 5, 5, 3, 4, 6])
-	assert_eq(d.faces[0], 5, "Quelle bleibt")
-
-func test_imprint_ignores_the_source_face_when_it_is_lowest():
-	# Quelle selbst ist der kleinste Wert - sie darf nicht als eines der beiden
-	# Ziele gelten; geprägt werden die zwei kleinsten der ÜBRIGEN Seiten.
-	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.imprint(d, 0)  # Quelle 1; zwei niedrigste andere: 2 (Idx1), 3 (Idx2)
-	assert_eq(d.faces, [1, 1, 1, 4, 5, 6])
 
 # --- Begradigung -------------------------------------------------------------
 

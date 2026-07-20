@@ -291,9 +291,9 @@ func test_round_start_charms_grant_their_gifts():
 	run.gravierstift_used_this_round = true
 	run.apply_round_start_charms()
 	assert_false(run.gravierstift_used_this_round, "Gravierstift-Marke zurückgesetzt")
-	assert_eq(run.owned_sigils.size(), 3, "Frankiermaschine schenkt drei Sigille")
-	for sigil in run.owned_sigils:
-		assert_eq(sigil.category, Sigil.CATEGORY_NUMBER)
+	assert_eq(run.owned_engravings.size(), 3, "Frankiermaschine schenkt drei Gravuren")
+	for engraving in run.owned_engravings:
+		assert_eq(engraving.category, Engraving.CATEGORY_NUMBER)
 
 func test_jewelry_box_upgrades_unused_dice_at_payout():
 	var run := GameRun.new_run()

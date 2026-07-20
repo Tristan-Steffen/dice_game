@@ -17,7 +17,7 @@ func _offers() -> Array[SideBet]:
 	return SideBet.roll_offers(SideBetPanel.OFFER_COUNT)
 
 ## Deterministische Geld-Auslage (index 0 = Geld-Einsatz), damit die Setz-Tests
-## nicht an einer zufällig gezogenen Sigill-Wette scheitern.
+## nicht an einer zufällig gezogenen Gravur-Wette scheitern.
 func _money_offers() -> Array[SideBet]:
 	var bets: Array[SideBet] = []
 	for id in ["two_pair", "big_hand", "economist"]:
@@ -40,16 +40,16 @@ func test_place_bet_deducts_and_registers():
 	assert_eq(run.active_side_bets.size(), 1, "Wette registriert")
 	assert_true(panel.placed[0])
 
-func test_place_sigil_stake_bet_consumes_sigil():
-	run.grant_sigil(Sigil.chisel())
+func test_place_engraving_stake_bet_consumes_engraving():
+	run.grant_engraving(Engraving.chisel())
 	var pawn: Array[SideBet] = []
 	for t in SideBet.TEMPLATES:
-		if t["id"] == "pawn":  # 1 Sigill Einsatz
+		if t["id"] == "pawn":  # 1 Gravur Einsatz
 			pawn.append(SideBet._from_template(t))
 	panel.open_betting(pawn)
 	panel._on_bet_pressed(0)
-	assert_eq(run.owned_sigils.size(), 0, "Sigill als Einsatz geopfert")
-	assert_eq(run.active_side_bets.size(), 1, "Sigill-Wette registriert")
+	assert_eq(run.owned_engravings.size(), 0, "Gravur als Einsatz geopfert")
+	assert_eq(run.active_side_bets.size(), 1, "Gravur-Wette registriert")
 
 func test_cannot_place_twice():
 	panel.open_betting(_money_offers())

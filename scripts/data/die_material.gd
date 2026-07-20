@@ -2,7 +2,7 @@ class_name DieMaterial
 extends Resource
 ## Datensatz eines Materials (Veredelung einer Würfelseite bzw. der Kanten).
 ## Anzeige-Infos hier, Wirkung löst MaterialEffects über die id auf; die
-## Sigill-id der Material-Sigille IST die Material-id.
+## Gravur-id der Material-Gravuren IST die Material-id.
 
 # --- Material-ids (Single Source of Truth) ---
 const RUBY := "ruby"          # +4 Mult

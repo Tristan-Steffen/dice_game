@@ -88,12 +88,12 @@ func test_cheap_flipping_at_penthouse() -> void:
 
 func test_shop_slots_scale_with_level() -> void:
 	var run := _run(9999)
-	# Stufe 1: wenige, große Angebote (2 Charms / 1 Würfel / 2 Chips = 1 Übertaktung + 1 Sigill).
+	# Stufe 1: wenige, große Angebote (2 Charms / 1 Würfel / 2 Chips = 1 Übertaktung + 1 Gravur).
 	assert_eq(run.shop_charm_slots(), 2)
 	assert_eq(run.shop_dice_slots(), 1)
 	assert_eq(run.shop_chip_slots(), 2)
 	assert_eq(run.shop_overclock_slots(), 1)
-	assert_eq(run.shop_sigil_slots(), 1)
+	assert_eq(run.shop_engraving_slots(), 1)
 	run.upgrade_hub()  # 2 Spielecke: mehr Chips, aber noch kein 3. Bündel
 	assert_eq(run.shop_chip_slots(), 3)
 	assert_eq(run.shop_dice_slots(), 1)
@@ -107,13 +107,13 @@ func test_shop_slots_scale_with_level() -> void:
 	assert_eq(run.shop_dice_slots(), 3)
 	assert_eq(run.shop_chip_slots(), 8)
 	assert_eq(run.shop_overclock_slots(), 2)
-	assert_eq(run.shop_sigil_slots(), 6)
+	assert_eq(run.shop_engraving_slots(), 6)
 	for i in 3:
 		run.upgrade_hub()  # -> 10 High Roller: voller Laden
 	assert_eq(run.shop_charm_slots(), 5)
 	assert_eq(run.shop_chip_slots(), 10)
 	assert_eq(run.shop_overclock_slots(), 3, "Übertaktungen gedeckelt bei 3")
-	assert_eq(run.shop_sigil_slots(), 7)
+	assert_eq(run.shop_engraving_slots(), 7)
 
 func test_overcharge_capped_at_three_below_salon() -> void:
 	var run := _run()
@@ -199,7 +199,7 @@ func test_cannot_spin_slot_without_money() -> void:
 
 func test_redeem_books_run_prizes() -> void:
 	const M := SlotPrize.Kind.MONEY
-	const S := SlotPrize.Kind.SIGIL
+	const S := SlotPrize.Kind.ENGRAVING
 	const C := SlotPrize.Kind.CHARM
 	const D := SlotPrize.Kind.DIE
 	var run := _run(9999)

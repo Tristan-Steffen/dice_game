@@ -23,7 +23,7 @@ const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
-const SIGIL_GLOW := Color("#c77dff")  # Sigill-Licht (violett)
+const ENGRAVING_GLOW := Color("#c77dff")  # Gravur-Licht (violett)
 const BAR_BG := Color("#100e20")
 
 var run: GameRun
@@ -119,7 +119,7 @@ func _offer_row(bet: SideBet, index: int, u: float) -> Control:
 	bet_buttons.append(button)
 	return row
 
-## Setzen-Knopf zeigt Einsatz UND Gewinn (kompakt: "$6 → 2×" / "1 Sigill → $16").
+## Setzen-Knopf zeigt Einsatz UND Gewinn (kompakt: "$6 → 2×" / "1 Gravur → $16").
 func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 	var button := Button.new()
 	button.focus_mode = Control.FOCUS_NONE
@@ -134,7 +134,7 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 		button.text = "%s → %s" % [bet.stake_label(), bet.reward_label()]
 		button.disabled = not enabled
 		button.pressed.connect(_on_bet_pressed.bind(index))
-	# Bar-Gewinn goldgelb, Sigill-Gewinn grün - die Farbe verrät die Wett-Sorte.
+	# Bar-Gewinn goldgelb, Gravur-Gewinn grün - die Farbe verrät die Wett-Sorte.
 	var accent := GOLD if bet.payout_kind == SideBet.Payout.MONEY else GREEN
 	_style_button(button, accent if enabled else MUTED_COLOR)
 	# Angekommener Einsatz: den platzierten Knopf golden/violett glühen lassen.

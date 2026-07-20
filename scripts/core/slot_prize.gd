@@ -1,15 +1,15 @@
 class_name SlotPrize
 extends RefCounted
-## Ergebnis eines Fumble-Automaten: ein Gewinn (Geld, Sigille, Charm oder Würfel)
+## Ergebnis eines Fumble-Automaten: ein Gewinn (Geld, Gravuren, Charm oder Würfel)
 ## oder das Namensgeber-Symbol „Fumble" (die Niete, löscht den Topf). Der Inhalt
 ## wird beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
 ## Auszahlen - mit Multiplikator je Trefferzahl. Reine Daten, keine Nodes.
 
-enum Kind { FUMBLE, MONEY, SIGIL, CHARM, DIE }
+enum Kind { FUMBLE, MONEY, ENGRAVING, CHARM, DIE }
 
 var kind: int = Kind.FUMBLE
 var money: int = 0
-var sigils: Array[Sigil] = []   # Basis-Ausschüttung (vor Multiplikator)
+var engravings: Array[Engraving] = []   # Basis-Ausschüttung (vor Multiplikator)
 var charm: Charm = null
 var die: DieDefinition = null
 var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
@@ -29,12 +29,12 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 			p.kind = Kind.MONEY
 			p.money = int(spec.get("amount", 0))
 			p.label = "$%d" % p.money
-		"sigil":
-			p.kind = Kind.SIGIL
+		"engraving":
+			p.kind = Kind.ENGRAVING
 			var count := int(spec.get("count", 1))
-			p.sigils = Sigil.roll_draft(count, int(spec.get("floor", Sigil.Rarity.COMMON)))
-			var n := maxi(1, p.sigils.size())
-			p.label = "%d Sigill%s" % [n, "" if n == 1 else "e"]
+			p.engravings = Engraving.roll_draft(count, int(spec.get("floor", Engraving.Rarity.COMMON)))
+			var n := maxi(1, p.engravings.size())
+			p.label = "%d Gravur%s" % [n, "" if n == 1 else "en"]
 		"charm":
 			p.kind = Kind.CHARM
 			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)))
@@ -53,7 +53,7 @@ func symbol() -> String:
 static func symbol_for(kind_value: int) -> String:
 	match kind_value:
 		Kind.MONEY: return "$"
-		Kind.SIGIL: return "◈"
+		Kind.ENGRAVING: return "◈"
 		Kind.CHARM: return "✦"
 		Kind.DIE: return "⬢"
 	return "✖"   # Fumble

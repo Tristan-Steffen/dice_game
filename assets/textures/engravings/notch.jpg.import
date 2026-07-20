@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cf8l7wmolvsfm"
-path="res://.godot/imported/fine_engraving.jpg-5ea81420652fd114bbb2c7d1c5756431.ctex"
+uid="uid://cwk4sbc3x2j12"
+path="res://.godot/imported/notch.jpg-825f14e92b28f95273aeddc3ae9a1f5c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/engravings/fine_engraving.jpg"
-dest_files=["res://.godot/imported/fine_engraving.jpg-5ea81420652fd114bbb2c7d1c5756431.ctex"]
+source_file="res://assets/textures/engravings/notch.jpg"
+dest_files=["res://.godot/imported/notch.jpg-825f14e92b28f95273aeddc3ae9a1f5c.ctex"]
 
 [params]
 

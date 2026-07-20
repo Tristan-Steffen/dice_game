@@ -19,7 +19,7 @@ const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
 const CYAN := Color("#8be9fd")
-const SIGIL_GLOW := Color("#c77dff")
+const ENGRAVING_GLOW := Color("#c77dff")
 const BAR_BG := Color("#100e20")
 ## Tier-Akzente der drei Automaten: Kupfer, Silber, Gold.
 const TIER_COLORS := [Color("#e08a4a"), Color("#c9d2e6"), Color("#ffd35e")]
@@ -43,7 +43,7 @@ var _content: VBoxContainer
 ## Neon-Linien über den Walzen, die jede aktive Kombination verbinden (auf self,
 ## damit sie spaltenübergreifend über die Automaten-Lücken hinweg zeichnen).
 var _run_overlay: RunOverlay
-## Auszahlungs-Jubel am Sitzungsende: Sigill-Icons und Münzen ploppen auf.
+## Auszahlungs-Jubel am Sitzungsende: Gravur-Icons und Münzen ploppen auf.
 var _reveal: Control
 ## Je Automat MACHINE_COLS Spalten-Panels (geklammert, für die Streifen-Animation).
 var _reel_cols: Array = [[], [], []]
@@ -366,7 +366,7 @@ func _pot_tray(u: float) -> Control:
 		u * 2.0, MUTED_COLOR))
 	return box
 
-## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Geld, Sigille,
+## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Geld, Gravuren,
 ## Charms, Würfel) statt jeder einzelnen Reihe.
 func _pot_summary_chips(u: float) -> Control:
 	var chips := HFlowContainer.new()
@@ -376,10 +376,10 @@ func _pot_summary_chips(u: float) -> Control:
 	var summary: Dictionary = run.slot_bank.pot_summary()
 	if int(summary["money"]) > 0:
 		chips.add_child(_summary_chip(GOLD, "$%d" % int(summary["money"]), u))
-	var sig := int(summary["sigils"])
+	var sig := int(summary["engravings"])
 	if sig > 0:
-		chips.add_child(_summary_chip(SIGIL_GLOW, "%s %d Sigill%s"
-			% [SlotPrize.symbol_for(SlotPrize.Kind.SIGIL), sig, "" if sig == 1 else "e"], u))
+		chips.add_child(_summary_chip(ENGRAVING_GLOW, "%s %d Gravur%s"
+			% [SlotPrize.symbol_for(SlotPrize.Kind.ENGRAVING), sig, "" if sig == 1 else "en"], u))
 	var charms: Array = summary["charms"]
 	if not charms.is_empty():
 		chips.add_child(_summary_chip(GREEN, "%s %s"
@@ -427,10 +427,10 @@ func _legend_row(u: float) -> Control:
 	flow.add_theme_constant_override("v_separation", int(u * 0.3))
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var names := {
-		SlotPrize.Kind.MONEY: "Geld", SlotPrize.Kind.SIGIL: "Sigill",
+		SlotPrize.Kind.MONEY: "Geld", SlotPrize.Kind.ENGRAVING: "Gravur",
 		SlotPrize.Kind.CHARM: "Charm", SlotPrize.Kind.DIE: "Würfel",
 		SlotPrize.Kind.FUMBLE: "Fumble"}
-	for kind in [SlotPrize.Kind.MONEY, SlotPrize.Kind.SIGIL, SlotPrize.Kind.CHARM,
+	for kind in [SlotPrize.Kind.MONEY, SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.CHARM,
 			SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
@@ -617,36 +617,36 @@ func _flash_win() -> void:
 # --- Auszahlungs-Jubel -----------------------------------------------------------
 
 const RARITY_COLORS := {
-	Sigil.Rarity.COMMON: Color("#8be9fd"),
-	Sigil.Rarity.UNCOMMON: Color("#50fa7b"),
-	Sigil.Rarity.RARE: Color("#ffd319"),
+	Engraving.Rarity.COMMON: Color("#8be9fd"),
+	Engraving.Rarity.UNCOMMON: Color("#50fa7b"),
+	Engraving.Rarity.RARE: Color("#ffd319"),
 }
 
 ## Zeigt am Sitzungsende, WAS und WIE VIEL gewonnen wurde: Münzen für Geld, je ein
-## Icon je Sigill-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt
+## Icon je Gravur-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt
 ## auf, halten kurz und blenden aus.
 func _play_payout_reveal(prizes: Array) -> void:
 	var money := 0
-	var sigil_counts := {}   # id -> {sigil, count}
-	var sigil_order: Array = []
+	var engraving_counts := {}   # id -> {engraving, count}
+	var engraving_order: Array = []
 	var charms: Array = []
 	var dice := 0
 	for prize: SlotPrize in prizes:
 		match prize.kind:
 			SlotPrize.Kind.MONEY:
 				money += prize.money
-			SlotPrize.Kind.SIGIL:
-				for s: Sigil in prize.sigils:
-					if not sigil_counts.has(s.id):
-						sigil_counts[s.id] = {"sigil": s, "count": 0}
-						sigil_order.append(s.id)
-					sigil_counts[s.id]["count"] += 1
+			SlotPrize.Kind.ENGRAVING:
+				for s: Engraving in prize.engravings:
+					if not engraving_counts.has(s.id):
+						engraving_counts[s.id] = {"engraving": s, "count": 0}
+						engraving_order.append(s.id)
+					engraving_counts[s.id]["count"] += 1
 			SlotPrize.Kind.CHARM:
 				if prize.charm != null:
 					charms.append(prize.charm)
 			SlotPrize.Kind.DIE:
 				dice += 1
-	if money <= 0 and sigil_order.is_empty() and charms.is_empty() and dice == 0:
+	if money <= 0 and engraving_order.is_empty() and charms.is_empty() and dice == 0:
 		return
 
 	var u := maxf(size.x, 200.0) / 100.0
@@ -679,8 +679,8 @@ func _play_payout_reveal(prizes: Array) -> void:
 	var tokens: Array = []
 	if money > 0:
 		tokens.append(_coin_token(money, u))
-	for id in sigil_order:
-		tokens.append(_sigil_token(sigil_counts[id]["sigil"], int(sigil_counts[id]["count"]), u))
+	for id in engraving_order:
+		tokens.append(_engraving_token(engraving_counts[id]["engraving"], int(engraving_counts[id]["count"]), u))
 	for charm in charms:
 		tokens.append(_glyph_token("✦", GREEN, charm.display_name, u))
 	if dice > 0:
@@ -728,10 +728,10 @@ func _coin_token(money: int, u: float) -> Control:
 	box.add_child(label)
 	return box
 
-## Sigill-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
+## Gravur-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
 ## Plakette und Name.
-func _sigil_token(sigil: Sigil, count: int, u: float) -> Control:
-	var color: Color = RARITY_COLORS.get(sigil.rarity, MUTED_COLOR)
+func _engraving_token(engraving: Engraving, count: int, u: float) -> Control:
+	var color: Color = RARITY_COLORS.get(engraving.rarity, MUTED_COLOR)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(u * 0.5))
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -746,7 +746,7 @@ func _sigil_token(sigil: Sigil, count: int, u: float) -> Control:
 	fbox.set_corner_radius_all(int(u * 1.6))
 	frame.add_theme_stylebox_override("panel", fbox)
 
-	var icon := _sigil_icon_node(sigil, u)
+	var icon := _engraving_icon_node(engraving, u)
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	icon.offset_left = u * 1.2
 	icon.offset_top = u * 1.2
@@ -767,23 +767,23 @@ func _sigil_token(sigil: Sigil, count: int, u: float) -> Control:
 		frame.add_child(badge)
 	box.add_child(frame)
 
-	var name := _label(sigil.display_name, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
+	var name := _label(engraving.display_name, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name.custom_minimum_size = Vector2(u * 11.5, 0)
 	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(name)
 	return box
 
-## Icon eines Sigills: Textur, falls vorhanden, sonst eine Ersatz-Kachel mit Glyphe.
-func _sigil_icon_node(sigil: Sigil, u: float) -> Control:
-	if sigil.texture_path != "" and ResourceLoader.exists(sigil.texture_path):
+## Icon einer Gravur: Textur, falls vorhanden, sonst eine Ersatz-Kachel mit Glyphe.
+func _engraving_icon_node(engraving: Engraving, u: float) -> Control:
+	if engraving.texture_path != "" and ResourceLoader.exists(engraving.texture_path):
 		var tex := TextureRect.new()
-		tex.texture = load(sigil.texture_path)
+		tex.texture = load(engraving.texture_path)
 		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		return tex
-	var fallback := _label("◈", u * 6.2, RARITY_COLORS.get(sigil.rarity, SIGIL_GLOW))
+	var fallback := _label("◈", u * 6.2, RARITY_COLORS.get(engraving.rarity, ENGRAVING_GLOW))
 	fallback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fallback.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	return fallback
@@ -820,7 +820,7 @@ func _glyph_token(glyph: String, color: Color, caption: String, u: float) -> Con
 func _kind_color(kind: int) -> Color:
 	match kind:
 		SlotPrize.Kind.MONEY: return GOLD
-		SlotPrize.Kind.SIGIL: return SIGIL_GLOW
+		SlotPrize.Kind.ENGRAVING: return ENGRAVING_GLOW
 		SlotPrize.Kind.CHARM: return GREEN
 		SlotPrize.Kind.DIE: return CYAN
 	return RED  # Fumble

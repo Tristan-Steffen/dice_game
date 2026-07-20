@@ -12,6 +12,9 @@ signal face_clicked(die_index: int, face_index: int)
 ## Klick auf den Kanten-Rahmen; gewinnt gegen face_clicked, wenn der Klick
 ## einer Kanten-Mitte näher liegt als jeder Seiten-Mitte.
 signal edges_clicked(die_index: int)
+## Seite unter dem Cursor beim Überfahren (ohne Ziehen); face_index -1 = keine
+## (Kante näher oder nichts getroffen). Treibt die Gravur-Vorschau.
+signal face_hovered(die_index: int, face_index: int)
 ## Dreh-Geste beginnt/endet - der Aufrufer kann derweil z.B. die Kamera
 ## sperren. drag_ended folgt IMMER auf ein drag_started.
 signal drag_started
@@ -42,9 +45,20 @@ var drag_index: int = -1
 var drag_start_pos: Vector2
 var is_dragging: bool = false
 
+## Zuletzt überfahrene Seite/Würfel (nur Wechsel feuern face_hovered).
+var _hover_face: int = -1
+var _hover_die: int = -1
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_exited.connect(_on_mouse_exited)
 	_build_scene()
+
+func _on_mouse_exited() -> void:
+	if _hover_face != -1 or _hover_die != -1:
+		_hover_face = -1
+		_hover_die = -1
+		face_hovered.emit(-1, -1)
 
 func _build_scene() -> void:
 	var env := Environment.new()
@@ -76,6 +90,8 @@ func set_dice(defs: Array[DieDefinition]) -> void:
 	current_defs = defs
 	drag_index = -1
 	is_dragging = false
+	_hover_face = -1
+	_hover_die = -1
 	var count := defs.size()
 
 	# Bei gleicher Anzahl die vorhandenen Würfel weiterverwenden (nur Werte neu
@@ -163,6 +179,22 @@ func _gui_input(event: InputEvent) -> void:
 			var die := die_roots[drag_index]
 			die.global_rotate(Vector3.UP, event.relative.x * DRAG_SENSITIVITY)
 			die.global_rotate(camera.global_transform.basis.x.normalized(), event.relative.y * DRAG_SENSITIVITY)
+	elif event is InputEventMouseMotion and drag_index == -1:
+		_update_hover(event.position)
+
+## Meldet die Seite unter dem Cursor (Kante näher = keine), nur bei Wechsel.
+func _update_hover(local_pos: Vector2) -> void:
+	var die_index := _pick_die(local_pos)
+	var face_index := -1
+	if die_index != -1:
+		var face_pick := _pick_face(die_index, local_pos)
+		var edge_dist := _pick_edges_distance(die_index, local_pos)
+		if edge_dist >= float(face_pick[1]):
+			face_index = face_pick[0]
+	if face_index != _hover_face or die_index != _hover_die:
+		_hover_face = face_index
+		_hover_die = die_index
+		face_hovered.emit(die_index, face_index)
 
 ## Hebt den Würfel an index leicht vergrößert hervor (-1 = keine Auswahl).
 func set_highlighted(index: int) -> void:
@@ -233,6 +265,15 @@ func highlight_face(die_index: int, face_index: int) -> void:
 	faces.reset_number_tints()
 	if face_index != -1:
 		faces.set_face_number_tint(face_index, SELECT_FACE_COLOR)
+
+## Färbt NUR die Ziffer einer einzelnen Seite (Eignungs-Dimmung der Gravur-
+## Station); highlight_face/highlight_edges setzen alle Ziffern wieder zurück.
+func tint_face(die_index: int, face_index: int, color: Color) -> void:
+	if face_index == -1:
+		return
+	var faces := _face_display(die_index)
+	if faces != null:
+		faces.set_face_number_tint(face_index, color)
 
 ## Hebt den Kanten-Rahmen hervor; highlight_face setzt wieder zurück.
 func highlight_edges(die_index: int) -> void:

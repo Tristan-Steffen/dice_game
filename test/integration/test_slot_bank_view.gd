@@ -5,7 +5,7 @@ extends GutTest
 ## wird.
 
 const M := SlotPrize.Kind.MONEY
-const S := SlotPrize.Kind.SIGIL
+const S := SlotPrize.Kind.ENGRAVING
 const C := SlotPrize.Kind.CHARM
 const F := SlotPrize.Kind.FUMBLE
 

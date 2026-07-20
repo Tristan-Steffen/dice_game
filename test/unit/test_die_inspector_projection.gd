@@ -48,12 +48,21 @@ func test_projection_viewport_is_isolated_and_transparent() -> void:
 func test_clicking_a_projected_face_selects_that_face() -> void:
 	view.die_view.face_clicked.emit(0, 3)
 	assert_eq(view.selected_face, 3, "Klick auf die projizierte Seite wählt sie")
-	assert_false(view.edges_selected)
 
-func test_clicking_the_projected_edges_selects_the_edges() -> void:
+func test_clicking_the_projected_edges_without_a_tool_does_nothing() -> void:
+	# Es gibt nur EINEN Kanten-Rahmen - ohne gehaltene Gravur ist da nichts zu
+	# wählen; der Klick verpufft.
 	view.die_view.edges_clicked.emit(0)
-	assert_true(view.edges_selected, "Klick auf den projizierten Kanten-Rahmen wählt die Kanten")
 	assert_eq(view.selected_face, -1)
+	assert_eq(view.held_id, "")
+
+func test_projected_edge_click_applies_a_held_edge_engraving() -> void:
+	view.run = GameRun.new_run()
+	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
+	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
+	view.die_view.edges_clicked.emit(0)
+	assert_eq(view.current_def.edge_material, DieMaterial.GOLD, "der Rahmen trägt jetzt Gold")
+	assert_eq(view.held_id, "", "Werkzeug nach dem Anwenden abgelegt")
 
 func test_selection_highlights_the_projected_face_number() -> void:
 	view._on_face_clicked(0, 1)  # Seite 1 trägt kein Material (Körper bleibt weiß)
@@ -82,12 +91,13 @@ func test_chip_selection_also_highlights_the_projection() -> void:
 	var label: Label3D = faces.labels[axis]
 	assert_eq(label.modulate, RotatableDieView.SELECT_FACE_COLOR)
 
-func test_edge_selection_highlights_the_projected_frame() -> void:
-	view._on_edges_clicked()
+func test_holding_an_edge_tool_highlights_the_projected_frame() -> void:
+	# Eine gehaltene Kanten-Gravur zeigt ihr Ziel: der projizierte Rahmen leuchtet.
+	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
 	var faces: DieFaceDisplay = view.die_view.die_roots[0].get_node("RigidBody3D/Faces")
 	assert_eq(faces.edge_material_res.albedo_color,
 		RotatableDieView.SELECT_FACE_COLOR,
-		"der projizierte Kanten-Rahmen leuchtet gold")
+		"der projizierte Kanten-Rahmen leuchtet als Ziel")
 
 func test_dragging_the_projection_reports_rotating_die() -> void:
 	# Ziehen an der Projektion meldet rotating_die(true)/(false) - scene_root
@@ -114,18 +124,11 @@ func test_a_pure_click_does_not_lock_the_camera() -> void:
 
 func test_selection_changed_reports_the_selected_face() -> void:
 	# selection_changed treibt die violette Hervorhebung am ECHTEN schwebenden
-	# Würfel über dem Hub (siehe scene_root._highlight_engraving_die). bool-Parameter
-	# selbst aufzeichnen (GUTs Signal-Parameter-Diff stolpert darüber).
+	# Würfel über dem Hub (siehe scene_root._highlight_engraving_die).
 	var events: Array = []
-	view.selection_changed.connect(func(face: int, edges: bool) -> void: events.append([face, edges]))
+	view.selection_changed.connect(func(face: int) -> void: events.append(face))
 	view._on_face_clicked(0, 2)
-	assert_eq(events.back(), [2, false], "die gewählte Seite wird gemeldet (keine Kanten)")
-
-func test_selection_changed_reports_the_edges() -> void:
-	var events: Array = []
-	view.selection_changed.connect(func(face: int, edges: bool) -> void: events.append([face, edges]))
-	view._on_edges_clicked()
-	assert_eq(events.back(), [-1, true], "die Kanten-Auswahl wird gemeldet (keine Seite)")
+	assert_eq(events.back(), 2, "die gewählte Seite wird gemeldet")
 
 func _press(target: Control, pos: Vector2, pressed: bool) -> void:
 	var ev := InputEventMouseButton.new()
@@ -141,13 +144,14 @@ func _motion(target: Control, from: Vector2, to: Vector2) -> void:
 	target._gui_input(ev)
 
 func test_second_face_step_accepts_a_projected_face_click() -> void:
-	# Zweitschritt einer Ätzung (z.B. Meißel): der Klick auf die Projektion
-	# liefert die zweite Seite - wie ein Chip-Klick.
+	# Werkzeug-zuerst: Meißel aufnehmen, Quellseite über die Projektion klicken,
+	# dann die Zielseite - beide Klicks laufen über face_clicked.
 	view.run = GameRun.new_run()
-	view.run.grant_sigil(Sigil.chisel())
-	view._on_face_clicked(0, 1)
-	view.mode = DieInspectorView.Mode.AWAIT_SECOND_FACE
-	view.active_sigil_id = Sigil.CHISEL
-	view.die_view.face_clicked.emit(0, 4)
-	# Meißel: Quelle (4) wird auf Ziel (1) gemeißelt - der Modus löst sich auf.
-	assert_eq(view.mode, DieInspectorView.Mode.SELECT, "der Zweitschritt ist aufgelöst")
+	view.run.grant_engraving(Engraving.chisel())
+	view._on_engraving_pressed(Engraving.CHISEL)
+	view.die_view.face_clicked.emit(0, 4)  # Quelle (Wert 5)
+	assert_eq(view.first_face, 4, "erster Klick ist die Quelle")
+	view.die_view.face_clicked.emit(0, 1)  # Ziel
+	# Meißel: Ziel (1) erhält den Quellwert (5); das Werkzeug wird abgelegt.
+	assert_eq(view.current_def.faces[1], 5, "das Ziel trägt den Quellwert")
+	assert_eq(view.held_id, "", "nach dem Anwenden ist nichts mehr in der Hand")

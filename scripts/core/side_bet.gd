@@ -2,7 +2,7 @@ class_name SideBet
 extends RefCounted
 ## Eine Nebenwette der "Bank": vor einer Runde platziert (Einsatz sofort fällig),
 ## wird sie am Rundenende gegen die Rundenbilanz geprüft. Gewinn = eine
-## Aufwertungs-Ausschüttung (Sigille). Reine Daten/Logik, keine Nodes.
+## Aufwertungs-Ausschüttung (Gravuren). Reine Daten/Logik, keine Nodes.
 
 ## Bedingung, die die Runde erfüllen muss:
 ## COMBO       - eine genommene Hand mindestens vom Rang target_combo,
@@ -11,10 +11,10 @@ extends RefCounted
 ## NO_FARKLE   - die Runde ohne einen einzigen Farkle räumen.
 enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE }
 
-## Womit der Einsatz bezahlt wird: Geld oder geopferte Sigille.
-enum Stake { MONEY, SIGILS }
-## Was der Gewinn ausschüttet: Geld oder Sigille (Aufwertungen).
-enum Payout { SIGILS, MONEY }
+## Womit der Einsatz bezahlt wird: Geld oder geopferte Gravuren.
+enum Stake { MONEY, ENGRAVINGS }
+## Was der Gewinn ausschüttet: Geld oder Gravuren (Aufwertungen).
+enum Payout { ENGRAVINGS, MONEY }
 
 var id: String = ""
 var condition: int = Condition.COMBO
@@ -22,19 +22,19 @@ var target: int = 0             # HAND_SCORE: Punkte; FEW_DICE: max. Würfel
 var target_combo: String = ""   # nur COMBO: DiceScoring-Kategorie-Key
 var stake_kind: int = Stake.MONEY
 var stake: int = 0              # nur Stake.MONEY: Einsatz in Geld
-var stake_sigils: int = 0      # nur Stake.SIGILS: Anzahl geopferter Sigille
-var payout_kind: int = Payout.SIGILS
-var reward_sigils: int = 1     # nur Payout.SIGILS: Anzahl gewürfelter Aufwertungen
+var stake_engravings: int = 0      # nur Stake.ENGRAVINGS: Anzahl geopferter Gravuren
+var payout_kind: int = Payout.ENGRAVINGS
+var reward_engravings: int = 1     # nur Payout.ENGRAVINGS: Anzahl gewürfelter Aufwertungen
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var display_name: String = ""
 var description: String = ""
 
 ## Vorlagen der Auslage (id -> Parameter). Vier Wett-Sorten über zwei Achsen:
-## Einsatz in Geld ODER geopferten Sigillen, Gewinn in Sigillen ODER Geld.
-## Fehlende Schlüssel = Standard (Geld-Einsatz, Sigill-Gewinn).
+## Einsatz in Geld ODER geopferten Gravuren, Gewinn in Gravuren ODER Geld.
+## Fehlende Schlüssel = Standard (Geld-Einsatz, Gravur-Gewinn).
 ## desc = NUR die Gewinnbedingung; Einsatz und Gewinn stehen bereits auf dem Knopf.
 const TEMPLATES := [
-	# Geld -> Sigille: der Brotalltag der Bank.
+	# Geld -> Gravuren: der Brotalltag der Bank.
 	{"id": "two_pair", "condition": Condition.COMBO, "combo": DiceScoring.TWO_PAIR,
 		"stake": 4, "reward": 1, "name": "Doppelspiel",
 		"desc": "Nimm zwei Paare oder besser."},
@@ -57,27 +57,27 @@ const TEMPLATES := [
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target": 900,
 		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
 		"desc": "Werte eine Hand mit 900+ Punkten."},
-	# Sigill -> Geld: ein Siegel verpfänden und auf Bargeld hoffen.
-	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.SIGILS, "stake_sigils": 1,
+	# Gravur -> Geld: ein Siegel verpfänden und auf Bargeld hoffen.
+	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1,
 		"payout": Payout.MONEY, "payout_money": 16, "name": "Pfandleihe",
 		"desc": "Räume die Runde ohne Farkle."},
 	{"id": "collateral", "condition": Condition.HAND_SCORE, "target": 500,
-		"stake_kind": Stake.SIGILS, "stake_sigils": 2,
+		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 2,
 		"payout": Payout.MONEY, "payout_money": 34, "name": "Sicherheit",
 		"desc": "Werte eine Hand mit 500+ Punkten."},
-	# Sigill -> Sigille: ein Siegel riskieren, um bessere zu prägen.
+	# Gravur -> Gravuren: ein Siegel riskieren, um bessere zu prägen.
 	{"id": "refinement", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake_kind": Stake.SIGILS, "stake_sigils": 1, "reward": 3, "name": "Veredelung",
+		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1, "reward": 3, "name": "Veredelung",
 		"desc": "Nimm eine Große Straße."},
-	# Sigill -> Sigille: saubere Runde tauscht eins gegen zwei.
-	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.SIGILS, "stake_sigils": 1,
+	# Gravur -> Gravuren: saubere Runde tauscht eins gegen zwei.
+	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1,
 		"reward": 2, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Farkle."},
 ]
 
-## Sigill-Kategorien, die ein Gewinn ausschüttet (Zahl + Material; kein Menü/
+## Gravur-Kategorien, die ein Gewinn ausschüttet (Zahl + Material; kein Menü/
 ## Würfel-Sonderfall, damit die Belohnung immer im Inventar landet).
-const REWARD_KINDS := [Sigil.CATEGORY_NUMBER, Sigil.CATEGORY_MATERIAL]
+const REWARD_KINDS := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL]
 
 static func _from_template(t: Dictionary) -> SideBet:
 	var bet := SideBet.new()
@@ -87,9 +87,9 @@ static func _from_template(t: Dictionary) -> SideBet:
 	bet.target_combo = t.get("combo", "")
 	bet.stake_kind = int(t.get("stake_kind", Stake.MONEY))
 	bet.stake = int(t.get("stake", 0))
-	bet.stake_sigils = int(t.get("stake_sigils", 0))
-	bet.payout_kind = int(t.get("payout", Payout.SIGILS))
-	bet.reward_sigils = int(t.get("reward", 1))
+	bet.stake_engravings = int(t.get("stake_engravings", 0))
+	bet.payout_kind = int(t.get("payout", Payout.ENGRAVINGS))
+	bet.reward_engravings = int(t.get("reward", 1))
 	bet.payout_money = int(t.get("payout_money", 0))
 	bet.display_name = t["name"]
 	bet.description = t["desc"]
@@ -173,28 +173,28 @@ func status_label(result: Dictionary) -> String:
 			return "Farkle!" if bool(result.get("farkled", false)) else "sauber"
 	return ""
 
-## Die bei Gewinn gutzuschreibenden Sigille (zufällig aus REWARD_KINDS).
-func reward_list() -> Array[Sigil]:
-	var pool: Array[Sigil] = []
-	for sigil in Sigil.all():
-		if REWARD_KINDS.has(sigil.category):
-			pool.append(sigil)
-	var result: Array[Sigil] = []
+## Die bei Gewinn gutzuschreibenden Gravuren (zufällig aus REWARD_KINDS).
+func reward_list() -> Array[Engraving]:
+	var pool: Array[Engraving] = []
+	for engraving in Engraving.all():
+		if REWARD_KINDS.has(engraving.category):
+			pool.append(engraving)
+	var result: Array[Engraving] = []
 	if pool.is_empty():
 		return result
-	for i in reward_sigils:
+	for i in reward_engravings:
 		result.append(pool[randi() % pool.size()])
 	return result
 
-## Einsatz-Etikett: Geldbetrag oder Anzahl geopferter Sigille.
+## Einsatz-Etikett: Geldbetrag oder Anzahl geopferter Gravuren.
 func stake_label() -> String:
-	if stake_kind == Stake.SIGILS:
-		return "%d Sigill%s" % [stake_sigils, "" if stake_sigils == 1 else "e"]
+	if stake_kind == Stake.ENGRAVINGS:
+		return "%d Gravur%s" % [stake_engravings, "" if stake_engravings == 1 else "en"]
 	return "$%d" % stake
 
-## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Sigille (klar benannt, damit
+## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Gravuren (klar benannt, damit
 ## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt).
 func reward_label() -> String:
 	if payout_kind == Payout.MONEY:
 		return "$%d" % payout_money
-	return "%d Sigill%s" % [reward_sigils, "" if reward_sigils == 1 else "e"]
+	return "%d Gravur%s" % [reward_engravings, "" if reward_engravings == 1 else "en"]

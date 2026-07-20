@@ -1,12 +1,12 @@
 class_name GameRun
 extends RefCounted
-## Persistenter Zustand eines Spiellaufs: Geld, Würfel-Pool, Charms, Sigille,
+## Persistenter Zustand eines Spiellaufs: Geld, Würfel-Pool, Charms, Gravuren,
 ## Rundenfortschritt. Reine Daten + Ökonomie, keine Nodes; UI mutiert den
 ## Zustand nur über die Methoden hier und hört auf die Signale.
 
 signal money_changed(money: int)
 signal charms_changed
-signal sigils_changed
+signal engravings_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
 signal hub_level_changed(level: int)
@@ -46,7 +46,7 @@ const HUB_UPGRADE_UNLOCKS := [
 
 ## Shop-Platzzahlen je Hub-Stufe (1-basiert). Der Laden wächst nicht sprunghaft,
 ## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
-## tauschen Kartengröße gegen Anzahl. "Chips" = Sigill- + Übertaktungs-Schale.
+## tauschen Kartengröße gegen Anzahl. "Chips" = Gravur- + Übertaktungs-Schale.
 const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
 const SHOP_CHIP_SLOTS  := [2, 3, 5, 5, 6, 7, 8, 8, 9, 10]
@@ -79,10 +79,10 @@ var hub_level: int = 1
 ## damit eine Ätzung nie mehrere Würfel zugleich verändert.
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
-var owned_sigils: Array[Sigil] = []
+var owned_engravings: Array[Engraving] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
-var unlimited_sigils: bool = false  # Testmodus: consume_sigil verbraucht nichts
+var unlimited_engravings: bool = false  # Testmodus: consume_engraving verbraucht nichts
 ## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert
 ## Basis-Mult und Basispunkte erneut (siehe DiceScoring/Systemkonsole).
 var combo_levels: Dictionary = {}
@@ -196,7 +196,7 @@ func shop_flip_fee_factor() -> float:
 
 ## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich (VIP-Lounge), 2 selten
 ## (Privatclub), 3 legendär (High Roller). Steuert den garantierten Premium-Charm
-## + die Sigill-Mindestrarität.
+## + die Gravur-Mindestrarität.
 func shop_rarity_tier() -> int:
 	if hub_level >= HUB_RARITY_LEGENDARY_LEVEL:
 		return 3
@@ -218,15 +218,15 @@ func shop_charm_slots() -> int:
 func shop_dice_slots() -> int:
 	return _slot_at(SHOP_DICE_SLOTS, 3)
 
-## Chips = Sigille + Übertaktungen in einer gemeinsamen Schale. Grob ein Drittel
-## davon sind Übertaktungen (1..3), der Rest Sigille.
+## Chips = Gravuren + Übertaktungen in einer gemeinsamen Schale. Grob ein Drittel
+## davon sind Übertaktungen (1..3), der Rest Gravuren.
 func shop_chip_slots() -> int:
 	return _slot_at(SHOP_CHIP_SLOTS, 10)
 
 func shop_overclock_slots() -> int:
 	return clampi(shop_chip_slots() / 3, 1, 3)
 
-func shop_sigil_slots() -> int:
+func shop_engraving_slots() -> int:
 	return shop_chip_slots() - shop_overclock_slots()
 
 func purchase_die(def: DieDefinition, price: int) -> void:
@@ -274,14 +274,14 @@ func move_charm(from_index: int, to_index: int) -> void:
 	owned_charms.insert(to_index, charm)
 	charms_changed.emit()
 
-## Kauft ein einzelnes Sigill (Shop): Preis abziehen, sofort ins Inventar.
-func purchase_sigil(sigil: Sigil, price: int) -> void:
+## Kauft eine einzelne Gravur (Shop): Preis abziehen, sofort ins Inventar.
+func purchase_engraving(engraving: Engraving, price: int) -> void:
 	add_money(-price)
-	grant_sigil(sigil)
+	grant_engraving(engraving)
 
-func grant_sigil(sigil: Sigil) -> void:
-	owned_sigils.append(sigil)
-	sigils_changed.emit()
+func grant_engraving(engraving: Engraving) -> void:
+	owned_engravings.append(engraving)
+	engravings_changed.emit()
 
 # --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
 
@@ -310,7 +310,7 @@ func overclock_combo(combo_key: String) -> void:
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Frankiermaschine schenkt 3
-## zufällige Zahl-Sigille, Lumpensammler würfelt seine Glückszahl neu - je
+## zufällige Zahl-Gravuren, Lumpensammler würfelt seine Glückszahl neu - je
 ## Vorkommen einmal.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
@@ -318,12 +318,12 @@ func apply_round_start_charms() -> void:
 	if ids.has(Charm.RAG_COLLECTOR):
 		lumpensammler_value = randi_range(1, 6)
 	for i in ids.count(Charm.STAMP_MACHINE):
-		var number_sigils: Array[Sigil] = []
-		for sigil in Sigil.all():
-			if sigil.category == Sigil.CATEGORY_NUMBER:
-				number_sigils.append(sigil)
+		var number_engravings: Array[Engraving] = []
+		for engraving in Engraving.all():
+			if engraving.category == Engraving.CATEGORY_NUMBER:
+				number_engravings.append(engraving)
 		for j in 3:
-			grant_sigil(number_sigils[randi() % number_sigils.size()])
+			grant_engraving(number_engravings[randi() % number_engravings.size()])
 
 ## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
 ## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert die Anzahl.
@@ -337,44 +337,44 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 				upgraded += 1
 	return upgraded
 
-## Verbraucht genau ein Sigill der id; true, wenn eines da war.
-func consume_sigil(id: String) -> bool:
-	if unlimited_sigils:
+## Verbraucht genau eine Gravur der id; true, wenn eine da war.
+func consume_engraving(id: String) -> bool:
+	if unlimited_engravings:
 		return true
-	for i in owned_sigils.size():
-		if owned_sigils[i].id == id:
-			owned_sigils.remove_at(i)
-			sigils_changed.emit()
+	for i in owned_engravings.size():
+		if owned_engravings[i].id == id:
+			owned_engravings.remove_at(i)
+			engravings_changed.emit()
 			return true
 	return false
 
-## Ob der Einsatz einer Wette bezahlbar ist (Geld bzw. genug Sigille im Inventar).
+## Ob der Einsatz einer Wette bezahlbar ist (Geld bzw. genug Gravuren im Inventar).
 func can_place_side_bet(bet: SideBet) -> bool:
-	if bet.stake_kind == SideBet.Stake.SIGILS:
-		return owned_sigils.size() >= bet.stake_sigils
+	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
+		return owned_engravings.size() >= bet.stake_engravings
 	return money >= bet.stake
 
 ## Platziert eine Nebenwette: Einsatz sofort fällig (Geld oder geopferte
-## Sigille), Auswertung am Rundenende.
+## Gravuren), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
-	if bet.stake_kind == SideBet.Stake.SIGILS:
-		_consume_sigils(bet.stake_sigils)
+	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
+		_consume_engravings(bet.stake_engravings)
 	else:
 		add_money(-bet.stake)
 	active_side_bets.append(bet)
 	side_bets_changed.emit()
 
-## Opfert n Sigille vom Anfang des Inventars (Einsatz einer Sigill-Wette).
-func _consume_sigils(count: int) -> void:
+## Opfert n Gravuren vom Anfang des Inventars (Einsatz einer Gravur-Wette).
+func _consume_engravings(count: int) -> void:
 	var removed := false
-	for i in mini(count, owned_sigils.size()):
-		owned_sigils.remove_at(0)
+	for i in mini(count, owned_engravings.size()):
+		owned_engravings.remove_at(0)
 		removed = true
 	if removed:
-		sigils_changed.emit()
+		engravings_changed.emit()
 
 ## Wertet alle platzierten Wetten gegen die Rundenbilanz aus, schüttet die
-## Gewinne aus (Sigille oder Bargeld je payout_kind) und leert die Auslage.
+## Gewinne aus (Gravuren oder Bargeld je payout_kind) und leert die Auslage.
 ## Liefert die gewonnenen Wetten für die Auszahlungs-Anzeige.
 func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	var won: Array[SideBet] = []
@@ -384,8 +384,8 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 			if bet.payout_kind == SideBet.Payout.MONEY:
 				add_money(bet.payout_money)
 			else:
-				for sigil in bet.reward_list():
-					grant_sigil(sigil)
+				for engraving in bet.reward_list():
+					grant_engraving(engraving)
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won
@@ -438,10 +438,10 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:
 		SlotPrize.Kind.MONEY:
 			add_money(prize.money * mult)
-		SlotPrize.Kind.SIGIL:
+		SlotPrize.Kind.ENGRAVING:
 			for i in mult:
-				for sigil in prize.sigils:
-					grant_sigil(sigil)
+				for engraving in prize.engravings:
+					grant_engraving(engraving)
 		SlotPrize.Kind.CHARM:
 			if prize.charm != null:
 				for i in mult:

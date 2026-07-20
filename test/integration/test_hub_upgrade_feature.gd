@@ -106,7 +106,7 @@ func test_level_one_shop_is_smaller() -> void:
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
 	assert_eq(shop.dice_offers.size(), 1, "Stufe 1: 1 Würfel-Bündel")
 	assert_eq(shop.overclock_offers.size(), 1, "Stufe 1: 1 Übertaktung")
-	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), 2, "Stufe 1: 2 Chips")
+	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 2, "Stufe 1: 2 Chips")
 
 func test_level_one_hides_flip_navigation() -> void:
 	var shop := _shop(1)
@@ -116,7 +116,7 @@ func test_level_one_hides_flip_navigation() -> void:
 
 func test_level_two_unlocks_flipping_and_more_chips() -> void:
 	var shop := _shop(2)
-	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), 3, "Stufe 2: 3 Chips")
+	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 3, "Stufe 2: 3 Chips")
 	assert_eq(shop.dice_offers.size(), 1, "Stufe 2: 3. Bündel erst später")
 	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
@@ -124,13 +124,13 @@ func test_level_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
 	assert_eq(shop.dice_offers.size(), 2, "Stufe 3: 2 Würfel-Bündel")
-	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), 5, "Stufe 3: 5 Chips")
+	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 5, "Stufe 3: 5 Chips")
 
 func test_level_seven_unlocks_third_bundle_and_second_overclock() -> void:
 	var shop := _shop(7)
 	assert_eq(shop.dice_offers.size(), 3, "Suite: 3. Würfel-Bündel")
 	assert_eq(shop.overclock_offers.size(), 2, "Suite: 2. Übertaktung")
-	assert_eq(shop.sigil_offers.size() + shop.overclock_offers.size(), 8, "Suite: 8 Chips")
+	assert_eq(shop.engraving_offers.size() + shop.overclock_offers.size(), 8, "Suite: 8 Chips")
 
 func test_level_six_spread_contains_a_non_common_charm() -> void:
 	# Über mehrere Läufe stabil: der erste Platz ist garantiert nicht-gewöhnlich.
@@ -145,7 +145,7 @@ func test_level_six_spread_contains_a_non_common_charm() -> void:
 
 func test_chip_tray_holds_a_button_per_offer() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.sigil_buttons.size() + shop.overclock_buttons.size(), shop.run.shop_chip_slots(),
+	assert_eq(shop.engraving_buttons.size() + shop.overclock_buttons.size(), shop.run.shop_chip_slots(),
 		"jeder Chip der Schale ist ein Knopf")
 
 func test_charm_cards_grow_when_there_are_fewer() -> void:

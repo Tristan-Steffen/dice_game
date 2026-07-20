@@ -1,7 +1,7 @@
-class_name SigilRenderer
+class_name EngravingRenderer
 extends Control
 ## Zeichnet ein Upgrade als Lichtgravur-Siegel: dunkle Rauchglas-Kachel,
-## Seltenheits-Lichtsaum, Monoline-Sigil mit Glow. Vollständig prozedural
+## Seltenheits-Lichtsaum, Monoline-Engraving mit Glow. Vollständig prozedural
 ## (_draw), damit Board-Thumb und Reveal-Größe aus einer Quelle kommen.
 ## ignite (0..1) lässt die Gravur wie eine Zündschnur entlanglaufen.
 
@@ -11,18 +11,18 @@ const ETCH_COLOR := Color("#8be9fd")
 const GOLD := Color("#ffd319")
 ## Seltenheit -> Farbe des Lichtsaums.
 const SEAM_COLORS := {
-	Sigil.Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
-	Sigil.Rarity.UNCOMMON: Color("#8be9fd"),
-	Sigil.Rarity.RARE: Color("#ffd319"),
+	Engraving.Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
+	Engraving.Rarity.UNCOMMON: Color("#8be9fd"),
+	Engraving.Rarity.RARE: Color("#ffd319"),
 }
 ## Unbeleuchtete Gravur-Rille (nicht besessen / noch nicht gezündet).
 const CHANNEL_COLOR := Color(0.32, 0.36, 0.46, 0.4)
 const RARE_PULSE_PERIOD := 2.0
 
-var sigil_id: String = ""
-var category: String = Sigil.CATEGORY_NUMBER
-var rarity: int = Sigil.Rarity.COMMON
-var accent: Color = ETCH_COLOR  # Sigil-Farbe (Material-Tint bei Material/Würfel)
+var engraving_id: String = ""
+var category: String = Engraving.CATEGORY_NUMBER
+var rarity: int = Engraving.Rarity.COMMON
+var accent: Color = ETCH_COLOR  # Engraving-Farbe (Material-Tint bei Material/Würfel)
 var owned: bool = true
 var ignite: float = 1.0:
 	set(value):
@@ -31,18 +31,18 @@ var ignite: float = 1.0:
 
 var _pulse_time := 0.0
 
-static func for_sigil(source: Sigil) -> SigilRenderer:
-	var sigil := SigilRenderer.new()
-	sigil.sigil_id = source.id
-	sigil.category = source.category
-	sigil.rarity = source.rarity
-	if source.category == Sigil.CATEGORY_MATERIAL or source.category == Sigil.CATEGORY_DICE:
-		sigil.accent = DieMaterial.tint_for(source.material_id())
-	return sigil
+static func for_engraving(source: Engraving) -> EngravingRenderer:
+	var engraving := EngravingRenderer.new()
+	engraving.engraving_id = source.id
+	engraving.category = source.category
+	engraving.rarity = source.rarity
+	if source.category == Engraving.CATEGORY_MATERIAL or source.category == Engraving.CATEGORY_DICE:
+		engraving.accent = DieMaterial.tint_for(source.material_id())
+	return engraving
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process(rarity == Sigil.Rarity.RARE and owned)
+	set_process(rarity == Engraving.Rarity.RARE and owned)
 
 func _process(delta: float) -> void:
 	_pulse_time += delta
@@ -53,7 +53,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	_draw_tile()
 	_draw_seam()
-	_draw_sigil()
+	_draw_engraving()
 
 ## Kachel: Rauchglas mit leichtem Licht von oben (gestufter Pseudo-Verlauf,
 ## damit keine harte Kante entsteht).
@@ -69,7 +69,7 @@ func _draw_seam() -> void:
 	if not owned:
 		return
 	var color: Color = SEAM_COLORS[rarity]
-	if rarity == Sigil.Rarity.RARE:
+	if rarity == Engraving.Rarity.RARE:
 		var breath := 0.75 + 0.25 * sin(_pulse_time * TAU / RARE_PULSE_PERIOD)
 		color.a *= breath
 	var width := maxf(1.0, size.x * 0.022)
@@ -78,16 +78,16 @@ func _draw_seam() -> void:
 	draw_style_box(_border_box(Color(color.r, color.g, color.b, color.a * 0.22), width * 3.0, radius), Rect2(Vector2.ZERO, size))
 	draw_style_box(_border_box(color, width, radius), Rect2(Vector2.ZERO, size))
 
-func _draw_sigil() -> void:
+func _draw_engraving() -> void:
 	match category:
-		Sigil.CATEGORY_MATERIAL:
+		Engraving.CATEGORY_MATERIAL:
 			_draw_material_core()
-		Sigil.CATEGORY_DICE:
+		Engraving.CATEGORY_DICE:
 			_draw_edge_frame()
 		_:
-			_draw_strokes(_strokes_for(sigil_id))
+			_draw_strokes(_strokes_for(engraving_id))
 
-## Ätzungs-Sigil: Monoline-Pfade, mit ignite als Zündschnur entlang der Gesamtlänge.
+## Ätzungs-Engraving: Monoline-Pfade, mit ignite als Zündschnur entlang der Gesamtlänge.
 func _draw_strokes(strokes: Array) -> void:
 	var total := 0.0
 	for stroke: PackedVector2Array in strokes:
@@ -119,7 +119,7 @@ func _draw_stroke(points: PackedVector2Array, color: Color, glow: bool) -> void:
 
 ## Material: Ring + gefüllter Lichtkern im Material-Tint. Die Kernform
 ## unterscheidet die Materialien zusätzlich zur Farbe (Farben liegen z.T. nah
-## beieinander). sigil_id ist hier die Material-id.
+## beieinander). engraving_id ist hier die Material-id.
 func _draw_material_core() -> void:
 	var ring_color := accent if owned else CHANNEL_COLOR
 	# Ring deutlich vom Kern abgesetzt, sonst verschmilzt beides zum Klecks.
@@ -127,7 +127,7 @@ func _draw_material_core() -> void:
 	var lit := Color(accent.r, accent.g, accent.b, ignite) if owned \
 		else Color(CHANNEL_COLOR.r, CHANNEL_COLOR.g, CHANNEL_COLOR.b, 0.25)
 	var mid := Vector2(0.5, 0.5)
-	match sigil_id:
+	match engraving_id:
 		DieMaterial.RUBY:  # Edelstein: spitzer Diamant
 			_fill_poly(_diamond(mid, 0.17), lit)
 		DieMaterial.AMBER:  # Kristall: Sechseck
@@ -159,13 +159,13 @@ func _draw_edge_frame() -> void:
 	else:
 		_draw_stroke(frame, CHANNEL_COLOR, false)
 
-# --- Sigil-Geometrie (Einheitsraum 0..1) --------------------------------------------
+# --- Engraving-Geometrie (Einheitsraum 0..1) --------------------------------------------
 
-## Pfade je Zahl-Sigill-id. Wiederkehrendes Atom: kleines Quadrat = eine
+## Pfade je Zahl-Gravur-id. Wiederkehrendes Atom: kleines Quadrat = eine
 ## Würfelseite; + / − = die Wertänderung, Pfeil = Übertrag, "=" = frei gesetzter Wert.
 func _strokes_for(id: String) -> Array:
 	match id:
-		Sigil.CHISEL:
+		Engraving.CHISEL:
 			# Quelle-Quadrat, Bogenpfeil hinüber, Ziel-Quadrat.
 			return [
 				_square(Vector2(0.27, 0.66), 0.115),
@@ -173,78 +173,66 @@ func _strokes_for(id: String) -> Array:
 				_arrow_head(Vector2(0.73, 0.48), Vector2(0.085, 0.115)),
 				_square(Vector2(0.73, 0.66), 0.115),
 			]
-		Sigil.MIRROR:
+		Engraving.MIRROR:
 			# Achse in der Mitte, gespiegelte Quadrate links/rechts.
 			return [
 				_seg(Vector2(0.5, 0.18), Vector2(0.5, 0.82)),
 				_square(Vector2(0.29, 0.5), 0.125),
 				_square(Vector2(0.71, 0.5), 0.125),
 			]
-		Sigil.GRINDSTONE:
+		Engraving.GRINDSTONE:
 			# −1 auf eine, +1 auf eine andere Seite.
 			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
 			s.append_array(_minus(Vector2(0.29, 0.5), 0.06))
 			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
 			return s
-		Sigil.FILE_DOWN:
+		Engraving.FILE_DOWN:
 			# Eine Seite −1.
 			var s: Array = [_square(Vector2(0.5, 0.5), 0.17)]
 			s.append_array(_minus(Vector2(0.5, 0.5), 0.08))
 			return s
-		Sigil.DOUBLE_NOTCH:
+		Engraving.DOUBLE_NOTCH:
 			# Zwei Seiten je +1.
 			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
 			s.append_array(_plus(Vector2(0.29, 0.5), 0.06))
 			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
 			return s
-		Sigil.OVERCOUNT_ENGRAVING:
-			# +1, dessen Stiel die obere Kante durchstößt (darf über 6).
+		Engraving.NOTCH:
+			# +1, dessen Stiel die obere Kante durchstößt.
 			return [
 				_square(Vector2(0.5, 0.6), 0.16),
 				_seg(Vector2(0.5, 0.52), Vector2(0.5, 0.16)),
 				_seg(Vector2(0.4, 0.27), Vector2(0.6, 0.27)),
 			]
-		Sigil.FINE_ENGRAVING:
-			# Freier Zielwert: Quadrat mit "=".
-			var s: Array = [_square(Vector2(0.5, 0.5), 0.18)]
-			s.append_array(_equals(Vector2(0.5, 0.5), 0.08))
-			return s
-		Sigil.TRANSPLANT:
+		Engraving.TRANSPLANT:
 			# Kleine Seite -> Pfeil hoch -> große Seite (Höchstwert).
 			var s: Array = [_square(Vector2(0.5, 0.73), 0.09), _square(Vector2(0.5, 0.29), 0.15)]
 			s.append_array(_up_arrow(Vector2(0.5, 0.62), Vector2(0.5, 0.47)))
 			return s
-		Sigil.CONNECT_UP:
+		Engraving.CONNECT_UP:
 			# Quelle -> Ziel, +1 sitzt auf der Verbindung.
 			return [
 				_square(Vector2(0.27, 0.5), 0.12), _square(Vector2(0.73, 0.5), 0.12),
 				_seg(Vector2(0.39, 0.5), Vector2(0.61, 0.5)),
 				_seg(Vector2(0.5, 0.4), Vector2(0.5, 0.6)),
 			]
-		Sigil.AVERAGING:
+		Engraving.AVERAGING:
 			# Zwei Seiten treffen sich in der Mitte (Mittelwert).
 			var s: Array = [_square(Vector2(0.22, 0.5), 0.11), _square(Vector2(0.78, 0.5), 0.11),
 				_seg(Vector2(0.5, 0.35), Vector2(0.5, 0.65))]
 			s.append_array(_arrow_to(Vector2(0.33, 0.5), Vector2(0.44, 0.5)))
 			s.append_array(_arrow_to(Vector2(0.67, 0.5), Vector2(0.56, 0.5)))
 			return s
-		Sigil.IMPRINT:
-			# Obere Seite prägt sich auf die zwei niedrigsten unten.
-			var s: Array = [_square(Vector2(0.5, 0.27), 0.13),
-				_square(Vector2(0.32, 0.71), 0.1), _square(Vector2(0.68, 0.71), 0.1)]
-			s.append_array(_arrow_to(Vector2(0.45, 0.42), Vector2(0.36, 0.58)))
-			s.append_array(_arrow_to(Vector2(0.55, 0.42), Vector2(0.64, 0.58)))
-			return s
-		Sigil.STRAIGHTEN:
+		Engraving.STRAIGHTEN:
 			# Treppe aufwärts: ungerade Seiten +1.
 			return [_staircase()]
-		Sigil.BLUEPRINT:
+		Engraving.BLUEPRINT:
 			# Ganzer Würfel auf einen Wert: 3x2-Raster leuchtet.
 			return _grid()
 		_:
 			return [_square(Vector2(0.5, 0.5), 0.16)]
 
-# --- Sigil-Primitive (Einheitsraum) -------------------------------------------------
+# --- Engraving-Primitive (Einheitsraum) -------------------------------------------------
 
 func _seg(a: Vector2, b: Vector2) -> PackedVector2Array:
 	return PackedVector2Array([a, b])
@@ -255,10 +243,6 @@ func _plus(center: Vector2, radius: float) -> Array:
 
 func _minus(center: Vector2, radius: float) -> Array:
 	return [_seg(center + Vector2(-radius, 0), center + Vector2(radius, 0))]
-
-func _equals(center: Vector2, radius: float) -> Array:
-	return [_seg(center + Vector2(-radius, -radius * 0.45), center + Vector2(radius, -radius * 0.45)),
-		_seg(center + Vector2(-radius, radius * 0.45), center + Vector2(radius, radius * 0.45))]
 
 ## Linie a->b plus Pfeilspitze bei b (nach oben zeigend).
 func _up_arrow(a: Vector2, b: Vector2) -> Array:

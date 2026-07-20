@@ -103,20 +103,20 @@ func hit_count() -> int:
 	return runs().size()
 
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
-## Anzeige): {money:int, sigils:int, charms:Array[String]-Raritäten, dice:int}.
+## Anzeige): {money:int, engravings:int, charms:Array[String]-Raritäten, dice:int}.
 func pot_summary() -> Dictionary:
 	var money := 0
-	var sigils := 0
+	var engravings := 0
 	var charms: Array = []
 	var dice := 0
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
 			match String(spec["kind"]):
 				"money": money += int(spec["amount"])
-				"sigil": sigils += int(spec["count"])
+				"engraving": engravings += int(spec["count"])
 				"charm": charms.append(String(spec["rarity"]))
 				"die": dice += 1
-	return {"money": money, "sigils": sigils, "charms": charms, "dice": dice}
+	return {"money": money, "engravings": engravings, "charms": charms, "dice": dice}
 
 ## Dreht Automat machine: füllt seine MACHINE_COLS Spalten mit gewichteten Symbolen
 ## und prüft die Wand auf einen Bust (drei Fumbles nebeneinander). Liefert den
@@ -169,8 +169,8 @@ func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 			for col in run_cols:
 				sum += MONEY_CELL[col / MACHINE_COLS]
 			return [{"kind": "money", "amount": int(round(sum * _length_bonus(length)))}]
-		SlotPrize.Kind.SIGIL:
-			return [{"kind": "sigil", "count": length - 1, "floor": _sigil_floor(run_cols)}]
+		SlotPrize.Kind.ENGRAVING:
+			return [{"kind": "engraving", "count": length - 1, "floor": _engraving_floor(run_cols)}]
 		SlotPrize.Kind.CHARM:
 			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
 		SlotPrize.Kind.DIE:
@@ -190,15 +190,15 @@ func _length_bonus(length: int) -> float:
 		6: return 3.4
 	return 3.4 + (length - 6) * 1.2
 
-## Sigill-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
-func _sigil_floor(run_cols: Array) -> int:
+## Gravur-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
+func _engraving_floor(run_cols: Array) -> int:
 	var tier := 0
 	for col in run_cols:
 		tier = maxi(tier, col / MACHINE_COLS)
 	match tier:
-		0: return Sigil.Rarity.COMMON
-		1: return Sigil.Rarity.UNCOMMON
-	return Sigil.Rarity.RARE
+		0: return Engraving.Rarity.COMMON
+		1: return Engraving.Rarity.UNCOMMON
+	return Engraving.Rarity.RARE
 
 ## Charm-Rarität GENAU nach Reihenlänge (immer nur ein Charm; die Länge bestimmt die
 ## Rarität): 3→gewöhnlich, 4→ungewöhnlich, 5→selten, 6+→legendär.
@@ -214,9 +214,9 @@ func _run_label(kind: int, length: int, specs: Array) -> String:
 	match kind:
 		SlotPrize.Kind.MONEY:
 			return "%s ×%d → $%d" % [sym, length, int(specs[0]["amount"])]
-		SlotPrize.Kind.SIGIL:
+		SlotPrize.Kind.ENGRAVING:
 			var n := int(specs[0]["count"])
-			return "%s ×%d → %d Sigill%s" % [sym, length, n, "" if n == 1 else "e"]
+			return "%s ×%d → %d Gravur%s" % [sym, length, n, "" if n == 1 else "en"]
 		SlotPrize.Kind.CHARM:
 			return "%s ×%d → Charm" % [sym, length]
 		SlotPrize.Kind.DIE:
@@ -263,10 +263,10 @@ func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool) -
 ## Symbole (Charm/Würfel). Fumble überall ähnlich häufig.
 func _symbol_table(machine: int) -> Array:
 	match machine:
-		0: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.SIGIL, 6], [SlotPrize.Kind.FUMBLE, 3]]
-		1: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.SIGIL, 6],
+		0: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.ENGRAVING, 6], [SlotPrize.Kind.FUMBLE, 3]]
+		1: return [[SlotPrize.Kind.MONEY, 7], [SlotPrize.Kind.ENGRAVING, 6],
 			[SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
-	return [[SlotPrize.Kind.MONEY, 6], [SlotPrize.Kind.SIGIL, 6],
+	return [[SlotPrize.Kind.MONEY, 6], [SlotPrize.Kind.ENGRAVING, 6],
 		[SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2], [SlotPrize.Kind.FUMBLE, 3]]
 
 func _fallback_rng() -> RandomNumberGenerator:

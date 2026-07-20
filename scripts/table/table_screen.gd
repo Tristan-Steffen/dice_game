@@ -1262,10 +1262,10 @@ func money_comet(to_treasure: bool, color: Color) -> float:
 
 ## --- Nebenwetten-Lichter (Einsatz/Auszahlung über die Schatz-Leiste) ----------
 
-## Farben der Nebenwetten-Lichter: Geld goldgelb (Schatz-seitig), Sigill violett
+## Farben der Nebenwetten-Lichter: Geld goldgelb (Schatz-seitig), Gravur violett
 ## (Hub-seitig) - so verrät die Farbe schon die Herkunft des Lichts.
 const SIDE_MONEY_COLOR := Color(2.0, 1.55, 0.35, 0.9)
-const SIDE_SIGIL_COLOR := Color(1.5, 0.7, 2.0, 0.9)
+const SIDE_ENGRAVING_COLOR := Color(1.5, 0.7, 2.0, 0.9)
 
 ## Pfad Schatz <-> Nebenwetten (Geld-Einsatz): Truhen-Unterkante in den Korridor,
 ## über die Abzweigung zur Nebenwetten-Unterkante. Leer, falls die Adern fehlen.
@@ -1276,7 +1276,7 @@ func _treasure_to_side_path() -> PackedVector2Array:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[3], trunk[2], branch[1], branch[2]])
 
-## Pfad Hub <-> Nebenwetten (Sigill-Einsatz): Hub-Austritt über den Korridor und
+## Pfad Hub <-> Nebenwetten (Gravur-Einsatz): Hub-Austritt über den Korridor und
 ## die Abzweigung zur Nebenwetten-Unterkante.
 func _hub_to_side_path() -> PackedVector2Array:
 	var trunk := treasure_strip.strip_path
@@ -1285,7 +1285,7 @@ func _hub_to_side_path() -> PackedVector2Array:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[0], trunk[1], trunk[2], branch[1], branch[2]])
 
-## Einsatz-Komet ZUM Nebenwetten-Fenster (from_hub = Sigill-Einsatz vom Hub,
+## Einsatz-Komet ZUM Nebenwetten-Fenster (from_hub = Gravur-Einsatz vom Hub,
 ## sonst Geld-Einsatz vom Schatz). Liefert die Laufzeit für die Ankunfts-Planung.
 func side_bet_stake_comet(from_hub: bool, color: Color) -> float:
 	var path := _hub_to_side_path() if from_hub else _treasure_to_side_path()
@@ -1295,7 +1295,7 @@ func side_bet_stake_comet(from_hub: bool, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Auszahlungs-Komet VOM Nebenwetten-Fenster (to_hub = Sigill-Gewinn zum Hub,
+## Auszahlungs-Komet VOM Nebenwetten-Fenster (to_hub = Gravur-Gewinn zum Hub,
 ## sonst Geld-Gewinn zum Schatz). Liefert die Laufzeit.
 func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	var path := _hub_to_side_path() if to_hub else _treasure_to_side_path()

@@ -2,7 +2,7 @@ class_name ShopController
 extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
 ## Tisch-Displays, bedient über die Maus-Weiterleitung. Links Würfel-Angebote,
-## rechts Charms und einzelne Sigille (Zahlen/Materialien/Würfel). "Umblättern"
+## rechts Charms und einzelne Gravuren (Zahlen/Materialien/Würfel). "Umblättern"
 ## auf eine NEUE Seite würfelt frische Angebote aus und kostet eine steigende
 ## Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind gratis
 ## erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf
@@ -15,17 +15,17 @@ const CHARM_PRICE := 15
 ## Der Laden ist ELASTISCH: Anzahl der Plätze je Rubrik liefert GameRun (SHOP_*_SLOTS),
 ## die Kartengröße skaliert gegenläufig - wenige, große Angebote am Anfang, viele
 ## kleine später. Drei Rubriken/Segmente: Vitrine (Würfel) links, Charm-Regal +
-## Chip-Schale (Sigille + Übertaktungen) rechts.
+## Chip-Schale (Gravuren + Übertaktungen) rechts.
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
 const FLIP_FEE_BASE := 2
 
-## Preis je einzelnem Sigill nach Seltenheit.
-const SIGIL_PRICES := {
-	Sigil.Rarity.COMMON: 5,
-	Sigil.Rarity.UNCOMMON: 9,
-	Sigil.Rarity.RARE: 15,
+## Preis je einzelner Gravur nach Seltenheit.
+const ENGRAVING_PRICES := {
+	Engraving.Rarity.COMMON: 5,
+	Engraving.Rarity.UNCOMMON: 9,
+	Engraving.Rarity.RARE: 15,
 }
 
 ## Farben im Display-Stil (80s Neon).
@@ -47,8 +47,8 @@ class MenuSpread:
 	var dice_offers: Array[DiceOffer] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var sigil_offers: Array[Sigil] = []  # gemischte Sigille für den unteren Bereich
-	var sigil_bought: Array[bool] = []
+	var engraving_offers: Array[Engraving] = []  # gemischte Gravuren für den unteren Bereich
+	var engraving_bought: Array[bool] = []
 	var overclock_offers: Array[String] = []  # Kombinations-Keys zum Übertakten
 	var overclock_bought: Array[bool] = []
 
@@ -76,7 +76,7 @@ var page_next_button: Button
 var flip_hint_label: Label
 var hub_upgrade_button: Button
 
-## Hover-Dropdown (Charm-/Sigil-Beschreibung), wie die Gravur-Station.
+## Hover-Dropdown (Charm-/Engraving-Beschreibung), wie die Gravur-Station.
 var shop_tooltip: PanelContainer
 var shop_tooltip_title: Label
 var shop_tooltip_body: Label
@@ -90,10 +90,10 @@ var offer_buy_buttons: Array[Button] = []
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 var charm_bought: Array[bool] = []
-var sigil_offers: Array[Sigil] = []
-var sigil_bought: Array[bool] = []
-var sigil_buttons: Array[Button] = []
-var sigil_button_prices: Array[int] = []
+var engraving_offers: Array[Engraving] = []
+var engraving_bought: Array[bool] = []
+var engraving_buttons: Array[Button] = []
+var engraving_button_prices: Array[int] = []
 var overclock_offers: Array[String] = []
 var overclock_bought: Array[bool] = []
 var overclock_buttons: Array[Button] = []
@@ -265,7 +265,7 @@ func refresh_after_hub_upgrade() -> void:
 		var old := spreads[current_spread_index]
 		_flicker_charm_from = old.charm_options.size()
 		_flicker_dice_from = old.dice_offers.size()
-		_flicker_chip_from = old.sigil_offers.size() + old.overclock_offers.size()
+		_flicker_chip_from = old.engraving_offers.size() + old.overclock_offers.size()
 		spreads[current_spread_index] = _build_spread()
 	_refresh_hub_footer()
 	_show_spread()
@@ -290,7 +290,7 @@ func _play_flip_animation() -> void:
 
 # --- Doppelseiten bauen --------------------------------------------------------
 
-## Frische Doppelseite: vier Charms oben, unten drei Würfel-Bündel + fünf Sigille.
+## Frische Doppelseite: vier Charms oben, unten drei Würfel-Bündel + fünf Gravuren.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
 	spread.dice_offers = DiceOffer.roll_offers(run.shop_dice_slots(), run.charm_ids())
@@ -321,15 +321,15 @@ func _build_spread() -> MenuSpread:
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
 
-	# Gemischte Einzel-Sigille; höhere Raritäts-Stufen heben die Mindest-Seltenheit.
-	var sigil_floor := Sigil.Rarity.COMMON
+	# Gemischte Einzel-Gravuren; höhere Raritäts-Stufen heben die Mindest-Seltenheit.
+	var engraving_floor := Engraving.Rarity.COMMON
 	if rarity_tier >= 2:
-		sigil_floor = Sigil.Rarity.RARE
+		engraving_floor = Engraving.Rarity.RARE
 	elif rarity_tier >= 1:
-		sigil_floor = Sigil.Rarity.UNCOMMON
-	spread.sigil_offers = Sigil.roll_draft(run.shop_sigil_slots(), sigil_floor)
-	spread.sigil_bought.resize(spread.sigil_offers.size())
-	spread.sigil_bought.fill(false)
+		engraving_floor = Engraving.Rarity.UNCOMMON
+	spread.engraving_offers = Engraving.roll_draft(run.shop_engraving_slots(), engraving_floor)
+	spread.engraving_bought.resize(spread.engraving_offers.size())
+	spread.engraving_bought.fill(false)
 
 	# Übertaktungen: verschiedene Kombinationen, je Angebot einmal kaufbar.
 	var keys := DiceScoring.HAND_PRIORITY.duplicate()
@@ -369,8 +369,8 @@ func _show_spread() -> void:
 	dice_offers = spread.dice_offers
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
-	sigil_offers = spread.sigil_offers
-	sigil_bought = spread.sigil_bought
+	engraving_offers = spread.engraving_offers
+	engraving_bought = spread.engraving_bought
 	overclock_offers = spread.overclock_offers
 	overclock_bought = spread.overclock_bought
 
@@ -386,20 +386,20 @@ func _clear_pages() -> void:
 			child.queue_free()
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
-	sigil_buttons.clear()
-	sigil_button_prices.clear()
+	engraving_buttons.clear()
+	engraving_button_prices.clear()
 	overclock_buttons.clear()
 
 ## Baut die drei Segmente: links die Vitrine (Würfel-Bündel, senkrecht gestapelt),
-## rechts das Charm-Regal über der Chip-Schale (Sigille + Übertaktungen). Alle
+## rechts das Charm-Regal über der Chip-Schale (Gravuren + Übertaktungen). Alle
 ## Rubriken FÜLLEN ihre Fläche - bei wenigen Plätzen werden die Karten groß.
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
 		child.queue_free()
 	offer_buy_buttons.clear()
 	charm_buttons.clear()
-	sigil_buttons.clear()
-	sigil_button_prices.clear()
+	engraving_buttons.clear()
+	engraving_button_prices.clear()
 	overclock_buttons.clear()
 
 	var main_row := HBoxContainer.new()
@@ -446,7 +446,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		charm_row.add_child(ccard)
 		_maybe_flicker(ccard, i, _flicker_charm_from)
 
-	# Segment 3: Chip-Schale - runde Casino-Chips (Sigille + Übertaktungen gemischt),
+	# Segment 3: Chip-Schale - runde Casino-Chips (Gravuren + Übertaktungen gemischt),
 	# als Tablett umbrechend und in der Schale zentriert (schwebende Chips statt
 	# oben klebend). Füllt die restliche Höhe der rechten Spalte.
 	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "", true)
@@ -457,10 +457,10 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	tray.alignment = FlowContainer.ALIGNMENT_CENTER
 	tray.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_zone.add_child(tray)
-	var dia := _chip_dia(spread.sigil_offers.size() + spread.overclock_offers.size())
+	var dia := _chip_dia(spread.engraving_offers.size() + spread.overclock_offers.size())
 	var chip_i := 0
-	for i in spread.sigil_offers.size():
-		var scard := _build_sigil_chip(spread.sigil_offers[i], i, dia)
+	for i in spread.engraving_offers.size():
+		var scard := _build_engraving_chip(spread.engraving_offers[i], i, dia)
 		tray.add_child(scard)
 		_maybe_flicker(scard, chip_i, _flicker_chip_from)
 		chip_i += 1
@@ -527,7 +527,7 @@ func _die_px(count: int) -> int:
 		return int(u * 6.5)
 	return int(u * 5.0)
 
-## Chip-Durchmesser je nach Gesamtzahl der Chips (Sigille + Übertaktungen).
+## Chip-Durchmesser je nach Gesamtzahl der Chips (Gravuren + Übertaktungen).
 func _chip_dia(count: int) -> float:
 	if count <= 4:
 		return u * 12.0
@@ -688,22 +688,22 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Sigil-Chip in der Schale: runde Rauchglas-Scheibe mit Seltenheits-Saum, darin
+## Engraving-Chip in der Schale: runde Rauchglas-Scheibe mit Seltenheits-Saum, darin
 ## das Siegel + Preis; Kategorie/Seltenheit/Wirkung zeigt der Hover-Dropdown.
-func _build_sigil_chip(sigil: Sigil, offer_index: int, dia: float) -> Control:
-	var price := _sigil_price(sigil)
-	var seam: Color = SigilRenderer.SEAM_COLORS[sigil.rarity]
-	var face := SigilRenderer.for_sigil(sigil)
+func _build_engraving_chip(engraving: Engraving, offer_index: int, dia: float) -> Control:
+	var price := _engraving_price(engraving)
+	var seam: Color = EngravingRenderer.SEAM_COLORS[engraving.rarity]
+	var face := EngravingRenderer.for_engraving(engraving)
 	face.custom_minimum_size = Vector2(dia * 0.56, dia * 0.56)
-	var title := "%s – %s (%s)" % [sigil.display_name, sigil.category_name(), Sigil.rarity_name(sigil.rarity)]
-	var bought := sigil_bought[offer_index]
-	var chip := _chip_button(dia, seam, face, price, bought, title, sigil.description)
+	var title := "%s – %s (%s)" % [engraving.display_name, engraving.category_name(), Engraving.rarity_name(engraving.rarity)]
+	var bought := engraving_bought[offer_index]
+	var chip := _chip_button(dia, seam, face, price, bought, title, engraving.description)
 	if bought:
 		chip.disabled = true
 	else:
-		chip.pressed.connect(_on_sigil_buy_pressed.bind(offer_index))
-	sigil_buttons.append(chip)
-	sigil_button_prices.append(price)
+		chip.pressed.connect(_on_engraving_buy_pressed.bind(offer_index))
+	engraving_buttons.append(chip)
+	engraving_button_prices.append(price)
 	return chip
 
 ## Übertaktungs-Chip: goldene Scheibe mit ⚡; hebt die Stufe EINER Kombination
@@ -928,8 +928,8 @@ func _offer_price(offer: DiceOffer) -> int:
 func _charm_price() -> int:
 	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())
 
-func _sigil_price(sigil: Sigil) -> int:
-	return SIGIL_PRICES.get(sigil.rarity, SIGIL_PRICES[Sigil.Rarity.UNCOMMON])
+func _engraving_price(engraving: Engraving) -> int:
+	return ENGRAVING_PRICES.get(engraving.rarity, ENGRAVING_PRICES[Engraving.Rarity.UNCOMMON])
 
 ## Kauft das komplette Würfel-Bündel - beliebig oft wiederholbar.
 func _on_offer_pressed(index: int) -> void:
@@ -951,17 +951,17 @@ func _on_charm_clicked(index: int) -> void:
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
-## Kauft ein einzelnes Sigill (jedes Angebot nur einmal); landet sofort im Inventar.
+## Kauft eine einzelne Gravur (jedes Angebot nur einmal); landet sofort im Inventar.
 ## Danach wird die Schale neu bebaut, damit der Chip als gekauft (✓) erscheint.
-func _on_sigil_buy_pressed(offer_index: int) -> void:
-	if sigil_bought[offer_index]:
+func _on_engraving_buy_pressed(offer_index: int) -> void:
+	if engraving_bought[offer_index]:
 		return
-	var sigil := sigil_offers[offer_index]
-	var price := _sigil_price(sigil)
+	var engraving := engraving_offers[offer_index]
+	var price := _engraving_price(engraving)
 	if run.money < price:
 		return
-	run.purchase_sigil(sigil, price)
-	sigil_bought[offer_index] = true  # liegt im Spread - übersteht den Neuaufbau
+	run.purchase_engraving(engraving, price)
+	engraving_bought[offer_index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
 ## Kauft die Übertaktung (je Angebot einmal); die Doppelseite wird neu bebaut,
@@ -986,8 +986,8 @@ func _refresh_afford_state() -> void:
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
-	for i in sigil_buttons.size():
-		sigil_buttons[i].disabled = sigil_bought[i] or money < sigil_button_prices[i]
+	for i in engraving_buttons.size():
+		engraving_buttons[i].disabled = engraving_bought[i] or money < engraving_button_prices[i]
 	for i in overclock_buttons.size():
 		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
 	if page_back_button != null and is_instance_valid(page_back_button):

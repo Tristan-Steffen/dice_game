@@ -1,6 +1,6 @@
 extends GutTest
 ## Tier-1-Tests des GameRun (siehe scripts/game_run.gd): der persistente
-## Run-Zustand (Geld, Pool, Charms, Sigille, Rundenfortschritt) als reine
+## Run-Zustand (Geld, Pool, Charms, Gravuren, Rundenfortschritt) als reine
 ## Daten-Klasse - komplett ohne Szene testbar. Shop und Gravur-Station mutieren
 ## den Zustand ausschließlich über diese Methoden; die HUD hört auf die Signale.
 
@@ -16,7 +16,7 @@ func test_new_run_starts_empty_handed():
 	assert_eq(run.round_number, 1)
 	assert_eq(run.round_goal, GameRun.BASE_GOAL)
 	assert_eq(run.owned_charms.size(), 0)
-	assert_eq(run.owned_sigils.size(), 0)
+	assert_eq(run.owned_engravings.size(), 0)
 
 func test_new_run_fills_pool_with_standard_dice():
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
@@ -128,54 +128,54 @@ func test_move_charm_changes_totem_neighbor_resolution():
 	run.move_charm(2, 1)
 	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
 
-# --- Sigille --------------------------------------------------------------------
+# --- Gravuren --------------------------------------------------------------------
 
-func test_grant_and_consume_sigil():
+func test_grant_and_consume_engraving():
 	watch_signals(run)
-	run.grant_sigil(Sigil.chisel())
-	assert_eq(run.owned_sigils.size(), 1)
-	assert_true(run.consume_sigil(Sigil.CHISEL))
-	assert_eq(run.owned_sigils.size(), 0)
-	assert_signal_emit_count(run, "sigils_changed", 2)
+	run.grant_engraving(Engraving.chisel())
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_true(run.consume_engraving(Engraving.CHISEL))
+	assert_eq(run.owned_engravings.size(), 0)
+	assert_signal_emit_count(run, "engravings_changed", 2)
 
-func test_consume_missing_sigil_returns_false_without_signal():
+func test_consume_missing_engraving_returns_false_without_signal():
 	watch_signals(run)
-	assert_false(run.consume_sigil(Sigil.CHISEL))
-	assert_signal_emit_count(run, "sigils_changed", 0)
+	assert_false(run.consume_engraving(Engraving.CHISEL))
+	assert_signal_emit_count(run, "engravings_changed", 0)
 
 func test_consume_removes_only_one_of_a_kind():
-	run.grant_sigil(Sigil.chisel())
-	run.grant_sigil(Sigil.chisel())
-	run.consume_sigil(Sigil.CHISEL)
-	assert_eq(run.owned_sigils.size(), 1)
+	run.grant_engraving(Engraving.chisel())
+	run.grant_engraving(Engraving.chisel())
+	run.consume_engraving(Engraving.CHISEL)
+	assert_eq(run.owned_engravings.size(), 1)
 
-func test_unlimited_sigils_consume_is_a_noop_and_reports_success():
-	# Testmodus (siehe scene_root): Sigille sind unerschöpflich - consume verbraucht
+func test_unlimited_engravings_consume_is_a_noop_and_reports_success():
+	# Testmodus (siehe scene_root): Gravuren sind unerschöpflich - consume verbraucht
 	# nichts, meldet aber Erfolg, auch wenn gar kein Exemplar im Inventar liegt.
-	run.unlimited_sigils = true
+	run.unlimited_engravings = true
 	watch_signals(run)
-	assert_true(run.consume_sigil(Sigil.CHISEL), "meldet Erfolg trotz leerem Inventar")
-	assert_eq(run.owned_sigils.size(), 0, "nichts verbraucht")
-	assert_signal_emit_count(run, "sigils_changed", 0, "kein Bestandswechsel")
+	assert_true(run.consume_engraving(Engraving.CHISEL), "meldet Erfolg trotz leerem Inventar")
+	assert_eq(run.owned_engravings.size(), 0, "nichts verbraucht")
+	assert_signal_emit_count(run, "engravings_changed", 0, "kein Bestandswechsel")
 
-func test_unlimited_sigils_keeps_owned_stock_intact():
-	run.unlimited_sigils = true
-	run.grant_sigil(Sigil.chisel())
-	run.consume_sigil(Sigil.CHISEL)
-	assert_eq(run.owned_sigils.size(), 1, "vorhandene Sigille bleiben liegen")
+func test_unlimited_engravings_keeps_owned_stock_intact():
+	run.unlimited_engravings = true
+	run.grant_engraving(Engraving.chisel())
+	run.consume_engraving(Engraving.CHISEL)
+	assert_eq(run.owned_engravings.size(), 1, "vorhandene Gravuren bleiben liegen")
 
-# --- Einzel-Sigill-Kauf ----------------------------------------------------------
+# --- Einzel-Gravur-Kauf ----------------------------------------------------------
 
-func test_purchase_sigil_deducts_and_stores():
+func test_purchase_engraving_deducts_and_stores():
 	run.money = 20
-	run.purchase_sigil(Sigil.chisel(), 5)
+	run.purchase_engraving(Engraving.chisel(), 5)
 	assert_eq(run.money, 15, "Preis abgezogen")
-	assert_eq(run.owned_sigils.size(), 1, "Sigill im Inventar")
+	assert_eq(run.owned_engravings.size(), 1, "Gravur im Inventar")
 
-func test_granting_other_sigils_still_stores_them():
-	run.grant_sigil(Sigil.chisel())
-	assert_eq(run.owned_sigils.size(), 1)
-	assert_false(run.combo_levels.has(Sigil.CHISEL))
+func test_granting_other_engravings_still_stores_them():
+	run.grant_engraving(Engraving.chisel())
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_false(run.combo_levels.has(Engraving.CHISEL))
 
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
@@ -240,32 +240,32 @@ func test_place_side_bet_deducts_stake_and_stores():
 	assert_eq(run.active_side_bets.size(), 1)
 	assert_signal_emitted(run, "side_bets_changed")
 
-func test_place_sigil_stake_consumes_sigils():
-	run.grant_sigil(Sigil.chisel())
-	run.grant_sigil(Sigil.file_down())
-	var before := run.owned_sigils.size()
-	var bet := SideBet._from_template(_template("pawn"))  # 1 Sigill Einsatz
-	assert_true(run.can_place_side_bet(bet), "mit Sigille bezahlbar")
+func test_place_engraving_stake_consumes_engravings():
+	run.grant_engraving(Engraving.chisel())
+	run.grant_engraving(Engraving.file_down())
+	var before := run.owned_engravings.size()
+	var bet := SideBet._from_template(_template("pawn"))  # 1 Gravur Einsatz
+	assert_true(run.can_place_side_bet(bet), "mit Gravuren bezahlbar")
 	run.place_side_bet(bet)
-	assert_eq(run.owned_sigils.size(), before - 1, "ein Sigill geopfert")
+	assert_eq(run.owned_engravings.size(), before - 1, "eine Gravur geopfert")
 
-func test_cannot_place_sigil_stake_without_sigils():
-	var bet := SideBet._from_template(_template("collateral"))  # 2 Sigille Einsatz
-	assert_false(run.can_place_side_bet(bet), "ohne genug Sigille nicht setzbar")
+func test_cannot_place_engraving_stake_without_engravings():
+	var bet := SideBet._from_template(_template("collateral"))  # 2 Gravuren Einsatz
+	assert_false(run.can_place_side_bet(bet), "ohne genug Gravuren nicht setzbar")
 
-func test_resolve_sigil_payout_grants_sigils_and_clears():
+func test_resolve_engraving_payout_grants_engravings_and_clears():
 	run.money = 50
-	var win := SideBet._from_template(_template("full_house"))  # Sigill-Gewinn
+	var win := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
 	var lose := SideBet._from_template(_template("big_hand"))
 	run.place_side_bet(win)
 	run.place_side_bet(lose)
-	var before := run.owned_sigils.size()
+	var before := run.owned_engravings.size()
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	var won := run.resolve_side_bets(result)
 	assert_eq(won.size(), 1, "nur das volle Haus gewinnt")
 	assert_eq(won[0].id, "full_house")
-	assert_eq(run.owned_sigils.size(), before + win.reward_sigils, "Sigille ausgeschüttet")
+	assert_eq(run.owned_engravings.size(), before + win.reward_engravings, "Gravuren ausgeschüttet")
 	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
 
 func test_resolve_money_payout_adds_cash():

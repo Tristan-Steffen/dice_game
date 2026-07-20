@@ -417,6 +417,6 @@ static func chip_coupon_value(base_value: int, charm_ids: Array[String]) -> int:
 			value += 1
 	return value
 
-## Gravierstift: einmal pro Runde wird ein Zahl-Sigill nicht verbraucht.
+## Gravierstift: einmal pro Runde wird ein Zahl-Gravur nicht verbraucht.
 static func has_engraving_pen(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.ENGRAVING_PEN)

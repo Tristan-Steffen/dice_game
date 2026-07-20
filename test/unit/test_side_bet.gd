@@ -92,42 +92,42 @@ func test_status_label_reads_progress():
 func test_reward_list_size_and_kinds():
 	var bet := _bet("full_house")
 	var rewards := bet.reward_list()
-	assert_eq(rewards.size(), bet.reward_sigils)
-	for sigil in rewards:
-		assert_true(SideBet.REWARD_KINDS.has(sigil.category), "Belohnung ist Ätzung/Material")
+	assert_eq(rewards.size(), bet.reward_engravings)
+	for engraving in rewards:
+		assert_true(SideBet.REWARD_KINDS.has(engraving.category), "Belohnung ist Ätzung/Material")
 
-# --- Wett-Sorten (Geld/Sigill × Einsatz/Gewinn) ------------------------------
+# --- Wett-Sorten (Geld/Gravur × Einsatz/Gewinn) ------------------------------
 
 func test_templates_cover_all_four_quadrants():
 	var seen := {}
 	for t in SideBet.TEMPLATES:
 		var bet := SideBet._from_template(t)
 		seen["%d_%d" % [bet.stake_kind, bet.payout_kind]] = true
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.SIGILS]), "Geld -> Sigille")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.ENGRAVINGS]), "Geld -> Gravuren")
 	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.MONEY]), "Geld -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.SIGILS, SideBet.Payout.MONEY]), "Sigill -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.SIGILS, SideBet.Payout.SIGILS]), "Sigill -> Sigille")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.ENGRAVINGS, SideBet.Payout.MONEY]), "Gravur -> Geld")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.ENGRAVINGS, SideBet.Payout.ENGRAVINGS]), "Gravur -> Gravuren")
 
 func test_money_stake_label():
 	var bet := _bet("two_pair")
 	assert_eq(bet.stake_kind, SideBet.Stake.MONEY)
 	assert_eq(bet.stake_label(), "$%d" % bet.stake)
 
-func test_sigil_stake_label_pluralizes():
-	var bet := _bet("pawn")  # 1 Sigill
-	assert_eq(bet.stake_kind, SideBet.Stake.SIGILS)
-	assert_eq(bet.stake_label(), "1 Sigill")
-	var two := _bet("collateral")  # 2 Sigille
-	assert_eq(two.stake_label(), "2 Sigille")
+func test_engraving_stake_label_pluralizes():
+	var bet := _bet("pawn")  # 1 Gravur
+	assert_eq(bet.stake_kind, SideBet.Stake.ENGRAVINGS)
+	assert_eq(bet.stake_label(), "1 Gravur")
+	var two := _bet("collateral")  # 2 Gravuren
+	assert_eq(two.stake_label(), "2 Gravuren")
 
 func test_money_payout_reward_label():
 	var bet := _bet("jackpot")
 	assert_eq(bet.payout_kind, SideBet.Payout.MONEY)
 	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
 
-func test_sigil_payout_reward_label_pluralizes():
-	var single := _bet("two_pair")  # 1 Sigill Gewinn
-	assert_eq(single.payout_kind, SideBet.Payout.SIGILS)
-	assert_eq(single.reward_label(), "1 Sigill")
-	var many := _bet("full_house")  # 2 Sigille Gewinn
-	assert_eq(many.reward_label(), "2 Sigille")
+func test_engraving_payout_reward_label_pluralizes():
+	var single := _bet("two_pair")  # 1 Gravur Gewinn
+	assert_eq(single.payout_kind, SideBet.Payout.ENGRAVINGS)
+	assert_eq(single.reward_label(), "1 Gravur")
+	var many := _bet("full_house")  # 2 Gravuren Gewinn
+	assert_eq(many.reward_label(), "2 Gravuren")

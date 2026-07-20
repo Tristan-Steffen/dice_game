@@ -149,7 +149,7 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 @onready var library_button: Button = $UI/SettingsMenu/LibraryButton
 
 ## Testmodus-Knopf (per Code angehängt): zufällige Materialien auf ALLEN
-## Würfeln + unerschöpfliche Sigille an/aus.
+## Würfeln + unerschöpfliche Gravuren an/aus.
 var test_materials_button: Button
 var test_materials_enabled: bool = false
 
@@ -535,7 +535,7 @@ func _setup_panels() -> void:
 	# Beim Drehen der Würfel-Projektion die Kamera festhalten.
 	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
 	# Auswahl auch am ECHTEN schwebenden Würfel violett hervorheben.
-	die_inspector.selection_changed.connect(func(_face: int, _edges: bool) -> void: _highlight_engraving_die())
+	die_inspector.selection_changed.connect(func(_face: int) -> void: _highlight_engraving_die())
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -1016,7 +1016,7 @@ func _on_side_bet_selected(index: int) -> void:
 		_pending_bet_center = table_screen.side_bet_window.bet_button_center(index)
 
 ## Wette platziert (nach der Zahlung): der Einsatz reist als Licht zum Fenster
-## (Geld vom Schatz, Sigill vom Hub), diffundiert in den Knopf und lässt ihn
+## (Geld vom Schatz, Gravur vom Hub), diffundiert in den Knopf und lässt ihn
 ## golden/violett glühen. Reines Schmuckwerk - der Einsatz ist bereits gebucht.
 func _on_side_bet_placed(index: int) -> void:
 	_suppress_money_light = false
@@ -1024,9 +1024,9 @@ func _on_side_bet_placed(index: int) -> void:
 	if panel == null or index < 0 or index >= panel.offers.size():
 		return
 	var bet: SideBet = panel.offers[index]
-	var from_hub := bet.stake_kind == SideBet.Stake.SIGILS
-	var comet_color := TableScreen.SIDE_SIGIL_COLOR if from_hub else TableScreen.SIDE_MONEY_COLOR
-	var glow_color := SideBetPanel.SIGIL_GLOW if from_hub else SideBetPanel.GOLD
+	var from_hub := bet.stake_kind == SideBet.Stake.ENGRAVINGS
+	var comet_color := TableScreen.SIDE_ENGRAVING_COLOR if from_hub else TableScreen.SIDE_MONEY_COLOR
+	var glow_color := SideBetPanel.ENGRAVING_GLOW if from_hub else SideBetPanel.GOLD
 	var center := _pending_bet_center
 	var travel := table_screen.side_bet_stake_comet(from_hub, comet_color)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
@@ -1044,20 +1044,20 @@ func _on_slot_cashed_out(_multiplier: int) -> void:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 
 ## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Komet vom Nebenwetten-
-## Fenster zurück (Geld zum Schatz, Sigill zum Hub), leicht gestaffelt.
+## Fenster zurück (Geld zum Schatz, Gravur zum Hub), leicht gestaffelt.
 func _play_side_bet_payouts(won: Array[SideBet]) -> void:
 	if table_screen == null or won.is_empty():
 		return
 	for i in won.size():
 		var bet: SideBet = won[i]
-		var to_hub := bet.payout_kind == SideBet.Payout.SIGILS
-		var color := TableScreen.SIDE_SIGIL_COLOR if to_hub else TableScreen.SIDE_MONEY_COLOR
+		var to_hub := bet.payout_kind == SideBet.Payout.ENGRAVINGS
+		var color := TableScreen.SIDE_ENGRAVING_COLOR if to_hub else TableScreen.SIDE_MONEY_COLOR
 		var fire := func() -> void:
 			var travel: float = table_screen.side_bet_payout_comet(to_hub, color)
 			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 				if to_hub:
 					if table_screen.hub != null:
-						table_screen.hub.flash_frame(SideBetPanel.SIGIL_GLOW)
+						table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW)
 				elif table_screen.treasure_window != null:
 					table_screen.treasure_window.glint())
 		if i == 0:
@@ -1116,7 +1116,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.button_index == MOUSE_BUTTON_RIGHT:
 		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
 		# ab; sonst navigiert er wie sonst (Herauszoomen).
-		if engraving_active and die_inspector.mode != DieInspectorView.Mode.SELECT:
+		if engraving_active and die_inspector.has_pending_action():
 			die_inspector.cancel_pending()
 			return
 		camera_rig.zoom_out()
@@ -1268,9 +1268,9 @@ func _hub_hover_target() -> Vector3:
 	var t := (hover_y - cam_pos.y) / denom
 	return cam_pos + (surface - cam_pos) * t
 
-## Ätzung angewandt: goldene Leiterbahn Sigill-Kachel -> schwebender Würfel;
+## Ätzung angewandt: goldene Leiterbahn Gravur-Kachel -> schwebender Würfel;
 ## bei der Ankunft absorbiert er die Kraft (Seiten nachziehen + Blitz-Pop).
-func _on_engraving_applied(_sigil_id: String, slot_px: Vector2) -> void:
+func _on_engraving_applied(_engraving_id: String, slot_px: Vector2) -> void:
 	if not engraving_active:
 		return
 	table_screen.spawn_trace(slot_px, die_inspector.stage_center_px(), ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
@@ -1301,7 +1301,8 @@ func _highlight_engraving_die() -> void:
 	var faces: DieFaceDisplay = engraving_die.get_node("RigidBody3D/Faces")
 	faces.set_tint(DiceController.KIND_TINTS.get(die_inspector.current_def.style_id, Color.WHITE))
 	faces.reset_number_tints()
-	if die_inspector.edges_selected:
+	if die_inspector.edges_targeted():
+		# Gehaltene Kanten-Gravur: der Rahmen ist das Ziel.
 		faces.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
 	elif die_inspector.selected_face != -1:
 		# Nur die gewählte ZIFFER leuchtet - der Würfelkörper bleibt neutral.
@@ -2798,7 +2799,7 @@ func _on_reset_button_pressed() -> void:
 	_reset_game()
 
 ## Testmodus umschalten: An = zufällige Materialien auf allen Würfeln,
-## Testmodus-Charms + unbegrenzte Sigille; Aus = alles entfernen. Beides
+## Testmodus-Charms + unbegrenzte Gravuren; Aus = alles entfernen. Beides
 ## startet die Runde neu, damit die Änderung sofort sichtbar ist.
 func _on_test_materials_pressed() -> void:
 	test_materials_enabled = not test_materials_enabled
@@ -2890,7 +2891,7 @@ func _start_new_round() -> void:
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
-	run.unlimited_sigils = test_materials_enabled
+	run.unlimited_engravings = test_materials_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
 		run.grant_charms(_test_mode_charms())
@@ -2995,7 +2996,7 @@ func _on_round_complete() -> void:
 		if run.money < floor_value:
 			run.money = floor_value
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
-		# als Sigille im Inventar, sichtbar im Shop/an der Gravur-Station).
+		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
@@ -3228,7 +3229,7 @@ func _update_gameplay_ui_visibility() -> void:
 	hand_label.visible = show_ui
 
 # --- Reaktionen auf Shop/Gravur-Station -------------------------------------
-# Käufe und Sigill-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
+# Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
 # über die Run-Signale. Hier nur Reaktionen, die echte Szenen-Arbeit brauchen.
 
 ## Ätzung angewandt: die faces sind schon verändert, nur Trays neu zeichnen.

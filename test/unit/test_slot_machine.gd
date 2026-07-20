@@ -6,7 +6,7 @@ extends GutTest
 ## Wände; eine „neutrale" Füllung (mod-4-Muster) bildet in KEINER Richtung eine Reihe.
 
 const M := SlotPrize.Kind.MONEY
-const S := SlotPrize.Kind.SIGIL
+const S := SlotPrize.Kind.ENGRAVING
 const C := SlotPrize.Kind.CHARM
 const D := SlotPrize.Kind.DIE
 const F := SlotPrize.Kind.FUMBLE
@@ -116,21 +116,21 @@ func test_longer_run_pays_more() -> void:
 	assert_gt(long_money, short_money * 2, "5er zahlt überproportional mehr als 3er")
 
 func test_pot_summary_sums_all_runs() -> void:
-	# Zeile 0: 3er-$ (Automat 0, $3). Zeile 2: 3er-Sigill (2 Sigille). Rest neutral.
+	# Zeile 0: 3er-$ (Automat 0, $3). Zeile 2: 3er-Gravur (2 Gravuren). Rest neutral.
 	var bank := _neutral()
 	for c in 3:
 		bank.cells[c][0] = M
 		bank.cells[c][2] = S
 	var summary := bank.pot_summary()
 	assert_eq(int(summary["money"]), 3, "Geld aller Geld-Reihen summiert")
-	assert_eq(int(summary["sigils"]), 2, "Sigille aller Sigill-Reihen summiert (3er → 2)")
+	assert_eq(int(summary["engravings"]), 2, "Gravuren aller Gravur-Reihen summiert (3er → 2)")
 	assert_true((summary["charms"] as Array).is_empty())
 	assert_eq(int(summary["dice"]), 0)
 
 func test_pot_summary_empty_when_no_runs() -> void:
 	var summary := _neutral().pot_summary()
 	assert_eq(int(summary["money"]), 0)
-	assert_eq(int(summary["sigils"]), 0)
+	assert_eq(int(summary["engravings"]), 0)
 	assert_true((summary["charms"] as Array).is_empty())
 	assert_eq(int(summary["dice"]), 0)
 
@@ -188,7 +188,7 @@ func test_run_specs_resolve_by_symbol() -> void:
 	var money: Dictionary = money_run["specs"][0]
 	assert_eq(String(money["kind"]), "money")
 	assert_gt(int(money["amount"]), 0)
-	var sigil_run: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
-	var sigil: Dictionary = sigil_run["specs"][0]
-	assert_eq(String(sigil["kind"]), "sigil")
-	assert_eq(int(sigil["count"]), 2, "3er-Sigill-Reihe → 2 Sigille")
+	var engraving_run: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
+	var engraving: Dictionary = engraving_run["specs"][0]
+	assert_eq(String(engraving["kind"]), "engraving")
+	assert_eq(int(engraving["count"]), 2, "3er-Gravur-Reihe → 2 Gravuren")
