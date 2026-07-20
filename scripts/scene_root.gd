@@ -547,11 +547,12 @@ func _setup_panels() -> void:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
 
-	# Gravur-Station ebenfalls als Hub-Seite (ohne Hub: keine Zeremonie).
+	# Gravur-Station in der WERKSTATT: dort liegen die Vorräte, dort werden sie
+	# angewandt (ohne Werkstatt-Fenster: keine Zeremonie).
 	die_inspector = DieInspectorView.new()
 	die_inspector.visible = false
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.attach_panel(die_inspector)
+	if table_screen != null and table_screen.workshop_window != null:
+		table_screen.workshop_window.attach_station(die_inspector)
 	else:
 		$UI.add_child(die_inspector)
 	die_inspector.closed.connect(_end_engraving_ceremony)
@@ -1147,9 +1148,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.button_index == MOUSE_BUTTON_RIGHT:
 		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
-		# ab; sonst navigiert er wie sonst (Herauszoomen).
-		if engraving_active and die_inspector.has_pending_action():
-			die_inspector.cancel_pending()
+		# ab, dann die Zeremonie selbst - sie darf nie offen zurückbleiben,
+		# während die Kamera schon woanders steht.
+		if engraving_active:
+			if die_inspector.has_pending_action():
+				die_inspector.cancel_pending()
+			else:
+				die_inspector.close()  # closed -> _end_engraving_ceremony
 			return
 		if _pit_locked() and camera_rig.mode == CameraRig.Mode.PIT:
 			hand_label.text = "Die Runde läuft – die Grube wird erst am Rundenende frei."
@@ -1214,7 +1219,7 @@ func _mouse_on_plane(screen_pos: Vector2, height: float) -> Variant:
 ## das gerade fokussierte - aus der Übersicht zoomt ein Klick stattdessen.
 func _try_tray_die_click(screen_pos: Vector2) -> bool:
 	var candidate_trays: Array[DiceTrayView] = []
-	if engraving_active or camera_rig.mode == CameraRig.Mode.HUB:
+	if engraving_active or camera_rig.mode == CameraRig.Mode.WORKSHOP:
 		candidate_trays = [pool_tray_view, discard_tray_view, queue_tray_view]
 	else:
 		match camera_rig.mode:
@@ -1244,7 +1249,7 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 ## Öffnet die Zeremonie ODER wechselt das Ziel. def ist die echte
 ## Pool-Instanz; ohne Hub öffnet nur das Panel als Fenster-UI.
 func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
-	if table_screen == null or table_screen.hub == null:
+	if table_screen == null or table_screen.workshop_window == null:
 		die_inspector.show_die(def)
 		return
 	if not engraving_active:
@@ -1258,7 +1263,7 @@ func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceT
 ## Stelle über die Hub-Bühne.
 func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
 	if source_root == engraving_source_root:
-		camera_rig.zoom_to(CameraRig.Mode.HUB)  # schon das Ziel - nur herzoomen
+		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)  # schon das Ziel - nur herzoomen
 		return
 	if engraving_source_root != null and is_instance_valid(engraving_source_root):
 		engraving_source_root.visible = true
@@ -1267,7 +1272,7 @@ func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: D
 	var start_pos: Vector3 = source_root.global_position
 	source_root.visible = false
 	die_inspector.show_die(def)
-	camera_rig.zoom_to(CameraRig.Mode.HUB)
+	camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	_fly_engraving_die(def, start_pos)
 
 ## Lässt den echten Würfel vom Tray-Slot über die Hub-Bühne gleiten (in
@@ -1284,17 +1289,18 @@ func _fly_engraving_die(def: DieDefinition, start_pos: Vector3) -> void:
 	await get_tree().process_frame
 	if not engraving_active or engraving_die == null or not is_instance_valid(engraving_die):
 		return
-	var target: Vector3 = _hub_hover_target()
+	var target: Vector3 = _station_hover_target()
 	engraving_fly_tween = create_tween()
 	engraving_fly_tween.tween_property(engraving_die, "global_position", target, ENGRAVE_FLY_TIME) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 ## Landepunkt: die Bühnen-Mitte auf die Tischfläche zurückprojiziert, dann
 ## entlang des Kamerastrahls auf Auflagehöhe gehoben (Parallaxe kompensiert).
-func _hub_hover_target() -> Vector3:
+func _station_hover_target() -> Vector3:
 	var stage_px: Vector2 = die_inspector.stage_center_px()
 	var surface: Vector3 = table_screen.pixel_to_world(stage_px)
-	var cam_pos: Vector3 = camera_rig.hub_target - CameraRig.ZOOM_FORWARD * CameraRig.ZOOM_DISTANCE
+	var zoom_distance := CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS
+	var cam_pos: Vector3 = camera_rig.workshop_target - CameraRig.ZOOM_FORWARD * zoom_distance
 	var hover_y := surface.y + ENGRAVE_HOVER
 	var denom := surface.y - cam_pos.y
 	if is_zero_approx(denom):

@@ -37,11 +37,16 @@ var run: GameRun:
 		refresh()
 
 ## Werkbank-Zustand: das Lager, oder die Zeremonie eines offenen Pakets.
+## Die Gravur-Station ist KEINE Phase - sie liegt als eigenes Panel darüber
+## (siehe attach_station) und blendet den Lager-Inhalt aus, solange sie offen ist.
 enum Phase { STASH, REVEAL_ENGRAVINGS, REVEAL_DICE, PICK_POOL }
 
 var _content: VBoxContainer
 ## Öffnen-Knöpfe der Lagerkarten, Reihenfolge = owned_packs.
 var _pack_buttons: Array[Button] = []
+
+## Die Gravur-Station als angehängtes Vollflächen-Panel (setzt scene_root).
+var _station: Control
 
 var _phase: Phase = Phase.STASH
 ## Inhalt des gerade geöffneten Pakets.
@@ -58,6 +63,18 @@ func _ready() -> void:
 	add_theme_stylebox_override("panel", TableScreen.window_style())
 	refresh()
 
+## Hängt die Gravur-Station als Vollflächen-Panel an: ab jetzt gilt die
+## Eine-Ansicht-Regel - solange sie sichtbar ist, ruht der Lager-Inhalt.
+func attach_station(panel: Control) -> void:
+	_station = panel
+	add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.visibility_changed.connect(refresh)
+	refresh()
+
+func _station_open() -> bool:
+	return _station != null and is_instance_valid(_station) and _station.visible
+
 func refresh() -> void:
 	if not is_inside_tree():
 		return
@@ -66,6 +83,8 @@ func refresh() -> void:
 		remove_child(_content)
 		_content.queue_free()
 	_pack_buttons.clear()
+	if _station_open():
+		return  # die Station füllt das Fenster allein
 
 	_content = VBoxContainer.new()
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
