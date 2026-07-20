@@ -1,8 +1,9 @@
 class_name DieInspectorView
 extends Control
-## Die Gravur-Station für einen einzelnen Würfel - ein Neon-Panel auf dem
-## Tisch-Display (HubView.attach_panel). Der gegriffene Würfel schwebt als
-## ECHTES Weltobjekt über der Bühne oben im Panel; darunter die Bedienung.
+## Die Gravur-Station für einen einzelnen Würfel - ein Neon-Panel im
+## Werkstatt-Fenster (WorkshopView.attach_station). Der gegriffene Würfel
+## schwebt als ECHTES Weltobjekt über der Bühne links im Panel; das Ziel
+## wechselt ein Klick auf die echten Trays, die im selben Zoom darüber liegen.
 ##
 ## Werkzeug-zuerst: Klick auf eine Gravur am Bord NIMMT sie auf, dann führt die
 ## Station zu ihren Zielen (gültige Seiten leuchten, ungültige dimmen; Überfahren
@@ -10,7 +11,7 @@ extends Control
 ## Gravuren (Spiegelung/Begradigung) brauchen keine Seitenwahl - ein Klick auf den
 ## Würfel genügt. Die KANTEN sind der Rahmen um die Seiten-Chips (wie an den
 ## Tray-Kacheln): Klickziel der Kanten-Gravuren, keine eigene Auswahl (ein Würfel
-## hat nur einen Rahmen). Erneuter Klick aufs Werkzeug / Rechtsklick legt es ab. Der
+## hat nur einen Rahmen). Erneuter Klick aufs Werkzeug legt es ab. Der
 ## gezeigte Würfel ist DIESELBE DieDefinition-Instanz wie im Pool - die Gravur
 ## wirkt dauerhaft. Bedient über die Maus-Weiterleitung; Rechtsklick behandelt
 ## scene_root.
@@ -260,12 +261,6 @@ func _build_board(root: Control) -> void:
 	board_box.add_theme_constant_override("separation", int(u * 0.45))
 	board_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	root.add_child(board_box)
-
-func _expanding_spacer() -> Control:
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return spacer
 
 ## Baut die drehbare 3D-Projektion samt Unter-Bildschirm. Der SubViewport
 ## kommt per Code (eigene World3D, sonst filmt die Kamera die Tischszene).
