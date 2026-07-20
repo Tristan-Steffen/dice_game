@@ -29,6 +29,10 @@ var ignite: float = 1.0:
 		ignite = clampf(value, 0.0, 1.0)
 		queue_redraw()
 
+## Nacktes Siegel: nur die Gravur, ohne Rauchglas-Kachel und Lichtsaum - für
+## Flächen, die schon einen eigenen Grund haben (Vorrats-Schubladen).
+var bare := false
+
 var _pulse_time := 0.0
 
 static func for_engraving(source: Engraving) -> EngravingRenderer:
@@ -51,8 +55,9 @@ func _process(delta: float) -> void:
 # --- Zeichnen ---------------------------------------------------------------------
 
 func _draw() -> void:
-	_draw_tile()
-	_draw_seam()
+	if not bare:
+		_draw_tile()
+		_draw_seam()
 	_draw_engraving()
 
 ## Kachel: Rauchglas mit leichtem Licht von oben (gestufter Pseudo-Verlauf,

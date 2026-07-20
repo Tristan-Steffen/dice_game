@@ -19,7 +19,11 @@ const GOLD := Color("#ffd319")
 
 ## Kachelmaß und Spaltenzahl je Kategorie - die Werkbank-Ecke rechnet mit EINER
 ## gemeinsamen Maßeinheit u, sonst wären die schmalen Schubladen winzig.
-const CHIP := Vector2(5.4, 4.2)
+## Quadratisch: das Siegel füllt den Platz fast ganz aus und würde sonst
+## verzerrt gezeichnet (EngravingRenderer skaliert in seine Rect-Maße).
+const CHIP := Vector2(4.8, 4.8)
+## Kantenlänge des Siegels im Platz - der Rest ist nur Luft für den Hover-Saum.
+const ICON := 4.4
 const COLUMNS := {
 	Engraving.CATEGORY_NUMBER: 6,
 	Engraving.CATEGORY_MATERIAL: 3,
@@ -155,7 +159,8 @@ func _counts() -> Dictionary:
 		counts[engraving.id] = counts.get(engraving.id, 0) + 1
 	return counts
 
-## Ein Platz: das Siegel, bei Besitz mit ×Anzahl. Ohne Besitz nur der Schatten.
+## Ein Platz: das Siegel, so groß wie der Platz. Die ×Anzahl liegt als Marke in
+## der Ecke DARÜBER - gestapelt fräße sie die Höhe, die jetzt das Siegel hat.
 func _chip(archetype: Engraving, count: int) -> Button:
 	var chip := Button.new()
 	chip.focus_mode = Control.FOCUS_NONE
@@ -164,22 +169,25 @@ func _chip(archetype: Engraving, count: int) -> Button:
 		Engraving.rarity_name(archetype.rarity), archetype.description]
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
 
-	var stack := VBoxContainer.new()
-	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	stack.add_theme_constant_override("separation", 0)
-	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(stack)
 	var face := EngravingRenderer.for_engraving(archetype)
-	face.custom_minimum_size = Vector2.ONE * u * 2.6
-	var stage := CenterContainer.new()
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(face)
-	stack.add_child(stage)
+	face.bare = true  # die Schublade IST der Grund - keine zweite Kachel darauf
+	face.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var inset := (CHIP.x - ICON) * 0.5 * u
+	face.offset_left = inset
+	face.offset_top = inset
+	face.offset_right = -inset
+	face.offset_bottom = -inset
+	chip.add_child(face)
 	if count > 1:
-		var badge := _label("×%d" % count, u * 1.4, GOLD)
-		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		stack.add_child(badge)
+		var badge := _label("×%d" % count, u * 1.5, GOLD)
+		badge.set_anchors_preset(Control.PRESET_FULL_RECT)
+		badge.offset_right = -inset
+		badge.offset_bottom = -inset * 0.5
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		badge.add_theme_color_override("font_outline_color", CasinoStyle.INK)
+		badge.add_theme_constant_override("outline_size", maxi(2, int(u * 0.4)))
+		chip.add_child(badge)
 	return chip
 
 ## Färbt die Plätze nach Bestand und Betriebsart: Schatten ohne Besitz, volle
