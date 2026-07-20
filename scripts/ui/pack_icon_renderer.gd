@@ -3,11 +3,13 @@ extends Control
 ## Zeichnet das Siegel einer Paketsorte als Monoline-Icon mit Glow - vollständig
 ## prozedural (_draw), damit Laden-Karte und Lagerkarte aus einer Quelle kommen.
 ## Je Sorte eine eigene Silhouette:
+## Bewusst OHNE Ziffern und Schrift - die Siegel sollen wie Automaten-Symbole
+## lesen (siehe auch SlotMachine), und Text bräche diese Sprache.
 ##   Würfel   - isometrischer Würfel mit Augen
-##   Zahlen   - großes "+1" (Zahlen-Gravuren heben Augenzahlen)
+##   Zahlen   - ein großes Auge mit Doppel-Chevron: die Augenzahl steigt
 ##   Material - facettierter Edelstein
 ##   Kanten   - nur die vier Ecken eines Rahmens (die Kanten SIND der Rahmen)
-##   Gemischt - +1, Stein und Ecke als Mini-Trio in ihren Sortenfarben
+##   Gemischt - Auge, Stein und Ecke als Mini-Trio in ihren Sortenfarben
 
 ## Kanonische Sortenfarbe (Laden und Werkstatt färben ihre Karten hieraus).
 const COLORS := {
@@ -31,7 +33,7 @@ func _draw() -> void:
 		Pack.TYPE_DICE:
 			_draw_die(_accent())
 		Pack.TYPE_NUMBER:
-			_draw_plus_one(Vector2(0.5, 0.5), 1.0, _accent())
+			_draw_rising_pip(Vector2(0.5, 0.5), 1.0, _accent())
 		Pack.TYPE_MATERIAL:
 			_draw_gem(Vector2(0.5, 0.5), 1.0, _accent())
 		Pack.TYPE_EDGE:
@@ -60,16 +62,15 @@ func _draw_die(color: Color) -> void:
 	for pip in [Vector2(0.5, 0.30), Vector2(0.33, 0.62), Vector2(0.67, 0.62)]:
 		_dot(pip, 0.035, color)
 
-## Großes "+1": Zahlen-Gravuren drehen an den Augenzahlen - direkter geht es nicht.
-func _draw_plus_one(at: Vector2, scale_f: float, color: Color) -> void:
+## Ein großes AUGE, darüber ein Doppel-Chevron: die Augenzahl steigt. Ein Punkt
+## heißt in diesem Spiel überall "Auge" - mehr braucht das Siegel nicht.
+func _draw_rising_pip(at: Vector2, scale_f: float, color: Color) -> void:
 	var o := at - Vector2(0.5, 0.5) * scale_f
-	# Plus.
-	_stroke([o + Vector2(0.12, 0.50) * scale_f, o + Vector2(0.40, 0.50) * scale_f] as Array[Vector2], color)
-	_stroke([o + Vector2(0.26, 0.36) * scale_f, o + Vector2(0.26, 0.64) * scale_f] as Array[Vector2], color)
-	# Die Eins: Fähnchen, Stamm, Fuß.
-	_stroke([o + Vector2(0.54, 0.32) * scale_f, o + Vector2(0.66, 0.20) * scale_f,
-		o + Vector2(0.66, 0.80) * scale_f] as Array[Vector2], color)
-	_stroke([o + Vector2(0.54, 0.80) * scale_f, o + Vector2(0.78, 0.80) * scale_f] as Array[Vector2], color)
+	_dot(o + Vector2(0.5, 0.66) * scale_f, 0.11 * scale_f, color)
+	for i in 2:
+		var y := 0.40 - i * 0.16
+		_stroke([o + Vector2(0.34, y) * scale_f, o + Vector2(0.5, y - 0.11) * scale_f,
+			o + Vector2(0.66, y) * scale_f] as Array[Vector2], color)
 
 ## Facettierter Edelstein: Krone, Gürtel und Spitze.
 func _draw_gem(at: Vector2, scale_f: float, color: Color) -> void:
@@ -99,7 +100,7 @@ func _draw_corners(at: Vector2, scale_f: float, color: Color) -> void:
 ## Gemischt: die drei Gravur-Siegel als Mini-Trio, jedes in seiner Sortenfarbe -
 ## das einzige mehrfarbige Siegel, damit "alles drin" auf einen Blick lesbar ist.
 func _draw_mixed() -> void:
-	_draw_plus_one(Vector2(0.27, 0.26), 0.46, COLORS[Pack.TYPE_NUMBER])
+	_draw_rising_pip(Vector2(0.27, 0.26), 0.46, COLORS[Pack.TYPE_NUMBER])
 	_draw_gem(Vector2(0.75, 0.28), 0.46, COLORS[Pack.TYPE_MATERIAL])
 	_draw_corners(Vector2(0.51, 0.74), 0.46, COLORS[Pack.TYPE_EDGE])
 
