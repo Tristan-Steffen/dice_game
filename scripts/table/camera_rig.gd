@@ -32,6 +32,10 @@ const PIT_ZOOM_DISTANCE_BONUS := 5.0
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 
+## Die Werkbank rahmt Trays UND Fenster; die Würfel schweben zudem über dem
+## Tisch und ragen sonst oben aus dem Bild.
+const WORKSHOP_ZOOM_DISTANCE_BONUS := 6.0
+
 ## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
 ## Zoom automatisch mitnehmen.
@@ -211,6 +215,8 @@ func zoom_to(target_mode: Mode) -> void:
 	# Der Chip-Haufen ist klein: näher heranfahren als an die Screen-Fenster.
 	if target_mode == Mode.CHIPS:
 		distance -= CHIPS_ZOOM_DISTANCE_CUT
+	if target_mode == Mode.WORKSHOP:
+		distance += WORKSHOP_ZOOM_DISTANCE_BONUS
 	var target_origin := target_point - ZOOM_FORWARD * distance
 	mode = target_mode
 	mode_changed.emit(mode)

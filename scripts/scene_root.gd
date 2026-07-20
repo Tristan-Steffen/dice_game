@@ -517,6 +517,10 @@ func _setup_table_screen() -> void:
 			hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top))
 	table_screen.place_workshop_window(workshop_rect)
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster unten. Nur so
+	# liegt der Ziel-Würfel der Gravur-Station mit im Bild.
+	camera_rig.configure_workshop_target(
+		table_screen.pixel_to_world(workshop_rect.merge(tray_bounds).get_center()))
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
