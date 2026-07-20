@@ -381,6 +381,10 @@ static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
 			price -= 5
 	return maxi(1, price)
 
+## Verkaufserlös eines Charms - Ansatzpunkt für künftige wertsteigernde Charms.
+static func charm_sell_value(base_value: int, _charm_ids: Array[String]) -> int:
+	return maxi(1, base_value)
+
 ## Blätter-Gebühr nach Wechselgeld (je Vorkommen -$2, min. $1).
 static func flip_fee(base_fee: int, charm_ids: Array[String]) -> int:
 	var fee := base_fee

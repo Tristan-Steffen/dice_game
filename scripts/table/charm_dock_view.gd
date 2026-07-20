@@ -56,6 +56,11 @@ var _hover := -1
 ## Hover-Text (wandert in die überflogene Konsole; nur eine ist je hovert).
 var _name_label: Label
 var _body_label: Label
+## Verkaufs-Chip am Kartenboden der gehoverten Konsole; scene_root prüft Klicks
+## über sell_index_at und verkauft dann via GameRun.sell_charm.
+var _sell_label: Label
+var _sell_rect := Rect2()
+var _sell_values: Array[int] = []
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -123,11 +128,14 @@ func console_corner_radius() -> float:
 
 ## Übernimmt Belegung + Raritätsfarben (Reihenfolge = Besitz) und rendert je
 ## belegtem Platz eine Charm-Kachel. Überzählige Charms (> Plätze) fallen weg.
-func set_charms(charms: Array[Charm]) -> void:
+## sell_values (je Platz, gleiche Reihenfolge) speist den Verkaufs-Chip; ohne
+## Werte zeigt der Hover nur Name + Wirkung.
+func set_charms(charms: Array[Charm], sell_values: Array[int] = []) -> void:
 	set_hover(-1)
 	_occupied = mini(charms.size(), _pad_offsets.size())
 	_pad_colors.clear()
 	_charms = charms.duplicate()
+	_sell_values = sell_values.duplicate()
 	_clear_thumbs()
 	var inner := maxf(1.0, _pad_size.y * THUMB_INSET)
 	for i in _occupied:
@@ -156,6 +164,13 @@ func pad_index_at(pixel: Vector2) -> int:
 			return i
 	return -1
 
+## Platz, dessen Verkaufs-Chip unter dem (Viewport-)Pixel liegt - nur die
+## gehoverte Konsole zeigt ihn - oder -1.
+func sell_index_at(pixel: Vector2) -> int:
+	if _hover < 0 or not _sell_label.visible:
+		return -1
+	return _hover if Rect2(position + _sell_rect.position, _sell_rect.size).has_point(pixel) else -1
+
 ## Konsole i hervorheben und ihren Bild-Screen auf Name + Wirkung umschalten
 ## (Hover über Karte ODER Hologramm); -1 stellt das Bild zurück. Kein Effekt
 ## während eines Drags (dort führt das Ablageziel).
@@ -170,12 +185,15 @@ func set_hover(i: int) -> void:
 			_thumbs[i].visible = false
 		_name_label.text = _charms[i].display_name
 		_body_label.text = _charms[i].description
+		_sell_label.text = ("Verkaufen $%d" % _sell_values[i]) if i < _sell_values.size() else ""
 		_place_labels_in_card(i)
 	else:
 		_name_label.text = ""
 		_body_label.text = ""
+		_sell_label.text = ""
 	_name_label.visible = _hover >= 0
 	_body_label.visible = _hover >= 0
+	_sell_label.visible = _hover >= 0 and _sell_label.text != ""
 	queue_redraw()
 
 ## Kurzer Helligkeits-Puls auf Konsole i ("dieser Charm feuert") - Projektor UND
@@ -255,27 +273,48 @@ func _ensure_labels() -> void:
 	_body_label.visible = false
 	_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_body_label)
+	_sell_label = Label.new()
+	_sell_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sell_label.visible = false
+	_sell_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_sell_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	add_child(_sell_label)
 
 ## Schriftgrößen an der Kartengröße ausrichten (Name in Gold, Wirkung in Creme).
 func _style_labels() -> void:
 	CasinoStyle.style_score_label(_name_label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
 	CasinoStyle.style_body_label(_body_label, int(_pad_size.y * 0.105), CasinoStyle.CREAM)
+	CasinoStyle.style_score_label(_sell_label, int(_pad_size.y * 0.09), CasinoStyle.GOLD)
+	var chip := StyleBoxFlat.new()
+	chip.bg_color = Color(0.05, 0.035, 0.02, 0.92)
+	chip.border_color = Color(CasinoStyle.GOLD.r, CasinoStyle.GOLD.g, CasinoStyle.GOLD.b, 0.55)
+	chip.set_border_width_all(maxi(1, int(_pad_size.y * 0.012)))
+	chip.set_corner_radius_all(maxi(2, int(_pad_size.y * 0.05)))
+	_sell_label.add_theme_stylebox_override("normal", chip)
 
 ## Legt die Hover-Texte in die Karten-Fläche der Konsole i; der Wirkungstext
-## schrumpft schrittweise, bis er in die verfügbare Höhe passt.
+## schrumpft schrittweise, bis er in die verfügbare Höhe passt. Am Kartenboden
+## sitzt der Verkaufs-Chip (Treffer-Rect für sell_index_at).
 func _place_labels_in_card(i: int) -> void:
 	var inset := _pad_size.x * 0.09
 	var card_top_left := _pad_offsets[i] - _pad_size / 2.0
 	var inner_w := _pad_size.x - inset * 2.0
-	var body_h := _pad_size.y - inset * 1.2 - _pad_size.y * 0.18
+	var chip_h := _pad_size.y * 0.16 if _sell_label.text != "" else 0.0
+	var body_h := _pad_size.y - inset * 1.2 - _pad_size.y * 0.18 - chip_h
 	_name_label.position = card_top_left + Vector2(inset, inset * 0.6)
 	_name_label.size = Vector2(inner_w, _pad_size.y * 0.18)
 	_body_label.position = card_top_left + Vector2(inset, inset * 0.6 + _pad_size.y * 0.18)
 	_body_label.size = Vector2(inner_w, body_h)
 	_fit_body_font(inner_w, body_h)
+	var chip_w := inner_w * 0.9
+	_sell_label.position = card_top_left \
+		+ Vector2((_pad_size.x - chip_w) * 0.5, _pad_size.y - inset * 0.6 - chip_h)
+	_sell_label.size = Vector2(chip_w, chip_h)
+	_sell_rect = Rect2(_sell_label.position, _sell_label.size)
 	# Text über die Kachel-Kinder heben.
 	move_child(_name_label, get_child_count() - 1)
 	move_child(_body_label, get_child_count() - 1)
+	move_child(_sell_label, get_child_count() - 1)
 
 ## Verkleinert die Wirkungs-Schrift, bis der umgebrochene Text in die Karten-
 ## Fläche passt (gemessen über die Font-Metrik, nicht per Frame-Layout).

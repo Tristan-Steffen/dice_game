@@ -229,6 +229,8 @@ const RARITY_COLORS := {
 @export var description: String = ""
 @export var rarity: String = RARITY_COMMON
 @export var model_path: String = ""  # leer = Platzhalter-Modell
+## Basis-Verkaufswert; den effektiven Erlös rechnet CharmEffects.charm_sell_value.
+@export var sell_value: int = 5
 
 static func _make(charm_id: String, name: String, desc: String) -> Charm:
 	var charm := Charm.new()

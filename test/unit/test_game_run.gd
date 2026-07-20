@@ -128,6 +128,29 @@ func test_move_charm_changes_totem_neighbor_resolution():
 	run.move_charm(2, 1)
 	assert_eq(run.charm_ids(), [Charm.RABBITS_FOOT, Charm.RABBITS_FOOT, Charm.HORSESHOE] as Array[String])
 
+func test_sell_charm_removes_credits_and_emits():
+	_own_three_charms()
+	watch_signals(run)
+	run.money = 10
+	run.sell_charm(1)
+	assert_eq(run.owned_charm_ids(), [Charm.RABBITS_FOOT, Charm.MAGIC_CARD] as Array[String])
+	assert_eq(run.money, 15, "Basis-Verkaufswert $5 gutgeschrieben")
+	assert_signal_emitted(run, "charms_changed")
+
+func test_sell_charm_ignores_invalid_index():
+	_own_three_charms()
+	watch_signals(run)
+	run.sell_charm(-1)
+	run.sell_charm(3)
+	assert_eq(run.owned_charms.size(), 3)
+	assert_signal_not_emitted(run, "charms_changed")
+
+func test_charm_sell_value_reads_the_charm_base():
+	run.owned_charms.append(Charm.rabbits_foot())
+	run.owned_charms[0].sell_value = 8
+	assert_eq(run.charm_sell_value(0), 8)
+	assert_eq(run.charm_sell_value(1), 0, "leerer Platz ist wertlos")
+
 # --- Gravuren --------------------------------------------------------------------
 
 func test_grant_and_consume_engraving():

@@ -432,7 +432,7 @@ func _setup_table_screen() -> void:
 	var proj_radius := CharmRowView.BEAM_RADIUS * table_screen.pixels_per_world()
 	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
 	if run != null:
-		table_screen.charm_dock.set_charms(run.owned_charms)
+		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
 	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
 	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
@@ -662,7 +662,14 @@ func _tween_combo_label(row: ComboCellView, color: Color, target_scale: float) -
 func _on_charms_changed() -> void:
 	charm_row.set_charms(run.owned_charms)
 	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.set_charms(run.owned_charms)
+		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
+
+## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
+func _charm_sell_values() -> Array[int]:
+	var values: Array[int] = []
+	for i in run.owned_charms.size():
+		values.append(run.charm_sell_value(i))
+	return values
 
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
@@ -1569,11 +1576,18 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if charm_is_dragging:
 			_finish_charm_drag()
+		elif _sell_pixel_hits(event.position):
+			run.sell_charm(charm_drag_index)  # charms_changed baut Reihe + Dock neu
 		elif camera_rig.mode == CameraRig.Mode.CHARMS:
 			# Klick ohne Ziehen in der Charm-Sicht: Zoom auf diesen Charm schwenken.
 			_pan_zoom_to_charm(charm_drag_index)
 		charm_drag_index = -1
 		charm_is_dragging = false
+
+## Ob die Fenster-Mausposition den Verkaufs-Chip des angeklickten Charms trifft.
+func _sell_pixel_hits(screen_pos: Vector2) -> bool:
+	var pixel := _screen_pixel(screen_pos)
+	return pixel.x >= 0.0 and table_screen.charm_dock.sell_index_at(pixel) == charm_drag_index
 
 ## Schwenkt den Charm-Zoom mittig auf die Konsole i (deren Weltposition).
 func _pan_zoom_to_charm(i: int) -> void:

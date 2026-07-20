@@ -90,3 +90,25 @@ func test_hover_suppressed_during_drag():
 	d.set_hover(1)  # während des Ziehens ignoriert
 	assert_true(d._thumbs[1].visible, "kein Bild->Text-Wechsel während des Drags")
 	d.end_drag()
+
+func test_hover_shows_sell_chip_where_clicks_sell():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	var values: Array[int] = [5, 7]
+	d.set_charms(_ids(["a", "b"]), values)
+	d.set_hover(1)
+	assert_true(d._sell_label.visible, "Chip auf der gehoverten Karte")
+	assert_eq(d._sell_label.text, "Verkaufen $7")
+	var chip_center: Vector2 = d.position + d._sell_rect.get_center()
+	assert_eq(d.sell_index_at(chip_center), 1, "Chip-Treffer meldet den Platz")
+	assert_eq(d.sell_index_at(d.pad_center(0)), -1, "fremde Karte hat keinen Chip")
+	d.set_hover(-1)
+	assert_eq(d.sell_index_at(chip_center), -1, "ohne Hover kein Verkauf")
+
+func test_hover_without_sell_values_shows_no_chip():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	d.set_charms(_ids(["a"]))
+	d.set_hover(0)
+	assert_false(d._sell_label.visible, "ohne Verkaufswert kein Chip")
+	assert_eq(d.sell_index_at(d.pad_center(0)), -1)

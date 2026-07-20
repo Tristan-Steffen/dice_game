@@ -274,6 +274,21 @@ func move_charm(from_index: int, to_index: int) -> void:
 	owned_charms.insert(to_index, charm)
 	charms_changed.emit()
 
+## Effektiver Verkaufserlös des Charms auf Platz index (Basis + Charm-Boni).
+func charm_sell_value(index: int) -> int:
+	if index < 0 or index >= owned_charms.size():
+		return 0
+	return CharmEffects.charm_sell_value(owned_charms[index].sell_value, charm_ids())
+
+## Verkauft den Charm auf Platz index: entfernt ihn, Erlös aufs Konto.
+func sell_charm(index: int) -> void:
+	if index < 0 or index >= owned_charms.size():
+		return
+	var value := charm_sell_value(index)
+	owned_charms.remove_at(index)
+	add_money(value)
+	charms_changed.emit()
+
 ## Kauft eine einzelne Gravur (Shop): Preis abziehen, sofort ins Inventar.
 func purchase_engraving(engraving: Engraving, price: int) -> void:
 	add_money(-price)
