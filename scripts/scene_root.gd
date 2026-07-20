@@ -63,6 +63,10 @@ const HUB_HEIGHT_WORLD := 30.0
 ## in der elliptischen Filz-Fläche bleibt und nicht in den leuchtenden Tischrand ragt.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
 
+## Flugzeit eines Paket-Inhalts in seine Schublade und Abstand zwischen den Stücken.
+const PACK_FLY_TIME := 0.32
+const PACK_FLY_STAGGER := 0.10
+
 
 ## Gravur-Zeremonie: der geklickte Würfel wird zum Ziel - sein Tray-Slot leert
 ## sich und der ECHTE Würfel fliegt über die Hub-Bühne (kein Abbild).
@@ -1398,6 +1402,28 @@ func _end_engraving_ceremony() -> void:
 	else:
 		camera_rig.zoom_to(engraving_prev_mode)
 	_on_die_engraved()  # Trays sicher aktuell
+
+## Gravur-Paket geöffnet: der Inhalt fliegt sichtbar aus der Werkbank in seine
+## Schublade und lässt den Platz dort aufploppen - so lernt der Spieler, welches
+## Fach zu welcher Paketfarbe gehört.
+func _on_pack_engravings_revealed(engraving_ids: Array[String]) -> void:
+	if table_screen == null or table_screen.workshop_window == null:
+		return
+	var window := table_screen.workshop_window
+	var from_px := window.position + window.size * 0.5
+	for i in engraving_ids.size():
+		var engraving_id := engraving_ids[i]
+		for drawer in table_screen.supply_drawers:
+			var target := drawer.slot_center_px(engraving_id)
+			if target.x < 0.0:
+				continue
+			var tint: Color = SupplyDrawerView.COLORS.get(drawer.category, Color.WHITE)
+			table_screen.spawn_trace(from_px, target, tint, PACK_FLY_TIME)
+			await get_tree().create_timer(PACK_FLY_TIME).timeout
+			if is_instance_valid(drawer):
+				drawer.pop(engraving_id)
+			break
+		await get_tree().create_timer(PACK_FLY_STAGGER).timeout
 
 ## Klick ins Würfel-Raster der Station: Ziel auf diesen Würfel wechseln
 ## (No-Op, wenn es der bereits gegriffene ist).
@@ -2986,6 +3012,8 @@ func _connect_run() -> void:
 		table_screen.slot_bank_window.refresh()
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.run = run
+		if not table_screen.workshop_window.engravings_revealed.is_connected(_on_pack_engravings_revealed):
+			table_screen.workshop_window.engravings_revealed.connect(_on_pack_engravings_revealed)
 	if table_screen != null:
 		for drawer in table_screen.supply_drawers:
 			drawer.run = run

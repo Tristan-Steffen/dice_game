@@ -228,6 +228,22 @@ func slot_center_px(engraving_id: String) -> Vector2:
 				return chip.get_global_rect().get_center()
 	return Vector2(-1, -1)
 
+## Lässt den Platz kurz aufpluster - Ankunft eines Paket-Inhalts.
+func pop(engraving_id: String) -> void:
+	for entry in slots:
+		if entry["id"] != engraving_id:
+			continue
+		var chip: Button = entry["button"]
+		if not is_instance_valid(chip):
+			return
+		chip.pivot_offset = chip.size * 0.5
+		var tween := create_tween()
+		tween.tween_property(chip, "scale", Vector2.ONE * 1.25, 0.10) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(chip, "scale", Vector2.ONE, 0.22) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		return
+
 func _label(text: String, font_size: float, color: Color) -> Label:
 	var label := Label.new()
 	label.text = text

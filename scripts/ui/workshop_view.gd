@@ -9,6 +9,8 @@ extends Panel
 signal pack_activated(index: int)
 ## Ein Paket-Würfel hat einen Pool-Platz eingenommen.
 signal die_placed(pool_index: int)
+## Gravur-Inhalt eines geöffneten Pakets - scene_root fliegt ihn in die Schubladen.
+signal engravings_revealed(engraving_ids: Array[String])
 
 const TITLE_COLOR := Color("#8be9fd")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
@@ -184,6 +186,11 @@ func open_pack(index: int) -> void:
 	_revealed_engravings.assign(result["engravings"])
 	_revealed_dice.assign(result["dice"])
 	pack_activated.emit(index)
+	if not _revealed_engravings.is_empty():
+		var ids: Array[String] = []
+		for engraving in _revealed_engravings:
+			ids.append(engraving.id)
+		engravings_revealed.emit(ids)
 	refresh()
 
 ## Zurück ans Lager - der Inhalt ist verbucht bzw. abgelehnt.

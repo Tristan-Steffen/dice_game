@@ -96,8 +96,11 @@ var side_bet_window: SideBetPanel
 var slot_bank_window: SlotBankView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
-## Die drei Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Kanten).
+## Die drei Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Kanten),
+## je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen, nicht als
+## drei fremde Fenster daneben.
 var supply_drawers: Array[SupplyDrawerView] = []
+var supply_strips: Array[LedStripView] = []
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -356,6 +359,12 @@ func _build_content() -> void:
 	add_child(workshop_window)
 
 	# Vorrats-Schubladen: Maße/Position setzt scene_root über place_supply_drawers.
+	# Die Adern zuerst, damit sie UNTER den Schubladen liegen.
+	for i in Engraving.CATEGORIES.size():
+		var strip := LedStripView.new()
+		strip.name = "SupplyStrip%d" % i
+		add_child(strip)
+		supply_strips.append(strip)
 	for drawer_category in Engraving.CATEGORIES:
 		var drawer := SupplyDrawerView.new()
 		drawer.name = "SupplyDrawer_%s" % drawer_category
@@ -438,7 +447,23 @@ func place_supply_drawers(rects: Array[Rect2], unit: float) -> void:
 	for i in mini(rects.size(), supply_drawers.size()):
 		supply_drawers[i].place(rects[i], unit)
 		supply_drawers[i].visible = true
+	_link_supply_strips(unit)
 	_sync_reflection_windows()
+
+## Je Schublade eine kurze Ader von der Werkbank-Unterkante in die Schubladen-
+## Oberkante; der Korridor liegt mittig in der Lücke.
+func _link_supply_strips(unit: float) -> void:
+	if workshop_window == null or not workshop_window.visible:
+		return
+	var bench_bottom := workshop_window.position.y + workshop_window.size.y
+	for i in mini(supply_strips.size(), supply_drawers.size()):
+		var drawer := supply_drawers[i]
+		if not drawer.visible:
+			continue
+		var enter_x := drawer.position.x + drawer.size.x * 0.5
+		var lane_y := (bench_bottom + drawer.position.y) * 0.5
+		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
+			lane_y, unit * SUPPLY_STRIP_WIDTH)
 
 ## Schaltet alle Schubladen in die Station-Betriebsart (Werkzeug-Bord) und zurück.
 func set_drawers_in_ceremony(active: bool) -> void:
@@ -1060,6 +1085,8 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 
 ## Aderbreite beider Hub-Leisten (schlank = zurückhaltend).
 const HUB_STRIP_WIDTH := 3.4 * SUPERSAMPLE
+## Schubladen-Adern sind kurze Stichleitungen - schmaler als die Hub-Adern.
+const SUPPLY_STRIP_WIDTH := 0.35
 
 ## Gemeinsame Korridor-Höhe beider Hub-Leisten: mittig zwischen Grube-Unterkante
 ## und Hub-Oberkante - dort läuft ihr waagerechter Teil (unter der Grube).
