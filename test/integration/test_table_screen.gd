@@ -187,9 +187,38 @@ func test_route_without_a_strip_falls_back_to_a_straight_line():
 	var route := screen._route_via_strip(Vector2(100, 100), null, Vector2(400, 400))
 	assert_eq(route.size(), 2, "ohne verlegte Ader bleibt die direkte Verbindung")
 
-func test_supply_comet_picks_the_strip_of_its_category():
+func test_meteor_gets_a_real_travel_time():
 	_place_workbench_corner()
 	# Ohne sichtbare Werkstatt gäbe es keine Laufzeit - hier ist sie gesetzt.
-	var travel := screen.supply_comet(Engraving.CATEGORY_MATERIAL,
-		Vector2(3900, 2700), Color.WHITE)
-	assert_gt(travel, 0.0, "der Inhalt bekommt eine echte Laufzeit")
+	var travel := screen.meteor_comet(Vector2(3400, 2000), Engraving.CATEGORY_MATERIAL,
+		Vector2(3900, 2700), Color.WHITE, 0)
+	assert_gt(travel, 0.0, "der Meteor bekommt eine echte Flugzeit")
+
+func test_meteor_flies_from_the_seal_into_its_slot():
+	_place_workbench_corner()
+	var from := Vector2(3400, 2000)
+	var slot := Vector2(3900, 2700)
+	var route := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 0)
+	assert_eq(route[0], from, "der Meteor startet am Siegel")
+	assert_eq(route[route.size() - 1], slot, "und endet genau im Platz")
+
+func test_meteor_is_caught_by_the_strip_of_its_category():
+	_place_workbench_corner()
+	var strip: LedStripView = screen._supply_strip(Engraving.CATEGORY_MATERIAL)
+	var route := screen.meteor_route(Vector2(3400, 2000), Engraving.CATEGORY_MATERIAL,
+		Vector2(3900, 2700), 0)
+	var caught := false
+	for p in route:
+		if p.is_equal_approx(strip.strip_path[0]):
+			caught = true
+	assert_true(caught, "die Ader der Kategorie fängt ihn an der Werkbank-Unterkante auf")
+
+func test_two_meteors_fling_in_different_directions():
+	_place_workbench_corner()
+	var from := Vector2(3400, 2000)
+	var slot := Vector2(3900, 2700)
+	var first := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 0)
+	var second := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 1)
+	# Gleicher Start, gleiches Ziel - aber der Ausbruch muss sichtbar auseinander
+	# laufen, sonst wirken mehrere Stücke wie ein einziger Strahl.
+	assert_gt(first[6].distance_to(second[6]), 1.0, "die Bahnen brechen verschieden aus")

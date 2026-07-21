@@ -324,9 +324,10 @@ func pack_engraving_floor() -> Engraving.Rarity:
 			return Engraving.Rarity.UNCOMMON
 	return Engraving.Rarity.RARE
 
-## Öffnet das Paket auf Platz index - der Inhalt wird ERST JETZT ausgewürfelt.
-## Gravuren wandern sofort in die Vorräte, Würfel gibt die Zeremonie zurück:
-## der Spieler bestimmt selbst, welchen Pool-Platz sie einnehmen.
+## Öffnet das Paket auf Platz index - der Inhalt wird ERST JETZT ausgewürfelt,
+## aber NOCH NICHT verbucht: die Entsiegelungs-Zeremonie darf die Seltenheit
+## anteasern, ohne dass die Schubladen-Zähler sie vorab verraten. Gravuren bucht
+## erst stash_engravings, Würfel place_pack_die.
 func open_pack(index: int) -> Dictionary:
 	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
 	if index < 0 or index >= owned_packs.size():
@@ -337,14 +338,17 @@ func open_pack(index: int) -> Dictionary:
 	if pack.is_dice_pack():
 		result["dice"] = pack.roll_dice(charm_ids())
 	else:
-		var engravings := pack.roll_engravings(pack_engraving_floor())
-		result["engravings"] = engravings
-		for engraving in engravings:
-			owned_engravings.append(engraving)
-		if not engravings.is_empty():
-			engravings_changed.emit()
+		result["engravings"] = pack.roll_engravings(pack_engraving_floor())
 	packs_changed.emit()
 	return result
+
+## Verbucht ausgewürfelten Paket-Inhalt in die Vorräte (Zeremonie-Abschluss).
+func stash_engravings(engravings: Array[Engraving]) -> void:
+	if engravings.is_empty():
+		return
+	for engraving in engravings:
+		owned_engravings.append(engraving)
+	engravings_changed.emit()
 
 ## Setzt einen Paket-Würfel auf einen SELBST gewählten Pool-Platz; der bisherige
 ## Würfel dort verfällt. Abgelehnte Würfel laufen hier nie ein.

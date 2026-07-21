@@ -23,7 +23,8 @@ func test_each_pack_gets_its_own_card() -> void:
 func test_stash_follows_the_run() -> void:
 	run.purchase_pack(Pack.material_pack(), 0)
 	assert_eq(view._pack_buttons.size(), 1, "Kauf erscheint sofort im Lager")
-	run.open_pack(0)
+	view.open_pack(0)
+	view._unseal.finish_now()
 	assert_eq(view._pack_buttons.size(), 0, "geöffnetes Paket verschwindet")
 
 func test_clicking_a_card_opens_that_pack() -> void:
@@ -70,16 +71,64 @@ func test_a_new_run_cancels_pending_deliveries() -> void:
 	view.run = fresh
 	assert_eq(view._pack_buttons.size(), 1, "der neue Lauf zeigt sein Lager vollständig")
 
-# --- Zeremonie: Gravur-Pakete ---------------------------------------------------
+# --- Zeremonie: Entsiegelung -----------------------------------------------------
 
-func test_opening_an_engraving_pack_shows_and_books_its_contents() -> void:
+func test_opening_a_pack_starts_the_unsealing() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.open_pack(0)
-	assert_eq(view._phase, WorkshopView.Phase.REVEAL_ENGRAVINGS)
-	assert_eq(view._revealed_engravings.size(), Pack.NUMBER_COUNT, "Inhalt liegt aus")
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "und ist schon in den Vorräten")
-	view.finish_ceremony()
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "danach wieder das Lager")
+	assert_eq(view._phase, WorkshopView.Phase.UNSEAL)
+	assert_eq(view._revealed_engravings.size(), Pack.NUMBER_COUNT, "Inhalt ist ausgewürfelt")
+	assert_not_null(view._unseal, "die Zeremonie läuft")
+
+func test_the_stash_is_not_booked_before_the_seal_breaks() -> void:
+	# Die Schubladen hängen an engravings_changed - buchte das Öffnen sofort,
+	# verrieten ihre Zähler die Seltenheit noch während des Ladens.
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.open_pack(0)
+	assert_eq(run.owned_engravings.size(), 0, "während des Ladens ist nichts verbucht")
+	view._unseal.finish_now()
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "erst der Bruch bucht")
+
+func test_engraving_pack_returns_to_the_stash_on_its_own() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.open_pack(0)
+	view._unseal.finish_now()
+	assert_eq(view._phase, WorkshopView.Phase.STASH, "kein Klick nötig")
+	assert_null(view._unseal, "die Zeremonie ist abgeräumt")
+
+func test_every_engraving_is_dispatched_exactly_once() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	var sent: Array[String] = []
+	view.engraving_dispatched.connect(func(id: String, _px: Vector2, _rarity: int) -> void:
+		sent.append(id))
+	view.open_pack(0)
+	view._unseal.finish_now()
+	assert_eq(sent.size(), Pack.NUMBER_COUNT, "je Stück ein Licht in die Schublade")
+
+func test_the_content_is_booked_only_once() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.open_pack(0)
+	view._unseal.finish_now()
+	view.finish_ceremony()  # doppelter Abschluss darf nicht nachbuchen
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT)
+
+func test_an_interrupted_ceremony_still_books_its_content() -> void:
+	# Die Gravur-Station legt sich über die Werkbank und beendet die Zeremonie -
+	# der schon ausgewürfelte Inhalt darf dabei nicht verfallen.
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.open_pack(0)
+	var station := Control.new()
+	view.attach_station(station)
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt ist gerettet")
+	assert_eq(view._phase, WorkshopView.Phase.STASH)
+
+func test_a_new_run_does_not_inherit_the_open_content() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.open_pack(0)
+	var fresh := GameRun.new_run()
+	view.run = fresh
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "der alte Lauf behält ihn")
+	assert_eq(fresh.owned_engravings.size(), 0, "der neue erbt nichts")
 
 # --- Zeremonie: Würfel-Pakete ---------------------------------------------------
 
@@ -87,6 +136,7 @@ func _open_dice_pack() -> void:
 	# "Niedrige Serie": 3 Würfel, damit das Durchreichen mehrerer Würfel greift.
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[4]), 0)
 	view.open_pack(0)
+	view._unseal.finish_now()  # Entsiegelung überspringen: hier geht es ums Einsetzen
 
 func test_dice_pack_shows_its_dice_and_the_pool_on_one_page() -> void:
 	_open_dice_pack()

@@ -214,13 +214,28 @@ func test_purchase_pack_deducts_and_stores_sealed():
 	assert_eq(run.owned_engravings.size(), 0, "Kauf würfelt noch keinen Inhalt aus")
 	assert_signal_emitted(run, "packs_changed")
 
-func test_open_engraving_pack_grants_contents_and_clears_the_slot():
+func test_open_engraving_pack_rolls_contents_and_clears_the_slot():
 	run.purchase_pack(Pack.number_pack(), 0)
 	var result := run.open_pack(0)
 	var engravings: Array = result["engravings"]
 	assert_eq(engravings.size(), Pack.NUMBER_COUNT)
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt in den Vorräten")
+	assert_eq(run.owned_engravings.size(), 0, "Öffnen bucht noch nicht - das tut die Zeremonie")
 	assert_eq(run.owned_packs.size(), 0, "Paket ist verbraucht")
+
+func test_stash_engravings_books_the_rolled_contents():
+	run.purchase_pack(Pack.number_pack(), 0)
+	var engravings: Array[Engraving] = []
+	engravings.assign(run.open_pack(0)["engravings"])
+	watch_signals(run)
+	run.stash_engravings(engravings)
+	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt in den Vorräten")
+	assert_signal_emitted(run, "engravings_changed")
+
+func test_stash_engravings_ignores_empty_content():
+	watch_signals(run)
+	run.stash_engravings([] as Array[Engraving])
+	assert_eq(run.owned_engravings.size(), 0)
+	assert_signal_not_emitted(run, "engravings_changed")
 
 func test_open_dice_pack_hands_the_dice_to_the_ceremony():
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[2]), 0)

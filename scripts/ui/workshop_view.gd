@@ -9,8 +9,10 @@ extends Panel
 signal pack_activated(index: int)
 ## Ein Paket-Würfel hat einen Pool-Platz eingenommen.
 signal die_placed(pool_index: int)
-## Gravur-Inhalt eines geöffneten Pakets - scene_root fliegt ihn in die Schubladen.
-signal engravings_revealed(engraving_ids: Array[String])
+## Ein Gravur-Stück fliegt aus dem zerbrochenen Siegel - scene_root schickt es als
+## Meteor in seine Schublade. from_px ist das Siegel auf dem Tisch, rarity färbt
+## den Meteor.
+signal engraving_dispatched(engraving_id: String, from_px: Vector2, rarity: int)
 
 const TITLE_COLOR := Color("#8be9fd")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
@@ -27,16 +29,17 @@ var run: GameRun:
 			return
 		if run != null and run.packs_changed.is_connected(refresh):
 			run.packs_changed.disconnect(refresh)
+		_abort_unseal()  # noch VOR dem Wechsel: der Inhalt gehört dem alten Lauf
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
 		_pending_deliveries = 0  # Lieferungen des alten Laufs verfallen
 		refresh()
 
-## Werkbank-Zustand: das Lager, oder die Zeremonie eines offenen Pakets.
-## Die Gravur-Station ist KEINE Phase - sie liegt als eigenes Panel darüber
-## (siehe attach_station) und blendet den Lager-Inhalt aus, solange sie offen ist.
-enum Phase { STASH, REVEAL_ENGRAVINGS, PLACE_DICE }
+## Werkbank-Zustand: das Lager, die Entsiegelung eines Pakets, oder das Einsetzen
+## seiner Würfel. Die Gravur-Station ist KEINE Phase - sie liegt als eigenes Panel
+## darüber (siehe attach_station) und blendet den Lager-Inhalt aus.
+enum Phase { STASH, UNSEAL, PLACE_DICE }
 
 var _content: VBoxContainer
 ## Öffnen-Knöpfe der Lagerkarten, Reihenfolge = owned_packs.
@@ -53,6 +56,13 @@ var _phase: Phase = Phase.STASH
 ## Inhalt des gerade geöffneten Pakets.
 var _revealed_engravings: Array[Engraving] = []
 var _revealed_dice: Array[DieDefinition] = []
+## Sorte des offenen Pakets (die Zeremonie zeigt sein Siegel).
+var _open_pack_type := ""
+## Die laufende Entsiegelung.
+var _unseal: PackUnsealView
+## Der Gravur-Inhalt ist verbucht. Bis dahin liegt er NUR hier - bricht die
+## Zeremonie vorzeitig ab, muss er trotzdem in die Vorräte (siehe _stash_now).
+var _stashed := false
 ## Gewählte Pool-Plätze in KLICK-Reihenfolge; höchstens so viele, wie das Paket
 ## Würfel hat. Wer weniger wählt, lässt den Rest verfallen.
 var _selected_slots: Array[int] = []
@@ -96,9 +106,13 @@ func refresh() -> void:
 	if _content != null and is_instance_valid(_content):
 		remove_child(_content)
 		_content.queue_free()
+	_content = null  # queue_free wirkt erst am Bildende - sonst hängt hier ein Zombie
 	_pack_buttons.clear()
 	if _station_open():
+		_abort_unseal()  # die Station verdeckt die Zeremonie - sie endet hier
 		return  # die Station füllt das Fenster allein
+	if _phase == Phase.UNSEAL:
+		return  # ebenso die Entsiegelung (sie hängt als eigenes Panel darüber)
 
 	_content = VBoxContainer.new()
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -115,13 +129,9 @@ func refresh() -> void:
 	if _phase != Phase.PLACE_DICE:
 		_content.add_child(_label("WERKSTATT", u * 5.0, TITLE_COLOR))
 
-	match _phase:
-		Phase.REVEAL_ENGRAVINGS:
-			_build_engraving_reveal(u)
-			return
-		Phase.PLACE_DICE:
-			_build_dice_placement(u)
-			return
+	if _phase == Phase.PLACE_DICE:
+		_build_dice_placement(u)
+		return
 
 	_build_pack_shelf(u)
 
@@ -222,29 +232,85 @@ func _pop_card(card: Control) -> void:
 
 # --- Zeremonie: öffnen, zeigen, verwenden --------------------------------------
 
-## Öffnet das Paket auf Platz index. Der Inhalt entsteht ERST JETZT (GameRun);
-## Gravuren sind damit schon gebucht, Würfel warten auf ihren Platz.
+## Öffnet das Paket auf Platz index. Der Inhalt entsteht ERST JETZT (GameRun),
+## bleibt aber unverbucht, bis die Entsiegelung ihn zündet.
 func open_pack(index: int) -> void:
 	if run == null or index < 0 or index >= run.owned_packs.size():
 		return
-	var was_dice := run.owned_packs[index].is_dice_pack()
+	var pack := run.owned_packs[index]
+	_open_pack_type = pack.type
 	# Phase VOR dem Öffnen setzen: packs_changed baut sofort neu auf.
-	_phase = Phase.PLACE_DICE if was_dice else Phase.REVEAL_ENGRAVINGS
+	_phase = Phase.UNSEAL
+	_stashed = false
 	_selected_slots.clear()
 	var result := run.open_pack(index)
 	_revealed_engravings.assign(result["engravings"])
 	_revealed_dice.assign(result["dice"])
 	pack_activated.emit(index)
-	if not _revealed_engravings.is_empty():
-		var ids: Array[String] = []
-		for engraving in _revealed_engravings:
-			ids.append(engraving.id)
-		engravings_revealed.emit(ids)
 	refresh()
+	_begin_unseal()
+
+## Baut die Entsiegelung als Vollflächen-Panel über dem Lager auf.
+func _begin_unseal() -> void:
+	var u := maxf(size.x, 200.0) / 100.0
+	_unseal = PackUnsealView.new()
+	_unseal.name = "Unseal"
+	add_child(_unseal)
+	_unseal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_unseal.chip_resolved.connect(_on_chip_resolved)
+	_unseal.finished.connect(_on_unseal_finished)
+	_unseal.setup(_open_pack_type, _revealed_engravings, _revealed_dice, u)
+
+## Ein Stück fliegt heraus: beim ERSTEN wandert der ganze Gravur-Inhalt in die
+## Vorräte (die Schubladen dürfen ihn ab jetzt zeigen), und das Stück fliegt los.
+func _on_chip_resolved(engraving_id: String, from_px: Vector2, rarity: int) -> void:
+	_stash_now()
+	if engraving_id != "":
+		engraving_dispatched.emit(engraving_id, position + from_px, rarity)
+
+## Zeremonie durch: Gravuren sind verbucht und unterwegs, Würfel suchen Plätze.
+func _on_unseal_finished() -> void:
+	if _revealed_dice.is_empty():
+		finish_ceremony()
+		return
+	_clear_unseal()
+	_phase = Phase.PLACE_DICE
+	refresh()
+
+## Verbucht den Gravur-Inhalt genau einmal.
+func _stash_now() -> void:
+	if _stashed:
+		return
+	_stashed = true
+	if run != null:
+		run.stash_engravings(_revealed_engravings)
+
+## Vorzeitiges Ende der Zeremonie (Station, Laufwechsel): buchen, abräumen,
+## zurück ins Lager - OHNE refresh, weil die Aufrufer selbst gerade neu bauen.
+func _abort_unseal() -> void:
+	if _phase != Phase.UNSEAL:
+		return
+	_stash_now()
+	_clear_unseal()
+	_phase = Phase.STASH
+	_open_pack_type = ""
+	_revealed_engravings.clear()
+	_revealed_dice.clear()
+
+func _clear_unseal() -> void:
+	if _unseal != null and is_instance_valid(_unseal):
+		remove_child(_unseal)
+		_unseal.queue_free()
+	_unseal = null
 
 ## Zurück ans Lager - der Inhalt ist verbucht bzw. abgelehnt.
 func finish_ceremony() -> void:
+	# Bricht die Zeremonie vorzeitig ab (Station, Laufwechsel), darf der Inhalt
+	# nicht mit ihr verfallen.
+	_stash_now()
+	_clear_unseal()
 	_phase = Phase.STASH
+	_open_pack_type = ""
 	_revealed_engravings.clear()
 	_revealed_dice.clear()
 	_selected_slots.clear()
@@ -319,41 +385,6 @@ func _sync_selection() -> void:
 		_style_button(_place_button, GOLD if not _selected_slots.is_empty() else MUTED_COLOR)
 
 # --- Zeremonie-Ansichten -------------------------------------------------------
-
-## Gravur-Inhalt: nur zeigen - eingesteckt ist er bereits (GameRun.open_pack).
-func _build_engraving_reveal(u: float) -> void:
-	_content.add_child(_label("In die Vorräte gelegt:", u * 2.6, MUTED_COLOR))
-	var shelf := HFlowContainer.new()
-	shelf.add_theme_constant_override("h_separation", int(u * 1.2))
-	shelf.add_theme_constant_override("v_separation", int(u * 1.2))
-	shelf.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(shelf)
-	for engraving in _revealed_engravings:
-		shelf.add_child(_engraving_card(engraving, u))
-	_content.add_child(_action_button("Fertig", GOLD, u, finish_ceremony))
-
-func _engraving_card(engraving: Engraving, u: float) -> Control:
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(u * 19.0, u * 12.5)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var seam: Color = EngravingRenderer.SEAM_COLORS[engraving.rarity]
-	panel.add_theme_stylebox_override("panel", _button_box(Color("#221e46cc"), seam))
-	var column := VBoxContainer.new()
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(column)
-	var face := EngravingRenderer.for_engraving(engraving)
-	face.custom_minimum_size = Vector2(u * 5.5, u * 5.5)
-	var stage := CenterContainer.new()
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(face)
-	column.add_child(stage)
-	var name_label := _label(engraving.display_name, u * 2.1, TEXT_COLOR)
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(name_label)
-	return panel
 
 ## EINE Seite für den ganzen Würfel-Inhalt: links der Paket-Würfel mit dem Zähler
 ## der noch unplatzierten Stücke, rechts das Pool-Raster (dasselbe wie im Würfel-

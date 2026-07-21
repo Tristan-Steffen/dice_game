@@ -24,6 +24,8 @@ const GOLD := Color("#ffd319")
 const CHIP := Vector2(4.8, 4.8)
 ## Kantenlänge des Siegels im Platz - der Rest ist nur Luft für den Hover-Saum.
 const ICON := 4.4
+## Nachglühen eines getroffenen Platzes (siehe pop).
+const AFTERGLOW_TIME := 2.5
 const COLUMNS := {
 	Engraving.CATEGORY_NUMBER: 6,
 	Engraving.CATEGORY_MATERIAL: 3,
@@ -226,8 +228,10 @@ func slot_center_px(engraving_id: String) -> Vector2:
 				return chip.get_global_rect().get_center()
 	return Vector2(-1, -1)
 
-## Lässt den Platz kurz aufpluster - Ankunft eines Paket-Inhalts.
-func pop(engraving_id: String) -> void:
+## Lässt den Platz kurz aufpluster - Ankunft eines Paket-Inhalts. Mit glow_color
+## bleibt danach ein Nachglühen stehen: der Einschlag IST die Auflösung des
+## Pakets, und der Spieler braucht einen Moment, um zu lesen, was da ankam.
+func pop(engraving_id: String, glow_color := Color(0, 0, 0, 0)) -> void:
 	for entry in slots:
 		if entry["id"] != engraving_id:
 			continue
@@ -240,7 +244,34 @@ func pop(engraving_id: String) -> void:
 			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		tween.tween_property(chip, "scale", Vector2.ONE, 0.22) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		if glow_color.a > 0.0:
+			_afterglow(chip, glow_color)
 		return
+
+## Nachglühen AM Platz: hängt am Chip, damit ein Neuaufbau der Schublade
+## (rebuild/set_ceremony) es mitnimmt, und liegt als Überlagerung darüber - die
+## feste Platz-Geografie darf sich davon nicht verschieben.
+func _afterglow(chip: Button, color: Color) -> void:
+	var glow := Panel.new()
+	glow.name = "Afterglow"
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var bleed := u * 0.5
+	glow.offset_left = -bleed
+	glow.offset_top = -bleed
+	glow.offset_right = bleed
+	glow.offset_bottom = bleed
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(color.r, color.g, color.b, 0.16)
+	box.border_color = color
+	box.set_border_width_all(maxi(1, int(u * 0.28)))
+	box.set_corner_radius_all(int(u * 0.9))
+	glow.add_theme_stylebox_override("panel", box)
+	chip.add_child(glow)
+	var tween := glow.create_tween()
+	tween.tween_property(glow, "modulate:a", 0.0, AFTERGLOW_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(glow.queue_free)
 
 func _label(text: String, font_size: float, color: Color) -> Label:
 	var label := Label.new()

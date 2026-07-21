@@ -1370,17 +1370,57 @@ func pack_delivery_comet(from_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Inhalts-Komet Werkbank -> Vorrats-Schublade: läuft über die Stichleitung der
-## Kategorie, nicht quer über den Filz. Liefert die Laufzeit.
-func supply_comet(category: String, slot_px: Vector2, color: Color) -> float:
-	if workshop_window == null or not workshop_window.visible:
-		return 0.0
-	var from_px := workshop_window.position + workshop_window.size * 0.5
-	var strip: LedStripView = null
+## Seitliche Ausbruch-Weiten der Meteore, zyklisch je Stück - so fliegen mehrere
+## Stücke sichtbar AUSEINANDER, statt dieselbe Kurve zu wiederholen.
+const METEOR_LANES := [-1.0, 0.72, -0.45, 1.0, -0.85, 0.35]
+## Ausbruch-Weite und Steighöhe als Anteil der Luftlinie zum Ader-Kopf.
+const METEOR_SWING := 0.5
+const METEOR_RISE := 0.3
+const METEOR_STEPS := 24
+
+## Flugbahn eines Meteors: aus dem zerbrochenen Siegel geschleudert (freie Kurve -
+## im Bildschirm braucht Licht keine rechten Winkel), aber schon im Flug auf den
+## Kopf der Kategorie-Ader zu, die es an der Fenster-Unterkante auffängt. Von dort
+## fährt es geführt in seinen Platz. Chaos beim Bruch, Ordnung bei der Zustellung.
+func meteor_route(from_px: Vector2, category: String, slot_px: Vector2,
+		spread_index: int) -> PackedVector2Array:
+	var strip := _supply_strip(category)
+	if strip == null or strip.strip_path.size() < 2:
+		return PackedVector2Array([from_px, slot_px])
+	var head := strip.strip_path[0]   # link_edges beginnt an der Werkbank-Unterkante
+	var path := _meteor_launch(from_px, head, spread_index)
+	for i in range(1, strip.strip_path.size()):
+		path.append(strip.strip_path[i])
+	var tail := strip.strip_path[strip.strip_path.size() - 1]
+	path.append(Vector2(tail.x, slot_px.y))
+	path.append(slot_px)
+	return path
+
+## Der geschleuderte Teil: quadratische Bézier vom Siegel über einen seitlich
+## versetzten, höher liegenden Kontrollpunkt zum Ader-Kopf.
+func _meteor_launch(from_px: Vector2, head: Vector2, spread_index: int) -> PackedVector2Array:
+	var span := maxf(from_px.distance_to(head), 1.0)
+	var lane: float = METEOR_LANES[posmod(spread_index, METEOR_LANES.size())]
+	var control := from_px + Vector2(lane * span * METEOR_SWING, -span * METEOR_RISE)
+	var path := PackedVector2Array()
+	for i in METEOR_STEPS + 1:
+		var t := float(i) / float(METEOR_STEPS)
+		path.append(from_px.lerp(control, t).lerp(control.lerp(head, t), t))
+	return path
+
+func _supply_strip(category: String) -> LedStripView:
 	for i in mini(supply_drawers.size(), supply_strips.size()):
 		if supply_drawers[i].category == category:
-			strip = supply_strips[i]
-	var path := _route_via_strip(from_px, strip, slot_px)
+			return supply_strips[i]
+	return null
+
+## Schickt einen Meteor los; liefert die Flugzeit (einheitliche Lichtgeschwindigkeit,
+## die Kurve macht ihn dadurch von selbst etwas langsamer als eine gerade Ader).
+func meteor_comet(from_px: Vector2, category: String, slot_px: Vector2, color: Color,
+		spread_index: int) -> float:
+	if workshop_window == null or not workshop_window.visible:
+		return 0.0
+	var path := meteor_route(from_px, category, slot_px, spread_index)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

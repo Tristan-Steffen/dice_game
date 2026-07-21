@@ -67,10 +67,6 @@ const SLOTS_BOTTOM_INSET_WORLD := 7.5
 ## braucht Raum für Projektion, Seiten-Übersicht und das Tray-Raster.
 const WORKSHOP_HEIGHT_FACTOR := 1.4
 
-## Abstand zwischen zwei Paket-Inhalten auf ihrem Weg in die Schubladen (die
-## Flugzeit selbst liefert die Ader-Laufzeit, siehe TableScreen.supply_comet).
-const PACK_FLY_STAGGER := 0.10
-
 
 ## Gravur-Zeremonie: der geklickte Würfel wird zum Ziel - sein Tray-Slot leert
 ## sich und der ECHTE Würfel fliegt über die Hub-Bühne (kein Abbild).
@@ -827,6 +823,9 @@ var _hub_charge_received := 0
 ## Anzahl Zahlungs-Kometen der letzten Ausgabe (= gezahlte Chips lt. Zahlplan).
 ## _on_combo_upgraded liest sie, um den Hub-Goldlader richtig zu skalieren.
 var _last_payment_comets := 0
+## Laufende Nummer der Meteore eines Pakets - sie steuert die Ausbruch-Richtung,
+## damit mehrere Stücke sichtbar auseinanderfliegen.
+var _meteor_index := 0
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
@@ -1432,26 +1431,26 @@ func _on_pack_purchased(from_px: Vector2, pack_type: String) -> void:
 	if is_instance_valid(window):
 		window.deliver_pack()
 
-## Gravur-Paket geöffnet: der Inhalt fährt über die Stichleitung seiner Kategorie
-## in die Schublade und lässt den Platz dort aufploppen - so lernt der Spieler,
-## welches Fach zu welcher Paketfarbe gehört.
-func _on_pack_engravings_revealed(engraving_ids: Array[String]) -> void:
+## Ein Stück fliegt aus dem zerbrochenen Siegel: als Meteor in seiner SELTENHEITS-
+## farbe, geschleudert und doch auf seine Schublade zu. Der Einschlag ist die
+## eigentliche Auflösung - der getroffene Platz glüht danach nach, damit der
+## Spieler in Ruhe liest, was angekommen ist. Der Takt kommt aus der Zeremonie.
+func _on_engraving_dispatched(engraving_id: String, from_px: Vector2, rarity: int) -> void:
 	if table_screen == null or table_screen.workshop_window == null:
 		return
-	for i in engraving_ids.size():
-		var engraving_id := engraving_ids[i]
-		for drawer in table_screen.supply_drawers:
-			var target := drawer.slot_center_px(engraving_id)
-			if target.x < 0.0:
-				continue
-			var tint: Color = SupplyDrawerView.COLORS.get(drawer.category, Color.WHITE)
-			var travel := table_screen.supply_comet(drawer.category, target, tint)
-			if travel > 0.0:
-				await get_tree().create_timer(travel).timeout
-			if is_instance_valid(drawer):
-				drawer.pop(engraving_id)
-			break
-		await get_tree().create_timer(PACK_FLY_STAGGER).timeout
+	for drawer in table_screen.supply_drawers:
+		var target := drawer.slot_center_px(engraving_id)
+		if target.x < 0.0:
+			continue
+		var tint: Color = EngravingRenderer.SEAM_COLORS[rarity]
+		var spread := _meteor_index
+		_meteor_index += 1
+		var travel := table_screen.meteor_comet(from_px, drawer.category, target, tint, spread)
+		if travel > 0.0:
+			await get_tree().create_timer(travel).timeout
+		if is_instance_valid(drawer):
+			drawer.pop(engraving_id, tint)
+		return
 
 ## Klick ins Würfel-Raster der Station: Ziel auf diesen Würfel wechseln
 ## (No-Op, wenn es der bereits gegriffene ist).
@@ -3040,8 +3039,8 @@ func _connect_run() -> void:
 		table_screen.slot_bank_window.refresh()
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.run = run
-		if not table_screen.workshop_window.engravings_revealed.is_connected(_on_pack_engravings_revealed):
-			table_screen.workshop_window.engravings_revealed.connect(_on_pack_engravings_revealed)
+		if not table_screen.workshop_window.engraving_dispatched.is_connected(_on_engraving_dispatched):
+			table_screen.workshop_window.engraving_dispatched.connect(_on_engraving_dispatched)
 		if not table_screen.workshop_window.die_placed.is_connected(_on_pack_die_placed):
 			table_screen.workshop_window.die_placed.connect(_on_pack_die_placed)
 		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
@@ -3446,6 +3445,7 @@ func _on_pack_die_placed(_pool_index: int) -> void:
 ## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben
 ## links einen anderen Würfel als der Platz oben links auf dem Tisch.
 func _on_pack_opened(_index: int) -> void:
+	_meteor_index = 0  # je Paket ein frischer Fächer von Ausbruch-Richtungen
 	if table_screen == null or table_screen.workshop_window == null:
 		return
 	var slot_defs: Array[DieDefinition] = []

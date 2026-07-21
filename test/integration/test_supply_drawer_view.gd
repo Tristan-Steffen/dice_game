@@ -120,3 +120,41 @@ func test_slots_cover_every_archetype_of_the_category() -> void:
 			if archetype.category == category:
 				expected += 1
 		assert_eq(_drawer(category).slots.size(), expected, "%s vollständig" % category)
+
+# --- Einschlag eines Meteors ----------------------------------------------------
+
+func _chip_of(drawer: SupplyDrawerView, engraving_id: String) -> Button:
+	for entry in drawer.slots:
+		if entry["id"] == engraving_id:
+			return entry["button"]
+	return null
+
+func test_a_plain_pop_leaves_no_afterglow() -> void:
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.pop(Engraving.CHISEL)
+	assert_null(_chip_of(drawer, Engraving.CHISEL).get_node_or_null("Afterglow"),
+		"ohne Farbe bleibt der Platz, wie er war")
+
+func test_a_meteor_hit_makes_its_slot_glow() -> void:
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.pop(Engraving.CHISEL, Color("#ffd319"))
+	var glow: Panel = _chip_of(drawer, Engraving.CHISEL).get_node_or_null("Afterglow")
+	assert_not_null(glow, "der getroffene Platz glüht nach")
+	var box: StyleBoxFlat = glow.get_theme_stylebox("panel")
+	assert_eq(box.border_color, Color("#ffd319"), "in der Farbe des Meteors")
+
+func test_the_afterglow_hangs_on_its_own_slot() -> void:
+	# Am Chip, nicht am Fenster: ein Neuaufbau der Schublade nimmt es mit, und die
+	# feste Platz-Geografie verschiebt sich nicht.
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.pop(Engraving.CHISEL, Color("#ffd319"))
+	var before := _chip_of(drawer, Engraving.CHISEL).position
+	assert_eq(_chip_of(drawer, Engraving.CHISEL).position, before, "der Platz bleibt liegen")
+	assert_null(drawer.get_node_or_null("Afterglow"), "es hängt nicht am Fenster")
+
+func test_the_afterglow_fades_away() -> void:
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.pop(Engraving.CHISEL, Color("#ffd319"))
+	var glow: Control = _chip_of(drawer, Engraving.CHISEL).get_node_or_null("Afterglow")
+	assert_gt(glow.modulate.a, 0.0, "es startet sichtbar")
+	assert_gt(SupplyDrawerView.AFTERGLOW_TIME, 1.5, "und bleibt lange genug zum Lesen")
