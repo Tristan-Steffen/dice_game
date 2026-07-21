@@ -47,6 +47,47 @@ const SETTLE_ALIGNMENT_MIN_DOT := 0.92
 ## Kleiner Anstoß, der ein Kanten-/Eckengleichgewicht bricht.
 const NUDGE_TORQUE := 0.5
 
+## Ein flach auf einem anderen Würfel liegender Würfel ist langsam UND flach,
+## kommt also durch die Ruheprüfung - erkannt wird er nur an der Höhe. Geprüft
+## wird erst NACH dem Ausrichtungs-Dot, damit ein schräg an der Grubenwand
+## lehnender Würfel den alten Kanten-Anstoß bekommt und keinen Seitenschub.
+const STACK_HEIGHT := DIE_HALF * 1.6
+
+## Kanten-Drehmoment hilft auf einem flachen Deckel nicht - es braucht einen
+## seitlichen Schubs weg vom tragenden Würfel, plus etwas Höhe zum Loslösen.
+const SLIDE_IMPULSE := 3.0
+const SLIDE_LIFT := 1.0
+
+func _is_stacked(body: RigidBody3D) -> bool:
+	return body.global_position.y > STACK_HEIGHT
+
+## Richtung weg vom nächsten tiefer liegenden Würfel (XZ); bei exakt
+## deckungsgleichen Mitten eine zufällige, sonst bliebe der Würfel liegen.
+func _slide_direction(body: RigidBody3D) -> Vector2:
+	var here := body.global_position
+	var away := Vector2.ZERO
+	var nearest := INF
+	for other in bodies:
+		if other == body or other.global_position.y >= here.y:
+			continue
+		var delta := Vector2(here.x - other.global_position.x, here.z - other.global_position.z)
+		if delta.length() < nearest:
+			nearest = delta.length()
+			away = delta
+	if away.length() < 0.01:
+		return Vector2.RIGHT.rotated(randf() * TAU)
+	return away.normalized()
+
+## Schiebt den aufliegenden Würfel vom tragenden Würfel weg.
+func _slide_off_stack(body: RigidBody3D) -> void:
+	var away := _slide_direction(body)
+	body.apply_central_impulse(Vector3(away.x * SLIDE_IMPULSE, SLIDE_LIFT, away.y * SLIDE_IMPULSE))
+	body.apply_torque_impulse(Vector3(
+		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
+		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
+		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE)
+	))
+
 var roots: Array[Node3D]
 var bodies: Array[RigidBody3D]
 var face_displays: Array[DieFaceDisplay] = []
@@ -82,7 +123,9 @@ func count() -> int:
 ## Wirft genau die Slots bei indices Richtung target (Grubenmitte); alle
 ## anderen (geschützten) bleiben mit ihrem alten Wert liegen.
 func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, target: Vector3 = Vector3.ZERO) -> void:
-	for i in indices:
+	var targets := _spread_targets(indices.size())
+	for ordinal in indices.size():
+		var i: int = indices[ordinal]
 		roots[i].visible = true
 		settled[i] = false
 		rest_timers[i] = 0.0
@@ -100,26 +143,55 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 		# die Würfel unabhängig von der Becherposition sanft genug, dass die
 		# Grubenwände sie halten (voller throw_force schoss über die Wände hinaus).
 		var g_eff := 9.8 * body.gravity_scale
-		var jitter := Vector3(
-			randf_range(-TARGET_JITTER.x, TARGET_JITTER.x), 0.0,
-			randf_range(-TARGET_JITTER.z, TARGET_JITTER.z))
 		body.linear_velocity = _throw_velocity(
-			start_transform.origin, target + jitter, g_eff, throw_force)
+			start_transform.origin, target + targets[ordinal], g_eff, throw_force,
+			THROW_FLIGHT_TIME + float(ordinal) * THROW_STAGGER)
 		body.apply_torque_impulse(Vector3(
 			randf_range(-spin_strength, spin_strength),
 			randf_range(-spin_strength, spin_strength),
 			randf_range(-spin_strength, spin_strength)
 		))
 
-## Flugzeit des Wurfbogens und Landestreuung um die Grubenmitte je Würfel.
+## Flugzeit des Wurfbogens; je Würfel wächst sie um THROW_STAGGER, damit die
+## Würfel NACHEINANDER einschlagen - gleichzeitig ankommende Würfel schoben sich
+## nicht auseinander, sondern übereinander.
 const THROW_FLIGHT_TIME := 0.6
-const TARGET_JITTER := Vector3(2.2, 0.0, 3.2)
+const THROW_STAGGER := 0.05
 
-## Startgeschwindigkeit, die from nach genau THROW_FLIGHT_TIME auf to
-## einschlagen lässt (Schwerkraft g); max_speed kappt Extremfälle (sehr weite
-## Würfe landen dann etwas kurz statt als Geschoss).
-static func _throw_velocity(from: Vector3, to: Vector3, g: float, max_speed: float) -> Vector3:
-	var t := THROW_FLIGHT_TIME
+## Wurfziele je Würfel auf der langen Grubenachse (Welt-Z, Grube ±14.28).
+const SPREAD_HALF_Z := 10.5
+const SPREAD_JITTER_X := 2.5
+## Echte halbe Kantenlänge: scene_root skaliert die Kollisionsform mit
+## DIE_SCALE, DieBuilder.HALF_EXTENT allein ist also zu groß.
+const DIE_HALF := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
+## Halbe Raumdiagonale - so weit müssen Bahnmitten mindestens auseinander
+## liegen, damit sich zwei Ziele in keiner Lage überlappen können.
+const DIE_HALF_DIAGONAL := DIE_HALF * 1.733
+
+## Eine eigene Bahn je Würfel statt unabhängiger Zufallsstreuung: sechs freie
+## Ziehungen in einem kleinen Fenster trafen sich zwangsläufig. Die Bahnen sind
+## gemischt, der Rest-Jitter bleibt so klein, dass Bahnen sich nie berühren.
+static func _spread_targets(count: int) -> Array[Vector3]:
+	var lane := (SPREAD_HALF_Z * 2.0) / float(maxi(count, 1))
+	var jitter_z := maxf(lane * 0.5 - DIE_HALF_DIAGONAL, 0.0)
+	var lanes: Array[int] = []
+	for i in count:
+		lanes.append(i)
+	lanes.shuffle()
+	var targets: Array[Vector3] = []
+	for i in count:
+		var center_z := -SPREAD_HALF_Z + lane * (float(lanes[i]) + 0.5)
+		targets.append(Vector3(
+			randf_range(-SPREAD_JITTER_X, SPREAD_JITTER_X), 0.0,
+			center_z + randf_range(-jitter_z, jitter_z)))
+	return targets
+
+## Startgeschwindigkeit, die from nach genau flight_time auf to einschlagen
+## lässt (Schwerkraft g); max_speed kappt Extremfälle (sehr weite Würfe landen
+## dann etwas kurz statt als Geschoss).
+static func _throw_velocity(from: Vector3, to: Vector3, g: float, max_speed: float,
+		flight_time: float = THROW_FLIGHT_TIME) -> Vector3:
+	var t := flight_time
 	var velocity := Vector3(to.x - from.x, 0.0, to.z - from.z) / t
 	velocity.y = (to.y - from.y + 0.5 * g * t * t) / t
 	if velocity.length() > max_speed:
@@ -135,6 +207,11 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 		var body := bodies[i]
 		var is_slow := body.linear_velocity.length() < linear_threshold and body.angular_velocity.length() < angular_threshold
 		if is_slow and _top_axis_info(body)[1] >= SETTLE_ALIGNMENT_MIN_DOT:
+			if _is_stacked(body):
+				rest_timers[i] = 0.0
+				_slide_off_stack(body)
+				all_settled = false
+				continue
 			rest_timers[i] += delta
 			if rest_timers[i] >= rest_time_required:
 				settled[i] = true
