@@ -11,6 +11,12 @@ extends Panel
 ## Ton/Licht. cashed_out nach der Auszahlung (Zahl der Reihen).
 signal spun_out(machine: int, fumbled: bool)
 signal cashed_out(multiplier: int)
+## Einsatz ist bezahlt: scene_root schickt die Münze als Licht zum Automaten. Die
+## Walze wartet auf ihre Ankunft (coin_travel_time).
+signal spin_paid(machine: int)
+## Ein Gewinn verlässt das Fenster (Startpunkt in Display-Pixeln); scene_root
+## fliegt ihn an sein Ziel. Erst hier wird er gebucht.
+signal prize_dispatched(prize: SlotPrize, from_px: Vector2)
 
 const TITLE_COLOR := Color("#ff6b5c")   # Fumble-Rot als Signatur
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
@@ -39,6 +45,10 @@ const REEL_SYMBOLS := ["◉", "◆", "▣", "✦", "⬢"]
 
 var run: GameRun
 
+## Laufzeit der Münze (Münzfenster -> Hub -> Automat); setzt scene_root nach dem
+## Platzieren. 0 = sofort drehen (Tests, Fenster-UI-Rückfall ohne Adern).
+var coin_travel_time := 0.0
+
 var _content: VBoxContainer
 ## Neon-Linien über den Walzen, die jede aktive Kombination verbinden (auf self,
 ## damit sie spaltenübergreifend über die Automaten-Lücken hinweg zeichnen).
@@ -55,6 +65,16 @@ var _landed: Array = []
 var _spinning := false
 var _spinning_index := -1
 var _just_landed := -1  # nach dem Neuaufbau angestupste Walze
+## Gewinne, deren Licht noch nicht abgeflogen ist - je Eintrag {prize, node, run}.
+## Der Run hängt mit dran: ein Neustart mitten in der Auszahlung darf die Ware
+## nicht dem NEUEN Lauf gutschreiben.
+var _pending: Array[Dictionary] = []
+## Tweens der Auszahlungs-Anzeige; müssen sterben, BEVOR _reveal freigegeben wird
+## (sonst zielt ein laufender Tween auf eine freigegebene Instanz).
+var _reveal_tweens: Array[Tween] = []
+## Tweens der Walzenfahrt - dasselbe für die Symbolstreifen, die ein Neuaufbau
+## (_build) mitsamt ihren Spalten freigibt.
+var _spin_tweens: Array[Tween] = []
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -67,14 +87,17 @@ func _reset_landed() -> void:
 	for i in SlotMachine.MACHINE_COUNT:
 		_landed.append([])
 
-## scene_root nach Zustandswechseln (Hub-Aufstieg, Panel-Anzeige).
+## scene_root nach Zustandswechseln (Hub-Aufstieg, Panel-Anzeige). Eine laufende
+## Auszahlung wird vorher zu Ende gebracht - sonst verlöre ein Neuaufbau Gewinne.
 func refresh() -> void:
+	finish_payout_now()
 	_build()
 
 # --- Aufbau --------------------------------------------------------------------
 
 func _build() -> void:
 	var u := maxf(size.x, 200.0) / 100.0
+	_kill_spin_tweens()  # die alten Streifen gehen gleich weg, ihre Tweens dürfen nicht nachlaufen
 	if _content != null and is_instance_valid(_content):
 		remove_child(_content)
 		_content.queue_free()
@@ -479,6 +502,9 @@ func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 
 # --- Aktionen ------------------------------------------------------------------
 
+## Einwurf und Dreh: das Geld geht sofort weg (sein Licht macht sich auf den Weg),
+## die Walze läuft erst an, wenn die Münze angekommen ist - der Einwurf IST der
+## Startschuss, nicht bloß Beiwerk.
 func _on_spin_pressed(machine: int) -> void:
 	if _spinning or run == null or not run.can_spin_slot(machine):
 		return
@@ -489,7 +515,12 @@ func _on_spin_pressed(machine: int) -> void:
 		_spinning = false
 		_spinning_index = -1
 		return
+	spin_paid.emit(machine)
 	_build()  # sperrt alle Knöpfe während des Drehens; Walzen bleiben
+	if coin_travel_time > 0.0:
+		await get_tree().create_timer(coin_travel_time).timeout
+		if not is_instance_valid(self) or _spinning_index != machine:
+			return  # Fenster weg oder Sitzung inzwischen zurückgesetzt
 	_spin_reel(machine, block)
 
 ## Echte Walzenfahrt: die MACHINE_COLS Spalten laufen versetzt (links zuerst) und
@@ -505,6 +536,7 @@ func _spin_reel(machine: int, block: Array) -> void:
 		if not is_instance_valid(slot) or slot.size.y <= 0.0:
 			_on_reel_landed(machine, block)
 			return
+	_spin_tweens.clear()
 	for lc in SlotMachine.MACHINE_COLS:
 		var slot: Panel = cols[lc]
 		var ch := slot.size.y / float(SlotMachine.ROWS)
@@ -519,6 +551,7 @@ func _spin_reel(machine: int, block: Array) -> void:
 				strip.position.y = y
 		var delay := lc * COL_STAGGER
 		var tween := create_tween()
+		_spin_tweens.append(tween)
 		if delay > 0.0:
 			tween.tween_interval(delay)
 		tween.tween_method(slide, start, -SPIN_BRAKE_CELLS * ch, SPIN_FAST_TIME)
@@ -534,6 +567,7 @@ func _spin_reel(machine: int, block: Array) -> void:
 			if is_instance_valid(strip):
 				strip.modulate.a = a
 		var blur := create_tween()
+		_spin_tweens.append(blur)
 		if delay > 0.0:
 			blur.tween_interval(delay)
 		blur.tween_method(clear, 0.65, 1.0, SPIN_FAST_TIME + SPIN_BRAKE_TIME * 0.5)
@@ -589,6 +623,7 @@ func _on_cash_out_pressed() -> void:
 		return
 	if run.slot_bank.hit_count() < 1:
 		return
+	finish_payout_now()  # eine noch laufende Auszahlung zuerst zu Ende bringen
 	var result := run.redeem_slots()
 	_reset_landed()
 	cashed_out.emit(int(result["runs"].size()))
@@ -633,33 +668,26 @@ const RARITY_COLORS := {
 	Engraving.Rarity.RARE: Color("#ffd319"),
 }
 
-## Zeigt am Sitzungsende, WAS und WIE VIEL gewonnen wurde: je ein Icon je
-## Gravur-Art (mit Anzahl), dazu Charm/Würfel. Die Token ploppen gestaffelt auf,
-## halten kurz und blenden aus.
+## Takt der Auszahlung: Aufploppen, gemeinsames Halten, dann einzeln abfliegen.
+const POP_STAGGER := 0.09
+const HOLD_TIME := 1.1
+const DEPART_STAGGER := 0.16
+
+## Zeigt am Sitzungsende, WAS gewonnen wurde: je Gewinn ein Token. Sie ploppen
+## gestaffelt auf, halten kurz - und fliegen dann EINZELN als Licht zu ihrem Ziel
+## (siehe _depart_token). Ein Token je Gewinn, damit Anzeige, Buchung und Licht
+## nie auseinanderlaufen.
 func _play_payout_reveal(prizes: Array) -> void:
-	var engraving_counts := {}   # id -> {engraving, count}
-	var engraving_order: Array = []
-	var charms: Array = []
-	var dice := 0
+	var shown: Array[SlotPrize] = []
 	for prize: SlotPrize in prizes:
-		match prize.kind:
-			SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
-				for s: Engraving in prize.engravings:
-					if not engraving_counts.has(s.id):
-						engraving_counts[s.id] = {"engraving": s, "count": 0}
-						engraving_order.append(s.id)
-					engraving_counts[s.id]["count"] += 1
-			SlotPrize.Kind.CHARM:
-				if prize.charm != null:
-					charms.append(prize.charm)
-			SlotPrize.Kind.DIE:
-				dice += 1
-	if engraving_order.is_empty() and charms.is_empty() and dice == 0:
+		if _token_prize_is_empty(prize):
+			continue
+		shown.append(prize)
+	if shown.is_empty():
 		return
 
 	var u := maxf(size.x, 200.0) / 100.0
-	if _reveal != null and is_instance_valid(_reveal):
-		_reveal.queue_free()
+	_clear_reveal()
 	_reveal = Control.new()
 	_reveal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_reveal.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -684,41 +712,113 @@ func _play_payout_reveal(prizes: Array) -> void:
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	center.add_child(flow)
 
-	var tokens: Array = []
-	for id in engraving_order:
-		tokens.append(_engraving_token(engraving_counts[id]["engraving"], int(engraving_counts[id]["count"]), u))
-	for charm in charms:
-		tokens.append(_glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), charm.display_name, u))
-	if dice > 0:
-		tokens.append(_glyph_token("⬢", CYAN, "%d Würfel" % dice, u))
-	for token in tokens:
+	_pending.clear()
+	for prize in shown:
+		var token := _token_for(prize, u)
 		token.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
 		flow.add_child(token)
+		_pending.append({"prize": prize, "node": token, "run": run})
 
-	_animate_reveal(tokens)
+	_animate_reveal()
 
-## Pop-in gestaffelt (Pivot erst nach dem Layout), halten, ausblenden, freigeben.
-func _animate_reveal(tokens: Array) -> void:
+## Ein Token je Gewinn: Gravuren mit Icon, Charm und Würfel als Glyphe.
+func _token_for(prize: SlotPrize, u: float) -> Control:
+	match prize.kind:
+		SlotPrize.Kind.CHARM:
+			return _glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), prize.charm.display_name, u)
+		SlotPrize.Kind.DIE:
+			return _glyph_token("⬢", CYAN, "Würfel", u)
+	return _engraving_token(prize.engravings[0], prize.engravings.size(), u)
+
+## Ein Gewinn ohne Ware (defensive Prüfung: Fumble hat keinen Token).
+func _token_prize_is_empty(prize: SlotPrize) -> bool:
+	match prize.kind:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+			return prize.engravings.is_empty()
+		SlotPrize.Kind.CHARM:
+			return prize.charm == null
+		SlotPrize.Kind.DIE:
+			return prize.die == null
+	return true
+
+## Pop-in gestaffelt (Pivot erst nach dem Layout), halten, dann fliegt jeder
+## Gewinn einzeln ab.
+func _animate_reveal() -> void:
 	await get_tree().process_frame
 	if not is_instance_valid(_reveal):
 		return
 	var last := 0.0
-	for i in tokens.size():
-		var token: Control = tokens[i]
+	for i in _pending.size():
+		var token: Control = _pending[i]["node"]
 		if not is_instance_valid(token):
 			continue
 		token.pivot_offset = token.size / 2.0
-		var pop := create_tween()
-		pop.tween_interval(i * 0.09)
+		var pop := _reveal_tween()
+		pop.tween_interval(i * POP_STAGGER)
 		pop.tween_property(token, "scale", Vector2.ONE, 0.42) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		last = i * 0.09
-	var fade := create_tween()
-	fade.tween_interval(last + 1.7)
-	fade.tween_property(_reveal, "modulate:a", 0.0, 0.5)
-	fade.tween_callback(func() -> void:
-		if is_instance_valid(_reveal):
-			_reveal.queue_free())
+		last = i * POP_STAGGER
+	# Abflug in derselben Reihenfolge, in der sie aufgeploppt sind.
+	for i in _pending.size():
+		var depart := _reveal_tween()
+		depart.tween_interval(last + HOLD_TIME + i * DEPART_STAGGER)
+		depart.tween_callback(_depart_index.bind(i))
+	var done := _reveal_tween()
+	done.tween_interval(last + HOLD_TIME + _pending.size() * DEPART_STAGGER + 0.3)
+	done.tween_callback(_clear_reveal)
+
+## Ein Gewinn verlässt das Fenster: Token schrumpft weg, Gewinn wird gebucht und
+## als Licht auf die Reise geschickt (Startpunkt = Token-Mitte in Display-Pixeln).
+func _depart_index(index: int) -> void:
+	if index >= _pending.size():
+		return
+	var entry := _pending[index]
+	if entry.get("gone", false):
+		return
+	_pending[index]["gone"] = true
+	var prize: SlotPrize = entry["prize"]
+	var from_px := position + size * 0.5
+	var token: Control = entry["node"]
+	if is_instance_valid(token) and token.size.x > 0.0:
+		from_px = position + token.global_position - global_position + token.size * 0.5
+		var shrink := _reveal_tween()
+		shrink.tween_property(token, "scale", Vector2.ZERO, 0.18) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	var owner_run: GameRun = entry["run"]
+	if owner_run != null:
+		owner_run.book_slot_prize(prize)
+	prize_dispatched.emit(prize, from_px)
+
+## Bringt eine laufende Auszahlung sofort zu Ende (Fenster-Neuaufbau, Run-Wechsel,
+## zweite Auszahlung): jeder ausstehende Gewinn wird gebucht und verschickt -
+## Ungeduld darf keinen Gewinn kosten.
+func finish_payout_now() -> void:
+	for i in _pending.size():
+		_depart_index(i)
+	_clear_reveal()
+
+## Gibt die Anzeige frei - IMMER erst die Tweens killen, sonst zielt ein laufender
+## Tween auf die freigegebene Instanz.
+func _clear_reveal() -> void:
+	for tween in _reveal_tweens:
+		if tween != null and tween.is_valid():
+			tween.kill()
+	_reveal_tweens.clear()
+	_pending.clear()
+	if _reveal != null and is_instance_valid(_reveal):
+		_reveal.queue_free()
+	_reveal = null
+
+func _kill_spin_tweens() -> void:
+	for tween in _spin_tweens:
+		if tween != null and tween.is_valid():
+			tween.kill()
+	_spin_tweens.clear()
+
+func _reveal_tween() -> Tween:
+	var tween := create_tween()
+	_reveal_tweens.append(tween)
+	return tween
 
 ## Gravur-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
 ## Plakette und Name.

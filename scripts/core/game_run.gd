@@ -498,19 +498,23 @@ func spin_slot(machine: int) -> Array:
 	return slot_bank.spin(machine)
 
 ## Zahlt die Sitzung aus: löst jede Gewinn-Reihe in ihre Preise auf (der Längen-
-## Bonus steckt schon in den specs), bucht sie und setzt die Bank zurück. Liefert
-## die ausgezahlten Preise und die Reihen-Deskriptoren (für die Anzeige) - VOR dem
-## Reset eingefroren.
+## Bonus steckt schon in den specs) und setzt die Bank zurück. Gebucht wird NOCH
+## NICHT - das tut book_slot_prize, sobald der Gewinn als Licht das Automaten-
+## Fenster verlässt; sonst füllten sich Schubladen und Pool schon während der
+## Anzeige. Liefert die Preise und die Reihen-Deskriptoren (für die Anzeige) -
+## VOR dem Reset eingefroren.
 func redeem_slots() -> Dictionary:
 	var runs := slot_bank.runs()
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			var prize := SlotPrize.from_spec(spec)
-			_book_slot_prize(prize, 1)
-			prizes.append(prize)
+			prizes.append(SlotPrize.from_spec(spec))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
+
+## Bucht EINEN Automaten-Gewinn (Aufruf beim Abflug seines Lichts).
+func book_slot_prize(prize: SlotPrize) -> void:
+	_book_slot_prize(prize, 1)
 
 func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:

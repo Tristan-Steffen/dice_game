@@ -102,6 +102,8 @@ var workshop_window: WorkshopView
 var supply_drawers: Array[SupplyDrawerView] = []
 var supply_strips: Array[LedStripView] = []
 var workshop_hub_strip: LedStripView
+## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
+var slot_hub_strip: LedStripView
 var supply_info_bar: Panel
 var supply_info_label: Label
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
@@ -366,6 +368,11 @@ func _build_content() -> void:
 	workshop_hub_strip.name = "WorkshopHubStrip"
 	add_child(workshop_hub_strip)
 
+	# Ader Automaten -> Hub (verlegt place_slot_bank_window).
+	slot_hub_strip = LedStripView.new()
+	slot_hub_strip.name = "SlotHubStrip"
+	add_child(slot_hub_strip)
+
 	# Vorrats-Schubladen: Maße/Position setzt scene_root über place_supply_drawers.
 	# Die Adern zuerst, damit sie UNTER den Schubladen liegen.
 	for i in Engraving.CATEGORIES.size():
@@ -447,6 +454,7 @@ func place_slot_bank_window(rect: Rect2) -> void:
 	slot_bank_window.position = rect.position
 	slot_bank_window.size = rect.size
 	slot_bank_window.refresh()
+	_link_slot_to_hub()
 	_sync_reflection_windows()
 
 ## Blendet das Automaten-Fenster ein/aus (erste Automaten-Stufe erreicht).
@@ -456,7 +464,22 @@ func set_slot_bank_installed(installed: bool) -> void:
 	if slot_bank_window.visible == installed:
 		return
 	slot_bank_window.visible = installed
+	slot_hub_strip.visible = installed  # ohne Automaten liegt dort keine Ader
 	_sync_reflection_windows()
+
+## Ader Automaten -> Hub: der spiegelbildliche Zwilling der Werkstatt-Ader, gerade
+## waagerecht durch die Lücke an der LINKEN Hub-Kante.
+func _link_slot_to_hub() -> void:
+	if slot_hub_strip == null or hub == null or hub.size.x <= 0.0 or slot_bank_window == null:
+		return
+	var top := maxf(hub.position.y, slot_bank_window.position.y)
+	var bottom := minf(hub.position.y + hub.size.y,
+		slot_bank_window.position.y + slot_bank_window.size.y)
+	if bottom <= top:
+		return  # keine Höhen-Überlappung - keine gerade Ader möglich
+	slot_hub_strip.link_horizontal(slot_bank_window.position.x + slot_bank_window.size.x,
+		hub.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
+	slot_hub_strip.visible = slot_bank_window.visible
 
 ## Spannt die Werkstatt über rect auf (rechter Zwilling der Automaten).
 func place_workshop_window(rect: Rect2) -> void:
@@ -1348,15 +1371,101 @@ func play_overclock_pulse(combo_key: String) -> void:
 ## Ader selbst, L-Anschluss ins Ziel. Alles achsenparallel, wie score_route.
 ## Ohne verlegte Ader bleibt die gerade Verbindung (headless/Tests).
 func _route_via_strip(from_px: Vector2, strip: LedStripView, to_px: Vector2) -> PackedVector2Array:
-	if strip == null or strip.strip_path.size() < 2:
+	return _route_via_strips(from_px, [strip], to_px)
+
+## Dasselbe über MEHRERE Adern hintereinander: das Licht fährt von Ader zu Ader,
+## statt quer über den Tisch zu fliegen (Automaten -> Hub -> Werkbank). Endet die
+## eine Ader am Rand eines Fensters und beginnt die nächste an einem anderen Rand
+## DESSELBEN Fensters, fährt das Licht den Fensterrahmen entlang - nie mitten
+## durch einen fremden Bildschirm.
+func _route_via_strips(from_px: Vector2, strips: Array, to_px: Vector2) -> PackedVector2Array:
+	var laid: Array[LedStripView] = []
+	for strip: LedStripView in strips:
+		if strip != null and strip.strip_path.size() >= 2:
+			laid.append(strip)
+	if laid.is_empty():
 		return PackedVector2Array([from_px, to_px])
-	var entry := strip.strip_path[0]
-	var exit := strip.strip_path[strip.strip_path.size() - 1]
-	var path := PackedVector2Array([from_px, Vector2(entry.x, from_px.y)])
-	for p in strip.strip_path:
-		path.append(p)
-	path.append(Vector2(exit.x, to_px.y))
+	var path := PackedVector2Array([from_px])
+	var here := from_px
+	for strip in laid:
+		var entry := strip.strip_path[0]
+		var crossed := _window_between(here, entry)
+		if crossed.size.x > 0.0:
+			for corner in _border_route(crossed, here, entry):
+				path.append(corner)
+		else:
+			path.append(Vector2(entry.x, here.y))  # waagerecht an den Ader-Kopf heran
+		for p in strip.strip_path:
+			path.append(p)
+		here = strip.strip_path[strip.strip_path.size() - 1]
+	path.append(Vector2(here.x, to_px.y))
 	path.append(to_px)
+	return path
+
+## Fenster, auf dessen RAND beide Punkte liegen (das Licht müsste sonst quer
+## hindurch); Rect2() wenn keins. Kandidaten sind die großen Durchfahrt-Fenster.
+func _window_between(a: Vector2, b: Vector2) -> Rect2:
+	var candidates: Array = [hub, workshop_window, slot_bank_window, side_bet_window]
+	for window in candidates:
+		if window == null or not window.visible or window.size.x <= 0.0:
+			continue
+		var rect := Rect2(window.position, window.size)
+		if _perimeter_t(rect, a) >= 0.0 and _perimeter_t(rect, b) >= 0.0:
+			return rect
+	return Rect2()
+
+## Lauflänge eines Randpunkts im Uhrzeigersinn ab der linken oberen Ecke;
+## -1, wenn der Punkt nicht auf dem Rand liegt (Toleranz 1 px).
+func _perimeter_t(rect: Rect2, p: Vector2) -> float:
+	const EPS := 1.0
+	var w := rect.size.x
+	var h := rect.size.y
+	var inside_x := p.x >= rect.position.x - EPS and p.x <= rect.end.x + EPS
+	var inside_y := p.y >= rect.position.y - EPS and p.y <= rect.end.y + EPS
+	if absf(p.y - rect.position.y) <= EPS and inside_x:
+		return clampf(p.x - rect.position.x, 0.0, w)
+	if absf(p.x - rect.end.x) <= EPS and inside_y:
+		return w + clampf(p.y - rect.position.y, 0.0, h)
+	if absf(p.y - rect.end.y) <= EPS and inside_x:
+		return w + h + clampf(rect.end.x - p.x, 0.0, w)
+	if absf(p.x - rect.position.x) <= EPS and inside_y:
+		return w + h + w + clampf(rect.end.y - p.y, 0.0, h)
+	return -1.0
+
+func _perimeter_point(rect: Rect2, t: float) -> Vector2:
+	var w := rect.size.x
+	var h := rect.size.y
+	if t <= w:
+		return Vector2(rect.position.x + t, rect.position.y)
+	if t <= w + h:
+		return Vector2(rect.end.x, rect.position.y + (t - w))
+	if t <= w + h + w:
+		return Vector2(rect.end.x - (t - w - h), rect.end.y)
+	return Vector2(rect.position.x, rect.end.y - (t - w - h - w))
+
+## Die Ecken des Fensterrahmens zwischen from und to, über die KÜRZERE Seite.
+## from/to selbst hängt der Aufrufer an; beide müssen auf dem Rand liegen.
+func _border_route(rect: Rect2, from: Vector2, to: Vector2) -> PackedVector2Array:
+	var w := rect.size.x
+	var h := rect.size.y
+	var perim := 2.0 * (w + h)
+	var t0 := _perimeter_t(rect, from)
+	var t1 := _perimeter_t(rect, to)
+	var path := PackedVector2Array()
+	if t0 < 0.0 or t1 < 0.0 or perim <= 0.0:
+		return path
+	var cw := fposmod(t1 - t0, perim)
+	var dir := 1.0 if cw <= perim - cw else -1.0
+	var dist := cw if dir > 0.0 else perim - cw
+	# Ecken in Laufrichtung einsammeln (nur die ECHT zwischen den Punkten).
+	var ahead_list: Array[float] = []
+	for corner_t in [0.0, w, w + h, w + h + w]:
+		var ahead := fposmod((corner_t - t0) * dir, perim)
+		if ahead > 0.5 and ahead < dist - 0.5:
+			ahead_list.append(ahead)
+	ahead_list.sort()
+	for ahead in ahead_list:
+		path.append(_perimeter_point(rect, fposmod(t0 + dir * ahead, perim)))
 	return path
 
 ## Liefer-Komet Laden -> Werkstatt: das gekaufte Paket FÄHRT als Licht die
@@ -1366,6 +1475,62 @@ func pack_delivery_comet(from_px: Vector2, color: Color) -> float:
 		return 0.0
 	var to_px := workshop_window.position + workshop_window.size * 0.5
 	var path := _route_via_strip(from_px, workshop_hub_strip, to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Laufzeit der Automaten-Ader (Hub <-> Automaten) für die Ablauf-Planung außen.
+func slot_pay_travel_time() -> float:
+	if slot_hub_strip == null or slot_hub_strip.strip_path.size() < 2:
+		return 0.0
+	return _travel_time(slot_hub_strip.strip_path)
+
+## Einsatz-Komet Hub -> Automaten: die zweite Etappe der Münze (die erste fuhr als
+## money_comet vom Münzfenster in den Hub). Liefert die Laufzeit.
+func slot_pay_comet(color: Color) -> float:
+	if slot_hub_strip == null or slot_hub_strip.strip_path.size() < 2:
+		return 0.0
+	var path := slot_hub_strip.strip_path.duplicate()
+	path.reverse()  # verlegt ist sie Automaten -> Hub; der Einsatz fährt dagegen
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Gewinn-Komet Automaten -> Hub (Charms): fährt die Automaten-Ader in ihrer
+## verlegten Richtung. Liefert die Laufzeit.
+func slot_prize_comet(from_px: Vector2, color: Color) -> float:
+	if slot_hub_strip == null or slot_hub_strip.strip_path.size() < 2 or hub == null:
+		return 0.0
+	var path := _route_via_strip(from_px, slot_hub_strip, hub.position + hub.size * 0.5)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Gewonnene Gravur: den ganzen Weg über die Adern - Automaten-Ader in den Hub,
+## Werkstatt-Ader zur Werkbank, Schubladen-Ader in den Platz. Quer über den Tisch
+## fliegt hier nichts; erst der letzte Meter ist ein freier Bogen wie beim Paket.
+func slot_engraving_route(from_px: Vector2, category: String, slot_px: Vector2) -> PackedVector2Array:
+	var supply := _supply_strip(category)
+	return _route_via_strips(from_px, [slot_hub_strip, workshop_hub_strip, supply], slot_px)
+
+func slot_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2,
+		color: Color) -> float:
+	var path := slot_engraving_route(from_px, category, slot_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Freiflug ohne Ader (gewonnener Würfel -> Vorrats-Ablage): zu den 3D-Ablagen
+## führt keine Leiterbahn, also fliegt das Licht als Bogen wie ein Meteor. Start
+## ist das Ende der Automaten-Ader am Hub, nicht das Fenster - so hängt auch der
+## Würfel am Adernetz, statt quer über den Tisch zu schießen.
+func tray_comet(from_px: Vector2, to_px: Vector2, color: Color, spread_index: int) -> float:
+	var launch := from_px
+	if slot_hub_strip != null and slot_hub_strip.strip_path.size() >= 2:
+		launch = slot_hub_strip.strip_path[slot_hub_strip.strip_path.size() - 1]
+	var path := _route_via_strips(from_px, [slot_hub_strip], launch)
+	for p in _meteor_launch(launch, to_px, spread_index):
+		path.append(p)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

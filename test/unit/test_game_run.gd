@@ -270,6 +270,59 @@ func test_place_pack_die_ignores_slots_outside_the_pool():
 	assert_eq(_count_style("fixed_6"), 0)
 	assert_eq(run.newly_purchased.size(), 0)
 
+# --- Automaten-Gewinne (auswürfeln und buchen sind getrennt) ---------------------
+
+## Wand mit einer 3er-Reihe des Symbols in der obersten Zeile; der Rest bildet in
+## keiner Richtung eine Reihe.
+func _winning_wall(symbol: int) -> void:
+	var filler := [SlotPrize.Kind.CHARM, SlotPrize.Kind.FUMBLE]
+	for c in SlotMachine.TOTAL_COLS:
+		var col: Array = []
+		for r in SlotMachine.ROWS:
+			if r == 0 and c < 3:
+				col.append(symbol)
+			else:
+				col.append(filler[(c + r) % 2])
+		run.slot_bank.cells[c] = col
+	run.slot_bank.spun = [true, true, true]
+
+func test_redeeming_rolls_the_prizes_without_booking_them():
+	# Gebucht wird erst, wenn der Gewinn als Licht den Automaten verlässt - sonst
+	# füllten sich die Schubladen, bevor überhaupt etwas geflogen ist.
+	_winning_wall(SlotPrize.Kind.MATERIAL)
+	var result := run.redeem_slots()
+	assert_gt(result["prizes"].size(), 0, "die Reihe löst sich in Preise auf")
+	assert_eq(run.owned_engravings.size(), 0, "aber noch nichts in den Vorräten")
+	assert_eq(run.slot_bank.hit_count(), 0, "die Sitzung ist zurückgesetzt")
+
+func test_booking_a_prize_grants_its_goods():
+	_winning_wall(SlotPrize.Kind.MATERIAL)
+	var prizes: Array = run.redeem_slots()["prizes"]
+	var expected := 0
+	for prize: SlotPrize in prizes:
+		expected += prize.engravings.size()
+		run.book_slot_prize(prize)
+	assert_eq(run.owned_engravings.size(), expected, "jetzt liegt die Ware im Vorrat")
+	for engraving in run.owned_engravings:
+		assert_eq(engraving.category, Engraving.CATEGORY_MATERIAL, "in der eigenen Sorte")
+
+func test_booking_a_won_die_takes_a_pool_slot():
+	var prize := SlotPrize.new()
+	prize.kind = SlotPrize.Kind.DIE
+	prize.die = DieDefinition.fixed(6, "Immer 6")
+	run.book_slot_prize(prize)
+	assert_eq(_count_style("fixed_6"), 1, "der gewonnene Würfel ersetzt einen Pool-Platz")
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
+
+func test_booking_a_won_charm_puts_it_on_the_shelf():
+	var prize := SlotPrize.new()
+	prize.kind = SlotPrize.Kind.CHARM
+	prize.charm = Charm.rabbits_foot()
+	watch_signals(run)
+	run.book_slot_prize(prize)
+	assert_eq(run.owned_charms.size(), 1)
+	assert_signal_emitted(run, "charms_changed")
+
 func test_pack_content_floor_rises_with_the_hub():
 	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.COMMON, "Stufe 1: alles")
 	run.hub_level = GameRun.HUB_RARITY_UNCOMMON_LEVEL

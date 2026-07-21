@@ -76,6 +76,9 @@ func test_cash_out_redeems_runs_and_resets() -> void:
 	view._on_cash_out_pressed()
 	await wait_frames(2)
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
+	assert_eq(run.owned_engravings.size(), engravings_before,
+		"während der Anzeige ist noch nichts gebucht")
+	view.finish_payout_now()
 	assert_eq(run.owned_engravings.size(), engravings_before + 2, "Reihe als Ware ausgezahlt")
 	assert_eq(run.money, money_before, "der Automat zahlt KEIN Geld aus")
 
@@ -93,6 +96,7 @@ func test_each_engraving_symbol_pays_its_own_category() -> void:
 		await wait_frames(2)
 		view._on_cash_out_pressed()
 		await wait_frames(2)
+		view.finish_payout_now()  # Licht abfliegen lassen: DANN ist gebucht
 		assert_gt(fresh.owned_engravings.size(), 0, "Sorte %s zahlt aus" % entry[1])
 		for engraving in fresh.owned_engravings:
 			assert_eq(engraving.category, String(entry[1]),
@@ -122,6 +126,81 @@ func test_spun_without_a_win_can_reset_to_spin_again() -> void:
 	await wait_frames(2)
 	assert_true(run.can_spin_slot(0), "nachher: Automat wieder drehbar")
 	assert_false(run.slot_bank.any_spun(), "Sitzung zurückgesetzt")
+
+# --- Einwurf: die Münze fährt, dann läuft die Walze ------------------------------
+
+func test_paying_the_stake_announces_the_coin() -> void:
+	var paid: Array[int] = []
+	view.spin_paid.connect(func(machine: int) -> void: paid.append(machine))
+	var money_before := run.money
+	view._on_spin_pressed(0)
+	assert_eq(paid, [0] as Array[int], "der Einwurf meldet sich, damit das Licht losfährt")
+	assert_eq(run.money, money_before - run.slot_spin_price(0), "der Einsatz ist sofort weg")
+
+func test_the_reel_waits_for_the_coin_to_arrive() -> void:
+	view.coin_travel_time = 5.0  # so lang, dass sie im Test sicher nicht ankommt
+	view._on_spin_pressed(0)
+	await wait_frames(4)
+	assert_true(view._landed[0].is_empty(), "ohne angekommene Münze dreht sich nichts")
+
+func test_without_strips_the_reel_starts_at_once() -> void:
+	# Fenster-UI-Rückfall (keine Adern verlegt): kein Warten, sonst hinge das Spiel.
+	view.coin_travel_time = 0.0
+	var landed: Array[int] = []
+	view.spun_out.connect(func(machine: int, _f: bool) -> void: landed.append(machine))
+	view._on_spin_pressed(0)
+	await wait_frames(2)
+	assert_eq(view._spinning_index, 0, "die Walze läuft ohne Umweg an")
+
+# --- Gewinne verlassen das Fenster als Licht -------------------------------------
+
+func _dispatched() -> Array:
+	var seen: Array = []
+	view.prize_dispatched.connect(func(prize: SlotPrize, from_px: Vector2) -> void:
+		seen.append({"prize": prize, "from": from_px}))
+	return seen
+
+func test_every_prize_leaves_the_window_once() -> void:
+	_set_wall([[S, S, S, M, C, M, C, M, C]])
+	view.refresh()
+	await wait_frames(2)
+	var seen := _dispatched()
+	view._on_cash_out_pressed()
+	await wait_frames(2)
+	assert_eq(seen.size(), 0, "während der Anzeige fliegt noch nichts")
+	view.finish_payout_now()
+	assert_gt(seen.size(), 0, "jeder Gewinn macht sich auf den Weg")
+	for entry in seen:
+		var from: Vector2 = entry["from"]
+		assert_true(Rect2(view.position, view.size).has_point(from),
+			"der Start liegt IM Automaten-Fenster")
+
+func test_a_finished_payout_does_not_fire_again() -> void:
+	_set_wall([[S, S, S, M, C, M, C, M, C]])
+	view.refresh()
+	await wait_frames(2)
+	view._on_cash_out_pressed()
+	await wait_frames(2)
+	view.finish_payout_now()
+	var booked := run.owned_engravings.size()
+	var seen := _dispatched()
+	view.finish_payout_now()
+	assert_eq(seen.size(), 0, "ein abgeschlossener Ablauf löst nichts nach")
+	assert_eq(run.owned_engravings.size(), booked, "und bucht auch nichts doppelt")
+
+func test_a_run_swap_credits_the_run_that_won() -> void:
+	# Neustart mitten in der Auszahlung: die Ware gehört dem alten Lauf.
+	_set_wall([[S, S, S, M, C, M, C, M, C]])
+	view.refresh()
+	await wait_frames(2)
+	var winner := run
+	view._on_cash_out_pressed()
+	await wait_frames(2)
+	var next_run := GameRun.new_run()
+	view.run = next_run
+	view.finish_payout_now()
+	assert_gt(winner.owned_engravings.size(), 0, "der Gewinner bekommt seine Ware")
+	assert_eq(next_run.owned_engravings.size(), 0, "der neue Lauf erbt nichts")
 
 func test_fresh_session_leaves_the_button_disabled() -> void:
 	# Nichts gedreht: kein Verwerfen anzubieten, „Auszahlen" bleibt gesperrt.

@@ -213,6 +213,114 @@ func test_meteor_is_caught_by_the_strip_of_its_category():
 			caught = true
 	assert_true(caught, "die Ader der Kategorie fängt ihn an der Werkbank-Unterkante auf")
 
+# --- Automaten-Ader (Einsatz hin, Gewinn zurück) --------------------------------
+
+## Automaten links, Hub rechts daneben - dieselbe Höhen-Überlappung wie am Tisch.
+## place_hub nimmt die MITTE, die linke Hub-Kante liegt also bei 3400-700 = 2700.
+func _place_slot_corner() -> void:
+	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
+	screen.place_slot_bank_window(Rect2(Vector2(1500, 2100), Vector2(1000, 1100)))
+	screen.set_slot_bank_installed(true)
+
+func test_the_slot_strip_runs_through_the_gap_to_the_hub():
+	_place_slot_corner()
+	var path := screen.slot_hub_strip.strip_path
+	assert_gt(path.size(), 1, "eine verlegte Ader")
+	assert_eq(path[0].x, 2500.0, "sie beginnt an der rechten Automaten-Kante")
+	assert_eq(path[path.size() - 1].x, screen.hub.position.x, "und endet an der linken Hub-Kante")
+	for point in path:
+		assert_eq(point.y, path[0].y, "gerade waagerecht durch die Lücke")
+
+func test_the_stake_travels_from_the_hub_to_the_machines():
+	_place_slot_corner()
+	# Verlegt ist die Ader Automat -> Hub; der Einsatz muss GEGEN diese Richtung
+	# fahren, sonst käme die Münze aus dem Automaten heraus.
+	assert_gt(screen.slot_pay_comet(Color.WHITE), 0.0, "der Einsatz bekommt eine Laufzeit")
+	assert_gt(screen.slot_pay_travel_time(), 0.0, "und die Wartezeit ist planbar")
+
+func test_a_won_charm_rides_the_strip_up_into_the_hub():
+	_place_slot_corner()
+	var from := Vector2(2000, 2600)
+	var route := screen._route_via_strip(from, screen.slot_hub_strip,
+		screen.hub.position + screen.hub.size * 0.5)
+	assert_eq(route[0], from, "der Charm startet am Token im Fenster")
+	for point in screen.slot_hub_strip.strip_path:
+		assert_true(route.has(point), "er fährt die Automaten-Ader")
+
+func test_a_won_die_flies_a_free_arc_to_the_tray():
+	# Zu den 3D-Ablagen führt keine Ader - der letzte Teil ist ein Bogen.
+	var from := Vector2(2000, 2600)
+	var to := Vector2(3800, 1500)
+	assert_gt(screen.tray_comet(from, to, Color.WHITE, 0), 0.0, "auch der Bogen hat eine Flugzeit")
+	var first := screen._meteor_launch(from, to, 0)
+	var second := screen._meteor_launch(from, to, 1)
+	assert_eq(first[0], from, "er startet am Token")
+	assert_true(first[first.size() - 1].is_equal_approx(to), "und landet auf dem Platz")
+	assert_gt(first[6].distance_to(second[6]), 1.0, "zwei Würfel fliegen nicht dieselbe Bahn")
+
+# --- Gewonnene Gravur: den ganzen Weg über die Adern ----------------------------
+
+func _place_slots_hub_and_bench() -> void:
+	_place_workbench_corner()   # Hub + Werkstatt + Schubladen
+	screen.place_slot_bank_window(Rect2(Vector2(300, 2000), Vector2(1000, 1100)))
+	screen.set_slot_bank_installed(true)
+
+func test_a_won_engraving_rides_every_vein_to_its_drawer():
+	# Der Automat liegt LINKS, die Schublade RECHTS vom Hub: das Licht darf nicht
+	# quer über den Tisch fliegen, sondern fährt Automaten-, Werkstatt- und
+	# Schubladen-Ader hintereinander ab.
+	_place_slots_hub_and_bench()
+	var from := Vector2(800, 2400)
+	var slot := Vector2(3900, 2700)
+	var route := screen.slot_engraving_route(from, Engraving.CATEGORY_MATERIAL, slot)
+	assert_eq(route[0], from, "sie startet am Token im Automaten")
+	assert_eq(route[route.size() - 1], slot, "und endet genau im Platz")
+	for strip in [screen.slot_hub_strip, screen.workshop_hub_strip,
+			screen._supply_strip(Engraving.CATEGORY_MATERIAL)]:
+		for point in strip.strip_path:
+			assert_true(route.has(point), "die Ader %s liegt in der Route" % strip.name)
+
+func test_the_long_way_stays_axis_parallel():
+	# Kein Diagonalflug über den Hub - Leiterbahn-Look über die ganze Strecke.
+	_place_slots_hub_and_bench()
+	var route := screen.slot_engraving_route(Vector2(800, 2400),
+		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
+	for i in route.size() - 1:
+		var leg: Vector2 = route[i + 1] - route[i]
+		assert_true(is_zero_approx(leg.x) or is_zero_approx(leg.y),
+			"Abschnitt %d läuft achsenparallel" % i)
+
+func test_passing_light_hugs_the_frame_instead_of_crossing_the_screen():
+	# Fremde Bildschirme werden am RAHMEN passiert, nie mittendurch: kein
+	# Streckenabschnitt darf im Inneren von Hub oder Werkstatt liegen.
+	_place_slots_hub_and_bench()
+	var route := screen.slot_engraving_route(Vector2(800, 2400),
+		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
+	var hub_inner := Rect2(screen.hub.position, screen.hub.size).grow(-2.0)
+	var bench_inner := Rect2(screen.workshop_window.position,
+		screen.workshop_window.size).grow(-2.0)
+	for i in route.size() - 1:
+		var mid: Vector2 = (route[i] + route[i + 1]) * 0.5
+		assert_false(hub_inner.has_point(mid), "Abschnitt %d quert das Hub-Innere" % i)
+		assert_false(bench_inner.has_point(mid), "Abschnitt %d quert die Werkstatt" % i)
+
+func test_the_frame_walk_takes_the_shorter_side():
+	# Ein- und Ausstieg liegen in der unteren Hub-Hälfte: der Umweg führt über die
+	# UNTEREN Ecken, nicht einmal oben herum.
+	_place_slots_hub_and_bench()
+	var route := screen.slot_engraving_route(Vector2(800, 2400),
+		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
+	var hub_rect := Rect2(screen.hub.position, screen.hub.size)
+	assert_true(route.has(Vector2(hub_rect.position.x, hub_rect.end.y)),
+		"über die linke untere Ecke")
+	assert_true(route.has(hub_rect.end), "und die rechte untere Ecke")
+	assert_false(route.has(hub_rect.position), "aber nicht oben herum")
+
+func test_without_machines_no_strip_is_lit():
+	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
+	screen.place_slot_bank_window(Rect2(Vector2(1500, 2100), Vector2(1000, 1100)))
+	assert_false(screen.slot_hub_strip.visible, "ohne freigeschaltete Automaten keine Ader")
+
 func test_two_meteors_fling_in_different_directions():
 	_place_workbench_corner()
 	var from := Vector2(3400, 2000)

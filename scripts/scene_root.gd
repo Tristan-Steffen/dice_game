@@ -68,6 +68,12 @@ const SLOTS_BOTTOM_INSET_WORLD := 7.5
 const WORKSHOP_HEIGHT_FACTOR := 1.4
 
 
+## Automaten-Lichter: Einsatz golden wie Geld, Charm violett wie im Regal,
+## Würfel zyan wie das Würfel-Symbol der Walze.
+const SLOT_COIN_COLOR := Color(2.0, 1.55, 0.35, 0.9)
+const SLOT_CHARM_COLOR := Color(1.6, 0.9, 2.0, 0.9)
+const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
+
 ## Gravur-Zeremonie: der geklickte Würfel wird zum Ziel - sein Tray-Slot leert
 ## sich und der ECHTE Würfel fliegt über die Hub-Bühne (kein Abbild).
 const ENGRAVE_TRAIL_TIME := 0.5
@@ -500,6 +506,11 @@ func _setup_table_screen() -> void:
 	table_screen.place_slot_bank_window(slots_rect)
 	slots_click_zone = _screen_zoom_zone("SlotsClickZone", slots_rect, camera_rig.configure_slots_target)
 	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
+	table_screen.slot_bank_window.spin_paid.connect(_on_slot_spin_paid)
+	table_screen.slot_bank_window.prize_dispatched.connect(_on_slot_prize_dispatched)
+	# Die Walze wartet, bis die Münze beide Etappen hinter sich hat.
+	table_screen.slot_bank_window.coin_travel_time = \
+		table_screen.money_travel_time() + table_screen.slot_pay_travel_time()
 
 	# Werkstatt: der letzte freie Fleck des Tisches, genau UNTER den beiden
 	# Würfel-Trays und bündig mit deren Außenkanten. Hier werden gekaufte Pakete
@@ -1109,11 +1120,66 @@ func _on_side_bet_placed(index: int) -> void:
 		get_tree().create_timer(maxf(diffuse, 0.05)).timeout.connect(func() -> void:
 			panel.glow_bet(index, glow_color)))
 
-## Automaten-Sitzung ausgezahlt: der Baranteil floss bereits als Geld-Licht über
-## money_changed; der Hub-Rahmen quittiert den Gewinn mit einem goldenen Blitz.
+## Automaten-Sitzung ausgezahlt: der Hub-Rahmen quittiert mit einem goldenen
+## Blitz; die Ware selbst fliegt einzeln (siehe _on_slot_prize_dispatched).
 func _on_slot_cashed_out(_multiplier: int) -> void:
+	_meteor_index = 0  # je Auszahlung ein frischer Fächer von Ausbruch-Richtungen
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+
+## Einsatz bezahlt: die Münze fährt in zwei Etappen zum Automaten - erst als
+## Geld-Licht vom Münzfenster in den Hub (das läuft schon über money_changed),
+## dann die Automaten-Ader entlang. Erst danach läuft die Walze an.
+func _on_slot_spin_paid(_machine: int) -> void:
+	if table_screen == null:
+		return
+	await get_tree().create_timer(table_screen.money_travel_time()).timeout
+	table_screen.slot_pay_comet(SLOT_COIN_COLOR)
+
+## Ein Gewinn verlässt den Automaten: Gravuren fliegen als Meteore in ihre
+## Schubladen, Charms die Automaten-Ader hinauf in den Hub, Würfel im Bogen auf
+## die Vorrats-Ablage. Gebucht hat ihn das Fenster beim Abflug.
+func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
+	if table_screen == null:
+		return
+	match prize.kind:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+			for engraving in prize.engravings:
+				_fly_slot_engraving(engraving, from_px)
+		SlotPrize.Kind.CHARM:
+			var travel := table_screen.slot_prize_comet(from_px, SLOT_CHARM_COLOR)
+			if travel > 0.0:
+				await get_tree().create_timer(travel).timeout
+			if table_screen != null and table_screen.hub != null:
+				table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+		SlotPrize.Kind.DIE:
+			_fly_die_to_pool(from_px)
+
+## Gewonnene Gravur: fährt das ganze Adernetz vom Automaten bis in ihren Platz -
+## anders als beim Paket, das schon an der Werkbank liegt.
+func _fly_slot_engraving(engraving: Engraving, from_px: Vector2) -> void:
+	for drawer in table_screen.supply_drawers:
+		var target := drawer.slot_center_px(engraving.id)
+		if target.x < 0.0:
+			continue
+		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
+		var travel := table_screen.slot_engraving_comet(from_px, drawer.category, target, tint)
+		if travel > 0.0:
+			await get_tree().create_timer(travel).timeout
+		if is_instance_valid(drawer):
+			drawer.pop(engraving.id, tint)
+		return
+
+## Gewonnener Würfel: Licht in die Vorrats-Ablage, in deren nächsten freien Platz
+## er beim Rundenstart auftaucht. Ohne Ablage (Fenster-UI-Rückfall) passiert nichts.
+func _fly_die_to_pool(from_px: Vector2) -> void:
+	if pool_tray_view == null or pool_tray_view.slot_roots.is_empty():
+		return
+	var slot := mini(maxi(run.owned_pool.size() - 1, 0), pool_tray_view.slot_roots.size() - 1)
+	var target := table_screen.world_to_pixel(pool_tray_view.slot_global_position(slot))
+	var spread := _meteor_index
+	_meteor_index += 1
+	table_screen.tray_comet(from_px, target, SLOT_DIE_COLOR, spread)
 
 ## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Komet vom Nebenwetten-
 ## Fenster zurück (Geld zum Schatz, Gravur zum Hub), leicht gestaffelt.
@@ -1436,6 +1502,11 @@ func _on_pack_purchased(from_px: Vector2, pack_type: String) -> void:
 ## eigentliche Auflösung - der getroffene Platz glüht danach nach, damit der
 ## Spieler in Ruhe liest, was angekommen ist. Der Takt kommt aus der Zeremonie.
 func _on_engraving_dispatched(engraving_id: String, from_px: Vector2, rarity: int) -> void:
+	_fly_engraving_to_drawer(engraving_id, from_px, rarity)
+
+## Der Meteor selbst - geteilt von der Paket-Zeremonie und den Automaten-Gewinnen:
+## beide schicken eine Gravur aus einem Fenster in ihren Schubladen-Platz.
+func _fly_engraving_to_drawer(engraving_id: String, from_px: Vector2, rarity: int) -> void:
 	if table_screen == null or table_screen.workshop_window == null:
 		return
 	for drawer in table_screen.supply_drawers:

@@ -228,7 +228,10 @@ func test_redeem_books_run_prizes() -> void:
 	assert_eq(run.slot_bank.hit_count(), 1, "genau eine Reihe")
 	var money_before := run.money
 	var engravings_before := run.owned_engravings.size()
-	run.redeem_slots()
+	# Auswürfeln und Buchen sind getrennt: gebucht wird erst, wenn der Gewinn als
+	# Licht den Automaten verlässt (book_slot_prize).
+	for prize: SlotPrize in run.redeem_slots()["prizes"]:
+		run.book_slot_prize(prize)
 	assert_eq(run.owned_engravings.size(), engravings_before + 2, "3er-Zahlen-Reihe gebucht")
 	assert_eq(run.money, money_before, "der Automat zahlt kein Geld")
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
