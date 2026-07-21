@@ -331,6 +331,26 @@ func test_next_corner_is_free_on_already_seen_page():
 	assert_false(shop.page_next_button.disabled, "Vor auf bekannte Seite immer möglich")
 	assert_false("$" in shop.page_next_button.text, "keine Gebühr für eine bereits gesehene Seite")
 
+# --- Kein Überlauf (der Fuß mit "Fertig" bleibt auf JEDER Stufe im Panel) -------
+
+func test_the_footer_stays_inside_the_panel_on_every_hub_level() -> void:
+	# Regression: auf hohen Stufen schob das Lager (bis zu 7 Pakete) den Fuß aus
+	# dem Panel - der Shop war ohne "Fertig" nicht mehr verlassbar.
+	shop.size = Vector2(1068, 1125)  # Maß der Hub-Fläche auf dem Tisch-Display
+	for level in range(1, GameRun.HUB_MAX_LEVEL + 1):
+		run.hub_level = level
+		shop.open()
+		await wait_frames(2)
+		var vroot: Control = shop.done_button.get_parent().get_parent()  # Footer -> Root
+		var need: Vector2 = vroot.get_combined_minimum_size()
+		assert_true(need.y <= vroot.size.y + 0.5,
+			"Stufe %d: Inhalt (%d) höher als das Panel (%d)" % [level, need.y, vroot.size.y])
+		assert_true(need.x <= vroot.size.x + 0.5,
+			"Stufe %d: Inhalt (%d) breiter als das Panel (%d)" % [level, need.x, vroot.size.x])
+		assert_true(shop.done_button.get_global_rect().end.y
+			<= shop.get_global_rect().end.y + 0.5,
+			"Stufe %d: Fertig liegt im Panel" % level)
+
 # --- Abschluss ----------------------------------------------------------------
 
 func test_done_hides_panel_and_emits_closed():

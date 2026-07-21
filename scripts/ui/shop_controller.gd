@@ -397,9 +397,9 @@ func _clear_pages() -> void:
 	engraving_pack_buttons.clear()
 	overclock_buttons.clear()
 
-## Baut die drei Segmente: links die Vitrine (Würfel-Bündel, senkrecht gestapelt),
-## rechts das Charm-Regal über der Chip-Schale (Gravuren + Übertaktungen). Alle
-## Rubriken FÜLLEN ihre Fläche - bei wenigen Plätzen werden die Karten groß.
+## Baut die drei Segmente: links das Lager (flache Paket-Reihen), rechts das
+## Charm-Regal über der Chip-Schale (Übertaktungen). Alle Rubriken FÜLLEN ihre
+## Fläche - bei wenigen Plätzen werden Reihen und Karten groß.
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
 		child.queue_free()
@@ -415,19 +415,20 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	content_root.add_child(main_row)
 
 	# Segment 1: Lager - alle versiegelten Pakete (Würfel oben, Gravuren darunter)
-	# in einer Spalte links. Geöffnet werden sie später in der Werkstatt.
-	var vitrine := _make_zone(main_row, NEON_CYAN, "LAGER", "versiegelt", true, 0.34)
+	# als flache Regal-Reihen links. Geöffnet werden sie später in der Werkstatt.
+	var vitrine := _make_zone(main_row, NEON_CYAN, "LAGER", "versiegelt", true, 0.40)
 	var pack_col := VBoxContainer.new()
 	pack_col.add_theme_constant_override("separation", int(u * 1.2))
 	pack_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pack_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitrine.add_child(pack_col)
+	var pm := _pack_metrics(spread.dice_packs.size() + spread.engraving_packs.size())
 	for i in spread.dice_packs.size():
-		var dcard := _build_pack_card(spread.dice_packs[i], i, true)
+		var dcard := _build_pack_card(spread.dice_packs[i], i, true, pm)
 		pack_col.add_child(dcard)
 		_maybe_flicker(dcard, i, _flicker_dice_from)
 	for i in spread.engraving_packs.size():
-		var ecard := _build_pack_card(spread.engraving_packs[i], i, false)
+		var ecard := _build_pack_card(spread.engraving_packs[i], i, false, pm)
 		pack_col.add_child(ecard)
 		_maybe_flicker(ecard, i, _flicker_chip_from)
 
@@ -436,17 +437,21 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	right.add_theme_constant_override("separation", int(u * 1.4))
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right.size_flags_stretch_ratio = 0.66
+	right.size_flags_stretch_ratio = 0.60
 	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	main_row.add_child(right)
 
-	# Segment 2: Charm-Regal - eine Reihe dehnbarer Karten (nur Symbol; Rest im Hover).
-	var charm_zone := _make_zone(right, NEON_MAGENTA, "CHARM-REGAL", "je $%d" % _charm_price())
+	# Segment 2: Charm-Regal - eine Reihe dehnbarer Karten (nur Symbol; Rest im
+	# Hover). Teilt sich die Resthöhe mit der Chip-Schale, statt sie ihr zu lassen.
+	var charm_zone := _make_zone(right, NEON_MAGENTA, "CHARM-REGAL", "je $%d" % _charm_price(), true)
+	charm_zone.get_parent().size_flags_stretch_ratio = 0.45
 	var charm_row := HBoxContainer.new()
 	charm_row.add_theme_constant_override("separation", int(u * 1.4))
 	charm_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	charm_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	charm_zone.add_child(_v_spacer())
 	charm_zone.add_child(charm_row)
+	charm_zone.add_child(_v_spacer())
 	var cm := _charm_metrics(spread.charm_options.size())
 	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
 	for i in spread.charm_options.size():
@@ -458,6 +463,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	# Segment 3: Chip-Schale - runde Casino-Chips (Übertaktungen), als Tablett
 	# umbrechend und in der Schale zentriert. Füllt die restliche Höhe rechts.
 	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "", true)
+	chip_zone.get_parent().size_flags_stretch_ratio = 0.55
 	chip_zone.add_child(_v_spacer())
 	var tray := HFlowContainer.new()
 	tray.add_theme_constant_override("h_separation", int(u * 1.2))
@@ -517,8 +523,17 @@ func _charm_metrics(count: int) -> Vector2:
 	if count == 3:
 		return Vector2(u * 16.5, u * 9.0)
 	if count == 4:
-		return Vector2(u * 14.0, u * 8.0)
-	return Vector2(u * 12.5, u * 7.0)
+		return Vector2(u * 13.5, u * 7.5)
+	return Vector2(u * 12.0, u * 5.6)
+
+## Lager-Reihe: (Reihenhöhe, Siegelkante) je Gesamtzahl der Pakete - wenige,
+## große Siegel am Anfang, kompakte Reihen im Vollausbau (bis zu 3 + 4 Pakete).
+func _pack_metrics(count: int) -> Vector2:
+	if count <= 2:
+		return Vector2(u * 12.0, u * 7.5)
+	if count <= 5:
+		return Vector2(u * 9.5, u * 6.0)
+	return Vector2(u * 7.4, u * 4.8)
 
 ## Chip-Durchmesser je nach Anzahl der Übertaktungs-Chips.
 func _chip_dia(count: int) -> float:
@@ -751,15 +766,18 @@ func _chip_box(bg: Color, border: Color, border_alpha: float, radius: int) -> St
 	box.shadow_size = int(u * 0.5)
 	return box
 
-## Karte eines VERSIEGELTEN Pakets: Sorte, Inhaltsmenge und Preis - nie der
-## Inhalt selbst. Gekaufte Pakete liegen im Werkstatt-Lager.
-func _build_pack_card(pack: Pack, index: int, is_dice: bool) -> PanelContainer:
+## Regal-Reihe eines VERSIEGELTEN Pakets: Siegel links, Sorte und Menge daneben,
+## Preis rechts - nie der Inhalt selbst. Flache Reihen statt Hochkant-Karten:
+## das Lager wächst mit der Hub-Stufe auf bis zu 7 Pakete, und nur Reihen halten
+## den Fuß (Fertig) im Panel. Details zeigt der Hover-Dropdown.
+func _build_pack_card(pack: Pack, index: int, is_dice: bool, metrics: Vector2) -> PanelContainer:
 	var accent: Color = PackIconRenderer.COLORS.get(pack.type, NEON_CYAN)
 	var bought: bool = dice_pack_bought[index] if is_dice else engraving_pack_bought[index]
 
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(0, metrics.x)
 	var box := StyleBoxFlat.new()
 	box.bg_color = CARD_BG
 	box.border_color = Color(accent.r, accent.g, accent.b, 0.24 if bought else 0.5)
@@ -769,47 +787,51 @@ func _build_pack_card(pack: Pack, index: int, is_dice: bool) -> PanelContainer:
 	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.12)
 	box.shadow_size = int(u * 0.7)
 	card.add_theme_stylebox_override("panel", box)
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, pack.display_name, pack.description))
+	card.mouse_exited.connect(_hide_shop_tooltip)
 
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", int(u * 0.5))
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	card.add_child(vbox)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(u * 1.0))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
 
 	var seal := PackIconRenderer.for_type(pack.type)
-	seal.custom_minimum_size = Vector2.ONE * u * 5.0
+	seal.custom_minimum_size = Vector2.ONE * metrics.y
 	seal.modulate = Color(1, 1, 1, 0.4 if bought else 1.0)
 	var seal_stage := CenterContainer.new()
 	seal_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	seal_stage.add_child(seal)
-	vbox.add_child(seal_stage)
-	vbox.add_child(_label(pack.display_name, u * 2.1, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
-	vbox.add_child(_label(_pack_content_text(pack), u * 1.7, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	row.add_child(seal_stage)
+
+	var text_col := VBoxContainer.new()
+	text_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_theme_constant_override("separation", int(u * 0.2))
+	text_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(text_col)
+	text_col.add_child(_label(pack.display_name, u * 1.9, NEON_TEXT))
+	text_col.add_child(_label(_pack_count_text(pack), u * 1.6, NEON_MUTED))
 
 	var price := _pack_price(pack)
-	var buy := _neon_button("Im Lager" if bought else "$%d" % price, accent, u * 2.2, Vector2(0, u * 4.2))
-	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var buy := _neon_button("Im Lager" if bought else "$%d" % price, accent, u * 2.0, Vector2(u * 9.0, u * 4.2))
+	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if bought:
 		buy.disabled = true
 	else:
 		buy.pressed.connect(_on_pack_buy_pressed.bind(index, is_dice))
-	vbox.add_child(buy)
+	row.add_child(buy)
 	if is_dice:
 		dice_pack_buttons.append(buy)
 	else:
 		engraving_pack_buttons.append(buy)
 	return card
 
-## Inhaltszeile der Paketkarte: WAS drin ist, nicht welche Stücke.
-func _pack_content_text(pack: Pack) -> String:
+## Mengenzeile der Regal-Reihe: nur WIE VIEL - die Sorte sagt das Siegel,
+## den Rest der Hover-Dropdown (pack.description).
+func _pack_count_text(pack: Pack) -> String:
 	if pack.is_dice_pack():
-		return "%d Würfel · ungeöffnet" % pack.count
-	var noun := "Gravur" if pack.count == 1 else "Gravuren"
-	if pack.type == Pack.TYPE_MIXED:
-		return "%d %s · alle Sorten" % [pack.count, noun]
-	if pack.type == Pack.TYPE_EDGE:
-		# CATEGORY_NAMES sagt hier "Würfel" - neben echten Würfel-Paketen irreführend.
-		return "%d %s · Kanten" % [pack.count, noun]
-	return "%d %s · %s" % [pack.count, noun, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
+		return "%d Würfel" % pack.count
+	return "1 Gravur" if pack.count == 1 else "%d Gravuren" % pack.count
 
 # --- Neon-Bausteine --------------------------------------------------------------
 
