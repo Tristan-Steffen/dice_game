@@ -29,18 +29,21 @@ const NO_MATS: Array[String] = []
 
 # --- Augenwerte -------------------------------------------------------------------
 
-func test_small_fry_boosts_ones_and_twos():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 3)
-	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 4)
+func test_small_fry_gives_six_base_points_on_ones_and_twos():
+	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 7)
+	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 8)
 	assert_eq(CharmEffects.eye_value(5, _ids([Charm.SMALL_FRY])), 5)
 
-func test_equalizer_floors_at_five_regardless_of_order():
+func test_equalizer_floors_base_points_at_five():
 	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 5)
 	assert_eq(CharmEffects.eye_value(4, _ids([Charm.EQUALIZER])), 5)
 	assert_eq(CharmEffects.eye_value(6, _ids([Charm.EQUALIZER])), 6)
-	# Reihenfolge-unabhängig: Glückszigaretten (1 -> 6) gewinnen in beiden Ordnungen.
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.LUCKY_CIGARETTES, Charm.EQUALIZER])),
-		CharmEffects.eye_value(1, _ids([Charm.EQUALIZER, Charm.LUCKY_CIGARETTES])))
+
+func test_equalizer_never_changes_the_category():
+	# Basispunkte ja, Kombination nein: ein Paar 1er bleibt ein Paar 1er.
+	var hand := DiceScoring.best_hand(_d([1, 1, 2, 3, 4, 6]), _ids([Charm.EQUALIZER]))
+	assert_eq(hand["key"], "two_kind")
+	assert_eq(hand["score"], (10 + 5 + 5) * 2)
 
 # --- Basis-Boni --------------------------------------------------------------------
 
@@ -235,6 +238,33 @@ func test_round_end_income_combines_sources_with_caps():
 	# Beide Quellen sind bei $50 gedeckelt.
 	assert_eq(CharmEffects.round_end_income(10000, 100000, ids), 100, "je Quelle max. $50")
 
+func test_round_end_income_entries_name_the_paying_charm():
+	# Grundlage der Auszahlungs-Zeremonie: je Posten die Besitz-Position.
+	var ids := _ids([Charm.HORSESHOE, Charm.INTEREST_PENNY, Charm.HIGH_FLYER])
+	var entries := CharmEffects.round_end_income_entries(37, 60, ids)
+	assert_eq(entries.size(), 2, "das Hufeisen zahlt nichts")
+	assert_eq(entries[0]["charm_index"], 1)
+	assert_eq(entries[0]["charm_id"], Charm.INTEREST_PENNY)
+	assert_eq(entries[0]["amount"], 3)
+	assert_eq(entries[1]["charm_index"], 2)
+	assert_eq(entries[1]["amount"], 2)
+
+func test_income_entries_always_sum_to_the_total():
+	# Zeremonie und Buchung dürfen nie auseinanderlaufen.
+	var ids := _ids([Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.INTEREST_PENNY])
+	for money in [0, 9, 37, 250, 10000]:
+		var sum := 0
+		for entry in CharmEffects.round_end_income_entries(money, 60, ids):
+			sum += int(entry["amount"])
+		assert_eq(sum, CharmEffects.round_end_income(money, 60, ids), "$%d" % money)
+
+func test_income_entries_do_not_compound_between_charms():
+	# Beide Zinsgroschen rechnen auf demselben Stand - kein Zinseszins.
+	var ids := _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])
+	var entries := CharmEffects.round_end_income_entries(30, 0, ids)
+	assert_eq(entries[0]["amount"], 3)
+	assert_eq(entries[1]["amount"], 3)
+
 func test_money_floor_only_with_emergency_fund():
 	assert_eq(CharmEffects.money_floor(_ids([Charm.EMERGENCY_FUND])), 25)
 	assert_eq(CharmEffects.money_floor(_ids([Charm.HORSESHOE])), 0)
@@ -250,9 +280,9 @@ func test_anchor_saves_only_the_first_reroll():
 
 func test_shop_price_hooks():
 	assert_eq(CharmEffects.charm_price(25, _ids([Charm.CASH_DISCOUNT])), 20)
-	assert_eq(CharmEffects.flip_fee(2, _ids([Charm.SMALL_CHANGE])), 1)
-	assert_eq(CharmEffects.flip_fee(1, _ids([Charm.SMALL_CHANGE])), 1, "nie unter $1")
-	assert_eq(CharmEffects.pack_price(10, "general", _ids([Charm.BARGAIN_HUNTER])), 8)
+	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_NUMBER, _ids([Charm.BARGAIN_HUNTER])), 7)
+	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_DICE, _ids([Charm.BARGAIN_HUNTER])), 7, "jede Sorte")
+	assert_eq(CharmEffects.pack_price(2, Pack.TYPE_EDGE, _ids([Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 3), 10)
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 1), 15, "kein Rabatt auf Einzelwürfel")
 	assert_eq(CharmEffects.chip_coupon_value(1, _ids([Charm.DOUBLE_PERFORATION])), 2)
@@ -284,6 +314,30 @@ func test_totems_do_not_copy_totems_or_nothing():
 	run.owned_charms.append(Charm.echo_totem())  # rechts ist nichts
 	assert_eq(run.charm_ids(), [], "Totems ohne kopierbare Nachbarn sind wirkungslos")
 	assert_eq(run.owned_charm_ids(), ["parrot_totem", "echo_totem"], "die rohen ids bleiben sichtbar")
+
+func test_charm_slots_map_effects_back_to_their_holograms():
+	# Ein wirkungsloses Totem faellt aus charm_ids() heraus - ohne Umrechnung
+	# blitzte danach der falsche Charm.
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.parrot_totem())  # links ist nichts -> faellt raus
+	run.owned_charms.append(Charm.high_flyer())
+	assert_eq(run.charm_ids(), ["high_flyer"])
+	assert_eq(run.charm_slots(), [1], "Ueberflieger sitzt auf Besitz-Slot 1")
+
+func test_a_totem_flashes_its_own_slot_not_the_copied_one():
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.rabbits_foot())
+	run.owned_charms.append(Charm.parrot_totem())
+	assert_eq(run.charm_ids(), ["rabbits_foot", "rabbits_foot"])
+	assert_eq(run.charm_slots(), [0, 1], "das Totem zeigt auf sich selbst")
+
+func test_charm_slots_always_match_charm_ids():
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.echo_totem())
+	run.owned_charms.append(Charm.horseshoe())
+	run.owned_charms.append(Charm.echo_totem())  # rechts ist nichts
+	assert_eq(run.charm_slots().size(), run.charm_ids().size())
+	assert_eq(run.charm_slots(), [0, 1], "das wirkungslose Totem hinten faellt weg")
 
 func test_round_start_charms_grant_their_gifts():
 	var run := GameRun.new_run()
@@ -359,15 +413,22 @@ func test_totem_chain_resolves_each_neighbor_independently():
 
 # --- Zusammenspiel mit Augenwert-Charms ---------------------------------------------
 
-func test_echo_chamber_respects_eye_charms():
-	# Hasenpfote verdoppelt die 6 - auch beim Echo-Nachzählen.
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.RABBITS_FOOT]))
-	assert_eq(bonus, 12, "höchster Würfel (6) zählt als 12 erneut")
+func test_echo_chamber_respects_base_point_charms():
+	# Kleinvieh hebt die Basispunkte - auch beim Echo-Nachzählen; hier ist der
+	# höchste Würfel die 6 (unverändert), Echo zählt sie erneut.
+	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.ECHO_CHAMBER]))
+	assert_eq(bonus, 6, "höchster Würfel (6) zählt erneut")
 
-func test_full_counter_respects_eye_charms():
-	# Glückszigaretten: die unbeteiligte 1 zählt als 6.
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.FULL_COUNTER, Charm.LUCKY_CIGARETTES]))
-	assert_eq(bonus, 17, "6+2+3+6 statt 1+2+3+6")
+func test_full_counter_sees_transformed_values():
+	# Glückszigaretten verwandeln VOR der Wertung: die unbeteiligte 1 IST eine 6,
+	# der Vollzähler zählt sie entsprechend. End-to-end über score_category.
+	var ids := _ids([Charm.FULL_COUNTER, Charm.LUCKY_CIGARETTES])
+	# Paar 5er ohne echte 6 (sonst bildete die verwandelte 1 ein 6er-Paar und
+	# das Paar wechselte); Unbeteiligte nach Verwandlung 6+2+3+4 = 15 statt 10.
+	var dice := _d([5, 5, 1, 2, 3, 4])
+	var with_charms := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, ids)
+	var only_counter := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.FULL_COUNTER]))
+	assert_eq(with_charms - only_counter, (15 - 10) * 2, "die verwandelte 1 zählt als 6")
 
 # --- Kombinierte Shop-Preise ---------------------------------------------------------
 

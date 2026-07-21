@@ -25,6 +25,8 @@ const MONEY_PER_UNUSED_DIE := 1  # je noch nicht gezogenem Würfel im Rundenpool
 const PAYOUT_FLASH_DURATION := 0.3
 const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
+## Charms zahlen langsamer als Würfel - jeder Posten soll einzeln lesbar sein.
+const CHARM_PAYOUT_STEP_INTERVAL := 0.45
 
 ## Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken (oberste
 ## Stufe zuerst). Der Abstand nach jeder Ankunft zieht leicht an (Accelerando).
@@ -2671,7 +2673,7 @@ func _on_take_button_pressed() -> void:
 	# genau einmal hier (nie in der Vorschau); Knochen/Glas verändern die
 	# Pool-Würfel dauerhaft.
 	var participating: Array[int] = []
-	for p in DiceScoring.participating_indices(hand["key"], sel_values):
+	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids):
 		participating.append(slots[p])
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids)
 	var take_money := report.money
@@ -2796,7 +2798,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		# Augenwert-Charms: eigener Komet vom Dock-Pad in die Basis (gleicher Zielwert).
 		for charm_index: int in step["eye_charm_indices"]:
 			_flash_charm_and_pad(charm_index)
-			step_travel = maxf(step_travel, _fire_score_light(table_screen.charm_dock.pad_center(charm_index), "charm", ["base"],
+			step_travel = maxf(step_travel, _fire_score_light(_charm_trail_source_px([charm_index]), "charm", ["base"],
 				func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material)))
 		_spawn_score_gains(gain_px, step["eye_add"], 0)
 		step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", ["base"],
@@ -2944,11 +2946,23 @@ func _wait_score_comets() -> bool:
 			return false
 	return true
 
+## Besitz-Slot einer WIRKUNGS-Position (Index in run.charm_ids). Hologramme und
+## Dock-Pads hängen am Besitz, die Wirkungsliste kann kürzer sein.
+func _charm_slot(resolved_index: int) -> int:
+	var slots := run.charm_slots()
+	if resolved_index < 0 or resolved_index >= slots.size():
+		return -1
+	return slots[resolved_index]
+
 ## Blitzt einen Charm im 3D-Hologramm UND seinem Dock-Pad ("dieser Charm feuert").
+## index ist eine WIRKUNGS-Position, keine Besitz-Position.
 func _flash_charm_and_pad(index: int) -> void:
-	charm_row.flash_charm(index)
+	var slot := _charm_slot(index)
+	if slot < 0:
+		return
+	charm_row.flash_charm(slot)
 	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.flash_pad(index)
+		table_screen.charm_dock.flash_pad(slot)
 
 ## Zuwachs eines Zählschritts als schwebende Zahl aus der Quelle: "+N" bzw.
 ## "×N"; Basis cyan, Mult gold. Rein schmückend, zusätzlich zu den Leiterbahnen.
@@ -2993,10 +3007,13 @@ func _cleanup_take_animation() -> void:
 
 ## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
 ## beteiligten Charms im Dock (von dort läuft das Licht über die Dock-Leiste).
+## Startpunkt der Charm-Kometen: das Dock-Pad des ERSTEN beteiligten Charms
+## (charm_indices sind Wirkungs-Positionen, siehe _charm_slot).
 func _charm_trail_source_px(charm_indices: Array) -> Vector2:
-	if charm_indices.is_empty() or table_screen.charm_dock == null:
+	var slot := _charm_slot(int(charm_indices[0])) if not charm_indices.is_empty() else -1
+	if slot < 0 or table_screen.charm_dock == null:
 		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
-	return table_screen.charm_dock.pad_center(int(charm_indices[0]))
+	return table_screen.charm_dock.pad_center(slot)
 
 ## Lässt den Wurf-Würfel in slot golden aufblitzen (Zähl-Animation).
 func _flash_scoring_die(slot: int) -> void:
@@ -3020,7 +3037,7 @@ func _dim_glow(glow: Control) -> void:
 ## Markiert nach jedem Wurf automatisch die Würfel der besten offenen
 ## Kombination - ein Vorschlag, den der Spieler frei umklicken kann.
 func _auto_select_best_combo() -> void:
-	for position in DiceScoring.best_hand_indices(dice.values):
+	for position in DiceScoring.best_hand_indices(dice.values, run.charm_ids()):
 		dice.set_selected(position, true)
 
 ## Slot-Indizes der AUSGEWÄHLTEN, sichtbaren Würfel - NUR sie bilden die Hand
@@ -3251,14 +3268,9 @@ func _on_round_complete() -> void:
 		await _play_round_clear_payout(base_blind, per_die, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
-		# Zinsgroschen (auf den Stand NACH der Auszahlung) und Überflieger,
-		# danach hält der Notgroschen den Mindeststand.
-		var extra := CharmEffects.round_end_income(run.money, hand_total - run.round_goal, ids)
-		if extra > 0:
-			run.add_money(extra)
-		var floor_value := CharmEffects.money_floor(ids)
-		if run.money < floor_value:
-			run.money = floor_value
+		await _play_charm_payout(ids)
+		if phase != Phase.PAYOUT:
+			return  # Spiel wurde während der Charm-Auszahlung zurückgesetzt
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
@@ -3368,6 +3380,27 @@ func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> voi
 			run.add_money(per_die)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
 		_fade_payout_label(hub.die_payout_label if hub != null else null)
+
+## Dritter Auszahlungs-Takt: die geldgebenden Charms zahlen EINZELN und sichtbar.
+## Der Charm blitzt, dann bucht er seine Scheibe - das Geld-Licht zum Münzschirm
+## löst add_money von selbst aus. Zinsgroschen/Überflieger rechnen alle auf dem
+## Stand VOR diesem Takt, sonst verschöbe die Reihenfolge die Beträge.
+func _play_charm_payout(ids: Array[String]) -> void:
+	var before := run.money
+	for entry in CharmEffects.round_end_income_entries(before, hand_total - run.round_goal, ids):
+		_flash_charm_and_pad(int(entry["charm_index"]))
+		run.add_money(int(entry["amount"]))
+		await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+		if phase != Phase.PAYOUT:
+			return
+	# Notgroschen zuletzt: er füllt auf, was nach allen Einnahmen noch fehlt.
+	var floor_value := CharmEffects.money_floor(ids)
+	if run.money < floor_value:
+		var index := ids.find(Charm.EMERGENCY_FUND)
+		if index >= 0:
+			_flash_charm_and_pad(index)
+		run.add_money(floor_value - run.money)
+		await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
 ## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine

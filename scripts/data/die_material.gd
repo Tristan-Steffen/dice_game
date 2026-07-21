@@ -6,7 +6,7 @@ extends Resource
 
 # --- Material-ids (Single Source of Truth) ---
 const RUBY := "ruby"          # +4 Mult
-const AMBER := "amber"        # +20 Augen
+const AMBER := "amber"        # +20 Basispunkte
 const GOLD := "gold"          # +$1 beim Nehmen (Kanten: je Wurf)
 const BONE := "bone"          # Seite wächst +1 beim Nehmen
 const MERCURY := "mercury"    # Retrigger: Würfel aktiviert sich doppelt
@@ -38,8 +38,8 @@ static func ruby() -> DieMaterial:
 
 static func amber() -> DieMaterial:
 	return _make(AMBER, "Bernstein",
-		"+20 Augen beim Zählen, wenn diese Seite in der Kombination liegt.",
-		"+20 Augen beim Zählen, wenn dieser Würfel in der Kombination liegt.",
+		"+20 Basispunkte, wenn diese Seite in der Kombination liegt.",
+		"+20 Basispunkte, wenn dieser Würfel in der Kombination liegt.",
 		Color(0.88, 0.5, 0.11))
 
 static func gold() -> DieMaterial:

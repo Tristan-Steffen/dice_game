@@ -210,7 +210,7 @@ func _build_layout() -> void:
 ## Gebühr für die nächste NEUE Doppelseite; Wechselgeld-Charm UND ein hoher
 ## Hub-Ausbau (Penthouse) senken sie.
 func _next_flip_fee() -> int:
-	var base := CharmEffects.flip_fee(FLIP_FEE_BASE + spreads.size() - 1, run.charm_ids())
+	var base := maxi(1, FLIP_FEE_BASE + spreads.size() - 1)
 	return maxi(0, roundi(base * run.shop_flip_fee_factor()))
 
 ## True, wenn Vorblättern eine neue Doppelseite auswürfeln würde.
@@ -921,12 +921,12 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 
 # --- Käufe ----------------------------------------------------------------------
 
-## Würfel-Pakete tragen die Würfel-Rabatte (Trickser, Mengenrabatt);
-## Gravur-Pakete haben ihren festen Sortenpreis.
+## Würfel-Pakete tragen zuerst die Würfel-Rabatte (Trickser, Mengenrabatt),
+## Gravur-Pakete ihren festen Sortenpreis; der Schnäppchenjäger zieht danach
+## von JEDER Sorte ab.
 func _pack_price(pack: Pack) -> int:
-	if pack.is_dice_pack():
-		return CharmEffects.die_price(pack.price, run.charm_ids(), pack.count)
-	return pack.price
+	var base := CharmEffects.die_price(pack.price, run.charm_ids(), pack.count) if pack.is_dice_pack() else pack.price
+	return CharmEffects.pack_price(base, pack.type, run.charm_ids())
 
 func _charm_price() -> int:
 	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())

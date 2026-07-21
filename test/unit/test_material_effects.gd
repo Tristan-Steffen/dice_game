@@ -35,10 +35,11 @@ func test_mercury_counts_the_face_a_second_time():
 	var bonus := MaterialEffects.base_bonus(_d([5, 5, 1, 2, 3, 4]), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), NO_CHARMS)
 	assert_eq(bonus, 5, "die 5 zählt ein zweites Mal")
 
-func test_mercury_respects_charm_eye_values():
-	# Hasenpfote: jede 6 zählt doppelt - Quecksilber zählt den ANGEPASSTEN Wert nach.
+func test_mercury_stacks_with_charm_retriggers():
+	# Hasenpfote +1 Auslösung auf jede 6, Quecksilber ×2 auf dem Träger:
+	# Würfel 0 zählt 3× (2 Extra à 6), Würfel 1 zählt 2× (1 Extra à 6).
 	var bonus := MaterialEffects.base_bonus(_d([6, 6, 1, 2, 3, 4]), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), _ids([Charm.RABBITS_FOOT]))
-	assert_eq(bonus, 12, "6 zählt mit Hasenpfote als 12 - auch beim Nachzählen")
+	assert_eq(bonus, 18)
 
 func test_base_bonus_ignores_non_participating_faces():
 	var bonus := MaterialEffects.base_bonus(_d([5, 5, 1, 2, 3, 4]), _m(["", "", DieMaterial.AMBER, "", "", ""]), _p([0, 1]), NO_CHARMS)
@@ -80,6 +81,19 @@ func test_gold_pays_one_per_participating_face():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.GOLD]), _p([0, 1]))
 	assert_eq(report.money, 2, "$1 je beteiligter Gold-Seite")
 	assert_eq(defs[0].faces[0], 5, "Gold verändert die Seite nicht")
+
+func test_gold_pays_twice_on_a_retriggered_six():
+	# Hasenpfote löst die 6 erneut aus - wie Quecksilber inklusive Nehmen-Effekte.
+	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([]), _ids([Charm.RABBITS_FOOT]))
+	assert_eq(report.money, 2, "Gold-Seite feuert je Auslösung")
+
+func test_take_retrigger_checks_the_transformed_value():
+	# Glückszigaretten: die 1 IST eine 6 - Hasenpfote löst auch sie erneut aus.
+	var defs: Array[DieDefinition] = [_die([1, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([]),
+		_ids([Charm.RABBITS_FOOT, Charm.LUCKY_CIGARETTES]))
+	assert_eq(report.money, 2)
 
 func test_bone_grows_the_face_permanently():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]

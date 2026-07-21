@@ -1,8 +1,9 @@
 class_name DiceScoring
 ## Reine Wertungslogik (Balatro-artig): Punkte = Basiswert × Multiplikator.
-## Basiswert = feste Kategorie-Punkte + beteiligte Würfelaugen. Charms,
-## Materialien und Menü-Stufen verändern die Wertung, aber nie, welche
-## Kategorie zutrifft.
+## Basiswert = feste Kategorie-Punkte + beteiligte Würfelaugen. Verwandlungs-
+## Charms (CharmEffects.transform_values) ändern die Augen VOR der Erkennung -
+## eine verwandelte 1 IST eine 6, auch für die Kategorie. Alle anderen Charms,
+## Materialien und Menü-Stufen verändern nur die Wertung.
 
 # Kategorie-Keys als Konstanten: ein Tippfehler wird Compilerfehler statt
 # einer still nie zutreffenden Kategorie.
@@ -117,11 +118,13 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ## materials/edge_materials: DieMaterial-id je Slot ("" = keins), zählen nur
 ## für beteiligte Würfel. ctx: Wurf-/Runden-Zustand der Effektkatalog-Charms.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
+	dice = CharmEffects.transform_values(dice, charm_ids)
 	if not qualifies(key, dice):
 		return 0
 	var participating := participating_indices(key, dice)
 	var base := points_for(key, combo_levels) + _base_value(key, dice, charm_ids)
-	if not materials.is_empty() or not edge_materials.is_empty():
+	# Auch ohne Materialien: base_bonus zählt die Retrigger-Augen (Hasenpfote & Co.).
+	if not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty():
 		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
 	if not charm_ids.is_empty():
 		base += CharmEffects.charm_base_bonus(key, dice, participating, charm_ids, ctx, materials, edge_materials)
@@ -136,6 +139,7 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 ## Boni, dann multiplikative Faktoren (Einserkult, Krit-Pool); min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.
 static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> int:
+	dice = CharmEffects.transform_values(dice, charm_ids)
 	var participating := participating_indices(key, dice)
 	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
 	if not materials.is_empty() or not edge_materials.is_empty():
@@ -162,6 +166,7 @@ static func _sum_participating(key: String, dice: Array[int], charm_ids: Array[S
 
 ## Beste Hand des Wurfs: erste zutreffende Kategorie nach HAND_PRIORITY.
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+	dice = CharmEffects.transform_values(dice, charm_ids)
 	for key in HAND_PRIORITY:
 		if qualifies(key, dice):
 			return {
@@ -173,12 +178,14 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _total_mult(ONE_KIND, dice, charm_ids, materials, edge_materials, combo_levels, ctx), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)}
 
 ## Positionen in dice, die zur besten Kategorie gehören (Auto-Vorauswahl).
-static func best_hand_indices(dice: Array[int]) -> Array[int]:
-	return participating_indices(best_hand(dice)["key"], dice)
+static func best_hand_indices(dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
+	return participating_indices(best_hand(dice, charm_ids)["key"], dice, charm_ids)
 
 ## Positionen in dice, die zur Kategorie gehören - nur diese zählen für den
-## Basiswert, und nur auf ihnen wirken Seiten-Materialien.
-static func participating_indices(key: String, dice: Array[int]) -> Array[int]:
+## Basiswert, und nur auf ihnen wirken Seiten-Materialien. charm_ids nur bei
+## ROHEN Werten mitgeben - intern sind sie schon verwandelt.
+static func participating_indices(key: String, dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
+	dice = CharmEffects.transform_values(dice, charm_ids)
 	match key:
 		SIX_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 6), 6)

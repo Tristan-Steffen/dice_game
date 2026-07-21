@@ -8,35 +8,56 @@ func _ids(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Augenwert (einzelner Würfel) --------------------------------------------
+func _d(values: Array) -> Array[int]:
+	var typed: Array[int] = []
+	typed.assign(values)
+	return typed
 
-func test_eye_value_rabbits_foot_doubles_six():
-	assert_eq(CharmEffects.eye_value(6, _ids([Charm.RABBITS_FOOT])), 12)
-	assert_eq(CharmEffects.eye_value(5, _ids([Charm.RABBITS_FOOT])), 5, "nur 6 betroffen")
+# --- Verwandlung (Wert für Kombination UND Punkte) ---------------------------
 
-func test_eye_value_four_leaf_clover_doubles_four():
-	assert_eq(CharmEffects.eye_value(4, _ids([Charm.FOUR_LEAF_CLOVER])), 8)
+func test_transform_lucky_cigarettes_one_becomes_six():
+	assert_eq(CharmEffects.transform_value(1, _ids([Charm.LUCKY_CIGARETTES])), 6)
+	assert_eq(CharmEffects.transform_value(2, _ids([Charm.LUCKY_CIGARETTES])), 2, "nur 1 betroffen")
 
-func test_eye_value_golden_scarab_doubles_five():
-	assert_eq(CharmEffects.eye_value(5, _ids([Charm.GOLDEN_SCARAB])), 10)
+func test_transform_fox_tail_three_becomes_four():
+	assert_eq(CharmEffects.transform_value(3, _ids([Charm.FOX_TAIL])), 4)
 
-func test_eye_value_lucky_cigarettes_one_counts_as_six():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.LUCKY_CIGARETTES])), 6)
+func test_transform_pencil_stub_two_becomes_three():
+	assert_eq(CharmEffects.transform_value(2, _ids([Charm.PENCIL_STUB])), 3)
 
-func test_eye_value_fox_tail_three_counts_as_four():
-	assert_eq(CharmEffects.eye_value(3, _ids([Charm.FOX_TAIL])), 4)
+func test_transform_chains_pencil_into_fox_tail():
+	# Feste Kettenreihenfolge: die verwandelte 2 wird zur 3 und weiter zur 4.
+	var ids := _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL])
+	assert_eq(CharmEffects.transform_value(2, ids), 4)
+	assert_eq(CharmEffects.transform_value(2, _ids([Charm.FOX_TAIL, Charm.PENCIL_STUB])), 4, "Besitz-Reihenfolge egal")
 
-func test_eye_value_pencil_stub_two_counts_as_three():
-	assert_eq(CharmEffects.eye_value(2, _ids([Charm.PENCIL_STUB])), 3)
+func test_transform_is_idempotent():
+	# best_hand -> score_category verwandelt doppelt - darf nichts ändern.
+	var ids := _ids([Charm.LUCKY_CIGARETTES, Charm.PENCIL_STUB, Charm.FOX_TAIL])
+	for v in range(1, 7):
+		var once := CharmEffects.transform_value(v, ids)
+		assert_eq(CharmEffects.transform_value(once, ids), once, "Wert %d" % v)
+
+func test_transform_values_keeps_slots_aligned():
+	assert_eq(CharmEffects.transform_values(_d([1, 5, 3]), _ids([Charm.LUCKY_CIGARETTES])), _d([6, 5, 3]))
+
+# --- Retrigger (Würfel löst erneut aus) --------------------------------------
+
+func test_retrigger_rabbits_foot_counts_sixes():
+	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT])), 1)
+	assert_eq(CharmEffects.retrigger_count(5, _ids([Charm.RABBITS_FOOT])), 0, "nur 6 betroffen")
+
+func test_retrigger_clover_and_scarab_hit_their_face():
+	assert_eq(CharmEffects.retrigger_count(4, _ids([Charm.FOUR_LEAF_CLOVER])), 1)
+	assert_eq(CharmEffects.retrigger_count(5, _ids([Charm.GOLDEN_SCARAB])), 1)
+
+func test_retrigger_stacks_per_copy():
+	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT, Charm.RABBITS_FOOT])), 2)
+
+# --- Basispunkte (erkennungsblind) -------------------------------------------
 
 func test_eye_value_no_charms_is_identity():
 	assert_eq(CharmEffects.eye_value(3, _ids([])), 3)
-
-func test_eye_value_multiple_charms_each_apply_to_their_face():
-	var ids := _ids([Charm.RABBITS_FOOT, Charm.FOUR_LEAF_CLOVER])
-	assert_eq(CharmEffects.eye_value(6, ids), 12)
-	assert_eq(CharmEffects.eye_value(4, ids), 8)
-	assert_eq(CharmEffects.eye_value(5, ids), 5, "von keinem betroffen")
 
 # --- Wertung (ganze Hand) ----------------------------------------------------
 

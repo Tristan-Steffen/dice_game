@@ -11,10 +11,15 @@ class_name ScoreBreakdown
 ## Ergebnis: key, participating, eye_slots, combo, die_steps, charm_steps,
 ## base, mult, merge_total, post_steps, total (== score_category).
 static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
+	var raw := dice
+	dice = CharmEffects.transform_values(dice, charm_ids)
 	var participating := DiceScoring.participating_indices(key, dice)
 	# Nur beteiligte Würfel zählen Augen - Unbeteiligte bleiben dunkel.
 	var eye_slots := participating.duplicate()
 	var has_materials := not materials.is_empty() or not edge_materials.is_empty()
+	# Retrigger-Charms zählen auch ohne Materialien über den base_bonus-Pfad.
+	var has_die_bonus := has_materials or not charm_ids.is_empty()
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen).
 	var base := DiceScoring.points_for(key, combo_levels)
@@ -30,7 +35,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var base_after_eye := base
 		var mat_base := 0
 		var mat_mult := 0
-		if has_materials and participating.has(i):
+		if has_die_bonus and participating.has(i):
 			var only: Array[int] = [i]
 			mat_base = MaterialEffects.base_bonus(dice, materials, only, charm_ids, edge_materials)
 			mat_mult = MaterialEffects.mult_bonus(dice, materials, only, edge_materials, charm_ids)
@@ -44,7 +49,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"mat_mult_add": mat_mult,
 			"base_after": base,
 			"mult_after": mult,
-			"eye_charm_indices": _eye_charm_indices(dice[i], charm_ids),
+			"eye_charm_indices": _eye_charm_indices(raw[i], charm_ids),
 		})
 
 	# 3. Charm-Schritte: additive Boni je Besitz-Position (Präfix-Marginale),
@@ -146,9 +151,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"total": total,
 	}
 
-## Besitz-Positionen, die den Augenwert dieses Werts verändern (Leave-one-out).
+## Besitz-Positionen, die den Augen-Beitrag dieses ROHEN Werts verändern
+## (Leave-one-out über Verwandlung + Basispunkt-Anpassung).
 static func _eye_charm_indices(value: int, charm_ids: Array[String]) -> Array[int]:
-	var full := CharmEffects.eye_value(value, charm_ids)
+	var full := _eye_contribution(value, charm_ids)
 	var result: Array[int] = []
 	if full == value:
 		return result
@@ -157,9 +163,12 @@ static func _eye_charm_indices(value: int, charm_ids: Array[String]) -> Array[in
 		for k in charm_ids.size():
 			if k != j:
 				without.append(charm_ids[k])
-		if CharmEffects.eye_value(value, without) != full:
+		if _eye_contribution(value, without) != full:
 			result.append(j)
 	return result
+
+static func _eye_contribution(value: int, charm_ids: Array[String]) -> int:
+	return CharmEffects.eye_value(CharmEffects.transform_value(value, charm_ids), charm_ids)
 
 ## Alle Besitz-Positionen mit der gegebenen Charm-id.
 static func _indices_of(charm_ids: Array[String], charm_id: String) -> Array[int]:

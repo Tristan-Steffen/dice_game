@@ -94,6 +94,12 @@ func test_pack_price_is_raw_price_without_discount():
 	var engraving_pack = shop.engraving_packs[0]
 	assert_eq(shop._pack_price(engraving_pack), engraving_pack.price, "Gravur-Pakete haben feste Preise")
 
+func test_bargain_hunter_discounts_every_pack_kind():
+	run.owned_charms.append(Charm.bargain_hunter())
+	for pack in shop.dice_packs + shop.engraving_packs:
+		var plain: int = CharmEffects.die_price(pack.price, [] as Array[String], pack.count) if pack.is_dice_pack() else pack.price
+		assert_eq(shop._pack_price(pack), maxi(1, plain - 3), "%s: $3 guenstiger" % pack.type)
+
 func test_pack_buttons_disabled_by_price():
 	run.money = 5  # unter jedem Paketpreis
 	shop.open()
@@ -224,13 +230,6 @@ func test_cash_discount_lowers_charm_price():
 		return
 	shop._on_charm_clicked(0)
 	assert_eq(run.money, 90, "Skonto: $10 statt $15")
-
-func test_small_change_lowers_flip_fee():
-	run.owned_charms.append(Charm.small_change())
-	run.money = 100
-	shop.open()
-	shop._on_page_next_pressed()
-	assert_eq(run.money, 99, "Blätter-Gebühr $1 statt $2")
 
 func test_bulk_discount_only_hits_triple_packs():
 	run.owned_charms.append(Charm.bulk_discount())

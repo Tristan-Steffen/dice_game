@@ -4,37 +4,63 @@ class_name CharmEffects
 ## übergebenen ids - mehrere/duplizierte Charms stapeln sich.
 ## Ein neuer Charm braucht nur hier + eine Fabrikmethode in charm.gd.
 
-# --- Augenwert (einzelner Würfel) -------------------------------------------
+# --- Drei getrennte Mechaniken am einzelnen Würfel ---------------------------
+# 1. transform_value:  der Würfel ZEIGT einen anderen Wert - wirkt auf
+#    Kombinations-Erkennung UND Punkte (läuft VOR DiceScoring).
+# 2. retrigger_count:  der Würfel löst zusätzlich aus wie Quecksilber -
+#    Augen und Material-Effekte feuern erneut (zählt MaterialEffects).
+# 3. eye_value:        reine Basispunkt-Anpassung, erkennungsblind.
 
-## Punktbeitrag eines gewürfelten Werts nach allen Charms - wirkt NICHT auf
-## die Kategorie-Erkennung, nur auf die Punktsumme.
+## Feste Kettenreihenfolge 1->6, 2->3, 3->4: eine verwandelte 2 wird von
+## Fuchsschwanz weiter zur 4 gehoben, und weil jedes Ergebnis außerhalb der
+## Auslösewerte landet, ist die Kette idempotent - Mehrfachanwendung im
+## Pipeline-Stapel (best_hand -> score_category) bleibt gefahrlos.
+static func transform_value(face_value: int, charm_ids: Array[String]) -> int:
+	var value := face_value
+	if value == 1 and charm_ids.has(Charm.LUCKY_CIGARETTES):
+		value = 6
+	if value == 2 and charm_ids.has(Charm.PENCIL_STUB):
+		value = 3
+	if value == 3 and charm_ids.has(Charm.FOX_TAIL):
+		value = 4
+	return value
+
+static func transform_values(values: Array[int], charm_ids: Array[String]) -> Array[int]:
+	if charm_ids.is_empty():
+		return values
+	var result: Array[int] = []
+	for value in values:
+		result.append(transform_value(value, charm_ids))
+	return result
+
+## Zusätzliche Auslösungen eines Würfels (je Vorkommen +1) - Hasenpfote 6,
+## Kleeblatt 4, Skarabäus 5. Gezählt wird der VERWANDELTE Wert: eine 1, die
+## per Glückszigaretten 6 zeigt, IST eine 6.
+static func retrigger_count(value: int, charm_ids: Array[String]) -> int:
+	var extra := 0
+	for charm_id in charm_ids:
+		match charm_id:
+			Charm.RABBITS_FOOT:
+				if value == 6:
+					extra += 1
+			Charm.FOUR_LEAF_CLOVER:
+				if value == 4:
+					extra += 1
+			Charm.GOLDEN_SCARAB:
+				if value == 5:
+					extra += 1
+	return extra
+
+## Basispunkt-Beitrag eines Werts - wirkt NIE auf die Kategorie-Erkennung.
 static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	var value := face_value
 	for charm_id in charm_ids:
-		value = _apply_eye_value(charm_id, face_value, value)
-	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 5 Augen.
+		if charm_id == Charm.SMALL_FRY and (face_value == 1 or face_value == 2):
+			value += 6
+	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 5.
 	if charm_ids.has(Charm.EQUALIZER):
 		value = maxi(value, 5)
 	return value
-
-static func _apply_eye_value(charm_id: String, face_value: int, value: int) -> int:
-	match charm_id:
-		Charm.RABBITS_FOOT:
-			return value + face_value if face_value == 6 else value
-		Charm.FOUR_LEAF_CLOVER:
-			return value + face_value if face_value == 4 else value
-		Charm.GOLDEN_SCARAB:
-			return value + face_value if face_value == 5 else value
-		Charm.LUCKY_CIGARETTES:
-			return 6 if face_value == 1 else value
-		Charm.FOX_TAIL:
-			return 4 if face_value == 3 else value
-		Charm.PENCIL_STUB:
-			return 3 if face_value == 2 else value
-		Charm.SMALL_FRY:
-			return value + 2 if face_value == 1 or face_value == 2 else value
-		_:
-			return value
 
 # --- Wertung (ganze Hand) ----------------------------------------------------
 
@@ -324,16 +350,29 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 			income += 2 * dice_count
 	return income
 
-## Rundenende: Zinsgroschen ($1 je volle $10) und Überflieger ($1 je 25 Punkte
-## über Ziel), beide max. $50.
+## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
+## $10) und Überflieger ($1 je 25 Punkte über Ziel), beide max. $50. Alle
+## rechnen auf demselben money-Stand - die Besitz-Reihenfolge verschiebt keine
+## Beträge. Grundlage der Auszahlungs-Zeremonie: der Spieler sieht, WELCHER
+## Charm zahlt.
+static func round_end_income_entries(money: int, overflow_points: int, charm_ids: Array[String]) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for j in charm_ids.size():
+		var amount := 0
+		match charm_ids[j]:
+			Charm.INTEREST_PENNY:
+				amount = mini(money / 10, 50)
+			Charm.HIGH_FLYER:
+				amount = mini(maxi(0, overflow_points) / 25, 50)
+		if amount > 0:
+			entries.append({"charm_index": j, "charm_id": charm_ids[j], "amount": amount})
+	return entries
+
+## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.
 static func round_end_income(money: int, overflow_points: int, charm_ids: Array[String]) -> int:
 	var income := 0
-	for charm_id in charm_ids:
-		match charm_id:
-			Charm.INTEREST_PENNY:
-				income += mini(money / 10, 50)
-			Charm.HIGH_FLYER:
-				income += mini(maxi(0, overflow_points) / 25, 50)
+	for entry in round_end_income_entries(money, overflow_points, charm_ids):
+		income += int(entry["amount"])
 	return income
 
 ## Notgroschen: Mindest-Geldstand am Rundenende ($25), sonst 0.
@@ -385,20 +424,13 @@ static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
 static func charm_sell_value(base_value: int, _charm_ids: Array[String]) -> int:
 	return maxi(1, base_value)
 
-## Blätter-Gebühr nach Wechselgeld (je Vorkommen -$2, min. $1).
-static func flip_fee(base_fee: int, charm_ids: Array[String]) -> int:
-	var fee := base_fee
-	for charm_id in charm_ids:
-		if charm_id == Charm.SMALL_CHANGE:
-			fee -= 2
-	return maxi(1, fee)
-
-## Pack-Preis: Schnäppchenjäger -$2 je Vorkommen; min. $1.
-static func pack_price(base_price: int, pack_id: String, charm_ids: Array[String]) -> int:
+## Pack-Preis: Schnäppchenjäger -$3 je Vorkommen auf JEDE Paketsorte; min. $1.
+## Bei Würfel-Paketen liegt der Würfel-Rabatt (die_price) schon im base_price.
+static func pack_price(base_price: int, _pack_id: String, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
 	for charm_id in charm_ids:
 		if charm_id == Charm.BARGAIN_HUNTER:
-			price -= 2.0
+			price -= 3.0
 	return maxi(1, int(round(price)))
 
 ## Kleingedrucktes: Chance auf volle Pack-Rückerstattung (20% je Vorkommen, max. 80%).

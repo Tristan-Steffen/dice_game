@@ -117,6 +117,24 @@ static func new_run() -> GameRun:
 ## Nachbarn statt der eigenen; ein Totem auf Totem/Leere bleibt wirkungslos.
 func charm_ids() -> Array[String]:
 	var ids: Array[String] = []
+	for entry in _resolved_charms():
+		ids.append(entry["id"])
+	return ids
+
+## Besitz-Slot je Position aus charm_ids(). Ein Totem ohne Nachbarn fällt aus
+## der Wirkungsliste heraus, dadurch verschieben sich die Positionen gegen die
+## Besitz-Slots - wer einen Charm ANZEIGEN will (Hologramm, Dock-Pad), muss
+## hierüber umrechnen.
+func charm_slots() -> Array[int]:
+	var slots: Array[int] = []
+	for entry in _resolved_charms():
+		slots.append(int(entry["slot"]))
+	return slots
+
+## Wirkende Charms als {id, slot}: ein Totem übernimmt die WIRKUNG des Nachbarn,
+## behält aber SEINEN Besitz-Slot - dort sitzt sein Hologramm.
+func _resolved_charms() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
 	for i in owned_charms.size():
 		var charm_id := owned_charms[i].id
 		match charm_id:
@@ -125,8 +143,8 @@ func charm_ids() -> Array[String]:
 			Charm.ECHO_TOTEM:
 				charm_id = _neighbor_id(i + 1)
 		if charm_id != "":
-			ids.append(charm_id)
-	return ids
+			result.append({"id": charm_id, "slot": i})
+	return result
 
 ## Rohe ids ohne Totem-Auflösung - für Besitz-Prüfungen und Anzeige.
 func owned_charm_ids() -> Array[String]:

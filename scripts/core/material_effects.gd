@@ -16,20 +16,21 @@ class TakeReport:
 	var shrunk: Array[int] = []  # Slots, deren Seite geschrumpft ist (Glas)
 
 ## Aktivierungen des Würfels in Slot i: 1 normal, ×2 je Quecksilber-Träger
-## (×3 mit Quecksilberdampf). Jede Aktivierung zählt Augen und Effekte erneut.
-static func activation_count(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
+## (×3 mit Quecksilberdampf), +1 je Retrigger-Charm auf value (Hasenpfote &
+## Co.). Jede Aktivierung zählt Augen und Effekte erneut.
+static func activation_count(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String], value: int = 0) -> int:
 	var mercury_factor := 3 if charm_ids.has(Charm.MERCURY_VAPOR) else 2
 	var count := 1
 	if i < materials.size() and materials[i] == DieMaterial.MERCURY:
 		count *= mercury_factor
 	if i < edge_materials.size() and edge_materials[i] == DieMaterial.MERCURY:
 		count *= mercury_factor
-	return count
+	return count + CharmEffects.retrigger_count(value, charm_ids)
 
 ## Wie oft die MATERIAL-EFFEKTE feuern: Aktivierungen, zusätzlich ×2 durch die
 ## Legierung bei Seite+Kante - anders als Quecksilber ohne das Augen-Zählen.
-static func effect_activations(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
-	var count := activation_count(i, materials, edge_materials, charm_ids)
+static func effect_activations(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String], value: int = 0) -> int:
+	var count := activation_count(i, materials, edge_materials, charm_ids, value)
 	if charm_ids.has(Charm.ALLOY):
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
@@ -45,8 +46,8 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var activations := activation_count(i, materials, edge_materials, charm_ids)
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids)
+		var activations := activation_count(i, materials, edge_materials, charm_ids, values[i])
+		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, values[i])
 		if face_material == DieMaterial.AMBER:
 			bonus += amber_value * effect_count
 		if edge_material == DieMaterial.AMBER:
@@ -63,7 +64,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids)
+		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, values[i])
 		if face_material == DieMaterial.RUBY:
 			bonus += ruby_value * effect_count
 		if edge_material == DieMaterial.RUBY:
@@ -91,7 +92,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			continue
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids)
+		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
+		var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
+		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, shown)
 
 		if face_material == DieMaterial.GOLD:
 			report.money += gold_payout * effect_count

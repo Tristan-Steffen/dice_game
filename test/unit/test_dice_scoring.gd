@@ -19,6 +19,11 @@ func _ids(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
+func _m(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
 # --- Übertaktungs-Stufen (Systemkonsole, siehe GameRun.overclock_combo) ------------
 
 func test_mult_for_scales_with_combo_levels():
@@ -129,9 +134,16 @@ func test_score_category_one_kind_directly():
 
 # --- Charm-modifizierte Wertung ----------------------------------------------
 
-func test_rabbits_foot_doubles_sixes():
-	# Paar 6er (keine Straße): 10 Punkte + eye(6)=12 ×2 Würfel, mult 2
-	assert_eq(DiceScoring.best_hand(_d([6,6,1,2,3,5]), _ids([Charm.RABBITS_FOOT]))["score"], (10 + 24) * 2)
+func test_rabbits_foot_retriggers_sixes():
+	# Paar 6er: 10 Punkte + Augen (6+6) + Retrigger-Nachzählung (6+6), mult 2.
+	assert_eq(DiceScoring.best_hand(_d([6,6,1,2,3,5]), _ids([Charm.RABBITS_FOOT]))["score"], (10 + 12 + 12) * 2)
+
+func test_rabbits_foot_retriggers_material_effects_too():
+	# Retrigger wie Quecksilber: der Rubin auf der beteiligten 6 feuert doppelt.
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var hand := DiceScoring.best_hand(_d([6,6,1,2,3,5]), _ids([Charm.RABBITS_FOOT]), false, mats)
+	# Mult: 2 (Paar) + 4×2 (Rubin, zwei Aktivierungen) = 10.
+	assert_eq(hand["mult"], 10)
 
 func test_horseshoe_raises_full_house_mult():
 	var hand := DiceScoring.best_hand(_d([2,2,2,5,5,1]), _ids([Charm.HORSESHOE]))
@@ -161,10 +173,35 @@ func test_collectors_amulet_adds_mult_per_other_charm():
 	var ids := _ids([Charm.COLLECTORS_AMULET, Charm.RABBITS_FOOT, Charm.GOLDEN_SCARAB])
 	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids)["score"], 96)
 
-func test_charms_never_change_the_category():
-	# Ein Paar bleibt ein Paar, auch wenn ein Charm den Augenwert hebt.
+func test_retrigger_charms_never_change_the_category():
+	# Ein Paar bleibt ein Paar - Retrigger zählt nach, verwandelt aber nicht.
 	var key: String = DiceScoring.best_hand(_d([6,6,1,2,3,5]), _ids([Charm.RABBITS_FOOT]))["key"]
 	assert_eq(key, "two_kind")
+
+# --- Verwandlungs-Charms: Augen ändern sich VOR der Erkennung ------------------
+
+func test_lucky_cigarettes_pair_ones_into_sixes():
+	# [1,1,x]: die verwandelten 1er bilden ein echtes 6er-Paar.
+	var hand := DiceScoring.best_hand(_d([1,1,3,4,4,5]), _ids([Charm.LUCKY_CIGARETTES]))
+	assert_eq(hand["key"], "two_pair", "6er-Paar aus 1ern + 4er-Paar")
+
+func test_fox_tail_builds_combinations_from_threes():
+	# 3+4 sind ohne Charm nur Höchste Zahl - mit Fuchsschwanz ein 4er-Paar.
+	var hand := DiceScoring.best_hand(_d([3,4,1,2,6,6]), _ids([Charm.FOX_TAIL]))
+	assert_eq(hand["key"], "two_pair")
+	# Beteiligt: 4er-Paar (4 + verwandelte 3->4) und 6er-Paar.
+	assert_eq(hand["score"], (15 + 4 + 4 + 6 + 6) * 3)
+
+func test_pencil_stub_chains_through_fox_tail():
+	# 2 -> 3 -> 4: mit beiden Charms wird aus [2,4] ein 4er-Paar.
+	var hand := DiceScoring.best_hand(_d([2,4,1,3,5,6]), _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL]))
+	assert_ne(hand["key"], "one_kind", "verwandelte Werte bilden eine Kombination")
+
+func test_transformed_values_count_for_points_too():
+	# Das 6er-Paar aus 1ern zählt auch die Augen als 6er.
+	var score: int = DiceScoring.score_category("two_kind", _d([1,1,3,4,2,4]), _ids([Charm.LUCKY_CIGARETTES]))
+	assert_eq(DiceScoring.score_category("two_kind", _d([1,1,3,5,2,5])), (10 + 5 + 5) * 2)
+	assert_eq(score, (10 + 6 + 6) * 2)
 
 # --- Nur die letzte Ziffer zählt für die Kombination (Überzahlen) --------------
 

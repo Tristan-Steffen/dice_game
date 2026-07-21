@@ -106,13 +106,23 @@ func test_mercury_edge_retrigger_stays_at_its_die():
 
 # --- Charm-Schritte --------------------------------------------------------------
 
-func test_eye_charm_lights_up_at_the_die():
-	# Hasenpfote verdoppelt die 6 - der Würfel-Schritt nennt ihre Besitz-Position.
+func test_retrigger_charm_recounts_at_the_die():
+	# Hasenpfote löst die 6 erneut aus - die Nachzählung erscheint als
+	# Würfel-Bonus (wie Quecksilber), nicht als Augenwert-Änderung.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([6, 6, 1, 2, 3, 5]), _ids([Charm.RABBITS_FOOT]))
 	var steps: Array = breakdown["die_steps"]
-	assert_eq(steps[0]["eye_add"], 12)
+	assert_eq(steps[0]["eye_add"], 6)
+	assert_eq(steps[0]["mat_base_add"], 6, "zweite Augen-Zählung durch den Retrigger")
+	assert_eq(steps[0]["eye_charm_indices"], [], "Augenwert selbst unverändert")
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein eigener Charm-Schritt")
+
+func test_transform_charm_lights_up_at_the_die():
+	# Glückszigaretten: die 1 zeigt eine 6 - der Würfel-Schritt nennt die
+	# Besitz-Position des Verwandlers.
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([1, 1, 2, 3, 4, 4]), _ids([Charm.LUCKY_CIGARETTES]))
+	var steps: Array = breakdown["die_steps"]
+	assert_eq(steps[0]["eye_add"], 6, "verwandelte 1 zählt als 6")
 	assert_eq(steps[0]["eye_charm_indices"], [0])
-	assert_eq(breakdown["charm_steps"].size(), 0, "reiner Augen-Charm hat keinen eigenen Schritt")
 
 func test_additive_charm_gets_its_own_step():
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 5, 5, 1]), _ids([Charm.HORSESHOE]))
