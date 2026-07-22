@@ -3401,6 +3401,8 @@ func _on_round_complete() -> void:
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
+		# Frankiermaschine: ihre Zahl-Gravuren kommen jetzt, kurz vor dem Shop, an.
+		run.apply_round_end_charms()
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
 		_return_dice_to_pool_tray()

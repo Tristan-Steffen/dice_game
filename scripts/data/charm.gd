@@ -34,7 +34,6 @@ const STRAGGLER := "straggler"
 # Augen & Werte
 const ECHO_CHAMBER := "echo_chamber"
 const TWIN_RING := "twin_ring"
-const DOUBLE_SIX := "double_six"
 const CULT_OF_ONE := "cult_of_one"
 const STREET_SWEEPER := "street_sweeper"
 const EQUALIZER := "equalizer"
@@ -82,7 +81,6 @@ const EDGE_GLEAM := "edge_gleam"
 # Coupons & Packs
 const LARGE_FORMAT := "large_format"
 const BARGAIN_HUNTER := "bargain_hunter"
-const DOUBLE_PERFORATION := "double_perforation"
 const ENGRAVING_PEN := "engraving_pen"
 const STAMP_MACHINE := "stamp_machine"
 const FINE_PRINT := "fine_print"
@@ -127,7 +125,6 @@ const RARITIES := {
 	PENCIL_STUB: RARITY_COMMON,
 	ECHO_CHAMBER: RARITY_UNCOMMON,
 	TWIN_RING: RARITY_UNCOMMON,
-	DOUBLE_SIX: RARITY_RARE,
 	CULT_OF_ONE: RARITY_RARE,
 	STREET_SWEEPER: RARITY_UNCOMMON,
 	EQUALIZER: RARITY_COMMON,
@@ -184,7 +181,6 @@ const RARITIES := {
 	# Coupons & Packs
 	LARGE_FORMAT: RARITY_RARE,
 	BARGAIN_HUNTER: RARITY_COMMON,
-	DOUBLE_PERFORATION: RARITY_UNCOMMON,
 	ENGRAVING_PEN: RARITY_RARE,
 	STAMP_MACHINE: RARITY_RARE,
 	FINE_PRINT: RARITY_UNCOMMON,
@@ -342,13 +338,10 @@ static func straggler() -> Charm:
 # --- Augen & Werte ---
 
 static func echo_chamber() -> Charm:
-	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der höchste Würfel des Wurfs gibt seine Augen erneut als Basispunkte.")
+	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der höchste gewertete Würfel zählt seine Augen ein zweites Mal.")
 
 static func twin_ring() -> Charm:
 	return _make(TWIN_RING, "Zwillingsring", "Jedes Paar im Wurf erhöht den Mult um die Augenzahl des Paars.")
-
-static func double_six() -> Charm:
-	return _make(DOUBLE_SIX, "Doppelte Sechs", "Jede 6 nach der zweiten 6 in der genommenen Kombination erhöht den Mult um 1.")
 
 static func cult_of_one() -> Charm:
 	return _make(CULT_OF_ONE, "Einserkult", "Jede gewürfelte 1 verdoppelt Basiswert UND Multiplikator der Hand.")
@@ -492,14 +485,11 @@ static func large_format() -> Charm:
 static func bargain_hunter() -> Charm:
 	return _make(BARGAIN_HUNTER, "Schnäppchenjäger", "Alle Pakete kosten $3 weniger.")
 
-static func double_perforation() -> Charm:
-	return _make(DOUBLE_PERFORATION, "Doppelte Perforation", "Chip-Coupons zahlen $2 statt $1.")
-
 static func engraving_pen() -> Charm:
 	return _make(ENGRAVING_PEN, "Gravierstift", "Einmal pro Runde wird ein Zahl-Gravur beim Anwenden nicht verbraucht.")
 
 static func stamp_machine() -> Charm:
-	return _make(STAMP_MACHINE, "Frankiermaschine", "Zu Beginn jeder Runde: +3 zufällige Zahl-Gravuren.")
+	return _make(STAMP_MACHINE, "Frankiermaschine", "Am Rundenende, kurz vor dem Shop: +3 zufällige Zahl-Gravuren.")
 
 static func fine_print() -> Charm:
 	return _make(FINE_PRINT, "Kleingedrucktes", "Nach jedem Pack-Kauf: 20% Chance auf volle Rückerstattung.")
@@ -549,7 +539,7 @@ static func all() -> Array[Charm]:
 		collectors_amulet(),
 		# Effektkatalog
 		pendulum(), all_or_nothing(), anchor(), straggler(),
-		echo_chamber(), twin_ring(), double_six(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
+		echo_chamber(), twin_ring(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
 		full_counter(), lighthouse(), momentum(), after_work_beer(), blackjack(),
 		round_number(), broadband(), even_company(), odd_path(), snake_eyes(),
 		broken_mirror(), grandfather_clock(), shard_court(), gallows_humor(), phoenix_feather(), patchwork_rug(),
@@ -558,7 +548,7 @@ static func all() -> Array[Charm]:
 		goldsmith(), amber_room(), ruby_grinder(), bone_glue(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(), alloy(),
 		frame_gilder(), magnet_ring(), edge_gleam(),
-		large_format(), bargain_hunter(), double_perforation(), engraving_pen(), stamp_machine(), fine_print(),
+		large_format(), bargain_hunter(), engraving_pen(), stamp_machine(), fine_print(),
 		recycling(), fresh_goods(), sediment(),
 		seal_of_quality(), bulk_discount(), house_brand(),
 		parrot_totem(), echo_totem(), hermit_crab(),

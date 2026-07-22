@@ -237,7 +237,7 @@ func test_bonus_that_is_not_per_die_carries_no_pulses():
 func _prop_charm_sets() -> Array:
 	return [
 		[],
-		[Charm.LIGHTHOUSE], [Charm.TWIN_RING], [Charm.DOUBLE_SIX], [Charm.SNAKE_EYES],
+		[Charm.LIGHTHOUSE], [Charm.TWIN_RING], [Charm.SNAKE_EYES],
 		[Charm.PENDULUM], [Charm.ALL_OR_NOTHING], [Charm.MOMENTUM], [Charm.BROKEN_MIRROR],
 		[Charm.EVEN_COMPANY], [Charm.ODD_PATH], [Charm.HERMIT_CRAB], [Charm.DISPLAY_CASE],
 		[Charm.COLLECTORS_AMULET], [Charm.ECHO_CHAMBER], [Charm.STREET_SWEEPER],
@@ -249,7 +249,7 @@ func _prop_charm_sets() -> Array:
 		[Charm.SMALL_FRY], [Charm.EQUALIZER],
 		[Charm.RABBITS_FOOT], [Charm.FOUR_LEAF_CLOVER], [Charm.GOLDEN_SCARAB],
 		[Charm.CULT_OF_ONE, Charm.GALLOWS_HUMOR, Charm.MAGIC_CARD],
-		[Charm.LUCKY_CIGARETTES, Charm.DOUBLE_SIX, Charm.BLACKJACK],
+		[Charm.LUCKY_CIGARETTES, Charm.ECHO_CHAMBER, Charm.BLACKJACK],
 		[Charm.EQUALIZER, Charm.SMALL_FRY, Charm.ECHO_CHAMBER, Charm.FULL_COUNTER],
 	]
 

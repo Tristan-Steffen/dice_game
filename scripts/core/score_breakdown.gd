@@ -182,6 +182,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], participating: Array[int], prefix: Array[String], ctx: Dictionary, edge_materials: Array[String]) -> Array[Dictionary]:
 	var pulses: Array[Dictionary] = []
 	match charm_id:
+		Charm.ECHO_CHAMBER:
+			var echo := CharmEffects._highest_participating(dice, participating)
+			if echo >= 0:
+				pulses.append({"slot": echo, "base": CharmEffects.eye_value(dice[echo], prefix), "mult": 0})
 		Charm.BROADBAND:
 			for i in participating:
 				pulses.append({"slot": i, "base": 5, "mult": 0})
@@ -206,13 +210,6 @@ static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], par
 			for i in participating:
 				if late.has(i):
 					pulses.append({"slot": i, "base": 0, "mult": 3})
-		Charm.DOUBLE_SIX:
-			var sixes := 0
-			for i in participating:
-				if i < dice.size() and dice[i] == 6:
-					sixes += 1
-					if sixes > 2:
-						pulses.append({"slot": i, "base": 0, "mult": 1})
 		Charm.SNAKE_EYES:
 			if key == DiceScoring.TWO_KIND and CharmEffects._participating_are_ones(dice, participating):
 				for i in dice.size():

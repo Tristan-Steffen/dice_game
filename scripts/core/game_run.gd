@@ -404,15 +404,18 @@ func overclock_combo(combo_key: String) -> void:
 	combo_levels[combo_key] = combo_level(combo_key) + 1
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
-## Rundenbeginn: Runden-Marken zurücksetzen, Frankiermaschine schenkt 3
-## zufällige Zahl-Gravuren, Lumpensammler würfelt seine Glückszahl neu - je
-## Vorkommen einmal.
+## Rundenbeginn: Runden-Marken zurücksetzen, Lumpensammler würfelt seine
+## Glückszahl neu - je Vorkommen einmal.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
-	for i in ids.count(Charm.STAMP_MACHINE):
+
+## Rundenende (kurz vor dem Shop): Frankiermaschine schenkt je Vorkommen 3
+## zufällige Zahl-Gravuren.
+func apply_round_end_charms() -> void:
+	for i in charm_ids().count(Charm.STAMP_MACHINE):
 		var number_engravings: Array[Engraving] = []
 		for engraving in Engraving.all():
 			if engraving.category == Engraving.CATEGORY_NUMBER:

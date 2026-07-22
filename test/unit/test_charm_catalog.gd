@@ -47,21 +47,16 @@ func test_equalizer_never_changes_the_category():
 
 # --- Basis-Boni --------------------------------------------------------------------
 
-func test_echo_chamber_counts_highest_die_again():
+func test_echo_chamber_counts_highest_used_die_again():
+	# PAIR = Paar Fünfer; die höhere 6 im Wurf ist UNBETEILIGT und zählt nicht.
 	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.ECHO_CHAMBER]))
-	assert_eq(bonus, 6, "höchster Würfel (6) zählt erneut")
+	assert_eq(bonus, 5, "höchster GEWERTETER Würfel (5) zählt erneut, nicht die unbeteiligte 6")
 
 func test_twin_ring_adds_pair_value_to_mult():
 	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.TWIN_RING]))
 	assert_eq(bonus, 5, "nur die 5 liegt genau zweimal: +5 Mult")
 	var two_pairs := CharmEffects.charm_mult_bonus(DiceScoring.TWO_PAIR, _d([5, 5, 3, 3, 1, 6]), NO_MATS, _ids([Charm.TWIN_RING]))
 	assert_eq(two_pairs, 8, "zwei Paare (5 und 3): +8 Mult")
-
-func test_double_six_adds_mult_beyond_second_six():
-	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6, 2, 3]), NO_MATS, _ids([Charm.DOUBLE_SIX]), {}, {}, _p([0, 1, 2, 3]))
-	assert_eq(bonus, 2, "vier beteiligte Sechser: die 3. und 4. geben je +1 Mult")
-	var pair_only := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([6, 6, 1, 2, 3, 4]), NO_MATS, _ids([Charm.DOUBLE_SIX]), {}, {}, _p([0, 1]))
-	assert_eq(pair_only, 0, "bis zur zweiten 6 passiert nichts")
 
 func test_street_sweeper_only_boosts_straights():
 	var straight := _d([1, 2, 3, 4, 5, 3])
@@ -289,7 +284,6 @@ func test_shop_price_hooks():
 	assert_eq(CharmEffects.pack_price(2, Pack.TYPE_EDGE, _ids([Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 3), 10)
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT]), 1), 15, "kein Rabatt auf Einzelwürfel")
-	assert_eq(CharmEffects.chip_coupon_value(1, _ids([Charm.DOUBLE_PERFORATION])), 2)
 	assert_almost_eq(CharmEffects.pack_refund_chance(_ids([Charm.FINE_PRINT])), 0.2, 0.001)
 
 func test_seal_of_quality_forces_refinements():
@@ -343,13 +337,19 @@ func test_charm_slots_always_match_charm_ids():
 	assert_eq(run.charm_slots().size(), run.charm_ids().size())
 	assert_eq(run.charm_slots(), [0, 1], "das wirkungslose Totem hinten faellt weg")
 
-func test_round_start_charms_grant_their_gifts():
+func test_round_start_resets_the_gravierstift_mark():
 	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.stamp_machine())
 	run.gravierstift_used_this_round = true
 	run.apply_round_start_charms()
 	assert_false(run.gravierstift_used_this_round, "Gravierstift-Marke zurückgesetzt")
-	assert_eq(run.owned_engravings.size(), 3, "Frankiermaschine schenkt drei Gravuren")
+
+func test_stamp_machine_grants_engravings_at_round_end():
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.stamp_machine())
+	run.apply_round_start_charms()
+	assert_eq(run.owned_engravings.size(), 0, "zu Rundenbeginn noch keine Gravuren")
+	run.apply_round_end_charms()
+	assert_eq(run.owned_engravings.size(), 3, "Frankiermaschine schenkt am Rundenende drei Gravuren")
 	for engraving in run.owned_engravings:
 		assert_eq(engraving.category, Engraving.CATEGORY_NUMBER)
 
@@ -418,10 +418,10 @@ func test_totem_chain_resolves_each_neighbor_independently():
 # --- Zusammenspiel mit Augenwert-Charms ---------------------------------------------
 
 func test_echo_chamber_respects_base_point_charms():
-	# Kleinvieh hebt die Basispunkte - auch beim Echo-Nachzählen; hier ist der
-	# höchste Würfel die 6 (unverändert), Echo zählt sie erneut.
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.ECHO_CHAMBER]))
-	assert_eq(bonus, 6, "höchster Würfel (6) zählt erneut")
+	# Kleinvieh hebt die Basispunkte einer 2 auf 8 - auch beim Echo-Nachzählen des
+	# höchsten GEWERTETEN Würfels (hier das Paar Zweier).
+	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.SMALL_FRY]))
+	assert_eq(bonus, 8, "Echo der gewerteten 2 zählt mit Kleinvieh als 8")
 
 func test_full_counter_sees_transformed_values():
 	# Glückszigaretten verwandeln VOR der Wertung: die unbeteiligte 1 IST eine 6,

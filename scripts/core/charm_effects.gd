@@ -199,8 +199,10 @@ static func charm_base_bonus(key: String, values: Array[int], participating: Arr
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.ECHO_CHAMBER:
-				if not values.is_empty():
-					bonus += eye_value(values.max(), charm_ids)
+				# Der höchste GEWERTETE Würfel zählt seine Augen ein zweites Mal.
+				var echo := _highest_participating(values, participating)
+				if echo >= 0:
+					bonus += eye_value(values[echo], charm_ids)
 			Charm.STREET_SWEEPER:
 				if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
 					bonus += 6 * participating.size()
@@ -276,13 +278,6 @@ static func charm_mult_bonus(key: String, values: Array[int], materials: Array[S
 				for value in _distinct(values):
 					if values.count(value) == 2:
 						bonus += value
-			Charm.DOUBLE_SIX:
-				# Jede 6 nach der zweiten in der Kombination: +1 Mult.
-				var sixes := 0
-				for i in participating:
-					if i < values.size() and values[i] == 6:
-						sixes += 1
-				bonus += maxi(0, sixes - 2)
 			Charm.SNAKE_EYES:
 				# Genau ein 1er-Paar genommen: Mult += Augensumme der Unbeteiligten.
 				if key == DiceScoring.TWO_KIND and _participating_are_ones(values, participating):
@@ -300,6 +295,16 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 		if i >= values.size() or values[i] != 1:
 			return false
 	return true
+
+## Slot des höchsten beteiligten Würfels (verwandelte Augen) oder -1 (Echo-Kammer).
+static func _highest_participating(values: Array[int], participating: Array[int]) -> int:
+	var best := -1
+	var best_value := -1
+	for i in participating:
+		if i < values.size() and values[i] > best_value:
+			best_value = values[i]
+			best = i
+	return best
 
 ## Krit-Pool: additive Beiträge, die den fertigen Mult als Faktor (1 + Summe)
 ## multiplizieren. Galgenhumor +3 nach Farkle.
@@ -461,14 +466,6 @@ static func pack_refund_chance(charm_ids: Array[String]) -> float:
 ## Gütesiegel: Shop-Würfel sind immer veredelt.
 static func forces_refinement(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.SEAL_OF_QUALITY)
-
-## Chip-Coupon-Wert (Doppelte Perforation: +$1 je Vorkommen).
-static func chip_coupon_value(base_value: int, charm_ids: Array[String]) -> int:
-	var value := base_value
-	for charm_id in charm_ids:
-		if charm_id == Charm.DOUBLE_PERFORATION:
-			value += 1
-	return value
 
 ## Gravierstift: einmal pro Runde wird ein Zahl-Gravur nicht verbraucht.
 static func has_engraving_pen(charm_ids: Array[String]) -> bool:
