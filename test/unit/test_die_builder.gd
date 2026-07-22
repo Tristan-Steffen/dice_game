@@ -17,9 +17,12 @@ func test_build_creates_edge_frame_with_shared_material():
 	var die: Node3D = autofree(DieBuilder.build())
 	var faces := _faces(die)
 	var edges: Node3D = faces.get_node("Edges")
-	assert_eq(edges.get_child_count(), 13, "Füll-Box + 12 Kanten-Balken")
+	assert_eq(edges.get_child_count(), 14, "Füll-Box + 12 Kanten-Balken + Eck-Kappen")
 	assert_not_null(faces.edge_material_res)
-	for child in edges.get_children():
+	var parts: Array = edges.get_children().filter(func(c): return c is MeshInstance3D)
+	parts.append_array(faces.corner_caps.get_children())
+	assert_eq(parts.size(), 21, "13 Rahmen-Teile + 8 Kappen")
+	for child in parts:
 		assert_eq(child.material_override, faces.edge_material_res,
 			"alle Rahmen-Teile teilen EIN Material (eine Farbzuweisung färbt alles)")
 

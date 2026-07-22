@@ -22,6 +22,21 @@ func test_spread_stays_inside_the_pit() -> void:
 			assert_lt(absf(target.z), DicePit.PIT_HALF_Z - 1.0)
 			assert_lt(absf(target.x), DicePit.PIT_HALF_X - 1.0)
 
+func test_face_index_matches_the_axis_calibration() -> void:
+	# Jede Achsrichtung liefert genau ihren kalibrierten Face-Index zurück -
+	# Grundlage des Seiten-Hovers in der Grube.
+	for axis in DiceController.AXIS_DIRECTIONS:
+		var dir: Vector3 = DiceController.AXIS_DIRECTIONS[axis]
+		assert_eq(DiceController.face_index_for_local_dir(dir),
+			DiceController.AXIS_FACE_INDEX[axis], "Achse %s" % axis)
+
+func test_face_index_snaps_a_tilted_normal_to_the_nearest_face() -> void:
+	# Ein leicht verkippter Normal (Treffer nahe einer Kante) rundet auf die
+	# dominante Achse - hier OBEN.
+	var tilted := (Vector3.UP + Vector3.RIGHT * 0.3).normalized()
+	assert_eq(DiceController.face_index_for_local_dir(tilted),
+		DiceController.AXIS_FACE_INDEX["OBEN"])
+
 func test_later_dice_fly_longer_so_they_land_apart() -> void:
 	# Gleiche Bahn, groessere Flugzeit -> flacherer, langsamerer Wurf.
 	var from := Vector3(0.0, 17.0, 0.0)

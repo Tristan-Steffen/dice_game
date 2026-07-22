@@ -6,7 +6,9 @@ extends Node3D
 
 ## Tron-Prinzip: dunkle Masse, konzentriertes Licht. Der Körper ist dunkles
 ## Glas (Albedo überall gleich), NUR Kanten-Linien und Ziffern leuchten -
-## breite Flächen glimmen kaum. So wirken die Würfel massiv statt "Lampenschirm".
+## breite Flächen glimmen kaum. Material-Seiten brechen die Regel bewusst:
+## sie sind Einlagen aus echtem Material (helle Albedo + eigene Physik aus
+## DieMaterial.surface_color/metallic/roughness/glow/alpha statt nur Neon-Tint).
 const BODY_COLOR := Color(0.05, 0.05, 0.08)
 ## Ziffern als sanftes Neonlicht (knapp überhell -> weicher Bloom, nicht grell).
 const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
@@ -17,8 +19,16 @@ const EDGE_NEON := Color(0.7, 0.86, 0.8)
 ## Emissions-Stärken: dünne Linien knapp überhell (weicher Rand-Bloom), Flächen kaum.
 const FACE_GLOW := 0.16
 const EDGE_GLOW := 1.3
-const MATERIAL_FACE_GLOW := 0.7
-const MATERIAL_EDGE_GLOW := 1.5
+## Distanz-Signale: der Seiten-Rahmen leuchtet voll in Materialfarbe, und
+## Material-Kanten glühen mindestens so stark - dünne Linien ohne Emission
+## sind aus der Übersichtskamera unsichtbar. Ausnahme: glow == 0 (Knochen)
+## bleibt bewusst tot-dunkel, seine Identität.
+const FRAME_GLOW := 1.4
+const MATERIAL_EDGE_GLOW_FLOOR := 0.9
+## Neutrale Oberflächen-Physik (Material-Seiten bringen ihre eigene mit).
+const FACE_ROUGHNESS := 0.2
+const EDGE_ROUGHNESS := 0.25
+const EDGE_METALLIC := 0.35
 
 ## Echtes Umgebungslicht des Würfels - nur für die Spielwürfel aktiv, die
 ## 30+ Tray-Würfel würden das Per-Objekt-Lichtlimit des Renderers sprengen.
@@ -54,6 +64,9 @@ const LABEL_FIT_EXTENT := 1.5
 
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
+var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
+## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Kanten-Material sichtbar.
+var corner_caps: Node3D = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
 var die_light: OmniLight3D = null
@@ -73,25 +86,48 @@ var _has_material := false
 var face_base: Dictionary = {}
 var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
+## Material-id je Achse ("" = ohne) bzw. der Kanten - Schlüssel ins Shading-Profil.
+var face_ids: Dictionary = {}
+var edge_id: String = ""
+## Fließende Oberflächen (Quecksilber): [StandardMaterial3D, Drift/s].
+var _flow_mats: Array = []
+var _flow_time := 0.0
 
 ## Stellt alle 6 Seiten gemäß def ein (Werte, Material-Farben, Texturen).
 func apply_definition(def: DieDefinition) -> void:
+	_flow_mats.clear()
 	for axis in DiceController.AXIS_FACE_INDEX:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 		_set_face_value(axis, value)
 		var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
+		face_ids[axis] = material_id
 		face_base[axis] = DieMaterial.tint_for(material_id)
+		# Ziffern bleiben neutral-weiß, egal welches Material - Materialfarben
+		# machten die Zahl schwer lesbar (die Identität tragen Fläche/Rahmen/Kanten).
+		labels[axis].modulate = NUMBER_COLOR
 		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		var face_texture := DieMaterial.die_texture_for(material_id)
-		quad_material.albedo_texture = face_texture
-		quad_material.emission_texture = face_texture  # Muster zeigt sich im Glühen (Albedo ist dunkel)
-	edge_base = DieMaterial.tint_for(def.edge_material) if DieMaterial.is_valid_id(def.edge_material) else EDGE_COLOR
+		_set_textures(quad_material, material_id)
+	edge_id = def.edge_material if DieMaterial.is_valid_id(def.edge_material) else ""
+	edge_base = DieMaterial.tint_for(edge_id) if edge_id != "" else EDGE_COLOR
 	if edge_material_res != null:
-		var edge_texture := DieMaterial.die_texture_for(def.edge_material)
-		edge_material_res.albedo_texture = edge_texture
-		edge_material_res.emission_texture = edge_texture
+		_set_textures(edge_material_res, def.edge_material)
 	_refresh_face_colors()
+
+## Muster + Relief einer Oberfläche; Emission teilt die Albedo-Textur, damit
+## das Muster auch im Glühen sichtbar bleibt (Albedo ist ohne Material dunkel).
+func _set_textures(material: StandardMaterial3D, material_id: String) -> void:
+	var texture := DieMaterial.die_texture_for(material_id)
+	material.albedo_texture = texture
+	material.emission_texture = texture
+	var normal := DieMaterial.die_normal_for(material_id)
+	material.normal_enabled = normal != null
+	material.normal_texture = normal
+	var profile := DieMaterial.by_id(material_id)
+	if profile != null and profile.flow_speed > 0.0:
+		_flow_mats.append([material, profile.flow_speed])
+	else:
+		material.uv1_offset = Vector3.ZERO
 
 func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
@@ -105,15 +141,16 @@ func set_tint(color: Color) -> void:
 
 func _refresh_face_colors() -> void:
 	for axis in quads:
+		var profile := DieMaterial.by_id(face_ids.get(axis, ""))
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		var base: Color = face_base.get(axis, Color.WHITE)
-		var glow_color := base * MATERIAL_FACE_GLOW if base != Color.WHITE else EDGE_NEON * FACE_GLOW
-		_set_surface(material, body_tint, glow_color)
+		_apply_profile(material, profile, false)
+		_refresh_frame(axis, profile)
 	if edge_material_res != null:
 		# set_edge_tint schaltet für die Auswahl auf unschattiert - hier zurück.
 		edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-		var edge_glow := edge_base * MATERIAL_EDGE_GLOW if edge_base != EDGE_COLOR else EDGE_NEON * EDGE_GLOW
-		_set_surface(edge_material_res, body_tint, edge_glow)
+		_apply_profile(edge_material_res, DieMaterial.by_id(edge_id), true)
+	if corner_caps != null:
+		corner_caps.visible = edge_id != ""
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
@@ -140,24 +177,66 @@ func _neon_mix() -> Color:
 		mixed += tint
 	return mixed / float(tints.size())
 
-## Dunkler Glas-Körper überall gleich; das Licht liegt allein in der Emission.
-## tint moduliert beides (Auswahl-/Stil-Tints bleiben so auf dem Neon sichtbar).
-static func _set_surface(material: StandardMaterial3D, tint: Color, glow_color: Color) -> void:
-	material.albedo_color = BODY_COLOR * tint
-	material.emission = glow_color * tint
+## Ohne Material: dunkler Glas-Körper, das Licht liegt allein in der Emission.
+## Mit Material: die Einlage trägt die echte Oberfläche aus dem Profil.
+## body_tint moduliert beides (Auswahl-/Stil-Tints bleiben sichtbar).
+func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge: bool) -> void:
+	if profile == null:
+		material.albedo_color = BODY_COLOR * body_tint
+		material.emission = EDGE_NEON * (EDGE_GLOW if is_edge else FACE_GLOW) * body_tint
+		material.metallic = EDGE_METALLIC if is_edge else 0.0
+		material.roughness = EDGE_ROUGHNESS if is_edge else FACE_ROUGHNESS
+		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		return
+	var albedo := profile.surface_color * body_tint
+	# Kanten bleiben deckend - der Füllkörper hinter ihnen IST die Würfelmasse.
+	if not is_edge and profile.alpha < 1.0:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		albedo.a = profile.alpha
+	else:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	material.albedo_color = albedo
+	var glow := profile.glow
+	if is_edge and glow > 0.0:
+		glow = maxf(glow, MATERIAL_EDGE_GLOW_FLOOR)
+	material.emission = profile.tint * glow * body_tint
+	material.metallic = profile.metallic
+	material.roughness = profile.roughness
+
+## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
+func _refresh_frame(axis: String, profile: DieMaterial) -> void:
+	var frame: MeshInstance3D = frames.get(axis)
+	if frame == null:
+		return
+	frame.visible = profile != null
+	if profile == null:
+		return
+	var material: StandardMaterial3D = frame.material_override
+	material.albedo_color = BODY_COLOR * body_tint
+	var glow := FRAME_GLOW if profile.glow > 0.0 else 0.0
+	material.emission = profile.tint * glow * body_tint
 
 ## Schaltet Umgebungslicht + Boden-Lache frei (nur Spielwürfel).
 func set_light_enabled(on: bool) -> void:
 	light_allowed = on
 	_refresh_die_light()
 
-## Je Frame: Kanten-Neon atmet langsam; die Boden-Lache folgt dem Würfel und
-## verblasst mit seiner Flughöhe.
+## Je Frame: Kanten-Neon atmet langsam, Quecksilber-Oberflächen fließen; die
+## Boden-Lache folgt dem Würfel und verblasst mit seiner Flughöhe.
 func _process(delta: float) -> void:
 	_pulse_phase = fmod(_pulse_phase + delta * PULSE_SPEED, TAU)
 	if edge_material_res != null:
 		var amount := PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT
 		edge_material_res.emission_energy_multiplier = 1.0 + sin(_pulse_phase) * amount
+	_flow_time += delta
+	for entry in _flow_mats:
+		var material: StandardMaterial3D = entry[0]
+		var speed: float = entry[1]
+		# Schräge Drift + leichtes Pendeln = träges Fließen statt Förderband.
+		material.uv1_offset = Vector3(
+			fmod(_flow_time * speed, 1.0),
+			fmod(_flow_time * speed * 0.63, 1.0) + sin(_flow_time * 0.9) * 0.03,
+			0.0)
 	if glow_pool == null or not glow_pool.visible:
 		return
 	var center := global_position

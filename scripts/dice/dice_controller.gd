@@ -238,6 +238,18 @@ func set_selected(index: int, is_selected: bool) -> void:
 func index_of_body(collider: Object) -> int:
 	return bodies.find(collider)
 
+## Physische Seite (0..5) in Richtung local_dir (Würfel-Lokalraum) - die dem
+## Vektor am nächsten liegende Achse. Genutzt fürs Seiten-Hover in der Grube.
+static func face_index_for_local_dir(local_dir: Vector3) -> int:
+	var best_axis := ""
+	var best_dot := -INF
+	for axis in AXIS_DIRECTIONS:
+		var d: float = local_dir.dot(AXIS_DIRECTIONS[axis])
+		if d > best_dot:
+			best_dot = d
+			best_axis = axis
+	return AXIS_FACE_INDEX.get(best_axis, -1)
+
 func reset() -> void:
 	last_settled_index = -1
 	for i in count():

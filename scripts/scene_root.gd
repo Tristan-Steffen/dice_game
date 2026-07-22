@@ -115,6 +115,12 @@ var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurü
 ## Bildschirm-unten (Welt -X) - unten mittig, innerhalb des Randes.
 const PIT_ACTION_BAR_INSET_X := 5.6
 
+## Hover-Erklärfeld der Grube: als waagerechtes Band zwischen Würfelreihe (X≥0)
+## und Aktions-Knöpfen (X≈-5.6), mittig über die lange Grubenachse.
+const PIT_INFO_BAR_INSET_X := 2.7  # Bandmitte unter der Würfelreihe (Welt -X)
+const PIT_INFO_BAR_HALF_X := 1.15  # halbe Bandhöhe (Welt-X)
+const PIT_INFO_BAR_HALF_Z := 7.0   # halbe Bandbreite (Welt-Z)
+
 ## Geld-Lichtanimation: Gutschriften schicken goldenes Licht Hub -> Chips,
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
 const MONEY_PULSE_GAP := 0.12
@@ -431,6 +437,15 @@ func _setup_table_screen() -> void:
 	table_screen.place_pit_window(
 		Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b),
 		DicePit.CORNER_RADIUS * ppw)
+	# Hover-Erklärband unter der Würfelreihe (zwei Weltecken, robust gegen
+	# Achsen-Skalierung wie beim Gruben-Fenster).
+	var pit_info_cx := DicePit.PIT_CENTER.x - PIT_INFO_BAR_INSET_X
+	var pit_info_a := table_screen.world_to_pixel(Vector3(
+		pit_info_cx + PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_INFO_BAR_HALF_Z))
+	var pit_info_b := table_screen.world_to_pixel(Vector3(
+		pit_info_cx - PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_INFO_BAR_HALF_Z))
+	var pit_info_rect := Rect2(pit_info_a, Vector2.ZERO).expand(pit_info_b)
+	table_screen.place_pit_info_bar(pit_info_rect, pit_info_rect.size.x / 100.0)
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
@@ -551,6 +566,8 @@ func _setup_table_screen() -> void:
 	for i in drawer_rects.size():
 		drawer_rects[i].position.y = drawer_top
 	table_screen.place_supply_drawers(drawer_rects, corner_unit)
+	for drawer in table_screen.supply_drawers:
+		drawer.hovered.connect(_on_supply_hovered)
 
 	# Info-Leiste unter der Schubladen-Reihe: flach und so breit wie die Reihe -
 	# hier landet die Hinweiszeile der Gravur-Station statt im Editor-Panel.
@@ -738,6 +755,16 @@ func _on_charms_changed() -> void:
 	charm_row.set_charms(run.owned_charms)
 	if table_screen != null and table_screen.charm_dock != null:
 		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
+	_update_all_or_nothing_badge()
+
+## Zeigt den aufgelaufenen Alles-oder-nichts-Mult als Chip an SEINER Dock-Karte
+## (Position folgt Umsortieren/Kauf/Verkauf über die Besitz-Slots).
+func _update_all_or_nothing_badge() -> void:
+	if table_screen == null or table_screen.charm_dock == null:
+		return
+	var resolved := run.charm_ids().find(Charm.ALL_OR_NOTHING)
+	var slot := _charm_slot(resolved) if resolved >= 0 else -1
+	table_screen.charm_dock.set_mult_badge(slot, full_reroll_stacks * CharmEffects.ALL_OR_NOTHING_MULT)
 
 ## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
 func _charm_sell_values() -> Array[int]:
@@ -2006,8 +2033,47 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 
 func _process(_delta: float) -> void:
 	_update_charm_hover()
+	_update_pit_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
+
+## Erklärfeld unter den Grubenwürfeln: die Materialwirkung der Seite unter der
+## Maus (Seite + Kanten) - nur in der Grubensicht mit ruhenden Würfeln, sonst leer.
+func _update_pit_hover() -> void:
+	if table_screen == null:
+		return
+	var text := ""
+	if is_pit_focused and phase == Phase.IDLE and not camera_rig.is_animating:
+		text = _hovered_die_hint(get_viewport().get_mouse_position())
+	table_screen.set_pit_info(text)
+
+## Erklärtext der Würfelseite unter screen_pos ("" = kein ruhender Würfel dort
+## oder Seite/Kanten ohne Material). Kanten stehen immer mit dabei - sie sind
+## aus der Grubensicht am schwersten zu lesen.
+func _hovered_die_hint(screen_pos: Vector2) -> String:
+	var result := _ray_pick(screen_pos, 2)
+	if result.is_empty():
+		return ""
+	var index := dice.index_of_body(result.collider)
+	if index == -1 or not dice.roots[index].visible or not dice.settled[index]:
+		return ""
+	var def: DieDefinition = dice.slot_defs[index]
+	var lines: Array[String] = []
+	var face_index := _hovered_face_index(dice.bodies[index], result.get("normal", Vector3.UP))
+	if face_index >= 0 and face_index < def.materials.size():
+		var face_hint := DieMaterial.face_hint(def.materials[face_index])
+		if face_hint != "":
+			lines.append(face_hint)
+	var edge_hint := DieMaterial.edge_hint(def.edge_material)
+	if edge_hint != "":
+		lines.append(edge_hint)
+	return "\n".join(lines)
+
+## Physische Seite (0..5) unter dem Weltnormal des Ray-Treffers: Normal in den
+## Würfel-Lokalraum drehen, nächste Achsrichtung suchen, deren Face-Index nehmen.
+func _hovered_face_index(body: RigidBody3D, world_normal: Vector3) -> int:
+	var local_normal := body.global_transform.basis.inverse() * world_normal
+	return DiceController.face_index_for_local_dir(local_normal)
 
 ## Hält die On-Screen-Buttons (Nehmen/Würfeln) jeden Frame im Takt des
 ## Spielzustands - unabhängig von den verstreuten Zustandswechseln.
@@ -2120,15 +2186,15 @@ func _edge_materials() -> Array[String]:
 ## (Vorschau, Nehmen, Farkle-Vergleich), damit Anzeige und Rechnung gleich bleiben.
 func _score_ctx() -> Dictionary:
 	return {
-		"rerolled": rerolled_dice_this_hand,
-		"taken_dice": taken_dice_this_round,
-		"full_rerolls": full_reroll_stacks,
-		"streak": momentum_streak,
-		"last_hand": _remaining_in_pool() < HAND_SIZE,
-		"after_farkle": first_hand_after_farkle,
-		"farkle_stacks": run.farkle_count,
-		"last_settled": dice.last_settled_index,
-		"late_slots": _late_slots(),
+		CharmEffects.CTX_REROLLED: rerolled_dice_this_hand,
+		CharmEffects.CTX_TAKEN_DICE: taken_dice_this_round,
+		CharmEffects.CTX_FULL_REROLLS: full_reroll_stacks,
+		CharmEffects.CTX_STREAK: momentum_streak,
+		CharmEffects.CTX_LAST_HAND: _remaining_in_pool() < HAND_SIZE,
+		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
+		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
+		CharmEffects.CTX_LAST_SETTLED: dice.last_settled_index,
+		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -2139,12 +2205,12 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	var to_filtered := {}
 	for k in slots.size():
 		to_filtered[slots[k]] = k
-	ctx["last_settled"] = to_filtered.get(ctx["last_settled"], -1)
+	ctx[CharmEffects.CTX_LAST_SETTLED] = to_filtered.get(ctx[CharmEffects.CTX_LAST_SETTLED], -1)
 	var mapped_late: Array = []
-	for s in ctx.get("late_slots", []):
+	for s in ctx.get(CharmEffects.CTX_LATE_SLOTS, []):
 		if to_filtered.has(s):
 			mapped_late.append(to_filtered[s])
-	ctx["late_slots"] = mapped_late
+	ctx[CharmEffects.CTX_LATE_SLOTS] = mapped_late
 	return ctx
 
 ## Slots, deren Würfel aus den letzten 6 Stapel-Positionen gezogen wurden (Bodensatz).
@@ -2194,12 +2260,17 @@ func _refresh_deck_trays() -> void:
 	var pool_start := next_draw_index + _queue_display_capacity()
 	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
 
-## Warteschlangen-Fenster: HAND_SIZE plus Ausziehtisch-Extra-Plätze. Beim
-## allerersten Aufbau existiert der Run noch nicht - dann gilt die Basisgröße.
+## Shop-Eröffnung: der ganze Bestand ruht sichtbar im Pool-Tray, Warteschlange
+## und Ablage sind leer - die Runde ist vorbei, es wird nicht mehr gezogen.
+func _return_dice_to_pool_tray() -> void:
+	queue_tray_view.clear()
+	discard_tray_view.clear()
+	pool_tray_view.ensure_capacity(run.owned_pool.size())
+	pool_tray_view.fill(run.owned_pool)
+
+## Warteschlangen-Fenster: fest HAND_SIZE Plätze.
 func _queue_capacity() -> int:
-	if run == null:
-		return HAND_SIZE
-	return HAND_SIZE + run.queue_bonus_slots
+	return HAND_SIZE
 
 ## Sichtbare Warteschlangen-Größe: 0, solange das Tray dieser Runde noch nicht
 ## aktiviert ist (siehe _activate_queue), sonst die volle Kapazität.
@@ -2349,6 +2420,7 @@ func _on_throw_button_pressed() -> void:
 		rerolled_dice_this_hand += thrown_indices.size()
 		if thrown_indices.size() == dice.count():
 			full_reroll_stacks += 1
+			_update_all_or_nothing_badge()
 	last_thrown_indices = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
@@ -2541,6 +2613,7 @@ func _on_roll_finished() -> void:
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
 			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
+			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
 			dice.clear_selection()
 			_auto_select_best_combo()
 			_line_up_settled_dice()
@@ -2581,6 +2654,13 @@ func _on_farkle() -> void:
 		_refresh_ui()
 		return
 
+	# Flickenteppich: statt die Hand zu verlieren, bleibt der Würfel mit der
+	# höchsten Augenzahl gehalten in der Grube - die Hand läuft mit ihm weiter.
+	# Nur solange nachgezogen werden kann (sonst hinge die Hand ohne Neuwurf fest).
+	if CharmEffects.farkle_keeps_high_die(ids) and _remaining_in_pool() > 0:
+		_keep_highest_die_and_continue(ids)
+		return
+
 	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
 
 	# Ein verziehener Farkle (oben) zählt bewusst NICHT gegen die "Saubere Runde".
@@ -2603,13 +2683,6 @@ func _on_farkle() -> void:
 		_animate_points_to(hand_total)
 		hand_note = "Standuhr: Farkle – die Rundenpunkte verdoppeln sich!"
 
-	# Flickenteppich: die Höchste-Zahl-Wertung des Wurfs bleibt.
-	if CharmEffects.farkle_keeps_high_card(ids):
-		var high_card := DiceScoring.score_category(DiceScoring.ONE_KIND, dice.values, ids, false, _rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
-		if high_card > 0:
-			hand_total += high_card
-			_animate_points_to(hand_total)
-
 	# Phönixfeder: die Würfel wandern zurück in den Nachziehstapel statt in
 	# die Ablage (die Hand bleibt trotzdem verloren).
 	if CharmEffects.has_phoenix(ids):
@@ -2627,6 +2700,27 @@ func _on_farkle() -> void:
 		if income > 0:
 			run.add_money(income)
 		_start_new_hand()
+
+## Flickenteppich: der Würfel mit der höchsten Augenzahl bleibt als einziger
+## gehalten liegen, alle anderen sind wieder frei - die Hand läuft weiter, statt
+## verloren zu gehen (kein Farkle-Effekt, kein Verwerfen).
+func _keep_highest_die_and_continue(ids: Array[String]) -> void:
+	dice.clear_selection()
+	var best := -1
+	var best_value := -1
+	for i in dice.count():
+		if dice.values[i] > best_value:
+			best_value = dice.values[i]
+			best = i
+	if best >= 0:
+		dice.set_selected(best, true)
+	_line_up_settled_dice()
+	has_rolled_current_hand = true
+	last_throw_was_reroll = false
+	hand_note = "Flickenteppich: Der höchste Würfel bleibt liegen – die Hand läuft weiter."
+	_flash_charm_and_pad(ids.find(Charm.PATCHWORK_RUG))
+	_refresh_deck_trays()
+	_refresh_ui()
 
 ## Nimmt die AUSGEWÄHLTEN Würfel als Hand: nur sie bilden die Kombination und
 ## liefern Basispunkte; physisch wandern danach alle liegenden Würfel in die
@@ -2693,6 +2787,7 @@ func _on_take_button_pressed() -> void:
 	first_hand_after_farkle = false
 	taken_dice_this_round += dice.count()
 	full_reroll_stacks = 0
+	_update_all_or_nothing_badge()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
 	# Recycling: die erste genommene Hand kehrt ans Stapel-Ende zurück.
@@ -3262,9 +3357,6 @@ func _on_round_complete() -> void:
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
-		# Ausziehtisch: Ziel doppelt übertroffen -> Warteschlange wächst dauerhaft.
-		if ids.has(Charm.EXTENSION_TABLE) and hand_total >= run.round_goal * 2:
-			run.queue_bonus_slots += 1
 		await _play_round_clear_payout(base_blind, per_die, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
@@ -3276,6 +3368,7 @@ func _on_round_complete() -> void:
 		_resolve_side_bets(true)
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
+		_return_dice_to_pool_tray()
 		# Läuft noch die Zeremonie, sauber beenden - sonst schwebte der echte
 		# Zeremonien-Würfel weiter über der Hub-Fläche und verdeckte die Seiten.
 		if engraving_active:
@@ -3529,6 +3622,13 @@ func _activate_queue() -> void:
 func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
+
+## Lager-Betrieb: die überfahrene Vorrats-Kachel schreibt ihre Beschreibung in die
+## Info-Leiste. Während der Gravur-Zeremonie gehört die Leiste der Station.
+func _on_supply_hovered(info_text: String) -> void:
+	if engraving_active or table_screen == null or table_screen.supply_info_label == null:
+		return
+	table_screen.supply_info_label.text = info_text
 
 # --- Reaktionen auf Shop/Gravur-Station -------------------------------------
 # Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen

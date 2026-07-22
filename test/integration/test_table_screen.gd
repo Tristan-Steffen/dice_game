@@ -58,6 +58,24 @@ func test_pit_window_hidden_until_placed_then_traces_the_walls():
 	var style: StyleBoxFlat = screen.pit_window.get_theme_stylebox("panel")
 	assert_eq(style.corner_radius_top_left, 75)
 
+func test_pit_info_bar_hidden_until_it_has_text():
+	# Das Hover-Erklärfeld ist vor der Platzierung unsichtbar und trägt danach
+	# den Fenster-Look; leerer Text blendet es aus, echter Text ein.
+	assert_false(screen.pit_info_bar.visible)
+	screen.place_pit_info_bar(Rect2(Vector2(200, 800), Vector2(900, 180)), 9.0)
+	assert_false(screen.pit_info_bar.visible, "platziert, aber ohne Text noch aus")
+	assert_eq(screen.pit_info_bar.position, Vector2(200, 800))
+	screen.set_pit_info("Rubin – +4 Mult")
+	assert_true(screen.pit_info_bar.visible, "mit Text erscheint das Feld")
+	assert_eq(screen.pit_info_label.text, "Rubin – +4 Mult")
+	screen.set_pit_info("")
+	assert_false(screen.pit_info_bar.visible, "leerer Text blendet wieder aus")
+
+func test_pit_info_bar_shares_the_one_window_look():
+	var info_style: StyleBoxFlat = screen.pit_info_bar.get_theme_stylebox("panel")
+	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")
+	assert_eq(info_style.border_color, cluster_style.border_color)
+
 func test_pit_window_shares_the_one_window_look():
 	# Alle Tisch-"Fenster" tragen denselben Stil (window_style): das Gruben-
 	# Fenster muss in Grund- und Rahmenfarbe dem Kombi-Cluster gleichen.

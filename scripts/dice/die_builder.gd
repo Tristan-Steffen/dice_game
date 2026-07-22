@@ -10,6 +10,9 @@ const FACE_MARGIN := 0.02
 ## Balken-Querschnitt der Kanten: ragt EDGE_THICKNESS/2 über die Oberfläche
 ## hinaus, also vor die Gesichts-Quads - die Kanten treten als Rahmen hervor.
 const EDGE_THICKNESS := 0.16
+## Eck-Kappen der Kanten-Materialien: dicker als die Balken, damit die
+## Silhouette selbst auf Distanz "beschlagene Ecken" zeigt.
+const CAP_SIZE := 0.34
 
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.
@@ -56,8 +59,8 @@ static func build() -> Node3D:
 	edge_material.emission_texture = edge_material.albedo_texture
 	# MULTIPLY statt (Standard) ADD - sonst ADDIERT die helle Textur Vollweiß.
 	edge_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
-	edge_material.roughness = 0.25
-	edge_material.metallic = 0.35
+	edge_material.roughness = DieFaceDisplay.EDGE_ROUGHNESS
+	edge_material.metallic = DieFaceDisplay.EDGE_METALLIC
 	edge_material.emission_enabled = true
 	edge_material.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW
 	faces.edge_material_res = edge_material
@@ -126,6 +129,24 @@ static func build() -> Node3D:
 			beam.material_override = edge_material
 			edges_root.add_child(beam)
 
+	# Eck-Kappen (nur mit Kanten-Material sichtbar): 8 Würfelchen auf den Ecken,
+	# gleiche Oberfläche wie der Rahmen - sie tragen die Silhouetten-Änderung.
+	var caps := Node3D.new()
+	caps.name = "CornerCaps"
+	caps.visible = false
+	var cap_mesh := BoxMesh.new()
+	cap_mesh.size = Vector3.ONE * CAP_SIZE
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				var cap := MeshInstance3D.new()
+				cap.mesh = cap_mesh
+				cap.position = Vector3(sx, sy, sz) * HALF_EXTENT
+				cap.material_override = edge_material
+				caps.add_child(cap)
+	edges_root.add_child(caps)
+	faces.corner_caps = caps
+
 	for axis: String in DiceController.AXIS_DIRECTIONS:
 		var direction: Vector3 = DiceController.AXIS_DIRECTIONS[axis]
 		var quad := MeshInstance3D.new()
@@ -144,7 +165,7 @@ static func build() -> Node3D:
 		mat.albedo_texture = DieMaterial.die_texture_for("")
 		mat.emission_texture = mat.albedo_texture
 		mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
-		mat.roughness = 0.2
+		mat.roughness = DieFaceDisplay.FACE_ROUGHNESS
 		mat.emission_enabled = true
 		mat.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.FACE_GLOW
 		quad.set_surface_override_material(0, mat)
@@ -152,12 +173,38 @@ static func build() -> Node3D:
 		faces.add_child(quad)
 		faces.quads[axis] = quad
 
+		var frame := _build_face_frame()
+		quad.add_child(frame)
+		faces.frames[axis] = frame
+
 		var label := _build_label(default_value)
 		quad.add_child(label)
 		faces.labels[axis] = label
 		DieFaceDisplay.fit_label(label)
 
 	return root
+
+## Leucht-Rahmen einer Material-Seite (unsichtbar ohne Material): dünne Linie
+## in Materialfarbe knapp vor dem Quad - das Distanz-Signal, welche Seite
+## Material trägt, wenn Facetten/Relief längst nicht mehr lesbar sind.
+static func _build_face_frame() -> MeshInstance3D:
+	var frame := MeshInstance3D.new()
+	frame.name = "MaterialFrame"
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2.ONE * FACE_SIZE
+	frame.mesh = mesh
+	frame.position = Vector3(0, 0, 0.006)  # vor dem Quad, hinter der Ziffer (0.01)
+	frame.visible = false
+	frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var material := StandardMaterial3D.new()
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_texture = DieMaterial.face_frame_texture()
+	material.albedo_color = DieFaceDisplay.BODY_COLOR
+	material.emission_enabled = true
+	material.emission_texture = material.albedo_texture
+	material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	frame.material_override = material
+	return frame
 
 ## Additive Licht-Lache am Boden unter dem Würfel (Neon-Kontaktschatten).
 ## top_level: folgt NICHT der Würfeldrehung - DieFaceDisplay._process setzt

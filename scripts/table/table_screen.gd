@@ -106,6 +106,10 @@ var workshop_hub_strip: LedStripView
 var slot_hub_strip: LedStripView
 var supply_info_bar: Panel
 var supply_info_label: Label
+## Hover-Erklärfeld unter den Grubenwürfeln: zeigt die Materialwirkung der Seite
+## unter der Maus (Seite + Kanten). Nur sichtbar, während set_pit_info Text hat.
+var pit_info_bar: Panel
+var pit_info_label: Label
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -400,9 +404,29 @@ func _build_content() -> void:
 	supply_info_label.name = "InfoLabel"
 	supply_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	supply_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	supply_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	supply_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	supply_info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	supply_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	supply_info_bar.add_child(supply_info_label)
+
+	# Hover-Erklärfeld der Grube: Position/Größe setzt scene_root über
+	# place_pit_info_bar; leer = unsichtbar (set_pit_info).
+	pit_info_bar = Panel.new()
+	pit_info_bar.name = "PitInfoBar"
+	pit_info_bar.visible = false
+	pit_info_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_info_bar.add_theme_stylebox_override("panel", window_style())
+	add_child(pit_info_bar)
+	pit_info_label = Label.new()
+	pit_info_label.name = "InfoLabel"
+	pit_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pit_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pit_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pit_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pit_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_info_label.modulate = Color(1.35, 1.35, 1.3)
+	pit_info_bar.add_child(pit_info_label)
 
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
@@ -1769,6 +1793,25 @@ func pit_actions_rect() -> Rect2:
 	if pit_actions_root == null:
 		return Rect2()
 	return Rect2(pit_actions_root.position, pit_actions_root.size)
+
+## Spannt das Hover-Erklärfeld über rect auf (unter den Grubenwürfeln); unit
+## staffelt die Schriftgröße wie bei den übrigen Info-Leisten.
+func place_pit_info_bar(rect: Rect2, unit: float) -> void:
+	if pit_info_bar == null:
+		return
+	pit_info_bar.position = rect.position
+	pit_info_bar.size = rect.size
+	pit_info_label.offset_left = unit * 2.0
+	pit_info_label.offset_right = -unit * 2.0
+	pit_info_label.add_theme_font_size_override("font_size", maxi(10, int(unit * 3.0)))
+
+## Setzt den Erklärtext ("" = Feld ausblenden). Die Grubenwürfel-Hover-Logik in
+## scene_root ruft das jeden Frame.
+func set_pit_info(text: String) -> void:
+	if pit_info_bar == null:
+		return
+	pit_info_label.text = text
+	pit_info_bar.visible = text != ""
 
 ## Schneidet einen Kamerastrahl mit der Bildschirm-Ebene und liefert den
 ## Display-Pixel - (-1,-1) bei Verfehlen oder außerhalb der Fläche.

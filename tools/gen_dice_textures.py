@@ -91,9 +91,19 @@ def tex_ruby():
 
 # --- Bernstein: warmes Harz mit Lufteinschlüssen ---------------------------------
 def tex_amber():
-    v = 0.92 + 0.08 * noise(60)
-    v = bubbles(v, 70, 2.0, 7.0)
-    return v, (1.00, 0.96, 0.90)
+    v = 0.90 + 0.07 * noise(60)
+    v = bubbles(v, 55, 2.0, 6.0)
+    # Harz in der Mitte dicker: Mitte hell -> der Schein kommt von innen
+    # (Emission = Albedo). wrapped_dist hält den Verlauf nahtlos.
+    d = wrapped_dist(YY, XX, S / 2, S / 2) / (S * 0.7071)
+    v += 0.10 * (1.0 - d) ** 2
+    # Wenige dunkle Einschlüsse - typisch Bernstein, nie Gold
+    for _ in range(9):
+        cy, cx = rng.random(2) * S
+        r = rng.uniform(2.5, 6.0)
+        dd = wrapped_dist(YY, XX, cy, cx)
+        v -= 0.22 * np.exp(-(dd ** 2) / (r * r * 0.5))
+    return v, (1.00, 0.94, 0.85)
 
 
 # --- Gold: gebürstete Folie (horizontale Striche + leichte Dellen) ---------------
@@ -154,6 +164,36 @@ TEXTURES = {
     "glass": tex_glass,
 }
 
+# Materialien mit Relief: Höhe (= Musterhelligkeit) wird zur Normal-Map
+# <name>_n.png. Stärke je Material: Rubin-Facetten hart, Wellen weich.
+NORMAL_STRENGTH = {"ruby": 60.0, "mercury": 22.0, "glass": 40.0}
+
+
+def height_to_normal(v, strength):
+    """Periodische Höhe 0..1 -> Tangentraum-Normal-Map (OpenGL-Y+)."""
+    gx = (np.roll(v, -1, 1) - np.roll(v, 1, 1)) * 0.5
+    gy = (np.roll(v, -1, 0) - np.roll(v, 1, 0)) * 0.5
+    nx = -gx * strength
+    ny = gy * strength
+    nz = np.ones_like(v)
+    length = np.sqrt(nx ** 2 + ny ** 2 + nz ** 2)
+    n = np.stack([nx / length, ny / length, nz / length], axis=-1)
+    return n * 0.5 + 0.5
+
+
+def tex_face_frame():
+    """Leucht-Rahmen einer Material-Seite: weiße Linie mit weichem Schein auf
+    Alpha - die Materialfarbe liefert zur Laufzeit die Emission (RGBA!)."""
+    inset, radius, width = 26.0, 54.0, 7.0
+    half = S / 2.0
+    qx = np.abs(XX - half) - (half - inset - radius)
+    qy = np.abs(YY - half) - (half - inset - radius)
+    dist = (np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0))
+            + np.minimum(np.maximum(qx, qy), 0.0) - radius)
+    line = np.exp(-(dist ** 2) / (2.0 * width ** 2))
+    halo = 0.35 * np.exp(-(dist ** 2) / (2.0 * (width * 4.0) ** 2))
+    return np.clip(line + halo, 0.0, 1.0)
+
 
 def main():
     os.makedirs(OUT, exist_ok=True)
@@ -165,7 +205,17 @@ def main():
         img = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8))
         img.save(os.path.join(OUT, name + ".png"))
         tiles.append((name, img))
+        if name in NORMAL_STRENGTH:
+            normal = height_to_normal(norm01(v), NORMAL_STRENGTH[name])
+            Image.fromarray((normal * 255).astype(np.uint8)).save(
+                os.path.join(OUT, name + "_n.png"))
         print("ok", name)
+
+    alpha = tex_face_frame()
+    rgba = np.stack([np.ones_like(alpha)] * 3 + [alpha], axis=-1)
+    Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").save(
+        os.path.join(OUT, "face_frame.png"))
+    print("ok face_frame")
 
     # Kontaktbogen (2×2 gekachelt je Textur, um die Nahtlosigkeit zu sehen)
     cell = 256
