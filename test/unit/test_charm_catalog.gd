@@ -84,8 +84,9 @@ func test_straggler_needs_the_last_die_in_the_combo():
 	assert_eq(outside, 0, "unbeteiligter Nachzügler zählt nicht")
 
 func test_sediment_boosts_late_drawn_dice():
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.SEDIMENT]), {"late_slots": [0, 5]})
-	assert_eq(bonus, 5, "nur Slot 0 ist beteiligt UND spät gezogen")
+	# +3 Mult je beteiligtem, spät gezogenem Würfel; Slot 0 ist beides, Slot 5 nicht beteiligt.
+	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.SEDIMENT]), {"late_slots": [0, 5]}, {}, _p([0, 1]))
+	assert_eq(bonus, 3, "nur Slot 0 ist beteiligt UND spät gezogen")
 
 func test_edge_gleam_scales_with_edge_dice_count():
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD, "", "", "", ""])
@@ -144,10 +145,13 @@ func test_gallows_humor_crit_after_farkle():
 
 # --- Basis-Boni & Faktoren -----------------------------------------------------------
 
-func test_blackjack_pays_50_bonus_eyes_on_sum_21():
-	var dice := _d([6, 6, 1, 2, 2, 4])  # Summe des Wurfs = 21
-	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, dice, _p([0, 1]), _ids([Charm.BLACKJACK])), 50)
-	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.BLACKJACK])), 0, "Summe 22 zahlt nicht")
+func test_blackjack_pays_50_only_when_the_counted_dice_sum_to_21():
+	# Große Straße: alle sechs zählen, Augensumme 1+2+3+4+5+6 = 21.
+	var straight := _d([1, 2, 3, 4, 5, 6])
+	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.LARGE_STRAIGHT, straight, _p([0, 1, 2, 3, 4, 5]), _ids([Charm.BLACKJACK])), 50)
+	# Nur das Paar zählt (12); die mitgenommenen 3 und 6 dürfen NICHT auf 21 aufaddieren.
+	var padded := _d([6, 6, 3, 6, 1, 2])  # ganze Auswahl summiert 24, das Paar aber nur 12
+	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, padded, _p([0, 1]), _ids([Charm.BLACKJACK])), 0, "unbeteiligte Würfel zählen nicht mit")
 
 func test_snake_eyes_converts_bystanders_to_mult():
 	# Genau ein 1er-Paar genommen: Mult += Augensumme der Unbeteiligten (3+4+5+6).

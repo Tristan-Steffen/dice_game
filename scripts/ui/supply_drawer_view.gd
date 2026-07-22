@@ -12,6 +12,9 @@ extends Panel
 
 ## Werkzeug aufgenommen/abgelegt (nur in der Station-Betriebsart).
 signal tool_pressed(engraving_id: String)
+## Lager-Betrieb: Überfahren einer Kachel liefert ihre Beschreibungszeile ("" beim
+## Verlassen). Die Station schweigt hier - dort führt die Hinweiszeile selbst.
+signal hovered(info_text: String)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -170,6 +173,14 @@ func _chip(archetype: Engraving, count: int) -> Button:
 	chip.tooltip_text = "%s (%s)\n%s" % [archetype.display_name,
 		Engraving.rarity_name(archetype.rarity), archetype.description]
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
+	var info := "%s (%s) – %s" % [archetype.display_name,
+		Engraving.rarity_name(archetype.rarity), archetype.description]
+	chip.mouse_entered.connect(func() -> void:
+		if not _ceremony:
+			hovered.emit(info))
+	chip.mouse_exited.connect(func() -> void:
+		if not _ceremony:
+			hovered.emit(""))
 
 	var face := EngravingRenderer.for_engraving(archetype)
 	face.bare = true  # die Schublade IST der Grund - keine zweite Kachel darauf
@@ -206,7 +217,9 @@ func restyle() -> void:
 		var usable := _ceremony and owned \
 			and (_enabled_ids.is_empty() or _enabled_ids.has(id))
 		chip.disabled = not usable
-		chip.mouse_filter = Control.MOUSE_FILTER_STOP if _ceremony else Control.MOUSE_FILTER_IGNORE
+		# Auch im Lager fangen die Kacheln die Maus - fürs Überfahren (Beschreibung
+		# in der Info-Leiste); nur der Klick bleibt der Station vorbehalten.
+		chip.mouse_filter = Control.MOUSE_FILTER_STOP
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if usable \
 			else Control.CURSOR_ARROW
 		var resting: StyleBox = _chip_box(Color("#2c2757dd"), GOLD, 1.0) \

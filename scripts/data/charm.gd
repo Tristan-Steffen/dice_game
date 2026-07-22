@@ -90,7 +90,6 @@ const FINE_PRINT := "fine_print"
 const RECYCLING := "recycling"
 const FRESH_GOODS := "fresh_goods"
 const SEDIMENT := "sediment"
-const EXTENSION_TABLE := "extension_table"
 # Shop & Angebote
 const SEAL_OF_QUALITY := "seal_of_quality"
 const BULK_DISCOUNT := "bulk_discount"
@@ -194,7 +193,6 @@ const RARITIES := {
 	RECYCLING: RARITY_UNCOMMON,
 	FRESH_GOODS: RARITY_COMMON,
 	SEDIMENT: RARITY_UNCOMMON,
-	EXTENSION_TABLE: RARITY_UNCOMMON,
 	# Shop & Angebote
 	CON_ARTIST_CUFF: RARITY_COMMON,
 	SEAL_OF_QUALITY: RARITY_UNCOMMON,
@@ -379,7 +377,7 @@ static func after_work_beer() -> Charm:
 	return _make(AFTER_WORK_BEER, "Feierabendbier", "Die letzte Hand jeder Runde zählt doppelt.")
 
 static func blackjack() -> Charm:
-	return _make(BLACKJACK, "Blackjack", "Ist die Augensumme des Wurfs genau 21: +50 Basispunkte.")
+	return _make(BLACKJACK, "Blackjack", "Ergeben die gewerteten Würfel zusammen genau 21 Augen: +50 Basispunkte.")
 
 static func round_number() -> Charm:
 	return _make(ROUND_NUMBER, "Runde Sache", "Endet die Augensumme der genommenen Kombination auf 0: +100 Basispunkte.")
@@ -414,7 +412,7 @@ static func phoenix_feather() -> Charm:
 	return _make(PHOENIX_FEATHER, "Phönixfeder", "Bei jedem Farkle kehrt die ganze Hand ans Ende des Nachziehstapels zurück statt in die Ablage.")
 
 static func patchwork_rug() -> Charm:
-	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Farkle bleibt die Wertung des Würfels mit der höchsten Augenzahl erhalten.")
+	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Farkle bleibt der Würfel mit der höchsten Augenzahl gehalten liegen - die Hand läuft weiter, statt verloren zu gehen.")
 
 # --- Geld ---
 
@@ -422,7 +420,14 @@ static func gold_rush() -> Charm:
 	return _make(GOLD_RUSH, "Goldrausch", "Nutzt eine genommene Kombination alle liegenden Würfel, wächst dein Geld um 50% (max. $50).")
 
 static func rag_collector() -> Charm:
-	return _make(RAG_COLLECTOR, "Lumpensammler", "Würfelt jede Runde eine Glückszahl (1-6): jeder abgelegte Würfel mit diesem Wert oben zahlt $4.")
+	return _make(RAG_COLLECTOR, "Lumpensammler", rag_collector_description(0))
+
+## Beschreibung mit der aktuell gewürfelten Glückszahl; 0 = noch keine (Shop).
+static func rag_collector_description(value: int) -> String:
+	var base := "Würfelt jede Runde eine Glückszahl (1-6): jeder abgelegte Würfel mit diesem Wert oben zahlt $4."
+	if value >= 1 and value <= 6:
+		return "%s\nGlückszahl diese Runde: %d." % [base, value]
+	return base
 
 static func interest_penny() -> Charm:
 	return _make(INTEREST_PENNY, "Zinsgroschen", "Am Rundenende +$1 je volle $10 Besitz (max. $50).")
@@ -508,10 +513,7 @@ static func fresh_goods() -> Charm:
 	return _make(FRESH_GOODS, "Frische Ware", "Neu gekaufte Würfel liegen ganz vorn im Nachziehstapel der nächsten Runde.")
 
 static func sediment() -> Charm:
-	return _make(SEDIMENT, "Bodensatz", "Die letzten 6 Würfel des Nachziehstapels geben +5 Basispunkte, wenn sie beteiligt sind.")
-
-static func extension_table() -> Charm:
-	return _make(EXTENSION_TABLE, "Ausziehtisch", "Übertriffst du das Rundenziel um das Doppelte, wächst die Warteschlange dauerhaft um einen Platz.")
+	return _make(SEDIMENT, "Bodensatz", "Die letzten 6 Würfel des Nachziehstapels geben +3 Mult, wenn sie beteiligt sind.")
 
 # --- Shop & Angebote ---
 
@@ -557,7 +559,7 @@ static func all() -> Array[Charm]:
 		display_case(), jewelry_box(), alloy(),
 		frame_gilder(), magnet_ring(), edge_gleam(),
 		large_format(), bargain_hunter(), double_perforation(), engraving_pen(), stamp_machine(), fine_print(),
-		recycling(), fresh_goods(), sediment(), extension_table(),
+		recycling(), fresh_goods(), sediment(),
 		seal_of_quality(), bulk_discount(), house_brand(),
 		parrot_totem(), echo_totem(), hermit_crab(),
 	]

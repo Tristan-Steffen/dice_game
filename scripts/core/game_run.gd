@@ -100,7 +100,6 @@ var combo_levels: Dictionary = {}
 var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var gravierstift_used_this_round: bool = false
-var queue_bonus_slots: int = 0  # Ausziehtisch: dauerhafte Extra-Warteschlangenplätze
 var newly_purchased: Array[DieDefinition] = []  # Frische Ware: zieht nächste Runde zuerst
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
@@ -287,7 +286,7 @@ func purchase_charm(charm: Charm, price: int) -> void:
 	add_money(-price)
 	owned_charms.append(charm)
 	if charm.id == Charm.RAG_COLLECTOR:
-		lumpensammler_value = randi_range(1, 6)
+		_roll_lumpensammler_value()
 	charms_changed.emit()
 
 ## Reihenfolge ist spielrelevant: Totems kopieren Nachbarn, sie bestimmt die
@@ -412,7 +411,7 @@ func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
-		lumpensammler_value = randi_range(1, 6)
+		_roll_lumpensammler_value()
 	for i in ids.count(Charm.STAMP_MACHINE):
 		var number_engravings: Array[Engraving] = []
 		for engraving in Engraving.all():
@@ -420,6 +419,14 @@ func apply_round_start_charms() -> void:
 				number_engravings.append(engraving)
 		for j in 3:
 			grant_engraving(number_engravings[randi() % number_engravings.size()])
+
+## Neue Glückszahl würfeln und sie in die Beschreibung jedes Lumpensammlers
+## schreiben (die Karten-Instanzen, die der Dock live liest).
+func _roll_lumpensammler_value() -> void:
+	lumpensammler_value = randi_range(1, 6)
+	for charm in owned_charms:
+		if charm.id == Charm.RAG_COLLECTOR:
+			charm.description = Charm.rag_collector_description(lumpensammler_value)
 
 ## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
 ## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert die Anzahl.

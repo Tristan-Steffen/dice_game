@@ -4,6 +4,31 @@ class_name CharmEffects
 ## übergebenen ids - mehrere/duplizierte Charms stapeln sich.
 ## Ein neuer Charm braucht nur hier + eine Fabrikmethode in charm.gd.
 
+## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
+const ALL_OR_NOTHING_MULT := 5
+
+## Schlüssel des ctx-Dictionaries (Wurf-/Runden-Zustand der Effektkatalog-Charms).
+## const, damit ein Tippfehler beim Setzen (scene_root) ODER Lesen ein Compile-
+## Fehler ist - nicht der stille Null-Rückfall von ctx.get(). Werte je Schlüssel:
+##   REROLLED      int   - diese Hand neu geworfene Würfel (Pendel)
+##   TAKEN_DICE    int   - diese Runde bereits genommene Würfel (Pendel)
+##   FULL_REROLLS  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts)
+##   STREAK        int   - genommene Hände in Folge ohne Farkle (Momentum)
+##   LAST_HAND     bool  - letzte Hand der Runde (Feierabendbier)
+##   AFTER_FARKLE  bool  - erste Hand nach einem Farkle (Galgenhumor)
+##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
+##   LAST_SETTLED  int   - Slot des zuletzt zur Ruhe gekommenen Würfels (Nachzügler)
+##   LATE_SLOTS    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
+const CTX_REROLLED := "rerolled"
+const CTX_TAKEN_DICE := "taken_dice"
+const CTX_FULL_REROLLS := "full_rerolls"
+const CTX_STREAK := "streak"
+const CTX_LAST_HAND := "last_hand"
+const CTX_AFTER_FARKLE := "after_farkle"
+const CTX_FARKLE_STACKS := "farkle_stacks"
+const CTX_LAST_SETTLED := "last_settled"
+const CTX_LATE_SLOTS := "late_slots"
+
 # --- Drei getrennte Mechaniken am einzelnen Würfel ---------------------------
 # 1. transform_value:  der Würfel ZEIGT einen anderen Wert - wirkt auf
 #    Kombinations-Erkennung UND Punkte (läuft VOR DiceScoring).
@@ -154,30 +179,20 @@ static func die_price(base_price: int, charm_ids: Array[String], bundle_size: in
 	return maxi(1, int(round(price)))
 
 # ==============================================================================
-# Effektkatalog-Hooks: brauchen Wurf-/Runden-Zustand als ctx-Dictionary
-# (alle Schlüssel optional):
-#   "rerolled":      int   - diese Hand neu geworfene Würfel (Pendel)
-#   "taken_dice":    int   - diese Runde bereits genommene Würfel (Pendel)
-#   "full_rerolls":  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts)
-#   "streak":        int   - genommene Hände in Folge ohne Farkle (Momentum)
-#   "last_hand":     bool  - letzte Hand der Runde (Feierabendbier)
-#   "after_farkle":  bool  - erste Hand nach einem Farkle (Galgenhumor)
-#   "farkle_stacks": int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
-#   "last_settled":  int   - Slot des zuletzt zur Ruhe gekommenen Würfels (Nachzügler)
-#   "late_slots":    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
+# Effektkatalog-Hooks: brauchen Wurf-/Runden-Zustand als ctx-Dictionary (alle
+# Schlüssel optional, Konstanten siehe CTX_* oben).
 # ==============================================================================
 
 ## Zusätzliche Basispunkte VOR dem Multiplikator.
-static func charm_base_bonus(key: String, values: Array[int], participating: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, materials: Array[String] = [], edge_materials: Array[String] = []) -> int:
+static func charm_base_bonus(key: String, values: Array[int], participating: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, _materials: Array[String] = [], edge_materials: Array[String] = []) -> int:
 	var bonus := 0
 	var edge_count := 0
 	for material_id in edge_materials:
 		if material_id != "":
 			edge_count += 1
-	var roll_sum := 0  # rohe Augensumme des Wurfs (Blackjack)
-	for value in values:
-		roll_sum += value
-	var hand_sum := 0  # rohe Augensumme der beteiligten Würfel (Runde Sache)
+	# Augensumme NUR der gezählten (beteiligten) Würfel - Blackjack und Runde Sache
+	# ignorieren mitgenommene, aber unbeteiligte Würfel.
+	var hand_sum := 0
 	for i in participating:
 		if i < values.size():
 			hand_sum += values[i]
@@ -196,20 +211,15 @@ static func charm_base_bonus(key: String, values: Array[int], participating: Arr
 			Charm.BROADBAND:
 				bonus += 5 * participating.size()
 			Charm.STRAGGLER:
-				var last: int = ctx.get("last_settled", -1)
+				var last: int = ctx.get(CTX_LAST_SETTLED, -1)
 				if last >= 0 and last < values.size() and participating.has(last):
 					bonus += eye_value(values[last], charm_ids)
-			Charm.SEDIMENT:
-				var late: Array = ctx.get("late_slots", [])
-				for i in participating:
-					if late.has(i):
-						bonus += 5
 			Charm.EDGE_GLEAM:
 				for i in participating:
 					if i < edge_materials.size() and edge_materials[i] != "":
 						bonus += edge_count
 			Charm.BLACKJACK:
-				if roll_sum == 21:
+				if hand_sum == 21:
 					bonus += 50
 			Charm.ROUND_NUMBER:
 				if hand_sum > 0 and hand_sum % 10 == 0:
@@ -231,13 +241,19 @@ static func charm_mult_bonus(key: String, values: Array[int], materials: Array[S
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.PENDULUM:
-				bonus += maxi(0, 2 * int(ctx.get("rerolled", 0)) - int(ctx.get("taken_dice", 0)))
+				bonus += maxi(0, 2 * int(ctx.get(CTX_REROLLED, 0)) - int(ctx.get(CTX_TAKEN_DICE, 0)))
 			Charm.ALL_OR_NOTHING:
-				bonus += 5 * int(ctx.get("full_rerolls", 0))
+				bonus += ALL_OR_NOTHING_MULT * int(ctx.get(CTX_FULL_REROLLS, 0))
 			Charm.MOMENTUM:
-				bonus += int(ctx.get("streak", 0))
+				bonus += int(ctx.get(CTX_STREAK, 0))
 			Charm.BROKEN_MIRROR:
-				bonus += int(ctx.get("farkle_stacks", 0))
+				bonus += int(ctx.get(CTX_FARKLE_STACKS, 0))
+			Charm.SEDIMENT:
+				# Je beteiligtem, spät gezogenem Würfel +3 Mult.
+				var late: Array = ctx.get(CTX_LATE_SLOTS, [])
+				for i in participating:
+					if late.has(i):
+						bonus += 3
 			Charm.EVEN_COMPANY:
 				if not values.is_empty() and values.all(func(v: int) -> bool: return v % 2 == 0):
 					bonus += 6
@@ -287,12 +303,12 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 
 ## Krit-Pool: additive Beiträge, die den fertigen Mult als Faktor (1 + Summe)
 ## multiplizieren. Galgenhumor +3 nach Farkle.
-static func crit_bonus(key: String, charm_ids: Array[String], ctx: Dictionary = {}, combo_levels: Dictionary = {}) -> int:
+static func crit_bonus(_key: String, charm_ids: Array[String], ctx: Dictionary = {}, _combo_levels: Dictionary = {}) -> int:
 	var bonus := 0
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.GALLOWS_HUMOR:
-				if ctx.get("after_farkle", false):
+				if ctx.get(CTX_AFTER_FARKLE, false):
 					bonus += 3
 	return bonus
 
@@ -314,7 +330,7 @@ static func hand_factor(_key: String, charm_ids: Array[String], ctx: Dictionary 
 	for charm_id in charm_ids:
 		match charm_id:
 			Charm.AFTER_WORK_BEER:
-				if ctx.get("last_hand", false):
+				if ctx.get(CTX_LAST_HAND, false):
 					factor *= 2.0
 	return factor
 
@@ -390,8 +406,9 @@ static func anchor_saves(charm_ids: Array[String], reroll_index: int) -> bool:
 static func farkle_doubles_points(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.GRANDFATHER_CLOCK)
 
-## Flickenteppich: Farkle behält die Höchste-Zahl-Wertung des Wurfs.
-static func farkle_keeps_high_card(charm_ids: Array[String]) -> bool:
+## Flickenteppich: bei einem Farkle bleibt der höchste Würfel gehalten liegen,
+## statt die Hand zu verlieren (siehe scene_root._keep_highest_die_and_continue).
+static func farkle_keeps_high_die(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PATCHWORK_RUG)
 
 ## Phönixfeder: geworfene Würfel kehren beim Farkle in den Stapel zurück.

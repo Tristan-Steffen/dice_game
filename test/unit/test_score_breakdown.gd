@@ -198,3 +198,116 @@ func test_kitchen_sink_scenario_matches_scoring():
 	var levels := {DiceScoring.THREE_KIND: 1}
 	var ctx := {"after_farkle": true, "streak": 2}
 	_build_and_check(DiceScoring.THREE_KIND, dice, run.charm_ids(), true, mats, edges, levels, ctx)
+
+# --- Pro-Würfel-Meteor: der Charm-Schritt fächert in Einzel-Pulse auf -------------
+
+func test_per_die_charm_step_carries_one_pulse_per_triggered_die():
+	# Bodensatz: Paar Fünfer, beide Slots spät gezogen -> zwei Mult-Pulse à +3.
+	var ctx := {CharmEffects.CTX_LATE_SLOTS: [0, 1]}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
+		_ids([Charm.SEDIMENT]), false, NO_MATS, NO_MATS, {}, ctx)
+	var pulsed := {}
+	for step: Dictionary in breakdown["charm_steps"]:
+		if step.has("pulses"):
+			pulsed = step
+	assert_false(pulsed.is_empty(), "Bodensatz-Schritt trägt Pulse")
+	assert_eq(pulsed["pulses"].size(), 2, "je beteiligtem, spät gezogenem Würfel ein Puls")
+	assert_eq(int(pulsed["pulses"][0]["mult"]), 3, "jeder Puls +3 Mult")
+	# Die Pulse bauen lückenlos auf den Schritt-Endstand auf.
+	assert_eq(int(pulsed["pulses"][1]["mult_after"]), int(pulsed["mult_after"]),
+		"letzter Puls trifft den Schritt-Endstand")
+
+func test_bonus_that_is_not_per_die_carries_no_pulses():
+	# Marienkäfer gibt +4 Mult aufs Paar - ein Schritt, aber kein Pro-Würfel-Charm.
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
+		_ids([Charm.LADYBUG]), false)
+	var steps: int = breakdown["charm_steps"].size()
+	assert_gt(steps, 0, "Marienkäfer erzeugt einen Schritt")
+	for step: Dictionary in breakdown["charm_steps"]:
+		assert_false(step.has("pulses"), "Nicht-pro-Würfel-Schritt trägt keine Pulse")
+
+# --- Systematischer Deckungstest: build == score_category über die Matrix ----------
+# ScoreBreakdown und DiceScoring komponieren dieselben ~9 Charm-Hooks in eigener
+# Reihenfolge. Dieser Fächer prüft NUR die Deckungsgleichheit (nicht Einzelwerte):
+# jede Kombination aus Charm-Satz × Wurf × Umgebung muss in beiden Pfaden exakt
+# gleich fallen - so kann keine künftige Hook-Änderung die zwei still auseinander-
+# laufen lassen (wie schon einmal bei Anzeige/Buchung geschehen).
+
+## Ein Vertreter je Hook-Typ plus ein paar Stapel - Wert egal, nur Deckung zählt.
+func _prop_charm_sets() -> Array:
+	return [
+		[],
+		[Charm.LIGHTHOUSE], [Charm.TWIN_RING], [Charm.DOUBLE_SIX], [Charm.SNAKE_EYES],
+		[Charm.PENDULUM], [Charm.ALL_OR_NOTHING], [Charm.MOMENTUM], [Charm.BROKEN_MIRROR],
+		[Charm.EVEN_COMPANY], [Charm.ODD_PATH], [Charm.HERMIT_CRAB], [Charm.DISPLAY_CASE],
+		[Charm.COLLECTORS_AMULET], [Charm.ECHO_CHAMBER], [Charm.STREET_SWEEPER],
+		[Charm.FULL_COUNTER], [Charm.BROADBAND], [Charm.STRAGGLER], [Charm.SEDIMENT],
+		[Charm.EDGE_GLEAM], [Charm.BLACKJACK], [Charm.ROUND_NUMBER], [Charm.HORSESHOE],
+		[Charm.LADYBUG], [Charm.PEARL_NECKLACE], [Charm.RAINBOW_TROUT], [Charm.MAGIC_CARD],
+		[Charm.CULT_OF_ONE], [Charm.GALLOWS_HUMOR], [Charm.AFTER_WORK_BEER],
+		[Charm.LUCKY_CIGARETTES], [Charm.PENCIL_STUB], [Charm.FOX_TAIL],
+		[Charm.SMALL_FRY], [Charm.EQUALIZER],
+		[Charm.RABBITS_FOOT], [Charm.FOUR_LEAF_CLOVER], [Charm.GOLDEN_SCARAB],
+		[Charm.CULT_OF_ONE, Charm.GALLOWS_HUMOR, Charm.MAGIC_CARD],
+		[Charm.LUCKY_CIGARETTES, Charm.DOUBLE_SIX, Charm.BLACKJACK],
+		[Charm.EQUALIZER, Charm.SMALL_FRY, Charm.ECHO_CHAMBER, Charm.FULL_COUNTER],
+	]
+
+## Würfe mit unbeteiligten Würfeln, geraden/ungeraden Läufen, Einsen und Sechsen -
+## deckt die wertabhängigen Verzweigungen der Hooks ab.
+func _prop_dice() -> Array:
+	return [
+		[1, 2, 3, 4, 5, 6], [6, 6, 6, 1, 1, 2], [5, 5, 1, 2, 3, 4],
+		[1, 1, 2, 4, 6, 6], [2, 2, 2, 4, 4, 6], [1, 3, 5, 5, 5, 5],
+		[2, 4, 6, 2, 4, 6], [1, 3, 5, 1, 3, 5],
+	]
+
+func test_breakdown_matches_scoring_across_the_matrix():
+	var levels := {DiceScoring.TWO_KIND: 1, DiceScoring.THREE_KIND: 1}
+	# Zwei Umgebungen: nackt, und voll (Materialien + Kanten + reicher Kontext +
+	# Übertaktung + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
+	var full_mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, DieMaterial.GLASS, "", DieMaterial.BONE])
+	var full_edges := _m(["", DieMaterial.MERCURY, "", "", DieMaterial.GOLD, ""])
+	var rich_ctx := {
+		CharmEffects.CTX_REROLLED: 3, CharmEffects.CTX_TAKEN_DICE: 2,
+		CharmEffects.CTX_FULL_REROLLS: 2, CharmEffects.CTX_STREAK: 3,
+		CharmEffects.CTX_LAST_HAND: true, CharmEffects.CTX_AFTER_FARKLE: true,
+		CharmEffects.CTX_FARKLE_STACKS: 2, CharmEffects.CTX_LAST_SETTLED: 0,
+		CharmEffects.CTX_LATE_SLOTS: [4, 5],
+	}
+	# Nur die Deckung (total == score_category) je Zelle - die Zwischenstände
+	# prüfen die gezielten Tests oben. Abweichungen sammeln und EINMAL asserten,
+	# sonst ertränkt der Fächer (~640 Zellen) das Log.
+	var mismatches: Array[String] = []
+	var checked := 0
+	for set: Array in _prop_charm_sets():
+		var ids := _ids(set)
+		for raw: Array in _prop_dice():
+			var dice := _d(raw)
+			var key: String = DiceScoring.best_hand(dice, ids, false, NO_MATS, NO_MATS, {}, {})["key"]
+			var first_key: String = DiceScoring.best_hand(dice, ids, true, full_mats, full_edges, levels, rich_ctx)["key"]
+			_collect_mismatch(mismatches, key, dice, ids, false, NO_MATS, NO_MATS, {}, {})
+			_collect_mismatch(mismatches, first_key, dice, ids, true, full_mats, full_edges, levels, rich_ctx)
+			checked += 2
+	assert_eq(mismatches, [] as Array[String],
+		"%d/%d Zellen weichen ab: %s" % [mismatches.size(), checked, ", ".join(mismatches)])
+
+## Hängt eine Beschreibung an, WENN build["total"] von score_category abweicht -
+## und prüft zugleich, dass jeder Pro-Würfel-Puls-Schritt sich exakt zu seiner
+## Marginale summiert (sonst zeigte die Meteor-je-Würfel-Animation falsche Zahlen).
+func _collect_mismatch(into: Array[String], key: String, dice: Array[int], ids: Array[String], first: bool, mats: Array[String], edges: Array[String], levels: Dictionary, ctx: Dictionary) -> void:
+	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, edges, levels, ctx)
+	var total: int = breakdown["total"]
+	var expected := DiceScoring.score_category(key, dice, ids, first, mats, edges, levels, ctx)
+	if total != expected:
+		into.append("%s%s/%s/%s: %d≠%d" % ["erste " if first else "", key, str(ids), str(dice), total, expected])
+	for step: Dictionary in breakdown["charm_steps"]:
+		if not step.has("pulses"):
+			continue
+		var sum_base := 0
+		var sum_mult := 0
+		for p: Dictionary in step["pulses"]:
+			sum_base += int(p["base"])
+			sum_mult += int(p["mult"])
+		if sum_base != int(step["base_add"]) or sum_mult != int(step["mult_add"]):
+			into.append("PULSE-SUMME %s/%s: %d/%d≠%d/%d" % [key, str(ids), sum_base, sum_mult, step["base_add"], step["mult_add"]])

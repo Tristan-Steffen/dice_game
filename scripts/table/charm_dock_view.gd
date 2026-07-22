@@ -61,6 +61,11 @@ var _body_label: Label
 var _sell_label: Label
 var _sell_rect := Rect2()
 var _sell_values: Array[int] = []
+## Dauer-Chip mit laufendem Wert an EINER Karte (Alles-oder-nichts-Mult); scene_root
+## setzt ihn über set_mult_badge. -1/0 = versteckt.
+var _badge_label: Label
+var _badge_slot := -1
+var _badge_value := 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -95,6 +100,7 @@ func place(aperture_centers_px: PackedVector2Array, pad_size: Vector2, proj_radi
 	_flash.fill(0.0)
 	_style_labels()
 	_clear_thumbs()
+	_update_badge()
 	queue_redraw()
 
 ## Projektor-Radius (Beam-Radius, sonst Fallback aus der Kartenhöhe).
@@ -148,7 +154,34 @@ func set_charms(charms: Array[Charm], sell_values: Array[int] = []) -> void:
 		add_child(thumb)
 		_thumbs.append(thumb)
 		_thumb_home.append(home)
+	_update_badge()
 	queue_redraw()
+
+## Setzt den Dauer-Chip an Platz slot auf value (>0 sichtbar, sonst versteckt) -
+## z.B. der aufgelaufene Alles-oder-nichts-Mult. Eine Karte je Chip.
+func set_mult_badge(slot: int, value: int) -> void:
+	_badge_slot = slot
+	_badge_value = value
+	_update_badge()
+
+## Legt den Mult-Chip in die obere rechte Ecke seiner Karte und hebt ihn über die
+## Kachel; ohne gültigen Platz/Wert bleibt er versteckt.
+func _update_badge() -> void:
+	if _badge_label == null:
+		return
+	var active := _badge_value > 0 and _badge_slot >= 0 and _badge_slot < _occupied \
+		and _badge_slot < _pad_offsets.size()
+	_badge_label.visible = active
+	if not active:
+		return
+	_badge_label.text = "+%d" % _badge_value
+	var bw := _pad_size.x * 0.52
+	var bh := _pad_size.y * 0.24
+	var card_top_left := _pad_offsets[_badge_slot] - _pad_size / 2.0
+	var margin := _pad_size.x * 0.06
+	_badge_label.position = card_top_left + Vector2(_pad_size.x - bw - margin, margin)
+	_badge_label.size = Vector2(bw, bh)
+	move_child(_badge_label, get_child_count() - 1)
 
 ## Viewport-Mitte der KARTE i (Quelle des Zähl-Lichts, Zieh-Anker).
 func pad_center(i: int) -> Vector2:
@@ -279,6 +312,12 @@ func _ensure_labels() -> void:
 	_sell_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sell_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	add_child(_sell_label)
+	_badge_label = Label.new()
+	_badge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_badge_label.visible = false
+	_badge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_badge_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	add_child(_badge_label)
 
 ## Schriftgrößen an der Kartengröße ausrichten (Name in Gold, Wirkung in Creme).
 func _style_labels() -> void:
@@ -291,6 +330,15 @@ func _style_labels() -> void:
 	chip.set_border_width_all(maxi(1, int(_pad_size.y * 0.012)))
 	chip.set_corner_radius_all(maxi(2, int(_pad_size.y * 0.05)))
 	_sell_label.add_theme_stylebox_override("normal", chip)
+	# Mult-Chip: überheller Rand, damit er auf dem HDR-Screen leuchtet.
+	CasinoStyle.style_score_label(_badge_label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
+	var badge := StyleBoxFlat.new()
+	badge.bg_color = Color(0.02, 0.02, 0.05, 0.95)
+	badge.border_color = Color(CasinoStyle.GOLD.r * 1.6, CasinoStyle.GOLD.g * 1.6, CasinoStyle.GOLD.b * 1.6, 0.9)
+	badge.set_border_width_all(maxi(1, int(_pad_size.y * 0.016)))
+	badge.set_corner_radius_all(maxi(2, int(_pad_size.y * 0.08)))
+	badge.set_content_margin_all(maxf(1.0, _pad_size.y * 0.02))
+	_badge_label.add_theme_stylebox_override("normal", badge)
 
 ## Legt die Hover-Texte in die Karten-Fläche der Konsole i; der Wirkungstext
 ## schrumpft schrittweise, bis er in die verfügbare Höhe passt. Am Kartenboden

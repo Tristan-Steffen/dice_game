@@ -70,15 +70,38 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			prev_mult_bonus = mult_bonus
 			if base_add == 0 and mult_add == 0:
 				continue
+			var base_before := base
+			var mult_before := mult
 			base += base_add
 			mult += mult_add
 			var step_indices: Array[int] = [j]
-			charm_steps.append({
+			var step := {
 				"charm_indices": step_indices,
 				"base_add": base_add, "mult_add": mult_add,
 				"base_x": 1, "mult_x": 1,
 				"base_after": base, "mult_after": mult,
-			})
+			}
+			# Pro-Würfel-Charms (Bodensatz & Co.) fächern ihren Beitrag in Einzel-
+			# Pulse auf, damit die Animation je ausgelöstem Würfel einen Meteor
+			# schickt - aber nur, wenn die Pulse-Summe die Marginale exakt trifft
+			# (sonst Rückfall auf einen Meteor, nie falsche Zahlen).
+			var pulses := _per_die_pulses(charm_ids[j], key, dice, participating, prefix, ctx, edge_materials)
+			if not pulses.is_empty():
+				var sum_base := 0
+				var sum_mult := 0
+				for p in pulses:
+					sum_base += int(p["base"])
+					sum_mult += int(p["mult"])
+				if sum_base == base_add and sum_mult == mult_add:
+					var acc_base := base_before
+					var acc_mult := mult_before
+					for p in pulses:
+						acc_base += int(p["base"])
+						acc_mult += int(p["mult"])
+						p["base_after"] = acc_base
+						p["mult_after"] = acc_mult
+					step["pulses"] = pulses
+			charm_steps.append(step)
 		# Einserkult: Faktor auf Basis UND Mult, NACH den additiven Boni.
 		var factor := CharmEffects.base_factor(dice, charm_ids)
 		if factor != 1:
@@ -150,6 +173,56 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"post_steps": post_steps,
 		"total": total,
 	}
+
+## Zerlegt den Beitrag EINES pro-Würfel-Charms in Einzel-Pulse {slot, base, mult}
+## für die Meteor-je-Würfel-Animation. prefix = Charm-Präfix bis zu dieser
+## Position (augenabhängige Werte wie Vollzähler sehen so denselben Satz wie die
+## Marginale). Leer für Charms, die nicht pro Würfel zählen - der Aufrufer prüft
+## zusätzlich, dass die Pulse-Summe die Marginale trifft.
+static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], participating: Array[int], prefix: Array[String], ctx: Dictionary, edge_materials: Array[String]) -> Array[Dictionary]:
+	var pulses: Array[Dictionary] = []
+	match charm_id:
+		Charm.BROADBAND:
+			for i in participating:
+				pulses.append({"slot": i, "base": 5, "mult": 0})
+		Charm.STREET_SWEEPER:
+			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
+				for i in participating:
+					pulses.append({"slot": i, "base": 6, "mult": 0})
+		Charm.FULL_COUNTER:
+			for i in dice.size():
+				if not participating.has(i):
+					pulses.append({"slot": i, "base": CharmEffects.eye_value(dice[i], prefix), "mult": 0})
+		Charm.EDGE_GLEAM:
+			var edge_count := 0
+			for material_id in edge_materials:
+				if material_id != "":
+					edge_count += 1
+			for i in participating:
+				if i < edge_materials.size() and edge_materials[i] != "":
+					pulses.append({"slot": i, "base": edge_count, "mult": 0})
+		Charm.SEDIMENT:
+			var late: Array = ctx.get(CharmEffects.CTX_LATE_SLOTS, [])
+			for i in participating:
+				if late.has(i):
+					pulses.append({"slot": i, "base": 0, "mult": 3})
+		Charm.DOUBLE_SIX:
+			var sixes := 0
+			for i in participating:
+				if i < dice.size() and dice[i] == 6:
+					sixes += 1
+					if sixes > 2:
+						pulses.append({"slot": i, "base": 0, "mult": 1})
+		Charm.SNAKE_EYES:
+			if key == DiceScoring.TWO_KIND and CharmEffects._participating_are_ones(dice, participating):
+				for i in dice.size():
+					if not participating.has(i):
+						pulses.append({"slot": i, "base": 0, "mult": dice[i]})
+		Charm.TWIN_RING:
+			for value in CharmEffects._distinct(dice):
+				if dice.count(value) == 2:
+					pulses.append({"slot": dice.find(value), "base": 0, "mult": value})
+	return pulses
 
 ## Besitz-Positionen, die den Augen-Beitrag dieses ROHEN Werts verändern
 ## (Leave-one-out über Verwandlung + Basispunkt-Anpassung).

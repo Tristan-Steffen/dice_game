@@ -112,3 +112,22 @@ func test_hover_without_sell_values_shows_no_chip():
 	d.set_hover(0)
 	assert_false(d._sell_label.visible, "ohne Verkaufswert kein Chip")
 	assert_eq(d.sell_index_at(d.pad_center(0)), -1)
+
+func test_mult_badge_shows_value_on_its_slot_and_hides_at_zero():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	d.set_charms(_ids(["a", "b"]))
+	d.set_mult_badge(1, 15)
+	assert_true(d._badge_label.visible, "Chip an seiner Karte sichtbar")
+	assert_eq(d._badge_label.text, "+15")
+	d.set_mult_badge(1, 0)
+	assert_false(d._badge_label.visible, "bei 0 verschwindet der Chip")
+
+func test_mult_badge_hidden_for_unoccupied_or_missing_slot():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	d.set_charms(_ids(["a"]))  # nur Platz 0 belegt
+	d.set_mult_badge(2, 15)  # leerer Platz
+	assert_false(d._badge_label.visible, "kein Chip auf leerem Platz")
+	d.set_mult_badge(-1, 15)  # Charm nicht im Besitz
+	assert_false(d._badge_label.visible, "kein Chip ohne Ziel")

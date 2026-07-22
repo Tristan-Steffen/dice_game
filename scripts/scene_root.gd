@@ -2921,6 +2921,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): je Komet vom Dock-Pad in
 	# die betroffene Zahl.
 	for step: Dictionary in breakdown["charm_steps"]:
+		# Pro-Würfel-Charms: ein Meteor je ausgelöstem Würfel (Bodensatz & Co.).
+		if step.has("pulses") and not step["pulses"].is_empty():
+			if not await _play_charm_pulses(step):
+				return
+			continue
 		for charm_index: int in step["charm_indices"]:
 			_flash_charm_and_pad(charm_index)
 		var source_px := _charm_trail_source_px(step["charm_indices"])
@@ -2968,6 +2973,31 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# an jeder Überladungs-Schwelle hält beides kurz inne (magnitude-abhängig).
 	await _drain_total_to_goal(displayed_points, new_total)
 	_cleanup_take_animation()
+
+## Spielt einen pro-Würfel-Charm-Schritt als Folge von Einzel-Meteoren: je Puls
+## blitzt der Charm UND sein auslösender Würfel, ein Komet fliegt vom Dock-Pad in
+## Basis/Mult, der Zähler springt bei Ankunft. false = Abbruch (Reset).
+func _play_charm_pulses(step: Dictionary) -> bool:
+	var source_px := _charm_trail_source_px(step["charm_indices"])
+	for pulse: Dictionary in step["pulses"]:
+		for charm_index: int in step["charm_indices"]:
+			_flash_charm_and_pad(charm_index)
+		_flash_scoring_die(int(pulse["slot"]))
+		var pbase: int = pulse["base_after"]
+		var pmult: int = pulse["mult_after"]
+		var ptargets: Array[String] = []
+		if int(pulse["base"]) != 0:
+			ptargets.append("base")
+		if int(pulse["mult"]) != 0:
+			ptargets.append("mult")
+		_spawn_score_gains(source_px, int(pulse["base"]), int(pulse["mult"]))
+		var ptravel := 0.0
+		if not ptargets.is_empty():
+			ptravel = _fire_score_light(source_px, "charm", ptargets,
+				func() -> void: table_screen.update_pit_score(pbase, pmult))
+		if not await _score_arrival_gap(ptravel):
+			return false
+	return true
 
 ## Segmentierter Drain aus from_points auf to_points: Orb-Schrumpfen und
 ## Balken-Füllung laufen 1:1 parallel, mit Mikro-Halt an jeder Überladungs-Schwelle.
@@ -3157,6 +3187,11 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 	breakdown["participating"] = mapped_part
 	for step: Dictionary in breakdown["die_steps"]:
 		step["slot"] = slots[step["slot"]]
+	# Auch die Pro-Würfel-Pulse tragen Auswahl-Indizes - auf echte Slots umrechnen.
+	for step: Dictionary in breakdown["charm_steps"]:
+		if step.has("pulses"):
+			for pulse: Dictionary in step["pulses"]:
+				pulse["slot"] = slots[int(pulse["slot"])]
 
 func _on_reset_button_pressed() -> void:
 	_reset_game()
