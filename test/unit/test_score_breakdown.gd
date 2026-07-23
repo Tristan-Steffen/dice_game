@@ -199,12 +199,13 @@ func test_factor_charm_respects_dock_order():
 
 # --- Nach-Schritte (auf die fertige Punktzahl) ------------------------------------
 
-func test_rainbow_trout_lands_after_the_merge():
+func test_rainbow_trout_is_a_mult_step():
 	var breakdown := _build_and_check(DiceScoring.SMALL_STRAIGHT, _d([1, 2, 3, 4, 5, 5]), _ids([Charm.RAINBOW_TROUT]))
-	var posts: Array = breakdown["post_steps"]
-	assert_eq(posts.size(), 1)
-	assert_eq(posts[0]["total_add"], 10)
-	assert_eq(posts[0]["charm_indices"], [0])
+	var steps: Array = breakdown["charm_steps"]
+	assert_eq(steps.size(), 1)
+	assert_eq(steps[0]["mult_add"], 10)
+	assert_eq(steps[0]["charm_indices"], [0])
+	assert_true(breakdown["post_steps"].is_empty(), "kein Nach-Schritt mehr")
 
 func test_magic_card_is_a_total_factor():
 	var ids := _ids([Charm.MAGIC_CARD])
@@ -304,7 +305,7 @@ func _prop_charm_sets() -> Array:
 		[Charm.PENDULUM], [Charm.ALL_OR_NOTHING], [Charm.MOMENTUM], [Charm.BROKEN_MIRROR],
 		[Charm.EVEN_COMPANY], [Charm.ODD_PATH], [Charm.HERMIT_CRAB], [Charm.DISPLAY_CASE],
 		[Charm.COLLECTORS_AMULET], [Charm.ECHO_CHAMBER], [Charm.STREET_SWEEPER],
-		[Charm.FULL_COUNTER], [Charm.BROADBAND], [Charm.STRAGGLER], [Charm.SEDIMENT],
+		[Charm.FULL_COUNTER], [Charm.BROADBAND], [Charm.SEDIMENT],
 		[Charm.EDGE_GLEAM], [Charm.BLACKJACK], [Charm.ROUND_NUMBER], [Charm.HORSESHOE],
 		[Charm.LADYBUG], [Charm.PEARL_NECKLACE], [Charm.RAINBOW_TROUT], [Charm.MAGIC_CARD],
 		[Charm.CULT_OF_ONE], [Charm.GALLOWS_HUMOR], [Charm.AFTER_WORK_BEER],
@@ -335,7 +336,7 @@ func test_breakdown_matches_scoring_across_the_matrix():
 		CharmEffects.CTX_REROLLED: 3, CharmEffects.CTX_TAKEN_DICE: 2,
 		CharmEffects.CTX_FULL_REROLLS: 2, CharmEffects.CTX_STREAK: 3,
 		CharmEffects.CTX_POOL_EMPTY: true, CharmEffects.CTX_AFTER_FARKLE: true,
-		CharmEffects.CTX_FARKLE_STACKS: 2, CharmEffects.CTX_LAST_SETTLED: 0,
+		CharmEffects.CTX_FARKLE_STACKS: 2,
 		CharmEffects.CTX_LATE_SLOTS: [4, 5],
 	}
 	# Nur die Deckung (total == score_category) je Zelle - die Zwischenstände

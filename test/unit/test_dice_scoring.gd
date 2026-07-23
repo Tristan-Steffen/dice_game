@@ -157,10 +157,10 @@ func test_pearl_necklace_boosts_only_three_kind():
 	# Drei Zweierpäsche bleiben unberührt: (32 + _sum 18) × 5.
 	assert_eq(DiceScoring.best_hand(_d([1,1,3,3,5,5]), _ids([Charm.PEARL_NECKLACE]))["score"], (32 + 18) * 5)
 
-func test_rainbow_trout_adds_flat_to_straight():
+func test_rainbow_trout_adds_mult_to_straight():
 	# kleine Straße: beteiligt 1 2 3 4 5 = 15 (die zweite 5 zählt nicht),
-	# (22 + 15) × 4 + 10.
-	assert_eq(DiceScoring.best_hand(_d([1,2,3,4,5,5]), _ids([Charm.RAINBOW_TROUT]))["score"], (22 + 15) * 4 + 10)
+	# (22 + 15) × (4 + 10).
+	assert_eq(DiceScoring.best_hand(_d([1,2,3,4,5,5]), _ids([Charm.RAINBOW_TROUT]))["score"], (22 + 15) * 14)
 
 func test_magic_card_only_doubles_first_hand():
 	var ids := _ids([Charm.MAGIC_CARD])

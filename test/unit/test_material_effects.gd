@@ -76,24 +76,24 @@ func _die(faces: Array, materials: Array = []) -> DieDefinition:
 		def.materials = typed_materials
 	return def
 
-func test_gold_pays_one_per_participating_face():
+func test_gold_pays_three_per_participating_face():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.GOLD]), _p([0, 1]))
-	assert_eq(report.money, 2, "$1 je beteiligter Gold-Seite")
+	assert_eq(report.money, 6, "$3 je beteiligter Gold-Seite")
 	assert_eq(defs[0].faces[0], 5, "Gold verändert die Seite nicht")
 
 func test_gold_pays_twice_on_a_retriggered_six():
 	# Hasenpfote löst die 6 erneut aus - wie Quecksilber inklusive Nehmen-Effekte.
 	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([]), _ids([Charm.RABBITS_FOOT]))
-	assert_eq(report.money, 2, "Gold-Seite feuert je Auslösung")
+	assert_eq(report.money, 6, "Gold-Seite feuert je Auslösung")
 
 func test_take_retrigger_checks_the_transformed_value():
 	# Glückszigaretten: die 1 IST eine 6 - Hasenpfote löst auch sie erneut aus.
 	var defs: Array[DieDefinition] = [_die([1, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([]),
 		_ids([Charm.RABBITS_FOOT, Charm.LUCKY_CIGARETTES]))
-	assert_eq(report.money, 2)
+	assert_eq(report.money, 6, "zwei Auslösungen à $3")
 
 func test_bone_grows_the_face_permanently():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -116,7 +116,7 @@ func test_glass_never_shrinks_below_one():
 func test_take_effects_ignore_non_participating_faces():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE]), _p([0]))
-	assert_eq(report.money, 1, "nur die beteiligte Gold-Seite zahlt")
+	assert_eq(report.money, 3, "nur die beteiligte Gold-Seite zahlt")
 	assert_eq(defs[1].faces[0], 5, "unbeteiligter Knochen wächst nicht")
 
 # --- Einrechnung in DiceScoring ---------------------------------------------------
@@ -212,7 +212,7 @@ func test_take_effects_combined_report_across_slots():
 	# Gold + Knochen + Glas gleichzeitig auf drei beteiligten Seiten.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE, DieMaterial.GLASS]), _p([0, 1, 2]))
-	assert_eq(report.money, 1, "eine Gold-Seite")
+	assert_eq(report.money, 3, "eine Gold-Seite")
 	assert_eq(report.grown, [1], "Slot 1 ist gewachsen")
 	assert_eq(report.shrunk, [2], "Slot 2 ist geschrumpft")
 	assert_eq(defs[1].faces[0], 6)
@@ -297,19 +297,19 @@ func test_glass_edge_shrinks_and_respects_minimum():
 func test_gold_edge_pays_on_take():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), _m([DieMaterial.GOLD]))
-	assert_eq(report.money, 1, "Gold-Kanten zahlen beim Nehmen, wie die Gold-Seite")
+	assert_eq(report.money, 3, "Gold-Kanten zahlen beim Nehmen, wie die Gold-Seite")
 
 func test_gold_edge_stays_quiet_for_uncounted_dice():
 	# Kein Wurf-Einkommen mehr: nur die genommene Kombination zahlt.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0]), edges)
-	assert_eq(report.money, 1, "nur der beteiligte Würfel zahlt")
+	assert_eq(report.money, 3, "nur der beteiligte Würfel zahlt")
 
 func test_gold_edge_and_face_stack_on_the_same_die():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.GOLD]))
-	assert_eq(report.money, 2, "Seite $1 + Kante $1")
+	assert_eq(report.money, 6, "Seite $3 + Kante $3")
 
 func test_edge_materials_flow_through_best_hand():
 	# Paar Fünfer: Basis (10+10), Mult 2 -> 40. Rubin-Kanten auf einem Paar-Würfel:
@@ -359,7 +359,7 @@ func test_mercury_face_doubles_ruby_edge_mult():
 func test_mercury_edge_doubles_gold_face_payout():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.MERCURY]))
-	assert_eq(report.money, 2, "Gold-Seite zahlt je Aktivierung: 2 × $1")
+	assert_eq(report.money, 6, "Gold-Seite zahlt je Aktivierung: 2 × $3")
 
 func test_mercury_edge_doubles_bone_face_growth():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -372,10 +372,10 @@ func test_mercury_edge_doubles_glass_face_shrink():
 	assert_eq(defs[0].faces[0], 3, "Glas schrumpft je Aktivierung: −1 zweimal")
 
 func test_mercury_vapor_triples_activations_of_take_effects():
-	# Quecksilberdampf: Quecksilber aktiviert dreifach -> Gold zahlt 3 × $1.
+	# Quecksilberdampf: Quecksilber aktiviert dreifach -> Gold zahlt 3 × $3.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.MERCURY]), _ids([Charm.MERCURY_VAPOR]))
-	assert_eq(report.money, 3)
+	assert_eq(report.money, 9)
 
 func test_mercury_retrigger_flows_through_best_hand():
 	# Paar Fünfer, Slot 0 mit Rubin-Seite + Quecksilber-Kanten:

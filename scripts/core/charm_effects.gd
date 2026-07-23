@@ -16,6 +16,12 @@ class_name CharmEffects
 ## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
 const ALL_OR_NOTHING_MULT := 5
 
+## Pendel: +2 Mult je diese Hand neu geworfenem Würfel, -1 je diese Runde
+## genommenem - nie unter 0. Eigene Funktion, weil der Tisch-Chip denselben Wert
+## zeigen muss, den die Wertung rechnet.
+static func pendulum_mult(ctx: Dictionary) -> int:
+	return maxi(0, 2 * int(ctx.get(CTX_REROLLED, 0)) - int(ctx.get(CTX_TAKEN_DICE, 0)))
+
 ## Schlüssel des ctx-Dictionaries (Wurf-/Runden-Zustand der Effektkatalog-Charms).
 ## const, damit ein Tippfehler beim Setzen (scene_root) ODER Lesen ein Compile-
 ## Fehler ist - nicht der stille Null-Rückfall von ctx.get(). Werte je Schlüssel:
@@ -26,7 +32,6 @@ const ALL_OR_NOTHING_MULT := 5
 ##   POOL_EMPTY    bool  - kein Würfel mehr im Nachziehstapel (Feierabendbier)
 ##   AFTER_FARKLE  bool  - erste Hand nach einem Farkle (Galgenhumor)
 ##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
-##   LAST_SETTLED  int   - Slot des zuletzt zur Ruhe gekommenen Würfels (Nachzügler)
 ##   LATE_SLOTS    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
 const CTX_REROLLED := "rerolled"
 const CTX_TAKEN_DICE := "taken_dice"
@@ -35,7 +40,6 @@ const CTX_STREAK := "streak"
 const CTX_POOL_EMPTY := "pool_empty"
 const CTX_AFTER_FARKLE := "after_farkle"
 const CTX_FARKLE_STACKS := "farkle_stacks"
-const CTX_LAST_SETTLED := "last_settled"
 const CTX_LATE_SLOTS := "late_slots"
 
 # --- Drei getrennte Mechaniken am einzelnen Würfel ---------------------------
@@ -90,7 +94,7 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	var value := face_value
 	for charm_id in charm_ids:
 		if charm_id == Charm.SMALL_FRY and (face_value == 1 or face_value == 2):
-			value += 6
+			value += 10
 	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 6.
 	if charm_ids.has(Charm.EQUALIZER):
 		value = maxi(value, 6)
@@ -109,9 +113,6 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 		Charm.EDGE_GLEAM:
 			if slot < edge_materials.size() and edge_materials[slot] != "":
 				return _edge_count(edge_materials)
-		Charm.STRAGGLER:
-			if slot == int(ctx.get(CTX_LAST_SETTLED, -1)):
-				return eye_value(values[slot], charm_ids)
 	return 0
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
@@ -159,6 +160,9 @@ static func mult_bonus_at(j: int, key: String, charm_ids: Array[String]) -> int:
 		Charm.PEARL_NECKLACE:
 			if key == DiceScoring.THREE_KIND:
 				return 8
+		Charm.RAINBOW_TROUT:
+			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
+				return 10
 	return 0
 
 static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
@@ -168,14 +172,6 @@ static func mult_bonus(key: String, charm_ids: Array[String]) -> int:
 	return bonus
 
 # --- Nach-Phase (auf die fertige Punktzahl, Besitz-Reihenfolge) ---------------
-
-## Feste Bonuspunkte NACH dem Verschmelzen (Regenbogenforelle: Straßen +10).
-static func charm_total_add_at(j: int, key: String, charm_ids: Array[String]) -> int:
-	match charm_ids[j]:
-		Charm.RAINBOW_TROUT:
-			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
-				return 10
-	return 0
 
 ## Faktor auf die Gesamtzahl (Zauberkarte: erste Hand der Runde ×2).
 static func charm_total_factor_at(j: int, charm_ids: Array[String], is_first_hand: bool) -> int:
@@ -275,7 +271,7 @@ static func _distinct(values: Array[int]) -> Array[int]:
 static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.PENDULUM:
-			return maxi(0, 2 * int(ctx.get(CTX_REROLLED, 0)) - int(ctx.get(CTX_TAKEN_DICE, 0)))
+			return pendulum_mult(ctx)
 		Charm.ALL_OR_NOTHING:
 			return ALL_OR_NOTHING_MULT * int(ctx.get(CTX_FULL_REROLLS, 0))
 		Charm.MOMENTUM:
@@ -298,9 +294,12 @@ static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materia
 					display += 1
 			return display
 		Charm.LIGHTHOUSE:
-			# Höchste Zahl: Mult in Höhe der höchsten Augenzahl.
-			if key == DiceScoring.ONE_KIND and not values.is_empty():
-				return values.max()
+			# Jede Kombination: Mult in Höhe des höchsten GEWERTETEN Würfels.
+			var beacon := 0
+			for i in participating:
+				if i < values.size():
+					beacon = maxi(beacon, values[i])
+			return beacon
 		Charm.TWIN_RING:
 			# Jedes exakte Paar im Wurf: Mult += Augenzahl.
 			var twins := 0
@@ -469,7 +468,8 @@ static func farkle_doubles_points(charm_ids: Array[String]) -> bool:
 static func farkle_keeps_high_die(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PATCHWORK_RUG)
 
-## Phönixfeder: geworfene Würfel kehren beim Farkle in den Stapel zurück.
+## Phönixfeder: geworfene Würfel kehren beim ERSTEN Farkle der Runde in den
+## Stapel zurück (scene_root zählt die Runden-Nutzung über phoenix_used_this_round).
 static func has_phoenix(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PHOENIX_FEATHER)
 

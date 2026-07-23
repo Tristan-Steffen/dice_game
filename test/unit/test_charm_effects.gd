@@ -75,10 +75,10 @@ func test_mult_bonus_pearl_three_kind():
 	assert_eq(CharmEffects.mult_bonus("three_pairs", _ids([Charm.PEARL_NECKLACE])), 0)
 	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.PEARL_NECKLACE])), 0)
 
-func test_total_add_rainbow_trout_straights_only():
-	assert_eq(CharmEffects.charm_total_add_at(0, "small_straight", _ids([Charm.RAINBOW_TROUT])), 10)
-	assert_eq(CharmEffects.charm_total_add_at(0, "large_straight", _ids([Charm.RAINBOW_TROUT])), 10)
-	assert_eq(CharmEffects.charm_total_add_at(0, "full_house", _ids([Charm.RAINBOW_TROUT])), 0)
+func test_rainbow_trout_gives_mult_on_straights_only():
+	assert_eq(CharmEffects.mult_bonus("small_straight", _ids([Charm.RAINBOW_TROUT])), 10)
+	assert_eq(CharmEffects.mult_bonus("large_straight", _ids([Charm.RAINBOW_TROUT])), 10)
+	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.RAINBOW_TROUT])), 0)
 
 func test_collectors_amulet_gives_mult_per_other_charm():
 	# 3 Charms -> +2 Mult je anderem Charm (= +4); mit nur sich selbst -> +0.

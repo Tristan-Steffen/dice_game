@@ -126,7 +126,6 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 	var pair := _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
 	var score: int = pair[0] * maxi(1, pair[1])
 	for j in charm_ids.size():
-		score += CharmEffects.charm_total_add_at(j, key, charm_ids)
 		score *= CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
 	return score
 

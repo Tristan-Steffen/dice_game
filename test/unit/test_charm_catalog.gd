@@ -29,9 +29,9 @@ const NO_MATS: Array[String] = []
 
 # --- Augenwerte -------------------------------------------------------------------
 
-func test_small_fry_gives_six_base_points_on_ones_and_twos():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 7)
-	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 8)
+func test_small_fry_gives_ten_base_points_on_ones_and_twos():
+	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 11)
+	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 12)
 	assert_eq(CharmEffects.eye_value(5, _ids([Charm.SMALL_FRY])), 5)
 
 func test_equalizer_floors_base_points_at_six():
@@ -90,11 +90,6 @@ func test_broadband_pays_per_combination_die():
 	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5, "+5 am Würfel selbst")
 	assert_eq(CharmEffects.die_charm_base(1, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5)
 
-func test_straggler_needs_the_last_die_in_the_combo():
-	var ids := _ids([Charm.STRAGGLER])
-	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {"last_settled": 0}), 5, "Nachzügler-5 zählt doppelt")
-	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {"last_settled": 3}), 0, "anderer Slot war Nachzügler")
-
 func test_sediment_boosts_late_drawn_dice():
 	# +3 Mult nur am beteiligten, spät gezogenen Würfel (der Hook sieht nur beteiligte Slots).
 	var ids := _ids([Charm.SEDIMENT])
@@ -137,10 +132,17 @@ func test_display_case_counts_face_up_materials():
 	var materials := _m(["", "", DieMaterial.RUBY, DieMaterial.AMBER, "", ""])
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), materials, _ids([Charm.DISPLAY_CASE])), 2)
 
-func test_lighthouse_mult_follows_highest_value():
+func test_lighthouse_mult_follows_highest_counted_die():
 	# Höchste Zahl 4: Mult 1 + 4 = 5, Basis (5 Punkte + 4 Augen) -> 45.
 	var score := DiceScoring.score_category(DiceScoring.ONE_KIND, _d([1, 2, 3, 1, 2, 4]), _ids([Charm.LIGHTHOUSE]))
 	assert_eq(score, 45, "Basis (5+4) × Mult (1+4)")
+
+func test_lighthouse_also_lights_other_combinations():
+	# Paar Fünfer: der Leuchtturm zählt jetzt in JEDER Kombination (+5 Mult).
+	var ids := _ids([Charm.LIGHTHOUSE])
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, ids, {}, _p([0, 1])), 5)
+	# Nur GEWERTETE Würfel leuchten - die unbeteiligte 6 zählt nicht.
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), NO_MATS, ids, {}, _p([0, 1])), 2)
 
 # --- Krit (multipliziert den AKTUELLEN Mult, siehe charm_crit_at) -------------------
 
@@ -167,17 +169,6 @@ func test_snake_eyes_converts_bystanders_to_mult():
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([1, 1, 3, 4, 5, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, _p([0, 1])), 18)
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([5, 5, 3, 4, 1, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, _p([0, 1])), 0, "ein 5er-Paar sind keine Snake Eyes")
 
-func test_alloy_doubles_material_effects_of_dual_carriers():
-	# Gold-Seite oben UND Gold-Kanten: die Legierung lässt beide Nehmen-Effekte
-	# doppelt feuern ($1 Seite + $1 Kante, je zweimal).
-	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
-	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.GOLD]), _ids([Charm.ALLOY]))
-	assert_eq(report.money, 4, "Seite und Kante zahlen doppelt")
-	# Ohne Kanten-Material bleibt alles einfach.
-	var single: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
-	var single_report := MaterialEffects.apply_take_effects(single, _p([0]), _m([DieMaterial.GOLD]), _p([0]), NO_MATS, _ids([Charm.ALLOY]))
-	assert_eq(single_report.money, 1)
-
 func test_cult_of_one_doubles_base_and_mult_per_one():
 	# Paar Fünfer mit EINER 1: Basis 20×2 × Mult 2×2 = 160.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.CULT_OF_ONE]))
@@ -203,9 +194,13 @@ func test_amber_room_boosts_amber_to_fifty():
 	var bonus := MaterialEffects.base_bonus(_d(PAIR), _m([DieMaterial.AMBER, "", "", "", "", ""]), _p([0, 1]), _ids([Charm.AMBER_ROOM]))
 	assert_eq(bonus, 50)
 
-func test_ruby_grinder_boosts_ruby_to_ten():
+func test_ruby_grinder_adds_the_face_value_to_the_ruby_mult():
+	# Rubin auf der gewerteten 5: +4 fest + 5 Augen.
 	var bonus := MaterialEffects.mult_bonus(_d(PAIR), _m([DieMaterial.RUBY, "", "", "", "", ""]), _p([0, 1]), NO_MATS, _ids([Charm.RUBY_GRINDER]))
-	assert_eq(bonus, 10)
+	assert_eq(bonus, 9)
+	# Ohne den Schleifer bleibt es beim festen +4.
+	var plain := MaterialEffects.mult_bonus(_d(PAIR), _m([DieMaterial.RUBY, "", "", "", "", ""]), _p([0, 1]))
+	assert_eq(plain, 4)
 
 func test_mercury_vapor_triples_mercury():
 	var bonus := MaterialEffects.base_bonus(_d(PAIR), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), _ids([Charm.MERCURY_VAPOR]))
@@ -214,7 +209,7 @@ func test_mercury_vapor_triples_mercury():
 func test_goldsmith_and_bone_glue_strengthen_takes():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE]), _p([0, 1]), NO_MATS, _ids([Charm.GOLDSMITH, Charm.BONE_GLUE]))
-	assert_eq(report.money, 2, "Goldschmied zahlt $2")
+	assert_eq(report.money, 6, "Goldschmied zahlt $6")
 	assert_eq(defs[1].faces[0], 7, "Knochenleim wächst +2")
 
 func test_glassblower_lung_stops_glass_from_shrinking():
@@ -226,7 +221,7 @@ func test_frame_gilder_doubles_edge_gold():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]), edges, _ids([Charm.FRAME_GILDER]))
-	assert_eq(report.money, 4, "$2 je beteiligter Gold-Kante")
+	assert_eq(report.money, 12, "$6 je beteiligter Gold-Kante")
 
 func _die(faces: Array) -> DieDefinition:
 	var def := DieDefinition.new()
@@ -446,10 +441,10 @@ func test_totem_chain_resolves_each_neighbor_independently():
 # --- Zusammenspiel mit Augenwert-Charms ---------------------------------------------
 
 func test_echo_chamber_respects_base_point_charms():
-	# Kleinvieh hebt die Basispunkte einer 2 auf 8 - auch beim Echo-Nachzählen des
+	# Kleinvieh hebt die Basispunkte einer 2 auf 12 - auch beim Echo-Nachzählen des
 	# zuerst GEWERTETEN Würfels (hier das Paar Zweier).
 	var bonus := MaterialEffects.base_bonus(_d([2, 2, 1, 3, 4, 6]), NO_MATS, _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.SMALL_FRY]), NO_MATS, 0)
-	assert_eq(bonus, 8, "Echo der gewerteten 2 zählt mit Kleinvieh als 8")
+	assert_eq(bonus, 12, "Echo der gewerteten 2 zählt mit Kleinvieh als 12")
 
 func test_full_counter_sees_transformed_values():
 	# Glückszigaretten verwandeln VOR der Wertung: die unbeteiligte 1 IST eine 6,

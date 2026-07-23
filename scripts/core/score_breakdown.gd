@@ -130,15 +130,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# 5. Nach-Schritte auf die fertige Punktzahl - ebenfalls Besitz-Reihenfolge.
 	var post_steps: Array[Dictionary] = []
 	for j in charm_ids.size():
-		var total_add := CharmEffects.charm_total_add_at(j, key, charm_ids)
 		var total_x := CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
-		if total_add == 0 and total_x == 1:
+		if total_x == 1:
 			continue
-		total = (total + total_add) * total_x
+		total *= total_x
 		var post_indices: Array[int] = [j]
 		post_steps.append({
 			"charm_indices": post_indices,
-			"total_add": total_add, "total_x": float(total_x), "total_after": total,
+			"total_add": 0, "total_x": float(total_x), "total_after": total,
 		})
 
 	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je

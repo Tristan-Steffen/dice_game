@@ -8,6 +8,14 @@ class_name MaterialEffects
 ## (apply_take_effects, einmal beim echten Nehmen).
 ## values/materials/edge_materials sind parallele Arrays je Wurf-Slot.
 
+## Gold zahlt je Träger (Seite wie Kante) beim Nehmen; Goldschmied/
+## Rahmenvergolder heben den Satz.
+const GOLD_PAYOUT := 3
+const GOLD_PAYOUT_BOOSTED := 6
+
+## Rubin: fester Mult je Träger (Rubinschleifer addiert die Augenzahl).
+const RUBY_MULT := 4
+
 ## Bericht der Nehmen-Effekte für die UI.
 class TakeReport:
 	extends RefCounted
@@ -33,17 +41,6 @@ static func activation_count(i: int, materials: Array[String], edge_materials: A
 		count += CharmEffects.echo_retriggers(charm_ids)
 	return count
 
-## Wie oft die MATERIAL-EFFEKTE feuern: Aktivierungen, zusätzlich ×2 durch die
-## Legierung bei Seite+Kante - anders als Quecksilber ohne das Augen-Zählen.
-static func effect_activations(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String], value: int = 0, echo_slot: int = -1) -> int:
-	var count := activation_count(i, materials, edge_materials, charm_ids, value, echo_slot)
-	if charm_ids.has(Charm.ALLOY):
-		var face_material: String = materials[i] if i < materials.size() else ""
-		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		if face_material != "" and edge_material != "":
-			count *= 2
-	return count
-
 ## Basis-Boni der beteiligten Träger: Bernstein +20 fest (Bernsteinzimmer: +50);
 ## Quecksilber zählt die Augen je Extra-Aktivierung erneut.
 static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = [], echo_slot: int = -1) -> int:
@@ -53,24 +50,24 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 		var activations := activation_count(i, materials, edge_materials, charm_ids, values[i], echo_slot)
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, values[i], echo_slot)
 		if face_material == DieMaterial.AMBER:
-			bonus += amber_value * effect_count
+			bonus += amber_value * activations
 		if edge_material == DieMaterial.AMBER:
-			bonus += amber_value * effect_count
+			bonus += amber_value * activations
 		if activations > 1:
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (activations - 1)
 	return bonus
 
-## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer: +10);
-## Glas + rohe Augenzahl der oben liegenden Seite.
+## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer legt die
+## Augenzahl seines Würfels drauf); Glas + rohe Augenzahl der oben liegenden Seite.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> int:
-	var ruby_value := 10 if charm_ids.has(Charm.RUBY_GRINDER) else 4
+	var grinder := charm_ids.has(Charm.RUBY_GRINDER)
 	var bonus := 0
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, values[i], echo_slot)
+		var ruby_value := RUBY_MULT + (values[i] if grinder else 0)
+		var effect_count := activation_count(i, materials, edge_materials, charm_ids, values[i], echo_slot)
 		if face_material == DieMaterial.RUBY:
 			bonus += ruby_value * effect_count
 		if edge_material == DieMaterial.RUBY:
@@ -82,12 +79,14 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 	return bonus
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
-## Gold zahlt +$1 je Träger (Seite: Goldschmied $2, Kante: Rahmenvergolder $2);
-## Knochen +1 je Träger (Knochenleim: +2, nach oben offen); Glas −1 je Träger,
-## nie unter das Floor (Glasbläserlunge: gar nicht). Alles je Effekt-Aktivierung.
+## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied hebt Seite UND Kante,
+## Rahmenvergolder nur die Kante); Knochen +1 je Träger (Knochenleim: +2, nach
+## oben offen); Glas −1 je Träger, nie unter das Floor (Glasbläserlunge: gar
+## nicht). Alles je Effekt-Aktivierung.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
-	var gold_payout := 2 if charm_ids.has(Charm.GOLDSMITH) else 1
-	var edge_gold_payout := 2 if charm_ids.has(Charm.FRAME_GILDER) else 1
+	var goldsmith := charm_ids.has(Charm.GOLDSMITH)
+	var gold_payout := GOLD_PAYOUT_BOOSTED if goldsmith else GOLD_PAYOUT
+	var edge_gold_payout := GOLD_PAYOUT_BOOSTED if goldsmith or charm_ids.has(Charm.FRAME_GILDER) else GOLD_PAYOUT
 	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
 	var glass_shrinks := not charm_ids.has(Charm.GLASSBLOWER_LUNG)
 	var report := TakeReport.new()
@@ -101,7 +100,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
 		var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
-		var effect_count := effect_activations(i, materials, edge_materials, charm_ids, shown, echo_slot)
+		var effect_count := activation_count(i, materials, edge_materials, charm_ids, shown, echo_slot)
 
 		if face_material == DieMaterial.GOLD:
 			report.money += gold_payout * effect_count

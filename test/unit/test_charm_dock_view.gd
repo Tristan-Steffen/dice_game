@@ -113,21 +113,37 @@ func test_hover_without_sell_values_shows_no_chip():
 	assert_false(d._sell_label.visible, "ohne Verkaufswert kein Chip")
 	assert_eq(d.sell_index_at(d.pad_center(0)), -1)
 
-func test_mult_badge_shows_value_on_its_slot_and_hides_at_zero():
+func test_badges_show_their_text_and_hide_when_empty():
 	var d := _dock()
 	d.place(_apertures(), Vector2(60, 60))
 	d.set_charms(_ids(["a", "b"]))
-	d.set_mult_badge(1, 15)
-	assert_true(d._badge_label.visible, "Chip an seiner Karte sichtbar")
-	assert_eq(d._badge_label.text, "+15")
-	d.set_mult_badge(1, 0)
-	assert_false(d._badge_label.visible, "bei 0 verschwindet der Chip")
+	d.set_badges({1: "+15"})
+	assert_true(d._badge_labels[1].visible, "Chip an seiner Karte sichtbar")
+	assert_eq(d._badge_labels[1].text, "+15")
+	assert_false(d._badge_labels[0].visible, "Platz ohne Eintrag bleibt leer")
+	d.set_badges({})
+	assert_false(d._badge_labels[1].visible, "ohne Text verschwindet der Chip")
 
-func test_mult_badge_hidden_for_unoccupied_or_missing_slot():
+func test_badges_sit_below_their_card():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	d.set_charms(_ids(["a"]))
+	d.set_badges({0: "6"})
+	var card_bottom: float = d.pad_center(0).y - d.position.y + 30.0
+	assert_gte(d._badge_labels[0].position.y, card_bottom, "Chip liegt UNTER der Karte")
+
+func test_several_badges_can_show_at_once():
+	var d := _dock()
+	d.place(_apertures(), Vector2(60, 60))
+	d.set_charms(_ids(["a", "b"]))
+	d.set_badges({0: "+5", 1: "3"})
+	assert_true(d._badge_labels[0].visible)
+	assert_true(d._badge_labels[1].visible)
+	assert_eq(d._badge_labels[1].text, "3")
+
+func test_badge_hidden_for_unoccupied_slot():
 	var d := _dock()
 	d.place(_apertures(), Vector2(60, 60))
 	d.set_charms(_ids(["a"]))  # nur Platz 0 belegt
-	d.set_mult_badge(2, 15)  # leerer Platz
-	assert_false(d._badge_label.visible, "kein Chip auf leerem Platz")
-	d.set_mult_badge(-1, 15)  # Charm nicht im Besitz
-	assert_false(d._badge_label.visible, "kein Chip ohne Ziel")
+	d.set_badges({2: "+15"})
+	assert_false(d._badge_labels[2].visible, "kein Chip auf leerem Platz")

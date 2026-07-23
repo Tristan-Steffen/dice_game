@@ -30,6 +30,9 @@ const CHARM_PAYOUT_STEP_INTERVAL := 0.45
 ## Start-Takt der Frankiermaschinen-Salve: die Meteore starten dicht
 ## hintereinander, ohne auf die vorige Ankunft zu warten.
 const STAMP_METEOR_GAP := 0.18
+## Pendel-Schwung: verlorener Mult steigt in Warnrot auf, gewonnener in Gold.
+const PENDULUM_LOSS_COLOR := Color(1.0, 0.35, 0.3)
+const PENDULUM_SWING_FONT := 0.7
 
 ## Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken (oberste
 ## Stufe zuerst). Der Abstand nach jeder Ankunft zieht leicht an (Accelerando).
@@ -264,6 +267,7 @@ var run: GameRun
 
 var hands_taken_this_round: int = 0
 var chimney_sweep_used_this_round: bool = false
+var phoenix_used_this_round: bool = false
 
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der Runde
 var next_draw_index: int = 0
@@ -282,6 +286,7 @@ var rerolled_dice_this_hand: int = 0  # Pendel
 var rerolls_this_hand: int = 0  # Anker
 var taken_dice_this_round: int = 0  # Pendel
 var full_reroll_stacks: int = 0  # Alles-oder-nichts
+var _pendulum_shown: int = 0  # zuletzt angezeigter Pendel-Mult (Schwung-Animation)
 var momentum_streak: int = 0  # Momentum
 var first_hand_after_farkle: bool = false  # Galgenhumor
 var recycling_used_this_round: bool = false
@@ -758,16 +763,52 @@ func _on_charms_changed() -> void:
 	charm_row.set_charms(run.owned_charms)
 	if table_screen != null and table_screen.charm_dock != null:
 		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
-	_update_all_or_nothing_badge()
+	_update_charm_badges()
 
-## Zeigt den aufgelaufenen Alles-oder-nichts-Mult als Chip an SEINER Dock-Karte
+## Zeigt die laufenden Werte der Zähler-Charms als Chip UNTER ihrer Dock-Karte
 ## (Position folgt Umsortieren/Kauf/Verkauf über die Besitz-Slots).
-func _update_all_or_nothing_badge() -> void:
+func _update_charm_badges() -> void:
 	if table_screen == null or table_screen.charm_dock == null:
 		return
-	var resolved := run.charm_ids().find(Charm.ALL_OR_NOTHING)
-	var slot := _charm_slot(resolved) if resolved >= 0 else -1
-	table_screen.charm_dock.set_mult_badge(slot, full_reroll_stacks * CharmEffects.ALL_OR_NOTHING_MULT)
+	var texts := {}
+	var ids := run.charm_ids()
+	var pendulum := CharmEffects.pendulum_mult(_score_ctx())
+	for j in ids.size():
+		var slot := _charm_slot(j)
+		if slot < 0:
+			continue
+		match ids[j]:
+			Charm.ALL_OR_NOTHING:
+				if full_reroll_stacks > 0:
+					texts[slot] = "+%d" % (full_reroll_stacks * CharmEffects.ALL_OR_NOTHING_MULT)
+			Charm.MOMENTUM:
+				if momentum_streak > 0:
+					texts[slot] = "+%d" % momentum_streak
+			Charm.PENDULUM:
+				if pendulum > 0:
+					texts[slot] = "+%d" % pendulum
+			Charm.RAG_COLLECTOR:
+				if run.lumpensammler_value > 0:
+					texts[slot] = "%d" % run.lumpensammler_value
+	table_screen.charm_dock.set_badges(texts)
+	_show_pendulum_swing(ids, pendulum)
+
+## Pendel: jede Bewegung des Mults schwingt sichtbar - der Charm blitzt und die
+## Differenz steigt als "+N"/"-N" an seinem Pad auf (Gold beim Gewinn, Rot beim
+## Verlust). _pendulum_shown ist der zuletzt angezeigte Stand.
+func _show_pendulum_swing(ids: Array[String], value: int) -> void:
+	var resolved := ids.find(Charm.PENDULUM)
+	if resolved < 0:
+		_pendulum_shown = 0  # ohne Pendel gibt es nichts zu vergleichen
+		return
+	var delta := value - _pendulum_shown
+	_pendulum_shown = value
+	if delta == 0:
+		return
+	_flash_charm_and_pad(resolved)
+	var color := CasinoStyle.GOLD if delta > 0 else PENDULUM_LOSS_COLOR
+	table_screen.spawn_gain_number(_charm_trail_source_px([resolved]),
+		"%+d" % delta, color, PENDULUM_SWING_FONT)
 
 ## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
 func _charm_sell_values() -> Array[int]:
@@ -2196,19 +2237,17 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_POOL_EMPTY: _remaining_in_pool() <= 0,
 		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
-		CharmEffects.CTX_LAST_SETTLED: dice.last_settled_index,
 		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
-## Werte (last_settled, late_slots) müssen auf die gefilterten Indizes
-## übersetzt werden, sonst zeigen Nachzügler/Bodensatz auf falsche Positionen.
+## Werte (late_slots) müssen auf die gefilterten Indizes übersetzt werden,
+## sonst zeigt der Bodensatz auf falsche Positionen.
 func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	var ctx := _score_ctx()
 	var to_filtered := {}
 	for k in slots.size():
 		to_filtered[slots[k]] = k
-	ctx[CharmEffects.CTX_LAST_SETTLED] = to_filtered.get(ctx[CharmEffects.CTX_LAST_SETTLED], -1)
 	var mapped_late: Array = []
 	for s in ctx.get(CharmEffects.CTX_LATE_SLOTS, []):
 		if to_filtered.has(s):
@@ -2423,7 +2462,7 @@ func _on_throw_button_pressed() -> void:
 		rerolled_dice_this_hand += thrown_indices.size()
 		if thrown_indices.size() == dice.count():
 			full_reroll_stacks += 1
-			_update_all_or_nothing_badge()
+		_update_charm_badges()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
@@ -2667,12 +2706,18 @@ func _on_farkle() -> void:
 	# Zerbrochener Spiegel zählt, die Momentum-Serie reißt, Galgenhumor merkt vor.
 	run.farkle_count += 1
 	momentum_streak = 0
+	_update_charm_badges()
 	first_hand_after_farkle = true
 
-	# Scherbengericht: $2 je verworfenem Würfel.
+	# Scherbengericht: $2 je verworfenem Würfel - als Chip-Pakete vom Charm-Pad
+	# zur Truhe. Die Phase hält solange SCORING, damit kein Wurf dazwischenfunkt.
 	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
 	if shard_income > 0:
-		run.add_money(shard_income)
+		phase = Phase.SCORING
+		await _play_charm_money_payout(ids.find(Charm.SHARD_COURT), shard_income, Phase.SCORING)
+		if phase != Phase.SCORING:
+			return  # Reset während der Zeremonie
+		phase = Phase.IDLE
 
 	# Standuhr: der Farkle verdoppelt die aktuellen Rundenpunkte.
 	if CharmEffects.farkle_doubles_points(ids) and hand_total > 0:
@@ -2680,11 +2725,12 @@ func _on_farkle() -> void:
 		_animate_points_to(hand_total)
 		hand_note = "Standuhr: Farkle – die Rundenpunkte verdoppeln sich!"
 
-	# Phönixfeder: die Würfel wandern zurück in den Nachziehstapel statt in
-	# die Ablage (die Hand bleibt trotzdem verloren).
-	if CharmEffects.has_phoenix(ids):
+	# Phönixfeder: beim ERSTEN Fumble der Runde wandern die Würfel zurück in den
+	# Nachziehstapel statt in die Ablage (die Hand bleibt trotzdem verloren).
+	if CharmEffects.has_phoenix(ids) and not phoenix_used_this_round:
+		phoenix_used_this_round = true
 		round_pool_kinds.append_array(active_kinds)
-		hand_note = "Phönixfeder: Farkle – die Würfel kehren in den Nachziehstapel zurück."
+		hand_note = "Phönixfeder: Fumble – die Würfel kehren in den Nachziehstapel zurück."
 	else:
 		for kind in active_kinds:
 			_discard_kind(kind)
@@ -2752,7 +2798,6 @@ func _on_take_button_pressed() -> void:
 	await _play_take_animation(breakdown, new_total)
 	if phase != Phase.SCORING:
 		return  # Reset während der Animation - nichts mehr anwenden
-	phase = Phase.IDLE
 	hand_total = new_total
 
 	# Rundenbilanz für die Nebenwetten fortschreiben (beste Kombi + höchste Hand;
@@ -2780,16 +2825,22 @@ func _on_take_button_pressed() -> void:
 		run.add_money(take_money)
 	# Goldrausch: nur die ERSTE Hand der Runde, und nur wenn sie alle liegenden
 	# Würfel nutzt -> Geld +20% (max. $50). hands_taken_this_round zählt oben schon.
+	# Zahlt als Chip-Pakete vom Charm-Pad zur Truhe, wie die Rundenende-Charms;
+	# die Phase bleibt solange SCORING, damit kein Wurf dazwischenfunkt.
 	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count(), hands_taken_this_round == 1):
 		var rush := CharmEffects.gold_rush_income(run.money)
 		if rush > 0:
-			run.add_money(rush)
+			await _play_charm_money_payout(ids.find(Charm.GOLD_RUSH), rush, Phase.SCORING)
+			if phase != Phase.SCORING:
+				return  # Reset während der Zeremonie
+	phase = Phase.IDLE
+
 	# Momentum/Galgenhumor/Pendel/Alles-oder-nichts fortschreiben.
 	momentum_streak += 1
 	first_hand_after_farkle = false
 	taken_dice_this_round += dice.count()
 	full_reroll_stacks = 0
-	_update_all_or_nothing_badge()
+	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
 	# Recycling: die erste genommene Hand kehrt ans Stapel-Ende zurück.
@@ -3324,6 +3375,7 @@ func _start_new_round() -> void:
 	_cancel_lineup()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
+	phoenix_used_this_round = false
 	taken_dice_this_round = 0
 	recycling_used_this_round = false
 	first_hand_after_farkle = false
@@ -3337,6 +3389,7 @@ func _start_new_round() -> void:
 	# Rundenbeginn-Wirkungen VOR dem Poolaufbau, damit frische Materialien
 	# sofort mitspielen.
 	run.apply_round_start_charms()
+	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
@@ -3402,6 +3455,7 @@ func _start_new_hand() -> void:
 	active_kinds = []
 	rerolled_dice_this_hand = 0
 	rerolls_this_hand = 0
+	_update_charm_badges()
 	# full_reroll_stacks bleibt stehen - Alles-oder-nichts stapelt bis zum
 	# nächsten NEHMEN, nicht je Hand.
 	dice.reset()
@@ -3587,7 +3641,9 @@ func _play_round_end_charm_ceremony(ids: Array[String]) -> void:
 ## Chipfarbe) dicht gestaffelt vom Pad zur Schatztruhe - jedes Paket bucht
 ## SEINEN Wert bei Ankunft (das generische Geld-Licht ist unterdrückt, die
 ## Pakete SIND die Gutschrift). Gewartet wird auf die letzte Ankunft.
-func _play_charm_money_payout(index: int, amount: int) -> void:
+## guard: Phase, die die Zeremonie trägt - ein Wechsel (Reset) bricht sie ab.
+## Der Goldrausch zahlt beim Nehmen und hält solange SCORING.
+func _play_charm_money_payout(index: int, amount: int, guard: Phase = Phase.PAYOUT) -> void:
 	_flash_charm_and_pad(index)
 	var from_px := _charm_trail_source_px([index])
 	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
@@ -3596,24 +3652,24 @@ func _play_charm_money_payout(index: int, amount: int) -> void:
 	for i in values.size():
 		var value: int = values[i]
 		if i == 0:
-			travel = _fire_charm_money_packet(from_px, value)
+			travel = _fire_charm_money_packet(from_px, value, guard)
 		else:
 			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(func() -> void:
-				if phase == Phase.PAYOUT:
-					_fire_charm_money_packet(from_px, value))
+				if phase == guard:
+					_fire_charm_money_packet(from_px, value, guard))
 	var last_arrival := float(maxi(0, values.size() - 1)) * MONEY_PULSE_GAP + maxf(travel, 0.05)
 	await get_tree().create_timer(last_arrival).timeout
-	if phase != Phase.PAYOUT:
+	if phase != guard:
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## Schickt EIN Chip-Paket los und bucht seinen Wert bei ANKUNFT (Truhe glimmt,
 ## Einzahlungs-Schlitz blitzt in der Chipfarbe). Liefert die Flugzeit.
-func _fire_charm_money_packet(from_px: Vector2, value: int) -> float:
+func _fire_charm_money_packet(from_px: Vector2, value: int, guard: Phase = Phase.PAYOUT) -> float:
 	var chip_color := ChipStackView.denomination_color(value)
 	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if phase != Phase.PAYOUT:
+		if phase != guard:
 			return
 		_suppress_money_light = true
 		run.add_money(value)

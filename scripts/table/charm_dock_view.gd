@@ -29,7 +29,9 @@ const DRAG_SCALE := 1.12    # gezogene Karte hebt sich leicht ab
 const PROJECTOR_GAP := 0.18       # Abstand Projektor-Unterkante -> Kartenoberkante
 const PROJECTOR_FALLBACK := 0.24  # Projektor-Radius (Kartenhöhen), bis scene_root den Beam meldet
 const CONSOLE_PAD_X := 0.09       # seitlicher Mindest-Rand der Konsole um die Karte
-const CONSOLE_PAD_Y := 0.14       # Rand über Projektor / unter Karte
+const CONSOLE_PAD_Y := 0.14       # Rand über dem Projektor
+const CONSOLE_PAD_BOTTOM := 0.3   # Rand unter der Karte - trägt den Dauer-Chip
+const BADGE_GAP := 0.03           # Abstand Kartenunterkante -> Dauer-Chip
 
 ## Projektor-Radius in Viewport-Pixeln (= Beam-Radius). Fallback bis scene_root
 ## ihn setzt: knapp ein Viertel der Kartenhöhe.
@@ -61,11 +63,11 @@ var _body_label: Label
 var _sell_label: Label
 var _sell_rect := Rect2()
 var _sell_values: Array[int] = []
-## Dauer-Chip mit laufendem Wert an EINER Karte (Alles-oder-nichts-Mult); scene_root
-## setzt ihn über set_mult_badge. -1/0 = versteckt.
-var _badge_label: Label
-var _badge_slot := -1
-var _badge_value := 0
+## Dauer-Chips mit laufendem Wert UNTER den Karten (Alles-oder-nichts-/Momentum-
+## Mult, Lumpensammler-Glückszahl); scene_root füllt sie über set_badges.
+## Ein Chip je Platz, leerer Text = versteckt.
+var _badge_labels: Array[Label] = []
+var _badge_texts := {}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -100,7 +102,7 @@ func place(aperture_centers_px: PackedVector2Array, pad_size: Vector2, proj_radi
 	_flash.fill(0.0)
 	_style_labels()
 	_clear_thumbs()
-	_update_badge()
+	_update_badges()
 	queue_redraw()
 
 ## Projektor-Radius (Beam-Radius, sonst Fallback aus der Kartenhöhe).
@@ -118,7 +120,7 @@ func _console_rect_for(aperture: Vector2) -> Rect2:
 	var margin := _pad_size.x * CONSOLE_PAD_X
 	var half_w := maxf(_pad_size.x * 0.5, pr) + margin
 	var top := aperture.y - pr - _pad_size.y * CONSOLE_PAD_Y
-	var bottom := aperture.y + _card_drop_px() + _pad_size.y * (0.5 + CONSOLE_PAD_Y)
+	var bottom := aperture.y + _card_drop_px() + _pad_size.y * (0.5 + CONSOLE_PAD_BOTTOM)
 	return Rect2(aperture.x - half_w, top, half_w * 2.0, bottom - top)
 
 ## Konsolen-Rects in Viewport-Koordinaten (für die Reflexions-Fenstermaske).
@@ -154,34 +156,39 @@ func set_charms(charms: Array[Charm], sell_values: Array[int] = []) -> void:
 		add_child(thumb)
 		_thumbs.append(thumb)
 		_thumb_home.append(home)
-	_update_badge()
+	_update_badges()
 	queue_redraw()
 
-## Setzt den Dauer-Chip an Platz slot auf value (>0 sichtbar, sonst versteckt) -
-## z.B. der aufgelaufene Alles-oder-nichts-Mult. Eine Karte je Chip.
-func set_mult_badge(slot: int, value: int) -> void:
-	_badge_slot = slot
-	_badge_value = value
-	_update_badge()
+## Setzt ALLE Dauer-Chips neu (Platz -> Text); Plätze ohne Eintrag bleiben leer.
+func set_badges(texts: Dictionary) -> void:
+	_badge_texts = texts.duplicate()
+	_update_badges()
 
-## Legt den Mult-Chip in die obere rechte Ecke seiner Karte und hebt ihn über die
-## Kachel; ohne gültigen Platz/Wert bleibt er versteckt.
-func _update_badge() -> void:
-	if _badge_label == null:
-		return
-	var active := _badge_value > 0 and _badge_slot >= 0 and _badge_slot < _occupied \
-		and _badge_slot < _pad_offsets.size()
-	_badge_label.visible = active
-	if not active:
-		return
-	_badge_label.text = "+%d" % _badge_value
-	var bw := _pad_size.x * 0.52
-	var bh := _pad_size.y * 0.24
-	var card_top_left := _pad_offsets[_badge_slot] - _pad_size / 2.0
-	var margin := _pad_size.x * 0.06
-	_badge_label.position = card_top_left + Vector2(_pad_size.x - bw - margin, margin)
-	_badge_label.size = Vector2(bw, bh)
-	move_child(_badge_label, get_child_count() - 1)
+## Legt je Chip mittig UNTER seine Karte (in den Konsolen-Rand) und hebt ihn über
+## die Kacheln; ohne Text/Platz bleibt er versteckt.
+func _update_badges() -> void:
+	while _badge_labels.size() < _pad_offsets.size():
+		var fresh := Label.new()
+		fresh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		fresh.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		fresh.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		add_child(fresh)
+		_badge_labels.append(fresh)
+		_style_badge(fresh)
+	var bw := _pad_size.x * 0.62
+	var bh := _pad_size.y * 0.2
+	for i in _badge_labels.size():
+		var label := _badge_labels[i]
+		var text: String = str(_badge_texts.get(i, ""))
+		var active := text != "" and i < _occupied and i < _pad_offsets.size()
+		label.visible = active
+		if not active:
+			continue
+		label.text = text
+		var card_bottom := _pad_offsets[i] + Vector2(0, _pad_size.y * 0.5)
+		label.position = card_bottom + Vector2(-bw * 0.5, _pad_size.y * BADGE_GAP)
+		label.size = Vector2(bw, bh)
+		move_child(label, get_child_count() - 1)
 
 ## Viewport-Mitte der KARTE i (Quelle des Zähl-Lichts, Zieh-Anker).
 func pad_center(i: int) -> Vector2:
@@ -312,12 +319,6 @@ func _ensure_labels() -> void:
 	_sell_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sell_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	add_child(_sell_label)
-	_badge_label = Label.new()
-	_badge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_badge_label.visible = false
-	_badge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_badge_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	add_child(_badge_label)
 
 ## Schriftgrößen an der Kartengröße ausrichten (Name in Gold, Wirkung in Creme).
 func _style_labels() -> void:
@@ -330,15 +331,19 @@ func _style_labels() -> void:
 	chip.set_border_width_all(maxi(1, int(_pad_size.y * 0.012)))
 	chip.set_corner_radius_all(maxi(2, int(_pad_size.y * 0.05)))
 	_sell_label.add_theme_stylebox_override("normal", chip)
-	# Mult-Chip: überheller Rand, damit er auf dem HDR-Screen leuchtet.
-	CasinoStyle.style_score_label(_badge_label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
+	for label in _badge_labels:
+		_style_badge(label)
+
+## Dauer-Chip: überheller Rand, damit er auf dem HDR-Screen leuchtet.
+func _style_badge(label: Label) -> void:
+	CasinoStyle.style_score_label(label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
 	var badge := StyleBoxFlat.new()
 	badge.bg_color = Color(0.02, 0.02, 0.05, 0.95)
 	badge.border_color = Color(CasinoStyle.GOLD.r * 1.6, CasinoStyle.GOLD.g * 1.6, CasinoStyle.GOLD.b * 1.6, 0.9)
 	badge.set_border_width_all(maxi(1, int(_pad_size.y * 0.016)))
 	badge.set_corner_radius_all(maxi(2, int(_pad_size.y * 0.08)))
 	badge.set_content_margin_all(maxf(1.0, _pad_size.y * 0.02))
-	_badge_label.add_theme_stylebox_override("normal", badge)
+	label.add_theme_stylebox_override("normal", badge)
 
 ## Legt die Hover-Texte in die Karten-Fläche der Konsole i; der Wirkungstext
 ## schrumpft schrittweise, bis er in die verfügbare Höhe passt. Am Kartenboden

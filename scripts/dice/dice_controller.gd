@@ -91,9 +91,6 @@ func _slide_off_stack(body: RigidBody3D) -> void:
 var roots: Array[Node3D]
 var bodies: Array[RigidBody3D]
 var face_displays: Array[DieFaceDisplay] = []
-## Slot des zuletzt zur Ruhe gekommenen Würfels (-1 = keiner) - Nachzügler-Charm.
-var last_settled_index: int = -1
-
 var start_transforms: Array[Transform3D] = []
 var selected: Array[bool] = []  # true = vor dem nächsten Neu-Würfeln geschützt
 var values: Array[int] = []
@@ -217,7 +214,6 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 				settled[i] = true
 				face_indices[i] = AXIS_FACE_INDEX[_top_axis_info(body)[0]]
 				values[i] = slot_defs[i].faces[face_indices[i]]
-				last_settled_index = i
 		else:
 			rest_timers[i] = 0.0
 			if is_slow:
@@ -251,7 +247,6 @@ static func face_index_for_local_dir(local_dir: Vector3) -> int:
 	return AXIS_FACE_INDEX.get(best_axis, -1)
 
 func reset() -> void:
-	last_settled_index = -1
 	for i in count():
 		selected[i] = false
 		values[i] = 0
