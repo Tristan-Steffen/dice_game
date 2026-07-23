@@ -294,16 +294,22 @@ func test_glass_edge_shrinks_and_respects_minimum():
 	assert_eq(defs[0].faces[0], 1, "2 − 2 wäre 0, geklemmt auf 1")
 	assert_eq(report.shrunk, [0])
 
-func test_gold_edge_does_not_pay_on_take():
+func test_gold_edge_pays_on_take():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), _m([DieMaterial.GOLD]))
-	assert_eq(report.money, 0, "Gold-Kanten zahlen je Wurf (roll_money), nicht beim Nehmen")
+	assert_eq(report.money, 1, "Gold-Kanten zahlen beim Nehmen, wie die Gold-Seite")
 
-func test_roll_money_pays_per_thrown_gold_edge():
-	var edges := _m([DieMaterial.GOLD, "", DieMaterial.GOLD, DieMaterial.RUBY, "", DieMaterial.GOLD])
-	assert_eq(MaterialEffects.roll_money(edges, _p([0, 1, 2, 3, 4, 5])), 3, "$1 je geworfenem Gold-Kanten-Würfel")
-	assert_eq(MaterialEffects.roll_money(edges, _p([0, 1])), 1, "geschützte (nicht geworfene) Würfel zahlen nicht")
-	assert_eq(MaterialEffects.roll_money(_m(["", "", "", "", "", ""]), _p([0, 1, 2, 3, 4, 5])), 0)
+func test_gold_edge_stays_quiet_for_uncounted_dice():
+	# Kein Wurf-Einkommen mehr: nur die genommene Kombination zahlt.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0]), edges)
+	assert_eq(report.money, 1, "nur der beteiligte Würfel zahlt")
+
+func test_gold_edge_and_face_stack_on_the_same_die():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.GOLD]))
+	assert_eq(report.money, 2, "Seite $1 + Kante $1")
 
 func test_edge_materials_flow_through_best_hand():
 	# Paar Fünfer: Basis (10+10), Mult 2 -> 40. Rubin-Kanten auf einem Paar-Würfel:

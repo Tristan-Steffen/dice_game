@@ -2,9 +2,10 @@ class_name MaterialEffects
 ## Reine Wirkung der Materialien (siehe DieMaterial). Zwei Träger:
 ## SEITEN-Material wirkt nur, wenn die Seite oben liegt UND zur Kombination
 ## gehört; KANTEN-Material wirkt für den ganzen beteiligten Würfel. Beide
-## stapeln. Drei Aufrufpunkte: Wertungs-Boni (base_bonus/mult_bonus, auch in
-## Vorschau/Farkle-Vergleich), Nehmen-Effekte (apply_take_effects, einmal beim
-## echten Nehmen) und Wurf-Effekte (roll_money, je Wurf).
+## stapeln. Materialien wirken NUR über die genommene Kombination - verworfene
+## und gefumbelte Würfel lösen nichts aus. Zwei Aufrufpunkte: Wertungs-Boni
+## (base_bonus/mult_bonus, auch in Vorschau/Farkle-Vergleich) und Nehmen-Effekte
+## (apply_take_effects, einmal beim echten Nehmen).
 ## values/materials/edge_materials sind parallele Arrays je Wurf-Slot.
 
 ## Bericht der Nehmen-Effekte für die UI.
@@ -81,11 +82,12 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 	return bonus
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
-## Gold-Seite zahlt +$1 (Goldschmied: $2); Knochen +1 je Träger (Knochenleim:
-## +2, nach oben offen); Glas −1 je Träger, nie unter das Floor
-## (Glasbläserlunge: gar nicht). Alles je Effekt-Aktivierung.
+## Gold zahlt +$1 je Träger (Seite: Goldschmied $2, Kante: Rahmenvergolder $2);
+## Knochen +1 je Träger (Knochenleim: +2, nach oben offen); Glas −1 je Träger,
+## nie unter das Floor (Glasbläserlunge: gar nicht). Alles je Effekt-Aktivierung.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
 	var gold_payout := 2 if charm_ids.has(Charm.GOLDSMITH) else 1
+	var edge_gold_payout := 2 if charm_ids.has(Charm.FRAME_GILDER) else 1
 	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
 	var glass_shrinks := not charm_ids.has(Charm.GLASSBLOWER_LUNG)
 	var report := TakeReport.new()
@@ -103,6 +105,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 
 		if face_material == DieMaterial.GOLD:
 			report.money += gold_payout * effect_count
+		if edge_material == DieMaterial.GOLD:
+			report.money += edge_gold_payout * effect_count
 
 		var growth := 0
 		if face_material == DieMaterial.BONE:
@@ -124,13 +128,3 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		if shrunk_any:
 			report.shrunk.append(i)
 	return report
-
-## Gold-KANTEN zahlen je Wurf (+$1, Rahmenvergolder: $2) - auch wenn der Wurf
-## danach farkelt. thrown = Slots der tatsächlich geworfenen Würfel.
-static func roll_money(edge_materials: Array[String], thrown: Array[int], charm_ids: Array[String] = []) -> int:
-	var per_die := 2 if charm_ids.has(Charm.FRAME_GILDER) else 1
-	var money := 0
-	for i in thrown:
-		if i < edge_materials.size() and edge_materials[i] == DieMaterial.GOLD:
-			money += per_die
-	return money

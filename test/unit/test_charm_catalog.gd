@@ -168,11 +168,11 @@ func test_snake_eyes_converts_bystanders_to_mult():
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([5, 5, 3, 4, 1, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, _p([0, 1])), 0, "ein 5er-Paar sind keine Snake Eyes")
 
 func test_alloy_doubles_material_effects_of_dual_carriers():
-	# Gold-Seite oben UND Gold-Kanten: die Legierung lässt den Nehmen-Effekt
-	# der Gold-Seite doppelt feuern ($2 statt $1).
+	# Gold-Seite oben UND Gold-Kanten: die Legierung lässt beide Nehmen-Effekte
+	# doppelt feuern ($1 Seite + $1 Kante, je zweimal).
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.GOLD]), _ids([Charm.ALLOY]))
-	assert_eq(report.money, 2, "Seiten-Gold zahlt doppelt")
+	assert_eq(report.money, 4, "Seite und Kante zahlen doppelt")
 	# Ohne Kanten-Material bleibt alles einfach.
 	var single: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var single_report := MaterialEffects.apply_take_effects(single, _p([0]), _m([DieMaterial.GOLD]), _p([0]), NO_MATS, _ids([Charm.ALLOY]))
@@ -223,8 +223,10 @@ func test_glassblower_lung_stops_glass_from_shrinking():
 	assert_eq(defs[0].faces[0], 6, "Glas schrumpft gar nicht mehr, egal bei welcher Augenzahl")
 
 func test_frame_gilder_doubles_edge_gold():
-	var edges := _m([DieMaterial.GOLD, "", DieMaterial.GOLD, "", "", ""])
-	assert_eq(MaterialEffects.roll_money(edges, _p([0, 1, 2, 3, 4, 5]), _ids([Charm.FRAME_GILDER])), 4)
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]), edges, _ids([Charm.FRAME_GILDER]))
+	assert_eq(report.money, 4, "$2 je beteiligter Gold-Kante")
 
 func _die(faces: Array) -> DieDefinition:
 	var def := DieDefinition.new()

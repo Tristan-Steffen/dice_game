@@ -59,6 +59,30 @@ func test_merge_orbs_slams_after_charge_orbit_hitstop() -> void:
 	assert_false(ts.base_counter.visible, "Seiten-Orbs verschmolzen")
 	assert_false(ts.mult_counter.visible)
 
+func test_crit_slams_the_mult_after_the_hitstop() -> void:
+	var ts := _screen()
+	ts.update_pit_score(120, 6)
+	var dur: float = ts.crit_pit_mult(120, 24, 4)
+	await wait_frames(2)
+	assert_eq(ts.mult_counter.value, 6, "während des Hit-Stops steht der alte Mult")
+	assert_true(ts.mult_counter.overbright, "der Orb spannt sich überhell an")
+	await wait_seconds(TableScreen.CRIT_HITSTOP + 0.15)
+	assert_eq(ts.mult_counter.value, 24, "nach dem Hit-Stop slammt der neue Mult")
+	assert_eq(ts.base_counter.value, 120, "die Basis zieht normal nach")
+	await wait_seconds(dur)
+	assert_false(ts.mult_counter.overbright, "nach dem Beben wieder normal")
+	assert_eq(ts.mult_counter.position, ts._mult_home, "Ruheplatz exakt wiederhergestellt")
+
+func test_reset_aborts_a_running_crit() -> void:
+	var ts := _screen()
+	ts.update_pit_score(120, 6)
+	ts.crit_pit_mult(120, 24, 4)
+	ts.reset_pit_score()
+	assert_eq(ts.mult_counter.value, 0, "Reset gewinnt")
+	assert_false(ts.mult_counter.overbright)
+	await wait_seconds(0.7)
+	assert_eq(ts.mult_counter.value, 0, "der abgebrochene Krit setzt keinen Wert mehr")
+
 func test_total_drain_shrinks_and_finish_resets() -> void:
 	var ts := _screen()
 	ts.update_pit_score(240, 12)

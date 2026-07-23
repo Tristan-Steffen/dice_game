@@ -96,6 +96,10 @@ const SCORE_TRAIL_TIME := 0.3
 const SCORE_STEP_GAP_START := 0.32
 const SCORE_STEP_GAP_DECAY := 0.85
 const SCORE_STEP_GAP_MIN := 0.1
+## Krit: Extra-Halt nach der Komet-Ankunft, damit Hit-Stop + Einschlag des
+## Mult-Orbs (TableScreen.crit_pit_mult) ausspielen, bevor der nächste Schritt
+## den Trommelwirbel fortsetzt - der Krit bricht das Accelerando bewusst.
+const CRIT_HOLD := 0.45
 ## Drain: Grunddauer + je Überladungs-Rollover; jeder Rollover hält kurz inne.
 const DRAIN_BASE_TIME := 0.8
 const DRAIN_PER_ROLLOVER := 0.4
@@ -272,7 +276,6 @@ var last_throw_was_reroll: bool = false
 var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Vergleich)
 var pre_reroll_materials: Array[String] = []
 var pre_reroll_edge_materials: Array[String] = []
-var last_thrown_indices: Array[int] = []  # Slots des letzten Wurfs (Gold-Kanten)
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
 var rerolled_dice_this_hand: int = 0  # Pendel
@@ -2421,7 +2424,6 @@ func _on_throw_button_pressed() -> void:
 		if thrown_indices.size() == dice.count():
 			full_reroll_stacks += 1
 			_update_all_or_nothing_badge()
-	last_thrown_indices = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
 	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
@@ -2602,11 +2604,6 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
-
-	# Gold-Kanten zahlen bei JEDEM Wurf - noch vor der Farkle-Prüfung.
-	var roll_income := MaterialEffects.roll_money(_edge_materials(), last_thrown_indices, run.charm_ids())
-	if roll_income > 0:
-		run.add_money(roll_income)
 
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln.
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx()):
@@ -2948,6 +2945,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			if not await _play_charm_pulses(step):
 				return
 			continue
+		# Krits inszenieren sich selbst: heißer Komet, Hit-Stop, Einschlag.
+		if int(step.get("crit_x", 1)) > 1:
+			if not await _play_crit_step(step):
+				return
+			continue
 		for charm_index: int in step["charm_indices"]:
 			_flash_charm_and_pad(charm_index)
 		var source_px := _charm_trail_source_px(step["charm_indices"])
@@ -2995,6 +2997,25 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# an jeder Überladungs-Schwelle hält beides kurz inne (magnitude-abhängig).
 	await _drain_total_to_goal(displayed_points, new_total)
 	_cleanup_take_animation()
+
+## Spielt einen Krit-Schritt: der Komet läuft in Krit-Magenta vom Dock-Pad zum
+## Mult-Orb, bei Ankunft übernimmt TableScreen.crit_pit_mult (Hit-Stop -> Slam
+## mit Stoßwellen -> Beben). Der Extra-Halt (CRIT_HOLD) lässt den Moment atmen,
+## bevor das Accelerando weiterläuft. false = Abbruch (Reset).
+func _play_crit_step(step: Dictionary) -> bool:
+	for charm_index: int in step["charm_indices"]:
+		_flash_charm_and_pad(charm_index)
+	var source_px := _charm_trail_source_px(step["charm_indices"])
+	var cbase: int = step["base_after"]
+	var cmult: int = step["mult_after"]
+	var crit_x: int = step["crit_x"]
+	table_screen.spawn_gain_number(source_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
+	var travel := _fire_score_light(source_px, "charm", ["mult"],
+		func() -> void: table_screen.crit_pit_mult(cbase, cmult, crit_x),
+		TableScreen.CRIT_COLOR)
+	if not await _score_arrival_gap(travel):
+		return false
+	return await _score_step_wait(CRIT_HOLD)
 
 ## Spielt einen pro-Würfel-Charm-Schritt als Folge von Einzel-Meteoren: je Puls
 ## blitzt der Charm UND sein auslösender Würfel, ein Komet fliegt vom Dock-Pad in
@@ -3058,13 +3079,13 @@ func _drain_total_to_goal(from_points: int, to_points: int) -> void:
 ## zurücksetzen, auch wenn Kometen verschiedener Leisten anders lange brauchen.
 ## Feuert die Kometen und liefert ihre (längste) Laufzeit - der Aufrufer taktet
 ## den nächsten Schritt auf die ANKUNFT (siehe _score_arrival_gap).
-func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: Callable) -> float:
+func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: Callable, comet_color := Color(0, 0, 0, 0)) -> float:
 	var seq := _score_seq
 	_score_seq += 1
 	_score_pending += 1
 	var travel := 0.0
 	for t: String in targets:
-		travel = maxf(travel, table_screen.score_comet(from_px, source, t))
+		travel = maxf(travel, table_screen.score_comet(from_px, source, t, comet_color))
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		_score_pending = maxi(0, _score_pending - 1)
 		if phase != Phase.SCORING:

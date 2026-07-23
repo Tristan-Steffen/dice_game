@@ -63,13 +63,14 @@ func test_face_hint_is_the_short_name_and_effect():
 	assert_false(hint.contains(amber.description), "nicht die lange Wirkungszeile")
 
 func test_edge_hint_marks_the_edges_and_uses_the_edge_short():
-	# Gold wirkt an der Kante ANDERS als auf der Seite (je Wurf statt beim Nehmen) -
-	# der Kanten-Hinweis muss die Kanten-Kurzwirkung nehmen und als Kante ausweisen.
-	var gold := DieMaterial.gold()
-	var hint := DieMaterial.edge_hint(DieMaterial.GOLD)
+	# Knochen wirkt an der Kante ANDERS als auf der Seite (die OBERE Seite wächst,
+	# egal welche) - der Kanten-Hinweis muss die Kanten-Kurzwirkung nehmen und
+	# als Kante ausweisen.
+	var bone := DieMaterial.bone()
+	var hint := DieMaterial.edge_hint(DieMaterial.BONE)
 	assert_true(hint.contains("Kanten"), "als Kanten-Wirkung ausgewiesen")
-	assert_true(hint.contains(gold.edge_short))
-	assert_ne(gold.edge_short, gold.short, "Gold-Kante unterscheidet sich von der Seite")
+	assert_true(hint.contains(bone.edge_short))
+	assert_ne(bone.edge_short, bone.short, "Knochen-Kante unterscheidet sich von der Seite")
 
 func test_short_hints_stay_short():
 	# Kern der Änderung: die Hover-Zeilen sind knapp (keine langen Sätze mehr).

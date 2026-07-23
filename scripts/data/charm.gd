@@ -464,7 +464,7 @@ static func alloy() -> Charm:
 # --- Kanten ---
 
 static func frame_gilder() -> Charm:
-	return _make(FRAME_GILDER, "Rahmenvergolder", "Gold-Kanten zahlen $2 je Wurf.")
+	return _make(FRAME_GILDER, "Rahmenvergolder", "Gold-Kanten zahlen $2 statt $1.")
 
 static func magnet_ring() -> Charm:
 	return _make(MAGNET_RING, "Magnetring", "Würfel mit Kanten-Material werden je Runde zuerst gezogen.")

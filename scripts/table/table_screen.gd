@@ -61,6 +61,15 @@ const MERGE_HOLD := 1.0
 const MERGE_ARC_FRAC := 0.5   # Bogenhöhe als Anteil des Abstands zur Mitte
 const DRAIN_SPARKS := 5
 
+## Krit-Einschlag auf dem Mult-Orb (siehe crit_pit_mult): Hit-Stop (Anspannung),
+## Slam mit Doppel-Stoßwelle, abklingendes Beben. Heißes Magenta als EIGENE
+## Farbe - Krits sollen sofort als eigene Klasse lesbar sein.
+const CRIT_COLOR := Color(2.2, 0.45, 1.15, 0.95)
+const CRIT_HITSTOP := 0.12
+const CRIT_ECHO_DELAY := 0.08
+const CRIT_SHAKE_TIME := 0.3
+const CRIT_SHAKE_PX := 5.0 * SUPERSAMPLE
+
 ## Aktions-Buttons unten mittig in der Grube, bedient über die Maus-Weiterleitung.
 const PIT_ACTION_SIZE := Vector2(79, 28) * SUPERSAMPLE
 const PIT_ACTION_GAP := 10.0 * SUPERSAMPLE
@@ -808,6 +817,48 @@ func update_pit_score(base: int, mult: int) -> void:
 	base_counter.set_value(base)
 	mult_counter.set_value(mult)
 
+var _crit_tween: Tween
+
+## Krit-Einschlag (Ankunft eines Krit-Kometen): die Basis zieht normal nach,
+## der Mult-Orb spannt sich überhell an (Hit-Stop), slammt dann auf den neuen
+## Wert - Stoßwelle + Nachhall-Welle in Krit-Farbe, ×N-Zahl, abklingendes
+## Beben, sauber zurück auf den Ruheplatz. Liefert die Gesamtdauer.
+func crit_pit_mult(base: int, mult_after: int, crit_x: int) -> float:
+	update_pit_score(base, mult_counter.value)
+	if _crit_tween != null and _crit_tween.is_valid():
+		_crit_tween.kill()
+	var center := _mult_home + mult_counter.size / 2.0
+	_crit_tween = create_tween()
+	# 1) Hit-Stop: der Orb spannt sich an, die Zeit steht kurz still.
+	_crit_tween.tween_callback(func() -> void:
+		mult_counter.set_overbright(true)
+		mult_counter.scale = Vector2.ONE * 1.3)
+	_crit_tween.tween_interval(CRIT_HITSTOP)
+	# 2) Slam: neuer Wert, Stoßwelle, ×N in Krit-Farbe.
+	_crit_tween.tween_callback(func() -> void:
+		mult_counter.scale = Vector2.ONE
+		mult_counter.set_value(mult_after)
+		_spawn_crit_wave(center, 1.1, 0.45, 1.0)
+		spawn_gain_number(center, "×%d" % crit_x, CRIT_COLOR, 1.5))
+	# Nachhall: zweite, kleinere Welle kurz versetzt.
+	_crit_tween.tween_interval(CRIT_ECHO_DELAY)
+	_crit_tween.tween_callback(func() -> void: _spawn_crit_wave(center, 0.7, 0.35, 0.6))
+	# 3) Beben: abklingender Versatz, dann exakt auf den Ruheplatz zurück.
+	_crit_tween.tween_method(func(p: float) -> void:
+		var amp := CRIT_SHAKE_PX * (1.0 - p)
+		mult_counter.position = _mult_home + Vector2(randf_range(-amp, amp), randf_range(-amp, amp)),
+		0.0, 1.0, CRIT_SHAKE_TIME)
+	_crit_tween.tween_callback(func() -> void:
+		mult_counter.position = _mult_home
+		mult_counter.set_overbright(false))
+	return CRIT_HITSTOP + CRIT_ECHO_DELAY + CRIT_SHAKE_TIME
+
+func _spawn_crit_wave(center: Vector2, radius_frac: float, duration: float, alpha: float) -> void:
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(CRIT_COLOR.r, CRIT_COLOR.g, CRIT_COLOR.b, CRIT_COLOR.a * alpha),
+		mult_counter.size.y * radius_frac, duration)
+
 ## Verschmelzungs-Zeremonie (siehe MERGE_*-Konstanten): Aufladen -> Umkreisen
 ## (beschleunigend) -> Hit-Stop -> Einschlag (überheiß, Stoßwelle) -> Halten.
 ## Liefert die GESAMTDAUER, damit der Aufrufer exakt so lange wartet.
@@ -882,12 +933,18 @@ func update_pit_total(total: int, clears_goal: bool) -> void:
 	total_orb.set_value(total)
 
 ## Setzt die Daueranzeige still auf 0 / 0 und blendet den Gesamt-Orb aus.
+## Bricht auch einen laufenden Krit-Einschlag ab (sonst setzte er nach dem
+## Reset noch seinen alten Wert).
 func reset_pit_score() -> void:
+	if _crit_tween != null and _crit_tween.is_valid():
+		_crit_tween.kill()
 	total_orb.visible = false
 	base_counter.position = _base_home
 	mult_counter.position = _mult_home
 	base_counter.visible = true
 	mult_counter.visible = true
+	mult_counter.scale = Vector2.ONE
+	mult_counter.set_overbright(false)
 	base_counter.set_value_silent(0)
 	mult_counter.set_value_silent(0)
 
@@ -939,8 +996,8 @@ const GAIN_BLUR_ALPHA := 0.6
 
 var _gain_blur_texture: GradientTexture2D  # geteilter Verlauf, einmalig gebaut
 
-func spawn_gain_number(from_px: Vector2, text: String, color: Color) -> void:
-	var label := _make_gain_label(text, color)
+func spawn_gain_number(from_px: Vector2, text: String, color: Color, font_scale: float = 1.0) -> void:
+	var label := _make_gain_label(text, color, font_scale)
 	var streak := _make_gain_blur(color)
 	add_child(streak)  # zuerst = unter der Zahl
 	add_child(label)
@@ -994,10 +1051,10 @@ func _make_gain_blur(color: Color) -> TextureRect:
 	streak.modulate = Color(color.r, color.g, color.b, GAIN_BLUR_ALPHA)
 	return streak
 
-func _make_gain_label(text: String, color: Color) -> Label:
+func _make_gain_label(text: String, color: Color, font_scale: float = 1.0) -> Label:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", GAIN_FONT)
+	label.add_theme_font_size_override("font_size", int(GAIN_FONT * font_scale))
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", GAIN_OUTLINE)
 	label.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
@@ -1138,8 +1195,9 @@ func score_route(from_px: Vector2, source: String, target: String) -> PackedVect
 	return path
 
 ## Feuert einen Zähl-Kometen entlang der Route und liefert seine Laufzeit
-## (Ankunft = wenn der Aufrufer die Zahl setzt).
-func score_comet(from_px: Vector2, source: String, target: String) -> float:
+## (Ankunft = wenn der Aufrufer die Zahl setzt). color_override (Alpha > 0)
+## übersteuert die Leisten-Farbe - Krit-Kometen laufen in Krit-Magenta.
+func score_comet(from_px: Vector2, source: String, target: String, color_override := Color(0, 0, 0, 0)) -> float:
 	var path := score_route(from_px, source, target)
 	if path.size() < 2:
 		return 0.0
@@ -1147,6 +1205,8 @@ func score_comet(from_px: Vector2, source: String, target: String) -> float:
 	var color := SCORE_BASE_COLOR if target == "base" else SCORE_MULT_COLOR
 	if target == "total":
 		color = PitScoreView.TOTAL_COLOR
+	if color_override.a > 0.0:
+		color = color_override
 	var pulse := TracePulseView.new()
 	add_child(pulse)
 	pulse.setup(path, color, SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET)

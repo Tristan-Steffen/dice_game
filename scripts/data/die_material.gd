@@ -7,7 +7,7 @@ extends Resource
 # --- Material-ids (Single Source of Truth) ---
 const RUBY := "ruby"          # +4 Mult
 const AMBER := "amber"        # +20 Basispunkte
-const GOLD := "gold"          # +$1 beim Nehmen (Kanten: je Wurf)
+const GOLD := "gold"          # +$1 beim Nehmen
 const BONE := "bone"          # Seite wächst +1 beim Nehmen
 const MERCURY := "mercury"    # Retrigger: Würfel aktiviert sich doppelt
 const GLASS := "glass"        # Mult += Augen, Seite schrumpft −1 beim Nehmen
@@ -71,7 +71,7 @@ static func amber() -> DieMaterial:
 static func gold() -> DieMaterial:
 	var m := _make(GOLD, "Gold",
 		"+$1, wenn diese Seite in der genommenen Kombination liegt.",
-		"+$1 bei jedem Wurf dieses Würfels.",
+		"+$1, wenn dieser Würfel in der genommenen Kombination liegt.",
 		Color(0.92, 0.74, 0.1))
 	# Metall spiegelt statt glühen; ohne Sky-Radiance (Ambient-only-Env) macht
 	# volles metallic die Fläche schwarz - darum teil-metallisch + Restwärme.
@@ -80,7 +80,7 @@ static func gold() -> DieMaterial:
 	m.roughness = 0.14
 	m.glow = 0.26
 	m.short = "+$1"
-	m.edge_short = "+$1 je Wurf"
+	m.edge_short = "+$1"
 	return m
 
 static func bone() -> DieMaterial:
