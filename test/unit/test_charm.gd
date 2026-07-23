@@ -5,11 +5,11 @@ extends GutTest
 ## und Fabrikmethode.
 
 func test_all_returns_all_charms():
-	# 77 Charms: die 86 des Obsidian-Katalogs minus die fünf Menü-Charms
+	# 76 Charms: die 86 des Obsidian-Katalogs minus die fünf Menü-Charms
 	# (Stammgast/Feinschmecker/Mitternachtssnack/Restaurantkritiker/Hausrezept),
 	# die mit den Menü-Deals entfielen, minus Wechselgeld, Ausziehtisch,
-	# Doppelte Perforation und Doppelte Sechs.
-	assert_eq(Charm.all().size(), 77)
+	# Doppelte Perforation, Doppelte Sechs und Glücksknoten.
+	assert_eq(Charm.all().size(), 76)
 
 func test_all_ids_are_unique():
 	var seen := {}

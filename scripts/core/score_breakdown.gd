@@ -204,4 +204,3 @@ static func _eye_charm_indices(value: int, charm_ids: Array[String]) -> Array[in
 
 static func _eye_contribution(value: int, charm_ids: Array[String]) -> int:
 	return CharmEffects.eye_value(CharmEffects.transform_value(value, charm_ids), charm_ids)
-

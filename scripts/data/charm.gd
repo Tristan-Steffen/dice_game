@@ -22,7 +22,6 @@ const PIGGY_BANK := "piggy_bank"
 const CRYSTAL_BALL := "crystal_ball"
 const CHIMNEY_SWEEP := "chimney_sweep"
 const CON_ARTIST_CUFF := "con_artist_cuff"
-const LUCKY_KNOT := "lucky_knot"
 const COLLECTORS_AMULET := "collectors_amulet"
 
 # Effektkatalog-Charms (Obsidian "12 Charms - Effektkatalog"):
@@ -185,7 +184,6 @@ const RARITIES := {
 	STAMP_MACHINE: RARITY_RARE,
 	FINE_PRINT: RARITY_UNCOMMON,
 	# Pool & Trays
-	LUCKY_KNOT: RARITY_UNCOMMON,
 	RECYCLING: RARITY_UNCOMMON,
 	FRESH_GOODS: RARITY_COMMON,
 	SEDIMENT: RARITY_UNCOMMON,
@@ -293,7 +291,7 @@ static func rainbow_trout() -> Charm:
 # --- Geld-Charms ---
 
 static func old_penny() -> Charm:
-	return _make(OLD_PENNY, "Glücksgroschen", "+3$ extra für jedes erreichte Rundenziel - steigt um $1 je erreichtem Rundenziel.")
+	return _make(OLD_PENNY, "Glücksgroschen", "+$3 am Rundenende - nach jeder Auszahlung $1 mehr.")
 
 static func piggy_bank() -> Charm:
 	return _make(PIGGY_BANK, "Sparschwein", "Übrige Würfel zahlen 2$ statt 1$.")
@@ -310,9 +308,6 @@ static func chimney_sweep() -> Charm:
 
 static func con_artist_cuff() -> Charm:
 	return _make(CON_ARTIST_CUFF, "Trickdieb-Manschette", "Würfel im Shop kosten 33% weniger.")
-
-static func lucky_knot() -> Charm:
-	return _make(LUCKY_KNOT, "Glücksknoten", "Jede Runde hat einen zusätzlichen Würfel im Pool.")
 
 # --- Meta-Charm ---
 
@@ -350,7 +345,7 @@ static func street_sweeper() -> Charm:
 	return _make(STREET_SWEEPER, "Straßenkehrer", "In Straßen gibt jeder Würfel +6 Basispunkte.")
 
 static func equalizer() -> Charm:
-	return _make(EQUALIZER, "Gleichmacher", "Jeder beteiligte Würfel gibt mindestens 5 Basispunkte (Kombinationen unverändert).")
+	return _make(EQUALIZER, "Gleichmacher", "Jeder beteiligte Würfel gibt mindestens 6 Basispunkte.")
 
 static func small_fry() -> Charm:
 	return _make(SMALL_FRY, "Kleinvieh", "Jede beteiligte 1 und 2 gibt +6 Basispunkte.")
@@ -367,7 +362,7 @@ static func momentum() -> Charm:
 	return _make(MOMENTUM, "Momentum", "+1 Mult je genommener Hand in Folge ohne Farkle (ein Farkle setzt zurück).")
 
 static func after_work_beer() -> Charm:
-	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel, verdoppeln sich die Basispunkte.")
+	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel: Basispunkte ×2 und ein Krit: ×2.")
 
 static func blackjack() -> Charm:
 	return _make(BLACKJACK, "Blackjack", "Ergeben die gewerteten Würfel zusammen genau 21 Augen: +50 Basispunkte.")
@@ -399,18 +394,18 @@ static func shard_court() -> Charm:
 	return _make(SHARD_COURT, "Scherbengericht", "Ein Farkle zahlt $2 je verworfenem Würfel.")
 
 static func gallows_humor() -> Charm:
-	return _make(GALLOWS_HUMOR, "Galgenhumor", "Die erste genommene Hand nach einem Fumble bekommt einen Krit: Mult ×4.")
+	return _make(GALLOWS_HUMOR, "Galgenhumor", "Die erste genommene Hand nach einem Fumble bekommt einen Krit: ×4.")
 
 static func phoenix_feather() -> Charm:
 	return _make(PHOENIX_FEATHER, "Phönixfeder", "Bei jedem Farkle kehrt die ganze Hand ans Ende des Nachziehstapels zurück statt in die Ablage.")
 
 static func patchwork_rug() -> Charm:
-	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Fumble bleibt der Würfel mit der höchsten Augenzahl gehalten liegen - die Hand läuft weiter, statt verloren zu gehen.")
+	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Fumble bleibt der Würfel mit der höchsten Augenzahl gehalten liegen.")
 
 # --- Geld ---
 
 static func gold_rush() -> Charm:
-	return _make(GOLD_RUSH, "Goldrausch", "Nutzt eine genommene Kombination alle liegenden Würfel, wächst dein Geld um 50% (max. $50).")
+	return _make(GOLD_RUSH, "Goldrausch", "Nutzt die ERSTE genommene Hand der Runde alle liegenden Würfel, wächst dein Geld um 20% (max. $50).")
 
 static func rag_collector() -> Charm:
 	return _make(RAG_COLLECTOR, "Lumpensammler", rag_collector_description(0))
@@ -535,7 +530,7 @@ static func all() -> Array[Charm]:
 		horseshoe(), ladybug(), pearl_necklace(), magic_card(), rainbow_trout(),
 		old_penny(), piggy_bank(), crystal_ball(),
 		chimney_sweep(),
-		con_artist_cuff(), lucky_knot(),
+		con_artist_cuff(),
 		collectors_amulet(),
 		# Effektkatalog
 		pendulum(), all_or_nothing(), anchor(), straggler(),

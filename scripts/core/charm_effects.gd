@@ -91,9 +91,9 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	for charm_id in charm_ids:
 		if charm_id == Charm.SMALL_FRY and (face_value == 1 or face_value == 2):
 			value += 6
-	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 5.
+	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 6.
 	if charm_ids.has(Charm.EQUALIZER):
-		value = maxi(value, 5)
+		value = maxi(value, 6)
 	return value
 
 # --- Würfelphase: Pro-Würfel-Charms (feuern MIT ihrem beteiligten Würfel) -----
@@ -187,14 +187,6 @@ static func charm_total_factor_at(j: int, charm_ids: Array[String], is_first_han
 
 # --- Geld --------------------------------------------------------------------
 
-## Glücksgroschen: +$3 beim Rundenziel, wächst um $1 je bereits erreichtem Ziel.
-static func round_clear_bonus(charm_ids: Array[String], goals_reached: int = 0) -> int:
-	var bonus := 0
-	for charm_id in charm_ids:
-		if charm_id == Charm.OLD_PENNY:
-			bonus += 3 + maxi(0, goals_reached)
-	return bonus
-
 ## Sparschwein: +$1 je noch nicht gezogenem Würfel bei der Auszahlung.
 static func unused_die_bonus(charm_ids: Array[String]) -> int:
 	var bonus := 0
@@ -218,14 +210,6 @@ static func forgives_first_farkle(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.CHIMNEY_SWEEP)
 
 # --- Pool / Shop -------------------------------------------------------------
-
-## Glücksknoten: +1 Würfel im Rundenpool.
-static func extra_round_dice(charm_ids: Array[String]) -> int:
-	var extra := 0
-	for charm_id in charm_ids:
-		if charm_id == Charm.LUCKY_KNOT:
-			extra += 1
-	return extra
 
 ## Würfelpreis nach Rabatten (Trickdieb -33%, Mengenrabatt: 3er-Bündel -$5).
 static func die_price(base_price: int, charm_ids: Array[String], bundle_size: int = 1) -> int:
@@ -387,12 +371,16 @@ static func charm_mult_factor_at(j: int, values: Array[int], charm_ids: Array[St
 
 ## KRIT der Position j: multipliziert den AKTUELLEN Mult (Mult 10, Krit ×3
 ## -> 30) - wie jeder Faktor an der Besitz-Position, spätere Mult-Boni
-## bleiben unberührt. 1 = kein Krit. Galgenhumor: ×4 nach Farkle.
+## bleiben unberührt. 1 = kein Krit. Galgenhumor: ×4 nach Farkle,
+## Feierabendbier: ×2 bei leerem Nachziehstapel (zusätzlich zur Basis).
 static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
 		Charm.GALLOWS_HUMOR:
 			if ctx.get(CTX_AFTER_FARKLE, false):
 				return 4
+		Charm.AFTER_WORK_BEER:
+			if ctx.get(CTX_POOL_EMPTY, false):
+				return 2
 	return 1
 
 # --- Geld: Effektkatalog -------------------------------------------------------
@@ -405,9 +393,15 @@ static func take_income(charm_ids: Array[String], participating_count: int = 1) 
 			income += participating_count
 	return income
 
-## Goldrausch: Kombination aus ALLEN liegenden Würfeln lässt das Geld um 50% wachsen.
-static func gold_rush_applies(charm_ids: Array[String], participating_count: int, dice_count: int = 6) -> bool:
-	return charm_ids.has(Charm.GOLD_RUSH) and dice_count > 0 and participating_count >= dice_count
+## Goldrausch: NUR die erste genommene Hand der Runde zählt, und nur wenn ihre
+## Kombination ALLE liegenden Würfel nutzt.
+static func gold_rush_applies(charm_ids: Array[String], participating_count: int, dice_count: int = 6, is_first_hand: bool = true) -> bool:
+	return charm_ids.has(Charm.GOLD_RUSH) and is_first_hand \
+		and dice_count > 0 and participating_count >= dice_count
+
+## Goldrausch-Zuwachs: 20% des aktuellen Geldes, max. $50.
+static func gold_rush_income(money: int) -> int:
+	return mini(maxi(0, money) / 5, 50)
 
 ## Lumpensammler: $4 je abgelegtem Würfel mit der Glückszahl oben (je Vorkommen).
 static func rag_collector_income(values: Array[int], lucky_value: int, charm_ids: Array[String]) -> int:
@@ -428,11 +422,12 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 	return income
 
 ## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
-## $10) und Überflieger ($1 je 25 Punkte über Ziel), beide max. $50. Alle
-## rechnen auf demselben money-Stand - die Besitz-Reihenfolge verschiebt keine
-## Beträge. Grundlage der Auszahlungs-Zeremonie: der Spieler sieht, WELCHER
-## Charm zahlt.
-static func round_end_income_entries(money: int, overflow_points: int, charm_ids: Array[String]) -> Array[Dictionary]:
+## $10) und Überflieger ($1 je 25 Punkte über Ziel), beide max. $50, dazu der
+## Glücksgroschen ($3, +$1 je vorheriger Auszahlung - NICHT je Überladungsstufe).
+## Alle rechnen auf demselben money-Stand - die Besitz-Reihenfolge verschiebt
+## keine Beträge. Grundlage der Auszahlungs-Zeremonie: der Spieler sieht,
+## WELCHER Charm zahlt.
+static func round_end_income_entries(money: int, overflow_points: int, charm_ids: Array[String], penny_payouts: int = 0) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	for j in charm_ids.size():
 		var amount := 0
@@ -441,14 +436,16 @@ static func round_end_income_entries(money: int, overflow_points: int, charm_ids
 				amount = mini(money / 10, 50)
 			Charm.HIGH_FLYER:
 				amount = mini(maxi(0, overflow_points) / 25, 50)
+			Charm.OLD_PENNY:
+				amount = 3 + maxi(0, penny_payouts)
 		if amount > 0:
 			entries.append({"charm_index": j, "charm_id": charm_ids[j], "amount": amount})
 	return entries
 
 ## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.
-static func round_end_income(money: int, overflow_points: int, charm_ids: Array[String]) -> int:
+static func round_end_income(money: int, overflow_points: int, charm_ids: Array[String], penny_payouts: int = 0) -> int:
 	var income := 0
-	for entry in round_end_income_entries(money, overflow_points, charm_ids):
+	for entry in round_end_income_entries(money, overflow_points, charm_ids, penny_payouts):
 		income += int(entry["amount"])
 	return income
 

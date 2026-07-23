@@ -92,10 +92,11 @@ func test_total_factor_magic_card_first_hand_only():
 
 # --- Geld --------------------------------------------------------------------
 
-func test_round_clear_bonus_old_penny_scales_with_goals():
-	assert_eq(CharmEffects.round_clear_bonus(_ids([Charm.OLD_PENNY])), 3, "erstes Ziel: +$3")
-	assert_eq(CharmEffects.round_clear_bonus(_ids([Charm.OLD_PENNY]), 2), 5, "zwei Ziele geschafft: +$5")
-	assert_eq(CharmEffects.round_clear_bonus(_ids([]), 3), 0)
+func test_old_penny_pays_three_first_and_grows_afterwards():
+	var penny := _ids([Charm.OLD_PENNY])
+	assert_eq(CharmEffects.round_end_income(0, 0, penny), 3, "erste Auszahlung: $3")
+	assert_eq(CharmEffects.round_end_income(0, 0, penny, 2), 5, "nach zwei Auszahlungen: $5")
+	assert_eq(CharmEffects.round_end_income(0, 0, _ids([]), 3), 0)
 
 func test_unused_die_bonus_piggy_bank():
 	assert_eq(CharmEffects.unused_die_bonus(_ids([Charm.PIGGY_BANK])), 1)
@@ -114,8 +115,3 @@ func test_die_price_no_discount():
 func test_forgives_first_farkle_chimney_sweep():
 	assert_true(CharmEffects.forgives_first_farkle(_ids([Charm.CHIMNEY_SWEEP])))
 	assert_false(CharmEffects.forgives_first_farkle(_ids([])))
-
-# --- Pool --------------------------------------------------------------------
-
-func test_extra_round_dice_lucky_knot():
-	assert_eq(CharmEffects.extra_round_dice(_ids([Charm.LUCKY_KNOT])), 1)

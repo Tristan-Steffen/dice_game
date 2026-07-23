@@ -100,6 +100,7 @@ var combo_levels: Dictionary = {}
 var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var gravierstift_used_this_round: bool = false
+var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.

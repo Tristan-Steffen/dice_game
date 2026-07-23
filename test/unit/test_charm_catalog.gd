@@ -34,16 +34,16 @@ func test_small_fry_gives_six_base_points_on_ones_and_twos():
 	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 8)
 	assert_eq(CharmEffects.eye_value(5, _ids([Charm.SMALL_FRY])), 5)
 
-func test_equalizer_floors_base_points_at_five():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 5)
-	assert_eq(CharmEffects.eye_value(4, _ids([Charm.EQUALIZER])), 5)
+func test_equalizer_floors_base_points_at_six():
+	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 6)
+	assert_eq(CharmEffects.eye_value(4, _ids([Charm.EQUALIZER])), 6)
 	assert_eq(CharmEffects.eye_value(6, _ids([Charm.EQUALIZER])), 6)
 
 func test_equalizer_never_changes_the_category():
 	# Basispunkte ja, Kombination nein: ein Paar 1er bleibt ein Paar 1er.
 	var hand := DiceScoring.best_hand(_d([1, 1, 2, 3, 4, 6]), _ids([Charm.EQUALIZER]))
 	assert_eq(hand["key"], "two_kind")
-	assert_eq(hand["score"], (10 + 5 + 5) * 2)
+	assert_eq(hand["score"], (10 + 6 + 6) * 2)
 
 # --- Basis-Boni --------------------------------------------------------------------
 
@@ -183,11 +183,11 @@ func test_cult_of_one_doubles_base_and_mult_per_one():
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.CULT_OF_ONE]))
 	assert_eq(score, 160)
 
-func test_after_work_beer_doubles_the_base_when_the_pool_is_empty():
-	# Paar Fünfer: Basis 20×2 × Mult 2 = 80; mit Würfeln im Stapel nur 40.
+func test_after_work_beer_doubles_the_base_and_crits_when_the_pool_is_empty():
+	# Paar Fünfer: Basis 20×2 × (Mult 2, Krit ×2) = 160; mit Würfeln im Stapel nur 40.
 	var ids := _ids([Charm.AFTER_WORK_BEER])
 	var empty := {CharmEffects.CTX_POOL_EMPTY: true}
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, empty), 80)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, empty), 160)
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 40)
 
 func test_round_number_rewards_hand_sum_ending_on_zero():
@@ -241,6 +241,12 @@ func test_take_and_farkle_incomes():
 	assert_true(CharmEffects.gold_rush_applies(_ids([Charm.GOLD_RUSH]), 6, 6))
 	assert_false(CharmEffects.gold_rush_applies(_ids([Charm.GOLD_RUSH]), 5, 6))
 	assert_true(CharmEffects.gold_rush_applies(_ids([Charm.GOLD_RUSH]), 5, 5), "alle LIEGENDEN Würfel zählen, nicht fix 6")
+	assert_false(CharmEffects.gold_rush_applies(_ids([Charm.GOLD_RUSH]), 6, 6, false), "nur die erste Hand der Runde")
+
+func test_gold_rush_grows_money_by_a_fifth_capped_at_fifty():
+	assert_eq(CharmEffects.gold_rush_income(100), 20)
+	assert_eq(CharmEffects.gold_rush_income(4), 0, "unter $5 wächst nichts")
+	assert_eq(CharmEffects.gold_rush_income(1000), 50, "gedeckelt")
 
 func test_rag_collector_counts_lucky_values():
 	assert_eq(CharmEffects.rag_collector_income(_d([4, 4, 1, 4, 2, 3]), 4, _ids([Charm.RAG_COLLECTOR])), 12, "$4 je Treffer")
@@ -476,13 +482,13 @@ func test_purchased_dice_land_in_the_pool_as_independent_copies():
 
 func test_factor_charms_apply_at_their_dock_position():
 	# KEINE Ausnahmen von der Trigger-Reihenfolge: Feierabendbier vor Runde Sache
-	# verdoppelt nur die 20 Basis (40 + 100 = 140, ×2 Mult = 280); dahinter
-	# verdoppelt es auch den +100-Bonus ((20+100)×2 = 240, ×2 Mult = 480).
+	# verdoppelt nur die 20 Basis (40 + 100 = 140, ×4 Mult inkl. Krit = 560);
+	# dahinter verdoppelt es auch den +100-Bonus ((20+100)×2 = 240, ×4 = 960).
 	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
 	var beer_first := _ids([Charm.AFTER_WORK_BEER, Charm.ROUND_NUMBER])
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_first, false, NO_MATS, NO_MATS, {}, ctx), 280)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_first, false, NO_MATS, NO_MATS, {}, ctx), 560)
 	var beer_last := _ids([Charm.ROUND_NUMBER, Charm.AFTER_WORK_BEER])
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_last, false, NO_MATS, NO_MATS, {}, ctx), 480)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_last, false, NO_MATS, NO_MATS, {}, ctx), 960)
 
 # --- Raritäten (siehe Obsidian "12 Charms": Abschnitt "Raritäten") -------------
 

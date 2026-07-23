@@ -2781,9 +2781,10 @@ func _on_take_button_pressed() -> void:
 	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
 	if take_money > 0:
 		run.add_money(take_money)
-	# Goldrausch: Kombination aus ALLEN liegenden Würfeln -> Geld +50% (max. $50).
-	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count()):
-		var rush := mini(run.money / 2, 50)
+	# Goldrausch: nur die ERSTE Hand der Runde, und nur wenn sie alle liegenden
+	# Würfel nutzt -> Geld +20% (max. $50). hands_taken_this_round zählt oben schon.
+	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count(), hands_taken_this_round == 1):
+		var rush := CharmEffects.gold_rush_income(run.money)
 		if rush > 0:
 			run.add_money(rush)
 	# Momentum/Galgenhumor/Pendel/Alles-oder-nichts fortschreiben.
@@ -3330,9 +3331,6 @@ func _start_new_round() -> void:
 
 	var ids := run.charm_ids()
 	round_pool_kinds = run.owned_pool.duplicate()
-	# Glücksknoten: zusätzliche Standardwürfel in den Rundenpool.
-	for i in CharmEffects.extra_round_dice(ids):
-		round_pool_kinds.append(DieDefinition.standard())
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn -
 	# die ZULETZT angewandte gewinnt (Frische Ware > Magnetring).
@@ -3416,8 +3414,7 @@ func _on_round_complete() -> void:
 	if stages >= 1:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
-		# Glücksgroschen skaliert mit bereits erreichten Zielen; ×Überladungsstufen.
-		var base_blind := MONEY_PER_ROUND_CLEAR + CharmEffects.round_clear_bonus(ids, run.round_number - 1)
+		var base_blind := MONEY_PER_ROUND_CLEAR
 		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
@@ -3427,6 +3424,9 @@ func _on_round_complete() -> void:
 		await _play_charm_payout(ids)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Charm-Auszahlung zurückgesetzt
+		# Glücksgroschen wächst ERST nach seiner Auszahlung (erste Runde: $3).
+		if ids.has(Charm.OLD_PENNY):
+			run.old_penny_payouts += 1
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
@@ -3546,7 +3546,7 @@ func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> voi
 ## Stand VOR diesem Takt, sonst verschöbe die Reihenfolge die Beträge.
 func _play_charm_payout(ids: Array[String]) -> void:
 	var before := run.money
-	for entry in CharmEffects.round_end_income_entries(before, hand_total - run.round_goal, ids):
+	for entry in CharmEffects.round_end_income_entries(before, hand_total - run.round_goal, ids, run.old_penny_payouts):
 		_flash_charm_and_pad(int(entry["charm_index"]))
 		run.add_money(int(entry["amount"]))
 		await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
