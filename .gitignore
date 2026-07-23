@@ -7,3 +7,7 @@
 
 # Python cache from tools/
 tools/__pycache__/
+
+# Erzeugte Uebersicht aus tools/gen_dice_textures.py
+tools/contact_sheet.png
+tools/contact_sheet.png.import
