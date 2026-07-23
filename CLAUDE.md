@@ -31,8 +31,6 @@ E:/Godot/Godot_v4.7-stable_win64_console.exe --path . --resolution 1280x720 --sc
 
 CI (`.github/workflows/tests.yml`) runs the same GUT command on Linux after a `--editor --quit` import pass. Test config is `.gutconfig.json` (scans `res://test/`, prefix `test_`, suffix `.gd`).
 
-**Note:** `network-diag*.ps1` at the repo root are pre-existing, unrelated diagnostic scripts — never commit them.
-
 ## Architecture
 
 ### Layered `scripts/` — the folder IS the dependency rule
