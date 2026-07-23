@@ -100,7 +100,6 @@ var combo_levels: Dictionary = {}
 var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var gravierstift_used_this_round: bool = false
-var newly_purchased: Array[DieDefinition] = []  # Frische Ware: zieht nächste Runde zuerst
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -258,12 +257,12 @@ func shop_pack_slots() -> int:
 
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
-	newly_purchased.append(_replace_pool_entry(def))
+	_replace_pool_entry(def)
 
 func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
 	add_money(-price)
 	for def in defs:
-		newly_purchased.append(_replace_pool_entry(def))
+		_replace_pool_entry(def)
 
 ## Ersetzt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
 ## Käufe nicht verdrängt werden) durch eine unabhängige Kopie von def.
@@ -376,7 +375,6 @@ func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 	# die Trays halten dieselbe Instanz und zeigen den Tausch dadurch sofort.
 	var target := owned_pool[pool_index]
 	target.become(def)
-	newly_purchased.append(target)
 
 # --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
 
@@ -558,7 +556,7 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 		SlotPrize.Kind.DIE:
 			if prize.die != null:
 				for i in mult:
-					newly_purchased.append(_replace_pool_entry(prize.die))
+					_replace_pool_entry(prize.die)
 
 ## Ziel der Runde n (1-basiert) - EINZIGE Quelle der Ziel-Kurve; Rundenwechsel
 ## und Fahrplan lesen beide hier. Je Block verdoppelt sich der Zuwachs:

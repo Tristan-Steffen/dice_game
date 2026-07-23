@@ -47,10 +47,26 @@ func test_equalizer_never_changes_the_category():
 
 # --- Basis-Boni --------------------------------------------------------------------
 
-func test_echo_chamber_counts_highest_used_die_again():
-	# PAIR = Paar Fünfer; die höhere 6 im Wurf ist UNBETEILIGT und zählt nicht.
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.ECHO_CHAMBER]))
-	assert_eq(bonus, 5, "höchster GEWERTETER Würfel (5) zählt erneut, nicht die unbeteiligte 6")
+func test_echo_chamber_retriggers_the_first_used_die():
+	# Wie Quecksilber: der zuerst gewertete Würfel aktiviert sich ein zweites Mal.
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids)
+	assert_eq(score, 50, "(10 + 5 + 5 + Echo 5) × Mult 2")
+
+func test_echo_chamber_picks_the_first_slot_not_the_highest():
+	# Zwei Paare: der vorderste gewertete Slot echot, nicht der höchste Wert.
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	var bonus := MaterialEffects.base_bonus(_d([3, 3, 6, 6, 1, 2]), NO_MATS, _p([2, 3, 0, 1]), ids, NO_MATS, 0)
+	assert_eq(bonus, 3, "Slot 0 (die 3) echot, obwohl die 6 höher wäre")
+
+func test_echo_chamber_also_fires_the_material_effects():
+	# Rubin auf dem Echo-Slot zahlt doppelt - der Unterschied zum reinen Augen-Echo.
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var mult := MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, ids, 0)
+	assert_eq(mult, 8, "+4 Rubin zweimal")
+	var other_slot := MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, ids, 1)
+	assert_eq(other_slot, 4, "echot ein anderer Slot, zahlt der Rubin einfach")
 
 func test_twin_ring_adds_pair_value_to_mult():
 	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.TWIN_RING]))
@@ -58,35 +74,38 @@ func test_twin_ring_adds_pair_value_to_mult():
 	var two_pairs := CharmEffects.charm_mult_bonus(DiceScoring.TWO_PAIR, _d([5, 5, 3, 3, 1, 6]), NO_MATS, _ids([Charm.TWIN_RING]))
 	assert_eq(two_pairs, 8, "zwei Paare (5 und 3): +8 Mult")
 
+# Pro-Würfel-Charms feuern IM Würfel-Schritt (die_charm_*_at), nicht in der
+# Charm-Phase - die Hooks bekommen den einzelnen beteiligten Slot.
+
 func test_street_sweeper_only_boosts_straights():
 	var straight := _d([1, 2, 3, 4, 5, 3])
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.SMALL_STRAIGHT, straight, _p([0, 1, 2, 3, 4]), _ids([Charm.STREET_SWEEPER]))
-	assert_eq(bonus, 30, "+6 je Straßen-Würfel")
-	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.STREET_SWEEPER])), 0)
+	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.SMALL_STRAIGHT, straight, _ids([Charm.STREET_SWEEPER])), 6, "+6 je Straßen-Würfel")
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.STREET_SWEEPER])), 0)
 
 func test_full_counter_adds_non_participating_dice():
 	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.FULL_COUNTER]))
 	assert_eq(bonus, 12, "1+2+3+6 außerhalb der Kombination")
 
 func test_broadband_pays_per_combination_die():
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.BROADBAND]))
-	assert_eq(bonus, 10)
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5, "+5 am Würfel selbst")
+	assert_eq(CharmEffects.die_charm_base(1, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5)
 
 func test_straggler_needs_the_last_die_in_the_combo():
-	var in_combo := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.STRAGGLER]), {"last_settled": 0})
-	assert_eq(in_combo, 5, "Nachzügler-5 zählt doppelt")
-	var outside := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.STRAGGLER]), {"last_settled": 3})
-	assert_eq(outside, 0, "unbeteiligter Nachzügler zählt nicht")
+	var ids := _ids([Charm.STRAGGLER])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {"last_settled": 0}), 5, "Nachzügler-5 zählt doppelt")
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {"last_settled": 3}), 0, "anderer Slot war Nachzügler")
 
 func test_sediment_boosts_late_drawn_dice():
-	# +3 Mult je beteiligtem, spät gezogenem Würfel; Slot 0 ist beides, Slot 5 nicht beteiligt.
-	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.SEDIMENT]), {"late_slots": [0, 5]}, {}, _p([0, 1]))
-	assert_eq(bonus, 3, "nur Slot 0 ist beteiligt UND spät gezogen")
+	# +3 Mult nur am beteiligten, spät gezogenen Würfel (der Hook sieht nur beteiligte Slots).
+	var ids := _ids([Charm.SEDIMENT])
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, ids, {"late_slots": [0, 5]}), 3)
+	assert_eq(CharmEffects.die_charm_mult_at(0, 1, ids, {"late_slots": [0, 5]}), 0, "Slot 1 wurde früh gezogen")
 
 func test_edge_gleam_scales_with_edge_dice_count():
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD, "", "", "", ""])
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.EDGE_GLEAM]), {}, NO_MATS, edges)
-	assert_eq(bonus, 4, "zwei Kanten-Würfel, beide beteiligt: je +2")
+	var ids := _ids([Charm.EDGE_GLEAM])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, edges), 2, "zwei Kanten-Würfel im Wurf: +2")
+	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, edges), 0, "Würfel ohne Kanten-Material geht leer aus")
 
 # --- Mult-Boni ---------------------------------------------------------------------
 
@@ -123,20 +142,15 @@ func test_lighthouse_mult_follows_highest_value():
 	var score := DiceScoring.score_category(DiceScoring.ONE_KIND, _d([1, 2, 3, 1, 2, 4]), _ids([Charm.LIGHTHOUSE]))
 	assert_eq(score, 45, "Basis (5+4) × Mult (1+4)")
 
-# --- Krit (multipliziert den Mult, siehe CharmEffects.crit_bonus) --------------------
+# --- Krit (multipliziert den AKTUELLEN Mult, siehe charm_crit_at) -------------------
 
 func test_gallows_humor_gives_crit_after_a_farkle():
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.GALLOWS_HUMOR]), {"after_farkle": true}), 3)
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, _ids([Charm.GALLOWS_HUMOR]), {"after_farkle": false}), 0)
-	# Ende-zu-Ende: Paar Fünfer, Mult 2 × (1 + 3 Krit) = 8 -> Basis 20 × 8 = 160.
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.GALLOWS_HUMOR]), false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
-	assert_eq(score, 160)
-
-func test_gallows_humor_crit_after_farkle():
-	# Galgenhumor gibt nur nach einem Farkle +3 in den Krit-Pool.
 	var ids := _ids([Charm.GALLOWS_HUMOR])
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": true}), 3)
-	assert_eq(CharmEffects.crit_bonus(DiceScoring.TWO_KIND, ids, {"after_farkle": false}), 0, "ohne Farkle kein Krit")
+	assert_eq(CharmEffects.charm_crit_at(0, _d(PAIR), ids, {"after_farkle": true}), 4, "Krit ×4")
+	assert_eq(CharmEffects.charm_crit_at(0, _d(PAIR), ids, {"after_farkle": false}), 1, "ohne Farkle kein Krit")
+	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 4 = 8 -> Basis 20 × 8 = 160.
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
+	assert_eq(score, 160)
 
 # --- Basis-Boni & Faktoren -----------------------------------------------------------
 
@@ -150,8 +164,8 @@ func test_blackjack_pays_50_only_when_the_counted_dice_sum_to_21():
 
 func test_snake_eyes_converts_bystanders_to_mult():
 	# Genau ein 1er-Paar genommen: Mult += Augensumme der Unbeteiligten (3+4+5+6).
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([1, 1, 3, 4, 5, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, {}, _p([0, 1])), 18)
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([5, 5, 3, 4, 1, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, {}, _p([0, 1])), 0, "ein 5er-Paar sind keine Snake Eyes")
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([1, 1, 3, 4, 5, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, _p([0, 1])), 18)
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([5, 5, 3, 4, 1, 6]), NO_MATS, _ids([Charm.SNAKE_EYES]), {}, _p([0, 1])), 0, "ein 5er-Paar sind keine Snake Eyes")
 
 func test_alloy_doubles_material_effects_of_dual_carriers():
 	# Gold-Seite oben UND Gold-Kanten: die Legierung lässt den Nehmen-Effekt
@@ -169,9 +183,12 @@ func test_cult_of_one_doubles_base_and_mult_per_one():
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.CULT_OF_ONE]))
 	assert_eq(score, 160)
 
-func test_after_work_beer_doubles_the_last_hand():
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.AFTER_WORK_BEER]), false, NO_MATS, NO_MATS, {}, {"last_hand": true})
-	assert_eq(score, 80)
+func test_after_work_beer_doubles_the_base_when_the_pool_is_empty():
+	# Paar Fünfer: Basis 20×2 × Mult 2 = 80; mit Würfeln im Stapel nur 40.
+	var ids := _ids([Charm.AFTER_WORK_BEER])
+	var empty := {CharmEffects.CTX_POOL_EMPTY: true}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, empty), 80)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 40)
 
 func test_round_number_rewards_hand_sum_ending_on_zero():
 	# Paar Fünfer: Augensumme der Kombination = 10 -> +100 Bonus-Augen: (10+10+100)×2.
@@ -200,10 +217,10 @@ func test_goldsmith_and_bone_glue_strengthen_takes():
 	assert_eq(report.money, 2, "Goldschmied zahlt $2")
 	assert_eq(defs[1].faces[0], 7, "Knochenleim wächst +2")
 
-func test_glassblower_lung_protects_low_faces():
-	var defs: Array[DieDefinition] = [_die([3, 2, 3, 4, 5, 6])]
+func test_glassblower_lung_stops_glass_from_shrinking():
+	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), NO_MATS, _ids([Charm.GLASSBLOWER_LUNG]))
-	assert_eq(defs[0].faces[0], 3, "unter 3 schrumpft nichts mehr")
+	assert_eq(defs[0].faces[0], 6, "Glas schrumpft gar nicht mehr, egal bei welcher Augenzahl")
 
 func test_frame_gilder_doubles_edge_gold():
 	var edges := _m([DieMaterial.GOLD, "", DieMaterial.GOLD, "", "", ""])
@@ -392,7 +409,7 @@ func test_rag_collector_rerolls_lucky_value_each_round():
 func test_additive_bonuses_stack_per_occurrence():
 	# Genau das machen die Totems: dieselbe id liegt zweimal in der Liste.
 	var twice := _ids([Charm.BROADBAND, Charm.BROADBAND])
-	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), twice), 20)
+	assert_eq(CharmEffects.die_charm_base(0, DiceScoring.TWO_KIND, _d(PAIR), twice), 10, "zweimal Breitband: +10 je Würfel")
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.MOMENTUM, Charm.MOMENTUM]), {"streak": 3}), 6)
 	assert_eq(CharmEffects.round_end_income(30, 0, _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])), 6)
 	assert_eq(CharmEffects.take_income(_ids([Charm.STREET_MUSICIAN, Charm.STREET_MUSICIAN]), 2), 4)
@@ -419,8 +436,8 @@ func test_totem_chain_resolves_each_neighbor_independently():
 
 func test_echo_chamber_respects_base_point_charms():
 	# Kleinvieh hebt die Basispunkte einer 2 auf 8 - auch beim Echo-Nachzählen des
-	# höchsten GEWERTETEN Würfels (hier das Paar Zweier).
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.SMALL_FRY]))
+	# zuerst GEWERTETEN Würfels (hier das Paar Zweier).
+	var bonus := MaterialEffects.base_bonus(_d([2, 2, 1, 3, 4, 6]), NO_MATS, _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.SMALL_FRY]), NO_MATS, 0)
 	assert_eq(bonus, 8, "Echo der gewerteten 2 zählt mit Kleinvieh als 8")
 
 func test_full_counter_sees_transformed_values():
@@ -440,26 +457,32 @@ func test_refund_chance_caps_at_eighty_percent():
 	var five := _ids([Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT, Charm.FINE_PRINT])
 	assert_almost_eq(CharmEffects.pack_refund_chance(five), 0.8, 0.001)
 
-# --- GameRun: Frische Ware / Kauf-Verfolgung ------------------------------------------
+# --- GameRun: Kauf-Verfolgung ---------------------------------------------------------
 
-func test_purchases_are_tracked_as_fresh_pool_instances():
+func test_purchased_dice_land_in_the_pool_as_independent_copies():
 	var run := GameRun.new_run()
 	run.money = 100
 	var offer_die := DieDefinition.fixed(6, "Sechser")
 	var bundle: Array[DieDefinition] = [offer_die, offer_die.instantiate()]
 	run.purchase_dice(bundle, 20)
-	assert_eq(run.newly_purchased.size(), 2)
-	for fresh in run.newly_purchased:
-		assert_true(run.owned_pool.has(fresh), "frische Referenz IST die Pool-Instanz")
+	var bought := 0
+	for def in run.owned_pool:
+		if def.style_id == "fixed_6":
+			bought += 1
+			assert_false(bundle.has(def), "Pool hält eine eigene Kopie, nicht die Auslage")
+	assert_eq(bought, 2)
 
-# --- Wertungs-Reihenfolge: Bonus-Augen vor Faktoren --------------------------------
+# --- Wertungs-Reihenfolge: Faktoren wirken an ihrer Besitz-Position ----------------
 
-func test_round_number_bonus_is_multiplied_by_hand_factor():
-	# Runde Sache legt +100 auf den Basiswert (20 -> 120), Paar-Mult 2 -> 240,
-	# Feierabendbier verdoppelt die ganze Hand -> 480.
-	var ids := _ids([Charm.AFTER_WORK_BEER, Charm.ROUND_NUMBER])
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, {"last_hand": true})
-	assert_eq(score, 480)
+func test_factor_charms_apply_at_their_dock_position():
+	# KEINE Ausnahmen von der Trigger-Reihenfolge: Feierabendbier vor Runde Sache
+	# verdoppelt nur die 20 Basis (40 + 100 = 140, ×2 Mult = 280); dahinter
+	# verdoppelt es auch den +100-Bonus ((20+100)×2 = 240, ×2 Mult = 480).
+	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
+	var beer_first := _ids([Charm.AFTER_WORK_BEER, Charm.ROUND_NUMBER])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_first, false, NO_MATS, NO_MATS, {}, ctx), 280)
+	var beer_last := _ids([Charm.ROUND_NUMBER, Charm.AFTER_WORK_BEER])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_last, false, NO_MATS, NO_MATS, {}, ctx), 480)
 
 # --- Raritäten (siehe Obsidian "12 Charms": Abschnitt "Raritäten") -------------
 

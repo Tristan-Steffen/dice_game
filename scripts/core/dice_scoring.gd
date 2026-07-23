@@ -113,56 +113,54 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 			return true
 	return false
 
-## Wertet eine Kategorie. Wirkreihenfolge der Charms: Augenwert je Würfel
-## (im Basiswert) → Kombi-Mult → feste Bonuspunkte → Hand-Faktoren.
-## materials/edge_materials: DieMaterial-id je Slot ("" = keins), zählen nur
-## für beteiligte Würfel. ctx: Wurf-/Runden-Zustand der Effektkatalog-Charms.
+## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
+## Würfel links nach rechts (Augen, Material, Pro-Würfel-Charms je Würfel),
+## dann Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
+## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in
+## Besitz-Reihenfolge. materials/edge_materials: DieMaterial-id je Slot
+## ("" = keins). ctx: Wurf-/Runden-Zustand der Effektkatalog-Charms.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	if not qualifies(key, dice):
 		return 0
-	var participating := participating_indices(key, dice)
-	var base := points_for(key, combo_levels) + _base_value(key, dice, charm_ids)
-	# Auch ohne Materialien: base_bonus zählt die Retrigger-Augen (Hasenpfote & Co.).
-	if not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty():
-		base += MaterialEffects.base_bonus(dice, materials, participating, charm_ids, edge_materials)
-	if not charm_ids.is_empty():
-		base += CharmEffects.charm_base_bonus(key, dice, participating, charm_ids, ctx, materials, edge_materials)
-		base *= CharmEffects.base_factor(dice, charm_ids)
-	var mult := _total_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
-	var score := base * mult + CharmEffects.flat_bonus(key, charm_ids)
-	score *= CharmEffects.score_multiplier(charm_ids, is_first_hand)
-	score = int(round(score * CharmEffects.hand_factor(key, charm_ids, ctx)))
+	var pair := _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
+	var score: int = pair[0] * maxi(1, pair[1])
+	for j in charm_ids.size():
+		score += CharmEffects.charm_total_add_at(j, key, charm_ids)
+		score *= CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
 	return score
 
-## Kompletter Kombi-Multiplikator: Kategorie-Mult + Charm-/Material-/Katalog-
-## Boni, dann multiplikative Faktoren (Einserkult, Krit-Pool); min. 1.
+## Kompletter Kombi-Multiplikator - die Mult-Seite derselben Rechnung; min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.
 static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
+	return maxi(1, _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)[1])
+
+## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice bereits
+## verwandelt). [base, mult] - mult ungeklemmt.
+static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
 	var participating := participating_indices(key, dice)
-	var mult := mult_for(key, combo_levels) + CharmEffects.mult_bonus(key, charm_ids)
-	if not materials.is_empty() or not edge_materials.is_empty():
-		mult += MaterialEffects.mult_bonus(dice, materials, participating, edge_materials, charm_ids)
-	if not charm_ids.is_empty():
-		mult += CharmEffects.charm_mult_bonus(key, dice, materials, charm_ids, ctx, combo_levels, participating)
-		mult *= CharmEffects.mult_factor(dice, charm_ids)
-		var crit := CharmEffects.crit_bonus(key, charm_ids, ctx, combo_levels)
-		if crit > 0:
-			mult *= 1 + crit
-	return maxi(1, mult)
-
-## Summe der (charm-angepassten) Augenwerte NUR der beteiligten Würfel.
-## Bei Überzahlen zählt der echte Wert; die Kombination selbst richtet sich
-## nach der letzten Ziffer (siehe _digit).
-static func _base_value(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
-	return _sum_participating(key, dice, charm_ids)
-
-static func _sum_participating(key: String, dice: Array[int], charm_ids: Array[String]) -> int:
-	var total := 0
-	for i in participating_indices(key, dice):
-		total += CharmEffects.eye_value(dice[i], charm_ids)
-	return total
+	var echo_slot := CharmEffects.first_participating(dice, participating)
+	var base := points_for(key, combo_levels)
+	var mult := mult_for(key, combo_levels)
+	# Auch ohne Materialien: base_bonus zählt die Retrigger-Augen (Hasenpfote & Co.).
+	var has_die_bonus := not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty()
+	for i in participating:
+		base += CharmEffects.eye_value(dice[i], charm_ids)
+		if has_die_bonus:
+			var only: Array[int] = [i]
+			base += MaterialEffects.base_bonus(dice, materials, only, charm_ids, edge_materials, echo_slot)
+			mult += MaterialEffects.mult_bonus(dice, materials, only, edge_materials, charm_ids, echo_slot)
+		base += CharmEffects.die_charm_base(i, key, dice, charm_ids, ctx, edge_materials)
+		mult += CharmEffects.die_charm_mult(i, charm_ids, ctx)
+	for j in charm_ids.size():
+		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
+		mult += CharmEffects.mult_bonus_at(j, key, charm_ids) \
+			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating)
+		base *= CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
+		mult *= CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx)
+		mult *= CharmEffects.charm_crit_at(j, dice, charm_ids, ctx)
+	return [base, mult]
 
 ## Beste Hand des Wurfs: erste zutreffende Kategorie nach HAND_PRIORITY.
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
@@ -184,8 +182,14 @@ static func best_hand_indices(dice: Array[int], charm_ids: Array[String] = []) -
 ## Positionen in dice, die zur Kategorie gehören - nur diese zählen für den
 ## Basiswert, und nur auf ihnen wirken Seiten-Materialien. charm_ids nur bei
 ## ROHEN Werten mitgeben - intern sind sie schon verwandelt.
+## Immer SLOT-sortiert: Würfel triggern links nach rechts, nie in Gruppenfolge.
 static func participating_indices(key: String, dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
 	dice = CharmEffects.transform_values(dice, charm_ids)
+	var result := _participating_unsorted(key, dice)
+	result.sort()
+	return result
+
+static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]:
 	match key:
 		SIX_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 6), 6)

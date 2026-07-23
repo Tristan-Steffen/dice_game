@@ -2190,7 +2190,7 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_TAKEN_DICE: taken_dice_this_round,
 		CharmEffects.CTX_FULL_REROLLS: full_reroll_stacks,
 		CharmEffects.CTX_STREAK: momentum_streak,
-		CharmEffects.CTX_LAST_HAND: _remaining_in_pool() < HAND_SIZE,
+		CharmEffects.CTX_POOL_EMPTY: _remaining_in_pool() <= 0,
 		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
 		CharmEffects.CTX_LAST_SETTLED: dice.last_settled_index,
@@ -2766,10 +2766,14 @@ func _on_take_button_pressed() -> void:
 	# Nehmen-Effekte der Materialien - nur beteiligte AUSGEWÄHLTE Würfel,
 	# genau einmal hier (nie in der Vorschau); Knochen/Glas verändern die
 	# Pool-Würfel dauerhaft.
+	var sel_participating := DiceScoring.participating_indices(hand["key"], sel_values, ids)
 	var participating: Array[int] = []
-	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids):
+	for p in sel_participating:
 		participating.append(slots[p])
-	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids)
+	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
+	var echo_sel := CharmEffects.first_participating(sel_values, sel_participating)
+	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
+	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
 	var take_money := report.money
 
 	# Effektkatalog beim Nehmen: Straßenmusiker + Lumpensammler.
@@ -2873,9 +2877,9 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	if not await _score_arrival_gap(combo_travel):
 		return
 
-	# 3) Würfel-Schritte links nach rechts: Augen (Basis) und Material (Basis/Mult)
-	# je als eigener Komet über den Grube-Datenbus; Augenwert-Charms feuern
-	# zusätzlich von ihrem Dock-Pad. Alles strömt - die Zahlen springen bei Ankunft.
+	# 3) Würfel-Schritte links nach rechts: Augen (Basis), Material (Basis/Mult)
+	# und die Pro-Würfel-Charms DIESES Würfels - sie feuern mit ihm, nicht in
+	# der Charm-Phase. Alles strömt - die Zahlen springen bei Ankunft.
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
 		_flash_scoring_die(slot)
@@ -2888,22 +2892,22 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 			var glow: Control = glow_by_slot[slot]
 			gain_px = glow.position + glow.size / 2.0
 		var base_after_eye: int = step["base_after_eye"]
-		var mult_before_material: int = step["mult_after"] - step["mat_mult_add"]
+		var mult_after_eye: int = step["mult_after_eye"]
 		var step_travel := 0.0
 		# Augenwert-Charms: eigener Komet vom Dock-Pad in die Basis (gleicher Zielwert).
 		for charm_index: int in step["eye_charm_indices"]:
 			_flash_charm_and_pad(charm_index)
 			step_travel = maxf(step_travel, _fire_score_light(_charm_trail_source_px([charm_index]), "charm", ["base"],
-				func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material)))
+				func() -> void: table_screen.update_pit_score(base_after_eye, mult_after_eye)))
 		_spawn_score_gains(gain_px, step["eye_add"], 0)
 		step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", ["base"],
-			func() -> void: table_screen.update_pit_score(base_after_eye, mult_before_material)))
+			func() -> void: table_screen.update_pit_score(base_after_eye, mult_after_eye)))
 		# Material-Zuwachs als eigener Puls (Basis und/oder Mult).
 		var mat_base: int = step["mat_base_add"]
 		var mat_mult: int = step["mat_mult_add"]
 		if mat_base != 0 or mat_mult != 0:
-			var base_after: int = step["base_after"]
-			var mult_after: int = step["mult_after"]
+			var base_after_mat: int = step["base_after_mat"]
+			var mult_after_mat: int = step["mult_after_mat"]
 			var mtargets: Array[String] = []
 			if mat_base != 0:
 				mtargets.append("base")
@@ -2911,6 +2915,23 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 				mtargets.append("mult")
 			_spawn_score_gains(gain_px, mat_base, mat_mult)
 			step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", mtargets,
+				func() -> void: table_screen.update_pit_score(base_after_mat, mult_after_mat)))
+		# Pro-Würfel-Charms (Breitband & Co.): Komet vom Dock-Pad, synchron zum Würfel.
+		var die_charm_base: int = step["charm_base_add"]
+		var die_charm_mult: int = step["charm_mult_add"]
+		if die_charm_base != 0 or die_charm_mult != 0:
+			var base_after: int = step["base_after"]
+			var mult_after: int = step["mult_after"]
+			var dtargets: Array[String] = []
+			if die_charm_base != 0:
+				dtargets.append("base")
+			if die_charm_mult != 0:
+				dtargets.append("mult")
+			for charm_index: int in step["die_charm_indices"]:
+				_flash_charm_and_pad(charm_index)
+			var charm_px := _charm_trail_source_px(step["die_charm_indices"])
+			_spawn_score_gains(charm_px, die_charm_base, die_charm_mult)
+			step_travel = maxf(step_travel, _fire_score_light(charm_px, "charm", dtargets,
 				func() -> void: table_screen.update_pit_score(base_after, mult_after)))
 		if not await _score_arrival_gap(step_travel):
 			return
@@ -2918,8 +2939,8 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if glow_by_slot.has(slot):
 			_dim_glow(glow_by_slot[slot])
 
-	# 4) Charm-Schritte (additive Boni, Einserkult, Krit): je Komet vom Dock-Pad in
-	# die betroffene Zahl.
+	# 4) Charm-Schritte strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
+	# Position): je Komet vom Dock-Pad in die betroffene Zahl.
 	for step: Dictionary in breakdown["charm_steps"]:
 		# Pro-Würfel-Charms: ein Meteor je ausgelöstem Würfel (Bodensatz & Co.).
 		if step.has("pulses") and not step["pulses"].is_empty():
@@ -3317,9 +3338,8 @@ func _start_new_round() -> void:
 	# die ZULETZT angewandte gewinnt (Frische Ware > Magnetring).
 	if CharmEffects.draws_edges_first(ids):
 		round_pool_kinds = _edges_first(round_pool_kinds)
-	if CharmEffects.draws_fresh_first(ids):
-		round_pool_kinds = _fresh_first(round_pool_kinds)
-	run.newly_purchased = []  # Frische gilt nur für die Runde nach dem Kauf
+	if CharmEffects.draws_materials_first(ids):
+		round_pool_kinds = _materials_first(round_pool_kinds)
 
 	next_draw_index = 0
 	discard_tray_view.clear()
@@ -3344,16 +3364,25 @@ func _edges_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
 			rest.append(def)
 	return edged + rest
 
-## Sortiert die zuletzt gekauften Würfel stabil an den Anfang (Frische Ware).
-func _fresh_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
-	var fresh: Array[DieDefinition] = []
+## Sortiert Würfel mit Material (Seite ODER Kante) stabil an den Anfang
+## (Frische Ware). Gravuren in materials zählen nicht - nur echte Materialien.
+func _materials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
+	var material: Array[DieDefinition] = []
 	var rest: Array[DieDefinition] = []
 	for def in pool:
-		if run.newly_purchased.has(def):
-			fresh.append(def)
+		if _has_material(def):
+			material.append(def)
 		else:
 			rest.append(def)
-	return fresh + rest
+	return material + rest
+
+func _has_material(def: DieDefinition) -> bool:
+	if DieMaterial.is_valid_id(def.edge_material):
+		return true
+	for material_id in def.materials:
+		if DieMaterial.is_valid_id(material_id):
+			return true
+	return false
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false

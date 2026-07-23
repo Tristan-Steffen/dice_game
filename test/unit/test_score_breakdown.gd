@@ -36,11 +36,19 @@ func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], fi
 func _check_continuity(breakdown: Dictionary) -> void:
 	var base: int = breakdown["combo"]["base_add"]
 	var mult: int = breakdown["combo"]["mult_add"]
+	var prev_slot := -1
 	for step: Dictionary in breakdown["die_steps"]:
+		assert_gt(int(step["slot"]), prev_slot, "Würfel zählen links nach rechts (Slot-Reihenfolge)")
+		prev_slot = step["slot"]
 		base += step["eye_add"]
 		assert_eq(step["base_after_eye"], base, "Zwischenstand nach den Augen")
+		assert_eq(step["mult_after_eye"], mult)
 		base += step["mat_base_add"]
 		mult += step["mat_mult_add"]
+		assert_eq(step["base_after_mat"], base, "Zwischenstand nach dem Material")
+		assert_eq(step["mult_after_mat"], mult)
+		base += step["charm_base_add"]
+		mult += step["charm_mult_add"]
 		assert_eq(step["base_after"], base)
 		assert_eq(step["mult_after"], mult)
 	for step: Dictionary in breakdown["charm_steps"]:
@@ -68,10 +76,16 @@ func test_plain_pair_matches_scoring():
 
 func test_sum_category_counts_only_participating_dice():
 	# Full House zählt nur die beteiligten Würfel; der unbeteiligte sechste
-	# (die 1) bleibt außen vor (siehe DiceScoring._base_value).
+	# (die 1) bleibt außen vor.
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 4, 4, 1]))
 	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
 	assert_eq(breakdown["die_steps"].size(), 5)
+
+func test_composite_hands_count_left_to_right():
+	# Das Paar liegt LINKS vom Drilling - gezählt wird trotzdem in Slot-,
+	# nie in Gruppenreihenfolge (Drilling zuerst wäre [2,3,4,0,1]).
+	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([4, 4, 2, 2, 2, 1]))
+	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
 
 func test_every_category_example_matches():
 	# Jedes Anzeige-Beispiel der Bildschirmliste läuft einmal durch die Zerlegung.
@@ -131,15 +145,16 @@ func test_additive_charm_gets_its_own_step():
 	assert_eq(steps[0]["charm_indices"], [0])
 	assert_eq(steps[0]["mult_add"], 12, "Hufeisen: Full House +12 Mult")
 
-func test_prefix_marginals_attribute_stacked_charms():
-	# Zwei Breitband (per Totem gestapelt wäre gleich): je +10 Basis, zwei Schritte.
+func test_per_die_charm_fires_inside_the_die_step():
+	# Breitband feuert MIT jedem beteiligten Würfel, nicht in der Charm-Phase:
+	# zwei Kopien -> +10 im Schritt jedes Paar-Würfels, beide Positionen genannt.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.BROADBAND, Charm.BROADBAND]))
-	var steps: Array = breakdown["charm_steps"]
+	var steps: Array = breakdown["die_steps"]
 	assert_eq(steps.size(), 2)
-	assert_eq(steps[0]["charm_indices"], [0])
-	assert_eq(steps[0]["base_add"], 10)
-	assert_eq(steps[1]["charm_indices"], [1])
-	assert_eq(steps[1]["base_add"], 10)
+	for step: Dictionary in steps:
+		assert_eq(step["charm_base_add"], 10, "beide Breitband-Kopien am Würfel selbst")
+		assert_eq(step["die_charm_indices"], [0, 1])
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
 
 func test_nonlinear_charms_still_sum_exactly():
 	# Einsiedlerkrebs (+6 nur bei ≤2 Charms) + Sammler-Amulett (je anderem Charm):
@@ -154,13 +169,33 @@ func test_cult_of_one_becomes_factor_step():
 	assert_eq(steps[0]["mult_x"], 4)
 	assert_eq(steps[0]["charm_indices"], [0])
 
-func test_crit_pool_is_one_shared_step():
+func test_gallows_humor_is_a_positioned_crit_step():
 	var ids := _ids([Charm.GALLOWS_HUMOR])
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
-	var crit_steps: Array = breakdown["charm_steps"].filter(func(s: Dictionary) -> bool: return s["mult_x"] > 1)
-	assert_eq(crit_steps.size(), 1, "ein gemeinsamer Krit-Schritt")
-	assert_eq(crit_steps[0]["mult_x"], 4, "×(1 + 3)")
+	var crit_steps: Array = breakdown["charm_steps"].filter(func(s: Dictionary) -> bool: return s["crit_x"] > 1)
+	assert_eq(crit_steps.size(), 1)
+	assert_eq(crit_steps[0]["mult_x"], 4, "Krit ×4 an der eigenen Position")
+	assert_eq(crit_steps[0]["crit_x"], 4, "als Krit markiert - die UI kann ihn inszenieren")
 	assert_eq(crit_steps[0]["charm_indices"], [0])
+
+func test_non_crit_factor_steps_carry_crit_one():
+	# Einserkult ist KEIN Krit (Faktor auf Basis UND Mult) - crit_x bleibt 1.
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 1, 3, 6]), _ids([Charm.CULT_OF_ONE]))
+	assert_eq(breakdown["charm_steps"][0]["crit_x"], 1)
+
+func test_factor_charm_respects_dock_order():
+	# KEINE Ausnahmen: Einserkult VOR Momentum verdoppelt dessen +3 nicht,
+	# dahinter schon - und die Schrittliste läuft in Besitz-Reihenfolge.
+	var ctx := {CharmEffects.CTX_STREAK: 3}
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var cult_first := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.CULT_OF_ONE, Charm.MOMENTUM]), false, NO_MATS, NO_MATS, {}, ctx)
+	var cult_last := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.MOMENTUM, Charm.CULT_OF_ONE]), false, NO_MATS, NO_MATS, {}, ctx)
+	# Eine 1 im Wurf: ×2. Vorn: (2×2 + 3) = 7 Mult, Basis 40 -> 280.
+	# Hinten: (2 + 3) × 2 = 10 Mult, Basis 40 -> 400.
+	assert_eq(cult_first["total"], 280)
+	assert_eq(cult_last["total"], 400)
+	assert_eq(cult_first["charm_steps"][0]["charm_indices"], [0], "Schritte folgen der Dock-Reihenfolge")
+	assert_eq(cult_first["charm_steps"][1]["charm_indices"], [1])
 
 # --- Nach-Schritte (auf die fertige Punktzahl) ------------------------------------
 
@@ -171,15 +206,30 @@ func test_rainbow_trout_lands_after_the_merge():
 	assert_eq(posts[0]["total_add"], 10)
 	assert_eq(posts[0]["charm_indices"], [0])
 
-func test_magic_card_and_beer_are_total_factors():
-	var ids := _ids([Charm.MAGIC_CARD, Charm.AFTER_WORK_BEER])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, true, NO_MATS, NO_MATS, {}, {"last_hand": true})
+func test_magic_card_is_a_total_factor():
+	var ids := _ids([Charm.MAGIC_CARD])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, true)
 	var posts: Array = breakdown["post_steps"]
-	assert_eq(posts.size(), 2)
-	assert_eq(posts[0]["total_x"], 2.0, "Zauberkarte zuerst (Reihenfolge wie score_category)")
+	assert_eq(posts.size(), 1)
+	assert_eq(posts[0]["total_x"], 2.0)
 	assert_eq(posts[0]["charm_indices"], [0])
-	assert_eq(posts[1]["total_x"], 2.0, "Feierabendbier auf das Ergebnis")
-	assert_eq(posts[1]["charm_indices"], [1])
+
+func test_after_work_beer_is_a_base_factor_step():
+	# Leerer Nachziehstapel: eigener Schritt, der NUR die Basis verdoppelt.
+	var ids := _ids([Charm.AFTER_WORK_BEER])
+	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	var steps: Array = breakdown["charm_steps"]
+	assert_eq(steps.size(), 1)
+	assert_eq(steps[0]["base_x"], 2, "Basis verdoppelt")
+	assert_eq(steps[0]["mult_x"], 1, "Mult bleibt")
+	assert_eq(steps[0]["charm_indices"], [0])
+	assert_true(breakdown["post_steps"].is_empty(), "kein Nach-Schritt mehr")
+
+func test_after_work_beer_stays_quiet_while_the_pool_has_dice():
+	var ids := _ids([Charm.AFTER_WORK_BEER])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids)
+	assert_true(breakdown["charm_steps"].is_empty())
 
 # --- Großer Kombinationstest: alles gleichzeitig -----------------------------------
 
@@ -199,22 +249,34 @@ func test_kitchen_sink_scenario_matches_scoring():
 	var ctx := {"after_farkle": true, "streak": 2}
 	_build_and_check(DiceScoring.THREE_KIND, dice, run.charm_ids(), true, mats, edges, levels, ctx)
 
-# --- Pro-Würfel-Meteor: der Charm-Schritt fächert in Einzel-Pulse auf -------------
+# --- Pro-Würfel-Meteor -------------------------------------------------------------
 
-func test_per_die_charm_step_carries_one_pulse_per_triggered_die():
-	# Bodensatz: Paar Fünfer, beide Slots spät gezogen -> zwei Mult-Pulse à +3.
+func test_sediment_fires_in_the_die_steps():
+	# Bodensatz: Paar Fünfer, beide Slots spät gezogen -> +3 Mult IM Schritt
+	# jedes beteiligten Würfels, keine Charm-Phase.
 	var ctx := {CharmEffects.CTX_LATE_SLOTS: [0, 1]}
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
 		_ids([Charm.SEDIMENT]), false, NO_MATS, NO_MATS, {}, ctx)
+	var steps: Array = breakdown["die_steps"]
+	assert_eq(steps.size(), 2)
+	for step: Dictionary in steps:
+		assert_eq(step["charm_mult_add"], 3, "+3 Mult mit dem Würfel selbst")
+		assert_eq(step["die_charm_indices"], [0])
+	assert_eq(breakdown["charm_steps"].size(), 0)
+
+func test_full_counter_step_carries_one_pulse_per_bystander():
+	# Vollzähler zählt UNBETEILIGTE Würfel - die triggern nie selbst, also
+	# feuert der Charm in der Charm-Phase und fächert je Würfel einen Puls auf.
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
+		_ids([Charm.FULL_COUNTER]))
 	var pulsed := {}
 	for step: Dictionary in breakdown["charm_steps"]:
 		if step.has("pulses"):
 			pulsed = step
-	assert_false(pulsed.is_empty(), "Bodensatz-Schritt trägt Pulse")
-	assert_eq(pulsed["pulses"].size(), 2, "je beteiligtem, spät gezogenem Würfel ein Puls")
-	assert_eq(int(pulsed["pulses"][0]["mult"]), 3, "jeder Puls +3 Mult")
+	assert_false(pulsed.is_empty(), "Vollzähler-Schritt trägt Pulse")
+	assert_eq(pulsed["pulses"].size(), 4, "je unbeteiligtem Würfel ein Puls")
 	# Die Pulse bauen lückenlos auf den Schritt-Endstand auf.
-	assert_eq(int(pulsed["pulses"][1]["mult_after"]), int(pulsed["mult_after"]),
+	assert_eq(int(pulsed["pulses"][3]["base_after"]), int(pulsed["base_after"]),
 		"letzter Puls trifft den Schritt-Endstand")
 
 func test_bonus_that_is_not_per_die_carries_no_pulses():
@@ -271,7 +333,7 @@ func test_breakdown_matches_scoring_across_the_matrix():
 	var rich_ctx := {
 		CharmEffects.CTX_REROLLED: 3, CharmEffects.CTX_TAKEN_DICE: 2,
 		CharmEffects.CTX_FULL_REROLLS: 2, CharmEffects.CTX_STREAK: 3,
-		CharmEffects.CTX_LAST_HAND: true, CharmEffects.CTX_AFTER_FARKLE: true,
+		CharmEffects.CTX_POOL_EMPTY: true, CharmEffects.CTX_AFTER_FARKLE: true,
 		CharmEffects.CTX_FARKLE_STACKS: 2, CharmEffects.CTX_LAST_SETTLED: 0,
 		CharmEffects.CTX_LATE_SLOTS: [4, 5],
 	}

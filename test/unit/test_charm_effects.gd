@@ -75,20 +75,20 @@ func test_mult_bonus_pearl_three_kind():
 	assert_eq(CharmEffects.mult_bonus("three_pairs", _ids([Charm.PEARL_NECKLACE])), 0)
 	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.PEARL_NECKLACE])), 0)
 
-func test_flat_bonus_rainbow_trout_straights_only():
-	assert_eq(CharmEffects.flat_bonus("small_straight", _ids([Charm.RAINBOW_TROUT])), 10)
-	assert_eq(CharmEffects.flat_bonus("large_straight", _ids([Charm.RAINBOW_TROUT])), 10)
-	assert_eq(CharmEffects.flat_bonus("full_house", _ids([Charm.RAINBOW_TROUT])), 0)
+func test_total_add_rainbow_trout_straights_only():
+	assert_eq(CharmEffects.charm_total_add_at(0, "small_straight", _ids([Charm.RAINBOW_TROUT])), 10)
+	assert_eq(CharmEffects.charm_total_add_at(0, "large_straight", _ids([Charm.RAINBOW_TROUT])), 10)
+	assert_eq(CharmEffects.charm_total_add_at(0, "full_house", _ids([Charm.RAINBOW_TROUT])), 0)
 
 func test_collectors_amulet_gives_mult_per_other_charm():
 	# 3 Charms -> +2 Mult je anderem Charm (= +4); mit nur sich selbst -> +0.
 	assert_eq(CharmEffects.charm_mult_bonus("two_kind", [] as Array[int], [] as Array[String], _ids([Charm.COLLECTORS_AMULET, Charm.HORSESHOE, Charm.LADYBUG])), 4)
 	assert_eq(CharmEffects.charm_mult_bonus("two_kind", [] as Array[int], [] as Array[String], _ids([Charm.COLLECTORS_AMULET])), 0)
 
-func test_score_multiplier_magic_card_first_hand_only():
-	assert_eq(CharmEffects.score_multiplier(_ids([Charm.MAGIC_CARD]), true), 2)
-	assert_eq(CharmEffects.score_multiplier(_ids([Charm.MAGIC_CARD]), false), 1)
-	assert_eq(CharmEffects.score_multiplier(_ids([]), true), 1)
+func test_total_factor_magic_card_first_hand_only():
+	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.MAGIC_CARD]), true), 2)
+	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.MAGIC_CARD]), false), 1)
+	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.HORSESHOE]), true), 1)
 
 # --- Geld --------------------------------------------------------------------
 

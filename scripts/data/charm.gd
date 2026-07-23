@@ -338,7 +338,7 @@ static func straggler() -> Charm:
 # --- Augen & Werte ---
 
 static func echo_chamber() -> Charm:
-	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der höchste gewertete Würfel zählt seine Augen ein zweites Mal.")
+	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der zuerst gewertete Würfel löst ein zweites Mal aus - Augen und Material.")
 
 static func twin_ring() -> Charm:
 	return _make(TWIN_RING, "Zwillingsring", "Jedes Paar im Wurf erhöht den Mult um die Augenzahl des Paars.")
@@ -367,7 +367,7 @@ static func momentum() -> Charm:
 	return _make(MOMENTUM, "Momentum", "+1 Mult je genommener Hand in Folge ohne Farkle (ein Farkle setzt zurück).")
 
 static func after_work_beer() -> Charm:
-	return _make(AFTER_WORK_BEER, "Feierabendbier", "Die letzte Hand jeder Runde zählt doppelt.")
+	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel, verdoppeln sich die Basispunkte.")
 
 static func blackjack() -> Charm:
 	return _make(BLACKJACK, "Blackjack", "Ergeben die gewerteten Würfel zusammen genau 21 Augen: +50 Basispunkte.")
@@ -399,13 +399,13 @@ static func shard_court() -> Charm:
 	return _make(SHARD_COURT, "Scherbengericht", "Ein Farkle zahlt $2 je verworfenem Würfel.")
 
 static func gallows_humor() -> Charm:
-	return _make(GALLOWS_HUMOR, "Galgenhumor", "Die erste genommene Hand nach einem Farkle bekommt +3 Krit.")
+	return _make(GALLOWS_HUMOR, "Galgenhumor", "Die erste genommene Hand nach einem Fumble bekommt einen Krit: Mult ×4.")
 
 static func phoenix_feather() -> Charm:
 	return _make(PHOENIX_FEATHER, "Phönixfeder", "Bei jedem Farkle kehrt die ganze Hand ans Ende des Nachziehstapels zurück statt in die Ablage.")
 
 static func patchwork_rug() -> Charm:
-	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Farkle bleibt der Würfel mit der höchsten Augenzahl gehalten liegen - die Hand läuft weiter, statt verloren zu gehen.")
+	return _make(PATCHWORK_RUG, "Flickenteppich", "Bei einem Fumble bleibt der Würfel mit der höchsten Augenzahl gehalten liegen - die Hand läuft weiter, statt verloren zu gehen.")
 
 # --- Geld ---
 
@@ -452,7 +452,7 @@ static func bone_glue() -> Charm:
 	return _make(BONE_GLUE, "Knochenleim", "Knochen wächst +2 statt +1.")
 
 static func glassblower_lung() -> Charm:
-	return _make(GLASSBLOWER_LUNG, "Glasbläserlunge", "Glas schrumpft nie unter 3.")
+	return _make(GLASSBLOWER_LUNG, "Glasbläserlunge", "Glas schrumpft nicht mehr.")
 
 static func mercury_vapor() -> Charm:
 	return _make(MERCURY_VAPOR, "Quecksilberdampf", "Quecksilber aktiviert den Würfel dreifach statt doppelt.")
@@ -489,7 +489,7 @@ static func engraving_pen() -> Charm:
 	return _make(ENGRAVING_PEN, "Gravierstift", "Einmal pro Runde wird ein Zahl-Gravur beim Anwenden nicht verbraucht.")
 
 static func stamp_machine() -> Charm:
-	return _make(STAMP_MACHINE, "Frankiermaschine", "Am Rundenende, kurz vor dem Shop: +3 zufällige Zahl-Gravuren.")
+	return _make(STAMP_MACHINE, "Frankiermaschine", "Am Rundenende, +3 Gravuren.")
 
 static func fine_print() -> Charm:
 	return _make(FINE_PRINT, "Kleingedrucktes", "Nach jedem Pack-Kauf: 20% Chance auf volle Rückerstattung.")
@@ -500,7 +500,7 @@ static func recycling() -> Charm:
 	return _make(RECYCLING, "Recycling", "Einmal je Runde kehrt die erste genommene Hand ans Ende des Nachziehstapels zurück.")
 
 static func fresh_goods() -> Charm:
-	return _make(FRESH_GOODS, "Frische Ware", "Neu gekaufte Würfel liegen ganz vorn im Nachziehstapel der nächsten Runde.")
+	return _make(FRESH_GOODS, "Frische Ware", "Würfel mit Material liegen nach dem Mischen ganz vorn im Nachziehstapel.")
 
 static func sediment() -> Charm:
 	return _make(SEDIMENT, "Bodensatz", "Die letzten 6 Würfel des Nachziehstapels geben +3 Mult, wenn sie beteiligt sind.")

@@ -257,7 +257,6 @@ func test_place_pack_die_replaces_the_chosen_slot_only():
 	assert_eq(run.owned_pool[7].style_id, "fixed_6", "gewählter Platz getauscht")
 	assert_eq(_count_style("fixed_6"), 1, "nur dieser eine Platz")
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
-	assert_eq(run.newly_purchased.size(), 1, "frische Ware zieht zuerst")
 
 func test_place_pack_die_stores_an_independent_copy():
 	var die := DieDefinition.fixed(6, "Immer 6")
@@ -268,7 +267,7 @@ func test_place_pack_die_stores_an_independent_copy():
 func test_place_pack_die_ignores_slots_outside_the_pool():
 	run.place_pack_die(DieDefinition.fixed(6, "Immer 6"), GameRun.POOL_SIZE)
 	assert_eq(_count_style("fixed_6"), 0)
-	assert_eq(run.newly_purchased.size(), 0)
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool unverändert")
 
 # --- Automaten-Gewinne (auswürfeln und buchen sind getrennt) ---------------------
 
