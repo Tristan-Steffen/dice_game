@@ -381,21 +381,6 @@ func test_clear_all_materials_empties_faces_and_edges():
 			assert_eq(material_id, "", "Seiten-Material geleert")
 		assert_eq(die.edge_material, "", "Kanten-Material geleert")
 
-func test_grant_charms_adds_missing_without_duplicates():
-	watch_signals(run)
-	var charms: Array[Charm] = [Charm.golden_scarab(), Charm.goldsmith()]
-	run.grant_charms(charms)
-	assert_eq(run.owned_charm_ids(), [Charm.GOLDEN_SCARAB, Charm.GOLDSMITH])
-	assert_signal_emitted(run, "charms_changed")
-	# Erneutes Gewähren fügt nichts hinzu (schon besessen).
-	run.grant_charms([Charm.golden_scarab()])
-	assert_eq(run.owned_charm_ids().count(Charm.GOLDEN_SCARAB), 1, "kein Duplikat")
-
-func test_remove_charms_strips_given_ids():
-	run.grant_charms([Charm.golden_scarab(), Charm.goldsmith(), Charm.small_fry()])
-	run.remove_charms([Charm.GOLDSMITH])
-	assert_eq(run.owned_charm_ids(), [Charm.GOLDEN_SCARAB, Charm.SMALL_FRY], "nur Goldschmied entfernt")
-
 # --- Nebenwetten --------------------------------------------------------------
 
 func test_place_side_bet_deducts_stake_and_stores():

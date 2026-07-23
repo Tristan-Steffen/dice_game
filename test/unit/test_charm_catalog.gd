@@ -368,15 +368,18 @@ func test_round_start_resets_the_gravierstift_mark():
 	run.apply_round_start_charms()
 	assert_false(run.gravierstift_used_this_round, "Gravierstift-Marke zurückgesetzt")
 
-func test_stamp_machine_grants_engravings_at_round_end():
+func test_stamp_machine_rolls_number_engravings_for_the_ceremony():
+	# Die Rundenende-Zeremonie (scene_root) fliegt je Gravur einen Meteor und
+	# grantet bei Ankunft - hier die Logik: jede gewürfelte Gravur ist eine
+	# Zahl-Gravur, und erst grant_engraving legt sie in den Vorrat.
 	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.stamp_machine())
-	run.apply_round_start_charms()
-	assert_eq(run.owned_engravings.size(), 0, "zu Rundenbeginn noch keine Gravuren")
-	run.apply_round_end_charms()
-	assert_eq(run.owned_engravings.size(), 3, "Frankiermaschine schenkt am Rundenende drei Gravuren")
-	for engraving in run.owned_engravings:
+	assert_eq(run.owned_engravings.size(), 0)
+	for i in GameRun.STAMP_ENGRAVINGS:
+		var engraving := run.roll_stamp_engraving()
 		assert_eq(engraving.category, Engraving.CATEGORY_NUMBER)
+		assert_eq(run.owned_engravings.size(), i, "roll allein grantet nicht")
+		run.grant_engraving(engraving)
+	assert_eq(run.owned_engravings.size(), GameRun.STAMP_ENGRAVINGS)
 
 func test_jewelry_box_upgrades_unused_dice_at_payout():
 	var run := GameRun.new_run()

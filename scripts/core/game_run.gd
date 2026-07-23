@@ -411,16 +411,18 @@ func apply_round_start_charms() -> void:
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
 
-## Rundenende (kurz vor dem Shop): Frankiermaschine schenkt je Vorkommen 3
-## zufällige Zahl-Gravuren.
-func apply_round_end_charms() -> void:
-	for i in charm_ids().count(Charm.STAMP_MACHINE):
-		var number_engravings: Array[Engraving] = []
-		for engraving in Engraving.all():
-			if engraving.category == Engraving.CATEGORY_NUMBER:
-				number_engravings.append(engraving)
-		for j in 3:
-			grant_engraving(number_engravings[randi() % number_engravings.size()])
+## Frankiermaschine: so viele Zahl-Gravuren schenkt sie am Rundenende - je eine
+## pro Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
+const STAMP_ENGRAVINGS := 3
+
+## Würfelt EINE zufällige Zahl-Gravur der Frankiermaschine aus - noch ohne
+## grant: die Gravur liegt erst im Vorrat, wenn ihr Meteor angekommen ist.
+func roll_stamp_engraving() -> Engraving:
+	var number_engravings: Array[Engraving] = []
+	for engraving in Engraving.all():
+		if engraving.category == Engraving.CATEGORY_NUMBER:
+			number_engravings.append(engraving)
+	return number_engravings[randi() % number_engravings.size()]
 
 ## Neue Glückszahl würfeln und sie in die Beschreibung jedes Lumpensammlers
 ## schreiben (die Karten-Instanzen, die der Dock live liest).
@@ -653,23 +655,3 @@ func clear_all_materials() -> void:
 		die.materials = mats
 		die.edge_material = ""
 
-## Fügt fehlende Charms hinten an (nichts doppelt); meldet nur bei Änderung.
-func grant_charms(charms: Array[Charm]) -> void:
-	var owned := owned_charm_ids()
-	var added := false
-	for charm in charms:
-		if not owned.has(charm.id):
-			owned_charms.append(charm)
-			added = true
-	if added:
-		charms_changed.emit()
-
-## Entfernt alle Charms mit einer der ids; meldet nur bei Änderung.
-func remove_charms(ids: Array) -> void:
-	var kept: Array[Charm] = []
-	for charm in owned_charms:
-		if not ids.has(charm.id):
-			kept.append(charm)
-	if kept.size() != owned_charms.size():
-		owned_charms = kept
-		charms_changed.emit()

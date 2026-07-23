@@ -1698,6 +1698,76 @@ func money_travel_time() -> float:
 		return 0.4
 	return _travel_time(treasure_strip.strip_path)
 
+## Gemeinsame Rundenende-Bahn eines Charm-Kometen bis zur Hub-Oberkante:
+## Konsole -> Sammelschiene -> Stamm in den Punkte-Bildschirm, an dessen
+## RAHMEN zur Grubenspalte, der Datenbus an die Grube, um die Grubenhälfte
+## (Rahmen, nicht quer durchs Fenster) und über die Bank-Leiste an die
+## Hub-Oberkante - dieselbe Bahn wie der Bank-Komet der Rundenauszahlung.
+func _round_end_prefix(from_px: Vector2) -> PackedVector2Array:
+	var path := PackedVector2Array()
+	path.append(from_px)
+	path.append(Vector2(from_px.x, _charm_rail_y))
+	path.append(Vector2(_charm_trunk_x, _charm_rail_y))
+	var score_entry := Vector2(_charm_trunk_x, score_rect.position.y)
+	path.append(score_entry)
+	var pr := Rect2(pit_window.position, pit_window.size)
+	var pcx := pr.get_center().x
+	var score_exit := Vector2(clampf(pcx, score_rect.position.x, score_rect.end.x), score_rect.end.y)
+	for corner in _border_route(score_rect, score_entry, score_exit):
+		path.append(corner)
+	path.append(score_exit)
+	var pit_entry := Vector2(pcx, pr.position.y)
+	var pit_exit := Vector2(pcx, pr.end.y)
+	path.append(pit_entry)
+	for corner in _border_route(pr, pit_entry, pit_exit):
+		path.append(corner)
+	path.append(pit_exit)
+	path.append(Vector2(hub.position.x + hub.size.x * 0.5, hub.position.y))
+	return path
+
+## Volle Rundenende-Route: die gemeinsame Bahn bis zum Hub, dann von dessen
+## Rand über die Ziel-Adern (Geld-Leiste bzw. Werkstatt + Schublade) ans Ziel -
+## _route_via_strips fährt Fensterrahmen entlang, nie quer durch einen Screen.
+func _round_end_route(from_px: Vector2, tail_strips: Array, to_px: Vector2) -> PackedVector2Array:
+	if pit_window == null or hub == null or score_rect.size.x <= 0.0:
+		return _orthogonal_path(from_px, to_px)
+	var path := _round_end_prefix(from_px)
+	var tail := _route_via_strips(path[path.size() - 1], tail_strips, to_px)
+	for i in range(1, tail.size()):
+		path.append(tail[i])
+	return path
+
+## Geld-Komet eines Rundenende-Charms (EIN Chip-Paket in seiner Stückelungs-
+## farbe): die Rundenende-Bahn bis zum Hub, dann am Hub-Rahmen zur Geld-Leiste
+## und über sie in die Schatztruhe - der Aufrufer bucht bei Ankunft.
+func charm_money_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
+	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
+		return 0.0
+	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
+	var path := _round_end_route(from_px, [treasure_strip], to_px)
+	var travel := _round_end_travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Gravur-Meteor der Frankiermaschine: die Rundenende-Bahn bis zum Hub, dann
+## Werkstatt-Ader und Schubladen-Ader bis in den Platz - derselbe Aderweg wie
+## ein Automaten-Gewinn (slot_engraving_route). Liefert die Laufzeit.
+func charm_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2, color: Color) -> float:
+	if workshop_window == null or not workshop_window.visible:
+		return 0.0
+	var path := _round_end_route(from_px, [workshop_hub_strip, _supply_strip(category)], slot_px)
+	var travel := _round_end_travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Die Rundenende-Bahn ist lang (Score -> Grube -> Hub -> Ziel) - ihre Kometen
+## fahren doppelt so schnell wie die normale Licht-Geschwindigkeit, damit die
+## Zeremonie bei mehreren Charms nicht zäh wird.
+const ROUND_END_PULSE_SPEED := PULSE_SPEED * 2.0
+
+func _round_end_travel_time(path: PackedVector2Array) -> float:
+	return maxf(0.12, _path_length(path) / ROUND_END_PULSE_SPEED)
+
 ## Geld-Lichtlauf im Übertaktungs-Stil: ein kurzer Komet fährt die Hub<->Schatz-
 ## Leiste (to_treasure = Gutschrift Hub->Schatz, sonst Kauf Schatz->Hub).
 ## Liefert die Laufzeit für die Ankunfts-Planung.

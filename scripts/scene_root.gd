@@ -27,6 +27,9 @@ const PAYOUT_TEXT_HOLD_DURATION := 0.35
 const DIE_PAYOUT_STEP_INTERVAL := 0.09
 ## Charms zahlen langsamer als Würfel - jeder Posten soll einzeln lesbar sein.
 const CHARM_PAYOUT_STEP_INTERVAL := 0.45
+## Start-Takt der Frankiermaschinen-Salve: die Meteore starten dicht
+## hintereinander, ohne auf die vorige Ankunft zu warten.
+const STAMP_METEOR_GAP := 0.18
 
 ## Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken (oberste
 ## Stufe zuerst). Der Abstand nach jeder Ankunft zieht leicht an (Accelerando).
@@ -174,9 +177,6 @@ enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 ## Würfeln + unerschöpfliche Gravuren an/aus.
 var test_materials_button: Button
 var test_materials_enabled: bool = false
-
-## Charms, die der Testmodus von Anfang an mitgibt.
-const TEST_MODE_CHARM_IDS := [Charm.GOLDEN_SCARAB, Charm.GOLDSMITH, Charm.SMALL_FRY]
 
 var charm_library: CharmLibraryView
 @onready var hand_label: Label = $UI/HandLabel
@@ -3239,20 +3239,15 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 func _on_reset_button_pressed() -> void:
 	_reset_game()
 
-## Testmodus umschalten: An = zufällige Materialien auf allen Würfeln,
-## Testmodus-Charms + unbegrenzte Gravuren; Aus = alles entfernen. Beides
+## Testmodus umschalten: An = zufällige Materialien auf allen Würfeln +
+## unbegrenzte Gravuren (KEINE Charms); Aus = Materialien entfernen. Beides
 ## startet die Runde neu, damit die Änderung sofort sichtbar ist.
 func _on_test_materials_pressed() -> void:
 	test_materials_enabled = not test_materials_enabled
 	if not test_materials_enabled:
 		run.clear_all_materials()
-		run.remove_charms(TEST_MODE_CHARM_IDS)
 	_refresh_test_materials_button()
 	_start_new_round()
-
-## Frische Instanzen der Testmodus-Charms (siehe TEST_MODE_CHARM_IDS).
-func _test_mode_charms() -> Array[Charm]:
-	return [Charm.golden_scarab(), Charm.goldsmith(), Charm.small_fry()]
 
 ## Beschriftung des Testmodus-Knopfs (2D-Rückfall UND Hub-Menü).
 func _refresh_test_materials_button() -> void:
@@ -3348,7 +3343,6 @@ func _start_new_round() -> void:
 	run.unlimited_engravings = test_materials_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
-		run.grant_charms(_test_mode_charms())
 
 	var ids := run.charm_ids()
 	round_pool_kinds = run.owned_pool.duplicate()
@@ -3442,17 +3436,17 @@ func _on_round_complete() -> void:
 		await _play_round_clear_payout(base_blind, per_die, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
-		await _play_charm_payout(ids)
+		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
+		# Wirkung (Geld-Komet zur Truhe, Gravur-Meteore in die Schublade).
+		await _play_round_end_charm_ceremony(ids)
 		if phase != Phase.PAYOUT:
-			return  # Spiel wurde während der Charm-Auszahlung zurückgesetzt
+			return  # Spiel wurde während der Charm-Zeremonie zurückgesetzt
 		# Glücksgroschen wächst ERST nach seiner Auszahlung (erste Runde: $3).
 		if ids.has(Charm.OLD_PENNY):
 			run.old_penny_payouts += 1
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
-		# Frankiermaschine: ihre Zahl-Gravuren kommen jetzt, kurz vor dem Shop, an.
-		run.apply_round_end_charms()
 		phase = Phase.SHOP
 		_set_gameplay_ui_visible(false)
 		_return_dice_to_pool_tray()
@@ -3561,26 +3555,118 @@ func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> voi
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
 		_fade_payout_label(hub.die_payout_label if hub != null else null)
 
-## Dritter Auszahlungs-Takt: die geldgebenden Charms zahlen EINZELN und sichtbar.
-## Der Charm blitzt, dann bucht er seine Scheibe - das Geld-Licht zum Münzschirm
-## löst add_money von selbst aus. Zinsgroschen/Überflieger rechnen alle auf dem
-## Stand VOR diesem Takt, sonst verschöbe die Reihenfolge die Beträge.
-func _play_charm_payout(ids: Array[String]) -> void:
-	var before := run.money
-	for entry in CharmEffects.round_end_income_entries(before, hand_total - run.round_goal, ids, run.old_penny_payouts):
-		_flash_charm_and_pad(int(entry["charm_index"]))
-		run.add_money(int(entry["amount"]))
-		await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+## Rundenende-Zeremonie der Charms: NACH der Rundenauszahlung, VOR dem Shop
+## feuern die Rundenende-Charms strikt in Besitz-Reihenfolge (links nach
+## rechts), und jeder ZEIGT seine Wirkung: Geld-Charms schicken einen Gold-
+## Kometen vom Dock-Pad zur Schatztruhe (Buchung bei Ankunft), die Frankier-
+## maschine schleudert je Gravur einen Meteor in ihre Vorrats-Schublade.
+## Die Beträge von Zinsgroschen/Überflieger/Glücksgroschen rechnen alle auf
+## dem Stand VOR der Zeremonie (kein Zinseszins); nur der Notgroschen füllt
+## an seiner Position auf den LAUFENDEN Stand auf - was rechts von ihm zahlt,
+## landet obendrauf.
+func _play_round_end_charm_ceremony(ids: Array[String]) -> void:
+	var amounts := {}
+	for entry in CharmEffects.round_end_income_entries(run.money, hand_total - run.round_goal, ids, run.old_penny_payouts):
+		amounts[int(entry["charm_index"])] = int(entry["amount"])
+	for j in ids.size():
+		match ids[j]:
+			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY:
+				if amounts.has(j):
+					await _play_charm_money_payout(j, amounts[j])
+			Charm.EMERGENCY_FUND:
+				var missing := CharmEffects.money_floor(ids) - run.money
+				if missing > 0:
+					await _play_charm_money_payout(j, missing)
+			Charm.STAMP_MACHINE:
+				await _play_stamp_machine_meteors(j)
 		if phase != Phase.PAYOUT:
 			return
-	# Notgroschen zuletzt: er füllt auf, was nach allen Einnahmen noch fehlt.
-	var floor_value := CharmEffects.money_floor(ids)
-	if run.money < floor_value:
-		var index := ids.find(Charm.EMERGENCY_FUND)
-		if index >= 0:
-			_flash_charm_and_pad(index)
-		run.add_money(floor_value - run.money)
-		await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+
+## EIN Geld-Charm zahlt sichtbar: Pad blitzt, "+N$" steigt am Pad auf, und der
+## Betrag fährt als ECHTE Chip-Pakete (Stückelung 1/5/25/100, je in seiner
+## Chipfarbe) dicht gestaffelt vom Pad zur Schatztruhe - jedes Paket bucht
+## SEINEN Wert bei Ankunft (das generische Geld-Licht ist unterdrückt, die
+## Pakete SIND die Gutschrift). Gewartet wird auf die letzte Ankunft.
+func _play_charm_money_payout(index: int, amount: int) -> void:
+	_flash_charm_and_pad(index)
+	var from_px := _charm_trail_source_px([index])
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
+	var values := ChipStackView.split_gain(amount)
+	var travel := 0.0
+	for i in values.size():
+		var value: int = values[i]
+		if i == 0:
+			travel = _fire_charm_money_packet(from_px, value)
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(func() -> void:
+				if phase == Phase.PAYOUT:
+					_fire_charm_money_packet(from_px, value))
+	var last_arrival := float(maxi(0, values.size() - 1)) * MONEY_PULSE_GAP + maxf(travel, 0.05)
+	await get_tree().create_timer(last_arrival).timeout
+	if phase != Phase.PAYOUT:
+		return
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+
+## Schickt EIN Chip-Paket los und bucht seinen Wert bei ANKUNFT (Truhe glimmt,
+## Einzahlungs-Schlitz blitzt in der Chipfarbe). Liefert die Flugzeit.
+func _fire_charm_money_packet(from_px: Vector2, value: int) -> float:
+	var chip_color := ChipStackView.denomination_color(value)
+	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if phase != Phase.PAYOUT:
+			return
+		_suppress_money_light = true
+		run.add_money(value)
+		_suppress_money_light = false
+		if table_screen.treasure_window != null:
+			table_screen.treasure_window.glint()
+			table_screen.treasure_window.flash_receive_slot(chip_color))
+	return travel
+
+## Die Frankiermaschine schickt ihre Zahl-Gravuren als dichte Meteor-Salve auf
+## die Adern: die Starts folgen im STAMP_METEOR_GAP-Takt, ohne auf die vorige
+## Ankunft zu warten - jede Gravur liegt erst bei IHRER Ankunft im Vorrat
+## (der Meteor ist die Gravur, nicht ihre Ankündigung).
+func _play_stamp_machine_meteors(index: int) -> void:
+	_flash_charm_and_pad(index)
+	var from_px := _charm_trail_source_px([index])
+	var travel := 0.0
+	for i in GameRun.STAMP_ENGRAVINGS:
+		var engraving := run.roll_stamp_engraving()
+		if i == 0:
+			travel = _fire_charm_engraving(engraving, from_px)
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if phase == Phase.PAYOUT:
+					_fire_charm_engraving(engraving, from_px))
+	var last_arrival := float(GameRun.STAMP_ENGRAVINGS - 1) * STAMP_METEOR_GAP + maxf(travel, 0.05)
+	await get_tree().create_timer(last_arrival).timeout
+	if phase != Phase.PAYOUT:
+		return
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+
+## Schickt EINEN Gravur-Meteor über die Adern in den Schubladen-Platz und
+## grantet bei ANKUNFT; der Einschlag lässt den Platz in der Seltenheitsfarbe
+## nachglühen. Liefert die Flugzeit.
+func _fire_charm_engraving(engraving: Engraving, from_px: Vector2) -> float:
+	if table_screen == null or table_screen.workshop_window == null:
+		run.grant_engraving(engraving)  # ohne Display: still buchen, nichts verlieren
+		return 0.0
+	for drawer in table_screen.supply_drawers:
+		var target := drawer.slot_center_px(engraving.id)
+		if target.x < 0.0:
+			continue
+		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
+		var travel := table_screen.charm_engraving_comet(from_px, drawer.category, target, tint)
+		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+			if phase != Phase.PAYOUT:
+				return
+			run.grant_engraving(engraving)
+			if is_instance_valid(drawer):
+				drawer.pop(engraving.id, tint))
+		return travel
+	run.grant_engraving(engraving)  # kein Schubladen-Platz: still buchen
+	return 0.0
 
 ## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
 ## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine
