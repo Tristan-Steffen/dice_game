@@ -175,12 +175,10 @@ func _chip(archetype: Engraving, count: int) -> Button:
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
 	var info := "%s (%s) – %s" % [archetype.display_name,
 		Engraving.rarity_name(archetype.rarity), archetype.description]
-	chip.mouse_entered.connect(func() -> void:
-		if not _ceremony:
-			hovered.emit(info))
-	chip.mouse_exited.connect(func() -> void:
-		if not _ceremony:
-			hovered.emit(""))
+	# Überfahren meldet die Beschreibung IMMER (auch an der Station): dort
+	# überschreibt sie kurz den Werkzeug-Prompt, im Lager füllt sie die Info-Leiste.
+	chip.mouse_entered.connect(func() -> void: hovered.emit(info))
+	chip.mouse_exited.connect(func() -> void: hovered.emit(""))
 
 	var face := EngravingRenderer.for_engraving(archetype)
 	face.bare = true  # die Schublade IST der Grund - keine zweite Kachel darauf

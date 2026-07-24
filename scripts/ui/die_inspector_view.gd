@@ -340,6 +340,12 @@ func _sync_drawers() -> void:
 func set_prompt_label(label: Label) -> void:
 	prompt_label = label
 
+## Setzt die Info-Leiste wieder auf den Stations-Prompt - scene_root ruft das,
+## nachdem das Überfahren einer Schubladen-Gravur die Leiste kurz übernommen hat.
+func refresh_prompt() -> void:
+	if current_def != null:
+		_update_prompt()
+
 func _set_prompt(text: String) -> void:
 	if prompt_label != null and is_instance_valid(prompt_label):
 		prompt_label.text = text

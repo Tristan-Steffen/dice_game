@@ -82,6 +82,24 @@ func test_pressing_a_tool_reports_its_id() -> void:
 			entry["button"].pressed.emit()
 	assert_eq(picked, [Engraving.CHISEL] as Array[String])
 
+func test_hover_reports_the_description_even_at_the_station() -> void:
+	# Regression: an der Station (Zeremonie) muss das Überfahren die Beschreibung
+	# weiter melden - sonst friert die Info-Leiste auf dem gewählten Werkzeug ein.
+	run.grant_engraving(Engraving.chisel())
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.set_ceremony(true)
+	var seen: Array[String] = []
+	drawer.hovered.connect(func(info: String) -> void: seen.append(info))
+	for entry in drawer.slots:
+		if entry["id"] == Engraving.CHISEL:
+			entry["button"].mouse_entered.emit()
+			entry["button"].mouse_exited.emit()
+	assert_eq(seen, [_chisel_info(), ""], "Beschreibung beim Überfahren, leer beim Verlassen")
+
+func _chisel_info() -> String:
+	var chisel := Engraving.chisel()
+	return "%s (%s) – %s" % [chisel.display_name, Engraving.rarity_name(chisel.rarity), chisel.description]
+
 func test_enabled_ids_narrow_the_usable_slots() -> void:
 	run.grant_engraving(Engraving.chisel())
 	run.grant_engraving(Engraving.notch())

@@ -3993,10 +3993,17 @@ func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
 
-## Lager-Betrieb: die überfahrene Vorrats-Kachel schreibt ihre Beschreibung in die
-## Info-Leiste. Während der Gravur-Zeremonie gehört die Leiste der Station.
+## Die überfahrene Vorrats-Kachel schreibt ihre Beschreibung in die Info-Leiste -
+## auch an der Station: dort überschreibt das Überfahren kurz den Werkzeug-Prompt
+## und gibt die Leiste beim Verlassen wieder frei (zurück zum Stations-Prompt).
 func _on_supply_hovered(info_text: String) -> void:
-	if engraving_active or table_screen == null or table_screen.supply_info_label == null:
+	if table_screen == null or table_screen.supply_info_label == null:
+		return
+	if engraving_active:
+		if info_text != "":
+			table_screen.supply_info_label.text = info_text
+		else:
+			die_inspector.refresh_prompt()
 		return
 	table_screen.supply_info_label.text = info_text
 
