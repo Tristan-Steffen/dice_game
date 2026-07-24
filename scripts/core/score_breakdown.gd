@@ -10,7 +10,12 @@ class_name ScoreBreakdown
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
 ## Ergebnis: key, participating, eye_slots, combo, die_steps, charm_steps,
 ## base, mult, merge_total, post_steps, total (== score_category).
-static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+## eye_order (optional): gewünschte Zähl-Reihenfolge der Würfel als Index-Liste;
+## leer = Slot-Reihenfolge. scene_root übergibt hier die physische Grubenanordnung
+## beim Nehmen. Da alle Würfel-Schritte ADDITIV sind (Augen/Material/Pro-Würfel-
+## Charm alle per +=, Faktoren erst in der Charm-Phase), ändert die Reihenfolge
+## nur die Anzeige, nie die Summe.
+static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, eye_order: Array[int] = []) -> Dictionary:
 	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
 	var raw := dice
 	dice = CharmEffects.transform_values(dice, charm_ids)
@@ -18,6 +23,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Normal zählen nur beteiligte Würfel Augen; mit Vollzähler ALLE liegenden
 	# (dann leuchten und triggern auch die Unbeteiligten).
 	var eye_slots := CharmEffects.scored_indices(participating, dice.size(), charm_ids).duplicate()
+	# Optional der physischen Grubenanordnung folgen (stabil nach Rang umsortiert).
+	if not eye_order.is_empty():
+		eye_slots.sort_custom(func(a: int, b: int) -> bool:
+			return eye_order.find(a) < eye_order.find(b))
 	var has_materials := not materials.is_empty() or not edge_materials.is_empty()
 	# Retrigger-Charms zählen auch ohne Materialien über den base_bonus-Pfad.
 	var has_die_bonus := has_materials or not charm_ids.is_empty()

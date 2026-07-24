@@ -2927,9 +2927,17 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	# Zähl-Reihenfolge = physische Anordnung in der Grube beim Klick: die
+	# aufgereihten Würfel zählen genau so, wie der Spieler sie liegen sieht
+	# (aufsteigendes Z = die Reihe, die _line_up_settled_dice legt).
+	var eye_order: Array[int] = []
+	for k in slots.size():
+		eye_order.append(k)
+	eye_order.sort_custom(func(a: int, b: int) -> bool:
+		return dice.bodies[slots[a]].global_position.z < dice.bodies[slots[b]].global_position.z)
 	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
-	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx, eye_order)
 	_remap_breakdown_to_slots(breakdown, slots)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])

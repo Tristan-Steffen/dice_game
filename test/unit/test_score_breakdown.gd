@@ -87,6 +87,22 @@ func test_composite_hands_count_left_to_right():
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([4, 4, 2, 2, 2, 1]))
 	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
 
+func test_eye_order_counts_dice_in_the_given_order():
+	# eye_order legt die Zähl-Reihenfolge fest (physische Grubenanordnung beim
+	# Nehmen) - hier rückwärts. Die Schritte folgen ihr, die Summe bleibt gleich.
+	var dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße: alle sechs beteiligt
+	var order := _d([5, 4, 3, 2, 1, 0])
+	var breakdown := ScoreBreakdown.build(DiceScoring.LARGE_STRAIGHT, dice, [], false,
+		NO_MATS, NO_MATS, {}, {}, order)
+	assert_eq(breakdown["eye_slots"], order, "Würfel zählen in eye_order")
+	var slots: Array[int] = []
+	for step: Dictionary in breakdown["die_steps"]:
+		slots.append(int(step["slot"]))
+	assert_eq(slots, order, "auch die Schritte folgen eye_order")
+	# Umsortieren ist rein kosmetisch: gleiche Summe wie in Slot-Reihenfolge.
+	var default_bd := ScoreBreakdown.build(DiceScoring.LARGE_STRAIGHT, dice)
+	assert_eq(breakdown["total"], default_bd["total"], "Reihenfolge ändert die Summe nicht")
+
 func test_every_category_example_matches():
 	# Jedes Anzeige-Beispiel der Bildschirmliste läuft einmal durch die Zerlegung.
 	for key: String in DiceScoring.HAND_PRIORITY:
