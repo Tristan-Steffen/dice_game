@@ -2274,7 +2274,9 @@ func _update_selection_glows() -> void:
 		var intensity := 0.0
 		if want and dice.roots[i].visible:
 			if full_counter:
-				intensity = 1.0 if combo.has(i) else FULL_COUNTER_GLOW_FAINT
+				# Vollzähler: Kombi-Würfel und vom Spieler ausgewählte hell,
+				# der mitzählende Rest nur schwach.
+				intensity = 1.0 if (combo.has(i) or dice.selected[i]) else FULL_COUNTER_GLOW_FAINT
 			elif dice.selected[i]:
 				intensity = 1.0
 		if intensity > 0.0:
@@ -2965,8 +2967,8 @@ func _on_take_button_pressed() -> void:
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
 	var take_money := report.money
 
-	# Effektkatalog beim Nehmen: Straßenmusiker + Lumpensammler.
-	take_money += CharmEffects.take_income(ids, participating.size())
+	# Lumpensammler beim Nehmen. Straßenmusiker zahlt NICHT hier, sondern pro
+	# ausgelöstem Würfel während der Zähl-Animation (siehe _play_take_animation).
 	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
 	if take_money > 0:
 		run.add_money(take_money)
@@ -3074,6 +3076,14 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	if not await _score_arrival_gap(combo_travel):
 		return
 
+	# Straßenmusiker zahlt PRO ausgelöstem Würfel: je Dock-Position ein $1-Paket,
+	# im Moment des Würfel-Triggers (nicht gebündelt am Ende).
+	var musician_indices: Array[int] = []
+	var cids := run.charm_ids()
+	for j in cids.size():
+		if cids[j] == Charm.STREET_MUSICIAN:
+			musician_indices.append(j)
+
 	# 3) Würfel-Schritte links nach rechts: Augen (Basis), Material (Basis/Mult)
 	# und die Pro-Würfel-Charms DIESES Würfels - sie feuern mit ihm, nicht in
 	# der Charm-Phase. Alles strömt - die Zahlen springen bei Ankunft.
@@ -3082,6 +3092,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		_flash_scoring_die(slot)
 		if glow_by_slot.has(slot):
 			_pulse_glow(glow_by_slot[slot])
+		_pay_street_musician(musician_indices)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		# Zuwachs-Zahlen steigen aus dem Podest unter dem Würfel auf.
 		var gain_px := die_px
@@ -3205,6 +3216,14 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# an jeder Überladungs-Schwelle hält beides kurz inne (magnitude-abhängig).
 	await _drain_total_to_goal(displayed_points, new_total)
 	_cleanup_take_animation()
+
+## Straßenmusiker: je besessenem Exemplar ein $1-Chip-Paket vom Dock-Pad zur
+## Bank, gebucht bei Ankunft (Phase SCORING trägt die Zähl-Animation). Feuert
+## einmal pro ausgelöstem Würfel - der stetige Zufluss folgt dem Zählen.
+func _pay_street_musician(musician_indices: Array[int]) -> void:
+	for j in musician_indices:
+		_flash_charm_and_pad(j)
+		_fire_charm_money_packet(_charm_trail_source_px([j]), 1, Phase.SCORING)
 
 ## Retrigger-Animation eines Würfels: jede Auslösung (Quecksilber, Retrigger-
 ## Charms, Echo-Kammer) ein eigener Puls mit eigener Ankunftspause - so sieht man
