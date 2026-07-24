@@ -69,6 +69,9 @@ var _ceremony := false
 var _held_id := ""
 ## Welche Plätze die Station gerade zulässt (leer = alle besessenen).
 var _enabled_ids: Array[String] = []
+## Während der Runde gesperrt: die Plätze sind unbenutzbar (kein Aufnehmen),
+## bleiben aber überfahrbar (die Beschreibung erscheint weiter).
+var _locked := false
 
 var _grid: GridContainer
 
@@ -116,10 +119,12 @@ func set_ceremony(active: bool) -> void:
 	restyle()
 
 ## Welches Werkzeug in der Hand liegt und welche Plätze nutzbar sind; stylt nur
-## um - der Aufbau ist teuer und bleibt stehen.
-func set_state(held_id: String, enabled_ids: Array[String]) -> void:
+## um - der Aufbau ist teuer und bleibt stehen. locked = während der Runde:
+## alle Plätze unbenutzbar (aber weiter überfahrbar).
+func set_state(held_id: String, enabled_ids: Array[String], locked := false) -> void:
 	_held_id = held_id
 	_enabled_ids = enabled_ids
+	_locked = locked
 	restyle()
 
 func rebuild() -> void:
@@ -219,7 +224,7 @@ func restyle() -> void:
 			continue
 		var id: String = entry["id"]
 		var owned: bool = int(entry["count"]) > 0
-		var usable := _ceremony and owned \
+		var usable := _ceremony and not _locked and owned \
 			and (_enabled_ids.is_empty() or _enabled_ids.has(id))
 		chip.disabled = not usable
 		# Auch im Lager fangen die Kacheln die Maus - fürs Überfahren (Beschreibung

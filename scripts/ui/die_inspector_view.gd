@@ -90,6 +90,11 @@ var first_face: int = -1
 ## Vorschau aktiv (Chip-Texte zeigen das Ergebnis, noch nicht angewandt).
 var preview_active: bool = false
 
+## Während der Runde gesperrt: der Würfel ist einsehbar, aber keine Gravur lässt
+## sich aufnehmen/anwenden (setzt scene_root über set_editing_locked).
+var editing_locked: bool = false
+const ROUND_RUNNING_PROMPT := "Die Runde läuft – Würfel lassen sich nicht bearbeiten."
+
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
 
@@ -334,7 +339,18 @@ func _engraving_counts() -> Dictionary:
 func _sync_drawers() -> void:
 	for drawer in drawers:
 		if is_instance_valid(drawer):
-			drawer.set_state(held_id, [] as Array[String])
+			drawer.set_state(held_id, [] as Array[String], editing_locked)
+
+## Sperrt/entsperrt das Bearbeiten (Runde läuft): der Würfel bleibt einsehbar,
+## die Gravuren werden unbenutzbar und die Info-Leiste meldet die Sperre.
+func set_editing_locked(locked: bool) -> void:
+	if editing_locked == locked:
+		return
+	editing_locked = locked
+	if locked and held_id != "":
+		_put_down_tool()  # ein gehaltenes Werkzeug fällt ab
+	_sync_drawers()
+	_update_prompt()
 
 ## Verdrahtet die externe Hinweiszeile (Label der Info-Leiste).
 func set_prompt_label(label: RichTextLabel) -> void:
@@ -473,7 +489,7 @@ func _targeting_of(engraving_id: String) -> String:
 
 ## Bord-Klick: dieselbe Gravur legt ab, sonst nimmt sie (neue) auf.
 func _on_engraving_pressed(engraving_id: String) -> void:
-	if current_def == null:
+	if current_def == null or editing_locked:
 		return
 	if held_id == engraving_id:
 		_put_down_tool()
@@ -863,6 +879,9 @@ func _restore_face_chips() -> void:
 			chip.add_theme_color_override(st, col)
 
 func _update_prompt() -> void:
+	if editing_locked:
+		_set_prompt(ROUND_RUNNING_PROMPT)  # überfahren einer Gravur zeigt kurz deren Text
+		return
 	if held_id != "":
 		_set_prompt(_held_prompt())
 		return

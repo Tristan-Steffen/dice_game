@@ -1367,9 +1367,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				die_inspector.close()  # closed -> _end_engraving_ceremony
 			return
-		if _pit_locked() and camera_rig.mode == CameraRig.Mode.PIT:
-			hand_label.text = "Die Runde läuft – die Grube wird erst am Rundenende frei."
-			return
+		# Die Grube ist während der Runde frei begehbar - der Spieler darf sich
+		# umsehen; nur das Bearbeiten der Würfel bleibt bis zum Laden gesperrt.
 		camera_rig.zoom_out()
 		return
 
@@ -1461,6 +1460,9 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 ## Öffnet die Zeremonie ODER wechselt das Ziel. def ist die echte
 ## Pool-Instanz; ohne Hub öffnet nur das Panel als Fenster-UI.
 func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
+	# Der Würfel ist immer einsehbar; während der Runde bleiben nur die Gravuren
+	# gesperrt (bearbeiten erst im Laden).
+	die_inspector.set_editing_locked(_round_in_progress())
 	if table_screen == null or table_screen.workshop_window == null:
 		die_inspector.show_die(def)
 		return
@@ -2081,11 +2083,6 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		return
 
 	var collider: Object = result.collider
-	# Bei verriegelter Grube führt jede Zone nur zurück in die Grube.
-	if _pit_locked():
-		camera_rig.zoom_to(CameraRig.Mode.PIT)
-		return
-
 	if collider == pit_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.PIT)
 	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
@@ -2168,13 +2165,31 @@ func _sync_screen_action_buttons() -> void:
 		return
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
 	table_screen.take_action_button.disabled = not interactable or _hand_slots().is_empty()
-	table_screen.roll_action_button.disabled = not (phase == Phase.IDLE and _remaining_in_pool() > 0)
+	# Würfeln braucht mindestens einen ungeschützten Würfel - sind alle geschützt,
+	# gibt es nichts neu zu würfeln (dann führt nur "Nehmen" weiter).
+	var can_roll := phase == Phase.IDLE and _remaining_in_pool() > 0 and not _all_in_play_dice_selected()
+	table_screen.roll_action_button.disabled = not can_roll
 	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
 	var stages := run.stages_cleared(hand_total) if run != null else 0
 	var can_bank := phase == Phase.IDLE and stages >= 1
 	table_screen.bank_action_button.visible = can_bank
 	if can_bank:
 		table_screen.bank_action_button.text = "Runde beenden  ⚡×%d" % stages
+
+## Nach dem Wurf: sind ALLE liegenden Würfel geschützt (ausgewählt), gibt es
+## nichts mehr neu zu würfeln. Vor dem ersten Wurf einer Hand greift die Regel
+## nicht (dann steht kein Würfel in der Grube).
+func _all_in_play_dice_selected() -> bool:
+	if not has_rolled_current_hand:
+		return false
+	var any_visible := false
+	for i in dice.count():
+		if not dice.roots[i].visible:
+			continue
+		any_visible = true
+		if not dice.selected[i]:
+			return false
+	return any_visible
 
 ## Zeigt die Auswahl als goldenes Leucht-Podest unter jedem ausgewählten Würfel;
 ## folgt den Würfeln jeden Frame, nur in der Auswahlphase sichtbar. Mit Vollzähler
@@ -2245,13 +2260,10 @@ func _is_playing() -> bool:
 func _can_toggle_selection() -> bool:
 	return phase == Phase.IDLE and has_rolled_current_hand
 
-## Ab dem ersten Wurf einer Runde bleibt der Spieler in der Grube, bis die Runde
-## aufgeht (Auszahlung/Shop/Game Over heben die Sperre wieder auf). Gilt nur für
-## Spieler-Eingaben - die Kamerafahrten der Auszahlung laufen weiter.
-func _pit_locked() -> bool:
-	if not (has_rolled_current_hand or hands_taken_this_round > 0):
-		return false
-	return phase in [Phase.IDLE, Phase.CUP_ANIMATING, Phase.ROLLING, Phase.SCORING]
+## true, solange eine Runde läuft: die Würfel sind dann tabu - Aufwertungen
+## werden nur zwischen den Runden im Laden (Phase.SHOP) angewandt.
+func _round_in_progress() -> bool:
+	return phase != Phase.SHOP
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -3528,6 +3540,7 @@ func _start_new_round() -> void:
 	_cancel_reorder_drag()
 	_cancel_charm_drag()
 	_cancel_lineup()
+	_abort_engraving()  # eine im Laden offene Station leckt nicht in die Runde
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
 	phoenix_used_this_round = false

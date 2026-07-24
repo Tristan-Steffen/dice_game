@@ -71,6 +71,24 @@ func test_unowned_slots_stay_disabled_in_ceremony() -> void:
 	for entry in drawer.slots:
 		assert_true(entry["button"].disabled, "ohne Bestand kein Werkzeug")
 
+func test_locked_ceremony_disables_owned_slots_but_keeps_them_hoverable() -> void:
+	# Während der Runde: der besessene Platz ist gesperrt (kein Aufnehmen),
+	# meldet aber weiter seine Beschreibung beim Überfahren.
+	run.grant_engraving(Engraving.chisel())
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	drawer.set_ceremony(true)
+	drawer.set_state("", [] as Array[String], true)  # gesperrt
+	var owned: Button = null
+	for entry in drawer.slots:
+		if entry["id"] == Engraving.CHISEL:
+			owned = entry["button"]
+	assert_true(owned.disabled, "gesperrt: der besessene Platz fängt keine Klicks")
+	assert_eq(owned.mouse_filter, Control.MOUSE_FILTER_STOP, "aber überfahrbar bleibt er")
+	var seen: Array[String] = []
+	drawer.hovered.connect(func(info: String) -> void: seen.append(info))
+	owned.mouse_entered.emit()
+	assert_eq(seen, [_chisel_info()] as Array[String], "das Überfahren meldet die Beschreibung")
+
 func test_pressing_a_tool_reports_its_id() -> void:
 	run.grant_engraving(Engraving.chisel())
 	var drawer := _drawer(Engraving.CATEGORY_NUMBER)

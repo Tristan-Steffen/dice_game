@@ -33,6 +33,25 @@ func _slot_for(engraving_id: String) -> Button:
 			return entry["button"]
 	return null
 
+func test_locked_editing_refuses_pickup_and_shows_the_round_message() -> void:
+	# Während der Runde: der Würfel bleibt einsehbar, aber keine Gravur lässt sich
+	# aufnehmen, das Bord ist gesperrt und die Info-Leiste meldet die Sperre.
+	var info := RichTextLabel.new()
+	add_child_autofree(info)
+	view.set_prompt_label(info)
+	view.set_editing_locked(true)
+	assert_eq(info.text, DieInspectorView.ROUND_RUNNING_PROMPT, "die Leiste meldet die Sperre")
+	view._on_engraving_pressed(Engraving.CHISEL)
+	assert_eq(view.held_id, "", "gesperrt: kein Werkzeug lässt sich aufnehmen")
+	assert_true(_slot_for(Engraving.CHISEL).disabled, "der besessene Platz ist gesperrt")
+
+func test_unlocking_restores_the_usable_board() -> void:
+	view.set_editing_locked(true)
+	view.set_editing_locked(false)
+	assert_false(_slot_for(Engraving.CHISEL).disabled, "entsperrt ist der Platz wieder nutzbar")
+	view._on_engraving_pressed(Engraving.CHISEL)
+	assert_eq(view.held_id, Engraving.CHISEL, "und die Gravur lässt sich wieder aufnehmen")
+
 func test_pick_up_then_two_clicks_applies_and_consumes() -> void:
 	view._on_engraving_pressed(Engraving.CHISEL)
 	assert_eq(view.held_id, Engraving.CHISEL, "aufgenommen")
