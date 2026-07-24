@@ -1,7 +1,9 @@
 class_name DieNetView
 ## Statischer Bauhelfer des Würfelnetzes: alle 6 Seiten eines Würfels als
 ## aufgeklapptes Kreuz. Zellfarbe = Seiten-Material, Zellrahmen = Kanten-Material
-## (die Rahmen SIND die Kanten), Gold-Rahmen markiert die oben liegende Seite.
+## (Echo der Kante), Gold-Rahmen markiert die oben liegende Seite. In der leeren
+## oberen linken Kreuz-Ecke sitzt der Kanten-Chip (eine getönte Raute) - fester
+## Platz, an dem die Kante lebt; leer bleibt er als schwacher Umriss.
 
 const GAP_FACTOR := 0.1  # Zellabstand relativ zur Zellgröße
 
@@ -14,6 +16,11 @@ const NET_LAYOUT := [
 	[1, 0, 4, 5],
 	[-1, 2, -1, -1],
 ]
+
+## face_at-Sonderwert für den Kanten-Chip (kein Seiten-Index, kleiner als -1).
+const EDGE := -2
+## Kreuz-Ecke des Kanten-Chips (Zeile, Spalte) - leer im NET_LAYOUT.
+const EDGE_CELL := Vector2i(0, 0)
 
 ## Gesamtgröße des Netzes bei Zellgröße cell (4 Spalten × 3 Zeilen + Lücken).
 static func net_size(cell: float) -> Vector2:
@@ -36,7 +43,23 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 			if face_index == up_face:
 				root.add_child(_up_frame(pos, cell))
 			root.add_child(_face_cell(def, face_index, pos, cell))
+	root.add_child(_edge_chip(def, cell))
 	return root
+
+## Face-Index der Zelle unter local (Netz-Lokalkoordinaten, Zellgröße cell);
+## EDGE über der Kanten-Chip-Ecke, -1 in Lücken und außerhalb des Kreuzes.
+static func face_at(local: Vector2, cell: float) -> int:
+	var step := cell * (1.0 + GAP_FACTOR)
+	var col := int(floorf(local.x / step))
+	var row := int(floorf(local.y / step))
+	if row < 0 or row >= NET_LAYOUT.size() or col < 0 or col >= NET_LAYOUT[row].size():
+		return -1
+	# In der Lücke zwischen den Zellen zählt nichts.
+	if local.x - col * step > cell or local.y - row * step > cell:
+		return -1
+	if row == EDGE_CELL.x and col == EDGE_CELL.y:
+		return EDGE
+	return NET_LAYOUT[row][col]
 
 ## Seiten-Zelle im Look der Würfelseiten-Chips (DiceRowView).
 static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
@@ -59,6 +82,28 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	box.set_border_width_all(maxi(2, int(cell * (0.1 if has_edge else 0.04))))
 	box.set_corner_radius_all(int(cell * 0.2))
 	chip.add_theme_stylebox_override("normal", box)
+	return chip
+
+## Kanten-Chip in der leeren oberen linken Kreuz-Ecke: eine auf die Spitze
+## gestellte Raute (der Würfel Kante-von-vorn) in der Kanten-Materialfarbe;
+## ohne Kante nur ein schwacher Umriss - der Platz bleibt, damit der Spieler
+## die Kante immer hier findet.
+static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
+	var d := cell * 0.62
+	var chip := Panel.new()
+	chip.size = Vector2(d, d)
+	chip.pivot_offset = Vector2(d, d) / 2.0
+	chip.rotation = deg_to_rad(45.0)
+	# Auf die Mitte der Ecke EDGE_CELL zentriert (Zeile 0, Spalte 0).
+	chip.position = Vector2(EDGE_CELL.y, EDGE_CELL.x) * cell + Vector2(cell - d, cell - d) / 2.0
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var has_edge := DieMaterial.is_valid_id(def.edge_material)
+	var box := StyleBoxFlat.new()
+	box.bg_color = DieMaterial.tint_for(def.edge_material) if has_edge else Color(1, 1, 1, 0.04)
+	box.border_color = DiceRowView.CHIP_BORDER if has_edge else Color(0.72, 0.76, 0.8, 0.3)
+	box.set_border_width_all(maxi(2, int(cell * 0.08)))
+	box.set_corner_radius_all(maxi(1, int(cell * 0.12)))
+	chip.add_theme_stylebox_override("panel", box)
 	return chip
 
 ## Gold-Rahmen um die oben liegende Seite (liegt HINTER der Zelle).

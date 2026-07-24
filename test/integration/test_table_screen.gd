@@ -77,22 +77,23 @@ func test_pit_info_bar_fuellt_und_leert_das_wuerfelnetz():
 
 func test_pit_actions_flankieren_das_wuerfelnetz():
 	# Nehmen dockt links ans Netz-Feld, Würfeln rechts (feste Knopfhöhe, bündig
-	# mit der Feld-Unterkante), der Bank-Knopf in Feldbreite darunter; die
+	# mit der Feld-Unterkante), der Bank-Knopf über Würfeln; die
 	# Maus-Weiterleitung (pit_actions_hit) trifft NUR die sichtbaren Knöpfe.
 	var bar := Rect2(Vector2(600, 700), Vector2(400, 300))
 	screen.place_pit_actions(bar)
 	var gap := TableScreen.PIT_ACTION_GAP
+	var size := TableScreen.PIT_ACTION_SIZE
 	var take_pos := screen.pit_actions_root.position + screen.take_action_button.position
-	assert_eq(take_pos, Vector2(600 - gap - TableScreen.PIT_ACTION_SIZE.x, 1000 - TableScreen.PIT_ACTION_SIZE.y),
+	assert_eq(take_pos, Vector2(600 - gap - size.x, 1000 - size.y),
 		"Nehmen an der linken unteren Feldecke")
-	assert_eq(screen.take_action_button.custom_minimum_size, TableScreen.PIT_ACTION_SIZE, "Nehmen in fester Knopfgröße")
+	assert_eq(screen.take_action_button.custom_minimum_size, size, "Nehmen in fester Knopfgröße")
 	var take_rect := Rect2(take_pos, screen.take_action_button.size)
 	var roll_pos := screen.pit_actions_root.position + screen.roll_action_button.position
-	assert_eq(roll_pos, Vector2(1000 + gap, 1000 - TableScreen.PIT_ACTION_SIZE.y), "Würfeln an der rechten unteren Feldecke")
+	assert_eq(roll_pos, Vector2(1000 + gap, 1000 - size.y), "Würfeln an der rechten unteren Feldecke")
 	var roll_rect := Rect2(roll_pos, screen.roll_action_button.size)
-	var bank_rect := Rect2(screen.pit_actions_root.position + screen.bank_action_button.position, screen.bank_action_button.size)
-	assert_eq(bank_rect.position, Vector2(600, 1000 + gap), "Bank in Feldbreite darunter")
-	assert_eq(bank_rect.size.x, 400.0)
+	var bank_pos := screen.pit_actions_root.position + screen.bank_action_button.position
+	assert_eq(bank_pos, roll_pos - Vector2(0.0, gap + size.y), "Bank über Würfeln")
+	var bank_rect := Rect2(bank_pos, screen.bank_action_button.size)
 	assert_true(screen.pit_actions_hit(take_rect.get_center()))
 	assert_true(screen.pit_actions_hit(roll_rect.get_center()))
 	assert_false(screen.pit_actions_hit(bar.get_center()), "Feld-Mitte gehört dem Netz, nicht den Knöpfen")

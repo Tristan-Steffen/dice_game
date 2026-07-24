@@ -47,17 +47,44 @@ func test_gold_rahmen_markiert_oben_liegende_seite() -> void:
 	var def := _def_with_materials()
 	var net := DieNetView.build(def, 3, 40.0)
 	add_child_autofree(net)
-	var frames := []
-	for child in net.get_children():
-		if child is Panel:
-			frames.append(child)
-	assert_eq(frames.size(), 1, "genau ein Oben-Rahmen")
-	# Ohne up_face kein Rahmen.
+	assert_eq(_up_frames(net).size(), 1, "genau ein Oben-Rahmen")
+	# Ohne up_face kein Rahmen (der gedrehte Kanten-Chip zählt nicht).
 	var bare := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(bare)
-	var bare_frames := 0
-	for child in bare.get_children():
-		if child is Panel:
-			bare_frames += 1
-	assert_eq(bare_frames, 0, "kein Rahmen ohne up_face")
+	assert_eq(_up_frames(bare).size(), 0, "kein Rahmen ohne up_face")
+
+## Oben-Rahmen = ungedrehte Panels (der Kanten-Chip ist um 45° gedreht).
+func _up_frames(net: Control) -> Array:
+	var frames := []
+	for child in net.get_children():
+		if child is Panel and is_equal_approx(child.rotation, 0.0):
+			frames.append(child)
+	return frames
+
+func test_face_at_findet_zellen_kanten_chip_und_luecken() -> void:
+	var cell := 40.0
+	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
+	# Zellmitten: (Spalte 1, Zeile 0) = OBEN = Face 3; Mittelzeile 0..3 = 1,0,4,5.
+	assert_eq(DieNetView.face_at(Vector2(step + cell / 2.0, cell / 2.0), cell), 3)
+	assert_eq(DieNetView.face_at(Vector2(cell / 2.0, step + cell / 2.0), cell), 1)
+	assert_eq(DieNetView.face_at(Vector2(3.0 * step + cell / 2.0, step + cell / 2.0), cell), 5)
+	# Obere linke Kreuz-Ecke = Kanten-Chip.
+	assert_eq(DieNetView.face_at(Vector2(cell / 2.0, cell / 2.0), cell), DieNetView.EDGE)
+	# Andere leere Kreuz-Ecke, Lücke zwischen Zellen, außerhalb.
+	assert_eq(DieNetView.face_at(Vector2(2.0 * step + cell / 2.0, cell / 2.0), cell), -1)
+	assert_eq(DieNetView.face_at(Vector2(cell + cell * 0.05, step + cell / 2.0), cell), -1)
+	assert_eq(DieNetView.face_at(Vector2(-5.0, 10.0), cell), -1)
+
+func test_kanten_chip_traegt_die_kanten_materialfarbe() -> void:
+	var def := _def_with_materials()  # edge_material = Gold
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	# Der Kanten-Chip ist eine gedrehte Panel-Raute (kein Face-Cell-Label).
+	var chip: Panel = null
+	for child in net.get_children():
+		if child is Panel and not is_equal_approx(child.rotation, 0.0):
+			chip = child
+	assert_not_null(chip, "Kanten-Chip als gedrehte Raute vorhanden")
+	var box: StyleBoxFlat = chip.get_theme_stylebox("panel")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.GOLD), "Chip in Kanten-Materialfarbe")
 

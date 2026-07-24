@@ -142,9 +142,20 @@ var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurü
 ## Ständiges Würfelnetz-Feld der Grube, mittig über der langen Grubenachse;
 ## die Aktions-Knöpfe docken links/rechts an, der Bank-Knopf darunter
 ## (place_pit_actions leitet alles aus diesem Rechteck ab).
-const PIT_INFO_BAR_INSET_X := 3.8  # Feldmitte unter der Würfelreihe (Welt -X)
-const PIT_INFO_BAR_HALF_X := 2.1   # halbe Feldhöhe (Welt-X)
-const PIT_INFO_BAR_HALF_Z := 2.7   # halbe Feldbreite (Welt-Z)
+const PIT_INFO_BAR_INSET_X := 3.6  # Feldmitte unter der Würfelreihe (Welt -X)
+const PIT_INFO_BAR_HALF_X := 2.0   # halbe Feldhöhe (Welt-X); klarer Abstand zur Grubenwand
+const PIT_INFO_BAR_HALF_Z := 2.4   # halbe Feldbreite (Welt-Z)
+## Einzeilige Material-Erklärleiste IM Gruben-Screen, zwischen Netz-Feld und
+## Grubenwand (breit, kein Umbruch).
+const PIT_HINT_INSET_X := 6.6  # Leistenmitte, zwischen Feld-Unterkante (-5.6) und Grubenwand (-7.6)
+const PIT_HINT_HALF_X := 0.5   # halbe Leistenhöhe (Welt-X)
+const PIT_HINT_HALF_Z := 9.0   # halbe Leistenbreite (Welt-Z) - viel Platz für eine Zeile
+## Nachlauf des Netzes, nachdem die Maus den Würfel verlassen hat - die Zeit,
+## um mit dem Cursor ins Netz-Feld zu fahren, ohne dass es sich leert.
+const NET_LINGER_TIME := 0.7
+## Danach blendet das Netz über diese Zeit aus (statt hart zu verschwinden);
+## fährt die Maus während des Ausblendens ins Feld, kehrt es voll zurück.
+const NET_FADE_TIME := 0.3
 
 ## Geld-Lichtanimation: Gutschriften schicken goldenes Licht Hub -> Chips,
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
@@ -319,6 +330,12 @@ var betting_open: bool = false
 var gameplay_ui_state_visible: bool = true  # false während Shop/GameOver
 var is_pit_focused: bool = false
 
+## Zuletzt im Würfelnetz gezeigter Würfel + Rest-Nachlauf (NET_LINGER_TIME) und
+## Rest-Ausblendzeit (NET_FADE_TIME, läuft erst nach dem Nachlauf).
+var _net_die_def: DieDefinition
+var _net_linger := 0.0
+var _net_fade := 0.0
+
 var lineup_tween: Tween
 
 ## Goldlichter der laufenden Zähl-Animation (siehe _cleanup_take_animation).
@@ -468,8 +485,7 @@ func _setup_table_screen() -> void:
 	table_screen.place_pit_window(
 		Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b),
 		DicePit.CORNER_RADIUS * ppw)
-	# Hover-Erklärband unter der Würfelreihe (zwei Weltecken, robust gegen
-	# Achsen-Skalierung wie beim Gruben-Fenster).
+	# Kompaktes Würfelnetz-Feld unter der Würfelreihe (mit Abstand zur Grubenwand).
 	var pit_info_cx := DicePit.PIT_CENTER.x - PIT_INFO_BAR_INSET_X
 	var pit_info_a := table_screen.world_to_pixel(Vector3(
 		pit_info_cx + PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_INFO_BAR_HALF_Z))
@@ -479,6 +495,14 @@ func _setup_table_screen() -> void:
 	table_screen.place_pit_info_bar(pit_info_rect)
 	# Aktions-Knöpfe flankieren das Netz-Feld, der Bank-Knopf hängt darunter.
 	table_screen.place_pit_actions(pit_info_rect)
+	# Einzeilige Material-Erklärleiste im Gruben-Screen, zwischen Netz-Feld und
+	# Grubenwand (breit).
+	var hint_cx := DicePit.PIT_CENTER.x - PIT_HINT_INSET_X
+	var hint_a := table_screen.world_to_pixel(Vector3(
+		hint_cx + PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_HINT_HALF_Z))
+	var hint_b := table_screen.world_to_pixel(Vector3(
+		hint_cx - PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_HINT_HALF_Z))
+	table_screen.place_pit_net_hint(Rect2(hint_a, Vector2.ZERO).expand(hint_b))
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
@@ -2170,29 +2194,74 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 	elif collider == chips_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_charm_hover()
-	_update_pit_hover()
+	_update_pit_hover(delta)
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 
 ## Würfelnetz-Feld der Grube: zeigt den Würfel unter der Maus - ruhende
 ## Grubenwürfel (mit Gold-Rahmen auf der oben liegenden Seite) und die
 ## nächsten Würfel der Warteschlange (ohne Lage, die liegen ja noch nicht).
-func _update_pit_hover() -> void:
+## Verlässt die Maus den Würfel, steht das Netz noch NET_LINGER_TIME - genug,
+## um in das Feld zu fahren; dort hält es, und Zellen erklären ihr Material.
+func _update_pit_hover(delta: float) -> void:
 	if table_screen == null:
 		return
 	if is_pit_focused and phase == Phase.IDLE and not camera_rig.is_animating:
 		var mouse := get_viewport().get_mouse_position()
 		var index := _hovered_die_index(mouse)
 		if index >= 0:
-			table_screen.set_pit_die(dice.slot_defs[index], dice.face_indices[index])
+			_show_pit_net(dice.slot_defs[index], dice.face_indices[index])
 			return
 		var queue_index := _hovered_queue_index(mouse)
 		if queue_index >= 0:
-			table_screen.set_pit_die(queue_tray_view.slot_defs[queue_index], -1)
+			_show_pit_net(queue_tray_view.slot_defs[queue_index], -1)
 			return
+		if _net_die_def != null:
+			var pixel := _screen_pixel(mouse)
+			if table_screen.pit_info_bar.get_rect().has_point(pixel):
+				# Maus im Feld: voll zurück in den Fokus (Ausblenden abbrechen),
+				# Zelle unterm Cursor erklären.
+				_net_linger = NET_LINGER_TIME
+				_net_fade = NET_FADE_TIME
+				table_screen.set_pit_net_alpha(1.0)
+				table_screen.set_pit_net_hint(_net_face_hint(pixel))
+				return
+			table_screen.set_pit_net_hint("")
+			if _net_linger > 0.0:
+				_net_linger -= delta
+				return
+			# Nachlauf vorbei: über NET_FADE_TIME ausblenden.
+			_net_fade -= delta
+			if _net_fade > 0.0:
+				table_screen.set_pit_net_alpha(_net_fade / NET_FADE_TIME)
+				return
+	_net_die_def = null
 	table_screen.clear_pit_die()
+	table_screen.set_pit_net_hint("")
+
+## Zeigt def im Netz-Feld, voll deckend, und spannt Nachlauf + Ausblenden neu auf.
+func _show_pit_net(def: DieDefinition, up_face: int) -> void:
+	_net_die_def = def
+	_net_linger = NET_LINGER_TIME
+	_net_fade = NET_FADE_TIME
+	table_screen.set_pit_die(def, up_face)
+	table_screen.set_pit_net_alpha(1.0)
+	table_screen.set_pit_net_hint("")
+
+## Kurz-Erklärzeile zur Netz-Zelle unter pixel: nur Materialname + Kurzwirkung
+## (face_hint/edge_hint). EDGE-Chip erklärt das Kanten-Material, sonst die Seite
+## unter dem Cursor; "" ohne Material oder außerhalb der Zellen.
+func _net_face_hint(pixel: Vector2) -> String:
+	if _net_die_def == null:
+		return ""
+	var face := table_screen.pit_net_face_at(pixel)
+	if face == DieNetView.EDGE:
+		return DieMaterial.edge_hint(_net_die_def.edge_material)
+	if face < 0 or face >= _net_die_def.materials.size():
+		return ""
+	return DieMaterial.face_hint(_net_die_def.materials[face])
 
 ## Slot des ruhenden, sichtbaren Grubenwürfels unter screen_pos, sonst -1.
 func _hovered_die_index(screen_pos: Vector2) -> int:
@@ -2234,7 +2303,7 @@ func _sync_screen_action_buttons() -> void:
 	var can_bank := phase == Phase.IDLE and stages >= 1
 	table_screen.bank_action_button.visible = can_bank
 	if can_bank:
-		table_screen.bank_action_button.text = "Runde beenden  ⚡×%d" % stages
+		table_screen.bank_action_button.text = "Beenden ⚡×%d" % stages
 
 ## Nach dem Wurf: sind ALLE liegenden Würfel geschützt (ausgewählt), gibt es
 ## nichts mehr neu zu würfeln. Vor dem ersten Wurf einer Hand greift die Regel

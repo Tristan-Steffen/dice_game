@@ -157,6 +157,9 @@ var supply_info_label: RichTextLabel
 ## Hover (set_pit_die/clear_pit_die), sichtbar mit den Aktions-Knöpfen.
 var pit_info_bar: Panel
 var pit_net_holder: Control
+## Material-Erklärzeile unter dem Netz-Feld: erscheint, wenn die Maus IM Feld
+## eine Netz-Zelle mit Material überfährt (set_pit_net_hint).
+var pit_net_hint: Label
 ## Netz-Neubau nur bei Würfel-/Lagewechsel - der Hover ruft jeden Frame.
 var _pit_net_def: DieDefinition
 var _pit_net_face := -2
@@ -494,6 +497,19 @@ func _build_content() -> void:
 	pit_net_holder.name = "NetHolder"
 	pit_net_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pit_info_bar.add_child(pit_net_holder)
+	# Material-Erklärung als eigene, EINZEILIGE Leiste UNTER der Grube (nicht im
+	# Netz-Feld) - darf breit sein, damit sie nie umbricht.
+	pit_net_hint = Label.new()
+	pit_net_hint.name = "NetHint"
+	pit_net_hint.visible = false
+	pit_net_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_net_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pit_net_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pit_net_hint.autowrap_mode = TextServer.AUTOWRAP_OFF
+	pit_net_hint.modulate = Color(1.35, 1.35, 1.3)
+	pit_net_hint.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
+	pit_net_hint.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
+	add_child(pit_net_hint)
 
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
@@ -2077,10 +2093,10 @@ func _build_pit_actions() -> void:
 	roll_action_button = _make_pit_button("Würfeln", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK)
 	pit_actions_root.add_child(roll_action_button)
 
-	# Bank-Knopf: mittig zwischen den Eck-Knöpfen, erscheint erst ab Stufe 1.
-	bank_action_button = _make_pit_button("Runde beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
-	bank_action_button.size = Vector2(PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP, PIT_ACTION_SIZE.y)
-	bank_action_button.custom_minimum_size = bank_action_button.size
+	# Bank-Knopf: über Würfeln im rechten Flügel, erscheint erst ab Stufe 1;
+	# kleinere Schrift, damit "Beenden ⚡×N" in die Knopfbreite passt.
+	bank_action_button = _make_pit_button("Beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
+	bank_action_button.add_theme_font_size_override("font_size", 9 * SUPERSAMPLE)
 	bank_action_button.visible = false
 	pit_actions_root.add_child(bank_action_button)
 
@@ -2120,26 +2136,25 @@ func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
 
 ## Passt die Aktions-Knöpfe an das Würfelnetz-Feld an: Nehmen links daneben,
 ## Würfeln rechts daneben - beide in fester Knopfhöhe, bündig mit der
-## Feld-Unterkante -, der Bank-Knopf in Feldbreite mittig darunter.
+## Feld-Unterkante -, der Bank-Knopf über Würfeln (unter dem Feld ist bis
+## zur Grubenwand kein Platz mehr).
 func place_pit_actions(bar_rect: Rect2) -> void:
 	if pit_actions_root == null:
 		return
-	for button: Button in [take_action_button, roll_action_button]:
+	for button: Button in [take_action_button, roll_action_button, bank_action_button]:
 		button.custom_minimum_size = PIT_ACTION_SIZE
 		button.size = PIT_ACTION_SIZE
-	bank_action_button.custom_minimum_size = Vector2(bar_rect.size.x, PIT_ACTION_SIZE.y)
-	bank_action_button.size = bank_action_button.custom_minimum_size
 	pit_actions_root.position = bar_rect.position - Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.size = Vector2(
 		bar_rect.size.x + 2.0 * (PIT_ACTION_SIZE.x + PIT_ACTION_GAP),
-		bar_rect.size.y + PIT_ACTION_GAP + bank_action_button.size.y)
+		bar_rect.size.y)
 	# Bündig mit der Feld-Unterkante (Feldhöhe minus Knopfhöhe).
 	var side_y := bar_rect.size.y - PIT_ACTION_SIZE.y
 	take_action_button.position = Vector2(0.0, side_y)
 	roll_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x, side_y)
 	bank_action_button.position = Vector2(
-		(pit_actions_root.size.x - bank_action_button.size.x) / 2.0,
-		bar_rect.size.y + PIT_ACTION_GAP)
+		pit_actions_root.size.x - PIT_ACTION_SIZE.x,
+		side_y - PIT_ACTION_GAP - PIT_ACTION_SIZE.y)
 
 ## Trifft pixel einen sichtbaren Aktions-Knopf? Die Wurzel spannt die ganze
 ## Grubenbreite - für die Maus-Weiterleitung zählen nur die Knöpfe selbst,
@@ -2152,17 +2167,29 @@ func pit_actions_hit(pixel: Vector2) -> bool:
 			return true
 	return false
 
-## Spannt das Würfelnetz-Hover-Feld über rect auf (unter den Grubenwürfeln);
-## die Zellgröße folgt der Feldhöhe, das Netz sitzt mittig.
+## Spannt das kompakte Würfelnetz-Feld über rect auf (mit Abstand zur
+## Grubenwand): das Netz sitzt mittig, Zellgröße füllt das Feld.
 func place_pit_info_bar(rect: Rect2) -> void:
 	if pit_info_bar == null:
 		return
 	pit_info_bar.position = rect.position
 	pit_info_bar.size = rect.size
-	var pad := rect.size.y * 0.12
-	_pit_net_cell = (rect.size.y - pad * 2.0) / (3.0 + 2.0 * DieNetView.GAP_FACTOR)
+	var pad := rect.size.y * 0.1
+	# Zellgröße füllt das Feld (kleinere der beiden Achsen bestimmt, Netz ist 4:3).
+	var cell_w := (rect.size.x - pad * 2.0) / (4.0 + 3.0 * DieNetView.GAP_FACTOR)
+	var cell_h := (rect.size.y - pad * 2.0) / (3.0 + 2.0 * DieNetView.GAP_FACTOR)
+	_pit_net_cell = minf(cell_w, cell_h)
 	pit_net_holder.size = DieNetView.net_size(_pit_net_cell)
 	pit_net_holder.position = (rect.size - pit_net_holder.size) / 2.0
+
+## Spannt die einzeilige Material-Erklärleiste UNTER der Grube auf (breit, damit
+## der Text nie umbricht); zentriert auf rect.
+func place_pit_net_hint(rect: Rect2) -> void:
+	if pit_net_hint == null:
+		return
+	pit_net_hint.position = rect.position
+	pit_net_hint.size = rect.size
+	pit_net_hint.add_theme_font_size_override("font_size", maxi(10, int(rect.size.y * 0.55)))
 
 ## Zeigt das Würfelnetz des überfahrenen Würfels; up_face (-1 = keiner)
 ## bekommt den Gold-Rahmen. Die Hover-Logik in scene_root ruft das jeden Frame.
@@ -2183,6 +2210,31 @@ func clear_pit_die() -> void:
 	_pit_net_def = null
 	_pit_net_face = -2
 	_clear_pit_net()
+	if pit_net_holder != null:
+		pit_net_holder.modulate.a = 1.0
+
+## Deckkraft des Netz-Inhalts (0 = unsichtbar, 1 = voll) - fürs Ausblenden.
+func set_pit_net_alpha(a: float) -> void:
+	if pit_net_holder != null:
+		pit_net_holder.modulate.a = a
+
+## Zeigt der Würfel im Netz-Feld gerade ein Netz?
+func has_pit_die() -> bool:
+	return _pit_net_def != null
+
+## Face-Index der Netz-Zelle unter dem Display-Pixel (-1 = keine Zelle/leer).
+func pit_net_face_at(pixel: Vector2) -> int:
+	if _pit_net_def == null:
+		return -1
+	var local := pixel - pit_info_bar.position - pit_net_holder.position
+	return DieNetView.face_at(local, _pit_net_cell)
+
+## Setzt die Material-Erklärzeile unter dem Netz-Feld ("" = ausblenden).
+func set_pit_net_hint(text: String) -> void:
+	if pit_net_hint == null:
+		return
+	pit_net_hint.text = text
+	pit_net_hint.visible = text != ""
 
 func _clear_pit_net() -> void:
 	for child in pit_net_holder.get_children():
