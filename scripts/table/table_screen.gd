@@ -89,6 +89,16 @@ const PIT_ACTION_FONT := 14 * SUPERSAMPLE
 const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb
 const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)
 const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)
+## Fumble-Zeremonie: heißes Rot (bloomt) für das Neon-Wort und die EINE
+## Stoßwelle, die aus der Grubenmitte über den ganzen Tisch läuft.
+const FUMBLE_COLOR := Color(2.4, 0.16, 0.18, 0.95)
+const FUMBLE_WORD := "FUMBLE"
+const FUMBLE_WORD_FONT := 92 * SUPERSAMPLE
+const FUMBLE_HOLD := 0.28
+const FUMBLE_FADE := 0.45
+## Gemächlich: die Welle braucht spürbar Zeit bis zur entferntesten Ecke.
+const FUMBLE_WAVE_TIME := 2.0
+const FUMBLE_WAVE_WIDTH := 55.0 * SUPERSAMPLE
 ## Punkt-Puls-Farbe je Punktart - dieselbe Sprache wie Kometen und Zuwachs-Zahlen.
 const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR, "crit": CRIT_COLOR}
 const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE
@@ -112,6 +122,9 @@ var pit_window: Panel
 ## Rundenpuls: Wellen-Overlay im Gruben-Fenster (siehe pit_waves.gdshader).
 var pit_waves: ColorRect
 var _pit_waves_tween: Tween
+## Fumble-Welle: Vollbild-Overlay ÜBER allen Fenstern (fumble_wave.gdshader).
+var fumble_wave: ColorRect
+var _fumble_wave_tween: Tween
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -485,6 +498,21 @@ func _build_content() -> void:
 
 	_build_pit_actions()
 
+	# Fumble-Welle: als LETZTES gebaut, damit sie über jedem Fenster liegt;
+	# still (progress 1), bis pit_fumble sie aus der Grubenmitte losschickt.
+	fumble_wave = ColorRect.new()
+	fumble_wave.name = "FumbleWave"
+	fumble_wave.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fumble_wave.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var fumble_material := ShaderMaterial.new()
+	fumble_material.shader = preload("res://assets/shaders/fumble_wave.gdshader")
+	fumble_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
+	fumble_material.set_shader_parameter("progress", 1.0)
+	fumble_material.set_shader_parameter("width", FUMBLE_WAVE_WIDTH)
+	fumble_material.set_shader_parameter("color", FUMBLE_COLOR)
+	fumble_wave.material = fumble_material
+	add_child(fumble_wave)
+
 ## DER Fenster-Stil des Tisch-Displays: dunkler, leicht durchscheinender Grund
 ## + Neon-Rahmen - jedes "Fenster" trägt diesen einen Look.
 static func window_style() -> StyleBoxFlat:
@@ -558,6 +586,87 @@ func set_round_pulse(active: bool) -> void:
 	_pit_waves_tween = create_tween()
 	_pit_waves_tween.tween_property(waves_material,
 		"shader_parameter/intensity", 1.0 if active else 0.0, PIT_WAVES_FADE)
+
+## Fumble-Zeremonie: die verlorene Hand wird sichtbar quittiert - rotes
+## Neon-"FUMBLE" quer über die Grube, ein kurzes Zucken des Rundenpulses und
+## EINE rote Stoßwelle aus der Grubenmitte über den GANZEN Tisch, bis sie
+## jedes Fenster passiert hat.
+func pit_fumble() -> void:
+	if pit_window == null or not pit_window.visible:
+		return
+	var center := pit_window.position + pit_window.size * 0.5
+	_fire_fumble_wave(center)
+	_stutter_round_pulse()
+	_spawn_fumble_word()
+
+## Treibt die Vollbild-Welle: der Ring startet in center und wächst, bis er die
+## entfernteste Bildschirm-Ecke passiert hat (gemächlich, sanft auslaufend).
+func _fire_fumble_wave(center: Vector2) -> void:
+	if fumble_wave == null:
+		return
+	var mat: ShaderMaterial = fumble_wave.material
+	var far := 0.0
+	for corner in [Vector2.ZERO, Vector2(size.x, 0.0), Vector2(size), Vector2(0.0, size.y)]:
+		far = maxf(far, center.distance_to(corner))
+	mat.set_shader_parameter("center", center)
+	mat.set_shader_parameter("max_radius", far + FUMBLE_WAVE_WIDTH * 3.0)
+	fumble_wave.move_to_front()  # auch über später gebauten Fenstern
+	if _fumble_wave_tween != null and _fumble_wave_tween.is_valid():
+		_fumble_wave_tween.kill()
+	_fumble_wave_tween = create_tween()
+	_fumble_wave_tween.tween_property(mat, "shader_parameter/progress", 1.0, FUMBLE_WAVE_TIME) \
+		.from(0.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+## Kurzes Zucken: der Rundenpuls sackt weg und kommt zurück (die Grube
+## "erschrickt"). Nur solange die Runde läuft; endet sie, überschreibt der
+## folgende set_round_pulse(false) das Zucken ohnehin.
+func _stutter_round_pulse() -> void:
+	if pit_waves == null:
+		return
+	var mat: ShaderMaterial = pit_waves.material
+	var cur := 0.0
+	var raw: Variant = mat.get_shader_parameter("intensity")
+	if raw != null:
+		cur = raw
+	if cur <= 0.01:
+		return
+	if _pit_waves_tween != null and _pit_waves_tween.is_valid():
+		_pit_waves_tween.kill()
+	_pit_waves_tween = create_tween()
+	_pit_waves_tween.tween_property(mat, "shader_parameter/intensity", cur * 0.12, 0.08) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_pit_waves_tween.tween_property(mat, "shader_parameter/intensity", cur, FUMBLE_FADE) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+## Rotes Neon-"FUMBLE" quer über die Grube: reingestanzt, Flackern wie eine
+## defekte Leuchtreklame, kurz gehalten, dann ausgeblendet. Skaliert auf die
+## Grube (füllt die Breite, läuft nicht über).
+func _spawn_fumble_word() -> void:
+	var label := Label.new()
+	label.text = FUMBLE_WORD
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var font_size := int(minf(FUMBLE_WORD_FONT, minf(pit_window.size.x / 4.5, pit_window.size.y * 0.55)))
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", FUMBLE_COLOR)
+	label.add_theme_color_override("font_outline_color", Color(0.5, 0.0, 0.02, 0.9))
+	label.add_theme_constant_override("outline_size", 5 * SUPERSAMPLE)
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.pivot_offset = pit_window.size * 0.5
+	pit_window.add_child(label)
+	label.modulate = Color(1, 1, 1, 0)
+	label.scale = Vector2.ONE * 1.25
+	var tween := create_tween()
+	tween.tween_property(label, "scale", Vector2.ONE, 0.09) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(label, "modulate:a", 1.0, 0.06)
+	for a in [0.35, 1.0, 0.6, 1.0]:
+		tween.tween_property(label, "modulate:a", a, 0.045)
+	tween.tween_interval(FUMBLE_HOLD)
+	tween.tween_property(label, "modulate:a", 0.0, FUMBLE_FADE).set_ease(Tween.EASE_IN)
+	tween.parallel().tween_property(label, "scale", Vector2.ONE * 1.08, FUMBLE_FADE)
+	tween.chain().tween_callback(label.queue_free)
 
 ## Spannt das Nebenwetten-Fenster über rect auf (rechts vom Becher).
 func place_side_bet_window(rect: Rect2) -> void:
@@ -731,6 +840,12 @@ func _sync_reflection_windows() -> void:
 	_glass_material.set_shader_parameter("window_count", rects.size())
 	_glass_material.set_shader_parameter("window_rects", rects)
 	_glass_material.set_shader_parameter("window_radius", radii)
+	# Die Fumble-Welle leuchtet NUR auf den Fenstern - gleiche Maske wie das Glas.
+	if fumble_wave != null:
+		var wave_material: ShaderMaterial = fumble_wave.material
+		wave_material.set_shader_parameter("window_count", rects.size())
+		wave_material.set_shader_parameter("window_rects", rects)
+		wave_material.set_shader_parameter("window_radius", radii)
 
 ## Verschiebt den ganzen Kombi-Cluster (Rahmen + Zellen) mittig auf center_px
 ## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.

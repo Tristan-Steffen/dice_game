@@ -111,6 +111,32 @@ func test_pit_impulse_claims_a_lane_and_frees_it():
 	var done: PackedFloat32Array = material.get_shader_parameter("impulse_progress")
 	assert_almost_eq(done[0], 1.0, 0.001, "ausgelaufen: die Bahn ist wieder frei")
 
+func test_fumble_flashes_the_red_word_and_a_table_wide_wave():
+	# Ein echter Farkle quittiert: rotes Neon-"FUMBLE" quer über die Grube und
+	# EINE Stoßwelle aus der Grubenmitte, die bis über die entfernteste
+	# Bildschirm-Ecke hinauswächst (passiert also jedes Fenster).
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	screen.pit_fumble()
+	var word: Label = null
+	for child in screen.pit_window.get_children():
+		if child is Label and child.text == TableScreen.FUMBLE_WORD:
+			word = child
+	assert_not_null(word, "das rote Neon-Wort steht über der Grube")
+	var material: ShaderMaterial = screen.fumble_wave.material
+	assert_eq(material.get_shader_parameter("center"), Vector2(500, 400), "Welle aus der Grubenmitte")
+	var far_corner := Vector2(500, 400).distance_to(Vector2(screen.size))
+	assert_gt(float(material.get_shader_parameter("max_radius")), far_corner,
+		"der Ring wächst über die entfernteste Ecke hinaus")
+	# Nur auf den Fenstern sichtbar: die Welle trägt dieselbe Maske wie das Glas.
+	assert_gt(int(material.get_shader_parameter("window_count")), 0,
+		"die Fenster-Maske ist gespeist")
+	await wait_seconds(TableScreen.FUMBLE_WAVE_TIME * 0.4)
+	assert_between(float(material.get_shader_parameter("progress")), 0.001, 0.999,
+		"mitten im Lauf ist die Welle unterwegs")
+	await wait_seconds(TableScreen.FUMBLE_WAVE_TIME)
+	assert_almost_eq(float(material.get_shader_parameter("progress")), 1.0, 0.001,
+		"ausgelaufen: das Overlay ist wieder still")
+
 func test_pit_info_bar_shares_the_one_window_look():
 	var info_style: StyleBoxFlat = screen.pit_info_bar.get_theme_stylebox("panel")
 	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")

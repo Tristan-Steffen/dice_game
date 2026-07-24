@@ -2765,7 +2765,12 @@ func _on_farkle() -> void:
 		_keep_highest_die_and_continue(ids)
 		return
 
-	hand_note = "Farkle! Keine höhere Punktzahl – die Hand wird ohne Punkte verworfen."
+	# Kein 2D-Text mehr - die Fumble-Zeremonie (rotes Neon + Tisch-Stoßwelle)
+	# quittiert den echten Farkle (verziehene oben raus). Charm-Meldungen
+	# (Standuhr/Phönixfeder) dürfen die Leiste weiter nutzen.
+	hand_note = ""
+	if table_screen != null:
+		table_screen.pit_fumble()
 
 	# Ein verziehener Farkle (oben) zählt bewusst NICHT gegen die "Saubere Runde".
 	round_farkled = true
