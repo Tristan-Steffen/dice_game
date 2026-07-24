@@ -37,9 +37,11 @@ const CATEGORIES := [
 	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60},
 ]
 
-# Prestigeträchtigste zuerst: best_hand() nimmt die erste zutreffende
-# Kategorie - Rang schlägt rohen Punktwert. Spezifischere Häuser (3+3, 4+2)
-# stehen vor Full House/Zwei Paare, die sie sonst mit abdecken würden.
+# Prestigeträchtigste zuerst: best_hand() vergleicht die Punkte aller
+# zutreffenden Kategorien und nimmt bei GLEICHSTAND die ranghöhere. So stehen
+# spezifischere Häuser (3+3, 4+2) vor Full House/Zwei Paare, die sie sonst mit
+# abdecken würden - der reine Punktwert entscheidet nur, wenn er sich (durch
+# Stufen/Charms/Materialien) tatsächlich unterscheidet.
 const HAND_PRIORITY := [
 	SIX_KIND, FIVE_KIND, LARGE_STRAIGHT, FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND,
 	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
@@ -164,22 +166,31 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 		mult *= CharmEffects.charm_crit_at(j, dice, charm_ids, ctx)
 	return [base, mult]
 
-## Beste Hand des Wurfs: erste zutreffende Kategorie nach HAND_PRIORITY.
+## Beste Hand des Wurfs: die zutreffende Kategorie mit den MEISTEN Punkten.
+## Bei Gleichstand gewinnt der höhere Rang (HAND_PRIORITY zuerst) - so bleibt ein
+## 4+2 ein "Viererpasch mit Paar" und kippt nicht in einen gleichwertigen
+## Unterbegriff. Materialien, Charms und Menü-Stufen fließen in den Vergleich
+## ein: sonst könnte eine ranghöhere, aber real punktärmere Kombination gewinnen
+## (das war die Farkle-Falle - ein aufgewertetes Paar galt weniger als eine
+## schwache Straße).
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	dice = CharmEffects.transform_values(dice, charm_ids)
+	var best_key := ONE_KIND
+	var best_score := -1
+	# HAND_PRIORITY zuerst durchlaufen -> bei Gleichstand bleibt der höhere Rang.
 	for key in HAND_PRIORITY:
-		if qualifies(key, dice):
-			return {
-				"key": key,
-				"label": label_for(key),
-				"mult": _total_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx),
-				"score": score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx),
-			}
-	return {"key": ONE_KIND, "label": label_for(ONE_KIND), "mult": _total_mult(ONE_KIND, dice, charm_ids, materials, edge_materials, combo_levels, ctx), "score": score_category(ONE_KIND, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)}
-
-## Positionen in dice, die zur besten Kategorie gehören (Auto-Vorauswahl).
-static func best_hand_indices(dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
-	return participating_indices(best_hand(dice, charm_ids)["key"], dice, charm_ids)
+		if not qualifies(key, dice):
+			continue
+		var s := score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
+		if s > best_score:
+			best_score = s
+			best_key = key
+	return {
+		"key": best_key,
+		"label": label_for(best_key),
+		"mult": _total_mult(best_key, dice, charm_ids, materials, edge_materials, combo_levels, ctx),
+		"score": best_score,
+	}
 
 ## Positionen in dice, die zur Kategorie gehören - nur diese zählen für den
 ## Basiswert, und nur auf ihnen wirken Seiten-Materialien. charm_ids nur bei

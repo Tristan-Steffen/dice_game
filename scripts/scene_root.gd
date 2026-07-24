@@ -3386,7 +3386,13 @@ func _dim_glow(glow: Control) -> void:
 ## Markiert nach jedem Wurf automatisch die Würfel der besten offenen
 ## Kombination - ein Vorschlag, den der Spieler frei umklicken kann.
 func _auto_select_best_combo() -> void:
-	for position in DiceScoring.best_hand_indices(dice.values, run.charm_ids()):
+	var ids := run.charm_ids()
+	# Beste Hand MIT vollem Kontext (Materialien, Kanten, Menü-Stufen, Charms):
+	# die Vorauswahl schlägt die real punktträchtigste Kombination vor, nicht die
+	# bloß ranghöchste.
+	var hand := DiceScoring.best_hand(dice.values, ids, hands_taken_this_round == 0,
+		_rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
+	for position in DiceScoring.participating_indices(hand["key"], dice.values, ids):
 		dice.set_selected(position, true)
 
 ## Slot-Indizes der AUSGEWÄHLTEN, sichtbaren Würfel - NUR sie bilden die Hand

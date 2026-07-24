@@ -245,6 +245,35 @@ func test_equal_points_is_not_strictly_better():
 func test_fewer_points_is_not_better():
 	assert_false(DiceScoring.is_strictly_better(_d([2,2,1,3,4,6]), _d([6,6,1,2,3,5])))
 
+# --- best_hand nimmt die punktträchtigste Kombination, nicht die ranghöchste ---
+
+func test_best_hand_prefers_the_higher_scoring_combo_over_rank():
+	# [6,6,2,3,4,5] ist zugleich Kleine Straße (rang-höher) UND Paar 6er. Mit
+	# Paar-Stufe 4 bringt das Paar (620) mehr als die Straße (168) - best_hand
+	# nimmt das Paar.
+	var dice := _d([6, 6, 2, 3, 4, 5])
+	var no_mats: Array[String] = []
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 4})
+	assert_eq(hand["key"], "two_kind", "das aufgewertete Paar schlägt die schwache Straße")
+	assert_eq(hand["score"], (50 + 12) * 10)
+
+func test_without_boosts_the_higher_rank_still_wins_on_points():
+	# Ohne Aufwertung bringt die Kleine Straße (168) mehr als das Paar (44) -
+	# der Rang deckt sich mit den Punkten, best_hand bleibt bei der Straße.
+	assert_eq(DiceScoring.best_hand(_d([6, 6, 2, 3, 4, 5]))["key"], "small_straight")
+
+func test_reroll_into_a_higher_scoring_hand_is_not_a_farkle():
+	# Regression der Farkle-Falle: der Neuwurf [6,6,2,3,4,5] kann als aufgewertetes
+	# Paar (620) mehr bringen als die alte Große Straße (528) - obwohl seine
+	# RANGhöchste Kombination (Kleine Straße, 168) weniger brächte. Kein Farkle.
+	var levels := {DiceScoring.TWO_KIND: 4}
+	var no_mats: Array[String] = []
+	var new_dice := _d([6, 6, 2, 3, 4, 5])
+	var old_dice := _d([1, 2, 3, 4, 5, 6])
+	assert_true(DiceScoring.is_strictly_better(new_dice, old_dice, _ids([]),
+		no_mats, no_mats, no_mats, no_mats, levels),
+		"die real punktträchtigere Hand zählt - kein Farkle")
+
 # --- Kleine Helfer-APIs ------------------------------------------------------
 
 func test_mult_for_known_and_unknown_keys():
