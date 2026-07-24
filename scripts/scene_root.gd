@@ -578,12 +578,14 @@ func _setup_table_screen() -> void:
 	for drawer in table_screen.supply_drawers:
 		drawer.hovered.connect(_on_supply_hovered)
 
-	# Info-Leiste unter der Schubladen-Reihe: flach und so breit wie die Reihe -
-	# hier landet die Hinweiszeile der Gravur-Station statt im Editor-Panel.
+	# Info-Leiste unter der Schubladen-Reihe: flach und deutlich schmaler als die
+	# Reihe - rechts eingekürzt, damit der Lichtsaum der Tischkante sie nicht
+	# anschneidet. Hier landet die Hinweiszeile der Gravur-Station.
 	var info_rect := Rect2(
 		Vector2(drawer_rects[0].position.x, drawer_top + drawer_height + drawer_gap * 0.5),
-		Vector2(drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x,
-			corner_unit * 6.0))
+		Vector2(drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x
+			- corner_unit * 4.0 - 50.0,
+			corner_unit * 6.0 + 10.0))
 	table_screen.place_supply_info_bar(info_rect, corner_unit)
 
 	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen

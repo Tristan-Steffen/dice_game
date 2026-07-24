@@ -2,8 +2,8 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
 func test_all_returns_etchings_materials_and_edges():
-	# 11 Ätzungen + 6 Material-Gravuren + 6 Kanten-Gravuren (siehe DieMaterial.all).
-	assert_eq(Engraving.all().size(), 23)
+	# 10 Ätzungen + 6 Material-Gravuren + 6 Kanten-Gravuren (siehe DieMaterial.all).
+	assert_eq(Engraving.all().size(), 22)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -42,14 +42,15 @@ func test_factory_id_matches_constant():
 	assert_eq(Engraving.blueprint().id, Engraving.BLUEPRINT)
 
 func test_rarities_match_the_spec():
-	assert_eq(Engraving.chisel().rarity, Engraving.Rarity.COMMON)
-	assert_eq(Engraving.transplant().rarity, Engraving.Rarity.COMMON)
-	assert_eq(Engraving.grindstone().rarity, Engraving.Rarity.COMMON)
-	assert_eq(Engraving.notch().rarity, Engraving.Rarity.RARE)
+	assert_eq(Engraving.notch().rarity, Engraving.Rarity.COMMON)
 	assert_eq(Engraving.file_down().rarity, Engraving.Rarity.COMMON)
-	assert_eq(Engraving.double_notch().rarity, Engraving.Rarity.COMMON)
+	assert_eq(Engraving.grindstone().rarity, Engraving.Rarity.COMMON)
 	assert_eq(Engraving.averaging().rarity, Engraving.Rarity.UNCOMMON)
-	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.RARE)
+	assert_eq(Engraving.polish().rarity, Engraving.Rarity.UNCOMMON)
+	assert_eq(Engraving.sandpaper().rarity, Engraving.Rarity.UNCOMMON)
+	assert_eq(Engraving.chisel().rarity, Engraving.Rarity.RARE)
+	assert_eq(Engraving.punch().rarity, Engraving.Rarity.RARE)
+	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.EPIC)
 
 func test_edge_engravings_use_prefixed_material_ids():
 	# Kanten-Engraving-id = EDGE_PREFIX + Material-id; material_id() löst zurück auf.
@@ -87,6 +88,7 @@ func test_rarity_name_is_german():
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.COMMON), "häufig")
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.UNCOMMON), "ungewöhnlich")
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.RARE), "selten")
+	assert_eq(Engraving.rarity_name(Engraving.Rarity.EPIC), "episch")
 
 # --- Lichtgravur-Ziehung -----------------------------------------------------
 
@@ -105,7 +107,7 @@ func test_roll_draft_respects_rarity_floor():
 			assert_true(engraving.rarity >= Engraving.Rarity.UNCOMMON, "kein häufiges Siegel unter der Grenze")
 
 func test_roll_draft_lowers_floor_when_pool_too_small():
-	# Mehr Siegel verlangt als es seltene gibt (7) -> die Untergrenze fällt,
+	# Mehr Siegel verlangt als es seltene+ gibt (8) -> die Untergrenze fällt,
 	# damit die Auslage voll wird (statt leer zu bleiben).
 	var draft := Engraving.roll_draft(9, Engraving.Rarity.RARE)
 	assert_eq(draft.size(), 9, "Auslage voll trotz knapper seltener Siegel")

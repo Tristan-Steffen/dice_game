@@ -9,13 +9,6 @@ const MIN_FACE_VALUE := 1  # Seiten fallen nie unter 1; nach oben offen (Überza
 static func chisel(die: DieDefinition, source_face: int, dest_face: int) -> void:
 	die.faces[dest_face] = die.faces[source_face]
 
-## Transplantat: hebt die Seite auf den aktuell höchsten Wert des Würfels.
-static func transplant(die: DieDefinition, face: int) -> void:
-	die.faces[face] = die.faces.max()
-
-static func can_transplant(die: DieDefinition, face: int) -> bool:
-	return die.faces[face] < die.faces.max()
-
 ## Schleifstein: −1/+1 auf zwei Seiten - die Augensumme bleibt gleich.
 static func grindstone(die: DieDefinition, minus_face: int, plus_face: int) -> void:
 	die.faces[minus_face] -= 1
@@ -35,10 +28,9 @@ static func file_down(die: DieDefinition, face: int) -> void:
 static func can_file_down(die: DieDefinition, face: int) -> bool:
 	return die.faces[face] > MIN_FACE_VALUE
 
-## Doppelkerbe: +1 auf zwei verschiedene Seiten, ohne Obergrenze.
-static func double_notch(die: DieDefinition, face_a: int, face_b: int) -> void:
-	die.faces[face_a] += 1
-	die.faces[face_b] += 1
+## Stanze: +5 auf eine Seite - die schwere Kerbe.
+static func punch(die: DieDefinition, face: int) -> void:
+	die.faces[face] += 5
 
 ## Mittelung: setzt zwei Seiten auf ihren aufgerundeten Mittelwert.
 static func averaging(die: DieDefinition, face_a: int, face_b: int) -> void:
@@ -46,16 +38,15 @@ static func averaging(die: DieDefinition, face_a: int, face_b: int) -> void:
 	die.faces[face_a] = mean
 	die.faces[face_b] = mean
 
-## Anschluss: Zielseite = Quellseitenwert + 1 (Straßen-Bauer), ohne Obergrenze.
-static func connect_up(die: DieDefinition, source_face: int, target_face: int) -> void:
-	die.faces[target_face] = die.faces[source_face] + 1
-
-## Spiegelung: invertiert alle Seiten über Wert → (Min + Max) − Wert.
-static func mirror_die(die: DieDefinition) -> void:
-	var lo: int = die.faces.min()
-	var hi: int = die.faces.max()
+## Politur: +1 auf alle Seiten.
+static func polish(die: DieDefinition) -> void:
 	for i in die.faces.size():
-		die.faces[i] = (lo + hi) - die.faces[i]
+		die.faces[i] += 1
+
+## Schmirgel: −1 auf alle Seiten (min. 1).
+static func sandpaper(die: DieDefinition) -> void:
+	for i in die.faces.size():
+		die.faces[i] = maxi(MIN_FACE_VALUE, die.faces[i] - 1)
 
 ## Begradigung: +1 auf alle ungeraden Seiten (1–6 → 2,2,4,4,6,6).
 static func straighten(die: DieDefinition) -> void:

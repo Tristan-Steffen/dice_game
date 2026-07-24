@@ -14,6 +14,7 @@ const SEAM_COLORS := {
 	Engraving.Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
 	Engraving.Rarity.UNCOMMON: Color("#8be9fd"),
 	Engraving.Rarity.RARE: Color("#ffd319"),
+	Engraving.Rarity.EPIC: Color("#bd93f9"),
 }
 ## Unbeleuchtete Gravur-Rille (nicht besessen / noch nicht gezündet).
 const CHANNEL_COLOR := Color(0.32, 0.36, 0.46, 0.4)
@@ -46,7 +47,7 @@ static func for_engraving(source: Engraving) -> EngravingRenderer:
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process(rarity == Engraving.Rarity.RARE and owned)
+	set_process(rarity >= Engraving.Rarity.RARE and owned)
 
 func _process(delta: float) -> void:
 	_pulse_time += delta
@@ -74,7 +75,7 @@ func _draw_seam() -> void:
 	if not owned:
 		return
 	var color: Color = SEAM_COLORS[rarity]
-	if rarity == Engraving.Rarity.RARE:
+	if rarity >= Engraving.Rarity.RARE:
 		var breath := 0.75 + 0.25 * sin(_pulse_time * TAU / RARE_PULSE_PERIOD)
 		color.a *= breath
 	var width := maxf(1.0, size.x * 0.022)
@@ -178,13 +179,6 @@ func _strokes_for(id: String) -> Array:
 				_arrow_head(Vector2(0.73, 0.48), Vector2(0.085, 0.115)),
 				_square(Vector2(0.73, 0.66), 0.115),
 			]
-		Engraving.MIRROR:
-			# Achse in der Mitte, gespiegelte Quadrate links/rechts.
-			return [
-				_seg(Vector2(0.5, 0.18), Vector2(0.5, 0.82)),
-				_square(Vector2(0.29, 0.5), 0.125),
-				_square(Vector2(0.71, 0.5), 0.125),
-			]
 		Engraving.GRINDSTONE:
 			# −1 auf eine, +1 auf eine andere Seite.
 			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
@@ -196,30 +190,34 @@ func _strokes_for(id: String) -> Array:
 			var s: Array = [_square(Vector2(0.5, 0.5), 0.17)]
 			s.append_array(_minus(Vector2(0.5, 0.5), 0.08))
 			return s
-		Engraving.DOUBLE_NOTCH:
-			# Zwei Seiten je +1.
-			var s: Array = [_square(Vector2(0.29, 0.5), 0.135), _square(Vector2(0.71, 0.5), 0.135)]
-			s.append_array(_plus(Vector2(0.29, 0.5), 0.06))
-			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
+		Engraving.POLISH:
+			# Alle Seiten +1: drei Seiten in Reihe, jede mit Plus.
+			var s: Array = [_square(Vector2(0.22, 0.5), 0.105), _square(Vector2(0.5, 0.5), 0.105),
+				_square(Vector2(0.78, 0.5), 0.105)]
+			for x in [0.22, 0.5, 0.78]:
+				s.append_array(_plus(Vector2(x, 0.5), 0.045))
 			return s
+		Engraving.SANDPAPER:
+			# Alle Seiten −1: drei Seiten in Reihe, jede mit Minus.
+			var s: Array = [_square(Vector2(0.22, 0.5), 0.105), _square(Vector2(0.5, 0.5), 0.105),
+				_square(Vector2(0.78, 0.5), 0.105)]
+			for x in [0.22, 0.5, 0.78]:
+				s.append_array(_minus(Vector2(x, 0.5), 0.045))
+			return s
+		Engraving.PUNCH:
+			# Wie die Kerbe, aber mit doppeltem Querbalken: die schwere +5-Stanze.
+			return [
+				_square(Vector2(0.5, 0.66), 0.14),
+				_seg(Vector2(0.5, 0.56), Vector2(0.5, 0.14)),
+				_seg(Vector2(0.4, 0.24), Vector2(0.6, 0.24)),
+				_seg(Vector2(0.4, 0.36), Vector2(0.6, 0.36)),
+			]
 		Engraving.NOTCH:
 			# +1, dessen Stiel die obere Kante durchstößt.
 			return [
 				_square(Vector2(0.5, 0.6), 0.16),
 				_seg(Vector2(0.5, 0.52), Vector2(0.5, 0.16)),
 				_seg(Vector2(0.4, 0.27), Vector2(0.6, 0.27)),
-			]
-		Engraving.TRANSPLANT:
-			# Kleine Seite -> Pfeil hoch -> große Seite (Höchstwert).
-			var s: Array = [_square(Vector2(0.5, 0.73), 0.09), _square(Vector2(0.5, 0.29), 0.15)]
-			s.append_array(_up_arrow(Vector2(0.5, 0.62), Vector2(0.5, 0.47)))
-			return s
-		Engraving.CONNECT_UP:
-			# Quelle -> Ziel, +1 sitzt auf der Verbindung.
-			return [
-				_square(Vector2(0.27, 0.5), 0.12), _square(Vector2(0.73, 0.5), 0.12),
-				_seg(Vector2(0.39, 0.5), Vector2(0.61, 0.5)),
-				_seg(Vector2(0.5, 0.4), Vector2(0.5, 0.6)),
 			]
 		Engraving.AVERAGING:
 			# Zwei Seiten treffen sich in der Mitte (Mittelwert).
@@ -248,10 +246,6 @@ func _plus(center: Vector2, radius: float) -> Array:
 
 func _minus(center: Vector2, radius: float) -> Array:
 	return [_seg(center + Vector2(-radius, 0), center + Vector2(radius, 0))]
-
-## Linie a->b plus Pfeilspitze bei b (nach oben zeigend).
-func _up_arrow(a: Vector2, b: Vector2) -> Array:
-	return [_seg(a, b), PackedVector2Array([b + Vector2(-0.05, 0.055), b, b + Vector2(0.05, 0.055)])]
 
 ## Kurze Linie a->b mit Pfeilspitze bei b (beliebige Richtung).
 func _arrow_to(a: Vector2, b: Vector2) -> Array:

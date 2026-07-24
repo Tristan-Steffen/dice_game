@@ -83,11 +83,11 @@ func test_cancel_mid_pair_consumes_nothing() -> void:
 	assert_eq(view.run.owned_engravings.size(), 1, "Meißel nicht verbraucht")
 
 func test_whole_die_tool_applies_on_a_single_face_click() -> void:
-	view.run.grant_engraving(Engraving.mirror())
+	view.run.grant_engraving(Engraving.polish())
 	view._sync_drawers()
-	view._on_engraving_pressed(Engraving.MIRROR)
+	view._on_engraving_pressed(Engraving.POLISH)
 	view._on_chip_clicked(2, 2)  # ein Klick auf irgendeine Seite genügt
-	assert_eq(view.current_def.faces, [2, 6, 5, 4, 3, 1] as Array[int], "Würfel invertiert")
+	assert_eq(view.current_def.faces, [6, 2, 3, 4, 5, 7] as Array[int], "alle Seiten +1")
 	assert_eq(view.held_id, "", "Werkzeug abgelegt")
 
 func test_board_slot_is_enabled_without_a_face_selection() -> void:

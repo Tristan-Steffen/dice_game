@@ -6,7 +6,7 @@ extends Resource
 ## Kategorien: Zahl (verändert Augen), Material (belegt eine Seite), Würfel
 ## (veredelt die Kanten). Kombinationen wertet die Systemkonsole auf (Übertakten).
 
-enum Rarity { COMMON, UNCOMMON, RARE }
+enum Rarity { COMMON, UNCOMMON, RARE, EPIC }
 
 # categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
 # (id = Material-id), WÜRFEL die Kanten des ganzen Würfels (id = EDGE_PREFIX +
@@ -29,15 +29,14 @@ const CATEGORY_NAMES := {
 
 # --- Zahl-Gravur-ids (Single Source of Truth) ---
 const CHISEL := "chisel"
-const TRANSPLANT := "transplant"
 const GRINDSTONE := "grindstone"
 const NOTCH := "notch"
 const FILE_DOWN := "file_down"
-const DOUBLE_NOTCH := "double_notch"
 const AVERAGING := "averaging"
-const CONNECT_UP := "connect_up"
-const MIRROR := "mirror"
 const STRAIGHTEN := "straighten"
+const POLISH := "polish"
+const SANDPAPER := "sandpaper"
+const PUNCH := "punch"
 const BLUEPRINT := "blueprint"
 
 ## Konvention: Textur-Dateiname = Gravur-id (chisel.jpg, ...).
@@ -47,15 +46,14 @@ const TEXTURE_DIR := "res://assets/textures/engravings/"
 ## Rarität (bestimmt die Ziehgewichtung).
 const FOOTPRINT := {
 	CHISEL: Vector2i(3, 2),
-	TRANSPLANT: Vector2i(2, 2),
 	GRINDSTONE: Vector2i(2, 1),
-	NOTCH: Vector2i(3, 3),
+	NOTCH: Vector2i(1, 1),
 	FILE_DOWN: Vector2i(1, 1),
-	DOUBLE_NOTCH: Vector2i(1, 2),
 	AVERAGING: Vector2i(2, 2),
-	CONNECT_UP: Vector2i(2, 2),
-	MIRROR: Vector2i(2, 2),
 	STRAIGHTEN: Vector2i(2, 3),
+	POLISH: Vector2i(2, 2),
+	SANDPAPER: Vector2i(2, 2),
+	PUNCH: Vector2i(3, 2),
 	BLUEPRINT: Vector2i(3, 3),
 	# Material-Gravuren (id = Material-id)
 	DieMaterial.GOLD: Vector2i(1, 1),
@@ -98,37 +96,34 @@ static func _make(engraving_id: String, name: String, desc: String, rarity: Rari
 # --- Zahl-Gravuren: verändern die Seiten EINES Würfels (siehe EtchingEffects) ---
 
 static func chisel() -> Engraving:
-	return _make(CHISEL, "Meißel", "Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.", Rarity.COMMON)
-
-static func transplant() -> Engraving:
-	return _make(TRANSPLANT, "Transplantat", "Hebe eine Seite auf den aktuell höchsten Wert des Würfels.", Rarity.COMMON)
+	return _make(CHISEL, "Meißel", "Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.", Rarity.RARE)
 
 static func grindstone() -> Engraving:
 	return _make(GRINDSTONE, "Schleifstein", "−1 auf eine Seite, +1 auf eine andere Seite desselben Würfels.", Rarity.COMMON)
 
 static func notch() -> Engraving:
-	return _make(NOTCH, "Kerbe", "+1 auf eine Seite.", Rarity.RARE)
+	return _make(NOTCH, "Kerbe", "+1 auf eine Seite.", Rarity.COMMON)
 
 static func file_down() -> Engraving:
 	return _make(FILE_DOWN, "Feile", "−1 auf eine Seite (min. 1).", Rarity.COMMON)
 
-static func double_notch() -> Engraving:
-	return _make(DOUBLE_NOTCH, "Doppelkerbe", "+1 auf zwei verschiedene Seiten desselben Würfels.", Rarity.COMMON)
-
 static func averaging() -> Engraving:
 	return _make(AVERAGING, "Mittelung", "Zwei Seiten eines Würfels werden auf ihren aufgerundeten Mittelwert gesetzt.", Rarity.UNCOMMON)
-
-static func connect_up() -> Engraving:
-	return _make(CONNECT_UP, "Anschluss", "Setze eine Seite auf den Wert einer anderen Seite desselben Würfels +1.", Rarity.UNCOMMON)
-
-static func mirror() -> Engraving:
-	return _make(MIRROR, "Spiegelung", "Invertiere alle Seiten eines Würfels ((Min+Max) − Wert).", Rarity.UNCOMMON)
 
 static func straighten() -> Engraving:
 	return _make(STRAIGHTEN, "Begradigung", "+1 auf alle ungeraden Seiten eines Würfels.", Rarity.UNCOMMON)
 
+static func polish() -> Engraving:
+	return _make(POLISH, "Politur", "+1 auf alle Seiten eines Würfels.", Rarity.UNCOMMON)
+
+static func sandpaper() -> Engraving:
+	return _make(SANDPAPER, "Schmirgel", "−1 auf alle Seiten eines Würfels (min. 1).", Rarity.UNCOMMON)
+
+static func punch() -> Engraving:
+	return _make(PUNCH, "Stanze", "+5 auf eine Seite.", Rarity.RARE)
+
 static func blueprint() -> Engraving:
-	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.RARE)
+	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.EPIC)
 
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 
@@ -162,8 +157,8 @@ const EDGE_RARITY := {
 ## kommen aus DieMaterial.all().
 static func all() -> Array[Engraving]:
 	var result: Array[Engraving] = [
-		chisel(), transplant(), grindstone(), notch(),
-		file_down(), double_notch(), averaging(), connect_up(), mirror(), straighten(), blueprint(),
+		chisel(), grindstone(), notch(), file_down(),
+		averaging(), straighten(), polish(), sandpaper(), punch(), blueprint(),
 	]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
@@ -244,6 +239,8 @@ static func rarity_name(value: Rarity) -> String:
 			return "ungewöhnlich"
 		Rarity.RARE:
 			return "selten"
+		Rarity.EPIC:
+			return "episch"
 	return "?"
 
 ## Anzeigename der Kategorie einer Gravur.
@@ -254,9 +251,11 @@ func category_name() -> String:
 static func _rarity_weight(value: Rarity) -> int:
 	match value:
 		Rarity.COMMON:
-			return 8
+			return 16
 		Rarity.UNCOMMON:
-			return 3
+			return 6
 		Rarity.RARE:
+			return 2
+		Rarity.EPIC:
 			return 1
 	return 1

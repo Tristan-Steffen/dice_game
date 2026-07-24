@@ -22,12 +22,14 @@ func test_every_engraving_has_a_targeting_kind() -> void:
 func test_targeting_kinds_are_correct() -> void:
 	var view := _view([1, 2, 3, 4, 5, 6])
 	assert_eq(view._targeting_of(Engraving.NOTCH), DieInspectorView.TARGET_FACE)
+	assert_eq(view._targeting_of(Engraving.PUNCH), DieInspectorView.TARGET_FACE)
 	assert_eq(view._targeting_of(Engraving.BLUEPRINT), DieInspectorView.TARGET_FACE)
 	assert_eq(view._targeting_of(Engraving.CHISEL), DieInspectorView.TARGET_PAIR_DIRECTED)
 	assert_eq(view._targeting_of(Engraving.GRINDSTONE), DieInspectorView.TARGET_PAIR_DIRECTED)
-	assert_eq(view._targeting_of(Engraving.DOUBLE_NOTCH), DieInspectorView.TARGET_PAIR)
-	assert_eq(view._targeting_of(Engraving.MIRROR), DieInspectorView.TARGET_WHOLE_DIE)
+	assert_eq(view._targeting_of(Engraving.AVERAGING), DieInspectorView.TARGET_PAIR)
 	assert_eq(view._targeting_of(Engraving.STRAIGHTEN), DieInspectorView.TARGET_WHOLE_DIE)
+	assert_eq(view._targeting_of(Engraving.POLISH), DieInspectorView.TARGET_WHOLE_DIE)
+	assert_eq(view._targeting_of(Engraving.SANDPAPER), DieInspectorView.TARGET_WHOLE_DIE)
 	assert_eq(view._targeting_of(Engraving.EDGE_PREFIX + DieMaterial.GOLD), DieInspectorView.TARGET_EDGES)
 	assert_eq(view._targeting_of(DieMaterial.GOLD), DieInspectorView.TARGET_FACE)
 
@@ -44,12 +46,11 @@ func test_file_down_excludes_ones() -> void:
 	assert_false(e[0], "eine 1 ist kein Ziel der Feile")
 	assert_true(e[1], "eine 2 schon")
 
-func test_transplant_excludes_the_max_face() -> void:
+func test_punch_targets_every_face() -> void:
 	var view := _view([1, 2, 3, 4, 5, 6])
-	view.held_id = Engraving.TRANSPLANT
-	var e := view._eligible_faces()
-	assert_false(e[5], "die Höchstseite ist kein Ziel")
-	assert_true(e[0])
+	view.held_id = Engraving.PUNCH
+	assert_eq(view._eligible_faces(), [true, true, true, true, true, true] as Array[bool],
+		"die Stanze kennt keine Obergrenze")
 
 func test_grindstone_step1_excludes_ones_step2_excludes_first() -> void:
 	var view := _view([1, 2, 3, 4, 5, 6])
@@ -103,9 +104,16 @@ func test_preview_chisel_reads_the_first_click_as_source() -> void:
 	assert_eq(g.faces[1], 5, "das Ziel erhält den Quellwert (Quelle = erster Klick)")
 	assert_eq(view.current_def.faces[1], 1, "unberührt")
 
-func test_preview_mirror_inverts_the_whole_die() -> void:
+func test_preview_polish_bumps_the_whole_die() -> void:
 	var view := _view([1, 2, 3, 4, 5, 6])
-	view.held_id = Engraving.MIRROR
+	view.held_id = Engraving.POLISH
 	var g := view._ghost_after(-1)
-	assert_eq(g.faces, [6, 5, 4, 3, 2, 1] as Array[int])
+	assert_eq(g.faces, [2, 3, 4, 5, 6, 7] as Array[int])
 	assert_eq(view.current_def.faces, [1, 2, 3, 4, 5, 6] as Array[int], "unberührt")
+
+func test_preview_punch_adds_five() -> void:
+	var view := _view([1, 2, 3, 4, 5, 6])
+	view.held_id = Engraving.PUNCH
+	var g := view._ghost_after(2)
+	assert_eq(g.faces[2], 8, "3 -> 8")
+	assert_eq(view.current_def.faces[2], 3, "der echte Würfel bleibt unberührt")

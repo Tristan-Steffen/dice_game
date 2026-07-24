@@ -684,6 +684,7 @@ const RARITY_COLORS := {
 	Engraving.Rarity.COMMON: Color("#8be9fd"),
 	Engraving.Rarity.UNCOMMON: Color("#50fa7b"),
 	Engraving.Rarity.RARE: Color("#ffd319"),
+	Engraving.Rarity.EPIC: Color("#bd93f9"),
 }
 
 ## Takt der Auszahlung: Aufploppen, gemeinsames Halten, dann einzeln abfliegen.

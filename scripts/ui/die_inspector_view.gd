@@ -96,7 +96,7 @@ var u := 8.0
 ## Die Hinweiszeile lebt AUSSERHALB des Panels: in der Info-Leiste unter den
 ## Schubladen (setzt scene_root über set_prompt_label). Ohne Leiste bleibt die
 ## Station stumm - die leuchtenden Schubladen führen auch allein.
-var prompt_label: Label
+var prompt_label: RichTextLabel
 
 # Gerüst-Referenzen (je show_die frisch gebaut).
 var summary_list: VBoxContainer  # Seiten-Raster im Kanten-Rahmen
@@ -337,7 +337,7 @@ func _sync_drawers() -> void:
 			drawer.set_state(held_id, [] as Array[String])
 
 ## Verdrahtet die externe Hinweiszeile (Label der Info-Leiste).
-func set_prompt_label(label: Label) -> void:
+func set_prompt_label(label: RichTextLabel) -> void:
 	prompt_label = label
 
 ## Setzt die Info-Leiste wieder auf den Stations-Prompt - scene_root ruft das,
@@ -463,13 +463,13 @@ func _targeting_of(engraving_id: String) -> String:
 	if DieMaterial.is_valid_id(engraving_id):
 		return TARGET_FACE
 	match engraving_id:
-		Engraving.CHISEL, Engraving.GRINDSTONE, Engraving.CONNECT_UP:
+		Engraving.CHISEL, Engraving.GRINDSTONE:
 			return TARGET_PAIR_DIRECTED
-		Engraving.DOUBLE_NOTCH, Engraving.AVERAGING:
+		Engraving.AVERAGING:
 			return TARGET_PAIR
-		Engraving.MIRROR, Engraving.STRAIGHTEN:
+		Engraving.STRAIGHTEN, Engraving.POLISH, Engraving.SANDPAPER:
 			return TARGET_WHOLE_DIE
-	return TARGET_FACE  # Kerbe, Feile, Transplantat, Blaupause
+	return TARGET_FACE  # Kerbe, Feile, Stanze, Blaupause
 
 ## Bord-Klick: dieselbe Gravur legt ab, sonst nimmt sie (neue) auf.
 func _on_engraving_pressed(engraving_id: String) -> void:
@@ -576,9 +576,9 @@ func _apply_single_face(face_index: int) -> void:
 		Engraving.FILE_DOWN:
 			EtchingEffects.file_down(current_def, face_index)
 			_finish_apply(held_id, "Feile: Seite −1")
-		Engraving.TRANSPLANT:
-			EtchingEffects.transplant(current_def, face_index)
-			_finish_apply(held_id, "Transplantat: Seite auf Höchstwert gehoben")
+		Engraving.PUNCH:
+			EtchingEffects.punch(current_def, face_index)
+			_finish_apply(held_id, "Stanze: Seite +5")
 		Engraving.BLUEPRINT:
 			EtchingEffects.blueprint(current_def, face_index)
 			_finish_apply(held_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
@@ -592,12 +592,6 @@ func _apply_pair(a: int, b: int) -> void:
 		Engraving.GRINDSTONE:
 			EtchingEffects.grindstone(current_def, a, b)  # −1 auf a, +1 auf b
 			_finish_apply(held_id, "Schleifstein: −1 / +1 angewandt")
-		Engraving.CONNECT_UP:
-			EtchingEffects.connect_up(current_def, a, b)  # Ziel b = Quellwert a + 1
-			_finish_apply(held_id, "Anschluss: Zielseite = Quellwert + 1")
-		Engraving.DOUBLE_NOTCH:
-			EtchingEffects.double_notch(current_def, a, b)
-			_finish_apply(held_id, "Doppelkerbe: zwei Seiten +1")
 		Engraving.AVERAGING:
 			EtchingEffects.averaging(current_def, a, b)
 			_finish_apply(held_id, "Mittelung: zwei Seiten gemittelt")
@@ -605,12 +599,15 @@ func _apply_pair(a: int, b: int) -> void:
 ## Ganz-Würfel-Gravuren (ein Klick auf den Würfel genügt).
 func _apply_whole_die() -> void:
 	match held_id:
-		Engraving.MIRROR:
-			EtchingEffects.mirror_die(current_def)
-			_finish_apply(held_id, "Spiegelung: Würfel invertiert")
 		Engraving.STRAIGHTEN:
 			EtchingEffects.straighten(current_def)
 			_finish_apply(held_id, "Begradigung: ungerade Seiten +1")
+		Engraving.POLISH:
+			EtchingEffects.polish(current_def)
+			_finish_apply(held_id, "Politur: alle Seiten +1")
+		Engraving.SANDPAPER:
+			EtchingEffects.sandpaper(current_def)
+			_finish_apply(held_id, "Schmirgel: alle Seiten −1")
 
 ## Verbraucht die Gravur und meldet changed/applied. Das Werkzeug bleibt in der
 ## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
@@ -663,9 +660,6 @@ func _eligible_faces() -> Array[bool]:
 	match held_id:
 		Engraving.FILE_DOWN:
 			for i in 6: e[i] = faces[i] > EtchingEffects.MIN_FACE_VALUE
-		Engraving.TRANSPLANT:
-			var mx: int = faces.max()
-			for i in 6: e[i] = faces[i] < mx
 		Engraving.GRINDSTONE:
 			if first_face == -1:
 				for i in 6: e[i] = faces[i] > EtchingEffects.MIN_FACE_VALUE  # die −1-Seite
@@ -759,10 +753,12 @@ func _preview_slot_hover(engraving_id: String) -> void:
 		return
 	var g := current_def.instantiate()
 	match engraving_id:
-		Engraving.MIRROR:
-			EtchingEffects.mirror_die(g)
 		Engraving.STRAIGHTEN:
 			EtchingEffects.straighten(g)
+		Engraving.POLISH:
+			EtchingEffects.polish(g)
+		Engraving.SANDPAPER:
+			EtchingEffects.sandpaper(g)
 		_:
 			return
 	_show_preview(g.faces)
@@ -808,20 +804,19 @@ func _ghost_after(hover_face: int) -> DieDefinition:
 			match held_id:
 				Engraving.NOTCH: EtchingEffects.notch(g, hover_face)
 				Engraving.FILE_DOWN: EtchingEffects.file_down(g, hover_face)
-				Engraving.TRANSPLANT: EtchingEffects.transplant(g, hover_face)
+				Engraving.PUNCH: EtchingEffects.punch(g, hover_face)
 				Engraving.BLUEPRINT: EtchingEffects.blueprint(g, hover_face)
 				_: return null
 		TARGET_PAIR, TARGET_PAIR_DIRECTED:
 			match held_id:
 				Engraving.CHISEL: EtchingEffects.chisel(g, first_face, hover_face)
 				Engraving.GRINDSTONE: EtchingEffects.grindstone(g, first_face, hover_face)
-				Engraving.CONNECT_UP: EtchingEffects.connect_up(g, first_face, hover_face)
-				Engraving.DOUBLE_NOTCH: EtchingEffects.double_notch(g, first_face, hover_face)
 				Engraving.AVERAGING: EtchingEffects.averaging(g, first_face, hover_face)
 		TARGET_WHOLE_DIE:
 			match held_id:
-				Engraving.MIRROR: EtchingEffects.mirror_die(g)
 				Engraving.STRAIGHTEN: EtchingEffects.straighten(g)
+				Engraving.POLISH: EtchingEffects.polish(g)
+				Engraving.SANDPAPER: EtchingEffects.sandpaper(g)
 		_:
 			return null
 	return g
@@ -884,8 +879,8 @@ func _held_prompt() -> String:
 			return "Kerbe: klicke eine Seite (+1). Rechtsklick: ablegen."
 		Engraving.FILE_DOWN:
 			return "Feile: klicke eine Seite (−1). Rechtsklick: ablegen."
-		Engraving.TRANSPLANT:
-			return "Transplantat: klicke eine Seite – sie wird zum Höchstwert. Rechtsklick: ablegen."
+		Engraving.PUNCH:
+			return "Stanze: klicke eine Seite (+5). Rechtsklick: ablegen."
 		Engraving.BLUEPRINT:
 			return "Blaupause: klicke die Vorlage-Seite (alle Seiten erhalten ihren Wert)."
 		Engraving.CHISEL:
@@ -894,19 +889,15 @@ func _held_prompt() -> String:
 		Engraving.GRINDSTONE:
 			return "Schleifstein: jetzt die Seite für +1." if second \
 				else "Schleifstein: klicke die Seite für −1. Rechtsklick: ablegen."
-		Engraving.CONNECT_UP:
-			return "Anschluss: klicke die Zielseite (wird Quellwert + 1)." if second \
-				else "Anschluss: klicke die Quellseite. Rechtsklick: ablegen."
-		Engraving.DOUBLE_NOTCH:
-			return "Doppelkerbe: klicke die zweite Seite (+1)." if second \
-				else "Doppelkerbe: klicke die erste Seite (+1). Rechtsklick: ablegen."
 		Engraving.AVERAGING:
 			return "Mittelung: klicke die zweite Seite." if second \
 				else "Mittelung: klicke die erste Seite. Rechtsklick: ablegen."
-		Engraving.MIRROR:
-			return "Spiegelung: klicke den Würfel."
 		Engraving.STRAIGHTEN:
 			return "Begradigung: klicke den Würfel."
+		Engraving.POLISH:
+			return "Politur: klicke den Würfel (alle Seiten +1)."
+		Engraving.SANDPAPER:
+			return "Schmirgel: klicke den Würfel (alle Seiten −1)."
 	if Engraving.is_edge_id(held_id):
 		return "%s-Kanten: klicke den Rahmen um die Seiten." % DieMaterial.by_id(held_id.trim_prefix(Engraving.EDGE_PREFIX)).display_name
 	if DieMaterial.is_valid_id(held_id):

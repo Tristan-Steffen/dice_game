@@ -97,8 +97,9 @@ func test_hover_reports_the_description_even_at_the_station() -> void:
 	assert_eq(seen, [_chisel_info(), ""], "Beschreibung beim Überfahren, leer beim Verlassen")
 
 func _chisel_info() -> String:
+	# Nur Name und Wirkung - keine Seltenheits-Angabe.
 	var chisel := Engraving.chisel()
-	return "%s (%s) – %s" % [chisel.display_name, Engraving.rarity_name(chisel.rarity), chisel.description]
+	return "%s: %s" % [chisel.display_name, chisel.description]
 
 func test_enabled_ids_narrow_the_usable_slots() -> void:
 	run.grant_engraving(Engraving.chisel())

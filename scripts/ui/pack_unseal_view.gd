@@ -248,7 +248,7 @@ func _fly_out(index: int) -> void:
 	if node is EngravingRenderer:
 		var face: EngravingRenderer = node
 		tween.tween_property(face, "ignite", 1.0, EJECT_TRAVEL)
-		face.set_process(face.rarity == Engraving.Rarity.RARE)  # Seltenes atmet
+		face.set_process(face.rarity >= Engraving.Rarity.RARE)  # Seltenes atmet
 
 ## Ein Stück verlässt den Kreis: das Zeichen schnappt weg, und von seinem Platz
 ## startet der Meteor.

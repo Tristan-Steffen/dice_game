@@ -22,18 +22,6 @@ func test_chisel_leaves_source_unchanged():
 	assert_eq(d.faces[0], 1, "Quelle bleibt")
 	assert_eq(d.faces[3], 1, "Ziel übernimmt Quellwert")
 
-# --- Transplantat ------------------------------------------------------------
-
-func test_transplant_raises_face_to_die_max():
-	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.transplant(d, 0)  # Seite mit 1 -> Höchstwert 6
-	assert_eq(d.faces, [6, 2, 3, 4, 5, 6])
-
-func test_can_transplant_only_below_max():
-	var d := _die([6, 2, 3, 4, 5, 6])
-	assert_false(EtchingEffects.can_transplant(d, 0), "schon Höchstwert")
-	assert_true(EtchingEffects.can_transplant(d, 1), "unter dem Höchstwert")
-
 # --- Schleifstein ------------------------------------------------------------
 
 func test_grindstone_preserves_sum():
@@ -77,17 +65,17 @@ func test_can_file_down_respects_floor():
 	assert_false(EtchingEffects.can_file_down(d, 0), "eine 1 darf nicht auf 0")
 	assert_true(EtchingEffects.can_file_down(d, 1), "eine 2 darf auf 1")
 
-# --- Doppelkerbe -------------------------------------------------------------
+# --- Stanze ------------------------------------------------------------------
 
-func test_double_notch_bumps_both_faces():
+func test_punch_adds_five():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.double_notch(d, 0, 2)  # +1 auf Index 0 und 2
-	assert_eq(d.faces, [2, 2, 4, 4, 5, 6])
+	EtchingEffects.punch(d, 0)
+	assert_eq(d.faces, [6, 2, 3, 4, 5, 6])
 
-func test_double_notch_may_exceed_six():
+func test_punch_may_exceed_six():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.double_notch(d, 5, 4)  # 6 -> 7, 5 -> 6
-	assert_eq(d.faces, [1, 2, 3, 4, 6, 7], "Doppelkerbe darf über 6 hinaus")
+	EtchingEffects.punch(d, 5)  # 6 -> 11
+	assert_eq(d.faces[5], 11, "Stanze: darf über 6 hinaus")
 
 # --- Mittelung ---------------------------------------------------------------
 
@@ -103,30 +91,19 @@ func test_averaging_rounds_up():
 	assert_eq(d.faces[0], 3)
 	assert_eq(d.faces[1], 3)
 
-# --- Anschluss ---------------------------------------------------------------
+# --- Politur -----------------------------------------------------------------
 
-func test_connect_up_sets_target_to_source_plus_one_same_die():
+func test_polish_bumps_every_face():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.connect_up(d, 2, 0)  # Quelle Index 2 (=3) -> Ziel Index 0 = 4
-	assert_eq(d.faces[0], 4)
-	assert_eq(d.faces[2], 3, "Quelle bleibt")
+	EtchingEffects.polish(d)
+	assert_eq(d.faces, [2, 3, 4, 5, 6, 7], "Politur: alle Seiten +1, auch über 6")
 
-func test_connect_up_may_exceed_six():
+# --- Schmirgel -----------------------------------------------------------------
+
+func test_sandpaper_lowers_every_face():
 	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.connect_up(d, 5, 0)  # Quelle Index 5 (=6) -> Ziel = 7
-	assert_eq(d.faces[0], 7, "Anschluss darf über 6 hinaus")
-
-# --- Spiegelung --------------------------------------------------------------
-
-func test_mirror_inverts_standard_die():
-	var d := _die([1, 2, 3, 4, 5, 6])
-	EtchingEffects.mirror_die(d)
-	assert_eq(d.faces, [6, 5, 4, 3, 2, 1])
-
-func test_mirror_uses_actual_min_and_max():
-	var d := _die([2, 2, 3, 3, 4, 4])  # Min 2, Max 4 -> Wert -> 6 - Wert
-	EtchingEffects.mirror_die(d)
-	assert_eq(d.faces, [4, 4, 3, 3, 2, 2])
+	EtchingEffects.sandpaper(d)
+	assert_eq(d.faces, [1, 1, 2, 3, 4, 5], "Schmirgel: alle Seiten −1, die 1 bleibt 1")
 
 # --- Begradigung -------------------------------------------------------------
 

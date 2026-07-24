@@ -24,9 +24,13 @@ const GOLD := Color("#ffd319")
 ## gemeinsamen Maßeinheit u, sonst wären die schmalen Schubladen winzig.
 ## Quadratisch: das Siegel füllt den Platz fast ganz aus und würde sonst
 ## verzerrt gezeichnet (EngravingRenderer skaliert in seine Rect-Maße).
-const CHIP := Vector2(4.8, 4.8)
+const CHIP := Vector2(6.9, 6.9)
 ## Kantenlänge des Siegels im Platz - der Rest ist nur Luft für den Hover-Saum.
-const ICON := 4.4
+const ICON := 6.6
+## Randluft zum Fensterrand und Abstand zwischen den Plätzen (in Einheiten u):
+## bewusst knapp, damit die Siegel den Platz füllen.
+const PAD := 0.7
+const GAP := 0.25
 ## Nachglühen eines getroffenen Platzes (siehe pop).
 const AFTERGLOW_TIME := 2.5
 const COLUMNS := {
@@ -80,9 +84,9 @@ static func size_for(drawer_category: String, unit: float) -> Vector2:
 	var count := _archetypes_of(drawer_category).size()
 	var cols: int = COLUMNS.get(drawer_category, 4)
 	var rows := int(ceil(float(count) / float(cols)))
-	var pad := unit * 1.6
+	var pad := unit * PAD
 	var chip := Vector2(CHIP.x * unit, CHIP.y * unit)
-	var gap := unit * 0.5
+	var gap := unit * GAP
 	return Vector2(
 		cols * chip.x + (cols - 1) * gap + pad * 2.0,
 		rows * chip.y + (rows - 1) * gap + pad * 2.0)
@@ -91,7 +95,7 @@ static func size_for(drawer_category: String, unit: float) -> Vector2:
 ## kanonische Reihenfolge, damit die Geografie stabil liegt.
 static func _archetypes_of(drawer_category: String) -> Array[Engraving]:
 	var out: Array[Engraving] = []
-	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE]:
+	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE, Engraving.Rarity.EPIC]:
 		for archetype in Engraving.all():
 			if archetype.category == drawer_category and archetype.rarity == rarity:
 				out.append(archetype)
@@ -125,21 +129,21 @@ func rebuild() -> void:
 		child.queue_free()
 	slots.clear()
 
-	var pad := int(u * 1.6)
+	var pad := int(u * PAD)
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = pad
 	box.offset_right = -pad
 	box.offset_top = pad
 	box.offset_bottom = -pad
-	box.add_theme_constant_override("separation", int(u * 0.5))
+	box.add_theme_constant_override("separation", int(u * GAP))
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(box)
 
 	_grid = GridContainer.new()
 	_grid.columns = COLUMNS.get(category, 4)
-	_grid.add_theme_constant_override("h_separation", int(u * 0.5))
-	_grid.add_theme_constant_override("v_separation", int(u * 0.5))
+	_grid.add_theme_constant_override("h_separation", int(u * GAP))
+	_grid.add_theme_constant_override("v_separation", int(u * GAP))
 	_grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_grid)
 
@@ -150,6 +154,11 @@ func rebuild() -> void:
 		_grid.add_child(chip)
 		slots.append({"button": chip, "id": archetype.id, "count": count})
 	restyle()
+
+## Beschreibungszeile fürs Hover-Feld: Name, dann die Wirkung - ohne
+## Seltenheits-Angabe (die trägt der Lichtsaum des Siegels).
+static func info_line(archetype: Engraving) -> String:
+	return "%s: %s" % [archetype.display_name, archetype.description]
 
 ## Bestand je Gravur-id (Testmodus: alles einmal vorhanden).
 func _counts() -> Dictionary:
@@ -170,11 +179,9 @@ func _chip(archetype: Engraving, count: int) -> Button:
 	var chip := Button.new()
 	chip.focus_mode = Control.FOCUS_NONE
 	chip.custom_minimum_size = Vector2(CHIP.x * u, CHIP.y * u)
-	chip.tooltip_text = "%s (%s)\n%s" % [archetype.display_name,
-		Engraving.rarity_name(archetype.rarity), archetype.description]
+	chip.tooltip_text = "%s\n%s" % [archetype.display_name, archetype.description]
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
-	var info := "%s (%s) – %s" % [archetype.display_name,
-		Engraving.rarity_name(archetype.rarity), archetype.description]
+	var info := info_line(archetype)
 	# Überfahren meldet die Beschreibung IMMER (auch an der Station): dort
 	# überschreibt sie kurz den Werkzeug-Prompt, im Lager füllt sie die Info-Leiste.
 	chip.mouse_entered.connect(func() -> void: hovered.emit(info))

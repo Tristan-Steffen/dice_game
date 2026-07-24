@@ -114,7 +114,8 @@ var workshop_hub_strip: LedStripView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
 var supply_info_bar: Panel
-var supply_info_label: Label
+## RichTextLabel: der Gravur-Name steht fett in seiner Seltenheits-Farbe (BBCode).
+var supply_info_label: RichTextLabel
 ## Hover-Erklärfeld unter den Grubenwürfeln: zeigt die Materialwirkung der Seite
 ## unter der Maus (Seite + Kanten). Nur sichtbar, während set_pit_info Text hat.
 var pit_info_bar: Panel
@@ -409,13 +410,14 @@ func _build_content() -> void:
 	supply_info_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	supply_info_bar.add_theme_stylebox_override("panel", window_style())
 	add_child(supply_info_bar)
-	supply_info_label = Label.new()
+	supply_info_label = RichTextLabel.new()
 	supply_info_label.name = "InfoLabel"
+	supply_info_label.bbcode_enabled = true
+	supply_info_label.scroll_active = false
 	supply_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	supply_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	supply_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	supply_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	supply_info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	supply_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	supply_info_bar.add_child(supply_info_label)
 
@@ -564,7 +566,9 @@ func place_supply_info_bar(rect: Rect2, unit: float) -> void:
 	supply_info_bar.size = rect.size
 	supply_info_label.offset_left = unit * 1.6
 	supply_info_label.offset_right = -unit * 1.6
-	supply_info_label.add_theme_font_size_override("font_size", maxi(8, int(unit * 2.4)))
+	var info_font := maxi(8, int(unit * 2.4))
+	supply_info_label.add_theme_font_size_override("normal_font_size", info_font)
+	supply_info_label.add_theme_font_size_override("bold_font_size", info_font)
 	supply_info_label.modulate = Color(1.35, 1.35, 1.3)
 	supply_info_bar.visible = true
 	_sync_reflection_windows()
