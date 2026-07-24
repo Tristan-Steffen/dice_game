@@ -7,7 +7,7 @@
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/table/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
-[ext_resource type="PackedScene" uid="uid://be61njol6udos" path="res://scenes/dice_cup.tscn" id="15_dicecup"]
+[ext_resource type="Script" path="res://scripts/table/dice_shell.gd" id="15_diceshell"]
 [ext_resource type="Script" uid="uid://d1e1kpuirytqv" path="res://scripts/table/charm_row_view.gd" id="16_charmrow"]
 [ext_resource type="Script" uid="uid://bv44s37lwsxvs" path="res://scripts/table/chip_stack_view.gd" id="17_chipstack"]
 
@@ -41,8 +41,9 @@ tray_color = Color(0.55, 0.08, 0.08, 1)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.063042, 0, 20.779545)
 tray_color = Color(0.65, 0.5, 0.12, 1)
 
-[node name="DiceCup" parent="." unique_id=1800299088 instance=ExtResource("15_dicecup")]
+[node name="DiceShell" type="Node3D" parent="." unique_id=1800299088]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0883026, 0, 20)
+script = ExtResource("15_diceshell")
 
 [node name="ChipStack" type="Node3D" parent="." unique_id=1800299089]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 0, 20.779545)

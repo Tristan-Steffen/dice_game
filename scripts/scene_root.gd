@@ -176,8 +176,7 @@ const REORDER_DRAG_THRESHOLD := 6.0  # Pixel, ab wann ein Klick als Zieh-Geste z
 const REORDER_LIFT_HEIGHT := 0.8
 const REORDER_DROP_RADIUS := 140.0  # Pixel-Toleranz beim Loslassen
 
-const CUP_FLY_DURATION := 0.4
-const CUP_SHAKE_COUNT := 3
+const SHELL_FLY_DURATION := 0.4
 
 ## Reihe der geschützten Würfel am oberen Grubenrand: nah an der Mitte und eng
 ## gestellt, damit eine volle 6er-Reihe nicht in der elliptischen Wand steckt.
@@ -194,7 +193,7 @@ const PIT_ZOOM_UP := 4.0
 ## Grobe Spielphase - genau EINE zur Zeit; Eingabe-Gates prüfen gegen sie.
 ## Nebenläufige Kosmetik (Deck-Aufrücken, Drags, Bogen-Abschluss) ist bewusst
 ## KEINE Phase und darf parallel laufen.
-enum Phase { IDLE, CUP_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
+enum Phase { IDLE, SHELL_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 
 @onready var settings_menu: VBoxContainer = $UI/SettingsMenu
 @onready var settings_toggle_button: Button = $UI/SettingsToggleButton
@@ -225,7 +224,7 @@ var die_inspector: DieInspectorView
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
-@onready var dice_cup: DiceCup = $DiceCup
+@onready var dice_shell: DiceShell = $DiceShell
 
 ## Editor-Anker der Screen-Elemente: im Editor frei verschiebbar, _ready
 ## rechnet ihre Weltposition auf den Screen um.
@@ -348,9 +347,10 @@ var _select_glows: Dictionary = {}
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation
 var deck_shift_tween: Tween
 
-## Fake-Würfel, die sichtbar im Becher "liegen" (in $DiceCup/MeshRoot - wackeln
-## beim Schütteln mit, ohne Physik); verschwinden beim Auskippen.
-var cup_interior_ghosts: Array[Node3D] = []
+## Ziehen/Klicken auf der Energie-Hülle: Klick = Würfeln, Ziehen = Drehen.
+var shell_drag_active := false
+var shell_drag_start_pos: Vector2
+var shell_is_dragging := false
 
 var queue_window_size: int = 0  # belegte Slots im Warteschlangen-Tray
 
@@ -366,7 +366,7 @@ var charm_drag_start_pos: Vector2
 var charm_is_dragging: bool = false
 
 ## Startpositionen der 6 Spielwürfel vor dem ersten Wurf: der austarierte
-## Fächer, um die Y-Achse gedreht, sodass er vom Würfelbecher her kommt -
+## Fächer, um die Y-Achse gedreht, sodass er von der Energie-Hülle her kommt -
 ## Abstand zum Ursprung (und damit Wurfcharakter) bleibt exakt erhalten.
 const DICE_START_POSITIONS: Array[Vector3] = [
 	Vector3(6.5458, 17.095267, 7.7658),
@@ -451,8 +451,8 @@ func _setup_table_screen() -> void:
 	screen_reflection.main_camera = camera_rig
 	add_child(screen_reflection)
 	table_screen.attach_to(screen_mesh, screen_reflection)
-	# JEDES Display-Fenster spiegelt - auch Trays samt Würfeln und der Becher.
-	for prop: Node in [pool_tray_view, queue_tray_view, discard_tray_view, dice_cup]:
+	# JEDES Display-Fenster spiegelt - auch Trays samt Würfeln und die Hülle.
+	for prop: Node in [pool_tray_view, queue_tray_view, discard_tray_view, dice_shell]:
 		ScreenReflection.mark_reflective(prop)
 
 	# Screen-Elemente an ihre Editor-Anker setzen; den Kombi-Cluster ERST
@@ -524,12 +524,12 @@ func _setup_table_screen() -> void:
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 
-	# Nebenwetten-Fenster rechts vom Becher, in den Maßen des Kombi-Fensters;
-	# Unterkante bündig mit Grube und Kombinationen-Fenster.
-	var cup_px := table_screen.world_to_pixel(dice_cup.global_position)
+	# Nebenwetten-Fenster rechts von der Energie-Hülle, in den Maßen des
+	# Kombi-Fensters; Unterkante bündig mit Grube und Kombinationen-Fenster.
+	var shell_px := table_screen.world_to_pixel(dice_shell.global_position)
 	var pit_r := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var win_size := table_screen.cluster_rect.size
-	var win_pos := Vector2(cup_px.x + table_screen.size.x * 0.045, pit_r.end.y - win_size.y)
+	var win_pos := Vector2(shell_px.x + table_screen.size.x * 0.045, pit_r.end.y - win_size.y)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
 	# Einsatz/Auszahlung als Licht über die Schatz-Leiste (einmalig verdrahtet -
@@ -537,7 +537,7 @@ func _setup_table_screen() -> void:
 	table_screen.side_bet_window.bet_selected.connect(_on_side_bet_selected)
 	table_screen.side_bet_window.bet_placed.connect(_on_side_bet_placed)
 
-	# Schatz-Screen unter dem Becher, in der Lücke zwischen Grube und
+	# Schatz-Screen unter der Energie-Hülle, in der Lücke zwischen Grube und
 	# Nebenwetten; die echten 3D-Chips werden mittig-oben darauf gestellt.
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
 	var gap_left := pit_r.end.x
@@ -545,8 +545,8 @@ func _setup_table_screen() -> void:
 	var t_w := minf((gap_right - gap_left) * 0.9, table_screen.size.x * 0.15)
 	var t_size := Vector2(t_w, t_w * 0.62)
 	var t_top := pit_r.end.y - t_size.y  # Unterkante auf der gemeinsamen Linie
-	# Waagerecht unter den Becher, aber in der Lücke gehalten.
-	var t_cx := clampf(cup_px.x, gap_left + t_w * 0.5, gap_right - t_w * 0.5)
+	# Waagerecht unter die Hülle, aber in der Lücke gehalten.
+	var t_cx := clampf(shell_px.x, gap_left + t_w * 0.5, gap_right - t_w * 0.5)
 	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
 	table_screen.place_treasure_window(Rect2(t_pos, t_size))
 	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
@@ -1434,6 +1434,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_chip_drag_input(event)
 		return
 
+	if shell_drag_active:
+		_handle_shell_drag_input(event)
+		return
+
 	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
 	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
 	if event is InputEventMouse and _forward_screen_mouse(event):
@@ -1460,7 +1464,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
 
-	if is_pit_focused and _try_cup_click(event.position):
+	if is_pit_focused and _try_start_shell_drag(event.position):
 		return
 
 	if _try_start_charm_reorder(event.position):
@@ -2160,7 +2164,7 @@ func _workshop_window_has_point(pixel: Vector2) -> bool:
 	return false
 
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
-## nur noch (kein Wurf mehr - dafür Becher oder der "Würfeln"-Knopf).
+## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
 	var result := _ray_pick(screen_pos, 8)
 	if result.is_empty():
@@ -2371,18 +2375,72 @@ func _update_charm_hover() -> void:
 			index = table_screen.charm_dock.pad_index_at(pixel)
 	table_screen.charm_dock.set_hover(index)
 
-## Klick auf den Würfelbecher = derselbe Wurf wie der Würfeln-Button
-## (_on_throw_button_pressed prüft alle Vorbedingungen selbst).
-func _try_cup_click(screen_pos: Vector2) -> bool:
-	var result := _ray_pick(screen_pos, DiceCup.CLICK_LAYER)
+## Mausdruck auf der Energie-Hülle: Klick (unter REORDER_DRAG_THRESHOLD) =
+## derselbe Wurf wie der Würfeln-Button, Ziehen dreht die Hülle - und hält
+## während des Mischens den Misch-Timer offen (DiceShell.spin_impulse).
+func _try_start_shell_drag(screen_pos: Vector2) -> bool:
+	var result := _ray_pick(screen_pos, DiceShell.CLICK_LAYER)
 	if result.is_empty():
 		return false
-	_on_throw_button_pressed()
+	shell_drag_active = true
+	shell_drag_start_pos = screen_pos
+	shell_is_dragging = false
 	return true
 
-## True, solange der aktuelle Wurf sichtbar läuft (Becher oder Physik).
+func _handle_shell_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		_end_shell_drag()
+		return
+
+	if event is InputEventMouseMotion:
+		if not shell_is_dragging and event.position.distance_to(shell_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			shell_is_dragging = true
+			camera_rig.set_tilt_locked(true)  # Kamera ruhig halten, solange gedreht wird
+			dice_shell.set_grabbed(true)  # hält beim Rütteln den Auskipp-Timer an
+		if shell_is_dragging:
+			if dice_shell.state == DiceShell.State.SHAKE:
+				# Beim Rütteln schiebt der Spieler die Hülle frei über die Grube.
+				var target: Variant = _shell_drag_target(event.position)
+				if target != null:
+					dice_shell.drag_to(target)
+			else:
+				dice_shell.spin_impulse(event.relative, get_viewport().get_camera_3d())
+		return
+
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if not shell_is_dragging:
+			_on_throw_button_pressed()  # prüft alle Vorbedingungen selbst
+		_end_shell_drag()
+
+## Zieh-Ziel der Hülle (Vector3 oder null): Die Maus zeigt auf den GRUBENBODEN -
+## dort soll die Hülle sichtbar über dem Zeiger schweben. Der Bodenpunkt wird
+## in die Grube geklemmt und dann ENTLANG DES KAMERASTRAHLS auf die Rüttel-Höhe
+## gehoben: so bleibt die Silhouette trotz Höhen-Parallaxe innerhalb der Wände.
+func _shell_drag_target(screen_pos: Vector2) -> Variant:
+	var camera := get_viewport().get_camera_3d()
+	var ground: Variant = _mouse_on_plane(screen_pos, 0.0)
+	if camera == null or ground == null:
+		return null
+	var g: Vector3 = ground
+	var lim_x := DicePit.PIT_HALF_X - DiceShell.SHAKE_MARGIN
+	var lim_z := DicePit.PIT_HALF_Z - DiceShell.SHAKE_MARGIN
+	g.x = clampf(g.x, DicePit.PIT_CENTER.x - lim_x, DicePit.PIT_CENTER.x + lim_x)
+	g.z = clampf(g.z, DicePit.PIT_CENTER.z - lim_z, DicePit.PIT_CENTER.z + lim_z)
+	var c := camera.global_position
+	if c.y <= DiceShell.SHAKE_HEIGHT + 0.1:
+		return g + Vector3.UP * DiceShell.SHAKE_HEIGHT
+	return c + (g - c) * ((c.y - DiceShell.SHAKE_HEIGHT) / c.y)
+
+func _end_shell_drag() -> void:
+	if shell_is_dragging:
+		camera_rig.set_tilt_locked(false)
+		dice_shell.set_grabbed(false)  # Loslassen beim Rütteln kippt sofort aus
+	shell_drag_active = false
+	shell_is_dragging = false
+
+## True, solange der aktuelle Wurf sichtbar läuft (Hülle oder Physik).
 func _dice_in_motion() -> bool:
-	return phase == Phase.CUP_ANIMATING or phase == Phase.ROLLING
+	return phase == Phase.SHELL_ANIMATING or phase == Phase.ROLLING
 
 ## True in allen Phasen VOR dem Rundenabschluss (inklusive laufender Würfe).
 func _is_playing() -> bool:
@@ -2584,7 +2642,7 @@ func _on_throw_button_pressed() -> void:
 		table_screen.set_round_pulse(true)
 
 	# Warteschlangen-Würfel VOR dem Ziehen merken (Position + Art) - genau die
-	# fliegen gleich sichtbar in den Becher.
+	# fliegen gleich sichtbar in die Energie-Hülle.
 	var used_count := _current_queue_size()
 	var fly_positions: Array[Vector3] = []
 	var fly_defs: Array[DieDefinition] = []
@@ -2626,7 +2684,7 @@ func _on_throw_button_pressed() -> void:
 			move_top_indices.append(i)
 			move_top_targets.append(_pit_top_row_position(k, selected_indices.size(), dice.bodies[i].global_position.y))
 
-	phase = Phase.CUP_ANIMATING
+	phase = Phase.SHELL_ANIMATING
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
@@ -2664,18 +2722,18 @@ func _on_throw_button_pressed() -> void:
 		_update_charm_badges()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
-	await _play_cup_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
-	if phase != Phase.CUP_ANIMATING:
-		_clear_cup_interior_ghosts()
-		return  # Spiel wurde während der Becher-Animation zurückgesetzt
+	await _play_shell_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
+	if phase != Phase.SHELL_ANIMATING:
+		dice_shell.clear_ghosts()
+		return  # Spiel wurde während der Hüllen-Animation zurückgesetzt
 
-	# poured_out feuert im Tiefpunkt des Becherschwungs - erst dann starten
-	# die echten Würfel an der aktuellen Mündungsposition (kein Teleportieren).
-	dice_cup.play_throw()
-	await dice_cup.poured_out
-	_clear_cup_interior_ghosts()
-	if phase != Phase.CUP_ANIMATING:
-		return  # Spiel wurde während des Wurfschwungs zurückgesetzt
+	# poured_out feuert im Berst-Moment der Hülle - erst dann starten die
+	# echten Würfel an der aktuellen Hüllenposition (kein Teleportieren).
+	dice_shell.play_release()
+	await dice_shell.poured_out
+	dice_shell.clear_ghosts()
+	if phase != Phase.SHELL_ANIMATING:
+		return  # Spiel wurde während des Auskippens zurückgesetzt
 
 	var start_positions := _throw_start_positions()
 	for k in thrown_indices.size():
@@ -2685,13 +2743,13 @@ func _on_throw_button_pressed() -> void:
 	dice.throw_slots(thrown_indices, throw_force, spin_strength, DicePit.PIT_CENTER)
 	_refresh_ui()
 
-## Startpositionen der Wurf-Würfel: 3x2-Raster quer zur Flugrichtung an der
-## (geschwungenen) Becher-Mündung. Abstand > Würfelbreite - überschneidungsfrei,
+## Startpositionen der Wurf-Würfel: 3x2-Raster quer zur Flugrichtung am
+## Berst-Punkt der Hülle. Abstand > Würfelbreite - überschneidungsfrei,
 ## sonst katapultiert die Physik-Depenetration die Würfel aus der Wurfbahn.
 ## Das Rasterzentrum wird in den Grubep-Innenraum geklemmt: die Energiewände
-## sind 16 hoch - eine Mündung außerhalb des Rands spawnt sonst IN der Wand.
+## sind 16 hoch - ein Berst-Punkt außerhalb des Rands spawnt sonst IN der Wand.
 func _throw_start_positions() -> Array[Vector3]:
-	var mouth := dice_cup.mouth_position()
+	var mouth := dice_shell.mouth_position()
 	var center := mouth
 	var lim_x := DicePit.PIT_HALF_X - 4.6  # Rasterarm (2.3) + Würfel-/Wandrand
 	var lim_z := DicePit.PIT_HALF_Z - 4.6
@@ -2788,17 +2846,11 @@ func _cancel_lineup() -> void:
 	if lineup_tween != null and lineup_tween.is_valid():
 		lineup_tween.kill()
 
-## Gibt die Fake-Würfel im Becher frei (beim Auskippen bzw. defensiv beim Reset).
-func _clear_cup_interior_ghosts() -> void:
-	for ghost in cup_interior_ghosts:
-		ghost.queue_free()
-	cup_interior_ghosts.clear()
-
 ## Drei gleichzeitige Bewegungen beim Wurfstart: gezogene Würfel fliegen in
-## den Becher (und bleiben dort als Fake-Würfel liegen - sie wackeln beim
-## Schütteln mit), ersetzte fliegen Richtung Ablage (erst bei der Ankunft
-## wirklich abgelegt), geschützte gleiten an den oberen Grubenrand.
-func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
+## die Energie-Hülle (und taumeln dort als Physik-Körper weiter, siehe
+## DiceShell.capture_die), ersetzte fliegen Richtung Ablage (erst bei der
+## Ankunft wirklich abgelegt), geschützte gleiten an den oberen Grubenrand.
+func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
 	if fly_defs.is_empty() and discard_defs.is_empty() and move_top_indices.is_empty():
 		return
 
@@ -2806,39 +2858,38 @@ func _play_cup_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition
 	fly_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	fly_tween.set_parallel(true)
 
-	var cup_ghosts: Array[Node3D] = []
-	var mouth := dice_cup.mouth_position()
+	var fly_ghosts: Array[Node3D] = []
+	var mouth := dice_shell.mouth_position()
 	for i in fly_defs.size():
 		var ghost := _spawn_deck_ghost(fly_defs[i])
 		ghost.global_position = fly_positions[i]
-		cup_ghosts.append(ghost)
-		var target := mouth + Vector3(randf_range(-0.4, 0.4), randf_range(-0.15, 0.15), randf_range(-0.4, 0.4))
-		fly_tween.tween_property(ghost, "global_position", target, CUP_FLY_DURATION)
+		fly_ghosts.append(ghost)
+		var target := mouth + Vector3(randf_range(-0.6, 0.6), randf_range(-0.4, 0.4), randf_range(-0.6, 0.6))
+		fly_tween.tween_property(ghost, "global_position", target, SHELL_FLY_DURATION)
 
 	var discard_ghosts: Array[Node3D] = []
 	for i in discard_defs.size():
 		var ghost := _spawn_deck_ghost(discard_defs[i])
 		ghost.global_position = discard_from[i]
 		discard_ghosts.append(ghost)
-		fly_tween.tween_property(ghost, "global_position", discard_to[i], CUP_FLY_DURATION)
+		fly_tween.tween_property(ghost, "global_position", discard_to[i], SHELL_FLY_DURATION)
 
 	for k in move_top_indices.size():
 		var body := dice.bodies[move_top_indices[k]]
 		body.freeze = true
-		fly_tween.tween_property(body, "global_position", move_top_targets[k], CUP_FLY_DURATION)
+		fly_tween.tween_property(body, "global_position", move_top_targets[k], SHELL_FLY_DURATION)
 
 	await fly_tween.finished
-	for ghost in cup_ghosts:
-		ghost.reparent(dice_cup.mesh_root, true)
-		ghost.position = Vector3(randf_range(-0.7, 0.7), randf_range(0.15, 0.5), randf_range(-0.7, 0.7))
-		ghost.rotation = Vector3(randf_range(0, TAU), randf_range(0, TAU), randf_range(0, TAU))
-		cup_interior_ghosts.append(ghost)
+	# Ankunft: Flug-Ghost gegen echten Taumel-Würfel in der Hülle tauschen.
+	for i in fly_ghosts.size():
+		dice_shell.capture_die(fly_defs[i], fly_ghosts[i].global_position)
+		fly_ghosts[i].queue_free()
 	for i in discard_ghosts.size():
 		discard_ghosts[i].queue_free()
 		_discard_kind(discard_defs[i])
 
 	if not fly_defs.is_empty():
-		await dice_cup.play_shake(CUP_SHAKE_COUNT).finished
+		await dice_shell.play_shuffle()
 
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
@@ -3645,7 +3696,7 @@ func _reset_game() -> void:
 	_cancel_charm_drag()
 	_cancel_lineup()
 	_cleanup_take_animation()
-	_clear_cup_interior_ghosts()
+	dice_shell.reset_to_post()
 	hand_note = ""
 	last_throw_was_reroll = false
 	momentum_streak = 0
