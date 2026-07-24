@@ -1,8 +1,8 @@
 extends GutTest
 ## Tests der Chip-Börsen-Mathematik (ChipStackView): Zuwachs kommt gierig
 ## gestückelt herein (split_gain), Zahlung folgt dem Zahlplan (payment_plan) -
-## möglichst exakt, sonst genau ein Chip zu viel, Rest als Wechselgeld. Chips
-## werden nie zusammengelegt oder geteilt, sobald sie liegen.
+## möglichst exakt, sonst genau ein Chip zu viel, Rest als Wechselgeld. Zu hohe
+## Chip-Stapel werten automatisch in höhere Stückelungen auf (consolidate).
 
 func _sum(values: Array) -> int:
 	var total := 0
@@ -72,6 +72,40 @@ func test_exchange_rejects_pointless_swaps() -> void:
 	assert_true(ChipStackView.exchange_values(5, 3).is_empty(), "$15 ergibt keinen höheren Chip")
 	assert_true(ChipStackView.exchange_values(1, 4).is_empty(), "$4 ergibt keinen höheren Chip")
 	assert_true(ChipStackView.exchange_values(100, 7).is_empty(), "$100 ist schon die höchste Stufe")
+
+func _wallet_value(counts: Dictionary) -> int:
+	var total := 0
+	for v in counts:
+		total += int(v) * int(counts[v])
+	return total
+
+# --- consolidate (automatischer color-up ab >3 Türmen) -----------------------
+
+func test_consolidate_leaves_tidy_wallets_untouched() -> void:
+	# Alles unter der Grenze (3 Türme = 36 Chips) bleibt, wie es liegt.
+	var wallet := {100: 5, 25: 3, 5: 2, 1: 4}
+	assert_eq(ChipStackView.consolidate(wallet), wallet, "nichts über der Grenze -> unverändert")
+
+func test_consolidate_colors_up_an_overflowing_denomination() -> void:
+	# 37 Einser (>36) werten komplett auf: $37 = 1x$25 + 2x$5 + 2x$1.
+	var out := ChipStackView.consolidate({100: 0, 25: 0, 5: 0, 1: 37})
+	assert_eq(out, {100: 0, 25: 1, 5: 2, 1: 2})
+	assert_lte(out[1], ChipStackView.STACK_LIMIT * ChipStackView.COLUMN_CAP, "Einser wieder unter der Grenze")
+
+func test_consolidate_conserves_total_value() -> void:
+	for wallet in [{100: 0, 25: 0, 5: 0, 1: 200}, {100: 1, 25: 50, 5: 40, 1: 41}, {100: 0, 25: 37, 5: 0, 1: 0}]:
+		assert_eq(_wallet_value(ChipStackView.consolidate(wallet)), _wallet_value(wallet),
+			"color-up erhält den Gesamtwert")
+
+func test_consolidate_colors_up_all_the_way_to_the_top() -> void:
+	# 200 Einser werten gierig komplett auf - $200 = 2x$100, nichts bleibt tief.
+	var out := ChipStackView.consolidate({100: 0, 25: 0, 5: 0, 1: 200})
+	assert_eq(out, {100: 2, 25: 0, 5: 0, 1: 0}, "voller color-up bis zur höchsten Stückelung")
+
+func test_consolidate_never_colors_up_the_top_denomination() -> void:
+	# $100 ist die höchste Stufe: auch 50 Türme bleiben Hunderter.
+	var out := ChipStackView.consolidate({100: 50, 25: 0, 5: 0, 1: 0})
+	assert_eq(int(out[100]), 50, "Hunderter steigen nicht weiter auf")
 
 func test_overpay_is_minimal() -> void:
 	# Kein einzelner gezahlter Chip ist überflüssig: seine Rücknahme würde die

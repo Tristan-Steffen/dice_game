@@ -1,10 +1,11 @@
 class_name ChipStackView
 extends Node3D
 ## Zeigt den Geldstand als echte Chip-Börse (_wallet: Anzahl je Stückelung) auf
-## dem Tisch. Chips werden NIE zusammengelegt oder geteilt, sobald sie liegen:
-## Zuwachs kommt in gierig gestückelten Chips herein und bleibt in dieser Form;
-## bei Zahlung wird möglichst exakt bezahlt, sonst mit genau einem Chip zu viel,
-## und das Wechselgeld kommt aus dem Tisch zurück (siehe payment_plan). Die
+## dem Tisch. Zuwachs kommt in gierig gestückelten Chips herein; bei Zahlung
+## wird möglichst exakt bezahlt, sonst mit genau einem Chip zu viel, und das
+## Wechselgeld kommt aus dem Tisch zurück (siehe payment_plan). Wächst ein
+## Chip-Bestand über STACK_LIMIT Türme, wertet ihn show_wallet automatisch in
+## höhere Stückelungen auf (color up, siehe consolidate). Die
 ## Türme (max. COLUMN_CAP Chips) stehen als Rack in Reihen, nach Stückelung
 ## gruppiert. Nur der oberste Chip einer Spalte trägt die Wertziffer; ein aus
 ## dem Index abgeleiteter Versatz lässt die Türme handgesetzt wirken.
@@ -45,6 +46,9 @@ const SPOT_COLOR := Color(0.82, 0.79, 0.70)       # gedämpfte Creme-Rand-Punkte
 const CHIP_RADIUS := 0.9
 const CHIP_HEIGHT := 0.28
 const COLUMN_CAP := 12
+## Übersteigt eine Stückelung mehr als STACK_LIMIT Türme, wird sie automatisch
+## gierig in höhere Chips aufgewertet ("color up"), siehe consolidate.
+const STACK_LIMIT := 3
 const COLUMN_SPACING := CHIP_RADIUS * 2.3         # Turmabstand in der Reihe
 const ROW_SPACING := CHIP_RADIUS * 2.15           # Abstand zwischen Reihen
 const ROW_LEN := 4                                # Türme je Reihe (Truhenbreite)
@@ -107,8 +111,10 @@ func wallet_total() -> int:
 		total += int(value) * int(_wallet[value])
 	return total
 
-## Zeigt die aktuelle Börse (Abgleich/Endzustand).
+## Zeigt die aktuelle Börse (Abgleich/Endzustand). Vorher wird color-up
+## angewandt: zu hohe Chip-Stapel wandern automatisch in höhere Stückelungen.
 func show_wallet() -> void:
+	_wallet = consolidate(_wallet)
 	_build_pile(_wallet)
 
 ## Zeigt einen beliebigen Chip-Bestand (Zwischenbild einer Animation).
@@ -201,6 +207,23 @@ static func payment_plan(wallet_counts: Dictionary, price: int) -> Dictionary:
 			spend[value] -= 1
 			overpay -= value
 	return {"spend": spend, "change": overpay}
+
+## Color-up: übersteigt eine Stückelung (außer der höchsten) mehr als
+## STACK_LIMIT Türme, wird ihr GANZER Bestand gierig in höhere Chips
+## aufgewertet - der Gesamtwert bleibt gleich. Aufsteigend abgearbeitet, damit
+## erzeugte höhere Chips ihrerseits weiter aufsteigen können (Kaskade). Die
+## höchste Stückelung ($100) bleibt: für sie gibt es kein Höher.
+static func consolidate(counts: Dictionary) -> Dictionary:
+	var result := {100: 0, 25: 0, 5: 0, 1: 0}
+	for value in counts:
+		result[int(value)] += int(counts[value])
+	for value in [1, 5, 25]:
+		if result[value] > STACK_LIMIT * COLUMN_CAP:
+			var upgraded := split_gain(value * result[value])
+			result[value] = 0
+			for v in upgraded:
+				result[v] += 1
+	return result
 
 ## Umtausch eines ganzen Turms (count Chips zu value) am Schlitz: liefert die
 ## gierig aufgewerteten Chips - oder leer, wenn kein höherer Chip entsteht
