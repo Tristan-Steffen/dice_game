@@ -7,7 +7,7 @@
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/table/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
-[ext_resource type="Script" path="res://scripts/table/dice_shell.gd" id="15_diceshell"]
+[ext_resource type="Script" uid="uid://bwq5y16betfts" path="res://scripts/table/dice_shell.gd" id="15_diceshell"]
 [ext_resource type="Script" uid="uid://d1e1kpuirytqv" path="res://scripts/table/charm_row_view.gd" id="16_charmrow"]
 [ext_resource type="Script" uid="uid://bv44s37lwsxvs" path="res://scripts/table/chip_stack_view.gd" id="17_chipstack"]
 

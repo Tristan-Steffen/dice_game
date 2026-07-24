@@ -67,8 +67,9 @@ func test_play_shuffle_reist_zur_grube_und_ruettelt() -> void:
 	assert_eq(shell.state, DiceShell.State.SHAKE, "nach der Reise wird gerüttelt")
 	var pit_target := Vector3(DicePit.PIT_CENTER.x, DiceShell.SHAKE_HEIGHT,
 		DicePit.PIT_CENTER.z + DiceShell.SHAKE_OFFSET_Z)
-	# Toleranz: Umherstreifen + Zittern setzen direkt nach der Ankunft ein.
-	assert_lt(shell.mouth_position().distance_to(pit_target), 1.5, "Rüttel-Anker rechts über der Grube")
+	# Toleranz = maximaler Schlagausschlag: die Hülle schüttelt ab der Ankunft.
+	var reach := DiceShell.SHAKE_STROKE.length() + DiceShell.SHAKE_ARC.length() + 0.1
+	assert_lt(shell.mouth_position().distance_to(pit_target), reach, "Rüttel-Anker rechts über der Grube")
 	await wait_seconds(DiceShell.SHUFFLE_MIN_TIME + 0.1)
 	assert_eq(shell.state, DiceShell.State.POISED, "ungepackt kippt der Timer aus")
 

@@ -43,31 +43,34 @@ const GHOST_GRAVITY := 1.6    # floatiger als Spielwürfel (3.5)
 const NET_RADIUS := 1.9
 
 const IDLE_SPIN := Vector3(0.12, 0.35, 0.08)  # ruhige Dauerdrehung
-const SHUFFLE_SPEED := 4.0    # rad/s beim Rütteln
 const MAX_SPIN := 7.0
 const SPIN_DAMP := 1.6        # Rückfederung Richtung Ziel-Drehung (1/s)
 const DRAG_SENSITIVITY := 0.06  # Maus-Pixel -> rad/s
 
 const SHAKE_HEIGHT := 8.0     # Rüttel-Höhe des Hüllen-Zentrums über der Grube
 const SHAKE_OFFSET_Z := 4.0   # Rüttel-Anker rechts der Grubenmitte (Screen-rechts = +Z)
-const SHAKE_JITTER := 0.28    # Amplitude des feinen Positions-Zitterns
-## Umherstreifen beim Auto-Rütteln: weite Ausschläge in alle Richtungen
-## (x = Screen-hoch/runter, y = Höhe, z = links/rechts), jeder mindestens
-## einen Hüllenradius weit. Bleibt samt Silhouette in der Grube: die
-## Ausschläge plus RADIUS unterschreiten PIT_HALF_X/Z.
-const ROAM := Vector3(3.2, 1.6, 4.5)
-## Kreisfrequenzen der drei Achsen (rad/s) - bewusst nicht ganzzahlig
-## zueinander, damit die Bahn wandert statt zu wiederholen.
-const ROAM_FREQ := Vector3(3.0, 4.1, 2.3)
-const ROAM_RAMP_TIME := 0.35  # Streifen nach der Ankunft sanft einblenden
+## Becher-Schlag beim Auto-Rütteln: EIN fester Schlagvektor (quer über die
+## Grube, dabei auf/ab), im Takt hin und her - kein zufälliges Umherstreifen.
+## Ausschlag plus RADIUS bleibt klar innerhalb PIT_HALF_X/Z.
+const SHAKE_STROKE := Vector3(0.85, 0.7, 2.2)
+## Oberwelle quer zum Schlag (doppelter Takt): macht aus der Geraden die
+## flache Acht, die eine Hand beim Schütteln beschreibt. Taktgebunden, also
+## rhythmisch statt zufällig.
+const SHAKE_ARC := Vector3(0.35, 0.6, 0.0)
+const SHAKE_RATE := 14.0      # rad/s des Schlags (~2,2 Hz = ~4,5 Schläge/s)
+## 0 = reiner Sinus (weiche Umkehr), 1 = Dreieck (konstantes Tempo, harte
+## Umkehr). Dazwischen liegt der Handgelenk-Schlag.
+const SHAKE_SNAP := 0.6
+const ROCK_SPEED := 5.0       # rad/s: Kippen quer zur Schlagrichtung
+const SHAKE_SPIN_DAMP := 14.0 # das Kippen muss dem schnellen Takt folgen
 const DRAG_FOLLOW := 14.0     # Zieh-Folgetempo (1/s) beim manuellen Rütteln
 ## Randabstand des Zieh-Ziels zur Grubenwand: > RADIUS, damit die Hülle
 ## samt Silhouette innerhalb der Wände bleibt.
 const SHAKE_MARGIN := 4.0
 const TRAVEL_TIME := 0.6      # Heimat-Platz -> Grubenmitte
-## Ungepackt kippt die Hülle nach dieser Zeit aus - lang genug, dass das
-## Umherstreifen als Bewegung lesbar wird.
-const SHUFFLE_MIN_TIME := 1.8
+## Ungepackt kippt die Hülle nach dieser Zeit aus - knapp, aber lang genug,
+## dass das Umherstreifen als Bewegung lesbar wird.
+const SHUFFLE_MIN_TIME := 0.8
 
 const RELEASE_BURST_TIME := 0.15
 const RELEASE_RETURN_TIME := 0.5
@@ -109,8 +112,8 @@ var move_t := 0.0
 var move_from := Vector3.ZERO
 var grabbed := false            # Spieler hält die Hülle per Zieh-Geste
 var shuffle_time_left := 0.0
-var shake_pos := Vector3.ZERO   # ungezitterte Rüttel-Position (lokal)
-var shake_ramp := 0.0           # blendet das Umherstreifen nach der Ankunft ein
+var shake_pos := Vector3.ZERO   # Mittelpunkt-Position der Hülle (lokal)
+var shake_t := 0.0              # Takt-Zeit des Schlags (0 bei Rüttel-Beginn)
 var drag_point := Vector3.ZERO  # Zieh-Ziel (lokal, siehe drag_to)
 var has_drag_point := false
 
@@ -252,6 +255,21 @@ func _build_face(i: int) -> void:
 ## Startpunkt der echten Wurf-Würfel (über der Grubenmitte beim Bersten).
 func mouth_position() -> Vector3:
 	return shell_root.global_position
+
+## Ein Becher-Schlag: Hin und Her entlang SHAKE_STROKE, dessen Kurve zwischen
+## Sinus (weiche Umkehr) und Dreieck (konstantes Tempo, harte Umkehr) liegt -
+## das ist der Handgelenk-Schlag. Dazu eine Oberwelle im doppelten Takt quer
+## dazu, die die Gerade zur flachen Acht macht. Beide Anteile hängen am selben
+## Takt: die Bahn wiederholt sich, statt zufällig zu wandern.
+func _stroke_offset(phase: float) -> Vector3:
+	var wave := sin(phase)
+	var triangle := asin(wave) * 2.0 / PI
+	return SHAKE_STROKE * lerpf(wave, triangle, SHAKE_SNAP) + SHAKE_ARC * sin(phase * 2.0)
+
+## Kipp-Achse des Handgelenks: waagerecht und quer zur Schlagrichtung.
+func _rock_axis() -> Vector3:
+	var axis := SHAKE_STROKE.cross(Vector3.UP)
+	return axis.normalized() if axis.length() > 0.01 else Vector3.RIGHT
 
 ## Rüttel-Anker: lokaler Ort des Hüllen-Zentrums über der Grube, etwas
 ## rechts der Mitte (Richtung Heimat-Platz).
@@ -406,14 +424,13 @@ func _physics_process(delta: float) -> void:
 				state = State.SHAKE
 				shuffle_time_left = SHUFFLE_MIN_TIME
 				shake_pos = shell_root.position
-				shake_ramp = 0.0
+				shake_t = 0.0  # Takt bei 0 - der erste Schlag startet aus der Ruhe
 		State.SHAKE:
-			# Grobe Bewegung: gepackt folgt die Hülle EXAKT dem Zieh-Ziel (kein
-			# Eigenleben - der Spieler rüttelt selbst), sonst streift sie in
-			# allen Richtungen umher und zittert dabei fein. Die Platten stoßen
-			# die Würfel jeweils physisch an. Timer-Ablauf ZUERST prüfen - nach
-			# dem Loslassen darf das Streifen die Hülle nicht mehr vom
-			# Loslass-Punkt wegreißen.
+			# Gepackt folgt die Hülle EXAKT dem Zieh-Ziel (kein Eigenleben - der
+			# Spieler schüttelt selbst), sonst schlägt sie im festen Takt hin und
+			# her wie ein Becher in der Hand. Die Platten stoßen die Würfel dabei
+			# physisch an. Timer-Ablauf ZUERST prüfen - nach dem Loslassen darf
+			# kein Schlag die Hülle vom Loslass-Punkt wegreißen.
 			if grabbed:
 				if has_drag_point:
 					shake_pos = shake_pos.lerp(drag_point, clampf(DRAG_FOLLOW * delta, 0.0, 1.0))
@@ -422,17 +439,9 @@ func _physics_process(delta: float) -> void:
 				if shuffle_time_left <= 0.0:
 					state = State.POISED
 				else:
-					shake_ramp = minf(shake_ramp + delta / ROAM_RAMP_TIME, 1.0)
-					shake_pos = _pit_anchor() + Vector3(
-						sin(_time * ROAM_FREQ.x) * ROAM.x,
-						sin(_time * ROAM_FREQ.y + 0.8) * ROAM.y,
-						sin(_time * ROAM_FREQ.z + 2.1) * ROAM.z) * shake_ramp
-			# Eigen-Zittern nur beim Auto-Rütteln (nicht gepackt, Timer läuft noch).
-			if grabbed or state != State.SHAKE:
-				shell_root.position = shake_pos
-			else:
-				shell_root.position = shake_pos + Vector3(
-					sin(_time * 29.0), sin(_time * 35.0 + 1.3), cos(_time * 31.0)) * SHAKE_JITTER
+					shake_t += delta
+					shake_pos = _pit_anchor() + _stroke_offset(shake_t * SHAKE_RATE)
+			shell_root.position = shake_pos
 		State.POISED:
 			# Auskipp-Bereitschaft GENAU dort, wo das Rütteln endete - beim
 			# manuellen Rütteln also am Loslass-Punkt des Spielers.
@@ -453,14 +462,16 @@ func _physics_process(delta: float) -> void:
 	beam_material.set_shader_parameter("load", load)
 	lens_material.set_shader_parameter("pulse", load)
 
-	# Drehung: Ziel ist ruhiges Kreiseln bzw. Rüttel-Wirbel; Spieler-Impulse
-	# federn über SPIN_DAMP dorthin zurück.
+	# Drehung: ruhiges Kreiseln, beim Auto-Schütteln stattdessen das Kippen des
+	# Handgelenks - quer zur Schlagrichtung und im GLEICHEN Takt, damit Weg und
+	# Drehung als eine Bewegung lesen. Spieler-Impulse federn dorthin zurück;
+	# gepackt bleibt es beim Kreiseln (der Spieler dreht selbst).
 	var target := IDLE_SPIN
-	if state == State.SHAKE:
-		# wandernde Wirbelachse - wirkt chaotisch, bleibt aber ruckelfrei
-		target = Vector3(sin(_time * 3.1), sin(_time * 2.3 + 1.7), cos(_time * 2.7)) \
-			.normalized() * SHUFFLE_SPEED
-	angular_velocity = angular_velocity.lerp(target, clampf(SPIN_DAMP * delta, 0.0, 1.0))
+	var damp := SPIN_DAMP
+	if state == State.SHAKE and not grabbed:
+		target = _rock_axis() * cos(shake_t * SHAKE_RATE) * ROCK_SPEED
+		damp = SHAKE_SPIN_DAMP  # träge Federung würde den schnellen Takt wegglätten
+	angular_velocity = angular_velocity.lerp(target, clampf(damp * delta, 0.0, 1.0))
 	var speed := angular_velocity.length()
 	if speed > 0.001:
 		shell_root.global_rotate(angular_velocity / speed, speed * delta)
