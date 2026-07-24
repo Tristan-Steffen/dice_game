@@ -139,15 +139,12 @@ var _score_applied := -1
 var _score_pending := 0
 var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurückgesetzt)
 
-## Weltabstand der Aktions-Buttons unter die Grubenmitte Richtung
-## Bildschirm-unten (Welt -X) - unten mittig, innerhalb des Randes.
-const PIT_ACTION_BAR_INSET_X := 5.6
-
-## Hover-Erklärfeld der Grube: als waagerechtes Band zwischen Würfelreihe (X≥0)
-## und Aktions-Knöpfen (X≈-5.6), mittig über die lange Grubenachse.
-const PIT_INFO_BAR_INSET_X := 2.7  # Bandmitte unter der Würfelreihe (Welt -X)
-const PIT_INFO_BAR_HALF_X := 1.15  # halbe Bandhöhe (Welt-X)
-const PIT_INFO_BAR_HALF_Z := 7.0   # halbe Bandbreite (Welt-Z)
+## Ständiges Würfelnetz-Feld der Grube, mittig über der langen Grubenachse;
+## die Aktions-Knöpfe docken links/rechts an, der Bank-Knopf darunter
+## (place_pit_actions leitet alles aus diesem Rechteck ab).
+const PIT_INFO_BAR_INSET_X := 3.8  # Feldmitte unter der Würfelreihe (Welt -X)
+const PIT_INFO_BAR_HALF_X := 2.1   # halbe Feldhöhe (Welt-X)
+const PIT_INFO_BAR_HALF_Z := 2.7   # halbe Feldbreite (Welt-Z)
 
 ## Geld-Lichtanimation: Gutschriften schicken goldenes Licht Hub -> Chips,
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
@@ -460,9 +457,6 @@ func _setup_table_screen() -> void:
 		Vector2(HUB_WIDTH_WORLD * ppw, HUB_HEIGHT_WORLD * ppw))
 	_setup_hub_zoom()
 	_refresh_hub_info()
-	# Aktions-Buttons unten mittig in der Grube (Bildschirm-unten = Welt -X).
-	table_screen.place_pit_actions(table_screen.world_to_pixel(Vector3(
-		DicePit.PIT_CENTER.x - PIT_ACTION_BAR_INSET_X, 0.0, DicePit.PIT_CENTER.z)))
 	# Gruben-Fenster: der Rahmen zeichnet EXAKT die Kollisionslinie der
 	# Energiewände nach (±PIT_HALF um die Grubenmitte, Eckenrundung der Wände).
 	var pit_corner_a := table_screen.world_to_pixel(Vector3(
@@ -482,7 +476,9 @@ func _setup_table_screen() -> void:
 	var pit_info_b := table_screen.world_to_pixel(Vector3(
 		pit_info_cx - PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_INFO_BAR_HALF_Z))
 	var pit_info_rect := Rect2(pit_info_a, Vector2.ZERO).expand(pit_info_b)
-	table_screen.place_pit_info_bar(pit_info_rect, pit_info_rect.size.x / 100.0)
+	table_screen.place_pit_info_bar(pit_info_rect)
+	# Aktions-Knöpfe flankieren das Netz-Feld, der Bank-Knopf hängt darunter.
+	table_screen.place_pit_actions(pit_info_rect)
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
@@ -2096,8 +2092,7 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.HUB:
 			return table_screen.hub != null and table_screen.hub.get_rect().has_point(pixel)
 		CameraRig.Mode.PIT:
-			return table_screen.pit_actions_root != null and table_screen.pit_actions_root.visible \
-				and table_screen.pit_actions_rect().has_point(pixel)
+			return table_screen.pit_actions_hit(pixel)
 		CameraRig.Mode.SIDE_BETS:
 			# Im Zoom auf die Wettannahme gehen Klicks/Hover an die Setzen-Knöpfe.
 			return _side_bet_window_has_point(pixel)
@@ -2181,43 +2176,41 @@ func _process(_delta: float) -> void:
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 
-## Erklärfeld unter den Grubenwürfeln: die Materialwirkung der Seite unter der
-## Maus (Seite + Kanten) - nur in der Grubensicht mit ruhenden Würfeln, sonst leer.
+## Würfelnetz-Feld der Grube: zeigt den Würfel unter der Maus - ruhende
+## Grubenwürfel (mit Gold-Rahmen auf der oben liegenden Seite) und die
+## nächsten Würfel der Warteschlange (ohne Lage, die liegen ja noch nicht).
 func _update_pit_hover() -> void:
 	if table_screen == null:
 		return
-	var text := ""
 	if is_pit_focused and phase == Phase.IDLE and not camera_rig.is_animating:
-		text = _hovered_die_hint(get_viewport().get_mouse_position())
-	table_screen.set_pit_info(text)
+		var mouse := get_viewport().get_mouse_position()
+		var index := _hovered_die_index(mouse)
+		if index >= 0:
+			table_screen.set_pit_die(dice.slot_defs[index], dice.face_indices[index])
+			return
+		var queue_index := _hovered_queue_index(mouse)
+		if queue_index >= 0:
+			table_screen.set_pit_die(queue_tray_view.slot_defs[queue_index], -1)
+			return
+	table_screen.clear_pit_die()
 
-## Erklärtext der Würfelseite unter screen_pos ("" = kein ruhender Würfel dort
-## oder Seite/Kanten ohne Material). Kanten stehen immer mit dabei - sie sind
-## aus der Grubensicht am schwersten zu lesen.
-func _hovered_die_hint(screen_pos: Vector2) -> String:
+## Slot des ruhenden, sichtbaren Grubenwürfels unter screen_pos, sonst -1.
+func _hovered_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
 	if result.is_empty():
-		return ""
+		return -1
 	var index := dice.index_of_body(result.collider)
 	if index == -1 or not dice.roots[index].visible or not dice.settled[index]:
-		return ""
-	var def: DieDefinition = dice.slot_defs[index]
-	var lines: Array[String] = []
-	var face_index := _hovered_face_index(dice.bodies[index], result.get("normal", Vector3.UP))
-	if face_index >= 0 and face_index < def.materials.size():
-		var face_hint := DieMaterial.face_hint(def.materials[face_index])
-		if face_hint != "":
-			lines.append(face_hint)
-	var edge_hint := DieMaterial.edge_hint(def.edge_material)
-	if edge_hint != "":
-		lines.append(edge_hint)
-	return "\n".join(lines)
+		return -1
+	return index
 
-## Physische Seite (0..5) unter dem Weltnormal des Ray-Treffers: Normal in den
-## Würfel-Lokalraum drehen, nächste Achsrichtung suchen, deren Face-Index nehmen.
-func _hovered_face_index(body: RigidBody3D, world_normal: Vector3) -> int:
-	var local_normal := body.global_transform.basis.inverse() * world_normal
-	return DiceController.face_index_for_local_dir(local_normal)
+## Slot des Warteschlangen-Würfels unter screen_pos, sonst -1 (leere Slots
+## filtert find_slot_index über die Sichtbarkeit).
+func _hovered_queue_index(screen_pos: Vector2) -> int:
+	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
+	if result.is_empty():
+		return -1
+	return queue_tray_view.find_slot_index(result.collider)
 
 ## Hält die On-Screen-Buttons (Nehmen/Würfeln) jeden Frame im Takt des
 ## Spielzustands - unabhängig von den verstreuten Zustandswechseln.
@@ -2226,6 +2219,8 @@ func _sync_screen_action_buttons() -> void:
 		return
 	var show := gameplay_ui_state_visible and is_pit_focused
 	table_screen.pit_actions_root.visible = show
+	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
+	table_screen.pit_info_bar.visible = show
 	if not show:
 		return
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand

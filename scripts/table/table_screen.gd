@@ -80,9 +80,9 @@ const CRIT_SHAKE_TIME := 0.3
 const CRIT_SHAKE_PX := 5.0 * SUPERSAMPLE
 
 ## Aktions-Buttons unten mittig in der Grube, bedient über die Maus-Weiterleitung.
-const PIT_ACTION_SIZE := Vector2(79, 28) * SUPERSAMPLE
+const PIT_ACTION_SIZE := Vector2(66, 24) * SUPERSAMPLE
 const PIT_ACTION_GAP := 10.0 * SUPERSAMPLE
-const PIT_ACTION_FONT := 14 * SUPERSAMPLE
+const PIT_ACTION_FONT := 12 * SUPERSAMPLE
 
 ## Licht-Trails: LEITERBAHNEN (rein achsenparallel, siehe ScoreTraceView) -
 ## Cyan in die Basis, Gold in Mult/Gesamtzahl.
@@ -153,10 +153,14 @@ var slot_hub_strip: LedStripView
 var supply_info_bar: Panel
 ## RichTextLabel: der Gravur-Name steht fett in seiner Seltenheits-Farbe (BBCode).
 var supply_info_label: RichTextLabel
-## Hover-Erklärfeld unter den Grubenwürfeln: zeigt die Materialwirkung der Seite
-## unter der Maus (Seite + Kanten). Nur sichtbar, während set_pit_info Text hat.
+## Ständiges Würfelnetz-Feld unter den Grubenwürfeln (DieNetView): gefüllt vom
+## Hover (set_pit_die/clear_pit_die), sichtbar mit den Aktions-Knöpfen.
 var pit_info_bar: Panel
-var pit_info_label: Label
+var pit_net_holder: Control
+## Netz-Neubau nur bei Würfel-/Lagewechsel - der Hover ruft jeden Frame.
+var _pit_net_def: DieDefinition
+var _pit_net_face := -2
+var _pit_net_cell := 0.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -478,23 +482,18 @@ func _build_content() -> void:
 	supply_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	supply_info_bar.add_child(supply_info_label)
 
-	# Hover-Erklärfeld der Grube: Position/Größe setzt scene_root über
-	# place_pit_info_bar; leer = unsichtbar (set_pit_info).
+	# Würfelnetz-Feld der Grube: Position/Größe setzt scene_root über
+	# place_pit_info_bar; ein-/ausgeblendet zusammen mit den Aktions-Knöpfen.
 	pit_info_bar = Panel.new()
 	pit_info_bar.name = "PitInfoBar"
 	pit_info_bar.visible = false
 	pit_info_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pit_info_bar.add_theme_stylebox_override("panel", window_style())
 	add_child(pit_info_bar)
-	pit_info_label = Label.new()
-	pit_info_label.name = "InfoLabel"
-	pit_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	pit_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pit_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pit_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	pit_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pit_info_label.modulate = Color(1.35, 1.35, 1.3)
-	pit_info_bar.add_child(pit_info_label)
+	pit_net_holder = Control.new()
+	pit_net_holder.name = "NetHolder"
+	pit_net_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_info_bar.add_child(pit_net_holder)
 
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
@@ -2066,27 +2065,22 @@ func flash_cluster_frame(color: Color) -> void:
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func _build_pit_actions() -> void:
-	var row_width := PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP
 	pit_actions_root = Control.new()
 	pit_actions_root.name = "PitActions"
 	pit_actions_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Zweite Reihe für den Bank-Knopf (Runde vorzeitig beenden).
-	pit_actions_root.size = Vector2(row_width, PIT_ACTION_SIZE.y * 2.0 + PIT_ACTION_GAP)
+	pit_actions_root.size = Vector2(PIT_ACTION_SIZE.x * 4.0, PIT_ACTION_SIZE.y)  # bis place_pit_actions
 	add_child(pit_actions_root)
 
 	take_action_button = _make_pit_button("Nehmen", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK)
-	take_action_button.position = Vector2.ZERO
 	pit_actions_root.add_child(take_action_button)
 
 	roll_action_button = _make_pit_button("Würfeln", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK)
-	roll_action_button.position = Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.add_child(roll_action_button)
 
-	# Bank-Knopf: über volle Breite unter den beiden, erscheint erst ab Stufe 1.
+	# Bank-Knopf: mittig zwischen den Eck-Knöpfen, erscheint erst ab Stufe 1.
 	bank_action_button = _make_pit_button("Runde beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
-	bank_action_button.size = Vector2(row_width, PIT_ACTION_SIZE.y)
+	bank_action_button.size = Vector2(PIT_ACTION_SIZE.x * 2.0 + PIT_ACTION_GAP, PIT_ACTION_SIZE.y)
 	bank_action_button.custom_minimum_size = bank_action_button.size
-	bank_action_button.position = Vector2(0.0, PIT_ACTION_SIZE.y + PIT_ACTION_GAP)
 	bank_action_button.visible = false
 	pit_actions_root.add_child(bank_action_button)
 
@@ -2124,37 +2118,75 @@ func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
 	box.shadow_offset = Vector2(0, 2) * SUPERSAMPLE
 	return box
 
-## Setzt die Aktions-Buttons so, dass die OBERE Reihe (Nehmen/Würfeln) mittig auf
-## center_px sitzt; der Bank-Knopf hängt darunter, ohne die Hauptreihe zu verschieben.
-func place_pit_actions(center_px: Vector2) -> void:
+## Passt die Aktions-Knöpfe an das Würfelnetz-Feld an: Nehmen links daneben,
+## Würfeln rechts daneben - beide in fester Knopfhöhe, bündig mit der
+## Feld-Unterkante -, der Bank-Knopf in Feldbreite mittig darunter.
+func place_pit_actions(bar_rect: Rect2) -> void:
 	if pit_actions_root == null:
 		return
-	pit_actions_root.position = center_px - Vector2(pit_actions_root.size.x / 2.0, PIT_ACTION_SIZE.y / 2.0)
+	for button: Button in [take_action_button, roll_action_button]:
+		button.custom_minimum_size = PIT_ACTION_SIZE
+		button.size = PIT_ACTION_SIZE
+	bank_action_button.custom_minimum_size = Vector2(bar_rect.size.x, PIT_ACTION_SIZE.y)
+	bank_action_button.size = bank_action_button.custom_minimum_size
+	pit_actions_root.position = bar_rect.position - Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
+	pit_actions_root.size = Vector2(
+		bar_rect.size.x + 2.0 * (PIT_ACTION_SIZE.x + PIT_ACTION_GAP),
+		bar_rect.size.y + PIT_ACTION_GAP + bank_action_button.size.y)
+	# Bündig mit der Feld-Unterkante (Feldhöhe minus Knopfhöhe).
+	var side_y := bar_rect.size.y - PIT_ACTION_SIZE.y
+	take_action_button.position = Vector2(0.0, side_y)
+	roll_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x, side_y)
+	bank_action_button.position = Vector2(
+		(pit_actions_root.size.x - bank_action_button.size.x) / 2.0,
+		bar_rect.size.y + PIT_ACTION_GAP)
 
-## Bildschirm-Rechteck der Aktions-Buttons (für die Maus-Weiterleitung).
-func pit_actions_rect() -> Rect2:
-	if pit_actions_root == null:
-		return Rect2()
-	return Rect2(pit_actions_root.position, pit_actions_root.size)
+## Trifft pixel einen sichtbaren Aktions-Knopf? Die Wurzel spannt die ganze
+## Grubenbreite - für die Maus-Weiterleitung zählen nur die Knöpfe selbst,
+## sonst schluckt der Streifen Klicks auf Würfel am Grubenrand.
+func pit_actions_hit(pixel: Vector2) -> bool:
+	if pit_actions_root == null or not pit_actions_root.visible:
+		return false
+	for button in [take_action_button, roll_action_button, bank_action_button]:
+		if button.visible and Rect2(pit_actions_root.position + button.position, button.size).has_point(pixel):
+			return true
+	return false
 
-## Spannt das Hover-Erklärfeld über rect auf (unter den Grubenwürfeln); unit
-## staffelt die Schriftgröße wie bei den übrigen Info-Leisten.
-func place_pit_info_bar(rect: Rect2, unit: float) -> void:
+## Spannt das Würfelnetz-Hover-Feld über rect auf (unter den Grubenwürfeln);
+## die Zellgröße folgt der Feldhöhe, das Netz sitzt mittig.
+func place_pit_info_bar(rect: Rect2) -> void:
 	if pit_info_bar == null:
 		return
 	pit_info_bar.position = rect.position
 	pit_info_bar.size = rect.size
-	pit_info_label.offset_left = unit * 2.0
-	pit_info_label.offset_right = -unit * 2.0
-	pit_info_label.add_theme_font_size_override("font_size", maxi(10, int(unit * 3.0)))
+	var pad := rect.size.y * 0.12
+	_pit_net_cell = (rect.size.y - pad * 2.0) / (3.0 + 2.0 * DieNetView.GAP_FACTOR)
+	pit_net_holder.size = DieNetView.net_size(_pit_net_cell)
+	pit_net_holder.position = (rect.size - pit_net_holder.size) / 2.0
 
-## Setzt den Erklärtext ("" = Feld ausblenden). Die Grubenwürfel-Hover-Logik in
-## scene_root ruft das jeden Frame.
-func set_pit_info(text: String) -> void:
+## Zeigt das Würfelnetz des überfahrenen Würfels; up_face (-1 = keiner)
+## bekommt den Gold-Rahmen. Die Hover-Logik in scene_root ruft das jeden Frame.
+## Die Sichtbarkeit des Felds selbst steuert _sync_screen_action_buttons.
+func set_pit_die(def: DieDefinition, up_face: int) -> void:
 	if pit_info_bar == null:
 		return
-	pit_info_label.text = text
-	pit_info_bar.visible = text != ""
+	if def != _pit_net_def or up_face != _pit_net_face:
+		_pit_net_def = def
+		_pit_net_face = up_face
+		_clear_pit_net()
+		pit_net_holder.add_child(DieNetView.build(def, up_face, _pit_net_cell))
+
+## Leert das Netz (kein Würfel unter der Maus); das Feld bleibt stehen.
+func clear_pit_die() -> void:
+	if pit_info_bar == null:
+		return
+	_pit_net_def = null
+	_pit_net_face = -2
+	_clear_pit_net()
+
+func _clear_pit_net() -> void:
+	for child in pit_net_holder.get_children():
+		child.queue_free()
 
 ## Schneidet einen Kamerastrahl mit der Bildschirm-Ebene und liefert den
 ## Display-Pixel - (-1,-1) bei Verfehlen oder außerhalb der Fläche.
