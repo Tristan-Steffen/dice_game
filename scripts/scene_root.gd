@@ -543,8 +543,13 @@ func _setup_table_screen() -> void:
 	var gap_left := pit_r.end.x
 	var gap_right := side_r.position.x
 	var t_w := minf((gap_right - gap_left) * 0.9, table_screen.size.x * 0.15)
-	var t_size := Vector2(t_w, t_w * 0.62)
-	var t_top := pit_r.end.y - t_size.y  # Unterkante auf der gemeinsamen Linie
+	# Oberkante hergeleitet statt fest: der Projektor-Fuß der Hülle bekommt nach
+	# unten (Screen-Oberkante) genau so viel Luft wie nach oben (Grubenoberkante).
+	# Die Unterkante bleibt auf der gemeinsamen Linie mit Grube und Nebenwetten.
+	var puck_px := DiceShell.PUCK_RADIUS * ppw
+	var puck_margin := maxf((shell_px.y - puck_px) - pit_r.position.y, 0.0)
+	var t_top := shell_px.y + puck_px + puck_margin
+	var t_size := Vector2(t_w, maxf(pit_r.end.y - t_top, t_w * 0.4))
 	# Waagerecht unter die Hülle, aber in der Lücke gehalten.
 	var t_cx := clampf(shell_px.x, gap_left + t_w * 0.5, gap_right - t_w * 0.5)
 	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)

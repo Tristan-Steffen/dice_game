@@ -15,10 +15,26 @@ const CLICK_LAYER := 32
 const GHOST_LAYER := 64
 
 const RADIUS := 3.0          # Umkreisradius der Hülle
-const HOVER_HEIGHT := 4.2    # Schwebehöhe am Heimat-Platz
+const HOVER_HEIGHT := 5.6    # Schwebehöhe am Heimat-Platz (über dem Schatz-Screen)
 const BOB_AMPLITUDE := 0.12
 const BOB_SPEED := 1.2
 const PLATE_THICKNESS := 0.6  # dicke Platten gegen Tunneln
+## Verhältnis In-/Umkugel des Ikosaeders - die tiefste Facettenmitte.
+const INRADIUS_FACTOR := 0.7947
+
+## Projektor am Heimat-Platz: dieselbe Stasis-Station wie unter den Tray-
+## Würfeln (Puck + Iris + Kegel, siehe DiceTrayView), nur größer.
+const PUCK_SHADER := preload("res://assets/shaders/stasis_puck.gdshader")
+const LENS_SHADER := preload("res://assets/shaders/stasis_lens.gdshader")
+const BEAM_SHADER := preload("res://assets/shaders/stasis_beam.gdshader")
+const PROJECTOR_TINT := Color(0.15, 0.75, 1.0)  # Feldfarbe der Hülle
+const PUCK_RADIUS := 1.4
+const PUCK_Y := 0.04
+const LENS_RADIUS := 0.78
+const BEAM_BOTTOM_RADIUS := 0.62
+const BEAM_TOP_RADIUS := 1.5
+const LOAD_AMOUNT := 0.5   # Last-Puls gegenphasig zum Schweben
+const ENGAGE_FADE := 2.0   # 1/s: Strahl löst beim Abheben, greift bei Heimkehr
 
 const GHOST_SCALE := 0.6      # Tray-Würfelgröße (DiceTrayView.DIE_SCALE)
 const GHOST_GRAVITY := 1.6    # floatiger als Spielwürfel (3.5)
@@ -35,16 +51,23 @@ const DRAG_SENSITIVITY := 0.06  # Maus-Pixel -> rad/s
 const SHAKE_HEIGHT := 8.0     # Rüttel-Höhe des Hüllen-Zentrums über der Grube
 const SHAKE_OFFSET_Z := 4.0   # Rüttel-Anker rechts der Grubenmitte (Screen-rechts = +Z)
 const SHAKE_JITTER := 0.28    # Amplitude des feinen Positions-Zitterns
-## Umherstreifen beim Auto-Rütteln: großes, langsames Treiben in alle
-## Richtungen (x = Screen-hoch/runter, y = Höhe, z = links/rechts).
-const ROAM := Vector3(2.2, 0.8, 4.0)
-const ROAM_RAMP_TIME := 0.6   # Streifen nach der Ankunft sanft einblenden
+## Umherstreifen beim Auto-Rütteln: weite Ausschläge in alle Richtungen
+## (x = Screen-hoch/runter, y = Höhe, z = links/rechts), jeder mindestens
+## einen Hüllenradius weit. Bleibt samt Silhouette in der Grube: die
+## Ausschläge plus RADIUS unterschreiten PIT_HALF_X/Z.
+const ROAM := Vector3(3.2, 1.6, 4.5)
+## Kreisfrequenzen der drei Achsen (rad/s) - bewusst nicht ganzzahlig
+## zueinander, damit die Bahn wandert statt zu wiederholen.
+const ROAM_FREQ := Vector3(3.0, 4.1, 2.3)
+const ROAM_RAMP_TIME := 0.35  # Streifen nach der Ankunft sanft einblenden
 const DRAG_FOLLOW := 14.0     # Zieh-Folgetempo (1/s) beim manuellen Rütteln
 ## Randabstand des Zieh-Ziels zur Grubenwand: > RADIUS, damit die Hülle
 ## samt Silhouette innerhalb der Wände bleibt.
 const SHAKE_MARGIN := 4.0
 const TRAVEL_TIME := 0.6      # Heimat-Platz -> Grubenmitte
-const SHUFFLE_MIN_TIME := 1.0 # ungepackt kippt die Hülle nach dieser Zeit aus
+## Ungepackt kippt die Hülle nach dieser Zeit aus - lang genug, dass das
+## Umherstreifen als Bewegung lesbar wird.
+const SHUFFLE_MIN_TIME := 1.8
 
 const RELEASE_BURST_TIME := 0.15
 const RELEASE_RETURN_TIME := 0.5
@@ -90,6 +113,10 @@ var shake_pos := Vector3.ZERO   # ungezitterte Rüttel-Position (lokal)
 var shake_ramp := 0.0           # blendet das Umherstreifen nach der Ankunft ein
 var drag_point := Vector3.ZERO  # Zieh-Ziel (lokal, siehe drag_to)
 var has_drag_point := false
+
+var beam_material: ShaderMaterial   # Projektor-Säule am Heimat-Platz
+var lens_material: ShaderMaterial
+var _engaged := 1.0                 # 1 = Strahl trägt die Hülle (nur zu Hause)
 var angular_velocity := Vector3.ZERO
 var releasing := false
 var _time := 0.0
@@ -127,6 +154,57 @@ func _ready() -> void:
 	zone_shape.shape = sphere
 	zone.add_child(zone_shape)
 	shell_root.add_child(zone)
+
+	_build_projector()
+
+## Projektor am Heimat-Platz: Leuchtscheibe + Iris auf der Tischfläche und
+## darüber der Kraftfeld-Kegel bis zur Hülle - die sichtbare Ursache, dass sie
+## dort schwebt. Bleibt liegen, wenn die Hülle zur Grube zieht (engaged -> 0).
+func _build_projector() -> void:
+	var puck_material := ShaderMaterial.new()
+	puck_material.shader = PUCK_SHADER
+	puck_material.set_shader_parameter("tint", PROJECTOR_TINT)
+	var puck_mesh := PlaneMesh.new()
+	puck_mesh.size = Vector2.ONE * PUCK_RADIUS * 2.0
+	puck_mesh.material = puck_material
+	var puck := MeshInstance3D.new()
+	puck.name = "ProjectorPuck"
+	puck.mesh = puck_mesh
+	puck.position = Vector3(0, PUCK_Y, 0)
+	add_child(puck)
+
+	lens_material = ShaderMaterial.new()
+	lens_material.shader = LENS_SHADER
+	lens_material.set_shader_parameter("tint",
+		Vector3(PROJECTOR_TINT.r, PROJECTOR_TINT.g, PROJECTOR_TINT.b))
+	var lens_mesh := PlaneMesh.new()
+	lens_mesh.size = Vector2.ONE * LENS_RADIUS * 2.0
+	lens_mesh.material = lens_material
+	var lens := MeshInstance3D.new()
+	lens.name = "ProjectorLens"
+	lens.mesh = lens_mesh
+	lens.position = Vector3(0, PUCK_Y + 0.01, 0)  # knapp über dem Puck-Dial
+	add_child(lens)
+
+	# Der Griff-Ring sitzt an der Unterseite der Hülle (tiefste Facettenmitte).
+	beam_material = ShaderMaterial.new()
+	beam_material.shader = BEAM_SHADER
+	beam_material.set_shader_parameter("beam_height", HOVER_HEIGHT)
+	beam_material.set_shader_parameter("grip_h",
+		clampf((HOVER_HEIGHT - RADIUS * INRADIUS_FACTOR) / HOVER_HEIGHT, 0.0, 1.0))
+	beam_material.set_shader_parameter("beam_color",
+		Vector3(PROJECTOR_TINT.r, PROJECTOR_TINT.g, PROJECTOR_TINT.b))
+	var beam_mesh := CylinderMesh.new()
+	beam_mesh.top_radius = BEAM_TOP_RADIUS
+	beam_mesh.bottom_radius = BEAM_BOTTOM_RADIUS
+	beam_mesh.height = HOVER_HEIGHT
+	beam_mesh.radial_segments = 20
+	var beam := MeshInstance3D.new()
+	beam.name = "ProjectorBeam"
+	beam.mesh = beam_mesh
+	beam.material_override = beam_material
+	beam.position = Vector3(0, HOVER_HEIGHT * 0.5, 0)
+	add_child(beam)
 
 ## Facette i: ein Dreiecks-Mesh (UV = baryzentrisch für den Rand-Glow im
 ## Shader) plus eine konvexe Platten-Prisma-Kollision, außen aufgesetzt -
@@ -312,9 +390,10 @@ func flash_face(index: int, strength: float) -> void:
 func _physics_process(delta: float) -> void:
 	_time += delta
 	var home := Vector3(0, HOVER_HEIGHT, 0)
+	var bob := sin(_time * BOB_SPEED)
 	match state:
 		State.HOME:
-			shell_root.position = home + Vector3.UP * (sin(_time * BOB_SPEED) * BOB_AMPLITUDE)
+			shell_root.position = home + Vector3.UP * (bob * BOB_AMPLITUDE)
 		State.TRAVEL:
 			move_t += delta
 			var k := smoothstep(0.0, 1.0, clampf(move_t / TRAVEL_TIME, 0.0, 1.0))
@@ -345,9 +424,9 @@ func _physics_process(delta: float) -> void:
 				else:
 					shake_ramp = minf(shake_ramp + delta / ROAM_RAMP_TIME, 1.0)
 					shake_pos = _pit_anchor() + Vector3(
-						sin(_time * 2.1) * ROAM.x,
-						sin(_time * 3.3 + 0.8) * ROAM.y,
-						sin(_time * 1.7 + 2.1) * ROAM.z) * shake_ramp
+						sin(_time * ROAM_FREQ.x) * ROAM.x,
+						sin(_time * ROAM_FREQ.y + 0.8) * ROAM.y,
+						sin(_time * ROAM_FREQ.z + 2.1) * ROAM.z) * shake_ramp
 			# Eigen-Zittern nur beim Auto-Rütteln (nicht gepackt, Timer läuft noch).
 			if grabbed or state != State.SHAKE:
 				shell_root.position = shake_pos
@@ -364,6 +443,15 @@ func _physics_process(delta: float) -> void:
 			shell_root.position = move_from.lerp(home, k)
 			if move_t >= RELEASE_RETURN_TIME:
 				state = State.HOME
+
+	# Projektor: der Strahl trägt nur am Heimat-Platz, unterwegs löst er sich.
+	# Last pulst gegenphasig zum Schweben (sinkt die Hülle, arbeitet das Feld
+	# härter) - dieselbe Rückkopplung wie bei den Tray-Emittern.
+	_engaged = move_toward(_engaged, 1.0 if state == State.HOME else 0.0, ENGAGE_FADE * delta)
+	beam_material.set_shader_parameter("engaged", _engaged)
+	var load := 1.0 - LOAD_AMOUNT * bob * _engaged
+	beam_material.set_shader_parameter("load", load)
+	lens_material.set_shader_parameter("pulse", load)
 
 	# Drehung: Ziel ist ruhiges Kreiseln bzw. Rüttel-Wirbel; Spieler-Impulse
 	# federn über SPIN_DAMP dorthin zurück.
