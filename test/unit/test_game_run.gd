@@ -29,6 +29,12 @@ func test_pool_entries_are_independent_instances():
 	run.owned_pool[0].faces[0] = 6
 	assert_eq(run.owned_pool[1].faces[0], 1, "Nachbar-Würfel bleibt unberührt")
 
+func test_edge_die_count_counts_owned_edge_dice():
+	assert_eq(run.edge_die_count(), 0, "frischer Pool ohne Kanten-Material")
+	run.owned_pool[0].edge_material = DieMaterial.GOLD
+	run.owned_pool[3].edge_material = DieMaterial.MERCURY
+	assert_eq(run.edge_die_count(), 2, "zwei Würfel mit Kanten-Material im ganzen Besitz")
+
 # --- Geld ----------------------------------------------------------------------
 
 func test_add_money_accumulates_and_emits():

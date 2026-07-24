@@ -15,8 +15,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var raw := dice
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	var participating := DiceScoring.participating_indices(key, dice)
-	# Nur beteiligte Würfel zählen Augen - Unbeteiligte bleiben dunkel.
-	var eye_slots := participating.duplicate()
+	# Normal zählen nur beteiligte Würfel Augen; mit Vollzähler ALLE liegenden
+	# (dann leuchten und triggern auch die Unbeteiligten).
+	var eye_slots := CharmEffects.scored_indices(participating, dice.size(), charm_ids).duplicate()
 	var has_materials := not materials.is_empty() or not edge_materials.is_empty()
 	# Retrigger-Charms zählen auch ohne Materialien über den base_bonus-Pfad.
 	var has_die_bonus := has_materials or not charm_ids.is_empty()
@@ -30,7 +31,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Pro-Würfel-Charms genau dieses Würfels - sie feuern MIT ihrem Würfel.
 	var die_steps: Array[Dictionary] = []
 	# Echo-Kammer: aus der GANZEN Wertung bestimmt, nicht aus dem Einzel-Slot unten.
-	var echo_slot := CharmEffects.first_participating(dice, participating)
+	var echo_slot := CharmEffects.first_participating(dice, eye_slots)
 	for i in eye_slots:
 		var eye := CharmEffects.eye_value(dice[i], charm_ids)
 		base += eye
@@ -46,6 +47,25 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		mult += mat_mult
 		var base_after_mat := base
 		var mult_after_mat := mult
+		# Retrigger sichtbar machen: löst der Würfel mehrfach aus (Quecksilber,
+		# Retrigger-Charms, Echo-Kammer), zerlegt die Animation Augen + Material
+		# in eine Auslösung je Aktivierung - alle gleich, Summe = Aggregat oben.
+		var activations: Array[Dictionary] = []
+		if has_die_bonus:
+			var count := MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot)
+			if count > 1:
+				var amber_per := (mat_base - eye * (count - 1)) / count
+				var per_base := eye + amber_per
+				var per_mult := mat_mult / count
+				var acc_base := base_after_eye - eye
+				var acc_mult := mult_after_eye
+				for _a in count:
+					acc_base += per_base
+					acc_mult += per_mult
+					activations.append({
+						"base_add": per_base, "mult_add": per_mult,
+						"base_after": acc_base, "mult_after": acc_mult,
+					})
 		var charm_base := 0
 		var charm_mult := 0
 		var die_charm_indices: Array[int] = []
@@ -73,6 +93,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_after": base,
 			"mult_after": mult,
 			"eye_charm_indices": _eye_charm_indices(raw[i], charm_ids),
+			"activations": activations,
 		})
 
 	# 3. Charm-Schritte strikt in Besitz-Reihenfolge: additive Boni UND Faktoren
@@ -163,17 +184,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 
 ## Zerlegt den Beitrag eines Hand-Charms MIT Würfel-Bezug in Einzel-Pulse
 ## {slot, base, mult} für die Meteor-je-Würfel-Animation. Betrifft nur Charms,
-## deren Bezugswürfel NICHT beteiligt sind (Vollzähler, Schlangenaugen) oder
-## paarweise zählen (Zwillingsring) - echte Pro-Würfel-Charms feuern in den
-## Würfel-Schritten. Leer für alle anderen; der Aufrufer prüft zusätzlich,
-## dass die Pulse-Summe den Beitrag trifft.
+## deren Bezugswürfel NICHT beteiligt sind (Schlangenaugen) oder paarweise zählen
+## (Zwillingsring) - echte Pro-Würfel-Charms feuern in den Würfel-Schritten. Leer
+## für alle anderen; der Aufrufer prüft zusätzlich, dass die Pulse-Summe passt.
 static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], participating: Array[int], charm_ids: Array[String], _ctx: Dictionary) -> Array[Dictionary]:
 	var pulses: Array[Dictionary] = []
 	match charm_id:
-		Charm.FULL_COUNTER:
-			for i in dice.size():
-				if not participating.has(i):
-					pulses.append({"slot": i, "base": CharmEffects.eye_value(dice[i], charm_ids), "mult": 0})
 		Charm.SNAKE_EYES:
 			if key == DiceScoring.TWO_KIND and CharmEffects._participating_are_ones(dice, participating):
 				for i in dice.size():

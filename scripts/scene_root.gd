@@ -95,6 +95,7 @@ const SCORE_ROW_SPACING := 2.9
 const SCORE_HOVER_HEIGHT := 0.0  # 0 = die Würfel liegen beim Zählen auf dem Tisch
 const SCORE_LIFT_TIME := 0.5
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Glow-Kantenlänge als Vielfaches der Würfelgröße
+const FULL_COUNTER_GLOW_FAINT := 0.32  # Vollzähler: schwacher Glow der Nicht-Kombi-Würfel
 const SCORE_TRAIL_TIME := 0.3
 ## Rhythmus: jeder Schritt wartet die ANKUNFT seines Kometen ab (Ursache→Wirkung
 ## sichtbar geschlossen), dann eine sich verkürzende Pause (Accelerando) - erste
@@ -282,9 +283,9 @@ var pre_reroll_materials: Array[String] = []
 var pre_reroll_edge_materials: Array[String] = []
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
-var rerolled_dice_this_hand: int = 0  # Pendel
 var rerolls_this_hand: int = 0  # Anker
-var taken_dice_this_round: int = 0  # Pendel
+var taken_dice_this_round: int = 0  # nur Statistik/Report (Nebenwetten)
+var pendulum_acc: int = 0  # Pendel: akkumulierter Mult, überlebt Runden (+2/Neuwurf, -1/genommen)
 var full_reroll_stacks: int = 0  # Alles-oder-nichts
 var _pendulum_shown: int = 0  # zuletzt angezeigter Pendel-Mult (Schwung-Animation)
 var momentum_streak: int = 0  # Momentum
@@ -790,6 +791,10 @@ func _update_charm_badges() -> void:
 			Charm.RAG_COLLECTOR:
 				if run.lumpensammler_value > 0:
 					texts[slot] = "%d" % run.lumpensammler_value
+			Charm.ROUND_NUMBER:
+				var used := _used_faces_sum()
+				if used > 0:
+					texts[slot] = "%d" % used
 	table_screen.charm_dock.set_badges(texts)
 	_show_pendulum_swing(ids, pendulum)
 
@@ -809,6 +814,32 @@ func _show_pendulum_swing(ids: Array[String], value: int) -> void:
 	var color := CasinoStyle.GOLD if delta > 0 else PENDULUM_LOSS_COLOR
 	table_screen.spawn_gain_number(_charm_trail_source_px([resolved]),
 		"%+d" % delta, color, PENDULUM_SWING_FONT)
+
+## Augensumme der aktuell gewerteten (beteiligten) Würfel nach Verwandlung -
+## genau der Wert, den Runde Sache prüft; als Chip sichtbar, damit man auf ein
+## Vielfaches von 10 hinspielen kann. 0 = keine Hand (Chip bleibt versteckt).
+func _used_faces_sum() -> int:
+	if not has_rolled_current_hand:
+		return 0
+	var slots := _hand_slots()
+	if slots.is_empty():
+		return 0
+	var ids := run.charm_ids()
+	var materials := _rolled_materials()
+	var edges := _edge_materials()
+	var sel_values: Array[int] = []
+	var sel_materials: Array[String] = []
+	var sel_edges: Array[String] = []
+	for s in slots:
+		sel_values.append(dice.values[s])
+		sel_materials.append(materials[s])
+		sel_edges.append(edges[s])
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+	var transformed := CharmEffects.transform_values(sel_values, ids)
+	var sum := 0
+	for i in DiceScoring.participating_indices(hand["key"], sel_values, ids):
+		sum += transformed[i]
+	return sum
 
 ## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
 func _charm_sell_values() -> Array[int]:
@@ -1355,6 +1386,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			dice.set_selected(index, not dice.selected[index])
 			_line_up_settled_dice()  # Reihe gleitet in ihre neue Ordnung
 			_refresh_ui()  # Kombination/Basis folgen der Auswahl sofort
+			_update_charm_badges()  # Runde-Sache-Summe folgt der Auswahl
 			return
 
 	# Warteschlangen-Umsortieren nur außerhalb der Zeremonie - dort holt ein
@@ -2129,7 +2161,7 @@ func _sync_screen_action_buttons() -> void:
 	if not show:
 		return
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
-	table_screen.take_action_button.disabled = not interactable or _scoring_slots().is_empty()
+	table_screen.take_action_button.disabled = not interactable or _hand_slots().is_empty()
 	table_screen.roll_action_button.disabled = not (phase == Phase.IDLE and _remaining_in_pool() > 0)
 	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
 	var stages := run.stages_cleared(hand_total) if run != null else 0
@@ -2138,21 +2170,35 @@ func _sync_screen_action_buttons() -> void:
 	if can_bank:
 		table_screen.bank_action_button.text = "Runde beenden  ⚡×%d" % stages
 
-## Zeigt die Auswahl als goldenes Leucht-Podest unter jedem ausgewählten
-## Würfel; folgt den Würfeln jeden Frame, nur in der Auswahlphase sichtbar.
+## Zeigt die Auswahl als goldenes Leucht-Podest unter jedem ausgewählten Würfel;
+## folgt den Würfeln jeden Frame, nur in der Auswahlphase sichtbar. Mit Vollzähler
+## zählt die ganze Grube: die Kombi-Würfel leuchten hell, alle übrigen liegenden
+## schwach (sie werten mit, gehören aber nicht zur Kombination).
 func _update_selection_glows() -> void:
 	var want := phase == Phase.IDLE and has_rolled_current_hand
 	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
+	var full_counter := want and run != null and run.charm_ids().has(Charm.FULL_COUNTER)
+	var combo := {}
+	if full_counter:
+		for s in _pit_combination_slots():
+			combo[s] = true
 	for i in dice.count():
-		var show_glow := want and dice.roots[i].visible and dice.selected[i]
-		if show_glow:
+		# Glow-Stärke je Würfel: 1 hell, FAINT schwach, 0 aus.
+		var intensity := 0.0
+		if want and dice.roots[i].visible:
+			if full_counter:
+				intensity = 1.0 if combo.has(i) else FULL_COUNTER_GLOW_FAINT
+			elif dice.selected[i]:
+				intensity = 1.0
+		if intensity > 0.0:
 			var center := table_screen.world_to_pixel(dice.bodies[i].global_position)
 			if _select_glows.has(i):
 				var g: Control = _select_glows[i]
 				g.position = center - g.size / 2.0
+				g.modulate.a = intensity
 			else:
-				_select_glows[i] = table_screen.spawn_glow(center, glow_side)
+				_select_glows[i] = table_screen.spawn_glow(center, glow_side, intensity)
 		elif _select_glows.has(i):
 			_select_glows[i].queue_free()
 			_select_glows.erase(i)
@@ -2230,14 +2276,14 @@ func _edge_materials() -> Array[String]:
 ## (Vorschau, Nehmen, Farkle-Vergleich), damit Anzeige und Rechnung gleich bleiben.
 func _score_ctx() -> Dictionary:
 	return {
-		CharmEffects.CTX_REROLLED: rerolled_dice_this_hand,
-		CharmEffects.CTX_TAKEN_DICE: taken_dice_this_round,
+		CharmEffects.CTX_PENDULUM: pendulum_acc,
 		CharmEffects.CTX_FULL_REROLLS: full_reroll_stacks,
 		CharmEffects.CTX_STREAK: momentum_streak,
 		CharmEffects.CTX_POOL_EMPTY: _remaining_in_pool() <= 0,
 		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
 		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
+		CharmEffects.CTX_EDGE_DICE: run.edge_die_count(),
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -2459,7 +2505,7 @@ func _on_throw_button_pressed() -> void:
 		dice.set_slot_defs(active_kinds)
 		# Effektkatalog-Zähler: Pendel, Anker, Alles-oder-nichts.
 		rerolls_this_hand += 1
-		rerolled_dice_this_hand += thrown_indices.size()
+		pendulum_acc += 2 * thrown_indices.size()  # Pendel schwingt hoch (überlebt Runden)
 		if thrown_indices.size() == dice.count():
 			full_reroll_stacks += 1
 		_update_charm_badges()
@@ -2765,14 +2811,14 @@ func _keep_highest_die_and_continue(ids: Array[String]) -> void:
 	_refresh_deck_trays()
 	_refresh_ui()
 
-## Nimmt die AUSGEWÄHLTEN Würfel als Hand: nur sie bilden die Kombination und
-## liefern Basispunkte; physisch wandern danach alle liegenden Würfel in die
-## Ablage. Ohne Auswahl ist der Nehmen-Knopf ohnehin gesperrt.
+## Nimmt die ausgewählten Würfel als Hand (mit Vollzähler ALLE liegenden - dann
+## zählt die ganze Grube): sie bilden die Kombination und liefern Basispunkte;
+## physisch wandern danach ohnehin alle liegenden Würfel in die Ablage.
 func _on_take_button_pressed() -> void:
 	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 
-	var slots := _scoring_slots()
+	var slots := _hand_slots()
 	if slots.is_empty():
 		return
 	var ids := run.charm_ids()
@@ -2805,15 +2851,16 @@ func _on_take_button_pressed() -> void:
 	round_best_combo_rank = maxi(round_best_combo_rank, SideBet.combo_rank(hand["key"]))
 	round_best_hand_score = maxi(round_best_hand_score, int(breakdown["total"]))
 
-	# Nehmen-Effekte der Materialien - nur beteiligte AUSGEWÄHLTE Würfel,
-	# genau einmal hier (nie in der Vorschau); Knochen/Glas verändern die
-	# Pool-Würfel dauerhaft.
+	# Nehmen-Effekte der Materialien - die gewerteten AUSGEWÄHLTEN Würfel (mit
+	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
+	# Knochen/Glas verändern die Pool-Würfel dauerhaft.
 	var sel_participating := DiceScoring.participating_indices(hand["key"], sel_values, ids)
+	var sel_scored := CharmEffects.scored_indices(sel_participating, sel_values.size(), ids)
 	var participating: Array[int] = []
-	for p in sel_participating:
+	for p in sel_scored:
 		participating.append(slots[p])
 	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
-	var echo_sel := CharmEffects.first_participating(sel_values, sel_participating)
+	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
 	var take_money := report.money
@@ -2839,6 +2886,7 @@ func _on_take_button_pressed() -> void:
 	momentum_streak += 1
 	first_hand_after_farkle = false
 	taken_dice_this_round += dice.count()
+	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
@@ -2940,6 +2988,15 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if glow_by_slot.has(slot):
 			var glow: Control = glow_by_slot[slot]
 			gain_px = glow.position + glow.size / 2.0
+		# Retrigger: löst der Würfel mehrfach aus, spielt jede Auslösung einzeln
+		# (eigene Ankunftspause), danach die Pro-Würfel-Charms einmal.
+		var activations: Array = step.get("activations", [])
+		if activations.size() > 1:
+			if not await _play_die_retriggers(step, slot, die_px, gain_px, glow_by_slot):
+				return
+			if glow_by_slot.has(slot):
+				_dim_glow(glow_by_slot[slot])
+			continue
 		var base_after_eye: int = step["base_after_eye"]
 		var mult_after_eye: int = step["mult_after_eye"]
 		var step_travel := 0.0
@@ -3048,6 +3105,48 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# an jeder Überladungs-Schwelle hält beides kurz inne (magnitude-abhängig).
 	await _drain_total_to_goal(displayed_points, new_total)
 	_cleanup_take_animation()
+
+## Retrigger-Animation eines Würfels: jede Auslösung (Quecksilber, Retrigger-
+## Charms, Echo-Kammer) ein eigener Puls mit eigener Ankunftspause - so sieht man
+## das Mehrfach-Auslösen nacheinander statt gebündelt. Danach die Pro-Würfel-
+## Charms einmal (die werden nicht retriggert). false = Abbruch (Reset).
+func _play_die_retriggers(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
+	for pulse: Dictionary in step["activations"]:
+		_flash_scoring_die(slot)
+		if glow_by_slot.has(slot):
+			_pulse_glow(glow_by_slot[slot])
+		for charm_index: int in step["eye_charm_indices"]:
+			_flash_charm_and_pad(charm_index)
+		var p_base: int = pulse["base_after"]
+		var p_mult: int = pulse["mult_after"]
+		var ptargets: Array[String] = ["base"]
+		if int(pulse["mult_add"]) != 0:
+			ptargets.append("mult")
+		_spawn_score_gains(gain_px, int(pulse["base_add"]), int(pulse["mult_add"]))
+		var travel := _fire_score_light(die_px, "pit", ptargets,
+			func() -> void: table_screen.update_pit_score(p_base, p_mult))
+		if not await _score_arrival_gap(travel):
+			return false
+	# Pro-Würfel-Charms (Breitband & Co.) feuern einmal, synchron zum Würfel.
+	var die_charm_base: int = step["charm_base_add"]
+	var die_charm_mult: int = step["charm_mult_add"]
+	if die_charm_base != 0 or die_charm_mult != 0:
+		var base_after: int = step["base_after"]
+		var mult_after: int = step["mult_after"]
+		var dtargets: Array[String] = []
+		if die_charm_base != 0:
+			dtargets.append("base")
+		if die_charm_mult != 0:
+			dtargets.append("mult")
+		for charm_index: int in step["die_charm_indices"]:
+			_flash_charm_and_pad(charm_index)
+		var charm_px := _charm_trail_source_px(step["die_charm_indices"])
+		_spawn_score_gains(charm_px, die_charm_base, die_charm_mult)
+		var ctravel := _fire_score_light(charm_px, "charm", dtargets,
+			func() -> void: table_screen.update_pit_score(base_after, mult_after))
+		if not await _score_arrival_gap(ctravel):
+			return false
+	return true
 
 ## Spielt einen Krit-Schritt: der Komet läuft in Krit-Magenta vom Dock-Pad zum
 ## Mult-Orb, bei Ankunft übernimmt TableScreen.crit_pit_mult (Hit-Stop -> Slam
@@ -3268,6 +3367,44 @@ func _scoring_slots() -> Array[int]:
 			slots.append(i)
 	return slots
 
+## Alle sichtbaren Würfel in der Grube (Auswahl egal) - Basis für Vollzähler.
+func _visible_pit_slots() -> Array[int]:
+	var slots: Array[int] = []
+	for i in dice.count():
+		if dice.roots[i].visible:
+			slots.append(i)
+	return slots
+
+## Die als Hand gewerteten Slots: normal die ausgewählten, mit Vollzähler ALLE
+## liegenden Würfel (dann zählt die Auswahl nicht - jeder Würfel in der Grube
+## geht in die Wertung).
+func _hand_slots() -> Array[int]:
+	if run != null and run.charm_ids().has(Charm.FULL_COUNTER):
+		return _visible_pit_slots()
+	return _scoring_slots()
+
+## Beteiligte Slots der besten Hand über ALLE liegenden Würfel (Vollzähler-Glow:
+## diese leuchten hell, der Rest der Grube nur schwach).
+func _pit_combination_slots() -> Array[int]:
+	var slots := _visible_pit_slots()
+	if slots.is_empty():
+		return []
+	var ids := run.charm_ids()
+	var materials := _rolled_materials()
+	var edges := _edge_materials()
+	var sel_values: Array[int] = []
+	var sel_materials: Array[String] = []
+	var sel_edges: Array[String] = []
+	for s in slots:
+		sel_values.append(dice.values[s])
+		sel_materials.append(materials[s])
+		sel_edges.append(edges[s])
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+	var result: Array[int] = []
+	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids):
+		result.append(slots[p])
+	return result
+
 ## Rechnet die Indizes einer über den Auswahl-Teilwurf gebauten Schrittliste
 ## auf echte Würfel-Slots zurück - so leuchten die richtigen Würfel auf.
 func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void:
@@ -3319,8 +3456,9 @@ func _reset_game() -> void:
 	hand_note = ""
 	last_throw_was_reroll = false
 	momentum_streak = 0
-	rerolled_dice_this_hand = 0
 	rerolls_this_hand = 0
+	pendulum_acc = 0  # Pendel überlebt Runden, aber nicht einen neuen Run
+	_pendulum_shown = 0
 	full_reroll_stacks = 0
 	run = GameRun.new_run()
 	_connect_run()
@@ -3453,7 +3591,6 @@ func _has_material(def: DieDefinition) -> bool:
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
 	active_kinds = []
-	rerolled_dice_this_hand = 0
 	rerolls_this_hand = 0
 	_update_charm_badges()
 	# full_reroll_stacks bleibt stehen - Alles-oder-nichts stapelt bis zum
@@ -3910,11 +4047,11 @@ func _refresh_ui() -> void:
 		if phase != Phase.SCORING:
 			table_screen.update_pit_score(0, 0)
 	else:
-		# Die Dauerzahlen über der Grube zeigen die Kombination der aktuell
-		# AUSGEWÄHLTEN Würfel und springen beim Um-/Abwählen sofort mit;
-		# nichts ausgewählt = keine Hand (0 / 0).
+		# Die Dauerzahlen über der Grube zeigen die Kombination der gewerteten
+		# Würfel (mit Vollzähler die ganze Grube) und springen beim Um-/Abwählen
+		# sofort mit; keine gewerteten = keine Hand (0 / 0).
 		hand_label.text = ""
-		var slots := _scoring_slots()
+		var slots := _hand_slots()
 		if slots.is_empty():
 			_refresh_combos("")
 			if phase != Phase.SCORING:

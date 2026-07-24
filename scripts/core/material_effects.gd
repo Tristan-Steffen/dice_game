@@ -79,14 +79,15 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 	return bonus
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
-## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied hebt Seite UND Kante,
-## Rahmenvergolder nur die Kante); Knochen +1 je Träger (Knochenleim: +2, nach
+## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied wie Rahmenvergolder heben Seite
+## UND Kante); Knochen +1 je Träger (Knochenleim: +2, nach
 ## oben offen); Glas −1 je Träger, nie unter das Floor (Glasbläserlunge: gar
 ## nicht). Alles je Effekt-Aktivierung.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
-	var goldsmith := charm_ids.has(Charm.GOLDSMITH)
-	var gold_payout := GOLD_PAYOUT_BOOSTED if goldsmith else GOLD_PAYOUT
-	var edge_gold_payout := GOLD_PAYOUT_BOOSTED if goldsmith or charm_ids.has(Charm.FRAME_GILDER) else GOLD_PAYOUT
+	# Goldschmied UND Rahmenvergolder heben den Satz für Seite UND Kante.
+	var gold_boost := charm_ids.has(Charm.GOLDSMITH) or charm_ids.has(Charm.FRAME_GILDER)
+	var gold_payout := GOLD_PAYOUT_BOOSTED if gold_boost else GOLD_PAYOUT
+	var edge_gold_payout := gold_payout
 	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
 	var glass_shrinks := not charm_ids.has(Charm.GLASSBLOWER_LUNG)
 	var report := TakeReport.new()

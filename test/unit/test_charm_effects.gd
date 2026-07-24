@@ -54,6 +54,14 @@ func test_retrigger_clover_and_scarab_hit_their_face():
 func test_retrigger_stacks_per_copy():
 	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT, Charm.RABBITS_FOOT])), 2)
 
+# --- Gewertete Menge (Vollzähler) --------------------------------------------
+
+func test_scored_indices_is_participating_without_full_counter():
+	assert_eq(CharmEffects.scored_indices(_d([0, 1]), 6, _ids([])), _d([0, 1]))
+
+func test_scored_indices_expands_to_all_dice_with_full_counter():
+	assert_eq(CharmEffects.scored_indices(_d([0, 1]), 4, _ids([Charm.FULL_COUNTER])), _d([0, 1, 2, 3]))
+
 # --- Basispunkte (erkennungsblind) -------------------------------------------
 
 func test_eye_value_no_charms_is_identity():

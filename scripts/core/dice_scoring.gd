@@ -139,12 +139,15 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 ## verwandelt). [base, mult] - mult ungeklemmt.
 static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
 	var participating := participating_indices(key, dice)
-	var echo_slot := CharmEffects.first_participating(dice, participating)
+	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
+	# nur die beteiligten. Kombi-Charms (Blackjack & Co.) bleiben auf participating.
+	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
+	var echo_slot := CharmEffects.first_participating(dice, scored)
 	var base := points_for(key, combo_levels)
 	var mult := mult_for(key, combo_levels)
 	# Auch ohne Materialien: base_bonus zählt die Retrigger-Augen (Hasenpfote & Co.).
 	var has_die_bonus := not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty()
-	for i in participating:
+	for i in scored:
 		base += CharmEffects.eye_value(dice[i], charm_ids)
 		if has_die_bonus:
 			var only: Array[int] = [i]

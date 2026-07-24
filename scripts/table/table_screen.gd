@@ -1063,7 +1063,7 @@ func _make_gain_label(text: String, color: Color, font_scale: float = 1.0) -> La
 
 ## Goldenes Leucht-Podest unter einem zählenden/ausgewählten Würfel.
 ## side_px = Kantenlänge; der Aufrufer hält und entsorgt die Knoten.
-func spawn_glow(center_px: Vector2, side_px: float) -> Control:
+func spawn_glow(center_px: Vector2, side_px: float, intensity: float = 1.0) -> Control:
 	var glow := Panel.new()
 	glow.size = Vector2(side_px, side_px)
 	glow.position = center_px - glow.size / 2.0
@@ -1076,7 +1076,7 @@ func spawn_glow(center_px: Vector2, side_px: float) -> Control:
 	glow.modulate = Color(1, 1, 1, 0)
 	add_child(glow)
 	var tween := create_tween()
-	tween.tween_property(glow, "modulate:a", 1.0, 0.25)
+	tween.tween_property(glow, "modulate:a", clampf(intensity, 0.0, 1.0), 0.25)
 	return glow
 
 ## --- Wertungs-Kometen (Zähl-Animation über die Score-Leisten) ------------------

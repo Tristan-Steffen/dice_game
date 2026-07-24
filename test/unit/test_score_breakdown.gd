@@ -266,20 +266,15 @@ func test_sediment_fires_in_the_die_steps():
 		assert_eq(step["die_charm_indices"], [0])
 	assert_eq(breakdown["charm_steps"].size(), 0)
 
-func test_full_counter_step_carries_one_pulse_per_bystander():
-	# Vollzähler zählt UNBETEILIGTE Würfel - die triggern nie selbst, also
-	# feuert der Charm in der Charm-Phase und fächert je Würfel einen Puls auf.
+func test_full_counter_scores_bystanders_as_die_steps():
+	# Vollzähler macht ALLE liegenden Würfel zu Würfel-Schritten - auch die
+	# Unbeteiligten leuchten und zählen ihre Augen, kein eigener Charm-Schritt.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
 		_ids([Charm.FULL_COUNTER]))
-	var pulsed := {}
-	for step: Dictionary in breakdown["charm_steps"]:
-		if step.has("pulses"):
-			pulsed = step
-	assert_false(pulsed.is_empty(), "Vollzähler-Schritt trägt Pulse")
-	assert_eq(pulsed["pulses"].size(), 4, "je unbeteiligtem Würfel ein Puls")
-	# Die Pulse bauen lückenlos auf den Schritt-Endstand auf.
-	assert_eq(int(pulsed["pulses"][3]["base_after"]), int(pulsed["base_after"]),
-		"letzter Puls trifft den Schritt-Endstand")
+	assert_eq(breakdown["die_steps"].size(), 6, "alle sechs Würfel als Schritt")
+	assert_eq(breakdown["eye_slots"], _d([0, 1, 2, 3, 4, 5]))
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein eigener Vollzähler-Schritt")
+	assert_eq(int(breakdown["die_steps"][2]["eye_add"]), 1, "unbeteiligter Würfel (Auge 1) zählt mit")
 
 func test_bonus_that_is_not_per_die_carries_no_pulses():
 	# Marienkäfer gibt +4 Mult aufs Paar - ein Schritt, aber kein Pro-Würfel-Charm.
@@ -333,7 +328,7 @@ func test_breakdown_matches_scoring_across_the_matrix():
 	var full_mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, DieMaterial.GLASS, "", DieMaterial.BONE])
 	var full_edges := _m(["", DieMaterial.MERCURY, "", "", DieMaterial.GOLD, ""])
 	var rich_ctx := {
-		CharmEffects.CTX_REROLLED: 3, CharmEffects.CTX_TAKEN_DICE: 2,
+		CharmEffects.CTX_PENDULUM: 4,
 		CharmEffects.CTX_FULL_REROLLS: 2, CharmEffects.CTX_STREAK: 3,
 		CharmEffects.CTX_POOL_EMPTY: true, CharmEffects.CTX_AFTER_FARKLE: true,
 		CharmEffects.CTX_FARKLE_STACKS: 2,

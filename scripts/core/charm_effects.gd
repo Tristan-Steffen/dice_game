@@ -16,25 +16,25 @@ class_name CharmEffects
 ## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
 const ALL_OR_NOTHING_MULT := 5
 
-## Pendel: +2 Mult je diese Hand neu geworfenem Würfel, -1 je diese Runde
-## genommenem - nie unter 0. Eigene Funktion, weil der Tisch-Chip denselben Wert
-## zeigen muss, den die Wertung rechnet.
+## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
+## nie unter 0) - überlebt Runden. Eigene Funktion, weil der Tisch-Chip denselben
+## Wert zeigen muss, den die Wertung rechnet.
 static func pendulum_mult(ctx: Dictionary) -> int:
-	return maxi(0, 2 * int(ctx.get(CTX_REROLLED, 0)) - int(ctx.get(CTX_TAKEN_DICE, 0)))
+	return maxi(0, int(ctx.get(CTX_PENDULUM, 0)))
 
 ## Schlüssel des ctx-Dictionaries (Wurf-/Runden-Zustand der Effektkatalog-Charms).
 ## const, damit ein Tippfehler beim Setzen (scene_root) ODER Lesen ein Compile-
 ## Fehler ist - nicht der stille Null-Rückfall von ctx.get(). Werte je Schlüssel:
-##   REROLLED      int   - diese Hand neu geworfene Würfel (Pendel)
-##   TAKEN_DICE    int   - diese Runde bereits genommene Würfel (Pendel)
+##   PENDULUM      int   - akkumulierter Pendel-Mult (überlebt Runden)
 ##   FULL_REROLLS  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts)
 ##   STREAK        int   - genommene Hände in Folge ohne Farkle (Momentum)
 ##   POOL_EMPTY    bool  - kein Würfel mehr im Nachziehstapel (Feierabendbier)
 ##   AFTER_FARKLE  bool  - erste Hand nach einem Farkle (Galgenhumor)
 ##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
 ##   LATE_SLOTS    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
-const CTX_REROLLED := "rerolled"
-const CTX_TAKEN_DICE := "taken_dice"
+##   EDGE_DICE     int   - Würfel mit Kanten-Material im Besitz (Zargenglanz)
+const CTX_PENDULUM := "pendulum_acc"
+const CTX_EDGE_DICE := "edge_dice"
 const CTX_FULL_REROLLS := "full_rerolls"
 const CTX_STREAK := "streak"
 const CTX_POOL_EMPTY := "pool_empty"
@@ -111,8 +111,9 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
 				return 6
 		Charm.EDGE_GLEAM:
+			# Basispunkte = alle Kanten-Würfel im Besitz (nicht nur im Wurf).
 			if slot < edge_materials.size() and edge_materials[slot] != "":
-				return _edge_count(edge_materials)
+				return int(ctx.get(CTX_EDGE_DICE, 0))
 	return 0
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
@@ -138,13 +139,6 @@ static func die_charm_mult(slot: int, charm_ids: Array[String], ctx: Dictionary 
 	for j in charm_ids.size():
 		bonus += die_charm_mult_at(j, slot, charm_ids, ctx)
 	return bonus
-
-static func _edge_count(edge_materials: Array[String]) -> int:
-	var count := 0
-	for material_id in edge_materials:
-		if material_id != "":
-			count += 1
-	return count
 
 # --- Charm-Phase (ganze Hand, strikt in Besitz-Reihenfolge) -------------------
 
@@ -225,16 +219,11 @@ static func die_price(base_price: int, charm_ids: Array[String], bundle_size: in
 # ==============================================================================
 
 ## Zusätzliche Basispunkte der Position j VOR dem Multiplikator (Hand-Ebene;
-## Pro-Würfel-Charms liegen in die_charm_base_at). Der Charm sieht die GANZE
-## Liste als Kontext - der Vollzähler rechnet Augen mit allen Augen-Charms.
+## Pro-Würfel-Charms liegen in die_charm_base_at). Der Vollzähler ist KEIN
+## base_bonus mehr - er weitet die gewertete Menge (scored_indices), damit auch
+## unbeteiligte Würfel Augen, Material und Pro-Würfel-Charms auslösen.
 static func charm_base_bonus_at(j: int, key: String, values: Array[int], participating: Array[int], charm_ids: Array[String], _ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
-		Charm.FULL_COUNTER:
-			var bonus := 0
-			for i in values.size():
-				if not participating.has(i):
-					bonus += eye_value(values[i], charm_ids)
-			return bonus
 		Charm.BLACKJACK:
 			if _participating_sum(values, participating) == 21:
 				return 50
@@ -338,6 +327,17 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 ## activation_count bekommt den Slot über echo_slot).
 static func echo_retriggers(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ECHO_CHAMBER)
+
+## Gewertete Slots: normal die beteiligten, mit Vollzähler ALLE liegenden Würfel
+## (0..die_count) - so lösen auch unbeteiligte Würfel Augen, Material und Pro-
+## Würfel-Charms aus. Immer slot-sortiert (Trigger links nach rechts).
+static func scored_indices(participating: Array[int], die_count: int, charm_ids: Array[String]) -> Array[int]:
+	if not charm_ids.has(Charm.FULL_COUNTER):
+		return participating
+	var all: Array[int] = []
+	for i in die_count:
+		all.append(i)
+	return all
 
 ## Vorderster gewerteter Slot oder -1 (Echo-Kammer). Nimmt den kleinsten Index,
 ## damit auch unsortierte Teillisten (Tests, alte Aufrufer) korrekt bleiben.

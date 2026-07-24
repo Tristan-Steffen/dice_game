@@ -82,9 +82,13 @@ func test_street_sweeper_only_boosts_straights():
 	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.SMALL_STRAIGHT, straight, _ids([Charm.STREET_SWEEPER])), 6, "+6 je Straßen-Würfel")
 	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.STREET_SWEEPER])), 0)
 
-func test_full_counter_adds_non_participating_dice():
-	var bonus := CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), _ids([Charm.FULL_COUNTER]))
-	assert_eq(bonus, 12, "1+2+3+6 außerhalb der Kombination")
+func test_full_counter_scores_all_lying_dice():
+	# Vollzähler weitet die gewertete Menge auf ALLE Würfel: die unbeteiligten
+	# 1+2+3+6 zählen mit (Differenz zur nackten Wertung = ihre Summe × Mult).
+	var dice := _d(PAIR)
+	var with_counter := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.FULL_COUNTER]))
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]))
+	assert_eq(with_counter - plain, 12 * 2, "1+2+3+6 außerhalb der Kombination, ×2 Mult")
 
 func test_broadband_pays_per_combination_die():
 	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5, "+5 am Würfel selbst")
@@ -96,17 +100,18 @@ func test_sediment_boosts_late_drawn_dice():
 	assert_eq(CharmEffects.die_charm_mult_at(0, 0, ids, {"late_slots": [0, 5]}), 3)
 	assert_eq(CharmEffects.die_charm_mult_at(0, 1, ids, {"late_slots": [0, 5]}), 0, "Slot 1 wurde früh gezogen")
 
-func test_edge_gleam_scales_with_edge_dice_count():
+func test_edge_gleam_scales_with_owned_edge_dice():
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD, "", "", "", ""])
 	var ids := _ids([Charm.EDGE_GLEAM])
-	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, edges), 2, "zwei Kanten-Würfel im Wurf: +2")
-	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, edges), 0, "Würfel ohne Kanten-Material geht leer aus")
+	var ctx := {CharmEffects.CTX_EDGE_DICE: 5}  # 5 Kanten-Würfel im gesamten Besitz
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, ctx, edges), 5, "Basispunkte = alle Kanten-Würfel im Besitz")
+	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_KIND, _d(PAIR), ids, ctx, edges), 0, "Würfel ohne Kanten-Material geht leer aus")
 
 # --- Mult-Boni ---------------------------------------------------------------------
 
-func test_pendulum_swings_up_but_never_below_zero():
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.PENDULUM]), {"rerolled": 3, "taken_dice": 2}), 4)
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.PENDULUM]), {"rerolled": 0, "taken_dice": 6}), 0, "fällt nie unter 0")
+func test_pendulum_reads_accumulated_mult_never_below_zero():
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.PENDULUM]), {CharmEffects.CTX_PENDULUM: 4}), 4)
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.PENDULUM]), {CharmEffects.CTX_PENDULUM: -3}), 0, "fällt nie unter 0")
 
 func test_all_or_nothing_stacks_full_rerolls():
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {"full_rerolls": 1}), 5)
@@ -217,11 +222,15 @@ func test_glassblower_lung_stops_glass_from_shrinking():
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), NO_MATS, _ids([Charm.GLASSBLOWER_LUNG]))
 	assert_eq(defs[0].faces[0], 6, "Glas schrumpft gar nicht mehr, egal bei welcher Augenzahl")
 
-func test_frame_gilder_doubles_edge_gold():
+func test_frame_gilder_doubles_edge_and_face_gold():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]), edges, _ids([Charm.FRAME_GILDER]))
 	assert_eq(report.money, 12, "$6 je beteiligter Gold-Kante")
+	# Rahmenvergolder hebt jetzt auch Gold-Seiten auf $6.
+	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD])
+	var face_report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), faces, _p([0, 1]), _m(["", ""]), _ids([Charm.FRAME_GILDER]))
+	assert_eq(face_report.money, 12, "$6 je beteiligter Gold-Seite")
 
 func _die(faces: Array) -> DieDefinition:
 	var def := DieDefinition.new()

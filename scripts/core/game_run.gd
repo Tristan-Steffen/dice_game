@@ -655,3 +655,12 @@ func clear_all_materials() -> void:
 		die.materials = mats
 		die.edge_material = ""
 
+## Anzahl aller Würfel mit Kanten-Material im Besitz (Ablage, Nachschub, Pool) -
+## Grundlage für Zargenglanz.
+func edge_die_count() -> int:
+	var count := 0
+	for die in owned_pool:
+		if die.edge_material != "":
+			count += 1
+	return count
+

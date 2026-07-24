@@ -311,7 +311,7 @@ static func collectors_amulet() -> Charm:
 # --- Wurf & Neuwurf ---
 
 static func pendulum() -> Charm:
-	return _make(PENDULUM, "Pendel", "+2 Mult je neu geworfenem Würfel dieser Hand, −1 Mult je bereits genommenem Würfel dieser Runde (nie unter 0).")
+	return _make(PENDULUM, "Pendel", "+2 Mult je neu geworfenem Würfel, −1 je genommenem Würfel (nie unter 0). Der Mult bleibt über Runden erhalten.")
 
 static func all_or_nothing() -> Charm:
 	return _make(ALL_OR_NOTHING, "Alles-oder-nichts", "Wirfst du alle 6 Würfel neu, bekommt die nächste genommene Hand +5 Mult - stapelt, wird beim Nehmen zurückgesetzt.")
@@ -342,7 +342,7 @@ static func small_fry() -> Charm:
 # --- Kombinationen & Wertung ---
 
 static func full_counter() -> Charm:
-	return _make(FULL_COUNTER, "Vollzähler", "ALLE liegenden Würfel zählen zum Basiswert - auch außerhalb der Kombination.")
+	return _make(FULL_COUNTER, "Vollzähler", "ALLE liegenden Würfel werden gewertet: auch außerhalb der Kombination lösen sie Augen, Material und Würfel-Charms aus.")
 
 static func lighthouse() -> Charm:
 	return _make(LIGHTHOUSE, "Leuchtturm", "+Mult in Höhe des höchsten gewerteten Würfels.")
@@ -450,13 +450,13 @@ static func jewelry_box() -> Charm:
 # --- Kanten ---
 
 static func frame_gilder() -> Charm:
-	return _make(FRAME_GILDER, "Rahmenvergolder", "Gold-Kanten zahlen $6 statt $3.")
+	return _make(FRAME_GILDER, "Rahmenvergolder", "Gold-Seiten und Gold-Kanten zahlen $6 statt $3.")
 
 static func magnet_ring() -> Charm:
 	return _make(MAGNET_RING, "Magnetring", "Würfel mit Kanten-Material werden je Runde zuerst gezogen.")
 
 static func edge_gleam() -> Charm:
-	return _make(EDGE_GLEAM, "Zargenglanz", "Würfel mit Kanten-Material geben +1 Basispunkt je Kanten-Würfel im Wurf.")
+	return _make(EDGE_GLEAM, "Zargenglanz", "Würfel mit Kanten-Material geben +1 Basispunkt je Kanten-Würfel im Besitz (Ablage, Nachschub und Pool).")
 
 # --- Coupons & Packs ---
 
