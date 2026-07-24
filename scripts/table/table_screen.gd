@@ -1209,12 +1209,17 @@ func _drain_spark(center_px: Vector2, travel: float) -> void:
 	pulse.setup(PackedVector2Array([from, center_px]), PitScoreView.TOTAL_COLOR,
 		SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET * 0.5)
 
-## Schwebende Zuwachs-Zahl der Zähl-Animation ("+3", "×2"): steigt aus dem
-## Würfel auf und gleitet ausblendend nach unten weg. Rein schmückend -
-## die maßgeblichen Zahlen laufen über die Zähler. Räumt sich selbst weg.
+## Schwebende Zuwachs-Zahl der Zähl-Animation ("+3", "×2"): schießt aus dem
+## Würfel heraus, bremst hart ab und verlischt kurz vor dem Stillstand. Rein
+## schmückend - die maßgeblichen Zahlen laufen über die Zähler.
 const GAIN_FONT := 19 * SUPERSAMPLE
-const GAIN_DRIFT := 170.0 * SUPERSAMPLE
-const GAIN_TIME := 1.6
+const GAIN_DRIFT := 62.0 * SUPERSAMPLE
+const GAIN_TIME := 0.9
+## Ausblenden ab GAIN_FADE_DELAY: endet vor dem Stillstand der Bahn.
+const GAIN_FADE_DELAY := 0.34
+const GAIN_FADE_TIME := 0.34
+## Mindestabstand, den die Zahl über der Würfelnetz-Karte hält.
+const GAIN_NET_GAP := 12.0 * SUPERSAMPLE
 const GAIN_OUTLINE := Color(0.05, 0.03, 0.08)
 ## Bewegungs-Unschärfe: kontinuierlicher Farbschleier hinter der Zahl (am
 ## Glyph deckend, zum Schwanz auslaufend), begrenzt auf GAIN_BLUR_LENGTH.
@@ -1239,18 +1244,31 @@ func spawn_gain_number(from_px: Vector2, text: String, color: Color, font_scale:
 	var half_h := label.size.y / 2.0
 	var tween := create_tween()
 	tween.set_parallel(true)
+	# EXPO_OUT: der Weg ist fast sofort zurückgelegt, danach kriecht die Zahl nur
+	# noch aus - genau in diesem Auslauf blendet sie weg.
 	tween.tween_method(
 		func(dist: float) -> void: _advance_gain_number(label, streak, start, center_x, width, half_h, dist),
-		0.0, GAIN_DRIFT, GAIN_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		0.0, _gain_drift(center_x, start.y + half_h), GAIN_TIME).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	tween.tween_property(label, "scale", Vector2.ONE, 0.3) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "modulate:a", 0.0, GAIN_TIME) \
+	tween.tween_property(label, "modulate:a", 0.0, GAIN_FADE_TIME).set_delay(GAIN_FADE_DELAY) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(streak, "modulate:a", 0.0, GAIN_TIME) \
+	tween.tween_property(streak, "modulate:a", 0.0, GAIN_FADE_TIME).set_delay(GAIN_FADE_DELAY) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(func() -> void:
 		label.queue_free()
 		streak.queue_free())
+
+## Gleitweg, gekappt an der Oberkante der Würfelnetz-Karte: die Zahl darf nie
+## in den Netz-Screen hineinlaufen.
+func _gain_drift(center_x: float, from_center_y: float) -> float:
+	if pit_info_bar == null:
+		return GAIN_DRIFT
+	var bar := pit_info_bar.get_rect()
+	# Nur Zahlen, die von oben auf die Karte zulaufen, werden gekappt.
+	if center_x < bar.position.x or center_x > bar.end.x or from_center_y > bar.position.y:
+		return GAIN_DRIFT
+	return clampf(bar.position.y - GAIN_NET_GAP - from_center_y, 0.0, GAIN_DRIFT)
 
 ## Rückt die Zahl auf ihre Gleithöhe und spannt den Schleier von der Kopfmitte
 ## um bis zu GAIN_BLUR_LENGTH nach oben auf.
