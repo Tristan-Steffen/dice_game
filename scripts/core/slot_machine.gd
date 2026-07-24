@@ -126,11 +126,12 @@ func pot_summary() -> Dictionary:
 		"charms": charms, "dice": dice,
 	}
 
-## Dreht Automat machine: füllt seine MACHINE_COLS Spalten mit gewichteten Symbolen
-## und prüft die Wand auf einen Bust (drei Fumbles nebeneinander). Liefert den
-## gedrehten Block (Array von MACHINE_COLS Spalten à ROWS Kinds) für die
-## Animation - oder [], wenn der Automat nicht drehbar war.
-func spin(machine: int, rng: RandomNumberGenerator = null) -> Array:
+## Würfelt den Block eines Automaten (MACHINE_COLS Spalten à ROWS Kinds), OHNE ihn
+## auf die Wand zu schreiben - so kann die Anzeige den Block erst nach der Walzen-
+## Animation committen (Topf/Bust erscheinen mit der Landung, nicht beim Einwurf).
+## Markiert den Automaten sofort als gedreht (Einsatz bezahlt, kein zweiter Dreh);
+## [] wenn nicht drehbar.
+func roll(machine: int, rng: RandomNumberGenerator = null) -> Array:
 	if not can_spin(machine):
 		return []
 	spun[machine] = true
@@ -141,9 +142,23 @@ func spin(machine: int, rng: RandomNumberGenerator = null) -> Array:
 		var col: Array = []
 		for r in ROWS:
 			col.append(_roll_cell(machine, rng))
-		cells[machine * MACHINE_COLS + lc] = col
 		block.append(col)
+	return block
+
+## Schreibt einen gewürfelten Block auf die Wand und prüft auf Bust - erst hier
+## erscheint das Ergebnis im Topf. Die Anzeige ruft das nach der Landung.
+func commit(machine: int, block: Array) -> void:
+	for lc in MACHINE_COLS:
+		if lc < block.size():
+			cells[machine * MACHINE_COLS + lc] = block[lc]
 	_detect_bust()
+
+## Dreht sofort: Wurf UND Commit in einem (für Tests/Direktnutzung). Liefert den
+## gedrehten Block oder [], wenn der Automat nicht drehbar war.
+func spin(machine: int, rng: RandomNumberGenerator = null) -> Array:
+	var block := roll(machine, rng)
+	if not block.is_empty():
+		commit(machine, block)
 	return block
 
 ## Setzt die Bank für eine frische Sitzung zurück (nach Auszahlung oder Bust).

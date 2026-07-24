@@ -2100,6 +2100,10 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
 	elif collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
 		camera_rig.zoom_to(CameraRig.Mode.SLOTS)
+		# Beim Wechsel auf den Automaten die Dreh-Knöpfe auf den aktuellen Geldstand
+		# bringen (er kann sich seit dem letzten Aufbau geändert haben).
+		if table_screen.slot_bank_window != null:
+			table_screen.slot_bank_window.refresh_if_idle()
 	elif collider == workshop_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	elif collider == score_click_zone:

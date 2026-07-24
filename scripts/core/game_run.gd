@@ -517,14 +517,20 @@ func can_spin_slot(machine: int) -> bool:
 	return machine < slots_unlocked() and slot_bank.can_spin(machine) \
 		and money >= slot_spin_price(machine)
 
-## Bezahlt den Einsatz und dreht Automat machine. Die gelandeten Faces wandern (bei
-## keinem Fumble) ins Gitter; gebucht wird erst beim Auszahlen. Liefert die FACES
-## gelandeten Faces (oder [], wenn der Dreh nicht möglich war).
+## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
+## NICHT auf die Wand - das tut commit_slot erst nach der Walzen-Animation, damit
+## Topf und Bust mit der Landung erscheinen und nicht schon beim Einwurf. Liefert
+## den gewürfelten Block (oder [], wenn der Dreh nicht möglich war).
 func spin_slot(machine: int) -> Array:
 	if not can_spin_slot(machine):
 		return []
 	add_money(-slot_spin_price(machine))
-	return slot_bank.spin(machine)
+	return slot_bank.roll(machine)
+
+## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
+## sobald die Walze gelandet ist.
+func commit_slot(machine: int, block: Array) -> void:
+	slot_bank.commit(machine, block)
 
 ## Zahlt die Sitzung aus: löst jede Gewinn-Reihe in ihre Preise auf (der Längen-
 ## Bonus steckt schon in den specs) und setzt die Bank zurück. Gebucht wird NOCH

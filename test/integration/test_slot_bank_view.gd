@@ -152,6 +152,28 @@ func test_without_strips_the_reel_starts_at_once() -> void:
 	await wait_frames(2)
 	assert_eq(view._spinning_index, 0, "die Walze läuft ohne Umweg an")
 
+# --- Bezahlbarkeit folgt dem Geld (Wechsel auf den Automaten) --------------------
+
+func test_refresh_if_idle_tracks_the_current_money() -> void:
+	# Beim letzten Aufbau pleite -> gesperrt; nach Geldzuwachs macht refresh_if_idle
+	# den Automaten wieder drehbar (sonst bliebe der Knopf grau, obwohl das Geld reicht).
+	run.money = 0
+	view.refresh()
+	await wait_frames(2)
+	assert_true((view._spin_buttons[0] as Button).disabled, "pleite: Drehen gesperrt")
+	run.money = 100
+	view.refresh_if_idle()
+	await wait_frames(2)
+	assert_false((view._spin_buttons[0] as Button).disabled, "nach Geldzuwachs drehbar")
+
+func test_refresh_if_idle_leaves_a_running_spin_untouched() -> void:
+	await wait_frames(2)
+	var before: Button = view._spin_buttons[0]
+	view._spinning = true
+	view.refresh_if_idle()
+	assert_true(view._spin_buttons[0] == before, "laufende Walze: kein Neuaufbau")
+	view._spinning = false
+
 # --- Gewinne verlassen das Fenster als Licht -------------------------------------
 
 func _dispatched() -> Array:

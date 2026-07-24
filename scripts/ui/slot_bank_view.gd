@@ -57,6 +57,8 @@ var _run_overlay: RunOverlay
 var _reveal: Control
 ## Je Automat MACHINE_COLS Spalten-Panels (geklammert, für die Streifen-Animation).
 var _reel_cols: Array = [[], [], []]
+## Je Automat der Dreh-Knopf (oder null) - für die Bezahlbarkeits-Aktualisierung.
+var _spin_buttons: Array = [null, null, null]
 ## Je Automat MACHINE_COLS Spalten à ROWS Symbol-Labels (Ruhe-Anzeige).
 var _face_labels: Array = [[], [], []]
 ## Je Automat der gelandete Block (Array MACHINE_COLS Spalten à ROWS Kinds),
@@ -93,6 +95,15 @@ func refresh() -> void:
 	finish_payout_now()
 	_build()
 
+## Aufbau nur, wenn keine Dreh-/Auszahlungs-Animation läuft - für den WECHSEL auf
+## den Automaten, damit die Knopf-Bezahlbarkeit dem aktuellen Geldstand folgt (das
+## Geld kann sich seit dem letzten Aufbau geändert haben). Das Idle-Gate schützt
+## eine laufende Walze/Auszahlung, die ein Neuaufbau sonst abwürgen würde.
+func refresh_if_idle() -> void:
+	if _spinning or not _pending.is_empty():
+		return
+	_build()
+
 # --- Aufbau --------------------------------------------------------------------
 
 func _build() -> void:
@@ -102,6 +113,7 @@ func _build() -> void:
 		remove_child(_content)
 		_content.queue_free()
 	_reel_cols = [[], [], []]
+	_spin_buttons = [null, null, null]
 	_face_labels = [[], [], []]
 	_content = VBoxContainer.new()
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -355,6 +367,8 @@ func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 		if can:
 			button.pressed.connect(_on_spin_pressed.bind(i))
 	_style_button(button, accent)
+	if i >= 0 and i < _spin_buttons.size():
+		_spin_buttons[i] = button
 	return button
 
 ## Topf-Ablage: die aufgelaufenen Gewinn-Reihen und der große Auszahlen-/Neustart-Knopf.
@@ -605,6 +619,10 @@ func _build_col_strip(machine: int, col_block: Array, slot: Panel, ch: float) ->
 	return strip
 
 func _on_reel_landed(machine: int, block: Array) -> void:
+	# Erst JETZT das Ergebnis auf die Wand schreiben: Topf und Bust erscheinen mit
+	# der Landung, nicht schon beim Einwurf.
+	if run != null:
+		run.commit_slot(machine, block)
 	_landed[machine] = block
 	_spinning = false
 	_spinning_index = -1
