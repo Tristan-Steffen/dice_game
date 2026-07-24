@@ -125,6 +125,9 @@ var _pit_waves_tween: Tween
 ## Fumble-Welle: Vollbild-Overlay ÜBER allen Fenstern (fumble_wave.gdshader).
 var fumble_wave: ColorRect
 var _fumble_wave_tween: Tween
+## Filz-Material: braucht die Fenster-Rechtecke, um seine Textur unter den
+## durchscheinenden Fenstergründen auszublenden.
+var _felt_material: ShaderMaterial
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -276,8 +279,10 @@ func _build_content() -> void:
 	var background := ColorRect.new()
 	background.name = "Background"
 	background.color = BACKGROUND_COLOR  # Rückfall, falls der Shader fehlt
-	background.material = ShaderMaterial.new()
-	background.material.shader = load("res://assets/shaders/table_felt.gdshader")
+	_felt_material = ShaderMaterial.new()
+	_felt_material.shader = load("res://assets/shaders/table_felt.gdshader")
+	_felt_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
+	background.material = _felt_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
@@ -846,6 +851,11 @@ func _sync_reflection_windows() -> void:
 		wave_material.set_shader_parameter("window_count", rects.size())
 		wave_material.set_shader_parameter("window_rects", rects)
 		wave_material.set_shader_parameter("window_radius", radii)
+	# Der Filz blendet seine Textur unter den Fenstern aus (gleiche Rechtecke).
+	if _felt_material != null:
+		_felt_material.set_shader_parameter("window_count", rects.size())
+		_felt_material.set_shader_parameter("window_rects", rects)
+		_felt_material.set_shader_parameter("window_radius", radii)
 
 ## Verschiebt den ganzen Kombi-Cluster (Rahmen + Zellen) mittig auf center_px
 ## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.

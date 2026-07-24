@@ -13,13 +13,13 @@
 
 [sub_resource type="Environment" id="Environment_p52qu"]
 background_mode = 1
-background_color = Color(0.03, 0.025, 0.04, 1)
+background_color = Color(0.008, 0.007, 0.014, 1)
 ambient_light_source = 2
-ambient_light_color = Color(0.55, 0.45, 0.38, 1)
-ambient_light_energy = 0.3
+ambient_light_color = Color(0.45, 0.52, 0.75, 1)
+ambient_light_energy = 0.11
 glow_enabled = true
-glow_intensity = 0.8
-glow_bloom = 0.1
+glow_intensity = 1.15
+glow_bloom = 0.14
 glow_hdr_threshold = 0.95
 
 [node name="SceneRoot" type="Node3D" unique_id=948145352]
@@ -74,8 +74,8 @@ environment = SubResource("Environment_p52qu")
 
 [node name="TableLight" type="OmniLight3D" parent="." unique_id=821656405]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 17.4, 0)
-light_color = Color(1, 0.84, 0.58, 1)
-light_energy = 3.4
+light_color = Color(0.62, 0.7, 0.92, 1)
+light_energy = 0.35
 omni_range = 55.0
 omni_attenuation = 1.6
 

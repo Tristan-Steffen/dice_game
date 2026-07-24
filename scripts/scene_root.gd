@@ -75,6 +75,23 @@ const SLOTS_BOTTOM_INSET_WORLD := 7.5
 ## braucht Raum für Projektion, Seiten-Übersicht und das Tray-Raster.
 const WORKSHOP_HEIGHT_FACTOR := 1.4
 
+## Gefaktes Screen-Abstrahlen: gl_compatibility hat kein GI, also steht über
+## jedem großen Fenster ein kurzes, getöntes Omni-Licht (Schatten aus) - Würfel,
+## Chips und Props baden im Farbton "ihres" Screens (dunkler Raum, Lichtquelle
+## Screens+Würfel). Zahl der Lichter im Blick behalten: alle treffen das eine
+## Tisch-Mesh (project.godot max_lights_per_object).
+const SPILL_ENERGY := 1.1
+const SPILL_ATTENUATION := 1.7
+const SPILL_HEIGHT_FACTOR := 0.55  # Höhe aus der schmaleren Fensterhälfte
+const SPILL_HEIGHT_MIN := 1.8
+const SPILL_HEIGHT_MAX := 5.0
+const SPILL_RANGE_FACTOR := 1.35   # Reichweite über den Fensterrand hinaus
+
+## Die im Tisch-GLB gebackenen Neon-Emissionen (LED-Ring, Underglow) sind auf
+## einen hell beleuchteten Tisch abgestimmt - im dunklen Raum wären sie das
+## Hellste im Bild, also hier auf Akzent-Niveau herunterdimmen.
+const TABLE_RIM_EMISSION := {"LEDStrip": 1.9, "Underglow": 1.4}
+
 
 ## Automaten-Lichter: Einsatz golden wie Geld, Charm violett wie im Regal,
 ## Würfel zyan wie das Würfel-Symbol der Walze.
@@ -347,6 +364,7 @@ const DICE_START_POSITIONS: Array[Vector3] = [
 ]
 
 func _ready() -> void:
+	_dim_table_rim()
 	_setup_dice()
 	_setup_table_screen()
 	_setup_camera_targets()
@@ -356,6 +374,16 @@ func _ready() -> void:
 	_style_ui()
 	_collect_combo_labels()
 	_reset_game()
+
+## Dimmt die GLB-Neonkanten des Tisches auf Akzent-Niveau (siehe Konstante).
+func _dim_table_rim() -> void:
+	for mesh_name: String in TABLE_RIM_EMISSION:
+		var mi := $Room.find_child(mesh_name, true, false) as MeshInstance3D
+		if mi == null:
+			continue
+		var mat := mi.mesh.surface_get_material(0) as StandardMaterial3D
+		if mat != null:
+			mat.emission_energy_multiplier = TABLE_RIM_EMISSION[mesh_name]
 
 ## Baut die 6 Spielwürfel samt Audio und Wandkontakt-Handlern.
 func _setup_dice() -> void:
@@ -594,6 +622,43 @@ func _setup_table_screen() -> void:
 	for rect in drawer_rects:
 		corner = corner.merge(rect)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
+
+	_setup_screen_spill_lights(corner)
+
+## Je großem Fenster ein Spill-Licht in dessen Farbwelt; die Werkbank-Ecke
+## bekommt EIN gemeinsames Licht (ihre Fenster teilen sich den Zoom sowieso).
+func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
+	var cyan: Color = TableScreen.FRAME_COLOR
+	var gold: Color = TreasureChestView.GOLD
+	_add_spill_light("PitSpill",
+		Rect2(table_screen.pit_window.position, table_screen.pit_window.size), cyan)
+	_add_spill_light("ClusterSpill", table_screen.cluster_rect, Color("#ff79c6"))
+	_add_spill_light("ScoreSpill", table_screen.score_rect, cyan)
+	_add_spill_light("HubSpill",
+		Rect2(table_screen.hub.position, table_screen.hub.size), cyan)
+	_add_spill_light("SideBetSpill", Rect2(table_screen.side_bet_window.position,
+		table_screen.side_bet_window.size), gold)
+	_add_spill_light("TreasureSpill", Rect2(table_screen.treasure_window.position,
+		table_screen.treasure_window.size), gold)
+	_add_spill_light("WorkshopSpill", workshop_corner, gold)
+
+## Ein Fenster-Spill-Licht: mittig über dem Pixel-Rechteck, Höhe/Reichweite aus
+## dessen Weltmaß - große Fenster strahlen weiter, schmale bleiben eng.
+func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color) -> void:
+	var a := table_screen.pixel_to_world(rect_px.position)
+	var b := table_screen.pixel_to_world(rect_px.end)
+	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
+	var height := clampf(minf(half.x, half.y) * SPILL_HEIGHT_FACTOR,
+		SPILL_HEIGHT_MIN, SPILL_HEIGHT_MAX)
+	var light := OmniLight3D.new()
+	light.name = light_name
+	light.position = Vector3((a.x + b.x) * 0.5, height, (a.z + b.z) * 0.5)
+	light.light_color = tint
+	light.light_energy = SPILL_ENERGY
+	light.omni_range = maxf(half.x, half.y) * SPILL_RANGE_FACTOR + height
+	light.omni_attenuation = SPILL_ATTENUATION
+	light.shadow_enabled = false
+	add_child(light)
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.

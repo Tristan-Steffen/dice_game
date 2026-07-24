@@ -34,10 +34,12 @@ const EDGE_METALLIC := 0.35
 ## 30+ Tray-Würfel würden das Per-Objekt-Lichtlimit des Renderers sprengen.
 ## Eng und hart abfallend: eine sichtbare Licht-Lache UNTER dem Würfel erdet
 ## ihn (die Neon-Version eines Kontaktschattens).
+## Im dunklen Raum sind die Würfel echte Lampen: kräftiger und weiter als es
+## die alte, hell beleuchtete Szene vertragen hätte.
 const LIGHT_BASE_COLOR := Color(0.82, 0.86, 0.72)
-const LIGHT_BASE_ENERGY := 1.2
-const LIGHT_MATERIAL_ENERGY := 2.0
-const LIGHT_RANGE := 4.5
+const LIGHT_BASE_ENERGY := 2.0
+const LIGHT_MATERIAL_ENERGY := 3.0
+const LIGHT_RANGE := 7.0
 
 ## Zusätzliche additive Glanz-Lache am Boden: folgt dem Würfel und verblasst
 ## mit seiner Flughöhe - garantierte Erdung auch neben dem Omni-Licht.
