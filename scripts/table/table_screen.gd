@@ -47,6 +47,15 @@ const GOAL_STAGE_FILL_COLORS := [
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
 const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
 
+## Rundenpuls: Einrückung des Wellen-Overlays (der Fensterrahmen bleibt frei)
+## und Ein-/Ausblendzeit beim Rundenwechsel.
+const PIT_WAVES_INSET := 2.0 * SUPERSAMPLE
+const PIT_WAVES_FADE := 1.2
+## Punkt-Pulse (pit_impulse): Laufzeit einer Stoßwelle und Zahl der Bahnen
+## (rotierend - mehr gleichzeitige Pulse recyceln die älteste Bahn).
+const PIT_IMPULSE_TIME := 0.45
+const PIT_IMPULSE_SLOTS := 6
+
 ## Wachstumskonstanten der Orbs (1 - exp(-value/K)): Basis-Werte laufen groß,
 ## Mult klein, die Gesamtzahl am größten.
 const BASE_GROWTH_K := 260.0
@@ -80,6 +89,8 @@ const PIT_ACTION_FONT := 14 * SUPERSAMPLE
 const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb
 const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)
 const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)
+## Punkt-Puls-Farbe je Punktart - dieselbe Sprache wie Kometen und Zuwachs-Zahlen.
+const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR, "crit": CRIT_COLOR}
 const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE
 const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
 ## Erster senkrechter Hub aus der Quelle (~2.4 Weltmeter): hebt die Querstrecke
@@ -98,6 +109,16 @@ var led_strip: LedStripView
 var treasure_window: TreasureChestView
 var treasure_strip: LedStripView
 var pit_window: Panel
+## Rundenpuls: Wellen-Overlay im Gruben-Fenster (siehe pit_waves.gdshader).
+var pit_waves: ColorRect
+var _pit_waves_tween: Tween
+## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
+## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
+var _pit_impulse_pos := PackedVector2Array()
+var _pit_impulse_colors := PackedColorArray()
+var _pit_impulse_progress := PackedFloat32Array()
+var _pit_impulse_tweens: Array = []
+var _pit_impulse_next := 0
 ## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
 var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
@@ -314,6 +335,24 @@ func _build_content() -> void:
 	pit_window.add_theme_stylebox_override("panel", window_style())
 	add_child(pit_window)
 
+	# Rundenpuls-Overlay: leicht eingerückt, damit der Fensterrahmen frei bleibt.
+	pit_waves = ColorRect.new()
+	pit_waves.name = "PitWaves"
+	pit_waves.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var waves_material := ShaderMaterial.new()
+	waves_material.shader = preload("res://assets/shaders/pit_waves.gdshader")
+	waves_material.set_shader_parameter("intensity", 0.0)  # still bis zur ersten Runde
+	_pit_impulse_pos.resize(PIT_IMPULSE_SLOTS)
+	_pit_impulse_colors.resize(PIT_IMPULSE_SLOTS)
+	_pit_impulse_progress.resize(PIT_IMPULSE_SLOTS)
+	_pit_impulse_progress.fill(1.0)  # >= 1 heißt: Bahn frei
+	_pit_impulse_tweens.resize(PIT_IMPULSE_SLOTS)
+	waves_material.set_shader_parameter("impulse_pos", _pit_impulse_pos)
+	waves_material.set_shader_parameter("impulse_color", _pit_impulse_colors)
+	waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress)
+	pit_waves.material = waves_material
+	pit_window.add_child(pit_waves)
+
 	# Zellpositionen vorab berechnen - der Neon-Rahmen muss hinter die Zellen.
 	var total := DiceScoring.HAND_PRIORITY.size()
 	var positions: Array[Vector2] = []
@@ -473,8 +512,52 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	pit_window.size = rect.size
 	var style: StyleBoxFlat = pit_window.get_theme_stylebox("panel")
 	style.set_corner_radius_all(int(corner_radius))
+	var inset := PIT_WAVES_INSET
+	pit_waves.position = Vector2.ONE * inset
+	pit_waves.size = rect.size - Vector2.ONE * inset * 2.0
+	var waves_material: ShaderMaterial = pit_waves.material
+	waves_material.set_shader_parameter("rect_size", pit_waves.size)
+	waves_material.set_shader_parameter("corner_radius", maxf(0.0, corner_radius - inset))
+	# Punkt-Pulse skalieren mit der Grubenhöhe (auflösungsunabhängig).
+	waves_material.set_shader_parameter("impulse_radius", pit_waves.size.y * 0.75)
+	waves_material.set_shader_parameter("impulse_width", pit_waves.size.y * 0.1)
 	pit_window.visible = true
 	_sync_reflection_windows()
+
+## Punkt-Puls: schnelle Stoßwelle vom Würfel (screen_px) in der Farbe der
+## Punktart - "base" (Cyan), "mult" (Gold), "crit" (Magenta). Hell bei Geburt,
+## verklingt beim Auslaufen; läuft unabhängig vom Rundenpuls.
+func pit_impulse(screen_px: Vector2, kind: String) -> void:
+	if pit_waves == null or not pit_window.visible:
+		return
+	var slot := _pit_impulse_next
+	_pit_impulse_next = (slot + 1) % PIT_IMPULSE_SLOTS
+	var old: Tween = _pit_impulse_tweens[slot]
+	if old != null and old.is_valid():
+		old.kill()
+	_pit_impulse_pos[slot] = screen_px - pit_window.position - pit_waves.position
+	_pit_impulse_colors[slot] = PIT_IMPULSE_COLORS.get(kind, TRAIL_BASE_COLOR)
+	var waves_material: ShaderMaterial = pit_waves.material
+	waves_material.set_shader_parameter("impulse_pos", _pit_impulse_pos)
+	waves_material.set_shader_parameter("impulse_color", _pit_impulse_colors)
+	# Schnell raus, hart abbremsen (EASE_OUT) - der Ring wirkt wie ein Schlag.
+	var tween := create_tween()
+	tween.tween_method(func(v: float) -> void:
+		_pit_impulse_progress[slot] = v
+		waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress),
+		0.0, 1.0, PIT_IMPULSE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_pit_impulse_tweens[slot] = tween
+
+## Schaltet den Rundenpuls der Grube ein/aus (weich über PIT_WAVES_FADE).
+func set_round_pulse(active: bool) -> void:
+	if pit_waves == null:
+		return
+	if _pit_waves_tween != null and _pit_waves_tween.is_valid():
+		_pit_waves_tween.kill()
+	var waves_material: ShaderMaterial = pit_waves.material
+	_pit_waves_tween = create_tween()
+	_pit_waves_tween.tween_property(waves_material,
+		"shader_parameter/intensity", 1.0 if active else 0.0, PIT_WAVES_FADE)
 
 ## Spannt das Nebenwetten-Fenster über rect auf (rechts vom Becher).
 func place_side_bet_window(rect: Rect2) -> void:
@@ -843,6 +926,7 @@ func crit_pit_mult(base: int, mult_after: int, crit_x: int) -> float:
 		mult_counter.scale = Vector2.ONE
 		mult_counter.set_value(mult_after)
 		_spawn_crit_wave(center, 1.1, 0.45, 1.0)
+		pit_impulse(center, "crit")  # die Stoßwelle wäscht durch die Grube
 		spawn_gain_number(center, "×%d" % crit_x, CRIT_COLOR, 1.5))
 	# Nachhall: zweite, kleinere Welle kurz versetzt.
 	_crit_tween.tween_interval(CRIT_ECHO_DELAY)

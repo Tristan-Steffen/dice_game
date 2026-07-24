@@ -2435,6 +2435,10 @@ func _on_throw_button_pressed() -> void:
 	# Eine laufende Aufreihung beenden - der neue Wurf übernimmt die Würfel.
 	_cancel_lineup()
 	_close_side_bet_betting()  # der erste Wurf schließt die Wettannahme
+	# Der Tisch schaltet scharf: der Rundenpuls läuft ab dem ersten Wurf bis zum
+	# Shop (idempotent - jeder weitere Wurf blendet höchstens nach).
+	if table_screen != null:
+		table_screen.set_round_pulse(true)
 
 	# Warteschlangen-Würfel VOR dem Ziehen merken (Position + Art) - genau die
 	# fliegen gleich sichtbar in den Becher.
@@ -3240,6 +3244,10 @@ func _fire_score_light(from_px: Vector2, source: String, targets: Array, apply: 
 	_score_seq += 1
 	_score_pending += 1
 	var travel := 0.0
+	# Würfel-Gewinne schlagen zusätzlich als Punkt-Puls in der Grube ein.
+	if source == "pit":
+		for t: String in targets:
+			table_screen.pit_impulse(from_px, t)
 	for t: String in targets:
 		travel = maxf(travel, table_screen.score_comet(from_px, source, t, comet_color))
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
@@ -3475,6 +3483,9 @@ func _reset_game() -> void:
 		table_screen.hub.reset_pages()
 	game_over_panel.visible = false
 	_set_gameplay_ui_visible(true)
+	# Frischer Run: der Puls ruht, bis wieder zum ersten Mal gewürfelt wird.
+	if table_screen != null:
+		table_screen.set_round_pulse(false)
 	_start_new_round()
 
 ## Verdrahtet einen frisch erzeugten Run: Shop/Gravur-Station bekommen ihn
@@ -3645,6 +3656,9 @@ func _on_round_complete() -> void:
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
 		phase = Phase.SHOP
+		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
+		if table_screen != null:
+			table_screen.set_round_pulse(false)
 		_set_gameplay_ui_visible(false)
 		_return_dice_to_pool_tray()
 		# Läuft noch die Zeremonie, sauber beenden - sonst schwebte der echte
@@ -3658,6 +3672,8 @@ func _on_round_complete() -> void:
 		charm_shop.open()
 	else:
 		phase = Phase.GAME_OVER
+		if table_screen != null:
+			table_screen.set_round_pulse(false)
 		_show_game_over(hand_total)
 
 ## Wertet die platzierten Nebenwetten gegen die Rundenbilanz aus. cleared =

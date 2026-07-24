@@ -71,6 +71,46 @@ func test_pit_info_bar_hidden_until_it_has_text():
 	screen.set_pit_info("")
 	assert_false(screen.pit_info_bar.visible, "leerer Text blendet wieder aus")
 
+func test_pit_waves_ride_inside_the_pit_window():
+	# Der Rundenpuls lebt als Overlay IM Gruben-Fenster, leicht eingerückt
+	# (der Rahmen bleibt frei); der Shader kennt Maß und Eckenradius.
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	assert_eq(screen.pit_waves.get_parent(), screen.pit_window)
+	var inset := TableScreen.PIT_WAVES_INSET
+	assert_eq(screen.pit_waves.size, Vector2(800, 400) - Vector2.ONE * inset * 2.0)
+	var material: ShaderMaterial = screen.pit_waves.material
+	assert_eq(material.get_shader_parameter("rect_size"), screen.pit_waves.size)
+	assert_almost_eq(float(material.get_shader_parameter("corner_radius")), 75.0 - inset, 0.01)
+
+func test_round_pulse_fades_in_and_out():
+	# set_round_pulse blendet die Wellen weich ein und wieder aus - zwischen den
+	# Runden (Shop) ist die Grube still (intensity 0).
+	var material: ShaderMaterial = screen.pit_waves.material
+	assert_almost_eq(float(material.get_shader_parameter("intensity")), 0.0, 0.001, "still vor der Runde")
+	screen.set_round_pulse(true)
+	await wait_seconds(TableScreen.PIT_WAVES_FADE + 0.3)
+	assert_almost_eq(float(material.get_shader_parameter("intensity")), 1.0, 0.001, "Runde läuft: voller Puls")
+	screen.set_round_pulse(false)
+	await wait_seconds(TableScreen.PIT_WAVES_FADE + 0.3)
+	assert_almost_eq(float(material.get_shader_parameter("intensity")), 0.0, 0.001, "nach der Runde still")
+
+func test_pit_impulse_claims_a_lane_and_frees_it():
+	# Punkt-Puls: belegt eine Impuls-Bahn (Ort lokal im Overlay, Farbe der
+	# Punktart), läuft in PIT_IMPULSE_TIME aus und gibt die Bahn wieder frei.
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	screen.pit_impulse(Vector2(500, 400), "mult")
+	var material: ShaderMaterial = screen.pit_waves.material
+	var colors: PackedColorArray = material.get_shader_parameter("impulse_color")
+	assert_eq(colors[0], TableScreen.TRAIL_MULT_COLOR, "Mult-Puls trägt die Mult-Farbe")
+	var pos: PackedVector2Array = material.get_shader_parameter("impulse_pos")
+	assert_eq(pos[0], Vector2(400, 200) - screen.pit_waves.position, "Ort lokal im Overlay")
+	await wait_seconds(TableScreen.PIT_IMPULSE_TIME * 0.4)
+	var running: PackedFloat32Array = material.get_shader_parameter("impulse_progress")
+	assert_between(running[0], 0.001, 0.999, "mitten im Lauf ist die Bahn belegt")
+	await wait_seconds(TableScreen.PIT_IMPULSE_TIME)
+	var done: PackedFloat32Array = material.get_shader_parameter("impulse_progress")
+	assert_almost_eq(done[0], 1.0, 0.001, "ausgelaufen: die Bahn ist wieder frei")
+
 func test_pit_info_bar_shares_the_one_window_look():
 	var info_style: StyleBoxFlat = screen.pit_info_bar.get_theme_stylebox("panel")
 	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")
