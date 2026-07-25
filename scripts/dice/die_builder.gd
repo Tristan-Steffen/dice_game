@@ -5,14 +5,18 @@ extends RefCounted
 ## Tray-Würfel; Werte/Tönungen setzt der Aufrufer über DieFaceDisplay.
 
 const HALF_EXTENT := 1.0
-const FACE_SIZE := 1.9
 const FACE_MARGIN := 0.02
 ## Balken-Querschnitt der Kanten: ragt EDGE_THICKNESS/2 über die Oberfläche
 ## hinaus, also vor die Gesichts-Quads - die Kanten treten als Rahmen hervor.
-const EDGE_THICKNESS := 0.16
+## Sie sind die Hauptlichtquelle des Würfels (siehe DieFaceDisplay.EDGE_GLOW),
+## darum bewusst breit: das Kanten-Material soll aus der Übersichtskamera
+## lesbar sein. FACE_SIZE folgt daraus - die Quads enden genau dort, wo die
+## Balken beginnen.
+const EDGE_THICKNESS := 0.26
+const FACE_SIZE := HALF_EXTENT * 2.0 - EDGE_THICKNESS
 ## Eck-Kappen der Kanten-Materialien: dicker als die Balken, damit die
 ## Silhouette selbst auf Distanz "beschlagene Ecken" zeigt.
-const CAP_SIZE := 0.34
+const CAP_SIZE := 0.46
 
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.

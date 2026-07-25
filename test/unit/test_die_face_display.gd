@@ -32,7 +32,7 @@ func test_plain_die_uses_neutral_edge_neon():
 	# Körper überall dunkles Glas; das Neon liegt in der Emission der Kanten.
 	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * Color.WHITE)
 	assert_eq(display.edge_material_res.emission,
-		DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW * Color.WHITE)
+		DieFaceDisplay.intense(DieFaceDisplay.EDGE_NEON) * DieFaceDisplay.EDGE_GLOW * Color.WHITE)
 
 func test_edge_material_tints_the_frame():
 	var def := DieDefinition.standard()
@@ -59,7 +59,7 @@ func test_set_edge_tint_highlights_and_set_tint_restores():
 	assert_eq(display.edge_material_res.albedo_color, gold.surface_color * Color.WHITE,
 		"die echte Gold-Albedo kehrt zurück")
 	assert_almost_eq(display.edge_material_res.emission.r,
-		gold.tint.r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
+		DieFaceDisplay.intense(gold.tint).r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
 		"das Kanten-Neon (Distanz-Floor) kehrt zurück")
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_PER_PIXEL,
 		"set_tint nimmt die unschattierte Auswahl wieder zurück")
@@ -94,10 +94,11 @@ func test_amber_face_glows_from_within_brighter_than_plain_faces():
 	var amber := DieMaterial.amber()
 	var amber_emission: Color = _face_material(display, 0).emission
 	var plain_emission: Color = _face_material(display, 1).emission
-	assert_almost_eq(amber_emission.r, amber.tint.r * amber.glow, 0.001,
+	assert_almost_eq(amber_emission.r, DieFaceDisplay.intense(amber.tint).r * amber.glow, 0.001,
 		"Material-Seite glüht in Tint × Profil-glow")
 	assert_gt(amber_emission.r, plain_emission.r, "Bernstein heller als neutrale Seite")
-	assert_almost_eq(plain_emission.r, DieFaceDisplay.EDGE_NEON.r * DieFaceDisplay.FACE_GLOW, 0.001,
+	assert_almost_eq(plain_emission.r,
+		DieFaceDisplay.intense(DieFaceDisplay.EDGE_NEON).r * DieFaceDisplay.FACE_GLOW, 0.001,
 		"neutrale Seite glimmt nur schwach (dunkles Glas)")
 
 func test_gold_face_is_reflective_metal_not_neon():
@@ -202,7 +203,7 @@ func test_material_face_shows_a_glowing_frame_plain_faces_none():
 	assert_true(frame.visible, "Material-Seite trägt den Leucht-Rahmen")
 	var frame_material: StandardMaterial3D = frame.material_override
 	assert_almost_eq(frame_material.emission.r,
-		DieMaterial.ruby().tint.r * DieFaceDisplay.FRAME_GLOW, 0.001,
+		DieFaceDisplay.intense(DieMaterial.ruby().tint).r * DieFaceDisplay.FRAME_GLOW, 0.001,
 		"Rahmen leuchtet voll in Materialfarbe")
 	assert_false(display.frames[_axis_for(1)].visible, "neutrale Seiten bleiben rahmenlos")
 
@@ -223,7 +224,7 @@ func test_material_edges_glow_at_least_the_distance_floor():
 	display.apply_definition(def)
 	var gold := DieMaterial.gold()
 	assert_almost_eq(display.edge_material_res.emission.r,
-		gold.tint.r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
+		DieFaceDisplay.intense(gold.tint).r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
 		"Gold-Kanten glühen mindestens auf Floor-Stärke (dünne Linien brauchen Emission)")
 
 func test_bone_edges_stay_dark():
@@ -265,22 +266,34 @@ func test_material_die_light_shines_way_brighter_in_material_color():
 	var display := _display()
 	display.set_light_enabled(true)
 	display.apply_definition(def)
-	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_MATERIAL_ENERGY, 0.001)
-	var gold_tint := DieMaterial.tint_for(DieMaterial.GOLD)
+	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_EDGE_ENERGY, 0.001)
+	var gold_tint := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
 	assert_almost_eq(display.die_light.light_color.r, gold_tint.r, 0.001)
 	assert_almost_eq(display.die_light.light_color.b, gold_tint.b, 0.001)
 
-func test_mixed_materials_blend_the_light_color():
-	# Gold-Kanten + Quecksilber-Seite: das Licht mischt beide Tints.
+func test_edge_material_alone_decides_the_light_color():
+	# Die Kanten SIND die Lampe: Gold-Kanten + Quecksilber-Seite leuchten rein
+	# golden, die Seitenfarbe mischt sich nicht mehr ein.
 	var def := DieDefinition.standard()
 	def.edge_material = DieMaterial.GOLD
 	def.materials[0] = DieMaterial.MERCURY
 	var display := _display()
 	display.set_light_enabled(true)
 	display.apply_definition(def)
-	var expected := (DieMaterial.tint_for(DieMaterial.GOLD) + DieMaterial.tint_for(DieMaterial.MERCURY)) / 2.0
+	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
 	assert_almost_eq(display.die_light.light_color.r, expected.r, 0.001)
 	assert_almost_eq(display.die_light.light_color.g, expected.g, 0.001)
+	assert_almost_eq(display.die_light.light_color.b, expected.b, 0.001)
+
+func test_faces_alone_still_tint_the_light():
+	var def := DieDefinition.standard()
+	def.materials[0] = DieMaterial.MERCURY
+	var display := _display()
+	display.set_light_enabled(true)
+	display.apply_definition(def)
+	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_MATERIAL_ENERGY, 0.001,
+		"ohne Kanten-Material bleibt es beim schwächeren Seiten-Licht")
+	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.MERCURY))
 	assert_almost_eq(display.die_light.light_color.b, expected.b, 0.001)
 
 func test_body_tint_colors_the_light():
@@ -290,7 +303,7 @@ func test_body_tint_colors_the_light():
 	display.set_light_enabled(true)
 	display.apply_definition(def)
 	display.set_tint(Color(0.5, 0.5, 0.5))
-	var expected := DieMaterial.tint_for(DieMaterial.GOLD) * Color(0.5, 0.5, 0.5)
+	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD)) * Color(0.5, 0.5, 0.5)
 	assert_almost_eq(display.die_light.light_color.r, expected.r, 0.001)
 
 func test_disabling_the_light_hides_it_again():
@@ -299,3 +312,29 @@ func test_disabling_the_light_hides_it_again():
 	display.apply_definition(DieDefinition.standard())
 	display.set_light_enabled(false)
 	assert_false(display.die_light.visible)
+
+func test_edges_outshine_the_faces_by_far():
+	# Kernregel der Würfel-Beleuchtung: das Licht kommt aus den Kanten, die
+	# breiten Flächen glimmen nur - sonst verschwimmt die Kanten-Identität.
+	var display := _display()
+	display.apply_definition(DieDefinition.standard())
+	# Hellster Kanal, nicht Rot - das neutrale Kanten-Neon ist ein Mintton.
+	var e: Color = display.edge_material_res.emission
+	var f: Color = _face_material(display, 0).emission
+	var edge: float = maxf(e.r, maxf(e.g, e.b))
+	var face: float = maxf(f.r, maxf(f.g, f.b))
+	assert_gt(edge, face * 10.0, "Kanten sind die Lichtquelle, nicht die Flächen")
+	assert_gt(edge, 1.0, "Kanten brennen über Weiß hinaus (Bloom)")
+
+func test_intense_saturates_without_leaving_the_hue():
+	var tint := DieMaterial.tint_for(DieMaterial.RUBY)
+	var hot := DieFaceDisplay.intense(tint)
+	assert_gt(hot.s, tint.s, "kräftiger gesättigt als der UI-Tint")
+	assert_almost_eq(hot.h, tint.h, 0.001, "der Farbton bleibt derselbe")
+	assert_eq(DieMaterial.tint_for(DieMaterial.RUBY), tint, "die UI-Quelle bleibt unberührt")
+
+func test_material_edges_outshine_bare_ones() -> void:
+	# Rangfolge: eine veredelte Kante muss die kahle überstrahlen, sonst wirkt
+	# der blanke Würfel aufgeladener als der mit Material.
+	assert_gt(DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, DieFaceDisplay.EDGE_GLOW,
+		"Material-Kanten brennen heller als kahle")

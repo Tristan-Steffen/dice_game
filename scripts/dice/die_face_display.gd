@@ -14,17 +14,33 @@ const BODY_COLOR := Color(0.05, 0.05, 0.08)
 const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
 ## Sentinel "kein Kanten-Material" (Vergleichswert, siehe edge_base).
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
-## Neutrale Neon-Linienfarbe der Kanten (warmes Teal-Weiß statt eisigem Cyan).
-const EDGE_NEON := Color(0.7, 0.86, 0.8)
-## Emissions-Stärken: dünne Linien knapp überhell (weicher Rand-Bloom), Flächen kaum.
-const FACE_GLOW := 0.16
-const EDGE_GLOW := 1.3
+## Neutrale Neon-Linienfarbe der Kanten: gesättigtes Mint. Blasse Töne
+## bleiben bei dieser Emission nur weiße Klumpen, und der Grünstich hält
+## die kahle Kante vom Cyan des Glas-Materials getrennt.
+const EDGE_NEON := Color(0.42, 0.95, 0.66)
+## Emissions-Stärken. Die KANTEN sind die Lichtquelle des Würfels: sie
+## brennen weit über Weiß, die breiten Flächen glimmen nur. So liest man
+## das Kanten-Material noch aus der Übersichtskamera.
+const FACE_GLOW := 0.09
+const EDGE_GLOW := 1.5
 ## Distanz-Signale: der Seiten-Rahmen leuchtet voll in Materialfarbe, und
 ## Material-Kanten glühen mindestens so stark - dünne Linien ohne Emission
 ## sind aus der Übersichtskamera unsichtbar. Ausnahme: glow == 0 (Knochen)
 ## bleibt bewusst tot-dunkel, seine Identität.
 const FRAME_GLOW := 1.4
-const MATERIAL_EDGE_GLOW_FLOOR := 0.9
+## Kanten-Material leuchtet IMMER kräftig, auch wenn das Profil selbst kaum
+## glüht (Gold 0.26, Quecksilber 0.22) - die Kante ist die Lampe, nicht die
+## Oberfläche. Liegt bewusst ÜBER EDGE_GLOW: eine veredelte Kante muss die
+## kahle überstrahlen, sonst kehrt sich die Rangfolge um. Ausnahme bleibt
+## glow == 0 (Knochen).
+const MATERIAL_EDGE_GLOW_FLOOR := 2.0
+## Am Würfel tragen die Farben kräftiger als in der UI: Sättigung und
+## Helligkeit werden angehoben, bevor sie in Emission, Licht und Schimmer
+## gehen. DieMaterial.tint bleibt unangetastet - es ist die UI-Quelle
+## (Würfelnetz, Shop, Hinweise) und soll dort ruhig bleiben.
+const DIE_SATURATION := 1.2
+const DIE_VALUE := 1.12
+
 ## Neutrale Oberflächen-Physik (Material-Seiten bringen ihre eigene mit).
 const FACE_ROUGHNESS := 0.2
 const EDGE_ROUGHNESS := 0.25
@@ -36,9 +52,12 @@ const EDGE_METALLIC := 0.35
 ## ihn (die Neon-Version eines Kontaktschattens).
 ## Im dunklen Raum sind die Würfel echte Lampen: kräftiger und weiter als es
 ## die alte, hell beleuchtete Szene vertragen hätte.
+## Ein Kanten-Material bestimmt die Lichtfarbe ALLEIN und brennt am
+## hellsten: das Licht im Raum verrät die Kante, nicht die Seiten.
 const LIGHT_BASE_COLOR := Color(0.82, 0.86, 0.72)
 const LIGHT_BASE_ENERGY := 2.0
 const LIGHT_MATERIAL_ENERGY := 3.0
+const LIGHT_EDGE_ENERGY := 4.2
 const LIGHT_RANGE := 7.0
 
 ## Zusätzliche additive Glanz-Lache am Boden: folgt dem Würfel und verblasst
@@ -158,11 +177,19 @@ func _refresh_face_colors() -> void:
 		if face_base[axis] != Color.WHITE:
 			_has_material = true
 	if shell_material != null:
-		var mix := _neon_mix() * body_tint
+		var mix := intense(_neon_mix()) * body_tint
 		shell_material.set_shader_parameter("glow_color", Vector3(mix.r, mix.g, mix.b))
 		shell_material.set_shader_parameter("strength",
 			SHELL_STRENGTH_MATERIAL if _has_material else SHELL_STRENGTH)
 	_refresh_die_light()
+
+## Würfel-Farbe: kräftiger als der UI-Tint (siehe DIE_SATURATION). Wird auf
+## alles gelegt, was Licht trägt - Emission, Würfellicht, Fresnel-Schimmer.
+static func intense(color: Color) -> Color:
+	var c := color
+	c.s = clampf(c.s * DIE_SATURATION, 0.0, 1.0)
+	c.v = clampf(c.v * DIE_VALUE, 0.0, 1.0)
+	return c
 
 ## Misch-Neonfarbe des Würfels: neutral Cyan, sonst der Schnitt aller Material-Tints.
 func _neon_mix() -> Color:
@@ -185,7 +212,7 @@ func _neon_mix() -> Color:
 func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge: bool) -> void:
 	if profile == null:
 		material.albedo_color = BODY_COLOR * body_tint
-		material.emission = EDGE_NEON * (EDGE_GLOW if is_edge else FACE_GLOW) * body_tint
+		material.emission = intense(EDGE_NEON) * (EDGE_GLOW if is_edge else FACE_GLOW) * body_tint
 		material.metallic = EDGE_METALLIC if is_edge else 0.0
 		material.roughness = EDGE_ROUGHNESS if is_edge else FACE_ROUGHNESS
 		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
@@ -201,7 +228,7 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	var glow := profile.glow
 	if is_edge and glow > 0.0:
 		glow = maxf(glow, MATERIAL_EDGE_GLOW_FLOOR)
-	material.emission = profile.tint * glow * body_tint
+	material.emission = intense(profile.tint) * glow * body_tint
 	material.metallic = profile.metallic
 	material.roughness = profile.roughness
 
@@ -216,7 +243,7 @@ func _refresh_frame(axis: String, profile: DieMaterial) -> void:
 	var material: StandardMaterial3D = frame.material_override
 	material.albedo_color = BODY_COLOR * body_tint
 	var glow := FRAME_GLOW if profile.glow > 0.0 else 0.0
-	material.emission = profile.tint * glow * body_tint
+	material.emission = intense(profile.tint) * glow * body_tint
 
 ## Schaltet Umgebungslicht + Boden-Lache frei (nur Spielwürfel).
 func set_light_enabled(on: bool) -> void:
@@ -248,8 +275,9 @@ func _process(delta: float) -> void:
 	glow_pool.scale = Vector3.ONE * (1.0 + height * 0.08)
 	pool_material.albedo_color = Color(_pool_color.r, _pool_color.g, _pool_color.b, _pool_color.a * fade)
 
-## Licht aus dem Zustand: Material-Tints mischen sich zur Lichtfarbe und
-## leuchten stark; ohne Material bleibt ein schwacher warmweißer Schein.
+## Licht aus dem Zustand: das Kanten-Material gibt die Farbe allein vor,
+## sonst mitteln die Seiten-Tints; ganz ohne Material bleibt ein schwacher
+## warmweißer Schein.
 func _refresh_die_light() -> void:
 	if die_light == null:
 		return
@@ -258,22 +286,26 @@ func _refresh_die_light() -> void:
 		glow_pool.visible = light_allowed
 	if not light_allowed:
 		return
-	var tints: Array[Color] = []
+	# Kanten-Material schlägt alles: es ist die Lampe, also gibt es die Farbe
+	# unvermischt vor. Erst ohne Kante mitteln die Seiten-Tints wie bisher.
 	if edge_base != EDGE_COLOR:
-		tints.append(edge_base)
-	for axis in face_base:
-		if face_base[axis] != Color.WHITE:
-			tints.append(face_base[axis])
-	if tints.is_empty():
-		die_light.light_color = LIGHT_BASE_COLOR * body_tint
-		die_light.light_energy = LIGHT_BASE_ENERGY
+		die_light.light_color = intense(edge_base) * body_tint
+		die_light.light_energy = LIGHT_EDGE_ENERGY
 	else:
-		var mixed := Color(0, 0, 0)
-		for tint in tints:
-			mixed += tint
-		mixed /= float(tints.size())
-		die_light.light_color = mixed * body_tint
-		die_light.light_energy = LIGHT_MATERIAL_ENERGY
+		var tints: Array[Color] = []
+		for axis in face_base:
+			if face_base[axis] != Color.WHITE:
+				tints.append(face_base[axis])
+		if tints.is_empty():
+			die_light.light_color = LIGHT_BASE_COLOR * body_tint
+			die_light.light_energy = LIGHT_BASE_ENERGY
+		else:
+			var mixed := Color(0, 0, 0)
+			for tint in tints:
+				mixed += tint
+			mixed /= float(tints.size())
+			die_light.light_color = intense(mixed) * body_tint
+			die_light.light_energy = LIGHT_MATERIAL_ENERGY
 	# Lachen-Farbe folgt dem Licht; Stärke seiner Energie.
 	var c := die_light.light_color
 	_pool_color = Color(c.r, c.g, c.b, POOL_ALPHA_PER_ENERGY * die_light.light_energy)
