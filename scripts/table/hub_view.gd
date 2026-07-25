@@ -11,6 +11,7 @@ extends Control
 signal settings_pressed
 ## Einträge des Einstellungs-Menüs; scene_root verbindet die Aktionen.
 signal new_game_requested
+signal menu_requested
 signal debug_win_round_requested
 signal debug_money_requested
 signal library_requested
@@ -209,6 +210,8 @@ func _build_settings_menu(u: float) -> void:
 	box.add_theme_constant_override("separation", int(u * 1.4))
 	settings_menu.add_child(box)
 
+	_make_menu_button(box, "🏠  Menü", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
+		u, menu_requested.emit)
 	_make_menu_button(box, "📖  Charm-Bibliothek", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
 		u, library_requested.emit)
 	_make_menu_button(box, "Neues Spiel", CasinoStyle.RED, CasinoStyle.RED_DARK,
@@ -388,13 +391,73 @@ func _apply_page_closed(panel: Control) -> void:
 	elif content_root != null:
 		content_root.visible = true
 
+## Weiche Wechsel zwischen Seite und Home: der harte Schnitt fiel auf, solange
+## die Kamera noch fährt (Titel-HUD). Aus- und Einblenden laufen nacheinander -
+## die Seitenregel holt die nächste Fläche erst, wenn die alte weg ist.
+const PAGE_FADE := 0.3
+
+var _fade_tween: Tween
+
+## Blendet eine offene Seite aus. Die nachrückende Fläche wartet danach dunkel:
+## ohne on_hidden blendet sie sofort ein, MIT on_hidden übernimmt der Aufrufer
+## das Einblenden (fade_current_in) und darf im dunklen Moment arbeiten - dort
+## steckt der Spiel-Neustart, dessen Aufbau-Ruck sonst in einer Blende säße.
+func fade_page_out(panel: Control, on_hidden := Callable()) -> void:
+	if not is_instance_valid(panel) or not panel.visible:
+		return
+	_start_fade()
+	_fade_tween.tween_property(panel, "modulate:a", 0.0, PAGE_FADE)
+	_fade_tween.tween_callback(func() -> void:
+		panel.visible = false
+		panel.modulate.a = 1.0  # für das nächste Öffnen zurücksetzen
+		_fade_tween = null      # diese Blende ist durch, kein Selbst-Abbruch
+		var incoming := _visible_surface()
+		if incoming != null:
+			incoming.modulate.a = 0.0
+		if on_hidden.is_valid():
+			on_hidden.call()
+		else:
+			fade_current_in())
+
+## Öffnet eine Seite mit Einblende (die alte Fläche weicht sofort).
+func fade_page_in(panel: Control) -> void:
+	if not is_instance_valid(panel):
+		return
+	panel.modulate.a = 0.0
+	panel.visible = true
+	_start_fade()
+	_fade_tween.tween_property(panel, "modulate:a", 1.0, PAGE_FADE)
+
+## Blendet ein, was gerade die Fläche hält (Home oder die zurückgekehrte Seite).
+func fade_current_in() -> void:
+	var surface := _visible_surface()
+	if surface == null:
+		return
+	surface.modulate.a = 0.0
+	_start_fade()
+	_fade_tween.tween_property(surface, "modulate:a", 1.0, PAGE_FADE)
+
+func _start_fade() -> void:
+	if _fade_tween != null and _fade_tween.is_valid():
+		_fade_tween.kill()
+	_fade_tween = create_tween()
+
+func _visible_surface() -> Control:
+	for page in _pages:
+		if is_instance_valid(page) and page.visible:
+			return page
+	return content_root
+
 ## Harter Reset (Spiel-Neustart): alle Seiten zu, Gedächtnis leer, Home sichtbar.
 func reset_pages() -> void:
+	if _fade_tween != null and _fade_tween.is_valid():
+		_fade_tween.kill()
 	_switching = true
 	_suppressed.clear()
 	for page in _pages:
 		if is_instance_valid(page):
 			page.visible = false
+			page.modulate.a = 1.0  # eine unterbrochene Blende darf nicht kleben
 			_page_shown[page] = false
 	if content_root != null:
 		content_root.visible = true

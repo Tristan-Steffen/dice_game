@@ -214,6 +214,11 @@ var charm_library: CharmLibraryView
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
 
+## Titel-HUD (Startbildschirm + Menü) als Hub-Seite; davor stand die Kamera in
+## title_prev_mode und kehrt beim "Weiterspielen" dorthin zurück.
+var title_view: TitleView
+var title_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
+
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
@@ -388,6 +393,9 @@ func _ready() -> void:
 	_style_ui()
 	_collect_combo_labels()
 	_reset_game()
+	# Der Tisch ist fertig gedeckt, die Runde läuft - der Spieler sieht davon
+	# aber nur das Titel-HUD, bis er "Neues Spiel" drückt.
+	_open_title(false, true)
 
 ## Dimmt die GLB-Neonkanten des Tisches auf Akzent-Niveau (siehe Konstante).
 func _dim_table_rim() -> void:
@@ -724,6 +732,24 @@ func _setup_panels() -> void:
 	if table_screen != null:
 		die_inspector.set_drawers(table_screen.supply_drawers)
 		die_inspector.set_prompt_label(table_screen.supply_info_label)
+	# Titel-HUD: eigene Hub-Seite, damit Menü, Einstellungen und Credits auf
+	# demselben Fenster liegen wie der Shop. Ohne Hub gibt es keinen Titel -
+	# dann startet das Spiel wie bisher direkt.
+	if table_screen != null and table_screen.hub != null:
+		title_view = TitleView.new()
+		title_view.visible = false
+		table_screen.hub.attach_panel(title_view)
+		title_view.layout()
+		title_view.set_settings(GameSettings.load_saved())
+		title_view.settings.apply()
+		title_view.settings_changed.connect(_on_settings_changed)
+		title_view.new_game_requested.connect(_on_title_new_game)
+		title_view.resume_requested.connect(_on_title_resume)
+		title_view.quit_requested.connect(func() -> void: get_tree().quit())
+		camera_rig.configure_title_target(
+			Vector3(hub_anchor.global_position.x, 0.0, hub_anchor.global_position.z),
+			Vector2(HUB_WIDTH_WORLD * 0.5, HUB_HEIGHT_WORLD * 0.5))
+
 	die_inspector.closed.connect(_end_engraving_ceremony)
 	die_inspector.applied.connect(_on_engraving_applied)
 	die_inspector.select_tray_die.connect(_on_tray_die_selected)
@@ -744,6 +770,7 @@ func _setup_settings_ui() -> void:
 	if have_hub:
 		settings_toggle_button.visible = false
 		settings_menu.visible = false
+		table_screen.hub.menu_requested.connect(_toggle_title)
 		table_screen.hub.new_game_requested.connect(_on_reset_button_pressed)
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
@@ -779,6 +806,77 @@ func _style_ui() -> void:
 
 func _on_settings_toggle_pressed() -> void:
 	settings_menu.visible = not settings_menu.visible
+
+## Öffnet das Titel-HUD: die Kamera fährt senkrecht ins Hub-Fenster, das damit
+## das ganze Bild füllt. resumable = ein Lauf wartet dahinter ("Weiterspielen").
+func _open_title(resumable: bool, instant := false) -> void:
+	if title_view == null:
+		return
+	title_prev_mode = camera_rig.mode
+	title_view.set_resumable(resumable)
+	title_view.show_card(TitleView.Card.MENU)
+	table_screen.hub.fade_page_in(title_view)  # Seitenregel blendet Home aus
+	camera_rig.show_title(instant)
+
+## Schließt das Titel-HUD und kehrt dorthin zurück, wo die Kamera vorher stand.
+func _close_title() -> void:
+	if title_view == null:
+		return
+	table_screen.hub.fade_page_out(title_view)
+	if title_prev_mode == CameraRig.Mode.OVERVIEW:
+		camera_rig.zoom_out(CameraRig.TITLE_TRAVEL, Tween.EASE_OUT)
+	else:
+		camera_rig.zoom_to(title_prev_mode, CameraRig.TITLE_TRAVEL, Tween.EASE_OUT)
+
+## Escape und der Menü-Eintrag im Hub schalten das Titel-HUD um: erst eine
+## offene Unterkarte zurück, dann das HUD selbst. Am Startbildschirm bleibt es
+## stehen - dort gibt es nichts, wohin man zurückkönnte.
+func _toggle_title() -> void:
+	if title_view == null:
+		return
+	if camera_rig.mode == CameraRig.Mode.TITLE:
+		if not title_view.go_back() and title_view.is_resumable():
+			_close_title()
+		return
+	if not _can_open_title():
+		return
+	_open_title(true)
+
+## Nur in Ruhephasen: während Wurf, Zählen oder Gravur-Zeremonie wird die
+## Kamera gebraucht, und das Menü risse sie mitten aus der Bewegung.
+func _can_open_title() -> bool:
+	if camera_rig.is_animating or engraving_active or _dice_in_motion():
+		return false
+	return phase == Phase.IDLE or phase == Phase.SHOP or phase == Phase.GAME_OVER
+
+## "Neues Spiel": erst blendet das Menü aus, DANN wird der Lauf aufgebaut -
+## hinter der geschlossenen Blende und bei stehender Kamera. Umgekehrt schnitt
+## das Menü hart weg und der Rückzieher startete auf dem Aufbau-Ruck.
+func _on_title_new_game() -> void:
+	if title_view == null:
+		return
+	if title_view.visible:
+		table_screen.hub.fade_page_out(title_view, _begin_fresh_run)
+	else:
+		_begin_fresh_run()
+
+func _begin_fresh_run() -> void:
+	_reset_game()
+	# Der Aufbau (30 Würfel neu bauen) kostet ein Fünftel einer Sekunde. Er läuft
+	# im dunklen Moment ab; Einblende und Rückzieher starten erst danach, sonst
+	# fräße der Ruck ihre ersten Bilder.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	table_screen.hub.fade_current_in()
+	camera_rig.reveal_table()
+
+func _on_title_resume() -> void:
+	_close_title()
+
+## Regler im Titel bewegt: sofort anwenden und auf Platte schreiben.
+func _on_settings_changed() -> void:
+	title_view.settings.apply()
+	title_view.settings.save()
 
 ## Sammelt die Kombinationszellen des Displays ein und versetzt sie (und die
 ## Rundenbonus-Zeilen) in die leuchtende Ruhefarbe.
@@ -1474,6 +1572,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_shell_drag_input(event)
 		return
 
+	if event.is_action_pressed("ui_cancel"):
+		_toggle_title()
+		return
+
 	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
 	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
 	if event is InputEventMouse and _forward_screen_mouse(event):
@@ -1483,6 +1585,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event.button_index == MOUSE_BUTTON_RIGHT:
+		# Im Titel-HUD führt Rechtsklick nur eine Karte zurück - der Tisch
+		# dahinter bleibt verdeckt, bis das Spiel wirklich startet.
+		if camera_rig.mode == CameraRig.Mode.TITLE:
+			title_view.go_back()
+			return
 		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
 		# ab, dann die Zeremonie selbst - sie darf nie offen zurückbleiben,
 		# während die Kamera schon woanders steht.
@@ -1498,6 +1605,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	# Im Titel-HUD gibt es nur die Menü-Knöpfe (die schon weitergereicht sind).
+	if camera_rig.mode == CameraRig.Mode.TITLE:
 		return
 
 	if is_pit_focused and _try_start_shell_drag(event.position):
@@ -2153,7 +2264,7 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 ## der ganzen Fläche (sauberer Button-Hover).
 func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	match camera_rig.mode:
-		CameraRig.Mode.HUB:
+		CameraRig.Mode.HUB, CameraRig.Mode.TITLE:
 			return table_screen.hub != null and table_screen.hub.get_rect().has_point(pixel)
 		CameraRig.Mode.PIT:
 			return table_screen.pit_actions_hit(pixel)
@@ -4278,6 +4389,8 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	if screen_reflection != null:
+		screen_reflection.set_enabled(new_mode != CameraRig.Mode.TITLE)
 	# Die Gravur-Station lebt an der Werkbank: verlässt die Kamera sie, ist die
 	# Zeremonie vorbei. Kein Rekursions-Risiko - _end_engraving_ceremony löscht
 	# engraving_active, bevor es selbst zurückfährt.

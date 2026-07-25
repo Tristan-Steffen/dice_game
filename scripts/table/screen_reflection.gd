@@ -28,6 +28,12 @@ func _ready() -> void:
 	add_child(mirror_camera)
 	mirror_camera.current = true
 
+## Schaltet die Spiegelung ab: im Titel-HUD geisterten die gespiegelten Würfel
+## sonst über das Menü, das flach wie ein Bildschirm wirken soll.
+func set_enabled(on: bool) -> void:
+	if mirror_camera != null:
+		mirror_camera.cull_mask = LAYER if on else 0
+
 func _process(_delta: float) -> void:
 	if main_camera == null:
 		return

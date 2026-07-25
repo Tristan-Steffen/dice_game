@@ -22,6 +22,13 @@ func test_mirror_camera_only_sees_the_reflective_layer() -> void:
 	assert_true(reflection.transparent_bg, "ohne durchsichtigen Grund überdeckt die Spiegelung die Anzeige")
 	assert_false(reflection.own_world_3d, "die Spiegelkamera muss die ECHTE Szene sehen")
 
+func test_disabling_leaves_nothing_to_reflect() -> void:
+	# Im Titel-HUD geistern die gespiegelten Würfel sonst über das Menü.
+	reflection.set_enabled(false)
+	assert_eq(reflection.mirror_camera.cull_mask, 0)
+	reflection.set_enabled(true)
+	assert_eq(reflection.mirror_camera.cull_mask, ScreenReflection.LAYER)
+
 func test_mirror_camera_follows_the_main_camera_mirrored() -> void:
 	reflection.plane_height = 1.0
 	main_camera.global_transform = Transform3D(Basis.IDENTITY, Vector3(3.0, 10.0, -4.0))

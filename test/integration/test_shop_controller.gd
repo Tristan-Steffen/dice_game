@@ -320,12 +320,15 @@ func test_charm_bought_stays_bought_after_flipping():
 	shop._on_charm_clicked(0)  # erneuter Klick darf nichts abziehen
 	assert_eq(run.money, money_after - 2, "nur die Blätter-Gebühr, kein Doppelkauf")
 
-func test_bought_charm_not_offered_on_next_new_spread():
-	var bought_id = shop.charm_options[0].id
+func test_each_archetype_appears_at_most_once_per_spread():
+	# Besitz sperrt NICHTS (Duplikate sind erlaubt) - die Auslage zieht nur
+	# INNERHALB einer Doppelseite ohne Zurücklegen.
 	shop._on_charm_clicked(0)  # jetzt besessen
 	shop._on_page_next_pressed()  # frische Doppelseite
+	var seen: Array[String] = []
 	for charm in shop.charm_options:
-		assert_ne(charm.id, bought_id, "besessener Charm nicht auf der neuen Seite")
+		assert_false(seen.has(charm.id), "jeder Archetyp höchstens einmal je Seite")
+		seen.append(charm.id)
 
 # --- Blätter-Ecken (Navigation auf den Seiten) --------------------------------
 

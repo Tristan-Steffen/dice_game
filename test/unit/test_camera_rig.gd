@@ -71,3 +71,49 @@ func test_unlocked_process_recomputes_from_the_anchor() -> void:
 
 func test_lock_defaults_off() -> void:
 	assert_false(rig.tilt_locked, "standardmäßig ist die Kamera frei")
+
+# --- Titelsicht --------------------------------------------------------------
+# Der Startbildschirm liegt IM Hub-Fenster: die Kamera steht senkrecht darüber,
+# das Fenster deckt das ganze Bild, und das Maus-Rundschauen ruht (es schwenkte
+# sonst den Filz daneben ins Bild).
+
+const TITLE_CENTER := Vector3(-26, 0, 0)
+const TITLE_HALF := Vector2(14.25, 15.0)
+
+func _aim_at_title() -> void:
+	rig.configure_title_target(TITLE_CENTER, TITLE_HALF)
+	rig.show_title(true)
+
+func test_the_title_view_looks_straight_down_on_the_window() -> void:
+	_aim_at_title()
+	assert_eq(rig.mode, CameraRig.Mode.TITLE)
+	var t := rig.global_transform
+	assert_almost_eq(t.origin.x, TITLE_CENTER.x, 0.001, "senkrecht über der Fenstermitte")
+	assert_almost_eq(t.origin.z, TITLE_CENTER.z, 0.001)
+	assert_gt(t.origin.y, 0.0, "über dem Tisch")
+	assert_almost_eq(-t.basis.z, Vector3.DOWN, Vector3.ONE * 0.001, "Blick senkrecht nach unten")
+	assert_almost_eq(t.basis.y, Vector3(1, 0, 0), Vector3.ONE * 0.001, "Bild-Oben = Welt +X")
+
+func test_the_title_view_keeps_the_whole_window_and_its_surroundings_in_sight() -> void:
+	_aim_at_title()
+	var distance := rig.title_distance()
+	var vp_size := rig.get_viewport().get_visible_rect().size
+	var half_h := tan(deg_to_rad(rig.fov * 0.5)) * distance
+	var half_w := half_h * (vp_size.x / vp_size.y)
+	assert_gt(half_w, TITLE_HALF.x, "seitlich bleibt Tisch im Blick (die Würfel-Ablage)")
+	assert_gt(half_h, TITLE_HALF.y, "oben und unten ebenso")
+	# Die WEITERE Achse schlägt an; sie liegt genau um die Zugabe daneben.
+	assert_almost_eq(minf(half_w / TITLE_HALF.x, half_h / TITLE_HALF.y),
+		CameraRig.TITLE_MARGIN, 0.001, "das Fenster steht ganz im Bild")
+
+func test_the_camera_stands_still_in_the_title_view() -> void:
+	_aim_at_title()
+	var before := rig.global_transform
+	rig._process(0.1)
+	assert_eq(rig.global_transform, before, "kein Rundschauen im Titel-HUD")
+
+func test_the_reveal_leaves_the_title_for_the_overview() -> void:
+	_aim_at_title()
+	rig.reveal_table()
+	assert_eq(rig.mode, CameraRig.Mode.OVERVIEW)
+	assert_true(rig.is_animating, "der Rückzieher läuft")

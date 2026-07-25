@@ -4,7 +4,7 @@ extends Camera3D
 ## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
 ## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, TITLE }
 
 signal mode_changed(new_mode: Mode)
 
@@ -50,6 +50,9 @@ var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
 var chips_target := Vector3(0, 1.5, 10)
 var workshop_target := Vector3(-24, 0, 22)
+## Titelziel + halbe Fenstermaße (x = entlang Welt-Z, y = entlang Welt-X).
+var title_target := Vector3(-26, 0, 0)
+var title_half := Vector2(14.25, 15.0)
 
 ## Feste, steile Draufsicht für ALLE Zoom-Ziele, unabhängig von der flacheren
 ## Übersichts-Kamera (Basis-Achsen als Spalten!).
@@ -59,6 +62,24 @@ const ZOOM_BASIS := Basis(
 	Vector3(-0.25881907, 0.9659258, -1.1313341e-08)
 )
 const ZOOM_FORWARD := Vector3(0.25881907, -0.9659258, 1.1313341e-08)  # = -ZOOM_BASIS.z
+
+## Titelsicht: SENKRECHT von oben, Bild-Rechts = Welt +Z, Bild-Oben = Welt +X -
+## genau die Laufrichtung der Display-Pixel. Der geneigte ZOOM_BASIS taugt hier
+## nicht: er zeigte das Menü als Trapez, und die Illusion "flache Oberfläche"
+## wäre hin.
+const TITLE_BASIS := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
+
+## Das Titel-Fenster liegt GANZ im Bild (die weitere Achse schlägt an) und
+## bekommt Zugabe: der Tisch daneben - vor allem die Würfel-Ablage rechts -
+## bleibt sichtbar, das Menü liegt erkennbar AUF dem Tisch.
+const TITLE_MARGIN := 1.18
+
+## Ein- und Ausfahrt des Titel-HUDs: ruhiger als die kurzen Zoomfahrten.
+const TITLE_TRAVEL := 1.1
+
+## Enthüllung nach "Neues Spiel": lang und ausklingend - das ist der Moment,
+## in dem sich der Tisch zeigt.
+const REVEAL_DURATION := 2.6
 
 var base_basis: Basis
 var base_origin: Vector3
@@ -89,7 +110,9 @@ func _ready() -> void:
 	anchor_origin = base_origin
 
 func _process(delta: float) -> void:
-	if is_animating or tilt_locked:
+	# Im Titel-HUD steht die Kamera still: das Rundschauen schwenkte den Filz
+	# ins Bild und verriete, dass das Menü auf einem Tisch liegt.
+	if is_animating or tilt_locked or mode == Mode.TITLE:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -179,8 +202,49 @@ func configure_chips_target(target: Vector3) -> void:
 func configure_workshop_target(target: Vector3) -> void:
 	workshop_target = target
 
+func configure_title_target(center: Vector3, half_extent: Vector2) -> void:
+	title_target = center
+	title_half = half_extent
+
+## Abstand, bei dem das Titel-Fenster vollständig im Bild steht (Maximum der
+## beiden Achsen-Abstände; das Seitenverhältnis kommt aus dem laufenden Viewport).
+func title_distance() -> float:
+	var half_fov := tan(deg_to_rad(fov * 0.5))
+	if half_fov <= 0.0:
+		return ZOOM_DISTANCE
+	var aspect := 1.0
+	var viewport := get_viewport()
+	if viewport != null:
+		var vp_size := viewport.get_visible_rect().size
+		if vp_size.x > 0.0 and vp_size.y > 0.0:
+			aspect = vp_size.x / vp_size.y
+	return maxf(title_half.y / half_fov, title_half.x / (half_fov * aspect)) * TITLE_MARGIN
+
+## Fährt in die Titelsicht; instant = ohne Fahrt (Spielstart).
+func show_title(instant := false) -> void:
+	var target_origin := title_target + Vector3.UP * title_distance()
+	mode = Mode.TITLE
+	mode_changed.emit(mode)
+	anchor_basis = TITLE_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
+	if not instant:
+		_animate_to(target_origin, TITLE_BASIS, TITLE_TRAVEL, Tween.EASE_OUT)
+		return
+	if active_tween:
+		active_tween.kill()
+	is_animating = false
+	global_transform = Transform3D(TITLE_BASIS, target_origin)
+
+## Der Rückzieher aus dem Titel-HUD auf den ganzen Tisch.
+func reveal_table() -> void:
+	zoom_out(REVEAL_DURATION, Tween.EASE_OUT)
+
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
-func zoom_to(target_mode: Mode) -> void:
+func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
+		ease_mode := Tween.EASE_IN_OUT) -> void:
 	if mode == target_mode:
 		return
 	var target_point: Vector3
@@ -223,7 +287,7 @@ func zoom_to(target_mode: Mode) -> void:
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO
-	_animate_to(target_origin, ZOOM_BASIS)
+	_animate_to(target_origin, ZOOM_BASIS, duration, ease_mode)
 
 ## Verschiebt den Zoom-Blick auf target_point OHNE den Modus zu wechseln (z.B.
 ## von Charm zu Charm) - gleicher Winkel/Abstand, nur der Blickpunkt wandert.
@@ -237,7 +301,7 @@ func pan_to(target_point: Vector3) -> void:
 	_animate_to(target_origin, ZOOM_BASIS)
 
 ## Zurück zur Übersicht; No-Op, falls bereits dort.
-func zoom_out() -> void:
+func zoom_out(duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void:
 	if mode == Mode.OVERVIEW:
 		return
 	mode = Mode.OVERVIEW
@@ -245,19 +309,20 @@ func zoom_out() -> void:
 	anchor_basis = base_basis
 	anchor_origin = base_origin
 	tilt_offset = Vector2.ZERO
-	_animate_to(base_origin, base_basis)
+	_animate_to(base_origin, base_basis, duration, ease_mode)
 
-func _animate_to(target_origin: Vector3, target_basis: Basis) -> void:
+func _animate_to(target_origin: Vector3, target_basis: Basis,
+		duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void:
 	if active_tween:
 		active_tween.kill()
 	is_animating = true
 
 	var from_basis := global_transform.basis
 	active_tween = create_tween()
-	active_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	active_tween.set_trans(Tween.TRANS_SINE).set_ease(ease_mode)
 	active_tween.set_parallel(true)
-	active_tween.tween_property(self, "global_position", target_origin, ZOOM_DURATION)
-	active_tween.tween_method(_apply_basis_slerp.bind(from_basis, target_basis), 0.0, 1.0, ZOOM_DURATION)
+	active_tween.tween_property(self, "global_position", target_origin, duration)
+	active_tween.tween_method(_apply_basis_slerp.bind(from_basis, target_basis), 0.0, 1.0, duration)
 	active_tween.chain().tween_callback(func() -> void: is_animating = false)
 
 func _apply_basis_slerp(t: float, from_basis: Basis, to_basis: Basis) -> void:

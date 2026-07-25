@@ -186,3 +186,53 @@ func test_attaching_an_already_visible_panel_takes_the_page() -> void:
 	hub.attach_panel(eager)
 	assert_false(hub.content_root.visible, "die sichtbar angehängte Seite übernimmt sofort")
 	assert_true(eager.visible)
+
+# --- Weiche Wechsel ----------------------------------------------------------
+# Der harte Schnitt fiel auf, solange die Kamera noch fährt (Titel-HUD): jetzt
+# blendet die Seite aus, DANN blendet die nachrückende Fläche ein.
+
+func test_a_fading_page_holds_the_surface_until_it_is_gone() -> void:
+	page_a.visible = true
+	hub.fade_page_out(page_a)
+	assert_true(page_a.visible, "während der Blende steht die Seite noch")
+	await wait_seconds(HubView.PAGE_FADE * 3.0)
+	assert_false(page_a.visible)
+	assert_almost_eq(page_a.modulate.a, 1.0, 0.001, "fürs nächste Öffnen wieder deckend")
+	assert_true(hub.content_root.visible, "Home ist nachgerückt")
+	assert_almost_eq(hub.content_root.modulate.a, 1.0, 0.001, "und fertig eingeblendet")
+	assert_eq(_visible_surfaces(), 1)
+
+func test_the_hand_over_gets_a_dark_moment_to_work_in() -> void:
+	# Der Spiel-Neustart hängt hier ein: die alte Fläche ist weg, die neue steht
+	# dunkel bereit - sein Aufbau-Ruck sitzt so in keiner Blende. Das Einblenden
+	# übernimmt dann der Aufrufer.
+	page_a.visible = true
+	var seen := []
+	hub.fade_page_out(page_a, func() -> void:
+		seen.append([page_a.visible, hub.content_root.modulate.a]))
+	await wait_seconds(HubView.PAGE_FADE * 3.0)
+	assert_eq(seen.size(), 1, "genau einmal aufgerufen")
+	assert_eq(seen[0], [false, 0.0], "alte Seite weg, nachrückende dunkel")
+	assert_almost_eq(hub.content_root.modulate.a, 0.0, 0.001,
+		"ohne fade_current_in bleibt sie dunkel - der Aufrufer entscheidet, wann")
+	hub.fade_current_in()
+	await wait_seconds(HubView.PAGE_FADE * 2.0)
+	assert_almost_eq(hub.content_root.modulate.a, 1.0, 0.001)
+
+func test_fading_a_page_in_still_obeys_the_one_page_rule() -> void:
+	hub.fade_page_in(page_a)
+	assert_true(page_a.visible)
+	assert_false(hub.content_root.visible, "Home weicht sofort")
+	await wait_seconds(HubView.PAGE_FADE * 2.0)
+	assert_almost_eq(page_a.modulate.a, 1.0, 0.001)
+	assert_eq(_visible_surfaces(), 1)
+
+func test_a_reset_cancels_a_running_fade() -> void:
+	page_a.visible = true
+	hub.fade_page_out(page_a)
+	hub.reset_pages()
+	assert_false(page_a.visible)
+	assert_almost_eq(page_a.modulate.a, 1.0, 0.001, "keine halbe Blende bleibt kleben")
+	await wait_seconds(HubView.PAGE_FADE * 3.0)
+	assert_false(page_a.visible, "die abgebrochene Blende holt die Seite nicht zurück")
+	assert_true(hub.content_root.visible)
