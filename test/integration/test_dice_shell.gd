@@ -112,3 +112,77 @@ func test_reset_to_post_holt_die_huelle_heim() -> void:
 	assert_false(shell.has_ghosts(), "Taumel-Würfel abgeräumt")
 	assert_false(shell.grabbed, "Griff gelöst")
 	assert_eq(shell.state, DiceShell.State.RETURN, "Hülle kehrt heim")
+
+func test_ziehen_hebt_und_senkt_die_huelle() -> void:
+	# Der Zieh-Rückstand ist die Federkraft: reißt der Spieler, sackt die Hülle
+	# unter die Rüttel-Ebene; bleibt er stehen, wirft die Feder sie darüber.
+	var shell := _shell()
+	shell.state = DiceShell.State.SHAKE
+	shell.shake_pos = shell._pit_anchor()
+	shell.set_grabbed(true)
+	shell.drag_to(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z + 8.0))
+	await wait_frames(3)
+	assert_lt(shell.lift, -0.05, "Reißen lässt die Hülle durchsacken")
+	var sagged: float = shell.lift
+	shell.drag_to(shell.to_global(shell.shake_pos))  # Hand steht still
+	await wait_seconds(0.25)
+	assert_gt(shell.lift, sagged, "die Feder holt sie zurück und darüber hinaus")
+	assert_lte(absf(shell.lift), DiceShell.LIFT_MAX + 0.01, "Federweg bleibt begrenzt")
+
+func test_ziehen_kippt_die_huelle_quer_zur_zugrichtung() -> void:
+	var shell := _shell()
+	shell.state = DiceShell.State.SHAKE
+	shell.shake_pos = shell._pit_anchor()
+	shell.set_grabbed(true)
+	shell.drag_to(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z + 9.0))
+	await wait_frames(12)
+	# Zug nach +Z -> Kippachse waagerecht quer dazu, nicht die reine Hochachse.
+	var axis: Vector3 = shell.angular_velocity.normalized()
+	assert_gt(absf(axis.x), absf(axis.y), "Hülle kippt, statt nur zu kreiseln")
+
+func test_ruck_treibt_die_taumel_wuerfel_an() -> void:
+	# Jede Schlagumkehr wirft den Schwarm hoch und gibt ihm Drall - deshalb wird
+	# hier wirklich hin und her gezogen, nicht nur einmal gerissen.
+	var shell := _shell()
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	shell.state = DiceShell.State.SHAKE
+	shell.shake_pos = shell._pit_anchor()
+	shell.capture_die(def, shell.mouth_position())
+	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
+	body.linear_velocity = Vector3.ZERO
+	body.angular_velocity = Vector3.ZERO
+	shell.set_grabbed(true)
+	for stroke in 4:
+		var side := 6.0 if stroke % 2 == 0 else -6.0
+		shell.drag_to(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z + side))
+		await wait_seconds(0.2)
+	assert_gt(body.angular_velocity.length(), 0.0, "der Schwarm bekommt Drall ab")
+
+func test_platten_federn_haerter_als_grubenwaende() -> void:
+	var shell := _shell()
+	var material: PhysicsMaterial = shell.shell_body.physics_material_override
+	assert_not_null(material, "Platten haben ein Physikmaterial")
+	assert_gt(material.bounce, DieBuilder.BOUNCE, "Hülle federt härter als die Grube")
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	shell.capture_die(def, shell.mouth_position())
+	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
+	assert_gt(body.physics_material_override.bounce, DieBuilder.BOUNCE,
+		"auch der Taumel-Würfel selbst federt - beide Seiten geben Energie zurück")
+
+func test_kaefig_wirft_zurueck_statt_zu_schlucken() -> void:
+	# In den Ikosaeder-Ecken fängt der Käfig den Würfel vor der Platte ab - dort
+	# muss er federn, sonst frisst er genau die Sprünge weg.
+	var shell := _shell()
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	shell.capture_die(def, shell.mouth_position())
+	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
+	var out := Vector3.RIGHT
+	body.global_position = shell.mouth_position() + out * (DiceShell.NET_RADIUS + 0.3)
+	body.linear_velocity = out * 10.0
+	await wait_frames(2)
+	assert_lt(body.linear_velocity.dot(out), 0.0, "Käfig kehrt die Auswärtsbewegung um")
+	assert_lte(body.global_position.distance_to(shell.mouth_position()),
+		DiceShell.NET_RADIUS + 0.5, "Würfel bleibt in der Hülle")
