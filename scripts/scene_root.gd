@@ -814,7 +814,7 @@ func _open_title(resumable: bool, instant := false) -> void:
 		return
 	title_prev_mode = camera_rig.mode
 	title_view.set_resumable(resumable)
-	title_view.show_card(TitleView.Card.MENU)
+	title_view.show_home()
 	table_screen.hub.fade_page_in(title_view)  # Seitenregel blendet Home aus
 	camera_rig.show_title(instant)
 
@@ -1588,7 +1588,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Im Titel-HUD führt Rechtsklick nur eine Karte zurück - der Tisch
 		# dahinter bleibt verdeckt, bis das Spiel wirklich startet.
 		if camera_rig.mode == CameraRig.Mode.TITLE:
-			title_view.go_back()
+			if title_view.visible:
+				title_view.go_back()
 			return
 		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
 		# ab, dann die Zeremonie selbst - sie darf nie offen zurückbleiben,
@@ -3879,6 +3880,8 @@ func _reset_game() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.reset_pages()
 	game_over_panel.visible = false
+	if title_view != null:
+		title_view.clear_game_over()
 	_set_gameplay_ui_visible(true)
 	# Frischer Run: der Puls ruht, bis wieder zum ersten Mal gewürfelt wird.
 	if table_screen != null:
@@ -4463,10 +4466,18 @@ func _on_shop_closed() -> void:
 	camera_rig.zoom_out()
 	_start_new_round()
 
+## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
+## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das
+## 2D-Panel als Rückfall.
 func _show_game_over(total: int) -> void:
-	game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
 	_set_gameplay_ui_visible(false)
-	game_over_panel.visible = true
+	if title_view == null:
+		game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
+		game_over_panel.visible = true
+		return
+	title_view.show_game_over(total, run.round_goal, run.round_number)
+	table_screen.hub.fade_page_in(title_view)
+	camera_rig.show_title()
 
 func _refresh_ui() -> void:
 	_refresh_round_hud()

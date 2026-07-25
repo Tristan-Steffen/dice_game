@@ -1,7 +1,8 @@
 extends GutTest
-## Tests des Titel-HUDs (TitleView): drei Karten auf einer Fläche, von denen
-## immer genau EINE sichtbar ist, der Rückweg auf die Menü-Karte und die
-## Meldung geänderter Einstellungen (anwenden/sichern tut scene_root).
+## Tests des Titel-HUDs (TitleView): Karten auf einer Fläche, von denen immer
+## genau EINE sichtbar ist, der Rückweg zur Heimat-Karte (nach einer verlorenen
+## Partie ist das die Ende-Karte) und die Meldung geänderter Einstellungen
+## (anwenden/sichern tut scene_root).
 
 var view: TitleView
 
@@ -35,6 +36,36 @@ func test_going_back_returns_to_the_menu() -> void:
 
 func test_the_menu_card_has_nowhere_to_go_back_to() -> void:
 	assert_false(view.go_back(), "auf der Menü-Karte bleibt der Klick frei")
+
+# --- Spielende ---------------------------------------------------------------
+
+func test_a_lost_run_shows_the_result() -> void:
+	view.set_resumable(true)
+	view.show_game_over(87, 150, 4)
+	assert_true(view._cards[TitleView.Card.GAME_OVER].visible)
+	assert_eq(_visible_cards(), 1)
+	assert_eq(view.game_over_result.text, "Ziel verfehlt: 87 / 150 Punkte")
+	assert_eq(view.game_over_round.text, "in Runde 4")
+	assert_false(view.is_resumable(), "die verlorene Partie lässt sich nicht fortsetzen")
+
+func test_the_way_back_ends_at_the_game_over_card() -> void:
+	view.show_game_over(87, 150, 4)
+	assert_false(view.go_back(), "das Ende IST die Heimat - kein Rückweg")
+	view.show_card(TitleView.Card.MENU)  # über den Menü-Knopf der Ende-Karte
+	assert_true(view.go_back(), "von dort führt der Rückweg wieder ans Ende")
+	assert_true(view._cards[TitleView.Card.GAME_OVER].visible)
+
+func test_a_fresh_run_makes_the_menu_home_again() -> void:
+	view.show_game_over(87, 150, 4)
+	view.clear_game_over()
+	assert_true(view._cards[TitleView.Card.MENU].visible)
+	assert_false(view.go_back(), "das Menü ist wieder die Heimat")
+
+func test_show_home_follows_the_home_card() -> void:
+	view.show_game_over(87, 150, 4)
+	view.show_card(TitleView.Card.CREDITS)
+	view.show_home()
+	assert_true(view._cards[TitleView.Card.GAME_OVER].visible)
 
 func test_resume_appears_only_with_a_running_game() -> void:
 	assert_false(view.resume_button.visible, "am Startbildschirm wartet kein Lauf")

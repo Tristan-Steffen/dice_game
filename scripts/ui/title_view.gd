@@ -1,8 +1,10 @@
 class_name TitleView
 extends Control
-## Das Titel-HUD: Startbildschirm UND Pausenmenü, gezeigt als Seite des Hubs
-## (siehe HubView.attach_panel). Drei Karten auf derselben Fläche - Menü,
-## Einstellungen, Credits; sichtbar ist immer genau eine.
+## Das Titel-HUD: Startbildschirm, Pausenmenü UND Ende-Bildschirm, gezeigt als
+## Seite des Hubs (siehe HubView.attach_panel). Karten auf derselben Fläche -
+## Menü, Einstellungen, Credits, Spielende; sichtbar ist immer genau eine.
+## Nach einer verlorenen Partie ist die Ende-Karte die HEIMAT-Karte: der
+## Rückweg endet dort, nicht im Menü.
 ##
 ## Die Titelkamera zeigt das ganze Hub-Fenster; der Inhalt sitzt mittig darin
 ## und lässt oben und unten Luft - der Rahmen soll als Rahmen lesbar bleiben.
@@ -14,12 +16,13 @@ signal quit_requested
 ## selbst fasst weder Engine noch Dateisystem an).
 signal settings_changed
 
-enum Card { MENU, SETTINGS, CREDITS }
+enum Card { MENU, SETTINGS, CREDITS, GAME_OVER }
 
 const TITLE_GLOW := Color(1.7, 1.8, 2.0)   # überhelles Weiß (blüht)
 const ACCENT := Color("#8be9fd")
 const PINK := Color("#ff79c6")
 const TEXT_COLOR := Color(1.2, 1.2, 1.18)
+const LOSS := Color(1.7, 0.5, 0.42)  # überhelles Rot (blüht)
 
 var settings: GameSettings = GameSettings.new()
 
@@ -27,9 +30,13 @@ var resume_button: Button
 var volume_slider: HSlider
 var volume_value: Label
 var fullscreen_check: BaseButton
+var game_over_result: Label
+var game_over_round: Label
 
 var _cards := {}  # Card -> Control
 var _card: Card = Card.MENU
+## Karte, auf die der Rückweg führt - nach einer verlorenen Partie das Ende.
+var _home_card: Card = Card.MENU
 var _built := false
 
 ## Baut die Karten passend zur (vom Hub gesetzten) Größe - einmalig.
@@ -42,6 +49,7 @@ func layout() -> void:
 	_cards[Card.MENU] = _build_menu(u)
 	_cards[Card.SETTINGS] = _build_settings(u)
 	_cards[Card.CREDITS] = _build_credits(u)
+	_cards[Card.GAME_OVER] = _build_game_over(u)
 	show_card(Card.MENU)
 
 ## Übernimmt die geladenen Einstellungen (Regler/Schalter folgen den Werten).
@@ -68,12 +76,30 @@ func show_card(card: Card) -> void:
 	for key: Card in _cards:
 		_cards[key].visible = key == card
 
-## Rechtsklick/Escape auf einer Unterkarte: zurück ins Menü (true = verbraucht).
+## Zeigt die Heimat-Karte (Menü, nach einer verlorenen Partie das Ende).
+func show_home() -> void:
+	show_card(_home_card)
+
+## Rechtsklick/Escape auf einer Unterkarte: zurück zur Heimat (true = verbraucht).
 func go_back() -> bool:
-	if _card == Card.MENU:
+	if _card == _home_card:
 		return false
-	show_card(Card.MENU)
+	show_home()
 	return true
+
+## Partie verloren: die Ende-Karte wird zur Heimat, "Weiterspielen" fällt weg.
+func show_game_over(total: int, goal: int, round_number: int) -> void:
+	game_over_result.text = "Ziel verfehlt: %d / %d Punkte" % [total, goal]
+	game_over_round.text = "in Runde %d" % round_number
+	set_resumable(false)
+	_home_card = Card.GAME_OVER
+	show_card(Card.GAME_OVER)
+
+## Frischer Lauf: das Ende ist keine Heimat mehr.
+func clear_game_over() -> void:
+	_home_card = Card.MENU
+	if _card == Card.GAME_OVER:
+		show_card(Card.MENU)
 
 # --- Karten ------------------------------------------------------------------
 
@@ -164,6 +190,38 @@ func _build_settings(u: float) -> Control:
 
 	column.add_child(_make_gap(u * 2.0))
 	_make_button(column, "Zurück", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, u,
+		func() -> void: show_card(Card.MENU))
+	return column.get_parent()
+
+func _build_game_over(u: float) -> Control:
+	var column := _make_card(u)
+
+	var heading := Label.new()
+	heading.text = "SPIEL VORBEI"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_size_override("font_size", int(u * 8.5))
+	heading.modulate = LOSS
+	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(heading)
+
+	game_over_result = Label.new()
+	game_over_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	game_over_result.add_theme_font_size_override("font_size", int(u * 4.2))
+	game_over_result.modulate = TEXT_COLOR
+	game_over_result.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(game_over_result)
+
+	game_over_round = Label.new()
+	game_over_round.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	game_over_round.add_theme_font_size_override("font_size", int(u * 3.6))
+	game_over_round.modulate = Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.85)
+	game_over_round.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(game_over_round)
+
+	column.add_child(_make_gap(u * 3.5))
+	_make_button(column, "Neues Spiel", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u,
+		func() -> void: new_game_requested.emit())
+	_make_button(column, "Menü", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, u,
 		func() -> void: show_card(Card.MENU))
 	return column.get_parent()
 
