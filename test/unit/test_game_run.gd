@@ -475,7 +475,53 @@ func test_can_overclock_checks_money():
 	run.money -= 1
 	assert_false(run.can_overclock(DiceScoring.TWO_KIND))
 
+# --- Rampenlicht & Midashandschuh -------------------------------------------------
+
+func test_spotlight_picks_a_combination_each_round():
+	run.apply_round_start_charms()
+	assert_eq(run.spotlight_combo, "", "ohne Charm steht nichts im Licht")
+	run.owned_charms.append(Charm.spotlight())
+	run.apply_round_start_charms()
+	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "eine echte Kombination")
+	assert_false(run.spotlight_claimed_this_round)
+
+func test_spotlight_levels_the_combination_once_per_round():
+	run.owned_charms.append(Charm.spotlight())
+	run.apply_round_start_charms()
+	var key: String = run.spotlight_combo
+	assert_false(run.claim_spotlight("nonsense"), "eine andere Kombination zählt nicht")
+	assert_true(run.claim_spotlight(key))
+	assert_eq(run.combo_level(key), 1, "dauerhaft eine Stufe höher")
+	assert_false(run.claim_spotlight(key), "zweimal in derselben Runde nicht")
+	run.apply_round_start_charms()
+	assert_false(run.spotlight_claimed_this_round, "neue Runde, neue Chance")
+
+func test_midas_glove_gilds_every_shown_face_of_a_full_hand():
+	run.owned_charms.append(Charm.midas_glove())
+	var defs: Array[DieDefinition] = []
+	for i in 6:
+		defs.append(DieDefinition.standard())
+	var faces := _p([0, 1, 2, 3, 4, 5])
+	var gilded := run.apply_midas_glove(defs, faces, _p([0, 1, 2, 3, 4, 5]))
+	assert_eq(gilded.size(), 6, "alle sechs oben liegenden Seiten")
+	for i in 6:
+		assert_eq(defs[i].materials[faces[i]], DieMaterial.GOLD)
+		assert_eq(defs[i].materials[(faces[i] + 1) % 6], "", "andere Seiten bleiben unberührt")
+
+func test_midas_glove_stays_cold_below_six_dice():
+	run.owned_charms.append(Charm.midas_glove())
+	var defs: Array[DieDefinition] = []
+	for i in 5:
+		defs.append(DieDefinition.standard())
+	assert_eq(run.apply_midas_glove(defs, _p([0, 0, 0, 0, 0]), _p([0, 1, 2, 3, 4])).size(), 0)
+	assert_eq(defs[0].materials[0], "", "nichts vergoldet")
+
 # --- Helfer -----------------------------------------------------------------------
+
+func _p(values: Array) -> Array[int]:
+	var typed: Array[int] = []
+	typed.assign(values)
+	return typed
 
 func _count_style(style_id: String) -> int:
 	var count := 0

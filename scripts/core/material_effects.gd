@@ -58,15 +58,16 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (activations - 1)
 	return bonus
 
-## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer legt die
-## Augenzahl seines Würfels drauf); Glas + rohe Augenzahl der oben liegenden Seite.
+## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer/Blood Diamond
+## legen die Augenzahl drauf); Glas + rohe Augenzahl der oben liegenden Seite.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> int:
-	var grinder := charm_ids.has(Charm.RUBY_GRINDER)
+	# Rubinschleifer legt die Augenzahl EINMAL drauf, der Blood Diamond je Exemplar.
+	var eye_stacks := int(charm_ids.has(Charm.RUBY_GRINDER)) + charm_ids.count(Charm.BLOOD_DIAMOND)
 	var bonus := 0
 	for i in participating:
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var ruby_value := RUBY_MULT + (values[i] if grinder else 0)
+		var ruby_value := RUBY_MULT + values[i] * eye_stacks
 		var effect_count := activation_count(i, materials, edge_materials, charm_ids, values[i], echo_slot)
 		if face_material == DieMaterial.RUBY:
 			bonus += ruby_value * effect_count
@@ -80,15 +81,18 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
 ## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied wie Rahmenvergolder heben Seite
-## UND Kante); Knochen +1 je Träger (Knochenleim: +2, nach
-## oben offen); Glas −1 je Träger, nie unter das Floor (Glasbläserlunge: gar
-## nicht). Alles je Effekt-Aktivierung.
+## UND Kante); Knochen +1 je Träger (Knochenleim: +2, Knochenmark je Exemplar
+## +1 mehr, nach oben offen); Glas −1 je Träger, nie unter das Floor
+## (Glasbläserlunge: gar nicht). Alles je Effekt-Aktivierung.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
 	# Goldschmied UND Rahmenvergolder heben den Satz für Seite UND Kante.
 	var gold_boost := charm_ids.has(Charm.GOLDSMITH) or charm_ids.has(Charm.FRAME_GILDER)
-	var gold_payout := GOLD_PAYOUT_BOOSTED if gold_boost else GOLD_PAYOUT
+	# Goldader legt auf JEDEN Gold-Träger denselben Zuschlag (Seite wie Kante).
+	var vein := CharmEffects.gold_vein_bonus(materials, edge_materials, participating, charm_ids)
+	var gold_payout := (GOLD_PAYOUT_BOOSTED if gold_boost else GOLD_PAYOUT) + vein
 	var edge_gold_payout := gold_payout
-	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
+	# Knochenleim hebt den Satz einmalig auf 2, Knochenmark legt je Exemplar +1 drauf.
+	var bone_growth := (2 if charm_ids.has(Charm.BONE_GLUE) else 1) + charm_ids.count(Charm.BONE_MARROW)
 	var glass_shrinks := not charm_ids.has(Charm.GLASSBLOWER_LUNG)
 	var report := TakeReport.new()
 	for i in participating:

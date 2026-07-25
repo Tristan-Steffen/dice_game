@@ -823,6 +823,34 @@ func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
 
+## Rampenlicht-Schritt der Zähl-Animation: erst jetzt wird die Stufe gebucht -
+## bricht ein Reset die Animation ab, bleibt die Kombination unverändert.
+## false = Abbruch (Reset).
+func _play_spotlight_step(step: Dictionary, combo_key: String) -> bool:
+	if not run.claim_spotlight(combo_key):
+		return true  # in dieser Runde schon kassiert
+	var charm_index: int = step["charm_indices"][0]
+	await _play_spotlight_upgrade(charm_index, combo_key)
+	return phase == Phase.SCORING
+
+## Rampenlicht eingelöst: der Chip der hervorgehobenen Kombination bekommt
+## dieselbe Übertaktungs-Zeremonie wie ein Kauf (Licht über die Leiterbahnen),
+## danach erlischt das Rampenlicht - je Runde steigt nur eine Stufe.
+func _play_spotlight_upgrade(charm_index: int, combo_key: String) -> void:
+	_flash_charm_and_pad(charm_index)
+	if table_screen == null or not combo_labels.has(combo_key):
+		_refresh_combo_label_texts()
+		return
+	_pulsing_combos[combo_key] = true
+	table_screen.set_spotlight_combo("")
+	await table_screen.play_overclock_pulse(combo_key)
+	_pulsing_combos.erase(combo_key)
+	var row: ComboCellView = combo_labels[combo_key]
+	row.set_score(
+		DiceScoring.points_for(combo_key, run.combo_levels),
+		DiceScoring.mult_for(combo_key, run.combo_levels))
+	row.set_level(run.combo_level(combo_key))
+
 ## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu;
 ## Zellen mit laufendem Kauf-Licht bleiben bis zur Ankunft unangetastet.
 func _refresh_combo_label_texts() -> void:
@@ -2496,6 +2524,9 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
 		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
 		CharmEffects.CTX_EDGE_DICE: run.edge_die_count(),
+		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
+		# es auch keinen Schritt mehr in der Zähl-Animation.
+		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3009,12 +3040,11 @@ func _on_farkle() -> void:
 ## verloren zu gehen (kein Farkle-Effekt, kein Verwerfen).
 func _keep_highest_die_and_continue(ids: Array[String]) -> void:
 	dice.clear_selection()
-	var best := -1
-	var best_value := -1
+	var lying: Array[int] = []
 	for i in dice.count():
-		if dice.values[i] > best_value:
-			best_value = dice.values[i]
-			best = i
+		lying.append(i)
+	# Gleichstand: der erste passende Würfel gewinnt (CharmEffects.target_die).
+	var best := CharmEffects.target_die(dice.values, lying, true)
 	if best >= 0:
 		dice.set_selected(best, true)
 	_line_up_settled_dice()
@@ -3086,6 +3116,15 @@ func _on_take_button_pressed() -> void:
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
 	var take_money := report.money
+
+	# Midashandschuh: eine Hand über alle sechs Würfel vergoldet jede oben
+	# liegende Seite - dauerhaft, also erst NACH den übrigen Nehmen-Effekten.
+	var gilded := run.apply_midas_glove(active_kinds, dice.face_indices, participating)
+	if not gilded.is_empty():
+		_flash_charm_and_pad(ids.find(Charm.MIDAS_GLOVE))
+		for slot in gilded:
+			_flash_scoring_die(slot)
+		hand_note = "Midashandschuh: %d Seiten vergoldet." % gilded.size()
 
 	# Lumpensammler beim Nehmen. Straßenmusiker zahlt NICHT hier, sondern pro
 	# ausgelöstem Würfel während der Zähl-Animation (siehe _play_take_animation).
@@ -3279,6 +3318,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# 4) Charm-Schritte strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
 	# Position): je Komet vom Dock-Pad in die betroffene Zahl.
 	for step: Dictionary in breakdown["charm_steps"]:
+		# Rampenlicht: wertet nicht, hebt an SEINER Position die Kombination.
+		if step.get("spotlight", false):
+			if not await _play_spotlight_step(step, String(breakdown["key"])):
+				return
+			continue
 		# Pro-Würfel-Charms: ein Meteor je ausgelöstem Würfel (Bodensatz & Co.).
 		if step.has("pulses") and not step["pulses"].is_empty():
 			if not await _play_charm_pulses(step):
@@ -3394,6 +3438,10 @@ func _play_die_retriggers(step: Dictionary, slot: int, die_px: Vector2, gain_px:
 func _play_crit_step(step: Dictionary) -> bool:
 	for charm_index: int in step["charm_indices"]:
 		_flash_charm_and_pad(charm_index)
+	# Krits, die einen einzelnen Würfel meinen (Beherit), blitzen ihn mit.
+	var crit_slot := int(step.get("slot", -1))
+	if crit_slot >= 0:
+		_flash_scoring_die(crit_slot)
 	var source_px := _charm_trail_source_px(step["charm_indices"])
 	var cbase: int = step["base_after"]
 	var cmult: int = step["mult_after"]
@@ -3781,6 +3829,8 @@ func _start_new_round() -> void:
 	# sofort mitspielen.
 	run.apply_round_start_charms()
 	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
+	if table_screen != null:
+		table_screen.set_spotlight_combo(run.spotlight_combo)
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.

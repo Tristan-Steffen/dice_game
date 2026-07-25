@@ -16,6 +16,13 @@ class_name CharmEffects
 ## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
 const ALL_OR_NOTHING_MULT := 5
 
+## Flache Dauer-Boni ohne Bedingung (Hausjoker, Gratis Getränk).
+const HOUSE_JOKER_MULT := 4
+const FREE_DRINK_BASE := 50
+
+## Volle Hand: so viele Würfel muss eine Kombination nutzen (Midashandschuh).
+const FULL_HAND_DICE := 6
+
 ## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
 ## nie unter 0) - überlebt Runden. Eigene Funktion, weil der Tisch-Chip denselben
 ## Wert zeigen muss, den die Wertung rechnet.
@@ -33,6 +40,8 @@ static func pendulum_mult(ctx: Dictionary) -> int:
 ##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
 ##   LATE_SLOTS    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
 ##   EDGE_DICE     int   - Würfel mit Kanten-Material im Besitz (Zargenglanz)
+##   SPOTLIGHT     String- hervorgehobene Kombination der Runde (Rampenlicht),
+##                         "" sobald sie kassiert ist
 const CTX_PENDULUM := "pendulum_acc"
 const CTX_EDGE_DICE := "edge_dice"
 const CTX_FULL_REROLLS := "full_rerolls"
@@ -41,6 +50,7 @@ const CTX_POOL_EMPTY := "pool_empty"
 const CTX_AFTER_FARKLE := "after_farkle"
 const CTX_FARKLE_STACKS := "farkle_stacks"
 const CTX_LATE_SLOTS := "late_slots"
+const CTX_SPOTLIGHT := "spotlight_combo"
 
 # --- Drei getrennte Mechaniken am einzelnen Würfel ---------------------------
 # 1. transform_value:  der Würfel ZEIGT einen anderen Wert - wirkt auf
@@ -103,7 +113,8 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 # --- Würfelphase: Pro-Würfel-Charms (feuern MIT ihrem beteiligten Würfel) -----
 
 ## Basispunkt-Beitrag der Besitz-Position j am beteiligten Würfel slot.
-static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = []) -> int:
+## scored: alle gewerteten Slots - nur der Vorreiter braucht sie.
+static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = [], scored: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.BROADBAND:
 			return 5
@@ -114,30 +125,49 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 			# Basispunkte = alle Kanten-Würfel im Besitz (nicht nur im Wurf).
 			if slot < edge_materials.size() and edge_materials[slot] != "":
 				return int(ctx.get(CTX_EDGE_DICE, 0))
+		Charm.FRONT_RUNNER:
+			# Nur am vordersten gewerteten Würfel, dort die ganze Augensumme.
+			if slot == first_participating(values, scored):
+				return _participating_sum(values, scored)
 	return 0
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
-## +3 je spät gezogenem Würfel).
-static func die_charm_mult_at(j: int, slot: int, charm_ids: Array[String], ctx: Dictionary = {}) -> int:
+## +3 je spät gezogenem Würfel; Prime Time: Augenzahl, wenn sie prim ist).
+static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
 		Charm.SEDIMENT:
 			var late: Array = ctx.get(CTX_LATE_SLOTS, [])
 			if late.has(slot):
 				return 3
+		Charm.PRIME_TIME:
+			# Knochen lässt Seiten über 6 wachsen - darum echt prüfen, nicht 2/3/5.
+			if slot < values.size() and is_prime(values[slot]):
+				return values[slot]
 	return 0
 
+## Primzahl-Test für Augenzahlen (Seiten können durch Knochen beliebig wachsen).
+static func is_prime(value: int) -> bool:
+	if value < 2:
+		return false
+	var d := 2
+	while d * d <= value:
+		if value % d == 0:
+			return false
+		d += 1
+	return true
+
 ## Summe aller Pro-Würfel-Basisbeiträge für slot (über alle Besitz-Positionen).
-static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = []) -> int:
+static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = [], scored: Array[int] = []) -> int:
 	var bonus := 0
 	for j in charm_ids.size():
-		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, edge_materials)
+		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, edge_materials, scored)
 	return bonus
 
 ## Summe aller Pro-Würfel-Multbeiträge für slot.
-static func die_charm_mult(slot: int, charm_ids: Array[String], ctx: Dictionary = {}) -> int:
+static func die_charm_mult(slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
 	var bonus := 0
 	for j in charm_ids.size():
-		bonus += die_charm_mult_at(j, slot, charm_ids, ctx)
+		bonus += die_charm_mult_at(j, slot, values, charm_ids, ctx)
 	return bonus
 
 # --- Charm-Phase (ganze Hand, strikt in Besitz-Reihenfolge) -------------------
@@ -224,6 +254,8 @@ static func die_price(base_price: int, charm_ids: Array[String], bundle_size: in
 ## unbeteiligte Würfel Augen, Material und Pro-Würfel-Charms auslösen.
 static func charm_base_bonus_at(j: int, key: String, values: Array[int], participating: Array[int], charm_ids: Array[String], _ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
+		Charm.FREE_DRINK:
+			return FREE_DRINK_BASE
 		Charm.BLACKJACK:
 			if _participating_sum(values, participating) == 21:
 				return 50
@@ -259,6 +291,8 @@ static func _distinct(values: Array[int]) -> Array[int]:
 ## beitragen). Pro-Würfel-Charms liegen in die_charm_mult_at.
 static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
 	match charm_ids[j]:
+		Charm.HOUSE_JOKER:
+			return HOUSE_JOKER_MULT
 		Charm.PENDULUM:
 			return pendulum_mult(ctx)
 		Charm.ALL_OR_NOTHING:
@@ -282,13 +316,10 @@ static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materia
 				if material_id != "":
 					display += 1
 			return display
-		Charm.LIGHTHOUSE:
+		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
 			# Jede Kombination: Mult in Höhe des höchsten GEWERTETEN Würfels.
-			var beacon := 0
-			for i in participating:
-				if i < values.size():
-					beacon = maxi(beacon, values[i])
-			return beacon
+			var beacon := target_die(values, participating, true)
+			return values[beacon] if beacon >= 0 else 0
 		Charm.TWIN_RING:
 			# Jedes exakte Paar im Wurf: Mult += Augenzahl.
 			var twins := 0
@@ -339,6 +370,20 @@ static func scored_indices(participating: Array[int], die_count: int, charm_ids:
 		all.append(i)
 	return all
 
+## ALLGEMEINE REGEL für Charms, die genau EINEN Würfel nach seiner Augenzahl
+## meinen (Hochstapler/Leuchtturm höchste, Beherit niedrigste, Flickenteppich
+## höchste): bei Gleichstand gewinnt der ERSTE passende Würfel - der mit dem
+## kleinsten Slot. Deshalb wird aufsteigend gelaufen und nur bei ECHT besserem
+## Wert übernommen. -1 = kein Kandidat.
+static func target_die(values: Array[int], candidates: Array[int], highest: bool) -> int:
+	var best := -1
+	for i in values.size():
+		if not candidates.has(i):
+			continue
+		if best < 0 or (values[i] > values[best] if highest else values[i] < values[best]):
+			best = i
+	return best
+
 ## Vorderster gewerteter Slot oder -1 (Echo-Kammer). Nimmt den kleinsten Index,
 ## damit auch unsortierte Teillisten (Tests, alte Aufrufer) korrekt bleiben.
 static func first_participating(values: Array[int], participating: Array[int]) -> int:
@@ -371,8 +416,9 @@ static func charm_mult_factor_at(j: int, values: Array[int], charm_ids: Array[St
 ## KRIT der Position j: multipliziert den AKTUELLEN Mult (Mult 10, Krit ×3
 ## -> 30) - wie jeder Faktor an der Besitz-Position, spätere Mult-Boni
 ## bleiben unberührt. 1 = kein Krit. Galgenhumor: ×4 nach Farkle,
-## Feierabendbier: ×2 bei leerem Nachziehstapel (zusätzlich zur Basis).
-static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
+## Feierabendbier: ×2 bei leerem Nachziehstapel (zusätzlich zur Basis),
+## Beherit: ×niedrigste gewertete Augenzahl (eine gewertete 1 heißt ×1).
+static func charm_crit_at(j: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.GALLOWS_HUMOR:
 			if ctx.get(CTX_AFTER_FARKLE, false):
@@ -380,9 +426,33 @@ static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String],
 		Charm.AFTER_WORK_BEER:
 			if ctx.get(CTX_POOL_EMPTY, false):
 				return 2
+		Charm.BEHERIT:
+			var lowest := target_die(values, participating, false)
+			return maxi(1, values[lowest]) if lowest >= 0 else 1
 	return 1
 
 # --- Geld: Effektkatalog -------------------------------------------------------
+
+## Goldader: Zuschlag, den JEDER auslösende Gold-Träger zusätzlich zahlt - $1 je
+## anderem Material-Träger der Kombination, $3 wenn dieser selbst Gold ist.
+## Seiten und Kanten zählen gleichwertig als Träger; stapelt je Charm-Vorkommen.
+static func gold_vein_bonus(materials: Array[String], edge_materials: Array[String], participating: Array[int], charm_ids: Array[String]) -> int:
+	var stacks := charm_ids.count(Charm.GOLD_VEIN)
+	if stacks == 0:
+		return 0
+	var gold := 0
+	var other := 0
+	for i in participating:
+		for carrier in [
+			materials[i] if i < materials.size() else "",
+			edge_materials[i] if i < edge_materials.size() else "",
+		]:
+			if carrier == DieMaterial.GOLD:
+				gold += 1
+			elif carrier != "":
+				other += 1
+	# "andere": der auslösende Träger ist selbst Gold und zählt sich nicht mit.
+	return stacks * (3 * maxi(0, gold - 1) + other)
 
 ## Straßenmusiker: $1 je beteiligtem Würfel beim Nehmen.
 static func take_income(charm_ids: Array[String], participating_count: int = 1) -> int:
@@ -391,6 +461,21 @@ static func take_income(charm_ids: Array[String], participating_count: int = 1) 
 		if charm_id == Charm.STREET_MUSICIAN:
 			income += participating_count
 	return income
+
+## Midashandschuh: die Hand muss ALLE sechs Würfel werten - erst dann vergoldet
+## sie jede oben liegende Seite (GameRun.apply_midas_glove mutiert die Würfel).
+static func midas_applies(charm_ids: Array[String], participating_count: int) -> bool:
+	return charm_ids.has(Charm.MIDAS_GLOVE) and participating_count >= FULL_HAND_DICE
+
+## Rampenlicht: das Casino stellt je Runde eine Kombination ins Licht.
+static func has_spotlight(charm_ids: Array[String]) -> bool:
+	return charm_ids.has(Charm.SPOTLIGHT)
+
+## Löst das Rampenlicht der Position j bei DIESER Hand aus? Es wertet nicht -
+## es bekommt trotzdem seinen Schritt in der Zähl-Animation, damit die Stufe
+## an seiner Dock-Position steigt und nicht erst nach dem Zählen.
+static func spotlight_fires_at(j: int, key: String, charm_ids: Array[String], ctx: Dictionary = {}) -> bool:
+	return charm_ids[j] == Charm.SPOTLIGHT and key != "" and key == String(ctx.get(CTX_SPOTLIGHT, ""))
 
 ## Goldrausch: NUR die erste genommene Hand der Runde zählt, und nur wenn ihre
 ## Kombination ALLE liegenden Würfel nutzt.

@@ -36,7 +36,14 @@ const CULT_OF_ONE := "cult_of_one"
 const STREET_SWEEPER := "street_sweeper"
 const EQUALIZER := "equalizer"
 const SMALL_FRY := "small_fry"
+const BEHERIT := "beherit"
+const HIGH_STACKER := "high_stacker"
+const PRIME_TIME := "prime_time"
+const FRONT_RUNNER := "front_runner"
 # Kombinationen & Wertung
+const HOUSE_JOKER := "house_joker"
+const FREE_DRINK := "free_drink"
+const SPOTLIGHT := "spotlight"
 const FULL_COUNTER := "full_counter"
 const LIGHTHOUSE := "lighthouse"
 const MOMENTUM := "momentum"
@@ -63,10 +70,14 @@ const EMERGENCY_FUND := "emergency_fund"
 const CASH_DISCOUNT := "cash_discount"
 const HIGH_FLYER := "high_flyer"
 # Materialien (Seiten)
+const MIDAS_GLOVE := "midas_glove"
+const GOLD_VEIN := "gold_vein"
 const GOLDSMITH := "goldsmith"
 const AMBER_ROOM := "amber_room"
 const RUBY_GRINDER := "ruby_grinder"
+const BLOOD_DIAMOND := "blood_diamond"
 const BONE_GLUE := "bone_glue"
+const BONE_MARROW := "bone_marrow"
 const GLASSBLOWER_LUNG := "glassblower_lung"
 const MERCURY_VAPOR := "mercury_vapor"
 const DISPLAY_CASE := "display_case"
@@ -123,7 +134,14 @@ const RARITIES := {
 	STREET_SWEEPER: RARITY_UNCOMMON,
 	EQUALIZER: RARITY_COMMON,
 	SMALL_FRY: RARITY_COMMON,
+	BEHERIT: RARITY_UNCOMMON,
+	HIGH_STACKER: RARITY_UNCOMMON,
+	PRIME_TIME: RARITY_RARE,
+	FRONT_RUNNER: RARITY_COMMON,
 	# Kombinationen & Wertung
+	HOUSE_JOKER: RARITY_COMMON,
+	FREE_DRINK: RARITY_COMMON,
+	SPOTLIGHT: RARITY_RARE,
 	HORSESHOE: RARITY_COMMON,
 	RAINBOW_TROUT: RARITY_COMMON,
 	PEARL_NECKLACE: RARITY_COMMON,
@@ -159,10 +177,14 @@ const RARITIES := {
 	CASH_DISCOUNT: RARITY_UNCOMMON,
 	HIGH_FLYER: RARITY_UNCOMMON,
 	# Materialien (Seiten)
+	MIDAS_GLOVE: RARITY_RARE,
+	GOLD_VEIN: RARITY_RARE,
 	GOLDSMITH: RARITY_UNCOMMON,
 	AMBER_ROOM: RARITY_UNCOMMON,
 	RUBY_GRINDER: RARITY_UNCOMMON,
+	BLOOD_DIAMOND: RARITY_UNCOMMON,
 	BONE_GLUE: RARITY_UNCOMMON,
+	BONE_MARROW: RARITY_UNCOMMON,
 	GLASSBLOWER_LUNG: RARITY_COMMON,
 	MERCURY_VAPOR: RARITY_LEGENDARY,
 	DISPLAY_CASE: RARITY_RARE,
@@ -339,7 +361,28 @@ static func equalizer() -> Charm:
 static func small_fry() -> Charm:
 	return _make(SMALL_FRY, "Kleinvieh", "Jede beteiligte 1 und 2 gibt +10 Basispunkte.")
 
+static func beherit() -> Charm:
+	return _make(BEHERIT, "Beherit", "Krit in Höhe der NIEDRIGSTEN gewerteten Augenzahl - eine gewertete 1 lässt ihn ausfallen.")
+
+static func high_stacker() -> Charm:
+	return _make(HIGH_STACKER, "Hochstapler", "+Mult in Höhe der höchsten gewerteten Augenzahl.")
+
+static func prime_time() -> Charm:
+	return _make(PRIME_TIME, "Prime Time", "Jeder gewertete Würfel mit Primzahl-Augen (2, 3, 5, 7, ...) gibt seine Augenzahl als Mult.")
+
+static func front_runner() -> Charm:
+	return _make(FRONT_RUNNER, "Vorreiter", "Der zuerst gewertete Würfel gibt zusätzlich die Augensumme ALLER gewerteten Würfel als Basispunkte.")
+
 # --- Kombinationen & Wertung ---
+
+static func house_joker() -> Charm:
+	return _make(HOUSE_JOKER, "Hausjoker", "+4 Mult auf jede gewertete Hand.")
+
+static func free_drink() -> Charm:
+	return _make(FREE_DRINK, "Gratis Getränk", "+50 Basispunkte auf jede gewertete Hand.")
+
+static func spotlight() -> Charm:
+	return _make(SPOTLIGHT, "Rampenlicht", "Jede Runde stellt das Casino eine Kombination ins Rampenlicht (ihr Chip pulst golden). Wertest du sie in dieser Runde, steigt sie dauerhaft eine Stufe.")
 
 static func full_counter() -> Charm:
 	return _make(FULL_COUNTER, "Vollzähler", "ALLE liegenden Würfel werden gewertet: auch außerhalb der Kombination lösen sie Augen, Material und Würfel-Charms aus.")
@@ -423,6 +466,12 @@ static func high_flyer() -> Charm:
 
 # --- Materialien (Seiten) ---
 
+static func midas_glove() -> Charm:
+	return _make(MIDAS_GLOVE, "Midashandschuh", "Nutzt eine genommene Hand alle sechs Würfel, wird jede oben liegende Seite dauerhaft Gold.")
+
+static func gold_vein() -> Charm:
+	return _make(GOLD_VEIN, "Goldader", "Jeder auslösende Gold-Träger (Seite wie Kante) zahlt zusätzlich $1 je anderem Material-Träger der Kombination - $3, wenn dieser selbst Gold ist.")
+
 static func goldsmith() -> Charm:
 	return _make(GOLDSMITH, "Goldschmied", "Gold-Seiten und Gold-Kanten zahlen $6 statt $3.")
 
@@ -431,6 +480,12 @@ static func amber_room() -> Charm:
 
 static func ruby_grinder() -> Charm:
 	return _make(RUBY_GRINDER, "Rubinschleifer", "Rubin gibt zusätzlich zu seinen +4 Mult die Augenzahl seines Würfels als Mult.")
+
+static func blood_diamond() -> Charm:
+	return _make(BLOOD_DIAMOND, "Blood Diamond", "Jede Rubin-Auslösung gibt zusätzlich die Augenzahl ihres Würfels als Mult - je Exemplar erneut.")
+
+static func bone_marrow() -> Charm:
+	return _make(BONE_MARROW, "Knochenmark", "Jede Knochen-Auslösung lässt die Seite +1 weiter wachsen - je Exemplar erneut.")
 
 static func bone_glue() -> Charm:
 	return _make(BONE_GLUE, "Knochenleim", "Knochen wächst +2 statt +1.")
@@ -515,12 +570,15 @@ static func all() -> Array[Charm]:
 		# Effektkatalog
 		pendulum(), all_or_nothing(), anchor(),
 		echo_chamber(), twin_ring(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
+		beherit(), high_stacker(), prime_time(), front_runner(),
+		house_joker(), free_drink(), spotlight(),
 		full_counter(), lighthouse(), momentum(), after_work_beer(), blackjack(),
 		round_number(), broadband(), even_company(), odd_path(), snake_eyes(),
 		broken_mirror(), grandfather_clock(), shard_court(), gallows_humor(), phoenix_feather(), patchwork_rug(),
 		gold_rush(), rag_collector(), interest_penny(), street_musician(), emergency_fund(),
 		cash_discount(), high_flyer(),
-		goldsmith(), amber_room(), ruby_grinder(), bone_glue(), glassblower_lung(), mercury_vapor(),
+		midas_glove(), gold_vein(), goldsmith(), amber_room(),
+		ruby_grinder(), blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(),
 		frame_gilder(), magnet_ring(), edge_gleam(),
 		bargain_hunter(), engraving_pen(), stamp_machine(), fine_print(),

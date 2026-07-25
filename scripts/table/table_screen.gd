@@ -895,6 +895,12 @@ func _add_combo_cell(key: String, at: Vector2) -> void:
 		DiceScoring.points_for(key), DiceScoring.mult_for(key))
 	combo_cells[key] = cell
 
+## Rampenlicht auf genau eine Kombination ("" = auf keine): ihr Chip pulst
+## golden, alle anderen ruhen.
+func set_spotlight_combo(key: String) -> void:
+	for combo_key: String in combo_cells:
+		combo_cells[combo_key].set_spotlight(combo_key == key)
+
 ## --- Rundenziel-Balken -------------------------------------------------------
 
 func _build_goal_bar() -> void:

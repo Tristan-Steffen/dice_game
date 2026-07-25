@@ -97,8 +97,35 @@ func test_broadband_pays_per_combination_die():
 func test_sediment_boosts_late_drawn_dice():
 	# +3 Mult nur am beteiligten, spät gezogenen Würfel (der Hook sieht nur beteiligte Slots).
 	var ids := _ids([Charm.SEDIMENT])
-	assert_eq(CharmEffects.die_charm_mult_at(0, 0, ids, {"late_slots": [0, 5]}), 3)
-	assert_eq(CharmEffects.die_charm_mult_at(0, 1, ids, {"late_slots": [0, 5]}), 0, "Slot 1 wurde früh gezogen")
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, _d(PAIR), ids, {"late_slots": [0, 5]}), 3)
+	assert_eq(CharmEffects.die_charm_mult_at(0, 1, _d(PAIR), ids, {"late_slots": [0, 5]}), 0, "Slot 1 wurde früh gezogen")
+
+func test_prime_time_pays_prime_faces_as_mult():
+	# 2, 3, 5 sind prim - 1, 4, 6 nicht; Knochen-Seiten über 6 werden echt geprüft.
+	var ids := _ids([Charm.PRIME_TIME])
+	var dice := _d([1, 2, 3, 4, 5, 6])
+	for slot in [1, 2, 4]:
+		assert_eq(CharmEffects.die_charm_mult_at(0, slot, dice, ids), dice[slot], "Primzahl gibt ihre Augen")
+	for slot in [0, 3, 5]:
+		assert_eq(CharmEffects.die_charm_mult_at(0, slot, dice, ids), 0, "keine Primzahl, kein Mult")
+	assert_eq(CharmEffects.die_charm_mult(0, _d([7, 7, 7, 7, 7, 7]), ids), 7, "gewachsene Seite (7) ist prim")
+	assert_eq(CharmEffects.die_charm_mult(0, _d([9, 9, 9, 9, 9, 9]), ids), 0, "9 = 3×3")
+
+func test_front_runner_loads_the_first_die_with_the_whole_eye_sum():
+	# Paar Fünfer: der vorderste gewertete Würfel (Slot 0) trägt 5+5 = 10 extra.
+	var ids := _ids([Charm.FRONT_RUNNER])
+	var scored := _p([0, 1])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, NO_MATS, scored), 10)
+	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, NO_MATS, scored), 0, "nur der erste Würfel")
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids), 0, "ohne gewertete Slots nichts")
+	# Ende-zu-Ende: (10 Punkte + 10 Augen + 10 Vorreiter) × Mult 2 = 60.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 60)
+
+func test_front_runner_follows_the_full_counter():
+	# Vollzähler wertet ALLE Würfel - der Vorreiter trägt dann die ganze Grube.
+	var ids := _ids([Charm.FRONT_RUNNER, Charm.FULL_COUNTER])
+	var all := _p([0, 1, 2, 3, 4, 5])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, _d(PAIR), ids, {}, NO_MATS, all), 22, "5+5+1+2+3+6")
 
 func test_edge_gleam_scales_with_owned_edge_dice():
 	var edges := _m([DieMaterial.GOLD, DieMaterial.GOLD, "", "", "", ""])
@@ -149,7 +176,58 @@ func test_lighthouse_also_lights_other_combinations():
 	# Nur GEWERTETE Würfel leuchten - die unbeteiligte 6 zählt nicht.
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), NO_MATS, ids, {}, _p([0, 1])), 2)
 
+func test_flat_charms_pay_without_a_condition():
+	# Hausjoker und Gratis Getränk hängen an keiner Kombination: Paar Fünfer,
+	# Basis (10 + 10 Augen + 50) × Mult (2 + 4) = 420.
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.HOUSE_JOKER])), 4)
+	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.ONE_KIND, _d(PAIR), _p([0]), _ids([Charm.FREE_DRINK])), 50)
+	var both := _ids([Charm.FREE_DRINK, Charm.HOUSE_JOKER])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), both), 420)
+
+func test_midas_glove_needs_the_full_hand():
+	var ids := _ids([Charm.MIDAS_GLOVE])
+	assert_true(CharmEffects.midas_applies(ids, 6))
+	assert_false(CharmEffects.midas_applies(ids, 5), "fünf Würfel reichen nicht")
+	assert_false(CharmEffects.midas_applies(_ids([]), 6), "ohne Charm passiert nichts")
+
+func test_target_die_takes_the_first_match_on_a_tie():
+	# Allgemeine Regel: meint ein Charm EINEN Würfel, gewinnt bei Gleichstand
+	# der erste passende (kleinster Slot) - Paar Sechsen auf Slot 1 und 3.
+	var dice := _d([2, 6, 4, 6, 1, 3])
+	var all := _p([0, 1, 2, 3, 4, 5])
+	assert_eq(CharmEffects.target_die(dice, all, true), 1, "höchster: erster Sechser")
+	assert_eq(CharmEffects.target_die(dice, _p([1, 3]), true), 1)
+	var lows := _d([3, 1, 5, 1, 6, 2])
+	assert_eq(CharmEffects.target_die(lows, all, false), 1, "niedrigster: erste Eins")
+	assert_eq(CharmEffects.target_die(dice, _p([]), true), -1, "ohne Kandidaten kein Ziel")
+
+func test_tie_breaking_charms_name_the_first_die():
+	# Hochstapler und Beherit lesen denselben Zielwürfel - die Zerlegung zeigt
+	# ihn, damit der Spieler sieht, WELCHER Würfel ausgelöst hat.
+	var dice := _d([6, 6, 2, 3, 4, 5])
+	var stacker := ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, _ids([Charm.HIGH_STACKER]))
+	var step: Dictionary = stacker["charm_steps"][0]
+	assert_eq(int(step["slot"]), 0, "erster der beiden Sechser")
+	assert_eq(int(step["pulses"][0]["slot"]), 0, "Meteor startet an diesem Würfel")
+	var beherit := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
+	assert_eq(int(beherit["charm_steps"][0]["slot"]), 0, "erster der beiden Vierer")
+
+func test_high_stacker_matches_the_highest_counted_die():
+	var ids := _ids([Charm.HIGH_STACKER])
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, ids, {}, _p([0, 1])), 5)
+	# Nur GEWERTETE Würfel zählen - die unbeteiligte 6 bleibt außen vor.
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), NO_MATS, ids, {}, _p([0, 1])), 2)
+
 # --- Krit (multipliziert den AKTUELLEN Mult, siehe charm_crit_at) -------------------
+
+func test_beherit_crits_with_the_lowest_counted_die():
+	var ids := _ids([Charm.BEHERIT])
+	# Gewertet werden Slot 3 (4) und 5 (6) -> niedrigste 4.
+	assert_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([3, 5])), 4, "Krit ×4")
+	assert_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([0, 5])), 1, "gewertete 1 = kein Krit")
+	assert_eq(CharmEffects.charm_crit_at(0, _d(PAIR), ids, {}, _p([])), 1, "ohne gewertete Würfel kein Krit")
+	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 5 = 10 -> Basis 20 × 10 = 200.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 200)
 
 func test_gallows_humor_gives_crit_after_a_farkle():
 	var ids := _ids([Charm.GALLOWS_HUMOR])
@@ -206,6 +284,23 @@ func test_ruby_grinder_adds_the_face_value_to_the_ruby_mult():
 	# Ohne den Schleifer bleibt es beim festen +4.
 	var plain := MaterialEffects.mult_bonus(_d(PAIR), _m([DieMaterial.RUBY, "", "", "", "", ""]), _p([0, 1]))
 	assert_eq(plain, 4)
+
+func test_carbuncle_stacks_the_face_value_per_copy():
+	# Blood Diamond wie der Schleifer (+5), aber je Exemplar erneut - und beide
+	# zusammen legen zweimal die Augenzahl auf die festen +4.
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	assert_eq(MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, _ids([Charm.BLOOD_DIAMOND])), 9)
+	assert_eq(MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, _ids([Charm.BLOOD_DIAMOND, Charm.BLOOD_DIAMOND])), 14)
+	assert_eq(MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, _ids([Charm.RUBY_GRINDER, Charm.BLOOD_DIAMOND])), 14)
+
+func test_bone_marrow_stacks_the_growth_per_copy():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), NO_MATS, _ids([Charm.BONE_MARROW]))
+	assert_eq(defs[0].faces[0], 7, "1 + 1 Knochenmark")
+	var twice: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(twice, _p([0]), _m([DieMaterial.BONE]), _p([0]), NO_MATS,
+		_ids([Charm.BONE_MARROW, Charm.BONE_MARROW, Charm.BONE_GLUE]))
+	assert_eq(twice[0].faces[0], 9, "Leim setzt 2, zwei Marke legen +2 drauf")
 
 func test_mercury_vapor_triples_mercury():
 	var bonus := MaterialEffects.base_bonus(_d(PAIR), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), _ids([Charm.MERCURY_VAPOR]))

@@ -10,7 +10,10 @@ func test_all_returns_all_charms():
 	# die mit den Menü-Deals entfielen, minus Wechselgeld, Ausziehtisch,
 	# Doppelte Perforation, Doppelte Sechs, Glücksknoten, Großformat,
 	# Hausmarke, Legierung und Nachzügler.
-	assert_eq(Charm.all().size(), 72)
+	# +11 außerhalb des Katalogs: Beherit, Hochstapler, Prime Time, Vorreiter,
+	# Hausjoker, Gratis Getränk, Rampenlicht, Midashandschuh, Goldader,
+	# Blood Diamond, Knochenmark.
+	assert_eq(Charm.all().size(), 83)
 
 func test_all_ids_are_unique():
 	var seen := {}

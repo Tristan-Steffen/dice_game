@@ -95,6 +95,29 @@ func test_take_retrigger_checks_the_transformed_value():
 		_ids([Charm.RABBITS_FOOT, Charm.LUCKY_CIGARETTES]))
 	assert_eq(report.money, 6, "zwei Auslösungen à $3")
 
+func test_gold_vein_pays_extra_per_other_carrier():
+	# Zwei Gold-Seiten + eine Rubin-Seite: jeder Gold-Träger sieht einen anderen
+	# Gold-Träger ($3) und einen anderen Material-Träger ($1) -> $3 + $4 je Seite.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.RUBY])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), faces, _p([0, 1, 2]),
+		_m([]), _ids([Charm.GOLD_VEIN]))
+	assert_eq(report.money, 14, "2 × ($3 Gold + $3 anderes Gold + $1 Rubin)")
+
+func test_gold_vein_counts_edges_as_carriers():
+	# Einzelne Gold-Seite, dazu eine Gold-KANTE am selben Würfel: beide lösen aus
+	# und sehen jeweils den anderen Träger.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
+		_m([DieMaterial.GOLD]), _ids([Charm.GOLD_VEIN]))
+	assert_eq(report.money, 12, "Seite und Kante je $3 + $3")
+
+func test_gold_vein_without_other_carriers_pays_the_plain_rate():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
+		_m([]), _ids([Charm.GOLD_VEIN]))
+	assert_eq(report.money, 3, "allein bleibt Gold bei $3")
+
 func test_bone_grows_the_face_permanently():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))

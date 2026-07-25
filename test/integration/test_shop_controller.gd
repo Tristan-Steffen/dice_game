@@ -35,11 +35,12 @@ func test_open_shows_panel_and_offers_up_to_four_charms():
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
 	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Hub-Stufe erlaubt")
 
-func test_offer_excludes_already_owned_charms():
+func test_offer_repeats_owned_charms():
+	# Besitz sperrt nichts mehr - denselben Charm darf man mehrfach halten.
+	# Die Einmaligkeit JE DOPPELSEITE prüft der Test weiter unten.
 	run.owned_charms.append(Charm.rabbits_foot())
 	shop.open()
-	for charm in shop.charm_options:
-		assert_ne(charm.id, Charm.RABBITS_FOOT, "besessener Charm nicht erneut angeboten")
+	assert_gt(shop.charm_options.size(), 0, "das Angebot bleibt gefüllt")
 
 func test_open_rolls_three_dice_packs():
 	assert_eq(shop.dice_packs.size(), 3, "drei Würfel-Pakete je Besuch")
@@ -118,6 +119,20 @@ func test_buy_charm_grants_and_deducts():
 	# owned_charm_ids statt charm_ids: Totems lösen sich in charm_ids() zu
 	# ihren Nachbarn auf - der Test war sonst flaky, wenn ein Totem gezogen wurde.
 	assert_true(run.owned_charm_ids().has(charm.id))
+
+func test_owned_charms_stay_available_but_never_twice_in_one_spread():
+	# Denselben Charm darf man mehrfach besitzen - er verschwindet also nicht
+	# aus dem Angebot. Innerhalb EINER Doppelseite bleibt er aber einmalig.
+	for charm in Charm.all():
+		run.owned_charms.append(charm)
+	shop.open()
+	assert_gt(shop.charm_options.size(), 0, "besessene Charms werden weiter angeboten")
+	var seen := {}
+	for option in shop.charm_options:
+		assert_false(seen.has(option.id), "Archetyp '%s' liegt doppelt aus" % option.id)
+		seen[option.id] = true
+	for button in shop.charm_buttons:
+		assert_false(button.disabled, "Besitz sperrt den Kauf nicht")
 
 func test_charm_cannot_be_bought_twice():
 	shop._on_charm_clicked(0)

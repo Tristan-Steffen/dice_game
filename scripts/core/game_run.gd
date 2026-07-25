@@ -101,6 +101,10 @@ var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var gravierstift_used_this_round: bool = false
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
+## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
+## sie schon kassiert wurde - je Runde steigt höchstens EINE Stufe.
+var spotlight_combo: String = ""
+var spotlight_claimed_this_round: bool = false
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -410,6 +414,8 @@ func apply_round_start_charms() -> void:
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
+	spotlight_claimed_this_round = false
+	spotlight_combo = DiceScoring.HAND_PRIORITY.pick_random() if CharmEffects.has_spotlight(ids) else ""
 
 ## Frankiermaschine: so viele Zahl-Gravuren schenkt sie am Rundenende - je eine
 ## pro Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
@@ -443,6 +449,33 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 				die.materials[randi() % die.materials.size()] = material.id
 				upgraded += 1
 	return upgraded
+
+## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
+## dauerhaft eine Stufe - höchstens einmal je Runde. true = eingelöst (der
+## Aufrufer spielt die Zeremonie, siehe scene_root).
+func claim_spotlight(combo_key: String) -> bool:
+	if spotlight_claimed_this_round or combo_key == "" or combo_key != spotlight_combo:
+		return false
+	spotlight_claimed_this_round = true
+	combo_levels[combo_key] = combo_level(combo_key) + 1
+	return true
+
+## Midashandschuh: jede oben liegende Seite der gewerteten Würfel wird dauerhaft
+## Gold (Pool-Instanzen). Liefert die vergoldeten Slots - leer, wenn die Hand
+## nicht alle sechs Würfel nutzt oder alles schon Gold war.
+func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int]) -> Array[int]:
+	var gilded: Array[int] = []
+	if not CharmEffects.midas_applies(charm_ids(), participating.size()):
+		return gilded
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size():
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].materials.size() or defs[i].materials[face] == DieMaterial.GOLD:
+			continue
+		defs[i].materials[face] = DieMaterial.GOLD
+		gilded.append(i)
+	return gilded
 
 ## Verbraucht genau eine Gravur der id; true, wenn eine da war.
 func consume_engraving(id: String) -> bool:

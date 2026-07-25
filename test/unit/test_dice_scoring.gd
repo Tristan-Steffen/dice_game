@@ -224,6 +224,12 @@ func test_last_digit_forms_a_straight():
 	# zusätzliche 22er = Ziffer 2 vervollständigt sie NICHT zur großen Straße).
 	assert_eq(DiceScoring.best_hand(_d([11, 12, 13, 14, 15, 22]))["key"], "small_straight")
 
+func test_last_digit_holds_for_arbitrarily_large_faces():
+	# Beliebig große Seiten: 1/11/51/1991/31 enden alle auf 1 -> 5 of a Kind,
+	# und 1-2-3-44-15-26 deckt die Ziffern 1-6 -> Große Straße.
+	assert_eq(DiceScoring.best_hand(_d([1, 11, 51, 1991, 31]))["key"], "five_kind")
+	assert_eq(DiceScoring.best_hand(_d([1, 2, 3, 44, 15, 26]))["key"], "large_straight")
+
 func test_two_pair_with_overcounts_sums_real_values():
 	# 5-5 und 11-11 (Ziffern 5 und 1): Zwei Paare; die Basis summiert die ECHTEN
 	# Werte aller vier beteiligten Würfel (5+5+11+11 = 32), plus 15, × Mult 3.

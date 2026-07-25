@@ -297,13 +297,10 @@ func _build_spread() -> MenuSpread:
 	spread.dice_pack_bought.resize(spread.dice_packs.size())
 	spread.dice_pack_bought.fill(false)
 
-	# Besitz-Prüfung über die ROHEN ids (Totems lösen sich in charm_ids() zu
-	# ihren Nachbarn auf und würden sonst doppelt angeboten).
-	var owned_ids: Array[String] = run.owned_charm_ids()
-	var available: Array[Charm] = []
-	for charm in Charm.all():
-		if not owned_ids.has(charm.id):
-			available.append(charm)
+	# Besitz sperrt NICHTS: denselben Charm darf man mehrfach besitzen. Nur
+	# innerhalb EINER Doppelseite kommt jeder Archetyp höchstens einmal vor -
+	# darum wird ohne Zurücklegen aus available gezogen (erase unten).
+	var available: Array[Charm] = Charm.all()
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := run.shop_rarity_tier()
 	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
@@ -639,7 +636,7 @@ func _glow_disc(tint: Color, side: float) -> TextureRect:
 ## und thumb_px kommen elastisch aus _charm_metrics; podest = garantierter
 ## Premium-Charm (Rarität freigeschaltet): größer, stärkerer Lichtfleck, dickerer Saum.
 func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, podest := false) -> Control:
-	var owned := charm_bought[index] or run.owned_charm_ids().has(charm.id)
+	var bought := charm_bought[index]
 	var tint := charm.rarity_color()
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
@@ -665,7 +662,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	card.add_child(column)
 
 	# Lichtfleck hinter dem Modell (CenterContainer stapelt beide mittig).
-	var glow := tint if not owned else Color(tint.r, tint.g, tint.b, 0.3)
+	var glow := tint if not bought else Color(tint.r, tint.g, tint.b, 0.3)
 	var disc_side := thumb_px * (1.5 if podest else 1.27)
 	var stage := CenterContainer.new()
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -673,10 +670,10 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	stage.add_child(CharmThumb.new(charm, thumb_px))
 	column.add_child(stage)
 
-	column.add_child(_label("gekauft" if owned else "$%d" % _charm_price(),
-		u * 2.0, NEON_MUTED if owned else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(_label("gekauft" if bought else "$%d" % _charm_price(),
+		u * 2.0, NEON_MUTED if bought else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
-	if owned:
+	if bought:
 		card.disabled = true
 	else:
 		card.pressed.connect(_on_charm_clicked.bind(index))
@@ -960,7 +957,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 ## alle Preisschilder und Schwellen zeigen sonst alte Preise.
 func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
-	if charm_bought[index] or run.owned_charm_ids().has(charm.id):
+	if charm_bought[index]:
 		return
 	run.purchase_charm(charm, _charm_price())
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
@@ -987,7 +984,7 @@ func _refresh_afford_state() -> void:
 		dice_pack_buttons[i].disabled = dice_pack_bought[i] or money < _pack_price(dice_packs[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
-			charm_buttons[i].disabled = money < _charm_price() or run.owned_charm_ids().has(charm_options[i].id)
+			charm_buttons[i].disabled = money < _charm_price()
 	for i in engraving_pack_buttons.size():
 		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
 	for i in overclock_buttons.size():

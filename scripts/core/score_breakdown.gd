@@ -79,8 +79,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var charm_mult := 0
 		var die_charm_indices: Array[int] = []
 		for j in charm_ids.size():
-			var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials)
-			var cm := CharmEffects.die_charm_mult_at(j, i, charm_ids, ctx)
+			var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, eye_slots)
+			var cm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx)
 			if cb != 0 or cm != 0:
 				charm_base += cb
 				charm_mult += cm
@@ -115,9 +115,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var base_x := CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
 		# Krit: eigener Hook, wirkt im Schritt als Teil des Mult-Faktors;
 		# crit_x bleibt separat sichtbar, damit die UI Krits inszenieren kann.
-		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx)
+		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
 		var mult_x := CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx) * crit_x
-		if base_add == 0 and mult_add == 0 and base_x == 1 and mult_x == 1:
+		# Rampenlicht wertet nicht, braucht aber seinen Schritt: es hebt die
+		# Kombination an SEINER Dock-Position, nicht nach dem Zählen.
+		var spotlight := CharmEffects.spotlight_fires_at(j, key, charm_ids, ctx)
+		if base_add == 0 and mult_add == 0 and base_x == 1 and mult_x == 1 and not spotlight:
 			continue
 		var base_before := base
 		var mult_before := mult
@@ -129,6 +132,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_add": base_add, "mult_add": mult_add,
 			"base_x": base_x, "mult_x": mult_x, "crit_x": crit_x,
 			"base_after": base, "mult_after": mult,
+			# Meint der Charm genau EINEN Würfel, blitzt der beim Schritt mit.
+			"slot": _target_slot(charm_ids[j], dice, participating),
+			"spotlight": spotlight,
 		}
 		# Hand-Charms mit Würfel-Bezug (Vollzähler & Co.) fächern ihren Beitrag
 		# in Einzel-Pulse auf, damit die Animation je Würfel einen Meteor
@@ -208,7 +214,22 @@ static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], par
 			for value in CharmEffects._distinct(dice):
 				if dice.count(value) == 2:
 					pulses.append({"slot": dice.find(value), "base": 0, "mult": value})
+		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
+			var slot := CharmEffects.target_die(dice, participating, true)
+			if slot >= 0:
+				pulses.append({"slot": slot, "base": 0, "mult": dice[slot]})
 	return pulses
+
+## Zielwürfel eines Charms, der genau EINEN Würfel meint (-1 = keiner). Bei
+## Gleichstand der erste passende - die Wahl trifft CharmEffects.target_die,
+## hier wird sie nur für die Animation sichtbar gemacht.
+static func _target_slot(charm_id: String, dice: Array[int], participating: Array[int]) -> int:
+	match charm_id:
+		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
+			return CharmEffects.target_die(dice, participating, true)
+		Charm.BEHERIT:
+			return CharmEffects.target_die(dice, participating, false)
+	return -1
 
 ## Besitz-Positionen, die den Augen-Beitrag dieses ROHEN Werts verändern
 ## (Leave-one-out über Verwandlung + Basispunkt-Anpassung).

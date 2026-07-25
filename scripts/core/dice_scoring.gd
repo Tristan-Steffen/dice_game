@@ -155,15 +155,15 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 			var only: Array[int] = [i]
 			base += MaterialEffects.base_bonus(dice, materials, only, charm_ids, edge_materials, echo_slot)
 			mult += MaterialEffects.mult_bonus(dice, materials, only, edge_materials, charm_ids, echo_slot)
-		base += CharmEffects.die_charm_base(i, key, dice, charm_ids, ctx, edge_materials)
-		mult += CharmEffects.die_charm_mult(i, charm_ids, ctx)
+		base += CharmEffects.die_charm_base(i, key, dice, charm_ids, ctx, edge_materials, scored)
+		mult += CharmEffects.die_charm_mult(i, dice, charm_ids, ctx)
 	for j in charm_ids.size():
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += CharmEffects.mult_bonus_at(j, key, charm_ids) \
 			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating)
 		base *= CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
 		mult *= CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx)
-		mult *= CharmEffects.charm_crit_at(j, dice, charm_ids, ctx)
+		mult *= CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
 	return [base, mult]
 
 ## Beste Hand des Wurfs: die zutreffende Kategorie mit den MEISTEN Punkten.

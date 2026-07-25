@@ -194,6 +194,28 @@ func test_gallows_humor_is_a_positioned_crit_step():
 	assert_eq(crit_steps[0]["crit_x"], 4, "als Krit markiert - die UI kann ihn inszenieren")
 	assert_eq(crit_steps[0]["charm_indices"], [0])
 
+func test_spotlight_gets_its_own_step_at_its_dock_position():
+	# Das Rampenlicht wertet nichts, bekommt aber einen Schritt AN SEINER
+	# Position - sonst könnte die Animation es nicht dort auslösen. Vor ihm
+	# steht das Hufeisen, dessen Schritt also zuerst kommt.
+	var ids := _ids([Charm.LADYBUG, Charm.SPOTLIGHT])
+	var ctx := {CharmEffects.CTX_SPOTLIGHT: DiceScoring.TWO_KIND}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	var steps: Array = breakdown["charm_steps"]
+	assert_eq(steps.size(), 2, "Marienkäfer und Rampenlicht")
+	assert_false(steps[0]["spotlight"], "der Marienkäfer ist kein Rampenlicht")
+	assert_true(steps[1]["spotlight"], "das Rampenlicht steht an Position 1")
+	assert_eq(steps[1]["base_add"], 0, "es wertet nicht")
+	assert_eq(steps[1]["mult_add"], 0)
+	assert_eq(steps[1]["base_after"], steps[0]["base_after"], "und verschiebt keine Zahl")
+	assert_eq(steps[1]["mult_after"], steps[0]["mult_after"])
+
+func test_spotlight_stays_silent_on_a_different_combination():
+	var ids := _ids([Charm.SPOTLIGHT])
+	var ctx := {CharmEffects.CTX_SPOTLIGHT: DiceScoring.LARGE_STRAIGHT}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	assert_eq(breakdown["charm_steps"].size(), 0, "andere Kombination, kein Schritt")
+
 func test_non_crit_factor_steps_carry_crit_one():
 	# Einserkult ist KEIN Krit (Faktor auf Basis UND Mult) - crit_x bleibt 1.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 1, 3, 6]), _ids([Charm.CULT_OF_ONE]))
