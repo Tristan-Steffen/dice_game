@@ -4,6 +4,13 @@ extends GutTest
 ## Eigenleuchten (Material-Flächen überhell) und das Umgebungslicht des Würfels
 ## (Farbe/Stärke folgen den Materialien).
 
+## Bloom-Schwelle der Szene (WorldEnvironment.glow_hdr_threshold in
+## scene_root.tscn) - darüber blüht eine Farbe auf, darunter bleibt sie Linie.
+const BLOOM_THRESHOLD := 0.95
+
+func _peak(color: Color) -> float:
+	return maxf(color.r, maxf(color.g, color.b))
+
 func _display() -> DieFaceDisplay:
 	var die: Node3D = autofree(DieBuilder.build())
 	return die.get_node("RigidBody3D/Faces")
@@ -245,86 +252,115 @@ func test_corner_caps_only_with_edge_material():
 	assert_true(display.corner_caps.visible, "Kanten-Material beschlägt die Ecken")
 	assert_eq(display.corner_caps.get_child_count(), 8)
 
-# --- Umgebungslicht ------------------------------------------------------------
+# --- Boden-Lache ---------------------------------------------------------------
 
-func test_light_stays_hidden_without_permission():
+func test_every_die_pools_by_default():
+	# Jeder Würfel wirft seinen Schein auf den Tisch - Grube, Tray, Werkstatt.
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
-	assert_false(display.die_light.visible, "ohne set_light_enabled bleibt das Licht aus")
+	assert_true(display.glow_pool.visible, "die Lache läuft von Haus aus mit")
 
-func test_plain_die_light_is_cool_neon():
+func test_plain_die_pools_in_the_bare_edge_tone():
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(DieDefinition.standard())
-	assert_true(display.die_light.visible)
-	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_BASE_ENERGY, 0.001)
-	assert_eq(display.die_light.light_color, DieFaceDisplay.LIGHT_BASE_COLOR * Color.WHITE)
+	assert_true(display.glow_pool.visible)
+	var pool: Color = display._pool_color
+	assert_almost_eq(pool.a,
+		DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_BASE_STRENGTH, 0.001)
+	var expected := DieFaceDisplay.intense(DieFaceDisplay.POOL_BASE_COLOR)
+	assert_almost_eq(pool.g, expected.g, 0.001,
+		"die kahle Lache trägt genau den Ton, den die Kanten zeigen")
 
-func test_material_die_light_shines_way_brighter_in_material_color():
+func test_material_die_pools_stronger_in_material_color():
 	var def := DieDefinition.standard()
 	def.edge_material = DieMaterial.GOLD
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(def)
-	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_EDGE_ENERGY, 0.001)
+	assert_almost_eq(display._pool_color.a,
+		DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_EDGE_STRENGTH, 0.001)
 	var gold_tint := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
-	assert_almost_eq(display.die_light.light_color.r, gold_tint.r, 0.001)
-	assert_almost_eq(display.die_light.light_color.b, gold_tint.b, 0.001)
+	assert_almost_eq(display._pool_color.r, gold_tint.r, 0.001)
+	assert_almost_eq(display._pool_color.b, gold_tint.b, 0.001)
 
-func test_edge_material_alone_decides_the_light_color():
-	# Die Kanten SIND die Lampe: Gold-Kanten + Quecksilber-Seite leuchten rein
-	# golden, die Seitenfarbe mischt sich nicht mehr ein.
+func test_edge_material_alone_decides_the_pool_color():
+	# Die Kanten SIND die Quelle: Gold-Kanten + Quecksilber-Seite werfen einen
+	# rein goldenen Schein, die Seitenfarbe mischt sich nicht ein.
 	var def := DieDefinition.standard()
 	def.edge_material = DieMaterial.GOLD
 	def.materials[0] = DieMaterial.MERCURY
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(def)
 	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
-	assert_almost_eq(display.die_light.light_color.r, expected.r, 0.001)
-	assert_almost_eq(display.die_light.light_color.g, expected.g, 0.001)
-	assert_almost_eq(display.die_light.light_color.b, expected.b, 0.001)
+	assert_almost_eq(display._pool_color.r, expected.r, 0.001)
+	assert_almost_eq(display._pool_color.g, expected.g, 0.001)
+	assert_almost_eq(display._pool_color.b, expected.b, 0.001)
 
-func test_faces_alone_still_tint_the_light():
+func test_faces_alone_still_tint_the_pool():
 	var def := DieDefinition.standard()
 	def.materials[0] = DieMaterial.MERCURY
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(def)
-	assert_almost_eq(display.die_light.light_energy, DieFaceDisplay.LIGHT_MATERIAL_ENERGY, 0.001,
-		"ohne Kanten-Material bleibt es beim schwächeren Seiten-Licht")
+	assert_almost_eq(display._pool_color.a,
+		DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_MATERIAL_STRENGTH, 0.001,
+		"ohne Kanten-Material bleibt es beim schwächeren Seiten-Schein")
 	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.MERCURY))
-	assert_almost_eq(display.die_light.light_color.b, expected.b, 0.001)
+	assert_almost_eq(display._pool_color.b, expected.b, 0.001)
 
-func test_body_tint_colors_the_light():
+func test_body_tint_colors_the_pool():
 	var def := DieDefinition.standard()
 	def.edge_material = DieMaterial.GOLD
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(def)
 	display.set_tint(Color(0.5, 0.5, 0.5))
 	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD)) * Color(0.5, 0.5, 0.5)
-	assert_almost_eq(display.die_light.light_color.r, expected.r, 0.001)
+	assert_almost_eq(display._pool_color.r, expected.r, 0.001)
 
-func test_disabling_the_light_hides_it_again():
+func test_pool_can_be_switched_off_where_no_table_lies_below():
 	var display := _display()
-	display.set_light_enabled(true)
 	display.apply_definition(DieDefinition.standard())
-	display.set_light_enabled(false)
-	assert_false(display.die_light.visible)
+	display.set_pool_enabled(false)
+	assert_false(display.glow_pool.visible)
 
-func test_edges_outshine_the_faces_by_far():
+func test_a_die_looks_the_same_wherever_it_lies():
+	# Kernregel: das Aussehen eines Würfels hängt NICHT daran, ob er in der Grube
+	# liegt. Es gibt kein Würfellicht mehr - Grube, Tray und Werkstatt zeigen
+	# dieselbe Emission. Nur die Lache am Boden ist der Grube vorbehalten.
+	var def := DieDefinition.standard()
+	def.edge_material = DieMaterial.GOLD
+	var in_pit := _display()
+	in_pit.apply_definition(def)
+	var on_tray := _display()
+	on_tray.apply_definition(def)
+	assert_eq(in_pit.edge_material_res.emission, on_tray.edge_material_res.emission,
+		"gleiche Kanten-Emission in Grube und Tray")
+	assert_eq(_face_material(in_pit, 0).emission, _face_material(on_tray, 0).emission,
+		"gleiche Flächen-Emission")
+	assert_eq(in_pit.edge_material_res.albedo_color, on_tray.edge_material_res.albedo_color,
+		"gleiche Albedo")
+
+func test_edges_outshine_the_faces_by_far() -> void:
 	# Kernregel der Würfel-Beleuchtung: das Licht kommt aus den Kanten, die
 	# breiten Flächen glimmen nur - sonst verschwimmt die Kanten-Identität.
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
-	# Hellster Kanal, nicht Rot - das neutrale Kanten-Neon ist ein Mintton.
+	# Hellster Kanal, nicht Rot - Kanten und Flächen sind nicht rein rot.
 	var e: Color = display.edge_material_res.emission
 	var f: Color = _face_material(display, 0).emission
-	var edge: float = maxf(e.r, maxf(e.g, e.b))
-	var face: float = maxf(f.r, maxf(f.g, f.b))
-	assert_gt(edge, face * 10.0, "Kanten sind die Lichtquelle, nicht die Flächen")
-	assert_gt(edge, 1.0, "Kanten brennen über Weiß hinaus (Bloom)")
+	assert_gt(_peak(e), _peak(f) * 8.0, "Kanten sind die Lichtquelle, nicht die Flächen")
+
+func test_bare_dice_stay_below_the_bloom_threshold() -> void:
+	# Der blanke Würfel soll NICHT strahlen: seine weißen Kanten bleiben unter
+	# der Bloom-Schwelle der Szene (glow_hdr_threshold 0.95), erst ein Material
+	# hebt ihn darüber. Sonst leuchtet der Grundwürfel wie ein veredelter.
+	var display := _display()
+	display.apply_definition(DieDefinition.standard())
+	assert_lt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
+		"kahle Kanten glühen nicht über")
+	var def := DieDefinition.standard()
+	def.edge_material = DieMaterial.GOLD
+	display.apply_definition(def)
+	assert_gt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
+		"eine veredelte Kante glüht sehr wohl")
 
 func test_intense_saturates_without_leaving_the_hue():
 	var tint := DieMaterial.tint_for(DieMaterial.RUBY)
@@ -338,3 +374,80 @@ func test_material_edges_outshine_bare_ones() -> void:
 	# der blanke Würfel aufgeladener als der mit Material.
 	assert_gt(DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, DieFaceDisplay.EDGE_GLOW,
 		"Material-Kanten brennen heller als kahle")
+
+func test_bare_light_matches_the_bare_edges() -> void:
+	# Das Licht muss dieselbe Quelle haben, die man sieht: kahle Kanten leuchten
+	# mintgrün, also ist auch ihr Schein mintgrün und kein warmes Weiß.
+	assert_eq(DieFaceDisplay.POOL_BASE_COLOR, DieFaceDisplay.EDGE_NEON)
+
+func test_pool_reaches_far_and_stays_calm() -> void:
+	# Der Charakter des Würfelscheins: weit und ruhig. Er kommt aus der Lache,
+	# nicht aus einem Strahler - ein weiter OmniLight-Verlauf bandet in
+	# gl_compatibility in sichtbare Ringe.
+	assert_gt(DieFaceDisplay.POOL_SPAN * 0.5, DicePit.PIT_HALF_X,
+		"der Schein trägt über die halbe Grubenbreite hinaus")
+	assert_lt(DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_EDGE_STRENGTH, 0.35,
+		"dabei bleibt er gedämpft - sechs Würfel dürfen sich addieren, ohne auszuwaschen")
+
+func _shell_strength(display: DieFaceDisplay) -> float:
+	return float(display.shell_material.get_shader_parameter("strength"))
+
+func _shell_color(display: DieFaceDisplay) -> Vector3:
+	return display.shell_material.get_shader_parameter("glow_color")
+
+func test_every_die_radiates_its_color_anywhere():
+	# Die Abstrahlung hängt am Würfel (Fresnel-Hülle), nicht am Boden - sie
+	# wirkt also in Grube, Tray, Werkstatt und Inspektor gleich. Rangfolge:
+	# kahl < Seiten-Material < Kanten-Material.
+	var plain := _display()
+	plain.apply_definition(DieDefinition.standard())
+	var face_def := DieDefinition.standard()
+	face_def.materials[0] = DieMaterial.RUBY
+	var faced := _display()
+	faced.apply_definition(face_def)
+	var edge_def := DieDefinition.standard()
+	edge_def.edge_material = DieMaterial.RUBY
+	var edged := _display()
+	edged.apply_definition(edge_def)
+
+	assert_gt(_shell_strength(plain), 0.0, "auch der blanke Würfel strahlt einen Hauch")
+	assert_gt(_shell_strength(faced), _shell_strength(plain), "Seiten-Material strahlt mehr")
+	assert_gt(_shell_strength(edged), _shell_strength(faced), "Kanten-Material strahlt am meisten")
+
+	# Und zwar unabhängig davon, ob der Würfel in der Grube liegt.
+	var pooled := _display()
+	pooled.apply_definition(edge_def)
+	assert_almost_eq(_shell_strength(pooled), _shell_strength(edged), 0.001,
+		"Grube und Tray strahlen gleich stark")
+	assert_eq(_shell_color(pooled), _shell_color(edged), "und in derselben Farbe")
+
+func test_edge_material_alone_decides_the_radiated_color():
+	var def := DieDefinition.standard()
+	def.edge_material = DieMaterial.GOLD
+	def.materials[0] = DieMaterial.MERCURY
+	var display := _display()
+	display.apply_definition(def)
+	var gold := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
+	var color := _shell_color(display)
+	assert_almost_eq(color.x, gold.r, 0.001, "die Kante gibt die Abstrahlfarbe allein vor")
+	assert_almost_eq(color.z, gold.b, 0.001)
+
+func test_bone_edges_radiate_nothing():
+	var def := DieDefinition.standard()
+	def.edge_material = DieMaterial.BONE
+	var display := _display()
+	display.apply_definition(def)
+	assert_eq(_shell_strength(display), 0.0,
+		"Knochen strahlt nie - glow == 0 ist seine Identität")
+
+func test_pool_follows_the_die_size():
+	# glow_pool ist top_level und erbt keine Skalierung: ein kleiner Tray-Würfel
+	# muss trotzdem eine kleine Lache werfen, sonst waschen 30 Stück im Raster
+	# den Tisch aus.
+	var display := _display()
+	add_child_autofree(display.get_parent().get_parent())
+	display.apply_definition(DieDefinition.standard())
+	display.scale = Vector3.ONE * 0.5
+	display._process(0.016)
+	assert_almost_eq(display.glow_pool.scale.x, 0.5, 0.05,
+		"halb so großer Würfel, halb so große Lache")

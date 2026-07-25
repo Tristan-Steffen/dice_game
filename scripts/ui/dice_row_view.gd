@@ -148,6 +148,8 @@ static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE) -> S
 	viewport.add_child(camera)
 
 	var die := DieBuilder.build()
+	# Eigene Welt ohne Tischfläche - die Boden-Lache hätte hier keinen Grund.
+	(die.get_node("RigidBody3D/Faces") as DieFaceDisplay).set_pool_enabled(false)
 	viewport.add_child(die)
 	die.rotation_degrees = Vector3(-20, 30, 0)
 	var body: RigidBody3D = die.get_node("RigidBody3D")

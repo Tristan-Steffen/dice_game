@@ -417,7 +417,10 @@ func _setup_dice() -> void:
 		(body.get_node("CollisionShape3D") as CollisionShape3D).scale = die_scale
 		var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
 		faces.scale = die_scale
-		faces.set_light_enabled(true)  # nur die 6 Spielwürfel beleuchten die Umgebung
+		# Die Lache läuft bei jedem Würfel mit; hier endet sie zusätzlich an der
+		# Grubenwand - sonst legte sie sich als Schleier über Ziel-Leiste und Filz.
+		faces.set_pool_clip(DicePit.PIT_CENTER,
+			Vector2(DicePit.PIT_HALF_X, DicePit.PIT_HALF_Z), DicePit.CORNER_RADIUS)
 		ScreenReflection.mark_reflective(die)
 		roots.append(die)
 		bodies.append(body)

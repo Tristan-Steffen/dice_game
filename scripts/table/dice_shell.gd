@@ -350,6 +350,9 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 	shape.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * GHOST_SCALE
 	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
 	faces.scale = Vector3.ONE * GHOST_SCALE
+	# Die Taumel-Würfel schweben in der Hülle - eine Lache am Grubenboden
+	# hätte keinen Bezug und würde unter der Hülle flackern.
+	faces.set_pool_enabled(false)
 	faces.apply_definition(def)
 	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
 

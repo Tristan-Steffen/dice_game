@@ -2,7 +2,7 @@ extends GutTest
 ## Tier-1-Tests des per Code gebauten Würfels (DieBuilder): Struktur aus
 ## Gesichts-Quads, durchgehendem Kanten-Rahmen (Füll-Box + 12 Balken, EIN
 ## geteiltes Material) und dem Umgebungslicht (standardmäßig aus, siehe
-## DieFaceDisplay.set_light_enabled).
+## DieFaceDisplay.set_pool_enabled).
 
 func _faces(die: Node3D) -> DieFaceDisplay:
 	return die.get_node("RigidBody3D/Faces")
@@ -32,13 +32,15 @@ func test_edge_beams_protrude_beyond_face_quads():
 	var quad_plane := DieBuilder.HALF_EXTENT + DieBuilder.FACE_MARGIN
 	assert_gt(beam_reach, quad_plane, "Kanten stehen vor den Gesichtern")
 
-func test_die_light_exists_but_starts_disabled():
-	# Nur die Spielwürfel schalten ihr Licht frei (siehe scene_root._ready) -
-	# die Tray-Würfel würden sonst das Per-Objekt-Lichtlimit sprengen.
+func test_glow_pool_exists_but_starts_disabled():
+	# Der Würfel wirft KEIN echtes Licht (es beleuchtete nur die anderen Würfel
+	# und ließ sie sich gegenseitig auswaschen) - nur eine Lache am Boden, und
+	# die schaltet erst scene_root für die Grubenwürfel frei.
 	var die: Node3D = autofree(DieBuilder.build())
-	var faces := _faces(die)
-	assert_not_null(faces.die_light)
-	assert_false(faces.die_light.visible, "Licht ist standardmäßig aus")
+	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+	assert_null(die.find_child("*Light*", true, false), "kein Würfellicht mehr")
+	assert_not_null(faces.glow_pool)
+	assert_true(faces.pool_allowed, "Lache läuft von Haus aus mit")
 
 func test_all_body_materials_have_emission_enabled():
 	# Das Neon (siehe DieFaceDisplay.EDGE_GLOW/FACE_GLOW) braucht emission_enabled

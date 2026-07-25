@@ -20,6 +20,8 @@ const CAP_SIZE := 0.46
 
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.
+const POOL_SHADER := preload("res://assets/shaders/die_glow_pool.gdshader")
+
 const BOUNCE := 0.25
 const FRICTION := 0.4
 
@@ -69,19 +71,6 @@ static func build() -> Node3D:
 	edge_material.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW
 	faces.edge_material_res = edge_material
 
-	# Umgebungslicht des Würfels - standardmäßig aus, nur die Spielwürfel
-	# schalten es frei (DieFaceDisplay.set_light_enabled). Eng + hart abfallend,
-	# damit eine sichtbare Licht-Lache unter dem Würfel liegt (Erdung).
-	var die_light := OmniLight3D.new()
-	die_light.name = "DieLight"
-	die_light.omni_range = DieFaceDisplay.LIGHT_RANGE
-	die_light.omni_attenuation = 2.0
-	die_light.light_color = DieFaceDisplay.LIGHT_BASE_COLOR
-	die_light.light_energy = DieFaceDisplay.LIGHT_BASE_ENERGY
-	die_light.shadow_enabled = false
-	die_light.visible = false
-	faces.add_child(die_light)
-	faces.die_light = die_light
 
 	_build_glow_pool(faces)
 
@@ -212,7 +201,7 @@ static func _build_face_frame() -> MeshInstance3D:
 
 ## Additive Licht-Lache am Boden unter dem Würfel (Neon-Kontaktschatten).
 ## top_level: folgt NICHT der Würfeldrehung - DieFaceDisplay._process setzt
-## Position/Verblassen je Frame. Farbe/Sichtbarkeit steuert _refresh_die_light.
+## Position/Verblassen je Frame. Farbe/Sichtbarkeit steuert _refresh_pool.
 static func _build_glow_pool(faces: DieFaceDisplay) -> void:
 	var pool := MeshInstance3D.new()
 	pool.name = "GlowPool"
@@ -220,27 +209,14 @@ static func _build_glow_pool(faces: DieFaceDisplay) -> void:
 	pool.visible = false
 	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var pool_mesh := QuadMesh.new()
-	pool_mesh.size = Vector2.ONE * HALF_EXTENT * 4.4
+	pool_mesh.size = Vector2.ONE * HALF_EXTENT * DieFaceDisplay.POOL_SPAN
 	pool_mesh.orientation = PlaneMesh.FACE_Y
 	pool.mesh = pool_mesh
 
-	# Radialer Verlauf (Mitte voll, Rand transparent) als weiche Lache.
-	var gradient := Gradient.new()
-	gradient.set_color(0, Color(1, 1, 1, 1))
-	gradient.set_color(1, Color(1, 1, 1, 0))
-	var falloff := GradientTexture2D.new()
-	falloff.gradient = gradient
-	falloff.fill = GradientTexture2D.FILL_RADIAL
-	falloff.fill_from = Vector2(0.5, 0.5)
-	falloff.fill_to = Vector2(0.5, 0.0)
-	falloff.width = 128
-	falloff.height = 128
-
-	var pool_material := StandardMaterial3D.new()
-	pool_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	pool_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	pool_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	pool_material.albedo_texture = falloff
+	# Abfall und Grubenmaske rechnet der Shader - eine Verlaufstextur würde bei
+	# dieser Größe selbst stufen (siehe die_glow_pool.gdshader).
+	var pool_material := ShaderMaterial.new()
+	pool_material.shader = POOL_SHADER
 	pool.material_override = pool_material
 
 	faces.add_child(pool)

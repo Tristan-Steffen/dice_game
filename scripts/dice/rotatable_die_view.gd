@@ -110,6 +110,8 @@ func set_dice(defs: Array[DieDefinition]) -> void:
 
 	for i in count:
 		var die := DieBuilder.build()
+		# Eigene Welt ohne Tischfläche - die Boden-Lache hätte hier keinen Grund.
+		(die.get_node("RigidBody3D/Faces") as DieFaceDisplay).set_pool_enabled(false)
 		viewport.add_child(die)
 		die.position = Vector3((i - (count - 1) / 2.0) * DIE_SPACING, 0.0, 0.0)
 		die.rotation_degrees = Vector3(-18, 30, 0)

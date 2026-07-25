@@ -1,7 +1,7 @@
 class_name DieFaceDisplay
 extends Node3D
 ## Hält die 6 Gesichter eines Würfels (Körper-Quad + Label3D-Ziffer je Seite)
-## plus Kanten-Rahmen und Würfel-Licht. Ziffern werden zur Laufzeit gesetzt,
+## plus Kanten-Rahmen und Boden-Lache. Ziffern werden zur Laufzeit gesetzt,
 ## damit jeder Wert darstellbar ist. quads/labels befüllt DieBuilder.
 
 ## Tron-Prinzip: dunkle Masse, konzentriertes Licht. Der Körper ist dunkles
@@ -14,26 +14,29 @@ const BODY_COLOR := Color(0.05, 0.05, 0.08)
 const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
 ## Sentinel "kein Kanten-Material" (Vergleichswert, siehe edge_base).
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
-## Neutrale Neon-Linienfarbe der Kanten: gesättigtes Mint. Blasse Töne
-## bleiben bei dieser Emission nur weiße Klumpen, und der Grünstich hält
-## die kahle Kante vom Cyan des Glas-Materials getrennt.
-const EDGE_NEON := Color(0.42, 0.95, 0.66)
-## Emissions-Stärken. Die KANTEN sind die Lichtquelle des Würfels: sie
-## brennen weit über Weiß, die breiten Flächen glimmen nur. So liest man
-## das Kanten-Material noch aus der Übersichtskamera.
-const FACE_GLOW := 0.09
-const EDGE_GLOW := 1.5
+## Neutrale Linienfarbe der Kanten: Weiß. Kahle Kanten leuchten bewusst
+## UNTER der Bloom-Schwelle (EDGE_GLOW) - dadurch bleiben sie weiße Linien
+## statt eines farbigen Klumpens und treten hinter jede veredelte Kante
+## zurück.
+const EDGE_NEON := Color(0.95, 0.96, 0.98)
+## Emissions-Stärken. Die KANTEN sind die Lichtquelle des Würfels, die
+## breiten Flächen glimmen nur. Kahle Kanten bleiben unter der
+## Bloom-Schwelle (glow_hdr_threshold 0.95) - der blanke Würfel soll gar
+## nicht strahlen; erst ein Material hebt ihn darüber. Das Weittragende ist
+## ohnehin das Würfellicht, nicht die Emission.
+const FACE_GLOW := 0.06
+const EDGE_GLOW := 0.7
 ## Distanz-Signale: der Seiten-Rahmen leuchtet voll in Materialfarbe, und
 ## Material-Kanten glühen mindestens so stark - dünne Linien ohne Emission
 ## sind aus der Übersichtskamera unsichtbar. Ausnahme: glow == 0 (Knochen)
 ## bleibt bewusst tot-dunkel, seine Identität.
-const FRAME_GLOW := 1.4
+const FRAME_GLOW := 0.95
 ## Kanten-Material leuchtet IMMER kräftig, auch wenn das Profil selbst kaum
 ## glüht (Gold 0.26, Quecksilber 0.22) - die Kante ist die Lampe, nicht die
 ## Oberfläche. Liegt bewusst ÜBER EDGE_GLOW: eine veredelte Kante muss die
 ## kahle überstrahlen, sonst kehrt sich die Rangfolge um. Ausnahme bleibt
 ## glow == 0 (Knochen).
-const MATERIAL_EDGE_GLOW_FLOOR := 2.0
+const MATERIAL_EDGE_GLOW_FLOOR := 1.15
 ## Am Würfel tragen die Farben kräftiger als in der UI: Sättigung und
 ## Helligkeit werden angehoben, bevor sie in Emission, Licht und Schimmer
 ## gehen. DieMaterial.tint bleibt unangetastet - es ist die UI-Quelle
@@ -46,35 +49,51 @@ const FACE_ROUGHNESS := 0.2
 const EDGE_ROUGHNESS := 0.25
 const EDGE_METALLIC := 0.35
 
-## Echtes Umgebungslicht des Würfels - nur für die Spielwürfel aktiv, die
-## 30+ Tray-Würfel würden das Per-Objekt-Lichtlimit des Renderers sprengen.
-## Eng und hart abfallend: eine sichtbare Licht-Lache UNTER dem Würfel erdet
-## ihn (die Neon-Version eines Kontaktschattens).
-## Im dunklen Raum sind die Würfel echte Lampen: kräftiger und weiter als es
-## die alte, hell beleuchtete Szene vertragen hätte.
-## Ein Kanten-Material bestimmt die Lichtfarbe ALLEIN und brennt am
-## hellsten: das Licht im Raum verrät die Kante, nicht die Seiten.
-const LIGHT_BASE_COLOR := Color(0.82, 0.86, 0.72)
-const LIGHT_BASE_ENERGY := 2.0
-const LIGHT_MATERIAL_ENERGY := 3.0
-const LIGHT_EDGE_ENERGY := 4.2
-const LIGHT_RANGE := 7.0
+## Der Würfel wirft KEIN echtes Licht mehr. Ein OmniStrahler beleuchtete in
+## dieser Szene nur die anderen Würfel (Grubenboden, Wände und Screens sind
+## unshaded): in einer Reihe aus sechs veredelten Würfeln addierten sich die
+## Strahler, bis die mittleren weiß auswuschen. Er zwang außerdem die
+## Ungleichheit, denn 30+ Tray-Würfel hätten das Per-Objekt-Lichtlimit
+## gesprengt - ein Würfel sah in der Grube anders aus als im Tray. Ohne ihn
+## ist das Aussehen eines Würfels überall dasselbe: reine Emission.
+## Was bleibt, ist die Lache auf dem Grubenboden - eine Bodenerscheinung,
+## kein Licht am Würfel.
+## Ein Kanten-Material bestimmt ihre Farbe ALLEIN und leuchtet am stärksten:
+## der Schein auf dem Tisch verrät die Kante, nicht die Seiten. Ohne
+## Material trägt er den Ton, den die kahlen Kanten zeigen.
+const POOL_BASE_COLOR := EDGE_NEON
+const POOL_BASE_STRENGTH := 0.4
+const POOL_MATERIAL_STRENGTH := 0.7
+const POOL_EDGE_STRENGTH := 0.9
 
-## Zusätzliche additive Glanz-Lache am Boden: folgt dem Würfel und verblasst
-## mit seiner Flughöhe - garantierte Erdung auch neben dem Omni-Licht.
+## Additive Lache am Boden: folgt dem Würfel und verblasst mit seiner
+## Flughöhe - die Erdung des Würfels auf dem Tisch.
 const POOL_Y := 0.03          # knapp über der Tischfläche
 const POOL_REST_Y := 1.0      # Körpermitte in Ruhelage (= DieBuilder.HALF_EXTENT)
-const POOL_FADE_PER_UNIT := 0.22
-const POOL_ALPHA_PER_ENERGY := 0.11
+## Verblassen mit der Flughöhe: soll den GEWORFENEN Würfel in der Luft
+## ausblenden, nicht den Tray-Würfel, der dauerhaft ein Stück über der
+## Tischfläche schwebt - darum flach.
+const POOL_FADE_PER_UNIT := 0.1
+## Kantenlänge der Lache in Würfel-Halbbreiten - sie ist das Weitreichende
+## am Würfellicht. Darf großzügig sein: set_pool_clip klemmt sie auf den
+## Grubeninnenraum, sie kann also nicht auf Filz und Screens auslaufen.
+const POOL_SPAN := 26.0
+## Bewusst niedrig: die Lachen sind additiv und JEDER Würfel wirft eine -
+## im Vorrats-Tray stehen 30 Stück dicht an dicht. Einzeln kräftig hieße
+## dort ein weißes Feld.
+const POOL_ALPHA_PER_STRENGTH := 0.09
 
 ## Atem des Kanten-Neons (statisches Leuchten wirkt aufgemalt, atmendes bestromt).
 const PULSE_SPEED := 1.4       # rad/s ~ ruhiger Atem
 const PULSE_AMOUNT := 0.08
 const PULSE_AMOUNT_MATERIAL := 0.16
 
-## Fresnel-Hüllen-Stärke (Material-Würfel schimmern deutlicher).
-const SHELL_STRENGTH := 0.55
-const SHELL_STRENGTH_MATERIAL := 0.9
+## Fresnel-Hüllen-Stärke: die Farbabstrahlung des Würfels. Ein Kanten-
+## Material strahlt am kräftigsten, Seiten-Material schwächer, der blanke
+## Würfel nur einen Hauch - dieselbe Rangfolge wie bei Kanten und Lache.
+const SHELL_STRENGTH := 0.45
+const SHELL_STRENGTH_MATERIAL := 1.2
+const SHELL_STRENGTH_EDGE := 1.8
 
 ## Interne Glyphen-Auflösung (Font-Atlas-Pixel) - Weltgröße steuert pixel_size.
 const LABEL_FONT_SIZE := 160
@@ -90,11 +109,13 @@ var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
 var corner_caps: Node3D = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
-var die_light: OmniLight3D = null
-var light_allowed: bool = false
+## Lache an? Standard JA - jeder Würfel wirft seinen Schein auf den Tisch,
+## in der Grube wie im Tray. Aus nur dort, wo kein Tisch darunter liegt
+## (Inspektor-Vorschau, Listen-Miniaturen, Taumel-Würfel in der Hülle).
+var pool_allowed: bool = true
 ## Glanz-Lache (top_level-Quad am Boden) + ihr Material; befüllt DieBuilder.
 var glow_pool: MeshInstance3D = null
-var pool_material: StandardMaterial3D = null
+var pool_material: ShaderMaterial = null
 var _pool_color := Color(0, 0, 0, 0)
 ## Fresnel-Hülle (Blickwinkel-Schimmer); befüllt DieBuilder.
 var shell_material: ShaderMaterial = null
@@ -177,11 +198,12 @@ func _refresh_face_colors() -> void:
 		if face_base[axis] != Color.WHITE:
 			_has_material = true
 	if shell_material != null:
-		var mix := intense(_neon_mix()) * body_tint
+		# Gleiche Regel wie bei der Lache: ein Kanten-Material gibt die Farbe
+		# allein vor, sonst mitteln die Seiten-Tints.
+		var mix := intense(edge_base if edge_base != EDGE_COLOR else _neon_mix()) * body_tint
 		shell_material.set_shader_parameter("glow_color", Vector3(mix.r, mix.g, mix.b))
-		shell_material.set_shader_parameter("strength",
-			SHELL_STRENGTH_MATERIAL if _has_material else SHELL_STRENGTH)
-	_refresh_die_light()
+		shell_material.set_shader_parameter("strength", _shell_strength())
+	_refresh_pool()
 
 ## Würfel-Farbe: kräftiger als der UI-Tint (siehe DIE_SATURATION). Wird auf
 ## alles gelegt, was Licht trägt - Emission, Würfellicht, Fresnel-Schimmer.
@@ -190,6 +212,14 @@ static func intense(color: Color) -> Color:
 	c.s = clampf(c.s * DIE_SATURATION, 0.0, 1.0)
 	c.v = clampf(c.v * DIE_VALUE, 0.0, 1.0)
 	return c
+
+## Abstrahl-Stärke nach der Rangfolge kahl < Seiten-Material < Kanten-Material.
+## Knochen strahlt nie - glow == 0 ist seine Identität.
+func _shell_strength() -> float:
+	var edge_profile := DieMaterial.by_id(edge_id)
+	if edge_profile != null:
+		return SHELL_STRENGTH_EDGE if edge_profile.glow > 0.0 else 0.0
+	return SHELL_STRENGTH_MATERIAL if _has_material else SHELL_STRENGTH
 
 ## Misch-Neonfarbe des Würfels: neutral Cyan, sonst der Schnitt aller Material-Tints.
 func _neon_mix() -> Color:
@@ -245,10 +275,21 @@ func _refresh_frame(axis: String, profile: DieMaterial) -> void:
 	var glow := FRAME_GLOW if profile.glow > 0.0 else 0.0
 	material.emission = intense(profile.tint) * glow * body_tint
 
-## Schaltet Umgebungslicht + Boden-Lache frei (nur Spielwürfel).
-func set_light_enabled(on: bool) -> void:
-	light_allowed = on
-	_refresh_die_light()
+## Grenzen des Bodens, auf den die Lache fällt (abgerundetes Rechteck in
+## Weltkoordinaten). Setzt scene_root aus den Grubenmaßen - die Würfel
+## selbst kennen die Grube nicht.
+func set_pool_clip(center: Vector3, half_extent: Vector2, corner_radius: float) -> void:
+	if pool_material == null:
+		return
+	pool_material.set_shader_parameter("clip_center", Vector2(center.x, center.z))
+	pool_material.set_shader_parameter("clip_half", half_extent)
+	pool_material.set_shader_parameter("clip_radius", corner_radius)
+
+## Schaltet die Boden-Lache ab (siehe pool_allowed) - für Würfel ohne Tisch
+## unter sich.
+func set_pool_enabled(on: bool) -> void:
+	pool_allowed = on
+	_refresh_pool()
 
 ## Je Frame: Kanten-Neon atmet langsam, Quecksilber-Oberflächen fließen; die
 ## Boden-Lache folgt dem Würfel und verblasst mit seiner Flughöhe.
@@ -266,49 +307,58 @@ func _process(delta: float) -> void:
 			fmod(_flow_time * speed, 1.0),
 			fmod(_flow_time * speed * 0.63, 1.0) + sin(_flow_time * 0.9) * 0.03,
 			0.0)
-	if glow_pool == null or not glow_pool.visible:
+	# Ohne Baum gibt es keine Welttransformation - die Lache braucht beides.
+	if glow_pool == null or not glow_pool.visible or not is_inside_tree():
 		return
 	var center := global_position
-	var height := maxf(0.0, center.y - POOL_REST_Y)
+	# Ruhehöhe skaliert mit dem Würfel - sonst gilt ein kleiner Tray-Würfel
+	# schon im Sitzen als "fliegend" und seine Lache verblasst grundlos.
+	var scale_factor := _die_scale()
+	var height := maxf(0.0, center.y - POOL_REST_Y * scale_factor)
 	var fade := clampf(1.0 - height * POOL_FADE_PER_UNIT, 0.0, 1.0)
 	glow_pool.global_position = Vector3(center.x, POOL_Y, center.z)
-	glow_pool.scale = Vector3.ONE * (1.0 + height * 0.08)
-	pool_material.albedo_color = Color(_pool_color.r, _pool_color.g, _pool_color.b, _pool_color.a * fade)
+	# top_level erbt keine Skalierung: die Größe des Würfels muss von Hand
+	# durchgereicht werden, sonst wirft ein Tray-Würfel dieselbe Riesenlache
+	# wie ein Spielwürfel und 30 Stück im Raster waschen den Tisch aus.
+	glow_pool.scale = Vector3.ONE * scale_factor * (1.0 + height * 0.08)
+	pool_material.set_shader_parameter("tint",
+		Vector4(_pool_color.r, _pool_color.g, _pool_color.b, _pool_color.a * fade))
 
-## Licht aus dem Zustand: das Kanten-Material gibt die Farbe allein vor,
-## sonst mitteln die Seiten-Tints; ganz ohne Material bleibt ein schwacher
-## warmweißer Schein.
-func _refresh_die_light() -> void:
-	if die_light == null:
+## Weltskalierung des Würfels (Tray und Grube tragen DiceTrayView.DIE_SCALE).
+func _die_scale() -> float:
+	var basis_scale := global_basis.get_scale()
+	return maxf(basis_scale.x, 0.01)
+
+## Farbe und Stärke der Boden-Lache aus dem Zustand: das Kanten-Material gibt
+## die Farbe allein vor, sonst mitteln die Seiten-Tints; ganz ohne Material
+## bleibt der Ton der kahlen Kanten.
+func _refresh_pool() -> void:
+	if glow_pool == null:
 		return
-	die_light.visible = light_allowed
-	if glow_pool != null:
-		glow_pool.visible = light_allowed
-	if not light_allowed:
+	glow_pool.visible = pool_allowed
+	if not pool_allowed:
 		return
-	# Kanten-Material schlägt alles: es ist die Lampe, also gibt es die Farbe
-	# unvermischt vor. Erst ohne Kante mitteln die Seiten-Tints wie bisher.
+	var color: Color
+	var strength: float
 	if edge_base != EDGE_COLOR:
-		die_light.light_color = intense(edge_base) * body_tint
-		die_light.light_energy = LIGHT_EDGE_ENERGY
+		color = intense(edge_base)
+		strength = POOL_EDGE_STRENGTH
 	else:
 		var tints: Array[Color] = []
 		for axis in face_base:
 			if face_base[axis] != Color.WHITE:
 				tints.append(face_base[axis])
 		if tints.is_empty():
-			die_light.light_color = LIGHT_BASE_COLOR * body_tint
-			die_light.light_energy = LIGHT_BASE_ENERGY
+			color = intense(POOL_BASE_COLOR)
+			strength = POOL_BASE_STRENGTH
 		else:
 			var mixed := Color(0, 0, 0)
 			for tint in tints:
 				mixed += tint
-			mixed /= float(tints.size())
-			die_light.light_color = intense(mixed) * body_tint
-			die_light.light_energy = LIGHT_MATERIAL_ENERGY
-	# Lachen-Farbe folgt dem Licht; Stärke seiner Energie.
-	var c := die_light.light_color
-	_pool_color = Color(c.r, c.g, c.b, POOL_ALPHA_PER_ENERGY * die_light.light_energy)
+			color = intense(mixed / float(tints.size()))
+			strength = POOL_MATERIAL_STRENGTH
+	color *= body_tint
+	_pool_color = Color(color.r, color.g, color.b, POOL_ALPHA_PER_STRENGTH * strength)
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet
