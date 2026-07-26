@@ -3194,17 +3194,12 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
-	# Zähl-Reihenfolge = physische Anordnung in der Grube beim Klick: die
-	# aufgereihten Würfel zählen genau so, wie der Spieler sie liegen sieht
-	# (aufsteigendes Z = die Reihe, die _line_up_settled_dice legt).
-	var eye_order: Array[int] = []
-	for k in slots.size():
-		eye_order.append(k)
-	eye_order.sort_custom(func(a: int, b: int) -> bool:
-		return dice.bodies[slots[a]].global_position.z < dice.bodies[slots[b]].global_position.z)
+	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
+	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
+	# Würfel hängen können und die Ordnung wertungsrelevant ist.
 	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
-	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx, eye_order)
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
 	_remap_breakdown_to_slots(breakdown, slots)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
@@ -3358,14 +3353,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if cids[j] == Charm.STREET_MUSICIAN:
 			musician_indices.append(j)
 
-	# 3) Würfel-Schritte links nach rechts: Augen (Basis), Material (Basis/Mult)
-	# und die Pro-Würfel-Charms DIESES Würfels - sie feuern mit ihm, nicht in
-	# der Charm-Phase. Alles strömt - die Zahlen springen bei Ankunft.
+	# 3) Würfel-Schritte in Reihen-Ordnung: je Aktivierung Augen + Material,
+	# dann die würfelgebundenen Charms DIESES Würfels (additiv, dann Krit) -
+	# sie feuern mit ihm, nicht in der Charm-Phase. Alles strömt.
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
-		_flash_scoring_die(slot)
-		if glow_by_slot.has(slot):
-			_pulse_glow(glow_by_slot[slot])
 		_pay_street_musician(musician_indices)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		# Zuwachs-Zahlen steigen aus dem Podest unter dem Würfel auf.
@@ -3373,58 +3365,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if glow_by_slot.has(slot):
 			var glow: Control = glow_by_slot[slot]
 			gain_px = glow.position + glow.size / 2.0
-		# Retrigger: löst der Würfel mehrfach aus, spielt jede Auslösung einzeln
-		# (eigene Ankunftspause), danach die Pro-Würfel-Charms einmal.
-		var activations: Array = step.get("activations", [])
-		if activations.size() > 1:
-			if not await _play_die_retriggers(step, slot, die_px, gain_px, glow_by_slot):
-				return
-			if glow_by_slot.has(slot):
-				_dim_glow(glow_by_slot[slot])
-			continue
-		var base_after_eye: int = step["base_after_eye"]
-		var mult_after_eye: int = step["mult_after_eye"]
-		var step_travel := 0.0
-		# Augenwert-Charms: eigener Komet vom Dock-Pad in die Basis (gleicher Zielwert).
-		for charm_index: int in step["eye_charm_indices"]:
-			_flash_charm_and_pad(charm_index)
-			step_travel = maxf(step_travel, _fire_score_light(_charm_trail_source_px([charm_index]), "charm", ["base"],
-				func() -> void: table_screen.update_pit_score(base_after_eye, mult_after_eye)))
-		_spawn_score_gains(gain_px, step["eye_add"], 0)
-		step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", ["base"],
-			func() -> void: table_screen.update_pit_score(base_after_eye, mult_after_eye)))
-		# Material-Zuwachs als eigener Puls (Basis und/oder Mult).
-		var mat_base: int = step["mat_base_add"]
-		var mat_mult: int = step["mat_mult_add"]
-		if mat_base != 0 or mat_mult != 0:
-			var base_after_mat: int = step["base_after_mat"]
-			var mult_after_mat: int = step["mult_after_mat"]
-			var mtargets: Array[String] = []
-			if mat_base != 0:
-				mtargets.append("base")
-			if mat_mult != 0:
-				mtargets.append("mult")
-			_spawn_score_gains(gain_px, mat_base, mat_mult)
-			step_travel = maxf(step_travel, _fire_score_light(die_px, "pit", mtargets,
-				func() -> void: table_screen.update_pit_score(base_after_mat, mult_after_mat)))
-		# Pro-Würfel-Charms (Breitband & Co.): Komet vom Dock-Pad, synchron zum Würfel.
-		var die_charm_base: int = step["charm_base_add"]
-		var die_charm_mult: int = step["charm_mult_add"]
-		if die_charm_base != 0 or die_charm_mult != 0:
-			var base_after: int = step["base_after"]
-			var mult_after: int = step["mult_after"]
-			var dtargets: Array[String] = []
-			if die_charm_base != 0:
-				dtargets.append("base")
-			if die_charm_mult != 0:
-				dtargets.append("mult")
-			for charm_index: int in step["die_charm_indices"]:
-				_flash_charm_and_pad(charm_index)
-			var charm_px := _charm_trail_source_px(step["die_charm_indices"])
-			_spawn_score_gains(charm_px, die_charm_base, die_charm_mult)
-			step_travel = maxf(step_travel, _fire_score_light(charm_px, "charm", dtargets,
-				func() -> void: table_screen.update_pit_score(base_after, mult_after)))
-		if not await _score_arrival_gap(step_travel):
+		if not await _play_die_step(step, slot, die_px, gain_px, glow_by_slot):
 			return
 		# Ursache→Wirkung geschlossen: das Podest dimmt bei Ankunft.
 		if glow_by_slot.has(slot):
@@ -3504,11 +3445,12 @@ func _pay_street_musician(musician_indices: Array[int]) -> void:
 		_flash_charm_and_pad(j)
 		_fire_charm_money_packet(_charm_trail_source_px([j]), 1, Phase.SCORING)
 
-## Retrigger-Animation eines Würfels: jede Auslösung (Quecksilber, Retrigger-
-## Charms, Echo-Kammer) ein eigener Puls mit eigener Ankunftspause - so sieht man
-## das Mehrfach-Auslösen nacheinander statt gebündelt. Danach die Pro-Würfel-
-## Charms einmal (die werden nicht retriggert). false = Abbruch (Reset).
-func _play_die_retriggers(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
+## Würfel-Schritt: jede Auslösung als eigene Kette Würfel-Puls (Augen+Material)
+## -> Charm-Anteil (würfelgebundene Charms, Komet vom Dock-Pad) -> Krit-Schlag
+## (Beherit), mit eigener Ankunftspause je Glied - so ist das Mehrfach-Auslösen
+## (Quecksilber, Retrigger-Charms, Echo-Kammer) als Verzahnung sichtbar.
+## false = Abbruch (Reset).
+func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
 	for pulse: Dictionary in step["activations"]:
 		_flash_scoring_die(slot)
 		if glow_by_slot.has(slot):
@@ -3525,38 +3467,53 @@ func _play_die_retriggers(step: Dictionary, slot: int, die_px: Vector2, gain_px:
 			func() -> void: table_screen.update_pit_score(p_base, p_mult))
 		if not await _score_arrival_gap(travel):
 			return false
-	# Pro-Würfel-Charms (Breitband & Co.) feuern einmal, synchron zum Würfel.
-	var die_charm_base: int = step["charm_base_add"]
-	var die_charm_mult: int = step["charm_mult_add"]
-	if die_charm_base != 0 or die_charm_mult != 0:
-		var base_after: int = step["base_after"]
-		var mult_after: int = step["mult_after"]
-		var dtargets: Array[String] = []
-		if die_charm_base != 0:
-			dtargets.append("base")
-		if die_charm_mult != 0:
-			dtargets.append("mult")
-		for charm_index: int in step["die_charm_indices"]:
-			_flash_charm_and_pad(charm_index)
-		var charm_px := _charm_trail_source_px(step["die_charm_indices"])
-		_spawn_score_gains(charm_px, die_charm_base, die_charm_mult)
-		var ctravel := _fire_score_light(charm_px, "charm", dtargets,
-			func() -> void: table_screen.update_pit_score(base_after, mult_after))
-		if not await _score_arrival_gap(ctravel):
-			return false
+		# Würfelgebundene Charms: der Anteil DIESER Auslösung vom Dock-Pad.
+		var pc_base := int(pulse["charm_base_add"])
+		var pc_mult := int(pulse["charm_mult_add"])
+		if pc_base != 0 or pc_mult != 0:
+			var pca_base: int = pulse["charm_base_after"]
+			var pca_mult: int = pulse["charm_mult_after"]
+			var pctargets: Array[String] = []
+			if pc_base != 0:
+				pctargets.append("base")
+			if pc_mult != 0:
+				pctargets.append("mult")
+			for charm_index: int in step["die_charm_indices"]:
+				_flash_charm_and_pad(charm_index)
+			var pcharm_px := _charm_trail_source_px(step["die_charm_indices"])
+			_spawn_score_gains(pcharm_px, pc_base, pc_mult)
+			var ctravel := _fire_score_light(pcharm_px, "charm", pctargets,
+				func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
+			if not await _score_arrival_gap(ctravel):
+				return false
+		# Krit-Schlag (Beherit) dieser Auslösung: der Würfel blitzt erneut,
+		# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen).
+		var crit_x := int(pulse["crit_x"])
+		if crit_x != 1:
+			_flash_scoring_die(slot)
+			for charm_index: int in step["crit_charm_indices"]:
+				_flash_charm_and_pad(charm_index)
+			var crit_px := _charm_trail_source_px(step["crit_charm_indices"])
+			var crit_base: int = pulse["charm_base_after"]
+			var crit_mult: int = pulse["mult_after_crit"]
+			table_screen.spawn_gain_number(crit_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
+			var crit_travel := _fire_score_light(crit_px, "charm", ["mult"],
+				func() -> void: table_screen.crit_pit_mult(crit_base, crit_mult, crit_x),
+				TableScreen.CRIT_COLOR)
+			if not await _score_arrival_gap(crit_travel):
+				return false
+			if not await _score_step_wait(CRIT_HOLD):
+				return false
 	return true
 
-## Spielt einen Krit-Schritt: der Komet läuft in Krit-Magenta vom Dock-Pad zum
-## Mult-Orb, bei Ankunft übernimmt TableScreen.crit_pit_mult (Hit-Stop -> Slam
-## mit Stoßwellen -> Beben). Der Extra-Halt (CRIT_HOLD) lässt den Moment atmen,
-## bevor das Accelerando weiterläuft. false = Abbruch (Reset).
+## Spielt einen STATISCHEN Krit-Schritt (Galgenhumor, Feierabendbier): der Komet
+## läuft in Krit-Magenta vom Dock-Pad zum Mult-Orb, bei Ankunft übernimmt
+## TableScreen.crit_pit_mult (Hit-Stop -> Slam mit Stoßwellen -> Beben). Der
+## Extra-Halt (CRIT_HOLD) lässt den Moment atmen. Beherit ist würfelgebunden
+## und schlägt in _play_die_step ein. false = Abbruch (Reset).
 func _play_crit_step(step: Dictionary) -> bool:
 	for charm_index: int in step["charm_indices"]:
 		_flash_charm_and_pad(charm_index)
-	# Krits, die einen einzelnen Würfel meinen (Beherit), blitzen ihn mit.
-	var crit_slot := int(step.get("slot", -1))
-	if crit_slot >= 0:
-		_flash_scoring_die(crit_slot)
 	var source_px := _charm_trail_source_px(step["charm_indices"])
 	var cbase: int = step["base_after"]
 	var cmult: int = step["mult_after"]

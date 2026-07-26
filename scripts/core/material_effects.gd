@@ -41,42 +41,51 @@ static func activation_count(i: int, materials: Array[String], edge_materials: A
 		count += CharmEffects.echo_retriggers(charm_ids)
 	return count
 
-## Basis-Boni der beteiligten Träger: Bernstein +20 fest (Bernsteinzimmer: +50);
-## Quecksilber zählt die Augen je Extra-Aktivierung erneut.
-static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = [], echo_slot: int = -1) -> int:
+## Basis-Bonus EINER Auslösung des Slots i - nur Träger-Effekte, ohne Augen:
+## Bernstein +20 fest (Bernsteinzimmer: +50), Seite und Kante stapeln.
+static func base_bonus_once(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
 	var amber_value := 50 if charm_ids.has(Charm.AMBER_ROOM) else 20
 	var bonus := 0
+	if i < materials.size() and materials[i] == DieMaterial.AMBER:
+		bonus += amber_value
+	if i < edge_materials.size() and edge_materials[i] == DieMaterial.AMBER:
+		bonus += amber_value
+	return bonus
+
+## Mult-Bonus EINER Auslösung des Slots i: Rubin +4 fest (Rubinschleifer/Blood
+## Diamond legen die Augenzahl drauf); Glas + rohe Augenzahl der oberen Seite.
+static func mult_bonus_once(i: int, values: Array[int], materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
+	# Rubinschleifer legt die Augenzahl EINMAL drauf, der Blood Diamond je Exemplar.
+	var eye_stacks := int(charm_ids.has(Charm.RUBY_GRINDER)) + charm_ids.count(Charm.BLOOD_DIAMOND)
+	var ruby_value := RUBY_MULT + values[i] * eye_stacks
+	var bonus := 0
+	for carrier in [
+		materials[i] if i < materials.size() else "",
+		edge_materials[i] if i < edge_materials.size() else "",
+	]:
+		if carrier == DieMaterial.RUBY:
+			bonus += ruby_value
+		elif carrier == DieMaterial.GLASS:
+			bonus += values[i]
+	return bonus
+
+## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
+## Quecksilber zählt die Augen je Extra-Aktivierung erneut.
+static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = [], echo_slot: int = -1) -> int:
+	var bonus := 0
 	for i in participating:
-		var face_material: String = materials[i] if i < materials.size() else ""
-		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
 		var activations := activation_count(i, materials, edge_materials, charm_ids, values[i], echo_slot)
-		if face_material == DieMaterial.AMBER:
-			bonus += amber_value * activations
-		if edge_material == DieMaterial.AMBER:
-			bonus += amber_value * activations
+		bonus += base_bonus_once(i, materials, edge_materials, charm_ids) * activations
 		if activations > 1:
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (activations - 1)
 	return bonus
 
-## Mult-Boni der beteiligten Träger: Rubin +4 fest (Rubinschleifer/Blood Diamond
-## legen die Augenzahl drauf); Glas + rohe Augenzahl der oben liegenden Seite.
+## Mult-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests).
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> int:
-	# Rubinschleifer legt die Augenzahl EINMAL drauf, der Blood Diamond je Exemplar.
-	var eye_stacks := int(charm_ids.has(Charm.RUBY_GRINDER)) + charm_ids.count(Charm.BLOOD_DIAMOND)
 	var bonus := 0
 	for i in participating:
-		var face_material: String = materials[i] if i < materials.size() else ""
-		var edge_material: String = edge_materials[i] if i < edge_materials.size() else ""
-		var ruby_value := RUBY_MULT + values[i] * eye_stacks
 		var effect_count := activation_count(i, materials, edge_materials, charm_ids, values[i], echo_slot)
-		if face_material == DieMaterial.RUBY:
-			bonus += ruby_value * effect_count
-		if edge_material == DieMaterial.RUBY:
-			bonus += ruby_value * effect_count
-		if face_material == DieMaterial.GLASS:
-			bonus += values[i] * effect_count
-		if edge_material == DieMaterial.GLASS:
-			bonus += values[i] * effect_count
+		bonus += mult_bonus_once(i, values, materials, edge_materials, charm_ids) * effect_count
 	return bonus
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).

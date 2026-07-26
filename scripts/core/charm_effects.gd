@@ -3,15 +3,21 @@ class_name CharmEffects
 ## Nach Wirkungsort gruppiert; mehrere/duplizierte Charms stapeln sich.
 ## Ein neuer Charm braucht nur hier + eine Fabrikmethode in charm.gd.
 ##
-## Trigger-Reihenfolge der Wertung (fix, KEINE Ausnahmen):
-##   1. Würfel links nach rechts (Slot-Reihenfolge). Charms, die einen einzelnen
-##      beteiligten Würfel betreffen, feuern MIT ihrem Würfel (die_charm_*_at).
-##   2. Charms strikt in Besitz-Reihenfolge: additive Boni UND Faktoren
-##      (charm_*_at-Hooks) wirken an ihrer Position - Faktoren sammeln sich
-##      nie am Ende, die Dock-Reihenfolge ist damit spielrelevant. KRITS
-##      (charm_crit_at) sind Faktoren auf den aktuellen Mult.
-##   3. Nach Basis × Mult: Gesamtzahl-Effekte (charm_total_*_at), ebenfalls
-##      in Besitz-Reihenfolge.
+## Trigger-Reihenfolge der Wertung (fix, KEINE Ausnahmen). Zwei Charm-Klassen:
+##   - WÜRFELGEBUNDEN (die_charm_*-Hooks): der Effekt hängt an einem konkreten
+##     Würfel (Breitband je Kombi-Würfel, Leuchtturm/Hochstapler am höchsten,
+##     Beherit am niedrigsten gewerteten). Sie feuern MIT ihrem Würfel in der
+##     Würfelphase - und je Aktivierung erneut (Quecksilber, Hasenpfote & Co.,
+##     Echo-Kammer).
+##   - STATISCH (charm_*-Hooks): der Effekt hängt an Hand/Zustand, nicht an
+##     einem einzelnen Würfel. Sie feuern NACH allen Würfeln, strikt in
+##     Besitz-Reihenfolge - Boni und Faktoren wirken an ihrer Position.
+## Ablauf: 1. Würfel in Reihen-Ordnung (DiceScoring.trigger_order); je
+## Aktivierung Augen -> Material -> würfelgebundene Charms (additiv, dann
+## Krits). 2. Statische Charms in Besitz-Reihenfolge. 3. Nach Basis × Mult:
+## Gesamtzahl-Effekte (charm_total_*_at). Weil Krits am Würfel hängen können,
+## ist die Reihen-Ordnung wertungsrelevant - Vorschau, Wertung und Anzeige
+## nutzen deshalb dieselbe kanonische Ordnung.
 
 ## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
 const ALL_OR_NOTHING_MULT := 5
@@ -110,7 +116,8 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 		value = maxi(value, 6)
 	return value
 
-# --- Würfelphase: Pro-Würfel-Charms (feuern MIT ihrem beteiligten Würfel) -----
+# --- Würfelphase: würfelgebundene Charms (feuern MIT ihrem Würfel, je
+# Auslösung EINMAL - die Aktivierungs-Schleife liegt beim Aufrufer) -----------
 
 ## Basispunkt-Beitrag der Besitz-Position j am beteiligten Würfel slot.
 ## scored: alle gewerteten Slots - nur der Vorreiter braucht sie.
@@ -144,6 +151,25 @@ static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: 
 			if slot < values.size() and is_prime(values[slot]):
 				return values[slot]
 	return 0
+
+## Ziel-Mult der Besitz-Position j am Würfel slot: Leuchtturm/Hochstapler
+## meinen den HÖCHSTEN gewerteten Würfel und feuern mit ihm.
+static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = []) -> int:
+	match charm_ids[j]:
+		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
+			if slot == target_die(values, participating, true):
+				return values[slot]
+	return 0
+
+## Krit der Besitz-Position j am Würfel slot: Beherit multipliziert den
+## AKTUELLEN Mult mit der NIEDRIGSTEN gewerteten Augenzahl - mit seinem
+## Würfel, je Auslösung (eine gewertete 1 heißt ×1 = Ausfall).
+static func die_charm_crit_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = []) -> int:
+	match charm_ids[j]:
+		Charm.BEHERIT:
+			if slot == target_die(values, participating, false):
+				return maxi(1, values[slot])
+	return 1
 
 ## Primzahl-Test für Augenzahlen (Seiten können durch Knochen beliebig wachsen).
 static func is_prime(value: int) -> bool:
@@ -316,10 +342,6 @@ static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materia
 				if material_id != "":
 					display += 1
 			return display
-		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
-			# Jede Kombination: Mult in Höhe des höchsten GEWERTETEN Würfels.
-			var beacon := target_die(values, participating, true)
-			return values[beacon] if beacon >= 0 else 0
 		Charm.TWIN_RING:
 			# Jedes exakte Paar im Wurf: Mult += Augenzahl.
 			var twins := 0
@@ -415,10 +437,10 @@ static func charm_mult_factor_at(j: int, values: Array[int], charm_ids: Array[St
 
 ## KRIT der Position j: multipliziert den AKTUELLEN Mult (Mult 10, Krit ×3
 ## -> 30) - wie jeder Faktor an der Besitz-Position, spätere Mult-Boni
-## bleiben unberührt. 1 = kein Krit. Galgenhumor: ×4 nach Farkle,
-## Feierabendbier: ×2 bei leerem Nachziehstapel (zusätzlich zur Basis),
-## Beherit: ×niedrigste gewertete Augenzahl (eine gewertete 1 heißt ×1).
-static func charm_crit_at(j: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
+## bleiben unberührt. 1 = kein Krit. Nur STATISCHE Krits (Galgenhumor ×4
+## nach Farkle, Feierabendbier ×2 bei leerem Nachziehstapel) - Beherit ist
+## würfelgebunden und lebt in die_charm_crit_at.
+static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, _participating: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.GALLOWS_HUMOR:
 			if ctx.get(CTX_AFTER_FARKLE, false):
@@ -426,9 +448,6 @@ static func charm_crit_at(j: int, values: Array[int], charm_ids: Array[String], 
 		Charm.AFTER_WORK_BEER:
 			if ctx.get(CTX_POOL_EMPTY, false):
 				return 2
-		Charm.BEHERIT:
-			var lowest := target_die(values, participating, false)
-			return maxi(1, values[lowest]) if lowest >= 0 else 1
 	return 1
 
 # --- Geld: Effektkatalog -------------------------------------------------------

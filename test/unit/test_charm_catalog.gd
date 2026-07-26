@@ -170,11 +170,14 @@ func test_lighthouse_mult_follows_highest_counted_die():
 	assert_eq(score, 45, "Basis (5+4) × Mult (1+4)")
 
 func test_lighthouse_also_lights_other_combinations():
-	# Paar Fünfer: der Leuchtturm zählt jetzt in JEDER Kombination (+5 Mult).
+	# Paar Fünfer: der Leuchtturm ist würfelgebunden und feuert MIT dem
+	# höchsten gewerteten Würfel (+5 Mult an dessen Schritt).
 	var ids := _ids([Charm.LIGHTHOUSE])
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, ids, {}, _p([0, 1])), 5)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 0, _d(PAIR), ids, _p([0, 1])), 5)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 1, _d(PAIR), ids, _p([0, 1])), 0, "nur am Zielwürfel (Gleichstand: der erste)")
 	# Nur GEWERTETE Würfel leuchten - die unbeteiligte 6 zählt nicht.
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), NO_MATS, ids, {}, _p([0, 1])), 2)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 0, _d([2, 2, 1, 3, 4, 6]), ids, _p([0, 1])), 2)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 5, _d([2, 2, 1, 3, 4, 6]), ids, _p([0, 1])), 0)
 
 func test_flat_charms_pay_without_a_condition():
 	# Hausjoker und Gratis Getränk hängen an keiner Kombination: Paar Fünfer,
@@ -202,30 +205,33 @@ func test_target_die_takes_the_first_match_on_a_tie():
 	assert_eq(CharmEffects.target_die(dice, _p([]), true), -1, "ohne Kandidaten kein Ziel")
 
 func test_tie_breaking_charms_name_the_first_die():
-	# Hochstapler und Beherit lesen denselben Zielwürfel - die Zerlegung zeigt
-	# ihn, damit der Spieler sieht, WELCHER Würfel ausgelöst hat.
+	# Hochstapler und Beherit lesen denselben Zielwürfel - die Zerlegung feuert
+	# in DESSEN Würfel-Schritt, damit der Spieler sieht, WER ausgelöst hat.
 	var dice := _d([6, 6, 2, 3, 4, 5])
 	var stacker := ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, _ids([Charm.HIGH_STACKER]))
-	var step: Dictionary = stacker["charm_steps"][0]
+	var step: Dictionary = stacker["die_steps"][0]
 	assert_eq(int(step["slot"]), 0, "erster der beiden Sechser")
-	assert_eq(int(step["pulses"][0]["slot"]), 0, "Meteor startet an diesem Würfel")
+	assert_eq(step["die_charm_indices"], [0], "der Hochstapler feuert an diesem Würfel")
 	var beherit := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
-	assert_eq(int(beherit["charm_steps"][0]["slot"]), 0, "erster der beiden Vierer")
+	var crit_step: Dictionary = beherit["die_steps"][0]
+	assert_eq(int(crit_step["slot"]), 0, "erster der beiden Vierer")
+	assert_eq(crit_step["crit_charm_indices"], [0])
 
 func test_high_stacker_matches_the_highest_counted_die():
 	var ids := _ids([Charm.HIGH_STACKER])
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, ids, {}, _p([0, 1])), 5)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 0, _d(PAIR), ids, _p([0, 1])), 5)
 	# Nur GEWERTETE Würfel zählen - die unbeteiligte 6 bleibt außen vor.
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([2, 2, 1, 3, 4, 6]), NO_MATS, ids, {}, _p([0, 1])), 2)
+	assert_eq(CharmEffects.die_charm_target_mult_at(0, 0, _d([2, 2, 1, 3, 4, 6]), ids, _p([0, 1])), 2)
 
-# --- Krit (multipliziert den AKTUELLEN Mult, siehe charm_crit_at) -------------------
+# --- Krit (multipliziert den AKTUELLEN Mult) ----------------------------------------
 
 func test_beherit_crits_with_the_lowest_counted_die():
+	# Würfelgebunden: der Krit feuert im Schritt des NIEDRIGSTEN gewerteten
+	# Würfels - Slot 3 (4) und 5 (6) gewertet -> ×4 an Slot 3.
 	var ids := _ids([Charm.BEHERIT])
-	# Gewertet werden Slot 3 (4) und 5 (6) -> niedrigste 4.
-	assert_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([3, 5])), 4, "Krit ×4")
-	assert_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([0, 5])), 1, "gewertete 1 = kein Krit")
-	assert_eq(CharmEffects.charm_crit_at(0, _d(PAIR), ids, {}, _p([])), 1, "ohne gewertete Würfel kein Krit")
+	assert_eq(CharmEffects.die_charm_crit_at(0, 3, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 4, "Krit ×4 am Zielwürfel")
+	assert_eq(CharmEffects.die_charm_crit_at(0, 5, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 1, "der höhere Würfel kritet nicht")
+	assert_eq(CharmEffects.die_charm_crit_at(0, 0, _d([1, 2, 3, 4, 5, 6]), ids, _p([0, 5])), 1, "gewertete 1 = kein Krit")
 	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 5 = 10 -> Basis 20 × 10 = 200.
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 200)
 
@@ -236,6 +242,29 @@ func test_gallows_humor_gives_crit_after_a_farkle():
 	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 4 = 8 -> Basis 20 × 8 = 160.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
 	assert_eq(score, 160)
+
+# --- Retrigger-Regel: würfelgebundene Charms feuern je Aktivierung ihres Würfels ----
+
+func test_lighthouse_retriggers_with_its_die():
+	# Quecksilber-Kante auf dem Zielwürfel: Basis (10 + 5 + Nachzählung 5 + 5)
+	# × Mult (2 + Leuchtturm 5 je Auslösung) = 25 × 12 = 300.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.LIGHTHOUSE]), false, NO_MATS, edges)
+	assert_eq(score, 300)
+
+func test_beherit_crits_once_per_activation_of_its_die():
+	# Paar Vierer, Quecksilber auf dem Zielwürfel: Basis (10 + 4 + 4 + 4)
+	# × Mult (2 ×4 ×4) = 22 × 32 = 704.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, edges)
+	assert_eq(score, 704)
+
+func test_per_die_charms_retrigger_with_their_die():
+	# Breitband feuert je Auslösung seines Würfels: Basis (10 + (5+5)×2 + 5+5)
+	# × Mult 2 = 40 × 2 = 80.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND]), false, NO_MATS, edges)
+	assert_eq(score, 80)
 
 # --- Basis-Boni & Faktoren -----------------------------------------------------------
 

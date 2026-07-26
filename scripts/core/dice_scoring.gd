@@ -116,11 +116,11 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 	return false
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
-## Würfel links nach rechts (Augen, Material, Pro-Würfel-Charms je Würfel),
-## dann Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
-## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in
-## Besitz-Reihenfolge. materials/edge_materials: DieMaterial-id je Slot
-## ("" = keins). ctx: Wurf-/Runden-Zustand der Effektkatalog-Charms.
+## Würfel in Reihen-Ordnung (trigger_order; je Aktivierung Augen, Material,
+## würfelgebundene Charms), dann statische Charms strikt in Besitz-Reihenfolge
+## (Boni UND Faktoren an ihrer Position), nach Basis × Mult die Gesamtzahl-
+## Effekte - ebenfalls in Besitz-Reihenfolge. materials/edge_materials:
+## DieMaterial-id je Slot ("" = keins). ctx: Wurf-/Runden-Zustand.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	if not qualifies(key, dice):
@@ -137,6 +137,16 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	return maxi(1, _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)[1])
 
+## Zählreihenfolge der Würfelphase: die Reihe, wie sie beim Nehmen aufgereiht
+## liegt - Wert absteigend, bei Gleichstand kleinster Slot zuerst. Deterministisch
+## aus den Werten, damit Vorschau, Wertung und Grubenanimation identisch laufen
+## (die Ordnung ist wertungsrelevant, sobald ein Krit am Würfel hängt - Beherit).
+static func trigger_order(scored: Array[int], dice: Array[int]) -> Array[int]:
+	var order := scored.duplicate()
+	order.sort_custom(func(a: int, b: int) -> bool:
+		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
+	return order
+
 ## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice bereits
 ## verwandelt). [base, mult] - mult ungeklemmt.
 static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
@@ -147,16 +157,26 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 	var echo_slot := CharmEffects.first_participating(dice, scored)
 	var base := points_for(key, combo_levels)
 	var mult := mult_for(key, combo_levels)
-	# Auch ohne Materialien: base_bonus zählt die Retrigger-Augen (Hasenpfote & Co.).
+	# Auch ohne Materialien können Charms Aktivierungen stapeln (Hasenpfote & Co.).
 	var has_die_bonus := not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty()
-	for i in scored:
-		base += CharmEffects.eye_value(dice[i], charm_ids)
+	# Würfelphase in Reihen-Ordnung; je Aktivierung: Augen -> Material ->
+	# würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
+	for i in trigger_order(scored, dice):
+		var activations := 1
 		if has_die_bonus:
-			var only: Array[int] = [i]
-			base += MaterialEffects.base_bonus(dice, materials, only, charm_ids, edge_materials, echo_slot)
-			mult += MaterialEffects.mult_bonus(dice, materials, only, edge_materials, charm_ids, echo_slot)
-		base += CharmEffects.die_charm_base(i, key, dice, charm_ids, ctx, edge_materials, scored)
-		mult += CharmEffects.die_charm_mult(i, dice, charm_ids, ctx)
+			activations = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot)
+		for _a in activations:
+			base += CharmEffects.eye_value(dice[i], charm_ids)
+			if not has_die_bonus:
+				continue
+			base += MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids)
+			mult += MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids)
+			for j in charm_ids.size():
+				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, scored)
+				mult += CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
+					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating)
+			for j in charm_ids.size():
+				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
 	for j in charm_ids.size():
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += CharmEffects.mult_bonus_at(j, key, charm_ids) \

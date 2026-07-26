@@ -31,25 +31,29 @@ func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], fi
 	_check_continuity(breakdown)
 	return breakdown
 
-## Die Zwischenstände müssen lückenlos aufeinander aufbauen: jeder Schritt
-## startet beim Nachher-Wert des vorigen, und der letzte Stand ist base/mult.
+## Die Zwischenstände müssen lückenlos aufeinander aufbauen: jede Auslösung
+## (Würfel-Puls -> Charm-Anteil -> Krit) startet beim Nachher-Wert der vorigen,
+## die Schritte folgen der Reihen-Ordnung, und der letzte Stand ist base/mult.
 func _check_continuity(breakdown: Dictionary) -> void:
 	var base: int = breakdown["combo"]["base_add"]
 	var mult: int = breakdown["combo"]["mult_add"]
-	var prev_slot := -1
+	var expected_order: Array = breakdown["eye_slots"]
+	var at := 0
 	for step: Dictionary in breakdown["die_steps"]:
-		assert_gt(int(step["slot"]), prev_slot, "Würfel zählen links nach rechts (Slot-Reihenfolge)")
-		prev_slot = step["slot"]
-		base += step["eye_add"]
-		assert_eq(step["base_after_eye"], base, "Zwischenstand nach den Augen")
-		assert_eq(step["mult_after_eye"], mult)
-		base += step["mat_base_add"]
-		mult += step["mat_mult_add"]
-		assert_eq(step["base_after_mat"], base, "Zwischenstand nach dem Material")
-		assert_eq(step["mult_after_mat"], mult)
-		base += step["charm_base_add"]
-		mult += step["charm_mult_add"]
-		assert_eq(step["base_after"], base)
+		assert_eq(int(step["slot"]), int(expected_order[at]), "Schritte folgen der Reihen-Ordnung")
+		at += 1
+		for pulse: Dictionary in step["activations"]:
+			base += pulse["base_add"]
+			mult += pulse["mult_add"]
+			assert_eq(pulse["base_after"], base, "Zwischenstand nach dem Würfel-Puls")
+			assert_eq(pulse["mult_after"], mult)
+			base += pulse["charm_base_add"]
+			mult += pulse["charm_mult_add"]
+			assert_eq(pulse["charm_base_after"], base, "Zwischenstand nach dem Charm-Anteil")
+			assert_eq(pulse["charm_mult_after"], mult)
+			mult *= pulse["crit_x"]
+			assert_eq(pulse["mult_after_crit"], mult, "Zwischenstand nach dem Krit-Schlag")
+		assert_eq(step["base_after"], base, "Würfel-Schritt endet am laufenden Stand")
 		assert_eq(step["mult_after"], mult)
 	for step: Dictionary in breakdown["charm_steps"]:
 		base = (base + step["base_add"]) * step["base_x"]
@@ -76,32 +80,27 @@ func test_plain_pair_matches_scoring():
 
 func test_sum_category_counts_only_participating_dice():
 	# Full House zählt nur die beteiligten Würfel; der unbeteiligte sechste
-	# (die 1) bleibt außen vor.
+	# (die 1) bleibt außen vor. Reihen-Ordnung: die Vierer vor den Zweiern.
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 4, 4, 1]))
-	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
+	assert_eq(breakdown["eye_slots"], [3, 4, 0, 1, 2])
 	assert_eq(breakdown["die_steps"].size(), 5)
 
-func test_composite_hands_count_left_to_right():
-	# Das Paar liegt LINKS vom Drilling - gezählt wird trotzdem in Slot-,
-	# nie in Gruppenreihenfolge (Drilling zuerst wäre [2,3,4,0,1]).
+func test_composite_hands_count_in_row_order():
+	# Gezählt wird in Reihen-Ordnung (Wert absteigend, dann Slot) - hier liegt
+	# das hohe Paar zufällig auch links, die Reihe beginnt bei ihm.
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([4, 4, 2, 2, 2, 1]))
 	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
 
-func test_eye_order_counts_dice_in_the_given_order():
-	# eye_order legt die Zähl-Reihenfolge fest (physische Grubenanordnung beim
-	# Nehmen) - hier rückwärts. Die Schritte folgen ihr, die Summe bleibt gleich.
-	var dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße: alle sechs beteiligt
-	var order := _d([5, 4, 3, 2, 1, 0])
-	var breakdown := ScoreBreakdown.build(DiceScoring.LARGE_STRAIGHT, dice, [], false,
-		NO_MATS, NO_MATS, {}, {}, order)
-	assert_eq(breakdown["eye_slots"], order, "Würfel zählen in eye_order")
+func test_dice_count_in_row_order_high_to_low():
+	# Die Zählreihenfolge ist die aufgereihte Reihe: Wert absteigend, bei
+	# Gleichstand kleinster Slot - kanonisch aus den Werten (DiceScoring.
+	# trigger_order), weil sie wertungsrelevant ist, sobald Beherit kritet.
+	var breakdown := _build_and_check(DiceScoring.LARGE_STRAIGHT, _d([1, 2, 3, 4, 5, 6]))
+	assert_eq(breakdown["eye_slots"], [5, 4, 3, 2, 1, 0], "höchster Würfel zuerst")
 	var slots: Array[int] = []
 	for step: Dictionary in breakdown["die_steps"]:
 		slots.append(int(step["slot"]))
-	assert_eq(slots, order, "auch die Schritte folgen eye_order")
-	# Umsortieren ist rein kosmetisch: gleiche Summe wie in Slot-Reihenfolge.
-	var default_bd := ScoreBreakdown.build(DiceScoring.LARGE_STRAIGHT, dice)
-	assert_eq(breakdown["total"], default_bd["total"], "Reihenfolge ändert die Summe nicht")
+	assert_eq(slots, breakdown["eye_slots"], "die Schritte folgen der Reihe")
 
 func test_every_category_example_matches():
 	# Jedes Anzeige-Beispiel der Bildschirmliste läuft einmal durch die Zerlegung.
@@ -127,23 +126,76 @@ func test_material_bonuses_split_per_die():
 	assert_eq(steps[1]["mat_mult_add"], 0)
 
 func test_mercury_edge_retrigger_stays_at_its_die():
+	# Quecksilber-Kante: der Würfel spielt zwei Auslösungen, jede zählt Augen
+	# und Rubin erneut - als eigene Kettenglieder, nicht als Aggregat.
 	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
 	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, mats, edges)
-	var steps: Array = breakdown["die_steps"]
-	assert_eq(steps[0]["mat_base_add"], 5, "zweite Augen-Zählung am Quecksilber-Würfel")
-	assert_eq(steps[0]["mat_mult_add"], 8, "Rubin feuert zweimal")
+	var acts: Array = breakdown["die_steps"][0]["activations"]
+	assert_eq(acts.size(), 2)
+	for pulse: Dictionary in acts:
+		assert_eq(int(pulse["base_add"]), 5, "Augen je Auslösung")
+		assert_eq(int(pulse["mult_add"]), 4, "Rubin je Auslösung")
+	assert_eq(breakdown["die_steps"][1]["activations"].size(), 1, "der Partner löst einfach aus")
+
+func test_lighthouse_fires_with_its_die_per_activation():
+	# Würfelgebunden: der Leuchtturm feuert MIT dem höchsten gewerteten Würfel,
+	# je Aktivierung +5 Mult als Charm-Anteil der jeweiligen Auslösung.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.LIGHTHOUSE]), false, NO_MATS, edges)
+	var step: Dictionary = breakdown["die_steps"][0]
+	assert_eq(step["die_charm_indices"], [0], "der Leuchtturm hängt am Zielwürfel")
+	for pulse: Dictionary in step["activations"]:
+		assert_eq(int(pulse["charm_mult_add"]), 5, "+5 Mult je Auslösung")
+	assert_eq(breakdown["die_steps"][1]["die_charm_indices"], [], "der Partner-Würfel bleibt leer")
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
+
+func test_beherit_crits_inside_its_die_step():
+	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×4, verzahnt
+	# (Würfel -> Charm -> Würfel -> Charm), Kette endet am Schritt-Endstand.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, edges)
+	var step: Dictionary = breakdown["die_steps"][0]
+	var acts: Array = step["activations"]
+	assert_eq(acts.size(), 2)
+	assert_eq(int(acts[0]["crit_x"]), 4)
+	assert_eq(int(acts[0]["mult_after_crit"]) * 4, int(acts[1]["mult_after_crit"]))
+	assert_eq(int(acts[1]["mult_after_crit"]), int(step["mult_after"]), "letzter Schlag = Endstand")
+	assert_eq(step["crit_charm_indices"], [0])
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
+
+func test_beherit_without_retrigger_slams_once():
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
+	var step: Dictionary = breakdown["die_steps"][0]
+	assert_eq(step["activations"].size(), 1)
+	assert_eq(int(step["crit_x"]), 4, "×4 am eigenen Würfel, einmal")
+
+func test_retrigger_interleaves_the_per_die_charm_share():
+	# Verzahnung: je Auslösung folgt der Charm-Anteil direkt auf den
+	# Würfel-Puls, und der nächste Puls setzt auf dessen After-Stand auf.
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.BROADBAND]), false, NO_MATS, edges)
+	var step: Dictionary = breakdown["die_steps"][0]
+	var acts: Array = step["activations"]
+	assert_eq(acts.size(), 2)
+	for pulse: Dictionary in acts:
+		assert_eq(int(pulse["charm_base_add"]), 5, "Breitband-Anteil je Auslösung")
+	assert_eq(int(acts[1]["base_after"]), int(acts[0]["charm_base_after"]) + int(acts[1]["base_add"]),
+		"Würfel-Puls 2 startet nach Charm-Anteil 1")
+	assert_eq(int(acts[1]["charm_base_after"]), int(step["base_after"]), "Ende der Kette = Schritt-Endstand")
 
 # --- Charm-Schritte --------------------------------------------------------------
 
 func test_retrigger_charm_recounts_at_the_die():
-	# Hasenpfote löst die 6 erneut aus - die Nachzählung erscheint als
-	# Würfel-Bonus (wie Quecksilber), nicht als Augenwert-Änderung.
+	# Hasenpfote löst die 6 erneut aus - als zweite Auslösung mit eigener
+	# Augen-Zählung, nicht als Augenwert-Änderung.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([6, 6, 1, 2, 3, 5]), _ids([Charm.RABBITS_FOOT]))
-	var steps: Array = breakdown["die_steps"]
-	assert_eq(steps[0]["eye_add"], 6)
-	assert_eq(steps[0]["mat_base_add"], 6, "zweite Augen-Zählung durch den Retrigger")
-	assert_eq(steps[0]["eye_charm_indices"], [], "Augenwert selbst unverändert")
+	var step: Dictionary = breakdown["die_steps"][0]
+	assert_eq(step["eye_add"], 6)
+	var acts: Array = step["activations"]
+	assert_eq(acts.size(), 2, "zweite Auslösung durch den Retrigger")
+	assert_eq(int(acts[1]["base_add"]), 6, "die Nachzählung sind wieder die Augen")
+	assert_eq(step["eye_charm_indices"], [], "Augenwert selbst unverändert")
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein eigener Charm-Schritt")
 
 func test_transform_charm_lights_up_at_the_die():
@@ -310,9 +362,9 @@ func test_full_counter_scores_bystanders_as_die_steps():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
 		_ids([Charm.FULL_COUNTER]))
 	assert_eq(breakdown["die_steps"].size(), 6, "alle sechs Würfel als Schritt")
-	assert_eq(breakdown["eye_slots"], _d([0, 1, 2, 3, 4, 5]))
+	assert_eq(breakdown["eye_slots"], _d([5, 0, 1, 4, 3, 2]), "Reihen-Ordnung über ALLE Würfel")
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein eigener Vollzähler-Schritt")
-	assert_eq(int(breakdown["die_steps"][2]["eye_add"]), 1, "unbeteiligter Würfel (Auge 1) zählt mit")
+	assert_eq(int(breakdown["die_steps"][5]["eye_add"]), 1, "unbeteiligter Würfel (Auge 1) zählt mit")
 
 func test_bonus_that_is_not_per_die_carries_no_pulses():
 	# Marienkäfer gibt +4 Mult aufs Paar - ein Schritt, aber kein Pro-Würfel-Charm.
