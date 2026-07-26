@@ -19,6 +19,9 @@ var strip_path := PackedVector2Array()
 ## Abzweig (T-Stück) aus dem Korridor zu einem weiteren Fenster; rein dekorativ -
 ## Lichtläufe (Kometen) fahren nur strip_path.
 var branch_path := PackedVector2Array()
+## Beliebig viele weitere Adern in DIESEM Knoten (Sammelschienen + Stichleitungen
+## des Kombi-Chip-Netzes); ebenfalls rein zeichnend.
+var rail_paths: Array[PackedVector2Array] = []
 var _thickness := 9.0
 
 func _ready() -> void:
@@ -69,12 +72,27 @@ func fork_to(target_rect: Rect2) -> void:
 		from, Vector2(enter_x, from.y), Vector2(enter_x, target_rect.end.y)])
 	queue_redraw()
 
+## Legt ein ganzes Adernetz (Schienen + Pin-Stiche) in EINEN Knoten - ohne
+## Haupt-Ader: Kometen fahren hier über wiring_paths_to_cell, nicht über
+## strip_path.
+func link_rails(paths: Array[PackedVector2Array], width: float) -> void:
+	_thickness = width
+	strip_path = PackedVector2Array()
+	branch_path = PackedVector2Array()
+	rail_paths = paths
+	queue_redraw()
+
 func _draw() -> void:
-	if strip_path.size() < 2:
-		return
-	var paths: Array[PackedVector2Array] = [strip_path]
+	var paths: Array[PackedVector2Array] = []
+	if strip_path.size() >= 2:
+		paths.append(strip_path)
 	if branch_path.size() >= 2:
 		paths.append(branch_path)
+	for rail in rail_paths:
+		if rail.size() >= 2:
+			paths.append(rail)
+	if paths.is_empty():
+		return
 	# Durchgehendes Band von außen nach innen: weicher Schatten-Sitz, hauchdünner
 	# Platin-Saum, dunkle Füllung - der Saum bleibt ununterbrochen (keine
 	# Quer-Nähte an den Segmentgrenzen). Jede Lage über ALLE Adern, damit das

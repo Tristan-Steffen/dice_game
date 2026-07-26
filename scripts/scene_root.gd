@@ -86,6 +86,8 @@ const SPILL_HEIGHT_FACTOR := 0.55  # Höhe aus der schmaleren Fensterhälfte
 const SPILL_HEIGHT_MIN := 1.8
 const SPILL_HEIGHT_MAX := 5.0
 const SPILL_RANGE_FACTOR := 1.35   # Reichweite über den Fensterrand hinaus
+## Der Kombi-Cluster braucht mehr: nur dort stehen echte Körper (die Chips).
+const CLUSTER_SPILL_FACTOR := 2.6
 
 ## Die im Tisch-GLB gebackenen Neon-Emissionen (LED-Ring, Underglow) sind auf
 ## einen hell beleuchteten Tisch abgestimmt - im dunklen Raum wären sie das
@@ -240,6 +242,7 @@ var die_inspector: DieInspectorView
 @onready var hub_anchor: Marker3D = $ScreenAnchors/Hub
 
 var combo_labels: Dictionary = {}  # DiceScoring-Key -> ComboCellView
+var combo_chips: Dictionary = {}  # DiceScoring-Key -> ComboChipView (3D-Chip auf dem Glas)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination
 
 @onready var camera_rig: CameraRig = $Camera3D
@@ -469,6 +472,7 @@ func _setup_table_screen() -> void:
 	# Screen-Elemente an ihre Editor-Anker setzen; den Kombi-Cluster ERST
 	# platzieren, DANN den Zoom einrichten (er liest das verschobene cluster_rect).
 	table_screen.place_combo_cluster(table_screen.world_to_pixel(combos_anchor.global_position))
+	_setup_combo_chips()
 	_setup_combos_zoom()
 	table_screen.place_goal_bar(table_screen.world_to_pixel(goal_bar_anchor.global_position))
 	var ppw := table_screen.pixels_per_world()
@@ -668,7 +672,9 @@ func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
 	var gold: Color = TreasureChestView.GOLD
 	_add_spill_light("PitSpill",
 		Rect2(table_screen.pit_window.position, table_screen.pit_window.size), cyan)
-	_add_spill_light("ClusterSpill", table_screen.cluster_rect, Color("#ff79c6"))
+	# Kombi-Cluster heller: dort stehen echte 3D-Chips, die ohne Licht schwarz
+	# blieben (die anderen Fenster beleuchten nur flaches Glas).
+	_add_spill_light("ClusterSpill", table_screen.cluster_rect, Color("#ffd9f0"), CLUSTER_SPILL_FACTOR)
 	_add_spill_light("ScoreSpill", table_screen.score_rect, cyan)
 	_add_spill_light("HubSpill",
 		Rect2(table_screen.hub.position, table_screen.hub.size), cyan)
@@ -680,7 +686,7 @@ func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
 
 ## Ein Fenster-Spill-Licht: mittig über dem Pixel-Rechteck, Höhe/Reichweite aus
 ## dessen Weltmaß - große Fenster strahlen weiter, schmale bleiben eng.
-func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color) -> void:
+func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color, energy_factor := 1.0) -> void:
 	var a := table_screen.pixel_to_world(rect_px.position)
 	var b := table_screen.pixel_to_world(rect_px.end)
 	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
@@ -690,7 +696,7 @@ func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color) -> void:
 	light.name = light_name
 	light.position = Vector3((a.x + b.x) * 0.5, height, (a.z + b.z) * 0.5)
 	light.light_color = tint
-	light.light_energy = SPILL_ENERGY
+	light.light_energy = SPILL_ENERGY * energy_factor
 	light.omni_range = maxf(half.x, half.y) * SPILL_RANGE_FACTOR + height
 	light.omni_attenuation = SPILL_ATTENUATION
 	light.shadow_enabled = false
@@ -878,6 +884,49 @@ func _on_settings_changed() -> void:
 	title_view.settings.apply()
 	title_view.settings.save()
 
+## 3D-Chips auf dem Glas: über jeder Kombinations-Zelle steht ein echtes
+## Chip-Modell; die Zelle wird zum Sockel (socket_mode) und der Chip trägt
+## Name/Punkte/×Mult selbst. Die Zellwerte bleiben die einzige Quelle -
+## nach jedem set_score/set_level zieht _sync_combo_chip nach.
+func _setup_combo_chips() -> void:
+	var chips_root := Node3D.new()
+	chips_root.name = "ComboChips"
+	add_child(chips_root)
+	for key: String in table_screen.combo_cells:
+		var cell: ComboCellView = table_screen.combo_cells[key]
+		cell.socket_mode = true
+		var corner_a := table_screen.pixel_to_world(cell.position)
+		var corner_b := table_screen.pixel_to_world(cell.position + cell.size)
+		var chip := ComboChipView.new()
+		chip.name = "Chip_%s" % key
+		chips_root.add_child(chip)
+		chip.position = (corner_a + corner_b) / 2.0
+		# Modell-X entlang der Zellbreite (Welt+Z), Display-Band zum Spieler (-X).
+		chip.rotation.y = -PI / 2.0
+		chip.setup(absf(corner_b.z - corner_a.z), absf(corner_b.x - corner_a.x))
+		chip.sync_cell(cell)
+		combo_chips[key] = chip
+	ScreenReflection.mark_reflective(chips_root)
+
+## Rampenlicht auf genau eine Kombination ("" = auf keine): ihr Chip atmet
+## golden, alle anderen ruhen.
+func _set_spotlight_combo(key: String) -> void:
+	for combo_key: String in combo_chips:
+		combo_chips[combo_key].set_spotlight(combo_key == key)
+
+## Zieht den 3D-Chip einer Kombination auf den Stand seiner Zelle nach.
+func _sync_combo_chip(key: String) -> void:
+	if combo_chips.has(key) and combo_labels.has(key):
+		combo_chips[key].sync_cell(combo_labels[key])
+
+## Blendet das Glühen des 3D-Chips weich auf target (0 = Ruhe, 1 = aktiv).
+func _glow_combo_chip(key: String, target: float) -> void:
+	if not combo_chips.has(key):
+		return
+	var chip: ComboChipView = combo_chips[key]
+	var tween := create_tween()
+	tween.tween_method(chip.set_glow, chip.glow, target, 0.35)
+
 ## Sammelt die Kombinationszellen des Displays ein und versetzt sie (und die
 ## Rundenbonus-Zeilen) in die leuchtende Ruhefarbe.
 func _collect_combo_labels() -> void:
@@ -920,6 +969,9 @@ func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 		DiceScoring.points_for(combo_key, run.combo_levels),
 		DiceScoring.mult_for(combo_key, run.combo_levels))
 	row.set_level(run.combo_level(combo_key))
+	_sync_combo_chip(combo_key)
+	if combo_chips.has(combo_key):
+		combo_chips[combo_key].play_upgrade_flash()
 	if combo_key != highlighted_combo_key:
 		var flash := create_tween()
 		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
@@ -943,7 +995,7 @@ func _play_spotlight_upgrade(charm_index: int, combo_key: String) -> void:
 		_refresh_combo_label_texts()
 		return
 	_pulsing_combos[combo_key] = true
-	table_screen.set_spotlight_combo("")
+	_set_spotlight_combo("")
 	await table_screen.play_overclock_pulse(combo_key)
 	_pulsing_combos.erase(combo_key)
 	var row: ComboCellView = combo_labels[combo_key]
@@ -951,6 +1003,9 @@ func _play_spotlight_upgrade(charm_index: int, combo_key: String) -> void:
 		DiceScoring.points_for(combo_key, run.combo_levels),
 		DiceScoring.mult_for(combo_key, run.combo_levels))
 	row.set_level(run.combo_level(combo_key))
+	_sync_combo_chip(combo_key)
+	if combo_chips.has(combo_key):
+		combo_chips[combo_key].play_upgrade_flash()
 
 ## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu;
 ## Zellen mit laufendem Kauf-Licht bleiben bis zur Ankunft unangetastet.
@@ -962,6 +1017,7 @@ func _refresh_combo_label_texts() -> void:
 			DiceScoring.points_for(key, run.combo_levels),
 			DiceScoring.mult_for(key, run.combo_levels))
 		combo_labels[key].set_level(run.combo_level(key))
+		_sync_combo_chip(key)
 
 ## Hebt genau die Kombination der gewürfelten Hand golden hervor ("" = keine).
 func _refresh_combos(active_key: String) -> void:
@@ -971,8 +1027,10 @@ func _refresh_combos(active_key: String) -> void:
 	highlighted_combo_key = active_key
 	if previous != "" and combo_labels.has(previous):
 		_tween_combo_label(combo_labels[previous], PAYOUT_LABEL_BASE_COLOR, 1.0)
+		_glow_combo_chip(previous, 0.0)
 	if active_key != "" and combo_labels.has(active_key):
 		_tween_combo_label(combo_labels[active_key], PAYOUT_LABEL_GLOW_COLOR, 1.18)
+		_glow_combo_chip(active_key, 1.0)
 
 ## Blendet eine Kombinationszelle weich in Farbe/Größe (um die Zellenmitte).
 func _tween_combo_label(row: ComboCellView, color: Color, target_scale: float) -> void:
@@ -3335,6 +3393,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	var combo_travel := 0.0
 	if combo_labels.has(key):
 		_tween_combo_label(combo_labels[key], PAYOUT_LABEL_GLOW_COLOR, 1.3)
+		_glow_combo_chip(key, 1.0)
 		var cell: Control = combo_labels[key]
 		var cell_px: Vector2 = cell.position + cell.size / 2.0
 		_spawn_score_gains(cell_px, combo_base, combo_mult)
@@ -3904,7 +3963,7 @@ func _start_new_round() -> void:
 	run.apply_round_start_charms()
 	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
 	if table_screen != null:
-		table_screen.set_spotlight_combo(run.spotlight_combo)
+		_set_spotlight_combo(run.spotlight_combo)
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.

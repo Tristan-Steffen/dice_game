@@ -23,6 +23,8 @@ const CLUSTER_TOP := 440.0 * SUPERSAMPLE
 const CLUSTER_CENTER_X := 400.0 * SUPERSAMPLE
 
 const CLUSTER_PADDING := 13.0 * SUPERSAMPLE
+## Adern des Chip-Netzes: dünner als die Fenster-Verbindungen (Stiche an Pins).
+const COMBO_WIRING_WIDTH := 4.0 * SUPERSAMPLE
 const FRAME_COLOR := Color("#8be9fd")  # Neon-Cyan
 const FRAME_BG := Color("#1a1836aa")
 
@@ -109,9 +111,10 @@ const TRACE_RISE := 30.0 * SUPERSAMPLE
 
 var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 
-var cluster_frame: Panel
-## Platinen-Ebene zwischen Rahmen und Chips (Leiterbahnen/Vias).
-var circuit_board: CircuitBoardView
+## Adernetz der Kombi-Chips: senkrechte Sammelschienen zwischen den Spalten,
+## kurze Stiche an jeden Pin. Ersetzt Fenster UND gezeichnete Leiterbahnen -
+## die Chips stehen direkt auf dem Filz.
+var combo_wiring: LedStripView
 ## LED-Leiste Hub <-> Kombinationen (Geometrie via link_hub_to_cluster).
 var led_strip: LedStripView
 ## Schatz-Screen (Geldstand als goldene Truhe) rechts des Hubs, plus die
@@ -169,7 +172,7 @@ var _pit_net_cell := 0.0
 var _glass_material: ShaderMaterial
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
-## die Zähl-Animation rechnet unverändert weiter). Analog zu cluster_frame.
+## die Zähl-Animation rechnet unverändert weiter).
 var score_frame: Panel
 var score_rect := Rect2()
 ## Leisten, die in den Wertungs-Bildschirm münden: Grube (dicker Datenbus, von
@@ -395,19 +398,16 @@ func _build_content() -> void:
 		bounds = cell_rect if i == 0 else bounds.merge(cell_rect)
 
 	cluster_rect = bounds.grow(CLUSTER_PADDING)
-	_add_cluster_frame(cluster_rect)
-	# Platine unter die Chips: Leiterbahnen setzen an den Zell-Pins an.
-	circuit_board = CircuitBoardView.new()
-	circuit_board.name = "CircuitBoard"
-	circuit_board.position = cluster_rect.position
-	circuit_board.size = cluster_rect.size
-	add_child(circuit_board)
-	var local_cells: Array[Rect2] = []
-	for i in total:
-		local_cells.append(Rect2(positions[i] - cluster_rect.position, CELL_SIZE))
-	circuit_board.setup(local_cells, CELL_GAP.x * 0.5)
+	# KEIN Fenster unter den Chips: sie stehen auf dem Filz und sind mit echten
+	# LED-Adern verdrahtet (combo_wiring) - vor den Zellen angelegt, damit die
+	# Schienen hinter den Sockeln liegen.
+	combo_wiring = LedStripView.new()
+	combo_wiring.name = "ComboWiring"
+	combo_wiring.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(combo_wiring)
 	for i in total:
 		_add_combo_cell(DiceScoring.HAND_PRIORITY[i], positions[i])
+	_lay_combo_wiring()
 
 	# Wertungs-Bildschirm-Rahmen: VOR Zielbalken/Zählern gebaut, damit er HINTER
 	# ihnen zeichnet; Position/Größe setzt scene_root über place_score_screen.
@@ -542,16 +542,6 @@ static func window_style() -> StyleBoxFlat:
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(10)
 	return style
-
-func _add_cluster_frame(rect: Rect2) -> void:
-	var frame := Panel.new()
-	frame.name = "ClusterFrame"
-	frame.position = rect.position
-	frame.size = rect.size
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_theme_stylebox_override("panel", window_style())
-	add_child(frame)
-	cluster_frame = frame
 
 ## Spannt das Gruben-Fenster über rect auf: der Rahmen zeichnet exakt die
 ## Kollisionslinie der Energiewände nach (Radius = DicePit.CORNER_RADIUS in px).
@@ -809,10 +799,7 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(pit_window.position.x, pit_window.position.y,
 			pit_window.position.x + pit_window.size.x, pit_window.position.y + pit_window.size.y))
 		radii.append(float(style.corner_radius_top_left))
-	if cluster_frame != null:
-		rects.append(Vector4(cluster_rect.position.x, cluster_rect.position.y,
-			cluster_rect.end.x, cluster_rect.end.y))
-		radii.append(10.0)
+	# Der Kombi-Cluster ist KEIN Fenster mehr: die Chips stehen auf dem Filz.
 	if score_frame != null and score_frame.visible:
 		rects.append(Vector4(score_rect.position.x, score_rect.position.y,
 			score_rect.end.x, score_rect.end.y))
@@ -872,18 +859,98 @@ func _sync_reflection_windows() -> void:
 		_felt_material.set_shader_parameter("window_rects", rects)
 		_felt_material.set_shader_parameter("window_radius", radii)
 
-## Verschiebt den ganzen Kombi-Cluster (Rahmen + Zellen) mittig auf center_px
+## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) mittig auf center_px
 ## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.
 func place_combo_cluster(center_px: Vector2) -> void:
 	var delta := center_px - cluster_rect.get_center()
-	if cluster_frame != null:
-		cluster_frame.position += delta
-	if circuit_board != null:
-		circuit_board.position += delta
 	for key in combo_cells:
 		combo_cells[key].position += delta
 	cluster_rect.position += delta
+	_lay_combo_wiring()
 	_sync_reflection_windows()
+
+## Sammelschienen-x: je Zelle einen halben Spaltenabstand links und rechts
+## daneben, behalten werden aber nur die INNEREN - die, die zwei Spalten teilen.
+## Die äußeren bedienten nur je eine Seite und verstellten den Filz.
+func combo_bus_xs() -> PackedFloat32Array:
+	var stub := CELL_GAP.x * 0.5
+	var left := {}
+	var right := {}
+	for key: String in combo_cells:
+		var cell: ComboCellView = combo_cells[key]
+		left[roundi(cell.position.x - stub)] = true
+		right[roundi(cell.position.x + cell.size.x + stub)] = true
+	var kept := PackedFloat32Array()
+	for x in left:
+		if right.has(x):
+			kept.append(float(x))
+	kept.sort()
+	return kept
+
+## Verlegt das Adernetz der Chips, so sparsam wie möglich: zwei senkrechte
+## Sammelschienen in den Spaltenlücken, EINE Quer-Schiene unten (dort speist die
+## Hub-Ader ein), und je Chip nur EIN Stich pro Nachbarschiene - auf der
+## mittleren Pin-Höhe, die auch die Kauf-Kometen anfahren. Alles in Screen-Pixeln.
+func _lay_combo_wiring() -> void:
+	if combo_wiring == null or combo_cells.is_empty():
+		return
+	var buses := combo_bus_xs()
+	if buses.is_empty():
+		return
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var tip_dx: float = offsets["tip_dx"]
+	var row: float = offsets["rows"][1]
+	var stub := CELL_GAP.x * 0.5
+	var rails: Array[PackedVector2Array] = []
+	for key: String in combo_cells:
+		var cell: ComboCellView = combo_cells[key]
+		var rect := Rect2(cell.position, cell.size)
+		var y := rect.get_center().y + row
+		var left_x := roundi(rect.position.x - stub)
+		var right_x := roundi(rect.end.x + stub)
+		for bus: float in buses:
+			if roundi(bus) == left_x:
+				rails.append(PackedVector2Array([
+					Vector2(bus, y), Vector2(rect.get_center().x - tip_dx, y)]))
+			elif roundi(bus) == right_x:
+				rails.append(PackedVector2Array([
+					Vector2(bus, y), Vector2(rect.get_center().x + tip_dx, y)]))
+	for bus: float in buses:
+		rails.append(PackedVector2Array([
+			Vector2(bus, cluster_rect.position.y), Vector2(bus, cluster_rect.end.y)]))
+	if buses.size() > 1:
+		rails.append(PackedVector2Array([
+			Vector2(buses[0], cluster_rect.end.y),
+			Vector2(buses[buses.size() - 1], cluster_rect.end.y)]))
+	combo_wiring.link_rails(rails, COMBO_WIRING_WIDTH)
+
+## Kometen-Pfade zum Chip index: von beiden Enden JEDER benachbarten Sammel-
+## schiene über die Schiene auf die mittlere Pin-Höhe, dann in die Pin-Spitze.
+## Randspalten hängen nur an einer Schiene, also zwei Pfade statt vier - gleiche
+## Laufzeit, gleichzeitige Ankunft.
+func wiring_paths_to_cell(index: int) -> Array[PackedVector2Array]:
+	var paths: Array[PackedVector2Array] = []
+	if index < 0 or index >= DiceScoring.HAND_PRIORITY.size():
+		return paths
+	var key: String = DiceScoring.HAND_PRIORITY[index]
+	if not combo_cells.has(key):
+		return paths
+	var cell: ComboCellView = combo_cells[key]
+	var rect := Rect2(cell.position, cell.size)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var tip_dx: float = offsets["tip_dx"]
+	var y: float = rect.get_center().y + float(offsets["rows"][1])
+	var stub := CELL_GAP.x * 0.5
+	var neighbours := PackedFloat32Array()
+	for bus: float in combo_bus_xs():
+		if roundi(bus) == roundi(rect.position.x - stub) or roundi(bus) == roundi(rect.end.x + stub):
+			neighbours.append(bus)
+	for bus_x: float in neighbours:
+		var tip_x: float = rect.get_center().x + (tip_dx if bus_x > rect.get_center().x else -tip_dx)
+		for from_y: float in [cluster_rect.position.y, cluster_rect.end.y]:
+			paths.append(PackedVector2Array([
+				Vector2(bus_x, from_y), Vector2(bus_x, y), Vector2(tip_x, y)]))
+	return paths
 
 func _add_combo_cell(key: String, at: Vector2) -> void:
 	var cell := ComboCellView.new()
@@ -894,12 +961,6 @@ func _add_combo_cell(key: String, at: Vector2) -> void:
 	cell.setup(DiceScoring.label_for(key), DiceScoring.EXAMPLE_DICE[key],
 		DiceScoring.points_for(key), DiceScoring.mult_for(key))
 	combo_cells[key] = cell
-
-## Rampenlicht auf genau eine Kombination ("" = auf keine): ihr Chip pulst
-## golden, alle anderen ruhen.
-func set_spotlight_combo(key: String) -> void:
-	for combo_key: String in combo_cells:
-		combo_cells[combo_key].set_spotlight(combo_key == key)
 
 ## --- Rundenziel-Balken -------------------------------------------------------
 
@@ -1519,8 +1580,14 @@ func _hub_strip_exit_x(to_right: bool) -> float:
 func link_hub_to_cluster() -> void:
 	if led_strip == null or hub == null or hub.size.x <= 0.0:
 		return
-	led_strip.link_from_hub_top(Rect2(hub.position, hub.size), cluster_rect,
-		HUB_STRIP_WIDTH, _hub_strip_exit_x(false), _hub_strip_lane_y())
+	# Eintritt genau in die ECKE unten rechts des Chip-Netzes (rechte Schiene ×
+	# Quer-Schiene) statt mittig auf die Quer-Schiene: so trifft die Ader einen
+	# Knoten des Netzes, nicht seine Mitte.
+	var buses := combo_bus_xs()
+	var enter_x: float = buses[buses.size() - 1] if not buses.is_empty() \
+		else cluster_rect.get_center().x
+	led_strip.link_edges(hub.position.y, _hub_strip_exit_x(false),
+		cluster_rect.end.y, enter_x, _hub_strip_lane_y(), HUB_STRIP_WIDTH)
 
 ## Installiert bzw. entfernt das Nebenwetten-Fenster (Hub-Stufe 3). Blendet das
 ## Fenster ein/aus, synchronisiert die Glas-Spiegelung und die Schatz-Ader-
@@ -1605,8 +1672,13 @@ func link_score_strips() -> void:
 		pit_hub_strip.link_edges(pit_bottom, pcx, hub_top, hub_cx,
 			(pit_bottom + hub_top) * 0.5, SCORE_BUS_WIDTH)
 	# Kombinationen -> Score: von der Kombi-Oberkante in einen linken Score-Port.
-	if combos_score_strip != null and cluster_frame != null:
-		var exit_x := cluster_rect.get_center().x + cluster_rect.size.x * 0.25
+	if combos_score_strip != null and not combo_cells.is_empty():
+		# Austritt am OBEREN Ende der LINKEN Sammelschiene: die Hub-Ader speist
+		# unten rechts ein, also verlässt das Licht das Netz diagonal gegenüber -
+		# und beide Adern treffen je eine Ecke, keine freie Strecke.
+		var buses := combo_bus_xs()
+		var exit_x: float = buses[0] if not buses.is_empty() \
+			else cluster_rect.get_center().x
 		var enter_x := score_rect.position.x + score_rect.size.x * 0.25
 		combos_score_strip.link_edges(cluster_rect.position.y, exit_x, score_bottom, enter_x,
 			lane, SCORE_STRIP_WIDTH)
@@ -1662,14 +1734,11 @@ func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2, pro
 ## EINE Licht-Geschwindigkeit für ALLE Leisten-Läufe zwischen Screens (px/s):
 ## die Dauer folgt aus der Pfadlänge, damit jede Verbindung gleich schnell wirkt.
 const PULSE_SPEED := 680.0 * SUPERSAMPLE
-const OVERCLOCK_FLASH_COLOR := Color("#ffd319")
 ## Kurzer, gedämpfter Komet (deutlich dünner/dunkler als die Wertungs-Trails).
 const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
 const OVERCLOCK_PULSE_CORE := 3.0 * SUPERSAMPLE
 const OVERCLOCK_PULSE_GLOW := 7.0 * SUPERSAMPLE
 const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
-
-var _cluster_flash_tween: Tween
 
 ## Der (durch die Geld-Ankünfte) voll geladene Hub entlädt sich RESTLOS in die
 ## Leiste: das Licht schießt los, der Rahmen erlischt ohne Nachglühen, der
@@ -1685,11 +1754,10 @@ func play_overclock_pulse(combo_key: String) -> void:
 		hub.charge_gold(1.0)  # sicherstellen: voll geladen, dann komplett abgeben
 		hub.discharge_gold(minf(0.35, link_time * 0.6))
 	await get_tree().create_timer(link_time).timeout
-	flash_cluster_frame(OVERCLOCK_FLASH_COLOR)
 	var index := DiceScoring.HAND_PRIORITY.find(combo_key)
 	var board_time := 0.3
-	if circuit_board != null and index != -1:
-		var paths := circuit_board.paths_to_cell(index)
+	var paths := wiring_paths_to_cell(index)
+	if not paths.is_empty():
 		# Gleiche Dauer für alle vier Pfade (gleichzeitige Ankunft); die Dauer
 		# folgt dem LÄNGSTEN Pfad bei einheitlicher Geschwindigkeit.
 		var longest := 0.0
@@ -1697,10 +1765,7 @@ func play_overclock_pulse(combo_key: String) -> void:
 			longest = maxf(longest, _path_length(path))
 		board_time = maxf(0.12, longest / PULSE_SPEED)
 		for path in paths:
-			var screen_path := PackedVector2Array()
-			for p in path:
-				screen_path.append(p + circuit_board.position)
-			_pulse_along(screen_path, board_time)
+			_pulse_along(path, board_time)
 	await get_tree().create_timer(board_time).timeout
 
 ## Leiterbahn-Route Quelle -> Ader -> Ziel: L-Anschluss auf den Ader-Anfang, die
@@ -2091,18 +2156,6 @@ func diffuse_into_side_bet(button_center_px: Vector2, color: Color) -> float:
 	var travel := maxf(0.18, _path_length(path) / PULSE_SPEED)
 	_pulse_along(path, travel, color)
 	return travel
-
-## Lässt den Neon-Rahmen des Kombinationen-Fensters kurz in color aufleuchten.
-func flash_cluster_frame(color: Color) -> void:
-	if cluster_frame == null:
-		return
-	var style: StyleBoxFlat = cluster_frame.get_theme_stylebox("panel")
-	if _cluster_flash_tween != null:
-		_cluster_flash_tween.kill()
-	style.border_color = color
-	_cluster_flash_tween = create_tween()
-	_cluster_flash_tween.tween_property(style, "border_color", FRAME_COLOR, 0.5) \
-		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()

@@ -169,26 +169,24 @@ func test_fumble_flashes_the_red_word_and_a_table_wide_wave():
 
 func test_pit_info_bar_shares_the_one_window_look():
 	var info_style: StyleBoxFlat = screen.pit_info_bar.get_theme_stylebox("panel")
-	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")
-	assert_eq(info_style.border_color, cluster_style.border_color)
+	assert_eq(info_style.border_color, screen.window_style().border_color)
 
 func test_pit_window_shares_the_one_window_look():
 	# Alle Tisch-"Fenster" tragen denselben Stil (window_style): das Gruben-
-	# Fenster muss in Grund- und Rahmenfarbe dem Kombi-Cluster gleichen.
+	# Fenster muss in Grund- und Rahmenfarbe der gemeinsamen Vorlage gleichen.
 	var pit_style: StyleBoxFlat = screen.pit_window.get_theme_stylebox("panel")
-	var cluster_style: StyleBoxFlat = screen.cluster_frame.get_theme_stylebox("panel")
-	assert_eq(pit_style.bg_color, cluster_style.bg_color)
-	assert_eq(pit_style.border_color, cluster_style.border_color)
-	assert_eq(pit_style.border_width_top, cluster_style.border_width_top)
+	var shared := screen.window_style()
+	assert_eq(pit_style.bg_color, shared.bg_color)
+	assert_eq(pit_style.border_color, shared.border_color)
+	assert_eq(pit_style.border_width_top, shared.border_width_top)
 
 func test_glass_gets_the_window_rects_for_reflection_masking():
 	# NUR die Fenster spiegeln (der Filz dazwischen nicht): das Glas-Material
 	# muss die Fenster-Rechtecke kennen (siehe _sync_reflection_windows) -
-	# nach attach_to mindestens Cluster + Zielbalken, mit dem Gruben-Fenster
-	# eines mehr.
+	# nach attach_to mindestens der Zielbalken, mit dem Gruben-Fenster eines mehr.
 	var material := mesh.material_override as ShaderMaterial
 	var before: int = material.get_shader_parameter("window_count")
-	assert_gt(before, 0, "Cluster/Zielbalken sind schon gemeldet")
+	assert_gt(before, 0, "der Zielbalken ist schon gemeldet")
 	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
 	var count: int = material.get_shader_parameter("window_count")
 	assert_eq(count, before + 1, "das Gruben-Fenster kommt dazu")
@@ -229,32 +227,78 @@ func test_pixel_to_world_uses_surface_height():
 	var world := screen.pixel_to_world(Vector2(780, 530))
 	assert_almost_eq(world.y, -3.8 + 0.2 / 2.0 * 4.0, 0.5)
 
-# --- Platine & Kauf-Lichtlauf ---------------------------------------------------
+# --- Chip-Adernetz & Kauf-Lichtlauf ---------------------------------------------
 
-func test_circuit_board_paths_converge_on_cell():
-	# Vier Zulauf-Pfade: gleiche Zielhöhe, Enden an linker bzw. rechter
-	# Gehäusekante - gestartet mit gleicher Laufzeit treffen sie gleichzeitig ein.
-	var paths := screen.circuit_board.paths_to_cell(0)
+func test_wiring_paths_converge_on_pins():
+	# Mittelspalte hängt an ZWEI Schienen: vier Zulauf-Pfade, gleiche Zielhöhe,
+	# Enden an der linken bzw. rechten Pin-Spitze - gleiche Laufzeit, gleiche Ankunft.
+	var paths := screen.wiring_paths_to_cell(1)
 	assert_eq(paths.size(), 4, "vier Zulauf-Pfade")
 	var target_y: float = paths[0][paths[0].size() - 1].y
 	for path in paths:
 		assert_eq(path[path.size() - 1].y, target_y, "alle enden auf derselben Höhe")
-	assert_eq(paths[0][paths[0].size() - 1].x, paths[1][paths[1].size() - 1].x, "links: gleiche Kante")
-	assert_eq(paths[2][paths[2].size() - 1].x, paths[3][paths[3].size() - 1].x, "rechts: gleiche Kante")
+	assert_eq(paths[0][paths[0].size() - 1].x, paths[1][paths[1].size() - 1].x, "links: gleiche Pin-Spitze")
+	assert_eq(paths[2][paths[2].size() - 1].x, paths[3][paths[3].size() - 1].x, "rechts: gleiche Pin-Spitze")
 
-func test_circuit_board_paths_start_at_window_border():
-	for path in screen.circuit_board.paths_to_cell(3):
+func test_wiring_paths_use_only_existing_buses():
+	# Randspalten haben nur EINE Nachbarschiene - es darf kein Komet über eine
+	# Schiene laufen, die gar nicht liegt.
+	var paths := screen.wiring_paths_to_cell(0)
+	assert_eq(paths.size(), 2, "Randspalte: zwei Zulauf-Pfade")
+	var buses := screen.combo_bus_xs()
+	for path in paths:
+		assert_true(buses.has(path[0].x), "Pfad startet auf einer verlegten Schiene")
+
+func test_wiring_paths_start_at_the_bus_ends():
+	for path in screen.wiring_paths_to_cell(3):
 		var start_y: float = path[0].y
-		assert_true(is_equal_approx(start_y, 0.0) or is_equal_approx(start_y, screen.circuit_board.size.y),
-			"Pfad startet am Ober- oder Unterrand des Fensters")
+		assert_true(is_equal_approx(start_y, screen.cluster_rect.position.y)
+				or is_equal_approx(start_y, screen.cluster_rect.end.y),
+			"Pfad startet an einem Ende der Sammelschiene")
+
+func test_wiring_keeps_only_the_shared_buses():
+	# Drei Spalten -> zwei geteilte Lücken; die äußeren Schienen entfallen.
+	assert_eq(screen.combo_bus_xs().size(), 2, "nur die inneren Sammelschienen")
+
+func test_wiring_gives_every_chip_exactly_one_stub_per_bus():
+	# Sparsam verdrahtet: ein Stich je Nachbarschiene (nicht je Pin-Höhe), dazu
+	# die zwei Senkrechten und EINE Quer-Schiene unten.
+	var stubs := 0
+	for key: String in screen.combo_cells:
+		var cell: ComboCellView = screen.combo_cells[key]
+		var buses := screen.combo_bus_xs()
+		var stub := TableScreen.CELL_GAP.x * 0.5
+		for bus: float in buses:
+			if is_equal_approx(bus, cell.position.x - stub) \
+					or is_equal_approx(bus, cell.position.x + cell.size.x + stub):
+				stubs += 1
+	assert_gt(stubs, 0, "jeder Chip hängt an mindestens einer Schiene")
+	assert_eq(screen.combo_wiring.rail_paths.size(), stubs + 3,
+		"Stiche + zwei Senkrechte + eine Quer-Schiene")
 
 func test_link_hub_to_cluster_builds_led_strip():
 	screen.place_hub(Vector2(3400, 2200), Vector2(1500, 1500))
 	screen.link_hub_to_cluster()
 	assert_gt(screen.led_strip.strip_path.size(), 2, "eine Ader in Z-Führung mit Knicken")
 
+func test_hub_and_score_adern_meet_opposite_net_corners():
+	# Die Hub-Ader endet in der Ecke unten rechts, die Score-Ader startet oben
+	# links - beide auf einem Knoten des Chip-Netzes, nie auf freier Strecke.
+	screen.place_hub(Vector2(3400, 2200), Vector2(1500, 1500))
+	screen.place_score_screen()  # ohne Wertungs-Rahmen legt link_score_strips nichts
+	screen.link_hub_to_cluster()
+	screen.link_score_strips()
+	var buses := screen.combo_bus_xs()
+	var hub_end: Vector2 = screen.led_strip.strip_path[screen.led_strip.strip_path.size() - 1]
+	assert_almost_eq(hub_end.x, buses[buses.size() - 1], 0.5, "Hub trifft die rechte Schiene")
+	assert_almost_eq(hub_end.y, screen.cluster_rect.end.y, 0.5, "auf Höhe der Quer-Schiene")
+	var score_start: Vector2 = screen.combos_score_strip.strip_path[0]
+	assert_almost_eq(score_start.x, buses[0], 0.5, "Score startet an der linken Schiene")
+	assert_almost_eq(score_start.y, screen.cluster_rect.position.y, 0.5, "an deren oberem Ende")
+
 func test_cluster_rect_covers_all_cells():
-	# Der Neon-Rahmen (cluster_rect) muss jede Zelle umschließen.
+	# cluster_rect ist die Hülle des Chip-Felds (Zoomziel, Spill-Licht,
+	# Schienenlänge) - sie muss jede Zelle umschließen.
 	assert_gt(screen.cluster_rect.size.x, 0.0)
 	for key: String in screen.combo_cells:
 		var cell: ComboCellView = screen.combo_cells[key]

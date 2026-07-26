@@ -10,8 +10,8 @@ const NEON_DIM := Color("#ff79c6cc")   # Pink: Rahmen, Name, Würfel-Umrisse
 const NEON_PIP := Color("#00ffff")     # Cyan: Leucht-Pips
 const MULT_COLOR := Color("#ffd319")   # Gold: Multiplikator
 
-## Chip-Gehäuse: Pin-Mitten als Höhen-Anteile - CircuitBoardView setzt seine
-## Leiterbahn-Stummel an genau diesen Stellen an.
+## Chip-Gehäuse: Pin-Mitten als Höhen-Anteile - die LED-Stiche des Chip-Netzes
+## docken an genau diesen Höhen an (ComboChipView.pin_offsets_px).
 const PIN_FRACTIONS := [0.28, 0.5, 0.72]
 const EPOXY := Color("#0e0c1ee6")           # Epoxid-Füllung des Gehäuses
 const PIN_COLOR := Color(0.58, 0.63, 0.8, 0.9)  # metallische Beinchen
@@ -23,11 +23,6 @@ const LEVEL_FRAME := Color("#8be9fd")
 const LEVEL_FRAME_GOLD := Color("#ffd319")
 const GOLD_LEVEL := 5
 const MAX_NOTCHES := 5
-
-## Rampenlicht-Saum: drei Ringe, die von innen nach außen ausdünnen.
-const SPOTLIGHT_COLOR := Color("#ffd319")
-const SPOTLIGHT_SPEED := 2.4
-const SPOTLIGHT_RINGS := 3
 
 ## Pip-Anordnungen je Augenzahl (Anteile der Würfelfläche).
 const PIP_LAYOUTS := {
@@ -45,12 +40,13 @@ var points := 0
 var mult := 1
 ## Übertaktungs-Stufe (Systemkonsole) - färbt den Rahmen und die Kerben.
 var level := 0
+## Sockel-Modus: über der Zelle steht ein 3D-Chip (ComboChipView), der Name,
+## Wertung, Stufe, Hitze UND Rampenlicht selbst trägt. Die Zelle zeichnet dann
+## gar nichts mehr - sie bleibt nur Datenhalter und Pixel-Anker (Zellmitte =
+## Ursprung der Wertungs-Kometen, Grundmaß der Chip-Verdrahtung).
+var socket_mode := false
 ## Bezugsgröße fürs Highlight-Wachsen.
 var base_scale := Vector2.ONE
-## Rampenlicht (Charm): pulsender Goldsaum, unabhängig von modulate - das
-## trägt schon die Hervorhebung der gewürfelten Hand.
-var spotlit := false
-var spotlight_phase := 0.0
 
 ## Befüllt die Zelle; Position/Größe setzt der TableScreen vorher.
 func setup(p_name: String, p_values: Array, p_points: int, p_mult: int) -> void:
@@ -74,21 +70,9 @@ func set_level(p_level: int) -> void:
 	level = p_level
 	queue_redraw()
 
-## Rampenlicht: goldener Saum um das Gehäuse, der atmet. Läuft nur, solange die
-## Zelle im Licht steht - sonst zeichnet die Zelle gar nicht neu.
-func set_spotlight(on: bool) -> void:
-	if spotlit == on:
-		return
-	spotlit = on
-	spotlight_phase = 0.0
-	set_process(on)
-	queue_redraw()
-
-func _process(delta: float) -> void:
-	spotlight_phase += delta * SPOTLIGHT_SPEED
-	queue_redraw()
-
 func _draw() -> void:
+	if socket_mode:
+		return  # der 3D-Chip zeigt alles; die Zelle ist reiner Datenhalter
 	var h := size.y
 	var w := size.x
 	var pad := h * 0.16
@@ -114,8 +98,6 @@ func _draw() -> void:
 		draw_rect(Rect2(0.0, py, pin_len + border, pin_thick), PIN_COLOR)
 		draw_rect(Rect2(w - pin_len - border, py, pin_len + border, pin_thick), PIN_COLOR)
 	draw_rect(body, EPOXY)
-	if spotlit:
-		_draw_spotlight(body, border)
 	draw_rect(body, frame_color, false, border)
 	# Pin-1-Punkt (Siebdruck) oben links im Gehäuse.
 	draw_circle(body.position + Vector2(h * 0.14, h * 0.15), h * 0.035, SILK)
@@ -158,16 +140,6 @@ func _draw() -> void:
 		HORIZONTAL_ALIGNMENT_RIGHT, mult_width, mult_font, MULT_COLOR)
 	draw_string(font, Vector2(0.0, baseline), str(points),
 		HORIZONTAL_ALIGNMENT_RIGHT, body.end.x - pad - mult_text_width - h * 0.12, points_font, NEON_PIP)
-
-## Atmender Goldsaum um das Gehäuse (Rampenlicht) - außen, damit er weder
-## Rahmenfarbe noch Stufen-Kerben verdeckt.
-func _draw_spotlight(body: Rect2, border: float) -> void:
-	var pulse := 0.55 + 0.45 * sin(spotlight_phase)
-	for i in SPOTLIGHT_RINGS:
-		var grow := border * float(i + 1)
-		var color := SPOTLIGHT_COLOR
-		color.a = pulse * (1.0 - float(i) / float(SPOTLIGHT_RINGS)) * 0.7
-		draw_rect(body.grow(grow), color, false, border)
 
 ## Stufen-Kerben oben rechts im Gehäuse: bis MAX_NOTCHES je Stufe eine
 ## leuchtende Kerbe, darüber eine Kerbe plus "×n"-Zähler (unbegrenzte Stufen,
