@@ -215,6 +215,11 @@ var charm_library: CharmLibraryView
 ## Fenster-UI); scene_root spricht ihn nur über open()/closed an.
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
+## Routenwahl-Seite: ohne Unterschrift beginnt keine Runde (_begin_round_choice).
+var route_choice: RouteChoiceView
+## Frischer Lauf: der Tisch fährt erst NACH der ersten Routenwahl auf, damit
+## der Rückzieher nicht gegen die Auslage läuft.
+var _choice_reveals_table := false
 
 ## Titel-HUD (Startbildschirm + Menü) als Hub-Seite; davor stand die Kamera in
 ## title_prev_mode und kehrt beim "Weiterspielen" dorthin zurück.
@@ -727,6 +732,15 @@ func _setup_panels() -> void:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
 
+	# Routenwahl als zweite Hub-Seite: sie steht VOR jeder Runde und schließt
+	# erst mit der Unterschrift.
+	route_choice = RouteChoiceView.new()
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(route_choice)
+	else:
+		$UI.add_child(route_choice)
+	route_choice.route_chosen.connect(_on_route_chosen)
+
 	# Gravur-Station in der WERKSTATT: dort liegen die Vorräte, dort werden sie
 	# angewandt (ohne Werkstatt-Fenster: keine Zeremonie).
 	die_inspector = DieInspectorView.new()
@@ -867,14 +881,18 @@ func _on_title_new_game() -> void:
 		_begin_fresh_run()
 
 func _begin_fresh_run() -> void:
-	_reset_game()
+	# Ohne Runde: die erste Wahl steht VOR dem ersten Wurf.
+	_reset_game(false)
 	# Der Aufbau (30 Würfel neu bauen) kostet ein Fünftel einer Sekunde. Er läuft
 	# im dunklen Moment ab; Einblende und Rückzieher starten erst danach, sonst
 	# fräße der Ruck ihre ersten Bilder.
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# Die Titel-Kamera rahmt genau das Hub-Fenster - die Auslage ist dort ohne
+	# eigenen Zoom lesbar; der Rückzieher folgt auf die Unterschrift.
+	_choice_reveals_table = true
+	_begin_round_choice()
 	table_screen.hub.fade_current_in()
-	camera_rig.reveal_table()
 
 func _on_title_resume() -> void:
 	_close_title()
@@ -3886,7 +3904,11 @@ func _refresh_test_materials_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_materials_label(label)
 
-func _reset_game() -> void:
+## Baut einen frischen Lauf auf. start_round: beim BOOT läuft sofort eine Runde
+## an, damit der Tisch unter dem Titel-HUD lebt (sie ist reine Kulisse, das
+## Menü lässt sie nicht fortsetzen). "Neues Spiel" gibt false - dort beginnt
+## die Runde erst mit dem unterschriebenen Deal.
+func _reset_game(start_round: bool = true) -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
@@ -3915,7 +3937,10 @@ func _reset_game() -> void:
 	# Frischer Run: der Puls ruht, bis wieder zum ersten Mal gewürfelt wird.
 	if table_screen != null:
 		table_screen.set_round_pulse(false)
-	_start_new_round()
+	if route_choice != null:
+		route_choice.close()  # eine offene Wahl gehört zum alten Lauf
+	if start_round:
+		_start_new_round()
 
 ## Verdrahtet einen frisch erzeugten Run: Shop/Gravur-Station bekommen ihn
 ## gereicht, seine Signale halten die Anzeigen aktuell. Der alte Run wird
@@ -3951,6 +3976,40 @@ func _connect_run() -> void:
 	_on_charms_changed()
 	_refresh_combo_label_texts()
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
+
+## Torwächter vor jeder Runde: erst der Deal, dann die Würfel - die Wirkungen
+## müssen stehen, bevor apply_round_start_charms die Drossel setzt. Die Kamera
+## rührt der Torwächter NICHT an: nach dem Shop steht sie schon am Hub, beim
+## frischen Lauf gehört sie dem Titel-Rückzieher. Ohne Display-Seite fällt die
+## Wahl automatisch aufs erste Angebot (2D-Rückfall bleibt spielbar).
+func _begin_round_choice() -> void:
+	if run.route_offers.is_empty():
+		run.roll_route_offers()
+	if route_choice == null:
+		_on_route_chosen(run.route_offers[0])
+		return
+	phase = Phase.SHOP  # zwischen den Runden: der Tisch bleibt gesperrt
+	_set_gameplay_ui_visible(false)
+	# Aus der Übersicht sind die Karten zu klein; der frische Lauf braucht den
+	# Zoom nicht - dort rahmt die Titel-Kamera das Hub-Fenster schon.
+	if not _choice_reveals_table:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
+	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number))
+
+## Deal unterschrieben: Seite zu, Kamera an ihren Platz, Runde starten.
+func _on_route_chosen(deal_id: String) -> void:
+	run.take_route(deal_id)
+	if route_choice != null:
+		route_choice.close()
+	phase = Phase.IDLE
+	_set_gameplay_ui_visible(true)
+	if _choice_reveals_table:
+		# Erste Wahl eines frischen Laufs: JETZT fährt der Tisch auf.
+		_choice_reveals_table = false
+		camera_rig.reveal_table()
+	else:
+		camera_rig.zoom_out()
+	_start_new_round()
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
@@ -4094,6 +4153,10 @@ func _on_round_complete() -> void:
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
+		# Abrechnung: der Stresstest ist überstanden, die Deals des Blocks
+		# verfallen - NACH den Wetten, deren Quoten noch dazugehörten.
+		if GameRun.is_stress_round(run.round_number):
+			run.settle_block_deals()
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
@@ -4501,9 +4564,8 @@ func _on_pack_opened(_index: int) -> void:
 func _on_shop_closed() -> void:
 	run.advance_round()
 	phase = Phase.IDLE
-	_set_gameplay_ui_visible(true)
-	camera_rig.zoom_out()
-	_start_new_round()
+	run.roll_route_offers()
+	_begin_round_choice()
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
 ## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das
