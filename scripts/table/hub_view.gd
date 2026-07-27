@@ -67,27 +67,11 @@ var _roadmap_block := -1   # Kennung des gezeigten Blocks (-1 = noch keiner)
 ## Marker je Station: GameRun.STRESS_MARKER oder "" (siehe goal_roadmap_markers)
 ## - er färbt die Station und macht sie anfassbar.
 var _roadmap_markers: Array[String] = []
-## Hinweis-Karte einer markierten Station bzw. Deal-Marke (Hover); Breite des
-## Fließtexts in u.
-const MARKER_HINT_WIDTH_U := 30.0
-var marker_hint: PanelContainer
-var marker_hint_title: Label
-var marker_hint_body: Label
-var _marker_hint_style: StyleBoxFlat
+## Hinweis-Karte einer markierten Station bzw. Deal-Marke (Hover).
+var marker_hint: HintCard
 
-## Deal-Marken unter dem Rad: je wirkende Deal-Seite eine Marke. Grün/rot sagt
-## Bonus oder Malus, die Größe die Laufzeit (Block > Runde), die Füllfarbe den
-## Deal. Sie sind die EINZIGE Dauer-Anzeige der laufenden Deals.
-const TOKEN_BONUS_COLOR := Color("#50fa7b")
-const TOKEN_MALUS_COLOR := Color("#ff6b6b")
-const TOKEN_ROUND_DIA_U := 4.2
-const TOKEN_BLOCK_DIA_U := 5.6
-## Abrechnungs-Wisch: Staffelung je Marke und Dauer einer Auflösung.
-const TOKEN_SWEEP_GAP := 0.08
-const TOKEN_SWEEP_TIME := 0.35
-var deal_token_row: HBoxContainer
-## Zuletzt gesetzte Seiten (GameRun.active_deal_sides) - Grundlage des Aufbaus.
-var _deal_sides: Array[Dictionary] = []
+## Deal-Marken unter dem Rad; dieselbe Reihe liegt am oberen Grubenrand.
+var deal_token_row: DealTokenRow
 var _pips: Array[Panel] = []
 ## Radgeometrie (in layout() aus der Bühnengröße gesetzt; Tests lesen sie).
 var _rim_center := Vector2.ZERO
@@ -828,98 +812,33 @@ func _build_rim_stage(u: float) -> void:
 	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über Nabe, Stationen, Marken
 
 ## Marken-Reihe unter dem Rad (Position setzt _layout_rim).
-func _build_deal_tokens(u: float) -> void:
-	deal_token_row = HBoxContainer.new()
+func _build_deal_tokens(_u: float) -> void:
+	deal_token_row = DealTokenRow.new()
 	deal_token_row.name = "DealTokens"
-	deal_token_row.add_theme_constant_override("separation", int(u * 1.0))
-	deal_token_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	deal_token_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	deal_token_row.token_hovered.connect(_show_hint)
+	deal_token_row.token_left.connect(_hide_marker_hint)
 	roadmap_stage.add_child(deal_token_row)
 
-## Setzt die wirkenden Deal-Seiten (GameRun.active_deal_sides). Immer komplett
-## neu gebaut - eine Marke einzeln nachzuführen ginge irgendwann schief.
+## Setzt die wirkenden Deal-Seiten (GameRun.active_deal_sides).
 func set_deal_tokens(sides: Array[Dictionary]) -> void:
 	if not _built or deal_token_row == null:
 		return
-	_deal_sides = sides.duplicate()
 	_hide_marker_hint()  # die gehoverte Marke wird gleich freigegeben
-	for child in deal_token_row.get_children():
-		deal_token_row.remove_child(child)
-		child.queue_free()
-	var u := size.x / 100.0
-	for side in _deal_sides:
-		var deal := RouteDeal.find(side["id"])
-		if deal != null:
-			deal_token_row.add_child(_make_deal_token(deal, side, u))
+	deal_token_row.set_sides(sides, size.x / 100.0)
 	_layout_deal_tokens()
 
-## Eine Marke: Füllung in Deal-Farbe, Ring grün (Bonus) oder rot (Malus),
-## Zeichen + bzw. −. Block-Marken sind größer als Runden-Marken.
-func _make_deal_token(deal: RouteDeal, side: Dictionary, u: float) -> Control:
-	var bonus: bool = side["bonus"]
-	var block: bool = int(side["scope"]) == int(RouteDeal.Scope.BLOCK)
-	var accent := TOKEN_BONUS_COLOR if bonus else TOKEN_MALUS_COLOR
-	var dia := u * (TOKEN_BLOCK_DIA_U if block else TOKEN_ROUND_DIA_U)
-
-	var token := Panel.new()
-	token.name = "Token_%s_%s" % [deal.id, "bonus" if bonus else "malus"]
-	token.custom_minimum_size = Vector2(dia, dia)
-	token.mouse_filter = Control.MOUSE_FILTER_PASS
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(deal.color.r * 0.35, deal.color.g * 0.35, deal.color.b * 0.35, 0.95)
-	box.border_color = accent
-	box.set_border_width_all(maxi(1, int(u * (0.4 if block else 0.28))))
-	box.set_corner_radius_all(int(dia * 0.5))
-	token.add_theme_stylebox_override("panel", box)
-
-	var glyph := Label.new()
-	glyph.text = "+" if bonus else "−"
-	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	glyph.add_theme_font_size_override("font_size", int(dia * 0.62))
-	glyph.modulate = accent
-	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	token.add_child(glyph)
-
-	var text: String = deal.bonus_text if bonus else deal.malus_text
-	var scope_text := RouteDeal.scope_label(side["scope"])
-	token.mouse_entered.connect(func() -> void:
-		_show_hint(token, deal.display_name, "%s\n(%s)" % [text, scope_text], accent))
-	token.mouse_exited.connect(_hide_marker_hint)
-	return token
-
-## Abrechnung: die Marken lösen sich gestaffelt auf, während die Reihe vom Rad
-## wegrutscht - der Block ist beglichen. Liefert die Dauer, damit der Aufrufer
-## den Shop erst danach öffnet. Die Deckkraft je Marke tweenen ist erlaubt, ihre
-## POSITION nicht: die legt der Container fest, darum rutscht die ganze Reihe.
+## Abrechnung: die Marken wischen vom Rad. Liefert die Dauer, damit der Aufrufer
+## den Shop erst danach öffnet.
 func sweep_deal_tokens() -> float:
-	if deal_token_row == null or deal_token_row.get_child_count() == 0:
+	if deal_token_row == null:
 		return 0.0
 	_hide_marker_hint()
-	var total := 0.0
-	var i := 0
-	for child in deal_token_row.get_children():
-		var token := child as Control
-		if token == null:
-			continue
-		token.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var delay := i * TOKEN_SWEEP_GAP
-		var tw := create_tween()
-		tw.tween_interval(delay)
-		tw.tween_property(token, "modulate:a", 0.0, TOKEN_SWEEP_TIME).set_trans(Tween.TRANS_SINE)
-		total = maxf(total, delay + TOKEN_SWEEP_TIME)
-		i += 1
-	var slide := create_tween()
-	slide.tween_property(deal_token_row, "position:y",
-		deal_token_row.position.y + size.y * 0.12, total).set_trans(Tween.TRANS_CUBIC)
-	return total
+	return deal_token_row.sweep(size.y * 0.12)
 
 ## Marken-Reihe unter die Bonus-Chips setzen, mittig unter der Nabe.
 func _layout_deal_tokens() -> void:
 	if deal_token_row == null or _rim_radius <= 0.0:
 		return
-	deal_token_row.modulate.a = 1.0  # ein Wisch von eben darf nicht kleben bleiben
 	deal_token_row.reset_size()
 	var p := _rim_center + Vector2(0.0, _rim_radius * 0.86)
 	deal_token_row.position = Vector2(
@@ -930,71 +849,24 @@ func _layout_deal_tokens() -> void:
 ## Wirkung. Liegt als Overlay über der Nabe (darf sie verdecken, sie erscheint
 ## nur beim Hover) und wird beim Zeigen unter die Station gesetzt.
 func _build_marker_hint(u: float) -> void:
-	marker_hint = PanelContainer.new()
+	marker_hint = HintCard.new(u)
 	marker_hint.name = "MarkerHint"
-	marker_hint.visible = false
-	marker_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_marker_hint_style = StyleBoxFlat.new()
-	_marker_hint_style.bg_color = Color(0.06, 0.05, 0.14, 0.96)
-	_marker_hint_style.set_border_width_all(maxi(1, int(u * 0.22)))
-	_marker_hint_style.set_corner_radius_all(int(u * 1.2))
-	_marker_hint_style.content_margin_left = u * 1.8
-	_marker_hint_style.content_margin_right = u * 1.8
-	_marker_hint_style.content_margin_top = u * 1.1
-	_marker_hint_style.content_margin_bottom = u * 1.1
-	marker_hint.add_theme_stylebox_override("panel", _marker_hint_style)
 	roadmap_stage.add_child(marker_hint)
-
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(u * 0.5))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	marker_hint.add_child(column)
-
-	marker_hint_title = Label.new()
-	marker_hint_title.add_theme_font_size_override("font_size", int(u * 3.2))
-	marker_hint_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(marker_hint_title)
-
-	marker_hint_body = Label.new()
-	marker_hint_body.add_theme_font_size_override("font_size", int(u * 2.5))
-	marker_hint_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	marker_hint_body.custom_minimum_size.x = u * MARKER_HINT_WIDTH_U
-	marker_hint_body.modulate = TEXT_COLOR
-	marker_hint_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(marker_hint_body)
 
 func _show_marker_hint(station: Control, marker: String) -> void:
 	var text := _marker_text(marker)
 	_show_hint(station, text[0], text[1], _marker_color(marker))
 
-## Zeigt den Hinweis unter dem Anker - notfalls darüber, wenn unten die Bühne
-## endet; waagerecht wird er in die Bühne geklemmt. Gemeinsame Karte für
-## Fahrplan-Stationen UND Deal-Marken.
+## Gemeinsame Karte für Fahrplan-Stationen UND Deal-Marken.
 func _show_hint(anchor_control: Control, title: String, body: String, accent: Color) -> void:
-	if marker_hint == null or title == "":
+	if marker_hint == null:
 		return
 	var u := size.x / 100.0
-	marker_hint_title.text = title
-	marker_hint_title.modulate = accent
-	marker_hint_body.text = body
-	_marker_hint_style.border_color = Color(accent.r, accent.g, accent.b, 0.85)
-	marker_hint.visible = true
-	marker_hint.reset_size()
-	var box := marker_hint.size
-	# Anker-Rechteck in Bühnen-Koordinaten (Marken hängen in einer Reihe, nicht
-	# direkt auf der Bühne - ihre eigene position zählt daher nicht).
-	var top_left := anchor_control.global_position - roadmap_stage.global_position
-	var y := top_left.y + anchor_control.size.y + u * 1.2
-	if y + box.y > roadmap_stage.size.y:
-		y = top_left.y - u * 1.2 - box.y
-	marker_hint.position = Vector2(
-		clampf(top_left.x + anchor_control.size.x * 0.5 - box.x * 0.5,
-			0.0, maxf(0.0, roadmap_stage.size.x - box.x)),
-		maxf(0.0, y))
+	marker_hint.show_for(anchor_control, roadmap_stage, title, body, accent, u * 1.2)
 
 func _hide_marker_hint() -> void:
 	if marker_hint != null:
-		marker_hint.visible = false
+		marker_hint.hide_card()
 
 ## Lizenz-Nabe: Medaillon (Stufe) + Lizenzname + 10 Pips + Plan-Zeile + Aufstieg.
 ## Frei auf die Radmitte gesetzt (_layout_rim); trägt die Signaturfarbe der Stufe.

@@ -488,3 +488,72 @@ func test_two_meteors_fling_in_different_directions():
 	# Gleicher Start, gleiches Ziel - aber der Ausbruch muss sichtbar auseinander
 	# laufen, sonst wirken mehrere Stücke wie ein einziger Strahl.
 	assert_gt(first[6].distance_to(second[6]), 1.0, "die Bahnen brechen verschieden aus")
+
+# --- Deal-Marken am Grubenrand ------------------------------------------------
+
+func _sides(entries: Array) -> Array[Dictionary]:
+	var typed: Array[Dictionary] = []
+	typed.assign(entries)
+	return typed
+
+func _side(deal_id: String, bonus: bool) -> Dictionary:
+	var deal := RouteDeal.find(deal_id)
+	return {"id": deal_id, "bonus": bonus,
+		"scope": deal.bonus_scope if bonus else deal.malus_scope}
+
+func _place_pit_with_rail() -> Rect2:
+	screen.place_pit_window(Rect2(Vector2(1800, 1300), Vector2(1100, 600)), 60.0)
+	var rail := Rect2(Vector2(1900, 1340), Vector2(700, 70))
+	screen.place_pit_deal_rail(rail)
+	screen.pit_deal_rail.visible = true  # in der Grubensicht schaltet scene_root ihn ein
+	return rail
+
+func test_the_pit_rail_centers_its_tokens_in_the_strip():
+	var rail := _place_pit_with_rail()
+	screen.set_pit_deal_tokens(_sides([
+		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+	await wait_frames(2)
+	var row := Rect2(screen.pit_deal_rail.position, screen.pit_deal_rail.size)
+	assert_eq(row.get_center().x, rail.get_center().x, "mittig über der Grubenachse")
+	assert_almost_eq(row.get_center().y, rail.get_center().y, 1.0)
+	assert_lte(row.size.y, rail.size.y, "die Marken bleiben im Streifen")
+
+func test_tokens_set_before_the_rail_is_placed_survive():
+	# _refresh_hub_info läuft im Aufbau VOR der Grubenplatzierung - die Seiten
+	# dürfen dabei nicht verlorengehen.
+	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	_place_pit_with_rail()
+	assert_eq(screen.pit_deal_rail.get_child_count(), 1)
+
+func test_the_pit_hint_explains_the_hovered_token():
+	_place_pit_with_rail()
+	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	await wait_frames(2)
+	var token := screen.pit_deal_rail.get_child(0) as Control
+	assert_false(screen.pit_deal_hint.visible, "ohne Zeiger kein Hinweis")
+	screen.show_pit_deal_hint(screen.pit_deal_token_at(token.get_global_rect().get_center()))
+	assert_true(screen.pit_deal_hint.visible)
+	assert_eq(screen.pit_deal_hint.title_label.text, RouteDeal.savings_bonus().display_name)
+	screen.hide_pit_deal_hint()
+	assert_false(screen.pit_deal_hint.visible)
+
+func test_the_pit_hint_stays_inside_the_pit():
+	# Die Karte hängt im Grubenfenster: sie darf nicht über den Filz hinausragen.
+	var rail := _place_pit_with_rail()
+	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	await wait_frames(2)
+	var token := screen.pit_deal_rail.get_child(0) as Control
+	screen.show_pit_deal_hint(token)
+	await wait_frames(2)
+	var card := Rect2(screen.pit_deal_hint.position, screen.pit_deal_hint.size)
+	assert_gte(card.position.x, 0.0)
+	assert_gte(card.position.y, 0.0)
+	assert_lte(card.end.x, screen.pit_window.size.x + 1.0)
+	assert_lte(card.end.y, screen.pit_window.size.y + 1.0)
+	assert_gt(card.position.y, rail.size.y * 0.5, "unter dem Streifen, nicht über ihm")
+
+func test_the_pit_rail_sweeps_with_the_hub_tokens():
+	_place_pit_with_rail()
+	assert_eq(screen.sweep_pit_deal_tokens(), 0.0, "ohne Marken nichts zu wischen")
+	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	assert_gt(screen.sweep_pit_deal_tokens(), 0.0)

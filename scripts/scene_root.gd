@@ -147,6 +147,14 @@ var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurü
 const PIT_INFO_BAR_INSET_X := 3.6  # Feldmitte unter der Würfelreihe (Welt -X)
 const PIT_INFO_BAR_HALF_X := 2.0   # halbe Feldhöhe (Welt-X); klarer Abstand zur Grubenwand
 const PIT_INFO_BAR_HALF_Z := 2.4   # halbe Feldbreite (Welt-Z)
+## Deal-Marken-Streifen am OBEREN Grubenrand (Welt-X), gegenüber der Erklärleiste:
+## zwischen Grubenwand (+7.6) und der Würfelreihe (X = 0). Links aus der Mitte
+## gerückt, weil dort die Daten-Ader des Wertungsfensters in die Grube steigt -
+## auf deren Spur darf keine Marke liegen.
+const PIT_DEAL_RAIL_INSET_X := 5.3   # Streifenmitte (Welt +X)
+const PIT_DEAL_RAIL_HALF_X := 1.3    # halbe Streifenhöhe (Welt-X)
+const PIT_DEAL_RAIL_OFFSET_Z := -7.0 # Streifenmitte (Welt-Z), links der Ader
+const PIT_DEAL_RAIL_HALF_Z := 5.0    # halbe Streifenbreite (Welt-Z)
 ## Einzeilige Material-Erklärleiste IM Gruben-Screen, zwischen Netz-Feld und
 ## Grubenwand (breit, kein Umbruch).
 const PIT_HINT_INSET_X := 6.6  # Leistenmitte, zwischen Feld-Unterkante (-5.6) und Grubenwand (-7.6)
@@ -526,6 +534,14 @@ func _setup_table_screen() -> void:
 	var hint_b := table_screen.world_to_pixel(Vector3(
 		hint_cx - PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_HINT_HALF_Z))
 	table_screen.place_pit_net_hint(Rect2(hint_a, Vector2.ZERO).expand(hint_b))
+	# Deal-Marken am oberen Grubenrand - die Spiegelung der Hub-Marken.
+	var rail_cx := DicePit.PIT_CENTER.x + PIT_DEAL_RAIL_INSET_X
+	var rail_cz := DicePit.PIT_CENTER.z + PIT_DEAL_RAIL_OFFSET_Z
+	var rail_a := table_screen.world_to_pixel(Vector3(
+		rail_cx + PIT_DEAL_RAIL_HALF_X, 0.0, rail_cz - PIT_DEAL_RAIL_HALF_Z))
+	var rail_b := table_screen.world_to_pixel(Vector3(
+		rail_cx - PIT_DEAL_RAIL_HALF_X, 0.0, rail_cz + PIT_DEAL_RAIL_HALF_Z))
+	table_screen.place_pit_deal_rail(Rect2(rail_a, Vector2.ZERO).expand(rail_b))
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
@@ -1620,10 +1636,17 @@ func _refresh_hub_info() -> void:
 	# Benchmark-Aufschlag hebt die kommenden Stationen sichtbar an.
 	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
 		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
-	# Deal-Marken: was gerade wirkt und wie lange noch.
-	table_screen.hub.set_deal_tokens(run.active_deal_sides())
+	_refresh_deal_tokens()
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
+
+## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
+## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
+## gewürfelt wird; beide Reihen zeigen dieselben Seiten in derselben Grammatik.
+func _refresh_deal_tokens() -> void:
+	var sides := run.active_deal_sides()
+	table_screen.hub.set_deal_tokens(sides)
+	table_screen.set_pit_deal_tokens(sides)
 
 ## Deal unterschrieben oder abgerechnet: Hub (Marken + Fahrplan) und die offene
 ## Wett-Auslage nachziehen - das Quotenpaket ändert Einsätze mitten in der
@@ -2554,11 +2577,15 @@ func _sync_screen_action_buttons() -> void:
 	table_screen.pit_actions_root.visible = show
 	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
 	table_screen.pit_info_bar.visible = show
+	# Die Deal-Marken am oberen Rand kommen und gehen mit dem Mobiliar.
+	table_screen.pit_deal_rail.visible = show
 	if choosing:
 		table_screen.set_pit_net_hint("")
 		table_screen.hide_pit_score()
 	if not show:
+		table_screen.hide_pit_deal_hint()
 		return
+	_sync_pit_deal_hint()
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
 	table_screen.take_action_button.disabled = not interactable or _hand_slots().is_empty()
 	# Würfeln braucht mindestens einen ungeschützten Würfel - sind alle geschützt,
@@ -2571,6 +2598,17 @@ func _sync_screen_action_buttons() -> void:
 	table_screen.bank_action_button.visible = can_bank
 	if can_bank:
 		table_screen.bank_action_button.text = "Beenden ⚡×%d" % stages
+
+## Hinweis-Karte der Gruben-Marken: dort erreicht die Maus die Marken nicht (der
+## Zeiger liegt auf dem Tisch, nicht im SubViewport) - also je Frame das Pixel
+## prüfen, statt auf mouse_entered zu warten.
+func _sync_pit_deal_hint() -> void:
+	var token := table_screen.pit_deal_token_at(
+		_screen_pixel(get_viewport().get_mouse_position()))
+	if token == null:
+		table_screen.hide_pit_deal_hint()
+	else:
+		table_screen.show_pit_deal_hint(token)
 
 ## Nach dem Wurf: sind ALLE liegenden Würfel geschützt (ausgewählt), gibt es
 ## nichts mehr neu zu würfeln. Vor dem ersten Wurf einer Hand greift die Regel
@@ -4225,11 +4263,13 @@ func _on_round_complete() -> void:
 			table_screen.set_round_pulse(false)
 		_show_game_over(hand_total)
 
-## Abrechnung nach bestandenem Stresstest: die Marken des Blocks wischen vom
-## Hub, danach verfallen die Deals.
+## Abrechnung nach bestandenem Stresstest: die Marken des Blocks wischen von Hub
+## UND Grubenrand, danach verfallen die Deals.
 func _play_settlement() -> void:
 	var hub := table_screen.hub if table_screen != null else null
 	var sweep := hub.sweep_deal_tokens() if hub != null else 0.0
+	if table_screen != null:
+		sweep = maxf(sweep, table_screen.sweep_pit_deal_tokens())
 	if sweep > 0.0:
 		# Etwas länger als der Wisch: settle baut die Marken-Reihe neu und würde
 		# sonst Marken freigeben, deren Tween im selben Frame noch endet.

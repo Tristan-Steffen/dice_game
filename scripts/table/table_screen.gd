@@ -167,6 +167,15 @@ var pit_net_hint: Label
 var _pit_net_def: DieDefinition
 var _pit_net_face := -2
 var _pit_net_cell := 0.0
+## Deal-Marken am oberen Grubenrand: derselbe Streifen wie am Hub-Rad, nur dort,
+## wo gewürfelt wird. Die Hinweis-Karte hängt IM Grubenfenster (ihre Bühne).
+var pit_deal_rail: DealTokenRow
+var pit_deal_hint: HintCard
+var _pit_deal_rect := Rect2()
+var _pit_deal_u := 1.0
+var _pit_deal_sides: Array[Dictionary] = []
+## Streifenhöhe in u: eine Block-Marke (5.6u) füllt den Streifen zu 80 %.
+const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
@@ -510,6 +519,12 @@ func _build_content() -> void:
 	pit_net_hint.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
 	pit_net_hint.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
 	add_child(pit_net_hint)
+	# Deal-Marken-Streifen am oberen Grubenrand (Platz: place_pit_deal_rail).
+	pit_deal_rail = DealTokenRow.new()
+	pit_deal_rail.name = "PitDealRail"
+	pit_deal_rail.visible = false
+	pit_deal_rail.self_hover = false  # in der Grube fragt scene_root je Frame
+	add_child(pit_deal_rail)
 
 	# Hub-Inhalt entsteht erst in place_hub (Maße aus der endgültigen Größe).
 	hub = HubView.new()
@@ -2274,6 +2289,61 @@ func place_pit_net_hint(rect: Rect2) -> void:
 	pit_net_hint.position = rect.position
 	pit_net_hint.size = rect.size
 	pit_net_hint.add_theme_font_size_override("font_size", maxi(10, int(rect.size.y * 0.55)))
+
+## Spannt den Marken-Streifen am oberen Grubenrand auf. Die Hinweis-Karte
+## entsteht erst hier: ihre Schriftgrade hängen an der Streifenhöhe.
+func place_pit_deal_rail(rect: Rect2) -> void:
+	if pit_deal_rail == null:
+		return
+	_pit_deal_rect = rect
+	_pit_deal_u = maxf(rect.size.y / PIT_DEAL_U_DIV, 1.0)
+	if pit_deal_hint == null:
+		pit_deal_hint = HintCard.new(_pit_deal_u)
+		pit_deal_hint.name = "PitDealHint"
+		pit_window.add_child(pit_deal_hint)
+	set_pit_deal_tokens(_pit_deal_sides)
+
+## Setzt die wirkenden Deal-Seiten (GameRun.active_deal_sides) - dieselben, die
+## am Hub-Rad hängen. Merkt sie sich, weil der Streifen erst später Maße bekommt.
+func set_pit_deal_tokens(sides: Array[Dictionary]) -> void:
+	if pit_deal_rail == null:
+		return
+	_pit_deal_sides = sides.duplicate()
+	hide_pit_deal_hint()
+	pit_deal_rail.set_sides(_pit_deal_sides, _pit_deal_u)
+	_layout_pit_deal_rail()
+
+## Reihe mittig in den Streifen (sie wächst mit der Markenzahl).
+func _layout_pit_deal_rail() -> void:
+	if pit_deal_rail == null or _pit_deal_rect.size.y <= 0.0:
+		return
+	pit_deal_rail.reset_size()
+	pit_deal_rail.position = _pit_deal_rect.position \
+		+ (_pit_deal_rect.size - pit_deal_rail.size) * 0.5
+
+## Abrechnung: die Grubenmarken wischen mit denen am Hub (gleiche Dauer).
+func sweep_pit_deal_tokens() -> float:
+	if pit_deal_rail == null:
+		return 0.0
+	hide_pit_deal_hint()
+	return pit_deal_rail.sweep(_pit_deal_rect.size.y)
+
+## Marke unter dem Display-Pixel, oder null (scene_root fragt je Frame).
+func pit_deal_token_at(pixel: Vector2) -> Control:
+	return pit_deal_rail.token_at(pixel) if pit_deal_rail != null else null
+
+func show_pit_deal_hint(token: Control) -> void:
+	if pit_deal_hint == null:
+		return
+	var hint := pit_deal_rail.hint_for(token)
+	if hint.is_empty():
+		return
+	pit_deal_hint.show_for(token, pit_window, hint["title"], hint["body"],
+		hint["accent"], _pit_deal_u * 1.2)
+
+func hide_pit_deal_hint() -> void:
+	if pit_deal_hint != null:
+		pit_deal_hint.hide_card()
 
 ## Zeigt das Würfelnetz des überfahrenen Würfels; up_face (-1 = keiner)
 ## bekommt den Gold-Rahmen. Die Hover-Logik in scene_root ruft das jeden Frame.

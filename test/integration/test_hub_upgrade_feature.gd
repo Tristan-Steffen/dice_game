@@ -298,8 +298,8 @@ func test_hovering_a_marker_names_its_effect() -> void:
 	assert_false(hub.marker_hint.visible, "ohne Hover kein Hinweis")
 	(stations[2] as Panel).mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
-	assert_eq(hub.marker_hint_title.text, GameRun.STRESS_NAME)
-	assert_string_contains(hub.marker_hint_body.text, "Throttling")
+	assert_eq(hub.marker_hint.title_label.text, GameRun.STRESS_NAME)
+	assert_string_contains(hub.marker_hint.body_label.text, "Throttling")
 	(stations[2] as Panel).mouse_exited.emit()
 	assert_false(hub.marker_hint.visible, "Hinweis verschwindet mit dem Zeiger")
 
@@ -368,8 +368,8 @@ func test_bonus_and_malus_tokens_read_apart() -> void:
 		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
 	var bonus := (hub.deal_token_row.get_child(0) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
 	var malus := (hub.deal_token_row.get_child(1) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
-	assert_eq(bonus.border_color, HubView.TOKEN_BONUS_COLOR)
-	assert_eq(malus.border_color, HubView.TOKEN_MALUS_COLOR)
+	assert_eq(bonus.border_color, DealTokenRow.BONUS_COLOR)
+	assert_eq(malus.border_color, DealTokenRow.MALUS_COLOR)
 
 func test_hovering_a_token_explains_that_side() -> void:
 	var hub := _hub()
@@ -378,9 +378,9 @@ func test_hovering_a_token_explains_that_side() -> void:
 	var token: Panel = hub.deal_token_row.get_child(0)
 	token.mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
-	assert_eq(hub.marker_hint_title.text, RouteDeal.savings_bonus().display_name)
-	assert_string_contains(hub.marker_hint_body.text, RouteDeal.savings_bonus().malus_text)
-	assert_string_contains(hub.marker_hint_body.text,
+	assert_eq(hub.marker_hint.title_label.text, RouteDeal.savings_bonus().display_name)
+	assert_string_contains(hub.marker_hint.body_label.text, RouteDeal.savings_bonus().malus_text)
+	assert_string_contains(hub.marker_hint.body_label.text,
 		RouteDeal.scope_label(RouteDeal.Scope.BLOCK), "die Laufzeit steht dabei")
 	token.mouse_exited.emit()
 	assert_false(hub.marker_hint.visible)
