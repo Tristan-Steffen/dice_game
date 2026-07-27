@@ -151,12 +151,38 @@ func test_slots_run_common_before_uncommon_before_rare() -> void:
 		assert_true(ranks[i] >= ranks[i - 1], "Seltenheit steigt monoton")
 
 func test_slots_cover_every_archetype_of_the_category() -> void:
+	# Sonderposten (Leiterbahn & Co.) zählen nicht - sie liegen im Sonderbestand.
 	for category in Engraving.CATEGORIES:
 		var expected := 0
 		for archetype in Engraving.all():
-			if archetype.category == category:
+			if archetype.category == category and not Engraving.is_special_id(archetype.id):
 				expected += 1
 		assert_eq(_drawer(category).slots.size(), expected, "%s vollständig" % category)
+
+func test_specials_live_in_the_stockpile_not_their_category_drawer() -> void:
+	assert_false(_ids(_drawer(Engraving.CATEGORY_DICE)).has(Engraving.POINTER),
+		"die Leiterbahn liegt nicht in der Würfel-Schublade")
+	assert_eq(_ids(_drawer(SupplyDrawerView.CATEGORY_SPECIAL)),
+		[Engraving.POINTER] as Array[String], "der Sonderbestand führt genau die Sonderposten")
+
+func test_the_dice_drawer_stays_two_rows() -> void:
+	# Regression: die Leiterbahn als 7. Platz machte die Schubladen-Reihe höher
+	# und drückte die Werkbank zusammen.
+	assert_eq(SupplyDrawerView.size_for(Engraving.CATEGORY_DICE, 8.0),
+		SupplyDrawerView.size_for(Engraving.CATEGORY_MATERIAL, 8.0),
+		"Würfel-Schublade wieder so hoch wie die Material-Schublade")
+
+func test_the_stockpile_serves_the_ceremony_like_any_drawer() -> void:
+	run.grant_engraving(Engraving.pointer_engraving())
+	var stock := _drawer(SupplyDrawerView.CATEGORY_SPECIAL)
+	stock.set_ceremony(true)
+	var picked: Array[String] = []
+	stock.tool_pressed.connect(func(id: String) -> void: picked.append(id))
+	for entry in stock.slots:
+		if entry["id"] == Engraving.POINTER:
+			assert_false(entry["button"].disabled, "besessener Sonderposten ist nutzbar")
+			entry["button"].pressed.emit()
+	assert_eq(picked, [Engraving.POINTER] as Array[String])
 
 # --- Einschlag eines Meteors ----------------------------------------------------
 

@@ -88,3 +88,37 @@ func test_kanten_chip_traegt_die_kanten_materialfarbe() -> void:
 	var box: StyleBoxFlat = chip.get_theme_stylebox("panel")
 	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.GOLD), "Chip in Kanten-Materialfarbe")
 
+
+func test_leiterbahn_pfeile_sitzen_am_zellrand() -> void:
+	# Zeiger 3 -> 0 (im Kreuz direkt untereinander) und 5 -> 1 (wickelt herum):
+	# je ein Pfeil, positioniert auf dem Rand der QUELL-Zelle in Kanten-Richtung.
+	var def := DieDefinition.new()
+	def.pointers[3] = 0
+	def.pointers[5] = 1
+	var cell := 40.0
+	var net := DieNetView.build(def, -1, cell)
+	add_child_autofree(net)
+	var arrows := []
+	for child in net.get_children():
+		if child is DieNetView.PointerArrow:
+			arrows.append(child)
+	assert_eq(arrows.size(), 2, "je Zeiger ein Pfeil")
+	# 3 -> 0: Ziel liegt gefaltet UNTER der Quelle - der Pfeil zeigt nach unten
+	# und sitzt mittig auf der Unterkante der Zelle von Seite 3.
+	var down: Control = arrows[0]
+	assert_eq(down.dir, Vector2.DOWN)
+	var gap := cell * DieNetView.GAP_FACTOR
+	var source_pos := Vector2(1 * (cell + gap), 0.0)  # Seite 3: Zeile 0, Spalte 1
+	var expected := source_pos + Vector2(cell, cell) * 0.5 + Vector2.DOWN * cell * 0.5
+	assert_almost_eq((down.position + down.size * 0.5).distance_to(expected), 0.0, 0.5,
+		"Pfeilmitte auf der Unterkante")
+	# 5 -> 1: im Netz nicht benachbart - der Pfeil zeigt trotzdem über die
+	# gefaltete Kante (rechts aus Zelle 5 hinaus), nie quer durchs Kreuz.
+	var wrap: Control = arrows[1]
+	assert_eq(wrap.dir, Vector2.RIGHT)
+
+func test_ohne_zeiger_keine_pfeile() -> void:
+	var net := DieNetView.build(DieDefinition.new(), -1, 40.0)
+	add_child_autofree(net)
+	for child in net.get_children():
+		assert_false(child is DieNetView.PointerArrow, "kein Pfeil ohne Leiterbahn")

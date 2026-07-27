@@ -479,7 +479,7 @@ func _targeting_of(engraving_id: String) -> String:
 	if DieMaterial.is_valid_id(engraving_id):
 		return TARGET_FACE
 	match engraving_id:
-		Engraving.CHISEL, Engraving.GRINDSTONE:
+		Engraving.CHISEL, Engraving.GRINDSTONE, Engraving.POINTER:
 			return TARGET_PAIR_DIRECTED
 		Engraving.AVERAGING:
 			return TARGET_PAIR
@@ -611,6 +611,10 @@ func _apply_pair(a: int, b: int) -> void:
 		Engraving.AVERAGING:
 			EtchingEffects.averaging(current_def, a, b)
 			_finish_apply(held_id, "Mittelung: zwei Seiten gemittelt")
+		Engraving.POINTER:
+			# Überschreiben erlaubt - je Seite höchstens eine Leiterbahn.
+			current_def.pointers[a] = b
+			_finish_apply(held_id, "Leiterbahn gelegt: Seite %d löst Seite %d mit aus" % [current_def.faces[a], current_def.faces[b]])
 
 ## Ganz-Würfel-Gravuren (ein Klick auf den Würfel genügt).
 func _apply_whole_die() -> void:
@@ -629,8 +633,10 @@ func _apply_whole_die() -> void:
 ## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
 func _finish_apply(engraving_id: String, message: String) -> void:
 	if run != null:
-		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht.
-		var is_etching := not DieMaterial.is_valid_id(engraving_id) and not Engraving.is_edge_id(engraving_id)
+		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
+		# die Leiterbahn ist keine (Würfel-Gravur ohne Material).
+		var is_etching := not DieMaterial.is_valid_id(engraving_id) \
+			and not Engraving.is_edge_id(engraving_id) and engraving_id != Engraving.POINTER
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
 			message += " Gravierstift: Engraving nicht verbraucht!"
@@ -681,6 +687,12 @@ func _eligible_faces() -> Array[bool]:
 				for i in 6: e[i] = faces[i] > EtchingEffects.MIN_FACE_VALUE  # die −1-Seite
 			else:
 				for i in 6: e[i] = i != first_face
+		Engraving.POINTER:
+			# Ziel nur eine NACHBAR-Seite - die Leiterbahn quert genau eine Kante.
+			if first_face == -1:
+				e.fill(true)
+			else:
+				for i in 6: e[i] = current_def.can_point(first_face, i)
 		_:
 			match _targeting_of(held_id):
 				TARGET_EDGES:
@@ -911,6 +923,9 @@ func _held_prompt() -> String:
 		Engraving.AVERAGING:
 			return "Mittelung: klicke die zweite Seite." if second \
 				else "Mittelung: klicke die erste Seite. Rechtsklick: ablegen."
+		Engraving.POINTER:
+			return "Leiterbahn: klicke die Zielseite (ein Nachbar - sie löst mit aus)." if second \
+				else "Leiterbahn: klicke die Startseite. Rechtsklick: ablegen."
 		Engraving.STRAIGHTEN:
 			return "Begradigung: klicke den Würfel."
 		Engraving.POLISH:
@@ -990,9 +1005,20 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	# durch - der ganze eingefasste Bereich ist dann EIN Ziel.
 	if edges_targeted():
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Tooltip aus Material und/oder Leiterbahn der Seite zusammengesetzt.
+	var tip_title := ""
+	var tip_body := ""
 	if DieMaterial.is_valid_id(material_id):
 		var material := DieMaterial.by_id(material_id)
-		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, material.display_name, material.description))
+		tip_title = material.display_name
+		tip_body = material.description
+	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
+	if pointer_target >= 0:
+		tip_title = "%s · Leiterbahn" % tip_title if tip_title != "" else "Leiterbahn"
+		var pointer_line := "Liegt diese Seite oben, löst die Seite mit Wert %d einmal mit aus." % current_def.faces[pointer_target]
+		tip_body = "%s\n%s" % [tip_body, pointer_line] if tip_body != "" else pointer_line
+	if tip_title != "":
+		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, tip_title, tip_body))
 		chip.mouse_exited.connect(_hide_face_tooltip)
 	# Vorschau beim Überfahren (alle Seiten) + Ziel-Klick.
 	chip.mouse_entered.connect(_on_face_hover.bind(face_index))

@@ -315,6 +315,23 @@ func _place_workbench_corner() -> void:
 		rects.append(Rect2(Vector2(3300 + i * 300, 2600), Vector2(280, 200)))
 	screen.place_supply_drawers(rects, 8.0)
 
+func test_the_special_stock_sits_beside_the_bench_with_a_horizontal_strip():
+	# Der Sonderbestand ist die 4. Schublade: rechts NEBEN der Werkbank, seine
+	# Ader läuft waagerecht aus deren Seite - nicht senkrecht aus der Unterkante.
+	_place_workbench_corner()
+	var rect := Rect2(Vector2(4250, 2000), Vector2(120, 500))
+	screen.place_special_stock(rect, 8.0)
+	var index := screen._drawer_index(SupplyDrawerView.CATEGORY_SPECIAL)
+	var stock: SupplyDrawerView = screen.supply_drawers[index]
+	assert_true(stock.visible, "der Sonderbestand ist aufgespannt")
+	assert_eq(stock.position, rect.position)
+	assert_eq(stock.slots.size(), Engraving.SPECIAL_IDS.size(), "je Sonderposten ein Platz")
+	var strip: LedStripView = screen.supply_strips[index]
+	assert_eq(strip.strip_path.size(), 2, "eine gerade Ader")
+	assert_eq(strip.strip_path[0], Vector2(4200.0, strip.strip_path[1].y),
+		"sie tritt aus der Werkbank-SEITE aus")
+	assert_eq(strip.strip_path[1].x, rect.position.x, "und endet an der Vitrine")
+
 func test_pack_delivery_runs_along_the_hub_workshop_strip():
 	_place_workbench_corner()
 	var route := screen._route_via_strip(Vector2(2000, 2400),

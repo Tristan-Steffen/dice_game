@@ -2,8 +2,8 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
 func test_all_returns_etchings_materials_and_edges():
-	# 10 Ätzungen + 6 Material-Gravuren + 6 Kanten-Gravuren (siehe DieMaterial.all).
-	assert_eq(Engraving.all().size(), 22)
+	# 10 Ätzungen + Leiterbahn + 6 Material-Gravuren + 6 Kanten-Gravuren.
+	assert_eq(Engraving.all().size(), 23)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -53,15 +53,24 @@ func test_rarities_match_the_spec():
 	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.EPIC)
 
 func test_edge_engravings_use_prefixed_material_ids():
-	# Kanten-Engraving-id = EDGE_PREFIX + Material-id; material_id() löst zurück auf.
+	# Kanten-Engraving-id = EDGE_PREFIX + Material-id; material_id() löst zurück
+	# auf. Die Leiterbahn ist die einzige Würfel-Gravur ohne Material.
 	var edge_ids := {}
 	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_DICE:
+		if engraving.category == Engraving.CATEGORY_DICE and engraving.id != Engraving.POINTER:
 			assert_true(Engraving.is_edge_id(engraving.id), "%s ist eine Kanten-id" % engraving.id)
 			assert_true(DieMaterial.is_valid_id(engraving.material_id()), "%s löst auf ein Material auf" % engraving.id)
 			assert_true(Engraving.FOOTPRINT.has(engraving.id), "Fläche definiert für %s" % engraving.id)
 			edge_ids[engraving.id] = true
 	assert_eq(edge_ids.size(), DieMaterial.all().size(), "je Material genau ein Kanten-Engraving")
+
+func test_the_pointer_is_an_epic_dice_engraving_without_material():
+	var pointer := Engraving.pointer_engraving()
+	assert_eq(pointer.category, Engraving.CATEGORY_DICE)
+	assert_eq(pointer.rarity, Engraving.Rarity.EPIC)
+	assert_eq(pointer.material_id(), "", "die Leiterbahn belegt kein Material")
+	assert_false(Engraving.is_edge_id(Engraving.POINTER))
+	assert_true(Engraving.FOOTPRINT.has(Engraving.POINTER))
 
 func test_is_edge_id_rejects_non_edges():
 	assert_false(Engraving.is_edge_id(DieMaterial.GOLD), "Seiten-Material ist kein Kanten-Engraving")

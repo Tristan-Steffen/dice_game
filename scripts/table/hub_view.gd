@@ -16,6 +16,7 @@ signal debug_win_round_requested
 signal debug_money_requested
 signal library_requested
 signal test_materials_requested
+signal test_pointers_requested
 ## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
 signal hub_upgrade_requested
 
@@ -89,6 +90,7 @@ var settings_button: Button
 ## Aufklappbares Menü auf dem Display; öffnet nach OBEN über dem Knopf.
 var settings_menu: PanelContainer
 var _test_materials_button: Button
+var _test_pointers_button: Button
 var _menu_u := 1.0  # Breiteneinheit, für die Neupositionierung gemerkt
 
 ## Der Home-Inhalt - sichtbar nur, solange keine Seite offen ist.
@@ -232,6 +234,8 @@ func _build_settings_menu(u: float) -> void:
 		u, debug_money_requested.emit, true)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
+	_test_pointers_button = _make_menu_button(box, "🧪 Testleiterbahnen: aus",
+		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_pointers_requested.emit)
 
 ## keep_open = true lässt das Menü nach dem Klick offen (für Mehrfach-Klick-Debug).
 func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,
@@ -253,6 +257,11 @@ func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color
 func set_test_materials_label(text: String) -> void:
 	if _test_materials_button != null:
 		_test_materials_button.text = text
+
+## Beschriftung des Testleiterbahnen-Eintrags (AN/aus).
+func set_test_pointers_label(text: String) -> void:
+	if _test_pointers_button != null:
+		_test_pointers_button.text = text
 
 func _toggle_settings_menu() -> void:
 	settings_pressed.emit()

@@ -460,14 +460,17 @@ func _build_content() -> void:
 	slot_hub_strip.name = "SlotHubStrip"
 	add_child(slot_hub_strip)
 
-	# Vorrats-Schubladen: Maße/Position setzt scene_root über place_supply_drawers.
-	# Die Adern zuerst, damit sie UNTER den Schubladen liegen.
-	for i in Engraving.CATEGORIES.size():
+	# Vorrats-Schubladen (drei Kategorien + der Sonderbestand rechts der
+	# Werkbank): Maße/Position setzt scene_root über place_supply_drawers bzw.
+	# place_special_stock. Die Adern zuerst, damit sie UNTER den Schubladen liegen.
+	var drawer_categories: Array = Engraving.CATEGORIES.duplicate()
+	drawer_categories.append(SupplyDrawerView.CATEGORY_SPECIAL)
+	for i in drawer_categories.size():
 		var strip := LedStripView.new()
 		strip.name = "SupplyStrip%d" % i
 		add_child(strip)
 		supply_strips.append(strip)
-	for drawer_category in Engraving.CATEGORIES:
+	for drawer_category in drawer_categories:
 		var drawer := SupplyDrawerView.new()
 		drawer.name = "SupplyDrawer_%s" % drawer_category
 		drawer.category = drawer_category
@@ -770,12 +773,37 @@ func _link_supply_strips() -> void:
 	var bench_bottom := workshop_window.position.y + workshop_window.size.y
 	for i in mini(supply_strips.size(), supply_drawers.size()):
 		var drawer := supply_drawers[i]
-		if not drawer.visible:
+		# Der Sonderbestand steht NEBEN der Werkbank - seine Ader verlegt
+		# place_special_stock waagerecht.
+		if not drawer.visible or drawer.category == SupplyDrawerView.CATEGORY_SPECIAL:
 			continue
 		var enter_x := drawer.position.x + drawer.size.x * 0.5
 		var lane_y := (bench_bottom + drawer.position.y) * 0.5
 		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
 			lane_y, HUB_STRIP_WIDTH)
+
+## Spannt den Sonderbestand rechts der Werkbank auf (die 4. Schublade) und
+## verlegt seine Ader WAAGERECHT aus der Werkbank-Seite auf Höhe des obersten
+## Platzes - er steht neben der Werkbank, nicht unter ihr.
+func place_special_stock(rect: Rect2, unit: float) -> void:
+	var index := _drawer_index(SupplyDrawerView.CATEGORY_SPECIAL)
+	if index < 0:
+		return
+	var drawer := supply_drawers[index]
+	drawer.place(rect, unit)
+	drawer.visible = true
+	if workshop_window != null and workshop_window.visible and index < supply_strips.size():
+		var lane_y := rect.position.y + (SupplyDrawerView.PAD + SupplyDrawerView.CHIP.y * 0.5) * unit
+		supply_strips[index].link_horizontal(
+			workshop_window.position.x + workshop_window.size.x, rect.position.x,
+			lane_y, HUB_STRIP_WIDTH)
+	_sync_reflection_windows()
+
+func _drawer_index(category: String) -> int:
+	for i in supply_drawers.size():
+		if supply_drawers[i].category == category:
+			return i
+	return -1
 
 ## Spannt die Info-Leiste unter der Schubladen-Reihe auf.
 func place_supply_info_bar(rect: Rect2, unit: float) -> void:

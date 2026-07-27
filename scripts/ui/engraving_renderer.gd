@@ -41,7 +41,9 @@ static func for_engraving(source: Engraving) -> EngravingRenderer:
 	engraving.engraving_id = source.id
 	engraving.category = source.category
 	engraving.rarity = source.rarity
-	if source.category == Engraving.CATEGORY_MATERIAL or source.category == Engraving.CATEGORY_DICE:
+	# Die Leiterbahn hat kein Material - sie behält das Ätzungs-Cyan.
+	if (source.category == Engraving.CATEGORY_MATERIAL or source.category == Engraving.CATEGORY_DICE) \
+			and source.material_id() != "":
 		engraving.accent = DieMaterial.tint_for(source.material_id())
 	return engraving
 
@@ -89,7 +91,11 @@ func _draw_engraving() -> void:
 		Engraving.CATEGORY_MATERIAL:
 			_draw_material_core()
 		Engraving.CATEGORY_DICE:
-			_draw_edge_frame()
+			# Die Leiterbahn ist die einzige Würfel-Gravur mit eigenem Pfad-Siegel.
+			if engraving_id == Engraving.POINTER:
+				_draw_strokes(_strokes_for(engraving_id))
+			else:
+				_draw_edge_frame()
 		_:
 			_draw_strokes(_strokes_for(engraving_id))
 
@@ -232,6 +238,11 @@ func _strokes_for(id: String) -> Array:
 		Engraving.BLUEPRINT:
 			# Ganzer Würfel auf einen Wert: 3x2-Raster leuchtet.
 			return _grid()
+		Engraving.POINTER:
+			# Zwei Nachbarseiten; die Leiterbahn quert die gemeinsame Kante.
+			var s: Array = [_square(Vector2(0.32, 0.5), 0.15), _square(Vector2(0.68, 0.5), 0.15)]
+			s.append_array(_arrow_to(Vector2(0.32, 0.5), Vector2(0.6, 0.5)))
+			return s
 		_:
 			return [_square(Vector2(0.5, 0.5), 0.16)]
 

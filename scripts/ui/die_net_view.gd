@@ -22,6 +22,20 @@ const EDGE := -2
 ## Kreuz-Ecke des Kanten-Chips (Zeile, Spalte) - leer im NET_LAYOUT.
 const EDGE_CELL := Vector2i(0, 0)
 
+## Leiterbahn-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
+const POINTER_COLOR := Color("#8be9fd")
+## Je Seite: welcher Zellrand der gequerten Würfelkante zum Nachbarn entspricht,
+## wenn das Kreuz gefaltet wird. Nachbarzellen liegen im Netz nicht immer
+## nebeneinander (5->1 wickelt herum) - darum Pfeil AM Rand, kein Verbindungsstrich.
+const POINTER_SIDES := {
+	0: {3: Vector2.UP, 2: Vector2.DOWN, 1: Vector2.LEFT, 4: Vector2.RIGHT},
+	1: {3: Vector2.UP, 2: Vector2.DOWN, 5: Vector2.LEFT, 0: Vector2.RIGHT},
+	2: {0: Vector2.UP, 5: Vector2.DOWN, 1: Vector2.LEFT, 4: Vector2.RIGHT},
+	3: {5: Vector2.UP, 0: Vector2.DOWN, 1: Vector2.LEFT, 4: Vector2.RIGHT},
+	4: {3: Vector2.UP, 2: Vector2.DOWN, 0: Vector2.LEFT, 5: Vector2.RIGHT},
+	5: {3: Vector2.UP, 2: Vector2.DOWN, 4: Vector2.LEFT, 1: Vector2.RIGHT},
+}
+
 ## Gesamtgröße des Netzes bei Zellgröße cell (4 Spalten × 3 Zeilen + Lücken).
 static func net_size(cell: float) -> Vector2:
 	var gap := cell * GAP_FACTOR
@@ -44,6 +58,8 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 				root.add_child(_up_frame(pos, cell))
 			root.add_child(_face_cell(def, face_index, pos, cell))
 	root.add_child(_edge_chip(def, cell))
+	for arrow in _pointer_arrows(def, cell):
+		root.add_child(arrow)
 	return root
 
 ## Face-Index der Zelle unter local (Netz-Lokalkoordinaten, Zellgröße cell);
@@ -105,6 +121,60 @@ static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 	box.set_corner_radius_all(maxi(1, int(cell * 0.12)))
 	chip.add_theme_stylebox_override("panel", box)
 	return chip
+
+## Zellposition eines Seiten-Index im Kreuz.
+static func _cell_pos(face_index: int, cell: float) -> Vector2:
+	var gap := cell * GAP_FACTOR
+	for row in NET_LAYOUT.size():
+		for col in NET_LAYOUT[row].size():
+			if NET_LAYOUT[row][col] == face_index:
+				return Vector2(col * (cell + gap), row * (cell + gap))
+	return Vector2.ZERO
+
+## Je Leiterbahn ein Pfeil auf dem Zellrand der gequerten Kante, nach außen zeigend.
+static func _pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
+	var arrows: Array[Control] = []
+	for face in def.pointers.size():
+		var target: int = def.pointers[face]
+		if target < 0:
+			continue
+		var sides: Dictionary = POINTER_SIDES.get(face, {})
+		if not sides.has(target):
+			continue  # keine Nachbarseite - ungültiger Zeiger bleibt stumm
+		var dir: Vector2 = sides[target]
+		var arrow := PointerArrow.new()
+		arrow.dir = dir
+		var side := cell * 0.5
+		arrow.size = Vector2(side, side)
+		arrow.position = _cell_pos(face, cell) + Vector2(cell, cell) * 0.5 \
+			+ dir * cell * 0.5 - Vector2(side, side) * 0.5
+		arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		arrows.append(arrow)
+	return arrows
+
+## Der Pfeil selbst: Schaft + Spitze mit dunklem Unterzug, damit er auch auf
+## hellen Material-Zellen lesbar bleibt.
+class PointerArrow:
+	extends Control
+	var dir := Vector2.RIGHT
+
+	func _draw() -> void:
+		var center := size * 0.5
+		var half := size.x * 0.40
+		var w := maxf(2.0, size.x * 0.13)
+		var perp := Vector2(-dir.y, dir.x)
+		var tip := center + dir * half
+		var tail := center - dir * half
+		var shaft_end := tip - dir * w * 2.2
+		var head := PackedVector2Array([tip, shaft_end + perp * w * 1.7, shaft_end - perp * w * 1.7])
+		var under := Color(0.03, 0.05, 0.12, 0.9)
+		draw_line(tail, shaft_end, under, w * 2.2)
+		var grown := PackedVector2Array()
+		for p in head:
+			grown.append(center + (p - center) * 1.35)
+		draw_colored_polygon(grown, under)
+		draw_line(tail, shaft_end, DieNetView.POINTER_COLOR, w)
+		draw_colored_polygon(head, DieNetView.POINTER_COLOR)
 
 ## Gold-Rahmen um die oben liegende Seite (liegt HINTER der Zelle).
 static func _up_frame(pos: Vector2, cell: float) -> Panel:

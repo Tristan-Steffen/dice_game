@@ -999,6 +999,22 @@ func clear_all_materials() -> void:
 		die.materials = mats
 		die.edge_material = ""
 
+## Legt jedem Pool-Würfel 1-5 zufällige Leiterbahnen (je Seite höchstens eine,
+## nur zu Nachbarn). Jeder Würfel bekommt ein frisches pointers-Array.
+func randomize_all_pointers() -> void:
+	for die in owned_pool:
+		var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
+		var faces: Array[int] = [0, 1, 2, 3, 4, 5]
+		faces.shuffle()
+		for i in randi_range(1, 5):
+			var face: int = faces[i]
+			pointers[face] = DieDefinition.adjacent_faces(face).pick_random()
+		die.pointers = pointers
+
+func clear_all_pointers() -> void:
+	for die in owned_pool:
+		die.pointers = [-1, -1, -1, -1, -1, -1] as Array[int]
+
 ## Anzahl aller Würfel mit Kanten-Material im Besitz (Ablage, Nachschub, Pool) -
 ## Grundlage für Zargenglanz.
 func edge_die_count() -> int:

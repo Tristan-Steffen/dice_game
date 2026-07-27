@@ -168,3 +168,26 @@ func test_has_pending_action_tracks_the_held_tool() -> void:
 	assert_true(view.has_pending_action(), "Werkzeug aufgenommen")
 	view.cancel_pending()
 	assert_false(view.has_pending_action(), "abgelegt")
+
+func test_the_pointer_applies_source_to_adjacent_target() -> void:
+	view.run.grant_engraving(Engraving.pointer_engraving())
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.POINTER)
+	assert_eq(view.held_id, Engraving.POINTER, "aufgenommen")
+	view._on_chip_clicked(5, 0)  # Startseite
+	assert_eq(view.first_face, 0, "erster Klick ist die Startseite")
+	view._on_chip_clicked(6, 5)  # Gegenseite von 0: kein gültiges Ziel
+	assert_eq(view.current_def.pointers[0], -1, "die Gegenseite wird verweigert")
+	assert_eq(view.first_face, 0, "der erste Klick bleibt stehen")
+	view._on_chip_clicked(1, 1)  # Nachbar
+	assert_eq(view.current_def.pointers[0], 1, "Leiterbahn gelegt")
+	assert_eq(view.held_id, "", "letztes Exemplar verbraucht -> abgelegt")
+
+func test_a_new_pointer_overwrites_the_faces_old_one() -> void:
+	view.current_def.pointers[0] = 1
+	view.run.grant_engraving(Engraving.pointer_engraving())
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.POINTER)
+	view._on_chip_clicked(5, 0)
+	view._on_chip_clicked(3, 3)
+	assert_eq(view.current_def.pointers[0], 3, "je Seite höchstens eine Bahn - überschrieben")

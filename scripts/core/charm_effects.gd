@@ -140,7 +140,9 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
 ## +3 je spät gezogenem Würfel; Prime Time: Augenzahl, wenn sie prim ist).
-static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
+## value_override > 0: feuernde Augenzahl eines Leiterbahn-Glieds - der Effekt
+## rechnet mit ihr, Slot-Bezüge (Bodensatz) bleiben beim Würfel.
+static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, value_override: int = 0) -> int:
 	match charm_ids[j]:
 		Charm.SEDIMENT:
 			var late: Array = ctx.get(CTX_LATE_SLOTS, [])
@@ -148,27 +150,30 @@ static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: 
 				return 3
 		Charm.PRIME_TIME:
 			# Knochen lässt Seiten über 6 wachsen - darum echt prüfen, nicht 2/3/5.
-			if slot < values.size() and is_prime(values[slot]):
-				return values[slot]
+			var value := value_override if value_override > 0 else (values[slot] if slot < values.size() else 0)
+			if is_prime(value):
+				return value
 	return 0
 
 ## Ziel-Mult der Besitz-Position j am Würfel slot: Leuchtturm/Hochstapler
-## meinen den HÖCHSTEN gewerteten Würfel und feuern mit ihm.
-static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = []) -> int:
+## meinen den HÖCHSTEN gewerteten Würfel und feuern mit ihm. Das Ziel bestimmt
+## IMMER die oben liegende Augenzahl - value_override ändert nur den Betrag.
+static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = [], value_override: int = 0) -> int:
 	match charm_ids[j]:
 		Charm.LIGHTHOUSE, Charm.HIGH_STACKER:
 			if slot == target_die(values, participating, true):
-				return values[slot]
+				return value_override if value_override > 0 else values[slot]
 	return 0
 
 ## Krit der Besitz-Position j am Würfel slot: Beherit multipliziert den
 ## AKTUELLEN Mult mit der NIEDRIGSTEN gewerteten Augenzahl - mit seinem
-## Würfel, je Auslösung (eine gewertete 1 heißt ×1 = Ausfall).
-static func die_charm_crit_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = []) -> int:
+## Würfel, je Auslösung (eine gewertete 1 heißt ×1 = Ausfall). Ziel wie oben
+## immer über die oben liegenden Werte; value_override nur für den Betrag.
+static func die_charm_crit_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = [], value_override: int = 0) -> int:
 	match charm_ids[j]:
 		Charm.BEHERIT:
 			if slot == target_die(values, participating, false):
-				return maxi(1, values[slot])
+				return maxi(1, value_override if value_override > 0 else values[slot])
 	return 1
 
 ## Primzahl-Test für Augenzahlen (Seiten können durch Knochen beliebig wachsen).

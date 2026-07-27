@@ -57,6 +57,17 @@ static func is_throttled(key: String, ctx: Dictionary) -> bool:
 	var throttled: Array = ctx.get(CTX_THROTTLED, [])
 	return throttled.has(key)
 
+## Leiterbahn-Ketten (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je Glied
+## {"face": int, "value": int (rohe Augen), "material": String}. Der Aufrufer
+## löst die Kette EINMAL auf (scene_root kennt Defs + obere Seiten) - so sehen
+## Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder.
+const CTX_POINTER_LINKS := "pointer_links"
+
+## Glieder des Slots aus dem ctx ([] = keine Kette).
+static func pointer_links_for(ctx: Dictionary, slot: int) -> Array:
+	var links: Dictionary = ctx.get(CTX_POINTER_LINKS, {})
+	return links.get(slot, [])
+
 ## Anzeige-Beispiele der Kombinationsliste; per Test gegen die echte Wertung
 ## geprüft (best_hand(Beispiel) muss genau seine Kategorie liefern).
 const EXAMPLE_DICE := {
@@ -127,10 +138,11 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
 ## Würfel in Reihen-Ordnung (trigger_order; je Aktivierung Augen, Material,
-## würfelgebundene Charms), dann statische Charms strikt in Besitz-Reihenfolge
-## (Boni UND Faktoren an ihrer Position), nach Basis × Mult die Gesamtzahl-
-## Effekte - ebenfalls in Besitz-Reihenfolge. materials/edge_materials:
-## DieMaterial-id je Slot ("" = keins). ctx: Wurf-/Runden-Zustand.
+## würfelgebundene Charms; danach die Leiterbahn-Kette je Glied einmal), dann
+## statische Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
+## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in Besitz-
+## Reihenfolge. materials/edge_materials: DieMaterial-id je Slot ("" = keins).
+## ctx: Wurf-/Runden-Zustand.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	if is_throttled(key, ctx) or not qualifies(key, dice):
@@ -187,6 +199,23 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating)
 			for j in charm_ids.size():
 				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
+		# Leiterbahn: NACH allen Aktivierungen feuert die Kette je Glied EINMAL
+		# wie eine Aktivierung mit getauschter Seite (nie retriggert) - noch an
+		# der Position dieses Würfels, weil Krits die Reihenfolge werten.
+		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
+		for link in pointer_links_for(ctx, i):
+			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
+			base += CharmEffects.eye_value(link_value, charm_ids)
+			if not has_die_bonus:
+				continue
+			base += MaterialEffects.base_once_for(String(link["material"]), edge_here, charm_ids)
+			mult += MaterialEffects.mult_once_for(String(link["material"]), edge_here, link_value, charm_ids)
+			for j in charm_ids.size():
+				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, scored)
+				mult += CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
+					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value)
+			for j in charm_ids.size():
+				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
 	for j in charm_ids.size():
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += CharmEffects.mult_bonus_at(j, key, charm_ids) \
@@ -274,10 +303,12 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 	return []
 
 ## Farkle-Regel: ein Neu-Würfeln, das nicht STRIKT mehr Punkte bringt, farklet.
-## ctx gilt für beide Seiten gleich - der Vergleich bleibt fair.
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> bool:
+## ctx gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes
+## old_ctx mit (Leiterbahn-Glieder hängen an den oberen Seiten VOR dem Neuwurf,
+## wie old_materials).
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
 	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels, ctx)["score"]
-	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx)["score"]
+	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx if old_ctx.is_empty() else old_ctx)["score"]
 	return new_score > old_score
 
 ## Für die Kombinationsbildung zählt nur die LETZTE Ziffer (1, 11, 21 -> 1);

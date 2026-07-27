@@ -33,10 +33,16 @@ const PAD := 0.7
 const GAP := 0.25
 ## Nachglühen eines getroffenen Platzes (siehe pop).
 const AFTERGLOW_TIME := 2.5
+## Pseudo-Kategorie des Sonderbestands rechts der Werkbank: die Sonderposten
+## (Engraving.SPECIAL_IDS) - in ihrer Kategorien-Schublade machte eine dritte
+## Platz-Reihe die ganze Reihe höher und drückte die Werkbank zusammen.
+const CATEGORY_SPECIAL := "special"
+
 const COLUMNS := {
 	Engraving.CATEGORY_NUMBER: 6,
 	Engraving.CATEGORY_MATERIAL: 3,
 	Engraving.CATEGORY_DICE: 3,
+	CATEGORY_SPECIAL: 1,
 }
 ## Kategorie-Farbe wie das passende Paket im Laden - färbt nur noch die
 ## Leiterbahn eines ankommenden Paket-Inhalts (siehe scene_root), nicht die Plätze.
@@ -44,6 +50,7 @@ const COLORS := {
 	Engraving.CATEGORY_NUMBER: Color("#50fa7b"),
 	Engraving.CATEGORY_MATERIAL: Color("#ff79c6"),
 	Engraving.CATEGORY_DICE: Color("#ffd319"),
+	CATEGORY_SPECIAL: Color("#bd93f9"),
 }
 
 @export var category: String = Engraving.CATEGORY_NUMBER
@@ -100,9 +107,15 @@ static func _archetypes_of(drawer_category: String) -> Array[Engraving]:
 	var out: Array[Engraving] = []
 	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE, Engraving.Rarity.EPIC]:
 		for archetype in Engraving.all():
-			if archetype.category == drawer_category and archetype.rarity == rarity:
+			if _belongs_to(archetype, drawer_category) and archetype.rarity == rarity:
 				out.append(archetype)
 	return out
+
+## Sonderposten liegen NUR im Sonderbestand, nie in ihrer Kategorien-Schublade.
+static func _belongs_to(archetype: Engraving, drawer_category: String) -> bool:
+	if drawer_category == CATEGORY_SPECIAL:
+		return Engraving.is_special_id(archetype.id)
+	return archetype.category == drawer_category and not Engraving.is_special_id(archetype.id)
 
 func place(rect: Rect2, unit: float) -> void:
 	position = rect.position

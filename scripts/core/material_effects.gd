@@ -44,29 +44,40 @@ static func activation_count(i: int, materials: Array[String], edge_materials: A
 ## Basis-Bonus EINER Auslösung des Slots i - nur Träger-Effekte, ohne Augen:
 ## Bernstein +20 fest (Bernsteinzimmer: +50), Seite und Kante stapeln.
 static func base_bonus_once(i: int, materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
+	return base_once_for(
+		materials[i] if i < materials.size() else "",
+		edge_materials[i] if i < edge_materials.size() else "", charm_ids)
+
+## Wie base_bonus_once, aber direkt über Material-ids - so feuern auch
+## Leiterbahn-Glieder (fremde Seite, gleiche Kante) über dieselbe Tabelle.
+static func base_once_for(face_material: String, edge_material: String, charm_ids: Array[String]) -> int:
 	var amber_value := 50 if charm_ids.has(Charm.AMBER_ROOM) else 20
 	var bonus := 0
-	if i < materials.size() and materials[i] == DieMaterial.AMBER:
+	if face_material == DieMaterial.AMBER:
 		bonus += amber_value
-	if i < edge_materials.size() and edge_materials[i] == DieMaterial.AMBER:
+	if edge_material == DieMaterial.AMBER:
 		bonus += amber_value
 	return bonus
 
 ## Mult-Bonus EINER Auslösung des Slots i: Rubin +4 fest (Rubinschleifer/Blood
 ## Diamond legen die Augenzahl drauf); Glas + rohe Augenzahl der oberen Seite.
 static func mult_bonus_once(i: int, values: Array[int], materials: Array[String], edge_materials: Array[String], charm_ids: Array[String]) -> int:
+	return mult_once_for(
+		materials[i] if i < materials.size() else "",
+		edge_materials[i] if i < edge_materials.size() else "", values[i], charm_ids)
+
+## Wie mult_bonus_once über Material-ids; value ist die feuernde Augenzahl
+## (beim Leiterbahn-Glied die der Zielseite).
+static func mult_once_for(face_material: String, edge_material: String, value: int, charm_ids: Array[String]) -> int:
 	# Rubinschleifer legt die Augenzahl EINMAL drauf, der Blood Diamond je Exemplar.
 	var eye_stacks := int(charm_ids.has(Charm.RUBY_GRINDER)) + charm_ids.count(Charm.BLOOD_DIAMOND)
-	var ruby_value := RUBY_MULT + values[i] * eye_stacks
+	var ruby_value := RUBY_MULT + value * eye_stacks
 	var bonus := 0
-	for carrier in [
-		materials[i] if i < materials.size() else "",
-		edge_materials[i] if i < edge_materials.size() else "",
-	]:
+	for carrier in [face_material, edge_material]:
 		if carrier == DieMaterial.RUBY:
 			bonus += ruby_value
 		elif carrier == DieMaterial.GLASS:
-			bonus += values[i]
+			bonus += value
 	return bonus
 
 ## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
@@ -140,4 +151,32 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				shrunk_any = true
 		if shrunk_any:
 			report.shrunk.append(i)
+
+		# Leiterbahn-Glieder: je Glied EINMAL (nie × effect_count) - Seite des
+		# Glieds plus Kante, Wachsen/Schrumpfen trifft die GLIED-Seite.
+		for link_face in defs[i].pointer_chain(face):
+			var link_material: String = defs[i].materials[link_face] if link_face < defs[i].materials.size() else ""
+			if link_material == DieMaterial.GOLD:
+				report.money += gold_payout
+			if edge_material == DieMaterial.GOLD:
+				report.money += edge_gold_payout
+			var link_growth := 0
+			if link_material == DieMaterial.BONE:
+				link_growth += bone_growth
+			if edge_material == DieMaterial.BONE:
+				link_growth += bone_growth
+			if link_growth > 0:
+				defs[i].faces[link_face] += link_growth
+				if not report.grown.has(i):
+					report.grown.append(i)
+			var link_shrinks := 0
+			if glass_shrinks:
+				link_shrinks = int(link_material == DieMaterial.GLASS) + int(edge_material == DieMaterial.GLASS)
+			var link_shrunk := false
+			for step in link_shrinks:
+				if defs[i].faces[link_face] > EtchingEffects.MIN_FACE_VALUE:
+					defs[i].faces[link_face] -= 1
+					link_shrunk = true
+			if link_shrunk and not report.shrunk.has(i):
+				report.shrunk.append(i)
 	return report

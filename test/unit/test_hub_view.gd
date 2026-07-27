@@ -180,6 +180,27 @@ func test_test_materials_label_can_be_updated() -> void:
 			found = true
 	assert_true(found, "die Testmaterialien-Beschriftung ist aktualisiert")
 
+func test_test_pointers_label_can_be_updated() -> void:
+	hub.set_test_pointers_label("🧪 Testleiterbahnen: AN")
+	hub.settings_button.pressed.emit()
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var found := false
+	for button: Button in box.get_children():
+		if button.text == "🧪 Testleiterbahnen: AN":
+			found = true
+	assert_true(found, "die Testleiterbahnen-Beschriftung ist aktualisiert")
+
+func test_the_pointer_test_button_reports_its_own_signal() -> void:
+	# Eigener Schalter, nicht an die Materialien gekoppelt.
+	var fired := [0, 0]
+	hub.test_pointers_requested.connect(func() -> void: fired[0] += 1)
+	hub.test_materials_requested.connect(func() -> void: fired[1] += 1)
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	for button: Button in box.get_children():
+		if button.text.begins_with("🧪 Testleiterbahnen"):
+			button.pressed.emit()
+	assert_eq(fired, [1, 0], "nur der Leiterbahn-Schalter meldet sich")
+
 func test_attaching_an_already_visible_panel_takes_the_page() -> void:
 	var eager := Control.new()
 	eager.visible = true

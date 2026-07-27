@@ -216,6 +216,11 @@ enum Phase { IDLE, SHELL_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 var test_materials_button: Button
 var test_materials_enabled: bool = false
 
+## Zweiter Testmodus: 1-5 zufällige Leiterbahnen auf ALLEN Würfeln an/aus -
+## getrennt von den Materialien, damit die Kette allein prüfbar bleibt.
+var test_pointers_button: Button
+var test_pointers_enabled: bool = false
+
 var charm_library: CharmLibraryView
 @onready var hand_label: Label = $UI/HandLabel
 
@@ -329,6 +334,7 @@ var last_throw_was_reroll: bool = false
 var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Vergleich)
 var pre_reroll_materials: Array[String] = []
 var pre_reroll_edge_materials: Array[String] = []
+var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
 var rerolls_this_hand: int = 0  # Anker
@@ -667,6 +673,15 @@ func _setup_table_screen() -> void:
 	for i in drawer_rects.size():
 		drawer_rects[i].position.y = drawer_top
 	table_screen.place_supply_drawers(drawer_rects, corner_unit)
+
+	# Sonderbestand: schmale Vitrine RECHTS der Werkbank, so hoch wie sie, für
+	# die Sonderposten (Leiterbahn & Co.) - in der Würfel-Schublade machte die
+	# dritte Platz-Reihe die ganze Reihe höher und drückte die Werkbank zusammen.
+	var special_rect := Rect2(
+		Vector2(workshop_rect.end.x + drawer_gap, workshop_rect.position.y),
+		Vector2(SupplyDrawerView.size_for(SupplyDrawerView.CATEGORY_SPECIAL, corner_unit).x,
+			workshop_rect.size.y))
+	table_screen.place_special_stock(special_rect, corner_unit)
 	for drawer in table_screen.supply_drawers:
 		drawer.hovered.connect(_on_supply_hovered)
 
@@ -680,9 +695,9 @@ func _setup_table_screen() -> void:
 			corner_unit * 6.0 + 10.0))
 	table_screen.place_supply_info_bar(info_rect, corner_unit)
 
-	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen
-	# und Info-Leiste unten. Nur so liegt der Ziel-Würfel mit im Bild.
-	var corner := workshop_rect.merge(tray_bounds).merge(info_rect)
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen,
+	# Sonderbestand und Info-Leiste unten. Nur so liegt der Ziel-Würfel mit im Bild.
+	var corner := workshop_rect.merge(tray_bounds).merge(info_rect).merge(special_rect)
 	for rect in drawer_rects:
 		corner = corner.merge(rect)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
@@ -816,6 +831,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
+		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 
 	charm_library = CharmLibraryView.new()
@@ -830,6 +846,13 @@ func _setup_settings_ui() -> void:
 	settings_menu.add_child(test_materials_button)
 	CasinoStyle.style_button(test_materials_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
 	_refresh_test_materials_button()
+
+	test_pointers_button = Button.new()
+	test_pointers_button.custom_minimum_size = Vector2(0, 48)
+	test_pointers_button.pressed.connect(_on_test_pointers_pressed)
+	settings_menu.add_child(test_pointers_button)
+	CasinoStyle.style_button(test_pointers_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
+	_refresh_test_pointers_button()
 
 ## Casino-Look der verbliebenen 2D-Spiel-UI; der Shop stylt sich selbst.
 func _style_ui() -> void:
@@ -2532,9 +2555,9 @@ func _show_pit_net(def: DieDefinition, up_face: int) -> void:
 	table_screen.set_pit_net_alpha(1.0)
 	table_screen.set_pit_net_hint("")
 
-## Kurz-Erklärzeile zur Netz-Zelle unter pixel: nur Materialname + Kurzwirkung
-## (face_hint/edge_hint). EDGE-Chip erklärt das Kanten-Material, sonst die Seite
-## unter dem Cursor; "" ohne Material oder außerhalb der Zellen.
+## Kurz-Erklärzeile zur Netz-Zelle unter pixel: Materialname + Kurzwirkung
+## (face_hint/edge_hint), plus die Leiterbahn der Seite. EDGE-Chip erklärt das
+## Kanten-Material; "" ohne Material/Bahn oder außerhalb der Zellen.
 func _net_face_hint(pixel: Vector2) -> String:
 	if _net_die_def == null:
 		return ""
@@ -2543,7 +2566,12 @@ func _net_face_hint(pixel: Vector2) -> String:
 		return DieMaterial.edge_hint(_net_die_def.edge_material)
 	if face < 0 or face >= _net_die_def.materials.size():
 		return ""
-	return DieMaterial.face_hint(_net_die_def.materials[face])
+	var hint := DieMaterial.face_hint(_net_die_def.materials[face])
+	var target: int = _net_die_def.pointers[face] if face < _net_die_def.pointers.size() else -1
+	if target >= 0:
+		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d einmal mit aus" % _net_die_def.faces[target]
+		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
+	return hint
 
 ## Slot des ruhenden, sichtbaren Grubenwürfels unter screen_pos, sonst -1.
 func _hovered_die_index(screen_pos: Vector2) -> int:
@@ -2780,6 +2808,28 @@ func _edge_materials() -> Array[String]:
 		materials.append(dice.slot_defs[i].edge_material)
 	return materials
 
+## Leiterbahn-Glieder je Wurf-Slot (nur Slots mit Kette): einmal HIER aufgelöst,
+## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen.
+func _pointer_links() -> Dictionary:
+	var links := {}
+	for i in dice.count():
+		var face: int = dice.face_indices[i]
+		var def: DieDefinition = dice.slot_defs[i]
+		if face < 0 or def == null:
+			continue
+		var chain := def.pointer_chain(face)
+		if chain.is_empty():
+			continue
+		var entries: Array[Dictionary] = []
+		for link_face in chain:
+			entries.append({
+				"face": link_face,
+				"value": def.faces[link_face],
+				"material": def.materials[link_face] if link_face < def.materials.size() else "",
+			})
+		links[i] = entries
+	return links
+
 ## Wurf-/Runden-Zustand der Effektkatalog-Charms - in JEDE Wertung gereicht
 ## (Vorschau, Nehmen, Farkle-Vergleich), damit Anzeige und Rechnung gleich bleiben.
 func _score_ctx() -> Dictionary:
@@ -2796,6 +2846,7 @@ func _score_ctx() -> Dictionary:
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Stresstest-Drossel
+		DiceScoring.CTX_POINTER_LINKS: _pointer_links(),  # Leiterbahn-Ketten
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -2811,6 +2862,14 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_late.append(to_filtered[s])
 	ctx[CharmEffects.CTX_LATE_SLOTS] = mapped_late
+	# Leiterbahn-Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl
+	# umschlüsseln, sonst feuert die Kette am falschen Würfel.
+	var mapped_links := {}
+	var links: Dictionary = ctx.get(DiceScoring.CTX_POINTER_LINKS, {})
+	for s in links:
+		if to_filtered.has(s):
+			mapped_links[to_filtered[s]] = links[s]
+	ctx[DiceScoring.CTX_POINTER_LINKS] = mapped_links
 	return ctx
 
 ## Slots, deren Würfel aus den letzten 6 Stapel-Positionen gezogen wurden (Bodensatz).
@@ -3012,6 +3071,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_values = dice.values.duplicate()
 		pre_reroll_materials = _rolled_materials()
 		pre_reroll_edge_materials = _edge_materials()
+		pre_reroll_links = _pointer_links()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				if i < slot_draw_positions.size():
@@ -3199,8 +3259,12 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
-	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln.
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx()):
+	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln. Die alte Seite
+	# rechnet mit IHREN Leiterbahn-Gliedern (vor dem Neuwurf), wie mit den
+	# alten Materialien.
+	var old_ctx := _score_ctx()
+	old_ctx[DiceScoring.CTX_POINTER_LINKS] = pre_reroll_links
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand) \
 				or (run.deal_anchor_active() and rerolls_this_hand == 1):
@@ -3608,58 +3672,75 @@ func _pay_street_musician(musician_indices: Array[int]) -> void:
 ## false = Abbruch (Reset).
 func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
 	for pulse: Dictionary in step["activations"]:
-		_flash_scoring_die(slot)
-		if glow_by_slot.has(slot):
-			_pulse_glow(glow_by_slot[slot])
-		for charm_index: int in step["eye_charm_indices"]:
-			_flash_charm_and_pad(charm_index)
-		var p_base: int = pulse["base_after"]
-		var p_mult: int = pulse["mult_after"]
-		var ptargets: Array[String] = ["base"]
-		if int(pulse["mult_add"]) != 0:
-			ptargets.append("mult")
-		_spawn_score_gains(gain_px, int(pulse["base_add"]), int(pulse["mult_add"]))
-		var travel := _fire_score_light(die_px, "pit", ptargets,
-			func() -> void: table_screen.update_pit_score(p_base, p_mult))
-		if not await _score_arrival_gap(travel):
+		if not await _play_die_pulse(pulse, slot, die_px, gain_px, glow_by_slot,
+				step["eye_charm_indices"], step["die_charm_indices"], step["crit_charm_indices"]):
 			return false
-		# Würfelgebundene Charms: der Anteil DIESER Auslösung vom Dock-Pad.
-		var pc_base := int(pulse["charm_base_add"])
-		var pc_mult := int(pulse["charm_mult_add"])
-		if pc_base != 0 or pc_mult != 0:
-			var pca_base: int = pulse["charm_base_after"]
-			var pca_mult: int = pulse["charm_mult_after"]
-			var pctargets: Array[String] = []
-			if pc_base != 0:
-				pctargets.append("base")
-			if pc_mult != 0:
-				pctargets.append("mult")
-			for charm_index: int in step["die_charm_indices"]:
-				_flash_charm_and_pad(charm_index)
-			var pcharm_px := _charm_trail_source_px(step["die_charm_indices"])
-			_spawn_score_gains(pcharm_px, pc_base, pc_mult)
-			var ctravel := _fire_score_light(pcharm_px, "charm", pctargets,
-				func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
-			if not await _score_arrival_gap(ctravel):
-				return false
-		# Krit-Schlag (Beherit) dieser Auslösung: der Würfel blitzt erneut,
-		# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen).
-		var crit_x := int(pulse["crit_x"])
-		if crit_x != 1:
-			_flash_scoring_die(slot)
-			for charm_index: int in step["crit_charm_indices"]:
-				_flash_charm_and_pad(charm_index)
-			var crit_px := _charm_trail_source_px(step["crit_charm_indices"])
-			var crit_base: int = pulse["charm_base_after"]
-			var crit_mult: int = pulse["mult_after_crit"]
-			table_screen.spawn_gain_number(crit_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
-			var crit_travel := _fire_score_light(crit_px, "charm", ["mult"],
-				func() -> void: table_screen.crit_pit_mult(crit_base, crit_mult, crit_x),
-				TableScreen.CRIT_COLOR)
-			if not await _score_arrival_gap(crit_travel):
-				return false
-			if not await _score_step_wait(CRIT_HOLD):
-				return false
+	# Leiterbahn-Glieder: NACH allen Aktivierungen, je Glied einmal. Das Netz-Feld
+	# zeigt den Würfel mit dem GLIED im Gold-Rahmen - so wandert die Kette sichtbar.
+	for link: Dictionary in step.get("links", []):
+		if slot < active_kinds.size():
+			_show_pit_net(active_kinds[slot], int(link["face"]))
+		if not await _play_die_pulse(link, slot, die_px, gain_px, glow_by_slot,
+				[], link["die_charm_indices"], link["crit_charm_indices"]):
+			return false
+	return true
+
+## Eine Auslösung des Würfel-Schritts - Aktivierung ODER Leiterbahn-Glied:
+## Augen+Material-Komet, dann Charm-Anteil vom Dock-Pad, dann Krit-Schlag.
+## false = Abbruch (Reset).
+func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array, die_charm_indices: Array, crit_charm_indices: Array) -> bool:
+	_flash_scoring_die(slot)
+	if glow_by_slot.has(slot):
+		_pulse_glow(glow_by_slot[slot])
+	for charm_index: int in eye_charm_indices:
+		_flash_charm_and_pad(charm_index)
+	var p_base: int = pulse["base_after"]
+	var p_mult: int = pulse["mult_after"]
+	var ptargets: Array[String] = ["base"]
+	if int(pulse["mult_add"]) != 0:
+		ptargets.append("mult")
+	_spawn_score_gains(gain_px, int(pulse["base_add"]), int(pulse["mult_add"]))
+	var travel := _fire_score_light(die_px, "pit", ptargets,
+		func() -> void: table_screen.update_pit_score(p_base, p_mult))
+	if not await _score_arrival_gap(travel):
+		return false
+	# Würfelgebundene Charms: der Anteil DIESER Auslösung vom Dock-Pad.
+	var pc_base := int(pulse["charm_base_add"])
+	var pc_mult := int(pulse["charm_mult_add"])
+	if pc_base != 0 or pc_mult != 0:
+		var pca_base: int = pulse["charm_base_after"]
+		var pca_mult: int = pulse["charm_mult_after"]
+		var pctargets: Array[String] = []
+		if pc_base != 0:
+			pctargets.append("base")
+		if pc_mult != 0:
+			pctargets.append("mult")
+		for charm_index: int in die_charm_indices:
+			_flash_charm_and_pad(charm_index)
+		var pcharm_px := _charm_trail_source_px(die_charm_indices)
+		_spawn_score_gains(pcharm_px, pc_base, pc_mult)
+		var ctravel := _fire_score_light(pcharm_px, "charm", pctargets,
+			func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
+		if not await _score_arrival_gap(ctravel):
+			return false
+	# Krit-Schlag (Beherit) dieser Auslösung: der Würfel blitzt erneut,
+	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen).
+	var crit_x := int(pulse["crit_x"])
+	if crit_x != 1:
+		_flash_scoring_die(slot)
+		for charm_index: int in crit_charm_indices:
+			_flash_charm_and_pad(charm_index)
+		var crit_px := _charm_trail_source_px(crit_charm_indices)
+		var crit_base: int = pulse["charm_base_after"]
+		var crit_mult: int = pulse["mult_after_crit"]
+		table_screen.spawn_gain_number(crit_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
+		var crit_travel := _fire_score_light(crit_px, "charm", ["mult"],
+			func() -> void: table_screen.crit_pit_mult(crit_base, crit_mult, crit_x),
+			TableScreen.CRIT_COLOR)
+		if not await _score_arrival_gap(crit_travel):
+			return false
+		if not await _score_step_wait(CRIT_HOLD):
+			return false
 	return true
 
 ## Spielt einen STATISCHEN Krit-Schritt (Galgenhumor, Feierabendbier): der Komet
@@ -3970,6 +4051,22 @@ func _refresh_test_materials_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_materials_label(label)
 
+## Leiterbahn-Testmodus umschalten: An = 1-5 zufällige Leiterbahnen auf allen
+## Würfeln; Aus = alle entfernen. Wie die Materialien startet es die Runde neu.
+func _on_test_pointers_pressed() -> void:
+	test_pointers_enabled = not test_pointers_enabled
+	if not test_pointers_enabled:
+		run.clear_all_pointers()
+	_refresh_test_pointers_button()
+	_start_new_round()
+
+func _refresh_test_pointers_button() -> void:
+	var label := "🧪 Testleiterbahnen: %s" % ("AN" if test_pointers_enabled else "aus")
+	if test_pointers_button != null:
+		test_pointers_button.text = label
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_test_pointers_label(label)
+
 func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
 	_cancel_deck_shift()
@@ -4122,6 +4219,8 @@ func _start_new_round() -> void:
 	run.unlimited_engravings = test_materials_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
+	if test_pointers_enabled:
+		run.randomize_all_pointers()
 
 	var ids := run.charm_ids()
 	round_pool_kinds = run.owned_pool.duplicate()

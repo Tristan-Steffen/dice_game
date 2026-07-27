@@ -80,6 +80,55 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			mult *= crit_once
 			entry["mult_after_crit"] = mult
 			activations.append(entry)
+		# Leiterbahn-Glieder: nach allen Aktivierungen, je Glied EINMAL wie eine
+		# Aktivierung mit getauschter Seite - exakt DiceScoring._base_and_mult.
+		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
+		var links: Array[Dictionary] = []
+		for link in DiceScoring.pointer_links_for(ctx, i):
+			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
+			var link_eye := CharmEffects.eye_value(link_value, charm_ids)
+			var link_base_once := 0
+			var link_mult_once := 0
+			if has_die_bonus:
+				link_base_once = MaterialEffects.base_once_for(String(link["material"]), edge_here, charm_ids)
+				link_mult_once = MaterialEffects.mult_once_for(String(link["material"]), edge_here, link_value, charm_ids)
+			var link_charm_base := 0
+			var link_charm_mult := 0
+			var link_charm_indices: Array[int] = []
+			var link_crit := 1
+			var link_crit_indices: Array[int] = []
+			if has_die_bonus:
+				for j in charm_ids.size():
+					var lb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, eye_slots)
+					var lm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
+						+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value)
+					if lb != 0 or lm != 0:
+						link_charm_base += lb
+						link_charm_mult += lm
+						link_charm_indices.append(j)
+				for j in charm_ids.size():
+					var lx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
+					if lx != 1:
+						link_crit *= lx
+						link_crit_indices.append(j)
+			base += link_eye + link_base_once
+			mult += link_mult_once
+			var link_entry := {
+				"face": int(link["face"]), "material": String(link["material"]),
+				"base_add": link_eye + link_base_once, "mult_add": link_mult_once,
+				"base_after": base, "mult_after": mult,
+				"charm_base_add": link_charm_base, "charm_mult_add": link_charm_mult,
+				"die_charm_indices": link_charm_indices,
+				"crit_charm_indices": link_crit_indices,
+			}
+			base += link_charm_base
+			mult += link_charm_mult
+			link_entry["charm_base_after"] = base
+			link_entry["charm_mult_after"] = mult
+			link_entry["crit_x"] = link_crit
+			mult *= link_crit
+			link_entry["mult_after_crit"] = mult
+			links.append(link_entry)
 		die_steps.append({
 			"slot": i,
 			"eye_add": eye,
@@ -94,6 +143,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"mult_after": mult,
 			"eye_charm_indices": _eye_charm_indices(raw[i], charm_ids),
 			"activations": activations,
+			"links": links,
 		})
 
 	# 3. Statische Charm-Schritte strikt in Besitz-Reihenfolge: additive Boni
