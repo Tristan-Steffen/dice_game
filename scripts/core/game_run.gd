@@ -21,6 +21,14 @@ const GOAL_INCREMENT := 50
 ## Zuwachs würde daher von Block zu Block leichter.
 const GOAL_BLOCK := 6
 
+## Runden-Ereignisse: je Block landen 1-2 auf zufälligen Stationen, nie auf der
+## letzten - die ist der Stresstest, und der bleibt pur. Ereignisse sind immer
+## Chancen; die Bedrohung wohnt allein im Stresstest.
+const EVENTS_PER_BLOCK_MIN := 1
+const EVENTS_PER_BLOCK_MAX := 2
+## Fahrplan-Marker der Stresstest-Station (goal_roadmap_markers).
+const STRESS_MARKER := "stress"
+
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
 ## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
 ## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter. Wie viele
@@ -78,6 +86,14 @@ var money: int = 0:
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
+## Ereignis-ids je Fahrplan-Station des laufenden Blocks ("" = keins); beim
+## Blockwechsel neu gewürfelt (roll_block_events).
+var block_events: Array[String] = []
+## Thermal Throttling: die im Stresstest gedrosselte Kombination ("" = keine).
+## Steht mit Rundenbeginn fest und ändert sich nicht mehr - auch wenn das
+## Rampenlicht einen anderen Chip mitten in der Runde darüber hebt.
+var throttled_combo: String = ""
+
 ## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
 ## Rarität und den Überladungs-Deckel (siehe die shop_*/hub_*-Abfragen unten).
 var hub_level: int = 1
@@ -114,6 +130,7 @@ static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
+	run.roll_block_events()
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -408,14 +425,83 @@ func overclock_combo(combo_key: String) -> void:
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Lumpensammler würfelt seine
-## Glückszahl neu - je Vorkommen einmal.
+## Glückszahl neu - je Vorkommen einmal. Auch Stresstest-Drossel und
+## Rampenlicht werden hier gesetzt.
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
+	throttled_combo = hottest_combo() if is_stress_round(round_number) else ""
 	spotlight_claimed_this_round = false
-	spotlight_combo = DiceScoring.HAND_PRIORITY.pick_random() if CharmEffects.has_spotlight(ids) else ""
+	# Rampenlicht per Charm ODER Spannungsspitze - nie auf dem gedrosselten Chip
+	# (der wertet nicht, das Licht wäre verschenkt).
+	if CharmEffects.has_spotlight(ids) or round_event() == RoundEvent.POWER_SPIKE:
+		var pool := DiceScoring.HAND_PRIORITY.filter(
+			func(key: String) -> bool: return key != throttled_combo)
+		spotlight_combo = pool.pick_random()
+	else:
+		spotlight_combo = ""
+
+# --- Stresstest + Runden-Ereignisse -------------------------------------------
+
+## Stresstest: die letzte Runde jedes Blocks (Runde 6, 12, ...).
+static func is_stress_round(n: int) -> bool:
+	return n % GOAL_BLOCK == 0
+
+## Thermal Throttling: der höchstgestufte Chip läuft am heißesten; Gleichstand
+## bricht der ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im
+## Shop davor planen kann. "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand
+## und bleibt darum immer wertbar - sie wird nie gedrosselt.
+func hottest_combo() -> String:
+	var best := ""
+	var best_level := -1
+	for key: String in DiceScoring.HAND_PRIORITY:
+		if key == DiceScoring.ONE_KIND:
+			continue
+		if combo_level(key) > best_level:
+			best_level = combo_level(key)
+			best = key
+	return best
+
+## Würfelt die Ereignisse eines frischen Blocks: 1-2 verschiedene auf
+## zufälligen Stationen, die Stresstest-Station bleibt frei.
+func roll_block_events() -> void:
+	block_events.clear()
+	for i in GOAL_BLOCK:
+		block_events.append("")
+	var stations: Array[int] = []
+	stations.assign(range(GOAL_BLOCK - 1))
+	stations.shuffle()
+	var ids := RoundEvent.all_ids()
+	ids.shuffle()
+	for i in randi_range(EVENTS_PER_BLOCK_MIN, EVENTS_PER_BLOCK_MAX):
+		block_events[stations[i]] = ids[i % ids.size()]
+
+## Ereignis der laufenden Runde ("" = keins; Stresstest-Stationen sind frei).
+func round_event() -> String:
+	var i := goal_roadmap_index(GOAL_BLOCK)
+	return block_events[i] if i < block_events.size() else ""
+
+## Happy Hour: die gesamte Rundenauszahlung (Bank + ungenutzte Würfel) doppelt.
+func round_payout_factor() -> int:
+	return 2 if round_event() == RoundEvent.HAPPY_HOUR else 1
+
+## Turniernacht: jede gewonnene Nebenwette schüttet doppelt aus.
+func side_bet_payout_factor() -> int:
+	return 2 if round_event() == RoundEvent.TOURNAMENT_NIGHT else 1
+
+## Fahrplan-Marker je Station: STRESS_MARKER, Ereignis-id oder "". Nur für die
+## Hub-Anzeige - die Wirkung lesen round_event()/is_stress_round().
+func goal_roadmap_markers(count: int) -> Array[String]:
+	var markers: Array[String] = []
+	var first_round := round_number - goal_roadmap_index(count)
+	for i in count:
+		if is_stress_round(first_round + i):
+			markers.append(STRESS_MARKER)
+		else:
+			markers.append(block_events[i] if i < block_events.size() else "")
+	return markers
 
 ## Frankiermaschine: so viele Zahl-Gravuren schenkt sie am Rundenende - je eine
 ## pro Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
@@ -518,14 +604,16 @@ func _consume_engravings(count: int) -> void:
 ## Liefert die gewonnenen Wetten für die Auszahlungs-Anzeige.
 func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	var won: Array[SideBet] = []
+	var factor := side_bet_payout_factor()  # Turniernacht
 	for bet in active_side_bets:
 		if bet.evaluate(result):
 			won.append(bet)
 			if bet.payout_kind == SideBet.Payout.MONEY:
-				add_money(bet.payout_money)
+				add_money(bet.payout_money * factor)
 			else:
-				for engraving in bet.reward_list():
-					grant_engraving(engraving)
+				for i in factor:
+					for engraving in bet.reward_list():
+						grant_engraving(engraving)
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won
@@ -612,6 +700,8 @@ static func goal_for_round(n: int) -> int:
 func advance_round() -> void:
 	round_number += 1
 	round_goal = goal_for_round(round_number)
+	if goal_roadmap_index(GOAL_BLOCK) == 0:
+		roll_block_events()
 
 ## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
 ## stehen, bis das letzte des Blocks geschafft ist - erst dann rückt ein frischer

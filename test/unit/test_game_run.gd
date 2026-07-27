@@ -8,6 +8,8 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
+	# Ereignisse deterministisch aus - die Ereignis-Tests setzen sie gezielt.
+	run.block_events.clear()
 
 # --- Startzustand -------------------------------------------------------------
 
@@ -515,6 +517,117 @@ func test_midas_glove_stays_cold_below_six_dice():
 		defs.append(DieDefinition.standard())
 	assert_eq(run.apply_midas_glove(defs, _p([0, 0, 0, 0, 0]), _p([0, 1, 2, 3, 4])).size(), 0)
 	assert_eq(defs[0].materials[0], "", "nichts vergoldet")
+
+# --- Stresstest (Thermal Throttling) ----------------------------------------------
+
+func test_stress_round_is_every_last_block_station():
+	assert_false(GameRun.is_stress_round(1))
+	assert_false(GameRun.is_stress_round(5))
+	assert_true(GameRun.is_stress_round(6))
+	assert_false(GameRun.is_stress_round(7))
+	assert_true(GameRun.is_stress_round(12))
+
+func test_hottest_combo_takes_the_highest_level():
+	run.combo_levels[DiceScoring.TWO_KIND] = 3
+	run.combo_levels[DiceScoring.FOUR_KIND] = 5
+	assert_eq(run.hottest_combo(), DiceScoring.FOUR_KIND)
+
+func test_hottest_combo_breaks_ties_by_rank():
+	run.combo_levels[DiceScoring.TWO_KIND] = 3
+	run.combo_levels[DiceScoring.FOUR_KIND] = 3
+	assert_eq(run.hottest_combo(), DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere Chip")
+
+func test_hottest_combo_never_throttles_the_fallback_category():
+	# "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand: gedrosselt könnte eine
+	# Hand ohne jede wertbare Kategorie enden.
+	run.combo_levels[DiceScoring.ONE_KIND] = 9
+	run.combo_levels[DiceScoring.TWO_KIND] = 2
+	assert_eq(run.hottest_combo(), DiceScoring.TWO_KIND)
+
+func test_round_start_throttles_only_in_stress_rounds():
+	run.combo_levels[DiceScoring.FULL_HOUSE] = 4
+	run.apply_round_start_charms()
+	assert_eq(run.throttled_combo, "", "Runde 1 ist kein Stresstest")
+	run.round_number = 6
+	run.apply_round_start_charms()
+	assert_eq(run.throttled_combo, DiceScoring.FULL_HOUSE)
+
+func test_spotlight_avoids_the_throttled_combo():
+	# Der gedrosselte Chip wertet nicht - ein Rampenlicht darauf wäre verschenkt.
+	run.owned_charms.append(Charm.spotlight())
+	run.round_number = 6
+	run.combo_levels[DiceScoring.SIX_KIND] = 4
+	for i in 40:
+		run.apply_round_start_charms()
+		assert_ne(run.spotlight_combo, DiceScoring.SIX_KIND)
+
+# --- Runden-Ereignisse -------------------------------------------------------------
+
+func test_new_run_rolls_block_events():
+	var fresh := GameRun.new_run()
+	assert_eq(fresh.block_events.size(), GameRun.GOAL_BLOCK)
+	var count := fresh.block_events.size() - fresh.block_events.count("")
+	assert_between(count, GameRun.EVENTS_PER_BLOCK_MIN, GameRun.EVENTS_PER_BLOCK_MAX)
+
+func test_block_events_never_land_on_the_stress_station():
+	for i in 30:
+		run.roll_block_events()
+		assert_eq(run.block_events[GameRun.GOAL_BLOCK - 1], "", "die Stresstest-Station bleibt frei")
+		for event_id in run.block_events:
+			if event_id != "":
+				assert_true(RoundEvent.all_ids().has(event_id), "nur echte Ereignis-ids")
+
+func test_advance_round_rerolls_events_on_a_fresh_block():
+	run.round_number = GameRun.GOAL_BLOCK  # letzte Runde des Blocks
+	run.advance_round()
+	assert_eq(run.block_events.size(), GameRun.GOAL_BLOCK, "frischer Block, frische Ereignisse")
+
+func test_round_event_reads_the_current_station():
+	run.block_events.assign(["", "", RoundEvent.HAPPY_HOUR, "", "", ""])
+	run.round_number = 3  # Station 2 (0-basiert)
+	assert_eq(run.round_event(), RoundEvent.HAPPY_HOUR)
+	run.round_number = 4
+	assert_eq(run.round_event(), "")
+
+func test_happy_hour_doubles_the_round_payout():
+	assert_eq(run.round_payout_factor(), 1)
+	run.block_events.assign([RoundEvent.HAPPY_HOUR, "", "", "", "", ""])
+	assert_eq(run.round_payout_factor(), 2)
+	assert_eq(run.side_bet_payout_factor(), 1, "Happy Hour lässt die Wetten unberührt")
+
+func test_power_spike_spotlights_without_the_charm():
+	run.block_events.assign([RoundEvent.POWER_SPIKE, "", "", "", "", ""])
+	run.apply_round_start_charms()
+	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "Rampenlicht ohne Charm")
+
+func test_tournament_night_doubles_side_bet_payouts():
+	run.money = 50
+	run.block_events.assign([RoundEvent.TOURNAMENT_NIGHT, "", "", "", "", ""])
+	var bet := SideBet._from_template(_template("jackpot"))  # Geld-Gewinn
+	run.place_side_bet(bet)
+	var after_stake := run.money
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	run.resolve_side_bets(result)
+	assert_eq(run.money, after_stake + bet.payout_money * 2, "Turniernacht zahlt doppelt")
+
+func test_tournament_night_doubles_engraving_rewards():
+	run.block_events.assign([RoundEvent.TOURNAMENT_NIGHT, "", "", "", "", ""])
+	var bet := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
+	run.money = 50
+	run.place_side_bet(bet)
+	var before := run.owned_engravings.size()
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	run.resolve_side_bets(result)
+	assert_eq(run.owned_engravings.size(), before + bet.reward_engravings * 2)
+
+func test_roadmap_markers_flag_stress_and_events():
+	run.block_events.assign(["", RoundEvent.HAPPY_HOUR, "", "", "", ""])
+	var markers := run.goal_roadmap_markers(GameRun.GOAL_BLOCK)
+	assert_eq(markers.size(), GameRun.GOAL_BLOCK)
+	assert_eq(markers[GameRun.GOAL_BLOCK - 1], GameRun.STRESS_MARKER)
+	assert_eq(markers[1], RoundEvent.HAPPY_HOUR)
 
 # --- Helfer -----------------------------------------------------------------------
 

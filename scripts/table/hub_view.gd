@@ -63,6 +63,9 @@ var current_ball: Panel
 var medallion_label: Label
 var _roadmap_goals: Array[int] = []
 var _roadmap_current := 0  # Position des aktuellen Ziels im Block (0-basiert)
+## Marker je Station: GameRun.STRESS_MARKER, RoundEvent-id oder "" (siehe
+## goal_roadmap_markers) - Stresstest färbt die Station, Ereignisse den Punkt.
+var _roadmap_markers: Array[String] = []
 var _pips: Array[Panel] = []
 ## Radgeometrie (in layout() aus der Bühnengröße gesetzt; Tests lesen sie).
 var _rim_center := Vector2.ZERO
@@ -477,10 +480,12 @@ func _pop_suppressed() -> Control:
 	return null
 
 ## Aktualisiert die Lauf-Übersicht (Runde + Geld; das Ziel zeigt der Zielbalken).
-func set_run_info(round_number: int, money: int) -> void:
+## note: Zusatz der laufenden Runde - "Stresstest" oder der Ereignis-Name.
+func set_run_info(round_number: int, money: int, note: String = "") -> void:
 	if not _built:
 		return
-	round_label.text = "Runde %d" % round_number
+	round_label.text = ("Runde %d" % round_number) if note == "" \
+		else "Runde %d · %s" % [round_number, note]
 	money_label.text = "$%d" % money
 
 ## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung
@@ -558,13 +563,14 @@ func _apply_tier_to_medallion(tier: Color, last: int) -> void:
 ## gefüllt, die aktuelle trägt die Kugel, kommende verblassen. Rückt die Position
 ## im selben Block vor, blitzt die eben geschaffte Station auf; ein frischer
 ## Block zündet alle Stationen im Lauf des Bogens.
-func set_goal_roadmap(goals: Array[int], current: int = 0) -> void:
+func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = []) -> void:
 	if not _built:
 		return
 	var same_block := goals == _roadmap_goals
 	var cleared := same_block and current == _roadmap_current + 1
 	var fresh_block := not same_block and not _roadmap_goals.is_empty()
 	_roadmap_goals = goals.duplicate()
+	_roadmap_markers = markers.duplicate()
 	_roadmap_current = clampi(current, 0, maxi(0, goals.size() - 1))
 	_rebuild_roadmap()
 	if cleared:
@@ -614,8 +620,14 @@ func _rebuild_roadmap() -> void:
 
 ## Runde Ziel-Station: geschafft = satt in Stufenfarbe gefüllt (dunkle Zahl),
 ## aktuell = groß + Stufenfarbe + Glow, offen = dunkel und mit der Entfernung
-## zum aktuellen Ziel verblassend (die Zukunft dimmt aus).
+## zum aktuellen Ziel verblassend (die Zukunft dimmt aus). Die Stresstest-
+## Station trägt statt der Stufenfarbe durchgehend Warnrot; Ereignis-Stationen
+## kündigen sich als farbiger Punkt unter der Scheibe an.
 func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
+	var marker := _roadmap_markers[index] if index < _roadmap_markers.size() else ""
+	var stress := marker == GameRun.STRESS_MARKER
+	if stress:
+		tier = ComboChipView.THROTTLE_COLOR
 	var current := index == _roadmap_current
 	var done := index < _roadmap_current
 	var dia := (u * 9.0) if current else ((u * 5.6) if done else (u * 6.2))
@@ -638,11 +650,17 @@ func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
 	else:
 		var dist := index - _roadmap_current
 		var fade := clampf(1.0 - dist * 0.15, 0.32, 1.0)
+		var frame := tier if stress else FRAME_COLOR
 		box.bg_color = Color("#161033cc")
-		box.border_color = Color(FRAME_COLOR.r, FRAME_COLOR.g, FRAME_COLOR.b, 0.5 * fade)
+		box.border_color = Color(frame.r, frame.g, frame.b, (0.75 if stress else 0.5) * fade)
 		box.set_border_width_all(maxi(1, int(u * 0.22)))
 	box.set_corner_radius_all(int(dia * 0.5))
 	station.add_theme_stylebox_override("panel", box)
+
+	if marker != "" and not stress:
+		var event := RoundEvent.find(marker)
+		if event != null:
+			station.add_child(_make_event_dot(u, event.color, dia))
 
 	var label := Label.new()
 	label.text = str(goal)
@@ -658,6 +676,21 @@ func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	station.add_child(label)
 	return station
+
+## Ereignis-Punkt unter der Station: kündigt das Runden-Ereignis in seiner
+## Farbe an (der Name erscheint in der Kopfzeile, sobald die Runde beginnt).
+func _make_event_dot(u: float, color: Color, dia: float) -> Panel:
+	var d := u * 1.8
+	var dot := Panel.new()
+	dot.custom_minimum_size = Vector2(d, d)
+	dot.size = Vector2(d, d)
+	dot.position = Vector2(dia * 0.5 - d * 0.5, dia + u * 0.6)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(color.r * 1.4, color.g * 1.4, color.b * 1.4)  # blüht leicht
+	box.set_corner_radius_all(int(d * 0.5))
+	dot.add_theme_stylebox_override("panel", box)
+	return dot
 
 ## Überhelle "Roulette-Kugel" auf der aktuellen Station (blüht im HDR).
 func _make_ball(u: float) -> Panel:
@@ -830,7 +863,7 @@ func _build_medallion_cluster(u: float) -> void:
 ## bleiben referenziert (scene_root lässt sie beim Zählen golden aufleuchten).
 func _build_bonus_chips(u: float) -> void:
 	_chips.clear()
-	blind_payout_label = _make_bonus_chip(u, "je Blind", "5$")
+	blind_payout_label = _make_bonus_chip(u, "je Benchmark", "5$")
 	die_payout_label = _make_bonus_chip(u, "je Würfel", "1$")
 
 func _make_bonus_chip(u: float, caption: String, value: String) -> Label:

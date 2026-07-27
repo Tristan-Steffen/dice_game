@@ -102,6 +102,11 @@ const HIGHLIGHT_BAND_ENERGY := 1.2
 ## Gold darauf (und dem Bloom des goldenen Gehäuses) verschwand die Schrift.
 const HIGHLIGHT_SCREEN_ENERGY := 0.12
 
+## Thermal Throttling (Stresstest): der Chip ist abgeschaltet - das Band glimmt
+## nur noch als rote Warnleuchte, das Display zeigt "AUS" statt der Stufe.
+const THROTTLE_COLOR := Color("#ff5555")
+const THROTTLE_ENERGY := 0.45
+
 ## Rampenlicht (Charm): der Chip atmet golden und übertönt die Hitzefarbe -
 ## seit die Zelle nichts mehr zeichnet, trägt der Chip diese Anzeige selbst.
 const SPOTLIGHT_COLOR := Color("#ffd319")
@@ -132,6 +137,7 @@ var _mult := 1
 var _level := -1
 var _spotlit := false
 var _spotlight_phase := 0.0
+var _throttled := false
 
 ## Pin-Positionen der Chips in Screen-Pixeln, relativ zur ZELLMITTE - einzige
 ## Quelle für alles, was an die Pins andockt (TableScreen verlegt daran die
@@ -283,8 +289,9 @@ func _layout_labels() -> void:
 	var half := (BODY_LENGTH / 2.0 - TEXT_MARGIN) * _sx
 	var gap := TEXT_GAP * _sx
 
-	_level_label.text = "LVL %d" % _level if _level >= 1 else ""
-	_level_label.modulate = LEVEL_COLOR_GOLD if _level >= ComboCellView.GOLD_LEVEL else LEVEL_COLOR
+	_level_label.text = "AUS" if _throttled else ("LVL %d" % _level if _level >= 1 else "")
+	_level_label.modulate = THROTTLE_COLOR if _throttled \
+		else (LEVEL_COLOR_GOLD if _level >= ComboCellView.GOLD_LEVEL else LEVEL_COLOR)
 	_level_label.pixel_size = LEVEL_HEIGHT * _sz / float(FONT_SIZE)
 	_points_label.text = str(_points)
 	_mult_label.text = "×%d" % _mult
@@ -320,6 +327,14 @@ func set_glow(value: float) -> void:
 	glow = value
 	_apply_heat()
 
+## Stresstest-Drossel an/aus: der Chip wertet diese Runde nicht.
+func set_throttled(on: bool) -> void:
+	if _throttled == on:
+		return
+	_throttled = on
+	_layout_labels()
+	_apply_heat()
+
 ## Rampenlicht an/aus: läuft nur, solange der Chip im Licht steht.
 func set_spotlight(on: bool) -> void:
 	if _spotlit == on:
@@ -347,6 +362,9 @@ func _apply_heat() -> void:
 	if _spotlit:
 		color = SPOTLIGHT_COLOR
 		energy = SPOTLIGHT_BASE + SPOTLIGHT_SWING * (0.5 + 0.5 * sin(_spotlight_phase))
+	if _throttled:  # Drossel schlägt alles - der Chip ist aus
+		color = THROTTLE_COLOR
+		energy = THROTTLE_ENERGY
 	# Hervorhebung zieht jede Fläche ins Gold; glow darf über 1 gehen
 	# (Kauf-Blitz), der Farbanteil bleibt aber gedeckelt.
 	var lit := clampf(glow, 0.0, 1.0)

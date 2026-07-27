@@ -914,6 +914,11 @@ func _set_spotlight_combo(key: String) -> void:
 	for combo_key: String in combo_chips:
 		combo_chips[combo_key].set_spotlight(combo_key == key)
 
+## Stresstest-Drossel auf genau einem Chip ("" = keine).
+func _set_throttled_combo(key: String) -> void:
+	for combo_key: String in combo_chips:
+		combo_chips[combo_key].set_throttled(combo_key == key)
+
 ## Zieht den 3D-Chip einer Kombination auf den Stand seiner Zelle nach.
 func _sync_combo_chip(key: String) -> void:
 	if combo_chips.has(key) and combo_labels.has(key):
@@ -1590,11 +1595,20 @@ func _play_side_bet_payouts(won: Array[SideBet]) -> void:
 func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
-	table_screen.hub.set_run_info(run.round_number, run.money)
-	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position.
-	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6))
+	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
+	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position
+	# samt Markern (Stresstest rot, Ereignisse als farbige Punkte).
+	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
+		run.goal_roadmap_markers(6))
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
+
+## Kopfzeilen-Zusatz der laufenden Runde: Stresstest oder Ereignis-Name.
+func _round_note() -> String:
+	if GameRun.is_stress_round(run.round_number):
+		return "Stresstest"
+	var event := RoundEvent.find(run.round_event())
+	return "" if event == null else event.display_name
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -2700,6 +2714,7 @@ func _score_ctx() -> Dictionary:
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
+		DiceScoring.CTX_THROTTLED: run.throttled_combo,  # Stresstest-Drossel
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3964,6 +3979,7 @@ func _start_new_round() -> void:
 	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
 	if table_screen != null:
 		_set_spotlight_combo(run.spotlight_combo)
+		_set_throttled_combo(run.throttled_combo)  # Stresstest: Chip auf AUS
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
@@ -4056,8 +4072,9 @@ func _on_round_complete() -> void:
 	if stages >= 1:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
-		var base_blind := MONEY_PER_ROUND_CLEAR
-		var per_die := MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)  # Sparschwein
+		var factor := run.round_payout_factor()  # Happy Hour: alles doppelt
+		var base_blind := MONEY_PER_ROUND_CLEAR * factor
+		var per_die := (MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)) * factor  # Sparschwein
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		await _play_round_clear_payout(base_blind, per_die, stages)
@@ -4076,6 +4093,8 @@ func _on_round_complete() -> void:
 		_resolve_side_bets(true)
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
+		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
+		_set_throttled_combo("")
 		if table_screen != null:
 			table_screen.set_round_pulse(false)
 		_set_gameplay_ui_visible(false)
@@ -4122,8 +4141,9 @@ func _resolve_side_bets(cleared: bool) -> void:
 	var names: Array[String] = []
 	for bet in won:
 		names.append(bet.display_name)
-	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben." \
-		% [won.size(), placed, ", ".join(names)]
+	var doubled := " (Turniernacht ×2)" if run.side_bet_payout_factor() > 1 else ""
+	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben%s." \
+		% [won.size(), placed, ", ".join(names), doubled]
 
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:
@@ -4168,7 +4188,7 @@ func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> voi
 	# leuchtet erst mit den eintreffenden Kometen auf (Betrag baut sich pulsierend auf).
 	if hub != null and hub.blind_payout_label != null:
 		hub.blind_payout_label.text = ("%d$  (Überladung ×%d)" % [total_blind, stages]) if stages > 1 \
-			else "%d$ pro Blind" % total_blind
+			else "%d$ pro Benchmark" % total_blind
 		hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
 	# Bank-Entladung: je Stufe ein Komet aus dem Zielbalken um die Grube in den Hub;
 	# jede Ankunft blitzt den Hub-Rahmen und bucht eine Scheibe (base_blind).
@@ -4488,7 +4508,7 @@ func _on_shop_closed() -> void:
 func _show_game_over(total: int) -> void:
 	_set_gameplay_ui_visible(false)
 	if title_view == null:
-		game_over_label.text = "Ziel verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
+		game_over_label.text = "Benchmark verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
 		game_over_panel.visible = true
 		return
 	title_view.show_game_over(total, run.round_goal, run.round_number)

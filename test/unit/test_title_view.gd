@@ -44,7 +44,7 @@ func test_a_lost_run_shows_the_result() -> void:
 	view.show_game_over(87, 150, 4)
 	assert_true(view._cards[TitleView.Card.GAME_OVER].visible)
 	assert_eq(_visible_cards(), 1)
-	assert_eq(view.game_over_result.text, "Ziel verfehlt: 87 / 150 Punkte")
+	assert_eq(view.game_over_result.text, "Benchmark verfehlt: 87 / 150 Punkte")
 	assert_eq(view.game_over_round.text, "in Runde 4")
 	assert_false(view.is_resumable(), "die verlorene Partie lässt sich nicht fortsetzen")
 
