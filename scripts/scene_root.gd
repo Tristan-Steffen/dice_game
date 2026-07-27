@@ -220,10 +220,9 @@ var charm_shop: ShopController
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_choice: RouteChoiceView
 var route_pending := false
-## Anteil der Grubenbreite als Rand der Auslage, und wie viel Grubenhöhe unten
-## für Netz-Feld und Knöpfe frei bleibt.
-const ROUTE_CHOICE_INSET := 0.05
-const ROUTE_CHOICE_BOTTOM_SHARE := 0.34
+## Rand der Auslage als Anteil der Grubenbreite (rundum gleich). Sie nimmt den
+## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
+const ROUTE_CHOICE_INSET := 0.04
 
 ## Titel-HUD (Startbildschirm + Menü) als Hub-Seite; davor stand die Kamera in
 ## title_prev_mode und kehrt beim "Weiterspielen" dorthin zurück.
@@ -1702,7 +1701,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		# Die Grube ist während der Runde frei begehbar - der Spieler darf sich
 		# umsehen; nur das Bearbeiten der Würfel bleibt bis zum Laden gesperrt.
-		camera_rig.zoom_out()
+		# Ausnahme: liegt die Auslage, wird erst unterschrieben.
+		if not _route_choice_open():
+			camera_rig.zoom_out()
 		return
 
 	if event.button_index != MOUSE_BUTTON_LEFT:
@@ -2418,6 +2419,8 @@ func _workshop_window_has_point(pixel: Vector2) -> bool:
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
+	if _route_choice_open():
+		return  # die Auslage schließt die Grube: erst der Deal, dann weitersehen
 	var result := _ray_pick(screen_pos, 8)
 	if result.is_empty():
 		return
@@ -2542,10 +2545,18 @@ func _hovered_queue_index(screen_pos: Vector2) -> int:
 func _sync_screen_action_buttons() -> void:
 	if table_screen == null or table_screen.pit_actions_root == null:
 		return
-	var show := gameplay_ui_state_visible and is_pit_focused
+	# Die Routenwahl braucht den ganzen Grubenboden: solange sie liegt, weicht
+	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
+	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
+	# nebenher wieder einschalten.
+	var choosing := _route_choice_open()
+	var show := gameplay_ui_state_visible and is_pit_focused and not choosing
 	table_screen.pit_actions_root.visible = show
 	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
 	table_screen.pit_info_bar.visible = show
+	if choosing:
+		table_screen.set_pit_net_hint("")
+		table_screen.hide_pit_score()
 	if not show:
 		return
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
@@ -3992,19 +4003,20 @@ func _connect_run() -> void:
 	_refresh_combo_label_texts()
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 
-## Spannt die Auslage über den oberen Teil der Grube - unter ihr bleibt das
-## Würfelnetz-Feld mit den Aktions-Knöpfen frei.
+## Ob die Auslage gerade auf dem Grubenboden liegt: dann ist die Grube
+## verschlossen (kein Wegzoomen) und ihr Mobiliar weicht.
+func _route_choice_open() -> bool:
+	return route_choice != null and route_choice.visible
+
+## Spannt die Auslage über den GANZEN Grubenboden - Netz-Feld, Erklärzeile,
+## Aktions-Knöpfe und Wertungs-Orbs sind solange ausgeblendet.
 func _place_route_choice() -> void:
 	if route_choice == null or table_screen == null or table_screen.pit_window == null:
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var inset := pit.size.x * ROUTE_CHOICE_INSET
-	var bottom := pit.end.y - pit.size.y * ROUTE_CHOICE_BOTTOM_SHARE
-	if table_screen.pit_info_bar != null and table_screen.pit_info_bar.size.y > 0.0:
-		bottom = minf(bottom, table_screen.pit_info_bar.position.y - inset)
-	route_choice.position = Vector2(pit.position.x + inset, pit.position.y + inset)
-	route_choice.size = Vector2(pit.size.x - inset * 2.0,
-		maxf(bottom - pit.position.y - inset, pit.size.y * 0.3))
+	route_choice.position = pit.position + Vector2(inset, inset)
+	route_choice.size = pit.size - Vector2(inset, inset) * 2.0
 
 ## Erster Grubenzoom der Runde: die Auslage kommt auf den Grubenboden. Ohne
 ## Display-Fläche fällt die Wahl automatisch aufs erste Angebot (2D-Rückfall).

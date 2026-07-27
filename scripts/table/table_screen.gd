@@ -1111,6 +1111,13 @@ func update_pit_score(base: int, mult: int) -> void:
 	base_counter.set_value(base)
 	mult_counter.set_value(mult)
 
+## Nimmt die Wertungs-Orbs vom Grubenboden (die Routenwahl braucht die Fläche).
+## Der nächste update_pit_score holt sie von selbst zurück.
+func hide_pit_score() -> void:
+	base_counter.visible = false
+	mult_counter.visible = false
+	total_orb.visible = false
+
 var _crit_tween: Tween
 
 ## Krit-Einschlag (Ankunft eines Krit-Kometen): die Basis zieht normal nach,

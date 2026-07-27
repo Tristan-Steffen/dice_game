@@ -43,11 +43,11 @@ func open(deal_ids: Array[String], is_stress: bool = false) -> void:
 func close() -> void:
 	visible = false
 
-## Maßeinheit: die kleinere der beiden Achsen entscheidet, damit die flache
-## Grube keine Riesenschrift bekommt. In der Grube ist die HÖHE der Engpass -
-## der Teiler ist so gewählt, dass fünf Zeilen je Karte gerade hineinpassen.
+## Maßeinheit aus BEIDEN Achsen: die Auslage nimmt den ganzen Grubenboden, der
+## ist breit und flach. Der Höhen-Teiler bremst nur noch extrem flache Gruben -
+## im Normalfall bestimmt die Breite (drei Karten nebeneinander).
 func _unit() -> float:
-	return minf(size.x / 100.0, size.y / 32.0)
+	return minf(size.x / 100.0, size.y / 46.0)
 
 func _build() -> void:
 	for child in get_children():
@@ -71,9 +71,9 @@ func _build() -> void:
 	margin.add_child(column)
 
 	column.add_child(_line(TITLE if not stress_round else STRESS_TITLE,
-		u * 3.6, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		u * 4.4, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 	column.add_child(_line(SUBTITLE if not stress_round else STRESS_SUBTITLE,
-		u * 2.2, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		u * 2.6, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", int(u * 1.4))
@@ -132,11 +132,13 @@ func _title_scale(name_text: String) -> float:
 	var longest := 0
 	for word in name_text.split(" ", false):
 		longest = maxi(longest, word.length())
+	if longest >= 17:
+		return 2.8  # "Übertaktungsrabatt" - ein Wort, das nirgends umbrechen kann
 	if longest >= 15:
-		return 2.4
+		return 3.2
 	if longest >= 11:
-		return 2.8
-	return 3.2
+		return 3.7
+	return 4.2
 
 ## Eine Deal-Seite: Wirkung in ihrer Farbe, darunter klein die Laufzeit - die
 ## Laufzeit ist die eigentliche Entscheidung, sie darf nie fehlen.
@@ -146,10 +148,10 @@ func _side_block(text: String, scope: RouteDeal.Scope, color: Color, u: float) -
 	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Mittig: die Karte ist in der Grube breiter als hoch, linksbündiger Text
 	# klebte an der Kante und ließ die halbe Karte leer.
-	var body := _line(text, u * 2.3, color, HORIZONTAL_ALIGNMENT_CENTER)
+	var body := _line(text, u * 3.0, color, HORIZONTAL_ALIGNMENT_CENTER)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	block.add_child(body)
-	block.add_child(_line(RouteDeal.scope_label(scope), u * 1.7, MUTED_COLOR,
+	block.add_child(_line(RouteDeal.scope_label(scope), u * 2.1, MUTED_COLOR,
 		HORIZONTAL_ALIGNMENT_CENTER))
 	return block
 

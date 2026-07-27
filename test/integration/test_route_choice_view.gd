@@ -70,6 +70,16 @@ func test_reopening_replaces_the_old_offers() -> void:
 	view.open(_ids([RouteDeal.ADVANCE_PAYMENT]))
 	assert_eq(_cards().size(), 1, "keine Karten der vorigen Runde bleiben stehen")
 
+func test_the_unit_never_follows_the_width_alone() -> void:
+	# Der Grubenboden ist breit und flach: aus der Breite allein gerechnet würde
+	# die Schrift riesig, darum bremst die Höhe mit.
+	view.size = Vector2(2000, 200)
+	var flat := view._unit()
+	assert_almost_eq(flat, 200.0 / 46.0, 0.01, "flache Grube -> die Höhe bremst")
+	view.size = Vector2(2000, 1200)
+	assert_almost_eq(view._unit(), 20.0, 0.01, "hoch genug -> die Breite bestimmt")
+	assert_lt(flat, view._unit())
+
 func test_close_hides_the_page() -> void:
 	view.open(_ids([RouteDeal.SAVINGS_BONUS]))
 	view.close()
