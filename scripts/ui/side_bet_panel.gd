@@ -62,6 +62,13 @@ func close_betting() -> void:
 	mode = Mode.PROGRESS
 	_rebuild()
 
+## Baut die offene Wett-Auslage neu auf (gleiche Angebote, gleiche Einsätze-
+## Marken): ein mitten in der Runde unterschriebener Deal (Quotenpaket) ändert
+## die Preise - der Knopf muss den WIRKLICH fälligen Einsatz zeigen.
+func refresh_betting() -> void:
+	if mode == Mode.BETTING:
+		_rebuild()
+
 ## Aktualisiert den Live-Fortschritt (nur im Fortschritts-Modus wirksam).
 func update_progress(result: Dictionary) -> void:
 	_result = result

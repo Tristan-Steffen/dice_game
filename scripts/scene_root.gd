@@ -1626,6 +1626,14 @@ func _refresh_hub_info() -> void:
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 
+## Deal unterschrieben oder abgerechnet: Hub (Marken + Fahrplan) und die offene
+## Wett-Auslage nachziehen - das Quotenpaket ändert Einsätze mitten in der
+## Runde, der Setzen-Knopf darf keinen alten Preis versprechen.
+func _on_deals_changed() -> void:
+	_refresh_hub_info()
+	if table_screen != null and table_screen.side_bet_window != null:
+		table_screen.side_bet_window.refresh_betting()
+
 ## Kopfzeilen-Zusatz der laufenden Runde (die Deals zeigen die Marken).
 func _round_note() -> String:
 	return GameRun.STRESS_NAME if GameRun.is_stress_round(run.round_number) else ""
@@ -3976,9 +3984,8 @@ func _connect_run() -> void:
 	run.charms_changed.connect(_on_charms_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	run.hub_level_changed.connect(_on_hub_level_changed)
-	# Unterschrift/Abrechnung: Marken UND Fahrplan sofort nachziehen (ein
-	# Benchmark-Aufschlag hebt die Stationen im selben Moment).
-	run.deals_changed.connect(_refresh_hub_info)
+	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
+	run.deals_changed.connect(_on_deals_changed)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
 	_on_charms_changed()
@@ -4014,6 +4021,8 @@ func _open_route_choice() -> void:
 ## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
 ## geworfen werden.
 func _on_route_chosen(deal_id: String) -> void:
+	if not route_pending:
+		return  # doppelte Unterschrift = doppelter Vorschuss
 	run.take_route(deal_id)
 	route_pending = false
 	if route_choice != null:
@@ -4210,7 +4219,9 @@ func _play_settlement() -> void:
 	var hub := table_screen.hub if table_screen != null else null
 	var sweep := hub.sweep_deal_tokens() if hub != null else 0.0
 	if sweep > 0.0:
-		await get_tree().create_timer(sweep).timeout
+		# Etwas länger als der Wisch: settle baut die Marken-Reihe neu und würde
+		# sonst Marken freigeben, deren Tween im selben Frame noch endet.
+		await get_tree().create_timer(sweep + 0.1).timeout
 	run.settle_block_deals()
 
 ## Wertet die platzierten Nebenwetten gegen die Rundenbilanz aus. cleared =
