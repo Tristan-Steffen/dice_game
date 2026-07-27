@@ -1,9 +1,12 @@
 class_name RouteChoiceView
 extends Control
-## Die Routenwahl auf dem Tisch-Display: drei Deal-Karten als Hub-SEITE (wie der
-## Shop, siehe HubView.attach_panel). Ohne Unterschrift beginnt keine Runde -
-## darum hat die Seite bewusst kein Zurück und keinen Schließen-Knopf.
-## Alle Maße leiten sich aus der eigenen Breite ab (Einheit u = Breite/100).
+## Die Routenwahl IN DER GRUBE: drei Deal-Karten liegen auf dem Grubenboden,
+## sobald der Spieler die Runde dort zum ersten Mal aufnimmt - unterschrieben
+## wird, bevor der erste Würfel fällt. Kein Zurück und kein Schließen-Knopf:
+## ohne Deal wirft niemand.
+##
+## Die Einheit u kommt aus BEIDEN Achsen (die Grube ist breit und flach - allein
+## aus der Breite gerechnet würde die Schrift riesig).
 
 signal route_chosen(deal_id: String)
 
@@ -40,34 +43,40 @@ func open(deal_ids: Array[String], is_stress: bool = false) -> void:
 func close() -> void:
 	visible = false
 
+## Maßeinheit: die kleinere der beiden Achsen entscheidet, damit die flache
+## Grube keine Riesenschrift bekommt. In der Grube ist die HÖHE der Engpass -
+## der Teiler ist so gewählt, dass fünf Zeilen je Karte gerade hineinpassen.
+func _unit() -> float:
+	return minf(size.x / 100.0, size.y / 32.0)
+
 func _build() -> void:
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
 	_cards.clear()
-	var u := maxf(size.x, 640.0) / 100.0
+	var u := maxf(_unit(), 1.0)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", int(u * 3.0))
-	margin.add_theme_constant_override("margin_right", int(u * 3.0))
-	margin.add_theme_constant_override("margin_top", int(u * 2.5))
-	margin.add_theme_constant_override("margin_bottom", int(u * 2.5))
+	margin.add_theme_constant_override("margin_left", int(u * 2.0))
+	margin.add_theme_constant_override("margin_right", int(u * 2.0))
+	margin.add_theme_constant_override("margin_top", int(u * 1.2))
+	margin.add_theme_constant_override("margin_bottom", int(u * 1.2))
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(margin)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(u * 1.6))
+	column.add_theme_constant_override("separation", int(u * 1.0))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 
 	column.add_child(_line(TITLE if not stress_round else STRESS_TITLE,
-		u * 5.0, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		u * 3.6, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 	column.add_child(_line(SUBTITLE if not stress_round else STRESS_SUBTITLE,
-		u * 2.6, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		u * 2.2, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(u * 2.0))
+	row.add_theme_constant_override("separation", int(u * 1.4))
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(row)
@@ -92,15 +101,15 @@ func _make_card(deal: RouteDeal, u: float) -> Control:
 
 	var pad := MarginContainer.new()
 	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
-	pad.add_theme_constant_override("margin_left", int(u * 1.6))
-	pad.add_theme_constant_override("margin_right", int(u * 1.6))
-	pad.add_theme_constant_override("margin_top", int(u * 1.4))
-	pad.add_theme_constant_override("margin_bottom", int(u * 1.4))
+	pad.add_theme_constant_override("margin_left", int(u * 1.2))
+	pad.add_theme_constant_override("margin_right", int(u * 1.2))
+	pad.add_theme_constant_override("margin_top", int(u * 0.9))
+	pad.add_theme_constant_override("margin_bottom", int(u * 0.9))
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(pad)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(u * 0.9))
+	column.add_theme_constant_override("separation", int(u * 0.5))
 	column.alignment = BoxContainer.ALIGNMENT_CENTER  # Inhalt mittig statt oben klebend
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_child(column)
@@ -110,6 +119,7 @@ func _make_card(deal: RouteDeal, u: float) -> Control:
 	# der Name, desto kleiner die Schrift.
 	var title := _line(deal.display_name, u * _title_scale(deal.display_name), deal.color)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 	column.add_child(_side_block(deal.bonus_text, deal.bonus_scope, BONUS_COLOR, u))
 	if deal.malus_text != "":
@@ -123,10 +133,10 @@ func _title_scale(name_text: String) -> float:
 	for word in name_text.split(" ", false):
 		longest = maxi(longest, word.length())
 	if longest >= 15:
-		return 2.5
+		return 2.4
 	if longest >= 11:
-		return 2.9
-	return 3.4
+		return 2.8
+	return 3.2
 
 ## Eine Deal-Seite: Wirkung in ihrer Farbe, darunter klein die Laufzeit - die
 ## Laufzeit ist die eigentliche Entscheidung, sie darf nie fehlen.
@@ -134,10 +144,13 @@ func _side_block(text: String, scope: RouteDeal.Scope, color: Color, u: float) -
 	var block := VBoxContainer.new()
 	block.add_theme_constant_override("separation", 0)
 	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var body := _line(text, u * 2.5, color)
+	# Mittig: die Karte ist in der Grube breiter als hoch, linksbündiger Text
+	# klebte an der Kante und ließ die halbe Karte leer.
+	var body := _line(text, u * 2.3, color, HORIZONTAL_ALIGNMENT_CENTER)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	block.add_child(body)
-	block.add_child(_line(RouteDeal.scope_label(scope), u * 2.0, MUTED_COLOR))
+	block.add_child(_line(RouteDeal.scope_label(scope), u * 1.7, MUTED_COLOR,
+		HORIZONTAL_ALIGNMENT_CENTER))
 	return block
 
 func _line(text: String, font_size: float, color: Color,

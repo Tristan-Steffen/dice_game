@@ -215,11 +215,15 @@ var charm_library: CharmLibraryView
 ## Fenster-UI); scene_root spricht ihn nur über open()/closed an.
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
-## Routenwahl-Seite: ohne Unterschrift beginnt keine Runde (_begin_round_choice).
+## Routenwahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
+## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
+## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_choice: RouteChoiceView
-## Frischer Lauf: der Tisch fährt erst NACH der ersten Routenwahl auf, damit
-## der Rückzieher nicht gegen die Auslage läuft.
-var _choice_reveals_table := false
+var route_pending := false
+## Anteil der Grubenbreite als Rand der Auslage, und wie viel Grubenhöhe unten
+## für Netz-Feld und Knöpfe frei bleibt.
+const ROUTE_CHOICE_INSET := 0.05
+const ROUTE_CHOICE_BOTTOM_SHARE := 0.34
 
 ## Titel-HUD (Startbildschirm + Menü) als Hub-Seite; davor stand die Kamera in
 ## title_prev_mode und kehrt beim "Weiterspielen" dorthin zurück.
@@ -732,11 +736,13 @@ func _setup_panels() -> void:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
 
-	# Routenwahl als zweite Hub-Seite: sie steht VOR jeder Runde und schließt
-	# erst mit der Unterschrift.
+	# Routenwahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
+	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
+	# landen. Ohne Screen-Mesh ersatzweise als Fenster-UI.
 	route_choice = RouteChoiceView.new()
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.attach_panel(route_choice)
+	if table_screen != null:
+		table_screen.add_child(route_choice)
+		_place_route_choice()
 	else:
 		$UI.add_child(route_choice)
 	route_choice.route_chosen.connect(_on_route_chosen)
@@ -881,18 +887,14 @@ func _on_title_new_game() -> void:
 		_begin_fresh_run()
 
 func _begin_fresh_run() -> void:
-	# Ohne Runde: die erste Wahl steht VOR dem ersten Wurf.
-	_reset_game(false)
+	_reset_game()
 	# Der Aufbau (30 Würfel neu bauen) kostet ein Fünftel einer Sekunde. Er läuft
 	# im dunklen Moment ab; Einblende und Rückzieher starten erst danach, sonst
 	# fräße der Ruck ihre ersten Bilder.
 	await get_tree().process_frame
 	await get_tree().process_frame
-	# Die Titel-Kamera rahmt genau das Hub-Fenster - die Auslage ist dort ohne
-	# eigenen Zoom lesbar; der Rückzieher folgt auf die Unterschrift.
-	_choice_reveals_table = true
-	_begin_round_choice()
 	table_screen.hub.fade_current_in()
+	camera_rig.reveal_table()
 
 func _on_title_resume() -> void:
 	_close_title()
@@ -2358,6 +2360,10 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.HUB, CameraRig.Mode.TITLE:
 			return table_screen.hub != null and table_screen.hub.get_rect().has_point(pixel)
 		CameraRig.Mode.PIT:
+			# Liegt die Auslage auf dem Grubenboden, gehören die Klicks ihr.
+			if route_choice != null and route_choice.visible \
+					and Rect2(route_choice.position, route_choice.size).has_point(pixel):
+				return true
 			return table_screen.pit_actions_hit(pixel)
 		CameraRig.Mode.SIDE_BETS:
 			# Im Zoom auf die Wettannahme gehen Klicks/Hover an die Setzen-Knöpfe.
@@ -2871,7 +2877,7 @@ func _cancel_deck_shift() -> void:
 	deck_shift_ghosts.clear()
 
 func _on_throw_button_pressed() -> void:
-	if phase != Phase.IDLE:
+	if phase != Phase.IDLE or route_pending:
 		return
 	if _remaining_in_pool() <= 0:
 		return
@@ -3907,11 +3913,7 @@ func _refresh_test_materials_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_materials_label(label)
 
-## Baut einen frischen Lauf auf. start_round: beim BOOT läuft sofort eine Runde
-## an, damit der Tisch unter dem Titel-HUD lebt (sie ist reine Kulisse, das
-## Menü lässt sie nicht fortsetzen). "Neues Spiel" gibt false - dort beginnt
-## die Runde erst mit dem unterschriebenen Deal.
-func _reset_game(start_round: bool = true) -> void:
+func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
@@ -3942,8 +3944,8 @@ func _reset_game(start_round: bool = true) -> void:
 		table_screen.set_round_pulse(false)
 	if route_choice != null:
 		route_choice.close()  # eine offene Wahl gehört zum alten Lauf
-	if start_round:
-		_start_new_round()
+	route_pending = false
+	_start_new_round()
 
 ## Verdrahtet einen frisch erzeugten Run: Shop/Gravur-Station bekommen ihn
 ## gereicht, seine Signale halten die Anzeigen aktuell. Der alte Run wird
@@ -3983,44 +3985,52 @@ func _connect_run() -> void:
 	_refresh_combo_label_texts()
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 
-## Torwächter vor jeder Runde: erst der Deal, dann die Würfel - die Wirkungen
-## müssen stehen, bevor apply_round_start_charms die Drossel setzt. Die Kamera
-## rührt der Torwächter NICHT an: nach dem Shop steht sie schon am Hub, beim
-## frischen Lauf gehört sie dem Titel-Rückzieher. Ohne Display-Seite fällt die
-## Wahl automatisch aufs erste Angebot (2D-Rückfall bleibt spielbar).
-func _begin_round_choice() -> void:
+## Spannt die Auslage über den oberen Teil der Grube - unter ihr bleibt das
+## Würfelnetz-Feld mit den Aktions-Knöpfen frei.
+func _place_route_choice() -> void:
+	if route_choice == null or table_screen == null or table_screen.pit_window == null:
+		return
+	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
+	var inset := pit.size.x * ROUTE_CHOICE_INSET
+	var bottom := pit.end.y - pit.size.y * ROUTE_CHOICE_BOTTOM_SHARE
+	if table_screen.pit_info_bar != null and table_screen.pit_info_bar.size.y > 0.0:
+		bottom = minf(bottom, table_screen.pit_info_bar.position.y - inset)
+	route_choice.position = Vector2(pit.position.x + inset, pit.position.y + inset)
+	route_choice.size = Vector2(pit.size.x - inset * 2.0,
+		maxf(bottom - pit.position.y - inset, pit.size.y * 0.3))
+
+## Erster Grubenzoom der Runde: die Auslage kommt auf den Grubenboden. Ohne
+## Display-Fläche fällt die Wahl automatisch aufs erste Angebot (2D-Rückfall).
+func _open_route_choice() -> void:
 	if run.route_offers.is_empty():
-		run.roll_route_offers()
+		return
 	if route_choice == null:
 		_on_route_chosen(run.route_offers[0])
 		return
-	phase = Phase.SHOP  # zwischen den Runden: der Tisch bleibt gesperrt
-	_set_gameplay_ui_visible(false)
-	# Aus der Übersicht sind die Karten zu klein; der frische Lauf braucht den
-	# Zoom nicht - dort rahmt die Titel-Kamera das Hub-Fenster schon.
-	if not _choice_reveals_table:
-		camera_rig.zoom_to(CameraRig.Mode.HUB)
+	_place_route_choice()
 	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number))
 
-## Deal unterschrieben: Seite zu, Kamera an ihren Platz, Runde starten.
+## Deal unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
+## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
+## geworfen werden.
 func _on_route_chosen(deal_id: String) -> void:
 	run.take_route(deal_id)
-	# Über die Blende schließen, nicht hart: so blendet der Hub die Home-Fläche
-	# hinter der Auslage wieder ein (fade_page_out übergibt sie an fade_current_in).
+	route_pending = false
 	if route_choice != null:
-		if table_screen != null and table_screen.hub != null:
-			table_screen.hub.fade_page_out(route_choice)
-		else:
-			route_choice.close()
-	phase = Phase.IDLE
-	_set_gameplay_ui_visible(true)
-	if _choice_reveals_table:
-		# Erste Wahl eines frischen Laufs: JETZT fährt der Tisch auf.
-		_choice_reveals_table = false
-		camera_rig.reveal_table()
-	else:
-		camera_rig.zoom_out()
-	_start_new_round()
+		route_choice.close()
+	_apply_round_start_effects()
+	_refresh_round_hud()  # ein Benchmark-Aufschlag verschiebt den Balken sofort
+	_refresh_ui()
+
+## Rundenbeginn-Wirkungen (Charms UND Deals): Glückszahl, Drossel, Rampenlicht,
+## Wartungsvertrag. Läuft entweder direkt beim Rundenstart (Runde 1, ohne
+## Auslage) oder mit der Unterschrift.
+func _apply_round_start_effects() -> void:
+	run.apply_round_start_charms()
+	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
+	if table_screen != null:
+		_set_spotlight_combo(run.spotlight_combo)
+		_set_throttled_combos(run.throttled_combos)  # Stresstest: Chips auf AUS
 
 func _start_new_round() -> void:
 	_cancel_deck_shift()
@@ -4041,13 +4051,12 @@ func _start_new_round() -> void:
 	slot_draw_positions = []
 	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom
 
-	# Rundenbeginn-Wirkungen VOR dem Poolaufbau, damit frische Materialien
-	# sofort mitspielen.
-	run.apply_round_start_charms()
-	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
-	if table_screen != null:
-		_set_spotlight_combo(run.spotlight_combo)
-		_set_throttled_combos(run.throttled_combos)  # Stresstest: Chips auf AUS
+	# Liegt eine Auslage bereit, warten die Rundenbeginn-Wirkungen auf die
+	# Unterschrift: sonst stünde die Drossel fest, bevor die Boss-Kondition
+	# gewählt ist, und der Wartungsvertrag käme eine Runde zu spät.
+	route_pending = not run.route_offers.is_empty()
+	if not route_pending:
+		_apply_round_start_effects()
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
@@ -4528,6 +4537,11 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
+	# ...und dort wartet auch die Routenwahl: der Spieler nimmt die Runde auf,
+	# das Haus legt seine Konditionen auf den Tisch.
+	if is_pit_focused and route_pending and phase == Phase.IDLE \
+			and (route_choice == null or not route_choice.visible):
+		_open_route_choice()
 	_update_gameplay_ui_visibility()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel
@@ -4586,10 +4600,11 @@ func _on_pack_opened(_index: int) -> void:
 ## Shop mit "Fertig" geschlossen: zurück in die Übersicht (dort ist das
 ## Wettannahme-Fenster im Blick und platzierbar), dann die nächste Runde.
 func _on_shop_closed() -> void:
-	run.advance_round()
+	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
 	phase = Phase.IDLE
-	run.roll_route_offers()
-	_begin_round_choice()
+	_set_gameplay_ui_visible(true)
+	camera_rig.zoom_out()
+	_start_new_round()
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
 ## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das

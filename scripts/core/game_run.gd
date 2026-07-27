@@ -153,7 +153,6 @@ static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
-	run.roll_route_offers()
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -909,9 +908,13 @@ static func goal_for_round(n: int) -> int:
 		goal += GOAL_INCREMENT * (1 << ((step - 1) / GOAL_BLOCK))
 	return goal
 
+## Nächste Runde: Ziel nachziehen und die Auslage der kommenden Runde würfeln.
+## Die ERSTE Runde eines Laufs bekommt bewusst keine - der Spieler soll einmal
+## würfeln, bevor das Haus ihm Konditionen anbietet.
 func advance_round() -> void:
 	round_number += 1
 	round_goal = goal_for_round(round_number)
+	roll_route_offers()
 
 ## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
 ## stehen, bis das letzte des Blocks geschafft ist - erst dann rückt ein frischer

@@ -617,6 +617,14 @@ func test_taking_a_deal_clears_the_offers_and_signals():
 
 # --- Routen-Deals: Auslage ---------------------------------------------------------
 
+func test_the_first_round_gets_no_offers():
+	# Die erste Runde eines Laufs gehört dem Spieler allein - erst danach legt
+	# das Haus Konditionen auf den Tisch.
+	var fresh := GameRun.new_run()
+	assert_true(fresh.route_offers.is_empty(), "Runde 1 ohne Auslage")
+	fresh.advance_round()
+	assert_eq(fresh.route_offers.size(), GameRun.ROUTE_OFFER_COUNT, "ab Runde 2 liegt sie aus")
+
 func test_offers_fill_all_three_slots():
 	run.roll_route_offers()
 	assert_eq(run.route_offers.size(), GameRun.ROUTE_OFFER_COUNT)
