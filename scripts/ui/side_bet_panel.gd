@@ -131,7 +131,11 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 		button.text = "platziert"
 		button.disabled = true
 	else:
-		button.text = "%s → %s" % [bet.stake_label(), bet.reward_label()]
+		# Deal-Faktoren gehören auf den Knopf: sonst verspricht er einen Preis,
+		# den die Buchung nicht einhält (Quotenpaket).
+		var stake_factor := run.side_bet_stake_factor() if run != null else 1
+		var reward_factor := run.side_bet_payout_factor() if run != null else 1
+		button.text = "%s → %s" % [bet.stake_label(stake_factor), bet.reward_label(reward_factor)]
 		button.disabled = not enabled
 		button.pressed.connect(_on_bet_pressed.bind(index))
 	# Bar-Gewinn goldgelb, Gravur-Gewinn grün - die Farbe verrät die Wett-Sorte.

@@ -307,7 +307,7 @@ func test_example_dice_score_their_own_category():
 # --- Stresstest-Drossel (CTX_THROTTLED) --------------------------------------------
 
 func test_throttled_category_scores_zero():
-	var ctx := {DiceScoring.CTX_THROTTLED: DiceScoring.FOUR_KIND}
+	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND])}
 	assert_gt(DiceScoring.score_category(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6])), 0)
 	assert_eq(DiceScoring.score_category(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6]),
 		[], false, [], [], {}, ctx), 0)
@@ -315,13 +315,19 @@ func test_throttled_category_scores_zero():
 func test_best_hand_falls_back_past_the_throttle():
 	# Vier Sechser mit gedrosseltem Viererpasch werten als Dreierpasch - die
 	# Drossel schaltet die Kategorie ab, nicht die Würfel.
-	var ctx := {DiceScoring.CTX_THROTTLED: DiceScoring.FOUR_KIND}
+	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND])}
 	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], [], {}, ctx)
 	assert_eq(hand["key"], DiceScoring.THREE_KIND)
 
+func test_best_hand_falls_past_two_throttled_categories():
+	# Doppelbelastung schaltet zwei Chips ab - die Hand rutscht entsprechend tiefer.
+	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND, DiceScoring.THREE_KIND])}
+	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], [], {}, ctx)
+	assert_eq(hand["key"], DiceScoring.TWO_KIND)
+
 func test_best_hand_survives_a_throttled_fallback_category():
-	# Nur Absicherung: hottest_combo drosselt "Höchste Zahl" nie, aber best_hand
+	# Nur Absicherung: hottest_combos drosselt "Höchste Zahl" nie, aber best_hand
 	# darf auch dann nicht mit Score -1 enden.
-	var ctx := {DiceScoring.CTX_THROTTLED: DiceScoring.ONE_KIND}
+	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.ONE_KIND])}
 	var hand := DiceScoring.best_hand(_d([4]), [], false, [], [], {}, ctx)
 	assert_eq(int(hand["score"]), 0)

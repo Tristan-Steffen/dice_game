@@ -914,10 +914,10 @@ func _set_spotlight_combo(key: String) -> void:
 	for combo_key: String in combo_chips:
 		combo_chips[combo_key].set_spotlight(combo_key == key)
 
-## Stresstest-Drossel auf genau einem Chip ("" = keine).
-func _set_throttled_combo(key: String) -> void:
+## Stresstest-Drossel auf den genannten Chips (leer = keine).
+func _set_throttled_combos(keys: Array[String]) -> void:
 	for combo_key: String in combo_chips:
-		combo_chips[combo_key].set_throttled(combo_key == key)
+		combo_chips[combo_key].set_throttled(keys.has(combo_key))
 
 ## Zieht den 3D-Chip einer Kombination auf den Stand seiner Zelle nach.
 func _sync_combo_chip(key: String) -> void:
@@ -1603,12 +1603,9 @@ func _refresh_hub_info() -> void:
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 
-## Kopfzeilen-Zusatz der laufenden Runde: Stresstest oder Ereignis-Name.
+## Kopfzeilen-Zusatz der laufenden Runde (die Deals zeigen die Marken).
 func _round_note() -> String:
-	if GameRun.is_stress_round(run.round_number):
-		return "Stresstest"
-	var event := RoundEvent.find(run.round_event())
-	return "" if event == null else event.display_name
+	return GameRun.STRESS_NAME if GameRun.is_stress_round(run.round_number) else ""
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -2714,7 +2711,7 @@ func _score_ctx() -> Dictionary:
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
-		DiceScoring.CTX_THROTTLED: run.throttled_combo,  # Stresstest-Drossel
+		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Stresstest-Drossel
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3121,7 +3118,8 @@ func _on_roll_finished() -> void:
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln.
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx()):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
-		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
+		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand) \
+				or (run.deal_anchor_active() and rerolls_this_hand == 1):
 			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
 			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
 			dice.clear_selection()
@@ -3979,7 +3977,7 @@ func _start_new_round() -> void:
 	_update_charm_badges()  # frisch gewürfelte Glückszahl (Lumpensammler)
 	if table_screen != null:
 		_set_spotlight_combo(run.spotlight_combo)
-		_set_throttled_combo(run.throttled_combo)  # Stresstest: Chip auf AUS
+		_set_throttled_combos(run.throttled_combos)  # Stresstest: Chips auf AUS
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
@@ -4072,9 +4070,14 @@ func _on_round_complete() -> void:
 	if stages >= 1:
 		phase = Phase.PAYOUT
 		var ids := run.charm_ids()
-		var factor := run.round_payout_factor()  # Happy Hour: alles doppelt
-		var base_blind := MONEY_PER_ROUND_CLEAR * factor
-		var per_die := (MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)) * factor  # Sparschwein
+		# Deal-Faktor auf die ganze Auszahlung; der Wartungsvertrag streicht die
+		# Würfel-Zeile ganz, die Sparprämie legt auf sie drauf (wie das Sparschwein).
+		var factor := run.round_payout_factor()
+		var base_blind := roundi(MONEY_PER_ROUND_CLEAR * factor)
+		var per_die := 0
+		if run.unused_dice_pay():
+			per_die = roundi((MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)
+				+ run.deal_unused_die_bonus()) * factor)
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		await _play_round_clear_payout(base_blind, per_die, stages)
@@ -4094,7 +4097,7 @@ func _on_round_complete() -> void:
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
-		_set_throttled_combo("")
+		_set_throttled_combos([] as Array[String])
 		if table_screen != null:
 			table_screen.set_round_pulse(false)
 		_set_gameplay_ui_visible(false)
@@ -4218,7 +4221,7 @@ func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> voi
 ## landet obendrauf.
 func _play_round_end_charm_ceremony(ids: Array[String]) -> void:
 	var amounts := {}
-	for entry in CharmEffects.round_end_income_entries(run.money, hand_total - run.round_goal, ids, run.old_penny_payouts):
+	for entry in CharmEffects.round_end_income_entries(run.money, hand_total - run.effective_goal(), ids, run.old_penny_payouts):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	for j in ids.size():
 		match ids[j]:
@@ -4413,7 +4416,7 @@ func _flash_die_tint(display: DieFaceDisplay, original_tint: Color, base_scale: 
 func _on_debug_win_round_pressed() -> void:
 	if not _is_playing():
 		return
-	hand_total = run.round_goal
+	hand_total = run.effective_goal()
 	_on_round_complete()  # setzt die Phase - stoppt auch einen laufenden Wurf
 
 ## Debug: +100$ je Klick (Menü bleibt offen für Mehrfach-Klick).
@@ -4508,10 +4511,10 @@ func _on_shop_closed() -> void:
 func _show_game_over(total: int) -> void:
 	_set_gameplay_ui_visible(false)
 	if title_view == null:
-		game_over_label.text = "Benchmark verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.round_goal]
+		game_over_label.text = "Benchmark verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
 		game_over_panel.visible = true
 		return
-	title_view.show_game_over(total, run.round_goal, run.round_number)
+	title_view.show_game_over(total, run.effective_goal(), run.round_number)
 	table_screen.hub.fade_page_in(title_view)
 	camera_rig.show_title()
 

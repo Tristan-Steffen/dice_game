@@ -186,15 +186,18 @@ func reward_list() -> Array[Engraving]:
 		result.append(pool[randi() % pool.size()])
 	return result
 
-## Einsatz-Etikett: Geldbetrag oder Anzahl geopferter Gravuren.
-func stake_label() -> String:
+## Einsatz-Etikett: Geldbetrag oder Anzahl geopferter Gravuren. factor = Deal-
+## Aufschlag (Quotenpaket) - der Knopf muss den WIRKLICH fälligen Einsatz zeigen.
+func stake_label(factor: int = 1) -> String:
 	if stake_kind == Stake.ENGRAVINGS:
-		return "%d Gravur%s" % [stake_engravings, "" if stake_engravings == 1 else "en"]
-	return "$%d" % stake
+		var count := stake_engravings * factor
+		return "%d Gravur%s" % [count, "" if count == 1 else "en"]
+	return "$%d" % (stake * factor)
 
 ## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Gravuren (klar benannt, damit
-## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt).
-func reward_label() -> String:
+## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt). factor wie oben.
+func reward_label(factor: int = 1) -> String:
 	if payout_kind == Payout.MONEY:
-		return "$%d" % payout_money
-	return "%d Gravur%s" % [reward_engravings, "" if reward_engravings == 1 else "en"]
+		return "$%d" % (payout_money * factor)
+	var count := reward_engravings * factor
+	return "%d Gravur%s" % [count, "" if count == 1 else "en"]

@@ -63,9 +63,15 @@ var current_ball: Panel
 var medallion_label: Label
 var _roadmap_goals: Array[int] = []
 var _roadmap_current := 0  # Position des aktuellen Ziels im Block (0-basiert)
-## Marker je Station: GameRun.STRESS_MARKER, RoundEvent-id oder "" (siehe
-## goal_roadmap_markers) - Stresstest färbt die Station, Ereignisse den Punkt.
+## Marker je Station: GameRun.STRESS_MARKER oder "" (siehe goal_roadmap_markers)
+## - er färbt die Station und macht sie anfassbar.
 var _roadmap_markers: Array[String] = []
+## Hinweis-Karte einer markierten Station (Hover); Breite des Fließtexts in u.
+const MARKER_HINT_WIDTH_U := 30.0
+var marker_hint: PanelContainer
+var marker_hint_title: Label
+var marker_hint_body: Label
+var _marker_hint_style: StyleBoxFlat
 var _pips: Array[Panel] = []
 ## Radgeometrie (in layout() aus der Bühnengröße gesetzt; Tests lesen sie).
 var _rim_center := Vector2.ZERO
@@ -584,6 +590,7 @@ func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String
 func _rebuild_roadmap() -> void:
 	if roadmap_row == null:
 		return
+	_hide_marker_hint()  # die gehoverte Station wird gleich freigegeben
 	for child in roadmap_row.get_children():
 		# Sofort aushängen: queue_free allein ließe bei zwei Aufbauten im selben
 		# Frame beide Generationen nebeneinander stehen.
@@ -624,10 +631,14 @@ func _rebuild_roadmap() -> void:
 ## Station trägt statt der Stufenfarbe durchgehend Warnrot; Ereignis-Stationen
 ## kündigen sich als farbiger Punkt unter der Scheibe an.
 func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
+	# Besonderheiten färben die STATION selbst - Stresstest warnrot, Ereignisse in
+	# ihrer eigenen Farbe. Nur so ist der Block auf einen Blick lesbar; ein Punkt
+	# unter der Scheibe verschwand aus der Übersichts-Distanz.
 	var marker := _roadmap_markers[index] if index < _roadmap_markers.size() else ""
-	var stress := marker == GameRun.STRESS_MARKER
-	if stress:
-		tier = ComboChipView.THROTTLE_COLOR
+	var accent := _marker_color(marker)
+	var marked := marker != ""
+	if marked:
+		tier = accent
 	var current := index == _roadmap_current
 	var done := index < _roadmap_current
 	var dia := (u * 9.0) if current else ((u * 5.6) if done else (u * 6.2))
@@ -648,19 +659,23 @@ func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
 		box.border_color = Color(tier.r, tier.g, tier.b, 0.85)
 		box.set_border_width_all(maxi(1, int(u * 0.25)))
 	else:
+		# Kommende Besonderheit: getönte Füllung + satter Ring, damit sie sich von
+		# den grauen Stationen abhebt, ohne wie "geschafft" zu wirken. Markierte
+		# Stationen verblassen NICHT mit der Entfernung - der Stresstest steht
+		# immer am Blockende, die Distanz-Blende hätte ihn zum blassesten Punkt
+		# des Rades gemacht.
 		var dist := index - _roadmap_current
-		var fade := clampf(1.0 - dist * 0.15, 0.32, 1.0)
-		var frame := tier if stress else FRAME_COLOR
-		box.bg_color = Color("#161033cc")
-		box.border_color = Color(frame.r, frame.g, frame.b, (0.75 if stress else 0.5) * fade)
-		box.set_border_width_all(maxi(1, int(u * 0.22)))
+		var fade := 1.0 if marked else clampf(1.0 - dist * 0.15, 0.32, 1.0)
+		var frame := accent if marked else FRAME_COLOR
+		box.bg_color = Color(accent.r * 0.35, accent.g * 0.35, accent.b * 0.35, 0.9) if marked \
+			else Color("#161033cc")
+		box.border_color = Color(frame.r, frame.g, frame.b, (0.95 if marked else 0.5) * fade)
+		box.set_border_width_all(maxi(1, int(u * (0.34 if marked else 0.22))))
 	box.set_corner_radius_all(int(dia * 0.5))
 	station.add_theme_stylebox_override("panel", box)
 
-	if marker != "" and not stress:
-		var event := RoundEvent.find(marker)
-		if event != null:
-			station.add_child(_make_event_dot(u, event.color, dia))
+	if marked:
+		_make_hoverable(station, marker)
 
 	var label := Label.new()
 	label.text = str(goal)
@@ -677,20 +692,23 @@ func _make_station(goal: int, index: int, u: float, tier: Color) -> Control:
 	station.add_child(label)
 	return station
 
-## Ereignis-Punkt unter der Station: kündigt das Runden-Ereignis in seiner
-## Farbe an (der Name erscheint in der Kopfzeile, sobald die Runde beginnt).
-func _make_event_dot(u: float, color: Color, dia: float) -> Panel:
-	var d := u * 1.8
-	var dot := Panel.new()
-	dot.custom_minimum_size = Vector2(d, d)
-	dot.size = Vector2(d, d)
-	dot.position = Vector2(dia * 0.5 - d * 0.5, dia + u * 0.6)
-	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(color.r * 1.4, color.g * 1.4, color.b * 1.4)  # blüht leicht
-	box.set_corner_radius_all(int(d * 0.5))
-	dot.add_theme_stylebox_override("panel", box)
-	return dot
+## Farbe eines Fahrplan-Markers (heute nur der Stresstest - Deals stehen als
+## Marken am Hub, nicht auf dem Fahrplan).
+func _marker_color(marker: String) -> Color:
+	return ComboChipView.THROTTLE_COLOR if marker == GameRun.STRESS_MARKER else FRAME_COLOR
+
+## Name + Wirkung eines Markers als [Titel, Beschreibung] für den Hinweis.
+func _marker_text(marker: String) -> PackedStringArray:
+	if marker == GameRun.STRESS_MARKER:
+		return PackedStringArray([GameRun.STRESS_NAME, GameRun.STRESS_HINT])
+	return PackedStringArray(["", ""])
+
+## Macht eine markierte Station anfassbar: Hover zeigt, was die Runde bringt.
+## Nur markierte Stationen hören zu - graue Stationen bleiben tote Deko.
+func _make_hoverable(station: Panel, marker: String) -> void:
+	station.mouse_filter = Control.MOUSE_FILTER_PASS
+	station.mouse_entered.connect(func() -> void: _show_marker_hint(station, marker))
+	station.mouse_exited.connect(_hide_marker_hint)
 
 ## Überhelle "Roulette-Kugel" auf der aktuellen Station (blüht im HDR).
 func _make_ball(u: float) -> Panel:
@@ -778,6 +796,73 @@ func _build_rim_stage(u: float) -> void:
 
 	_build_medallion_cluster(u)
 	_build_bonus_chips(u)
+	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über Nabe und Stationen
+
+## Hinweis-Karte der Fahrplan-Marker: Titel in Markerfarbe, darunter die
+## Wirkung. Liegt als Overlay über der Nabe (darf sie verdecken, sie erscheint
+## nur beim Hover) und wird beim Zeigen unter die Station gesetzt.
+func _build_marker_hint(u: float) -> void:
+	marker_hint = PanelContainer.new()
+	marker_hint.name = "MarkerHint"
+	marker_hint.visible = false
+	marker_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_marker_hint_style = StyleBoxFlat.new()
+	_marker_hint_style.bg_color = Color(0.06, 0.05, 0.14, 0.96)
+	_marker_hint_style.set_border_width_all(maxi(1, int(u * 0.22)))
+	_marker_hint_style.set_corner_radius_all(int(u * 1.2))
+	_marker_hint_style.content_margin_left = u * 1.8
+	_marker_hint_style.content_margin_right = u * 1.8
+	_marker_hint_style.content_margin_top = u * 1.1
+	_marker_hint_style.content_margin_bottom = u * 1.1
+	marker_hint.add_theme_stylebox_override("panel", _marker_hint_style)
+	roadmap_stage.add_child(marker_hint)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", int(u * 0.5))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marker_hint.add_child(column)
+
+	marker_hint_title = Label.new()
+	marker_hint_title.add_theme_font_size_override("font_size", int(u * 3.2))
+	marker_hint_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(marker_hint_title)
+
+	marker_hint_body = Label.new()
+	marker_hint_body.add_theme_font_size_override("font_size", int(u * 2.5))
+	marker_hint_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	marker_hint_body.custom_minimum_size.x = u * MARKER_HINT_WIDTH_U
+	marker_hint_body.modulate = TEXT_COLOR
+	marker_hint_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(marker_hint_body)
+
+## Zeigt den Hinweis unter der Station - notfalls darüber, wenn unten die Bühne
+## endet; waagerecht wird er in die Bühne geklemmt.
+func _show_marker_hint(station: Control, marker: String) -> void:
+	if marker_hint == null:
+		return
+	var text := _marker_text(marker)
+	if text[0] == "":
+		return
+	var u := size.x / 100.0
+	var accent := _marker_color(marker)
+	marker_hint_title.text = text[0]
+	marker_hint_title.modulate = accent
+	marker_hint_body.text = text[1]
+	_marker_hint_style.border_color = Color(accent.r, accent.g, accent.b, 0.85)
+	marker_hint.visible = true
+	marker_hint.reset_size()
+	var box := marker_hint.size
+	var anchor := station.position + station.size * 0.5
+	var y := station.position.y + station.size.y + u * 1.2
+	if y + box.y > roadmap_stage.size.y:
+		y = station.position.y - u * 1.2 - box.y
+	marker_hint.position = Vector2(
+		clampf(anchor.x - box.x * 0.5, 0.0, maxf(0.0, roadmap_stage.size.x - box.x)),
+		maxf(0.0, y))
+
+func _hide_marker_hint() -> void:
+	if marker_hint != null:
+		marker_hint.visible = false
 
 ## Lizenz-Nabe: Medaillon (Stufe) + Lizenzname + 10 Pips + Plan-Zeile + Aufstieg.
 ## Frei auf die Radmitte gesetzt (_layout_rim); trägt die Signaturfarbe der Stufe.

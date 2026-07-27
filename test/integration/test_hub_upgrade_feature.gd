@@ -256,6 +256,78 @@ func test_same_block_keeps_station_goals_as_position_advances() -> void:
 	assert_eq(goals, ["150", "200", "250", "300", "350", "400"],
 		"die Stationen bleiben stehen - nur die Position rückt vor")
 
+# --- Fahrplan-Marker: der Stresstest ------------------------------------------
+
+func _markers(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
+func test_markers_color_the_station_itself() -> void:
+	# Die Besonderheit färbt die KUGEL - aus der Übersichts-Distanz ist ein
+	# Punkt darunter nicht zu sehen.
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250, 300, 350, 400] as Array[int], 0,
+		_markers(["", "", "", "", "", GameRun.STRESS_MARKER]))
+	var stations := _stations(hub)
+	var plain := (stations[2] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
+	var stress := (stations[5] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
+	assert_almost_eq(stress.border_color.h, ComboChipView.THROTTLE_COLOR.h, 0.02,
+		"Stresstest-Station warnrot")
+	assert_gt(stress.border_color.a, plain.border_color.a,
+		"markierte Station tritt hervor - auch als hinterste des Blocks")
+	assert_almost_eq(stress.bg_color.h, ComboChipView.THROTTLE_COLOR.h, 0.05,
+		"ihre Füllung ist in Markerfarbe getönt")
+
+func test_only_marked_stations_listen_for_hover() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
+		_markers(["", GameRun.STRESS_MARKER, ""]))
+	var stations := _stations(hub)
+	assert_eq(stations[0].mouse_filter, Control.MOUSE_FILTER_IGNORE, "graue Station bleibt Deko")
+	assert_eq(stations[1].mouse_filter, Control.MOUSE_FILTER_PASS, "markierte Station ist anfassbar")
+
+func test_hovering_a_marker_names_its_effect() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
+		_markers(["", "", GameRun.STRESS_MARKER]))
+	var stations := _stations(hub)
+	assert_false(hub.marker_hint.visible, "ohne Hover kein Hinweis")
+	(stations[2] as Panel).mouse_entered.emit()
+	assert_true(hub.marker_hint.visible)
+	assert_eq(hub.marker_hint_title.text, GameRun.STRESS_NAME)
+	assert_string_contains(hub.marker_hint_body.text, "Throttling")
+	(stations[2] as Panel).mouse_exited.emit()
+	assert_false(hub.marker_hint.visible, "Hinweis verschwindet mit dem Zeiger")
+
+func test_marker_hint_stays_inside_the_stage() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
+		_markers([GameRun.STRESS_MARKER, "", ""]))
+	# Station 0 sitzt am linken Rad-Rand - der Hinweis darf nicht hinausragen.
+	(_stations(hub)[0] as Panel).mouse_entered.emit()
+	await wait_frames(2)
+	var rect := Rect2(hub.marker_hint.position, hub.marker_hint.size)
+	assert_gte(rect.position.x, 0.0)
+	assert_gte(rect.position.y, 0.0)
+	assert_lte(rect.end.x, hub.roadmap_stage.size.x + 1.0)
+
+func test_rebuilding_the_roadmap_drops_a_standing_hint() -> void:
+	# Die gehoverte Station wird beim Neuaufbau freigegeben - der Hinweis dürfte
+	# nicht als Geist über dem neuen Block stehenbleiben.
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
+		_markers(["", GameRun.STRESS_MARKER, ""]))
+	(_stations(hub)[1] as Panel).mouse_entered.emit()
+	assert_true(hub.marker_hint.visible)
+	hub.set_goal_roadmap([300, 350, 400] as Array[int], 0, _markers(["", "", ""]))
+	assert_false(hub.marker_hint.visible)
+
 func test_bonus_chips_flank_the_center_and_hold_the_payout_labels() -> void:
 	var hub := _hub()
 	await wait_frames(2)

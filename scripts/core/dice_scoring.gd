@@ -47,9 +47,15 @@ const HAND_PRIORITY := [
 	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
 ]
 
-## Stresstest-Drossel (ctx-Schlüssel): die genannte Kategorie wertet 0 -
-## best_hand fällt auf die nächstbeste zutreffende zurück.
+## Stresstest-Drossel (ctx-Schlüssel): Array der gedrosselten Kategorien - sie
+## werten 0, best_hand fällt auf die nächstbeste zutreffende zurück. Mehrzahl,
+## weil die Boss-Kondition "Doppelbelastung" zwei Chips abschaltet.
 const CTX_THROTTLED := "throttled"
+
+## Ob eine Kategorie in diesem Wurf gedrosselt ist.
+static func is_throttled(key: String, ctx: Dictionary) -> bool:
+	var throttled: Array = ctx.get(CTX_THROTTLED, [])
+	return throttled.has(key)
 
 ## Anzeige-Beispiele der Kombinationsliste; per Test gegen die echte Wertung
 ## geprüft (best_hand(Beispiel) muss genau seine Kategorie liefern).
@@ -127,7 +133,7 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ## DieMaterial-id je Slot ("" = keins). ctx: Wurf-/Runden-Zustand.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	if key == str(ctx.get(CTX_THROTTLED, "")) or not qualifies(key, dice):
+	if is_throttled(key, ctx) or not qualifies(key, dice):
 		return 0
 	var pair := _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
 	var score: int = pair[0] * maxi(1, pair[1])
@@ -199,12 +205,11 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 ## schwache Straße).
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	var throttled := str(ctx.get(CTX_THROTTLED, ""))
 	var best_key := ONE_KIND
 	var best_score := -1
 	# HAND_PRIORITY zuerst durchlaufen -> bei Gleichstand bleibt der höhere Rang.
 	for key in HAND_PRIORITY:
-		if key == throttled or not qualifies(key, dice):
+		if is_throttled(key, ctx) or not qualifies(key, dice):
 			continue
 		var s := score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
 		if s > best_score:
