@@ -1615,9 +1615,12 @@ func _refresh_hub_info() -> void:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
 	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position
-	# samt Markern (Stresstest rot, Ereignisse als farbige Punkte).
+	# samt Markern (rot = Stresstest). Die Ziele sind die WIRKSAMEN: ein Deal mit
+	# Benchmark-Aufschlag hebt die kommenden Stationen sichtbar an.
 	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
-		run.goal_roadmap_markers(6))
+		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
+	# Deal-Marken: was gerade wirkt und wie lange noch.
+	table_screen.hub.set_deal_tokens(run.active_deal_sides())
 	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
 	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 
@@ -3971,6 +3974,9 @@ func _connect_run() -> void:
 	run.charms_changed.connect(_on_charms_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	run.hub_level_changed.connect(_on_hub_level_changed)
+	# Unterschrift/Abrechnung: Marken UND Fahrplan sofort nachziehen (ein
+	# Benchmark-Aufschlag hebt die Stationen im selben Moment).
+	run.deals_changed.connect(_refresh_hub_info)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
 	_on_charms_changed()
@@ -3999,8 +4005,13 @@ func _begin_round_choice() -> void:
 ## Deal unterschrieben: Seite zu, Kamera an ihren Platz, Runde starten.
 func _on_route_chosen(deal_id: String) -> void:
 	run.take_route(deal_id)
+	# Über die Blende schließen, nicht hart: so blendet der Hub die Home-Fläche
+	# hinter der Auslage wieder ein (fade_page_out übergibt sie an fade_current_in).
 	if route_choice != null:
-		route_choice.close()
+		if table_screen != null and table_screen.hub != null:
+			table_screen.hub.fade_page_out(route_choice)
+		else:
+			route_choice.close()
 	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
 	if _choice_reveals_table:
@@ -4154,9 +4165,13 @@ func _on_round_complete() -> void:
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
 		# Abrechnung: der Stresstest ist überstanden, die Deals des Blocks
-		# verfallen - NACH den Wetten, deren Quoten noch dazugehörten.
+		# verfallen - NACH den Wetten, deren Quoten noch dazugehörten. Erst der
+		# sichtbare Wisch, dann die Buchung: sonst wären die Marken schon fort,
+		# bevor der Spieler das Ende des Blocks bemerkt.
 		if GameRun.is_stress_round(run.round_number):
-			run.settle_block_deals()
+			await _play_settlement()
+			if phase != Phase.PAYOUT:
+				return  # Spiel wurde während der Abrechnung zurückgesetzt
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
@@ -4179,6 +4194,15 @@ func _on_round_complete() -> void:
 		if table_screen != null:
 			table_screen.set_round_pulse(false)
 		_show_game_over(hand_total)
+
+## Abrechnung nach bestandenem Stresstest: die Marken des Blocks wischen vom
+## Hub, danach verfallen die Deals.
+func _play_settlement() -> void:
+	var hub := table_screen.hub if table_screen != null else null
+	var sweep := hub.sweep_deal_tokens() if hub != null else 0.0
+	if sweep > 0.0:
+		await get_tree().create_timer(sweep).timeout
+	run.settle_block_deals()
 
 ## Wertet die platzierten Nebenwetten gegen die Rundenbilanz aus. cleared =
 ## Runde geräumt (sonst verliert jede Wette). Das Ergebnis erscheint als Banner

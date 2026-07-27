@@ -328,6 +328,111 @@ func test_rebuilding_the_roadmap_drops_a_standing_hint() -> void:
 	hub.set_goal_roadmap([300, 350, 400] as Array[int], 0, _markers(["", "", ""]))
 	assert_false(hub.marker_hint.visible)
 
+# --- Deal-Marken --------------------------------------------------------------
+
+func _sides(entries: Array) -> Array[Dictionary]:
+	var typed: Array[Dictionary] = []
+	typed.assign(entries)
+	return typed
+
+func _side(deal_id: String, bonus: bool) -> Dictionary:
+	var deal := RouteDeal.find(deal_id)
+	return {"id": deal_id, "bonus": bonus,
+		"scope": deal.bonus_scope if bonus else deal.malus_scope}
+
+func test_tokens_show_one_mark_per_active_side() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([
+		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false),
+		_side(RouteDeal.HAPPY_HOUR, true)]))
+	assert_eq(hub.deal_token_row.get_child_count(), 3)
+	hub.set_deal_tokens(_sides([]))
+	assert_eq(hub.deal_token_row.get_child_count(), 0, "Abrechnung räumt die Reihe")
+
+func test_block_tokens_are_bigger_than_round_tokens() -> void:
+	# Die Größe ist die Laufzeit-Anzeige: was den Block überdauert, wiegt schwerer.
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([
+		_side(RouteDeal.SAVINGS_BONUS, true),  # Block
+		_side(RouteDeal.HAPPY_HOUR, true)]))   # nur diese Runde
+	var block_token: Control = hub.deal_token_row.get_child(0)
+	var round_token: Control = hub.deal_token_row.get_child(1)
+	assert_gt(block_token.custom_minimum_size.x, round_token.custom_minimum_size.x)
+
+func test_bonus_and_malus_tokens_read_apart() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([
+		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+	var bonus := (hub.deal_token_row.get_child(0) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
+	var malus := (hub.deal_token_row.get_child(1) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
+	assert_eq(bonus.border_color, HubView.TOKEN_BONUS_COLOR)
+	assert_eq(malus.border_color, HubView.TOKEN_MALUS_COLOR)
+
+func test_hovering_a_token_explains_that_side() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	var token: Panel = hub.deal_token_row.get_child(0)
+	token.mouse_entered.emit()
+	assert_true(hub.marker_hint.visible)
+	assert_eq(hub.marker_hint_title.text, RouteDeal.savings_bonus().display_name)
+	assert_string_contains(hub.marker_hint_body.text, RouteDeal.savings_bonus().malus_text)
+	assert_string_contains(hub.marker_hint_body.text,
+		RouteDeal.scope_label(RouteDeal.Scope.BLOCK), "die Laufzeit steht dabei")
+	token.mouse_exited.emit()
+	assert_false(hub.marker_hint.visible)
+
+func test_rebuilding_tokens_drops_a_standing_hint() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	(hub.deal_token_row.get_child(0) as Panel).mouse_entered.emit()
+	assert_true(hub.marker_hint.visible)
+	hub.set_deal_tokens(_sides([]))
+	assert_false(hub.marker_hint.visible, "kein Geist über der leeren Reihe")
+
+func test_the_settlement_sweep_reports_its_duration() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	assert_eq(hub.sweep_deal_tokens(), 0.0, "ohne Marken nichts zu wischen")
+	hub.set_deal_tokens(_sides([
+		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+	assert_gt(hub.sweep_deal_tokens(), 0.0, "der Aufrufer wartet darauf")
+
+func test_a_fresh_block_restores_swept_tokens() -> void:
+	# Nach dem Wisch steht die Reihe verschoben und durchsichtig da - der
+	# nächste Block muss sie wieder voll sichtbar bekommen.
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	hub.sweep_deal_tokens()
+	hub.deal_token_row.modulate.a = 0.0  # Endzustand des Wischs vorwegnehmen
+	hub.set_deal_tokens(_sides([_side(RouteDeal.HAPPY_HOUR, true)]))
+	assert_eq(hub.deal_token_row.modulate.a, 1.0)
+
+func test_a_benchmark_deal_lifts_the_coming_stations() -> void:
+	# Der Fahrplan zeigt die WIRKSAMEN Ziele: unterschreibt der Spieler einen
+	# Aufschlag, springen die Stationen sofort mit.
+	var run := GameRun.new_run()
+	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	run.take_route(RouteDeal.SAVINGS_BONUS)
+	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	for i in before.size():
+		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)
+
+func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
+	# Sonst gälte ein mitten im Block unterschriebener Benchmark-Malus als
+	# frischer Block und der Fahrplan spielte die falsche Animation.
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0, _markers([]), 0)
+	hub.set_goal_roadmap([188, 250, 313] as Array[int], 0, _markers([]), 0)
+	assert_eq(hub._roadmap_block, 0, "immer noch derselbe Block")
+	assert_eq(hub._roadmap_goals, [188, 250, 313] as Array[int], "aber neue Zahlen")
+
 func test_bonus_chips_flank_the_center_and_hold_the_payout_labels() -> void:
 	var hub := _hub()
 	await wait_frames(2)

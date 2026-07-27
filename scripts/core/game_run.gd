@@ -922,7 +922,7 @@ func goal_roadmap(count: int) -> Array[int]:
 		return goals
 	var first_round := round_number - goal_roadmap_index(count)
 	for i in count:
-		goals.append(goal_for_round(first_round + i))
+		goals.append(effective_goal_for_round(first_round + i))
 	return goals
 
 ## Position des AKTUELLEN Ziels im Block (0-basiert): davor = geschafft, danach

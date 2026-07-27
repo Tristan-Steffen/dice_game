@@ -63,15 +63,31 @@ var current_ball: Panel
 var medallion_label: Label
 var _roadmap_goals: Array[int] = []
 var _roadmap_current := 0  # Position des aktuellen Ziels im Block (0-basiert)
+var _roadmap_block := -1   # Kennung des gezeigten Blocks (-1 = noch keiner)
 ## Marker je Station: GameRun.STRESS_MARKER oder "" (siehe goal_roadmap_markers)
 ## - er färbt die Station und macht sie anfassbar.
 var _roadmap_markers: Array[String] = []
-## Hinweis-Karte einer markierten Station (Hover); Breite des Fließtexts in u.
+## Hinweis-Karte einer markierten Station bzw. Deal-Marke (Hover); Breite des
+## Fließtexts in u.
 const MARKER_HINT_WIDTH_U := 30.0
 var marker_hint: PanelContainer
 var marker_hint_title: Label
 var marker_hint_body: Label
 var _marker_hint_style: StyleBoxFlat
+
+## Deal-Marken unter dem Rad: je wirkende Deal-Seite eine Marke. Grün/rot sagt
+## Bonus oder Malus, die Größe die Laufzeit (Block > Runde), die Füllfarbe den
+## Deal. Sie sind die EINZIGE Dauer-Anzeige der laufenden Deals.
+const TOKEN_BONUS_COLOR := Color("#50fa7b")
+const TOKEN_MALUS_COLOR := Color("#ff6b6b")
+const TOKEN_ROUND_DIA_U := 4.2
+const TOKEN_BLOCK_DIA_U := 5.6
+## Abrechnungs-Wisch: Staffelung je Marke und Dauer einer Auflösung.
+const TOKEN_SWEEP_GAP := 0.08
+const TOKEN_SWEEP_TIME := 0.35
+var deal_token_row: HBoxContainer
+## Zuletzt gesetzte Seiten (GameRun.active_deal_sides) - Grundlage des Aufbaus.
+var _deal_sides: Array[Dictionary] = []
 var _pips: Array[Panel] = []
 ## Radgeometrie (in layout() aus der Bühnengröße gesetzt; Tests lesen sie).
 var _rim_center := Vector2.ZERO
@@ -395,10 +411,17 @@ func _apply_page_closed(panel: Control) -> void:
 		restore.visible = true
 		_page_shown[restore] = true
 		_switching = false
+		restore.modulate.a = 1.0
 		if content_root != null:
 			content_root.visible = false
 	elif content_root != null:
 		content_root.visible = true
+		# Zurückgeholte Fläche IMMER sichtbar schalten: fade_page_out dimmt die
+		# nachrückende Fläche vorab auf 0 und verlässt sich darauf, dass jemand
+		# sie einblendet. Übernimmt in diesem dunklen Moment eine ANDERE Seite
+		# die Fläche, bliebe Home danach unsichtbar stehen. fade_page_out setzt
+		# seine 0 danach erneut - die absichtliche Dunkelheit gewinnt weiterhin.
+		content_root.modulate.a = 1.0
 
 ## Weiche Wechsel zwischen Seite und Home: der harte Schnitt fiel auf, solange
 ## die Kamera noch fährt (Titel-HUD). Aus- und Einblenden laufen nacheinander -
@@ -569,12 +592,17 @@ func _apply_tier_to_medallion(tier: Color, last: int) -> void:
 ## gefüllt, die aktuelle trägt die Kugel, kommende verblassen. Rückt die Position
 ## im selben Block vor, blitzt die eben geschaffte Station auf; ein frischer
 ## Block zündet alle Stationen im Lauf des Bogens.
-func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = []) -> void:
+## block_id: laufender Ziel-Block (GameRun.block_of_round). Er entscheidet, ob
+## ein Block WEITERläuft - die Zielzahlen taugen dafür nicht mehr, seit ein
+## unterschriebener Benchmark-Malus sie mitten im Block anhebt.
+func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = [],
+		block_id: int = -1) -> void:
 	if not _built:
 		return
-	var same_block := goals == _roadmap_goals
+	var same_block := (block_id == _roadmap_block) if block_id >= 0 else (goals == _roadmap_goals)
 	var cleared := same_block and current == _roadmap_current + 1
 	var fresh_block := not same_block and not _roadmap_goals.is_empty()
+	_roadmap_block = block_id
 	_roadmap_goals = goals.duplicate()
 	_roadmap_markers = markers.duplicate()
 	_roadmap_current = clampi(current, 0, maxi(0, goals.size() - 1))
@@ -796,7 +824,107 @@ func _build_rim_stage(u: float) -> void:
 
 	_build_medallion_cluster(u)
 	_build_bonus_chips(u)
-	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über Nabe und Stationen
+	_build_deal_tokens(u)
+	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über Nabe, Stationen, Marken
+
+## Marken-Reihe unter dem Rad (Position setzt _layout_rim).
+func _build_deal_tokens(u: float) -> void:
+	deal_token_row = HBoxContainer.new()
+	deal_token_row.name = "DealTokens"
+	deal_token_row.add_theme_constant_override("separation", int(u * 1.0))
+	deal_token_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	deal_token_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roadmap_stage.add_child(deal_token_row)
+
+## Setzt die wirkenden Deal-Seiten (GameRun.active_deal_sides). Immer komplett
+## neu gebaut - eine Marke einzeln nachzuführen ginge irgendwann schief.
+func set_deal_tokens(sides: Array[Dictionary]) -> void:
+	if not _built or deal_token_row == null:
+		return
+	_deal_sides = sides.duplicate()
+	_hide_marker_hint()  # die gehoverte Marke wird gleich freigegeben
+	for child in deal_token_row.get_children():
+		deal_token_row.remove_child(child)
+		child.queue_free()
+	var u := size.x / 100.0
+	for side in _deal_sides:
+		var deal := RouteDeal.find(side["id"])
+		if deal != null:
+			deal_token_row.add_child(_make_deal_token(deal, side, u))
+	_layout_deal_tokens()
+
+## Eine Marke: Füllung in Deal-Farbe, Ring grün (Bonus) oder rot (Malus),
+## Zeichen + bzw. −. Block-Marken sind größer als Runden-Marken.
+func _make_deal_token(deal: RouteDeal, side: Dictionary, u: float) -> Control:
+	var bonus: bool = side["bonus"]
+	var block: bool = int(side["scope"]) == int(RouteDeal.Scope.BLOCK)
+	var accent := TOKEN_BONUS_COLOR if bonus else TOKEN_MALUS_COLOR
+	var dia := u * (TOKEN_BLOCK_DIA_U if block else TOKEN_ROUND_DIA_U)
+
+	var token := Panel.new()
+	token.name = "Token_%s_%s" % [deal.id, "bonus" if bonus else "malus"]
+	token.custom_minimum_size = Vector2(dia, dia)
+	token.mouse_filter = Control.MOUSE_FILTER_PASS
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(deal.color.r * 0.35, deal.color.g * 0.35, deal.color.b * 0.35, 0.95)
+	box.border_color = accent
+	box.set_border_width_all(maxi(1, int(u * (0.4 if block else 0.28))))
+	box.set_corner_radius_all(int(dia * 0.5))
+	token.add_theme_stylebox_override("panel", box)
+
+	var glyph := Label.new()
+	glyph.text = "+" if bonus else "−"
+	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.add_theme_font_size_override("font_size", int(dia * 0.62))
+	glyph.modulate = accent
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	token.add_child(glyph)
+
+	var text: String = deal.bonus_text if bonus else deal.malus_text
+	var scope_text := RouteDeal.scope_label(side["scope"])
+	token.mouse_entered.connect(func() -> void:
+		_show_hint(token, deal.display_name, "%s\n(%s)" % [text, scope_text], accent))
+	token.mouse_exited.connect(_hide_marker_hint)
+	return token
+
+## Abrechnung: die Marken lösen sich gestaffelt auf, während die Reihe vom Rad
+## wegrutscht - der Block ist beglichen. Liefert die Dauer, damit der Aufrufer
+## den Shop erst danach öffnet. Die Deckkraft je Marke tweenen ist erlaubt, ihre
+## POSITION nicht: die legt der Container fest, darum rutscht die ganze Reihe.
+func sweep_deal_tokens() -> float:
+	if deal_token_row == null or deal_token_row.get_child_count() == 0:
+		return 0.0
+	_hide_marker_hint()
+	var total := 0.0
+	var i := 0
+	for child in deal_token_row.get_children():
+		var token := child as Control
+		if token == null:
+			continue
+		token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var delay := i * TOKEN_SWEEP_GAP
+		var tw := create_tween()
+		tw.tween_interval(delay)
+		tw.tween_property(token, "modulate:a", 0.0, TOKEN_SWEEP_TIME).set_trans(Tween.TRANS_SINE)
+		total = maxf(total, delay + TOKEN_SWEEP_TIME)
+		i += 1
+	var slide := create_tween()
+	slide.tween_property(deal_token_row, "position:y",
+		deal_token_row.position.y + size.y * 0.12, total).set_trans(Tween.TRANS_CUBIC)
+	return total
+
+## Marken-Reihe unter die Bonus-Chips setzen, mittig unter der Nabe.
+func _layout_deal_tokens() -> void:
+	if deal_token_row == null or _rim_radius <= 0.0:
+		return
+	deal_token_row.modulate.a = 1.0  # ein Wisch von eben darf nicht kleben bleiben
+	deal_token_row.reset_size()
+	var p := _rim_center + Vector2(0.0, _rim_radius * 0.86)
+	deal_token_row.position = Vector2(
+		p.x - deal_token_row.size.x * 0.5,
+		minf(p.y, roadmap_stage.size.y - deal_token_row.size.y))
 
 ## Hinweis-Karte der Fahrplan-Marker: Titel in Markerfarbe, darunter die
 ## Wirkung. Liegt als Overlay über der Nabe (darf sie verdecken, sie erscheint
@@ -835,29 +963,33 @@ func _build_marker_hint(u: float) -> void:
 	marker_hint_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(marker_hint_body)
 
-## Zeigt den Hinweis unter der Station - notfalls darüber, wenn unten die Bühne
-## endet; waagerecht wird er in die Bühne geklemmt.
 func _show_marker_hint(station: Control, marker: String) -> void:
-	if marker_hint == null:
-		return
 	var text := _marker_text(marker)
-	if text[0] == "":
+	_show_hint(station, text[0], text[1], _marker_color(marker))
+
+## Zeigt den Hinweis unter dem Anker - notfalls darüber, wenn unten die Bühne
+## endet; waagerecht wird er in die Bühne geklemmt. Gemeinsame Karte für
+## Fahrplan-Stationen UND Deal-Marken.
+func _show_hint(anchor_control: Control, title: String, body: String, accent: Color) -> void:
+	if marker_hint == null or title == "":
 		return
 	var u := size.x / 100.0
-	var accent := _marker_color(marker)
-	marker_hint_title.text = text[0]
+	marker_hint_title.text = title
 	marker_hint_title.modulate = accent
-	marker_hint_body.text = text[1]
+	marker_hint_body.text = body
 	_marker_hint_style.border_color = Color(accent.r, accent.g, accent.b, 0.85)
 	marker_hint.visible = true
 	marker_hint.reset_size()
 	var box := marker_hint.size
-	var anchor := station.position + station.size * 0.5
-	var y := station.position.y + station.size.y + u * 1.2
+	# Anker-Rechteck in Bühnen-Koordinaten (Marken hängen in einer Reihe, nicht
+	# direkt auf der Bühne - ihre eigene position zählt daher nicht).
+	var top_left := anchor_control.global_position - roadmap_stage.global_position
+	var y := top_left.y + anchor_control.size.y + u * 1.2
 	if y + box.y > roadmap_stage.size.y:
-		y = station.position.y - u * 1.2 - box.y
+		y = top_left.y - u * 1.2 - box.y
 	marker_hint.position = Vector2(
-		clampf(anchor.x - box.x * 0.5, 0.0, maxf(0.0, roadmap_stage.size.x - box.x)),
+		clampf(top_left.x + anchor_control.size.x * 0.5 - box.x * 0.5,
+			0.0, maxf(0.0, roadmap_stage.size.x - box.x)),
 		maxf(0.0, y))
 
 func _hide_marker_hint() -> void:
@@ -1021,6 +1153,7 @@ func _layout_rim() -> void:
 		chip.reset_size()
 		var p := _rim_center + Vector2(offs[i].x, offs[i].y) * _rim_radius
 		chip.position = p - chip.size * 0.5
+	_layout_deal_tokens()
 
 func _make_h_spacer() -> Control:
 	var spacer := Control.new()
