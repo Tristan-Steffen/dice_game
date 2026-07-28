@@ -14,6 +14,9 @@ const GREEN := Color("46c46e")
 const GREEN_DARK := Color("2e8f4c")
 const PURPLE := Color("9b5de5")
 const PURPLE_DARK := Color("6f3bb0")
+## Ladung (⚡): überhelles Cyan - Börse am Hub, Preise im Schwarzmarkt und die
+## Ladungs-Kometen der Auszahlung teilen sich diese eine Signalfarbe.
+const CHARGE := Color(0.55, 1.9, 2.1)
 
 const PANEL_BG := Color("16212e")  # dunkles Nachtblau
 const PANEL_BORDER := Color("ffbf3f")
