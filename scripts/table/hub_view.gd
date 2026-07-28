@@ -19,6 +19,8 @@ signal test_materials_requested
 signal test_pointers_requested
 ## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
 signal hub_upgrade_requested
+## Schwarzmarkt-Eintrag gedrückt (scene_root öffnet die Seite).
+signal secret_shop_requested
 
 ## Farben im Stil des Displays (80s Neon).
 const FRAME_COLOR := Color("#8be9fd")
@@ -26,6 +28,7 @@ const FRAME_BG := Color("#1a1836aa")
 const TITLE_COLOR := Color("#ff79c6")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 const GOLD_COLOR := Color("#ffd319")
+const CHARGE_COLOR := CasinoStyle.CHARGE
 
 ## Signaturfarbe je Hub-Stufe (1..10): der ganze Hub wechselt Rahmen-, Hintergrund-
 ## und Lizenz-Farbe, damit die Ausbaustufe schon aus der Ferne ablesbar ist. Kühl
@@ -45,6 +48,11 @@ const HUB_TIER_COLORS := [
 
 var round_label: Label
 var money_label: Label
+## Ladungs-Börse (⚡ N/Deckel). Steht ab Lauf-Beginn da - vor der Entdeckung des
+## Schwarzmarkts bewusst unerklärt.
+var charge_label: Label
+## Eintrag zum Schwarzmarkt; verborgen, bis er entdeckt ist.
+var secret_shop_button: Button
 ## Rundenbonus-Zeilen - leuchten beim Auszählen des Rundenendes golden auf.
 var blind_payout_label: Label
 var die_payout_label: Label
@@ -169,6 +177,14 @@ func layout() -> void:
 	money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	money_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(money_label)
+	charge_label = Label.new()
+	charge_label.name = "ChargeLabel"
+	charge_label.text = "⚡ 0/0"
+	charge_label.add_theme_font_size_override("font_size", int(u * 5.0))
+	charge_label.modulate = CHARGE_COLOR
+	charge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	charge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(charge_label)
 
 	# Roulette-Rad: eine freie Bühne trägt den Rad-Rand (Fahrplan-Stationen), die
 	# Lizenz-Nabe in der Mitte und die Bonus-Chips seitlich. Kein Raster mehr - der
@@ -189,6 +205,18 @@ func layout() -> void:
 	footer.add_theme_constant_override("separation", int(u * 2.0))
 	column.add_child(footer)
 	footer.add_child(_make_h_spacer())
+	# Hinterzimmer-Eintrag: dunkle Füllung mit violettem Saum, damit er sich vom
+	# Einstellungen-Knopf daneben absetzt.
+	secret_shop_button = Button.new()
+	secret_shop_button.name = "SecretShopButton"
+	secret_shop_button.text = "⚡  Schwarzmarkt"
+	secret_shop_button.visible = false
+	secret_shop_button.focus_mode = Control.FOCUS_NONE
+	secret_shop_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(secret_shop_button, CasinoStyle.PURPLE_DARK, CasinoStyle.PURPLE,
+		int(u * 3.4))
+	secret_shop_button.pressed.connect(func() -> void: secret_shop_requested.emit())
+	footer.add_child(secret_shop_button)
 	settings_button = Button.new()
 	settings_button.name = "SettingsButton"
 	settings_button.text = "⚙  Einstellungen"
@@ -495,6 +523,37 @@ func set_run_info(round_number: int, money: int, note: String = "") -> void:
 	round_label.text = ("Runde %d" % round_number) if note == "" \
 		else "Runde %d · %s" % [round_number, note]
 	money_label.text = "$%d" % money
+
+## Stand der Ladungs-Börse; scene_root treibt sie, der Hub kennt keinen GameRun.
+func set_charge_display(charge: int, cap: int) -> void:
+	if _built and charge_label != null:
+		charge_label.text = "⚡ %d/%d" % [charge, cap]
+
+## Kurzer Pop der Börse - eine Ladung ist eben eingetroffen.
+func pulse_charge() -> void:
+	if not _built or charge_label == null:
+		return
+	charge_label.pivot_offset = charge_label.size / 2.0
+	var tween := create_tween()
+	tween.tween_property(charge_label, "scale", Vector2.ONE * 1.3, 0.09) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(charge_label, "scale", Vector2.ONE, 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func set_secret_shop_visible(shown: bool) -> void:
+	if _built and secret_shop_button != null:
+		secret_shop_button.visible = shown
+		secret_shop_button.modulate.a = 1.0
+
+## Entdeckung: der Eintrag blendet sich am Fuß ein.
+func reveal_secret_shop() -> void:
+	if not _built or secret_shop_button == null or secret_shop_button.visible:
+		return
+	secret_shop_button.visible = true
+	secret_shop_button.modulate.a = 0.0
+	var tween := create_tween()
+	tween.tween_property(secret_shop_button, "modulate:a", 1.0, 0.6) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 ## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung
 ## als Plan) und die Rahmen-Stufe (dicker + eine Spur goldener je Stufe). next_name

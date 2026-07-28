@@ -18,7 +18,9 @@ extends Node3D
 
 const HAND_SIZE := 6
 
-const MONEY_PER_ROUND_CLEAR := 5  # je gefüllter Überladungs-Stufe (× Stufen)
+## Einmal für den geschafften Benchmark - und erneut je Überladungs-Stufe, die
+## nicht mehr in die Ladungs-Börse passt (siehe GameRun.charge_split).
+const MONEY_PER_ROUND_CLEAR := 5
 const MONEY_PER_UNUSED_DIE := 1  # je noch nicht gezogenem Würfel im Rundenpool
 
 ## Auszahlungs-Animation der Rundenbonus-Zeilen im Hub.
@@ -40,6 +42,31 @@ const BANK_STAGE_GAP_START := 0.28
 const BANK_STAGE_GAP_DECAY := 0.82
 const BANK_STAGE_GAP_MIN := 0.12
 const BANK_BAR_DRAIN_TIME := 0.45
+## Stufen, die eine Ladung prägen, fahren cyan statt in ihrer Stufenfarbe.
+const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
+
+## --- Schwarzmarkt-Requisiten ---------------------------------------------------
+## Violett der legendären Rarität - Stand, Ader und Seite teilen es sich.
+const VIOLET_ACCENT := Color(0.75, 0.35, 1.0)
+## Die Ladungs-Bank liegt QUER vor dem Chip-Rack an der vorderen Fensterkante -
+## dort, wo weder Türme noch Münzschlitze stehen. Abstand zur Kante:
+const CAPACITOR_EDGE_INSET := 0.9
+## Der Kiosk steht an der Tisch-Schulter beim Werkstatt-Eck. GERADE aus dem Hub
+## heraus geht nicht: dort schneidet der Übersichts-Rahmen exakt an der Glaskante
+## ab (null Boden sichtbar), erst ab z≈35 gibt der Rahmen dunklen Boden frei.
+const SECRET_STAND_Z := 38.5
+## Weltstrecke HINTER die Glaskante. Position UND Kiosk-Größe sind gemeinsam
+## ausgemessen (Sonde), nicht geraten: der Übersichts-Rahmen schneidet den Tisch
+## fast bündig ab, die sichtbare Bodentasche liegt nur zwischen z≈34 und z≈43 und
+## ist dort höchstens ~3 Einheiten tief. Mehr Abstand schiebt den Kiosk aus dem
+## Bild, weniger stellt ihn zurück auf die Tischschulter.
+const SECRET_STAND_CLEARANCE := 1.0
+## Wo die Ader das Glas verlässt - am tischnächsten Rand derselben Tasche, damit
+## zwischen Kante und Tresen überhaupt ein sichtbares Stück Ader liegt.
+const SECRET_VEIN_EXIT_Z := 34.2
+## Entdeckungs-Zeremonie: Lauf der Ader, dann zündet der Stand.
+const SECRET_REVEAL_VEIN_TIME := 1.5
+const SECRET_REVEAL_SETTLE := 0.7
 
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
 ## Größen-Pop, langsameres Abklingen - die Blitze überlappen wie eine Welle.
@@ -239,6 +266,15 @@ var charm_library: CharmLibraryView
 ## Fenster-UI); scene_root spricht ihn nur über open()/closed an.
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
+## Der Schwarzmarkt - ebenfalls eine Hub-Seite, aber nur nach seiner Entdeckung
+## erreichbar (siehe GameRun.secret_shop_unlocked).
+var secret_shop: SecretShopView
+## Die physischen Gegenstücke: die Ladungs-Bank in der Geld-Ecke, der Kiosk
+## draußen im Dunkeln und die Boden-Ader dorthin (alle drei rein anzeigend).
+var capacitor_bank: CapacitorBankView
+var secret_stand: SecretShopStandView
+var secret_vein: FloorVeinView
+var secret_stand_zone: StaticBody3D
 ## Routenwahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
 ## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
@@ -630,6 +666,7 @@ func _setup_table_screen() -> void:
 		Vector3(chip_world.x, 0.0, chip_world.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
+	_setup_secret_shop_props(Rect2(t_pos, t_size))
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -805,6 +842,16 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
+
+	# Schwarzmarkt als eigene Hub-Seite; der Eintrag am Hub-Fuß öffnet sie, sobald
+	# er entdeckt ist.
+	secret_shop = SecretShopView.new()
+	secret_shop.visible = false
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.attach_panel(secret_shop)
+		table_screen.hub.secret_shop_requested.connect(_on_secret_shop_requested)
+	else:
+		$UI.add_child(secret_shop)
 
 	# Routenwahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
 	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
@@ -1282,6 +1329,7 @@ func _on_hub_upgrade_pressed() -> void:
 ## (Rahmen blitzt golden, Stoßwelle am Hub).
 func _on_hub_level_changed(level: int) -> void:
 	_sync_hub_level_state()
+	_sync_secret_shop_state()  # der Börsen-Deckel wächst mit der Stufe
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 	if charm_shop != null and charm_shop.visible:
@@ -2342,6 +2390,50 @@ func _screen_pixel(screen_pos: Vector2) -> Vector2:
 	return table_screen.pixel_from_ray(
 		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 
+## Punkt auf dem Bodenfilz, clearance Welteinheiten HINTER der Glaskante bei
+## world_z. Die Kante kommt aus glass_bottom_limit - dem echten Screen-Umriss.
+func _beyond_glass(world_z: float, clearance: float) -> Vector3:
+	var px_x := table_screen.world_to_pixel(Vector3(0.0, 0.0, world_z)).x
+	var edge := table_screen.pixel_to_world(
+		Vector2(px_x, table_screen.glass_bottom_limit(px_x)))
+	return Vector3(edge.x - clearance, 0.0, edge.z)
+
+## Die drei Schwarzmarkt-Requisiten stellen. Alle Maße kommen aus der echten
+## Screen-Geometrie: die Bank an die vordere Kante des Schatz-Fensters (beide
+## Börsen stehen nebeneinander in der Geld-Ecke), der Kiosk HINTER die Glaskante
+## auf den endlosen Boden, die Ader dazwischen.
+func _setup_secret_shop_props(treasure_rect: Rect2) -> void:
+	var t_a := table_screen.pixel_to_world(treasure_rect.position)
+	var t_b := table_screen.pixel_to_world(treasure_rect.end)
+	capacitor_bank = CapacitorBankView.new()
+	capacitor_bank.name = "CapacitorBank"
+	capacitor_bank.position = Vector3(minf(t_a.x, t_b.x) + CAPACITOR_EDGE_INSET, 0.0,
+		(t_a.z + t_b.z) * 0.5)
+	add_child(capacitor_bank)
+
+	# Die 2D-LED-Leisten enden am Glas - ab hier trägt echte Geometrie das Licht.
+	# Aus- und Standpunkt liegen auf der ECHTEN Glaskante (glass_bottom_limit),
+	# nicht auf der gedachten Ellipse: der Screen-Rand ist breiter als sein Rechteck.
+	var stand_pos := _beyond_glass(SECRET_STAND_Z, SECRET_STAND_CLEARANCE)
+	var exit_world := _beyond_glass(SECRET_VEIN_EXIT_Z, 0.0)
+
+	secret_vein = FloorVeinView.new()
+	secret_vein.name = "SecretShopVein"
+	secret_vein.color = VIOLET_ACCENT
+	add_child(secret_vein)
+	secret_vein.lay(exit_world, stand_pos)
+
+	secret_stand = SecretShopStandView.new()
+	secret_stand.name = "SecretShopStand"
+	secret_stand.position = stand_pos
+	add_child(secret_stand)
+	# Bewusst NICHT reflektierend: der Stand steht neben dem Glas, der Spiegel
+	# würde ihn für nichts rendern.
+	secret_stand_zone = _add_click_zone("SecretShopClickZone",
+		Vector3(stand_pos.x, 0.0, stand_pos.z),
+		Vector3(SecretShopStandView.ROOF_SIZE.x, 4.0, SecretShopStandView.ROOF_SIZE.z))
+	secret_stand_zone.collision_layer = 0  # erst mit der Entdeckung anfassbar
+
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> StaticBody3D:
 	var zone := StaticBody3D.new()
@@ -2589,6 +2681,11 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 	elif collider == chips_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
+	elif collider == secret_stand_zone and run != null and run.secret_shop_unlocked:
+		# Der Kiosk ist eine Abkürzung zum Hub-Eintrag: kein eigener Kameramodus,
+		# der Hub-Zoom trägt die Seite wie beim Klick auf den Fuß-Eintrag.
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
+		_on_secret_shop_requested()
 
 func _process(delta: float) -> void:
 	_update_charm_hover()
@@ -4178,6 +4275,8 @@ func _reset_game() -> void:
 	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
 	betting_open = false  # frische Auslage eröffnet die erste Runde
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
+	if secret_shop != null:
+		secret_shop.visible = false
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.reset_pages()
 	game_over_panel.visible = false
@@ -4197,6 +4296,7 @@ func _reset_game() -> void:
 ## mitsamt Verbindungen freigegeben (RefCounted).
 func _connect_run() -> void:
 	charm_shop.run = run
+	secret_shop.run = run
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
@@ -4223,11 +4323,72 @@ func _connect_run() -> void:
 	run.hub_level_changed.connect(_on_hub_level_changed)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
+	run.charge_changed.connect(_on_charge_changed)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
 	_on_charms_changed()
 	_refresh_combo_label_texts()
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
+	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
+
+## Ladungs-Börse und Schwarzmarkt-Eintrag am Hub nachziehen. Idempotent - auch
+## bei Spielstart und nach dem Reset aufgerufen.
+## Idempotenter Gesamtzustand: Bank = Bestand/Deckel, Stand und Ader brennen
+## genau dann, wenn der Schwarzmarkt entdeckt ist. Ein frischer Lauf ist damit
+## sofort wieder dunkel - OHNE Zeremonie; die spielt nur den Übergang.
+func _sync_secret_shop_state() -> void:
+	if run == null:
+		return
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
+		table_screen.hub.set_secret_shop_visible(run.secret_shop_unlocked)
+	_sync_capacitor()
+	if secret_stand != null:
+		secret_stand.set_lit(run.secret_shop_unlocked)
+	if secret_vein != null:
+		secret_vein.set_lit(run.secret_shop_unlocked)
+	if secret_stand_zone != null:
+		# Gesperrt ist der Kiosk unanfassbar - sonst zoomte ein Klick ins Nichts.
+		secret_stand_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
+
+## Bank nachziehen; nach jedem Neuaufbau (Deckel gewachsen) die frischen Zellen
+## als spiegelnd markieren - sie liegen auf dem Glas.
+func _sync_capacitor() -> void:
+	if capacitor_bank == null or run == null:
+		return
+	capacitor_bank.set_charge(run.charge, run.charge_cap())
+	ScreenReflection.mark_reflective(capacitor_bank)
+
+func _on_charge_changed(value: int) -> void:
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_charge_display(value, run.charge_cap())
+	_sync_capacitor()
+
+## Eintrag am Hub-Fuß gedrückt: der Schwarzmarkt schlägt als Hub-Seite auf.
+func _on_secret_shop_requested() -> void:
+	if secret_shop == null or run == null or not run.secret_shop_unlocked:
+		return
+	secret_shop.open()
+
+## Entdeckungs-Zeremonie (Kamera steht schon in der Übersicht): der Hub quittiert
+## golden, dann läuft ein Komet die Boden-Ader hinaus und zündet sie hinter sich,
+## am Ende wacht der Kiosk auf und der Hub-Eintrag blendet ein.
+func _reveal_secret_shop() -> void:
+	if table_screen == null or table_screen.hub == null:
+		return
+	table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	if secret_vein != null:
+		await get_tree().create_timer(secret_vein.play(SECRET_REVEAL_VEIN_TIME)).timeout
+		if phase != Phase.PAYOUT:
+			return  # Spiel wurde während der Enthüllung zurückgesetzt
+	if secret_stand != null:
+		await get_tree().create_timer(secret_stand.flicker_on()).timeout
+		if phase != Phase.PAYOUT:
+			return
+	if secret_stand_zone != null:
+		secret_stand_zone.collision_layer = 8
+	table_screen.hub.reveal_secret_shop()
+	await get_tree().create_timer(SECRET_REVEAL_SETTLE).timeout
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann ist die Grube
 ## verschlossen (kein Wegzoomen) und ihr Mobiliar weicht.
@@ -4389,10 +4550,11 @@ func _round_should_end() -> bool:
 	return run.stages_cleared(hand_total) >= run.max_overcharge_stages() \
 		or _remaining_in_pool() < HAND_SIZE
 
-## Rundenende: je gefüllter Überladungs-Stufe MONEY_PER_ROUND_CLEAR (× Stufen)
-## plus je ungezogenem Würfel MONEY_PER_UNUSED_DIE. Die Auszahlung läuft als
-## Tisch-Animation, bevor der Shop aufgeht; die Phase springt schon auf PAYOUT,
-## damit derweil nichts anklickbar bleibt.
+## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für den geschafften Benchmark, je
+## ungezogenem Würfel MONEY_PER_UNUSED_DIE - und je gefüllter Überladungs-Stufe
+## eine Ladung (⚡). Was nicht mehr in die Börse passt, fällt zum alten Satz als
+## Geld an. Die Auszahlung läuft als Tisch-Animation, bevor der Shop aufgeht; die
+## Phase springt schon auf PAYOUT, damit derweil nichts anklickbar bleibt.
 func _on_round_complete() -> void:
 	var stages := run.stages_cleared(hand_total)
 	if stages >= 1:
@@ -4408,9 +4570,18 @@ func _on_round_complete() -> void:
 				+ run.deal_unused_die_bonus()) * factor)
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
-		await _play_round_clear_payout(base_blind, per_die, stages)
+		# Die erste voll ausgereizte Überladung deckt den Schwarzmarkt auf.
+		var discovered := run.note_round_stages(stages)
+		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
+		# bucht sie einzeln bei Ankunft.
+		var split := run.charge_split(stages)
+		await _play_round_clear_payout(base_blind, per_die, split)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
+		if discovered:
+			await _reveal_secret_shop()
+			if phase != Phase.PAYOUT:
+				return
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
 		# Wirkung (Geld-Komet zur Truhe, Gravur-Meteore in die Schublade).
 		await _play_round_end_charm_ceremony(ids)
@@ -4527,26 +4698,42 @@ func _refresh_side_bet_panel() -> void:
 
 ## Lässt die Rundenbonus-Zeilen im Hub nacheinander golden aufleuchten,
 ## synchron zur tatsächlichen Gutschrift; die übrigen Tray-Würfel blitzen im
-## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen).
-func _play_round_clear_payout(base_blind: int, per_die: int, stages: int) -> void:
+## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen). Drei Posten
+## nacheinander: Benchmark (einmal Geld), Überladung (je Stufe ⚡ bzw. Überlauf-
+## Geld nach split), übrige Würfel.
+func _play_round_clear_payout(base_blind: int, per_die: int, split: Dictionary) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
 	var hub := table_screen.hub
-	var total_blind := base_blind * stages
-	# Blind-Zeile zeigt die Überladungs-Stufen (×N), sonst schlicht der Betrag; sie
-	# leuchtet erst mit den eintreffenden Kometen auf (Betrag baut sich pulsierend auf).
-	if hub != null and hub.blind_payout_label != null:
-		hub.blind_payout_label.text = ("%d$  (Überladung ×%d)" % [total_blind, stages]) if stages > 1 \
-			else "%d$ pro Benchmark" % total_blind
-		hub.blind_payout_label.modulate = PAYOUT_LABEL_BASE_COLOR
-	# Bank-Entladung: je Stufe ein Komet aus dem Zielbalken um die Grube in den Hub;
-	# jede Ankunft blitzt den Hub-Rahmen und bucht eine Scheibe (base_blind).
-	await _play_bank_discharge(base_blind, stages, hub)
+	var blind_label: Label = hub.blind_payout_label if hub != null else null
+	# 1) Der geschaffte Benchmark zahlt EINMAL - ein goldener Komet, eine Buchung.
+	if blind_label != null:
+		blind_label.text = "%d$ pro Benchmark" % base_blind
+		blind_label.modulate = PAYOUT_LABEL_BASE_COLOR
+	var travel := table_screen.bank_comet(table_screen.stage_fill_color(1))
+	await get_tree().create_timer(maxf(travel, 0.05)).timeout
+	if phase != Phase.PAYOUT:
+		return
+	if hub != null:
+		hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	run.add_money(base_blind)
+	_pop_payout_label(blind_label)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
-	_fade_payout_label(hub.blind_payout_label if hub != null else null)
+
+	# 2) Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken um die
+	# Grube in den Hub - cyan, solange die Börse Platz hat, danach golden.
+	var stored := int(split["stored"])
+	var overflow := int(split["overflow"])
+	if blind_label != null:
+		blind_label.text = "Überladung ⚡+%d" % stored
+		if overflow > 0:
+			blind_label.text += "  ·  %d×%d$ – Speicher voll" % [overflow, base_blind]
+	await _play_bank_discharge(base_blind, stored, overflow, hub)
+	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
+	_fade_payout_label(blind_label)
 
 	var remaining := _remaining_in_pool()
 	if remaining > 0:
@@ -4676,26 +4863,55 @@ func _fire_charm_engraving(engraving: Engraving, from_px: Vector2) -> float:
 
 ## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
 ## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine
-## Stufe, blitzt den Hub-Rahmen in der Stufenfarbe und bucht base_blind. So kommt
-## die ×N-Auszahlung in N Stößen an, statt schlagartig.
-func _play_bank_discharge(base_blind: int, stages: int, hub: HubView) -> void:
+## Stufe und bucht IHRE Stufe einzeln - die ersten stored Stufen als Ladung (cyaner
+## Komet, Börse pulst), die restlichen overflow als Geld (goldener Komet), weil die
+## Börse voll ist. So kommen N Stufen in N Stößen an, statt schlagartig.
+func _play_bank_discharge(base_blind: int, stored: int, overflow: int, hub: HubView) -> void:
+	var stages := stored + overflow
 	var gap := BANK_STAGE_GAP_START
+	var minted := 0
 	for k in range(stages, 0, -1):
-		var color := table_screen.stage_fill_color(k)
+		var is_charge := minted < stored
 		# Balken auf die verbleibenden Stufen schrumpfen (in der nächst-tieferen Farbe).
 		var remaining_frac := float(k - 1) / float(stages)
-		var lower_color := table_screen.stage_fill_color(maxi(k - 1, 1))
-		table_screen.drain_goal_bar(remaining_frac, lower_color, BANK_BAR_DRAIN_TIME)
+		table_screen.drain_goal_bar(remaining_frac, table_screen.stage_fill_color(maxi(k - 1, 1)),
+			BANK_BAR_DRAIN_TIME)
+		var color := CHARGE_COMET_COLOR if is_charge else table_screen.stage_fill_color(k)
 		var travel: float = table_screen.bank_comet(color)
 		await get_tree().create_timer(travel).timeout
 		if phase != Phase.PAYOUT:
 			return  # Spiel während der Auszahlung zurückgesetzt
 		if hub != null:
 			hub.flash_frame(color)
-		run.add_money(base_blind)
+		if is_charge:
+			# Zweite Etappe: vom Hub über die Schatz-Leiste zur Kondensator-Bank.
+			# Bewusst NICHT abgewartet - die nächste Stufe startet sofort, wie bei
+			# der Frankiermaschinen-Salve; gebucht wird bei der ANKUNFT.
+			_fly_charge_to_capacitor()
+		else:
+			run.add_money(base_blind)
+		minted += 1
 		_pop_payout_label(hub.blind_payout_label if hub != null else null)
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
+
+## EINE Ladung vom Hub zur Kondensator-Bank schicken: dieselbe Schatz-Leiste, die
+## auch die Rundenende-Geld-Charms fahren. Gebucht wird bei der Ankunft (dort
+## pulsen Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
+func _fly_charge_to_capacitor() -> void:
+	var travel := table_screen.money_comet(true, CHARGE_COMET_COLOR) \
+		if table_screen != null else 0.0
+	if travel <= 0.0:
+		run.add_charge(1)  # ohne Display still buchen, nichts verlieren
+		return
+	get_tree().create_timer(travel).timeout.connect(func() -> void:
+		if phase != Phase.PAYOUT:
+			return
+		run.add_charge(1)
+		if capacitor_bank != null:
+			capacitor_bank.pulse()
+		if table_screen != null and table_screen.hub != null:
+			table_screen.hub.pulse_charge())
 
 ## Kurzer Größen-Pop + Aufleuchten einer Auszahlungs-Zeile (Bank-Komet trifft ein).
 func _pop_payout_label(label: Label) -> void:
