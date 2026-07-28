@@ -76,6 +76,11 @@ func _row_layout() -> Array[int]:
 		rows.append(base + (1 if r < extra else 0))
 	return rows
 
+## Längste je mögliche Bank (volle erste Reihe). Der Aufrufer skaliert danach,
+## damit ein wachsender Deckel den Platz nicht sprengt.
+static func max_length() -> float:
+	return float(ROW_CAP) * CELL_PITCH + RAIL_MARGIN * 2.0
+
 ## Weltlänge der Bank (entlang Z) - der Aufrufer richtet Nachbarn danach aus.
 func bank_length() -> float:
 	var rows := _row_layout()

@@ -990,6 +990,35 @@ func _sync_reflection_windows() -> void:
 		_felt_material.set_shader_parameter("window_rects", rects)
 		_felt_material.set_shader_parameter("window_radius", radii)
 
+## Freie Rasterplätze des Chip-Netzes - die letzte Reihe ist nie voll (13
+## Kombinationen auf CLUSTER_COLUMNS Spalten). Zeilenweise sortiert, der letzte
+## Eintrag ist also der Platz unten rechts. Abgeleitet aus den ECHTEN Zellen,
+## damit ein Umbau des Clusters die freien Plätze automatisch mitnimmt.
+func free_cluster_slots() -> Array[Rect2]:
+	var slots: Array[Rect2] = []
+	if combo_cells.is_empty():
+		return slots
+	var xs := PackedFloat32Array()
+	var ys := PackedFloat32Array()
+	var taken := {}
+	var cell_size := Vector2.ZERO
+	for key in combo_cells:
+		var cell: ComboCellView = combo_cells[key]
+		cell_size = cell.size
+		var spot := Vector2(snappedf(cell.position.x, 0.5), snappedf(cell.position.y, 0.5))
+		if not xs.has(spot.x):
+			xs.append(spot.x)
+		if not ys.has(spot.y):
+			ys.append(spot.y)
+		taken[spot] = true
+	xs.sort()
+	ys.sort()
+	for y: float in ys:
+		for x: float in xs:
+			if not taken.has(Vector2(x, y)):
+				slots.append(Rect2(Vector2(x, y), cell_size))
+	return slots
+
 ## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) mittig auf center_px
 ## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.
 func place_combo_cluster(center_px: Vector2) -> void:
@@ -2025,6 +2054,16 @@ func pack_delivery_comet(from_px: Vector2, color: Color) -> float:
 		return 0.0
 	var to_px := workshop_window.position + workshop_window.size * 0.5
 	var path := _route_via_strip(from_px, workshop_hub_strip, to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Ladungs-Komet Hub -> Kondensator-Bank: die zweite Etappe einer Überladungs-
+## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt die Bank steht.
+func charge_comet(to_px: Vector2, color: Color) -> float:
+	if led_strip == null or led_strip.strip_path.size() < 2 or hub == null:
+		return 0.0
+	var path := _route_via_strip(hub.position + hub.size * 0.5, led_strip, to_px)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

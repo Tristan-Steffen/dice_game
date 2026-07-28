@@ -46,9 +46,8 @@ const BANK_BAR_DRAIN_TIME := 0.45
 const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
 
 ## --- Schwarzmarkt ---------------------------------------------------------------
-## Die Ladungs-Bank liegt QUER vor dem Chip-Rack an der vorderen Fensterkante -
-## dort, wo weder Türme noch Münzschlitze stehen. Abstand zur Kante:
-const CAPACITOR_EDGE_INSET := 0.9
+## Anteil der Rasterplatz-Breite, den die volle Bank einnehmen darf.
+const CAPACITOR_SLOT_FILL := 0.9
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
@@ -652,7 +651,11 @@ func _setup_table_screen() -> void:
 		Vector3(chip_world.x, 0.0, chip_world.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
-	_setup_capacitor_bank(Rect2(t_pos, t_size))
+	# Die Ladungs-Bank bekommt den freien Chip-Platz unten rechts im Cluster
+	# (zwischen Grube und Kombinationen), nicht die Geld-Ecke.
+	var free_slots := table_screen.free_cluster_slots()
+	if not free_slots.is_empty():
+		_setup_capacitor_bank(free_slots[free_slots.size() - 1])
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -2391,15 +2394,19 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 		left += step
 	return Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
 
-## Die Ladungs-Bank an die vordere Kante des Schatz-Fensters stellen - beide
-## Börsen stehen nebeneinander in der Geld-Ecke.
-func _setup_capacitor_bank(treasure_rect: Rect2) -> void:
-	var t_a := table_screen.pixel_to_world(treasure_rect.position)
-	var t_b := table_screen.pixel_to_world(treasure_rect.end)
+## Die Ladungs-Bank steht IM Chip-Raster: auf dem freien Platz unten rechts,
+## zwischen Grube und Kombinationen. Sie wird auf die Platzbreite skaliert, damit
+## die volle Bank (Deckel 8 in einer Reihe) nie in die Nachbarzelle wächst - und
+## sie steht bewusst auf blankem Filz, ist also NICHT spiegelnd (dort ist kein Glas).
+func _setup_capacitor_bank(slot: Rect2) -> void:
 	capacitor_bank = CapacitorBankView.new()
 	capacitor_bank.name = "CapacitorBank"
-	capacitor_bank.position = Vector3(minf(t_a.x, t_b.x) + CAPACITOR_EDGE_INSET, 0.0,
-		(t_a.z + t_b.z) * 0.5)
+	var center := table_screen.pixel_to_world(slot.get_center())
+	capacitor_bank.position = Vector3(center.x, 0.0, center.z)
+	var a := table_screen.pixel_to_world(slot.position)
+	var b := table_screen.pixel_to_world(slot.end)
+	var span := absf(a.z - b.z) * CAPACITOR_SLOT_FILL
+	capacitor_bank.scale = Vector3.ONE * minf(1.0, span / CapacitorBankView.max_length())
 	add_child(capacitor_bank)
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
@@ -4321,13 +4328,10 @@ func _sync_secret_shop_state() -> void:
 		# Unentdeckt ist das Fenster nicht da - ein Klick dürfte nicht heranzoomen.
 		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
 
-## Bank nachziehen; nach jedem Neuaufbau (Deckel gewachsen) die frischen Zellen
-## als spiegelnd markieren - sie liegen auf dem Glas.
 func _sync_capacitor() -> void:
 	if capacitor_bank == null or run == null:
 		return
 	capacitor_bank.set_charge(run.charge, run.charge_cap())
-	ScreenReflection.mark_reflective(capacitor_bank)
 
 func _on_charge_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
@@ -4854,12 +4858,14 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, hub: HubV
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
 
-## EINE Ladung vom Hub zur Kondensator-Bank schicken: dieselbe Schatz-Leiste, die
-## auch die Rundenende-Geld-Charms fahren. Gebucht wird bei der Ankunft (dort
-## pulsen Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
+## EINE Ladung vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
+## an deren Eintritt die Bank steht. Gebucht wird bei der Ankunft (dort pulsen
+## Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
 func _fly_charge_to_capacitor() -> void:
-	var travel := table_screen.money_comet(true, CHARGE_COMET_COLOR) \
-		if table_screen != null else 0.0
+	var travel := 0.0
+	if table_screen != null and capacitor_bank != null:
+		travel = table_screen.charge_comet(
+			table_screen.world_to_pixel(capacitor_bank.global_position), CHARGE_COMET_COLOR)
 	if travel <= 0.0:
 		run.add_charge(1)  # ohne Display still buchen, nichts verlieren
 		return
