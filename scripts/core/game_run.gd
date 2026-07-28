@@ -12,6 +12,9 @@ signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
 signal hub_level_changed(level: int)
 signal deals_changed
+signal charge_changed(value: int)
+signal secret_shop_discovered
+signal secret_stock_changed
 
 const POOL_SIZE := 30
 const BASE_GOAL := 150
@@ -249,15 +252,16 @@ func upgrade_hub() -> void:
 ## verschieben ihn. Erst der Deckel, dann der Bonus - Rabatt UND Hochspannung
 ## zusammen ergeben also Stufe 3, nicht 2.
 func max_overcharge_stages() -> int:
-	var stages := _hub_overcharge_stages()
+	var stages := overcharge_frame()
 	if _malus_active(RouteDeal.OVERCLOCK_DISCOUNT):
 		stages = mini(stages, OVERCLOCK_DISCOUNT_CAP)
 	if _bonus_active(RouteDeal.HIGH_VOLTAGE):
 		stages = mini(stages + 1, OVERCHARGE_STAGES)
 	return stages
 
-## Rahmen der Hub-Stufe: 3 (bis Salon), 4 (Salon/VIP), 5 (ab Suite).
-func _hub_overcharge_stages() -> int:
+## Rahmen der Hub-Stufe OHNE Deal-Wirkungen: 3 (bis Salon), 4 (Salon/VIP),
+## 5 (ab Suite). Maßstab der Schwarzmarkt-Entdeckung (siehe note_round_stages).
+func overcharge_frame() -> int:
 	if hub_level >= 7:
 		return 5
 	if hub_level >= 5:
@@ -338,6 +342,11 @@ func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 
 func purchase_charm(charm: Charm, price: int) -> void:
 	add_money(-price)
+	_grant_charm(charm)
+
+## Einziger Einzug eines Charms - Laden wie Schwarzmarkt gehen hier durch, damit
+## der Sonderfall Lumpensammler (Glückszahl sofort würfeln) nie auseinanderläuft.
+func _grant_charm(charm: Charm) -> void:
 	owned_charms.append(charm)
 	if charm.id == Charm.RAG_COLLECTOR:
 		_roll_lumpensammler_value()
@@ -975,6 +984,176 @@ func stage_progress(points: int) -> Dictionary:
 	var current := cleared + 1
 	return {"stage": current, "cleared": cleared,
 		"into_stage": points - cumulative_threshold(cleared), "stage_size": stage_size(current)}
+
+## --- Ladung (⚡) & Schwarzmarkt -----------------------------------------------
+## Geräumte Überladungs-Stufen zahlen kein Geld mehr, sie prägen je eine Ladung in
+## eine GEDECKELTE Börse; was nicht mehr hineinpasst, fällt zum alten Satz als Geld
+## an. GameRun rechnet nur die Aufteilung (charge_split), gebucht wird in der
+## Auszahlungs-Zeremonie.
+
+## Fassungsvermögen der Börse: Grundwert, ab Salon, ab Suite, ab High Roller.
+const CHARGE_CAP_BASE := 8
+const CHARGE_CAP_SALON := 10
+const CHARGE_CAP_SUITE := 12
+const CHARGE_CAP_HIGH_ROLLER := 15
+
+## Preise der Schwarzmarkt-Ware in Ladung.
+const SECRET_CHARM_PRICE := 8
+const SECRET_ENGRAVING_PRICE := 5
+## Grundpreis des Neuwurfs; jeder weitere kostet eine Ladung mehr. Der Zähler läuft
+## über den ganzen Lauf und wird nie zurückgesetzt.
+const SECRET_REROLL_BASE := 3
+## Anteil der Wildcard-Plätze, die einen Charm statt einer Spezial-Gravur zeigen.
+const SECRET_WILDCARD_CHARM_CHANCE := 0.5
+
+## Schlüssel eines Angebots (Single Source of Truth wie die id-Konstanten).
+const OFFER_KIND := "kind"
+const OFFER_ITEM := "item"
+const OFFER_PRICE := "price"
+const OFFER_SOLD := "sold"
+const KIND_CHARM := "charm"
+const KIND_ENGRAVING := "engraving"
+
+var charge: int = 0:
+	set(value):
+		if charge == value:
+			return
+		charge = value
+		charge_changed.emit(charge)
+
+## Entdeckt mit der ersten voll ausgereizten Überladung, danach für den Rest des
+## Laufs offen. Ein frischer Lauf startet wieder bei null.
+var secret_shop_unlocked: bool = false
+var secret_rerolls: int = 0
+var secret_stock: Array[Dictionary] = []
+
+## Deckel der Börse; wächst mit der Hub-Stufe wie der Überladungs-Rahmen.
+func charge_cap() -> int:
+	if hub_level >= 10:
+		return CHARGE_CAP_HIGH_ROLLER
+	if hub_level >= 7:
+		return CHARGE_CAP_SUITE
+	if hub_level >= 5:
+		return CHARGE_CAP_SALON
+	return CHARGE_CAP_BASE
+
+## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
+## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.
+func charge_split(stages: int) -> Dictionary:
+	var minted := maxi(stages, 0)
+	var stored := mini(minted, maxi(charge_cap() - charge, 0))
+	return {"stored": stored, "overflow": minted - stored}
+
+## Prägt count Ladungen bis zum Deckel und liefert, was nicht mehr hineinpasste -
+## der Aufrufer zahlt diesen Überlauf als Geld aus.
+func add_charge(count: int) -> int:
+	var split := charge_split(count)
+	charge += int(split["stored"])
+	return int(split["overflow"])
+
+func spend_charge(count: int) -> void:
+	charge = maxi(0, charge - count)
+
+## Rundenabschluss melden: die erste voll ausgereizte Überladung deckt den
+## Schwarzmarkt auf und würfelt seine erste Auslage gratis. true meldet genau
+## diese Entdeckung, danach nie wieder.
+## Maßstab ist der LIZENZ-Rahmen, nicht OVERCHARGE_STAGES: stages kommt aus
+## stages_cleared und ist selbst auf max_overcharge_stages gedeckelt - ein fester
+## Wert von 5 wäre vor der Suite nie erreichbar und machte die Entdeckung
+## heimlich wieder zur Hub-Stufe. Der Rahmen zählt OHNE Deals: ein Malus, der ihn
+## schrumpft (Übertaktungsrabatt), darf die Entdeckung nicht verbilligen.
+func note_round_stages(stages: int) -> bool:
+	if secret_shop_unlocked or stages < overcharge_frame():
+		return false
+	secret_shop_unlocked = true
+	_roll_secret_stock()
+	secret_shop_discovered.emit()
+	return true
+
+## Preis des nächsten Neuwurfs.
+func secret_reroll_cost() -> int:
+	return SECRET_REROLL_BASE + secret_rerolls
+
+## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Ladung
+## nicht reicht.
+func reroll_secret_stock() -> bool:
+	var cost := secret_reroll_cost()
+	if charge < cost:
+		return false
+	spend_charge(cost)
+	secret_rerolls += 1
+	_roll_secret_stock()
+	secret_stock_changed.emit()
+	return true
+
+## Kauft Platz index; je Auslage einmal, der verkaufte Platz bleibt leer.
+func buy_secret_offer(index: int) -> bool:
+	if index < 0 or index >= secret_stock.size():
+		return false
+	var offer := secret_stock[index]
+	var price := int(offer[OFFER_PRICE])
+	if bool(offer[OFFER_SOLD]) or charge < price:
+		return false
+	spend_charge(price)
+	if offer[OFFER_KIND] == KIND_CHARM:
+		var charm: Charm = offer[OFFER_ITEM]
+		_grant_charm(charm)
+	else:
+		var engraving: Engraving = offer[OFFER_ITEM]
+		grant_engraving(engraving)
+	offer[OFFER_SOLD] = true
+	secret_stock_changed.emit()
+	return true
+
+## Feste Plätze: legendärer Charm, Spezial-Gravur, Wildcard.
+func _roll_secret_stock() -> void:
+	secret_stock.clear()
+	secret_stock.append(_secret_charm_offer())
+	secret_stock.append(_secret_engraving_offer())
+	secret_stock.append(_secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE
+		else _secret_engraving_offer())
+
+## Legendärer Charm, den der Spieler weder besitzt noch schon in der Auslage
+## liegen hat. Ist der Topf leer, rückt eine Spezial-Gravur nach - die sind
+## beliebig oft kaufbar, die Auslage kann also nie tot sein.
+func _secret_charm_offer() -> Dictionary:
+	var taken := owned_charm_ids()
+	for offer in secret_stock:
+		if offer[OFFER_KIND] == KIND_CHARM:
+			var listed: Charm = offer[OFFER_ITEM]
+			taken.append(listed.id)
+	var pool: Array[Charm] = []
+	for charm in Charm.all():
+		if charm.rarity == Charm.RARITY_LEGENDARY and not taken.has(charm.id):
+			pool.append(charm)
+	if pool.is_empty():
+		return _secret_engraving_offer()
+	return _secret_offer(KIND_CHARM, Charm.pick_weighted(pool), SECRET_CHARM_PRICE)
+
+## Eine Gravur aus dem Sonderbestand (Engraving.SPECIAL_IDS), die nicht schon in
+## der Auslage liegt - zwei gleiche Plätze zum selben Preis lesen sich als Fehler.
+## Sind alle Sonderposten gelistet, sind Wiederholungen erlaubt: ein leerer Platz
+## wäre schlechter (wie beim Charm-Platz).
+func _secret_engraving_offer() -> Dictionary:
+	var listed: Array[String] = []
+	for offer in secret_stock:
+		if offer[OFFER_KIND] == KIND_ENGRAVING:
+			var shown: Engraving = offer[OFFER_ITEM]
+			listed.append(shown.id)
+	var pool: Array[Engraving] = []
+	var all_specials: Array[Engraving] = []
+	for engraving in Engraving.all():
+		if not Engraving.is_special_id(engraving.id):
+			continue
+		all_specials.append(engraving)
+		if not listed.has(engraving.id):
+			pool.append(engraving)
+	if pool.is_empty():
+		pool = all_specials
+	return _secret_offer(KIND_ENGRAVING, pool.pick_random(), SECRET_ENGRAVING_PRICE)
+
+func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
+	return {OFFER_KIND: kind, OFFER_ITEM: item, OFFER_PRICE: price, OFFER_SOLD: false}
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 

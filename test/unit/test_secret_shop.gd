@@ -1,0 +1,304 @@
+extends GutTest
+## Tests der Ladungs-Ökonomie (⚡) und des Schwarzmarkts in GameRun: Börsendeckel,
+## Aufteilung in Börse und Überlauf, Entdeckung, Auslage samt Ausschlüssen,
+## Neuwurf-Preise und Kauf.
+
+func _run() -> GameRun:
+	return GameRun.new_run()
+
+## Frischer Lauf mit aufgedecktem Schwarzmarkt (erste Auslage liegt).
+func _discovered() -> GameRun:
+	var run := _run()
+	run.note_round_stages(run.overcharge_frame())
+	return run
+
+func _legendaries() -> Array[Charm]:
+	var out: Array[Charm] = []
+	for charm in Charm.all():
+		if charm.rarity == Charm.RARITY_LEGENDARY:
+			out.append(charm)
+	return out
+
+# --- Börse ---------------------------------------------------------------------
+
+func test_fresh_run_starts_empty() -> void:
+	var run := _run()
+	assert_eq(run.charge, 0)
+	assert_false(run.secret_shop_unlocked)
+	assert_eq(run.secret_rerolls, 0)
+	assert_eq(run.secret_stock.size(), 0)
+
+func test_charge_cap_grows_with_hub_level() -> void:
+	var run := _run()
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_BASE, "Hinterzimmer: Grunddeckel")
+	run.hub_level = 4
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_BASE)
+	run.hub_level = 5
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SALON)
+	run.hub_level = 6
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SALON)
+	run.hub_level = 7
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SUITE)
+	run.hub_level = 9
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SUITE)
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_HIGH_ROLLER)
+
+func test_add_charge_stores_to_cap_and_returns_overflow() -> void:
+	var run := _run()  # Deckel 8
+	assert_eq(run.add_charge(5), 0)
+	assert_eq(run.charge, 5)
+	assert_eq(run.add_charge(5), 2, "3 passen noch, 2 laufen über")
+	assert_eq(run.charge, 8)
+	assert_eq(run.add_charge(3), 3, "volle Börse nimmt nichts mehr")
+	assert_eq(run.charge, 8)
+
+func test_add_charge_emits_new_value() -> void:
+	var run := _run()
+	var seen: Array[int] = []
+	run.charge_changed.connect(func(value: int) -> void: seen.append(value))
+	run.add_charge(3)
+	run.add_charge(9)
+	assert_eq(seen.size(), 2)
+	assert_eq(seen[0], 3)
+	assert_eq(seen[1], 8, "beim zweiten Mal bis zum Deckel")
+
+func test_spend_charge_clamps_at_zero_and_emits() -> void:
+	var run := _run()
+	run.charge = 3
+	var seen: Array[int] = []
+	run.charge_changed.connect(func(value: int) -> void: seen.append(value))
+	run.spend_charge(5)
+	assert_eq(run.charge, 0)
+	assert_eq(seen.size(), 1)
+	assert_eq(seen[0], 0)
+
+func test_charge_split_previews_without_mutating() -> void:
+	var run := _run()  # Deckel 8
+	run.charge = 6
+	var split := run.charge_split(5)
+	var stored: int = split["stored"]
+	var overflow: int = split["overflow"]
+	assert_eq(stored, 2)
+	assert_eq(overflow, 3)
+	assert_eq(run.charge, 6, "Vorschau ändert den Stand nicht")
+
+func test_charge_split_on_empty_wallet_stores_everything() -> void:
+	var run := _run()
+	var split := run.charge_split(5)
+	var stored: int = split["stored"]
+	var overflow: int = split["overflow"]
+	assert_eq(stored, 5)
+	assert_eq(overflow, 0)
+
+# --- Entdeckung ----------------------------------------------------------------
+
+func test_below_full_overcharge_keeps_market_hidden() -> void:
+	var run := _run()
+	var fired: Array = []
+	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
+	assert_false(run.note_round_stages(run.overcharge_frame() - 1))
+	assert_false(run.secret_shop_unlocked)
+	assert_eq(run.secret_stock.size(), 0)
+	assert_eq(fired.size(), 0)
+
+func test_full_overcharge_discovers_market_exactly_once() -> void:
+	var run := _run()
+	var fired: Array = []
+	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
+	assert_true(run.note_round_stages(run.overcharge_frame()))
+	assert_true(run.secret_shop_unlocked)
+	assert_eq(run.secret_stock.size(), 3, "erste Auslage gratis gewürfelt")
+	assert_eq(fired.size(), 1)
+	assert_false(run.note_round_stages(run.overcharge_frame()), "nur die Entdeckung meldet true")
+	assert_eq(fired.size(), 1, "kein zweites Signal")
+
+func test_discovery_is_reachable_on_the_starting_licence() -> void:
+	# Der ECHTE Weg: stages_cleared deckelt selbst auf max_overcharge_stages, ein
+	# fester Maßstab von 5 wäre im Hinterzimmer (Rahmen 3) nie erreichbar - der
+	# Schwarzmarkt bliebe bis zur Suite unauffindbar.
+	var run := _run()
+	assert_lt(run.overcharge_frame(), GameRun.OVERCHARGE_STAGES, "Startlizenz deckelt unter 5")
+	var points := run.cumulative_threshold(run.overcharge_frame())
+	assert_true(run.note_round_stages(run.stages_cleared(points)),
+		"volle Überladung deckt den Schwarzmarkt schon auf Stufe 1 auf")
+
+func test_discovery_needs_the_whole_licence_frame() -> void:
+	var run := _run()
+	var points := run.cumulative_threshold(run.overcharge_frame() - 1)
+	assert_false(run.note_round_stages(run.stages_cleared(points)),
+		"eine Stufe unter dem Rahmen bleibt er verborgen")
+
+# --- Auslage -------------------------------------------------------------------
+
+func test_stock_slots_are_charm_special_wildcard() -> void:
+	var run := _discovered()
+	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
+	assert_eq(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING)
+	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
+	assert_true(wildcard == GameRun.KIND_CHARM or wildcard == GameRun.KIND_ENGRAVING)
+
+	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)
+	assert_eq(int(run.secret_stock[0][GameRun.OFFER_PRICE]), GameRun.SECRET_CHARM_PRICE)
+	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
+	assert_true(Engraving.is_special_id(engraving.id), "Sonderbestand statt Regalware")
+	assert_eq(int(run.secret_stock[1][GameRun.OFFER_PRICE]), GameRun.SECRET_ENGRAVING_PRICE)
+	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
+
+func test_stock_never_lists_a_charm_twice() -> void:
+	for i in 10:
+		var run := _discovered()
+		var ids: Array[String] = []
+		for offer in run.secret_stock:
+			if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
+				var charm: Charm = offer[GameRun.OFFER_ITEM]
+				assert_false(ids.has(charm.id), "kein Charm doppelt in der Auslage")
+				ids.append(charm.id)
+
+func test_stock_never_lists_a_special_twice() -> void:
+	# Zwei gleiche Sonderposten zum selben Preis lesen sich als Fehler. Nur wenn
+	# mehr Plätze als Sonderposten da sind, sind Wiederholungen erlaubt.
+	var specials := 0
+	for engraving in Engraving.all():
+		if Engraving.is_special_id(engraving.id):
+			specials += 1
+	for i in 20:
+		var run := _discovered()
+		var ids: Array[String] = []
+		for offer in run.secret_stock:
+			if offer[GameRun.OFFER_KIND] != GameRun.KIND_ENGRAVING:
+				continue
+			var engraving: Engraving = offer[GameRun.OFFER_ITEM]
+			if ids.size() < specials:
+				assert_false(ids.has(engraving.id), "kein Sonderposten doppelt in der Auslage")
+			ids.append(engraving.id)
+
+func test_owned_legendaries_are_excluded_from_the_roll() -> void:
+	var run := _run()
+	var pool := _legendaries()
+	var spared: Charm = pool.pop_back()
+	for charm in pool:
+		run.owned_charms.append(charm)
+	run.note_round_stages(run.overcharge_frame())
+	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
+	assert_eq(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING,
+		"er liegt schon in der Auslage - die Wildcard fällt auf den Sonderbestand zurück")
+
+func test_all_legendaries_owned_falls_back_to_specials() -> void:
+	var run := _run()
+	for charm in _legendaries():
+		run.owned_charms.append(charm)
+	run.note_round_stages(run.overcharge_frame())
+	assert_eq(run.secret_stock.size(), 3)
+	for offer in run.secret_stock:
+		assert_eq(offer[GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING, "die Auslage kann nie tot sein")
+
+# --- Neuwurf -------------------------------------------------------------------
+
+func test_reroll_cost_escalates_and_never_resets() -> void:
+	var run := _discovered()
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER  # 15
+	assert_eq(run.secret_reroll_cost(), 3)
+	assert_true(run.reroll_secret_stock())
+	assert_eq(run.charge, 12)
+	assert_eq(run.secret_reroll_cost(), 4)
+	assert_true(run.reroll_secret_stock())
+	assert_eq(run.charge, 8)
+	assert_eq(run.secret_reroll_cost(), 5)
+	assert_true(run.reroll_secret_stock())
+	assert_eq(run.charge, 3)
+	assert_eq(run.secret_reroll_cost(), 6, "der Zähler läuft weiter")
+	assert_eq(run.secret_rerolls, 3)
+
+func test_reroll_replaces_the_whole_stock() -> void:
+	var run := _discovered()
+	run.charge = 3
+	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_true(run.reroll_secret_stock())
+	assert_eq(run.secret_stock.size(), 3)
+	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_ne(after, before, "frisch gewürfelte Instanzen")
+
+func test_reroll_without_charge_changes_nothing() -> void:
+	var run := _discovered()
+	run.charge = 2  # Neuwurf kostet 3
+	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_false(run.reroll_secret_stock())
+	assert_eq(run.charge, 2)
+	assert_eq(run.secret_rerolls, 0)
+	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_eq(after, before, "Auslage unverändert")
+
+# --- Kauf ----------------------------------------------------------------------
+
+func test_buying_a_charm_spends_charge_and_docks_it() -> void:
+	var run := _discovered()
+	run.charge = GameRun.SECRET_CHARM_PRICE
+	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_true(run.buy_secret_offer(0))
+	assert_eq(run.charge, 0)
+	assert_true(run.owned_charm_ids().has(charm.id))
+	assert_true(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
+
+func test_buying_a_special_engraving_stocks_it() -> void:
+	var run := _discovered()
+	run.charge = GameRun.SECRET_ENGRAVING_PRICE
+	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
+	assert_true(run.buy_secret_offer(1))
+	assert_eq(run.charge, 0)
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_eq(run.owned_engravings[0].id, engraving.id)
+
+func test_sold_slot_cannot_be_bought_twice() -> void:
+	var run := _discovered()
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER  # reicht für zwei Gravur-Käufe
+	assert_true(run.buy_secret_offer(1))
+	var charge_after := run.charge
+	var owned := run.owned_engravings.size()
+	assert_false(run.buy_secret_offer(1), "der Platz ist leer")
+	assert_eq(run.charge, charge_after, "kein zweiter Abzug")
+	assert_eq(run.owned_engravings.size(), owned)
+
+func test_buying_without_charge_is_rejected() -> void:
+	var run := _discovered()
+	run.charge = GameRun.SECRET_CHARM_PRICE - 1
+	assert_false(run.buy_secret_offer(0))
+	assert_eq(run.owned_charms.size(), 0)
+	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
+
+func test_invalid_index_is_rejected() -> void:
+	var run := _discovered()
+	run.charge = GameRun.SECRET_CHARM_PRICE
+	assert_false(run.buy_secret_offer(-1))
+	assert_false(run.buy_secret_offer(run.secret_stock.size()))
+	assert_eq(run.charge, GameRun.SECRET_CHARM_PRICE)
+
+func test_buy_emits_stock_changed() -> void:
+	var run := _discovered()
+	run.charge = GameRun.SECRET_CHARM_PRICE
+	var fired: Array = []
+	run.secret_stock_changed.connect(func() -> void: fired.append(true))
+	assert_true(run.buy_secret_offer(0))
+	assert_eq(fired.size(), 1)
+
+## Beide Kaufwege gehen durch _grant_charm - der Lumpensammler würfelt seine
+## Glückszahl also auch auf dem Schwarzmarkt sofort.
+func test_rag_collector_rolls_its_number_on_either_path() -> void:
+	var shop := _run()
+	shop.purchase_charm(Charm.rag_collector(), 0)
+	assert_between(shop.lumpensammler_value, 1, 6)
+
+	var market := _run()
+	market.charge = 8
+	market.secret_stock.append({
+		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
+		GameRun.OFFER_ITEM: Charm.rag_collector(),
+		GameRun.OFFER_PRICE: 8,
+		GameRun.OFFER_SOLD: false,
+	})
+	assert_true(market.buy_secret_offer(0))
+	assert_between(market.lumpensammler_value, 1, 6)
