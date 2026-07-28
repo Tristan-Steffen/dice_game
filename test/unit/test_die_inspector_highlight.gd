@@ -41,17 +41,25 @@ func _live_summary() -> Array:
 			live.append(c)
 	return live
 
-## Das Seiten-Raster sitzt IM Kanten-Rahmen (die Kanten sind der Rahmen um die
-## Seiten).
-func _face_grid() -> GridContainer:
+## Das Würfelnetz sitzt IM Kanten-Rahmen (die Kanten sind der Rahmen um die
+## Seiten). Neben den Seiten-Chips hängen dort auch Kanten-Chip und Leiterbahn-
+## Pfeile - für die Chip-Prüfungen zählen nur die Buttons.
+func _face_net() -> Control:
 	return _live_summary()[0].get_child(0)
+
+func _face_chips() -> Array:
+	var chips: Array = []
+	for c in _face_net().get_children():
+		if c is Button:
+			chips.append(c)
+	return chips
 
 func _edge_frame() -> PanelContainer:
 	return _live_summary()[0]
 
 ## Der Chip, dessen Ziffer in der Pit-Auswahlfarbe leuchtet (genau der gewählte).
 func _glowing_chip() -> Button:
-	for c in _face_grid().get_children():
+	for c in _face_chips():
 		var b := c as Button
 		if b.get_theme_color("font_color") == RotatableDieView.SELECT_FACE_COLOR:
 			return b
@@ -79,7 +87,7 @@ func test_selected_number_gets_black_outline() -> void:
 func test_unselected_material_chip_stays_dark_without_outline() -> void:
 	view.selected_face = 0
 	view._refresh_face_summary()
-	for c in _face_grid().get_children():
+	for c in _face_chips():
 		var b := c as Button
 		if b == _glowing_chip():
 			continue
@@ -92,7 +100,7 @@ func test_exactly_one_chip_glows_for_a_selected_face() -> void:
 	view.selected_face = 3
 	view._refresh_face_summary()
 	var glowing := 0
-	for c in _face_grid().get_children():
+	for c in _face_chips():
 		if (c as Button).get_theme_color("font_color") == RotatableDieView.SELECT_FACE_COLOR:
 			glowing += 1
 	assert_eq(glowing, 1)
@@ -116,7 +124,7 @@ func test_only_material_faces_wire_a_hover_tooltip() -> void:
 	# Jeder Chip hat die Vorschau-Hover-Verbindung; NUR die vier belegten Seiten
 	# tragen zusätzlich den Material-Tooltip (also zwei Verbindungen statt einer).
 	var with_tooltip := 0
-	for c in _face_grid().get_children():
+	for c in _face_chips():
 		if (c as Button).mouse_entered.get_connections().size() >= 2:
 			with_tooltip += 1
 	assert_eq(with_tooltip, 4, "nur Seiten mit Material bekommen zusätzlich einen Tooltip")
@@ -144,6 +152,35 @@ func test_engraving_slots_carry_their_effect_tooltip() -> void:
 	for entry in drawer.slots:
 		var slot: Button = entry["button"]
 		assert_ne(slot.tooltip_text, "", "Platz %s erklärt sich" % entry["id"])
+
+# --- Würfelnetz (dieselbe Anordnung wie im Netzfeld der Grube) ----------------
+
+func test_the_summary_lays_the_chips_out_as_the_die_net() -> void:
+	# Nach PHYSISCHER Lage, nicht nach Augenzahl: nur so treffen die Leiterbahn-
+	# Pfeile die Kante, über die sie zeigen.
+	var cell: float = view.u * DieInspectorView.TRAY_TILE
+	for face in 6:
+		var chip: Button = view.face_chips[face]
+		assert_almost_eq(chip.position, DieNetView.cell_position(face, cell), Vector2.ONE * 0.5,
+			"Seite %d sitzt auf ihrem Kreuz-Platz" % face)
+
+func test_the_summary_shows_pointer_arrows() -> void:
+	var def := _die()
+	var pointers: Array[int] = [4, -1, 0, -1, -1, -1]
+	def.pointers = pointers
+	view.show_die(def)
+	var arrows := 0
+	for c in _face_net().get_children():
+		if c is DieNetView.PointerArrow:
+			arrows += 1
+	assert_eq(arrows, 2, "je Leiterbahn ein Pfeil - der Grund für das Netz")
+
+func test_the_summary_carries_the_edge_chip() -> void:
+	var chips := 0
+	for c in _face_net().get_children():
+		if c is Panel and not (c is Button):
+			chips += 1
+	assert_eq(chips, 1, "der Kanten-Chip sitzt in der leeren Kreuz-Ecke")
 
 func test_show_and_hide_face_tooltip() -> void:
 	assert_false(view.face_tooltip.visible, "anfangs verborgen")

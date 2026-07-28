@@ -67,9 +67,13 @@ const DIE_VIEW_SIDE := 15.0
 ## Anteil der Panel-Höhe, der oben als Bühne für den schwebenden Würfel frei
 ## bleibt - knapp, damit kein großer Leerraum entsteht.
 const STAGE_FRACTION := 0.15
-## Kantenlänge einer Kachel/eines Seiten-Chips (Breiteneinheiten u) - gilt für
-## Seiten-Übersicht UND Würfel-Raster, eine Änderung skaliert beide.
-const TRAY_TILE := 7.6
+## Zellgröße des Seiten-Würfelnetzes (Breiteneinheiten u). Kleiner als das alte
+## 3×2-Raster, weil das Kreuz 4×3 Plätze braucht und in dieselbe Spalte muss.
+const TRAY_TILE := 5.0
+## Höhe des Stationsinhalts in Maßeinheiten. Die Einheit kommt aus BEIDEN Achsen
+## (min), sonst bläst ein breiteres Werkbank-Fenster den Inhalt über die
+## unveränderte Fensterhöhe hinaus - die Breite allein ist kein Platzgewinn.
+const CONTENT_UNITS := 51.0
 ## Rückfall-Skala des Ziel-Rasters, solange seine Spalte noch kein Maß hat.
 const GRID_UNIT_SCALE := 0.80
 ## Rand des Rasters zu seiner Spalte (Breiteneinheiten u) - ringsum derselbe.
@@ -188,7 +192,7 @@ func close() -> void:
 func _build_layout() -> void:
 	for child in get_children():
 		child.queue_free()
-	u = maxf(size.x, 640.0) / 100.0
+	u = minf(maxf(size.x, 640.0) / 100.0, size.y / CONTENT_UNITS)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true  # nichts ragt über den Hub-Rahmen hinaus
 
@@ -961,11 +965,14 @@ func _refresh_face_summary() -> void:
 	edge_frame.mouse_exited.connect(_on_edge_frame_hover_exit)
 	summary_list.add_child(edge_frame)
 
-	var face_grid := GridContainer.new()
-	face_grid.columns = 3
+	# Würfelnetz statt Reihenraster: dieselbe Anordnung wie im Netzfeld der Grube,
+	# also nach PHYSISCHER Lage - nur so treffen die Leiterbahn-Pfeile die Kante,
+	# über die sie zeigen. Ein nacktes Control, weil die Zellen absolut sitzen.
+	var cell := u * TRAY_TILE
+	var face_grid := Control.new()
+	face_grid.name = "FaceNet"
+	face_grid.custom_minimum_size = DieNetView.net_size(cell)
 	face_grid.mouse_filter = Control.MOUSE_FILTER_PASS  # Klicks erreichen den Rahmen
-	face_grid.add_theme_constant_override("h_separation", int(u * 0.8))
-	face_grid.add_theme_constant_override("v_separation", int(u * 0.8))
 	edge_frame.add_child(face_grid)
 	# Chip-Referenzen nach physischem Index für Eignungs-Dimmung + Vorschau.
 	face_chips.clear()
@@ -984,10 +991,18 @@ func _refresh_face_summary() -> void:
 		# erste Paar-Klick ist.
 		var ok := held_id == "" or eligible[face_index] or face_index == first_face
 		var chip := _face_chip(value, material_id, selected_face == face_index, face_index, ok)
+		chip.position = DieNetView.cell_position(face_index, cell)
+		chip.size = Vector2.ONE * cell
 		face_chips[face_index] = chip
 		face_chip_fills[face_index] = DieMaterial.tint_for(material_id)
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
+
+	# Kanten-Chip in die leere Kreuz-Ecke und die Leiterbahn-Pfeile obendrauf -
+	# die Pfeile zuletzt, sie liegen über den Zellrändern.
+	face_grid.add_child(DieNetView.edge_chip(current_def, cell))
+	for arrow in DieNetView.pointer_arrows(current_def, cell):
+		face_grid.add_child(arrow)
 
 	_sync_die_view()
 

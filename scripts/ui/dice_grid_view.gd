@@ -17,9 +17,16 @@ const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GOLD := Color("#ffd319")
 const CYAN := Color("#8be9fd")
 
-## Kantenlänge einer detaillierten Kachel und einer Seiten-Zelle (Einheiten u).
-const DETAIL_TILE := 8.91
-const DETAIL_CELL := 2.1
+## Zellgröße des Würfelnetzes (Einheiten u) und der Rand der Kachel darum; die
+## Kachelgröße wird DARAUS abgeleitet (detail_tile_size), damit Netz und Kachel
+## nie auseinanderlaufen. TOTAL_BAND ist die Zeile der Augensumme über dem Netz.
+## Zellgröße des Würfelnetzes und der Rand der Kachel darum. Die Augensumme
+## braucht KEINEN eigenen Streifen mehr: sie sitzt in der leeren oberen rechten
+## Kreuz-Ecke (DieNetView.total_badge), also wird die Kachel genau so groß wie
+## das Netz - alle 30 Kacheln teilen sich eine feste Fläche, jeder gesparte
+## Streifen wird zu größeren Zellen.
+const DETAIL_CELL := 2.0
+const TILE_PAD := 0.4
 
 ## Breiteneinheit; setzt der Aufrufer über place().
 var u := 8.0
@@ -38,11 +45,16 @@ var _totals: Array[Label] = []
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+## Maße einer detaillierten Kachel bei Einheit unit: das Würfelnetz plus Rand.
+static func detail_tile_size(unit: float) -> Vector2:
+	return DieNetView.net_size(unit * DETAIL_CELL) + Vector2.ONE * unit * TILE_PAD * 2.0
+
 ## Größte Maßeinheit, bei der ein detailliertes Raster columns×rows noch in avail
 ## passt - damit ein Aufrufer das Raster seinen Platz ausfüllen lassen kann.
 static func unit_for(column_count: int, row_count: int, avail: Vector2) -> float:
-	var span_w := column_count * DETAIL_TILE + (column_count - 1) * 0.6
-	var span_h := row_count * DETAIL_TILE + (row_count - 1) * 0.6
+	var tile := detail_tile_size(1.0)
+	var span_w := column_count * tile.x + (column_count - 1) * 0.6
+	var span_h := row_count * tile.y + (row_count - 1) * 0.6
 	return maxf(1.0, minf(avail.x / span_w, avail.y / span_h))
 
 ## Spaltenzahl, Maßeinheit und Ausführung festlegen (vor fill).
@@ -111,72 +123,28 @@ func _tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
 
 func _tile_size() -> Vector2:
 	if detailed:
-		return Vector2.ONE * u * DETAIL_TILE
+		return detail_tile_size(u)
 	return Vector2(u * 6.4, u * 4.6)
 
-## Detail-Kachel: Augensumme über dem 3×2-Raster der Seiten (Material-Tönung).
+## Detail-Kachel: das WÜRFELNETZ wie im Netzfeld der Grube, damit Materialien
+## UND Leiterbahnen hier wie dort gelesen werden - die Augensumme sitzt in der
+## leeren oberen rechten Kreuz-Ecke. Keine oben liegende Seite: im Lager liegt
+## kein Würfel.
 func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:
-	var box := VBoxContainer.new()
-	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", maxi(1, int(u * 0.3)))
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tile.add_child(box)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(center)
 
-	var total := Label.new()
-	total.text = str(DiceRowView.eye_total(def))
-	total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	total.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	total.add_theme_font_size_override("font_size", maxi(8, int(u * 2.08)))
+	var cell := u * DETAIL_CELL
+	var net := DieNetView.build(def, -1, cell)
+	center.add_child(net)
+
+	var total := DieNetView.total_badge(def, cell)
 	total.modulate = GOLD if highlighted else TEXT_COLOR
-	total.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(total)
+	net.add_child(total)
 	if index < _totals.size():
 		_totals[index] = total
-
-	var faces := GridContainer.new()
-	faces.columns = 3
-	faces.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	faces.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	faces.add_theme_constant_override("h_separation", maxi(1, int(u * 0.25)))
-	faces.add_theme_constant_override("v_separation", maxi(1, int(u * 0.25)))
-	for face_index in _faces_sorted_by_value(def):
-		var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
-		faces.add_child(_face_cell(def.faces[face_index], material_id))
-	box.add_child(faces)
-
-## Seiten-Indizes nach Augenzahl aufsteigend - die Kachel liest wie "1-6".
-func _faces_sorted_by_value(def: DieDefinition) -> Array[int]:
-	var order: Array[int] = []
-	for i in def.faces.size():
-		order.append(i)
-	order.sort_custom(func(a: int, b: int) -> bool:
-		if def.faces[a] != def.faces[b]:
-			return def.faces[a] < def.faces[b]
-		return a < b)
-	return order
-
-## Eine Seite: Ziffer auf der Materialfarbe (Weiß ohne Material).
-func _face_cell(value: int, material_id: String) -> Control:
-	var cell := Panel.new()
-	cell.custom_minimum_size = Vector2.ONE * u * DETAIL_CELL
-	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = DieMaterial.tint_for(material_id)
-	box.border_color = Color(0, 0, 0, 0.35)
-	box.set_border_width_all(maxi(1, int(u * 0.1)))
-	box.set_corner_radius_all(maxi(1, int(u * 0.3)))
-	cell.add_theme_stylebox_override("panel", box)
-	var label := Label.new()
-	label.text = str(value)
-	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", maxi(8, int(u * 1.54)))
-	label.add_theme_color_override("font_color", CasinoStyle.INK)
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cell.add_child(label)
-	return cell
 
 ## Kachel-Saum: gold für das aktuelle Ziel, sonst die Farbe des Kanten-Materials
 ## bzw. Cyan bei normalen Würfeln - Spezialwürfel sind so vor Versehen geschützt.

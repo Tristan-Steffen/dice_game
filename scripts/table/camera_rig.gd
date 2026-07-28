@@ -36,6 +36,22 @@ const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 ## die erste Tray-Reihe an, und die ist Klickziel.
 const WORKSHOP_ZOOM_DISTANCE_BONUS := 1.0
 
+## Zweite Werkbank-Stufe (Doppelklick auf leere Fläche): rahmt NUR Fenster und
+## Schubladen, mit einem Hauch Zugabe - anders als der Titel (TITLE_MARGIN), der
+## bewusst Tisch daneben zeigt. Über 1.0, damit die Ecke IMMER ganz ins Bild
+## passt; wohin der Rest fällt, klärt _workshop_close_origin.
+const WORKSHOP_CLOSE_MARGIN := 1.02
+## Seitlich dagegen ein Hauch Luft: dort gibt es kein "fällt oben weg", ein zu
+## enger Rahmen schneidet einfach die äußeren Schubladen an. Knapp halten - bei
+## einem hochformatigeren Fenster schlägt die BREITE an und bestimmt allein,
+## wie nah die Kamera kommt.
+const WORKSHOP_CLOSE_SIDE_MARGIN := 1.01
+## HANDVERSCHIEBUNG der Nahsicht, falls der Ausschnitt anders sitzen soll: die
+## Kamera wandert um x nach rechts und y nach oben (Weltmeter, in Bildrichtung),
+## das Bild also gegenläufig. Null = die gerechnete Lage, die die Trays sicher
+## draußen hält - wer hier schiebt, holt sie oben wieder herein.
+const WORKSHOP_CLOSE_AIM := Vector2.ZERO
+
 ## Zoom-Blickpunkte - nur Rückfallwerte: scene_root überschreibt sie aus den
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
 ## Zoom automatisch mitnehmen.
@@ -50,6 +66,12 @@ var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
 var chips_target := Vector3(0, 1.5, 10)
 var workshop_target := Vector3(-24, 0, 22)
+## Nahsicht-Ziel + halbe Ausmaße der Werkbank-Ecke ohne Trays (x = entlang
+## Welt-Z, y = entlang Welt-X) - wie beim Titel aus den echten Rechtecken.
+var workshop_close_target := Vector3(-24, 0, 22)
+var workshop_close_half := Vector2(12.0, 10.0)
+## Steht die Werkbank in der Nahsicht? Dort steht die Kamera zusätzlich STILL.
+var workshop_close: bool = false
 ## Titelziel + halbe Fenstermaße (x = entlang Welt-Z, y = entlang Welt-X).
 var title_target := Vector3(-26, 0, 0)
 var title_half := Vector2(14.25, 15.0)
@@ -68,6 +90,20 @@ const ZOOM_FORWARD := Vector3(0.25881907, -0.9659258, 1.1313341e-08)  # = -ZOOM_
 ## nicht: er zeigte das Menü als Trapez, und die Illusion "flache Oberfläche"
 ## wäre hin.
 const TITLE_BASIS := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
+
+## Alle drei Blickwinkel sind dieselbe Familie, nur anders geneigt: Bild-Rechts
+## = Welt +Z, Bild-Oben kippt um Grad aus der Senkrechten (0 = TITLE_BASIS,
+## 15 = ZOOM_BASIS).
+static func tilted_basis(degrees: float) -> Basis:
+	var angle := deg_to_rad(degrees)
+	return Basis(Vector3(0, 0, 1), Vector3(cos(angle), sin(angle), 0),
+		Vector3(-sin(angle), cos(angle), 0))
+
+## Die Werkbank-Nahsicht blickt SENKRECHT von oben: aus der Nähe verzerrte schon
+## ein kleiner Winkel das Fenster sichtbar zum Trapez. Die Werkbank ist flache
+## Anzeige und soll wie ein Bildschirm liegen - wie das Titel-HUD.
+const WORKSHOP_CLOSE_TILT_DEGREES := 0.0
+static var WORKSHOP_CLOSE_BASIS: Basis = tilted_basis(WORKSHOP_CLOSE_TILT_DEGREES)
 
 ## Das Titel-Fenster liegt GANZ im Bild (die weitere Achse schlägt an) und
 ## bekommt Zugabe: der Tisch daneben - vor allem die Würfel-Ablage rechts -
@@ -111,8 +147,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	# Im Titel-HUD steht die Kamera still: das Rundschauen schwenkte den Filz
-	# ins Bild und verriete, dass das Menü auf einem Tisch liegt.
-	if is_animating or tilt_locked or mode == Mode.TITLE:
+	# ins Bild und verriete, dass das Menü auf einem Tisch liegt. In der
+	# Werkbank-Nahsicht ebenso: dort ist der Rahmen randvoll, jedes Schwenken
+	# holte die Trays herein.
+	if is_animating or tilt_locked or mode == Mode.TITLE or workshop_close:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -202,13 +240,18 @@ func configure_chips_target(target: Vector3) -> void:
 func configure_workshop_target(target: Vector3) -> void:
 	workshop_target = target
 
+func configure_workshop_close_target(center: Vector3, half_extent: Vector2) -> void:
+	workshop_close_target = center
+	workshop_close_half = half_extent
+
 func configure_title_target(center: Vector3, half_extent: Vector2) -> void:
 	title_target = center
 	title_half = half_extent
 
-## Abstand, bei dem das Titel-Fenster vollständig im Bild steht (Maximum der
-## beiden Achsen-Abstände; das Seitenverhältnis kommt aus dem laufenden Viewport).
-func title_distance() -> float:
+## Abstand, bei dem ein Rechteck der halben Ausmaße half ganz im Bild steht
+## (Maximum der beiden Achsen; Seitenverhältnis aus dem laufenden Viewport).
+## margin < 1 überfüllt bewusst, > 1 lässt Luft.
+func _fit_distance(half: Vector2, margin: float) -> float:
 	var half_fov := tan(deg_to_rad(fov * 0.5))
 	if half_fov <= 0.0:
 		return ZOOM_DISTANCE
@@ -218,11 +261,41 @@ func title_distance() -> float:
 		var vp_size := viewport.get_visible_rect().size
 		if vp_size.x > 0.0 and vp_size.y > 0.0:
 			aspect = vp_size.x / vp_size.y
-	return maxf(title_half.y / half_fov, title_half.x / (half_fov * aspect)) * TITLE_MARGIN
+	return maxf(half.y / half_fov, half.x / (half_fov * aspect)) * margin
+
+func title_distance() -> float:
+	return _fit_distance(title_half, TITLE_MARGIN)
+
+## Beide Achsen getrennt gerechnet, weil sie bei der Werkbank fast gleichauf
+## liegen und sonst mal die eine, mal die andere anschlägt. Diese beiden Zugaben
+## sind die Stellschrauben für "wie nah": bei einem hochformatigen Fenster
+## entscheidet die SEITEN-Zugabe allein, bei einem breiten die andere.
+func workshop_close_distance() -> float:
+	return maxf(
+		_fit_distance(Vector2(workshop_close_half.x, 0.0), WORKSHOP_CLOSE_SIDE_MARGIN),
+		_fit_distance(Vector2(0.0, workshop_close_half.y), WORKSHOP_CLOSE_MARGIN))
+
+## Kamerastandort der Nahsicht. Die Ecke passt immer ganz ins Bild (Zugabe ≥ 1),
+## füllt es aber fast nie genau aus - und wo die überschüssige Luft landet,
+## entscheidet alles: ÜBER der Ecke liegen die Trays, UNTER ihr nur nackter Filz.
+## Also sitzt die OBERKANTE am oberen Bildrand und die Luft sammelt sich unten.
+## Exakt gelöst statt geschätzt: für einen Punkt P ist die Bildhöhe
+## dot(P-Ziel, up) / ((dot(P-Ziel, forward) + d) * tan) - nach der Verschiebung s
+## mit Bildhöhe = +1 aufgelöst. Zuletzt die Handverschiebung obendrauf.
+func _workshop_close_origin() -> Vector3:
+	var distance := workshop_close_distance()
+	var up := WORKSHOP_CLOSE_BASIS.y
+	var forward := -WORKSHOP_CLOSE_BASIS.z
+	var to_top := up * workshop_close_half.y
+	var shift := to_top.dot(up) \
+		- tan(deg_to_rad(fov * 0.5)) * (to_top.dot(forward) + distance)
+	return workshop_close_target + up * shift - forward * distance \
+		+ WORKSHOP_CLOSE_BASIS.x * WORKSHOP_CLOSE_AIM.x + up * WORKSHOP_CLOSE_AIM.y
 
 ## Fährt in die Titelsicht; instant = ohne Fahrt (Spielstart).
 func show_title(instant := false) -> void:
 	var target_origin := title_target + Vector3.UP * title_distance()
+	workshop_close = false
 	mode = Mode.TITLE
 	mode_changed.emit(mode)
 	anchor_basis = TITLE_BASIS
@@ -282,12 +355,44 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	if target_mode == Mode.WORKSHOP:
 		distance += WORKSHOP_ZOOM_DISTANCE_BONUS
 	var target_origin := target_point - ZOOM_FORWARD * distance
+	workshop_close = false  # jeder Moduswechsel verlässt die Nahsicht
 	mode = target_mode
 	mode_changed.emit(mode)
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO
 	_animate_to(target_origin, ZOOM_BASIS, duration, ease_mode)
+
+## Zweite Werkbank-Stufe: rahmt Fenster + Schubladen, die Trays fallen aus dem
+## Bild. Der Modus bleibt WORKSHOP - die Nahsicht ist derselbe Arbeitsplatz,
+## nur näher, und erbt damit Klickweiterleitung und Zeremonie unverändert.
+func zoom_workshop_close() -> void:
+	if workshop_close or mode != Mode.WORKSHOP:
+		return
+	workshop_close = true
+	var target_origin := _workshop_close_origin()
+	anchor_basis = WORKSHOP_CLOSE_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
+	# Der Modus bleibt WORKSHOP, die SICHT ändert sich trotzdem: melden, damit
+	# scene_root nachzieht (Spiegelung aus) - sonst muss jeder Aufrufer daran denken.
+	mode_changed.emit(mode)
+	_animate_to(target_origin, WORKSHOP_CLOSE_BASIS)
+
+## Aus der Nahsicht zurück auf die ganze Werkbank-Ecke (eine Stufe, nicht raus).
+func zoom_workshop_wide() -> void:
+	if not workshop_close:
+		return
+	workshop_close = false
+	var target_origin := workshop_target \
+		- ZOOM_FORWARD * (ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS)
+	anchor_basis = ZOOM_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	mode_changed.emit(mode)  # siehe zoom_workshop_close
+	_animate_to(target_origin, ZOOM_BASIS)
 
 ## Verschiebt den Zoom-Blick auf target_point OHNE den Modus zu wechseln (z.B.
 ## von Charm zu Charm) - gleicher Winkel/Abstand, nur der Blickpunkt wandert.
@@ -304,6 +409,7 @@ func pan_to(target_point: Vector3) -> void:
 func zoom_out(duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void:
 	if mode == Mode.OVERVIEW:
 		return
+	workshop_close = false
 	mode = Mode.OVERVIEW
 	mode_changed.emit(mode)
 	anchor_basis = base_basis

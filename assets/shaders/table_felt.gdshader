@@ -2,8 +2,10 @@ shader_type canvas_item;
 // Casino-Tischfilz: der 2D-Hintergrund des Tisch-Displays (ersetzt die flache
 // Hintergrundfarbe, siehe TableScreen._build_content). Alles AUSSERHALB der
 // "Fenster" liest sich damit als dunkler violetter Filz - matt und stofflich:
-// feine Körnung (Fasern) + großflächige Wolken (abgewetzte Stellen) + sanfte
-// Abdunklung zum Rand. Die Fenster-Panels liegen darüber; dass ihr leicht
+// feine Körnung (Fasern) + großflächige Wolken (abgewetzte Stellen). KEINE
+// Rand-Vignette mehr: der Filz läuft hinter dem Glas als endloser Boden weiter
+// (table_ground.gdshader), eine Abdunklung zur Screen-Kante läse sich als
+// Geisterbild des alten Tischrands. Die Fenster-Panels liegen darüber; dass ihr leicht
 // durchscheinender Grund einen Hauch Filz durchschimmern lässt, ist gewollt
 // (Glasscheiben AUF dem Filz). Spiegelnd ist nur das Fenster-Glas - der Filz
 // bekommt im Glas-Shader keine Spiegelung (siehe screen_glass.gdshader).
@@ -66,8 +68,6 @@ void fragment() {
 	// Großflächige Wolken: leicht ungleichmäßig gefärbter Stoff.
 	float clouds = value_noise(UV * cloud_scale) * 0.6
 		+ value_noise(UV * cloud_scale * 2.7 + vec2(5.0, 9.0)) * 0.4;
-	// Sanfte Abdunklung zum Tischrand (Vignette).
-	float edge = smoothstep(0.95, 0.45, length((UV - 0.5) * vec2(1.25, 1.0)));
 
 	// Rauten-Gitter: 45° gedrehte Zellkoordinaten; e = Abstand zur nächsten
 	// Zellkante. Kante = dunkle Fuge, daneben eine zweite Naht, der Steg
@@ -87,8 +87,7 @@ void fragment() {
 	}
 	float fabric = 1.0 - glass;
 
-	vec3 felt = mix(felt_shadow, felt_color, 0.55 + 0.45 * edge);
-	felt = mix(felt, felt_shadow, clouds * cloud_strength * fabric);
+	vec3 felt = mix(felt_color, felt_shadow, clouds * cloud_strength * fabric);
 	felt *= 1.0 - diamond_strength * (seam * 0.8 + inner * 0.5 - band * 0.35) * fabric;
 	felt *= 1.0 + (grain - 0.5) * 2.0 * grain_strength * fabric;
 	COLOR = vec4(felt, 1.0);

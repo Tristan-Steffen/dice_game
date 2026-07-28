@@ -117,3 +117,144 @@ func test_the_reveal_leaves_the_title_for_the_overview() -> void:
 	rig.reveal_table()
 	assert_eq(rig.mode, CameraRig.Mode.OVERVIEW)
 	assert_true(rig.is_animating, "der Rückzieher läuft")
+
+# --- Werkbank-Nahsicht -------------------------------------------------------
+# Zweite Zoomstufe der Werkbank (Doppelklick auf freie Fläche): rahmt Fenster
+# und Schubladen randvoll, die Trays fallen aus dem Bild, die Kamera steht still.
+
+const WORKSHOP_CENTER := Vector3(-24, 0, 22)
+const CLOSE_CENTER := Vector3(-27, 0, 22)
+## Proportionen der echten Werkbank-Ecke (breiter als hoch, aber flacher als das
+## Bild): so schlägt die HÖHE an, und genau daraus lebt diese Zoomstufe.
+const CLOSE_HALF := Vector2(12.9, 9.1)
+const CLOSE_BOTTOM := Vector3(-27 - 9.1, 0, 22)  # Mitte der Unterkante (-X = Bild-unten)
+
+func _aim_at_workshop() -> void:
+	# GUT läuft in einem QUADRATISCHEN Viewport - dort schlüge die Breite an und
+	# die Zoomstufe stünde weit weg. Für die Höhenfrage muss das Bild breit sein.
+	get_viewport().size = Vector2i(1600, 900)
+	rig.configure_workshop_target(WORKSHOP_CENTER)
+	rig.configure_workshop_close_target(CLOSE_CENTER, CLOSE_HALF)
+	rig.zoom_to(CameraRig.Mode.WORKSHOP)
+	rig.is_animating = false  # Fahrt überspringen, die Lage steht
+
+## Bildhöhe eines Weltpunkts in Normalkoordinaten (-1 = unterer Rand, +1 = oben).
+func _frame_height(point: Vector3) -> float:
+	var to_point := point - rig.anchor_origin
+	return to_point.dot(rig.anchor_basis.y) \
+		/ (to_point.dot(-rig.anchor_basis.z) * tan(deg_to_rad(rig.fov * 0.5)))
+
+func test_the_close_step_moves_in_and_keeps_the_workshop_mode() -> void:
+	_aim_at_workshop()
+	var wide_distance := rig.global_transform.origin.distance_to(WORKSHOP_CENTER)
+	rig.zoom_workshop_close()
+	assert_true(rig.workshop_close, "die Nahsicht steht")
+	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP,
+		"derselbe Arbeitsplatz - Klickweiterleitung und Zeremonie bleiben gültig")
+	assert_lt(rig.anchor_origin.distance_to(CLOSE_CENTER), wide_distance,
+		"die zweite Stufe steht näher als die erste")
+
+func test_the_close_step_looks_down_more_steeply_than_the_other_zooms() -> void:
+	_aim_at_workshop()
+	var wide_pitch := (-rig.anchor_basis.z).angle_to(Vector3.DOWN)
+	rig.zoom_workshop_close()
+	var close_pitch := (-rig.anchor_basis.z).angle_to(Vector3.DOWN)
+	assert_lt(close_pitch, wide_pitch, "die Nahsicht blickt steiler von oben")
+	assert_almost_eq(rad_to_deg(close_pitch), CameraRig.WORKSHOP_CLOSE_TILT_DEGREES, 0.01)
+	assert_almost_eq(rig.anchor_basis.x, Vector3(0, 0, 1), Vector3.ONE * 0.001,
+		"Bild-Rechts bleibt Welt +Z wie bei allen anderen Blickwinkeln")
+
+func test_the_tilt_family_spans_title_and_zoom() -> void:
+	assert_true(CameraRig.tilted_basis(0.0).is_equal_approx(CameraRig.TITLE_BASIS),
+		"0 Grad = die senkrechte Titelsicht")
+	assert_true(CameraRig.tilted_basis(15.0).is_equal_approx(CameraRig.ZOOM_BASIS),
+		"15 Grad = der übliche Zoomblick")
+
+func test_a_tall_window_parks_the_spare_room_below_the_corner() -> void:
+	# Hochformatiges Fenster: die BREITE schlägt an, senkrecht bleibt Luft übrig.
+	# Die muss UNTER die Ecke (nackter Filz) - oben lägen die Trays im Bild.
+	_aim_at_workshop()
+	get_viewport().size = Vector2i(900, 1000)
+	rig.zoom_workshop_close()
+	var corner_top := CLOSE_CENTER + Vector3(CLOSE_HALF.y, 0, 0)
+	assert_almost_eq(_frame_height(corner_top), 1.0, 0.02,
+		"die Oberkante sitzt am oberen Bildrand, die Luft sammelt sich unten")
+	assert_gt(_frame_height(CLOSE_BOTTOM), -1.0,
+		"die Unterkante steht dann sichtbar im Bild, nicht am Rand")
+
+func test_the_close_step_announces_itself_even_though_the_mode_is_unchanged() -> void:
+	# Die Nahsicht wechselt den Modus NICHT - trotzdem muss scene_root nachziehen
+	# (Spiegelung aus). Ohne das Signal müsste jeder Aufrufer daran denken.
+	_aim_at_workshop()
+	var seen: Array[int] = []
+	rig.mode_changed.connect(func(m: CameraRig.Mode) -> void: seen.append(int(m)))
+	rig.zoom_workshop_close()
+	rig.zoom_workshop_wide()
+	assert_eq(seen, [int(CameraRig.Mode.WORKSHOP), int(CameraRig.Mode.WORKSHOP)] as Array[int],
+		"hin und zurück melden sich beide")
+
+func test_the_close_step_keeps_the_whole_corner_in_frame() -> void:
+	# Zugabe ≥ 1: die Ecke passt IMMER ganz ins Bild, oben wie unten.
+	_aim_at_workshop()
+	rig.zoom_workshop_close()
+	assert_gte(CameraRig.WORKSHOP_CLOSE_MARGIN, 1.0, "sonst wird die Ecke beschnitten")
+	assert_gt(_frame_height(CLOSE_BOTTOM), -1.0, "die Unterkante steht im Bild")
+	assert_lte(_frame_height(CLOSE_CENTER + Vector3(CLOSE_HALF.y, 0, 0)), 1.0001,
+		"und die Oberkante ebenso")
+
+func test_the_close_step_fills_the_frame_up_to_the_corners_top_edge() -> void:
+	# Die Ecke füllt das Bild bis oben - über ihrer Oberkante ist kein Platz
+	# mehr, und dort beginnt die Tray-Reihe. Der Höhenanschlag ist die
+	# eigentliche Forderung an diese Zoomstufe.
+	_aim_at_workshop()
+	rig.zoom_workshop_close()
+	var corner_top := CLOSE_CENTER + Vector3(CLOSE_HALF.y, 0, 0)  # +X = Bild-oben
+	var top_height := _frame_height(corner_top)
+	assert_almost_eq(top_height, 1.0, 0.001,
+		"die Oberkante der Ecke schließt mit dem oberen Bildrand ab - die Luft liegt unten")
+
+func test_the_camera_stands_still_in_the_close_view() -> void:
+	_aim_at_workshop()
+	rig.zoom_workshop_close()
+	rig.is_animating = false
+	var before := rig.global_transform
+	rig._process(0.1)
+	assert_eq(rig.global_transform, before, "kein Rundschauen in der Nahsicht")
+
+func test_the_camera_still_looks_around_in_the_wide_workshop_view() -> void:
+	_aim_at_workshop()
+	assert_false(rig.workshop_close, "die erste Stufe ist die weite")
+	rig._process(0.1)
+	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP)
+	assert_false(rig.workshop_close, "das Rundschauen läuft dort weiter")
+
+func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
+	_aim_at_workshop()
+	rig.zoom_workshop_close()
+	rig.zoom_workshop_wide()
+	assert_false(rig.workshop_close)
+	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "eine Stufe zurück, nicht ganz raus")
+	assert_almost_eq(rig.anchor_origin,
+		WORKSHOP_CENTER - CameraRig.ZOOM_FORWARD
+			* (CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS),
+		Vector3.ONE * 0.001, "wieder die weite Werkbank-Lage")
+
+func test_leaving_the_workshop_drops_the_close_flag() -> void:
+	for leave in ["zoom_out", "pit", "title"]:
+		_aim_at_workshop()
+		rig.zoom_workshop_close()
+		match leave:
+			"zoom_out":
+				rig.zoom_out()
+			"pit":
+				rig.zoom_to(CameraRig.Mode.PIT)
+			"title":
+				rig.show_title(true)
+		assert_false(rig.workshop_close, "%s verlässt die Nahsicht" % leave)
+
+func test_the_close_step_needs_the_workshop_mode() -> void:
+	rig.configure_workshop_close_target(CLOSE_CENTER, CLOSE_HALF)
+	rig.zoom_to(CameraRig.Mode.PIT)
+	rig.zoom_workshop_close()
+	assert_false(rig.workshop_close, "aus der Grube heraus gibt es keine Werkbank-Nahsicht")
+	assert_eq(rig.mode, CameraRig.Mode.PIT)

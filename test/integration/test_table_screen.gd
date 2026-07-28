@@ -26,6 +26,39 @@ func before_each() -> void:
 	world.add_child(screen)
 	screen.attach_to(mesh)
 
+# --- Umriss der Anzeigefläche ------------------------------------------------
+# Die echte Anzeige ist abgerundet: Fenster in den Rundungen würden von der
+# Glaskante schräg angeschnitten. glass_*_limit meldet, wie weit das Glas in
+# einer Zeile/Spalte trägt - die Werkbank-Ecke wird damit zugeschnitten.
+
+func test_glass_limits_report_the_mesh_edge() -> void:
+	# Der Testtisch ist ein Quader: das Glas trägt überall bis an die Kante.
+	var middle := float(screen.size.y) * 0.5
+	assert_almost_eq(screen.glass_right_limit(middle), float(screen.size.x), 1.0,
+		"rechteckige Anzeige -> volle Breite")
+	assert_almost_eq(screen.glass_bottom_limit(float(screen.size.x) * 0.5),
+		float(screen.size.y), 1.0, "und volle Höhe")
+
+func test_glass_limits_shrink_towards_a_rounded_corner() -> void:
+	# Dieselbe Fläche als Ellipse: zum Rand hin trägt das Glas immer weniger -
+	# genau der Verlauf, an dem die Werkbank ihre Breite und Höhe abliest.
+	var round_mesh := MeshInstance3D.new()
+	round_mesh.mesh = SphereMesh.new()  # in der Draufsicht ein Kreis
+	add_child_autofree(round_mesh)
+	var round_screen := TableScreen.new()
+	add_child_autofree(round_screen)
+	round_screen.attach_to(round_mesh)
+	var mid := float(round_screen.size.y) * 0.5
+	var low := float(round_screen.size.y) * 0.9
+	assert_lt(round_screen.glass_right_limit(low), round_screen.glass_right_limit(mid),
+		"unten trägt das Glas weniger weit nach rechts als in der Mitte")
+
+func test_glass_limits_fall_back_to_the_full_rect_without_an_outline() -> void:
+	var bare := TableScreen.new()
+	add_child_autofree(bare)
+	assert_eq(bare.glass_right_limit(10.0), float(bare.size.x), "ohne Umriss nichts zu beschneiden")
+	assert_eq(bare.glass_bottom_limit(10.0), float(bare.size.y))
+
 func test_attach_sets_viewport_material():
 	# Display-Glas als ShaderMaterial (siehe screen_glass.gdshader): die
 	# UI-ViewportTexture ist die Anzeige, emission_energy lässt sie leuchten.

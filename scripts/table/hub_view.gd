@@ -283,21 +283,7 @@ func _position_settings_menu() -> void:
 ## Ob unter dem Display-Pixel ein sichtbarer, aktiver Knopf liegt - so
 ## unterscheidet scene_root Knopf-Klick von Hub-Zoom-Klick.
 func interactive_at(point: Vector2) -> bool:
-	return _interactive_under(self, point)
-
-func _interactive_under(node: Node, point: Vector2) -> bool:
-	for child in node.get_children():
-		var control := child as Control
-		if control != null:
-			if not control.visible:
-				continue
-			if control is BaseButton and not (control as BaseButton).disabled \
-					and control.mouse_filter != Control.MOUSE_FILTER_IGNORE \
-					and control.get_global_rect().has_point(point):
-				return true
-		if _interactive_under(child, point):
-			return true
-	return false
+	return TableScreen.interactive_under(self, point)
 
 ## Lässt den Neon-Rahmen kurz in color aufleuchten und zur Grundfarbe abklingen
 ## (Geld-Lichtanimation: Gold bei Gutschriften, Chip-Farbe je Kauf-Puls).

@@ -1,8 +1,12 @@
 [gd_scene format=3 uid="uid://dq8j5n2h1x3w"]
 
 [ext_resource type="PackedScene" uid="uid://bolbsxut2qyt0" path="res://assets/models/Tisch.glb" id="4_screen_table"]
+[ext_resource type="Script" path="res://scripts/table/table_ground.gd" id="5_ground"]
 
 [node name="Room" type="Node3D" unique_id=1750746632]
 
 [node name="Table" parent="." unique_id=925041169 instance=ExtResource("4_screen_table")]
 transform = Transform3D(-1.7484555e-07, 0, -4, 0, 4, 0, 4, 0, -1.7484555e-07, 0, -0.4, 0)
+
+[node name="TableGround" type="Node3D" parent="." unique_id=925041170]
+script = ExtResource("5_ground")

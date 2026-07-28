@@ -179,6 +179,8 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
+## Umriss der Anzeigefläche als Dreiecke in Display-Pixeln (siehe glass_*_limit).
+var _glass_tris: Array = []
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -279,7 +281,59 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	material.set_shader_parameter("screen_px", Vector2(size))
 	screen_mesh.material_override = material
 	_glass_material = material
+	_capture_glass_outline(screen_mesh)
 	_sync_reflection_windows()
+
+## Dreiecke des Anzeige-Meshes in Display-Pixeln. Die Anzeige ist NICHT das
+## volle Rechteck, sondern eine abgerundete Fläche - Fenster in den Rundungen
+## würden von der Glaskante schräg angeschnitten (siehe glass_*_limit).
+func _capture_glass_outline(screen_mesh: MeshInstance3D) -> void:
+	_glass_tris.clear()
+	if screen_mesh.mesh == null or screen_mesh.mesh.get_surface_count() == 0:
+		return
+	var arrays := screen_mesh.mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var to_world := screen_mesh.global_transform
+	var flat: Array[Vector2] = []
+	for v in verts:
+		flat.append(world_to_pixel(to_world * v))
+	var index: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	if index.is_empty():
+		for i in range(0, flat.size() - 2, 3):
+			_glass_tris.append([flat[i], flat[i + 1], flat[i + 2]])
+		return
+	for i in range(0, index.size() - 2, 3):
+		_glass_tris.append([flat[index[i]], flat[index[i + 1]], flat[index[i + 2]]])
+
+## Weiteste Spalte, die in Zeile pixel_y noch auf dem Glas liegt (bzw. tiefste
+## Zeile in Spalte pixel_x). Ohne Umriss die volle Rechteckkante - dann gibt es
+## nichts zu beschneiden.
+func glass_right_limit(pixel_y: float) -> float:
+	return _glass_limit(pixel_y, true, float(size.x))
+
+func glass_bottom_limit(pixel_x: float) -> float:
+	return _glass_limit(pixel_x, false, float(size.y))
+
+## Schnitt aller Dreiecke mit einer Achsengeraden; along = waagerecht schneiden
+## (Zeile) und das größte x melden, sonst senkrecht und das größte y.
+func _glass_limit(coordinate: float, along_row: bool, fallback: float) -> float:
+	if _glass_tris.is_empty():
+		return fallback
+	var best := -INF
+	for tri in _glass_tris:
+		for e in 3:
+			var a: Vector2 = tri[e]
+			var b: Vector2 = tri[(e + 1) % 3]
+			var a_fix := a.y if along_row else a.x
+			var b_fix := b.y if along_row else b.x
+			if is_equal_approx(a_fix, b_fix):
+				continue
+			var t := (coordinate - a_fix) / (b_fix - a_fix)
+			if t < 0.0 or t > 1.0:
+				continue
+			var hit := a.lerp(b, t)
+			best = maxf(best, hit.x if along_row else hit.y)
+	return best if best > -INF else fallback
 
 ## Weltposition -> Display-Pixel (y der Weltposition ist egal).
 func world_to_pixel(world: Vector3) -> Vector2:
@@ -2435,6 +2489,22 @@ func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
 		return Vector2(-1, -1)
 	return pixel
+
+## Ob unter dem Display-Pixel ein sichtbarer, aktiver Knopf im Teilbaum liegt -
+## so unterscheidet scene_root Knopf-Klick von Klick auf freie Fläche.
+static func interactive_under(node: Node, point: Vector2) -> bool:
+	for child in node.get_children():
+		var control := child as Control
+		if control != null:
+			if not control.visible:
+				continue
+			if control is BaseButton and not (control as BaseButton).disabled \
+					and control.mouse_filter != Control.MOUSE_FILTER_IGNORE \
+					and control.get_global_rect().has_point(point):
+				return true
+		if interactive_under(child, point):
+			return true
+	return false
 
 ## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite).
 func pixels_per_world() -> float:

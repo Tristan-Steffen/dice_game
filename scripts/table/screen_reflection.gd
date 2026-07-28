@@ -29,7 +29,8 @@ func _ready() -> void:
 	mirror_camera.current = true
 
 ## Schaltet die Spiegelung ab: im Titel-HUD geisterten die gespiegelten Würfel
-## sonst über das Menü, das flach wie ein Bildschirm wirken soll.
+## sonst über das Menü, das flach wie ein Bildschirm wirken soll - und in der
+## Werkbank-Nahsicht spiegeln die Trays knapp außerhalb des Bildes herein.
 func set_enabled(on: bool) -> void:
 	if mirror_camera != null:
 		mirror_camera.cull_mask = LAYER if on else 0

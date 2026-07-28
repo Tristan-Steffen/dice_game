@@ -41,6 +41,11 @@ static func net_size(cell: float) -> Vector2:
 	var gap := cell * GAP_FACTOR
 	return Vector2(4.0 * cell + 3.0 * gap, 3.0 * cell + 2.0 * gap)
 
+## Größte Zellgröße, bei der das Netz noch in avail passt.
+static func cell_for(avail: Vector2) -> float:
+	var span := net_size(1.0)
+	return maxf(1.0, minf(avail.x / span.x, avail.y / span.y))
+
 ## Baut das Netz; up_face (-1 = keiner) bekommt den Gold-Rahmen.
 static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 	var root := Control.new()
@@ -121,6 +126,33 @@ static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 	box.set_corner_radius_all(maxi(1, int(cell * 0.12)))
 	chip.add_theme_stylebox_override("panel", box)
 	return chip
+
+## Zellposition eines Seiten-Index im Kreuz - damit fremde Aufrufer (die
+## Gravur-Station) EIGENE, anklickbare Zellen im selben Kreuz platzieren können.
+static func cell_position(face_index: int, cell: float) -> Vector2:
+	return _cell_pos(face_index, cell)
+
+## Augensumme in der leeren oberen RECHTEN Kreuz-Ecke: gegenüber dem Kanten-Chip
+## und rechts neben der oberen Seite - der einzige tote Raum im Kreuz, und damit
+## braucht die Kachel darüber keinen eigenen Streifen mehr.
+static func total_badge(def: DieDefinition, cell: float) -> Label:
+	var gap := cell * GAP_FACTOR
+	var badge := Label.new()
+	badge.text = str(DiceRowView.eye_total(def))
+	badge.position = Vector2(2.0 * (cell + gap), 0.0)
+	badge.size = Vector2(2.0 * cell + gap, cell)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.8)))
+	return badge
+
+## Kanten-Chip und Leiterbahn-Pfeile einzeln, für denselben Zweck.
+static func edge_chip(def: DieDefinition, cell: float) -> Panel:
+	return _edge_chip(def, cell)
+
+static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
+	return _pointer_arrows(def, cell)
 
 ## Zellposition eines Seiten-Index im Kreuz.
 static func _cell_pos(face_index: int, cell: float) -> Vector2:

@@ -67,13 +67,23 @@ const PIT_SCORE_HEIGHT_WORLD := 6.0  # höher: Platz für die Wertungs-Orbs
 const HUB_WIDTH_WORLD := 28.5
 const HUB_HEIGHT_WORLD := 30.0
 
-## Automaten-Fenster: Unterkante höher als der Hub, damit die (linke) untere Ecke
-## in der elliptischen Filz-Fläche bleibt und nicht in den leuchtenden Tischrand ragt.
+## Automaten-Fenster: Unterkante höher als der Hub. Der Versatz stammt vom
+## alten Tischrand und bleibt bewusst - das Layout soll nicht verrutschen.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
 
-## Die Werkbank ist höher als der Platz bis zur Hub-Unterkante: der Würfel-Editor
-## braucht Raum für Projektion, Seiten-Übersicht und das Tray-Raster.
-const WORKSHOP_HEIGHT_FACTOR := 1.4
+## SEITENVERHÄLTNIS der Werkbank, nicht ihre Breite: bei ~2:1 steht das 6×5-
+## Ziel-Raster der Gravur-Station bündig neben der Würfel-Spalte. Ist das Fenster
+## flacher, bleibt das Raster (höhenbegrenzt) schmaler als sein Platz und
+## zwischen Spalte und Raster klafft tote Fläche. Die Breite folgt also der
+## Höhe - und die Höhe nimmt, was das Glas hergibt.
+const WORKSHOP_ASPECT := 2.0
+## Die MASSEINHEIT der Ecke bleibt an der Tray-Breite hängen: hinge sie an der
+## Werkbank-Breite, wüchse mit ihr die Schubladenhöhe und fräße den Höhengewinn.
+## Abstände der Ecke in halben Slot-Breiten: oben zur Tray-Reihe, unten zum Rand.
+## tray_bounds umfasst nur die Slot-MITTEN - unter 1.0 läge die unterste
+## Würfelreihe körperlich auf der Werkbank.
+const WORKSHOP_TOP_GAP := 1.15
+const WORKSHOP_BOTTOM_GAP := 2.0
 
 ## Gefaktes Screen-Abstrahlen: gl_compatibility hat kein GI, also steht über
 ## jedem großen Fenster ein kurzes, getöntes Omni-Licht (Schatten aus) - Würfel,
@@ -89,10 +99,11 @@ const SPILL_RANGE_FACTOR := 1.35   # Reichweite über den Fensterrand hinaus
 ## Der Kombi-Cluster braucht mehr: nur dort stehen echte Körper (die Chips).
 const CLUSTER_SPILL_FACTOR := 2.6
 
-## Die im Tisch-GLB gebackenen Neon-Emissionen (LED-Ring, Underglow) sind auf
-## einen hell beleuchteten Tisch abgestimmt - im dunklen Raum wären sie das
-## Hellste im Bild, also hier auf Akzent-Niveau herunterdimmen.
-const TABLE_RIM_EMISSION := {"LEDStrip": 1.9, "Underglow": 1.4}
+## Der Tisch hat keinen Rand mehr: alles außer dem Screen-Mesh verschwindet,
+## stattdessen läuft der Filzboden (TableGround in room.tscn) endlos weiter.
+## Auch die Chrom-Zarge: ohne Raumlicht spiegelt Chrom nichts und stand als
+## fetter schwarzer Ring zwischen Glas und Filz.
+const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
 
 
 ## Automaten-Lichter: Einsatz golden wie Geld, Charm violett wie im Regal,
@@ -287,6 +298,9 @@ var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
 var chips_click_zone: StaticBody3D
+## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
+## Fläche, auf der ein Doppelklick sie öffnet.
+var workshop_close_rect := Rect2()
 ## Chip-Umtausch (nur in der Chip-Zoomsicht): gezogener Turm als Geist zum
 ## Einwurf-Schlitz; -1 = keine Geste aktiv.
 var chip_drag_value := -1
@@ -408,7 +422,7 @@ const DICE_START_POSITIONS: Array[Vector3] = [
 ]
 
 func _ready() -> void:
-	_dim_table_rim()
+	_strip_table_rim()
 	_setup_dice()
 	_setup_table_screen()
 	_setup_camera_targets()
@@ -422,15 +436,12 @@ func _ready() -> void:
 	# aber nur das Titel-HUD, bis er "Neues Spiel" drückt.
 	_open_title(false, true)
 
-## Dimmt die GLB-Neonkanten des Tisches auf Akzent-Niveau (siehe Konstante).
-func _dim_table_rim() -> void:
-	for mesh_name: String in TABLE_RIM_EMISSION:
+## Blendet den Tisch-Korpus aus (siehe Konstante) - der Boden übernimmt.
+func _strip_table_rim() -> void:
+	for mesh_name: String in TABLE_HIDDEN_MESHES:
 		var mi := $Room.find_child(mesh_name, true, false) as MeshInstance3D
-		if mi == null:
-			continue
-		var mat := mi.mesh.surface_get_material(0) as StandardMaterial3D
-		if mat != null:
-			mat.emission_energy_multiplier = TABLE_RIM_EMISSION[mesh_name]
+		if mi != null:
+			mi.visible = false
 
 ## Baut die 6 Spielwürfel samt Audio und Wandkontakt-Handlern.
 func _setup_dice() -> void:
@@ -649,22 +660,42 @@ func _setup_table_screen() -> void:
 			first_slot = false
 	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
 	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
-	var workshop_top := tray_bounds.end.y + slot_half * 2.0
-	var corner_width := tray_bounds.size.x + slot_half * 2.0
+	var workshop_top := tray_bounds.end.y + slot_half * WORKSHOP_TOP_GAP
 	# EINE Maßeinheit für die ganze Werkbank-Ecke: die schmalen Schubladen dürfen
 	# ihre Schrift nicht aus der eigenen Breite ableiten, sonst wird sie winzig.
-	var corner_unit := corner_width / 100.0
+	# Sie hängt an der TRAY-Breite, nicht an der gewachsenen Werkbank-Breite.
+	var corner_unit := (tray_bounds.size.x + slot_half * 2.0) / 100.0
 	var drawer_rects := _supply_drawer_rects(
-		Vector2(tray_bounds.position.x - slot_half, 0.0), corner_width, corner_unit)
+		Vector2(tray_bounds.position.x - slot_half, 0.0),
+		tray_bounds.size.x + slot_half * 2.0, corner_unit)
 	var drawer_height: float = drawer_rects[0].size.y
 	var drawer_gap := slot_half
-	# Die Werkbank trägt Station UND Zeremonien und darf dafür über die Hub-
-	# Unterkante hinausragen; die Schubladen rutschen mit nach unten.
-	var workshop_height := (hub_r.end.y - SLOTS_BOTTOM_INSET_WORLD * ppw - workshop_top \
-		- drawer_height - drawer_gap) * WORKSHOP_HEIGHT_FACTOR
+	var info_height := corner_unit * 6.0 + 10.0
+	# Die Werkbank nimmt, was zwischen Tray-Reihe und Anzeigenrand übrig bleibt,
+	# nachdem Schubladen und Info-Leiste ihren Platz haben. Der Rand ist RUND:
+	# maßgeblich ist nicht die Rechteckkante, sondern wie tief das Glas in der
+	# Spalte der rechten unteren Ecke noch trägt - sonst schneidet die Glaskante
+	# Info-Leiste und Vitrine schräg an.
+	# Die Info-Leiste ist der TIEFSTE Punkt der Ecke, und wie tief das Glas trägt,
+	# hängt daran, wie weit rechts sie endet. Sie hört deshalb schon über der
+	# zweiten Schublade auf: jeder Pixel, den sie kürzer ist, wird zu Höhe für
+	# die Werkbank - und eine Hinweiszeile braucht die Breite nicht.
+	var info_right := drawer_rects[1].end.x
+	var corner_bottom := table_screen.glass_bottom_limit(info_right) - slot_half * WORKSHOP_BOTTOM_GAP
+	var workshop_height := corner_bottom - workshop_top - drawer_gap * 1.5 - drawer_height - info_height
+	# Breite AUS der Höhe (siehe WORKSHOP_ASPECT), aber nie schmaler als die
+	# Schubladenreihe darunter - sie muss unter der Werkbank Platz haben.
+	var drawer_span := drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x
 	var workshop_rect := Rect2(
 		Vector2(tray_bounds.position.x - slot_half, workshop_top),
-		Vector2(corner_width, workshop_height))
+		Vector2(maxf(workshop_height * WORKSHOP_ASPECT, drawer_span), workshop_height))
+	# Die Vitrine steht rechts der Werkbank und ist damit der äußerste Punkt: die
+	# Werkbank darf nur so breit werden, dass die Vitrine an ihrer UNTERKANTE
+	# (dort ist das Glas am schmalsten) noch ganz auf der Anzeige steht.
+	var special_width := SupplyDrawerView.size_for(SupplyDrawerView.CATEGORY_SPECIAL, corner_unit).x
+	var right_room := table_screen.glass_right_limit(workshop_rect.end.y) \
+		- slot_half * WORKSHOP_BOTTOM_GAP - drawer_gap - special_width
+	workshop_rect.size.x = minf(workshop_rect.size.x, right_room - workshop_rect.position.x)
 	table_screen.place_workshop_window(workshop_rect)
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
 
@@ -679,8 +710,7 @@ func _setup_table_screen() -> void:
 	# dritte Platz-Reihe die ganze Reihe höher und drückte die Werkbank zusammen.
 	var special_rect := Rect2(
 		Vector2(workshop_rect.end.x + drawer_gap, workshop_rect.position.y),
-		Vector2(SupplyDrawerView.size_for(SupplyDrawerView.CATEGORY_SPECIAL, corner_unit).x,
-			workshop_rect.size.y))
+		Vector2(special_width, workshop_rect.size.y))
 	table_screen.place_special_stock(special_rect, corner_unit)
 	for drawer in table_screen.supply_drawers:
 		drawer.hovered.connect(_on_supply_hovered)
@@ -690,9 +720,7 @@ func _setup_table_screen() -> void:
 	# anschneidet. Hier landet die Hinweiszeile der Gravur-Station.
 	var info_rect := Rect2(
 		Vector2(drawer_rects[0].position.x, drawer_top + drawer_height + drawer_gap * 0.5),
-		Vector2(drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x
-			- corner_unit * 4.0 - 50.0,
-			corner_unit * 6.0 + 10.0))
+		Vector2(info_right - drawer_rects[0].position.x, info_height))
 	table_screen.place_supply_info_bar(info_rect, corner_unit)
 
 	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen,
@@ -701,6 +729,18 @@ func _setup_table_screen() -> void:
 	for rect in drawer_rects:
 		corner = corner.merge(rect)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
+
+	# Nahsicht (Doppelklick): dieselbe Ecke OHNE die Trays - genau der Teil, der
+	# flach auf dem Glas liegt. workshop_close_rect bleibt als Prüffläche für den
+	# Doppelklick liegen (nur darauf öffnet die zweite Stufe).
+	workshop_close_rect = workshop_rect.merge(info_rect).merge(special_rect)
+	for rect in drawer_rects:
+		workshop_close_rect = workshop_close_rect.merge(rect)
+	var close_a := table_screen.pixel_to_world(workshop_close_rect.position)
+	var close_b := table_screen.pixel_to_world(workshop_close_rect.end)
+	camera_rig.configure_workshop_close_target(
+		table_screen.pixel_to_world(workshop_close_rect.get_center()),
+		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
 
 	_setup_screen_spill_lights(corner)
 
@@ -1721,6 +1761,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_title()
 		return
 
+	# Zweite Werkbank-Stufe: VOR der Weiterleitung, sonst verschluckt das
+	# Werkstattfenster den Doppelklick.
+	if _try_workshop_close_zoom(event):
+		return
+
 	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
 	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
 	if event is InputEventMouse and _forward_screen_mouse(event):
@@ -1748,6 +1793,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Die Grube ist während der Runde frei begehbar - der Spieler darf sich
 		# umsehen; nur das Bearbeiten der Würfel bleibt bis zum Laden gesperrt.
 		# Ausnahme: liegt die Auslage, wird erst unterschrieben.
+		# Aus der Werkbank-Nahsicht geht es eine Stufe zurück, nicht ganz raus.
+		if camera_rig.workshop_close:
+			camera_rig.zoom_workshop_wide()
+			return
 		if not _route_choice_open():
 			camera_rig.zoom_out()
 		return
@@ -2448,6 +2497,48 @@ func _slot_bank_window_has_point(pixel: Vector2) -> bool:
 	var window := table_screen.slot_bank_window
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
+
+## Doppelklick auf FREIE Werkbank-Fläche öffnet die zweite Zoomstufe (näher,
+## Trays aus dem Bild, Kamera steht still). Auf einem Knopf passiert nichts -
+## der Doppelklick ist dort schon der zweite Klick auf die Karte.
+func _try_workshop_close_zoom(event: InputEvent) -> bool:
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.workshop_close:
+		return false
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or not button.double_click \
+			or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or table_screen == null:
+		return false
+	var pixel := table_screen.pixel_from_ray(
+		camera.project_ray_origin(button.position), camera.project_ray_normal(button.position))
+	if pixel.x < 0.0 or not workshop_close_rect.has_point(pixel):
+		return false
+	if _workshop_interactive_at(pixel):
+		return false
+	camera_rig.zoom_workshop_close()
+	return true
+
+## Spiegelung aus, wo gespiegelte Würfel ins Bild geistern: im Titel-HUD und in
+## der Werkbank-Nahsicht (die Trays liegen dort knapp außerhalb des Rahmens und
+## spiegelten sich quer über das Werkstattfenster).
+func _sync_screen_reflection() -> void:
+	if screen_reflection == null:
+		return
+	screen_reflection.set_enabled(camera_rig.mode != CameraRig.Mode.TITLE
+		and not camera_rig.workshop_close)
+
+## Ob unter dem Display-Pixel ein aktiver Knopf der Werkbank-Ecke liegt
+## (Fenster samt Station, Schubladen).
+func _workshop_interactive_at(pixel: Vector2) -> bool:
+	if table_screen.workshop_window != null and table_screen.workshop_window.visible \
+			and TableScreen.interactive_under(table_screen.workshop_window, pixel):
+		return true
+	for drawer in table_screen.supply_drawers:
+		if drawer.visible and TableScreen.interactive_under(drawer, pixel):
+			return true
+	return false
 
 ## Ob ein Display-Pixel in der Werkbank-Ecke liegt - Fenster ODER Schublade;
 ## die Zeremonie reicht über beide (Werkzeug links unten, Würfel im Fenster).
@@ -4689,8 +4780,7 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
-	if screen_reflection != null:
-		screen_reflection.set_enabled(new_mode != CameraRig.Mode.TITLE)
+	_sync_screen_reflection()
 	# Die Gravur-Station lebt an der Werkbank: verlässt die Kamera sie, ist die
 	# Zeremonie vorbei. Kein Rekursions-Risiko - _end_engraving_ceremony löscht
 	# engraving_active, bevor es selbst zurückfährt.
