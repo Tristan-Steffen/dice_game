@@ -45,28 +45,19 @@ const BANK_BAR_DRAIN_TIME := 0.45
 ## Stufen, die eine Ladung prägen, fahren cyan statt in ihrer Stufenfarbe.
 const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
 
-## --- Schwarzmarkt-Requisiten ---------------------------------------------------
-## Violett der legendären Rarität - Stand, Ader und Seite teilen es sich.
-const VIOLET_ACCENT := Color(0.75, 0.35, 1.0)
+## --- Schwarzmarkt ---------------------------------------------------------------
 ## Die Ladungs-Bank liegt QUER vor dem Chip-Rack an der vorderen Fensterkante -
 ## dort, wo weder Türme noch Münzschlitze stehen. Abstand zur Kante:
 const CAPACITOR_EDGE_INSET := 0.9
-## Der Kiosk steht an der Tisch-Schulter beim Werkstatt-Eck. GERADE aus dem Hub
-## heraus geht nicht: dort schneidet der Übersichts-Rahmen exakt an der Glaskante
-## ab (null Boden sichtbar), erst ab z≈35 gibt der Rahmen dunklen Boden frei.
-const SECRET_STAND_Z := 38.5
-## Weltstrecke HINTER die Glaskante. Position UND Kiosk-Größe sind gemeinsam
-## ausgemessen (Sonde), nicht geraten: der Übersichts-Rahmen schneidet den Tisch
-## fast bündig ab, die sichtbare Bodentasche liegt nur zwischen z≈34 und z≈43 und
-## ist dort höchstens ~3 Einheiten tief. Mehr Abstand schiebt den Kiosk aus dem
-## Bild, weniger stellt ihn zurück auf die Tischschulter.
-const SECRET_STAND_CLEARANCE := 1.0
-## Wo die Ader das Glas verlässt - am tischnächsten Rand derselben Tasche, damit
-## zwischen Kante und Tresen überhaupt ein sichtbares Stück Ader liegt.
-const SECRET_VEIN_EXIT_Z := 34.2
-## Entdeckungs-Zeremonie: Lauf der Ader, dann zündet der Stand.
-const SECRET_REVEAL_VEIN_TIME := 1.5
+## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
+const SECRET_SHOP_TOP_GAP := 30.0
+## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
+## nach links an - siehe _secret_shop_rect).
+const SECRET_SHOP_GLASS_MARGIN := 12.0
+## Nachklang der Entdeckung, nachdem die Stoßwelle verklungen ist.
 const SECRET_REVEAL_SETTLE := 0.7
+## Violett der legendären Rarität - die Signaturfarbe des Schwarzmarkts.
+const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
 
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
 ## Größen-Pop, langsameres Abklingen - die Blitze überlappen wie eine Welle.
@@ -266,15 +257,10 @@ var charm_library: CharmLibraryView
 ## Fenster-UI); scene_root spricht ihn nur über open()/closed an.
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
-## Der Schwarzmarkt - ebenfalls eine Hub-Seite, aber nur nach seiner Entdeckung
-## erreichbar (siehe GameRun.secret_shop_unlocked).
-var secret_shop: SecretShopView
-## Die physischen Gegenstücke: die Ladungs-Bank in der Geld-Ecke, der Kiosk
-## draußen im Dunkeln und die Boden-Ader dorthin (alle drei rein anzeigend).
+## Die Ladungs-Bank in der Geld-Ecke - das physische Gegenstück der ⚡-Börse.
 var capacitor_bank: CapacitorBankView
-var secret_stand: SecretShopStandView
-var secret_vein: FloorVeinView
-var secret_stand_zone: StaticBody3D
+## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
+var secret_shop_click_zone: StaticBody3D
 ## Routenwahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
 ## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
@@ -666,7 +652,7 @@ func _setup_table_screen() -> void:
 		Vector3(chip_world.x, 0.0, chip_world.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
-	_setup_secret_shop_props(Rect2(t_pos, t_size))
+	_setup_capacitor_bank(Rect2(t_pos, t_size))
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -683,6 +669,15 @@ func _setup_table_screen() -> void:
 	# Die Walze wartet, bis die Münze beide Etappen hinter sich hat.
 	table_screen.slot_bank_window.coin_travel_time = \
 		table_screen.money_travel_time() + table_screen.slot_pay_travel_time()
+
+	# Schwarzmarkt: direkt unter den Automaten in der Glas-Tasche, Unterkante
+	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster; anfassbar erst
+	# mit der Entdeckung (_sync_secret_shop_state).
+	var secret_rect := _secret_shop_rect(slots_rect, hub_r)
+	table_screen.place_secret_shop_window(secret_rect)
+	secret_shop_click_zone = _screen_zoom_zone("SecretShopClickZone", secret_rect,
+		camera_rig.configure_secret_shop_target)
+	secret_shop_click_zone.collision_layer = 0
 
 	# Werkstatt: der letzte freie Fleck des Tisches, genau UNTER den beiden
 	# Würfel-Trays und bündig mit deren Außenkanten. Hier werden gekaufte Pakete
@@ -842,16 +837,6 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
-
-	# Schwarzmarkt als eigene Hub-Seite; der Eintrag am Hub-Fuß öffnet sie, sobald
-	# er entdeckt ist.
-	secret_shop = SecretShopView.new()
-	secret_shop.visible = false
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.attach_panel(secret_shop)
-		table_screen.hub.secret_shop_requested.connect(_on_secret_shop_requested)
-	else:
-		$UI.add_child(secret_shop)
 
 	# Routenwahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
 	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
@@ -2390,19 +2375,25 @@ func _screen_pixel(screen_pos: Vector2) -> Vector2:
 	return table_screen.pixel_from_ray(
 		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 
-## Punkt auf dem Bodenfilz, clearance Welteinheiten HINTER der Glaskante bei
-## world_z. Die Kante kommt aus glass_bottom_limit - dem echten Screen-Umriss.
-func _beyond_glass(world_z: float, clearance: float) -> Vector3:
-	var px_x := table_screen.world_to_pixel(Vector3(0.0, 0.0, world_z)).x
-	var edge := table_screen.pixel_to_world(
-		Vector2(px_x, table_screen.glass_bottom_limit(px_x)))
-	return Vector3(edge.x - clearance, 0.0, edge.z)
+## Schwarzmarkt-Fenster: die Glas-Tasche UNTER den Automaten. Rechte Kante und
+## Unterkante sind gesetzt (bündig mit der Automaten-Spalte bzw. mit dem Hub);
+## die LINKE Kante ist ausgerechnet, nicht geraten - die Ellipse steigt nach links
+## an, also rückt sie so weit nach rechts, bis das Glas die Unterkante trägt.
+func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
+	var top := slots_rect.end.y + SECRET_SHOP_TOP_GAP
+	var bottom := hub_rect.end.y
+	var right := slots_rect.end.x
+	var left := slots_rect.position.x
+	# Schrittweise nach rechts, bis das Glas an dieser Spalte tief genug reicht.
+	var step := (right - left) / 64.0
+	while left < right - step \
+			and table_screen.glass_bottom_limit(left) < bottom + SECRET_SHOP_GLASS_MARGIN:
+		left += step
+	return Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
 
-## Die drei Schwarzmarkt-Requisiten stellen. Alle Maße kommen aus der echten
-## Screen-Geometrie: die Bank an die vordere Kante des Schatz-Fensters (beide
-## Börsen stehen nebeneinander in der Geld-Ecke), der Kiosk HINTER die Glaskante
-## auf den endlosen Boden, die Ader dazwischen.
-func _setup_secret_shop_props(treasure_rect: Rect2) -> void:
+## Die Ladungs-Bank an die vordere Kante des Schatz-Fensters stellen - beide
+## Börsen stehen nebeneinander in der Geld-Ecke.
+func _setup_capacitor_bank(treasure_rect: Rect2) -> void:
 	var t_a := table_screen.pixel_to_world(treasure_rect.position)
 	var t_b := table_screen.pixel_to_world(treasure_rect.end)
 	capacitor_bank = CapacitorBankView.new()
@@ -2410,29 +2401,6 @@ func _setup_secret_shop_props(treasure_rect: Rect2) -> void:
 	capacitor_bank.position = Vector3(minf(t_a.x, t_b.x) + CAPACITOR_EDGE_INSET, 0.0,
 		(t_a.z + t_b.z) * 0.5)
 	add_child(capacitor_bank)
-
-	# Die 2D-LED-Leisten enden am Glas - ab hier trägt echte Geometrie das Licht.
-	# Aus- und Standpunkt liegen auf der ECHTEN Glaskante (glass_bottom_limit),
-	# nicht auf der gedachten Ellipse: der Screen-Rand ist breiter als sein Rechteck.
-	var stand_pos := _beyond_glass(SECRET_STAND_Z, SECRET_STAND_CLEARANCE)
-	var exit_world := _beyond_glass(SECRET_VEIN_EXIT_Z, 0.0)
-
-	secret_vein = FloorVeinView.new()
-	secret_vein.name = "SecretShopVein"
-	secret_vein.color = VIOLET_ACCENT
-	add_child(secret_vein)
-	secret_vein.lay(exit_world, stand_pos)
-
-	secret_stand = SecretShopStandView.new()
-	secret_stand.name = "SecretShopStand"
-	secret_stand.position = stand_pos
-	add_child(secret_stand)
-	# Bewusst NICHT reflektierend: der Stand steht neben dem Glas, der Spiegel
-	# würde ihn für nichts rendern.
-	secret_stand_zone = _add_click_zone("SecretShopClickZone",
-		Vector3(stand_pos.x, 0.0, stand_pos.z),
-		Vector3(SecretShopStandView.ROOF_SIZE.x, 4.0, SecretShopStandView.ROOF_SIZE.z))
-	secret_stand_zone.collision_layer = 0  # erst mit der Entdeckung anfassbar
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> StaticBody3D:
@@ -2567,6 +2535,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		CameraRig.Mode.SLOTS:
 			# Im Zoom auf die Automaten gehen Klicks/Hover an die Dreh-/Auszahlen-Knöpfe.
 			return _slot_bank_window_has_point(pixel)
+		CameraRig.Mode.SECRET_SHOP:
+			# Im Zoom auf den Schwarzmarkt an die Angebots-Karten und den Misch-Knopf.
+			return _secret_shop_window_has_point(pixel)
 		CameraRig.Mode.WORKSHOP:
 			# Im Zoom auf die Werkstatt gehen Klicks/Hover an die Lager-Karten.
 			return _workshop_window_has_point(pixel)
@@ -2579,6 +2550,14 @@ func _side_bet_window_has_point(pixel: Vector2) -> bool:
 	if table_screen == null:
 		return false
 	var window := table_screen.side_bet_window
+	return window != null and window.visible \
+		and Rect2(window.position, window.size).has_point(pixel)
+
+## Ob ein Display-Pixel im sichtbaren Schwarzmarkt-Fenster liegt.
+func _secret_shop_window_has_point(pixel: Vector2) -> bool:
+	if table_screen == null:
+		return false
+	var window := table_screen.secret_shop_window
 	return window != null and window.visible \
 		and Rect2(window.position, window.size).has_point(pixel)
 
@@ -2681,11 +2660,8 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 	elif collider == chips_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
-	elif collider == secret_stand_zone and run != null and run.secret_shop_unlocked:
-		# Der Kiosk ist eine Abkürzung zum Hub-Eintrag: kein eigener Kameramodus,
-		# der Hub-Zoom trägt die Seite wie beim Klick auf den Fuß-Eintrag.
-		camera_rig.zoom_to(CameraRig.Mode.HUB)
-		_on_secret_shop_requested()
+	elif collider == secret_shop_click_zone and run != null and run.secret_shop_unlocked:
+		camera_rig.zoom_to(CameraRig.Mode.SECRET_SHOP)
 
 func _process(delta: float) -> void:
 	_update_charm_hover()
@@ -4275,8 +4251,6 @@ func _reset_game() -> void:
 	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
 	betting_open = false  # frische Auslage eröffnet die erste Runde
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
-	if secret_shop != null:
-		secret_shop.visible = false
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.reset_pages()
 	game_over_panel.visible = false
@@ -4296,7 +4270,8 @@ func _reset_game() -> void:
 ## mitsamt Verbindungen freigegeben (RefCounted).
 func _connect_run() -> void:
 	charm_shop.run = run
-	secret_shop.run = run
+	if table_screen != null and table_screen.secret_shop_window != null:
+		table_screen.secret_shop_window.run = run
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
@@ -4331,25 +4306,20 @@ func _connect_run() -> void:
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
 
-## Ladungs-Börse und Schwarzmarkt-Eintrag am Hub nachziehen. Idempotent - auch
-## bei Spielstart und nach dem Reset aufgerufen.
-## Idempotenter Gesamtzustand: Bank = Bestand/Deckel, Stand und Ader brennen
-## genau dann, wenn der Schwarzmarkt entdeckt ist. Ein frischer Lauf ist damit
-## sofort wieder dunkel - OHNE Zeremonie; die spielt nur den Übergang.
+## Idempotenter Gesamtzustand: Bank = Bestand/Deckel, das Schwarzmarkt-Fenster
+## steht genau dann auf dem Tisch, wenn er entdeckt ist. Ein frischer Lauf ist
+## damit sofort wieder leer - OHNE Zeremonie; die spielt nur den Übergang.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
-		table_screen.hub.set_secret_shop_visible(run.secret_shop_unlocked)
+	if table_screen != null:
+		table_screen.set_secret_shop_installed(run.secret_shop_unlocked)
 	_sync_capacitor()
-	if secret_stand != null:
-		secret_stand.set_lit(run.secret_shop_unlocked)
-	if secret_vein != null:
-		secret_vein.set_lit(run.secret_shop_unlocked)
-	if secret_stand_zone != null:
-		# Gesperrt ist der Kiosk unanfassbar - sonst zoomte ein Klick ins Nichts.
-		secret_stand_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
+	if secret_shop_click_zone != null:
+		# Unentdeckt ist das Fenster nicht da - ein Klick dürfte nicht heranzoomen.
+		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
 
 ## Bank nachziehen; nach jedem Neuaufbau (Deckel gewachsen) die frischen Zellen
 ## als spiegelnd markieren - sie liegen auf dem Glas.
@@ -4364,30 +4334,19 @@ func _on_charge_changed(value: int) -> void:
 		table_screen.hub.set_charge_display(value, run.charge_cap())
 	_sync_capacitor()
 
-## Eintrag am Hub-Fuß gedrückt: der Schwarzmarkt schlägt als Hub-Seite auf.
-func _on_secret_shop_requested() -> void:
-	if secret_shop == null or run == null or not run.secret_shop_unlocked:
-		return
-	secret_shop.open()
-
 ## Entdeckungs-Zeremonie (Kamera steht schon in der Übersicht): der Hub quittiert
-## golden, dann läuft ein Komet die Boden-Ader hinaus und zündet sie hinter sich,
-## am Ende wacht der Kiosk auf und der Hub-Eintrag blendet ein.
+## golden, das Fenster geht unter den Automaten auf und meldet sich mit einer
+## Stoßwelle - dieselbe Sprache wie ein neu installierter Automat.
 func _reveal_secret_shop() -> void:
-	if table_screen == null or table_screen.hub == null:
+	if table_screen == null:
 		return
-	table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	if secret_vein != null:
-		await get_tree().create_timer(secret_vein.play(SECRET_REVEAL_VEIN_TIME)).timeout
-		if phase != Phase.PAYOUT:
-			return  # Spiel wurde während der Enthüllung zurückgesetzt
-	if secret_stand != null:
-		await get_tree().create_timer(secret_stand.flicker_on()).timeout
-		if phase != Phase.PAYOUT:
-			return
-	if secret_stand_zone != null:
-		secret_stand_zone.collision_layer = 8
-	table_screen.hub.reveal_secret_shop()
+	if table_screen.hub != null:
+		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	_sync_secret_shop_state()  # stellt das Fenster auf und macht es anfassbar
+	await get_tree().create_timer(
+		table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)).timeout
+	if phase != Phase.PAYOUT:
+		return  # Spiel wurde während der Enthüllung zurückgesetzt
 	await get_tree().create_timer(SECRET_REVEAL_SETTLE).timeout
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann ist die Grube

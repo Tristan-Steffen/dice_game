@@ -143,6 +143,9 @@ var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
 ## eigenständig, sichtbar erst ab der ersten Automaten-Freischaltung.
 var slot_bank_window: SlotBankView
+## Schwarzmarkt UNTER den Automaten (in der Glas-Tasche links unten); sichtbar
+## erst nach seiner Entdeckung (set_secret_shop_installed).
+var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
 ## Die drei Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Kanten),
@@ -498,6 +501,13 @@ func _build_content() -> void:
 	slot_bank_window.visible = false
 	add_child(slot_bank_window)
 
+	# Schwarzmarkt: Position/Größe setzt scene_root über place_secret_shop_window;
+	# sichtbar erst mit der Entdeckung.
+	secret_shop_window = SecretShopView.new()
+	secret_shop_window.name = "SecretShopWindow"
+	secret_shop_window.visible = false
+	add_child(secret_shop_window)
+
 	# Werkstatt: Position/Größe setzt scene_root über place_workshop_window.
 	workshop_window = WorkshopView.new()
 	workshop_window.name = "WorkshopWindow"
@@ -766,6 +776,25 @@ func place_slot_bank_window(rect: Rect2) -> void:
 	_link_slot_to_hub()
 	_sync_reflection_windows()
 
+## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten). Bleibt bis
+## zur Entdeckung unsichtbar (set_secret_shop_installed).
+func place_secret_shop_window(rect: Rect2) -> void:
+	secret_shop_window.position = rect.position
+	secret_shop_window.size = rect.size
+	secret_shop_window.refresh()
+	_sync_reflection_windows()
+
+## Blendet den Schwarzmarkt ein/aus (Entdeckung bzw. frischer Lauf).
+func set_secret_shop_installed(installed: bool) -> void:
+	if secret_shop_window == null or secret_shop_window.size.x <= 0.0:
+		return  # noch nicht platziert
+	if secret_shop_window.visible == installed:
+		return
+	secret_shop_window.visible = installed
+	if installed:
+		secret_shop_window.refresh()
+	_sync_reflection_windows()
+
 ## Blendet das Automaten-Fenster ein/aus (erste Automaten-Stufe erreicht).
 func set_slot_bank_installed(installed: bool) -> void:
 	if slot_bank_window == null or slot_bank_window.size.x <= 0.0:
@@ -918,6 +947,11 @@ func _sync_reflection_windows() -> void:
 	if slot_bank_window != null and slot_bank_window.visible:
 		rects.append(Vector4(slot_bank_window.position.x, slot_bank_window.position.y,
 			slot_bank_window.position.x + slot_bank_window.size.x, slot_bank_window.position.y + slot_bank_window.size.y))
+		radii.append(10.0)
+	if secret_shop_window != null and secret_shop_window.visible:
+		rects.append(Vector4(secret_shop_window.position.x, secret_shop_window.position.y,
+			secret_shop_window.position.x + secret_shop_window.size.x,
+			secret_shop_window.position.y + secret_shop_window.size.y))
 		radii.append(10.0)
 	if workshop_window != null and workshop_window.visible:
 		rects.append(Vector4(workshop_window.position.x, workshop_window.position.y,
@@ -1725,6 +1759,17 @@ func celebrate_slot_bank_install(color: Color) -> void:
 	var wave := ScoreShockwave.new()
 	add_child(wave)
 	wave.setup(center, Color(color.r, color.g, color.b, 0.9), slot_bank_window.size.x * 0.6, 0.6)
+
+## Entdeckung des Schwarzmarkts: der frisch aufgedeckte Laden meldet sich mit
+## einer Stoßwelle - dieselbe Sprache wie ein neu installierter Automat.
+func celebrate_secret_shop_install(color: Color) -> float:
+	if secret_shop_window == null or not secret_shop_window.visible:
+		return 0.0
+	var center := secret_shop_window.position + secret_shop_window.size * 0.5
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(color.r, color.g, color.b, 0.9), secret_shop_window.size.x * 0.9, 0.9)
+	return 0.9
 
 ## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:

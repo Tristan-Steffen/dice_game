@@ -1,11 +1,12 @@
 class_name SecretShopView
-extends Control
-## Der Schwarzmarkt: Hub-Seite hinter der ersten voll ausgereizten Überladung.
-## Bezahlt wird ausschließlich in Ladung (⚡) - drei Plätze, jeder EINMAL kaufbar,
-## "Neu mischen" tauscht alle drei zu steigendem Preis. Zustands-Mutation läuft
-## ausschließlich über GameRun (buy_secret_offer/reroll_secret_stock); die Anzeige
-## folgt secret_stock_changed und charge_changed. Einheit u = Breite/100 wie Hub
-## und Shop.
+extends Panel
+## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten, sichtbar
+## erst nach der ersten voll ausgereizten Überladung. Bezahlt wird ausschließlich
+## in Ladung (⚡) - drei Plätze, jeder EINMAL kaufbar, "Neu mischen" tauscht alle
+## drei zu steigendem Preis. Zustands-Mutation läuft ausschließlich über GameRun
+## (buy_secret_offer/reroll_secret_stock); die Anzeige folgt secret_stock_changed
+## und charge_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick
+## (Kamera zoomt zurück) - kein eigener Knopf.
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -15,6 +16,10 @@ const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.72, 0.74, 0.86)
 const BACKROOM_BG := Color("#0b0918e6")
 const CARD_BG := Color("#150f2acc")
+
+## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
+## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Routenwahl).
+const CONTENT_UNITS := 72.0
 
 var run: GameRun:
 	set(value):
@@ -27,14 +32,14 @@ var run: GameRun:
 		if run != null:
 			run.secret_stock_changed.connect(_on_run_changed)
 			run.charge_changed.connect(_on_charge_changed)
+		refresh()
 
-## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
-var u := 8.0
+## Einheit aus BEIDEN Achsen (in refresh gesetzt).
+var u := 4.0
 
 var wallet_label: Label
 var cards_row: HBoxContainer
 var reroll_button: Button
-var close_button: Button
 ## Ein Knopf je Auslage-Platz (Tests und _refresh arbeiten dagegen).
 var offer_buttons: Array[Button] = []
 
@@ -45,11 +50,26 @@ var detail_body: Label
 
 var _built := false
 
-## Öffnet die Seite: Gerüst passend zur aktuellen Größe, frische Auslage.
-func open() -> void:
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
+	clip_contents = true
+	add_theme_stylebox_override("panel", _window_box())
+
+## Fensterrahmen in Hinterzimmer-Farben: Form und Radius wie jedes Tisch-Fenster,
+## nur Füllung dunkler und Saum violett.
+func _window_box() -> StyleBoxFlat:
+	var box := TableScreen.window_style()
+	box.bg_color = BACKROOM_BG
+	box.border_color = Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.75)
+	return box
+
+## scene_root/TableScreen nach Platzierung und Zustandswechseln: Gerüst in der
+## aktuellen Fenstergröße, dann die Auslage.
+func refresh() -> void:
+	if size.x <= 0.0 or size.y <= 0.0:
+		return
 	_build_layout()
-	_refresh()
-	visible = true
+	_refresh_offers()
 
 # --- Gerüst -------------------------------------------------------------------
 
@@ -57,70 +77,57 @@ func _build_layout() -> void:
 	for child in get_children():
 		child.queue_free()
 	offer_buttons.clear()
-	u = maxf(size.x, 640.0) / 100.0
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	clip_contents = true  # nichts über den Hub-Rahmen hinaus (dort endet die Maus)
+	u = minf(size.x / 100.0, size.y / CONTENT_UNITS)
 	_built = true
-
-	# Eigener, deutlich dunklerer Grund: der Hinterzimmer-Look gegen den hellen Laden.
-	var backdrop := Panel.new()
-	backdrop.name = "Backroom"
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = BACKROOM_BG
-	box.border_color = Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.35)
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
-	box.set_corner_radius_all(int(u * 1.4))
-	backdrop.add_theme_stylebox_override("panel", box)
-	add_child(backdrop)
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_theme_constant_override("margin_left", int(u * 3.0))
 	margin.add_theme_constant_override("margin_right", int(u * 3.0))
-	margin.add_theme_constant_override("margin_top", int(u * 2.0))
-	margin.add_theme_constant_override("margin_bottom", int(u * 2.0))
+	margin.add_theme_constant_override("margin_top", int(u * 2.4))
+	margin.add_theme_constant_override("margin_bottom", int(u * 2.4))
 	add_child(margin)
 
 	var root := VBoxContainer.new()
 	root.name = "Root"
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_theme_constant_override("separation", int(u * 1.4))
 	margin.add_child(root)
 
 	var header := HBoxContainer.new()
 	header.name = "Header"
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_theme_constant_override("separation", int(u * 2.0))
 	root.add_child(header)
-	header.add_child(_label("S C H W A R Z M A R K T", u * 4.0, Color(1.35, 0.7, 1.7)))
+	header.add_child(_label("SCHWARZMARKT", u * 5.0, Color(1.35, 0.7, 1.7)))
 	var rail := _rail(VIOLET)
 	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(rail)
-	wallet_label = _label("⚡ 0/0", u * 4.0, CHARGE_COLOR)
+	wallet_label = _label("⚡ 0/0", u * 5.0, CHARGE_COLOR)
 	header.add_child(wallet_label)
 
 	cards_row = HBoxContainer.new()
 	cards_row.name = "Offers"
+	cards_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cards_row.add_theme_constant_override("separation", int(u * 1.8))
 	cards_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(cards_row)
 
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
+	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_theme_constant_override("separation", int(u * 1.5))
 	root.add_child(footer)
-	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.8, Vector2(u * 26.0, u * 5.0))
-	reroll_button.pressed.connect(_on_reroll_pressed)
-	footer.add_child(reroll_button)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_child(spacer)
-	close_button = _neon_button("Zurück", VIOLET, u * 2.8, Vector2(u * 18.0, u * 5.0))
-	close_button.pressed.connect(_on_close_pressed)
-	footer.add_child(close_button)
+	reroll_button = _neon_button("Neu mischen", VIOLET, u * 3.2, Vector2(u * 34.0, u * 7.0))
+	reroll_button.pressed.connect(_on_reroll_pressed)
+	footer.add_child(reroll_button)
 
 	_build_detail_card()  # zuletzt: liegt als Overlay über den Karten
 
@@ -128,7 +135,7 @@ func _build_layout() -> void:
 
 ## Baut die drei Karten neu und zieht Börse und Misch-Preis nach. Rebuild statt
 ## Patch: ein verkaufter Platz wechselt seine ganze Gestalt.
-func _refresh() -> void:
+func _refresh_offers() -> void:
 	if not _built or run == null:
 		return
 	wallet_label.text = "⚡ %d/%d" % [run.charge, run.charge_cap()]
@@ -136,7 +143,7 @@ func _refresh() -> void:
 		cards_row.remove_child(child)
 		child.queue_free()
 	offer_buttons.clear()
-	var thumb_px := int(u * 15.0)
+	var thumb_px := int(u * 13.0)
 	for i in run.secret_stock.size():
 		cards_row.add_child(_build_offer_card(run.secret_stock[i], i, thumb_px))
 	_refresh_afford_state()
@@ -208,7 +215,7 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int) -> Button:
 		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
 	column.add_child(stage)
 
-	column.add_child(_label("VERKAUFT" if sold else "⚡ %d" % price, u * 2.4,
+	column.add_child(_label("VERKAUFT" if sold else "⚡ %d" % price, u * 3.0,
 		NEON_MUTED if sold else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	if not sold:
@@ -226,17 +233,12 @@ func _on_reroll_pressed() -> void:
 	if run != null:
 		run.reroll_secret_stock()
 
-func _on_close_pressed() -> void:
-	_hide_detail()
-	visible = false  # der Hub holt Home von selbst zurück
-
 func _on_run_changed() -> void:
-	if visible:
-		_refresh()
+	_refresh_offers()
 
 ## Ladung allein ändert die Auslage nicht - nur wer was bezahlen kann.
 func _on_charge_changed(_value: int) -> void:
-	if visible and _built and run != null:
+	if _built and run != null:
 		wallet_label.text = "⚡ %d/%d" % [run.charge, run.charge_cap()]
 		_refresh_afford_state()
 
@@ -345,17 +347,17 @@ func _build_detail_card() -> void:
 	detail_card.add_child(col)
 	detail_title = Label.new()
 	detail_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	CasinoStyle.style_score_label(detail_title, int(u * 2.6), CasinoStyle.GOLD)
+	CasinoStyle.style_score_label(detail_title, int(u * 3.2), CasinoStyle.GOLD)
 	col.add_child(detail_title)
 	detail_body = Label.new()
 	detail_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	detail_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	detail_body.custom_minimum_size = Vector2(u * 28.0, 0)
-	CasinoStyle.style_body_label(detail_body, int(u * 1.9), CasinoStyle.CREAM)
+	detail_body.custom_minimum_size = Vector2(u * 36.0, 0)
+	CasinoStyle.style_body_label(detail_body, int(u * 2.4), CasinoStyle.CREAM)
 	col.add_child(detail_body)
 	add_child(detail_card)
 
-## Zeigt die Karte unter (notfalls über) dem Angebot, immer im Panel eingeklemmt.
+## Zeigt die Karte unter (notfalls über) dem Angebot, immer im Fenster eingeklemmt.
 func _show_detail(anchor: Control, title: String, body: String) -> void:
 	if detail_card == null:
 		return

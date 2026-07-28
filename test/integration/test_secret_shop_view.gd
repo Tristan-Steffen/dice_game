@@ -1,6 +1,8 @@
 extends GutTest
-## Integrationstest des Schwarzmarkts (SecretShopView an einem ECHTEN GameRun):
-## die drei Karten stehen, und der Knopf-Weg bucht Kauf und Neuwurf über GameRun.
+## Integrationstest des Schwarzmarkt-Fensters (SecretShopView an einem ECHTEN
+## GameRun): die drei Karten stehen, und der Knopf-Weg bucht Kauf und Neuwurf
+## über GameRun. Das Fenster misst wie am Tisch - flache Glas-Tasche unter den
+## Automaten, nicht die alte Hub-Seite.
 
 var view: SecretShopView
 var run: GameRun
@@ -12,16 +14,25 @@ func before_each() -> void:
 	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER
 	view = SecretShopView.new()
 	add_child_autofree(view)
-	view.size = Vector2(1400, 700)
+	view.size = Vector2(448, 345)
 	view.run = run
-	view.open()
+	view.refresh()
 
-func test_open_shows_three_offer_cards() -> void:
+func test_window_shows_three_offer_cards() -> void:
 	await wait_frames(2)
-	assert_true(view.visible)
 	assert_eq(view.offer_buttons.size(), 3, "drei Plätze")
 	for button in view.offer_buttons:
 		assert_gt(button.get_global_rect().size.x, 0.0, "jede Karte hat Fläche")
+
+## Die Tasche ist flach: der Inhalt muss IN das Fenster passen, sonst schneidet
+## der Rahmen die Karten ab.
+func test_content_fits_the_flat_window() -> void:
+	await wait_frames(2)
+	for button in view.offer_buttons:
+		assert_lt(button.get_global_rect().end.y, view.get_global_rect().end.y + 1.0,
+			"keine Karte ragt unten heraus")
+	assert_lt(view.reroll_button.get_global_rect().end.y, view.get_global_rect().end.y + 1.0,
+		"der Misch-Knopf steht im Fenster")
 
 func test_wallet_shows_charge_and_cap() -> void:
 	await wait_frames(2)
@@ -64,7 +75,8 @@ func test_reroll_is_disabled_without_charge() -> void:
 	for button in view.offer_buttons:
 		assert_true(button.disabled, "ohne Ladung ist nichts kaufbar")
 
-func test_close_hides_the_page() -> void:
+## Das Fenster kennt keinen Schließen-Knopf mehr - zurück geht es per Rechtsklick
+## über die Kamera, wie bei jedem anderen Tisch-Fenster.
+func test_window_has_no_close_button() -> void:
 	await wait_frames(2)
-	view.close_button.pressed.emit()
-	assert_false(view.visible, "der Hub holt Home von selbst zurück")
+	assert_false("close_button" in view, "Schließen macht die Kamera, nicht das Fenster")

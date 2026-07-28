@@ -19,8 +19,6 @@ signal test_materials_requested
 signal test_pointers_requested
 ## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
 signal hub_upgrade_requested
-## Schwarzmarkt-Eintrag gedrückt (scene_root öffnet die Seite).
-signal secret_shop_requested
 
 ## Farben im Stil des Displays (80s Neon).
 const FRAME_COLOR := Color("#8be9fd")
@@ -51,8 +49,6 @@ var money_label: Label
 ## Ladungs-Börse (⚡ N/Deckel). Steht ab Lauf-Beginn da - vor der Entdeckung des
 ## Schwarzmarkts bewusst unerklärt.
 var charge_label: Label
-## Eintrag zum Schwarzmarkt; verborgen, bis er entdeckt ist.
-var secret_shop_button: Button
 ## Rundenbonus-Zeilen - leuchten beim Auszählen des Rundenendes golden auf.
 var blind_payout_label: Label
 var die_payout_label: Label
@@ -205,18 +201,6 @@ func layout() -> void:
 	footer.add_theme_constant_override("separation", int(u * 2.0))
 	column.add_child(footer)
 	footer.add_child(_make_h_spacer())
-	# Hinterzimmer-Eintrag: dunkle Füllung mit violettem Saum, damit er sich vom
-	# Einstellungen-Knopf daneben absetzt.
-	secret_shop_button = Button.new()
-	secret_shop_button.name = "SecretShopButton"
-	secret_shop_button.text = "⚡  Schwarzmarkt"
-	secret_shop_button.visible = false
-	secret_shop_button.focus_mode = Control.FOCUS_NONE
-	secret_shop_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	CasinoStyle.style_button(secret_shop_button, CasinoStyle.PURPLE_DARK, CasinoStyle.PURPLE,
-		int(u * 3.4))
-	secret_shop_button.pressed.connect(func() -> void: secret_shop_requested.emit())
-	footer.add_child(secret_shop_button)
 	settings_button = Button.new()
 	settings_button.name = "SettingsButton"
 	settings_button.text = "⚙  Einstellungen"
@@ -539,21 +523,6 @@ func pulse_charge() -> void:
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween.tween_property(charge_label, "scale", Vector2.ONE, 0.22) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-func set_secret_shop_visible(shown: bool) -> void:
-	if _built and secret_shop_button != null:
-		secret_shop_button.visible = shown
-		secret_shop_button.modulate.a = 1.0
-
-## Entdeckung: der Eintrag blendet sich am Fuß ein.
-func reveal_secret_shop() -> void:
-	if not _built or secret_shop_button == null or secret_shop_button.visible:
-		return
-	secret_shop_button.visible = true
-	secret_shop_button.modulate.a = 0.0
-	var tween := create_tween()
-	tween.tween_property(secret_shop_button, "modulate:a", 1.0, 0.6) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 ## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung
 ## als Plan) und die Rahmen-Stufe (dicker + eine Spur goldener je Stufe). next_name
