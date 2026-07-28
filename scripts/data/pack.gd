@@ -153,7 +153,7 @@ func roll_dice(charm_ids: Array[String] = []) -> Array[DieDefinition]:
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
 	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" \
 			and base.materials.count("") == base.materials.size():
-		base.materials[randi() % base.materials.size()] = DieMaterial.all().pick_random().id
+		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
 	for i in count:
 		dice.append(base.instantiate())
 	return dice

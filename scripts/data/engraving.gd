@@ -20,10 +20,13 @@ const EDGE_PREFIX := "edge_"
 # --- Würfel-Gravur ohne Material: die Leiterbahn (Zeiger-Mechanik) ---
 const POINTER := "pointer"
 
+# --- Material-Gravur ohne eigenes Material: die Dotierung (hebt eine Stufe) ---
+const DOPING := "doping"
+
 ## Sonderposten: einmalige Spezial-Gravuren. Sie behalten ihre Kategorie (und
 ## damit Paket/Ziehung), liegen aber NICHT in deren Schublade, sondern im
 ## Sonderbestand rechts der Werkbank - künftige Einmal-Effekte kommen dazu.
-const SPECIAL_IDS := [POINTER]
+const SPECIAL_IDS := [POINTER, DOPING]
 
 static func is_special_id(engraving_id: String) -> bool:
 	return SPECIAL_IDS.has(engraving_id)
@@ -67,6 +70,7 @@ const FOOTPRINT := {
 	PUNCH: Vector2i(3, 2),
 	BLUEPRINT: Vector2i(3, 3),
 	POINTER: Vector2i(3, 3),
+	DOPING: Vector2i(3, 3),
 	# Material-Gravuren (id = Material-id)
 	DieMaterial.GOLD: Vector2i(1, 1),
 	DieMaterial.AMBER: Vector2i(2, 1),
@@ -141,6 +145,11 @@ static func blueprint() -> Engraving:
 static func pointer_engraving() -> Engraving:
 	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Nach dem Würfel löst die Zielseite einmal voll mit aus (Augen, Material, Charms).", Rarity.EPIC, CATEGORY_DICE)
 
+## Dotierung: die einzige Material-Gravur, die selbst kein Material belegt -
+## sie hebt das vorhandene Material EINER Seite auf seine zweite Stufe.
+static func doping() -> Engraving:
+	return _make(DOPING, "Dotierung", "Hebe das Material einer Seite auf Stufe II: es wirkt stärker und anders.", Rarity.EPIC, CATEGORY_MATERIAL)
+
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 
 static func material_engraving(material: DieMaterial, rarity: Rarity) -> Engraving:
@@ -175,7 +184,7 @@ static func all() -> Array[Engraving]:
 	var result: Array[Engraving] = [
 		chisel(), grindstone(), notch(), file_down(),
 		averaging(), straighten(), polish(), sandpaper(), punch(), blueprint(),
-		pointer_engraving(),
+		pointer_engraving(), doping(),
 	]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
@@ -239,13 +248,16 @@ static func _draft_pool(floor: Rarity) -> Array[Engraving]:
 			pool.append(engraving)
 	return pool
 
-## DieMaterial-id hinter dieser Gravur ("" bei Zahl-Gravuren und der Leiterbahn).
+## DieMaterial-id hinter dieser Gravur ("" bei Zahl-Gravuren und Sonderposten).
+## Spezial-Gravuren belegen nie ein Material - sie behalten nur die Kategorie.
 func material_id() -> String:
+	if is_special_id(id):
+		return ""
 	match category:
 		CATEGORY_MATERIAL:
 			return id
 		CATEGORY_DICE:
-			return "" if id == POINTER else id.trim_prefix(EDGE_PREFIX)
+			return id.trim_prefix(EDGE_PREFIX)
 	return ""
 
 static func rarity_name(value: Rarity) -> String:

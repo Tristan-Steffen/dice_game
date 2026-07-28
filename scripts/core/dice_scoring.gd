@@ -68,6 +68,16 @@ static func pointer_links_for(ctx: Dictionary, slot: int) -> Array:
 	var links: Dictionary = ctx.get(CTX_POINTER_LINKS, {})
 	return links.get(slot, [])
 
+## Dotierungen (ctx-Schlüssel): Dictionary Slot -> {"upgraded": bool (Material
+## der OBEREN Seite ist Stufe II), "eye_sum": int, "mercury_faces": int}. Wie
+## die Leiterbahn-Ketten löst der Aufrufer das EINMAL auf.
+const CTX_MATERIAL_UPGRADES := "material_upgrades"
+
+## Dotierungs-Infos des Slots aus dem ctx ({} = nichts dotiert).
+static func upgrade_info_for(ctx: Dictionary, slot: int) -> Dictionary:
+	var upgrades: Dictionary = ctx.get(CTX_MATERIAL_UPGRADES, {})
+	return upgrades.get(slot, {})
+
 ## Anzeige-Beispiele der Kombinationsliste; per Test gegen die echte Wertung
 ## geprüft (best_hand(Beispiel) muss genau seine Kategorie liefern).
 const EXAMPLE_DICE := {
@@ -184,19 +194,25 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 	# Würfelphase in Reihen-Ordnung; je Aktivierung: Augen -> Material ->
 	# würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
 	for i in trigger_order(scored, dice):
+		var info := upgrade_info_for(ctx, i)
+		var upgraded := bool(info.get("upgraded", false))
+		var eye_sum := int(info.get("eye_sum", 0))
+		var face_material: String = materials[i] if i < materials.size() else ""
 		var activations := 1
 		if has_die_bonus:
-			activations = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot)
+			activations = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot, upgraded, int(info.get("mercury_faces", 0)))
 		for _a in activations:
 			base += CharmEffects.eye_value(dice[i], charm_ids)
 			if not has_die_bonus:
 				continue
-			base += MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids)
-			mult += MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids)
+			base += MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids, upgraded, eye_sum)
+			mult += MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids, upgraded)
 			for j in charm_ids.size():
 				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, scored)
 				mult += CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
 					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating)
+			# Material-Krit (dotierter Rubin/Glas) schlägt vor den Charm-Krits ein.
+			mult *= MaterialEffects.mult_crit_once_for(face_material, dice[i], charm_ids, upgraded)
 			for j in charm_ids.size():
 				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
 		# Leiterbahn: NACH allen Aktivierungen feuert die Kette je Glied EINMAL
@@ -205,15 +221,18 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
 		for link in pointer_links_for(ctx, i):
 			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
+			var link_material := String(link["material"])
+			var link_upgraded := bool(link.get("upgraded", false))
 			base += CharmEffects.eye_value(link_value, charm_ids)
 			if not has_die_bonus:
 				continue
-			base += MaterialEffects.base_once_for(String(link["material"]), edge_here, charm_ids)
-			mult += MaterialEffects.mult_once_for(String(link["material"]), edge_here, link_value, charm_ids)
+			base += MaterialEffects.base_once_for(link_material, edge_here, charm_ids, link_upgraded, eye_sum)
+			mult += MaterialEffects.mult_once_for(link_material, edge_here, link_value, charm_ids, link_upgraded)
 			for j in charm_ids.size():
 				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, scored)
 				mult += CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
 					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value)
+			mult *= MaterialEffects.mult_crit_once_for(link_material, link_value, charm_ids, link_upgraded)
 			for j in charm_ids.size():
 				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
 	for j in charm_ids.size():

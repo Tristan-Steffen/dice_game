@@ -65,7 +65,7 @@ func test_multiple_materials_stack():
 
 # --- apply_take_effects (Gold / Knochen / Glas) ----------------------------------
 
-func _die(faces: Array, materials: Array = []) -> DieDefinition:
+func _die(faces: Array, materials: Array = [], upgraded_faces: Array = []) -> DieDefinition:
 	var def := DieDefinition.new()
 	var typed_faces: Array[int] = []
 	typed_faces.assign(faces)
@@ -74,6 +74,8 @@ func _die(faces: Array, materials: Array = []) -> DieDefinition:
 		var typed_materials: Array[String] = []
 		typed_materials.assign(materials)
 		def.materials = typed_materials
+	for face in upgraded_faces:
+		def.upgraded[face] = true
 	return def
 
 func test_gold_pays_three_per_participating_face():
@@ -406,3 +408,243 @@ func test_mercury_retrigger_flows_through_best_hand():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m([DieMaterial.RUBY, "", "", "", "", ""]), _m([DieMaterial.MERCURY, "", "", "", "", ""]))["score"]
 	assert_eq(score, 250, "(10+5+5+5) × (2+8)")
+
+# --- Dotierung (Stufe II): ein gehobenes SEITEN-Material ------------------------
+# Regel für alle sechs: der gehobene Träger ERSETZT den Grundwert und behält den
+# Charm-Aufschlag über dem Grundwert (Bernsteinzimmer, Knochenleim, Dampf ...).
+
+## Dotierungs-Infos eines Slots (Form wie DiceScoring.CTX_MATERIAL_UPGRADES).
+func _up(slot: int, eye_sum := 0, mercury_faces := 0) -> Dictionary:
+	return {slot: {"upgraded": true, "eye_sum": eye_sum, "mercury_faces": mercury_faces}}
+
+func _ctx_up(slot: int, eye_sum := 0, mercury_faces := 0) -> Dictionary:
+	return {DiceScoring.CTX_MATERIAL_UPGRADES: _up(slot, eye_sum, mercury_faces)}
+
+# Bernstein II: +Augensumme statt +20.
+
+func test_upgraded_amber_gives_the_eye_sum():
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, "", NO_CHARMS, true, 21), 21)
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, "", NO_CHARMS, false, 21), 20,
+		"ohne Dotierung bleibt es beim Grundwert")
+
+func test_upgraded_amber_keeps_the_amber_room_surplus():
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, "", _ids([Charm.AMBER_ROOM]), true, 21), 51,
+		"Augensumme 21 + Aufschlag (50 − 20)")
+
+func test_upgraded_amber_flows_through_the_score():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.AMBER, "", "", "", "", ""])
+	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, _ctx_up(0, 21))
+	assert_eq(score, 82, "(10+5+5+21) × 2")
+
+func test_upgraded_amber_leaves_the_edge_carrier_alone():
+	# Kanten sind nie dotierbar - die Kante zahlt weiter ihre 20.
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, DieMaterial.AMBER, NO_CHARMS, true, 21), 41)
+
+# Rubin II: Krit ×4 statt +4 Mult.
+
+func test_upgraded_ruby_crits_instead_of_adding():
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, "", 5, NO_CHARMS, true), 0)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, true), 4)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, false), 1, "undotiert kein Krit")
+
+func test_upgraded_ruby_keeps_grinder_and_blood_diamond_additive():
+	# Sonst würde der Aufschlag den Krit exponentiell machen.
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, "", 5, _ids([Charm.RUBY_GRINDER]), true), 5)
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, "", 5, _ids([Charm.RUBY_GRINDER, Charm.BLOOD_DIAMOND]), true), 10)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, _ids([Charm.RUBY_GRINDER]), true), 4,
+		"der Krit bleibt ×4")
+
+func test_upgraded_ruby_flows_through_the_score():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, _ctx_up(0))
+	assert_eq(score, 160, "20 × (2 ×4)")
+
+# Glas II: Krit ×Augen statt +Augen; schrumpft um 5 bzw. 20 %.
+
+func test_upgraded_glass_crits_with_its_eyes():
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, "", 5, NO_CHARMS, true), 0)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 5, NO_CHARMS, true), 5)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 0, NO_CHARMS, true), 1, "nie unter ×1")
+
+func test_upgraded_glass_leaves_the_edge_carrier_additive():
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, DieMaterial.GLASS, 5, NO_CHARMS, true), 5,
+		"nur die Seite kritet, die Kante addiert weiter")
+
+## Eine Seite trägt genau EIN Material - also höchstens ein Material-Krit.
+func test_only_the_face_carrier_can_crit():
+	assert_eq(MaterialEffects.mult_crit_once_for("", 5, NO_CHARMS, true), 1)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.AMBER, 5, NO_CHARMS, true), 1)
+
+# Der Material-Krit schlägt an der Position SEINES Würfels ein.
+
+func test_material_crit_fires_at_its_own_die_not_at_the_end():
+	# Rubin II auf Slot 0 (Krit ×4), Glas auf Slot 1 (+5 Mult danach).
+	# Feuerte der Krit erst am Ende, wäre es (2+5)×4 = 28 statt 13.
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
+	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, _ctx_up(0))
+	assert_eq(score, 260, "20 × (2 ×4 + 5)")
+
+func test_material_crit_lands_before_beherit_on_the_same_die():
+	# Slot 0: Mult 2 -> Material-Krit ×4 -> Beherit ×5 = 40, dann Glas +5 = 45.
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
+	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.BEHERIT]), false, mats, _m([]), {}, _ctx_up(0))
+	assert_eq(score, 900, "20 × 45")
+
+func test_breakdown_mirrors_the_material_crit():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
+	var ctx := _ctx_up(0)
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, ctx)
+	assert_eq(int(breakdown["total"]), DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, ctx))
+	var first_step: Dictionary = breakdown["die_steps"][0]
+	assert_eq(int(first_step["crit_x"]), 4, "der Material-Krit steht im Schritt")
+	assert_eq((first_step["crit_charm_indices"] as Array).size(), 0, "kein Charm-Index dafür")
+	var activation: Dictionary = (first_step["activations"] as Array)[0]
+	assert_true(bool(activation["crit_from_die"]), "der Strahl kommt vom Würfel, nicht vom Dock-Pad")
+
+# Quecksilber II: so oft, wie der Würfel Quecksilber-Seiten hat, +1.
+
+func test_upgraded_mercury_counts_the_dies_mercury_faces():
+	var mercury_first := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var none := _m(["", "", "", "", "", ""])
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, none, NO_CHARMS, 5, -1, true, 3), 4)
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, none, NO_CHARMS, 5, -1, true, 1), 2,
+		"eine einzige Quecksilber-Seite bleibt bei doppelt")
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, none, NO_CHARMS, 5, -1, false, 3), 2,
+		"undotiert bleibt es beim festen ×2")
+
+func test_upgraded_mercury_keeps_the_vapor_surplus():
+	var mercury_first := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var none := _m(["", "", "", "", "", ""])
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, none, _ids([Charm.MERCURY_VAPOR]), 5, -1, true, 3), 5,
+		"3 Seiten + 1, dazu der Dampf-Aufschlag (+1)")
+
+func test_upgraded_mercury_still_stacks_with_the_edge():
+	var mercury_first := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	assert_eq(MaterialEffects.activation_count(0, mercury_first, mercury_first, NO_CHARMS, 5, -1, true, 3), 8,
+		"Seite (×4) und Kante (×2) stapeln multiplikativ")
+
+func test_upgraded_mercury_flows_through_the_score():
+	# Paar Fünfer, Slot 0 löst 4× aus: Basis 10 + 5×4 + 5 = 35, Mult 2 -> 70.
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var mats := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var ctx := {DiceScoring.CTX_MATERIAL_UPGRADES: _up(0, 21, 3)}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, _m([]), {}, ctx), 70)
+
+# Gold II: $5 + $1 je ausgelöster Gold-SEITE dieser Nahme.
+
+func test_upgraded_gold_pays_five_plus_one_per_gold_face():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]))
+	assert_eq(report.money, 6, "$5 + $1 für die eigene Auslösung")
+
+func test_upgraded_gold_counts_every_gold_face_of_the_take():
+	# Drei Gold-Seiten, davon eine dotiert: der Zähler steht bei 3.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var gold := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.GOLD])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), gold, _p([0, 1, 2]))
+	assert_eq(report.money, 14, "($5+$3) + $3 + $3")
+
+func test_upgraded_gold_counts_activations_not_carriers():
+	# Quecksilber-Kanten verdoppeln die Auslösung: Zähler 2, Satz $7, zweimal.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([DieMaterial.MERCURY]))
+	assert_eq(report.money, 14, "2 × ($5 + $2)")
+
+func test_upgraded_gold_keeps_the_goldsmith_surplus():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _m([]), _ids([Charm.GOLDSMITH]))
+	assert_eq(report.money, 9, "$5 + $1 Zähler + $3 Aufschlag")
+
+func test_upgraded_gold_edge_stays_at_the_plain_rate():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), _m([DieMaterial.GOLD]))
+	assert_eq(report.money, 3, "die Kante ist nie dotiert")
+
+# Knochen II: +3 oder +10 %, je Aktivierung neu gerechnet.
+
+func test_upgraded_bone_grows_by_at_least_three():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
+	assert_eq(defs[0].faces[0], 8, "10 % von 5 sind zu wenig - es bleibt bei +3")
+	assert_eq(report.grown, [0])
+
+func test_upgraded_bone_compounds_per_activation():
+	# 40 -> +4 = 44 -> +ceil(4,4) = 5 -> 49: die zweite Auslösung rechnet neu.
+	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], [0])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([DieMaterial.MERCURY]))
+	assert_eq(defs[0].faces[0], 49)
+
+func test_upgraded_bone_keeps_the_glue_and_marrow_surplus():
+	# Knochenleim (2) + Knochenmark (+1) = Satz 3, Aufschlag über 1 also +2.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([]),
+		_ids([Charm.BONE_GLUE, Charm.BONE_MARROW]))
+	assert_eq(defs[0].faces[0], 10, "+3 (Dotierung) +2 (Aufschlag)")
+
+# Glas II: −5 oder −20 %, nie unter das Floor.
+
+func test_upgraded_glass_shrinks_by_a_fifth():
+	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
+	assert_eq(defs[0].faces[0], 32, "20 % von 40 sind 8")
+	assert_eq(report.shrunk, [0])
+
+func test_upgraded_glass_shrinks_at_least_five():
+	var defs: Array[DieDefinition] = [_die([12, 2, 3, 4, 5, 6], [], [0])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
+	assert_eq(defs[0].faces[0], 7, "20 % von 12 wären 3 - der Mindestschritt greift")
+
+func test_upgraded_glass_stops_at_the_floor():
+	var defs: Array[DieDefinition] = [_die([3, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
+	assert_eq(defs[0].faces[0], EtchingEffects.MIN_FACE_VALUE, "3 − 5 wäre negativ, geklemmt")
+	assert_eq(report.shrunk, [0])
+
+func test_upgraded_glass_never_shrinks_with_the_glassblower_lung():
+	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], [0])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _m([]),
+		_ids([Charm.GLASSBLOWER_LUNG]))
+	assert_eq(defs[0].faces[0], 40)
+	assert_eq(report.shrunk.size(), 0)
+
+# --- Datensatz: die Marke gehört dem Würfel, nicht der geteilten Vorlage --------
+
+func test_instantiate_and_become_copy_the_upgrade_marks():
+	var def := _die([5, 2, 3, 4, 5, 6], [], [2])
+	var copy := def.instantiate()
+	assert_true(copy.upgraded[2])
+	copy.upgraded[2] = false
+	assert_true(def.upgraded[2], "die Kopie teilt das Array nicht")
+	var host := DieDefinition.new()
+	host.become(def)
+	assert_true(host.upgraded[2])
+	host.upgraded[2] = false
+	assert_true(def.upgraded[2], "become teilt das Array nicht")
+
+func test_a_fresh_definition_has_no_upgrades():
+	assert_eq(DieDefinition.new().upgraded, [false, false, false, false, false, false] as Array[bool])
+
+# --- set_face_material: EINZIGER Schreibweg, löscht die Dotierung mit -----------
+
+func test_set_face_material_clears_the_doping():
+	var def := _die([5, 2, 3, 4, 5, 6], [DieMaterial.RUBY, "", "", "", "", ""], [0])
+	assert_true(def.upgraded[0])
+	def.set_face_material(0, DieMaterial.GOLD)
+	assert_eq(def.materials[0], DieMaterial.GOLD)
+	assert_false(def.upgraded[0], "die Marke hängt am Material, nicht an der Seite")
+
+func test_set_face_material_leaves_other_faces_alone():
+	var def := _die([5, 2, 3, 4, 5, 6], [DieMaterial.RUBY, DieMaterial.GOLD, "", "", "", ""], [0, 1])
+	def.set_face_material(0, DieMaterial.AMBER)
+	assert_true(def.upgraded[1], "die Nachbarseite behält ihre Dotierung")
+
+func test_set_face_material_ignores_faces_out_of_range():
+	var def := _die([5, 2, 3, 4, 5, 6])
+	def.set_face_material(-1, DieMaterial.GOLD)
+	def.set_face_material(9, DieMaterial.GOLD)
+	assert_eq(def.materials, _m(["", "", "", "", "", ""]), "nichts geschrieben")

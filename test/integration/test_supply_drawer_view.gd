@@ -162,8 +162,10 @@ func test_slots_cover_every_archetype_of_the_category() -> void:
 func test_specials_live_in_the_stockpile_not_their_category_drawer() -> void:
 	assert_false(_ids(_drawer(Engraving.CATEGORY_DICE)).has(Engraving.POINTER),
 		"die Leiterbahn liegt nicht in der Würfel-Schublade")
+	assert_false(_ids(_drawer(Engraving.CATEGORY_MATERIAL)).has(Engraving.DOPING),
+		"die Dotierung liegt nicht in der Material-Schublade")
 	assert_eq(_ids(_drawer(SupplyDrawerView.CATEGORY_SPECIAL)),
-		[Engraving.POINTER] as Array[String], "der Sonderbestand führt genau die Sonderposten")
+		[Engraving.POINTER, Engraving.DOPING] as Array[String], "der Sonderbestand führt genau die Sonderposten")
 
 func test_the_dice_drawer_stays_two_rows() -> void:
 	# Regression: die Leiterbahn als 7. Platz machte die Schubladen-Reihe höher

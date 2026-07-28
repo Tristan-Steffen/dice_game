@@ -72,7 +72,7 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = []) -> Dice
 	var surcharge := roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
 	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" and base.materials.count("") == base.materials.size():
-		base.materials[randi() % base.materials.size()] = DieMaterial.all().pick_random().id
+		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
 		surcharge += FACE_MATERIAL_SURCHARGE
 	offer.price = int(t["price"]) + surcharge * int(t["count"])
 	for i in int(t["count"]):
@@ -88,7 +88,7 @@ static func roll_refinements(def: DieDefinition) -> int:
 		var face_indices := range(6)
 		face_indices.shuffle()
 		for i in face_count:
-			def.materials[face_indices[i]] = DieMaterial.all().pick_random().id
+			def.set_face_material(face_indices[i], DieMaterial.all().pick_random().id)
 			surcharge += FACE_MATERIAL_SURCHARGE
 	if randf() < EDGE_MATERIAL_CHANCE:
 		def.edge_material = DieMaterial.all().pick_random().id

@@ -390,6 +390,32 @@ func test_clear_all_materials_empties_faces_and_edges():
 			assert_eq(material_id, "", "Seiten-Material geleert")
 		assert_eq(die.edge_material, "", "Kanten-Material geleert")
 
+func test_randomize_also_dopes_some_faces():
+	# Testmodus zeigt die Stufe-II-Wirkungen ohne Gravur-Grind: ein Teil der
+	# Material-Seiten kommt dotiert (30 Würfel × 6 Seiten - nie alles leer).
+	run.randomize_all_materials()
+	var doped := 0
+	for die in run.owned_pool:
+		assert_eq(die.upgraded.size(), 6, "weiterhin 6 Marken")
+		doped += die.upgraded.count(true)
+	assert_gt(doped, 0, "irgendeine Seite steht auf Stufe II")
+
+func test_randomize_gives_each_die_an_independent_upgrade_array():
+	run.randomize_all_materials()
+	run.owned_pool[0].upgraded[0] = not run.owned_pool[0].upgraded[0]
+	var sentinel: bool = run.owned_pool[0].upgraded[0]
+	var differs := false
+	for i in range(1, run.owned_pool.size()):
+		if run.owned_pool[i].upgraded[0] != sentinel:
+			differs = true
+	assert_true(differs, "kein geteiltes upgraded-Array")
+
+func test_clear_all_materials_also_clears_the_doping():
+	run.randomize_all_materials()
+	run.clear_all_materials()
+	for die in run.owned_pool:
+		assert_false(die.upgraded.has(true), "ohne Material keine Dotierung")
+
 # --- Testhilfen: Zufalls-Leiterbahnen (Testmodus) --------------------------------
 
 func test_randomize_all_pointers_gives_every_die_one_to_five_valid_links():
@@ -559,6 +585,34 @@ func test_midas_glove_stays_cold_below_six_dice():
 		defs.append(DieDefinition.standard())
 	assert_eq(run.apply_midas_glove(defs, _p([0, 0, 0, 0, 0]), _p([0, 1, 2, 3, 4])).size(), 0)
 	assert_eq(defs[0].materials[0], "", "nichts vergoldet")
+
+func test_midas_glove_clears_the_doping_of_the_face_it_gilds():
+	# Neues Material auf der Seite - die alte Dotierung gehoert dem alten Exemplar.
+	run.owned_charms.append(Charm.midas_glove())
+	var defs: Array[DieDefinition] = []
+	for i in 6:
+		var die := DieDefinition.standard()
+		die.set_face_material(i, DieMaterial.RUBY)
+		die.upgraded[i] = true
+		defs.append(die)
+	var faces := _p([0, 1, 2, 3, 4, 5])
+	run.apply_midas_glove(defs, faces, _p([0, 1, 2, 3, 4, 5]))
+	for i in 6:
+		assert_eq(defs[i].materials[faces[i]], DieMaterial.GOLD)
+		assert_false(defs[i].upgraded[faces[i]], "die Rubin-Dotierung ist mit dem Rubin weg")
+
+func test_jewelry_box_clears_the_doping_of_the_face_it_hits():
+	run.owned_charms.append(Charm.jewelry_box())
+	var many: Array[DieDefinition] = []
+	for i in 200:
+		var die := DieDefinition.standard()
+		die.upgraded.fill(true)
+		many.append(die)
+	run.apply_jewelry_box(many)
+	for die in many:
+		for face in 6:
+			if die.materials[face] != "":
+				assert_false(die.upgraded[face], "belegte Seite verliert ihre Dotierung")
 
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 

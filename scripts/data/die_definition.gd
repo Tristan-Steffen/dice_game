@@ -14,6 +14,9 @@ extends Resource
 ## Leiterbahn je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Die Kette ab
 ## der oben liegenden Seite feuert nach dem Würfelschritt je Glied EINMAL mit.
 @export var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
+## Dotierung je Seite: das Material DIESER Seite steht auf Stufe II. Die Marke
+## hängt am Material-Exemplar - ein neues Material auf der Seite löscht sie.
+@export var upgraded: Array[bool] = [false, false, false, false, false, false]
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 
@@ -26,6 +29,7 @@ func become(other: DieDefinition) -> void:
 	faces = other.faces.duplicate()
 	materials = other.materials.duplicate()
 	pointers = other.pointers.duplicate()
+	upgraded = other.upgraded.duplicate()
 	edge_material = other.edge_material
 	style_id = other.style_id
 	display_name = other.display_name
@@ -36,7 +40,17 @@ func instantiate() -> DieDefinition:
 	copy.faces = faces.duplicate()
 	copy.materials = materials.duplicate()
 	copy.pointers = pointers.duplicate()
+	copy.upgraded = upgraded.duplicate()
 	return copy
+
+## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Dotierung hängt
+## am Material-Exemplar, nicht an der Seite - ein neues Material löscht sie.
+func set_face_material(face: int, material_id: String) -> void:
+	if face < 0 or face >= materials.size():
+		return
+	materials[face] = material_id
+	if face < upgraded.size():
+		upgraded[face] = false
 
 ## Gegenseite eines Seitenindex (Kalibrierung: DiceController.AXIS_FACE_INDEX
 ## legt die Paare (0,5), (1,4), (2,3) fest).

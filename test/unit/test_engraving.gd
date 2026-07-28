@@ -2,8 +2,8 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
 func test_all_returns_etchings_materials_and_edges():
-	# 10 Ätzungen + Leiterbahn + 6 Material-Gravuren + 6 Kanten-Gravuren.
-	assert_eq(Engraving.all().size(), 23)
+	# 10 Ätzungen + Leiterbahn + Dotierung + 6 Material-Gravuren + 6 Kanten-Gravuren.
+	assert_eq(Engraving.all().size(), 24)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -21,10 +21,11 @@ func test_every_engraving_has_filled_metadata():
 
 func test_material_engravings_use_the_material_id():
 	# Die Engraving-id eines Material-Gravuren IST die Material-id - so löst die
-	# Gravur-Station die Anwendung direkt über DieMaterial auf.
+	# Gravur-Station die Anwendung direkt über DieMaterial auf. Sonderposten
+	# (Dotierung) behalten nur die Kategorie und belegen kein Material.
 	var material_ids := {}
 	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_MATERIAL:
+		if engraving.category == Engraving.CATEGORY_MATERIAL and not Engraving.is_special_id(engraving.id):
 			assert_true(DieMaterial.is_valid_id(engraving.id), "%s ist eine Material-id" % engraving.id)
 			material_ids[engraving.id] = true
 	assert_eq(material_ids.size(), DieMaterial.all().size(), "je Material genau ein Engraving")
@@ -71,6 +72,14 @@ func test_the_pointer_is_an_epic_dice_engraving_without_material():
 	assert_eq(pointer.material_id(), "", "die Leiterbahn belegt kein Material")
 	assert_false(Engraving.is_edge_id(Engraving.POINTER))
 	assert_true(Engraving.FOOTPRINT.has(Engraving.POINTER))
+
+func test_the_doping_is_an_epic_material_engraving_without_material():
+	var doping := Engraving.doping()
+	assert_eq(doping.category, Engraving.CATEGORY_MATERIAL)
+	assert_eq(doping.rarity, Engraving.Rarity.EPIC)
+	assert_eq(doping.material_id(), "", "die Dotierung belegt kein Material, sie hebt eines")
+	assert_true(Engraving.is_special_id(Engraving.DOPING), "sie liegt im Sonderbestand")
+	assert_true(Engraving.FOOTPRINT.has(Engraving.DOPING))
 
 func test_is_edge_id_rejects_non_edges():
 	assert_false(Engraving.is_edge_id(DieMaterial.GOLD), "Seiten-Material ist kein Kanten-Engraving")

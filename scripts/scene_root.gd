@@ -370,6 +370,7 @@ var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Ver
 var pre_reroll_materials: Array[String] = []
 var pre_reroll_edge_materials: Array[String] = []
 var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
+var pre_reroll_upgrades: Dictionary = {}  # Dotierungen VOR dem Neu-Würfeln
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
 var rerolls_this_hand: int = 0  # Anker
@@ -2737,7 +2738,7 @@ func _net_face_hint(pixel: Vector2) -> String:
 		return DieMaterial.edge_hint(_net_die_def.edge_material)
 	if face < 0 or face >= _net_die_def.materials.size():
 		return ""
-	var hint := DieMaterial.face_hint(_net_die_def.materials[face])
+	var hint := DieMaterial.face_hint(_net_die_def.materials[face], MaterialEffects.face_is_upgraded(_net_die_def, face))
 	var target: int = _net_die_def.pointers[face] if face < _net_die_def.pointers.size() else -1
 	if target >= 0:
 		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d einmal mit aus" % _net_die_def.faces[target]
@@ -2997,9 +2998,28 @@ func _pointer_links() -> Dictionary:
 				"face": link_face,
 				"value": def.faces[link_face],
 				"material": def.materials[link_face] if link_face < def.materials.size() else "",
+				"upgraded": MaterialEffects.face_is_upgraded(def, link_face),
 			})
 		links[i] = entries
 	return links
+
+## Dotierungs-Infos je Wurf-Slot: ist das Material der OBEREN Seite auf Stufe II,
+## dazu die beiden würfelweiten Zahlen, an denen dotierte Materialien hängen.
+func _material_upgrades() -> Dictionary:
+	var upgrades := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def == null:
+			continue
+		var eye_sum := 0
+		for value in def.faces:
+			eye_sum += value
+		upgrades[i] = {
+			"upgraded": MaterialEffects.face_is_upgraded(def, dice.face_indices[i]),
+			"eye_sum": eye_sum,
+			"mercury_faces": def.materials.count(DieMaterial.MERCURY),
+		}
+	return upgrades
 
 ## Wurf-/Runden-Zustand der Effektkatalog-Charms - in JEDE Wertung gereicht
 ## (Vorschau, Nehmen, Farkle-Vergleich), damit Anzeige und Rechnung gleich bleiben.
@@ -3018,6 +3038,7 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Stresstest-Drossel
 		DiceScoring.CTX_POINTER_LINKS: _pointer_links(),  # Leiterbahn-Ketten
+		DiceScoring.CTX_MATERIAL_UPGRADES: _material_upgrades(),  # Dotierungen
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3041,6 +3062,14 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_links[to_filtered[s]] = links[s]
 	ctx[DiceScoring.CTX_POINTER_LINKS] = mapped_links
+	# Dotierungen hängen ebenso am Slot - ohne Umschlüsselung wertet jede
+	# Auswahl-Vorschau die falschen Würfel als gehoben.
+	var mapped_upgrades := {}
+	var upgrades: Dictionary = ctx.get(DiceScoring.CTX_MATERIAL_UPGRADES, {})
+	for s in upgrades:
+		if to_filtered.has(s):
+			mapped_upgrades[to_filtered[s]] = upgrades[s]
+	ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = mapped_upgrades
 	return ctx
 
 ## Slots, deren Würfel aus den letzten 6 Stapel-Positionen gezogen wurden (Bodensatz).
@@ -3243,6 +3272,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_materials = _rolled_materials()
 		pre_reroll_edge_materials = _edge_materials()
 		pre_reroll_links = _pointer_links()
+		pre_reroll_upgrades = _material_upgrades()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				if i < slot_draw_positions.size():
@@ -3435,6 +3465,7 @@ func _on_roll_finished() -> void:
 	# alten Materialien.
 	var old_ctx := _score_ctx()
 	old_ctx[DiceScoring.CTX_POINTER_LINKS] = pre_reroll_links
+	old_ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = pre_reroll_upgrades
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand) \
@@ -3901,11 +3932,13 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		_flash_scoring_die(slot)
 		for charm_index: int in crit_charm_indices:
 			_flash_charm_and_pad(charm_index)
-		var crit_px := _charm_trail_source_px(crit_charm_indices)
+		# Material-Krit (dotierter Rubin/Glas) hat kein Dock-Pad - er kommt vom Würfel.
+		var from_die: bool = crit_charm_indices.is_empty() and bool(pulse.get("crit_from_die", false))
+		var crit_px := die_px if from_die else _charm_trail_source_px(crit_charm_indices)
 		var crit_base: int = pulse["charm_base_after"]
 		var crit_mult: int = pulse["mult_after_crit"]
 		table_screen.spawn_gain_number(crit_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
-		var crit_travel := _fire_score_light(crit_px, "charm", ["mult"],
+		var crit_travel := _fire_score_light(crit_px, "pit" if from_die else "charm", ["mult"],
 			func() -> void: table_screen.crit_pit_mult(crit_base, crit_mult, crit_x),
 			TableScreen.CRIT_COLOR)
 		if not await _score_arrival_gap(crit_travel):

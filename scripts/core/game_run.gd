@@ -752,7 +752,7 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 		for die in unused_dice:
 			if randf() < 0.1:
 				var material: DieMaterial = DieMaterial.all().pick_random()
-				die.materials[randi() % die.materials.size()] = material.id
+				die.set_face_material(randi() % die.materials.size(), material.id)
 				upgraded += 1
 	return upgraded
 
@@ -779,7 +779,7 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 		var face: int = face_indices[i]
 		if face < 0 or face >= defs[i].materials.size() or defs[i].materials[face] == DieMaterial.GOLD:
 			continue
-		defs[i].materials[face] = DieMaterial.GOLD
+		defs[i].set_face_material(face, DieMaterial.GOLD)
 		gilded.append(i)
 	return gilded
 
@@ -1157,25 +1157,35 @@ func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
-## Belegt jede Seite/Kante aller Pool-Würfel mit zufälligen Materialien.
-## Jeder Würfel bekommt ein frisches materials-Array (nie geteilt).
+## Anteil dotierter Seiten im Testmodus - ohne sie wären die sechs Stufe-II-
+## Wirkungen nur über die Dotierungs-Gravur zu sehen.
+const TEST_DOPING_CHANCE := 0.34
+
+## Belegt jede Seite/Kante aller Pool-Würfel mit zufälligen Materialien und hebt
+## einen Teil davon auf Stufe II. Jeder Würfel bekommt frische Arrays (nie geteilt).
 func randomize_all_materials() -> void:
 	var ids: Array[String] = []
 	for material in DieMaterial.all():
 		ids.append(material.id)
 	for die in owned_pool:
 		var mats: Array[String] = []
+		var doped: Array[bool] = []
 		for i in die.materials.size():
 			mats.append(ids.pick_random())
+			doped.append(randf() < TEST_DOPING_CHANCE)
 		die.materials = mats
+		die.upgraded = doped
 		die.edge_material = ids.pick_random()
 
 func clear_all_materials() -> void:
 	for die in owned_pool:
 		var mats: Array[String] = []
+		var doped: Array[bool] = []
 		for i in die.materials.size():
 			mats.append("")
+			doped.append(false)  # ohne Material keine Dotierung
 		die.materials = mats
+		die.upgraded = doped
 		die.edge_material = ""
 
 ## Legt jedem Pool-Würfel 1-5 zufällige Leiterbahnen (je Seite höchstens eine,

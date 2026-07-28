@@ -21,6 +21,9 @@ const NONE := ""
 ## Kurzwirkung fürs Grube-Hover-Feld ("+20 Basispunkte"); edge_short als Kante.
 @export var short: String = ""
 @export var edge_short: String = ""
+## Stufe II (Dotierung): nur als SEITEN-Material - Kanten sind nie dotierbar.
+@export var short_upgraded: String = ""
+@export var description_upgraded: String = ""
 ## Körperfarbe der Seite - bewusst hell genug für die dunkle Augenzahl.
 @export var tint: Color = Color.WHITE
 
@@ -54,6 +57,8 @@ static func ruby() -> DieMaterial:
 	m.glow = 0.5
 	m.short = "+4 Mult"
 	m.edge_short = "+4 Mult"
+	m.short_upgraded = "Krit ×4"
+	m.description_upgraded = "Krit ×4 auf den Mult, statt +4 Mult."
 	return m
 
 static func amber() -> DieMaterial:
@@ -66,6 +71,8 @@ static func amber() -> DieMaterial:
 	m.glow = 1.1
 	m.short = "+20 Basispunkte"
 	m.edge_short = "+20 Basispunkte"
+	m.short_upgraded = "+Augensumme"
+	m.description_upgraded = "+Augensumme des Würfels als Basispunkte."
 	return m
 
 static func gold() -> DieMaterial:
@@ -81,6 +88,8 @@ static func gold() -> DieMaterial:
 	m.glow = 0.26
 	m.short = "+$3"
 	m.edge_short = "+$3"
+	m.short_upgraded = "+$5 +$1 je Gold-Seite"
+	m.description_upgraded = "+$5, dazu +$1 je ausgelöster Gold-Seite dieser Nahme."
 	return m
 
 static func bone() -> DieMaterial:
@@ -93,6 +102,8 @@ static func bone() -> DieMaterial:
 	m.glow = 0.0
 	m.short = "Seite wächst +1"
 	m.edge_short = "obere Seite wächst +1"
+	m.short_upgraded = "Seite wächst +3 / +10 %"
+	m.description_upgraded = "Die Seite wächst um 3 oder 10 %, je nachdem was mehr ist."
 	return m
 
 static func mercury() -> DieMaterial:
@@ -107,6 +118,8 @@ static func mercury() -> DieMaterial:
 	m.flow_speed = 0.05
 	m.short = "doppelte Auslösung"
 	m.edge_short = "doppelte Auslösung"
+	m.short_upgraded = "×(Quecksilber-Seiten +1)"
+	m.description_upgraded = "Der Würfel löst so oft aus, wie er Quecksilber-Seiten hat, +1."
 	return m
 
 static func glass() -> DieMaterial:
@@ -120,6 +133,8 @@ static func glass() -> DieMaterial:
 	m.alpha = 0.42
 	m.short = "Mult += Augen"
 	m.edge_short = "Mult += Augen"
+	m.short_upgraded = "Krit ×Augen"
+	m.description_upgraded = "Krit ×Augen dieser Seite; beim Nehmen schrumpft sie um 5 oder 20 %."
 	return m
 
 ## Kanonische Registrierung aller Materialien.
@@ -141,9 +156,14 @@ static func tint_for(material_id: String) -> Color:
 	return material.tint if material != null else Color.WHITE
 
 ## Kurz-Erklärzeile einer Seite fürs Hover-Feld ("" ohne Material): «Name»: Wirkung.
-static func face_hint(material_id: String) -> String:
+## upgraded (Dotierung) zeigt die Stufe-II-Wirkung und markiert den Namen.
+static func face_hint(material_id: String, upgraded := false) -> String:
 	var material := by_id(material_id)
-	return "%s: %s" % [material.display_name, material.short] if material != null else ""
+	if material == null:
+		return ""
+	if upgraded:
+		return "%s II: %s" % [material.display_name, material.short_upgraded]
+	return "%s: %s" % [material.display_name, material.short]
 
 ## Kurz-Erklärzeile eines Kanten-Materials ("" ohne): «Name» (Kanten): Wirkung.
 static func edge_hint(material_id: String) -> String:

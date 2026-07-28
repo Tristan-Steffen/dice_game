@@ -22,8 +22,14 @@ func _m(values: Array) -> Array[String]:
 func _ctx_links(slot: int, entries: Array) -> Dictionary:
 	return {DiceScoring.CTX_POINTER_LINKS: {slot: entries}}
 
-func _link(face: int, value: int, material := "") -> Dictionary:
-	return {"face": face, "value": value, "material": material}
+func _link(face: int, value: int, material := "", upgraded := false) -> Dictionary:
+	return {"face": face, "value": value, "material": material, "upgraded": upgraded}
+
+## ctx mit Gliedern UND den würfelweiten Dotierungs-Zahlen des Slots.
+func _ctx_links_up(slot: int, entries: Array, eye_sum: int) -> Dictionary:
+	var ctx := _ctx_links(slot, entries)
+	ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = {slot: {"upgraded": false, "eye_sum": eye_sum, "mercury_faces": 0}}
+	return ctx
 
 # --- Datensatz: Nachbarschaft und Kette ------------------------------------------
 
@@ -186,3 +192,55 @@ func test_bone_and_glass_hit_the_link_face():
 	glass.faces[2] = 4
 	MaterialEffects.apply_take_effects(_defs(glass), _d([0]), _m([""]), _d([0]))
 	assert_eq(glass.faces[2], 3, "Glas schrumpft die GLIED-Seite")
+
+# --- Dotierte Glieder: die Marke des GLIEDS zählt, nicht die der oberen Seite ---
+
+func test_an_upgraded_amber_link_gives_the_eye_sum():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats := _m(["", "", "", "", "", ""])
+	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, _m([]), {}, _ctx_links_up(0, [_link(2, 4, DieMaterial.AMBER, true)], 21))
+	assert_eq(linked, 90, "(10 + 10 + 4 + 21) × 2 - Augensumme statt +20")
+
+func test_an_upgraded_ruby_link_crits():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats := _m(["", "", "", "", "", ""])
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, _m([]), {}, _ctx_links(0, [_link(2, 4, DieMaterial.RUBY)]))
+	var upgraded := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, _m([]), {}, _ctx_links(0, [_link(2, 4, DieMaterial.RUBY, true)]))
+	assert_eq(plain, 144, "24 × (2 + 4)")
+	assert_eq(upgraded, 192, "24 × (2 ×4)")
+
+func test_an_upgraded_glass_link_crits_with_the_link_eyes():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var no_mats := _m(["", "", "", "", "", ""])
+	var upgraded := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, _m([]), {}, _ctx_links(0, [_link(2, 4, DieMaterial.GLASS, true)]))
+	assert_eq(upgraded, 192, "24 × (2 ×4) - der Krit nimmt die Augen des Glieds")
+
+func test_an_upgraded_gold_link_pays_the_raised_rate():
+	var def := DieDefinition.new()
+	def.pointers[0] = 2
+	def.materials[2] = DieMaterial.GOLD
+	def.upgraded[2] = true
+	var report := MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	assert_eq(report.money, 6, "$5 + $1 für die eine Gold-Seite dieser Nahme")
+
+func test_an_upgraded_bone_link_grows_by_the_raised_step():
+	var def := DieDefinition.new()
+	def.pointers[0] = 2
+	def.materials[2] = DieMaterial.BONE
+	def.upgraded[2] = true
+	def.faces[2] = 40
+	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	assert_eq(def.faces[2], 44, "10 % von 40 - und nur EINMAL, Glieder retriggern nie")
+
+func test_an_upgraded_glass_link_shrinks_by_the_raised_step():
+	var def := DieDefinition.new()
+	def.pointers[0] = 2
+	def.materials[2] = DieMaterial.GLASS
+	def.upgraded[2] = true
+	def.faces[2] = 40
+	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	assert_eq(def.faces[2], 32, "20 % von 40")

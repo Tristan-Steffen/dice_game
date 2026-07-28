@@ -80,6 +80,25 @@ func test_short_hints_stay_short():
 		assert_lt(DieMaterial.edge_hint(material.id).length(), 48,
 			"Kanten-Kurzhinweis zu lang bei %s" % material.id)
 
+func test_every_material_has_a_second_level():
+	# Die Dotierung hebt jedes Material - nur Seiten, Kanten kennen keine Stufe II.
+	for material in DieMaterial.all():
+		assert_ne(material.short_upgraded, "", "short_upgraded fehlt bei %s" % material.id)
+		assert_ne(material.description_upgraded, "", "description_upgraded fehlt bei %s" % material.id)
+		assert_ne(material.short_upgraded, material.short, "Stufe II wirkt anders bei %s" % material.id)
+
+func test_face_hint_marks_the_upgraded_level():
+	var ruby := DieMaterial.ruby()
+	var hint := DieMaterial.face_hint(DieMaterial.RUBY, true)
+	assert_eq(hint, "%s II: %s" % [ruby.display_name, ruby.short_upgraded])
+	assert_ne(hint, DieMaterial.face_hint(DieMaterial.RUBY))
+	assert_eq(DieMaterial.face_hint("", true), "", "ohne Material auch dotiert nichts")
+
+func test_upgraded_short_hints_stay_short():
+	for material in DieMaterial.all():
+		assert_lt(DieMaterial.face_hint(material.id, true).length(), 44,
+			"Stufe-II-Kurzhinweis zu lang bei %s" % material.id)
+
 func test_hints_are_empty_without_a_material():
 	assert_eq(DieMaterial.face_hint(""), "", "keine Seite ohne Material erklärt sich")
 	assert_eq(DieMaterial.edge_hint(""), "")

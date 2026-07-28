@@ -36,19 +36,27 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Echo-Kammer: aus der GANZEN Wertung bestimmt, nicht aus dem Einzel-Slot unten.
 	var echo_slot := CharmEffects.first_participating(dice, eye_slots)
 	for i in eye_slots:
+		var info := DiceScoring.upgrade_info_for(ctx, i)
+		var upgraded := bool(info.get("upgraded", false))
+		var eye_sum := int(info.get("eye_sum", 0))
+		var face_material: String = materials[i] if i < materials.size() else ""
 		var eye := CharmEffects.eye_value(dice[i], charm_ids)
 		var count := 1
 		var once_base := 0
 		var once_mult := 0
+		# Material-Krit (dotierter Rubin/Glas): zählt in crit_x mit, bekommt aber
+		# keinen Charm-Index - er kommt vom Würfel, nicht von einem Dock-Pad.
+		var mat_crit := 1
 		if has_die_bonus:
-			count = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot)
-			once_base = MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids)
-			once_mult = MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids)
+			count = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot, upgraded, int(info.get("mercury_faces", 0)))
+			once_base = MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids, upgraded, eye_sum)
+			once_mult = MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids, upgraded)
+			mat_crit = MaterialEffects.mult_crit_once_for(face_material, dice[i], charm_ids, upgraded)
 		# Würfelgebundene Charms dieses Slots, Beitrag EINER Auslösung.
 		var charm_base_once := 0
 		var charm_mult_once := 0
 		var die_charm_indices: Array[int] = []
-		var crit_once := 1
+		var crit_once := mat_crit
 		var crit_charm_indices: Array[int] = []
 		for j in charm_ids.size():
 			var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, eye_slots)
@@ -77,6 +85,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			entry["charm_base_after"] = base
 			entry["charm_mult_after"] = mult
 			entry["crit_x"] = crit_once
+			entry["crit_from_die"] = mat_crit != 1
 			mult *= crit_once
 			entry["mult_after_crit"] = mult
 			activations.append(entry)
@@ -86,16 +95,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var links: Array[Dictionary] = []
 		for link in DiceScoring.pointer_links_for(ctx, i):
 			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
+			var link_material := String(link["material"])
+			var link_upgraded := bool(link.get("upgraded", false))
 			var link_eye := CharmEffects.eye_value(link_value, charm_ids)
 			var link_base_once := 0
 			var link_mult_once := 0
+			var link_mat_crit := 1
 			if has_die_bonus:
-				link_base_once = MaterialEffects.base_once_for(String(link["material"]), edge_here, charm_ids)
-				link_mult_once = MaterialEffects.mult_once_for(String(link["material"]), edge_here, link_value, charm_ids)
+				link_base_once = MaterialEffects.base_once_for(link_material, edge_here, charm_ids, link_upgraded, eye_sum)
+				link_mult_once = MaterialEffects.mult_once_for(link_material, edge_here, link_value, charm_ids, link_upgraded)
+				link_mat_crit = MaterialEffects.mult_crit_once_for(link_material, link_value, charm_ids, link_upgraded)
 			var link_charm_base := 0
 			var link_charm_mult := 0
 			var link_charm_indices: Array[int] = []
-			var link_crit := 1
+			var link_crit := link_mat_crit
 			var link_crit_indices: Array[int] = []
 			if has_die_bonus:
 				for j in charm_ids.size():
@@ -114,7 +127,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			base += link_eye + link_base_once
 			mult += link_mult_once
 			var link_entry := {
-				"face": int(link["face"]), "material": String(link["material"]),
+				"face": int(link["face"]), "material": link_material,
 				"base_add": link_eye + link_base_once, "mult_add": link_mult_once,
 				"base_after": base, "mult_after": mult,
 				"charm_base_add": link_charm_base, "charm_mult_add": link_charm_mult,
@@ -126,6 +139,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			link_entry["charm_base_after"] = base
 			link_entry["charm_mult_after"] = mult
 			link_entry["crit_x"] = link_crit
+			link_entry["crit_from_die"] = link_mat_crit != 1
 			mult *= link_crit
 			link_entry["mult_after_crit"] = mult
 			links.append(link_entry)
