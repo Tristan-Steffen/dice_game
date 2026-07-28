@@ -4,7 +4,7 @@ extends Camera3D
 ## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
 ## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, TITLE }
+enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 
 signal mode_changed(new_mode: Mode)
 
@@ -31,6 +31,12 @@ const PIT_ZOOM_DISTANCE_BONUS := 5.0
 
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
+
+## Der Schwarzmarkt ist das kleinste Fenster (die Glaskante lässt unter den
+## Automaten nur eine schmale Tasche): keine 500 px breit, also knapp die halbe
+## Automaten-Breite - und damit auch nur die halbe Distanz, sonst steht der Laden
+## als Briefmarke im Bild.
+const SECRET_SHOP_ZOOM_DISTANCE_CUT := 11.0
 
 ## Die Werkbank rahmt Trays UND Fenster; darunter schneidet der obere Bildrand
 ## die erste Tray-Reihe an, und die ist Klickziel.
@@ -64,6 +70,7 @@ var hub_target := Vector3(-24, 0, 0)
 var side_bets_target := Vector3(0, 0, 24)
 var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
+var secret_shop_target := Vector3(-24, 0, -12)
 var chips_target := Vector3(0, 1.5, 10)
 var workshop_target := Vector3(-24, 0, 22)
 ## Nahsicht-Ziel + halbe Ausmaße der Werkbank-Ecke ohne Trays (x = entlang
@@ -234,6 +241,9 @@ func configure_score_target(target: Vector3) -> void:
 func configure_slots_target(target: Vector3) -> void:
 	slots_target = target
 
+func configure_secret_shop_target(target: Vector3) -> void:
+	secret_shop_target = target
+
 func configure_chips_target(target: Vector3) -> void:
 	chips_target = target
 
@@ -340,6 +350,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 			target_point = score_target
 		Mode.SLOTS:
 			target_point = slots_target
+		Mode.SECRET_SHOP:
+			target_point = secret_shop_target
 		Mode.CHIPS:
 			target_point = chips_target
 		Mode.WORKSHOP:
@@ -352,6 +364,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	# Der Chip-Haufen ist klein: näher heranfahren als an die Screen-Fenster.
 	if target_mode == Mode.CHIPS:
 		distance -= CHIPS_ZOOM_DISTANCE_CUT
+	if target_mode == Mode.SECRET_SHOP:
+		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.WORKSHOP:
 		distance += WORKSHOP_ZOOM_DISTANCE_BONUS
 	var target_origin := target_point - ZOOM_FORWARD * distance

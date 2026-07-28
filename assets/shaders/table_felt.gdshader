@@ -30,7 +30,7 @@ uniform float aspect = 1.4717;           // Breite/Höhe: Rauten bleiben symmetr
 // dort bleibt der Filz glatt (dieselben Rechtecke wie screen_glass.gdshader,
 // TableScreen._sync_reflection_windows speist beide).
 uniform vec2 rect_size = vec2(4680.0, 3180.0);
-const int MAX_WINDOWS = 20;
+const int MAX_WINDOWS = 24;  // Fenster-Budget wie in screen_glass.gdshader
 uniform int window_count = 0;
 uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln

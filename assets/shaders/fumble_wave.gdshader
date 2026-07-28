@@ -13,7 +13,7 @@ uniform float max_radius = 5000.0;
 uniform float width = 165.0;   // Ringdicke (Gauß-Sigma, px)
 uniform vec4 color : source_color = vec4(2.4, 0.16, 0.18, 0.95);
 
-const int MAX_WINDOWS = 20;
+const int MAX_WINDOWS = 24;  // Fenster-Budget wie in screen_glass.gdshader
 uniform int window_count = 0;
 uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln
