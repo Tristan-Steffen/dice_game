@@ -133,7 +133,14 @@ var owned_engravings: Array[Engraving] = []
 var owned_packs: Array[Pack] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
-var unlimited_engravings: bool = false  # Testmodus: consume_engraving verbraucht nichts
+## Testmodus: consume_engraving verbraucht nichts, Bord und Schubladen zeigen
+## jeden Archetyp. Meldet sich als Bestandsänderung - sie bauen daran neu.
+var unlimited_engravings: bool = false:
+	set(value):
+		if unlimited_engravings == value:
+			return
+		unlimited_engravings = value
+		engravings_changed.emit()
 ## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert
 ## Basis-Mult und Basispunkte erneut (siehe DiceScoring/Systemkonsole).
 var combo_levels: Dictionary = {}

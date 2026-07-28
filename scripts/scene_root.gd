@@ -249,6 +249,12 @@ var test_materials_enabled: bool = false
 var test_pointers_button: Button
 var test_pointers_enabled: bool = false
 
+## Dritter Testmodus: unerschöpfliches Gravur-Bord (jeder Archetyp, auch die
+## Sonderposten) OHNE die Würfel anzutasten - die Testmaterialien schreiben
+## jeden Würfel um, was zum Ausprobieren einer einzelnen Gravur zu viel ist.
+var test_engravings_button: Button
+var test_engravings_enabled: bool = false
+
 var charm_library: CharmLibraryView
 @onready var hand_label: Label = $UI/HandLabel
 
@@ -908,6 +914,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
+		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 
 	charm_library = CharmLibraryView.new()
@@ -929,6 +936,13 @@ func _setup_settings_ui() -> void:
 	settings_menu.add_child(test_pointers_button)
 	CasinoStyle.style_button(test_pointers_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
 	_refresh_test_pointers_button()
+
+	test_engravings_button = Button.new()
+	test_engravings_button.custom_minimum_size = Vector2(0, 48)
+	test_engravings_button.pressed.connect(_on_test_engravings_pressed)
+	settings_menu.add_child(test_engravings_button)
+	CasinoStyle.style_button(test_engravings_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
+	_refresh_test_engravings_button()
 
 ## Casino-Look der verbliebenen 2D-Spiel-UI; der Shop stylt sich selbst.
 func _style_ui() -> void:
@@ -4271,6 +4285,21 @@ func _refresh_test_pointers_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_pointers_label(label)
 
+## Gravur-Testmodus umschalten: An = jeder Archetyp unerschöpflich am Bord.
+## Rührt die Würfel NICHT an, darum auch kein Rundenneustart - das Bord baut
+## an der Bestandsänderung selbst neu, mitten in der Zeremonie.
+func _on_test_engravings_pressed() -> void:
+	test_engravings_enabled = not test_engravings_enabled
+	run.unlimited_engravings = test_engravings_enabled or test_materials_enabled
+	_refresh_test_engravings_button()
+
+func _refresh_test_engravings_button() -> void:
+	var label := "🧪 Testgravuren: %s" % ("AN" if test_engravings_enabled else "aus")
+	if test_engravings_button != null:
+		test_engravings_button.text = label
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_test_engravings_label(label)
+
 func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
 	_cancel_deck_shift()
@@ -4464,7 +4493,7 @@ func _start_new_round() -> void:
 
 	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
 	# frischen Runs mit umschaltet.
-	run.unlimited_engravings = test_materials_enabled
+	run.unlimited_engravings = test_materials_enabled or test_engravings_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
 	if test_pointers_enabled:

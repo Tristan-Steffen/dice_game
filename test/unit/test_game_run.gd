@@ -190,6 +190,17 @@ func test_unlimited_engravings_consume_is_a_noop_and_reports_success():
 	assert_eq(run.owned_engravings.size(), 0, "nichts verbraucht")
 	assert_signal_emit_count(run, "engravings_changed", 0, "kein Bestandswechsel")
 
+func test_unlimited_engravings_toggle_reports_a_stock_change():
+	# Bord und Schubladen bauen an engravings_changed neu - ohne das Signal
+	# bliebe das Gravur-Bord beim Umschalten stehen (kein Rundenneustart).
+	watch_signals(run)
+	run.unlimited_engravings = true
+	assert_signal_emit_count(run, "engravings_changed", 1)
+	run.unlimited_engravings = true
+	assert_signal_emit_count(run, "engravings_changed", 1, "gleicher Wert meldet nichts")
+	run.unlimited_engravings = false
+	assert_signal_emit_count(run, "engravings_changed", 2)
+
 func test_unlimited_engravings_keeps_owned_stock_intact():
 	run.unlimited_engravings = true
 	run.grant_engraving(Engraving.chisel())
