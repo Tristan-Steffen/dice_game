@@ -122,3 +122,60 @@ func test_ohne_zeiger_keine_pfeile() -> void:
 	add_child_autofree(net)
 	for child in net.get_children():
 		assert_false(child is DieNetView.PointerArrow, "kein Pfeil ohne Leiterbahn")
+
+# --- Dotierung: Stufe-II-Marke in der Zellecke -----------------------------------
+
+func _badges(net: Control) -> Array:
+	var found := []
+	for child in net.get_children():
+		if child is DieNetView.DopingBadge:
+			found.append(child)
+	return found
+
+func test_dotierte_seiten_bekommen_eine_marke() -> void:
+	var def := _def_with_materials()
+	def.upgraded[0] = true
+	def.upgraded[4] = true
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	assert_eq(_badges(net).size(), 2, "je dotierter Seite eine Marke")
+
+func test_ohne_dotierung_keine_marke() -> void:
+	var net := DieNetView.build(_def_with_materials(), -1, 40.0)
+	add_child_autofree(net)
+	assert_eq(_badges(net).size(), 0)
+
+func test_die_marke_sitzt_in_der_freien_zellecke() -> void:
+	# Untere RECHTE Ecke der Quell-Zelle: dort liegt kein Zeiger-Pfeil (die sitzen
+	# mittig auf den Zellrändern) und keine Ziffer (die steht in der Zellmitte).
+	var def := _def_with_materials()
+	def.upgraded[0] = true  # Seite 0 = Kreuzmitte (Zeile 1, Spalte 1)
+	var cell := 40.0
+	var net := DieNetView.build(def, -1, cell)
+	add_child_autofree(net)
+	var badge: Control = _badges(net)[0]
+	var cell_pos := DieNetView.cell_position(0, cell)
+	assert_gt(badge.position.x, cell_pos.x + cell * 0.5, "rechte Zellhälfte")
+	assert_gt(badge.position.y, cell_pos.y + cell * 0.5, "untere Zellhälfte")
+	assert_true(Rect2(cell_pos, Vector2.ONE * cell).encloses(Rect2(badge.position, badge.size)),
+		"die Marke bleibt ganz in ihrer Zelle")
+
+func test_die_marke_traegt_die_materialfarbe() -> void:
+	var def := _def_with_materials()
+	def.upgraded[4] = true  # Rubin
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	var badge: DieNetView.DopingBadge = _badges(net)[0]
+	assert_eq(badge.tint, DieMaterial.tint_for(DieMaterial.RUBY))
+
+func test_die_marke_skaliert_mit_der_zelle() -> void:
+	# Sie muss auch im 30er-Raster (Zelle ~17 px) noch eine Fläche haben.
+	var def := _def_with_materials()
+	def.upgraded[0] = true
+	for cell: float in [17.0, 35.0, 46.0]:
+		var net := DieNetView.build(def, -1, cell)
+		add_child_autofree(net)
+		var badge: Control = _badges(net)[0]
+		assert_almost_eq(badge.size.x, cell * DieNetView.DOPING_BADGE, 0.01,
+			"Marke skaliert mit der Zelle (%d)" % int(cell))
+		assert_gt(badge.size.x, 4.0, "auch bei Zelle %d noch sichtbar" % int(cell))

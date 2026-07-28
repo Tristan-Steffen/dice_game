@@ -586,10 +586,14 @@ func _on_chip_clicked(_value: int, face_index: int) -> void:
 ## Einseitige Gravuren + Material auf die geklickte Seite.
 func _apply_single_face(face_index: int) -> void:
 	if DieMaterial.is_valid_id(held_id):
-		current_def.materials[face_index] = held_id
+		current_def.set_face_material(face_index, held_id)  # löscht eine alte Dotierung mit
 		_finish_apply(held_id, "Material angebracht: %s" % DieMaterial.by_id(held_id).display_name)
 		return
 	match held_id:
+		Engraving.DOPING:
+			current_def.upgraded[face_index] = true
+			var lifted := DieMaterial.by_id(current_def.materials[face_index])
+			_finish_apply(held_id, "Dotierung: %s II – %s" % [lifted.display_name, lifted.short_upgraded])
 		Engraving.NOTCH:
 			EtchingEffects.notch(current_def, face_index)
 			_finish_apply(held_id, "Kerbe: Seite +1")
@@ -638,9 +642,9 @@ func _apply_whole_die() -> void:
 func _finish_apply(engraving_id: String, message: String) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
-		# die Leiterbahn ist keine (Würfel-Gravur ohne Material).
+		# Materialien, Kanten und die Sonderposten (Leiterbahn, Dotierung) nie.
 		var is_etching := not DieMaterial.is_valid_id(engraving_id) \
-			and not Engraving.is_edge_id(engraving_id) and engraving_id != Engraving.POINTER
+			and not Engraving.is_edge_id(engraving_id) and not Engraving.is_special_id(engraving_id)
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
 			message += " Gravierstift: Engraving nicht verbraucht!"
@@ -697,6 +701,10 @@ func _eligible_faces() -> Array[bool]:
 				e.fill(true)
 			else:
 				for i in 6: e[i] = current_def.can_point(first_face, i)
+		Engraving.DOPING:
+			# Sie hebt ein vorhandenes Material - leere und schon gehobene Seiten fallen weg.
+			for i in 6: e[i] = DieMaterial.is_valid_id(current_def.materials[i]) \
+				and not MaterialEffects.face_is_upgraded(current_def, i)
 		_:
 			match _targeting_of(held_id):
 				TARGET_EDGES:
@@ -717,6 +725,11 @@ func _eligible_faces() -> Array[bool]:
 
 func _face_eligible(face_index: int) -> bool:
 	return _eligible_faces()[face_index]
+
+## Hat die gehaltene Gravur an diesem Würfel überhaupt ein Ziel? Nur die
+## Dotierung kann leer ausgehen (ein Würfel ganz ohne Material).
+func _any_face_eligible() -> bool:
+	return _eligible_faces().has(true)
 
 ## Rahmenfarbe des Kanten-Rahmens: violett als Ziel einer gehaltenen Kanten-
 ## Gravur (die den Rahmen ändern würde), gedimmt unter einem Seiten-Werkzeug,
@@ -930,6 +943,10 @@ func _held_prompt() -> String:
 		Engraving.POINTER:
 			return "Leiterbahn: klicke die Zielseite (ein Nachbar - sie löst mit aus)." if second \
 				else "Leiterbahn: klicke die Startseite. Rechtsklick: ablegen."
+		Engraving.DOPING:
+			if not _any_face_eligible():
+				return "Dotierung: dieser Würfel hat keine hebbare Seite - sie braucht ein noch nicht dotiertes Material. Anderen Würfel wählen oder Rechtsklick: ablegen."
+			return "Dotierung: klicke eine Material-Seite (hebt sie auf Stufe II). Rechtsklick: ablegen."
 		Engraving.STRAIGHTEN:
 			return "Begradigung: klicke den Würfel."
 		Engraving.POLISH:
@@ -998,9 +1015,12 @@ func _refresh_face_summary() -> void:
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
 
-	# Kanten-Chip in die leere Kreuz-Ecke und die Leiterbahn-Pfeile obendrauf -
-	# die Pfeile zuletzt, sie liegen über den Zellrändern.
+	# Kanten-Chip in die leere Kreuz-Ecke, Dotierungs-Marken in die Zellecken und
+	# die Leiterbahn-Pfeile obendrauf - die Pfeile zuletzt, sie liegen über den
+	# Zellrändern. Die Station baut ihre Zellen selbst, also auch die Marken.
 	face_grid.add_child(DieNetView.edge_chip(current_def, cell))
+	for badge in DieNetView.doping_badges(current_def, cell):
+		face_grid.add_child(badge)
 	for arrow in DieNetView.pointer_arrows(current_def, cell):
 		face_grid.add_child(arrow)
 
@@ -1025,8 +1045,9 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	var tip_body := ""
 	if DieMaterial.is_valid_id(material_id):
 		var material := DieMaterial.by_id(material_id)
-		tip_title = material.display_name
-		tip_body = material.description
+		var doped := MaterialEffects.face_is_upgraded(current_def, face_index)
+		tip_title = "%s II" % material.display_name if doped else material.display_name
+		tip_body = material.description_upgraded if doped else material.description
 	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
 	if pointer_target >= 0:
 		tip_title = "%s · Leiterbahn" % tip_title if tip_title != "" else "Leiterbahn"

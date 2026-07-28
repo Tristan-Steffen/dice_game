@@ -191,3 +191,104 @@ func test_a_new_pointer_overwrites_the_faces_old_one() -> void:
 	view._on_chip_clicked(5, 0)
 	view._on_chip_clicked(3, 3)
 	assert_eq(view.current_def.pointers[0], 3, "je Seite höchstens eine Bahn - überschrieben")
+
+# --- Dotierung: hebt EIN vorhandenes Material auf Stufe II ------------------------
+
+## Zielwürfel mit Materialien auf den Seiten 0 (Gold) und 1 (Rubin).
+func _doped_target() -> DieDefinition:
+	var def := DieDefinition.new()
+	var faces: Array[int] = [5, 1, 2, 3, 4, 6]
+	def.faces = faces
+	def.set_face_material(0, DieMaterial.GOLD)
+	def.set_face_material(1, DieMaterial.RUBY)
+	return def
+
+## Bestand einer einzelnen Gravur-id (before_each hat schon einen Meißel gelegt).
+func _stock(engraving_id: String) -> int:
+	var count := 0
+	for engraving in view.run.owned_engravings:
+		if engraving.id == engraving_id:
+			count += 1
+	return count
+
+func _hold_doping() -> void:
+	view.run.grant_engraving(Engraving.doping())
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.DOPING)
+
+func test_the_doping_lifts_a_material_face() -> void:
+	view.show_die(_doped_target())
+	_hold_doping()
+	assert_eq(view.held_id, Engraving.DOPING, "aufgenommen")
+	view._on_chip_clicked(1, 1)  # Rubin-Seite
+	assert_true(view.current_def.upgraded[1], "die Seite steht auf Stufe II")
+	assert_eq(view.held_id, "", "letztes Exemplar verbraucht -> abgelegt")
+	assert_eq(_stock(Engraving.DOPING), 0, "Dotierung verbraucht")
+
+func test_the_doping_refuses_a_face_without_material() -> void:
+	view.show_die(_doped_target())
+	_hold_doping()
+	view._on_chip_clicked(2, 2)  # leere Seite
+	assert_false(view.current_def.upgraded[2], "ohne Material gibt es nichts zu heben")
+	assert_eq(view.held_id, Engraving.DOPING, "das Werkzeug bleibt in der Hand")
+
+func test_the_doping_refuses_an_already_lifted_face() -> void:
+	var def := _doped_target()
+	def.upgraded[0] = true
+	view.show_die(def)
+	_hold_doping()
+	assert_false(view._face_eligible(0), "schon gehoben = kein Ziel")
+	view._on_chip_clicked(5, 0)
+	assert_eq(_stock(Engraving.DOPING), 1, "nichts verbraucht")
+
+func test_the_doping_says_so_when_a_die_has_no_target() -> void:
+	var info := RichTextLabel.new()
+	add_child_autofree(info)
+	view.set_prompt_label(info)
+	view.show_die(_die())  # ganz ohne Materialien
+	_hold_doping()
+	assert_true(info.text.contains("keine hebbare Seite"),
+		"die Leiste sagt es, statt den Spieler ins Leere klicken zu lassen")
+
+func test_a_material_engraving_clears_the_doping() -> void:
+	# Die Marke hängt am Material-Exemplar: ein neues Material löscht sie.
+	var def := _doped_target()
+	def.upgraded[1] = true
+	view.show_die(def)
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.amber(), Engraving.Rarity.COMMON))
+	view._sync_drawers()
+	view._on_engraving_pressed(DieMaterial.AMBER)
+	view._on_chip_clicked(1, 1)
+	assert_eq(view.current_def.materials[1], DieMaterial.AMBER, "neues Material liegt an")
+	assert_false(view.current_def.upgraded[1], "die alte Dotierung ist mit weg")
+
+func test_the_engraving_pen_does_not_refund_the_doping() -> void:
+	# Der Gravierstift schont nur ÄTZUNGEN - Sonderposten nie.
+	view.run.owned_charms.append(Charm.engraving_pen())
+	view.show_die(_doped_target())
+	_hold_doping()
+	view._on_chip_clicked(1, 1)
+	assert_eq(_stock(Engraving.DOPING), 0, "Dotierung wurde verbraucht")
+	assert_false(view.run.gravierstift_used_this_round, "der Stift hat gar nicht ausgelöst")
+
+func test_the_engraving_pen_still_refunds_an_etching() -> void:
+	# Gegenprobe zur Regel oben: die Kerbe ist eine Ätzung und bleibt erhalten.
+	view.run.owned_charms.append(Charm.engraving_pen())
+	view.run.grant_engraving(Engraving.notch())
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.NOTCH)
+	view._on_chip_clicked(1, 1)
+	assert_eq(_stock(Engraving.NOTCH), 1, "Kerbe nicht verbraucht")
+	assert_true(view.run.gravierstift_used_this_round)
+
+func test_the_face_net_marks_the_lifted_face() -> void:
+	# Die Station baut ihre Zellen selbst - die Marke muss auch dort ankommen.
+	var def := _doped_target()
+	def.upgraded[1] = true
+	view.show_die(def)
+	await wait_frames(2)
+	var badges := 0
+	for node in view.find_children("*", "Control", true, false):
+		if node is DieNetView.DopingBadge:
+			badges += 1
+	assert_eq(badges, 1, "die gehobene Seite trägt ihre Marke auch im Stations-Netz")

@@ -24,6 +24,10 @@ const EDGE_CELL := Vector2i(0, 0)
 
 ## Leiterbahn-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
 const POINTER_COLOR := Color("#8be9fd")
+
+## Dotierungs-Marke (Stufe II) in der unteren RECHTEN Zellecke - Kantenanteil.
+## Die Ecke ist frei: die Zeiger-Pfeile sitzen mittig auf den Zellrändern.
+const DOPING_BADGE := 0.34
 ## Je Seite: welcher Zellrand der gequerten Würfelkante zum Nachbarn entspricht,
 ## wenn das Kreuz gefaltet wird. Nachbarzellen liegen im Netz nicht immer
 ## nebeneinander (5->1 wickelt herum) - darum Pfeil AM Rand, kein Verbindungsstrich.
@@ -63,6 +67,8 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 				root.add_child(_up_frame(pos, cell))
 			root.add_child(_face_cell(def, face_index, pos, cell))
 	root.add_child(_edge_chip(def, cell))
+	for badge in doping_badges(def, cell):
+		root.add_child(badge)
 	for arrow in _pointer_arrows(def, cell):
 		root.add_child(arrow)
 	return root
@@ -153,6 +159,44 @@ static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 
 static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	return _pointer_arrows(def, cell)
+
+## Je dotierter Seite eine Marke in ihrer unteren rechten Zellecke. Geometrie
+## statt Schrift: im 30er-Raster misst eine Zelle nur ~17 px, eine Ziffer wäre
+## dort Matsch - die helle Platte trägt allein, das "II" kommt bei Größe dazu.
+static func doping_badges(def: DieDefinition, cell: float) -> Array[Control]:
+	var badges: Array[Control] = []
+	for face in mini(6, def.upgraded.size()):
+		if not def.upgraded[face]:
+			continue
+		var badge := DopingBadge.new()
+		badge.tint = DieMaterial.tint_for(def.materials[face] if face < def.materials.size() else "")
+		var side := cell * DOPING_BADGE
+		var inset := cell * 0.04
+		badge.size = Vector2(side, side)
+		badge.position = _cell_pos(face, cell) + Vector2.ONE * (cell - side - inset)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badges.append(badge)
+	return badges
+
+## Die Marke selbst: dunkle Platte mit zwei hellen Balken (das "II") in der
+## Materialfarbe - dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf
+## dunklem Unterzug). Die dunkle Platte trägt allein, wenn die Balken bei
+## winzigen Zellen zu Textur zerfallen: jede Material-Zelle ist hell.
+class DopingBadge:
+	extends Control
+	var tint := Color.WHITE
+
+	func _draw() -> void:
+		var mark := tint.lightened(0.35)
+		mark.a = 1.0
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.12, 0.95), true)
+		draw_rect(Rect2(Vector2.ZERO, size), mark, false, maxf(1.0, size.x * 0.09))
+		var bar_w := maxf(1.0, size.x * 0.15)
+		var bar_h := size.y * 0.46
+		var top := (size.y - bar_h) * 0.5
+		for sign_x: float in [-1.0, 1.0]:
+			var cx: float = size.x * 0.5 + sign_x * size.x * 0.17 - bar_w * 0.5
+			draw_rect(Rect2(Vector2(cx, top), Vector2(bar_w, bar_h)), mark, true)
 
 ## Zellposition eines Seiten-Index im Kreuz.
 static func _cell_pos(face_index: int, cell: float) -> Vector2:
