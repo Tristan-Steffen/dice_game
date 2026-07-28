@@ -2,6 +2,10 @@
 .godot/
 /android/
 
+# Halbfertige Szenen-Kopien, die Godot beim Speichern ablegt
+# (scene_root.tscn<zahl>.tmp) - Muell, nie Inhalt
+*.tscn*.tmp
+
 # Local Claude Code settings
 .claude/settings.local.json
 
