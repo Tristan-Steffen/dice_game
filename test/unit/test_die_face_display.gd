@@ -451,3 +451,129 @@ func test_pool_follows_the_die_size():
 	display._process(0.016)
 	assert_almost_eq(display.glow_pool.scale.x, 0.5, 0.05,
 		"halb so großer Würfel, halb so große Lache")
+
+# --- Leiterbahnen (durchgehendes Band) ------------------------------------------
+
+func test_a_pointer_builds_one_continuous_ribbon():
+	# EIN Band je Zeiger - kein Baukasten aus Einzelteilen, die an der Kante
+	# unterschiedlich dick wirken.
+	var def := DieDefinition.standard()
+	def.pointers[3] = 0
+	var display := _display()
+	display.apply_definition(def)
+	assert_eq(display.pointer_traces.size(), 1)
+	assert_eq(display.pointer_traces[0].get_parent(), display,
+		"das Band spannt über zwei Seiten - es hängt am Würfel, nicht an einem Quad")
+
+func test_a_chain_builds_a_ribbon_per_link():
+	var def := DieDefinition.standard()
+	def.pointers[3] = 0
+	def.pointers[0] = 4
+	var display := _display()
+	display.apply_definition(def)
+	assert_eq(display.pointer_traces.size(), 2)
+
+func test_the_ribbon_keeps_one_width_everywhere():
+	# Der Kern der Sache: JEDE Stützstelle ist gleich breit - kein Pad, kein
+	# Pfeil, keine dickere Stelle über dem Kantenbalken. Ein Riegel.
+	var samples := DieFaceDisplay.trace_samples()
+	var half := DieFaceDisplay.TRACE_WIDTH * 0.5
+	for i in samples.size():
+		assert_almost_eq(float(samples[i][1]), half, 0.0001,
+			"Stützstelle %d hält die Bandbreite" % i)
+	assert_gt(samples.size(), 10, "der verrundete Weg hat genug Stützstellen")
+
+func test_the_ribbon_never_cuts_through_the_edge_beam():
+	# Der Balkenquerschnitt in der Ebene (d, t): HALF_EXTENT +/- EDGE_THICKNESS/2.
+	# Die Bahn muss außen herum - sonst verschwindet sie im Balken.
+	var low := DieBuilder.HALF_EXTENT - DieBuilder.EDGE_THICKNESS * 0.5
+	var high := DieBuilder.HALF_EXTENT + DieBuilder.EDGE_THICKNESS * 0.5
+	var over_the_beam := false
+	for sample in DieFaceDisplay.trace_samples():
+		var p: Vector2 = sample[0]
+		assert_false(p.x > low and p.x < high and p.y > low and p.y < high,
+			"Stützstelle %s liegt im Kantenbalken" % p)
+		if p.x > high or p.y > high:
+			over_the_beam = true
+	assert_true(over_the_beam, "und sie führt wirklich über den Balken, nicht daneben")
+
+func test_the_ribbon_reaches_only_a_fifth_into_each_face():
+	# Beide Enden liegen ein Fünftel der Seitenfläche hinter dem Quad-Rand -
+	# keine Zunge bis zur Ziffer, weder am Start noch am Ziel.
+	var samples := DieFaceDisplay.trace_samples()
+	var first: Vector2 = samples[0][0]
+	var last: Vector2 = samples[samples.size() - 1][0]
+	assert_almost_eq(first.y, DieFaceDisplay.TRACE_START, 0.0001, "Quellende")
+	assert_almost_eq(last.x, DieFaceDisplay.TRACE_START, 0.0001, "Zielende")
+	var fifth := DieBuilder.FACE_SIZE / 5.0
+	assert_almost_eq(DieFaceDisplay.WALL_B - DieFaceDisplay.TRACE_START, fifth, 0.02,
+		"die Reichweite ins Feld ist ein Fünftel der Seitenfläche")
+
+func test_the_ribbon_mesh_is_shared_between_dice():
+	# 30 Tray-Würfel dürfen nicht 30 Netze bauen - je Achsenpaar genau eins.
+	var a := DieFaceDisplay.trace_mesh("OBEN", "VORNE")
+	var b := DieFaceDisplay.trace_mesh("OBEN", "VORNE")
+	assert_eq(a, b, "dasselbe Netz")
+	assert_ne(a, DieFaceDisplay.trace_mesh("OBEN", "RECHTS"), "anderes Paar, anderes Netz")
+
+func test_the_mesh_carries_arc_length_uvs():
+	# UV.y ist die Bogenlänge - daraus fährt der Shader den Lichtkopf.
+	var mesh := DieFaceDisplay.trace_mesh("OBEN", "VORNE")
+	var uvs: PackedVector2Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV]
+	var lowest := 1.0
+	var highest := 0.0
+	for uv in uvs:
+		lowest = minf(lowest, uv.y)
+		highest = maxf(highest, uv.y)
+	assert_almost_eq(lowest, 0.0, 0.0001, "das Pad liegt bei 0")
+	assert_almost_eq(highest, 1.0, 0.0001, "die Spitze bei 1")
+
+func test_reapplying_without_pointers_clears_the_traces():
+	var def := DieDefinition.standard()
+	def.pointers[3] = 0
+	var display := _display()
+	display.apply_definition(def)
+	assert_eq(display.pointer_traces.size(), 1)
+	display.apply_definition(DieDefinition.standard())
+	assert_eq(display.pointer_traces.size(), 0, "alte Bahnen werden abgeräumt")
+
+func test_an_invalid_pointer_stays_silent():
+	# Gegenseite ist kein Nachbar - darf nie vorkommen, zeichnet aber sicher nichts.
+	var def := DieDefinition.standard()
+	def.pointers[0] = 5
+	var display := _display()
+	display.apply_definition(def)
+	assert_eq(display.pointer_traces.size(), 0)
+
+func test_chevron_crest_blooms_and_the_groove_stays_dark():
+	# Der Kontrast NACH UNTEN ist die Lesbarkeit: der Chevron-Kamm blüht (über
+	# der Schwelle, unter dem Boden der Material-Kanten), die Rille dazwischen
+	# bleibt klar dunkel - sonst klemmt das ganze Band auf Weiß und die
+	# Strömung verschwindet.
+	var def := DieDefinition.standard()
+	def.pointers[3] = 0
+	var display := _display()
+	display.apply_definition(def)
+	var color: Vector3 = display.pointer_material.get_shader_parameter("trace_color")
+	var peak := maxf(color.x, maxf(color.y, color.z))
+	var crest: float = display.pointer_material.get_shader_parameter("crest_energy")
+	assert_gt(peak * crest, BLOOM_THRESHOLD, "der Kamm blüht")
+	assert_lt(peak * crest, DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR,
+		"aber unter der veredelten Kante")
+	var groove: float = display.pointer_material.get_shader_parameter("base_energy")
+	assert_lt(peak * groove, BLOOM_THRESHOLD * 0.5, "die Rille bleibt deutlich dunkel")
+
+func test_the_flow_runs_on_shader_time_with_a_per_die_phase():
+	# Die Strömung treibt TIME im Shader - hier wird nur die Phase einmal
+	# gesetzt, versetzt je Würfel, damit kein Tray-Raster im Gleichtakt fließt.
+	var def := DieDefinition.standard()
+	def.pointers[3] = 0
+	var first := _display()
+	var second := _display()
+	first.apply_definition(def)
+	second.apply_definition(def)
+	assert_almost_eq(float(first.pointer_material.get_shader_parameter("phase")),
+		first._pulse_phase / TAU, 0.0001, "die Phase kommt aus dem Würfel-Streuwert")
+	assert_ne(float(first.pointer_material.get_shader_parameter("phase")),
+		float(second.pointer_material.get_shader_parameter("phase")),
+		"zwei Würfel fließen versetzt")
