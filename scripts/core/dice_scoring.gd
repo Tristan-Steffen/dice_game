@@ -358,14 +358,28 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 			return _indices_for_straight(dice, 6)
 	return []
 
-## Farkle-Regel: ein Neu-Würfeln, das nicht STRIKT mehr Punkte bringt, farklet.
-## ctx gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes
-## old_ctx mit (Leiterbahn-Glieder hängen an den oberen Seiten VOR dem Neuwurf,
-## wie old_materials).
+## Farkle-Regel: sicher ist ein Neu-Würfeln nur, wenn die neue Hand im RANG
+## (HAND_PRIORITY) strikt höher steht - Punkte entscheiden nie. Gleicher Rang
+## farklet also auch mit mehr Augen, und ein Dreier- auf einen Viererpasch kann
+## nie farkeln. Materialien und Übertaktungs-Stufen bleiben in der Signatur, weil
+## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
+## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
+## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx
+## mit (Leiterbahn-Glieder hängen an den oberen Seiten VOR dem Neuwurf, wie
+## old_materials).
 static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], new_edge_materials: Array[String] = [], old_edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
-	var new_score: int = best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels, ctx)["score"]
-	var old_score: int = best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx if old_ctx.is_empty() else old_ctx)["score"]
-	return new_score > old_score
+	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, new_edge_materials, combo_levels, ctx)
+	var old_hand := best_hand(old_dice, charm_ids, false, old_materials, old_edge_materials, combo_levels, ctx if old_ctx.is_empty() else old_ctx)
+	# Eine Hand, die gar nichts wertet (Drossel/Parität), ist nie ein Fortschritt.
+	if int(new_hand["score"]) <= 0:
+		return false
+	return hand_rank(String(new_hand["key"])) < hand_rank(String(old_hand["key"]))
+
+## Rangplatz einer Kategorie in HAND_PRIORITY (kleiner = ranghöher); unbekannte
+## Keys stehen hinter allem.
+static func hand_rank(key: String) -> int:
+	var index := HAND_PRIORITY.find(key)
+	return index if index >= 0 else HAND_PRIORITY.size()
 
 ## Für die Kombinationsbildung zählt nur die LETZTE Ziffer (1, 11, 21 -> 1);
 ## der volle Wert zählt weiterhin für die Punkte.

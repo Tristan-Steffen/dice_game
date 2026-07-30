@@ -342,14 +342,15 @@ func test_carbuncle_stacks_the_face_value_per_copy():
 	assert_eq(MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, _ids([Charm.BLOOD_DIAMOND, Charm.BLOOD_DIAMOND])), 14)
 	assert_eq(MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), NO_MATS, _ids([Charm.RUBY_GRINDER, Charm.BLOOD_DIAMOND])), 14)
 
-func test_bone_marrow_stacks_the_growth_per_copy():
+func test_bone_marrow_stacks_the_triggers_per_copy():
+	# Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), NO_MATS, _ids([Charm.BONE_MARROW]))
-	assert_eq(defs[0].faces[0], 7, "1 + 1 Knochenmark")
+	assert_eq(defs[0].faces[0], 7, "zwei Auslösungen à +1")
 	var twice: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(twice, _p([0]), _m([DieMaterial.BONE]), _p([0]), NO_MATS,
 		_ids([Charm.BONE_MARROW, Charm.BONE_MARROW, Charm.BONE_GLUE]))
-	assert_eq(twice[0].faces[0], 9, "Leim setzt 2, zwei Marke legen +2 drauf")
+	assert_eq(twice[0].faces[0], 11, "Leim setzt den Satz 2, zwei Marke machen 3 Auslösungen")
 
 func test_mercury_vapor_triples_mercury():
 	var bonus := MaterialEffects.base_bonus(_d(PAIR), _m([DieMaterial.MERCURY, "", "", "", "", ""]), _p([0, 1]), _ids([Charm.MERCURY_VAPOR]))

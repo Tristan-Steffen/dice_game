@@ -156,6 +156,9 @@ var supply_strips: Array[LedStripView] = []
 var workshop_hub_strip: LedStripView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
+## Ader Schwarzmarkt <-> Hub: der Zwilling der Automaten-Ader eine Etage tiefer -
+## alles, was der Hinterzimmer-Laden kostet, fährt als Ladung hier hinüber.
+var secret_hub_strip: LedStripView
 var supply_info_bar: Panel
 ## RichTextLabel: der Gravur-Name steht fett in seiner Seltenheits-Farbe (BBCode).
 var supply_info_label: RichTextLabel
@@ -524,6 +527,11 @@ func _build_content() -> void:
 	slot_hub_strip.name = "SlotHubStrip"
 	add_child(slot_hub_strip)
 
+	# Ader Schwarzmarkt -> Hub (verlegt place_secret_shop_window).
+	secret_hub_strip = LedStripView.new()
+	secret_hub_strip.name = "SecretHubStrip"
+	add_child(secret_hub_strip)
+
 	# Vorrats-Schubladen (drei Kategorien + der Sonderbestand rechts der
 	# Werkbank): Maße/Position setzt scene_root über place_supply_drawers bzw.
 	# place_special_stock. Die Adern zuerst, damit sie UNTER den Schubladen liegen.
@@ -782,7 +790,23 @@ func place_secret_shop_window(rect: Rect2) -> void:
 	secret_shop_window.position = rect.position
 	secret_shop_window.size = rect.size
 	secret_shop_window.refresh()
+	_link_secret_shop_to_hub()
 	_sync_reflection_windows()
+
+## Ader Schwarzmarkt -> Hub: dieselbe gerade Waagerechte wie die Automaten-Ader,
+## nur eine Etage tiefer - auf halber Höhe der Überlappung beider Fenster, wo nur
+## Filz liegt. Der Laden steht immer auf dem Tisch, also liegt auch die Ader immer.
+func _link_secret_shop_to_hub() -> void:
+	if secret_hub_strip == null or hub == null or hub.size.x <= 0.0 \
+			or secret_shop_window == null or secret_shop_window.size.x <= 0.0:
+		return
+	var top := maxf(hub.position.y, secret_shop_window.position.y)
+	var bottom := minf(hub.position.y + hub.size.y,
+		secret_shop_window.position.y + secret_shop_window.size.y)
+	if bottom <= top:
+		return  # keine Höhen-Überlappung - keine gerade Ader möglich
+	secret_hub_strip.link_horizontal(secret_shop_window.position.x + secret_shop_window.size.x,
+		hub.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
 ## Blendet den Schwarzmarkt ein/aus (Entdeckung bzw. frischer Lauf).
 func set_secret_shop_installed(installed: bool) -> void:
@@ -2081,6 +2105,18 @@ func slot_pay_comet(color: Color) -> float:
 		return 0.0
 	var path := slot_hub_strip.strip_path.duplicate()
 	path.reverse()  # verlegt ist sie Automaten -> Hub; der Einsatz fährt dagegen
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Zahlungs-Komet Hub -> Schwarzmarkt: Eintrittsgeld, Kauf und Neuwurf fahren als
+## Ladung die Hinterzimmer-Ader hinüber (verlegt ist sie Laden -> Hub, die Zahlung
+## fährt dagegen - wie der Automaten-Einsatz). Liefert die Laufzeit.
+func secret_shop_pay_comet(color: Color) -> float:
+	if secret_hub_strip == null or secret_hub_strip.strip_path.size() < 2:
+		return 0.0
+	var path := secret_hub_strip.strip_path.duplicate()
+	path.reverse()
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

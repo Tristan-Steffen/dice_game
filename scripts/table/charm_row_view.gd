@@ -11,8 +11,9 @@ const SPOT_Y := 0.0  # Tischoberfläche
 const MODEL_SCALE := 4.0
 const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"
 
-## Anzahl fester Plätze - zugleich die Obergrenze besitzbarer Charms.
-const SPOT_COUNT := 6
+## Anzahl fester Plätze; die Obergrenze besitzbarer Charms führt GameRun, damit
+## Laden und Tisch nie auseinanderlaufen.
+const SPOT_COUNT := GameRun.CHARM_CAPACITY
 
 ## Hologramm-Look: Modell bekommt den Hologramm-Shader, aus der Tischfläche
 ## steigt je Charm ein Lichtzylinder auf.

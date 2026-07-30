@@ -131,8 +131,34 @@ func test_owned_charms_stay_available_but_never_twice_in_one_spread():
 	for option in shop.charm_options:
 		assert_false(seen.has(option.id), "Archetyp '%s' liegt doppelt aus" % option.id)
 		seen[option.id] = true
+
+func test_owning_a_charm_does_not_lock_its_card():
+	# Besitz allein sperrt nichts - erst der VOLLE Dock tut das.
+	run.owned_charms.append(shop.charm_options[0])
+	shop.open()
 	for button in shop.charm_buttons:
 		assert_false(button.disabled, "Besitz sperrt den Kauf nicht")
+
+func test_a_full_dock_locks_every_charm_card():
+	# Harte Obergrenze, keine Warteschlange: bei sechs Charms ist kein Kauf mehr
+	# möglich, egal wie viel Geld liegt.
+	for i in GameRun.CHARM_CAPACITY:
+		run.owned_charms.append(Charm.rabbits_foot())
+	shop.open()
+	for button in shop.charm_buttons:
+		assert_true(button.disabled, "voller Dock sperrt jede Charm-Karte")
+	var money_before: int = run.money
+	shop._on_charm_clicked(0)
+	assert_eq(run.money, money_before, "kein Abzug am vollen Dock")
+	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY)
+
+func test_selling_a_charm_re_enables_the_cards():
+	for i in GameRun.CHARM_CAPACITY:
+		run.owned_charms.append(Charm.rabbits_foot())
+	shop.open()
+	run.sell_charm(0)  # der Erlös meldet money_changed - die Karten frischen auf
+	for button in shop.charm_buttons:
+		assert_false(button.disabled, "ein freier Platz macht die Karten wieder kaufbar")
 
 func test_charm_cannot_be_bought_twice():
 	shop._on_charm_clicked(0)

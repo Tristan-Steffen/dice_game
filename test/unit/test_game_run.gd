@@ -84,6 +84,53 @@ func test_purchase_dice_bundle_deducts_once_and_adds_all():
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool bleibt konstant groß")
 	assert_eq(_count_style("low"), 3, "alle drei Würfel liegen im Pool")
 
+## --- Ein Weg für alle Würfel-Anzeigen: pool_changed --------------------------
+## Die Instanz wird NIE getauscht (become) - wer sie hält (Rundendeck, Trays,
+## Raster, Station), zeigt den neuen Würfel sofort; das Signal löst nur das
+## Neuzeichnen aus.
+
+func test_purchase_die_overwrites_the_instance_in_place():
+	var kept := run.owned_pool.duplicate()
+	run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	for i in GameRun.POOL_SIZE:
+		assert_same(run.owned_pool[i], kept[i], "kein Instanz-Tausch im Pool")
+	var styles: Array[String] = []
+	for def in kept:
+		styles.append(def.style_id)
+	assert_true(styles.has("fixed_6"), "der gehaltene Würfel IST der gekaufte")
+
+func test_purchase_die_emits_pool_changed():
+	watch_signals(run)
+	run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	assert_signal_emit_count(run, "pool_changed", 1)
+
+func test_place_pack_die_emits_pool_changed():
+	watch_signals(run)
+	run.place_pack_die(DieDefinition.fixed(3, "Drei"), 4)
+	assert_eq(run.owned_pool[4].style_id, "fixed_3")
+	assert_signal_emit_count(run, "pool_changed", 1)
+
+func test_note_pool_changed_reports_outside_mutations():
+	# Gravur-Station und Nehmen-Effekte mutieren die Instanz direkt und melden
+	# es hierüber - sonst zeigten Trays und Grube alte Augen.
+	watch_signals(run)
+	run.owned_pool[0].faces[0] = 9
+	run.note_pool_changed()
+	assert_signal_emit_count(run, "pool_changed", 1)
+
+func test_midas_glove_reports_the_pool_change():
+	run.owned_charms.append(Charm.midas_glove())
+	var defs: Array[DieDefinition] = []
+	var faces: Array[int] = []
+	var participating: Array[int] = []
+	for i in 6:
+		defs.append(run.owned_pool[i])
+		faces.append(0)
+		participating.append(i)
+	watch_signals(run)
+	assert_eq(run.apply_midas_glove(defs, faces, participating).size(), 6)
+	assert_signal_emit_count(run, "pool_changed", 1)
+
 # --- Charms ---------------------------------------------------------------------
 
 func test_purchase_charm_grants_deducts_and_emits():
@@ -93,6 +140,49 @@ func test_purchase_charm_grants_deducts_and_emits():
 	assert_eq(run.money, 5)
 	assert_eq(run.owned_charms.size(), 1)
 	assert_signal_emitted(run, "charms_changed")
+
+## --- Harte Obergrenze der Charm-Plätze (keine Warteschlange) --------------------
+
+func _fill_charm_dock() -> void:
+	for i in GameRun.CHARM_CAPACITY:
+		run.owned_charms.append(Charm.rabbits_foot())
+
+func test_charms_full_reports_the_capacity():
+	assert_false(run.charms_full())
+	_fill_charm_dock()
+	assert_true(run.charms_full())
+	assert_eq(run.owned_charms.size(), CharmRowView.SPOT_COUNT, "Plätze am Tisch = Obergrenze")
+
+func test_purchase_charm_at_capacity_costs_nothing_and_grants_nothing():
+	_fill_charm_dock()
+	watch_signals(run)
+	run.money = 30
+	assert_false(run.purchase_charm(Charm.horseshoe(), 25))
+	assert_eq(run.money, 30, "kein Abzug für einen Charm, der nicht einzieht")
+	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY, "keine unsichtbare Warteschlange")
+	assert_signal_not_emitted(run, "charms_changed")
+
+func test_selling_frees_a_slot_again():
+	_fill_charm_dock()
+	run.sell_charm(0)
+	assert_false(run.charms_full())
+	run.money = 30
+	assert_true(run.purchase_charm(Charm.horseshoe(), 25))
+	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY)
+
+func test_secret_market_charm_slot_is_barred_at_capacity():
+	# Der Schwarzmarkt geht denselben Weg: voller Dock, keine Ladung abgebucht.
+	run.charge = GameRun.SECRET_CHARM_PRICE
+	run.secret_stock.append({
+		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
+		GameRun.OFFER_ITEM: Charm.horseshoe(),
+		GameRun.OFFER_PRICE: GameRun.SECRET_CHARM_PRICE,
+		GameRun.OFFER_SOLD: false,
+	})
+	_fill_charm_dock()
+	assert_false(run.buy_secret_offer(0))
+	assert_eq(run.charge, GameRun.SECRET_CHARM_PRICE, "kein Abzug")
+	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]), "der Platz bleibt liegen")
 
 func test_charm_ids_lists_owned_ids_in_order():
 	run.owned_charms.append(Charm.rabbits_foot())

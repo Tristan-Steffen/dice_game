@@ -12,11 +12,19 @@ signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
 signal hub_level_changed(level: int)
 signal deals_changed
+## Ein Pool-Würfel hat seinen Inhalt geändert (Kauf, Paket, Gravur, Nehmen-
+## Effekt, Testmodus). EINZIGER Auffrischungs-Weg der Würfel-Anzeigen: die Trays,
+## die Grubenwürfel und die Gravur-Station hängen alle hier - Instanzen werden
+## NIE getauscht (become), also reicht ein Signal ohne Index.
+signal pool_changed
 signal charge_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
 
 const POOL_SIZE := 30
+## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
+## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
+const CHARM_CAPACITY := 6
 const BASE_GOAL := 150
 ## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
 const GOAL_INCREMENT := 50
@@ -373,8 +381,10 @@ func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
 	for def in defs:
 		_replace_pool_entry(def)
 
-## Ersetzt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
-## Käufe nicht verdrängt werden) durch eine unabhängige Kopie von def.
+## Überschreibt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
+## Käufe nicht verdrängt werden) mit dem Inhalt von def. Der Eintrag wird IN
+## SEINER Instanz überschrieben (become), nie getauscht: Rundendeck, Trays und
+## Raster halten dieselbe Referenz und zeigen den neuen Würfel dadurch sofort.
 func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 	var normal_indices: Array[int] = []
 	for i in owned_pool.size():
@@ -386,21 +396,34 @@ func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 		target_index = normal_indices[randi() % normal_indices.size()]
 	else:
 		target_index = randi() % owned_pool.size()
-	var copy := def.instantiate()
-	owned_pool[target_index] = copy
-	return copy
+	var target := owned_pool[target_index]
+	target.become(def)
+	pool_changed.emit()
+	return target
 
-func purchase_charm(charm: Charm, price: int) -> void:
+## Kauft einen Charm - der Preis wird nur fällig, wenn der Dock ihn auch aufnimmt.
+func purchase_charm(charm: Charm, price: int) -> bool:
+	if charms_full():
+		return false
 	add_money(-price)
-	_grant_charm(charm)
+	return _grant_charm(charm)
+
+## Harte Obergrenze der Charm-Plätze (= CharmRowView.SPOT_COUNT): ist der Dock
+## voll, gibt es KEINE Warteschlange - ein weiterer Charm ist nicht kaufbar.
+func charms_full() -> bool:
+	return owned_charms.size() >= CHARM_CAPACITY
 
 ## Einziger Einzug eines Charms - Laden wie Schwarzmarkt gehen hier durch, damit
 ## der Sonderfall Lumpensammler (Glückszahl sofort würfeln) nie auseinanderläuft.
-func _grant_charm(charm: Charm) -> void:
+## false = der Dock ist voll, der Charm ist NICHT eingezogen.
+func _grant_charm(charm: Charm) -> bool:
+	if charms_full():
+		return false
 	owned_charms.append(charm)
 	if charm.id == Charm.RAG_COLLECTOR:
 		_roll_lumpensammler_value()
 	charms_changed.emit()
+	return true
 
 ## Reihenfolge ist spielrelevant: Totems kopieren Nachbarn, sie bestimmt die
 ## Tisch-Plätze (CharmRowView).
@@ -489,6 +512,7 @@ func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 	# die Trays halten dieselbe Instanz und zeigen den Tausch dadurch sofort.
 	var target := owned_pool[pool_index]
 	target.become(def)
+	pool_changed.emit()
 
 # --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
 
@@ -975,6 +999,8 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
 				var material: DieMaterial = DieMaterial.all().pick_random()
 				die.set_face_material(randi() % die.materials.size(), material.id)
 				upgraded += 1
+	if upgraded > 0:
+		pool_changed.emit()
 	return upgraded
 
 ## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
@@ -1002,7 +1028,15 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 			continue
 		defs[i].set_face_material(face, DieMaterial.GOLD)
 		gilded.append(i)
+	if not gilded.is_empty():
+		pool_changed.emit()
 	return gilded
+
+## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
+## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
+## denselben Weg auffrischen.
+func note_pool_changed() -> void:
+	pool_changed.emit()
 
 ## Verbraucht genau eine Gravur der id; true, wenn eine da war.
 func consume_engraving(id: String) -> bool:
@@ -1127,8 +1161,7 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 		SlotPrize.Kind.CHARM:
 			if prize.charm != null:
 				for i in mult:
-					owned_charms.append(prize.charm.duplicate())
-				charms_changed.emit()
+					_grant_charm(prize.charm.duplicate())  # voller Dock nimmt nichts mehr
 		SlotPrize.Kind.DIE:
 			if prize.die != null:
 				for i in mult:
@@ -1342,6 +1375,9 @@ func buy_secret_offer(index: int) -> bool:
 	var price := int(offer[OFFER_PRICE])
 	if bool(offer[OFFER_SOLD]) or charge < price:
 		return false
+	# Voller Dock: der Charm-Platz bleibt liegen, die Ladung wird nicht abgebucht.
+	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
+		return false
 	spend_charge(price)
 	if offer[OFFER_KIND] == KIND_CHARM:
 		var charm: Charm = offer[OFFER_ITEM]
@@ -1424,6 +1460,7 @@ func randomize_all_materials() -> void:
 		die.materials = mats
 		die.upgraded = doped
 		die.edge_material = ids.pick_random()
+	pool_changed.emit()
 
 func clear_all_materials() -> void:
 	for die in owned_pool:
@@ -1435,6 +1472,7 @@ func clear_all_materials() -> void:
 		die.materials = mats
 		die.upgraded = doped
 		die.edge_material = ""
+	pool_changed.emit()
 
 ## Legt jedem Pool-Würfel 1-5 zufällige Leiterbahnen (je Seite höchstens eine,
 ## nur zu Nachbarn). Jeder Würfel bekommt ein frisches pointers-Array.
@@ -1447,10 +1485,12 @@ func randomize_all_pointers() -> void:
 			var face: int = faces[i]
 			pointers[face] = DieDefinition.adjacent_faces(face).pick_random()
 		die.pointers = pointers
+	pool_changed.emit()
 
 func clear_all_pointers() -> void:
 	for die in owned_pool:
 		die.pointers = [-1, -1, -1, -1, -1, -1] as Array[int]
+	pool_changed.emit()
 
 ## Anzahl aller Würfel mit Kanten-Material im Besitz (Ablage, Nachschub, Pool) -
 ## Grundlage für Zargenglanz.

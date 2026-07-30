@@ -270,6 +270,10 @@ var secret_shop_click_zone: StaticBody3D
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_choice: RouteChoiceView
 var route_pending := false
+## Die Runde ist festgezurrt: der Vertrag ist unterschrieben bzw. - in einer Runde
+## ohne Auslage - der erste Wurf ist gefallen. Bis dahin bleibt die Werkbank offen
+## (siehe _dice_editing_locked), danach sind die Würfel tabu.
+var round_committed := false
 ## Rand der Auslage als Anteil der Grubenbreite (rundum gleich). Sie nimmt den
 ## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
 const ROUTE_CHOICE_INSET := 0.04
@@ -1943,9 +1947,9 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 ## Öffnet die Zeremonie ODER wechselt das Ziel. def ist die echte
 ## Pool-Instanz; ohne Hub öffnet nur das Panel als Fenster-UI.
 func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
-	# Der Würfel ist immer einsehbar; während der Runde bleiben nur die Gravuren
-	# gesperrt (bearbeiten erst im Laden).
-	die_inspector.set_editing_locked(_round_in_progress())
+	# Der Würfel ist immer einsehbar; sobald die Runde festgezurrt ist, bleiben nur
+	# die Gravuren gesperrt.
+	_sync_editing_lock()
 	if table_screen == null or table_screen.workshop_window == null:
 		die_inspector.show_die(def)
 		return
@@ -2971,10 +2975,16 @@ func _is_playing() -> bool:
 func _can_toggle_selection() -> bool:
 	return phase == Phase.IDLE and has_rolled_current_hand
 
-## true, solange eine Runde läuft: die Würfel sind dann tabu - Aufwertungen
-## werden nur zwischen den Runden im Laden (Phase.SHOP) angewandt.
-func _round_in_progress() -> bool:
-	return phase != Phase.SHOP
+## Sind die Würfel tabu? Bearbeitet wird im Laden UND im Vorlauf der neuen Runde:
+## Die Werkbank bleibt offen, bis der Vertrag der Runde steht (bzw. bis zum ersten
+## Wurf, wenn keine Auslage kommt) - erst dann sind die Würfel im Spiel.
+func _dice_editing_locked() -> bool:
+	return round_committed and phase != Phase.SHOP
+
+## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf).
+func _sync_editing_lock() -> void:
+	if die_inspector != null:
+		die_inspector.set_editing_locked(_dice_editing_locked())
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -3219,6 +3229,10 @@ func _on_throw_button_pressed() -> void:
 		return
 	if _remaining_in_pool() <= 0:
 		return
+	# Ohne Auslage (Runde 1) zurrt der erste Wurf die Runde fest.
+	if not round_committed:
+		round_committed = true
+		_sync_editing_lock()
 	# Eine laufende Aufreihung beenden - der neue Wurf übernimmt die Würfel.
 	_cancel_lineup()
 	_close_side_bet_betting()  # der erste Wurf schließt die Wettannahme
@@ -3700,6 +3714,8 @@ func _on_take_button_pressed() -> void:
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
 	var take_money := report.money
+	if not report.grown.is_empty() or not report.shrunk.is_empty():
+		run.note_pool_changed()  # Knochen/Glas haben Pool-Würfel verändert
 
 	# Midashandschuh: eine Hand über alle sechs Würfel vergoldet jede oben
 	# liegende Seite - dauerhaft, also erst NACH den übrigen Nehmen-Effekten.
@@ -4383,6 +4399,8 @@ func _connect_run() -> void:
 		table_screen.secret_shop_window.run = run
 		if not table_screen.secret_shop_window.unlock_requested.is_connected(_on_secret_shop_unlock_requested):
 			table_screen.secret_shop_window.unlock_requested.connect(_on_secret_shop_unlock_requested)
+		if not table_screen.secret_shop_window.charge_spent.is_connected(_on_secret_shop_charge_spent):
+			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
@@ -4393,8 +4411,7 @@ func _connect_run() -> void:
 		table_screen.workshop_window.run = run
 		if not table_screen.workshop_window.engraving_dispatched.is_connected(_on_engraving_dispatched):
 			table_screen.workshop_window.engraving_dispatched.connect(_on_engraving_dispatched)
-		if not table_screen.workshop_window.die_placed.is_connected(_on_pack_die_placed):
-			table_screen.workshop_window.die_placed.connect(_on_pack_die_placed)
+		# Ein eingesetzter Paket-Würfel meldet sich über run.pool_changed selbst.
 		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
 			table_screen.workshop_window.pack_activated.connect(_on_pack_opened)
 	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
@@ -4405,6 +4422,8 @@ func _connect_run() -> void:
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
+	# Würfel-Änderungen (Kauf, Paket, Gravur, Nehmen-Effekt) laufen über EINEN Weg.
+	run.pool_changed.connect(_on_pool_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	run.hub_level_changed.connect(_on_hub_level_changed)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
@@ -4455,12 +4474,24 @@ func _on_charge_changed(value: int) -> void:
 func _on_secret_shop_unlock_requested() -> void:
 	if run == null or not run.unlock_secret_shop():
 		return
+	var paying_run := run
 	_sync_secret_shop_state()
 	if table_screen == null:
 		return
 	if table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	# Das Eintrittsgeld fährt zuerst als Ladung hinüber, dann fällt das Gitter.
+	var travel := table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != paying_run or table_screen == null:
+		return  # Reset während des Kometen
 	table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)
+
+## Ladung für Ware oder Neuwurf: sie fährt dieselbe Ader wie das Eintrittsgeld.
+func _on_secret_shop_charge_spent(_amount: int) -> void:
+	if table_screen != null:
+		table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
@@ -4496,6 +4527,8 @@ func _on_route_chosen(index: int) -> void:
 		return  # doppelte Unterschrift = doppelter Vorschuss
 	run.take_route(index)
 	route_pending = false
+	round_committed = true  # ab der Unterschrift sind die Würfel im Spiel
+	_sync_editing_lock()
 	if route_choice != null:
 		route_choice.close()
 	_apply_round_start_effects()
@@ -4517,7 +4550,11 @@ func _start_new_round() -> void:
 	_cancel_reorder_drag()
 	_cancel_charm_drag()
 	_cancel_lineup()
-	_abort_engraving()  # eine im Laden offene Station leckt nicht in die Runde
+	_abort_engraving()  # der schwebende Zeremonien-Würfel gehört zur alten Runde
+	# Die Runde ist noch nicht festgezurrt: die Werkbank bleibt bis zur
+	# Unterschrift (bzw. bis zum ersten Wurf) bearbeitbar.
+	round_committed = false
+	_sync_editing_lock()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
 	anchor_clause_used_this_round = false
@@ -5126,16 +5163,24 @@ func _on_supply_hovered(info_text: String) -> void:
 # Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
 # über die Run-Signale. Hier nur Reaktionen, die echte Szenen-Arbeit brauchen.
 
-## Ätzung angewandt: die faces sind schon verändert, nur Trays neu zeichnen.
+## Ätzung angewandt: die faces sind schon verändert - die Meldung an GameRun ist
+## der EINE Weg, über den alle Würfel-Anzeigen auffrischen.
 func _on_die_engraved() -> void:
+	if run == null:
+		_on_pool_changed()
+		return
+	run.note_pool_changed()
+
+## Ein Pool-Würfel hat sich geändert (Kauf, Paket, Gravur, Nehmen-Effekt,
+## Testmodus): alle Anzeigen, die eine Würfel-Instanz zeigen, ziehen nach. Die
+## Instanzen werden nie getauscht (GameRun.become), also reicht Neuzeichnen.
+func _on_pool_changed() -> void:
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
-
-## Paket-Würfel eingesetzt: GameRun hat den Pool-Würfel an Ort und Stelle
-## überschrieben (place_pack_die) - die Trays halten dieselbe Instanz.
-func _on_pack_die_placed(_pool_index: int) -> void:
-	_on_die_engraved()
+	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
+	if engraving_active:
+		die_inspector.refresh_die()
 
 ## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
 ## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben

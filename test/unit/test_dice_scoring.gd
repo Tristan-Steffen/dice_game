@@ -240,16 +240,22 @@ func test_two_pair_with_overcounts_sums_real_values():
 
 # --- Farkle-Vergleich (is_strictly_better) -----------------------------------
 
-func test_reroll_with_more_points_is_better():
-	# Drilling 6er (54) schlägt Paar 3er (12)
+func test_reroll_into_a_higher_rank_is_better():
+	# Dreierpasch (Rang 9) schlägt Paar (Rang 11) - nur der Rang zählt.
 	assert_true(DiceScoring.is_strictly_better(_d([6,6,6,1,2,4]), _d([3,3,1,2,4,6])))
 
-func test_equal_points_is_not_strictly_better():
+func test_the_same_rank_is_not_strictly_better():
 	var same := _d([3,3,1,2,4,6])
 	assert_false(DiceScoring.is_strictly_better(same, same))
 
-func test_fewer_points_is_not_better():
-	assert_false(DiceScoring.is_strictly_better(_d([2,2,1,3,4,6]), _d([6,6,1,2,3,5])))
+func test_a_lower_rank_is_not_better():
+	# Paar gegen Dreierpasch: rangtiefer, also Farkle.
+	assert_false(DiceScoring.is_strictly_better(_d([2,2,1,3,4,6]), _d([6,6,6,1,3,4])))
+
+func test_the_same_rank_farkles_even_with_more_eyes():
+	# Paar Sechser schlägt Paar Zweier in Punkten - im Rang aber nicht: Farkle.
+	assert_false(DiceScoring.is_strictly_better(_d([6,6,1,2,3,5]), _d([2,2,1,3,4,6])),
+		"gleicher Rang farkelt, Punkte zählen nicht")
 
 # --- best_hand nimmt die RANGHÖCHSTE Kombination, nicht die punktträchtigste ---
 
@@ -269,14 +275,14 @@ func test_three_pairs_beat_an_upgraded_two_pair():
 		{DiceScoring.TWO_PAIR: 8})
 	assert_eq(hand["key"], DiceScoring.THREE_PAIRS)
 
-func test_a_reroll_into_a_higher_rank_can_farkle():
-	# Bewusste Folge: is_strictly_better vergleicht die Punkte der beiden GEWÄHLTEN
-	# Hände - eine ranghöhere, aber punktärmere Hand ist kein Fortschritt.
+func test_a_reroll_into_a_higher_rank_never_farkles():
+	# Der ranghöhere Wurf ist sicher, auch wenn er WENIGER zahlt: das hochgestufte
+	# Paar (620) steht im Rang unter der Großen Straße (528).
 	var levels := {DiceScoring.TWO_KIND: 4}
 	var no_mats: Array[String] = []
-	var new_dice := _d([6, 6, 2, 3, 4, 5])  # Kleine Straße, 168
-	var old_dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße, 528
-	assert_false(DiceScoring.is_strictly_better(new_dice, old_dice, _ids([]),
+	var new_dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße, 528
+	var old_dice := _d([6, 6, 1, 2, 3, 5])  # Paar Sechser mit Stufe 4, 620
+	assert_true(DiceScoring.is_strictly_better(new_dice, old_dice, _ids([]),
 		no_mats, no_mats, no_mats, no_mats, levels))
 
 # --- Kleine Helfer-APIs ------------------------------------------------------

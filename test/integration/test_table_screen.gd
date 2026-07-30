@@ -455,6 +455,37 @@ func test_a_won_charm_rides_the_strip_up_into_the_hub():
 	for point in screen.slot_hub_strip.strip_path:
 		assert_true(route.has(point), "er fährt die Automaten-Ader")
 
+# --- Schwarzmarkt-Ader (Ladung fährt zum Hinterzimmer) --------------------------
+
+## Der Laden ist der Zwilling der Automaten eine Etage tiefer: rechte Kante wie
+## der Automat, Unterkante bündig mit dem Hub (der spannt 2000..3200).
+func _place_secret_corner() -> void:
+	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
+	screen.place_slot_bank_window(Rect2(Vector2(1500, 2000), Vector2(1000, 850)))
+	screen.set_slot_bank_installed(true)
+	screen.place_secret_shop_window(Rect2(Vector2(1500, 2900), Vector2(1000, 300)))
+	screen.set_secret_shop_installed(true)
+
+func test_the_secret_shop_strip_runs_through_the_gap_to_the_hub():
+	_place_secret_corner()
+	var path := screen.secret_hub_strip.strip_path
+	assert_gt(path.size(), 1, "eine verlegte Ader")
+	assert_eq(path[0].x, 2500.0, "sie beginnt an der rechten Laden-Kante")
+	assert_eq(path[path.size() - 1].x, screen.hub.position.x, "und endet an der linken Hub-Kante")
+	for point in path:
+		assert_eq(point.y, path[0].y, "gerade waagerecht durch die Lücke")
+	assert_between(path[0].y, 2900.0, 3200.0, "im Höhen-Überlapp von Laden und Hub")
+
+func test_the_charge_travels_from_the_hub_to_the_secret_shop():
+	_place_secret_corner()
+	# Verlegt ist die Ader Laden -> Hub; die Zahlung fährt dagegen (wie der
+	# Automaten-Einsatz), sonst käme die Ladung aus dem Laden heraus.
+	assert_gt(screen.secret_shop_pay_comet(CasinoStyle.CHARGE), 0.0,
+		"Eintrittsgeld, Kauf und Neuwurf bekommen eine Laufzeit")
+
+func test_without_a_placed_secret_shop_no_charge_comet_flies():
+	assert_eq(screen.secret_shop_pay_comet(CasinoStyle.CHARGE), 0.0, "ohne Ader kein Komet")
+
 func test_a_won_die_flies_a_free_arc_to_the_tray():
 	# Zu den 3D-Ablagen führt keine Ader - der letzte Teil ist ein Bogen.
 	var from := Vector2(2000, 2600)

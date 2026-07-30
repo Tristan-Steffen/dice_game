@@ -178,6 +178,15 @@ func show_die(def: DieDefinition) -> void:
 	_sync_drawers()
 	visible = true
 
+## Der gezeigte Würfel hat sich von außen geändert (Kauf, Nehmen-Effekt): Netz
+## und 3D-Vorschau nachziehen, ohne die Werkzeug-Auswahl zu verlieren.
+func refresh_die() -> void:
+	if current_def == null or not visible:
+		return
+	face_order = _faces_sorted_by_value(current_def)
+	_sync_die_view()
+	_refresh_face_summary()
+
 func close() -> void:
 	if not visible:
 		return

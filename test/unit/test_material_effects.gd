@@ -180,16 +180,15 @@ func test_empty_materials_score_unchanged():
 	assert_eq(DiceScoring.best_hand(dice, NO_CHARMS, false, _m(["", "", "", "", "", ""]))["score"],
 		DiceScoring.best_hand(dice)["score"], "lauter leere Materialien = wie ohne")
 
-func test_is_strictly_better_uses_materials_on_both_sides():
-	# Gleiche Werte: ohne Materialien wäre der neue Wurf NICHT strikt besser.
-	var old_dice := _d([5, 5, 1, 2, 3, 6])
-	var new_dice := _d([5, 5, 1, 2, 3, 6])
+func test_is_strictly_better_ignores_materials():
+	# Der Farkle-Vergleich läuft allein über den RANG - ein Rubin macht die Hand
+	# punktreicher, aber nicht ranghöher.
+	var same := _d([5, 5, 1, 2, 3, 6])
 	var ruby_first := _m([DieMaterial.RUBY, "", "", "", "", ""])
 	var none := _m(["", "", "", "", "", ""])
-	assert_true(DiceScoring.is_strictly_better(new_dice, old_dice, NO_CHARMS, ruby_first, none),
-		"Rubin im neuen Wurf macht ihn strikt besser")
-	assert_false(DiceScoring.is_strictly_better(new_dice, old_dice, NO_CHARMS, none, ruby_first),
-		"Rubin im alten Wurf: der neue ist schlechter")
+	assert_false(DiceScoring.is_strictly_better(same, same, NO_CHARMS, ruby_first, none),
+		"gleicher Rang bleibt Farkle, auch mit Rubin im neuen Wurf")
+	assert_false(DiceScoring.is_strictly_better(same, same, NO_CHARMS, none, ruby_first))
 
 # --- Randfälle & Stapelung über Effekt-Arten hinweg ------------------------------
 
@@ -343,12 +342,12 @@ func test_edge_materials_flow_through_best_hand():
 	var score: int = DiceScoring.best_hand(dice, NO_CHARMS, false, _m(NO_FACE_MATS), _m([DieMaterial.RUBY, "", "", "", "", ""]))["score"]
 	assert_eq(score, 120, "(10+5+5) × (2+4) über Kanten-Rubin")
 
-func test_is_strictly_better_sees_edge_materials():
+func test_is_strictly_better_ignores_edge_materials():
+	# Wie die Seiten-Materialien: sie zahlen mehr, heben aber keinen Rang.
 	var same := _d([5, 5, 1, 2, 3, 6])
 	var ruby_edges := _m([DieMaterial.RUBY, "", "", "", "", ""])
 	var none := _m(["", "", "", "", "", ""])
-	assert_true(DiceScoring.is_strictly_better(same, same, NO_CHARMS, none, none, ruby_edges, none),
-		"Rubin-Kanten im neuen Wurf machen ihn strikt besser")
+	assert_false(DiceScoring.is_strictly_better(same, same, NO_CHARMS, none, none, ruby_edges, none))
 
 # --- Quecksilber als Retrigger: der Würfel aktiviert sich doppelt -----------------
 # Jede Aktivierung zählt die Augen UND feuert die übrigen Material-Effekte des
@@ -579,12 +578,20 @@ func test_upgraded_bone_compounds_per_activation():
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([DieMaterial.MERCURY]))
 	assert_eq(defs[0].faces[0], 49)
 
-func test_upgraded_bone_keeps_the_glue_and_marrow_surplus():
-	# Knochenleim (2) + Knochenmark (+1) = Satz 3, Aufschlag über 1 also +2.
+func test_upgraded_bone_keeps_the_glue_surplus():
+	# Knochenleim (Satz 2) = Aufschlag +1 über den Dotierungs-Schritt (+3).
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([]),
+		_ids([Charm.BONE_GLUE]))
+	assert_eq(defs[0].faces[0], 9, "+3 (Dotierung) +1 (Aufschlag)")
+
+func test_upgraded_bone_compounds_per_marrow_trigger():
+	# Knochenmark gibt eine zweite Auslösung; die rechnet ihren Schritt am schon
+	# gewachsenen Wert neu (5 -> +4 = 9 -> +4 = 13), nie 2 × derselbe Schritt.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], [0])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _m([]),
 		_ids([Charm.BONE_GLUE, Charm.BONE_MARROW]))
-	assert_eq(defs[0].faces[0], 10, "+3 (Dotierung) +2 (Aufschlag)")
+	assert_eq(defs[0].faces[0], 13)
 
 # Glas II: −5 oder −20 %, nie unter das Floor.
 

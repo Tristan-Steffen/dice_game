@@ -637,6 +637,8 @@ func _glow_disc(tint: Color, side: float) -> TextureRect:
 ## Premium-Charm (Rarität freigeschaltet): größer, stärkerer Lichtfleck, dickerer Saum.
 func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, podest := false) -> Control:
 	var bought := charm_bought[index]
+	# Voller Dock steht wie "gekauft" da: der Platz ist zu, egal was er kostet.
+	var full := run.charms_full()
 	var tint := charm.rarity_color()
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
@@ -651,7 +653,10 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
 	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
 	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, charm.display_name, charm.description))
+	var detail := charm.description
+	if full and not bought:
+		detail += "\n\nAlle %d Charm-Plätze belegt - erst einen verkaufen." % GameRun.CHARM_CAPACITY
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, charm.display_name, detail))
 	card.mouse_exited.connect(_hide_shop_tooltip)
 
 	var column := VBoxContainer.new()
@@ -670,11 +675,12 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	stage.add_child(CharmThumb.new(charm, thumb_px))
 	column.add_child(stage)
 
-	var tag := "gekauft" if bought else ("gratis" if _charm_price() <= 0 else "$%d" % _charm_price())
+	var tag := "gekauft" if bought else ("voll" if full else \
+		("gratis" if _charm_price() <= 0 else "$%d" % _charm_price()))
 	column.add_child(_label(tag,
-		u * 2.0, NEON_MUTED if bought else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+		u * 2.0, NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
-	if bought:
+	if bought or full:
 		card.disabled = true
 	else:
 		card.pressed.connect(_on_charm_clicked.bind(index))
@@ -962,7 +968,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 ## alle Preisschilder und Schwellen zeigen sonst alte Preise.
 func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
-	if charm_bought[index]:
+	if charm_bought[index] or run.charms_full():
 		return
 	var was_free := run.charm_is_free()
 	run.purchase_charm(charm, _charm_price())
@@ -992,7 +998,7 @@ func _refresh_afford_state() -> void:
 		dice_pack_buttons[i].disabled = dice_pack_bought[i] or money < _pack_price(dice_packs[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
-			charm_buttons[i].disabled = money < _charm_price()
+			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
 	for i in engraving_pack_buttons.size():
 		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
 	for i in overclock_buttons.size():

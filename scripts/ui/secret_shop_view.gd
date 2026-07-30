@@ -12,6 +12,9 @@ extends Panel
 
 ## Der Spieler will das Gitter heben; die Buchung macht scene_root über GameRun.
 signal unlock_requested
+## Ladung ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
+## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
+signal charge_spent(amount: int)
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -36,10 +39,13 @@ var run: GameRun:
 				run.secret_stock_changed.disconnect(_on_run_changed)
 			if run.charge_changed.is_connected(_on_charge_changed):
 				run.charge_changed.disconnect(_on_charge_changed)
+			if run.charms_changed.is_connected(_on_run_changed):
+				run.charms_changed.disconnect(_on_run_changed)
 		run = value
 		if run != null:
 			run.secret_stock_changed.connect(_on_run_changed)
 			run.charge_changed.connect(_on_charge_changed)
+			run.charms_changed.connect(_on_run_changed)  # der Charm-Platz sperrt am vollen Dock
 		refresh()
 
 ## Einheit aus BEIDEN Achsen (in refresh gesetzt).
@@ -202,7 +208,10 @@ func _refresh_afford_state() -> void:
 			continue
 		var offer := run.secret_stock[i]
 		var sold: bool = offer[GameRun.OFFER_SOLD]
-		offer_buttons[i].disabled = sold or run.charge < int(offer[GameRun.OFFER_PRICE])
+		# Voller Charm-Dock sperrt den Charm-Platz wie ein leeres Konto.
+		var blocked: bool = offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and run.charms_full()
+		offer_buttons[i].disabled = sold or blocked \
+			or run.charge < int(offer[GameRun.OFFER_PRICE])
 
 ## Angebots-Karte: Ware groß, Preis in Ladung darunter; Name und Wirkung zeigt
 ## der Hover-Dropdown. Rahmen und Lichtfleck tragen die Seltenheit der Ware.
@@ -257,8 +266,11 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int) -> Button:
 		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
 	column.add_child(stage)
 
-	column.add_child(_label("VERKAUFT" if sold else "⚡ %d" % price, u * 3.0,
-		NEON_MUTED if sold else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+	# Voller Charm-Dock: der Platz zeigt das statt seines Preises.
+	var blocked := kind == GameRun.KIND_CHARM and run != null and run.charms_full()
+	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
+	column.add_child(_label(tag, u * 3.0,
+		NEON_MUTED if sold or blocked else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	if not sold:
 		card.pressed.connect(_on_offer_pressed.bind(index))
@@ -311,12 +323,18 @@ func _on_unlock_pressed() -> void:
 # --- Käufe --------------------------------------------------------------------
 
 func _on_offer_pressed(index: int) -> void:
-	if run != null:
-		run.buy_secret_offer(index)  # Refresh kommt über secret_stock_changed
+	if run == null or index < 0 or index >= run.secret_stock.size():
+		return
+	var price := int(run.secret_stock[index][GameRun.OFFER_PRICE])
+	if run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
+		charge_spent.emit(price)
 
 func _on_reroll_pressed() -> void:
-	if run != null:
-		run.reroll_secret_stock()
+	if run == null:
+		return
+	var cost := run.secret_reroll_cost()
+	if run.reroll_secret_stock():
+		charge_spent.emit(cost)
 
 func _on_run_changed() -> void:
 	_refresh_offers()

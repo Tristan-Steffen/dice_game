@@ -264,6 +264,12 @@ func clear_selection() -> void:
 
 func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	slot_defs = defs.duplicate()
+	refresh_faces()
+
+## Zeichnet die Augenzahlen aller Slots neu aus slot_defs - nötig, sobald ein
+## liegender Würfel sich ändert (Knochen/Glas beim Nehmen, Materialien). Rein
+## Anzeige: values bleibt, was die Wertung dieses Wurfs gelesen hat.
+func refresh_faces() -> void:
 	for i in count():
 		face_displays[i].apply_definition(slot_defs[i])
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))

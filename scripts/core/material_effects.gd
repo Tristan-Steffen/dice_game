@@ -150,10 +150,11 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 
 ## Nehmen-Effekte: mutiert die faces der Pool-Würfel direkt (dauerhaft).
 ## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied wie Rahmenvergolder heben Seite
-## UND Kante); Knochen +1 je Träger (Knochenleim: +2, Knochenmark je Exemplar
-## +1 mehr, nach oben offen); Glas −1 je Träger, nie unter das Floor
-## (Glasbläserlunge hebt es auf 6). Alles je Effekt-Aktivierung. Ein dotierter
-## SEITEN-Träger ersetzt seinen Satz (Gold/Knochen/Glas, siehe Konstanten).
+## UND Kante); Knochen +1 je Träger (Knochenleim: +2, Knochenmark lässt jede
+## Knochen-Auslösung ein Mal mehr feuern - je Exemplar erneut); Glas −1 je
+## Träger, nie unter das Floor (Glasbläserlunge hebt es auf 6). Alles je Effekt-
+## Aktivierung. Ein dotierter SEITEN-Träger ersetzt seinen Satz (Gold/Knochen/
+## Glas, siehe Konstanten).
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
 	# Goldschmied UND Rahmenvergolder heben den Satz für Seite UND Kante.
 	var gold_boost := charm_ids.has(Charm.GOLDSMITH) or charm_ids.has(Charm.FRAME_GILDER)
@@ -165,8 +166,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# Goldader-Aufschlag darüber. Der Zähler steht VOR der ersten Buchung fest.
 	var upgraded_gold_payout := GOLD_PAYOUT_UPGRADED + (gold_payout - GOLD_PAYOUT) \
 		+ _gold_face_triggers(defs, face_indices, materials, participating, edge_materials, charm_ids, echo_slot)
-	# Knochenleim hebt den Satz einmalig auf 2, Knochenmark legt je Exemplar +1 drauf.
-	var bone_growth := (2 if charm_ids.has(Charm.BONE_GLUE) else 1) + charm_ids.count(Charm.BONE_MARROW)
+	# Knochenleim hebt den Satz einmalig auf 2.
+	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
+	# Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen.
+	var bone_triggers := 1 + charm_ids.count(Charm.BONE_MARROW)
 	# Glasbläserlunge hebt nur den Boden - geschrumpft wird weiter.
 	var glass_floor := EtchingEffects.MIN_FACE_VALUE
 	if charm_ids.has(Charm.GLASSBLOWER_LUNG):
@@ -197,10 +200,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var shrunk_any := false
 		for _a in effect_count:
 			if face_material == DieMaterial.BONE:
-				defs[i].faces[face] += (_bone_step(defs[i].faces[face]) + bone_growth - 1) if face_upgraded else bone_growth
+				_grow_bone(defs[i], face, face_upgraded, bone_growth, bone_triggers)
 				grew = true
 			if edge_material == DieMaterial.BONE:
-				defs[i].faces[face] += bone_growth
+				_grow_bone(defs[i], face, false, bone_growth, bone_triggers)
 				grew = true
 			if face_material == DieMaterial.GLASS:
 				var step := _glass_step(defs[i].faces[face]) if face_upgraded else 1
@@ -225,10 +228,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				report.money += edge_gold_payout
 			var link_grew := false
 			if link_material == DieMaterial.BONE:
-				defs[i].faces[link_face] += (_bone_step(defs[i].faces[link_face]) + bone_growth - 1) if link_upgraded else bone_growth
+				_grow_bone(defs[i], link_face, link_upgraded, bone_growth, bone_triggers)
 				link_grew = true
 			if edge_material == DieMaterial.BONE:
-				defs[i].faces[link_face] += bone_growth
+				_grow_bone(defs[i], link_face, false, bone_growth, bone_triggers)
 				link_grew = true
 			if link_grew and not report.grown.has(i):
 				report.grown.append(i)
@@ -265,6 +268,12 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += 1
 	return triggers
+
+## Lässt eine Knochen-Seite triggers-mal wachsen (Knochenmark). Die dotierte
+## rechnet ihren Prozentschritt je Auslösung am schon gewachsenen Wert neu.
+static func _grow_bone(def: DieDefinition, face: int, upgraded: bool, step: int, triggers: int) -> void:
+	for _t in triggers:
+		def.faces[face] += (_bone_step(def.faces[face]) + step - 1) if upgraded else step
 
 ## Wachstum einer dotierten Knochen-Seite: mind. +3, sonst 10 % (aufgerundet).
 static func _bone_step(value: int) -> int:

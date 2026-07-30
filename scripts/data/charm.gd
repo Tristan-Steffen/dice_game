@@ -485,7 +485,7 @@ static func blood_diamond() -> Charm:
 	return _make(BLOOD_DIAMOND, "Blood Diamond", "Jede Rubin-Auslösung gibt zusätzlich die Augenzahl ihres Würfels als Mult - je Exemplar erneut.")
 
 static func bone_marrow() -> Charm:
-	return _make(BONE_MARROW, "Knochenmark", "Jede Knochen-Auslösung lässt die Seite +1 weiter wachsen - je Exemplar erneut.")
+	return _make(BONE_MARROW, "Knochenmark", "Jede Knochen-Auslösung feuert einmal öfter - je Exemplar erneut.")
 
 static func bone_glue() -> Charm:
 	return _make(BONE_GLUE, "Knochenleim", "Knochen wächst +2 statt +1.")
