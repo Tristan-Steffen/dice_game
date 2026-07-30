@@ -11,20 +11,21 @@ extends Node3D
 ## in der XZ-Ebene. Nur EMISSION/unshaded-Albedo, keine OmniLights: die Boden-
 ## kacheln vertragen nur 16 Lichter (siehe TableGround).
 
-## Der Chip-Platz ist ~3.16:1 breit - quadratische Zellen schrumpften dort ins
-## Unlesbare. Also breite, flache RIEGEL: Spalten entlang +Z (liest sich als
-## Füllstand), Reihen stapeln nach +X. Der Fußabdruck ist bewusst auf das
-## Platz-Verhältnis getrimmt (max_width/max_length ≈ 93/294), damit BEIDE Achsen
-## zugleich fast ganz gefüllt sind - sonst bleibt die halbe Zelle leerer Filz.
-## Ränder und Zellabstände bleiben knapp: das Raster soll den Platz ausfüllen.
+## Der Chip-Platz ist flach (~3.16:1), aber scene_root lässt die Bank in den
+## freien Filz DARUNTER wachsen (CAPACITOR_SLOT_TALL ≈ 2×), sodass der Zielplatz
+## ~1.58:1 wird - kein flacher Streifen mehr, sondern ein voller Block. Immer
+## noch breite, flache RIEGEL: Spalten entlang +Z (liest sich als Füllstand),
+## Reihen stapeln nach +X. Der Fußabdruck ist auf das gewachsene Platz-Verhältnis
+## getrimmt (max_width/max_length ≈ 186/294), damit BEIDE Achsen zugleich fast
+## ganz gefüllt sind. Ränder und Zellabstände bleiben knapp: das Raster füllt.
 const GRID_COLS := 5
 const GRID_ROWS := 5              # COLS × ROWS = 25 = Maximaldeckel (GameRun)
 const CELL_PITCH := 1.0           # Achsabstand der Spalten (entlang +Z)
-const ROW_PITCH := 0.312          # Reihenabstand (entlang +X)
+const ROW_PITCH := 0.64           # Reihenabstand (entlang +X)
 ## Die Fuge zwischen den Reihen ist der TEURE Wert: auf dem Schirm ist eine Reihe
 ## nur wenige Pixel hoch, eine zu knappe Fuge lässt die Reihen zu Bändern
 ## verschmelzen. Darum bleibt sie relativ zur kurzen Achse großzügiger.
-const CELL_SIZE := Vector3(0.25, 0.22, 0.93)
+const CELL_SIZE := Vector3(0.52, 0.22, 0.93)
 const RAIL_HEIGHT := 0.1
 const RAIL_MARGIN := 0.1          # Überstand der Grundplatte entlang Z
 const RAIL_MARGIN_X := 0.04       # Überstand entlang X (knapper: schmale Achse)

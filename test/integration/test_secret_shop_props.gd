@@ -72,10 +72,11 @@ func test_charge_is_clamped_into_the_cap() -> void:
 	bank.set_charge(0, 99)
 	assert_eq(bank.cap_count(), 25, "mehr als das Raster gibt es nicht")
 
-## Der Chip-Platz ist 294×93 px (siehe TableScreen.free_cluster_slots): das
-## Raster muss dieses Verhältnis fast treffen, sonst bleibt auf der kurzen Achse
-## Filz frei - scene_root passt auf die KNAPPERE Achse ein.
-const SLOT_ASPECT := 93.0 / 294.0
+## Der Chip-Platz ist 294×93 px (siehe TableScreen.free_cluster_slots), aber
+## scene_root streckt die Bank um CAPACITOR_SLOT_TALL (2×) nach unten in den
+## freien Filz - der ZIEL-Platz ist also 294×186. Das Raster muss dieses
+## Verhältnis fast treffen, sonst bleibt auf der kurzen Achse Filz frei.
+const SLOT_ASPECT := 186.0 / 294.0
 
 func test_footprint_matches_the_slot_aspect() -> void:
 	var aspect := CapacitorBankView.max_width() / CapacitorBankView.max_length()

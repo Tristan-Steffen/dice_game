@@ -49,6 +49,10 @@ const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
 ## Anteil des Rasterplatzes, den die Bank einnimmt - knapp unter 1, nur noch ein
 ## Saum gegen die Nachbarzelle (das Raster soll den Platz sichtbar ausfüllen).
 const CAPACITOR_SLOT_FILL := 0.97
+## Der freie Chip-Platz ist flach (3.16:1); die Bank darf so viel höher in den
+## freien Filz DARUNTER wachsen (unter dem Cluster ist nur blanker Filz bis zur
+## Glaskante). Der Fußabdruck der Bank ist auf dieses Verhältnis mitgetrimmt.
+const CAPACITOR_SLOT_TALL := 2.0
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
@@ -2422,6 +2426,9 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 func _setup_capacitor_bank(slot: Rect2) -> void:
 	capacitor_bank = CapacitorBankView.new()
 	capacitor_bank.name = "CapacitorBank"
+	# Nach UNTEN in den freien Filz strecken (Oberkante bleibt an der Chip-Reihe):
+	# der flache Platz allein ließe die Bank als schmalen Streifen liegen.
+	slot = Rect2(slot.position, Vector2(slot.size.x, slot.size.y * CAPACITOR_SLOT_TALL))
 	var center := table_screen.pixel_to_world(slot.get_center())
 	capacitor_bank.position = Vector3(center.x, 0.0, center.z)
 	# pixel_to_world dreht die Achsen: Platz-BREITE (Pixel-x) -> Welt-z, Platz-
