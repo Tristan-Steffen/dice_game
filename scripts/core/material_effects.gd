@@ -123,8 +123,71 @@ static func mult_crit_once_for(face_material: String, value: int, _charm_ids: Ar
 static func upgrade_of(upgrades: Dictionary, slot: int) -> Dictionary:
 	return upgrades.get(slot, {})
 
+# --- Wertwandel zwischen den Aktivierungen -------------------------------------
+# Knochen wächst und Glas schrumpft ZWISCHEN den Auslösungen eines Zuges: die
+# zweite Aktivierung zählt schon den gewachsenen Wert. Weil apply_take_effects
+# dieselbe Rechnung dauerhaft in die Def schreibt, MUSS beides über diese
+# Helfer laufen - sonst zeigt die Wertung eine andere Zahl als der Würfel.
+
+## Knochenleim hebt den Wachstumsschritt einmalig auf 2.
+static func bone_growth_step(charm_ids: Array[String]) -> int:
+	return 2 if charm_ids.has(Charm.BONE_GLUE) else 1
+
+## Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen.
+static func bone_trigger_count(charm_ids: Array[String]) -> int:
+	return 1 + charm_ids.count(Charm.BONE_MARROW)
+
+## Glasbläserlunge hebt nur den Boden - geschrumpft wird weiter.
+static func glass_floor_for(charm_ids: Array[String]) -> int:
+	var glass_floor := EtchingEffects.MIN_FACE_VALUE
+	if charm_ids.has(Charm.GLASSBLOWER_LUNG):
+		glass_floor = maxi(glass_floor, GLASSBLOWER_LUNG_FLOOR)
+	return glass_floor
+
+## Wachstum über triggers Auslösungen; die dotierte Seite rechnet ihren
+## Prozentschritt je Auslösung am schon gewachsenen Wert neu.
+static func grow_bone_value(value: int, upgraded: bool, step: int, triggers: int) -> int:
+	var result := value
+	for _t in triggers:
+		result += (_bone_step(result) + step - 1) if upgraded else step
+	return result
+
+## Schrumpft um step, nie unter floor_value (unveränderter Wert = kein Schritt).
+static func shrink_value(value: int, step: int, floor_value: int) -> int:
+	var target := maxi(floor_value, value - step)
+	return target if target < value else value
+
+## Wertwandel EINER Auslösung: Knochen wächst, Glas schrumpft - Seite und Kante
+## in derselben Folge wie apply_take_effects. Ohne Knochen/Glas identisch.
+static func mutate_value_once(value: int, face_material: String, edge_material: String,
+		charm_ids: Array[String], face_upgraded: bool) -> int:
+	var result := value
+	var step := bone_growth_step(charm_ids)
+	var triggers := bone_trigger_count(charm_ids)
+	var floor_value := glass_floor_for(charm_ids)
+	if face_material == DieMaterial.BONE:
+		result = grow_bone_value(result, face_upgraded, step, triggers)
+	if edge_material == DieMaterial.BONE:
+		result = grow_bone_value(result, false, step, triggers)
+	if face_material == DieMaterial.GLASS:
+		result = shrink_value(result, _glass_step(result) if face_upgraded else 1, floor_value)
+	if edge_material == DieMaterial.GLASS:
+		result = shrink_value(result, 1, floor_value)
+	return result
+
+## Endwert der oberen Seite nach activations Auslösungen - genau der Wert, den
+## apply_take_effects in die Def schreibt (per Test abgesichert).
+static func value_after_activations(value: int, activations: int, face_material: String,
+		edge_material: String, charm_ids: Array[String], face_upgraded: bool) -> int:
+	var result := value
+	for _a in maxi(0, activations):
+		result = mutate_value_once(result, face_material, edge_material, charm_ids, face_upgraded)
+	return result
+
 ## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
-## Quecksilber zählt die Augen je Extra-Aktivierung erneut.
+## Quecksilber zählt die Augen je Extra-Aktivierung erneut. Rechnet mit dem
+## LIEGENDEN Wert - den Wertwandel zwischen den Aktivierungen (Knochen/Glas)
+## kennt nur DiceScoring._base_and_mult.
 static func base_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], edge_materials: Array[String] = [], echo_slot: int = -1, upgrades: Dictionary = {}) -> int:
 	var bonus := 0
 	for i in participating:
@@ -137,8 +200,10 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 	return bonus
 
 ## Mult-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests).
-## Nur ADDITIV - ein Material-Krit (dotierter Rubin/Glas) lässt sich als Summe
-## nicht ausdrücken; maßgeblich ist DiceScoring._base_and_mult.
+## Nur ADDITIV und nur auf dem LIEGENDEN Wert - ein Material-Krit (dotierter
+## Rubin/Glas) und der Wertwandel zwischen den Aktivierungen (Knochen/Glas)
+## lassen sich als Summe nicht ausdrücken; maßgeblich ist
+## DiceScoring._base_and_mult.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1, upgrades: Dictionary = {}) -> int:
 	var bonus := 0
 	for i in participating:
@@ -166,14 +231,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# Goldader-Aufschlag darüber. Der Zähler steht VOR der ersten Buchung fest.
 	var upgraded_gold_payout := GOLD_PAYOUT_UPGRADED + (gold_payout - GOLD_PAYOUT) \
 		+ _gold_face_triggers(defs, face_indices, materials, participating, edge_materials, charm_ids, echo_slot)
-	# Knochenleim hebt den Satz einmalig auf 2.
-	var bone_growth := 2 if charm_ids.has(Charm.BONE_GLUE) else 1
-	# Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen.
-	var bone_triggers := 1 + charm_ids.count(Charm.BONE_MARROW)
-	# Glasbläserlunge hebt nur den Boden - geschrumpft wird weiter.
-	var glass_floor := EtchingEffects.MIN_FACE_VALUE
-	if charm_ids.has(Charm.GLASSBLOWER_LUNG):
-		glass_floor = maxi(glass_floor, GLASSBLOWER_LUNG_FLOOR)
+	var bone_growth := bone_growth_step(charm_ids)
+	var bone_triggers := bone_trigger_count(charm_ids)
+	var glass_floor := glass_floor_for(charm_ids)
 	var report := TakeReport.new()
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
@@ -269,11 +329,10 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 				triggers += 1
 	return triggers
 
-## Lässt eine Knochen-Seite triggers-mal wachsen (Knochenmark). Die dotierte
-## rechnet ihren Prozentschritt je Auslösung am schon gewachsenen Wert neu.
+## Lässt eine Knochen-Seite triggers-mal wachsen (Knochenmark) - über
+## grow_bone_value, damit die Wertungs-Simulation nicht abweichen kann.
 static func _grow_bone(def: DieDefinition, face: int, upgraded: bool, step: int, triggers: int) -> void:
-	for _t in triggers:
-		def.faces[face] += (_bone_step(def.faces[face]) + step - 1) if upgraded else step
+	def.faces[face] = grow_bone_value(def.faces[face], upgraded, step, triggers)
 
 ## Wachstum einer dotierten Knochen-Seite: mind. +3, sonst 10 % (aufgerundet).
 static func _bone_step(value: int) -> int:
@@ -286,8 +345,8 @@ static func _glass_step(value: int) -> int:
 ## Schrumpft eine Seite um step, nie unter floor_value; true, wenn sie sich bewegt hat.
 static func _shrink(def: DieDefinition, face: int, step: int,
 		floor_value: int = EtchingEffects.MIN_FACE_VALUE) -> bool:
-	var target := maxi(floor_value, def.faces[face] - step)
-	if target >= def.faces[face]:
+	var target := shrink_value(def.faces[face], step, floor_value)
+	if target == def.faces[face]:
 		return false
 	def.faces[face] = target
 	return true

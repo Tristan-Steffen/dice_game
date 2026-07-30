@@ -201,18 +201,26 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 func test_reroll_cost_escalates_and_never_resets() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = 15
+	run.charge = 25
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 12)
-	assert_eq(run.secret_reroll_cost(), 4)
-	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 8)
+	assert_eq(run.charge, 22)
 	assert_eq(run.secret_reroll_cost(), 5)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 3)
-	assert_eq(run.secret_reroll_cost(), 6, "der Zähler läuft weiter")
+	assert_eq(run.charge, 17)
+	assert_eq(run.secret_reroll_cost(), 8)
+	assert_true(run.reroll_secret_stock())
+	assert_eq(run.charge, 9)
+	assert_eq(run.secret_reroll_cost(), 13, "der Zähler läuft weiter")
 	assert_eq(run.secret_rerolls, 3)
+
+func test_reroll_cost_climbs_the_golden_ladder() -> void:
+	var run := _discovered()
+	var ladder: Array[int] = []
+	for i in 5:
+		run.secret_rerolls = i
+		ladder.append(run.secret_reroll_cost())
+	assert_eq(ladder, [3, 5, 8, 13, 21] as Array[int])
 
 func test_reroll_replaces_the_whole_stock() -> void:
 	var run := _discovered()

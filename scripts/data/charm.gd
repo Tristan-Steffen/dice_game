@@ -12,6 +12,9 @@ const FOUR_LEAF_CLOVER := "four_leaf_clover"
 const GOLDEN_SCARAB := "golden_scarab"
 const FOX_TAIL := "fox_tail"
 const PENCIL_STUB := "pencil_stub"
+const TOP_HAT := "top_hat"
+const SILVER_DOLLAR := "silver_dollar"
+const EIGHT_KNOT := "eight_knot"
 const HORSESHOE := "horseshoe"
 const LADYBUG := "ladybug"
 const PEARL_NECKLACE := "pearl_necklace"
@@ -128,6 +131,9 @@ const RARITIES := {
 	GOLDEN_SCARAB: RARITY_COMMON,
 	FOX_TAIL: RARITY_COMMON,
 	PENCIL_STUB: RARITY_COMMON,
+	TOP_HAT: RARITY_COMMON,
+	SILVER_DOLLAR: RARITY_COMMON,
+	EIGHT_KNOT: RARITY_COMMON,
 	ECHO_CHAMBER: RARITY_UNCOMMON,
 	TWIN_RING: RARITY_UNCOMMON,
 	CULT_OF_ONE: RARITY_RARE,
@@ -247,20 +253,28 @@ static func _make(charm_id: String, name: String, desc: String) -> Charm:
 		charm.model_path = candidate
 	return charm
 
+## Besitz dämpft das Ziehgewicht: ein schon gehaltener Archetyp bleibt kaufbar,
+## drängelt sich aber nicht mehr vor die ungesehenen.
+const OWNED_WEIGHT_FACTOR := 0.5
+
 func rarity_weight() -> float:
 	return RARITY_WEIGHTS.get(rarity, 1.0)
 
 func rarity_color() -> Color:
 	return RARITY_COLORS.get(rarity, RARITY_COLORS[RARITY_COMMON])
 
-## Zieht gewichtet nach Rarität; candidates darf nicht leer sein.
-static func pick_weighted(candidates: Array[Charm]) -> Charm:
+## Ziehgewicht dieses Archetyps: Rarität, halbiert wenn er in owned_ids steht.
+func pick_weight(owned_ids: Array[String] = []) -> float:
+	return rarity_weight() * (OWNED_WEIGHT_FACTOR if owned_ids.has(id) else 1.0)
+
+## Zieht gewichtet nach Rarität und Besitz; candidates darf nicht leer sein.
+static func pick_weighted(candidates: Array[Charm], owned_ids: Array[String] = []) -> Charm:
 	var total := 0.0
 	for charm in candidates:
-		total += charm.rarity_weight()
+		total += charm.pick_weight(owned_ids)
 	var roll := randf() * total
 	for charm in candidates:
-		roll -= charm.rarity_weight()
+		roll -= charm.pick_weight(owned_ids)
 		if roll <= 0.0:
 			return charm
 	return candidates.back()
@@ -284,6 +298,16 @@ static func fox_tail() -> Charm:
 
 static func pencil_stub() -> Charm:
 	return _make(PENCIL_STUB, "Croupier-Bleistift", "Jede gewürfelte 2 zählt als 3 - auch für Kombinationen.")
+
+static func top_hat() -> Charm:
+	return _make(TOP_HAT, "Zylinderhut", "Jede gewürfelte 4 zählt als 5 - auch für Kombinationen.")
+
+static func silver_dollar() -> Charm:
+	return _make(SILVER_DOLLAR, "Silberdollar", "Jede gewürfelte 5 zählt als 6 - auch für Kombinationen.")
+
+## Gravuren treiben Seiten über die 6 - der Knoten zieht beide Nachbarn zur 8.
+static func eight_knot() -> Charm:
+	return _make(EIGHT_KNOT, "Achterknoten", "Jede gewürfelte 7 und 9 zählt als 8 - auch für Kombinationen.")
 
 # --- Wertungs-Charms ---
 
@@ -462,7 +486,7 @@ static func cash_discount() -> Charm:
 	return _make(CASH_DISCOUNT, "Skonto", "Charms kosten $5 weniger.")
 
 static func high_flyer() -> Charm:
-	return _make(HIGH_FLYER, "Überflieger", "Je 25 Rundenpunkte über dem Rundenziel: +$1 (max. $50).")
+	return _make(HIGH_FLYER, "Überflieger", "Je geräumte Überladungs-Stufe: +$5.")
 
 # --- Materialien (Seiten) ---
 
@@ -562,6 +586,7 @@ static func hermit_crab() -> Charm:
 static func all() -> Array[Charm]:
 	return [
 		rabbits_foot(), lucky_cigarettes(), four_leaf_clover(), golden_scarab(), fox_tail(), pencil_stub(),
+		top_hat(), silver_dollar(), eight_knot(),
 		horseshoe(), ladybug(), pearl_necklace(), magic_card(), rainbow_trout(),
 		old_penny(), piggy_bank(), crystal_ball(),
 		chimney_sweep(),

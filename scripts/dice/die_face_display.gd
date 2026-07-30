@@ -12,6 +12,10 @@ extends Node3D
 const BODY_COLOR := Color(0.05, 0.05, 0.08)
 ## Ziffern als sanftes Neonlicht (knapp überhell -> weicher Bloom, nicht grell).
 const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
+## Vorläufiger Wert (Verwandlungs-Charm in der Grube, Gravur-Vorschau an der
+## Werkbank): grüne Ziffer = eine Zahl, die NICHT in der Def steht. Eine Quelle
+## für beide Orte, damit "grün heißt vorläufig" überall dasselbe Grün ist.
+const PREVIEW_NUMBER_COLOR := Color(0.5, 1.0, 0.6)
 ## Sentinel "kein Kanten-Material" (Vergleichswert, siehe edge_base).
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
 ## Neutrale Linienfarbe der Kanten: Weiß. Kahle Kanten leuchten bewusst
@@ -214,6 +218,15 @@ func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
 	label.text = str(value)
 	DieFaceDisplay.fit_label(label)
+
+## Schreibt die Ziffer EINER Seite abweichend von der Def (Anzeige-
+## Überschreibung: Verwandlungs-Charm, Wertwandel während des Zählens).
+## apply_definition stellt den Def-Wert wieder her.
+func set_face_value_at(face_index: int, value: int) -> void:
+	for axis in labels:
+		if DiceController.AXIS_FACE_INDEX[axis] == face_index:
+			_set_face_value(axis, value)
+			return
 
 ## Färbt den Körper aller 6 Seiten (Color.WHITE = Normalzustand); Ziffern bleiben dunkel.
 func set_tint(color: Color) -> void:

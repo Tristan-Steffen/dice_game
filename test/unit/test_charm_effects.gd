@@ -31,10 +31,32 @@ func test_transform_chains_pencil_into_fox_tail():
 	assert_eq(CharmEffects.transform_value(2, ids), 4)
 	assert_eq(CharmEffects.transform_value(2, _ids([Charm.FOX_TAIL, Charm.PENCIL_STUB])), 4, "Besitz-Reihenfolge egal")
 
+func test_transform_top_hat_four_becomes_five():
+	assert_eq(CharmEffects.transform_value(4, _ids([Charm.TOP_HAT])), 5)
+	assert_eq(CharmEffects.transform_value(3, _ids([Charm.TOP_HAT])), 3, "nur 4 betroffen")
+
+func test_transform_silver_dollar_five_becomes_six():
+	assert_eq(CharmEffects.transform_value(5, _ids([Charm.SILVER_DOLLAR])), 6)
+	assert_eq(CharmEffects.transform_value(4, _ids([Charm.SILVER_DOLLAR])), 4, "nur 5 betroffen")
+
+func test_transform_eight_knot_pulls_seven_and_nine_to_eight():
+	var ids := _ids([Charm.EIGHT_KNOT])
+	assert_eq(CharmEffects.transform_value(7, ids), 8)
+	assert_eq(CharmEffects.transform_value(9, ids), 8)
+	assert_eq(CharmEffects.transform_value(8, ids), 8, "die 8 bleibt")
+	assert_eq(CharmEffects.transform_value(6, ids), 6, "unter 7 rührt er nichts an")
+
+func test_transform_chain_lifts_a_two_all_the_way_to_six():
+	# Aufsteigende Kette: 2 -> 3 -> 4 -> 5 -> 6.
+	var ids := _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL, Charm.TOP_HAT, Charm.SILVER_DOLLAR])
+	assert_eq(CharmEffects.transform_value(2, ids), 6)
+	assert_eq(CharmEffects.transform_value(4, ids), 6, "auch von der Mitte aus")
+
 func test_transform_is_idempotent():
 	# best_hand -> score_category verwandelt doppelt - darf nichts ändern.
-	var ids := _ids([Charm.LUCKY_CIGARETTES, Charm.PENCIL_STUB, Charm.FOX_TAIL])
-	for v in range(1, 7):
+	var ids := _ids([Charm.LUCKY_CIGARETTES, Charm.PENCIL_STUB, Charm.FOX_TAIL,
+		Charm.TOP_HAT, Charm.SILVER_DOLLAR, Charm.EIGHT_KNOT])
+	for v in range(1, 13):
 		var once := CharmEffects.transform_value(v, ids)
 		assert_eq(CharmEffects.transform_value(once, ids), once, "Wert %d" % v)
 

@@ -68,10 +68,11 @@ const CTX_SPOTLIGHT := "spotlight_combo"
 #    Augen und Material-Effekte feuern erneut (zählt MaterialEffects).
 # 3. eye_value:        reine Basispunkt-Anpassung, erkennungsblind.
 
-## Feste Kettenreihenfolge 1->6, 2->3, 3->4: eine verwandelte 2 wird von
-## Fuchsschwanz weiter zur 4 gehoben, und weil jedes Ergebnis außerhalb der
-## Auslösewerte landet, ist die Kette idempotent - Mehrfachanwendung im
-## Pipeline-Stapel (best_hand -> score_category) bleibt gefahrlos.
+## Feste Kettenreihenfolge 1->6, 2->3, 3->4, 4->5, 5->6, 7/9->8: aufsteigend,
+## damit die Kette weiterläuft - eine 2 steigt mit allen vier Kettencharms bis
+## zur 6. Jedes Ergebnis (6 oder 8) liegt außerhalb der Auslösewerte, die Kette
+## bleibt also idempotent - Mehrfachanwendung im Pipeline-Stapel (best_hand ->
+## score_category) ist gefahrlos.
 static func transform_value(face_value: int, charm_ids: Array[String]) -> int:
 	var value := face_value
 	if value == 1 and charm_ids.has(Charm.LUCKY_CIGARETTES):
@@ -80,6 +81,14 @@ static func transform_value(face_value: int, charm_ids: Array[String]) -> int:
 		value = 3
 	if value == 3 and charm_ids.has(Charm.FOX_TAIL):
 		value = 4
+	if value == 4 and charm_ids.has(Charm.TOP_HAT):
+		value = 5
+	if value == 5 and charm_ids.has(Charm.SILVER_DOLLAR):
+		value = 6
+	# Achterknoten: der einzige Verwandler, der von OBEN kommt - gravierte Seiten
+	# über 6 rutschen zur 8, was auch die Kombinationsziffer (%10) verschiebt.
+	if (value == 7 or value == 9) and charm_ids.has(Charm.EIGHT_KNOT):
+		value = 8
 	return value
 
 static func transform_values(values: Array[int], charm_ids: Array[String]) -> Array[int]:
@@ -545,13 +554,18 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 			income += 2 * dice_count
 	return income
 
+## Überflieger: je geräumte Überladungs-Stufe der Runde. Stufen sind gedeckelt,
+## also braucht der Satz keine Obergrenze - und der Doppellader (zwei ⚡ je Stufe)
+## ändert nichts, gezählt wird der BALKEN.
+const HIGH_FLYER_PER_STAGE := 5
+
 ## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
-## $10) und Überflieger ($1 je 25 Punkte über Ziel), beide max. $50, dazu der
+## $10, max. $50) und Überflieger ($5 je geräumte Überladungs-Stufe), dazu der
 ## Glücksgroschen ($3, +$1 je vorheriger Auszahlung - NICHT je Überladungsstufe).
 ## Alle rechnen auf demselben money-Stand - die Besitz-Reihenfolge verschiebt
 ## keine Beträge. Grundlage der Auszahlungs-Zeremonie: der Spieler sieht,
 ## WELCHER Charm zahlt.
-static func round_end_income_entries(money: int, overflow_points: int, charm_ids: Array[String], penny_payouts: int = 0) -> Array[Dictionary]:
+static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	for j in charm_ids.size():
 		var amount := 0
@@ -559,7 +573,7 @@ static func round_end_income_entries(money: int, overflow_points: int, charm_ids
 			Charm.INTEREST_PENNY:
 				amount = mini(money / 10, 50)
 			Charm.HIGH_FLYER:
-				amount = mini(maxi(0, overflow_points) / 25, 50)
+				amount = maxi(0, cleared_stages) * HIGH_FLYER_PER_STAGE
 			Charm.OLD_PENNY:
 				amount = 3 + maxi(0, penny_payouts)
 		if amount > 0:
@@ -567,9 +581,9 @@ static func round_end_income_entries(money: int, overflow_points: int, charm_ids
 	return entries
 
 ## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.
-static func round_end_income(money: int, overflow_points: int, charm_ids: Array[String], penny_payouts: int = 0) -> int:
+static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0) -> int:
 	var income := 0
-	for entry in round_end_income_entries(money, overflow_points, charm_ids, penny_payouts):
+	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts):
 		income += int(entry["amount"])
 	return income
 

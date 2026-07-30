@@ -27,7 +27,7 @@ const POOL_SIZE := 30
 const CHARM_CAPACITY := 6
 const BASE_GOAL := 150
 ## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
-const GOAL_INCREMENT := 50
+const GOAL_INCREMENT := 75
 ## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen. Die
 ## Wertung wächst multiplikativ (Übertaktung, Gravuren, Charms) - ein konstanter
 ## Zuwachs würde daher von Block zu Block leichter.
@@ -772,16 +772,24 @@ func _apply_instant_clause(clause_id: String) -> void:
 			add_money(ADVANCE_PAYMENT_MONEY)
 		DealClause.BLANK_CHEQUE:
 			add_money(BLANK_CHEQUE_MONEY)
-		DealClause.SEED_CAPITAL:
-			add_charge(SEED_CAPITAL_CHARGE)
-		DealClause.SEED_CAPITAL_II:
-			add_charge(SEED_CAPITAL_II_CHARGE)
+		DealClause.SEED_CAPITAL, DealClause.SEED_CAPITAL_II:
+			add_charge(instant_clause_charge(clause_id))
 		DealClause.DISCHARGE:
 			spend_charge(DISCHARGE_CHARGE)
 		DealClause.OVERCLOCK_DISCOUNT:
 			free_charm_pending = true
 		DealClause.FREE_SPINS:
 			free_spins_used.clear()
+
+## Ladung, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
+## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zur Bank.
+static func instant_clause_charge(clause_id: String) -> int:
+	match clause_id:
+		DealClause.SEED_CAPITAL:
+			return SEED_CAPITAL_CHARGE
+		DealClause.SEED_CAPITAL_II:
+			return SEED_CAPITAL_II_CHARGE
+	return 0
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
 func settle_block_deals() -> void:
@@ -1169,7 +1177,7 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 
 ## Ziel der Runde n (1-basiert) - EINZIGE Quelle der Ziel-Kurve; Rundenwechsel
 ## und Fahrplan lesen beide hier. Je Block verdoppelt sich der Zuwachs:
-## 150 … 400 (R6), 500 … 1000 (R12), 1200 … 2200 (R18).
+## 150 … 525 (R6), 675 … 1425 (R12), 1725 … 3225 (R18).
 static func goal_for_round(n: int) -> int:
 	var goal := BASE_GOAL
 	for step in range(2, n + 1):
@@ -1275,9 +1283,11 @@ const SECRET_CHARM_PRICE := 5
 const SECRET_ENGRAVING_PRICE := 5
 ## Einmaliges Eintrittsgeld: der vergitterte Laden öffnet für diese Ladung.
 const SECRET_UNLOCK_PRICE := 5
-## Grundpreis des Neuwurfs; jeder weitere kostet eine Ladung mehr. Der Zähler läuft
-## über den ganzen Lauf und wird nie zurückgesetzt.
+## Grundpreis des Neuwurfs; jeder weitere kostet den goldenen Schnitt mehr - die
+## Leiter läuft fibonacci-artig 3 / 5 / 8 / 13 / 21. Der Zähler läuft über den
+## ganzen Lauf und wird nie zurückgesetzt.
 const SECRET_REROLL_BASE := 3
+const GOLDEN_RATIO := 1.618033988749895
 ## Anteil der Wildcard-Plätze, die einen Charm statt einer Spezial-Gravur zeigen.
 const SECRET_WILDCARD_CHARM_CHANCE := 0.5
 
@@ -1351,9 +1361,9 @@ func unlock_secret_shop() -> bool:
 	secret_shop_discovered.emit()
 	return true
 
-## Preis des nächsten Neuwurfs.
+## Preis des nächsten Neuwurfs - je Neuwurf um den goldenen Schnitt teurer.
 func secret_reroll_cost() -> int:
-	return SECRET_REROLL_BASE + secret_rerolls
+	return roundi(SECRET_REROLL_BASE * pow(GOLDEN_RATIO, secret_rerolls))
 
 ## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Ladung
 ## nicht reicht.

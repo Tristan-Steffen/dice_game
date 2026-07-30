@@ -147,32 +147,32 @@ func test_thresholds_crossed_respects_cap() -> void:
 
 func test_goal_roadmap_block_starts_at_round_one() -> void:
 	var run := _run()  # Runde 1, Ziel 150
-	assert_eq(run.goal_roadmap(6), [150, 200, 250, 300, 350, 400] as Array[int])
+	assert_eq(run.goal_roadmap(6), [150, 225, 300, 375, 450, 525] as Array[int])
 	assert_eq(run.goal_roadmap_index(6), 0, "Runde 1 = erste Station")
 
 func test_goal_roadmap_block_stays_fixed_while_position_advances() -> void:
 	var run := _run()
-	run.advance_round()  # Runde 2, Ziel 200
-	run.advance_round()  # Runde 3, Ziel 250
-	assert_eq(run.goal_roadmap(6), [150, 200, 250, 300, 350, 400] as Array[int],
+	run.advance_round()  # Runde 2, Ziel 225
+	run.advance_round()  # Runde 3, Ziel 300
+	assert_eq(run.goal_roadmap(6), [150, 225, 300, 375, 450, 525] as Array[int],
 		"derselbe Block wie in Runde 1")
 	assert_eq(run.goal_roadmap_index(6), 2, "dritte Station ist dran")
 
 func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
 	var run := _run()
 	for i in 6:
-		run.advance_round()  # -> Runde 7, Ziel 500
-	# Der zweite Block steigt in 100er-Schritten (Zuwachs verdoppelt sich je Block).
-	assert_eq(run.goal_roadmap(6), [500, 600, 700, 800, 900, 1000] as Array[int],
+		run.advance_round()  # -> Runde 7, Ziel 675
+	# Der zweite Block steigt in 150er-Schritten (Zuwachs verdoppelt sich je Block).
+	assert_eq(run.goal_roadmap(6), [675, 825, 975, 1125, 1275, 1425] as Array[int],
 		"nach dem sechsten Sieg liegt ein frischer Block aus")
 	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")
 
 func test_goal_roadmap_matches_the_curve_across_blocks() -> void:
-	# Der Fahrplan zeigt exakt die Ziel-Kurve, auch im dritten Block (200er-Schritte).
+	# Der Fahrplan zeigt exakt die Ziel-Kurve, auch im dritten Block (300er-Schritte).
 	var run := _run()
 	for i in 12:
 		run.advance_round()  # -> Runde 13
-	assert_eq(run.goal_roadmap(6), [1200, 1400, 1600, 1800, 2000, 2200] as Array[int])
+	assert_eq(run.goal_roadmap(6), [1725, 2025, 2325, 2625, 2925, 3225] as Array[int])
 
 # --- Fumble-Automaten (Freischaltung + Ökonomie) ------------------------------
 

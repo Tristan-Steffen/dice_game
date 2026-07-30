@@ -15,7 +15,7 @@ func before_each() -> void:
 	run.charge = run.charge_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
-	view.size = Vector2(448, 345)
+	view.size = Vector2(451, 251)  # gemessene Glas-Tasche unter den Automaten
 	view.run = run
 	view.set_locked(false, true)
 	view.refresh()
@@ -69,6 +69,8 @@ func test_reroll_button_swaps_the_whole_stock() -> void:
 	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_ne(after, before, "frisch gewürfelte Auslage")
 	assert_eq(view.offer_buttons.size(), 3, "die Karten stehen neu")
+	assert_string_contains(view.reroll_button.text, "⚡%d" % run.secret_reroll_cost(),
+		"der Knopf trägt den gestiegenen Preis")
 
 func test_reroll_is_disabled_without_charge() -> void:
 	run.charge = 0

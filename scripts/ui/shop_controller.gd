@@ -58,6 +58,9 @@ var run: GameRun:
 		if run != null and run.money_changed.is_connected(_on_run_money_changed):
 			run.money_changed.disconnect(_on_run_money_changed)
 		run = value
+		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
+		sortiment_locked = false
+		spreads = []
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 
@@ -74,6 +77,8 @@ var page_next_button: Button
 ## Blättern-Hinweis (Hub-Stufe 1) + Hub-Aufstieg-Knopf im Shop-Fuß.
 var flip_hint_label: Label
 var hub_upgrade_button: Button
+## Umschalter der Sortiment-Sperre (Shop-Fuß).
+var lock_button: Button
 
 ## Hover-Dropdown (Charm-/Engraving-Beschreibung), wie die Gravur-Station.
 var shop_tooltip: PanelContainer
@@ -82,6 +87,11 @@ var shop_tooltip_body: Label
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
+
+## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
+## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
+## Runden, nicht den Lauf (siehe run-Setter).
+var sortiment_locked: bool = false
 
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
 var dice_packs: Array[Pack] = []
@@ -110,11 +120,14 @@ var _flicker_chip_from: int = -1
 var pending_bet_notice: String = ""
 
 ## Öffnet den Shop frisch auf der ersten Doppelseite (Gebühr startet neu);
-## baut das Gerüst passend zur aktuellen Größe.
+## baut das Gerüst passend zur aktuellen Größe. Ist das Sortiment gesperrt,
+## bleiben die bestehenden Seiten samt Kauf-Marken stehen.
 func open() -> void:
 	_build_layout()
-	spreads = [_build_spread()]
-	current_spread_index = 0
+	if not sortiment_locked or spreads.is_empty():
+		spreads = [_build_spread()]
+		current_spread_index = 0
+	current_spread_index = clampi(current_spread_index, 0, spreads.size() - 1)
 	_show_spread()
 	visible = true
 
@@ -156,6 +169,12 @@ func _build_layout() -> void:
 	title_rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(title_rail)
+	# Sortiment-Sperre: steht in der Kopfzeile neben dem Geld - im Fuß hätte sie
+	# die Blätter-/Aufstiegs-Knöpfe auf hohen Hub-Stufen aus dem Panel geschoben.
+	lock_button = _neon_button("", NEON_CYAN, u * 2.4, Vector2(u * 22.0, u * 4.6))
+	lock_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lock_button.pressed.connect(_on_lock_pressed)
+	header.add_child(lock_button)
 	money_label = _label("$0", u * 4.0, Color(1.5, 1.24, 0.15))
 	header.add_child(money_label)
 
@@ -202,6 +221,7 @@ func _build_layout() -> void:
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)
 	_refresh_hub_footer()
+	_refresh_lock_button()
 
 	_build_shop_tooltip()  # zuletzt: liegt als Overlay über allem
 
@@ -269,6 +289,24 @@ func refresh_after_hub_upgrade() -> void:
 	_refresh_hub_footer()
 	_show_spread()
 
+# --- Sortiment-Sperre ----------------------------------------------------------
+
+func _on_lock_pressed() -> void:
+	sortiment_locked = not sortiment_locked
+	_refresh_lock_button()
+
+## Der Knopf trägt die AKTION, nicht den Zustand - den zeigt seine Saumfarbe
+## (Gold = gesperrt).
+func _refresh_lock_button() -> void:
+	if lock_button == null or not is_instance_valid(lock_button):
+		return
+	var accent := NEON_GOLD if sortiment_locked else NEON_CYAN
+	lock_button.text = "🔒 Sperre lösen" if sortiment_locked else "🔓 Sortiment sperren"
+	lock_button.add_theme_stylebox_override("normal", _button_box(Color("#221e46cc"), accent))
+	lock_button.add_theme_stylebox_override("focus", _button_box(Color("#221e46cc"), accent))
+	lock_button.add_theme_stylebox_override("disabled",
+		_button_box(Color("#1a183666"), Color(accent.r, accent.g, accent.b, 0.25)))
+
 ## Zurückblättern ist immer gratis.
 func _on_page_back_pressed() -> void:
 	if current_spread_index == 0:
@@ -297,10 +335,12 @@ func _build_spread() -> MenuSpread:
 	spread.dice_pack_bought.resize(spread.dice_packs.size())
 	spread.dice_pack_bought.fill(false)
 
-	# Besitz sperrt NICHTS: denselben Charm darf man mehrfach besitzen. Nur
-	# innerhalb EINER Doppelseite kommt jeder Archetyp höchstens einmal vor -
-	# darum wird ohne Zurücklegen aus available gezogen (erase unten).
+	# Besitz sperrt NICHTS: denselben Charm darf man mehrfach besitzen - er wiegt
+	# beim Ziehen nur halb so viel (Charm.OWNED_WEIGHT_FACTOR). Nur innerhalb EINER
+	# Doppelseite kommt jeder Archetyp höchstens einmal vor - darum wird ohne
+	# Zurücklegen aus available gezogen (erase unten).
 	var available: Array[Charm] = Charm.all()
+	var owned := run.owned_charm_ids()
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := run.shop_rarity_tier()
 	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
@@ -309,12 +349,12 @@ func _build_spread() -> MenuSpread:
 	if rarity_tier >= 1 and charm_slots > 0:
 		var premium := _charms_at_least(available, rarity_tier)
 		if not premium.is_empty():
-			var top := Charm.pick_weighted(premium)
+			var top := Charm.pick_weighted(premium, owned)
 			spread.charm_options.append(top)
 			available.erase(top)
-	# Restliche Plätze gewichtet nach Rarität ziehen, ohne Zurücklegen.
+	# Restliche Plätze gewichtet nach Rarität und Besitz ziehen, ohne Zurücklegen.
 	while spread.charm_options.size() < charm_slots and not available.is_empty():
-		var pick := Charm.pick_weighted(available)
+		var pick := Charm.pick_weighted(available, owned)
 		spread.charm_options.append(pick)
 		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())

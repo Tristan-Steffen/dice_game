@@ -99,6 +99,14 @@ var settled: Array[bool] = []
 var rest_timers: Array[float] = []
 var slot_defs: Array[DieDefinition] = []
 
+## Anzeige-Überschreibung der OBEREN Seite je Slot (Slot -> Wert): der Würfel
+## zeigt einen anderen Wert als seine Def. Zwei Quellen, ein Mechanismus -
+## Verwandlungs-Charms (grün, vorläufig) und der Wertwandel zwischen den
+## Aktivierungen beim Zählen (normal, weil er dauerhaft wird). Rein Anzeige:
+## values bleibt, was die Wertung dieses Wurfs gelesen hat.
+var value_overrides: Dictionary = {}
+var _overrides_tinted: bool = true
+
 func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays: Array[DieFaceDisplay]) -> void:
 	roots = p_roots
 	bodies = p_bodies
@@ -126,6 +134,7 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 		roots[i].visible = true
 		settled[i] = false
 		rest_timers[i] = 0.0
+		value_overrides.erase(i)  # die Vorschau des alten Werts fliegt mit
 		bodies[i].freeze = false  # falls der Slot zuletzt an den Grubenrand geglitten war
 
 		var body := bodies[i]
@@ -247,6 +256,7 @@ static func face_index_for_local_dir(local_dir: Vector3) -> int:
 	return AXIS_FACE_INDEX.get(best_axis, -1)
 
 func reset() -> void:
+	value_overrides.clear()
 	for i in count():
 		selected[i] = false
 		values[i] = 0
@@ -273,6 +283,28 @@ func refresh_faces() -> void:
 	for i in count():
 		face_displays[i].apply_definition(slot_defs[i])
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
+		_apply_value_override(i)
+
+## Setzt die Anzeige-Überschreibungen (Slot -> Wert); leeres Dictionary löscht
+## sie. tinted = der Wert gilt nur vorläufig und wird grün gezeigt.
+func set_value_overrides(overrides: Dictionary, tinted: bool = true) -> void:
+	if value_overrides == overrides and _overrides_tinted == tinted:
+		return
+	value_overrides = overrides.duplicate()
+	_overrides_tinted = tinted
+	refresh_faces()
+
+func clear_value_overrides() -> void:
+	set_value_overrides({})
+
+## Schreibt die Überschreibung des Slots auf seine oben liegende Seite. Ohne
+## gewürfelte Seite (face_indices == -1) gibt es keine "obere" Ziffer.
+func _apply_value_override(i: int) -> void:
+	if not value_overrides.has(i) or face_indices[i] < 0:
+		return
+	face_displays[i].set_face_value_at(face_indices[i], int(value_overrides[i]))
+	if _overrides_tinted:
+		face_displays[i].set_face_number_tint(face_indices[i], DieFaceDisplay.PREVIEW_NUMBER_COLOR)
 
 func _style_tint(def: DieDefinition) -> Color:
 	return KIND_TINTS.get(def.style_id, Color.WHITE)

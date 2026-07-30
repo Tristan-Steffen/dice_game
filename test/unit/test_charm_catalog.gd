@@ -407,32 +407,40 @@ func test_rag_collector_counts_lucky_values():
 	assert_eq(CharmEffects.rag_collector_income(_d([4, 4, 1, 4, 2, 3]), 0, _ids([Charm.RAG_COLLECTOR])), 0, "ohne Glückszahl kein Geld")
 
 func test_round_end_income_combines_sources_with_caps():
-	# Zinsgroschen: $37 -> +3; Überflieger: 60 über Ziel -> +2.
+	# Zinsgroschen: $37 -> +3; Überflieger: 2 geräumte Stufen -> +10.
 	var ids := _ids([Charm.INTEREST_PENNY, Charm.HIGH_FLYER])
-	assert_eq(CharmEffects.round_end_income(37, 60, ids), 5)
-	assert_eq(CharmEffects.round_end_income(9, 10, ids), 0)
-	# Beide Quellen sind bei $50 gedeckelt.
-	assert_eq(CharmEffects.round_end_income(10000, 100000, ids), 100, "je Quelle max. $50")
+	assert_eq(CharmEffects.round_end_income(37, 2, ids), 13)
+	assert_eq(CharmEffects.round_end_income(9, 0, ids), 0)
+	# Nur der Zinsgroschen ist gedeckelt - die Stufen deckelt der Balken selbst.
+	assert_eq(CharmEffects.round_end_income(10000, 5, ids), 75, "Zinsen max. $50, Stufen 5×$5")
+
+func test_high_flyer_pays_per_cleared_overcharge_stage():
+	# Grundlage ist der BALKEN, nicht die geprägte Ladung: der Doppellader
+	# verdoppelt die ⚡ je Stufe, ändert am Überflieger aber nichts.
+	var ids := _ids([Charm.HIGH_FLYER])
+	assert_eq(CharmEffects.round_end_income(0, 1, ids), 5)
+	assert_eq(CharmEffects.round_end_income(0, 3, ids), 15)
+	assert_eq(CharmEffects.round_end_income(0, 0, ids), 0, "ohne geräumte Stufe kein Geld")
 
 func test_round_end_income_entries_name_the_paying_charm():
 	# Grundlage der Auszahlungs-Zeremonie: je Posten die Besitz-Position.
 	var ids := _ids([Charm.HORSESHOE, Charm.INTEREST_PENNY, Charm.HIGH_FLYER])
-	var entries := CharmEffects.round_end_income_entries(37, 60, ids)
+	var entries := CharmEffects.round_end_income_entries(37, 2, ids)
 	assert_eq(entries.size(), 2, "das Hufeisen zahlt nichts")
 	assert_eq(entries[0]["charm_index"], 1)
 	assert_eq(entries[0]["charm_id"], Charm.INTEREST_PENNY)
 	assert_eq(entries[0]["amount"], 3)
 	assert_eq(entries[1]["charm_index"], 2)
-	assert_eq(entries[1]["amount"], 2)
+	assert_eq(entries[1]["amount"], 10)
 
 func test_income_entries_always_sum_to_the_total():
 	# Zeremonie und Buchung dürfen nie auseinanderlaufen.
 	var ids := _ids([Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.INTEREST_PENNY])
 	for money in [0, 9, 37, 250, 10000]:
 		var sum := 0
-		for entry in CharmEffects.round_end_income_entries(money, 60, ids):
+		for entry in CharmEffects.round_end_income_entries(money, 2, ids):
 			sum += int(entry["amount"])
-		assert_eq(sum, CharmEffects.round_end_income(money, 60, ids), "$%d" % money)
+		assert_eq(sum, CharmEffects.round_end_income(money, 2, ids), "$%d" % money)
 
 func test_income_entries_do_not_compound_between_charms():
 	# Beide Zinsgroschen rechnen auf demselben Stand - kein Zinseszins.
@@ -682,3 +690,20 @@ func test_pick_weighted_favors_common_over_legendary():
 		if Charm.pick_weighted(candidates).id == Charm.RABBITS_FOOT:
 			common_hits += 1
 	assert_gt(common_hits, 140, "Gewöhnlich (Gewicht 1.0) schlägt Legendär (0.1) deutlich")
+
+func test_owned_charms_weigh_half():
+	# Besitz dämpft das Ziehgewicht, sperrt aber nichts - der Archetyp bleibt
+	# in der Auslage möglich.
+	var charm := Charm.rabbits_foot()
+	assert_eq(charm.pick_weight(), charm.rarity_weight(), "unbesessen: volles Raritätsgewicht")
+	assert_almost_eq(charm.pick_weight(_ids([Charm.RABBITS_FOOT])),
+		charm.rarity_weight() * Charm.OWNED_WEIGHT_FACTOR, 0.0001)
+	assert_almost_eq(charm.pick_weight(_ids([Charm.HORSESHOE])), charm.rarity_weight(), 0.0001,
+		"fremder Besitz ändert nichts")
+
+func test_pick_weighted_still_returns_an_owned_only_pool():
+	# Alles besessen: die Gewichte sinken gleichmäßig, die Ziehung bleibt gültig.
+	var candidates: Array[Charm] = [Charm.rabbits_foot(), Charm.horseshoe()]
+	var owned := _ids([Charm.RABBITS_FOOT, Charm.HORSESHOE])
+	for i in 20:
+		assert_true(owned.has(Charm.pick_weighted(candidates, owned).id))

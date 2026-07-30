@@ -12,7 +12,9 @@ class_name ScoreBreakdown
 ## base, mult, merge_total, post_steps, total (== score_category).
 ## Jeder Würfel-Schritt spielt seine "activations" nacheinander (auch bei nur
 ## einer): Würfel-Puls -> Charm-Anteil -> Krit-Schlag, mit After-Ständen je
-## Teilschritt - so ist das Mehrfach-Auslösen als Kette sichtbar.
+## Teilschritt - so ist das Mehrfach-Auslösen als Kette sichtbar. Je Auslösung
+## trägt der Eintrag "value" (die gezählte Augenzahl) und "value_after" (der
+## physische Wert danach) - daraus schaltet die Grubenanimation die Ziffer um.
 static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
 	var raw := dice
@@ -50,23 +52,18 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var upgraded := bool(info.get("upgraded", false))
 		var eye_sum := int(info.get("eye_sum", 0))
 		var face_material: String = materials[i] if i < materials.size() else ""
-		var eye := CharmEffects.eye_value(dice[i], charm_ids)
+		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
 		var count := 1
 		var once_base := 0
-		var once_mult := 0
-		# Material-Krit (dotierter Rubin/Glas): zählt in crit_x mit, bekommt aber
-		# keinen Charm-Index - er kommt vom Würfel, nicht von einem Dock-Pad.
-		var mat_crit := 1
 		if has_die_bonus:
 			count = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot, upgraded, int(info.get("mercury_faces", 0)))
 			once_base = MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids, upgraded, eye_sum)
-			once_mult = MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids, upgraded)
-			mat_crit = MaterialEffects.mult_crit_once_for(face_material, dice[i], charm_ids, upgraded)
-		# Würfelgebundene Charms dieses Slots, Beitrag EINER Auslösung.
+		# Würfelgebundene Charms dieses Slots, Beitrag EINER Auslösung. Sie hängen
+		# an den LIEGENDEN Werten und ändern sich über die Aktivierungen nicht.
 		var charm_base_once := 0
 		var charm_mult_once := 0
 		var die_charm_indices: Array[int] = []
-		var crit_once := mat_crit
+		var charm_crit := 1
 		var crit_charm_indices: Array[int] = []
 		for j in charm_ids.size():
 			var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, eye_slots)
@@ -79,14 +76,37 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		for j in charm_ids.size():
 			var cx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
 			if cx != 1:
-				crit_once *= cx
+				charm_crit *= cx
 				crit_charm_indices.append(j)
+		# LAUFENDER Wert wie in DiceScoring._base_and_mult: Knochen/Glas wandeln den
+		# PHYSISCHEN Wert (raw) ZWISCHEN den Aktivierungen, die Verwandlung liegt als
+		# Linse darüber. Augen, Mult-Material und Material-Krit rechnen je
+		# Aktivierung neu, alles andere bleibt. Die Kopfzeile trägt die ERSTE Auslösung.
+		var running: int = raw[i] if i < raw.size() else dice[i]
+		var eye := CharmEffects.eye_value(dice[i], charm_ids)
+		var once_mult := 0
+		var step_crit := charm_crit
 		var activations: Array[Dictionary] = []
 		for _a in count:
-			base += eye + once_base
-			mult += once_mult
+			var shown := CharmEffects.transform_value(running, charm_ids)
+			var eye_now := CharmEffects.eye_value(shown, charm_ids)
+			var mult_now := 0
+			# Material-Krit (dotierter Rubin/Glas): zählt in crit_x mit, bekommt aber
+			# keinen Charm-Index - er kommt vom Würfel, nicht von einem Dock-Pad.
+			var mat_crit_now := 1
+			if has_die_bonus:
+				mult_now = MaterialEffects.mult_once_for(face_material, edge_here, shown, charm_ids, upgraded)
+				mat_crit_now = MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, upgraded)
+			var crit_once := mat_crit_now * charm_crit
+			if activations.is_empty():
+				eye = eye_now
+				once_mult = mult_now
+				step_crit = crit_once
+			base += eye_now + once_base
+			mult += mult_now
 			var entry := {
-				"base_add": eye + once_base, "mult_add": once_mult,
+				"value": shown,
+				"base_add": eye_now + once_base, "mult_add": mult_now,
 				"base_after": base, "mult_after": mult,
 				"charm_base_add": charm_base_once, "charm_mult_add": charm_mult_once,
 			}
@@ -95,13 +115,17 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			entry["charm_base_after"] = base
 			entry["charm_mult_after"] = mult
 			entry["crit_x"] = crit_once
-			entry["crit_from_die"] = mat_crit != 1
+			entry["crit_from_die"] = mat_crit_now != 1
 			mult *= crit_once
 			entry["mult_after_crit"] = mult
+			if has_die_bonus:
+				running = MaterialEffects.mutate_value_once(running, face_material, edge_here, charm_ids, upgraded)
+			# Physischer Wert NACH dieser Auslösung: die Zahl auf dem Würfel wandert
+			# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
+			entry["value_after"] = running
 			activations.append(entry)
 		# Leiterbahn-Glieder: nach allen Aktivierungen, je Glied EINMAL wie eine
 		# Aktivierung mit getauschter Seite - exakt DiceScoring._base_and_mult.
-		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
 		var links: Array[Dictionary] = []
 		for link in DiceScoring.pointer_links_for(ctx, i):
 			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
@@ -160,7 +184,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"mat_mult_add": once_mult,
 			"charm_base_add": charm_base_once,
 			"charm_mult_add": charm_mult_once,
-			"crit_x": crit_once,
+			"crit_x": step_crit,
 			"die_charm_indices": die_charm_indices,
 			"crit_charm_indices": crit_charm_indices,
 			"base_after": base,
@@ -241,7 +265,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 
 	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je
 	# hinter einer DiceScoring-Änderung zurückbleibt.
-	var expected := DiceScoring.score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
+	var expected := DiceScoring.score_category(key, raw, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
 	if total != expected:
 		push_warning("ScoreBreakdown weicht von DiceScoring ab (%d statt %d) - Schrittliste veraltet?" % [total, expected])
 		total = expected

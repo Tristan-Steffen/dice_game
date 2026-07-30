@@ -4015,7 +4015,28 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 			return false
 		if not await _score_step_wait(CRIT_HOLD):
 			return false
+	# Knochen/Glas wandeln die Seite ZWISCHEN den Auslösungen: die Ziffer auf dem
+	# Würfel zieht nach, damit die nächste Auslösung sichtbar den neuen Wert zählt.
+	if pulse.has("value_after"):
+		_show_die_value_progress(slot, int(pulse["value_after"]))
 	return true
+
+## Zwischenstand des physischen Werts auf dem liegenden Würfel: normal gefärbt,
+## denn die Änderung ist dauerhaft. Trifft der Wert wieder die Def, verschwindet
+## die Überschreibung - nach der Zeremonie schreibt apply_take_effects dieselbe
+## Zahl in die Def, der Würfel zeigt also am Ende ohnehin das Richtige.
+func _show_die_value_progress(slot: int, value: int) -> void:
+	if slot < 0 or slot >= dice.count() or slot >= dice.face_indices.size():
+		return
+	var face := dice.face_indices[slot]
+	if face < 0 or face >= dice.slot_defs[slot].faces.size():
+		return
+	var overrides := dice.value_overrides.duplicate()
+	if value == dice.slot_defs[slot].faces[face]:
+		overrides.erase(slot)
+	else:
+		overrides[slot] = value
+	dice.set_value_overrides(overrides, false)
 
 ## Spielt einen STATISCHEN Krit-Schritt (Galgenhumor, Feierabendbier): der Komet
 ## läuft in Krit-Magenta vom Dock-Pad zum Mult-Orb, bei Ankunft übernimmt
@@ -4525,7 +4546,11 @@ func _open_route_choice() -> void:
 func _on_route_chosen(index: int) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
+	var charge_before := run.charge
 	run.take_route(index)
+	# Startkapital & Co. prägen Ladung SOFORT - GameRun hat gebucht, das Licht
+	# holt nach: je ⚡ ein Komet auf dem Weg der Überladungs-Auszahlung.
+	_play_deal_charge_volley(run.charge - charge_before)
 	route_pending = false
 	round_committed = true  # ab der Unterschrift sind die Würfel im Spiel
 	_sync_editing_lock()
@@ -4693,7 +4718,7 @@ func _on_round_complete() -> void:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
 		# Wirkung (Geld-Komet zur Truhe, Gravur-Meteore in die Schublade).
-		await _play_round_end_charm_ceremony(ids)
+		await _play_round_end_charm_ceremony(ids, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Charm-Zeremonie zurückgesetzt
 		# Glücksgroschen wächst ERST nach seiner Auszahlung (erste Runde: $3).
@@ -4867,9 +4892,9 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die: int, stag
 ## dem Stand VOR der Zeremonie (kein Zinseszins); nur der Notgroschen füllt
 ## an seiner Position auf den LAUFENDEN Stand auf - was rechts von ihm zahlt,
 ## landet obendrauf.
-func _play_round_end_charm_ceremony(ids: Array[String]) -> void:
+func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> void:
 	var amounts := {}
-	for entry in CharmEffects.round_end_income_entries(run.money, hand_total - run.effective_goal(), ids, run.old_penny_payouts):
+	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids, run.old_penny_payouts):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	for j in ids.size():
 		match ids[j]:
@@ -5017,22 +5042,58 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 ## EINE Ladung vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
 ## an deren Eintritt die Bank steht. Gebucht wird bei der Ankunft (dort pulsen
 ## Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
-func _fly_charge_to_capacitor() -> void:
+## book = false: die Ladung ist schon gebucht (Sofort-Klausel), es fliegt nur
+## das Licht - sonst zählte dieselbe ⚡ zweimal.
+func _fly_charge_to_capacitor(book: bool = true) -> void:
+	var launched := run
 	var travel := 0.0
 	if table_screen != null and capacitor_bank != null:
 		travel = table_screen.charge_comet(
 			table_screen.world_to_pixel(capacitor_bank.global_position), CHARGE_COMET_COLOR)
 	if travel <= 0.0:
-		run.add_charge(1)  # ohne Display still buchen, nichts verlieren
+		if book:
+			run.add_charge(1)  # ohne Display still buchen, nichts verlieren
 		return
 	get_tree().create_timer(travel).timeout.connect(func() -> void:
-		if phase != Phase.PAYOUT:
-			return
-		run.add_charge(1)
+		if run != launched or (book and phase != Phase.PAYOUT):
+			return  # Lauf während des Flugs zurückgesetzt
+		if book:
+			run.add_charge(1)
 		if capacitor_bank != null:
 			capacitor_bank.pulse()
 		if table_screen != null and table_screen.hub != null:
 			table_screen.hub.pulse_charge())
+
+## Sofort-Ladung eines Vertrags (Startkapital & Co.): je ⚡ ein Komet, dicht
+## gestaffelt wie die Frankiermaschinen-Salve. Reine Anzeige - gebucht hat
+## GameRun mit der Unterschrift, hier wird NICHTS gebucht.
+func _play_deal_charge_volley(count: int) -> void:
+	if count <= 0 or table_screen == null:
+		return
+	var launched := run
+	for i in count:
+		if i == 0:
+			_fly_deal_charge()
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if run == launched:
+					_fly_deal_charge())
+
+## EINE unterschriebene Ladung: dieselben zwei Etappen wie die Überladungs-
+## Auszahlung (Bank-Ader in den Hub, dann Hub-Cluster-Ader zur Bank) - jedes ⚡
+## erreicht die Börse auf demselben Weg.
+func _fly_deal_charge() -> void:
+	var launched := run
+	var travel := table_screen.bank_comet(CHARGE_COMET_COLOR)
+	if travel <= 0.0:
+		_fly_charge_to_capacitor(false)
+		return
+	get_tree().create_timer(travel).timeout.connect(func() -> void:
+		if run != launched:
+			return
+		if table_screen.hub != null:
+			table_screen.hub.flash_frame(CHARGE_COMET_COLOR)
+		_fly_charge_to_capacitor(false))
 
 ## Kurzer Größen-Pop + Aufleuchten einer Auszahlungs-Zeile (Bank-Komet trifft ein).
 func _pop_payout_label(label: Label) -> void:
@@ -5179,6 +5240,7 @@ func _on_pool_changed() -> void:
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
+	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
 	if engraving_active:
 		die_inspector.refresh_die()
 
@@ -5218,6 +5280,7 @@ func _show_game_over(total: int) -> void:
 
 func _refresh_ui() -> void:
 	_refresh_round_hud()
+	_sync_transform_previews()
 
 	if not has_rolled_current_hand:
 		# Nur transiente Meldungen (Farkle/Anker o.Ä.), sonst leer.
@@ -5251,6 +5314,25 @@ func _refresh_ui() -> void:
 				table_screen.update_pit_score(
 					DiceScoring.points_for(hand["key"], run.combo_levels),
 					DiceScoring.mult_for(hand["key"], run.combo_levels))
+
+## Verwandlungs-Charms (Glückszigaretten & Co.) am liegenden Würfel sichtbar
+## machen: die obere Seite zeigt den WIRKSAMEN Wert in Grün - dieselbe Grammatik
+## wie die Gravur-Vorschau an der Werkbank ("grün = steht nicht in der Def").
+## Rein Anzeige; gewertet wird der verwandelte Wert ohnehin schon.
+## Während des Zählens schweigt die Vorschau: dort führt der Wertwandel
+## zwischen den Aktivierungen die Anzeige (siehe _play_die_pulse).
+func _sync_transform_previews() -> void:
+	if dice == null or run == null or phase == Phase.SCORING:
+		return
+	var ids := run.charm_ids()
+	var overrides := {}
+	for i in dice.count():
+		if not dice.roots[i].visible or not dice.settled[i] or dice.face_indices[i] < 0:
+			continue
+		var effective := CharmEffects.transform_value(dice.values[i], ids)
+		if effective != dice.values[i]:
+			overrides[i] = effective
+	dice.set_value_overrides(overrides)
 
 ## Statische Teile der Runden-Anzeige; der Punktestand läuft separat animiert
 ## über _animate_points_to. Harmlos bei Mehrfachaufruf ohne Änderung.

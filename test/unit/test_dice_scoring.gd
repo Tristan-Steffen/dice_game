@@ -197,6 +197,29 @@ func test_pencil_stub_chains_through_fox_tail():
 	var hand := DiceScoring.best_hand(_d([2,4,1,3,5,6]), _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL]))
 	assert_ne(hand["key"], "one_kind", "verwandelte Werte bilden eine Kombination")
 
+func test_top_hat_turns_a_four_into_a_fifth_five():
+	assert_eq(DiceScoring.best_hand(_d([4,5,1,1,1,2]))["key"], "three_kind", "ohne Charm nur die 1er")
+	assert_eq(DiceScoring.best_hand(_d([4,5,1,1,1,2]), _ids([Charm.TOP_HAT]))["key"], "full_house",
+		"die verwandelte 4 bildet mit der 5 das Paar")
+
+func test_silver_dollar_turns_a_five_into_a_sixth_six():
+	assert_eq(DiceScoring.best_hand(_d([5,6,1,1,1,2]), _ids([Charm.SILVER_DOLLAR]))["key"], "full_house")
+
+func test_transform_chain_climbs_from_two_to_six():
+	# 2 -> 3 -> 4 -> 5 -> 6 und 4 -> 5 -> 6: beide landen auf der 6.
+	var ids := _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL, Charm.TOP_HAT, Charm.SILVER_DOLLAR])
+	assert_eq(DiceScoring.best_hand(_d([2,6,1,1,1,4]), ids)["key"], "double_three_kind")
+
+func test_eight_knot_pairs_a_seven_with_a_nine():
+	# Gravierte Seiten über 6: 7 und 9 rutschen beide zur 8 - dieselbe
+	# Kombinationsziffer, also ein echtes Paar.
+	var ids := _ids([Charm.EIGHT_KNOT])
+	assert_eq(DiceScoring.best_hand(_d([7,9,1,2,3,5]), ids)["key"], "two_kind")
+	assert_eq(DiceScoring.best_hand(_d([7,9,1,2,3,5]))["key"], "one_kind",
+		"ohne Knoten sind 7 und 9 nur Höchste Zahl")
+	# Punkte zählen die verwandelte 8, nicht 7 und 9.
+	assert_eq(DiceScoring.score_category("two_kind", _d([7,9,1,2,3,5]), ids), (10 + 8 + 8) * 2)
+
 func test_transformed_values_count_for_points_too():
 	# Das 6er-Paar aus 1ern zählt auch die Augen als 6er.
 	var score: int = DiceScoring.score_category("two_kind", _d([1,1,3,4,2,4]), _ids([Charm.LUCKY_CIGARETTES]))

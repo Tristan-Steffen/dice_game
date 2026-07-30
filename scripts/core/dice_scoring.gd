@@ -175,16 +175,20 @@ static func qualifies(key: String, dice: Array[int], ctx: Dictionary = {}) -> bo
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
 ## Würfel in Reihen-Ordnung (trigger_order; je Aktivierung Augen, Material,
-## würfelgebundene Charms; danach die Leiterbahn-Kette je Glied einmal), dann
+## würfelgebundene Charms - Knochen/Glas wandeln den Wert zwischen den
+## Aktivierungen; danach die Leiterbahn-Kette je Glied einmal), dann
 ## statische Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
 ## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in Besitz-
 ## Reihenfolge. materials/edge_materials: DieMaterial-id je Slot ("" = keins).
 ## ctx: Wurf-/Runden-Zustand.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
+	# raw = die PHYSISCHEN Seitenwerte; nur auf ihnen läuft der Wertwandel
+	# (Knochen/Glas), damit die Wertung genau dort landet, wo die Def landet.
+	var raw := dice
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
 		return 0
-	var pair := _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
+	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, edge_materials, combo_levels, ctx)
 	var score: int = pair[0] * maxi(1, pair[1])
 	for j in charm_ids.size():
 		score *= CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
@@ -193,8 +197,9 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 ## Kompletter Kombi-Multiplikator - die Mult-Seite derselben Rechnung; min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.
 static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> int:
+	var raw := dice
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	return maxi(1, _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)[1])
+	return maxi(1, _base_and_mult(key, dice, raw, charm_ids, materials, edge_materials, combo_levels, ctx)[1])
 
 ## Zählreihenfolge der Würfelphase: die Reihe, wie sie beim Nehmen aufgereiht
 ## liegt - Wert absteigend, bei Gleichstand kleinster Slot zuerst. Deterministisch
@@ -207,8 +212,8 @@ static func trigger_order(scored: Array[int], dice: Array[int]) -> Array[int]:
 	return order
 
 ## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice bereits
-## verwandelt). [base, mult] - mult ungeklemmt.
-static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
+## verwandelt, raw = die physischen Seitenwerte). [base, mult] - mult ungeklemmt.
+static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
 	var participating := participating_indices(key, dice, [], ctx)
 	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
 	# nur die beteiligten. Kombi-Charms (Blackjack & Co.) bleiben auf participating.
@@ -233,27 +238,37 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 		var upgraded := bool(info.get("upgraded", false))
 		var eye_sum := int(info.get("eye_sum", 0))
 		var face_material: String = materials[i] if i < materials.size() else ""
+		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
 		var activations := 1
 		if has_die_bonus:
 			activations = MaterialEffects.activation_count(i, materials, edge_materials, charm_ids, dice[i], echo_slot, upgraded, int(info.get("mercury_faces", 0)))
+		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
+		# Aktivierungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
+		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
+		# endete die Simulation woanders als apply_take_effects. Nur Augen und
+		# die Material-Rechnung DIESES Würfels folgen ihm - Trigger-Ordnung,
+		# Erkennung und alle Charm-Hooks bleiben an den liegenden Werten.
+		var running: int = raw[i] if i < raw.size() else dice[i]
 		for _a in activations:
-			base += CharmEffects.eye_value(dice[i], charm_ids)
+			var shown := CharmEffects.transform_value(running, charm_ids)
+			base += CharmEffects.eye_value(shown, charm_ids)
 			if not has_die_bonus:
 				continue
 			base += MaterialEffects.base_bonus_once(i, materials, edge_materials, charm_ids, upgraded, eye_sum)
-			mult += MaterialEffects.mult_bonus_once(i, dice, materials, edge_materials, charm_ids, upgraded)
+			mult += MaterialEffects.mult_once_for(face_material, edge_here, shown, charm_ids, upgraded)
 			for j in charm_ids.size():
 				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, edge_materials, scored)
 				mult += CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
 					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating)
 			# Material-Krit (dotierter Rubin/Glas) schlägt vor den Charm-Krits ein.
-			mult *= MaterialEffects.mult_crit_once_for(face_material, dice[i], charm_ids, upgraded)
+			mult *= MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, upgraded)
 			for j in charm_ids.size():
 				mult *= CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
+			running = MaterialEffects.mutate_value_once(running, face_material, edge_here, charm_ids, upgraded)
 		# Leiterbahn: NACH allen Aktivierungen feuert die Kette je Glied EINMAL
 		# wie eine Aktivierung mit getauschter Seite (nie retriggert) - noch an
-		# der Position dieses Würfels, weil Krits die Reihenfolge werten.
-		var edge_here: String = edge_materials[i] if i < edge_materials.size() else ""
+		# der Position dieses Würfels, weil Krits die Reihenfolge werten. Glieder
+		# behalten ihren gespeicherten Wert (eine Kette meint fremde Seiten).
 		for link in pointer_links_for(ctx, i):
 			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 			var link_material := String(link["material"])
@@ -285,11 +300,14 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 ## Spiel bei drei Zweierpäschen ein hochgestuftes Zwei-Paare. Gedrosselte
 ## Kategorien werden übersprungen (die Hand rutscht zur nächsten passenden).
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
-	dice = CharmEffects.transform_values(dice, charm_ids)
+	# Erkennung auf den verwandelten Werten, Wertung mit den ROHEN: score_category
+	# verwandelt selbst und braucht die physischen Werte für den Wertwandel
+	# (Knochen/Glas) - zweimal verwandelt käme dort die Linse als Seitenwert an.
+	var shown := CharmEffects.transform_values(dice, charm_ids)
 	var best_key := ONE_KIND
 	var best_score := 0  # bleibt 0, wenn keine Kategorie durchkommt (Drossel/Parität)
 	for key in HAND_PRIORITY:
-		if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
+		if is_throttled(key, ctx) or not qualifies(key, shown, ctx):
 			continue
 		best_key = key
 		best_score = score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)

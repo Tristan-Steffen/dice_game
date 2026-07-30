@@ -356,6 +356,66 @@ func test_each_archetype_appears_at_most_once_per_spread():
 		assert_false(seen.has(charm.id), "jeder Archetyp höchstens einmal je Seite")
 		seen.append(charm.id)
 
+# --- Sortiment-Sperre ----------------------------------------------------------
+
+func test_locked_shop_keeps_the_same_offers_on_reopen():
+	var charms = shop.charm_options
+	var packs = shop.dice_packs
+	var overclocks = shop.overclock_offers
+	shop._on_lock_pressed()
+	assert_true(shop.sortiment_locked)
+	shop._on_done_pressed()
+	shop.open()
+	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
+	assert_true(shop.dice_packs == packs, "dieselben Pakete")
+	assert_true(shop.overclock_offers == overclocks, "dieselben Übertaktungen")
+
+func test_locked_shop_keeps_bought_marks_on_reopen():
+	shop._on_charm_clicked(0)
+	shop._on_pack_buy_pressed(0, true)
+	shop._on_lock_pressed()
+	shop._on_done_pressed()
+	shop.open()
+	assert_true(shop.charm_bought[0], "der gekaufte Charm bleibt vermerkt")
+	assert_true(shop.dice_pack_bought[0], "das gekaufte Paket bleibt im Lager")
+	var money_after: int = run.money
+	shop._on_charm_clicked(0)
+	assert_eq(run.money, money_after, "kein zweiter Kauf über den Besuch hinweg")
+
+func test_locked_shop_keeps_every_flipped_page():
+	shop._on_page_next_pressed()  # -$2, zweite Seite
+	var second = shop.dice_packs
+	shop._on_lock_pressed()
+	shop._on_done_pressed()
+	shop.open()
+	assert_eq(shop.spreads.size(), 2, "beide Seiten bleiben stehen")
+	assert_eq(shop.current_spread_index, 1, "der Laden öffnet, wo er zuging")
+	assert_true(shop.dice_packs == second)
+
+func test_unlocking_resumes_the_reroll():
+	var charms = shop.charm_options
+	shop._on_lock_pressed()
+	shop._on_lock_pressed()  # wieder offen
+	assert_false(shop.sortiment_locked)
+	shop._on_done_pressed()
+	shop.open()
+	assert_false(shop.charm_options == charms, "frische Auslage")
+	assert_eq(shop.spreads.size(), 1)
+
+func test_lock_button_labels_the_action():
+	assert_true("sperren" in shop.lock_button.text, "offen: der Knopf bietet das Sperren an")
+	shop._on_lock_pressed()
+	assert_true("lösen" in shop.lock_button.text, "gesperrt: der Knopf bietet das Lösen an")
+
+func test_a_new_run_clears_the_lock():
+	shop._on_lock_pressed()
+	var fresh := GameRun.new_run()
+	fresh.money = 100
+	shop.run = fresh
+	assert_false(shop.sortiment_locked, "ein frischer Lauf startet mit offenem Sortiment")
+	shop.open()
+	assert_eq(shop.spreads.size(), 1)
+
 # --- Blätter-Ecken (Navigation auf den Seiten) --------------------------------
 
 func test_back_corner_disabled_on_first_spread():

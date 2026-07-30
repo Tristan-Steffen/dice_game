@@ -448,22 +448,22 @@ func test_advance_round_increments_number_and_goal():
 	assert_eq(run.round_goal, GameRun.BASE_GOAL + 2 * GameRun.GOAL_INCREMENT)
 
 func test_goal_curve_doubles_its_step_every_block():
-	# Erster Block 50er-Schritte, dann 100 / 200 / 400 - die Wertung wächst
+	# Erster Block 75er-Schritte, dann 150 / 300 / 600 - die Wertung wächst
 	# multiplikativ, das Ziel muss mithalten.
 	assert_eq(GameRun.goal_for_round(1), 150, "Startziel")
-	assert_eq(GameRun.goal_for_round(6), 400, "Block 1 endet bei 400")
-	assert_eq(GameRun.goal_for_round(7), 500, "erster 100er-Schritt")
-	assert_eq(GameRun.goal_for_round(12), 1000)
-	assert_eq(GameRun.goal_for_round(13), 1200, "erster 200er-Schritt")
-	assert_eq(GameRun.goal_for_round(18), 2200)
-	assert_eq(GameRun.goal_for_round(24), 4600, "vierter Block: 400er-Schritte")
+	assert_eq(GameRun.goal_for_round(6), 525, "Block 1 endet bei 525")
+	assert_eq(GameRun.goal_for_round(7), 675, "erster 150er-Schritt")
+	assert_eq(GameRun.goal_for_round(12), 1425)
+	assert_eq(GameRun.goal_for_round(13), 1725, "erster 300er-Schritt")
+	assert_eq(GameRun.goal_for_round(18), 3225)
+	assert_eq(GameRun.goal_for_round(24), 6825, "vierter Block: 600er-Schritte")
 
 func test_advance_round_follows_the_curve_across_a_block_edge():
 	for i in 6:
 		run.advance_round()
 	assert_eq(run.round_number, 7)
 	assert_eq(run.round_goal, GameRun.goal_for_round(7), "Rundenwechsel liest die Kurve")
-	assert_eq(run.round_goal, 500)
+	assert_eq(run.round_goal, 675)
 
 # --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
 

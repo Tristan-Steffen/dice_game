@@ -625,6 +625,115 @@ func test_upgraded_glass_shrinks_to_the_lungs_floor():
 	assert_eq(low[0].faces[0], MaterialEffects.GLASSBLOWER_LUNG_FLOOR, "8 − 5 wäre 3, geklemmt auf 6")
 	assert_eq(low_report.shrunk, [0])
 
+# --- Wertwandel ZWISCHEN den Aktivierungen --------------------------------------
+# Knochen wächst und Glas schrumpft mitten im Zug: die zweite Auslösung zählt
+# schon den neuen Wert. Simulation (DiceScoring) und Buchung (apply_take_effects)
+# rechnen dieselbe Kette - dieser Block sichert die Gleichheit ab.
+
+## Fälle: [Seitenwert, Seiten-Material, Kanten-Material, Charms, dotiert].
+func _mutation_cases() -> Array:
+	return [
+		[5, DieMaterial.BONE, "", [], false],
+		[5, DieMaterial.BONE, "", [Charm.BONE_GLUE], false],
+		[5, DieMaterial.BONE, "", [Charm.BONE_MARROW], false],
+		[5, DieMaterial.BONE, "", [Charm.BONE_GLUE, Charm.BONE_MARROW], true],
+		[40, DieMaterial.BONE, "", [], true],
+		[5, "", DieMaterial.BONE, [], false],
+		[40, DieMaterial.GLASS, "", [], false],
+		[40, DieMaterial.GLASS, "", [], true],
+		[8, DieMaterial.GLASS, "", [Charm.GLASSBLOWER_LUNG], true],
+		[3, DieMaterial.GLASS, "", [], true],
+		[6, "", DieMaterial.GLASS, [], false],
+		[6, DieMaterial.BONE, DieMaterial.GLASS, [], false],
+	]
+
+func test_take_effects_land_on_the_simulated_running_value():
+	# Die Zeremonie zeigt den Zwischenstand aus der Simulation - endet sie woanders
+	# als die Def, springt die Zahl nach dem Zählen.
+	for case in _mutation_cases():
+		var value: int = case[0]
+		var face_material: String = case[1]
+		var edge_material: String = case[2]
+		var upgraded: bool = case[4]
+		# Die Echo-Kammer stapelt Aktivierungen, ohne das Kanten-Material zu
+		# belegen - so lässt sich jeder Fall ein-, zwei- und dreifach prüfen.
+		for echoes in 3:
+			var ids := _ids(case[3])
+			for _e in echoes:
+				ids.append(Charm.ECHO_CHAMBER)
+			var defs: Array[DieDefinition] = [
+				_die([value, 2, 3, 4, 5, 6], [face_material, "", "", "", "", ""],
+					[0] if upgraded else [])]
+			MaterialEffects.apply_take_effects(defs, _p([0]), _m([face_material]), _p([0]),
+				_m([edge_material]), ids, 0)
+			var activations := MaterialEffects.activation_count(0, _m([face_material]),
+				_m([edge_material]), ids, value, 0, upgraded, 0)
+			assert_eq(defs[0].faces[0],
+				MaterialEffects.value_after_activations(value, activations, face_material,
+					edge_material, ids, upgraded),
+				"Wert %d, Seite '%s', Kante '%s', %d Echos" % [value, face_material, edge_material, echoes])
+
+func test_second_activation_counts_the_grown_bone():
+	# Quecksilber-Kante löst zweimal aus: 5 Augen, dann 6 (Knochen wuchs zwischen
+	# den Zählungen). Basis = 10 (Paar) + 5 + 6 + der Partnerwürfel 5.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]),
+		NO_CHARMS, false, mats, edges)
+	assert_eq(score, (10 + 5 + 6 + 5) * 2)
+
+func test_second_activation_counts_the_shrunken_glass():
+	# Glas zählt seine Augen als Mult UND als Basis: 6 dann 5.
+	var mats := _m([DieMaterial.GLASS, "", "", "", "", ""])
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([6, 6, 1, 2, 3, 4]),
+		NO_CHARMS, false, mats, edges)
+	assert_eq(score, (10 + 6 + 5 + 6) * (2 + 6 + 5))
+
+func test_a_single_activation_is_unchanged_by_the_running_value():
+	# Ohne zweite Auslösung darf der Wertwandel nichts verschieben.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]),
+		NO_CHARMS, false, mats)
+	assert_eq(score, (10 + 5 + 5) * 2)
+
+func test_preview_and_take_agree_on_a_growing_bone():
+	# Vorschau (best_hand) und Nahme (score_category) laufen durch dieselbe
+	# Rechnung - der laufende Wert darf sie nicht auseinanderbringen.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var dice := _d([5, 5, 1, 2, 3, 4])
+	var hand := DiceScoring.best_hand(dice, NO_CHARMS, false, mats, edges)
+	assert_eq(int(hand["score"]),
+		DiceScoring.score_category(String(hand["key"]), dice, NO_CHARMS, false, mats, edges))
+
+func test_the_running_value_rides_the_physical_face_not_the_transform():
+	# Glückszigaretten zeigen die 1 als 6, gewachsen wird aber die echte Seite:
+	# Auslösung 1 zählt 6, Auslösung 2 zählt die gewachsene 2.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var ids := _ids([Charm.LUCKY_CIGARETTES])
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([1, 1, 3, 4, 5, 2]),
+		ids, false, mats, edges)
+	assert_eq(score, (10 + 6 + 2 + 6) * 2)
+	# ... und die Def wächst auf der ECHTEN Seite mit, zwei Auslösungen: 1 -> 3.
+	var defs: Array[DieDefinition] = [_die([1, 2, 3, 4, 5, 6], [DieMaterial.BONE, "", "", "", "", ""])]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]),
+		_m([DieMaterial.MERCURY]), ids)
+	assert_eq(defs[0].faces[0], 3)
+
+func test_breakdown_carries_the_value_of_every_activation():
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]),
+		NO_CHARMS, false, mats, edges)
+	var acts: Array = breakdown["die_steps"][0]["activations"]
+	assert_eq(acts.size(), 2, "die Quecksilber-Kante löst zweimal aus")
+	assert_eq(acts[0]["value"], 5)
+	assert_eq(acts[0]["value_after"], 6, "zwischen den Zählungen gewachsen")
+	assert_eq(acts[1]["value"], 6)
+	assert_eq(acts[1]["value_after"], 7)
+
 # --- Datensatz: die Marke gehört dem Würfel, nicht der geteilten Vorlage --------
 
 func test_instantiate_and_become_copy_the_upgrade_marks():

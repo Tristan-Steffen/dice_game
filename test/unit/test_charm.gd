@@ -13,7 +13,8 @@ func test_all_returns_all_charms():
 	# +11 außerhalb des Katalogs: Beherit, Hochstapler, Prime Time, Vorreiter,
 	# Hausjoker, Gratis Getränk, Rampenlicht, Midashandschuh, Goldader,
 	# Blood Diamond, Knochenmark.
-	assert_eq(Charm.all().size(), 83)
+	# +3 Verwandler: Zylinderhut, Silberdollar, Achterknoten.
+	assert_eq(Charm.all().size(), 86)
 
 func test_all_ids_are_unique():
 	var seen := {}

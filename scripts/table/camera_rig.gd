@@ -33,10 +33,16 @@ const PIT_ZOOM_DISTANCE_BONUS := 5.0
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 
 ## Der Schwarzmarkt ist das kleinste Fenster (die Glaskante lässt unter den
-## Automaten nur eine schmale Tasche): keine 500 px breit, also knapp die halbe
-## Automaten-Breite - und damit auch nur die halbe Distanz, sonst steht der Laden
-## als Briefmarke im Bild.
-const SECRET_SHOP_ZOOM_DISTANCE_CUT := 11.0
+## Automaten nur eine schmale Tasche): keine 500 Textur-px breit. Die Distanz ist
+## deshalb der TEXTUR-Auflösung gerechnet, nicht dem Bildeindruck: bei Abzug 11
+## lag das Fenster auf ~780 Bildschirm-px, also 0,58 Textur-px je Bildschirm-px -
+## eine 1,7-fache Hochskalierung, die als "360p" gelesen wurde. Bei Abzug 4 füllen
+## seine 451 Textur-px ~440 Bildschirm-px, das Bild wird also nie mehr gestreckt.
+## Mehr Textur ginge nur über TableScreen.SUPERSAMPLE, und das kostet den ganzen
+## Tisch (gemessen: 3 -> 4 hebt die Bildzeit von 35 auf 58 ms und erreicht
+## trotzdem nur 0,77 tex/px). Die verlorene Bildgröße holt SecretShopView über
+## seine kleinere CONTENT_UNITS zurück.
+const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
 
 ## Die Werkbank rahmt Trays UND Fenster; darunter schneidet der obere Bildrand
 ## die erste Tray-Reihe an, und die ist Klickziel.

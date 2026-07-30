@@ -30,7 +30,12 @@ const SHADOW_SLOTS := 3
 
 ## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
 ## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Vertragswahl).
-const CONTENT_UNITS := 72.0
+## Der Wert ist knapp UNTER dem Seitenverhältnis der echten Tasche (~1,8) gewählt,
+## damit die BREITE bindet: das ist die größte Einheit, die das Fenster tragen
+## kann, und die Einheit ist hier gleichbedeutend mit Schriftgröße in Textur-
+## Pixeln (das Fenster hat nur ~450×250 davon). Größer geht nicht, kleiner heißt
+## Matsch, sobald die Kamera heranfährt (siehe CameraRig.SECRET_SHOP_ZOOM_DISTANCE_CUT).
+const CONTENT_UNITS := 54.0
 
 var run: GameRun:
 	set(value):

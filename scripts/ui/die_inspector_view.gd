@@ -52,7 +52,9 @@ const NEON_MUTED := Color(0.75, 0.78, 0.9)
 ## Neutraler Rahmen unausgewählter Seiten-/Kanten-Chips.
 const CHIP_BORDER := Color(0.72, 0.76, 0.8)
 ## Vorschau: Wert steigt grün, sinkt warm-rot; ungeeignete Ziffern dimmen grau.
-const PREVIEW_UP := Color(0.5, 1.0, 0.6)
+## Das Grün ist dasselbe wie am liegenden Würfel (DieFaceDisplay) - grün heißt
+## überall "vorläufig, steht nicht in der Def".
+const PREVIEW_UP := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
 const DIM_NUMBER_COLOR := Color(0.35, 0.35, 0.42)
 const DIM_CHIP_ALPHA := 0.30
