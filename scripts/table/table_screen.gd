@@ -2368,6 +2368,22 @@ func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
+## Gravur-Gewinn einer Nebenwette bis in seinen Schubladen-Platz: der
+## Auszahlungs-Komet zum Hub, dann Werkstatt- und Schubladen-Ader (derselbe
+## Aderweg wie ein Automaten-Gewinn). Liefert die Laufzeit.
+func side_bet_engraving_comet(category: String, slot_px: Vector2, color: Color) -> float:
+	var path := _hub_to_side_path()
+	if path.size() < 2 or workshop_window == null or not workshop_window.visible:
+		return 0.0
+	path.reverse()
+	var tail := _route_via_strips(path[path.size() - 1],
+		[workshop_hub_strip, _supply_strip(category)], slot_px)
+	for i in range(1, tail.size()):
+		path.append(tail[i])
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
 ## Lässt das Einsatz-Licht am Fenster-Eintritt weiter "in den Setzen-Knopf
 ## diffundieren": ein kurzer, gedämpfter Komet vom Ader-Eintritt zur Knopfmitte
 ## (Screen-Pixel). Liefert die Laufzeit.

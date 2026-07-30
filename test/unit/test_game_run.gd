@@ -1235,6 +1235,110 @@ func test_roadmap_markers_flag_the_stress_station():
 	assert_eq(markers[GameRun.GOAL_BLOCK - 1], GameRun.STRESS_MARKER)
 	assert_eq(markers[0], "", "normale Stationen bleiben unmarkiert")
 
+# --- Nebenwetten: Steuer-Einsätze und neue Ausschüttungen -------------------------
+
+func _place(id: String) -> SideBet:
+	var bet := SideBet._from_template(_template(id))
+	run.place_side_bet(bet)
+	return bet
+
+func test_tax_bets_are_placeable_without_money():
+	run.money = 0
+	var bet := SideBet._from_template(_template("table_fee"))
+	assert_true(run.can_place_side_bet(bet), "die Gebühr kommt erst beim Nehmen")
+	run.place_side_bet(bet)
+	assert_eq(run.money, 0, "beim Platzieren wird nichts abgebucht")
+
+func test_per_hand_tax_is_charged_at_every_take():
+	run.money = 20
+	var bet := _place("table_fee")  # $3 je Hand
+	assert_eq(run.tax_side_bets(4), bet.stake)
+	assert_eq(run.money, 20 - bet.stake)
+	run.tax_side_bets(2)
+	assert_eq(run.money, 20 - bet.stake * 2)
+
+func test_per_die_tax_scales_with_the_hand():
+	run.money = 20
+	var bet := _place("dice_toll")  # $1 je Würfel
+	assert_eq(run.tax_side_bets(5), bet.stake * 5)
+	assert_eq(run.money, 20 - bet.stake * 5)
+
+func test_insolvency_voids_the_tax_bet():
+	run.money = 2
+	var bet := _place("table_fee")  # $3 je Hand
+	run.tax_side_bets(1)
+	assert_true(bet.voided, "zu wenig Geld reißt die Wette ab")
+	assert_eq(run.money, 2, "eine verfallene Wette bucht nichts ab")
+	run.money = 50
+	run.tax_side_bets(1)
+	assert_eq(run.money, 50, "sie wird auch später nicht mehr besteuert")
+	var won := run.resolve_side_bets({"cleared": true})
+	assert_eq(won.size(), 0, "verfallen = verloren")
+
+func test_charge_stake_is_paid_from_the_capacitor():
+	var bet := SideBet._from_template(_template("feedback_loop"))
+	run.charge = bet.stake_charge - 1
+	assert_false(run.can_place_side_bet(bet))
+	run.charge = bet.stake_charge + 1
+	assert_true(run.can_place_side_bet(bet))
+	run.place_side_bet(bet)
+	assert_eq(run.charge, 1)
+
+func test_charge_payout_overflows_into_money():
+	var bet := SideBet._from_template(_template("feedback_loop"))  # 8 ⚡ Gewinn
+	run.charge = bet.stake_charge
+	run.place_side_bet(bet)
+	run.charge = run.charge_cap() - 1  # nur noch EINE passt hinein
+	run.money = 0
+	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
+	assert_eq(run.charge, run.charge_cap(), "die Börse läuft voll")
+	assert_eq(run.money, (bet.payout_charge - 1) * GameRun.CHARGE_OVERFLOW_MONEY,
+		"der Rest fällt bar an")
+
+func test_pack_payout_lands_sealed_in_the_stash():
+	var bet := SideBet._from_template(_template("shipment"))
+	run.money = 100
+	run.place_side_bet(bet)
+	run.resolve_side_bets({"cleared": true, "dice_taken": bet.target})
+	assert_eq(run.owned_packs.size(), 1, "ein versiegeltes Paket im Lager")
+	assert_not_null(bet.awarded_pack, "die Zeremonie erfährt die Sorte")
+
+func test_grant_pack_costs_nothing():
+	run.money = 10
+	run.grant_pack(Pack.number_pack())
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.money, 10)
+
+func test_grant_combo_level_lifts_the_chip():
+	var before := run.combo_level(DiceScoring.FULL_HOUSE)
+	run.grant_combo_level(DiceScoring.FULL_HOUSE)
+	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), before + 1)
+
+func test_combo_level_payout_upgrades_the_named_chip():
+	var bet := SideBet._from_template(_template("patent"))
+	run.money = 100
+	run.place_side_bet(bet)
+	var before := run.combo_level(DiceScoring.FULL_HOUSE)
+	run.resolve_side_bets({"cleared": true,
+		"best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE)})
+	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), before + 1)
+
+func test_special_payout_grants_the_sonderposten():
+	var bet := SideBet._from_template(_template("circuit_contract"))
+	run.money = 100
+	run.place_side_bet(bet)
+	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_eq(run.owned_engravings[0].id, Engraving.POINTER)
+
+func test_tournament_night_spares_unique_goods():
+	_sign([DealClause.TOURNAMENT_NIGHT])
+	var bet := SideBet._from_template(_template("circuit_contract"))
+	run.money = 100
+	run.place_side_bet(bet)
+	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
+	assert_eq(run.owned_engravings.size(), 1, "ein Sonderposten bleibt einer")
+
 # --- Helfer -----------------------------------------------------------------------
 
 func _p(values: Array) -> Array[int]:

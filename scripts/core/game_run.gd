@@ -465,6 +465,10 @@ func grant_engraving(engraving: Engraving) -> void:
 
 func purchase_pack(pack: Pack, price: int) -> void:
 	add_money(-price)
+	grant_pack(pack)
+
+## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn).
+func grant_pack(pack: Pack) -> void:
 	owned_packs.append(pack)
 	packs_changed.emit()
 
@@ -537,6 +541,13 @@ func can_overclock(combo_key: String) -> bool:
 ## Multiplikator der Kombination, siehe DiceScoring).
 func overclock_combo(combo_key: String) -> void:
 	add_money(-overclock_price(combo_key))
+	grant_combo_level(combo_key)
+
+## Hebt eine Kombination ohne Zahlung eine Stufe (Wett-Gewinn) - dieselbe
+## Buchung wie ein Kauf, damit die Zeremonie am Signal hängt.
+func grant_combo_level(combo_key: String) -> void:
+	if combo_key == "":
+		return
 	combo_levels[combo_key] = combo_level(combo_key) + 1
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
@@ -976,6 +987,10 @@ func side_bet_stake(bet: SideBet) -> int:
 func side_bet_stake_engravings(bet: SideBet) -> int:
 	return bet.stake_engravings * side_bet_stake_factor()
 
+## Fälliger Ladungs-Einsatz einer Wette (⚡).
+func side_bet_stake_charge(bet: SideBet) -> int:
+	return bet.stake_charge * side_bet_stake_factor()
+
 ## Frankiermaschine: so viele Zahl-Gravuren schenkt sie am Rundenende - je eine
 ## pro Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
 const STAMP_ENGRAVINGS := 3
@@ -1057,21 +1072,59 @@ func consume_engraving(id: String) -> bool:
 			return true
 	return false
 
-## Ob der Einsatz einer Wette bezahlbar ist (Geld bzw. genug Gravuren im Inventar).
+## Ob der Einsatz einer Wette bezahlbar ist. Steuerwetten sind immer platzierbar -
+## sie kosten erst beim Nehmen (und reißen dort ab, siehe tax_side_bets).
 func can_place_side_bet(bet: SideBet) -> bool:
-	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
-		return owned_engravings.size() >= side_bet_stake_engravings(bet)
+	match bet.stake_kind:
+		SideBet.Stake.ENGRAVINGS:
+			return owned_engravings.size() >= side_bet_stake_engravings(bet)
+		SideBet.Stake.CHARGE:
+			return charge >= side_bet_stake_charge(bet)
+		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
+			return true
 	return money >= side_bet_stake(bet)
 
-## Platziert eine Nebenwette: Einsatz sofort fällig (Geld oder geopferte
-## Gravuren), Auswertung am Rundenende.
+## Platziert eine Nebenwette: Einsatz sofort fällig (Geld, geopferte Gravuren
+## oder Ladung), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
-	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
-		_consume_engravings(side_bet_stake_engravings(bet))
-	else:
-		add_money(-side_bet_stake(bet))
+	match bet.stake_kind:
+		SideBet.Stake.ENGRAVINGS:
+			_consume_engravings(side_bet_stake_engravings(bet))
+		SideBet.Stake.CHARGE:
+			spend_charge(side_bet_stake_charge(bet))
+		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
+			pass  # Steuerwette: die Rechnung kommt Hand für Hand
+		_:
+			add_money(-side_bet_stake(bet))
 	active_side_bets.append(bet)
 	side_bets_changed.emit()
+
+## Zieht die laufende Steuer der Steuerwetten für EINE genommene Hand ein
+## (hand_dice = Würfel dieser Hand). Reicht das Geld nicht, verfällt die Wette:
+## sie zahlt nichts mehr und ist verloren. Liefert das insgesamt Gezahlte.
+func tax_side_bets(hand_dice: int) -> int:
+	var paid := 0
+	var changed := false
+	for bet in active_side_bets:
+		if bet.voided:
+			continue
+		var due := 0
+		match bet.stake_kind:
+			SideBet.Stake.MONEY_PER_HAND:
+				due = side_bet_stake(bet)
+			SideBet.Stake.MONEY_PER_DIE:
+				due = side_bet_stake(bet) * maxi(hand_dice, 0)
+		if due <= 0:
+			continue
+		changed = true
+		if money < due:
+			bet.voided = true
+			continue
+		add_money(-due)
+		paid += due
+	if changed:
+		side_bets_changed.emit()
+	return paid
 
 ## Opfert n Gravuren vom Anfang des Inventars (Einsatz einer Gravur-Wette).
 func _consume_engravings(count: int) -> void:
@@ -1091,15 +1144,35 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	for bet in active_side_bets:
 		if bet.evaluate(result):
 			won.append(bet)
-			if bet.payout_kind == SideBet.Payout.MONEY:
-				add_money(bet.payout_money * factor)
-			else:
-				for i in factor:
-					for engraving in bet.reward_list():
-						grant_engraving(engraving)
+			_pay_side_bet(bet, factor)
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won
+
+## Schüttet EINEN gewonnenen Einsatz aus. Der Turniernacht-Faktor greift auf
+## Geld, Gravuren und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
+## verdoppelt er nicht.
+func _pay_side_bet(bet: SideBet, factor: int) -> void:
+	match bet.payout_kind:
+		SideBet.Payout.MONEY:
+			add_money(bet.payout_money * factor)
+		SideBet.Payout.CHARGE:
+			var overflow := add_charge(bet.payout_charge * factor)
+			if overflow > 0:
+				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # volle Börse zahlt bar
+		SideBet.Payout.SPECIAL:
+			var special := bet.special_engraving()
+			if special != null:
+				grant_engraving(special)
+		SideBet.Payout.PACK:
+			bet.awarded_pack = Pack.roll_engraving_pack(hub_level)
+			grant_pack(bet.awarded_pack)
+		SideBet.Payout.COMBO_LEVEL:
+			grant_combo_level(bet.target_combo)
+		_:
+			for i in factor:
+				for engraving in bet.reward_list():
+					grant_engraving(engraving)
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 
@@ -1276,6 +1349,10 @@ func stage_progress(points: int) -> Dictionary:
 ## lesbar ist - nie als krumme Zahl.
 const CHARGE_ROW := 5
 const CHARGE_ROWS_MAX := 5
+
+## Barwert einer ⚡, die nicht mehr in die Börse passt (Wett-Gewinn) - derselbe
+## Satz wie eine übergelaufene Überladungs-Stufe.
+const CHARGE_OVERFLOW_MONEY := 5
 
 ## Preise der Schwarzmarkt-Ware in Ladung. Der Charm kostet genau eine volle
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.

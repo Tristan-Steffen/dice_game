@@ -8,13 +8,14 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
+	run.hub_level = GameRun.HUB_SIDE_BETS_LEVEL  # darunter liegt gar keine Wette aus
 	panel = SideBetPanel.new()
 	panel.size = Vector2(1000, 600)
 	add_child_autofree(panel)  # löst _ready aus
 	panel.run = run
 
 func _offers() -> Array[SideBet]:
-	return SideBet.roll_offers(SideBetPanel.OFFER_COUNT)
+	return SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.hub_level, run.round_goal)
 
 ## Deterministische Geld-Auslage (index 0 = Geld-Einsatz), damit die Setz-Tests
 ## nicht an einer zufällig gezogenen Gravur-Wette scheitern.

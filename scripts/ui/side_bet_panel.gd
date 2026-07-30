@@ -24,6 +24,7 @@ const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
 const ENGRAVING_GLOW := Color("#c77dff")  # Gravur-Licht (violett)
+const CHARGE_COLOR := CasinoStyle.CHARGE
 const BAR_BG := Color("#100e20")
 
 var run: GameRun
@@ -145,13 +146,21 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 		button.text = "%s → %s" % [bet.stake_label(stake_factor), bet.reward_label(reward_factor)]
 		button.disabled = not enabled
 		button.pressed.connect(_on_bet_pressed.bind(index))
-	# Bar-Gewinn goldgelb, Gravur-Gewinn grün - die Farbe verrät die Wett-Sorte.
-	var accent := GOLD if bet.payout_kind == SideBet.Payout.MONEY else GREEN
-	_style_button(button, accent if enabled else MUTED_COLOR)
+	_style_button(button, _payout_accent(bet) if enabled else MUTED_COLOR)
 	# Angekommener Einsatz: den platzierten Knopf golden/violett glühen lassen.
 	if placed[index] and bet_glow.has(index):
 		_apply_stake_glow(button, bet_glow[index], false)
 	return button
+
+## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Ladung cyan, alles übrige
+## (Gravuren, Sonderposten, Paket, Chipstufe) grün.
+func _payout_accent(bet: SideBet) -> Color:
+	match bet.payout_kind:
+		SideBet.Payout.MONEY:
+			return GOLD
+		SideBet.Payout.CHARGE:
+			return CHARGE_COLOR
+	return GREEN
 
 ## Legt einen glühenden Einsatz-Rahmen auf den (platzierten) Knopf. animate =
 ## Ankunft (Rahmen fährt hell hoch + kurzer Pop), sonst sofort (Neuaufbau).

@@ -401,9 +401,18 @@ var discarded_this_round: Array[DieDefinition] = []  # Phönixfeder
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle)
 
 # Rundenbilanz für die Nebenwetten-Auswertung (je Rundenbeginn zurückgesetzt).
+## Platzhalter für "noch keine Hand genommen" (Vollgriff prüft das Minimum).
+const NO_HAND_DICE := 99
 var round_best_combo_rank: int = -1  # bester genommener Kombi-Rang (SideBet.combo_rank)
 var round_best_hand_score: int = 0   # höchster Einzel-Hand-Score
+var round_first_hand_score: int = 0  # Wertung der ERSTEN Hand (einmal gesetzt)
 var round_farkled: bool = false
+var round_combo_keys: Dictionary = {}   # genommene Kombi-Sorten (Set)
+var round_combo_repeated: bool = false  # eine Sorte zweimal genommen
+var round_fallback_taken: bool = false  # Höchste Zahl genommen
+var round_high_hand: bool = false       # Hand aus 3+ Würfeln mit je 6+ Augen
+var round_max_hand_dice: int = 0        # größte genommene Hand
+var round_min_hand_dice: int = NO_HAND_DICE  # kleinste genommene Hand
 ## Wett-Fenster ist offen (nur vom Rundenbeginn bis zum ERSTEN Wurf platzierbar).
 var betting_open: bool = false
 
@@ -1652,9 +1661,21 @@ func _on_side_bet_placed(index: int) -> void:
 	if panel == null or index < 0 or index >= panel.offers.size():
 		return
 	var bet: SideBet = panel.offers[index]
-	var from_hub := bet.stake_kind == SideBet.Stake.ENGRAVINGS
-	var comet_color := TableScreen.SIDE_ENGRAVING_COLOR if from_hub else TableScreen.SIDE_MONEY_COLOR
-	var glow_color := SideBetPanel.ENGRAVING_GLOW if from_hub else SideBetPanel.GOLD
+	# Steuerwetten zahlen beim Platzieren nichts - kein Einsatz-Licht, nur der Knopf.
+	if bet.stake_kind == SideBet.Stake.MONEY_PER_HAND \
+			or bet.stake_kind == SideBet.Stake.MONEY_PER_DIE:
+		panel.glow_bet(index, SideBetPanel.GOLD)
+		return
+	# Geld kommt vom Schatz, Gravur UND Ladung vom Hub.
+	var from_hub := bet.stake_kind != SideBet.Stake.MONEY
+	var comet_color := TableScreen.SIDE_MONEY_COLOR
+	var glow_color := SideBetPanel.GOLD
+	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
+		comet_color = TableScreen.SIDE_ENGRAVING_COLOR
+		glow_color = SideBetPanel.ENGRAVING_GLOW
+	elif bet.stake_kind == SideBet.Stake.CHARGE:
+		comet_color = CHARGE_COMET_COLOR
+		glow_color = CHARGE_COMET_COLOR
 	var center := _pending_bet_center
 	var travel := table_screen.side_bet_stake_comet(from_hub, comet_color)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
@@ -1726,27 +1747,107 @@ func _fly_die_to_pool(from_px: Vector2) -> void:
 	_meteor_index += 1
 	table_screen.tray_comet(from_px, target, SLOT_DIE_COLOR, spread)
 
-## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Komet vom Nebenwetten-
-## Fenster zurück (Geld zum Schatz, Gravur zum Hub), leicht gestaffelt.
+## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Abflug vom Nebenwetten-
+## Fenster, leicht gestaffelt. Gebucht hat GameRun bereits - hier fliegt nur Licht.
 func _play_side_bet_payouts(won: Array[SideBet]) -> void:
 	if table_screen == null or won.is_empty():
 		return
 	for i in won.size():
 		var bet: SideBet = won[i]
-		var to_hub := bet.payout_kind == SideBet.Payout.ENGRAVINGS
-		var color := TableScreen.SIDE_ENGRAVING_COLOR if to_hub else TableScreen.SIDE_MONEY_COLOR
-		var fire := func() -> void:
-			var travel: float = table_screen.side_bet_payout_comet(to_hub, color)
-			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-				if to_hub:
-					if table_screen.hub != null:
-						table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW)
-				elif table_screen.treasure_window != null:
-					table_screen.treasure_window.glint())
+		var fire := func() -> void: _fly_side_bet_payout(bet)
 		if i == 0:
 			fire.call()
 		else:
 			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
+
+## Je Gewinnart ihre Bahn: Geld zum Schatz, Gravuren zum Hub, Sonderposten in
+## den Sonderbestand, Pakete ins Lager, Ladung zur Kondensator-Bank.
+func _fly_side_bet_payout(bet: SideBet) -> void:
+	match bet.payout_kind:
+		SideBet.Payout.MONEY:
+			_fly_side_bet_to_treasure()
+		SideBet.Payout.CHARGE:
+			_play_side_bet_charge_volley(bet.payout_charge * run.side_bet_payout_factor())
+		SideBet.Payout.SPECIAL:
+			_fly_side_bet_special(bet.special_engraving())
+		SideBet.Payout.PACK:
+			_fly_side_bet_pack(bet.awarded_pack)
+		SideBet.Payout.COMBO_LEVEL:
+			pass  # der Chip zündet über combo_upgraded (siehe _on_combo_upgraded)
+		_:
+			_fly_side_bet_to_hub()
+
+func _fly_side_bet_to_treasure() -> void:
+	var travel := table_screen.side_bet_payout_comet(false, TableScreen.SIDE_MONEY_COLOR)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if table_screen != null and table_screen.treasure_window != null:
+			table_screen.treasure_window.glint())
+
+func _fly_side_bet_to_hub() -> void:
+	var travel := table_screen.side_bet_payout_comet(true, TableScreen.SIDE_ENGRAVING_COLOR)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if table_screen != null and table_screen.hub != null:
+			table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW))
+
+## Sonderposten-Gewinn: der Komet fährt bis in seinen Platz (der Sonderbestand
+## ist eine Schublade wie jede andere) und lässt ihn nachglühen.
+func _fly_side_bet_special(engraving: Engraving) -> void:
+	if engraving == null:
+		return
+	for drawer in table_screen.supply_drawers:
+		var target := drawer.slot_center_px(engraving.id)
+		if target.x < 0.0:
+			continue
+		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
+		var travel := table_screen.side_bet_engraving_comet(drawer.category, target, tint)
+		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+			if is_instance_valid(drawer):
+				drawer.pop(engraving.id, tint))
+		return
+	_fly_side_bet_to_hub()  # kein Schubladen-Platz: der Hub quittiert
+
+## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang ins Lager -
+## die Karte erscheint erst bei Ankunft, wie bei einem gekauften Paket.
+func _fly_side_bet_pack(pack: Pack) -> void:
+	var window := table_screen.workshop_window
+	if pack == null or window == null or table_screen.hub == null:
+		return
+	var tint: Color = PackIconRenderer.COLORS.get(pack.type, Color.WHITE)
+	window.expect_delivery()
+	await get_tree().create_timer(
+		maxf(table_screen.side_bet_payout_comet(true, tint), 0.05)).timeout
+	if table_screen == null or table_screen.hub == null or not is_instance_valid(window):
+		return
+	var hub_px := table_screen.hub.position + table_screen.hub.size * 0.5
+	await get_tree().create_timer(
+		maxf(table_screen.pack_delivery_comet(hub_px, tint), 0.05)).timeout
+	if is_instance_valid(window):
+		window.deliver_pack()
+
+## Ladungs-Gewinn: je ⚡ ein Komet, dicht gestaffelt wie die Vertrags-Salve -
+## erst aus dem Wettfenster in den Hub, dann die Hub-Cluster-Ader zur Börse.
+func _play_side_bet_charge_volley(count: int) -> void:
+	var launched := run
+	for i in count:
+		if i == 0:
+			_fly_side_bet_charge()
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if run == launched:
+					_fly_side_bet_charge())
+
+func _fly_side_bet_charge() -> void:
+	var launched := run
+	var travel := table_screen.side_bet_payout_comet(true, CHARGE_COMET_COLOR)
+	if travel <= 0.0:
+		_fly_charge_to_capacitor(false)
+		return
+	get_tree().create_timer(travel).timeout.connect(func() -> void:
+		if run != launched or table_screen == null:
+			return
+		if table_screen.hub != null:
+			table_screen.hub.flash_frame(CHARGE_COMET_COLOR)
+		_fly_charge_to_capacitor(false))
 
 ## Spiegelt die Lauf-Übersicht in den Hub - null-tolerant (kein Run/kein Hub).
 func _refresh_hub_info() -> void:
@@ -3716,6 +3817,9 @@ func _on_take_button_pressed() -> void:
 	var participating: Array[int] = []
 	for p in sel_scored:
 		participating.append(slots[p])
+	# Die übrige Rundenbilanz der Nebenwetten braucht die GEWERTETEN Würfel.
+	_note_hand_for_side_bets(String(hand["key"]), int(breakdown["total"]), slots.size(),
+		CharmEffects.transform_values(sel_values, ids), sel_scored)
 	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
 	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
@@ -3757,6 +3861,8 @@ func _on_take_button_pressed() -> void:
 	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
 	_apply_hand_clauses(String(hand["key"]), participating.size())
+	# Steuerwetten kassieren wie die Klausel-Gebühr NACH dem Ertrag der Hand.
+	run.tax_side_bets(slots.size())
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
@@ -4596,7 +4702,14 @@ func _start_new_round() -> void:
 	first_hand_after_farkle = false
 	round_best_combo_rank = -1
 	round_best_hand_score = 0
+	round_first_hand_score = 0
 	round_farkled = false
+	round_combo_keys = {}
+	round_combo_repeated = false
+	round_fallback_taken = false
+	round_high_hand = false
+	round_max_hand_dice = 0
+	round_min_hand_dice = NO_HAND_DICE
 	discarded_this_round = []
 	slot_draw_positions = []
 	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom
@@ -4784,13 +4897,8 @@ func _sweep_deal_tokens() -> void:
 func _resolve_side_bets(cleared: bool) -> void:
 	if run.active_side_bets.is_empty():
 		return
-	var result := {
-		"cleared": cleared,
-		"best_combo_rank": round_best_combo_rank,
-		"best_hand_score": round_best_hand_score,
-		"dice_taken": taken_dice_this_round,
-		"farkled": round_farkled,
-	}
+	var result := _side_bet_stats()
+	result["cleared"] = cleared
 	var placed := run.active_side_bets.size()
 	# Auszahlung bucht Geld (add_money) - das generische Licht unterdrücken, damit
 	# stattdessen die Nebenwetten-Kometen laufen.
@@ -4812,10 +4920,13 @@ func _resolve_side_bets(cleared: bool) -> void:
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:
 	if run == null or not run.side_bets_unlocked():
-		return  # Nebenwetten erst ab Hub-Stufe 3 installiert
+		return  # Nebenwetten erst ab Hub-Stufe 4 (Parkett) installiert
 	betting_open = true
 	if table_screen != null and table_screen.side_bet_window != null:
-		table_screen.side_bet_window.open_betting(SideBet.roll_offers(SideBetPanel.OFFER_COUNT))
+		# Ziele frieren HIER ein: der GESPEICHERTE Benchmark, nicht der wirksame -
+		# eine später unterschriebene Klausel darf kein gedrucktes Ziel verschieben.
+		table_screen.side_bet_window.open_betting(
+			SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.hub_level, run.round_goal))
 
 ## Schließt die Wettannahme (erster Wurf) - ab jetzt zeigt das Fenster Fortschritt.
 func _close_side_bet_betting() -> void:
@@ -4830,12 +4941,53 @@ func _close_side_bet_betting() -> void:
 func _refresh_side_bet_panel() -> void:
 	if table_screen == null or table_screen.side_bet_window == null or run == null:
 		return
-	table_screen.side_bet_window.update_progress({
+	table_screen.side_bet_window.update_progress(_side_bet_stats())
+
+## Die Rundenbilanz, gegen die die Nebenwetten laufen - EINE Quelle für Live-
+## Fortschritt und Abrechnung ("cleared" setzt nur die Abrechnung dazu).
+func _side_bet_stats() -> Dictionary:
+	return {
 		"best_combo_rank": round_best_combo_rank,
 		"best_hand_score": round_best_hand_score,
+		"first_hand_score": round_first_hand_score,
 		"dice_taken": taken_dice_this_round,
 		"farkled": round_farkled,
-	})
+		"stages_cleared": run.stages_cleared(hand_total),
+		"distinct_combos": round_combo_keys.size(),
+		"hands_taken": hands_taken_this_round,
+		"combo_repeated": round_combo_repeated,
+		"fallback_taken": round_fallback_taken,
+		"high_hand": round_high_hand,
+		"max_hand_dice": round_max_hand_dice,
+		"min_hand_dice": round_min_hand_dice,
+	}
+
+## Schreibt die Rundenbilanz nach einer genommenen Hand fort. values = die
+## ANGEZEIGTEN (verwandelten) Augen der Auswahl, scored = deren gewertete Indizes.
+func _note_hand_for_side_bets(combo_key: String, score: int, hand_dice: int,
+		values: Array[int], scored: Array[int]) -> void:
+	if hands_taken_this_round == 1:
+		round_first_hand_score = score
+	# Dublette VOR dem Eintragen prüfen - danach steht die Sorte ja drin.
+	if round_combo_keys.has(combo_key):
+		round_combo_repeated = true
+	round_combo_keys[combo_key] = true
+	if combo_key == DiceScoring.ONE_KIND:
+		round_fallback_taken = true
+	round_max_hand_dice = maxi(round_max_hand_dice, hand_dice)
+	round_min_hand_dice = mini(round_min_hand_dice, hand_dice)
+	if _is_high_dice_hand(values, scored):
+		round_high_hand = true
+
+## Oberklasse: mindestens HIGH_DICE_MIN gewertete Würfel, jeder mit
+## HIGH_DICE_EYES+ Augen - gemessen an dem, was in der Grube steht.
+func _is_high_dice_hand(values: Array[int], scored: Array[int]) -> bool:
+	if scored.size() < SideBet.HIGH_DICE_MIN:
+		return false
+	for i in scored:
+		if i < 0 or i >= values.size() or values[i] < SideBet.HIGH_DICE_EYES:
+			return false
+	return true
 
 ## Lässt die Rundenbonus-Zeilen im Hub nacheinander golden aufleuchten,
 ## synchron zur tatsächlichen Gutschrift; die übrigen Tray-Würfel blitzen im
