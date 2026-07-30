@@ -29,25 +29,45 @@ const GOAL_BLOCK := 6
 ## Texten - eine Quelle für Hub-Kopfzeile und Fahrplan-Hinweis.
 const STRESS_MARKER := "stress"
 const STRESS_NAME := "Stresstest"
-const STRESS_HINT := "Thermal Throttling: der höchstgestufte Chip wertet diese Runde nicht."
+const STRESS_HINT := "Stresstest-Konditionen: das Haus diktiert, unter welcher Auflage gespielt wird."
 
-## --- Routen-Deals -------------------------------------------------------------
-## Angebotsgröße je Runde (Wirtschaft, Spiel, Wildcard).
+## --- Verträge mit dem Haus ----------------------------------------------------
+## Angebotsgröße je Runde (Standard-, Risiko-, Knebelvertrag).
 const ROUTE_OFFER_COUNT := 3
-## Anteil der Wildcard-Plätze, die einen reinen Bonus-Deal zeigen.
+## Anteil der Auslagen, in denen EIN Platz statt seines Vertrags ein
+## Werbegeschenk zeigt.
 const TREAT_CHANCE := 0.3
-## Zahlen der Deal-Wirkungen - hier, nicht in RouteDeal: dort stehen Daten und
-## Texte, die Wirkung lösen die Abfragen unten auf.
+## Kommt ein Werbegeschenk, verteilt sich der ersetzte Platz so (Standard-,
+## Risiko-, Knebelvertrag): meist der Standardplatz, nur selten der Knebelplatz.
+const TREAT_TIER_WEIGHTS := [0.6, 0.3, 0.1]
+## Zahlen der Klausel-Wirkungen - hier, nicht in DealClause: dort stehen Daten
+## und Texte, die Wirkung lösen die Abfragen unten auf.
 const ADVANCE_PAYMENT_MONEY := 12
-const SAVINGS_DIE_BONUS := 2
-const OVERCLOCK_DISCOUNT_FACTOR := 0.75
-const OVERCLOCK_DISCOUNT_CAP := 2
-## Benchmark-Aufschläge je Deal-id (Malus-Seite). Nur diese Deals tragen
-## raises_benchmark - beides muss zusammenpassen.
+const BLANK_CHEQUE_MONEY := 40
+const SAVINGS_DIE_BONUS := 1
+const SEED_CAPITAL_CHARGE := 1
+const SEED_CAPITAL_II_CHARGE := 2
+const DISCHARGE_CHARGE := 2
+const INSURANCE_FRAUD_MONEY := 15
+const SERVICE_FEE_MONEY := 3
+const RIP_OFF_PER_DIE := 1
+const GOLD_VEIN_MONEY := 10
+const INTEREST_PER := 10
+const STAGE_CAP_LIMIT := 2
+const HIGH_VOLTAGE_STAGES := 3
+const CALIBRATION_FACTOR := 0.5
+const MAINS_HUM_FACTOR := 1.25
+const FUSE_FAILURE_SCALE := 4.0
+const SHOP_INFLATION_FACTOR := 1.25
+const SHOP_DISCOUNT_FACTOR := 0.8
+## Benchmark-Aufschläge je Malusklausel. Die Eichung (Bonus) zieht separat ab -
+## der Aufschlag-Wächter darf sie nicht als "Benchmark schon gehoben" lesen.
 const BENCHMARK_MALUS := {
-	RouteDeal.SAVINGS_BONUS: 0.25,
-	RouteDeal.HIGH_VOLTAGE: 0.15,
-	RouteDeal.ALL_ON_RED: 0.5,
+	DealClause.BENCHMARK_SURCHARGE: 0.5,
+	DealClause.BENCHMARK_SURCHARGE_II: 1.0,
+	DealClause.BENCHMARK_SHOCK: 2.5,
+	DealClause.USURY_CLAUSE: 4.0,
+	DealClause.HIGH_EXPECTATIONS: 5.0,
 }
 
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
@@ -55,6 +75,9 @@ const BENCHMARK_MALUS := {
 ## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter. Wie viele
 ## Stufen tatsächlich zählen, deckelt die Hub-Stufe (max_overcharge_stages).
 const OVERCHARGE_STAGES := 5
+## Supraleiter hebt den Deckel ganz auf; die Stufengrößen verdoppeln sich, ein
+## großer Platzhalter begrenzt sich also von selbst.
+const UNLIMITED_OVERCHARGE_STAGES := 99
 
 ## Ausbaustufen des Hubs (Casino-Lizenz): gegen Gold jederzeit im Shop bzw. am
 ## Hub kaufbar. Jede Stufe schaltet STRUKTUR frei (Shop-Plätze, Blättern,
@@ -107,18 +130,22 @@ var money: int = 0:
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
-## Unterschriebene Deals des laufenden Blocks als {id, round}; round = Runde der
-## Unterschrift und entscheidet, wie lange welche Seite wirkt (_scope_reaches).
+## Unterschriebene Klauseln des laufenden Blocks als {id, round}; round = Runde
+## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches).
 ## Geleert erst bei der Abrechnung - auch abgelaufene Einträge bleiben stehen,
-## denn sie sperren ihren Deal für den Rest des Blocks.
+## denn sie sperren ihre Klausel für den Rest des Blocks.
 var active_deals: Array[Dictionary] = []
-## Auslage der kommenden Runde (RouteDeal-ids); leer = schon unterschrieben.
-var route_offers: Array[String] = []
+## Auslage der kommenden Runde als Vertragskarten (CARD_*); leer = unterschrieben.
+var route_offers: Array[Dictionary] = []
 
-## Thermal Throttling: die im Stresstest gedrosselten Kombinationen (leer =
-## keine). Steht mit Rundenbeginn fest und ändert sich nicht mehr - auch wenn das
-## Rampenlicht einen anderen Chip mitten in der Runde darüber hebt.
+## Gedrosselte Kombinationen dieser Runde (leer = keine). Steht mit Rundenbeginn
+## fest; nur die Boss-Konditionen (Allrounder, Standardprotokoll) lassen sie mit
+## jeder genommenen Hand weiterwachsen.
 var throttled_combos: Array[String] = []
+## Übertaktungsrabatt: der nächste Charm im Laden ist gratis (verbraucht sich).
+var free_charm_pending: bool = false
+## Freispiele: Automaten, die ihren Gratisdreh in diesem Block schon hatten.
+var free_spins_used: Array[int] = []
 
 ## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
 ## Rarität und den Überladungs-Deckel (siehe die shop_*/hub_*-Abfragen unten).
@@ -213,8 +240,21 @@ func _neighbor_id(index: int) -> String:
 		return ""  # Totems kopieren keine Totems
 	return neighbor_id
 
+## Jede Geld-Buchung des Laufs. Happy Hour/Alles auf Rot vervielfachen NUR
+## Einnahmen - ein Faktor auf Ausgaben würde Preise heimlich verteuern.
 func add_money(amount: int) -> void:
+	if amount > 0:
+		amount = roundi(amount * money_gain_factor())
 	money += amount
+
+## Faktor auf jede positive Geld-Buchung der Runde (Happy Hour, Alles auf Rot).
+func money_gain_factor() -> float:
+	var factor := 1.0
+	if _clause_active(DealClause.HAPPY_HOUR):
+		factor *= 2.0
+	if _clause_active(DealClause.ALL_ON_RED):
+		factor *= 3.0
+	return factor
 
 # --- Hub-Ausbau ---------------------------------------------------------------
 
@@ -255,18 +295,21 @@ func upgrade_hub() -> void:
 ## --- Aus der Hub-Stufe abgeleitete Struktur-Freischaltungen -------------------
 ## Alles läuft über diese Abfragen, damit Aufrufer nie rohe Stufen vergleichen.
 
-## Wirksame Zahl an Überladungs-Stufen: die Hub-Stufe setzt den Rahmen, Deals
-## verschieben ihn. Erst der Deckel, dann der Bonus - Rabatt UND Hochspannung
-## zusammen ergeben also Stufe 3, nicht 2.
+## Wirksame Zahl an Überladungs-Stufen: die Hub-Stufe setzt den Rahmen, Klauseln
+## verschieben ihn. Erst der Deckel, dann der Bonus - Stufendeckel UND
+## Hochspannung zusammen ergeben also Stufe 5, nicht 2. Hochspannung wird
+## bewusst NICHT auf OVERCHARGE_STAGES geklemmt; die Stufengrößen bremsen selbst.
 func max_overcharge_stages() -> int:
 	var stages := overcharge_frame()
-	if _malus_active(RouteDeal.OVERCLOCK_DISCOUNT):
-		stages = mini(stages, OVERCLOCK_DISCOUNT_CAP)
-	if _bonus_active(RouteDeal.HIGH_VOLTAGE):
-		stages = mini(stages + 1, OVERCHARGE_STAGES)
+	if _clause_active(DealClause.STAGE_CAP):
+		stages = mini(stages, STAGE_CAP_LIMIT)
+	if _clause_active(DealClause.HIGH_VOLTAGE):
+		stages += HIGH_VOLTAGE_STAGES
+	if _clause_active(DealClause.SUPERCONDUCTOR):
+		stages = UNLIMITED_OVERCHARGE_STAGES
 	return stages
 
-## Rahmen der Hub-Stufe OHNE Deal-Wirkungen: 3 (bis Salon), 4 (Salon/VIP),
+## Rahmen der Hub-Stufe OHNE Klausel-Wirkungen: 3 (bis Salon), 4 (Salon/VIP),
 ## 5 (ab Suite). Maßstab der Schwarzmarkt-Entdeckung (siehe note_round_stages).
 func overcharge_frame() -> int:
 	if hub_level >= 7:
@@ -459,12 +502,9 @@ func combo_level(combo_key: String) -> int:
 static func overclock_price_at(combo_key: String, level: int) -> int:
 	return (4 + DiceScoring.mult_for(combo_key)) * (level + 1)
 
-## Preis der nächsten Stufe dieser Kombination (Übertaktungsrabatt eingerechnet).
+## Preis der nächsten Stufe dieser Kombination (Ladenpreis-Klauseln eingerechnet).
 func overclock_price(combo_key: String) -> int:
-	var price := overclock_price_at(combo_key, combo_level(combo_key))
-	if _bonus_active(RouteDeal.OVERCLOCK_DISCOUNT):
-		price = maxi(1, roundi(price * OVERCLOCK_DISCOUNT_FACTOR))
-	return price
+	return shop_price(overclock_price_at(combo_key, combo_level(combo_key)))
 
 func can_overclock(combo_key: String) -> bool:
 	return money >= overclock_price(combo_key)
@@ -477,24 +517,23 @@ func overclock_combo(combo_key: String) -> void:
 	combo_upgraded.emit(combo_key, combo_levels[combo_key])
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Lumpensammler würfelt seine
-## Glückszahl neu - je Vorkommen einmal. Auch Stresstest-Drossel, Wartungsvertrag
-## und Rampenlicht werden hier gesetzt; der Deal der Runde steht zu diesem
-## Zeitpunkt schon (unterschrieben wird VOR dem Rundenstart).
+## Glückszahl neu - je Vorkommen einmal. Auch Drossel und Rampenlicht werden hier
+## gesetzt; die Klauseln der Runde stehen zu diesem Zeitpunkt schon
+## (unterschrieben wird VOR dem Rundenstart).
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
 	throttled_combos = _round_throttled_combos()
-	if _bonus_active(RouteDeal.MAINTENANCE_CONTRACT):
-		grant_engraving(roll_stamp_engraving())
 	spotlight_claimed_this_round = false
-	# Rampenlicht per Charm ODER Spannungsspitze - nie auf einem gedrosselten Chip
+	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
-	if CharmEffects.has_spotlight(ids) or _bonus_active(RouteDeal.POWER_SPIKE):
+	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT) \
+			or _clause_active(DealClause.POWER_SPIKE):
 		var pool := DiceScoring.HAND_PRIORITY.filter(
 			func(key: String) -> bool: return not throttled_combos.has(key))
-		spotlight_combo = pool.pick_random()
+		spotlight_combo = pool.pick_random() if not pool.is_empty() else ""
 	else:
 		spotlight_combo = ""
 
@@ -504,7 +543,7 @@ func apply_round_start_charms() -> void:
 static func is_stress_round(n: int) -> bool:
 	return n % GOAL_BLOCK == 0
 
-## Block-Nummer einer Runde (0-basiert) - Deals laufen bis zum Blockende.
+## Block-Nummer einer Runde (0-basiert) - Klauseln laufen bis zum Blockende.
 static func block_of_round(n: int) -> int:
 	return (n - 1) / GOAL_BLOCK
 
@@ -530,12 +569,49 @@ func hottest_combo() -> String:
 	var hottest := hottest_combos(1)
 	return "" if hottest.is_empty() else hottest[0]
 
-## Gedrosselte Chips dieser Runde: im Stresstest der heißeste, unter
-## Doppelbelastung auch der zweite; Kulanz drosselt gar nicht.
+## Gedrosselte Chips beim Rundenbeginn: nur noch die Hitzewarnung drosselt von
+## sich aus - der Stresstest hat dafür seine eigenen Konditionen.
 func _round_throttled_combos() -> Array[String]:
-	if not is_stress_round(round_number) or _bonus_active(RouteDeal.GOODWILL):
-		return []
-	return hottest_combos(2 if _malus_active(RouteDeal.DOUBLE_LOAD) else 1)
+	if _clause_active(DealClause.HEAT_WARNING):
+		return hottest_combos(1)
+	return [] as Array[String]
+
+## Meldet eine genommene Hand an die Boss-Konditionen: Allrounder sperrt genau
+## diese Kombination, das Standardprotokoll alle anderen. Liefert true, wenn die
+## Drossel dadurch gewachsen ist (die Chips müssen dann neu gezeichnet werden).
+func note_hand_taken(combo_key: String) -> bool:
+	var before := throttled_combos.size()
+	if _clause_active(DealClause.ALL_ROUNDER) and not throttled_combos.has(combo_key):
+		throttled_combos.append(combo_key)
+	if _clause_active(DealClause.STANDARD_PROTOCOL):
+		for key: String in DiceScoring.HAND_PRIORITY:
+			if key != combo_key and not throttled_combos.has(key):
+				throttled_combos.append(key)
+	return throttled_combos.size() > before
+
+## Hitzestau: die gespielte Kombination verliert eine Übertaktungs-Stufe, nie
+## unter die ungestufte Grundform. true = es ging tatsächlich eine runter.
+func apply_heat_buildup(combo_key: String) -> bool:
+	if not _clause_active(DealClause.HEAT_BUILDUP):
+		return false
+	var level := combo_level(combo_key)
+	if level <= 0:
+		return false
+	combo_levels[combo_key] = level - 1
+	combo_upgraded.emit(combo_key, level - 1)
+	return true
+
+## Paritäts-Filter der Boss-Konditionen (DiceScoring.PARITY_*).
+func parity_filter() -> int:
+	if _clause_active(DealClause.TILTED_FLOOR):
+		return DiceScoring.PARITY_ODD
+	if _clause_active(DealClause.BALANCED_SCALES):
+		return DiceScoring.PARITY_EVEN
+	return DiceScoring.PARITY_ANY
+
+## All in: so viele Hände dürfen diese Runde genommen werden.
+func max_hands_this_round() -> int:
+	return 1 if _clause_active(DealClause.ALL_IN) else POOL_SIZE
 
 ## Fahrplan-Marker je Station: STRESS_MARKER oder "". Nur für die Hub-Anzeige.
 func goal_roadmap_markers(count: int) -> Array[String]:
@@ -545,125 +621,207 @@ func goal_roadmap_markers(count: int) -> Array[String]:
 		markers.append(STRESS_MARKER if is_stress_round(first_round + i) else "")
 	return markers
 
-# --- Routen-Deals: Auslage, Unterschrift, Abrechnung --------------------------
+# --- Verträge: Auslage, Unterschrift, Abrechnung ------------------------------
+## Eine Vertragskarte der Auslage: Stufe + die beiden Klausel-ids ("" = die Karte
+## hat diese Seite nicht - Werbegeschenke ohne Kleingedrucktes, Boss ohne Bonus).
+const CARD_TIER := "tier"
+const CARD_BONUS := "bonus"
+const CARD_MALUS := "malus"
 
-## Würfelt die Auslage der kommenden Runde. Feste Plätze (Wirtschaft, Spiel,
-## Wildcard) statt freiem Zufall - drei Wirtschafts-Deals nebeneinander wären
-## keine Wahl. In der Stresstest-Runde liegen stattdessen die Boss-Konditionen
-## aus: dort entscheidet der Spieler, WIE er den Test angeht.
+## Würfelt die Auslage der kommenden Runde: von links nach rechts immer Standard-,
+## Risiko- und Knebelvertrag. Mit TREAT_CHANCE wird EIN Platz stattdessen ein
+## Werbegeschenk (reiner Bonus); welcher, verteilt TREAT_TIER_WEIGHTS - meist der
+## Standard-, selten der Knebelplatz. In der Stresstest-Runde liegen stattdessen
+## drei Boss-Konditionen aus: dort entscheidet der Spieler, WIE er den Test angeht.
 func roll_route_offers() -> void:
 	route_offers.clear()
 	if is_stress_round(round_number):
-		route_offers.assign(RouteDeal.ids_for_slot(RouteDeal.Slot.BOSS))
-		route_offers.shuffle()
+		_roll_boss_offers()
 		return
-	route_offers.append(_draw_offer(RouteDeal.Slot.ECONOMY))
-	route_offers.append(_draw_offer(RouteDeal.Slot.GAMEPLAY))
-	route_offers.append(_draw_wildcard())
+	var treat_slot := _roll_treat_slot()
+	var tiers: Array[DealClause.Tier] = [
+		DealClause.Tier.ONE, DealClause.Tier.TWO, DealClause.Tier.THREE]
+	for i in tiers.size():
+		var tier: DealClause.Tier = DealClause.Tier.TREAT if i == treat_slot else tiers[i]
+		route_offers.append(_draw_card(tier))
 
-## Zieht einen Deal des Platzes: nie einen in diesem Block schon genommenen, nie
-## einen ZWEITEN Benchmark-Malus (sonst baut sich der Spieler ein unerreichbares
-## Ziel). Läuft der Topf dadurch leer, sind Wiederholungen erlaubt - ein leerer
-## Platz wäre schlimmer als ein bekannter Deal.
-func _draw_offer(slot: RouteDeal.Slot, taboo: Array[String] = []) -> String:
-	var raised := _benchmark_already_raised()
+## Platz, den ein Werbegeschenk ersetzt (−1 = keins). TREAT_CHANCE entscheidet, OB
+## eins kommt; TREAT_TIER_WEIGHTS, WELCHER Platz.
+func _roll_treat_slot() -> int:
+	if randf() >= TREAT_CHANCE:
+		return -1
+	var r := randf()
+	var acc := 0.0
+	for i in TREAT_TIER_WEIGHTS.size():
+		acc += TREAT_TIER_WEIGHTS[i]
+		if r < acc:
+			return i
+	return 0
+
+## Drei der sechs Stresstest-Konditionen, ohne einen zweiten Benchmark-Aufschlag.
+func _roll_boss_offers() -> void:
 	var pool: Array[String] = []
-	for deal_id in RouteDeal.ids_for_slot(slot):
-		if taboo.has(deal_id) or _taken_this_block(deal_id):
+	for clause_id in DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS):
+		if not _benchmark_blocked(clause_id):
+			pool.append(clause_id)
+	pool.shuffle()
+	for i in mini(ROUTE_OFFER_COUNT, pool.size()):
+		route_offers.append({CARD_TIER: DealClause.Tier.BOSS, CARD_BONUS: "", CARD_MALUS: pool[i]})
+
+## Baut eine Vertragskarte: erst das Kleingedruckte, dann der Bonus - dessen Topf
+## muss die Tags des Malus meiden (sonst entstehen Nullsummen-Paare).
+func _draw_card(tier: DealClause.Tier) -> Dictionary:
+	var malus_id := ""
+	if tier != DealClause.Tier.TREAT:
+		malus_id = _draw_clause(tier, DealClause.Kind.MALUS, [] as Array[String])
+	var bonus_id := _draw_clause(tier, DealClause.Kind.BONUS, DealClause.tags_of(malus_id))
+	return {CARD_TIER: tier, CARD_BONUS: bonus_id, CARD_MALUS: malus_id}
+
+## Zieht eine Klausel des Topfes: nie eine, die schon in der Auslage liegt oder in
+## diesem Block unterschrieben wurde, nie eine mit einem verbotenen Tag, nie einen
+## ZWEITEN Benchmark-Malus (sonst baut sich der Spieler ein unerreichbares Ziel).
+## Läuft der Topf dadurch leer, sind Wiederholungen erlaubt - ein leerer Platz
+## wäre schlimmer als eine bekannte Klausel.
+func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
+		taboo_tags: Array[String]) -> String:
+	var all_ids := DealClause.ids_for(tier, kind)
+	var listed := _listed_clause_ids()
+	var pool: Array[String] = []
+	for clause_id in all_ids:
+		if listed.has(clause_id) or _taken_this_block(clause_id):
 			continue
-		if raised and RouteDeal.find(deal_id).raises_benchmark:
+		if _shares_tag(clause_id, taboo_tags) or _benchmark_blocked(clause_id):
 			continue
-		pool.append(deal_id)
+		pool.append(clause_id)
 	if pool.is_empty():
-		pool.assign(RouteDeal.ids_for_slot(slot))
-	return pool.pick_random()
+		pool = all_ids
+	return pool.pick_random() if not pool.is_empty() else ""
 
-## Wildcard-Platz: meist ein weiterer Wirtschafts-/Spiel-Deal, in TREAT_CHANCE
-## der Fälle ein reiner Bonus - das Geschenk, das man manchmal mitnehmen darf.
-func _draw_wildcard() -> String:
-	if randf() < TREAT_CHANCE:
-		return _draw_offer(RouteDeal.Slot.TREAT)
-	var slot := RouteDeal.Slot.ECONOMY if randf() < 0.5 else RouteDeal.Slot.GAMEPLAY
-	return _draw_offer(slot, route_offers)
+## Alle Klausel-ids, die schon in der Auslage liegen - keine darf doppelt.
+func _listed_clause_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for card in route_offers:
+		for key in [CARD_BONUS, CARD_MALUS]:
+			var clause_id := String(card.get(key, ""))
+			if clause_id != "":
+				ids.append(clause_id)
+	return ids
 
-## Unterschreibt einen Deal der Auslage: er zieht in die Liste ein, INSTANT-Boni
-## feuern sofort, die Auslage ist verbraucht.
-func take_route(deal_id: String) -> void:
-	if not RouteDeal.is_valid_id(deal_id):
+func _shares_tag(clause_id: String, taboo_tags: Array[String]) -> bool:
+	for tag in DealClause.tags_of(clause_id):
+		if taboo_tags.has(tag):
+			return true
+	return false
+
+## Ob die Klausel als zweiter Benchmark-Aufschlag ausgeschlossen ist.
+func _benchmark_blocked(clause_id: String) -> bool:
+	return BENCHMARK_MALUS.has(clause_id) and _benchmark_already_raised()
+
+## Unterschreibt die Vertragskarte index der Auslage.
+func take_route(index: int) -> void:
+	if index < 0 or index >= route_offers.size():
 		return
-	active_deals.append({"id": deal_id, "round": round_number})
+	var card := route_offers[index]
+	var ids: Array[String] = []
+	for key in [CARD_BONUS, CARD_MALUS]:
+		var clause_id := String(card.get(key, ""))
+		if clause_id != "":
+			ids.append(clause_id)
 	route_offers.clear()
-	if deal_id == RouteDeal.ADVANCE_PAYMENT:
-		add_money(ADVANCE_PAYMENT_MONEY)
+	sign_clauses(ids)
+
+## Zieht Klauseln in den Vertrag ein und feuert ihre SOFORT-Wirkungen. Einziger
+## Weg in active_deals - Auslage wie Test gehen hier durch.
+func sign_clauses(clause_ids: Array[String]) -> void:
+	for clause_id in clause_ids:
+		if not DealClause.is_valid_id(clause_id):
+			continue
+		active_deals.append({"id": clause_id, "round": round_number})
+		_apply_instant_clause(clause_id)
 	deals_changed.emit()
 
-## Abrechnung: der Stresstest ist überstanden, alle Deals des Blocks verfallen.
+## Wirkungen, die mit der Unterschrift verfallen (Scope.INSTANT) - plus die
+## Marken, die eine Block-Klausel beim Einzug aufstellt.
+func _apply_instant_clause(clause_id: String) -> void:
+	match clause_id:
+		DealClause.ADVANCE_PAYMENT:
+			add_money(ADVANCE_PAYMENT_MONEY)
+		DealClause.BLANK_CHEQUE:
+			add_money(BLANK_CHEQUE_MONEY)
+		DealClause.SEED_CAPITAL:
+			add_charge(SEED_CAPITAL_CHARGE)
+		DealClause.SEED_CAPITAL_II:
+			add_charge(SEED_CAPITAL_II_CHARGE)
+		DealClause.DISCHARGE:
+			spend_charge(DISCHARGE_CHARGE)
+		DealClause.OVERCLOCK_DISCOUNT:
+			free_charm_pending = true
+		DealClause.FREE_SPINS:
+			free_spins_used.clear()
+
+## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
 func settle_block_deals() -> void:
 	if active_deals.is_empty():
 		return
 	active_deals.clear()
+	free_charm_pending = false
+	free_spins_used.clear()
 	deals_changed.emit()
 
-## Ob der Deal in diesem Block schon unterschrieben wurde (auch wenn seine
-## Wirkung längst abgelaufen ist) - er wird dann nicht erneut angeboten.
-func _taken_this_block(deal_id: String) -> bool:
+## Ob die Klausel in diesem Block schon unterschrieben wurde (auch wenn ihre
+## Wirkung längst abgelaufen ist) - sie wird dann nicht erneut angeboten.
+func _taken_this_block(clause_id: String) -> bool:
 	for entry in active_deals:
-		if entry["id"] == deal_id:
+		if entry["id"] == clause_id:
 			return true
 	return false
 
 func _benchmark_already_raised() -> bool:
-	for deal_id: String in BENCHMARK_MALUS:
-		if _malus_active(deal_id):
+	for clause_id: String in BENCHMARK_MALUS:
+		if _clause_active(clause_id):
 			return true
 	return false
 
-## Ob eine Seite mit dieser Laufzeit in Runde n noch wirkt: INSTANT verfällt mit
+## Ob eine Klausel mit dieser Laufzeit in Runde n noch wirkt: INSTANT verfällt mit
 ## der Unterschrift, ROUND gilt nur in ihrer eigenen Runde, BLOCK bis zur
 ## Abrechnung am Ende des Blocks, in dem unterschrieben wurde.
-func _scope_reaches(entry: Dictionary, scope: RouteDeal.Scope, n: int) -> bool:
+func _scope_reaches(entry: Dictionary, scope: DealClause.Scope, n: int) -> bool:
 	var signed := int(entry["round"])
 	match scope:
-		RouteDeal.Scope.INSTANT:
+		DealClause.Scope.INSTANT:
 			return false
-		RouteDeal.Scope.ROUND:
+		DealClause.Scope.ROUND:
 			return n == signed
 	return n >= signed and block_of_round(n) == block_of_round(signed)
 
-func _side_active(deal_id: String, bonus: bool) -> bool:
-	var deal := RouteDeal.find(deal_id)
-	if deal == null:
+## Einzige Auflösung "wirkt diese Klausel gerade?" - Bonus wie Malus, denn die
+## Art steckt in der Klausel selbst.
+func _clause_active(clause_id: String, n: int = -1) -> bool:
+	var clause := DealClause.find(clause_id)
+	if clause == null:
 		return false
-	var scope: RouteDeal.Scope = deal.bonus_scope if bonus else deal.malus_scope
+	var round_at := round_number if n < 0 else n
 	for entry in active_deals:
-		if entry["id"] == deal_id and _scope_reaches(entry, scope, round_number):
+		if entry["id"] == clause_id and _scope_reaches(entry, clause.scope, round_at):
 			return true
 	return false
 
-func _bonus_active(deal_id: String) -> bool:
-	return _side_active(deal_id, true)
-
-func _malus_active(deal_id: String) -> bool:
-	return _side_active(deal_id, false)
-
-## Wirkende Deal-Seiten als {id, bonus, scope} - Grundlage der Hub-Marken.
+## Wirkende Klauseln als {id, bonus, scope} - Grundlage der Marken-Reihen.
 func active_deal_sides() -> Array[Dictionary]:
 	var sides: Array[Dictionary] = []
 	for entry in active_deals:
-		var deal := RouteDeal.find(entry["id"])
-		if deal == null:
+		var clause := DealClause.find(entry["id"])
+		if clause == null or not _scope_reaches(entry, clause.scope, round_number):
 			continue
-		if deal.bonus_text != "" and _scope_reaches(entry, deal.bonus_scope, round_number):
-			sides.append({"id": deal.id, "bonus": true, "scope": deal.bonus_scope})
-		if deal.malus_text != "" and _scope_reaches(entry, deal.malus_scope, round_number):
-			sides.append({"id": deal.id, "bonus": false, "scope": deal.malus_scope})
+		sides.append({"id": clause.id, "bonus": clause.kind == DealClause.Kind.BONUS,
+			"scope": clause.scope})
 	return sides
 
-# --- Deal-Wirkungen (einzige Auflösung der ids) -------------------------------
+# --- Klausel-Wirkungen (einzige Auflösung der ids) ----------------------------
 
-## Tatsächliches Rundenziel: das GESETZTE Grundziel × aller wirkenden
-## Benchmark-Malusse. Bewusst über round_goal statt goal_for_round - wer das
-## Ziel direkt setzt (Test, Debug), muss den Balken auch verschieben können.
+## Tatsächliches Rundenziel: das GESETZTE Grundziel × aller wirkenden Benchmark-
+## Klauseln. Bewusst über round_goal statt goal_for_round - wer das Ziel direkt
+## setzt (Test, Debug), muss den Balken auch verschieben können.
 func effective_goal() -> int:
 	return roundi(round_goal * _benchmark_factor(round_number))
 
@@ -672,55 +830,110 @@ func effective_goal() -> int:
 func effective_goal_for_round(n: int) -> int:
 	return roundi(goal_for_round(n) * _benchmark_factor(n))
 
-## Aufschlag-Faktor der in Runde n wirkenden Benchmark-Malusse.
+## Faktor der in Runde n wirkenden Benchmark-Klauseln: Aufschläge multiplizieren
+## sich, die Eichung halbiert.
 func _benchmark_factor(n: int) -> float:
 	var factor := 1.0
 	for entry in active_deals:
-		var deal := RouteDeal.find(entry["id"])
-		if deal == null or not deal.raises_benchmark:
+		var clause := DealClause.find(entry["id"])
+		if clause == null or not _scope_reaches(entry, clause.scope, n):
 			continue
-		if _scope_reaches(entry, deal.malus_scope, n):
-			factor *= 1.0 + float(BENCHMARK_MALUS[deal.id])
+		if BENCHMARK_MALUS.has(clause.id):
+			factor *= 1.0 + float(BENCHMARK_MALUS[clause.id])
+		elif clause.id == DealClause.CALIBRATION:
+			factor *= CALIBRATION_FACTOR
 	return factor
 
-## Faktor auf die GESAMTE Rundenauszahlung (Bank + übrige Würfel); Deals
-## multiplizieren sich.
+## Faktor auf die GESAMTE Rundenauszahlung (Bank + übrige Würfel). Happy Hour und
+## Alles auf Rot stehen bewusst NICHT hier, sondern in money_gain_factor - sonst
+## zahlte die Runde doppelt.
 func round_payout_factor() -> float:
 	var factor := 1.0
-	if _bonus_active(RouteDeal.ALL_ON_RED):
-		factor *= 3.0
-	if _bonus_active(RouteDeal.HAPPY_HOUR):
-		factor *= 2.0
-	if _bonus_active(RouteDeal.DOUBLE_LOAD):
-		factor *= 2.0
-	if _malus_active(RouteDeal.ADVANCE_PAYMENT):
-		factor *= 0.5
-	if _malus_active(RouteDeal.ANCHOR_CLAUSE):
+	if _clause_active(DealClause.DEDUCTION):
 		factor *= 0.75
-	if _malus_active(RouteDeal.GOODWILL):
+	if _clause_active(DealClause.HALF_PAYOUT):
 		factor *= 0.5
 	return factor
 
 ## Sparprämie: Aufschlag je übrigem Würfel (zusätzlich zum Sparschwein-Charm).
 func deal_unused_die_bonus() -> int:
-	return SAVINGS_DIE_BONUS if _bonus_active(RouteDeal.SAVINGS_BONUS) else 0
+	return SAVINGS_DIE_BONUS if _clause_active(DealClause.SAVINGS_BONUS) else 0
 
-## Wartungsvertrag: übrige Würfel zahlen diesen Block gar nichts.
+## Leergut/Blackout: übrige Würfel zahlen gar nichts.
 func unused_dice_pay() -> bool:
-	return not _malus_active(RouteDeal.MAINTENANCE_CONTRACT)
+	return not (_clause_active(DealClause.EMPTIES) or _clause_active(DealClause.BLACKOUT))
 
-## Anker-Klausel: der erste Neuwurf jeder Hand farkelt nicht (wie der Charm).
+## Ankerklausel: der erste Farkle JEDER Runde ist verziehen (scene_root merkt
+## sich, ob er in dieser Runde schon verbraucht wurde).
 func deal_anchor_active() -> bool:
-	return _bonus_active(RouteDeal.ANCHOR_CLAUSE)
+	return _clause_active(DealClause.ANCHOR_CLAUSE)
 
-## Quotenpaket/Turniernacht: Auszahlungsfaktor gewonnener Nebenwetten.
+## Versicherungsbetrug: Trostgeld für jeden Farkle.
+func farkle_consolation() -> int:
+	return INSURANCE_FRAUD_MONEY if _clause_active(DealClause.INSURANCE_FRAUD) else 0
+
+## Servicegebühr: Abzug je genommener Hand.
+func hand_fee() -> int:
+	return SERVICE_FEE_MONEY if _clause_active(DealClause.SERVICE_FEE) else 0
+
+## Abzocke: Abzug je gewertetem Würfel einer genommenen Hand.
+func scored_die_fee() -> int:
+	return RIP_OFF_PER_DIE if _clause_active(DealClause.RIP_OFF) else 0
+
+## Wartungs-Gravur: je genommener Hand eine Zahl-Gravur.
+func grants_engraving_per_hand() -> bool:
+	return _clause_active(DealClause.MAINTENANCE_ENGRAVING)
+
+## Zinsen: Rundenende-Ertrag auf das gehaltene Guthaben.
+func interest_income() -> int:
+	return money / INTEREST_PER if _clause_active(DealClause.INTEREST) else 0
+
+## Goldader: Geld je geräumter Überladungs-Stufe (0 = die Klausel ruht).
+func gold_vein_income() -> int:
+	return GOLD_VEIN_MONEY if _clause_active(DealClause.GOLD_VEIN) else 0
+
+## Doppellader: wie viele Ladungen eine geräumte Überladungs-Stufe prägt.
+func charge_per_stage() -> int:
+	return 2 if _clause_active(DealClause.DOUBLE_LOADER) else 1
+
+## Ladenpreis-Faktor (Inflation ×1,25, Skonto ×0,8 - beide multiplikativ).
+func shop_price_factor() -> float:
+	var factor := 1.0
+	if _clause_active(DealClause.INFLATION):
+		factor *= SHOP_INFLATION_FACTOR
+	if _clause_active(DealClause.CASH_DISCOUNT):
+		factor *= SHOP_DISCOUNT_FACTOR
+	return factor
+
+## Ladenpreis einer Ware; jeder Preisschild-Aufrufer geht hier durch.
+func shop_price(base: int) -> int:
+	if base <= 0:
+		return base
+	return maxi(1, roundi(base * shop_price_factor()))
+
+## Übertaktungsrabatt: der nächste Charm im Laden ist gratis.
+func charm_is_free() -> bool:
+	return free_charm_pending and _clause_active(DealClause.OVERCLOCK_DISCOUNT)
+
+func consume_free_charm() -> void:
+	free_charm_pending = false
+
+## Stromsperre: die Automaten bleiben diesen Block aus.
+func slots_enabled() -> bool:
+	return not _clause_active(DealClause.POWER_CUT)
+
+## Freispiele: dieser Automat hat seinen Gratisdreh noch offen.
+func slot_spin_is_free(machine: int) -> bool:
+	return _clause_active(DealClause.FREE_SPINS) and not free_spins_used.has(machine)
+
+## Quotenbonus/Turniernacht: Auszahlungsfaktor gewonnener Nebenwetten.
 func side_bet_payout_factor() -> int:
-	return 2 if _bonus_active(RouteDeal.ODDS_PACKAGE) \
-		or _bonus_active(RouteDeal.TOURNAMENT_NIGHT) else 1
+	return 2 if _clause_active(DealClause.ODDS_BONUS) \
+		or _clause_active(DealClause.TOURNAMENT_NIGHT) else 1
 
-## Quotenpaket: Einsätze kosten doppelt (Anzeige UND Abbuchung lesen das hier).
+## Wettsteuer: Einsätze kosten doppelt (Anzeige UND Abbuchung lesen das hier).
 func side_bet_stake_factor() -> int:
-	return 2 if _malus_active(RouteDeal.ODDS_PACKAGE) else 1
+	return 2 if _clause_active(DealClause.BETTING_TAX) else 1
 
 ## Fälliger Bar-Einsatz einer Wette.
 func side_bet_stake(bet: SideBet) -> int:
@@ -855,14 +1068,16 @@ func slots_unlocked() -> int:
 			count += 1
 	return count
 
-## Einsatz für einen Dreh an Automat machine.
+## Einsatz für einen Dreh an Automat machine (Freispiele drehen gratis).
 func slot_spin_price(machine: int) -> int:
+	if slot_spin_is_free(machine):
+		return 0
 	return SlotMachine.SPIN_PRICES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
-## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, in der
-## Sitzung noch frei und der Einsatz bezahlbar.
+## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, nicht
+## stromgesperrt, in der Sitzung noch frei und der Einsatz bezahlbar.
 func can_spin_slot(machine: int) -> bool:
-	return machine < slots_unlocked() and slot_bank.can_spin(machine) \
+	return slots_enabled() and machine < slots_unlocked() and slot_bank.can_spin(machine) \
 		and money >= slot_spin_price(machine)
 
 ## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
@@ -872,7 +1087,10 @@ func can_spin_slot(machine: int) -> bool:
 func spin_slot(machine: int) -> Array:
 	if not can_spin_slot(machine):
 		return []
-	add_money(-slot_spin_price(machine))
+	if slot_spin_is_free(machine):
+		free_spins_used.append(machine)  # je Automat genau ein Gratisdreh je Block
+	else:
+		add_money(-slot_spin_price(machine))
 	return slot_bank.roll(machine)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
@@ -951,16 +1169,27 @@ func goal_roadmap_index(count: int) -> int:
 
 ## --- Überladung (Overcharge) --------------------------------------------------
 
-## Punktebedarf der Stufe (1-basiert): Basisziel × 2^(stufe-1) → 150, 300, 600 …
-## Basis ist das WIRKSAME Ziel, damit ein Benchmark-Malus den ganzen Balken
-## mitzieht (Stufen, Schwellen, Sieg-Prüfung).
+## Punktebedarf der Stufe (1-basiert): Basisziel × Skalierung^(stufe-1) → 150,
+## 300, 600 … Basis ist das WIRKSAME Ziel, damit ein Benchmark-Malus den ganzen
+## Balken mitzieht (Stufen, Schwellen, Sieg-Prüfung).
 func stage_size(stage: int) -> int:
-	return effective_goal() * (1 << (stage - 1))
+	return roundi(effective_goal() * stage_size_factor() * pow(stage_scale(), stage - 1))
 
-## Kumulative Punktschwelle zum ABSCHLUSS der Stufe: Basisziel × (2^stufe - 1)
-## → 150, 450, 1050, 2250, 4650.
+## Sicherungsfall: die Stufen wachsen ×4 statt ×2.
+func stage_scale() -> float:
+	return FUSE_FAILURE_SCALE if _clause_active(DealClause.FUSE_FAILURE) else 2.0
+
+## Netzbrummen: jede Stufe braucht 25 % mehr Punkte.
+func stage_size_factor() -> float:
+	return MAINS_HUM_FACTOR if _clause_active(DealClause.MAINS_HUM) else 1.0
+
+## Kumulative Punktschwelle zum ABSCHLUSS der Stufe (Summe der Stufengrößen);
+## bei ×2 und ohne Aufschlag ergibt das die alten 150, 450, 1050, 2250, 4650.
 func cumulative_threshold(stage: int) -> int:
-	return effective_goal() * ((1 << stage) - 1)
+	var total := 0
+	for s in range(1, stage + 1):
+		total += stage_size(s)
+	return total
 
 ## Anzahl vollständig gefüllter Überladungs-Stufen bei points (0..max_overcharge_stages).
 func stages_cleared(points: int) -> int:
@@ -976,7 +1205,9 @@ func thresholds_crossed(old_points: int, new_points: int) -> Array[int]:
 	var crossed: Array[int] = []
 	for stage in range(1, max_overcharge_stages() + 1):
 		var t := cumulative_threshold(stage)
-		if t > old_points and t <= new_points:
+		if t > new_points:
+			break  # Schwellen wachsen monoton - der Rest liegt erst recht darüber
+		if t > old_points:
 			crossed.append(t)
 	return crossed
 
@@ -998,14 +1229,15 @@ func stage_progress(points: int) -> Dictionary:
 ## an. GameRun rechnet nur die Aufteilung (charge_split), gebucht wird in der
 ## Auszahlungs-Zeremonie.
 
-## Fassungsvermögen der Börse: Grundwert, ab Salon, ab Suite, ab High Roller.
-const CHARGE_CAP_BASE := 8
-const CHARGE_CAP_SALON := 10
-const CHARGE_CAP_SUITE := 12
-const CHARGE_CAP_HIGH_ROLLER := 15
+## Die Börse ist die 5×5-Kondensator-Bank: der Deckel wächst NUR in ganzen
+## Reihen (Vielfache von CHARGE_ROW), damit ein Ausbau als "eine Reihe erwacht"
+## lesbar ist - nie als krumme Zahl.
+const CHARGE_ROW := 5
+const CHARGE_ROWS_MAX := 5
 
-## Preise der Schwarzmarkt-Ware in Ladung.
-const SECRET_CHARM_PRICE := 8
+## Preise der Schwarzmarkt-Ware in Ladung. Der Charm kostet genau eine volle
+## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
+const SECRET_CHARM_PRICE := 5
 const SECRET_ENGRAVING_PRICE := 5
 ## Grundpreis des Neuwurfs; jeder weitere kostet eine Ladung mehr. Der Zähler läuft
 ## über den ganzen Lauf und wird nie zurückgesetzt.
@@ -1036,25 +1268,35 @@ var secret_stock: Array[Dictionary] = []
 
 ## Deckel der Börse; wächst mit der Hub-Stufe wie der Überladungs-Rahmen.
 func charge_cap() -> int:
+	return charge_cap_rows() * CHARGE_ROW
+
+## Erwachte Reihen der Bank je Hub-Stufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
+func charge_cap_rows() -> int:
 	if hub_level >= 10:
-		return CHARGE_CAP_HIGH_ROLLER
+		return 5
 	if hub_level >= 7:
-		return CHARGE_CAP_SUITE
+		return 4
 	if hub_level >= 5:
-		return CHARGE_CAP_SALON
-	return CHARGE_CAP_BASE
+		return 3
+	if hub_level >= 3:
+		return 2
+	return 1
 
 ## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
 ## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.
+## stages sind ÜBERLADUNGS-STUFEN, nicht Ladungen: der Doppellader prägt zwei je
+## Stufe. Was gebucht wird, zählt add_charge in Ladungen.
 func charge_split(stages: int) -> Dictionary:
-	var minted := maxi(stages, 0)
+	return _split_charge(maxi(stages, 0) * charge_per_stage())
+
+func _split_charge(minted: int) -> Dictionary:
 	var stored := mini(minted, maxi(charge_cap() - charge, 0))
 	return {"stored": stored, "overflow": minted - stored}
 
 ## Prägt count Ladungen bis zum Deckel und liefert, was nicht mehr hineinpasste -
 ## der Aufrufer zahlt diesen Überlauf als Geld aus.
 func add_charge(count: int) -> int:
-	var split := charge_split(count)
+	var split := _split_charge(maxi(count, 0))
 	charge += int(split["stored"])
 	return int(split["overflow"])
 
@@ -1067,8 +1309,8 @@ func spend_charge(count: int) -> void:
 ## Maßstab ist der LIZENZ-Rahmen, nicht OVERCHARGE_STAGES: stages kommt aus
 ## stages_cleared und ist selbst auf max_overcharge_stages gedeckelt - ein fester
 ## Wert von 5 wäre vor der Suite nie erreichbar und machte die Entdeckung
-## heimlich wieder zur Hub-Stufe. Der Rahmen zählt OHNE Deals: ein Malus, der ihn
-## schrumpft (Übertaktungsrabatt), darf die Entdeckung nicht verbilligen.
+## heimlich wieder zur Hub-Stufe. Der Rahmen zählt OHNE Klauseln: ein Malus, der ihn
+## schrumpft (Stufendeckel), darf die Entdeckung nicht verbilligen.
 func note_round_stages(stages: int) -> bool:
 	if secret_shop_unlocked or stages < overcharge_frame():
 		return false

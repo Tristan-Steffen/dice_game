@@ -326,8 +326,53 @@ func test_best_hand_falls_past_two_throttled_categories():
 	assert_eq(hand["key"], DiceScoring.TWO_KIND)
 
 func test_best_hand_survives_a_throttled_fallback_category():
-	# Nur Absicherung: hottest_combos drosselt "Höchste Zahl" nie, aber best_hand
-	# darf auch dann nicht mit Score -1 enden.
+	# Das Standardprotokoll kann auch "Höchste Zahl" sperren - best_hand darf
+	# dann nicht mit Score -1 enden.
 	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.ONE_KIND])}
 	var hand := DiceScoring.best_hand(_d([4]), [], false, [], [], {}, ctx)
 	assert_eq(int(hand["score"]), 0)
+
+# --- Paritätsfilter (CTX_PARITY) ---------------------------------------------------
+
+func _parity(mode: int) -> Dictionary:
+	return {DiceScoring.CTX_PARITY: mode}
+
+func test_parity_filter_marks_the_legal_dice():
+	assert_eq(DiceScoring.legal_indices(_d([1, 2, 3, 4]), _parity(DiceScoring.PARITY_ODD)),
+		_d([0, 2]))
+	assert_eq(DiceScoring.legal_indices(_d([1, 2, 3, 4]), _parity(DiceScoring.PARITY_EVEN)),
+		_d([1, 3]))
+	assert_eq(DiceScoring.legal_indices(_d([1, 2]), {}), _d([0, 1]), "ohne Filter zählt alles")
+
+func test_excluded_dice_never_form_a_combination():
+	# Vier Sechser plus zwei Fünfer: unter "nur ungerade" bleibt ein Paar Fünfer.
+	var ctx := _parity(DiceScoring.PARITY_ODD)
+	assert_false(DiceScoring.qualifies(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6, 5, 5]), ctx))
+	assert_true(DiceScoring.qualifies(DiceScoring.TWO_KIND, _d([6, 6, 6, 6, 5, 5]), ctx))
+	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6, 5, 5]), [], false, [], [], {}, ctx)
+	assert_eq(hand["key"], DiceScoring.TWO_KIND)
+
+func test_participating_indices_map_back_to_the_real_slots():
+	# Die gefilterte Erkennung muss die ECHTEN Slots melden, sonst zählen
+	# Materialien und Charms am falschen Würfel.
+	var ctx := _parity(DiceScoring.PARITY_EVEN)
+	assert_eq(DiceScoring.participating_indices(DiceScoring.TWO_KIND, _d([5, 4, 5, 4]), [], ctx),
+		_d([1, 3]))
+
+func test_a_throw_without_legal_dice_scores_nothing():
+	# Ausschließlich gerade Augen unter "nur ungerade": auch die Rückfall-
+	# Kategorie greift nicht - der Neuwurf farkelt.
+	var ctx := _parity(DiceScoring.PARITY_ODD)
+	assert_false(DiceScoring.qualifies(DiceScoring.ONE_KIND, _d([2, 4, 6]), ctx))
+	var hand := DiceScoring.best_hand(_d([2, 4, 6]), [], false, [], [], {}, ctx)
+	assert_eq(int(hand["score"]), 0)
+	assert_false(DiceScoring.is_strictly_better(_d([2, 4, 6]), _d([1, 2, 4]),
+		[], [], [], [], [], {}, ctx, ctx), "ohne legalen Würfel wird nichts besser")
+
+func test_parity_only_counts_the_legal_eyes_in_the_base():
+	# Unter "nur gerade" trägt die 5 nichts bei - der Basiswert ist der eines
+	# reinen Vierer-Paars.
+	var ctx := _parity(DiceScoring.PARITY_EVEN)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 5]), [], false,
+			[], [], {}, ctx),
+		DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4])))

@@ -546,10 +546,11 @@ func _sides(entries: Array) -> Array[Dictionary]:
 	typed.assign(entries)
 	return typed
 
-func _side(deal_id: String, bonus: bool) -> Dictionary:
-	var deal := RouteDeal.find(deal_id)
-	return {"id": deal_id, "bonus": bonus,
-		"scope": deal.bonus_scope if bonus else deal.malus_scope}
+## Wie GameRun.active_deal_sides: Bonus/Malus steckt in der Klausel selbst.
+func _side(clause_id: String) -> Dictionary:
+	var clause := DealClause.find(clause_id)
+	return {"id": clause_id, "bonus": clause.kind == DealClause.Kind.BONUS,
+		"scope": clause.scope}
 
 func _place_pit_with_rail() -> Rect2:
 	screen.place_pit_window(Rect2(Vector2(1800, 1300), Vector2(1100, 600)), 60.0)
@@ -561,7 +562,7 @@ func _place_pit_with_rail() -> Rect2:
 func test_the_pit_rail_centers_its_tokens_in_the_strip():
 	var rail := _place_pit_with_rail()
 	screen.set_pit_deal_tokens(_sides([
-		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+		_side(DealClause.SAVINGS_BONUS), _side(DealClause.EMPTIES)]))
 	await wait_frames(2)
 	var row := Rect2(screen.pit_deal_rail.position, screen.pit_deal_rail.size)
 	assert_eq(row.get_center().x, rail.get_center().x, "mittig über der Grubenachse")
@@ -571,26 +572,26 @@ func test_the_pit_rail_centers_its_tokens_in_the_strip():
 func test_tokens_set_before_the_rail_is_placed_survive():
 	# _refresh_hub_info läuft im Aufbau VOR der Grubenplatzierung - die Seiten
 	# dürfen dabei nicht verlorengehen.
-	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	screen.set_pit_deal_tokens(_sides([_side(DealClause.SAVINGS_BONUS)]))
 	_place_pit_with_rail()
 	assert_eq(screen.pit_deal_rail.get_child_count(), 1)
 
 func test_the_pit_hint_explains_the_hovered_token():
 	_place_pit_with_rail()
-	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	screen.set_pit_deal_tokens(_sides([_side(DealClause.EMPTIES)]))
 	await wait_frames(2)
 	var token := screen.pit_deal_rail.get_child(0) as Control
 	assert_false(screen.pit_deal_hint.visible, "ohne Zeiger kein Hinweis")
 	screen.show_pit_deal_hint(screen.pit_deal_token_at(token.get_global_rect().get_center()))
 	assert_true(screen.pit_deal_hint.visible)
-	assert_eq(screen.pit_deal_hint.title_label.text, RouteDeal.savings_bonus().display_name)
+	assert_eq(screen.pit_deal_hint.title_label.text, DealClause.empties().display_name)
 	screen.hide_pit_deal_hint()
 	assert_false(screen.pit_deal_hint.visible)
 
 func test_the_pit_hint_stays_inside_the_pit():
 	# Die Karte hängt im Grubenfenster: sie darf nicht über den Filz hinausragen.
 	var rail := _place_pit_with_rail()
-	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	screen.set_pit_deal_tokens(_sides([_side(DealClause.EMPTIES)]))
 	await wait_frames(2)
 	var token := screen.pit_deal_rail.get_child(0) as Control
 	screen.show_pit_deal_hint(token)
@@ -605,5 +606,5 @@ func test_the_pit_hint_stays_inside_the_pit():
 func test_the_pit_rail_sweeps_with_the_hub_tokens():
 	_place_pit_with_rail()
 	assert_eq(screen.sweep_pit_deal_tokens(), 0.0, "ohne Marken nichts zu wischen")
-	screen.set_pit_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	screen.set_pit_deal_tokens(_sides([_side(DealClause.SAVINGS_BONUS)]))
 	assert_gt(screen.sweep_pit_deal_tokens(), 0.0)

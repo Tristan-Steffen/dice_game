@@ -670,7 +670,8 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	stage.add_child(CharmThumb.new(charm, thumb_px))
 	column.add_child(stage)
 
-	column.add_child(_label("gekauft" if bought else "$%d" % _charm_price(),
+	var tag := "gekauft" if bought else ("gratis" if _charm_price() <= 0 else "$%d" % _charm_price())
+	column.add_child(_label(tag,
 		u * 2.0, NEON_MUTED if bought else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
 	if bought:
@@ -923,10 +924,14 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 ## von JEDER Sorte ab.
 func _pack_price(pack: Pack) -> int:
 	var base := CharmEffects.die_price(pack.price, run.charm_ids(), pack.count) if pack.is_dice_pack() else pack.price
-	return CharmEffects.pack_price(base, pack.type, run.charm_ids())
+	return run.shop_price(CharmEffects.pack_price(base, pack.type, run.charm_ids()))
 
+## Der Übertaktungsrabatt schenkt den ERSTEN Charm des Blocks - danach zählt
+## wieder der normale Preis samt Inflation/Skonto.
 func _charm_price() -> int:
-	return CharmEffects.charm_price(CHARM_PRICE, run.charm_ids())
+	if run.charm_is_free():
+		return 0
+	return run.shop_price(CharmEffects.charm_price(CHARM_PRICE, run.charm_ids()))
 
 ## Kauft ein versiegeltes Paket (je Angebot einmal); es wandert ungeöffnet ins
 ## Werkstatt-Lager. Danach wird die Doppelseite neu bebaut.
@@ -959,7 +964,10 @@ func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
 	if charm_bought[index]:
 		return
+	var was_free := run.charm_is_free()
 	run.purchase_charm(charm, _charm_price())
+	if was_free:
+		run.consume_free_charm()
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 

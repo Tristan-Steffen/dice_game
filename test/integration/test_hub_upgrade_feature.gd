@@ -299,7 +299,7 @@ func test_hovering_a_marker_names_its_effect() -> void:
 	(stations[2] as Panel).mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
 	assert_eq(hub.marker_hint.title_label.text, GameRun.STRESS_NAME)
-	assert_string_contains(hub.marker_hint.body_label.text, "Throttling")
+	assert_string_contains(hub.marker_hint.body_label.text, "Konditionen")
 	(stations[2] as Panel).mouse_exited.emit()
 	assert_false(hub.marker_hint.visible, "Hinweis verschwindet mit dem Zeiger")
 
@@ -335,17 +335,18 @@ func _sides(entries: Array) -> Array[Dictionary]:
 	typed.assign(entries)
 	return typed
 
-func _side(deal_id: String, bonus: bool) -> Dictionary:
-	var deal := RouteDeal.find(deal_id)
-	return {"id": deal_id, "bonus": bonus,
-		"scope": deal.bonus_scope if bonus else deal.malus_scope}
+## Wie GameRun.active_deal_sides: Bonus/Malus steckt in der Klausel selbst.
+func _side(clause_id: String) -> Dictionary:
+	var clause := DealClause.find(clause_id)
+	return {"id": clause_id, "bonus": clause.kind == DealClause.Kind.BONUS,
+		"scope": clause.scope}
 
 func test_tokens_show_one_mark_per_active_side() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	hub.set_deal_tokens(_sides([
-		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false),
-		_side(RouteDeal.HAPPY_HOUR, true)]))
+		_side(DealClause.SAVINGS_BONUS), _side(DealClause.EMPTIES),
+		_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.get_child_count(), 3)
 	hub.set_deal_tokens(_sides([]))
 	assert_eq(hub.deal_token_row.get_child_count(), 0, "Abrechnung räumt die Reihe")
@@ -355,8 +356,8 @@ func test_block_tokens_are_bigger_than_round_tokens() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	hub.set_deal_tokens(_sides([
-		_side(RouteDeal.SAVINGS_BONUS, true),  # Block
-		_side(RouteDeal.HAPPY_HOUR, true)]))   # nur diese Runde
+		_side(DealClause.SAVINGS_BONUS),  # Block
+		_side(DealClause.HAPPY_HOUR)]))   # nur diese Runde
 	var block_token: Control = hub.deal_token_row.get_child(0)
 	var round_token: Control = hub.deal_token_row.get_child(1)
 	assert_gt(block_token.custom_minimum_size.x, round_token.custom_minimum_size.x)
@@ -365,7 +366,7 @@ func test_bonus_and_malus_tokens_read_apart() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	hub.set_deal_tokens(_sides([
-		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+		_side(DealClause.SAVINGS_BONUS), _side(DealClause.EMPTIES)]))
 	var bonus := (hub.deal_token_row.get_child(0) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
 	var malus := (hub.deal_token_row.get_child(1) as Panel).get_theme_stylebox("panel") as StyleBoxFlat
 	assert_eq(bonus.border_color, DealTokenRow.BONUS_COLOR)
@@ -374,21 +375,21 @@ func test_bonus_and_malus_tokens_read_apart() -> void:
 func test_hovering_a_token_explains_that_side() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, false)]))
+	hub.set_deal_tokens(_sides([_side(DealClause.EMPTIES)]))
 	var token: Panel = hub.deal_token_row.get_child(0)
 	token.mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
-	assert_eq(hub.marker_hint.title_label.text, RouteDeal.savings_bonus().display_name)
-	assert_string_contains(hub.marker_hint.body_label.text, RouteDeal.savings_bonus().malus_text)
+	assert_eq(hub.marker_hint.title_label.text, DealClause.empties().display_name)
+	assert_string_contains(hub.marker_hint.body_label.text, DealClause.empties().text)
 	assert_string_contains(hub.marker_hint.body_label.text,
-		RouteDeal.scope_label(RouteDeal.Scope.BLOCK), "die Laufzeit steht dabei")
+		DealClause.scope_label(DealClause.Scope.BLOCK), "die Laufzeit steht dabei")
 	token.mouse_exited.emit()
 	assert_false(hub.marker_hint.visible)
 
 func test_rebuilding_tokens_drops_a_standing_hint() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	hub.set_deal_tokens(_sides([_side(DealClause.SAVINGS_BONUS)]))
 	(hub.deal_token_row.get_child(0) as Panel).mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
 	hub.set_deal_tokens(_sides([]))
@@ -399,7 +400,7 @@ func test_the_settlement_sweep_reports_its_duration() -> void:
 	await wait_frames(2)
 	assert_eq(hub.sweep_deal_tokens(), 0.0, "ohne Marken nichts zu wischen")
 	hub.set_deal_tokens(_sides([
-		_side(RouteDeal.SAVINGS_BONUS, true), _side(RouteDeal.SAVINGS_BONUS, false)]))
+		_side(DealClause.SAVINGS_BONUS), _side(DealClause.EMPTIES)]))
 	assert_gt(hub.sweep_deal_tokens(), 0.0, "der Aufrufer wartet darauf")
 
 func test_a_fresh_block_restores_swept_tokens() -> void:
@@ -407,10 +408,10 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 	# nächste Block muss sie wieder voll sichtbar bekommen.
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_deal_tokens(_sides([_side(RouteDeal.SAVINGS_BONUS, true)]))
+	hub.set_deal_tokens(_sides([_side(DealClause.SAVINGS_BONUS)]))
 	hub.sweep_deal_tokens()
 	hub.deal_token_row.modulate.a = 0.0  # Endzustand des Wischs vorwegnehmen
-	hub.set_deal_tokens(_sides([_side(RouteDeal.HAPPY_HOUR, true)]))
+	hub.set_deal_tokens(_sides([_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.modulate.a, 1.0)
 
 func test_a_benchmark_deal_lifts_the_coming_stations() -> void:
@@ -418,7 +419,7 @@ func test_a_benchmark_deal_lifts_the_coming_stations() -> void:
 	# Aufschlag, springen die Stationen sofort mit.
 	var run := GameRun.new_run()
 	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
-	run.take_route(RouteDeal.SAVINGS_BONUS)
+	run.sign_clauses([DealClause.BENCHMARK_SURCHARGE] as Array[String])
 	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
 	for i in before.size():
 		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)

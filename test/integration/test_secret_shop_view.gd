@@ -9,9 +9,9 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
-	run.hub_level = GameRun.HUB_MAX_LEVEL  # Börse fasst 15 - reicht für jeden Kauf
-	run.note_round_stages(GameRun.OVERCHARGE_STAGES)  # Schwarzmarkt entdeckt
-	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER
+	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle Börse (25) - reicht für jeden Kauf
+	run.note_round_stages(run.overcharge_frame())  # Schwarzmarkt entdeckt
+	run.charge = run.charge_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
 	view.size = Vector2(448, 345)
@@ -36,7 +36,7 @@ func test_content_fits_the_flat_window() -> void:
 
 func test_wallet_shows_charge_and_cap() -> void:
 	await wait_frames(2)
-	assert_eq(view.wallet_label.text, "⚡ 15/15")
+	assert_eq(view.wallet_label.text, "⚡ %d/%d" % [run.charge, run.charge_cap()])
 
 func test_buying_a_charm_through_the_card_books_it() -> void:
 	await wait_frames(2)

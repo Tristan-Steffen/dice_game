@@ -47,15 +47,41 @@ const HAND_PRIORITY := [
 	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
 ]
 
-## Stresstest-Drossel (ctx-Schlüssel): Array der gedrosselten Kategorien - sie
-## werten 0, best_hand fällt auf die nächstbeste zutreffende zurück. Mehrzahl,
-## weil die Boss-Kondition "Doppelbelastung" zwei Chips abschaltet.
+## Drossel (ctx-Schlüssel): Array der gedrosselten Kategorien - sie werten 0,
+## best_hand fällt auf die nächstbeste zutreffende zurück. Mehrzahl, weil Boss-
+## Konditionen (Allrounder, Standardprotokoll) die Liste wachsen lassen.
 const CTX_THROTTLED := "throttled"
 
 ## Ob eine Kategorie in diesem Wurf gedrosselt ist.
 static func is_throttled(key: String, ctx: Dictionary) -> bool:
 	var throttled: Array = ctx.get(CTX_THROTTLED, [])
 	return throttled.has(key)
+
+## Paritäts-Filter (ctx-Schlüssel): die Boss-Konditionen Schieflage/Gleichgewicht
+## lassen nur ungerade bzw. gerade Augen an einer Kombination teilnehmen. Der
+## Filter greift VOR der Erkennung - ausgeschlossene Würfel bilden keine Gruppe,
+## keine Straße und keine "Höchste Zahl", ein Wurf ohne legale Würfel farkelt.
+const CTX_PARITY := "parity"
+const PARITY_ANY := 0
+const PARITY_ODD := 1
+const PARITY_EVEN := 2
+
+## Slots, die unter dem Paritäts-Filter überhaupt werten dürfen.
+static func legal_indices(dice: Array[int], ctx: Dictionary) -> Array[int]:
+	var legal: Array[int] = []
+	var parity := int(ctx.get(CTX_PARITY, PARITY_ANY))
+	for i in dice.size():
+		if parity == PARITY_ANY or (absi(dice[i]) % 2 == 1) == (parity == PARITY_ODD):
+			legal.append(i)
+	return legal
+
+## Die legalen Würfel als eigene Liste - qualifies/participating rechnen darauf
+## und der Aufrufer bildet die Indizes über legal_indices zurück.
+static func _legal_dice(dice: Array[int], legal: Array[int]) -> Array[int]:
+	var sub: Array[int] = []
+	for i in legal:
+		sub.append(dice[i])
+	return sub
 
 ## Leiterbahn-Ketten (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je Glied
 ## {"face": int, "value": int (rohe Augen), "material": String}. Der Aufrufer
@@ -116,7 +142,10 @@ static func points_for(key: String, combo_levels: Dictionary = {}) -> int:
 			return cat["points"] * (1 + int(combo_levels.get(key, 0)))
 	return 0
 
-static func qualifies(key: String, dice: Array[int]) -> bool:
+static func qualifies(key: String, dice: Array[int], ctx: Dictionary = {}) -> bool:
+	var legal := legal_indices(dice, ctx)
+	if legal.size() < dice.size():
+		dice = _legal_dice(dice, legal)
 	match key:
 		SIX_KIND:
 			return _has_count_at_least(dice, 6)
@@ -143,7 +172,7 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 		TWO_KIND:
 			return _has_count_at_least(dice, 2)
 		ONE_KIND:
-			return true
+			return not dice.is_empty()  # ohne legalen Würfel zählt auch die Rückfall-Kategorie nicht
 	return false
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
@@ -155,7 +184,7 @@ static func qualifies(key: String, dice: Array[int]) -> bool:
 ## ctx: Wurf-/Runden-Zustand.
 static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	if is_throttled(key, ctx) or not qualifies(key, dice):
+	if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
 		return 0
 	var pair := _base_and_mult(key, dice, charm_ids, materials, edge_materials, combo_levels, ctx)
 	var score: int = pair[0] * maxi(1, pair[1])
@@ -182,10 +211,18 @@ static func trigger_order(scored: Array[int], dice: Array[int]) -> Array[int]:
 ## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice bereits
 ## verwandelt). [base, mult] - mult ungeklemmt.
 static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], edge_materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array[int]:
-	var participating := participating_indices(key, dice)
+	var participating := participating_indices(key, dice, [], ctx)
 	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
 	# nur die beteiligten. Kombi-Charms (Blackjack & Co.) bleiben auf participating.
 	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
+	# Auch der Vollzähler zieht keine paritätsgesperrten Würfel herein.
+	var legal := legal_indices(dice, ctx)
+	if legal.size() < dice.size():
+		var allowed: Array[int] = []
+		for i in scored:
+			if legal.has(i):
+				allowed.append(i)
+		scored = allowed
 	var echo_slot := CharmEffects.first_participating(dice, scored)
 	var base := points_for(key, combo_levels)
 	var mult := mult_for(key, combo_levels)
@@ -257,7 +294,7 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 	var best_score := -1
 	# HAND_PRIORITY zuerst durchlaufen -> bei Gleichstand bleibt der höhere Rang.
 	for key in HAND_PRIORITY:
-		if is_throttled(key, ctx) or not qualifies(key, dice):
+		if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
 			continue
 		var s := score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
 		if s > best_score:
@@ -276,9 +313,17 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 ## Basiswert, und nur auf ihnen wirken Seiten-Materialien. charm_ids nur bei
 ## ROHEN Werten mitgeben - intern sind sie schon verwandelt.
 ## Immer SLOT-sortiert: Würfel triggern links nach rechts, nie in Gruppenfolge.
-static func participating_indices(key: String, dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
+static func participating_indices(key: String, dice: Array[int], charm_ids: Array[String] = [], ctx: Dictionary = {}) -> Array[int]:
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	var result := _participating_unsorted(key, dice)
+	var legal := legal_indices(dice, ctx)
+	var result: Array[int] = []
+	if legal.size() == dice.size():
+		# assign: die Zweige von _participating_unsorted liefern untypisierte Arrays.
+		result.assign(_participating_unsorted(key, dice))
+	else:
+		# Auf der gefilterten Liste erkennen, dann die Indizes zurückrechnen.
+		for k in _participating_unsorted(key, _legal_dice(dice, legal)):
+			result.append(legal[k])
 	result.sort()
 	return result
 
@@ -300,7 +345,7 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 		TWO_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 2), 2)
 		ONE_KIND:
-			return [_index_of_highest(dice)]
+			return [] if dice.is_empty() else [_index_of_highest(dice)]
 		FOUR_KIND_AND_PAIR:
 			var pair := _find_count_and_other_count(dice, 4, 2)
 			return _indices_for_value(dice, pair[0], 4) + _indices_for_value(dice, pair[1], 2)

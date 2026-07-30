@@ -1,28 +1,30 @@
 class_name RouteChoiceView
 extends Control
-## Die Routenwahl IN DER GRUBE: drei Deal-Karten liegen auf dem Grubenboden,
+## Die Vertragswahl IN DER GRUBE: drei Verträge liegen auf dem Grubenboden,
 ## sobald der Spieler die Runde dort zum ersten Mal aufnimmt - unterschrieben
 ## wird, bevor der erste Würfel fällt. Kein Zurück und kein Schließen-Knopf:
-## ohne Deal wirft niemand.
+## ohne Vertrag wirft niemand.
 ##
 ## Die Einheit u kommt aus BEIDEN Achsen (die Grube ist breit und flach - allein
 ## aus der Breite gerechnet würde die Schrift riesig).
 
-signal route_chosen(deal_id: String)
+## Der unterschriebene Platz der Auslage (Index in GameRun.route_offers).
+signal route_chosen(index: int)
 
-const TITLE := "Routenwahl"
+const TITLE := "Vertragswahl"
 const STRESS_TITLE := "Stresstest-Konditionen"
-const SUBTITLE := "Eine Route wählen - der Deal gilt, bis die Abrechnung ihn löscht."
-const STRESS_SUBTITLE := "Zum Stresstest: unter welchen Bedingungen soll er laufen?"
 
 const BONUS_COLOR := Color("#50fa7b")
 const MALUS_COLOR := Color("#ff6b6b")
 const TEXT_COLOR := Color("#e8e6ff")
 const MUTED_COLOR := Color("#9a93c9")
 const CARD_BG := Color(0.07, 0.06, 0.16, 0.96)
+## Spanne der Paragraphen-Nummer auf der Karte - reine Zierde, je Auslage neu.
+const SECTION_MIN := 3
+const SECTION_MAX := 219
 
-## Angebotene Deal-ids; open() baut daraus die Karten.
-var offers: Array[String] = []
+## Angebotene Vertragskarten (GameRun.route_offers); open() baut daraus die Karten.
+var offers: Array[Dictionary] = []
 ## Stresstest-Runde: andere Überschrift, die Karten sind Boss-Konditionen.
 var stress_round := false
 
@@ -33,9 +35,9 @@ func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true  # nie über den Hub-Rahmen hinaus (dort endet die Maus)
 
-## Baut die Auslage neu auf und zeigt sie. deal_ids kommt aus GameRun.route_offers.
-func open(deal_ids: Array[String], is_stress: bool = false) -> void:
-	offers = deal_ids.duplicate()
+## Baut die Auslage neu auf und zeigt sie. cards kommt aus GameRun.route_offers.
+func open(cards: Array[Dictionary], is_stress: bool = false) -> void:
+	offers = cards.duplicate()
 	stress_round = is_stress
 	_build()
 	visible = true
@@ -72,32 +74,30 @@ func _build() -> void:
 
 	column.add_child(_line(TITLE if not stress_round else STRESS_TITLE,
 		u * 4.4, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
-	column.add_child(_line(SUBTITLE if not stress_round else STRESS_SUBTITLE,
-		u * 2.6, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", int(u * 1.4))
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(row)
-	for deal_id in offers:
-		var deal := RouteDeal.find(deal_id)
-		if deal == null:
-			continue
-		var card := _make_card(deal, u)
+	for i in offers.size():
+		var card := _make_card(offers[i], i, u)
 		row.add_child(card)
 		_cards.append(card)
 
-## Eine Deal-Karte: Name im Akzent, Bonus grün, Malus rot, je mit Laufzeit-
-## Etikett. Die ganze Karte IST der Knopf - ein Klick unterschreibt.
-func _make_card(deal: RouteDeal, u: float) -> Control:
+## Eine Vertragskarte: Stufenname im Akzent, darunter der Bonus grün und der
+## Malus rot, je mit Laufzeit-Etikett. Farbe trennt beide - kein Zwischentitel.
+## Die ganze Karte IST der Knopf.
+func _make_card(offer: Dictionary, index: int, u: float) -> Control:
+	var tier := int(offer.get(GameRun.CARD_TIER, DealClause.Tier.ONE))
+	var accent := CasinoStyle.contract_tier_color(tier)
 	var card := Button.new()
-	card.name = "Card_%s" % deal.id
+	card.name = "Card_%d" % index
 	card.focus_mode = Control.FOCUS_NONE
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.pressed.connect(func() -> void: route_chosen.emit(deal.id))
-	_style_card(card, deal.color, u)
+	card.pressed.connect(func() -> void: route_chosen.emit(index))
+	_style_card(card, accent, u)
 
 	var pad := MarginContainer.new()
 	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -109,22 +109,34 @@ func _make_card(deal: RouteDeal, u: float) -> Control:
 	card.add_child(pad)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(u * 0.5))
+	column.add_theme_constant_override("separation", int(u * 0.4))
 	column.alignment = BoxContainer.ALIGNMENT_CENTER  # Inhalt mittig statt oben klebend
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_child(column)
 
 	# Lange Namen dürfen weder an der Kartenkante abreißen noch MITTEN IM WORT
-	# umbrechen ("Doppelbelastun/g"): Umbruch nur an Leerzeichen, und je länger
-	# der Name, desto kleiner die Schrift.
-	var title := _line(deal.display_name, u * _title_scale(deal.display_name), deal.color)
+	# umbrechen: Umbruch nur an Leerzeichen, und je länger der Name, desto
+	# kleiner die Schrift.
+	var tier_name := DealClause.tier_label(tier)
+	var title := _line(tier_name, u * _title_scale(tier_name), accent)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
-	column.add_child(_side_block(deal.bonus_text, deal.bonus_scope, BONUS_COLOR, u))
-	if deal.malus_text != "":
-		column.add_child(_side_block(deal.malus_text, deal.malus_scope, MALUS_COLOR, u))
+	column.add_child(_line("§ %d" % randi_range(SECTION_MIN, SECTION_MAX), u * 2.0,
+		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u)
+	_add_clause_block(column, String(offer.get(GameRun.CARD_MALUS, "")), MALUS_COLOR, u)
 	return card
+
+func _add_clause_block(column: VBoxContainer, clause_id: String, color: Color, u: float) -> void:
+	var clause := DealClause.find(clause_id)
+	if clause == null:
+		return
+	# Nur die Wirkung, mittig (die Karte ist breiter als hoch). Die Laufzeit steht
+	# nicht mehr auf der Karte - sie lebt an den Deal-Marken (Größe = Dauer).
+	var body := _line(clause.text, u * 2.8, color, HORIZONTAL_ALIGNMENT_CENTER)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(body)
 
 ## Schriftgröße des Kartennamens (in u): das längste Wort muss in die schmale
 ## Karte passen, sonst steht es zerhackt da.
@@ -133,27 +145,12 @@ func _title_scale(name_text: String) -> float:
 	for word in name_text.split(" ", false):
 		longest = maxi(longest, word.length())
 	if longest >= 17:
-		return 2.8  # "Übertaktungsrabatt" - ein Wort, das nirgends umbrechen kann
+		return 2.8  # "Stresstest-Kondition" - ein Wort, das nirgends umbrechen kann
 	if longest >= 15:
 		return 3.2
 	if longest >= 11:
 		return 3.7
 	return 4.2
-
-## Eine Deal-Seite: Wirkung in ihrer Farbe, darunter klein die Laufzeit - die
-## Laufzeit ist die eigentliche Entscheidung, sie darf nie fehlen.
-func _side_block(text: String, scope: RouteDeal.Scope, color: Color, u: float) -> Control:
-	var block := VBoxContainer.new()
-	block.add_theme_constant_override("separation", 0)
-	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Mittig: die Karte ist in der Grube breiter als hoch, linksbündiger Text
-	# klebte an der Kante und ließ die halbe Karte leer.
-	var body := _line(text, u * 3.0, color, HORIZONTAL_ALIGNMENT_CENTER)
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	block.add_child(body)
-	block.add_child(_line(RouteDeal.scope_label(scope), u * 2.1, MUTED_COLOR,
-		HORIZONTAL_ALIGNMENT_CENTER))
-	return block
 
 func _line(text: String, font_size: float, color: Color,
 		align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:

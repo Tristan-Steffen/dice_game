@@ -18,7 +18,7 @@ const BACKROOM_BG := Color("#0b0918e6")
 const CARD_BG := Color("#150f2acc")
 
 ## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
-## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Routenwahl).
+## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Vertragswahl).
 const CONTENT_UNITS := 72.0
 
 var run: GameRun:

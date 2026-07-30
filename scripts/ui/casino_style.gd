@@ -17,6 +17,14 @@ const PURPLE_DARK := Color("6f3bb0")
 ## Ladung (⚡): überhelles Cyan - Börse am Hub, Preise im Schwarzmarkt und die
 ## Ladungs-Kometen der Auszahlung teilen sich diese eine Signalfarbe.
 const CHARGE := Color(0.55, 1.9, 2.1)
+## Vertragsstufen (DealClause.Tier): Standard, Risiko, Knebel, Werbegeschenk,
+## Stresstest - die Akzentfarbe der Karte steigt mit der Gefahr.
+const CONTRACT_TIER_COLORS := [
+	Color("6fd3ff"), Color("c48cff"), Color("ff5f6d"), Color("ffcc00"), Color("ff3b3b"),
+]
+
+static func contract_tier_color(tier: int) -> Color:
+	return CONTRACT_TIER_COLORS[clampi(tier, 0, CONTRACT_TIER_COLORS.size() - 1)]
 
 const PANEL_BG := Color("16212e")  # dunkles Nachtblau
 const PANEL_BORDER := Color("ffbf3f")

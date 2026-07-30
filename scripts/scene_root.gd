@@ -46,8 +46,9 @@ const BANK_BAR_DRAIN_TIME := 0.45
 const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
 
 ## --- Schwarzmarkt ---------------------------------------------------------------
-## Anteil der Rasterplatz-Breite, den die volle Bank einnehmen darf.
-const CAPACITOR_SLOT_FILL := 0.9
+## Anteil des Rasterplatzes, den die Bank einnimmt - knapp unter 1, nur noch ein
+## Saum gegen die Nachbarzelle (das Raster soll den Platz sichtbar ausfüllen).
+const CAPACITOR_SLOT_FILL := 0.97
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
@@ -266,7 +267,7 @@ var charm_shop: ShopController
 var capacitor_bank: CapacitorBankView
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
-## Routenwahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
+## Vertragswahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
 ## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_choice: RouteChoiceView
@@ -363,6 +364,8 @@ var run: GameRun
 var hands_taken_this_round: int = 0
 var chimney_sweep_used_this_round: bool = false
 var phoenix_used_this_round: bool = false
+## Ankerklausel: ihr Freischuss gilt je Runde einmal (wie der Schornsteinfeger).
+var anchor_clause_used_this_round: bool = false
 
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der Runde
 var next_draw_index: int = 0
@@ -848,7 +851,7 @@ func _setup_panels() -> void:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
 
-	# Routenwahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
+	# Vertragswahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
 	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
 	# landen. Ohne Screen-Mesh ersatzweise als Fenster-UI.
 	route_choice = RouteChoiceView.new()
@@ -1269,7 +1272,7 @@ func _used_faces_sum() -> int:
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
 	var transformed := CharmEffects.transform_values(sel_values, ids)
 	var sum := 0
-	for i in DiceScoring.participating_indices(hand["key"], sel_values, ids):
+	for i in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
 		sum += transformed[i]
 	return sum
 
@@ -2410,18 +2413,24 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 	return Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
 
 ## Die Ladungs-Bank steht IM Chip-Raster: auf dem freien Platz unten rechts,
-## zwischen Grube und Kombinationen. Sie wird auf die Platzbreite skaliert, damit
-## die volle Bank (Deckel 8 in einer Reihe) nie in die Nachbarzelle wächst - und
-## sie steht bewusst auf blankem Filz, ist also NICHT spiegelnd (dort ist kein Glas).
+## zwischen Grube und Kombinationen. Das 5×5-Raster hat einen FESTEN Fußabdruck,
+## also füllt es die Platzbreite exakt (span / max_length, ohne 1er-Deckel) -
+## Es wird auf BEIDE Achsen eingepasst (die knappere gewinnt): der Fußabdruck ist
+## auf das Platz-Verhältnis getrimmt, also füllen beide zugleich fast ganz - und
+## kein Rundungsdrift kann die Bank je in die Nachbarzelle schieben. Bewusst auf
+## blankem Filz, also NICHT spiegelnd (dort ist kein Glas).
 func _setup_capacitor_bank(slot: Rect2) -> void:
 	capacitor_bank = CapacitorBankView.new()
 	capacitor_bank.name = "CapacitorBank"
 	var center := table_screen.pixel_to_world(slot.get_center())
 	capacitor_bank.position = Vector3(center.x, 0.0, center.z)
+	# pixel_to_world dreht die Achsen: Platz-BREITE (Pixel-x) -> Welt-z, Platz-
+	# HÖHE (Pixel-y) -> Welt-x. Lange Rasterachse liegt also auf der Breite.
 	var a := table_screen.pixel_to_world(slot.position)
 	var b := table_screen.pixel_to_world(slot.end)
-	var span := absf(a.z - b.z) * CAPACITOR_SLOT_FILL
-	capacitor_bank.scale = Vector3.ONE * minf(1.0, span / CapacitorBankView.max_length())
+	var fit_long := absf(a.z - b.z) / CapacitorBankView.max_length()
+	var fit_short := absf(a.x - b.x) / CapacitorBankView.max_width()
+	capacitor_bank.scale = Vector3.ONE * minf(fit_long, fit_short) * CAPACITOR_SLOT_FILL
 	add_child(capacitor_bank)
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
@@ -2782,7 +2791,7 @@ func _hovered_queue_index(screen_pos: Vector2) -> int:
 func _sync_screen_action_buttons() -> void:
 	if table_screen == null or table_screen.pit_actions_root == null:
 		return
-	# Die Routenwahl braucht den ganzen Grubenboden: solange sie liegt, weicht
+	# Die Vertragswahl braucht den ganzen Grubenboden: solange sie liegt, weicht
 	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
 	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
 	# nebenher wieder einschalten.
@@ -3050,7 +3059,8 @@ func _score_ctx() -> Dictionary:
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
-		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Stresstest-Drossel
+		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
+		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
 		DiceScoring.CTX_POINTER_LINKS: _pointer_links(),  # Leiterbahn-Ketten
 		DiceScoring.CTX_MATERIAL_UPGRADES: _material_upgrades(),  # Dotierungen
 	}
@@ -3482,8 +3492,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = pre_reroll_upgrades
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
-		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand) \
-				or (run.deal_anchor_active() and rerolls_this_hand == 1):
+		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
 			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
 			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
 			dice.clear_selection()
@@ -3518,6 +3527,19 @@ func _on_farkle() -> void:
 	if CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
 		chimney_sweep_used_this_round = true
 		hand_note = "Schornsteinfeger: Farkle verziehen – die Hand darf weiterlaufen."
+		dice.clear_selection()
+		_auto_select_best_combo()
+		has_rolled_current_hand = true
+		last_throw_was_reroll = false
+		_refresh_deck_trays()
+		_refresh_ui()
+		return
+
+	# Ankerklausel: der erste Farkle JEDER Runde ist verziehen - dieselbe
+	# Mechanik wie der Schornsteinfeger, nur aus dem Vertrag.
+	if run.deal_anchor_active() and not anchor_clause_used_this_round:
+		anchor_clause_used_this_round = true
+		hand_note = "Ankerklausel: Der erste Farkle dieser Runde zählt nicht."
 		dice.clear_selection()
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
@@ -3576,6 +3598,11 @@ func _on_farkle() -> void:
 		for kind in active_kinds:
 			_discard_kind(kind)
 
+	# Versicherungsbetrug: jeder echte Farkle zahlt Trostgeld.
+	var consolation := run.farkle_consolation()
+	if consolation > 0:
+		run.add_money(consolation)
+
 	if _round_should_end():
 		_on_round_complete()
 	else:
@@ -3584,6 +3611,20 @@ func _on_farkle() -> void:
 		if income > 0:
 			run.add_money(income)
 		_start_new_hand()
+
+## Klausel-Wirkungen einer genommenen Hand: Gebühren, Wartungs-Gravur, Hitzestau
+## und die mitwachsende Boss-Drossel. Gebühren nehmen nie mehr, als da ist - ein
+## negativer Kontostand hätte im ganzen Laden keine Bedeutung.
+func _apply_hand_clauses(combo_key: String, scored_dice: int) -> void:
+	var fee := run.hand_fee() + run.scored_die_fee() * scored_dice
+	if fee > 0:
+		run.add_money(-mini(fee, run.money))
+	if run.grants_engraving_per_hand():
+		run.grant_engraving(run.roll_stamp_engraving())
+	if run.apply_heat_buildup(combo_key):
+		hand_note = "Hitzestau: %s fällt eine Stufe zurück." % DiceScoring.label_for(combo_key)
+	if run.note_hand_taken(combo_key):
+		_set_throttled_combos(run.throttled_combos)
 
 ## Flickenteppich: der Würfel mit der höchsten Augenzahl bleibt als einziger
 ## gehalten liegen, alle anderen sind wieder frei - die Hand läuft weiter, statt
@@ -3651,7 +3692,7 @@ func _on_take_button_pressed() -> void:
 	# Nehmen-Effekte der Materialien - die gewerteten AUSGEWÄHLTEN Würfel (mit
 	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
 	# Knochen/Glas verändern die Pool-Würfel dauerhaft.
-	var sel_participating := DiceScoring.participating_indices(hand["key"], sel_values, ids)
+	var sel_participating := DiceScoring.participating_indices(hand["key"], sel_values, ids, sel_ctx)
 	var sel_scored := CharmEffects.scored_indices(sel_participating, sel_values.size(), ids)
 	var participating: Array[int] = []
 	for p in sel_scored:
@@ -3694,6 +3735,7 @@ func _on_take_button_pressed() -> void:
 	taken_dice_this_round += dice.count()
 	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
+	_apply_hand_clauses(String(hand["key"]), participating.size())
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
@@ -4179,7 +4221,7 @@ func _auto_select_best_combo() -> void:
 	# bloß ranghöchste.
 	var hand := DiceScoring.best_hand(dice.values, ids, hands_taken_this_round == 0,
 		_rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
-	for position in DiceScoring.participating_indices(hand["key"], dice.values, ids):
+	for position in DiceScoring.participating_indices(hand["key"], dice.values, ids, _score_ctx()):
 		dice.set_selected(position, true)
 
 ## Slot-Indizes der AUSGEWÄHLTEN, sichtbaren Würfel - NUR sie bilden die Hand
@@ -4225,7 +4267,7 @@ func _pit_combination_slots() -> Array[int]:
 		sel_edges.append(edges[s])
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
 	var result: Array[int] = []
-	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids):
+	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
 		result.append(slots[p])
 	return result
 
@@ -4436,18 +4478,18 @@ func _open_route_choice() -> void:
 	if run.route_offers.is_empty():
 		return
 	if route_choice == null:
-		_on_route_chosen(run.route_offers[0])
+		_on_route_chosen(0)
 		return
 	_place_route_choice()
 	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number))
 
-## Deal unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
+## Vertrag unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
 ## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
 ## geworfen werden.
-func _on_route_chosen(deal_id: String) -> void:
+func _on_route_chosen(index: int) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
-	run.take_route(deal_id)
+	run.take_route(index)
 	route_pending = false
 	if route_choice != null:
 		route_choice.close()
@@ -4473,6 +4515,7 @@ func _start_new_round() -> void:
 	_abort_engraving()  # eine im Laden offene Station leckt nicht in die Runde
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
+	anchor_clause_used_this_round = false
 	phoenix_used_this_round = false
 	taken_dice_this_round = 0
 	recycling_used_this_round = false
@@ -4573,6 +4616,7 @@ func _on_bank_button_pressed() -> void:
 ## nach der ersten gefüllten Stufe kann der Spieler per Bank-Knopf früher beenden.
 func _round_should_end() -> bool:
 	return run.stages_cleared(hand_total) >= run.max_overcharge_stages() \
+		or hands_taken_this_round >= run.max_hands_this_round() \
 		or _remaining_in_pool() < HAND_SIZE
 
 ## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für den geschafften Benchmark, je
@@ -4600,7 +4644,11 @@ func _on_round_complete() -> void:
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
 		# bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
-		await _play_round_clear_payout(base_blind, per_die, split)
+		# Zinsen rechnen auf dem Stand VOR jeder Buchung und reisen mit dem
+		# Benchmark-Kometen - ein eigener Komet für ein paar Dollar wäre Zeremonie
+		# um ihrer selbst willen.
+		var interest := run.interest_income()
+		await _play_round_clear_payout(base_blind, interest, per_die, stages, split)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		if discovered:
@@ -4726,7 +4774,8 @@ func _refresh_side_bet_panel() -> void:
 ## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen). Drei Posten
 ## nacheinander: Benchmark (einmal Geld), Überladung (je Stufe ⚡ bzw. Überlauf-
 ## Geld nach split), übrige Würfel.
-func _play_round_clear_payout(base_blind: int, per_die: int, split: Dictionary) -> void:
+func _play_round_clear_payout(base_blind: int, interest: int, per_die: int, stages: int,
+		split: Dictionary) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
@@ -4737,6 +4786,8 @@ func _play_round_clear_payout(base_blind: int, per_die: int, split: Dictionary) 
 	# 1) Der geschaffte Benchmark zahlt EINMAL - ein goldener Komet, eine Buchung.
 	if blind_label != null:
 		blind_label.text = "%d$ pro Benchmark" % base_blind
+		if interest > 0:
+			blind_label.text += "  ·  Zinsen +%d$" % interest
 		blind_label.modulate = PAYOUT_LABEL_BASE_COLOR
 	var travel := table_screen.bank_comet(table_screen.stage_fill_color(1))
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
@@ -4744,7 +4795,7 @@ func _play_round_clear_payout(base_blind: int, per_die: int, split: Dictionary) 
 		return
 	if hub != null:
 		hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	run.add_money(base_blind)
+	run.add_money(base_blind + interest)
 	_pop_payout_label(blind_label)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 
@@ -4756,7 +4807,7 @@ func _play_round_clear_payout(base_blind: int, per_die: int, split: Dictionary) 
 		blind_label.text = "Überladung ⚡+%d" % stored
 		if overflow > 0:
 			blind_label.text += "  ·  %d×%d$ – Speicher voll" % [overflow, base_blind]
-	await _play_bank_discharge(base_blind, stored, overflow, hub)
+	await _play_bank_discharge(base_blind, stored, overflow, stages, hub)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 	_fade_payout_label(blind_label)
 
@@ -4891,14 +4942,19 @@ func _fire_charm_engraving(engraving: Engraving, from_px: Vector2) -> float:
 ## Stufe und bucht IHRE Stufe einzeln - die ersten stored Stufen als Ladung (cyaner
 ## Komet, Börse pulst), die restlichen overflow als Geld (goldener Komet), weil die
 ## Börse voll ist. So kommen N Stufen in N Stößen an, statt schlagartig.
-func _play_bank_discharge(base_blind: int, stored: int, overflow: int, hub: HubView) -> void:
-	var stages := stored + overflow
+func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_stages: int,
+		hub: HubView) -> void:
+	var comets := stored + overflow
+	# Der Doppellader schickt zwei Kometen je Stufe - die Goldader zahlt aber je
+	# STUFE, also nur bei jedem n-ten Einschlag.
+	var per_stage := maxi(1, run.charge_per_stage())
+	var vein := run.gold_vein_income() if cleared_stages > 0 else 0
 	var gap := BANK_STAGE_GAP_START
 	var minted := 0
-	for k in range(stages, 0, -1):
+	for k in range(comets, 0, -1):
 		var is_charge := minted < stored
 		# Balken auf die verbleibenden Stufen schrumpfen (in der nächst-tieferen Farbe).
-		var remaining_frac := float(k - 1) / float(stages)
+		var remaining_frac := float(k - 1) / float(comets)
 		table_screen.drain_goal_bar(remaining_frac, table_screen.stage_fill_color(maxi(k - 1, 1)),
 			BANK_BAR_DRAIN_TIME)
 		var color := CHARGE_COMET_COLOR if is_charge else table_screen.stage_fill_color(k)
@@ -4916,6 +4972,8 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, hub: HubV
 		else:
 			run.add_money(base_blind)
 		minted += 1
+		if vein > 0 and minted % per_stage == 0:
+			run.add_money(vein)  # Goldader: je geräumter Stufe, nicht je Ladung
 		_pop_payout_label(hub.blind_payout_label if hub != null else null)
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
@@ -5032,7 +5090,7 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
-	# ...und dort wartet auch die Routenwahl: der Spieler nimmt die Runde auf,
+	# ...und dort wartet auch die Vertragswahl: der Spieler nimmt die Runde auf,
 	# das Haus legt seine Konditionen auf den Tisch.
 	if is_pit_focused and route_pending and phase == Phase.IDLE \
 			and (route_choice == null or not route_choice.visible):

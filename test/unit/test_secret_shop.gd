@@ -28,30 +28,35 @@ func test_fresh_run_starts_empty() -> void:
 	assert_eq(run.secret_rerolls, 0)
 	assert_eq(run.secret_stock.size(), 0)
 
-func test_charge_cap_grows_with_hub_level() -> void:
+func test_charge_cap_wakes_one_row_per_milestone() -> void:
+	# Die Bank ist ein 5×5-Raster: der Deckel ist IMMER eine ganze Reihenzahl
+	# (Vielfaches von CHARGE_ROW), eine Reihe je Meilenstein 1/3/5/7/10.
 	var run := _run()
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_BASE, "Hinterzimmer: Grunddeckel")
+	assert_eq(run.charge_cap(), GameRun.CHARGE_ROW, "Hinterzimmer: eine Reihe")
+	run.hub_level = 2
+	assert_eq(run.charge_cap_rows(), 1)
+	run.hub_level = 3
+	assert_eq(run.charge_cap_rows(), 2)
 	run.hub_level = 4
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_BASE)
+	assert_eq(run.charge_cap_rows(), 2)
 	run.hub_level = 5
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SALON)
-	run.hub_level = 6
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SALON)
+	assert_eq(run.charge_cap_rows(), 3)
 	run.hub_level = 7
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SUITE)
+	assert_eq(run.charge_cap_rows(), 4)
 	run.hub_level = 9
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_SUITE)
+	assert_eq(run.charge_cap_rows(), 4)
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	assert_eq(run.charge_cap(), GameRun.CHARGE_CAP_HIGH_ROLLER)
+	assert_eq(run.charge_cap(), GameRun.CHARGE_ROW * GameRun.CHARGE_ROWS_MAX,
+		"High Roller: das volle 5×5-Raster")
 
 func test_add_charge_stores_to_cap_and_returns_overflow() -> void:
-	var run := _run()  # Deckel 8
-	assert_eq(run.add_charge(5), 0)
+	var run := _run()  # Deckel 5 (eine Reihe)
+	assert_eq(run.add_charge(3), 0)
+	assert_eq(run.charge, 3)
+	assert_eq(run.add_charge(5), 3, "2 passen noch, 3 laufen über")
 	assert_eq(run.charge, 5)
-	assert_eq(run.add_charge(5), 2, "3 passen noch, 2 laufen über")
-	assert_eq(run.charge, 8)
 	assert_eq(run.add_charge(3), 3, "volle Börse nimmt nichts mehr")
-	assert_eq(run.charge, 8)
+	assert_eq(run.charge, 5)
 
 func test_add_charge_emits_new_value() -> void:
 	var run := _run()
@@ -61,7 +66,7 @@ func test_add_charge_emits_new_value() -> void:
 	run.add_charge(9)
 	assert_eq(seen.size(), 2)
 	assert_eq(seen[0], 3)
-	assert_eq(seen[1], 8, "beim zweiten Mal bis zum Deckel")
+	assert_eq(seen[1], 5, "beim zweiten Mal bis zum Deckel")
 
 func test_spend_charge_clamps_at_zero_and_emits() -> void:
 	var run := _run()
@@ -74,14 +79,14 @@ func test_spend_charge_clamps_at_zero_and_emits() -> void:
 	assert_eq(seen[0], 0)
 
 func test_charge_split_previews_without_mutating() -> void:
-	var run := _run()  # Deckel 8
-	run.charge = 6
+	var run := _run()  # Deckel 5
+	run.charge = 3
 	var split := run.charge_split(5)
 	var stored: int = split["stored"]
 	var overflow: int = split["overflow"]
 	assert_eq(stored, 2)
 	assert_eq(overflow, 3)
-	assert_eq(run.charge, 6, "Vorschau ändert den Stand nicht")
+	assert_eq(run.charge, 3, "Vorschau ändert den Stand nicht")
 
 func test_charge_split_on_empty_wallet_stores_everything() -> void:
 	var run := _run()
@@ -200,7 +205,7 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 func test_reroll_cost_escalates_and_never_resets() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER  # 15
+	run.charge = 15
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
 	assert_eq(run.charge, 12)
@@ -255,7 +260,7 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = GameRun.CHARGE_CAP_HIGH_ROLLER  # reicht für zwei Gravur-Käufe
+	run.charge = GameRun.SECRET_ENGRAVING_PRICE * 2  # reicht für zwei Gravur-Käufe
 	assert_true(run.buy_secret_offer(1))
 	var charge_after := run.charge
 	var owned := run.owned_engravings.size()

@@ -1,8 +1,8 @@
 class_name DealTokenRow
 extends HBoxContainer
-## Die Deal-Marken als Reihe: je wirkende Deal-Seite eine Marke. Grün/rot sagt
-## Bonus oder Malus, die Größe die Laufzeit (Block > Runde), die Füllfarbe den
-## Deal. Dieselbe Reihe hängt am Hub-Rad UND am oberen Grubenrand - eine
+## Die Klausel-Marken als Reihe: je wirkende Klausel eine Marke. Grün/rot sagt
+## Bonus oder Kleingedrucktes, die Größe die Laufzeit (Block > Runde), die
+## Füllfarbe das Thema. Dieselbe Reihe hängt am Hub-Rad UND am oberen Grubenrand - eine
 ## Grammatik an zwei Orten. Den Hinweis-Text meldet sie nur; platzieren muss ihn
 ## jede Seite selbst (Hub-Bühne bzw. Grubenfenster).
 
@@ -33,25 +33,25 @@ func set_sides(sides: Array[Dictionary], u: float) -> void:
 		remove_child(child)
 		child.queue_free()
 	for side in sides:
-		var deal := RouteDeal.find(side["id"])
-		if deal != null:
-			add_child(_make_token(deal, side, u))
+		var clause := DealClause.find(side["id"])
+		if clause != null:
+			add_child(_make_token(clause, side, u))
 	modulate.a = 1.0  # ein Wisch von eben darf nicht kleben bleiben
 
-## Eine Marke: Füllung in Deal-Farbe, Ring grün (Bonus) oder rot (Malus),
+## Eine Marke: Füllung in Klausel-Farbe, Ring grün (Bonus) oder rot (Malus),
 ## Zeichen + bzw. −. Block-Marken sind größer als Runden-Marken.
-func _make_token(deal: RouteDeal, side: Dictionary, u: float) -> Control:
+func _make_token(clause: DealClause, side: Dictionary, u: float) -> Control:
 	var bonus: bool = side["bonus"]
-	var block: bool = int(side["scope"]) == int(RouteDeal.Scope.BLOCK)
+	var block: bool = int(side["scope"]) == int(DealClause.Scope.BLOCK)
 	var accent := BONUS_COLOR if bonus else MALUS_COLOR
 	var dia := u * (BLOCK_DIA_U if block else ROUND_DIA_U)
 
 	var token := Panel.new()
-	token.name = "Token_%s_%s" % [deal.id, "bonus" if bonus else "malus"]
+	token.name = "Token_%s_%s" % [clause.id, "bonus" if bonus else "malus"]
 	token.custom_minimum_size = Vector2(dia, dia)
 	token.mouse_filter = Control.MOUSE_FILTER_PASS if self_hover else Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color(deal.color.r * 0.35, deal.color.g * 0.35, deal.color.b * 0.35, 0.95)
+	box.bg_color = Color(clause.color.r * 0.35, clause.color.g * 0.35, clause.color.b * 0.35, 0.95)
 	box.border_color = accent
 	box.set_border_width_all(maxi(1, int(u * (0.4 if block else 0.28))))
 	box.set_corner_radius_all(int(dia * 0.5))
@@ -67,10 +67,9 @@ func _make_token(deal: RouteDeal, side: Dictionary, u: float) -> Control:
 	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	token.add_child(glyph)
 
-	var text: String = deal.bonus_text if bonus else deal.malus_text
 	token.set_meta("hint", {
-		"title": deal.display_name,
-		"body": "%s\n(%s)" % [text, RouteDeal.scope_label(side["scope"])],
+		"title": clause.display_name,
+		"body": "%s\n(%s)" % [clause.text, DealClause.scope_label(side["scope"])],
 		"accent": accent})
 	if self_hover:
 		token.mouse_entered.connect(func() -> void:

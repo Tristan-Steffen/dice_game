@@ -17,10 +17,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
 	var raw := dice
 	dice = CharmEffects.transform_values(dice, charm_ids)
-	var participating := DiceScoring.participating_indices(key, dice)
+	var participating := DiceScoring.participating_indices(key, dice, [], ctx)
 	# Normal zählen nur beteiligte Würfel Augen; mit Vollzähler ALLE liegenden.
 	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant wegen Beherit).
 	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
+	# Wie in DiceScoring._base_and_mult: der Vollzähler zieht keine paritäts-
+	# gesperrten Würfel herein, sonst zeigt die Animation einen Würfel, den die
+	# Wertung übersprungen hat.
+	var legal := DiceScoring.legal_indices(dice, ctx)
+	if legal.size() < dice.size():
+		var allowed: Array[int] = []
+		for i in scored:
+			if legal.has(i):
+				allowed.append(i)
+		scored = allowed
 	var eye_slots := DiceScoring.trigger_order(scored, dice)
 	var has_die_bonus := not materials.is_empty() or not edge_materials.is_empty() or not charm_ids.is_empty()
 
