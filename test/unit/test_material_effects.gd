@@ -605,12 +605,18 @@ func test_upgraded_glass_stops_at_the_floor():
 	assert_eq(defs[0].faces[0], EtchingEffects.MIN_FACE_VALUE, "3 − 5 wäre negativ, geklemmt")
 	assert_eq(report.shrunk, [0])
 
-func test_upgraded_glass_never_shrinks_with_the_glassblower_lung():
+func test_upgraded_glass_shrinks_to_the_lungs_floor():
+	# Die Glasbläserlunge hebt nur den Boden: der Prozent-Schritt läuft weiter.
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], [0])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _m([]),
 		_ids([Charm.GLASSBLOWER_LUNG]))
-	assert_eq(defs[0].faces[0], 40)
-	assert_eq(report.shrunk.size(), 0)
+	assert_eq(defs[0].faces[0], 32, "20 % von 40 sind 8 - auch mit Lunge")
+	assert_eq(report.shrunk, [0])
+	var low: Array[DieDefinition] = [_die([8, 2, 3, 4, 5, 6], [], [0])]
+	var low_report := MaterialEffects.apply_take_effects(low, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _m([]),
+		_ids([Charm.GLASSBLOWER_LUNG]))
+	assert_eq(low[0].faces[0], MaterialEffects.GLASSBLOWER_LUNG_FLOOR, "8 − 5 wäre 3, geklemmt auf 6")
+	assert_eq(low_report.shrunk, [0])
 
 # --- Datensatz: die Marke gehört dem Würfel, nicht der geteilten Vorlage --------
 

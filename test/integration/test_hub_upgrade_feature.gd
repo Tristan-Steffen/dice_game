@@ -351,13 +351,14 @@ func test_tokens_show_one_mark_per_active_side() -> void:
 	hub.set_deal_tokens(_sides([]))
 	assert_eq(hub.deal_token_row.get_child_count(), 0, "Abrechnung räumt die Reihe")
 
-func test_block_tokens_are_bigger_than_round_tokens() -> void:
-	# Die Größe ist die Laufzeit-Anzeige: was den Block überdauert, wiegt schwerer.
+func test_the_token_size_carries_the_duration() -> void:
+	# Die Größe ist die Laufzeit-Anzeige. Keine Klausel trägt mehr BLOCK, die
+	# Grammatik der Reihe kennt die Stufe aber weiter - hier direkt gesetzt.
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_deal_tokens(_sides([
-		_side(DealClause.SAVINGS_BONUS),  # Block
-		_side(DealClause.HAPPY_HOUR)]))   # nur diese Runde
+	var long_side := _side(DealClause.SAVINGS_BONUS)
+	long_side["scope"] = DealClause.Scope.BLOCK
+	hub.set_deal_tokens(_sides([long_side, _side(DealClause.HAPPY_HOUR)]))
 	var block_token: Control = hub.deal_token_row.get_child(0)
 	var round_token: Control = hub.deal_token_row.get_child(1)
 	assert_gt(block_token.custom_minimum_size.x, round_token.custom_minimum_size.x)
@@ -382,7 +383,7 @@ func test_hovering_a_token_explains_that_side() -> void:
 	assert_eq(hub.marker_hint.title_label.text, DealClause.empties().display_name)
 	assert_string_contains(hub.marker_hint.body_label.text, DealClause.empties().text)
 	assert_string_contains(hub.marker_hint.body_label.text,
-		DealClause.scope_label(DealClause.Scope.BLOCK), "die Laufzeit steht dabei")
+		DealClause.scope_label(DealClause.empties().scope), "die Laufzeit steht dabei")
 	token.mouse_exited.emit()
 	assert_false(hub.marker_hint.visible)
 
@@ -414,15 +415,20 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 	hub.set_deal_tokens(_sides([_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.modulate.a, 1.0)
 
-func test_a_benchmark_deal_lifts_the_coming_stations() -> void:
+func test_a_benchmark_deal_lifts_the_current_station() -> void:
 	# Der Fahrplan zeigt die WIRKSAMEN Ziele: unterschreibt der Spieler einen
-	# Aufschlag, springen die Stationen sofort mit.
+	# Aufschlag, springt seine Station sofort mit - und nur sie, denn kein Deal
+	# überlebt seine Runde.
 	var run := GameRun.new_run()
 	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
 	run.sign_clauses([DealClause.BENCHMARK_SURCHARGE] as Array[String])
 	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	var here := run.goal_roadmap_index(GameRun.GOAL_BLOCK)
 	for i in before.size():
-		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)
+		if i == here:
+			assert_gt(after[i], before[i], "die laufende Station trägt den Aufschlag")
+		else:
+			assert_eq(after[i], before[i], "Station %d bleibt frei" % i)
 
 func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
 	# Sonst gälte ein mitten im Block unterschriebener Benchmark-Malus als

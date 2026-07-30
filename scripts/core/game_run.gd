@@ -131,9 +131,9 @@ var round_number: int = 1
 var round_goal: int = BASE_GOAL
 
 ## Unterschriebene Klauseln des laufenden Blocks als {id, round}; round = Runde
-## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches).
-## Geleert erst bei der Abrechnung - auch abgelaufene Einträge bleiben stehen,
-## denn sie sperren ihre Klausel für den Rest des Blocks.
+## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches -
+## keine überlebt ihre Runde). Geleert erst bei der Abrechnung: die abgelaufenen
+## Einträge bleiben stehen, denn sie sperren ihre Klausel für den Rest des Blocks.
 var active_deals: Array[Dictionary] = []
 ## Auslage der kommenden Runde als Vertragskarten (CARD_*); leer = unterschrieben.
 var route_offers: Array[Dictionary] = []
@@ -144,7 +144,7 @@ var route_offers: Array[Dictionary] = []
 var throttled_combos: Array[String] = []
 ## Übertaktungsrabatt: der nächste Charm im Laden ist gratis (verbraucht sich).
 var free_charm_pending: bool = false
-## Freispiele: Automaten, die ihren Gratisdreh in diesem Block schon hatten.
+## Freispiele: Automaten, die ihren Gratisdreh dieser Runde schon hatten.
 var free_spins_used: Array[int] = []
 
 ## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
@@ -310,7 +310,7 @@ func max_overcharge_stages() -> int:
 	return stages
 
 ## Rahmen der Hub-Stufe OHNE Klausel-Wirkungen: 3 (bis Salon), 4 (Salon/VIP),
-## 5 (ab Suite). Maßstab der Schwarzmarkt-Entdeckung (siehe note_round_stages).
+## 5 (ab Suite).
 func overcharge_frame() -> int:
 	if hub_level >= 7:
 		return 5
@@ -741,7 +741,7 @@ func sign_clauses(clause_ids: Array[String]) -> void:
 	deals_changed.emit()
 
 ## Wirkungen, die mit der Unterschrift verfallen (Scope.INSTANT) - plus die
-## Marken, die eine Block-Klausel beim Einzug aufstellt.
+## Zähler, die eine Runden-Klausel beim Einzug aufstellt.
 func _apply_instant_clause(clause_id: String) -> void:
 	match clause_id:
 		DealClause.ADVANCE_PAYMENT:
@@ -784,7 +784,8 @@ func _benchmark_already_raised() -> bool:
 
 ## Ob eine Klausel mit dieser Laufzeit in Runde n noch wirkt: INSTANT verfällt mit
 ## der Unterschrift, ROUND gilt nur in ihrer eigenen Runde, BLOCK bis zur
-## Abrechnung am Ende des Blocks, in dem unterschrieben wurde.
+## Abrechnung am Ende des Blocks (keine Klausel trägt BLOCK noch - die Stufe
+## bleibt der Schiedsrichter für künftige Laufzeiten).
 func _scope_reaches(entry: Dictionary, scope: DealClause.Scope, n: int) -> bool:
 	var signed := int(entry["round"])
 	match scope:
@@ -825,8 +826,8 @@ func active_deal_sides() -> Array[Dictionary]:
 func effective_goal() -> int:
 	return roundi(round_goal * _benchmark_factor(round_number))
 
-## Wie effective_goal, aber für eine beliebige Runde des Fahrplans - so zeigen
-## die kommenden Stationen sofort, was ein Block-Malus sie kostet.
+## Wie effective_goal, aber für eine beliebige Runde des Fahrplans - so zeigt die
+## Station der laufenden Runde sofort, was ein Benchmark-Malus sie kostet.
 func effective_goal_for_round(n: int) -> int:
 	return roundi(goal_for_round(n) * _benchmark_factor(n))
 
@@ -863,8 +864,8 @@ func deal_unused_die_bonus() -> int:
 func unused_dice_pay() -> bool:
 	return not (_clause_active(DealClause.EMPTIES) or _clause_active(DealClause.BLACKOUT))
 
-## Ankerklausel: der erste Farkle JEDER Runde ist verziehen (scene_root merkt
-## sich, ob er in dieser Runde schon verbraucht wurde).
+## Ankerklausel: der erste Farkle der Runde ist verziehen (scene_root merkt sich,
+## ob er schon verbraucht wurde).
 func deal_anchor_active() -> bool:
 	return _clause_active(DealClause.ANCHOR_CLAUSE)
 
@@ -918,7 +919,7 @@ func charm_is_free() -> bool:
 func consume_free_charm() -> void:
 	free_charm_pending = false
 
-## Stromsperre: die Automaten bleiben diesen Block aus.
+## Stromsperre: die Automaten bleiben diese Runde aus.
 func slots_enabled() -> bool:
 	return not _clause_active(DealClause.POWER_CUT)
 
@@ -1088,7 +1089,7 @@ func spin_slot(machine: int) -> Array:
 	if not can_spin_slot(machine):
 		return []
 	if slot_spin_is_free(machine):
-		free_spins_used.append(machine)  # je Automat genau ein Gratisdreh je Block
+		free_spins_used.append(machine)  # je Automat genau ein Gratisdreh je Runde
 	else:
 		add_money(-slot_spin_price(machine))
 	return slot_bank.roll(machine)
@@ -1239,6 +1240,8 @@ const CHARGE_ROWS_MAX := 5
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
 const SECRET_CHARM_PRICE := 5
 const SECRET_ENGRAVING_PRICE := 5
+## Einmaliges Eintrittsgeld: der vergitterte Laden öffnet für diese Ladung.
+const SECRET_UNLOCK_PRICE := 5
 ## Grundpreis des Neuwurfs; jeder weitere kostet eine Ladung mehr. Der Zähler läuft
 ## über den ganzen Lauf und wird nie zurückgesetzt.
 const SECRET_REROLL_BASE := 3
@@ -1260,8 +1263,8 @@ var charge: int = 0:
 		charge = value
 		charge_changed.emit(charge)
 
-## Entdeckt mit der ersten voll ausgereizten Überladung, danach für den Rest des
-## Laufs offen. Ein frischer Lauf startet wieder bei null.
+## Freigeschaltet per Eintrittsgeld (unlock_secret_shop), danach für den Rest des
+## Laufs offen. Ein frischer Lauf startet wieder vergittert.
 var secret_shop_unlocked: bool = false
 var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
@@ -1303,17 +1306,13 @@ func add_charge(count: int) -> int:
 func spend_charge(count: int) -> void:
 	charge = maxi(0, charge - count)
 
-## Rundenabschluss melden: die erste voll ausgereizte Überladung deckt den
-## Schwarzmarkt auf und würfelt seine erste Auslage gratis. true meldet genau
-## diese Entdeckung, danach nie wieder.
-## Maßstab ist der LIZENZ-Rahmen, nicht OVERCHARGE_STAGES: stages kommt aus
-## stages_cleared und ist selbst auf max_overcharge_stages gedeckelt - ein fester
-## Wert von 5 wäre vor der Suite nie erreichbar und machte die Entdeckung
-## heimlich wieder zur Hub-Stufe. Der Rahmen zählt OHNE Klauseln: ein Malus, der ihn
-## schrumpft (Stufendeckel), darf die Entdeckung nicht verbilligen.
-func note_round_stages(stages: int) -> bool:
-	if secret_shop_unlocked or stages < overcharge_frame():
+## Freischalten des Schwarzmarkts: der Laden steht von Anfang an auf dem Tisch,
+## aber vergittert - erst SECRET_UNLOCK_PRICE ⚡ heben das Gitter, dann liegt die
+## erste Auslage gratis. false, wenn er offen ist oder die Ladung nicht reicht.
+func unlock_secret_shop() -> bool:
+	if secret_shop_unlocked or charge < SECRET_UNLOCK_PRICE:
 		return false
+	spend_charge(SECRET_UNLOCK_PRICE)
 	secret_shop_unlocked = true
 	_roll_secret_stock()
 	secret_shop_discovered.emit()

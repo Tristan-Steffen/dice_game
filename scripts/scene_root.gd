@@ -54,8 +54,6 @@ const SECRET_SHOP_TOP_GAP := 30.0
 ## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
 ## nach links an - siehe _secret_shop_rect).
 const SECRET_SHOP_GLASS_MARGIN := 12.0
-## Nachklang der Entdeckung, nachdem die Stoßwelle verklungen ist.
-const SECRET_REVEAL_SETTLE := 0.7
 ## Violett der legendären Rarität - die Signaturfarbe des Schwarzmarkts.
 const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
 
@@ -684,13 +682,12 @@ func _setup_table_screen() -> void:
 		table_screen.money_travel_time() + table_screen.slot_pay_travel_time()
 
 	# Schwarzmarkt: direkt unter den Automaten in der Glas-Tasche, Unterkante
-	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster; anfassbar erst
-	# mit der Entdeckung (_sync_secret_shop_state).
+	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster - auch vergittert
+	# anfassbar, denn der Freischalt-Knopf liegt IM Fenster.
 	var secret_rect := _secret_shop_rect(slots_rect, hub_r)
 	table_screen.place_secret_shop_window(secret_rect)
 	secret_shop_click_zone = _screen_zoom_zone("SecretShopClickZone", secret_rect,
 		camera_rig.configure_secret_shop_target)
-	secret_shop_click_zone.collision_layer = 0
 
 	# Werkstatt: der letzte freie Fleck des Tisches, genau UNTER den beiden
 	# Würfel-Trays und bündig mit deren Außenkanten. Hier werden gekaufte Pakete
@@ -1845,14 +1842,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				die_inspector.close()  # closed -> _end_engraving_ceremony
 			return
 		# Die Grube ist während der Runde frei begehbar - der Spieler darf sich
-		# umsehen; nur das Bearbeiten der Würfel bleibt bis zum Laden gesperrt.
-		# Ausnahme: liegt die Auslage, wird erst unterschrieben.
+		# umsehen (auch bei liegender Auslage); nur das Bearbeiten der Würfel bleibt
+		# bis zum Laden gesperrt und der Wurf bis zur Unterschrift.
 		# Aus der Werkbank-Nahsicht geht es eine Stufe zurück, nicht ganz raus.
 		if camera_rig.workshop_close:
 			camera_rig.zoom_workshop_wide()
 			return
-		if not _route_choice_open():
-			camera_rig.zoom_out()
+		camera_rig.zoom_out()
 		return
 
 	if event.button_index != MOUSE_BUTTON_LEFT:
@@ -2658,8 +2654,6 @@ func _workshop_window_has_point(pixel: Vector2) -> bool:
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
-	if _route_choice_open():
-		return  # die Auslage schließt die Grube: erst der Deal, dann weitersehen
 	var result := _ray_pick(screen_pos, 8)
 	if result.is_empty():
 		return
@@ -2691,7 +2685,7 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 		camera_rig.zoom_to(CameraRig.Mode.SCORE)
 	elif collider == chips_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
-	elif collider == secret_shop_click_zone and run != null and run.secret_shop_unlocked:
+	elif collider == secret_shop_click_zone:
 		camera_rig.zoom_to(CameraRig.Mode.SECRET_SHOP)
 
 func _process(delta: float) -> void:
@@ -2791,6 +2785,10 @@ func _hovered_queue_index(screen_pos: Vector2) -> int:
 func _sync_screen_action_buttons() -> void:
 	if table_screen == null or table_screen.pit_actions_root == null:
 		return
+	# Die Auslage ist Gruben-Mobiliar: verlässt die Kamera die Grube, geht sie mit
+	# (der nächste Grubenzoom legt sie wieder auf - _on_camera_mode_changed).
+	if _route_choice_open() and not (gameplay_ui_state_visible and is_pit_focused):
+		route_choice.close()
 	# Die Vertragswahl braucht den ganzen Grubenboden: solange sie liegt, weicht
 	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
 	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
@@ -4383,6 +4381,8 @@ func _connect_run() -> void:
 	charm_shop.run = run
 	if table_screen != null and table_screen.secret_shop_window != null:
 		table_screen.secret_shop_window.run = run
+		if not table_screen.secret_shop_window.unlock_requested.is_connected(_on_secret_shop_unlock_requested):
+			table_screen.secret_shop_window.unlock_requested.connect(_on_secret_shop_unlock_requested)
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
@@ -4417,20 +4417,23 @@ func _connect_run() -> void:
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
 
-## Idempotenter Gesamtzustand: Bank = Bestand/Deckel, das Schwarzmarkt-Fenster
-## steht genau dann auf dem Tisch, wenn er entdeckt ist. Ein frischer Lauf ist
-## damit sofort wieder leer - OHNE Zeremonie; die spielt nur den Übergang.
+## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
+## steht IMMER auf dem Tisch und ist immer anklickbar - vergittert, bis das
+## Eintrittsgeld bezahlt ist. Ein frischer Lauf schließt es damit sofort wieder
+## zu, OHNE Zeremonie; die spielt nur den Übergang.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
 	if table_screen != null:
-		table_screen.set_secret_shop_installed(run.secret_shop_unlocked)
+		table_screen.set_secret_shop_installed(true)
+		if table_screen.secret_shop_window != null:
+			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked,
+				run.charge >= GameRun.SECRET_UNLOCK_PRICE)
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
-		# Unentdeckt ist das Fenster nicht da - ein Klick dürfte nicht heranzoomen.
-		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
+		secret_shop_click_zone.collision_layer = 8
 
 func _sync_capacitor() -> void:
 	if capacitor_bank == null or run == null:
@@ -4441,24 +4444,26 @@ func _on_charge_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(value, run.charge_cap())
 	_sync_capacitor()
+	# Der Freischalt-Knopf des vergitterten Ladens folgt dem Ladungsstand.
+	if table_screen != null and table_screen.secret_shop_window != null and run != null:
+		table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked,
+			value >= GameRun.SECRET_UNLOCK_PRICE)
 
-## Entdeckungs-Zeremonie (Kamera steht schon in der Übersicht): der Hub quittiert
-## golden, das Fenster geht unter den Automaten auf und meldet sich mit einer
-## Stoßwelle - dieselbe Sprache wie ein neu installierter Automat.
-func _reveal_secret_shop() -> void:
+## Eintrittsgeld bezahlt: der Hub quittiert golden, das Gitter fällt und das
+## Fenster meldet sich mit einer Stoßwelle - dieselbe Sprache wie ein neu
+## installierter Automat.
+func _on_secret_shop_unlock_requested() -> void:
+	if run == null or not run.unlock_secret_shop():
+		return
+	_sync_secret_shop_state()
 	if table_screen == null:
 		return
 	if table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	_sync_secret_shop_state()  # stellt das Fenster auf und macht es anfassbar
-	await get_tree().create_timer(
-		table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)).timeout
-	if phase != Phase.PAYOUT:
-		return  # Spiel wurde während der Enthüllung zurückgesetzt
-	await get_tree().create_timer(SECRET_REVEAL_SETTLE).timeout
+	table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)
 
-## Ob die Auslage gerade auf dem Grubenboden liegt: dann ist die Grube
-## verschlossen (kein Wegzoomen) und ihr Mobiliar weicht.
+## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
+## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
 func _route_choice_open() -> bool:
 	return route_choice != null and route_choice.visible
 
@@ -4639,8 +4644,6 @@ func _on_round_complete() -> void:
 				+ run.deal_unused_die_bonus()) * factor)
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
-		# Die erste voll ausgereizte Überladung deckt den Schwarzmarkt auf.
-		var discovered := run.note_round_stages(stages)
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
 		# bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
@@ -4651,10 +4654,6 @@ func _on_round_complete() -> void:
 		await _play_round_clear_payout(base_blind, interest, per_die, stages, split)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
-		if discovered:
-			await _reveal_secret_shop()
-			if phase != Phase.PAYOUT:
-				return
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
 		# Wirkung (Geld-Komet zur Truhe, Gravur-Meteore in die Schublade).
 		await _play_round_end_charm_ceremony(ids)
@@ -4666,14 +4665,15 @@ func _on_round_complete() -> void:
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)
-		# Abrechnung: der Stresstest ist überstanden, die Deals des Blocks
-		# verfallen - NACH den Wetten, deren Quoten noch dazugehörten. Erst der
-		# sichtbare Wisch, dann die Buchung: sonst wären die Marken schon fort,
-		# bevor der Spieler das Ende des Blocks bemerkt.
+		# Kein Deal überlebt seine Runde: die Marken wischen an JEDEM Rundenende -
+		# NACH den Wetten, deren Quoten noch dazugehörten. Erst der sichtbare Wisch,
+		# dann die Buchung, sonst wären die Marken fort, bevor der Spieler das Ende
+		# bemerkt. Die Abrechnung des Stresstests räumt danach nur noch die Sperren.
+		await _sweep_deal_tokens()
+		if phase != Phase.PAYOUT:
+			return  # Spiel wurde während des Wischs zurückgesetzt
 		if GameRun.is_stress_round(run.round_number):
-			await _play_settlement()
-			if phase != Phase.PAYOUT:
-				return  # Spiel wurde während der Abrechnung zurückgesetzt
+			run.settle_block_deals()
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
@@ -4697,18 +4697,17 @@ func _on_round_complete() -> void:
 			table_screen.set_round_pulse(false)
 		_show_game_over(hand_total)
 
-## Abrechnung nach bestandenem Stresstest: die Marken des Blocks wischen von Hub
-## UND Grubenrand, danach verfallen die Deals.
-func _play_settlement() -> void:
+## Rundenende: die Marken wischen von Hub UND Grubenrand (die Klauseln laufen mit
+## der Runde ab, die Reihen bauen sich beim Rundenstart leer neu auf).
+func _sweep_deal_tokens() -> void:
 	var hub := table_screen.hub if table_screen != null else null
 	var sweep := hub.sweep_deal_tokens() if hub != null else 0.0
 	if table_screen != null:
 		sweep = maxf(sweep, table_screen.sweep_pit_deal_tokens())
 	if sweep > 0.0:
-		# Etwas länger als der Wisch: settle baut die Marken-Reihe neu und würde
-		# sonst Marken freigeben, deren Tween im selben Frame noch endet.
+		# Etwas länger als der Wisch: ein Neuaufbau würde sonst Marken freigeben,
+		# deren Tween im selben Frame noch endet.
 		await get_tree().create_timer(sweep + 0.1).timeout
-	run.settle_block_deals()
 
 ## Wertet die platzierten Nebenwetten gegen die Rundenbilanz aus. cleared =
 ## Runde geräumt (sonst verliert jede Wette). Das Ergebnis erscheint als Banner

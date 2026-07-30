@@ -32,6 +32,9 @@ const BONE_GROWTH_PERCENT := 10
 const GLASS_SHRINK_MIN := 5       # dotiertes Glas: mind. −5, sonst −20 %
 const GLASS_SHRINK_PERCENT := 20
 
+## Glasbläserlunge: Glas schrumpft weiter, aber nie unter diesen Wert.
+const GLASSBLOWER_LUNG_FLOOR := 6
+
 ## Bericht der Nehmen-Effekte für die UI.
 class TakeReport:
 	extends RefCounted
@@ -149,7 +152,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## Gold zahlt GOLD_PAYOUT je Träger (Goldschmied wie Rahmenvergolder heben Seite
 ## UND Kante); Knochen +1 je Träger (Knochenleim: +2, Knochenmark je Exemplar
 ## +1 mehr, nach oben offen); Glas −1 je Träger, nie unter das Floor
-## (Glasbläserlunge: gar nicht). Alles je Effekt-Aktivierung. Ein dotierter
+## (Glasbläserlunge hebt es auf 6). Alles je Effekt-Aktivierung. Ein dotierter
 ## SEITEN-Träger ersetzt seinen Satz (Gold/Knochen/Glas, siehe Konstanten).
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], edge_materials: Array[String] = [], charm_ids: Array[String] = [], echo_slot: int = -1) -> TakeReport:
 	# Goldschmied UND Rahmenvergolder heben den Satz für Seite UND Kante.
@@ -164,7 +167,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		+ _gold_face_triggers(defs, face_indices, materials, participating, edge_materials, charm_ids, echo_slot)
 	# Knochenleim hebt den Satz einmalig auf 2, Knochenmark legt je Exemplar +1 drauf.
 	var bone_growth := (2 if charm_ids.has(Charm.BONE_GLUE) else 1) + charm_ids.count(Charm.BONE_MARROW)
-	var glass_shrinks := not charm_ids.has(Charm.GLASSBLOWER_LUNG)
+	# Glasbläserlunge hebt nur den Boden - geschrumpft wird weiter.
+	var glass_floor := EtchingEffects.MIN_FACE_VALUE
+	if charm_ids.has(Charm.GLASSBLOWER_LUNG):
+		glass_floor = maxi(glass_floor, GLASSBLOWER_LUNG_FLOOR)
 	var report := TakeReport.new()
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
@@ -196,13 +202,11 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			if edge_material == DieMaterial.BONE:
 				defs[i].faces[face] += bone_growth
 				grew = true
-			if not glass_shrinks:
-				continue
 			if face_material == DieMaterial.GLASS:
 				var step := _glass_step(defs[i].faces[face]) if face_upgraded else 1
-				if _shrink(defs[i], face, step):
+				if _shrink(defs[i], face, step, glass_floor):
 					shrunk_any = true
-			if edge_material == DieMaterial.GLASS and _shrink(defs[i], face, 1):
+			if edge_material == DieMaterial.GLASS and _shrink(defs[i], face, 1, glass_floor):
 				shrunk_any = true
 		if grew:
 			report.grown.append(i)
@@ -229,12 +233,11 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			if link_grew and not report.grown.has(i):
 				report.grown.append(i)
 			var link_shrunk := false
-			if glass_shrinks:
-				if link_material == DieMaterial.GLASS:
-					var link_step := _glass_step(defs[i].faces[link_face]) if link_upgraded else 1
-					link_shrunk = _shrink(defs[i], link_face, link_step)
-				if edge_material == DieMaterial.GLASS and _shrink(defs[i], link_face, 1):
-					link_shrunk = true
+			if link_material == DieMaterial.GLASS:
+				var link_step := _glass_step(defs[i].faces[link_face]) if link_upgraded else 1
+				link_shrunk = _shrink(defs[i], link_face, link_step, glass_floor)
+			if edge_material == DieMaterial.GLASS and _shrink(defs[i], link_face, 1, glass_floor):
+				link_shrunk = true
 			if link_shrunk and not report.shrunk.has(i):
 				report.shrunk.append(i)
 	return report
@@ -271,9 +274,10 @@ static func _bone_step(value: int) -> int:
 static func _glass_step(value: int) -> int:
 	return maxi(GLASS_SHRINK_MIN, ceili(float(value) * GLASS_SHRINK_PERCENT / 100.0))
 
-## Schrumpft eine Seite um step, nie unter das Floor; true, wenn sie sich bewegt hat.
-static func _shrink(def: DieDefinition, face: int, step: int) -> bool:
-	var target := maxi(EtchingEffects.MIN_FACE_VALUE, def.faces[face] - step)
+## Schrumpft eine Seite um step, nie unter floor_value; true, wenn sie sich bewegt hat.
+static func _shrink(def: DieDefinition, face: int, step: int,
+		floor_value: int = EtchingEffects.MIN_FACE_VALUE) -> bool:
+	var target := maxi(floor_value, def.faces[face] - step)
 	if target >= def.faces[face]:
 		return false
 	def.faces[face] = target

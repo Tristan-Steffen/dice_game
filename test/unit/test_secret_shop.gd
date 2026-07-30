@@ -1,15 +1,16 @@
 extends GutTest
 ## Tests der Ladungs-Ökonomie (⚡) und des Schwarzmarkts in GameRun: Börsendeckel,
-## Aufteilung in Börse und Überlauf, Entdeckung, Auslage samt Ausschlüssen,
+## Aufteilung in Börse und Überlauf, Freischalten, Auslage samt Ausschlüssen,
 ## Neuwurf-Preise und Kauf.
 
 func _run() -> GameRun:
 	return GameRun.new_run()
 
-## Frischer Lauf mit aufgedecktem Schwarzmarkt (erste Auslage liegt).
+## Frischer Lauf mit freigeschaltetem Schwarzmarkt (erste Auslage liegt).
 func _discovered() -> GameRun:
 	var run := _run()
-	run.note_round_stages(run.overcharge_frame())
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()
 	return run
 
 func _legendaries() -> Array[Charm]:
@@ -96,43 +97,36 @@ func test_charge_split_on_empty_wallet_stores_everything() -> void:
 	assert_eq(stored, 5)
 	assert_eq(overflow, 0)
 
-# --- Entdeckung ----------------------------------------------------------------
+# --- Freischalten --------------------------------------------------------------
 
-func test_below_full_overcharge_keeps_market_hidden() -> void:
+func test_unlock_price_is_one_full_row() -> void:
+	assert_eq(GameRun.SECRET_UNLOCK_PRICE, 5)
+
+func test_too_little_charge_keeps_the_market_barred() -> void:
 	var run := _run()
+	run.charge = GameRun.SECRET_UNLOCK_PRICE - 1
 	var fired: Array = []
 	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
-	assert_false(run.note_round_stages(run.overcharge_frame() - 1))
+	assert_false(run.unlock_secret_shop())
 	assert_false(run.secret_shop_unlocked)
+	assert_eq(run.charge, GameRun.SECRET_UNLOCK_PRICE - 1, "kein Abzug")
 	assert_eq(run.secret_stock.size(), 0)
 	assert_eq(fired.size(), 0)
 
-func test_full_overcharge_discovers_market_exactly_once() -> void:
+func test_unlocking_spends_the_entry_fee_exactly_once() -> void:
 	var run := _run()
+	run.hub_level = GameRun.HUB_MAX_LEVEL  # Deckel 25, damit der Rest liegen bleibt
+	run.charge = GameRun.SECRET_UNLOCK_PRICE + 2
 	var fired: Array = []
 	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
-	assert_true(run.note_round_stages(run.overcharge_frame()))
+	assert_true(run.unlock_secret_shop())
 	assert_true(run.secret_shop_unlocked)
+	assert_eq(run.charge, 2, "genau das Eintrittsgeld ist weg")
 	assert_eq(run.secret_stock.size(), 3, "erste Auslage gratis gewürfelt")
 	assert_eq(fired.size(), 1)
-	assert_false(run.note_round_stages(run.overcharge_frame()), "nur die Entdeckung meldet true")
+	assert_false(run.unlock_secret_shop(), "ein zweites Mal gibt es nichts zu öffnen")
+	assert_eq(run.charge, 2, "und kostet auch nichts")
 	assert_eq(fired.size(), 1, "kein zweites Signal")
-
-func test_discovery_is_reachable_on_the_starting_licence() -> void:
-	# Der ECHTE Weg: stages_cleared deckelt selbst auf max_overcharge_stages, ein
-	# fester Maßstab von 5 wäre im Hinterzimmer (Rahmen 3) nie erreichbar - der
-	# Schwarzmarkt bliebe bis zur Suite unauffindbar.
-	var run := _run()
-	assert_lt(run.overcharge_frame(), GameRun.OVERCHARGE_STAGES, "Startlizenz deckelt unter 5")
-	var points := run.cumulative_threshold(run.overcharge_frame())
-	assert_true(run.note_round_stages(run.stages_cleared(points)),
-		"volle Überladung deckt den Schwarzmarkt schon auf Stufe 1 auf")
-
-func test_discovery_needs_the_whole_licence_frame() -> void:
-	var run := _run()
-	var points := run.cumulative_threshold(run.overcharge_frame() - 1)
-	assert_false(run.note_round_stages(run.stages_cleared(points)),
-		"eine Stufe unter dem Rahmen bleibt er verborgen")
 
 # --- Auslage -------------------------------------------------------------------
 
@@ -185,7 +179,8 @@ func test_owned_legendaries_are_excluded_from_the_roll() -> void:
 	var spared: Charm = pool.pop_back()
 	for charm in pool:
 		run.owned_charms.append(charm)
-	run.note_round_stages(run.overcharge_frame())
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()
 	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
 	assert_eq(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING,
@@ -195,7 +190,8 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	var run := _run()
 	for charm in _legendaries():
 		run.owned_charms.append(charm)
-	run.note_round_stages(run.overcharge_frame())
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()
 	assert_eq(run.secret_stock.size(), 3)
 	for offer in run.secret_stock:
 		assert_eq(offer[GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING, "die Auslage kann nie tot sein")

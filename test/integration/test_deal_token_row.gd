@@ -40,7 +40,7 @@ func test_the_hint_carries_effect_and_duration() -> void:
 	var body: String = hint["body"]
 	assert_eq(title, DealClause.empties().display_name)
 	assert_string_contains(body, DealClause.empties().text)
-	assert_string_contains(body, DealClause.scope_label(DealClause.Scope.BLOCK))
+	assert_string_contains(body, DealClause.scope_label(DealClause.empties().scope))
 	assert_eq(hint["accent"], DealTokenRow.MALUS_COLOR)
 	assert_true(row.hint_for(null).is_empty(), "ohne Marke kein Hinweis")
 

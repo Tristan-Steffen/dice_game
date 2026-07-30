@@ -29,6 +29,9 @@ const FREE_DRINK_BASE := 50
 ## Volle Hand: so viele Würfel muss eine Kombination nutzen (Midashandschuh).
 const FULL_HAND_DICE := 6
 
+## Gleichmacher: Basispunkt-Boden je beteiligtem Würfel.
+const EQUALIZER_FLOOR := 10
+
 ## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
 ## nie unter 0) - überlebt Runden. Eigene Funktion, weil der Tisch-Chip denselben
 ## Wert zeigen muss, den die Wertung rechnet.
@@ -111,9 +114,9 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	for charm_id in charm_ids:
 		if charm_id == Charm.SMALL_FRY and (face_value == 1 or face_value == 2):
 			value += 10
-	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 6.
+	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 10.
 	if charm_ids.has(Charm.EQUALIZER):
-		value = maxi(value, 6)
+		value = maxi(value, EQUALIZER_FLOOR)
 	return value
 
 # --- Würfelphase: würfelgebundene Charms (feuern MIT ihrem Würfel, je
@@ -311,12 +314,26 @@ static func _participating_sum(values: Array[int], participating: Array[int]) ->
 			total += values[i]
 	return total
 
-static func _distinct(values: Array[int]) -> Array[int]:
-	var seen: Array[int] = []
-	for value in values:
-		if not seen.has(value):
-			seen.append(value)
-	return seen
+## Slots der exakten Paare eines Wurfs (Zwillingsring): gruppiert wird nach der
+## KOMBINATIONSZIFFER wie bei der Hand-Erkennung (11 und 31 sind ein Paar), je
+## Gruppe mit genau zwei Würfeln steht hier der höherwertige Slot - bei
+## Gleichstand der kleinere. Einzige Quelle für Wirkung UND Pulse.
+static func twin_pair_slots(values: Array[int]) -> Array[int]:
+	var slots: Array[int] = []
+	var seen_digits: Array[int] = []
+	for i in values.size():
+		var digit := DiceScoring._digit(values[i])
+		if seen_digits.has(digit):
+			continue
+		seen_digits.append(digit)
+		var group: Array[int] = []
+		for k in values.size():
+			if DiceScoring._digit(values[k]) == digit:
+				group.append(k)
+		if group.size() != 2:
+			continue
+		slots.append(group[0] if values[group[0]] >= values[group[1]] else group[1])
+	return slots
 
 ## Kombi-Multiplikator der Position j (Effektkatalog; Pendel kann nie negativ
 ## beitragen). Pro-Würfel-Charms liegen in die_charm_mult_at.
@@ -348,11 +365,10 @@ static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materia
 					display += 1
 			return display
 		Charm.TWIN_RING:
-			# Jedes exakte Paar im Wurf: Mult += Augenzahl.
+			# Jedes exakte Paar im Wurf: Mult += höchste Augenzahl des Paars.
 			var twins := 0
-			for value in _distinct(values):
-				if values.count(value) == 2:
-					twins += value
+			for slot in twin_pair_slots(values):
+				twins += values[slot]
 			return twins
 		Charm.SNAKE_EYES:
 			# Genau ein 1er-Paar genommen: Mult += Augensumme der Unbeteiligten.

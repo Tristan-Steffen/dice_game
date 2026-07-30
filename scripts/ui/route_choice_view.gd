@@ -2,8 +2,9 @@ class_name RouteChoiceView
 extends Control
 ## Die Vertragswahl IN DER GRUBE: drei Verträge liegen auf dem Grubenboden,
 ## sobald der Spieler die Runde dort zum ersten Mal aufnimmt - unterschrieben
-## wird, bevor der erste Würfel fällt. Kein Zurück und kein Schließen-Knopf:
-## ohne Vertrag wirft niemand.
+## wird, bevor der erste Würfel fällt. Kein Schließen-Knopf: die Grube darf man
+## verlassen (die Karten liegen beim nächsten Grubenzoom wieder), nur werfen kann
+## niemand ohne Vertrag.
 ##
 ## Die Einheit u kommt aus BEIDEN Achsen (die Grube ist breit und flach - allein
 ## aus der Breite gerechnet würde die Schrift riesig).
@@ -122,11 +123,17 @@ func _make_card(offer: Dictionary, index: int, u: float) -> Control:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
-	column.add_child(_line("§ %d" % randi_range(SECTION_MIN, SECTION_MAX), u * 2.0,
+	column.add_child(_line("§ %d" % _section_for(offer), u * 2.0,
 		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u)
 	_add_clause_block(column, String(offer.get(GameRun.CARD_MALUS, "")), MALUS_COLOR, u)
 	return card
+
+## Paragraphen-Nummer: reine Zierde, aber AUS DEN KLAUSELN abgeleitet - so steht
+## dieselbe Zahl wieder da, wenn der Spieler die Grube verlässt und zurückkommt.
+func _section_for(offer: Dictionary) -> int:
+	var stamp := String(offer.get(GameRun.CARD_BONUS, "")) + String(offer.get(GameRun.CARD_MALUS, ""))
+	return SECTION_MIN + absi(hash(stamp)) % (SECTION_MAX - SECTION_MIN + 1)
 
 func _add_clause_block(column: VBoxContainer, clause_id: String, color: Color, u: float) -> void:
 	var clause := DealClause.find(clause_id)

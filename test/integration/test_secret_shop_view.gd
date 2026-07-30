@@ -2,7 +2,7 @@ extends GutTest
 ## Integrationstest des Schwarzmarkt-Fensters (SecretShopView an einem ECHTEN
 ## GameRun): die drei Karten stehen, und der Knopf-Weg bucht Kauf und Neuwurf
 ## über GameRun. Das Fenster misst wie am Tisch - flache Glas-Tasche unter den
-## Automaten, nicht die alte Hub-Seite.
+## Automaten, nicht die alte Hub-Seite. Unten steht der vergitterte Zustand.
 
 var view: SecretShopView
 var run: GameRun
@@ -10,12 +10,14 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle Börse (25) - reicht für jeden Kauf
-	run.note_round_stages(run.overcharge_frame())  # Schwarzmarkt entdeckt
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()  # Schwarzmarkt freigeschaltet
 	run.charge = run.charge_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
 	view.size = Vector2(448, 345)
 	view.run = run
+	view.set_locked(false, true)
 	view.refresh()
 
 func test_window_shows_three_offer_cards() -> void:
@@ -80,3 +82,55 @@ func test_reroll_is_disabled_without_charge() -> void:
 func test_window_has_no_close_button() -> void:
 	await wait_frames(2)
 	assert_false("close_button" in view, "Schließen macht die Kamera, nicht das Fenster")
+
+# --- Vergittert: der Laden steht da, aber zu -----------------------------------
+
+## Frischer Lauf: das Fenster steht, das Gitter liegt davor.
+func _barred() -> SecretShopView:
+	var barred_run := GameRun.new_run()
+	var barred := SecretShopView.new()
+	add_child_autofree(barred)
+	barred.size = Vector2(448, 345)
+	barred.run = barred_run
+	barred.set_locked(true, barred_run.charge >= GameRun.SECRET_UNLOCK_PRICE)
+	barred.refresh()
+	return barred
+
+func test_locked_window_shows_the_unlock_button_and_the_veil() -> void:
+	var barred := _barred()
+	await wait_frames(2)
+	assert_true(barred.lock_overlay.visible, "der Schleier liegt über der Auslage")
+	assert_string_contains(barred.unlock_button.text, str(GameRun.SECRET_UNLOCK_PRICE))
+	assert_eq(barred.offer_buttons.size(), 0, "vergittert ist nichts kaufbar")
+	assert_false(barred.reroll_button.visible, "es gibt noch nichts zu mischen")
+
+func test_the_unlock_button_is_dead_without_the_entry_fee() -> void:
+	var barred := _barred()
+	await wait_frames(2)
+	assert_true(barred.unlock_button.disabled, "leere Börse: kein Zutritt")
+	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
+	barred.set_locked(true, true)
+	assert_false(barred.unlock_button.disabled)
+
+func test_pressing_unlock_only_reports_the_wish() -> void:
+	# Gebucht wird in GameRun (scene_root hört zu) - das Fenster meldet nur.
+	var barred := _barred()
+	await wait_frames(2)
+	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
+	barred.set_locked(true, true)
+	var fired: Array = []
+	barred.unlock_requested.connect(func() -> void: fired.append(true))
+	barred.unlock_button.pressed.emit()
+	assert_eq(fired.size(), 1)
+	assert_false(barred.run.secret_shop_unlocked, "die Buchung macht das Fenster nicht selbst")
+
+func test_unlocking_lifts_the_veil_and_lays_out_the_stock() -> void:
+	var barred := _barred()
+	await wait_frames(2)
+	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
+	assert_true(barred.run.unlock_secret_shop())
+	barred.set_locked(false, false)
+	await wait_frames(2)
+	assert_false(barred.lock_overlay.visible)
+	assert_eq(barred.offer_buttons.size(), 3, "die Auslage liegt")
+	assert_true(barred.reroll_button.visible)

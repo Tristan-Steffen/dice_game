@@ -143,8 +143,8 @@ var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
 ## eigenständig, sichtbar erst ab der ersten Automaten-Freischaltung.
 var slot_bank_window: SlotBankView
-## Schwarzmarkt UNTER den Automaten (in der Glas-Tasche links unten); sichtbar
-## erst nach seiner Entdeckung (set_secret_shop_installed).
+## Schwarzmarkt UNTER den Automaten (in der Glas-Tasche links unten); steht
+## immer da, vergittert bis zum Eintrittsgeld (SecretShopView.set_locked).
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
@@ -776,8 +776,8 @@ func place_slot_bank_window(rect: Rect2) -> void:
 	_link_slot_to_hub()
 	_sync_reflection_windows()
 
-## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten). Bleibt bis
-## zur Entdeckung unsichtbar (set_secret_shop_installed).
+## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten). Sichtbar
+## macht ihn scene_root beim Verdrahten (set_secret_shop_installed).
 func place_secret_shop_window(rect: Rect2) -> void:
 	secret_shop_window.position = rect.position
 	secret_shop_window.size = rect.size

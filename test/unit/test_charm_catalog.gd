@@ -34,16 +34,16 @@ func test_small_fry_gives_ten_base_points_on_ones_and_twos():
 	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 12)
 	assert_eq(CharmEffects.eye_value(5, _ids([Charm.SMALL_FRY])), 5)
 
-func test_equalizer_floors_base_points_at_six():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 6)
-	assert_eq(CharmEffects.eye_value(4, _ids([Charm.EQUALIZER])), 6)
-	assert_eq(CharmEffects.eye_value(6, _ids([Charm.EQUALIZER])), 6)
+func test_equalizer_floors_base_points_at_ten():
+	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 10)
+	assert_eq(CharmEffects.eye_value(6, _ids([Charm.EQUALIZER])), 10)
+	assert_eq(CharmEffects.eye_value(14, _ids([Charm.EQUALIZER])), 14, "über dem Boden zählt der Wert")
 
 func test_equalizer_never_changes_the_category():
 	# Basispunkte ja, Kombination nein: ein Paar 1er bleibt ein Paar 1er.
 	var hand := DiceScoring.best_hand(_d([1, 1, 2, 3, 4, 6]), _ids([Charm.EQUALIZER]))
 	assert_eq(hand["key"], "two_kind")
-	assert_eq(hand["score"], (10 + 6 + 6) * 2)
+	assert_eq(hand["score"], (10 + 10 + 10) * 2)
 
 # --- Basis-Boni --------------------------------------------------------------------
 
@@ -73,6 +73,26 @@ func test_twin_ring_adds_pair_value_to_mult():
 	assert_eq(bonus, 5, "nur die 5 liegt genau zweimal: +5 Mult")
 	var two_pairs := CharmEffects.charm_mult_bonus(DiceScoring.TWO_PAIR, _d([5, 5, 3, 3, 1, 6]), NO_MATS, _ids([Charm.TWIN_RING]))
 	assert_eq(two_pairs, 8, "zwei Paare (5 und 3): +8 Mult")
+
+func test_twin_ring_pays_the_higher_value_of_a_graved_pair():
+	# Gruppiert wird nach der Kombinationsziffer wie bei der Hand-Erkennung: 11 und
+	# 31 sind ein Paar - und es zahlt die HÖHERE Augenzahl.
+	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([11, 31, 2, 3, 4, 6]),
+		NO_MATS, _ids([Charm.TWIN_RING]))
+	assert_eq(bonus, 31, "das Paar 11+31 zahlt 31")
+
+func test_twin_ring_ignores_a_triple():
+	# "Exaktes Paar" bleibt exakt: eine Dreiergruppe zahlt nichts.
+	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 6]),
+		NO_MATS, _ids([Charm.TWIN_RING]))
+	assert_eq(bonus, 0)
+
+func test_twin_ring_slots_point_at_the_higher_die():
+	# Eine Quelle für Wirkung UND Pulse: der Slot des höherwertigen Würfels des
+	# Paars, bei Gleichstand der kleinere.
+	assert_eq(CharmEffects.twin_pair_slots(_d([11, 31, 2, 3, 4, 6])), [1] as Array[int])
+	assert_eq(CharmEffects.twin_pair_slots(_d([5, 5, 3, 3, 1, 6])), [0, 2] as Array[int])
+	assert_eq(CharmEffects.twin_pair_slots(_d([4, 4, 4, 1, 2, 6])), [] as Array[int])
 
 # Pro-Würfel-Charms feuern IM Würfel-Schritt (die_charm_*_at), nicht in der
 # Charm-Phase - die Hooks bekommen den einzelnen beteiligten Slot.
@@ -341,10 +361,13 @@ func test_goldsmith_and_bone_glue_strengthen_takes():
 	assert_eq(report.money, 6, "Goldschmied zahlt $6")
 	assert_eq(defs[1].faces[0], 7, "Knochenleim wächst +2")
 
-func test_glassblower_lung_stops_glass_from_shrinking():
+func test_glassblower_lung_holds_the_glass_floor_at_six():
 	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), NO_MATS, _ids([Charm.GLASSBLOWER_LUNG]))
-	assert_eq(defs[0].faces[0], 6, "Glas schrumpft gar nicht mehr, egal bei welcher Augenzahl")
+	assert_eq(defs[0].faces[0], 6, "auf dem Boden bleibt die Seite stehen")
+	var big: Array[DieDefinition] = [_die([8, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(big, _p([0]), _m([DieMaterial.GLASS]), _p([0]), NO_MATS, _ids([Charm.GLASSBLOWER_LUNG]))
+	assert_eq(big[0].faces[0], 7, "darüber schrumpft Glas weiter normal")
 
 func test_frame_gilder_doubles_edge_and_face_gold():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]

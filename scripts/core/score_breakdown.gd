@@ -274,9 +274,8 @@ static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], par
 					if not participating.has(i):
 						pulses.append({"slot": i, "base": 0, "mult": dice[i]})
 		Charm.TWIN_RING:
-			for value in CharmEffects._distinct(dice):
-				if dice.count(value) == 2:
-					pulses.append({"slot": dice.find(value), "base": 0, "mult": value})
+			for slot in CharmEffects.twin_pair_slots(dice):
+				pulses.append({"slot": slot, "base": 0, "mult": dice[slot]})
 	return pulses
 
 ## Besitz-Positionen, die den Augen-Beitrag dieses ROHEN Werts verändern

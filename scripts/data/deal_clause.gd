@@ -9,7 +9,8 @@ extends Resource
 ## scene_root.
 
 ## Laufzeit einer Klausel: sofort einmalig, nur die Runde der Unterschrift, oder
-## bis zur Abrechnung nach dem Stresstest.
+## bis zur Abrechnung nach dem Stresstest. KEINE Klausel ist mehr BLOCK - kein
+## Deal überlebt seine Runde; die Stufe bleibt als Schiedsrichter (_scope_reaches).
 enum Scope { INSTANT, ROUND, BLOCK }
 
 enum Kind { BONUS, MALUS }
@@ -118,7 +119,7 @@ const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5
 ## Spielertext der Wirkung (eine Zeile auf der Karte).
 @export var text: String = ""
 @export var kind: Kind = Kind.BONUS
-@export var scope: Scope = Scope.BLOCK
+@export var scope: Scope = Scope.ROUND
 @export var tier: Tier = Tier.ONE
 @export var tags: Array[String] = []
 ## Doppelrolle: liegt zusätzlich im Werbegeschenk-Topf (Happy Hour).
@@ -155,11 +156,11 @@ static func _malus(clause_id: String, name: String, effect: String, clause_scope
 
 static func savings_bonus() -> DealClause:
 	return _bonus(SAVINGS_BONUS, "Sparprämie", "+1$ je übrigem Würfel",
-		Scope.BLOCK, Tier.ONE, [TAG_LEFTOVER, TAG_MONEY])
+		Scope.ROUND, Tier.ONE, [TAG_LEFTOVER, TAG_MONEY])
 
 static func overclock_discount() -> DealClause:
 	return _bonus(OVERCLOCK_DISCOUNT, "Übertaktungsrabatt", "Der erste Charm im Laden ist gratis",
-		Scope.BLOCK, Tier.ONE, [TAG_MONEY])
+		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func advance_payment() -> DealClause:
 	return _bonus(ADVANCE_PAYMENT, "Vorschuss", "+12$ auf die Hand",
@@ -171,11 +172,11 @@ static func spotlight() -> DealClause:
 
 static func cash_discount() -> DealClause:
 	return _bonus(CASH_DISCOUNT, "Skonto", "Ladenware 20% günstiger",
-		Scope.BLOCK, Tier.ONE, [TAG_SHOP])
+		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func insurance_fraud() -> DealClause:
 	return _bonus(INSURANCE_FRAUD, "Versicherungsbetrug", "Jeder Farkle zahlt 15$ Trost",
-		Scope.BLOCK, Tier.ONE, [TAG_MONEY])
+		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 ⚡ sofort",
@@ -183,19 +184,19 @@ static func seed_capital() -> DealClause:
 
 static func maintenance_engraving() -> DealClause:
 	return _bonus(MAINTENANCE_ENGRAVING, "Wartungs-Gravur", "Je genommene Hand eine Zahl-Gravur",
-		Scope.BLOCK, Tier.TWO)
+		Scope.ROUND, Tier.TWO)
 
 static func high_voltage() -> DealClause:
 	return _bonus(HIGH_VOLTAGE, "Hochspannung", "+3 Überladungs-Stufen",
-		Scope.BLOCK, Tier.TWO, [TAG_OVERCHARGE])
+		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func anchor_clause() -> DealClause:
-	return _bonus(ANCHOR_CLAUSE, "Ankerklausel", "Der erste Farkle jeder Runde zählt nicht",
-		Scope.BLOCK, Tier.TWO)
+	return _bonus(ANCHOR_CLAUSE, "Ankerklausel", "Der erste Farkle dieser Runde zählt nicht",
+		Scope.ROUND, Tier.TWO)
 
 static func odds_bonus() -> DealClause:
 	return _bonus(ODDS_BONUS, "Quotenbonus", "Nebenwetten zahlen doppelt",
-		Scope.BLOCK, Tier.TWO, [TAG_SIDEBET])
+		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
 
 ## Doppelrolle: Stufe-2-Bonus UND Werbegeschenk.
 static func happy_hour() -> DealClause:
@@ -206,11 +207,11 @@ static func happy_hour() -> DealClause:
 
 static func interest() -> DealClause:
 	return _bonus(INTEREST, "Zinsen", "Rundenende: +1$ je vollen 10$ Guthaben",
-		Scope.BLOCK, Tier.TWO, [TAG_MONEY])
+		Scope.ROUND, Tier.TWO, [TAG_MONEY])
 
 static func free_spins() -> DealClause:
 	return _bonus(FREE_SPINS, "Freispiele", "Jeder Automat dreht einmal gratis",
-		Scope.BLOCK, Tier.TWO, [TAG_SLOT])
+		Scope.ROUND, Tier.TWO, [TAG_SLOT])
 
 static func double_loader() -> DealClause:
 	return _bonus(DOUBLE_LOADER, "Doppellader", "Überladungs-Stufen prägen 2 ⚡",
@@ -218,7 +219,7 @@ static func double_loader() -> DealClause:
 
 static func calibration() -> DealClause:
 	return _bonus(CALIBRATION, "Eichung", "Benchmark −50%",
-		Scope.BLOCK, Tier.TWO, [TAG_BENCHMARK])
+		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
 
 static func all_on_red() -> DealClause:
 	return _bonus(ALL_ON_RED, "Alles auf Rot", "Alles Geld dieser Runde dreifach",
@@ -230,11 +231,11 @@ static func blank_cheque() -> DealClause:
 
 static func superconductor() -> DealClause:
 	return _bonus(SUPERCONDUCTOR, "Supraleiter", "Unbegrenzte Überladungs-Stufen",
-		Scope.BLOCK, Tier.THREE, [TAG_OVERCHARGE])
+		Scope.ROUND, Tier.THREE, [TAG_OVERCHARGE])
 
 static func gold_vein() -> DealClause:
 	return _bonus(GOLD_VEIN, "Goldader", "+10$ je geräumter Überladungs-Stufe",
-		Scope.BLOCK, Tier.THREE, [TAG_CHARGE, TAG_MONEY])
+		Scope.ROUND, Tier.THREE, [TAG_CHARGE, TAG_MONEY])
 
 # --- Werbegeschenke -----------------------------------------------------------
 
@@ -254,47 +255,47 @@ static func seed_capital_ii() -> DealClause:
 
 static func benchmark_surcharge() -> DealClause:
 	return _malus(BENCHMARK_SURCHARGE, "Benchmark-Aufschlag", "Benchmark +50%",
-		Scope.BLOCK, Tier.ONE, [TAG_BENCHMARK])
+		Scope.ROUND, Tier.ONE, [TAG_BENCHMARK])
 
 static func betting_tax() -> DealClause:
 	return _malus(BETTING_TAX, "Wettsteuer", "Wett-Einsätze kosten doppelt",
-		Scope.BLOCK, Tier.ONE, [TAG_SIDEBET])
+		Scope.ROUND, Tier.ONE, [TAG_SIDEBET])
 
 static func empties() -> DealClause:
 	return _malus(EMPTIES, "Leergut", "Übrige Würfel zahlen nichts",
-		Scope.BLOCK, Tier.ONE, [TAG_LEFTOVER])
+		Scope.ROUND, Tier.ONE, [TAG_LEFTOVER])
 
 static func deduction() -> DealClause:
 	return _malus(DEDUCTION, "Abschlag", "Rundenauszahlung −25%",
-		Scope.BLOCK, Tier.ONE, [TAG_PAYOUT])
+		Scope.ROUND, Tier.ONE, [TAG_PAYOUT])
 
 static func service_fee() -> DealClause:
 	return _malus(SERVICE_FEE, "Servicegebühr", "Jede gespielte Hand: −3$",
-		Scope.BLOCK, Tier.ONE, [TAG_MONEY])
+		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func inflation() -> DealClause:
 	return _malus(INFLATION, "Inflation", "Ladenpreise +25%",
-		Scope.BLOCK, Tier.ONE, [TAG_SHOP])
+		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func power_cut() -> DealClause:
 	return _malus(POWER_CUT, "Stromsperre", "Der Automat bleibt aus",
-		Scope.BLOCK, Tier.ONE, [TAG_SLOT])
+		Scope.ROUND, Tier.ONE, [TAG_SLOT])
 
 static func benchmark_surcharge_ii() -> DealClause:
 	return _malus(BENCHMARK_SURCHARGE_II, "Benchmark-Aufschlag II", "Benchmark +100%",
-		Scope.BLOCK, Tier.TWO, [TAG_BENCHMARK])
+		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
 
 static func half_payout() -> DealClause:
 	return _malus(HALF_PAYOUT, "Halbe Auszahlung", "Rundenauszahlung ×0,5",
-		Scope.BLOCK, Tier.TWO, [TAG_PAYOUT])
+		Scope.ROUND, Tier.TWO, [TAG_PAYOUT])
 
 static func stage_cap() -> DealClause:
 	return _malus(STAGE_CAP, "Stufendeckel", "Überladung endet bei Stufe 2",
-		Scope.BLOCK, Tier.TWO, [TAG_OVERCHARGE])
+		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func mains_hum() -> DealClause:
 	return _malus(MAINS_HUM, "Netzbrummen", "Überladungs-Stufen brauchen +25% Punkte",
-		Scope.BLOCK, Tier.TWO, [TAG_OVERCHARGE])
+		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func discharge() -> DealClause:
 	return _malus(DISCHARGE, "Entladung", "−2 ⚡ sofort",
@@ -314,7 +315,7 @@ static func benchmark_shock() -> DealClause:
 
 static func usury_clause() -> DealClause:
 	return _malus(USURY_CLAUSE, "Wucherklausel", "Benchmark +400%",
-		Scope.BLOCK, Tier.THREE, [TAG_BENCHMARK])
+		Scope.ROUND, Tier.THREE, [TAG_BENCHMARK])
 
 static func blackout() -> DealClause:
 	return _malus(BLACKOUT, "Blackout", "Übrige Würfel zahlen nichts",

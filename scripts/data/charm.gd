@@ -347,7 +347,7 @@ static func echo_chamber() -> Charm:
 	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der zuerst gewertete Würfel löst ein zweites Mal aus - Augen und Material.")
 
 static func twin_ring() -> Charm:
-	return _make(TWIN_RING, "Zwillingsring", "Jedes Paar im Wurf erhöht den Mult um die Augenzahl des Paars.")
+	return _make(TWIN_RING, "Zwillingsring", "Jedes Paar im Wurf erhöht den Mult um die höchste Augenzahl des Paars.")
 
 static func cult_of_one() -> Charm:
 	return _make(CULT_OF_ONE, "Einserkult", "Jede gewürfelte 1 verdoppelt Basiswert UND Multiplikator der Hand.")
@@ -356,7 +356,7 @@ static func street_sweeper() -> Charm:
 	return _make(STREET_SWEEPER, "Straßenkehrer", "In Straßen gibt jeder Würfel +6 Basispunkte.")
 
 static func equalizer() -> Charm:
-	return _make(EQUALIZER, "Gleichmacher", "Jeder beteiligte Würfel gibt mindestens 6 Basispunkte.")
+	return _make(EQUALIZER, "Gleichmacher", "Jeder beteiligte Würfel gibt mindestens 10 Basispunkte.")
 
 static func small_fry() -> Charm:
 	return _make(SMALL_FRY, "Kleinvieh", "Jede beteiligte 1 und 2 gibt +10 Basispunkte.")
@@ -491,7 +491,7 @@ static func bone_glue() -> Charm:
 	return _make(BONE_GLUE, "Knochenleim", "Knochen wächst +2 statt +1.")
 
 static func glassblower_lung() -> Charm:
-	return _make(GLASSBLOWER_LUNG, "Glasbläserlunge", "Glas schrumpft nicht mehr.")
+	return _make(GLASSBLOWER_LUNG, "Glasbläserlunge", "Glas schrumpft nie unter 6.")
 
 static func mercury_vapor() -> Charm:
 	return _make(MERCURY_VAPOR, "Quecksilberdampf", "Quecksilber aktiviert den Würfel dreifach statt doppelt.")

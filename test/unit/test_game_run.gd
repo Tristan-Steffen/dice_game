@@ -686,13 +686,17 @@ func _sign(clause_ids: Array, in_round: int = 1) -> void:
 	typed.assign(clause_ids)
 	run.sign_clauses(typed)
 
-func test_block_clause_lives_until_the_settlement():
+func test_no_clause_outlives_its_round():
+	# Kein Deal überlebt seine Runde mehr - auch der Bonus verfällt mit ihr.
 	_sign([DealClause.SAVINGS_BONUS])
 	assert_eq(run.deal_unused_die_bonus(), GameRun.SAVINGS_DIE_BONUS)
 	run.advance_round()
-	assert_eq(run.deal_unused_die_bonus(), GameRun.SAVINGS_DIE_BONUS, "gilt den ganzen Block")
-	run.settle_block_deals()
-	assert_eq(run.deal_unused_die_bonus(), 0, "die Abrechnung räumt ab")
+	assert_eq(run.deal_unused_die_bonus(), 0, "die Runde ist vorbei, die Klausel auch")
+
+func test_every_clause_of_the_catalogue_is_instant_or_round():
+	for clause in DealClause.all():
+		assert_ne(clause.scope, DealClause.Scope.BLOCK,
+			"%s müsste sofort oder rundenweise wirken" % clause.id)
 
 func test_round_clause_dies_with_its_round():
 	_sign([DealClause.HAPPY_HOUR])
@@ -700,13 +704,24 @@ func test_round_clause_dies_with_its_round():
 	run.advance_round()
 	assert_eq(run.money_gain_factor(), 1.0, "nur die Runde der Unterschrift")
 
-func test_block_clause_expires_at_the_block_border_even_without_settlement():
-	# Sicherheitsnetz: eine Klausel aus Block 1 darf in Block 2 nicht weiterwirken,
-	# auch wenn die Abrechnung ausgefallen ist.
-	_sign([DealClause.SAVINGS_BONUS], GameRun.GOAL_BLOCK)
-	assert_eq(run.deal_unused_die_bonus(), GameRun.SAVINGS_DIE_BONUS)
+func test_the_scope_arbiter_knows_all_three_durations():
+	# _scope_reaches bleibt der einzige Schiedsrichter - auch für BLOCK, das
+	# aktuell keine Klausel trägt.
+	var entry := {"id": DealClause.SAVINGS_BONUS, "round": 2}
+	assert_false(run._scope_reaches(entry, DealClause.Scope.INSTANT, 2))
+	assert_true(run._scope_reaches(entry, DealClause.Scope.ROUND, 2))
+	assert_false(run._scope_reaches(entry, DealClause.Scope.ROUND, 3))
+	assert_true(run._scope_reaches(entry, DealClause.Scope.BLOCK, 3), "noch im Block")
+	assert_false(run._scope_reaches(entry, DealClause.Scope.BLOCK, GameRun.GOAL_BLOCK + 1))
+
+func test_the_signature_locks_the_clause_for_the_whole_block():
+	# Die Wirkung endet mit der Runde, der Eintrag bleibt: er sperrt seine Klausel
+	# bis zur Abrechnung gegen ein zweites Angebot.
+	_sign([DealClause.SAVINGS_BONUS])
 	run.advance_round()
-	assert_eq(run.deal_unused_die_bonus(), 0)
+	assert_true(run._taken_this_block(DealClause.SAVINGS_BONUS))
+	run.settle_block_deals()
+	assert_false(run._taken_this_block(DealClause.SAVINGS_BONUS))
 
 func test_instant_clause_pays_once_on_signing():
 	var before := run.money
@@ -841,11 +856,11 @@ func test_offers_never_repeat_a_clause_taken_this_block():
 		run.take_route(0)
 
 func test_offers_gate_a_second_benchmark_malus():
-	# Ein zweiter Aufschlag könnte ein unerreichbares Ziel bauen.
+	# Ein zweiter Aufschlag könnte ein unerreichbares Ziel bauen (geprüft in der
+	# Runde der Unterschrift - länger wirkt keine Klausel).
 	_sign([DealClause.BENCHMARK_SURCHARGE])
 	for i in 20:
 		run.route_offers.clear()
-		run.round_number = GameRun.GOAL_BLOCK - 1  # noch im selben Block
 		run.roll_route_offers()
 		for card in run.route_offers:
 			for clause_id in _card_ids(card):
@@ -853,10 +868,9 @@ func test_offers_gate_a_second_benchmark_malus():
 					"%s hebt den Benchmark ein zweites Mal" % clause_id)
 
 func test_the_boss_pool_gates_high_expectations_too():
-	_sign([DealClause.USURY_CLAUSE])
+	_sign([DealClause.USURY_CLAUSE], GameRun.GOAL_BLOCK)
 	for i in 20:
 		run.route_offers.clear()
-		run.round_number = GameRun.GOAL_BLOCK
 		run.roll_route_offers()
 		for card in run.route_offers:
 			assert_ne(String(card[GameRun.CARD_MALUS]), DealClause.HIGH_EXPECTATIONS)
@@ -910,12 +924,12 @@ func test_benchmark_surcharge_and_calibration_cancel_out():
 	_sign([DealClause.BENCHMARK_SURCHARGE_II, DealClause.CALIBRATION])
 	assert_eq(run.effective_goal(), run.round_goal, "×2 und ×0,5 heben sich auf")
 
-func test_roadmap_projects_a_block_malus_onto_coming_rounds():
+func test_the_roadmap_only_lifts_the_signing_round():
 	_sign([DealClause.BENCHMARK_SURCHARGE], 2)
-	assert_eq(run.effective_goal_for_round(3), roundi(GameRun.goal_for_round(3) * 1.5),
-		"kommende Stationen des Blocks zeigen den Aufschlag")
-	assert_eq(run.effective_goal_for_round(GameRun.GOAL_BLOCK + 1),
-		GameRun.goal_for_round(GameRun.GOAL_BLOCK + 1), "der nächste Block ist frei")
+	assert_eq(run.effective_goal_for_round(2), roundi(GameRun.goal_for_round(2) * 1.5),
+		"die Station der laufenden Runde zeigt den Aufschlag")
+	assert_eq(run.effective_goal_for_round(3), GameRun.goal_for_round(3),
+		"die kommenden Stationen bleiben frei - kein Deal überlebt seine Runde")
 
 func test_a_round_malus_only_inflates_its_own_round():
 	_sign([DealClause.BENCHMARK_SHOCK], 2)
@@ -1117,16 +1131,13 @@ func test_heat_buildup_never_falls_below_the_baseline():
 	assert_false(run.apply_heat_buildup(DiceScoring.TWO_KIND), "die Grundform bleibt")
 
 func test_active_deal_sides_feed_the_hub_tokens():
-	_sign([DealClause.SAVINGS_BONUS, DealClause.EMPTIES])  # beide Block
-	run.sign_clauses([DealClause.HAPPY_HOUR] as Array[String])  # nur diese Runde
+	_sign([DealClause.SAVINGS_BONUS, DealClause.EMPTIES, DealClause.HAPPY_HOUR])
 	var sides := run.active_deal_sides()
 	assert_eq(sides.size(), 3)
 	assert_true(bool(sides[0]["bonus"]), "die Sparprämie ist ein Bonus")
 	assert_false(bool(sides[1]["bonus"]), "das Leergut ist Kleingedrucktes")
 	run.advance_round()
-	assert_eq(run.active_deal_sides().size(), 2, "die Runden-Klausel ist abgelaufen")
-	run.settle_block_deals()
-	assert_eq(run.active_deal_sides().size(), 0)
+	assert_eq(run.active_deal_sides().size(), 0, "mit der Runde sind alle Seiten fort")
 
 func test_roadmap_markers_flag_the_stress_station():
 	var markers := run.goal_roadmap_markers(GameRun.GOAL_BLOCK)

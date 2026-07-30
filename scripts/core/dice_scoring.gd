@@ -37,11 +37,9 @@ const CATEGORIES := [
 	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60},
 ]
 
-# Prestigeträchtigste zuerst: best_hand() vergleicht die Punkte aller
-# zutreffenden Kategorien und nimmt bei GLEICHSTAND die ranghöhere. So stehen
-# spezifischere Häuser (3+3, 4+2) vor Full House/Zwei Paare, die sie sonst mit
-# abdecken würden - der reine Punktwert entscheidet nur, wenn er sich (durch
-# Stufen/Charms/Materialien) tatsächlich unterscheidet.
+# Prestigeträchtigste zuerst: best_hand() nimmt den ERSTEN Treffer dieser Liste,
+# ohne Punktvergleich. So stehen spezifischere Häuser (3+3, 4+2) vor Full
+# House/Zwei Paare, die sie sonst mit abdecken würden.
 const HAND_PRIORITY := [
 	SIX_KIND, FIVE_KIND, LARGE_STRAIGHT, FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND,
 	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
@@ -281,27 +279,21 @@ static func _base_and_mult(key: String, dice: Array[int], charm_ids: Array[Strin
 		mult *= CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
 	return [base, mult]
 
-## Beste Hand des Wurfs: die zutreffende Kategorie mit den MEISTEN Punkten.
-## Bei Gleichstand gewinnt der höhere Rang (HAND_PRIORITY zuerst) - so bleibt ein
-## 4+2 ein "Viererpasch mit Paar" und kippt nicht in einen gleichwertigen
-## Unterbegriff. Materialien, Charms und Menü-Stufen fließen in den Vergleich
-## ein: sonst könnte eine ranghöhere, aber real punktärmere Kombination gewinnen
-## (das war die Farkle-Falle - ein aufgewertetes Paar galt weniger als eine
-## schwache Straße).
+## Beste Hand des Wurfs: die RANGHÖCHSTE zutreffende Kategorie (HAND_PRIORITY von
+## oben nach unten, erster Treffer gewinnt). Was physisch daliegt, zählt - Punkte
+## vergleichen wir bewusst NICHT mehr über Kategorien hinweg, sonst nimmt das
+## Spiel bei drei Zweierpäschen ein hochgestuftes Zwei-Paare. Gedrosselte
+## Kategorien werden übersprungen (die Hand rutscht zur nächsten passenden).
 static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], edge_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	dice = CharmEffects.transform_values(dice, charm_ids)
 	var best_key := ONE_KIND
-	var best_score := -1
-	# HAND_PRIORITY zuerst durchlaufen -> bei Gleichstand bleibt der höhere Rang.
+	var best_score := 0  # bleibt 0, wenn keine Kategorie durchkommt (Drossel/Parität)
 	for key in HAND_PRIORITY:
 		if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
 			continue
-		var s := score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
-		if s > best_score:
-			best_score = s
-			best_key = key
-	if best_score < 0:
-		best_score = 0  # nur, wenn die Drossel die einzige zutreffende Kategorie träfe
+		best_key = key
+		best_score = score_category(key, dice, charm_ids, is_first_hand, materials, edge_materials, combo_levels, ctx)
+		break
 	return {
 		"key": best_key,
 		"label": label_for(best_key),

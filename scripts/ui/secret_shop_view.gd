@@ -1,12 +1,17 @@
 class_name SecretShopView
 extends Panel
-## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten, sichtbar
-## erst nach der ersten voll ausgereizten Überladung. Bezahlt wird ausschließlich
-## in Ladung (⚡) - drei Plätze, jeder EINMAL kaufbar, "Neu mischen" tauscht alle
-## drei zu steigendem Preis. Zustands-Mutation läuft ausschließlich über GameRun
-## (buy_secret_offer/reroll_secret_stock); die Anzeige folgt secret_stock_changed
-## und charge_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick
-## (Kamera zoomt zurück) - kein eigener Knopf.
+## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten. Es steht
+## von Anfang an da, aber VERGITTERT - ein einziger Knopf in der Mitte kauft den
+## Zutritt für Ladung frei (set_locked, unlock_requested); solange liegen nur
+## Schatten-Plätze aus, denn die Auslage wird erst beim Freischalten gewürfelt.
+## Danach: bezahlt wird ausschließlich in Ladung (⚡) - drei Plätze, jeder EINMAL
+## kaufbar, "Neu mischen" tauscht alle drei zu steigendem Preis. Zustands-Mutation
+## läuft ausschließlich über GameRun (buy_secret_offer/reroll_secret_stock); die
+## Anzeige folgt secret_stock_changed und charge_changed. Geschlossen wird wie bei
+## jedem Fenster per Rechtsklick (Kamera zoomt zurück) - kein eigener Knopf.
+
+## Der Spieler will das Gitter heben; die Buchung macht scene_root über GameRun.
+signal unlock_requested
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -16,6 +21,9 @@ const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.72, 0.74, 0.86)
 const BACKROOM_BG := Color("#0b0918e6")
 const CARD_BG := Color("#150f2acc")
+
+## So viele Schatten-Plätze zeigt der vergitterte Laden (= die späteren Plätze).
+const SHADOW_SLOTS := 3
 
 ## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
 ## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Vertragswahl).
@@ -37,11 +45,17 @@ var run: GameRun:
 ## Einheit aus BEIDEN Achsen (in refresh gesetzt).
 var u := 4.0
 
+## Vergittert: Schatten-Plätze unter einem dunklen Schleier, davor der Knopf.
+var locked := true
+var can_afford := false
+
 var wallet_label: Label
 var cards_row: HBoxContainer
 var reroll_button: Button
 ## Ein Knopf je Auslage-Platz (Tests und _refresh arbeiten dagegen).
 var offer_buttons: Array[Button] = []
+var lock_overlay: Panel
+var unlock_button: Button
 
 ## Hover-Dropdown (Name + Wirkung), wie im Shop.
 var detail_card: PanelContainer
@@ -70,6 +84,28 @@ func refresh() -> void:
 		return
 	_build_layout()
 	_refresh_offers()
+	_apply_lock_state()
+
+## Gitter-Zustand von scene_root (einziger Schreiber): locked = noch nicht
+## freigeschaltet, affordable = die Börse trägt das Eintrittsgeld.
+func set_locked(is_locked: bool, affordable: bool) -> void:
+	var was_locked := locked
+	locked = is_locked
+	can_afford = affordable
+	if not _built:
+		return
+	if was_locked != locked:
+		_refresh_offers()  # Schatten <-> echte Ware ist ein Neuaufbau
+	_apply_lock_state()
+
+## Schleier, Knopf und Dimmung der Plätze am Gitter-Zustand ausrichten.
+func _apply_lock_state() -> void:
+	if not _built:
+		return
+	lock_overlay.visible = locked
+	unlock_button.disabled = not can_afford
+	reroll_button.visible = not locked
+	cards_row.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
 # --- Gerüst -------------------------------------------------------------------
 
@@ -130,6 +166,7 @@ func _build_layout() -> void:
 	footer.add_child(reroll_button)
 
 	_build_detail_card()  # zuletzt: liegt als Overlay über den Karten
+	_build_lock_overlay()  # und ganz oben das Gitter
 
 # --- Auslage ------------------------------------------------------------------
 
@@ -144,6 +181,11 @@ func _refresh_offers() -> void:
 		child.queue_free()
 	offer_buttons.clear()
 	var thumb_px := int(u * 13.0)
+	if locked:
+		# Die Auslage wird erst beim Freischalten gewürfelt - hier stehen Schatten.
+		for i in SHADOW_SLOTS:
+			cards_row.add_child(_build_shadow_card(thumb_px))
+		return
 	for i in run.secret_stock.size():
 		cards_row.add_child(_build_offer_card(run.secret_stock[i], i, thumb_px))
 	_refresh_afford_state()
@@ -222,6 +264,49 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int) -> Button:
 		card.pressed.connect(_on_offer_pressed.bind(index))
 	offer_buttons.append(card)
 	return card
+
+## Schatten-Platz des vergitterten Ladens: dieselbe Kartenform, aber leer - er
+## verspricht einen Platz, nicht eine bestimmte Ware.
+func _build_shadow_card(thumb_px: int) -> Control:
+	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", _card_box(Color("#100c2266"), VIOLET, 0.3, 0.0))
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(_glow_disc(VIOLET, thumb_px))
+	stage.add_child(_label("?", u * 8.0, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.6),
+		HORIZONTAL_ALIGNMENT_CENTER))
+	card.add_child(stage)
+	return card
+
+# --- Gitter -------------------------------------------------------------------
+
+## Dunkler Schleier über der ganzen Tasche, in seiner Mitte der Freischalt-Knopf.
+## Liegt als LETZTES Kind auf allem anderen.
+func _build_lock_overlay() -> void:
+	lock_overlay = Panel.new()
+	lock_overlay.name = "LockOverlay"
+	lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP  # nichts darunter ist anfassbar
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
+	box.set_corner_radius_all(int(u * 1.2))
+	lock_overlay.add_theme_stylebox_override("panel", box)
+	add_child(lock_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lock_overlay.add_child(center)
+	unlock_button = _neon_button("Freischalten ⚡%d" % GameRun.SECRET_UNLOCK_PRICE,
+		VIOLET, u * 4.2, Vector2(u * 46.0, u * 10.0))
+	unlock_button.pressed.connect(_on_unlock_pressed)
+	center.add_child(unlock_button)
+
+func _on_unlock_pressed() -> void:
+	unlock_requested.emit()
 
 # --- Käufe --------------------------------------------------------------------
 
