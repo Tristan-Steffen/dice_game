@@ -75,6 +75,10 @@ const TRAY_TILE := 5.0
 ## (min), sonst bläst ein breiteres Werkbank-Fenster den Inhalt über die
 ## unveränderte Fensterhöhe hinaus - die Breite allein ist kein Platzgewinn.
 const CONTENT_UNITS := 51.0
+
+## Textbreite des Seiten-Fensters in Einheiten - breit genug für die Stufe-III-
+## Zeilen und die Riss-Beinamen, ohne ins Raster hinauszulaufen.
+const TOOLTIP_WIDTH := 30.0
 ## Rückfall-Skala des Ziel-Rasters, solange seine Spalte noch kein Maß hat.
 const GRID_UNIT_SCALE := 0.80
 ## Rand des Rasters zu seiner Spalte (Breiteneinheiten u) - ringsum derselbe.
@@ -128,7 +132,9 @@ var edge_frame: PanelContainer
 ## mouse_entered/mouse_exited (die Maus-Weiterleitung liefert Motion).
 var face_tooltip: PanelContainer
 var face_tooltip_title: Label
-var face_tooltip_body: Label
+## Je Aussage EINE Zeile. Vorher lief alles in ein Label - eine Seite mit
+## Material UND Riss schrieb dann zwei Wirkungstexte ineinander.
+var face_tooltip_lines: VBoxContainer
 
 ## Das Gravur-Bord liegt NICHT im Panel, sondern in den drei Vorrats-Schubladen
 ## unter der Werkbank (setzt scene_root über set_drawers). Die Station hält nur
@@ -834,10 +840,7 @@ func _on_edge_frame_input(event: InputEvent) -> void:
 
 ## Überfahren des Rahmens: die Essenz erklärt sich - nur lesen, nie ändern.
 func _on_edge_frame_hover() -> void:
-	if current_def == null or not Essence.is_valid_id(current_def.essence_id):
-		return
-	var essence := Essence.by_id(current_def.essence_id)
-	_show_face_tooltip(edge_frame, "%s – %s" % [essence.display_name, essence.epithet], essence.description)
+	_show_essence_info()
 
 func _on_edge_frame_hover_exit() -> void:
 	_hide_face_tooltip()
@@ -1046,26 +1049,10 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
 	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted, eligible)
 	chip.disabled = held_id != "" and not eligible and not highlighted
-	# Tooltip aus Material und/oder Leiterbahn der Seite zusammengesetzt.
-	var tip_title := ""
-	var tip_body := ""
-	if DieMaterial.is_valid_id(material_id):
-		var material := DieMaterial.by_id(material_id)
-		var level := current_def.material_level(face_index)
-		tip_title = "%s %s" % [material.display_name, DieMaterial.level_roman(level)] if level >= 2 else material.display_name
-		tip_body = material.description_for(level)
-	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
-	if pointer_target >= 0:
-		tip_title = "%s · Leiterbahn" % tip_title if tip_title != "" else "Leiterbahn"
-		var pointer_line := "Liegt diese Seite oben, löst die Seite mit Wert %d einmal mit aus." % current_def.faces[pointer_target]
-		tip_body = "%s\n%s" % [tip_body, pointer_line] if tip_body != "" else pointer_line
-	for rift_id in current_def.rifts_on(face_index):
-		var rift := Rift.by_id(rift_id)
-		tip_title = "%s · %s" % [tip_title, rift.display_name] if tip_title != "" else rift.display_name
-		tip_body = "%s\n%s" % [tip_body, rift.description] if tip_body != "" else rift.description
-	if tip_title != "":
-		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, tip_title, tip_body))
-		chip.mouse_exited.connect(_hide_face_tooltip)
+	# JEDE Seite erklärt sich - auch die nackte: das Fenster steht fest, also
+	# kostet eine leere Seite keinen springenden Kasten mehr.
+	chip.mouse_entered.connect(_show_face_info.bind(face_index))
+	chip.mouse_exited.connect(_hide_face_tooltip)
 	# Vorschau beim Überfahren (alle Seiten) + Ziel-Klick.
 	chip.mouse_entered.connect(_on_face_hover.bind(face_index))
 	chip.mouse_exited.connect(_on_face_hover_exit)
@@ -1181,32 +1168,86 @@ func _build_face_tooltip() -> void:
 	face_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	CasinoStyle.style_score_label(face_tooltip_title, int(u * 2.6), CasinoStyle.GOLD)
 	box.add_child(face_tooltip_title)
-	face_tooltip_body = Label.new()
-	face_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	face_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	face_tooltip_body.custom_minimum_size = Vector2(u * 26.0, 0)
-	CasinoStyle.style_body_label(face_tooltip_body, int(u * 1.9), CasinoStyle.CREAM)
-	box.add_child(face_tooltip_body)
+	face_tooltip_lines = VBoxContainer.new()
+	face_tooltip_lines.name = "Lines"
+	face_tooltip_lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face_tooltip_lines.add_theme_constant_override("separation", int(u * 0.35))
+	box.add_child(face_tooltip_lines)
 	add_child(face_tooltip)
 
-## Zeigt den Tooltip unter (oder notfalls über) dem überfahrenen Element,
-## immer im Panel eingeklemmt (clip_contents schneidet Überstände ab).
-func _show_face_tooltip(chip: Control, title: String, body: String) -> void:
+## Füllt das Overlay und stellt es an seinen FESTEN Platz. Es folgt bewusst
+## nicht mehr dem Zeiger: eine Seite kann Material, zwei Risse und eine
+## Leiterbahn tragen, und eine wandernde Karte dieser Höhe springt bei jedem
+## Chip woandershin. Jede Aussage bekommt ihre eigene Zeile.
+func _show_face_tooltip(title: String, lines: Array[String]) -> void:
 	if face_tooltip == null:
 		return
 	face_tooltip_title.text = title
-	face_tooltip_body.text = body
+	for child in face_tooltip_lines.get_children():
+		face_tooltip_lines.remove_child(child)
+		child.queue_free()
+	for line in lines:
+		if line == "":
+			continue
+		var label := Label.new()
+		label.text = line
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size = Vector2(u * TOOLTIP_WIDTH, 0)
+		CasinoStyle.style_body_label(label, int(u * 1.9), CasinoStyle.CREAM)
+		face_tooltip_lines.add_child(label)
 	face_tooltip.visible = true
 	face_tooltip.reset_size()
-	var local := chip.get_global_rect().position - get_global_rect().position
-	var below := local.y + chip.size.y + u * 0.6
-	var above := local.y - face_tooltip.size.y - u * 0.6
-	var pos := Vector2(local.x, below)
-	if below + face_tooltip.size.y > size.y - u * 1.0 and above >= u * 1.0:
-		pos.y = above  # unten kein Platz -> über das Element klappen
+	face_tooltip.position = _face_tooltip_anchor()
+
+## Fester Platz: rechts NEBEN dem Würfel-Schirm, bündig an der unteren linken
+## Ecke des Ziel-Rasters. Dass er das Raster dort überdeckt, ist gewollt - wer
+## eine Seite mustert, sucht in diesem Moment keinen anderen Würfel aus.
+func _face_tooltip_anchor() -> Vector2:
+	var pos := Vector2(size.x * 0.5, size.y * 0.5)
+	if grid_host != null and is_instance_valid(grid_host):
+		var local := grid_host.get_global_rect().position - get_global_rect().position
+		pos = Vector2(local.x, local.y + grid_host.size.y - face_tooltip.size.y)
 	pos.x = clampf(pos.x, u * 1.0, maxf(u * 1.0, size.x - face_tooltip.size.x - u * 1.0))
 	pos.y = clampf(pos.y, u * 1.0, maxf(u * 1.0, size.y - face_tooltip.size.y - u * 1.0))
-	face_tooltip.position = pos
+	return pos
+
+## Die Zeilen EINER Seite: Kopf mit Nummer und Wert (plus Vorschauwert, wenn das
+## gehaltene Werkzeug ihn verschöbe), dann je Ausbau eine eigene Zeile.
+func _show_face_info(face_index: int) -> void:
+	if current_def == null or face_index < 0 or face_index >= current_def.faces.size():
+		return
+	var value: int = current_def.faces[face_index]
+	var title := "Seite %d – Wert %d" % [face_index + 1, value]
+	if held_id != "":
+		var ghost := _ghost_after(face_index)
+		if ghost != null and ghost.faces[face_index] != value:
+			title += " → %d" % ghost.faces[face_index]
+	_show_face_tooltip(title, _face_tooltip_lines_for(face_index))
+
+## Baut die Zeilen einer Seite - reine Textarbeit, damit die Tests sie ohne
+## Layout prüfen können.
+func _face_tooltip_lines_for(face_index: int) -> Array[String]:
+	var lines: Array[String] = []
+	var material_id := _material_of(current_def, face_index)
+	if DieMaterial.is_valid_id(material_id):
+		lines.append(DieMaterial.face_hint(material_id, current_def.material_level(face_index)))
+	for rift_id in current_def.rifts_on(face_index):
+		var rift := Rift.by_id(rift_id)
+		lines.append("%s – %s: %s" % [rift.display_name, rift.kind, rift.short])
+	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
+	if pointer_target >= 0:
+		lines.append("Leiterbahn: löst die Seite mit Wert %d einmal mit aus." % current_def.faces[pointer_target])
+	return lines
+
+## Dasselbe Fenster für den Rahmen: dort wohnt die Seele des Würfels.
+func _show_essence_info() -> void:
+	if current_def == null or not Essence.is_valid_id(current_def.essence_id):
+		return
+	var essence := Essence.by_id(current_def.essence_id)
+	var lines: Array[String] = []
+	lines.append(essence.description)
+	_show_face_tooltip("%s – %s" % [essence.display_name, essence.epithet], lines)
 
 func _hide_face_tooltip() -> void:
 	if face_tooltip != null:

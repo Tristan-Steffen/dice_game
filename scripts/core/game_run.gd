@@ -1140,13 +1140,20 @@ func apply_essence_decay() -> int:
 	for die in owned_pool:
 		if not EssenceEffects.decays(die.essence_id):
 			continue
-		var face := randi() % die.faces.size()
-		if RiftEffects.protects_face_value(die.rifts_on(face)):
+		# Nur Seiten, die wirklich verlieren können - sonst würfelt sich die
+		# Strafe an Floor- und Einbrand-Seiten zufällig selbst weg.
+		var candidates: Array[int] = []
+		for face in die.faces.size():
+			if die.faces[face] <= EtchingEffects.MIN_FACE_VALUE:
+				continue
+			if RiftEffects.protects_face_value(die.rifts_on(face)):
+				continue
+			candidates.append(face)
+		if candidates.is_empty():
 			continue
-		var target := maxi(EtchingEffects.MIN_FACE_VALUE, die.faces[face] - 1)
-		if target != die.faces[face]:
-			die.faces[face] = target
-			decayed += 1
+		var face: int = candidates[randi() % candidates.size()]
+		die.faces[face] -= 1
+		decayed += 1
 	if decayed > 0:
 		pool_changed.emit()
 	return decayed

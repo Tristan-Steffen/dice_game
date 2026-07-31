@@ -968,14 +968,20 @@ func test_stress_round_offers_the_boss_conditions():
 		assert_eq(DealClause.find(card[GameRun.CARD_MALUS]).tier, DealClause.Tier.BOSS)
 
 func test_exhausted_pool_falls_back_to_repeats():
-	# Lieber eine bekannte Klausel als ein leerer Platz.
+	# Lieber eine bekannte Klausel als ein leerer Platz. Das Werbegeschenk darf
+	# den Malus-Slot legitim leeren (~9 %) - darum über mehrere Würfe prüfen:
+	# ohne Fallback bliebe das Kleingedruckte in JEDEM Wurf leer.
 	var ids: Array[String] = []
 	ids.assign(DealClause.ids_for(DealClause.Tier.TWO, DealClause.Kind.MALUS))
 	_sign(ids)
 	run.round_number = 2
-	run.roll_route_offers()
-	assert_ne(String(run.route_offers[1][GameRun.CARD_MALUS]), "",
-		"der Risikovertrag hat trotzdem ein Kleingedrucktes")
+	var repeated := false
+	for i in 40:
+		run.roll_route_offers()
+		if String(run.route_offers[1][GameRun.CARD_MALUS]) != "":
+			repeated = true
+			break
+	assert_true(repeated, "der Risikovertrag hat trotzdem ein Kleingedrucktes")
 
 # --- Klausel-Wirkungen -------------------------------------------------------------
 

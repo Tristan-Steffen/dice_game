@@ -685,6 +685,7 @@ func test_pick_weighted_favors_common_over_legendary():
 		if Charm.pick_weighted(candidates).id == Charm.RABBITS_FOOT:
 			common_hits += 1
 	assert_gt(common_hits, 140, "Gewöhnlich (Gewicht 1.0) schlägt Legendär (0.1) deutlich")
+	randomize()  # der feste Seed darf nicht in spätere Test-Skripte lecken
 
 func test_owned_charms_weigh_half():
 	# Besitz dämpft das Ziehgewicht, sperrt aber nichts - der Archetyp bleibt
