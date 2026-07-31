@@ -7,7 +7,7 @@ extends GutTest
 
 const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
-const E := SlotPrize.Kind.EDGE
+const E := SlotPrize.Kind.DICE_ENGRAVING
 const C := SlotPrize.Kind.CHARM
 const D := SlotPrize.Kind.DIE
 const F := SlotPrize.Kind.FUMBLE

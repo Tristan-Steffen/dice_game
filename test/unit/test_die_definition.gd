@@ -61,13 +61,13 @@ func test_instantiate_copies_materials_independently():
 	copy.materials[0] = DieMaterial.GOLD
 	assert_eq(original.materials[0], "", "Original bleibt unverändert")
 
-func test_standard_has_no_edge_material():
-	assert_eq(DieDefinition.standard().edge_material, "")
+func test_standard_has_no_essence():
+	assert_eq(DieDefinition.standard().essence_id, "", "Startwürfel sind seelenlos")
 
-func test_instantiate_copies_edge_material_independently():
+func test_instantiate_copies_the_essence_independently():
 	var original := DieDefinition.standard()
-	original.edge_material = DieMaterial.MERCURY
+	original.essence_id = Essence.ARGON
 	var copy := original.instantiate()
-	assert_eq(copy.edge_material, DieMaterial.MERCURY, "Kanten-Material wird übernommen")
-	copy.edge_material = DieMaterial.GOLD
-	assert_eq(original.edge_material, DieMaterial.MERCURY, "Original bleibt unverändert")
+	assert_eq(copy.essence_id, Essence.ARGON, "die Essenz wird übernommen")
+	copy.essence_id = Essence.NEON
+	assert_eq(original.essence_id, Essence.ARGON, "Original bleibt unverändert")

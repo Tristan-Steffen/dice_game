@@ -8,7 +8,8 @@ extends Node3D
 ## bekommen frisch gezogene Würfel). Farkle: bringt ein Neu-Würfeln nicht
 ## strikt mehr Punkte, wird die Hand ohne Punkte verworfen (der erste Wurf
 ## einer Hand kann nie farkeln). Die Runde endet, sobald der Rundenstand das
-## Ziel erreicht - oder der Pool keine volle Hand mehr hergibt (Game Over).
+## Ziel erreicht - oder der Pool leer ist (Game Over); der Rest des Pools wird
+## als kleinere Hand ausgespielt.
 
 @export var throw_force: float = 50.0
 @export var spin_strength: float = 14.0
@@ -32,6 +33,9 @@ const CHARM_PAYOUT_STEP_INTERVAL := 0.45
 ## Start-Takt der Frankiermaschinen-Salve: die Meteore starten dicht
 ## hintereinander, ohne auf die vorige Ankunft zu warten.
 const STAMP_METEOR_GAP := 0.18
+## Abklingzeit des Riss-Ausbruchs: kurz genug, dass der nächste Würfel seinen
+## eigenen Ausbruch bekommt, lang genug zum Sehen.
+const RIFT_FLARE_TIME := 0.45
 ## Pendel-Schwung: verlorener Mult steigt in Warnrot auf, gewonnener in Gold.
 const PENDULUM_LOSS_COLOR := Color(1.0, 0.35, 0.3)
 const PENDULUM_SWING_FONT := 0.7
@@ -391,9 +395,14 @@ var active_kinds: Array[DieDefinition] = []  # aktuell den 6 Slots zugewiesen
 var last_throw_was_reroll: bool = false
 var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Vergleich)
 var pre_reroll_materials: Array[String] = []
-var pre_reroll_edge_materials: Array[String] = []
+var pre_reroll_essences: Dictionary = {}  # Essenzen VOR dem Neu-Würfeln
+var pre_reroll_rifts: Dictionary = {}  # Risse der oberen Seiten VOR dem Neu-Würfeln
+## Irrlicht-Auswahl: der Slot, dessen Nachbarseiten gerade zur Wahl stehen (-1 =
+## keine offene Wahl), und die vier Seiten in Knopf-Reihenfolge.
+var _tip_choice_slot: int = -1
+var _tip_choice_faces: Array[int] = []
 var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
-var pre_reroll_upgrades: Dictionary = {}  # Dotierungen VOR dem Neu-Würfeln
+var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
 var rerolls_this_hand: int = 0  # Anker
@@ -445,10 +454,12 @@ var _select_glows: Dictionary = {}
 var deck_shift_ghosts: Array[Node3D] = []  # temporäre Würfel der Aufrück-Animation
 var deck_shift_tween: Tween
 
-## Ziehen/Klicken auf der Energie-Hülle: Klick = Würfeln, Ziehen = Drehen.
+## Ziehen/Klicken auf der Energie-Hülle: Drücken = Würfeln, Halten = Rütteln,
+## Ziehen ohne Wurf = Drehen.
 var shell_drag_active := false
 var shell_drag_start_pos: Vector2
 var shell_is_dragging := false
+var shell_throw_pending := false  # der Druck hat einen Wurf ausgelöst
 
 var queue_window_size: int = 0  # belegte Slots im Warteschlangen-Tray
 
@@ -631,6 +642,9 @@ func _setup_table_screen() -> void:
 	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
 	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
+	table_screen.tip_action_button.pressed.connect(_on_tip_button_pressed)
+	for i in table_screen.tip_face_buttons.size():
+		table_screen.tip_face_buttons[i].pressed.connect(_on_tip_face_pressed.bind(i))
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 
@@ -1283,15 +1297,12 @@ func _used_faces_sum() -> int:
 		return 0
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
-	var edges := _edge_materials()
 	var sel_values: Array[int] = []
 	var sel_materials: Array[String] = []
-	var sel_edges: Array[String] = []
 	for s in slots:
 		sel_values.append(dice.values[s])
 		sel_materials.append(materials[s])
-		sel_edges.append(edges[s])
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
 	var transformed := CharmEffects.transform_values(sel_values, ids)
 	var sum := 0
 	for i in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
@@ -1717,7 +1728,7 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 	if table_screen == null:
 		return
 	match prize.kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			for engraving in prize.engravings:
 				_fly_slot_engraving(engraving, from_px)
 		SlotPrize.Kind.CHARM:
@@ -1831,6 +1842,19 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 		maxf(table_screen.pack_delivery_comet(hub_px, tint), 0.05)).timeout
 	if is_instance_valid(window):
 		window.deliver_pack()
+
+## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
+## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
+## den Nebenwetten), darum _fly_charge_to_capacitor(false).
+func _play_rift_charge_volley(count: int) -> void:
+	var launched := run
+	for i in count:
+		if i == 0:
+			_fly_charge_to_capacitor(false)
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if run == launched:
+					_fly_charge_to_capacitor(false))
 
 ## Ladungs-Gewinn: je ⚡ ein Komet, dicht gestaffelt wie die Vertrags-Salve -
 ## erst aus dem Wettfenster in den Hub, dann die Hub-Cluster-Ader zur Börse.
@@ -2069,10 +2093,11 @@ func _try_tray_die_click(screen_pos: Vector2) -> bool:
 ## Pool-Instanz; ohne Hub öffnet nur das Panel als Fenster-UI.
 func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
 	# Der Würfel ist immer einsehbar; sobald die Runde festgezurrt ist, bleiben nur
-	# die Gravuren gesperrt.
-	_sync_editing_lock()
+	# die Gravuren gesperrt. Die Sperre hängt am GEZEIGTEN Würfel (Halogen brennt
+	# weiter), also erst zeigen, dann synchronisieren.
 	if table_screen == null or table_screen.workshop_window == null:
 		die_inspector.show_die(def)
+		_sync_editing_lock()
 		return
 	if not engraving_active:
 		engraving_active = true
@@ -2094,6 +2119,7 @@ func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: D
 	var start_pos: Vector3 = source_root.global_position
 	source_root.visible = false
 	die_inspector.show_die(def)
+	_sync_editing_lock()
 	_refresh_engraving_target_grid()
 	camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	_fly_engraving_die(def, start_pos)
@@ -2877,6 +2903,7 @@ func _process(delta: float) -> void:
 	_update_pit_hover(delta)
 	_update_selection_glows()
 	_sync_screen_action_buttons()
+	_sync_shell_hold()
 
 ## Würfelnetz-Feld der Grube: zeigt den Würfel unter der Maus - ruhende
 ## Grubenwürfel (mit Gold-Rahmen auf der oben liegenden Seite) und die
@@ -2929,21 +2956,24 @@ func _show_pit_net(def: DieDefinition, up_face: int) -> void:
 	table_screen.set_pit_net_hint("")
 
 ## Kurz-Erklärzeile zur Netz-Zelle unter pixel: Materialname + Kurzwirkung
-## (face_hint/edge_hint), plus die Leiterbahn der Seite. EDGE-Chip erklärt das
-## Kanten-Material; "" ohne Material/Bahn oder außerhalb der Zellen.
+## (face_hint), plus die Leiterbahn der Seite. Der Essenz-Chip erklärt die Seele
+## des Würfels; "" ohne Material/Bahn oder außerhalb der Zellen.
 func _net_face_hint(pixel: Vector2) -> String:
 	if _net_die_def == null:
 		return ""
 	var face := table_screen.pit_net_face_at(pixel)
 	if face == DieNetView.EDGE:
-		return DieMaterial.edge_hint(_net_die_def.edge_material)
+		return Essence.hint(_net_die_def.essence_id)
 	if face < 0 or face >= _net_die_def.materials.size():
 		return ""
-	var hint := DieMaterial.face_hint(_net_die_def.materials[face], MaterialEffects.face_is_upgraded(_net_die_def, face))
+	var hint := DieMaterial.face_hint(_net_die_def.materials[face], MaterialEffects.face_level(_net_die_def, face))
 	var target: int = _net_die_def.pointers[face] if face < _net_die_def.pointers.size() else -1
 	if target >= 0:
 		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d einmal mit aus" % _net_die_def.faces[target]
 		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
+	for rift_id in _net_die_def.rifts_on(face):
+		var rift_hint := Rift.hint(rift_id)
+		hint = "%s  ·  %s" % [hint, rift_hint] if hint != "" else rift_hint
 	return hint
 
 ## Slot des ruhenden, sichtbaren Grubenwürfels unter screen_pos, sonst -1.
@@ -2998,11 +3028,75 @@ func _sync_screen_action_buttons() -> void:
 	var can_roll := phase == Phase.IDLE and _remaining_in_pool() > 0 and not _all_in_play_dice_selected()
 	table_screen.roll_action_button.disabled = not can_roll
 	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
+	_sync_tip_controls(interactable)
 	var stages := run.stages_cleared(hand_total) if run != null else 0
 	var can_bank := phase == Phase.IDLE and stages >= 1
 	table_screen.bank_action_button.visible = can_bank
 	if can_bank:
 		table_screen.bank_action_button.text = "Beenden ⚡×%d" % stages
+
+## Irrlicht: der Kipp-Knopf steht nur, wenn ein kippbarer Würfel liegt und die
+## Grube überhaupt bedienbar ist (nie während des Zählens). Die Seiten-Reihe
+## klappt erst der Knopf auf.
+func _sync_tip_controls(interactable: bool) -> void:
+	var slot := _tippable_slot()
+	var can_tip := interactable and slot >= 0
+	table_screen.tip_action_button.visible = can_tip
+	if not can_tip:
+		table_screen.tip_face_row.visible = false
+		_tip_choice_slot = -1
+		return
+	if _tip_choice_slot >= 0:
+		_refresh_tip_face_buttons(_tip_choice_slot)
+
+## Erster liegender Würfel, der diese Runde noch kippen darf (-1 = keiner).
+func _tippable_slot() -> int:
+	if run == null:
+		return -1
+	for i in _visible_pit_slots():
+		if dice.settled[i] and run.can_tip_die(dice.slot_defs[i]):
+			return i
+	return -1
+
+func _on_tip_button_pressed() -> void:
+	var slot := _tippable_slot()
+	if slot < 0:
+		return
+	_tip_choice_slot = slot
+	_refresh_tip_face_buttons(slot)
+	table_screen.tip_face_row.visible = not table_screen.tip_face_row.visible
+
+## Beschriftet die vier Nachbarseiten der oben liegenden Seite mit ihren Werten.
+func _refresh_tip_face_buttons(slot: int) -> void:
+	var def: DieDefinition = dice.slot_defs[slot]
+	var neighbours := DieDefinition.adjacent_faces(dice.face_indices[slot])
+	_tip_choice_faces = neighbours
+	for i in table_screen.tip_face_buttons.size():
+		var button: Button = table_screen.tip_face_buttons[i]
+		var known := i < neighbours.size()
+		button.visible = known
+		if known:
+			button.text = str(def.faces[neighbours[i]])
+
+## Kippen ist KEIN Neuwurf: es gibt keine Farkle-Prüfung, die Hand läuft mit dem
+## neuen Bild weiter (der Würfel lag ja schon).
+func _on_tip_face_pressed(index: int) -> void:
+	var slot := _tip_choice_slot
+	if slot < 0 or index >= _tip_choice_faces.size() or run == null:
+		return
+	if not run.can_tip_die(dice.slot_defs[slot]):
+		return
+	if not dice.tip_to_face(slot, _tip_choice_faces[index]):
+		return
+	run.consume_tip(dice.slot_defs[slot])
+	_tip_choice_slot = -1
+	table_screen.tip_face_row.visible = false
+	hand_note = "Irrlicht: Der Würfel kippt auf die Nachbarseite."
+	_flash_scoring_die(slot)
+	dice.clear_selection()
+	_auto_select_best_combo()
+	_line_up_settled_dice()
+	_refresh_ui()
 
 ## Hinweis-Karte der Gruben-Marken: dort erreicht die Maus die Marken nicht (der
 ## Zeiger liegt auf dem Tisch, nicht im SubViewport) - also je Frame das Pixel
@@ -3081,9 +3175,11 @@ func _update_charm_hover() -> void:
 			index = table_screen.charm_dock.pad_index_at(pixel)
 	table_screen.charm_dock.set_hover(index)
 
-## Mausdruck auf der Energie-Hülle: Klick (unter REORDER_DRAG_THRESHOLD) =
-## derselbe Wurf wie der Würfeln-Button, Ziehen dreht die Hülle - und hält
-## während des Mischens den Misch-Timer offen (DiceShell.spin_impulse).
+## Mausdruck auf der Energie-Hülle: das Drücken WIRFT bereits (dieselben
+## Vorbedingungen wie der Würfeln-Knopf, die Funktion prüft sie selbst). Bleibt
+## die Taste liegen, packt _sync_shell_hold die Hülle, sobald sie zu rütteln
+## beginnt - Drücken, Schütteln, Loslassen ist eine einzige Geste. Kam kein Wurf
+## zustande, dreht Ziehen die Hülle nur (spin_impulse).
 func _try_start_shell_drag(screen_pos: Vector2) -> bool:
 	var result := _ray_pick(screen_pos, DiceShell.CLICK_LAYER)
 	if result.is_empty():
@@ -3091,7 +3187,21 @@ func _try_start_shell_drag(screen_pos: Vector2) -> bool:
 	shell_drag_active = true
 	shell_drag_start_pos = screen_pos
 	shell_is_dragging = false
+	_on_throw_button_pressed()
+	shell_throw_pending = phase == Phase.SHELL_ANIMATING
 	return true
+
+## Gehaltene Taste: die Hülle des eben ausgelösten Wurfs geht in die Hand, sobald
+## sie über der Grube ankommt. Je Frame geprüft - eine ruhig gehaltene Maus
+## meldet keine Bewegung, über die das Packen sonst liefe.
+func _sync_shell_hold() -> void:
+	if not shell_drag_active or not shell_throw_pending or shell_is_dragging:
+		return
+	if dice_shell.state != DiceShell.State.SHAKE:
+		return
+	shell_is_dragging = true
+	camera_rig.set_tilt_locked(true)
+	dice_shell.set_grabbed(true)
 
 func _handle_shell_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -3114,9 +3224,7 @@ func _handle_shell_drag_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not shell_is_dragging:
-			_on_throw_button_pressed()  # prüft alle Vorbedingungen selbst
-		_end_shell_drag()
+		_end_shell_drag()  # geworfen wurde schon beim Drücken
 
 ## Zieh-Ziel der Hülle (Vector3 oder null): Die Maus zeigt auf den GRUBENBODEN -
 ## dort soll die Hülle sichtbar über dem Zeiger schweben. Der Bodenpunkt wird
@@ -3143,6 +3251,7 @@ func _end_shell_drag() -> void:
 		dice_shell.set_grabbed(false)  # Loslassen beim Rütteln kippt sofort aus
 	shell_drag_active = false
 	shell_is_dragging = false
+	shell_throw_pending = false
 
 ## True, solange der aktuelle Wurf sichtbar läuft (Hülle oder Physik).
 func _dice_in_motion() -> bool:
@@ -3158,13 +3267,29 @@ func _can_toggle_selection() -> bool:
 ## Sind die Würfel tabu? Bearbeitet wird im Laden UND im Vorlauf der neuen Runde:
 ## Die Werkbank bleibt offen, bis der Vertrag der Runde steht (bzw. bis zum ersten
 ## Wurf, wenn keine Auslage kommt) - erst dann sind die Würfel im Spiel.
-func _dice_editing_locked() -> bool:
+## Halogen ist die einzige Ausnahme: seine Werkstattlampe brennt weiter.
+func _dice_editing_locked(def: DieDefinition = null) -> bool:
+	if def != null and EssenceEffects.ignores_bench_lock(def.essence_id):
+		return false
 	return round_committed and phase != Phase.SHOP
 
-## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf).
+## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf) - für den
+## Würfel, der gerade auf dem Bock liegt.
 func _sync_editing_lock() -> void:
 	if die_inspector != null:
-		die_inspector.set_editing_locked(_dice_editing_locked())
+		die_inspector.set_editing_locked(_dice_editing_locked(die_inspector.current_def))
+	if die_inspector != null and die_inspector.target_grid != null:
+		die_inspector.target_grid.set_locked_indices(_locked_pool_indices())
+
+## Pool-Plätze, die die laufende Runde sperrt - Halogen-Würfel bleiben offen.
+func _locked_pool_indices() -> Array[int]:
+	var locked: Array[int] = []
+	if not _dice_editing_locked():
+		return locked
+	for i in run.owned_pool.size():
+		if _dice_editing_locked(run.owned_pool[i]):
+			locked.append(i)
+	return locked
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -3184,12 +3309,42 @@ func _rolled_materials() -> Array[String]:
 			materials.append("")
 	return materials
 
-## Kanten-Material je Wurf-Slot ("" = keins).
-func _edge_materials() -> Array[String]:
-	var materials: Array[String] = []
+## Rifts je Wurf-Slot (Slot -> Liste der Risse auf der OBEN liegenden Seite).
+## Einmal HIER aufgelöst, wie die Leiterbahn-Ketten - das Nachglühen ändert
+## Auslösungen, also muss auch der Farkle-Vergleich dieselben Risse sehen.
+func _slot_rifts() -> Dictionary:
+	var out := {}
 	for i in dice.count():
-		materials.append(dice.slot_defs[i].edge_material)
-	return materials
+		var def: DieDefinition = dice.slot_defs[i]
+		if def == null:
+			continue
+		var face: int = dice.face_indices[i]
+		var on_face := def.rifts_on(face)
+		if not on_face.is_empty():
+			out[i] = on_face
+	return out
+
+## Essenz je Wurf-Slot (Slot -> id; Slots ohne Essenz fehlen). Einmal HIER
+## aufgelöst, damit Vorschau, Nehmen und Farkle-Vergleich dieselben Würfel
+## beseelt sehen.
+func _slot_essences() -> Dictionary:
+	var essences := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def != null and def.essence_id != "":
+			essences[i] = def.essence_id
+	return essences
+
+## Scharfe bedingte Essenz-Krits je Slot: Xenon, solange sein erstes Werten der
+## Runde aussteht, und der Kugelblitz, wenn seine getroffene Seite oben liegt.
+func _armed_essences() -> Dictionary:
+	var armed := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def == null or not EssenceEffects.has_armed_crit(def.essence_id):
+			continue
+		armed[i] = run.essence_crit_armed(def, dice.face_indices[i])
+	return armed
 
 ## Leiterbahn-Glieder je Wurf-Slot (nur Slots mit Kette): einmal HIER aufgelöst,
 ## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen.
@@ -3200,7 +3355,7 @@ func _pointer_links() -> Dictionary:
 		var def: DieDefinition = dice.slot_defs[i]
 		if face < 0 or def == null:
 			continue
-		var chain := def.pointer_chain(face)
+		var chain := def.pointer_chain(face, EssenceEffects.extra_pointer_links(def.essence_id))
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -3209,15 +3364,15 @@ func _pointer_links() -> Dictionary:
 				"face": link_face,
 				"value": def.faces[link_face],
 				"material": def.materials[link_face] if link_face < def.materials.size() else "",
-				"upgraded": MaterialEffects.face_is_upgraded(def, link_face),
+				"level": MaterialEffects.face_level(def, link_face),
 			})
 		links[i] = entries
 	return links
 
-## Dotierungs-Infos je Wurf-Slot: ist das Material der OBEREN Seite auf Stufe II,
-## dazu die beiden würfelweiten Zahlen, an denen dotierte Materialien hängen.
-func _material_upgrades() -> Dictionary:
-	var upgrades := {}
+## Stufen-Infos je Wurf-Slot: die Sättigung des Materials der OBEREN Seite, dazu
+## die Augensumme (Bernstein zahlt sie auf jeder Stufe).
+func _material_levels() -> Dictionary:
+	var levels := {}
 	for i in dice.count():
 		var def: DieDefinition = dice.slot_defs[i]
 		if def == null:
@@ -3225,12 +3380,11 @@ func _material_upgrades() -> Dictionary:
 		var eye_sum := 0
 		for value in def.faces:
 			eye_sum += value
-		upgrades[i] = {
-			"upgraded": MaterialEffects.face_is_upgraded(def, dice.face_indices[i]),
+		levels[i] = {
+			"level": MaterialEffects.face_level(def, dice.face_indices[i]),
 			"eye_sum": eye_sum,
-			"mercury_faces": def.materials.count(DieMaterial.MERCURY),
 		}
-	return upgrades
+	return levels
 
 ## Wurf-/Runden-Zustand der Effektkatalog-Charms - in JEDE Wertung gereicht
 ## (Vorschau, Nehmen, Farkle-Vergleich), damit Anzeige und Rechnung gleich bleiben.
@@ -3243,14 +3397,20 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
 		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
-		CharmEffects.CTX_EDGE_DICE: run.edge_die_count(),
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
 		DiceScoring.CTX_POINTER_LINKS: _pointer_links(),  # Leiterbahn-Ketten
-		DiceScoring.CTX_MATERIAL_UPGRADES: _material_upgrades(),  # Dotierungen
+		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Sättigung der Seiten
+		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
+		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
+		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
+		DiceScoring.CTX_ESSENCE_SET: EssenceEffects.effective_sets(_slot_essences()),
+		DiceScoring.CTX_ESSENCE_ARMED: _armed_essences(),  # Xenon/Kugelblitz scharf
+		DiceScoring.CTX_RIFTS: _slot_rifts(),  # Risse der oben liegenden Seiten
+		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3274,14 +3434,22 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_links[to_filtered[s]] = links[s]
 	ctx[DiceScoring.CTX_POINTER_LINKS] = mapped_links
-	# Dotierungen hängen ebenso am Slot - ohne Umschlüsselung wertet jede
+	# Material-Stufen hängen ebenso am Slot - ohne Umschlüsselung wertet jede
 	# Auswahl-Vorschau die falschen Würfel als gehoben.
-	var mapped_upgrades := {}
-	var upgrades: Dictionary = ctx.get(DiceScoring.CTX_MATERIAL_UPGRADES, {})
-	for s in upgrades:
+	var mapped_levels := {}
+	var levels: Dictionary = ctx.get(DiceScoring.CTX_MATERIAL_LEVELS, {})
+	for s in levels:
 		if to_filtered.has(s):
-			mapped_upgrades[to_filtered[s]] = upgrades[s]
-	ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = mapped_upgrades
+			mapped_levels[to_filtered[s]] = levels[s]
+	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = mapped_levels
+	# Essenzen und ihre scharfen Krits hängen ebenso am Slot.
+	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_ESSENCE_ARMED, DiceScoring.CTX_RIFTS]:
+		var mapped := {}
+		var source: Dictionary = ctx.get(essence_key, {})
+		for slot in source:
+			if to_filtered.has(slot):
+				mapped[to_filtered[slot]] = source[slot]
+		ctx[essence_key] = mapped
 	return ctx
 
 ## Slots, deren Würfel aus den letzten 6 Stapel-Positionen gezogen wurden (Bodensatz).
@@ -3437,7 +3605,9 @@ func _on_throw_button_pressed() -> void:
 	if has_rolled_current_hand:
 		var next_free := discard_tray_view.next_free_index
 		for i in dice.count():
-			if dice.selected[i]:
+			# Nur was wirklich in der Grube liegt, wandert ab - leere Slots (Rest-
+			# Pool) haben keinen Würfel, den sie ablegen könnten.
+			if dice.selected[i] or not dice.roots[i].visible:
 				continue
 			if next_free >= discard_tray_view.slot_roots.size():
 				break
@@ -3486,9 +3656,10 @@ func _on_throw_button_pressed() -> void:
 		# gezogenen Würfel; ausgewählte bleiben unangetastet liegen.
 		pre_reroll_values = dice.values.duplicate()
 		pre_reroll_materials = _rolled_materials()
-		pre_reroll_edge_materials = _edge_materials()
+		pre_reroll_essences = _slot_essences()
+		pre_reroll_rifts = _slot_rifts()
 		pre_reroll_links = _pointer_links()
-		pre_reroll_upgrades = _material_upgrades()
+		pre_reroll_levels = _material_levels()
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				if i < slot_draw_positions.size():
@@ -3676,17 +3847,42 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
+	# Knallgas: eine ROH gewürfelte 1 auf einem Wasserstoff-Würfel fumbelt die
+	# Hand sofort - vor jedem Rang-Vergleich, und auch im Erstwurf.
+	if DiceScoring.forces_farkle(dice.values, _score_ctx()):
+		hand_note = "Knallgas: Der Wasserstoff-Würfel zeigt eine 1 – die Hand fliegt auf."
+		_on_farkle(true)
+		return
+
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln. Die alte Seite
 	# rechnet mit IHREN Leiterbahn-Gliedern (vor dem Neuwurf), wie mit den
 	# alten Materialien.
 	var old_ctx := _score_ctx()
 	old_ctx[DiceScoring.CTX_POINTER_LINKS] = pre_reroll_links
-	old_ctx[DiceScoring.CTX_MATERIAL_UPGRADES] = pre_reroll_upgrades
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, _edge_materials(), pre_reroll_edge_materials, run.combo_levels, _score_ctx(), old_ctx):
+	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
+	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
+	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences)
+	old_ctx[DiceScoring.CTX_RIFTS] = pre_reroll_rifts
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
 			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
 			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
+			dice.clear_selection()
+			_auto_select_best_combo()
+			_line_up_settled_dice()
+			has_rolled_current_hand = true
+			last_throw_was_reroll = false
+			_refresh_deck_trays()
+			_refresh_ui()
+			return
+		# Löschgas: ein beteiligter CO2-Würfel schluckt den Fumble - einmal je
+		# Runde und je Würfel. Der Anker geht vor: er ist enger und kostet nichts.
+		var smother := run.smother_slot(active_kinds, _visible_pit_slots())
+		if smother >= 0:
+			run.consume_smother(active_kinds[smother])
+			hand_note = "Löschgas: Der Fumble verpufft folgenlos – die Hand läuft weiter."
+			_flash_scoring_die(smother)
 			dice.clear_selection()
 			_auto_select_best_combo()
 			_line_up_settled_dice()
@@ -3702,6 +3898,14 @@ func _on_roll_finished() -> void:
 	# DANACH aufreihen - die Reihe sortiert die Kombinations-Würfel nach links.
 	dice.clear_selection()
 	_auto_select_best_combo()
+
+	# Tote Hand (typisch beim ausgespielten Rest-Pool): nichts Wertbares liegt da
+	# und nachgezogen werden kann auch nicht mehr - das ist ein Fumble, kein
+	# Stillstand. Verzeihen hilft hier nicht weiter, die Hand käme nie voran.
+	if _hand_slots().is_empty() and _remaining_in_pool() <= 0:
+		_on_farkle(false)
+		return
+
 	_line_up_settled_dice()
 
 	has_rolled_current_hand = true
@@ -3711,12 +3915,13 @@ func _on_roll_finished() -> void:
 ## Farkle: die Hand wird normalerweise ohne Punkte verworfen. Charms mildern:
 ## Schornsteinfeger verzeiht den ersten je Runde, Phönixfeder schickt die
 ## Würfel zurück in den Stapel, Kristallkugel zahlt fürs Überleben.
-func _on_farkle() -> void:
+## forgivable = false bei einer toten Hand: Verzeihen ließe sie unspielbar liegen.
+func _on_farkle(forgivable: bool = true) -> void:
 	var ids := run.charm_ids()
 
 	# Schornsteinfeger: die Hand läuft mit den aktuellen Würfeln weiter;
 	# ein verziehener Farkle löst KEINE Farkle-Effekte aus.
-	if CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
+	if forgivable and CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
 		chimney_sweep_used_this_round = true
 		hand_note = "Schornsteinfeger: Farkle verziehen – die Hand darf weiterlaufen."
 		dice.clear_selection()
@@ -3729,7 +3934,7 @@ func _on_farkle() -> void:
 
 	# Ankerklausel: der erste Farkle JEDER Runde ist verziehen - dieselbe
 	# Mechanik wie der Schornsteinfeger, nur aus dem Vertrag.
-	if run.deal_anchor_active() and not anchor_clause_used_this_round:
+	if forgivable and run.deal_anchor_active() and not anchor_clause_used_this_round:
 		anchor_clause_used_this_round = true
 		hand_note = "Ankerklausel: Der erste Farkle dieser Runde zählt nicht."
 		dice.clear_selection()
@@ -3850,24 +4055,21 @@ func _on_take_button_pressed() -> void:
 		return
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
-	var edge_materials := _edge_materials()
 	var sel_values: Array[int] = []
 	var sel_materials: Array[String] = []
-	var sel_edges: Array[String] = []
 	for s in slots:
 		sel_values.append(dice.values[s])
 		sel_materials.append(materials[s])
-		sel_edges.append(edge_materials[s])
 
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
 	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
 	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
 	# Würfel hängen können und die Ordnung wertungsrelevant ist.
 	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
-	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, sel_ctx)
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
 	_remap_breakdown_to_slots(breakdown, slots)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
@@ -3895,7 +4097,16 @@ func _on_take_button_pressed() -> void:
 	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
 	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
-	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating, edge_materials, ids, echo_slot)
+	var take_order := DiceScoring.trigger_order(participating, dice.values, _slot_essences())
+	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
+		ids, echo_slot, EssenceEffects.effective_sets(_slot_essences()), take_order,
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots())
+	run.note_essence_take(active_kinds, participating)
+	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
+	# hinterher (wie die Nebenwetten-Energie).
+	if report.charge > 0:
+		run.add_charge(report.charge)
+		_play_rift_charge_volley(report.charge)
 	var take_money := report.money
 	if not report.grown.is_empty() or not report.shrunk.is_empty():
 		run.note_pool_changed()  # Knochen/Glas haben Pool-Würfel verändert
@@ -4187,7 +4398,7 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		_flash_scoring_die(slot)
 		for charm_index: int in crit_charm_indices:
 			_flash_charm_and_pad(charm_index)
-		# Material-Krit (dotierter Rubin/Glas) hat kein Dock-Pad - er kommt vom Würfel.
+		# Material-Krit (Rubin III, Glas ab II) hat kein Dock-Pad - er kommt vom Würfel.
 		var from_die: bool = crit_charm_indices.is_empty() and bool(pulse.get("crit_from_die", false))
 		var crit_px := die_px if from_die else _charm_trail_source_px(crit_charm_indices)
 		var crit_base: int = pulse["charm_base_after"]
@@ -4419,6 +4630,20 @@ func _flash_scoring_die(slot: int) -> void:
 		return
 	var tint: Color = DiceController.KIND_TINTS.get(dice.slot_defs[slot].style_id, Color.WHITE)
 	_flash_die_tint(dice.face_displays[slot], tint, Vector3.ONE * DiceTrayView.DIE_SCALE)
+	_flare_rifts(slot)
+
+## Riss-Ausbruch im Aktivierungs-Puls: der Riss flammt auf und fällt zurück auf
+## sein Ruhe-Schimmern. Die Essenz glüht durchgehend weiter - die zeitliche
+## Signatur trennt die beiden Licht-Systeme.
+func _flare_rifts(slot: int) -> void:
+	var display: DieFaceDisplay = dice.face_displays[slot]
+	if display == null:
+		return
+	display.flare_rifts(1.0)
+	var tween := create_tween()
+	tween.tween_method(func(strength: float) -> void:
+		if is_instance_valid(display):
+			display.flare_rifts(strength), 1.0, 0.0, RIFT_FLARE_TIME)
 
 ## Kleiner Größen-Pop eines Goldlichts, wenn sein Würfel gezählt wird.
 func _pulse_glow(glow: Control) -> void:
@@ -4433,16 +4658,12 @@ func _dim_glow(glow: Control) -> void:
 	tween.tween_property(glow, "modulate:a", 0.3, 0.2)
 
 ## Markiert nach jedem Wurf automatisch die Würfel der besten offenen
-## Kombination - ein Vorschlag, den der Spieler frei umklicken kann.
+## Kombination - ein Vorschlag, den der Spieler frei umklicken kann. Erkannt wird
+## über die LIEGENDEN Würfel: leere Slots (ausgespielter Rest-Pool) haben keinen
+## Wert, den man werten könnte.
 func _auto_select_best_combo() -> void:
-	var ids := run.charm_ids()
-	# Beste Hand MIT vollem Kontext (Materialien, Kanten, Menü-Stufen, Charms):
-	# die Vorauswahl schlägt die real punktträchtigste Kombination vor, nicht die
-	# bloß ranghöchste.
-	var hand := DiceScoring.best_hand(dice.values, ids, hands_taken_this_round == 0,
-		_rolled_materials(), _edge_materials(), run.combo_levels, _score_ctx())
-	for position in DiceScoring.participating_indices(hand["key"], dice.values, ids, _score_ctx()):
-		dice.set_selected(position, true)
+	for slot in _pit_combination_slots():
+		dice.set_selected(slot, true)
 
 ## Slot-Indizes der AUSGEWÄHLTEN, sichtbaren Würfel - NUR sie bilden die Hand
 ## (Kombination + Basispunkte); Abgewähltes zählt nicht.
@@ -4477,15 +4698,12 @@ func _pit_combination_slots() -> Array[int]:
 		return []
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
-	var edges := _edge_materials()
 	var sel_values: Array[int] = []
 	var sel_materials: Array[String] = []
-	var sel_edges: Array[String] = []
 	for s in slots:
 		sel_values.append(dice.values[s])
 		sel_materials.append(materials[s])
-		sel_edges.append(edges[s])
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
 	var result: Array[int] = []
 	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
 		result.append(slots[p])
@@ -4806,8 +5024,6 @@ func _start_new_round() -> void:
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn -
 	# die ZULETZT angewandte gewinnt (Frische Ware > Magnetring).
-	if CharmEffects.draws_edges_first(ids):
-		round_pool_kinds = _edges_first(round_pool_kinds)
 	if CharmEffects.draws_materials_first(ids):
 		round_pool_kinds = _materials_first(round_pool_kinds)
 
@@ -4823,17 +5039,6 @@ func _start_new_round() -> void:
 		_open_side_bet_betting()
 	_start_new_hand()
 
-## Sortiert Würfel mit Kanten-Material stabil an den Anfang (Magnetring).
-func _edges_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
-	var edged: Array[DieDefinition] = []
-	var rest: Array[DieDefinition] = []
-	for def in pool:
-		if def.edge_material != "":
-			edged.append(def)
-		else:
-			rest.append(def)
-	return edged + rest
-
 ## Sortiert Würfel mit Material (Seite ODER Kante) stabil an den Anfang
 ## (Frische Ware). Gravuren in materials zählen nicht - nur echte Materialien.
 func _materials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
@@ -4847,8 +5052,6 @@ func _materials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
 	return material + rest
 
 func _has_material(def: DieDefinition) -> bool:
-	if DieMaterial.is_valid_id(def.edge_material):
-		return true
 	for material_id in def.materials:
 		if DieMaterial.is_valid_id(material_id):
 			return true
@@ -4871,12 +5074,13 @@ func _on_bank_button_pressed() -> void:
 		return
 	_on_round_complete()
 
-## Runde endet automatisch nur bei voller Überladung oder erschöpftem Pool;
-## nach der ersten gefüllten Stufe kann der Spieler per Bank-Knopf früher beenden.
+## Runde endet automatisch nur bei voller Überladung oder LEEREM Pool - der Rest
+## des Stapels wird als kleinere Hand ausgespielt, nicht verschenkt; nach der
+## ersten gefüllten Stufe kann der Spieler per Bank-Knopf früher beenden.
 func _round_should_end() -> bool:
 	return run.stages_cleared(hand_total) >= run.max_overcharge_stages() \
 		or hands_taken_this_round >= run.max_hands_this_round() \
-		or _remaining_in_pool() < HAND_SIZE
+		or _remaining_in_pool() <= 0
 
 ## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für den geschafften Benchmark, je
 ## ungezogenem Würfel MONEY_PER_UNUSED_DIE - und je gefüllter Überladungs-Stufe
@@ -5415,6 +5619,12 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# engraving_active, bevor es selbst zurückfährt.
 	if engraving_active and new_mode != CameraRig.Mode.WORKSHOP:
 		die_inspector.close()
+	# Wer aus dem Laden in die Grube fährt, hat "Fertig" gemeint: der Laden macht
+	# zu und die neue Runde steht - sonst säße der Spieler vor gesperrten Knöpfen.
+	# Synchron, damit Nachschub-Tray und Vertragsauslage unten dieselbe Fahrt noch
+	# erwischen.
+	if is_pit_focused and phase == Phase.SHOP and charm_shop != null:
+		charm_shop.close()
 	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
@@ -5487,13 +5697,15 @@ func _on_pack_opened(_index: int) -> void:
 		slot_defs.append(pool_tray_view.slot_defs[i] if pool_tray_view.slot_roots[i].visible else null)
 	table_screen.workshop_window.set_pool_order(slot_defs, pool_tray_view.columns)
 
-## Shop mit "Fertig" geschlossen: zurück in die Übersicht (dort ist das
-## Wettannahme-Fenster im Blick und platzierbar), dann die nächste Runde.
+## Shop geschlossen, die nächste Runde beginnt. Nur der "Fertig"-Knopf fährt
+## zurück in die Übersicht (dort ist das Wettannahme-Fenster im Blick); wer den
+## Laden per Grubenzoom verlässt, ist schon unterwegs und bleibt es.
 func _on_shop_closed() -> void:
 	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
 	phase = Phase.IDLE
 	_set_gameplay_ui_visible(true)
-	camera_rig.zoom_out()
+	if camera_rig.mode == CameraRig.Mode.HUB:
+		camera_rig.zoom_out()
 	_start_new_round()
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
@@ -5531,15 +5743,12 @@ func _refresh_ui() -> void:
 				table_screen.update_pit_score(0, 0)
 		else:
 			var all_materials := _rolled_materials()
-			var all_edges := _edge_materials()
 			var sel_values: Array[int] = []
 			var sel_materials: Array[String] = []
-			var sel_edges: Array[String] = []
 			for s in slots:
 				sel_values.append(dice.values[s])
 				sel_materials.append(all_materials[s])
-				sel_edges.append(all_edges[s])
-			var hand := DiceScoring.best_hand(sel_values, run.charm_ids(), hands_taken_this_round == 0, sel_materials, sel_edges, run.combo_levels, _score_ctx_for_slots(slots))
+			var hand := DiceScoring.best_hand(sel_values, run.charm_ids(), hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
 			_refresh_combos(hand["key"])
 			if phase != Phase.SCORING:
 				table_screen.update_pit_score(

@@ -19,9 +19,30 @@ const TEMPLATES := [
 # Veredelungs-Chancen; jede Veredelung schlägt je Würfel auf den Preis auf.
 const FACE_MATERIAL_CHANCE := 0.35
 const SECOND_FACE_CHANCE := 0.35
-const EDGE_MATERIAL_CHANCE := 0.2
 const FACE_MATERIAL_SURCHARGE := 2
-const EDGE_MATERIAL_SURCHARGE := 5
+
+## Essenz-Rollen: gut jeder dritte Angebots-Würfel trägt eine Seele. Damit ist
+## der Würfelkauf kein Stat-Kauf mehr, sondern ein Persönlichkeitskauf.
+const ESSENCE_CHANCE := 0.4
+
+## Gewichte innerhalb der Träger - Handelsgase sind Flaschenware, Phänomene die
+## Ausnahme.
+const ESSENCE_RARITY_WEIGHTS := {
+	Essence.Rarity.COMMON: 70,
+	Essence.Rarity.RARE: 20,
+	Essence.Rarity.EPIC: 8,
+	Essence.Rarity.LEGENDARY: 2,
+}
+
+## Aufpreis je Würfel. Bezugsgröße sind die Vorlagenpreise (15-20): ein häufiges
+## Gas bleibt in der ersten Runde bezahlbar, ein Legendäres kostet mehr als der
+## Würfel selbst.
+const ESSENCE_SURCHARGE := {
+	Essence.Rarity.COMMON: 6,
+	Essence.Rarity.RARE: 14,
+	Essence.Rarity.EPIC: 24,
+	Essence.Rarity.LEGENDARY: 40,
+}
 
 var display_name: String = ""
 var dice: Array[DieDefinition] = []
@@ -32,10 +53,10 @@ func size() -> int:
 
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
 ## eine Veredelung; Mengenrabatt garantiert ein 3er-Bündel in der Auslage.
-static func roll_offers(count: int, charm_ids: Array[String] = []) -> Array[DiceOffer]:
+static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = []) -> Array[DiceOffer]:
 	var offers: Array[DiceOffer] = []
 	for t in pick_templates(count, charm_ids):
-		offers.append(_from_template(t, charm_ids))
+		offers.append(_from_template(t, charm_ids, owned_essences))
 	return offers
 
 ## Zieht count verschiedene Vorlagen (auch die Paket-Auslage nutzt das).
@@ -64,23 +85,25 @@ static func pick_templates(count: int, charm_ids: Array[String] = []) -> Array[D
 
 ## Ein Angebot bündelt immer nur EINEN Würfeltyp: ein Würfel wird ausgewürfelt
 ## und count-mal als unabhängige Kopie ins Bündel gelegt.
-static func _from_template(t: Dictionary, charm_ids: Array[String] = []) -> DiceOffer:
+static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_essences: Array[String] = []) -> DiceOffer:
 	var offer := DiceOffer.new()
 	offer.display_name = t["name"]
 	offer.dice = []
 	var base := make_die(t)
 	var surcharge := roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
-	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" and base.materials.count("") == base.materials.size():
+	if CharmEffects.forces_refinement(charm_ids) and base.materials.count("") == base.materials.size():
 		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
 		surcharge += FACE_MATERIAL_SURCHARGE
+	# Ein Unikat nur im Einzel-Bündel: drei Kopien derselben Legende gäbe es nicht.
+	base.essence_id = roll_essence(owned_essences, int(t["count"]) == 1)
+	surcharge += essence_surcharge(base.essence_id)
 	offer.price = int(t["price"]) + surcharge * int(t["count"])
 	for i in int(t["count"]):
 		offer.dice.append(base.instantiate())
 	return offer
 
-## Würfelt Veredelungen aus (1-2 Material-Seiten, evtl. Kanten-Material);
-## liefert den Aufpreis je Würfel.
+## Würfelt Veredelungen aus (1-2 Material-Seiten); liefert den Aufpreis je Würfel.
 static func roll_refinements(def: DieDefinition) -> int:
 	var surcharge := 0
 	if randf() < FACE_MATERIAL_CHANCE:
@@ -90,9 +113,6 @@ static func roll_refinements(def: DieDefinition) -> int:
 		for i in face_count:
 			def.set_face_material(face_indices[i], DieMaterial.all().pick_random().id)
 			surcharge += FACE_MATERIAL_SURCHARGE
-	if randf() < EDGE_MATERIAL_CHANCE:
-		def.edge_material = DieMaterial.all().pick_random().id
-		surcharge += EDGE_MATERIAL_SURCHARGE
 	return surcharge
 
 ## Einzelner Würfel gemäß Vorlage: Seiten aus values, oder bei pasch=true
@@ -114,3 +134,31 @@ static func make_die(t: Dictionary) -> DieDefinition:
 	def.style_id = t["style_id"]
 	def.display_name = t["name"]
 	return def
+
+## Würfelt die Essenz eines Angebots-Würfels aus ("" = essenzlos). Schwarzmarkt-
+## Essenzen liegen NIE im normalen Handel; Unikate nur einzeln und nur, solange
+## der Spieler keins besitzt (dieselbe Ausschluss-Regel wie bei den Charms).
+static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool = true) -> String:
+	if randf() >= ESSENCE_CHANCE:
+		return ""
+	var pool: Array[Essence] = []
+	for essence in Essence.tradeable():
+		if essence.unique and (not allow_unique or owned_essences.has(essence.id)):
+			continue
+		pool.append(essence)
+	if pool.is_empty():
+		return ""
+	var total := 0
+	for candidate in pool:
+		total += int(ESSENCE_RARITY_WEIGHTS.get(candidate.rarity, 1))
+	var pick := randi() % maxi(1, total)
+	for candidate in pool:
+		pick -= int(ESSENCE_RARITY_WEIGHTS.get(candidate.rarity, 1))
+		if pick < 0:
+			return candidate.id
+	return pool[pool.size() - 1].id
+
+## Preisaufschlag einer Essenz je Würfel (0 ohne Essenz).
+static func essence_surcharge(essence_id: String) -> int:
+	var essence := Essence.by_id(essence_id)
+	return int(ESSENCE_SURCHARGE.get(essence.rarity, 0)) if essence != null else 0

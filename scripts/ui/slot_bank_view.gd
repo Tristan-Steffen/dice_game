@@ -416,7 +416,7 @@ func _pot_summary_chips(u: float) -> Control:
 	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var summary: Dictionary = run.slot_bank.pot_summary()
 	for entry in [[SlotPrize.Kind.ENGRAVING, "engravings"], [SlotPrize.Kind.MATERIAL, "materials"],
-			[SlotPrize.Kind.EDGE, "edges"]]:
+			[SlotPrize.Kind.DICE_ENGRAVING, "edges"]]:
 		var count := int(summary[entry[1]])
 		if count > 0:
 			chips.add_child(_summary_chip(_kind_color(int(entry[0])), "%s %d %s"
@@ -470,9 +470,9 @@ func _legend_row(u: float) -> Control:
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var names := {
 		SlotPrize.Kind.ENGRAVING: "Zahlen", SlotPrize.Kind.MATERIAL: "Material",
-		SlotPrize.Kind.EDGE: "Kanten", SlotPrize.Kind.CHARM: "Charm",
+		SlotPrize.Kind.DICE_ENGRAVING: "Würfel", SlotPrize.Kind.CHARM: "Charm",
 		SlotPrize.Kind.DIE: "Würfel", SlotPrize.Kind.FUMBLE: "Fumble"}
-	for kind in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE,
+	for kind in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING,
 			SlotPrize.Kind.CHARM, SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
@@ -756,7 +756,7 @@ func _token_for(prize: SlotPrize, u: float) -> Control:
 ## Ein Gewinn ohne Ware (defensive Prüfung: Fumble hat keinen Token).
 func _token_prize_is_empty(prize: SlotPrize) -> bool:
 	match prize.kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			return prize.engravings.is_empty()
 		SlotPrize.Kind.CHARM:
 			return prize.charm == null
@@ -938,7 +938,7 @@ func _kind_color(kind: int) -> Color:
 	match kind:
 		SlotPrize.Kind.ENGRAVING: return PackIconRenderer.COLORS[Pack.TYPE_NUMBER]
 		SlotPrize.Kind.MATERIAL: return PackIconRenderer.COLORS[Pack.TYPE_MATERIAL]
-		SlotPrize.Kind.EDGE: return PackIconRenderer.COLORS[Pack.TYPE_EDGE]
+		SlotPrize.Kind.DICE_ENGRAVING: return PackIconRenderer.DICE_ENGRAVING_COLOR
 		SlotPrize.Kind.CHARM: return ENGRAVING_GLOW
 		SlotPrize.Kind.DIE: return CYAN
 	return RED  # Fumble

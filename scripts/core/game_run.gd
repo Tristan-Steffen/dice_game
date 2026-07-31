@@ -190,6 +190,15 @@ var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Ausza
 var spotlight_combo: String = ""
 var spotlight_claimed_this_round: bool = false
 
+## Rundenzustand der Essenzen, je Würfel-Exemplar (Instanz-id des DieDefinition):
+## Xenons verschossener Blitz und die Seite, die der Kugelblitz diese Runde trifft.
+var essence_flash_used: Dictionary = {}
+var essence_struck_face: Dictionary = {}
+## Verbrauchtes Löschgas je Würfel-Exemplar - wie Xenons Blitz eine Runden-Marke.
+var essence_smother_used: Dictionary = {}
+## Schon gekippte Irrlicht-Würfel dieser Runde.
+var essence_tip_used: Dictionary = {}
+
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
 var slot_bank := SlotMachine.new()
@@ -385,14 +394,23 @@ func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
 ## Käufe nicht verdrängt werden) mit dem Inhalt von def. Der Eintrag wird IN
 ## SEINER Instanz überschrieben (become), nie getauscht: Rundendeck, Trays und
 ## Raster halten dieselbe Referenz und zeigen den neuen Würfel dadurch sofort.
+## EINZIGE Stelle, an der ein Kauf einen Pool-Platz übernimmt (Würfelkauf, Paket,
+## Automaten-Würfel). Vorrang hat ein normaler Würfel OHNE Seele: eine Essenz ist
+## angeboren und nicht wiederbeschaffbar - sie wird erst übermalt, wenn kein
+## seelenloser Platz mehr frei ist.
 func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
 	var normal_indices: Array[int] = []
+	var soulless_indices: Array[int] = []
 	for i in owned_pool.size():
 		if owned_pool[i].style_id == "normal":
 			normal_indices.append(i)
+			if owned_pool[i].essence_id == "":
+				soulless_indices.append(i)
 
 	var target_index: int
-	if not normal_indices.is_empty():
+	if not soulless_indices.is_empty():
+		target_index = soulless_indices[randi() % soulless_indices.size()]
+	elif not normal_indices.is_empty():
 		target_index = normal_indices[randi() % normal_indices.size()]
 	else:
 		target_index = randi() % owned_pool.size()
@@ -493,7 +511,7 @@ func open_pack(index: int) -> Dictionary:
 	owned_packs.remove_at(index)
 	var result := empty
 	if pack.is_dice_pack():
-		result["dice"] = pack.roll_dice(charm_ids())
+		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids())
 	else:
 		result["engravings"] = pack.roll_engravings(pack_engraving_floor())
 	packs_changed.emit()
@@ -557,6 +575,7 @@ func grant_combo_level(combo_key: String) -> void:
 ## (unterschrieben wird VOR dem Rundenstart).
 func apply_round_start_charms() -> void:
 	gravierstift_used_this_round = false
+	roll_essence_round_state()
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
@@ -804,6 +823,7 @@ static func instant_clause_charge(clause_id: String) -> int:
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
 func settle_block_deals() -> void:
+	apply_essence_decay()
 	if active_deals.is_empty():
 		return
 	active_deals.clear()
@@ -1058,6 +1078,87 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
+## Rundenzustand der Essenzen: Xenons Blitz ist wieder frei, und der Kugelblitz
+## sucht sich je Würfel eine neue Seite. Beides hängt am Würfel-Exemplar, also an
+## seiner Instanz-id - eine Def wandert nie zwischen Pool-Plätzen.
+func roll_essence_round_state() -> void:
+	essence_flash_used.clear()
+	essence_struck_face.clear()
+	essence_smother_used.clear()
+	essence_tip_used.clear()
+	for die in owned_pool:
+		if die.essence_id == Essence.BALL_LIGHTNING:
+			essence_struck_face[die.get_instance_id()] = randi() % die.faces.size()
+
+## Ist der bedingte Krit dieses Würfels scharf? Xenon, solange sein erstes
+## Werten der Runde aussteht; der Kugelblitz, wenn die getroffene Seite oben liegt.
+func essence_crit_armed(die: DieDefinition, up_face: int) -> bool:
+	if die == null:
+		return false
+	match die.essence_id:
+		Essence.XENON:
+			return not essence_flash_used.has(die.get_instance_id())
+		Essence.BALL_LIGHTNING:
+			return up_face >= 0 and int(essence_struck_face.get(die.get_instance_id(), -1)) == up_face
+	return false
+
+## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
+## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
+func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
+	for i in slots:
+		if i >= defs.size() or defs[i] == null:
+			continue
+		if EssenceEffects.smothers_farkle(defs[i].essence_id) 				and not essence_smother_used.has(defs[i].get_instance_id()):
+			return i
+	return -1
+
+## Verbraucht die Löschgas-Ladung dieses Würfels für die laufende Runde.
+func consume_smother(die: DieDefinition) -> void:
+	if die != null:
+		essence_smother_used[die.get_instance_id()] = true
+
+## Darf dieser Würfel diese Runde (noch) gekippt werden?
+func can_tip_die(die: DieDefinition) -> bool:
+	return die != null and EssenceEffects.can_tip(die.essence_id) 		and not essence_tip_used.has(die.get_instance_id())
+
+## Verbraucht die Kipp-Erlaubnis dieses Würfels für die laufende Runde.
+func consume_tip(die: DieDefinition) -> void:
+	if die != null:
+		essence_tip_used[die.get_instance_id()] = true
+
+## Bucht das Werten: Xenon hat seinen Blitz für diese Runde verschossen.
+func note_essence_take(defs: Array[DieDefinition], participating: Array[int]) -> void:
+	for i in participating:
+		if i < defs.size() and defs[i] != null and defs[i].essence_id == Essence.XENON:
+			essence_flash_used[defs[i].get_instance_id()] = true
+
+## Zerfall bei der Abrechnung: jede Radon-Seele frisst eine zufällige eigene
+## Seite an. Stickstoff schützt nicht vor der eigenen Strahlung - der Zerfall
+## gehört dem Würfel selbst; ein EINBRAND schon: sein Wert ist eingebrannt.
+func apply_essence_decay() -> int:
+	var decayed := 0
+	for die in owned_pool:
+		if not EssenceEffects.decays(die.essence_id):
+			continue
+		var face := randi() % die.faces.size()
+		if RiftEffects.protects_face_value(die.rifts_on(face)):
+			continue
+		var target := maxi(EtchingEffects.MIN_FACE_VALUE, die.faces[face] - 1)
+		if target != die.faces[face]:
+			die.faces[face] = target
+			decayed += 1
+	if decayed > 0:
+		pool_changed.emit()
+	return decayed
+
+## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
+func owned_essence_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for die in owned_pool:
+		if die.essence_id != "" and not ids.has(die.essence_id):
+			ids.append(die.essence_id)
+	return ids
+
 func note_pool_changed() -> void:
 	pool_changed.emit()
 
@@ -1235,7 +1336,7 @@ func book_slot_prize(prize: SlotPrize) -> void:
 
 func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			for i in mult:
 				for engraving in prize.engravings:
 					grant_engraving(engraving)
@@ -1365,8 +1466,19 @@ const SECRET_UNLOCK_PRICE := 5
 ## ganzen Lauf und wird nie zurückgesetzt.
 const SECRET_REROLL_BASE := 3
 const GOLDEN_RATIO := 1.618033988749895
-## Anteil der Wildcard-Plätze, die einen Charm statt einer Spezial-Gravur zeigen.
+## Aufteilung des Wildcard-Platzes: ein Drittel Essenzwürfel, vom Rest die
+## Hälfte ein Charm - so bleibt der Platz unberechenbar, ohne die festen zwei
+## Plätze zu wiederholen.
+const SECRET_WILDCARD_DIE_CHANCE := 0.34
 const SECRET_WILDCARD_CHARM_CHANCE := 0.5
+
+## Preis eines Essenzwürfels je Seltenheit seiner Seele - die Leiter des Ladens
+## (5 ⚡ = eine volle Grundreihe) nach oben verlängert.
+const SECRET_DIE_PRICES := {
+	Essence.Rarity.RARE: 6,
+	Essence.Rarity.EPIC: 9,
+	Essence.Rarity.LEGENDARY: 13,
+}
 
 ## Schlüssel eines Angebots (Single Source of Truth wie die id-Konstanten).
 const OFFER_KIND := "kind"
@@ -1375,6 +1487,7 @@ const OFFER_PRICE := "price"
 const OFFER_SOLD := "sold"
 const KIND_CHARM := "charm"
 const KIND_ENGRAVING := "engraving"
+const KIND_DIE := "die"
 
 var charge: int = 0:
 	set(value):
@@ -1466,12 +1579,17 @@ func buy_secret_offer(index: int) -> bool:
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
 	spend_charge(price)
-	if offer[OFFER_KIND] == KIND_CHARM:
-		var charm: Charm = offer[OFFER_ITEM]
-		_grant_charm(charm)
-	else:
-		var engraving: Engraving = offer[OFFER_ITEM]
-		grant_engraving(engraving)
+	match offer[OFFER_KIND]:
+		KIND_CHARM:
+			var charm: Charm = offer[OFFER_ITEM]
+			_grant_charm(charm)
+		KIND_DIE:
+			# Derselbe Weg wie jeder Würfelkauf: seelenloser Platz zuerst.
+			var die: DieDefinition = offer[OFFER_ITEM]
+			_replace_pool_entry(die)
+		_:
+			var engraving: Engraving = offer[OFFER_ITEM]
+			grant_engraving(engraving)
 	offer[OFFER_SOLD] = true
 	secret_stock_changed.emit()
 	return true
@@ -1481,8 +1599,33 @@ func _roll_secret_stock() -> void:
 	secret_stock.clear()
 	secret_stock.append(_secret_charm_offer())
 	secret_stock.append(_secret_engraving_offer())
-	secret_stock.append(_secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE
-		else _secret_engraving_offer())
+	secret_stock.append(_secret_wildcard_offer())
+
+## Der dritte Platz: Essenzwürfel, Charm oder Sonderposten. Der Würfel ist der
+## EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel liegen sie nie.
+func _secret_wildcard_offer() -> Dictionary:
+	if randf() < SECRET_WILDCARD_DIE_CHANCE:
+		var die_offer := _secret_die_offer()
+		if not die_offer.is_empty():
+			return die_offer
+	return _secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE 		else _secret_engraving_offer()
+
+## Essenzwürfel: ein frischer Würfel mit einer Schwarzmarkt-Seele. Unikate, die
+## der Spieler schon besitzt, fallen weg; ist der Topf leer, liefert der Platz
+## {} und der Aufrufer weicht auf Charm/Gravur aus.
+func _secret_die_offer() -> Dictionary:
+	var owned := owned_essence_ids()
+	var pool: Array[Essence] = []
+	for essence in Essence.all():
+		if essence.secret and not (essence.unique and owned.has(essence.id)):
+			pool.append(essence)
+	if pool.is_empty():
+		return {}
+	var essence: Essence = pool.pick_random()
+	var die := DiceOffer.make_die(DiceOffer.TEMPLATES.pick_random())
+	die.essence_id = essence.id
+	die.display_name = essence.display_name
+	return _secret_offer(KIND_DIE, die, int(SECRET_DIE_PRICES.get(essence.rarity, SECRET_CHARM_PRICE)))
 
 ## Legendärer Charm, den der Spieler weder besitzt noch schon in der Auslage
 ## liegen hat. Ist der Topf leer, rückt eine Spezial-Gravur nach - die sind
@@ -1528,37 +1671,38 @@ func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
-## Anteil dotierter Seiten im Testmodus - ohne sie wären die sechs Stufe-II-
-## Wirkungen nur über die Dotierungs-Gravur zu sehen.
-const TEST_DOPING_CHANCE := 0.34
+## Chance je Stufe, im Testmodus noch eine höher zu steigen - sonst wären die
+## Stufen II/III nur über Gravuren zu sehen.
+const TEST_LEVEL_CHANCE := 0.34
 
-## Belegt jede Seite/Kante aller Pool-Würfel mit zufälligen Materialien und hebt
-## einen Teil davon auf Stufe II. Jeder Würfel bekommt frische Arrays (nie geteilt).
+## Belegt jede Seite aller Pool-Würfel mit zufälligen Materialien und hebt
+## einen Teil davon. Jeder Würfel bekommt frische Arrays (nie geteilt).
 func randomize_all_materials() -> void:
 	var ids: Array[String] = []
 	for material in DieMaterial.all():
 		ids.append(material.id)
 	for die in owned_pool:
 		var mats: Array[String] = []
-		var doped: Array[bool] = []
+		var levels: Array[int] = []
 		for i in die.materials.size():
 			mats.append(ids.pick_random())
-			doped.append(randf() < TEST_DOPING_CHANCE)
+			var level := 1
+			while level < DieMaterial.MAX_LEVEL and randf() < TEST_LEVEL_CHANCE:
+				level += 1
+			levels.append(level)
 		die.materials = mats
-		die.upgraded = doped
-		die.edge_material = ids.pick_random()
+		die.levels = levels
 	pool_changed.emit()
 
 func clear_all_materials() -> void:
 	for die in owned_pool:
 		var mats: Array[String] = []
-		var doped: Array[bool] = []
+		var levels: Array[int] = []
 		for i in die.materials.size():
 			mats.append("")
-			doped.append(false)  # ohne Material keine Dotierung
+			levels.append(0)  # ohne Material keine Stufe
 		die.materials = mats
-		die.upgraded = doped
-		die.edge_material = ""
+		die.levels = levels
 	pool_changed.emit()
 
 ## Legt jedem Pool-Würfel 1-5 zufällige Leiterbahnen (je Seite höchstens eine,
@@ -1579,12 +1723,4 @@ func clear_all_pointers() -> void:
 		die.pointers = [-1, -1, -1, -1, -1, -1] as Array[int]
 	pool_changed.emit()
 
-## Anzahl aller Würfel mit Kanten-Material im Besitz (Ablage, Nachschub, Pool) -
-## Grundlage für Zargenglanz.
-func edge_die_count() -> int:
-	var count := 0
-	for die in owned_pool:
-		if die.edge_material != "":
-			count += 1
-	return count
 

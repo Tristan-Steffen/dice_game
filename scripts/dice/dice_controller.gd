@@ -272,8 +272,13 @@ func clear_selection() -> void:
 		selected[i] = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
 
+## Weniger Defs als Slots (der Rest-Pool wird als kleinere Hand ausgespielt): die
+## übrigen Slots liegen unsichtbar daneben, brauchen aber einen Würfel - jede
+## Slot-Abfrage läuft über count().
 func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	slot_defs = defs.duplicate()
+	while slot_defs.size() < count():
+		slot_defs.append(DieDefinition.standard())
 	refresh_faces()
 
 ## Zeichnet die Augenzahlen aller Slots neu aus slot_defs - nötig, sobald ein
@@ -311,6 +316,33 @@ func _style_tint(def: DieDefinition) -> Color:
 
 ## [Achsenname, Ausrichtungs-Dot]: Dot 1.0 = liegt exakt flach, deutlich
 ## niedriger = balanciert auf Kante/Ecke.
+## Irrlicht: kippt den Würfel in Slot i so, dass face oben liegt - eine ECHTE
+## Neuausrichtung des Körpers, kein getauschter Zahlenwert. Der Würfel liegt
+## danach still (kein neuer Wurf, also auch keine Farkle-Prüfung beim Aufrufer).
+## false, wenn der Slot leer ist oder die Seite nicht zum Würfel gehört.
+func tip_to_face(i: int, face: int) -> bool:
+	if i < 0 or i >= bodies.size() or face < 0 or face > 5 or slot_defs[i] == null:
+		return false
+	var axis := ""
+	for key in AXIS_FACE_INDEX:
+		if AXIS_FACE_INDEX[key] == face:
+			axis = key
+			break
+	if axis == "":
+		return false
+	var body := bodies[i]
+	var basis := body.global_transform.basis
+	var world_dir: Vector3 = (basis * AXIS_DIRECTIONS[axis]).normalized()
+	# Die kürzeste Drehung, die diese Seite nach oben bringt.
+	var turn := Quaternion(world_dir, Vector3.UP)
+	body.global_transform = Transform3D(Basis(turn) * basis, body.global_transform.origin)
+	body.linear_velocity = Vector3.ZERO
+	body.angular_velocity = Vector3.ZERO
+	face_indices[i] = face
+	values[i] = slot_defs[i].faces[face]
+	settled[i] = true
+	return true
+
 func _top_axis_info(body: RigidBody3D) -> Array:
 	var basis := body.global_transform.basis
 	var best_axis := "OBEN"

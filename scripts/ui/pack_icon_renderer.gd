@@ -8,15 +8,18 @@ extends Control
 ##   Würfel   - isometrischer Würfel mit Augen
 ##   Zahlen   - ein großes Auge mit Doppel-Chevron: die Augenzahl steigt
 ##   Material - facettierter Edelstein
-##   Kanten   - nur die vier Ecken eines Rahmens (die Kanten SIND der Rahmen)
+##   Würfel   - nur die vier Ecken eines Rahmens (er fasst den ganzen Würfel)
 ##   Gemischt - Auge, Stein und Ecke als Mini-Trio in ihren Sortenfarben
+
+## Farbe der Würfel-Gravuren; sie haben kein eigenes Paket mehr, tauchen aber
+## im gemischten Siegel und auf den Automatenwalzen auf.
+const DICE_ENGRAVING_COLOR := Color("#ffd319")
 
 ## Kanonische Sortenfarbe (Laden und Werkstatt färben ihre Karten hieraus).
 const COLORS := {
 	Pack.TYPE_DICE: Color("#8be9fd"),
 	Pack.TYPE_NUMBER: Color("#50fa7b"),
 	Pack.TYPE_MATERIAL: Color("#ff79c6"),
-	Pack.TYPE_EDGE: Color("#ffd319"),
 	Pack.TYPE_MIXED: Color("#bd93f9"),
 }
 
@@ -36,8 +39,6 @@ func _draw() -> void:
 			_draw_rising_pip(Vector2(0.5, 0.5), 1.0, _accent())
 		Pack.TYPE_MATERIAL:
 			_draw_gem(Vector2(0.5, 0.5), 1.0, _accent())
-		Pack.TYPE_EDGE:
-			_draw_corners(Vector2(0.5, 0.5), 1.0, _accent())
 		Pack.TYPE_MIXED:
 			_draw_mixed()
 		_:
@@ -102,7 +103,7 @@ func _draw_corners(at: Vector2, scale_f: float, color: Color) -> void:
 func _draw_mixed() -> void:
 	_draw_rising_pip(Vector2(0.27, 0.26), 0.46, COLORS[Pack.TYPE_NUMBER])
 	_draw_gem(Vector2(0.75, 0.28), 0.46, COLORS[Pack.TYPE_MATERIAL])
-	_draw_corners(Vector2(0.51, 0.74), 0.46, COLORS[Pack.TYPE_EDGE])
+	_draw_corners(Vector2(0.51, 0.74), 0.46, DICE_ENGRAVING_COLOR)
 
 # --- Monoline-Bausteine (normierte 0..1-Koordinaten) -------------------------------
 

@@ -29,7 +29,7 @@ signal select_tray_die(slot: int)
 signal rotating_die(active: bool)
 
 ## Auswahl geändert: face_index (0..5, -1 = keine) - scene_root spiegelt das
-## auf den echten schwebenden Würfel (Kanten-Ziel siehe edges_targeted).
+## auf den echten schwebenden Würfel.
 signal selection_changed(face_index: int)
 
 ## Ablauf-Zustand: nichts in der Hand (Inspektion) oder Werkzeug hält und
@@ -41,7 +41,6 @@ const TARGET_FACE := "face"              # Kerbe, Feile, Transplantat, Blaupause
 const TARGET_PAIR_DIRECTED := "pair_directed"  # Meißel, Schleifstein, Anschluss (Quelle→Ziel)
 const TARGET_PAIR := "pair"              # Doppelkerbe, Mittelung (ungeordnet)
 const TARGET_WHOLE_DIE := "whole_die"    # Spiegelung, Begradigung
-const TARGET_EDGES := "edges"            # Kanten-Gravuren
 
 ## Farben im Display-Stil (80s Neon).
 const NEON_CYAN := Color("#8be9fd")
@@ -120,7 +119,7 @@ var face_order: Array[int] = []
 var face_chips: Array[Button] = []
 var face_chip_fills: Array[Color] = []
 var face_chip_font: Array[Color] = []
-## Der Kanten-Rahmen: Panel um das Seiten-Raster in der Kanten-Materialfarbe
+## Der Rahmen: Panel um das Seiten-Raster im Essenzglühen
 ## (die Kanten SIND der Rahmen um die Seiten). Klickziel der Kanten-Gravuren.
 var edge_frame: PanelContainer
 
@@ -431,10 +430,7 @@ func _sync_die_view() -> void:
 	if die_view == null:
 		return
 	die_view.refresh_faces([current_def] as Array[DieDefinition])
-	if edges_targeted():
-		die_view.highlight_edges(0)  # gehaltene Kanten-Gravur: der Rahmen ist das Ziel
-	else:
-		die_view.highlight_face(0, selected_face)
+	die_view.highlight_face(0, selected_face)
 	# Werkzeug in der Hand: ungeeignete Ziffern grau dimmen (der erste Paar-Klick
 	# bleibt violett).
 	if held_id != "":
@@ -483,14 +479,8 @@ func _tile_box(bg: Color, border: Color) -> StyleBoxFlat:
 func has_pending_action() -> bool:
 	return held_id != ""
 
-## true, während eine Kanten-Gravur gehalten wird - der Rahmen ist das Ziel.
-func edges_targeted() -> bool:
-	return held_id != "" and _targeting_of(held_id) == TARGET_EDGES
-
 ## Ziel-Form einer Gravur.
 func _targeting_of(engraving_id: String) -> String:
-	if Engraving.is_edge_id(engraving_id):
-		return TARGET_EDGES
 	if DieMaterial.is_valid_id(engraving_id):
 		return TARGET_FACE
 	match engraving_id:
@@ -501,6 +491,15 @@ func _targeting_of(engraving_id: String) -> String:
 		Engraving.STRAIGHTEN, Engraving.POLISH, Engraving.SANDPAPER:
 			return TARGET_WHOLE_DIE
 	return TARGET_FACE  # Kerbe, Feile, Stanze, Blaupause
+
+## Platz, auf den das nächste Bruchmuster dieser Seite fällt: der erste FREIE
+## (Vakuum trägt zwei), sonst der erste - er wird dann ersetzt.
+func _free_rift_slot(face_index: int) -> int:
+	for slot in current_def.rift_slots():
+		var occupied: String = current_def.rifts[face_index] if slot == 0 else current_def.second_rifts[face_index]
+		if occupied == "":
+			return slot
+	return 0
 
 ## Bord-Klick: dieselbe Gravur legt ab, sonst nimmt sie (neue) auf.
 func _on_engraving_pressed(engraving_id: String) -> void:
@@ -549,8 +548,6 @@ func _handle_face_target(face_index: int) -> void:
 		_update_prompt()
 		return
 	match _targeting_of(held_id):
-		TARGET_EDGES:
-			return  # Seiten sind kein Ziel einer Kanten-Gravur
 		TARGET_WHOLE_DIE:
 			_apply_whole_die()
 		TARGET_FACE:
@@ -568,20 +565,14 @@ func _handle_face_target(face_index: int) -> void:
 			else:
 				_apply_pair(first_face, face_index)
 
-## Klick auf den Kanten-Rahmen (Rahmen-Panel oder 3D): Ziel der Kanten- und
-## Ganz-Würfel-Gravuren. Ohne Werkzeug passiert nichts - ein Würfel hat nur
-## einen Rahmen, es gibt nichts zu wählen.
+## Klick auf den Rahmen (Rahmen-Panel oder 3D): Ziel der Ganz-Würfel-Gravuren.
+## Die Kanten selbst sind KEIN Ausbau-Slot mehr - sie zeigen nur noch die Essenz,
+## und die ist angeboren.
 func _handle_edge_target() -> void:
 	if current_def == null or held_id == "":
 		return
-	match _targeting_of(held_id):
-		TARGET_WHOLE_DIE:
-			_apply_whole_die()  # Klick am Rahmen zählt als Würfel-Klick
-		TARGET_EDGES:
-			var material_id := held_id.trim_prefix(Engraving.EDGE_PREFIX)
-			if current_def.edge_material != material_id:
-				current_def.edge_material = material_id
-				_finish_apply(held_id, "Kanten veredelt: %s" % DieMaterial.by_id(material_id).display_name)
+	if _targeting_of(held_id) == TARGET_WHOLE_DIE:
+		_apply_whole_die()  # Klick am Rahmen zählt als Würfel-Klick
 
 func _on_face_clicked(_die_index: int, face_index: int) -> void:
 	_handle_face_target(face_index)
@@ -597,14 +588,30 @@ func _on_chip_clicked(_value: int, face_index: int) -> void:
 ## Einseitige Gravuren + Material auf die geklickte Seite.
 func _apply_single_face(face_index: int) -> void:
 	if DieMaterial.is_valid_id(held_id):
-		current_def.set_face_material(face_index, held_id)  # löscht eine alte Dotierung mit
-		_finish_apply(held_id, "Material angebracht: %s" % DieMaterial.by_id(held_id).display_name)
+		var material := DieMaterial.by_id(held_id)
+		# Dieselbe Gravur noch einmal auf dieselbe Seite sättigt sie, statt sie
+		# neu zu streichen - dafür sind Dubletten da.
+		if current_def.materials[face_index] == held_id:
+			current_def.raise_level(face_index)
+			var level := current_def.material_level(face_index)
+			_finish_apply(held_id, "%s %s: %s" % [material.display_name, DieMaterial.level_roman(level), material.short_for(level)])
+		else:
+			current_def.set_face_material(face_index, held_id)  # frisches Material, Stufe I
+			_finish_apply(held_id, "Material angebracht: %s" % material.display_name)
+		return
+	if Engraving.is_rift_id(held_id):
+		# Ein besetzter Platz wird ersetzt - neu brechen ist erlaubt. Auf dem
+		# Vakuum-Würfel füllt der zweite Riss erst den freien Zweitplatz.
+		var rift_id := Engraving.rift_id_of(held_id)
+		current_def.set_rift(face_index, rift_id, _free_rift_slot(face_index))
+		_finish_apply(held_id, "Bruchmuster gesetzt: %s" % Rift.by_id(rift_id).display_name)
 		return
 	match held_id:
 		Engraving.DOPING:
-			current_def.upgraded[face_index] = true
+			current_def.raise_level(face_index)
 			var lifted := DieMaterial.by_id(current_def.materials[face_index])
-			_finish_apply(held_id, "Dotierung: %s II – %s" % [lifted.display_name, lifted.short_upgraded])
+			var new_level := current_def.material_level(face_index)
+			_finish_apply(held_id, "Dotierung: %s %s – %s" % [lifted.display_name, DieMaterial.level_roman(new_level), lifted.short_for(new_level)])
 		Engraving.NOTCH:
 			EtchingEffects.notch(current_def, face_index)
 			_finish_apply(held_id, "Kerbe: Seite +1")
@@ -653,9 +660,9 @@ func _apply_whole_die() -> void:
 func _finish_apply(engraving_id: String, message: String) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
-		# Materialien, Kanten und die Sonderposten (Leiterbahn, Dotierung) nie.
+		# Materialien und die Sonderposten (Leiterbahn, Dotierung) nie.
 		var is_etching := not DieMaterial.is_valid_id(engraving_id) \
-			and not Engraving.is_edge_id(engraving_id) and not Engraving.is_special_id(engraving_id)
+			and not Engraving.is_special_id(engraving_id)
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
 			message += " Gravierstift: Engraving nicht verbraucht!"
@@ -713,16 +720,21 @@ func _eligible_faces() -> Array[bool]:
 			else:
 				for i in 6: e[i] = current_def.can_point(first_face, i)
 		Engraving.DOPING:
-			# Sie hebt ein vorhandenes Material - leere und schon gehobene Seiten fallen weg.
+			# Sie hebt ein vorhandenes Material - leere und ausgesättigte Seiten fallen weg.
 			for i in 6: e[i] = DieMaterial.is_valid_id(current_def.materials[i]) \
-				and not MaterialEffects.face_is_upgraded(current_def, i)
+				and current_def.material_level(i) < DieMaterial.MAX_LEVEL
 		_:
 			match _targeting_of(held_id):
-				TARGET_EDGES:
-					pass  # keine Seite ist Ziel
 				TARGET_FACE:
 					if DieMaterial.is_valid_id(held_id):
-						for i in 6: e[i] = current_def.materials[i] != held_id
+						# Die eigene Seite bleibt Ziel, solange sie Stufen frei hat.
+						# Ein EINBRAND sperrt nur das ÜBERMALEN - dasselbe Material
+						# weiter zu sättigen bleibt erlaubt.
+						for i in 6:
+							if current_def.materials[i] == held_id:
+								e[i] = current_def.material_level(i) < DieMaterial.MAX_LEVEL
+							else:
+								e[i] = not _face_burned_in(i)
 					else:
 						e.fill(true)
 				TARGET_WHOLE_DIE:
@@ -734,6 +746,10 @@ func _eligible_faces() -> Array[bool]:
 						for i in 6: e[i] = i != first_face
 	return e
 
+## Ist der Wert dieser Seite eingebrannt? Dann lässt sie sich nicht übermalen.
+func _face_burned_in(face_index: int) -> bool:
+	return RiftEffects.protects_face_value(current_def.rifts_on(face_index))
+
 func _face_eligible(face_index: int) -> bool:
 	return _eligible_faces()[face_index]
 
@@ -742,20 +758,12 @@ func _face_eligible(face_index: int) -> bool:
 func _any_face_eligible() -> bool:
 	return _eligible_faces().has(true)
 
-## Rahmenfarbe des Kanten-Rahmens: violett als Ziel einer gehaltenen Kanten-
-## Gravur (die den Rahmen ändern würde), gedimmt unter einem Seiten-Werkzeug,
-## sonst die Kanten-Materialfarbe (neutral: Kanten-Neon).
+## Rahmenfarbe: das Essenzglühen (neutral das Kanten-Neon), gedimmt unter einem
+## Seiten-Werkzeug - der Rahmen ist nur noch Anzeige.
 func _edge_frame_border() -> Color:
-	var tint := DieMaterial.tint_for(current_def.edge_material)
-	var base := tint if tint != Color.WHITE else DieFaceDisplay.EDGE_NEON
-	if held_id == "":
+	var base := Essence.glow_for(current_def.essence_id) if Essence.is_valid_id(current_def.essence_id) 		else DieFaceDisplay.EDGE_NEON
+	if held_id == "" or _targeting_of(held_id) == TARGET_WHOLE_DIE:
 		return base
-	match _targeting_of(held_id):
-		TARGET_EDGES:
-			if current_def.edge_material != held_id.trim_prefix(Engraving.EDGE_PREFIX):
-				return RotatableDieView.SELECT_FACE_COLOR
-		TARGET_WHOLE_DIE:
-			return base  # Klick am Rahmen zählt als Würfel-Klick
 	return Color(base.r, base.g, base.b, 0.3)
 
 # --- Vorschau (Überfahren) -------------------------------------------------------
@@ -798,15 +806,12 @@ func _preview_face(face_index: int) -> void:
 		if gp != null:
 			_show_preview(gp.faces)
 
-## Vorschau eines Ganz-Würfel-/Kanten-Werkzeugs beim Überfahren seines Bord-Slots.
+## Vorschau eines Ganz-Würfel-Werkzeugs beim Überfahren seines Bord-Slots.
 func _preview_slot_hover(engraving_id: String) -> void:
 	if current_def == null:
 		return
 	if held_id != "" and held_id != engraving_id:
 		return  # ein anderes Werkzeug ist in der Hand
-	if Engraving.is_edge_id(engraving_id):
-		_preview_edge_frame(engraving_id)
-		return
 	var g := current_def.instantiate()
 	match engraving_id:
 		Engraving.STRAIGHTEN:
@@ -827,29 +832,17 @@ func _on_edge_frame_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_handle_edge_target()
 
-## Überfahren des Rahmens: Material-Tooltip + Vorschau der Kanten-Veredelung.
+## Überfahren des Rahmens: die Essenz erklärt sich - nur lesen, nie ändern.
 func _on_edge_frame_hover() -> void:
-	if current_def == null:
+	if current_def == null or not Essence.is_valid_id(current_def.essence_id):
 		return
-	if DieMaterial.is_valid_id(current_def.edge_material):
-		var edge := DieMaterial.by_id(current_def.edge_material)
-		_show_face_tooltip(edge_frame, "%s-Kanten" % edge.display_name, edge.edge_description)
-	if edges_targeted():
-		_preview_edge_frame(held_id)
+	var essence := Essence.by_id(current_def.essence_id)
+	_show_face_tooltip(edge_frame, "%s – %s" % [essence.display_name, essence.epithet], essence.description)
 
 func _on_edge_frame_hover_exit() -> void:
 	_hide_face_tooltip()
 	_clear_preview()
 
-## Vorschau der Kanten-Veredelung: der Rahmen nimmt die neue Materialfarbe an.
-func _preview_edge_frame(engraving_id: String) -> void:
-	if current_def == null or edge_frame == null or not is_instance_valid(edge_frame):
-		return
-	var material_id := engraving_id.trim_prefix(Engraving.EDGE_PREFIX)
-	if current_def.edge_material == material_id:
-		return  # nichts würde sich ändern
-	preview_active = true
-	edge_frame.add_theme_stylebox_override("panel", _edge_frame_box(DieMaterial.tint_for(material_id)))
 
 ## Klon nach Anwendung der gehaltenen Gravur (hover_face -1 bei Ganz-Würfel);
 ## null, wenn hier nichts passiert. Nutzt die echten EtchingEffects (kein Duplikat).
@@ -956,25 +949,28 @@ func _held_prompt() -> String:
 				else "Leiterbahn: klicke die Startseite. Rechtsklick: ablegen."
 		Engraving.DOPING:
 			if not _any_face_eligible():
-				return "Dotierung: dieser Würfel hat keine hebbare Seite - sie braucht ein noch nicht dotiertes Material. Anderen Würfel wählen oder Rechtsklick: ablegen."
-			return "Dotierung: klicke eine Material-Seite (hebt sie auf Stufe II). Rechtsklick: ablegen."
+				return "Dotierung: dieser Würfel hat keine hebbare Seite - sie braucht ein Material unter Stufe III. Anderen Würfel wählen oder Rechtsklick: ablegen."
+			return "Dotierung: klicke eine Material-Seite (hebt sie eine Stufe). Rechtsklick: ablegen."
 		Engraving.STRAIGHTEN:
 			return "Begradigung: klicke den Würfel."
 		Engraving.POLISH:
 			return "Politur: klicke den Würfel (alle Seiten +1)."
 		Engraving.SANDPAPER:
 			return "Schmirgel: klicke den Würfel (alle Seiten −1)."
-	if Engraving.is_edge_id(held_id):
-		return "%s-Kanten: klicke den Rahmen um die Seiten." % DieMaterial.by_id(held_id.trim_prefix(Engraving.EDGE_PREFIX)).display_name
+	if Engraving.is_rift_id(held_id):
+		var rift := Rift.by_id(Engraving.rift_id_of(held_id))
+		return "Bruchmuster %s: klicke eine Seite (ein besetzter Riss wird ersetzt)." % rift.display_name
 	if DieMaterial.is_valid_id(held_id):
-		return "%s: klicke eine Seite." % DieMaterial.by_id(held_id).display_name
+		if not _any_face_eligible():
+			return "%s: jede Seite ist eingebrannt oder ausgesättigt - anderen Würfel wählen oder Rechtsklick: ablegen." % DieMaterial.by_id(held_id).display_name
+		return "%s: klicke eine Seite (eingebrannte Seiten lassen sich nicht übermalen)." % DieMaterial.by_id(held_id).display_name
 	return "Klicke ein Ziel."
 
 # --- Seiten-Übersicht -------------------------------------------------------------
 
 ## Baut die Seiten-Übersicht neu: je physischer Seite ein Chip (Wert +
 ## Material-Tönung) im 3×2-Raster in der eingefrorenen face_order, eingefasst
-## vom KANTEN-Rahmen in der Kanten-Materialfarbe. Klick wählt genau diese Seite.
+## vom Rahmen im Essenzglühen. Klick wählt genau diese Seite.
 func _refresh_face_summary() -> void:
 	if summary_list == null:
 		return
@@ -1026,11 +1022,14 @@ func _refresh_face_summary() -> void:
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
 
-	# Kanten-Chip in die leere Kreuz-Ecke, Dotierungs-Marken in die Zellecken und
-	# die Leiterbahn-Pfeile obendrauf - die Pfeile zuletzt, sie liegen über den
-	# Zellrändern. Die Station baut ihre Zellen selbst, also auch die Marken.
+	# Essenz-Chip in die leere Kreuz-Ecke, Risse durch die Zellmitten, Stufen-
+	# Plaketten in die Zellecken und die Leiterbahn-Pfeile obendrauf - die Pfeile
+	# zuletzt, sie liegen über den Zellrändern. Die Station baut ihre Zellen
+	# selbst, also auch Risse und Plaketten.
 	face_grid.add_child(DieNetView.edge_chip(current_def, cell))
-	for badge in DieNetView.doping_badges(current_def, cell):
+	for crack in DieNetView.rift_cracks(current_def, cell):
+		face_grid.add_child(crack)
+	for badge in DieNetView.level_badges(current_def, cell):
 		face_grid.add_child(badge)
 	for arrow in DieNetView.pointer_arrows(current_def, cell):
 		face_grid.add_child(arrow)
@@ -1047,23 +1046,23 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
 	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted, eligible)
 	chip.disabled = held_id != "" and not eligible and not highlighted
-	# Bei gehaltener Kanten-Gravur reichen die Chips den Klick an den Rahmen
-	# durch - der ganze eingefasste Bereich ist dann EIN Ziel.
-	if edges_targeted():
-		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Tooltip aus Material und/oder Leiterbahn der Seite zusammengesetzt.
 	var tip_title := ""
 	var tip_body := ""
 	if DieMaterial.is_valid_id(material_id):
 		var material := DieMaterial.by_id(material_id)
-		var doped := MaterialEffects.face_is_upgraded(current_def, face_index)
-		tip_title = "%s II" % material.display_name if doped else material.display_name
-		tip_body = material.description_upgraded if doped else material.description
+		var level := current_def.material_level(face_index)
+		tip_title = "%s %s" % [material.display_name, DieMaterial.level_roman(level)] if level >= 2 else material.display_name
+		tip_body = material.description_for(level)
 	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
 	if pointer_target >= 0:
 		tip_title = "%s · Leiterbahn" % tip_title if tip_title != "" else "Leiterbahn"
 		var pointer_line := "Liegt diese Seite oben, löst die Seite mit Wert %d einmal mit aus." % current_def.faces[pointer_target]
 		tip_body = "%s\n%s" % [tip_body, pointer_line] if tip_body != "" else pointer_line
+	for rift_id in current_def.rifts_on(face_index):
+		var rift := Rift.by_id(rift_id)
+		tip_title = "%s · %s" % [tip_title, rift.display_name] if tip_title != "" else rift.display_name
+		tip_body = "%s\n%s" % [tip_body, rift.description] if tip_body != "" else rift.description
 	if tip_title != "":
 		chip.mouse_entered.connect(_show_face_tooltip.bind(chip, tip_title, tip_body))
 		chip.mouse_exited.connect(_hide_face_tooltip)

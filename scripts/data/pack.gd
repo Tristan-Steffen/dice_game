@@ -9,36 +9,28 @@ extends Resource
 ## (siehe engraving_category), Würfel-Pakete auf eine DiceOffer-Vorlage.
 const TYPE_NUMBER := "number"
 const TYPE_MATERIAL := "material"
-const TYPE_EDGE := "edge"
 const TYPE_DICE := "dice"
 const TYPE_MIXED := "mixed"
 
 ## Inhaltsmenge und Preis je Gravur-Sorte - die Sorte STEUERT die Häufigkeit:
-## viele Zahlen, mäßig Materialien, sehr selten Kanten.
+## viele Zahlen, mäßig Materialien.
 const NUMBER_COUNT := 4
 const MATERIAL_COUNT := 3
-const EDGE_COUNT := 1
 const MIXED_COUNT := 4
 
 const NUMBER_PRICE := 12
 const MATERIAL_PRICE := 14
-const EDGE_PRICE := 18
 const MIXED_PRICE := 15
 
-## Kanten-Pakete liegen erst ab dieser Hub-Stufe im Laden.
-const EDGE_HUB_LEVEL := 5
-
-## Auslage-Gewichte der Gravur-Pakete (relativ, ohne Kanten unter EDGE_HUB_LEVEL).
+## Auslage-Gewichte der Gravur-Pakete (relativ).
 const SHELF_WEIGHTS := {
 	TYPE_NUMBER: 6,
 	TYPE_MATERIAL: 3,
-	TYPE_EDGE: 1,
 	TYPE_MIXED: 2,
 }
 
 ## Kategorie-Gewichte JE STÜCK eines gemischten Pakets - dieselbe Häufigkeits-
-## Idee wie die Auslage: viele Zahlen, mäßig Material, selten eine Kante. Der
-## seltene Kanten-Treffer vor EDGE_HUB_LEVEL ist gewollt - der Reiz des Blindkaufs.
+## Idee wie die Auslage: viele Zahlen, mäßig Material, selten eine Würfel-Gravur.
 const MIXED_CATEGORY_WEIGHTS := {
 	Engraving.CATEGORY_NUMBER: 6,
 	Engraving.CATEGORY_MATERIAL: 3,
@@ -48,7 +40,6 @@ const MIXED_CATEGORY_WEIGHTS := {
 const TYPE_NAMES := {
 	TYPE_NUMBER: "Zahlen-Paket",
 	TYPE_MATERIAL: "Material-Paket",
-	TYPE_EDGE: "Kanten-Paket",
 	TYPE_DICE: "Würfel-Paket",
 	TYPE_MIXED: "Gemischtes Paket",
 }
@@ -78,9 +69,6 @@ static func material_pack() -> Pack:
 	return _make(TYPE_MATERIAL, MATERIAL_COUNT, MATERIAL_PRICE,
 		"%d Material-Gravuren, versiegelt." % MATERIAL_COUNT)
 
-static func edge_pack() -> Pack:
-	return _make(TYPE_EDGE, EDGE_COUNT, EDGE_PRICE, "Eine Kanten-Gravur, versiegelt.")
-
 static func mixed_pack() -> Pack:
 	return _make(TYPE_MIXED, MIXED_COUNT, MIXED_PRICE,
 		"%d Gravuren quer durch alle Sorten, versiegelt." % MIXED_COUNT)
@@ -96,7 +84,7 @@ static func dice_pack(template: Dictionary) -> Pack:
 
 ## Kanonische Auslage der Gravur-Pakete.
 static func all_engraving_packs() -> Array[Pack]:
-	return [number_pack(), material_pack(), edge_pack(), mixed_pack()]
+	return [number_pack(), material_pack(), mixed_pack()]
 
 ## Engraving-Kategorie hinter einer Gravur-Paketsorte ("" bei Würfel-Paketen).
 func engraving_category() -> String:
@@ -105,8 +93,6 @@ func engraving_category() -> String:
 			return Engraving.CATEGORY_NUMBER
 		TYPE_MATERIAL:
 			return Engraving.CATEGORY_MATERIAL
-		TYPE_EDGE:
-			return Engraving.CATEGORY_DICE
 	return ""
 
 func is_dice_pack() -> bool:
@@ -141,7 +127,7 @@ func _mixed_category() -> String:
 ## Inhalt eines Würfel-Pakets: count unabhängige Kopien EINER frisch
 ## ausgewürfelten Würfelart. Veredelungen kosten hier nichts extra - der
 ## Blindkauf zahlt sich hier aus.
-func roll_dice(charm_ids: Array[String] = []) -> Array[DieDefinition]:
+func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
 		return dice
@@ -151,9 +137,11 @@ func roll_dice(charm_ids: Array[String] = []) -> Array[DieDefinition]:
 	var base := DiceOffer.make_die(template)
 	DiceOffer.roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
-	if CharmEffects.forces_refinement(charm_ids) and base.edge_material == "" \
-			and base.materials.count("") == base.materials.size():
+	if CharmEffects.forces_refinement(charm_ids) and base.materials.count("") == base.materials.size():
 		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
+	# Pakete rollen dieselbe Essenz-Chance wie der Shop - der Blindkauf kann eine
+	# Seele enthalten, zahlt aber keinen Aufpreis dafür.
+	base.essence_id = DiceOffer.roll_essence(owned_essences, count == 1)
 	for i in count:
 		dice.append(base.instantiate())
 	return dice
@@ -164,13 +152,11 @@ func _template() -> Dictionary:
 			return t
 	return {}
 
-## Zufällige Gravur-Paketsorte für einen Auslage-Platz; Kanten erst ab EDGE_HUB_LEVEL.
+## Zufällige Gravur-Paketsorte für einen Auslage-Platz.
 static func roll_engraving_pack(hub_level: int) -> Pack:
 	var pool: Array[String] = []
 	var weights: Array[int] = []
 	for pack_type: String in SHELF_WEIGHTS:
-		if pack_type == TYPE_EDGE and hub_level < EDGE_HUB_LEVEL:
-			continue
 		pool.append(pack_type)
 		weights.append(SHELF_WEIGHTS[pack_type])
 	var total := 0
@@ -187,8 +173,6 @@ static func _by_type(pack_type: String) -> Pack:
 	match pack_type:
 		TYPE_MATERIAL:
 			return material_pack()
-		TYPE_EDGE:
-			return edge_pack()
 		TYPE_MIXED:
 			return mixed_pack()
 	return number_pack()

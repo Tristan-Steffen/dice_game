@@ -93,7 +93,10 @@ func _ready() -> void:
 static func size_for(drawer_category: String, unit: float) -> Vector2:
 	var count := _archetypes_of(drawer_category).size()
 	var cols: int = COLUMNS.get(drawer_category, 4)
-	var rows := int(ceil(float(count) / float(cols)))
+	# Mindestens eine Reihe: die Würfel-Schublade steht seit dem Kanten-Umbau
+	# leer (nur die Leiterbahn, und die liegt im Sonderbestand). Ohne den Boden
+	# klappte ihr Fenster zusammen und die ganze Werkbank-Reihe rutschte.
+	var rows := maxi(1, int(ceil(float(count) / float(cols))))
 	var pad := unit * PAD
 	var chip := Vector2(CHIP.x * unit, CHIP.y * unit)
 	var gap := unit * GAP

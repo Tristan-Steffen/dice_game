@@ -4,7 +4,7 @@ extends GridContainer
 ##   kompakt   - nur die AUGENSUMME je Kachel, Seiten im Tooltip. Für die enge
 ##               Pool-Auswahl beim Öffnen eines Würfel-Pakets.
 ##   detailliert - Augensumme ÜBER einem 3×2-Raster der Seiten in Material-
-##               farbe, Rahmen in der Kanten-Materialfarbe. Für den Würfel-Editor,
+##               farbe, Rahmen im Essenzglühen. Für den Würfel-Editor,
 ##               wo man die Seiten vergleicht, bevor man graviert.
 ## Die Werkstatt wählt damit den Pool-Platz eines Paket-Würfels, die Gravur-
 ## Station ihr Bearbeitungs-Ziel.
@@ -16,6 +16,8 @@ const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GOLD := Color("#ffd319")
 const CYAN := Color("#8be9fd")
+## Tönung eines gesperrten Platzes: erkennbar tot, aber noch lesbar.
+const LOCKED_TINT := Color(0.45, 0.45, 0.5)
 
 ## Zellgröße des Würfelnetzes (Einheiten u) und der Rand der Kachel darum; die
 ## Kachelgröße wird DARAUS abgeleitet (detail_tile_size), damit Netz und Kachel
@@ -38,6 +40,8 @@ var _defs: Array[DieDefinition] = []
 ## Hervorgehobene Plätze: EIN Ziel im Würfel-Editor, MEHRERE beim Einsetzen
 ## eines Würfel-Pakets.
 var _highlights: Array[int] = []
+## Gesperrte Plätze (laufende Runde) - gedimmt, aber weiter sichtbar.
+var _locked: Array[int] = []
 ## Augensummen der Detail-Kacheln (nach Index) - so wechselt die Hervorhebung
 ## ihre Farbe, ohne das teure Raster neu zu bauen.
 var _totals: Array[Label] = []
@@ -83,8 +87,20 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 			tiles.append(null)
 		else:
 			var tile := _tile(defs[i], i == highlight_index, i)
+			if _locked.has(i):
+				tile.modulate = LOCKED_TINT
 			add_child(tile)
 			tiles.append(tile)
+
+## Plätze, die die laufende Runde sperrt - sie werden gedimmt. Halogen-Würfel
+## stehen NICHT drin: ihre Werkstattlampe brennt weiter, also bleiben sie hell.
+func set_locked_indices(indices: Array[int]) -> void:
+	if indices == _locked:
+		return
+	_locked = indices.duplicate()
+	for i in tiles.size():
+		if tiles[i] != null:
+			tiles[i].modulate = LOCKED_TINT if _locked.has(i) else Color.WHITE
 
 ## Hebt einen anderen Platz hervor, ohne das Raster neu zu bauen.
 func set_highlight(index: int) -> void:
@@ -146,12 +162,12 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 	if index < _totals.size():
 		_totals[index] = total
 
-## Kachel-Saum: gold für das aktuelle Ziel, sonst die Farbe des Kanten-Materials
+## Kachel-Saum: gold für das aktuelle Ziel, sonst das Essenzglühen
 ## bzw. Cyan bei normalen Würfeln - Spezialwürfel sind so vor Versehen geschützt.
 func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	var accent := CYAN
-	if def.edge_material != "":
-		accent = DieMaterial.tint_for(def.edge_material)
+	if def.essence_id != "":
+		accent = Essence.glow_for(def.essence_id)
 	elif def.style_id != "normal":
 		accent = GOLD
 	var border := GOLD if highlighted else accent
@@ -173,8 +189,9 @@ func _describe(def: DieDefinition) -> String:
 		parts.append(str(v))
 	var text := "%s\nAugensumme %d\nSeiten: %s" % [
 		def.display_name, DiceRowView.eye_total(def), " ".join(parts)]
-	if def.edge_material != "":
-		text += "\n%s-Kanten" % DieMaterial.by_id(def.edge_material).display_name
+	if Essence.is_valid_id(def.essence_id):
+		var essence := Essence.by_id(def.essence_id)
+		text += "\n%s – %s" % [essence.display_name, essence.epithet]
 	return text
 
 ## Leerer Platz: stiller Platzhalter, damit das Raster die Lücken spiegelt.

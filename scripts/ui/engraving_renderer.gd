@@ -146,9 +146,6 @@ func _draw_material_core() -> void:
 			_fill_poly(_ngon(mid, 0.15, 6), lit)
 		DieMaterial.BONE:  # Fläche: gefülltes Quadrat
 			_fill_poly(_square_poly(mid, 0.125), lit)
-		DieMaterial.MERCURY:  # Tropfen: zwei Kugeln
-			_fill_circle(Vector2(0.41, 0.5), 0.078, lit)
-			_fill_circle(Vector2(0.59, 0.5), 0.078, lit)
 		DieMaterial.GLASS:  # klar: hohler Diamant
 			var frame := _close(_diamond(mid, 0.16))
 			if owned:

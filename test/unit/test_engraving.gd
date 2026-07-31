@@ -1,9 +1,24 @@
 extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
-func test_all_returns_etchings_materials_and_edges():
-	# 10 Ätzungen + Leiterbahn + Dotierung + 6 Material-Gravuren + 6 Kanten-Gravuren.
-	assert_eq(Engraving.all().size(), 24)
+func test_all_returns_etchings_materials_and_rifts():
+	# 10 Ätzungen + Leiterbahn + Dotierung + 5 Material-Gravuren + 4 Bruchmuster.
+	assert_eq(Engraving.all().size(), 21)
+
+func test_no_engraving_targets_the_edges_anymore():
+	# Die Kanten sind als Ausbau-Slot gestrichen - es gibt keine Gravur mehr,
+	# die den ganzen Würfel überzieht. Die Würfel-Kategorie füllen jetzt die
+	# Bruchmuster neben der Leiterbahn.
+	for engraving in Engraving.all():
+		assert_false(engraving.id.begins_with("edge_"), "keine Kanten-Gravur mehr: %s" % engraving.id)
+	var dice_ids: Array[String] = []
+	for engraving in Engraving.all():
+		if engraving.category == Engraving.CATEGORY_DICE:
+			dice_ids.append(engraving.id)
+	assert_eq(dice_ids.size(), 5, "Leiterbahn + vier Bruchmuster")
+	assert_true(dice_ids.has(Engraving.POINTER))
+	for rift in Rift.all():
+		assert_true(dice_ids.has(Engraving.BREAK_PREFIX + rift.id), "Bruchmuster für %s" % rift.id)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -53,26 +68,6 @@ func test_rarities_match_the_spec():
 	assert_eq(Engraving.punch().rarity, Engraving.Rarity.RARE)
 	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.EPIC)
 
-func test_edge_engravings_use_prefixed_material_ids():
-	# Kanten-Engraving-id = EDGE_PREFIX + Material-id; material_id() löst zurück
-	# auf. Die Leiterbahn ist die einzige Würfel-Gravur ohne Material.
-	var edge_ids := {}
-	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_DICE and engraving.id != Engraving.POINTER:
-			assert_true(Engraving.is_edge_id(engraving.id), "%s ist eine Kanten-id" % engraving.id)
-			assert_true(DieMaterial.is_valid_id(engraving.material_id()), "%s löst auf ein Material auf" % engraving.id)
-			assert_true(Engraving.FOOTPRINT.has(engraving.id), "Fläche definiert für %s" % engraving.id)
-			edge_ids[engraving.id] = true
-	assert_eq(edge_ids.size(), DieMaterial.all().size(), "je Material genau ein Kanten-Engraving")
-
-func test_the_pointer_is_an_epic_dice_engraving_without_material():
-	var pointer := Engraving.pointer_engraving()
-	assert_eq(pointer.category, Engraving.CATEGORY_DICE)
-	assert_eq(pointer.rarity, Engraving.Rarity.EPIC)
-	assert_eq(pointer.material_id(), "", "die Leiterbahn belegt kein Material")
-	assert_false(Engraving.is_edge_id(Engraving.POINTER))
-	assert_true(Engraving.FOOTPRINT.has(Engraving.POINTER))
-
 func test_the_doping_is_an_epic_material_engraving_without_material():
 	var doping := Engraving.doping()
 	assert_eq(doping.category, Engraving.CATEGORY_MATERIAL)
@@ -80,22 +75,6 @@ func test_the_doping_is_an_epic_material_engraving_without_material():
 	assert_eq(doping.material_id(), "", "die Dotierung belegt kein Material, sie hebt eines")
 	assert_true(Engraving.is_special_id(Engraving.DOPING), "sie liegt im Sonderbestand")
 	assert_true(Engraving.FOOTPRINT.has(Engraving.DOPING))
-
-func test_is_edge_id_rejects_non_edges():
-	assert_false(Engraving.is_edge_id(DieMaterial.GOLD), "Seiten-Material ist kein Kanten-Engraving")
-	assert_false(Engraving.is_edge_id(Engraving.CHISEL), "Ätzung ist kein Kanten-Engraving")
-	assert_false(Engraving.is_edge_id("edge_unobtainium"), "unbekanntes Material zählt nicht")
-
-func test_material_id_resolution_per_kind():
-	assert_eq(Engraving.material_engraving(DieMaterial.gold(), Engraving.Rarity.COMMON).material_id(), DieMaterial.GOLD)
-	assert_eq(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON).material_id(), DieMaterial.GOLD)
-	assert_eq(Engraving.chisel().material_id(), "", "Ätzungen haben kein Material")
-
-func test_edge_engravings_are_rarer_than_their_face_variant():
-	for material in DieMaterial.all():
-		var face_rarity: int = Engraving.MATERIAL_RARITY.get(material.id, Engraving.Rarity.UNCOMMON)
-		var edge_rarity: int = Engraving.EDGE_RARITY.get(material.id, Engraving.Rarity.RARE)
-		assert_true(edge_rarity >= face_rarity, "%s-Kanten mindestens so selten wie die Seite" % material.id)
 
 func test_all_categories_are_inventory_kinds():
 	# Nach dem Wegfall der Menü-Gravuren sind alle Archetypen inventarfähig.

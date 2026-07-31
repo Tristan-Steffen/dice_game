@@ -48,11 +48,9 @@ static func pendulum_mult(ctx: Dictionary) -> int:
 ##   AFTER_FARKLE  bool  - erste Hand nach einem Farkle (Galgenhumor)
 ##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
 ##   LATE_SLOTS    Array - Slots aus den letzten 6 des Stapels (Bodensatz)
-##   EDGE_DICE     int   - Würfel mit Kanten-Material im Besitz (Zargenglanz)
 ##   SPOTLIGHT     String- hervorgehobene Kombination der Runde (Rampenlicht),
 ##                         "" sobald sie kassiert ist
 const CTX_PENDULUM := "pendulum_acc"
-const CTX_EDGE_DICE := "edge_dice"
 const CTX_FULL_REROLLS := "full_rerolls"
 const CTX_STREAK := "streak"
 const CTX_POOL_EMPTY := "pool_empty"
@@ -133,17 +131,13 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 
 ## Basispunkt-Beitrag der Besitz-Position j am beteiligten Würfel slot.
 ## scored: alle gewerteten Slots - nur der Vorreiter braucht sie.
-static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = [], scored: Array[int] = []) -> int:
+static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, scored: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.BROADBAND:
 			return 5
 		Charm.STREET_SWEEPER:
 			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
 				return 6
-		Charm.EDGE_GLEAM:
-			# Basispunkte = alle Kanten-Würfel im Besitz (nicht nur im Wurf).
-			if slot < edge_materials.size() and edge_materials[slot] != "":
-				return int(ctx.get(CTX_EDGE_DICE, 0))
 		Charm.FRONT_RUNNER:
 			# Nur am vordersten gewerteten Würfel, dort die ganze Augensumme.
 			if slot == first_participating(values, scored):
@@ -200,10 +194,10 @@ static func is_prime(value: int) -> bool:
 	return true
 
 ## Summe aller Pro-Würfel-Basisbeiträge für slot (über alle Besitz-Positionen).
-static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, edge_materials: Array[String] = [], scored: Array[int] = []) -> int:
+static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, scored: Array[int] = []) -> int:
 	var bonus := 0
 	for j in charm_ids.size():
-		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, edge_materials, scored)
+		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, scored)
 	return bonus
 
 ## Summe aller Pro-Würfel-Multbeiträge für slot.
@@ -484,22 +478,19 @@ static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String],
 
 ## Goldader: Zuschlag, den JEDER auslösende Gold-Träger zusätzlich zahlt - $1 je
 ## anderem Material-Träger der Kombination, $3 wenn dieser selbst Gold ist.
-## Seiten und Kanten zählen gleichwertig als Träger; stapelt je Charm-Vorkommen.
-static func gold_vein_bonus(materials: Array[String], edge_materials: Array[String], participating: Array[int], charm_ids: Array[String]) -> int:
+## Stapelt je Charm-Vorkommen.
+static func gold_vein_bonus(materials: Array[String], participating: Array[int], charm_ids: Array[String]) -> int:
 	var stacks := charm_ids.count(Charm.GOLD_VEIN)
 	if stacks == 0:
 		return 0
 	var gold := 0
 	var other := 0
 	for i in participating:
-		for carrier in [
-			materials[i] if i < materials.size() else "",
-			edge_materials[i] if i < edge_materials.size() else "",
-		]:
-			if carrier == DieMaterial.GOLD:
-				gold += 1
-			elif carrier != "":
-				other += 1
+		var carrier: String = materials[i] if i < materials.size() else ""
+		if carrier == DieMaterial.GOLD:
+			gold += 1
+		elif carrier != "":
+			other += 1
 	# "andere": der auslösende Träger ist selbst Gold und zählt sich nicht mit.
 	return stacks * (3 * maxi(0, gold - 1) + other)
 
@@ -613,10 +604,6 @@ static func has_phoenix(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.PHOENIX_FEATHER)
 
 # --- Pool / Shop: Effektkatalog --------------------------------------------------
-
-## Magnetring: Würfel mit Kanten-Material werden zuerst gezogen.
-static func draws_edges_first(charm_ids: Array[String]) -> bool:
-	return charm_ids.has(Charm.MAGNET_RING)
 
 ## Frische Ware: Würfel mit Material liegen vorn im Nachziehstapel.
 static func draws_materials_first(charm_ids: Array[String]) -> bool:

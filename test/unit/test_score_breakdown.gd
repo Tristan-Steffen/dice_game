@@ -23,10 +23,15 @@ func _m(values: Array) -> Array[String]:
 
 const NO_MATS: Array[String] = []
 
+## ctx mit einer Argon-Seele auf slot: seit dem Kanten-Umbau die Standard-Quelle
+## zweier Auslösungen (früher tat das die Quecksilber-Kante).
+func _argon(slot: int) -> Dictionary:
+	return {DiceScoring.CTX_ESSENCES: {slot: Essence.ARGON}}
+
 ## Baut die Zerlegung und prüft das Herzstück: total == score_category.
-func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], first := false, mats: Array[String] = [], edges: Array[String] = [], levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
-	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, edges, levels, ctx)
-	var expected := DiceScoring.score_category(key, dice, ids, first, mats, edges, levels, ctx)
+func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], first := false, mats: Array[String] = [], levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, levels, ctx)
+	var expected := DiceScoring.score_category(key, dice, ids, first, mats, levels, ctx)
 	assert_eq(breakdown["total"], expected, "Schrittliste ergibt die echte Wertung (%s)" % key)
 	_check_continuity(breakdown)
 	return breakdown
@@ -108,7 +113,7 @@ func test_every_category_example_matches():
 		_build_and_check(key, _d(DiceScoring.EXAMPLE_DICE[key]))
 
 func test_combo_levels_flow_into_combo_step():
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, NO_MATS, NO_MATS, {DiceScoring.TWO_KIND: 1})
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, NO_MATS, {DiceScoring.TWO_KIND: 1})
 	assert_eq(breakdown["combo"]["base_add"], 20, "Übertaktungs-Stufe verdoppelt die festen Punkte")
 	assert_eq(breakdown["combo"]["mult_add"], 4)
 
@@ -129,8 +134,7 @@ func test_mercury_edge_retrigger_stays_at_its_die():
 	# Quecksilber-Kante: der Würfel spielt zwei Auslösungen, jede zählt Augen
 	# und Rubin erneut - als eigene Kettenglieder, nicht als Aggregat.
 	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
-	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, mats, edges)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, mats, {}, _argon(0))
 	var acts: Array = breakdown["die_steps"][0]["activations"]
 	assert_eq(acts.size(), 2)
 	for pulse: Dictionary in acts:
@@ -141,8 +145,7 @@ func test_mercury_edge_retrigger_stays_at_its_die():
 func test_lighthouse_fires_with_its_die_per_activation():
 	# Würfelgebunden: der Leuchtturm feuert MIT dem höchsten gewerteten Würfel,
 	# je Aktivierung +5 Mult als Charm-Anteil der jeweiligen Auslösung.
-	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.LIGHTHOUSE]), false, NO_MATS, edges)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.LIGHTHOUSE]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
 	assert_eq(step["die_charm_indices"], [0], "der Leuchtturm hängt am Zielwürfel")
 	for pulse: Dictionary in step["activations"]:
@@ -153,8 +156,7 @@ func test_lighthouse_fires_with_its_die_per_activation():
 func test_beherit_crits_inside_its_die_step():
 	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×4, verzahnt
 	# (Würfel -> Charm -> Würfel -> Charm), Kette endet am Schritt-Endstand.
-	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, edges)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
 	var acts: Array = step["activations"]
 	assert_eq(acts.size(), 2)
@@ -173,8 +175,7 @@ func test_beherit_without_retrigger_slams_once():
 func test_retrigger_interleaves_the_per_die_charm_share():
 	# Verzahnung: je Auslösung folgt der Charm-Anteil direkt auf den
 	# Würfel-Puls, und der nächste Puls setzt auf dessen After-Stand auf.
-	var edges := _m([DieMaterial.MERCURY, "", "", "", "", ""])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.BROADBAND]), false, NO_MATS, edges)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.BROADBAND]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
 	var acts: Array = step["activations"]
 	assert_eq(acts.size(), 2)
@@ -239,7 +240,7 @@ func test_cult_of_one_becomes_factor_step():
 
 func test_gallows_humor_is_a_positioned_crit_step():
 	var ids := _ids([Charm.GALLOWS_HUMOR])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, {"after_farkle": true})
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, {"after_farkle": true})
 	var crit_steps: Array = breakdown["charm_steps"].filter(func(s: Dictionary) -> bool: return s["crit_x"] > 1)
 	assert_eq(crit_steps.size(), 1)
 	assert_eq(crit_steps[0]["mult_x"], 4, "Krit ×4 an der eigenen Position")
@@ -252,7 +253,7 @@ func test_spotlight_gets_its_own_step_at_its_dock_position():
 	# steht das Hufeisen, dessen Schritt also zuerst kommt.
 	var ids := _ids([Charm.LADYBUG, Charm.SPOTLIGHT])
 	var ctx := {CharmEffects.CTX_SPOTLIGHT: DiceScoring.TWO_KIND}
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, ctx)
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 2, "Marienkäfer und Rampenlicht")
 	assert_false(steps[0]["spotlight"], "der Marienkäfer ist kein Rampenlicht")
@@ -265,7 +266,7 @@ func test_spotlight_gets_its_own_step_at_its_dock_position():
 func test_spotlight_stays_silent_on_a_different_combination():
 	var ids := _ids([Charm.SPOTLIGHT])
 	var ctx := {CharmEffects.CTX_SPOTLIGHT: DiceScoring.LARGE_STRAIGHT}
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, ctx)
 	assert_eq(breakdown["charm_steps"].size(), 0, "andere Kombination, kein Schritt")
 
 func test_non_crit_factor_steps_carry_crit_one():
@@ -278,8 +279,8 @@ func test_factor_charm_respects_dock_order():
 	# dahinter schon - und die Schrittliste läuft in Besitz-Reihenfolge.
 	var ctx := {CharmEffects.CTX_STREAK: 3}
 	var dice := _d([5, 5, 1, 2, 3, 6])
-	var cult_first := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.CULT_OF_ONE, Charm.MOMENTUM]), false, NO_MATS, NO_MATS, {}, ctx)
-	var cult_last := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.MOMENTUM, Charm.CULT_OF_ONE]), false, NO_MATS, NO_MATS, {}, ctx)
+	var cult_first := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.CULT_OF_ONE, Charm.MOMENTUM]), false, NO_MATS, {}, ctx)
+	var cult_last := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.MOMENTUM, Charm.CULT_OF_ONE]), false, NO_MATS, {}, ctx)
 	# Eine 1 im Wurf: ×2. Vorn: (2×2 + 3) = 7 Mult, Basis 40 -> 280.
 	# Hinten: (2 + 3) × 2 = 10 Mult, Basis 40 -> 400.
 	assert_eq(cult_first["total"], 280)
@@ -309,7 +310,7 @@ func test_after_work_beer_doubles_the_base_and_crits():
 	# Leerer Nachziehstapel: ein Schritt, der die Basis verdoppelt UND krittet.
 	var ids := _ids([Charm.AFTER_WORK_BEER])
 	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, NO_MATS, {}, ctx)
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, ctx)
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
 	assert_eq(steps[0]["base_x"], 2, "Basis verdoppelt")
@@ -336,10 +337,9 @@ func test_kitchen_sink_scenario_matches_scoring():
 	run.owned_charms.append(Charm.rabbits_foot())
 	var dice := _d([6, 6, 6, 1, 2, 5])
 	var mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, "", "", ""])
-	var edges := _m(["", DieMaterial.MERCURY, "", "", "", ""])
 	var levels := {DiceScoring.THREE_KIND: 1}
-	var ctx := {"after_farkle": true, "streak": 2}
-	_build_and_check(DiceScoring.THREE_KIND, dice, run.charm_ids(), true, mats, edges, levels, ctx)
+	var ctx := {"after_farkle": true, "streak": 2, DiceScoring.CTX_ESSENCES: {1: Essence.ARGON}}
+	_build_and_check(DiceScoring.THREE_KIND, dice, run.charm_ids(), true, mats, levels, ctx)
 
 # --- Pro-Würfel-Meteor -------------------------------------------------------------
 
@@ -348,7 +348,7 @@ func test_sediment_fires_in_the_die_steps():
 	# jedes beteiligten Würfels, keine Charm-Phase.
 	var ctx := {CharmEffects.CTX_LATE_SLOTS: [0, 1]}
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
-		_ids([Charm.SEDIMENT]), false, NO_MATS, NO_MATS, {}, ctx)
+		_ids([Charm.SEDIMENT]), false, NO_MATS, {}, ctx)
 	var steps: Array = breakdown["die_steps"]
 	assert_eq(steps.size(), 2)
 	for step: Dictionary in steps:
@@ -391,7 +391,7 @@ func _prop_charm_sets() -> Array:
 		[Charm.EVEN_COMPANY], [Charm.ODD_PATH], [Charm.HERMIT_CRAB], [Charm.DISPLAY_CASE],
 		[Charm.COLLECTORS_AMULET], [Charm.ECHO_CHAMBER], [Charm.STREET_SWEEPER],
 		[Charm.FULL_COUNTER], [Charm.BROADBAND], [Charm.SEDIMENT],
-		[Charm.EDGE_GLEAM], [Charm.BLACKJACK], [Charm.ROUND_NUMBER], [Charm.HORSESHOE],
+		[Charm.BLACKJACK], [Charm.ROUND_NUMBER], [Charm.HORSESHOE],
 		[Charm.LADYBUG], [Charm.PEARL_NECKLACE], [Charm.RAINBOW_TROUT], [Charm.MAGIC_CARD],
 		[Charm.CULT_OF_ONE], [Charm.GALLOWS_HUMOR], [Charm.AFTER_WORK_BEER],
 		[Charm.LUCKY_CIGARETTES], [Charm.PENCIL_STUB], [Charm.FOX_TAIL],
@@ -413,16 +413,18 @@ func _prop_dice() -> Array:
 
 func test_breakdown_matches_scoring_across_the_matrix():
 	var levels := {DiceScoring.TWO_KIND: 1, DiceScoring.THREE_KIND: 1}
-	# Zwei Umgebungen: nackt, und voll (Materialien + Kanten + reicher Kontext +
+	# Zwei Umgebungen: nackt, und voll (Materialien + Essenzen + reicher Kontext +
 	# Übertaktung + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
 	var full_mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, DieMaterial.GLASS, "", DieMaterial.BONE])
-	var full_edges := _m(["", DieMaterial.MERCURY, "", "", DieMaterial.GOLD, ""])
 	var rich_ctx := {
 		CharmEffects.CTX_PENDULUM: 4,
 		CharmEffects.CTX_FULL_REROLLS: 2, CharmEffects.CTX_STREAK: 3,
 		CharmEffects.CTX_POOL_EMPTY: true, CharmEffects.CTX_AFTER_FARKLE: true,
 		CharmEffects.CTX_FARKLE_STACKS: 2,
 		CharmEffects.CTX_LATE_SLOTS: [4, 5],
+		# Essenzen decken den Retrigger- und den Krit-Zweig mit ab.
+		DiceScoring.CTX_ESSENCES: {1: Essence.ARGON, 4: Essence.XENON},
+		DiceScoring.CTX_ESSENCE_ARMED: {4: true},
 	}
 	# Nur die Deckung (total == score_category) je Zelle - die Zwischenstände
 	# prüfen die gezielten Tests oben. Abweichungen sammeln und EINMAL asserten,
@@ -433,10 +435,10 @@ func test_breakdown_matches_scoring_across_the_matrix():
 		var ids := _ids(set)
 		for raw: Array in _prop_dice():
 			var dice := _d(raw)
-			var key: String = DiceScoring.best_hand(dice, ids, false, NO_MATS, NO_MATS, {}, {})["key"]
-			var first_key: String = DiceScoring.best_hand(dice, ids, true, full_mats, full_edges, levels, rich_ctx)["key"]
-			_collect_mismatch(mismatches, key, dice, ids, false, NO_MATS, NO_MATS, {}, {})
-			_collect_mismatch(mismatches, first_key, dice, ids, true, full_mats, full_edges, levels, rich_ctx)
+			var key: String = DiceScoring.best_hand(dice, ids, false, NO_MATS, {}, {})["key"]
+			var first_key: String = DiceScoring.best_hand(dice, ids, true, full_mats, levels, rich_ctx)["key"]
+			_collect_mismatch(mismatches, key, dice, ids, false, NO_MATS, {}, {})
+			_collect_mismatch(mismatches, first_key, dice, ids, true, full_mats, levels, rich_ctx)
 			checked += 2
 	assert_eq(mismatches, [] as Array[String],
 		"%d/%d Zellen weichen ab: %s" % [mismatches.size(), checked, ", ".join(mismatches)])
@@ -444,10 +446,10 @@ func test_breakdown_matches_scoring_across_the_matrix():
 ## Hängt eine Beschreibung an, WENN build["total"] von score_category abweicht -
 ## und prüft zugleich, dass jeder Pro-Würfel-Puls-Schritt sich exakt zu seiner
 ## Marginale summiert (sonst zeigte die Meteor-je-Würfel-Animation falsche Zahlen).
-func _collect_mismatch(into: Array[String], key: String, dice: Array[int], ids: Array[String], first: bool, mats: Array[String], edges: Array[String], levels: Dictionary, ctx: Dictionary) -> void:
-	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, edges, levels, ctx)
+func _collect_mismatch(into: Array[String], key: String, dice: Array[int], ids: Array[String], first: bool, mats: Array[String], levels: Dictionary, ctx: Dictionary) -> void:
+	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, levels, ctx)
 	var total: int = breakdown["total"]
-	var expected := DiceScoring.score_category(key, dice, ids, first, mats, edges, levels, ctx)
+	var expected := DiceScoring.score_category(key, dice, ids, first, mats, levels, ctx)
 	if total != expected:
 		into.append("%s%s/%s/%s: %d≠%d" % ["erste " if first else "", key, str(ids), str(dice), total, expected])
 	for step: Dictionary in breakdown["charm_steps"]:

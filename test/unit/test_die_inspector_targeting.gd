@@ -30,7 +30,6 @@ func test_targeting_kinds_are_correct() -> void:
 	assert_eq(view._targeting_of(Engraving.STRAIGHTEN), DieInspectorView.TARGET_WHOLE_DIE)
 	assert_eq(view._targeting_of(Engraving.POLISH), DieInspectorView.TARGET_WHOLE_DIE)
 	assert_eq(view._targeting_of(Engraving.SANDPAPER), DieInspectorView.TARGET_WHOLE_DIE)
-	assert_eq(view._targeting_of(Engraving.EDGE_PREFIX + DieMaterial.GOLD), DieInspectorView.TARGET_EDGES)
 	assert_eq(view._targeting_of(DieMaterial.GOLD), DieInspectorView.TARGET_FACE)
 
 # --- _eligible_faces ---------------------------------------------------------
@@ -71,19 +70,16 @@ func test_directed_pair_step2_excludes_the_first_face() -> void:
 	view.first_face = 2
 	assert_false(view._eligible_faces()[2], "Schritt 2 meidet die Quelle")
 
-func test_material_excludes_same_material_face() -> void:
+func test_material_targets_its_own_face_until_it_is_saturated() -> void:
+	# Dieselbe Gravur sättigt die Seite - erst auf Stufe III fällt sie als Ziel weg.
 	var view := _view([1, 2, 3, 4, 5, 6])
-	var materials: Array[String] = ["gold", "", "", "", "", ""]
-	view.current_def.materials = materials
+	view.current_def.set_face_material(0, DieMaterial.GOLD)
 	view.held_id = DieMaterial.GOLD
+	assert_true(view._eligible_faces()[0], "Stufe I nimmt ein zweites Exemplar an")
+	view.current_def.levels[0] = DieMaterial.MAX_LEVEL
 	var e := view._eligible_faces()
-	assert_false(e[0], "die schon goldene Seite ist kein Ziel")
+	assert_false(e[0], "die ausgesättigte Seite ist kein Ziel mehr")
 	assert_true(e[1])
-
-func test_edge_tool_dims_every_face() -> void:
-	var view := _view([1, 2, 3, 4, 5, 6])
-	view.held_id = Engraving.EDGE_PREFIX + DieMaterial.GOLD
-	assert_eq(view._eligible_faces(), [false, false, false, false, false, false] as Array[bool])
 
 # --- Vorschau (_ghost_after) - Klon, echte EtchingEffects, current_def bleibt --
 

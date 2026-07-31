@@ -166,7 +166,7 @@ func test_dice_get_the_same_presentation_round() -> void:
 
 func test_dice_rarity_comes_from_the_refinement() -> void:
 	var edged := DieDefinition.standard()
-	edged.edge_material = DieMaterial.GOLD
+	edged.essence_id = Essence.NEON
 	var dice: Array[DieDefinition] = []
 	dice.append(edged)
 	_setup([] as Array[Engraving], dice)

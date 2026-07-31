@@ -14,7 +14,9 @@ func test_all_returns_all_charms():
 	# Hausjoker, Gratis Getränk, Rampenlicht, Midashandschuh, Goldader,
 	# Blood Diamond, Knochenmark.
 	# +3 Verwandler: Zylinderhut, Silberdollar, Achterknoten.
-	assert_eq(Charm.all().size(), 86)
+	# −3 mit den Kanten: Rahmenvergolder (wäre ein Doppel des Goldschmieds),
+	# Magnetring und Zargenglanz hatten kein Ziel mehr.
+	assert_eq(Charm.all().size(), 83)
 
 func test_all_ids_are_unique():
 	var seen := {}

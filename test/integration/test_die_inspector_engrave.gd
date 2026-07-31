@@ -114,35 +114,6 @@ func test_board_slot_is_enabled_without_a_face_selection() -> void:
 	# Seite gewählt wurde.
 	assert_false(_slot_for(Engraving.CHISEL).disabled, "Meißel-Slot ist bedienbar")
 
-func test_edge_tool_applies_via_the_frame() -> void:
-	# Kanten-Gravur aufnehmen, in den Rahmen um die Seiten klicken -> Kanten
-	# veredelt, Gravur verbraucht. Keine Kanten-Auswahl nötig (es gibt nur einen).
-	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._sync_drawers()
-	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	view._handle_edge_target()
-	assert_eq(view.current_def.edge_material, DieMaterial.GOLD, "Rahmen trägt Gold")
-	assert_eq(view.held_id, "", "Werkzeug abgelegt")
-
-func test_edge_frame_glows_while_an_edge_tool_is_held() -> void:
-	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._sync_drawers()
-	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	var box: StyleBoxFlat = view.edge_frame.get_theme_stylebox("panel")
-	assert_eq(box.border_color, RotatableDieView.SELECT_FACE_COLOR, "Rahmen leuchtet als Ziel")
-
-func test_edge_frame_preview_tints_to_the_new_material() -> void:
-	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._sync_drawers()
-	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	view._preview_edge_frame(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	var box: StyleBoxFlat = view.edge_frame.get_theme_stylebox("panel")
-	assert_eq(box.border_color, DieMaterial.tint_for(DieMaterial.GOLD), "Vorschau = neue Materialfarbe")
-	view._clear_preview()
-	var restored: StyleBoxFlat = view.edge_frame.get_theme_stylebox("panel")
-	assert_eq(restored.border_color, RotatableDieView.SELECT_FACE_COLOR, "Ende der Vorschau -> Ziel-Glow zurück")
-	assert_eq(view.current_def.edge_material, "", "nichts angewandt")
-
 func test_face_order_stays_frozen_while_editing() -> void:
 	# Beim Öffnen nach Wert sortiert: [5,1,2,3,4,6] -> Indizes [1,2,3,4,0,5].
 	assert_eq(view.face_order, [1, 2, 3, 4, 0, 5] as Array[int])
@@ -192,7 +163,7 @@ func test_a_new_pointer_overwrites_the_faces_old_one() -> void:
 	view._on_chip_clicked(3, 3)
 	assert_eq(view.current_def.pointers[0], 3, "je Seite höchstens eine Bahn - überschrieben")
 
-# --- Dotierung: hebt EIN vorhandenes Material auf Stufe II ------------------------
+# --- Dotierung: hebt EIN vorhandenes Material um eine Stufe -----------------------
 
 ## Zielwürfel mit Materialien auf den Seiten 0 (Gold) und 1 (Rubin).
 func _doped_target() -> DieDefinition:
@@ -221,23 +192,32 @@ func test_the_doping_lifts_a_material_face() -> void:
 	_hold_doping()
 	assert_eq(view.held_id, Engraving.DOPING, "aufgenommen")
 	view._on_chip_clicked(1, 1)  # Rubin-Seite
-	assert_true(view.current_def.upgraded[1], "die Seite steht auf Stufe II")
+	assert_eq(view.current_def.material_level(1), 2, "die Seite steht auf Stufe II")
 	assert_eq(view.held_id, "", "letztes Exemplar verbraucht -> abgelegt")
 	assert_eq(_stock(Engraving.DOPING), 0, "Dotierung verbraucht")
+
+func test_the_doping_lifts_a_second_level_to_the_third() -> void:
+	var def := _doped_target()
+	def.levels[1] = 2
+	view.show_die(def)
+	_hold_doping()
+	assert_true(view._face_eligible(1), "Stufe II ist noch hebbar")
+	view._on_chip_clicked(1, 1)
+	assert_eq(view.current_def.material_level(1), DieMaterial.MAX_LEVEL)
 
 func test_the_doping_refuses_a_face_without_material() -> void:
 	view.show_die(_doped_target())
 	_hold_doping()
 	view._on_chip_clicked(2, 2)  # leere Seite
-	assert_false(view.current_def.upgraded[2], "ohne Material gibt es nichts zu heben")
+	assert_eq(view.current_def.material_level(2), 0, "ohne Material gibt es nichts zu heben")
 	assert_eq(view.held_id, Engraving.DOPING, "das Werkzeug bleibt in der Hand")
 
-func test_the_doping_refuses_an_already_lifted_face() -> void:
+func test_the_doping_refuses_a_saturated_face() -> void:
 	var def := _doped_target()
-	def.upgraded[0] = true
+	def.levels[0] = DieMaterial.MAX_LEVEL
 	view.show_die(def)
 	_hold_doping()
-	assert_false(view._face_eligible(0), "schon gehoben = kein Ziel")
+	assert_false(view._face_eligible(0), "Stufe III ist kein Ziel mehr")
 	view._on_chip_clicked(5, 0)
 	assert_eq(_stock(Engraving.DOPING), 1, "nichts verbraucht")
 
@@ -250,17 +230,38 @@ func test_the_doping_says_so_when_a_die_has_no_target() -> void:
 	assert_true(info.text.contains("keine hebbare Seite"),
 		"die Leiste sagt es, statt den Spieler ins Leere klicken zu lassen")
 
-func test_a_material_engraving_clears_the_doping() -> void:
-	# Die Marke hängt am Material-Exemplar: ein neues Material löscht sie.
+func test_a_new_material_resets_the_level() -> void:
+	# Die Stufe wohnt in der Glasur: ein ANDERES Material fängt wieder bei I an.
 	var def := _doped_target()
-	def.upgraded[1] = true
+	def.levels[1] = 3
 	view.show_die(def)
 	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.amber(), Engraving.Rarity.COMMON))
 	view._sync_drawers()
 	view._on_engraving_pressed(DieMaterial.AMBER)
 	view._on_chip_clicked(1, 1)
 	assert_eq(view.current_def.materials[1], DieMaterial.AMBER, "neues Material liegt an")
-	assert_false(view.current_def.upgraded[1], "die alte Dotierung ist mit weg")
+	assert_eq(view.current_def.material_level(1), 1, "die alte Stufe ist mit weg")
+
+func test_the_same_material_again_saturates_the_face() -> void:
+	# Dubletten haben endlich einen Zweck: dieselbe Gravur hebt statt zu streichen.
+	view.show_die(_doped_target())
+	for expected in [2, 3]:
+		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
+		view._sync_drawers()
+		view._on_engraving_pressed(DieMaterial.RUBY)
+		view._on_chip_clicked(1, 1)  # trägt schon Rubin
+		assert_eq(view.current_def.materials[1], DieMaterial.RUBY, "kein Neuanstrich")
+		assert_eq(view.current_def.material_level(1), expected)
+
+func test_a_saturated_face_is_no_target_for_its_own_material() -> void:
+	var def := _doped_target()
+	def.levels[1] = DieMaterial.MAX_LEVEL
+	view.show_die(def)
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
+	view._sync_drawers()
+	view._on_engraving_pressed(DieMaterial.RUBY)
+	assert_false(view._face_eligible(1), "Stufe III nimmt kein weiteres Exemplar mehr an")
+	assert_true(view._face_eligible(0), "die Gold-Seite bleibt übermalbar")
 
 func test_the_engraving_pen_does_not_refund_the_doping() -> void:
 	# Der Gravierstift schont nur ÄTZUNGEN - Sonderposten nie.
@@ -282,13 +283,85 @@ func test_the_engraving_pen_still_refunds_an_etching() -> void:
 	assert_true(view.run.gravierstift_used_this_round)
 
 func test_the_face_net_marks_the_lifted_face() -> void:
-	# Die Station baut ihre Zellen selbst - die Marke muss auch dort ankommen.
+	# Die Station baut ihre Zellen selbst - die Plakette muss auch dort ankommen.
 	var def := _doped_target()
-	def.upgraded[1] = true
+	def.levels[1] = 3
 	view.show_die(def)
 	await wait_frames(2)
-	var badges := 0
+	var badges: Array[int] = []
 	for node in view.find_children("*", "Control", true, false):
-		if node is DieNetView.DopingBadge:
-			badges += 1
-	assert_eq(badges, 1, "die gehobene Seite trägt ihre Marke auch im Stations-Netz")
+		if node is DieNetView.LevelBadge:
+			badges.append((node as DieNetView.LevelBadge).level)
+	assert_eq(badges, [3] as Array[int], "die gehobene Seite trägt ihre Plakette auch im Stations-Netz")
+
+# --- Bruchmuster: eine Seite kontrolliert aufreißen ------------------------------
+
+func _hold_break(rift_id: String) -> void:
+	view.run.grant_engraving(Engraving.rift_engraving(Rift.by_id(rift_id), Engraving.Rarity.RARE))
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.BREAK_PREFIX + rift_id)
+
+func test_a_break_pattern_cracks_the_clicked_face() -> void:
+	view.show_die(_die())
+	_hold_break(Rift.AFTERGLOW)
+	assert_eq(view.held_id, Engraving.BREAK_PREFIX + Rift.AFTERGLOW, "aufgenommen")
+	view._on_chip_clicked(1, 1)
+	assert_eq(view.current_def.rifts_on(1), [Rift.AFTERGLOW] as Array[String], "die Seite ist gebrochen")
+	assert_eq(_stock(Engraving.BREAK_PREFIX + Rift.AFTERGLOW), 0, "Bruchmuster verbraucht")
+
+func test_every_face_is_a_valid_break_target() -> void:
+	view.show_die(_die())
+	_hold_break(Rift.STRAY_LIGHT)
+	for face in 6:
+		assert_true(view._face_eligible(face), "Seite %d darf brechen" % face)
+
+func test_a_second_break_replaces_the_first() -> void:
+	var def := _die()
+	def.set_rift(1, Rift.AFTERGLOW)
+	view.show_die(def)
+	_hold_break(Rift.BURN_IN)
+	view._on_chip_clicked(1, 1)
+	assert_eq(view.current_def.rifts_on(1), [Rift.BURN_IN] as Array[String], "neu brechen ersetzt")
+
+func test_a_vacuum_die_fills_its_second_slot_first() -> void:
+	var def := _die()
+	def.essence_id = Essence.VACUUM
+	def.set_rift(1, Rift.AFTERGLOW)
+	view.show_die(def)
+	_hold_break(Rift.SPARK_FLIGHT)
+	view._on_chip_clicked(1, 1)
+	assert_eq(view.current_def.rifts_on(1), [Rift.AFTERGLOW, Rift.SPARK_FLIGHT] as Array[String],
+		"das Vakuum trägt beide Risse")
+
+# --- Einbrand sperrt das Übermalen, nicht das Sättigen ---------------------------
+
+func test_burn_in_blocks_a_foreign_material() -> void:
+	var def := _doped_target()  # Seite 0 Gold, Seite 1 Rubin
+	def.set_rift(0, Rift.BURN_IN)
+	view.show_die(def)
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.amber(), Engraving.Rarity.COMMON))
+	view._sync_drawers()
+	view._on_engraving_pressed(DieMaterial.AMBER)
+	assert_false(view._face_eligible(0), "die eingebrannte Seite nimmt kein fremdes Material")
+	assert_true(view._face_eligible(1), "die Nachbarseite bleibt frei")
+
+func test_burn_in_still_allows_saturating_the_same_material() -> void:
+	var def := _doped_target()
+	def.set_rift(0, Rift.BURN_IN)  # Seite 0 trägt Gold
+	view.show_die(def)
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.gold(), Engraving.Rarity.COMMON))
+	view._sync_drawers()
+	view._on_engraving_pressed(DieMaterial.GOLD)
+	assert_true(view._face_eligible(0), "dasselbe Material weiter zu sättigen bleibt erlaubt")
+	view._on_chip_clicked(5, 0)
+	assert_eq(view.current_def.material_level(0), 2)
+	assert_eq(view.current_def.rifts_on(0), [Rift.BURN_IN] as Array[String], "der Riss überlebt")
+
+func test_burn_in_leaves_value_engravings_alone() -> void:
+	var def := _die()
+	def.set_rift(0, Rift.BURN_IN)
+	view.show_die(def)
+	view.run.grant_engraving(Engraving.notch())
+	view._sync_drawers()
+	view._on_engraving_pressed(Engraving.NOTCH)
+	assert_true(view._face_eligible(0), "die Kerbe ändert den Wert, nicht das Material")

@@ -1061,6 +1061,10 @@ func _on_run_money_changed(_money: int) -> void:
 		_refresh_afford_state()
 
 func _on_done_pressed() -> void:
+	close()
+
+## Laden zu - per "Fertig" oder weil der Spieler die Runde in der Grube aufnimmt.
+func close() -> void:
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
 	visible = false
 	closed.emit()

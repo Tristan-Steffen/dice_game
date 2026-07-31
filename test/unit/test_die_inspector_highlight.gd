@@ -26,9 +26,9 @@ func _die() -> DieDefinition:
 	var def := DieDefinition.new()
 	var faces: Array[int] = [1, 2, 3, 4, 5, 6]
 	def.faces = faces
-	var materials: Array[String] = ["ruby", "", "gold", "glass", "", "mercury"]
+	var materials: Array[String] = ["ruby", "", "gold", "glass", "", "bone"]
 	def.materials = materials
-	def.edge_material = "amber"
+	def.essence_id = Essence.NEON
 	return def
 
 ## Die aktuell lebenden Kinder von summary_list. Ein direkter _refresh_face_summary
@@ -105,19 +105,6 @@ func test_exactly_one_chip_glows_for_a_selected_face() -> void:
 			glowing += 1
 	assert_eq(glowing, 1)
 
-func test_edge_frame_carries_the_edge_material_tint() -> void:
-	# Der Rahmen um die Seiten-Chips trägt die Kanten-Materialfarbe (Bernstein) -
-	# wie die Kachel-Rahmen im Würfel-Raster.
-	var box: StyleBoxFlat = _edge_frame().get_theme_stylebox("panel")
-	assert_eq(box.border_color, DieMaterial.tint_for("amber"), "Rahmen = Kanten-Material")
-
-func test_edge_frame_is_neutral_without_edge_material() -> void:
-	var def := _die()
-	def.edge_material = ""
-	view.show_die(def)
-	var box: StyleBoxFlat = _edge_frame().get_theme_stylebox("panel")
-	assert_eq(box.border_color, DieFaceDisplay.EDGE_NEON, "kahle Kanten -> neutrales Kanten-Neon")
-
 # --- Material-Tooltip (handgesteuertes Overlay) -------------------------------
 
 func test_only_material_faces_wire_a_hover_tooltip() -> void:
@@ -128,18 +115,6 @@ func test_only_material_faces_wire_a_hover_tooltip() -> void:
 		if (c as Button).mouse_entered.get_connections().size() >= 2:
 			with_tooltip += 1
 	assert_eq(with_tooltip, 4, "nur Seiten mit Material bekommen zusätzlich einen Tooltip")
-
-func test_edge_frame_hover_shows_the_edge_material_tooltip() -> void:
-	view._on_edge_frame_hover()
-	assert_true(view.face_tooltip.visible, "Kanten mit Material -> Tooltip beim Überfahren")
-	assert_eq(view.face_tooltip_title.text, "Bernstein-Kanten")
-
-func test_edge_frame_hover_shows_nothing_without_edge_material() -> void:
-	var def := _die()
-	def.edge_material = ""
-	view.show_die(def)
-	view._on_edge_frame_hover()
-	assert_false(view.face_tooltip.visible, "kahle Kanten -> kein Tooltip")
 
 func test_engraving_slots_carry_their_effect_tooltip() -> void:
 	# Die Werkzeug-Plätze liegen in den Vorrats-Schubladen und tragen dort die

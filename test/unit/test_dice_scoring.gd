@@ -45,19 +45,19 @@ func test_score_category_uses_combo_levels():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice), 40)
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 1}), 120)
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 1}), 120)
 
 func test_best_hand_reports_upgraded_mult():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 1})
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 1})
 	assert_eq(hand["mult"], 4, "angezeigter Mult = aufgewerteter Mult")
 	assert_eq(hand["score"], 120)
 
 func test_levels_of_other_combos_do_not_leak():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.SIX_KIND: 3})
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.SIX_KIND: 3})
 	assert_eq(hand["score"], 40, "Stufe auf Sechserpasch ändert das Paar nicht")
 
 # --- Kategorie-Erkennung: best_hand wählt die richtige Kombination ------------
@@ -287,14 +287,14 @@ func test_best_hand_prefers_the_higher_rank_over_points():
 	# Paar-Stufe 4 (620 statt 168 Punkte) gewinnt, was daliegt: die Straße.
 	var dice := _d([6, 6, 2, 3, 4, 5])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, no_mats, {DiceScoring.TWO_KIND: 4})
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 4})
 	assert_eq(hand["key"], "small_straight", "der Rang entscheidet, nicht die Punkte")
 
 func test_three_pairs_beat_an_upgraded_two_pair():
 	# Der Playtest-Fall: drei Zweierpäsche liegen da, Zwei Paare ist hochgestuft -
 	# genommen wird trotzdem, was auf dem Tisch liegt.
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(_d([1, 1, 3, 3, 5, 5]), _ids([]), false, no_mats, no_mats,
+	var hand := DiceScoring.best_hand(_d([1, 1, 3, 3, 5, 5]), _ids([]), false, no_mats,
 		{DiceScoring.TWO_PAIR: 8})
 	assert_eq(hand["key"], DiceScoring.THREE_PAIRS)
 
@@ -306,7 +306,7 @@ func test_a_reroll_into_a_higher_rank_never_farkles():
 	var new_dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße, 528
 	var old_dice := _d([6, 6, 1, 2, 3, 5])  # Paar Sechser mit Stufe 4, 620
 	assert_true(DiceScoring.is_strictly_better(new_dice, old_dice, _ids([]),
-		no_mats, no_mats, no_mats, no_mats, levels))
+		no_mats, no_mats, levels))
 
 # --- Kleine Helfer-APIs ------------------------------------------------------
 
@@ -338,26 +338,26 @@ func test_throttled_category_scores_zero():
 	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND])}
 	assert_gt(DiceScoring.score_category(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6])), 0)
 	assert_eq(DiceScoring.score_category(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6]),
-		[], false, [], [], {}, ctx), 0)
+		[], false, [], {}, ctx), 0)
 
 func test_best_hand_falls_back_past_the_throttle():
 	# Vier Sechser mit gedrosseltem Viererpasch werten als Dreierpasch - die
 	# Drossel schaltet die Kategorie ab, nicht die Würfel.
 	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND])}
-	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], [], {}, ctx)
+	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], {}, ctx)
 	assert_eq(hand["key"], DiceScoring.THREE_KIND)
 
 func test_best_hand_falls_past_two_throttled_categories():
 	# Doppelbelastung schaltet zwei Chips ab - die Hand rutscht entsprechend tiefer.
 	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.FOUR_KIND, DiceScoring.THREE_KIND])}
-	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], [], {}, ctx)
+	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], {}, ctx)
 	assert_eq(hand["key"], DiceScoring.TWO_KIND)
 
 func test_best_hand_survives_a_throttled_fallback_category():
 	# Das Standardprotokoll kann auch "Höchste Zahl" sperren - best_hand darf
 	# dann nicht mit Score -1 enden.
 	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.ONE_KIND])}
-	var hand := DiceScoring.best_hand(_d([4]), [], false, [], [], {}, ctx)
+	var hand := DiceScoring.best_hand(_d([4]), [], false, [], {}, ctx)
 	assert_eq(int(hand["score"]), 0)
 
 # --- Paritätsfilter (CTX_PARITY) ---------------------------------------------------
@@ -377,7 +377,7 @@ func test_excluded_dice_never_form_a_combination():
 	var ctx := _parity(DiceScoring.PARITY_ODD)
 	assert_false(DiceScoring.qualifies(DiceScoring.FOUR_KIND, _d([6, 6, 6, 6, 5, 5]), ctx))
 	assert_true(DiceScoring.qualifies(DiceScoring.TWO_KIND, _d([6, 6, 6, 6, 5, 5]), ctx))
-	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6, 5, 5]), [], false, [], [], {}, ctx)
+	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6, 5, 5]), [], false, [], {}, ctx)
 	assert_eq(hand["key"], DiceScoring.TWO_KIND)
 
 func test_participating_indices_map_back_to_the_real_slots():
@@ -392,15 +392,15 @@ func test_a_throw_without_legal_dice_scores_nothing():
 	# Kategorie greift nicht - der Neuwurf farkelt.
 	var ctx := _parity(DiceScoring.PARITY_ODD)
 	assert_false(DiceScoring.qualifies(DiceScoring.ONE_KIND, _d([2, 4, 6]), ctx))
-	var hand := DiceScoring.best_hand(_d([2, 4, 6]), [], false, [], [], {}, ctx)
+	var hand := DiceScoring.best_hand(_d([2, 4, 6]), [], false, [], {}, ctx)
 	assert_eq(int(hand["score"]), 0)
 	assert_false(DiceScoring.is_strictly_better(_d([2, 4, 6]), _d([1, 2, 4]),
-		[], [], [], [], [], {}, ctx, ctx), "ohne legalen Würfel wird nichts besser")
+		[], [], [], {}, ctx, ctx), "ohne legalen Würfel wird nichts besser")
 
 func test_parity_only_counts_the_legal_eyes_in_the_base():
 	# Unter "nur gerade" trägt die 5 nichts bei - der Basiswert ist der eines
 	# reinen Vierer-Paars.
 	var ctx := _parity(DiceScoring.PARITY_EVEN)
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 5]), [], false,
-			[], [], {}, ctx),
+			[], {}, ctx),
 		DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4])))

@@ -41,18 +41,18 @@ func test_plain_die_uses_neutral_edge_neon():
 	assert_eq(display.edge_material_res.emission,
 		DieFaceDisplay.intense(DieFaceDisplay.EDGE_NEON) * DieFaceDisplay.EDGE_GLOW * Color.WHITE)
 
-func test_edge_material_tints_the_frame():
+func test_the_essence_tints_the_frame():
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
-	assert_eq(display.edge_base, DieMaterial.tint_for(DieMaterial.GOLD))
+	assert_eq(display.edge_base, Essence.glow_for(Essence.NEON), "die Kanten glühen in Essenzfarbe")
 
 func test_set_edge_tint_highlights_and_set_tint_restores():
-	# Kanten-Auswahl in der Gravur-Station: set_edge_tint übersteuert den Rahmen,
-	# set_tint stellt danach die Materialfarbe wieder her.
+	# Rahmen-Auswahl in der Gravur-Station: set_edge_tint übersteuert ihn,
+	# set_tint stellt danach den normalen Rahmen wieder her.
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
 	display.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
@@ -62,12 +62,13 @@ func test_set_edge_tint_highlights_and_set_tint_restores():
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_UNSHADED,
 		"der hervorgehobene Rahmen wird unschattiert gezeigt")
 	display.set_tint(Color.WHITE)
-	var gold := DieMaterial.gold()
-	assert_eq(display.edge_material_res.albedo_color, gold.surface_color * Color.WHITE,
-		"die echte Gold-Albedo kehrt zurück")
+	# Die Kanten tragen kein Material mehr - der Körper bleibt dunkles Glas, das
+	# Licht liegt allein in der Emission der Essenz.
+	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.BODY_COLOR * Color.WHITE,
+		"der Glaskörper des Rahmens kehrt zurück")
 	assert_almost_eq(display.edge_material_res.emission.r,
-		DieFaceDisplay.intense(gold.tint).r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
-		"das Kanten-Neon (Distanz-Floor) kehrt zurück")
+		DieFaceDisplay.intense(Essence.glow_for(Essence.NEON)).r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
+		"das Essenzglühen kehrt zurück")
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_PER_PIXEL,
 		"set_tint nimmt die unschattierte Auswahl wieder zurück")
 
@@ -150,29 +151,10 @@ func test_ruby_face_gets_its_facet_normal_map():
 	assert_true(_face_material(display, 0).normal_enabled, "Rubin-Facetten fangen Licht")
 	assert_false(_face_material(display, 1).normal_enabled, "neutrale Seiten bleiben flach")
 
-func test_mercury_face_flows_plain_faces_stay_still():
-	var def := DieDefinition.standard()
-	def.materials[0] = DieMaterial.MERCURY
-	var display := _display()
-	display.apply_definition(def)
-	display._process(0.5)
-	assert_ne(_face_material(display, 0).uv1_offset, Vector3.ZERO,
-		"Quecksilber-Oberfläche driftet")
-	assert_eq(_face_material(display, 1).uv1_offset, Vector3.ZERO,
-		"neutrale Seiten fließen nicht")
-
-func test_mercury_edges_flow_too():
-	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.MERCURY
-	var display := _display()
-	display.apply_definition(def)
-	display._process(0.5)
-	assert_ne(display.edge_material_res.uv1_offset, Vector3.ZERO)
-
 func test_glass_edges_stay_opaque():
 	# Der Füllkörper hinter dem Rahmen IST die Würfelmasse - Alpha würde ihn aushöhlen.
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GLASS
+	def.essence_id = Essence.XENON
 	var display := _display()
 	display.apply_definition(def)
 	assert_eq(display.edge_material_res.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED)
@@ -226,7 +208,7 @@ func test_bone_frame_stays_dark():
 
 func test_material_edges_glow_at_least_the_distance_floor():
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
 	var gold := DieMaterial.gold()
@@ -234,20 +216,19 @@ func test_material_edges_glow_at_least_the_distance_floor():
 		DieFaceDisplay.intense(gold.tint).r * DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, 0.001,
 		"Gold-Kanten glühen mindestens auf Floor-Stärke (dünne Linien brauchen Emission)")
 
-func test_bone_edges_stay_dark():
-	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.BONE
-	var display := _display()
-	display.apply_definition(def)
-	assert_eq(display.edge_material_res.emission, Color(0, 0, 0, 0),
-		"der Floor gilt nicht für Knochen - seine Identität ist Nicht-Leuchten")
-
-func test_corner_caps_only_with_edge_material():
+func test_essence_less_edges_keep_the_neutral_neon():
+	# Ohne Seele glüht der Würfel nicht in einer Essenzfarbe, sondern im
+	# neutralen Kanten-Neon.
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
-	assert_false(display.corner_caps.visible, "ohne Kanten-Material keine Kappen")
+	assert_eq(display.edge_base, DieFaceDisplay.EDGE_COLOR, "kein Essenzglühen")
+
+func test_corner_caps_only_with_an_essence():
+	var display := _display()
+	display.apply_definition(DieDefinition.standard())
+	assert_false(display.corner_caps.visible, "ohne Essenz keine Kappen")
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	display.apply_definition(def)
 	assert_true(display.corner_caps.visible, "Kanten-Material beschlägt die Ecken")
 	assert_eq(display.corner_caps.get_child_count(), 8)
@@ -273,7 +254,7 @@ func test_plain_die_pools_in_the_bare_edge_tone():
 
 func test_material_die_pools_stronger_in_material_color():
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
 	assert_almost_eq(display._pool_color.a,
@@ -282,33 +263,33 @@ func test_material_die_pools_stronger_in_material_color():
 	assert_almost_eq(display._pool_color.r, gold_tint.r, 0.001)
 	assert_almost_eq(display._pool_color.b, gold_tint.b, 0.001)
 
-func test_edge_material_alone_decides_the_pool_color():
-	# Die Kanten SIND die Quelle: Gold-Kanten + Quecksilber-Seite werfen einen
-	# rein goldenen Schein, die Seitenfarbe mischt sich nicht ein.
+func test_the_essence_alone_decides_the_pool_color():
+	# Die Essenz IST die Quelle: sie wirft den Schein allein, die Seitenfarbe
+	# mischt sich nicht ein.
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
-	def.materials[0] = DieMaterial.MERCURY
+	def.essence_id = Essence.NEON
+	def.materials[0] = DieMaterial.RUBY
 	var display := _display()
 	display.apply_definition(def)
-	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
+	var expected := DieFaceDisplay.intense(Essence.glow_for(Essence.NEON))
 	assert_almost_eq(display._pool_color.r, expected.r, 0.001)
 	assert_almost_eq(display._pool_color.g, expected.g, 0.001)
 	assert_almost_eq(display._pool_color.b, expected.b, 0.001)
 
 func test_faces_alone_still_tint_the_pool():
 	var def := DieDefinition.standard()
-	def.materials[0] = DieMaterial.MERCURY
+	def.materials[0] = DieMaterial.RUBY
 	var display := _display()
 	display.apply_definition(def)
 	assert_almost_eq(display._pool_color.a,
 		DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_MATERIAL_STRENGTH, 0.001,
 		"ohne Kanten-Material bleibt es beim schwächeren Seiten-Schein")
-	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.MERCURY))
+	var expected := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.RUBY))
 	assert_almost_eq(display._pool_color.b, expected.b, 0.001)
 
 func test_body_tint_colors_the_pool():
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
 	display.set_tint(Color(0.5, 0.5, 0.5))
@@ -326,7 +307,7 @@ func test_a_die_looks_the_same_wherever_it_lies():
 	# liegt. Es gibt kein Würfellicht mehr - Grube, Tray und Werkstatt zeigen
 	# dieselbe Emission. Nur die Lache am Boden ist der Grube vorbehalten.
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	var in_pit := _display()
 	in_pit.apply_definition(def)
 	var on_tray := _display()
@@ -357,7 +338,7 @@ func test_bare_dice_stay_below_the_bloom_threshold() -> void:
 	assert_lt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
 		"kahle Kanten glühen nicht über")
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
+	def.essence_id = Essence.NEON
 	display.apply_definition(def)
 	assert_gt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
 		"eine veredelte Kante glüht sehr wohl")
@@ -395,36 +376,10 @@ func _shell_strength(display: DieFaceDisplay) -> float:
 func _shell_color(display: DieFaceDisplay) -> Vector3:
 	return display.shell_material.get_shader_parameter("glow_color")
 
-func test_every_die_radiates_its_color_anywhere():
-	# Die Abstrahlung hängt am Würfel (Fresnel-Hülle), nicht am Boden - sie
-	# wirkt also in Grube, Tray, Werkstatt und Inspektor gleich. Rangfolge:
-	# kahl < Seiten-Material < Kanten-Material.
-	var plain := _display()
-	plain.apply_definition(DieDefinition.standard())
-	var face_def := DieDefinition.standard()
-	face_def.materials[0] = DieMaterial.RUBY
-	var faced := _display()
-	faced.apply_definition(face_def)
-	var edge_def := DieDefinition.standard()
-	edge_def.edge_material = DieMaterial.RUBY
-	var edged := _display()
-	edged.apply_definition(edge_def)
-
-	assert_gt(_shell_strength(plain), 0.0, "auch der blanke Würfel strahlt einen Hauch")
-	assert_gt(_shell_strength(faced), _shell_strength(plain), "Seiten-Material strahlt mehr")
-	assert_gt(_shell_strength(edged), _shell_strength(faced), "Kanten-Material strahlt am meisten")
-
-	# Und zwar unabhängig davon, ob der Würfel in der Grube liegt.
-	var pooled := _display()
-	pooled.apply_definition(edge_def)
-	assert_almost_eq(_shell_strength(pooled), _shell_strength(edged), 0.001,
-		"Grube und Tray strahlen gleich stark")
-	assert_eq(_shell_color(pooled), _shell_color(edged), "und in derselben Farbe")
-
-func test_edge_material_alone_decides_the_radiated_color():
+func test_the_essence_alone_decides_the_radiated_color():
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.GOLD
-	def.materials[0] = DieMaterial.MERCURY
+	def.essence_id = Essence.NEON
+	def.materials[0] = DieMaterial.RUBY
 	var display := _display()
 	display.apply_definition(def)
 	var gold := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
@@ -432,13 +387,15 @@ func test_edge_material_alone_decides_the_radiated_color():
 	assert_almost_eq(color.x, gold.r, 0.001, "die Kante gibt die Abstrahlfarbe allein vor")
 	assert_almost_eq(color.z, gold.b, 0.001)
 
-func test_bone_edges_radiate_nothing():
+func test_an_essence_radiates_more_than_a_bare_die():
+	# Rangfolge kahl < Seiten-Material < Essenz: das Gas glüht dauernd.
+	var plain := _display()
+	plain.apply_definition(DieDefinition.standard())
 	var def := DieDefinition.standard()
-	def.edge_material = DieMaterial.BONE
-	var display := _display()
-	display.apply_definition(def)
-	assert_eq(_shell_strength(display), 0.0,
-		"Knochen strahlt nie - glow == 0 ist seine Identität")
+	def.essence_id = Essence.NITROGEN
+	var souled := _display()
+	souled.apply_definition(def)
+	assert_gt(_shell_strength(souled), _shell_strength(plain), "die Seele strahlt am stärksten")
 
 func test_pool_follows_the_die_size():
 	# glow_pool ist top_level und erbt keine Skalierung: ein kleiner Tray-Würfel

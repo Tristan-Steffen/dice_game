@@ -96,8 +96,8 @@ const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)
 const FUMBLE_COLOR := Color(2.4, 0.16, 0.18, 0.95)
 const FUMBLE_WORD := "FUMBLE"
 const FUMBLE_WORD_FONT := 92 * SUPERSAMPLE
-const FUMBLE_HOLD := 0.28
-const FUMBLE_FADE := 0.45
+const FUMBLE_HOLD := 0.9
+const FUMBLE_FADE := 0.6
 ## Gemächlich: die Welle braucht spürbar Zeit bis zur entferntesten Ecke.
 const FUMBLE_WAVE_TIME := 2.0
 const FUMBLE_WAVE_WIDTH := 55.0 * SUPERSAMPLE
@@ -232,6 +232,10 @@ var _mult_home := Vector2.ZERO
 
 ## Trägerfläche ist klick-durchlässig; nur die Buttons fangen ihre Klicks.
 var pit_actions_root: Control
+## Irrlicht-Mobiliar: der Kipp-Knopf und die vier Nachbarseiten darüber.
+var tip_action_button: Button
+var tip_face_row: HBoxContainer
+var tip_face_buttons: Array[Button] = []
 var take_action_button: Button
 var roll_action_button: Button
 var bank_action_button: Button  # Runde bei ≥1 Überladungs-Stufe vorzeitig beenden
@@ -2417,6 +2421,23 @@ func _build_pit_actions() -> void:
 	bank_action_button.visible = false
 	pit_actions_root.add_child(bank_action_button)
 
+	# Irrlicht: der Kipp-Knopf klappt eine Reihe mit den vier Nachbarseiten auf.
+	# Beides ist Gruben-Mobiliar und geht mit dem Rest, wenn die Kamera abreist.
+	tip_action_button = _make_pit_button("Kippen", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
+	tip_action_button.visible = false
+	pit_actions_root.add_child(tip_action_button)
+	tip_face_row = HBoxContainer.new()
+	tip_face_row.name = "TipFaces"
+	tip_face_row.add_theme_constant_override("separation", int(PIT_ACTION_GAP))
+	tip_face_row.visible = false
+	pit_actions_root.add_child(tip_face_row)
+	for i in 4:
+		var face_button := _make_pit_button("?", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
+		face_button.custom_minimum_size = Vector2(PIT_ACTION_SIZE.y, PIT_ACTION_SIZE.y)
+		face_button.size = Vector2(PIT_ACTION_SIZE.y, PIT_ACTION_SIZE.y)
+		tip_face_row.add_child(face_button)
+		tip_face_buttons.append(face_button)
+
 ## Neon-Button im Casino-Look mit supersampled-skalierten Rändern/Radien
 ## (CasinoStyle rechnet in Fenster-Pixeln - 3px wären hier fast unsichtbar).
 func _make_pit_button(text: String, accent: Color, dark: Color) -> Button:
@@ -2468,6 +2489,9 @@ func place_pit_actions(bar_rect: Rect2) -> void:
 	# Bündig mit der Feld-Unterkante (Feldhöhe minus Knopfhöhe).
 	var side_y := bar_rect.size.y - PIT_ACTION_SIZE.y
 	take_action_button.position = Vector2(0.0, side_y)
+	# Der Kipp-Knopf sitzt über "Nehmen", seine Seiten-Reihe direkt darüber.
+	tip_action_button.position = Vector2(0.0, side_y - PIT_ACTION_SIZE.y - PIT_ACTION_GAP)
+	tip_face_row.position = Vector2(0.0, tip_action_button.position.y - PIT_ACTION_SIZE.y - PIT_ACTION_GAP)
 	roll_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x, side_y)
 	bank_action_button.position = Vector2(
 		pit_actions_root.size.x - PIT_ACTION_SIZE.x,

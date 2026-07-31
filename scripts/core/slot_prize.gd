@@ -5,17 +5,17 @@ extends RefCounted
 ## beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
 ## Auszahlen - mit Multiplikator je Trefferzahl. Reine Daten, keine Nodes.
 ##
-## Die drei Gravur-Sorten sind EIGENE Symbole (Zahlen/Material/Kanten) - dieselbe
+## Die drei Gravur-Sorten sind EIGENE Symbole (Zahlen/Material/Würfel) - dieselbe
 ## Dreiteilung wie Pakete im Laden und Schubladen an der Werkbank. Der Automat
 ## zahlt NUR in Ware; Geld verdient man an den Runden, nicht am Automaten.
-enum Kind { FUMBLE, ENGRAVING, MATERIAL, EDGE, CHARM, DIE }
+enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, CHARM, DIE }
 
 ## Gravur-Kategorie eines Symbol-Kinds ("" = kein Gravur-Symbol).
 static func category_of(kind_value: int) -> String:
 	match kind_value:
 		Kind.ENGRAVING: return Engraving.CATEGORY_NUMBER
 		Kind.MATERIAL: return Engraving.CATEGORY_MATERIAL
-		Kind.EDGE: return Engraving.CATEGORY_DICE
+		Kind.DICE_ENGRAVING: return Engraving.CATEGORY_DICE
 	return ""
 
 var kind: int = Kind.FUMBLE
@@ -52,12 +52,12 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 
 ## Symbol-Glyphe eines Kind (auch für bloße Wand-Symbole ohne aufgelösten Preis).
 ## Die Zeichen folgen der Bildsprache der Paket-Siegel: Auge für Zahlen, Stein für
-## Material, Rahmen für Kanten (siehe PackIconRenderer).
+## Material, Rahmen für Würfel-Gravuren (siehe PackIconRenderer).
 static func symbol_for(kind_value: int) -> String:
 	match kind_value:
 		Kind.ENGRAVING: return "◉"
 		Kind.MATERIAL: return "◆"
-		Kind.EDGE: return "▣"
+		Kind.DICE_ENGRAVING: return "▣"
 		Kind.CHARM: return "✦"
 		Kind.DIE: return "⬢"
 	return "✖"   # Fumble
@@ -67,7 +67,7 @@ static func category_name(kind_value: int, count: int = 1) -> String:
 	match kind_value:
 		Kind.ENGRAVING: return "Gravur" if count == 1 else "Gravuren"
 		Kind.MATERIAL: return "Material" if count == 1 else "Materialien"
-		Kind.EDGE: return "Kante" if count == 1 else "Kanten"
+		Kind.DICE_ENGRAVING: return "Würfel-Gravur" if count == 1 else "Würfel-Gravuren"
 		Kind.CHARM: return "Charm" if count == 1 else "Charms"
 		Kind.DIE: return "Würfel"
 	return "Fumble"

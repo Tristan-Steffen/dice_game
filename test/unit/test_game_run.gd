@@ -32,12 +32,6 @@ func test_pool_entries_are_independent_instances():
 	run.owned_pool[0].faces[0] = 6
 	assert_eq(run.owned_pool[1].faces[0], 1, "Nachbar-Würfel bleibt unberührt")
 
-func test_edge_die_count_counts_owned_edge_dice():
-	assert_eq(run.edge_die_count(), 0, "frischer Pool ohne Kanten-Material")
-	run.owned_pool[0].edge_material = DieMaterial.GOLD
-	run.owned_pool[3].edge_material = DieMaterial.MERCURY
-	assert_eq(run.edge_die_count(), 2, "zwei Würfel mit Kanten-Material im ganzen Besitz")
-
 # --- Geld ----------------------------------------------------------------------
 
 func test_add_money_accumulates_and_emits():
@@ -467,14 +461,6 @@ func test_advance_round_follows_the_curve_across_a_block_edge():
 
 # --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
 
-func test_randomize_all_materials_fills_every_face_and_edge():
-	run.randomize_all_materials()
-	for die in run.owned_pool:
-		assert_eq(die.materials.size(), 6, "weiterhin 6 Seiten-Materialien")
-		for material_id: String in die.materials:
-			assert_true(DieMaterial.is_valid_id(material_id), "gültiges Seiten-Material (%s)" % material_id)
-		assert_true(DieMaterial.is_valid_id(die.edge_material), "gültiges Kanten-Material (%s)" % die.edge_material)
-
 func test_randomize_gives_each_die_an_independent_array():
 	# Kein geteiltes materials-Array: eine In-place-Änderung an einem Würfel darf
 	# keinen anderen mitverändern (Sentinel-Wert, deterministisch).
@@ -483,39 +469,34 @@ func test_randomize_gives_each_die_an_independent_array():
 	for i in range(1, run.owned_pool.size()):
 		assert_ne(run.owned_pool[i].materials[0], "SENTINEL", "Würfel %d teilt kein Array mit Würfel 0" % i)
 
-func test_clear_all_materials_empties_faces_and_edges():
+func test_randomize_also_raises_some_faces():
+	# Testmodus zeigt die Stufen-Wirkungen ohne Gravur-Grind: ein Teil der
+	# Material-Seiten kommt gehoben (30 Würfel × 6 Seiten - nie alles auf I).
 	run.randomize_all_materials()
-	run.clear_all_materials()
+	var raised := 0
 	for die in run.owned_pool:
-		for material_id: String in die.materials:
-			assert_eq(material_id, "", "Seiten-Material geleert")
-		assert_eq(die.edge_material, "", "Kanten-Material geleert")
+		assert_eq(die.levels.size(), 6, "weiterhin 6 Stufen")
+		for level: int in die.levels:
+			assert_true(level >= 1 and level <= DieMaterial.MAX_LEVEL, "Stufe im Rahmen: %d" % level)
+			if level >= 2:
+				raised += 1
+	assert_gt(raised, 0, "irgendeine Seite steht über Stufe I")
 
-func test_randomize_also_dopes_some_faces():
-	# Testmodus zeigt die Stufe-II-Wirkungen ohne Gravur-Grind: ein Teil der
-	# Material-Seiten kommt dotiert (30 Würfel × 6 Seiten - nie alles leer).
+func test_randomize_gives_each_die_an_independent_level_array():
 	run.randomize_all_materials()
-	var doped := 0
-	for die in run.owned_pool:
-		assert_eq(die.upgraded.size(), 6, "weiterhin 6 Marken")
-		doped += die.upgraded.count(true)
-	assert_gt(doped, 0, "irgendeine Seite steht auf Stufe II")
-
-func test_randomize_gives_each_die_an_independent_upgrade_array():
-	run.randomize_all_materials()
-	run.owned_pool[0].upgraded[0] = not run.owned_pool[0].upgraded[0]
-	var sentinel: bool = run.owned_pool[0].upgraded[0]
+	run.owned_pool[0].levels[0] = 0  # ein Wert, den der Würfelwurf nie erzeugt
 	var differs := false
 	for i in range(1, run.owned_pool.size()):
-		if run.owned_pool[i].upgraded[0] != sentinel:
+		if run.owned_pool[i].levels[0] != 0:
 			differs = true
-	assert_true(differs, "kein geteiltes upgraded-Array")
+	assert_true(differs, "kein geteiltes levels-Array")
 
-func test_clear_all_materials_also_clears_the_doping():
+func test_clear_all_materials_also_clears_the_levels():
 	run.randomize_all_materials()
 	run.clear_all_materials()
 	for die in run.owned_pool:
-		assert_false(die.upgraded.has(true), "ohne Material keine Dotierung")
+		for level: int in die.levels:
+			assert_eq(level, 0, "ohne Material keine Stufe")
 
 # --- Testhilfen: Zufalls-Leiterbahnen (Testmodus) --------------------------------
 
@@ -687,33 +668,33 @@ func test_midas_glove_stays_cold_below_six_dice():
 	assert_eq(run.apply_midas_glove(defs, _p([0, 0, 0, 0, 0]), _p([0, 1, 2, 3, 4])).size(), 0)
 	assert_eq(defs[0].materials[0], "", "nichts vergoldet")
 
-func test_midas_glove_clears_the_doping_of_the_face_it_gilds():
-	# Neues Material auf der Seite - die alte Dotierung gehoert dem alten Exemplar.
+func test_midas_glove_resets_the_level_of_the_face_it_gilds():
+	# Neues Material auf der Seite - die alte Stufe gehoert dem alten Exemplar.
 	run.owned_charms.append(Charm.midas_glove())
 	var defs: Array[DieDefinition] = []
 	for i in 6:
 		var die := DieDefinition.standard()
 		die.set_face_material(i, DieMaterial.RUBY)
-		die.upgraded[i] = true
+		die.levels[i] = DieMaterial.MAX_LEVEL
 		defs.append(die)
 	var faces := _p([0, 1, 2, 3, 4, 5])
 	run.apply_midas_glove(defs, faces, _p([0, 1, 2, 3, 4, 5]))
 	for i in 6:
 		assert_eq(defs[i].materials[faces[i]], DieMaterial.GOLD)
-		assert_false(defs[i].upgraded[faces[i]], "die Rubin-Dotierung ist mit dem Rubin weg")
+		assert_eq(defs[i].material_level(faces[i]), 1, "die Rubin-Stufe ist mit dem Rubin weg")
 
-func test_jewelry_box_clears_the_doping_of_the_face_it_hits():
+func test_jewelry_box_resets_the_level_of_the_face_it_hits():
 	run.owned_charms.append(Charm.jewelry_box())
 	var many: Array[DieDefinition] = []
 	for i in 200:
 		var die := DieDefinition.standard()
-		die.upgraded.fill(true)
+		die.levels.fill(DieMaterial.MAX_LEVEL)
 		many.append(die)
 	run.apply_jewelry_box(many)
 	for die in many:
 		for face in 6:
 			if die.materials[face] != "":
-				assert_false(die.upgraded[face], "belegte Seite verliert ihre Dotierung")
+				assert_eq(die.material_level(face), 1, "belegte Seite fängt wieder bei I an")
 
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 

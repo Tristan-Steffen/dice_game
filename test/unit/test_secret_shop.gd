@@ -134,8 +134,10 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	var run := _discovered()
 	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
 	assert_eq(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING)
+	# Der dritte Platz ist die Wildcard: Charm, Sonderposten ODER Essenzwürfel.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
-	assert_true(wildcard == GameRun.KIND_CHARM or wildcard == GameRun.KIND_ENGRAVING)
+	assert_true(wildcard == GameRun.KIND_CHARM or wildcard == GameRun.KIND_ENGRAVING
+		or wildcard == GameRun.KIND_DIE, "unbekannte Wildcard-Ware: %s" % wildcard)
 
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)
@@ -183,8 +185,8 @@ func test_owned_legendaries_are_excluded_from_the_roll() -> void:
 	run.unlock_secret_shop()
 	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
-	assert_eq(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING,
-		"er liegt schon in der Auslage - die Wildcard fällt auf den Sonderbestand zurück")
+	assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_CHARM,
+		"er liegt schon in der Auslage - die Wildcard weicht auf Sonderbestand oder Essenzwürfel aus")
 
 func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	var run := _run()
@@ -194,7 +196,9 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	run.unlock_secret_shop()
 	assert_eq(run.secret_stock.size(), 3)
 	for offer in run.secret_stock:
-		assert_eq(offer[GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING, "die Auslage kann nie tot sein")
+		# Ohne Charms bleiben Sonderposten und Essenzwürfel - tot wird die
+		# Auslage nie.
+		assert_ne(offer[GameRun.OFFER_KIND], GameRun.KIND_CHARM, "die Auslage kann nie tot sein")
 
 # --- Neuwurf -------------------------------------------------------------------
 
@@ -311,3 +315,60 @@ func test_rag_collector_rolls_its_number_on_either_path() -> void:
 	})
 	assert_true(market.buy_secret_offer(0))
 	assert_between(market.lumpensammler_value, 1, 6)
+
+# --- Essenzwürfel: der einzige Weg an eine Schwarzmarkt-Seele --------------------
+
+func test_the_wildcard_can_offer_an_essence_die() -> void:
+	# Über viele Auslagen muss der Würfel-Platz vorkommen - er ist die einzige
+	# Quelle der geheimen Essenzen.
+	var run := _run()
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()
+	var seen_die := false
+	for i in 200:
+		run._roll_secret_stock()
+		if run.secret_stock[2][GameRun.OFFER_KIND] == GameRun.KIND_DIE:
+			seen_die = true
+			var die: DieDefinition = run.secret_stock[2][GameRun.OFFER_ITEM]
+			var essence := Essence.by_id(die.essence_id)
+			assert_not_null(essence, "der Würfel trägt eine echte Seele")
+			assert_true(essence.secret, "und zwar eine, die es nur hier gibt")
+			assert_gt(int(run.secret_stock[2][GameRun.OFFER_PRICE]), 0, "und sie kostet ⚡")
+	assert_true(seen_die, "der Wildcard-Platz zeigt auch Essenzwürfel")
+
+func test_the_die_price_climbs_with_the_rarity() -> void:
+	assert_lt(int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.RARE]),
+		int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.EPIC]))
+	assert_lt(int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.EPIC]),
+		int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.LEGENDARY]))
+
+func test_buying_an_essence_die_takes_a_soulless_pool_slot() -> void:
+	var run := _run()
+	run.charge = 40
+	run.unlock_secret_shop()
+	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
+	die.essence_id = Essence.RADON
+	run.secret_stock[2] = {
+		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
+	}
+	for pool_die in run.owned_pool:
+		pool_die.essence_id = Essence.NEON
+	run.owned_pool[4].essence_id = ""
+	var before := run.charge
+	assert_true(run.buy_secret_offer(2))
+	assert_eq(run.owned_pool[4].essence_id, Essence.RADON, "der seelenlose Platz nimmt die neue Seele auf")
+	assert_eq(run.charge, before - 6, "der Preis ist abgebucht")
+	assert_true(bool(run.secret_stock[2][GameRun.OFFER_SOLD]), "der Platz bleibt leer")
+
+func test_an_owned_unique_never_returns_to_the_black_market() -> void:
+	var run := _run()
+	run.charge = GameRun.SECRET_UNLOCK_PRICE
+	run.unlock_secret_shop()
+	run.owned_pool[0].essence_id = Essence.ANTIMATTER
+	for i in 200:
+		run._roll_secret_stock()
+		if run.secret_stock[2][GameRun.OFFER_KIND] != GameRun.KIND_DIE:
+			continue
+		var die: DieDefinition = run.secret_stock[2][GameRun.OFFER_ITEM]
+		assert_ne(die.essence_id, Essence.ANTIMATTER, "Unikat schon im Besitz")

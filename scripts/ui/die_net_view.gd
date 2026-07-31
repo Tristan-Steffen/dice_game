@@ -1,9 +1,9 @@
 class_name DieNetView
 ## Statischer Bauhelfer des Würfelnetzes: alle 6 Seiten eines Würfels als
-## aufgeklapptes Kreuz. Zellfarbe = Seiten-Material, Zellrahmen = Kanten-Material
-## (Echo der Kante), Gold-Rahmen markiert die oben liegende Seite. In der leeren
-## oberen linken Kreuz-Ecke sitzt der Kanten-Chip (eine getönte Raute) - fester
-## Platz, an dem die Kante lebt; leer bleibt er als schwacher Umriss.
+## aufgeklapptes Kreuz. Zellfarbe = Seiten-Material, Zellrahmen = Essenzglühen
+## (Echo der Kanten), Gold-Rahmen markiert die oben liegende Seite. In der leeren
+## oberen linken Kreuz-Ecke sitzt der Essenz-Chip (eine getönte Raute) - fester
+## Platz, an dem die Seele des Würfels lebt; leer bleibt er als schwacher Umriss.
 
 const GAP_FACTOR := 0.1  # Zellabstand relativ zur Zellgröße
 
@@ -25,9 +25,9 @@ const EDGE_CELL := Vector2i(0, 0)
 ## Leiterbahn-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
 const POINTER_COLOR := Color("#8be9fd")
 
-## Dotierungs-Marke (Stufe II) in der unteren RECHTEN Zellecke - Kantenanteil.
+## Stufen-Plakette (ab Stufe II) in der unteren RECHTEN Zellecke - Kantenanteil.
 ## Die Ecke ist frei: die Zeiger-Pfeile sitzen mittig auf den Zellrändern.
-const DOPING_BADGE := 0.34
+const LEVEL_BADGE := 0.34
 ## Je Seite: welcher Zellrand der gequerten Würfelkante zum Nachbarn entspricht,
 ## wenn das Kreuz gefaltet wird. Nachbarzellen liegen im Netz nicht immer
 ## nebeneinander (5->1 wickelt herum) - darum Pfeil AM Rand, kein Verbindungsstrich.
@@ -67,7 +67,9 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 				root.add_child(_up_frame(pos, cell))
 			root.add_child(_face_cell(def, face_index, pos, cell))
 	root.add_child(_edge_chip(def, cell))
-	for badge in doping_badges(def, cell):
+	for crack in rift_cracks(def, cell):
+		root.add_child(crack)
+	for badge in level_badges(def, cell):
 		root.add_child(badge)
 	for arrow in _pointer_arrows(def, cell):
 		root.add_child(arrow)
@@ -103,18 +105,18 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
 	var box := StyleBoxFlat.new()
 	box.bg_color = DieMaterial.tint_for(material_id)
-	var has_edge := DieMaterial.is_valid_id(def.edge_material)
-	box.border_color = DieMaterial.tint_for(def.edge_material) if has_edge else DiceRowView.CHIP_BORDER
-	# Kanten-Material dick und farbig, sonst dezente Haarlinie.
-	box.set_border_width_all(maxi(2, int(cell * (0.1 if has_edge else 0.04))))
+	var has_essence := Essence.is_valid_id(def.essence_id)
+	box.border_color = Essence.glow_for(def.essence_id) if has_essence else DiceRowView.CHIP_BORDER
+	# Essenzglühen dick und farbig, sonst dezente Haarlinie.
+	box.set_border_width_all(maxi(2, int(cell * (0.1 if has_essence else 0.04))))
 	box.set_corner_radius_all(int(cell * 0.2))
 	chip.add_theme_stylebox_override("normal", box)
 	return chip
 
-## Kanten-Chip in der leeren oberen linken Kreuz-Ecke: eine auf die Spitze
-## gestellte Raute (der Würfel Kante-von-vorn) in der Kanten-Materialfarbe;
-## ohne Kante nur ein schwacher Umriss - der Platz bleibt, damit der Spieler
-## die Kante immer hier findet.
+## Essenz-Chip in der leeren oberen linken Kreuz-Ecke: eine auf die Spitze
+## gestellte Raute (der Würfel Kante-von-vorn) im Essenzglühen; ohne Essenz nur
+## ein schwacher Umriss - der Platz bleibt, damit der Spieler die Seele des
+## Würfels immer hier findet.
 static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 	var d := cell * 0.62
 	var chip := Panel.new()
@@ -124,10 +126,10 @@ static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 	# Auf die Mitte der Ecke EDGE_CELL zentriert (Zeile 0, Spalte 0).
 	chip.position = Vector2(EDGE_CELL.y, EDGE_CELL.x) * cell + Vector2(cell - d, cell - d) / 2.0
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var has_edge := DieMaterial.is_valid_id(def.edge_material)
+	var has_essence := Essence.is_valid_id(def.essence_id)
 	var box := StyleBoxFlat.new()
-	box.bg_color = DieMaterial.tint_for(def.edge_material) if has_edge else Color(1, 1, 1, 0.04)
-	box.border_color = DiceRowView.CHIP_BORDER if has_edge else Color(0.72, 0.76, 0.8, 0.3)
+	box.bg_color = Essence.glow_for(def.essence_id) if has_essence else Color(1, 1, 1, 0.04)
+	box.border_color = DiceRowView.CHIP_BORDER if has_essence else Color(0.72, 0.76, 0.8, 0.3)
 	box.set_border_width_all(maxi(2, int(cell * 0.08)))
 	box.set_corner_radius_all(maxi(1, int(cell * 0.12)))
 	chip.add_theme_stylebox_override("panel", box)
@@ -160,17 +162,21 @@ static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	return _pointer_arrows(def, cell)
 
-## Je dotierter Seite eine Marke in ihrer unteren rechten Zellecke. Geometrie
-## statt Schrift: im 30er-Raster misst eine Zelle nur ~17 px, eine Ziffer wäre
-## dort Matsch - die helle Platte trägt allein, das "II" kommt bei Größe dazu.
-static func doping_badges(def: DieDefinition, cell: float) -> Array[Control]:
+## Je gehobener Seite eine Plakette in ihrer unteren rechten Zellecke. Stufe I
+## bleibt unmarkiert - sie ist der Normalfall, und eine Marke auf jeder Material-
+## Zelle wäre Rauschen. Geometrie statt Schrift: im 30er-Raster misst eine Zelle
+## nur ~17 px, eine Ziffer wäre dort Matsch - die helle Platte trägt allein, die
+## Balken ("II"/"III") lösen erst an der Station auf.
+static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 	var badges: Array[Control] = []
-	for face in mini(6, def.upgraded.size()):
-		if not def.upgraded[face]:
+	for face in mini(6, def.levels.size()):
+		var level: int = def.levels[face]
+		if level < 2:
 			continue
-		var badge := DopingBadge.new()
+		var badge := LevelBadge.new()
+		badge.level = level
 		badge.tint = DieMaterial.tint_for(def.materials[face] if face < def.materials.size() else "")
-		var side := cell * DOPING_BADGE
+		var side := cell * LEVEL_BADGE
 		var inset := cell * 0.04
 		badge.size = Vector2(side, side)
 		badge.position = _cell_pos(face, cell) + Vector2.ONE * (cell - side - inset)
@@ -178,24 +184,65 @@ static func doping_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Die Marke selbst: dunkle Platte mit zwei hellen Balken (das "II") in der
+## Je gebrochener Seite die Risslinien QUER DURCH DIE ZELLMITTE - dort ist der
+## einzige freie Platz (die Stufen-Plakette sitzt unten rechts, die Zeiger-Pfeile
+## auf den Rändern). Geometrie statt Typo: bei ~17 px Zelle liest sich ein
+## Linienzug, eine Ziffer nicht. Das Vakuum bricht schwarz.
+static func rift_cracks(def: DieDefinition, cell: float) -> Array[Control]:
+	var cracks: Array[Control] = []
+	for face in mini(6, def.rifts.size()):
+		for rift_id in def.rifts_on(face):
+			var crack := RiftCrack.new()
+			crack.lines = Rift.lines_for(rift_id)
+			crack.tint = RiftEffects.crack_color(rift_id, def.essence_id)
+			crack.size = Vector2.ONE * cell
+			crack.position = _cell_pos(face, cell)
+			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			cracks.append(crack)
+	return cracks
+
+## Der Riss selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
+## Zeiger-Pfeile und Stufen-Plakette, damit er auch auf einer hellen Material-
+## Zelle steht.
+class RiftCrack:
+	extends Control
+	var lines: Array[PackedVector2Array] = []
+	var tint := Color.WHITE
+
+	func _draw() -> void:
+		var width := maxf(1.0, size.x * 0.055)
+		for line in lines:
+			var points := PackedVector2Array()
+			for point in line:
+				points.append(point * size)
+			if points.size() < 2:
+				continue
+			# Unterzug zuerst, dann die Kernlinie darüber.
+			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
+			draw_polyline(points, tint, width)
+
+## Die Plakette selbst: dunkle Platte mit einem hellen Balken je Stufe in der
 ## Materialfarbe - dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf
 ## dunklem Unterzug). Die dunkle Platte trägt allein, wenn die Balken bei
 ## winzigen Zellen zu Textur zerfallen: jede Material-Zelle ist hell.
-class DopingBadge:
+class LevelBadge:
 	extends Control
 	var tint := Color.WHITE
+	var level := 2
 
 	func _draw() -> void:
 		var mark := tint.lightened(0.35)
 		mark.a = 1.0
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.12, 0.95), true)
 		draw_rect(Rect2(Vector2.ZERO, size), mark, false, maxf(1.0, size.x * 0.09))
-		var bar_w := maxf(1.0, size.x * 0.15)
+		var bars := clampi(level, 2, DieMaterial.MAX_LEVEL)
+		# Drei Balken brauchen schmalere Striche, sonst laufen sie zusammen.
+		var bar_w := maxf(1.0, size.x * (0.15 if bars < 3 else 0.11))
 		var bar_h := size.y * 0.46
 		var top := (size.y - bar_h) * 0.5
-		for sign_x: float in [-1.0, 1.0]:
-			var cx: float = size.x * 0.5 + sign_x * size.x * 0.17 - bar_w * 0.5
+		var step := size.x * 0.26
+		for b in bars:
+			var cx: float = size.x * 0.5 + (float(b) - float(bars - 1) * 0.5) * step - bar_w * 0.5
 			draw_rect(Rect2(Vector2(cx, top), Vector2(bar_w, bar_h)), mark, true)
 
 ## Zellposition eines Seiten-Index im Kreuz.

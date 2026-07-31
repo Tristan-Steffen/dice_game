@@ -3,8 +3,10 @@ extends GutTest
 ## analog zu test_charm/test_engraving: Vollständigkeit, eindeutige ids, gefüllte
 ## Anzeigefelder und die Auflösungs-Helfer (by_id/is_valid_id/tint_for).
 
-func test_all_returns_six_materials():
-	assert_eq(DieMaterial.all().size(), 6)
+func test_all_returns_five_materials():
+	# Quecksilber ist raus: es zahlte nicht, es löste aus - und gehört damit in
+	# eine andere Schicht (die Essenzen).
+	assert_eq(DieMaterial.all().size(), 5)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -17,9 +19,7 @@ func test_every_material_has_filled_metadata():
 		assert_ne(material.id, "", "id fehlt")
 		assert_ne(material.display_name, "", "display_name fehlt bei %s" % material.id)
 		assert_ne(material.description, "", "description fehlt bei %s" % material.id)
-		assert_ne(material.edge_description, "", "edge_description fehlt bei %s" % material.id)
 		assert_ne(material.short, "", "short fehlt bei %s" % material.id)
-		assert_ne(material.edge_short, "", "edge_short fehlt bei %s" % material.id)
 		assert_ne(material.tint, Color.WHITE, "eigene Seitenfarbe fehlt bei %s" % material.id)
 
 func test_by_id_resolves_and_rejects():
@@ -46,7 +46,6 @@ func test_signature_profiles_reflect_the_material_names():
 	assert_gt(DieMaterial.gold().metallic, 0.5, "Gold spiegelt")
 	assert_almost_eq(DieMaterial.bone().glow, 0.0, 0.001, "Knochen leuchtet nicht")
 	assert_lt(DieMaterial.glass().alpha, 1.0, "Glas ist durchsichtig")
-	assert_gt(DieMaterial.mercury().flow_speed, 0.0, "Quecksilber fließt")
 	assert_gt(DieMaterial.amber().glow, DieMaterial.gold().glow, "Bernstein glüht, Gold nicht")
 	assert_ne(DieMaterial.die_normal_for(DieMaterial.RUBY), null, "Rubin hat Facetten-Relief")
 
@@ -62,44 +61,46 @@ func test_face_hint_is_the_short_name_and_effect():
 	assert_eq(hint, "%s: %s" % [amber.display_name, amber.short], "«Name»: Kurzwirkung")
 	assert_false(hint.contains(amber.description), "nicht die lange Wirkungszeile")
 
-func test_edge_hint_marks_the_edges_and_uses_the_edge_short():
-	# Knochen wirkt an der Kante ANDERS als auf der Seite (die OBERE Seite wächst,
-	# egal welche) - der Kanten-Hinweis muss die Kanten-Kurzwirkung nehmen und
-	# als Kante ausweisen.
-	var bone := DieMaterial.bone()
-	var hint := DieMaterial.edge_hint(DieMaterial.BONE)
-	assert_true(hint.contains("Kanten"), "als Kanten-Wirkung ausgewiesen")
-	assert_true(hint.contains(bone.edge_short))
-	assert_ne(bone.edge_short, bone.short, "Knochen-Kante unterscheidet sich von der Seite")
-
 func test_short_hints_stay_short():
 	# Kern der Änderung: die Hover-Zeilen sind knapp (keine langen Sätze mehr).
 	for material in DieMaterial.all():
 		assert_lt(DieMaterial.face_hint(material.id).length(), 40,
 			"Seiten-Kurzhinweis zu lang bei %s" % material.id)
-		assert_lt(DieMaterial.edge_hint(material.id).length(), 48,
-			"Kanten-Kurzhinweis zu lang bei %s" % material.id)
 
-func test_every_material_has_a_second_level():
-	# Die Dotierung hebt jedes Material - nur Seiten, Kanten kennen keine Stufe II.
+func test_every_material_has_three_levels():
+	# Die Sättigung hebt jedes Material - nur Seiten, Kanten kennen keine Stufe.
 	for material in DieMaterial.all():
-		assert_ne(material.short_upgraded, "", "short_upgraded fehlt bei %s" % material.id)
-		assert_ne(material.description_upgraded, "", "description_upgraded fehlt bei %s" % material.id)
-		assert_ne(material.short_upgraded, material.short, "Stufe II wirkt anders bei %s" % material.id)
+		for level in [2, 3]:
+			assert_ne(material.short_for(level), "", "Stufe %d ohne Kurzwirkung bei %s" % [level, material.id])
+			assert_ne(material.description_for(level), "", "Stufe %d ohne Beschreibung bei %s" % [level, material.id])
+		assert_ne(material.short_for(2), material.short, "Stufe II wirkt anders bei %s" % material.id)
+		assert_ne(material.short_for(3), material.short_for(2), "Stufe III wirkt anders bei %s" % material.id)
 
-func test_face_hint_marks_the_upgraded_level():
+func test_short_for_falls_back_to_the_first_level():
 	var ruby := DieMaterial.ruby()
-	var hint := DieMaterial.face_hint(DieMaterial.RUBY, true)
-	assert_eq(hint, "%s II: %s" % [ruby.display_name, ruby.short_upgraded])
-	assert_ne(hint, DieMaterial.face_hint(DieMaterial.RUBY))
-	assert_eq(DieMaterial.face_hint("", true), "", "ohne Material auch dotiert nichts")
+	assert_eq(ruby.short_for(1), ruby.short)
+	assert_eq(ruby.description_for(1), ruby.description)
+	assert_eq(ruby.short_for(0), ruby.short, "auch ohne gesetzte Stufe gilt I")
 
-func test_upgraded_short_hints_stay_short():
+func test_level_roman_names_only_the_raised_levels():
+	assert_eq(DieMaterial.level_roman(1), "", "Stufe I nennt sich nicht - sie ist der Normalfall")
+	assert_eq(DieMaterial.level_roman(2), "II")
+	assert_eq(DieMaterial.level_roman(3), "III")
+
+func test_face_hint_marks_the_raised_level():
+	var ruby := DieMaterial.ruby()
+	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 2), "%s II: %s" % [ruby.display_name, ruby.short_for(2)])
+	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 3), "%s III: %s" % [ruby.display_name, ruby.short_for(3)])
+	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 1), "%s: %s" % [ruby.display_name, ruby.short],
+		"Stufe I bleibt die schlichte Namenszeile")
+	assert_eq(DieMaterial.face_hint("", 3), "", "ohne Material auch gehoben nichts")
+
+func test_raised_short_hints_stay_short():
 	for material in DieMaterial.all():
-		assert_lt(DieMaterial.face_hint(material.id, true).length(), 44,
-			"Stufe-II-Kurzhinweis zu lang bei %s" % material.id)
+		for level in [2, 3]:
+			assert_lt(DieMaterial.face_hint(material.id, level).length(), 44,
+				"Stufen-Kurzhinweis zu lang bei %s (Stufe %d)" % [material.id, level])
 
 func test_hints_are_empty_without_a_material():
 	assert_eq(DieMaterial.face_hint(""), "", "keine Seite ohne Material erklärt sich")
-	assert_eq(DieMaterial.edge_hint(""), "")
 	assert_eq(DieMaterial.face_hint("unobtainium"), "")

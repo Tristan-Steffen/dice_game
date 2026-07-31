@@ -4,23 +4,25 @@ extends Resource
 ## Wirkung löst EtchingEffects/MaterialEffects/GameRun über die id auf. ids sind
 ## Konstanten, damit Tippfehler Compilerfehler sind. Gravuren kommen in drei
 ## Kategorien: Zahl (verändert Augen), Material (belegt eine Seite), Würfel
-## (veredelt die Kanten). Kombinationen wertet die Systemkonsole auf (Übertakten).
+## (verdrahtet den ganzen Würfel). Kombinationen wertet die Systemkonsole auf.
 
 enum Rarity { COMMON, UNCOMMON, RARE, EPIC }
 
 # categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
-# (id = Material-id), WÜRFEL die Kanten des ganzen Würfels (id = EDGE_PREFIX +
-# Material-id).
+# (id = Material-id), WÜRFEL wirkt auf den ganzen Würfel (bislang nur die
+# Leiterbahn - die Kanten sind als Ausbau-Slot gestrichen).
 const CATEGORY_NUMBER := "number"
 const CATEGORY_MATERIAL := "material"
 const CATEGORY_DICE := "dice"
 
-const EDGE_PREFIX := "edge_"
-
 # --- Würfel-Gravur ohne Material: die Leiterbahn (Zeiger-Mechanik) ---
 const POINTER := "pointer"
 
-# --- Material-Gravur ohne eigenes Material: die Dotierung (hebt eine Stufe) ---
+# --- Bruchmuster: Schablonen, die eine Seite kontrolliert aufreißen. Die
+# Gravur-id IST die Rift-id, wie bei den Material-Gravuren.
+const BREAK_PREFIX := "break_"
+
+# --- Material-Gravur ohne eigenes Material: die Dotierung (+1 Sättigungsstufe) ---
 const DOPING := "doping"
 
 ## Sonderposten: einmalige Spezial-Gravuren. Sie behalten ihre Kategorie (und
@@ -71,20 +73,17 @@ const FOOTPRINT := {
 	BLUEPRINT: Vector2i(3, 3),
 	POINTER: Vector2i(3, 3),
 	DOPING: Vector2i(3, 3),
+	# Bruchmuster (Würfel-Kategorie) - die Fläche IST die Seltenheit
+	BREAK_PREFIX + Rift.STRAY_LIGHT: Vector2i(1, 1),
+	BREAK_PREFIX + Rift.BURN_IN: Vector2i(2, 1),
+	BREAK_PREFIX + Rift.AFTERGLOW: Vector2i(2, 2),
+	BREAK_PREFIX + Rift.SPARK_FLIGHT: Vector2i(2, 2),
 	# Material-Gravuren (id = Material-id)
 	DieMaterial.GOLD: Vector2i(1, 1),
 	DieMaterial.AMBER: Vector2i(2, 1),
 	DieMaterial.GLASS: Vector2i(1, 2),
 	DieMaterial.BONE: Vector2i(2, 2),
 	DieMaterial.RUBY: Vector2i(2, 2),
-	DieMaterial.MERCURY: Vector2i(3, 2),
-	# Würfel-Gravuren (Kanten) - stärker als die Seiten-Variante, größere Flächen
-	EDGE_PREFIX + DieMaterial.GOLD: Vector2i(2, 2),
-	EDGE_PREFIX + DieMaterial.AMBER: Vector2i(2, 2),
-	EDGE_PREFIX + DieMaterial.GLASS: Vector2i(2, 2),
-	EDGE_PREFIX + DieMaterial.BONE: Vector2i(3, 2),
-	EDGE_PREFIX + DieMaterial.RUBY: Vector2i(3, 2),
-	EDGE_PREFIX + DieMaterial.MERCURY: Vector2i(3, 3),
 }
 
 @export var id: String = ""
@@ -141,23 +140,44 @@ static func punch() -> Engraving:
 static func blueprint() -> Engraving:
 	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.EPIC)
 
-## Leiterbahn: die einzige Würfel-Gravur ohne Material - sie verdrahtet Seiten.
+## Bruchmuster-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
+## darüber, Nachglühen und Funkenflug sind die begehrten Risse.
+const RIFT_RARITY := {
+	Rift.STRAY_LIGHT: Rarity.COMMON,
+	Rift.BURN_IN: Rarity.UNCOMMON,
+	Rift.AFTERGLOW: Rarity.RARE,
+	Rift.SPARK_FLIGHT: Rarity.RARE,
+}
+
+## Bruchmuster: reißt EINE Seite entlang seines Musters auf und versiegelt sie
+## mit getönter Glasur. Name und Beschreibung kommen direkt vom Rift.
+static func rift_engraving(rift: Rift, rarity: Rarity) -> Engraving:
+	return _make(BREAK_PREFIX + rift.id, "Bruchmuster: %s" % rift.display_name,
+		rift.description, rarity, CATEGORY_DICE)
+
+## Rift-id hinter einem Bruchmuster ("" bei allen anderen Gravuren).
+static func rift_id_of(engraving_id: String) -> String:
+	if not engraving_id.begins_with(BREAK_PREFIX):
+		return ""
+	var rift_id := engraving_id.trim_prefix(BREAK_PREFIX)
+	return rift_id if Rift.is_valid_id(rift_id) else ""
+
+static func is_rift_id(engraving_id: String) -> bool:
+	return rift_id_of(engraving_id) != ""
+
+## Leiterbahn: die Würfel-Gravur, die Seiten miteinander verdrahtet.
 static func pointer_engraving() -> Engraving:
 	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Nach dem Würfel löst die Zielseite einmal voll mit aus (Augen, Material, Charms).", Rarity.EPIC, CATEGORY_DICE)
 
 ## Dotierung: die einzige Material-Gravur, die selbst kein Material belegt -
-## sie hebt das vorhandene Material EINER Seite auf seine zweite Stufe.
+## sie hebt das vorhandene Material EINER Seite um eine Sättigungsstufe.
 static func doping() -> Engraving:
-	return _make(DOPING, "Dotierung", "Hebe das Material einer Seite auf Stufe II: es wirkt stärker und anders.", Rarity.EPIC, CATEGORY_MATERIAL)
+	return _make(DOPING, "Dotierung", "Hebe das Material einer Seite um eine Stufe (bis III): es wirkt stärker und anders.", Rarity.EPIC, CATEGORY_MATERIAL)
 
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 
 static func material_engraving(material: DieMaterial, rarity: Rarity) -> Engraving:
 	return _make(material.id, material.display_name, material.description, rarity, CATEGORY_MATERIAL)
-
-## Würfel-Gravur (Kanten): veredelt den GANZEN Würfel statt einer Seite.
-static func edge_engraving(material: DieMaterial, rarity: Rarity) -> Engraving:
-	return _make(EDGE_PREFIX + material.id, "%s-Kanten" % material.display_name, material.edge_description, rarity, CATEGORY_DICE)
 
 const MATERIAL_RARITY := {
 	DieMaterial.GOLD: Rarity.COMMON,
@@ -165,20 +185,9 @@ const MATERIAL_RARITY := {
 	DieMaterial.GLASS: Rarity.UNCOMMON,
 	DieMaterial.BONE: Rarity.UNCOMMON,
 	DieMaterial.RUBY: Rarity.UNCOMMON,
-	DieMaterial.MERCURY: Rarity.RARE,
 }
 
-## Würfel-Gravuren (Kanten): eine Stufe über der Seiten-Variante.
-const EDGE_RARITY := {
-	DieMaterial.GOLD: Rarity.UNCOMMON,
-	DieMaterial.AMBER: Rarity.UNCOMMON,
-	DieMaterial.GLASS: Rarity.RARE,
-	DieMaterial.BONE: Rarity.RARE,
-	DieMaterial.RUBY: Rarity.RARE,
-	DieMaterial.MERCURY: Rarity.RARE,
-}
-
-## Kanonische Registrierung aller Gravur-Archetypen; Material-/Würfel-Gravuren
+## Kanonische Registrierung aller Gravur-Archetypen; die Material-Gravuren
 ## kommen aus DieMaterial.all().
 static func all() -> Array[Engraving]:
 	var result: Array[Engraving] = [
@@ -188,12 +197,9 @@ static func all() -> Array[Engraving]:
 	]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
-	for material in DieMaterial.all():
-		result.append(edge_engraving(material, EDGE_RARITY.get(material.id, Rarity.RARE)))
+	for rift in Rift.all():
+		result.append(rift_engraving(rift, RIFT_RARITY.get(rift.id, Rarity.RARE)))
 	return result
-
-static func is_edge_id(engraving_id: String) -> bool:
-	return engraving_id.begins_with(EDGE_PREFIX) and DieMaterial.is_valid_id(engraving_id.trim_prefix(EDGE_PREFIX))
 
 ## Kategorien, die sicher im Inventar landen - Shop und Ziehung zeigen nur diese.
 const DRAFT_CATEGORIES := [CATEGORY_NUMBER, CATEGORY_MATERIAL, CATEGORY_DICE]
@@ -253,12 +259,7 @@ static func _draft_pool(floor: Rarity) -> Array[Engraving]:
 func material_id() -> String:
 	if is_special_id(id):
 		return ""
-	match category:
-		CATEGORY_MATERIAL:
-			return id
-		CATEGORY_DICE:
-			return id.trim_prefix(EDGE_PREFIX)
-	return ""
+	return id if category == CATEGORY_MATERIAL else ""
 
 static func rarity_name(value: Rarity) -> String:
 	match value:

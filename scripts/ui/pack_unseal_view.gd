@@ -110,7 +110,7 @@ func _schedule() -> Array[float]:
 		times.append(t)
 	return times
 
-## Würfel haben keine Seltenheit - die Veredelung ist ihre: Kanten-Material zählt
+## Würfel haben keine Seltenheit - die Veredelung ist ihre: eine Essenz zählt
 ## als selten, eine Material-Seite als ungewöhnlich, ein blanker Würfel als
 ## gewöhnlich.
 func _dice_rarity(dice: Array[DieDefinition]) -> int:
@@ -118,7 +118,7 @@ func _dice_rarity(dice: Array[DieDefinition]) -> int:
 	for die in dice:
 		if die == null:
 			continue
-		if die.edge_material != "":
+		if die.essence_id != "":
 			best = maxi(best, int(Engraving.Rarity.RARE))
 		elif die.materials.count("") < die.materials.size():
 			best = maxi(best, int(Engraving.Rarity.UNCOMMON))

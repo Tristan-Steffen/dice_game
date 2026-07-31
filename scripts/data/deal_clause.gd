@@ -179,7 +179,7 @@ static func insurance_fraud() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func seed_capital() -> DealClause:
-	return _bonus(SEED_CAPITAL, "Startkapital", "+1 ⚡ sofort",
+	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
 		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
 
 static func maintenance_engraving() -> DealClause:
@@ -214,7 +214,7 @@ static func free_spins() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_SLOT])
 
 static func double_loader() -> DealClause:
-	return _bonus(DOUBLE_LOADER, "Doppellader", "Überladungs-Stufen prägen 2 ⚡",
+	return _bonus(DOUBLE_LOADER, "Doppellader", "Überladungs-Stufen prägen 2 Energie",
 		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
 static func calibration() -> DealClause:
@@ -248,7 +248,7 @@ static func power_spike() -> DealClause:
 		Scope.ROUND, Tier.TREAT)
 
 static func seed_capital_ii() -> DealClause:
-	return _bonus(SEED_CAPITAL_II, "Startkapital", "+2 ⚡ sofort",
+	return _bonus(SEED_CAPITAL_II, "Startkapital", "+2 Energie sofort",
 		Scope.INSTANT, Tier.TREAT, [TAG_CHARGE])
 
 # --- Malusklauseln ------------------------------------------------------------
@@ -298,7 +298,7 @@ static func mains_hum() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func discharge() -> DealClause:
-	return _malus(DISCHARGE, "Entladung", "−2 ⚡ sofort",
+	return _malus(DISCHARGE, "Entladung", "−2 Energie sofort",
 		Scope.INSTANT, Tier.TWO, [TAG_CHARGE])
 
 static func heat_warning() -> DealClause:

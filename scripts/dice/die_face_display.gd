@@ -140,7 +140,8 @@ const LABEL_FIT_EXTENT := 1.5
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
 var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
-## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Kanten-Material sichtbar.
+var rift_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Riss-Auflage)
+## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar.
 var corner_caps: Node3D = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
@@ -154,6 +155,13 @@ var pool_material: ShaderMaterial = null
 var _pool_color := Color(0, 0, 0, 0)
 ## Fresnel-Hülle (Blickwinkel-Schimmer); befüllt DieBuilder.
 var shell_material: ShaderMaterial = null
+## Spanne, über die das Polarlicht seinen Farbton wandern lässt (Grün -> Violett).
+const AURORA_HUE_SPAN := 0.22
+
+## Risse schimmern in Ruhe nur schwach und flammen beim Feuern auf.
+const RIFT_REST_GLOW := 0.5
+const RIFT_FLARE_GLOW := 5.0
+
 ## Lebendiges Licht: das Kanten-Neon atmet langsam - Material-Würfel stärker.
 var _pulse_phase := randf() * TAU
 var _has_material := false
@@ -163,12 +171,10 @@ var _has_material := false
 var face_base: Dictionary = {}
 var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
-## Material-id je Achse ("" = ohne) bzw. der Kanten - Schlüssel ins Shading-Profil.
+## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
-var edge_id: String = ""
-## Fließende Oberflächen (Quecksilber): [StandardMaterial3D, Drift/s].
-var _flow_mats: Array = []
-var _flow_time := 0.0
+## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
+var essence_id: String = ""
 
 ## Je Zeiger EIN Band (Kind des Displays, nicht eines Quads - es spannt über
 ## zwei Seiten). Alle teilen ein Material: der Lichtlauf des Würfels ist EIN
@@ -179,7 +185,6 @@ var pointer_material: ShaderMaterial = null
 
 ## Stellt alle 6 Seiten gemäß def ein (Werte, Material-Farben, Texturen).
 func apply_definition(def: DieDefinition) -> void:
-	_flow_mats.clear()
 	for axis in DiceController.AXIS_FACE_INDEX:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
@@ -192,10 +197,11 @@ func apply_definition(def: DieDefinition) -> void:
 		labels[axis].modulate = NUMBER_COLOR
 		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
 		_set_textures(quad_material, material_id)
-	edge_id = def.edge_material if DieMaterial.is_valid_id(def.edge_material) else ""
-	edge_base = DieMaterial.tint_for(edge_id) if edge_id != "" else EDGE_COLOR
+	essence_id = def.essence_id if Essence.is_valid_id(def.essence_id) else ""
+	edge_base = Essence.glow_for(essence_id) if essence_id != "" else EDGE_COLOR
 	if edge_material_res != null:
-		_set_textures(edge_material_res, def.edge_material)
+		_set_textures(edge_material_res, "")
+	_refresh_rift_overlays(def)
 	_rebuild_pointer_traces(def)
 	_refresh_face_colors()
 
@@ -208,11 +214,7 @@ func _set_textures(material: StandardMaterial3D, material_id: String) -> void:
 	var normal := DieMaterial.die_normal_for(material_id)
 	material.normal_enabled = normal != null
 	material.normal_texture = normal
-	var profile := DieMaterial.by_id(material_id)
-	if profile != null and profile.flow_speed > 0.0:
-		_flow_mats.append([material, profile.flow_speed])
-	else:
-		material.uv1_offset = Vector3.ZERO
+	material.uv1_offset = Vector3.ZERO
 
 func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
@@ -239,12 +241,9 @@ func _refresh_face_colors() -> void:
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
 		_apply_profile(material, profile, false)
 		_refresh_frame(axis, profile)
-	if edge_material_res != null:
-		# set_edge_tint schaltet für die Auswahl auf unschattiert - hier zurück.
-		edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-		_apply_profile(edge_material_res, DieMaterial.by_id(edge_id), true)
+	_apply_essence_edge()
 	if corner_caps != null:
-		corner_caps.visible = edge_id != ""
+		corner_caps.visible = essence_id != ""
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
@@ -265,15 +264,26 @@ static func intense(color: Color) -> Color:
 	c.v = clampf(c.v * DIE_VALUE, 0.0, 1.0)
 	return c
 
-## Abstrahl-Stärke nach der Rangfolge kahl < Seiten-Material < Kanten-Material.
-## Knochen strahlt nie - glow == 0 ist seine Identität.
+## Abstrahl-Stärke nach der Rangfolge kahl < Seiten-Material < Essenz: das Gas
+## glüht dauernd, und zwar heller als jede Einlage.
 func _shell_strength() -> float:
-	var edge_profile := DieMaterial.by_id(edge_id)
-	if edge_profile != null:
-		return SHELL_STRENGTH_EDGE if edge_profile.glow > 0.0 else 0.0
+	if essence_id != "":
+		return SHELL_STRENGTH_EDGE
 	return SHELL_STRENGTH_MATERIAL if _has_material else SHELL_STRENGTH
 
-## Misch-Neonfarbe des Würfels: neutral Cyan, sonst der Schnitt aller Material-Tints.
+## Kantenglühen der Essenz: die Kanten sind kein Ausbau-Slot mehr, sondern die
+## Bühne, auf der die Seele leuchtet - essenzlose Würfel behalten das neutrale
+## Neon. set_edge_tint schaltet für die Auswahl auf unschattiert, darum hier zurück.
+func _apply_essence_edge() -> void:
+	if edge_material_res == null:
+		return
+	edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	_apply_profile(edge_material_res, null, true)
+	if essence_id == "":
+		return
+	edge_material_res.emission = intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
+
+## Misch-Neonfarbe des Würfels: neutral Cyan, sonst Essenz + Material-Tints gemittelt.
 func _neon_mix() -> Color:
 	var tints: Array[Color] = []
 	if edge_base != EDGE_COLOR:
@@ -314,6 +324,34 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	material.metallic = profile.metallic
 	material.roughness = profile.roughness
 
+## Risse der Seiten: sichtbar nur, wo ein Rift sitzt. In Ruhe schimmern sie
+## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_rifts). Genau
+## diese zeitliche Signatur trennt sie vom DAUERND glühenden Essenz-Rand.
+func _refresh_rift_overlays(def: DieDefinition) -> void:
+	for axis in rift_overlays:
+		var overlay: MeshInstance3D = rift_overlays[axis]
+		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
+		var on_face := def.rifts_on(face_index)
+		overlay.visible = not on_face.is_empty()
+		if not overlay.visible:
+			continue
+		var material: StandardMaterial3D = overlay.material_override
+		var texture := RiftTextures.for_face(on_face, def.essence_id)
+		material.albedo_texture = texture
+		material.emission_texture = texture
+		material.albedo_color = Color(1, 1, 1, 1)
+		material.emission = Color(1, 1, 1) * RIFT_REST_GLOW
+
+## Lässt die Risse dieses Würfels auflodern (0 = Ruhe, 1 = voller Ausbruch) -
+## scene_root ruft das im Aktivierungs-Puls der Zählanimation.
+func flare_rifts(strength: float) -> void:
+	for axis in rift_overlays:
+		var overlay: MeshInstance3D = rift_overlays[axis]
+		if not overlay.visible:
+			continue
+		var material: StandardMaterial3D = overlay.material_override
+		material.emission_energy_multiplier = RIFT_REST_GLOW + strength * RIFT_FLARE_GLOW
+
 ## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
 func _refresh_frame(axis: String, profile: DieMaterial) -> void:
 	var frame: MeshInstance3D = frames.get(axis)
@@ -350,15 +388,12 @@ func _process(delta: float) -> void:
 	if edge_material_res != null:
 		var amount := PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT
 		edge_material_res.emission_energy_multiplier = 1.0 + sin(_pulse_phase) * amount
-	_flow_time += delta
-	for entry in _flow_mats:
-		var material: StandardMaterial3D = entry[0]
-		var speed: float = entry[1]
-		# Schräge Drift + leichtes Pendeln = träges Fließen statt Förderband.
-		material.uv1_offset = Vector3(
-			fmod(_flow_time * speed, 1.0),
-			fmod(_flow_time * speed * 0.63, 1.0) + sin(_flow_time * 0.9) * 0.03,
-			0.0)
+		# Polarlicht WANDERT: sein Farbton kriecht durchs Grünviolett, statt still
+		# zu stehen - das einzige Glühen, das seine Farbe ändert.
+		if essence_id == Essence.AURORA:
+			var shifted := edge_base
+			shifted.h = fmod(edge_base.h + _pulse_phase / TAU * AURORA_HUE_SPAN, 1.0)
+			edge_material_res.emission = intense(shifted) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
 	# Die Leiterbahn-Strömung braucht hier nichts: sie läuft über TIME im
 	# Shader, versetzt um die einmalig gesetzte phase (siehe _pointer_material).
 	# Ohne Baum gibt es keine Welttransformation - die Lache braucht beides.

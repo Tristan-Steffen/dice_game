@@ -85,7 +85,7 @@ func test_cash_out_redeems_runs_and_resets() -> void:
 func test_each_engraving_symbol_pays_its_own_category() -> void:
 	# Zahlen-, Material- und Kanten-Reihe zahlen je in ihre eigene Sorte.
 	for entry in [[S, Engraving.CATEGORY_NUMBER], [M, Engraving.CATEGORY_MATERIAL],
-			[SlotPrize.Kind.EDGE, Engraving.CATEGORY_DICE]]:
+			[SlotPrize.Kind.DICE_ENGRAVING, Engraving.CATEGORY_DICE]]:
 		var symbol: int = entry[0]
 		var fresh := GameRun.new_run()
 		fresh.hub_level = 9

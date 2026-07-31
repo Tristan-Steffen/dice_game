@@ -18,9 +18,9 @@ func _die() -> DieDefinition:
 	var def := DieDefinition.new()
 	var faces: Array[int] = [1, 2, 3, 4, 5, 6]
 	def.faces = faces
-	var materials: Array[String] = ["ruby", "", "gold", "glass", "", "mercury"]
+	var materials: Array[String] = ["ruby", "", "gold", "glass", "", "bone"]
 	def.materials = materials
-	def.edge_material = "amber"
+	def.essence_id = Essence.NEON
 	return def
 
 func test_projection_is_built_next_to_the_stage() -> void:
@@ -56,14 +56,6 @@ func test_clicking_the_projected_edges_without_a_tool_does_nothing() -> void:
 	assert_eq(view.selected_face, -1)
 	assert_eq(view.held_id, "")
 
-func test_projected_edge_click_applies_a_held_edge_engraving() -> void:
-	view.run = GameRun.new_run()
-	view.run.grant_engraving(Engraving.edge_engraving(DieMaterial.gold(), Engraving.Rarity.UNCOMMON))
-	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	view.die_view.edges_clicked.emit(0)
-	assert_eq(view.current_def.edge_material, DieMaterial.GOLD, "der Rahmen trägt jetzt Gold")
-	assert_eq(view.held_id, "", "Werkzeug nach dem Anwenden abgelegt")
-
 func test_selection_highlights_the_projected_face_number() -> void:
 	view._on_face_clicked(0, 1)  # Seite 1 trägt kein Material (Körper bleibt weiß)
 	var faces: DieFaceDisplay = view.die_view.die_roots[0].get_node("RigidBody3D/Faces")
@@ -90,14 +82,6 @@ func test_chip_selection_also_highlights_the_projection() -> void:
 			axis = candidate
 	var label: Label3D = faces.labels[axis]
 	assert_eq(label.modulate, RotatableDieView.SELECT_FACE_COLOR)
-
-func test_holding_an_edge_tool_highlights_the_projected_frame() -> void:
-	# Eine gehaltene Kanten-Gravur zeigt ihr Ziel: der projizierte Rahmen leuchtet.
-	view._on_engraving_pressed(Engraving.EDGE_PREFIX + DieMaterial.GOLD)
-	var faces: DieFaceDisplay = view.die_view.die_roots[0].get_node("RigidBody3D/Faces")
-	assert_eq(faces.edge_material_res.albedo_color,
-		RotatableDieView.SELECT_FACE_COLOR,
-		"der projizierte Kanten-Rahmen leuchtet als Ziel")
 
 func test_dragging_the_projection_reports_rotating_die() -> void:
 	# Ziehen an der Projektion meldet rotating_die(true)/(false) - scene_root

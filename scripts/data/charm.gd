@@ -85,10 +85,6 @@ const GLASSBLOWER_LUNG := "glassblower_lung"
 const MERCURY_VAPOR := "mercury_vapor"
 const DISPLAY_CASE := "display_case"
 const JEWELRY_BOX := "jewelry_box"
-# Kanten
-const FRAME_GILDER := "frame_gilder"
-const MAGNET_RING := "magnet_ring"
-const EDGE_GLEAM := "edge_gleam"
 # Coupons & Packs
 const BARGAIN_HUNTER := "bargain_hunter"
 const ENGRAVING_PEN := "engraving_pen"
@@ -195,10 +191,6 @@ const RARITIES := {
 	MERCURY_VAPOR: RARITY_LEGENDARY,
 	DISPLAY_CASE: RARITY_RARE,
 	JEWELRY_BOX: RARITY_RARE,
-	# Kanten
-	FRAME_GILDER: RARITY_UNCOMMON,
-	MAGNET_RING: RARITY_UNCOMMON,
-	EDGE_GLEAM: RARITY_UNCOMMON,
 	# Coupons & Packs
 	BARGAIN_HUNTER: RARITY_COMMON,
 	ENGRAVING_PEN: RARITY_RARE,
@@ -497,7 +489,7 @@ static func gold_vein() -> Charm:
 	return _make(GOLD_VEIN, "Goldader", "Jeder auslösende Gold-Träger (Seite wie Kante) zahlt zusätzlich $1 je anderem Material-Träger der Kombination - $3, wenn dieser selbst Gold ist.")
 
 static func goldsmith() -> Charm:
-	return _make(GOLDSMITH, "Goldschmied", "Gold-Seiten und Gold-Kanten zahlen $6 statt $3.")
+	return _make(GOLDSMITH, "Goldschmied", "Gold-Seiten zahlen $6 statt $3.")
 
 static func amber_room() -> Charm:
 	return _make(AMBER_ROOM, "Bernsteinzimmer", "Bernstein gibt +50 statt +20 Basispunkte.")
@@ -518,24 +510,13 @@ static func glassblower_lung() -> Charm:
 	return _make(GLASSBLOWER_LUNG, "Glasbläserlunge", "Glas schrumpft nie unter 6.")
 
 static func mercury_vapor() -> Charm:
-	return _make(MERCURY_VAPOR, "Quecksilberdampf", "Quecksilber aktiviert den Würfel dreifach statt doppelt.")
+	return _make(MERCURY_VAPOR, "Quecksilberdampf", "Essenzen, die den Würfel mehrfach auslösen, lösen ihn ein weiteres Mal aus.")
 
 static func display_case() -> Charm:
 	return _make(DISPLAY_CASE, "Vitrine", "+1 Mult je oben liegender Material-Seite.")
 
 static func jewelry_box() -> Charm:
 	return _make(JEWELRY_BOX, "Schmuckkästchen", "Bei der Auszahlung der übrigen Würfel nach dem Rundenziel: jeder übrige Würfel erhält mit 10% Chance eine zufällige Material-Seite (dauerhaft).")
-
-# --- Kanten ---
-
-static func frame_gilder() -> Charm:
-	return _make(FRAME_GILDER, "Rahmenvergolder", "Gold-Seiten und Gold-Kanten zahlen $6 statt $3.")
-
-static func magnet_ring() -> Charm:
-	return _make(MAGNET_RING, "Magnetring", "Würfel mit Kanten-Material werden je Runde zuerst gezogen.")
-
-static func edge_gleam() -> Charm:
-	return _make(EDGE_GLEAM, "Zargenglanz", "Würfel mit Kanten-Material geben +1 Basispunkt je Kanten-Würfel im Besitz (Ablage, Nachschub und Pool).")
 
 # --- Coupons & Packs ---
 
@@ -605,7 +586,6 @@ static func all() -> Array[Charm]:
 		midas_glove(), gold_vein(), goldsmith(), amber_room(),
 		ruby_grinder(), blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(),
-		frame_gilder(), magnet_ring(), edge_gleam(),
 		bargain_hunter(), engraving_pen(), stamp_machine(), fine_print(),
 		recycling(), fresh_goods(), sediment(),
 		seal_of_quality(), bulk_discount(),

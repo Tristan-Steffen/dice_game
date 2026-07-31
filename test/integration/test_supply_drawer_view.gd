@@ -24,7 +24,10 @@ func _ids(drawer: SupplyDrawerView) -> Array[String]:
 func test_each_drawer_holds_exactly_its_category() -> void:
 	for category in Engraving.CATEGORIES:
 		var drawer := _drawer(category)
-		assert_gt(drawer.slots.size(), 0, "%s hat Plätze" % category)
+		# Die Würfel-Schublade steht seit dem Kanten-Umbau leer: ihre einzige
+		# Gravur (Leiterbahn) ist ein Sonderposten und liegt in der Vitrine.
+		if category != Engraving.CATEGORY_DICE:
+			assert_gt(drawer.slots.size(), 0, "%s hat Plätze" % category)
 		for id in _ids(drawer):
 			var found := false
 			for archetype in Engraving.all():
@@ -167,12 +170,14 @@ func test_specials_live_in_the_stockpile_not_their_category_drawer() -> void:
 	assert_eq(_ids(_drawer(SupplyDrawerView.CATEGORY_SPECIAL)),
 		[Engraving.POINTER, Engraving.DOPING] as Array[String], "der Sonderbestand führt genau die Sonderposten")
 
-func test_the_dice_drawer_stays_two_rows() -> void:
+func test_the_dice_drawer_never_grows_the_row() -> void:
 	# Regression: die Leiterbahn als 7. Platz machte die Schubladen-Reihe höher
-	# und drückte die Werkbank zusammen.
-	assert_eq(SupplyDrawerView.size_for(Engraving.CATEGORY_DICE, 8.0),
-		SupplyDrawerView.size_for(Engraving.CATEGORY_MATERIAL, 8.0),
-		"Würfel-Schublade wieder so hoch wie die Material-Schublade")
+	# und drückte die Werkbank zusammen. Seit dem Kanten-Umbau ist die Schublade
+	# leer - sie behält trotzdem ihre eine Reihe, sonst klappt die Reihe zusammen.
+	var dice_size := SupplyDrawerView.size_for(Engraving.CATEGORY_DICE, 8.0)
+	assert_gt(dice_size.y, 0.0, "die leere Schublade behält ihr Fenster")
+	assert_lt(dice_size.y, SupplyDrawerView.size_for(Engraving.CATEGORY_MATERIAL, 8.0).y + 0.01,
+		"nie höher als die Material-Schublade")
 
 func test_the_stockpile_serves_the_ceremony_like_any_drawer() -> void:
 	run.grant_engraving(Engraving.pointer_engraving())

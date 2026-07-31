@@ -29,7 +29,7 @@ func test_stash_follows_the_run() -> void:
 
 func test_clicking_a_card_opens_that_pack() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
-	run.purchase_pack(Pack.edge_pack(), 0)
+	run.purchase_pack(Pack.material_pack(), 0)
 	var opened: Array[int] = []
 	view.pack_activated.connect(func(index: int) -> void: opened.append(index))
 	view._pack_buttons[1].pressed.emit()
@@ -67,7 +67,7 @@ func test_a_new_run_cancels_pending_deliveries() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.expect_delivery()
 	var fresh := GameRun.new_run()
-	fresh.purchase_pack(Pack.edge_pack(), 0)
+	fresh.purchase_pack(Pack.material_pack(), 0)
 	view.run = fresh
 	assert_eq(view._pack_buttons.size(), 1, "der neue Lauf zeigt sein Lager vollständig")
 

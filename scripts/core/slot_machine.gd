@@ -110,7 +110,7 @@ func hit_count() -> int:
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
 ## Anzeige): je Gravur-Sorte eine Zahl, dazu Charm-Raritäten und Würfel.
 func pot_summary() -> Dictionary:
-	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.EDGE: 0}
+	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.DICE_ENGRAVING: 0}
 	var charms: Array = []
 	var dice := 0
 	for run in runs():
@@ -122,7 +122,7 @@ func pot_summary() -> Dictionary:
 	return {
 		"engravings": counts[SlotPrize.Kind.ENGRAVING],
 		"materials": counts[SlotPrize.Kind.MATERIAL],
-		"edges": counts[SlotPrize.Kind.EDGE],
+		"edges": counts[SlotPrize.Kind.DICE_ENGRAVING],
 		"charms": charms, "dice": dice,
 	}
 
@@ -187,7 +187,7 @@ func _make_run(kind: int, run_cells: Array, direction: Array) -> Dictionary:
 ## und Rarität.
 func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 	match kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			return [{"kind": "engraving", "symbol": kind, "count": _engraving_count(kind, length),
 				"floor": _engraving_floor(run_cols)}]
 		SlotPrize.Kind.CHARM:
@@ -204,7 +204,7 @@ func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 func _engraving_count(kind: int, length: int) -> int:
 	match kind:
 		SlotPrize.Kind.MATERIAL: return maxi(1, length - 2)
-		SlotPrize.Kind.EDGE: return maxi(1, length - 3)
+		SlotPrize.Kind.DICE_ENGRAVING: return maxi(1, length - 3)
 	return length - 1
 
 ## Gravur-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
@@ -229,7 +229,7 @@ func _charm_rarity(length: int) -> String:
 func _run_label(kind: int, length: int, specs: Array) -> String:
 	var sym := SlotPrize.symbol_for(kind)
 	match kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.EDGE:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			var n := int(specs[0]["count"])
 			return "%s ×%d → %d %s" % [sym, length, n, SlotPrize.category_name(kind, n)]
 		SlotPrize.Kind.CHARM:
@@ -281,11 +281,11 @@ func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool) -
 func _symbol_table(machine: int) -> Array:
 	match machine:
 		0: return [[SlotPrize.Kind.ENGRAVING, 7], [SlotPrize.Kind.MATERIAL, 4],
-			[SlotPrize.Kind.EDGE, 1], [SlotPrize.Kind.FUMBLE, 3]]
+			[SlotPrize.Kind.DICE_ENGRAVING, 1], [SlotPrize.Kind.FUMBLE, 3]]
 		1: return [[SlotPrize.Kind.ENGRAVING, 6], [SlotPrize.Kind.MATERIAL, 4],
-			[SlotPrize.Kind.EDGE, 2], [SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
+			[SlotPrize.Kind.DICE_ENGRAVING, 2], [SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
 	return [[SlotPrize.Kind.ENGRAVING, 5], [SlotPrize.Kind.MATERIAL, 4],
-		[SlotPrize.Kind.EDGE, 2], [SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2],
+		[SlotPrize.Kind.DICE_ENGRAVING, 2], [SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2],
 		[SlotPrize.Kind.FUMBLE, 3]]
 
 func _fallback_rng() -> RandomNumberGenerator:

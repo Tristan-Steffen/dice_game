@@ -234,6 +234,18 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int) -> Button:
 		title = charm.display_name
 		body = charm.description
 		face = CharmThumb.new(charm, thumb_px)
+	elif kind == GameRun.KIND_DIE:
+		# Essenzwürfel: die Seele trägt die Karte - Name, Beiname, Kurzzeile und
+		# ihr Glühen als Rahmenfarbe.
+		var die: DieDefinition = offer[GameRun.OFFER_ITEM]
+		var essence := Essence.by_id(die.essence_id)
+		tint = essence.glow
+		title = "%s-Würfel" % essence.display_name
+		body = "%s: %s
+%s" % [essence.epithet, essence.short, essence.description]
+		var net := DieNetView.build(die, -1, float(thumb_px) / 4.4)
+		net.custom_minimum_size = Vector2(thumb_px, thumb_px)
+		face = net
 	else:
 		var engraving: Engraving = offer[GameRun.OFFER_ITEM]
 		tint = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]

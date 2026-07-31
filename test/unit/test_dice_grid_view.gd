@@ -9,13 +9,13 @@ func before_each() -> void:
 	add_child_autofree(grid)
 	grid.place(6, 8.0)
 
-func _die(faces: Array, style := "normal", edge := "") -> DieDefinition:
+func _die(faces: Array, style := "normal", essence := "") -> DieDefinition:
 	var def := DieDefinition.new()
 	var typed: Array[int] = []
 	typed.assign(faces)
 	def.faces = typed
 	def.style_id = style
-	def.edge_material = edge
+	def.essence_id = essence
 	def.display_name = style.capitalize()
 	return def
 
@@ -51,12 +51,12 @@ func test_highlight_can_move_without_a_rebuild() -> void:
 	assert_eq(grid.tiles[1].get_theme_color("font_color"), DiceGridView.GOLD,
 		"das neue Ziel trägt Gold")
 
-func test_tooltip_names_faces_and_edges() -> void:
-	grid.fill(_defs([_die([3, 1, 2, 6, 5, 4], "power", DieMaterial.GOLD)]))
+func test_tooltip_names_faces_and_the_essence() -> void:
+	grid.fill(_defs([_die([3, 1, 2, 6, 5, 4], "power", Essence.NEON)]))
 	var tip: String = grid.tiles[0].tooltip_text
 	assert_string_contains(tip, "1 2 3 4 5 6", "Seiten aufsteigend")
 	assert_string_contains(tip, "Augensumme 21")
-	assert_string_contains(tip, "Kanten")
+	assert_string_contains(tip, Essence.by_id(Essence.NEON).display_name, "die Seele steht dabei")
 
 # --- Detail-Kacheln: dieselbe Darstellung wie im Netzfeld der Grube -----------
 
@@ -75,7 +75,7 @@ func _net_of(tile: Button) -> Control:
 
 func test_detail_tiles_draw_the_die_net() -> void:
 	var detail := _detail_grid()
-	var def := _die([1, 2, 3, 4, 5, 6], "normal", DieMaterial.AMBER)
+	var def := _die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)
 	detail.fill(_defs([def]))
 	await wait_frames(2)
 	var net := _net_of(detail.tiles[0])
@@ -109,7 +109,7 @@ func test_the_tile_is_derived_from_the_net_not_guessed() -> void:
 		Vector2.ONE * 0.01, "genau das Netz plus Rand - kein Streifen für die Augensumme")
 	assert_gt(tile.x, tile.y, "das Netz ist breit und flach, die Kachel darum auch")
 
-func test_the_eye_total_sits_in_the_free_cross_corner_opposite_the_edge_chip() -> void:
+func test_the_eye_total_sits_in_the_free_cross_corner_opposite_the_essence_chip() -> void:
 	var detail := _detail_grid()
 	detail.fill(_defs([_die([1, 2, 3, 4, 5, 6])]))
 	await wait_frames(2)
@@ -119,7 +119,7 @@ func test_the_eye_total_sits_in_the_free_cross_corner_opposite_the_edge_chip() -
 		if child is Label and (child as Label).text == "21":
 			badge = child
 	assert_not_null(badge, "die Augensumme steht im Netz")
-	# Der Kanten-Chip sitzt in der Ecke oben LINKS, die Plakette gegenüber.
+	# Der Essenz-Chip sitzt in der Ecke oben LINKS, die Plakette gegenüber.
 	assert_gt(badge.position.x, DieNetView.cell_position(3, cell).x,
 		"rechts neben der oberen Seite")
 	assert_almost_eq(badge.position.y, 0.0, 0.01, "in der obersten Zeile")

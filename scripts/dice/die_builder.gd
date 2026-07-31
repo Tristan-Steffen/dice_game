@@ -9,12 +9,12 @@ const FACE_MARGIN := 0.02
 ## Balken-Querschnitt der Kanten: ragt EDGE_THICKNESS/2 über die Oberfläche
 ## hinaus, also vor die Gesichts-Quads - die Kanten treten als Rahmen hervor.
 ## Sie sind die Hauptlichtquelle des Würfels (siehe DieFaceDisplay.EDGE_GLOW),
-## darum bewusst breit: das Kanten-Material soll aus der Übersichtskamera
+## darum bewusst breit: das Essenzglühen soll aus der Übersichtskamera
 ## lesbar sein. FACE_SIZE folgt daraus - die Quads enden genau dort, wo die
 ## Balken beginnen.
 const EDGE_THICKNESS := 0.26
 const FACE_SIZE := HALF_EXTENT * 2.0 - EDGE_THICKNESS
-## Eck-Kappen der Kanten-Materialien: dicker als die Balken, damit die
+## Eck-Kappen der Kanten: dicker als die Balken, damit die
 ## Silhouette selbst auf Distanz "beschlagene Ecken" zeigt.
 const CAP_SIZE := 0.46
 
@@ -57,19 +57,19 @@ static func build() -> Node3D:
 	body.add_child(faces)
 
 	# Kanten-Körper: 12 Balken plus Füll-Box, alle mit EINEM Material - dessen
-	# Neon setzt DieFaceDisplay (neutral bzw. Kanten-Material-Tint). Der Körper
+	# Neon setzt DieFaceDisplay (neutral bzw. Essenzglühen). Der Körper
 	# ist dunkles poliertes Glas, die Kanten tragen das Licht (Tron-Prinzip).
-	var edge_material := StandardMaterial3D.new()
-	edge_material.albedo_color = DieFaceDisplay.BODY_COLOR
-	edge_material.albedo_texture = DieMaterial.die_texture_for("")
-	edge_material.emission_texture = edge_material.albedo_texture
+	var edge_res := StandardMaterial3D.new()
+	edge_res.albedo_color = DieFaceDisplay.BODY_COLOR
+	edge_res.albedo_texture = DieMaterial.die_texture_for("")
+	edge_res.emission_texture = edge_res.albedo_texture
 	# MULTIPLY statt (Standard) ADD - sonst ADDIERT die helle Textur Vollweiß.
-	edge_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
-	edge_material.roughness = DieFaceDisplay.EDGE_ROUGHNESS
-	edge_material.metallic = DieFaceDisplay.EDGE_METALLIC
-	edge_material.emission_enabled = true
-	edge_material.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW
-	faces.edge_material_res = edge_material
+	edge_res.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	edge_res.roughness = DieFaceDisplay.EDGE_ROUGHNESS
+	edge_res.metallic = DieFaceDisplay.EDGE_METALLIC
+	edge_res.emission_enabled = true
+	edge_res.emission = DieFaceDisplay.EDGE_NEON * DieFaceDisplay.EDGE_GLOW
+	faces.edge_material_res = edge_res
 
 
 	_build_glow_pool(faces)
@@ -97,7 +97,7 @@ static func build() -> Node3D:
 	var fill_mesh := BoxMesh.new()
 	fill_mesh.size = Vector3.ONE * HALF_EXTENT * 2.0
 	fill.mesh = fill_mesh
-	fill.material_override = edge_material
+	fill.material_override = edge_res
 	edges_root.add_child(fill)
 
 	# Je Kante ein Balken: jedes Paar senkrechter Achsrichtungen (a, b) ist
@@ -119,10 +119,10 @@ static func build() -> Node3D:
 			var beam := MeshInstance3D.new()
 			beam.mesh = beam_meshes[long_axis]
 			beam.position = (a + b) * HALF_EXTENT
-			beam.material_override = edge_material
+			beam.material_override = edge_res
 			edges_root.add_child(beam)
 
-	# Eck-Kappen (nur mit Kanten-Material sichtbar): 8 Würfelchen auf den Ecken,
+	# Eck-Kappen (nur mit Essenz sichtbar): 8 Würfelchen auf den Ecken,
 	# gleiche Oberfläche wie der Rahmen - sie tragen die Silhouetten-Änderung.
 	var caps := Node3D.new()
 	caps.name = "CornerCaps"
@@ -135,7 +135,7 @@ static func build() -> Node3D:
 				var cap := MeshInstance3D.new()
 				cap.mesh = cap_mesh
 				cap.position = Vector3(sx, sy, sz) * HALF_EXTENT
-				cap.material_override = edge_material
+				cap.material_override = edge_res
 				caps.add_child(cap)
 	edges_root.add_child(caps)
 	faces.corner_caps = caps
@@ -170,6 +170,10 @@ static func build() -> Node3D:
 		quad.add_child(frame)
 		faces.frames[axis] = frame
 
+		var crack := _build_rift_overlay()
+		quad.add_child(crack)
+		faces.rift_overlays[axis] = crack
+
 		var label := _build_label(default_value)
 		quad.add_child(label)
 		faces.labels[axis] = label
@@ -198,6 +202,26 @@ static func _build_face_frame() -> MeshInstance3D:
 	material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
 	frame.material_override = material
 	return frame
+
+## Riss-Auflage einer gebrochenen Seite (unsichtbar ohne Rift): eine dünne
+## Textur mit dem Rissbild, unschattiert und emissiv - das Kernlicht bricht aus
+## der Schale. Ein eigenes Light je Riss verbietet das 16-Light-Budget des
+## gekachelten Bodens, also trägt die Emission allein.
+static func _build_rift_overlay() -> MeshInstance3D:
+	var crack := MeshInstance3D.new()
+	crack.name = "RiftCracks"
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2.ONE * FACE_SIZE
+	crack.mesh = mesh
+	crack.position = Vector3(0, 0, 0.008)  # vor dem Rahmen, hinter der Ziffer
+	crack.visible = false
+	crack.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var material := StandardMaterial3D.new()
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.emission_enabled = true
+	crack.material_override = material
+	return crack
 
 ## Additive Licht-Lache am Boden unter dem Würfel (Neon-Kontaktschatten).
 ## top_level: folgt NICHT der Würfeldrehung - DieFaceDisplay._process setzt

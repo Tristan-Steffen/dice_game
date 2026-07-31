@@ -140,9 +140,9 @@ func _get_tooltip(at_position: Vector2) -> String:
 	var face_pick := _pick_face(die_index, at_position)
 	var edge_dist := _pick_edges_distance(die_index, at_position)
 	if edge_dist < float(face_pick[1]):
-		if DieMaterial.is_valid_id(def.edge_material):
-			var edge := DieMaterial.by_id(def.edge_material)
-			return "Kanten – %s\n%s" % [edge.display_name, edge.edge_description]
+		if Essence.is_valid_id(def.essence_id):
+			var essence := Essence.by_id(def.essence_id)
+			return "%s – %s\n%s" % [essence.display_name, essence.epithet, essence.description]
 		return ""
 	var face_index: int = face_pick[0]
 	if face_index != -1 and face_index < def.materials.size() and DieMaterial.is_valid_id(def.materials[face_index]):

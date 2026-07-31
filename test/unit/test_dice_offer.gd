@@ -61,9 +61,9 @@ func test_refinement_surcharge_matches_applied_content():
 			if material_id != "":
 				expected += DiceOffer.FACE_MATERIAL_SURCHARGE
 				assert_true(DieMaterial.is_valid_id(material_id), "gültiges Seiten-Material")
-		if def.edge_material != "":
-			expected += DiceOffer.EDGE_MATERIAL_SURCHARGE
-			assert_true(DieMaterial.is_valid_id(def.edge_material), "gültiges Kanten-Material")
+		if def.essence_id != "":
+			expected += DiceOffer.FACE_MATERIAL_SURCHARGE
+			assert_true(Essence.is_valid_id(def.essence_id), "gültige Essenz")
 		assert_eq(surcharge, expected)
 
 func test_refinements_apply_at_most_two_face_materials():
@@ -84,7 +84,7 @@ func test_refinements_appear_sometimes_but_not_always():
 		var def := DieDefinition.standard()
 		DiceOffer.roll_refinements(def)
 		total += 1
-		if def.edge_material != "" or def.materials.count("") < 6:
+		if def.essence_id != "" or def.materials.count("") < 6:
 			refined += 1
 	assert_gt(refined, 0, "Veredelungen tauchen auf")
 	assert_lt(refined, total, "aber nicht auf jedem Würfel")
@@ -97,8 +97,8 @@ func test_bundle_copies_share_refinements_as_independent_instances():
 			var first := offer.dice[0]
 			for die in offer.dice:
 				assert_eq(die.materials, first.materials, "gleiche Material-Seiten im Bündel")
-				assert_eq(die.edge_material, first.edge_material, "gleiche Kanten im Bündel")
-			if offer.size() > 1 and (first.edge_material != "" or first.materials.count("") < 6):
+				assert_eq(die.essence_id, first.essence_id, "gleiche Essenz im Bündel")
+			if offer.size() > 1 and (first.essence_id != "" or first.materials.count("") < 6):
 				offer.dice[1].materials[0] = "test_sentinel"
 				assert_ne(first.materials[0], "test_sentinel", "Kopien sind unabhängig")
 				return  # ein veredeltes Mehrfach-Bündel gefunden und geprüft - fertig
