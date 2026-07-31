@@ -487,6 +487,10 @@ const DICE_START_POSITIONS: Array[Vector3] = [
 ]
 
 func _ready() -> void:
+	# Die vier Rissbilder EINMAL backen, bevor irgendein Würfel sie braucht -
+	# sonst zahlt der erste gerissene Würfel mitten im Spiel dafür. Hier kostet es
+	# ~190 ms in einem Start, der ohnehin den ganzen Tisch aufbaut.
+	RiftTextures.warm()
 	_strip_table_rim()
 	_setup_dice()
 	_setup_table_screen()
@@ -1846,15 +1850,25 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
 ## den Nebenwetten), darum _fly_charge_to_capacitor(false).
-func _play_rift_charge_volley(count: int) -> void:
+## sparks nennt je ⚡ den Würfel, aus dem es springt: sein Riss lodert GENAU dann,
+## wenn der Komet losfliegt. Der Funke, der von der Naht abspringt, und die
+## Energie, die im Kondensator landet, werden so zu EINEM Vorgang - der stärkste
+## Ursache-Wirkung-Lesbarkeitsgewinn, den das Riss-System zu bieten hat.
+func _play_rift_charge_volley(count: int, sparks: Array[int] = []) -> void:
 	var launched := run
 	for i in count:
+		var slot: int = sparks[i] if i < sparks.size() else -1
 		if i == 0:
-			_fly_charge_to_capacitor(false)
+			_launch_rift_spark(slot)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if run == launched:
-					_fly_charge_to_capacitor(false))
+					_launch_rift_spark(slot))
+
+func _launch_rift_spark(slot: int) -> void:
+	if slot >= 0 and slot < dice.count():
+		_flare_rifts(slot)
+	_fly_charge_to_capacitor(false)
 
 ## Ladungs-Gewinn: je ⚡ ein Komet, dicht gestaffelt wie die Vertrags-Salve -
 ## erst aus dem Wettfenster in den Hub, dann die Hub-Cluster-Ader zur Börse.
@@ -4106,7 +4120,14 @@ func _on_take_button_pressed() -> void:
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
 		run.add_charge(report.charge)
-		_play_rift_charge_volley(report.charge)
+		_play_rift_charge_volley(report.charge, report.sparks)
+	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
+	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
+	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
+	for slot in report.stray:
+		_flare_rifts(slot)
+	for slot in report.blocked:
+		_flare_rifts(slot, true)
 	var take_money := report.money
 	if not report.grown.is_empty() or not report.shrunk.is_empty():
 		run.note_pool_changed()  # Knochen/Glas haben Pool-Würfel verändert
@@ -4635,15 +4656,23 @@ func _flash_scoring_die(slot: int) -> void:
 ## Riss-Ausbruch im Aktivierungs-Puls: der Riss flammt auf und fällt zurück auf
 ## sein Ruhe-Schimmern. Die Essenz glüht durchgehend weiter - die zeitliche
 ## Signatur trennt die beiden Licht-Systeme.
-func _flare_rifts(slot: int) -> void:
+## block = der Schutz-Blitz des Einbrands (ein verhinderter Schrumpf), sonst die
+## Wertungs-Bewegung des jeweiligen Rifts.
+func _flare_rifts(slot: int, block := false) -> void:
 	var display: DieFaceDisplay = dice.face_displays[slot]
 	if display == null:
 		return
-	display.flare_rifts(1.0)
+	# NUR die obere Seite: der Riss gehört der Seite, die gewertet wird - eine
+	# Seitenfläche, die mitleuchtet, behauptet eine Wirkung, die es nicht gibt.
+	var face_index: int = dice.face_indices[slot] if slot < dice.face_indices.size() else -1
+	display.flare_rifts(1.0, face_index, block)
 	var tween := create_tween()
 	tween.tween_method(func(strength: float) -> void:
 		if is_instance_valid(display):
-			display.flare_rifts(strength), 1.0, 0.0, RIFT_FLARE_TIME)
+			display.flare_rifts(strength, face_index, block), 1.0, 0.0, RIFT_FLARE_TIME)
+	# Die Grubenkarte blitzt im selben Takt mit, sofern sie diesen Würfel zeigt.
+	if table_screen != null and slot < dice.slot_defs.size():
+		table_screen.flare_pit_rifts(dice.slot_defs[slot], face_index, RIFT_FLARE_TIME)
 
 ## Kleiner Größen-Pop eines Goldlichts, wenn sein Würfel gezählt wird.
 func _pulse_glow(glow: Control) -> void:

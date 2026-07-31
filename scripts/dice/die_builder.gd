@@ -21,6 +21,7 @@ const CAP_SIZE := 0.46
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.
 const POOL_SHADER := preload("res://assets/shaders/die_glow_pool.gdshader")
+const RIFT_SHADER := preload("res://assets/shaders/die_rift.gdshader")
 
 const BOUNCE := 0.25
 const FRICTION := 0.4
@@ -170,7 +171,7 @@ static func build() -> Node3D:
 		quad.add_child(frame)
 		faces.frames[axis] = frame
 
-		var crack := _build_rift_overlay()
+		var crack := build_rift_overlay()
 		quad.add_child(crack)
 		faces.rift_overlays[axis] = crack
 
@@ -203,23 +204,24 @@ static func _build_face_frame() -> MeshInstance3D:
 	frame.material_override = material
 	return frame
 
-## Riss-Auflage einer gebrochenen Seite (unsichtbar ohne Rift): eine dünne
-## Textur mit dem Rissbild, unschattiert und emissiv - das Kernlicht bricht aus
-## der Schale. Ein eigenes Light je Riss verbietet das 16-Light-Budget des
-## gekachelten Bodens, also trägt die Emission allein.
-static func _build_rift_overlay() -> MeshInstance3D:
+## Riss-Auflage einer gebrochenen Seite (unsichtbar ohne Rift): das farblose
+## Rissbild unter die_rift.gdshader - das Kernlicht bricht aus der Schale. Ein
+## eigenes Light je Riss verbietet das 16-Light-Budget des gekachelten Bodens,
+## also trägt die Helligkeit allein die ALBEDO des Shaders.
+## Die Shader-RESSOURCE ist preloaded, also gibt es genau EINEN Compile, auch
+## wenn jede Seite ihr eigenes ShaderMaterial trägt (wie vorher ihr eigenes
+## StandardMaterial3D - an der Zahl der Materialien ändert sich nichts).
+static func build_rift_overlay(depth := 0.008) -> MeshInstance3D:
 	var crack := MeshInstance3D.new()
 	crack.name = "RiftCracks"
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2.ONE * FACE_SIZE
 	crack.mesh = mesh
-	crack.position = Vector3(0, 0, 0.008)  # vor dem Rahmen, hinter der Ziffer
+	crack.position = Vector3(0, 0, depth)  # vor dem Rahmen, hinter der Ziffer
 	crack.visible = false
 	crack.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var material := StandardMaterial3D.new()
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.emission_enabled = true
+	var material := ShaderMaterial.new()
+	material.shader = RIFT_SHADER
 	crack.material_override = material
 	return crack
 
@@ -259,6 +261,12 @@ static func _build_label(value: int) -> Label3D:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS  # schreibt Tiefe: korrektes Sortieren bei vielen Würfeln
+	# Dunkler Saum um die Ziffer: Bloom blutet im Bildschirmraum, also wäscht eine
+	# auflodernde Naht die Zahl auch dann aus, wenn sie sie gar nicht berührt. Weil
+	# der Prepass auch für den Saum Tiefe schreibt, VERDECKT der Ring den Riss
+	# dahinter - ein Trennband, das Bloom nicht überqueren kann.
+	label.outline_size = DieFaceDisplay.LABEL_OUTLINE_SIZE
+	label.outline_modulate = DieFaceDisplay.BODY_COLOR
 	label.position = Vector3(0, 0, 0.01)
 	return label
 

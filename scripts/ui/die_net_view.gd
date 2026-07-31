@@ -103,6 +103,11 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.5)))
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
+	# Saum in der Plattenfarbe: auf der Zelle unsichtbar, aber dort, wo eine
+	# Risslinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
+	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
+	chip.add_theme_color_override("font_outline_color", DieMaterial.tint_for(material_id))
+	chip.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
 	var box := StyleBoxFlat.new()
 	box.bg_color = DieMaterial.tint_for(material_id)
 	var has_essence := Essence.is_valid_id(def.essence_id)
@@ -184,17 +189,24 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Je gebrochener Seite die Risslinien QUER DURCH DIE ZELLMITTE - dort ist der
-## einzige freie Platz (die Stufen-Plakette sitzt unten rechts, die Zeiger-Pfeile
-## auf den Rändern). Geometrie statt Typo: bei ~17 px Zelle liest sich ein
-## Linienzug, eine Ziffer nicht. Das Vakuum bricht schwarz.
+## Je gebrochener Seite die Risslinien AUSSEN UM DIE ZIFFER HERUM: die Mitte ist
+## der unfreieste Platz der Zelle, nicht der freieste (Rift.GLYPH_KEEPOUT). Ein
+## Bruch läuft ohnehin von Rand zu Rand, also fallen Echtheit und Lesbarkeit
+## zusammen. Geometrie statt Typo: bei ~17 px Zelle liest sich ein Linienzug, eine
+## Ziffer nicht. Das Vakuum bricht schwarz.
 static func rift_cracks(def: DieDefinition, cell: float) -> Array[Control]:
 	var cracks: Array[Control] = []
 	for face in mini(6, def.rifts.size()):
 		for rift_id in def.rifts_on(face):
+			var rift := Rift.by_id(rift_id)
+			if rift == null:
+				continue
 			var crack := RiftCrack.new()
-			crack.lines = Rift.lines_for(rift_id)
+			crack.face = face
+			crack.lines = Rift.crack_lines(rift.pattern)
+			crack.weights = Rift.crack_weights(rift.pattern)
 			crack.tint = RiftEffects.crack_color(rift_id, def.essence_id)
+			crack.core = rift.core
 			crack.size = Vector2.ONE * cell
 			crack.position = _cell_pos(face, cell)
 			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -204,22 +216,38 @@ static func rift_cracks(def: DieDefinition, cell: float) -> Array[Control]:
 ## Der Riss selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
 ## Zeiger-Pfeile und Stufen-Plakette, damit er auch auf einer hellen Material-
 ## Zelle steht.
+##
+## Das Netz animiert NICHT. 30 Würfel × bis zu 6 Risse hieße bis zu 180 Controls,
+## die je Frame neu zeichnen - für eine Figur von 9 px Breite. Die Werkbank ist
+## eine Lesefläche, keine Bühne. Einzige Ausnahme ist die Grubenkarte, die beim
+## Zählen ohnehin schon lebt: sie setzt flare, und das wirkt allein auf Farbe und
+## Breite. Ein wandernder Kopf ist bei Kartengröße nicht darstellbar; heller und
+## dicker ist die ehrliche Übersetzung von "hat gefeuert".
 class RiftCrack:
 	extends Control
+	## Seite, auf der dieser Riss sitzt - die Grubenkarte lässt gezielt SIE
+	## aufblitzen, nie das ganze Netz.
+	var face: int = -1
 	var lines: Array[PackedVector2Array] = []
+	var weights := PackedFloat32Array()
 	var tint := Color.WHITE
+	var core := Color.WHITE
+	var flare: float = 0.0
 
 	func _draw() -> void:
-		var width := maxf(1.0, size.x * 0.055)
-		for line in lines:
+		for index in lines.size():
+			var line: PackedVector2Array = lines[index]
+			if line.size() < 2:
+				continue
 			var points := PackedVector2Array()
 			for point in line:
 				points.append(point * size)
-			if points.size() < 2:
-				continue
+			# 1-px-Boden: bei 17 px Zelle würde eine 0.45er Gabel sonst verschwinden.
+			var weight: float = weights[index] if index < weights.size() else 1.0
+			var width := maxf(1.0, size.x * 0.055 * weight) * (1.0 + 0.8 * flare)
 			# Unterzug zuerst, dann die Kernlinie darüber.
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
-			draw_polyline(points, tint, width)
+			draw_polyline(points, tint.lerp(core, flare), width)
 
 ## Die Plakette selbst: dunkle Platte mit einem hellen Balken je Stufe in der
 ## Materialfarbe - dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf

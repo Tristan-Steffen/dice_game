@@ -2599,6 +2599,33 @@ func set_pit_die(def: DieDefinition, up_face: int) -> void:
 		_clear_pit_net()
 		pit_net_holder.add_child(DieNetView.build(def, up_face, _pit_net_cell))
 
+## Lässt die Risse EINER Seite in der Grubenkarte mit aufblitzen - dieselbe Uhr
+## wie am Würfel drei Meter weiter, aber NUR über Farbe und Breite. Ein wandernder
+## Kopf ist bei Kartengröße nicht darstellbar; heller und dicker ist die ehrliche
+## Übersetzung von "hat gefeuert".
+##
+## Das ist die einzige Stelle im Spiel, an der ein Würfelnetz animiert: die Karte
+## lebt in diesem Moment ohnehin schon (Leiterbahn-Pulse). Das 30-Würfel-Raster
+## bleibt still, weil es sonst bis zu 180 Controls je Frame neu zeichnen müsste -
+## die Werkbank ist eine Lesefläche, keine Bühne. Der Aufrufer gibt seine Def mit:
+## zeigt die Karte gerade einen ANDEREN Würfel, passiert nichts.
+func flare_pit_rifts(def: DieDefinition, face_index: int, duration: float) -> void:
+	if pit_net_holder == null or def == null or def != _pit_net_def:
+		return
+	if pit_net_holder.get_child_count() == 0:
+		return
+	for child in pit_net_holder.get_child(0).get_children():
+		var crack := child as DieNetView.RiftCrack
+		if crack == null or (face_index >= 0 and crack.face != face_index):
+			continue
+		crack.flare = 1.0
+		crack.queue_redraw()
+		var tween := create_tween()
+		tween.tween_method(func(strength: float) -> void:
+			if is_instance_valid(crack):
+				crack.flare = strength
+				crack.queue_redraw(), 1.0, 0.0, duration)
+
 ## Leert das Netz (kein Würfel unter der Maus); das Feld bleibt stehen.
 func clear_pit_die() -> void:
 	if pit_info_bar == null:

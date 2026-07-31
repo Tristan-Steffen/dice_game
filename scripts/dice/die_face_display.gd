@@ -136,11 +136,17 @@ const LABEL_FONT_SIZE := 160
 const LABEL_PIXEL_SIZE := 0.0085
 ## Nutzbare Kantenlänge des Ziffernfelds (< DieBuilder.FACE_SIZE).
 const LABEL_FIT_EXTENT := 1.5
+## Dunkler Saum der Ziffer in Font-Pixeln (12.5 % von LABEL_FONT_SIZE): das
+## Trennband gegen auslaufenden Riss-Bloom. Mehr macht die Zahl fett, weniger
+## trennt bei voller Naht-Breite nicht mehr.
+const LABEL_OUTLINE_SIZE := 20
 
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
 var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
 var rift_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Riss-Auflage)
+## Zweite Auflage NUR für Vakuum-Würfel (zwei Brüche je Seite), faul gebaut.
+var rift_overlays_second: Dictionary = {}
 ## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar.
 var corner_caps: Node3D = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
@@ -158,9 +164,11 @@ var shell_material: ShaderMaterial = null
 ## Spanne, über die das Polarlicht seinen Farbton wandern lässt (Grün -> Violett).
 const AURORA_HUE_SPAN := 0.22
 
-## Risse schimmern in Ruhe nur schwach und flammen beim Feuern auf.
-const RIFT_REST_GLOW := 0.5
-const RIFT_FLARE_GLOW := 5.0
+## Zweiter Bruch des Vakuum-Würfels: knapp vor dem ersten, hinter der Ziffer.
+const SECOND_RIFT_DEPTH := 0.0085
+## Verbreiterung der Ziffern-Sperrzone je zusätzlicher Stelle (§2.4): eine
+## zweistellige Zahl beansprucht ~0.375 statt 0.26 halbe Breite.
+const GLYPH_DIGIT_WIDEN := 0.115
 
 ## Lebendiges Licht: das Kanten-Neon atmet langsam - Material-Würfel stärker.
 var _pulse_phase := randf() * TAU
@@ -220,6 +228,7 @@ func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
 	label.text = str(value)
 	DieFaceDisplay.fit_label(label)
+	_sync_glyph_guard(axis)
 
 ## Schreibt die Ziffer EINER Seite abweichend von der Def (Anzeige-
 ## Überschreibung: Verwandlungs-Charm, Wertwandel während des Zählens).
@@ -327,30 +336,89 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 ## Risse der Seiten: sichtbar nur, wo ein Rift sitzt. In Ruhe schimmern sie
 ## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_rifts). Genau
 ## diese zeitliche Signatur trennt sie vom DAUERND glühenden Essenz-Rand.
+## Der Vakuum-Würfel trägt zwei Brüche je Seite; der zweite bekommt seine eigene
+## Auflage, erst bei Bedarf gebaut und GESPIEGELT - so nehmen die beiden Brüche
+## entgegengesetzte Ränder, statt sich im selben zu verheddern.
 func _refresh_rift_overlays(def: DieDefinition) -> void:
 	for axis in rift_overlays:
-		var overlay: MeshInstance3D = rift_overlays[axis]
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var on_face := def.rifts_on(face_index)
-		overlay.visible = not on_face.is_empty()
-		if not overlay.visible:
-			continue
-		var material: StandardMaterial3D = overlay.material_override
-		var texture := RiftTextures.for_face(on_face, def.essence_id)
-		material.albedo_texture = texture
-		material.emission_texture = texture
-		material.albedo_color = Color(1, 1, 1, 1)
-		material.emission = Color(1, 1, 1) * RIFT_REST_GLOW
+		_apply_rift_overlay(rift_overlays[axis], on_face, 0, def, false)
+		var second: MeshInstance3D = rift_overlays_second.get(axis)
+		if on_face.size() > 1:
+			if second == null:
+				second = DieBuilder.build_rift_overlay(SECOND_RIFT_DEPTH)
+				quads[axis].add_child(second)
+				rift_overlays_second[axis] = second
+			_apply_rift_overlay(second, on_face, 1, def, true)
+		elif second != null:
+			second.visible = false
+		_sync_glyph_guard(axis)
 
-## Lässt die Risse dieses Würfels auflodern (0 = Ruhe, 1 = voller Ausbruch) -
-## scene_root ruft das im Aktivierungs-Puls der Zählanimation.
-func flare_rifts(strength: float) -> void:
-	for axis in rift_overlays:
-		var overlay: MeshInstance3D = rift_overlays[axis]
-		if not overlay.visible:
+func _apply_rift_overlay(overlay: MeshInstance3D, on_face: Array[String], index: int,
+		def: DieDefinition, mirrored: bool) -> void:
+	overlay.visible = index < on_face.size()
+	if not overlay.visible:
+		return
+	var rift_id: String = on_face[index]
+	var rift := Rift.by_id(rift_id)
+	# Die Essenz schlägt den Rift: auf einem Vakuum-Würfel saugt jeder Bruch.
+	var profile := Rift.profile_for(rift_id, def.essence_id)
+	if rift == null or profile == null:
+		overlay.visible = false
+		return
+	var material: ShaderMaterial = overlay.material_override
+	material.set_shader_parameter("crack_map", RiftTextures.for_pattern(rift.pattern))
+	var seam := profile.normalized_seam()
+	material.set_shader_parameter("seam_color", Vector3(seam.r, seam.g, seam.b))
+	material.set_shader_parameter("core_color",
+		Vector3(profile.core.r, profile.core.g, profile.core.b))
+	material.set_shader_parameter("motion", profile.motion)
+	material.set_shader_parameter("idle_low", profile.idle_low)
+	material.set_shader_parameter("idle_high", profile.idle_high)
+	material.set_shader_parameter("idle_speed", 1.0 / maxf(profile.idle_period, 0.01))
+	material.set_shader_parameter("flare_peak", profile.flare_peak)
+	material.set_shader_parameter("core_share", profile.core_share)
+	material.set_shader_parameter("halo_width", profile.halo_width)
+	material.set_shader_parameter("halo_flare", profile.halo_flare)
+	material.set_shader_parameter("halo_bias", profile.halo_bias)
+	# Je Würfel eine eigene Phase - 30 Tray-Würfel atmen nie im Gleichschritt.
+	material.set_shader_parameter("phase", _pulse_phase)
+	material.set_shader_parameter("mirror", mirrored)
+	material.set_shader_parameter("flare", 0.0)
+	material.set_shader_parameter("block_flare", false)
+
+## Ziffern-Wächter (§2.4): eine zweistellige Zahl ist breiter, also wird die
+## SPERRZONE breiter - nie die Figur. Knochen lässt Werte wachsen, und ein Riss,
+## der sich beim Wachsen neu zeichnet, liest als Fehler.
+func _sync_glyph_guard(axis: String) -> void:
+	var label: Label3D = labels.get(axis)
+	if label == null:
+		return
+	var digits := maxi(1, label.text.length())
+	var half := Vector2(Rift.GLYPH_KEEPOUT.x + GLYPH_DIGIT_WIDEN * float(digits - 1),
+		Rift.GLYPH_KEEPOUT.y)
+	for store in [rift_overlays, rift_overlays_second]:
+		var overlay: MeshInstance3D = store.get(axis)
+		if overlay == null or not overlay.visible:
 			continue
-		var material: StandardMaterial3D = overlay.material_override
-		material.emission_energy_multiplier = RIFT_REST_GLOW + strength * RIFT_FLARE_GLOW
+		(overlay.material_override as ShaderMaterial).set_shader_parameter("glyph_half", half)
+
+## Lässt die Risse EINER Seite auflodern (0 = Ruhe, 1 = voller Ausbruch) -
+## scene_root ruft das im Aktivierungs-Puls der Zählanimation. face_index < 0
+## meint alle Seiten (Vorschau/Test); im Spiel feuert immer nur die OBERE, denn
+## dort sitzt der Riss, der gewertet wird.
+func flare_rifts(strength: float, face_index := -1, block := false) -> void:
+	for axis in rift_overlays:
+		if face_index >= 0 and DiceController.AXIS_FACE_INDEX[axis] != face_index:
+			continue
+		for store in [rift_overlays, rift_overlays_second]:
+			var overlay: MeshInstance3D = store.get(axis)
+			if overlay == null or not overlay.visible:
+				continue
+			var material: ShaderMaterial = overlay.material_override
+			material.set_shader_parameter("flare", strength)
+			material.set_shader_parameter("block_flare", block)
 
 ## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
 func _refresh_frame(axis: String, profile: DieMaterial) -> void:

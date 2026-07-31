@@ -46,6 +46,14 @@ class TakeReport:
 	var charge: int = 0  # Energie aus Funkenflug-Rissen (je Zug einmal je Seite)
 	var grown: Array[int] = []  # Slots, deren Seite gewachsen ist (Knochen/Helium)
 	var shrunk: Array[int] = []  # Slots, deren Seite geschrumpft ist (Glas)
+	## Slots, die Streulicht kassiert haben - die Zeremonie lässt genau die
+	## aufleuchten, denn nur sie haben fürs Danebenliegen bezahlt.
+	var stray: Array[int] = []
+	## Slots, an denen ein Einbrand wirklich einen Verlust VERHINDERT hat. Der
+	## einzige Moment, in dem dieser Schutz überhaupt sichtbar wird.
+	var blocked: Array[int] = []
+	## Slots, aus denen ein Funke gesprungen ist - je Eintrag ein ⚡ der Salve.
+	var sparks: Array[int] = []
 
 ## Aktivierungen des Würfels in Slot i: die Essenz stellt den EINZIGEN Faktor
 ## (EssenceEffects.activation_factor), alles andere addiert - Retrigger-Charms
@@ -250,7 +258,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var level := face_level(defs[i], face)
 		var rift_ids := defs[i].rifts_on(face)
 		# Funkenflug speist EINEN Funken je Zug, nie je Auslösung.
-		report.charge += RiftEffects.charge_for_take(rift_ids)
+		var spark := RiftEffects.charge_for_take(rift_ids)
+		report.charge += spark
+		for _s in spark:
+			report.sparks.append(i)
 		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
 		var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
 		var effect_count := activation_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
@@ -259,6 +270,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		if face_material == DieMaterial.GOLD:
 			report.money += _gold_payout(level, gold_surplus, gold_triggers) * effect_count
 		report.money += EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * effect_count
+
+		# Der Einbrand hat wirklich etwas abgewehrt - nur dann lohnt die Geste.
+		if face_material == DieMaterial.GLASS and RiftEffects.protects_face_value(rift_ids):
+			report.blocked.append(i)
 
 		# Knochen/Glas/Helium laufen Aktivierung für Aktivierung: der prozentuale
 		# Satz rechnet sich am schon veränderten Wert neu.
@@ -296,7 +311,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var idle_face: int = face_indices[i]
 		if idle_face < 0:
 			continue
-		report.money += RiftEffects.stray_money(defs[i].rifts_on(idle_face))
+		var stray := RiftEffects.stray_money(defs[i].rifts_on(idle_face))
+		if stray > 0:
+			report.money += stray
+			report.stray.append(i)
 	return report
 
 ## Stufe des Materials DIESER Seite (Guard für Defs ohne volles Stufen-Array).
