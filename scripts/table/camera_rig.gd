@@ -1,8 +1,10 @@
 class_name CameraRig
 extends Camera3D
 ## Spielkamera: feste Übersicht mit begrenztem Maus-Rundschauen plus
-## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Linksklick auf eine Zone
-## zoomt heran, Rechtsklick zurück; auch im Zoom bleibt leichtes Rundschauen.
+## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Mausrad hoch oder Linksklick auf
+## eine Zone zoomt heran, Rad runter oder Rechtsklick zurück; auch im Zoom
+## bleibt leichtes Rundschauen. Alle Wege lösen dieselben STUFEN aus - die
+## Distanzen sind gerechnet, es gibt bewusst kein freies Heranfahren.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 

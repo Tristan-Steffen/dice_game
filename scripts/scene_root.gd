@@ -231,6 +231,14 @@ const LINEUP_DURATION := 0.35
 ## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben).
 const PIT_ZOOM_UP := 4.0
 
+## Mausrad-Navigation: EIN Rad-Schritt = EINE Zoomstufe, also genau die Fahrten,
+## die auch Klick und Rechtsklick auslösen - die Zoom-Distanzen sind gerechnet
+## (Texturauflösung, gerahmte Rechtecke) und vertragen kein freies Heranfahren.
+## Trackpads melden Bruchteile in factor, darum wird bis zu einer vollen Kerbe
+## gesammelt; ein Richtungswechsel verwirft das Angesammelte.
+const WHEEL_STEP_THRESHOLD := 1.0
+var wheel_accum := 0.0
+
 ## Grobe Spielphase - genau EINE zur Zeit; Eingabe-Gates prüfen gegen sie.
 ## Nebenläufige Kosmetik (Deck-Aufrücken, Drags, Bogen-Abschluss) ist bewusst
 ## KEINE Phase und darf parallel laufen.
@@ -1921,6 +1929,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_title()
 		return
 
+	# Mausrad: hoch = heranfahren, runter = eine Stufe zurück. Steht hinter den
+	# Zieh-Gesten (dort ist das Rad taub) und vor jeder Weiterleitung.
+	if event is InputEventMouseButton and event.pressed \
+			and (event.button_index == MOUSE_BUTTON_WHEEL_UP
+				or event.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+		_handle_zoom_wheel(event as InputEventMouseButton)
+		return
+
 	# Zweite Werkbank-Stufe: VOR der Weiterleitung, sonst verschluckt das
 	# Werkstattfenster den Doppelklick.
 	if _try_workshop_close_zoom(event):
@@ -2718,17 +2734,22 @@ func _try_workshop_close_zoom(event: InputEvent) -> bool:
 	if button == null or not button.pressed or not button.double_click \
 			or button.button_index != MOUSE_BUTTON_LEFT:
 		return false
+	if not _workshop_close_zoom_allowed(button.position):
+		return false
+	camera_rig.zoom_workshop_close()
+	return true
+
+## Ob an diesem Bildschirmpunkt die Werkbank-Nahsicht aufgehen darf: freie
+## Bankfläche, kein aktiver Knopf darunter.
+func _workshop_close_zoom_allowed(screen_pos: Vector2) -> bool:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null or table_screen == null:
 		return false
 	var pixel := table_screen.pixel_from_ray(
-		camera.project_ray_origin(button.position), camera.project_ray_normal(button.position))
+		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 	if pixel.x < 0.0 or not workshop_close_rect.has_point(pixel):
 		return false
-	if _workshop_interactive_at(pixel):
-		return false
-	camera_rig.zoom_workshop_close()
-	return true
+	return not _workshop_interactive_at(pixel)
 
 ## Spiegelung aus, wo gespiegelte Würfel ins Bild geistern: im Titel-HUD und in
 ## der Werkbank-Nahsicht (die Trays liegen dort knapp außerhalb des Rahmens und
@@ -2766,39 +2787,90 @@ func _workshop_window_has_point(pixel: Vector2) -> bool:
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
+	_zoom_to_mode(_zone_mode_at(screen_pos))
+
+## Zoom-Ziel unter einem Bildschirmpunkt (Klickzonen-Layer 8); -1 = keines.
+## Ein noch gesperrtes Fenster liefert -1, seine Zone steht aber schon da.
+## EINE Quelle für Klick und Mausrad - sonst driften die beiden Wege auseinander.
+func _zone_mode_at(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 8)
 	if result.is_empty():
-		return
+		return -1
 
 	var collider: Object = result.collider
 	if collider == pit_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.PIT)
-	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.POOL)
-	elif collider == discard_tray_view.click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.DISCARD)
-	elif collider == combos_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.COMBOS)
-	elif collider == charms_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.CHARMS)
-	elif collider == hub_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.HUB)
-	elif collider == side_bets_click_zone and run != null and run.side_bets_unlocked():
-		camera_rig.zoom_to(CameraRig.Mode.SIDE_BETS)
-	elif collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
-		camera_rig.zoom_to(CameraRig.Mode.SLOTS)
-		# Beim Wechsel auf den Automaten die Dreh-Knöpfe auf den aktuellen Geldstand
-		# bringen (er kann sich seit dem letzten Aufbau geändert haben).
-		if table_screen.slot_bank_window != null:
-			table_screen.slot_bank_window.refresh_if_idle()
-	elif collider == workshop_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
-	elif collider == score_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.SCORE)
-	elif collider == chips_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.CHIPS)
-	elif collider == secret_shop_click_zone:
-		camera_rig.zoom_to(CameraRig.Mode.SECRET_SHOP)
+		return CameraRig.Mode.PIT
+	if collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
+		return CameraRig.Mode.POOL
+	if collider == discard_tray_view.click_zone:
+		return CameraRig.Mode.DISCARD
+	if collider == combos_click_zone:
+		return CameraRig.Mode.COMBOS
+	if collider == charms_click_zone:
+		return CameraRig.Mode.CHARMS
+	if collider == hub_click_zone:
+		return CameraRig.Mode.HUB
+	if collider == side_bets_click_zone and run != null and run.side_bets_unlocked():
+		return CameraRig.Mode.SIDE_BETS
+	if collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
+		return CameraRig.Mode.SLOTS
+	if collider == workshop_click_zone:
+		return CameraRig.Mode.WORKSHOP
+	if collider == score_click_zone:
+		return CameraRig.Mode.SCORE
+	if collider == chips_click_zone:
+		return CameraRig.Mode.CHIPS
+	if collider == secret_shop_click_zone:
+		return CameraRig.Mode.SECRET_SHOP
+	return -1
+
+## Fährt auf ein Zoom-Ziel aus _zone_mode_at; -1 tut nichts.
+func _zoom_to_mode(target: int) -> void:
+	if target == -1:
+		return
+	camera_rig.zoom_to(target as CameraRig.Mode)
+	# Beim Wechsel auf den Automaten die Dreh-Knöpfe auf den aktuellen Geldstand
+	# bringen (er kann sich seit dem letzten Aufbau geändert haben).
+	if target == CameraRig.Mode.SLOTS and table_screen.slot_bank_window != null:
+		table_screen.slot_bank_window.refresh_if_idle()
+
+## Ein Rad-Schritt. Taub während einer Kamerafahrt (das ist zugleich die Sperre
+## gegen nachlaufende Flicks) und in der Gravur-Zeremonie: dort ist das
+## Abbrechen eine gewollte Geste und darf nicht an einem Radstups hängen.
+func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
+	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.is_animating or engraving_active:
+		wheel_accum = 0.0
+		return
+
+	var up := event.button_index == MOUSE_BUTTON_WHEEL_UP
+	# Gekerbte Räder melden factor 0 - das ist eine volle Kerbe.
+	var amount := event.factor if event.factor > 0.0 else 1.0
+	var signed := amount if up else -amount
+	if (signed > 0.0) != (wheel_accum > 0.0):
+		wheel_accum = 0.0
+	wheel_accum += signed
+	if absf(wheel_accum) < WHEEL_STEP_THRESHOLD:
+		return
+
+	wheel_accum = 0.0
+	if up:
+		_zoom_wheel_in(event.position)
+	elif camera_rig.workshop_close:
+		camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
+	else:
+		camera_rig.zoom_out()
+
+## Rad hoch: auf die Zone unter der Maus zufahren - genau das Ziel des
+## Linksklicks. Über freiem Filz passiert nichts (kein Standard-Ziel).
+func _zoom_wheel_in(screen_pos: Vector2) -> void:
+	# Auf der Werkbank ist die Nahsicht die nächste Stufe, nicht ein Nachbarfenster.
+	if camera_rig.mode == CameraRig.Mode.WORKSHOP and not camera_rig.workshop_close \
+			and _workshop_close_zoom_allowed(screen_pos):
+		camera_rig.zoom_workshop_close()
+		return
+	var target := _zone_mode_at(screen_pos)
+	if target != camera_rig.mode:
+		_zoom_to_mode(target)
 
 func _process(delta: float) -> void:
 	_update_charm_hover()
