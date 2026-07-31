@@ -132,16 +132,44 @@ func test_a_new_run_does_not_inherit_the_open_content() -> void:
 
 # --- Zeremonie: Würfel-Pakete ---------------------------------------------------
 
+## Öffnet ein 3er-Paket UND wählt gleich einen Würfel - der Normalfall für die
+## Einsetz-Tests. Wer den Wahlschritt selbst prüfen will, nimmt _reveal_dice_pack.
 func _open_dice_pack() -> void:
-	# "Niedrige Serie": 3 Würfel, damit das Durchreichen mehrerer Würfel greift.
+	_reveal_dice_pack()
+	view._choose_die(0)
+
+## Öffnet ein 3er-Paket bis zur WAHL: alle drei liegen offen.
+func _reveal_dice_pack() -> void:
+	# "Niedrige Serie": 3 Würfel, damit die Wahl überhaupt eine ist.
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[4]), 0)
 	view.open_pack(0)
-	view._unseal.finish_now()  # Entsiegelung überspringen: hier geht es ums Einsetzen
+	view._unseal.finish_now()  # Entsiegelung überspringen: hier geht es ums Wählen
 
-func test_dice_pack_shows_its_dice_and_the_pool_on_one_page() -> void:
+func test_a_multi_die_pack_reveals_all_of_them_for_the_choice() -> void:
+	_reveal_dice_pack()
+	assert_eq(view._phase, WorkshopView.Phase.CHOOSE_DIE, "erst wählen, dann einsetzen")
+	assert_eq(view._revealed_dice.size(), 3, "alle drei liegen offen")
+
+func test_choosing_keeps_exactly_one_die() -> void:
+	_reveal_dice_pack()
+	var picked: DieDefinition = view._revealed_dice[1]
+	view._choose_die(1)
+	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE)
+	assert_eq(view._revealed_dice.size(), 1, "der Rest bleibt im Paket")
+	assert_same(view._revealed_dice[0], picked, "und zwar genau der gewählte")
+
+func test_a_single_die_pack_skips_the_choice() -> void:
+	# Ein Würfel, keine Entscheidung: direkt einsetzen.
+	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
+	view.open_pack(0)
+	view._unseal.finish_now()
+	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE, "nichts zu wählen")
+	assert_eq(view._revealed_dice.size(), 1)
+
+func test_dice_pack_shows_its_die_and_the_pool_on_one_page() -> void:
 	_open_dice_pack()
 	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE)
-	assert_eq(view._revealed_dice.size(), 3)
+	assert_eq(view._revealed_dice.size(), 1)
 	assert_eq(view._pool_grid.tiles.size(), GameRun.POOL_SIZE, "je Pool-Platz eine Kachel")
 	assert_true(view._selected_slots.is_empty(), "noch nichts gewählt")
 	assert_true(view._place_button.disabled, "ohne Auswahl bleibt Einsetzen dunkel")
@@ -151,7 +179,7 @@ func test_selecting_a_slot_lights_up_the_place_button() -> void:
 	view.toggle_slot(4)
 	assert_eq(view._selected_slots, [4] as Array[int])
 	assert_false(view._place_button.disabled, "ab dem ersten Platz leuchtet Einsetzen")
-	assert_eq(view._remaining_label.text, "2", "der Zähler zählt runter")
+	assert_eq(view._remaining_label.text, "0", "der eine Würfel hat seinen Platz")
 
 func test_clicking_a_selected_slot_again_deselects_it() -> void:
 	_open_dice_pack()
@@ -164,17 +192,15 @@ func test_selection_stops_at_the_number_of_dice_in_the_pack() -> void:
 	_open_dice_pack()
 	for slot in [0, 1, 2, 3]:
 		view.toggle_slot(slot)
-	assert_eq(view._selected_slots, [0, 1, 2] as Array[int], "mehr Plätze als Würfel gehen nicht")
+	assert_eq(view._selected_slots, [0] as Array[int], "ein Würfel, ein Platz")
 	assert_eq(view._remaining_label.text, "0")
 
-func test_confirming_replaces_every_selected_slot() -> void:
+func test_confirming_replaces_the_selected_slot() -> void:
 	_open_dice_pack()
 	var incoming: String = view._revealed_dice[0].style_id
 	view.toggle_slot(4)
-	view.toggle_slot(9)
 	view.confirm_placement()
-	assert_eq(run.owned_pool[4].style_id, incoming, "Platz 4 trägt einen Paket-Würfel")
-	assert_eq(run.owned_pool[9].style_id, incoming, "Platz 9 auch")
+	assert_eq(run.owned_pool[4].style_id, incoming, "Platz 4 trägt den Paket-Würfel")
 	assert_eq(run.owned_pool[5].style_id, "normal", "Nachbarplatz unberührt")
 	assert_eq(view._phase, WorkshopView.Phase.STASH, "danach wieder das Lager")
 
@@ -188,9 +214,10 @@ func test_placement_keeps_the_pool_instance_so_the_trays_follow() -> void:
 	assert_same(run.owned_pool[4], held, "der Pool-Platz behält seine Instanz")
 	assert_eq(held.style_id, "low", "und trägt jetzt den Paket-Würfel")
 
-func test_unplaced_dice_of_the_pack_are_lost() -> void:
-	# Drei Würfel, ein Platz: die anderen beiden verfallen ersatzlos.
-	_open_dice_pack()
+func test_the_unchosen_dice_of_the_pack_are_lost() -> void:
+	# Drei aufgedeckt, einer genommen: die anderen beiden verfallen ersatzlos.
+	_reveal_dice_pack()
+	view._choose_die(0)
 	var incoming: String = view._revealed_dice[0].style_id
 	view.toggle_slot(4)
 	view.confirm_placement()
@@ -198,7 +225,7 @@ func test_unplaced_dice_of_the_pack_are_lost() -> void:
 	for def in run.owned_pool:
 		if def.style_id == incoming:
 			placed += 1
-	assert_eq(placed, 1, "nur der gewählte Platz wurde ersetzt")
+	assert_eq(placed, 1, "genau ein Platz wurde ersetzt")
 	assert_eq(view._revealed_dice.size(), 0, "der Rest ist verfallen")
 
 func test_confirming_without_a_selection_does_nothing() -> void:

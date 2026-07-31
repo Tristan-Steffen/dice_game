@@ -75,9 +75,17 @@ static func mixed_pack() -> Pack:
 
 ## Würfel-Paket zu einer DiceOffer-Vorlage: die Sorte ist bekannt, die Augen
 ## nicht. Veredelungen kosten hier keinen Aufschlag - das ist der Blindkauf-Bonus.
+## Mehrfach-Pakete decken ALLE Würfel auf und geben genau EINEN mit: gekauft
+## wird die Auswahl, nicht die Menge. Je zusätzlich aufgedecktem Würfel kostet
+## das Paket darum etwas mehr - "der beste aus dreien" ist mehr wert als "einer
+## auf gut Glück", auch wenn am Ende nur ein Würfel im Pool landet.
+const DICE_PACK_PICK_SURCHARGE := 4
+
 static func dice_pack(template: Dictionary) -> Pack:
-	var pack := _make(TYPE_DICE, int(template["count"]), int(template["price"]),
-		"%d× %s, ungeöffnet." % [int(template["count"]), template["name"]])
+	var count := int(template["count"])
+	var price := int(template["price"]) + (count - 1) * DICE_PACK_PICK_SURCHARGE
+	var text := "%s, ungeöffnet." % template["name"] if count == 1 		else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
+	var pack := _make(TYPE_DICE, count, price, text)
 	pack.display_name = template["name"]
 	pack.template_id = template["style_id"]
 	return pack
@@ -124,9 +132,11 @@ func _mixed_category() -> String:
 			return category
 	return Engraving.CATEGORY_NUMBER
 
-## Inhalt eines Würfel-Pakets: count unabhängige Kopien EINER frisch
-## ausgewürfelten Würfelart. Veredelungen kosten hier nichts extra - der
-## Blindkauf zahlt sich hier aus.
+## Inhalt eines Würfel-Pakets: count EIGENSTÄNDIG ausgewürfelte Würfel derselben
+## Art. Sie müssen sich unterscheiden - der Spieler deckt alle auf und nimmt
+## GENAU EINEN mit (siehe WorkshopView.Phase.CHOOSE_DIE); wären es Kopien, wäre
+## die Wahl eine Attrappe. Veredelungen kosten hier nichts extra - dafür ist es
+## ein Blindkauf.
 func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
@@ -134,16 +144,19 @@ func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []
 	var template := _template()
 	if template.is_empty():
 		return dice
-	var base := DiceOffer.make_die(template)
-	DiceOffer.roll_refinements(base)
-	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
-	if CharmEffects.forces_refinement(charm_ids) and base.materials.count("") == base.materials.size():
-		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
-	# Pakete rollen dieselbe Essenz-Chance wie der Shop - der Blindkauf kann eine
-	# Seele enthalten, zahlt aber keinen Aufpreis dafür.
-	base.essence_id = DiceOffer.roll_essence(owned_essences, count == 1)
+	# Unikate dürfen nur EINMAL im Paket liegen: schon gerollte Seelen wandern in
+	# die Sperrliste, damit nicht zwei Legendäre nebeneinander aufgedeckt werden.
+	var taken := owned_essences.duplicate()
 	for i in count:
-		dice.append(base.instantiate())
+		var die := DiceOffer.make_die(template)
+		DiceOffer.roll_refinements(die)
+		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
+		if CharmEffects.forces_refinement(charm_ids) and die.materials.count("") == die.materials.size():
+			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+		die.essence_id = DiceOffer.roll_essence(taken)
+		if die.essence_id != "" and not taken.has(die.essence_id):
+			taken.append(die.essence_id)
+		dice.append(die)
 	return dice
 
 func _template() -> Dictionary:

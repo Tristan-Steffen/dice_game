@@ -36,6 +36,26 @@ const CARD_BG := Color("#241f4a99")
 
 const FLIP_DURATION := 0.25
 
+## Einzelstücke der Chip-Schale: wie viele je Besuch in der Auslage liegen.
+const SINGLE_DICE_MIN := 1
+const SINGLE_DICE_MAX := 2
+const SINGLE_MATERIAL_MIN := 1
+const SINGLE_MATERIAL_MAX := 2
+const SINGLE_OTHER_MIN := 1
+const SINGLE_OTHER_MAX := 2
+
+## Preis einer EINZELNEN Gravur je Seltenheit. Bezugsgröße ist der Stückpreis im
+## Paket (Zahlen-Paket $12 für 4 Stück = $3, Material-Paket $14 für 3 ≈ $4,7):
+## das Einzelstück kostet rund das Doppelte davon und steigt mit der Seltenheit.
+## So ist der Einzelkauf bequem - man nimmt genau das, was man braucht -, aber
+## das Paket bleibt das bessere Geschäft je Stück.
+const SINGLE_ENGRAVING_PRICES := {
+	Engraving.Rarity.COMMON: 6,
+	Engraving.Rarity.UNCOMMON: 9,
+	Engraving.Rarity.RARE: 13,
+	Engraving.Rarity.EPIC: 18,
+}
+
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
 ## Zurückblättern zeigt exakt diese Seite wieder.
 class MenuSpread:
@@ -50,6 +70,14 @@ class MenuSpread:
 	var charm_bought: Array[bool] = []
 	var overclock_offers: Array[String] = []  # Kombinations-Keys zum Übertakten
 	var overclock_bought: Array[bool] = []
+	## Einzelstücke der Chip-Schale: OFFENE Würfel (alles vor dem Kauf sichtbar)
+	## und einzelne Gravuren. Sie gehören zur gerollten Auslage - die
+	## Sortiment-Sperre friert sie mit ein, Gekauftes bleibt gekauft.
+	var single_dice: Array[DieDefinition] = []
+	var single_dice_prices: Array[int] = []
+	var single_dice_bought: Array[bool] = []
+	var single_engravings: Array[Engraving] = []
+	var single_engravings_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
@@ -106,6 +134,13 @@ var engraving_pack_buttons: Array[Button] = []
 var overclock_offers: Array[String] = []
 var overclock_bought: Array[bool] = []
 var overclock_buttons: Array[Button] = []
+var single_dice: Array[DieDefinition] = []
+var single_dice_prices: Array[int] = []
+var single_dice_bought: Array[bool] = []
+var single_dice_buttons: Array[Button] = []
+var single_engravings: Array[Engraving] = []
+var single_engravings_bought: Array[bool] = []
+var single_engraving_buttons: Array[Button] = []
 
 var flip_tween: Tween
 
@@ -374,7 +409,37 @@ func _build_spread() -> MenuSpread:
 		spread.overclock_offers.append(keys[i])
 	spread.overclock_bought.resize(spread.overclock_offers.size())
 	spread.overclock_bought.fill(false)
+
+	# Einzelstücke der Chip-Schale. Die Würfel werden HIER ausgewürfelt und
+	# vollständig gezeigt - kein Blindkauf, das ist ihr ganzer Zweck.
+	var owned_souls := run.owned_essence_ids()
+	for i in randi_range(SINGLE_DICE_MIN, SINGLE_DICE_MAX):
+		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls)
+		if offers.is_empty() or offers[0].dice.is_empty():
+			continue
+		var die: DieDefinition = offers[0].dice[0]
+		spread.single_dice.append(die)
+		spread.single_dice_prices.append(offers[0].price)
+		# Ein frisch gerolltes Unikat darf nicht zweimal in derselben Auslage liegen.
+		if die.essence_id != "" and not owned_souls.has(die.essence_id):
+			owned_souls.append(die.essence_id)
+	spread.single_dice_bought.resize(spread.single_dice.size())
+	spread.single_dice_bought.fill(false)
+
+	for engraving in Engraving.roll_in_category(Engraving.CATEGORY_MATERIAL,
+			randi_range(SINGLE_MATERIAL_MIN, SINGLE_MATERIAL_MAX)):
+		spread.single_engravings.append(engraving)
+	var other_category := Engraving.CATEGORY_NUMBER if randf() < 0.7 else Engraving.CATEGORY_DICE
+	for engraving in Engraving.roll_in_category(other_category,
+			randi_range(SINGLE_OTHER_MIN, SINGLE_OTHER_MAX)):
+		spread.single_engravings.append(engraving)
+	spread.single_engravings_bought.resize(spread.single_engravings.size())
+	spread.single_engravings_bought.fill(false)
 	return spread
+
+## Preis eines Einzelstücks aus dem Gravur-Regal.
+static func single_engraving_price(engraving: Engraving) -> int:
+	return int(SINGLE_ENGRAVING_PRICES.get(engraving.rarity, 9))
 
 ## Würfel-Pakete der Auslage: je Platz eine andere Vorlage (Mengenrabatt sorgt
 ## für ein 3er-Bündel), Inhalt bleibt bis zum Öffnen verborgen.
@@ -418,6 +483,11 @@ func _show_spread() -> void:
 	engraving_pack_bought = spread.engraving_pack_bought
 	overclock_offers = spread.overclock_offers
 	overclock_bought = spread.overclock_bought
+	single_dice = spread.single_dice
+	single_dice_prices = spread.single_dice_prices
+	single_dice_bought = spread.single_dice_bought
+	single_engravings = spread.single_engravings
+	single_engravings_bought = spread.single_engravings_bought
 
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
@@ -444,6 +514,8 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	charm_buttons.clear()
 	engraving_pack_buttons.clear()
 	overclock_buttons.clear()
+	single_dice_buttons.clear()
+	single_engraving_buttons.clear()
 
 	var main_row := HBoxContainer.new()
 	main_row.add_theme_constant_override("separation", int(u * 1.6))
@@ -499,21 +571,42 @@ func _rebuild_content(spread: MenuSpread) -> void:
 
 	# Segment 3: Chip-Schale - runde Casino-Chips (Übertaktungen), als Tablett
 	# umbrechend und in der Schale zentriert. Füllt die restliche Höhe rechts.
-	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "", true)
+	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "Chips & Einzelstücke", true)
 	chip_zone.get_parent().size_flags_stretch_ratio = 0.55
-	chip_zone.add_child(_v_spacer())
+	# Zwei Etagen in EINER Schale: oben die runden Chips, unten die Einzelstücke.
+	# Feste Anteile, damit die Karten der Chip-Reihe nicht den Platz wegnehmen -
+	# und umgekehrt (die Chips würden sonst bei vollem Regal auf Münzgröße fallen).
+	var chip_deck := VBoxContainer.new()
+	chip_deck.add_theme_constant_override("separation", int(u * 1.0))
+	chip_deck.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	chip_deck.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip_zone.add_child(chip_deck)
+
 	var tray := HFlowContainer.new()
 	tray.add_theme_constant_override("h_separation", int(u * 1.2))
 	tray.add_theme_constant_override("v_separation", int(u * 1.2))
 	tray.alignment = FlowContainer.ALIGNMENT_CENTER
+	tray.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tray.size_flags_stretch_ratio = 0.42
 	tray.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip_zone.add_child(tray)
+	chip_deck.add_child(tray)
 	var dia := _chip_dia(spread.overclock_offers.size())
 	for i in spread.overclock_offers.size():
 		var ocard := _build_overclock_chip(spread.overclock_offers[i], i, dia)
 		tray.add_child(ocard)
 		_maybe_flicker(ocard, i, _flicker_chip_from)
-	chip_zone.add_child(_v_spacer())
+
+	var singles := HBoxContainer.new()
+	singles.add_theme_constant_override("separation", int(u * 1.0))
+	singles.alignment = BoxContainer.ALIGNMENT_CENTER
+	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	singles.size_flags_stretch_ratio = 0.58
+	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip_deck.add_child(singles)
+	for i in spread.single_dice.size():
+		singles.add_child(_build_single_die_card(i))
+	for i in spread.single_engravings.size():
+		singles.add_child(_build_single_engraving_card(i))
 
 	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
 	_flicker_charm_from = -1
@@ -762,6 +855,110 @@ func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control
 		chip.pressed.connect(_on_overclock_buy_pressed.bind(index))
 	overclock_buttons.append(chip)
 	return chip
+
+## OFFENER Würfel der Chip-Schale: alles steht VOR dem Kauf auf der Karte - das
+## Netz mit allen sechs Seiten (Materialfarben und Stufen inklusive), die Seele
+## mit Beiname und Kurzzeile, der Preis. Kein Blindkauf, das ist der Sinn.
+func _build_single_die_card(index: int) -> Button:
+	var def := single_dice[index]
+	var price := single_dice_prices[index]
+	var bought := single_dice_bought[index]
+	var essence := Essence.by_id(def.essence_id)
+	var seam: Color = essence.glow if essence != null else NEON_CYAN
+	var title := def.display_name if essence == null \
+		else "%s – %s" % [def.display_name, essence.display_name]
+	var body := "Augensumme %d." % DiceRowView.eye_total(def)
+	if essence != null:
+		body += "\n%s: %s" % [essence.epithet, essence.description]
+
+	var card := _single_card(seam, price, bought, title, body)
+	var column: VBoxContainer = card.get_child(0)
+	var stage := CenterContainer.new()
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(DieNetView.build(def, -1, u * 1.5))
+	column.add_child(stage)
+	if essence != null:
+		column.add_child(_label(essence.display_name, u * 1.5, essence.glow, HORIZONTAL_ALIGNMENT_CENTER))
+		column.add_child(_label(essence.short, u * 1.2, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	else:
+		column.add_child(_label("ohne Essenz", u * 1.2, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(_label("$%d" % price, u * 1.7, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	if not bought:
+		card.pressed.connect(_on_single_die_pressed.bind(index))
+	single_dice_buttons.append(card)
+	return card
+
+## EINZELNE Gravur der Chip-Schale: das Siegel groß, Name und Preis darunter.
+func _build_single_engraving_card(index: int) -> Button:
+	var engraving := single_engravings[index]
+	var price := single_engraving_price(engraving)
+	var bought := single_engravings_bought[index]
+	var seam: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
+	var card := _single_card(seam, price, bought, engraving.display_name, engraving.description)
+	var column: VBoxContainer = card.get_child(0)
+	var stage := CenterContainer.new()
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var seal := EngravingRenderer.for_engraving(engraving)
+	seal.custom_minimum_size = Vector2(u * 6.0, u * 6.0)
+	stage.add_child(seal)
+	column.add_child(stage)
+	column.add_child(_label(engraving.display_name, u * 1.4, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(_label("$%d" % price, u * 1.7, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	if not bought:
+		card.pressed.connect(_on_single_engraving_pressed.bind(index))
+	single_engraving_buttons.append(card)
+	return card
+
+## Gemeinsame Hülle der Einzelstücke - dieselbe Rauchglas-Sprache wie die Chips,
+## nur eckig, weil hier ein Bild und drei Zeilen hineinmüssen.
+func _single_card(seam: Color, _price: int, bought: bool, title: String, body: String) -> Button:
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(u * 11.0, u * 14.0)
+	var radius := int(u * 0.8)
+	card.add_theme_stylebox_override("normal", _chip_box(CARD_BG, seam, 0.75, radius))
+	card.add_theme_stylebox_override("hover", _chip_box(Color("#2a2358f0"), NEON_GOLD, 0.95, radius))
+	card.add_theme_stylebox_override("pressed", _chip_box(Color("#352a68"), NEON_GOLD, 1.0, radius))
+	card.add_theme_stylebox_override("disabled", _chip_box(Color("#16133455"), seam, 0.28, radius))
+	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body))
+	card.mouse_exited.connect(_hide_shop_tooltip)
+	card.disabled = bought
+
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", int(u * 0.3))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(column)
+	if bought:
+		column.add_child(_label("✓", u * 2.4, NEON_GREEN, HORIZONTAL_ALIGNMENT_CENTER))
+	return card
+
+## Kauf eines offenen Würfels: derselbe Weg wie jeder Würfelkauf - GameRun sucht
+## den Pool-Platz (seelenlos zuerst), die Instanz bleibt dem Pool erhalten.
+func _on_single_die_pressed(index: int) -> void:
+	if single_dice_bought[index] or run.money < single_dice_prices[index]:
+		return
+	run.purchase_die(single_dice[index], single_dice_prices[index])
+	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	_show_spread()
+
+## Kauf einer einzelnen Gravur: sie wandert direkt in den Vorrat.
+func _on_single_engraving_pressed(index: int) -> void:
+	var engraving := single_engravings[index]
+	var price := single_engraving_price(engraving)
+	if single_engravings_bought[index] or run.money < price:
+		return
+	run.add_money(-price)
+	run.grant_engraving(engraving)
+	single_engravings_bought[index] = true
+	_show_spread()
 
 ## Runder Casino-Chip als Kauf-Knopf: Rauchglas-Scheibe mit Saum in seam, darin das
 ## Gesicht (face) und der Preis. Gekaufte Chips zeigen ✓ und sind gedimmt.
@@ -1043,6 +1240,11 @@ func _refresh_afford_state() -> void:
 		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
 	for i in overclock_buttons.size():
 		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
+	for i in single_dice_buttons.size():
+		single_dice_buttons[i].disabled = single_dice_bought[i] or money < single_dice_prices[i]
+	for i in single_engraving_buttons.size():
+		single_engraving_buttons[i].disabled = single_engravings_bought[i] \
+			or money < single_engraving_price(single_engravings[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

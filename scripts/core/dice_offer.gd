@@ -8,12 +8,12 @@ extends RefCounted
 ## pasch=true erzeugt gehäufte hohe Seiten. style_id (≠ "normal") schützt
 ## gekaufte Würfel vor Verdrängung im Pool.
 const TEMPLATES := [
-	{"name": "Kraftwürfel", "style_id": "power", "count": 1, "price": 15, "values": [3, 4, 5, 6]},
-	{"name": "Paschwürfel", "style_id": "pasch", "count": 1, "price": 16, "pasch": true},
-	{"name": "Gerade Würfel", "style_id": "even", "count": 2, "price": 20, "values": [2, 4, 6]},
-	{"name": "Ungerade Würfel", "style_id": "odd", "count": 2, "price": 15, "values": [1, 3, 5]},
-	{"name": "Niedrige Serie", "style_id": "low", "count": 3, "price": 15, "values": [1, 2]},
-	{"name": "Kleinserie", "style_id": "small", "count": 3, "price": 18, "values": [1, 2, 3]},
+	{"name": "Kraftwürfel", "style_id": "power", "count": 1, "price": 22, "values": [3, 4, 5, 6]},
+	{"name": "Paschwürfel", "style_id": "pasch", "count": 1, "price": 24, "pasch": true},
+	{"name": "Gerade Würfel", "style_id": "even", "count": 2, "price": 30, "values": [2, 4, 6]},
+	{"name": "Ungerade Würfel", "style_id": "odd", "count": 2, "price": 22, "values": [1, 3, 5]},
+	{"name": "Niedrige Serie", "style_id": "low", "count": 3, "price": 22, "values": [1, 2]},
+	{"name": "Kleinserie", "style_id": "small", "count": 3, "price": 27, "values": [1, 2, 3]},
 ]
 
 # Veredelungs-Chancen; jede Veredelung schlägt je Würfel auf den Preis auf.
@@ -21,9 +21,10 @@ const FACE_MATERIAL_CHANCE := 0.35
 const SECOND_FACE_CHANCE := 0.35
 const FACE_MATERIAL_SURCHARGE := 2
 
-## Essenz-Rollen: gut jeder dritte Angebots-Würfel trägt eine Seele. Damit ist
-## der Würfelkauf kein Stat-Kauf mehr, sondern ein Persönlichkeitskauf.
-const ESSENCE_CHANCE := 0.4
+## Essenz-Rollen: die MEISTEN Angebots-Würfel tragen eine Seele. Damit ist der
+## Würfelkauf kein Stat-Kauf mehr, sondern ein Persönlichkeitskauf - ein
+## seelenloser Würfel ist die Ausnahme, nicht die Regel.
+const ESSENCE_CHANCE := 0.75
 
 ## Gewichte innerhalb der Träger - Handelsgase sind Flaschenware, Phänomene die
 ## Ausnahme.
@@ -34,7 +35,7 @@ const ESSENCE_RARITY_WEIGHTS := {
 	Essence.Rarity.LEGENDARY: 2,
 }
 
-## Aufpreis je Würfel. Bezugsgröße sind die Vorlagenpreise (15-20): ein häufiges
+## Aufpreis je Würfel. Bezugsgröße sind die Vorlagenpreise (22-30): ein häufiges
 ## Gas bleibt in der ersten Runde bezahlbar, ein Legendäres kostet mehr als der
 ## Würfel selbst.
 const ESSENCE_SURCHARGE := {

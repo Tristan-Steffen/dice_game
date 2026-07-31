@@ -461,3 +461,116 @@ func test_done_hides_panel_and_emits_closed():
 	shop._on_done_pressed()
 	assert_false(shop.visible)
 	assert_signal_emitted(shop, "closed")
+
+# --- Chip-Schale: die Einzelstücke ------------------------------------------------
+
+func test_the_bowl_offers_open_dice_and_single_engravings() -> void:
+	assert_gt(shop.single_dice.size(), 0, "mindestens ein offener Würfel liegt aus")
+	assert_lte(shop.single_dice.size(), ShopController.SINGLE_DICE_MAX)
+	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size(), "je Würfel ein Preis")
+	assert_gt(shop.single_engravings.size(), 0, "und einzelne Gravuren")
+
+func test_a_single_die_is_fully_rolled_before_the_purchase() -> void:
+	# Der ganze Sinn der offenen Auslage: der Würfel steht schon fest, es gibt
+	# nichts mehr zu enthüllen.
+	for i in shop.single_dice.size():
+		var die: DieDefinition = shop.single_dice[i]
+		assert_eq(die.faces.size(), 6, "alle sechs Seiten stehen")
+		assert_gt(int(shop.single_dice_prices[i]), 0, "und der Preis auch")
+
+func test_single_engravings_come_from_both_shelves() -> void:
+	var categories := {}
+	for engraving in shop.single_engravings:
+		categories[engraving.category] = true
+		assert_true(Engraving.CATEGORIES.has(engraving.category))
+	assert_true(categories.has(Engraving.CATEGORY_MATERIAL), "Material-Gravuren sind gesetzt")
+
+func test_a_single_engraving_costs_more_per_piece_than_the_pack() -> void:
+	# Das Einzelstück ist bequem, das Paket bleibt das bessere Geschäft je Stück.
+	var per_piece := float(Pack.NUMBER_PRICE) / float(Pack.NUMBER_COUNT)
+	var single := ShopController.single_engraving_price(Engraving.notch())
+	assert_gt(float(single), per_piece, "Einzelkauf zahlt den Bequemlichkeitsaufschlag")
+
+func test_the_single_price_climbs_with_the_rarity() -> void:
+	assert_lt(ShopController.single_engraving_price(Engraving.notch()),
+		ShopController.single_engraving_price(Engraving.chisel()), "häufig < selten")
+	assert_lt(ShopController.single_engraving_price(Engraving.chisel()),
+		ShopController.single_engraving_price(Engraving.blueprint()), "selten < episch")
+
+func test_buying_an_open_die_puts_it_into_the_pool() -> void:
+	run.money = 500
+	var price: int = shop.single_dice_prices[0]
+	var incoming: String = shop.single_dice[0].style_id
+	var before := run.money
+	shop._on_single_die_pressed(0)
+	assert_eq(run.money, before - price, "der Preis ist abgebucht")
+	assert_true(shop.single_dice_bought[0], "der Platz ist verkauft")
+	var found := false
+	for def in run.owned_pool:
+		if def.style_id == incoming:
+			found = true
+	assert_true(found, "der Würfel liegt jetzt im Pool")
+
+func test_buying_a_single_engraving_grants_it() -> void:
+	run.money = 500
+	var engraving: Engraving = shop.single_engravings[0]
+	var price := ShopController.single_engraving_price(engraving)
+	var before := run.money
+	var owned_before := run.owned_engravings.size()
+	shop._on_single_engraving_pressed(0)
+	assert_eq(run.money, before - price)
+	assert_eq(run.owned_engravings.size(), owned_before + 1, "sie liegt im Vorrat")
+	assert_true(shop.single_engravings_bought[0])
+
+func test_a_single_is_only_sold_once() -> void:
+	run.money = 500
+	shop._on_single_die_pressed(0)
+	var after_first := run.money
+	shop._on_single_die_pressed(0)
+	assert_eq(run.money, after_first, "der zweite Klick kostet nichts mehr")
+
+func test_singles_are_not_sold_without_the_money() -> void:
+	run.money = 0
+	var owned_before := run.owned_engravings.size()
+	shop._on_single_engraving_pressed(0)
+	assert_eq(run.owned_engravings.size(), owned_before, "ohne Geld kein Kauf")
+	assert_false(shop.single_engravings_bought[0])
+
+func test_the_locked_assortment_freezes_the_singles_too() -> void:
+	run.money = 500
+	var die_names: Array[String] = []
+	for def in shop.single_dice:
+		die_names.append(def.display_name)
+	var engraving_ids: Array[String] = []
+	for engraving in shop.single_engravings:
+		engraving_ids.append(engraving.id)
+	shop.sortiment_locked = true
+	shop.close()
+	shop.open()
+	var after_names: Array[String] = []
+	for def in shop.single_dice:
+		after_names.append(def.display_name)
+	var after_ids: Array[String] = []
+	for engraving in shop.single_engravings:
+		after_ids.append(engraving.id)
+	assert_eq(after_names, die_names, "dieselben Würfel liegen wieder da")
+	assert_eq(after_ids, engraving_ids, "und dieselben Gravuren")
+
+func test_a_bought_single_stays_bought_inside_a_locked_spread() -> void:
+	run.money = 500
+	shop._on_single_die_pressed(0)
+	shop.sortiment_locked = true
+	shop.close()
+	shop.open()
+	assert_true(shop.single_dice_bought[0], "gekauft bleibt gekauft")
+
+func test_unlocking_rolls_fresh_singles() -> void:
+	shop.sortiment_locked = false
+	var before: Array[int] = shop.single_dice_prices.duplicate()
+	shop.close()
+	shop.open()
+	# Ohne Sperre wird neu gerollt - die Auslage ist eine andere (Preise oder
+	# Anzahl unterscheiden sich praktisch immer; hier reicht die Existenz).
+	assert_gt(shop.single_dice.size(), 0, "die neue Auslage ist wieder gefüllt")
+	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size())
+	assert_gt(before.size(), 0)

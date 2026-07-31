@@ -39,7 +39,9 @@ var run: GameRun:
 ## Werkbank-Zustand: das Lager, die Entsiegelung eines Pakets, oder das Einsetzen
 ## seiner Würfel. Die Gravur-Station ist KEINE Phase - sie liegt als eigenes Panel
 ## darüber (siehe attach_station) und blendet den Lager-Inhalt aus.
-enum Phase { STASH, UNSEAL, PLACE_DICE }
+## CHOOSE_DIE liegt zwischen Entsiegeln und Einsetzen: Würfel-Pakete mit mehr
+## als einem Würfel decken ALLE auf, der Spieler nimmt GENAU EINEN mit.
+enum Phase { STASH, UNSEAL, CHOOSE_DIE, PLACE_DICE }
 
 var _content: VBoxContainer
 ## Öffnen-Knöpfe der Lagerkarten, Reihenfolge = owned_packs.
@@ -129,6 +131,9 @@ func refresh() -> void:
 	if _phase != Phase.PLACE_DICE:
 		_content.add_child(_label("WERKSTATT", u * 5.0, TITLE_COLOR))
 
+	if _phase == Phase.CHOOSE_DIE:
+		_build_die_choice(u)
+		return
 	if _phase == Phase.PLACE_DICE:
 		_build_dice_placement(u)
 		return
@@ -271,7 +276,9 @@ func _on_unseal_finished() -> void:
 		finish_ceremony()
 		return
 	_clear_unseal()
-	_phase = Phase.PLACE_DICE
+	# Mehrere Würfel: erst wählen, dann einsetzen. Ein einzelner geht direkt
+	# durch - da gibt es nichts zu entscheiden.
+	_phase = Phase.CHOOSE_DIE if _revealed_dice.size() > 1 else Phase.PLACE_DICE
 	refresh()
 
 ## Verbucht den Gravur-Inhalt genau einmal.
@@ -285,7 +292,7 @@ func _stash_now() -> void:
 ## Vorzeitiges Ende der Zeremonie (Station, Laufwechsel): buchen, abräumen,
 ## zurück ins Lager - OHNE refresh, weil die Aufrufer selbst gerade neu bauen.
 func _abort_unseal() -> void:
-	if _phase != Phase.UNSEAL:
+	if _phase != Phase.UNSEAL and _phase != Phase.CHOOSE_DIE:
 		return
 	_stash_now()
 	_clear_unseal()
@@ -387,6 +394,58 @@ func _sync_selection() -> void:
 ## der noch unplatzierten Stücke, rechts das Pool-Raster (dasselbe wie im Würfel-
 ## Editor - alle Seiten sichtbar, in der Form des Trays). Anklicken wählt die zu
 ## ersetzenden Plätze; "Einsetzen" leuchtet ab dem ersten.
+## Auswahl-Schritt der Mehrfach-Pakete: alle Würfel offen nebeneinander, einer
+## darf mit. Dieselbe Sprache wie die Gravur-Pakete (aufgedeckt, einer gewinnt).
+func _build_die_choice(u: float) -> void:
+	_content.add_child(_label("EINEN WÜRFEL WÄHLEN", u * 3.4, GOLD))
+	_content.add_child(_label("Der Rest bleibt im Paket zurück.", u * 2.2, MUTED_COLOR))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", int(u * 2.0))
+	_content.add_child(row)
+	for i in _revealed_dice.size():
+		row.add_child(_die_choice_card(_revealed_dice[i], i, u))
+
+## Eine Wahlkarte: der Würfel als Netz, darunter seine Seele - alles offen, die
+## Entscheidung soll informiert fallen.
+func _die_choice_card(def: DieDefinition, index: int, u: float) -> Button:
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.custom_minimum_size = Vector2(u * 24.0, u * 30.0)
+	card.pressed.connect(_choose_die.bind(index))
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", int(u * 0.8))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(column)
+
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(DieNetView.build(def, -1, u * 3.4))
+	column.add_child(stage)
+	column.add_child(_label("Augensumme %d" % DiceRowView.eye_total(def), u * 2.2, MUTED_COLOR))
+	if Essence.is_valid_id(def.essence_id):
+		var essence := Essence.by_id(def.essence_id)
+		column.add_child(_label(essence.display_name, u * 2.4, essence.glow))
+		column.add_child(_label(essence.short, u * 1.9, MUTED_COLOR))
+	else:
+		column.add_child(_label("ohne Essenz", u * 1.9, MUTED_COLOR))
+	return card
+
+## Der gewählte Würfel bleibt, der Rest fällt weg - danach der normale Platz-Schritt.
+func _choose_die(index: int) -> void:
+	if _phase != Phase.CHOOSE_DIE or index < 0 or index >= _revealed_dice.size():
+		return
+	var kept := _revealed_dice[index]
+	_revealed_dice.clear()
+	_revealed_dice.append(kept)
+	_selected_slots.clear()
+	_phase = Phase.PLACE_DICE
+	refresh()
+
 func _build_dice_placement(u: float) -> void:
 	if _revealed_dice.is_empty():
 		return
