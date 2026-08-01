@@ -54,6 +54,8 @@ class TakeReport:
 	var blocked: Array[int] = []
 	## Slots, aus denen ein Funke gesprungen ist - je Eintrag ein ⚡ der Salve.
 	var sparks: Array[int] = []
+	## Slots, deren Radon-Seele in diesem Zug eine Seite angefressen hat.
+	var decayed: Array[int] = []
 
 ## Aktivierungen des Würfels in Slot i: die Essenz stellt den EINZIGEN Faktor
 ## (EssenceEffects.activation_factor), alles andere addiert - Retrigger-Charms
@@ -302,6 +304,14 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				report.grown.append(i)
 			elif defs[i].faces[link_face] < link_before and not report.shrunk.has(i):
 				report.shrunk.append(i)
+
+		# Radon zerfällt beim AUSLÖSEN, nicht bei der Abrechnung - aber erst NACH
+		# allen Schreibvorgängen des Zuges: Knochen/Glas müssen exakt auf dem
+		# value_after der Simulation landen (Drift-Doktrin), DANN frisst die
+		# Strahlung. Einmal je Zug, nie je Auslösung; die laufende Kombination
+		# bleibt unberührt, ihre Werte sind längst im ctx festgehalten.
+		if EssenceEffects.decay_die(defs[i]):
+			report.decayed.append(i)
 
 	# Streulicht: das Gegen-Ereignis zum Gold. Was am Zugende UNGEWERTET auf dem
 	# Tisch liegt und seine Riss-Seite zeigt, streut sein Licht ins Filz.

@@ -7,6 +7,21 @@ class_name DiceRowView
 const DEFAULT_THUMB_SIZE := 72
 const CHIP_BORDER := Color(0.72, 0.76, 0.8)  # dezenter Rand der Seiten-Chips (wie die echten Würfel)
 
+## Blickpunkt der Vorschau-Kamera; die RICHTUNG gilt für beide Modi, den Abstand
+## bestimmt der stehende Würfel selbst (eng, weil er nie eine Ecke ins Bild dreht).
+const THUMB_EYE := Vector3(0, 2.6, 5.4)
+const THUMB_FOV := 30.0
+## Sicherheitsaufschlag auf die Hüllkugel des taumelnden Würfels.
+const TUMBLE_MARGIN := 1.1
+
+## Kamera-Abstand, ab dem ein DREHENDER Würfel ganz im Bild bleibt. Seine
+## Hüllkugel misst √3 × HALF_EXTENT - die Raumdiagonale zur Ecke -, und die muss
+## in die halbe Bildhöhe passen. Aus dem Öffnungswinkel gerechnet statt geschätzt:
+## der enge Rahmen des stehenden Würfels schnitt dem taumelnden die Ecken ab.
+static func tumble_distance() -> float:
+	var radius := TUMBLE_MARGIN * sqrt(3.0) * DieBuilder.HALF_EXTENT
+	return radius / tan(deg_to_rad(THUMB_FOV * 0.5))
+
 ## Augensumme (Summe aller Seiten) eines Würfels - Sortier- und Anzeigewert.
 static func eye_total(def: DieDefinition) -> int:
 	var total := 0
@@ -158,10 +173,15 @@ static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE,
 	viewport.add_child(key_light)
 
 	var camera := Camera3D.new()
-	camera.fov = 30.0
+	camera.fov = THUMB_FOV
+	# Der stehende Würfel bleibt eng gerahmt; der taumelnde rückt genau so weit
+	# ab, dass seine Ecken im Bild bleiben - Richtung gleich, nur Abstand.
+	var eye := THUMB_EYE
+	if tumbling:
+		eye = eye.normalized() * tumble_distance()
 	# looking_at als reine Transform-Mathematik statt camera.look_at, das den
 	# Knoten schon im Baum bräuchte (hier wird der Würfel noch losgelöst gebaut).
-	camera.transform = Transform3D(Basis(), Vector3(0, 2.6, 5.4)).looking_at(Vector3.ZERO, Vector3.UP)
+	camera.transform = Transform3D(Basis(), eye).looking_at(Vector3.ZERO, Vector3.UP)
 	viewport.add_child(camera)
 
 	var die := DieBuilder.build()

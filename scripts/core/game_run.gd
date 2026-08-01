@@ -511,7 +511,7 @@ func open_pack(index: int) -> Dictionary:
 	owned_packs.remove_at(index)
 	var result := empty
 	if pack.is_dice_pack():
-		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids())
+		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
 	else:
 		result["engravings"] = pack.roll_engravings(pack_engraving_floor())
 	packs_changed.emit()
@@ -823,7 +823,6 @@ static func instant_clause_charge(clause_id: String) -> int:
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
 func settle_block_deals() -> void:
-	apply_essence_decay()
 	if active_deals.is_empty():
 		return
 	active_deals.clear()
@@ -1132,32 +1131,6 @@ func note_essence_take(defs: Array[DieDefinition], participating: Array[int]) ->
 		if i < defs.size() and defs[i] != null and defs[i].essence_id == Essence.XENON:
 			essence_flash_used[defs[i].get_instance_id()] = true
 
-## Zerfall bei der Abrechnung: jede Radon-Seele frisst eine zufällige eigene
-## Seite an. Stickstoff schützt nicht vor der eigenen Strahlung - der Zerfall
-## gehört dem Würfel selbst; ein EINBRAND schon: sein Wert ist eingebrannt.
-func apply_essence_decay() -> int:
-	var decayed := 0
-	for die in owned_pool:
-		if not EssenceEffects.decays(die.essence_id):
-			continue
-		# Nur Seiten, die wirklich verlieren können - sonst würfelt sich die
-		# Strafe an Floor- und Einbrand-Seiten zufällig selbst weg.
-		var candidates: Array[int] = []
-		for face in die.faces.size():
-			if die.faces[face] <= EtchingEffects.MIN_FACE_VALUE:
-				continue
-			if RiftEffects.protects_face_value(die.rifts_on(face)):
-				continue
-			candidates.append(face)
-		if candidates.is_empty():
-			continue
-		var face: int = candidates[randi() % candidates.size()]
-		die.faces[face] -= 1
-		decayed += 1
-	if decayed > 0:
-		pool_changed.emit()
-	return decayed
-
 ## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
 func owned_essence_ids() -> Array[String]:
 	var ids: Array[String] = []
@@ -1356,7 +1329,7 @@ func redeem_slots() -> Dictionary:
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			prizes.append(SlotPrize.from_spec(spec))
+			prizes.append(SlotPrize.from_spec(spec, hub_level))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
 
@@ -1652,7 +1625,7 @@ func _secret_die_offer() -> Dictionary:
 	if pool.is_empty():
 		return {}
 	var essence: Essence = pool.pick_random()
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES.pick_random())
+	var die := DiceOffer.make_die(DiceOffer.TEMPLATES.pick_random(), hub_level)
 	die.essence_id = essence.id
 	die.display_name = essence.display_name
 	return _secret_offer(KIND_DIE, die, int(SECRET_DIE_PRICES.get(essence.rarity, SECRET_CHARM_PRICE)))

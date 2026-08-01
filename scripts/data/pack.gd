@@ -137,7 +137,7 @@ func _mixed_category() -> String:
 ## GENAU EINEN mit (siehe WorkshopView.Phase.CHOOSE_DIE); wären es Kopien, wäre
 ## die Wahl eine Attrappe. Veredelungen kosten hier nichts extra - dafür ist es
 ## ein Blindkauf.
-func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []) -> Array[DieDefinition]:
+func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
 		return dice
@@ -148,7 +148,7 @@ func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []
 	# die Sperrliste, damit nicht zwei Legendäre nebeneinander aufgedeckt werden.
 	var taken := owned_essences.duplicate()
 	for i in count:
-		var die := DiceOffer.make_die(template)
+		var die := DiceOffer.make_die(template, hub_level)
 		DiceOffer.roll_refinements(die)
 		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
 		if CharmEffects.forces_refinement(charm_ids) and die.materials.count("") == die.materials.size():

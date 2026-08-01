@@ -26,7 +26,7 @@ var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 
 ## Löst eine Gewinn-Vorlage (SlotMachine.PRIZE_TABLES-Eintrag) in einen konkreten
 ## Preis auf - Inhalt wird sofort gewürfelt, damit ihn der Zwischenspeicher zeigt.
-static func from_spec(spec: Dictionary) -> SlotPrize:
+static func from_spec(spec: Dictionary, hub_level: int = 1) -> SlotPrize:
 	var p := SlotPrize.new()
 	match String(spec.get("kind", "engraving")):
 		"engraving":
@@ -46,7 +46,7 @@ static func from_spec(spec: Dictionary) -> SlotPrize:
 			p.label = p.charm.display_name if p.charm != null else "Charm"
 		"die":
 			p.kind = Kind.DIE
-			p.die = _roll_die()
+			p.die = _roll_die(hub_level)
 			p.label = p.die.display_name if p.die != null else "Würfel"
 	return p
 
@@ -87,8 +87,8 @@ static func _roll_charm(rarity_name: String) -> Charm:
 		idx -= 1
 	return Charm.pick_weighted(Charm.all())
 
-static func _roll_die() -> DieDefinition:
-	var offers := DiceOffer.roll_offers(1)
+static func _roll_die(hub_level: int = 1) -> DieDefinition:
+	var offers := DiceOffer.roll_offers(1, [], [], hub_level)
 	if offers.is_empty() or offers[0].dice.is_empty():
 		return DieDefinition.standard()
 	return offers[0].dice[0]

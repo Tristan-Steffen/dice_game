@@ -278,14 +278,14 @@ func test_ball_lightning_strikes_one_of_its_own_faces():
 			armed += 1
 	assert_eq(armed, 1, "genau eine Seite trägt den Einschlag")
 
-func test_radon_decays_one_face_at_the_settlement():
+func test_radon_decays_one_face_when_it_triggers():
 	var run := GameRun.new_run()
 	var die := run.owned_pool[0]
 	die.essence_id = Essence.RADON
 	var before := 0
 	for value in die.faces:
 		before += value
-	run.apply_essence_decay()
+	assert_true(EssenceEffects.decay_die(die), "der Zerfall greift")
 	var after := 0
 	for value in die.faces:
 		after += value

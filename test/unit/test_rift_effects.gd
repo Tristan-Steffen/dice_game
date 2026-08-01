@@ -183,7 +183,7 @@ func test_burn_in_skips_the_radon_decay():
 	for face in 6:
 		die.set_rift(face, Rift.BURN_IN)
 	var before := die.faces.duplicate()
-	run.apply_essence_decay()
+	assert_false(EssenceEffects.decay_die(die), "kein Kandidat, kein Zerfall")
 	assert_eq(die.faces, before, "eingebrannte Seiten zerfallen nicht")
 
 # --- Funkenflug: +1 ⚡ je Zug ---------------------------------------------------------

@@ -37,6 +37,13 @@ const NEON_MUTED := Color(0.75, 0.78, 0.9)
 ## als die alte Karte hoch war, das Siegel wächst über seine alten u*6 hinaus.
 const SINGLE_DIE_SIZE := 13.0
 const SINGLE_SEAL_SIZE := 8.5
+## Schalen-Rabatt: ein einzeln in der Schale liegender Würfel kostet weniger als
+## derselbe Würfel im Angebotsregal - er kommt ohne Auswahl und ohne Paket.
+const SINGLE_DIE_DISCOUNT := 0.8
+
+## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
+static func single_die_price(offer_price: int) -> int:
+	return maxi(1, roundi(float(offer_price) * SINGLE_DIE_DISCOUNT))
 const CARD_BG := Color("#241f4a99")
 
 const FLIP_DURATION := 0.25
@@ -423,12 +430,12 @@ func _build_spread() -> MenuSpread:
 	# vollständig gezeigt - kein Blindkauf, das ist ihr ganzer Zweck.
 	var owned_souls := run.owned_essence_ids()
 	for i in randi_range(SINGLE_DICE_MIN, SINGLE_DICE_MAX):
-		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls)
+		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.hub_level)
 		if offers.is_empty() or offers[0].dice.is_empty():
 			continue
 		var die: DieDefinition = offers[0].dice[0]
 		spread.single_dice.append(die)
-		spread.single_dice_prices.append(offers[0].price)
+		spread.single_dice_prices.append(single_die_price(offers[0].price))
 		# Ein frisch gerolltes Unikat darf nicht zweimal in derselben Auslage liegen.
 		if die.essence_id != "" and not owned_souls.has(die.essence_id):
 			owned_souls.append(die.essence_id)

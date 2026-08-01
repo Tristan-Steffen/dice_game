@@ -437,12 +437,57 @@ func test_income_entries_always_sum_to_the_total():
 			sum += int(entry["amount"])
 		assert_eq(sum, CharmEffects.round_end_income(money, 2, ids), "$%d" % money)
 
-func test_income_entries_do_not_compound_between_charms():
-	# Beide Zinsgroschen rechnen auf demselben Stand - kein Zinseszins.
+func test_income_entries_compound_between_charms():
+	# Zinseszins: der zweite Zinsgroschen rechnet auf dem Stand, den der erste
+	# schon gezahlt hat. $100 -> +$10 -> $110 -> +$11.
 	var ids := _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])
-	var entries := CharmEffects.round_end_income_entries(30, 0, ids)
-	assert_eq(entries[0]["amount"], 3)
-	assert_eq(entries[1]["amount"], 3)
+	var entries := CharmEffects.round_end_income_entries(100, 0, ids)
+	assert_eq(entries[0]["amount"], 10)
+	assert_eq(entries[1]["amount"], 11, "der zweite sieht die Zahlung des ersten")
+
+func test_dock_order_decides_the_money_too():
+	# Genau wie in der Wertung: die Reihenfolge im Dock verschiebt Beträge.
+	var after := CharmEffects.round_end_income_entries(100, 0,
+		_ids([Charm.OLD_PENNY, Charm.INTEREST_PENNY]))
+	assert_eq(after[0]["amount"], 3, "Glücksgroschen zahlt $3")
+	assert_eq(after[1]["amount"], 10, "$103 -> +$10")
+	var before := CharmEffects.round_end_income_entries(100, 0,
+		_ids([Charm.INTEREST_PENNY, Charm.OLD_PENNY]))
+	assert_eq(before[0]["amount"], 10, "vor dem Glücksgroschen sieht er nur die $100")
+	assert_eq(before[1]["amount"], 3)
+
+func test_the_interest_cap_holds_per_copy():
+	# Der Deckel gilt je Exemplar auf DESSEN Grundlage, nicht auf der Summe.
+	var ids := _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])
+	var entries := CharmEffects.round_end_income_entries(10000, 0, ids)
+	assert_eq(entries[0]["amount"], 50)
+	assert_eq(entries[1]["amount"], 50)
+
+func test_the_emergency_fund_tops_up_the_running_balance():
+	# Er füllt auf, was NACH den Charms vor ihm noch fehlt - sonst ersetzte er
+	# deren Zahlung, statt sie zu ergänzen.
+	var late := CharmEffects.round_end_income_entries(10, 0,
+		_ids([Charm.OLD_PENNY, Charm.EMERGENCY_FUND]))
+	assert_eq(late[0]["amount"], 3, "Glücksgroschen zuerst")
+	assert_eq(late[1]["amount"], 12, "$13 -> auffüllen auf $25")
+	var early := CharmEffects.round_end_income_entries(10, 0,
+		_ids([Charm.EMERGENCY_FUND, Charm.OLD_PENNY]))
+	assert_eq(early[0]["amount"], 15, "$10 -> auffüllen auf $25")
+	assert_eq(early[1]["amount"], 3, "und der Glücksgroschen legt obendrauf")
+
+func test_a_full_purse_needs_no_emergency_fund():
+	var entries := CharmEffects.round_end_income_entries(40, 0, _ids([Charm.EMERGENCY_FUND]))
+	assert_eq(entries.size(), 0, "über dem Mindeststand zahlt er nichts")
+
+func test_the_projected_end_total_matches_the_bookings():
+	# Vorausrechnung und Buchungen dürfen nie auseinanderlaufen.
+	var ids := _ids([Charm.INTEREST_PENNY, Charm.OLD_PENNY, Charm.INTEREST_PENNY, Charm.EMERGENCY_FUND])
+	for start_money in [0, 7, 30, 100, 999]:
+		var start: int = start_money
+		var booked := start
+		for entry in CharmEffects.round_end_income_entries(start, 1, ids):
+			booked += int(entry["amount"])
+		assert_eq(booked, start + CharmEffects.round_end_income(start, 1, ids), "$%d" % start)
 
 func test_money_floor_only_with_emergency_fund():
 	assert_eq(CharmEffects.money_floor(_ids([Charm.EMERGENCY_FUND])), 25)

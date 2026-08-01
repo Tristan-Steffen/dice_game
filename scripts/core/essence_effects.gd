@@ -177,6 +177,28 @@ static func can_tip(essence_id: String) -> bool:
 static func decays(essence_id: String) -> bool:
 	return essence_id == Essence.RADON
 
+## Radon-Zerfall EINES Würfels: eine zufällige Seite verliert ein Auge, sobald
+## der Würfel in der genommenen Kombination liegt. Der Zerfall reitet damit auf
+## dem AUSLÖSER, nicht auf der Abrechnung - ein Radon-Würfel, der nie gespielt
+## wird, zerfällt auch nicht.
+## Kandidaten sind nur Seiten, die wirklich verlieren KÖNNEN - sonst würfelt sich
+## die Strafe an Boden- und Einbrand-Seiten zufällig selbst weg.
+## true, wenn eine Seite geschrumpft ist.
+static func decay_die(die: DieDefinition) -> bool:
+	if die == null or not decays(die.essence_id):
+		return false
+	var candidates: Array[int] = []
+	for face in die.faces.size():
+		if die.faces[face] <= EtchingEffects.MIN_FACE_VALUE:
+			continue
+		if RiftEffects.protects_face_value(die.rifts_on(face)):
+			continue
+		candidates.append(face)
+	if candidates.is_empty():
+		return false
+	die.faces[candidates[randi() % candidates.size()]] -= 1
+	return true
+
 # --- Quintessenz: EINE Aggregation, nie verstreute Sonderfälle ------------------
 
 ## Bedingte Krits gehören dem Würfel, der sie geladen hat: Xenons Blitz und der

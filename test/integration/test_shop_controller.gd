@@ -681,3 +681,25 @@ func test_the_hover_window_stays_inside_the_shop_page() -> void:
 	assert_gte(box.position.y, 0.0, "obere Kante drin")
 	assert_lte(box.end.x, shop.size.x + 1.0, "rechte Kante drin")
 	shop._hide_shop_tooltip()
+
+# --- Schalen-Rabatt der Einzelwürfel ------------------------------------------------
+
+func test_a_bowl_die_costs_less_than_the_same_die_on_the_shelf() -> void:
+	# Der Schalen-Würfel kommt ohne Auswahl und ohne Paket - das schlägt sich im
+	# Preis nieder. Nur die Relation ist gepinnt, die Zahl bleibt ein Stellknopf.
+	for offer_price in [5, 12, 30, 77]:
+		var single := ShopController.single_die_price(offer_price)
+		assert_lt(single, offer_price, "$%d im Regal ist teurer als in der Schale" % offer_price)
+		assert_gt(single, 0, "aber nie geschenkt")
+
+func test_the_bowl_price_never_falls_below_a_dollar() -> void:
+	assert_gte(ShopController.single_die_price(1), 1, "auch der billigste Würfel kostet etwas")
+	assert_gte(ShopController.single_die_price(0), 1)
+
+func test_the_bowl_price_grows_with_the_offer_price() -> void:
+	assert_gte(ShopController.single_die_price(50), ShopController.single_die_price(20),
+		"teurer bleibt teurer")
+
+func test_the_laid_out_singles_carry_the_discounted_price() -> void:
+	for price in shop.single_dice_prices:
+		assert_gt(int(price), 0)

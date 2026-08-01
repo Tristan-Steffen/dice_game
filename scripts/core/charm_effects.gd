@@ -551,24 +551,35 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 const HIGH_FLYER_PER_STAGE := 5
 
 ## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
-## $10, max. $50) und Überflieger ($5 je geräumte Überladungs-Stufe), dazu der
-## Glücksgroschen ($3, +$1 je vorheriger Auszahlung - NICHT je Überladungsstufe).
-## Alle rechnen auf demselben money-Stand - die Besitz-Reihenfolge verschiebt
-## keine Beträge. Grundlage der Auszahlungs-Zeremonie: der Spieler sieht,
-## WELCHER Charm zahlt.
+## $10, max. $50), Überflieger ($5 je geräumte Überladungs-Stufe), Glücksgroschen
+## ($3, +$1 je vorheriger Auszahlung - NICHT je Überladungsstufe) und der
+## Notgroschen, der auf seinen Mindeststand auffüllt.
+##
+## Gerechnet wird mit einem LAUFENDEN Stand: jeder Geld-Charm sieht, was die
+## Charms links von ihm schon gezahlt haben. Zwei Zinsgroschen verzinsen sich
+## also gegenseitig, und die Dock-Reihenfolge entscheidet über Geld genauso, wie
+## sie längst über die Wertung entscheidet. Der Deckel des Zinsgroschens gilt je
+## Exemplar auf dessen eigener Grundlage. Grundlage der Auszahlungs-Zeremonie:
+## der Spieler sieht, WELCHER Charm zahlt.
 static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
+	var projected := money
 	for j in charm_ids.size():
 		var amount := 0
 		match charm_ids[j]:
 			Charm.INTEREST_PENNY:
-				amount = mini(money / 10, 50)
+				amount = mini(projected / 10, 50)
 			Charm.HIGH_FLYER:
 				amount = maxi(0, cleared_stages) * HIGH_FLYER_PER_STAGE
 			Charm.OLD_PENNY:
 				amount = 3 + maxi(0, penny_payouts)
+			Charm.EMERGENCY_FUND:
+				# Auf den LAUFENDEN Stand auffüllen - sonst ersetzte er, was die
+				# Charms vor ihm schon gewährt haben.
+				amount = maxi(0, money_floor(charm_ids) - projected)
 		if amount > 0:
 			entries.append({"charm_index": j, "charm_id": charm_ids[j], "amount": amount})
+		projected += amount
 	return entries
 
 ## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.

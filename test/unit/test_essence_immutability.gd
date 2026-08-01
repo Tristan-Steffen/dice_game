@@ -119,7 +119,7 @@ func test_the_radon_decay_never_rewrites_a_soul():
 	var run := _souled_run()
 	run.owned_pool[0].essence_id = Essence.RADON
 	var before := _souls_of(run)
-	run.apply_essence_decay()
+	EssenceEffects.decay_die(run.owned_pool[0])
 	assert_eq(_souls_of(run), before, "Zerfall frisst Augen, nicht die Seele")
 
 func test_the_round_state_never_rewrites_a_soul():

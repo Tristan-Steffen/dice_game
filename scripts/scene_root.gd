@@ -4129,8 +4129,10 @@ func _on_take_button_pressed() -> void:
 	for slot in report.blocked:
 		_flare_rifts(slot, true)
 	var take_money := report.money
-	if not report.grown.is_empty() or not report.shrunk.is_empty():
-		run.note_pool_changed()  # Knochen/Glas haben Pool-Würfel verändert
+	if not report.grown.is_empty() or not report.shrunk.is_empty() or not report.decayed.is_empty():
+		# Knochen/Glas/Radon haben Pool-Würfel verändert - die in der Grube
+		# liegenden Würfel zeigen ihre neuen Zahlen sofort (refresh_faces).
+		run.note_pool_changed()
 
 	# Midashandschuh: eine Hand über alle sechs Würfel vergoldet jede oben
 	# liegende Seite - dauerhaft, also erst NACH den übrigen Nehmen-Effekten.
@@ -5352,23 +5354,22 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die: int, stag
 ## rechts), und jeder ZEIGT seine Wirkung: Geld-Charms schicken einen Gold-
 ## Kometen vom Dock-Pad zur Schatztruhe (Buchung bei Ankunft), die Frankier-
 ## maschine schleudert je Gravur einen Meteor in ihre Vorrats-Schublade.
-## Die Beträge von Zinsgroschen/Überflieger/Glücksgroschen rechnen alle auf
-## dem Stand VOR der Zeremonie (kein Zinseszins); nur der Notgroschen füllt
-## an seiner Position auf den LAUFENDEN Stand auf - was rechts von ihm zahlt,
-## landet obendrauf.
+## Die Geld-Charms rechnen mit ZINSESZINS: CharmEffects.round_end_income_entries
+## läuft die Dock-Reihenfolge mit einem fortgeschriebenen Stand ab, jeder Charm
+## sieht also, was links von ihm schon gezahlt hat. Die Dock-Reihenfolge
+## entscheidet damit über Geld genauso, wie sie längst über die Wertung
+## entscheidet - zwei Zinsgroschen verzinsen einander.
+## Gerechnet wird EINMAL vorab, gebucht weiterhin bei der Ankunft jedes Pakets;
+## beide Wege enden auf demselben Betrag, weil jede Buchung abgewartet wird.
 func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> void:
 	var amounts := {}
 	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids, run.old_penny_payouts):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	for j in ids.size():
 		match ids[j]:
-			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY:
+			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND:
 				if amounts.has(j):
 					await _play_charm_money_payout(j, amounts[j])
-			Charm.EMERGENCY_FUND:
-				var missing := CharmEffects.money_floor(ids) - run.money
-				if missing > 0:
-					await _play_charm_money_payout(j, missing)
 			Charm.STAMP_MACHINE:
 				await _play_stamp_machine_meteors(j)
 		if phase != Phase.PAYOUT:

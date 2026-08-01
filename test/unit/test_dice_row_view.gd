@@ -63,3 +63,29 @@ func test_same_material_faces_group_together():
 	assert_eq(lines[1].get_child_count(), 2)
 	assert_eq(_label_texts(lines[1].get_child(0)), ["4×", "4"], "vier einfache Vieren")
 	assert_eq(_label_texts(lines[1].get_child(1)), ["2×", "4"], "zwei Gold-Vieren gebündelt")
+
+# --- Rahmung der Vorschau-Kamera ----------------------------------------------------
+
+func test_the_tumbling_camera_frames_the_whole_corner_sweep() -> void:
+	# Ein drehender Würfel zeigt irgendwann seine ECKE zur Kamera, nicht seine
+	# Fläche: die Hüllkugel misst √3 × HALF_EXTENT. Hier wird das geometrische
+	# Minimum aus den Konstanten nachgerechnet, damit die Invariante steht und
+	# nicht eine geratene Zahl.
+	var corner_radius := sqrt(3.0) * DieBuilder.HALF_EXTENT
+	var half_height := DiceRowView.tumble_distance() \
+		* tan(deg_to_rad(DiceRowView.THUMB_FOV * 0.5))
+	assert_gte(half_height, corner_radius,
+		"die Ecke bleibt im Bild (halbe Bildhöhe %.3f, Eckradius %.3f)"
+			% [half_height, corner_radius])
+
+func test_the_tumbling_camera_keeps_a_margin_but_stays_close() -> void:
+	var corner_radius := sqrt(3.0) * DieBuilder.HALF_EXTENT
+	var half_height := DiceRowView.tumble_distance() \
+		* tan(deg_to_rad(DiceRowView.THUMB_FOV * 0.5))
+	assert_almost_eq(half_height / corner_radius, DiceRowView.TUMBLE_MARGIN, 0.001,
+		"genau der gewollte Aufschlag, kein Zoom ins Nichts")
+
+func test_the_static_thumb_keeps_its_tighter_framing() -> void:
+	# Ein stehender Würfel dreht seine Ecke nie ins Bild, also darf er enger sitzen.
+	assert_lt(DiceRowView.THUMB_EYE.length(), DiceRowView.tumble_distance(),
+		"die statische Vorschau bleibt näher dran")
