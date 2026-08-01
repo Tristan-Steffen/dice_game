@@ -106,13 +106,13 @@ static func mult_once_for(face_material: String, value: int, charm_ids: Array[St
 ## Material-Krit EINER Auslösung: eine Seite trägt genau ein Material - also
 ## höchstens ein Faktor. 1 = kein Krit. Rubin kritet erst auf der letzten Stufe,
 ## Glas schon ab der zweiten.
-static func mult_crit_once_for(face_material: String, value: int, _charm_ids: Array[String], level: int) -> int:
+static func mult_crit_once_for(face_material: String, value: int, _charm_ids: Array[String], level: int) -> float:
 	match face_material:
 		DieMaterial.RUBY:
-			return RUBY_CRIT if level >= DieMaterial.MAX_LEVEL else 1
+			return float(RUBY_CRIT) if level >= DieMaterial.MAX_LEVEL else 1.0
 		DieMaterial.GLASS:
-			return maxi(1, value) if level >= 2 else 1
-	return 1
+			return maxf(1.0, float(value)) if level >= 2 else 1.0
+	return 1.0
 
 ## Stufen-Infos eines Slots (Form wie DiceScoring.CTX_MATERIAL_LEVELS).
 static func level_of(levels: Dictionary, slot: int) -> Dictionary:
@@ -174,13 +174,13 @@ static func shrink_value(value: int, step: int, floor_value: int) -> int:
 ## also nicht.
 static func mutate_value_once(value: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rift_ids: Array[String] = []) -> int:
+		rift_ids: Array[String] = [], turn_index: int = 1) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
 		result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rift_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
-	return result + EssenceEffects.face_growth_of(essence_ids)
+	return result + EssenceEffects.face_growth_of(essence_ids, turn_index)
 
 ## Verliert diese Seite überhaupt Wert? Stickstoff schützt den ganzen Würfel,
 ## der Einbrand nur seine eigene Seite.
@@ -191,10 +191,10 @@ static func _value_protected(essence_ids: Array[String], rift_ids: Array[String]
 ## apply_take_effects in die Def schreibt (per Test abgesichert).
 static func value_after_activations(value: int, activations: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rift_ids: Array[String] = []) -> int:
+		rift_ids: Array[String] = [], turn_index: int = 1) -> int:
 	var result := value
 	for _a in maxi(0, activations):
-		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rift_ids)
+		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
 	return result
 
 ## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
@@ -235,7 +235,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## lying: ALLE Slots mit einem Würfel auf dem Tisch - nur so kann das Streulicht
 ## die ungewerteten Übriggebliebenen sehen. Rifts liest diese Seite direkt aus
 ## den Defs (wie die Material-Stufen), nicht aus dem ctx.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = []) -> TakeReport:
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], turn_index: int = 1) -> TakeReport:
 	var gold_boost := charm_ids.has(Charm.GOLDSMITH)
 	# Goldader legt auf JEDEN Gold-Träger denselben Zuschlag.
 	var vein := CharmEffects.gold_vein_bonus(materials, participating, charm_ids)
@@ -272,6 +272,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		if face_material == DieMaterial.GOLD:
 			report.money += _gold_payout(level, gold_surplus, gold_triggers) * effect_count
 		report.money += EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * effect_count
+		# Zyanidgas laugt die eigene Schale aus: je ZUG einmal, nie je Auslösung.
+		report.money += EssenceEffects.gold_face_money_of(essence_ids, defs[i].materials)
 
 		# Der Einbrand hat wirklich etwas abgewehrt - nur dann lohnt die Geste.
 		if face_material == DieMaterial.GLASS and RiftEffects.protects_face_value(rift_ids):
@@ -281,16 +283,26 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# Satz rechnet sich am schon veränderten Wert neu.
 		var before: int = defs[i].faces[face]
 		for _a in effect_count:
-			defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rift_ids)
+			defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
+		# Strahlungsdruck/Lawinenlicht blähen die GANZE Schale: die obere Seite ist
+		# über mutate_value_once schon gewachsen, die übrigen fünf folgen hier.
+		var all_growth := EssenceEffects.all_faces_growth_of(essence_ids, turn_index) * effect_count
+		if all_growth > 0:
+			for other_face in defs[i].faces.size():
+				if other_face != face:
+					defs[i].faces[other_face] += all_growth
 		if defs[i].faces[face] > before:
 			report.grown.append(i)
 		elif defs[i].faces[face] < before:
 			report.shrunk.append(i)
+		elif all_growth > 0:
+			report.grown.append(i)
 
 		# Leiterbahn-Glieder: je Glied EINMAL (nie × effect_count) - die Seite des
 		# Glieds, Wachsen/Schrumpfen trifft die GLIED-Seite. Die Stufe des GLIEDS
-		# zählt, nicht die der oben liegenden Seite.
-		for link_face in defs[i].pointer_chain(face, EssenceEffects.extra_pointer_links_of(essence_ids)):
+		# zählt, nicht die der oben liegenden Seite. Röntgenlicht und Korona hängen
+		# ihre Seiten hinten an (EssenceEffects.link_faces).
+		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids):
 			var link_material: String = defs[i].materials[link_face] if link_face < defs[i].materials.size() else ""
 			var link_level := face_level(defs[i], link_face)
 			if link_material == DieMaterial.GOLD:
@@ -313,6 +325,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		if EssenceEffects.decay_die(defs[i]):
 			report.decayed.append(i)
 
+	_spread_miasma(defs, face_indices, participating, essences, report)
+
 	# Streulicht: das Gegen-Ereignis zum Gold. Was am Zugende UNGEWERTET auf dem
 	# Tisch liegt und seine Riss-Seite zeigt, streut sein Licht ins Filz.
 	for i in lying:
@@ -326,6 +340,44 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			report.money += stray
 			report.stray.append(i)
 	return report
+
+## Ansteckung: jeder gewertete Miasma-Würfel verliert auf seiner oberen Seite
+## dauerhaft die abgerundete Hälfte ihrer Augen, und GENAU dieser Betrag wächst
+## auf jeder anderen gewerteten Seite der Hand. Läuft NACH allen Wertwandeln des
+## Zuges, damit Knochen/Glas exakt auf dem value_after der Simulation landen.
+## Stickstoff (Würfel) und Einbrand (Seite) verhindern die Halbierung - dann
+## bekommt auch niemand etwas.
+static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int], essences: Dictionary, report: TakeReport) -> void:
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size() or defs[i] == null:
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].faces.size():
+			continue
+		var essence_ids := EssenceEffects.set_at(essences, i)
+		var infects := false
+		for essence_id in essence_ids:
+			if EssenceEffects.redistributes_faces(essence_id):
+				infects = true
+		if not infects:
+			continue
+		if _value_protected(essence_ids, defs[i].rifts_on(face)):
+			continue
+		var amount: int = defs[i].faces[face] / 2
+		if amount <= 0:
+			continue
+		defs[i].faces[face] -= amount
+		if not report.shrunk.has(i):
+			report.shrunk.append(i)
+		for other in participating:
+			if other == i or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
+				continue
+			var other_face: int = face_indices[other]
+			if other_face < 0 or other_face >= defs[other].faces.size():
+				continue
+			defs[other].faces[other_face] += amount
+			if not report.grown.has(other):
+				report.grown.append(other)
 
 ## Stufe des Materials DIESER Seite (Guard für Defs ohne volles Stufen-Array).
 static func face_level(def: DieDefinition, face: int) -> int:
@@ -354,7 +406,7 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
 			triggers += activation_count(i, charm_ids, shown, echo_slot, EssenceEffects.set_at(essences, i), is_stress,
 				EssenceEffects.extra_activations(i, order, essences))
-		for link_face in defs[i].pointer_chain(face, EssenceEffects.extra_pointer_links_of(EssenceEffects.set_at(essences, i))):
+		for link_face in EssenceEffects.link_faces(defs[i], face, EssenceEffects.set_at(essences, i)):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += 1
 	return triggers

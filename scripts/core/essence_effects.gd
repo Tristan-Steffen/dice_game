@@ -11,15 +11,26 @@ class_name EssenceEffects
 ## Radon strahlt auf jeden anderen Würfel der Kombination.
 const RADON_EYE_BONUS := 2
 
-## Neon zahlt fest, Natriumdampf je Mitwürfel.
-const NEON_MONEY := 2
+## Neon zahlt fest, Natriumdampf je Mitwürfel, Zyanidgas je eigener Gold-Seite.
+const NEON_MONEY := 3
 const SODIUM_MONEY_PER_DIE := 1
+const CYANIDE_PER_GOLD := 3
 
-## Grubengas: Basispunkte, sobald in der Hand ein Krit gezündet hat.
+## Grubengas: Basispunkte, die JEDER Krit dieser Hand sofort zündet.
 const FIREDAMP_BASE := 20
 
+## Halogen legt seinen Mult additiv auf jede Auslösung.
+const HALOGEN_MULT := 5
+
+## Photonengas sammelt Licht: Augen je Auslösung, die vor ihm zählte.
+const PHOTON_EYE_PER_TRIGGER := 5
+
+## Strahlungsdruck bläht ALLE Seiten je Auslösung auf.
+const PRESSURE_GROWTH := 2
+
 ## Xenon/Kugelblitz kriten fest; Elmsfeuer verdoppelt seinen Faktor im Sturm.
-const FLASH_CRIT := 2
+const XENON_CRIT := 1.5
+const BALL_CRIT := 2.0
 const STORM_FACTOR := 4
 
 ## Multiplikative Auslösungen des Würfels - die EINZIGE Stelle, an der ein
@@ -55,17 +66,33 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary) ->
 	return extra
 
 ## Augen-Beitrag EINER Auslösung, nachdem die Charms ihren Augenwert gebildet
-## haben. Wasserstoff verdoppelt, Miasma behält nur die aufgerundete Hälfte (die
-## andere wird Geld), Antimaterie zählt NEGATIV - ihre Basis klemmt der Aufrufer.
+## haben. Antimaterie zählt NEGATIV - ihre Basis klemmt der Aufrufer. Der
+## Wasserstoff sitzt NICHT hier: er ist eine Linse auf dem gezeigten WERT
+## (lens_value), sonst verdoppelte er zweimal.
 static func eye_value(essence_id: String, eyes: int) -> int:
 	match essence_id:
-		Essence.HYDROGEN:
-			return eyes * 2
-		Essence.MIASMA:
-			return ceili(float(eyes) / 2.0)
 		Essence.ANTIMATTER:
 			return -eyes
 	return eyes
+
+## Linse auf den GEZEIGTEN Wert, direkt nach der Charm-Verwandlungskette: der
+## Wasserstoff verdoppelt. Der verdoppelte Wert ist der, den auch die Erkennung
+## sieht (Überzahl-Regel: eine 6 zeigt 12 und bildet Kombinationen als 2).
+static func lens_value(essence_id: String, value: int) -> int:
+	match essence_id:
+		Essence.HYDROGEN:
+			return value * 2
+	return value
+
+## Additiver Mult EINER Auslösung: das Halogen leuchtet die Hand aus.
+static func mult_bonus_once(essence_id: String) -> int:
+	return HALOGEN_MULT if essence_id == Essence.HALOGEN else 0
+
+## Photonengas: +5 Augen je Auslösung, die in dieser Hand VOR dieser zählte.
+static func trigger_eye_bonus(essence_id: String, triggers_before: int) -> int:
+	if essence_id != Essence.PHOTON_GAS:
+		return 0
+	return PHOTON_EYE_PER_TRIGGER * maxi(0, triggers_before)
 
 ## Radon strahlt: +2 Augen auf JEDEN anderen gewerteten Würfel, je Auslösung.
 static func foreign_eye_bonus(slot: int, scored: Array[int], sets: Dictionary) -> int:
@@ -76,40 +103,34 @@ static func foreign_eye_bonus(slot: int, scored: Array[int], sets: Dictionary) -
 	return bonus
 
 ## Essenz-Krit EINER Auslösung (Material-Krit-Substufe, VOR den Charm-Krits).
-## crits_before: Krits, die in dieser Hand schon zündeten (Ozon); armed: die
-## bedingte Auslösung ist scharf (Xenon noch frei, Kugelblitz-Seite oben).
-static func crit_once_for(essence_id: String, value: int, crits_before: int = 0, armed: bool = false) -> int:
+## crits_before: Krits, die in dieser Hand schon zündeten (Ozon).
+static func crit_once_for(essence_id: String, value: int, crits_before: int = 0) -> float:
 	match essence_id:
-		Essence.XENON, Essence.BALL_LIGHTNING:
-			return FLASH_CRIT if armed else 1
+		Essence.XENON:
+			return XENON_CRIT
+		Essence.BALL_LIGHTNING:
+			return BALL_CRIT
 		Essence.OZONE:
-			return maxi(1, 1 + crits_before)
+			return maxf(1.0, 1.0 + float(crits_before))
 		Essence.ANTIMATTER:
-			return maxi(1, value)
-	return 1
+			return maxf(1.0, float(value))
+	return 1.0
 
-## Trägt die Essenz überhaupt einen bedingten Krit? (Xenon/Kugelblitz - nur für
-## sie fragt der Aufrufer den Rundenzustand ab.)
-static func has_armed_crit(essence_id: String) -> bool:
-	return essence_id == Essence.XENON or essence_id == Essence.BALL_LIGHTNING
-
-## Geld EINER Auslösung: Neon fest, Natriumdampf je Mitwürfel, Miasma die
-## abgerundete Hälfte seiner Augen. Gebucht wird über GameRun.add_money.
-static func money_for(essence_id: String, value: int, combo_size: int) -> int:
+## Geld EINER Auslösung: Neon fest, Natriumdampf je Mitwürfel. Gebucht wird über
+## GameRun.add_money. (Zyanidgas zahlt je ZUG, nicht je Auslösung - siehe
+## gold_face_money_of.)
+static func money_for(essence_id: String, _value: int, combo_size: int) -> int:
 	match essence_id:
 		Essence.NEON:
 			return NEON_MONEY
 		Essence.SODIUM_VAPOR:
 			return maxi(0, combo_size - 1) * SODIUM_MONEY_PER_DIE
-		Essence.MIASMA:
-			return int(floor(float(value) / 2.0))
 	return 0
 
-## Grubengas: +20 Basispunkte, sobald in dieser Hand ein Krit gezündet hat -
-## spät ausgewertet, nach den statischen Charm-Krits.
-static func firedamp_bonus(scored: Array[int], sets: Dictionary, crits: int) -> int:
-	if crits <= 0:
-		return 0
+## Basis-Zuschlag, den EIN Krit dieser Hand sofort zündet: +20 je gewertetem
+## Grubengas-Würfel. Der Aufrufer bucht ihn an genau der Stelle, an der der Krit
+## fiel - so steht er auch im ScoreBreakdown dort.
+static func firedamp_step(scored: Array[int], sets: Dictionary) -> int:
 	var bonus := 0
 	for slot in scored:
 		if set_at(sets, slot).has(Essence.FIREDAMP):
@@ -121,9 +142,40 @@ static func firedamp_bonus(scored: Array[int], sets: Dictionary, crits: int) -> 
 static func protects_face_value(essence_id: String) -> bool:
 	return essence_id == Essence.NITROGEN
 
-## Helium: die obere Seite wächst je Auslösung dauerhaft.
-static func face_growth(essence_id: String) -> int:
-	return 1 if essence_id == Essence.HELIUM else 0
+## Wachstum der OBEREN Seite je Auslösung: Helium hebt sie, Strahlungsdruck und
+## Lawinenlicht blähen den ganzen Würfel (turn = Zug-Nummer der Runde).
+static func face_growth(essence_id: String, turn_index: int = 1) -> int:
+	match essence_id:
+		Essence.HELIUM:
+			return 1
+		Essence.RADIATION_PRESSURE:
+			return PRESSURE_GROWTH
+		Essence.AVALANCHE:
+			return maxi(1, turn_index)
+	return 0
+
+## Wachstum, das ALLE Seiten trifft (Strahlungsdruck, Lawinenlicht) - die obere
+## folgt schon über face_growth, die übrigen schreibt der Zug.
+static func all_faces_growth(essence_id: String, turn_index: int = 1) -> int:
+	match essence_id:
+		Essence.RADIATION_PRESSURE:
+			return PRESSURE_GROWTH
+		Essence.AVALANCHE:
+			return maxi(1, turn_index)
+	return 0
+
+## Firnis: seine Materialstufen zählen in der WERTUNG eine Stufe höher - nie in
+## der Def, die Nehmen-Effekte rechnen weiter mit der echten Stufe.
+static func level_boost(essence_id: String) -> int:
+	return 1 if essence_id == Essence.VARNISH else 0
+
+## Stufe, mit der die WERTUNG rechnet. Eine nackte Seite bleibt nackt (der Firnis
+## legt auf Glasur, nicht auf Schale), und über III geht nichts.
+static func boosted_level(level: int, essence_ids: Array[String]) -> int:
+	var boost := level_boost_of(essence_ids)
+	if level <= 0 or boost <= 0:
+		return level
+	return mini(DieMaterial.MAX_LEVEL, level + boost)
 
 ## Krypton: Klauseln, die Würfel AUSSPERREN (Parität), übersehen ihn. Kategorie-
 ## Drosseln bleiben davon unberührt - die sperren keine Würfel, sondern Hände.
@@ -137,36 +189,48 @@ const PLASMA_EXTRA_LINKS := 2
 static func extra_pointer_links(essence_id: String) -> int:
 	return PLASMA_EXTRA_LINKS if essence_id == Essence.PLASMA else 0
 
+## Alle Seiten, die an diesem Würfel als Glied feuern - die EINZIGE Quelle, damit
+## Wertung, Nehmen-Effekte und Vorschau dieselbe Kette sehen. Reihenfolge: erst
+## die echte Leiterbahn, dann der Korona-Ring (aufsteigend), zuletzt die
+## Röntgen-Gegenseite. Jede Seite höchstens einmal; Plasma verlängert NUR die
+## echte Kette.
+static func link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String]) -> Array[int]:
+	var faces: Array[int] = []
+	if die == null or up_face < 0 or up_face >= 6:
+		return faces
+	faces.assign(die.pointer_chain(up_face, extra_pointer_links_of(essence_ids)))
+	if essence_ids.has(Essence.CORONA):
+		for face in DieDefinition.adjacent_faces(up_face):
+			if not faces.has(face):
+				faces.append(face)
+	if essence_ids.has(Essence.XRAY):
+		var opposite := DieDefinition.opposite_face(up_face)
+		if not faces.has(opposite):
+			faces.append(opposite)
+	return faces
+
 ## Polarlicht: seine Augenzahl gilt der KOMBINATIONSSUCHE als Joker. Die Augen
 ## selbst bleiben die aufgedruckten - der Joker verschiebt nur, WELCHE Kategorie
 ## zutrifft, nie wie viel sie zahlt.
 static func is_wild(essence_id: String) -> bool:
 	return essence_id == Essence.AURORA
 
-## Photonengas zählt immer zuerst - der einzige Eingriff in die Zählreihenfolge.
-static func counts_first(essence_id: String) -> bool:
-	return essence_id == Essence.PHOTON_GAS
-
-## Wasserstoff: eine ROH gewürfelte 1 lässt die Hand fumbeln (der physische
-## Wert, nicht der verwandelte - Knallgas kennt keine Linse).
-static func forces_farkle(raw_values: Array[int], sets: Dictionary) -> bool:
-	for slot in sets:
-		var index := int(slot)
-		if not set_at(sets, index).has(Essence.HYDROGEN):
-			continue
-		if index < raw_values.size() and raw_values[index] == 1:
-			return true
-	return false
-
 ## Löschgas: dieser Würfel kann einen Fumble schlucken - einmal je Runde, und
 ## nur wenn er am Wurf beteiligt war. Der Rundenzustand liegt bei GameRun.
+## Der Preis steht in GameRun.consume_smother: die obere Seite fällt auf 1.
 static func smothers_farkle(essence_id: String) -> bool:
 	return essence_id == Essence.CARBON_DIOXIDE
 
-## Halogen: die Werkstattlampe brennt weiter - dieser Würfel bleibt auch nach
-## der Unterschrift gravierbar, während der Rest der Werkbank gesperrt ist.
-static func ignores_bench_lock(essence_id: String) -> bool:
-	return essence_id == Essence.HALOGEN
+## Miasma: seine obere Seite halbiert sich dauerhaft, der Verlust wächst auf den
+## übrigen gewerteten Seiten der Hand wieder nach (Nehmen-Effekt, je Zug einmal).
+static func redistributes_faces(essence_id: String) -> bool:
+	return essence_id == Essence.MIASMA
+
+## Zyanidgas: +$3 je Gold-Seite DIESES Würfels, einmal je Zug.
+static func gold_face_money_of(essence_ids: Array[String], materials: Array[String]) -> int:
+	if not essence_ids.has(Essence.CYANIDE):
+		return 0
+	return materials.count(DieMaterial.GOLD) * CYANIDE_PER_GOLD
 
 ## Irrlicht: der klassische Falschspieler-Move - einmal je Runde darf dieser
 ## Würfel nach dem Liegen auf eine Nachbarseite kippen.
@@ -201,12 +265,12 @@ static func decay_die(die: DieDefinition) -> bool:
 
 # --- Quintessenz: EINE Aggregation, nie verstreute Sonderfälle ------------------
 
-## Bedingte Krits gehören dem Würfel, der sie geladen hat: Xenons Blitz und der
-## Einschlag des Kugelblitzes hängen an dessen Rundenzustand (CTX_ESSENCE_ARMED),
-## nicht an der Essenz - kopiert werden sie darum NIE. Auch die Joker-Eigenschaft
-## des Polarlichts wandert nicht mit, sonst gäbe es zwei Joker und die Erkennung
-## verlöre ihre Unikat-Annahme.
-const UNCOPYABLE := [Essence.XENON, Essence.BALL_LIGHTNING, Essence.AURORA]
+## Nicht borgbar sind nur die Seelen mit EIGENEM Speicher am Würfel-Exemplar
+## (Lawinenlicht hängt am Zug-Zähler seiner Seiten, die Phosphoreszenz an ihrem
+## Basis-Speicher) - ein geborgter Speicher gehörte sonst zwei Würfeln. Dazu die
+## Joker-Eigenschaft des Polarlichts: zwei Joker, und die Erkennung verlöre ihre
+## Unikat-Annahme.
+const UNCOPYABLE := [Essence.AURORA, Essence.AVALANCHE, Essence.PHOSPHORESCENCE]
 
 ## Wirksame Essenz-Mengen je Slot: normal die eigene, für die Quintessenz die
 ## eigene PLUS die jedes anderen liegenden Würfels. Diese Funktion ist die
@@ -254,13 +318,39 @@ static func activation_factor_of(essence_ids: Array[String], charm_ids: Array[St
 		best = maxi(best, activation_factor(essence_id, charm_ids, is_stress))
 	return best
 
-## Augen-Beitrag durch ALLE wirksamen Seelen nacheinander (Wasserstoff verdoppelt,
-## Miasma halbiert, Antimaterie kehrt um - Verkettung ist gewollt).
+## Augen-Beitrag durch ALLE wirksamen Seelen nacheinander (Antimaterie kehrt um -
+## Verkettung ist gewollt).
 static func eye_value_of(essence_ids: Array[String], eyes: int) -> int:
 	var result := eyes
 	for essence_id in essence_ids:
 		result = eye_value(essence_id, result)
 	return result
+
+## Linse ALLER wirksamen Seelen auf den gezeigten Wert (Wasserstoff verdoppelt).
+static func lens_value_of(essence_ids: Array[String], value: int) -> int:
+	var result := value
+	for essence_id in essence_ids:
+		result = lens_value(essence_id, result)
+	return result
+
+static func mult_bonus_of(essence_ids: Array[String]) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += mult_bonus_once(essence_id)
+	return total
+
+static func trigger_eye_bonus_of(essence_ids: Array[String], triggers_before: int) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += trigger_eye_bonus(essence_id, triggers_before)
+	return total
+
+## Stufen-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
+static func level_boost_of(essence_ids: Array[String]) -> int:
+	var best := 0
+	for essence_id in essence_ids:
+		best = maxi(best, level_boost(essence_id))
+	return best
 
 static func money_of(essence_ids: Array[String], value: int, combo_size: int) -> int:
 	var total := 0
@@ -268,10 +358,16 @@ static func money_of(essence_ids: Array[String], value: int, combo_size: int) ->
 		total += money_for(essence_id, value, combo_size)
 	return total
 
-static func face_growth_of(essence_ids: Array[String]) -> int:
+static func face_growth_of(essence_ids: Array[String], turn_index: int = 1) -> int:
 	var total := 0
 	for essence_id in essence_ids:
-		total += face_growth(essence_id)
+		total += face_growth(essence_id, turn_index)
+	return total
+
+static func all_faces_growth_of(essence_ids: Array[String], turn_index: int = 1) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += all_faces_growth(essence_id, turn_index)
 	return total
 
 static func protects_face_value_of(essence_ids: Array[String]) -> bool:
@@ -286,12 +382,6 @@ static func ignores_dice_filters_of(essence_ids: Array[String]) -> bool:
 			return true
 	return false
 
-static func counts_first_of(essence_ids: Array[String]) -> bool:
-	for essence_id in essence_ids:
-		if counts_first(essence_id):
-			return true
-	return false
-
 static func extra_pointer_links_of(essence_ids: Array[String]) -> int:
 	var best := 0
 	for essence_id in essence_ids:
@@ -299,12 +389,12 @@ static func extra_pointer_links_of(essence_ids: Array[String]) -> int:
 	return best
 
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es
-## sind verschiedene Schläge (die bedingten stehen ohnehin nicht in der Menge).
-static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0, armed: bool = false) -> int:
-	var factor := 1
+## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
+static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0) -> float:
+	var factor := 1.0
 	for essence_id in essence_ids:
-		factor *= crit_once_for(essence_id, value, crits_before, armed)
-	return maxi(1, factor)
+		factor *= crit_once_for(essence_id, value, crits_before)
+	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).
 ## Die EIGENE Essenz eines Slots ("" = keine) - Identität, nicht Wirkung. Für

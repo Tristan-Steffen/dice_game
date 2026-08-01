@@ -403,6 +403,7 @@ var _tip_choice_slot: int = -1
 var _tip_choice_faces: Array[int] = []
 var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
+var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
 ## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
 ## Jeder Wurf setzt sie auf die kanonische Reihe zurück; Ziehen permutiert sie,
@@ -3775,10 +3776,7 @@ func _can_toggle_selection() -> bool:
 ## Sind die Würfel tabu? Bearbeitet wird im Laden UND im Vorlauf der neuen Runde:
 ## Die Werkbank bleibt offen, bis der Vertrag der Runde steht (bzw. bis zum ersten
 ## Wurf, wenn keine Auslage kommt) - erst dann sind die Würfel im Spiel.
-## Halogen ist die einzige Ausnahme: seine Werkstattlampe brennt weiter.
-func _dice_editing_locked(def: DieDefinition = null) -> bool:
-	if def != null and EssenceEffects.ignores_bench_lock(def.essence_id):
-		return false
+func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 	return round_committed and phase != Phase.SHOP
 
 ## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf) - für den
@@ -3791,14 +3789,13 @@ func _sync_editing_lock() -> void:
 	if die_inspector != null and die_inspector.target_grid != null:
 		die_inspector.target_grid.set_locked_indices(_locked_pool_indices())
 
-## Pool-Plätze, die die laufende Runde sperrt - Halogen-Würfel bleiben offen.
+## Pool-Plätze, die die laufende Runde sperrt (alle oder keiner).
 func _locked_pool_indices() -> Array[int]:
 	var locked: Array[int] = []
 	if not _dice_editing_locked():
 		return locked
 	for i in run.owned_pool.size():
-		if _dice_editing_locked(run.owned_pool[i]):
-			locked.append(i)
+		locked.append(i)
 	return locked
 
 func _pick_die_index(screen_pos: Vector2) -> int:
@@ -3845,27 +3842,33 @@ func _slot_essences() -> Dictionary:
 			essences[i] = def.essence_id
 	return essences
 
-## Scharfe bedingte Essenz-Krits je Slot: Xenon, solange sein erstes Werten der
-## Runde aussteht, und der Kugelblitz, wenn seine getroffene Seite oben liegt.
-func _armed_essences() -> Dictionary:
-	var armed := {}
+## Gespeicherte Basispunkte je Wurf-Slot (Phosphoreszenz) - Rundenzustand am
+## Würfel-Exemplar, den nur GameRun führt.
+func _phosphor_stores() -> Dictionary:
+	var stores := {}
 	for i in dice.count():
 		var def: DieDefinition = dice.slot_defs[i]
-		if def == null or not EssenceEffects.has_armed_crit(def.essence_id):
+		if def == null:
 			continue
-		armed[i] = run.essence_crit_armed(def, dice.face_indices[i])
-	return armed
+		var stored := run.phosphor_store(def)
+		if stored > 0:
+			stores[i] = stored
+	return stores
 
 ## Leiterbahn-Glieder je Wurf-Slot (nur Slots mit Kette): einmal HIER aufgelöst,
 ## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen.
+## Röntgenlicht und Korona hängen ihre Seiten an - über dieselbe Quelle wie die
+## Nehmen-Effekte (EssenceEffects.link_faces).
 func _pointer_links() -> Dictionary:
 	var links := {}
+	var sets := EssenceEffects.effective_sets(_slot_essences())
 	for i in dice.count():
 		var face: int = dice.face_indices[i]
 		var def: DieDefinition = dice.slot_defs[i]
 		if face < 0 or def == null:
 			continue
-		var chain := def.pointer_chain(face, EssenceEffects.extra_pointer_links(def.essence_id))
+		var essence_ids := EssenceEffects.set_at(sets, i)
+		var chain := EssenceEffects.link_faces(def, face, essence_ids)
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -3874,7 +3877,7 @@ func _pointer_links() -> Dictionary:
 				"face": link_face,
 				"value": def.faces[link_face],
 				"material": def.materials[link_face] if link_face < def.materials.size() else "",
-				"level": MaterialEffects.face_level(def, link_face),
+				"level": EssenceEffects.boosted_level(MaterialEffects.face_level(def, link_face), essence_ids),
 			})
 		links[i] = entries
 	return links
@@ -3883,6 +3886,7 @@ func _pointer_links() -> Dictionary:
 ## die Augensumme (Bernstein zahlt sie auf jeder Stufe).
 func _material_levels() -> Dictionary:
 	var levels := {}
+	var sets := EssenceEffects.effective_sets(_slot_essences())
 	for i in dice.count():
 		var def: DieDefinition = dice.slot_defs[i]
 		if def == null:
@@ -3890,8 +3894,11 @@ func _material_levels() -> Dictionary:
 		var eye_sum := 0
 		for value in def.faces:
 			eye_sum += value
+		# Der Firnis legt eine zweite Schicht auf - nur für die Wertung.
 		levels[i] = {
-			"level": MaterialEffects.face_level(def, dice.face_indices[i]),
+			"level": EssenceEffects.boosted_level(
+				MaterialEffects.face_level(def, dice.face_indices[i]),
+				EssenceEffects.set_at(sets, i)),
 			"eye_sum": eye_sum,
 		}
 	return levels
@@ -3921,9 +3928,11 @@ func _score_ctx() -> Dictionary:
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: EssenceEffects.effective_sets(_slot_essences()),
-		DiceScoring.CTX_ESSENCE_ARMED: _armed_essences(),  # Xenon/Kugelblitz scharf
 		DiceScoring.CTX_RIFTS: _slot_rifts(),  # Risse der oben liegenden Seiten
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
+		# Zug-Nummer der Runde (1-basiert): das Lawinenlicht wächst um sie.
+		DiceScoring.CTX_TURN_INDEX: hands_taken_this_round + 1,
+		DiceScoring.CTX_PHOSPHOR_STORE: _phosphor_stores(),  # Speicherlicht
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -3962,8 +3971,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_levels[to_filtered[s]] = levels[s]
 	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = mapped_levels
-	# Essenzen und ihre scharfen Krits hängen ebenso am Slot.
-	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_ESSENCE_ARMED, DiceScoring.CTX_RIFTS]:
+	# Essenzen, Risse und der Phosphor-Speicher hängen ebenso am Slot.
+	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RIFTS, DiceScoring.CTX_PHOSPHOR_STORE]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -4184,6 +4193,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_rifts = _slot_rifts()
 		pre_reroll_links = _pointer_links()
 		pre_reroll_levels = _material_levels()
+		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_order = declared_before
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
@@ -4379,13 +4389,6 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
-	# Knallgas: eine ROH gewürfelte 1 auf einem Wasserstoff-Würfel fumbelt die
-	# Hand sofort - vor jedem Rang-Vergleich, und auch im Erstwurf.
-	if DiceScoring.forces_farkle(dice.values, _score_ctx()):
-		hand_note = "Knallgas: Der Wasserstoff-Würfel zeigt eine 1 – die Hand fliegt auf."
-		_on_farkle(true)
-		return
-
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln. Die alte Seite
 	# rechnet mit IHREN Leiterbahn-Gliedern (vor dem Neuwurf), wie mit den
 	# alten Materialien.
@@ -4395,6 +4398,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences)
 	old_ctx[DiceScoring.CTX_RIFTS] = pre_reroll_rifts
+	old_ctx[DiceScoring.CTX_PHOSPHOR_STORE] = pre_reroll_phosphor
 	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
@@ -4413,8 +4417,10 @@ func _on_roll_finished() -> void:
 		# Runde und je Würfel. Der Anker geht vor: er ist enger und kostet nichts.
 		var smother := run.smother_slot(active_kinds, _visible_pit_slots())
 		if smother >= 0:
-			run.consume_smother(active_kinds[smother])
-			hand_note = "Löschgas: Der Fumble verpufft folgenlos – die Hand läuft weiter."
+			# Der Preis des Löschens: die obere Seite fällt auf 1 und verliert
+			# ihr Material (GameRun schreibt es in die Def).
+			run.consume_smother(active_kinds[smother], dice.face_indices[smother])
+			hand_note = "Löschgas: Der Fumble verpufft – die obere Seite fällt auf 1."
 			_flash_scoring_die(smother)
 			dice.clear_selection()
 			_auto_select_best_combo()
@@ -4638,12 +4644,13 @@ func _on_take_button_pressed() -> void:
 	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
 	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
-	var take_order := DiceScoring.trigger_order(participating, dice.values, _slot_essences(),
-		player_order)
+	var take_order := DiceScoring.trigger_order(participating, dice.values, player_order)
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, EssenceEffects.effective_sets(_slot_essences()), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots())
-	run.note_essence_take(active_kinds, participating)
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), hands_taken_this_round)
+	# Phosphoreszenz: der Basis-Anteil dieses Zuges wandert in den Speicher, der
+	# eben ausgezahlte ist damit geleert. GameRun bucht, die Wertung bleibt pur.
+	run.note_phosphor_stores(active_kinds, breakdown)
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
@@ -4837,7 +4844,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 				return
 			continue
 		# Krits inszenieren sich selbst: heißer Komet, Hit-Stop, Einschlag.
-		if int(step.get("crit_x", 1)) > 1:
+		if float(step.get("crit_x", 1.0)) > 1.0:
 			if not await _play_crit_step(step):
 				return
 			continue
@@ -4847,10 +4854,10 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		var ctargets: Array[String] = []
 		if step["base_add"] != 0 or step["base_x"] != 1:
 			ctargets.append("base")
-		if step["mult_add"] != 0 or step["mult_x"] != 1:
+		if step["mult_add"] != 0 or not is_equal_approx(float(step["mult_x"]), 1.0):
 			ctargets.append("mult")
 		var cbase: int = step["base_after"]
-		var cmult: int = step["mult_after"]
+		var cmult: float = step["mult_after"]
 		_spawn_score_gains(source_px, step["base_add"], step["mult_add"], step["base_x"], step["mult_x"])
 		var charm_travel := 0.0
 		if not ctargets.is_empty():
@@ -4934,7 +4941,7 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 	for charm_index: int in eye_charm_indices:
 		_flash_charm_and_pad(charm_index)
 	var p_base: int = pulse["base_after"]
-	var p_mult: int = pulse["mult_after"]
+	var p_mult: float = pulse["mult_after"]
 	var ptargets: Array[String] = ["base"]
 	if int(pulse["mult_add"]) != 0:
 		ptargets.append("mult")
@@ -4948,7 +4955,7 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 	var pc_mult := int(pulse["charm_mult_add"])
 	if pc_base != 0 or pc_mult != 0:
 		var pca_base: int = pulse["charm_base_after"]
-		var pca_mult: int = pulse["charm_mult_after"]
+		var pca_mult: float = pulse["charm_mult_after"]
 		var pctargets: Array[String] = []
 		if pc_base != 0:
 			pctargets.append("base")
@@ -4964,17 +4971,21 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 			return false
 	# Krit-Schlag (Beherit) dieser Auslösung: der Würfel blitzt erneut,
 	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen).
-	var crit_x := int(pulse["crit_x"])
-	if crit_x != 1:
+	var crit_x := float(pulse["crit_x"])
+	if not is_equal_approx(crit_x, 1.0):
 		_flash_scoring_die(slot)
 		for charm_index: int in crit_charm_indices:
 			_flash_charm_and_pad(charm_index)
 		# Material-Krit (Rubin III, Glas ab II) hat kein Dock-Pad - er kommt vom Würfel.
 		var from_die: bool = crit_charm_indices.is_empty() and bool(pulse.get("crit_from_die", false))
 		var crit_px := die_px if from_die else _charm_trail_source_px(crit_charm_indices)
-		var crit_base: int = pulse["charm_base_after"]
-		var crit_mult: int = pulse["mult_after_crit"]
-		table_screen.spawn_gain_number(crit_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
+		# Grubengas zündet MIT dem Krit - seine Basis steht schon im Stand danach.
+		var crit_base: int = pulse.get("base_after_crit", pulse["charm_base_after"])
+		var crit_mult: float = pulse["mult_after_crit"]
+		var firedamp_add := int(pulse.get("firedamp_add", 0))
+		if firedamp_add != 0:
+			table_screen.spawn_gain_number(crit_px, "+%d" % firedamp_add, table_screen.TRAIL_BASE_COLOR)
+		table_screen.spawn_gain_number(crit_px, ScoreBreakdown.format_mult(crit_x), TableScreen.CRIT_COLOR, 1.2)
 		var crit_travel := _fire_score_light(crit_px, "pit" if from_die else "charm", ["mult"],
 			func() -> void: table_screen.crit_pit_mult(crit_base, crit_mult, crit_x),
 			TableScreen.CRIT_COLOR)
@@ -5015,9 +5026,12 @@ func _play_crit_step(step: Dictionary) -> bool:
 		_flash_charm_and_pad(charm_index)
 	var source_px := _charm_trail_source_px(step["charm_indices"])
 	var cbase: int = step["base_after"]
-	var cmult: int = step["mult_after"]
-	var crit_x: int = step["crit_x"]
-	table_screen.spawn_gain_number(source_px, "×%d" % crit_x, TableScreen.CRIT_COLOR, 1.2)
+	var cmult: float = step["mult_after"]
+	var crit_x: float = step["crit_x"]
+	var firedamp_add := int(step.get("firedamp_add", 0))
+	if firedamp_add != 0:
+		table_screen.spawn_gain_number(source_px, "+%d" % firedamp_add, table_screen.TRAIL_BASE_COLOR)
+	table_screen.spawn_gain_number(source_px, ScoreBreakdown.format_mult(crit_x), TableScreen.CRIT_COLOR, 1.2)
 	var travel := _fire_score_light(source_px, "charm", ["mult"],
 		func() -> void: table_screen.crit_pit_mult(cbase, cmult, crit_x),
 		TableScreen.CRIT_COLOR)
@@ -5035,7 +5049,7 @@ func _play_charm_pulses(step: Dictionary) -> bool:
 			_flash_charm_and_pad(charm_index)
 		_flash_scoring_die(int(pulse["slot"]))
 		var pbase: int = pulse["base_after"]
-		var pmult: int = pulse["mult_after"]
+		var pmult: float = pulse["mult_after"]
 		var ptargets: Array[String] = []
 		if int(pulse["base"]) != 0:
 			ptargets.append("base")
@@ -5146,15 +5160,15 @@ func _flash_charm_and_pad(index: int) -> void:
 
 ## Zuwachs eines Zählschritts als schwebende Zahl aus der Quelle: "+N" bzw.
 ## "×N"; Basis cyan, Mult gold. Rein schmückend, zusätzlich zu den Leiterbahnen.
-func _spawn_score_gains(source_px: Vector2, base_add: int, mult_add: int, base_x: int = 1, mult_x: int = 1) -> void:
+func _spawn_score_gains(source_px: Vector2, base_add: int, mult_add: int, base_x: int = 1, mult_x: float = 1.0) -> void:
 	if base_add != 0:
 		table_screen.spawn_gain_number(source_px, "+%d" % base_add, table_screen.TRAIL_BASE_COLOR)
 	if base_x != 1:
 		table_screen.spawn_gain_number(source_px, "×%d" % base_x, table_screen.TRAIL_BASE_COLOR)
 	if mult_add != 0:
 		table_screen.spawn_gain_number(source_px, "+%d" % mult_add, table_screen.TRAIL_MULT_COLOR)
-	if mult_x != 1:
-		table_screen.spawn_gain_number(source_px, "×%d" % mult_x, table_screen.TRAIL_MULT_COLOR)
+	if not is_equal_approx(mult_x, 1.0):
+		table_screen.spawn_gain_number(source_px, ScoreBreakdown.format_mult(mult_x), table_screen.TRAIL_MULT_COLOR)
 
 ## Zuwachs eines Nach-Schritts auf der GESAMTZAHL; ganzzahlige Faktoren als
 ## "×N", sonst mit einer Nachkommastelle.
@@ -5162,8 +5176,7 @@ func _spawn_total_gain(source_px: Vector2, total_add: int, total_x: float) -> vo
 	if total_add != 0:
 		table_screen.spawn_gain_number(source_px, "+%d" % total_add, PitScoreView.TOTAL_COLOR)
 	if not is_equal_approx(total_x, 1.0):
-		var text := "×%d" % int(total_x) if is_equal_approx(total_x, float(int(total_x))) else "×%.1f" % total_x
-		table_screen.spawn_gain_number(source_px, text, PitScoreView.TOTAL_COLOR)
+		table_screen.spawn_gain_number(source_px, ScoreBreakdown.format_mult(total_x), PitScoreView.TOTAL_COLOR)
 
 ## Wartet einen Zählschritt ab; false = Animation abgebrochen (Reset) -
 ## dann ist hier schon aufgeräumt und der Aufrufer steigt sofort aus.
@@ -6358,11 +6371,14 @@ func _sync_transform_previews() -> void:
 	if dice == null or run == null or phase == Phase.SCORING:
 		return
 	var ids := run.charm_ids()
+	var sets := EssenceEffects.effective_sets(_slot_essences())
 	var overrides := {}
 	for i in dice.count():
 		if not dice.roots[i].visible or not dice.settled[i] or dice.face_indices[i] < 0:
 			continue
-		var effective := CharmEffects.transform_value(dice.values[i], ids)
+		# Verwandlung UND Essenz-Linse (Wasserstoff verdoppelt) - was die Wertung
+		# sieht, steht auch auf dem Würfel.
+		var effective := DiceScoring.shown_value(dice.values[i], ids, EssenceEffects.set_at(sets, i))
 		if effective != dice.values[i]:
 			overrides[i] = effective
 	dice.set_value_overrides(overrides)

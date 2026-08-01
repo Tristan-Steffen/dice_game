@@ -23,7 +23,9 @@ const NUMBER_FRAC := 0.23   # Schriftgröße als Anteil der Höhe
 ## darum je Instanz gesetzt (siehe TableScreen).
 var growth_k := 220.0
 
-var value := 0
+## Float, seit Krits ×1,5 sein dürfen - gedruckt wird über die eine Formatregel
+## (ScoreBreakdown.format_number), die Nachkommastellen nur zeigt, wenn es welche gibt.
+var value := 0.0
 var color := BASE_COLOR  # je Instanz gesetzt
 var is_total := false     # Gesamt-Orb: kräftigeres Halo
 var overbright := false   # Ziel geknackt: weiß-heißer Kern-Blitz
@@ -44,8 +46,8 @@ func _process(delta: float) -> void:
 	_breath += delta
 	queue_redraw()
 
-func set_value(p_value: int) -> void:
-	var changed := p_value != value
+func set_value(p_value: float) -> void:
+	var changed := not is_equal_approx(p_value, value)
 	value = p_value
 	_animate_radius()
 	if changed:
@@ -53,7 +55,7 @@ func set_value(p_value: int) -> void:
 	queue_redraw()
 
 ## Setzt Wert OHNE Pop/Tween (stille Daueranzeige, z.B. Reset auf 0).
-func set_value_silent(p_value: int) -> void:
+func set_value_silent(p_value: float) -> void:
 	value = p_value
 	_glow_radius = _target_glow_radius()
 	queue_redraw()
@@ -88,7 +90,7 @@ func _animate_radius() -> void:
 ## Ziel-Leuchtradius (Pixel) für den aktuellen Wert - asymptotisch gedeckelt.
 func _target_glow_radius() -> float:
 	var h := size.y
-	var t := 1.0 - exp(-float(value) / maxf(1.0, growth_k))
+	var t := 1.0 - exp(-value / maxf(1.0, growth_k))
 	return h * (R_MIN_FRAC + (R_MAX_FRAC - R_MIN_FRAC) * t)
 
 func _draw() -> void:
@@ -100,7 +102,7 @@ func _draw() -> void:
 	# 4200) IMMER auf dunklem Glas sitzen und nicht ins Leuchten auslaufen.
 	var font := ThemeDB.fallback_font
 	var value_font := int(h * NUMBER_FRAC)
-	var text := str(value)
+	var text := ScoreBreakdown.format_number(value)
 	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, value_font)
 	var core_r: float = maxf(h * CORE_FRAC, text_size.x * 0.5 + h * 0.07)
 	var r: float = maxf(_glow_radius * _pop * breath, core_r * 1.04)

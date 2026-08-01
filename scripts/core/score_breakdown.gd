@@ -18,8 +18,8 @@ class_name ScoreBreakdown
 static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
 	var raw := dice
-	dice = CharmEffects.transform_values(dice, charm_ids)
-	var participating := DiceScoring.participating_indices(key, dice, [], ctx)
+	dice = DiceScoring.shown_values(dice, charm_ids, ctx)
+	var participating := DiceScoring.participating_indices(key, raw, charm_ids, ctx)
 	# Normal zählen nur beteiligte Würfel Augen; mit Vollzähler ALLE liegenden.
 	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant wegen Beherit).
 	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
@@ -35,20 +35,24 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		scored = allowed
 	var essences := DiceScoring.essence_sets_in(ctx)
 	var rifts := DiceScoring.rifts_in(ctx)
-	var armed: Dictionary = ctx.get(DiceScoring.CTX_ESSENCE_ARMED, {})
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
-	var eye_slots := DiceScoring.trigger_order(scored, dice, essences,
+	var turn_index := DiceScoring.turn_index_in(ctx)
+	var eye_slots := DiceScoring.trigger_order(scored, dice,
 		ctx.get(DiceScoring.CTX_PLAYER_ORDER, []))
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
-	# (Ozon wächst mit ihnen, Grubengas fragt am Ende).
+	# (Ozon wächst mit ihnen, Grubengas bucht an jedem sofort).
 	var crits := 0
+	var firedamp := EssenceEffects.firedamp_step(scored, essences)
+	# Laufender Auslösungszähler der Hand (Glieder zählen mit) - Photonengas.
+	var triggers := 0
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen).
 	var base := DiceScoring.points_for(key, combo_levels)
-	var mult := DiceScoring.mult_for(key, combo_levels)
-	var combo := {"base_add": base, "mult_add": mult}
+	var combo_mult := DiceScoring.mult_for(key, combo_levels)
+	var mult := float(combo_mult)
+	var combo := {"base_add": base, "mult_add": combo_mult}
 
 	# 2. Würfel-Schritte in Reihen-Ordnung. Je Aktivierung: Augen + Material,
 	# dann die würfelgebundenen Charms (additiv, dann Krits) - exakt die
@@ -63,7 +67,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rift_ids := RiftEffects.rifts_at(rifts, i)
-		var is_armed := bool(armed.get(i, false))
+		# Basis-Stand VOR diesem Würfel: die Differenz ist sein Basis-Beitrag,
+		# und den speichert die Phosphoreszenz beim Nehmen.
+		var base_before_die := base
+		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus.
+		var phosphor := DiceScoring.phosphor_store_for(ctx, i)
+		base += phosphor
 		var count := 1
 		var once_base := 0
 		if has_die_bonus:
@@ -75,7 +84,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var charm_base_once := 0
 		var charm_mult_once := 0
 		var die_charm_indices: Array[int] = []
-		var charm_crit := 1
+		var charm_crit := 1.0
 		var crit_charm_indices: Array[int] = []
 		for j in charm_ids.size():
 			var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots)
@@ -87,7 +96,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				die_charm_indices.append(j)
 		for j in charm_ids.size():
 			var cx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
-			if cx != 1:
+			if not is_equal_approx(cx, 1.0):
 				charm_crit *= cx
 				crit_charm_indices.append(j)
 		# LAUFENDER Wert wie in DiceScoring._base_and_mult: Knochen/Glas wandeln den
@@ -100,29 +109,37 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var step_crit := charm_crit
 		var activations: Array[Dictionary] = []
 		for _a in count:
-			var shown := CharmEffects.transform_value(running, charm_ids)
-			var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) 				+ EssenceEffects.foreign_eye_bonus(i, scored, essences)
+			var shown := DiceScoring.shown_value(running, charm_ids, essence_ids)
+			var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) \
+				+ EssenceEffects.foreign_eye_bonus(i, scored, essences) \
+				+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
+			triggers += 1
 			var mult_now := 0
 			# Material-Krit (Rubin III, Glas ab II): zählt in crit_x mit, bekommt aber
 			# keinen Charm-Index - er kommt vom Würfel, nicht von einem Dock-Pad.
-			var mat_crit_now := 1
+			var mat_crit_now := 1.0
 			if has_die_bonus:
-				mult_now = MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)
+				mult_now = MaterialEffects.mult_once_for(face_material, shown, charm_ids, level) \
+					+ EssenceEffects.mult_bonus_of(essence_ids)
 				mat_crit_now = MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 			# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR sich.
-			if mat_crit_now != 1:
+			var crits_here := 0
+			if not is_equal_approx(mat_crit_now, 1.0):
 				crits += 1
-			var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, is_armed)
-			if essence_crit != 1:
+				crits_here += 1
+			var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits)
+			if not is_equal_approx(essence_crit, 1.0):
 				crits += 1
+				crits_here += 1
 			crits += crit_charm_indices.size()
+			crits_here += crit_charm_indices.size()
 			var crit_once := mat_crit_now * essence_crit * charm_crit
 			if activations.is_empty():
 				eye = eye_now
 				once_mult = mult_now
 				step_crit = crit_once
 			base += eye_now + once_base
-			mult += mult_now
+			mult += float(mult_now)
 			var entry := {
 				"value": shown,
 				"base_add": eye_now + once_base, "mult_add": mult_now,
@@ -130,15 +147,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				"charm_base_add": charm_base_once, "charm_mult_add": charm_mult_once,
 			}
 			base += charm_base_once
-			mult += charm_mult_once
+			mult += float(charm_mult_once)
 			entry["charm_base_after"] = base
 			entry["charm_mult_after"] = mult
 			entry["crit_x"] = crit_once
-			entry["crit_from_die"] = mat_crit_now != 1
+			entry["crit_from_die"] = not is_equal_approx(mat_crit_now, 1.0)
+			# Grubengas zündet MIT dem Krit: der Zuschlag steht dort, wo er fiel.
+			var firedamp_add := firedamp * crits_here
+			base += firedamp_add
+			entry["firedamp_add"] = firedamp_add
+			entry["base_after_crit"] = base
 			mult *= crit_once
 			entry["mult_after_crit"] = mult
 			if has_die_bonus:
-				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids)
+				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
 			# Physischer Wert NACH dieser Auslösung: die Zahl auf dem Würfel wandert
 			# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 			entry["value_after"] = running
@@ -151,9 +173,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			var link_material := String(link["material"])
 			var link_level := int(link.get("level", 1))
 			var link_eye := CharmEffects.eye_value(link_value, charm_ids)
+			triggers += 1
 			var link_base_once := 0
 			var link_mult_once := 0
-			var link_mat_crit := 1
+			var link_mat_crit := 1.0
 			if has_die_bonus:
 				link_base_once = MaterialEffects.base_once_for(link_material, charm_ids, link_level, eye_sum)
 				link_mult_once = MaterialEffects.mult_once_for(link_material, link_value, charm_ids, link_level)
@@ -174,14 +197,16 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 						link_charm_indices.append(j)
 				for j in charm_ids.size():
 					var lx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
-					if lx != 1:
+					if not is_equal_approx(lx, 1.0):
 						link_crit *= lx
 						link_crit_indices.append(j)
-			if link_mat_crit != 1:
+			var link_crits_here := link_crit_indices.size()
+			if not is_equal_approx(link_mat_crit, 1.0):
 				crits += 1
+				link_crits_here += 1
 			crits += link_crit_indices.size()
 			base += link_eye + link_base_once
-			mult += link_mult_once
+			mult += float(link_mult_once)
 			var link_entry := {
 				"face": int(link["face"]), "material": link_material,
 				"base_add": link_eye + link_base_once, "mult_add": link_mult_once,
@@ -191,16 +216,22 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				"crit_charm_indices": link_crit_indices,
 			}
 			base += link_charm_base
-			mult += link_charm_mult
+			mult += float(link_charm_mult)
 			link_entry["charm_base_after"] = base
 			link_entry["charm_mult_after"] = mult
 			link_entry["crit_x"] = link_crit
-			link_entry["crit_from_die"] = link_mat_crit != 1
+			link_entry["crit_from_die"] = not is_equal_approx(link_mat_crit, 1.0)
+			var link_firedamp := firedamp * link_crits_here
+			base += link_firedamp
+			link_entry["firedamp_add"] = link_firedamp
+			link_entry["base_after_crit"] = base
 			mult *= link_crit
 			link_entry["mult_after_crit"] = mult
 			links.append(link_entry)
 		die_steps.append({
 			"slot": i,
+			"phosphor_add": phosphor,
+			"base_contribution": base - base_before_die,
 			"eye_add": eye,
 			"mat_base_add": once_base,
 			"mat_mult_add": once_mult,
@@ -227,23 +258,28 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# Krit: eigener Hook, wirkt im Schritt als Teil des Mult-Faktors;
 		# crit_x bleibt separat sichtbar, damit die UI Krits inszenieren kann.
 		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
-		if crit_x != 1:
+		var firedamp_add := 0
+		if not is_equal_approx(crit_x, 1.0):
 			crits += 1
-		var mult_x := CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx) * crit_x
+			firedamp_add = firedamp
+		var mult_x := float(CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx)) * crit_x
 		# Rampenlicht wertet nicht, braucht aber seinen Schritt: es hebt die
 		# Kombination an SEINER Dock-Position, nicht nach dem Zählen.
 		var spotlight := CharmEffects.spotlight_fires_at(j, key, charm_ids, ctx)
-		if base_add == 0 and mult_add == 0 and base_x == 1 and mult_x == 1 and not spotlight:
+		if base_add == 0 and mult_add == 0 and base_x == 1 and is_equal_approx(mult_x, 1.0) and not spotlight:
 			continue
 		var base_before := base
 		var mult_before := mult
-		base = (base + base_add) * base_x
+		# Reihenfolge wie in DiceScoring: erst der Basis-Faktor, DANN der
+		# Grubengas-Zuschlag des Krits - sonst vervielfachte ihn der eigene Charm.
+		base = (base + base_add) * base_x + firedamp_add
 		mult = (mult + mult_add) * mult_x
 		var step_indices: Array[int] = [j]
 		var step := {
 			"charm_indices": step_indices,
 			"base_add": base_add, "mult_add": mult_add,
 			"base_x": base_x, "mult_x": mult_x, "crit_x": crit_x,
+			"firedamp_add": firedamp_add,
 			"base_after": base, "mult_after": mult,
 			"spotlight": spotlight,
 		}
@@ -258,33 +294,22 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			for p in pulses:
 				sum_base += int(p["base"])
 				sum_mult += int(p["mult"])
-			if sum_base == base_add and sum_mult == mult_add and base_x == 1 and mult_x == 1:
+			if sum_base == base_add and sum_mult == mult_add and base_x == 1 and is_equal_approx(mult_x, 1.0):
 				var acc_base := base_before
 				var acc_mult := mult_before
 				for p in pulses:
 					acc_base += int(p["base"])
-					acc_mult += int(p["mult"])
+					acc_mult += float(p["mult"])
 					p["base_after"] = acc_base
 					p["mult_after"] = acc_mult
 				step["pulses"] = pulses
 		charm_steps.append(step)
 
-	# 3b. Grubengas wertet spät - nach den statischen Krits, als eigener Schritt.
-	var firedamp := EssenceEffects.firedamp_bonus(scored, essences, crits)
-	if firedamp != 0:
-		base += firedamp
-		charm_steps.append({
-			"charm_indices": [] as Array[int], "essence": Essence.FIREDAMP,
-			"base_add": firedamp, "mult_add": 0,
-			"base_x": 1, "mult_x": 1, "crit_x": 1,
-			"base_after": base, "mult_after": mult, "spotlight": false,
-		})
-
-	# 4. Verschmelzen: base × mult (Klemme wie DiceScoring._total_mult).
+	# 4. Verschmelzen: base × mult, die EINZIGE Rundung der Rechnung (aufgerundet).
 	# Antimaterie kann die Basis negativ machen - geklemmt wie in DiceScoring.
 	base = maxi(0, base)
-	mult = maxi(1, mult)
-	var total := base * mult
+	mult = maxf(1.0, mult)
+	var total := ceili(float(base) * mult)
 	var merge_total := total
 
 	# 5. Nach-Schritte auf die fertige Punktzahl - ebenfalls Besitz-Reihenfolge.
@@ -320,6 +345,18 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"post_steps": post_steps,
 		"total": total,
 	}
+
+## EINE Formatregel für jede gedruckte Mult-Zahl, seit Krits Bruchzahlen sein
+## dürfen: höchstens zwei Nachkommastellen, nachlaufende Nullen und das ".0"
+## fallen weg ("2", "1.5", "2.25").
+static func format_number(value: float) -> String:
+	var text := "%.2f" % value
+	if text.contains("."):
+		text = text.rstrip("0").rstrip(".")
+	return text
+
+static func format_mult(value: float) -> String:
+	return "×%s" % format_number(value)
 
 ## Zerlegt den Beitrag eines Hand-Charms MIT Würfel-Bezug in Einzel-Pulse
 ## {slot, base, mult} für die Meteor-je-Würfel-Animation. Betrifft nur Charms,

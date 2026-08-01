@@ -109,14 +109,36 @@ func test_extra_activations_stay_additive_next_to_the_factor():
 	var count := MaterialEffects.activation_count(1, NO_CHARMS, 5, -1, _ids([Essence.ARGON]), false, 1)
 	assert_eq(count, 3)
 
-# --- Augen: Wasserstoff, Miasma, Antimaterie, Radon ------------------------------
+# --- Augen: Wasserstoff-Linse, Antimaterie, Radon --------------------------------
 
-func test_hydrogen_doubles_its_own_eyes():
-	assert_eq(EssenceEffects.eye_value(Essence.HYDROGEN, 5), 10)
+func test_hydrogen_is_a_lens_on_the_shown_value():
+	assert_eq(EssenceEffects.lens_value(Essence.HYDROGEN, 5), 10)
+	assert_eq(EssenceEffects.lens_value(Essence.NEON, 5), 5)
+	# Die Linse sitzt NICHT mehr im Augen-Nachschlag - sonst verdoppelte sie zweimal.
+	assert_eq(EssenceEffects.eye_value(Essence.HYDROGEN, 5), 5)
 
-func test_miasma_keeps_the_rounded_up_half():
-	assert_eq(EssenceEffects.eye_value(Essence.MIASMA, 5), 3, "aufgerundet")
-	assert_eq(EssenceEffects.money_for(Essence.MIASMA, 5, 1), 2, "die andere Hälfte wird Geld")
+func test_the_hydrogen_lens_follows_the_charm_transform():
+	# Verwandlung zuerst (1 -> 6 durch Glückszigaretten), dann die Linse: 12.
+	assert_eq(DiceScoring.shown_value(1, _ids([Charm.LUCKY_CIGARETTES]), _ids([Essence.HYDROGEN])), 12)
+	assert_eq(DiceScoring.shown_value(6, NO_CHARMS, _ids([Essence.HYDROGEN])), 12)
+
+func test_the_hydrogen_lens_uses_the_overrun_digit_for_combinations():
+	# Eine 6 zeigt 12 - Kombinationsziffer 2, Augen 12.
+	var ctx := _ctx({0: Essence.HYDROGEN, 1: Essence.HYDROGEN})
+	var dice := _d([6, 6, 2, 2])
+	# Die beiden Wasserstoffe zeigen 12/12 (Ziffer 2), dazu zwei echte Zweien:
+	# das ist ein Viererpasch, kein Zwei-Paare.
+	assert_eq(DiceScoring.best_hand(dice, NO_CHARMS, false, NO_MATS, {}, ctx)["key"],
+		DiceScoring.FOUR_KIND)
+	assert_eq(DiceScoring.score_category(DiceScoring.FOUR_KIND, dice, NO_CHARMS, false, NO_MATS, {}, ctx),
+		(25 + 12 + 12 + 2 + 2) * 4, "gezählt werden die verdoppelten Augen")
+
+func test_the_hydrogen_die_never_fumbles_a_hand_anymore():
+	# Das Knallgas ist weg: eine rohe 1 ist einfach eine 2.
+	var ctx := _ctx({0: Essence.HYDROGEN})
+	assert_eq(DiceScoring.shown_value(1, NO_CHARMS, _ids([Essence.HYDROGEN])), 2)
+	assert_eq(DiceScoring.best_hand(_d([1, 2, 3]), NO_CHARMS, false, NO_MATS, {}, ctx)["key"],
+		DiceScoring.TWO_KIND, "die verdoppelte 1 bildet mit der echten 2 ein Paar")
 
 func test_antimatter_counts_negative_but_never_below_zero_base():
 	assert_eq(EssenceEffects.eye_value(Essence.ANTIMATTER, 5), -5)
@@ -133,32 +155,105 @@ func test_radon_irradiates_the_others_not_itself():
 
 # --- Krits ------------------------------------------------------------------------
 
-func test_xenon_and_ball_lightning_only_crit_while_armed():
-	assert_eq(EssenceEffects.crit_once_for(Essence.XENON, 5, 0, true), 2)
-	assert_eq(EssenceEffects.crit_once_for(Essence.XENON, 5, 0, false), 1, "verschossen = kein Krit")
-	assert_eq(EssenceEffects.crit_once_for(Essence.BALL_LIGHTNING, 5, 0, true), 2)
-	assert_eq(EssenceEffects.crit_once_for(Essence.BALL_LIGHTNING, 5, 0, false), 1)
+func test_xenon_and_ball_lightning_crit_unconditionally():
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.XENON, 5), 1.5, 0.0001)
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.BALL_LIGHTNING, 5), 2.0, 0.0001)
+
+func test_a_single_xenon_crit_rounds_up_only_at_the_end():
+	# Paar Fünfer, Xenon auf Slot 0: Basis 20, Mult 2 × 1,5 = 3.
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.XENON}))
+	assert_eq(score, (10 + 5 + 5) * 3)
+
+func test_two_xenon_crits_multiply_to_two_and_a_quarter():
+	# Zwei Xenon-Würfel: ×1,5 × 1,5 = ×2,25 auf den Kombi-Mult 2 -> 4,5.
+	# Basis 20 × 4,5 = 90 - und NUR hier wird gerundet.
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.XENON, 1: Essence.XENON}))
+	assert_eq(score, 90, "×2,25 - nie zweimal auf ×2 gerundet")
+
+func test_the_hand_mult_is_reported_as_a_float():
+	var hand := DiceScoring.best_hand(_d([5, 5]), NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.XENON}))
+	assert_almost_eq(float(hand["mult"]), 3.0, 0.0001)
 
 func test_ozone_grows_with_the_crits_before_it():
-	assert_eq(EssenceEffects.crit_once_for(Essence.OZONE, 5, 0), 1, "ohne Vorgänger kein Schlag")
-	assert_eq(EssenceEffects.crit_once_for(Essence.OZONE, 5, 2), 3, "1 + 2 Krits davor")
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.OZONE, 5, 0), 1.0, 0.0001)
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.OZONE, 5, 2), 3.0, 0.0001)
 
 func test_antimatter_crits_with_its_eyes():
-	assert_eq(EssenceEffects.crit_once_for(Essence.ANTIMATTER, 6), 6)
-	assert_eq(EssenceEffects.crit_once_for(Essence.ANTIMATTER, 0), 1, "nie unter ×1")
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.ANTIMATTER, 6), 6.0, 0.0001)
+	assert_almost_eq(EssenceEffects.crit_once_for(Essence.ANTIMATTER, 0), 1.0, 0.0001)
 
-func test_only_the_conditional_essences_ask_for_the_round_state():
-	assert_true(EssenceEffects.has_armed_crit(Essence.XENON))
-	assert_true(EssenceEffects.has_armed_crit(Essence.BALL_LIGHTNING))
-	assert_false(EssenceEffects.has_armed_crit(Essence.OZONE), "Ozon liest die Hand, nicht die Runde")
+func test_the_mult_format_rule_drops_trailing_zeros():
+	assert_eq(ScoreBreakdown.format_mult(2.0), "×2")
+	assert_eq(ScoreBreakdown.format_mult(1.5), "×1.5")
+	assert_eq(ScoreBreakdown.format_mult(2.25), "×2.25")
+	assert_eq(ScoreBreakdown.format_number(10.0), "10")
 
-# --- Grubengas: spät, nach den statischen Krits ----------------------------------
+# --- Grubengas: an JEDEM Krit der Hand -------------------------------------------
 
-func test_firedamp_pays_only_after_a_crit_fired():
+func test_firedamp_fires_with_every_crit():
 	var scored := _p([0])
 	var essences := {0: Essence.FIREDAMP}
-	assert_eq(EssenceEffects.firedamp_bonus(scored, essences, 0), 0, "ohne Krit kein Schlagwetter")
-	assert_eq(EssenceEffects.firedamp_bonus(scored, essences, 1), EssenceEffects.FIREDAMP_BASE)
+	assert_eq(EssenceEffects.firedamp_step(scored, essences), EssenceEffects.FIREDAMP_BASE)
+	assert_eq(EssenceEffects.firedamp_step(scored, {0: Essence.NEON}), 0)
+
+func test_firedamp_scales_with_the_number_of_crits():
+	# Kugelblitz kritet je Auslösung ×2; das Grubengas legt je Krit +20 auf die Basis.
+	var one := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.FIREDAMP, 1: Essence.BALL_LIGHTNING}))
+	assert_eq(one, (10 + 5 + 5 + 20) * 4, "ein Krit, ein Schlagwetter")
+	# Zwei Kugelblitze = zwei Krits: +40 Basis, Mult 2 × 2 × 2.
+	var two := DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]),
+		NO_CHARMS, false, NO_MATS, {},
+		_ctx({0: Essence.FIREDAMP, 1: Essence.BALL_LIGHTNING, 2: Essence.BALL_LIGHTNING}))
+	assert_eq(two, (18 + 5 + 5 + 5 + 40) * 12)
+
+# --- Halogen: Flutlicht, additiv je Auslösung ------------------------------------
+
+func test_halogen_adds_its_mult_per_activation():
+	assert_eq(EssenceEffects.mult_bonus_once(Essence.HALOGEN), EssenceEffects.HALOGEN_MULT)
+	assert_eq(EssenceEffects.mult_bonus_once(Essence.NEON), 0)
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.HALOGEN}))
+	assert_eq(score, (10 + 5 + 5) * (2 + 5))
+
+func test_halogen_pays_once_per_activation_not_once_per_hand():
+	# Die Hasenpfote lässt jede 6 ein zweites Mal auslösen: +5 Mult zweimal.
+	var ctx := _ctx({0: Essence.HALOGEN})
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([6, 6]), NO_CHARMS, false, NO_MATS, {}, ctx)
+	assert_eq(plain, (10 + 6 + 6) * (2 + 5))
+	var doubled := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([6, 6]), _ids([Charm.RABBITS_FOOT]),
+		false, NO_MATS, {}, ctx)
+	assert_eq(doubled, (10 + 6 + 6 + 6 + 6) * (2 + 5 + 5), "die zweite Auslösung legt erneut +5 Mult auf")
+
+# --- Photonengas: Langzeitbelichtung ---------------------------------------------
+
+func test_photon_gas_collects_the_triggers_before_it():
+	assert_eq(EssenceEffects.trigger_eye_bonus(Essence.PHOTON_GAS, 0), 0, "als Erster sammelt es nichts")
+	assert_eq(EssenceEffects.trigger_eye_bonus(Essence.PHOTON_GAS, 3),
+		3 * EssenceEffects.PHOTON_EYE_PER_TRIGGER)
+	assert_eq(EssenceEffects.trigger_eye_bonus(Essence.NEON, 3), 0)
+
+func test_photon_gas_counts_the_hand_before_it_in_the_score():
+	# Dreierpasch 5-5-5, Photonengas auf dem KLEINSTEN Slot: Wert absteigend,
+	# Gleichstand -> Slot 0 zählt zuerst, also sammelt es nichts.
+	var first := DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.PHOTON_GAS}))
+	assert_eq(first, (18 + 5 + 5 + 5) * 3, "als Erster sammelt es nichts")
+	# Auf Slot 2 zählt es als DRITTES: +5 je Auslösung davor = +10.
+	var last := DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({2: Essence.PHOTON_GAS}))
+	assert_eq(last, (18 + 5 + 5 + 5 + 10) * 3)
+
+func test_photon_gas_counts_its_own_earlier_activations():
+	# Argon + Photonengas auf demselben Würfel (2 Auslösungen), Slot 1 von zweien:
+	# die Auslösungen sind 1 (Slot 0), dann 2× Slot 1 -> Boni 5 und 10.
+	var sets := {1: [Essence.PHOTON_GAS, Essence.ARGON] as Array[String]}
+	var ctx := {DiceScoring.CTX_ESSENCE_SET: sets}
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, ctx)
+	assert_eq(score, (10 + 5 + (5 + 5) + (5 + 10)) * 2)
 
 # --- Geld --------------------------------------------------------------------------
 
@@ -196,30 +291,12 @@ func test_krypton_slips_past_a_dice_filter_but_not_past_a_throttle():
 	var throttled := _ctx({0: Essence.KRYPTON}, {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.TWO_KIND])})
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false, NO_MATS, {}, throttled), 0)
 
-# --- Zählreihenfolge: Photonengas zählt zuerst -----------------------------------
+# --- Zählreihenfolge: keine Essenz greift ein -------------------------------------
 
-func test_photon_gas_counts_first():
-	# Ohne Essenz zählt der höchste Würfel zuerst; Photonengas zieht seinen vor.
+func test_no_essence_reorders_the_hand():
 	var dice := _d([2, 6, 4])
 	var scored := _p([0, 1, 2])
-	assert_eq(DiceScoring.trigger_order(scored, dice), _p([1, 2, 0]), "sonst Wert absteigend")
-	assert_eq(DiceScoring.trigger_order(scored, dice, {0: Essence.PHOTON_GAS}), _p([0, 1, 2]),
-		"das Photonengas steht vorn, der Rest bleibt sortiert")
-
-func test_photon_gas_dice_stay_sorted_among_themselves():
-	var dice := _d([2, 6, 4])
-	var scored := _p([0, 1, 2])
-	var both := {0: Essence.PHOTON_GAS, 2: Essence.PHOTON_GAS}
-	assert_eq(DiceScoring.trigger_order(scored, dice, both), _p([2, 0, 1]),
-		"innerhalb des Blocks gilt wieder Wert absteigend")
-
-# --- Wasserstoff: die rohe 1 fumbelt ----------------------------------------------
-
-func test_hydrogen_forces_a_farkle_on_a_raw_one():
-	var ctx := _ctx({1: Essence.HYDROGEN})
-	assert_true(DiceScoring.forces_farkle(_d([5, 1, 3]), ctx), "Knallgas zündet")
-	assert_false(DiceScoring.forces_farkle(_d([5, 2, 3]), ctx), "ohne 1 passiert nichts")
-	assert_false(DiceScoring.forces_farkle(_d([1, 2, 3]), ctx), "die 1 eines fremden Würfels zählt nicht")
+	assert_eq(DiceScoring.trigger_order(scored, dice), _p([1, 2, 0]), "Wert absteigend")
 
 # --- Angebot: Rollen, Gating, Aufpreis --------------------------------------------
 
@@ -254,29 +331,6 @@ func test_a_unique_is_never_offered_twice():
 			assert_false(Essence.by_id(id).unique, "Unikate nur im Einzel-Bündel")
 
 # --- Rundenzustand im GameRun -------------------------------------------------------
-
-func test_xenon_flashes_once_per_round():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.XENON
-	run.roll_essence_round_state()
-	assert_true(run.essence_crit_armed(die, 0), "zu Rundenbeginn ist der Blitz frei")
-	var defs: Array[DieDefinition] = [die]
-	run.note_essence_take(defs, _p([0]))
-	assert_false(run.essence_crit_armed(die, 0), "verschossen")
-	run.roll_essence_round_state()
-	assert_true(run.essence_crit_armed(die, 0), "die neue Runde lädt ihn nach")
-
-func test_ball_lightning_strikes_one_of_its_own_faces():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.BALL_LIGHTNING
-	run.roll_essence_round_state()
-	var armed := 0
-	for face in 6:
-		if run.essence_crit_armed(die, face):
-			armed += 1
-	assert_eq(armed, 1, "genau eine Seite trägt den Einschlag")
 
 func test_radon_decays_one_face_when_it_triggers():
 	var run := GameRun.new_run()
@@ -325,10 +379,33 @@ func test_the_smother_charge_holds_once_per_round_per_die():
 	run.roll_essence_round_state()
 	var defs: Array[DieDefinition] = [die]
 	assert_eq(run.smother_slot(defs, _p([0])), 0, "zu Rundenbeginn steht die Ladung")
-	run.consume_smother(die)
+	run.consume_smother(die, 0)
 	assert_eq(run.smother_slot(defs, _p([0])), -1, "verbraucht")
 	run.roll_essence_round_state()
 	assert_eq(run.smother_slot(defs, _p([0])), 0, "die neue Runde füllt nach")
+
+func test_smothering_costs_the_up_face():
+	var run := GameRun.new_run()
+	var die := run.owned_pool[0]
+	die.essence_id = Essence.CARBON_DIOXIDE
+	die.faces[2] = 6
+	die.set_face_material(2, DieMaterial.GOLD)
+	die.raise_level(2)
+	die.set_rift(2, Rift.AFTERGLOW)
+	run.roll_essence_round_state()
+	run.consume_smother(die, 2)
+	assert_eq(die.faces[2], 1, "die obere Seite fällt auf 1")
+	assert_eq(die.materials[2], "", "und verliert ihr Material")
+	assert_eq(die.material_level(2), 0, "die Stufe geht mit dem Material")
+	assert_true(die.has_rift(2, Rift.AFTERGLOW), "der Riss sitzt in der Schale, nicht in der Glasur")
+
+func test_smothering_without_a_face_only_burns_the_charge():
+	var run := GameRun.new_run()
+	var die := run.owned_pool[0]
+	die.essence_id = Essence.CARBON_DIOXIDE
+	run.roll_essence_round_state()
+	run.consume_smother(die, -1)
+	assert_eq(die.faces, [1, 2, 3, 4, 5, 6] as Array[int], "ohne obere Seite passiert nichts")
 
 func test_the_smother_only_counts_dice_in_the_throw():
 	var run := GameRun.new_run()
@@ -347,15 +424,8 @@ func test_each_carbon_dioxide_die_brings_its_own_charge():
 	second.essence_id = Essence.CARBON_DIOXIDE
 	run.roll_essence_round_state()
 	var defs: Array[DieDefinition] = [first, second]
-	run.consume_smother(first)
+	run.consume_smother(first, 0)
 	assert_eq(run.smother_slot(defs, _p([0, 1])), 1, "der zweite Würfel hat seine eigene Ladung")
-
-# --- Halogen: die Werkstattlampe brennt weiter ---------------------------------------
-
-func test_halogen_is_the_only_bench_lock_exception():
-	assert_true(EssenceEffects.ignores_bench_lock(Essence.HALOGEN))
-	assert_false(EssenceEffects.ignores_bench_lock(Essence.NEON))
-	assert_false(EssenceEffects.ignores_bench_lock(""))
 
 # --- Irrlicht: einmal je Runde auf eine Nachbarseite kippen ------------------------
 
@@ -495,14 +565,24 @@ func test_the_borrowed_factor_still_takes_the_vapor_charm_bonus():
 	assert_eq(EssenceEffects.activation_factor_of(EssenceEffects.set_at(sets, 0),
 		_ids([Charm.MERCURY_VAPOR])), 3, "Argon 2 + Dampf 1")
 
-func test_conditional_crits_are_never_borrowed():
-	# Xenons Blitz und der Einschlag des Kugelblitzes hängen am Rundenzustand
-	# ihres eigenen Würfels - sie wandern nicht mit.
+func test_the_flash_crits_are_borrowable_now():
+	# Xenon und Kugelblitz kriten unbedingt - kein Speicher mehr am Würfel, also
+	# borgt die Quintessenz sie mit: ×1,5 × ×2 = ×3.
 	var sets := EssenceEffects.effective_sets(
 		{0: Essence.QUINTESSENCE, 1: Essence.XENON, 2: Essence.BALL_LIGHTNING})
 	var borrowed := EssenceEffects.set_at(sets, 0)
-	assert_false(borrowed.has(Essence.XENON))
-	assert_false(borrowed.has(Essence.BALL_LIGHTNING))
+	assert_true(borrowed.has(Essence.XENON))
+	assert_true(borrowed.has(Essence.BALL_LIGHTNING))
+	assert_almost_eq(EssenceEffects.crit_of(borrowed, 5), 3.0, 0.0001)
+
+func test_the_state_carrying_souls_are_never_borrowed():
+	# Lawinenlicht und Phosphoreszenz führen einen Speicher am Würfel-Exemplar -
+	# geborgt gehörte der zwei Würfeln.
+	var sets := EssenceEffects.effective_sets(
+		{0: Essence.QUINTESSENCE, 1: Essence.AVALANCHE, 2: Essence.PHOSPHORESCENCE})
+	var borrowed := EssenceEffects.set_at(sets, 0)
+	assert_false(borrowed.has(Essence.AVALANCHE))
+	assert_false(borrowed.has(Essence.PHOSPHORESCENCE))
 	assert_eq(borrowed.size(), 1, "nur die eigene Seele bleibt übrig")
 
 func test_the_wild_is_never_borrowed_either():
@@ -516,17 +596,10 @@ func test_borrowed_radon_irradiates_the_others():
 	assert_eq(EssenceEffects.foreign_eye_bonus(2, _p([0, 1, 2]), sets),
 		EssenceEffects.RADON_EYE_BONUS * 2, "beide Quellen strahlen")
 
-func test_borrowed_downsides_come_along():
-	# Knallgas kopiert sich MIT seiner Kehrseite: die rohe 1 der Quintessenz
-	# fumbelt jetzt genauso.
+func test_borrowed_lenses_chain():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.HYDROGEN})
-	assert_true(EssenceEffects.forces_farkle(_d([1, 5, 3]), sets), "die eigene 1 zündet")
-	assert_true(EssenceEffects.forces_farkle(_d([5, 1, 3]), sets), "die des Wasserstoffs auch")
-	assert_false(EssenceEffects.forces_farkle(_d([5, 5, 3]), sets))
-
-func test_borrowed_eye_transforms_chain():
-	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.HYDROGEN})
-	assert_eq(EssenceEffects.eye_value_of(EssenceEffects.set_at(sets, 0), 5), 10, "Knallgas verdoppelt")
+	assert_eq(EssenceEffects.lens_value_of(EssenceEffects.set_at(sets, 0), 5), 10,
+		"der geborgte Wasserstoff verdoppelt auch die Quintessenz")
 
 func test_borrowed_protection_and_growth():
 	var sets := EssenceEffects.effective_sets(
@@ -534,6 +607,191 @@ func test_borrowed_protection_and_growth():
 	var borrowed := EssenceEffects.set_at(sets, 0)
 	assert_true(EssenceEffects.protects_face_value_of(borrowed), "Schutzatmosphäre geborgt")
 	assert_eq(EssenceEffects.face_growth_of(borrowed), 1, "Helium hebt auch sie")
+
+# --- Die sieben neuen Seelen ------------------------------------------------------
+
+func _die_with(essence_id: String) -> DieDefinition:
+	var die := DieDefinition.standard()
+	die.essence_id = essence_id
+	return die
+
+func test_radiation_pressure_blows_up_every_face_and_the_sim_agrees():
+	var die := _die_with(Essence.RADIATION_PRESSURE)
+	var defs: Array[DieDefinition] = [die]
+	var ids := _ids([Essence.RADIATION_PRESSURE])
+	# Simulation der oberen Seite: dieselbe Schiene wie Knochen/Helium.
+	var simulated := MaterialEffects.value_after_activations(die.faces[0], 1, "", NO_CHARMS, 1, ids)
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), NO_CHARMS, -1,
+		{0: Essence.RADIATION_PRESSURE}, _p([0]))
+	assert_eq(die.faces[0], simulated, "Sim und Def landen auf derselben Zahl")
+	assert_eq(die.faces[0], 1 + EssenceEffects.PRESSURE_GROWTH)
+	assert_eq(die.faces[3], 4 + EssenceEffects.PRESSURE_GROWTH, "auch die Seiten, die nicht oben lagen")
+
+func test_cyanide_pays_per_own_gold_face_once_per_turn():
+	var die := _die_with(Essence.CYANIDE)
+	die.set_face_material(1, DieMaterial.GOLD)
+	die.set_face_material(4, DieMaterial.GOLD)
+	var ids := _ids([Essence.CYANIDE])
+	assert_eq(EssenceEffects.gold_face_money_of(ids, die.materials), 2 * EssenceEffects.CYANIDE_PER_GOLD)
+	# Zwei Auslösungen (Argon) dürfen NICHT zweimal zahlen.
+	var defs: Array[DieDefinition] = [die]
+	var sets := {0: [Essence.CYANIDE, Essence.ARGON] as Array[String]}
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, sets, _p([0]))
+	assert_eq(report.money, 2 * EssenceEffects.CYANIDE_PER_GOLD, "je Zug, nie je Auslösung")
+
+func test_xray_fires_the_opposite_face_once():
+	var die := _die_with(Essence.XRAY)
+	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
+	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "genau die Gegenseite")
+
+func test_xray_dedups_against_a_real_pointer_chain():
+	var die := _die_with(Essence.XRAY)
+	# Eine echte Kette, die schon auf der Gegenseite landet, gibt es nicht
+	# (Leiterbahnen zeigen nur auf Nachbarn) - also hängt Röntgen hinten an.
+	die.pointers[1] = 0
+	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
+	assert_eq(faces, _p([0, DieDefinition.opposite_face(1)]), "erst die Kette, dann das Licht")
+	# Mit Korona ist die Gegenseite nie doppelt dabei.
+	var ring := EssenceEffects.link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
+	assert_eq(ring.count(DieDefinition.opposite_face(1)), 1, "jede Seite feuert höchstens einmal")
+	assert_eq(ring.count(0), 1, "die Kette hat Vorrang, der Ring überspringt sie")
+
+func test_corona_fires_all_four_neighbours():
+	var die := _die_with(Essence.CORONA)
+	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA]))
+	assert_eq(faces, DieDefinition.adjacent_faces(2), "vier Nachbarn, aufsteigend")
+	assert_false(faces.has(DieDefinition.opposite_face(2)), "die Gegenseite gehört dem Röntgenlicht")
+
+func test_corona_ring_comes_before_the_xray_face():
+	var die := _die_with(Essence.CORONA)
+	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
+	assert_eq(faces.size(), 5)
+	assert_eq(faces[4], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
+
+func test_avalanche_grows_by_the_turn_number():
+	assert_eq(EssenceEffects.face_growth(Essence.AVALANCHE, 1), 1)
+	assert_eq(EssenceEffects.face_growth(Essence.AVALANCHE, 3), 3)
+	var die := _die_with(Essence.AVALANCHE)
+	var defs: Array[DieDefinition] = [die]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), NO_CHARMS, -1,
+		{0: Essence.AVALANCHE}, _p([0]), false, _p([]), 3)
+	assert_eq(die.faces[0], 1 + 3, "die obere Seite wächst um die Zug-Nummer")
+	assert_eq(die.faces[5], 6 + 3, "alle Seiten wachsen mit")
+
+func test_the_turn_number_travels_in_the_ctx():
+	assert_eq(DiceScoring.turn_index_in({}), 1, "ohne Eintrag der erste Zug")
+	assert_eq(DiceScoring.turn_index_in({DiceScoring.CTX_TURN_INDEX: 4}), 4)
+
+func test_varnish_clamps_at_three_and_spares_bare_faces():
+	var varnish := _ids([Essence.VARNISH])
+	assert_eq(EssenceEffects.boosted_level(0, varnish), 0, "eine nackte Seite bleibt nackt")
+	assert_eq(EssenceEffects.boosted_level(1, varnish), 2)
+	assert_eq(EssenceEffects.boosted_level(2, varnish), 3)
+	assert_eq(EssenceEffects.boosted_level(3, varnish), DieMaterial.MAX_LEVEL, "III bleibt III")
+	assert_eq(EssenceEffects.boosted_level(2, _ids([Essence.NEON])), 2, "ohne Firnis keine Schicht")
+
+func test_varnish_lifts_the_level_only_in_the_score():
+	assert_eq(EssenceEffects.level_boost(Essence.VARNISH), 1)
+	assert_eq(EssenceEffects.level_boost(Essence.NEON), 0)
+	# Rubin auf Stufe II zahlt +10 Mult, auf III kritet er ×2 - der Firnis hebt
+	# eine echte Stufe-II-Seite in den Krit-Zweig.
+	var two := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 2}}})
+	var three := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3}}})
+	assert_eq(two, 20 * 12)
+	assert_eq(three, 20 * 4, "Stufe III kritet statt zu addieren")
+
+func test_varnish_never_writes_the_level_into_the_def():
+	var die := _die_with(Essence.VARNISH)
+	die.set_face_material(0, DieMaterial.GOLD)
+	die.raise_level(0)
+	var defs: Array[DieDefinition] = [die]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
+		NO_CHARMS, -1, {0: Essence.VARNISH}, _p([0]))
+	assert_eq(die.material_level(0), 2, "die Def bleibt auf ihrer echten Stufe")
+	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT_2, "Gold zahlt den echten Stufensatz II")
+
+func test_phosphorescence_stores_and_repeats_its_base():
+	var run := GameRun.new_run()
+	var die := run.owned_pool[0]
+	die.essence_id = Essence.PHOSPHORESCENCE
+	run.roll_essence_round_state()
+	assert_eq(run.phosphor_store(die), 0, "zu Rundenbeginn leer")
+	var defs: Array[DieDefinition] = [die, run.owned_pool[1]]
+	var ctx := _ctx({0: Essence.PHOSPHORESCENCE})
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m(["", ""]), {}, ctx)
+	run.note_phosphor_stores(defs, breakdown)
+	assert_eq(run.phosphor_store(die), 5, "sein Basis-Anteil: die eigenen Augen")
+	# Der nächste Zug legt den Speicher obendrauf.
+	var loaded := _ctx({0: Essence.PHOSPHORESCENCE}, {DiceScoring.CTX_PHOSPHOR_STORE: {0: 5}})
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false, NO_MATS, {}, loaded),
+		(10 + 5 + 5 + 5) * 2)
+
+func test_the_phosphor_store_is_overwritten_and_reset():
+	var run := GameRun.new_run()
+	var die := run.owned_pool[0]
+	die.essence_id = Essence.PHOSPHORESCENCE
+	run.roll_essence_round_state()
+	var defs: Array[DieDefinition] = [die, run.owned_pool[1]]
+	var ctx := _ctx({0: Essence.PHOSPHORESCENCE})
+	run.note_phosphor_stores(defs, ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([6, 6]),
+		NO_CHARMS, false, _m(["", ""]), {}, ctx))
+	assert_eq(run.phosphor_store(die), 6)
+	run.note_phosphor_stores(defs, ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([2, 2]),
+		NO_CHARMS, false, _m(["", ""]), {}, ctx))
+	assert_eq(run.phosphor_store(die), 2, "erneutes Werten überschreibt")
+	run.roll_essence_round_state()
+	assert_eq(run.phosphor_store(die), 0, "die neue Runde löscht den Speicher")
+
+# --- Miasma: Ansteckung statt fauler Handel ---------------------------------------
+
+func test_miasma_halves_itself_and_grows_the_hand():
+	var sick := _die_with(Essence.MIASMA)
+	sick.faces[0] = 7
+	var other := DieDefinition.standard()
+	other.faces[0] = 2
+	var defs: Array[DieDefinition] = [sick, other]
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, {0: Essence.MIASMA}, _p([0, 1]))
+	assert_eq(sick.faces[0], 4, "7 verliert die abgerundete Hälfte (3)")
+	assert_eq(other.faces[0], 5, "und genau die wächst nebenan")
+
+func test_a_miasma_one_gives_nothing_away():
+	var sick := _die_with(Essence.MIASMA)
+	sick.faces[0] = 1
+	var other := DieDefinition.standard()
+	var defs: Array[DieDefinition] = [sick, other]
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, {0: Essence.MIASMA}, _p([0, 1]))
+	assert_eq(sick.faces[0], 1)
+	assert_eq(other.faces[0], 1, "ohne Verlust kein Zuwachs")
+
+func test_nitrogen_and_the_brand_block_the_infection():
+	var sick := _die_with(Essence.MIASMA)
+	sick.faces[0] = 8
+	var other := DieDefinition.standard()
+	var defs: Array[DieDefinition] = [sick, other]
+	var sets := {0: [Essence.MIASMA, Essence.NITROGEN] as Array[String]}
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, sets, _p([0, 1]))
+	assert_eq(sick.faces[0], 8, "Stickstoff hält die Seite")
+	assert_eq(other.faces[0], 1, "und niemand bekommt etwas")
+	# Einbrand auf DER Seite tut dasselbe.
+	var burned := _die_with(Essence.MIASMA)
+	burned.faces[0] = 8
+	burned.set_rift(0, Rift.BURN_IN)
+	var third := DieDefinition.standard()
+	var burned_defs: Array[DieDefinition] = [burned, third]
+	MaterialEffects.apply_take_effects(burned_defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, {0: Essence.MIASMA}, _p([0, 1]))
+	assert_eq(burned.faces[0], 8, "der Einbrand hält seine Seite")
+	assert_eq(third.faces[0], 1)
+
+func test_miasma_no_longer_pays_money():
+	assert_eq(EssenceEffects.money_for(Essence.MIASMA, 6, 3), 0)
 
 func test_borrowed_krypton_slips_past_a_filter():
 	var dice := _d([2, 4])

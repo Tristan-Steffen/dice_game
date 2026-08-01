@@ -175,12 +175,12 @@ static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], char
 ## AKTUELLEN Mult mit der NIEDRIGSTEN gewerteten Augenzahl - mit seinem
 ## Würfel, je Auslösung (eine gewertete 1 heißt ×1 = Ausfall). Ziel wie oben
 ## immer über die oben liegenden Werte; value_override nur für den Betrag.
-static func die_charm_crit_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = [], value_override: int = 0) -> int:
+static func die_charm_crit_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = [], value_override: int = 0) -> float:
 	match charm_ids[j]:
 		Charm.BEHERIT:
 			if slot == target_die(values, participating, false):
-				return maxi(1, value_override if value_override > 0 else values[slot])
-	return 1
+				return maxf(1.0, float(value_override if value_override > 0 else values[slot]))
+	return 1.0
 
 ## Primzahl-Test für Augenzahlen (Seiten können durch Knochen beliebig wachsen).
 static func is_prime(value: int) -> bool:
@@ -460,15 +460,15 @@ static func charm_mult_factor_at(j: int, values: Array[int], charm_ids: Array[St
 ## bleiben unberührt. 1 = kein Krit. Nur STATISCHE Krits (Galgenhumor ×4
 ## nach Farkle, Feierabendbier ×4 bei leerem Nachziehstapel) - Beherit ist
 ## würfelgebunden und lebt in die_charm_crit_at.
-static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, _participating: Array[int] = []) -> int:
+static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, _participating: Array[int] = []) -> float:
 	match charm_ids[j]:
 		Charm.GALLOWS_HUMOR:
 			if ctx.get(CTX_AFTER_FARKLE, false):
-				return 4
+				return 4.0
 		Charm.AFTER_WORK_BEER:
 			if ctx.get(CTX_POOL_EMPTY, false):
-				return 4
-	return 1
+				return 4.0
+	return 1.0
 
 # --- Geld: Effektkatalog -------------------------------------------------------
 

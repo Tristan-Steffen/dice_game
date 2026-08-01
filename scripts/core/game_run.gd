@@ -213,10 +213,9 @@ var spotlight_claimed_this_round: bool = false
 var golden_handshake_used_this_round: bool = false
 
 ## Rundenzustand der Essenzen, je Würfel-Exemplar (Instanz-id des DieDefinition):
-## Xenons verschossener Blitz und die Seite, die der Kugelblitz diese Runde trifft.
-var essence_flash_used: Dictionary = {}
-var essence_struck_face: Dictionary = {}
-## Verbrauchtes Löschgas je Würfel-Exemplar - wie Xenons Blitz eine Runden-Marke.
+## der Basis-Speicher der Phosphoreszenz.
+var essence_phosphor_store: Dictionary = {}
+## Verbrauchtes Löschgas je Würfel-Exemplar - eine Runden-Marke.
 var essence_smother_used: Dictionary = {}
 ## Schon gekippte Irrlicht-Würfel dieser Runde.
 var essence_tip_used: Dictionary = {}
@@ -1232,29 +1231,31 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
-## Rundenzustand der Essenzen: Xenons Blitz ist wieder frei, und der Kugelblitz
-## sucht sich je Würfel eine neue Seite. Beides hängt am Würfel-Exemplar, also an
-## seiner Instanz-id - eine Def wandert nie zwischen Pool-Plätzen.
+## Rundenzustand der Essenzen: Löschgas, Kipp-Erlaubnis und der Phosphor-Speicher
+## fangen neu an. Alles hängt am Würfel-Exemplar, also an seiner Instanz-id -
+## eine Def wandert nie zwischen Pool-Plätzen.
 func roll_essence_round_state() -> void:
-	essence_flash_used.clear()
-	essence_struck_face.clear()
 	essence_smother_used.clear()
 	essence_tip_used.clear()
-	for die in owned_pool:
-		if die.essence_id == Essence.BALL_LIGHTNING:
-			essence_struck_face[die.get_instance_id()] = randi() % die.faces.size()
+	essence_phosphor_store.clear()
 
-## Ist der bedingte Krit dieses Würfels scharf? Xenon, solange sein erstes
-## Werten der Runde aussteht; der Kugelblitz, wenn die getroffene Seite oben liegt.
-func essence_crit_armed(die: DieDefinition, up_face: int) -> bool:
-	if die == null:
-		return false
-	match die.essence_id:
-		Essence.XENON:
-			return not essence_flash_used.has(die.get_instance_id())
-		Essence.BALL_LIGHTNING:
-			return up_face >= 0 and int(essence_struck_face.get(die.get_instance_id(), -1)) == up_face
-	return false
+## Gespeicherte Basispunkte dieses Würfel-Exemplars (0 = leer).
+func phosphor_store(die: DieDefinition) -> int:
+	if die == null or die.essence_id != Essence.PHOSPHORESCENCE:
+		return 0
+	return int(essence_phosphor_store.get(die.get_instance_id(), 0))
+
+## Bucht den Speicher nach dem Zug: der gerade ausgezahlte Stand ist weg, der
+## Basis-Beitrag DIESES Zuges kommt hinein (erneutes Werten überschreibt also).
+## breakdown ist die auf echte Slots umgerechnete Schrittliste.
+func note_phosphor_stores(defs: Array[DieDefinition], breakdown: Dictionary) -> void:
+	for step: Dictionary in breakdown.get("die_steps", []):
+		var slot := int(step.get("slot", -1))
+		if slot < 0 or slot >= defs.size() or defs[slot] == null:
+			continue
+		if defs[slot].essence_id != Essence.PHOSPHORESCENCE:
+			continue
+		essence_phosphor_store[defs[slot].get_instance_id()] = int(step.get("base_contribution", 0))
 
 ## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
 ## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
@@ -1266,10 +1267,18 @@ func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
 			return i
 	return -1
 
-## Verbraucht die Löschgas-Ladung dieses Würfels für die laufende Runde.
-func consume_smother(die: DieDefinition) -> void:
-	if die != null:
-		essence_smother_used[die.get_instance_id()] = true
+## Verbraucht die Löschgas-Ladung dieses Würfels für die laufende Runde. Das
+## Löschen kostet: die oben liegende Seite fällt auf 1 und verliert ihr Material
+## (set_face_material nimmt die Stufe mit, der Riss bleibt).
+func consume_smother(die: DieDefinition, up_face: int = -1) -> void:
+	if die == null:
+		return
+	essence_smother_used[die.get_instance_id()] = true
+	if up_face < 0 or up_face >= die.faces.size():
+		return
+	die.faces[up_face] = 1
+	die.set_face_material(up_face, "")
+	note_pool_changed()
 
 ## Darf dieser Würfel diese Runde (noch) gekippt werden?
 func can_tip_die(die: DieDefinition) -> bool:
@@ -1279,12 +1288,6 @@ func can_tip_die(die: DieDefinition) -> bool:
 func consume_tip(die: DieDefinition) -> void:
 	if die != null:
 		essence_tip_used[die.get_instance_id()] = true
-
-## Bucht das Werten: Xenon hat seinen Blitz für diese Runde verschossen.
-func note_essence_take(defs: Array[DieDefinition], participating: Array[int]) -> void:
-	for i in participating:
-		if i < defs.size() and defs[i] != null and defs[i].essence_id == Essence.XENON:
-			essence_flash_used[defs[i].get_instance_id()] = true
 
 ## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
 func owned_essence_ids() -> Array[String]:
@@ -1300,7 +1303,7 @@ func note_pool_changed() -> void:
 ## Tauscht zwei Pool-PLÄTZE. Das ist ANORDNUNG, nicht Ersetzung: die beiden
 ## Instanzen wandern mitsamt ihrer Identität an die neue Stelle, ihr Inhalt wird
 ## nie überschrieben (become gilt nur beim Ersetzen). Damit bleibt jeder
-## instanz-gebundene Zustand - Xenons Blitz, der Einschlag des Kugelblitzes -
+## instanz-gebundene Zustand - der Phosphor-Speicher, die Löschgas-Ladung -
 ## automatisch am richtigen Würfel.
 ## Die Pool-Reihenfolge IST die Ziehreihenfolge des Rundendecks; das Umlegen vor
 ## der Runde ist also Strategie und wird nirgends nachträglich normalisiert.

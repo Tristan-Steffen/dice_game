@@ -126,8 +126,7 @@ func test_the_round_state_never_rewrites_a_soul():
 	var run := _souled_run()
 	var before := _souls_of(run)
 	run.roll_essence_round_state()
-	run.note_essence_take(run.owned_pool, _p([0, 1, 2]))
-	run.consume_smother(run.owned_pool[0])
+	run.consume_smother(run.owned_pool[0], 0)
 	run.consume_tip(run.owned_pool[1])
 	assert_eq(_souls_of(run), before, "Rundenmarken hängen neben der Seele, nicht darin")
 

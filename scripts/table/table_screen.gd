@@ -1288,8 +1288,9 @@ func _place_counter(counter: PitScoreView, center_px: Vector2, new_size: Vector2
 
 ## Setzt Basis + Mult (die Orbs ploppen bei echter Änderung selbst). Blendet
 ## den Gesamt-Orb aus und holt die Zähler an ihre Ruheplätze zurück.
-func update_pit_score(base: int, mult: int) -> void:
-	if base_counter.visible and base_counter.value == base and mult_counter.value == mult:
+func update_pit_score(base: int, mult: float) -> void:
+	if base_counter.visible and is_equal_approx(base_counter.value, float(base)) \
+			and is_equal_approx(mult_counter.value, mult):
 		return
 	total_orb.visible = false
 	base_counter.position = _base_home
@@ -1312,7 +1313,7 @@ var _crit_tween: Tween
 ## der Mult-Orb spannt sich überhell an (Hit-Stop), slammt dann auf den neuen
 ## Wert - Stoßwelle + Nachhall-Welle in Krit-Farbe, ×N-Zahl, abklingendes
 ## Beben, sauber zurück auf den Ruheplatz. Liefert die Gesamtdauer.
-func crit_pit_mult(base: int, mult_after: int, crit_x: int) -> float:
+func crit_pit_mult(base: int, mult_after: float, crit_x: float) -> float:
 	update_pit_score(base, mult_counter.value)
 	if _crit_tween != null and _crit_tween.is_valid():
 		_crit_tween.kill()
@@ -1329,7 +1330,7 @@ func crit_pit_mult(base: int, mult_after: int, crit_x: int) -> float:
 		mult_counter.set_value(mult_after)
 		_spawn_crit_wave(center, 1.1, 0.45, 1.0)
 		pit_impulse(center, "crit")  # die Stoßwelle wäscht durch die Grube
-		spawn_gain_number(center, "×%d" % crit_x, CRIT_COLOR, 1.5))
+		spawn_gain_number(center, ScoreBreakdown.format_mult(crit_x), CRIT_COLOR, 1.5))
 	# Nachhall: zweite, kleinere Welle kurz versetzt.
 	_crit_tween.tween_interval(CRIT_ECHO_DELAY)
 	_crit_tween.tween_callback(func() -> void: _spawn_crit_wave(center, 0.7, 0.35, 0.6))

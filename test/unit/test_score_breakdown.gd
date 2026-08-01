@@ -423,8 +423,7 @@ func test_breakdown_matches_scoring_across_the_matrix():
 		CharmEffects.CTX_FARKLE_STACKS: 2,
 		CharmEffects.CTX_LATE_SLOTS: [4, 5],
 		# Essenzen decken den Retrigger- und den Krit-Zweig mit ab.
-		DiceScoring.CTX_ESSENCES: {1: Essence.ARGON, 4: Essence.XENON},
-		DiceScoring.CTX_ESSENCE_ARMED: {4: true},
+		DiceScoring.CTX_ESSENCES: {1: Essence.ARGON, 4: Essence.XENON, 5: Essence.FIREDAMP},
 	}
 	# Nur die Deckung (total == score_category) je Zelle - die Zwischenstände
 	# prüfen die gezielten Tests oben. Abweichungen sammeln und EINMAL asserten,
