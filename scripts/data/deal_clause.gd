@@ -42,7 +42,6 @@ const SPOTLIGHT := "spotlight"
 const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
-const SHARD_GLAZE := "shard_glaze"
 
 # Bonus, Stufe 2
 const MAINTENANCE_ENGRAVING := "maintenance_engraving"
@@ -184,11 +183,6 @@ static func insurance_fraud() -> DealClause:
 static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
 		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
-
-static func shard_glaze() -> DealClause:
-	return _bonus(SHARD_GLAZE, "Scherbenglasur",
-		"Fumble: jeder verworfene Würfel erhält Zufallsmaterial auf einer leeren Seite",
-		Scope.ROUND, Tier.ONE)
 
 static func maintenance_engraving() -> DealClause:
 	return _bonus(MAINTENANCE_ENGRAVING, "Wartungs-Gravur", "Je genommene Hand eine Zahl-Gravur",
@@ -376,7 +370,7 @@ static func balanced_scales() -> DealClause:
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), overclock_discount(), advance_payment(), spotlight(),
-		cash_discount(), insurance_fraud(), seed_capital(), shard_glaze(),
+		cash_discount(), insurance_fraud(), seed_capital(),
 		maintenance_engraving(), high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
 		golden_handshake(),

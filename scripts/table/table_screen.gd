@@ -772,6 +772,76 @@ func _spawn_fumble_word() -> void:
 	tween.parallel().tween_property(label, "scale", Vector2.ONE * 1.08, FUMBLE_FADE)
 	tween.chain().tween_callback(label.queue_free)
 
+## Nachglüh-Silhouetten des Fumbles: Standzeit, Ausblenden, Blinktakt der frisch
+## geworfenen Würfel.
+const FUMBLE_MARK_HOLD := 2.0
+const FUMBLE_MARK_FADE := 0.35
+const FUMBLE_MARK_BLINK := 0.22
+## Ruhende Würfel stehen still und blass - sie haben den Fumble nicht ausgelöst.
+const FUMBLE_MARK_CALM := Color(1.1, 0.45, 0.45, 0.55)
+
+var _fumble_marks: Control
+
+## Silhouetten der verworfenen Würfel: je Würfel ein Umriss an seiner Stelle in
+## der Grube, mit der Augenzahl, die oben lag. marks = [{pixel, value, fresh}] -
+## fresh (der letzte Wurf, der den Fumble auslöste) blinkt, der Rest steht still.
+## Gruben-Mobiliar: verlässt die Kamera die Grube, räumt clear_fumble_marks auf.
+func show_fumble_marks(marks: Array[Dictionary], side_px: float) -> void:
+	clear_fumble_marks()
+	if pit_window == null or not pit_window.visible or marks.is_empty() or side_px <= 0.0:
+		return
+	_fumble_marks = Control.new()
+	_fumble_marks.name = "FumbleMarks"
+	_fumble_marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fumble_marks.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_fumble_marks)
+	for mark in marks:
+		var frame := _build_fumble_mark(mark, side_px)
+		_fumble_marks.add_child(frame)
+		# Der Blinktakt hängt am Umriss selbst: er stirbt mit ihm.
+		if bool(mark.get("fresh", false)):
+			var blink := frame.create_tween().set_loops()
+			blink.tween_property(frame, "modulate:a", 0.25, FUMBLE_MARK_BLINK)
+			blink.tween_property(frame, "modulate:a", 1.0, FUMBLE_MARK_BLINK)
+	var tween := _fumble_marks.create_tween()
+	tween.tween_interval(FUMBLE_MARK_HOLD)
+	tween.tween_property(_fumble_marks, "modulate:a", 0.0, FUMBLE_MARK_FADE).set_ease(Tween.EASE_IN)
+	tween.tween_callback(clear_fumble_marks)
+
+## EIN Umriss: dünne Linien statt Fläche - es ist eine Silhouette, kein Fenster.
+func _build_fumble_mark(mark: Dictionary, side_px: float) -> Control:
+	var fresh: bool = bool(mark.get("fresh", false))
+	var tint := FUMBLE_COLOR if fresh else FUMBLE_MARK_CALM
+	var frame := Panel.new()
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var center: Vector2 = mark.get("pixel", Vector2.ZERO)
+	frame.size = Vector2.ONE * side_px
+	frame.position = center - frame.size * 0.5
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0, 0, 0, 0)
+	box.border_color = tint
+	box.set_border_width_all(maxi(1, int(side_px * 0.055)))
+	box.set_corner_radius_all(int(side_px * 0.18))
+	frame.add_theme_stylebox_override("panel", box)
+
+	var value := int(mark.get("value", 0))
+	if value > 0:
+		var label := Label.new()
+		label.text = str(value)
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", maxi(8, int(side_px * 0.52)))
+		label.add_theme_color_override("font_color", tint)
+		label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		frame.add_child(label)
+	return frame
+
+func clear_fumble_marks() -> void:
+	if _fumble_marks != null and is_instance_valid(_fumble_marks):
+		_fumble_marks.queue_free()
+	_fumble_marks = null
+
 ## Spannt das Nebenwetten-Fenster über rect auf (rechts vom Becher).
 func place_side_bet_window(rect: Rect2) -> void:
 	side_bet_window.position = rect.position
@@ -2314,6 +2384,31 @@ func charm_money_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
 		return 0.0
 	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
 	var path := _round_end_route(from_px, [treasure_strip], to_px)
+	var travel := _round_end_travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Geld-Komet eines Zuges (Goldseiten, Seelen-Geld, Streulicht): er startet am
+## Datenbus der Grube, umrundet die Grubenhälfte am RAHMEN, fährt über die
+## Bank-Leiste in den Hub und von dort über die Geld-Leiste in die Truhe -
+## dieselbe Bahn wie ein Rundenende-Charm, nur ohne dessen Konsolen-Vorlauf.
+func take_money_comet(color := SIDE_MONEY_COLOR) -> float:
+	if pit_window == null or hub == null or treasure_strip == null \
+			or treasure_strip.strip_path.size() < 2:
+		return 0.0
+	var pr := Rect2(pit_window.position, pit_window.size)
+	var pcx := pr.get_center().x
+	var entry := Vector2(pcx, pr.position.y)
+	var exit := Vector2(pcx, pr.end.y)
+	var path := PackedVector2Array([entry])
+	for corner in _border_route(pr, entry, exit):
+		path.append(corner)
+	path.append(exit)
+	path.append(Vector2(hub.position.x + hub.size.x * 0.5, hub.position.y))
+	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
+	var tail := _route_via_strips(path[path.size() - 1], [treasure_strip], to_px)
+	for i in range(1, tail.size()):
+		path.append(tail[i])
 	var travel := _round_end_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

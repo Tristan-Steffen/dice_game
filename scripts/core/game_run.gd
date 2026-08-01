@@ -448,19 +448,17 @@ func stash_die(def: DieDefinition, price: int) -> void:
 	pending_dice.append(def.instantiate())
 	pending_dice_changed.emit()
 
-## Bestandener Stresstest: EIN garantiert beseelter Würfel als Belohnung. Er geht
-## auf die Händler-Ablage, nicht in den Pool - welcher Platz seine Seele hergibt,
-## entscheidet der Spieler, wie bei einem Kauf aus der Chip-Schale.
-func grant_stress_reward() -> DieDefinition:
+## Bestandener Stresstest: EIN versiegeltes Würfel-Paket mit Seelengarantie ins
+## Lager. Ausgewürfelt wird der Würfel erst beim Öffnen in der Werkstatt - wie
+## bei jedem Paket.
+func grant_stress_reward() -> Pack:
 	var templates := DiceOffer.pick_templates(1, charm_ids())
 	if templates.is_empty():
 		return null
-	var die := DiceOffer.make_die(templates[0], hub_level)
-	DiceOffer.roll_refinements(die)
-	die.essence_id = DiceOffer.roll_essence(owned_essence_ids(), true, true)
-	pending_dice.append(die)
-	pending_dice_changed.emit()
-	return die
+	var pack := Pack.stress_die(templates[0])
+	owned_packs.append(pack)
+	packs_changed.emit()
+	return pack
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
 ## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
@@ -1169,26 +1167,6 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 	if not gilded.is_empty():
 		pool_changed.emit()
 	return gilded
-
-## Scherbenglasur: jeder verworfene Würfel bekommt Zufallsmaterial auf eine
-## ZUFÄLLIGE leere Seite; wer keine mehr frei hat, geht leer aus. Liefert die
-## Anzahl veredelter Würfel.
-func apply_farkle_glaze(defs: Array[DieDefinition]) -> int:
-	if not _clause_active(DealClause.SHARD_GLAZE):
-		return 0
-	var glazed := 0
-	for die in defs:
-		var free_faces: Array[int] = []
-		for face in die.materials.size():
-			if die.materials[face] == "":
-				free_faces.append(face)
-		if free_faces.is_empty():
-			continue
-		die.set_face_material(free_faces.pick_random(), DieMaterial.all().pick_random().id)
-		glazed += 1
-	if glazed > 0:
-		pool_changed.emit()
-	return glazed
 
 ## Goldener Handschlag: schafft EINE Hand den Benchmark im Alleingang, wird ihr
 ## erster Würfel ganz Gold - je Runde einmal. Eingebrannte Seiten mit Material

@@ -200,6 +200,43 @@ func test_fumble_flashes_the_red_word_and_a_table_wide_wave():
 	assert_almost_eq(float(material.get_shader_parameter("progress")), 1.0, 0.001,
 		"ausgelaufen: das Overlay ist wieder still")
 
+## Die Umrisse der verworfenen Würfel (Fumble-Nachglühen).
+func _fumble_marks() -> Array:
+	if screen._fumble_marks == null or not is_instance_valid(screen._fumble_marks):
+		return []
+	return screen._fumble_marks.get_children()
+
+func test_the_fumble_leaves_an_outline_per_discarded_die():
+	# Beim Fumble fliegen die Würfel zu schnell weg: an ihrer Stelle bleibt ein
+	# Umriss mit der Augenzahl stehen, die oben lag.
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	var marks: Array[Dictionary] = [
+		{"pixel": Vector2(300, 350), "value": 5, "fresh": true},
+		{"pixel": Vector2(500, 400), "value": 2, "fresh": false},
+	]
+	screen.show_fumble_marks(marks, 40.0)
+	var built := _fumble_marks()
+	assert_eq(built.size(), 2, "je verworfenem Würfel ein Umriss")
+	var first: Panel = built[0]
+	assert_eq(first.position, Vector2(280, 330), "auf der Stelle des Würfels zentriert")
+	assert_eq(first.size, Vector2(40, 40))
+	var box: StyleBoxFlat = first.get_theme_stylebox("panel")
+	assert_eq(box.bg_color.a, 0.0, "eine Silhouette, kein gefülltes Fenster")
+	assert_eq(box.border_color, TableScreen.FUMBLE_COLOR, "der frische Wurf im Fumble-Rot")
+	var label: Label = first.get_child(0)
+	assert_eq(label.text, "5", "die Augenzahl, die oben lag")
+	var calm: Panel = built[1]
+	var calm_box: StyleBoxFlat = calm.get_theme_stylebox("panel")
+	assert_eq(calm_box.border_color, TableScreen.FUMBLE_MARK_CALM,
+		"der schon liegende Würfel steht blass daneben")
+
+func test_the_fumble_outlines_go_with_the_rest_of_the_pit():
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	var marks: Array[Dictionary] = [{"pixel": Vector2(300, 350), "value": 5, "fresh": true}]
+	screen.show_fumble_marks(marks, 40.0)
+	screen.clear_fumble_marks()
+	assert_eq(_fumble_marks().size(), 0, "die Kamera verlässt die Grube, das Nachglühen geht mit")
+
 func test_pit_info_bar_shares_the_one_window_look():
 	var info_style: StyleBoxFlat = screen.pit_info_bar.get_theme_stylebox("panel")
 	assert_eq(info_style.border_color, screen.window_style().border_color)

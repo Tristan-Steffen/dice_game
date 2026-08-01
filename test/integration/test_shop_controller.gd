@@ -747,6 +747,22 @@ func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 	for price in shop.single_dice_prices:
 		assert_gt(int(price), 0)
 
+func test_the_fullest_bowl_still_fits_its_width() -> void:
+	# Schlimmster Fall der Auslage: 2 Würfel + 4 Siegel (Material und "anderes"
+	# rollen je 1-2). In voller Größe sprengt das die Schale, also schrumpfen alle
+	# Stücke gemeinsam.
+	var factor: float = shop._singles_scale(2, 4)
+	var row: float = (2.0 * ShopController.SINGLE_DIE_SIZE + 4.0 * ShopController.SINGLE_SEAL_SIZE) \
+		* factor + 5.0 * ShopController.SINGLE_GAP
+	assert_lte(row, ShopController.BOWL_INNER_U + 0.001, "die volle Auslage passt in die Schale")
+	assert_eq(shop._singles_scale(1, 1), 1.0, "eine magere Auslage bleibt groß")
+
+func test_no_single_reaches_past_the_shop_panel() -> void:
+	await wait_frames(2)
+	var right: float = shop.get_global_rect().end.x
+	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+		assert_lte(button.get_global_rect().end.x, right, "Einzelstück ragt aus dem Laden")
+
 # --- Das Regal des Händlers und der Tausch ------------------------------------------
 
 func _stash_one() -> DieDefinition:

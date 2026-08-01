@@ -102,8 +102,8 @@ static func helium() -> Essence:
 
 static func neon() -> Essence:
 	return _make(NEON, "Neon", "Reklame",
-		"+$3, wenn dieser Würfel in der genommenen Kombination liegt.",
-		"+$3 beim Werten", Rarity.COMMON, Color(1.0, 0.35, 0.15))
+		"+$2 je gezähltem Würfel der Kombination, wenn dieser Würfel darin liegt.",
+		"+$2 je gezähltem Würfel", Rarity.COMMON, Color(1.0, 0.35, 0.15))
 
 static func argon() -> Essence:
 	return _make(ARGON, "Argon", "Doppelt belegt",

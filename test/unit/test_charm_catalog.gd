@@ -407,7 +407,7 @@ func test_round_end_income_combines_sources_with_caps():
 	assert_eq(CharmEffects.round_end_income(37, 2, ids), 13)
 	assert_eq(CharmEffects.round_end_income(9, 0, ids), 0)
 	# Nur der Zinsgroschen ist gedeckelt - die Stufen deckelt der Balken selbst.
-	assert_eq(CharmEffects.round_end_income(10000, 5, ids), 75, "Zinsen max. $50, Stufen 5×$5")
+	assert_eq(CharmEffects.round_end_income(10000, 5, ids), 45, "Zinsen max. $20, Stufen 5×$5")
 
 func test_high_flyer_pays_per_cleared_overcharge_stage():
 	# Grundlage ist der BALKEN, nicht die geprägte Ladung: der Doppellader
@@ -460,8 +460,8 @@ func test_the_interest_cap_holds_per_copy():
 	# Der Deckel gilt je Exemplar auf DESSEN Grundlage, nicht auf der Summe.
 	var ids := _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])
 	var entries := CharmEffects.round_end_income_entries(10000, 0, ids)
-	assert_eq(entries[0]["amount"], 50)
-	assert_eq(entries[1]["amount"], 50)
+	assert_eq(entries[0]["amount"], CharmEffects.INTEREST_PENNY_CAP)
+	assert_eq(entries[1]["amount"], CharmEffects.INTEREST_PENNY_CAP)
 
 func test_the_emergency_fund_tops_up_the_running_balance():
 	# Er füllt auf, was NACH den Charms vor ihm noch fehlt - sonst ersetzte er

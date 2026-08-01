@@ -546,8 +546,11 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 ## ändert nichts, gezählt wird der BALKEN.
 const HIGH_FLYER_PER_STAGE := 5
 
+## Deckel des Zinsgroschens - gilt je Exemplar auf dessen eigener Grundlage.
+const INTEREST_PENNY_CAP := 20
+
 ## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
-## $10, max. $50), Überflieger ($5 je geräumte Überladungs-Stufe), Glücksgroschen
+## $10, max. $20), Überflieger ($5 je geräumte Überladungs-Stufe), Glücksgroschen
 ## ($3, +$1 je vorheriger Auszahlung - NICHT je Überladungsstufe) und der
 ## Notgroschen, der auf seinen Mindeststand auffüllt.
 ##
@@ -564,7 +567,7 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 		var amount := 0
 		match charm_ids[j]:
 			Charm.INTEREST_PENNY:
-				amount = mini(projected / 10, 50)
+				amount = mini(projected / 10, INTEREST_PENNY_CAP)
 			Charm.HIGH_FLYER:
 				amount = maxi(0, cleared_stages) * HIGH_FLYER_PER_STAGE
 			Charm.OLD_PENNY:

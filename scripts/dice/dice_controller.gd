@@ -44,13 +44,16 @@ const KIND_TINTS := {}
 ## BoxShape3D scheinbar stabil auf Kante/Ecke. cos(~23°) ≈ 0.92.
 const SETTLE_ALIGNMENT_MIN_DOT := 0.92
 
-## Kleiner Anstoß, der ein Kanten-/Eckengleichgewicht bricht.
-const NUDGE_TORQUE := 0.5
+## Zufälliger Drall beim Abrutschen vom Stapel - der Würfel soll nicht flach
+## weiterschlittern.
+const SLIDE_TORQUE := 0.5
+
+## So lange darf ein geworfener Würfel ohne Ruhelage bleiben, dann wird genau
+## dieser Slot neu geworfen. Ein Anstoß löste eine Klemmlage nicht zuverlässig.
+const STUCK_RETHROW_SECONDS := 3.0
 
 ## Ein flach auf einem anderen Würfel liegender Würfel ist langsam UND flach,
-## kommt also durch die Ruheprüfung - erkannt wird er nur an der Höhe. Geprüft
-## wird erst NACH dem Ausrichtungs-Dot, damit ein schräg an der Grubenwand
-## lehnender Würfel den alten Kanten-Anstoß bekommt und keinen Seitenschub.
+## kommt also durch die Ruheprüfung - erkannt wird er nur an der Höhe.
 const STACK_HEIGHT := DIE_HALF * 1.6
 
 ## Kanten-Drehmoment hilft auf einem flachen Deckel nicht - es braucht einen
@@ -83,9 +86,9 @@ func _slide_off_stack(body: RigidBody3D) -> void:
 	var away := _slide_direction(body)
 	body.apply_central_impulse(Vector3(away.x * SLIDE_IMPULSE, SLIDE_LIFT, away.y * SLIDE_IMPULSE))
 	body.apply_torque_impulse(Vector3(
-		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
-		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
-		randf_range(-NUDGE_TORQUE, NUDGE_TORQUE)
+		randf_range(-SLIDE_TORQUE, SLIDE_TORQUE),
+		randf_range(-SLIDE_TORQUE, SLIDE_TORQUE),
+		randf_range(-SLIDE_TORQUE, SLIDE_TORQUE)
 	))
 
 var roots: Array[Node3D]
@@ -97,7 +100,14 @@ var values: Array[int] = []
 var face_indices: Array[int] = []  # oben liegende physische Seite (0..5), -1 = ungewürfelt
 var settled: Array[bool] = []
 var rest_timers: Array[float] = []
+var stuck_timers: Array[float] = []
 var slot_defs: Array[DieDefinition] = []
+
+## Wurfparameter des letzten Wurfs - ein steckender Slot wird damit exakt so
+## neu geworfen, wie er ursprünglich abgeworfen wurde.
+var _throw_force: float = 0.0
+var _spin_strength: float = 0.0
+var _throw_target: Vector3 = Vector3.ZERO
 
 ## Anzeige-Überschreibung der OBEREN Seite je Slot (Slot -> Wert): der Würfel
 ## zeigt einen anderen Wert als seine Def. Zwei Quellen, ein Mechanismus -
@@ -119,6 +129,7 @@ func _init(p_roots: Array[Node3D], p_bodies: Array[RigidBody3D], p_face_displays
 		face_indices.append(-1)
 		settled.append(true)
 		rest_timers.append(0.0)
+		stuck_timers.append(0.0)
 		slot_defs.append(DieDefinition.standard())
 		roots[i].visible = false
 
@@ -128,12 +139,16 @@ func count() -> int:
 ## Wirft genau die Slots bei indices Richtung target (Grubenmitte); alle
 ## anderen (geschützten) bleiben mit ihrem alten Wert liegen.
 func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, target: Vector3 = Vector3.ZERO) -> void:
+	_throw_force = throw_force
+	_spin_strength = spin_strength
+	_throw_target = target
 	var targets := _spread_targets(indices.size())
 	for ordinal in indices.size():
 		var i: int = indices[ordinal]
 		roots[i].visible = true
 		settled[i] = false
 		rest_timers[i] = 0.0
+		stuck_timers[i] = 0.0
 		value_overrides.erase(i)  # die Vorschau des alten Werts fliegt mit
 		bodies[i].freeze = false  # falls der Slot zuletzt an den Grubenrand geglitten war
 
@@ -211,6 +226,11 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 		if settled[i]:
 			continue
 		var body := bodies[i]
+		stuck_timers[i] += delta
+		if stuck_timers[i] >= STUCK_RETHROW_SECONDS:
+			_rethrow_slot(i)
+			all_settled = false
+			continue
 		var is_slow := body.linear_velocity.length() < linear_threshold and body.angular_velocity.length() < angular_threshold
 		if is_slow and _top_axis_info(body)[1] >= SETTLE_ALIGNMENT_MIN_DOT:
 			if _is_stacked(body):
@@ -225,15 +245,15 @@ func physics_step(delta: float, linear_threshold: float, angular_threshold: floa
 				values[i] = slot_defs[i].faces[face_indices[i]]
 		else:
 			rest_timers[i] = 0.0
-			if is_slow:
-				body.apply_torque_impulse(Vector3(
-					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
-					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE),
-					randf_range(-NUDGE_TORQUE, NUDGE_TORQUE)
-				))
 		if not settled[i]:
 			all_settled = false
 	return all_settled
+
+## Steckender Slot: derselbe Wurf noch einmal, Steck-Timer wieder auf 0 - bleibt
+## er erneut liegen, wirft er nach weiteren STUCK_RETHROW_SECONDS wieder.
+func _rethrow_slot(i: int) -> void:
+	var single: Array[int] = [i]
+	throw_slots(single, _throw_force, _spin_strength, _throw_target)
 
 ## Markiert einen Würfel als geschützt - sichtbar über das Leucht-Podest auf
 ## dem Display, nicht am Würfelkörper.
@@ -263,6 +283,7 @@ func reset() -> void:
 		face_indices[i] = -1
 		settled[i] = true
 		rest_timers[i] = 0.0
+		stuck_timers[i] = 0.0
 		roots[i].visible = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
 

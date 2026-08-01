@@ -37,6 +37,15 @@ const NEON_MUTED := Color(0.75, 0.78, 0.9)
 ## als die alte Karte hoch war, das Siegel wächst über seine alten u*6 hinaus.
 const SINGLE_DIE_SIZE := 13.0
 const SINGLE_SEAL_SIZE := 8.5
+## Fuge zwischen zwei Einzelstücken.
+const SINGLE_GAP := 1.0
+## Innenbreite der Schale in u, aus dem Layout gerechnet: Inhaltsfläche (100
+## minus Seitenränder) ohne die Fuge der Hauptspalten, davon der rechte Anteil,
+## minus Rand und Rahmen der Zone.
+const BOWL_INNER_U := (100.0 - 6.0 - 1.6) * 0.60 - 3.2 - 0.4
+## So weit dürfen die Stücke gemeinsam schrumpfen, damit die volle Auslage
+## (2 Würfel + 4 Siegel) in die Schale passt - darunter bricht die Reihe um.
+const SINGLE_MIN_SCALE := 0.6
 ## Schalen-Rabatt: ein einzeln in der Schale liegender Würfel kostet weniger als
 ## derselbe Würfel im Angebotsregal - er kommt ohne Auswahl und ohne Paket.
 const SINGLE_DIE_DISCOUNT := 0.8
@@ -629,13 +638,18 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		tray.add_child(ocard)
 		_maybe_flicker(ocard, i, _flicker_chip_from)
 
-	var singles := HBoxContainer.new()
-	singles.add_theme_constant_override("separation", int(u * 1.0))
-	singles.alignment = BoxContainer.ALIGNMENT_CENTER
+	# Umbrechend, nicht abschneidend: die Auslage bleibt in der Schale, auch wenn
+	# der Händler alles auf einmal hinlegt.
+	var singles := HFlowContainer.new()
+	singles.add_theme_constant_override("h_separation", int(u * SINGLE_GAP))
+	singles.add_theme_constant_override("v_separation", int(u * SINGLE_GAP))
+	singles.alignment = FlowContainer.ALIGNMENT_CENTER
 	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	singles.size_flags_stretch_ratio = 0.58
 	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_deck.add_child(singles)
+	var single_scale := _singles_scale(_unsold(spread.single_dice_bought),
+		_unsold(spread.single_engravings_bought))
 	# Gekauftes liegt nicht mehr da: die Schale zeigt, was noch zu haben ist. Die
 	# *_bought-Flags bleiben im Spread, also zeigt die Sortiment-Sperre denselben
 	# Laden mit der verkauften Ware fort. Die Knopf-Listen bleiben index-treu
@@ -644,12 +658,12 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		if spread.single_dice_bought[i]:
 			single_dice_buttons.append(null)
 			continue
-		singles.add_child(_build_single_die_card(i))
+		singles.add_child(_build_single_die_card(i, single_scale))
 	for i in spread.single_engravings.size():
 		if spread.single_engravings_bought[i]:
 			single_engraving_buttons.append(null)
 			continue
-		singles.add_child(_build_single_engraving_card(i))
+		singles.add_child(_build_single_engraving_card(i, single_scale))
 
 	# Das Regal des Händlers: schmal, unter der Schale, und nur da, wenn wirklich
 	# etwas hinterlegt ist. Es ist KEINE zweite Schale - die Ware ist schon bezahlt.
@@ -908,12 +922,29 @@ func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control
 	overclock_buttons.append(chip)
 	return chip
 
+## Ungekaufte Plätze einer Auslage-Rubrik.
+func _unsold(bought: Array[bool]) -> int:
+	return bought.count(false)
+
+## Gemeinsamer Maßstab der Einzelstücke: die Auslage darf nie breiter werden als
+## die Schale. Bei voller Auslage schrumpfen ALLE Stücke gleich weit - ein
+## einzelnes Stück in Sondergröße wäre keine Schale mehr.
+func _singles_scale(dice_count: int, seal_count: int) -> float:
+	var pieces := dice_count + seal_count
+	if pieces <= 1:
+		return 1.0
+	var wanted := float(dice_count) * SINGLE_DIE_SIZE + float(seal_count) * SINGLE_SEAL_SIZE
+	var room := BOWL_INNER_U - float(pieces - 1) * SINGLE_GAP
+	if wanted <= room:
+		return 1.0
+	return maxf(SINGLE_MIN_SCALE, room / wanted)
+
 ## OFFENER Würfel der Chip-Schale: er LIEGT dort als echter, langsam taumelnder
 ## Würfel - kein Kasten, kein Preisschild, dieselbe Grammatik wie die Kombi-Chips
 ## auf dem Filz. Wer danach greift, bekommt im Hover-Fenster das ganze Dossier:
 ## Netz mit allen sechs Seiten (Materialfarben, Stufen, Risse, Essenz-Chip), die
 ## Seele und den Preis. Kein Blindkauf, das ist der Sinn - nur ohne Möbel.
-func _build_single_die_card(index: int) -> Button:
+func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 	var def := single_dice[index]
 	var price := single_dice_prices[index]
 	var essence := Essence.by_id(def.essence_id)
@@ -925,8 +956,9 @@ func _build_single_die_card(index: int) -> Button:
 	else:
 		body += "\nOhne Essenz."
 
-	var stage := DiceRowView.build_thumb(def, int(u * SINGLE_DIE_SIZE), true)
-	var card := _bare_single(stage, Vector2.ONE * u * SINGLE_DIE_SIZE)
+	var side := u * SINGLE_DIE_SIZE * scale_factor
+	var stage := DiceRowView.build_thumb(def, int(side), true)
+	var card := _bare_single(stage, Vector2.ONE * side)
 	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body, price, def))
 	card.mouse_exited.connect(_hide_shop_tooltip)
 	card.pressed.connect(_on_single_die_pressed.bind(index))
@@ -934,12 +966,13 @@ func _build_single_die_card(index: int) -> Button:
 	return card
 
 ## EINZELNE Gravur der Chip-Schale: das Siegel allein, ohne Karte darum.
-func _build_single_engraving_card(index: int) -> Button:
+func _build_single_engraving_card(index: int, scale_factor: float = 1.0) -> Button:
 	var engraving := single_engravings[index]
 	var price := single_engraving_price(engraving)
 	var seal := EngravingRenderer.for_engraving(engraving)
-	seal.custom_minimum_size = Vector2.ONE * u * SINGLE_SEAL_SIZE
-	var card := _bare_single(seal, Vector2.ONE * u * SINGLE_SEAL_SIZE)
+	var side := u * SINGLE_SEAL_SIZE * scale_factor
+	seal.custom_minimum_size = Vector2.ONE * side
+	var card := _bare_single(seal, Vector2.ONE * side)
 	card.mouse_entered.connect(_show_shop_tooltip.bind(card, engraving.display_name,
 		engraving.description, price))
 	card.mouse_exited.connect(_hide_shop_tooltip)

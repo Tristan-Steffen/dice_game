@@ -258,7 +258,10 @@ func test_photon_gas_counts_its_own_earlier_activations():
 # --- Geld --------------------------------------------------------------------------
 
 func test_neon_and_sodium_vapor_pay_on_the_take():
-	assert_eq(EssenceEffects.money_for(Essence.NEON, 5, 3), EssenceEffects.NEON_MONEY)
+	# Die Reklame zählt sich SELBST mit, die Laterne nur die anderen.
+	assert_eq(EssenceEffects.money_for(Essence.NEON, 5, 3), 6, "$2 je gezähltem Würfel")
+	assert_eq(EssenceEffects.money_for(Essence.NEON, 5, 1), EssenceEffects.NEON_MONEY_PER_DIE,
+		"allein bleibt der eigene Würfel")
 	assert_eq(EssenceEffects.money_for(Essence.SODIUM_VAPOR, 5, 3), 2, "$1 je anderem Würfel")
 	assert_eq(EssenceEffects.money_for(Essence.SODIUM_VAPOR, 5, 1), 0, "allein zahlt die Laterne nichts")
 
@@ -268,7 +271,7 @@ func test_essence_money_lands_in_the_take_report():
 	var defs: Array[DieDefinition] = [def]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.NEON}, _p([0]))
-	assert_eq(report.money, EssenceEffects.NEON_MONEY)
+	assert_eq(report.money, EssenceEffects.NEON_MONEY_PER_DIE, "ein gezählter Würfel = $2")
 
 # --- Schutz und Sperren ------------------------------------------------------------
 
@@ -820,7 +823,7 @@ func test_borrowed_krypton_slips_past_a_filter():
 func test_borrowed_money_adds_up():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.NEON})
 	assert_eq(EssenceEffects.money_of(EssenceEffects.set_at(sets, 0), 5, 2),
-		EssenceEffects.NEON_MONEY, "die geborgte Reklame zahlt")
+		2 * EssenceEffects.NEON_MONEY_PER_DIE, "die geborgte Reklame zahlt")
 
 func test_quintessence_is_a_unique_so_it_never_copies_itself():
 	assert_true(Essence.by_id(Essence.QUINTESSENCE).unique)

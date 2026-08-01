@@ -11,8 +11,9 @@ class_name EssenceEffects
 ## Radon strahlt auf jeden anderen Würfel der Kombination.
 const RADON_EYE_BONUS := 2
 
-## Neon zahlt fest, Natriumdampf je Mitwürfel, Zyanidgas je eigener Gold-Seite.
-const NEON_MONEY := 3
+## Neon zahlt je gezähltem Würfel der Kombination (sich selbst eingeschlossen),
+## Natriumdampf je ANDEREM, Zyanidgas je eigener Gold-Seite.
+const NEON_MONEY_PER_DIE := 2
 const SODIUM_MONEY_PER_DIE := 1
 const CYANIDE_PER_GOLD := 3
 
@@ -116,13 +117,13 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0)
 			return maxf(1.0, float(value))
 	return 1.0
 
-## Geld EINER Auslösung: Neon fest, Natriumdampf je Mitwürfel. Gebucht wird über
-## GameRun.add_money. (Zyanidgas zahlt je ZUG, nicht je Auslösung - siehe
-## gold_face_money_of.)
+## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
+## Gebucht wird über GameRun.add_money. (Zyanidgas zahlt je ZUG, nicht je
+## Auslösung - siehe gold_face_money_of.)
 static func money_for(essence_id: String, _value: int, combo_size: int) -> int:
 	match essence_id:
 		Essence.NEON:
-			return NEON_MONEY
+			return maxi(0, combo_size) * NEON_MONEY_PER_DIE
 		Essence.SODIUM_VAPOR:
 			return maxi(0, combo_size - 1) * SODIUM_MONEY_PER_DIE
 	return 0

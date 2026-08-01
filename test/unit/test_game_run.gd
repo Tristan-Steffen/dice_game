@@ -307,49 +307,39 @@ func test_granting_other_engravings_still_stores_them():
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
 
-# --- Stresstest-Belohnung: EIN beseelter Würfel auf die Händler-Ablage ------------
+# --- Stresstest-Belohnung: EIN versiegeltes, beseeltes Würfel-Paket ---------------
 
-func test_stress_reward_puts_one_souled_die_on_the_dealers_shelf():
+func test_stress_reward_books_a_sealed_dice_pack():
 	watch_signals(run)
-	var before := run.pending_dice.size()
-	var die := run.grant_stress_reward()
-	assert_not_null(die, "der Stresstest zahlt einen Würfel")
-	assert_eq(run.pending_dice.size(), before + 1, "er liegt beim Händler, nicht im Pool")
-	assert_ne(die.essence_id, "", "und er ist garantiert beseelt")
-	assert_signal_emitted(run, "pending_dice_changed")
+	var before := run.owned_packs.size()
+	var pack := run.grant_stress_reward()
+	assert_not_null(pack, "der Stresstest zahlt ein Paket")
+	assert_eq(run.owned_packs.size(), before + 1, "es liegt im Lager")
+	assert_true(pack.is_dice_pack(), "ein Würfel-Paket")
+	assert_eq(pack.count, 1, "mit genau EINEM Würfel")
+	assert_true(pack.essence_guaranteed, "und Seelengarantie")
+	assert_eq(pack.price, 0, "gewonnen, nicht gekauft")
+	assert_signal_emitted(run, "packs_changed")
 
-func test_stress_reward_never_touches_the_pool():
+func test_stress_reward_touches_neither_pool_nor_dealers_shelf():
 	var before: Array[String] = []
 	for pool_die in run.owned_pool:
 		before.append(pool_die.style_id)
 	run.grant_stress_reward()
+	assert_eq(run.pending_dice.size(), 0, "der Preis ist versiegelt, nicht ausgelegt")
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
 	for i in run.owned_pool.size():
 		assert_eq(run.owned_pool[i].style_id, before[i], "und unangetastet")
 
-func test_stress_reward_stores_an_independent_die():
-	var die := run.grant_stress_reward()
-	die.faces[0] = 9
-	assert_eq(run.pending_dice[run.pending_dice.size() - 1].faces[0], 9,
-		"die Ablage hält genau diese Instanz - ein Kopieren hier wäre eine zweite Wahrheit")
-
-func test_stress_reward_never_repeats_an_owned_unique_soul():
-	# Unikate sind nicht wiederbeschaffbar: liegt eines im Pool, darf der Preis es
-	# nicht ein zweites Mal bringen.
-	var unique_id := ""
-	for essence in Essence.all():
-		if essence.unique and not essence.secret:
-			unique_id = essence.id
-			break
-	assert_ne(unique_id, "", "es gibt handelbare Unikate")
-	run.owned_pool[0].essence_id = unique_id
-	for _i in 60:
-		var die := run.grant_stress_reward()
-		assert_ne(die.essence_id, unique_id, "das besessene Unikat kommt nicht wieder")
-
-func test_stress_reward_never_hands_out_a_secret_soul():
-	for _i in 40:
-		var essence := Essence.by_id(run.grant_stress_reward().essence_id)
+func test_the_stress_die_gets_its_soul_only_on_opening():
+	# Die Seele fällt erst beim Öffnen - Unikat-/Secret-Ausschluss übernimmt der
+	# normale Paket-Pfad.
+	var pack := run.grant_stress_reward()
+	for _i in 20:
+		var dice := pack.roll_dice(run.charm_ids(), run.owned_essence_ids(), run.hub_level)
+		assert_eq(dice.size(), 1, "ein Würfel zur Wahl")
+		assert_ne(dice[0].essence_id, "", "garantiert beseelt")
+		var essence := Essence.by_id(dice[0].essence_id)
 		assert_false(essence != null and essence.secret,
 			"Schwarzmarkt-Seelen liegen nie im normalen Preis")
 
@@ -1231,26 +1221,7 @@ func test_power_spike_spotlights_without_the_charm():
 	run.apply_round_start_charms()
 	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "Rampenlicht ohne Charm")
 
-## --- Scherbenglasur / Goldener Handschlag / Durchschlagpapier ---------------------
-
-func test_shard_glaze_needs_the_signature():
-	var defs: Array[DieDefinition] = [DieDefinition.standard()]
-	assert_eq(run.apply_farkle_glaze(defs), 0, "ohne Unterschrift veredelt nichts")
-
-func test_shard_glaze_fills_one_empty_face_per_discarded_die():
-	_sign([DealClause.SHARD_GLAZE])
-	var bare := DieDefinition.standard()
-	var full := DieDefinition.standard()
-	for face in full.materials.size():
-		full.set_face_material(face, DieMaterial.GOLD)
-	var defs: Array[DieDefinition] = [bare, full]
-	watch_signals(run)
-	assert_eq(run.apply_farkle_glaze(defs), 1, "nur der Würfel mit freier Seite")
-	assert_eq(bare.materials.count(""), bare.materials.size() - 1, "genau EINE Seite belegt")
-	for face in bare.materials.size():
-		if bare.materials[face] != "":
-			assert_true(DieMaterial.is_valid_id(bare.materials[face]), "echtes Material")
-	assert_signal_emit_count(run, "pool_changed", 1)
+## --- Goldener Handschlag / Durchschlagpapier ---------------------
 
 func test_golden_handshake_needs_a_hand_that_clears_the_benchmark():
 	_sign([DealClause.GOLDEN_HANDSHAKE])

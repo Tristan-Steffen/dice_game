@@ -466,7 +466,7 @@ static func rag_collector_description(value: int) -> String:
 	return base
 
 static func interest_penny() -> Charm:
-	return _make(INTEREST_PENNY, "Zinsgroschen", "Am Rundenende +$1 je volle $10 Besitz (max. $50).")
+	return _make(INTEREST_PENNY, "Zinsgroschen", "Am Rundenende +$1 je volle $10 Besitz (max. $20).")
 
 static func street_musician() -> Charm:
 	return _make(STREET_MUSICIAN, "Straßenmusiker", "Jede genommene Hand zahlt $1 pro beteiligtem Würfel.")

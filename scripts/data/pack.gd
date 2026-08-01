@@ -106,6 +106,15 @@ static func dice_pack(template: Dictionary) -> Pack:
 	pack.template_id = template["style_id"]
 	return pack
 
+## Stresstest-Prämie: EIN versiegelter Würfel der Vorlage, garantiert beseelt.
+## Preis 0 - dieses Paket wird gewonnen, nie verkauft.
+static func stress_die(template: Dictionary) -> Pack:
+	var pack := _make(TYPE_DICE, 1, 0, "%s, ungeöffnet - beseelt." % template["name"])
+	pack.display_name = template["name"]
+	pack.template_id = template["style_id"]
+	pack.essence_guaranteed = true
+	return pack
+
 ## Kanonische Auslage der Gravur-Pakete.
 static func all_engraving_packs() -> Array[Pack]:
 	return [number_pack(), material_pack(), mixed_pack()]
