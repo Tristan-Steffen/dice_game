@@ -1115,6 +1115,21 @@ func _sync_combo_chip(key: String) -> void:
 	if combo_chips.has(key) and combo_labels.has(key):
 		combo_chips[key].sync_cell(combo_labels[key])
 
+## Schreibt Stufe UND die daraus folgenden Werte einer Kombination in die Zelle
+## und spiegelt sie auf den Chip. DIE Stelle, an der eine gestiegene Stufe
+## sichtbar wird - set_level allein rechnet Basispunkte und Mult nicht neu, die
+## kommen aus DiceScoring über die Stufentabelle des Laufs. Jede Stufen-Quelle
+## (Kauf, Wettgewinn, Rampenlicht per Charm ODER Klausel) endet hier.
+func _refresh_combo_display(key: String) -> void:
+	if not combo_labels.has(key):
+		return
+	var row: ComboCellView = combo_labels[key]
+	row.set_score(
+		DiceScoring.points_for(key, run.combo_levels),
+		DiceScoring.mult_for(key, run.combo_levels))
+	row.set_level(run.combo_level(key))
+	_sync_combo_chip(key)
+
 ## Blendet das Glühen des 3D-Chips weich auf target (0 = Ruhe, 1 = aktiv).
 func _glow_combo_chip(key: String, target: float) -> void:
 	if not combo_chips.has(key):
@@ -1161,11 +1176,7 @@ func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 	await table_screen.play_overclock_pulse(combo_key)
 	_pulsing_combos.erase(combo_key)
 	var row: ComboCellView = combo_labels[combo_key]
-	row.set_score(
-		DiceScoring.points_for(combo_key, run.combo_levels),
-		DiceScoring.mult_for(combo_key, run.combo_levels))
-	row.set_level(run.combo_level(combo_key))
-	_sync_combo_chip(combo_key)
+	_refresh_combo_display(combo_key)
 	if combo_chips.has(combo_key):
 		combo_chips[combo_key].play_upgrade_flash()
 	if combo_key != highlighted_combo_key:
@@ -1182,6 +1193,14 @@ func _play_spotlight_step(step: Dictionary, combo_key: String) -> bool:
 	await _play_spotlight_upgrade(charm_index, combo_key)
 	return phase == Phase.SCORING
 
+## Dasselbe für ein Rampenlicht aus einer Klausel: kein Charm, also kein Pad zum
+## Aufblitzen (charm_index -1), sonst identisch. false = Abbruch (Reset).
+func _play_clause_spotlight(combo_key: String) -> bool:
+	if not run.claim_spotlight(combo_key):
+		return true
+	await _play_spotlight_upgrade(-1, combo_key)
+	return phase == Phase.SCORING
+
 ## Rampenlicht eingelöst: der Chip der hervorgehobenen Kombination bekommt
 ## dieselbe Übertaktungs-Zeremonie wie ein Kauf (Licht über die Leiterbahnen),
 ## danach erlischt das Rampenlicht - je Runde steigt nur eine Stufe.
@@ -1194,26 +1213,17 @@ func _play_spotlight_upgrade(charm_index: int, combo_key: String) -> void:
 	_set_spotlight_combo("")
 	await table_screen.play_overclock_pulse(combo_key)
 	_pulsing_combos.erase(combo_key)
-	var row: ComboCellView = combo_labels[combo_key]
-	row.set_score(
-		DiceScoring.points_for(combo_key, run.combo_levels),
-		DiceScoring.mult_for(combo_key, run.combo_levels))
-	row.set_level(run.combo_level(combo_key))
-	_sync_combo_chip(combo_key)
+	_refresh_combo_display(combo_key)
 	if combo_chips.has(combo_key):
 		combo_chips[combo_key].play_upgrade_flash()
 
 ## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu;
 ## Zellen mit laufendem Kauf-Licht bleiben bis zur Ankunft unangetastet.
 func _refresh_combo_label_texts() -> void:
-	for key in combo_labels:
+	for key: String in combo_labels:
 		if _pulsing_combos.has(key):
 			continue
-		combo_labels[key].set_score(
-			DiceScoring.points_for(key, run.combo_levels),
-			DiceScoring.mult_for(key, run.combo_levels))
-		combo_labels[key].set_level(run.combo_level(key))
-		_sync_combo_chip(key)
+		_refresh_combo_display(key)
 
 ## Hebt genau die Kombination der gewürfelten Hand golden hervor ("" = keine).
 func _refresh_combos(active_key: String) -> void:
@@ -1270,6 +1280,13 @@ func _update_charm_badges() -> void:
 				var used := _used_faces_sum()
 				if used > 0:
 					texts[slot] = "%d" % used
+			Charm.OLD_PENNY:
+				# Nicht der rohe Zähler, sondern was er JETZT auszahlen würde -
+				# die Zahl, die der Spieler beim Rundenende sehen wird.
+				texts[slot] = "$%d" % CharmEffects.old_penny_payout(run.old_penny_payouts)
+			Charm.BROKEN_MIRROR:
+				if run.farkle_count > 0:
+					texts[slot] = "+%d" % run.farkle_count
 	table_screen.charm_dock.set_badges(texts)
 	_show_pendulum_swing(ids, pendulum)
 
@@ -4354,6 +4371,13 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if not await _score_arrival_gap(charm_travel):
 			return
 
+	# 4b) Rampenlicht AUS EINER KLAUSEL hat keinen Charm im Dock, also auch keinen
+	# Charm-Schritt, an dem es sich einlösen könnte - es bekommt seinen eigenen.
+	# claim_spotlight ist je Runde einmalig, ein Charm-Rampenlicht von oben hat
+	# hier also schon kassiert und dieser Aufruf läuft ins Leere.
+	if not await _play_clause_spotlight(String(breakdown["key"])):
+		return
+
 	# 5) Auf alle fliegenden Kometen warten, dann zu Basis × Mult verschmelzen.
 	if not await _wait_score_comets():
 		return
@@ -5187,6 +5211,7 @@ func _on_round_complete() -> void:
 		# Glücksgroschen wächst ERST nach seiner Auszahlung (erste Runde: $3).
 		if ids.has(Charm.OLD_PENNY):
 			run.old_penny_payouts += 1
+			_update_charm_badges()  # sein Chip zeigt ab jetzt die nächste Summe
 		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
 		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
 		_resolve_side_bets(true)

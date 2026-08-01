@@ -170,9 +170,9 @@ static func pointer_engraving() -> Engraving:
 	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Nach dem Würfel löst die Zielseite einmal voll mit aus (Augen, Material, Charms).", Rarity.EPIC, CATEGORY_DICE)
 
 ## Dotierung: die einzige Material-Gravur, die selbst kein Material belegt -
-## sie hebt das vorhandene Material EINER Seite um eine Sättigungsstufe.
+## sie hebt das vorhandene Material EINER Seite direkt auf die höchste Stufe.
 static func doping() -> Engraving:
-	return _make(DOPING, "Dotierung", "Hebe das Material einer Seite um eine Stufe (bis III): es wirkt stärker und anders.", Rarity.EPIC, CATEGORY_MATERIAL)
+	return _make(DOPING, "Dotierung", "Hebt das Material einer Seite auf Stufe III.", Rarity.EPIC, CATEGORY_MATERIAL)
 
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 

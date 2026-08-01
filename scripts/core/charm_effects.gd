@@ -572,7 +572,7 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 			Charm.HIGH_FLYER:
 				amount = maxi(0, cleared_stages) * HIGH_FLYER_PER_STAGE
 			Charm.OLD_PENNY:
-				amount = 3 + maxi(0, penny_payouts)
+				amount = old_penny_payout(penny_payouts)
 			Charm.EMERGENCY_FUND:
 				# Auf den LAUFENDEN Stand auffüllen - sonst ersetzte er, was die
 				# Charms vor ihm schon gewährt haben.
@@ -588,6 +588,12 @@ static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[S
 	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts):
 		income += int(entry["amount"])
 	return income
+
+## Glücksgroschen: $3, und je bereits geleisteter Auszahlung $1 mehr. Als eigene
+## Funktion, weil der Dock-Chip denselben Betrag anzeigt, den die Abrechnung
+## später bucht - zwei Formeln liefen sonst irgendwann auseinander.
+static func old_penny_payout(penny_payouts: int) -> int:
+	return 3 + maxi(0, penny_payouts)
 
 ## Notgroschen: Mindest-Geldstand am Rundenende ($25), sonst 0.
 static func money_floor(charm_ids: Array[String]) -> int:
