@@ -2,8 +2,12 @@ class_name DieInspectorView
 extends Control
 ## Die Gravur-Station für einen einzelnen Würfel - ein Neon-Panel im
 ## Werkstatt-Fenster (WorkshopView.attach_station). Der gegriffene Würfel
-## schwebt als ECHTES Weltobjekt über der Bühne links im Panel; das Ziel
-## wechselt ein Klick auf die echten Trays, die im selben Zoom darüber liegen.
+## schwebt als ECHTES Weltobjekt im Stasis-Feld über der Bühne links im Panel
+## und IST die Ansicht; das Ziel wechselt ein Klick auf die echten Trays, die im
+## selben Zoom darüber liegen. Auf ihn zeigt der Spieler direkt: scene_root
+## pickt Seite und Rahmen und meldet sie über click_face/click_edges/
+## set_die_hover herein, zurück gehen Auswahl (selection_changed) und Eignung
+## (dimmed_faces).
 ##
 ## Werkzeug-zuerst: Klick auf eine Gravur am Bord NIMMT sie auf, dann führt die
 ## Station zu ihren Zielen (gültige Seiten leuchten, ungültige dimmen; Überfahren
@@ -24,12 +28,9 @@ signal closed
 ## Kachel des Würfel-Rasters angeklickt: scene_root wechselt das Gravur-Ziel
 ## (slot = ECHTER Slot-Index im Ursprungs-Tray).
 signal select_tray_die(slot: int)
-## Dreh-Geste an der Projektion läuft/endet - scene_root sperrt derweil das
-## Kamera-Rundschauen.
-signal rotating_die(active: bool)
 
-## Auswahl geändert: face_index (0..5, -1 = keine) - scene_root spiegelt das
-## auf den echten schwebenden Würfel.
+## Auswahl oder Eignung geändert - scene_root malt beides auf das schwebende
+## Werkstück (face_index 0..5, -1 = keine Auswahl).
 signal selection_changed(face_index: int)
 
 ## Ablauf-Zustand: nichts in der Hand (Inspektion) oder Werkzeug hält und
@@ -43,7 +44,6 @@ const TARGET_PAIR := "pair"              # Doppelkerbe, Mittelung (ungeordnet)
 const TARGET_WHOLE_DIE := "whole_die"    # Spiegelung, Begradigung
 
 ## Farben im Display-Stil (80s Neon).
-const NEON_CYAN := Color("#8be9fd")
 const NEON_MAGENTA := Color("#ff79c6")
 const NEON_GOLD := Color("#ffd319")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
@@ -59,14 +59,9 @@ const DIM_NUMBER_COLOR := Color(0.35, 0.35, 0.42)
 const DIM_CHIP_ALPHA := 0.30
 
 
-## Unter-Bildschirm der Würfel-Projektion: abgesetzte Grundfarbe (Petrol).
-const DIE_VIEW_BG := Color("#0d2430")
-## Innen-Kantenlänge des Projektions-Screens (Breiteneinheiten u) - exakt
-## quadratisch, mit gleichmäßigem Rand bleibt auch der Außenkasten ein Quadrat.
-const DIE_VIEW_SIDE := 15.0
-
-## Anteil der Panel-Höhe, der oben als Bühne für den schwebenden Würfel frei
-## bleibt - knapp, damit kein großer Leerraum entsteht.
+## Mindest-Anteil der Panel-Höhe für die Bühne des schwebenden Werkstücks. Sie
+## nimmt darüber hinaus, was die Seiten-Übersicht übrig lässt: der Würfel selbst
+## ist die Anzeige, eine flache Projektion daneben gibt es nicht mehr.
 const STAGE_FRACTION := 0.15
 ## Zellgröße des Seiten-Würfelnetzes (Breiteneinheiten u). Kleiner als das alte
 ## 3×2-Raster, weil das Kreuz 4×3 Plätze braucht und in dieselbe Spalte muss.
@@ -100,6 +95,12 @@ var first_face: int = -1
 var preview_active: bool = false
 ## Seite unter dem Zeiger (-1 = keine) - nur die Stufen-Vorschau braucht sie.
 var hovered_face: int = -1
+## Die zwei Zeiger-Quellen getrennt: der Chip im Netz meldet über die eigenen
+## Hover-Signale, das schwebende Werkstück lässt scene_root je Frame picken.
+## Zusammengelegt (nur hovered_face) löschte der Frame-Takt des Würfels den
+## gerade betretenen Chip wieder.
+var _hover_chip: int = -1
+var _hover_die: int = -1
 
 ## Während der Runde gesperrt: der Würfel ist einsehbar, aber keine Gravur lässt
 ## sich aufnehmen/anwenden (setzt scene_root über set_editing_locked).
@@ -157,10 +158,6 @@ var _grid_unit := 0.0
 ## Die Bühne: leere Landefläche, über der der ECHTE Würfel schwebt; ihre Mitte
 ## ist Landeziel und Endpunkt der Absorptions-Bahn.
 var stage: Control
-## Drehbare 3D-Projektion rechts neben der Bühne: Ziehen dreht, Klick auf
-## Seite/Kanten wählt (gleiche Handler wie die Chips).
-var die_view: RotatableDieView
-var die_view_panel: PanelContainer
 
 ## Öffnet die Station für def (die echte Pool-Instanz) und setzt den Zustand
 ## zurück; baut Gerüst und Bord frisch.
@@ -176,10 +173,12 @@ func show_die(def: DieDefinition) -> void:
 	first_face = -1
 	mode = Mode.IDLE
 	preview_active = false
+	hovered_face = -1
+	_hover_chip = -1
+	_hover_die = -1
 	if fresh_open:
 		_build_layout()
 	_sync_drawers()
-	die_view.set_dice([current_def] as Array[DieDefinition])
 	_refresh_face_summary()
 	_update_prompt()
 	for drawer in drawers:
@@ -187,13 +186,12 @@ func show_die(def: DieDefinition) -> void:
 	_sync_drawers()
 	visible = true
 
-## Der gezeigte Würfel hat sich von außen geändert (Kauf, Nehmen-Effekt): Netz
-## und 3D-Vorschau nachziehen, ohne die Werkzeug-Auswahl zu verlieren.
+## Der gezeigte Würfel hat sich von außen geändert (Kauf, Nehmen-Effekt): das
+## Netz nachziehen, ohne die Werkzeug-Auswahl zu verlieren.
 func refresh_die() -> void:
 	if current_def == null or not visible:
 		return
 	face_order = _faces_sorted_by_value(current_def)
-	_sync_die_view()
 	_refresh_face_summary()
 
 func close() -> void:
@@ -232,11 +230,10 @@ func _build_layout() -> void:
 
 	_build_face_tooltip()  # zuletzt: liegt als Overlay über allem
 
-## Querformat, weil das Werkstatt-Fenster flach ist: links gestapelt die Seiten-
-## Übersicht, darunter der echte schwebende Würfel neben seiner Projektion und
-## zuunterst die Hinweiszeile; rechts allein das Ziel-Raster. Die linke Spalte
-## nimmt nur ihre Mindestbreite - der Rest gehört dem Raster, das sonst
-## breitenbegrenzt wäre und oben/unten Luft stehen ließe.
+## Querformat, weil das Werkstatt-Fenster flach ist: links oben die Bühne des
+## schwebenden Werkstücks, darunter die Seiten-Übersicht; rechts allein das
+## Ziel-Raster. Die linke Spalte nimmt nur ihre Mindestbreite - der Rest gehört
+## dem Raster, das sonst breitenbegrenzt wäre und oben/unten Luft stehen ließe.
 func _build_body(root: Control) -> void:
 	var body := HBoxContainer.new()
 	body.name = "Body"
@@ -251,23 +248,19 @@ func _build_body(root: Control) -> void:
 	left_col.add_theme_constant_override("separation", int(u * 1.0))
 	body.add_child(left_col)
 
-	# Von oben nach unten: der ECHTE schwebende Würfel, sein Hologramm, zuletzt
-	# die Seiten-Übersicht - dieselbe Sache dreimal, von körperlich zu abstrakt.
-	var stage_row := VBoxContainer.new()
-	stage_row.name = "StageRow"
-	stage_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	stage_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage_row.add_theme_constant_override("separation", int(u * 1.0))
-	left_col.add_child(stage_row)
-
+	# Oben der ECHTE schwebende Würfel, darunter sein Netz: dieselbe Sache
+	# zweimal, von körperlich zu abstrakt. Die Bühne bekommt allen Platz, den das
+	# Netz übrig lässt - sie ist die Ansicht, nicht bloß ein Landeplatz.
 	stage = CenterContainer.new()
 	stage.name = "Stage"
 	stage.custom_minimum_size = Vector2(u * 10.0, size.y * STAGE_FRACTION)
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Sie nimmt die GANZE Spaltenbreite (das Netz darunter gibt sie ohnehin vor):
+	# zur Bühne gehört nicht nur der Würfel, sondern auch seine Stasis-Station -
+	# die steht auf der Fläche und liegt damit ein Stück unterhalb von ihm.
+	stage.size_flags_horizontal = Control.SIZE_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage_row.add_child(stage)
-
-	_build_die_view(stage_row)
+	left_col.add_child(stage)
 
 	summary_list = VBoxContainer.new()
 	summary_list.name = "FaceSummary"
@@ -395,57 +388,6 @@ func set_drawers(list: Array[SupplyDrawerView]) -> void:
 		if not drawer.tool_pressed.is_connected(_on_engraving_pressed):
 			drawer.tool_pressed.connect(_on_engraving_pressed)
 	_sync_drawers()
-
-## Baut die drehbare 3D-Projektion samt Unter-Bildschirm. Der SubViewport
-## kommt per Code (eigene World3D, sonst filmt die Kamera die Tischszene).
-func _build_die_view(parent: Control) -> void:
-	die_view_panel = PanelContainer.new()
-	die_view_panel.name = "DieViewScreen"
-	var style := StyleBoxFlat.new()
-	style.bg_color = DIE_VIEW_BG
-	style.border_color = NEON_CYAN
-	style.set_border_width_all(maxi(2, int(u * 0.3)))
-	style.set_corner_radius_all(int(u * 1.2))
-	style.set_content_margin_all(int(u * 0.8))
-	die_view_panel.add_theme_stylebox_override("panel", style)
-	# Nicht dehnen: der Screen bleibt das Quadrat aus DIE_VIEW_SIDE + Rand.
-	die_view_panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	die_view_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	parent.add_child(die_view_panel)
-
-	die_view = RotatableDieView.new()
-	die_view.name = "DieView"
-	var sub := SubViewport.new()
-	sub.name = "SubViewport"
-	sub.transparent_bg = true
-	sub.own_world_3d = true
-	die_view.add_child(sub)
-	die_view.stretch = true  # Container-Pixel == Viewport-Pixel (Pick-Mathe)
-	die_view.custom_minimum_size = Vector2.ONE * u * DIE_VIEW_SIDE
-	die_view.pick_radius = u * 10.0
-	die_view.face_clicked.connect(_on_face_clicked)
-	die_view.edges_clicked.connect(_on_edges_clicked)
-	die_view.face_hovered.connect(_on_die_face_hovered)
-	die_view.drag_started.connect(func() -> void: rotating_die.emit(true))
-	die_view.drag_ended.connect(func() -> void: rotating_die.emit(false))
-	die_view_panel.add_child(die_view)
-
-## Spiegelt Zustand und Auswahl in die 3D-Projektion (Seitenwerte + Highlight).
-func _sync_die_view() -> void:
-	if current_def == null:
-		return
-	selection_changed.emit(selected_face)
-	if die_view == null:
-		return
-	die_view.refresh_faces([current_def] as Array[DieDefinition])
-	die_view.highlight_face(0, selected_face)
-	# Werkzeug in der Hand: ungeeignete Ziffern grau dimmen (der erste Paar-Klick
-	# bleibt violett).
-	if held_id != "":
-		var eligible := _eligible_faces()
-		for i in 6:
-			if i != selected_face and not eligible[i]:
-				die_view.tint_face(0, i, DIM_NUMBER_COLOR)
 
 # --- Bühne ----------------------------------------------------------------------
 
@@ -588,10 +530,12 @@ func _handle_edge_target() -> void:
 func whole_die_targeted() -> bool:
 	return held_id != "" and _targeting_of(held_id) == TARGET_WHOLE_DIE
 
-func _on_face_clicked(_die_index: int, face_index: int) -> void:
+## Klick auf eine Seite des schwebenden Werkstücks (scene_root pickt sie).
+func click_face(face_index: int) -> void:
 	_handle_face_target(face_index)
 
-func _on_edges_clicked(_die_index: int = 0) -> void:
+## Klick auf den Kanten-Rahmen des Werkstücks - Ziel der Ganz-Würfel-Gravuren.
+func click_edges() -> void:
 	_handle_edge_target()
 
 func _on_chip_clicked(_value: int, face_index: int) -> void:
@@ -774,6 +718,20 @@ func _face_burned_in(face_index: int) -> bool:
 func _face_eligible(face_index: int) -> bool:
 	return _eligible_faces()[face_index]
 
+## Je Seite: soll ihre Ziffer am schwebenden Werkstück ausgegraut sein? Nur mit
+## Werkzeug in der Hand, und die gewählte Seite bleibt immer hell (sie ist der
+## erste Klick eines Paares).
+func dimmed_faces() -> Array[bool]:
+	var dim: Array[bool] = []
+	dim.resize(6)
+	dim.fill(false)
+	if current_def == null or held_id == "":
+		return dim
+	var eligible := _eligible_faces()
+	for i in 6:
+		dim[i] = i != selected_face and not eligible[i]
+	return dim
+
 ## Hat die gehaltene Gravur an diesem Würfel überhaupt ein Ziel? Nur die
 ## Dotierung kann leer ausgehen (ein Würfel ganz ohne Material).
 func _any_face_eligible() -> bool:
@@ -791,22 +749,31 @@ func _edge_frame_border() -> Color:
 # --- Vorschau (Überfahren) -------------------------------------------------------
 
 func _on_face_hover(face_index: int) -> void:
-	hovered_face = face_index
-	_sync_level_preview()
-	_preview_face(face_index)
+	_hover_chip = face_index
+	_apply_hover()
 
 func _on_face_hover_exit() -> void:
-	hovered_face = -1
-	_sync_level_preview()
-	_clear_preview()
+	_hover_chip = -1
+	_apply_hover()
 
-func _on_die_face_hovered(_die_index: int, face_index: int) -> void:
-	hovered_face = face_index
+## Seite unter dem Zeiger am schwebenden Werkstück (-1 = keine); scene_root
+## pickt sie je Frame, weil der Zeiger auf dem Tisch liegt, nicht im SubViewport.
+func set_die_hover(face_index: int) -> void:
+	_hover_die = face_index
+	_apply_hover()
+
+## Das Werkstück schlägt den Chip: der Zeiger kann nur an einem von beiden
+## stehen, und der Würfel meldet sich je Frame - er darf den Chip nicht löschen.
+func _apply_hover() -> void:
+	var face := _hover_die if _hover_die != -1 else _hover_chip
+	if face == hovered_face:
+		return
+	hovered_face = face
 	_sync_level_preview()
-	if face_index == -1:
+	if face == -1:
 		_clear_preview()
 	else:
-		_preview_face(face_index)
+		_preview_face(face)
 
 ## Stufe, die diese Seite NACH dem gehaltenen Werkzeug trüge - die Zelle zeigt
 ## die Sättigung der ZIELSTUFE, sobald das Werkzeug über ihr steht. Dasselbe
@@ -1144,7 +1111,7 @@ func _refresh_face_summary() -> void:
 	for arrow in DieNetView.pointer_arrows(current_def, cell):
 		face_grid.add_child(arrow)
 
-	_sync_die_view()
+	selection_changed.emit(selected_face)  # scene_root malt Auswahl + Dimmung aufs Werkstück
 
 ## Anklickbarer Seiten-Chip im Look der echten Würfel; highlighted = violetter
 ## Auswahl-Look, eligible = gültiges Ziel (sonst gedimmt/gesperrt). Material-
@@ -1195,12 +1162,12 @@ func _style_chip(chip: Button, base_fill: Color, highlighted: bool, eligible: bo
 			chip.add_theme_stylebox_override(state, dim_box)
 		chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 		return
-	var font_color := RotatableDieView.SELECT_FACE_COLOR if highlighted else CasinoStyle.INK
+	var font_color := DieFaceDisplay.SELECT_NUMBER_COLOR if highlighted else CasinoStyle.INK
 	for state in ["font_color", "font_hover_color", "font_pressed_color"]:
 		chip.add_theme_color_override(state, font_color)
 	chip.add_theme_color_override("font_outline_color", CasinoStyle.INK)
 	chip.add_theme_constant_override("outline_size", int(u * 0.45) if highlighted else 0)
-	var border := RotatableDieView.SELECT_FACE_COLOR if highlighted else CHIP_BORDER
+	var border := DieFaceDisplay.SELECT_NUMBER_COLOR if highlighted else CHIP_BORDER
 	var border_width := int(u * 0.6) if highlighted else maxi(2, int(u * 0.2))
 	chip.add_theme_stylebox_override("normal", _chip_box(base_fill, border, border_width))
 	chip.add_theme_stylebox_override("hover", _chip_box(base_fill.lightened(0.12), border, border_width))

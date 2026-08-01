@@ -403,7 +403,7 @@ func drag_to(world_point: Vector3) -> void:
 	has_drag_point = true
 
 ## Zieh-Geste: Maus-Delta -> Drehimpuls (horizontal um die Hochachse, vertikal
-## um die Kamera-Rechtsachse - gleiche Abbildung wie RotatableDieView).
+## um die Kamera-Rechtsachse - dieselbe Abbildung wie am Werkstück der Station).
 func spin_impulse(relative: Vector2, camera: Camera3D) -> void:
 	var axis_x := camera.global_basis.x.normalized() if camera != null else Vector3.RIGHT
 	angular_velocity += (Vector3.UP * relative.x + axis_x * relative.y) * DRAG_SENSITIVITY

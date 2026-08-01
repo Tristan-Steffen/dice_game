@@ -141,7 +141,18 @@ const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 const ENGRAVE_TRAIL_TIME := 0.5
 const ENGRAVE_ABSORB_COLOR := Color(2.0, 1.6, 0.3, 0.9)
 const ENGRAVE_FLY_TIME := 0.55
-const ENGRAVE_HOVER := DiceTrayView.REST_Y  # der Würfel BERÜHRT den Tisch
+## Das Werkstück schwebt wie ein Tray-Würfel, auf derselben Höhe und über
+## derselben Stasis-Station - es liegt nicht auf der Werkbank, es steht IM Feld.
+const ENGRAVE_HOVER := DiceTrayView.FLOAT_HEIGHT
+## Feldfarbe der Werkstück-Station: das Gold der Gravur, nicht das Tray-Blau.
+const ENGRAVE_EMITTER_TINT := Color(0.95, 0.72, 0.2)
+## Greifradius am Werkstück als Vielfaches seiner projizierten Halbbreite - die
+## Silhouette eines gedrehten Würfels reicht über seine Seitenmitte hinaus.
+const ENGRAVE_PICK_FACTOR := 1.6
+## Ab hier ist die Geste ein Drehen und kein Klick mehr (Bildschirmpixel).
+const ENGRAVE_DRAG_THRESHOLD := 6.0
+## Maus-Pixel -> Drehwinkel am gegriffenen Würfel.
+const ENGRAVE_SPIN_SENSITIVITY := 0.01
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
@@ -363,10 +374,22 @@ var last_screen_pixel := Vector2(-1, -1)
 ## dem Tray über die Hub-Bühne; sein Tray-Slot bleibt solange versteckt.
 var engraving_active := false
 var engraving_die: Node3D
+var engraving_emitter: StasisEmitter     # Stasis-Station unter dem Werkstück
 var engraving_fly_tween: Tween
+var engraving_pose_tween: Tween
 var engraving_source_root: Node3D        # versteckter Tray-Slot des Ziels
 var engraving_source_tray: DiceTrayView
 var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
+## Ruhelage des Werkstücks (Wippen schwingt darum) und seine Wipp-Phase.
+var engraving_rest_y := 0.0
+var engraving_bob_phase := 0.0
+## Zieh-Geste am Werkstück: gedrückt, und ob der Zeiger seither einen Weg
+## zurückgelegt hat (dann war es keine Wahl mehr).
+var engraving_drag_active := false
+var engraving_drag_start := Vector2.ZERO
+var engraving_drag_moved := false
+## Zuletzt überfahrene Seite des Werkstücks (-1 = keine) - nur Wechsel melden.
+var engraving_hover_face := -1
 
 var phase: Phase = Phase.IDLE
 var has_rolled_current_hand: bool = false
@@ -955,9 +978,7 @@ func _setup_panels() -> void:
 	die_inspector.applied.connect(_on_engraving_applied)
 	die_inspector.select_tray_die.connect(_on_tray_die_selected)
 	die_inspector.changed.connect(_on_die_engraved)
-	# Beim Drehen der Würfel-Projektion die Kamera festhalten.
-	die_inspector.rotating_die.connect(func(active: bool) -> void: camera_rig.set_tilt_locked(active))
-	# Auswahl auch am ECHTEN schwebenden Würfel violett hervorheben.
+	# Auswahl und Eignung stehen am ECHTEN schwebenden Würfel - er ist die Ansicht.
 	die_inspector.selection_changed.connect(func(_face: int) -> void: _highlight_engraving_die())
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
@@ -2018,6 +2039,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_shell_drag_input(event)
 		return
 
+	if engraving_drag_active:
+		_handle_engraving_drag_input(event)
+		return
+
 	if event.is_action_pressed("ui_cancel"):
 		_toggle_title()
 		return
@@ -2028,6 +2053,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			and (event.button_index == MOUSE_BUTTON_WHEEL_UP
 				or event.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 		_handle_zoom_wheel(event as InputEventMouseButton)
+		return
+
+	# Das Werkstück schwebt ÜBER dem Werkstattfenster: der Griff danach muss vor
+	# die Weiterleitung, sonst schluckt das Fenster den Klick - und vor die
+	# Nahsicht, denn der Würfel ist keine freie Bankfläche.
+	if _try_grab_engraving_die(event):
 		return
 
 	# Zweite Werkbank-Stufe: VOR der Weiterleitung, sonst verschluckt das
@@ -2049,6 +2080,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if camera_rig.mode == CameraRig.Mode.TITLE:
 			if title_view.visible:
 				title_view.go_back()
+			return
+		# Aus der Werkstück-Sicht führt Rechtsklick eine Stufe zurück an die Bank -
+		# das Werkstück abzulegen ist noch kein Abbruch der Zeremonie.
+		if camera_rig.die_focus:
+			_leave_die_focus()
 			return
 		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
 		# ab, dann die Zeremonie selbst - sie darf nie offen zurückbleiben,
@@ -2200,26 +2236,44 @@ func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: D
 	_fly_engraving_die(def, start_pos)
 
 ## Lässt den echten Würfel vom Tray-Slot über die Hub-Bühne gleiten (in
-## Tray-Größe); ein alter schwebender Würfel wird zuvor freigegeben.
+## Tray-Größe); ein alter schwebender Würfel wird zuvor freigegeben. Über der
+## Bühne rastet er ins Stasis-Feld ein - wie ein Tray-Würfel über seinem Emitter.
 func _fly_engraving_die(def: DieDefinition, start_pos: Vector3) -> void:
-	if engraving_fly_tween != null and engraving_fly_tween.is_valid():
-		engraving_fly_tween.kill()
-	if engraving_die != null and is_instance_valid(engraving_die):
-		engraving_die.queue_free()
+	_free_engraving_die()
 	engraving_die = _spawn_deck_ghost(def)
 	engraving_die.global_position = start_pos
+	engraving_hover_face = -1
 
 	# Landeziel erst berechnen, wenn das frisch gebaute Panel ausgelegt ist.
 	await get_tree().process_frame
 	if not engraving_active or engraving_die == null or not is_instance_valid(engraving_die):
 		return
 	var target: Vector3 = _station_hover_target()
+	engraving_rest_y = target.y
+	engraving_bob_phase = 0.0
+	_build_engraving_emitter(target)
+	var emitter := engraving_emitter
 	engraving_fly_tween = create_tween()
 	engraving_fly_tween.tween_property(engraving_die, "global_position", target, ENGRAVE_FLY_TIME) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	engraving_fly_tween.parallel().tween_method(
+		func(v: float) -> void: emitter.set_engaged(v), 0.0, 1.0, ENGRAVE_FLY_TIME)
+	engraving_fly_tween.tween_callback(emitter.ripple)  # das Feld rastet ein
+
+## Die Stasis-Station unter dem Werkstück: senkrecht unter seinem Landepunkt auf
+## der Tischfläche, damit die Säule gerade zu ihm hochsteht.
+func _build_engraving_emitter(hover_at: Vector3) -> void:
+	engraving_emitter = StasisEmitter.new()
+	engraving_emitter.name = "EngravingEmitter"
+	add_child(engraving_emitter)
+	engraving_emitter.position = Vector3(hover_at.x, 0.0, hover_at.z)
+	engraving_emitter.build(ENGRAVE_HOVER, DiceTrayView.DIE_SCALE, ENGRAVE_EMITTER_TINT)
+	engraving_emitter.set_engaged(0.0)
+	ScreenReflection.mark_reflective(engraving_emitter)  # sie liegt auf dem Werkbank-Glas
 
 ## Landepunkt: die Bühnen-Mitte auf die Tischfläche zurückprojiziert, dann
-## entlang des Kamerastrahls auf Auflagehöhe gehoben (Parallaxe kompensiert).
+## entlang des Kamerastrahls auf Schwebehöhe gehoben (Parallaxe kompensiert) -
+## der Würfel steht so über der Bühnenmitte, seine Station ein Stück darunter.
 func _station_hover_target() -> Vector3:
 	var stage_px: Vector2 = die_inspector.stage_center_px()
 	var surface: Vector3 = table_screen.pixel_to_world(stage_px)
@@ -2255,8 +2309,9 @@ func _refresh_engraving_die_faces() -> void:
 	faces.set_tint(DiceController.KIND_TINTS.get(die_inspector.current_def.style_id, Color.WHITE))
 	_highlight_engraving_die()  # apply_definition setzt die Seiten zurück
 
-## Hebt die gewählte Seite (bzw. den Kanten-Rahmen) am ECHTEN schwebenden
-## Würfel violett hervor - dieselbe Auswahl wie an der 3D-Projektion.
+## Malt Auswahl UND Eignung auf das schwebende Werkstück: die gewählte Ziffer
+## violett, ungeeignete Ziele grau. Der Würfel selbst ist die Anzeige - eine
+## flache Projektion, die das früher zeigte, gibt es nicht mehr.
 func _highlight_engraving_die() -> void:
 	if engraving_die == null or not is_instance_valid(engraving_die):
 		return
@@ -2267,10 +2322,14 @@ func _highlight_engraving_die() -> void:
 	faces.reset_number_tints()
 	if die_inspector.whole_die_targeted():
 		# Werkzeug für den GANZEN Würfel: der Rahmen ist sein Klickziel.
-		faces.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
+		faces.set_edge_tint(DieFaceDisplay.SELECT_NUMBER_COLOR)
 	elif die_inspector.selected_face != -1:
 		# Nur die gewählte ZIFFER leuchtet - der Würfelkörper bleibt neutral.
-		faces.set_face_number_tint(die_inspector.selected_face, RotatableDieView.SELECT_FACE_COLOR)
+		faces.set_face_number_tint(die_inspector.selected_face, DieFaceDisplay.SELECT_NUMBER_COLOR)
+	var dimmed := die_inspector.dimmed_faces()
+	for i in dimmed.size():
+		if dimmed[i]:
+			faces.set_face_number_tint(i, DieInspectorView.DIM_NUMBER_COLOR)
 
 ## Absorptions-Blitz: heller Aufpluster-Pop bei der Ankunft der Leiterbahn.
 func _flash_engraving_die() -> void:
@@ -2282,6 +2341,167 @@ func _flash_engraving_die() -> void:
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	pop.tween_property(engraving_die, "scale", base, 0.28) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+# --- Das Werkstück in der Hand ---------------------------------------------------
+# Der schwebende Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
+# Werkbank-Stufe), dort dreht ihn das Ziehen und ein Klick ohne Weg wählt die
+# Seite darunter. Getroffen wird über die Bildschirm-Projektion seiner Seiten -
+# er trägt keine Kollisionsform.
+
+## Gesichter-Anzeige des Werkstücks (null = keins da).
+func _engraving_faces() -> DieFaceDisplay:
+	if engraving_die == null or not is_instance_valid(engraving_die):
+		return null
+	return engraving_die.get_node("RigidBody3D/Faces") as DieFaceDisplay
+
+## Projizierte Halbbreite des Werkstücks in Bildschirmpixeln (-1 = nicht im
+## Bild). Aus der Projektion gerechnet, damit Greifen und Picken in JEDER
+## Zoomstufe dasselbe Maß haben.
+func _engraving_die_screen_half() -> float:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or engraving_die == null or not is_instance_valid(engraving_die):
+		return -1.0
+	var center: Vector3 = engraving_die.global_position
+	if camera.is_position_behind(center):
+		return -1.0
+	var edge := center + camera.global_basis.x * DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE
+	return camera.unproject_position(center).distance_to(camera.unproject_position(edge))
+
+func _engraving_pick_radius() -> float:
+	return _engraving_die_screen_half() * ENGRAVE_PICK_FACTOR
+
+## Liegt der Bildschirmpunkt auf dem Werkstück?
+func _engraving_die_under(screen_pos: Vector2) -> bool:
+	var radius := _engraving_pick_radius()
+	if radius <= 0.0:
+		return false
+	var camera := get_viewport().get_camera_3d()
+	return camera.unproject_position(engraving_die.global_position).distance_to(screen_pos) <= radius
+
+## Druck auf das Werkstück: es liegt ÜBER dem Werkstattfenster, der Griff muss
+## also vor die Maus-Weiterleitung - sonst schluckt das Fenster den Klick.
+func _try_grab_engraving_die(event: InputEvent) -> bool:
+	if not engraving_active or camera_rig.is_animating:
+		return false
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	if not _engraving_die_under(button.position):
+		return false
+	engraving_drag_active = true
+	engraving_drag_start = button.position
+	engraving_drag_moved = false
+	return true
+
+## Die Geste am Werkstück: ziehen dreht (nur in der Sicht darauf), loslassen
+## ohne Weg holt es heran bzw. wählt die Seite darunter.
+func _handle_engraving_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var motion := event as InputEventMouseMotion
+		if not engraving_drag_moved \
+				and motion.position.distance_to(engraving_drag_start) > ENGRAVE_DRAG_THRESHOLD:
+			engraving_drag_moved = true
+		if engraving_drag_moved and camera_rig.die_focus:
+			_spin_engraving_die(motion.relative)
+		return
+	var button := event as InputEventMouseButton
+	if button == null or button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+		return
+	engraving_drag_active = false
+	if engraving_drag_moved:
+		return  # ein Weg war dabei - das war ein Drehen, keine Wahl
+	if camera_rig.die_focus:
+		_click_engraving_die(button.position)
+	else:
+		_focus_engraving_die()
+
+## Maus-Delta -> Drehung um die BILD-Achsen: waagerecht um die Hochachse des
+## Bildes, senkrecht um seine Querachse (dieselbe Abbildung wie an der Hülle).
+func _spin_engraving_die(relative: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	if engraving_pose_tween != null and engraving_pose_tween.is_valid():
+		engraving_pose_tween.kill()  # der Spieler übernimmt die Lage
+	engraving_die.global_rotate(camera.global_basis.y.normalized(),
+		relative.x * ENGRAVE_SPIN_SENSITIVITY)
+	engraving_die.global_rotate(camera.global_basis.x.normalized(),
+		relative.y * ENGRAVE_SPIN_SENSITIVITY)
+
+## Holt das Werkstück heran (dritte Werkbank-Stufe) und legt es dabei in seine
+## Dreiviertel-Ansicht - flach von oben wäre es bloß ein Quadrat.
+func _focus_engraving_die() -> void:
+	if engraving_die == null or not is_instance_valid(engraving_die) or camera_rig.die_focus:
+		return
+	# Halbe Raumdiagonale: so passt der Würfel in JEDER Drehung ins Bild.
+	var half := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * sqrt(3.0)
+	camera_rig.zoom_die_focus(engraving_die.global_position, half)
+	_tween_engraving_pose(CameraRig.die_focus_basis())
+
+## Legt das Werkstück zurück in die Vitrinen-Lage der Tray-Würfel und fährt eine
+## Stufe zurück an die Bank: dort liest sich der Würfel wieder von oben.
+func _leave_die_focus() -> void:
+	if not camera_rig.die_focus:
+		return
+	camera_rig.zoom_die_focus_out()
+	if engraving_die != null and is_instance_valid(engraving_die):
+		_tween_engraving_pose(Basis(Vector3.UP, -PI / 2.0))
+
+## Legt das Werkstück über die Kamerafahrt in eine Ziel-Lage. Die Skalierung
+## steckt in der Basis - sie muss beim Setzen wieder mit hinein.
+func _tween_engraving_pose(target: Basis) -> void:
+	if engraving_pose_tween != null and engraving_pose_tween.is_valid():
+		engraving_pose_tween.kill()
+	var from := engraving_die.global_basis.orthonormalized()
+	engraving_pose_tween = create_tween()
+	engraving_pose_tween.tween_method(
+		func(t: float) -> void: _apply_engraving_pose(from.slerp(target, t)),
+		0.0, 1.0, CameraRig.ZOOM_DURATION).set_trans(Tween.TRANS_SINE)
+
+func _apply_engraving_pose(basis: Basis) -> void:
+	if engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	engraving_die.global_basis = basis.scaled(Vector3.ONE * DiceTrayView.DIE_SCALE)
+
+## Klick auf das herangeholte Werkstück: Seite oder Kanten-Rahmen - was dem
+## Klick näher liegt, gewinnt (dieselbe Regel wie früher an der Projektion).
+func _click_engraving_die(screen_pos: Vector2) -> void:
+	var faces := _engraving_faces()
+	var camera := get_viewport().get_camera_3d()
+	if faces == null or camera == null:
+		return
+	var radius := _engraving_pick_radius()
+	var face_pick := faces.pick_face(camera, screen_pos, radius)
+	if faces.edge_distance(camera, screen_pos, radius) < float(face_pick[1]):
+		die_inspector.click_edges()
+	elif int(face_pick[0]) != -1:
+		die_inspector.click_face(int(face_pick[0]))
+
+## Je Frame: das Werkstück wippt in seinem Feld, und die Seite unter dem Zeiger
+## treibt die Gravur-Vorschau. Der Zeiger liegt auf dem Tisch, nicht im
+## SubViewport - also wird gepickt, wie beim Vertrags-Hinweis der Grube.
+func _update_engraving_die(delta: float) -> void:
+	if not engraving_active or engraving_die == null or not is_instance_valid(engraving_die):
+		return
+	if engraving_fly_tween == null or not engraving_fly_tween.is_valid():
+		engraving_bob_phase += delta * DiceTrayView.BOB_SPEED
+		var bob := sin(engraving_bob_phase)
+		engraving_die.global_position.y = engraving_rest_y + bob * DiceTrayView.BOB_AMPLITUDE
+		if engraving_emitter != null and is_instance_valid(engraving_emitter):
+			engraving_emitter.set_load(StasisEmitter.load_for(bob))
+	var face := -1
+	if not camera_rig.is_animating and not engraving_drag_moved:
+		var camera := get_viewport().get_camera_3d()
+		var mouse := get_viewport().get_mouse_position()
+		var radius := _engraving_pick_radius()
+		if camera != null and radius > 0.0:
+			var faces := _engraving_faces()
+			var pick := faces.pick_face(camera, mouse, radius)
+			if faces.edge_distance(camera, mouse, radius) >= float(pick[1]):
+				face = int(pick[0])
+	if face != engraving_hover_face:
+		engraving_hover_face = face
+		die_inspector.set_die_hover(face)
 
 ## Beendet die Zeremonie: Tray-Slot wieder sichtbar, Kamera zurück in die
 ## Ansicht von vor der Zeremonie; was der Hub zeigt, entscheidet er selbst.
@@ -2295,6 +2515,11 @@ func _end_engraving_ceremony() -> void:
 		engraving_source_root.visible = true
 	engraving_source_root = null
 	engraving_source_tray = null
+	# Aus der Werkstück-Sicht führt kein Moduswechsel heraus (der Modus bleibt
+	# WORKSHOP): sie muss selbst zurückgenommen werden, sonst stünde die Kamera
+	# vor einem Würfel, den es nicht mehr gibt.
+	if camera_rig.die_focus and engraving_prev_mode == CameraRig.Mode.WORKSHOP:
+		camera_rig.zoom_workshop_wide()
 	if engraving_prev_mode == CameraRig.Mode.OVERVIEW:
 		camera_rig.zoom_out()
 	else:
@@ -2555,14 +2780,22 @@ func _abort_engraving() -> void:
 	engraving_source_tray = null
 	die_inspector.visible = false  # ohne closed-Signal
 
-## Gibt den schwebenden Zeremonien-Würfel frei und stoppt seinen Flug-Tween.
+## Gibt das schwebende Werkstück samt seiner Station frei und stoppt beide Tweens.
 func _free_engraving_die() -> void:
-	if engraving_fly_tween != null and engraving_fly_tween.is_valid():
-		engraving_fly_tween.kill()
+	for tween in [engraving_fly_tween, engraving_pose_tween]:
+		if tween != null and tween.is_valid():
+			tween.kill()
 	engraving_fly_tween = null
+	engraving_pose_tween = null
 	if engraving_die != null and is_instance_valid(engraving_die):
 		engraving_die.queue_free()
 	engraving_die = null
+	if engraving_emitter != null and is_instance_valid(engraving_emitter):
+		engraving_emitter.queue_free()
+	engraving_emitter = null
+	engraving_drag_active = false
+	engraving_drag_moved = false
+	engraving_hover_face = -1
 
 ## Klick auf einen Warteschlangen-Würfel: startet einen POTENZIELLEN
 ## Umsortier-Drag; ob es ein Drag oder nur ein Klick (öffnet die Gravur)
@@ -3133,7 +3366,8 @@ func _slot_bank_window_has_point(pixel: Vector2) -> bool:
 ## Trays aus dem Bild, Kamera steht still). Auf einem Knopf passiert nichts -
 ## der Doppelklick ist dort schon der zweite Klick auf die Karte.
 func _try_workshop_close_zoom(event: InputEvent) -> bool:
-	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.workshop_close:
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.workshop_close \
+			or camera_rig.die_focus:
 		return false
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or not button.double_click \
@@ -3240,10 +3474,12 @@ func _zoom_to_mode(target: int) -> void:
 		table_screen.slot_bank_window.refresh_if_idle()
 
 ## Ein Rad-Schritt. Taub während einer Kamerafahrt (das ist zugleich die Sperre
-## gegen nachlaufende Flicks) und in der Gravur-Zeremonie: dort ist das
-## Abbrechen eine gewollte Geste und darf nicht an einem Radstups hängen.
+## gegen nachlaufende Flicks). In der Gravur-Zeremonie bleibt es an der Werkbank:
+## es fährt zwischen ihren Stufen samt Werkstück-Sicht, führt aber nie aus der
+## Zeremonie heraus - das Abbrechen ist eine gewollte Geste und darf nicht an
+## einem Radstups hängen.
 func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
-	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.is_animating or engraving_active:
+	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.is_animating:
 		wheel_accum = 0.0
 		return
 
@@ -3260,6 +3496,10 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 	wheel_accum = 0.0
 	if up:
 		_zoom_wheel_in(event.position)
+	elif camera_rig.die_focus:
+		_leave_die_focus()  # eine Stufe zurück an die Bank
+	elif engraving_active:
+		return  # aus der Zeremonie führt das Rad nicht heraus
 	elif camera_rig.workshop_close:
 		camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
 	else:
@@ -3268,11 +3508,17 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 ## Rad hoch: auf die Zone unter der Maus zufahren - genau das Ziel des
 ## Linksklicks. Über freiem Filz passiert nichts (kein Standard-Ziel).
 func _zoom_wheel_in(screen_pos: Vector2) -> void:
+	# Über dem Werkstück ist die nächste Stufe der Würfel selbst.
+	if engraving_active and not camera_rig.die_focus and _engraving_die_under(screen_pos):
+		_focus_engraving_die()
+		return
 	# Auf der Werkbank ist die Nahsicht die nächste Stufe, nicht ein Nachbarfenster.
 	if camera_rig.mode == CameraRig.Mode.WORKSHOP and not camera_rig.workshop_close \
-			and _workshop_close_zoom_allowed(screen_pos):
+			and not camera_rig.die_focus and _workshop_close_zoom_allowed(screen_pos):
 		camera_rig.zoom_workshop_close()
 		return
+	if engraving_active:
+		return  # aus der Zeremonie führt das Rad nicht zu einem Nachbarfenster
 	var target := _zone_mode_at(screen_pos)
 	if target != camera_rig.mode:
 		_zoom_to_mode(target)
@@ -3281,6 +3527,7 @@ func _process(delta: float) -> void:
 	_update_charm_hover()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
+	_update_engraving_die(delta)
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 	_sync_shell_hold()

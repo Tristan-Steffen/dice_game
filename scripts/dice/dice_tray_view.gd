@@ -26,33 +26,11 @@ const BOB_SPEED := 1.1
 const SWAY_DEGREES := 5.0
 const SWAY_SPEED := 0.6
 
-## Emitter-Station: Dial-Puck (flach) + Iris (Dunkelglas-Port, aus dem der Strahl
-## austritt) + Kraftfeld-Säule (Projektionskegel). Alle DAUERHAFT sichtbar und
-## IMMER auf der Tischfläche - nur der Würfel schwebt, die Säule trägt ihn.
-const PUCK_RADIUS := 0.62
-const PUCK_Y := 0.04
-const PUCK_SHADER := preload("res://assets/shaders/stasis_puck.gdshader")
-const BEAM_SHADER := preload("res://assets/shaders/stasis_beam.gdshader")
-const LENS_SHADER := preload("res://assets/shaders/stasis_lens.gdshader")
-## Projektionskegel: schmale Blende unten, öffnet sich nach oben zum Würfel.
-const BEAM_BOTTOM_RADIUS := 0.28
-const BEAM_TOP_RADIUS := 0.6
-## Emitter-Iris (flacher Dunkelglas-Port) - Halbbreite der Scheibe.
-const LENS_RADIUS := 0.34
-## Last-Puls: der Emitter leuchtet heller, je tiefer der Würfel im Wippen sinkt.
-const LOAD_AMOUNT := 0.5
-## Einrast-Ripple beim Ablegen (impact 0->1).
-const RIPPLE_TIME := 0.5
-
 @export var tray_color: Color = Color(0.15, 0.35, 0.75):
 	set(value):
 		tray_color = value
-		for material in puck_materials:
-			material.set_shader_parameter("tint", tray_color)
-		for material in beam_materials:
-			material.set_shader_parameter("beam_color", Vector3(tray_color.r, tray_color.g, tray_color.b))
-		for material in lens_materials:
-			material.set_shader_parameter("tint", Vector3(tray_color.r, tray_color.g, tray_color.b))
+		for emitter in slot_emitters:
+			emitter.set_tint(tray_color)
 
 @onready var tray_mesh_root: Node3D = $TrayMesh
 @onready var slots_container: Node3D = $Slots
@@ -72,15 +50,9 @@ var slot_bodies: Array[RigidBody3D] = []
 var slot_face_displays: Array[DieFaceDisplay] = []
 var slot_defs: Array[DieDefinition] = []
 
-## Emitter-Stationen je Slot (Puck + Beam) - dauerhaft sichtbar. Die Beams
-## brauchen EIGENE Materialien: Höhe (Terrasse) und engaged sind je Slot anders.
-var slot_pucks: Array[MeshInstance3D] = []
-var slot_beams: Array[MeshInstance3D] = []
-var slot_lenses: Array[MeshInstance3D] = []
-var puck_materials: Array[ShaderMaterial] = []
-var beam_materials: Array[ShaderMaterial] = []
-var lens_materials: Array[ShaderMaterial] = []
-var puck_tweens: Array[Tween] = []
+## Stasis-Station je Slot - dauerhaft sichtbar, auch unter einem leeren Platz.
+## Jede bringt ihre EIGENEN Materialien mit: Höhe und engaged sind je Slot anders.
+var slot_emitters: Array[StasisEmitter] = []
 ## Ruhe-Höhe (inkl. Terrasse) und Phasen-Offset je Slot für die Schweb-Animation.
 var slot_base_y: Array[float] = []
 var slot_phase: Array[float] = []
@@ -104,10 +76,7 @@ func _process(_delta: float) -> void:
 		var bob := sin(t * BOB_SPEED + phase)
 		slot_roots[i].position.y = slot_base_y[i] + bob * BOB_AMPLITUDE
 		slot_roots[i].rotation.y = -PI / 2.0 + deg_to_rad(SWAY_DEGREES) * sin(t * SWAY_SPEED + phase)
-		# bob < 0 = Würfel unten = mehr Last = heller.
-		var load := 1.0 - LOAD_AMOUNT * bob
-		beam_materials[i].set_shader_parameter("load", load)
-		lens_materials[i].set_shader_parameter("pulse", load)
+		slot_emitters[i].set_load(StasisEmitter.load_for(bob))
 
 ## Einheitliche Schwebehöhe für ALLE Slots und Trays (siehe FLOAT_HEIGHT).
 func _slot_rest_y(_line: int) -> float:
@@ -120,13 +89,7 @@ func _build_slots() -> void:
 	slot_bodies.clear()
 	slot_face_displays.clear()
 	slot_defs.clear()
-	slot_pucks.clear()
-	slot_beams.clear()
-	slot_lenses.clear()
-	puck_materials.clear()
-	beam_materials.clear()
-	lens_materials.clear()
-	puck_tweens.clear()
+	slot_emitters.clear()
 	slot_base_y.clear()
 	slot_phase.clear()
 	for i in rows * columns:
@@ -138,12 +101,11 @@ func _build_slots() -> void:
 
 		# Station IMMER auf der Tischfläche; die Säule reicht bis zum Würfel
 		# (hintere Terrassen = höhere Säulen).
-		var puck := _build_puck(Vector3(x, PUCK_Y, z))
-		slots_container.add_child(puck)
-		var lens := _build_lens(Vector3(x, PUCK_Y, z))
-		slots_container.add_child(lens)
-		var beam := _build_beam(Vector3(x, 0.0, z), rest_y)
-		slots_container.add_child(beam)
+		var emitter := StasisEmitter.new()
+		emitter.name = "Emitter%d" % i
+		slots_container.add_child(emitter)
+		emitter.position = Vector3(x, 0.0, z)
+		emitter.build(rest_y, DIE_SCALE, tray_color)
 
 		var die := DieBuilder.build()
 		slots_container.add_child(die)
@@ -163,63 +125,9 @@ func _build_slots() -> void:
 		slot_bodies.append(body)
 		slot_face_displays.append(die.get_node("RigidBody3D/Faces"))
 		slot_defs.append(DieDefinition.standard())
-		slot_pucks.append(puck)
-		slot_beams.append(beam)
-		slot_lenses.append(lens)
-		puck_materials.append(puck.mesh.surface_get_material(0))
-		beam_materials.append(beam.material_override as ShaderMaterial)
-		lens_materials.append(lens.mesh.surface_get_material(0))
-		puck_tweens.append(null)
+		slot_emitters.append(emitter)
 		slot_base_y.append(rest_y)
 		slot_phase.append(float(i) * 0.7)
-
-## Emitter-Puck: flache, additive Leuchtscheibe (liegt in der XZ-Ebene).
-func _build_puck(at: Vector3) -> MeshInstance3D:
-	var material := ShaderMaterial.new()
-	material.shader = PUCK_SHADER
-	material.set_shader_parameter("tint", tray_color)
-	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(PUCK_RADIUS * 2.0, PUCK_RADIUS * 2.0)
-	mesh.material = material
-	var puck := MeshInstance3D.new()
-	puck.mesh = mesh
-	puck.position = at
-	return puck
-
-## Emitter-Iris: flacher Dunkelglas-Port (liegt in der XZ-Ebene, knapp über dem
-## Puck) - die sichtbare Austrittsstelle des Strahls.
-func _build_lens(at: Vector3) -> MeshInstance3D:
-	var material := ShaderMaterial.new()
-	material.shader = LENS_SHADER
-	material.set_shader_parameter("tint", Vector3(tray_color.r, tray_color.g, tray_color.b))
-	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(LENS_RADIUS * 2.0, LENS_RADIUS * 2.0)
-	mesh.material = material
-	var lens := MeshInstance3D.new()
-	lens.mesh = mesh
-	lens.position = at + Vector3.UP * 0.01  # knapp über dem Puck-Dial
-	return lens
-
-## Kraftfeld-Säule: vom Tisch (base_at) bis zur Würfel-Ruhehöhe rest_y; der
-## Griff-Ring sitzt an der Würfel-Unterseite (grip_h relativ zur Säulenhöhe).
-func _build_beam(base_at: Vector3, rest_y: float) -> MeshInstance3D:
-	var beam_h := rest_y - base_at.y
-	var die_bottom := rest_y - DIE_SCALE * DieBuilder.HALF_EXTENT
-	var material := ShaderMaterial.new()
-	material.shader = BEAM_SHADER
-	material.set_shader_parameter("beam_height", beam_h)
-	material.set_shader_parameter("grip_h", clampf((die_bottom - base_at.y) / beam_h, 0.0, 1.0))
-	material.set_shader_parameter("beam_color", Vector3(tray_color.r, tray_color.g, tray_color.b))
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = BEAM_TOP_RADIUS
-	mesh.bottom_radius = BEAM_BOTTOM_RADIUS
-	mesh.height = beam_h
-	mesh.radial_segments = 16
-	var beam := MeshInstance3D.new()
-	beam.mesh = mesh
-	beam.material_override = material
-	beam.position = base_at + Vector3.UP * beam_h * 0.5
-	return beam
 
 ## Erweitert das Raster um Spalten, bis mindestens capacity Slots existieren
 ## (Ausziehtisch). Den sichtbaren Inhalt setzt der nächste fill()-Aufruf.
@@ -261,25 +169,14 @@ func add_die(def: DieDefinition) -> void:
 	slot_defs[i] = def
 	slot_face_displays[i].apply_definition(def)
 	slot_face_displays[i].set_tint(_style_tint(def))
-	_pulse_puck(i)
+	slot_emitters[i].ripple()  # das Feld rastet ein
 
-## Blitzt den Einrast-Ripple eines Pucks auf (impact läuft 0->1 nach außen).
-func _pulse_puck(index: int) -> void:
-	if puck_tweens[index] != null and puck_tweens[index].is_valid():
-		puck_tweens[index].kill()
-	var material := puck_materials[index]
-	material.set_shader_parameter("impact", 0.0)
-	var tween := create_tween()
-	tween.tween_method(func(v: float) -> void: material.set_shader_parameter("impact", v),
-		0.0, 1.0, RIPPLE_TIME)
-	puck_tweens[index] = tween
-
-## Blendet nur den WÜRFEL ein/aus - die Emitter-Station (Puck + Beam) bleibt
-## dauerhaft sichtbar; die Säule wechselt zwischen Leerlauf-Stummel und voller
-## Trage-Höhe (engaged, siehe stasis_beam.gdshader).
+## Blendet nur den WÜRFEL ein/aus - die Emitter-Station bleibt dauerhaft
+## sichtbar; die Säule wechselt zwischen Leerlauf-Stummel und voller Trage-Höhe
+## (engaged, siehe stasis_beam.gdshader).
 func _set_slot_shown(index: int, shown: bool) -> void:
 	slot_roots[index].visible = shown
-	beam_materials[index].set_shader_parameter("engaged", 1.0 if shown else 0.0)
+	slot_emitters[index].set_engaged(1.0 if shown else 0.0)
 
 func _style_tint(def: DieDefinition) -> Color:
 	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)

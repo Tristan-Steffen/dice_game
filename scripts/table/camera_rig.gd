@@ -60,6 +60,15 @@ const WORKSHOP_CLOSE_MARGIN := 1.02
 ## einem hochformatigeren Fenster schlägt die BREITE an und bestimmt allein,
 ## wie nah die Kamera kommt.
 const WORKSHOP_CLOSE_SIDE_MARGIN := 1.01
+## Werkstück-Sicht: der Würfel steht mit seiner Raumdiagonale im Bild, die Zugabe
+## lässt ringsum Luft - er soll sich frei drehen lassen, ohne an den Rand zu
+## stoßen. Über 2 heißt: der Würfel füllt knapp die halbe Bildhöhe.
+const DIE_FOCUS_MARGIN := 2.2
+## Ausgangslage des gegriffenen Würfels, in KAMERA-Achsen: erst um die Bildhoch-,
+## dann um die Bildquerachse gedreht. Diese Dreiviertel-Ansicht zeigt drei Seiten
+## auf einmal - eine Draufsicht allein sähe aus wie ein Quadrat.
+const DIE_FOCUS_POSE := Vector3(-24.0, 32.0, 0.0)
+
 ## HANDVERSCHIEBUNG der Nahsicht, falls der Ausschnitt anders sitzen soll: die
 ## Kamera wandert um x nach rechts und y nach oben (Weltmeter, in Bildrichtung),
 ## das Bild also gegenläufig. Null = die gerechnete Lage, die die Trays sicher
@@ -87,6 +96,14 @@ var workshop_close_target := Vector3(-24, 0, 22)
 var workshop_close_half := Vector2(12.0, 10.0)
 ## Steht die Werkbank in der Nahsicht? Dort steht die Kamera zusätzlich STILL.
 var workshop_close: bool = false
+## Dritte Werkbank-Stufe: das schwebende Werkstück allein im Bild. Wie die
+## Nahsicht bleibt der Modus WORKSHOP - es ist derselbe Arbeitsplatz, nur am
+## Würfel. Die Kamera steht auch hier still: der Würfel füllt den Rahmen, und
+## der Spieler dreht IHN, nicht den Blick.
+var die_focus: bool = false
+## Kam die Werkstück-Sicht aus der Nahsicht? Der Rückweg führt dorthin zurück,
+## wo der Griff begann.
+var die_focus_from_close: bool = false
 ## Titelziel + halbe Fenstermaße (x = entlang Welt-Z, y = entlang Welt-X).
 var title_target := Vector3(-26, 0, 0)
 var title_half := Vector2(14.25, 15.0)
@@ -142,7 +159,7 @@ var anchor_origin: Vector3
 var mode: Mode = Mode.OVERVIEW
 var is_animating: bool = false
 ## Solange gesetzt, hält die Kamera ihre Ausrichtung (z.B. während der Spieler
-## die Würfel-Projektion dreht), damit die Geste nicht zugleich den Blick schwenkt.
+## einen Grubenwürfel zieht), damit die Geste nicht zugleich den Blick schwenkt.
 var tilt_locked: bool = false
 var tilt_offset := Vector2.ZERO  # geglättete Blickabweichung (Grad: x=Pitch, y=Yaw)
 ## Nachlauf nach dem Entsperren: Zeit seit Freigabe (< 0 = kein Nachlauf).
@@ -165,7 +182,7 @@ func _process(delta: float) -> void:
 	# ins Bild und verriete, dass das Menü auf einem Tisch liegt. In der
 	# Werkbank-Nahsicht ebenso: dort ist der Rahmen randvoll, jedes Schwenken
 	# holte die Trays herein.
-	if is_animating or tilt_locked or mode == Mode.TITLE or workshop_close:
+	if is_animating or tilt_locked or mode == Mode.TITLE or workshop_close or die_focus:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -314,6 +331,7 @@ func _workshop_close_origin() -> Vector3:
 func show_title(instant := false) -> void:
 	var target_origin := title_target + Vector3.UP * title_distance()
 	workshop_close = false
+	die_focus = false
 	mode = Mode.TITLE
 	mode_changed.emit(mode)
 	anchor_basis = TITLE_BASIS
@@ -377,7 +395,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	if target_mode == Mode.WORKSHOP:
 		distance += WORKSHOP_ZOOM_DISTANCE_BONUS
 	var target_origin := target_point - ZOOM_FORWARD * distance
-	workshop_close = false  # jeder Moduswechsel verlässt die Nahsicht
+	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufen
+	die_focus = false
 	mode = target_mode
 	mode_changed.emit(mode)
 	anchor_basis = ZOOM_BASIS
@@ -392,6 +411,7 @@ func zoom_workshop_close() -> void:
 	if workshop_close or mode != Mode.WORKSHOP:
 		return
 	workshop_close = true
+	die_focus = false
 	var target_origin := _workshop_close_origin()
 	anchor_basis = WORKSHOP_CLOSE_BASIS
 	anchor_origin = target_origin
@@ -403,11 +423,13 @@ func zoom_workshop_close() -> void:
 	mode_changed.emit(mode)
 	_animate_to(target_origin, WORKSHOP_CLOSE_BASIS)
 
-## Aus der Nahsicht zurück auf die ganze Werkbank-Ecke (eine Stufe, nicht raus).
+## Aus Nahsicht oder Werkstück-Sicht zurück auf die ganze Werkbank-Ecke (eine
+## Stufe, nicht raus).
 func zoom_workshop_wide() -> void:
-	if not workshop_close:
+	if not workshop_close and not die_focus:
 		return
 	workshop_close = false
+	die_focus = false
 	var target_origin := workshop_target \
 		- ZOOM_FORWARD * (ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS)
 	anchor_basis = ZOOM_BASIS
@@ -415,6 +437,43 @@ func zoom_workshop_wide() -> void:
 	tilt_offset = Vector2.ZERO
 	mode_changed.emit(mode)  # siehe zoom_workshop_close
 	_animate_to(target_origin, ZOOM_BASIS)
+
+## Dritte Werkbank-Stufe: der schwebende Würfel allein. center ist seine
+## Weltmitte, half seine halbe Raumdiagonale - so passt er in JEDER Drehung ins
+## Bild, und der Ausschnitt springt beim Drehen nicht. Der Modus bleibt WORKSHOP:
+## Klickweiterleitung und Zeremonie gelten unverändert weiter.
+func zoom_die_focus(center: Vector3, half: float) -> void:
+	if die_focus or mode != Mode.WORKSHOP:
+		return
+	die_focus = true
+	die_focus_from_close = workshop_close
+	workshop_close = false
+	var distance := _fit_distance(Vector2(half, half), DIE_FOCUS_MARGIN)
+	var target_origin := center - ZOOM_FORWARD * distance
+	anchor_basis = ZOOM_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
+	mode_changed.emit(mode)  # siehe zoom_workshop_close: die SICHT ändert sich
+	_animate_to(target_origin, ZOOM_BASIS)
+
+## Eine Stufe zurück - dorthin, wo der Griff nach dem Würfel begann.
+func zoom_die_focus_out() -> void:
+	if not die_focus:
+		return
+	if die_focus_from_close:
+		die_focus = false
+		workshop_close = false  # zoom_workshop_close verlangt die weite Lage
+		zoom_workshop_close()
+		return
+	zoom_workshop_wide()
+
+## Ruhelage des gegriffenen Würfels: die Dreiviertel-Ansicht aus DIE_FOCUS_POSE,
+## in den Achsen der Werkstück-Kamera. Der Spieler dreht von hier aus weiter.
+static func die_focus_basis() -> Basis:
+	return ZOOM_BASIS * Basis.from_euler(Vector3(
+		deg_to_rad(DIE_FOCUS_POSE.x), deg_to_rad(DIE_FOCUS_POSE.y), deg_to_rad(DIE_FOCUS_POSE.z)))
 
 ## Verschiebt den Zoom-Blick auf target_point OHNE den Modus zu wechseln (z.B.
 ## von Charm zu Charm) - gleicher Winkel/Abstand, nur der Blickpunkt wandert.
@@ -432,6 +491,7 @@ func zoom_out(duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void
 	if mode == Mode.OVERVIEW:
 		return
 	workshop_close = false
+	die_focus = false
 	mode = Mode.OVERVIEW
 	mode_changed.emit(mode)
 	anchor_basis = base_basis

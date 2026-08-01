@@ -1,8 +1,7 @@
 extends GutTest
 ## Test der Kamera-Sperre (CameraRig.tilt_locked): solange gesetzt, hält die
 ## Kamera ihre Ausrichtung und ignoriert das Maus-Rundschauen - genutzt beim
-## Drehen der Würfel-Projektion in der Gravur-Station (siehe scene_root ->
-## DieInspectorView.rotating_die), damit die Ziehbewegung nicht den Blick schwenkt.
+## Ziehen eines Grubenwürfels, damit die Geste nicht den Blick schwenkt.
 
 var rig: CameraRig
 
@@ -251,6 +250,89 @@ func test_leaving_the_workshop_drops_the_close_flag() -> void:
 			"title":
 				rig.show_title(true)
 		assert_false(rig.workshop_close, "%s verlässt die Nahsicht" % leave)
+
+# --- Werkstück-Sicht ---------------------------------------------------------
+# Dritte Werkbank-Stufe: der schwebende Gravur-Würfel allein im Bild. Der Modus
+# bleibt WORKSHOP (Klickweiterleitung und Zeremonie gelten weiter), die Kamera
+# steht still - gedreht wird der Würfel, nicht der Blick.
+
+const DIE_CENTER := Vector3(-27, 2.22, 22)
+const DIE_HALF := 0.6 * sqrt(3.0)  # halbe Raumdiagonale eines Tray-Würfels
+
+func test_the_die_view_moves_in_and_keeps_the_workshop_mode() -> void:
+	_aim_at_workshop()
+	var wide_distance := rig.anchor_origin.distance_to(WORKSHOP_CENTER)
+	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+	assert_true(rig.die_focus, "die Werkstück-Sicht steht")
+	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "derselbe Arbeitsplatz")
+	assert_lt(rig.anchor_origin.distance_to(DIE_CENTER), wide_distance,
+		"sie steht näher als die weite Werkbank")
+
+func test_the_die_stays_in_frame_in_every_rotation() -> void:
+	# Gerechnet wird mit der halben RAUMDIAGONALE: beim Drehen darf der Würfel
+	# nicht aus dem Bild wachsen.
+	_aim_at_workshop()
+	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+	var distance := rig.anchor_origin.distance_to(DIE_CENTER)
+	var half_h := tan(deg_to_rad(rig.fov * 0.5)) * distance
+	assert_gt(half_h, DIE_HALF, "der Würfel passt ganz ins Bild")
+	assert_almost_eq(half_h / DIE_HALF, CameraRig.DIE_FOCUS_MARGIN, 0.001,
+		"und ringsum bleibt die Zugabe als Luft stehen")
+
+func test_the_camera_stands_still_at_the_die() -> void:
+	_aim_at_workshop()
+	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+	rig.is_animating = false
+	var before := rig.global_transform
+	rig._process(0.1)
+	assert_eq(rig.global_transform, before, "kein Rundschauen an der Werkstück-Sicht")
+
+func test_stepping_back_returns_to_the_step_the_grab_started_from() -> void:
+	for from_close in [false, true]:
+		_aim_at_workshop()
+		if from_close:
+			rig.zoom_workshop_close()
+		rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+		assert_false(rig.workshop_close, "die Werkstück-Sicht ist keine Nahsicht")
+		rig.zoom_die_focus_out()
+		assert_false(rig.die_focus)
+		assert_eq(rig.workshop_close, from_close,
+			"der Rückweg endet dort, wo der Griff begann")
+		assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "eine Stufe zurück, nicht ganz raus")
+
+func test_leaving_the_workshop_drops_the_die_focus() -> void:
+	for leave in ["zoom_out", "pit", "title"]:
+		_aim_at_workshop()
+		rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+		match leave:
+			"zoom_out":
+				rig.zoom_out()
+			"pit":
+				rig.zoom_to(CameraRig.Mode.PIT)
+			"title":
+				rig.show_title(true)
+		assert_false(rig.die_focus, "%s verlässt die Werkstück-Sicht" % leave)
+
+func test_the_die_view_announces_itself_even_though_the_mode_is_unchanged() -> void:
+	_aim_at_workshop()
+	var seen: Array[int] = []
+	rig.mode_changed.connect(func(m: CameraRig.Mode) -> void: seen.append(int(m)))
+	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+	rig.zoom_die_focus_out()
+	assert_eq(seen, [int(CameraRig.Mode.WORKSHOP), int(CameraRig.Mode.WORKSHOP)] as Array[int],
+		"hin und zurück melden sich beide")
+
+func test_the_grabbed_die_starts_in_a_three_quarter_pose() -> void:
+	# Aus der Zoom-Basis heraus gedreht: von der Kamera aus sind DREI Seiten zu
+	# sehen, sonst wäre der Würfel bloß ein Quadrat.
+	var basis := CameraRig.die_focus_basis()
+	var forward := -CameraRig.ZOOM_BASIS.z  # Blickrichtung der Werkstück-Kamera
+	var facing := 0
+	for axis: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP,
+			Vector3.DOWN, Vector3(0, 0, 1), Vector3(0, 0, -1)]:
+		if (basis * axis).dot(-forward) > DieFaceDisplay.FACE_FRONT_MIN_DOT:
+			facing += 1
+	assert_eq(facing, 3, "drei Seiten liegen zur Kamera")
 
 func test_the_close_step_needs_the_workshop_mode() -> void:
 	rig.configure_workshop_close_target(CLOSE_CENTER, CLOSE_HALF)

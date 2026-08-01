@@ -55,8 +55,8 @@ func test_set_edge_tint_highlights_and_set_tint_restores():
 	def.essence_id = Essence.NEON
 	var display := _display()
 	display.apply_definition(def)
-	display.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
-	assert_eq(display.edge_material_res.albedo_color, RotatableDieView.SELECT_FACE_COLOR)
+	display.set_edge_tint(DieFaceDisplay.SELECT_NUMBER_COLOR)
+	assert_eq(display.edge_material_res.albedo_color, DieFaceDisplay.SELECT_NUMBER_COLOR)
 	# Unschattiert, damit der Rahmen die FLACHE Auswahl-Farbe zeigt (wie die 2D-Chips
 	# und die Ziffern) - nicht beleuchtet+leuchtend nach Pink klemmend.
 	assert_eq(display.edge_material_res.shading_mode, BaseMaterial3D.SHADING_MODE_UNSHADED,
@@ -77,8 +77,8 @@ func test_set_face_number_tint_colors_only_that_digit_and_leaves_the_body():
 	# leuchtet (set_face_number_tint), der Würfelkörper bleibt neutral.
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
-	display.set_face_number_tint(2, RotatableDieView.SELECT_FACE_COLOR)
-	assert_eq(display.labels[_axis_for(2)].modulate, RotatableDieView.SELECT_FACE_COLOR,
+	display.set_face_number_tint(2, DieFaceDisplay.SELECT_NUMBER_COLOR)
+	assert_eq(display.labels[_axis_for(2)].modulate, DieFaceDisplay.SELECT_NUMBER_COLOR,
 		"die gewählte Ziffer leuchtet in der Auswahlfarbe")
 	assert_eq(display.labels[_axis_for(3)].modulate, DieFaceDisplay.NUMBER_COLOR,
 		"andere Ziffern behalten ihr Neutral-Neon")
@@ -88,7 +88,7 @@ func test_set_face_number_tint_colors_only_that_digit_and_leaves_the_body():
 func test_reset_number_tints_restores_all_digits():
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
-	display.set_face_number_tint(2, RotatableDieView.SELECT_FACE_COLOR)
+	display.set_face_number_tint(2, DieFaceDisplay.SELECT_NUMBER_COLOR)
 	display.reset_number_tints()
 	assert_eq(display.labels[_axis_for(2)].modulate, DieFaceDisplay.NUMBER_COLOR)
 
@@ -178,7 +178,7 @@ func test_reset_number_tints_restores_neutral_white():
 	def.materials[0] = DieMaterial.RUBY
 	var display := _display()
 	display.apply_definition(def)
-	display.set_face_number_tint(0, RotatableDieView.SELECT_FACE_COLOR)
+	display.set_face_number_tint(0, DieFaceDisplay.SELECT_NUMBER_COLOR)
 	display.reset_number_tints()
 	assert_eq(display.labels[_axis_for(0)].modulate, DieFaceDisplay.NUMBER_COLOR,
 		"nach der Auswahl kehrt das Neutral-Weiß zurück")

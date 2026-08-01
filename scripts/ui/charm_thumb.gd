@@ -6,7 +6,7 @@ extends SubViewportContainer
 ## genau EIN Bild (billig für die vielen Bibliothekszeilen), rotatable=true
 ## erlaubt freies Drehen per Ziehen (Nahansicht, Shop).
 
-const DRAG_SENSITIVITY := 0.01  # Drehgeschwindigkeit, wie RotatableDieView
+const DRAG_SENSITIVITY := 0.01  # Drehgeschwindigkeit, wie am Werkstück der Gravur-Station
 const FIT_SIZE := 2.2           # Zielgröße des Modells in Welteinheiten
 
 var pivot: Node3D

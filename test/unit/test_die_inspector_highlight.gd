@@ -3,7 +3,7 @@ extends GutTest
 ## Gravur-Station (DieInspectorView). Die Kanten sind der RAHMEN um das Seiten-
 ## Raster (Kanten-Materialfarbe, Tooltip beim Überfahren). Look der Seiten-Chips:
 ##  - GEWÄHLT leuchten Ziffer UND Rahmen in der Auswahlfarbe (kräftiges Violett,
-##    RotatableDieView.SELECT_FACE_COLOR - dieselbe Farbe wie am 3D-Würfel), die
+##    DieFaceDisplay.SELECT_NUMBER_COLOR - dieselbe Farbe wie am 3D-Würfel), die
 ##    FÜLLUNG bleibt aber die Materialfarbe, und die Ziffer bekommt einen schwarzen
 ##    Umriss (Lesbarkeit auf jeder Materialfarbe).
 ##  - Seiten/Kanten MIT Material tragen einen handgesteuerten Charm-Tooltip
@@ -61,7 +61,7 @@ func _edge_frame() -> PanelContainer:
 func _glowing_chip() -> Button:
 	for c in _face_chips():
 		var b := c as Button
-		if b.get_theme_color("font_color") == RotatableDieView.SELECT_FACE_COLOR:
+		if b.get_theme_color("font_color") == DieFaceDisplay.SELECT_NUMBER_COLOR:
 			return b
 	return null
 
@@ -73,8 +73,8 @@ func test_selected_face_lights_number_and_border_but_keeps_material_fill() -> vo
 	var chip := _glowing_chip()
 	assert_not_null(chip, "genau ein Chip leuchtet (der gewählte)")
 	var box: StyleBoxFlat = chip.get_theme_stylebox("normal")
-	assert_eq(chip.get_theme_color("font_color"), RotatableDieView.SELECT_FACE_COLOR, "Ziffer leuchtet")
-	assert_eq(box.border_color, RotatableDieView.SELECT_FACE_COLOR, "Rahmen leuchtet")
+	assert_eq(chip.get_theme_color("font_color"), DieFaceDisplay.SELECT_NUMBER_COLOR, "Ziffer leuchtet")
+	assert_eq(box.border_color, DieFaceDisplay.SELECT_NUMBER_COLOR, "Rahmen leuchtet")
 	assert_eq(box.bg_color, DieMaterial.tint_for("ruby"), "Füllung bleibt die Materialfarbe")
 
 func test_selected_number_gets_black_outline() -> void:
@@ -101,7 +101,7 @@ func test_exactly_one_chip_glows_for_a_selected_face() -> void:
 	view._refresh_face_summary()
 	var glowing := 0
 	for c in _face_chips():
-		if (c as Button).get_theme_color("font_color") == RotatableDieView.SELECT_FACE_COLOR:
+		if (c as Button).get_theme_color("font_color") == DieFaceDisplay.SELECT_NUMBER_COLOR:
 			glowing += 1
 	assert_eq(glowing, 1)
 

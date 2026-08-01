@@ -16,6 +16,13 @@ const NUMBER_COLOR := Color(1.15, 1.14, 1.0)
 ## Werkbank): grüne Ziffer = eine Zahl, die NICHT in der Def steht. Eine Quelle
 ## für beide Orte, damit "grün heißt vorläufig" überall dasselbe Grün ist.
 const PREVIEW_NUMBER_COLOR := Color(0.5, 1.0, 0.6)
+## DIE Auswahl-Farbe der Gravur-Station - identisch an allen Auswahl-Stellen
+## (schwebendes Werkstück, Seiten-Chips im Netz). Bewusst dunkles Violett: ein
+## helleres bloomt im Tisch-Glow nach Weiß aus.
+const SELECT_NUMBER_COLOR := Color(0.66, 0.22, 1.0)
+## Mindest-Dot (Seitennormale · Richtung zur Kamera), ab dem eine Seite als
+## zugewandt und damit anklickbar gilt (siehe pick_face).
+const FACE_FRONT_MIN_DOT := 0.15
 ## Sentinel "kein Kanten-Material" (Vergleichswert, siehe edge_base).
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
 ## Neutrale Linienfarbe der Kanten: Weiß. Kahle Kanten leuchten bewusst
@@ -552,6 +559,54 @@ func set_face_number_tint(face_index: int, color: Color) -> void:
 func reset_number_tints() -> void:
 	for axis in labels:
 		(labels[axis] as Label3D).modulate = NUMBER_COLOR
+
+# --- Zeigen auf den Würfel ------------------------------------------------------
+# Getroffen wird über die BILDSCHIRM-Projektion der Seiten-/Kantenmitten, nicht
+# über einen Physik-Strahl: die Zeremonien-Würfel tragen keine Kollisionsform,
+# und eine Seite ist ohnehin erst ab einem Blickwinkel anklickbar.
+
+## Angeklickte physische Seite: [face_index (-1 = keine), Distanz zur projizierten
+## Seiten-Mitte (INF)]. Nur zugewandte Seiten zählen.
+func pick_face(camera: Camera3D, screen_pos: Vector2, radius: float) -> Array:
+	var best_face := -1
+	var best_dist := INF
+	if camera == null:
+		return [best_face, best_dist]
+	for axis in quads:
+		var quad: MeshInstance3D = quads[axis]
+		var to_cam: Vector3 = (camera.global_position - quad.global_position).normalized()
+		var normal: Vector3 = quad.global_transform.basis.z.normalized()
+		if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
+			continue
+		var dist := camera.unproject_position(quad.global_position).distance_to(screen_pos)
+		if dist < best_dist and dist < radius:
+			best_dist = dist
+			best_face = DiceController.AXIS_FACE_INDEX[axis]
+	return [best_face, best_dist]
+
+## Distanz zur nächsten zugewandten KANTEN-Mitte (INF = keine in radius). Jedes
+## Paar senkrechter Achsrichtungen ist eine Kante; ihre "Normale" ist die
+## Winkelhalbierende beider Seiten-Normalen.
+func edge_distance(camera: Camera3D, screen_pos: Vector2, radius: float) -> float:
+	var best_dist := INF
+	if camera == null:
+		return best_dist
+	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
+	for i in directions.size():
+		for j in range(i + 1, directions.size()):
+			var a: Vector3 = directions[i]
+			var b: Vector3 = directions[j]
+			if not is_zero_approx(a.dot(b)):
+				continue
+			var mid_global: Vector3 = global_transform * ((a + b) * DieBuilder.HALF_EXTENT)
+			var to_cam: Vector3 = (camera.global_position - mid_global).normalized()
+			var normal: Vector3 = (global_transform.basis * (a + b)).normalized()
+			if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
+				continue
+			var dist := camera.unproject_position(mid_global).distance_to(screen_pos)
+			if dist < best_dist and dist < radius:
+				best_dist = dist
+	return best_dist
 
 # --- Leiterbahn-Spuren --------------------------------------------------------
 
