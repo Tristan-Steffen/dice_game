@@ -2256,8 +2256,8 @@ func _highlight_engraving_die() -> void:
 	var faces: DieFaceDisplay = engraving_die.get_node("RigidBody3D/Faces")
 	faces.set_tint(DiceController.KIND_TINTS.get(die_inspector.current_def.style_id, Color.WHITE))
 	faces.reset_number_tints()
-	if die_inspector.edges_targeted():
-		# Gehaltene Kanten-Gravur: der Rahmen ist das Ziel.
+	if die_inspector.whole_die_targeted():
+		# Werkzeug für den GANZEN Würfel: der Rahmen ist sein Klickziel.
 		faces.set_edge_tint(RotatableDieView.SELECT_FACE_COLOR)
 	elif die_inspector.selected_face != -1:
 		# Nur die gewählte ZIFFER leuchtet - der Würfelkörper bleibt neutral.

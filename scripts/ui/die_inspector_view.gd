@@ -582,6 +582,12 @@ func _handle_edge_target() -> void:
 	if _targeting_of(held_id) == TARGET_WHOLE_DIE:
 		_apply_whole_die()  # Klick am Rahmen zählt als Würfel-Klick
 
+## Zielt das gehaltene Werkzeug auf den GANZEN Würfel? Dann ist der Rahmen sein
+## Klickziel - der schwebende Würfel der Zeremonie hebt ihn passend hervor.
+## (Nachfolger des alten edges_targeted: Kanten sind kein Ausbau-Slot mehr.)
+func whole_die_targeted() -> bool:
+	return held_id != "" and _targeting_of(held_id) == TARGET_WHOLE_DIE
+
 func _on_face_clicked(_die_index: int, face_index: int) -> void:
 	_handle_face_target(face_index)
 
@@ -776,7 +782,8 @@ func _any_face_eligible() -> bool:
 ## Rahmenfarbe: das Essenzglühen (neutral das Kanten-Neon), gedimmt unter einem
 ## Seiten-Werkzeug - der Rahmen ist nur noch Anzeige.
 func _edge_frame_border() -> Color:
-	var base := Essence.glow_for(current_def.essence_id) if Essence.is_valid_id(current_def.essence_id) 		else DieFaceDisplay.EDGE_NEON
+	var base := Essence.glow_for(current_def.essence_id) if Essence.is_valid_id(current_def.essence_id) \
+		else DieFaceDisplay.EDGE_NEON
 	if held_id == "" or _targeting_of(held_id) == TARGET_WHOLE_DIE:
 		return base
 	return Color(base.r, base.g, base.b, 0.3)
