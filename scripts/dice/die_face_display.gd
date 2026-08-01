@@ -181,6 +181,9 @@ var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
 ## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
+## Materialstufe je Achse (1..3). Die Stufe färbt NUR - satter statt heller,
+## damit sie neben dem Essenzglühen als eigenes Signal lesbar bleibt.
+var face_levels: Dictionary = {}
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
 var essence_id: String = ""
 
@@ -199,7 +202,10 @@ func apply_definition(def: DieDefinition) -> void:
 		_set_face_value(axis, value)
 		var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
 		face_ids[axis] = material_id
-		face_base[axis] = DieMaterial.tint_for(material_id)
+		var level := def.material_level(face_index)
+		face_levels[axis] = level
+		# Lache, Fresnel-Hülle und _neon_mix erben die Sättigung von hier.
+		face_base[axis] = DieMaterial.tint_for(material_id, level)
 		# Ziffern bleiben neutral-weiß, egal welches Material - Materialfarben
 		# machten die Zahl schwer lesbar (die Identität tragen Fläche/Rahmen/Kanten).
 		labels[axis].modulate = NUMBER_COLOR
@@ -247,9 +253,10 @@ func set_tint(color: Color) -> void:
 func _refresh_face_colors() -> void:
 	for axis in quads:
 		var profile := DieMaterial.by_id(face_ids.get(axis, ""))
+		var level: int = face_levels.get(axis, 1)
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		_apply_profile(material, profile, false)
-		_refresh_frame(axis, profile)
+		_apply_profile(material, profile, false, level)
+		_refresh_frame(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
 		corner_caps.visible = essence_id != ""
@@ -310,7 +317,8 @@ func _neon_mix() -> Color:
 ## Ohne Material: dunkler Glas-Körper, das Licht liegt allein in der Emission.
 ## Mit Material: die Einlage trägt die echte Oberfläche aus dem Profil.
 ## body_tint moduliert beides (Auswahl-/Stil-Tints bleiben sichtbar).
-func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge: bool) -> void:
+func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge: bool,
+		level := 1) -> void:
 	if profile == null:
 		material.albedo_color = BODY_COLOR * body_tint
 		material.emission = intense(EDGE_NEON) * (EDGE_GLOW if is_edge else FACE_GLOW) * body_tint
@@ -318,7 +326,7 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 		material.roughness = EDGE_ROUGHNESS if is_edge else FACE_ROUGHNESS
 		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 		return
-	var albedo := profile.surface_color * body_tint
+	var albedo := DieMaterial.saturated(profile.surface_color, level) * body_tint
 	# Kanten bleiben deckend - der Füllkörper hinter ihnen IST die Würfelmasse.
 	if not is_edge and profile.alpha < 1.0:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -329,7 +337,7 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	var glow := profile.glow
 	if is_edge and glow > 0.0:
 		glow = maxf(glow, MATERIAL_EDGE_GLOW_FLOOR)
-	material.emission = intense(profile.tint) * glow * body_tint
+	material.emission = intense(DieMaterial.saturated(profile.tint, level)) * glow * body_tint
 	material.metallic = profile.metallic
 	material.roughness = profile.roughness
 
@@ -421,7 +429,7 @@ func flare_rifts(strength: float, face_index := -1, block := false) -> void:
 			material.set_shader_parameter("block_flare", block)
 
 ## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
-func _refresh_frame(axis: String, profile: DieMaterial) -> void:
+func _refresh_frame(axis: String, profile: DieMaterial, level := 1) -> void:
 	var frame: MeshInstance3D = frames.get(axis)
 	if frame == null:
 		return
@@ -431,7 +439,7 @@ func _refresh_frame(axis: String, profile: DieMaterial) -> void:
 	var material: StandardMaterial3D = frame.material_override
 	material.albedo_color = BODY_COLOR * body_tint
 	var glow := FRAME_GLOW if profile.glow > 0.0 else 0.0
-	material.emission = intense(profile.tint) * glow * body_tint
+	material.emission = intense(DieMaterial.saturated(profile.tint, level)) * glow * body_tint
 
 ## Grenzen des Bodens, auf den die Lache fällt (abgerundetes Rechteck in
 ## Weltkoordinaten). Setzt scene_root aus den Grubenmaßen - die Würfel

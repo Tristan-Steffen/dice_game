@@ -365,3 +365,53 @@ func test_burn_in_leaves_value_engravings_alone() -> void:
 	view._sync_drawers()
 	view._on_engraving_pressed(Engraving.NOTCH)
 	assert_true(view._face_eligible(0), "die Kerbe ändert den Wert, nicht das Material")
+
+# --- Sättigung an der Station -------------------------------------------------------
+
+func _leveled_ruby_die(level: int) -> DieDefinition:
+	var def := _die()
+	def.set_face_material(0, DieMaterial.RUBY)
+	for _step in range(1, level):
+		def.raise_level(0)
+	return def
+
+func _fill_of(face_index: int) -> Color:
+	var box: StyleBoxFlat = view.face_chips[face_index].get_theme_stylebox("normal")
+	return box.bg_color
+
+func test_die_station_zeigt_die_stufe_als_saettigung() -> void:
+	view.show_die(_leveled_ruby_die(3))
+	await wait_frames(2)
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 3),
+		"die Zelle trägt die Sättigung ihrer Stufe")
+	view.show_die(_leveled_ruby_die(1))
+	await wait_frames(2)
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY),
+		"Stufe I bleibt exakt die alte Farbe")
+
+func test_das_gehaltene_material_zeigt_die_zielstufe_vorab() -> void:
+	# Dasselbe Material noch einmal sättigt die Seite - dafür sind Dubletten da,
+	# und die Zelle sagt vorab, wie satt sie danach wäre.
+	view.show_die(_leveled_ruby_die(1))
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY), Engraving.Rarity.RARE))
+	await wait_frames(2)
+	view.held_id = DieMaterial.RUBY
+	view._on_face_hover(0)
+	await wait_frames(2)
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 2),
+		"Vorschau auf Stufe II")
+	view._on_face_hover_exit()
+	await wait_frames(2)
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY),
+		"Zeiger weg -> zurück auf die echte Stufe")
+
+func test_ein_fremdes_material_hebt_keine_stufe() -> void:
+	view.show_die(_leveled_ruby_die(2))
+	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.GOLD), Engraving.Rarity.COMMON))
+	await wait_frames(2)
+	view.held_id = DieMaterial.GOLD
+	view._on_face_hover(0)
+	await wait_frames(2)
+	# Frisches Material streicht neu und beginnt bei Stufe I - keine Sättigung.
+	assert_ne(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 3),
+		"Übermalen ist kein Heben")

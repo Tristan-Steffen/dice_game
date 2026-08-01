@@ -98,6 +98,8 @@ var held_id: String = ""
 var first_face: int = -1
 ## Vorschau aktiv (Chip-Texte zeigen das Ergebnis, noch nicht angewandt).
 var preview_active: bool = false
+## Seite unter dem Zeiger (-1 = keine) - nur die Stufen-Vorschau braucht sie.
+var hovered_face: int = -1
 
 ## Während der Runde gesperrt: der Würfel ist einsehbar, aber keine Gravur lässt
 ## sich aufnehmen/anwenden (setzt scene_root über set_editing_locked).
@@ -775,16 +777,56 @@ func _edge_frame_border() -> Color:
 # --- Vorschau (Überfahren) -------------------------------------------------------
 
 func _on_face_hover(face_index: int) -> void:
+	hovered_face = face_index
+	_sync_level_preview()
 	_preview_face(face_index)
 
 func _on_face_hover_exit() -> void:
+	hovered_face = -1
+	_sync_level_preview()
 	_clear_preview()
 
 func _on_die_face_hovered(_die_index: int, face_index: int) -> void:
+	hovered_face = face_index
+	_sync_level_preview()
 	if face_index == -1:
 		_clear_preview()
 	else:
 		_preview_face(face_index)
+
+## Stufe, die diese Seite NACH dem gehaltenen Werkzeug trüge. Dasselbe Material
+## noch einmal oder die Dotierung hebt sie um eins - die Zelle zeigt die Sättigung
+## der ZIELSTUFE, sobald das Werkzeug über ihr steht.
+func _level_after(face_index: int) -> int:
+	if current_def == null:
+		return 1
+	var level := current_def.material_level(face_index)
+	if held_id == "" or hovered_face != face_index or not _face_eligible(face_index):
+		return level
+	var raises := held_id == Engraving.DOPING \
+		or (DieMaterial.is_valid_id(held_id) and _material_of(current_def, face_index) == held_id)
+	return mini(level + 1, DieMaterial.MAX_LEVEL) if raises else level
+
+## Malt die Zellen auf die Stufe um, die sie NACH dem Werkzeug trügen. Ohne
+## Zeiger fällt jede auf ihre echte Stufe zurück - der Aufruf ist idempotent.
+func _sync_level_preview() -> void:
+	if current_def == null:
+		return
+	for face_index in face_chips.size():
+		var chip: Button = face_chips[face_index]
+		if chip == null or not is_instance_valid(chip) or chip.disabled:
+			continue
+		_paint_chip_fill(chip, DieMaterial.tint_for(
+			_material_of(current_def, face_index), _level_after(face_index)))
+
+## Tauscht nur die Füllung eines Chips - Auswahlrand, Schrift und Dimmung bleiben.
+func _paint_chip_fill(chip: Button, fill: Color) -> void:
+	for state in ["normal", "hover", "pressed"]:
+		var box := chip.get_theme_stylebox(state) as StyleBoxFlat
+		if box == null:
+			continue
+		box.bg_color = fill.lightened(0.12) if state == "hover" \
+			else (fill.darkened(0.1) if state == "pressed" else fill)
 
 ## Vorschau des Ergebnisses, wenn die gehaltene Gravur hier landet.
 func _preview_face(face_index: int) -> void:
@@ -1021,7 +1063,8 @@ func _refresh_face_summary() -> void:
 		chip.position = DieNetView.cell_position(face_index, cell)
 		chip.size = Vector2.ONE * cell
 		face_chips[face_index] = chip
-		face_chip_fills[face_index] = DieMaterial.tint_for(material_id)
+		face_chip_fills[face_index] = DieMaterial.tint_for(material_id,
+			current_def.material_level(face_index))
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
 
@@ -1047,7 +1090,8 @@ func _face_chip(value: int, material_id: String, highlighted: bool, face_index: 
 	chip.text = str(value)
 	chip.custom_minimum_size = Vector2.ONE * u * TRAY_TILE
 	chip.add_theme_font_size_override("font_size", int(u * TRAY_TILE * 0.5))
-	_style_chip(chip, DieMaterial.tint_for(material_id), highlighted, eligible)
+	_style_chip(chip, DieMaterial.tint_for(material_id, _level_after(face_index)),
+		highlighted, eligible)
 	chip.disabled = held_id != "" and not eligible and not highlighted
 	# JEDE Seite erklärt sich - auch die nackte: das Fenster steht fest, also
 	# kostet eine leere Seite keinen springenden Kasten mehr.

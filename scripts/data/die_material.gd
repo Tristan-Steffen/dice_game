@@ -136,10 +136,31 @@ static func by_id(material_id: String) -> DieMaterial:
 static func is_valid_id(material_id: String) -> bool:
 	return by_id(material_id) != null
 
+## Restsättigungs-Schrumpf je Stufe: s' = 1 − (1 − s) × k. Ein glattes Multiplizieren
+## ginge nicht - Rubin liegt schon bei S≈0.81 und wäre sofort am Anschlag, Knochen
+## bei S≈0.34 und käme kaum vom Fleck. So schreiten BEIDE zweimal sichtbar:
+## Rubin 0.81 → 0.86 → 0.90, Knochen 0.34 → 0.51 → 0.65.
+const LEVEL_SATURATION := {2: 0.74, 3: 0.53}
+## Kleiner Hellwert-Zuschlag, damit "satter" nie als "matschiger" liest. Bewusst
+## klein: die Stufe ist ein Signal aus Farbreinheit, nie aus Helligkeit.
+const LEVEL_VALUE := {2: 1.04, 3: 1.08}
+
+## Sättigt eine Farbe auf die Materialstufe. Stufe 0/I gibt sie UNVERÄNDERT
+## zurück - Stufe I ist der Normalfall und kündigt sich nie an.
+static func saturated(color: Color, level: int) -> Color:
+	if level <= 1 or not LEVEL_SATURATION.has(level):
+		return color
+	var result := color
+	result.s = clampf(1.0 - (1.0 - color.s) * float(LEVEL_SATURATION[level]), 0.0, 1.0)
+	result.v = clampf(color.v * float(LEVEL_VALUE[level]), 0.0, 1.0)
+	return result
+
 ## Körperfarbe zur id - Weiß bei NONE/unbekannt (kein Sonderfall in der Anzeige).
-static func tint_for(material_id: String) -> Color:
+## level gilt für die Farbe der SEITE; ohne Angabe bleibt jeder Aufrufer auf
+## Stufe I, also exakt auf der Farbe von vorher.
+static func tint_for(material_id: String, level := 1) -> Color:
 	var material := by_id(material_id)
-	return material.tint if material != null else Color.WHITE
+	return saturated(material.tint, level) if material != null else Color.WHITE
 
 ## Kurzwirkung der Stufe; Stufe I steht in short/description.
 func short_for(level: int) -> String:

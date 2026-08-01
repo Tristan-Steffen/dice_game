@@ -94,6 +94,9 @@ static func face_at(local: Vector2, cell: float) -> int:
 static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
 	var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 	var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
+	# Die Stufe sättigt die Zelle - der Blick von weitem. Die Balken der Plakette
+	# bleiben daneben das genaue, zählbare Maß.
+	var fill := DieMaterial.tint_for(material_id, def.material_level(face_index))
 	var chip := Label.new()
 	chip.text = str(value)
 	chip.position = pos
@@ -106,10 +109,10 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	# Saum in der Plattenfarbe: auf der Zelle unsichtbar, aber dort, wo eine
 	# Risslinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
 	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
-	chip.add_theme_color_override("font_outline_color", DieMaterial.tint_for(material_id))
+	chip.add_theme_color_override("font_outline_color", fill)
 	chip.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
 	var box := StyleBoxFlat.new()
-	box.bg_color = DieMaterial.tint_for(material_id)
+	box.bg_color = fill
 	var has_essence := Essence.is_valid_id(def.essence_id)
 	box.border_color = Essence.glow_for(def.essence_id) if has_essence else DiceRowView.CHIP_BORDER
 	# Essenzglühen dick und farbig, sonst dezente Haarlinie.
@@ -180,7 +183,8 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 			continue
 		var badge := LevelBadge.new()
 		badge.level = level
-		badge.tint = DieMaterial.tint_for(def.materials[face] if face < def.materials.size() else "")
+		badge.tint = DieMaterial.tint_for(
+			def.materials[face] if face < def.materials.size() else "", level)
 		var side := cell * LEVEL_BADGE
 		var inset := cell * 0.04
 		badge.size = Vector2(side, side)

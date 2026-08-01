@@ -183,7 +183,9 @@ func test_die_plakette_traegt_die_materialfarbe() -> void:
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
 	var badge: DieNetView.LevelBadge = _badges(net)[0]
-	assert_eq(badge.tint, DieMaterial.tint_for(DieMaterial.RUBY))
+	# In der Sättigung IHRER Stufe - die Plakette sitzt auf der Zelle und darf
+	# nicht heller sein als der Grund, auf dem sie liegt.
+	assert_eq(badge.tint, DieMaterial.tint_for(DieMaterial.RUBY, 2))
 
 func test_die_plakette_skaliert_mit_der_zelle() -> void:
 	# Sie muss auch im 30er-Raster (Zelle ~17 px) noch eine Fläche haben.
@@ -248,3 +250,35 @@ func test_der_vakuum_doppelriss_zeigt_zwei_linienzuege() -> void:
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
 	assert_eq(_cracks(net).size(), 2, "beide Risse einer Seite werden gezeichnet")
+
+# --- Sättigung im Netz --------------------------------------------------------------
+
+func _cell_for(net: Control, value: String) -> Label:
+	for cell in _cells(net):
+		if (cell as Label).text == value:
+			return cell
+	return null
+
+func test_die_zellfuellung_folgt_der_materialstufe() -> void:
+	var def := _def_with_materials()
+	def.raise_level(0)  # Bernstein auf Stufe II
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	var box: StyleBoxFlat = _cell_for(net, "1").get_theme_stylebox("normal")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER, 2),
+		"gehobene Seite: die Zelle wird satter")
+	var plain: StyleBoxFlat = _cell_for(net, "3").get_theme_stylebox("normal")
+	assert_eq(plain.bg_color, DieMaterial.tint_for(DieMaterial.AMBER),
+		"dasselbe Material auf Stufe I bleibt exakt wie vorher")
+	assert_gt(box.bg_color.s, plain.bg_color.s, "und zwar SATTER, nicht nur anders")
+
+func test_die_stufen_plakette_traegt_dieselbe_saettigung() -> void:
+	var def := _def_with_materials()
+	def.raise_level(0)
+	def.raise_level(0)  # Stufe III
+	var badges := DieNetView.level_badges(def, 40.0)
+	assert_eq(badges.size(), 1, "nur die gehobene Seite bekommt eine Plakette")
+	assert_eq((badges[0] as DieNetView.LevelBadge).tint,
+		DieMaterial.tint_for(DieMaterial.AMBER, 3))
+	# Die Balken selbst bleiben das genaue Maß - die Sättigung ist der Blick von weitem.
+	assert_eq((badges[0] as DieNetView.LevelBadge).level, 3)

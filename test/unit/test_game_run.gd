@@ -810,7 +810,14 @@ func test_instant_charge_clauses_book_immediately():
 func test_signing_a_card_clears_the_offers_and_signals():
 	run.roll_route_offers()
 	watch_signals(run)
-	run.take_route(1)  # der Risikovertrag trägt immer beide Seiten
+	# Ein Platz kann als Werbegeschenk ohne Kleingedrucktes liegen (~9 %) - für
+	# die Zwei-Seiten-Zusicherung braucht es eine Karte, die beide trägt.
+	var slot := 1
+	for i in run.route_offers.size():
+		if String(run.route_offers[i].get(GameRun.CARD_MALUS, "")) != "":
+			slot = i
+			break
+	run.take_route(slot)
 	assert_true(run.route_offers.is_empty(), "die Auslage ist verbraucht")
 	assert_eq(run.active_deals.size(), 2, "Bonus UND Kleingedrucktes ziehen ein")
 	assert_signal_emitted(run, "deals_changed")
