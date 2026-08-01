@@ -403,6 +403,11 @@ var _tip_choice_slot: int = -1
 var _tip_choice_faces: Array[int] = []
 var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
+var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
+## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
+## Jeder Wurf setzt sie auf die kanonische Reihe zurück; Ziehen permutiert sie,
+## und die Reihe in der Grube wird DARAUS gerendert - nie umgekehrt.
+var player_order: Array[int] = []
 
 # Zustand der Effektkatalog-Charms (ctx-Schlüssel siehe CharmEffects):
 var rerolls_this_hand: int = 0  # Anker
@@ -468,6 +473,18 @@ var reorder_drag_index: int = -1
 var reorder_drag_start_pos: Vector2
 var reorder_is_dragging: bool = false
 var reorder_ghost: Node3D
+
+## Umlegen der Zählreihenfolge in der Grube: Druck merkt sich den Würfel, erst
+## der Weg entscheidet zwischen Auswahl-Klick und Ziehen (EINFÜGE-Semantik - die
+## anderen rücken auf, wie in Balatro).
+## Umlegen im Pool-Tray (-1 = keine Geste). Auch hier entscheidet erst der Weg
+## zwischen Klick (Station öffnen) und Ziehen (Plätze tauschen).
+var tray_drag_index: int = -1
+var tray_drag_start_pos: Vector2
+var tray_is_dragging: bool = false
+var pit_drag_index: int = -1
+var pit_drag_start_pos: Vector2
+var pit_is_dragging: bool = false
 
 ## Umsortieren der Tisch-Charms per Ziehen (gleiche Klick-oder-Drag-Logik).
 var charm_drag_index: int = -1
@@ -1968,6 +1985,14 @@ func _on_die_wall_contact(other: Node, body: RigidBody3D) -> void:
 	dice_pit.flash_wall(other, lerpf(FIELD_FLASH_MIN_STRENGTH, 1.0, strength))
 
 func _unhandled_input(event: InputEvent) -> void:
+	if tray_drag_index != -1:
+		_handle_tray_drag_input(event)
+		return
+
+	if pit_drag_index != -1:
+		_handle_pit_drag_input(event)
+		return
+
 	if reorder_drag_index != -1:
 		_handle_reorder_input(event)
 		return
@@ -2051,15 +2076,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _can_toggle_selection():
 		var index := _pick_die_index(event.position)
 		if index != -1:
-			dice.set_selected(index, not dice.selected[index])
-			_line_up_settled_dice()  # Reihe gleitet in ihre neue Ordnung
-			_refresh_ui()  # Kombination/Basis folgen der Auswahl sofort
-			_update_charm_badges()  # Runde-Sache-Summe folgt der Auswahl
+			# Druck startet eine MÖGLICHE Zieh-Geste; ob daraus ein Umsortieren
+			# oder nur ein Auswahl-Klick wird, entscheidet erst der Weg bis zum
+			# Loslassen (dieselbe Logik wie beim Warteschlangen-Würfel).
+			pit_drag_index = index
+			pit_drag_start_pos = event.position
+			pit_is_dragging = false
+			camera_rig.set_tilt_locked(true)
 			return
 
 	# Warteschlangen-Umsortieren nur außerhalb der Zeremonie - dort holt ein
 	# Klick den Würfel ins Edit-Panel statt eine Zieh-Geste zu starten.
 	if not engraving_active and not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+		return
+
+	if not _dice_in_motion() and _try_start_pool_tray_drag(event.position):
 		return
 
 	if not _dice_in_motion() and _try_tray_die_click(event.position):
@@ -2382,6 +2413,130 @@ func _handle_reorder_input(event: InputEvent) -> void:
 			_open_engraving(queue_tray_view.slot_defs[reorder_drag_index], queue_tray_view.slot_roots[reorder_drag_index], queue_tray_view)
 		reorder_drag_index = -1
 		reorder_is_dragging = false
+
+## Umlegen im Pool-Tray: Drücken merkt sich den Würfel, Loslassen über einem
+## anderen TAUSCHT die beiden Plätze. Nur im Werkbank-Fenster (vor der
+## Unterschrift bzw. im Laden) - danach ist der Vorrat für die Runde gestellt.
+## Die Ablage bleibt außen vor: _return_dice_to_pool_tray leert sie zum
+## Ladenbeginn, in der Werkbank-Zeit liegt dort also ohnehin nichts.
+func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
+	if run == null or _dice_editing_locked() or engraving_active:
+		return false
+	# Nur dort, wo das Tray die lokale Bühne ist: aus der Übersicht muss der
+	# Druck zu den Zoom-Zonen durchfallen, sonst frisst die Geste den Klick.
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP and camera_rig.mode != CameraRig.Mode.POOL:
+		return false
+	var index := _pool_tray_slot_at(screen_pos)
+	if index < 0:
+		return false
+	tray_drag_index = index
+	tray_drag_start_pos = screen_pos
+	tray_is_dragging = false
+	camera_rig.set_tilt_locked(true)
+	return true
+
+func _handle_tray_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_RIGHT:
+		_end_tray_drag()
+		return
+	if event is InputEventMouseMotion:
+		# Erst der Weg macht die Geste - das Anheben wartet auf den Schwellwert,
+		# damit ein bloßer Klick den Würfel nicht hüpfen lässt.
+		if not tray_is_dragging \
+				and event.position.distance_to(tray_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			tray_is_dragging = true
+			pool_tray_view.lift_slot(tray_drag_index, true)
+		return
+	if event is InputEventMouseButton and not event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		if tray_is_dragging:
+			var target := _pool_tray_slot_at(event.position)
+			if target >= 0 and target != tray_drag_index:
+				var from_pool := run.owned_pool.find(pool_tray_view.slot_defs[tray_drag_index])
+				var to_pool := run.owned_pool.find(pool_tray_view.slot_defs[target])
+				if from_pool >= 0 and to_pool >= 0:
+					run.reorder_pool(from_pool, to_pool)
+			_end_tray_drag()
+			return
+		# Nur getippt: der alte Weg - der Klick öffnet die Gravur-Station.
+		var pos: Vector2 = event.position
+		_end_tray_drag()
+		_try_tray_die_click(pos)
+
+## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
+func _pool_tray_slot_at(screen_pos: Vector2) -> int:
+	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
+	if result.is_empty():
+		return -1
+	var index: int = pool_tray_view.find_slot_index(result.collider)
+	if index < 0 or index >= pool_tray_view.slot_defs.size():
+		return -1
+	return index if pool_tray_view.slot_defs[index] != null else -1
+
+func _end_tray_drag() -> void:
+	if tray_drag_index >= 0 and tray_is_dragging:
+		pool_tray_view.lift_slot(tray_drag_index, false)
+	tray_drag_index = -1
+	tray_is_dragging = false
+	camera_rig.release_tilt_immediately()
+
+## Bewegung/Loslassen in der Grube: unter dem Schwellwert bleibt es ein
+## Auswahl-Klick, darüber wird die Reihe umgelegt. Rechtsklick bricht ab.
+func _handle_pit_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_RIGHT:
+		_end_pit_drag()
+		return
+	if event is InputEventMouseMotion:
+		if not pit_is_dragging \
+				and event.position.distance_to(pit_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			pit_is_dragging = true
+		if pit_is_dragging:
+			_drag_pit_die_to(event.position)
+		return
+	if event is InputEventMouseButton and not event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		if not pit_is_dragging:
+			# Nur getippt: der alte Auswahl-Klick.
+			dice.set_selected(pit_drag_index, not dice.selected[pit_drag_index])
+			_line_up_settled_dice()  # Reihe gleitet in ihre neue Ordnung
+			_refresh_ui()  # Kombination/Basis folgen der Auswahl sofort
+			_update_charm_badges()  # Runde-Sache-Summe folgt der Auswahl
+		_end_pit_drag()
+
+## Schiebt den gezogenen Würfel an die Stelle unter dem Zeiger. EINFÜGEN, nicht
+## Tauschen: die Reihe rückt auf, damit sich eine Hand umlegen lässt, ohne dass
+## zwei Würfel die Plätze wechseln.
+func _drag_pit_die_to(screen_pos: Vector2) -> void:
+	var target := _pit_row_slot_at(screen_pos)
+	var from := player_order.find(pit_drag_index)
+	if target < 0 or from < 0 or target == from:
+		return
+	player_order.remove_at(from)
+	player_order.insert(clampi(target, 0, player_order.size()), pit_drag_index)
+	_line_up_settled_dice()  # die Reihe rendert die neue Ansage
+	_refresh_ui()  # die Vorschau zählt ab jetzt in der neuen Reihenfolge
+
+## Platz in der Reihe unter screen_pos: die Reihe läuft entlang Welt-Z, also
+## entscheidet der projizierte Abstand zur Reihenmitte.
+func _pit_row_slot_at(screen_pos: Vector2) -> int:
+	if player_order.is_empty():
+		return -1
+	var hit: Variant = _mouse_on_plane(screen_pos, dice.bodies[player_order[0]].global_position.y)
+	if hit == null:
+		return -1
+	var point: Vector3 = hit
+	var span := PIT_TOP_ROW_SPACING * float(player_order.size() - 1)
+	var start := DicePit.PIT_CENTER.z - span * 0.5
+	var raw := (point.z - start) / PIT_TOP_ROW_SPACING
+	return clampi(int(round(raw)), 0, player_order.size() - 1)
+
+func _end_pit_drag() -> void:
+	pit_drag_index = -1
+	pit_is_dragging = false
+	camera_rig.release_tilt_immediately()
+	_line_up_settled_dice()
 
 ## Versteckt den Original-Slot; ein freier Ghost-Würfel folgt ab jetzt der Maus.
 func _begin_reorder_drag() -> void:
@@ -3343,6 +3498,8 @@ func _dice_editing_locked(def: DieDefinition = null) -> bool:
 ## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf) - für den
 ## Würfel, der gerade auf dem Bock liegt.
 func _sync_editing_lock() -> void:
+	if table_screen != null and table_screen.workshop_window != null:
+		table_screen.workshop_window.editing_locked = _dice_editing_locked()
 	if die_inspector != null:
 		die_inspector.set_editing_locked(_dice_editing_locked(die_inspector.current_def))
 	if die_inspector != null and die_inspector.target_grid != null:
@@ -3464,6 +3621,9 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_AFTER_FARKLE: first_hand_after_farkle,
 		CharmEffects.CTX_FARKLE_STACKS: run.farkle_count,
 		CharmEffects.CTX_LATE_SLOTS: _late_slots(),
+		# Die gelegte Reihenfolge reist wie jeder andere Slot-Zustand im ctx -
+		# Vorschau, Zug, Farkle-Vergleich und Zähl-Animation lesen dieselbe Quelle.
+		DiceScoring.CTX_PLAYER_ORDER: player_order.duplicate(),
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
@@ -3493,6 +3653,13 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_late.append(to_filtered[s])
 	ctx[CharmEffects.CTX_LATE_SLOTS] = mapped_late
+	# Die angesagte Reihenfolge nennt Slots - auf die gefilterte Auswahl
+	# umschlüsseln, sonst zählt die Vorschau in einer fremden Reihenfolge.
+	var mapped_order: Array = []
+	for s in ctx.get(DiceScoring.CTX_PLAYER_ORDER, []):
+		if to_filtered.has(s):
+			mapped_order.append(to_filtered[s])
+	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
 	# Leiterbahn-Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl
 	# umschlüsseln, sonst feuert die Kette am falschen Würfel.
 	var mapped_links := {}
@@ -3705,6 +3872,10 @@ func _on_throw_button_pressed() -> void:
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
+	# Jeder Wurf setzt die Ansage zurück - die neue Lage legt der Spieler selbst;
+	# der Farkle-Vergleich bekommt vorher noch die ALTE Ansage geschnappt.
+	var declared_before := player_order.duplicate()
+	player_order.clear()
 	var thrown_indices: Array[int] = []
 	if not has_rolled_current_hand:
 		# Erster Wurf der Hand: die gequeuten Würfel wirklich ziehen und werfen.
@@ -3727,6 +3898,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_rifts = _slot_rifts()
 		pre_reroll_links = _pointer_links()
 		pre_reroll_levels = _material_levels()
+		pre_reroll_order = declared_before
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
 				if i < slot_draw_positions.size():
@@ -3808,12 +3980,19 @@ func _line_up_settled_dice() -> void:
 			indices.append(i)
 	if indices.is_empty():
 		return
+	# Die Reihe wird aus der ANSAGE gerendert; nur was sie nicht nennt, fällt
+	# hinten kanonisch ein (frisch gefallene Würfel vor dem ersten Aufräumen).
 	indices.sort_custom(func(a: int, b: int) -> bool:
+		var ra := player_order.find(a)
+		var rb := player_order.find(b)
+		if ra != rb and (ra >= 0 or rb >= 0):
+			return rb < 0 or (ra >= 0 and ra < rb)
 		if dice.selected[a] != dice.selected[b]:
 			return dice.selected[a]  # Kombinations-Würfel nach links
 		if dice.values[a] != dice.values[b]:
 			return dice.values[a] > dice.values[b]
 		return a < b)
+	player_order = indices.duplicate()
 	# Alle auf die niedrigste Ruhehöhe der Gruppe - ein auf einem Nachbarn
 	# liegen gebliebener Würfel würde sonst in der Reihe schweben.
 	var rest_y := INF
@@ -3930,6 +4109,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences)
 	old_ctx[DiceScoring.CTX_RIFTS] = pre_reroll_rifts
+	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
@@ -4164,7 +4344,8 @@ func _on_take_button_pressed() -> void:
 	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
 	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
-	var take_order := DiceScoring.trigger_order(participating, dice.values, _slot_essences())
+	var take_order := DiceScoring.trigger_order(participating, dice.values, _slot_essences(),
+		player_order)
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, EssenceEffects.effective_sets(_slot_essences()), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots())

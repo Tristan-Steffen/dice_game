@@ -1211,6 +1211,26 @@ func owned_essence_ids() -> Array[String]:
 func note_pool_changed() -> void:
 	pool_changed.emit()
 
+## Tauscht zwei Pool-PLÄTZE. Das ist ANORDNUNG, nicht Ersetzung: die beiden
+## Instanzen wandern mitsamt ihrer Identität an die neue Stelle, ihr Inhalt wird
+## nie überschrieben (become gilt nur beim Ersetzen). Damit bleibt jeder
+## instanz-gebundene Zustand - Xenons Blitz, der Einschlag des Kugelblitzes -
+## automatisch am richtigen Würfel.
+## Die Pool-Reihenfolge IST die Ziehreihenfolge des Rundendecks; das Umlegen vor
+## der Runde ist also Strategie und wird nirgends nachträglich normalisiert.
+func reorder_pool(from_index: int, to_index: int) -> bool:
+	if from_index == to_index:
+		return false
+	if from_index < 0 or from_index >= owned_pool.size():
+		return false
+	if to_index < 0 or to_index >= owned_pool.size():
+		return false
+	var moved := owned_pool[from_index]
+	owned_pool[from_index] = owned_pool[to_index]
+	owned_pool[to_index] = moved
+	pool_changed.emit()
+	return true
+
 ## Verbraucht genau eine Gravur der id; true, wenn eine da war.
 func consume_engraving(id: String) -> bool:
 	return consume_engravings(id, 1)

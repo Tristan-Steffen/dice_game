@@ -11,6 +11,15 @@ extends GridContainer
 
 ## Kachel index angeklickt (leere Plätze melden nichts).
 signal slot_pressed(index: int)
+## Zwei Plätze sollen die Position tauschen (nur bei reorder_enabled).
+signal slots_reordered(from_index: int, to_index: int)
+
+## Umlegen per Ziehen - bewusst ABGESCHALTET voreingestellt: dasselbe Raster
+## dient auch als reines Auswahl-Ziel (Tausch-Auswahl des Ladens), und dort
+## wäre eine Zieh-Geste ein zweiter, ungewollter Weg in den Vorrat.
+var reorder_enabled := false
+## Platz, auf dem die Zieh-Geste begann (-1 = keine).
+var _drag_from := -1
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -48,6 +57,31 @@ var _totals: Array[Label] = []
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+## Drücken merkt sich den Platz, Loslassen über einer ANDEREN Kachel tauscht die
+## beiden. Losgelassen über derselben Kachel bleibt es ein Klick - das Signal
+## dafür hängt ohnehin schon am Knopf.
+func _on_tile_input(event: InputEvent, index: int) -> void:
+	if not (event is InputEventMouseButton) or event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if event.pressed:
+		_drag_from = index
+		return
+	# Der Knopf fängt die Maus, das Loslassen meldet also IMMER die Ausgangs-
+	# kachel - das Ziel muss über die Zeigerposition gesucht werden.
+	var target := slot_at((event as InputEventMouseButton).global_position)
+	if _drag_from >= 0 and target >= 0 and target != _drag_from:
+		slots_reordered.emit(_drag_from, target)
+	_drag_from = -1
+
+## Platz unter der globalen Position (-1 = keiner) - das Loslassen landet auf der
+## Kachel unter dem Zeiger, nicht auf der, auf der gedrückt wurde.
+func slot_at(global_point: Vector2) -> int:
+	for i in tiles.size():
+		var tile := tiles[i]
+		if tile != null and is_instance_valid(tile) and tile.get_global_rect().has_point(global_point):
+			return i
+	return -1
 
 ## Maße einer detaillierten Kachel bei Einheit unit: das Würfelnetz plus Rand.
 static func detail_tile_size(unit: float) -> Vector2:
@@ -129,6 +163,8 @@ func _tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
 	tile.custom_minimum_size = _tile_size()
 	tile.tooltip_text = _describe(def)
 	tile.pressed.connect(func() -> void: slot_pressed.emit(index))
+	if reorder_enabled:
+		tile.gui_input.connect(_on_tile_input.bind(index))
 	if detailed:
 		_fill_detailed(tile, def, highlighted, index)
 	else:

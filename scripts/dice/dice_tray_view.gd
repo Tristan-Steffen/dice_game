@@ -62,6 +62,10 @@ const RIPPLE_TIME := 0.5
 
 ## Kollisions-Layer der Slot-Bodies - macht einzelne Tray-Würfel anklickbar.
 const SLOT_PICK_LAYER := 16
+## Anheben des gegriffenen Würfels beim Umlegen (Höhe, Größe, Dauer).
+const DRAG_LIFT := 0.9
+const DRAG_LIFT_SCALE := 1.12
+const DRAG_LIFT_TIME := 0.12
 
 var slot_roots: Array[Node3D] = []
 var slot_bodies: Array[RigidBody3D] = []
@@ -296,6 +300,19 @@ func slot_global_position(index: int) -> Vector3:
 ## zu ändern; die Station bleibt sichtbar. fill() stellt den Würfel wieder her.
 func set_slot_visible(index: int, is_visible: bool) -> void:
 	_set_slot_shown(index, is_visible)
+
+## Hebt den Würfel eines Slots sichtbar an und hellt ihn auf, solange er für
+## eine Zieh-Geste in der Hand liegt. Reine Anzeige - der Inhalt bleibt.
+func lift_slot(index: int, lifted: bool) -> void:
+	if index < 0 or index >= slot_roots.size():
+		return
+	var root := slot_roots[index]
+	var tween := create_tween().set_parallel(true)
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(root, "position:y",
+		_slot_rest_y(0) + (DRAG_LIFT if lifted else 0.0), DRAG_LIFT_TIME)
+	tween.tween_property(root, "scale",
+		Vector3.ONE * (DRAG_LIFT_SCALE if lifted else 1.0), DRAG_LIFT_TIME)
 
 ## Slot-Index zum per Raycast getroffenen Body, oder -1. Auch leere Slots
 ## behalten ihre Kollisionsform - darum zusätzlich Sichtbarkeit prüfen.

@@ -130,6 +130,14 @@ const CTX_STRESS := "stress_round"
 ## alten Risse.
 const CTX_RIFTS := "rifts"
 
+## Vom Spieler in der Grube gelegte Zählreihenfolge (Array von Slot-Indizes).
+## Eine ANSAGE, kein Messwert: die Reihe wird aus diesem Array gerendert, nie
+## umgekehrt aus den Würfelpositionen gelesen - nur so sind Vorschau, Zug,
+## Farkle-Vergleich und Zähl-Animation garantiert derselben Meinung.
+const CTX_PLAYER_ORDER := "player_order"
+## Rang eines Würfels, den die Ansage nicht nennt.
+const UNRANKED := 1 << 30
+
 static func rifts_in(ctx: Dictionary) -> Dictionary:
 	return ctx.get(CTX_RIFTS, {})
 
@@ -284,13 +292,30 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 ## Photonengas ist der EINZIGE Eingriff: seine Würfel bilden einen eigenen Block
 ## ganz vorn, in sich nach derselben Regel sortiert. Der Schlüssel bleibt damit
 ## kanonisch aus Werten + ctx berechnet, nie aus physischen Positionen.
-static func trigger_order(scored: Array[int], dice: Array[int], essences: Dictionary = {}) -> Array[int]:
+## declared = die vom Spieler in der Grube gelegte Reihenfolge (Slot-Indizes).
+## Ist sie leer, gilt exakt die alte kanonische Regel - Wert absteigend, bei
+## Gleichstand der kleinere Slot. Liegt sie an, ERSETZT sie diesen Rang: die
+## Anordnung der Hand ist eine Ansage des Spielers, keine Ableitung aus der
+## Physik. Photonengas behält seinen Block vorn - die Essenz schlägt die
+## Anordnung -, INNERHALB der Blöcke entscheidet die Ansage.
+static func trigger_order(scored: Array[int], dice: Array[int], essences: Dictionary = {},
+		declared: Array = []) -> Array[int]:
 	var order := scored.duplicate()
+	var rank := {}
+	for i in declared.size():
+		rank[int(declared[i])] = i
 	order.sort_custom(func(a: int, b: int) -> bool:
 		var a_first := EssenceEffects.counts_first_of(EssenceEffects.set_at(essences, a))
 		var b_first := EssenceEffects.counts_first_of(EssenceEffects.set_at(essences, b))
 		if a_first != b_first:
 			return a_first
+		if not rank.is_empty():
+			# Nicht angesagte Würfel hängen sich hinten an und sortieren sich
+			# untereinander wieder kanonisch (gleicher Platzhalter-Rang).
+			var ra: int = rank.get(a, UNRANKED)
+			var rb: int = rank.get(b, UNRANKED)
+			if ra != rb:
+				return ra < rb
 		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
 	return order
 
@@ -322,7 +347,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Auch ohne Materialien können Charms und Essenzen Aktivierungen stapeln.
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
-	var order := trigger_order(scored, dice, essences)
+	var order := trigger_order(scored, dice, essences, ctx.get(CTX_PLAYER_ORDER, []))
 	# Würfelphase in Reihen-Ordnung; je Aktivierung: Augen -> Material ->
 	# würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
 	for i in order:

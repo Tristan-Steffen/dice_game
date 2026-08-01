@@ -37,8 +37,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var rifts := DiceScoring.rifts_in(ctx)
 	var armed: Dictionary = ctx.get(DiceScoring.CTX_ESSENCE_ARMED, {})
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
-	var eye_slots := DiceScoring.trigger_order(scored, dice, essences)
-	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() 		or not essences.is_empty() or not rifts.is_empty()
+	var eye_slots := DiceScoring.trigger_order(scored, dice, essences,
+		ctx.get(DiceScoring.CTX_PLAYER_ORDER, []))
+	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
+		or not essences.is_empty() or not rifts.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
 	# (Ozon wächst mit ihnen, Grubengas fragt am Ende).
 	var crits := 0

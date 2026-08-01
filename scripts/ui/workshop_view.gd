@@ -58,6 +58,9 @@ var _pending_deliveries := 0
 
 ## Die Gravur-Station als angehängtes Vollflächen-Panel (setzt scene_root).
 var _station: Control
+## Gesperrt, sobald die Runde unterschrieben ist - dasselbe Zeitfenster wie
+## fürs Gravieren; scene_root schiebt den Stand herein.
+var editing_locked: bool = false
 ## Netz-Karte des überfahrenen Tray-Würfels (nur bei geschlossener Station).
 var _hover_card: PanelContainer
 var _hover_def: DieDefinition
@@ -416,6 +419,19 @@ func _pool_index_of(grid_index: int) -> int:
 		return -1
 	return run.owned_pool.find(defs[grid_index])
 
+## Zwei Kacheln getauscht: die PLÄTZE im Vorrat wechseln, die Würfel selbst
+## bleiben, was sie sind. Gesperrt, sobald die Runde unterschrieben ist - es ist
+## dasselbe Zeitfenster wie fürs Gravieren.
+func _on_pool_slots_reordered(from_grid: int, to_grid: int) -> void:
+	if run == null or editing_locked:
+		return
+	var from_pool := _pool_index_of(from_grid)
+	var to_pool := _pool_index_of(to_grid)
+	if from_pool < 0 or to_pool < 0:
+		return
+	clear_hover_net()  # die Karte soll dem Ziehen nicht in die Quere kommen
+	run.reorder_pool(from_pool, to_pool)
+
 ## Klick auf eine Kachel: wählt sie aus bzw. wieder ab. Mehr Plätze als Würfel
 ## im Paket nimmt die Auswahl nicht an.
 func toggle_slot(grid_index: int) -> void:
@@ -573,7 +589,11 @@ func _placement_grid(u: float) -> Control:
 	_pool_unit = 0.0
 	_pool_grid = DiceGridView.new()
 	_pool_grid.name = "PoolGrid"
+	# Nur die Werkbank legt um - die Tausch-Auswahl des Ladens bleibt ein
+	# reines Ziel (dasselbe Raster, andere Rolle).
+	_pool_grid.reorder_enabled = true
 	_pool_grid.slot_pressed.connect(toggle_slot)
+	_pool_grid.slots_reordered.connect(_on_pool_slots_reordered)
 	_pool_host.add_child(_pool_grid)
 	_pool_host.resized.connect(_fit_pool_grid)
 	_fit_pool_grid()
