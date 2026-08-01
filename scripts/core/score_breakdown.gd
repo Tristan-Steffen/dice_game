@@ -67,12 +67,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rift_ids := RiftEffects.rifts_at(rifts, i)
-		# Basis-Stand VOR diesem Würfel: die Differenz ist sein Basis-Beitrag,
-		# und den speichert die Phosphoreszenz beim Nehmen.
-		var base_before_die := base
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus.
 		var phosphor := DiceScoring.phosphor_store_for(ctx, i)
 		base += phosphor
+		# Basis-Stand NACH der Auszahlung: gespeichert wird nur, was der Würfel in
+		# DIESEM Zug selbst erarbeitet - ein Speicher, keine Kette.
+		var base_before_die := base
 		var count := 1
 		var once_base := 0
 		if has_die_bonus:

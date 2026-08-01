@@ -730,6 +730,20 @@ func test_phosphorescence_stores_and_repeats_its_base():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false, NO_MATS, {}, loaded),
 		(10 + 5 + 5 + 5) * 2)
 
+func test_the_phosphor_store_never_feeds_itself():
+	# Ein Speicher, keine Kette: der eben ausgeschüttete Betrag darf nicht wieder
+	# mit eingelagert werden, sonst wächst der Würfel Zug um Zug aus sich selbst.
+	var run := GameRun.new_run()
+	var die := run.owned_pool[0]
+	die.essence_id = Essence.PHOSPHORESCENCE
+	run.roll_essence_round_state()
+	var defs: Array[DieDefinition] = [die, run.owned_pool[1]]
+	var loaded := _ctx({0: Essence.PHOSPHORESCENCE}, {DiceScoring.CTX_PHOSPHOR_STORE: {0: 5}})
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m(["", ""]), {}, loaded)
+	run.note_phosphor_stores(defs, breakdown)
+	assert_eq(run.phosphor_store(die), 5, "nur die eigenen Augen, nicht die 5 aus dem Speicher")
+
 func test_the_phosphor_store_is_overwritten_and_reset():
 	var run := GameRun.new_run()
 	var die := run.owned_pool[0]
