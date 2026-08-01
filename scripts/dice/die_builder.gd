@@ -17,6 +17,13 @@ const FACE_SIZE := HALF_EXTENT * 2.0 - EDGE_THICKNESS
 ## Eck-Kappen der Kanten: dicker als die Balken, damit die
 ## Silhouette selbst auf Distanz "beschlagene Ecken" zeigt.
 const CAP_SIZE := 0.46
+## Dunkle Fassung: Breite des Dichtungsrings und seine Tiefe. Die Tiefe liegt
+## bewusst zwischen Quad (0) und Rahmen (0.006) - groß genug gegen Z-Fighting,
+## klein genug, dass Rahmen und Risslinien darüber liegen.
+const GASKET_WIDTH := 0.10
+const GASKET_DEPTH := 0.004
+## Fast schwarz, eine Spur unter der Körperfarbe - sie soll dichten, nicht malen.
+const GASKET_COLOR := Color(0.02, 0.02, 0.035)
 
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.
@@ -167,6 +174,10 @@ static func build() -> Node3D:
 		faces.add_child(quad)
 		faces.quads[axis] = quad
 
+		var gasket := _build_face_gasket()
+		quad.add_child(gasket)
+		faces.gaskets[axis] = gasket
+
 		var frame := _build_face_frame()
 		quad.add_child(frame)
 		faces.frames[axis] = frame
@@ -203,6 +214,52 @@ static func _build_face_frame() -> MeshInstance3D:
 	material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
 	frame.material_override = material
 	return frame
+
+## Dunkle Fassung einer Material-Seite: ein schmaler, fast schwarzer Ring am
+## Flächenrand, zwischen Leuchtrahmen und Kantenbalken. Er ist die optische
+## Dichtung gegen das Kantenbloom - dasselbe Prinzip wie der dunkle Saum um die
+## Ziffer: Bloom blutet im Bildschirmraum, und nur eine dunkle Trennzone hält
+## ihn von der Einlage fern. Vier dünne Balken statt eines Rings, weil sich so
+## zwei Meshes teilen lassen und die Ecken stoßfrei aneinanderliegen.
+## Liegt VOR dem Quad, aber HINTER Rahmen und Riss-Auflage - eine Risslinie, die
+## bis an den Flächenrand läuft, bleibt darüber sichtbar.
+# Alle Fassungen sind identisch - Material und beide Meshes werden geteilt
+# (dasselbe Muster wie der _trace_mesh_cache), statt je Seite neu zu entstehen.
+static var _gasket_material: StandardMaterial3D
+static var _gasket_long: QuadMesh
+static var _gasket_short: QuadMesh
+
+static func _build_face_gasket() -> Node3D:
+	var gasket := Node3D.new()
+	gasket.name = "MaterialGasket"
+	gasket.position = Vector3(0, 0, GASKET_DEPTH)
+	gasket.visible = false
+	if _gasket_material == null:
+		_gasket_material = StandardMaterial3D.new()
+		_gasket_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_gasket_material.albedo_color = GASKET_COLOR  # kein Leuchten: eine Dichtung strahlt nicht
+		_gasket_long = QuadMesh.new()
+		_gasket_long.size = Vector2(FACE_SIZE, GASKET_WIDTH)
+		_gasket_short = QuadMesh.new()
+		_gasket_short.size = Vector2(GASKET_WIDTH, FACE_SIZE - GASKET_WIDTH * 2.0)
+	var material := _gasket_material
+	var span := FACE_SIZE - GASKET_WIDTH
+	var long_mesh := _gasket_long
+	var short_mesh := _gasket_short
+	for side in [-1.0, 1.0]:
+		var bar := MeshInstance3D.new()
+		bar.mesh = long_mesh
+		bar.position = Vector3(0, side * span * 0.5, 0)
+		bar.material_override = material
+		bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		gasket.add_child(bar)
+		var post := MeshInstance3D.new()
+		post.mesh = short_mesh
+		post.position = Vector3(side * span * 0.5, 0, 0)
+		post.material_override = material
+		post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		gasket.add_child(post)
+	return gasket
 
 ## Riss-Auflage einer gebrochenen Seite (unsichtbar ohne Rift): das farblose
 ## Rissbild unter die_rift.gdshader - das Kernlicht bricht aus der Schale. Ein

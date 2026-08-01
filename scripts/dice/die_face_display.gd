@@ -144,6 +144,9 @@ const LABEL_OUTLINE_SIZE := 20
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
 var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
+## Achse -> Node3D (dunkle Fassung): die Dichtung gegen das Kantenbloom. Sie
+## kommt und geht mit dem Rahmen - ohne Einlage gibt es nichts abzudichten.
+var gaskets: Dictionary = {}
 var rift_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Riss-Auflage)
 ## Zweite Auflage NUR für Vakuum-Würfel (zwei Brüche je Seite), faul gebaut.
 var rift_overlays_second: Dictionary = {}
@@ -430,6 +433,9 @@ func flare_rifts(strength: float, face_index := -1, block := false) -> void:
 
 ## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
 func _refresh_frame(axis: String, profile: DieMaterial, level := 1) -> void:
+	var gasket: Node3D = gaskets.get(axis)
+	if gasket != null:
+		gasket.visible = profile != null
 	var frame: MeshInstance3D = frames.get(axis)
 	if frame == null:
 		return
