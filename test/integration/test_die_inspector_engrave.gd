@@ -192,7 +192,10 @@ func test_the_doping_lifts_a_material_face() -> void:
 	_hold_doping()
 	assert_eq(view.held_id, Engraving.DOPING, "aufgenommen")
 	view._on_chip_clicked(1, 1)  # Rubin-Seite
-	assert_eq(view.current_def.material_level(1), 2, "die Seite steht auf Stufe II")
+	# Die Dotierung hebt nicht um eins, sie springt ganz nach oben - das ist ihre
+	# Wildcard-Kraft und der Grund, warum sie ein epischer Sonderposten ist.
+	assert_eq(view.current_def.material_level(1), DieMaterial.MAX_LEVEL,
+		"von Stufe I direkt auf III")
 	assert_eq(view.held_id, "", "letztes Exemplar verbraucht -> abgelegt")
 	assert_eq(_stock(Engraving.DOPING), 0, "Dotierung verbraucht")
 
@@ -243,15 +246,46 @@ func test_a_new_material_resets_the_level() -> void:
 	assert_eq(view.current_def.material_level(1), 1, "die alte Stufe ist mit weg")
 
 func test_the_same_material_again_saturates_the_face() -> void:
-	# Dubletten haben endlich einen Zweck: dieselbe Gravur hebt statt zu streichen.
+	# Dubletten haben endlich einen Zweck: dieselbe Gravur hebt statt zu streichen -
+	# und die ZIELSTUFE ist der Preis. Stufe II kostet zwei Stück, Stufe III drei.
 	view.show_die(_doped_target())
 	for expected in [2, 3]:
-		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
-		view._sync_drawers()
+		_grant_ruby(expected)
 		view._on_engraving_pressed(DieMaterial.RUBY)
 		view._on_chip_clicked(1, 1)  # trägt schon Rubin
 		assert_eq(view.current_def.materials[1], DieMaterial.RUBY, "kein Neuanstrich")
 		assert_eq(view.current_def.material_level(1), expected)
+		assert_eq(_stock(DieMaterial.RUBY), 0, "Stufe %d hat %d Duplikate gekostet" % [expected, expected])
+
+## Legt count Rubin-Gravuren in den Vorrat.
+func _grant_ruby(count: int) -> void:
+	for _i in count:
+		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
+	view._sync_drawers()
+
+func test_a_raise_is_no_target_while_the_stock_is_short() -> void:
+	# Eine gedimmte Seite allein sagt nicht, dass nur der Vorrat fehlt - der
+	# Hinweis muss den Grund nennen.
+	view.show_die(_doped_target())
+	_grant_ruby(1)
+	view._on_engraving_pressed(DieMaterial.RUBY)
+	assert_false(view._face_eligible(1), "ein Stück deckt Stufe II nicht")
+	var prompt := view._held_prompt()
+	assert_true(prompt.contains("2 Duplikate"), prompt)
+	assert_true(prompt.contains("nur 1 im Vorrat"), prompt)
+	_grant_ruby(1)
+	assert_true(view._face_eligible(1), "zwei Stück decken Stufe II")
+	assert_true(view._held_prompt().contains("Stufe II"), "und der Hinweis nennt den Preis")
+
+func test_fresh_paint_still_costs_a_single_copy() -> void:
+	view.show_die(_doped_target())
+	_grant_ruby(1)
+	view._on_engraving_pressed(DieMaterial.RUBY)
+	assert_true(view._face_eligible(0), "die Gold-Seite lässt sich übermalen")
+	view._on_chip_clicked(5, 0)  # Seite 0 trägt den Wert 5
+	assert_eq(view.current_def.materials[0], DieMaterial.RUBY)
+	assert_eq(view.current_def.material_level(0), 1, "frisch gestrichen ist Stufe I")
+	assert_eq(_stock(DieMaterial.RUBY), 0, "und kostet genau ein Stück")
 
 func test_a_saturated_face_is_no_target_for_its_own_material() -> void:
 	var def := _doped_target()
@@ -349,7 +383,9 @@ func test_burn_in_still_allows_saturating_the_same_material() -> void:
 	var def := _doped_target()
 	def.set_rift(0, Rift.BURN_IN)  # Seite 0 trägt Gold
 	view.show_die(def)
-	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.gold(), Engraving.Rarity.COMMON))
+	# Stufe II kostet zwei Duplikate - mit nur einem wäre die Seite kein Ziel.
+	for _i in 2:
+		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.gold(), Engraving.Rarity.COMMON))
 	view._sync_drawers()
 	view._on_engraving_pressed(DieMaterial.GOLD)
 	assert_true(view._face_eligible(0), "dasselbe Material weiter zu sättigen bleibt erlaubt")
@@ -393,7 +429,9 @@ func test_das_gehaltene_material_zeigt_die_zielstufe_vorab() -> void:
 	# Dasselbe Material noch einmal sättigt die Seite - dafür sind Dubletten da,
 	# und die Zelle sagt vorab, wie satt sie danach wäre.
 	view.show_die(_leveled_ruby_die(1))
-	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY), Engraving.Rarity.RARE))
+	# Stufe II kostet ZWEI Duplikate - mit nur einem bliebe die Seite gesperrt.
+	for _i in 2:
+		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY), Engraving.Rarity.RARE))
 	await wait_frames(2)
 	view.held_id = DieMaterial.RUBY
 	view._on_face_hover(0)

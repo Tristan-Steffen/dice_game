@@ -1171,14 +1171,37 @@ func note_pool_changed() -> void:
 
 ## Verbraucht genau eine Gravur der id; true, wenn eine da war.
 func consume_engraving(id: String) -> bool:
-	if unlimited_engravings:
+	return consume_engravings(id, 1)
+
+## Verbraucht count Gravuren derselben id - ALLES ODER NICHTS und mit genau
+## EINEM Signal. Sättigen bezahlt in Dubletten: Stufe II kostet zwei Stück,
+## Stufe III drei, frisch streichen eines - von nackt bis III also 1+2+3 = 6.
+func consume_engravings(id: String, count: int) -> bool:
+	if unlimited_engravings or count <= 0:
 		return true
+	var found: Array[int] = []
 	for i in owned_engravings.size():
 		if owned_engravings[i].id == id:
-			owned_engravings.remove_at(i)
-			engravings_changed.emit()
-			return true
-	return false
+			found.append(i)
+			if found.size() == count:
+				break
+	if found.size() < count:
+		return false
+	# Von hinten löschen, sonst verschieben sich die noch offenen Indizes.
+	for k in range(found.size() - 1, -1, -1):
+		owned_engravings.remove_at(found[k])
+	engravings_changed.emit()
+	return true
+
+## Bestand einer Gravur-id (Testmodus: immer reichlich).
+func engraving_stock(id: String) -> int:
+	if unlimited_engravings:
+		return DieMaterial.MAX_LEVEL
+	var count := 0
+	for engraving in owned_engravings:
+		if engraving.id == id:
+			count += 1
+	return count
 
 ## Ob der Einsatz einer Wette bezahlbar ist. Steuerwetten sind immer platzierbar -
 ## sie kosten erst beim Nehmen (und reißen dort ab, siehe tax_side_bets).

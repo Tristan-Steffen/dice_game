@@ -73,6 +73,9 @@ func test_directed_pair_step2_excludes_the_first_face() -> void:
 func test_material_targets_its_own_face_until_it_is_saturated() -> void:
 	# Dieselbe Gravur sättigt die Seite - erst auf Stufe III fällt sie als Ziel weg.
 	var view := _view([1, 2, 3, 4, 5, 6])
+	# Hier geht es um die ZIELWAHL, nicht um den Vorrat - der ist unbegrenzt.
+	view.run = GameRun.new_run()
+	view.run.unlimited_engravings = true
 	view.current_def.set_face_material(0, DieMaterial.GOLD)
 	view.held_id = DieMaterial.GOLD
 	assert_true(view._eligible_faces()[0], "Stufe I nimmt ein zweites Exemplar an")

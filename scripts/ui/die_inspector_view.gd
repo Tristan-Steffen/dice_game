@@ -602,7 +602,9 @@ func _apply_single_face(face_index: int) -> void:
 		if current_def.materials[face_index] == held_id:
 			current_def.raise_level(face_index)
 			var level := current_def.material_level(face_index)
-			_finish_apply(held_id, "%s %s: %s" % [material.display_name, DieMaterial.level_roman(level), material.short_for(level)])
+			# Die erreichte Stufe IST der Preis in Dubletten.
+			_finish_apply(held_id, "%s %s (%d Duplikate): %s"
+				% [material.display_name, DieMaterial.level_roman(level), level, material.short_for(level)], level)
 		else:
 			current_def.set_face_material(face_index, held_id)  # frisches Material, Stufe I
 			_finish_apply(held_id, "Material angebracht: %s" % material.display_name)
@@ -616,7 +618,11 @@ func _apply_single_face(face_index: int) -> void:
 		return
 	match held_id:
 		Engraving.DOPING:
-			current_def.raise_level(face_index)
+			# Sie hebt DIREKT auf die höchste Stufe, egal von wo - das ist ihre
+			# Wildcard-Kraft und der Grund, warum sie ein epischer Sonderposten ist.
+			for _step in DieMaterial.MAX_LEVEL:
+				if not current_def.raise_level(face_index):
+					break
 			var lifted := DieMaterial.by_id(current_def.materials[face_index])
 			var new_level := current_def.material_level(face_index)
 			_finish_apply(held_id, "Dotierung: %s %s – %s" % [lifted.display_name, DieMaterial.level_roman(new_level), lifted.short_for(new_level)])
@@ -665,7 +671,7 @@ func _apply_whole_die() -> void:
 
 ## Verbraucht die Gravur und meldet changed/applied. Das Werkzeug bleibt in der
 ## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
-func _finish_apply(engraving_id: String, message: String) -> void:
+func _finish_apply(engraving_id: String, message: String, cost := 1) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
 		# Materialien und die Sonderposten (Leiterbahn, Dotierung) nie.
@@ -675,7 +681,7 @@ func _finish_apply(engraving_id: String, message: String) -> void:
 			run.gravierstift_used_this_round = true
 			message += " Gravierstift: Engraving nicht verbraucht!"
 		else:
-			run.consume_engraving(engraving_id)
+			run.consume_engravings(engraving_id, cost)
 	var keep: bool = int(_engraving_counts().get(engraving_id, 0)) > 0
 	held_id = engraving_id if keep else ""
 	first_face = -1
@@ -740,7 +746,8 @@ func _eligible_faces() -> Array[bool]:
 						# weiter zu sättigen bleibt erlaubt.
 						for i in 6:
 							if current_def.materials[i] == held_id:
-								e[i] = current_def.material_level(i) < DieMaterial.MAX_LEVEL
+								e[i] = current_def.material_level(i) < DieMaterial.MAX_LEVEL \
+									and _raise_affordable(i)
 							else:
 								e[i] = not _face_burned_in(i)
 					else:
@@ -794,18 +801,53 @@ func _on_die_face_hovered(_die_index: int, face_index: int) -> void:
 	else:
 		_preview_face(face_index)
 
-## Stufe, die diese Seite NACH dem gehaltenen Werkzeug trüge. Dasselbe Material
-## noch einmal oder die Dotierung hebt sie um eins - die Zelle zeigt die Sättigung
-## der ZIELSTUFE, sobald das Werkzeug über ihr steht.
+## Stufe, die diese Seite NACH dem gehaltenen Werkzeug trüge - die Zelle zeigt
+## die Sättigung der ZIELSTUFE, sobald das Werkzeug über ihr steht. Dasselbe
+## Material noch einmal hebt um eins, die Dotierung springt ganz nach oben.
 func _level_after(face_index: int) -> int:
 	if current_def == null:
 		return 1
 	var level := current_def.material_level(face_index)
 	if held_id == "" or hovered_face != face_index or not _face_eligible(face_index):
 		return level
-	var raises := held_id == Engraving.DOPING \
-		or (DieMaterial.is_valid_id(held_id) and _material_of(current_def, face_index) == held_id)
-	return mini(level + 1, DieMaterial.MAX_LEVEL) if raises else level
+	if held_id == Engraving.DOPING:
+		return DieMaterial.MAX_LEVEL
+	if DieMaterial.is_valid_id(held_id) and _material_of(current_def, face_index) == held_id:
+		return mini(level + 1, DieMaterial.MAX_LEVEL)
+	return level
+
+## Preis einer Sättigung: die ZIELSTUFE in Dubletten (II kostet 2, III kostet 3).
+func _raise_cost(face_index: int) -> int:
+	return mini(current_def.material_level(face_index) + 1, DieMaterial.MAX_LEVEL)
+
+## Deckt der Vorrat die nächste Stufe dieser Seite? Das gehaltene Stück zählt mit -
+## es liegt bis zum Anwenden noch im Bestand.
+func _raise_affordable(face_index: int) -> bool:
+	if run == null:
+		return false
+	return run.engraving_stock(held_id) >= _raise_cost(face_index)
+
+## Erste Seite, die NUR am Vorrat scheitert (-1 = keine) - sie begründet den Hinweis.
+func _short_stock_face() -> int:
+	if current_def == null or not DieMaterial.is_valid_id(held_id):
+		return -1
+	for i in 6:
+		if current_def.materials[i] == held_id \
+				and current_def.material_level(i) < DieMaterial.MAX_LEVEL \
+				and not _raise_affordable(i):
+			return i
+	return -1
+
+## Erste Seite, deren Sättigung bezahlt ist (-1 = keine).
+func _affordable_raise_face() -> int:
+	if current_def == null or not DieMaterial.is_valid_id(held_id):
+		return -1
+	for i in 6:
+		if current_def.materials[i] == held_id \
+				and current_def.material_level(i) < DieMaterial.MAX_LEVEL \
+				and _raise_affordable(i):
+			return i
+	return -1
 
 ## Malt die Zellen auf die Stufe um, die sie NACH dem Werkzeug trügen. Ohne
 ## Zeiger fällt jede auf ihre echte Stufe zurück - der Aufruf ist idempotent.
@@ -995,7 +1037,7 @@ func _held_prompt() -> String:
 		Engraving.DOPING:
 			if not _any_face_eligible():
 				return "Dotierung: dieser Würfel hat keine hebbare Seite - sie braucht ein Material unter Stufe III. Anderen Würfel wählen oder Rechtsklick: ablegen."
-			return "Dotierung: klicke eine Material-Seite (hebt sie eine Stufe). Rechtsklick: ablegen."
+			return "Dotierung: klicke eine Material-Seite (hebt sie auf Stufe III). Rechtsklick: ablegen."
 		Engraving.STRAIGHTEN:
 			return "Begradigung: klicke den Würfel."
 		Engraving.POLISH:
@@ -1006,9 +1048,24 @@ func _held_prompt() -> String:
 		var rift := Rift.by_id(Engraving.rift_id_of(held_id))
 		return "Bruchmuster %s: klicke eine Seite (ein besetzter Riss wird ersetzt)." % rift.display_name
 	if DieMaterial.is_valid_id(held_id):
+		var name := DieMaterial.by_id(held_id).display_name
+		# Erst die mögliche Handlung, dann der Mangel: eine bezahlbare Sättigung
+		# schlägt die Erklärung, warum eine andere Seite gedimmt bleibt.
+		var raise_face := _affordable_raise_face()
+		if raise_face != -1:
+			var target := _raise_cost(raise_face)
+			return "%s: klicke eine Seite (dieselbe noch einmal hebt auf Stufe %s für %d Duplikate)." \
+				% [name, DieMaterial.level_roman(target), target]
+		var short_face := _short_stock_face()
+		if short_face != -1:
+			# Der Grund muss dastehen: eine gedimmte Seite allein sagt nicht, dass
+			# nur der Vorrat fehlt.
+			var need := _raise_cost(short_face)
+			return "%s: Stufe %s kostet %d Duplikate - nur %d im Vorrat. Rechtsklick: ablegen." \
+				% [name, DieMaterial.level_roman(need), need, run.engraving_stock(held_id)]
 		if not _any_face_eligible():
-			return "%s: jede Seite ist eingebrannt oder ausgesättigt - anderen Würfel wählen oder Rechtsklick: ablegen." % DieMaterial.by_id(held_id).display_name
-		return "%s: klicke eine Seite (eingebrannte Seiten lassen sich nicht übermalen)." % DieMaterial.by_id(held_id).display_name
+			return "%s: jede Seite ist eingebrannt oder ausgesättigt - anderen Würfel wählen oder Rechtsklick: ablegen." % name
+		return "%s: klicke eine Seite (eingebrannte Seiten lassen sich nicht übermalen)." % name
 	return "Klicke ein Ziel."
 
 # --- Seiten-Übersicht -------------------------------------------------------------

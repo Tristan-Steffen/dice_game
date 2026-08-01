@@ -118,3 +118,54 @@ func test_roll_in_category_stays_in_category():
 			assert_eq(engraving.category, category, "bleibt in der Kategorie")
 			assert_false(seen.has(engraving.id), "keine Dubletten: %s" % engraving.id)
 			seen[engraving.id] = true
+
+# --- Dubletten-Kosten: mehrere Stücke einer id auf einmal ---------------------------
+
+func _run_with(id: String, count: int) -> GameRun:
+	var run := GameRun.new_run()
+	run.owned_engravings.clear()
+	for _i in count:
+		run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(id), Engraving.Rarity.COMMON))
+	return run
+
+func test_consume_engravings_is_all_or_nothing() -> void:
+	# Sättigen kostet die Zielstufe in Dubletten - ein halber Abzug wäre ein
+	# verlorenes Stück ohne Wirkung.
+	var run := _run_with(DieMaterial.RUBY, 2)
+	assert_false(run.consume_engravings(DieMaterial.RUBY, 3), "drei sind nicht da")
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2, "und nichts wurde angerührt")
+	assert_true(run.consume_engravings(DieMaterial.RUBY, 2))
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 0)
+
+func test_consume_engravings_emits_once() -> void:
+	# Array statt int: GDScript-Lambdas fangen Zahlen als KOPIE, ein Zähler
+	# darin bliebe stumm auf 0 und der Test grün, ohne etwas zu prüfen.
+	var run := _run_with(DieMaterial.RUBY, 3)
+	var emits := []
+	run.engravings_changed.connect(func() -> void: emits.append(1))
+	run.consume_engravings(DieMaterial.RUBY, 3)
+	assert_eq(emits.size(), 1, "ein Abzug, ein Signal")
+
+func test_a_failed_consume_stays_silent() -> void:
+	var run := _run_with(DieMaterial.RUBY, 1)
+	var emits := []
+	run.engravings_changed.connect(func() -> void: emits.append(1))
+	assert_false(run.consume_engravings(DieMaterial.RUBY, 2))
+	assert_eq(emits.size(), 0, "was nicht passiert ist, meldet auch nichts")
+
+func test_consume_engravings_takes_only_its_own_id() -> void:
+	var run := _run_with(DieMaterial.RUBY, 2)
+	run.grant_engraving(Engraving.chisel())
+	assert_true(run.consume_engravings(DieMaterial.RUBY, 2))
+	assert_eq(run.engraving_stock(Engraving.CHISEL), 1, "fremde Gravuren bleiben liegen")
+
+func test_the_test_mode_keeps_paying() -> void:
+	var run := GameRun.new_run()
+	run.unlimited_engravings = true
+	assert_true(run.consume_engravings(DieMaterial.RUBY, 3), "Testmodus deckt jede Stufe")
+	assert_gte(run.engraving_stock(DieMaterial.RUBY), DieMaterial.MAX_LEVEL)
+
+func test_a_single_consume_still_works() -> void:
+	var run := _run_with(DieMaterial.RUBY, 1)
+	assert_true(run.consume_engraving(DieMaterial.RUBY), "der alte Weg bleibt")
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 0)

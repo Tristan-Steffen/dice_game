@@ -574,3 +574,110 @@ func test_unlocking_rolls_fresh_singles() -> void:
 	assert_gt(shop.single_dice.size(), 0, "die neue Auslage ist wieder gefüllt")
 	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size())
 	assert_gt(before.size(), 0)
+
+# --- Die offene Chip-Schale: die Ware LIEGT dort, sie sitzt nicht in Kästen ---------
+
+## Alle noch gebauten Einzelstück-Knöpfe (null = verkaufter Platz).
+func _laid_out_singles(buttons: Array) -> Array:
+	var live := []
+	for button in buttons:
+		if button != null and is_instance_valid(button):
+			live.append(button)
+	return live
+
+func test_a_bought_single_die_is_gone_from_the_bowl() -> void:
+	await wait_frames(2)
+	var before := _laid_out_singles(shop.single_dice_buttons).size()
+	assert_gt(before, 0, "vorher liegt etwas da")
+	shop._on_single_die_pressed(0)  # baut die Auslage selbst neu auf
+	await wait_frames(2)
+	assert_true(shop.single_dice_bought[0], "gekauft bleibt im Spread vermerkt")
+	assert_null(shop.single_dice_buttons[0], "der Platz bleibt index-treu, aber leer")
+	assert_eq(_laid_out_singles(shop.single_dice_buttons).size(), before - 1,
+		"gekauftes Stück liegt nicht mehr in der Schale")
+
+func test_a_bought_single_engraving_is_gone_from_the_bowl() -> void:
+	await wait_frames(2)
+	var before := _laid_out_singles(shop.single_engraving_buttons).size()
+	shop._on_single_engraving_pressed(0)
+	await wait_frames(2)
+	assert_true(shop.single_engravings_bought[0])
+	assert_eq(_laid_out_singles(shop.single_engraving_buttons).size(), before - 1)
+
+func test_the_singles_lie_bare_without_a_box() -> void:
+	# Kein Fenster unter einem physischen Ding - dieselbe Regel wie bei den
+	# Kombi-Chips auf dem Filz.
+	await wait_frames(2)
+	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			assert_true(button.get_theme_stylebox(state) is StyleBoxEmpty,
+				"Einzelstück ohne Kasten (%s)" % state)
+
+func test_a_single_die_lies_in_the_bowl_as_a_real_die() -> void:
+	await wait_frames(2)
+	var card: Button = _laid_out_singles(shop.single_dice_buttons)[0]
+	var stage := card.get_child(0)
+	assert_true(stage is DiceRowView.TumbleStage, "ein echter, taumelnder Würfel")
+	assert_not_null((stage as DiceRowView.TumbleStage).die, "und er hat einen Würfel zum Drehen")
+	assert_eq(stage.mouse_filter, Control.MOUSE_FILTER_IGNORE, "der Klick geht an den Knopf")
+
+func test_no_single_prints_a_price_in_the_bowl() -> void:
+	# Der Preis kommt beim Zugreifen, nicht als Schild auf der Ware.
+	await wait_frames(2)
+	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+		assert_false(_has_price_label(button), "kein gedrucktes Preisschild")
+
+func _has_price_label(node: Node) -> bool:
+	if node is Label and (node as Label).text.begins_with("$"):
+		return true
+	for child in node.get_children():
+		if _has_price_label(child):
+			return true
+	return false
+
+func test_the_overclock_chip_dropped_its_price_tag_too() -> void:
+	await wait_frames(2)
+	assert_gt(shop.overclock_buttons.size(), 0)
+	assert_false(_has_price_label(shop.overclock_buttons[0]),
+		"die ganze Schale spricht eine Sprache")
+
+# --- Die Preiszeile im Hover-Fenster ------------------------------------------------
+
+func test_the_price_line_is_a_pure_function() -> void:
+	assert_eq(ShopController.price_text(7), "$7")
+	assert_eq(ShopController.price_text(0), "$0")
+
+func test_the_price_tint_says_whether_it_is_payable() -> void:
+	assert_eq(ShopController.price_tint(5, 10), ShopController.NEON_GOLD, "bezahlbar")
+	assert_eq(ShopController.price_tint(5, 5), ShopController.NEON_GOLD, "genau genug reicht")
+	assert_eq(ShopController.price_tint(5, 4), CasinoStyle.RED, "zu teuer")
+
+func test_hovering_a_single_shows_its_price_and_dossier() -> void:
+	await wait_frames(2)
+	var card: Button = _laid_out_singles(shop.single_dice_buttons)[0]
+	card.mouse_entered.emit()
+	await wait_frames(2)
+	assert_true(shop.shop_tooltip.visible)
+	assert_true(shop.shop_tooltip_price.visible, "der Preis erscheint erst beim Zugreifen")
+	assert_eq(shop.shop_tooltip_price.text, ShopController.price_text(shop.single_dice_prices[0]))
+	assert_true(shop.shop_tooltip_stage.visible, "und das Würfelnetz als Dossier")
+	shop._hide_shop_tooltip()
+
+func test_hovering_a_single_engraving_shows_a_price_but_no_net() -> void:
+	await wait_frames(2)
+	var card: Button = _laid_out_singles(shop.single_engraving_buttons)[0]
+	card.mouse_entered.emit()
+	await wait_frames(2)
+	assert_true(shop.shop_tooltip_price.visible)
+	assert_false(shop.shop_tooltip_stage.visible, "eine Gravur ist kein Würfel")
+
+func test_the_hover_window_stays_inside_the_shop_page() -> void:
+	await wait_frames(2)
+	var card: Button = _laid_out_singles(shop.single_dice_buttons)[0]
+	card.mouse_entered.emit()
+	await wait_frames(2)
+	var box := Rect2(shop.shop_tooltip.position, shop.shop_tooltip.size)
+	assert_gte(box.position.x, 0.0, "linke Kante drin")
+	assert_gte(box.position.y, 0.0, "obere Kante drin")
+	assert_lte(box.end.x, shop.size.x + 1.0, "rechte Kante drin")
+	shop._hide_shop_tooltip()

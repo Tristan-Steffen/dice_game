@@ -113,9 +113,24 @@ static func _value_chip(value: int, material_id: String = "") -> Label:
 		chip.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignorieren Maus sonst - nötig für den Tooltip
 	return chip
 
+## Langsam taumelnder Würfel: dieselbe isolierte Welt wie build_thumb, sie dreht
+## sich nur. Kein Ziehen - in der Chip-Schale liegt der Würfel zum Ansehen und
+## Anfassen, gedreht wird an der Werkbank.
+class TumbleStage:
+	extends SubViewportContainer
+	var die: Node3D
+	## Drei teilerfremde Achsen-Tempi, damit die Drehung nie in eine Schleife fällt.
+	const SPEED := Vector3(11.0, 23.0, 7.0)
+
+	func _process(delta: float) -> void:
+		if die != null and is_instance_valid(die) and is_visible_in_tree():
+			die.rotation_degrees += SPEED * delta
+
 ## Statische 3D-Vorschau eines Würfels (eigener SubViewport/World3D).
-static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE) -> SubViewportContainer:
-	var container := SubViewportContainer.new()
+## tumbling = der Würfel dreht sich und rendert nur, solange er sichtbar ist.
+static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE,
+		tumbling := false) -> SubViewportContainer:
+	var container: SubViewportContainer = TumbleStage.new() if tumbling else SubViewportContainer.new()
 	container.custom_minimum_size = Vector2(size, size)
 	container.stretch = true
 	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -124,7 +139,9 @@ static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE) -> S
 	viewport.own_world_3d = true
 	viewport.transparent_bg = true
 	viewport.size = Vector2i(size, size)
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Ein liegendes Stück kostet nur, solange es zu sehen ist.
+	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE if tumbling \
+		else SubViewport.UPDATE_ALWAYS
 	container.add_child(viewport)
 
 	var env := Environment.new()
@@ -159,4 +176,6 @@ static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE) -> S
 	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
 	faces.apply_definition(def)
 	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	if tumbling:
+		(container as TumbleStage).die = die
 	return container

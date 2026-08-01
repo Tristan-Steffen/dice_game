@@ -32,6 +32,11 @@ const NEON_GOLD := Color("#ffd319")
 const NEON_GREEN := Color("#50fa7b")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
+## Kantenlängen der nackten Einzelstücke in Einheiten. Ohne Kasten und ohne
+## Preiszeile bleibt der Platz dem Ding selbst - der Würfel darf größer liegen
+## als die alte Karte hoch war, das Siegel wächst über seine alten u*6 hinaus.
+const SINGLE_DIE_SIZE := 13.0
+const SINGLE_SEAL_SIZE := 8.5
 const CARD_BG := Color("#241f4a99")
 
 const FLIP_DURATION := 0.25
@@ -112,6 +117,10 @@ var lock_button: Button
 var shop_tooltip: PanelContainer
 var shop_tooltip_title: Label
 var shop_tooltip_body: Label
+## Würfelnetz im Hover-Fenster: der Inhalt der alten Würfel-Karte wohnt jetzt hier.
+var shop_tooltip_stage: CenterContainer
+## Preiszeile - nur beim Hover, denn in der Schale steht kein Preis mehr.
+var shop_tooltip_price: Label
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
@@ -603,9 +612,19 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	singles.size_flags_stretch_ratio = 0.58
 	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_deck.add_child(singles)
+	# Gekauftes liegt nicht mehr da: die Schale zeigt, was noch zu haben ist. Die
+	# *_bought-Flags bleiben im Spread, also zeigt die Sortiment-Sperre denselben
+	# Laden mit der verkauften Ware fort. Die Knopf-Listen bleiben index-treu
+	# (null je verkauftem Platz), damit _refresh_affordability weiter passt.
 	for i in spread.single_dice.size():
+		if spread.single_dice_bought[i]:
+			single_dice_buttons.append(null)
+			continue
 		singles.add_child(_build_single_die_card(i))
 	for i in spread.single_engravings.size():
+		if spread.single_engravings_bought[i]:
+			single_engraving_buttons.append(null)
+			continue
 		singles.add_child(_build_single_engraving_card(i))
 
 	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
@@ -856,89 +875,72 @@ func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control
 	overclock_buttons.append(chip)
 	return chip
 
-## OFFENER Würfel der Chip-Schale: alles steht VOR dem Kauf auf der Karte - das
-## Netz mit allen sechs Seiten (Materialfarben und Stufen inklusive), die Seele
-## mit Beiname und Kurzzeile, der Preis. Kein Blindkauf, das ist der Sinn.
+## OFFENER Würfel der Chip-Schale: er LIEGT dort als echter, langsam taumelnder
+## Würfel - kein Kasten, kein Preisschild, dieselbe Grammatik wie die Kombi-Chips
+## auf dem Filz. Wer danach greift, bekommt im Hover-Fenster das ganze Dossier:
+## Netz mit allen sechs Seiten (Materialfarben, Stufen, Risse, Essenz-Chip), die
+## Seele und den Preis. Kein Blindkauf, das ist der Sinn - nur ohne Möbel.
 func _build_single_die_card(index: int) -> Button:
 	var def := single_dice[index]
 	var price := single_dice_prices[index]
-	var bought := single_dice_bought[index]
 	var essence := Essence.by_id(def.essence_id)
-	var seam: Color = essence.glow if essence != null else NEON_CYAN
 	var title := def.display_name if essence == null \
 		else "%s – %s" % [def.display_name, essence.display_name]
 	var body := "Augensumme %d." % DiceRowView.eye_total(def)
 	if essence != null:
 		body += "\n%s: %s" % [essence.epithet, essence.description]
-
-	var card := _single_card(seam, price, bought, title, body)
-	var column: VBoxContainer = card.get_child(0)
-	var stage := CenterContainer.new()
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(DieNetView.build(def, -1, u * 1.5))
-	column.add_child(stage)
-	if essence != null:
-		column.add_child(_label(essence.display_name, u * 1.5, essence.glow, HORIZONTAL_ALIGNMENT_CENTER))
-		column.add_child(_label(essence.short, u * 1.2, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	else:
-		column.add_child(_label("ohne Essenz", u * 1.2, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	column.add_child(_label("$%d" % price, u * 1.7, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
-	if not bought:
-		card.pressed.connect(_on_single_die_pressed.bind(index))
+		body += "\nOhne Essenz."
+
+	var stage := DiceRowView.build_thumb(def, int(u * SINGLE_DIE_SIZE), true)
+	var card := _bare_single(stage, Vector2.ONE * u * SINGLE_DIE_SIZE)
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body, price, def))
+	card.mouse_exited.connect(_hide_shop_tooltip)
+	card.pressed.connect(_on_single_die_pressed.bind(index))
 	single_dice_buttons.append(card)
 	return card
 
-## EINZELNE Gravur der Chip-Schale: das Siegel groß, Name und Preis darunter.
+## EINZELNE Gravur der Chip-Schale: das Siegel allein, ohne Karte darum.
 func _build_single_engraving_card(index: int) -> Button:
 	var engraving := single_engravings[index]
 	var price := single_engraving_price(engraving)
-	var bought := single_engravings_bought[index]
-	var seam: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-	var card := _single_card(seam, price, bought, engraving.display_name, engraving.description)
-	var column: VBoxContainer = card.get_child(0)
-	var stage := CenterContainer.new()
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var seal := EngravingRenderer.for_engraving(engraving)
-	seal.custom_minimum_size = Vector2(u * 6.0, u * 6.0)
-	stage.add_child(seal)
-	column.add_child(stage)
-	column.add_child(_label(engraving.display_name, u * 1.4, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
-	column.add_child(_label("$%d" % price, u * 1.7, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
-	if not bought:
-		card.pressed.connect(_on_single_engraving_pressed.bind(index))
+	seal.custom_minimum_size = Vector2.ONE * u * SINGLE_SEAL_SIZE
+	var card := _bare_single(seal, Vector2.ONE * u * SINGLE_SEAL_SIZE)
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, engraving.display_name,
+		engraving.description, price))
+	card.mouse_exited.connect(_hide_shop_tooltip)
+	card.pressed.connect(_on_single_engraving_pressed.bind(index))
 	single_engraving_buttons.append(card)
 	return card
 
-## Gemeinsame Hülle der Einzelstücke - dieselbe Rauchglas-Sprache wie die Chips,
-## nur eckig, weil hier ein Bild und drei Zeilen hineinmüssen.
-func _single_card(seam: Color, _price: int, bought: bool, title: String, body: String) -> Button:
+## Ein Einzelstück LIEGT in der Schale: der Knopf bleibt (Hover und Klick), er ist
+## nur unsichtbar. Kein Fenster unter einem physischen Ding - dieselbe Regel wie
+## bei den Kombi-Chips. Das Anfassen zeigt sich am Aufleuchten, der Preis im
+## Hover-Fenster; in der Schale steht keine Zahl mehr.
+func _bare_single(content: Control, min_size: Vector2) -> Button:
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(u * 11.0, u * 14.0)
-	var radius := int(u * 0.8)
-	card.add_theme_stylebox_override("normal", _chip_box(CARD_BG, seam, 0.75, radius))
-	card.add_theme_stylebox_override("hover", _chip_box(Color("#2a2358f0"), NEON_GOLD, 0.95, radius))
-	card.add_theme_stylebox_override("pressed", _chip_box(Color("#352a68"), NEON_GOLD, 1.0, radius))
-	card.add_theme_stylebox_override("disabled", _chip_box(Color("#16133455"), seam, 0.28, radius))
-	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body))
-	card.mouse_exited.connect(_hide_shop_tooltip)
-	card.disabled = bought
-
-	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", int(u * 0.3))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(column)
-	if bought:
-		column.add_child(_label("✓", u * 2.4, NEON_GREEN, HORIZONTAL_ALIGNMENT_CENTER))
+	card.custom_minimum_size = min_size
+	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		card.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	card.add_child(content)
+	card.mouse_entered.connect(_lift_single.bind(content, true))
+	card.mouse_exited.connect(_lift_single.bind(content, false))
 	return card
+
+## Greifbarkeit ohne Rahmen: das Stück wird heller und eine Spur größer.
+func _lift_single(content: Control, on: bool) -> void:
+	if not is_instance_valid(content):
+		return
+	content.pivot_offset = content.size * 0.5
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(content, "modulate", Color(1.3, 1.3, 1.3) if on else Color.WHITE, 0.12)
+	tween.tween_property(content, "scale", Vector2.ONE * (1.07 if on else 1.0), 0.12)
 
 ## Kauf eines offenen Würfels: derselbe Weg wie jeder Würfelkauf - GameRun sucht
 ## den Pool-Platz (seelenlos zuerst), die Instanz bleibt dem Pool erhalten.
@@ -974,7 +976,7 @@ func _chip_button(dia: float, seam: Color, face: Control, price: int, bought: bo
 	chip.add_theme_stylebox_override("pressed", _chip_box(Color("#352a68"), NEON_GOLD, 1.0, radius))
 	chip.add_theme_stylebox_override("disabled", _chip_box(Color("#16133455"), seam, 0.28, radius))
 	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	chip.mouse_entered.connect(_show_shop_tooltip.bind(chip, title, body))
+	chip.mouse_entered.connect(_show_shop_tooltip.bind(chip, title, body, -1 if bought else price))
 	chip.mouse_exited.connect(_hide_shop_tooltip)
 
 	var column := VBoxContainer.new()
@@ -991,8 +993,10 @@ func _chip_button(dia: float, seam: Color, face: Control, price: int, bought: bo
 	stage.add_child(face)
 	column.add_child(stage)
 
-	column.add_child(_label("✓" if bought else "$%d" % price, dia * 0.17,
-		NEON_MUTED if bought else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	# Kein gedrucktes Preisschild mehr: die Ware liegt bar, der Preis kommt beim
+	# Zugreifen. Das ✓ bleibt - es ist ein Zustand, kein Preis.
+	if bought:
+		column.add_child(_label("✓", dia * 0.17, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	return chip
 
 ## Runde Chip-Scheibe (Saum + weicher Glow); radius = halber Durchmesser.
@@ -1107,15 +1111,45 @@ func _build_shop_tooltip() -> void:
 	shop_tooltip_body.custom_minimum_size = Vector2(u * 28.0, 0)
 	CasinoStyle.style_body_label(shop_tooltip_body, int(u * 1.9), CasinoStyle.CREAM)
 	box.add_child(shop_tooltip_body)
+	shop_tooltip_stage = CenterContainer.new()
+	shop_tooltip_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shop_tooltip_stage.visible = false
+	box.add_child(shop_tooltip_stage)
+	shop_tooltip_price = Label.new()
+	shop_tooltip_price.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shop_tooltip_price.visible = false
+	CasinoStyle.style_score_label(shop_tooltip_price, int(u * 2.2), NEON_GOLD)
+	box.add_child(shop_tooltip_price)
 	add_child(shop_tooltip)
+
+## Preiszeile und ihre Farbe - reine Funktionen, damit die Entscheidung
+## "bezahlbar oder nicht" prüfbar ist und nur an EINER Stelle fällt.
+static func price_text(price: int) -> String:
+	return "$%d" % price
+
+static func price_tint(price: int, money: int) -> Color:
+	return NEON_GOLD if money >= price else CasinoStyle.RED
 
 ## Zeigt den Dropdown unter (oder notfalls über) dem überfahrenen Element,
 ## immer im Panel eingeklemmt (clip_contents schneidet Überstände ab).
-func _show_shop_tooltip(anchor: Control, title: String, body: String) -> void:
+## price < 0 blendet die Preiszeile aus, net_def das Würfelnetz.
+func _show_shop_tooltip(anchor: Control, title: String, body: String,
+		price := -1, net_def: DieDefinition = null) -> void:
 	if shop_tooltip == null:
 		return
 	shop_tooltip_title.text = title
 	shop_tooltip_body.text = body
+	for child in shop_tooltip_stage.get_children():
+		shop_tooltip_stage.remove_child(child)
+		child.queue_free()
+	shop_tooltip_stage.visible = net_def != null
+	if net_def != null:
+		shop_tooltip_stage.add_child(DieNetView.build(net_def, -1, u * 2.2))
+	shop_tooltip_price.visible = price >= 0
+	if price >= 0:
+		shop_tooltip_price.text = price_text(price)
+		shop_tooltip_price.add_theme_color_override("font_color",
+			price_tint(price, run.money if run != null else 0))
 	shop_tooltip.visible = true
 	shop_tooltip.reset_size()
 	var local := anchor.get_global_rect().position - get_global_rect().position
@@ -1241,8 +1275,12 @@ func _refresh_afford_state() -> void:
 	for i in overclock_buttons.size():
 		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
 	for i in single_dice_buttons.size():
+		if single_dice_buttons[i] == null:
+			continue  # verkauft: liegt nicht mehr in der Schale
 		single_dice_buttons[i].disabled = single_dice_bought[i] or money < single_dice_prices[i]
 	for i in single_engraving_buttons.size():
+		if single_engraving_buttons[i] == null:
+			continue  # verkauft: liegt nicht mehr in der Schale
 		single_engraving_buttons[i].disabled = single_engravings_bought[i] \
 			or money < single_engraving_price(single_engravings[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
