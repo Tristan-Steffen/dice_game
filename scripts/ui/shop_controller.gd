@@ -102,12 +102,15 @@ var run: GameRun:
 	set(value):
 		if run != null and run.money_changed.is_connected(_on_run_money_changed):
 			run.money_changed.disconnect(_on_run_money_changed)
+		if run != null and run.charms_changed.is_connected(_on_run_charms_changed):
+			run.charms_changed.disconnect(_on_run_charms_changed)
 		run = value
 		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
 		sortiment_locked = false
 		spreads = []
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
+			run.charms_changed.connect(_on_run_charms_changed)
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
@@ -141,6 +144,10 @@ var current_spread_index: int = 0
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
 ## Runden, nicht den Lauf (siehe run-Setter).
 var sortiment_locked: bool = false
+
+## Ein Dock-Wechsel hat einen Neuaufbau der Auslage angemeldet - verhindert
+## mehrere Neuaufbauten im selben Frame.
+var _charm_rebuild_queued: bool = false
 
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
 var dice_packs: Array[Pack] = []
@@ -855,10 +862,13 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int, p
 	column.add_child(_label(tag,
 		u * 2.0, NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
+	# Der Handler hängt an JEDER ungekauften Karte: ein voller Dock sperrt sie nur
+	# als Startzustand, ein Verkauf gibt sie ohne Neuverdrahtung wieder frei
+	# (_on_charm_clicked prüft charms_full ohnehin selbst).
+	if not bought:
+		card.pressed.connect(_on_charm_clicked.bind(index))
 	if bought or full:
 		card.disabled = true
-	else:
-		card.pressed.connect(_on_charm_clicked.bind(index))
 	charm_buttons.append(card)
 	return card
 
@@ -1451,6 +1461,21 @@ func _refresh_afford_state() -> void:
 func _on_run_money_changed(_money: int) -> void:
 	if visible:
 		_refresh_afford_state()
+
+## Der Dock hat sich geändert (Kauf ODER Verkauf): "voll"-Tag und Hinweistext
+## stecken in der Karte, die Auslage muss also neu gebaut werden. DEFERRED, weil
+## ein Kauf-Klick charms_changed synchron feuert, bevor er seine charm_bought-
+## Marke setzt - sonst bekäme der Neuaufbau den alten Stand.
+func _on_run_charms_changed() -> void:
+	if not visible or spreads.is_empty() or _charm_rebuild_queued:
+		return
+	_charm_rebuild_queued = true
+	_rebuild_after_charms_changed.call_deferred()
+
+func _rebuild_after_charms_changed() -> void:
+	_charm_rebuild_queued = false
+	if visible and not spreads.is_empty():
+		_show_spread()
 
 func _on_done_pressed() -> void:
 	close()

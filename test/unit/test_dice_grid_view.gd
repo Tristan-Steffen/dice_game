@@ -58,6 +58,26 @@ func test_tooltip_names_faces_and_the_essence() -> void:
 	assert_string_contains(tip, "Augensumme 21")
 	assert_string_contains(tip, Essence.by_id(Essence.NEON).display_name, "die Seele steht dabei")
 
+# --- Essenz-Sichtbarkeit: die Seele muss im 30er-Raster auffallen -------------
+
+func test_a_souled_tile_wears_a_thicker_glowing_seam() -> void:
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6]),
+		_die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)]))
+	var plain: StyleBoxFlat = grid.tiles[0].get_theme_stylebox("normal")
+	var souled: StyleBoxFlat = grid.tiles[1].get_theme_stylebox("normal")
+	assert_gt(souled.border_width_left, plain.border_width_left, "dickerer Saum")
+	assert_gt(souled.shadow_size, 0, "und ein Außenschein")
+	assert_eq(plain.shadow_size, 0, "den der gewöhnliche Würfel nicht hat")
+	assert_ne(souled.bg_color, plain.bg_color, "der Grund ist getönt")
+	assert_almost_eq(souled.bg_color.a, plain.bg_color.a, 0.001, "bei gleicher Deckkraft")
+
+func test_the_highlight_keeps_gold_but_the_soul_keeps_its_width() -> void:
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)]), 0)
+	var box: StyleBoxFlat = grid.tiles[0].get_theme_stylebox("normal")
+	assert_eq(box.border_color, DiceGridView.GOLD, "das Ziel bleibt gold umrandet")
+	assert_gt(box.border_width_left, maxi(1, int(grid.u * DiceGridView.PLAIN_BORDER_U)),
+		"die Saum-Dicke der Seele bleibt trotzdem")
+
 # --- Detail-Kacheln: dieselbe Darstellung wie im Netzfeld der Grube -----------
 
 func _detail_grid() -> DiceGridView:

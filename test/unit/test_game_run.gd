@@ -307,6 +307,52 @@ func test_granting_other_engravings_still_stores_them():
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
 
+# --- Stresstest-Belohnung: EIN beseelter Würfel auf die Händler-Ablage ------------
+
+func test_stress_reward_puts_one_souled_die_on_the_dealers_shelf():
+	watch_signals(run)
+	var before := run.pending_dice.size()
+	var die := run.grant_stress_reward()
+	assert_not_null(die, "der Stresstest zahlt einen Würfel")
+	assert_eq(run.pending_dice.size(), before + 1, "er liegt beim Händler, nicht im Pool")
+	assert_ne(die.essence_id, "", "und er ist garantiert beseelt")
+	assert_signal_emitted(run, "pending_dice_changed")
+
+func test_stress_reward_never_touches_the_pool():
+	var before: Array[String] = []
+	for pool_die in run.owned_pool:
+		before.append(pool_die.style_id)
+	run.grant_stress_reward()
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
+	for i in run.owned_pool.size():
+		assert_eq(run.owned_pool[i].style_id, before[i], "und unangetastet")
+
+func test_stress_reward_stores_an_independent_die():
+	var die := run.grant_stress_reward()
+	die.faces[0] = 9
+	assert_eq(run.pending_dice[run.pending_dice.size() - 1].faces[0], 9,
+		"die Ablage hält genau diese Instanz - ein Kopieren hier wäre eine zweite Wahrheit")
+
+func test_stress_reward_never_repeats_an_owned_unique_soul():
+	# Unikate sind nicht wiederbeschaffbar: liegt eines im Pool, darf der Preis es
+	# nicht ein zweites Mal bringen.
+	var unique_id := ""
+	for essence in Essence.all():
+		if essence.unique and not essence.secret:
+			unique_id = essence.id
+			break
+	assert_ne(unique_id, "", "es gibt handelbare Unikate")
+	run.owned_pool[0].essence_id = unique_id
+	for _i in 60:
+		var die := run.grant_stress_reward()
+		assert_ne(die.essence_id, unique_id, "das besessene Unikat kommt nicht wieder")
+
+func test_stress_reward_never_hands_out_a_secret_soul():
+	for _i in 40:
+		var essence := Essence.by_id(run.grant_stress_reward().essence_id)
+		assert_false(essence != null and essence.secret,
+			"Schwarzmarkt-Seelen liegen nie im normalen Preis")
+
 # --- Pakete (Kauf, Lager, Öffnen) ------------------------------------------------
 
 func test_purchase_pack_deducts_and_stores_sealed():
@@ -391,23 +437,47 @@ func _winning_wall(symbol: int) -> void:
 
 func test_redeeming_rolls_the_prizes_without_booking_them():
 	# Gebucht wird erst, wenn der Gewinn als Licht den Automaten verlässt - sonst
-	# füllten sich die Schubladen, bevor überhaupt etwas geflogen ist.
+	# füllte sich das Lager, bevor überhaupt etwas geflogen ist.
 	_winning_wall(SlotPrize.Kind.MATERIAL)
+	var packs_before := run.owned_packs.size()
 	var result := run.redeem_slots()
 	assert_gt(result["prizes"].size(), 0, "die Reihe löst sich in Preise auf")
-	assert_eq(run.owned_engravings.size(), 0, "aber noch nichts in den Vorräten")
+	assert_eq(run.owned_packs.size(), packs_before, "aber noch nichts im Lager")
 	assert_eq(run.slot_bank.hit_count(), 0, "die Sitzung ist zurückgesetzt")
 
-func test_booking_a_prize_grants_its_goods():
+func test_booking_a_prize_grants_its_packs():
 	_winning_wall(SlotPrize.Kind.MATERIAL)
+	var packs_before := run.owned_packs.size()
 	var prizes: Array = run.redeem_slots()["prizes"]
 	var expected := 0
 	for prize: SlotPrize in prizes:
-		expected += prize.engravings.size()
+		expected += prize.packs.size()
 		run.book_slot_prize(prize)
-	assert_eq(run.owned_engravings.size(), expected, "jetzt liegt die Ware im Vorrat")
-	for engraving in run.owned_engravings:
-		assert_eq(engraving.category, Engraving.CATEGORY_MATERIAL, "in der eigenen Sorte")
+	assert_gt(expected, 0, "die Reihe zahlt Pakete")
+	assert_eq(run.owned_packs.size(), packs_before + expected, "jetzt liegt die Ware im Lager")
+	for i in range(packs_before, run.owned_packs.size()):
+		assert_eq(run.owned_packs[i].type, Pack.TYPE_MATERIAL, "in der eigenen Sorte")
+
+func test_booking_a_prize_multiple_times_gives_separate_packs():
+	var prize := SlotPrize.new()
+	prize.kind = SlotPrize.Kind.ENGRAVING
+	prize.packs = [Pack.number_pack(), Pack.number_pack()] as Array[Pack]
+	run._book_slot_prize(prize, 2)
+	assert_eq(run.owned_packs.size(), 4, "Multiplikator vervielfacht die Pakete")
+	assert_false(run.owned_packs[0] == run.owned_packs[2], "keine geteilte Resource")
+
+func test_a_slot_pack_keeps_its_own_rarity_floor():
+	# Die Automaten-Stufe prägt die Untergrenze ins Paket; das Öffnen achtet sie.
+	var prize := SlotPrize.from_spec({"kind": "pack", "symbol": SlotPrize.Kind.DICE_ENGRAVING,
+		"count": 1, "floor": Engraving.Rarity.RARE})
+	assert_eq(prize.packs.size(), 1)
+	assert_eq(prize.packs[0].type, Pack.TYPE_DICE_MOD)
+	assert_eq(prize.packs[0].rarity_floor, Engraving.Rarity.RARE)
+	run.book_slot_prize(prize)
+	var content: Array = run.open_pack(run.owned_packs.size() - 1)["engravings"]
+	assert_eq(content.size(), Pack.DICE_MOD_COUNT, "das Paket gibt seinen Inhalt her")
+	for engraving in content:
+		assert_gte(int(engraving.rarity), int(Engraving.Rarity.RARE), "mindestens selten")
 
 func test_booking_a_won_die_takes_a_pool_slot():
 	var prize := SlotPrize.new()
@@ -1160,6 +1230,84 @@ func test_power_spike_spotlights_without_the_charm():
 	_sign([DealClause.POWER_SPIKE])
 	run.apply_round_start_charms()
 	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "Rampenlicht ohne Charm")
+
+## --- Scherbenglasur / Goldener Handschlag / Durchschlagpapier ---------------------
+
+func test_shard_glaze_needs_the_signature():
+	var defs: Array[DieDefinition] = [DieDefinition.standard()]
+	assert_eq(run.apply_farkle_glaze(defs), 0, "ohne Unterschrift veredelt nichts")
+
+func test_shard_glaze_fills_one_empty_face_per_discarded_die():
+	_sign([DealClause.SHARD_GLAZE])
+	var bare := DieDefinition.standard()
+	var full := DieDefinition.standard()
+	for face in full.materials.size():
+		full.set_face_material(face, DieMaterial.GOLD)
+	var defs: Array[DieDefinition] = [bare, full]
+	watch_signals(run)
+	assert_eq(run.apply_farkle_glaze(defs), 1, "nur der Würfel mit freier Seite")
+	assert_eq(bare.materials.count(""), bare.materials.size() - 1, "genau EINE Seite belegt")
+	for face in bare.materials.size():
+		if bare.materials[face] != "":
+			assert_true(DieMaterial.is_valid_id(bare.materials[face]), "echtes Material")
+	assert_signal_emit_count(run, "pool_changed", 1)
+
+func test_golden_handshake_needs_a_hand_that_clears_the_benchmark():
+	_sign([DealClause.GOLDEN_HANDSHAKE])
+	run.round_goal = 300
+	var die := DieDefinition.standard()
+	assert_false(run.apply_golden_handshake(die, 299), "knapp darunter zählt nicht")
+	assert_eq(die.materials.count(DieMaterial.GOLD), 0)
+
+func test_golden_handshake_gilds_the_whole_die_once_per_round():
+	_sign([DealClause.GOLDEN_HANDSHAKE])
+	run.round_goal = 300
+	var die := DieDefinition.standard()
+	assert_true(run.apply_golden_handshake(die, 300))
+	assert_eq(die.materials.count(DieMaterial.GOLD), die.materials.size(), "alle Seiten Gold")
+	assert_false(run.apply_golden_handshake(DieDefinition.standard(), 900),
+		"je Runde nur ein Handschlag")
+	run.apply_round_start_charms()
+	assert_true(run.apply_golden_handshake(DieDefinition.standard(), 900), "neue Runde, neuer Griff")
+
+func test_golden_handshake_spares_a_burned_in_material_face():
+	_sign([DealClause.GOLDEN_HANDSHAKE])
+	run.round_goal = 100
+	var die := DieDefinition.standard()
+	die.set_face_material(2, DieMaterial.RUBY)
+	die.rifts[2] = Rift.BURN_IN
+	assert_true(run.apply_golden_handshake(die, 100))
+	assert_eq(die.materials[2], DieMaterial.RUBY, "Einbrand sperrt das Übermalen")
+	assert_eq(die.materials[0], DieMaterial.GOLD, "der Rest wird trotzdem Gold")
+
+func test_carbon_copy_copies_every_shown_material_of_the_first_hand():
+	_sign([DealClause.CARBON_COPY])
+	var die := DieDefinition.standard()
+	die.set_face_material(0, DieMaterial.GOLD)
+	var defs: Array[DieDefinition] = [die]
+	var faces: Array[int] = [0]
+	var participating: Array[int] = [0]
+	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 1)
+	assert_eq(run.owned_engravings.size(), 1)
+	assert_eq(run.owned_engravings[0].material_id(), DieMaterial.GOLD)
+
+func test_carbon_copy_only_pays_the_first_hand_and_only_signed():
+	var die := DieDefinition.standard()
+	die.set_face_material(0, DieMaterial.GOLD)
+	var defs: Array[DieDefinition] = [die]
+	var faces: Array[int] = [0]
+	var participating: Array[int] = [0]
+	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 0, "ohne Unterschrift nichts")
+	_sign([DealClause.CARBON_COPY])
+	assert_eq(run.apply_carbon_copy(defs, faces, participating, false), 0, "nur die erste Hand")
+	assert_eq(run.owned_engravings.size(), 0)
+
+func test_carbon_copy_skips_a_bare_face():
+	_sign([DealClause.CARBON_COPY])
+	var defs: Array[DieDefinition] = [DieDefinition.standard()]
+	var faces: Array[int] = [0]
+	var participating: Array[int] = [0]
+	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 0, "leere Seite kopiert nichts")
 
 # --- Drossel & Stresstest-Konditionen ----------------------------------------------
 

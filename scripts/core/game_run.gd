@@ -177,6 +177,10 @@ var owned_charms: Array[Charm] = []
 var owned_engravings: Array[Engraving] = []
 ## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange.
 var owned_packs: Array[Pack] = []
+## Die Pakete des JÜNGSTEN Hub-Ausbaus, in Gewähr-Reihenfolge - Vorlage der
+## Reveal-Zeremonie. Gebucht sind sie längst (upgrade_hub); das hier ist nur die
+## Merkliste, wovon die Zeremonie erzählt.
+var last_hub_reward_packs: Array[Pack] = []
 ## Beim Händler hinterlegte Würfel: in der Chip-Schale gekauft, aber noch nicht
 ## eingetauscht. Sie liegen im Laden, bis der Spieler selbst bestimmt, welchen
 ## Pool-Platz sie übernehmen - der Automat sucht ihn sonst allein aus, und eine
@@ -205,6 +209,8 @@ var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Ausza
 ## sie schon kassiert wurde - je Runde steigt höchstens EINE Stufe.
 var spotlight_combo: String = ""
 var spotlight_claimed_this_round: bool = false
+## Goldener Handschlag: die Klausel vergoldet je Runde genau EINEN Würfel.
+var golden_handshake_used_this_round: bool = false
 
 ## Rundenzustand der Essenzen, je Würfel-Exemplar (Instanz-id des DieDefinition):
 ## Xenons verschossener Blitz und die Seite, die der Kugelblitz diese Runde trifft.
@@ -331,6 +337,7 @@ func upgrade_hub() -> void:
 ## Seele tragen; HUB_REWARD_PACKS legt je Stufe noch Gravur-Pakete obendrauf.
 ## Geöffnet wird alles über den gewohnten Weg in der Werkstatt.
 func _grant_hub_rewards(level: int) -> int:
+	last_hub_reward_packs.clear()
 	var granted := 0
 	var template := _reward_dice_template()
 	if not template.is_empty():
@@ -339,9 +346,12 @@ func _grant_hub_rewards(level: int) -> int:
 		pack.description = "%d× %s aufgedeckt, alle beseelt - einer darf mit." \
 			% [int(template["count"]), template["name"]]
 		owned_packs.append(pack)
+		last_hub_reward_packs.append(pack)
 		granted += 1
 	for pack_type: String in HUB_REWARD_PACKS.get(level, []):
-		owned_packs.append(Pack.by_type(pack_type))
+		var extra := Pack.by_type(pack_type)
+		owned_packs.append(extra)
+		last_hub_reward_packs.append(extra)
 		granted += 1
 	if granted > 0:
 		packs_changed.emit()
@@ -438,6 +448,20 @@ func stash_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
 	pending_dice.append(def.instantiate())
 	pending_dice_changed.emit()
+
+## Bestandener Stresstest: EIN garantiert beseelter Würfel als Belohnung. Er geht
+## auf die Händler-Ablage, nicht in den Pool - welcher Platz seine Seele hergibt,
+## entscheidet der Spieler, wie bei einem Kauf aus der Chip-Schale.
+func grant_stress_reward() -> DieDefinition:
+	var templates := DiceOffer.pick_templates(1, charm_ids())
+	if templates.is_empty():
+		return null
+	var die := DiceOffer.make_die(templates[0], hub_level)
+	DiceOffer.roll_refinements(die)
+	die.essence_id = DiceOffer.roll_essence(owned_essence_ids(), true, true)
+	pending_dice.append(die)
+	pending_dice_changed.emit()
+	return die
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
 ## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
@@ -582,7 +606,10 @@ func open_pack(index: int) -> Dictionary:
 	if pack.is_dice_pack():
 		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
 	else:
-		result["engravings"] = pack.roll_engravings(pack_engraving_floor())
+		# Das Paket bringt seine eigene Untergrenze mit (Automaten-Stufe); es gilt
+		# die höhere von beiden.
+		var floor_rarity := maxi(pack.rarity_floor, pack_engraving_floor()) as Engraving.Rarity
+		result["engravings"] = pack.roll_engravings(floor_rarity)
 	packs_changed.emit()
 	return result
 
@@ -650,6 +677,7 @@ func apply_round_start_charms() -> void:
 		_roll_lumpensammler_value()
 	throttled_combos = _round_throttled_combos()
 	spotlight_claimed_this_round = false
+	golden_handshake_used_this_round = false
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
 	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT) \
@@ -1143,6 +1171,64 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 		pool_changed.emit()
 	return gilded
 
+## Scherbenglasur: jeder verworfene Würfel bekommt Zufallsmaterial auf eine
+## ZUFÄLLIGE leere Seite; wer keine mehr frei hat, geht leer aus. Liefert die
+## Anzahl veredelter Würfel.
+func apply_farkle_glaze(defs: Array[DieDefinition]) -> int:
+	if not _clause_active(DealClause.SHARD_GLAZE):
+		return 0
+	var glazed := 0
+	for die in defs:
+		var free_faces: Array[int] = []
+		for face in die.materials.size():
+			if die.materials[face] == "":
+				free_faces.append(face)
+		if free_faces.is_empty():
+			continue
+		die.set_face_material(free_faces.pick_random(), DieMaterial.all().pick_random().id)
+		glazed += 1
+	if glazed > 0:
+		pool_changed.emit()
+	return glazed
+
+## Goldener Handschlag: schafft EINE Hand den Benchmark im Alleingang, wird ihr
+## erster Würfel ganz Gold - je Runde einmal. Eingebrannte Seiten mit Material
+## bleiben, wie sie sind (Einbrand sperrt das Übermalen).
+func apply_golden_handshake(def: DieDefinition, hand_points: int) -> bool:
+	if def == null or golden_handshake_used_this_round:
+		return false
+	if not _clause_active(DealClause.GOLDEN_HANDSHAKE) or hand_points < effective_goal():
+		return false
+	for face in def.materials.size():
+		if def.materials[face] != "" and RiftEffects.protects_face_value(def.rifts_on(face)):
+			continue
+		def.set_face_material(face, DieMaterial.GOLD)
+	golden_handshake_used_this_round = true
+	pool_changed.emit()
+	return true
+
+## Durchschlagpapier: die erste gewertete Hand der Runde kopiert jedes oben
+## liegende Material als Gravur in den Vorrat. Liefert die Zahl der Kopien.
+func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
+		participating: Array[int], first_hand: bool) -> int:
+	if not first_hand or not _clause_active(DealClause.CARBON_COPY):
+		return 0
+	var copied := 0
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size():
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].materials.size():
+			continue
+		var material := DieMaterial.by_id(defs[i].materials[face])
+		if material == null:
+			continue
+		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
+			Engraving.Rarity.UNCOMMON)
+		grant_engraving(Engraving.material_engraving(material, rarity))
+		copied += 1
+	return copied
+
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
@@ -1430,8 +1516,8 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 	match prize.kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			for i in mult:
-				for engraving in prize.engravings:
-					grant_engraving(engraving)
+				for pack in prize.packs:
+					grant_pack(pack.duplicate())  # sonst teilte der Multiplikator eine Resource
 		SlotPrize.Kind.CHARM:
 			if prize.charm != null:
 				for i in mult:

@@ -11,12 +11,15 @@ const TYPE_NUMBER := "number"
 const TYPE_MATERIAL := "material"
 const TYPE_DICE := "dice"
 const TYPE_MIXED := "mixed"
+## Nur Automaten-Gewinn: liegt nie im Regal, darum ohne SHELF_WEIGHTS-Eintrag.
+const TYPE_DICE_MOD := "dice_mod"
 
 ## Inhaltsmenge und Preis je Gravur-Sorte - die Sorte STEUERT die Häufigkeit:
 ## viele Zahlen, mäßig Materialien.
 const NUMBER_COUNT := 4
 const MATERIAL_COUNT := 3
 const MIXED_COUNT := 4
+const DICE_MOD_COUNT := 2
 
 const NUMBER_PRICE := 12
 const MATERIAL_PRICE := 14
@@ -42,6 +45,7 @@ const TYPE_NAMES := {
 	TYPE_MATERIAL: "Material-Paket",
 	TYPE_DICE: "Würfel-Paket",
 	TYPE_MIXED: "Gemischtes Paket",
+	TYPE_DICE_MOD: "Würfel-Gravur-Paket",
 }
 
 @export var type: String = TYPE_NUMBER
@@ -54,6 +58,9 @@ const TYPE_NAMES := {
 ## Alle Auswahl-Würfel dieses Pakets tragen garantiert eine Seele - so kommt das
 ## Würfel-Paket der Hub-Belohnung heraus. Der Unikat-Ausschluss gilt weiter.
 @export var essence_guaranteed: bool = false
+## Eigene Mindest-Seltenheit des Inhalts; der Automat prägt seine Maschinen-Stufe
+## hier hinein. Beim Öffnen gilt die HÖHERE von Paket und Hub.
+@export var rarity_floor: int = Engraving.Rarity.COMMON
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -71,6 +78,11 @@ static func number_pack() -> Pack:
 static func material_pack() -> Pack:
 	return _make(TYPE_MATERIAL, MATERIAL_COUNT, MATERIAL_PRICE,
 		"%d Material-Gravuren, versiegelt." % MATERIAL_COUNT)
+
+## Würfel-Gravur-Paket: reiner Automaten-Gewinn, darum Preis 0.
+static func dice_mod_pack() -> Pack:
+	return _make(TYPE_DICE_MOD, DICE_MOD_COUNT, 0,
+		"%d Würfel-Gravuren, versiegelt." % DICE_MOD_COUNT)
 
 static func mixed_pack() -> Pack:
 	return _make(TYPE_MIXED, MIXED_COUNT, MIXED_PRICE,
@@ -106,6 +118,8 @@ static func by_type(pack_type: String) -> Pack:
 			return material_pack()
 		TYPE_MIXED:
 			return mixed_pack()
+		TYPE_DICE_MOD:
+			return dice_mod_pack()
 	return number_pack()
 
 ## Engraving-Kategorie hinter einer Gravur-Paketsorte ("" bei Würfel-Paketen).
@@ -115,6 +129,8 @@ func engraving_category() -> String:
 			return Engraving.CATEGORY_NUMBER
 		TYPE_MATERIAL:
 			return Engraving.CATEGORY_MATERIAL
+		TYPE_DICE_MOD:
+			return Engraving.CATEGORY_DICE
 	return ""
 
 func is_dice_pack() -> bool:

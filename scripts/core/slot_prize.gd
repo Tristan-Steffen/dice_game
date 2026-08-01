@@ -1,6 +1,6 @@
 class_name SlotPrize
 extends RefCounted
-## Ergebnis eines Fumble-Automaten: ein Gewinn (Gravuren, Charm oder Würfel) oder
+## Ergebnis eines Fumble-Automaten: ein Gewinn (Pakete, Charm oder Würfel) oder
 ## das Namensgeber-Symbol „Fumble" (die Niete, löscht den Topf). Der Inhalt wird
 ## beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
 ## Auszahlen - mit Multiplikator je Trefferzahl. Reine Daten, keine Nodes.
@@ -18,8 +18,21 @@ static func category_of(kind_value: int) -> String:
 		Kind.DICE_ENGRAVING: return Engraving.CATEGORY_DICE
 	return ""
 
+## Paketsorte hinter einem Gravur-Symbol ("" = kein Gravur-Symbol).
+static func pack_type_of(kind_value: int) -> String:
+	match kind_value:
+		Kind.ENGRAVING: return Pack.TYPE_NUMBER
+		Kind.MATERIAL: return Pack.TYPE_MATERIAL
+		Kind.DICE_ENGRAVING: return Pack.TYPE_DICE_MOD
+	return ""
+
+## Anzeigename der Paketsorte eines Symbols; count steuert den Plural.
+static func pack_name(kind_value: int, count: int = 1) -> String:
+	var type_name := String(Pack.TYPE_NAMES.get(pack_type_of(kind_value), "Paket"))
+	return type_name if count == 1 else type_name + "e"
+
 var kind: int = Kind.FUMBLE
-var engravings: Array[Engraving] = []   # Basis-Ausschüttung (vor Multiplikator)
+var packs: Array[Pack] = []      # Basis-Ausschüttung (vor Multiplikator)
 var charm: Charm = null
 var die: DieDefinition = null
 var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
@@ -28,18 +41,17 @@ var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 ## Preis auf - Inhalt wird sofort gewürfelt, damit ihn der Zwischenspeicher zeigt.
 static func from_spec(spec: Dictionary, hub_level: int = 1) -> SlotPrize:
 	var p := SlotPrize.new()
-	match String(spec.get("kind", "engraving")):
-		"engraving":
+	match String(spec.get("kind", "pack")):
+		"pack":
 			p.kind = int(spec.get("symbol", Kind.ENGRAVING))
-			var count := int(spec.get("count", 1))
+			var count := maxi(1, int(spec.get("count", 1)))
 			var floor_rarity := int(spec.get("floor", Engraving.Rarity.COMMON))
-			var category := category_of(p.kind)
-			if category == "":
-				p.engravings = Engraving.roll_draft(count, floor_rarity)
-			else:
-				p.engravings = Engraving.roll_in_category(category, count, floor_rarity)
-			var n := maxi(1, p.engravings.size())
-			p.label = "%d %s" % [n, category_name(p.kind, n)]
+			var pack_type := pack_type_of(p.kind)
+			for i in count:
+				var pack := Pack.by_type(pack_type)
+				pack.rarity_floor = floor_rarity
+				p.packs.append(pack)
+			p.label = "%d %s" % [count, pack_name(p.kind, count)]
 		"charm":
 			p.kind = Kind.CHARM
 			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)))

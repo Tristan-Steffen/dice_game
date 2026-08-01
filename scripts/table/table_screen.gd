@@ -2147,6 +2147,17 @@ func slot_prize_comet(from_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
+## Gewonnenes Paket Automat -> Werkbank: Automaten-Ader in den Hub, Werkstatt-Ader
+## zur Werkbank. Liefert die Laufzeit.
+func slot_pack_comet(from_px: Vector2, color: Color) -> float:
+	if workshop_window == null or not workshop_window.visible:
+		return 0.0
+	var to_px := workshop_window.position + workshop_window.size * 0.5
+	var path := _route_via_strips(from_px, [slot_hub_strip, workshop_hub_strip], to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
 ## Gewonnene Gravur: den ganzen Weg über die Adern - Automaten-Ader in den Hub,
 ## Werkstatt-Ader zur Werkbank, Schubladen-Ader in den Platz. Quer über den Tisch
 ## fliegt hier nichts; erst der letzte Meter ist ein freier Bogen wie beim Paket.

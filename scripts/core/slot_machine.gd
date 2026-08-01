@@ -5,7 +5,8 @@ extends RefCounted
 ## Zustand, GameRun bucht die Gewinne.
 ##
 ## Symbole sind AUSSCHLIESSLICH Ware: die drei Gravur-Sorten (Zahlen/Material/
-## Kanten - dieselbe Dreiteilung wie Pakete und Schubladen), Charm, Würfel, Fumble.
+## Würfel-Gravur - dieselbe Dreiteilung wie Pakete und Schubladen), Charm, Würfel,
+## Fumble. Eine Gravur-Reihe zahlt versiegelte PAKETE, keine einzelnen Gravuren.
 ## Geld gibt es hier nicht; verdient wird an den Runden, der Automat setzt es um.
 ##
 ## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=3 Symbole; alle
@@ -24,7 +25,7 @@ const ROWS := 5
 const TOTAL_COLS := MACHINE_COUNT * MACHINE_COLS  # 9
 const MIN_RUN := 3          # ab so vielen gleichen nebeneinander zahlt eine Reihe
 const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
-const SPIN_PRICES := [8, 14, 24]
+const SPIN_PRICES := [12, 24, 36]
 const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.
@@ -108,7 +109,7 @@ func hit_count() -> int:
 	return runs().size()
 
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
-## Anzeige): je Gravur-Sorte eine Zahl, dazu Charm-Raritäten und Würfel.
+## Anzeige): je Gravur-Sorte die PAKETZAHL, dazu Charm-Raritäten und Würfel.
 func pot_summary() -> Dictionary:
 	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.DICE_ENGRAVING: 0}
 	var charms: Array = []
@@ -116,7 +117,7 @@ func pot_summary() -> Dictionary:
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
 			match String(spec["kind"]):
-				"engraving": counts[int(spec["symbol"])] += int(spec["count"])
+				"pack": counts[int(spec["symbol"])] += int(spec["count"])
 				"charm": charms.append(String(spec["rarity"]))
 				"die": dice += 1
 	return {
@@ -188,7 +189,7 @@ func _make_run(kind: int, run_cells: Array, direction: Array) -> Dictionary:
 func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 	match kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			return [{"kind": "engraving", "symbol": kind, "count": _engraving_count(kind, length),
+			return [{"kind": "pack", "symbol": kind, "count": _pack_count(kind, length),
 				"floor": _engraving_floor(run_cols)}]
 		SlotPrize.Kind.CHARM:
 			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
@@ -199,13 +200,13 @@ func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
 			return specs
 	return []
 
-## Stückzahl einer Gravur-Reihe. Die Sorte steuert die Ausbeute wie im Laden:
-## viele Zahlen, mäßig Material, sehr wenige Kanten.
-func _engraving_count(kind: int, length: int) -> int:
+## Paketzahl einer Gravur-Reihe. Die Sorte steuert die Ausbeute wie im Laden:
+## viele Zahlen, mäßig Material, sehr wenige Würfel-Gravuren.
+func _pack_count(kind: int, length: int) -> int:
 	match kind:
-		SlotPrize.Kind.MATERIAL: return maxi(1, length - 2)
+		SlotPrize.Kind.MATERIAL: return maxi(1, length - 3)
 		SlotPrize.Kind.DICE_ENGRAVING: return maxi(1, length - 3)
-	return length - 1
+	return length - 2
 
 ## Gravur-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
 func _engraving_floor(run_cols: Array) -> int:
@@ -231,7 +232,7 @@ func _run_label(kind: int, length: int, specs: Array) -> String:
 	match kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			var n := int(specs[0]["count"])
-			return "%s ×%d → %d %s" % [sym, length, n, SlotPrize.category_name(kind, n)]
+			return "%s ×%d → %d %s" % [sym, length, n, SlotPrize.pack_name(kind, n)]
 		SlotPrize.Kind.CHARM:
 			return "%s ×%d → Charm" % [sym, length]
 		SlotPrize.Kind.DIE:

@@ -11,8 +11,8 @@ extends Control
 ##   Würfel   - nur die vier Ecken eines Rahmens (er fasst den ganzen Würfel)
 ##   Gemischt - Auge, Stein und Ecke als Mini-Trio in ihren Sortenfarben
 
-## Farbe der Würfel-Gravuren; sie haben kein eigenes Paket mehr, tauchen aber
-## im gemischten Siegel und auf den Automatenwalzen auf.
+## Farbe der Würfel-Gravuren: im gemischten Siegel, auf den Automatenwalzen und
+## auf dem Würfel-Gravur-Paket (das nur der Automat ausschüttet).
 const DICE_ENGRAVING_COLOR := Color("#ffd319")
 
 ## Kanonische Sortenfarbe (Laden und Werkstatt färben ihre Karten hieraus).
@@ -21,6 +21,7 @@ const COLORS := {
 	Pack.TYPE_NUMBER: Color("#50fa7b"),
 	Pack.TYPE_MATERIAL: Color("#ff79c6"),
 	Pack.TYPE_MIXED: Color("#bd93f9"),
+	Pack.TYPE_DICE_MOD: DICE_ENGRAVING_COLOR,
 }
 
 var pack_type: String = Pack.TYPE_NUMBER

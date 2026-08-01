@@ -407,8 +407,8 @@ func _pot_tray(u: float) -> Control:
 		u * 2.0, MUTED_COLOR))
 	return box
 
-## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Geld, Gravuren,
-## Charms, Würfel) statt jeder einzelnen Reihe.
+## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Pakete, Charms,
+## Würfel) statt jeder einzelnen Reihe.
 func _pot_summary_chips(u: float) -> Control:
 	var chips := HFlowContainer.new()
 	chips.add_theme_constant_override("h_separation", int(u * 1.2))
@@ -421,7 +421,7 @@ func _pot_summary_chips(u: float) -> Control:
 		if count > 0:
 			chips.add_child(_summary_chip(_kind_color(int(entry[0])), "%s %d %s"
 				% [SlotPrize.symbol_for(int(entry[0])), count,
-					SlotPrize.category_name(int(entry[0]), count)], u))
+					SlotPrize.pack_name(int(entry[0]), count)], u))
 	var charms: Array = summary["charms"]
 	if not charms.is_empty():
 		chips.add_child(_summary_chip(_kind_color(SlotPrize.Kind.CHARM), "%s %s"
@@ -684,13 +684,6 @@ func _flash_win() -> void:
 
 # --- Auszahlungs-Jubel -----------------------------------------------------------
 
-const RARITY_COLORS := {
-	Engraving.Rarity.COMMON: Color("#8be9fd"),
-	Engraving.Rarity.UNCOMMON: Color("#50fa7b"),
-	Engraving.Rarity.RARE: Color("#ffd319"),
-	Engraving.Rarity.EPIC: Color("#bd93f9"),
-}
-
 ## Takt der Auszahlung: Aufploppen, gemeinsames Halten, dann einzeln abfliegen.
 const POP_STAGGER := 0.09
 const HOLD_TIME := 1.1
@@ -744,20 +737,20 @@ func _play_payout_reveal(prizes: Array) -> void:
 
 	_animate_reveal()
 
-## Ein Token je Gewinn: Gravuren mit Icon, Charm und Würfel als Glyphe.
+## Ein Token je Gewinn: Gravur-Sorten als Paket-Siegel, Charm und Würfel als Glyphe.
 func _token_for(prize: SlotPrize, u: float) -> Control:
 	match prize.kind:
 		SlotPrize.Kind.CHARM:
 			return _glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), prize.charm.display_name, u)
 		SlotPrize.Kind.DIE:
 			return _glyph_token("⬢", CYAN, "Würfel", u)
-	return _engraving_token(prize.engravings[0], prize.engravings.size(), u)
+	return _pack_token(SlotPrize.pack_type_of(prize.kind), prize.packs.size(), u)
 
 ## Ein Gewinn ohne Ware (defensive Prüfung: Fumble hat keinen Token).
 func _token_prize_is_empty(prize: SlotPrize) -> bool:
 	match prize.kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			return prize.engravings.is_empty()
+			return prize.packs.is_empty()
 		SlotPrize.Kind.CHARM:
 			return prize.charm == null
 		SlotPrize.Kind.DIE:
@@ -843,10 +836,9 @@ func _reveal_tween() -> Tween:
 	_reveal_tweens.append(tween)
 	return tween
 
-## Gravur-Token: Icon (Textur oder Ersatz-Kachel) mit Raritäts-Rahmen, Anzahl-
-## Plakette und Name.
-func _engraving_token(engraving: Engraving, count: int, u: float) -> Control:
-	var color: Color = RARITY_COLORS.get(engraving.rarity, MUTED_COLOR)
+## Paket-Token: das Sorten-Siegel im Sortenrahmen, Anzahl-Plakette und Sortenname.
+func _pack_token(pack_type: String, count: int, u: float) -> Control:
+	var color: Color = PackIconRenderer.COLORS.get(pack_type, MUTED_COLOR)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(u * 0.5))
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -861,7 +853,7 @@ func _engraving_token(engraving: Engraving, count: int, u: float) -> Control:
 	fbox.set_corner_radius_all(int(u * 1.6))
 	frame.add_theme_stylebox_override("panel", fbox)
 
-	var icon := _engraving_icon_node(engraving, u)
+	var icon := PackIconRenderer.for_type(pack_type)
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	icon.offset_left = u * 1.2
 	icon.offset_top = u * 1.2
@@ -882,26 +874,13 @@ func _engraving_token(engraving: Engraving, count: int, u: float) -> Control:
 		frame.add_child(badge)
 	box.add_child(frame)
 
-	var name := _label(engraving.display_name, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
+	var name := _label(String(Pack.TYPE_NAMES.get(pack_type, "Paket")), u * 1.9,
+		Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name.custom_minimum_size = Vector2(u * 11.5, 0)
 	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(name)
 	return box
-
-## Icon einer Gravur: Textur, falls vorhanden, sonst eine Ersatz-Kachel mit Glyphe.
-func _engraving_icon_node(engraving: Engraving, u: float) -> Control:
-	if engraving.texture_path != "" and ResourceLoader.exists(engraving.texture_path):
-		var tex := TextureRect.new()
-		tex.texture = load(engraving.texture_path)
-		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		return tex
-	var fallback := _label("◈", u * 6.2, RARITY_COLORS.get(engraving.rarity, ENGRAVING_GLOW))
-	fallback.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	fallback.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	return fallback
 
 ## Einfaches Glyph-Token (Charm/Würfel): großes Symbol + Name.
 func _glyph_token(glyph: String, color: Color, caption: String, u: float) -> Control:

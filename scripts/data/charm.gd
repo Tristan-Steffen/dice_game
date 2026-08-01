@@ -280,7 +280,7 @@ static func lucky_cigarettes() -> Charm:
 	return _make(LUCKY_CIGARETTES, "Glückszigaretten", "Jede gewürfelte 1 zählt als 6 - auch für Kombinationen.")
 
 static func four_leaf_clover() -> Charm:
-	return _make(FOUR_LEAF_CLOVER, "Vierblättriges Kleeblatt", "Jede gewürfelte 4 löst ihren Würfel ein zweites Mal aus - Augen und Material-Effekte zählen erneut.")
+	return _make(FOUR_LEAF_CLOVER, "Vierblättriges Kleeblatt", "Jede gewürfelte 4 löst ihren Würfel ein zweites Mal aus.")
 
 static func golden_scarab() -> Charm:
 	return _make(GOLDEN_SCARAB, "Goldener Skarabäus", "Jede gewürfelte 5 löst ein weiteres Mal aus.")
@@ -410,7 +410,7 @@ static func momentum() -> Charm:
 	return _make(MOMENTUM, "Momentum", "+1 Mult je genommener Hand in Folge ohne Farkle (ein Farkle setzt zurück).")
 
 static func after_work_beer() -> Charm:
-	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel: Basispunkte ×2 und ein Krit: ×2.")
+	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel: ein Krit: ×4.")
 
 static func blackjack() -> Charm:
 	return _make(BLACKJACK, "Blackjack", "Ergeben die gewerteten Würfel zusammen genau 21 Augen: +50 Basispunkte.")

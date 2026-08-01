@@ -67,25 +67,25 @@ func test_fumble_triple_marks_the_session_busted() -> void:
 	assert_eq(run.slot_bank.hit_count(), 0, "Topf verloren")
 
 func test_cash_out_redeems_runs_and_resets() -> void:
-	# 3er-Zahlen-Reihe in Automat 0 → zwei Zahlen-Gravuren in die Vorräte.
+	# 3er-Zahlen-Reihe in Automat 0 → ein Zahlen-Paket ins Lager.
 	_set_wall([[S, S, S, M, C, M, C, M, C]])
 	view.refresh()
 	await wait_frames(2)
 	var money_before := run.money
-	var engravings_before := run.owned_engravings.size()
+	var packs_before := run.owned_packs.size()
 	view._on_cash_out_pressed()
 	await wait_frames(2)
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
-	assert_eq(run.owned_engravings.size(), engravings_before,
+	assert_eq(run.owned_packs.size(), packs_before,
 		"während der Anzeige ist noch nichts gebucht")
 	view.finish_payout_now()
-	assert_eq(run.owned_engravings.size(), engravings_before + 2, "Reihe als Ware ausgezahlt")
+	assert_eq(run.owned_packs.size(), packs_before + 1, "Reihe als Paket ausgezahlt")
 	assert_eq(run.money, money_before, "der Automat zahlt KEIN Geld aus")
 
-func test_each_engraving_symbol_pays_its_own_category() -> void:
-	# Zahlen-, Material- und Kanten-Reihe zahlen je in ihre eigene Sorte.
-	for entry in [[S, Engraving.CATEGORY_NUMBER], [M, Engraving.CATEGORY_MATERIAL],
-			[SlotPrize.Kind.DICE_ENGRAVING, Engraving.CATEGORY_DICE]]:
+func test_each_engraving_symbol_pays_its_own_pack_kind() -> void:
+	# Zahlen-, Material- und Würfel-Reihe zahlen je in ihrer eigenen Paketsorte.
+	for entry in [[S, Pack.TYPE_NUMBER], [M, Pack.TYPE_MATERIAL],
+			[SlotPrize.Kind.DICE_ENGRAVING, Pack.TYPE_DICE_MOD]]:
 		var symbol: int = entry[0]
 		var fresh := GameRun.new_run()
 		fresh.hub_level = 9
@@ -97,10 +97,9 @@ func test_each_engraving_symbol_pays_its_own_category() -> void:
 		view._on_cash_out_pressed()
 		await wait_frames(2)
 		view.finish_payout_now()  # Licht abfliegen lassen: DANN ist gebucht
-		assert_gt(fresh.owned_engravings.size(), 0, "Sorte %s zahlt aus" % entry[1])
-		for engraving in fresh.owned_engravings:
-			assert_eq(engraving.category, String(entry[1]),
-				"nur Gravuren der eigenen Sorte")
+		assert_gt(fresh.owned_packs.size(), 0, "Sorte %s zahlt aus" % entry[1])
+		for pack in fresh.owned_packs:
+			assert_eq(pack.type, String(entry[1]), "nur Pakete der eigenen Sorte")
 
 func test_new_session_after_a_bust() -> void:
 	run.slot_bank.fumble_chance = 1.0
@@ -204,11 +203,11 @@ func test_a_finished_payout_does_not_fire_again() -> void:
 	view._on_cash_out_pressed()
 	await wait_frames(2)
 	view.finish_payout_now()
-	var booked := run.owned_engravings.size()
+	var booked := run.owned_packs.size()
 	var seen := _dispatched()
 	view.finish_payout_now()
 	assert_eq(seen.size(), 0, "ein abgeschlossener Ablauf löst nichts nach")
-	assert_eq(run.owned_engravings.size(), booked, "und bucht auch nichts doppelt")
+	assert_eq(run.owned_packs.size(), booked, "und bucht auch nichts doppelt")
 
 func test_a_run_swap_credits_the_run_that_won() -> void:
 	# Neustart mitten in der Auszahlung: die Ware gehört dem alten Lauf.
@@ -221,8 +220,8 @@ func test_a_run_swap_credits_the_run_that_won() -> void:
 	var next_run := GameRun.new_run()
 	view.run = next_run
 	view.finish_payout_now()
-	assert_gt(winner.owned_engravings.size(), 0, "der Gewinner bekommt seine Ware")
-	assert_eq(next_run.owned_engravings.size(), 0, "der neue Lauf erbt nichts")
+	assert_gt(winner.owned_packs.size(), 0, "der Gewinner bekommt seine Ware")
+	assert_eq(next_run.owned_packs.size(), 0, "der neue Lauf erbt nichts")
 
 func test_fresh_session_leaves_the_button_disabled() -> void:
 	# Nichts gedreht: kein Verwerfen anzubieten, „Auszahlen" bleibt gesperrt.

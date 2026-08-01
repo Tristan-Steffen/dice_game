@@ -115,26 +115,27 @@ func test_longer_run_pays_more() -> void:
 	assert_gt(int(long_run["specs"][0]["count"]), int(short_run["specs"][0]["count"]),
 		"längere Reihe liefert mehr Stücke")
 
-func test_rarer_symbols_pay_out_fewer_pieces() -> void:
-	# Dieselbe Reihenlänge, andere Sorte: Zahlen sind reichlich, Kanten rar.
-	var numbers: Variant = _find_run(_wall([[S, S, S, M, C, D, S, C, D]]), [1, 0], S)
-	var materials: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
-	var edges: Variant = _find_run(_wall([[E, E, E, S, C, D, S, C, D]]), [1, 0], E)
+func test_rarer_symbols_pay_out_fewer_packs() -> void:
+	# Dieselbe Reihenlänge (4), andere Sorte: Zahlen sind reichlich, Würfel-Gravuren rar.
+	var numbers: Variant = _find_run(_wall([[S, S, S, S, C, D, S, C, D]]), [1, 0], S)
+	var materials: Variant = _find_run(_wall([[M, M, M, M, S, D, S, C, D]]), [1, 0], M)
+	var edges: Variant = _find_run(_wall([[E, E, E, E, S, D, S, C, D]]), [1, 0], E)
 	assert_gt(int(numbers["specs"][0]["count"]), int(materials["specs"][0]["count"]),
 		"Zahlen ergiebiger als Material")
 	assert_gte(int(materials["specs"][0]["count"]), int(edges["specs"][0]["count"]),
-		"Material mindestens so ergiebig wie Kanten")
-	assert_eq(int(edges["specs"][0]["count"]), 1, "eine 3er-Kanten-Reihe gibt genau eine Kante")
+		"Material mindestens so ergiebig wie Würfel-Gravuren")
+	assert_eq(int(edges["specs"][0]["count"]), 1,
+		"eine 4er-Würfel-Reihe gibt genau ein Paket")
 
 func test_pot_summary_keeps_the_three_kinds_apart() -> void:
 	# Je Sorte eine eigene Wand mit EINER 3er-Reihe (mehrere explizite Zeilen
 	# zugleich brächen die Neutralität der Füllung - dann entstünden Extra-Reihen).
-	assert_eq(int(_wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()["engravings"]), 2,
-		"3er-Zahlen-Reihe → 2 Gravuren")
+	assert_eq(int(_wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()["engravings"]), 1,
+		"3er-Zahlen-Reihe → 1 Zahlen-Paket")
 	assert_eq(int(_wall([[M, M, M, C, D, C, D, C, D]]).pot_summary()["materials"]), 1,
-		"3er-Material-Reihe → 1 Material")
+		"3er-Material-Reihe → 1 Material-Paket")
 	assert_eq(int(_wall([[E, E, E, C, D, C, D, C, D]]).pot_summary()["edges"]), 1,
-		"3er-Kanten-Reihe → 1 Kante")
+		"3er-Würfel-Reihe → 1 Würfel-Gravur-Paket")
 	var numbers := _wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()
 	assert_eq(int(numbers["materials"]), 0, "eine Zahlen-Reihe zählt NICHT als Material")
 	assert_eq(int(numbers["edges"]), 0)
@@ -218,9 +219,21 @@ func test_any_spun_tracks_the_session() -> void:
 func test_run_specs_resolve_by_symbol() -> void:
 	var material_run: Variant = _find_run(_wall([[M, M, M, S, C, D, S, C, D]]), [1, 0], M)
 	var material: Dictionary = material_run["specs"][0]
-	assert_eq(String(material["kind"]), "engraving")
+	assert_eq(String(material["kind"]), "pack")
 	assert_eq(int(material["symbol"]), SlotPrize.Kind.MATERIAL, "die Sorte steht in der Vorlage")
 	var engraving_run: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
 	var engraving: Dictionary = engraving_run["specs"][0]
-	assert_eq(String(engraving["kind"]), "engraving")
-	assert_eq(int(engraving["count"]), 2, "3er-Gravur-Reihe → 2 Gravuren")
+	assert_eq(String(engraving["kind"]), "pack")
+	assert_eq(int(engraving["count"]), 1, "3er-Zahlen-Reihe → 1 Zahlen-Paket")
+
+func test_run_label_names_the_pack_kind() -> void:
+	var numbers: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
+	assert_eq(String(numbers["label"]), "◉ ×3 → 1 Zahlen-Paket")
+	var long_run: Variant = _find_run(_wall([[S, S, S, S, C, M, C, M, D]]), [1, 0], S)
+	assert_eq(String(long_run["label"]), "◉ ×4 → 2 Zahlen-Pakete", "Plural im Etikett")
+
+func test_spin_prices_rise_per_machine() -> void:
+	assert_eq(SlotMachine.SPIN_PRICES.size(), SlotMachine.MACHINE_COUNT)
+	for i in SlotMachine.MACHINE_COUNT - 1:
+		assert_gt(int(SlotMachine.SPIN_PRICES[i + 1]), int(SlotMachine.SPIN_PRICES[i]),
+			"höherer Automat kostet mehr")

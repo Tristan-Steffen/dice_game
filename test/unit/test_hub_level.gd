@@ -213,7 +213,7 @@ func test_redeem_books_run_prizes() -> void:
 	var run := _run(9999)
 	run.hub_level = 9  # alle drei frei
 	# Handgebaute 5×9-Wand: obere Zeile drei Zahlen-Symbole in Automat 0 (3er-Reihe
-	# ⇒ 2 Gravuren). Restzeilen im mod-4-Muster bilden in KEINER Richtung eine
+	# ⇒ 1 Zahlen-Paket). Restzeilen im mod-4-Muster bilden in KEINER Richtung eine
 	# Reihe (nur so ist die Zahlen-Reihe die einzige).
 	var syms := [M, S, C, D]
 	for c in SlotMachine.TOTAL_COLS:
@@ -227,11 +227,11 @@ func test_redeem_books_run_prizes() -> void:
 	run.slot_bank.spun = [true, true, true]
 	assert_eq(run.slot_bank.hit_count(), 1, "genau eine Reihe")
 	var money_before := run.money
-	var engravings_before := run.owned_engravings.size()
+	var packs_before := run.owned_packs.size()
 	# Auswürfeln und Buchen sind getrennt: gebucht wird erst, wenn der Gewinn als
 	# Licht den Automaten verlässt (book_slot_prize).
 	for prize: SlotPrize in run.redeem_slots()["prizes"]:
 		run.book_slot_prize(prize)
-	assert_eq(run.owned_engravings.size(), engravings_before + 2, "3er-Zahlen-Reihe gebucht")
+	assert_eq(run.owned_packs.size(), packs_before + 1, "3er-Zahlen-Reihe gebucht")
 	assert_eq(run.money, money_before, "der Automat zahlt kein Geld")
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")

@@ -198,21 +198,38 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 	if index < _totals.size():
 		_totals[index] = total
 
+## Saum-Breite (in u) einer beseelten Kachel gegen die eines gewöhnlichen Würfels;
+## bei ~17 px Zellgröße ist ein dünner Saum die Seele nicht zu finden wert.
+const SOUL_BORDER_U := 0.45
+const PLAIN_BORDER_U := 0.2
+const SOUL_GLOW_ALPHA := 0.35
+
 ## Kachel-Saum: gold für das aktuelle Ziel, sonst das Essenzglühen
 ## bzw. Cyan bei normalen Würfeln - Spezialwürfel sind so vor Versehen geschützt.
+## Eine Seele trägt zusätzlich dickeren Saum, Außenschein und getönten Grund; der
+## Gold-Saum des Ziels gewinnt weiterhin, die Dicke bleibt.
 func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	var accent := CYAN
-	if def.essence_id != "":
-		accent = Essence.glow_for(def.essence_id)
+	var souled := def.essence_id != ""
+	var glow := Color.TRANSPARENT
+	if souled:
+		glow = Essence.glow_for(def.essence_id)
+		var lit := glow.lightened(0.15)
+		accent = Color(lit.r * 1.25, lit.g * 1.25, lit.b * 1.25, glow.a)
 	elif def.style_id != "normal":
 		accent = GOLD
 	var border := GOLD if highlighted else accent
 	var bg := Color("#2c2757dd") if highlighted else Color("#221e46cc")
+	if souled:
+		var tinted := bg.lerp(glow, 0.16)
+		bg = Color(tinted.r, tinted.g, tinted.b, bg.a)
+	var width_u := SOUL_BORDER_U if souled else PLAIN_BORDER_U
+	var glow_alpha := SOUL_GLOW_ALPHA if souled else 0.0
 	tile.add_theme_color_override("font_color", GOLD if highlighted else TEXT_COLOR)
-	tile.add_theme_stylebox_override("normal", _box(bg, border))
+	tile.add_theme_stylebox_override("normal", _box(bg, border, width_u, glow_alpha))
 	tile.add_theme_stylebox_override("hover", _box(Color("#2c2757dd"), GOLD))
 	tile.add_theme_stylebox_override("pressed", _box(Color("#3a2f66"), GOLD))
-	tile.add_theme_stylebox_override("focus", _box(bg, border))
+	tile.add_theme_stylebox_override("focus", _box(bg, border, width_u, glow_alpha))
 
 ## Tooltip: Name, Augensumme, Seiten (aufsteigend) und Veredelungen.
 func _describe(def: DieDefinition) -> String:
@@ -243,11 +260,14 @@ func _empty_tile() -> Control:
 	cell.add_theme_stylebox_override("panel", box)
 	return cell
 
-func _box(bg: Color, border: Color) -> StyleBoxFlat:
+func _box(bg: Color, border: Color, width_u := PLAIN_BORDER_U, glow_alpha := 0.0) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = bg
 	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
+	box.set_border_width_all(maxi(1, int(u * width_u)))
 	box.set_corner_radius_all(int(u * 0.7))
 	box.set_content_margin_all(int(u * 0.3))
+	if glow_alpha > 0.0:
+		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
+		box.shadow_size = maxi(1, int(u * 0.6))
 	return box

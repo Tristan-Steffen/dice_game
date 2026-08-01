@@ -279,6 +279,8 @@ func _content_text(pack: Pack) -> String:
 		return "%d Würfel" % pack.count
 	if pack.type == Pack.TYPE_MIXED:
 		return "%d Gravuren, alle Sorten" % pack.count
+	if pack.type == Pack.TYPE_DICE_MOD:
+		return "%d Würfel-Gravuren" % pack.count
 	return "%d %s" % [pack.count, Engraving.CATEGORY_NAMES[pack.engraving_category()]]
 
 ## Ein gekauftes Paket ist unterwegs: seine Karte bleibt verborgen, bis das Licht

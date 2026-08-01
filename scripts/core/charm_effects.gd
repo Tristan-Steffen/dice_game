@@ -439,16 +439,12 @@ static func first_participating(values: Array[int], participating: Array[int]) -
 			first = i
 	return first
 
-## Faktor der Position j auf den BASISWERT: Einserkult (×2 je gewürfelter 1)
-## und Feierabendbier (×2 bei leerem Nachziehstapel). Wirkt an der Besitz-
-## Position - Boni SPÄTERER Charms bleiben unberührt.
-static func charm_base_factor_at(j: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
+## Faktor der Position j auf den BASISWERT: Einserkult (×2 je gewürfelter 1).
+## Wirkt an der Besitz-Position - Boni SPÄTERER Charms bleiben unberührt.
+static func charm_base_factor_at(j: int, values: Array[int], charm_ids: Array[String], _ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
 		Charm.CULT_OF_ONE:
 			return 1 << values.count(1)
-		Charm.AFTER_WORK_BEER:
-			if ctx.get(CTX_POOL_EMPTY, false):
-				return 2
 	return 1
 
 ## Faktor der Position j auf den MULT (Einserkult; Krits haben ihren
@@ -462,7 +458,7 @@ static func charm_mult_factor_at(j: int, values: Array[int], charm_ids: Array[St
 ## KRIT der Position j: multipliziert den AKTUELLEN Mult (Mult 10, Krit ×3
 ## -> 30) - wie jeder Faktor an der Besitz-Position, spätere Mult-Boni
 ## bleiben unberührt. 1 = kein Krit. Nur STATISCHE Krits (Galgenhumor ×4
-## nach Farkle, Feierabendbier ×2 bei leerem Nachziehstapel) - Beherit ist
+## nach Farkle, Feierabendbier ×4 bei leerem Nachziehstapel) - Beherit ist
 ## würfelgebunden und lebt in die_charm_crit_at.
 static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, _participating: Array[int] = []) -> int:
 	match charm_ids[j]:
@@ -471,7 +467,7 @@ static func charm_crit_at(j: int, _values: Array[int], charm_ids: Array[String],
 				return 4
 		Charm.AFTER_WORK_BEER:
 			if ctx.get(CTX_POOL_EMPTY, false):
-				return 2
+				return 4
 	return 1
 
 # --- Geld: Effektkatalog -------------------------------------------------------

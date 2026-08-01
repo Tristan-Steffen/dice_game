@@ -160,6 +160,43 @@ func test_selling_a_charm_re_enables_the_cards():
 	for button in shop.charm_buttons:
 		assert_false(button.disabled, "ein freier Platz macht die Karten wieder kaufbar")
 
+## Preisschild einer Charm-Karte ("voll" / "gekauft" / "gratis" / "$n").
+func _charm_price_tags() -> Array[String]:
+	var tags: Array[String] = []
+	for button in shop.charm_buttons:
+		var tag := _first_tag_label(button)
+		if tag != "":
+			tags.append(tag)
+	return tags
+
+func _first_tag_label(node: Node) -> String:
+	for child in node.get_children():
+		if child is Label:
+			var text: String = (child as Label).text
+			if text == "voll" or text == "gekauft" or text == "gratis" or text.begins_with("$"):
+				return text
+		var nested := _first_tag_label(child)
+		if nested != "":
+			return nested
+	return ""
+
+func test_selling_a_charm_rebuilds_the_cards_and_the_click_works():
+	# Regression: die Karte backt den "voll"-Zustand ein (Schild + Hinweis) und
+	# bekam bei vollem Dock gar keinen pressed-Handler. Nach einem Verkauf muss
+	# beides wieder stimmen, nicht nur der disabled-Zustand.
+	run.money = 300
+	for i in GameRun.CHARM_CAPACITY:
+		run.owned_charms.append(Charm.rabbits_foot())
+	shop.open()
+	await wait_frames(2)
+	assert_true(_charm_price_tags().has("voll"), "voller Dock: das Schild sagt es")
+	run.sell_charm(0)
+	await wait_frames(2)
+	assert_false(_charm_price_tags().has("voll"), "nach dem Verkauf steht wieder ein Preis da")
+	var owned_before := run.owned_charms.size()
+	shop.charm_buttons[0].pressed.emit()  # der ECHTE Klickweg, nicht der Handler
+	assert_eq(run.owned_charms.size(), owned_before + 1, "der Klick kauft wirklich")
+
 func test_charm_cannot_be_bought_twice():
 	shop._on_charm_clicked(0)
 	var money_after_first: int = run.money

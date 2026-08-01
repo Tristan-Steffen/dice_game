@@ -301,8 +301,8 @@ func test_cult_of_one_doubles_base_and_mult_per_one():
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.CULT_OF_ONE]))
 	assert_eq(score, 160)
 
-func test_after_work_beer_doubles_the_base_and_crits_when_the_pool_is_empty():
-	# Paar Fünfer: Basis 20×2 × (Mult 2, Krit ×2) = 160; mit Würfeln im Stapel nur 40.
+func test_after_work_beer_crits_when_the_pool_is_empty():
+	# Paar Fünfer: Basis 20 × (Mult 2, Krit ×4) = 160; mit Würfeln im Stapel nur 40.
 	var ids := _ids([Charm.AFTER_WORK_BEER])
 	var empty := {CharmEffects.CTX_POOL_EMPTY: true}
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, empty), 160)
@@ -686,14 +686,13 @@ func test_purchased_dice_land_in_the_pool_as_independent_copies():
 # --- Wertungs-Reihenfolge: Faktoren wirken an ihrer Besitz-Position ----------------
 
 func test_factor_charms_apply_at_their_dock_position():
-	# KEINE Ausnahmen von der Trigger-Reihenfolge: Feierabendbier vor Runde Sache
-	# verdoppelt nur die 20 Basis (40 + 100 = 140, ×4 Mult inkl. Krit = 560);
-	# dahinter verdoppelt es auch den +100-Bonus ((20+100)×2 = 240, ×4 = 960).
-	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
-	var beer_first := _ids([Charm.AFTER_WORK_BEER, Charm.ROUND_NUMBER])
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_first, false, NO_MATS, {}, ctx), 560)
-	var beer_last := _ids([Charm.ROUND_NUMBER, Charm.AFTER_WORK_BEER])
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), beer_last, false, NO_MATS, {}, ctx), 960)
+	# KEINE Ausnahmen von der Trigger-Reihenfolge: Einserkult vor Runde Sache
+	# verdoppelt nur die 20 Basis (40 + 100 = 140, ×4 Mult = 560); dahinter
+	# verdoppelt er auch den +100-Bonus ((20+100)×2 = 240, ×4 = 960).
+	var cult_first := _ids([Charm.CULT_OF_ONE, Charm.ROUND_NUMBER])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), cult_first), 560)
+	var cult_last := _ids([Charm.ROUND_NUMBER, Charm.CULT_OF_ONE])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), cult_last), 960)
 
 # --- Raritäten (siehe Obsidian "12 Charms": Abschnitt "Raritäten") -------------
 

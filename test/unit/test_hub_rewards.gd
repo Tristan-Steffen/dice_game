@@ -125,6 +125,48 @@ func test_unlisted_levels_grant_only_the_dice_pack() -> void:
 		var after := _run_at(level).owned_packs.size()
 		assert_eq(after - before, 1, "Stufe %d: nur das Würfel-Paket" % level)
 
+## --- Merkliste für die Reveal-Zeremonie ------------------------------------------
+
+func test_the_upgrade_remembers_exactly_the_packs_it_granted() -> void:
+	var run := GameRun.new_run()
+	run.money = 100000
+	run.upgrade_hub()  # Stufe 2: nur das beseelte Würfel-Paket
+	assert_eq(run.last_hub_reward_packs.size(), 1)
+	assert_eq(run.last_hub_reward_packs[0].type, Pack.TYPE_DICE)
+	assert_true(run.last_hub_reward_packs[0].essence_guaranteed)
+
+func test_the_reward_list_leads_with_the_dice_pack() -> void:
+	var run := _run_at(5)  # Stufe 5: Würfel + Zahlen + Gemischt
+	assert_eq(run.last_hub_reward_packs.size(), 3)
+	assert_eq(run.last_hub_reward_packs[0].type, Pack.TYPE_DICE, "das beseelte Paket zuerst")
+	var extras: Array[String] = []
+	for i in range(1, run.last_hub_reward_packs.size()):
+		extras.append(run.last_hub_reward_packs[i].type)
+	assert_true(extras.has(Pack.TYPE_NUMBER))
+	assert_true(extras.has(Pack.TYPE_MIXED))
+
+func test_the_reward_list_holds_the_packs_that_really_went_into_stock() -> void:
+	# Die Zeremonie darf nichts zeigen, was nicht im Lager liegt - sie bucht nicht.
+	var run := _run_at(5)
+	for pack in run.last_hub_reward_packs:
+		assert_true(run.owned_packs.has(pack), "gezeigt wird nur, was gebucht ist")
+
+func test_each_upgrade_replaces_the_reward_list() -> void:
+	var run := GameRun.new_run()
+	run.money = 100000
+	run.upgrade_hub()
+	run.upgrade_hub()
+	assert_eq(run.last_hub_reward_packs.size(), 1, "die Liste erzählt nur vom JÜNGSTEN Ausbau")
+	assert_eq(run.owned_packs.size(), 2, "im Lager liegen aber beide")
+
+func test_an_unaffordable_upgrade_leaves_the_reward_list_alone() -> void:
+	var run := GameRun.new_run()
+	run.money = 100000
+	run.upgrade_hub()
+	run.money = 0
+	run.upgrade_hub()  # scheitert
+	assert_eq(run.last_hub_reward_packs.size(), 1, "ohne Aufstieg keine neue Merkliste")
+
 func test_the_upgrade_reports_its_packs() -> void:
 	var run := GameRun.new_run()
 	run.money = 100000

@@ -5,8 +5,27 @@ extends GutTest
 func test_engraving_packs_map_to_their_category() -> void:
 	assert_eq(Pack.number_pack().engraving_category(), Engraving.CATEGORY_NUMBER)
 	assert_eq(Pack.material_pack().engraving_category(), Engraving.CATEGORY_MATERIAL)
+	assert_eq(Pack.dice_mod_pack().engraving_category(), Engraving.CATEGORY_DICE)
 	assert_eq(Pack.dice_pack(DiceOffer.TEMPLATES[0]).engraving_category(), "",
 		"Würfel-Pakete haben keine Gravur-Kategorie")
+
+func test_dice_mod_pack_is_a_slot_only_prize() -> void:
+	var pack := Pack.dice_mod_pack()
+	assert_eq(pack.price, 0, "reiner Automaten-Gewinn")
+	assert_false(Pack.SHELF_WEIGHTS.has(Pack.TYPE_DICE_MOD), "und darum ohne Auslage-Gewicht")
+	assert_eq(Pack.by_type(Pack.TYPE_DICE_MOD).type, Pack.TYPE_DICE_MOD, "über die Typ-id baubar")
+
+func test_dice_mod_pack_rolls_dice_engravings() -> void:
+	var contents := Pack.dice_mod_pack().roll_engravings()
+	assert_eq(contents.size(), Pack.DICE_MOD_COUNT)
+	for engraving in contents:
+		assert_eq(engraving.category, Engraving.CATEGORY_DICE)
+
+func test_pack_carries_its_own_rarity_floor() -> void:
+	var pack := Pack.dice_mod_pack()
+	assert_eq(pack.rarity_floor, Engraving.Rarity.COMMON, "ohne Prägung die Untergrenze aller")
+	for engraving in pack.roll_engravings(Engraving.Rarity.RARE):
+		assert_gte(int(engraving.rarity), int(Engraving.Rarity.RARE))
 
 func test_engraving_pack_rolls_its_count_in_category() -> void:
 	var pack := Pack.material_pack()

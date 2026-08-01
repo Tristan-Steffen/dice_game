@@ -306,16 +306,16 @@ func test_magic_card_is_a_total_factor():
 	assert_eq(posts[0]["total_x"], 2.0)
 	assert_eq(posts[0]["charm_indices"], [0])
 
-func test_after_work_beer_doubles_the_base_and_crits():
-	# Leerer Nachziehstapel: ein Schritt, der die Basis verdoppelt UND krittet.
+func test_after_work_beer_crits_on_an_empty_pool():
+	# Leerer Nachziehstapel: ein reiner Krit-Schritt, die Basis bleibt unberührt.
 	var ids := _ids([Charm.AFTER_WORK_BEER])
 	var ctx := {CharmEffects.CTX_POOL_EMPTY: true}
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, ctx)
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
-	assert_eq(steps[0]["base_x"], 2, "Basis verdoppelt")
-	assert_eq(steps[0]["mult_x"], 2, "Krit steckt im Mult-Faktor")
-	assert_eq(steps[0]["crit_x"], 2, "und bleibt als Krit sichtbar")
+	assert_eq(steps[0]["base_x"], 1, "kein Basis-Faktor mehr")
+	assert_eq(steps[0]["mult_x"], 4, "Krit steckt im Mult-Faktor")
+	assert_eq(steps[0]["crit_x"], 4, "und bleibt als Krit sichtbar")
 	assert_eq(steps[0]["charm_indices"], [0])
 	assert_true(breakdown["post_steps"].is_empty(), "kein Nach-Schritt mehr")
 

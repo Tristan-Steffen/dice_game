@@ -42,6 +42,7 @@ const SPOTLIGHT := "spotlight"
 const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
+const SHARD_GLAZE := "shard_glaze"
 
 # Bonus, Stufe 2
 const MAINTENANCE_ENGRAVING := "maintenance_engraving"
@@ -53,12 +54,14 @@ const INTEREST := "interest"
 const FREE_SPINS := "free_spins"
 const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
+const GOLDEN_HANDSHAKE := "golden_handshake"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
 const BLANK_CHEQUE := "blank_cheque"
 const SUPERCONDUCTOR := "superconductor"
 const GOLD_VEIN := "gold_vein"
+const CARBON_COPY := "carbon_copy"
 
 # Werbegeschenke
 const TOURNAMENT_NIGHT := "tournament_night"
@@ -182,6 +185,11 @@ static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
 		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
 
+static func shard_glaze() -> DealClause:
+	return _bonus(SHARD_GLAZE, "Scherbenglasur",
+		"Fumble: jeder verworfene Würfel erhält Zufallsmaterial auf einer leeren Seite",
+		Scope.ROUND, Tier.ONE)
+
 static func maintenance_engraving() -> DealClause:
 	return _bonus(MAINTENANCE_ENGRAVING, "Wartungs-Gravur", "Je genommene Hand eine Zahl-Gravur",
 		Scope.ROUND, Tier.TWO)
@@ -221,6 +229,11 @@ static func calibration() -> DealClause:
 	return _bonus(CALIBRATION, "Eichung", "Benchmark −50%",
 		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
 
+static func golden_handshake() -> DealClause:
+	return _bonus(GOLDEN_HANDSHAKE, "Goldener Handschlag",
+		"Erfüllt EINE Hand den Benchmark allein: ihr erster Würfel wird pures Gold",
+		Scope.ROUND, Tier.TWO)
+
 static func all_on_red() -> DealClause:
 	return _bonus(ALL_ON_RED, "Alles auf Rot", "Alles Geld dieser Runde dreifach",
 		Scope.ROUND, Tier.THREE, [TAG_PAYOUT])
@@ -236,6 +249,11 @@ static func superconductor() -> DealClause:
 static func gold_vein() -> DealClause:
 	return _bonus(GOLD_VEIN, "Goldader", "+10$ je geräumter Überladungs-Stufe",
 		Scope.ROUND, Tier.THREE, [TAG_CHARGE, TAG_MONEY])
+
+static func carbon_copy() -> DealClause:
+	return _bonus(CARBON_COPY, "Durchschlagpapier",
+		"Die erste gewertete Hand kopiert jedes oben liegende Material als Gravur",
+		Scope.ROUND, Tier.THREE)
 
 # --- Werbegeschenke -----------------------------------------------------------
 
@@ -358,10 +376,11 @@ static func balanced_scales() -> DealClause:
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), overclock_discount(), advance_payment(), spotlight(),
-		cash_discount(), insurance_fraud(), seed_capital(),
+		cash_discount(), insurance_fraud(), seed_capital(), shard_glaze(),
 		maintenance_engraving(), high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
+		golden_handshake(),
+		all_on_red(), blank_cheque(), superconductor(), gold_vein(), carbon_copy(),
 		tournament_night(), power_spike(), seed_capital_ii(),
 		benchmark_surcharge(), betting_tax(), empties(), deduction(),
 		service_fee(), inflation(), power_cut(),

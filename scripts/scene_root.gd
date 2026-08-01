@@ -1410,9 +1410,9 @@ func _on_hub_level_changed(level: int) -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 	# Die Belohnungs-Pakete liegen schon im Lager (gebucht in upgrade_hub) - die
-	# Welle über der Werkbank meldet nur, wohin sie gegangen sind.
-	if table_screen != null:
-		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
+	# Zeremonie zeigt nur, WAS die Stufe gebracht hat und wohin es gegangen ist.
+	# Nicht awaiten: der Shop-Refresh darunter läuft parallel weiter.
+	_play_hub_reward_ceremony(run.last_hub_reward_packs)
 	if charm_shop != null and charm_shop.visible:
 		charm_shop.refresh_after_hub_upgrade()
 	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
@@ -1452,6 +1452,11 @@ var _last_payment_comets := 0
 ## Laufende Nummer der Meteore eines Pakets - sie steuert die Ausbruch-Richtung,
 ## damit mehrere Stücke sichtbar auseinanderfliegen.
 var _meteor_index := 0
+
+## Temporäre Reveal-Auslagen über der Hub-Mitte (Hub-Belohnung, Stresstest-Preis).
+## Sie liegen im Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
+var _hub_reward_overlay: Control = null
+var _stress_reward_card: Control = null
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
@@ -1763,16 +1768,15 @@ func _on_slot_spin_paid(_machine: int) -> void:
 	await get_tree().create_timer(table_screen.money_travel_time()).timeout
 	table_screen.slot_pay_comet(SLOT_COIN_COLOR)
 
-## Ein Gewinn verlässt den Automaten: Gravuren fliegen als Meteore in ihre
-## Schubladen, Charms die Automaten-Ader hinauf in den Hub, Würfel im Bogen auf
-## die Vorrats-Ablage. Gebucht hat ihn das Fenster beim Abflug.
+## Ein Gewinn verlässt den Automaten: Pakete fliegen ins Lager an der Werkbank,
+## Charms die Automaten-Ader hinauf in den Hub, Würfel im Bogen auf die
+## Vorrats-Ablage. Gebucht hat ihn das Fenster beim Abflug.
 func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 	if table_screen == null:
 		return
 	match prize.kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			for engraving in prize.engravings:
-				_fly_slot_engraving(engraving, from_px)
+			_fly_slot_packs(prize.packs, from_px)
 		SlotPrize.Kind.CHARM:
 			var travel := table_screen.slot_prize_comet(from_px, SLOT_CHARM_COLOR)
 			if travel > 0.0:
@@ -1782,20 +1786,23 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 		SlotPrize.Kind.DIE:
 			_fly_die_to_pool(from_px)
 
-## Gewonnene Gravur: fährt das ganze Adernetz vom Automaten bis in ihren Platz -
-## anders als beim Paket, das schon an der Werkbank liegt.
-func _fly_slot_engraving(engraving: Engraving, from_px: Vector2) -> void:
-	for drawer in table_screen.supply_drawers:
-		var target := drawer.slot_center_px(engraving.id)
-		if target.x < 0.0:
-			continue
-		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-		var travel := table_screen.slot_engraving_comet(from_px, drawer.category, target, tint)
-		if travel > 0.0:
-			await get_tree().create_timer(travel).timeout
-		if is_instance_valid(drawer):
-			drawer.pop(engraving.id, tint)
+## Gewonnene Pakete: je Paket ein Licht vom Automaten ins Werkstatt-Lager, dicht
+## gestaffelt wie die Frankiermaschinen-Salve. Erst die letzte Ankunft jubelt.
+func _fly_slot_packs(packs: Array[Pack], from_px: Vector2) -> void:
+	if packs.is_empty():
 		return
+	var tint: Color = PackIconRenderer.COLORS.get(packs[0].type, CasinoStyle.GOLD_INTENSE)
+	var travel := 0.0
+	for i in packs.size():
+		if i > 0:
+			await get_tree().create_timer(STAMP_METEOR_GAP).timeout
+		if table_screen == null:
+			return
+		travel = table_screen.slot_pack_comet(from_px, tint)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if table_screen != null:
+		table_screen.celebrate_workshop_delivery(tint)
 
 ## Gewonnener Würfel: Licht in die Vorrats-Ablage, in deren nächsten freien Platz
 ## er beim Rundenstart auftaucht. Ohne Ablage (Fenster-UI-Rückfall) passiert nichts.
@@ -2305,6 +2312,285 @@ func _on_pack_purchased(from_px: Vector2, pack_type: String) -> void:
 		await get_tree().create_timer(travel).timeout
 	if is_instance_valid(window):
 		window.deliver_pack()
+
+## Takt der Hub-Belohnung: Siegel ploppen gestaffelt auf, stehen kurz, dann fährt
+## je Paket ein Komet zur Werkbank.
+const HUB_REWARD_POP_STAGGER := 0.06
+const HUB_REWARD_POP_TIME := 0.32
+const HUB_REWARD_HOLD := 0.7
+const HUB_REWARD_SHRINK_TIME := 0.18
+
+## Reveal des Hub-Ausbaus: über der Hub-Mitte steht je PAKETSORTE ein Siegel (bei
+## mehreren ein "×n"), danach fährt je PAKET ein Komet die Werkstatt-Ader hinunter.
+## Rein visuell - die Pakete liegen längst im Lager.
+func _play_hub_reward_ceremony(packs: Array[Pack]) -> void:
+	if table_screen == null or table_screen.hub == null or packs.is_empty():
+		if table_screen != null:
+			table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
+		return
+	var launched := run
+	_clear_hub_reward_overlay()  # ein zweiter Ausbau überholt den ersten nie
+	var groups := _group_packs_by_type(packs)
+	var icons := _build_hub_reward_overlay(groups)
+	# Ab hier gehört die Zeremonie DIESER Auslage: ein späterer Ausbau setzt das
+	# Feld neu, und dann räumt der alte Ablauf nur noch sich selbst weg.
+	var overlay := _hub_reward_overlay
+	if icons.is_empty():
+		_drop_hub_reward_overlay(overlay)
+		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
+		return
+
+	await get_tree().process_frame  # Pivot braucht das fertige Layout
+	if run != launched or not is_instance_valid(overlay):
+		_drop_hub_reward_overlay(overlay)
+		return
+	for i in icons.size():
+		var icon: Control = icons[i]
+		icon.pivot_offset = icon.size * 0.5
+		var pop := create_tween()
+		pop.tween_interval(float(i) * HUB_REWARD_POP_STAGGER)
+		var grow := pop.tween_property(icon, "scale", Vector2.ONE, HUB_REWARD_POP_TIME)
+		grow.set_trans(Tween.TRANS_BACK)
+		grow.set_ease(Tween.EASE_OUT)
+	var pop_done := float(icons.size()) * HUB_REWARD_POP_STAGGER + HUB_REWARD_POP_TIME
+	await get_tree().create_timer(pop_done + HUB_REWARD_HOLD).timeout
+	if run != launched or not is_instance_valid(overlay) or table_screen == null:
+		_drop_hub_reward_overlay(overlay)
+		return
+
+	# Je Sorte: das Siegel schrumpft weg, seine Pakete fahren einzeln los.
+	var travel := 0.0
+	for i in icons.size():
+		var icon: Control = icons[i]
+		var tint: Color = PackIconRenderer.COLORS.get(String(groups[i]["type"]), CasinoStyle.GOLD_INTENSE)
+		var from_px := _hub_reward_icon_center(overlay, icon)
+		var shrink := create_tween()
+		var fade := shrink.tween_property(icon, "scale", Vector2.ZERO, HUB_REWARD_SHRINK_TIME)
+		fade.set_trans(Tween.TRANS_BACK)
+		fade.set_ease(Tween.EASE_IN)
+		for k in int(groups[i]["count"]):
+			travel = maxf(travel, table_screen.pack_delivery_comet(from_px, tint))
+			if k + 1 < int(groups[i]["count"]):
+				await get_tree().create_timer(STAMP_METEOR_GAP).timeout
+				if run != launched or table_screen == null:
+					_drop_hub_reward_overlay(overlay)
+					return
+	await get_tree().create_timer(maxf(travel, 0.05)).timeout
+	_drop_hub_reward_overlay(overlay)
+	if run == launched and table_screen != null:
+		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
+
+## Pakete zu {type, count} je Sorte, in der Reihenfolge ihres ersten Auftretens.
+func _group_packs_by_type(packs: Array[Pack]) -> Array[Dictionary]:
+	var groups: Array[Dictionary] = []
+	for pack in packs:
+		var found := false
+		for group in groups:
+			if String(group["type"]) == pack.type:
+				group["count"] = int(group["count"]) + 1
+				found = true
+				break
+		if not found:
+			groups.append({"type": pack.type, "count": 1})
+	return groups
+
+## Baut die Siegel-Reihe über der Hub-Mitte; liefert die Siegel-Kacheln in
+## Gruppen-Reihenfolge. Alles ignoriert die Maus - der Tisch leitet Klicks weiter.
+func _build_hub_reward_overlay(groups: Array[Dictionary]) -> Array[Control]:
+	var hub := table_screen.hub
+	var u := maxf(hub.size.x, 200.0) / 100.0
+	_hub_reward_overlay = Control.new()
+	_hub_reward_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hub_reward_overlay.position = hub.position
+	_hub_reward_overlay.size = hub.size
+	table_screen.add_child(_hub_reward_overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hub_reward_overlay.add_child(center)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(u * 3.0))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(row)
+
+	var side := u * 13.0
+	var icons: Array[Control] = []
+	for group in groups:
+		var pack_type := String(group["type"])
+		var tint: Color = PackIconRenderer.COLORS.get(pack_type, CasinoStyle.GOLD_INTENSE)
+		var tile := Control.new()
+		tile.custom_minimum_size = Vector2(side, side)
+		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
+
+		var disc := _reward_glow_disc(tint)
+		disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		disc.offset_left = -side * 0.175
+		disc.offset_top = -side * 0.175
+		disc.offset_right = side * 0.175
+		disc.offset_bottom = side * 0.175
+		tile.add_child(disc)
+
+		var seal := PackIconRenderer.for_type(pack_type)
+		seal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tile.add_child(seal)
+
+		if int(group["count"]) > 1:
+			var badge := Label.new()
+			badge.text = "×%d" % int(group["count"])
+			badge.add_theme_font_size_override("font_size", maxi(10, int(u * 4.0)))
+			badge.add_theme_color_override("font_color", CasinoStyle.GOLD_INTENSE)
+			badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+			badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tile.add_child(badge)
+		row.add_child(tile)
+		icons.append(tile)
+	return icons
+
+## Takt des Stresstest-Preises: Pop-in, Standzeit, Wegschrumpfen zur Hub-Mitte.
+const STRESS_REWARD_POP_TIME := 0.36
+const STRESS_REWARD_HOLD := 1.6
+const STRESS_REWARD_SHRINK_TIME := 0.28
+
+## Der Preis für den bestandenen Stresstest zeigt sich: eine Karte über der
+## Hub-Mitte mit dem taumelnden Würfel, seinem Namen und seiner Seele. Danach
+## schrumpft sie zur Hub-Mitte weg - der Würfel "legt sich auf die Händler-
+## Ablage", die ihn über pending_dice_changed längst zeigt. Rein visuell,
+## gebucht ist er in grant_stress_reward; kein Adern-Flug, Reveal und Ziel
+## liegen im selben Fenster.
+func _play_stress_reward_ceremony(def: DieDefinition) -> void:
+	if def == null or table_screen == null or table_screen.hub == null:
+		return
+	var launched := run
+	_clear_stress_reward_card()
+	var card := _build_stress_reward_card(def)
+	_stress_reward_card = card
+
+	await get_tree().process_frame  # Pivot braucht das fertige Layout
+	if run != launched or not is_instance_valid(card):
+		_drop_stress_reward_card(card)
+		return
+	card.pivot_offset = card.size * 0.5
+	var pop := create_tween()
+	var grow := pop.tween_property(card, "scale", Vector2.ONE, STRESS_REWARD_POP_TIME)
+	grow.set_trans(Tween.TRANS_BACK)
+	grow.set_ease(Tween.EASE_OUT)
+	await get_tree().create_timer(STRESS_REWARD_POP_TIME + STRESS_REWARD_HOLD).timeout
+	if run != launched or not is_instance_valid(card):
+		_drop_stress_reward_card(card)
+		return
+
+	var shrink := create_tween()
+	var fade := shrink.tween_property(card, "scale", Vector2.ZERO, STRESS_REWARD_SHRINK_TIME)
+	fade.set_trans(Tween.TRANS_BACK)
+	fade.set_ease(Tween.EASE_IN)
+	if table_screen.hub != null:
+		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	await get_tree().create_timer(STRESS_REWARD_SHRINK_TIME).timeout
+	_drop_stress_reward_card(card)
+
+## Baut die Preis-Karte mittig über dem Hub-Fenster. Alles ignoriert die Maus -
+## die Weiterleitung des Tischs darf die Karte nicht spüren.
+func _build_stress_reward_card(def: DieDefinition) -> Control:
+	var hub := table_screen.hub
+	var u := maxf(hub.size.x, 200.0) / 100.0
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.position = hub.position
+	holder.size = hub.size
+	table_screen.add_child(holder)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(center)
+
+	var frame := PanelContainer.new()
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := TableScreen.window_style()
+	box.border_color = CasinoStyle.GOLD_INTENSE
+	box.set_border_width_all(maxi(2, int(u * 0.35)))
+	box.set_content_margin_all(int(u * 2.0))
+	frame.add_theme_stylebox_override("panel", box)
+	center.add_child(frame)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", int(u * 0.8))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(column)
+
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(DiceRowView.build_thumb(def, int(u * 22.0), true))
+	column.add_child(stage)
+
+	column.add_child(_stress_reward_label(def.display_name, u * 3.0, CasinoStyle.GOLD_INTENSE))
+	var essence := Essence.by_id(def.essence_id)
+	if essence != null:
+		var line := "%s – %s" % [essence.display_name, essence.epithet]
+		column.add_child(_stress_reward_label(line, u * 2.2, Essence.glow_for(def.essence_id)))
+	holder.scale = Vector2.ZERO  # unsichtbar bis zum Pop
+	return holder
+
+func _stress_reward_label(text: String, font_size: float, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", maxi(9, int(font_size)))
+	label.add_theme_color_override("font_color", color)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+## Räumt NUR die übergebene Karte weg - eine inzwischen neue bleibt stehen.
+func _drop_stress_reward_card(card: Control) -> void:
+	if card != null and is_instance_valid(card):
+		card.queue_free()
+	if _stress_reward_card == card:
+		_stress_reward_card = null
+
+func _clear_stress_reward_card() -> void:
+	_drop_stress_reward_card(_stress_reward_card)
+
+## Weiche Farbscheibe hinter einem Siegel (Vorbild: ShopController._glow_disc).
+func _reward_glow_disc(tint: Color) -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(tint.r, tint.g, tint.b, 0.38), Color(tint.r, tint.g, tint.b, 0.14),
+		Color(tint.r, tint.g, tint.b, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 96
+	texture.height = 96
+	var disc := TextureRect.new()
+	disc.texture = texture
+	disc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return disc
+
+## Mitte einer Siegel-Kachel in Display-Pixeln (Start des Kometen). Die Kachel
+## sitzt in verschachtelten Containern, also über die Viewport-Koordinaten.
+func _hub_reward_icon_center(overlay: Control, icon: Control) -> Vector2:
+	if not is_instance_valid(overlay) or not is_instance_valid(icon):
+		return table_screen.hub.position + table_screen.hub.size * 0.5
+	return overlay.position + icon.global_position - overlay.global_position + icon.size * 0.5
+
+## Räumt NUR die übergebene Auslage weg - eine inzwischen aufgebaute neue bleibt.
+func _drop_hub_reward_overlay(overlay: Control) -> void:
+	if overlay != null and is_instance_valid(overlay):
+		overlay.queue_free()
+	if _hub_reward_overlay == overlay:
+		_hub_reward_overlay = null
+
+func _clear_hub_reward_overlay() -> void:
+	_drop_hub_reward_overlay(_hub_reward_overlay)
 
 ## Ein Stück fliegt aus dem zerbrochenen Siegel: als Meteor in seiner SELTENHEITS-
 ## farbe, geschleudert und doch auf seine Schublade zu. Der Einschlag ist die
@@ -4216,6 +4502,14 @@ func _on_farkle(forgivable: bool = true) -> void:
 	_update_charm_badges()
 	first_hand_after_farkle = true
 
+	# Scherbenglasur: der Verlust veredelt - vor dem Verwerfen, solange die Würfel
+	# noch in der Grube liegen und aufleuchten können.
+	var glazed := run.apply_farkle_glaze(active_kinds)
+	if glazed > 0:
+		hand_note = "Scherbenglasur: %d Würfel veredelt." % glazed
+		for slot in _visible_pit_slots():
+			_flash_scoring_die(slot)
+
 	# Scherbengericht: $2 je verworfenem Würfel - als Chip-Pakete vom Charm-Pad
 	# zur Truhe. Die Phase hält solange SCORING, damit kein Wurf dazwischenfunkt.
 	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
@@ -4376,6 +4670,19 @@ func _on_take_button_pressed() -> void:
 		for slot in gilded:
 			_flash_scoring_die(slot)
 		hand_note = "Midashandschuh: %d Seiten vergoldet." % gilded.size()
+
+	# Goldener Handschlag: "erster Würfel" ist der erste der Zähl-Reihenfolge.
+	var handshake_slot: int = take_order[0] if not take_order.is_empty() else -1
+	if handshake_slot >= 0 and handshake_slot < active_kinds.size():
+		if run.apply_golden_handshake(active_kinds[handshake_slot], int(breakdown["total"])):
+			_flash_scoring_die(handshake_slot)
+			hand_note = "Goldener Handschlag: der Würfel ist pures Gold."
+
+	# Durchschlagpapier: die erste Hand der Runde kopiert ihre Materialien.
+	var copied := run.apply_carbon_copy(active_kinds, dice.face_indices, participating,
+		hands_taken_this_round == 1)
+	if copied > 0:
+		hand_note = "Durchschlagpapier: %d Material-Gravuren kopiert." % copied
 
 	# Lumpensammler beim Nehmen. Straßenmusiker zahlt NICHT hier, sondern pro
 	# ausgelöstem Würfel während der Zähl-Animation (siehe _play_take_animation).
@@ -5070,6 +5377,10 @@ func _reset_game() -> void:
 	run = GameRun.new_run()
 	_connect_run()
 	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
+	# Reveal-Karten des alten Laufs abräumen; ihre Abläufe merken den Lauf-Wechsel
+	# erst an ihrer nächsten await-Grenze.
+	_clear_hub_reward_overlay()
+	_clear_stress_reward_card()
 	betting_open = false  # frische Auslage eröffnet die erste Runde
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
 	if table_screen != null and table_screen.hub != null:
@@ -5403,8 +5714,12 @@ func _on_round_complete() -> void:
 		await _sweep_deal_tokens()
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während des Wischs zurückgesetzt
+		# Bestandener Stresstest: EIN beseelter Würfel als Preis. Gebucht wird hier
+		# (er liegt sofort auf der Händler-Ablage), gezeigt erst unten am Hub.
+		var stress_reward: DieDefinition = null
 		if GameRun.is_stress_round(run.round_number):
 			run.settle_block_deals()
+			stress_reward = run.grant_stress_reward()
 		phase = Phase.SHOP
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
@@ -5422,6 +5737,9 @@ func _on_round_complete() -> void:
 		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
 		_open_side_bet_betting()
 		charm_shop.open()
+		# Erst jetzt steht der Hub im Bild - der Preis zeigt sich darüber. Nicht
+		# awaiten: der Spieler soll den Laden sofort bedienen können.
+		_play_stress_reward_ceremony(stress_reward)
 	else:
 		phase = Phase.GAME_OVER
 		if table_screen != null:
