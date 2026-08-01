@@ -22,6 +22,11 @@ const GOLD := Color("#ffd319")
 ## Spaltenzahl der Pool-Auswahl = Spaltenzahl der echten Trays (DiceTrayView),
 ## damit das Raster wie das Tray darüber liest.
 const POOL_COLUMNS := 6
+## Maße der Hover-Netzkarte in Einheiten - groß genug, dass Materialfarben,
+## Stufen-Plaketten und der Essenz-Chip auf Werkbank-Distanz lesen.
+const HOVER_CELL := 3.2
+const HOVER_TITLE := 2.2
+const HOVER_BODY := 1.7
 
 var run: GameRun:
 	set(value):
@@ -53,6 +58,9 @@ var _pending_deliveries := 0
 
 ## Die Gravur-Station als angehängtes Vollflächen-Panel (setzt scene_root).
 var _station: Control
+## Netz-Karte des überfahrenen Tray-Würfels (nur bei geschlossener Station).
+var _hover_card: PanelContainer
+var _hover_def: DieDefinition
 
 var _phase: Phase = Phase.STASH
 ## Inhalt des gerade geöffneten Pakets.
@@ -100,6 +108,68 @@ func attach_station(panel: Control) -> void:
 
 func _station_open() -> bool:
 	return _station != null and is_instance_valid(_station) and _station.visible
+
+## Netz-Karte des überfahrenen Tray-Würfels. Sie liegt als Overlay in der oberen
+## rechten Ecke der Werkbank - dort ist Platz, solange die Station zu ist, und
+## die Schubladen sitzen ohnehin AUSSERHALB dieses Fensters. Die Station hat
+## Vorrang: sobald sie aufgeht, ist die Karte weg (Eine-Ansicht-Regel).
+func show_hover_net(def: DieDefinition) -> void:
+	if def == null or _station_open():
+		clear_hover_net()
+		return
+	# Der Treiber ruft je Frame - dieselbe stehende Karte wird nicht neu gebaut.
+	if hover_net_visible() and _hover_def == def:
+		return
+	_hover_def = def
+	clear_hover_net()
+	var u := maxf(size.x, 200.0) / 100.0
+	_hover_card = PanelContainer.new()
+	_hover_card.name = "HoverNet"
+	_hover_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_panel(_hover_card)
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", int(u * 0.3))
+	_hover_card.add_child(column)
+	var title := Label.new()
+	title.text = def.display_name
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	CasinoStyle.style_score_label(title, int(u * HOVER_TITLE), CasinoStyle.GOLD)
+	column.add_child(title)
+	var stage := CenterContainer.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(DieNetView.build(def, -1, u * HOVER_CELL))
+	column.add_child(stage)
+	var total := Label.new()
+	total.text = "Augensumme %d" % DiceRowView.eye_total(def)
+	total.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	CasinoStyle.style_body_label(total, int(u * HOVER_BODY), CasinoStyle.CREAM)
+	column.add_child(total)
+	add_child(_hover_card)
+	_hover_card.reset_size()
+	_hover_card.position = Vector2(size.x - _hover_card.size.x - u, u)
+
+func clear_hover_net() -> void:
+	if _hover_card != null and is_instance_valid(_hover_card):
+		# Erst aushängen, dann freigeben: queue_free wirkt erst am Bildende, und
+		# eine neue Karte träfe sonst kurzzeitig auf ihre eigene Vorgängerin.
+		remove_child(_hover_card)
+		_hover_card.queue_free()
+	_hover_card = null
+
+func hover_net_visible() -> bool:
+	return _hover_card != null and is_instance_valid(_hover_card)
+
+## Die Defs sind geteilte Instanzen: ändert sich ein Pool-Würfel, während die
+## Karte steht, muss sie den neuen Stand zeigen. Erst abräumen, sonst fängt die
+## Gleiche-Karte-Sperre den Neubau ab.
+func refresh_hover_net() -> void:
+	if hover_net_visible() and _hover_def != null:
+		var def := _hover_def
+		clear_hover_net()
+		show_hover_net(def)
 
 func refresh() -> void:
 	if not is_inside_tree():

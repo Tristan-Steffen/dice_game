@@ -17,6 +17,7 @@ signal deals_changed
 ## die Grubenwürfel und die Gravur-Station hängen alle hier - Instanzen werden
 ## NIE getauscht (become), also reicht ein Signal ohne Index.
 signal pool_changed
+signal pending_dice_changed
 signal charge_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
@@ -94,6 +95,16 @@ const UNLIMITED_OVERCHARGE_STAGES := 99
 const HUB_MAX_LEVEL := 10
 ## Preise für die Aufstiege 1→2 … 9→10 (steil steigend zum High Roller).
 const HUB_UPGRADE_PRICES := [8, 12, 18, 25, 35, 55, 80, 120, 170]
+
+## ZUSÄTZLICHE Gravur-Pakete je frisch erreichter Stufe - eine Datentabelle, das
+## Stellen daran ist eine Zahlenänderung, kein Code. Das beseelte 3er-Würfel-
+## Paket kommt bei JEDER Stufe ab 2 obendrauf und steht darum nicht hier drin;
+## nicht gelistete Stufen bekommen nur dieses. "Kombination" ist das gemischte
+## Paket - es zieht quer durch alle Sorten.
+const HUB_REWARD_PACKS := {
+	5: [Pack.TYPE_NUMBER, Pack.TYPE_MIXED],
+	10: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MIXED, Pack.TYPE_MIXED, Pack.TYPE_MIXED],
+}
 ## Lizenz-Namen je Stufe (1-basiert), aufsteigende Casino-Prestige-Tiers.
 const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Salon",
 	"VIP-Lounge", "Suite", "Penthouse", "Privatclub", "High Roller"]
@@ -166,6 +177,11 @@ var owned_charms: Array[Charm] = []
 var owned_engravings: Array[Engraving] = []
 ## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange.
 var owned_packs: Array[Pack] = []
+## Beim Händler hinterlegte Würfel: in der Chip-Schale gekauft, aber noch nicht
+## eingetauscht. Sie liegen im Laden, bis der Spieler selbst bestimmt, welchen
+## Pool-Platz sie übernehmen - der Automat sucht ihn sonst allein aus, und eine
+## Essenz ist angeboren und nicht wiederbeschaffbar.
+var pending_dice: Array[DieDefinition] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
 ## Testmodus: consume_engraving verbraucht nichts, Bord und Schubladen zeigen
@@ -307,7 +323,37 @@ func upgrade_hub() -> void:
 		return
 	add_money(-hub_upgrade_price())
 	hub_level += 1
+	_grant_hub_rewards(hub_level)
 	hub_level_changed.emit(hub_level)
+
+## Belohnung einer frisch erreichten Stufe: versiegelte Ware ins Lager. JEDE
+## Stufe ab 2 bringt ein 3er-Würfel-Paket, dessen drei Auswahl-Würfel ALLE eine
+## Seele tragen; HUB_REWARD_PACKS legt je Stufe noch Gravur-Pakete obendrauf.
+## Geöffnet wird alles über den gewohnten Weg in der Werkstatt.
+func _grant_hub_rewards(level: int) -> int:
+	var granted := 0
+	var template := _reward_dice_template()
+	if not template.is_empty():
+		var pack := Pack.dice_pack(template)
+		pack.essence_guaranteed = true
+		pack.description = "%d× %s aufgedeckt, alle beseelt - einer darf mit." \
+			% [int(template["count"]), template["name"]]
+		owned_packs.append(pack)
+		granted += 1
+	for pack_type: String in HUB_REWARD_PACKS.get(level, []):
+		owned_packs.append(Pack.by_type(pack_type))
+		granted += 1
+	if granted > 0:
+		packs_changed.emit()
+	return granted
+
+## Vorlage des Belohnungs-Pakets: eine der 3er-Sorten, damit die Wahl echt ist.
+func _reward_dice_template() -> Dictionary:
+	var bundles: Array[Dictionary] = []
+	for t: Dictionary in DiceOffer.TEMPLATES:
+		if int(t["count"]) >= 3:
+			bundles.append(t)
+	return bundles.pick_random() if not bundles.is_empty() else {}
 
 ## --- Aus der Hub-Stufe abgeleitete Struktur-Freischaltungen -------------------
 ## Alles läuft über diese Abfragen, damit Aufrufer nie rohe Stufen vergleichen.
@@ -384,6 +430,29 @@ func shop_pack_slots() -> int:
 func purchase_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
 	_replace_pool_entry(def)
+
+## Kauf aus der Chip-Schale: bezahlt, aber NICHT eingesetzt - der Würfel bleibt
+## beim Händler liegen, bis der Spieler selbst den Platz wählt. Hinterlegt wird
+## eine eigene Instanz, denn die Auslage hält das Original weiter (Referenz-Regel).
+func stash_die(def: DieDefinition, price: int) -> void:
+	add_money(-price)
+	pending_dice.append(def.instantiate())
+	pending_dice_changed.emit()
+
+## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
+## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
+## Trays und Raster halten dieselbe Referenz. Gewarnt wird nicht: der Essenz-Chip
+## im Raster zeigt vorher, welche Seele hier überschrieben würde.
+func exchange_pending_die(pending_index: int, pool_index: int) -> bool:
+	if pending_index < 0 or pending_index >= pending_dice.size():
+		return false
+	if pool_index < 0 or pool_index >= owned_pool.size():
+		return false
+	owned_pool[pool_index].become(pending_dice[pending_index])
+	pending_dice.remove_at(pending_index)
+	pool_changed.emit()
+	pending_dice_changed.emit()
+	return true
 
 func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
 	add_money(-price)

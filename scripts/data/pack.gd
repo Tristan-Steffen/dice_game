@@ -51,6 +51,9 @@ const TYPE_NAMES := {
 @export var price: int = 0
 ## Nur bei TYPE_DICE: style_id der DiceOffer-Vorlage (bestimmt die Würfelart).
 @export var template_id: String = ""
+## Alle Auswahl-Würfel dieses Pakets tragen garantiert eine Seele - so kommt das
+## Würfel-Paket der Hub-Belohnung heraus. Der Unikat-Ausschluss gilt weiter.
+@export var essence_guaranteed: bool = false
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -84,7 +87,8 @@ const DICE_PACK_PICK_SURCHARGE := 4
 static func dice_pack(template: Dictionary) -> Pack:
 	var count := int(template["count"])
 	var price := int(template["price"]) + (count - 1) * DICE_PACK_PICK_SURCHARGE
-	var text := "%s, ungeöffnet." % template["name"] if count == 1 		else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
+	var text := "%s, ungeöffnet." % template["name"] if count == 1 \
+		else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
 	var pack := _make(TYPE_DICE, count, price, text)
 	pack.display_name = template["name"]
 	pack.template_id = template["style_id"]
@@ -93,6 +97,16 @@ static func dice_pack(template: Dictionary) -> Pack:
 ## Kanonische Auslage der Gravur-Pakete.
 static func all_engraving_packs() -> Array[Pack]:
 	return [number_pack(), material_pack(), mixed_pack()]
+
+## Frisches Gravur-Paket zur Sorte - damit Tabellen (Hub-Belohnung) mit Typ-ids
+## arbeiten können statt mit Fabrik-Referenzen.
+static func by_type(pack_type: String) -> Pack:
+	match pack_type:
+		TYPE_MATERIAL:
+			return material_pack()
+		TYPE_MIXED:
+			return mixed_pack()
+	return number_pack()
 
 ## Engraving-Kategorie hinter einer Gravur-Paketsorte ("" bei Würfel-Paketen).
 func engraving_category() -> String:
@@ -153,7 +167,7 @@ func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []
 		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
 		if CharmEffects.forces_refinement(charm_ids) and die.materials.count("") == die.materials.size():
 			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
-		die.essence_id = DiceOffer.roll_essence(taken)
+		die.essence_id = DiceOffer.roll_essence(taken, true, essence_guaranteed)
 		if die.essence_id != "" and not taken.has(die.essence_id):
 			taken.append(die.essence_id)
 		dice.append(die)

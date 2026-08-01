@@ -40,6 +40,11 @@ const SINGLE_SEAL_SIZE := 8.5
 ## Schalen-Rabatt: ein einzeln in der Schale liegender Würfel kostet weniger als
 ## derselbe Würfel im Angebotsregal - er kommt ohne Auswahl und ohne Paket.
 const SINGLE_DIE_DISCOUNT := 0.8
+## Hinterlegte Würfel liegen kleiner als die Ware in der Schale - ein Regal,
+## keine zweite Auslage.
+const STASH_DIE_SIZE := 8.0
+## Spaltenzahl der Tausch-Auswahl (wie das Pool-Raster der Werkstatt).
+const EXCHANGE_COLUMNS := 6
 
 ## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
 static func single_die_price(offer_price: int) -> int:
@@ -157,6 +162,11 @@ var single_dice_buttons: Array[Button] = []
 var single_engravings: Array[Engraving] = []
 var single_engravings_bought: Array[bool] = []
 var single_engraving_buttons: Array[Button] = []
+## Regal-Knöpfe der hinterlegten Würfel und die offene Tausch-Auswahl.
+var stash_buttons: Array[Button] = []
+var exchange_overlay: Panel
+var exchange_grid: DiceGridView
+var exchange_index: int = -1
 
 var flip_tween: Tween
 
@@ -634,6 +644,12 @@ func _rebuild_content(spread: MenuSpread) -> void:
 			continue
 		singles.add_child(_build_single_engraving_card(i))
 
+	# Das Regal des Händlers: schmal, unter der Schale, und nur da, wenn wirklich
+	# etwas hinterlegt ist. Es ist KEINE zweite Schale - die Ware ist schon bezahlt.
+	var shelf := _build_stash_shelf()
+	if shelf != null:
+		chip_deck.add_child(shelf)
+
 	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
 	_flicker_charm_from = -1
 	_flicker_dice_from = -1
@@ -949,14 +965,57 @@ func _lift_single(content: Control, on: bool) -> void:
 	tween.tween_property(content, "modulate", Color(1.3, 1.3, 1.3) if on else Color.WHITE, 0.12)
 	tween.tween_property(content, "scale", Vector2.ONE * (1.07 if on else 1.0), 0.12)
 
-## Kauf eines offenen Würfels: derselbe Weg wie jeder Würfelkauf - GameRun sucht
-## den Pool-Platz (seelenlos zuerst), die Instanz bleibt dem Pool erhalten.
+## Kauf eines offenen Würfels: bezahlt, aber NICHT eingesetzt. Er wandert ins
+## Regal des Händlers, bis der Spieler selbst sagt, welcher Pool-Platz weichen
+## soll - der Automat wählte sonst blind, und eine Seele ist nicht wiederbeschaffbar.
 func _on_single_die_pressed(index: int) -> void:
 	if single_dice_bought[index] or run.money < single_dice_prices[index]:
 		return
-	run.purchase_die(single_dice[index], single_dice_prices[index])
+	run.stash_die(single_dice[index], single_dice_prices[index])
 	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
+
+## Regal der hinterlegten Würfel - dieselbe offene Grammatik wie die Schale: die
+## Würfel LIEGEN da, ohne Kasten. Kein Preis, sie sind bezahlt. null, solange
+## nichts hinterlegt ist, damit das Regal keinen Platz für nichts frisst.
+func _build_stash_shelf() -> Control:
+	stash_buttons.clear()
+	if run == null or run.pending_dice.is_empty():
+		return null
+	var shelf := VBoxContainer.new()
+	shelf.name = "StashShelf"
+	shelf.size_flags_vertical = Control.SIZE_SHRINK_END
+	shelf.add_theme_constant_override("separation", int(u * 0.2))
+	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shelf.add_child(_label("Hinterlegt – klicken zum Eintauschen", u * 1.3, NEON_MUTED,
+		HORIZONTAL_ALIGNMENT_CENTER))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", int(u * 0.8))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shelf.add_child(row)
+	for i in run.pending_dice.size():
+		row.add_child(_build_stash_thumb(i))
+	return shelf
+
+func _build_stash_thumb(index: int) -> Button:
+	var def: DieDefinition = run.pending_dice[index]
+	var essence := Essence.by_id(def.essence_id)
+	var title := def.display_name if essence == null \
+		else "%s – %s" % [def.display_name, essence.display_name]
+	var body := "Augensumme %d." % DiceRowView.eye_total(def)
+	if essence != null:
+		body += "\n%s: %s" % [essence.epithet, essence.description]
+	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
+	var stage := DiceRowView.build_thumb(def, int(u * STASH_DIE_SIZE), true)
+	var thumb := _bare_single(stage, Vector2.ONE * u * STASH_DIE_SIZE)
+	thumb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# Kein Preis: bezahlt ist bezahlt, hier geht es nur noch um den Platz.
+	thumb.mouse_entered.connect(_show_shop_tooltip.bind(thumb, title, body, -1, def))
+	thumb.mouse_exited.connect(_hide_shop_tooltip)
+	thumb.pressed.connect(_open_exchange_picker.bind(index))
+	stash_buttons.append(thumb)
+	return thumb
 
 ## Kauf einer einzelnen Gravur: sie wandert direkt in den Vorrat.
 func _on_single_engraving_pressed(index: int) -> void:
@@ -1128,6 +1187,92 @@ func _build_shop_tooltip() -> void:
 	CasinoStyle.style_score_label(shop_tooltip_price, int(u * 2.2), NEON_GOLD)
 	box.add_child(shop_tooltip_price)
 	add_child(shop_tooltip)
+
+## Tausch-Auswahl: der ganze 30er-Vorrat als Raster über der Ladenseite. Gewarnt
+## wird NICHT - die Netze zeigen Materialien, Stufen, Risse und den Essenz-Chip,
+## also sieht der Spieler selbst, welche Seele er überschreibt. Das ist die
+## Einwilligung; ein Dialog wäre nur Papier davor.
+func _open_exchange_picker(pending_index: int) -> void:
+	if run == null or pending_index < 0 or pending_index >= run.pending_dice.size():
+		return
+	_close_exchange_picker()
+	_hide_shop_tooltip()
+	exchange_index = pending_index
+
+	exchange_overlay = Panel.new()
+	exchange_overlay.name = "ExchangePicker"
+	exchange_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	exchange_overlay.mouse_filter = Control.MOUSE_FILTER_STOP  # schluckt Klicks daneben
+	CasinoStyle.style_panel(exchange_overlay)
+	add_child(exchange_overlay)
+
+	var column := VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.add_theme_constant_override("separation", int(u * 0.6))
+	exchange_overlay.add_child(column)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", int(u * 1.0))
+	column.add_child(head)
+	var title := _label("Welchen Würfel ersetzen?", u * 2.4, NEON_GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	var cancel := _neon_button("Abbrechen", NEON_MUTED, u * 1.6, Vector2(u * 16.0, u * 4.0))
+	cancel.pressed.connect(_close_exchange_picker)
+	head.add_child(cancel)
+
+	var host := Control.new()
+	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(host)
+
+	exchange_grid = DiceGridView.new()
+	exchange_grid.name = "ExchangeGrid"
+	exchange_grid.slot_pressed.connect(_on_exchange_slot_pressed)
+	host.add_child(exchange_grid)
+	host.resized.connect(_fit_exchange_grid)
+	_fit_exchange_grid()
+
+## Größtes Kachelmaß, das die 30 Plätze in den Wirt bringt - dieselbe Rechnung
+## wie in der Werkstatt, damit beide Raster gleich lesen.
+func _fit_exchange_grid() -> void:
+	if exchange_grid == null or not is_instance_valid(exchange_grid):
+		return
+	var host := exchange_grid.get_parent() as Control
+	if host == null or host.size.x <= 0.0:
+		return
+	var rows := maxi(int(ceil(float(run.owned_pool.size()) / float(EXCHANGE_COLUMNS))), 1)
+	var unit := DiceGridView.unit_for(EXCHANGE_COLUMNS, rows, host.size - Vector2.ONE * u * 2.0)
+	exchange_grid.place(EXCHANGE_COLUMNS, unit, true)
+	exchange_grid.fill(run.owned_pool)
+	_center_exchange_grid.call_deferred()
+
+func _center_exchange_grid() -> void:
+	if exchange_grid == null or not is_instance_valid(exchange_grid):
+		return
+	var host := exchange_grid.get_parent() as Control
+	if host == null:
+		return
+	var span := exchange_grid.get_combined_minimum_size()
+	exchange_grid.size = span
+	exchange_grid.position = ((host.size - span) * 0.5).max(Vector2.ZERO)
+
+func _on_exchange_slot_pressed(pool_index: int) -> void:
+	if run != null and run.exchange_pending_die(exchange_index, pool_index):
+		_close_exchange_picker()
+		_show_spread()  # das Regal ist um ein Stück leerer
+
+## Abbruch lässt BEIDE Seiten unberührt - der Würfel bleibt hinterlegt.
+func _close_exchange_picker() -> void:
+	exchange_index = -1
+	exchange_grid = null
+	if exchange_overlay != null and is_instance_valid(exchange_overlay):
+		exchange_overlay.queue_free()
+	exchange_overlay = null
+
+func exchange_picker_open() -> bool:
+	return exchange_overlay != null and is_instance_valid(exchange_overlay)
 
 ## Preiszeile und ihre Farbe - reine Funktionen, damit die Entscheidung
 ## "bezahlbar oder nicht" prüfbar ist und nur an EINER Stelle fällt.
@@ -1312,6 +1457,9 @@ func _on_done_pressed() -> void:
 
 ## Laden zu - per "Fertig" oder weil der Spieler die Runde in der Grube aufnimmt.
 func close() -> void:
+	# Die Tausch-Auswahl geht mit dem Laden zu - sonst stünde sie beim nächsten
+	# Besuch noch (Rechtsklick zoomt hinaus, ohne durch sie hindurchzugehen).
+	_close_exchange_picker()
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
 	visible = false
 	closed.emit()

@@ -1828,6 +1828,18 @@ func celebrate_secret_shop_install(color: Color) -> float:
 	wave.setup(center, Color(color.r, color.g, color.b, 0.9), secret_shop_window.size.x * 0.9, 0.9)
 	return 0.9
 
+## Lieferung ins Lager (Hub-Belohnung): eine Stoßwelle über der Werkbank, in
+## derselben Sprache wie ein frisch installierter Automat. Bewusst KEIN Komet:
+## die Paket-Ablage hat keinen Adern-Anschluss, und eine neue Ader nur für diesen
+## Moment zu legen wäre teurer als die Geste wert ist.
+func celebrate_workshop_delivery(color: Color) -> void:
+	if workshop_window == null or not workshop_window.visible:
+		return
+	var center := workshop_window.position + workshop_window.size * 0.5
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(center, Color(color.r, color.g, color.b, 0.9), workshop_window.size.x * 0.5, 0.7)
+
 ## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:
 	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \

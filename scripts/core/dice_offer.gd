@@ -172,14 +172,22 @@ static func _scaled_face(value: int, factor: float) -> int:
 ## Würfelt die Essenz eines Angebots-Würfels aus ("" = essenzlos). Schwarzmarkt-
 ## Essenzen liegen NIE im normalen Handel; Unikate nur einzeln und nur, solange
 ## der Spieler keins besitzt (dieselbe Ausschluss-Regel wie bei den Charms).
-static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool = true) -> String:
-	if randf() >= ESSENCE_CHANCE:
+## guaranteed überspringt den Chancen-Wurf (Hub-Belohnung: alle Auswahl-Würfel
+## tragen eine Seele). Die Unikat-Sperre gilt weiter - läuft der Topf dadurch
+## leer, rückt ein NICHT-Unikat nach, statt den Würfel seelenlos zu lassen.
+static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool = true,
+		guaranteed: bool = false) -> String:
+	if not guaranteed and randf() >= ESSENCE_CHANCE:
 		return ""
 	var pool: Array[Essence] = []
 	for essence in Essence.tradeable():
 		if essence.unique and (not allow_unique or owned_essences.has(essence.id)):
 			continue
 		pool.append(essence)
+	if pool.is_empty() and guaranteed:
+		for essence in Essence.tradeable():
+			if not essence.unique:
+				pool.append(essence)
 	if pool.is_empty():
 		return ""
 	var total := 0

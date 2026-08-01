@@ -1375,6 +1375,10 @@ func _on_hub_level_changed(level: int) -> void:
 	_sync_secret_shop_state()  # der Börsen-Deckel wächst mit der Stufe
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+	# Die Belohnungs-Pakete liegen schon im Lager (gebucht in upgrade_hub) - die
+	# Welle über der Werkbank meldet nur, wohin sie gegangen sind.
+	if table_screen != null:
+		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 	if charm_shop != null and charm_shop.visible:
 		charm_shop.refresh_after_hub_upgrade()
 	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
@@ -2915,9 +2919,41 @@ func _zoom_wheel_in(screen_pos: Vector2) -> void:
 func _process(delta: float) -> void:
 	_update_charm_hover()
 	_update_pit_hover(delta)
+	_update_workshop_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
+
+## Netz des überfahrenen Tray-Würfels auf dem Werkstatt-Schirm. Der Zeiger liegt
+## auf dem Tisch, nicht im SubViewport - also wird je Frame gepickt, wie beim
+## Vertrags-Hinweis der Grube. Gepickt wird über DIESELBE Maske wie beim Klick
+## auf einen Tray-Würfel, damit es nur einen Trefferweg gibt.
+## Nur bei geschlossener Station: sie füllt das Fenster allein.
+func _update_workshop_hover() -> void:
+	var workshop := table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var in_workshop := camera_rig.mode == CameraRig.Mode.WORKSHOP
+	if not in_workshop or engraving_active or camera_rig.is_animating:
+		workshop.clear_hover_net()
+		return
+	var def := _hovered_tray_def(get_viewport().get_mouse_position())
+	if def == null:
+		workshop.clear_hover_net()
+		return
+	workshop.show_hover_net(def)
+
+## Def des Tray-Würfels unter screen_pos (null = keiner). Vorrat und Ablage -
+## die Warteschlange gehört der Grube.
+func _hovered_tray_def(screen_pos: Vector2) -> DieDefinition:
+	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
+	if result.is_empty():
+		return null
+	for tray: DiceTrayView in [pool_tray_view, discard_tray_view]:
+		var index: int = tray.find_slot_index(result.collider)
+		if index != -1 and index < tray.slot_defs.size():
+			return tray.slot_defs[index]
+	return null
 
 ## Würfelnetz-Feld der Grube: zeigt den Würfel unter der Maus - ruhende
 ## Grubenwürfel (mit Gold-Rahmen auf der oben liegenden Seite) und die
@@ -5714,6 +5750,9 @@ func _on_pool_changed() -> void:
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
 	if engraving_active:
 		die_inspector.refresh_die()
+	# Die Hover-Karte hält eine GETEILTE Instanz - sie muss den neuen Stand zeigen.
+	if table_screen != null and table_screen.workshop_window != null:
+		table_screen.workshop_window.refresh_hover_net()
 
 ## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
 ## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben

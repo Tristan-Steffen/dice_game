@@ -497,19 +497,25 @@ func test_the_single_price_climbs_with_the_rarity() -> void:
 	assert_lt(ShopController.single_engraving_price(Engraving.chisel()),
 		ShopController.single_engraving_price(Engraving.blueprint()), "selten < episch")
 
-func test_buying_an_open_die_puts_it_into_the_pool() -> void:
+func test_buying_an_open_die_stashes_it_with_the_dealer() -> void:
+	# Bezahlt, aber NICHT eingesetzt: der Automat wählte sonst blind einen
+	# Pool-Platz, und eine Seele ist nicht wiederbeschaffbar.
 	run.money = 500
 	var price: int = shop.single_dice_prices[0]
 	var incoming: String = shop.single_dice[0].style_id
+	var pool_before := []
+	for def in run.owned_pool:
+		pool_before.append(def.style_id)
 	var before := run.money
 	shop._on_single_die_pressed(0)
 	assert_eq(run.money, before - price, "der Preis ist abgebucht")
 	assert_true(shop.single_dice_bought[0], "der Platz ist verkauft")
-	var found := false
+	assert_eq(run.pending_dice.size(), 1, "er liegt beim Händler")
+	assert_eq(run.pending_dice[0].style_id, incoming)
+	var pool_after := []
 	for def in run.owned_pool:
-		if def.style_id == incoming:
-			found = true
-	assert_true(found, "der Würfel liegt jetzt im Pool")
+		pool_after.append(def.style_id)
+	assert_eq(pool_after, pool_before, "der Vorrat bleibt unangetastet")
 
 func test_buying_a_single_engraving_grants_it() -> void:
 	run.money = 500
@@ -703,3 +709,89 @@ func test_the_bowl_price_grows_with_the_offer_price() -> void:
 func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 	for price in shop.single_dice_prices:
 		assert_gt(int(price), 0)
+
+# --- Das Regal des Händlers und der Tausch ------------------------------------------
+
+func _stash_one() -> DieDefinition:
+	run.money = 500
+	shop._on_single_die_pressed(0)
+	return run.pending_dice[0]
+
+func test_the_stash_shelf_shows_what_is_deposited() -> void:
+	await wait_frames(2)
+	assert_eq(shop.stash_buttons.size(), 0, "leeres Regal steht gar nicht erst da")
+	_stash_one()
+	await wait_frames(2)
+	assert_eq(shop.stash_buttons.size(), 1, "ein hinterlegter Würfel, ein Platz im Regal")
+
+func test_a_stashed_die_lies_bare_like_the_bowl() -> void:
+	_stash_one()
+	await wait_frames(2)
+	var thumb: Button = shop.stash_buttons[0]
+	for state in ["normal", "hover", "pressed"]:
+		assert_true(thumb.get_theme_stylebox(state) is StyleBoxEmpty, "kein Kasten (%s)" % state)
+	assert_true(thumb.get_child(0) is DiceRowView.TumbleStage, "ein echter Würfel")
+
+func test_the_exchange_writes_into_the_chosen_pool_instance() -> void:
+	# Ein Pool-Eintrag wird NIE getauscht, nur überschrieben - Rundendeck, Trays
+	# und Raster halten dieselbe Referenz.
+	var stashed := _stash_one()
+	var target: DieDefinition = run.owned_pool[3]
+	var identity := target.get_instance_id()
+	assert_true(run.exchange_pending_die(0, 3))
+	assert_eq(run.owned_pool[3].get_instance_id(), identity, "dieselbe Instanz")
+	assert_eq(run.owned_pool[3].style_id, stashed.style_id, "mit dem neuen Inhalt")
+	assert_eq(run.owned_pool[3].essence_id, stashed.essence_id, "Seele inklusive")
+	assert_eq(run.pending_dice.size(), 0, "das Regal ist wieder leer")
+
+func test_the_exchange_signals_both_changes() -> void:
+	_stash_one()
+	var pool_emits := []
+	var stash_emits := []
+	run.pool_changed.connect(func() -> void: pool_emits.append(1))
+	run.pending_dice_changed.connect(func() -> void: stash_emits.append(1))
+	run.exchange_pending_die(0, 0)
+	assert_eq(pool_emits.size(), 1, "der Vorrat hat sich geändert")
+	assert_eq(stash_emits.size(), 1, "und das Regal auch")
+
+func test_a_bad_exchange_index_changes_nothing() -> void:
+	_stash_one()
+	assert_false(run.exchange_pending_die(5, 0), "kein solcher Platz im Regal")
+	assert_false(run.exchange_pending_die(0, 99), "kein solcher Platz im Vorrat")
+	assert_eq(run.pending_dice.size(), 1, "beides bleibt unberührt")
+
+func test_cancelling_the_picker_keeps_both_sides() -> void:
+	_stash_one()
+	await wait_frames(2)
+	shop._open_exchange_picker(0)
+	await wait_frames(2)
+	assert_true(shop.exchange_picker_open(), "die Auswahl steht offen")
+	var pool_before := run.owned_pool[0].style_id
+	shop._close_exchange_picker()
+	await wait_frames(2)
+	assert_false(shop.exchange_picker_open())
+	assert_eq(run.pending_dice.size(), 1, "der Würfel bleibt hinterlegt")
+	assert_eq(run.owned_pool[0].style_id, pool_before, "und der Vorrat unberührt")
+
+func test_the_picker_offers_every_pool_slot() -> void:
+	_stash_one()
+	await wait_frames(2)
+	shop._open_exchange_picker(0)
+	await wait_frames(2)
+	assert_not_null(shop.exchange_grid)
+	assert_eq(shop.exchange_grid.tiles.size(), run.owned_pool.size(),
+		"alle 30 Plätze stehen zur Wahl")
+
+func test_the_stash_survives_a_reroll_and_the_lock() -> void:
+	_stash_one()
+	shop._show_spread()
+	await wait_frames(2)
+	assert_eq(run.pending_dice.size(), 1, "ein Neuaufbau leert das Regal nicht")
+	shop.sortiment_locked = true
+	shop.open()
+	await wait_frames(2)
+	assert_eq(run.pending_dice.size(), 1, "und ein neuer Besuch auch nicht")
+	assert_eq(shop.stash_buttons.size(), 1, "das Regal steht wieder da")
+
+func test_a_fresh_run_has_an_empty_shelf() -> void:
+	assert_eq(GameRun.new_run().pending_dice.size(), 0, "ein neuer Lauf schuldet nichts")
