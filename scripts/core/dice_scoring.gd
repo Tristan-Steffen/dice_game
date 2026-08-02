@@ -131,14 +131,18 @@ static func level_info_for(ctx: Dictionary, slot: int) -> Dictionary:
 ## und Farkle-Vergleich dieselben Würfel beseelt sehen.
 const CTX_ESSENCES := "essences"
 
-## Zug-Nummer der laufenden Runde (ctx-Schlüssel, 1-basiert): das Lawinenlicht
-## wächst um sie. Rundenzustand - nur der Aufrufer kennt ihn.
-const CTX_TURN_INDEX := "turn_index"
-
 ## Phosphoreszenz-Speicher (ctx-Schlüssel): Dictionary Slot -> gespeicherte
-## Basispunkte. Rundenzustand am Würfel-Exemplar, den nur GameRun führt; die
-## Wertung legt ihn nur obendrauf, gebucht wird beim Nehmen.
+## Basispunkte bzw. gespeicherter Mult (Leuchtstoffröhre). Zustand am Würfel-
+## Exemplar, den nur GameRun führt - er überlebt die Runde und wächst mit jeder
+## Wertung; die Wertung legt ihn nur obendrauf, gebucht wird beim Nehmen.
 const CTX_PHOSPHOR_STORE := "phosphor_store"
+const CTX_PHOSPHOR_MULT := "phosphor_mult"
+
+## Auslösungen und Krits der BISHERIGEN Hände dieser Runde (ctx-Schlüssel).
+## Rundenzustand aus GameRun; gelesen wird er nur, wenn Dunkelkammer bzw.
+## Gewitterfront im Dock stehen (EssenceEffects.round_*_offset).
+const CTX_ROUND_TRIGGERS := "round_triggers"
+const CTX_ROUND_CRITS := "round_crits"
 
 ## Wirksame Essenz-Mengen (ctx-Schluessel): Slot -> Array der Essenz-ids, die an
 ## diesem Wuerfel WIRKEN. Normal genau die eigene; die Quintessenz borgt sich die
@@ -187,9 +191,10 @@ static func phosphor_store_for(ctx: Dictionary, slot: int) -> int:
 	var store: Dictionary = ctx.get(CTX_PHOSPHOR_STORE, {})
 	return int(store.get(slot, 0))
 
-## Zug-Nummer der Runde aus dem ctx (mindestens 1).
-static func turn_index_in(ctx: Dictionary) -> int:
-	return maxi(1, int(ctx.get(CTX_TURN_INDEX, 1)))
+## Gespeicherter Mult des Slots (Phosphoreszenz + Leuchtstoffröhre; 0 = leer).
+static func phosphor_mult_for(ctx: Dictionary, slot: int) -> float:
+	var store: Dictionary = ctx.get(CTX_PHOSPHOR_MULT, {})
+	return float(store.get(slot, 0.0))
 
 ## Die GEZEIGTEN Werte: erst die Charm-Verwandlungskette, dann die Essenz-Linse
 ## (Wasserstoff verdoppelt). Alles, was erkennt, ordnet oder zielt, rechnet auf
@@ -253,6 +258,22 @@ static func wild_slot(ctx: Dictionary) -> int:
 		if EssenceEffects.is_wild(EssenceEffects.essence_at(essences, int(slot))):
 			return int(slot)
 	return -1
+
+## Die Zahl, zu der sich der Joker (Polarlicht) für diese Kategorie macht - 0,
+## wenn keiner mitspielt oder keine Belegung trägt. Dieselbe Wahl wie
+## participating_indices: der höchste Wert, der die Kategorie hält. Nur der
+## Polarfilter fragt danach, er kritet mit ihr.
+static func wild_value(key: String, shown: Array[int], ctx: Dictionary) -> int:
+	var legal := legal_indices(shown, ctx)
+	var wild := _wild_index_in(legal, ctx)
+	if wild < 0:
+		return 0
+	var sub := (shown if legal.size() == shown.size() else _legal_dice(shown, legal)).duplicate()
+	for value in range(6, 0, -1):
+		sub[wild] = value
+		if _qualifies_plain(key, sub):
+			return value
+	return 0
 
 ## Position des Jokers INNERHALB der gefilterten Liste (-1, wenn er gar nicht
 ## mitspielt - der Paritätsfilter urteilt über seine AUFGEDRUCKTE Zahl, Sperren
@@ -383,13 +404,16 @@ static func pointer_chance_for(chance: float, firings: int) -> float:
 ## Mal den gewachsenen Wert. Gerechnet wird mit der ECHTEN Stufe - genau diese
 ## Zahl landet später in der Def, der Firnis hebt nur die Wertung.
 static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: int, face_triggers: int,
-		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator,
-		turn_index: int = 1) -> Array:
+		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator) -> Array:
 	var groups: Array = []
 	if die == null or up_face < 0 or up_face >= 6 or rng == null:
 		return groups
 	var chance := EssenceEffects.pointer_chance_of(essence_ids, POINTER_CHANCE)
 	var aggregated := pointer_chance_for(chance, face_triggers)
+	# Zündspule: am Plasma-Würfel feuert jedes gezündete Glied seine Zielseite
+	# zweimal - eingefroren wie jede andere Zündung, damit Wertung, Schrittliste
+	# und Nehmen-Effekte dieselbe Liste lesen.
+	var shots := 2 if (charm_ids.has(Charm.IGNITION_COIL) and essence_ids.has(Essence.PLASMA)) else 1
 	# Laufende Werte JEDER Seite - auch die obere wandert mit, denn eine Kette darf
 	# auf sie zurückspringen.
 	var running: Array[int] = die.faces.duplicate()
@@ -399,7 +423,7 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 	for _t in maxi(1, die_triggers):
 		for _f in maxi(1, face_triggers):
 			running[up_face] = MaterialEffects.mutate_value_once(running[up_face], up_material,
-				charm_ids, up_level, essence_ids, up_rifts, turn_index)
+				charm_ids, up_level, essence_ids, up_rifts)
 		var fires: Array[Dictionary] = []
 		var face := up_face
 		var roll_chance := aggregated
@@ -409,14 +433,15 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 				break
 			var material: String = die.materials[target] if target < die.materials.size() else ""
 			var level := MaterialEffects.face_level(die, target)
-			fires.append({
-				"face": target,
-				"value": running[target],
-				"material": material,
-				"level": EssenceEffects.boosted_level(level, essence_ids),
-			})
-			running[target] = MaterialEffects.mutate_link_value_once(running[target], material,
-				charm_ids, level, essence_ids)
+			for _shot in shots:
+				fires.append({
+					"face": target,
+					"value": running[target],
+					"material": material,
+					"level": EssenceEffects.boosted_level(level, essence_ids),
+				})
+				running[target] = MaterialEffects.mutate_link_value_once(running[target], material,
+					charm_ids, level, essence_ids)
 			face = target
 			roll_chance = chance
 		groups.append(fires)
@@ -460,14 +485,21 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var essences := essence_sets_in(ctx)
 	var rifts := rifts_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
-	var turn_index := turn_index_in(ctx)
 	# Krits dieser Hand, laufend gezählt: Ozon wächst mit ihnen, Grubengas bucht
-	# an JEDEM von ihnen sofort seinen Zuschlag.
-	var crits := 0
+	# an JEDEM von ihnen sofort seinen Zuschlag. Die Gewitterfront startet den
+	# Zähler beim Stand der Runde statt bei null.
+	var crits := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(CTX_ROUND_CRITS, 0)))
 	var firedamp := EssenceEffects.firedamp_step(scored, essences)
 	# Laufender Auslösungszähler der ganzen Hand (Leiterbahn-Glieder zählen mit):
-	# das Photonengas sammelt das Licht aller Auslösungen vor sich.
-	var triggers := 0
+	# das Photonengas sammelt das Licht aller Auslösungen vor sich - mit
+	# Dunkelkammer auch das der bisherigen Hände der Runde.
+	var triggers := EssenceEffects.round_trigger_offset(charm_ids, int(ctx.get(CTX_ROUND_TRIGGERS, 0)))
+	# Einmal je Hand bestimmt, wie der Grubengas-Schritt: der Blitzableiter-
+	# Zuschlag darf sich mitten in der Zählung nicht ändern.
+	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
+	# Polarfilter: der Joker kritet mit der Zahl, zu der er sich macht.
+	var wild := wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
+	var wild_eyes := wild_value(key, dice, ctx) if wild >= 0 else 0
 	# Auch ohne Materialien können Charms und Essenzen Aktivierungen stapeln.
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
@@ -482,13 +514,15 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rift_ids := RiftEffects.rifts_at(rifts, i)
-		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus.
+		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
+		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		base += phosphor_store_for(ctx, i)
+		mult += phosphor_mult_for(ctx, i)
 		var die_triggers := 1
 		var face_triggers := 1
 		if has_die_bonus:
 			die_triggers = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, order, essences))
+				EssenceEffects.extra_activations(i, order, essences, charm_ids))
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
 			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
@@ -507,8 +541,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# Augen erst durch die Charm-Linse, dann durch die Essenz (Antimaterie
 				# kehrt um). Radons +2 auf FREMDE Würfel kommt danach, und das
 				# Photonengas legt das Licht jeder Zündung vor sich obendrauf.
-				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) \
-					+ EssenceEffects.foreign_eye_bonus(i, scored, essences) \
+				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
+					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
 				triggers += 1
 				if not has_die_bonus:
@@ -529,7 +563,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					crits += 1
 					base += firedamp
 				mult *= mat_crit
-				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits)
+				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
+					wild_eyes if i == wild else 0)
 				if not is_equal_approx(ess_crit, 1.0):
 					crits += 1
 					base += firedamp
@@ -540,7 +575,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						crits += 1
 						base += firedamp
 					mult *= die_crit
-				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
+				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids)
 			# Glieder: erst die für DIESEN Würfel-Trigger gewürfelte Leiterbahn, im
 			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
 			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position

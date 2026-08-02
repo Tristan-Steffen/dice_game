@@ -416,7 +416,9 @@ func _build_spread() -> MenuSpread:
 	# beim Ziehen nur halb so viel (Charm.OWNED_WEIGHT_FACTOR). Nur innerhalb EINER
 	# Doppelseite kommt jeder Archetyp höchstens einmal vor - darum wird ohne
 	# Zurücklegen aus available gezogen (erase unten).
-	var available: Array[Charm] = Charm.all()
+	# Essenz-Charms liegen nur aus, wenn ihre Seele wirklich im Pool steckt -
+	# ohne den Würfel wären sie tote Karten und verdünnten den Topf.
+	var available := Charm.offerable(Charm.all(), run.owned_essence_ids())
 	var owned := run.owned_charm_ids()
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := run.shop_rarity_tier()

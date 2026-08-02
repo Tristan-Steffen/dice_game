@@ -442,11 +442,20 @@ func _targeting_of(engraving_id: String) -> String:
 			return TARGET_WHOLE_DIE
 	return TARGET_FACE  # Kerbe, Feile, Stanze, Blaupause
 
+## Zusätzliche Riss-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
+## dritten. Die Def kennt keine Charms, also entscheidet die Station.
+func _extra_rift_slots() -> int:
+	return 1 if run != null and run.charm_ids().has(Charm.BELL_JAR) else 0
+
 ## Platz, auf den das nächste Bruchmuster dieser Seite fällt: der erste FREIE
-## (Vakuum trägt zwei), sonst der erste - er wird dann ersetzt.
+## (Vakuum trägt zwei, mit Glasglocke drei), sonst der erste - er wird ersetzt.
 func _free_rift_slot(face_index: int) -> int:
-	for slot in current_def.rift_slots():
-		var occupied: String = current_def.rifts[face_index] if slot == 0 else current_def.second_rifts[face_index]
+	for slot in current_def.rift_slots(_extra_rift_slots()):
+		var occupied: String = current_def.rifts[face_index]
+		if slot == 1:
+			occupied = current_def.second_rifts[face_index]
+		elif slot == 2:
+			occupied = current_def.third_rifts[face_index]
 		if occupied == "":
 			return slot
 	return 0
@@ -563,7 +572,7 @@ func _apply_single_face(face_index: int) -> void:
 		# Ein besetzter Platz wird ersetzt - neu brechen ist erlaubt. Auf dem
 		# Vakuum-Würfel füllt der zweite Riss erst den freien Zweitplatz.
 		var rift_id := Engraving.rift_id_of(held_id)
-		current_def.set_rift(face_index, rift_id, _free_rift_slot(face_index))
+		current_def.set_rift(face_index, rift_id, _free_rift_slot(face_index), _extra_rift_slots())
 		_finish_apply(held_id, "Bruchmuster gesetzt: %s" % Rift.by_id(rift_id).display_name)
 		return
 	match held_id:

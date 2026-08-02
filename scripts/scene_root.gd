@@ -433,6 +433,7 @@ var _tip_choice_faces: Array[int] = []
 var pre_reroll_essence_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
+var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
 ## Der einzige Zufall der Wertung: die Leiterbahn. Ein eigener Generator, damit
 ## der Wurf je Zug genau EINMAL fällt und danach im ctx eingefroren steht.
@@ -4020,8 +4021,8 @@ func _slot_essences() -> Dictionary:
 			essences[i] = def.essence_id
 	return essences
 
-## Gespeicherte Basispunkte je Wurf-Slot (Phosphoreszenz) - Rundenzustand am
-## Würfel-Exemplar, den nur GameRun führt.
+## Gespeicherte Basispunkte je Wurf-Slot (Phosphoreszenz) - Zustand am Würfel-
+## Exemplar, den nur GameRun führt; er sammelt über den ganzen Run.
 func _phosphor_stores() -> Dictionary:
 	var stores := {}
 	for i in dice.count():
@@ -4033,20 +4034,48 @@ func _phosphor_stores() -> Dictionary:
 			stores[i] = stored
 	return stores
 
+## Gespeicherter Mult je Wurf-Slot (Phosphoreszenz + Leuchtstoffröhre).
+func _phosphor_mults() -> Dictionary:
+	var stores := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def == null:
+			continue
+		var stored := run.phosphor_mult(def)
+		if stored > 0.0:
+			stores[i] = stored
+	return stores
+
+## Seelen der Würfel, die diese Runde schon in der Ablage liegen - der Alkahest
+## reicht sie der Quintessenz nach. Ohne den Charm bleibt die Liste leer.
+func _discarded_essence_ids() -> Array[String]:
+	var ids: Array[String] = []
+	if not run.charm_ids().has(Charm.ALKAHEST):
+		return ids
+	for def in discarded_this_round:
+		if def != null and def.essence_id != "" and not ids.has(def.essence_id):
+			ids.append(def.essence_id)
+	return ids
+
+## Wirksame Essenz-Mengen der liegenden Würfel - EINE Auflösung je Aufruf, damit
+## die Quintessenz überall dieselben geborgten Seelen sieht (inkl. Ablage).
+func _effective_essence_sets() -> Dictionary:
+	return EssenceEffects.effective_sets(_slot_essences(), _discarded_essence_ids())
+
 ## Essenz-Glieder je Wurf-Slot (Röntgenlicht, Korona): einmal HIER aufgelöst,
 ## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen - über
 ## dieselbe Quelle wie die Nehmen-Effekte (EssenceEffects.essence_link_faces).
 ## Die Leiterbahn steht NICHT hier: sie wird beim Nehmen ausgewürfelt.
 func _essence_links() -> Dictionary:
 	var links := {}
-	var sets := EssenceEffects.effective_sets(_slot_essences())
+	var sets := _effective_essence_sets()
 	for i in dice.count():
 		var face: int = dice.face_indices[i]
 		var def: DieDefinition = dice.slot_defs[i]
 		if face < 0 or def == null:
 			continue
 		var essence_ids := EssenceEffects.set_at(sets, i)
-		var chain := EssenceEffects.essence_link_faces(def, face, essence_ids)
+		var chain := EssenceEffects.essence_link_faces(def, face, essence_ids, run.charm_ids())
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -4071,7 +4100,6 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 	var essences := DiceScoring.essence_sets_in(sel_ctx)
 	var rifts := DiceScoring.rifts_in(sel_ctx)
 	var is_stress := GameRun.is_stress_round(run.round_number)
-	var turn_index := DiceScoring.turn_index_in(sel_ctx)
 	var shown := DiceScoring.shown_values(sel_values, ids, sel_ctx)
 	var fires := {}
 	for k in order:
@@ -4083,10 +4111,10 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		var essence_ids := EssenceEffects.set_at(essences, k)
 		var rift_ids := RiftEffects.rifts_at(rifts, k)
 		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(k, order, essences))
+			EssenceEffects.extra_activations(k, order, essences, ids))
 		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RiftEffects.extra_activations(rift_ids))
 		var groups := DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
-			ids, essence_ids, pointer_rng, turn_index)
+			ids, essence_ids, pointer_rng)
 		for group in groups:
 			if not group.is_empty():
 				fires[k] = groups
@@ -4097,7 +4125,7 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 ## die Augensumme (Bernstein zahlt sie auf jeder Stufe).
 func _material_levels() -> Dictionary:
 	var levels := {}
-	var sets := EssenceEffects.effective_sets(_slot_essences())
+	var sets := _effective_essence_sets()
 	for i in dice.count():
 		var def: DieDefinition = dice.slot_defs[i]
 		if def == null:
@@ -4138,12 +4166,15 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
-		DiceScoring.CTX_ESSENCE_SET: EssenceEffects.effective_sets(_slot_essences()),
+		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
 		DiceScoring.CTX_RIFTS: _slot_rifts(),  # Risse der oben liegenden Seiten
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
-		# Zug-Nummer der Runde (1-basiert): das Lawinenlicht wächst um sie.
-		DiceScoring.CTX_TURN_INDEX: hands_taken_this_round + 1,
 		DiceScoring.CTX_PHOSPHOR_STORE: _phosphor_stores(),  # Speicherlicht
+		DiceScoring.CTX_PHOSPHOR_MULT: _phosphor_mults(),  # Speicherlicht + Leuchtstoffröhre
+		# Was die bisherigen Hände der Runde gebracht haben - Dunkelkammer und
+		# Gewitterfront lesen es, alle anderen fangen bei null an.
+		DiceScoring.CTX_ROUND_TRIGGERS: run.round_trigger_count,
+		DiceScoring.CTX_ROUND_CRITS: run.round_crit_count,
 	}
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
@@ -4184,7 +4215,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 			mapped_levels[to_filtered[s]] = levels[s]
 	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = mapped_levels
 	# Essenzen, Risse und der Phosphor-Speicher hängen ebenso am Slot.
-	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RIFTS, DiceScoring.CTX_PHOSPHOR_STORE]:
+	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RIFTS,
+			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -4397,6 +4429,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
+		pre_reroll_phosphor_mult = _phosphor_mults()
 		pre_reroll_order = declared_before
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
@@ -4600,9 +4633,10 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
-	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences)
+	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
 	old_ctx[DiceScoring.CTX_RIFTS] = pre_reroll_rifts
 	old_ctx[DiceScoring.CTX_PHOSPHOR_STORE] = pre_reroll_phosphor
+	old_ctx[DiceScoring.CTX_PHOSPHOR_MULT] = pre_reroll_phosphor_mult
 	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
@@ -4856,11 +4890,16 @@ func _on_take_button_pressed() -> void:
 	for k in sel_fires:
 		slot_fires[slots[int(k)]] = sel_fires[k]
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
-		ids, echo_slot, EssenceEffects.effective_sets(_slot_essences()), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), hands_taken_this_round, slot_fires)
-	# Phosphoreszenz: der Basis-Anteil dieses Zuges wandert in den Speicher, der
-	# eben ausgezahlte ist damit geleert. GameRun bucht, die Wertung bleibt pur.
+		ids, echo_slot, _effective_essence_sets(), take_order,
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires)
+	# Phosphoreszenz: der Anteil dieses Zuges wächst in den Speicher hinein - er
+	# wird nie geleert. GameRun bucht, die Wertung bleibt pur. Dieselbe Stelle
+	# schreibt die Hand-Zähler der Runde fort (Dunkelkammer, Gewitterfront).
 	run.note_phosphor_stores(active_kinds, breakdown)
+	run.note_hand_counters(breakdown)
+	# Lasurpinsel: läuft die Firnis-Schicht auf einer Stufe-III-Seite ins Leere,
+	# fällt stattdessen eine Material-Kopie in den Vorrat.
+	run.apply_glaze_brush(active_kinds, dice.face_indices, participating)
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
@@ -6624,7 +6663,7 @@ func _sync_transform_previews() -> void:
 	if dice == null or run == null or phase == Phase.SCORING:
 		return
 	var ids := run.charm_ids()
-	var sets := EssenceEffects.effective_sets(_slot_essences())
+	var sets := _effective_essence_sets()
 	var overrides := {}
 	for i in dice.count():
 		if not dice.roots[i].visible or not dice.settled[i] or dice.face_indices[i] < 0:

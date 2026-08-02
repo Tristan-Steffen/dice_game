@@ -55,7 +55,6 @@ const RADIATION_PRESSURE := "radiation_pressure"
 const CYANIDE := "cyanide"
 const XRAY := "xray"
 const CORONA := "corona"
-const AVALANCHE := "avalanche"
 const VARNISH := "varnish"
 const PHOSPHORESCENCE := "phosphorescence"
 
@@ -194,8 +193,8 @@ static func will_o_wisp() -> Essence:
 
 static func plasma() -> Essence:
 	return _make(PLASMA, "Plasma", "Lichtbogen",
-		"Der Lichtbogen hält: seine Leiterbahnen zünden mit 75 % statt 50 %.",
-		"Leiterbahn 75 %", Rarity.EPIC, Color(0.78, 0.72, 1.0))
+		"Der Lichtbogen hält: seine Leiterbahnen bekommen zwei Zündversuche statt einem (50 % werden 75 %).",
+		"Leiterbahn zündet zweimal so wahrscheinlich", Rarity.EPIC, Color(0.78, 0.72, 1.0))
 
 ## Quintessenz: der fünfte Stoff - sie borgt sich die Seelen aller anderen
 ## liegenden Würfel. Legendär und damit Unikat, also gibt es nie den Fall
@@ -227,8 +226,8 @@ static func radiation_pressure() -> Essence:
 
 static func cyanide() -> Essence:
 	return _make(CYANIDE, "Zyanidgas", "Goldlaugerei",
-		"Liegt er in der Kombination: +$3 je Gold-Seite, die er trägt.",
-		"+$3 je eigener Gold-Seite", Rarity.RARE, Color(0.75, 0.9, 0.3))
+		"Liegt er in der Kombination: +$2 je Gold-Seite, die er trägt.",
+		"+$2 je eigener Gold-Seite", Rarity.RARE, Color(0.75, 0.9, 0.3))
 
 static func xray() -> Essence:
 	return _make(XRAY, "Röntgenlicht", "Durchleuchtet",
@@ -237,13 +236,8 @@ static func xray() -> Essence:
 
 static func corona() -> Essence:
 	return _make(CORONA, "Korona", "Strahlenkranz",
-		"Ein Ring um jedes Licht: alle vier Nachbarseiten werten wie Leiterbahn-Glieder mit.",
-		"4 Nachbarseiten zählen mit", Rarity.EPIC, Color(1.0, 0.92, 0.7))
-
-static func avalanche() -> Essence:
-	return _make(AVALANCHE, "Lawinenlicht", "Aufschaukeln",
-		"Jeder Zug schaukelt es höher: alle Seiten wachsen je Auslösung um die Zug-Nummer der Runde.",
-		"alle Seiten +Zugnummer je Auslösung", Rarity.EPIC, Color(0.75, 0.88, 1.0))
+		"Ein Ring um jedes Licht: eine Nachbarseite wertet wie ein Leiterbahn-Glied mit.",
+		"1 Nachbarseite zählt mit", Rarity.EPIC, Color(1.0, 0.92, 0.7))
 
 static func varnish() -> Essence:
 	return _make(VARNISH, "Firnis", "Zweite Schicht",
@@ -252,8 +246,8 @@ static func varnish() -> Essence:
 
 static func phosphorescence() -> Essence:
 	return _make(PHOSPHORESCENCE, "Phosphoreszenz", "Speicherlicht",
-		"Speichert die Basispunkte seiner Wertung und legt sie bei der nächsten noch einmal obendrauf.",
-		"Basis wird gespeichert und wiederholt", Rarity.EPIC, Color(0.5, 1.0, 0.6))
+		"Speichert die Basispunkte JEDER seiner Wertungen und legt den ganzen Speicher bei der nächsten obendrauf - geleert wird er nie.",
+		"sammelt seine Basispunkte und zahlt sie erneut", Rarity.EPIC, Color(0.5, 1.0, 0.6))
 
 static func antimatter() -> Essence:
 	return _secret(_make(ANTIMATTER, "Antimaterie", "Auslöschung",
@@ -267,7 +261,7 @@ static func all() -> Array[Essence]:
 		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), will_o_wisp(), plasma(), vacuum(),
-		radiation_pressure(), cyanide(), xray(), corona(), avalanche(), varnish(),
+		radiation_pressure(), cyanide(), xray(), corona(), varnish(),
 		phosphorescence(), aurora(), quintessence(), antimatter(),
 	]
 

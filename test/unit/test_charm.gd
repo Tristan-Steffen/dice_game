@@ -16,7 +16,9 @@ func test_all_returns_all_charms():
 	# +3 Verwandler: Zylinderhut, Silberdollar, Achterknoten.
 	# −3 mit den Kanten: Rahmenvergolder (wäre ein Doppel des Goldschmieds),
 	# Magnetring und Zargenglanz hatten kein Ziel mehr.
-	assert_eq(Charm.all().size(), 83)
+	# +20 Essenz-Charms: je einer für jede Essenz ab "selten"
+	# (Charm.ESSENCE_REQUIREMENT ist die Liste).
+	assert_eq(Charm.all().size(), 103)
 
 func test_all_ids_are_unique():
 	var seen := {}

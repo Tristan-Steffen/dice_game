@@ -29,17 +29,22 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var essences := DiceScoring.essence_sets_in(ctx)
 	var rifts := DiceScoring.rifts_in(ctx)
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
-	var turn_index := DiceScoring.turn_index_in(ctx)
 	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant wegen Beherit).
 	var eye_slots: Array[int] = shape["order"]
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
-	# (Ozon wächst mit ihnen, Grubengas bucht an jedem sofort).
-	var crits := 0
+	# (Ozon wächst mit ihnen, Grubengas bucht an jedem sofort). Beide Zähler
+	# starten beim Rundenstand, wenn Gewitterfront bzw. Dunkelkammer stehen.
+	var crit_offset := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(DiceScoring.CTX_ROUND_CRITS, 0)))
+	var trigger_offset := EssenceEffects.round_trigger_offset(charm_ids, int(ctx.get(DiceScoring.CTX_ROUND_TRIGGERS, 0)))
+	var crits := crit_offset
 	var firedamp := EssenceEffects.firedamp_step(scored, essences)
 	# Laufender Auslösungszähler der Hand (Glieder zählen mit) - Photonengas.
-	var triggers := 0
+	var triggers := trigger_offset
+	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
+	var wild := DiceScoring.wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
+	var wild_eyes := DiceScoring.wild_value(key, dice, ctx) if wild >= 0 else 0
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen).
 	var base := DiceScoring.points_for(key, combo_levels)
@@ -60,12 +65,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rift_ids := RiftEffects.rifts_at(rifts, i)
-		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus.
+		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
+		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		var phosphor := DiceScoring.phosphor_store_for(ctx, i)
+		var phosphor_mult := DiceScoring.phosphor_mult_for(ctx, i)
 		base += phosphor
-		# Basis-Stand NACH der Auszahlung: gespeichert wird nur, was der Würfel in
-		# DIESEM Zug selbst erarbeitet - ein Speicher, keine Kette.
+		mult += phosphor_mult
+		# Stand NACH der Auszahlung: gespeichert wird nur, was der Würfel in DIESEM
+		# Zug selbst erarbeitet - der Speicher zahlt sich nie selbst nach.
 		var base_before_die := base
+		# Der Mult-Speicher zählt AUSSCHLIESSLICH, was dieser Würfel additiv
+		# beisteuert (Material, Essenz, würfelgebundene Charms - auch an seinen
+		# Gliedern). Ein Krit vervielfacht den laufenden Mult der ganzen Hand und
+		# gehört darum NICHT dazu, sonst speicherte der Würfel fremde Arbeit.
+		var mult_earned := 0.0
 		# Die beiden Achsen wie in DiceScoring: der Würfel tritt die_count-mal an,
 		# je Antritt zündet die obere Seite face_count-mal.
 		var die_count := 1
@@ -73,7 +86,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_base := 0
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, eye_slots, essences))
+				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids))
 			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Würfelgebundene Charms dieses Slots, Beitrag EINER Auslösung. Sie hängen
@@ -101,7 +114,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# Linse darüber. Augen, Mult-Material und Material-Krit rechnen je Zündung
 		# neu, alles andere bleibt. Die Kopfzeile trägt die ERSTE Zündung.
 		var running: int = raw[i] if i < raw.size() else dice[i]
-		var eye := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(dice[i], charm_ids))
+		var eye := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(dice[i], charm_ids), charm_ids)
 		var once_mult := 0
 		var step_crit := charm_crit
 		var first_firing := true
@@ -114,8 +127,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			var firings: Array[Dictionary] = []
 			for _f in (face_count if t < die_count else 0):
 				var shown := DiceScoring.shown_value(running, charm_ids, essence_ids)
-				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) \
-					+ EssenceEffects.foreign_eye_bonus(i, scored, essences) \
+				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
+					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
 				triggers += 1
 				var mult_now := 0
@@ -131,7 +144,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				if not is_equal_approx(mat_crit_now, 1.0):
 					crits += 1
 					crits_here += 1
-				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits)
+				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
+					wild_eyes if i == wild else 0)
 				if not is_equal_approx(essence_crit, 1.0):
 					crits += 1
 					crits_here += 1
@@ -145,6 +159,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					first_firing = false
 				base += eye_now + once_base
 				mult += float(mult_now)
+				mult_earned += float(mult_now) + float(charm_mult_once)
 				var entry := {
 					"value": shown,
 					"base_add": eye_now + once_base, "mult_add": mult_now,
@@ -165,7 +180,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				mult *= crit_once
 				entry["mult_after_crit"] = mult
 				if has_die_bonus:
-					running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
+					running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids)
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running
@@ -212,6 +227,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				crits += link_crit_indices.size()
 				base += link_eye + link_base_once
 				mult += float(link_mult_once)
+				mult_earned += float(link_mult_once) + float(link_charm_mult)
 				var link_entry := {
 					"face": int(link["face"]), "material": link_material,
 					"base_add": link_eye + link_base_once, "mult_add": link_mult_once,
@@ -240,7 +256,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		die_steps.append({
 			"slot": i,
 			"phosphor_add": phosphor,
+			"phosphor_mult_add": phosphor_mult,
 			"base_contribution": base - base_before_die,
+			"mult_contribution": mult_earned,
 			"eye_add": eye,
 			"mat_base_add": once_base,
 			"mat_mult_add": once_mult,
@@ -353,6 +371,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"merge_total": merge_total,
 		"post_steps": post_steps,
 		"total": total,
+		# Was diese Hand an Auslösungen und Krits gebracht hat (ohne den Vorlauf der
+		# Runde): GameRun schreibt beides fort, Dunkelkammer und Gewitterfront lesen
+		# es in der nächsten Hand als Startstand.
+		"triggers": triggers - trigger_offset,
+		"crits": crits - crit_offset,
 	}
 
 ## EINE Formatregel für jede gedruckte Mult-Zahl, seit Krits Bruchzahlen sein

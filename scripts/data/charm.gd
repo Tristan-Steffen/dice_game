@@ -101,6 +101,71 @@ const BULK_DISCOUNT := "bulk_discount"
 const PARROT_TOTEM := "parrot_totem"
 const ECHO_TOTEM := "echo_totem"
 const HERMIT_CRAB := "hermit_crab"
+# Essenz-Charms: je einer für jede Essenz ab "selten" - siehe ESSENCE_REQUIREMENT.
+const AMALGAM := "amalgam"
+const LEAD_APRON := "lead_apron"
+const STORM_GLASS := "storm_glass"
+const LIGHTNING_ROD := "lightning_rod"
+const DARKROOM := "darkroom"
+const PRESSURE_VESSEL := "pressure_vessel"
+const AQUA_FORTIS := "aqua_fortis"
+const CONTRAST_AGENT := "contrast_agent"
+const CENSER := "censer"
+const SOLAR_SAIL := "solar_sail"
+const STORM_FRONT := "storm_front"
+const SWAMP_LANTERN := "swamp_lantern"
+const IGNITION_COIL := "ignition_coil"
+const BELL_JAR := "bell_jar"
+const SOLAR_ECLIPSE := "solar_eclipse"
+const GLAZE_BRUSH := "glaze_brush"
+const FLUORESCENT_TUBE := "fluorescent_tube"
+const POLARIZER := "polarizer"
+const ALKAHEST := "alkahest"
+const MAGNETIC_TRAP := "magnetic_trap"
+
+## Essenz, die ein Charm verstärkt (Charm-id -> Essence-id). Sie ist zugleich
+## seine ANGEBOTS-BEDINGUNG: ein solcher Charm liegt nur im Laden (Auslage,
+## Schwarzmarkt, Automat), wenn diese Seele wirklich im Pool steckt - sonst wäre
+## er eine tote Karte, und zwanzig tote Karten verdünnen den Topf.
+## Der Quecksilberdampf-Charm steht bewusst NICHT hier: er gehört keiner
+## einzelnen Essenz, sondern jedem Auslösungs-Faktor.
+const ESSENCE_REQUIREMENT := {
+	AMALGAM: Essence.MERCURY_VAPOR,
+	LEAD_APRON: Essence.RADON,
+	STORM_GLASS: Essence.ST_ELMOS_FIRE,
+	LIGHTNING_ROD: Essence.BALL_LIGHTNING,
+	DARKROOM: Essence.PHOTON_GAS,
+	PRESSURE_VESSEL: Essence.RADIATION_PRESSURE,
+	AQUA_FORTIS: Essence.CYANIDE,
+	CONTRAST_AGENT: Essence.XRAY,
+	CENSER: Essence.MIASMA,
+	SOLAR_SAIL: Essence.SOLAR_WIND,
+	STORM_FRONT: Essence.OZONE,
+	SWAMP_LANTERN: Essence.WILL_O_WISP,
+	IGNITION_COIL: Essence.PLASMA,
+	BELL_JAR: Essence.VACUUM,
+	SOLAR_ECLIPSE: Essence.CORONA,
+	GLAZE_BRUSH: Essence.VARNISH,
+	FLUORESCENT_TUBE: Essence.PHOSPHORESCENCE,
+	POLARIZER: Essence.AURORA,
+	ALKAHEST: Essence.QUINTESSENCE,
+	MAGNETIC_TRAP: Essence.ANTIMATTER,
+}
+
+## Essenz, die dieser Charm voraussetzt ("" = keine).
+static func essence_requirement(charm_id: String) -> String:
+	return String(ESSENCE_REQUIREMENT.get(charm_id, ""))
+
+## Die Charms, die dem Spieler überhaupt angeboten werden dürfen: alles ohne
+## Essenz-Bedingung plus die, deren Seele er besitzt. EINE Quelle für Auslage,
+## Schwarzmarkt und Automat.
+static func offerable(pool: Array[Charm], owned_essence_ids: Array[String]) -> Array[Charm]:
+	var out: Array[Charm] = []
+	for charm in pool:
+		var needed := essence_requirement(charm.id)
+		if needed == "" or owned_essence_ids.has(needed):
+			out.append(charm)
+	return out
 
 ## Konvention: Modell-Dateiname = Charm-id (rabbits_foot.glb, ...). Fehlt die
 ## Datei, bleibt model_path leer und CharmRowView zeigt den Platzhalter.
@@ -209,6 +274,28 @@ const RARITIES := {
 	PARROT_TOTEM: RARITY_LEGENDARY,
 	ECHO_TOTEM: RARITY_LEGENDARY,
 	HERMIT_CRAB: RARITY_COMMON,
+	# Essenz-Charms: die Rarität misst die STÄRKE mit der Seele, nicht die Nische -
+	# die Nische regelt schon die Angebots-Kopplung (ESSENCE_REQUIREMENT).
+	AMALGAM: RARITY_RARE,
+	LEAD_APRON: RARITY_RARE,
+	STORM_GLASS: RARITY_RARE,
+	LIGHTNING_ROD: RARITY_RARE,
+	DARKROOM: RARITY_RARE,
+	PRESSURE_VESSEL: RARITY_UNCOMMON,
+	AQUA_FORTIS: RARITY_RARE,
+	CONTRAST_AGENT: RARITY_UNCOMMON,
+	CENSER: RARITY_RARE,
+	SOLAR_SAIL: RARITY_RARE,
+	STORM_FRONT: RARITY_RARE,
+	SWAMP_LANTERN: RARITY_RARE,
+	IGNITION_COIL: RARITY_RARE,
+	BELL_JAR: RARITY_RARE,
+	SOLAR_ECLIPSE: RARITY_RARE,
+	GLAZE_BRUSH: RARITY_RARE,
+	FLUORESCENT_TUBE: RARITY_LEGENDARY,
+	POLARIZER: RARITY_LEGENDARY,
+	ALKAHEST: RARITY_LEGENDARY,
+	MAGNETIC_TRAP: RARITY_LEGENDARY,
 }
 
 const RARITY_WEIGHTS := {
@@ -562,6 +649,68 @@ static func echo_totem() -> Charm:
 static func hermit_crab() -> Charm:
 	return _make(HERMIT_CRAB, "Einsiedlerkrebs", "Besitzt du höchstens 2 Charms, +6 Mult.")
 
+# --- Essenz-Charms (je einer ab "selten"; Bedingung siehe ESSENCE_REQUIREMENT) ---
+
+static func amalgam() -> Charm:
+	return _make(AMALGAM, "Amalgam", "Quecksilberdampf färbt ab: der nächste Würfel der Zählreihenfolge löst +1× aus.")
+
+static func lead_apron() -> Charm:
+	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht mehr, und sein Strahlenbonus steigt auf +3 Augen je Mitwürfel.")
+
+static func storm_glass() -> Charm:
+	return _make(STORM_GLASS, "Sturmglas", "Für Elmsfeuer gilt JEDE Runde als Stresstest.")
+
+static func lightning_rod() -> Charm:
+	return _make(LIGHTNING_ROD, "Blitzableiter", "Jeder Kugelblitz kritet ×2 plus 1 je gewertetem Kugelblitz-Würfel.")
+
+static func darkroom() -> Charm:
+	return _make(DARKROOM, "Dunkelkammer", "Photonengas sammelt auch die Auslösungen der bisherigen Hände dieser Runde.")
+
+static func pressure_vessel() -> Charm:
+	return _make(PRESSURE_VESSEL, "Druckkessel", "Strahlungsdruck bläht jede Seite um 20% auf statt um 2.")
+
+static func aqua_fortis() -> Charm:
+	return _make(AQUA_FORTIS, "Scheidewasser", "Zyanidgas laugt die ganze Hand aus: +$1 je Gold-Seite jedes ANDEREN gewerteten Würfels.")
+
+static func contrast_agent() -> Charm:
+	return _make(CONTRAST_AGENT, "Kontrastmittel", "Wertet ein Röntgenlicht, halbiert sich seine obere Seite dauerhaft und seine Gegenseite verdreifacht sich.")
+
+static func censer() -> Charm:
+	return _make(CENSER, "Räucherwerk", "Der Miasma-Würfel steckt die Hand weiter an, ohne selbst zu verlieren.")
+
+static func solar_sail() -> Charm:
+	return _make(SOLAR_SAIL, "Sonnensegel", "Sonnenwind löst +2× aus je VERSCHIEDENER Essenz, die in dieser Hand vor ihm zählte.")
+
+static func storm_front() -> Charm:
+	return _make(STORM_FRONT, "Gewitterfront", "Auch die Krits der bisherigen Hände dieser Runde zählen in Ozons Krit.")
+
+static func swamp_lantern() -> Charm:
+	return _make(SWAMP_LANTERN, "Sumpflaterne", "Irrlicht darf beliebig oft gekippt werden statt einmal je Runde.")
+
+static func ignition_coil() -> Charm:
+	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Leiterbahn-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
+
+static func bell_jar() -> Charm:
+	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Riss.")
+
+static func solar_eclipse() -> Charm:
+	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")
+
+static func glaze_brush() -> Charm:
+	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon Stufe III trägt, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
+
+static func fluorescent_tube() -> Charm:
+	return _make(FLUORESCENT_TUBE, "Leuchtstoffröhre", "Die Phosphoreszenz speichert zusätzlich jeden Mult, den sie erarbeitet hat, und zahlt ihn erneut aus.")
+
+static func polarizer() -> Charm:
+	return _make(POLARIZER, "Polarfilter", "Das Polarlicht kritet mit der Zahl, zu der es sich für die Kombination macht.")
+
+static func alkahest() -> Charm:
+	return _make(ALKAHEST, "Alkahest", "Die Quintessenz borgt auch die Seelen der Würfel in der Ablage dieser Runde.")
+
+static func magnetic_trap() -> Charm:
+	return _make(MAGNETIC_TRAP, "Magnetfalle", "Die Augen der Antimaterie zählen nicht mehr negativ - ihr Krit bleibt.")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -590,4 +739,10 @@ static func all() -> Array[Charm]:
 		recycling(), fresh_goods(), sediment(),
 		seal_of_quality(), bulk_discount(),
 		parrot_totem(), echo_totem(), hermit_crab(),
+		# Essenz-Charms
+		amalgam(), lead_apron(), storm_glass(), lightning_rod(), darkroom(),
+		pressure_vessel(), aqua_fortis(), contrast_agent(),
+		censer(), solar_sail(), storm_front(), swamp_lantern(), ignition_coil(),
+		bell_jar(), solar_eclipse(), glaze_brush(), fluorescent_tube(),
+		polarizer(), alkahest(), magnetic_trap(),
 	]

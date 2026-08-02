@@ -212,13 +212,19 @@ var spotlight_claimed_this_round: bool = false
 ## Goldener Handschlag: die Klausel vergoldet je Runde genau EINEN Würfel.
 var golden_handshake_used_this_round: bool = false
 
-## Rundenzustand der Essenzen, je Würfel-Exemplar (Instanz-id des DieDefinition):
-## der Basis-Speicher der Phosphoreszenz.
+## Speicher der Phosphoreszenz je Würfel-Exemplar (Instanz-id des DieDefinition):
+## Basispunkte, und unter der Leuchtstoffröhre auch der Mult. Beide SAMMELN über
+## den ganzen Run - sie sterben erst mit dem Run, nicht mit der Runde.
 var essence_phosphor_store: Dictionary = {}
+var essence_phosphor_mult: Dictionary = {}
 ## Verbrauchtes Löschgas je Würfel-Exemplar - eine Runden-Marke.
 var essence_smother_used: Dictionary = {}
 ## Schon gekippte Irrlicht-Würfel dieser Runde.
 var essence_tip_used: Dictionary = {}
+## Auslösungen und Krits der bisherigen Hände DIESER Runde - Dunkelkammer und
+## Gewitterfront schleppen sie in die nächste Hand mit.
+var round_trigger_count: int = 0
+var round_crit_count: int = 0
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -1206,16 +1212,45 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 		copied += 1
 	return copied
 
+## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
+## Stufe III trägt, fällt stattdessen eine Kopie ihres Materials in den Vorrat -
+## einmal je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Kopien.
+func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
+		participating: Array[int]) -> int:
+	if not charm_ids().has(Charm.GLAZE_BRUSH):
+		return 0
+	var copied := 0
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size() or defs[i] == null:
+			continue
+		if defs[i].essence_id != Essence.VARNISH:
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].materials.size():
+			continue
+		if defs[i].material_level(face) < DieMaterial.MAX_LEVEL:
+			continue
+		var material := DieMaterial.by_id(defs[i].materials[face])
+		if material == null:
+			continue
+		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
+			Engraving.Rarity.UNCOMMON)
+		grant_engraving(Engraving.material_engraving(material, rarity))
+		copied += 1
+	return copied
+
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
-## Rundenzustand der Essenzen: Löschgas, Kipp-Erlaubnis und der Phosphor-Speicher
-## fangen neu an. Alles hängt am Würfel-Exemplar, also an seiner Instanz-id -
-## eine Def wandert nie zwischen Pool-Plätzen.
+## Rundenzustand der Essenzen: Löschgas und Kipp-Erlaubnis fangen neu an, dazu
+## die Hand-Zähler der Runde. Der Phosphor-Speicher NICHT - er sammelt über den
+## ganzen Run. Alles hängt am Würfel-Exemplar, also an seiner Instanz-id - eine
+## Def wandert nie zwischen Pool-Plätzen.
 func roll_essence_round_state() -> void:
 	essence_smother_used.clear()
 	essence_tip_used.clear()
-	essence_phosphor_store.clear()
+	round_trigger_count = 0
+	round_crit_count = 0
 
 ## Gespeicherte Basispunkte dieses Würfel-Exemplars (0 = leer).
 func phosphor_store(die: DieDefinition) -> int:
@@ -1223,17 +1258,35 @@ func phosphor_store(die: DieDefinition) -> int:
 		return 0
 	return int(essence_phosphor_store.get(die.get_instance_id(), 0))
 
-## Bucht den Speicher nach dem Zug: der gerade ausgezahlte Stand ist weg, der
-## Basis-Beitrag DIESES Zuges kommt hinein (erneutes Werten überschreibt also).
-## breakdown ist die auf echte Slots umgerechnete Schrittliste.
+## Gespeicherter Mult dieses Würfel-Exemplars - nur die Leuchtstoffröhre füllt ihn.
+func phosphor_mult(die: DieDefinition) -> float:
+	if die == null or die.essence_id != Essence.PHOSPHORESCENCE:
+		return 0.0
+	return float(essence_phosphor_mult.get(die.get_instance_id(), 0.0))
+
+## Bucht die Speicher nach dem Zug: der Beitrag DIESES Zuges kommt oben drauf -
+## der Speicher wird nie geleert, er wächst. Der ausgezahlte Stand steckt nicht im
+## Beitrag (die Schrittliste misst nach der Auszahlung), er zahlt sich also nie
+## selbst nach. breakdown ist die auf echte Slots umgerechnete Schrittliste.
 func note_phosphor_stores(defs: Array[DieDefinition], breakdown: Dictionary) -> void:
+	var keeps_mult := charm_ids().has(Charm.FLUORESCENT_TUBE)
 	for step: Dictionary in breakdown.get("die_steps", []):
 		var slot := int(step.get("slot", -1))
 		if slot < 0 or slot >= defs.size() or defs[slot] == null:
 			continue
 		if defs[slot].essence_id != Essence.PHOSPHORESCENCE:
 			continue
-		essence_phosphor_store[defs[slot].get_instance_id()] = int(step.get("base_contribution", 0))
+		var key := defs[slot].get_instance_id()
+		essence_phosphor_store[key] = int(essence_phosphor_store.get(key, 0)) \
+			+ int(step.get("base_contribution", 0))
+		if keeps_mult:
+			essence_phosphor_mult[key] = float(essence_phosphor_mult.get(key, 0.0)) \
+				+ float(step.get("mult_contribution", 0.0))
+
+## Schreibt die Hand-Zähler der Runde fort (Dunkelkammer, Gewitterfront).
+func note_hand_counters(breakdown: Dictionary) -> void:
+	round_trigger_count += maxi(0, int(breakdown.get("triggers", 0)))
+	round_crit_count += maxi(0, int(breakdown.get("crits", 0)))
 
 ## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
 ## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
@@ -1258,9 +1311,12 @@ func consume_smother(die: DieDefinition, up_face: int = -1) -> void:
 	die.set_face_material(up_face, "")
 	note_pool_changed()
 
-## Darf dieser Würfel diese Runde (noch) gekippt werden?
+## Darf dieser Würfel diese Runde (noch) gekippt werden? Die Sumpflaterne hebt
+## das Runden-Limit ganz auf.
 func can_tip_die(die: DieDefinition) -> bool:
-	return die != null and EssenceEffects.can_tip(die.essence_id) 		and not essence_tip_used.has(die.get_instance_id())
+	if die == null or not EssenceEffects.can_tip(die.essence_id):
+		return false
+	return charm_ids().has(Charm.SWAMP_LANTERN) or not essence_tip_used.has(die.get_instance_id())
 
 ## Verbraucht die Kipp-Erlaubnis dieses Würfels für die laufende Runde.
 func consume_tip(die: DieDefinition) -> void:
@@ -1485,7 +1541,7 @@ func redeem_slots() -> Dictionary:
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			prizes.append(SlotPrize.from_spec(spec, hub_level))
+			prizes.append(SlotPrize.from_spec(spec, hub_level, owned_essence_ids()))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
 
@@ -1796,7 +1852,8 @@ func _secret_charm_offer() -> Dictionary:
 			var listed: Charm = offer[OFFER_ITEM]
 			taken.append(listed.id)
 	var pool: Array[Charm] = []
-	for charm in Charm.all():
+	# Auch das Hinterzimmer führt keinen Essenz-Charm, dessen Seele fehlt.
+	for charm in Charm.offerable(Charm.all(), owned_essence_ids()):
 		if charm.rarity == Charm.RARITY_LEGENDARY and not taken.has(charm.id):
 			pool.append(charm)
 	if pool.is_empty():

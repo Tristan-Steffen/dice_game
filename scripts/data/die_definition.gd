@@ -27,6 +27,10 @@ extends Resource
 ## Liste je Seite, damit jede Schleife über Rifts dieselbe flache Form sieht wie
 ## über Materialien und Stufen.
 @export var second_rifts: Array[String] = ["", "", "", "", "", ""]
+## Dritter Riss je Seite - ebenfalls nur am Vakuum, und nur unter der Glasglocke
+## (Charm) überhaupt zu setzen. Was sitzt, wirkt weiter: der Charm entscheidet
+## über das BRECHEN, nicht über den Riss.
+@export var third_rifts: Array[String] = ["", "", "", "", "", ""]
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 
@@ -42,6 +46,7 @@ func become(other: DieDefinition) -> void:
 	levels = other.levels.duplicate()
 	rifts = other.rifts.duplicate()
 	second_rifts = other.second_rifts.duplicate()
+	third_rifts = other.third_rifts.duplicate()
 	essence_id = other.essence_id
 	style_id = other.style_id
 	display_name = other.display_name
@@ -55,6 +60,7 @@ func instantiate() -> DieDefinition:
 	copy.levels = levels.duplicate()
 	copy.rifts = rifts.duplicate()
 	copy.second_rifts = second_rifts.duplicate()
+	copy.third_rifts = third_rifts.duplicate()
 	return copy
 
 ## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Stufe hängt am
@@ -85,34 +91,49 @@ func raise_level(face: int) -> bool:
 	return true
 
 ## Wie viele Risse diese Schale je Seite trägt: das Vakuum saugt das Kernlicht
-## nach innen und hält ohne Innendruck einen zweiten Bruch aus.
-func rift_slots() -> int:
-	return 2 if essence_id == Essence.VACUUM else 1
+## nach innen und hält ohne Innendruck einen zweiten Bruch aus - unter der
+## Glasglocke einen dritten. extra kommt vom Aufrufer, der die Charms kennt (die
+## Def kennt sie nicht); ohne Vakuum bleibt es bei einem Riss.
+func rift_slots(extra: int = 0) -> int:
+	if essence_id != Essence.VACUUM:
+		return 1
+	return mini(MAX_RIFT_SLOTS, 2 + maxi(0, extra))
 
-## Die Rifts EINER Seite (0-2 Einträge, leere übersprungen).
+## Harte Grenze: mehr als drei parallele Riss-Arrays trägt keine Schale.
+const MAX_RIFT_SLOTS := 3
+
+## Die Rifts EINER Seite (0-3 Einträge, leere übersprungen). Gelesen wird, was
+## WIRKLICH sitzt - der Charm entscheidet nur, ob ein dritter Bruch entstehen darf.
 func rifts_on(face: int) -> Array[String]:
 	var out: Array[String] = []
 	if face < 0 or face >= rifts.size():
 		return out
 	if rifts[face] != "":
 		out.append(rifts[face])
-	if rift_slots() > 1 and face < second_rifts.size() and second_rifts[face] != "":
+	if essence_id != Essence.VACUUM:
+		return out
+	if face < second_rifts.size() and second_rifts[face] != "":
 		out.append(second_rifts[face])
+	if face < third_rifts.size() and third_rifts[face] != "":
+		out.append(third_rifts[face])
 	return out
 
 func has_rift(face: int, rift_id: String) -> bool:
 	return rifts_on(face).has(rift_id)
 
-## Bricht eine Seite auf. slot 1 ist der Vakuum-Zweitriss und wird an jedem
-## anderen Würfel abgewiesen; ein besetzter Platz wird ersetzt (neu brechen ist
-## erlaubt). true, wenn der Riss sitzt.
-func set_rift(face: int, rift_id: String, slot: int = 0) -> bool:
-	if face < 0 or face >= rifts.size() or slot < 0 or slot >= rift_slots():
+## Bricht eine Seite auf. Slot 1 und 2 gehören dem Vakuum (2 nur unter der
+## Glasglocke, darum extra) und werden an jedem anderen Würfel abgewiesen; ein
+## besetzter Platz wird ersetzt (neu brechen ist erlaubt). true, wenn der Riss sitzt.
+func set_rift(face: int, rift_id: String, slot: int = 0, extra: int = 0) -> bool:
+	if face < 0 or face >= rifts.size() or slot < 0 or slot >= rift_slots(extra):
 		return false
-	if slot == 1:
-		second_rifts[face] = rift_id
-	else:
-		rifts[face] = rift_id
+	match slot:
+		2:
+			third_rifts[face] = rift_id
+		1:
+			second_rifts[face] = rift_id
+		_:
+			rifts[face] = rift_id
 	return true
 
 ## Gegenseite eines Seitenindex (Kalibrierung: DiceController.AXIS_FACE_INDEX

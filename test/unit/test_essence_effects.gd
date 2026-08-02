@@ -580,12 +580,11 @@ func test_the_flash_crits_are_borrowable_now():
 	assert_almost_eq(EssenceEffects.crit_of(borrowed, 5), 3.0, 0.0001)
 
 func test_the_state_carrying_souls_are_never_borrowed():
-	# Lawinenlicht und Phosphoreszenz führen einen Speicher am Würfel-Exemplar -
-	# geborgt gehörte der zwei Würfeln.
+	# Die Phosphoreszenz führt einen Speicher am Würfel-Exemplar - geborgt
+	# gehörte der zwei Würfeln.
 	var sets := EssenceEffects.effective_sets(
-		{0: Essence.QUINTESSENCE, 1: Essence.AVALANCHE, 2: Essence.PHOSPHORESCENCE})
+		{0: Essence.QUINTESSENCE, 1: Essence.PHOSPHORESCENCE})
 	var borrowed := EssenceEffects.set_at(sets, 0)
-	assert_false(borrowed.has(Essence.AVALANCHE))
 	assert_false(borrowed.has(Essence.PHOSPHORESCENCE))
 	assert_eq(borrowed.size(), 1, "nur die eigene Seele bleibt übrig")
 
@@ -659,31 +658,17 @@ func test_essence_links_ignore_the_pointer_wiring():
 	var ring := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
 	assert_eq(ring.count(DieDefinition.opposite_face(1)), 1, "jede Seite feuert höchstens einmal")
 
-func test_corona_fires_all_four_neighbours():
+func test_corona_fires_one_neighbour():
 	var die := _die_with(Essence.CORONA)
 	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA]))
-	assert_eq(faces, DieDefinition.adjacent_faces(2), "vier Nachbarn, aufsteigend")
+	assert_eq(faces, _p([DieDefinition.adjacent_faces(2)[0]]), "die erste Nachbarseite")
 	assert_false(faces.has(DieDefinition.opposite_face(2)), "die Gegenseite gehört dem Röntgenlicht")
 
 func test_corona_ring_comes_before_the_xray_face():
 	var die := _die_with(Essence.CORONA)
 	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
-	assert_eq(faces.size(), 5)
-	assert_eq(faces[4], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
-
-func test_avalanche_grows_by_the_turn_number():
-	assert_eq(EssenceEffects.face_growth(Essence.AVALANCHE, 1), 1)
-	assert_eq(EssenceEffects.face_growth(Essence.AVALANCHE, 3), 3)
-	var die := _die_with(Essence.AVALANCHE)
-	var defs: Array[DieDefinition] = [die]
-	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), NO_CHARMS, -1,
-		{0: Essence.AVALANCHE}, _p([0]), false, _p([]), 3)
-	assert_eq(die.faces[0], 1 + 3, "die obere Seite wächst um die Zug-Nummer")
-	assert_eq(die.faces[5], 6 + 3, "alle Seiten wachsen mit")
-
-func test_the_turn_number_travels_in_the_ctx():
-	assert_eq(DiceScoring.turn_index_in({}), 1, "ohne Eintrag der erste Zug")
-	assert_eq(DiceScoring.turn_index_in({DiceScoring.CTX_TURN_INDEX: 4}), 4)
+	assert_eq(faces.size(), 2)
+	assert_eq(faces[1], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
 
 func test_varnish_clamps_at_three_and_spares_bare_faces():
 	var varnish := _ids([Essence.VARNISH])
@@ -746,7 +731,7 @@ func test_the_phosphor_store_never_feeds_itself():
 	run.note_phosphor_stores(defs, breakdown)
 	assert_eq(run.phosphor_store(die), 5, "nur die eigenen Augen, nicht die 5 aus dem Speicher")
 
-func test_the_phosphor_store_is_overwritten_and_reset():
+func test_the_phosphor_store_accumulates_and_outlives_the_round():
 	var run := GameRun.new_run()
 	var die := run.owned_pool[0]
 	die.essence_id = Essence.PHOSPHORESCENCE
@@ -758,9 +743,9 @@ func test_the_phosphor_store_is_overwritten_and_reset():
 	assert_eq(run.phosphor_store(die), 6)
 	run.note_phosphor_stores(defs, ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([2, 2]),
 		NO_CHARMS, false, _m(["", ""]), {}, ctx))
-	assert_eq(run.phosphor_store(die), 2, "erneutes Werten überschreibt")
+	assert_eq(run.phosphor_store(die), 8, "erneutes Werten legt oben drauf")
 	run.roll_essence_round_state()
-	assert_eq(run.phosphor_store(die), 0, "die neue Runde löscht den Speicher")
+	assert_eq(run.phosphor_store(die), 8, "der Speicher überlebt die Runde")
 
 # --- Miasma: Ansteckung statt fauler Handel ---------------------------------------
 

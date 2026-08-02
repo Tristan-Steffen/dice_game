@@ -13,9 +13,12 @@ func _discovered() -> GameRun:
 	run.unlock_secret_shop()
 	return run
 
+## Die legendären Charms, die ein frischer Lauf überhaupt angeboten bekommt -
+## Essenz-Charms fallen raus, solange ihre Seele nicht im Pool steckt.
 func _legendaries() -> Array[Charm]:
+	var no_souls: Array[String] = []
 	var out: Array[Charm] = []
-	for charm in Charm.all():
+	for charm in Charm.offerable(Charm.all(), no_souls):
 		if charm.rarity == Charm.RARITY_LEGENDARY:
 			out.append(charm)
 	return out

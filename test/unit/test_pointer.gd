@@ -105,10 +105,14 @@ func test_the_aggregated_chance_grows_with_the_face_triggers():
 	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 3), 0.875, 0.0001)
 	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 0), 0.5, 0.0001, "mindestens eine Zündung")
 
-func test_plasma_raises_the_base_chance():
+func test_plasma_gives_the_pointer_a_second_shot():
 	var base := DiceScoring.POINTER_CHANCE
 	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([]), base), 0.5, 0.0001)
-	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), base), 0.75, 0.0001)
+	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), base), 0.75, 0.0001,
+		"zwei Versuche: aus 50 % werden 75 %")
+	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), 0.3), 0.51, 0.0001)
+	assert_lt(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), 0.9), 1.0,
+		"eine Leiterbahn zündet NIE sicher")
 	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.NEON]), base), 0.5, 0.0001)
 	# Auch aggregiert bleibt der Lichtbogen vorn.
 	assert_almost_eq(DiceScoring.pointer_chance_for(0.75, 2), 0.9375, 0.0001)
@@ -277,7 +281,7 @@ func _defs(def: DieDefinition) -> Array[DieDefinition]:
 ## Nehmen-Effekte für EINEN Würfel mit eingefrorenem Wurf.
 func _take(def: DieDefinition, fires: Dictionary, essences := {}) -> MaterialEffects.TakeReport:
 	return MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]),
-		_ids([]), -1, essences, _d([0]), false, _d([]), 1, fires)
+		_ids([]), -1, essences, _d([0]), false, _d([]), fires)
 
 func test_a_gold_link_pays_per_fired_occurrence():
 	var def := DieDefinition.new()
@@ -290,7 +294,7 @@ func test_a_gold_link_pays_per_fired_occurrence():
 	twice.materials[2] = DieMaterial.GOLD
 	twice.essence_id = Essence.ARGON
 	var argon_report := MaterialEffects.apply_take_effects(_defs(twice), _d([0]), _m([""]), _d([0]),
-		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1,
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]),
 		{0: [[_link(2, 3)], [_link(2, 3)]]})
 	assert_eq(argon_report.money, MaterialEffects.GOLD_PAYOUT * 2, "zwei Zündungen, zwei Sätze")
 
@@ -328,7 +332,7 @@ func test_a_twice_fired_bone_link_lands_where_the_simulation_counted():
 	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([]), rng)
 	var last_counted := int((groups[1] as Array)[0]["value"])
 	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]),
-		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1, {0: groups})
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), {0: groups})
 	assert_eq(def.faces[2], last_counted + 1, "die Def steht eine Wandlung hinter der letzten Zählung")
 
 func test_both_axes_and_the_link_land_where_the_roll_counted():
@@ -348,7 +352,7 @@ func test_both_axes_and_the_link_land_where_the_roll_counted():
 	assert_eq(int((groups[0] as Array)[0]["value"]), 20, "erste Zündung: der gedruckte Wert")
 	assert_eq(int((groups[1] as Array)[0]["value"]), 21, "zweite Zündung: der gewachsene")
 	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([DieMaterial.BONE]), _d([0]),
-		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1, {0: groups})
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), {0: groups})
 	assert_eq(def.faces[0], 22, "obere Seite: zwei Zündungen, je +1")
 	assert_eq(def.faces[2], 22, "Glied-Seite: zwei Zündungen, je +1")
 
