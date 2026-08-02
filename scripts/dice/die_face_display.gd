@@ -99,12 +99,25 @@ const PULSE_SPEED := 1.4       # rad/s ~ ruhiger Atem
 const PULSE_AMOUNT := 0.08
 const PULSE_AMOUNT_MATERIAL := 0.16
 
-## Fresnel-Hüllen-Stärke: die Farbabstrahlung des Würfels. Ein Kanten-
-## Material strahlt am kräftigsten, Seiten-Material schwächer, der blanke
-## Würfel nur einen Hauch - dieselbe Rangfolge wie bei Kanten und Lache.
-const SHELL_STRENGTH := 0.45
-const SHELL_STRENGTH_MATERIAL := 1.2
-const SHELL_STRENGTH_EDGE := 1.8
+## Animationsstufen der Seele nach Rarität - der Kantenrahmen ist das
+## Röhrensystem, in dem das flüssige Licht der Seele zirkuliert, und die
+## Rarität ist seine Erregung: still (häufig), Strömung (selten), Schübe
+## (episch), Sieden + Seelenfunken als übertretende Tropfen (legendär).
+## Zwei Lehren binden jede Änderung: Signale sitzen auf ECHTER GEOMETRIE
+## (die additive Fresnel-Hülle flimmerte deckungsgleich oder stand abgehoben
+## in der Luft - gestrichen), und Bewegung braucht Dunkelheit, die ihr gehört,
+## verankert um die kalibrierte Rahmenhelligkeit (siehe die_edge_flow).
+## Bewegungsfarbe unter dieser Leuchtdichte -> Void-Ton: additive Bewegung in
+## Fast-Schwarz (Vakuum) wäre unsichtbar; die STATISCHE Identität bleibt dunkel.
+const SOUL_MOTION_MIN_LUMA := 0.12
+const VOID_MOTION_COLOR := Color(0.38, 0.33, 0.5)
+## Seelenfunken: wenige Motten je Würfel - legendäre Seelen sind Unikate,
+## mehr als 3 Systeme gibt es also nie.
+const MOTE_COUNT := 10
+const MOTE_LIFETIME := 2.4
+const MOTE_GLOW := 1.5
+## Stützpunkte je Kante, aus denen die Funken treten (12 Kanten × 6).
+const MOTE_EDGE_SAMPLES := 6
 
 ## Leiterbahn auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
 ## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
@@ -157,8 +170,12 @@ var gaskets: Dictionary = {}
 var rift_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Riss-Auflage)
 ## Zweite Auflage NUR für Vakuum-Würfel (zwei Brüche je Seite), faul gebaut.
 var rift_overlays_second: Dictionary = {}
-## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar.
-var corner_caps: Node3D = null
+## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar. EIN
+## Mesh mit eigenem Lampen-Material.
+var corner_caps: MeshInstance3D = null
+var cap_material: ShaderMaterial = null
+## Die 12 Kantenbalken als EIN Mesh mit dem Fluss-Shader; befüllt DieBuilder.
+var beam_material: ShaderMaterial = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
 ## Lache an? Standard JA - jeder Würfel wirft seinen Schein auf den Tisch,
@@ -169,8 +186,6 @@ var pool_allowed: bool = true
 var glow_pool: MeshInstance3D = null
 var pool_material: ShaderMaterial = null
 var _pool_color := Color(0, 0, 0, 0)
-## Fresnel-Hülle (Blickwinkel-Schimmer); befüllt DieBuilder.
-var shell_material: ShaderMaterial = null
 ## Spanne, über die das Polarlicht seinen Farbton wandern lässt (Grün -> Violett).
 const AURORA_HUE_SPAN := 0.22
 
@@ -196,6 +211,12 @@ var face_ids: Dictionary = {}
 var face_levels: Dictionary = {}
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
 var essence_id: String = ""
+## Rarität der Essenz (-1 = seelenlos) - entscheidet die Animationsstufen.
+var essence_rarity: int = -1
+## Seelenfunken (nur legendär, faul gebaut wie das zweite Rift-Overlay).
+var soul_motes: CPUParticles3D = null
+## Gemeinsames Punktbild aller Funken - einmal für alle Würfel.
+static var _mote_tex: GradientTexture2D = null
 
 ## Je Zeiger EIN Band (Kind des Displays, nicht eines Quads - es spannt über
 ## zwei Seiten). Alle teilen ein Material: der Lichtlauf des Würfels ist EIN
@@ -214,15 +235,19 @@ func apply_definition(def: DieDefinition) -> void:
 		face_ids[axis] = material_id
 		var level := def.material_level(face_index)
 		face_levels[axis] = level
-		# Lache, Fresnel-Hülle und _neon_mix erben die Sättigung von hier.
+		# Die Lache erbt die Sättigung von hier.
 		face_base[axis] = DieMaterial.tint_for(material_id, level)
 		# Ziffern bleiben neutral-weiß, egal welches Material - Materialfarben
 		# machten die Zahl schwer lesbar (die Identität tragen Fläche/Rahmen/Kanten).
 		labels[axis].modulate = NUMBER_COLOR
 		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
 		_set_textures(quad_material, material_id)
-	essence_id = def.essence_id if Essence.is_valid_id(def.essence_id) else ""
-	edge_base = Essence.glow_for(essence_id) if essence_id != "" else EDGE_COLOR
+	# Ein Zugriff statt is_valid_id + glow_for; die Rarität entscheidet die
+	# Animationsstufen der Seele.
+	var essence := Essence.by_id(def.essence_id)
+	essence_id = def.essence_id if essence != null else ""
+	essence_rarity = essence.rarity if essence != null else -1
+	edge_base = essence.glow if essence != null else EDGE_COLOR
 	if edge_material_res != null:
 		_set_textures(edge_material_res, "")
 	_refresh_rift_overlays(def)
@@ -274,12 +299,7 @@ func _refresh_face_colors() -> void:
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
 			_has_material = true
-	if shell_material != null:
-		# Gleiche Regel wie bei der Lache: ein Kanten-Material gibt die Farbe
-		# allein vor, sonst mitteln die Seiten-Tints.
-		var mix := intense(edge_base if edge_base != EDGE_COLOR else _neon_mix()) * body_tint
-		shell_material.set_shader_parameter("glow_color", Vector3(mix.r, mix.g, mix.b))
-		shell_material.set_shader_parameter("strength", _shell_strength())
+	_refresh_soul_motion()
 	_refresh_pool()
 
 ## Würfel-Farbe: kräftiger als der UI-Tint (siehe DIE_SATURATION). Wird auf
@@ -290,12 +310,136 @@ static func intense(color: Color) -> Color:
 	c.v = clampf(c.v * DIE_VALUE, 0.0, 1.0)
 	return c
 
-## Abstrahl-Stärke nach der Rangfolge kahl < Seiten-Material < Essenz: das Gas
-## glüht dauernd, und zwar heller als jede Einlage.
-func _shell_strength() -> float:
+## Emission des Kantenrahmens (Balken, Kappen): mit Seele ihr Glühen über dem
+## Material-Boden, kahl das neutrale Neon unter der Bloom-Schwelle - dieselben
+## zwei Fälle wie _apply_essence_edge/_apply_profile für den Füllkörper.
+func _frame_glow_color() -> Color:
 	if essence_id != "":
-		return SHELL_STRENGTH_EDGE
-	return SHELL_STRENGTH_MATERIAL if _has_material else SHELL_STRENGTH
+		return intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
+	return intense(EDGE_NEON) * EDGE_GLOW * body_tint
+
+## Bewegungsfarbe der Seele (Fluss-Ballungen, Seelenfunken): die Glow-Farbe,
+## unter dem Luma-Boden der kalte Void-Ton.
+func _soul_motion_color() -> Color:
+	var color := intense(edge_base)
+	return color if color.get_luminance() >= SOUL_MOTION_MIN_LUMA else VOID_MOTION_COLOR
+
+## Hält Kantenfluss, Eck-Kappen und Seelenfunken mit dem Würfelzustand synchron.
+## Sitzt in _refresh_face_colors, damit jede apply_definition (become!) und
+## jeder body_tint-Wechsel neu ausspielt - das hebt auch flat_tint der
+## Stations-Auswahl wieder auf (set_tint stellt den Rahmen wieder her).
+func _refresh_soul_motion() -> void:
+	# Balken wie Kappen tragen Farbe UND Körper des Rahmens - body_tint
+	# (Gold-Blitz) muss beide erreichen wie bei _apply_profile.
+	var lamp := _frame_glow_color()
+	var body := BODY_COLOR * body_tint
+	if beam_material != null:
+		beam_material.set_shader_parameter("lamp_color", Vector3(lamp.r, lamp.g, lamp.b))
+		beam_material.set_shader_parameter("body_color", Vector3(body.r, body.g, body.b))
+		beam_material.set_shader_parameter("phase", _pulse_phase)
+		beam_material.set_shader_parameter("breath_amount",
+			PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT)
+		beam_material.set_shader_parameter("flat_tint", Vector4.ZERO)
+		# Erregung der Flüssigkeit nach Rarität; die Ballungen tragen den
+		# Void-Boden, damit auch eine fast schwarze Seele (Vakuum) fließt.
+		var style := 0.0
+		var flow := Color.BLACK
+		if essence_rarity >= Essence.Rarity.RARE:
+			style = float(essence_rarity - Essence.Rarity.RARE + 1)
+			flow = _soul_motion_color() * body_tint
+		beam_material.set_shader_parameter("flow_style", style)
+		beam_material.set_shader_parameter("flow_color", Vector3(flow.r, flow.g, flow.b))
+	if cap_material != null:
+		cap_material.set_shader_parameter("lamp_color", Vector3(lamp.r, lamp.g, lamp.b))
+		cap_material.set_shader_parameter("body_color", Vector3(body.r, body.g, body.b))
+		cap_material.set_shader_parameter("phase", _pulse_phase)
+		cap_material.set_shader_parameter("flat_tint", Vector4.ZERO)
+	if essence_rarity < Essence.Rarity.LEGENDARY:
+		if soul_motes != null:
+			soul_motes.queue_free()
+			soul_motes = null
+		return
+	if soul_motes == null:
+		soul_motes = _build_soul_motes()
+		add_child(soul_motes)
+	var mote := _soul_motion_color() * body_tint * MOTE_GLOW
+	mote.a = 1.0
+	soul_motes.color = mote
+
+## Das einzige Partikelsystem des Spiels, CPU statt GPU - winzige Stückzahl,
+## gl_compatibility bleibt außen vor. Welt-Koordinaten: die Funken ziehen dem
+## geworfenen Würfel als Schweif nach.
+func _build_soul_motes() -> CPUParticles3D:
+	var motes := CPUParticles3D.new()
+	motes.name = "SoulMotes"
+	motes.amount = MOTE_COUNT
+	motes.lifetime = MOTE_LIFETIME
+	# Beim ersten Blick hängen die Funken schon in der Luft.
+	motes.preprocess = MOTE_LIFETIME
+	motes.local_coords = false
+	# Die Funken lösen sich aus dem KANTENRAHMEN - dort sitzt das Seelenglühen,
+	# die Würfelmitte ist dunkles Glas.
+	motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+	motes.emission_points = _edge_emission_points()
+	motes.direction = Vector3.UP
+	motes.spread = 60.0
+	motes.gravity = Vector3(0.0, 0.55, 0.0)  # Auftrieb statt Fall
+	motes.initial_velocity_min = 0.1
+	motes.initial_velocity_max = 0.35
+	motes.scale_amount_min = 0.5
+	motes.scale_amount_max = 1.0
+	# Ein- und Ausblenden über die Lebenszeit.
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.2, 0.75, 1.0])
+	ramp.colors = PackedColorArray([Color(1, 1, 1, 0), Color.WHITE, Color.WHITE, Color(1, 1, 1, 0)])
+	motes.color_ramp = ramp
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.16
+	motes.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _mote_texture()
+	motes.material_override = material
+	motes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Spät gebaut - das Spiegel-Bit der beim Aufbau markierten Geschwister erben.
+	if not quads.is_empty():
+		motes.layers = (quads.values()[0] as VisualInstance3D).layers
+	return motes
+
+## Stützpunkte auf den 12 Kanten (Halbkante 1, siehe FACE_RIDE): je Achse vier
+## Kanten, die Achse selbst ist deren Laufrichtung.
+static func _edge_emission_points() -> PackedVector3Array:
+	var points := PackedVector3Array()
+	for long_axis in 3:
+		var a := (long_axis + 1) % 3
+		var b := (long_axis + 2) % 3
+		for sa: float in [-1.0, 1.0]:
+			for sb: float in [-1.0, 1.0]:
+				for i in MOTE_EDGE_SAMPLES:
+					var point := Vector3.ZERO
+					point[a] = sa
+					point[b] = sb
+					point[long_axis] = -1.0 + 2.0 * float(i) / float(MOTE_EDGE_SAMPLES - 1)
+					points.append(point)
+	return points
+
+## Weicher Lichtpunkt statt Quad-Kante, einmal für alle Würfel.
+static func _mote_texture() -> GradientTexture2D:
+	if _mote_tex == null:
+		var ramp := Gradient.new()
+		ramp.offsets = PackedFloat32Array([0.0, 1.0])
+		ramp.colors = PackedColorArray([Color.WHITE, Color(1, 1, 1, 0)])
+		_mote_tex = GradientTexture2D.new()
+		_mote_tex.gradient = ramp
+		_mote_tex.fill = GradientTexture2D.FILL_RADIAL
+		_mote_tex.fill_from = Vector2(0.5, 0.5)
+		_mote_tex.fill_to = Vector2(0.5, 0.0)
+		_mote_tex.width = 32
+		_mote_tex.height = 32
+	return _mote_tex
 
 ## Kantenglühen der Essenz: die Kanten sind kein Ausbau-Slot mehr, sondern die
 ## Bühne, auf der die Seele leuchtet - essenzlose Würfel behalten das neutrale
@@ -308,21 +452,6 @@ func _apply_essence_edge() -> void:
 	if essence_id == "":
 		return
 	edge_material_res.emission = intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
-
-## Misch-Neonfarbe des Würfels: neutral Cyan, sonst Essenz + Material-Tints gemittelt.
-func _neon_mix() -> Color:
-	var tints: Array[Color] = []
-	if edge_base != EDGE_COLOR:
-		tints.append(edge_base)
-	for axis in face_base:
-		if face_base[axis] != Color.WHITE:
-			tints.append(face_base[axis])
-	if tints.is_empty():
-		return EDGE_NEON
-	var mixed := Color(0, 0, 0)
-	for tint in tints:
-		mixed += tint
-	return mixed / float(tints.size())
 
 ## Ohne Material: dunkler Glas-Körper, das Licht liegt allein in der Emission.
 ## Mit Material: die Einlage trägt die echte Oberfläche aus dem Profil.
@@ -478,11 +607,17 @@ func _process(delta: float) -> void:
 		var amount := PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT
 		edge_material_res.emission_energy_multiplier = 1.0 + sin(_pulse_phase) * amount
 		# Polarlicht WANDERT: sein Farbton kriecht durchs Grünviolett, statt still
-		# zu stehen - das einzige Glühen, das seine Farbe ändert.
+		# zu stehen - das einzige Glühen, das seine Farbe ändert. Balken und
+		# Kappen hängen an eigenen Shadern, also wandert der Push mit (nur
+		# dieser eine Würfel zahlt die Frame-Kosten, Aurora ist Unikat).
 		if essence_id == Essence.AURORA:
 			var shifted := edge_base
 			shifted.h = fmod(edge_base.h + _pulse_phase / TAU * AURORA_HUE_SPAN, 1.0)
-			edge_material_res.emission = intense(shifted) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
+			var lamp := intense(shifted) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
+			edge_material_res.emission = lamp
+			for material: ShaderMaterial in [beam_material, cap_material]:
+				if material != null:
+					material.set_shader_parameter("lamp_color", Vector3(lamp.r, lamp.g, lamp.b))
 	# Die Leiterbahn-Strömung braucht hier nichts: sie läuft über TIME im
 	# Shader, versetzt um die einmalig gesetzte phase (siehe _pointer_material).
 	# Ohne Baum gibt es keine Welttransformation - die Lache braucht beides.
@@ -547,6 +682,11 @@ func set_edge_tint(color: Color) -> void:
 		edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		edge_material_res.albedo_color = color
 		edge_material_res.emission = Color.BLACK  # flach: kein Neon über der Auswahl
+	# Balken und Kappen hängen an eigenen Shadern - flat_tint ist dort derselbe
+	# flache Auswahl-Modus; _refresh_soul_motion hebt ihn wieder auf.
+	for material: ShaderMaterial in [beam_material, cap_material]:
+		if material != null:
+			material.set_shader_parameter("flat_tint", Vector4(color.r, color.g, color.b, 1.0))
 
 ## Färbt NUR die Ziffer einer Seite (Auswahl-Hervorhebung); der Körper bleibt
 ## neutral. Gegenstück: reset_number_tints.

@@ -1,10 +1,10 @@
 extends GutTest
 ## Lesbarkeit der Seiten auf Essenz-Würfeln. Additives Licht lässt sich nicht
-## durch hellere Einlagen kontern - beide Maßnahmen hier NEHMEN der Fläche Licht
-## weg: die Randmaske der Fresnel-Hülle und die dunkle Fassung am Flächenrand.
-## Das Urteil über das Aussehen fällt der Playtest; hier steht die Struktur.
-
-const FRESNEL := preload("res://assets/shaders/die_fresnel.gdshader")
+## durch hellere Einlagen kontern - es muss der Fläche WEGGENOMMEN werden, und
+## das tut hier die dunkle Fassung am Flächenrand. (Die Fresnel-Hülle trug
+## früher die zweite Hälfte dieser Aufgabe; sie ist ersatzlos gestrichen, siehe
+## DieFaceDisplay.) Das Urteil über das Aussehen fällt der Playtest; hier steht
+## die Struktur.
 
 func _display() -> DieFaceDisplay:
 	var die: Node3D = autofree(DieBuilder.build())
@@ -25,48 +25,21 @@ func _def(material_faces: Array, essence_id := "") -> DieDefinition:
 		def.set_face_material(int(face), DieMaterial.RUBY)
 	return def
 
-## Zahl hinter einem uniform-Default im Shader-Quelltext.
-func _shader_default(uniform_name: String) -> float:
-	for line in FRESNEL.code.split("\n"):
-		if line.begins_with("uniform") and line.contains(" %s " % uniform_name):
-			var parts := line.split("=")
-			if parts.size() >= 2:
-				return float(parts[1].replace(";", "").strip_edges())
-	return -1.0
+# --- Kein additives Licht über den Flächen -------------------------------------------
 
-# --- Randmaske der Fresnel-Hülle ----------------------------------------------------
-
-func test_the_fresnel_shell_carries_the_rim_mask_uniforms() -> void:
-	var names: Array[String] = []
-	for entry in FRESNEL.get_shader_uniform_list():
-		names.append(String(entry["name"]))
-	for required in ["glow_color", "strength", "falloff", "face_clear", "rim_soft"]:
-		assert_true(names.has(required), "die Hülle kennt %s" % required)
-
-func test_the_face_centre_is_cleared_before_the_rim_carries_again() -> void:
-	# face_clear ist der ganz freie Anteil, rim_soft die Stelle voller Wirkung -
-	# in dieser Reihenfolge, sonst liefe die Maske verkehrt herum.
-	var clear := _shader_default("face_clear")
-	var soft := _shader_default("rim_soft")
-	assert_between(clear, 0.0, 1.0, "face_clear ist ein Anteil der halben Breite")
-	assert_between(soft, 0.0, 1.0, "rim_soft ebenso")
-	assert_lt(clear, soft, "erst frei, dann wieder voll")
-	assert_gt(clear, 0.0, "die Mitte wird wirklich freigeschnitten")
-
-func test_the_falloff_got_steeper_than_the_old_flat_exponent() -> void:
-	# Früher 2.1 und bewusst flach; der Würfel soll strahlen, aber nicht mehr in
-	# seine eigenen Flächen hinein.
-	assert_gt(_shader_default("falloff"), 2.1, "steiler als vorher")
-
-func test_nothing_overrides_the_shell_defaults_from_code() -> void:
-	# Nur Farbe und Stärke kommen aus dem Code - Randmaske und Falloff sind
-	# Shader-Defaults, sonst wäre die Regel an zwei Orten.
-	var display := _display()
-	display.apply_definition(_def([0], Essence.NEON))
-	assert_not_null(display.shell_material)
-	for owned in ["falloff", "face_clear", "rim_soft"]:
-		assert_null(display.shell_material.get_shader_parameter(owned),
-			"%s bleibt beim Shader-Default" % owned)
+func test_no_additive_layer_floats_over_the_faces() -> void:
+	# Die Fresnel-Hülle ist gestrichen und darf nicht zurückkommen: eine
+	# Leuchtfolie knapp über dem Körper hat nur zwei Fehler zur Wahl -
+	# deckungsgleich flimmert ihr Tiefentest, abgehoben steht ihr Rand in der
+	# Luft und liest sich als abgelöste Seite. Licht nur auf echter Geometrie.
+	var die: Node3D = autofree(DieBuilder.build())
+	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+	assert_null(faces.get_node_or_null("FresnelShell"), "keine Hülle über dem Körper")
+	for visual in faces.find_children("*", "MeshInstance3D", true, false):
+		var material: Material = (visual as MeshInstance3D).material_override
+		if material is BaseMaterial3D:
+			assert_ne((material as BaseMaterial3D).blend_mode, BaseMaterial3D.BLEND_MODE_ADD,
+				"%s liegt nicht additiv über dem Würfel" % visual.name)
 
 # --- Dunkle Fassung -----------------------------------------------------------------
 

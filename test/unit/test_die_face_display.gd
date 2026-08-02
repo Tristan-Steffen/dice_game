@@ -231,7 +231,6 @@ func test_corner_caps_only_with_an_essence():
 	def.essence_id = Essence.NEON
 	display.apply_definition(def)
 	assert_true(display.corner_caps.visible, "Kanten-Material beschlägt die Ecken")
-	assert_eq(display.corner_caps.get_child_count(), 8)
 
 # --- Boden-Lache ---------------------------------------------------------------
 
@@ -370,32 +369,30 @@ func test_pool_reaches_far_and_stays_calm() -> void:
 	assert_lt(DieFaceDisplay.POOL_ALPHA_PER_STRENGTH * DieFaceDisplay.POOL_EDGE_STRENGTH, 0.35,
 		"dabei bleibt er gedämpft - sechs Würfel dürfen sich addieren, ohne auszuwaschen")
 
-func _shell_strength(display: DieFaceDisplay) -> float:
-	return float(display.shell_material.get_shader_parameter("strength"))
-
-func _shell_color(display: DieFaceDisplay) -> Vector3:
-	return display.shell_material.get_shader_parameter("glow_color")
-
 func test_the_essence_alone_decides_the_radiated_color():
+	# Seit dem Wegfall der Fresnel-Hülle trägt der KANTENRAHMEN die Abstrahlung.
+	# Ein Seiten-Material darf ihre Farbe nicht mitbestimmen - die Seele allein.
 	var def := DieDefinition.standard()
 	def.essence_id = Essence.NEON
 	def.materials[0] = DieMaterial.RUBY
 	var display := _display()
 	display.apply_definition(def)
-	var gold := DieFaceDisplay.intense(DieMaterial.tint_for(DieMaterial.GOLD))
-	var color := _shell_color(display)
-	assert_almost_eq(color.x, gold.r, 0.001, "die Kante gibt die Abstrahlfarbe allein vor")
-	assert_almost_eq(color.z, gold.b, 0.001)
+	var soul := DieFaceDisplay.intense(Essence.glow_for(Essence.NEON)) \
+		* DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR
+	var emission := display.edge_material_res.emission
+	assert_almost_eq(emission.r, soul.r, 0.001, "die Kante gibt die Abstrahlfarbe allein vor")
+	assert_almost_eq(emission.b, soul.b, 0.001)
 
 func test_an_essence_radiates_more_than_a_bare_die():
-	# Rangfolge kahl < Seiten-Material < Essenz: das Gas glüht dauernd.
+	# Rangfolge kahl < Essenz: das Gas glüht dauernd, und zwar heller.
 	var plain := _display()
 	plain.apply_definition(DieDefinition.standard())
 	var def := DieDefinition.standard()
 	def.essence_id = Essence.NITROGEN
 	var souled := _display()
 	souled.apply_definition(def)
-	assert_gt(_shell_strength(souled), _shell_strength(plain), "die Seele strahlt am stärksten")
+	assert_gt(souled.edge_material_res.emission.get_luminance(),
+		plain.edge_material_res.emission.get_luminance(), "die Seele strahlt am stärksten")
 
 func test_pool_follows_the_die_size():
 	# glow_pool ist top_level und erbt keine Skalierung: ein kleiner Tray-Würfel

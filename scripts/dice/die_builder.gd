@@ -33,6 +33,65 @@ const RIFT_SHADER := preload("res://assets/shaders/die_rift.gdshader")
 const BOUNCE := 0.25
 const FRICTION := 0.4
 
+## Die 12 Kantenbalken als [Mitte, Größe]-Paare - eine Quelle für Mesh und Test.
+## Wie ein geschweißter Rahmen: die senkrechten PFOSTEN laufen durch, die
+## waagerechten RIEGEL stoßen an sie an. Ließe man alle drei bis in die Ecke
+## laufen, lägen dort je zwei Außenflächen deckungsgleich aufeinander und
+## flimmerten im Tiefenpuffer. Die Silhouette bleibt gleich: der durchlaufende
+## Pfosten stellt die drei Eckflächen selbst.
+static func beam_boxes() -> Array:
+	var boxes := []
+	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
+	for i in directions.size():
+		for j in range(i + 1, directions.size()):
+			var a: Vector3 = directions[i]
+			var b: Vector3 = directions[j]
+			if not is_zero_approx(a.dot(b)):
+				continue  # (anti)parallel = keine gemeinsame Kante
+			var long_axis: Vector3 = a.cross(b).abs()
+			var reach := HALF_EXTENT * 2.0
+			if long_axis != Vector3.UP:
+				reach -= EDGE_THICKNESS * 2.0  # Riegel enden an den Pfosten
+			boxes.append([(a + b) * HALF_EXTENT,
+				Vector3.ONE * EDGE_THICKNESS + long_axis * reach])
+	return boxes
+
+## Der ganze Kantenrahmen in EINEM Mesh, einmal für alle Würfel: die Vertizes
+## liegen schon an ihrem Balken, der Fluss-Shader liest die Kante aus der
+## Position - dasselbe Prinzip wie bei den Eck-Kappen.
+static var _frame_mesh: ArrayMesh = null
+
+static func edge_frame_mesh() -> ArrayMesh:
+	if _frame_mesh != null:
+		return _frame_mesh
+	var builder := SurfaceTool.new()
+	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for box in beam_boxes():
+		var mesh := BoxMesh.new()
+		mesh.size = box[1]
+		builder.append_from(mesh, 0, Transform3D(Basis(), box[0]))
+	_frame_mesh = builder.commit()
+	return _frame_mesh
+
+## Alle 8 Eck-Kappen in EINEM Mesh, einmal für alle Würfel: die Vertizes liegen
+## schon an ihrer Ecke, also genügt dem Shader sign(VERTEX) zur Unterscheidung.
+static var _cap_mesh: ArrayMesh = null
+
+static func corner_cap_mesh() -> ArrayMesh:
+	if _cap_mesh != null:
+		return _cap_mesh
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE * CAP_SIZE
+	var builder := SurfaceTool.new()
+	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for sx: float in [-1.0, 1.0]:
+		for sy: float in [-1.0, 1.0]:
+			for sz: float in [-1.0, 1.0]:
+				builder.append_from(box, 0,
+					Transform3D(Basis(), Vector3(sx, sy, sz) * HALF_EXTENT))
+	_cap_mesh = builder.commit()
+	return _cap_mesh
+
 ## Baut einen Würfel; der Aufrufer hängt den Wurzelknoten ein und positioniert ihn.
 static func build() -> Node3D:
 	var root := Node3D.new()
@@ -82,20 +141,12 @@ static func build() -> Node3D:
 
 	_build_glow_pool(faces)
 
-	# Fresnel-Hülle knapp über dem Körper: additiver Schimmer, der mit flacherem
-	# Blickwinkel zunimmt - das Licht scheint aus dem Glasvolumen zu kommen.
-	var shell := MeshInstance3D.new()
-	shell.name = "FresnelShell"
-	var shell_mesh := BoxMesh.new()
-	shell_mesh.size = Vector3.ONE * (HALF_EXTENT * 2.0 + EDGE_THICKNESS)
-	shell.mesh = shell_mesh
-	var shell_material := ShaderMaterial.new()
-	shell_material.shader = load("res://assets/shaders/die_fresnel.gdshader")
-	shell.material_override = shell_material
-	shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	faces.add_child(shell)
-	faces.shell_material = shell_material
-
+	# KEINE Fresnel-Hülle mehr. Sie war eine additive Box knapp über dem Körper
+	# und trug den Schimmer samt Kometenlicht - aber eine Leuchtfolie über einer
+	# Fläche hat nur die Wahl zwischen zwei Fehlern: deckungsgleich flimmert ihr
+	# Tiefentest, abgehoben steht ihr Rand sichtbar in der Luft und liest sich
+	# als abgelöste Seite. Das Licht des Würfels sitzt jetzt allein dort, wo es
+	# Geometrie gibt: Kanten, Eck-Lampen, Ziffern, Lache.
 	var edges_root := Node3D.new()
 	edges_root.name = "Edges"
 	faces.add_child(edges_root)
@@ -108,45 +159,43 @@ static func build() -> Node3D:
 	fill.material_override = edge_res
 	edges_root.add_child(fill)
 
-	# Je Kante ein Balken: jedes Paar senkrechter Achsrichtungen (a, b) ist
-	# genau eine Kante (Mitte (a+b)·HALF_EXTENT, lang entlang der dritten
-	# Achse). Balken gleicher Richtung teilen ihr BoxMesh.
-	var beam_meshes := {}
-	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
-	for i in directions.size():
-		for j in range(i + 1, directions.size()):
-			var a: Vector3 = directions[i]
-			var b: Vector3 = directions[j]
-			if not is_zero_approx(a.dot(b)):
-				continue  # (anti)parallel = keine gemeinsame Kante
-			var long_axis: Vector3 = a.cross(b).abs()
-			if not beam_meshes.has(long_axis):
-				var mesh := BoxMesh.new()
-				mesh.size = Vector3.ONE * EDGE_THICKNESS + long_axis * HALF_EXTENT * 2.0
-				beam_meshes[long_axis] = mesh
-			var beam := MeshInstance3D.new()
-			beam.mesh = beam_meshes[long_axis]
-			beam.position = (a + b) * HALF_EXTENT
-			beam.material_override = edge_res
-			edges_root.add_child(beam)
+	# Die 12 Kantenbalken: EIN Mesh mit dem Fluss-Shader statt 12 Knoten am
+	# geteilten Material. Welcher Balken, steckt in der Geometrie (zwei Achsen
+	# am Anschlag), also braucht der Shader weder 12 Materialien noch eine
+	# Instanz-Uniform - und das flüssige Licht der Seele kann längs der Kante
+	# laufen, was ein StandardMaterial nie konnte. Elf Draw-Calls gespart.
+	var beams := MeshInstance3D.new()
+	beams.name = "Beams"
+	beams.mesh = edge_frame_mesh()
+	var beam_material := ShaderMaterial.new()
+	beam_material.shader = load("res://assets/shaders/die_edge_flow.gdshader")
+	# Dieselbe Oberfläche wie bisher; Konstanten bleiben in DieFaceDisplay.
+	beam_material.set_shader_parameter("surface_tex", DieMaterial.die_texture_for(""))
+	beam_material.set_shader_parameter("metallic_amount", DieFaceDisplay.EDGE_METALLIC)
+	beam_material.set_shader_parameter("roughness_amount", DieFaceDisplay.EDGE_ROUGHNESS)
+	beams.material_override = beam_material
+	edges_root.add_child(beams)
+	faces.beam_material = beam_material
 
-	# Eck-Kappen (nur mit Essenz sichtbar): 8 Würfelchen auf den Ecken,
-	# gleiche Oberfläche wie der Rahmen - sie tragen die Silhouetten-Änderung.
-	var caps := Node3D.new()
+	# Eck-Kappen (nur mit Essenz sichtbar): 8 Würfelchen auf den Ecken, sie
+	# tragen die Silhouetten-Änderung. EIN Mesh statt acht Knoten, damit der
+	# Lampen-Shader die Ecke aus sign(VERTEX) lesen kann - und ein Draw-Call.
+	var caps := MeshInstance3D.new()
 	caps.name = "CornerCaps"
 	caps.visible = false
-	var cap_mesh := BoxMesh.new()
-	cap_mesh.size = Vector3.ONE * CAP_SIZE
-	for sx in [-1.0, 1.0]:
-		for sy in [-1.0, 1.0]:
-			for sz in [-1.0, 1.0]:
-				var cap := MeshInstance3D.new()
-				cap.mesh = cap_mesh
-				cap.position = Vector3(sx, sy, sz) * HALF_EXTENT
-				cap.material_override = edge_res
-				caps.add_child(cap)
+	caps.mesh = corner_cap_mesh()
+	var cap_material := ShaderMaterial.new()
+	cap_material.shader = load("res://assets/shaders/die_corner_lamp.gdshader")
+	# Dieselbe Oberfläche wie der Rahmen - die Kappen sind sein Fortsatz, nur
+	# ihre Emission tanzt. Konstanten bleiben in DieFaceDisplay, eine Quelle.
+	cap_material.set_shader_parameter("surface_tex", DieMaterial.die_texture_for(""))
+	cap_material.set_shader_parameter("metallic_amount", DieFaceDisplay.EDGE_METALLIC)
+	cap_material.set_shader_parameter("roughness_amount", DieFaceDisplay.EDGE_ROUGHNESS)
+	caps.material_override = cap_material
+	caps.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	edges_root.add_child(caps)
 	faces.corner_caps = caps
+	faces.cap_material = cap_material
 
 	for axis: String in DiceController.AXIS_DIRECTIONS:
 		var direction: Vector3 = DiceController.AXIS_DIRECTIONS[axis]
