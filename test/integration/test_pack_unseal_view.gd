@@ -146,14 +146,47 @@ func test_the_rarity_rides_along_for_the_meteor_color() -> void:
 	view.finish_now()
 	assert_eq(seen[0], int(Engraving.Rarity.UNCOMMON), "die Farbe kommt aus der Meldung")
 
-func test_dice_pieces_report_without_an_engraving_id() -> void:
+func test_dice_pieces_report_as_dice_not_as_chips() -> void:
+	# Ein Würfel-Zeichen fliegt in keine Schublade: es steht schon am Platz seines
+	# Würfels und meldet, dass dort jetzt der echte Würfel entsteht.
 	var dice: Array[DieDefinition] = []
 	dice.append(DieDefinition.standard())
-	var ids: Array[String] = []
+	dice.append(DieDefinition.standard())
+	var chips: Array[String] = []
+	var revealed: Array[int] = []
 	_setup([] as Array[Engraving], dice)
-	view.chip_resolved.connect(func(id: String, _px: Vector2, _r: int) -> void: ids.append(id))
+	view.chip_resolved.connect(func(id: String, _px: Vector2, _r: int) -> void: chips.append(id))
+	view.die_revealed.connect(func(index: int) -> void: revealed.append(index))
 	view.finish_now()
-	assert_eq(ids, [""] as Array[String], "Würfel fliegen in keine Schublade")
+	assert_eq(chips, [] as Array[String], "kein Stück fliegt in eine Schublade")
+	assert_eq(revealed, [0, 1] as Array[int], "je Würfel eine Meldung, mit seinem Platz")
+
+func test_dice_signs_fly_to_the_places_of_their_dice() -> void:
+	# Das Zeichen IST der Würfel: es fliegt nicht in den Kreis, sondern gleich auf
+	# den Platz, an dem sein Würfel gleich schwebt - dort wird es zu ihm. Deshalb
+	# liegt auch nie ein Würfel auf einem anderen.
+	var dice: Array[DieDefinition] = []
+	dice.append(DieDefinition.standard())
+	dice.append(DieDefinition.standard())
+	var targets: Array[Vector2] = [Vector2(120, 400), Vector2(480, 400)]
+	view.die_target_source = func() -> Array[Vector2]: return targets
+	_setup([] as Array[Engraving], dice)
+	view._process(PackUnsealView.CRACK_TIME + 0.01)  # Bruch: die Zeichen fliegen los
+	await wait_seconds(PackUnsealView.EJECT_TRAVEL + 0.1)  # der Flug braucht seine Zeit
+	for i in targets.size():
+		var node: Control = view._pieces[i]["node"]
+		assert_almost_eq(node.position + node.size * 0.5, targets[i], Vector2.ONE * 1.0,
+			"Zeichen %d fliegt auf den Platz seines Würfels" % i)
+
+func test_without_places_the_signs_still_use_the_ring() -> void:
+	# Rückfall, solange das Fenster noch kein Maß hat - kein Stück landet auf (0,0).
+	var dice: Array[DieDefinition] = []
+	dice.append(DieDefinition.standard())
+	_setup([] as Array[Engraving], dice)
+	view._process(PackUnsealView.CRACK_TIME + 0.01)
+	await wait_seconds(PackUnsealView.EJECT_TRAVEL + 0.1)
+	var node: Control = view._pieces[0]["node"]
+	assert_ne(node.position + node.size * 0.5, Vector2.ZERO)
 
 func test_dice_get_the_same_presentation_round() -> void:
 	var dice: Array[DieDefinition] = []

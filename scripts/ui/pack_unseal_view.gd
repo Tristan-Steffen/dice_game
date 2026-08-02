@@ -15,6 +15,9 @@ extends Control
 ## Ein Stück verlässt seinen Platz im Kreis (Position in Fenster-Pixeln, von dort
 ## startet sein Meteor; Seltenheit für dessen Farbe).
 signal chip_resolved(engraving_id: String, from_px: Vector2, rarity: int)
+## Ein Würfel-Zeichen steht auf dem Platz, an dem der Würfel gleich schwebt, und
+## wird dort körperlich - die Werkstatt lässt ihn erscheinen.
+signal die_revealed(index: int)
 ## Die Zeremonie ist durch - die Werkstatt räumt bzw. geht zum Einsetzen über.
 signal finished
 
@@ -31,6 +34,9 @@ const STAGGER := 0.12
 const HITCH := 0.15
 ## Nachlauf nach dem letzten Stück - die Meteore fliegen danach allein weiter.
 const HOLD := 0.2
+## Aus dem Zeichen wird der Körper: so lange dauert das Aufplustern-und-Verlöschen
+## eines Würfel-Zeichens, während der echte Würfel an seiner Stelle erscheint.
+const TRANSFORM_TIME := 0.18
 
 enum State { CRACK, PRESENT, DEPART, DONE }
 
@@ -43,6 +49,14 @@ var _seal_home := Vector2.ZERO
 ## Der Inhalt: {"id": String, "rarity": int, "node": Control}. Das Zeichen steht
 ## erst ab dem Bruch auf dem Tisch (siehe _present).
 var _pieces: Array[Dictionary] = []
+## Würfel-Paket: die Zeichen fliegen NICHT in den Kreis, sondern gleich auf die
+## Plätze, an denen die echten Würfel schweben werden - dort werden sie zu ihnen.
+## So liegt kein Würfel je auf einem anderen.
+var _dice_mode := false
+## Woher die Plätze kommen (Fenster-Pixel, ein Punkt je Würfel). GEFRAGT statt
+## mitgegeben: beim Aufbau der Zeremonie ist das Fenster noch nicht ausgelegt,
+## seine Bühnen haben also noch kein Rechteck.
+var die_target_source: Callable
 ## Ausflug-Reihenfolge (aufsteigend nach Seltenheit).
 var _order: Array[int] = []
 ## Ausflug-Zeitpunkt je Eintrag in _order, ab Zeremonie-Start.
@@ -69,6 +83,7 @@ func setup(pack_type: String, engravings: Array[Engraving], dice: Array[DieDefin
 			_add_piece(face, engraving.id, int(engraving.rarity))
 	else:
 		# Würfel haben keine Seltenheit - ihre Veredelung ist sie (siehe _dice_rarity).
+		_dice_mode = true
 		var rarity := _dice_rarity(dice)
 		for die in dice:
 			_add_piece(PackIconRenderer.for_type(Pack.TYPE_DICE), "", rarity)
@@ -140,7 +155,7 @@ func _layout() -> void:
 			continue
 		node.size = Vector2.ONE * side
 		# Vor dem Bruch sitzt alles im Siegel; danach hält der Kreis die Plätze.
-		node.position = (_ring_point(i) if _state != State.CRACK else _seal_center()) - node.size * 0.5
+		node.position = (_piece_point(i) if _state != State.CRACK else _seal_center()) - node.size * 0.5
 
 ## Mitte des Siegels - dort brechen die Zeichen heraus.
 func _seal_center() -> Vector2:
@@ -158,6 +173,18 @@ func _ring_point(index: int) -> Vector2:
 	var count := maxi(_pieces.size(), 1)
 	var angle := TAU * float(index) / float(count) - TAU * 0.25
 	return size * 0.5 + Vector2(cos(angle), sin(angle)) * _ring_radius()
+
+## Der Platz, auf den ein Stück fliegt: bei Würfeln der Ort, an dem der echte
+## Würfel gleich schwebt, sonst sein Platz im Kreis. Der Kreis ist der Rückfall,
+## solange das Fenster noch kein Maß hat.
+func _piece_point(index: int) -> Vector2:
+	if not _dice_mode or not die_target_source.is_valid():
+		return _ring_point(index)
+	var targets: Array = die_target_source.call()
+	if index >= targets.size():
+		return _ring_point(index)
+	var target: Vector2 = targets[index] - global_position
+	return target if target != Vector2.ZERO else _ring_point(index)
 
 # --- Ablauf ---------------------------------------------------------------------
 
@@ -243,7 +270,7 @@ func _fly_out(index: int) -> void:
 	node.visible = true
 	var tween := node.create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(node, "position", _ring_point(index) - node.size * 0.5, EJECT_TRAVEL) \
+	tween.tween_property(node, "position", _piece_point(index) - node.size * 0.5, EJECT_TRAVEL) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	if node is EngravingRenderer:
 		var face: EngravingRenderer = node
@@ -251,19 +278,31 @@ func _fly_out(index: int) -> void:
 		face.set_process(face.rarity >= Engraving.Rarity.RARE)  # Seltenes atmet
 
 ## Ein Stück verlässt den Kreis: das Zeichen schnappt weg, und von seinem Platz
-## startet der Meteor.
+## startet der Meteor. Ein WÜRFEL-Zeichen fliegt nirgendwohin - es steht schon am
+## Platz seines Würfels und wird dort zu ihm: es pluster kurz auf und verlischt,
+## während der echte Würfel an derselben Stelle ins Feld kommt.
 func _depart(index: int) -> void:
 	if index < 0 or index >= _pieces.size():
 		return
 	var piece := _pieces[index]
 	var node: Control = piece["node"]
-	var from := _ring_point(index)
+	var from := _piece_point(index)
 	if is_instance_valid(node):
 		node.pivot_offset = node.size * 0.5
 		var tween := node.create_tween()
-		tween.tween_property(node, "scale", Vector2.ONE * 0.2, 0.1) \
-			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		tween.tween_callback(node.hide)
+		if _dice_mode:
+			tween.set_parallel(true)
+			tween.tween_property(node, "scale", Vector2.ONE * 1.35, TRANSFORM_TIME) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			tween.tween_property(node, "modulate:a", 0.0, TRANSFORM_TIME)
+			tween.chain().tween_callback(node.hide)
+		else:
+			tween.tween_property(node, "scale", Vector2.ONE * 0.2, 0.1) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+			tween.tween_callback(node.hide)
+	if _dice_mode:
+		die_revealed.emit(index)
+		return
 	chip_resolved.emit(String(piece["id"]), from, int(piece["rarity"]))
 
 ## Der Schein um das Siegel, kurz bevor es nachgibt.

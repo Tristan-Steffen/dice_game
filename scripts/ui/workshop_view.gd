@@ -13,6 +13,9 @@ signal die_placed(pool_index: int)
 ## Meteor in seine Schublade. from_px ist das Siegel auf dem Tisch, rarity färbt
 ## den Meteor.
 signal engraving_dispatched(engraving_id: String, from_px: Vector2, rarity: int)
+## Die Bühnen der Paket-Würfel haben sich geändert (Wahl, Einsetzen, Ende) -
+## scene_root stellt die ECHTEN Würfel darüber neu auf.
+signal die_stages_changed
 
 const TITLE_COLOR := Color("#8be9fd")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
@@ -28,6 +31,19 @@ const HOVER_CELL := 3.2
 const HOVER_TITLE := 2.2
 const HOVER_BODY := 1.7
 
+## Höhe der Bühne eines schwebenden Paket-Würfels (Breiteneinheiten u): Platz für
+## den Würfel UND seine Stasis-Station, die durch die Parallaxe ein Stück unter
+## ihm auf der Fläche steht. Die BREITE gibt das Netz darunter vor - Würfel und
+## Netz sind eine Spalte, und mit ihr rücken auch die drei Würfel auseinander.
+const STAGE_HEIGHT := 11.0
+const STAGE_GAP := 3.0
+## Zellgröße des Netzes unter jedem Paket-Würfel: dieselbe Kachel wie das Netz der
+## Gravur-Station - dort ist definiert, wie groß ein Würfel gezeigt wird, wenn
+## man ÜBER ihn entscheidet. (Die Hover-Karte ist kleiner: sie ist nur Auskunft.)
+const CHOICE_CELL := DieInspectorView.TRAY_TILE
+## Aufhellung des überfahrenen Netzes - es ist der Knopf, hat aber keinen Rahmen.
+const NET_HOVER := Color(1.3, 1.3, 1.3)
+
 var run: GameRun:
 	set(value):
 		if run == value:
@@ -35,6 +51,7 @@ var run: GameRun:
 		if run != null and run.packs_changed.is_connected(refresh):
 			run.packs_changed.disconnect(refresh)
 		_abort_unseal()  # noch VOR dem Wechsel: der Inhalt gehört dem alten Lauf
+		_drop_placement()  # ebenso ein Würfel, der noch einen Platz suchte
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
@@ -69,6 +86,9 @@ var _phase: Phase = Phase.STASH
 ## Inhalt des gerade geöffneten Pakets.
 var _revealed_engravings: Array[Engraving] = []
 var _revealed_dice: Array[DieDefinition] = []
+## Der GANZE Würfel-Inhalt des Pakets, auch das gerade Abgewählte: ohne ihn wäre
+## die Wahl unumkehrbar (siehe go_back).
+var _pack_dice: Array[DieDefinition] = []
 ## Sorte des offenen Pakets (die Zeremonie zeigt sein Siegel).
 var _open_pack_type := ""
 ## Die laufende Entsiegelung.
@@ -76,13 +96,20 @@ var _unseal: PackUnsealView
 ## Der Gravur-Inhalt ist verbucht. Bis dahin liegt er NUR hier - bricht die
 ## Zeremonie vorzeitig ab, muss er trotzdem in die Vorräte (siehe _stash_now).
 var _stashed := false
-## Gewählte Pool-Plätze in KLICK-Reihenfolge; höchstens so viele, wie das Paket
-## Würfel hat. Wer weniger wählt, lässt den Rest verfallen.
-var _selected_slots: Array[int] = []
-## "Einsetzen" - leuchtet erst mit der ersten Auswahl.
+## Der gewählte Pool-Platz (-1 = keiner). Aus einem Paket kommt IMMER genau ein
+## Würfel - die Mehrfach-Auswahl ist mit dem Wahlschritt entfallen.
+var _selected_slot := -1
+## "Einsetzen" - leuchtet erst mit der Auswahl.
 var _place_button: Button
-## Zähler links neben dem Würfel: wie viele noch einen Platz suchen.
-var _remaining_label: Label
+## Leere Bühnen, über denen die ECHTEN Paket-Würfel schweben (siehe
+## die_stage_centers); sie zeigen selbst nichts.
+var _die_stages: Array[Control] = []
+## Je Paket-Würfel: steht er schon körperlich auf der Bank? Erst wenn sein
+## Zeichen aus dem Siegel an seinem Platz angekommen ist - bis dahin verrät auch
+## sein Netz nichts (siehe PackUnsealView.die_revealed).
+var _materialized: Array[bool] = []
+## Die Netzkarten unter den Bühnen, gleiche Reihenfolge (Klickziel der Wahl).
+var _die_nets: Array[Button] = []
 ## Würfel-Raster der Pool-Auswahl (nur beim Einsetzen) samt seinem Wirt und der
 ## zuletzt daraus errechneten Maßeinheit.
 var _pool_grid: DiceGridView
@@ -174,9 +201,17 @@ func refresh_hover_net() -> void:
 		clear_hover_net()
 		show_hover_net(def)
 
+## Baut das Fenster neu und meldet danach, wo die Würfel-Bühnen jetzt liegen -
+## die ECHTEN Würfel darüber gehören scene_root, nicht diesem Fenster.
 func refresh() -> void:
+	_refresh_content()
+	die_stages_changed.emit()
+
+func _refresh_content() -> void:
 	if not is_inside_tree():
 		return
+	_die_stages.clear()  # sie hängen im alten Inhalt und fallen mit ihm weg
+	_die_nets.clear()
 	var u := maxf(size.x, 200.0) / 100.0
 	if _content != null and is_instance_valid(_content):
 		remove_child(_content)
@@ -188,6 +223,9 @@ func refresh() -> void:
 		return  # die Station füllt das Fenster allein
 	if _phase == Phase.UNSEAL:
 		return  # ebenso die Entsiegelung (sie hängt als eigenes Panel darüber)
+	# Ein Würfel-Paket legt seine Plätze schon WÄHREND der Entsiegelung aus: die
+	# Zeichen fliegen dorthin, wo ihre Würfel gleich stehen. Verraten wird dabei
+	# nichts - die Netze bleiben verdeckt, bis ihr Würfel körperlich wird.
 
 	_content = VBoxContainer.new()
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -200,8 +238,11 @@ func refresh() -> void:
 	add_child(_content)
 
 	# Beim Einsetzen gehört das Fenster dem Raster - der Titel bliebe nur Zierde,
-	# und die Kacheln wären Briefmarken.
-	if _phase != Phase.PLACE_DICE:
+	# und die Kacheln wären Briefmarken. Die Wahl ERSETZT den Werkstatt-Titel,
+	# statt sich eine zweite Zeile zu nehmen: das Fenster gehört den Würfeln.
+	if _phase == Phase.CHOOSE_DIE:
+		_content.add_child(_label("EINEN WÜRFEL WÄHLEN", u * 5.0, GOLD))
+	elif _phase != Phase.PLACE_DICE:
 		_content.add_child(_label("WERKSTATT", u * 5.0, TITLE_COLOR))
 
 	if _phase == Phase.CHOOSE_DIE:
@@ -319,10 +360,18 @@ func open_pack(index: int) -> void:
 	# Phase VOR dem Öffnen setzen: packs_changed baut sofort neu auf.
 	_phase = Phase.UNSEAL
 	_stashed = false
-	_selected_slots.clear()
+	_selected_slot = -1
 	var result := run.open_pack(index)
 	_revealed_engravings.assign(result["engravings"])
 	_revealed_dice.assign(result["dice"])
+	_pack_dice.assign(result["dice"])
+	# Die Würfel-Plätze stehen ab jetzt - die Zeichen brauchen ihr Ziel. Körperlich
+	# ist noch keiner: das entscheidet die Zeremonie, Zeichen für Zeichen.
+	_materialized.clear()
+	_materialized.resize(_revealed_dice.size())
+	_materialized.fill(false)
+	if not _revealed_dice.is_empty():
+		_phase = Phase.CHOOSE_DIE if _revealed_dice.size() > 1 else Phase.PLACE_DICE
 	pack_activated.emit(index)
 	refresh()
 	_begin_unseal()
@@ -335,7 +384,11 @@ func _begin_unseal() -> void:
 	add_child(_unseal)
 	_unseal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_unseal.chip_resolved.connect(_on_chip_resolved)
+	_unseal.die_revealed.connect(_on_die_revealed)
 	_unseal.finished.connect(_on_unseal_finished)
+	# Die Zeichen fragen selbst nach den Plätzen: beim Aufbau ist das Fenster
+	# noch nicht ausgelegt, seine Bühnen haben also noch kein Rechteck.
+	_unseal.die_target_source = die_stage_centers
 	_unseal.setup(_open_pack_type, _revealed_engravings, _revealed_dice, u)
 
 ## Ein Stück fliegt heraus: beim ERSTEN wandert der ganze Gravur-Inhalt in die
@@ -345,15 +398,27 @@ func _on_chip_resolved(engraving_id: String, from_px: Vector2, rarity: int) -> v
 	if engraving_id != "":
 		engraving_dispatched.emit(engraving_id, position + from_px, rarity)
 
-## Zeremonie durch: Gravuren sind verbucht und unterwegs, Würfel suchen Plätze.
+## Ein Würfel-Zeichen ist an seinem Platz zum Würfel geworden: sein Netz kommt
+## dazu, und die Meldung holt den ECHTEN Würfel auf die Bank (scene_root).
+func _on_die_revealed(index: int) -> void:
+	if index < 0 or index >= _materialized.size() or _materialized[index]:
+		return
+	_materialized[index] = true
+	var net := _net_face(index)
+	if net != null:
+		net.visible = true
+		_die_nets[index].disabled = _phase != Phase.CHOOSE_DIE
+		_pop_card(net)
+	die_stages_changed.emit()
+
+## Zeremonie durch: Gravuren sind verbucht und unterwegs, die Würfel stehen
+## bereits auf ihren Plätzen (siehe _on_die_revealed) - hier fällt nur noch das
+## Siegel-Panel weg.
 func _on_unseal_finished() -> void:
 	if _revealed_dice.is_empty():
 		finish_ceremony()
 		return
 	_clear_unseal()
-	# Mehrere Würfel: erst wählen, dann einsetzen. Ein einzelner geht direkt
-	# durch - da gibt es nichts zu entscheiden.
-	_phase = Phase.CHOOSE_DIE if _revealed_dice.size() > 1 else Phase.PLACE_DICE
 	refresh()
 
 ## Verbucht den Gravur-Inhalt genau einmal.
@@ -375,6 +440,20 @@ func _abort_unseal() -> void:
 	_open_pack_type = ""
 	_revealed_engravings.clear()
 	_revealed_dice.clear()
+	_pack_dice.clear()
+	_materialized.clear()
+
+## Ein Würfel, der noch einen Platz sucht, gehört dem LAUFENDEN Spiel: beim
+## Laufwechsel verfällt er. (Die Gravur-Station unterbricht das Einsetzen dagegen
+## nur - danach steht der Würfel wieder da.)
+func _drop_placement() -> void:
+	if _phase != Phase.PLACE_DICE:
+		return
+	_phase = Phase.STASH
+	_revealed_dice.clear()
+	_pack_dice.clear()
+	_materialized.clear()
+	_selected_slot = -1
 
 func _clear_unseal() -> void:
 	if _unseal != null and is_instance_valid(_unseal):
@@ -392,7 +471,9 @@ func finish_ceremony() -> void:
 	_open_pack_type = ""
 	_revealed_engravings.clear()
 	_revealed_dice.clear()
-	_selected_slots.clear()
+	_pack_dice.clear()
+	_materialized.clear()
+	_selected_slot = -1
 	refresh()
 
 ## Übernimmt Reihenfolge und Form des echten Pool-Trays (setzt scene_root beim
@@ -400,7 +481,7 @@ func finish_ceremony() -> void:
 func set_pool_order(defs: Array[DieDefinition], columns: int) -> void:
 	_pool_order = defs
 	_pool_columns = maxi(columns, 1)
-	_selected_slots.clear()
+	_selected_slot = -1
 	if _phase == Phase.PLACE_DICE:
 		refresh()
 
@@ -434,105 +515,196 @@ func _on_pool_slots_reordered(from_grid: int, to_grid: int) -> void:
 	clear_hover_net()  # die Karte soll dem Ziehen nicht in die Quere kommen
 	run.reorder_pool(from_pool, to_pool)
 
-## Klick auf eine Kachel: wählt sie aus bzw. wieder ab. Mehr Plätze als Würfel
-## im Paket nimmt die Auswahl nicht an.
+## Klick auf eine Kachel: wählt sie aus, ein zweiter Klick wieder ab. Es geht um
+## GENAU EINEN Platz - der Wahlschritt lässt nur einen Würfel übrig.
 func toggle_slot(grid_index: int) -> void:
 	if _phase != Phase.PLACE_DICE:
 		return
-	if _selected_slots.has(grid_index):
-		_selected_slots.erase(grid_index)
-	elif _selected_slots.size() >= _revealed_dice.size():
-		return  # voll - erst einen Platz abwählen
+	if _selected_slot == grid_index:
+		_selected_slot = -1
 	elif _pool_index_of(grid_index) >= 0:
-		_selected_slots.append(grid_index)
+		_selected_slot = grid_index
 	else:
 		return  # leerer Platz oder Leihwürfel - nichts zu ersetzen
 	_sync_selection()
 
-## Setzt je gewählter Kachel einen Paket-Würfel ein (Klick-Reihenfolge). Übrige
-## Würfel verfallen - wer weniger Plätze wählt, verzichtet bewusst.
+## Setzt den Paket-Würfel auf den gewählten Platz.
 func confirm_placement() -> void:
-	if run == null or _selected_slots.is_empty():
+	if run == null or _selected_slot < 0 or _revealed_dice.is_empty():
 		return
-	for i in _selected_slots.size():
-		var pool_index := _pool_index_of(_selected_slots[i])
-		if pool_index < 0:
-			continue
-		run.place_pack_die(_revealed_dice[i], pool_index)
-		die_placed.emit(pool_index)
+	var pool_index := _pool_index_of(_selected_slot)
+	if pool_index < 0:
+		return
+	run.place_pack_die(_revealed_dice[0], pool_index)
+	die_placed.emit(pool_index)
 	finish_ceremony()
 
 ## Verwirft den ganzen Würfel-Inhalt ersatzlos.
 func discard_dice() -> void:
 	finish_ceremony()
 
-## Spiegelt die Auswahl in Raster, Zähler und Knopf - ohne Neuaufbau.
+## Spiegelt die Auswahl in Raster und Knopf - ohne Neuaufbau.
 func _sync_selection() -> void:
 	if _pool_grid != null and is_instance_valid(_pool_grid):
-		_pool_grid.set_highlights(_selected_slots)
-	if _remaining_label != null and is_instance_valid(_remaining_label):
-		_remaining_label.text = str(_revealed_dice.size() - _selected_slots.size())
+		_pool_grid.set_highlights(_highlighted_slots())
 	if _place_button != null and is_instance_valid(_place_button):
-		_place_button.disabled = _selected_slots.is_empty()
-		_style_button(_place_button, GOLD if not _selected_slots.is_empty() else MUTED_COLOR)
+		_place_button.disabled = _selected_slot < 0
+		_style_button(_place_button, GOLD if _selected_slot >= 0 else MUTED_COLOR)
+
+## Der gewählte Platz als Liste - das Raster nimmt nur getypte Arrays.
+func _highlighted_slots() -> Array[int]:
+	var chosen: Array[int] = []
+	if _selected_slot >= 0:
+		chosen.append(_selected_slot)
+	return chosen
 
 # --- Zeremonie-Ansichten -------------------------------------------------------
 
-## EINE Seite für den ganzen Würfel-Inhalt: links der Paket-Würfel mit dem Zähler
-## der noch unplatzierten Stücke, rechts das Pool-Raster (dasselbe wie im Würfel-
-## Editor - alle Seiten sichtbar, in der Form des Trays). Anklicken wählt die zu
-## ersetzenden Plätze; "Einsetzen" leuchtet ab dem ersten.
-## Auswahl-Schritt der Mehrfach-Pakete: alle Würfel offen nebeneinander, einer
-## darf mit. Dieselbe Sprache wie die Gravur-Pakete (aufgedeckt, einer gewinnt).
+## Auswahl-Schritt der Mehrfach-Pakete: die Würfel LIEGEN auf der Bank - je einer
+## über einer leeren Bühne, im Stasis-Feld wie ein Tray-Würfel. Das Fenster sagt
+## nur, worum es geht; alles über einen Würfel zeigt seine Netz-Karte beim
+## Überfahren, und wer ihn wirklich mustern will, holt ihn heran (scene_root).
 func _build_die_choice(u: float) -> void:
-	_content.add_child(_label("EINEN WÜRFEL WÄHLEN", u * 3.4, GOLD))
-	_content.add_child(_label("Der Rest bleibt im Paket zurück.", u * 2.2, MUTED_COLOR))
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", int(u * 2.0))
+	row.add_theme_constant_override("separation", int(u * STAGE_GAP))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(row)
 	for i in _revealed_dice.size():
-		row.add_child(_die_choice_card(_revealed_dice[i], i, u))
+		row.add_child(_die_column(i, u, true))
 
-## Eine Wahlkarte: der Würfel als Netz, darunter seine Seele - alles offen, die
-## Entscheidung soll informiert fallen.
-func _die_choice_card(def: DieDefinition, index: int, u: float) -> Button:
-	var card := Button.new()
-	card.focus_mode = Control.FOCUS_NONE
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.custom_minimum_size = Vector2(u * 24.0, u * 30.0)
-	card.pressed.connect(_choose_die.bind(index))
+## Eine Würfel-Spalte: oben die leere Bühne, über der der ECHTE Würfel schwebt,
+## darunter sein Netz. Das NETZ ist der Knopf - der Würfel selbst wird nur
+## angesehen (Klick auf ihn holt ihn heran, siehe scene_root).
+func _die_column(index: int, u: float, choosable: bool) -> Control:
 	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.name = "DieColumn"
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", int(u * 0.8))
+	column.add_theme_constant_override("separation", int(u * 0.6))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(column)
 
-	var stage := CenterContainer.new()
+	var stage := Control.new()
+	stage.name = "DieStage"
+	# Die Bühne ist so breit wie das Netz - Würfel und Netz sind EINE Spalte.
+	stage.custom_minimum_size = Vector2(
+		DieNetView.net_size(u * CHOICE_CELL).x, u * STAGE_HEIGHT)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(DieNetView.build(def, -1, u * 3.4))
+	_die_stages.append(stage)
 	column.add_child(stage)
-	column.add_child(_label("Augensumme %d" % DiceRowView.eye_total(def), u * 2.2, MUTED_COLOR))
-	if Essence.is_valid_id(def.essence_id):
-		var essence := Essence.by_id(def.essence_id)
-		column.add_child(_label(essence.display_name, u * 2.4, essence.glow))
-		column.add_child(_label(essence.short, u * 1.9, MUTED_COLOR))
-	else:
-		column.add_child(_label("ohne Essenz", u * 1.9, MUTED_COLOR))
-	return card
+	column.add_child(_die_net(index, u, choosable))
+	return column
+
+## Das Netz eines Paket-Würfels. Sein Platz steht von Anfang an - nur das Netz
+## selbst bleibt verdeckt, bis sein Würfel körperlich wird: sonst stünde der
+## Inhalt schon da, während das Siegel noch zittert, UND die Bühne darüber
+## verrutschte in dem Moment, in dem sein Zeichen darauf zufliegt.
+## Beim Wählen ist das Netz das Klickziel; beim Einsetzen nur noch Auskunft.
+func _die_net(index: int, u: float, choosable: bool) -> Button:
+	var button := Button.new()
+	button.name = "DieNet"
+	button.focus_mode = Control.FOCUS_NONE
+	button.flat = true
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	var net := DieNetView.build(_revealed_dice[index], -1, u * CHOICE_CELL)
+	button.custom_minimum_size = net.custom_minimum_size
+	net.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	net.visible = die_materialized(index)
+	button.add_child(net)
+	button.disabled = not choosable or not die_materialized(index)
+	if choosable:
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.pressed.connect(choose_die.bind(index))
+		# Kein Rahmen zum Hervorheben - also hebt sich der Inhalt selbst.
+		button.mouse_entered.connect(func() -> void: net.modulate = NET_HOVER)
+		button.mouse_exited.connect(func() -> void: net.modulate = Color.WHITE)
+	_die_nets.append(button)
+	return button
+
+## Erklärzeile zur Netz-Zelle unter einem Display-Pixel ("" = keine). GEFRAGT
+## statt gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als
+## gui_input durch, und wer genau dort stehen bleibt, bekäme nie einen Text.
+## scene_root fragt darum je Bild - dieselbe Lösung wie am Netzfeld der Grube.
+## Die Führungszeile des laufenden Schritts. Sie steht NICHT im Fenster: das
+## gehört dem Würfel und dem Raster (wie an der Gravur-Station), gesprochen wird
+## in der Info-Leiste unter der Bank. Eine Zeile im Fenster hätte hier keinen
+## Umbruch und risse die Würfel-Spalte über das halbe Fenster.
+func prompt() -> String:
+	if _phase != Phase.PLACE_DICE:
+		return ""
+	var line := "Platz im Vorrat wählen – der Würfel dort weicht."
+	if _pack_dice.size() > 1:
+		line += "  ·  Rechtsklick: zurück zur Wahl."
+	return line
+
+func net_hint_at(pixel: Vector2) -> String:
+	var u := maxf(size.x, 200.0) / 100.0
+	for i in _die_nets.size():
+		var button := _die_nets[i]
+		if not is_instance_valid(button) or not die_materialized(i) or i >= _revealed_dice.size():
+			continue
+		var rect := button.get_global_rect()
+		if not rect.has_point(pixel):
+			continue
+		return DieNetView.hint_for(_revealed_dice[i],
+			DieNetView.face_at(pixel - rect.position, u * CHOICE_CELL))
+	return ""
+
+## Das Netz unter einem gerade körperlich gewordenen Würfel (null = keins).
+func _net_face(index: int) -> Control:
+	if index < 0 or index >= _die_nets.size() or not is_instance_valid(_die_nets[index]):
+		return null
+	return _die_nets[index].get_child(0) as Control
+
+## Mitten der Würfel-Bühnen in Display-Pixeln - dort landen die echten Würfel.
+func die_stage_centers() -> Array[Vector2]:
+	var centers: Array[Vector2] = []
+	for stage in _die_stages:
+		if is_instance_valid(stage):
+			centers.append(stage.get_global_rect().get_center())
+	return centers
+
+## Der aufgedeckte Paket-Inhalt (scene_root baut daraus die schwebenden Würfel).
+func revealed_dice() -> Array[DieDefinition]:
+	return _revealed_dice
+
+## Steht dieser Paket-Würfel schon körperlich auf der Bank? Vor dem Bruch keiner:
+## erst wenn sein Zeichen an seinem Platz angekommen ist, wird er zum Ding.
+func die_materialized(index: int) -> bool:
+	return index >= 0 and index < _materialized.size() and _materialized[index]
 
 ## Der gewählte Würfel bleibt, der Rest fällt weg - danach der normale Platz-Schritt.
-func _choose_die(index: int) -> void:
+func choose_die(index: int) -> void:
 	if _phase != Phase.CHOOSE_DIE or index < 0 or index >= _revealed_dice.size():
 		return
+	if index >= _materialized.size() or not _materialized[index]:
+		return  # er steht noch gar nicht auf der Bank
 	var kept := _revealed_dice[index]
 	_revealed_dice.clear()
 	_revealed_dice.append(kept)
-	_selected_slots.clear()
+	_materialized.clear()
+	_materialized.append(true)  # der gewählte steht schon - er wandert nur
+	_selected_slot = -1
 	_phase = Phase.PLACE_DICE
 	refresh()
+
+## Einen Schritt zurück im Ablauf (Rechtsklick, siehe scene_root): vom Einsetzen
+## zurück zur Wahl. Die Abgewählten sind nicht verfallen, sie standen nur nicht
+## mehr auf der Bank - sie kommen zurück, und der Gewählte wandert zu ihnen.
+## false = hier gibt es nichts zurückzugehen (Ein-Würfel-Paket, Lager, Zeremonie).
+func go_back() -> bool:
+	if _phase != Phase.PLACE_DICE or _pack_dice.size() < 2:
+		return false
+	_revealed_dice.assign(_pack_dice)
+	_materialized.clear()
+	_materialized.resize(_revealed_dice.size())
+	_materialized.fill(true)  # sie standen alle schon einmal da
+	_selected_slot = -1
+	_phase = Phase.CHOOSE_DIE
+	refresh()
+	return true
 
 func _build_dice_placement(u: float) -> void:
 	if _revealed_dice.is_empty():
@@ -547,7 +719,8 @@ func _build_dice_placement(u: float) -> void:
 	body.add_child(_placement_grid(u))
 	_sync_selection()
 
-## Linke Spalte: der Würfel, die offene Anzahl, Einsetzen und Verwerfen.
+## Linke Spalte: die Bühne des schwebenden Würfels, darunter Einsetzen und
+## Verwerfen. Auch hier ist der ECHTE Würfel die Anzeige - keine Miniatur.
 func _placement_side(u: float) -> Control:
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -555,21 +728,7 @@ func _placement_side(u: float) -> Control:
 	column.add_theme_constant_override("separation", int(u * 1.0))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var stage := CenterContainer.new()
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(DiceRowView.build_row(_revealed_dice[0], int(u * 8.0)))
-	column.add_child(stage)
-
-	# Der Zähler zählt RUNTER: er sagt, wie viele noch einen Platz brauchen.
-	var counter := HBoxContainer.new()
-	counter.alignment = BoxContainer.ALIGNMENT_CENTER
-	counter.add_theme_constant_override("separation", int(u * 0.8))
-	counter.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_remaining_label = _label(str(_revealed_dice.size()), u * 5.0, GOLD)
-	counter.add_child(_remaining_label)
-	counter.add_child(_label("noch einzusetzen", u * 2.2, MUTED_COLOR))
-	column.add_child(counter)
+	column.add_child(_die_column(0, u, false))
 
 	_place_button = _action_button("Einsetzen", GOLD, u, confirm_placement)
 	_place_button.custom_minimum_size = Vector2(u * 20.0, u * 5.0)
@@ -618,7 +777,7 @@ func _fit_pool_grid() -> void:
 	_pool_unit = unit
 	_pool_grid.place(_pool_columns, unit, true)
 	_pool_grid.fill(pool)
-	_pool_grid.set_highlights(_selected_slots)  # der Neuaufbau darf die Auswahl nicht schlucken
+	_pool_grid.set_highlights(_highlighted_slots())  # der Neuaufbau darf sie nicht schlucken
 	_center_pool_grid.call_deferred()
 
 func _center_pool_grid() -> void:

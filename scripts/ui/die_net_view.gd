@@ -90,6 +90,27 @@ static func face_at(local: Vector2, cell: float) -> int:
 		return EDGE
 	return NET_LAYOUT[row][col]
 
+## Kurz-Erklärzeile zu einer Netz-Zelle: Materialname + Kurzwirkung (face_hint),
+## dazu die Leiterbahn und die Risse dieser Seite; der Kanten-Chip (EDGE) erklärt
+## die Seele des Würfels. "" für eine nackte Seite oder außerhalb des Kreuzes.
+## EINE Quelle für alle Netze - Grube wie Werkbank.
+static func hint_for(def: DieDefinition, face: int) -> String:
+	if def == null:
+		return ""
+	if face == EDGE:
+		return Essence.hint(def.essence_id)
+	if face < 0 or face >= def.materials.size():
+		return ""
+	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
+	var target: int = def.pointers[face] if face < def.pointers.size() else -1
+	if target >= 0:
+		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d einmal mit aus" % def.faces[target]
+		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
+	for rift_id in def.rifts_on(face):
+		var rift_hint := Rift.hint(rift_id)
+		hint = "%s  ·  %s" % [hint, rift_hint] if hint != "" else rift_hint
+	return hint
+
 ## Seiten-Zelle im Look der Würfelseiten-Chips (DiceRowView).
 static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
 	var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
