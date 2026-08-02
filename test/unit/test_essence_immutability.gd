@@ -115,6 +115,17 @@ func test_the_test_mode_helpers_never_rewrite_a_soul():
 	run.clear_all_pointers()
 	assert_eq(_souls_of(run), before, "auch der Testmodus lässt die Seelen stehen")
 
+func test_only_the_named_test_helpers_may_deal_souls():
+	# Die EINZIGE Ausnahme der Regel, und sie steht im Namen: ein Debug-Werkzeug
+	# darf umschreiben, damit alle Raritätsstufen auf einmal zu sehen sind.
+	var run := _souled_run()
+	var before := _souls_of(run)
+	run.randomize_all_essences()
+	assert_ne(_souls_of(run), before, "der Testmodus teilt neu aus")
+	run.clear_all_essences()
+	for die in run.owned_pool:
+		assert_eq(die.essence_id, "", "und nimmt sie wieder weg")
+
 func test_the_radon_decay_never_rewrites_a_soul():
 	var run := _souled_run()
 	run.owned_pool[0].essence_id = Essence.RADON

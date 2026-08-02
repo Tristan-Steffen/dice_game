@@ -5494,13 +5494,14 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 func _on_reset_button_pressed() -> void:
 	_reset_game()
 
-## Testmodus umschalten: An = zufällige Materialien auf allen Würfeln +
-## unbegrenzte Gravuren (KEINE Charms); Aus = Materialien entfernen. Beides
-## startet die Runde neu, damit die Änderung sofort sichtbar ist.
+## Testmodus umschalten: An = zufällige Materialien UND Seelen auf allen
+## Würfeln + unbegrenzte Gravuren (KEINE Charms); Aus = beides entfernen.
+## Beides startet die Runde neu, damit die Änderung sofort sichtbar ist.
 func _on_test_materials_pressed() -> void:
 	test_materials_enabled = not test_materials_enabled
 	if not test_materials_enabled:
 		run.clear_all_materials()
+		run.clear_all_essences()
 	_refresh_test_materials_button()
 	_start_new_round()
 
@@ -5788,6 +5789,7 @@ func _start_new_round() -> void:
 	run.unlimited_engravings = test_materials_enabled or test_engravings_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
+		run.randomize_all_essences()
 	if test_pointers_enabled:
 		run.randomize_all_pointers()
 

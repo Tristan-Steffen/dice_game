@@ -1882,4 +1882,30 @@ func clear_all_pointers() -> void:
 		die.pointers = [-1, -1, -1, -1, -1, -1] as Array[int]
 	pool_changed.emit()
 
+## Verteilt Seelen über den ganzen Pool. Der EINZIGE Weg im Spiel, der eine
+## bestehende Essenz überschreibt - angeboren heißt sonst angeboren (siehe
+## test_essence_immutability). Ausgeteilt statt gewürfelt: der gemischte Katalog
+## wird reihum vergeben, damit alle Raritätsstufen nebeneinander liegen; 30
+## Zufallszüge zeigten womöglich keine einzige legendäre Animationsstufe.
+func randomize_all_essences() -> void:
+	var deck: Array[Essence] = Essence.all()
+	deck.shuffle()
+	var repeatable: Array[Essence] = []
+	for essence in deck:
+		if not essence.unique:
+			repeatable.append(essence)
+	for i in owned_pool.size():
+		# Mehr Würfel als Seelen: Unikate bleiben Unikate, der Rest wiederholt.
+		var essence: Essence = deck[i] if i < deck.size() else repeatable.pick_random()
+		owned_pool[i].essence_id = essence.id
+	pool_changed.emit()
+
+## Nimmt jedem Pool-Würfel die Seele - und mit dem Vakuum den zweiten Bruch,
+## den allein seine Schale trägt (rift_slots).
+func clear_all_essences() -> void:
+	for die in owned_pool:
+		die.essence_id = ""
+		die.second_rifts = ["", "", "", "", "", ""] as Array[String]
+	pool_changed.emit()
+
 

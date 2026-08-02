@@ -599,6 +599,51 @@ func test_clear_all_pointers_removes_every_link():
 		for target: int in die.pointers:
 			assert_eq(target, -1, "Leiterbahn entfernt")
 
+# --- Testhilfen: Zufalls-Seelen (Testmodus) -------------------------------------
+
+func test_randomize_all_essences_gives_every_die_a_real_soul():
+	run.randomize_all_essences()
+	for die in run.owned_pool:
+		assert_not_null(Essence.by_id(die.essence_id), "echte Seele: %s" % die.essence_id)
+
+func test_randomize_all_essences_deals_instead_of_drawing():
+	# Ausgeteilt, nicht gewürfelt: 30 Würfel aus 33 Seelen heißt 30 verschiedene -
+	# nur so liegen alle Raritätsstufen zum Vergleich nebeneinander.
+	run.randomize_all_essences()
+	var seen := {}
+	for die in run.owned_pool:
+		seen[die.essence_id] = true
+	assert_eq(seen.size(), run.owned_pool.size(), "keine Seele doppelt")
+
+func test_randomize_all_essences_covers_every_rarity():
+	run.randomize_all_essences()
+	var rarities := {}
+	for die in run.owned_pool:
+		rarities[Essence.by_id(die.essence_id).rarity] = true
+	for rarity in [Essence.Rarity.COMMON, Essence.Rarity.RARE, Essence.Rarity.EPIC,
+			Essence.Rarity.LEGENDARY]:
+		assert_true(rarities.has(rarity), "%s liegt im Pool" % Essence.rarity_name(rarity))
+
+func test_randomize_all_essences_keeps_uniques_unique():
+	run.randomize_all_essences()
+	var counts := {}
+	for die in run.owned_pool:
+		counts[die.essence_id] = int(counts.get(die.essence_id, 0)) + 1
+	for id: String in counts:
+		if Essence.by_id(id).unique:
+			assert_eq(counts[id], 1, "%s bleibt Unikat" % id)
+
+func test_clear_all_essences_also_takes_the_second_break():
+	# Ohne Vakuum trägt die Schale keinen zweiten Bruch mehr.
+	run.randomize_all_essences()
+	run.owned_pool[0].essence_id = Essence.VACUUM
+	run.owned_pool[0].set_rift(0, Rift.AFTERGLOW, 1)
+	run.clear_all_essences()
+	for die in run.owned_pool:
+		assert_eq(die.essence_id, "", "Seele entfernt")
+		for rift_id: String in die.second_rifts:
+			assert_eq(rift_id, "", "zweiter Bruch entfernt")
+
 # --- Nebenwetten --------------------------------------------------------------
 
 func test_place_side_bet_deducts_stake_and_stores():
