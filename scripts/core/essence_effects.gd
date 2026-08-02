@@ -4,9 +4,10 @@ class_name EssenceEffects
 ## Würfel und wirkt, sobald er wertet; sie ist Charakter, nie Seiten-Payload
 ## (das ist Material-Land): Auslösung, Reihenfolge, Physik, Ökonomie.
 ##
-## AKTIVIERUNGS-MATHE (Invariante): die Essenz ist die EINZIGE multiplikative
-## Quelle je Würfel. Alles andere - Retrigger-Charms, Echo-Kammer, Sauerstoff,
-## Sonnenwind - addiert. Damit kann kein Faktor × Faktor mehr explodieren.
+## AUSLÖSE-MATHE (Invariante): genau ZWEI Achsen, die sich multiplizieren -
+## Würfel-Trigger (Essenz-Faktor, Echo-Kammer, Sauerstoff/Sonnenwind) × Seiten-
+## Trigger (Nachglühen, Hasenpfote & Co.). INNERHALB einer Achse addiert alles.
+## Mehr Achsen gibt es nicht, darum kann nichts explodieren.
 
 ## Radon strahlt auf jeden anderen Würfel der Kombination.
 const RADON_EYE_BONUS := 2
@@ -34,9 +35,9 @@ const XENON_CRIT := 1.5
 const BALL_CRIT := 2.0
 const STORM_FACTOR := 4
 
-## Multiplikative Auslösungen des Würfels - die EINZIGE Stelle, an der ein
-## Faktor entsteht. Quecksilberdampf (Charm) legt +1 auf jeden Faktor, der
-## überhaupt einer ist: das verbannte Material lebt als Verstärker weiter.
+## Faktor der WÜRFEL-Achse - die einzige Stelle, an der auf ihr ein Faktor
+## entsteht. Quecksilberdampf (Charm) legt +1 auf jeden Faktor, der überhaupt
+## einer ist: das verbannte Material lebt als Verstärker weiter.
 static func activation_factor(essence_id: String, charm_ids: Array[String] = [], is_stress: bool = false) -> int:
 	var factor := 1
 	match essence_id:
@@ -50,7 +51,7 @@ static func activation_factor(essence_id: String, charm_ids: Array[String] = [],
 		factor += 1
 	return factor
 
-## ADDITIVE Auslösungen aus der Zählreihenfolge: Sauerstoff facht den NÄCHSTEN
+## ADDITIVE Würfel-Trigger aus der Zählreihenfolge: Sauerstoff facht den NÄCHSTEN
 ## an, Sonnenwind reitet auf jedem Essenz-Würfel, der vor ihm gezählt wurde.
 ## order ist die kanonische Reihe (DiceScoring.trigger_order), nie eine physische.
 static func extra_activations(slot: int, order: Array[int], sets: Dictionary) -> int:
@@ -183,23 +184,22 @@ static func boosted_level(level: int, essence_ids: Array[String]) -> int:
 static func ignores_dice_filters(essence_id: String) -> bool:
 	return essence_id == Essence.KRYPTON
 
-## Plasma: der Lichtbogen hängt zwei Glieder an die Leiterbahn-Kette und lässt
-## sie dabei im Kreis springen.
-const PLASMA_EXTRA_LINKS := 2
+## Plasma: der Lichtbogen hält die Leiterbahn - sie zündet mit 75 % statt 50 %.
+const PLASMA_POINTER_CHANCE := 0.75
 
-static func extra_pointer_links(essence_id: String) -> int:
-	return PLASMA_EXTRA_LINKS if essence_id == Essence.PLASMA else 0
+## Zünd-Chance der Leiterbahn an diesem Würfel; base = DiceScoring.POINTER_CHANCE
+## (die Grundchance wohnt dort, damit die Essenz nicht zurückgreifen muss).
+static func pointer_chance(essence_id: String, base: float) -> float:
+	return maxf(base, PLASMA_POINTER_CHANCE) if essence_id == Essence.PLASMA else base
 
-## Alle Seiten, die an diesem Würfel als Glied feuern - die EINZIGE Quelle, damit
-## Wertung, Nehmen-Effekte und Vorschau dieselbe Kette sehen. Reihenfolge: erst
-## die echte Leiterbahn, dann der Korona-Ring (aufsteigend), zuletzt die
-## Röntgen-Gegenseite. Jede Seite höchstens einmal; Plasma verlängert NUR die
-## echte Kette.
-static func link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String]) -> Array[int]:
+## Die Seiten, die als ESSENZ-Glied feuern - deterministisch und einmal nach
+## allen Würfel-Triggern (die gewürfelte Leiterbahn läuft getrennt davon).
+## Reihenfolge: erst der Korona-Ring (aufsteigend), dann die Röntgen-Gegenseite;
+## jede Seite höchstens einmal.
+static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String]) -> Array[int]:
 	var faces: Array[int] = []
 	if die == null or up_face < 0 or up_face >= 6:
 		return faces
-	faces.assign(die.pointer_chain(up_face, extra_pointer_links_of(essence_ids)))
 	if essence_ids.has(Essence.CORONA):
 		for face in DieDefinition.adjacent_faces(up_face):
 			if not faces.has(face):
@@ -310,8 +310,8 @@ static func set_at(sets: Dictionary, slot: int) -> Array[String]:
 	out.assign(value)
 	return out
 
-## Der EINZIGE Faktor eines Würfels: bei geborgten Seelen das MAXIMUM, nie das
-## Produkt - die Ein-Faktor-Invariante ist der ganze Grund, warum Quecksilber
+## Der EINZIGE Faktor der Würfel-Achse: bei geborgten Seelen das MAXIMUM, nie
+## das Produkt - genau ein Faktor je Achse ist der ganze Grund, warum Quecksilber
 ## als Seiten-Material gehen musste.
 static func activation_factor_of(essence_ids: Array[String], charm_ids: Array[String] = [], is_stress: bool = false) -> int:
 	var best := 1
@@ -383,10 +383,11 @@ static func ignores_dice_filters_of(essence_ids: Array[String]) -> bool:
 			return true
 	return false
 
-static func extra_pointer_links_of(essence_ids: Array[String]) -> int:
-	var best := 0
+## Zünd-Chance ALLER wirksamen Seelen - die beste, nie das Produkt.
+static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
+	var best := base
 	for essence_id in essence_ids:
-		best = maxi(best, extra_pointer_links(essence_id))
+		best = maxf(best, pointer_chance(essence_id, base))
 	return best
 
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es

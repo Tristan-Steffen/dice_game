@@ -120,11 +120,15 @@ func test_afterglow_adds_one_activation():
 	assert_eq(RiftEffects.extra_activations(_ids([Rift.AFTERGLOW, Rift.AFTERGLOW])), 2,
 		"der Vakuum-Doppelriss glüht zweimal nach")
 
-func test_afterglow_stays_additive_next_to_the_essence_factor():
-	# Argon (×2) + Nachglühen (+1) = 3, nie 4 - die Essenz bleibt der einzige Faktor.
-	var count := MaterialEffects.activation_count(0, NO_CHARMS, 5, -1, _ids([Essence.ARGON]), false,
+func test_afterglow_sits_on_the_face_axis():
+	# Das Nachglühen addiert auf der SEITEN-Achse, Argon multipliziert die WÜRFEL-
+	# Achse: 2 × 2 = 4 Zündungen. Innerhalb einer Achse bleibt alles additiv.
+	var face := MaterialEffects.face_trigger_count(5, NO_CHARMS,
 		RiftEffects.extra_activations(_ids([Rift.AFTERGLOW])))
-	assert_eq(count, 3)
+	assert_eq(face, 2)
+	assert_eq(MaterialEffects.die_trigger_count(0, NO_CHARMS, -1, _ids([Essence.ARGON])), 2)
+	assert_eq(MaterialEffects.total_trigger_count(0, NO_CHARMS, 5, -1, _ids([Essence.ARGON]), false, 0,
+		RiftEffects.extra_activations(_ids([Rift.AFTERGLOW]))), 4)
 
 func test_afterglow_flows_through_the_score():
 	# Paar Fünfer: Slot 0 zählt seine Augen zweimal.
@@ -133,6 +137,14 @@ func test_afterglow_flows_through_the_score():
 		NO_CHARMS, false, NO_MATS, {}, _rift_ctx(0, [Rift.AFTERGLOW]))
 	assert_eq(plain, 40)
 	assert_eq(glowing, (10 + 5 + 5 + 5) * 2)
+
+func test_the_two_axes_multiply_in_the_score():
+	# Quecksilberdampf (×3 Antritte) × Nachglühen (2 Zündungen je Antritt) = 6.
+	var ctx := _rift_ctx(0, [Rift.AFTERGLOW])
+	ctx[DiceScoring.CTX_ESSENCES] = {0: Essence.MERCURY_VAPOR}
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
+		NO_CHARMS, false, NO_MATS, {}, ctx)
+	assert_eq(score, (10 + 5 * 6 + 5) * 2, "Slot 0 zählt sechsmal")
 
 func test_the_farkle_comparison_sees_the_old_rifts():
 	# Das Nachglühen ändert Auslösungen - der Vergleich muss die alten Risse
@@ -150,7 +162,7 @@ func test_links_never_fire_a_rift():
 	# andere Seite und lässt ihn kalt.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var ctx := _rift_ctx(0, [Rift.AFTERGLOW])
-	ctx[DiceScoring.CTX_POINTER_LINKS] = {0: [{"face": 2, "value": 4, "material": "", "level": 1}]}
+	ctx[DiceScoring.CTX_POINTER_FIRES] = {0: [[{"face": 2, "value": 4, "material": "", "level": 1}]]}
 	# Basis: Paar (10) + 5 + 5 (Nachglühen zählt Slot 0 zweimal) + 5 + Glied 4.
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, NO_MATS, {}, ctx),
 		(10 + 5 + 5 + 5 + 4) * 2, "das Glied feuert einmal, ohne Nachglühen")

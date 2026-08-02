@@ -430,10 +430,13 @@ var pre_reroll_rifts: Dictionary = {}  # Risse der oberen Seiten VOR dem Neu-Wü
 ## keine offene Wahl), und die vier Seiten in Knopf-Reihenfolge.
 var _tip_choice_slot: int = -1
 var _tip_choice_faces: Array[int] = []
-var pre_reroll_links: Dictionary = {}  # Leiterbahn-Glieder VOR dem Neu-Würfeln
+var pre_reroll_essence_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
+## Der einzige Zufall der Wertung: die Leiterbahn. Ein eigener Generator, damit
+## der Wurf je Zug genau EINMAL fällt und danach im ctx eingefroren steht.
+var pointer_rng := RandomNumberGenerator.new()
 ## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
 ## Jeder Wurf setzt sie auf die kanonische Reihe zurück; Ziehen permutiert sie,
 ## und die Reihe in der Grube wird DARAUS gerendert - nie umgekehrt.
@@ -4030,11 +4033,11 @@ func _phosphor_stores() -> Dictionary:
 			stores[i] = stored
 	return stores
 
-## Leiterbahn-Glieder je Wurf-Slot (nur Slots mit Kette): einmal HIER aufgelöst,
-## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen.
-## Röntgenlicht und Korona hängen ihre Seiten an - über dieselbe Quelle wie die
-## Nehmen-Effekte (EssenceEffects.link_faces).
-func _pointer_links() -> Dictionary:
+## Essenz-Glieder je Wurf-Slot (Röntgenlicht, Korona): einmal HIER aufgelöst,
+## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen - über
+## dieselbe Quelle wie die Nehmen-Effekte (EssenceEffects.essence_link_faces).
+## Die Leiterbahn steht NICHT hier: sie wird beim Nehmen ausgewürfelt.
+func _essence_links() -> Dictionary:
 	var links := {}
 	var sets := EssenceEffects.effective_sets(_slot_essences())
 	for i in dice.count():
@@ -4043,7 +4046,7 @@ func _pointer_links() -> Dictionary:
 		if face < 0 or def == null:
 			continue
 		var essence_ids := EssenceEffects.set_at(sets, i)
-		var chain := EssenceEffects.link_faces(def, face, essence_ids)
+		var chain := EssenceEffects.essence_link_faces(def, face, essence_ids)
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -4056,6 +4059,39 @@ func _pointer_links() -> Dictionary:
 			})
 		links[i] = entries
 	return links
+
+## Würfelt die Leiterbahn aller gewerteten Würfel aus - GENAU EINMAL je Zug, im
+## Moment des Nehmens, wenn Kategorie, Zählreihenfolge und Echo-Slot feststehen.
+## Auswahl-indiziert wie der übrige Zug-ctx; das Ergebnis wird eingefroren, nie
+## neu gewürfelt (sonst zahlte der Zug andere Glieder, als er gezählt hat).
+func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int], ids: Array[String], sel_ctx: Dictionary) -> Dictionary:
+	var shape := DiceScoring.hand_shape(key, sel_values, ids, sel_ctx)
+	var order: Array[int] = shape["order"]
+	var echo_slot: int = shape["echo_slot"]
+	var essences := DiceScoring.essence_sets_in(sel_ctx)
+	var rifts := DiceScoring.rifts_in(sel_ctx)
+	var is_stress := GameRun.is_stress_round(run.round_number)
+	var turn_index := DiceScoring.turn_index_in(sel_ctx)
+	var shown := DiceScoring.shown_values(sel_values, ids, sel_ctx)
+	var fires := {}
+	for k in order:
+		var slot: int = slots[k]
+		var def: DieDefinition = dice.slot_defs[slot]
+		var face: int = dice.face_indices[slot]
+		if def == null or face < 0 or def.pointer_target(face) < 0:
+			continue
+		var essence_ids := EssenceEffects.set_at(essences, k)
+		var rift_ids := RiftEffects.rifts_at(rifts, k)
+		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
+			EssenceEffects.extra_activations(k, order, essences))
+		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RiftEffects.extra_activations(rift_ids))
+		var groups := DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
+			ids, essence_ids, pointer_rng, turn_index)
+		for group in groups:
+			if not group.is_empty():
+				fires[k] = groups
+				break
+	return fires
 
 ## Stufen-Infos je Wurf-Slot: die Sättigung des Materials der OBEREN Seite, dazu
 ## die Augensumme (Bernstein zahlt sie auf jeder Stufe).
@@ -4097,7 +4133,7 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
-		DiceScoring.CTX_POINTER_LINKS: _pointer_links(),  # Leiterbahn-Ketten
+		DiceScoring.CTX_ESSENCE_LINKS: _essence_links(),  # Röntgenlicht/Korona
 		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Sättigung der Seiten
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
@@ -4130,14 +4166,15 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_order.append(to_filtered[s])
 	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
-	# Leiterbahn-Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl
-	# umschlüsseln, sonst feuert die Kette am falschen Würfel.
-	var mapped_links := {}
-	var links: Dictionary = ctx.get(DiceScoring.CTX_POINTER_LINKS, {})
-	for s in links:
-		if to_filtered.has(s):
-			mapped_links[to_filtered[s]] = links[s]
-	ctx[DiceScoring.CTX_POINTER_LINKS] = mapped_links
+	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
+	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
+	for link_key in [DiceScoring.CTX_ESSENCE_LINKS, DiceScoring.CTX_POINTER_FIRES]:
+		var mapped_links := {}
+		var links: Dictionary = ctx.get(link_key, {})
+		for s in links:
+			if to_filtered.has(s):
+				mapped_links[to_filtered[s]] = links[s]
+		ctx[link_key] = mapped_links
 	# Material-Stufen hängen ebenso am Slot - ohne Umschlüsselung wertet jede
 	# Auswahl-Vorschau die falschen Würfel als gehoben.
 	var mapped_levels := {}
@@ -4357,7 +4394,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_materials = _rolled_materials()
 		pre_reroll_essences = _slot_essences()
 		pre_reroll_rifts = _slot_rifts()
-		pre_reroll_links = _pointer_links()
+		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_order = declared_before
@@ -4557,10 +4594,10 @@ func _on_roll_finished() -> void:
 	phase = Phase.IDLE
 
 	# Farkle-Prüfung: nur ein echtes Neu-Würfeln kann farkeln. Die alte Seite
-	# rechnet mit IHREN Leiterbahn-Gliedern (vor dem Neuwurf), wie mit den
+	# rechnet mit IHREN Essenz-Gliedern (vor dem Neuwurf), wie mit den
 	# alten Materialien.
 	var old_ctx := _score_ctx()
-	old_ctx[DiceScoring.CTX_POINTER_LINKS] = pre_reroll_links
+	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences)
@@ -4774,6 +4811,11 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
+	# Die Kategorie steht - jetzt die Leiterbahn EINMAL auswürfeln und einfrieren.
+	# Ab hier lesen Wertung, Schrittliste und Nehmen-Effekte dasselbe Ergebnis;
+	# hand["score"] ist damit veraltet, gezahlt wird breakdown["total"].
+	var sel_fires := _roll_pointer_fires(String(hand["key"]), sel_values, slots, ids, sel_ctx)
+	sel_ctx[DiceScoring.CTX_POINTER_FIRES] = sel_fires
 	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
 	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
 	# Würfel hängen können und die Ordnung wertungsrelevant ist.
@@ -4808,9 +4850,14 @@ func _on_take_button_pressed() -> void:
 	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var take_order := DiceScoring.trigger_order(participating, dice.values, player_order)
+	# Die gezündete Leiterbahn zurück auf echte Slots - der ctx sprach in Auswahl-
+	# Indizes, die Nehmen-Effekte arbeiten am Pool.
+	var slot_fires := {}
+	for k in sel_fires:
+		slot_fires[slots[int(k)]] = sel_fires[k]
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, EssenceEffects.effective_sets(_slot_essences()), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), hands_taken_this_round)
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), hands_taken_this_round, slot_fires)
 	# Phosphoreszenz: der Basis-Anteil dieses Zuges wandert in den Speicher, der
 	# eben ausgezahlte ist damit geleert. GameRun bucht, die Wertung bleibt pur.
 	run.note_phosphor_stores(active_kinds, breakdown)
@@ -5085,13 +5132,22 @@ func _pay_street_musician(musician_indices: Array[int]) -> void:
 ## (Quecksilber, Retrigger-Charms, Echo-Kammer) als Verzahnung sichtbar.
 ## false = Abbruch (Reset).
 func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
-	for pulse: Dictionary in step["activations"]:
-		if not await _play_die_pulse(pulse, slot, die_px, gain_px, glow_by_slot,
-				step["eye_charm_indices"], step["die_charm_indices"], step["crit_charm_indices"]):
+	# Je Würfel-Trigger erst seine Seiten-Zündungen, dann die Leiterbahn, die für
+	# ihn gezündet hat - ein danebengegangener Wurf zeigt schlicht nichts.
+	for group: Dictionary in step["die_triggers"]:
+		for pulse: Dictionary in group["firings"]:
+			if not await _play_die_pulse(pulse, slot, die_px, gain_px, glow_by_slot,
+					step["eye_charm_indices"], step["die_charm_indices"], step["crit_charm_indices"]):
+				return false
+		if not await _play_die_links(group["links"], slot, die_px, gain_px, glow_by_slot):
 			return false
-	# Leiterbahn-Glieder: NACH allen Aktivierungen, je Glied einmal. Das Netz-Feld
-	# zeigt den Würfel mit dem GLIED im Gold-Rahmen - so wandert die Kette sichtbar.
-	for link: Dictionary in step.get("links", []):
+	# Essenz-Glieder (Röntgenlicht, Korona) zuletzt - sie hängen am ganzen Würfel.
+	return await _play_die_links(step.get("essence_links", []), slot, die_px, gain_px, glow_by_slot)
+
+## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem
+## GLIED im Gold-Rahmen - so wandert die Kette sichtbar. false = Abbruch (Reset).
+func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
+	for link: Dictionary in links:
 		if slot < active_kinds.size():
 			_show_pit_net(active_kinds[slot], int(link["face"]))
 		if not await _play_die_pulse(link, slot, die_px, gain_px, glow_by_slot,

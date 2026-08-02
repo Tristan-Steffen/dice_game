@@ -1,7 +1,7 @@
 extends GutTest
-## Die Leiterbahn (Zeiger-Mechanik): Kette am Datensatz, Wertung der Glieder
-## (je Glied EINMAL, nach allen Aktivierungen, volle Auslösung mit getauschter
-## Seite), Schrittliste und Nehmen-Effekte.
+## Die Leiterbahn (Zeiger-Mechanik): Verdrahtung am Datensatz, der Chance-Wurf
+## (einmal je Würfel-Trigger, Sprung für Sprung weiter), die Wertung der
+## gezündeten Glieder, Schrittliste und Nehmen-Effekte.
 
 func _d(values: Array) -> Array[int]:
 	var typed: Array[int] = []
@@ -18,27 +18,52 @@ func _m(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-## ctx mit Leiterbahn-Gliedern für einen Slot.
-func _ctx_links(slot: int, entries: Array) -> Dictionary:
-	return {DiceScoring.CTX_POINTER_LINKS: {slot: entries}}
-
 func _link(face: int, value: int, material := "", level := 1) -> Dictionary:
 	return {"face": face, "value": value, "material": material, "level": level}
 
+## Eingefrorener Wurf: ein Würfel-Trigger, der genau diese Glieder gezündet hat.
+func _fires(slot: int, entries: Array) -> Dictionary:
+	return {slot: [entries]}
+
+## ctx mit einem eingefrorenen Wurf (die Wertung würfelt nie selbst).
+func _ctx_fires(slot: int, entries: Array) -> Dictionary:
+	return {DiceScoring.CTX_POINTER_FIRES: _fires(slot, entries)}
+
 ## ctx mit Gliedern UND der würfelweiten Augensumme des Slots.
-func _ctx_links_up(slot: int, entries: Array, eye_sum: int) -> Dictionary:
-	var ctx := _ctx_links(slot, entries)
+func _ctx_fires_up(slot: int, entries: Array, eye_sum: int) -> Dictionary:
+	var ctx := _ctx_fires(slot, entries)
 	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = {slot: {"level": 1, "eye_sum": eye_sum}}
 	return ctx
 
-## ctx mit Gliedern UND einer Argon-Seele auf slot - seit dem Kanten-Umbau die
-## Standard-Quelle zweier Auslösungen.
-func _ctx_links_argon(slot: int, entries: Array) -> Dictionary:
-	var ctx := _ctx_links(slot, entries)
+## ctx mit einer Argon-Seele auf slot (zwei Würfel-Trigger) und je Trigger einer
+## eigenen Glieder-Gruppe - genau so friert der Zug den Wurf ein.
+func _ctx_fires_argon(slot: int, groups: Array) -> Dictionary:
+	var ctx := {DiceScoring.CTX_POINTER_FIRES: {slot: groups}}
 	ctx[DiceScoring.CTX_ESSENCES] = {slot: Essence.ARGON}
 	return ctx
 
-# --- Datensatz: Nachbarschaft und Kette ------------------------------------------
+## Ein RNG, dessen ERSTER Wurf sicher trifft bzw. sicher danebengeht - so braucht
+## kein Test einen magischen Seed. null, wenn keiner gefunden wurde.
+func _rng_first(hit: bool, threshold := DiceScoring.POINTER_CHANCE) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	for s in 500:
+		rng.seed = s
+		if (rng.randf() < threshold) == hit:
+			rng.seed = s  # zurückspulen
+			return rng
+	return null
+
+## Ein RNG, dessen erste beiden Würfe treffen.
+func _rng_two_hits() -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	for s in 500:
+		rng.seed = s
+		if rng.randf() < DiceScoring.POINTER_CHANCE and rng.randf() < DiceScoring.POINTER_CHANCE:
+			rng.seed = s
+			return rng
+	return null
+
+# --- Datensatz: Nachbarschaft und Verdrahtung ------------------------------------
 
 func test_opposite_and_adjacency():
 	assert_eq(DieDefinition.opposite_face(0), 5)
@@ -51,27 +76,13 @@ func test_opposite_and_adjacency():
 		assert_true(def.can_point(0, neighbor), "Nachbar %d ist gültig" % neighbor)
 	assert_eq(DieDefinition.adjacent_faces(0).size(), 4)
 
-func test_pointer_chain_walks_and_a_cycle_stops():
+func test_pointer_target_reads_the_wiring():
 	var def := DieDefinition.new()
-	assert_eq(def.pointer_chain(3), [] as Array[int], "ohne Zeiger keine Kette")
+	assert_eq(def.pointer_target(3), -1, "ohne Zeiger kein Ziel")
 	def.pointers[3] = 0
-	assert_eq(def.pointer_chain(3), [0] as Array[int])
-	def.pointers[0] = 4
-	assert_eq(def.pointer_chain(3), _d([0, 4]))
-	assert_eq(def.pointer_chain(1), [] as Array[int], "Zeiger fremder Seiten bleiben stumm")
-	# Zyklus: 0 -> 4 -> 0 endet, jede Seite feuert höchstens einmal.
-	def.pointers[4] = 0
-	assert_eq(def.pointer_chain(0), _d([4]))
-
-func test_a_full_chain_can_fire_all_six_faces():
-	# Hamiltonpfad über die Nachbarschaft: 3 -> 0 -> 1 -> 2 -> 4 -> 5.
-	var def := DieDefinition.new()
-	def.pointers[3] = 0
-	def.pointers[0] = 1
-	def.pointers[1] = 2
-	def.pointers[2] = 4
-	def.pointers[4] = 5
-	assert_eq(def.pointer_chain(3), _d([0, 1, 2, 4, 5]))
+	assert_eq(def.pointer_target(3), 0)
+	assert_eq(def.pointer_target(1), -1, "Zeiger fremder Seiten bleiben stumm")
+	assert_eq(def.pointer_target(9), -1, "außerhalb des Würfels")
 
 func test_instantiate_and_become_copy_pointers():
 	var def := DieDefinition.new()
@@ -86,13 +97,98 @@ func test_instantiate_and_become_copy_pointers():
 	host.pointers[3] = -1
 	assert_eq(def.pointers[3], 0, "become teilt kein Array")
 
-# --- Wertung: Glieder feuern nach den Aktivierungen ------------------------------
+# --- Die Chance -----------------------------------------------------------------
+
+func test_the_aggregated_chance_grows_with_the_face_triggers():
+	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 1), 0.5, 0.0001)
+	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 2), 0.75, 0.0001)
+	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 3), 0.875, 0.0001)
+	assert_almost_eq(DiceScoring.pointer_chance_for(0.5, 0), 0.5, 0.0001, "mindestens eine Zündung")
+
+func test_plasma_raises_the_base_chance():
+	var base := DiceScoring.POINTER_CHANCE
+	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([]), base), 0.5, 0.0001)
+	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), base), 0.75, 0.0001)
+	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.NEON]), base), 0.5, 0.0001)
+	# Auch aggregiert bleibt der Lichtbogen vorn.
+	assert_almost_eq(DiceScoring.pointer_chance_for(0.75, 2), 0.9375, 0.0001)
+
+# --- Der Wurf -------------------------------------------------------------------
+
+func _pointer_die() -> DieDefinition:
+	var def := DieDefinition.new()
+	def.pointers[0] = 2
+	return def
+
+func test_a_failed_roll_fires_nothing():
+	var rng := _rng_first(false)
+	assert_not_null(rng, "ein Fehlwurf-Seed muss auffindbar sein")
+	var groups := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 1, 1, _ids([]), _ids([]), rng)
+	assert_eq(groups.size(), 1, "je Würfel-Trigger eine Gruppe")
+	assert_eq((groups[0] as Array).size(), 0, "danebengegangen heißt: leere Gruppe")
+
+func test_a_hit_fires_the_target_face_once():
+	var rng := _rng_first(true)
+	assert_not_null(rng)
+	var groups := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 1, 1, _ids([]), _ids([]), rng)
+	var fires: Array = groups[0]
+	assert_eq(fires.size(), 1, "ein Treffer zündet genau ein Glied")
+	assert_eq(int(fires[0]["face"]), 2)
+	assert_eq(int(fires[0]["value"]), 3, "Seite 2 zeigt eine 3")
+
+func test_every_die_trigger_rolls_on_its_own():
+	var rng := _rng_two_hits()
+	assert_not_null(rng)
+	var groups := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 2, 1, _ids([]), _ids([]), rng)
+	assert_eq(groups.size(), 2, "zwei Würfel-Trigger, zwei Würfe")
+	for group in groups:
+		assert_lte((group as Array).size(), 1, "ohne Anschluss-Zeiger höchstens ein Glied")
+
+func test_a_die_without_a_pointer_never_fires():
+	var rng := _rng_first(true)
+	var groups := DiceScoring.roll_pointer_fires(DieDefinition.new(), 0, 3, 2, _ids([]), _ids([]), rng)
+	for group in groups:
+		assert_eq((group as Array).size(), 0, "ohne Verdrahtung passiert nichts")
+
+func test_a_pointer_loop_stays_under_the_cap():
+	# 0 -> 1 -> 0: die Kette darf kreisen, die Schranke hält sie endlich.
+	var def := DieDefinition.new()
+	def.pointers[0] = 1
+	def.pointers[1] = 0
+	for s in 40:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = s
+		var groups := DiceScoring.roll_pointer_fires(def, 0, 1, 1, _ids([]), _ids([]), rng)
+		assert_lte((groups[0] as Array).size(), DiceScoring.POINTER_HOP_CAP)
+
+func test_the_same_seed_rolls_the_same_fires():
+	var def := DieDefinition.new()
+	def.pointers[0] = 1
+	def.pointers[1] = 2
+	var first := RandomNumberGenerator.new()
+	first.seed = 4711
+	var second := RandomNumberGenerator.new()
+	second.seed = 4711
+	assert_eq(DiceScoring.roll_pointer_fires(def, 0, 3, 2, _ids([]), _ids([]), first),
+		DiceScoring.roll_pointer_fires(def, 0, 3, 2, _ids([]), _ids([]), second))
+
+func test_a_twice_fired_bone_link_counts_the_grown_value():
+	var rng := _rng_two_hits()
+	assert_not_null(rng)
+	var def := _pointer_die()
+	def.set_face_material(2, DieMaterial.BONE)
+	def.faces[2] = 4
+	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([]), rng)
+	assert_eq(int((groups[0] as Array)[0]["value"]), 4, "erste Zündung: der gedruckte Wert")
+	assert_eq(int((groups[1] as Array)[0]["value"]), 5, "zweite Zündung: der gewachsene")
+
+# --- Wertung: gezündete Glieder --------------------------------------------------
 
 func test_a_link_adds_its_eyes_to_the_base():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice)
 	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, _m([]), {}, _ctx_links(0, [_link(2, 4)]))
+		false, _m([]), {}, _ctx_fires(0, [_link(2, 4)]))
 	assert_eq(plain, 40, "Paar 5er: (10 + 10) × 2")
 	assert_eq(linked, 48, "Glied-Augen 4 heben die Basis: (10 + 10 + 4) × 2")
 
@@ -100,25 +196,28 @@ func test_a_link_fires_its_face_material():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.AMBER)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.AMBER)]))
 	assert_eq(linked, 88, "Bernstein des Glieds: (10 + 10 + 4 + 20) × 2")
 
-func test_retriggers_never_rerun_the_chain():
-	# Argon verdoppelt die Aktivierungen - die Kette feuert trotzdem EINMAL.
+func test_each_die_trigger_carries_only_its_own_fires():
+	# Argon tritt zweimal an; der Wurf des zweiten Antritts ging daneben.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
-	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links_argon(0, [_link(2, 4)]))
-	assert_eq(linked, 58, "(10 + 5×2 + 5 + 4) × 2 - das Glied zählt nicht doppelt")
+	var once := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires_argon(0, [[_link(2, 4)], []]))
+	var twice := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires_argon(0, [[_link(2, 4)], [_link(2, 4)]]))
+	assert_eq(once, 58, "(10 + 5×2 + 5 + 4) × 2 - ein Fehlwurf zündet nichts")
+	assert_eq(twice, 66, "(10 + 5×2 + 5 + 4 + 4) × 2 - beide Antritte trafen")
 
 func test_a_link_crit_fires_at_the_dies_position():
-	# Beherit am niedrigsten gewerteten Würfel (Slot 0): die Aktivierung kritet
-	# ×5, das Glied ×3 - BEVOR das Glas von Slot 1 seinen Mult legt. Feuerte das
-	# Glied erst am Ende, wäre der Gesamtwert 1035 statt 805.
+	# Beherit am niedrigsten gewerteten Würfel (Slot 0): die Zündung kritet ×5,
+	# das Glied ×3 - BEVOR das Glas von Slot 1 seinen Mult legt. Feuerte das Glied
+	# erst am Ende, wäre der Gesamtwert 1035 statt 805.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m(["", DieMaterial.GLASS, "", "", "", ""])
 	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice,
-		_ids([Charm.BEHERIT]), false, mats, {}, _ctx_links(0, [_link(2, 3)]))
+		_ids([Charm.BEHERIT]), false, mats, {}, _ctx_fires(0, [_link(2, 3)]))
 	assert_eq(linked, 805, "Basis 23 × Mult (2 ×5 ×3 + 5)")
 
 func test_link_values_are_transformed_like_eyes():
@@ -126,33 +225,47 @@ func test_link_values_are_transformed_like_eyes():
 	var dice := _d([5, 5, 2, 2, 3, 6])
 	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice,
 		_ids([Charm.LUCKY_CIGARETTES]), false, _m(["", "", "", "", "", ""]),
-		{}, _ctx_links(0, [_link(2, 1)]))
+		{}, _ctx_fires(0, [_link(2, 1)]))
 	assert_eq(linked, 52, "(10 + 10 + 6) × 2 - das Glied zeigt die verwandelte 6")
 
-func test_best_hand_sees_the_links():
+func test_the_preview_scores_without_the_pointer():
+	# Ohne den eingefrorenen Wurf fehlt der Schlüssel - die Vorschau zeigt die
+	# Hand ohne Leiterbahn, das Nehmen legt sie drauf.
 	var dice := _d([5, 5, 1, 2, 3, 6])
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, _m([]), {},
-		_ctx_links(0, [_link(2, 4)]))
-	assert_eq(int(hand["score"]), 48, "Vorschau und Wertung teilen den ctx")
+	var preview := DiceScoring.best_hand(dice, _ids([]), false, _m([]), {}, {})
+	var taken := DiceScoring.best_hand(dice, _ids([]), false, _m([]), {},
+		_ctx_fires(0, [_link(2, 4)]))
+	assert_eq(int(preview["score"]), 40)
+	assert_eq(int(taken["score"]), 48)
+
+func test_the_frozen_roll_scores_the_same_twice():
+	var dice := _d([5, 5, 1, 2, 3, 6])
+	var ctx := _ctx_fires(0, [_link(2, 4, DieMaterial.AMBER)])
+	var first := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, _m([]), {}, ctx)
+	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, _m([]), {}, ctx)
+	assert_eq(first, second, "derselbe eingefrorene Wurf, dasselbe Ergebnis")
 
 # --- Schrittliste ---------------------------------------------------------------
 
 func test_breakdown_carries_links_and_matches_the_score():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m(["", DieMaterial.GLASS, "", "", "", ""])
-	var ctx := _ctx_links(0, [_link(2, 3, DieMaterial.AMBER)])
+	var ctx := _ctx_fires(0, [_link(2, 3, DieMaterial.AMBER)])
 	var ids := _ids([Charm.BEHERIT])
 	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, ids, false, mats, {}, ctx)
 	var expected := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, ids, false, mats, {}, ctx)
 	assert_eq(int(breakdown["total"]), expected, "Schrittliste spiegelt die Formel")
 	var first_step: Dictionary = breakdown["die_steps"][0]
-	var links: Array = first_step["links"]
-	assert_eq(links.size(), 1, "das Glied hängt am Schritt seines Würfels")
+	var groups: Array = first_step["die_triggers"]
+	assert_eq(groups.size(), 1, "ein Würfel-Trigger, eine Gruppe")
+	var links: Array = groups[0]["links"]
+	assert_eq(links.size(), 1, "das Glied hängt am Trigger seines Würfels")
 	assert_eq(int(links[0]["face"]), 2)
 	assert_eq(String(links[0]["material"]), DieMaterial.AMBER)
 	assert_eq(int(links[0]["crit_x"]), 3, "Beherit kritet das Glied mit dessen Wert")
 	var second_step: Dictionary = breakdown["die_steps"][1]
-	assert_eq((second_step["links"] as Array).size(), 0, "Slot 1 hat keine Kette")
+	var second_groups: Array = second_step["die_triggers"]
+	assert_eq((second_groups[0]["links"] as Array).size(), 0, "Slot 1 hat nichts gezündet")
 
 # --- Nehmen-Effekte -------------------------------------------------------------
 
@@ -161,35 +274,83 @@ func _defs(def: DieDefinition) -> Array[DieDefinition]:
 	typed.assign([def])
 	return typed
 
-func test_a_gold_link_pays_once_and_ignores_retriggers():
+## Nehmen-Effekte für EINEN Würfel mit eingefrorenem Wurf.
+func _take(def: DieDefinition, fires: Dictionary, essences := {}) -> MaterialEffects.TakeReport:
+	return MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]),
+		_ids([]), -1, essences, _d([0]), false, _d([]), 1, fires)
+
+func test_a_gold_link_pays_per_fired_occurrence():
 	var def := DieDefinition.new()
 	def.pointers[0] = 2
 	def.materials[2] = DieMaterial.GOLD
-	var report := MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
-	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT, "Gold der Zielseite zahlt einmal")
-	# Argon verdoppelt nur die Aktivierungen des Würfels, nie die Kette.
-	var argon := DieDefinition.new()
-	argon.pointers[0] = 2
-	argon.materials[2] = DieMaterial.GOLD
-	argon.essence_id = Essence.ARGON
-	var mercury_report := MaterialEffects.apply_take_effects(_defs(argon), _d([0]),
-		_m([""]), _d([0]), _ids([]), -1, {0: Essence.ARGON}, _d([0]))
-	assert_eq(mercury_report.money, MaterialEffects.GOLD_PAYOUT, "das Glied bleibt bei einmal")
+	var report := _take(def, _fires(0, [_link(2, 3)]))
+	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT, "eine Zündung, ein Satz")
+	var twice := DieDefinition.new()
+	twice.pointers[0] = 2
+	twice.materials[2] = DieMaterial.GOLD
+	twice.essence_id = Essence.ARGON
+	var argon_report := MaterialEffects.apply_take_effects(_defs(twice), _d([0]), _m([""]), _d([0]),
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1,
+		{0: [[_link(2, 3)], [_link(2, 3)]]})
+	assert_eq(argon_report.money, MaterialEffects.GOLD_PAYOUT * 2, "zwei Zündungen, zwei Sätze")
+
+func test_a_roll_that_missed_pays_nothing():
+	var def := DieDefinition.new()
+	def.pointers[0] = 2
+	def.materials[2] = DieMaterial.GOLD
+	var report := _take(def, _fires(0, []))
+	assert_eq(report.money, 0, "ohne Zündung kein Gold - die Verdrahtung allein zahlt nie")
+	assert_eq(def.faces[2], 3, "und die Seite bleibt unberührt")
 
 func test_bone_and_glass_hit_the_link_face():
 	var def := DieDefinition.new()
 	def.pointers[0] = 2
 	def.materials[2] = DieMaterial.BONE
 	var before: int = def.faces[2]
-	var report := MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	var report := _take(def, _fires(0, [_link(2, before, DieMaterial.BONE)]))
 	assert_eq(def.faces[2], before + 1, "Knochen wächst auf der GLIED-Seite")
 	assert_true(report.grown.has(0))
 	var glass := DieDefinition.new()
 	glass.pointers[0] = 2
 	glass.materials[2] = DieMaterial.GLASS
 	glass.faces[2] = 4
-	MaterialEffects.apply_take_effects(_defs(glass), _d([0]), _m([""]), _d([0]))
+	_take(glass, _fires(0, [_link(2, 4, DieMaterial.GLASS)]))
 	assert_eq(glass.faces[2], 3, "Glas schrumpft die GLIED-Seite")
+
+func test_a_twice_fired_bone_link_lands_where_the_simulation_counted():
+	# Drift-Doktrin: der eingefrorene Wurf und die Def müssen auf demselben Wert
+	# enden - sonst zählt die Animation etwas anderes, als der Würfel danach zeigt.
+	var def := _pointer_die()
+	def.set_face_material(2, DieMaterial.BONE)
+	def.faces[2] = 4
+	var rng := _rng_two_hits()
+	assert_not_null(rng)
+	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([]), rng)
+	var last_counted := int((groups[1] as Array)[0]["value"])
+	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]),
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1, {0: groups})
+	assert_eq(def.faces[2], last_counted + 1, "die Def steht eine Wandlung hinter der letzten Zählung")
+
+func test_both_axes_and_the_link_land_where_the_roll_counted():
+	# Argon (zwei Antritte) auf einem Knochen-Würfel, dessen Leiterbahn beide Male
+	# zündet: obere Seite UND Glied-Seite müssen genau dort stehen, wo der
+	# eingefrorene Wurf gezählt hat - sonst zeigt der Würfel eine andere Zahl.
+	var rng := _rng_two_hits()
+	assert_not_null(rng)
+	var def := _pointer_die()
+	def.set_face_material(0, DieMaterial.BONE)
+	def.set_face_material(2, DieMaterial.BONE)
+	def.faces[0] = 20
+	def.faces[2] = 20
+	def.essence_id = Essence.ARGON
+	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([Essence.ARGON]), rng)
+	assert_eq((groups[0] as Array).size() + (groups[1] as Array).size(), 2, "beide Antritte trafen")
+	assert_eq(int((groups[0] as Array)[0]["value"]), 20, "erste Zündung: der gedruckte Wert")
+	assert_eq(int((groups[1] as Array)[0]["value"]), 21, "zweite Zündung: der gewachsene")
+	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([DieMaterial.BONE]), _d([0]),
+		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), 1, {0: groups})
+	assert_eq(def.faces[0], 22, "obere Seite: zwei Zündungen, je +1")
+	assert_eq(def.faces[2], 22, "Glied-Seite: zwei Zündungen, je +1")
 
 # --- Gesättigte Glieder: die Stufe des GLIEDS zählt, nicht die der oberen Seite ---
 
@@ -207,9 +368,9 @@ func test_amber_link_levels_scale_the_eye_sum():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var first := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links_up(0, [_link(2, 4, DieMaterial.AMBER, 1)], 21))
+		false, no_mats, {}, _ctx_fires_up(0, [_link(2, 4, DieMaterial.AMBER, 1)], 21))
 	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links_up(0, [_link(2, 4, DieMaterial.AMBER, 3)], 21))
+		false, no_mats, {}, _ctx_fires_up(0, [_link(2, 4, DieMaterial.AMBER, 3)], 21))
 	assert_eq(first, 130, "(10 + 10 + 4 + 20 + 21) × 2")
 	assert_eq(third, 258, "(10 + 10 + 4 + 5×21) × 2")
 
@@ -217,11 +378,11 @@ func test_ruby_link_adds_more_on_two_and_crits_on_three():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.RUBY)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY)]))
 	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.RUBY, 2)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY, 2)]))
 	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.RUBY, 3)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY, 3)]))
 	assert_eq(plain, 144, "24 × (2 + 4)")
 	assert_eq(second, 288, "24 × (2 + 10)")
 	assert_eq(third, 96, "24 × (2 ×2)")
@@ -230,76 +391,26 @@ func test_glass_link_crits_with_the_link_eyes():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.GLASS, 2)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 2)]))
 	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_links(0, [_link(2, 4, DieMaterial.GLASS, 3)]))
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 3)]))
 	assert_eq(second, 192, "24 × (2 ×4) - der Krit nimmt die Augen des Glieds")
 	assert_eq(third, 576, "24 × ((2 + 4) ×4) - Stufe III addiert UND kritet")
 
 func test_a_gold_link_on_level_three_pays_the_raised_rate():
 	var def := _linked_die(DieMaterial.GOLD, 3)
-	var report := MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	var report := _take(def, _fires(0, [_link(2, 3, DieMaterial.GOLD, 3)]))
 	assert_eq(report.money, 8, "$7 + $1 für die eine Gold-Seite dieser Nahme")
 
 func test_bone_link_levels_grow_by_their_own_step():
 	var second := _linked_die(DieMaterial.BONE, 2, 40)
-	MaterialEffects.apply_take_effects(_defs(second), _d([0]), _m([""]), _d([0]))
-	assert_eq(second.faces[2], 44, "10 % von 40 - und nur EINMAL, Glieder retriggern nie")
+	_take(second, _fires(0, [_link(2, 40, DieMaterial.BONE, 2)]))
+	assert_eq(second.faces[2], 44, "10 % von 40 - eine Zündung, ein Schritt")
 	var third := _linked_die(DieMaterial.BONE, 3, 40)
-	MaterialEffects.apply_take_effects(_defs(third), _d([0]), _m([""]), _d([0]))
+	_take(third, _fires(0, [_link(2, 40, DieMaterial.BONE, 3)]))
 	assert_eq(third.faces[2], 48, "20 % von 40")
 
 func test_a_glass_link_shrinks_by_the_raised_step():
 	var def := _linked_die(DieMaterial.GLASS, 2, 40)
-	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]))
+	_take(def, _fires(0, [_link(2, 40, DieMaterial.GLASS, 2)]))
 	assert_eq(def.faces[2], 32, "20 % von 40")
-
-# --- Plasma: der Lichtbogen hängt zwei Glieder an, Zyklen erlaubt ----------------
-
-func test_plasma_adds_two_links():
-	assert_eq(EssenceEffects.extra_pointer_links(Essence.PLASMA), 2)
-	assert_eq(EssenceEffects.extra_pointer_links(Essence.NEON), 0)
-	assert_eq(EssenceEffects.extra_pointer_links(""), 0)
-
-func test_a_chain_still_stops_at_a_cycle_without_plasma():
-	# 0 -> 1 -> 0: ohne Lichtbogen endet die Kette am schon besuchten Glied.
-	var def := DieDefinition.new()
-	def.pointers[0] = 1
-	def.pointers[1] = 0
-	assert_eq(def.pointer_chain(0), _d([1]), "ein Zyklus endet einfach")
-
-func test_plasma_walks_the_cycle_further():
-	var def := DieDefinition.new()
-	def.pointers[0] = 1
-	def.pointers[1] = 0
-	# Mit +2 läuft der Bogen zwei Glieder über den Zyklus hinaus: 1, 0, 1.
-	assert_eq(def.pointer_chain(0, 2), _d([1, 0, 1]))
-
-func test_plasma_extends_a_straight_chain_too():
-	var def := DieDefinition.new()
-	def.pointers[0] = 1
-	def.pointers[1] = 2
-	def.pointers[2] = 1  # ab hier pendelt es
-	assert_eq(def.pointer_chain(0), _d([1, 2]), "normal endet es am Rücksprung")
-	assert_eq(def.pointer_chain(0, 2), _d([1, 2, 1, 2]), "der Bogen pendelt zweimal weiter")
-
-func test_the_chain_can_never_run_away():
-	# Harte Schranke: auch mit absurd vielen Zusatzgliedern bleibt sie endlich.
-	var def := DieDefinition.new()
-	def.pointers[0] = 1
-	def.pointers[1] = 0
-	assert_lt(def.pointer_chain(0, 999).size(), 1006)
-
-func test_take_effects_walk_the_same_extended_chain():
-	# Wertung und Nehmen müssen dieselbe Kette sehen - sonst zahlt Gold anders,
-	# als die Vorschau zeigt.
-	var def := DieDefinition.new()
-	def.essence_id = Essence.PLASMA
-	def.pointers[0] = 2
-	def.pointers[2] = 0
-	def.set_face_material(2, DieMaterial.GOLD)
-	var defs: Array[DieDefinition] = [def]
-	var report := MaterialEffects.apply_take_effects(defs, _d([0]), _m([""]), _d([0]),
-		_ids([]), -1, {0: Essence.PLASMA}, _d([0]))
-	# Kette 0 -> 2 -> 0 -> 2 (zwei Zusatzglieder): die Gold-Seite 2 feuert zweimal.
-	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT * 2, "das Glied zahlt je Durchlauf")

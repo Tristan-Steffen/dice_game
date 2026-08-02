@@ -399,9 +399,9 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 			return false
 	return true
 
-## Echo-Kammer: zusätzliche Auslösungen des zuerst gewerteten Würfels - wie
-## Quecksilber feuern Augen UND Material-Effekte erneut (MaterialEffects.
-## activation_count bekommt den Slot über echo_slot).
+## Echo-Kammer: zusätzliche ANTRITTE des zuerst gewerteten Würfels (Würfel-Achse,
+## additiv) - Augen UND Material-Effekte feuern erneut. Den Slot bekommt
+## MaterialEffects.die_trigger_count über echo_slot.
 static func echo_retriggers(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ECHO_CHAMBER)
 

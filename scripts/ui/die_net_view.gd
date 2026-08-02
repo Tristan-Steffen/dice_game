@@ -104,7 +104,7 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
 	var target: int = def.pointers[face] if face < def.pointers.size() else -1
 	if target >= 0:
-		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d einmal mit aus" % def.faces[target]
+		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d zu 50 %% einmal mit aus" % def.faces[target]
 		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
 	for rift_id in def.rifts_on(face):
 		var rift_hint := Rift.hint(rift_id)

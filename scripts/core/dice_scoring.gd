@@ -85,19 +85,39 @@ static func _legal_dice(dice: Array[int], legal: Array[int]) -> Array[int]:
 		sub.append(dice[i])
 	return sub
 
-## Leiterbahn-Ketten (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je Glied
+## Essenz-Glieder (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je Glied
 ## {"face": int, "value": int (rohe Augen), "material": String, "level": int}.
-## Der Aufrufer löst die Kette EINMAL auf (scene_root kennt Defs + obere Seiten) -
-## so sehen Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder.
-const CTX_POINTER_LINKS := "pointer_links"
+## NUR Röntgenlicht und Korona - deterministisch, einmal nach allen Würfel-
+## Triggern. Der Aufrufer löst sie EINMAL auf (scene_root kennt Defs + obere
+## Seiten), so sehen Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder.
+const CTX_ESSENCE_LINKS := "essence_links"
 
-## Glieder des Slots aus dem ctx ([] = keine Kette).
-static func pointer_links_for(ctx: Dictionary, slot: int) -> Array:
-	var links: Dictionary = ctx.get(CTX_POINTER_LINKS, {})
+## Essenz-Glieder des Slots aus dem ctx ([] = keine).
+static func essence_links_for(ctx: Dictionary, slot: int) -> Array:
+	var links: Dictionary = ctx.get(CTX_ESSENCE_LINKS, {})
 	return links.get(slot, [])
 
+## Gezündete Leiterbahn (ctx-Schlüssel): Dictionary Slot -> Array über die
+## WÜRFEL-Trigger, je Trigger die Liste der gezündeten Glieder (leer = der Wurf
+## ist danebengegangen). Einträge wie bei den Essenz-Gliedern.
+## Die Leiterbahn ist die einzige Zufallsquelle der Wertung: sie wird beim Nehmen
+## EINMAL ausgewürfelt (roll_pointer_fires) und hier eingefroren, damit Wertung,
+## Schrittliste und Nehmen-Effekte dieselben Zündungen sehen. Der VORSCHAU fehlt
+## der Schlüssel - sie zeigt die Hand ohne Leiterbahn.
+const CTX_POINTER_FIRES := "pointer_fires"
+
+## Alle Trigger-Gruppen des Slots ([] = nichts gezündet).
+static func pointer_fires_for(ctx: Dictionary, slot: int) -> Array:
+	var fires: Dictionary = ctx.get(CTX_POINTER_FIRES, {})
+	return fires.get(slot, [])
+
+## Die Glieder, die im Würfel-Trigger trigger_index gezündet haben.
+static func pointer_fires_at(ctx: Dictionary, slot: int, trigger_index: int) -> Array:
+	var groups := pointer_fires_for(ctx, slot)
+	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
+
 ## Material-Stufen (ctx-Schlüssel): Dictionary Slot -> {"level": int (Sättigung
-## des Materials der OBEREN Seite), "eye_sum": int}. Wie die Leiterbahn-Ketten
+## des Materials der OBEREN Seite), "eye_sum": int}. Wie die Essenz-Glieder
 ## löst der Aufrufer das EINMAL auf.
 const CTX_MATERIAL_LEVELS := "material_levels"
 
@@ -107,7 +127,7 @@ static func level_info_for(ctx: Dictionary, slot: int) -> Dictionary:
 	return levels.get(slot, {})
 
 ## Essenzen (ctx-Schlüssel): Dictionary Slot -> Essenz-id ("" = keine). Wie die
-## Leiterbahn-Ketten löst der Aufrufer das EINMAL auf, damit Vorschau, Nehmen
+## Essenz-Glieder löst der Aufrufer das EINMAL auf, damit Vorschau, Nehmen
 ## und Farkle-Vergleich dieselben Würfel beseelt sehen.
 const CTX_ESSENCES := "essences"
 
@@ -129,7 +149,7 @@ const CTX_ESSENCE_SET := "essence_sets"
 const CTX_STRESS := "stress_round"
 
 ## Rifts (ctx-Schlüssel): Dictionary Slot -> Liste der Rift-ids auf der OBEN
-## liegenden Seite. Wie die Leiterbahn-Ketten löst der Aufrufer das EINMAL auf;
+## liegenden Seite. Wie die Essenz-Glieder löst der Aufrufer das EINMAL auf;
 ## das Nachglühen ändert Auslösungen, also braucht auch der Farkle-Vergleich die
 ## alten Risse.
 const CTX_RIFTS := "rifts"
@@ -287,9 +307,10 @@ static func _qualifies_plain(key: String, dice: Array[int]) -> bool:
 	return false
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
-## Würfel in Reihen-Ordnung (trigger_order; je Aktivierung Augen, Material,
+## Würfel in Reihen-Ordnung (trigger_order; je Zündung Augen, Material,
 ## würfelgebundene Charms - Knochen/Glas wandeln den Wert zwischen den
-## Aktivierungen; danach die Leiterbahn-Kette je Glied einmal), dann
+## Zündungen; je Würfel-Trigger danach die gewürfelte Leiterbahn, zuletzt die
+## Essenz-Glieder), dann
 ## statische Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
 ## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in Besitz-
 ## Reihenfolge. materials: DieMaterial-id je Slot ("" = keins).
@@ -340,10 +361,72 @@ static func trigger_order(scored: Array[int], dice: Array[int], declared: Array 
 		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
 	return order
 
-## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice = die
-## GEZEIGTEN Werte, raw = die physischen Seitenwerte). [int base, float mult] -
-## mult ungeklemmt und ungerundet; gerundet wird erst beim Verschmelzen.
-static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm_ids: Array[String], materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array:
+# --- Leiterbahn: eine Chance, EINMAL ausgewürfelt -------------------------------
+
+## Grundchance, mit der eine Leiterbahn je Wurf zündet.
+const POINTER_CHANCE := 0.5
+## Harte Schranke gegen pathologisches RNG (2^-32); Ketten dürfen kreisen.
+const POINTER_HOP_CAP := 32
+
+## Aggregierte Chance über firings Seiten-Zündungen: 1 − (1−p)^n. Ein Würfel-
+## Trigger würfelt EINMAL mit ihr statt je Zündung neu - so bleibt die Leiterbahn
+## auch bei vielen Zündungen bei höchstens einer Kette je Trigger.
+static func pointer_chance_for(chance: float, firings: int) -> float:
+	return 1.0 - pow(1.0 - clampf(chance, 0.0, 1.0), float(maxi(1, firings)))
+
+## Würfelt die Leiterbahn EINES Würfels für die ganze Hand aus: je Würfel-Trigger
+## ein Wurf mit der aggregierten Chance; ein Treffer zündet die Zielseite EINMAL
+## (die Seiten-Achse gilt dort nicht - Risse gehören der oberen Seite). Trägt die
+## gezündete Seite selbst eine Leiterbahn, geht es Sprung für Sprung mit der
+## EINFACHEN Chance weiter; ein Zyklus würfelt einfach weiter.
+## Die Werte wandern mit: eine zweimal gezündete Knochen-Seite zählt beim zweiten
+## Mal den gewachsenen Wert. Gerechnet wird mit der ECHTEN Stufe - genau diese
+## Zahl landet später in der Def, der Firnis hebt nur die Wertung.
+static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: int, face_triggers: int,
+		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator,
+		turn_index: int = 1) -> Array:
+	var groups: Array = []
+	if die == null or up_face < 0 or up_face >= 6 or rng == null:
+		return groups
+	var chance := EssenceEffects.pointer_chance_of(essence_ids, POINTER_CHANCE)
+	var aggregated := pointer_chance_for(chance, face_triggers)
+	# Laufende Werte JEDER Seite - auch die obere wandert mit, denn eine Kette darf
+	# auf sie zurückspringen.
+	var running: Array[int] = die.faces.duplicate()
+	var up_material: String = die.materials[up_face] if up_face < die.materials.size() else ""
+	var up_level := MaterialEffects.face_level(die, up_face)
+	var up_rifts := die.rifts_on(up_face)
+	for _t in maxi(1, die_triggers):
+		for _f in maxi(1, face_triggers):
+			running[up_face] = MaterialEffects.mutate_value_once(running[up_face], up_material,
+				charm_ids, up_level, essence_ids, up_rifts, turn_index)
+		var fires: Array[Dictionary] = []
+		var face := up_face
+		var roll_chance := aggregated
+		for _hop in POINTER_HOP_CAP:
+			var target := die.pointer_target(face)
+			if target < 0 or rng.randf() >= roll_chance:
+				break
+			var material: String = die.materials[target] if target < die.materials.size() else ""
+			var level := MaterialEffects.face_level(die, target)
+			fires.append({
+				"face": target,
+				"value": running[target],
+				"material": material,
+				"level": EssenceEffects.boosted_level(level, essence_ids),
+			})
+			running[target] = MaterialEffects.mutate_link_value_once(running[target], material,
+				charm_ids, level, essence_ids)
+			face = target
+			roll_chance = chance
+		groups.append(fires)
+	return groups
+
+## Der Vorspann jeder Wertung: die gewertete Menge, ihre Zählreihenfolge und der
+## Echo-Slot. EINE Quelle für _base_and_mult, ScoreBreakdown und den Leiterbahn-
+## Wurf - sonst würfelte der Wurf andere Achsen aus, als die Wertung zählt.
+static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], ctx: Dictionary) -> Dictionary:
+	var dice := shown_values(raw, charm_ids, ctx)
 	var participating := participating_indices(key, raw, charm_ids, ctx)
 	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
 	# nur die beteiligten. Kombi-Charms (Blackjack & Co.) bleiben auf participating.
@@ -356,7 +439,22 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			if legal.has(i):
 				allowed.append(i)
 		scored = allowed
-	var echo_slot := CharmEffects.first_participating(dice, scored)
+	return {
+		"dice": dice,
+		"participating": participating,
+		"scored": scored,
+		"order": trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, [])),
+		"echo_slot": CharmEffects.first_participating(dice, scored),
+	}
+
+## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice = die
+## GEZEIGTEN Werte, raw = die physischen Seitenwerte). [int base, float mult] -
+## mult ungeklemmt und ungerundet; gerundet wird erst beim Verschmelzen.
+static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm_ids: Array[String], materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array:
+	var shape := hand_shape(key, raw, charm_ids, ctx)
+	var participating: Array[int] = shape["participating"]
+	var scored: Array[int] = shape["scored"]
+	var echo_slot: int = shape["echo_slot"]
 	var base := points_for(key, combo_levels)
 	var mult := float(mult_for(key, combo_levels))
 	var essences := essence_sets_in(ctx)
@@ -373,9 +471,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Auch ohne Materialien können Charms und Essenzen Aktivierungen stapeln.
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
-	var order := trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, []))
-	# Würfelphase in Reihen-Ordnung; je Aktivierung: Augen -> Material ->
-	# würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
+	var order: Array[int] = shape["order"]
+	# Würfelphase in Reihen-Ordnung. ZWEI Achsen: der Würfel tritt die_triggers-mal
+	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
+	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
 	for i in order:
 		var info := level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
@@ -385,89 +484,95 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var rift_ids := RiftEffects.rifts_at(rifts, i)
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus.
 		base += phosphor_store_for(ctx, i)
-		var activations := 1
+		var die_triggers := 1
+		var face_triggers := 1
 		if has_die_bonus:
-			# Nachglühen addiert wie Echo und Sauerstoff - die Essenz bleibt der
-			# einzige Faktor.
-			activations = MaterialEffects.activation_count(i, charm_ids, dice[i], echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, order, essences) + RiftEffects.extra_activations(rift_ids))
+			die_triggers = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
+				EssenceEffects.extra_activations(i, order, essences))
+			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
+			# einzige Faktor der Würfel-Achse.
+			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
-		# Aktivierungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
+		# Zündungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
 		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
 		# endete die Simulation woanders als apply_take_effects. Nur Augen und
 		# die Material-Rechnung DIESES Würfels folgen ihm - Trigger-Ordnung,
 		# Erkennung und alle Charm-Hooks bleiben an den liegenden Werten.
 		var running: int = raw[i] if i < raw.size() else dice[i]
-		for _a in activations:
-			var shown := shown_value(running, charm_ids, essence_ids)
-			# Augen erst durch die Charm-Linse, dann durch die Essenz (Antimaterie
-			# kehrt um). Radons +2 auf FREMDE Würfel kommt danach, und das
-			# Photonengas legt das Licht jeder Auslösung vor sich obendrauf.
-			base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) \
-				+ EssenceEffects.foreign_eye_bonus(i, scored, essences) \
-				+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
-			triggers += 1
-			if not has_die_bonus:
-				continue
-			base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
-			mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
-				+ float(EssenceEffects.mult_bonus_of(essence_ids))
-			for j in charm_ids.size():
-				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
-				mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
-					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating))
-			# Material-Krit (Rubin III, Glas ab II), dann der Essenz-Krit - beide
-			# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
-			# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
-			# das Grubengas zündet an JEDEM Krit sofort mit.
-			var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
-			if not is_equal_approx(mat_crit, 1.0):
-				crits += 1
-				base += firedamp
-			mult *= mat_crit
-			var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits)
-			if not is_equal_approx(ess_crit, 1.0):
-				crits += 1
-				base += firedamp
-			mult *= ess_crit
-			for j in charm_ids.size():
-				var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
-				if not is_equal_approx(die_crit, 1.0):
+		# Ein Durchgang mehr als Würfel-Trigger: der letzte trägt keine Zündung
+		# mehr, nur die deterministischen Essenz-Glieder.
+		for t in die_triggers + 1:
+			for _f in (face_triggers if t < die_triggers else 0):
+				var shown := shown_value(running, charm_ids, essence_ids)
+				# Augen erst durch die Charm-Linse, dann durch die Essenz (Antimaterie
+				# kehrt um). Radons +2 auf FREMDE Würfel kommt danach, und das
+				# Photonengas legt das Licht jeder Zündung vor sich obendrauf.
+				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids)) \
+					+ EssenceEffects.foreign_eye_bonus(i, scored, essences) \
+					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
+				triggers += 1
+				if not has_die_bonus:
+					continue
+				base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
+				mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
+					+ float(EssenceEffects.mult_bonus_of(essence_ids))
+				for j in charm_ids.size():
+					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
+					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
+						+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating))
+				# Material-Krit (Rubin III, Glas ab II), dann der Essenz-Krit - beide
+				# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
+				# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
+				# das Grubengas zündet an JEDEM Krit sofort mit.
+				var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
+				if not is_equal_approx(mat_crit, 1.0):
 					crits += 1
 					base += firedamp
-				mult *= die_crit
-			running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
-		# Leiterbahn: NACH allen Aktivierungen feuert die Kette je Glied EINMAL
-		# wie eine Aktivierung mit getauschter Seite (nie retriggert) - noch an
-		# der Position dieses Würfels, weil Krits die Reihenfolge werten. Glieder
-		# behalten ihren gespeicherten Wert (eine Kette meint fremde Seiten).
-		# RIFTS feuern hier NICHT: ein Riss gehört der oben liegenden Seite, und
-		# ein Glied ist per Definition eine andere Seite.
-		for link in pointer_links_for(ctx, i):
-			var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
-			var link_material := String(link["material"])
-			var link_level := int(link.get("level", 1))
-			base += CharmEffects.eye_value(link_value, charm_ids)
-			triggers += 1
-			if not has_die_bonus:
-				continue
-			base += MaterialEffects.base_once_for(link_material, charm_ids, link_level, eye_sum)
-			mult += float(MaterialEffects.mult_once_for(link_material, link_value, charm_ids, link_level))
-			for j in charm_ids.size():
-				base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
-				mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
-					+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value))
-			var link_crit := MaterialEffects.mult_crit_once_for(link_material, link_value, charm_ids, link_level)
-			if not is_equal_approx(link_crit, 1.0):
-				crits += 1
-				base += firedamp
-			mult *= link_crit
-			for j in charm_ids.size():
-				var link_die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
-				if not is_equal_approx(link_die_crit, 1.0):
+				mult *= mat_crit
+				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits)
+				if not is_equal_approx(ess_crit, 1.0):
 					crits += 1
 					base += firedamp
-				mult *= link_die_crit
+				mult *= ess_crit
+				for j in charm_ids.size():
+					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
+					if not is_equal_approx(die_crit, 1.0):
+						crits += 1
+						base += firedamp
+					mult *= die_crit
+				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids, turn_index)
+			# Glieder: erst die für DIESEN Würfel-Trigger gewürfelte Leiterbahn, im
+			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
+			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position
+			# dieses Würfels, weil Krits die Reihenfolge werten. Glieder tragen ihren
+			# eingefrorenen Wert (eine Kette meint fremde Seiten). RIFTS feuern hier
+			# NICHT: ein Riss gehört der oben liegenden Seite, ein Glied ist per
+			# Definition eine andere.
+			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else essence_links_for(ctx, i)):
+				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
+				var link_material := String(link["material"])
+				var link_level := int(link.get("level", 1))
+				base += CharmEffects.eye_value(link_value, charm_ids)
+				triggers += 1
+				if not has_die_bonus:
+					continue
+				base += MaterialEffects.base_once_for(link_material, charm_ids, link_level, eye_sum)
+				mult += float(MaterialEffects.mult_once_for(link_material, link_value, charm_ids, link_level))
+				for j in charm_ids.size():
+					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
+					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
+						+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value))
+				var link_crit := MaterialEffects.mult_crit_once_for(link_material, link_value, charm_ids, link_level)
+				if not is_equal_approx(link_crit, 1.0):
+					crits += 1
+					base += firedamp
+				mult *= link_crit
+				for j in charm_ids.size():
+					var link_die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
+					if not is_equal_approx(link_die_crit, 1.0):
+						crits += 1
+						base += firedamp
+					mult *= link_die_crit
 	for j in charm_ids.size():
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += float(CharmEffects.mult_bonus_at(j, key, charm_ids) \
@@ -581,7 +686,7 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 ## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
 ## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
 ## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx
-## mit (Leiterbahn-Glieder, Stufen und Essenzen hängen an den Würfeln VOR dem
+## mit (Essenz-Glieder, Stufen und Essenzen hängen an den Würfeln VOR dem
 ## Neuwurf, wie old_materials).
 static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
 	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, combo_levels, ctx)

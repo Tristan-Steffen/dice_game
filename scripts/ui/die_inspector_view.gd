@@ -1006,7 +1006,7 @@ func _held_prompt() -> String:
 			return "Mittelung: klicke die zweite Seite." if second \
 				else "Mittelung: klicke die erste Seite. Rechtsklick: ablegen."
 		Engraving.POINTER:
-			return "Leiterbahn: klicke die Zielseite (ein Nachbar - sie löst mit aus)." if second \
+			return "Leiterbahn: klicke die Zielseite (ein Nachbar - sie löst mit 50 % Chance mit aus)." if second \
 				else "Leiterbahn: klicke die Startseite. Rechtsklick: ablegen."
 		Engraving.DOPING:
 			if not _any_face_eligible():
@@ -1312,7 +1312,7 @@ func _face_tooltip_lines_for(face_index: int) -> Array[String]:
 		lines.append("%s – %s: %s" % [rift.display_name, rift.kind, rift.short])
 	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
 	if pointer_target >= 0:
-		lines.append("Leiterbahn: löst die Seite mit Wert %d einmal mit aus." % current_def.faces[pointer_target])
+		lines.append("Leiterbahn: löst die Seite mit Wert %d zu 50 %% einmal mit aus." % current_def.faces[pointer_target])
 	return lines
 
 ## Dasselbe Fenster für den Rahmen: dort wohnt die Seele des Würfels.

@@ -194,8 +194,8 @@ static func will_o_wisp() -> Essence:
 
 static func plasma() -> Essence:
 	return _make(PLASMA, "Plasma", "Lichtbogen",
-		"Seine Leiterbahn-Ketten laufen zwei Glieder weiter - und dürfen dabei im Kreis springen.",
-		"Ketten +2 Glieder", Rarity.EPIC, Color(0.78, 0.72, 1.0))
+		"Der Lichtbogen hält: seine Leiterbahnen zünden mit 75 % statt 50 %.",
+		"Leiterbahn 75 %", Rarity.EPIC, Color(0.78, 0.72, 1.0))
 
 ## Quintessenz: der fünfte Stoff - sie borgt sich die Seelen aller anderen
 ## liegenden Würfel. Legendär und damit Unikat, also gibt es nie den Fall

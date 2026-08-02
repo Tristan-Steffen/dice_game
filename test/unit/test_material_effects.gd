@@ -49,6 +49,38 @@ func _die(faces: Array, materials: Array = [], levels: Dictionary = {}) -> DieDe
 		def.levels[face] = int(levels[face])
 	return def
 
+# --- Die beiden Auslöse-Achsen ---------------------------------------------------
+# Würfel-Trigger × Seiten-Trigger. Innerhalb einer Achse addiert alles, die
+# Achsen multiplizieren sich - mehr Achsen gibt es nicht.
+
+func test_the_two_axes_multiply():
+	# Quecksilberdampf (×3 Würfel) × Nachglühen (+1 Seite) = 6 Zündungen.
+	var die_axis := MaterialEffects.die_trigger_count(0, NO_CHARMS, -1, _ids([Essence.MERCURY_VAPOR]))
+	var face_axis := MaterialEffects.face_trigger_count(5, NO_CHARMS, 1)
+	assert_eq(die_axis, 3)
+	assert_eq(face_axis, 2)
+	assert_eq(MaterialEffects.total_trigger_count(0, NO_CHARMS, 5, -1,
+		_ids([Essence.MERCURY_VAPOR]), false, 0, 1), 6)
+
+func test_a_retrigger_charm_sits_on_the_face_axis():
+	# Argon (×2 Würfel) × Hasenpfote auf der 6 (+1 Seite) = 4, nie 3.
+	var ids := _ids([Charm.RABBITS_FOOT])
+	assert_eq(MaterialEffects.face_trigger_count(6, ids), 2, "die Hasenpfote zählt die SEITE erneut")
+	assert_eq(MaterialEffects.face_trigger_count(5, ids), 1, "nur auf der 6")
+	assert_eq(MaterialEffects.total_trigger_count(0, ids, 6, -1, _ids([Essence.ARGON])), 4)
+
+func test_the_echo_chamber_sits_on_the_die_axis():
+	# Ohne Seele: die Echo-Kammer addiert einen ANTRITT, die Seiten-Achse bleibt 1.
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, 0), 2, "der Echo-Slot tritt zweimal an")
+	assert_eq(MaterialEffects.die_trigger_count(1, ids, 0), 1, "jeder andere Slot einmal")
+	assert_eq(MaterialEffects.face_trigger_count(5, ids), 1)
+	assert_eq(MaterialEffects.total_trigger_count(0, ids, 5, 0), 2)
+
+func test_both_axes_never_fall_below_one():
+	assert_eq(MaterialEffects.die_trigger_count(0, NO_CHARMS, -1, _ids([]), false, -5), 1)
+	assert_eq(MaterialEffects.face_trigger_count(5, NO_CHARMS, -5), 1)
+
 # --- base_bonus (Bernstein) ------------------------------------------------------
 
 func test_amber_adds_twenty_to_base():
@@ -366,7 +398,7 @@ func test_breakdown_mirrors_the_material_crit():
 	var first_step: Dictionary = breakdown["die_steps"][0]
 	assert_eq(int(first_step["crit_x"]), 2, "der Material-Krit steht im Schritt")
 	assert_eq((first_step["crit_charm_indices"] as Array).size(), 0, "kein Charm-Index dafür")
-	var activation: Dictionary = (first_step["activations"] as Array)[0]
+	var activation: Dictionary = ((first_step["die_triggers"] as Array)[0]["firings"] as Array)[0]
 	assert_true(bool(activation["crit_from_die"]), "der Strahl kommt vom Würfel, nicht vom Dock-Pad")
 
 # Gold: $3 / $7, auf III dazu $1 je ausgelöster Gold-Seite dieser Nahme.
@@ -497,7 +529,7 @@ func test_take_effects_land_on_the_simulated_running_value():
 			var essences := {0: essence_id} if essence_id != "" else {}
 			MaterialEffects.apply_take_effects(defs, _p([0]), _m([face_material]), _p([0]),
 				ids, 0, essences, _p([0]))
-			var activations := MaterialEffects.activation_count(0, ids, value, 0, _ids([essence_id] if essence_id != "" else []))
+			var activations := MaterialEffects.total_trigger_count(0, ids, value, 0, _ids([essence_id] if essence_id != "" else []))
 			assert_eq(defs[0].faces[0],
 				MaterialEffects.value_after_activations(value, activations, face_material,
 					ids, level, _ids([essence_id] if essence_id != "" else [])),
@@ -508,6 +540,13 @@ func test_a_single_activation_is_unchanged_by_the_running_value():
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]), NO_CHARMS, false, mats)
 	assert_eq(score, (10 + 5 + 5) * 2)
+
+## Alle Zündungen eines Würfel-Schritts, über die Trigger-Gruppen hinweg.
+func _firings(step: Dictionary) -> Array:
+	var out: Array = []
+	for group in step["die_triggers"]:
+		out.append_array(group["firings"])
+	return out
 
 func test_the_second_activation_counts_the_grown_bone():
 	# Argon löst zweimal aus: 5 Augen, dann 6 (der Knochen wuchs dazwischen).
@@ -545,7 +584,7 @@ func test_breakdown_carries_the_value_of_every_activation():
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
 	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]),
 		NO_CHARMS, false, mats, {}, _argon(0))
-	var acts: Array = breakdown["die_steps"][0]["activations"]
+	var acts: Array = _firings(breakdown["die_steps"][0])
 	assert_eq(acts.size(), 2, "Argon löst zweimal aus")
 	assert_eq(acts[0]["value"], 5)
 	assert_eq(acts[0]["value_after"], 6, "zwischen den Zählungen gewachsen")

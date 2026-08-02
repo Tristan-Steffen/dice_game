@@ -167,7 +167,7 @@ static func is_rift_id(engraving_id: String) -> bool:
 
 ## Leiterbahn: die Würfel-Gravur, die Seiten miteinander verdrahtet.
 static func pointer_engraving() -> Engraving:
-	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Nach dem Würfel löst die Zielseite einmal voll mit aus (Augen, Material, Charms).", Rarity.EPIC, CATEGORY_DICE)
+	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Die Zielseite löst mit 50 % Chance einmal voll mit aus (Augen, Material, Charms) - und von dort geht es weiter.", Rarity.EPIC, CATEGORY_DICE)
 
 ## Dotierung: die einzige Material-Gravur, die selbst kein Material belegt -
 ## sie hebt das vorhandene Material EINER Seite direkt auf die höchste Stufe.

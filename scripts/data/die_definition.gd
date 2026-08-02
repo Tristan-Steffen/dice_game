@@ -11,8 +11,8 @@ extends Resource
 ## Essenz des GANZEN Würfels ("" = keine). ANGEBOREN: beim Guss versiegelt, es
 ## gibt keinen Auftragsweg - nur Würfelfabriken und Angebote schreiben sie.
 @export var essence_id: String = ""
-## Leiterbahn je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Die Kette ab
-## der oben liegenden Seite feuert nach dem Würfelschritt je Glied EINMAL mit.
+## Leiterbahn je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Sie zündet nur
+## auf Chance (DiceScoring.POINTER_CHANCE), Sprung für Sprung.
 @export var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
 ## Sättigung je Seite: Stufe des Materials DIESER Seite (0 = keins, sonst 1-3).
 ## Die Stufe wohnt in der Glasur, nicht in der Seite - ein neues Material fängt
@@ -134,38 +134,13 @@ func can_point(from_face: int, to_face: int) -> bool:
 		return false
 	return to_face != from_face and to_face != opposite_face(from_face)
 
-## Leiterbahn-Kette ab up_face: gefeuerte Seiten in Reihenfolge (ohne up_face).
-## Jede Seite höchstens einmal - ein Zyklus endet einfach.
-## extra_links (Plasma) hängt Glieder an und erlaubt dort ZYKLEN: eine schon
-## besuchte Seite feuert erneut. Die Länge ist Laufzeit-Zustand, nie Def-Zustand -
-## Wertung, Nehmen-Effekte und Vorschau MÜSSEN denselben Wert übergeben, sonst
-## zählen sie verschieden lange Ketten.
-func pointer_chain(up_face: int, extra_links: int = 0) -> Array[int]:
-	var chain: Array[int] = []
-	if up_face < 0 or up_face >= pointers.size():
-		return chain
-	var visited: Array[int] = [up_face]
-	var current := up_face
-	var bonus := maxi(0, extra_links)
-	while true:
-		var next: int = pointers[current] if current < pointers.size() else -1
-		if next < 0 or next >= 6:
-			break
-		if visited.has(next):
-			# Normal endet die Kette hier; der Lichtbogen läuft weiter, solange
-			# er Zusatzglieder hat.
-			if bonus <= 0:
-				break
-			bonus -= 1
-		else:
-			visited.append(next)
-		chain.append(next)
-		current = next
-		# Ohne Zyklus begrenzt der visited-Satz die Länge; mit Plasma zusätzlich
-		# die Zusatzglieder - eine harte Schranke gegen Endlosschleifen.
-		if chain.size() >= 6 + maxi(0, extra_links):
-			break
-	return chain
+## Ziel-Seite der Leiterbahn dieser Seite (-1 = keine). Ob sie zündet, würfelt
+## DiceScoring.roll_pointer_fires aus - die Def kennt nur die Verdrahtung.
+func pointer_target(face: int) -> int:
+	if face < 0 or face >= pointers.size():
+		return -1
+	var target: int = pointers[face]
+	return target if target >= 0 and target < 6 else -1
 
 static func standard() -> DieDefinition:
 	return DieDefinition.new()

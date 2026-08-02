@@ -105,8 +105,9 @@ func test_solar_wind_rides_every_essence_counted_before_it():
 	assert_eq(EssenceEffects.extra_activations(2, order, alone), 0, "ohne Vorläufer kein Rückenwind")
 
 func test_extra_activations_stay_additive_next_to_the_factor():
-	# Argon (×2) + Sauerstoff davor (+1) = 3, nie 4: nur die Essenz multipliziert.
-	var count := MaterialEffects.activation_count(1, NO_CHARMS, 5, -1, _ids([Essence.ARGON]), false, 1)
+	# Argon (×2) + Sauerstoff davor (+1) = 3, nie 4: auf der Würfel-Achse
+	# multipliziert nur die Essenz, alles andere addiert.
+	var count := MaterialEffects.die_trigger_count(1, NO_CHARMS, -1, _ids([Essence.ARGON]), false, 1)
 	assert_eq(count, 3)
 
 # --- Augen: Wasserstoff-Linse, Antimaterie, Radon --------------------------------
@@ -645,30 +646,28 @@ func test_cyanide_pays_per_own_gold_face_once_per_turn():
 
 func test_xray_fires_the_opposite_face_once():
 	var die := _die_with(Essence.XRAY)
-	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
+	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
 	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "genau die Gegenseite")
 
-func test_xray_dedups_against_a_real_pointer_chain():
+func test_essence_links_ignore_the_pointer_wiring():
 	var die := _die_with(Essence.XRAY)
-	# Eine echte Kette, die schon auf der Gegenseite landet, gibt es nicht
-	# (Leiterbahnen zeigen nur auf Nachbarn) - also hängt Röntgen hinten an.
+	# Die Leiterbahn läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
+	# nur, was die Seele deterministisch mitzieht.
 	die.pointers[1] = 0
-	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
-	assert_eq(faces, _p([0, DieDefinition.opposite_face(1)]), "erst die Kette, dann das Licht")
-	# Mit Korona ist die Gegenseite nie doppelt dabei.
-	var ring := EssenceEffects.link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
+	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
+	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "der Zeiger gehört nicht hierher")
+	var ring := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
 	assert_eq(ring.count(DieDefinition.opposite_face(1)), 1, "jede Seite feuert höchstens einmal")
-	assert_eq(ring.count(0), 1, "die Kette hat Vorrang, der Ring überspringt sie")
 
 func test_corona_fires_all_four_neighbours():
 	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA]))
+	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA]))
 	assert_eq(faces, DieDefinition.adjacent_faces(2), "vier Nachbarn, aufsteigend")
 	assert_false(faces.has(DieDefinition.opposite_face(2)), "die Gegenseite gehört dem Röntgenlicht")
 
 func test_corona_ring_comes_before_the_xray_face():
 	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
+	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
 	assert_eq(faces.size(), 5)
 	assert_eq(faces[4], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
 
