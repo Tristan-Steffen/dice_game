@@ -26,8 +26,12 @@ const ALL_OR_NOTHING_MULT := 5
 const HOUSE_JOKER_MULT := 4
 const FREE_DRINK_BASE := 50
 
-## Volle Hand: so viele Würfel muss eine Kombination nutzen (Midashandschuh).
+## Volle Hand: so viele Würfel muss eine Kombination nutzen (Midashandschuh,
+## Sechserpack).
 const FULL_HAND_DICE := 6
+
+## Quadratur: ab so vielen gewerteten Würfeln legt sie los.
+const QUADRATURE_MIN_DICE := 4
 
 ## Gleichmacher: Basispunkt-Boden je beteiligtem Würfel.
 const EQUALIZER_FLOOR := 10
@@ -142,6 +146,10 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 			# Nur am vordersten gewerteten Würfel, dort die ganze Augensumme.
 			if slot == first_participating(values, scored):
 				return _participating_sum(values, scored)
+		Charm.QUADRATURE:
+			# Erst ab einer breiten Hand, und dort nur am niedrigsten Würfel.
+			if scored.size() >= QUADRATURE_MIN_DICE and slot == target_die(values, scored, false):
+				return values[slot] * values[slot]
 	return 0
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
@@ -404,6 +412,14 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 ## MaterialEffects.die_trigger_count über echo_slot.
 static func echo_retriggers(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ECHO_CHAMBER)
+
+## Sechserpack: zusätzliche Antritte JEDES Würfels, sobald die Hand die volle
+## Sechs nutzt (Würfel-Achse, additiv wie die Echo-Kammer). scored_count ist die
+## Zahl der gewerteten Würfel - beim Vollzähler also alle liegenden.
+static func full_hand_retriggers(charm_ids: Array[String], scored_count: int) -> int:
+	if scored_count < FULL_HAND_DICE:
+		return 0
+	return charm_ids.count(Charm.SIX_PACK)
 
 ## Gewertete Slots: normal die beteiligten, mit Vollzähler ALLE liegenden Würfel
 ## (0..die_count) - so lösen auch unbeteiligte Würfel Augen, Material und Pro-

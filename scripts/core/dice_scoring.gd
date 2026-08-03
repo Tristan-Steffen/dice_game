@@ -522,7 +522,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var face_triggers := 1
 		if has_die_bonus:
 			die_triggers = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, order, essences, charm_ids))
+				EssenceEffects.extra_activations(i, order, essences, charm_ids), order.size())
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
 			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))

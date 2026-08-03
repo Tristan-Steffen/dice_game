@@ -51,6 +51,17 @@ func test_a_card_shows_both_clause_effects() -> void:
 	assert_true(_texts_contain(texts, DealClause.advance_payment().text))
 	assert_true(_texts_contain(texts, DealClause.empties().text))
 
+func test_a_doubled_bonus_shows_its_doubled_text() -> void:
+	# Winkeladvokat: die Karte muss die Zahl zeigen, die GameRun wirklich bucht -
+	# der Malus daneben bleibt unberührt.
+	view.open(_cards_in([
+		_card(DealClause.Tier.ONE, DealClause.ADVANCE_PAYMENT, DealClause.EMPTIES)]), false, 2)
+	var texts := _label_texts()
+	assert_true(_texts_contain(texts, DealClause.text_for(DealClause.ADVANCE_PAYMENT, 2)))
+	assert_false(_texts_contain(texts, DealClause.advance_payment().text),
+		"die einfache Fassung steht nicht mehr da")
+	assert_true(_texts_contain(texts, DealClause.empties().text), "der Malus bleibt einfach")
+
 func test_a_card_never_prints_the_scope_labels() -> void:
 	# Entrümpelt: die kleine graue Laufzeit-Zeile steht nicht mehr auf der Karte.
 	view.open(_cards_in([

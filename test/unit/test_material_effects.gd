@@ -81,6 +81,21 @@ func test_both_axes_never_fall_below_one():
 	assert_eq(MaterialEffects.die_trigger_count(0, NO_CHARMS, -1, _ids([]), false, -5), 1)
 	assert_eq(MaterialEffects.face_trigger_count(5, NO_CHARMS, -5), 1)
 
+func test_the_six_pack_sits_on_the_die_axis():
+	# Volle Hand: JEDER Slot tritt einmal öfter an, nicht nur ein ausgezeichneter.
+	var ids := _ids([Charm.SIX_PACK])
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, -1, _ids([]), false, 0, 6), 2)
+	assert_eq(MaterialEffects.die_trigger_count(3, ids, -1, _ids([]), false, 0, 6), 2)
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, -1, _ids([]), false, 0, 5), 1, "fünf Würfel reichen nicht")
+	assert_eq(MaterialEffects.face_trigger_count(5, ids), 1, "die Seiten-Achse bleibt unberührt")
+
+func test_the_six_pack_stacks_and_multiplies_with_the_face_axis():
+	# Zwei Exemplare addieren auf der Würfel-Achse; die Hasenpfote multipliziert.
+	var double := _ids([Charm.SIX_PACK, Charm.SIX_PACK])
+	assert_eq(MaterialEffects.die_trigger_count(0, double, -1, _ids([]), false, 0, 6), 3)
+	var mixed := _ids([Charm.SIX_PACK, Charm.RABBITS_FOOT])
+	assert_eq(MaterialEffects.total_trigger_count(0, mixed, 6, -1, _ids([]), false, 0, 0, 6), 4)
+
 # --- base_bonus (Bernstein) ------------------------------------------------------
 
 func test_amber_adds_twenty_to_base():
@@ -535,6 +550,22 @@ func test_take_effects_land_on_the_simulated_running_value():
 					ids, level, _ids([essence_id] if essence_id != "" else [])),
 				"Wert %d, Seite '%s', Stufe %d, Essenz '%s', %d Echos" % [value, face_material, level, essence_id, echoes])
 
+func test_the_six_pack_take_lands_on_the_simulated_running_value():
+	# Volle Hand: der Knochen tritt zweimal an, wächst also 5 -> 6 -> 7. Die
+	# Buchung muss exakt dort landen, wo die Simulation aufhört.
+	var ids := _ids([Charm.SIX_PACK])
+	var defs: Array[DieDefinition] = []
+	for _i in 6:
+		defs.append(_die([5, 2, 3, 4, 5, 6], [DieMaterial.BONE, "", "", "", "", ""]))
+	var slots := _p([0, 1, 2, 3, 4, 5])
+	var mats := _m([DieMaterial.BONE, DieMaterial.BONE, DieMaterial.BONE,
+		DieMaterial.BONE, DieMaterial.BONE, DieMaterial.BONE])
+	MaterialEffects.apply_take_effects(defs, _p([0, 0, 0, 0, 0, 0]), mats, slots, ids, -1, {}, slots)
+	var activations := MaterialEffects.total_trigger_count(0, ids, 5, -1, _ids([]), false, 0, 0, 6)
+	assert_eq(activations, 2)
+	assert_eq(defs[0].faces[0],
+		MaterialEffects.value_after_activations(5, activations, DieMaterial.BONE, ids))
+
 func test_a_single_activation_is_unchanged_by_the_running_value():
 	# Ohne zweite Auslösung darf der Wertwandel nichts verschieben.
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
@@ -590,6 +621,66 @@ func test_breakdown_carries_the_value_of_every_activation():
 	assert_eq(acts[0]["value_after"], 6, "zwischen den Zählungen gewachsen")
 	assert_eq(acts[1]["value"], 6)
 	assert_eq(acts[1]["value_after"], 7)
+
+# --- Gleichrichter: der LETZTE Wertwandel des Zuges ------------------------------
+
+## Drei gewertete Würfel mit den Werten a/b/c, alle ohne Material.
+func _rectifier_defs(values: Array) -> Array[DieDefinition]:
+	var defs: Array[DieDefinition] = []
+	for v: int in values:
+		defs.append(_die([v, 2, 3, 4, 5, 6]))
+	return defs
+
+func test_the_rectifier_levels_the_scored_faces_to_the_rounded_mean():
+	# 2 + 3 + 6 = 11, /3 = 3,67 -> aufgerundet 4.
+	var defs := _rectifier_defs([2, 3, 6])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m(["", "", ""]),
+		_p([0, 1, 2]), _ids([Charm.RECTIFIER]))
+	for i in 3:
+		assert_eq(defs[i].faces[0], 4, "Slot %d steht auf dem Mittelwert" % i)
+	assert_eq(report.grown, [0, 1], "die beiden niedrigen sind gewachsen")
+	assert_eq(report.shrunk, [2], "der hohe ist geschrumpft")
+
+func test_the_rectifier_runs_after_the_value_mutations():
+	# Der Knochen wächst erst von 5 auf 6, DANN wird gemittelt: (6 + 2) / 2 = 4.
+	var defs := _rectifier_defs([5, 2])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]),
+		_m([DieMaterial.BONE, ""]), _p([0, 1]), _ids([Charm.RECTIFIER]))
+	assert_eq(defs[0].faces[0], 4, "der gewachsene Knochen fällt auf den Mittelwert")
+	assert_eq(defs[1].faces[0], 4)
+	assert_true(report.grown.has(0), "gewachsen ist er trotzdem gemeldet")
+
+func test_the_rectifier_never_shrinks_a_protected_face():
+	# Stickstoff schützt Slot 0 (6): er bleibt, zählt aber in den Mittelwert
+	# (6 + 2) / 2 = 4, auf den Slot 1 steigt.
+	var defs := _rectifier_defs([6, 2])
+	defs[0].essence_id = Essence.NITROGEN
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		_ids([Charm.RECTIFIER]), -1, {0: Essence.NITROGEN})
+	assert_eq(defs[0].faces[0], 6, "die geschützte Seite schrumpft nicht")
+	assert_eq(defs[1].faces[0], 4, "sie zählt aber in den Mittelwert")
+
+func test_the_rectifier_still_grows_a_protected_face():
+	# Schutz wehrt nur den Verlust ab: (2 + 6) / 2 = 4, Slot 0 steigt.
+	var defs := _rectifier_defs([2, 6])
+	defs[0].essence_id = Essence.NITROGEN
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		_ids([Charm.RECTIFIER]), -1, {0: Essence.NITROGEN})
+	assert_eq(defs[0].faces[0], 4)
+
+func test_the_rectifier_leaves_unscored_dice_alone():
+	var defs := _rectifier_defs([2, 6, 5])
+	MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m(["", "", ""]), _p([0, 1]),
+		_ids([Charm.RECTIFIER]), -1, {}, _p([]), false, _p([0, 1, 2]))
+	assert_eq(defs[0].faces[0], 4, "(2 + 6) / 2 = 4")
+	assert_eq(defs[1].faces[0], 4)
+	assert_eq(defs[2].faces[0], 5, "der ungewertete Würfel bleibt, wie er liegt")
+
+func test_without_the_rectifier_nothing_levels():
+	var defs := _rectifier_defs([2, 3, 6])
+	MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m(["", "", ""]), _p([0, 1, 2]))
+	assert_eq(defs[0].faces[0], 2)
+	assert_eq(defs[2].faces[0], 6)
 
 # --- Datensatz: die Stufe gehört dem Würfel, nicht der geteilten Vorlage --------
 

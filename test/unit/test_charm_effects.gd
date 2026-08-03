@@ -76,6 +76,44 @@ func test_retrigger_clover_and_scarab_hit_their_face():
 func test_retrigger_stacks_per_copy():
 	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT, Charm.RABBITS_FOOT])), 2)
 
+func test_full_hand_retriggers_arm_only_on_all_six():
+	var ids := _ids([Charm.SIX_PACK])
+	assert_eq(CharmEffects.full_hand_retriggers(ids, 6), 1)
+	assert_eq(CharmEffects.full_hand_retriggers(ids, 5), 0, "fünf Würfel reichen nicht")
+	assert_eq(CharmEffects.full_hand_retriggers(ids, 0), 0)
+	assert_eq(CharmEffects.full_hand_retriggers(_ids([]), 6), 0, "ohne Charm nichts")
+
+func test_full_hand_retriggers_stack_per_copy():
+	assert_eq(CharmEffects.full_hand_retriggers(_ids([Charm.SIX_PACK, Charm.SIX_PACK]), 6), 2)
+
+# --- Quadratur (würfelgebunden, ab vier gewerteten Würfeln) ------------------
+
+func test_quadrature_squares_the_lowest_of_four():
+	# Vier gewertete Würfel: die 2 auf Slot 1 ist die niedrigste, 2² = 4.
+	var ids := _ids([Charm.QUADRATURE])
+	var values := _d([5, 2, 4, 3, 6, 6])
+	var scored := _d([0, 1, 2, 3])
+	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.FOUR_KIND, values, ids, {}, scored), 4)
+	for slot in [0, 2, 3]:
+		assert_eq(CharmEffects.die_charm_base_at(0, slot, DiceScoring.FOUR_KIND, values, ids, {}, scored), 0,
+			"nur der niedrigste Würfel, Slot %d" % slot)
+
+func test_quadrature_stays_quiet_below_four_dice():
+	var ids := _ids([Charm.QUADRATURE])
+	var values := _d([5, 2, 4, 3, 6, 6])
+	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.THREE_KIND, values, ids, {}, _d([0, 1, 2])), 0,
+		"drei gewertete Würfel sind zu wenig")
+	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.THREE_KIND, values, ids), 0,
+		"ohne gewertete Slots nichts")
+
+func test_quadrature_breaks_ties_toward_the_smallest_slot():
+	# Zwei gleich niedrige Zweien: der kleinere Slot gewinnt (target_die).
+	var ids := _ids([Charm.QUADRATURE])
+	var values := _d([2, 5, 2, 6])
+	var scored := _d([0, 1, 2, 3])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_PAIR, values, ids, {}, scored), 4)
+	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_PAIR, values, ids, {}, scored), 0)
+
 # --- Gewertete Menge (Vollzähler) --------------------------------------------
 
 func test_scored_indices_is_participating_without_full_counter():

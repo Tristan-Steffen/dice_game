@@ -60,11 +60,12 @@ class TakeReport:
 ## WÜRFEL-Achse des Slots i: wie oft der ganze Würfel antritt. Der Essenz-Faktor
 ## ist der einzige Faktor, alles andere addiert - die Echo-Kammer auf echo_slot,
 ## extra aus der Zählreihenfolge (Sauerstoff/Sonnenwind, die nur der Aufrufer
-## kennt).
-static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0) -> int:
+## kennt). scored_count = Zahl der gewerteten Würfel, für das Sechserpack.
+static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0) -> int:
 	var count := EssenceEffects.activation_factor_of(essence_ids, charm_ids, is_stress)
 	if i == echo_slot:
 		count += CharmEffects.echo_retriggers(charm_ids)
+	count += CharmEffects.full_hand_retriggers(charm_ids, scored_count)
 	return maxi(1, count + extra)
 
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -
@@ -75,8 +76,8 @@ static func face_trigger_count(value: int, charm_ids: Array[String], extra: int 
 
 ## Zündungen der oberen Seite insgesamt: die beiden Achsen MULTIPLIZIEREN sich.
 ## Eine Quelle für Wertung, Schrittliste und Nehmen-Effekte.
-static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0) -> int:
-	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra) \
+static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0, scored_count: int = 0) -> int:
+	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count) \
 		* face_trigger_count(value, charm_ids, face_extra)
 
 ## Basis-Bonus EINER Auslösung des Slots i - nur der Träger, ohne Augen.
@@ -229,7 +230,7 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 	var bonus := 0
 	for i in participating:
 		var info := level_of(levels, i)
-		var activations := total_trigger_count(i, charm_ids, values[i], echo_slot)
+		var activations := total_trigger_count(i, charm_ids, values[i], echo_slot, [], false, 0, 0, participating.size())
 		bonus += base_bonus_once(i, materials, charm_ids, level_in(info), int(info.get("eye_sum", 0))) * activations
 		if activations > 1:
 			bonus += CharmEffects.eye_value(values[i], charm_ids) * (activations - 1)
@@ -244,7 +245,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 	var bonus := 0
 	for i in participating:
 		var level := level_in(level_of(levels, i))
-		var effect_count := total_trigger_count(i, charm_ids, values[i], echo_slot)
+		var effect_count := total_trigger_count(i, charm_ids, values[i], echo_slot, [], false, 0, 0, participating.size())
 		bonus += mult_bonus_once(i, values, materials, charm_ids, level) * effect_count
 	return bonus
 
@@ -292,7 +293,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(i, order, essences, charm_ids))
+			EssenceEffects.extra_activations(i, order, essences, charm_ids), participating.size())
 		var face_triggers := face_trigger_count(shown, charm_ids, RiftEffects.extra_activations(rift_ids))
 		var effect_count := die_triggers * face_triggers
 		var fires: Array = pointer_fires.get(i, [])
@@ -349,6 +350,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			report.decayed.append(i)
 
 	_spread_miasma(defs, face_indices, participating, essences, charm_ids, report)
+
+	if charm_ids.has(Charm.RECTIFIER):
+		_rectify_faces(defs, face_indices, participating, essences, report)
 
 	# Streulicht: das Gegen-Ereignis zum Gold. Was am Zugende UNGEWERTET auf dem
 	# Tisch liegt und seine Riss-Seite zeigt, streut sein Licht ins Filz.
@@ -448,6 +452,43 @@ static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int],
 			if not report.grown.has(other):
 				report.grown.append(other)
 
+## Gleichrichter: die oberen Seiten aller gewerteten Würfel gehen dauerhaft auf
+## ihren aufgerundeten Mittelwert. LETZTER Wertwandel des Zuges - nach Knochen,
+## Glas, Kontrastmittel, Zerfall und Miasma, damit er die Endwerte mittelt.
+## Geschützte Seiten (Stickstoff, Einbrand) dürfen nicht SCHRUMPFEN, zählen aber
+## in den Mittelwert; Wachsen ist ihnen erlaubt.
+static func _rectify_faces(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int], essences: Dictionary, report: TakeReport) -> void:
+	var sum := 0
+	var count := 0
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size() or defs[i] == null:
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].faces.size():
+			continue
+		sum += defs[i].faces[face]
+		count += 1
+	if count == 0:
+		return
+	var mean := ceili(float(sum) / float(count))
+	for i in participating:
+		if i >= defs.size() or i >= face_indices.size() or defs[i] == null:
+			continue
+		var face: int = face_indices[i]
+		if face < 0 or face >= defs[i].faces.size():
+			continue
+		var current: int = defs[i].faces[face]
+		if mean == current:
+			continue
+		if mean < current and _value_protected(EssenceEffects.set_at(essences, i), defs[i].rifts_on(face)):
+			continue
+		defs[i].faces[face] = mean
+		if mean > current:
+			if not report.grown.has(i):
+				report.grown.append(i)
+		elif not report.shrunk.has(i):
+			report.shrunk.append(i)
+
 ## EINE Glied-Zündung auf die Def: Gold zahlt, Knochen/Glas wandeln die GLIED-
 ## Seite auf IHRER Stufe (nie der der oberen). Ein Glied kann mehrfach zünden -
 ## dann wandert der Wert Zündung für Zündung weiter, wie der eingefrorene Wurf
@@ -495,7 +536,7 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
 			triggers += total_trigger_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, order, essences, charm_ids),
-				RiftEffects.extra_activations(defs[i].rifts_on(face)))
+				RiftEffects.extra_activations(defs[i].rifts_on(face)), participating.size())
 		for group in pointer_fires.get(i, []):
 			for fire in group:
 				var fired: int = int(fire["face"])

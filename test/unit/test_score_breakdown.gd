@@ -170,6 +170,42 @@ func test_lighthouse_fires_with_its_die_per_activation():
 	assert_eq(breakdown["die_steps"][1]["die_charm_indices"], [], "der Partner-Würfel bleibt leer")
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
 
+## Der Würfel-Schritt eines Slots - die Schritte stehen in Reihen-Ordnung, nicht
+## in Slot-Ordnung.
+func _step_for_slot(breakdown: Dictionary, slot: int) -> Dictionary:
+	for step: Dictionary in breakdown["die_steps"]:
+		if int(step["slot"]) == slot:
+			return step
+	return {}
+
+func test_quadrature_fires_inside_the_lowest_die_step():
+	# Full House aus fünf gewerteten Würfeln: die niedrigste 2 auf Slot 0 legt
+	# 2² = 4 Basispunkte in ihren EIGENEN Schritt.
+	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 5, 5, 1]), _ids([Charm.QUADRATURE]))
+	var step := _step_for_slot(breakdown, 0)
+	assert_eq(step["die_charm_indices"], [0], "die Quadratur hängt am niedrigsten Würfel")
+	assert_eq(int(step["charm_base_add"]), 4, "2² = 4 Basispunkte")
+	assert_eq(_step_for_slot(breakdown, 3)["die_charm_indices"], [], "die Fünfer bleiben leer")
+	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt")
+
+func test_quadrature_stays_out_of_a_narrow_hand():
+	var breakdown := _build_and_check(DiceScoring.THREE_KIND, _d([2, 2, 2, 5, 4, 1]), _ids([Charm.QUADRATURE]))
+	for step: Dictionary in breakdown["die_steps"]:
+		assert_eq(step["die_charm_indices"], [], "drei gewertete Würfel lösen sie nicht aus")
+
+func test_six_pack_retriggers_every_die_of_a_full_hand():
+	# Große Straße = alle sechs Würfel: JEDER Schritt zündet zweimal.
+	var breakdown := _build_and_check(DiceScoring.LARGE_STRAIGHT, _d([1, 2, 3, 4, 5, 6]), _ids([Charm.SIX_PACK]))
+	assert_eq(breakdown["die_steps"].size(), 6)
+	for step: Dictionary in breakdown["die_steps"]:
+		assert_eq(_firings(step).size(), 2, "Slot %d tritt zweimal an" % int(step["slot"]))
+
+func test_six_pack_sleeps_below_a_full_hand():
+	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 5, 5, 1]), _ids([Charm.SIX_PACK]))
+	assert_eq(breakdown["die_steps"].size(), 5)
+	for step: Dictionary in breakdown["die_steps"]:
+		assert_eq(_firings(step).size(), 1, "fünf Würfel reichen nicht")
+
 func test_beherit_crits_inside_its_die_step():
 	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×4, verzahnt
 	# (Würfel -> Charm -> Würfel -> Charm), Kette endet am Schritt-Endstand.

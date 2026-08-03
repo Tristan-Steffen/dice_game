@@ -67,9 +67,12 @@ func _make_token(clause: DealClause, side: Dictionary, u: float) -> Control:
 	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	token.add_child(glyph)
 
+	# Der Text kommt fertig aus GameRun.active_deal_sides (Winkeladvokat-Zahlen);
+	# ohne ihn - Tests, alte Aufrufer - steht der Grundtext der Klausel da.
 	token.set_meta("hint", {
 		"title": clause.display_name,
-		"body": "%s\n(%s)" % [clause.text, DealClause.scope_label(side["scope"])],
+		"body": "%s\n(%s)" % [String(side.get("text", clause.text)),
+			DealClause.scope_label(side["scope"])],
 		"accent": accent})
 	if self_hover:
 		token.mouse_entered.connect(func() -> void:

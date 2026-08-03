@@ -308,6 +308,18 @@ static func gold_face_money_of(essence_ids: Array[String], materials: Array[Stri
 		money += maxi(0, foreign_gold_faces) * AQUA_FORTIS_PER_GOLD
 	return money
 
+## Ethylen: zählt der Würfel in einer Runde zum ersten Mal, wirft er je
+## VERSCHIEDENEM Material seiner Seiten eine Gravur ab. Die Ernte selbst bucht
+## GameRun.apply_material_harvest - sie greift in den Vorrat, nicht in die Wertung.
+static func harvests_materials(essence_id: String) -> bool:
+	return essence_id == Essence.ETHYLENE
+
+static func harvests_materials_of(essence_ids: Array[String]) -> bool:
+	for essence_id in essence_ids:
+		if harvests_materials(essence_id):
+			return true
+	return false
+
 ## Irrlicht: der klassische Falschspieler-Move - einmal je Runde darf dieser
 ## Würfel nach dem Liegen auf eine Nachbarseite kippen.
 static func can_tip(essence_id: String) -> bool:

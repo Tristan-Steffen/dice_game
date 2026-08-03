@@ -28,6 +28,8 @@ const SECTION_MAX := 219
 var offers: Array[Dictionary] = []
 ## Stresstest-Runde: andere Überschrift, die Karten sind Boss-Konditionen.
 var stress_round := false
+## Bonus-Faktor des Winkeladvokats; die Karte zeigt die verdoppelten Zahlen.
+var bonus_factor := 1
 
 var _cards: Array[Control] = []
 
@@ -37,9 +39,10 @@ func _init() -> void:
 	clip_contents = true  # nie über den Hub-Rahmen hinaus (dort endet die Maus)
 
 ## Baut die Auslage neu auf und zeigt sie. cards kommt aus GameRun.route_offers.
-func open(cards: Array[Dictionary], is_stress: bool = false) -> void:
+func open(cards: Array[Dictionary], is_stress: bool = false, deal_bonus_factor: int = 1) -> void:
 	offers = cards.duplicate()
 	stress_round = is_stress
+	bonus_factor = deal_bonus_factor
 	_build()
 	visible = true
 
@@ -125,7 +128,7 @@ func _make_card(offer: Dictionary, index: int, u: float) -> Control:
 	column.add_child(title)
 	column.add_child(_line("§ %d" % _section_for(offer), u * 2.0,
 		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
-	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u)
+	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u, bonus_factor)
 	_add_clause_block(column, String(offer.get(GameRun.CARD_MALUS, "")), MALUS_COLOR, u)
 	return card
 
@@ -135,13 +138,12 @@ func _section_for(offer: Dictionary) -> int:
 	var stamp := String(offer.get(GameRun.CARD_BONUS, "")) + String(offer.get(GameRun.CARD_MALUS, ""))
 	return SECTION_MIN + absi(hash(stamp)) % (SECTION_MAX - SECTION_MIN + 1)
 
-func _add_clause_block(column: VBoxContainer, clause_id: String, color: Color, u: float) -> void:
-	var clause := DealClause.find(clause_id)
-	if clause == null:
+func _add_clause_block(column: VBoxContainer, clause_id: String, color: Color, u: float, factor: int = 1) -> void:
+	if DealClause.find(clause_id) == null:
 		return
 	# Nur die Wirkung, mittig (die Karte ist breiter als hoch). Die Laufzeit steht
 	# nicht mehr auf der Karte - sie lebt an den Deal-Marken (Größe = Dauer).
-	var body := _line(clause.text, u * 2.8, color, HORIZONTAL_ALIGNMENT_CENTER)
+	var body := _line(DealClause.text_for(clause_id, factor), u * 2.8, color, HORIZONTAL_ALIGNMENT_CENTER)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(body)
 

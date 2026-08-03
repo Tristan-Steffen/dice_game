@@ -316,6 +316,66 @@ func test_the_glaze_brush_copies_a_capped_material():
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 1)
 	assert_eq(run.engraving_stock(DieMaterial.GOLD), 1, "die Kopie liegt im Vorrat")
 
+# --- Ethylen: die Ernte und ihre Druckerpresse -----------------------------------
+
+## Ethylen-Würfel mit Gold auf zwei Seiten und Rubin auf einer - zwei
+## VERSCHIEDENE Materialien, also zwei Kopien je Ernte.
+func _ethylene_die() -> DieDefinition:
+	var die := _die_with(Essence.ETHYLENE)
+	die.set_face_material(0, DieMaterial.GOLD)
+	die.set_face_material(1, DieMaterial.GOLD)
+	die.set_face_material(2, DieMaterial.RUBY)
+	return die
+
+func test_ethylene_harvests_each_material_once():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_ethylene_die()]
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2,
+		"je verschiedenem Material eine Gravur, nicht je Seite")
+	assert_eq(run.engraving_stock(DieMaterial.GOLD), 1)
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+
+func test_the_harvest_fires_once_per_round_per_die():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_ethylene_die()]
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2)
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 0,
+		"die zweite Hand derselben Runde erntet nicht erneut")
+	run.roll_essence_round_state()
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2,
+		"die neue Runde reift nach")
+
+func test_the_printing_press_prints_every_copy_twice():
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.printing_press())
+	var defs: Array[DieDefinition] = [_ethylene_die()]
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 4)
+	assert_eq(run.engraving_stock(DieMaterial.GOLD), 2)
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2)
+
+func test_the_quintessence_borrows_the_harvest():
+	var run := GameRun.new_run()
+	var die := _ethylene_die()
+	die.essence_id = Essence.QUINTESSENCE
+	var defs: Array[DieDefinition] = [die]
+	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE}, _ids([Essence.ETHYLENE]))
+	assert_eq(run.apply_material_harvest(defs, _p([0]), sets), 2,
+		"die geborgte Seele erntet die EIGENEN Materialien")
+
+func test_a_soulless_die_harvests_nothing():
+	var run := GameRun.new_run()
+	var bare := _die_with(Essence.ETHYLENE)
+	var defs: Array[DieDefinition] = [_die_with(""), bare]
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {}), 0, "ohne Ethylen keine Ernte")
+	assert_eq(run.apply_material_harvest(defs, _p([1]), {1: Essence.ETHYLENE}), 0,
+		"ohne Material auf den Seiten nichts zu ernten")
+
+func test_an_unscored_ethylene_die_stays_unharvested():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_ethylene_die(), _ethylene_die()]
+	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE, 1: Essence.ETHYLENE}), 2,
+		"nur der gewertete Würfel erntet")
+
 func test_alkahest_lends_the_discarded_souls_to_the_quintessence():
 	var lying := {0: Essence.QUINTESSENCE}
 	var borrowed := EssenceEffects.set_at(

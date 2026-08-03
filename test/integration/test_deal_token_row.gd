@@ -44,6 +44,15 @@ func test_the_hint_carries_effect_and_duration() -> void:
 	assert_eq(hint["accent"], DealTokenRow.MALUS_COLOR)
 	assert_true(row.hint_for(null).is_empty(), "ohne Marke kein Hinweis")
 
+func test_the_hint_prefers_the_delivered_text() -> void:
+	# GameRun.active_deal_sides liefert den Text fertig mit (Winkeladvokat-Zahlen);
+	# die Reihe kennt keinen GameRun und übernimmt ihn ungefragt.
+	var side := _side(DealClause.SAVINGS_BONUS)
+	side["text"] = DealClause.text_for(DealClause.SAVINGS_BONUS, 2)
+	row.set_sides(_sides([side]), 10.0)
+	var body: String = row.hint_for(row.get_child(0) as Control)["body"]
+	assert_string_contains(body, DealClause.text_for(DealClause.SAVINGS_BONUS, 2))
+
 func test_token_at_finds_the_mark_under_the_pixel() -> void:
 	# Der Weg in der Grube: dort erreicht keine Maus die Marken, scene_root fragt
 	# je Frame mit dem Display-Pixel nach.

@@ -401,6 +401,49 @@ static func find(clause_id: String) -> DealClause:
 			return clause
 	return null
 
+## Wirkungstext einer Klausel, gelesen mit dem Bonus-Faktor des Winkeladvokats.
+## Die verdoppelte Fassung steht ausgeschrieben da, statt aus der Grundfassung
+## gerechnet zu werden: "doppelt" wird "vierfach", nicht "doppelt ×2". Klauseln
+## ohne Zahl (Rampenlicht & Co.) und jeder Malus behalten ihren Text.
+static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
+	var clause := find(clause_id)
+	if clause == null:
+		return ""
+	if bonus_factor <= 1:
+		return clause.text
+	match clause_id:
+		ADVANCE_PAYMENT:
+			return "+24$ auf die Hand"
+		BLANK_CHEQUE:
+			return "+80$ auf die Hand"
+		SEED_CAPITAL:
+			return "+2 Energie sofort"
+		SEED_CAPITAL_II:
+			return "+4 Energie sofort"
+		SAVINGS_BONUS:
+			return "+2$ je übrigem Würfel"
+		INSURANCE_FRAUD:
+			return "Jeder Farkle zahlt 30$ Trost"
+		HIGH_VOLTAGE:
+			return "+6 Überladungs-Stufen"
+		ODDS_BONUS, TOURNAMENT_NIGHT:
+			return "Nebenwetten zahlen vierfach"
+		HAPPY_HOUR:
+			return "Alles Geld dieser Runde vierfach"
+		ALL_ON_RED:
+			return "Alles Geld dieser Runde sechsfach"
+		INTEREST:
+			return "Rundenende: +2$ je vollen 10$ Guthaben"
+		DOUBLE_LOADER:
+			return "Überladungs-Stufen prägen 4 Energie"
+		CALIBRATION:
+			return "Benchmark −75%"
+		CASH_DISCOUNT:
+			return "Ladenware 36% günstiger"
+		GOLD_VEIN:
+			return "+20$ je geräumter Überladungs-Stufe"
+	return clause.text
+
 static func tags_of(clause_id: String) -> Array[String]:
 	var clause := find(clause_id)
 	if clause == null:

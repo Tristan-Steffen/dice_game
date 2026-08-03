@@ -20,8 +20,15 @@ func before_each() -> void:
 		displays.append(display)
 	_controller = DiceController.new(roots, _bodies, displays)
 
+const STEP_SECONDS := 0.1
+
 func _step() -> bool:
-	return _controller.physics_step(0.1, 0.1, 0.1, 0.05)
+	return _controller.physics_step(STEP_SECONDS, 0.1, 0.1, 0.05)
+
+## Schritte für eine Zeit in Sekunden - die Klemm-Tests hängen an
+## STUCK_RETHROW_SECONDS, nie an einer abgezählten Schleife.
+func _steps_for(seconds: float) -> int:
+	return ceili(seconds / STEP_SECONDS)
 
 func test_a_die_resting_on_the_floor_settles() -> void:
 	_bodies[0].global_position = Vector3(0.0, DiceController.DIE_HALF, 0.0)
@@ -63,14 +70,14 @@ func _wedge_slot_zero() -> Vector3:
 
 func test_a_wedged_die_keeps_lying_before_the_stuck_limit() -> void:
 	_wedge_slot_zero()
-	for _i in 25:  # 2,5 s - noch unter der Grenze
+	for _i in _steps_for(DiceController.STUCK_RETHROW_SECONDS - 0.5):  # knapp unter der Grenze
 		_step()
 	assert_almost_eq(_bodies[0].global_position.y, DiceController.DIE_HALF, 0.001,
 		"vor der Grenze wird nicht neu geworfen")
 
 func test_a_wedged_die_is_thrown_again_after_the_stuck_limit() -> void:
 	var launch := _wedge_slot_zero()
-	for _i in 35:  # ueber STUCK_RETHROW_SECONDS
+	for _i in _steps_for(DiceController.STUCK_RETHROW_SECONDS + 0.5):  # ueber die Grenze
 		_step()
 	assert_almost_eq(_bodies[0].global_position, launch, Vector3.ONE * 0.001,
 		"der steckende Slot startet neu am Abwurfpunkt")

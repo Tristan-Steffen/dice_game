@@ -50,7 +50,7 @@ const SLIDE_TORQUE := 0.5
 
 ## So lange darf ein geworfener Würfel ohne Ruhelage bleiben, dann wird genau
 ## dieser Slot neu geworfen. Ein Anstoß löste eine Klemmlage nicht zuverlässig.
-const STUCK_RETHROW_SECONDS := 3.0
+const STUCK_RETHROW_SECONDS := 6.0
 
 ## Ein flach auf einem anderen Würfel liegender Würfel ist langsam UND flach,
 ## kommt also durch die Ruheprüfung - erkannt wird er nur an der Höhe.

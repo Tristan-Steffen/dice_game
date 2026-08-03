@@ -221,6 +221,8 @@ var essence_phosphor_mult: Dictionary = {}
 var essence_smother_used: Dictionary = {}
 ## Schon gekippte Irrlicht-Würfel dieser Runde.
 var essence_tip_used: Dictionary = {}
+## Schon abgeerntete Ethylen-Würfel dieser Runde.
+var essence_harvest_used: Dictionary = {}
 ## Auslösungen und Krits der bisherigen Hände DIESER Runde - Dunkelkammer und
 ## Gewitterfront schleppen sie in die nächste Hand mit.
 var round_trigger_count: int = 0
@@ -292,12 +294,16 @@ func add_money(amount: int) -> void:
 	money += amount
 
 ## Faktor auf jede positive Geld-Buchung der Runde (Happy Hour, Alles auf Rot).
+## Bewusst hingenommen: ein verdoppelter Vorschuss läuft unter verdoppelter Happy
+## Hour durch add_money und wird dort ein zweites Mal gehoben - der Winkeladvokat
+## bearbeitet jede Klausel einzeln, nicht die Summe am Ende.
 func money_gain_factor() -> float:
 	var factor := 1.0
+	var boost := deal_bonus_factor()
 	if _clause_active(DealClause.HAPPY_HOUR):
-		factor *= 2.0
+		factor *= 2.0 * boost
 	if _clause_active(DealClause.ALL_ON_RED):
-		factor *= 3.0
+		factor *= 3.0 * boost
 	return factor
 
 # --- Hub-Ausbau ---------------------------------------------------------------
@@ -382,7 +388,7 @@ func max_overcharge_stages() -> int:
 	if _clause_active(DealClause.STAGE_CAP):
 		stages = mini(stages, STAGE_CAP_LIMIT)
 	if _clause_active(DealClause.HIGH_VOLTAGE):
-		stages += HIGH_VOLTAGE_STAGES
+		stages += HIGH_VOLTAGE_STAGES * deal_bonus_factor()
 	if _clause_active(DealClause.SUPERCONDUCTOR):
 		stages = UNLIMITED_OVERCHARGE_STAGES
 	return stages
@@ -799,10 +805,23 @@ func roll_route_offers() -> void:
 		var tier: DealClause.Tier = DealClause.Tier.TREAT if i == treat_slot else tiers[i]
 		route_offers.append(_draw_card(tier))
 
-## Platz, den ein Werbegeschenk ersetzt (−1 = keins). TREAT_CHANCE entscheidet, OB
+## Chance, dass überhaupt ein Werbegeschenk ausliegt - die Werbetrommel verdreifacht
+## sie. Erster Charm am Vertragswesen: die Wirkung ist eine Abfrage hier, weil sie
+## an active_deals bzw. dem Angebots-Wurf hängt, nicht an der Wertung.
+func treat_chance() -> float:
+	var factor := 3.0 if charm_ids().has(Charm.AD_DRUM) else 1.0
+	return minf(1.0, TREAT_CHANCE * factor)
+
+## Der Winkeladvokat liest jede BONUS-Klausel doppelt - linear auf ihrer Zahl, bei
+## den beiden Nachlässen (Skonto, Eichung) als zweite Anwendung. Bewusst ohne
+## Stapelung: zwei Exemplare wirken wie eines.
+func deal_bonus_factor() -> int:
+	return 2 if charm_ids().has(Charm.SHYSTER) else 1
+
+## Platz, den ein Werbegeschenk ersetzt (−1 = keins). treat_chance entscheidet, OB
 ## eins kommt; TREAT_TIER_WEIGHTS, WELCHER Platz.
 func _roll_treat_slot() -> int:
-	if randf() >= TREAT_CHANCE:
+	if randf() >= treat_chance():
 		return -1
 	var r := randf()
 	var acc := 0.0
@@ -897,13 +916,14 @@ func sign_clauses(clause_ids: Array[String]) -> void:
 ## Wirkungen, die mit der Unterschrift verfallen (Scope.INSTANT) - plus die
 ## Zähler, die eine Runden-Klausel beim Einzug aufstellt.
 func _apply_instant_clause(clause_id: String) -> void:
+	var boost := deal_bonus_factor()
 	match clause_id:
 		DealClause.ADVANCE_PAYMENT:
-			add_money(ADVANCE_PAYMENT_MONEY)
+			add_money(ADVANCE_PAYMENT_MONEY * boost)
 		DealClause.BLANK_CHEQUE:
-			add_money(BLANK_CHEQUE_MONEY)
+			add_money(BLANK_CHEQUE_MONEY * boost)
 		DealClause.SEED_CAPITAL, DealClause.SEED_CAPITAL_II:
-			add_charge(instant_clause_charge(clause_id))
+			add_charge(instant_clause_charge(clause_id, boost))
 		DealClause.DISCHARGE:
 			spend_charge(DISCHARGE_CHARGE)
 		DealClause.OVERCLOCK_DISCOUNT:
@@ -913,12 +933,12 @@ func _apply_instant_clause(clause_id: String) -> void:
 
 ## Ladung, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zur Bank.
-static func instant_clause_charge(clause_id: String) -> int:
+static func instant_clause_charge(clause_id: String, bonus_factor: int = 1) -> int:
 	match clause_id:
 		DealClause.SEED_CAPITAL:
-			return SEED_CAPITAL_CHARGE
+			return SEED_CAPITAL_CHARGE * bonus_factor
 		DealClause.SEED_CAPITAL_II:
-			return SEED_CAPITAL_II_CHARGE
+			return SEED_CAPITAL_II_CHARGE * bonus_factor
 	return 0
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
@@ -969,15 +989,19 @@ func _clause_active(clause_id: String, n: int = -1) -> bool:
 			return true
 	return false
 
-## Wirkende Klauseln als {id, bonus, scope} - Grundlage der Marken-Reihen.
+## Wirkende Klauseln als {id, bonus, scope, text} - Grundlage der Marken-Reihen.
+## Der Text kommt fertig mit: so bleibt DealTokenRow ohne GameRun und zeigt
+## trotzdem die Zahlen, die der Winkeladvokat wirklich bucht.
 func active_deal_sides() -> Array[Dictionary]:
 	var sides: Array[Dictionary] = []
+	var boost := deal_bonus_factor()
 	for entry in active_deals:
 		var clause := DealClause.find(entry["id"])
 		if clause == null or not _scope_reaches(entry, clause.scope, round_number):
 			continue
-		sides.append({"id": clause.id, "bonus": clause.kind == DealClause.Kind.BONUS,
-			"scope": clause.scope})
+		var is_bonus := clause.kind == DealClause.Kind.BONUS
+		sides.append({"id": clause.id, "bonus": is_bonus, "scope": clause.scope,
+			"text": DealClause.text_for(clause.id, boost if is_bonus else 1)})
 	return sides
 
 # --- Klausel-Wirkungen (einzige Auflösung der ids) ----------------------------
@@ -1004,7 +1028,9 @@ func _benchmark_factor(n: int) -> float:
 		if BENCHMARK_MALUS.has(clause.id):
 			factor *= 1.0 + float(BENCHMARK_MALUS[clause.id])
 		elif clause.id == DealClause.CALIBRATION:
-			factor *= CALIBRATION_FACTOR
+			# Nachlass: der Winkeladvokat wendet ihn ein zweites Mal an, statt die
+			# Zahl zu verdoppeln - sonst hübe "−50%" auf "−100%" das Ziel ganz auf.
+			factor *= pow(CALIBRATION_FACTOR, deal_bonus_factor())
 	return factor
 
 ## Faktor auf die GESAMTE Rundenauszahlung (Bank + übrige Würfel). Happy Hour und
@@ -1020,7 +1046,7 @@ func round_payout_factor() -> float:
 
 ## Sparprämie: Aufschlag je übrigem Würfel (zusätzlich zum Sparschwein-Charm).
 func deal_unused_die_bonus() -> int:
-	return SAVINGS_DIE_BONUS if _clause_active(DealClause.SAVINGS_BONUS) else 0
+	return SAVINGS_DIE_BONUS * deal_bonus_factor() if _clause_active(DealClause.SAVINGS_BONUS) else 0
 
 ## Leergut/Blackout: übrige Würfel zahlen gar nichts.
 func unused_dice_pay() -> bool:
@@ -1033,7 +1059,7 @@ func deal_anchor_active() -> bool:
 
 ## Versicherungsbetrug: Trostgeld für jeden Farkle.
 func farkle_consolation() -> int:
-	return INSURANCE_FRAUD_MONEY if _clause_active(DealClause.INSURANCE_FRAUD) else 0
+	return INSURANCE_FRAUD_MONEY * deal_bonus_factor() if _clause_active(DealClause.INSURANCE_FRAUD) else 0
 
 ## Servicegebühr: Abzug je genommener Hand.
 func hand_fee() -> int:
@@ -1049,15 +1075,15 @@ func grants_engraving_per_hand() -> bool:
 
 ## Zinsen: Rundenende-Ertrag auf das gehaltene Guthaben.
 func interest_income() -> int:
-	return money / INTEREST_PER if _clause_active(DealClause.INTEREST) else 0
+	return (money / INTEREST_PER) * deal_bonus_factor() if _clause_active(DealClause.INTEREST) else 0
 
 ## Goldader: Geld je geräumter Überladungs-Stufe (0 = die Klausel ruht).
 func gold_vein_income() -> int:
-	return GOLD_VEIN_MONEY if _clause_active(DealClause.GOLD_VEIN) else 0
+	return GOLD_VEIN_MONEY * deal_bonus_factor() if _clause_active(DealClause.GOLD_VEIN) else 0
 
 ## Doppellader: wie viele Ladungen eine geräumte Überladungs-Stufe prägt.
 func charge_per_stage() -> int:
-	return 2 if _clause_active(DealClause.DOUBLE_LOADER) else 1
+	return 2 * deal_bonus_factor() if _clause_active(DealClause.DOUBLE_LOADER) else 1
 
 ## Ladenpreis-Faktor (Inflation ×1,25, Skonto ×0,8 - beide multiplikativ).
 func shop_price_factor() -> float:
@@ -1065,7 +1091,8 @@ func shop_price_factor() -> float:
 	if _clause_active(DealClause.INFLATION):
 		factor *= SHOP_INFLATION_FACTOR
 	if _clause_active(DealClause.CASH_DISCOUNT):
-		factor *= SHOP_DISCOUNT_FACTOR
+		# Nachlass wie die Eichung: zweimal angewandt statt verdoppelt.
+		factor *= pow(SHOP_DISCOUNT_FACTOR, deal_bonus_factor())
 	return factor
 
 ## Ladenpreis einer Ware; jeder Preisschild-Aufrufer geht hier durch.
@@ -1091,7 +1118,7 @@ func slot_spin_is_free(machine: int) -> bool:
 
 ## Quotenbonus/Turniernacht: Auszahlungsfaktor gewonnener Nebenwetten.
 func side_bet_payout_factor() -> int:
-	return 2 if _clause_active(DealClause.ODDS_BONUS) \
+	return 2 * deal_bonus_factor() if _clause_active(DealClause.ODDS_BONUS) \
 		or _clause_active(DealClause.TOURNAMENT_NIGHT) else 1
 
 ## Wettsteuer: Einsätze kosten doppelt (Anzeige UND Abbuchung lesen das hier).
@@ -1239,6 +1266,38 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		copied += 1
 	return copied
 
+## Ethylen-Ernte: zählt ein Würfel mit dieser Seele in dieser Runde zum ersten
+## Mal, wandert je VERSCHIEDENEM Material seiner sechs Seiten eine Gravur in den
+## Vorrat - die Druckerpresse legt von jeder eine zweite dazu. Liefert die Zahl
+## der Kopien. Die Marke hängt am Würfel-Exemplar, nicht am Pool-Platz.
+func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int],
+		essences: Dictionary) -> int:
+	var copies := 2 if charm_ids().has(Charm.PRINTING_PRESS) else 1
+	var granted := 0
+	for i in participating:
+		if i >= defs.size() or defs[i] == null:
+			continue
+		if not EssenceEffects.harvests_materials_of(EssenceEffects.set_at(essences, i)):
+			continue
+		var key := defs[i].get_instance_id()
+		if essence_harvest_used.has(key):
+			continue
+		essence_harvest_used[key] = true
+		var seen: Array[String] = []
+		for material_id in defs[i].materials:
+			if material_id == "" or seen.has(material_id):
+				continue
+			seen.append(material_id)
+			var material := DieMaterial.by_id(material_id)
+			if material == null:
+				continue
+			var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
+				Engraving.Rarity.UNCOMMON)
+			for _c in copies:
+				grant_engraving(Engraving.material_engraving(material, rarity))
+				granted += 1
+	return granted
+
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
@@ -1249,6 +1308,7 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 func roll_essence_round_state() -> void:
 	essence_smother_used.clear()
 	essence_tip_used.clear()
+	essence_harvest_used.clear()
 	round_trigger_count = 0
 	round_crit_count = 0
 

@@ -57,6 +57,10 @@ const XRAY := "xray"
 const CORONA := "corona"
 const VARNISH := "varnish"
 const PHOSPHORESCENCE := "phosphorescence"
+## Die Ausnahme der Einteilung: ein Handelsgas unter den Phänomenen. Selten ist
+## es nicht, weil es sich schwer abfüllen ließe, sondern wegen dem, was es mit
+## dem anfängt, was es berührt.
+const ETHYLENE := "ethylene"
 
 const NONE := ""
 
@@ -249,6 +253,11 @@ static func phosphorescence() -> Essence:
 		"Speichert die Basispunkte JEDER seiner Wertungen und legt den ganzen Speicher bei der nächsten obendrauf - geleert wird er nie.",
 		"sammelt seine Basispunkte und zahlt sie erneut", Rarity.EPIC, Color(0.5, 1.0, 0.6))
 
+static func ethylene() -> Essence:
+	return _make(ETHYLENE, "Ethylen", "Reifegas",
+		"Zählt er in einer Runde zum ersten Mal, reift seine Schale nach: je VERSCHIEDENEM Material auf seinen Seiten wandert eine Material-Gravur in den Vorrat.",
+		"1× je Runde: je eigenem Material eine Gravur", Rarity.RARE, Color(1.0, 0.5, 0.42))
+
 static func antimatter() -> Essence:
 	return _secret(_make(ANTIMATTER, "Antimaterie", "Auslöschung",
 		"Seine Augen zählen NEGATIV in die Basispunkte - dafür kritet er mit seiner Augenzahl.",
@@ -262,7 +271,7 @@ static func all() -> Array[Essence]:
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), will_o_wisp(), plasma(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), corona(), varnish(),
-		phosphorescence(), aurora(), quintessence(), antimatter(),
+		phosphorescence(), ethylene(), aurora(), quintessence(), antimatter(),
 	]
 
 static func by_id(essence_id: String) -> Essence:

@@ -43,6 +43,8 @@ const BEHERIT := "beherit"
 const HIGH_STACKER := "high_stacker"
 const PRIME_TIME := "prime_time"
 const FRONT_RUNNER := "front_runner"
+const QUADRATURE := "quadrature"
+const SIX_PACK := "six_pack"
 # Kombinationen & Wertung
 const HOUSE_JOKER := "house_joker"
 const FREE_DRINK := "free_drink"
@@ -85,6 +87,7 @@ const GLASSBLOWER_LUNG := "glassblower_lung"
 const MERCURY_VAPOR := "mercury_vapor"
 const DISPLAY_CASE := "display_case"
 const JEWELRY_BOX := "jewelry_box"
+const RECTIFIER := "rectifier"
 # Coupons & Packs
 const BARGAIN_HUNTER := "bargain_hunter"
 const ENGRAVING_PEN := "engraving_pen"
@@ -97,6 +100,9 @@ const SEDIMENT := "sediment"
 # Shop & Angebote
 const SEAL_OF_QUALITY := "seal_of_quality"
 const BULK_DISCOUNT := "bulk_discount"
+# Verträge mit dem Haus
+const AD_DRUM := "ad_drum"
+const SHYSTER := "shyster"
 # Meta & Totem-Reihe
 const PARROT_TOTEM := "parrot_totem"
 const ECHO_TOTEM := "echo_totem"
@@ -122,6 +128,7 @@ const FLUORESCENT_TUBE := "fluorescent_tube"
 const POLARIZER := "polarizer"
 const ALKAHEST := "alkahest"
 const MAGNETIC_TRAP := "magnetic_trap"
+const PRINTING_PRESS := "printing_press"
 
 ## Essenz, die ein Charm verstärkt (Charm-id -> Essence-id). Sie ist zugleich
 ## seine ANGEBOTS-BEDINGUNG: ein solcher Charm liegt nur im Laden (Auslage,
@@ -150,6 +157,7 @@ const ESSENCE_REQUIREMENT := {
 	POLARIZER: Essence.AURORA,
 	ALKAHEST: Essence.QUINTESSENCE,
 	MAGNETIC_TRAP: Essence.ANTIMATTER,
+	PRINTING_PRESS: Essence.ETHYLENE,
 }
 
 ## Essenz, die dieser Charm voraussetzt ("" = keine).
@@ -205,6 +213,8 @@ const RARITIES := {
 	HIGH_STACKER: RARITY_UNCOMMON,
 	PRIME_TIME: RARITY_RARE,
 	FRONT_RUNNER: RARITY_COMMON,
+	QUADRATURE: RARITY_UNCOMMON,
+	SIX_PACK: RARITY_RARE,
 	# Kombinationen & Wertung
 	HOUSE_JOKER: RARITY_COMMON,
 	FREE_DRINK: RARITY_COMMON,
@@ -256,6 +266,7 @@ const RARITIES := {
 	MERCURY_VAPOR: RARITY_LEGENDARY,
 	DISPLAY_CASE: RARITY_RARE,
 	JEWELRY_BOX: RARITY_RARE,
+	RECTIFIER: RARITY_RARE,
 	# Coupons & Packs
 	BARGAIN_HUNTER: RARITY_COMMON,
 	ENGRAVING_PEN: RARITY_RARE,
@@ -269,6 +280,9 @@ const RARITIES := {
 	CON_ARTIST_CUFF: RARITY_COMMON,
 	SEAL_OF_QUALITY: RARITY_UNCOMMON,
 	BULK_DISCOUNT: RARITY_COMMON,
+	# Verträge mit dem Haus
+	AD_DRUM: RARITY_UNCOMMON,
+	SHYSTER: RARITY_RARE,
 	# Meta & Totem-Reihe
 	COLLECTORS_AMULET: RARITY_UNCOMMON,
 	PARROT_TOTEM: RARITY_LEGENDARY,
@@ -296,6 +310,7 @@ const RARITIES := {
 	POLARIZER: RARITY_LEGENDARY,
 	ALKAHEST: RARITY_LEGENDARY,
 	MAGNETIC_TRAP: RARITY_LEGENDARY,
+	PRINTING_PRESS: RARITY_UNCOMMON,
 }
 
 const RARITY_WEIGHTS := {
@@ -476,6 +491,12 @@ static func prime_time() -> Charm:
 static func front_runner() -> Charm:
 	return _make(FRONT_RUNNER, "Vorreiter", "Der zuerst gewertete Würfel gibt zusätzlich die Augensumme ALLER gewerteten Würfel als Basispunkte.")
 
+static func quadrature() -> Charm:
+	return _make(QUADRATURE, "Quadratur", "Nutzt die Hand mindestens 4 gewertete Würfel: der NIEDRIGSTE gibt seine Augenzahl zum Quadrat als Basispunkte dazu.")
+
+static func six_pack() -> Charm:
+	return _make(SIX_PACK, "Sechserpack", "Nutzt die Hand alle sechs Würfel: jeder Würfel löst 1-mal zusätzlich aus.")
+
 # --- Kombinationen & Wertung ---
 
 static func house_joker() -> Charm:
@@ -605,6 +626,9 @@ static func display_case() -> Charm:
 static func jewelry_box() -> Charm:
 	return _make(JEWELRY_BOX, "Schmuckkästchen", "Bei der Auszahlung der übrigen Würfel nach dem Rundenziel: jeder übrige Würfel erhält mit 10% Chance eine zufällige Material-Seite (dauerhaft).")
 
+static func rectifier() -> Charm:
+	return _make(RECTIFIER, "Gleichrichter", "Nach jeder genommenen Hand werden die oben liegenden Seiten aller gewerteten Würfel dauerhaft auf ihren aufgerundeten Mittelwert gesetzt.")
+
 # --- Coupons & Packs ---
 
 static func bargain_hunter() -> Charm:
@@ -637,6 +661,14 @@ static func seal_of_quality() -> Charm:
 
 static func bulk_discount() -> Charm:
 	return _make(BULK_DISCOUNT, "Mengenrabatt", "3er-Würfelbündel kosten $5 weniger und treten öfter auf.")
+
+# --- Verträge mit dem Haus ---
+
+static func ad_drum() -> Charm:
+	return _make(AD_DRUM, "Werbetrommel", "Werbegeschenke liegen dreimal so oft in der Vertragswahl.")
+
+static func shyster() -> Charm:
+	return _make(SHYSTER, "Winkeladvokat", "Die Bonus-Klauseln aller Verträge wirken doppelt.")
 
 # --- Meta & Totem-Reihe ---
 
@@ -711,6 +743,9 @@ static func alkahest() -> Charm:
 static func magnetic_trap() -> Charm:
 	return _make(MAGNETIC_TRAP, "Magnetfalle", "Die Augen der Antimaterie zählen nicht mehr negativ - ihr Krit bleibt.")
 
+static func printing_press() -> Charm:
+	return _make(PRINTING_PRESS, "Druckerpresse", "Die Ethylen-Ernte druckt jede Material-Kopie doppelt.")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -725,7 +760,7 @@ static func all() -> Array[Charm]:
 		# Effektkatalog
 		pendulum(), all_or_nothing(), anchor(),
 		echo_chamber(), twin_ring(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
-		beherit(), high_stacker(), prime_time(), front_runner(),
+		beherit(), high_stacker(), prime_time(), front_runner(), quadrature(), six_pack(),
 		house_joker(), free_drink(), spotlight(),
 		full_counter(), lighthouse(), momentum(), after_work_beer(), blackjack(),
 		round_number(), broadband(), even_company(), odd_path(), snake_eyes(),
@@ -734,15 +769,16 @@ static func all() -> Array[Charm]:
 		cash_discount(), high_flyer(),
 		midas_glove(), gold_vein(), goldsmith(), amber_room(),
 		ruby_grinder(), blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
-		display_case(), jewelry_box(),
+		display_case(), jewelry_box(), rectifier(),
 		bargain_hunter(), engraving_pen(), stamp_machine(), fine_print(),
 		recycling(), fresh_goods(), sediment(),
 		seal_of_quality(), bulk_discount(),
+		ad_drum(), shyster(),
 		parrot_totem(), echo_totem(), hermit_crab(),
 		# Essenz-Charms
 		amalgam(), lead_apron(), storm_glass(), lightning_rod(), darkroom(),
 		pressure_vessel(), aqua_fortis(), contrast_agent(),
 		censer(), solar_sail(), storm_front(), swamp_lantern(), ignition_coil(),
 		bell_jar(), solar_eclipse(), glaze_brush(), fluorescent_tube(),
-		polarizer(), alkahest(), magnetic_trap(),
+		polarizer(), alkahest(), magnetic_trap(), printing_press(),
 	]

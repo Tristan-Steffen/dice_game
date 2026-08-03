@@ -998,6 +998,105 @@ func test_a_werbegeschenk_can_land_on_any_slot():
 					"ein Werbegeschenk hat kein Kleingedrucktes")
 	assert_true(hit[0] and hit[1] and hit[2], "jeder Platz kann zum Werbegeschenk werden")
 
+# --- Werbetrommel: der erste Charm am Vertragswesen -------------------------------
+
+func test_the_ad_drum_triples_the_treat_chance():
+	assert_almost_eq(run.treat_chance(), GameRun.TREAT_CHANCE, 0.0001, "ohne Charm die Grundchance")
+	run.owned_charms.append(Charm.ad_drum())
+	assert_almost_eq(run.treat_chance(), GameRun.TREAT_CHANCE * 3.0, 0.0001)
+	assert_lte(run.treat_chance(), 1.0, "die Chance bleibt eine Chance")
+
+func test_the_ad_drum_floods_the_offers_with_treats():
+	# Gegenrichtung zum reinen Dreier-Test: bei 90 % Chance MUSS das
+	# Werbegeschenk die große Mehrheit der Auslagen tragen (Erwartung 54/60).
+	run.owned_charms.append(Charm.ad_drum())
+	var with_treat := 0
+	for i in 60:
+		run.route_offers.clear()
+		run.roll_route_offers()
+		for slot in 3:
+			if int(run.route_offers[slot][GameRun.CARD_TIER]) == int(DealClause.Tier.TREAT):
+				with_treat += 1
+				break
+	assert_gt(with_treat, 30, "die Werbetrommel schlägt durch")
+
+# --- Winkeladvokat: Bonus-Klauseln doppelt ----------------------------------------
+
+## Lauf mit dem Winkeladvokaten im Dock.
+func _shyster() -> void:
+	run.owned_charms.append(Charm.shyster())
+
+func test_the_shyster_doubles_the_instant_money():
+	_shyster()
+	_sign([DealClause.ADVANCE_PAYMENT])
+	assert_eq(run.money, GameRun.ADVANCE_PAYMENT_MONEY * 2)
+	assert_eq(run.deal_bonus_factor(), 2)
+
+func test_the_shyster_doubles_the_instant_charge():
+	_shyster()
+	_sign([DealClause.SEED_CAPITAL_II])
+	assert_eq(run.charge, GameRun.SEED_CAPITAL_II_CHARGE * 2)
+	assert_eq(GameRun.instant_clause_charge(DealClause.SEED_CAPITAL, 2),
+		GameRun.SEED_CAPITAL_CHARGE * 2, "die Zeremonie liest dieselbe Quelle")
+
+func test_the_shyster_doubles_the_linear_bonuses():
+	_shyster()
+	_sign([DealClause.SAVINGS_BONUS, DealClause.INSURANCE_FRAUD, DealClause.GOLD_VEIN,
+		DealClause.DOUBLE_LOADER, DealClause.ODDS_BONUS, DealClause.HIGH_VOLTAGE])
+	assert_eq(run.deal_unused_die_bonus(), GameRun.SAVINGS_DIE_BONUS * 2)
+	assert_eq(run.farkle_consolation(), GameRun.INSURANCE_FRAUD_MONEY * 2)
+	assert_eq(run.gold_vein_income(), GameRun.GOLD_VEIN_MONEY * 2)
+	assert_eq(run.charge_per_stage(), 4)
+	assert_eq(run.side_bet_payout_factor(), 4)
+	assert_eq(run.max_overcharge_stages(),
+		run.overcharge_frame() + GameRun.HIGH_VOLTAGE_STAGES * 2)
+
+func test_the_shyster_doubles_the_interest():
+	_shyster()
+	run.money = 40
+	_sign([DealClause.INTEREST])
+	assert_eq(run.interest_income(), 8, "4 volle Zehner, doppelt")
+
+func test_the_shyster_multiplies_the_money_factors():
+	_shyster()
+	_sign([DealClause.HAPPY_HOUR])
+	assert_almost_eq(run.money_gain_factor(), 4.0, 0.0001)
+	run.active_deals.clear()
+	_sign([DealClause.ALL_ON_RED])
+	assert_almost_eq(run.money_gain_factor(), 6.0, 0.0001)
+
+func test_the_shyster_applies_the_reductions_twice():
+	# Nachlässe werden ein zweites Mal angewandt, nicht in der Zahl verdoppelt -
+	# sonst höbe die Eichung das Rundenziel ganz auf.
+	_shyster()
+	_sign([DealClause.CASH_DISCOUNT, DealClause.CALIBRATION])
+	assert_almost_eq(run.shop_price_factor(),
+		GameRun.SHOP_DISCOUNT_FACTOR * GameRun.SHOP_DISCOUNT_FACTOR, 0.0001)
+	assert_eq(run.effective_goal(),
+		roundi(run.round_goal * GameRun.CALIBRATION_FACTOR * GameRun.CALIBRATION_FACTOR))
+	assert_gt(run.effective_goal(), 0, "das Ziel bleibt erreichbar")
+
+func test_the_shyster_never_touches_a_malus():
+	_shyster()
+	run.add_charge(5)
+	var before := run.charge
+	_sign([DealClause.DISCHARGE, DealClause.BETTING_TAX, DealClause.HALF_PAYOUT])
+	assert_eq(run.charge, before - GameRun.DISCHARGE_CHARGE, "die Entladung bleibt einfach")
+	assert_eq(run.side_bet_stake_factor(), 2, "die Wettsteuer bleibt einfach")
+	assert_almost_eq(run.round_payout_factor(), 0.5, 0.0001)
+
+func test_the_shyster_does_not_stack():
+	_shyster()
+	_shyster()
+	assert_eq(run.deal_bonus_factor(), 2, "zwei Exemplare wirken wie eines")
+
+func test_active_deal_sides_carry_the_doubled_text():
+	_shyster()
+	_sign([DealClause.SAVINGS_BONUS, DealClause.BETTING_TAX])
+	for side in run.active_deal_sides():
+		var expected := DealClause.text_for(String(side["id"]), 2 if side["bonus"] else 1)
+		assert_eq(String(side["text"]), expected, "Marke und Buchung lesen dieselbe Quelle")
+
 func test_a_card_never_pairs_two_clauses_of_the_same_tag():
 	for i in 60:
 		run.route_offers.clear()

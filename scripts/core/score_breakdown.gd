@@ -86,7 +86,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_base := 0
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids))
+				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids), eye_slots.size())
 			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Würfelgebundene Charms dieses Slots, Beitrag EINER Auslösung. Sie hängen

@@ -4111,7 +4111,7 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		var essence_ids := EssenceEffects.set_at(essences, k)
 		var rift_ids := RiftEffects.rifts_at(rifts, k)
 		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(k, order, essences, ids))
+			EssenceEffects.extra_activations(k, order, essences, ids), order.size())
 		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RiftEffects.extra_activations(rift_ids))
 		var groups := DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
 			ids, essence_ids, pointer_rng)
@@ -4900,6 +4900,12 @@ func _on_take_button_pressed() -> void:
 	# Lasurpinsel: läuft die Firnis-Schicht auf einer Stufe-III-Seite ins Leere,
 	# fällt stattdessen eine Material-Kopie in den Vorrat.
 	run.apply_glaze_brush(active_kinds, dice.face_indices, participating)
+	# Ethylen-Ernte: VOR Midashandschuh und Goldenem Handschlag, damit sie die
+	# Materialien erntet, mit denen die Hand gezählt hat - nicht die frisch
+	# vergoldeten.
+	var harvested := run.apply_material_harvest(active_kinds, participating, _effective_essence_sets())
+	if harvested > 0:
+		hand_note = "Ethylen: %d Material-Gravuren geerntet." % harvested
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
@@ -5805,7 +5811,8 @@ func _open_route_choice() -> void:
 		_on_route_chosen(0)
 		return
 	_place_route_choice()
-	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number))
+	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number),
+		run.deal_bonus_factor())
 
 ## Vertrag unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
 ## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
