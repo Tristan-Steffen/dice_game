@@ -45,6 +45,8 @@ const PRIME_TIME := "prime_time"
 const FRONT_RUNNER := "front_runner"
 const QUADRATURE := "quadrature"
 const SIX_PACK := "six_pack"
+const PROTECTION_MONEY := "protection_money"
+const WATERFALL := "waterfall"
 # Kombinationen & Wertung
 const HOUSE_JOKER := "house_joker"
 const FREE_DRINK := "free_drink"
@@ -59,6 +61,7 @@ const BROADBAND := "broadband"
 const EVEN_COMPANY := "even_company"
 const ODD_PATH := "odd_path"
 const SNAKE_EYES := "snake_eyes"
+const DOUBLE_BOTTOM := "double_bottom"
 # Farkle
 const BROKEN_MIRROR := "broken_mirror"
 const GRANDFATHER_CLOCK := "grandfather_clock"
@@ -129,6 +132,8 @@ const POLARIZER := "polarizer"
 const ALKAHEST := "alkahest"
 const MAGNETIC_TRAP := "magnetic_trap"
 const PRINTING_PRESS := "printing_press"
+const CAMOUFLAGE := "camouflage"
+const FUSE := "fuse"
 
 ## Essenz, die ein Charm verstärkt (Charm-id -> Essence-id). Sie ist zugleich
 ## seine ANGEBOTS-BEDINGUNG: ein solcher Charm liegt nur im Laden (Auslage,
@@ -158,6 +163,10 @@ const ESSENCE_REQUIREMENT := {
 	ALKAHEST: Essence.QUINTESSENCE,
 	MAGNETIC_TRAP: Essence.ANTIMATTER,
 	PRINTING_PRESS: Essence.ETHYLENE,
+	FUSE: Essence.DETONATING_GAS,
+	# Ab hier auch HÄUFIGE Seelen: die Tabelle ist die Angebots-Regel, die
+	# Pflicht "je Seele ab selten genau ein Charm" bleibt davon unberührt.
+	CAMOUFLAGE: Essence.KRYPTON,
 }
 
 ## Essenz, die dieser Charm voraussetzt ("" = keine).
@@ -215,6 +224,8 @@ const RARITIES := {
 	FRONT_RUNNER: RARITY_COMMON,
 	QUADRATURE: RARITY_UNCOMMON,
 	SIX_PACK: RARITY_RARE,
+	PROTECTION_MONEY: RARITY_UNCOMMON,
+	WATERFALL: RARITY_UNCOMMON,
 	# Kombinationen & Wertung
 	HOUSE_JOKER: RARITY_COMMON,
 	FREE_DRINK: RARITY_COMMON,
@@ -234,6 +245,7 @@ const RARITIES := {
 	EVEN_COMPANY: RARITY_UNCOMMON,
 	ODD_PATH: RARITY_UNCOMMON,
 	SNAKE_EYES: RARITY_COMMON,
+	DOUBLE_BOTTOM: RARITY_RARE,
 	# Farkle
 	CHIMNEY_SWEEP: RARITY_RARE,
 	BROKEN_MIRROR: RARITY_LEGENDARY,
@@ -311,6 +323,8 @@ const RARITIES := {
 	ALKAHEST: RARITY_LEGENDARY,
 	MAGNETIC_TRAP: RARITY_LEGENDARY,
 	PRINTING_PRESS: RARITY_UNCOMMON,
+	CAMOUFLAGE: RARITY_UNCOMMON,
+	FUSE: RARITY_RARE,
 }
 
 const RARITY_WEIGHTS := {
@@ -480,7 +494,7 @@ static func small_fry() -> Charm:
 	return _make(SMALL_FRY, "Kleinvieh", "Jede beteiligte 1 und 2 gibt +10 Basispunkte.")
 
 static func beherit() -> Charm:
-	return _make(BEHERIT, "Beherit", "Krit in Höhe der NIEDRIGSTEN gewerteten Augenzahl - eine gewertete 1 lässt ihn ausfallen.")
+	return _make(BEHERIT, "Beherit", "Krit ×(1 + NIEDRIGSTE gewertete Augenzahl ÷ 10) - gewachsene Seiten schlagen hart zu.")
 
 static func high_stacker() -> Charm:
 	return _make(HIGH_STACKER, "Hochstapler", "+Mult in Höhe der höchsten gewerteten Augenzahl.")
@@ -496,6 +510,12 @@ static func quadrature() -> Charm:
 
 static func six_pack() -> Charm:
 	return _make(SIX_PACK, "Sechserpack", "Nutzt die Hand alle sechs Würfel: jeder Würfel löst 1-mal zusätzlich aus.")
+
+static func protection_money() -> Charm:
+	return _make(PROTECTION_MONEY, "Schutzgeld", "Jeder Würfel zeigt +3 Augen - auch für Kombinationen. Beim Nehmen: $1 Gebühr je gewertetem Würfel.")
+
+static func waterfall() -> Charm:
+	return _make(WATERFALL, "Wasserfall", "+Mult in Höhe jeder gezählten Augenzahl, die niedriger ist als die letzte, die ihn ausgelöst hat.")
 
 # --- Kombinationen & Wertung ---
 
@@ -537,6 +557,9 @@ static func odd_path() -> Charm:
 
 static func snake_eyes() -> Charm:
 	return _make(SNAKE_EYES, "Snake Eyes", "Ist die Kombination genau ein Paar 1er: Mult += Augensumme aller unbeteiligten Würfel.")
+
+static func double_bottom() -> Charm:
+	return _make(DOUBLE_BOTTOM, "Doppelter Boden", "Basispunkte und Mult der Kombination zählen doppelt.")
 
 # --- Farkle ---
 
@@ -746,6 +769,12 @@ static func magnetic_trap() -> Charm:
 static func printing_press() -> Charm:
 	return _make(PRINTING_PRESS, "Druckerpresse", "Die Ethylen-Ernte druckt jede Material-Kopie doppelt.")
 
+static func camouflage() -> Charm:
+	return _make(CAMOUFLAGE, "Tarnkappe", "Jeder Krypton-Würfel löst 1-mal zusätzlich aus.")
+
+static func fuse() -> Charm:
+	return _make(FUSE, "Zündschnur", "Knallgas zündet stärker: +$3 statt +$1 je folgendem Würfel im Stapel.")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -761,9 +790,10 @@ static func all() -> Array[Charm]:
 		pendulum(), all_or_nothing(), anchor(),
 		echo_chamber(), twin_ring(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
 		beherit(), high_stacker(), prime_time(), front_runner(), quadrature(), six_pack(),
+		protection_money(), waterfall(),
 		house_joker(), free_drink(), spotlight(),
 		full_counter(), lighthouse(), momentum(), after_work_beer(), blackjack(),
-		round_number(), broadband(), even_company(), odd_path(), snake_eyes(),
+		round_number(), broadband(), even_company(), odd_path(), snake_eyes(), double_bottom(),
 		broken_mirror(), grandfather_clock(), shard_court(), gallows_humor(), phoenix_feather(), patchwork_rug(),
 		gold_rush(), rag_collector(), interest_penny(), street_musician(), emergency_fund(),
 		cash_discount(), high_flyer(),
@@ -780,5 +810,5 @@ static func all() -> Array[Charm]:
 		pressure_vessel(), aqua_fortis(), contrast_agent(),
 		censer(), solar_sail(), storm_front(), swamp_lantern(), ignition_coil(),
 		bell_jar(), solar_eclipse(), glaze_brush(), fluorescent_tube(),
-		polarizer(), alkahest(), magnetic_trap(), printing_press(),
+		polarizer(), alkahest(), magnetic_trap(), printing_press(), camouflage(), fuse(),
 	]

@@ -61,6 +61,8 @@ const PHOSPHORESCENCE := "phosphorescence"
 ## es nicht, weil es sich schwer abfüllen ließe, sondern wegen dem, was es mit
 ## dem anfängt, was es berührt.
 const ETHYLENE := "ethylene"
+## Das zweite Handelsgas unter den Phänomenen - abfüllbar, nur nicht ungefährlich.
+const DETONATING_GAS := "detonating_gas"
 
 const NONE := ""
 
@@ -115,8 +117,8 @@ static func argon() -> Essence:
 
 static func krypton() -> Essence:
 	return _make(KRYPTON, "Krypton", "Verborgen",
-		"Klauseln, die Würfel aussperren (Schieflage, Gleichgewicht), übersehen diesen Würfel.",
-		"ignoriert Würfel-Sperren", Rarity.COMMON, Color(0.55, 0.95, 0.7))
+		"Zählt immer mit - auch außerhalb der Kombination; und Klauseln, die Würfel aussperren (Schieflage, Gleichgewicht), übersehen ihn.",
+		"zählt immer mit, ignoriert Würfel-Sperren", Rarity.COMMON, Color(0.55, 0.95, 0.7))
 
 static func xenon() -> Essence:
 	return _make(XENON, "Xenon", "Dauerblitz",
@@ -258,6 +260,11 @@ static func ethylene() -> Essence:
 		"Zählt er in einer Runde zum ersten Mal, reift seine Schale nach: je VERSCHIEDENEM Material auf seinen Seiten wandert eine Material-Gravur in den Vorrat.",
 		"1× je Runde: je eigenem Material eine Gravur", Rarity.RARE, Color(1.0, 0.5, 0.42))
 
+static func detonating_gas() -> Essence:
+	return _make(DETONATING_GAS, "Knallgas", "Kettenreaktion",
+		"Bleibt er beim Rundenende ungezogen im Stapel liegen, zahlt JEDER Würfel hinter ihm +$1 zusätzlich.",
+		"+$1 je Würfel hinter ihm im Stapel", Rarity.RARE, Color(1.0, 0.62, 0.2))
+
 static func antimatter() -> Essence:
 	return _secret(_make(ANTIMATTER, "Antimaterie", "Auslöschung",
 		"Seine Augen zählen NEGATIV in die Basispunkte - dafür kritet er mit seiner Augenzahl.",
@@ -271,7 +278,7 @@ static func all() -> Array[Essence]:
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), will_o_wisp(), plasma(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), corona(), varnish(),
-		phosphorescence(), ethylene(), aurora(), quintessence(), antimatter(),
+		phosphorescence(), ethylene(), detonating_gas(), aurora(), quintessence(), antimatter(),
 	]
 
 static func by_id(essence_id: String) -> Essence:

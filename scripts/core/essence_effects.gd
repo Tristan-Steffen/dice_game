@@ -64,9 +64,10 @@ static func activation_factor(essence_id: String, charm_ids: Array[String] = [],
 	return factor
 
 ## ADDITIVE Würfel-Trigger aus der Zählreihenfolge: Sauerstoff facht den NÄCHSTEN
-## an, das Amalgam macht den Quecksilberdampf zur zweiten solchen Quelle, und der
+## an, das Amalgam macht den Quecksilberdampf zur zweiten solchen Quelle, der
 ## Sonnenwind reitet auf jedem Essenz-Würfel, der vor ihm gezählt wurde (mit
-## Sonnensegel: +2 je VERSCHIEDENER Seele statt +1 je Würfel).
+## Sonnensegel: +2 je VERSCHIEDENER Seele statt +1 je Würfel), und die Tarnkappe
+## gibt jedem Krypton-Würfel einen Antritt dazu.
 ## order ist die kanonische Reihe (DiceScoring.trigger_order), nie eine physische.
 static func extra_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String] = []) -> int:
 	var index := order.find(slot)
@@ -79,6 +80,9 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 			extra += 1
 		if before.has(Essence.MERCURY_VAPOR) and charm_ids.has(Charm.AMALGAM):
 			extra += 1
+	# Tarnkappe: der verborgene Würfel tritt einmal mehr an.
+	if charm_ids.has(Charm.CAMOUFLAGE) and set_at(sets, slot).has(Essence.KRYPTON):
+		extra += 1
 	if set_at(sets, slot).has(Essence.SOLAR_WIND):
 		if charm_ids.has(Charm.SOLAR_SAIL):
 			var seen: Array[String] = []
@@ -239,6 +243,38 @@ static func boosted_level(level: int, essence_ids: Array[String]) -> int:
 ## Drosseln bleiben davon unberührt - die sperren keine Würfel, sondern Hände.
 static func ignores_dice_filters(essence_id: String) -> bool:
 	return essence_id == Essence.KRYPTON
+
+## Krypton zählt IMMER mit: er tritt an, auch wenn er nicht zur Kombination
+## gehört (Augen, Material, würfelgebundene Charms). Die ERKENNUNG bleibt davon
+## unberührt - participating und die Kombi-Charms sehen ihn nicht, genau wie beim
+## Vollzähler.
+static func always_scored(essence_ids: Array[String]) -> bool:
+	return essence_ids.has(Essence.KRYPTON)
+
+static func always_scored_of(sets: Dictionary, slot: int) -> bool:
+	return always_scored(set_at(sets, slot))
+
+## Knallgas: die Kettenreaktion in der Ablage. Jeder ungezogene Würfel zahlt am
+## Rundenende zusätzlich - je Knallgas-Würfel, der VOR ihm im Stapel liegt.
+## Die Zündschnur hebt den Satz von $1 auf $3 (je Vorkommen +$2).
+const DETONATING_GAS_BONUS := 1
+const FUSE_STEP := 2
+
+static func detonating_gas_bonus(charm_ids: Array[String] = []) -> int:
+	return DETONATING_GAS_BONUS + FUSE_STEP * charm_ids.count(Charm.FUSE)
+
+## Auszahlung je ungezogenem Würfel, in STAPEL-Reihenfolge. essence_ids ist die
+## Seele je übrigem Würfel ("" = keine); der Knallgas-Würfel selbst bekommt
+## nichts dazu, erst die hinter ihm.
+static func leftover_die_payouts(essence_ids: Array[String], base_per_die: int, charm_ids: Array[String] = []) -> Array[int]:
+	var out: Array[int] = []
+	var bonus := detonating_gas_bonus(charm_ids)
+	var chain := 0
+	for essence_id in essence_ids:
+		out.append(base_per_die + chain * bonus)
+		if essence_id == Essence.DETONATING_GAS:
+			chain += 1
+	return out
 
 ## Plasma: der Lichtbogen hält die Leiterbahn - sie bekommt ZWEI Versuche statt
 ## einem. "Doppelte Chance" heißt also aggregiert (1 − (1−p)²), nie p × 2: aus

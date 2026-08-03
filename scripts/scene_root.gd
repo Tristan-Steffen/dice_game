@@ -4342,9 +4342,7 @@ func _on_throw_button_pressed() -> void:
 	if _remaining_in_pool() <= 0:
 		return
 	# Ohne Auslage (Runde 1) zurrt der erste Wurf die Runde fest.
-	if not round_committed:
-		round_committed = true
-		_sync_editing_lock()
+	_commit_round()
 	# Eine laufende Aufreihung beenden - der neue Wurf übernimmt die Würfel.
 	_cancel_lineup()
 	_close_side_bet_betting()  # der erste Wurf schließt die Wettannahme
@@ -4872,16 +4870,20 @@ func _on_take_button_pressed() -> void:
 	# Nehmen-Effekte der Materialien - die gewerteten AUSGEWÄHLTEN Würfel (mit
 	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
 	# Knochen/Glas verändern die Pool-Würfel dauerhaft.
-	var sel_participating := DiceScoring.participating_indices(hand["key"], sel_values, ids, sel_ctx)
-	var sel_scored := CharmEffects.scored_indices(sel_participating, sel_values.size(), ids)
+	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
+	# als die Punkte, die er gerade gezeigt hat.
+	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
+	var sel_participating: Array[int] = sel_shape["participating"]
+	var sel_scored: Array[int] = sel_shape["scored"]
 	var participating: Array[int] = []
 	for p in sel_scored:
 		participating.append(slots[p])
 	# Die übrige Rundenbilanz der Nebenwetten braucht die GEWERTETEN Würfel.
 	_note_hand_for_side_bets(String(hand["key"]), int(breakdown["total"]), slots.size(),
 		CharmEffects.transform_values(sel_values, ids), sel_scored)
-	# Echo-Kammer: in Auswahl-Indizes bestimmt, dann auf den echten Slot zurück.
-	var echo_sel := CharmEffects.first_participating(sel_values, sel_scored)
+	# Echo-Kammer: Kopf der Zählreihe, in Auswahl-Indizes bestimmt, dann auf den
+	# echten Slot zurück.
+	var echo_sel: int = sel_shape["echo_slot"]
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var take_order := DiceScoring.trigger_order(participating, dice.values, player_order)
 	# Die gezündete Leiterbahn zurück auf echte Slots - der ctx sprach in Auswahl-
@@ -4974,6 +4976,12 @@ func _on_take_button_pressed() -> void:
 	taken_dice_this_round += dice.count()
 	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
+	# Schutzgeld kassiert wie eine Klausel-Gebühr: NACH dem Ertrag der Hand, je
+	# gewertetem Würfel, und nie über den Kassenstand hinaus.
+	var protection := CharmEffects.take_fee(ids, participating.size())
+	if protection > 0:
+		run.add_money(-mini(protection, run.money))
+		_flash_charm_and_pad(ids.find(Charm.PROTECTION_MONEY))
 	_apply_hand_clauses(String(hand["key"]), participating.size())
 	# Steuerwetten kassieren wie die Klausel-Gebühr NACH dem Ertrag der Hand.
 	run.tax_side_bets(slots.size())
@@ -5182,7 +5190,7 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 	for group: Dictionary in step["die_triggers"]:
 		for pulse: Dictionary in group["firings"]:
 			if not await _play_die_pulse(pulse, slot, die_px, gain_px, glow_by_slot,
-					step["eye_charm_indices"], step["die_charm_indices"], step["crit_charm_indices"]):
+					step["eye_charm_indices"]):
 				return false
 		if not await _play_die_links(group["links"], slot, die_px, gain_px, glow_by_slot):
 			return false
@@ -5195,15 +5203,15 @@ func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2,
 	for link: Dictionary in links:
 		if slot < active_kinds.size():
 			_show_pit_net(active_kinds[slot], int(link["face"]))
-		if not await _play_die_pulse(link, slot, die_px, gain_px, glow_by_slot,
-				[], link["die_charm_indices"], link["crit_charm_indices"]):
+		if not await _play_die_pulse(link, slot, die_px, gain_px, glow_by_slot, []):
 			return false
 	return true
 
 ## Eine Auslösung des Würfel-Schritts - Aktivierung ODER Leiterbahn-Glied:
-## Augen+Material-Komet, dann Charm-Anteil vom Dock-Pad, dann Krit-Schlag.
-## false = Abbruch (Reset).
-func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array, die_charm_indices: Array, crit_charm_indices: Array) -> bool:
+## Augen+Material-Komet, dann Charm-Anteil vom Dock-Pad, dann JEDER Krit als
+## eigener Schlag (crit_steps). false = Abbruch (Reset).
+func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array) -> bool:
+	var die_charm_indices: Array = pulse.get("die_charm_indices", [])
 	_flash_scoring_die(slot)
 	if glow_by_slot.has(slot):
 		_pulse_glow(glow_by_slot[slot])
@@ -5238,20 +5246,22 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 			func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
 		if not await _score_arrival_gap(ctravel):
 			return false
-	# Krit-Schlag (Beherit) dieser Auslösung: der Würfel blitzt erneut,
-	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen).
-	var crit_x := float(pulse["crit_x"])
-	if not is_equal_approx(crit_x, 1.0):
+	# Krit-Schläge dieser Auslösung, EINZELN: der Würfel blitzt je Schlag erneut,
+	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen). Zwei Beherit-
+	# Kopien schlagen darum zweimal ×1,4 statt einmal ×1,96.
+	for crit: Dictionary in pulse.get("crit_steps", []):
+		var crit_x := float(crit["crit_x"])
+		var crit_indices: Array = crit["charm_indices"]
 		_flash_scoring_die(slot)
-		for charm_index: int in crit_charm_indices:
+		for charm_index: int in crit_indices:
 			_flash_charm_and_pad(charm_index)
-		# Material-Krit (Rubin III, Glas ab II) hat kein Dock-Pad - er kommt vom Würfel.
-		var from_die: bool = crit_charm_indices.is_empty() and bool(pulse.get("crit_from_die", false))
-		var crit_px := die_px if from_die else _charm_trail_source_px(crit_charm_indices)
+		# Material- und Essenz-Krit haben kein Dock-Pad - sie kommen vom Würfel.
+		var from_die: bool = crit["from_die"]
+		var crit_px := die_px if from_die else _charm_trail_source_px(crit_indices)
 		# Grubengas zündet MIT dem Krit - seine Basis steht schon im Stand danach.
-		var crit_base: int = pulse.get("base_after_crit", pulse["charm_base_after"])
-		var crit_mult: float = pulse["mult_after_crit"]
-		var firedamp_add := int(pulse.get("firedamp_add", 0))
+		var crit_base: int = crit["base_after"]
+		var crit_mult: float = crit["mult_after"]
+		var firedamp_add := int(crit.get("firedamp_add", 0))
 		if firedamp_add != 0:
 			table_screen.spawn_gain_number(crit_px, "+%d" % firedamp_add, table_screen.TRAIL_BASE_COLOR)
 		table_screen.spawn_gain_number(crit_px, ScoreBreakdown.format_mult(crit_x), TableScreen.CRIT_COLOR, 1.2)
@@ -5549,7 +5559,19 @@ func _visible_pit_slots() -> Array[int]:
 func _hand_slots() -> Array[int]:
 	if run != null and run.charm_ids().has(Charm.FULL_COUNTER):
 		return _visible_pit_slots()
-	return _scoring_slots()
+	var slots := _scoring_slots()
+	# Krypton zählt immer mit: er kommt auch ungewählt in die Hand, sonst erreicht
+	# ihn die Wertung gar nicht. Aufsteigend, wie jede Slot-Liste hier.
+	var sets := _effective_essence_sets()
+	if sets.is_empty():
+		return slots
+	var widened: Array[int] = []
+	for i in dice.count():
+		if slots.has(i):
+			widened.append(i)
+		elif dice.roots[i].visible and EssenceEffects.always_scored_of(sets, i):
+			widened.append(i)
+	return widened
 
 ## Beteiligte Slots der besten Hand über ALLE liegenden Würfel (Vollzähler-Glow:
 ## diese leuchten hell, der Rest der Grube nur schwach).
@@ -5693,6 +5715,8 @@ func _connect_run() -> void:
 			table_screen.secret_shop_window.unlock_requested.connect(_on_secret_shop_unlock_requested)
 		if not table_screen.secret_shop_window.charge_spent.is_connected(_on_secret_shop_charge_spent):
 			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
+		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
+			table_screen.secret_shop_window.die_purchased.connect(_on_secret_die_purchased)
 	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
@@ -5787,6 +5811,13 @@ func _on_secret_shop_charge_spent(_amount: int) -> void:
 	if table_screen != null:
 		table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
 
+## Schwarzmarkt-Würfel gekauft: gebucht ist er längst als versiegeltes Paket, die
+## Lieferung fährt vom Hub die Werkstatt-Ader hinunter wie jede andere Ware.
+func _on_secret_die_purchased() -> void:
+	if table_screen == null or table_screen.hub == null:
+		return
+	_on_pack_purchased(table_screen.hub.position + table_screen.hub.size * 0.5, Pack.TYPE_DICE)
+
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
 func _route_choice_open() -> bool:
@@ -5826,8 +5857,7 @@ func _on_route_chosen(index: int) -> void:
 	# holt nach: je ⚡ ein Komet auf dem Weg der Überladungs-Auszahlung.
 	_play_deal_charge_volley(run.charge - charge_before)
 	route_pending = false
-	round_committed = true  # ab der Unterschrift sind die Würfel im Spiel
-	_sync_editing_lock()
+	_commit_round()  # ab der Unterschrift sind die Würfel im Spiel
 	if route_choice != null:
 		route_choice.close()
 	# Jetzt erst fährt der Nachschub auf - ohne Neuzoom, die Grube steht ja schon.
@@ -5894,13 +5924,10 @@ func _start_new_round() -> void:
 	if test_pointers_enabled:
 		run.randomize_all_pointers()
 
-	var ids := run.charm_ids()
+	# Der Stapel liegt bis zur Unterschrift in der POOL-Reihenfolge: das ganze
+	# Werkbank-Fenster über weiß der Spieler, wo ein Würfel steht (und ordnet ihn
+	# per reorder_pool an). Gemischt wird erst beim Festzurren (_commit_round).
 	round_pool_kinds = run.owned_pool.duplicate()
-	round_pool_kinds.shuffle()
-	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn -
-	# die ZULETZT angewandte gewinnt (Frische Ware > Magnetring).
-	if CharmEffects.draws_materials_first(ids):
-		round_pool_kinds = _materials_first(round_pool_kinds)
 
 	next_draw_index = 0
 	discard_tray_view.clear()
@@ -5913,6 +5940,22 @@ func _start_new_round() -> void:
 	if not betting_open:
 		_open_side_bet_betting()
 	_start_new_hand()
+
+## Zurren der Runde - Unterschrift oder, ohne Auslage, der erste Wurf. Beides
+## macht dasselbe und darf je Runde nur EINMAL passieren: die Werkbank schließt,
+## und der Stapel wird gemischt. Vorher lag er in der Pool-Reihenfolge, damit das
+## Anordnen sichtbar bleibt; ab hier ist die Zieh-Reihenfolge Zufall.
+func _commit_round() -> void:
+	if round_committed:
+		return
+	round_committed = true
+	round_pool_kinds.shuffle()
+	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - NACH
+	# dem Mischen, sonst mischte sie sich wieder auseinander.
+	if CharmEffects.draws_materials_first(run.charm_ids()):
+		round_pool_kinds = _materials_first(round_pool_kinds)
+	_sync_editing_lock()
+	_refresh_deck_trays()
 
 ## Sortiert Würfel mit Material (Seite ODER Kante) stabil an den Anfang
 ## (Frische Ware). Gravuren in materials zählen nicht - nur echte Materialien.
@@ -5975,6 +6018,9 @@ func _on_round_complete() -> void:
 		if run.unused_dice_pay():
 			per_die = roundi((MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)
 				+ run.deal_unused_die_bonus()) * factor)
+		# Knallgas: die Kettenreaktion im Stapel - je übrigem Würfel ein eigener
+		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
+		var per_die_row := _leftover_die_payouts(per_die, ids)
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
 		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
@@ -5984,7 +6030,7 @@ func _on_round_complete() -> void:
 		# Benchmark-Kometen - ein eigener Komet für ein paar Dollar wäre Zeremonie
 		# um ihrer selbst willen.
 		var interest := run.interest_income()
-		await _play_round_clear_payout(base_blind, interest, per_die, stages, split)
+		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
@@ -6154,7 +6200,7 @@ func _is_high_dice_hand(values: Array[int], scored: Array[int]) -> bool:
 ## selben Takt mit (überzählige zahlen ohne eigenes Aufblitzen). Drei Posten
 ## nacheinander: Benchmark (einmal Geld), Überladung (je Stufe ⚡ bzw. Überlauf-
 ## Geld nach split), übrige Würfel.
-func _play_round_clear_payout(base_blind: int, interest: int, per_die: int, stages: int,
+func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array[int], stages: int,
 		split: Dictionary) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
@@ -6198,7 +6244,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die: int, stag
 		for i in remaining:
 			if i < die_entries.size():
 				_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
-			run.add_money(per_die)
+			run.add_money(per_die_row[i] if i < per_die_row.size() else 0)
 			await get_tree().create_timer(DIE_PAYOUT_STEP_INTERVAL).timeout
 		_fade_payout_label(hub.die_payout_label if hub != null else null)
 
@@ -6443,6 +6489,14 @@ func _pop_payout_label(label: Label) -> void:
 	tween.tween_property(label, "scale", Vector2.ONE, 0.2) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
+## Auszahlung je noch ungezogenem Würfel, in STAPEL-Reihenfolge: normal überall
+## per_die, mit Knallgas wächst der Satz hinter jedem Knallgas-Würfel.
+func _leftover_die_payouts(per_die: int, ids: Array[String]) -> Array[int]:
+	var souls: Array[String] = []
+	for def in round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()):
+		souls.append(def.essence_id)
+	return EssenceEffects.leftover_die_payouts(souls, per_die, ids)
+
 ## Alle Anzeigen noch nicht gezogener Würfel (Warteschlange zuerst, dann
 ## Pool) in Zieh-Reihenfolge.
 func _unused_die_entries() -> Array:
@@ -6579,6 +6633,11 @@ func _on_die_engraved() -> void:
 ## Testmodus): alle Anzeigen, die eine Würfel-Instanz zeigen, ziehen nach. Die
 ## Instanzen werden nie getauscht (GameRun.become), also reicht Neuzeichnen.
 func _on_pool_changed() -> void:
+	# Vor dem Zurren IST der Stapel der Pool: ein Anordnen (reorder_pool) muss
+	# darum sofort in den Trays stehen. Danach ist er gemischt und unantastbar.
+	if not round_committed and next_draw_index == 0:
+		round_pool_kinds = run.owned_pool.duplicate()
+		_refresh_deck_trays()
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()

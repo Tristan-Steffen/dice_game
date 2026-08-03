@@ -58,7 +58,8 @@ func _firings(step: Dictionary) -> Array:
 
 func _check_continuity(breakdown: Dictionary) -> void:
 	var base: int = breakdown["combo"]["base_add"]
-	var mult: int = breakdown["combo"]["mult_add"]
+	# Mult ist eine Fließkommazahl, seit Krits Bruchteile sein dürfen (Beherit).
+	var mult := float(breakdown["combo"]["mult_add"])
 	var expected_order: Array = breakdown["eye_slots"]
 	var at := 0
 	for step: Dictionary in breakdown["die_steps"]:
@@ -66,25 +67,30 @@ func _check_continuity(breakdown: Dictionary) -> void:
 		at += 1
 		for pulse: Dictionary in _pulses(step):
 			base += pulse["base_add"]
-			mult += pulse["mult_add"]
+			mult += float(pulse["mult_add"])
 			assert_eq(pulse["base_after"], base, "Zwischenstand nach dem Würfel-Puls")
-			assert_eq(pulse["mult_after"], mult)
+			assert_almost_eq(float(pulse["mult_after"]), mult, 0.0001)
 			base += pulse["charm_base_add"]
-			mult += pulse["charm_mult_add"]
+			mult += float(pulse["charm_mult_add"])
 			assert_eq(pulse["charm_base_after"], base, "Zwischenstand nach dem Charm-Anteil")
-			assert_eq(pulse["charm_mult_after"], mult)
-			mult *= pulse["crit_x"]
-			assert_eq(pulse["mult_after_crit"], mult, "Zwischenstand nach dem Krit-Schlag")
+			assert_almost_eq(float(pulse["charm_mult_after"]), mult, 0.0001)
+			# Jeder Krit schlägt EINZELN ein - die Kette läuft über die Schläge.
+			for crit: Dictionary in pulse["crit_steps"]:
+				base += int(crit["firedamp_add"])
+				mult *= float(crit["crit_x"])
+				assert_eq(crit["base_after"], base, "Zwischenstand nach dem Krit-Schlag")
+				assert_almost_eq(float(crit["mult_after"]), mult, 0.0001)
+			assert_almost_eq(float(pulse["mult_after_crit"]), mult, 0.0001, "Summe der Krit-Schläge")
 		assert_eq(step["base_after"], base, "Würfel-Schritt endet am laufenden Stand")
-		assert_eq(step["mult_after"], mult)
+		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
 	for step: Dictionary in breakdown["charm_steps"]:
-		base = (base + step["base_add"]) * step["base_x"]
-		mult = (mult + step["mult_add"]) * step["mult_x"]
+		base = (base + int(step["base_add"])) * int(step["base_x"]) + int(step["firedamp_add"])
+		mult = (mult + float(step["mult_add"])) * float(step["mult_x"])
 		assert_eq(step["base_after"], base)
-		assert_eq(step["mult_after"], mult)
+		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
 	assert_eq(breakdown["base"], base, "Endstand Basis")
-	assert_eq(breakdown["mult"], maxi(1, mult), "Endstand Mult (geklemmt)")
-	assert_eq(breakdown["merge_total"], base * maxi(1, mult))
+	assert_almost_eq(float(breakdown["mult"]), maxf(1.0, mult), 0.0001, "Endstand Mult (geklemmt)")
+	assert_eq(breakdown["merge_total"], ceili(float(base) * maxf(1.0, mult)))
 	var total: int = breakdown["merge_total"]
 	for step: Dictionary in breakdown["post_steps"]:
 		total = int(round((total + step["total_add"]) * step["total_x"]))
@@ -207,15 +213,15 @@ func test_six_pack_sleeps_below_a_full_hand():
 		assert_eq(_firings(step).size(), 1, "fünf Würfel reichen nicht")
 
 func test_beherit_crits_inside_its_die_step():
-	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×4, verzahnt
+	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×1,4, verzahnt
 	# (Würfel -> Charm -> Würfel -> Charm), Kette endet am Schritt-Endstand.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
 	var acts: Array = _firings(step)
 	assert_eq(acts.size(), 2)
-	assert_eq(int(acts[0]["crit_x"]), 4)
-	assert_eq(int(acts[0]["mult_after_crit"]) * 4, int(acts[1]["mult_after_crit"]))
-	assert_eq(int(acts[1]["mult_after_crit"]), int(step["mult_after"]), "letzter Schlag = Endstand")
+	assert_almost_eq(float(acts[0]["crit_x"]), 1.4, 0.0001)
+	assert_almost_eq(float(acts[0]["mult_after_crit"]) * 1.4, float(acts[1]["mult_after_crit"]), 0.0001)
+	assert_almost_eq(float(acts[1]["mult_after_crit"]), float(step["mult_after"]), 0.0001, "letzter Schlag = Endstand")
 	assert_eq(step["crit_charm_indices"], [0])
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
 
@@ -223,7 +229,51 @@ func test_beherit_without_retrigger_slams_once():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
 	var step: Dictionary = breakdown["die_steps"][0]
 	assert_eq(_firings(step).size(), 1)
-	assert_eq(int(step["crit_x"]), 4, "×4 am eigenen Würfel, einmal")
+	assert_almost_eq(float(step["crit_x"]), 1.4, 0.0001, "×1,4 am eigenen Würfel, einmal")
+
+func test_every_crit_gets_its_own_slam():
+	# Zwei Beherit-Kopien schlagen ZWEIMAL ×1,4 ein, nicht einmal ×1,96 - die
+	# Zeremonie soll jeden Krit zeigen. Das Produkt bleibt crit_x.
+	var ids := _ids([Charm.BEHERIT, Charm.BEHERIT])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids)
+	var pulse: Dictionary = _firings(breakdown["die_steps"][0])[0]
+	var crits: Array = pulse["crit_steps"]
+	assert_eq(crits.size(), 2, "je Kopie ein eigener Schlag")
+	for crit: Dictionary in crits:
+		assert_almost_eq(float(crit["crit_x"]), 1.4, 0.0001)
+		assert_false(bool(crit["from_die"]), "beide kommen von einem Dock-Pad")
+	assert_eq(crits[0]["charm_indices"], [0])
+	assert_eq(crits[1]["charm_indices"], [1])
+	assert_almost_eq(float(pulse["crit_x"]), 1.96, 0.0001, "crit_x bleibt das Produkt")
+
+func test_beherit_follows_the_growing_bone_face():
+	# Knochen wächst ZWISCHEN den Zündungen - der Betrag des würfelgebundenen
+	# Krits rechnet mit dem laufenden Wert, nicht mit dem liegenden.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, mats, {}, _argon(0))
+	var acts: Array = _firings(breakdown["die_steps"][0])
+	assert_eq(acts.size(), 2)
+	assert_almost_eq(float(acts[0]["crit_x"]), 1.4, 0.0001, "erste Zündung: die liegende 4")
+	assert_almost_eq(float(acts[1]["crit_x"]), 1.5, 0.0001, "zweite Zündung: die gewachsene 5")
+
+func test_the_high_stacker_amount_follows_the_running_value():
+	# Dasselbe für einen additiven würfelgebundenen Charm - das ZIEL bleibt am
+	# liegenden Wert, nur der Betrag wächst mit.
+	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.HIGH_STACKER]), false, mats, {}, _argon(0))
+	var acts: Array = _firings(breakdown["die_steps"][0])
+	assert_eq(int(acts[0]["charm_mult_add"]), 4)
+	assert_eq(int(acts[1]["charm_mult_add"]), 5, "die gewachsene Seite legt mehr Mult")
+
+func test_a_material_crit_slams_without_a_dock_pad():
+	# Rubin III kommt vom Würfel selbst - sein Schlag nennt keine Charm-Position.
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3, "eye_sum": 21}}}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, mats, {}, ctx)
+	var crits: Array = _firings(breakdown["die_steps"][0])[0]["crit_steps"]
+	assert_eq(crits.size(), 1)
+	assert_true(bool(crits[0]["from_die"]), "kein Dock-Pad")
+	assert_eq(crits[0]["charm_indices"], [])
 
 func test_retrigger_interleaves_the_per_die_charm_share():
 	# Verzahnung: je Auslösung folgt der Charm-Anteil direkt auf den
@@ -450,9 +500,15 @@ func _prop_charm_sets() -> Array:
 		[Charm.LUCKY_CIGARETTES], [Charm.PENCIL_STUB], [Charm.FOX_TAIL],
 		[Charm.SMALL_FRY], [Charm.EQUALIZER],
 		[Charm.RABBITS_FOOT], [Charm.FOUR_LEAF_CLOVER], [Charm.GOLDEN_SCARAB],
+		[Charm.PROTECTION_MONEY], [Charm.WATERFALL], [Charm.DOUBLE_BOTTOM],
+		[Charm.BEHERIT], [Charm.HIGH_STACKER], [Charm.PRIME_TIME], [Charm.QUADRATURE],
+		[Charm.FRONT_RUNNER], [Charm.SIX_PACK],
 		[Charm.CULT_OF_ONE, Charm.GALLOWS_HUMOR, Charm.MAGIC_CARD],
 		[Charm.LUCKY_CIGARETTES, Charm.ECHO_CHAMBER, Charm.BLACKJACK],
 		[Charm.EQUALIZER, Charm.SMALL_FRY, Charm.ECHO_CHAMBER, Charm.FULL_COUNTER],
+		[Charm.WATERFALL, Charm.BEHERIT, Charm.ECHO_CHAMBER],
+		[Charm.PROTECTION_MONEY, Charm.RABBITS_FOOT, Charm.DOUBLE_BOTTOM],
+		[Charm.WATERFALL, Charm.PROTECTION_MONEY, Charm.FULL_COUNTER, Charm.HIGH_STACKER],
 	]
 
 ## Würfe mit unbeteiligten Würfeln, geraden/ungeraden Läufen, Einsen und Sechsen -

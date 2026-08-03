@@ -51,3 +51,24 @@ func test_every_doubled_clause_is_a_real_bonus():
 func test_an_unknown_id_stays_silent():
 	assert_eq(DealClause.text_for("gibt_es_nicht"), "")
 	assert_eq(DealClause.text_for("gibt_es_nicht", 2), "")
+
+# --- Nachschlagen: EIN geteiltes Exemplar je id ----------------------------------
+# find() lief je Frame dutzendfach durch die Überladungs-Stufen und baute jedes Mal
+# alle 48 Klauseln neu - das war der Milliarden-Lag. Aufrufer LESEN nur.
+
+func test_find_returns_the_same_instance_every_time():
+	var first := DealClause.find(DealClause.CALIBRATION)
+	assert_not_null(first)
+	assert_eq(DealClause.find(DealClause.CALIBRATION), first, "kein Neubau je Aufruf")
+
+func test_find_still_knows_every_registered_clause():
+	for clause in DealClause.all():
+		var found := DealClause.find(clause.id)
+		assert_not_null(found, clause.id)
+		assert_eq(found.id, clause.id)
+		assert_eq(found.tier, clause.tier, clause.id)
+		assert_eq(found.scope, clause.scope, clause.id)
+		assert_eq(found.kind, clause.kind, clause.id)
+
+func test_find_stays_silent_on_an_unknown_id():
+	assert_null(DealClause.find("gibt_es_nicht"))

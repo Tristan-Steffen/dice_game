@@ -136,6 +136,31 @@ func test_prime_time_pays_prime_faces_as_mult():
 	assert_eq(CharmEffects.die_charm_mult(0, _d([7, 7, 7, 7, 7, 7]), ids), 7, "gewachsene Seite (7) ist prim")
 	assert_eq(CharmEffects.die_charm_mult(0, _d([9, 9, 9, 9, 9, 9]), ids), 0, "9 = 3×3")
 
+func test_is_prime_stays_exact_after_the_memoization():
+	# Der 6k±1-Schritt und der Merker dürfen kein Ergebnis verschieben - gegen die
+	# naive Probedivision geprüft, zweimal (kalt und aus dem Merker).
+	for value in range(-3, 200):
+		var expected := _naive_prime(value)
+		assert_eq(CharmEffects.is_prime(value), expected, "is_prime(%d)" % value)
+		assert_eq(CharmEffects.is_prime(value), expected, "gemerkt: is_prime(%d)" % value)
+	# Knochengewachsene Seiten reichen in die Milliarden - dort ist die Wurzelsuche
+	# teuer und der Merker der Grund für den Umbau.
+	assert_true(CharmEffects.is_prime(1000000007))
+	assert_false(CharmEffects.is_prime(1000000008))
+	assert_true(CharmEffects.is_prime(999999937))
+	assert_false(CharmEffects.is_prime(999999939), "3 × 333333313")
+
+## Probedivision ohne Tricks - der Maßstab für den Test oben.
+func _naive_prime(value: int) -> bool:
+	if value < 2:
+		return false
+	var d := 2
+	while d * d <= value:
+		if value % d == 0:
+			return false
+		d += 1
+	return true
+
 func test_front_runner_loads_the_first_die_with_the_whole_eye_sum():
 	# Paar Fünfer: der vorderste gewertete Würfel (Slot 0) trägt 5+5 = 10 extra.
 	var ids := _ids([Charm.FRONT_RUNNER])
@@ -245,13 +270,136 @@ func test_high_stacker_matches_the_highest_counted_die():
 
 func test_beherit_crits_with_the_lowest_counted_die():
 	# Würfelgebunden: der Krit feuert im Schritt des NIEDRIGSTEN gewerteten
-	# Würfels - Slot 3 (4) und 5 (6) gewertet -> ×4 an Slot 3.
+	# Würfels - Slot 3 (4) und 5 (6) gewertet -> ×1,4 an Slot 3.
 	var ids := _ids([Charm.BEHERIT])
-	assert_eq(CharmEffects.die_charm_crit_at(0, 3, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 4, "Krit ×4 am Zielwürfel")
-	assert_eq(CharmEffects.die_charm_crit_at(0, 5, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 1, "der höhere Würfel kritet nicht")
-	assert_eq(CharmEffects.die_charm_crit_at(0, 0, _d([1, 2, 3, 4, 5, 6]), ids, _p([0, 5])), 1, "gewertete 1 = kein Krit")
-	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 5 = 10 -> Basis 20 × 10 = 200.
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 200)
+	assert_almost_eq(CharmEffects.die_charm_crit_at(0, 3, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 1.4, 0.0001, "Krit ×1,4 am Zielwürfel")
+	assert_almost_eq(CharmEffects.die_charm_crit_at(0, 5, _d([1, 2, 3, 4, 5, 6]), ids, _p([3, 5])), 1.0, 0.0001, "der höhere Würfel kritet nicht")
+	assert_almost_eq(CharmEffects.die_charm_crit_at(0, 0, _d([1, 2, 3, 4, 5, 6]), ids, _p([0, 5])), 1.1, 0.0001, "auch die gewertete 1 kritet noch")
+	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 1,5 = 3 -> Basis 20 × 3 = 60.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 60)
+
+func test_beherit_scales_with_a_grown_face():
+	# Der Sinn der Zehntel-Regel: knochengewachsene Seiten schlagen weiter hart zu.
+	var ids := _ids([Charm.BEHERIT])
+	assert_almost_eq(CharmEffects.die_charm_crit_at(0, 0, _d([45, 45]), ids, _p([0, 1])), 5.5, 0.0001)
+
+# --- Schutzgeld: Aufschlag auf jeden gezeigten Wert, Gebühr beim Nehmen --------------
+
+func test_protection_money_lifts_every_shown_value():
+	var ids := _ids([Charm.PROTECTION_MONEY])
+	assert_eq(CharmEffects.shown_by_charms(4, ids), 7)
+	assert_eq(CharmEffects.shown_by_charms(4, _ids([Charm.PROTECTION_MONEY, Charm.PROTECTION_MONEY])), 10,
+		"je Vorkommen erneut")
+	assert_eq(CharmEffects.shown_by_charms(4, _ids([])), 4)
+
+func test_protection_money_runs_after_the_transform_chain():
+	# Erst die Kette (3 -> 4), dann der Aufschlag: 7, nicht 6.
+	var ids := _ids([Charm.FOX_TAIL, Charm.PROTECTION_MONEY])
+	assert_eq(CharmEffects.shown_by_charms(3, ids), 7)
+
+func test_protection_money_moves_the_detection():
+	# Wie beim Wasserstoff verschiebt die Linse auch die Erkennung: eine kleine
+	# Straße 1-5 zeigt 4-8 und ist keine Straße mehr - das Paar bleibt.
+	var ids := _ids([Charm.PROTECTION_MONEY])
+	var straight := _d([1, 2, 3, 4, 5, 5])
+	assert_eq(DiceScoring.best_hand(straight, _ids([]))["key"], DiceScoring.SMALL_STRAIGHT)
+	assert_eq(DiceScoring.best_hand(straight, ids)["key"], DiceScoring.TWO_KIND)
+
+func test_protection_money_feeds_the_retrigger_charms():
+	# Eine gezeigte 6 IST eine 6 - die Hasenpfote löst auf der verschobenen 3 aus.
+	var ids := _ids([Charm.PROTECTION_MONEY, Charm.RABBITS_FOOT])
+	var shown := DiceScoring.shown_values(_d([3, 3]), ids)
+	assert_eq(shown, _d([6, 6]))
+	assert_eq(MaterialEffects.face_trigger_count(shown[0], ids), 2)
+
+func test_protection_money_charges_per_scored_die():
+	assert_eq(CharmEffects.take_fee(_ids([Charm.PROTECTION_MONEY]), 4), 4)
+	assert_eq(CharmEffects.take_fee(_ids([Charm.PROTECTION_MONEY, Charm.PROTECTION_MONEY]), 4), 8)
+	assert_eq(CharmEffects.take_fee(_ids([]), 4), 0)
+	assert_eq(CharmEffects.take_fee(_ids([Charm.PROTECTION_MONEY]), 0), 0)
+
+# --- Doppelter Boden: nur die Kombination zählt doppelt -------------------------------
+
+func test_double_bottom_doubles_only_the_combination():
+	# Paar Fünfer: (10 + 10 Augen) × 2 = 40. Doppelt zählt NUR die Kombination:
+	# (10×2 + 10 Augen) × (2×2) = 120.
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([]))
+	var doubled := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.DOUBLE_BOTTOM]))
+	assert_eq(plain, 40)
+	assert_eq(doubled, 120)
+
+func test_double_bottom_leaves_the_printed_level_alone():
+	# points_for/mult_for bleiben die reine Stufe - Chips und Preise drucken sie.
+	var ids := _ids([Charm.DOUBLE_BOTTOM])
+	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND), 10)
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)
+	assert_eq(CharmEffects.combo_factor(ids), 2)
+	assert_eq(CharmEffects.combo_factor(_ids([Charm.DOUBLE_BOTTOM, Charm.DOUBLE_BOTTOM])), 4)
+	assert_eq(CharmEffects.combo_factor(_ids([])), 1)
+
+# --- Wasserfall: nur fallende Augenzahlen legen nach ----------------------------------
+
+func test_the_waterfall_only_fires_on_a_falling_value():
+	var ids := _ids([Charm.WATERFALL])
+	assert_eq(CharmEffects.cascade_mult(5, CharmEffects.CASCADE_UNSET, ids), 5, "die erste zählt immer")
+	assert_eq(CharmEffects.cascade_mult(3, 5, ids), 3)
+	assert_eq(CharmEffects.cascade_mult(5, 5, ids), 0, "gleich ist nicht niedriger")
+	assert_eq(CharmEffects.cascade_mult(6, 5, ids), 0)
+	assert_eq(CharmEffects.cascade_mult(3, 5, _ids([Charm.WATERFALL, Charm.WATERFALL])), 6, "je Vorkommen")
+	assert_eq(CharmEffects.cascade_mult(3, 5, _ids([])), 0)
+
+func test_the_waterfall_pays_a_whole_descending_straight():
+	# Große Straße, Reihen-Ordnung 6,5,4,3,2,1: jede Zahl fällt, alle sechs zahlen.
+	var ids := _ids([Charm.WATERFALL])
+	var straight := _d([1, 2, 3, 4, 5, 6])
+	var plain := DiceScoring.score_category(DiceScoring.LARGE_STRAIGHT, straight, _ids([]))
+	var cascaded := DiceScoring.score_category(DiceScoring.LARGE_STRAIGHT, straight, ids)
+	# Basis 45 + 21 Augen = 66; Mult 8 -> 8 + 21 = 29.
+	assert_eq(plain, 66 * 8)
+	assert_eq(cascaded, 66 * 29)
+
+func test_the_waterfall_takes_only_the_first_of_each_pair():
+	# Zwei Paare 5,5,3,3: die erste 5 und die erste 3 lösen aus, die Zwillinge nicht.
+	var ids := _ids([Charm.WATERFALL])
+	var dice := _d([5, 5, 3, 3])
+	var plain := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, _ids([]))
+	var cascaded := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, ids)
+	# Basis 15 + 16 Augen = 31; Mult 3 -> 3 + 5 + 3 = 11 (die Zwillinge fallen nicht).
+	assert_eq(plain, 31 * 3)
+	assert_eq(cascaded, 31 * 11)
+
+func test_the_waterfall_never_retriggers_on_the_same_value():
+	# Argon lässt den Würfel zweimal antreten - die zweite Zündung zeigt dieselbe
+	# Zahl und legt darum nichts nach.
+	var ids := _ids([Charm.WATERFALL])
+	var ctx := _argon(0)
+	var once := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, {})
+	var twice := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, ctx)
+	# Zweite Zündung: +5 Augen, aber KEIN zweiter Wasserfall-Schlag.
+	assert_eq(twice, (20 + 5) * (2 + 5))
+	assert_eq(once, 20 * (2 + 5))
+
+# --- Tarnkappe: der Krypton-Würfel tritt einmal mehr an --------------------------------
+
+func test_camouflage_gives_krypton_an_extra_die_trigger():
+	var sets := {0: [Essence.KRYPTON] as Array[String]}
+	var order := _p([0, 1])
+	assert_eq(EssenceEffects.extra_activations(0, order, sets, _ids([])), 0, "ohne Charm nichts")
+	assert_eq(EssenceEffects.extra_activations(0, order, sets, _ids([Charm.CAMOUFLAGE])), 1)
+	assert_eq(EssenceEffects.extra_activations(1, order, sets, _ids([Charm.CAMOUFLAGE])), 0,
+		"nur am Krypton-Würfel")
+
+func test_camouflage_needs_its_soul_to_be_offered():
+	var none: Array[String] = []
+	var without := Charm.offerable(Charm.all(), none)
+	for charm in without:
+		assert_ne(charm.id, Charm.CAMOUFLAGE, "die Tarnkappe liegt ohne Krypton aus")
+	var owned := _ids([Essence.KRYPTON])
+	var found := false
+	for charm in Charm.offerable(Charm.all(), owned):
+		if charm.id == Charm.CAMOUFLAGE:
+			found = true
+	assert_true(found)
 
 func test_gallows_humor_gives_crit_after_a_farkle():
 	var ids := _ids([Charm.GALLOWS_HUMOR])
@@ -271,9 +419,9 @@ func test_lighthouse_retriggers_with_its_die():
 
 func test_beherit_crits_once_per_activation_of_its_die():
 	# Paar Vierer, Argon auf dem Zielwürfel: Basis (10 + 4 + 4 + 4)
-	# × Mult (2 ×4 ×4) = 22 × 32 = 704.
+	# × Mult (2 ×1,4 ×1,4) = 22 × 3,92 = 86,24 -> aufgerundet 87.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
-	assert_eq(score, 704)
+	assert_eq(score, 87)
 
 func test_per_die_charms_retrigger_with_their_die():
 	# Breitband feuert je Auslösung seines Würfels: Basis (10 + (5+5)×2 + 5+5)

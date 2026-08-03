@@ -16,11 +16,14 @@ func test_all_returns_all_charms():
 	# +3 Verwandler: Zylinderhut, Silberdollar, Achterknoten.
 	# −3 mit den Kanten: Rahmenvergolder (wäre ein Doppel des Goldschmieds),
 	# Magnetring und Zargenglanz hatten kein Ziel mehr.
-	# +21 Essenz-Charms: je einer für jede Essenz ab "selten"
-	# (Charm.ESSENCE_REQUIREMENT ist die Liste) - Druckerpresse kam mit Ethylen.
+	# +23 Essenz-Charms: je einer für jede Essenz ab "selten"
+	# (Charm.ESSENCE_REQUIREMENT ist die Liste) - Druckerpresse kam mit Ethylen,
+	# Zündschnur mit Knallgas, und die Tarnkappe hängt als erste an einer
+	# HÄUFIGEN Seele (Krypton).
 	# +5 Wirkungs-Charms: Quadratur, Sechserpack, Gleichrichter und die beiden
 	# ersten Vertrags-Charms Werbetrommel und Winkeladvokat.
-	assert_eq(Charm.all().size(), 109)
+	# +3 aus den Playtest-Notizen: Schutzgeld, Wasserfall, Doppelter Boden.
+	assert_eq(Charm.all().size(), 114)
 
 func test_all_ids_are_unique():
 	var seen := {}

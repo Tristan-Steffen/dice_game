@@ -202,7 +202,7 @@ static func phosphor_mult_for(ctx: Dictionary, slot: int) -> float:
 static func shown_values(dice: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> Array[int]:
 	var sets := essence_sets_in(ctx)
 	if sets.is_empty():
-		return CharmEffects.transform_values(dice, charm_ids)
+		return CharmEffects.shown_by_charms_all(dice, charm_ids)
 	var out: Array[int] = []
 	for i in dice.size():
 		out.append(shown_value(dice[i], charm_ids, EssenceEffects.set_at(sets, i)))
@@ -210,7 +210,7 @@ static func shown_values(dice: Array[int], charm_ids: Array[String], ctx: Dictio
 
 ## Gezeigter Wert EINER Seite - dieselbe Reihenfolge wie shown_values.
 static func shown_value(value: int, charm_ids: Array[String], essence_ids: Array[String]) -> int:
-	return EssenceEffects.lens_value_of(essence_ids, CharmEffects.transform_value(value, charm_ids))
+	return EssenceEffects.lens_value_of(essence_ids, CharmEffects.shown_by_charms(value, charm_ids))
 
 ## Anzeige-Beispiele der Kombinationsliste; per Test gegen die echte Wertung
 ## geprüft (best_hand(Beispiel) muss genau seine Kategorie liefern).
@@ -464,12 +464,30 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 			if legal.has(i):
 				allowed.append(i)
 		scored = allowed
+	# Krypton zählt IMMER mit - auch außerhalb der Kombination. Er wächst nur in
+	# die gewertete Menge, nie in participating: die Erkennung und die Kombi-Charms
+	# bleiben unberührt (dieselbe Trennung wie beim Vollzähler).
+	var sets := essence_sets_in(ctx)
+	if not sets.is_empty():
+		var extra: Array[int] = []
+		for i in legal:
+			if not scored.has(i) and EssenceEffects.always_scored_of(sets, i):
+				extra.append(i)
+		if not extra.is_empty():
+			# Nie in place: ohne Vollzähler IST scored dieselbe Liste wie participating.
+			var widened: Array[int] = scored.duplicate()
+			widened.append_array(extra)
+			widened.sort()
+			scored = widened
+	var order := trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, []))
 	return {
 		"dice": dice,
 		"participating": participating,
 		"scored": scored,
-		"order": trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, [])),
-		"echo_slot": CharmEffects.first_participating(dice, scored),
+		"order": order,
+		# "Zuerst gewertet" heißt KOPF DER REIHE, nicht kleinster Slot - eine
+		# gelegte Ansage verschiebt Echo-Kammer und Vorreiter also mit.
+		"echo_slot": order[0] if not order.is_empty() else -1,
 	}
 
 ## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice = die
@@ -480,8 +498,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var participating: Array[int] = shape["participating"]
 	var scored: Array[int] = shape["scored"]
 	var echo_slot: int = shape["echo_slot"]
-	var base := points_for(key, combo_levels)
-	var mult := float(mult_for(key, combo_levels))
+	# Doppelter Boden verdoppelt NUR die Kombination - points_for/mult_for selbst
+	# bleiben die reine Stufe (Chips, Preise, Vorschauen drucken sie).
+	var combo_factor := CharmEffects.combo_factor(charm_ids)
+	var base := points_for(key, combo_levels) * combo_factor
+	var mult := float(mult_for(key, combo_levels) * combo_factor)
 	var essences := essence_sets_in(ctx)
 	var rifts := rifts_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
@@ -504,6 +525,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not rifts.is_empty()
 	var order: Array[int] = shape["order"]
+	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
+	var cascade_last := CharmEffects.CASCADE_UNSET
 	# Würfelphase in Reihen-Ordnung. ZWEI Achsen: der Würfel tritt die_triggers-mal
 	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
 	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
@@ -529,9 +552,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
 		# Zündungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
 		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
-		# endete die Simulation woanders als apply_take_effects. Nur Augen und
-		# die Material-Rechnung DIESES Würfels folgen ihm - Trigger-Ordnung,
-		# Erkennung und alle Charm-Hooks bleiben an den liegenden Werten.
+		# endete die Simulation woanders als apply_take_effects. Augen, die Material-
+		# Rechnung DIESES Würfels und die BETRÄGE der würfelgebundenen Charms folgen
+		# ihm; Trigger-Ordnung, Erkennung und jede ZIELWAHL bleiben an den liegenden
+		# Werten.
 		var running: int = raw[i] if i < raw.size() else dice[i]
 		# Ein Durchgang mehr als Würfel-Trigger: der letzte trägt keine Zündung
 		# mehr, nur die deterministischen Essenz-Glieder.
@@ -550,10 +574,16 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 				mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
 					+ float(EssenceEffects.mult_bonus_of(essence_ids))
+				# Der BETRAG folgt dem laufenden Wert (shown), das ZIEL bleibt an den
+				# liegenden Werten - eine Zählung darf sich nie selbst umzielen.
 				for j in charm_ids.size():
-					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
-					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx) \
-						+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating))
+					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, shown)
+					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown))
+					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, shown))
+				var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
+				if cascade_add > 0:
+					mult += float(cascade_add)
+					cascade_last = shown
 				# Material-Krit (Rubin III, Glas ab II), dann der Essenz-Krit - beide
 				# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
 				# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
@@ -570,7 +600,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					base += firedamp
 				mult *= ess_crit
 				for j in charm_ids.size():
-					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating)
+					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
 					if not is_equal_approx(die_crit, 1.0):
 						crits += 1
 						base += firedamp
@@ -594,9 +624,13 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				base += MaterialEffects.base_once_for(link_material, charm_ids, link_level, eye_sum)
 				mult += float(MaterialEffects.mult_once_for(link_material, link_value, charm_ids, link_level))
 				for j in charm_ids.size():
-					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, scored)
-					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value) \
-						+ CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value))
+					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, link_value)
+					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value))
+					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value))
+				var link_cascade := CharmEffects.cascade_mult(link_value, cascade_last, charm_ids)
+				if link_cascade > 0:
+					mult += float(link_cascade)
+					cascade_last = link_value
 				var link_crit := MaterialEffects.mult_crit_once_for(link_material, link_value, charm_ids, link_level)
 				if not is_equal_approx(link_crit, 1.0):
 					crits += 1

@@ -290,7 +290,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		for _s in spark:
 			report.sparks.append(i)
 		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
-		var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
+		var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids), participating.size())
@@ -533,7 +533,7 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			continue
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		if i < materials.size() and materials[i] == DieMaterial.GOLD:
-			var shown := CharmEffects.transform_value(defs[i].faces[face], charm_ids)
+			var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 			triggers += total_trigger_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, order, essences, charm_ids),
 				RiftEffects.extra_activations(defs[i].rifts_on(face)), participating.size())

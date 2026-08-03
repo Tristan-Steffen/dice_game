@@ -1736,11 +1736,10 @@ const SECRET_CHARM_PRICE := 5
 const SECRET_ENGRAVING_PRICE := 5
 ## Einmaliges Eintrittsgeld: der vergitterte Laden öffnet für diese Ladung.
 const SECRET_UNLOCK_PRICE := 5
-## Grundpreis des Neuwurfs; jeder weitere kostet den goldenen Schnitt mehr - die
-## Leiter läuft fibonacci-artig 3 / 5 / 8 / 13 / 21. Der Zähler läuft über den
-## ganzen Lauf und wird nie zurückgesetzt.
+## Preis des Neuwurfs - FLACH, jedes Mal derselbe. Die alte Fibonacci-Leiter
+## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
+## bleiben, die ⚡ selbst ist die Schranke.
 const SECRET_REROLL_BASE := 3
-const GOLDEN_RATIO := 1.618033988749895
 ## Aufteilung des Wildcard-Platzes: ein Drittel Essenzwürfel, vom Rest die
 ## Hälfte ein Charm - so bleibt der Platz unberechenbar, ohne die festen zwei
 ## Plätze zu wiederholen.
@@ -1826,9 +1825,9 @@ func unlock_secret_shop() -> bool:
 	secret_shop_discovered.emit()
 	return true
 
-## Preis des nächsten Neuwurfs - je Neuwurf um den goldenen Schnitt teurer.
+## Preis des nächsten Neuwurfs - immer derselbe.
 func secret_reroll_cost() -> int:
-	return roundi(SECRET_REROLL_BASE * pow(GOLDEN_RATIO, secret_rerolls))
+	return SECRET_REROLL_BASE
 
 ## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Ladung
 ## nicht reicht.
@@ -1859,9 +1858,11 @@ func buy_secret_offer(index: int) -> bool:
 			var charm: Charm = offer[OFFER_ITEM]
 			_grant_charm(charm)
 		KIND_DIE:
-			# Derselbe Weg wie jeder Würfelkauf: seelenloser Platz zuerst.
+			# Dieselbe Ware wie jedes Würfel-Paket: versiegelt in die Werkstatt,
+			# dort sucht der Spieler selbst den Platz - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
-			_replace_pool_entry(die)
+			owned_packs.append(Pack.secret_die(die))
+			packs_changed.emit()
 		_:
 			var engraving: Engraving = offer[OFFER_ITEM]
 			grant_engraving(engraving)

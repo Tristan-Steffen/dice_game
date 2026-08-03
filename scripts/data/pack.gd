@@ -61,6 +61,9 @@ const TYPE_NAMES := {
 ## Eigene Mindest-Seltenheit des Inhalts; der Automat prägt seine Maschinen-Stufe
 ## hier hinein. Beim Öffnen gilt die HÖHERE von Paket und Hub.
 @export var rarity_floor: int = Engraving.Rarity.COMMON
+## Genau DIESER Würfel liegt im Paket (Schwarzmarkt): nichts wird nachgewürfelt -
+## die Seele, die der Spieler im Regal gesehen hat, ist die, die er auspackt.
+@export var fixed_die: DieDefinition = null
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -113,6 +116,15 @@ static func stress_die(template: Dictionary) -> Pack:
 	pack.display_name = template["name"]
 	pack.template_id = template["style_id"]
 	pack.essence_guaranteed = true
+	return pack
+
+## Schwarzmarkt-Würfel: EIN fest eingelegter Würfel, versiegelt. Preis 0 - der
+## Laden hat ihn schon in ⚡ kassiert.
+static func secret_die(die: DieDefinition) -> Pack:
+	var pack := _make(TYPE_DICE, 1, 0, "%s, versiegelt - Schwarzmarktware." % die.display_name)
+	pack.display_name = die.display_name
+	pack.template_id = die.style_id
+	pack.fixed_die = die
 	return pack
 
 ## Kanonische Auslage der Gravur-Pakete.
@@ -179,6 +191,10 @@ func _mixed_category() -> String:
 func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
+		return dice
+	# Fest eingelegter Würfel (Schwarzmarkt): keine Veredelung, kein Seelen-Wurf.
+	if fixed_die != null:
+		dice.append(fixed_die.instantiate())
 		return dice
 	var template := _template()
 	if template.is_empty():

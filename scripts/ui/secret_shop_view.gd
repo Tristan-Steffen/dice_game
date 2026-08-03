@@ -15,6 +15,9 @@ signal unlock_requested
 ## Ladung ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
 ## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
 signal charge_spent(amount: int)
+## Ein Würfel ist gekauft: er liegt als versiegeltes Paket im Lager, scene_root
+## fliegt ihn nur noch die Werkstatt-Ader hinunter.
+signal die_purchased
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -343,8 +346,11 @@ func _on_offer_pressed(index: int) -> void:
 	if run == null or index < 0 or index >= run.secret_stock.size():
 		return
 	var price := int(run.secret_stock[index][GameRun.OFFER_PRICE])
+	var kind := String(run.secret_stock[index][GameRun.OFFER_KIND])
 	if run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		charge_spent.emit(price)
+		if kind == GameRun.KIND_DIE:
+			die_purchased.emit()
 
 func _on_reroll_pressed() -> void:
 	if run == null:

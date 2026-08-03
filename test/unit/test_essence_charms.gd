@@ -33,15 +33,19 @@ func test_every_essence_charm_names_a_real_essence():
 			"unbekannte Essenz bei %s" % charm_id)
 
 func test_every_essence_from_rare_upwards_has_exactly_one_charm():
+	# Die Pflicht gilt ab "selten"; HÄUFIGE Seelen DÜRFEN einen Charm haben
+	# (Tarnkappe/Krypton), müssen aber nicht - die Tabelle ist zugleich die
+	# Angebots-Regel, und die trägt jede Kopplung.
 	var claimed: Array[String] = []
 	for charm_id in Charm.ESSENCE_REQUIREMENT:
 		var essence_id := Charm.essence_requirement(charm_id)
 		assert_false(claimed.has(essence_id), "zwei Charms auf %s" % essence_id)
 		claimed.append(essence_id)
 	for essence in Essence.all():
-		var expected := essence.rarity != Essence.Rarity.COMMON
-		assert_eq(claimed.has(essence.id), expected,
-			"%s (%s) hat den falschen Charm-Stand" % [essence.id, Essence.rarity_name(essence.rarity)])
+		if essence.rarity == Essence.Rarity.COMMON:
+			continue
+		assert_true(claimed.has(essence.id),
+			"%s (%s) hat keinen Charm" % [essence.id, Essence.rarity_name(essence.rarity)])
 
 func test_offerable_hides_charms_whose_soul_is_missing():
 	var none: Array[String] = []
@@ -104,6 +108,84 @@ func test_swamp_lantern_lifts_the_tip_limit():
 	assert_false(run.can_tip_die(die), "ohne Charm einmal je Runde")
 	run.owned_charms.append(Charm.swamp_lantern())
 	assert_true(run.can_tip_die(die), "mit Sumpflaterne beliebig oft")
+
+# --- Knallgas: die Kettenreaktion im Stapel ----------------------------------------
+
+func test_detonating_gas_pays_every_die_behind_it():
+	var souls := _ids([Essence.DETONATING_GAS, "", ""])
+	assert_eq(EssenceEffects.leftover_die_payouts(souls, 1, NO_CHARMS), _p([1, 2, 2]),
+		"der Knallgas-Würfel selbst zahlt nur den Grundsatz")
+
+func test_two_detonating_gas_dice_stack_for_the_rest():
+	var souls := _ids([Essence.DETONATING_GAS, Essence.DETONATING_GAS, "", ""])
+	assert_eq(EssenceEffects.leftover_die_payouts(souls, 1, NO_CHARMS), _p([1, 2, 3, 3]),
+		"zwei Knallgas vorn: jeder dahinter zahlt $1 + $2")
+
+func test_a_late_detonating_gas_helps_nobody():
+	var souls := _ids(["", "", Essence.DETONATING_GAS])
+	assert_eq(EssenceEffects.leftover_die_payouts(souls, 1, NO_CHARMS), _p([1, 1, 1]))
+
+func test_without_detonating_gas_every_die_pays_the_same():
+	var souls := _ids(["", "", ""])
+	assert_eq(EssenceEffects.leftover_die_payouts(souls, 2, NO_CHARMS), _p([2, 2, 2]))
+
+func test_the_fuse_raises_the_chain_to_three():
+	assert_eq(EssenceEffects.detonating_gas_bonus(NO_CHARMS), 1)
+	assert_eq(EssenceEffects.detonating_gas_bonus(_ids([Charm.FUSE])), 3)
+	assert_eq(EssenceEffects.detonating_gas_bonus(_ids([Charm.FUSE, Charm.FUSE])), 5, "je Vorkommen +2")
+	var souls := _ids([Essence.DETONATING_GAS, "", ""])
+	assert_eq(EssenceEffects.leftover_die_payouts(souls, 1, _ids([Charm.FUSE])), _p([1, 4, 4]))
+
+func test_detonating_gas_is_a_real_essence():
+	assert_true(Essence.is_valid_id(Essence.DETONATING_GAS))
+	assert_eq(Essence.by_id(Essence.DETONATING_GAS).rarity, Essence.Rarity.RARE)
+	assert_false(Essence.by_id(Essence.DETONATING_GAS).secret, "handelbar, kein Schwarzmarkt")
+	assert_false(Essence.by_id(Essence.DETONATING_GAS).unique)
+
+# --- Krypton: zählt immer mit ------------------------------------------------------
+
+func test_krypton_joins_the_scored_set_outside_the_combination():
+	# Paar Fünfer plus ein Krypton-Würfel: er gehört nicht zur Kombination, tritt
+	# aber trotzdem an - participating bleibt das reine Paar.
+	var dice := _p([5, 5, 3])
+	var ctx := {DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}}
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, dice, NO_CHARMS, ctx)
+	assert_eq(shape["participating"], _p([0, 1]), "die Erkennung bleibt unberührt")
+	assert_eq(shape["scored"], _p([0, 1, 2]), "der Krypton-Würfel zählt mit")
+
+func test_the_krypton_die_brings_its_eyes_along():
+	var dice := _p([5, 5, 3])
+	var mats := _m(["", "", ""])
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, {})
+	var krypton := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {},
+		{DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}})
+	assert_eq(plain, 20 * 2)
+	assert_eq(krypton, 23 * 2, "die 3 des Krypton-Würfels zählt mit")
+
+func test_krypton_does_not_change_the_combination_charms():
+	# Blackjack rechnet auf participating - der mitzählende Krypton-Würfel darf
+	# die Augensumme der KOMBINATION nicht verschieben.
+	var dice := _p([5, 5, 3])
+	var ctx := {DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}}
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, dice, _ids([Charm.BLACKJACK]), ctx)
+	assert_eq(shape["participating"], _p([0, 1]))
+
+func test_the_scored_set_stays_its_own_list():
+	# Ohne Vollzähler liefert scored_indices dieselbe Liste wie participating -
+	# das Erweitern darf sie nicht mitverändern.
+	var dice := _p([5, 5, 3])
+	var ctx := {DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}}
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, dice, NO_CHARMS, ctx)
+	var participating: Array[int] = shape["participating"]
+	var scored: Array[int] = shape["scored"]
+	assert_eq(participating.size(), 2)
+	assert_eq(scored.size(), 3)
+
+func test_the_quintessence_borrows_the_always_scored_rule():
+	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.KRYPTON})
+	assert_true(EssenceEffects.always_scored_of(sets, 0), "die geborgte Seele zählt auch immer mit")
+	assert_true(EssenceEffects.always_scored_of(sets, 1))
+	assert_false(EssenceEffects.always_scored_of({}, 0))
 
 # --- Krits -----------------------------------------------------------------------
 

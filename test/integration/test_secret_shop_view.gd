@@ -70,7 +70,7 @@ func test_reroll_button_swaps_the_whole_stock() -> void:
 	assert_ne(after, before, "frisch gewürfelte Auslage")
 	assert_eq(view.offer_buttons.size(), 3, "die Karten stehen neu")
 	assert_string_contains(view.reroll_button.text, "⚡%d" % run.secret_reroll_cost(),
-		"der Knopf trägt den gestiegenen Preis")
+		"der Knopf trägt den Preis des nächsten Wurfs")
 
 func test_reroll_is_disabled_without_charge() -> void:
 	run.charge = 0

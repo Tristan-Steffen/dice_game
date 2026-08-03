@@ -215,14 +215,14 @@ func test_each_die_trigger_carries_only_its_own_fires():
 	assert_eq(twice, 66, "(10 + 5×2 + 5 + 4 + 4) × 2 - beide Antritte trafen")
 
 func test_a_link_crit_fires_at_the_dies_position():
-	# Beherit am niedrigsten gewerteten Würfel (Slot 0): die Zündung kritet ×5,
-	# das Glied ×3 - BEVOR das Glas von Slot 1 seinen Mult legt. Feuerte das Glied
-	# erst am Ende, wäre der Gesamtwert 1035 statt 805.
+	# Beherit am niedrigsten gewerteten Würfel (Slot 0): die Zündung kritet ×1,5,
+	# das Glied ×1,3 - BEVOR das Glas von Slot 1 seinen Mult legt. Feuerte das
+	# Glied erst am Ende, läge der Gesamtwert höher.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m(["", DieMaterial.GLASS, "", "", "", ""])
 	var linked := DiceScoring.score_category(DiceScoring.TWO_KIND, dice,
 		_ids([Charm.BEHERIT]), false, mats, {}, _ctx_fires(0, [_link(2, 3)]))
-	assert_eq(linked, 805, "Basis 23 × Mult (2 ×5 ×3 + 5)")
+	assert_eq(linked, 205, "Basis 23 × Mult (2 ×1,5 ×1,3 + 5)")
 
 func test_link_values_are_transformed_like_eyes():
 	# Glückszigaretten: eine 1 IST eine 6 - auch als Glied.
@@ -266,7 +266,7 @@ func test_breakdown_carries_links_and_matches_the_score():
 	assert_eq(links.size(), 1, "das Glied hängt am Trigger seines Würfels")
 	assert_eq(int(links[0]["face"]), 2)
 	assert_eq(String(links[0]["material"]), DieMaterial.AMBER)
-	assert_eq(int(links[0]["crit_x"]), 3, "Beherit kritet das Glied mit dessen Wert")
+	assert_almost_eq(float(links[0]["crit_x"]), 1.3, 0.0001, "Beherit kritet das Glied mit dessen Wert")
 	var second_step: Dictionary = breakdown["die_steps"][1]
 	var second_groups: Array = second_step["die_triggers"]
 	assert_eq((second_groups[0]["links"] as Array).size(), 0, "Slot 1 hat nichts gezündet")

@@ -205,29 +205,21 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 
 # --- Neuwurf -------------------------------------------------------------------
 
-func test_reroll_cost_escalates_and_never_resets() -> void:
+func test_the_reroll_costs_the_same_every_time() -> void:
+	# Flach statt Leiter: der zweite Neuwurf eines Besuchs kostet wie der erste.
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
 	run.charge = 25
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
 	assert_eq(run.charge, 22)
-	assert_eq(run.secret_reroll_cost(), 5)
+	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 17)
-	assert_eq(run.secret_reroll_cost(), 8)
+	assert_eq(run.charge, 19)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 9)
-	assert_eq(run.secret_reroll_cost(), 13, "der Zähler läuft weiter")
-	assert_eq(run.secret_rerolls, 3)
-
-func test_reroll_cost_climbs_the_golden_ladder() -> void:
-	var run := _discovered()
-	var ladder: Array[int] = []
-	for i in 5:
-		run.secret_rerolls = i
-		ladder.append(run.secret_reroll_cost())
-	assert_eq(ladder, [3, 5, 8, 13, 21] as Array[int])
+	assert_eq(run.charge, 16)
+	assert_eq(run.secret_reroll_cost(), 3, "der Preis steigt nicht mehr")
+	assert_eq(run.secret_rerolls, 3, "der Zähler läuft weiter - er kostet nur nichts mehr")
 
 func test_reroll_replaces_the_whole_stock() -> void:
 	var run := _discovered()
@@ -345,7 +337,9 @@ func test_the_die_price_climbs_with_the_rarity() -> void:
 	assert_lt(int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.EPIC]),
 		int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.LEGENDARY]))
 
-func test_buying_an_essence_die_takes_a_soulless_pool_slot() -> void:
+## Der gekaufte Würfel geht als versiegeltes Paket in die Werkstatt - dort sucht
+## der Spieler den Platz selbst, statt dass der Laden still einen überschreibt.
+func _run_with_secret_die() -> GameRun:
 	var run := _run()
 	run.charge = 40
 	run.unlock_secret_shop()
@@ -355,14 +349,40 @@ func test_buying_an_essence_die_takes_a_soulless_pool_slot() -> void:
 		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
 		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
 	}
-	for pool_die in run.owned_pool:
-		pool_die.essence_id = Essence.NEON
-	run.owned_pool[4].essence_id = ""
+	return run
+
+func test_buying_an_essence_die_books_a_sealed_pack() -> void:
+	var run := _run_with_secret_die()
 	var before := run.charge
+	var pool_souls: Array[String] = []
+	for pool_die in run.owned_pool:
+		pool_souls.append(pool_die.essence_id)
 	assert_true(run.buy_secret_offer(2))
-	assert_eq(run.owned_pool[4].essence_id, Essence.RADON, "der seelenlose Platz nimmt die neue Seele auf")
+	assert_eq(run.owned_packs.size(), 1, "die Ware liegt versiegelt in der Werkstatt")
+	assert_true(run.owned_packs[0].is_dice_pack())
+	assert_eq(run.owned_packs[0].count, 1)
 	assert_eq(run.charge, before - 6, "der Preis ist abgebucht")
 	assert_true(bool(run.secret_stock[2][GameRun.OFFER_SOLD]), "der Platz bleibt leer")
+	for i in run.owned_pool.size():
+		assert_eq(run.owned_pool[i].essence_id, pool_souls[i], "der Pool bleibt unangetastet")
+
+func test_the_sealed_secret_die_opens_as_exactly_the_bought_die() -> void:
+	var run := _run_with_secret_die()
+	var bought: DieDefinition = run.secret_stock[2][GameRun.OFFER_ITEM]
+	assert_true(run.buy_secret_offer(2))
+	var none: Array[String] = []
+	var rolled := run.owned_packs[0].roll_dice(none, none, 1)
+	assert_eq(rolled.size(), 1)
+	assert_eq(rolled[0].essence_id, Essence.RADON, "die gesehene Seele wird geliefert")
+	assert_eq(rolled[0].faces, bought.faces)
+	assert_ne(rolled[0], bought, "eine eigene Instanz, kein geteilter Datensatz")
+
+func test_buying_the_secret_die_reports_the_new_pack() -> void:
+	var run := _run_with_secret_die()
+	var fired: Array = []
+	run.packs_changed.connect(func() -> void: fired.append(true))
+	assert_true(run.buy_secret_offer(2))
+	assert_eq(fired.size(), 1)
 
 func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()

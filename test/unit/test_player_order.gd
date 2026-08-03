@@ -9,6 +9,16 @@ func _p(values: Array) -> Array[int]:
 	typed.assign(values)
 	return typed
 
+func _ids(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
+func _m(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
 # --- Ohne Ansage: alles wie vorher ---------------------------------------------------
 
 func test_without_a_declared_order_the_canonical_rule_holds() -> void:
@@ -84,3 +94,36 @@ func test_the_breakdown_without_an_order_stays_canonical() -> void:
 	for step in breakdown["die_steps"]:
 		slots.append(int(step["slot"]))
 	assert_eq(slots, [0, 1, 2], "ohne Ansage die alte Folge")
+
+# --- "Zuerst gewertet" ist der KOPF DER REIHE ----------------------------------------
+
+func test_the_row_head_is_the_echo_die() -> void:
+	var dice := _p([2, 2, 5, 5])
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	var canonical := DiceScoring.hand_shape(DiceScoring.TWO_PAIR, dice, ids, {})
+	assert_eq(int(canonical["echo_slot"]), 2, "ohne Ansage der Kopf der Wert-Reihe")
+	var declared := DiceScoring.hand_shape(DiceScoring.TWO_PAIR, dice, ids,
+		{DiceScoring.CTX_PLAYER_ORDER: [1, 0, 3, 2]})
+	assert_eq(int(declared["echo_slot"]), 1, "die Ansage schiebt den Kopf")
+
+func test_the_declared_head_takes_the_echo_retrigger() -> void:
+	# Zwei Paare mit Echo-Kammer: der Kopf zählt zweimal. Kanonisch ist das die 5,
+	# angesagt die 2 - der Unterschied sind drei Augen mal Mult 3.
+	var dice := _p([2, 2, 5, 5])
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	var mats := _m(["", "", "", ""])
+	var canonical := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, ids, false, mats, {}, {})
+	var declared := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, ids, false, mats, {},
+		{DiceScoring.CTX_PLAYER_ORDER: [0, 1, 2, 3]})
+	assert_eq(canonical - declared, 3 * 3)
+
+func test_the_front_runner_pays_at_the_declared_head() -> void:
+	var dice := _p([2, 2, 5, 5])
+	var ids := _ids([Charm.FRONT_RUNNER])
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_PAIR, dice, ids,
+		{DiceScoring.CTX_PLAYER_ORDER: [1, 0, 3, 2]})
+	var order: Array[int] = shape["order"]
+	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.TWO_PAIR, dice, ids, {}, order), 14,
+		"die ganze Augensumme am angesagten Kopf")
+	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_PAIR, dice, ids, {}, order), 0,
+		"der kanonische Kopf zahlt nicht mehr")

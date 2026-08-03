@@ -398,11 +398,11 @@ func test_material_crit_fires_at_its_own_die_not_at_the_end():
 	assert_eq(score, 180, "20 × (2 ×2 + 5)")
 
 func test_material_crit_lands_before_beherit_on_the_same_die():
-	# Slot 0: Mult 2 -> Material-Krit ×2 -> Beherit ×5 = 20, dann Glas +5 = 25.
+	# Slot 0: Mult 2 -> Material-Krit ×2 -> Beherit ×1,5 = 6, dann Glas +5 = 11.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
 	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.BEHERIT]), false, mats, {}, _ctx_lvl(0, 3))
-	assert_eq(score, 500, "20 × 25")
+	assert_eq(score, 220, "20 × 11")
 
 func test_breakdown_mirrors_the_material_crit():
 	var dice := _d([5, 5, 1, 2, 3, 6])

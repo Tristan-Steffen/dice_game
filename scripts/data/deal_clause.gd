@@ -395,11 +395,18 @@ static func ids_for(clause_tier: Tier, clause_kind: Kind) -> Array[String]:
 			ids.append(clause.id)
 	return ids
 
+## Nachschlage-Tabelle id -> Klausel, EINMAL gebaut. all() legt 48 frische
+## Resources an, und find() lief je Frame dutzendfach (die Überladungs-Stufen
+## fragen über _clause_active durch) - bei hohen Punktzahlen kostete allein das
+## Millisekunden pro Frame. Alle Aufrufer LESEN nur, ein geteiltes Exemplar
+## genügt also.
+static var _by_id: Dictionary = {}
+
 static func find(clause_id: String) -> DealClause:
-	for clause in all():
-		if clause.id == clause_id:
-			return clause
-	return null
+	if _by_id.is_empty():
+		for clause in all():
+			_by_id[clause.id] = clause
+	return _by_id.get(clause_id, null)
 
 ## Wirkungstext einer Klausel, gelesen mit dem Bonus-Faktor des Winkeladvokats.
 ## Die verdoppelte Fassung steht ausgeschrieben da, statt aus der Grundfassung
