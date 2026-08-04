@@ -251,7 +251,7 @@ func test_the_frame_hover_shows_the_essence() -> void:
 	assert_true(view.face_tooltip.visible)
 	var essence := Essence.by_id(Essence.NEON)
 	assert_true(view.face_tooltip_title.text.contains(essence.display_name))
-	assert_true(view.face_tooltip_title.text.contains(essence.epithet), "Name und Beiname im Kopf")
+	assert_true(view.face_tooltip_title.text.contains(essence.display_name), "Name im Kopf")
 	assert_eq(_tooltip_lines(), [essence.description], "die volle Wirkung als Zeile")
 
 func test_the_frame_hover_stays_silent_without_an_essence() -> void:

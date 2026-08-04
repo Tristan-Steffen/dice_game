@@ -40,7 +40,6 @@ func test_all_ids_are_unique_and_filled():
 		assert_false(seen.has(essence.id), "doppelte id: %s" % essence.id)
 		seen[essence.id] = true
 		assert_ne(essence.display_name, "", "display_name fehlt bei %s" % essence.id)
-		assert_ne(essence.epithet, "", "Beiname fehlt bei %s" % essence.id)
 		assert_ne(essence.description, "", "description fehlt bei %s" % essence.id)
 		assert_ne(essence.short, "", "short fehlt bei %s" % essence.id)
 

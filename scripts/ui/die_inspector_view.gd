@@ -1331,7 +1331,7 @@ func _show_essence_info() -> void:
 	var essence := Essence.by_id(current_def.essence_id)
 	var lines: Array[String] = []
 	lines.append(essence.description)
-	_show_face_tooltip("%s – %s" % [essence.display_name, essence.epithet], lines)
+	_show_face_tooltip(essence.display_name, lines)
 
 func _hide_face_tooltip() -> void:
 	if face_tooltip != null:

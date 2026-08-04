@@ -27,12 +27,12 @@ const CARBON_DIOXIDE := "carbon_dioxide"
 const HALOGEN := "halogen"
 
 static func carbon_dioxide() -> Essence:
-	return _make(CARBON_DIOXIDE, "Kohlendioxid", "Löschgas",
+	return _make(CARBON_DIOXIDE, "Kohlendioxid",
 		"1× je Runde verpufft ein Fumble, an dem dieser Würfel beteiligt ist; die obere Seite fällt dabei auf 1 und verliert ihr Material.",
 		"1× je Runde: Fumble verpufft, obere Seite fällt auf 1", Rarity.COMMON, Color(0.9, 0.92, 0.94))
 
 static func halogen() -> Essence:
-	return _make(HALOGEN, "Halogen", "Flutlicht",
+	return _make(HALOGEN, "Halogen",
 		"Jede Auslösung dieses Würfels legt +5 Mult obendrauf.",
 		"+5 Mult je Auslösung", Rarity.COMMON, Color(1.0, 0.96, 0.88))
 
@@ -71,8 +71,6 @@ const NONE := ""
 @export var description: String = ""
 ## Kurzwirkung für Karten und Hover-Zeilen ("löst 2× aus").
 @export var short: String = ""
-## Der Beiname aus der Lore ("Doppelt belegt") - er trägt den Charakter.
-@export var epithet: String = ""
 @export var rarity: Rarity = Rarity.COMMON
 ## Kantenglühen des Würfels - essenzlose Würfel glühen nicht.
 @export var glow: Color = Color.WHITE
@@ -81,12 +79,11 @@ const NONE := ""
 ## Unikat: höchstens ein Exemplar im Pool, danach nicht mehr im Angebot.
 @export var unique: bool = false
 
-static func _make(essence_id: String, name: String, epithet_text: String, desc: String,
+static func _make(essence_id: String, name: String, desc: String,
 		short_text: String, rarity_value: Rarity, glow_color: Color) -> Essence:
 	var essence := Essence.new()
 	essence.id = essence_id
 	essence.display_name = name
-	essence.epithet = epithet_text
 	essence.description = desc
 	essence.short = short_text
 	essence.rarity = rarity_value
@@ -101,104 +98,104 @@ static func _secret(essence: Essence) -> Essence:
 # --- Handelsgase ------------------------------------------------------------------
 
 static func helium() -> Essence:
-	return _make(HELIUM, "Helium", "Schwebt",
+	return _make(HELIUM, "Helium",
 		"Liegt dieser Würfel in einer genommenen Kombination, wächst seine obere Seite dauerhaft +1.",
 		"obere Seite wächst +1", Rarity.COMMON, Color(1.0, 0.72, 0.55))
 
 static func neon() -> Essence:
-	return _make(NEON, "Neon", "Reklame",
+	return _make(NEON, "Neon",
 		"+$2 je gezähltem Würfel der Kombination, wenn dieser Würfel darin liegt.",
 		"+$2 je gezähltem Würfel", Rarity.COMMON, Color(1.0, 0.35, 0.15))
 
 static func argon() -> Essence:
-	return _make(ARGON, "Argon", "Doppelt belegt",
+	return _make(ARGON, "Argon",
 		"Der Würfel löst 2× aus: Augen und Effekte zählen zweimal.",
 		"löst 2× aus", Rarity.COMMON, Color(0.62, 0.6, 0.95))
 
 static func krypton() -> Essence:
-	return _make(KRYPTON, "Krypton", "Verborgen",
+	return _make(KRYPTON, "Krypton",
 		"Zählt immer mit - auch außerhalb der Kombination; und Klauseln, die Würfel aussperren (Schieflage, Gleichgewicht), übersehen ihn.",
 		"zählt immer mit, ignoriert Würfel-Sperren", Rarity.COMMON, Color(0.55, 0.95, 0.7))
 
 static func xenon() -> Essence:
-	return _make(XENON, "Xenon", "Dauerblitz",
+	return _make(XENON, "Xenon",
 		"Jede seiner Auslösungen kritet ×1,5.",
 		"kritet ×1,5", Rarity.COMMON, Color(0.8, 0.9, 1.0))
 
 static func nitrogen() -> Essence:
-	return _make(NITROGEN, "Stickstoff", "Schutzatmosphäre",
+	return _make(NITROGEN, "Stickstoff",
 		"Seine Seiten verlieren nie an Wert: Glas schrumpft nicht, Zerfall greift nicht.",
 		"Seiten verlieren nie Wert", Rarity.COMMON, Color(0.88, 0.93, 0.98))
 
 static func oxygen() -> Essence:
-	return _make(OXYGEN, "Sauerstoff", "Facht an",
+	return _make(OXYGEN, "Sauerstoff",
 		"Der nächste Würfel der Zählreihenfolge löst +1× aus.",
 		"nächster Würfel +1 Auslösung", Rarity.COMMON, Color(0.45, 0.75, 1.0))
 
 static func hydrogen() -> Essence:
-	return _make(HYDROGEN, "Wasserstoff", "Zweiatomig",
+	return _make(HYDROGEN, "Wasserstoff",
 		"Sein gezeigter Wert verdoppelt sich - eine 6 zählt 12 Augen und bildet Kombinationen als 2.",
 		"gezeigter Wert ×2", Rarity.COMMON, Color(1.0, 0.45, 0.6))
 
 static func sodium_vapor() -> Essence:
-	return _make(SODIUM_VAPOR, "Natriumdampf", "Laternenschein",
+	return _make(SODIUM_VAPOR, "Natriumdampf",
 		"+$1 je anderem Würfel der genommenen Kombination.",
 		"+$1 je Mitwürfel", Rarity.COMMON, Color(1.0, 0.65, 0.25))
 
 static func firedamp() -> Essence:
-	return _make(FIREDAMP, "Grubengas", "Schlagwetter",
+	return _make(FIREDAMP, "Grubengas",
 		"Jeder Krit dieser Hand zündet ihn mit: +20 Basispunkte, sofort.",
 		"+20 Basis je Krit dieser Hand", Rarity.COMMON, Color(0.5, 0.65, 0.8))
 
 # --- Phänomene --------------------------------------------------------------------
 
 static func mercury_vapor() -> Essence:
-	return _secret(_make(MERCURY_VAPOR, "Quecksilberdampf", "Reinform",
+	return _secret(_make(MERCURY_VAPOR, "Quecksilberdampf",
 		"Der Würfel löst 3× aus - das verbannte Material, zurück als Dampf im Hinterzimmer.",
 		"löst 3× aus", Rarity.RARE, Color(0.35, 0.7, 1.0)))
 
 static func radon() -> Essence:
-	return _secret(_make(RADON, "Radon", "Strahlt",
+	return _secret(_make(RADON, "Radon",
 		"+2 Augen auf jeden anderen Würfel der Kombination. Zerfall: je Abrechnung verliert eine zufällige eigene Seite 1 Auge.",
 		"+2 Augen auf Mitwürfel", Rarity.RARE, Color(0.5, 1.0, 0.3)))
 
 static func miasma() -> Essence:
-	return _secret(_make(MIASMA, "Miasma", "Ansteckung",
+	return _secret(_make(MIASMA, "Miasma",
 		"Beim Werten verliert seine obere Seite dauerhaft die Hälfte ihrer Augen - genau diesen Betrag wächst jede andere gewertete Seite der Hand.",
 		"halbiert sich, die Hand wächst", Rarity.EPIC, Color(0.4, 0.55, 0.35)))
 
 static func st_elmos_fire() -> Essence:
-	return _make(ST_ELMOS_FIRE, "Elmsfeuer", "Sturmzeichen",
+	return _make(ST_ELMOS_FIRE, "Elmsfeuer",
 		"Der Würfel löst 2× aus, im Stresstest 4× - er glüht am hellsten im Sturm.",
 		"löst 2× aus, im Stresstest 4×", Rarity.RARE, Color(0.4, 0.6, 1.0))
 
 static func ball_lightning() -> Essence:
-	return _make(BALL_LIGHTNING, "Kugelblitz", "Einschlag",
+	return _make(BALL_LIGHTNING, "Kugelblitz",
 		"Jede seiner Auslösungen kritet ×2.",
 		"kritet ×2", Rarity.RARE, Color(1.0, 1.0, 0.9))
 
 static func solar_wind() -> Essence:
-	return _make(SOLAR_WIND, "Sonnenwind", "Rückenwind",
+	return _make(SOLAR_WIND, "Sonnenwind",
 		"+1 Auslösung je Essenz-Würfel, der in dieser Hand vor ihm gezählt wurde.",
 		"+1 Auslösung je Essenz vor ihm", Rarity.EPIC, Color(1.0, 0.85, 0.45))
 
 static func photon_gas() -> Essence:
-	return _make(PHOTON_GAS, "Photonengas", "Langzeitbelichtung",
+	return _make(PHOTON_GAS, "Photonengas",
 		"Er sammelt das Licht der Hand: +5 Augen je Auslösung, die vor ihm zählte.",
 		"+5 Augen je Auslösung davor", Rarity.RARE, Color(1.0, 1.0, 1.0))
 
 static func ozone() -> Essence:
-	return _make(OZONE, "Ozon", "Gewitterluft",
+	return _make(OZONE, "Ozon",
 		"Sein Krit wächst mit jedem Krit, der in dieser Hand vor ihm zündete.",
 		"Krit ×(1 + Krits davor)", Rarity.EPIC, Color(0.78, 0.65, 0.95))
 
 static func will_o_wisp() -> Essence:
-	return _make(WILL_O_WISP, "Irrlicht", "Kippen",
+	return _make(WILL_O_WISP, "Irrlicht",
 		"1× je Runde darf dieser Würfel nach dem Liegen auf eine Nachbarseite gekippt werden.",
 		"1× je Runde kippbar", Rarity.EPIC, Color(0.62, 0.82, 1.0))
 
 static func plasma() -> Essence:
-	return _make(PLASMA, "Plasma", "Lichtbogen",
+	return _make(PLASMA, "Plasma",
 		"Der Lichtbogen hält: seine Leiterbahnen bekommen zwei Zündversuche statt einem (50 % werden 75 %).",
 		"Leiterbahn zündet zweimal so wahrscheinlich", Rarity.EPIC, Color(0.78, 0.72, 1.0))
 
@@ -206,14 +203,14 @@ static func plasma() -> Essence:
 ## liegenden Würfel. Legendär und damit Unikat, also gibt es nie den Fall
 ## "Quintessenz kopiert Quintessenz".
 static func quintessence() -> Essence:
-	return _make(QUINTESSENCE, "Quintessenz", "Der fünfte Stoff",
+	return _make(QUINTESSENCE, "Quintessenz",
 		"Die Essenzen aller anderen liegenden Würfel wirken auch auf ihn - mit ihren guten wie schlechten Seiten.",
 		"borgt jede fremde Seele", Rarity.LEGENDARY, Color(0.85, 0.9, 1.0))
 
 ## Polarlicht: der einzige Joker des Spiels - Legendär und damit Unikat, worauf
 ## sich die Erkennung verlässt (es kann NIE zwei Joker geben).
 static func aurora() -> Essence:
-	return _make(AURORA, "Polarlicht", "Schillert",
+	return _make(AURORA, "Polarlicht",
 		"Seine Augenzahl gilt der Kombinationssuche als Joker - sie wird zur besten passenden Zahl. Gezählt werden weiter die aufgedruckten Augen.",
 		"Joker für die Kombination", Rarity.LEGENDARY, Color(0.45, 1.0, 0.65))
 
@@ -221,52 +218,52 @@ static func aurora() -> Essence:
 ## Ohne Innendruck trägt jede Seite zwei Rifts, und die sind schwarz: das Vakuum
 ## saugt das Kernlicht nach innen, statt es zu entlassen.
 static func vacuum() -> Essence:
-	return _make(VACUUM, "Vakuum", "Leere",
+	return _make(VACUUM, "Vakuum",
 		"Keine eigene Wirkung - dafür trägt jede Seite bis zu zwei Rifts, und sie brechen schwarz auf.",
 		"zwei Rifts je Seite", Rarity.EPIC, Color(0.06, 0.05, 0.09))
 
 static func radiation_pressure() -> Essence:
-	return _make(RADIATION_PRESSURE, "Strahlungsdruck", "Bläht auf",
+	return _make(RADIATION_PRESSURE, "Strahlungsdruck",
 		"Jede Auslösung drückt die Schale auseinander: alle Seiten wachsen dauerhaft +2.",
 		"alle Seiten +2 je Auslösung", Rarity.RARE, Color(1.0, 0.8, 0.6))
 
 static func cyanide() -> Essence:
-	return _make(CYANIDE, "Zyanidgas", "Goldlaugerei",
+	return _make(CYANIDE, "Zyanidgas",
 		"Liegt er in der Kombination: +$2 je Gold-Seite, die er trägt.",
 		"+$2 je eigener Gold-Seite", Rarity.RARE, Color(0.75, 0.9, 0.3))
 
 static func xray() -> Essence:
-	return _make(XRAY, "Röntgenlicht", "Durchleuchtet",
+	return _make(XRAY, "Röntgenlicht",
 		"Das Licht geht durch die Schale: die Gegenseite wird wie ein Leiterbahn-Glied mitgewertet.",
 		"Gegenseite zählt mit", Rarity.RARE, Color(0.7, 0.95, 1.0))
 
 static func corona() -> Essence:
-	return _make(CORONA, "Korona", "Strahlenkranz",
+	return _make(CORONA, "Korona",
 		"Ein Ring um jedes Licht: eine Nachbarseite wertet wie ein Leiterbahn-Glied mit.",
 		"1 Nachbarseite zählt mit", Rarity.EPIC, Color(1.0, 0.92, 0.7))
 
 static func varnish() -> Essence:
-	return _make(VARNISH, "Firnis", "Zweite Schicht",
+	return _make(VARNISH, "Firnis",
 		"Eine zweite Schicht Glasur: seine Materialstufen zählen beim Werten eine Stufe höher (III bleibt III).",
 		"Materialstufen +1 in der Wertung", Rarity.EPIC, Color(0.9, 0.7, 0.4))
 
 static func phosphorescence() -> Essence:
-	return _make(PHOSPHORESCENCE, "Phosphoreszenz", "Speicherlicht",
+	return _make(PHOSPHORESCENCE, "Phosphoreszenz",
 		"Speichert die Basispunkte JEDER seiner Wertungen und legt den ganzen Speicher bei der nächsten obendrauf - geleert wird er nie.",
 		"sammelt seine Basispunkte und zahlt sie erneut", Rarity.EPIC, Color(0.5, 1.0, 0.6))
 
 static func ethylene() -> Essence:
-	return _make(ETHYLENE, "Ethylen", "Reifegas",
+	return _make(ETHYLENE, "Ethylen",
 		"Zählt er in einer Runde zum ersten Mal, reift seine Schale nach: je VERSCHIEDENEM Material auf seinen Seiten wandert eine Material-Gravur in den Vorrat.",
 		"1× je Runde: je eigenem Material eine Gravur", Rarity.RARE, Color(1.0, 0.5, 0.42))
 
 static func detonating_gas() -> Essence:
-	return _make(DETONATING_GAS, "Knallgas", "Kettenreaktion",
+	return _make(DETONATING_GAS, "Knallgas",
 		"Bleibt er beim Rundenende ungezogen im Stapel liegen, zahlt JEDER Würfel hinter ihm +$1 zusätzlich.",
 		"+$1 je Würfel hinter ihm im Stapel", Rarity.RARE, Color(1.0, 0.62, 0.2))
 
 static func antimatter() -> Essence:
-	return _secret(_make(ANTIMATTER, "Antimaterie", "Auslöschung",
+	return _secret(_make(ANTIMATTER, "Antimaterie",
 		"Seine Augen zählen NEGATIV in die Basispunkte - dafür kritet er mit seiner Augenzahl.",
 		"Augen negativ, Krit ×Augen", Rarity.LEGENDARY, Color(0.45, 0.2, 0.6)))
 
@@ -303,12 +300,12 @@ static func glow_for(essence_id: String) -> Color:
 	var essence := by_id(essence_id)
 	return essence.glow if essence != null else Color.BLACK
 
-## Kurz-Erklärzeile fürs Hover-Feld ("" ohne Essenz): «Name» – «Beiname»: Wirkung.
+## Kurz-Erklärzeile fürs Hover-Feld ("" ohne Essenz): «Name»: Wirkung.
 static func hint(essence_id: String) -> String:
 	var essence := by_id(essence_id)
 	if essence == null:
 		return ""
-	return "%s – %s: %s" % [essence.display_name, essence.epithet, essence.short]
+	return "%s: %s" % [essence.display_name, essence.short]
 
 static func rarity_name(value: Rarity) -> String:
 	match value:

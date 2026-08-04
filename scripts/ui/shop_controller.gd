@@ -888,7 +888,7 @@ func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 		else "%s – %s" % [def.display_name, essence.display_name]
 	var body := "Augensumme %d." % DiceRowView.eye_total(def)
 	if essence != null:
-		body += "\n%s: %s" % [essence.epithet, essence.description]
+		body += "\n%s: %s" % [essence.display_name, essence.description]
 	else:
 		body += "\nOhne Essenz."
 
@@ -984,7 +984,7 @@ func _build_stash_thumb(index: int) -> Button:
 		else "%s – %s" % [def.display_name, essence.display_name]
 	var body := "Augensumme %d." % DiceRowView.eye_total(def)
 	if essence != null:
-		body += "\n%s: %s" % [essence.epithet, essence.description]
+		body += "\n%s: %s" % [essence.display_name, essence.description]
 	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
 	var stage := DiceRowView.build_thumb(def, int(u * STASH_DIE_SIZE), true)
 	var thumb := _bare_single(stage, Vector2.ONE * u * STASH_DIE_SIZE)

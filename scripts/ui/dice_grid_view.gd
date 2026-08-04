@@ -244,7 +244,7 @@ func _describe(def: DieDefinition) -> String:
 		def.display_name, DiceRowView.eye_total(def), " ".join(parts)]
 	if Essence.is_valid_id(def.essence_id):
 		var essence := Essence.by_id(def.essence_id)
-		text += "\n%s – %s" % [essence.display_name, essence.epithet]
+		text += "\n%s" % essence.display_name
 	return text
 
 ## Leerer Platz: stiller Platzhalter, damit das Raster die Lücken spiegelt.
