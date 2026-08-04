@@ -158,18 +158,20 @@ func is_dice_pack() -> bool:
 	return type == TYPE_DICE
 
 ## Inhalt eines Gravur-Pakets (leer bei Würfel-Paketen).
-func roll_engravings(floor: Engraving.Rarity = Engraving.Rarity.COMMON) -> Array[Engraving]:
+## extra: Zugaben aus DEMSELBEN Topf (Charm), also nie eine fremde Kategorie.
+func roll_engravings(floor: Engraving.Rarity = Engraving.Rarity.COMMON, extra: int = 0) -> Array[Engraving]:
+	var total := count + maxi(0, extra)
 	if type == TYPE_MIXED:
 		# Jedes Stück würfelt seine Kategorie einzeln (Doppelte erlaubt - der
 		# Bestand stapelt ohnehin als ×Anzahl).
 		var out: Array[Engraving] = []
-		for i in count:
+		for i in total:
 			out.append_array(Engraving.roll_in_category(_mixed_category(), 1, floor))
 		return out
 	var category := engraving_category()
 	if category == "":
 		return [] as Array[Engraving]
-	return Engraving.roll_in_category(category, count, floor)
+	return Engraving.roll_in_category(category, total, floor)
 
 ## Gewichtete Kategorie EINES Stücks aus einem gemischten Paket.
 func _mixed_category() -> String:

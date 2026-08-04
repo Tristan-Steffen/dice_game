@@ -528,12 +528,16 @@ func _on_spin_pressed(machine: int) -> void:
 		return
 	_spinning = true
 	_spinning_index = machine
+	# Der Preis VOR dem Dreh: ein Gratisdreh (Freispiel-Charm, Freispiel-Klausel)
+	# wirft keine Münze ein, also fährt auch kein Einsatz-Licht.
+	var price := run.slot_spin_price(machine)
 	var block := run.spin_slot(machine)
 	if block.is_empty():
 		_spinning = false
 		_spinning_index = -1
 		return
-	spin_paid.emit(machine)
+	if price > 0:
+		spin_paid.emit(machine)
 	_build()  # sperrt alle Knöpfe während des Drehens; Walzen bleiben
 	if coin_travel_time > 0.0:
 		await get_tree().create_timer(coin_travel_time).timeout

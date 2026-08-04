@@ -416,7 +416,7 @@ func _build_spread() -> MenuSpread:
 	# Zurücklegen aus available gezogen (erase unten).
 	# Essenz-Charms liegen nur aus, wenn ihre Seele wirklich im Pool steckt -
 	# ohne den Würfel wären sie tote Karten und verdünnten den Topf.
-	var available := Charm.offerable(Charm.all(), run.owned_essence_ids())
+	var available := Charm.offerable(Charm.all(), run.owned_essence_ids(), run.charm_offer_features())
 	var owned := run.owned_charm_ids()
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := run.shop_rarity_tier()

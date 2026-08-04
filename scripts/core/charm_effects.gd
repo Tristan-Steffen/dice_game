@@ -36,6 +36,34 @@ const QUADRATURE_MIN_DICE := 4
 ## Gleichmacher: Basispunkt-Boden je beteiligtem Würfel.
 const EQUALIZER_FLOOR := 10
 
+## Charm-Plätze im Dock - spiegelt GameRun.CHARM_CAPACITY (core greift nicht in
+## den Laufzustand; ein Test hält die beiden Zahlen gleich).
+const CHARM_SLOTS := 6
+
+## Leerer Sockel: Mult je freiem Charm-Platz.
+const EMPTY_PLINTH_MULT := 3
+
+## Leuchtfarbe: Mult je Rune auf einem gewerteten Würfel.
+const LUMINOUS_PAINT_MULT := 2
+
+## Werksglanz: Basispunkte je gewertetem Würfel ohne Material, Rune und Essenz.
+const FACTORY_FINISH_BASE := 15
+
+## Metronom: Basispunkte je Paar von Würfeln, die beide genau EINMAL zünden.
+const METRONOME_BASE := 4
+
+## Stroboskop: Mult je Auslösung, die dieser Würfel schon hinter sich hat.
+const STROBE_MULT := 2
+
+## Standby-Licht: Mult je gelagerter Energie. Kilometerzähler: je gespielter
+## Runde. Flaschenregal: je VERSCHIEDENER Essenz im Pool.
+const STANDBY_LIGHT_MULT := 1
+const ODOMETER_MULT := 1
+const BOTTLE_RACK_MULT := 1
+
+## Erdungskabel: Mult je Leiterbahn-Wurf, der danebengegangen ist.
+const GROUND_WIRE_MULT := 5
+
 ## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
 ## nie unter 0) - überlebt Runden. Eigene Funktion, weil der Tisch-Chip denselben
 ## Wert zeigen muss, den die Wertung rechnet.
@@ -156,10 +184,15 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 ## order: die gewerteten Slots in ZÄHLREIHENFOLGE - der Vorreiter meint deren Kopf.
 ## value_override > 0: die feuernde Augenzahl dieser Zündung (laufender Wert oder
 ## Leiterbahn-Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
-static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], value_override: int = 0) -> int:
+## materials: die Material-id der OBEN liegenden Seite je Slot - der Werksglanz
+## ist der einzige Charm hier, der nach ihr fragt.
+static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], value_override: int = 0, materials: Array[String] = []) -> int:
 	match charm_ids[j]:
 		Charm.BROADBAND:
 			return 5
+		Charm.FACTORY_FINISH:
+			if _is_bare_die(slot, materials, ctx):
+				return FACTORY_FINISH_BASE
 		Charm.STREET_SWEEPER:
 			if key == DiceScoring.SMALL_STRAIGHT or key == DiceScoring.LARGE_STRAIGHT:
 				return 6
@@ -173,6 +206,16 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 				var value := value_override if value_override > 0 else values[slot]
 				return value * value
 	return 0
+
+## Werksglanz-Prüfung: der Würfel zeigt eine nackte Seite (kein Material, keine
+## Rune) und trägt keine eigene Seele. Gemessen wird an der OBEREN Seite - mehr
+## kennt die Wertung von einem Würfel nicht.
+static func _is_bare_die(slot: int, materials: Array[String], ctx: Dictionary) -> bool:
+	if slot < materials.size() and materials[slot] != "":
+		return false
+	if not DiceScoring.runes_for(ctx, slot).is_empty():
+		return false
+	return EssenceEffects.essence_at(DiceScoring.essences_in(ctx), slot) == ""
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
 ## +3 je spät gezogenem Würfel; Prime Time: Augenzahl, wenn sie prim ist).
@@ -271,10 +314,10 @@ static func charm_indices_of(charm_id: String, charm_ids: Array[String]) -> Arra
 	return out
 
 ## Summe aller Pro-Würfel-Basisbeiträge für slot (über alle Besitz-Positionen).
-static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = []) -> int:
+static func die_charm_base(slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], materials: Array[String] = []) -> int:
 	var bonus := 0
 	for j in charm_ids.size():
-		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, order)
+		bonus += die_charm_base_at(j, slot, key, values, charm_ids, ctx, order, 0, materials)
 	return bonus
 
 ## Summe aller Pro-Würfel-Multbeiträge für slot.
@@ -417,10 +460,29 @@ static func twin_pair_slots(values: Array[int]) -> Array[int]:
 
 ## Kombi-Multiplikator der Position j (Effektkatalog; Pendel kann nie negativ
 ## beitragen). Pro-Würfel-Charms liegen in die_charm_mult_at.
-static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
+## scored: die GEWERTETEN Slots (Vollzähler/Krypton weiten sie über participating
+## hinaus) - nur die Leuchtfarbe fragt danach.
+static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = [], scored: Array[int] = []) -> int:
 	match charm_ids[j]:
 		Charm.HOUSE_JOKER:
 			return HOUSE_JOKER_MULT
+		Charm.EMPTY_PLINTH:
+			return EMPTY_PLINTH_MULT * maxi(0, CHARM_SLOTS - charm_ids.size())
+		Charm.LUMINOUS_PAINT:
+			var runes := 0
+			for slot in scored:
+				runes += DiceScoring.runes_for(ctx, slot).size()
+			return LUMINOUS_PAINT_MULT * runes
+		Charm.STANDBY_LIGHT:
+			return STANDBY_LIGHT_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_CHARGE, 0)))
+		Charm.ODOMETER:
+			return ODOMETER_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ROUND, 0)))
+		Charm.BOTTLE_RACK:
+			return BOTTLE_RACK_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ESSENCE_KINDS, 0)))
+		Charm.GROUND_WIRE:
+			# Ein Fehlwurf entlädt sich - die Vorschau kennt die Zündungen nicht
+			# und sieht darum nichts.
+			return GROUND_WIRE_MULT * DiceScoring.pointer_misses_in(ctx)
 		Charm.PENDULUM:
 			return pendulum_mult(ctx)
 		Charm.ALL_OR_NOTHING:
@@ -462,10 +524,10 @@ static func charm_mult_bonus_at(j: int, key: String, values: Array[int], materia
 			return 2 * maxi(0, charm_ids.size() - 1)
 	return 0
 
-static func charm_mult_bonus(key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = []) -> int:
+static func charm_mult_bonus(key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = [], scored: Array[int] = []) -> int:
 	var bonus := 0
 	for j in charm_ids.size():
-		bonus += charm_mult_bonus_at(j, key, values, materials, charm_ids, ctx, participating)
+		bonus += charm_mult_bonus_at(j, key, values, materials, charm_ids, ctx, participating, scored)
 	return bonus
 
 static func _participating_are_ones(values: Array[int], participating: Array[int]) -> bool:
@@ -481,6 +543,30 @@ static func _participating_are_ones(values: Array[int], participating: Array[int
 ## feuern erneut. Den Slot bekommt MaterialEffects.die_trigger_count über echo_slot.
 static func echo_retriggers(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ECHO_CHAMBER)
+
+## Rücklicht: zusätzliche ANTRITTE des zuletzt gewerteten Würfels - das SCHLUSS-
+## LICHT der Zählreihenfolge, das Gegenstück zur Echo-Kammer. Bei einer Hand aus
+## einem Würfel ist er Kopf UND Schluss und bekommt beide Zugaben.
+static func tail_retriggers(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.TAIL_LIGHT)
+
+## Metronom: Basispunkte eines Würfels, der genau EINMAL zündet - je ANDEREM
+## Würfel der Hand, der ebenfalls nur einmal zündet. singles sind genau diese
+## Slots (DiceScoring.single_trigger_slots), weil ein zustandsloser die_charm_*-
+## Hook die Auslösungen der Mitwürfel nicht kennen kann.
+static func metronome_base(slot: int, singles: Array[int], charm_ids: Array[String]) -> int:
+	var copies := charm_ids.count(Charm.METRONOME)
+	if copies == 0 or not singles.has(slot):
+		return 0
+	return METRONOME_BASE * copies * maxi(0, singles.size() - 1)
+
+## Stroboskop: Mult DIESER Zündung - die erste bleibt leer, jede weitere zahlt
+## +2 je Zündung davor. firing_index ist nullbasiert über beide Achsen des Würfels.
+static func strobe_mult(firing_index: int, charm_ids: Array[String]) -> int:
+	var copies := charm_ids.count(Charm.STROBE)
+	if copies == 0 or firing_index <= 0:
+		return 0
+	return STROBE_MULT * copies * firing_index
 
 ## Sechserpack: zusätzliche Antritte JEDES Würfels, sobald die Hand die volle
 ## Sechs nutzt (Würfel-Achse, additiv wie die Echo-Kammer). scored_count ist die
@@ -626,6 +712,60 @@ static func farkle_shard_income(dice_count: int, charm_ids: Array[String]) -> in
 			income += 2 * dice_count
 	return income
 
+## Jackpotglocke: Prämie, wenn die ERSTE genommene Hand der Runde das Rundenziel
+## überbietet (je Vorkommen).
+const JACKPOT_BELL_MONEY := 10
+
+static func jackpot_income(charm_ids: Array[String], hand_points: int, goal: int,
+		is_first_hand: bool) -> int:
+	if not is_first_hand or hand_points <= goal:
+		return 0
+	return charm_ids.count(Charm.JACKPOT_BELL) * JACKPOT_BELL_MONEY
+
+## Quotenblatt: gewonnene Nebenwetten zahlen 50 % mehr BARGELD (je Vorkommen,
+## aufgerundet). Ladung und Ware bleiben unberührt.
+const ODDS_SHEET_FACTOR := 1.5
+
+static func side_bet_money(amount: int, charm_ids: Array[String]) -> int:
+	var payout := amount
+	if payout <= 0:
+		return payout
+	for charm_id in charm_ids:
+		if charm_id == Charm.ODDS_SHEET:
+			payout = ceili(float(payout) * ODDS_SHEET_FACTOR)
+	return payout
+
+# --- Energie: Effektkatalog ------------------------------------------------------
+
+## Dynamo: die erste genommene Hand jeder Runde prägt eine Energie (je Vorkommen).
+## Gebucht im Zug wie der Funkenflug, das Licht fliegt hinterher.
+const DYNAMO_CHARGE := 1
+
+static func take_charge(charm_ids: Array[String], is_first_hand: bool) -> int:
+	if not is_first_hand:
+		return 0
+	return charm_ids.count(Charm.DYNAMO) * DYNAMO_CHARGE
+
+## Trostpreis: jeder Fumble wirft eine Energie ab (je Vorkommen).
+const CONSOLATION_CHARGE := 1
+
+static func fumble_charge(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.CONSOLATION_PRIZE) * CONSOLATION_CHARGE
+
+## Supraleiter: Nachlass auf den Übertaktungs-Preis (je Vorkommen 1 ⚡); der
+## Aufrufer klemmt bei 1 - gratis übertaktet niemand.
+static func overclock_discount(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.SUPERCONDUCTOR)
+
+## Hehlerware: Nachlass auf ein Schwarzmarkt-ANGEBOT (je Vorkommen 1 ⚡). Der
+## Neuwurf bleibt flach - er ist keine Ware.
+static func secret_price_cut(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.FENCED_GOODS)
+
+## Freispiel: der erste Dreh eines Ladenbesuchs geht aufs Haus.
+static func has_free_spin(charm_ids: Array[String]) -> bool:
+	return charm_ids.has(Charm.FREE_SPIN)
+
 ## Überflieger: je geräumte Überladungs-Stufe der Runde. Stufen sind gedeckelt,
 ## also braucht der Satz keine Obergrenze - und der Doppellader (zwei ⚡ je Stufe)
 ## ändert nichts, gezählt wird der BALKEN.
@@ -633,6 +773,10 @@ const HIGH_FLYER_PER_STAGE := 5
 
 ## Deckel des Zinsgroschens - gilt je Exemplar auf dessen eigener Grundlage.
 const INTEREST_PENNY_CAP := 20
+
+## Pfandregal: $1 je drei Gravuren im Vorrat, gedeckelt.
+const DEPOSIT_SHELF_PER := 3
+const DEPOSIT_SHELF_CAP := 15
 
 ## Rundenende-Einnahmen EINZELN je Besitz-Position: Zinsgroschen ($1 je volle
 ## $10, max. $20), Überflieger ($5 je geräumte Überladungs-Stufe), Glücksgroschen
@@ -645,7 +789,7 @@ const INTEREST_PENNY_CAP := 20
 ## sie längst über die Wertung entscheidet. Der Deckel des Zinsgroschens gilt je
 ## Exemplar auf dessen eigener Grundlage. Grundlage der Auszahlungs-Zeremonie:
 ## der Spieler sieht, WELCHER Charm zahlt.
-static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0) -> Array[Dictionary]:
+static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, engraving_stock: int = 0) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	var projected := money
 	for j in charm_ids.size():
@@ -657,6 +801,8 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 				amount = maxi(0, cleared_stages) * HIGH_FLYER_PER_STAGE
 			Charm.OLD_PENNY:
 				amount = old_penny_payout(penny_payouts)
+			Charm.DEPOSIT_SHELF:
+				amount = mini(maxi(0, engraving_stock) / DEPOSIT_SHELF_PER, DEPOSIT_SHELF_CAP)
 			Charm.EMERGENCY_FUND:
 				# Auf den LAUFENDEN Stand auffüllen - sonst ersetzte er, was die
 				# Charms vor ihm schon gewährt haben.
@@ -667,9 +813,9 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 	return entries
 
 ## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.
-static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0) -> int:
+static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, engraving_stock: int = 0) -> int:
 	var income := 0
-	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts):
+	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts, engraving_stock):
 		income += int(entry["amount"])
 	return income
 
@@ -750,3 +896,30 @@ static func forces_refinement(charm_ids: Array[String]) -> bool:
 ## Gravierstift: einmal pro Runde wird ein Zahl-Gravur nicht verbraucht.
 static func has_engraving_pen(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.ENGRAVING_PEN)
+
+## Zwinge: Chance, dass eine MATERIAL-Gravur beim Anwenden in der Zwinge bleibt.
+## Je Vorkommen 25 %, gedeckelt wie das Kleingedruckte - eine Gravur, die sich nie
+## verbraucht, wäre kein Glück mehr, sondern ein zweites Testmodus-Häkchen.
+const CLAMP_SPARE_CHANCE := 0.25
+const CLAMP_SPARE_CAP := 0.75
+
+static func engraving_spare_chance(charm_ids: Array[String]) -> float:
+	return minf(charm_ids.count(Charm.CLAMP) * CLAMP_SPARE_CHANCE, CLAMP_SPARE_CAP)
+
+## Zugabe: so viele Stücke legt jedes GRAVUR-Paket obendrauf (je Vorkommen eins).
+static func pack_extra_engravings(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.ENCORE)
+
+## Politur: am Rundenende steigt eine zufällige Material-Seite des Pools.
+static func polishes_pool(charm_ids: Array[String]) -> bool:
+	return charm_ids.has(Charm.POLISH)
+
+## Gießkanne: wie viele Kopien EIN Abguss einer Seite der Stufe level in den
+## Vorrat legt. Ohne den Charm bleibt es bei einer (Stufe I). Der Vorrat kennt
+## keine Stufen - eine Stufe kostet dort ihre Dubletten (I→II zwei, II→III drei),
+## also IST die Kopie "in Stufe N" genau die Summe 1+2+…+N.
+static func cast_copies_for_level(level: int, charm_ids: Array[String]) -> int:
+	if not charm_ids.has(Charm.WATERING_CAN):
+		return 1
+	var stage := clampi(level, 1, DieMaterial.MAX_LEVEL)
+	return stage * (stage + 1) / 2

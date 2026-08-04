@@ -1,0 +1,526 @@
+extends GutTest
+## Tier-3-Tests der vierten Inhalts-Welle: Ökonomie, Werkbank und Zeremonien -
+## Supraleiter, Dynamo, Trostpreis, Hehlerware, Freispiel, Quotenblatt, Zwinge,
+## Zugabe, Pfandregal, Jackpotglocke, Politur, Stichel, Gießkanne, Härteofen und
+## die Angebots-Sperren der Charms ohne ihr Spielzeug.
+
+func _d(values: Array) -> Array[int]:
+	var typed: Array[int] = []
+	typed.assign(values)
+	return typed
+
+func _p(values: Array) -> Array[int]:
+	var typed: Array[int] = []
+	typed.assign(values)
+	return typed
+
+func _m(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
+func _ids(values: Array) -> Array[String]:
+	var typed: Array[String] = []
+	typed.assign(values)
+	return typed
+
+func _defs(values: Array) -> Array[DieDefinition]:
+	var typed: Array[DieDefinition] = []
+	typed.assign(values)
+	return typed
+
+const NO_CHARMS: Array[String] = []
+const PAIR := DiceScoring.TWO_KIND
+
+var run: GameRun
+
+func before_each() -> void:
+	run = GameRun.new_run()
+
+## Würfel mit gesetzten Seitenwerten (und optional einem Material auf Seite 0).
+func _die(faces: Array, face_material := "", level := 1) -> DieDefinition:
+	var def := DieDefinition.new()
+	def.faces = _d(faces)
+	if face_material != "":
+		def.set_face_material(0, face_material)
+		for _l in maxi(0, level - 1):
+			def.raise_level(0)
+	return def
+
+func _has_id(pool: Array[Charm], charm_id: String) -> bool:
+	for charm in pool:
+		if charm.id == charm_id:
+			return true
+	return false
+
+## Ein Generator, dessen ERSTER Wurf unter (bzw. über) der Schwelle liegt - nur so
+## lässt sich eine Chance in beide Ausgänge zwingen.
+func _rng_rolling(below: bool, chance: float) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	for s in 500:
+		rng.seed = s
+		if (rng.randf() < chance) == below:
+			rng.seed = s
+			return rng
+	return null
+
+# --- Supraleiter: Übertakten kostet eine Energie weniger ---------------------------
+
+func test_the_superconductor_shaves_a_charge_off_the_overclock_price():
+	assert_eq(GameRun.overclock_cost_at(3), 4, "unverändert ohne Charm")
+	assert_eq(GameRun.overclock_cost_at(3, _ids([Charm.SUPERCONDUCTOR])), 3)
+	assert_eq(GameRun.overclock_cost_at(0, _ids([Charm.SUPERCONDUCTOR])), 1,
+		"nie unter eine Energie - gratis übertaktet niemand")
+	assert_eq(GameRun.overclock_cost_at(9, _ids([Charm.SUPERCONDUCTOR, Charm.SUPERCONDUCTOR])), 3,
+		"der Deckel 5 minus zwei Exemplare")
+
+func test_the_overclock_price_the_chip_shows_carries_the_charm():
+	run.combo_levels[PAIR] = 2
+	assert_eq(run.overclock_cost(PAIR), 3)
+	run.owned_charms.append(Charm.superconductor())
+	assert_eq(run.overclock_cost(PAIR), 2, "der Chip liest dieselbe Abfrage")
+	run.charge = 2
+	assert_true(run.can_overclock(PAIR))
+	assert_true(run.overclock_combo(PAIR))
+	assert_eq(run.charge, 0, "abgebucht wird der ermäßigte Preis")
+
+# --- Dynamo & Trostpreis: zwei neue ⚡-Quellen -------------------------------------
+
+func test_the_dynamo_mints_only_on_the_first_taken_hand():
+	var ids := _ids([Charm.DYNAMO])
+	assert_eq(CharmEffects.take_charge(ids, true), CharmEffects.DYNAMO_CHARGE)
+	assert_eq(CharmEffects.take_charge(ids, false), 0, "nur die erste Hand der Runde")
+	assert_eq(CharmEffects.take_charge(NO_CHARMS, true), 0)
+	assert_eq(CharmEffects.take_charge(_ids([Charm.DYNAMO, Charm.DYNAMO]), true), 2)
+
+func test_the_consolation_prize_books_its_charge_on_the_fumble():
+	run.hub_level = 3  # zwei erwachte Reihen, der Deckel steht nicht im Weg
+	assert_eq(run.note_fumble(false), 0, "ohne Charm prägt der Fumble nichts")
+	assert_eq(run.charge, 0)
+	run.owned_charms.append(Charm.consolation_prize())
+	assert_eq(run.note_fumble(false), 1, "gebucht wird in GameRun, geflogen erst danach")
+	assert_eq(run.charge, 1)
+	assert_eq(run.round_fumbles, 2, "der Zähler läuft unabhängig weiter")
+
+func test_the_consolation_charge_respects_the_full_wallet():
+	run.owned_charms.append(Charm.consolation_prize())
+	run.charge = run.charge_cap()
+	run.note_fumble(false)
+	assert_eq(run.charge, run.charge_cap(), "add_charge klemmt am Deckel")
+
+# --- Hehlerware: Schwarzmarkt-Angebote werden billiger ------------------------------
+
+func test_the_fenced_goods_cut_every_offer_price_but_never_below_one():
+	var offer := {GameRun.OFFER_KIND: GameRun.KIND_CHARM, GameRun.OFFER_ITEM: null,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false}
+	assert_eq(run.secret_offer_price(offer), 6)
+	run.owned_charms.append(Charm.fenced_goods())
+	assert_eq(run.secret_offer_price(offer), 5)
+	offer[GameRun.OFFER_PRICE] = 1
+	assert_eq(run.secret_offer_price(offer), 1, "mindestens eine Energie")
+
+func test_the_reroll_price_stays_flat_under_the_fenced_goods():
+	run.owned_charms.append(Charm.fenced_goods())
+	assert_eq(run.secret_reroll_cost(), GameRun.SECRET_REROLL_BASE)
+
+func test_the_back_room_charges_the_discounted_price():
+	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
+	run.unlock_secret_shop()
+	run.owned_charms.append(Charm.fenced_goods())
+	var index := -1
+	for i in run.secret_stock.size():
+		if run.secret_stock[i][GameRun.OFFER_KIND] == GameRun.KIND_ENGRAVING:
+			index = i
+			break
+	assert_gt(index, -1, "ein Gravur-Platz liegt immer aus")
+	var price := run.secret_offer_price(run.secret_stock[index])
+	assert_eq(price, int(run.secret_stock[index][GameRun.OFFER_PRICE]) - 1)
+	run.charge = price
+	assert_true(run.buy_secret_offer(index), "der ermäßigte Preis reicht")
+	assert_eq(run.charge, 0)
+
+# --- Freispiel: der erste Dreh je Ladenbesuch ---------------------------------------
+
+func test_the_free_spin_pays_the_first_spin_of_a_visit():
+	run.hub_level = 3  # Automat I steht
+	run.money = 0
+	run.owned_charms.append(Charm.free_spin())
+	assert_eq(run.slot_spin_price(0), 0, "der erste Dreh geht aufs Haus")
+	assert_true(run.can_spin_slot(0), "ohne Geld drehbar")
+	assert_false(run.spin_slot(0).is_empty())
+	assert_eq(run.money, 0, "nichts abgebucht")
+	assert_gt(run.slot_spin_price(0), 0, "der zweite Dreh kostet wieder")
+	assert_false(run.can_spin_slot(0), "und ohne Geld geht er nicht")
+
+func test_the_free_spin_lives_up_again_when_the_shop_opens():
+	run.hub_level = 3
+	run.owned_charms.append(Charm.free_spin())
+	run.spin_slot(0)
+	assert_true(run.free_spin_used_this_visit)
+	run.begin_shop_visit()
+	assert_false(run.free_spin_used_this_visit)
+	assert_eq(run.slot_spin_price(0), 0)
+
+func test_without_the_charm_the_spin_costs_as_before():
+	run.hub_level = 3
+	run.money = 100
+	var price := run.slot_spin_price(0)
+	assert_gt(price, 0)
+	run.spin_slot(0)
+	assert_eq(run.money, 100 - price)
+
+# --- Quotenblatt: Bargeld-Gewinne 50 % höher ----------------------------------------
+
+func test_the_odds_sheet_rounds_the_money_payout_up():
+	assert_eq(CharmEffects.side_bet_money(10, _ids([Charm.ODDS_SHEET])), 15)
+	assert_eq(CharmEffects.side_bet_money(5, _ids([Charm.ODDS_SHEET])), 8, "aufgerundet")
+	assert_eq(CharmEffects.side_bet_money(10, NO_CHARMS), 10)
+	assert_eq(CharmEffects.side_bet_money(0, _ids([Charm.ODDS_SHEET])), 0)
+
+func test_the_odds_sheet_lands_in_the_settlement():
+	run.money = 50
+	run.owned_charms.append(Charm.odds_sheet())
+	var bet := SideBet._from_template(_template("jackpot"))
+	run.place_side_bet(bet)
+	var after_stake := run.money
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	run.resolve_side_bets(result)
+	assert_eq(run.money, after_stake + ceili(bet.payout_money * 1.5))
+
+func test_the_odds_sheet_stands_on_the_bet_button():
+	var bet := SideBet._from_template(_template("jackpot"))
+	assert_eq(bet.reward_label(1, _ids([Charm.ODDS_SHEET])),
+		"$%d" % ceili(bet.payout_money * 1.5), "der Knopf verspricht, was die Abrechnung zahlt")
+	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
+
+func test_a_charge_payout_stays_untouched_by_the_odds_sheet():
+	run.owned_charms.append(Charm.odds_sheet())
+	var bet := SideBet.new()
+	bet.payout_kind = SideBet.Payout.CHARGE
+	bet.payout_charge = 2
+	run.hub_level = 3
+	run._pay_side_bet(bet, 1)
+	assert_eq(run.charge, 2, "Energie ist keine Barauszahlung")
+
+func _template(id: String) -> Dictionary:
+	for t in SideBet.TEMPLATES:
+		if t["id"] == id:
+			return t
+	return {}
+
+# --- Zwinge: die Material-Gravur bleibt manchmal eingespannt ------------------------
+
+func test_the_clamp_chance_stacks_and_caps():
+	assert_eq(CharmEffects.engraving_spare_chance(NO_CHARMS), 0.0)
+	assert_almost_eq(CharmEffects.engraving_spare_chance(_ids([Charm.CLAMP])), 0.25, 0.0001)
+	var four := _ids([Charm.CLAMP, Charm.CLAMP, Charm.CLAMP, Charm.CLAMP])
+	assert_almost_eq(CharmEffects.engraving_spare_chance(four), CharmEffects.CLAMP_SPARE_CAP, 0.0001)
+
+func test_the_clamp_spares_exactly_one_material_engraving():
+	run.owned_charms.append(Charm.bench_clamp())
+	for _i in 3:
+		run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY),
+			Engraving.Rarity.UNCOMMON))
+	var spared := run.consume_applied_engraving(DieMaterial.RUBY, 2,
+		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
+	assert_true(spared, "der Wurf lag unter der Chance")
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2, "genau eine bleibt eingespannt")
+
+func test_the_clamp_misses_and_the_engraving_is_gone():
+	run.owned_charms.append(Charm.bench_clamp())
+	for _i in 3:
+		run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY),
+			Engraving.Rarity.UNCOMMON))
+	var spared := run.consume_applied_engraving(DieMaterial.RUBY, 2,
+		_rng_rolling(false, CharmEffects.CLAMP_SPARE_CHANCE))
+	assert_false(spared)
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+
+func test_the_clamp_never_holds_an_etching():
+	run.owned_charms.append(Charm.bench_clamp())
+	run.grant_engraving(Engraving.chisel())
+	var spared := run.consume_applied_engraving(Engraving.CHISEL, 1,
+		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
+	assert_false(spared, "die Zwinge hält nur Material-Gravuren")
+	assert_eq(run.engraving_stock(Engraving.CHISEL), 0)
+
+# --- Zugabe: jedes Gravur-Paket legt ein Stück obendrauf ----------------------------
+
+func test_the_pack_rolls_its_extra_out_of_its_own_pot():
+	var pack := Pack.number_pack()
+	var normal := pack.roll_engravings(Engraving.Rarity.COMMON)
+	var extra := pack.roll_engravings(Engraving.Rarity.COMMON, 1)
+	assert_eq(extra.size(), normal.size() + 1)
+	for engraving in extra:
+		assert_eq(engraving.category, Engraving.CATEGORY_NUMBER, "nie eine fremde Sorte")
+
+func test_the_encore_fills_every_engraving_pack():
+	run.owned_charms.append(Charm.encore())
+	var pack := Pack.material_pack()
+	run.grant_pack(pack)
+	var content := run.open_pack(0)
+	var engravings: Array[Engraving] = content["engravings"]
+	assert_eq(engravings.size(), pack.count + 1)
+
+func test_the_encore_leaves_a_dice_pack_alone():
+	run.owned_charms.append(Charm.encore())
+	var pack := Pack.stress_die(DiceOffer.TEMPLATES[0])
+	run.grant_pack(pack)
+	var content := run.open_pack(0)
+	var dice: Array[DieDefinition] = content["dice"]
+	assert_eq(dice.size(), pack.count, "Würfel bleiben Würfel")
+
+# --- Pfandregal: Rundenende-Einnahme aus dem Gravur-Vorrat --------------------------
+
+func test_the_deposit_shelf_pays_per_three_engravings():
+	var ids := _ids([Charm.DEPOSIT_SHELF])
+	assert_eq(CharmEffects.round_end_income(0, 0, ids, 0, 8), 2, "$1 je volle drei")
+	assert_eq(CharmEffects.round_end_income(0, 0, ids, 0, 2), 0)
+	assert_eq(CharmEffects.round_end_income(0, 0, ids, 0, 999), CharmEffects.DEPOSIT_SHELF_CAP,
+		"gedeckelt bei $15")
+	assert_eq(CharmEffects.round_end_income(0, 0, NO_CHARMS, 0, 999), 0)
+
+func test_the_deposit_shelf_names_itself_in_the_ceremony_entries():
+	var entries := CharmEffects.round_end_income_entries(0, 0, _ids([Charm.DEPOSIT_SHELF]), 0, 9)
+	assert_eq(entries.size(), 1)
+	assert_eq(String(entries[0]["charm_id"]), Charm.DEPOSIT_SHELF)
+	assert_eq(int(entries[0]["amount"]), 3)
+
+# --- Jackpotglocke: die erste Hand schlägt das Rundenziel ---------------------------
+
+func test_the_jackpot_bell_rings_only_over_the_goal_and_only_first():
+	var ids := _ids([Charm.JACKPOT_BELL])
+	assert_eq(CharmEffects.jackpot_income(ids, 200, 150, true), CharmEffects.JACKPOT_BELL_MONEY)
+	assert_eq(CharmEffects.jackpot_income(ids, 150, 150, true), 0, "gleichauf reicht nicht")
+	assert_eq(CharmEffects.jackpot_income(ids, 200, 150, false), 0, "nur die erste Hand")
+	assert_eq(CharmEffects.jackpot_income(NO_CHARMS, 200, 150, true), 0)
+	assert_eq(CharmEffects.jackpot_income(_ids([Charm.JACKPOT_BELL, Charm.JACKPOT_BELL]), 200, 150, true),
+		2 * CharmEffects.JACKPOT_BELL_MONEY)
+
+func test_the_jackpot_bell_measures_against_the_effective_goal():
+	run.round_goal = 150
+	run.owned_charms.append(Charm.jackpot_bell())
+	assert_eq(CharmEffects.jackpot_income(run.charm_ids(), 151, run.effective_goal(), true),
+		CharmEffects.JACKPOT_BELL_MONEY)
+
+# --- Politur: eine Material-Seite des Pools steigt ---------------------------------
+
+func test_the_polish_raises_exactly_one_material_face():
+	run.owned_charms.append(Charm.polish())
+	run.owned_pool[3].set_face_material(2, DieMaterial.RUBY)
+	var polished := run.apply_polish()
+	assert_eq(int(polished["index"]), 3)
+	assert_eq(int(polished["face"]), 2)
+	assert_eq(run.owned_pool[3].material_level(2), 2)
+
+func test_the_polish_stays_silent_without_a_target():
+	run.owned_charms.append(Charm.polish())
+	assert_true(run.apply_polish().is_empty(), "ein nackter Pool hat nichts zu polieren")
+	run.owned_pool[0].set_face_material(0, DieMaterial.GOLD)
+	run.owned_pool[0].raise_level(0)
+	run.owned_pool[0].raise_level(0)
+	assert_eq(run.owned_pool[0].material_level(0), DieMaterial.MAX_LEVEL)
+	assert_true(run.apply_polish().is_empty(), "Stufe III ist kein Ziel mehr")
+
+func test_the_polish_needs_its_charm():
+	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
+	assert_true(run.apply_polish().is_empty())
+	assert_eq(run.owned_pool[0].material_level(0), 1)
+
+func test_the_polish_reports_the_pool_change():
+	run.owned_charms.append(Charm.polish())
+	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
+	var seen := [0]
+	run.pool_changed.connect(func() -> void: seen[0] += 1)
+	run.apply_polish()
+	assert_eq(seen[0], 1, "die Trays hängen an diesem Signal")
+
+func test_the_polish_picks_uniformly_over_the_faces():
+	run.owned_charms.append(Charm.polish())
+	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
+	run.owned_pool[0].set_face_material(4, DieMaterial.BONE)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var polished := run.apply_polish(rng)
+	assert_true(int(polished["face"]) == 0 or int(polished["face"]) == 4)
+	assert_eq(int(polished["level"]), 2)
+
+# --- Stichel: die Wertungs-Runen wirken doppelt -------------------------------------
+
+func test_the_burin_doubles_the_afterglow():
+	var runes := _ids([Rune.AFTERGLOW])
+	assert_eq(RuneEffects.extra_activations(runes), 1)
+	assert_eq(RuneEffects.extra_activations(runes, _ids([Charm.BURIN])), 2)
+	assert_eq(RuneEffects.extra_activations(_ids([Rune.AFTERGLOW, Rune.AFTERGLOW]),
+		_ids([Charm.BURIN])), 4, "je Rune verdoppelt")
+
+func test_the_burin_doubles_the_spark_flight():
+	var runes := _ids([Rune.SPARK_FLIGHT])
+	assert_eq(RuneEffects.charge_for_take(runes), RuneEffects.SPARK_FLIGHT_CHARGE)
+	assert_eq(RuneEffects.charge_for_take(runes, _ids([Charm.BURIN])), 2)
+	assert_eq(RuneEffects.charge_for_take(_ids([Rune.STRAY_LIGHT]), _ids([Charm.BURIN])), 0)
+
+func test_the_burin_fires_the_reverse_twice():
+	var reverse := _ids([Rune.REVERSE])
+	assert_eq(EssenceEffects.det_link_fire_count(0, 5, reverse, NO_CHARMS), 1)
+	assert_eq(EssenceEffects.det_link_fire_count(0, 5, reverse, _ids([Charm.BURIN])), 2)
+	assert_eq(EssenceEffects.det_link_fire_count(0, 1, reverse, _ids([Charm.BURIN])), 1,
+		"ein Korona-Nachbar ist keine Kehrseite")
+	assert_eq(EssenceEffects.det_link_fire_count(0, 5, _ids([]), _ids([Charm.BURIN])), 1,
+		"ohne Kehrseite bleibt es beim Röntgenlicht-Glied")
+
+func test_the_afterglow_activations_land_in_the_score():
+	var ctx := {DiceScoring.CTX_RUNES: {0: _ids([Rune.AFTERGLOW])}}
+	var plain := DiceScoring.score_category(PAIR, _d([5, 5]), NO_CHARMS, false, _m(["", ""]), {}, ctx)
+	var burin := DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.BURIN]), false,
+		_m(["", ""]), {}, ctx)
+	# Slot 0 zündet dreimal statt zweimal: eine Augenzahl mehr auf der Basis.
+	assert_eq(plain, (10 + 5 * 3) * 2)
+	assert_eq(burin, (10 + 5 * 4) * 2)
+
+func test_the_doubled_reverse_pays_its_gold_link_twice():
+	var def := _die([1, 2, 3, 4, 5, 6])
+	def.set_face_material(5, DieMaterial.GOLD)
+	def.runes[0] = Rune.REVERSE
+	var plain := MaterialEffects.apply_take_effects(_defs([def]), _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, {}, _p([0]), false, _p([0]))
+	assert_eq(plain.money, MaterialEffects.GOLD_PAYOUT)
+	var twin := _die([1, 2, 3, 4, 5, 6])
+	twin.set_face_material(5, DieMaterial.GOLD)
+	twin.runes[0] = Rune.REVERSE
+	var doubled := MaterialEffects.apply_take_effects(_defs([twin]), _p([0]), _m([""]), _p([0]),
+		_ids([Charm.BURIN]), -1, {}, _p([0]), false, _p([0]))
+	assert_eq(doubled.money, 2 * MaterialEffects.GOLD_PAYOUT, "die Kehrseite zündet zweimal")
+
+# --- Gießkanne: der Abguss gießt in der Stufe der Seite ------------------------------
+
+func test_the_watering_can_prices_the_level_in_duplicates():
+	assert_eq(CharmEffects.cast_copies_for_level(3, NO_CHARMS), 1, "ohne Charm immer Stufe I")
+	var can := _ids([Charm.WATERING_CAN])
+	assert_eq(CharmEffects.cast_copies_for_level(1, can), 1)
+	assert_eq(CharmEffects.cast_copies_for_level(2, can), 3, "I→II kostet zwei, frisch eines")
+	assert_eq(CharmEffects.cast_copies_for_level(3, can), 6, "1+2+3")
+
+func test_the_cast_grants_the_level_worth_of_copies():
+	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
+	def.runes[0] = Rune.CAST
+	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1, "ohne Charm eine Kopie")
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+	var twin := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
+	twin.runes[0] = Rune.CAST
+	var watering := GameRun.new_run()
+	watering.owned_charms.append(Charm.watering_can())
+	assert_eq(watering.apply_rune_cast(_defs([twin]), _p([0]), _p([0])), 6)
+	assert_eq(watering.engraving_stock(DieMaterial.RUBY), 6)
+
+func test_the_cast_stays_once_per_round_and_die():
+	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, 2)
+	def.runes[0] = Rune.CAST
+	run.owned_charms.append(Charm.watering_can())
+	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 3)
+	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 0, "die Marke hält")
+
+# --- Härteofen: Stufe-III-Materialien zahlen doppelt --------------------------------
+
+func test_the_kiln_only_repeats_the_top_level():
+	assert_eq(MaterialEffects.payoff_repeats(3, _ids([Charm.KILN])), 2)
+	assert_eq(MaterialEffects.payoff_repeats(2, _ids([Charm.KILN])), 1, "erst Stufe III")
+	assert_eq(MaterialEffects.payoff_repeats(3, NO_CHARMS), 1)
+
+func test_the_kiln_doubles_base_and_mult():
+	var kiln := _ids([Charm.KILN])
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 3, 6),
+		2 * MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 3, 6))
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 2, 6),
+		MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 2, 6), "Stufe II unberührt")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, kiln, 3), 10)
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 5)
+
+func test_the_kiln_doubles_the_growth_but_never_the_cost():
+	var kiln := _ids([Charm.KILN])
+	var grown := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, kiln, 3)
+	var plain := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, NO_CHARMS, 3)
+	assert_gt(grown, plain, "das Wachstum ist eine Auszahlung")
+	assert_eq(grown, MaterialEffects.grow_bone_value(plain, 3,
+		MaterialEffects.bone_growth_step(kiln), MaterialEffects.bone_trigger_count(kiln)),
+		"genau zwei Wachstumsschritte")
+	assert_eq(MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, kiln, 3),
+		MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, NO_CHARMS, 3),
+		"das Glas frisst sich weiter im alten Tempo")
+
+func test_the_kiln_crit_strikes_twice_instead_of_squaring_once():
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3, "eye_sum": 0}}}
+	var mats := _m([DieMaterial.RUBY, ""])
+	var plain := DiceScoring.score_category(PAIR, _d([5, 5]), NO_CHARMS, false, mats, {}, ctx)
+	var kiln := DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.KILN]), false, mats, {}, ctx)
+	assert_eq(plain, 20 * 2 * MaterialEffects.RUBY_CRIT)
+	assert_eq(kiln, 20 * 2 * MaterialEffects.RUBY_CRIT * MaterialEffects.RUBY_CRIT)
+
+func test_the_breakdown_mirrors_the_doubled_material_steps():
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3, "eye_sum": 0}}}
+	var ids := _ids([Charm.KILN])
+	var mats := _m([DieMaterial.RUBY, ""])
+	var breakdown := ScoreBreakdown.build(PAIR, _d([5, 5]), ids, false, mats, {}, ctx)
+	assert_eq(int(breakdown["total"]),
+		DiceScoring.score_category(PAIR, _d([5, 5]), ids, false, mats, {}, ctx))
+	var step: Dictionary = breakdown["die_steps"][0]
+	var firing: Dictionary = step["die_triggers"][0]["firings"][0]
+	assert_eq((firing["crit_steps"] as Array).size(), 2,
+		"zwei Schläge wie zwei Beherit-Kopien, nie einer im Quadrat")
+
+func test_the_kiln_pays_its_gold_twice_and_the_def_follows_the_simulation():
+	var kiln := _ids([Charm.KILN])
+	var gold := _die([4, 2, 3, 4, 5, 6], DieMaterial.GOLD, DieMaterial.MAX_LEVEL)
+	var report := MaterialEffects.apply_take_effects(_defs([gold]), _p([0]), _m([DieMaterial.GOLD]),
+		_p([0]), kiln, -1, {}, _p([0]), false, _p([0]))
+	var plain_die := _die([4, 2, 3, 4, 5, 6], DieMaterial.GOLD, DieMaterial.MAX_LEVEL)
+	var plain := MaterialEffects.apply_take_effects(_defs([plain_die]), _p([0]),
+		_m([DieMaterial.GOLD]), _p([0]), NO_CHARMS, -1, {}, _p([0]), false, _p([0]))
+	assert_eq(report.money, 2 * plain.money, "die Auszahlung läuft zweimal")
+
+func test_the_kiln_keeps_simulation_and_def_byte_identical():
+	# Ein Knochen auf Stufe III unter dem Härteofen: die Def muss exakt dort landen,
+	# wo value_after_activations sie erwartet (Drift-Doktrin).
+	var kiln := _ids([Charm.KILN])
+	var bone := _die([8, 2, 3, 4, 5, 6], DieMaterial.BONE, DieMaterial.MAX_LEVEL)
+	MaterialEffects.apply_take_effects(_defs([bone]), _p([0]), _m([DieMaterial.BONE]), _p([0]),
+		kiln, -1, {}, _p([0]), false, _p([0]))
+	var activations := MaterialEffects.total_trigger_count(0, kiln, 8)
+	assert_eq(bone.faces[0], MaterialEffects.value_after_activations(8, activations,
+		DieMaterial.BONE, kiln, DieMaterial.MAX_LEVEL))
+
+# --- Angebots-Sperren: ein Charm ohne sein Spielzeug ---------------------------------
+
+func test_the_offer_gate_hides_the_charms_without_their_toy():
+	var no_souls: Array[String] = []
+	var barred := Charm.offerable(Charm.all(), no_souls,
+		{Charm.FEATURE_SECRET_SHOP: false, Charm.FEATURE_SLOT_MACHINE: false})
+	assert_false(_has_id(barred, Charm.FENCED_GOODS), "kein Hinterzimmer, keine Hehlerware")
+	assert_false(_has_id(barred, Charm.FREE_SPIN), "kein Automat, kein Freispiel")
+	var open_table := Charm.offerable(Charm.all(), no_souls,
+		{Charm.FEATURE_SECRET_SHOP: true, Charm.FEATURE_SLOT_MACHINE: true})
+	assert_true(_has_id(open_table, Charm.FENCED_GOODS))
+	assert_true(_has_id(open_table, Charm.FREE_SPIN))
+
+func test_the_offer_gate_stays_permissive_without_features():
+	var no_souls: Array[String] = []
+	var pool := Charm.offerable(Charm.all(), no_souls)
+	assert_true(_has_id(pool, Charm.FENCED_GOODS), "wer den Stand nicht kennt, verliert nichts")
+	assert_true(_has_id(pool, Charm.FREE_SPIN))
+
+func test_the_run_reports_what_stands_on_the_table():
+	var features := run.charm_offer_features()
+	assert_false(bool(features[Charm.FEATURE_SECRET_SHOP]))
+	assert_false(bool(features[Charm.FEATURE_SLOT_MACHINE]))
+	run.hub_level = 3
+	assert_true(bool(run.charm_offer_features()[Charm.FEATURE_SLOT_MACHINE]), "Automat I steht")
+	run.unlock_secret_shop()
+	assert_true(bool(run.charm_offer_features()[Charm.FEATURE_SECRET_SHOP]))
+
+func test_the_back_room_charm_slot_passes_the_gate():
+	# Der Schwarzmarkt würfelt seine Charms durch dieselbe Schleuse - sein eigener
+	# Stand ist beim Würfeln längst offen.
+	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
+	run.unlock_secret_shop()
+	assert_eq(run.secret_stock.size(), 3, "die Auslage steht")

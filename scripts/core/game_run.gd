@@ -164,6 +164,9 @@ var throttled_combos: Array[String] = []
 var free_charm_pending: bool = false
 ## Freispiele: Automaten, die ihren Gratisdreh dieser Runde schon hatten.
 var free_spins_used: Array[int] = []
+## Freispiel-Charm: der Gratisdreh dieses LADENBESUCHS ist verbraucht. Er hängt
+## am Besuch, nicht an der Runde - begin_shop_visit setzt ihn zurück.
+var free_spin_used_this_visit: bool = false
 
 ## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
 ## Rarität und den Überladungs-Deckel (siehe die shop_*/hub_*-Abfragen unten).
@@ -228,6 +231,16 @@ var rune_cast_used: Dictionary = {}
 ## Gewitterfront schleppen sie in die nächste Hand mit.
 var round_trigger_count: int = 0
 var round_crit_count: int = 0
+## Fumbles dieser Runde (Vulkanblitz) und der RUN-lange Zähler der Fumbles, bei
+## denen ein Vulkanblitz in der Grube lag. Der zweite wird immer mitgeführt; ob
+## er zählt, entscheidet allein die Aschewolke.
+var round_fumbles: int = 0
+var ash_fumbles: int = 0
+## Materiallose Würfel, die diese Runde schon gewertet haben (Neonmarker).
+var round_bare_dice: int = 0
+## Würfel-Exemplare, die diese Runde schon gewertet haben - ihre nächste Wertung
+## ist keine Erstwertung mehr (Sternschnuppe, Gammablitz).
+var die_scored_this_round: Dictionary = {}
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -613,9 +626,11 @@ func open_pack(index: int) -> Dictionary:
 		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
 	else:
 		# Das Paket bringt seine eigene Untergrenze mit (Automaten-Stufe); es gilt
-		# die höhere von beiden.
+		# die höhere von beiden. Die Zugabe legt je Vorkommen ein Stück aus dem
+		# EIGENEN Topf des Pakets obendrauf.
 		var floor_rarity := maxi(pack.rarity_floor, pack_engraving_floor()) as Engraving.Rarity
-		result["engravings"] = pack.roll_engravings(floor_rarity)
+		result["engravings"] = pack.roll_engravings(floor_rarity,
+			CharmEffects.pack_extra_engravings(charm_ids()))
 	packs_changed.emit()
 	return result
 
@@ -649,12 +664,14 @@ func combo_level(combo_key: String) -> int:
 
 ## ⚡-Preis der Stufe level+1: eine Energie plus je bereits erklommener Stufe
 ## eine weitere, gedeckelt bei 5. Kein Stufen-Limit - die Ladung ist die einzige
-## Bremse. Bewusst OHNE Ladenpreis-Klauseln: ⚡-Preise sind überall flach.
-static func overclock_cost_at(level: int) -> int:
-	return mini(1 + maxi(0, level), OVERCLOCK_COST_CAP)
+## Bremse. Bewusst OHNE Ladenpreis-Klauseln: ⚡-Preise sind überall flach; der
+## Supraleiter ist der einzige Nachlass, und nie unter eine Energie.
+static func overclock_cost_at(level: int, charm_ids: Array[String] = []) -> int:
+	var price := mini(1 + maxi(0, level), OVERCLOCK_COST_CAP)
+	return maxi(1, price - CharmEffects.overclock_discount(charm_ids))
 
 func overclock_cost(combo_key: String) -> int:
-	return overclock_cost_at(combo_level(combo_key))
+	return overclock_cost_at(combo_level(combo_key), charm_ids())
 
 func can_overclock(combo_key: String) -> bool:
 	return charge >= overclock_cost(combo_key)
@@ -1118,6 +1135,15 @@ func slots_enabled() -> bool:
 func slot_spin_is_free(machine: int) -> bool:
 	return _clause_active(DealClause.FREE_SPINS) and not free_spins_used.has(machine)
 
+## Der Laden öffnet: der Gratisdreh des Freispiels lebt wieder auf.
+func begin_shop_visit() -> void:
+	free_spin_used_this_visit = false
+
+## Freispiel-Charm: der erste Dreh dieses Besuchs geht aufs Haus - egal an
+## welchem Automaten.
+func charm_free_spin_open() -> bool:
+	return not free_spin_used_this_visit and CharmEffects.has_free_spin(charm_ids())
+
 ## Quotenbonus/Turniernacht: Auszahlungsfaktor gewonnener Nebenwetten.
 func side_bet_payout_factor() -> int:
 	return 2 * deal_bonus_factor() if _clause_active(DealClause.ODDS_BONUS) \
@@ -1301,8 +1327,10 @@ func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int
 	return granted
 
 ## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
-## frische Kopie davon in den Vorrat - IMMER Stufe I, der Abguss erbt die
-## Sättigung nicht. Liefert die Zahl der Kopien.
+## frische Kopie davon in den Vorrat - Stufe I, der Abguss erbt die Sättigung
+## nicht. Nur die Gießkanne gießt in der Stufe der Seite: der Vorrat kennt keine
+## Stufen, also legt sie so viele Kopien hinein, wie die Stufe in Dubletten
+## kostet (CharmEffects.cast_copies_for_level). Liefert die Zahl der Kopien.
 ## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
 ## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
 func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
@@ -1326,9 +1354,34 @@ func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
 		rune_cast_used[key] = true
 		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
 			Engraving.Rarity.UNCOMMON)
-		grant_engraving(Engraving.material_engraving(material, rarity))
-		granted += 1
+		var copies := CharmEffects.cast_copies_for_level(defs[i].material_level(face), charm_ids())
+		for _c in copies:
+			grant_engraving(Engraving.material_engraving(material, rarity))
+			granted += 1
 	return granted
+
+## Politur: EINE zufällige Material-Seite des Pools steigt am Rundenende eine
+## Stufe. Gleichverteilt über ALLE steigerbaren Seiten, nicht erst über die
+## Würfel - sonst hinge die Chance an der Zahl der Seiten je Würfel. rng
+## injizierbar, damit ein Test die Wahl festnagelt. {} = keine Seite in Frage.
+func apply_polish(rng: RandomNumberGenerator = null) -> Dictionary:
+	if not CharmEffects.polishes_pool(charm_ids()):
+		return {}
+	var targets: Array[Vector2i] = []
+	for i in owned_pool.size():
+		var die := owned_pool[i]
+		if die == null:
+			continue
+		for face in die.materials.size():
+			if die.materials[face] != "" and die.material_level(face) < DieMaterial.MAX_LEVEL:
+				targets.append(Vector2i(i, face))
+	if targets.is_empty():
+		return {}
+	var pick: Vector2i = targets[rng.randi() % targets.size()] if rng != null else targets.pick_random()
+	if not owned_pool[pick.x].raise_level(pick.y):
+		return {}
+	pool_changed.emit()
+	return {"index": pick.x, "face": pick.y, "level": owned_pool[pick.x].material_level(pick.y)}
 
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
@@ -1342,8 +1395,11 @@ func roll_essence_round_state() -> void:
 	essence_tip_used.clear()
 	essence_harvest_used.clear()
 	rune_cast_used.clear()
+	die_scored_this_round.clear()
 	round_trigger_count = 0
 	round_crit_count = 0
+	round_fumbles = 0
+	round_bare_dice = 0
 
 ## Gespeicherte Basispunkte dieses Würfel-Exemplars (0 = leer).
 func phosphor_store(die: DieDefinition) -> int:
@@ -1381,6 +1437,44 @@ func note_hand_counters(breakdown: Dictionary) -> void:
 	round_trigger_count += maxi(0, int(breakdown.get("triggers", 0)))
 	round_crit_count += maxi(0, int(breakdown.get("crits", 0)))
 
+## Ein Fumble ist gefallen. volcanic = ein Vulkanblitz lag dabei in der Grube;
+## dieser Zähler läuft IMMER mit, gelesen wird er nur unter der Aschewolke.
+## Liefert die Energie, die der Trostpreis dabei geprägt hat - HIER gebucht, das
+## Licht fliegt erst hinterher (book first, fly afterwards).
+func note_fumble(volcanic: bool) -> int:
+	round_fumbles += 1
+	if volcanic:
+		ash_fumbles += 1
+	var minted := CharmEffects.fumble_charge(charm_ids())
+	if minted > 0:
+		add_charge(minted)
+	return minted
+
+## Wertet dieses Würfel-Exemplar in dieser Runde zum ersten Mal? Die Marke hängt
+## am Exemplar wie jede andere Runden-Marke.
+func first_scoring(die: DieDefinition) -> bool:
+	return die != null and not die_scored_this_round.has(die.get_instance_id())
+
+## Merkt die gewerteten Würfel als "hat diese Runde gewertet" - beim Buchen des
+## Zuges, nie schon in der Vorschau.
+func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> void:
+	for i in participating:
+		if i >= 0 and i < defs.size() and defs[i] != null:
+			die_scored_this_round[defs[i].get_instance_id()] = true
+
+## Neonmarker: die materiallosen Würfel dieses Zuges wachsen in den Rundenzähler.
+func note_bare_dice(count: int) -> void:
+	round_bare_dice += maxi(0, count)
+
+## Verschiedene Essenzen im Pool (Flaschenregal) - gezählt wird die Sorte, nicht
+## der Würfel.
+func essence_kinds() -> int:
+	var seen: Array[String] = []
+	for die in owned_pool:
+		if die != null and die.essence_id != "" and not seen.has(die.essence_id):
+			seen.append(die.essence_id)
+	return seen.size()
+
 ## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
 ## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
 func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
@@ -1416,6 +1510,15 @@ func can_tip_die(die: DieDefinition) -> bool:
 func consume_tip(die: DieDefinition) -> void:
 	if die != null:
 		essence_tip_used[die.get_instance_id()] = true
+
+## Was auf dem Tisch schon steht (Charm.FEATURE_*): ein Charm, dessen Spielzeug
+## fehlt, ist so tot wie ein Essenz-Charm ohne Seele. EINE Quelle für Auslage,
+## Schwarzmarkt und Automat.
+func charm_offer_features() -> Dictionary:
+	return {
+		Charm.FEATURE_SECRET_SHOP: secret_shop_unlocked,
+		Charm.FEATURE_SLOT_MACHINE: slots_unlocked() > 0,
+	}
 
 ## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
 func owned_essence_ids() -> Array[String]:
@@ -1471,6 +1574,20 @@ func consume_engravings(id: String, count: int) -> bool:
 		owned_engravings.remove_at(found[k])
 	engravings_changed.emit()
 	return true
+
+## Verbraucht die angewandte Gravur - es sei denn, die Zwinge hält sie fest.
+## true = die Gravur blieb in der Zwinge (der Aufrufer sagt es dem Spieler). Nur
+## MATERIAL-Gravuren; rng injizierbar, damit ein Test beide Ausgänge erzwingt.
+func consume_applied_engraving(id: String, count: int = 1,
+		rng: RandomNumberGenerator = null) -> bool:
+	if DieMaterial.is_valid_id(id):
+		var chance := CharmEffects.engraving_spare_chance(charm_ids())
+		var roll := rng.randf() if rng != null else randf()
+		if chance > 0.0 and roll < chance:
+			consume_engravings(id, count - 1)  # genau EINE bleibt eingespannt
+			return true
+	consume_engravings(id, count)
+	return false
 
 ## Bestand einer Gravur-id (Testmodus: immer reichlich).
 func engraving_stock(id: String) -> int:
@@ -1565,7 +1682,8 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 func _pay_side_bet(bet: SideBet, factor: int) -> void:
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
-			add_money(bet.payout_money * factor)
+			# Quotenblatt hebt NUR das Bargeld - Ladung und Ware bleiben.
+			add_money(CharmEffects.side_bet_money(bet.payout_money * factor, charm_ids()))
 		SideBet.Payout.CHARGE:
 			var overflow := add_charge(bet.payout_charge * factor)
 			if overflow > 0:
@@ -1596,7 +1714,7 @@ func slots_unlocked() -> int:
 
 ## Einsatz für einen Dreh an Automat machine (Freispiele drehen gratis).
 func slot_spin_price(machine: int) -> int:
-	if slot_spin_is_free(machine):
+	if slot_spin_is_free(machine) or charm_free_spin_open():
 		return 0
 	return SlotMachine.SPIN_PRICES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
@@ -1615,6 +1733,8 @@ func spin_slot(machine: int) -> Array:
 		return []
 	if slot_spin_is_free(machine):
 		free_spins_used.append(machine)  # je Automat genau ein Gratisdreh je Runde
+	elif charm_free_spin_open():
+		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
 		add_money(-slot_spin_price(machine))
 	return slot_bank.roll(machine)
@@ -1635,7 +1755,8 @@ func redeem_slots() -> Dictionary:
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			prizes.append(SlotPrize.from_spec(spec, hub_level, owned_essence_ids()))
+			prizes.append(SlotPrize.from_spec(spec, hub_level, owned_essence_ids(),
+				charm_offer_features()))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
 
@@ -1859,9 +1980,18 @@ func unlock_secret_shop() -> bool:
 	secret_shop_discovered.emit()
 	return true
 
-## Preis des nächsten Neuwurfs - immer derselbe.
+## Preis des nächsten Neuwurfs - immer derselbe. Die Hehlerware drückt ihn NICHT:
+## ein Neuwurf ist keine Ware.
 func secret_reroll_cost() -> int:
 	return SECRET_REROLL_BASE
+
+## Fälliger ⚡-Preis EINES Angebots (Hehlerware drückt ihn, nie unter 1). Einzige
+## Quelle für Anzeige, Bezahlbarkeit und Abbuchung.
+func secret_offer_price(offer: Dictionary) -> int:
+	var price := int(offer.get(OFFER_PRICE, 0))
+	if price <= 0:
+		return price
+	return maxi(1, price - CharmEffects.secret_price_cut(charm_ids()))
 
 ## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Ladung
 ## nicht reicht.
@@ -1880,7 +2010,7 @@ func buy_secret_offer(index: int) -> bool:
 	if index < 0 or index >= secret_stock.size():
 		return false
 	var offer := secret_stock[index]
-	var price := int(offer[OFFER_PRICE])
+	var price := secret_offer_price(offer)
 	if bool(offer[OFFER_SOLD]) or charge < price:
 		return false
 	# Voller Dock: der Charm-Platz bleibt liegen, die Ladung wird nicht abgebucht.
@@ -1949,7 +2079,7 @@ func _secret_charm_offer() -> Dictionary:
 			taken.append(listed.id)
 	var pool: Array[Charm] = []
 	# Auch das Hinterzimmer führt keinen Essenz-Charm, dessen Seele fehlt.
-	for charm in Charm.offerable(Charm.all(), owned_essence_ids()):
+	for charm in Charm.offerable(Charm.all(), owned_essence_ids(), charm_offer_features()):
 		if charm.rarity == Charm.RARITY_LEGENDARY and not taken.has(charm.id):
 			pool.append(charm)
 	if pool.is_empty():

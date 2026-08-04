@@ -19,14 +19,19 @@ const STRAY_LIGHT_MONEY := 1
 ## Argon-Würfel die Bank doppelt füllen.
 const SPARK_FLIGHT_CHARGE := 1
 
+## Stichel: die WERTUNGS-Runen wirken doppelt (Nachglühen, Funkenflug; die
+## Kehrseite zündet über EssenceEffects.det_link_fire_count zweimal).
+static func _burin_factor(charm_ids: Array[String]) -> int:
+	return 2 if charm_ids.has(Charm.BURIN) else 1
+
 ## ZUSÄTZLICHE Auslösungen aus die Runen der oben liegenden Seite. Additiv wie
 ## Retrigger-Charms, Echo und Sauerstoff - die Essenz bleibt die einzige
 ## multiplikative Quelle.
-static func extra_activations(rune_ids: Array[String]) -> int:
+static func extra_activations(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
 	var extra := 0
 	for rune_id in rune_ids:
 		if rune_id == Rune.AFTERGLOW:
-			extra += 1
+			extra += _burin_factor(charm_ids)
 	return extra
 
 ## Einbrand: der Wert dieser Seite ist eingebrannt - er schrumpft nicht (Glas,
@@ -36,8 +41,10 @@ static func protects_face_value(rune_ids: Array[String]) -> bool:
 
 ## Energie, die die gewertete Seite in DIESEM Zug abgibt (Funkenflug) - je Zug
 ## einmal, unabhängig von der Zahl der Auslösungen.
-static func charge_for_take(rune_ids: Array[String]) -> int:
-	return SPARK_FLIGHT_CHARGE if rune_ids.has(Rune.SPARK_FLIGHT) else 0
+static func charge_for_take(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
+	if not rune_ids.has(Rune.SPARK_FLIGHT):
+		return 0
+	return SPARK_FLIGHT_CHARGE * _burin_factor(charm_ids)
 
 ## Abguss: nimmt die gewertete Seite eine Kopie ihrer Material-Gravur mit in den
 ## Vorrat? Nur das Prädikat - gebucht wird in GameRun (die fünfte Wirkungsform:

@@ -451,6 +451,7 @@ var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
+var pre_reroll_first_scoring: Dictionary = {}  # Erstwertungs-Marken VOR dem Neu-Würfeln
 ## Der einzige Zufall der Wertung: die Leiterbahn. Ein eigener Generator, damit
 ## der Wurf je Zug genau EINMAL fällt und danach im ctx eingefroren steht.
 var pointer_rng := RandomNumberGenerator.new()
@@ -470,6 +471,9 @@ var first_hand_after_farkle: bool = false  # Galgenhumor
 var recycling_used_this_round: bool = false
 var slot_draw_positions: Array[int] = []  # je Slot die Zieh-Position (Bodensatz)
 var discarded_this_round: Array[DieDefinition] = []  # Phönixfeder
+## Die Seite, mit der jeder abgelegte Würfel abgelegt wurde - parallel zur Ablage
+## und ihre einzige Wahrheit: das Tray zeigt sie, Fuchsfeuer zählt ihre Augen.
+var discarded_faces_this_round: Array[int] = []
 var hand_note: String = ""  # transiente Meldung (z.B. Farkle)
 
 # Rundenbilanz für die Nebenwetten-Auswertung (je Rundenbeginn zurückgesetzt).
@@ -1989,7 +1993,9 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
-## den Nebenwetten), darum _fly_charge_to_capacitor(false).
+## den Nebenwetten), darum _fly_charge_to_capacitor(false). Dieselbe Salve trägt
+## die Charm-Energie aus der Grube (Dynamo, Trostpreis) - sie kommt aus keiner
+## Rune und fliegt darum ohne Funken.
 ## sparks nennt je ⚡ den Würfel, aus dem es springt: seine Rune lodert GENAU dann,
 ## wenn der Komet losfliegt. Der Funke, der von der Naht abspringt, und die
 ## Energie, die im Kondensator landet, werden so zu EINEM Vorgang - der stärkste
@@ -4181,24 +4187,33 @@ func _effective_essence_sets() -> Dictionary:
 func _det_links() -> Dictionary:
 	var links := {}
 	var sets := _effective_essence_sets()
+	var ids := run.charm_ids()
 	for i in dice.count():
 		var face: int = dice.face_indices[i]
 		var def: DieDefinition = dice.slot_defs[i]
 		if face < 0 or def == null:
 			continue
 		var essence_ids := EssenceEffects.set_at(sets, i)
-		var chain := EssenceEffects.link_faces(def, face, essence_ids,
-			def.runes_on(face), run.charm_ids())
+		var rune_ids := def.runes_on(face)
+		var chain := EssenceEffects.link_faces(def, face, essence_ids, rune_ids, ids)
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
 		for link_face in chain:
-			entries.append({
-				"face": link_face,
-				"value": def.faces[link_face],
-				"material": def.materials[link_face] if link_face < def.materials.size() else "",
-				"level": EssenceEffects.boosted_level(MaterialEffects.face_level(def, link_face), essence_ids),
-			})
+			var material: String = def.materials[link_face] if link_face < def.materials.size() else ""
+			var level := MaterialEffects.face_level(def, link_face)
+			var running: int = def.faces[link_face]
+			# Der Stichel lässt die Kehrseite zweimal zünden; der Wert wandert dabei
+			# mit wie beim Leiterbahn-Wurf (Knochen wächst zwischen den Zündungen).
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, ids):
+				entries.append({
+					"face": link_face,
+					"value": running,
+					"material": material,
+					"level": EssenceEffects.boosted_level(level, essence_ids),
+				})
+				running = MaterialEffects.mutate_link_value_once(running, material, ids,
+					level, essence_ids)
 		links[i] = entries
 	return links
 
@@ -4210,10 +4225,12 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 	var shape := DiceScoring.hand_shape(key, sel_values, ids, sel_ctx)
 	var order: Array[int] = shape["order"]
 	var echo_slot: int = shape["echo_slot"]
+	var tail_slot: int = shape["tail_slot"]
 	var essences := DiceScoring.essence_sets_in(sel_ctx)
 	var runes := DiceScoring.runes_in(sel_ctx)
 	var is_stress := GameRun.is_stress_round(run.round_number)
 	var shown := DiceScoring.shown_values(sel_values, ids, sel_ctx)
+	var hands_taken := int(sel_ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var fires := {}
 	for k in order:
 		var slot: int = slots[k]
@@ -4224,14 +4241,12 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		var essence_ids := EssenceEffects.set_at(essences, k)
 		var rune_ids := RuneEffects.runes_at(runes, k)
 		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(k, order, essences, ids), order.size())
-		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RuneEffects.extra_activations(rune_ids))
-		var groups := DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
+			EssenceEffects.extra_activations(k, order, essences, ids, shown, hands_taken), order.size(), tail_slot)
+		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RuneEffects.extra_activations(rune_ids, ids), essence_ids)
+		# Auch der reine Fehlwurf wird eingefroren: das Erdungskabel zählt genau die
+		# leeren Gruppen, und im ctx stehen nur Würfel MIT Leiterbahn.
+		fires[k] = DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
 			ids, essence_ids, pointer_rng)
-		for group in groups:
-			if not group.is_empty():
-				fires[k] = groups
-				break
 	return fires
 
 ## Stufen-Infos je Wurf-Slot: die Sättigung des Materials der OBEREN Seite, dazu
@@ -4288,7 +4303,48 @@ func _score_ctx() -> Dictionary:
 		# Gewitterfront lesen es, alle anderen fangen bei null an.
 		DiceScoring.CTX_ROUND_TRIGGERS: run.round_trigger_count,
 		DiceScoring.CTX_ROUND_CRITS: run.round_crit_count,
+		# Lauf- und Rundenzustand der dritten Welle - alle hand-weit, also ohne
+		# Umschlüsselung; nur die Erstwertungs-Marken hängen am Slot.
+		DiceScoring.CTX_CHARGE: run.charge,
+		DiceScoring.CTX_ROUND: run.round_number,
+		DiceScoring.CTX_HANDS_TAKEN: hands_taken_this_round,
+		DiceScoring.CTX_FUMBLES: run.round_fumbles,
+		DiceScoring.CTX_ASH_FUMBLES: run.ash_fumbles,
+		DiceScoring.CTX_ESSENCE_KINDS: run.essence_kinds(),
+		DiceScoring.CTX_DISCARD_VALUES: _discard_values(),
+		DiceScoring.CTX_FIRST_SCORING: _first_scoring_flags(),
 	}
+
+## Die oben liegenden Augen der Ablage - LIVE aus den Defs, damit ein späterer
+## Wertwandel (Knochen, Glas) auch in der Ablage durchschlägt. Die Seite selbst
+## steht fest, sie wurde beim Ablegen aufgezeichnet.
+func _discard_values() -> Array[int]:
+	var values: Array[int] = []
+	for i in discarded_this_round.size():
+		var def: DieDefinition = discarded_this_round[i]
+		var face: int = discarded_faces_this_round[i] if i < discarded_faces_this_round.size() else -1
+		if def == null or face < 0 or face >= def.faces.size():
+			continue
+		values.append(def.faces[face])
+	return values
+
+## Slot -> wertet dieser Würfel in dieser Runde zum ersten Mal (Sternschnuppe,
+## Gammablitz). Die Marke führt GameRun am Würfel-Exemplar.
+func _first_scoring_flags() -> Dictionary:
+	var flags := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def != null and run.first_scoring(def):
+			flags[i] = true
+	return flags
+
+## Liegt ein Vulkanblitz in der Grube? Die Aschewolke zählt genau diese Fumbles.
+func _volcanic_in_pit() -> bool:
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def != null and dice.roots[i].visible and def.essence_id == Essence.VOLCANIC_LIGHTNING:
+			return true
+	return false
 
 ## Wie _score_ctx, aber auf einen Auswahl-Teilwurf umgerechnet: slot-bezogene
 ## Werte (late_slots) müssen auf die gefilterten Indizes übersetzt werden,
@@ -4329,7 +4385,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = mapped_levels
 	# Essenzen, Runen und der Phosphor-Speicher hängen ebenso am Slot.
 	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RUNES,
-			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT]:
+			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT,
+			DiceScoring.CTX_FIRST_SCORING]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -4356,9 +4413,17 @@ func _draw_one() -> DieDefinition:
 	return def
 
 ## Schickt einen gebrauchten Würfel ins Ablage-Tray (gemerkt für die Phönixfeder).
-func _discard_kind(def: DieDefinition) -> void:
+## face ist die Seite, mit der er abgelegt wurde - das Tray zeigt genau sie, und
+## das Fuchsfeuer zählt ihre Augen.
+func _discard_kind(def: DieDefinition, face: int) -> void:
 	discarded_this_round.append(def)
-	discard_tray_view.add_die(def)
+	discarded_faces_this_round.append(face)
+	discard_tray_view.add_die(def, face)
+
+## Legt die ganze liegende Grube ab - je Würfel mit der Seite, die oben lag.
+func _discard_pit() -> void:
+	for i in active_kinds.size():
+		_discard_kind(active_kinds[i], dice.face_indices[i] if i < dice.face_indices.size() else -1)
 
 ## Wie viele Warteschlangen-Würfel der nächste Wurf tatsächlich zieht: vor dem
 ## ersten Wurf HAND_SIZE, danach so viele, wie ungeschützte Slots neu geworfen
@@ -4476,6 +4541,7 @@ func _on_throw_button_pressed() -> void:
 	# Ersetzte (ungeschützte) Würfel fliegen gleichzeitig Richtung Ablage-Tray.
 	var discard_from: Array[Vector3] = []
 	var discard_defs: Array[DieDefinition] = []
+	var discard_faces: Array[int] = []
 	var discard_to: Array[Vector3] = []
 	if has_rolled_current_hand:
 		var next_free := discard_tray_view.next_free_index
@@ -4488,6 +4554,7 @@ func _on_throw_button_pressed() -> void:
 				break
 			discard_from.append(dice.bodies[i].global_position)
 			discard_defs.append(active_kinds[i])
+			discard_faces.append(dice.face_indices[i])
 			discard_to.append(discard_tray_view.slot_global_position(next_free))
 			dice.roots[i].visible = false
 			next_free += 1
@@ -4541,6 +4608,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_phosphor_mult = _phosphor_mults()
+		pre_reroll_first_scoring = _first_scoring_flags()
 		pre_reroll_order = declared_before
 		for i in dice.count():
 			if not dice.selected[i] and _remaining_in_pool() > 0:
@@ -4558,7 +4626,7 @@ func _on_throw_button_pressed() -> void:
 	last_thrown_slots = thrown_indices.duplicate()
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
-	await _play_shell_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_to, move_top_indices, move_top_targets)
+	await _play_shell_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_faces, discard_to, move_top_indices, move_top_targets)
 	if phase != Phase.SHELL_ANIMATING:
 		dice_shell.clear_ghosts()
 		return  # Spiel wurde während der Hüllen-Animation zurückgesetzt
@@ -4693,7 +4761,7 @@ func _cancel_lineup() -> void:
 ## die Energie-Hülle (und taumeln dort als Physik-Körper weiter, siehe
 ## DiceShell.capture_die), ersetzte fliegen Richtung Ablage (erst bei der
 ## Ankunft wirklich abgelegt), geschützte gleiten an den oberen Grubenrand.
-func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
+func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_faces: Array[int], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
 	if fly_defs.is_empty() and discard_defs.is_empty() and move_top_indices.is_empty():
 		return
 
@@ -4729,7 +4797,7 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 		fly_ghosts[i].queue_free()
 	for i in discard_ghosts.size():
 		discard_ghosts[i].queue_free()
-		_discard_kind(discard_defs[i])
+		_discard_kind(discard_defs[i], discard_faces[i])
 
 	if not fly_defs.is_empty():
 		await dice_shell.play_shuffle()
@@ -4748,6 +4816,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_RUNES] = pre_reroll_runes
 	old_ctx[DiceScoring.CTX_PHOSPHOR_STORE] = pre_reroll_phosphor
 	old_ctx[DiceScoring.CTX_PHOSPHOR_MULT] = pre_reroll_phosphor_mult
+	old_ctx[DiceScoring.CTX_FIRST_SCORING] = pre_reroll_first_scoring
 	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
@@ -4864,6 +4933,13 @@ func _on_farkle(forgivable: bool = true) -> void:
 
 	# Zerbrochener Spiegel zählt, die Momentum-Serie reißt, Galgenhumor merkt vor.
 	run.farkle_count += 1
+	# Vulkanblitz/Aschewolke: der Zähler der Runde und der run-lange. Der
+	# Trostpreis prägt seine Energie gleich mit - gebucht in GameRun, das Licht
+	# fliegt erst hinterher.
+	var consolation_charge := run.note_fumble(_volcanic_in_pit())
+	if consolation_charge > 0:
+		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
+		_play_rune_charge_volley(consolation_charge)
 	momentum_streak = 0
 	_update_charm_badges()
 	first_hand_after_farkle = true
@@ -4891,8 +4967,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 		round_pool_kinds.append_array(active_kinds)
 		hand_note = "Phönixfeder: Fumble – die Würfel kehren in den Nachziehstapel zurück."
 	else:
-		for kind in active_kinds:
-			_discard_kind(kind)
+		_discard_pit()
 
 	# Versicherungsbetrug: jeder echte Farkle zahlt Trostgeld.
 	var consolation := run.farkle_consolation()
@@ -5019,7 +5094,11 @@ func _on_take_button_pressed() -> void:
 		slot_fires[slots[int(k)]] = sel_fires[k]
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, _effective_essence_sets(), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires)
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
+		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round)
+	# Erstwertung und Neonmarker-Zähler gehören dem Zug, nicht der Vorschau.
+	run.note_dice_scored(active_kinds, participating)
+	run.note_bare_dice(report.bare_dice)
 	# Phosphoreszenz: der Anteil dieses Zuges wächst in den Speicher hinein - er
 	# wird nie geleert. GameRun bucht, die Wertung bleibt pur. Dieselbe Stelle
 	# schreibt die Hand-Zähler der Runde fort (Dunkelkammer, Gewitterfront).
@@ -5040,10 +5119,15 @@ func _on_take_button_pressed() -> void:
 	if cast_copies > 0:
 		hand_note = "Abguss: %d Material-Gravuren abgeformt." % cast_copies
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
-	# hinterher (wie die Nebenwetten-Energie).
-	if report.charge > 0:
-		run.add_charge(report.charge)
-		_play_rune_charge_volley(report.charge, report.sparks)
+	# hinterher (wie die Nebenwetten-Energie). Der Dynamo hängt sich an dieselbe
+	# Salve - seine Energie kommt aus keinem Würfel, sie fliegt ohne Funken.
+	var take_charge := report.charge \
+		+ CharmEffects.take_charge(ids, hands_taken_this_round == 1)
+	if take_charge > 0:
+		run.add_charge(take_charge)
+		if take_charge > report.charge:
+			_flash_charm_and_pad(ids.find(Charm.DYNAMO))
+		_play_rune_charge_volley(take_charge, report.sparks)
 	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
 	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
 	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
@@ -5052,7 +5136,8 @@ func _on_take_button_pressed() -> void:
 	for slot in report.blocked:
 		_flare_runes(slot, true)
 	var take_money := report.money
-	if not report.grown.is_empty() or not report.shrunk.is_empty() or not report.decayed.is_empty():
+	if not report.grown.is_empty() or not report.shrunk.is_empty() \
+			or not report.decayed.is_empty() or report.discard_grown:
 		# Knochen/Glas/Radon haben Pool-Würfel verändert - die in der Grube
 		# liegenden Würfel zeigen ihre neuen Zahlen sofort (refresh_faces).
 		run.note_pool_changed()
@@ -5082,6 +5167,12 @@ func _on_take_button_pressed() -> void:
 	# Lumpensammler beim Nehmen. Straßenmusiker zahlt NICHT hier, sondern pro
 	# ausgelöstem Würfel während der Zähl-Animation (siehe _play_take_animation).
 	take_money += CharmEffects.rag_collector_income(dice.values, run.lumpensammler_value, ids)
+	# Jackpotglocke: schlägt die ERSTE Hand der Runde das Rundenziel, klingelt es.
+	var jackpot := CharmEffects.jackpot_income(ids, int(breakdown["total"]),
+		run.effective_goal(), hands_taken_this_round == 1)
+	if jackpot > 0:
+		take_money += jackpot
+		_flash_charm_and_pad(ids.find(Charm.JACKPOT_BELL))
 	if take_money > 0:
 		# Gebucht wird sofort, das generische Hub->Truhe-Licht bleibt aus: der Zug
 		# schickt EINEN eigenen Kometen aus der Grube hinterher.
@@ -5124,8 +5215,7 @@ func _on_take_button_pressed() -> void:
 		recycling_used_this_round = true
 		round_pool_kinds.append_array(active_kinds)
 
-	for kind in active_kinds:
-		_discard_kind(kind)
+	_discard_pit()
 
 	_log_finish_entry()
 
@@ -6048,6 +6138,7 @@ func _start_new_round() -> void:
 	round_max_hand_dice = 0
 	round_min_hand_dice = NO_HAND_DICE
 	discarded_this_round = []
+	discarded_faces_this_round = []
 	slot_draw_positions = []
 	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom
 	# Der Rückblick reicht genau eine Runde weit.
@@ -6221,6 +6312,8 @@ func _on_round_complete() -> void:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
 		_open_side_bet_betting()
+		# Das Freispiel gehört dem BESUCH: der Laden öffnet, der Gratisdreh lebt auf.
+		run.begin_shop_visit()
 		charm_shop.open()
 		# Erst jetzt steht der Hub im Bild - der Preis zeigt sich darüber. Nicht
 		# awaiten: der Spieler soll den Laden sofort bedienen können.
@@ -6409,15 +6502,19 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 ## beide Wege enden auf demselben Betrag, weil jede Buchung abgewartet wird.
 func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> void:
 	var amounts := {}
-	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids, run.old_penny_payouts):
+	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids,
+			run.old_penny_payouts, run.owned_engravings.size()):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	for j in ids.size():
 		match ids[j]:
-			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND:
+			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND, \
+					Charm.DEPOSIT_SHELF:
 				if amounts.has(j):
 					await _play_charm_money_payout(j, amounts[j])
 			Charm.STAMP_MACHINE:
 				await _play_stamp_machine_meteors(j)
+			Charm.POLISH:
+				await _play_polish_ceremony(j)
 		if phase != Phase.PAYOUT:
 			return
 
@@ -6502,6 +6599,24 @@ func _play_stamp_machine_meteors(index: int) -> void:
 	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+
+## Politur: EINE Material-Seite des Pools steigt eine Stufe. Gebucht ist sie,
+## bevor das Licht startet - der Komet zeigt nur, wohin die Politur greift, und
+## die Werkstatt quittiert seine Ankunft wie eine Paket-Lieferung.
+func _play_polish_ceremony(index: int) -> void:
+	var polished := run.apply_polish()
+	if polished.is_empty():
+		return
+	_flash_charm_and_pad(index)
+	var travel: float = table_screen.charm_workshop_comet(
+		_charm_trail_source_px([index]), CasinoStyle.GOLD)
+	if travel <= 0.0:
+		return
+	await get_tree().create_timer(travel).timeout
+	if phase != Phase.PAYOUT:
+		return
+	table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD)
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## Schickt EINEN Gravur-Meteor über die Adern in den Schubladen-Platz und
@@ -6944,6 +7059,7 @@ func _log_display_state() -> Dictionary:
 		"queue_defs": RoundLog.copy_defs(round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size)),
 		"pool_defs": RoundLog.copy_defs(round_pool_kinds.slice(pool_start, round_pool_kinds.size())),
 		"discard_defs": RoundLog.copy_defs(discarded_this_round),
+		"discard_faces": discarded_faces_this_round.duplicate(),
 	}
 
 ## Die liegende Grube als Chronik-Zeilen. Aufgezeichnet wird die SEITE, nicht nur
@@ -7213,10 +7329,12 @@ func _log_fill_trays(state: Dictionary) -> void:
 	pool_defs.assign(state.get("pool_defs", []))
 	var discard_defs: Array[DieDefinition] = []
 	discard_defs.assign(state.get("discard_defs", []))
+	var discard_faces: Array[int] = []
+	discard_faces.assign(state.get("discard_faces", []))
 	queue_tray_view.ensure_capacity(_queue_capacity())
 	queue_tray_view.fill(queue_defs)
 	pool_tray_view.fill(pool_defs)
-	discard_tray_view.fill(discard_defs)
+	discard_tray_view.fill(discard_defs, discard_faces)
 
 ## Stellt die Grube eines Eintrags: aufgezeichnete Defs in die Slots, jede Seite
 ## nach oben gekippt, dann die Reihe wie nach dem Aufreihen - hart gesetzt, denn
@@ -7286,7 +7404,7 @@ func _close_round_log() -> void:
 	_set_spotlight_combo(run.spotlight_combo)
 	_refresh_deck_trays()
 	discard_tray_view.clear()
-	discard_tray_view.fill(discarded_this_round)
+	discard_tray_view.fill(discarded_this_round, discarded_faces_this_round)
 	discard_tray_view.next_free_index = discarded_this_round.size()
 	if table_screen != null:
 		table_screen.reset_pit_score()

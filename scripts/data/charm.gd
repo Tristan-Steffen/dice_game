@@ -110,6 +110,37 @@ const SHYSTER := "shyster"
 const PARROT_TOTEM := "parrot_totem"
 const ECHO_TOTEM := "echo_totem"
 const HERMIT_CRAB := "hermit_crab"
+# Energie & Leiterbahn
+const SUPERCONDUCTOR := "superconductor"
+const DYNAMO := "dynamo"
+const STANDBY_LIGHT := "standby_light"
+const SOLDERING_IRON := "soldering_iron"
+const GROUND_WIRE := "ground_wire"
+# Runen & Werkbank
+const BURIN := "burin"
+const WATERING_CAN := "watering_can"
+const LUMINOUS_PAINT := "luminous_paint"
+const POLISH := "polish"
+const KILN := "kiln"
+const CLAMP := "clamp"
+const ENCORE := "encore"
+# Automat, Nebenwette & Hinterzimmer
+const ODDS_SHEET := "odds_sheet"
+const FREE_SPIN := "free_spin"
+const FENCED_GOODS := "fenced_goods"
+const JACKPOT_BELL := "jackpot_bell"
+const DEPOSIT_SHELF := "deposit_shelf"
+const TIP_JAR := "tip_jar"
+const CONSOLATION_PRIZE := "consolation_prize"
+# Auslösungen & Zählreihenfolge
+const FACTORY_FINISH := "factory_finish"
+const BOTTLE_RACK := "bottle_rack"
+const PRESSURE_GAUGE := "pressure_gauge"
+const EMPTY_PLINTH := "empty_plinth"
+const ODOMETER := "odometer"
+const TAIL_LIGHT := "tail_light"
+const STROBE := "strobe"
+const METRONOME := "metronome"
 # Essenz-Charms: je einer für jede Essenz ab "selten" - siehe ESSENCE_REQUIREMENT.
 const AMALGAM := "amalgam"
 const LEAD_APRON := "lead_apron"
@@ -134,6 +165,17 @@ const MAGNETIC_TRAP := "magnetic_trap"
 const PRINTING_PRESS := "printing_press"
 const CAMOUFLAGE := "camouflage"
 const FUSE := "fuse"
+const CUTTING_TORCH := "cutting_torch"
+const MODERATOR := "moderator"
+const METEORITE := "meteorite"
+const MYCELIUM := "mycelium"
+const HIGHLIGHTER := "highlighter"
+const ASH_CLOUD := "ash_cloud"
+const FEEDBACK := "feedback"
+const ICE_MIRROR := "ice_mirror"
+const POLAR_DAY := "polar_day"
+const MAGNETAR := "magnetar"
+const RADIO_TELESCOPE := "radio_telescope"
 
 ## Essenz, die ein Charm verstärkt (Charm-id -> Essence-id). Sie ist zugleich
 ## seine ANGEBOTS-BEDINGUNG: ein solcher Charm liegt nur im Laden (Auslage,
@@ -164,24 +206,56 @@ const ESSENCE_REQUIREMENT := {
 	MAGNETIC_TRAP: Essence.ANTIMATTER,
 	PRINTING_PRESS: Essence.ETHYLENE,
 	FUSE: Essence.DETONATING_GAS,
+	MODERATOR: Essence.CHERENKOV,
+	METEORITE: Essence.SHOOTING_STAR,
+	MYCELIUM: Essence.FOXFIRE,
+	HIGHLIGHTER: Essence.BLACK_LIGHT,
+	ASH_CLOUD: Essence.VOLCANIC_LIGHTNING,
+	FEEDBACK: Essence.OPTICAL_FIBER,
+	ICE_MIRROR: Essence.LIGHT_PILLAR,
+	POLAR_DAY: Essence.MIDNIGHT_SUN,
+	MAGNETAR: Essence.GAMMA_BURST,
+	RADIO_TELESCOPE: Essence.BACKGROUND_RADIATION,
 	# Ab hier auch HÄUFIGE Seelen: die Tabelle ist die Angebots-Regel, die
 	# Pflicht "je Seele ab selten genau ein Charm" bleibt davon unberührt.
 	CAMOUFLAGE: Essence.KRYPTON,
+	CUTTING_TORCH: Essence.ACETYLENE,
+}
+
+## Zweite Angebots-Bedingung neben der Seele: das SPIELZEUG muss auf dem Tisch
+## stehen. Ein Charm, der den Schwarzmarkt drückt, ist ohne Hinterzimmer genauso
+## tot wie ein Essenz-Charm ohne Würfel (GameRun.charm_offer_features liefert den
+## Stand).
+const FEATURE_SECRET_SHOP := "secret_shop"
+const FEATURE_SLOT_MACHINE := "slot_machine"
+const FEATURE_REQUIREMENT := {
+	FENCED_GOODS: FEATURE_SECRET_SHOP,
+	FREE_SPIN: FEATURE_SLOT_MACHINE,
 }
 
 ## Essenz, die dieser Charm voraussetzt ("" = keine).
 static func essence_requirement(charm_id: String) -> String:
 	return String(ESSENCE_REQUIREMENT.get(charm_id, ""))
 
+## Tisch-Einrichtung, die dieser Charm voraussetzt ("" = keine).
+static func feature_requirement(charm_id: String) -> String:
+	return String(FEATURE_REQUIREMENT.get(charm_id, ""))
+
 ## Die Charms, die dem Spieler überhaupt angeboten werden dürfen: alles ohne
 ## Essenz-Bedingung plus die, deren Seele er besitzt. EINE Quelle für Auslage,
-## Schwarzmarkt und Automat.
-static func offerable(pool: Array[Charm], owned_essence_ids: Array[String]) -> Array[Charm]:
+## Schwarzmarkt und Automat. features fehlt oder schweigt = erlaubt (der Aufrufer
+## ohne Laufzustand darf nichts verlieren).
+static func offerable(pool: Array[Charm], owned_essence_ids: Array[String],
+		features: Dictionary = {}) -> Array[Charm]:
 	var out: Array[Charm] = []
 	for charm in pool:
 		var needed := essence_requirement(charm.id)
-		if needed == "" or owned_essence_ids.has(needed):
-			out.append(charm)
+		if needed != "" and not owned_essence_ids.has(needed):
+			continue
+		var feature := feature_requirement(charm.id)
+		if feature != "" and not bool(features.get(feature, true)):
+			continue
+		out.append(charm)
 	return out
 
 ## Konvention: Modell-Dateiname = Charm-id (rabbits_foot.glb, ...). Fehlt die
@@ -300,6 +374,37 @@ const RARITIES := {
 	PARROT_TOTEM: RARITY_LEGENDARY,
 	ECHO_TOTEM: RARITY_LEGENDARY,
 	HERMIT_CRAB: RARITY_COMMON,
+	# Energie & Leiterbahn
+	SUPERCONDUCTOR: RARITY_RARE,
+	DYNAMO: RARITY_UNCOMMON,
+	STANDBY_LIGHT: RARITY_RARE,
+	SOLDERING_IRON: RARITY_UNCOMMON,
+	GROUND_WIRE: RARITY_COMMON,
+	# Runen & Werkbank
+	BURIN: RARITY_RARE,
+	WATERING_CAN: RARITY_UNCOMMON,
+	LUMINOUS_PAINT: RARITY_COMMON,
+	POLISH: RARITY_RARE,
+	KILN: RARITY_LEGENDARY,
+	CLAMP: RARITY_UNCOMMON,
+	ENCORE: RARITY_UNCOMMON,
+	# Automat, Nebenwette & Hinterzimmer
+	ODDS_SHEET: RARITY_UNCOMMON,
+	FREE_SPIN: RARITY_COMMON,
+	FENCED_GOODS: RARITY_UNCOMMON,
+	JACKPOT_BELL: RARITY_UNCOMMON,
+	DEPOSIT_SHELF: RARITY_COMMON,
+	TIP_JAR: RARITY_COMMON,
+	CONSOLATION_PRIZE: RARITY_COMMON,
+	# Auslösungen & Zählreihenfolge
+	FACTORY_FINISH: RARITY_COMMON,
+	BOTTLE_RACK: RARITY_UNCOMMON,
+	PRESSURE_GAUGE: RARITY_COMMON,
+	EMPTY_PLINTH: RARITY_UNCOMMON,
+	ODOMETER: RARITY_RARE,
+	TAIL_LIGHT: RARITY_UNCOMMON,
+	STROBE: RARITY_UNCOMMON,
+	METRONOME: RARITY_COMMON,
 	# Essenz-Charms: die Rarität misst die STÄRKE mit der Seele, nicht die Nische -
 	# die Nische regelt schon die Angebots-Kopplung (ESSENCE_REQUIREMENT).
 	AMALGAM: RARITY_RARE,
@@ -325,6 +430,18 @@ const RARITIES := {
 	PRINTING_PRESS: RARITY_UNCOMMON,
 	CAMOUFLAGE: RARITY_UNCOMMON,
 	FUSE: RARITY_RARE,
+	CUTTING_TORCH: RARITY_RARE,
+	MODERATOR: RARITY_RARE,
+	METEORITE: RARITY_RARE,
+	MYCELIUM: RARITY_RARE,
+	HIGHLIGHTER: RARITY_RARE,
+	ASH_CLOUD: RARITY_RARE,
+	FEEDBACK: RARITY_RARE,
+	ICE_MIRROR: RARITY_RARE,
+	POLAR_DAY: RARITY_RARE,
+	# Legendäre Seelen tragen legendäre Charms (wie Polarfilter/Alkahest).
+	MAGNETAR: RARITY_LEGENDARY,
+	RADIO_TELESCOPE: RARITY_LEGENDARY,
 }
 
 const RARITY_WEIGHTS := {
@@ -775,6 +892,129 @@ static func camouflage() -> Charm:
 static func fuse() -> Charm:
 	return _make(FUSE, "Zündschnur", "Knallgas zündet stärker: +$3 statt +$1 je folgendem Würfel im Stapel.")
 
+static func cutting_torch() -> Charm:
+	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Kombinationsstufe.")
+
+static func moderator() -> Charm:
+	return _make(MODERATOR, "Moderator", "Für den Tscherenkow-Krit zählt die gelagerte Energie mehr als doppelt: ×(1 + Energie ÷ 2).")
+
+static func meteorite() -> Charm:
+	return _make(METEORITE, "Meteorit", "Sternschnuppen können wieder mehrfach auslösen - was durchkommt, ist Eisen.")
+
+static func mycelium() -> Charm:
+	return _make(MYCELIUM, "Pilzgeflecht", "Das Fuchsfeuer wächst mit jedem Fund: +Augen in Höhe der Summe aller oben liegenden Ablage-Seiten.")
+
+static func highlighter() -> Charm:
+	return _make(HIGHLIGHTER, "Neonmarker", "Schwarzlicht zahlt zusätzlich +$1 je materiallosem Würfel, der diese Runde schon gewertet wurde.")
+
+static func ash_cloud() -> Charm:
+	return _make(ASH_CLOUD, "Aschewolke", "Jeder Fumble, an dem ein Vulkanblitz beteiligt war, hebt seinen Krit dauerhaft +1.")
+
+static func feedback() -> Charm:
+	return _make(FEEDBACK, "Rückkopplung", "Die Glasfaser feuert die Zielseite ihrer Leiterbahnen dreimal statt zweimal.")
+
+static func ice_mirror() -> Charm:
+	return _make(ICE_MIRROR, "Eisspiegel", "Die Lichtsäule spiegelt doppelt: Gleichzahlen lösen +2× aus statt +1×.")
+
+static func polar_day() -> Charm:
+	return _make(POLAR_DAY, "Polartag", "Die Mitternachtssonne zählt jede genommene Hand doppelt: +2 Auslösungen statt +1.")
+
+static func magnetar() -> Charm:
+	return _make(MAGNETAR, "Magnetar", "Der Gammablitz strahlt ohne Pause: jede seiner Auslösungen kritet ×10.")
+
+static func radio_telescope() -> Charm:
+	return _make(RADIO_TELESCOPE, "Radioteleskop", "Die Hintergrundstrahlung erreicht auch die Ablage: deren Würfel wachsen mit.")
+
+# --- Energie & Leiterbahn ---
+
+static func superconductor() -> Charm:
+	return _make(SUPERCONDUCTOR, "Supraleiter", "Übertakten kostet 1 ⚡ weniger (mindestens 1).")
+
+static func dynamo() -> Charm:
+	return _make(DYNAMO, "Dynamo", "Die erste genommene Hand jeder Runde wirft 1 ⚡ ab.")
+
+static func standby_light() -> Charm:
+	return _make(STANDBY_LIGHT, "Standby-Licht", "+1 Mult je gelagerter Energie.")
+
+static func soldering_iron() -> Charm:
+	return _make(SOLDERING_IRON, "Lötkolben", "+10 Prozentpunkte Zündchance auf jede Leiterbahn (nie 100 %).")
+
+static func ground_wire() -> Charm:
+	return _make(GROUND_WIRE, "Erdungskabel", "Jede Leiterbahn, die nicht zündet, entlädt sich als +5 Mult.")
+
+# --- Runen & Werkbank ---
+
+static func burin() -> Charm:
+	return _make(BURIN, "Stichel", "Wertungs-Runen wirken doppelt: Nachglühen +2 Auslösungen, Funkenflug 2 ⚡, Kehrseite zündet zweimal.")
+
+static func watering_can() -> Charm:
+	return _make(WATERING_CAN, "Gießkanne", "Der Abguss gießt in der Stufe der Seite statt in Stufe I.")
+
+static func luminous_paint() -> Charm:
+	return _make(LUMINOUS_PAINT, "Leuchtfarbe", "+2 Mult je Rune auf einem gewerteten Würfel - gezündet oder nicht.")
+
+static func polish() -> Charm:
+	return _make(POLISH, "Politur", "Am Rundenende steigt eine zufällige Material-Seite im Pool eine Stufe.")
+
+static func kiln() -> Charm:
+	return _make(KILN, "Härteofen", "Materialeffekte von Stufe-III-Seiten wirken doppelt.")
+
+## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
+static func bench_clamp() -> Charm:
+	return _make(CLAMP, "Zwinge", "25 % Chance, dass eine Material-Gravur beim Anwenden nicht verbraucht wird.")
+
+static func encore() -> Charm:
+	return _make(ENCORE, "Zugabe", "Jedes geöffnete Gravur-Paket enthält 1 Gravur mehr.")
+
+# --- Automat, Nebenwette & Hinterzimmer ---
+
+static func odds_sheet() -> Charm:
+	return _make(ODDS_SHEET, "Quotenblatt", "Gewonnene Nebenwetten zahlen 50 % mehr Geld.")
+
+static func free_spin() -> Charm:
+	return _make(FREE_SPIN, "Freispiel", "Der erste Dreh am Automaten je Besuch ist gratis.")
+
+static func fenced_goods() -> Charm:
+	return _make(FENCED_GOODS, "Hehlerware", "Schwarzmarkt-Angebote kosten 1 ⚡ weniger (mindestens 1).")
+
+static func jackpot_bell() -> Charm:
+	return _make(JACKPOT_BELL, "Jackpotglocke", "Übertrifft die erste genommene Hand der Runde das Rundenziel: +$10.")
+
+static func deposit_shelf() -> Charm:
+	return _make(DEPOSIT_SHELF, "Pfandregal", "Am Rundenende +$1 je 3 Gravuren im Vorrat (max. $15).")
+
+static func tip_jar() -> Charm:
+	return _make(TIP_JAR, "Trinkgeldglas", "Jeder Krit der Hand wirft $1 ins Glas.")
+
+static func consolation_prize() -> Charm:
+	return _make(CONSOLATION_PRIZE, "Trostpreis", "Jeder Fumble wirft 1 ⚡ ab.")
+
+# --- Auslösungen & Zählreihenfolge ---
+
+static func factory_finish() -> Charm:
+	return _make(FACTORY_FINISH, "Werksglanz", "Würfel ohne Material, Rune und Essenz geben +15 Basispunkte.")
+
+static func bottle_rack() -> Charm:
+	return _make(BOTTLE_RACK, "Flaschenregal", "+1 Mult je verschiedener Essenz im Besitz.")
+
+static func pressure_gauge() -> Charm:
+	return _make(PRESSURE_GAUGE, "Manometer", "Liegt genau ein Essenz-Würfel in der Hand, löst er +1× aus.")
+
+static func empty_plinth() -> Charm:
+	return _make(EMPTY_PLINTH, "Leerer Sockel", "+3 Mult je leerem Charm-Platz.")
+
+static func odometer() -> Charm:
+	return _make(ODOMETER, "Kilometerzähler", "+1 Mult je gespielter Runde.")
+
+static func tail_light() -> Charm:
+	return _make(TAIL_LIGHT, "Rücklicht", "Der zuletzt gewertete Würfel löst ein zweites Mal aus.")
+
+static func strobe() -> Charm:
+	return _make(STROBE, "Stroboskop", "Jede Auslösung eines Würfels nach seiner ersten gibt +2 Mult je bisheriger Auslösung dieses Würfels.")
+
+static func metronome() -> Charm:
+	return _make(METRONOME, "Metronom", "Jeder Würfel, der genau 1× auslöst, gibt +4 Basispunkte je anderem Würfel, der ebenfalls genau 1× auslöst.")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -811,4 +1051,13 @@ static func all() -> Array[Charm]:
 		censer(), solar_sail(), storm_front(), swamp_lantern(), ignition_coil(),
 		bell_jar(), solar_eclipse(), glaze_brush(), fluorescent_tube(),
 		polarizer(), alkahest(), magnetic_trap(), printing_press(), camouflage(), fuse(),
+		cutting_torch(), moderator(), meteorite(), mycelium(), highlighter(), ash_cloud(),
+		feedback(), ice_mirror(), polar_day(), magnetar(), radio_telescope(),
+		# Zweite Welle
+		superconductor(), dynamo(), standby_light(), soldering_iron(), ground_wire(),
+		burin(), watering_can(), luminous_paint(), polish(), kiln(), bench_clamp(), encore(),
+		odds_sheet(), free_spin(), fenced_goods(), jackpot_bell(), deposit_shelf(),
+		tip_jar(), consolation_prize(),
+		factory_finish(), bottle_rack(), pressure_gauge(), empty_plinth(), odometer(),
+		tail_light(), strobe(), metronome(),
 	]

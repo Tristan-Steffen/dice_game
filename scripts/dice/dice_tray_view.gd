@@ -56,6 +56,10 @@ var slot_emitters: Array[StasisEmitter] = []
 ## Ruhe-Höhe (inkl. Terrasse) und Phasen-Offset je Slot für die Schweb-Animation.
 var slot_base_y: Array[float] = []
 var slot_phase: Array[float] = []
+## Gekippte Lage je Slot: welche SEITE nach oben zeigt. Nur das Ablage-Tray
+## setzt sie (der Würfel liegt dort so, wie er abgelegt wurde); Pool und
+## Warteschlange bleiben auf der Ruhelage.
+var slot_pose: Array[Quaternion] = []
 
 var next_free_index: int = 0  # nächster freier Slot im Ablage-Modus
 
@@ -75,7 +79,11 @@ func _process(_delta: float) -> void:
 		var phase: float = slot_phase[i]
 		var bob := sin(t * BOB_SPEED + phase)
 		slot_roots[i].position.y = slot_base_y[i] + bob * BOB_AMPLITUDE
-		slot_roots[i].rotation.y = -PI / 2.0 + deg_to_rad(SWAY_DEGREES) * sin(t * SWAY_SPEED + phase)
+		# Gieren um die Hochachse ÜBER der gekippten Lage - quaternion statt
+		# rotation.y, weil die Lage sonst jeden Frame verloren ginge (der Setter
+		# nimmt die Skalierung mit).
+		var yaw := -PI / 2.0 + deg_to_rad(SWAY_DEGREES) * sin(t * SWAY_SPEED + phase)
+		slot_roots[i].quaternion = Quaternion(Vector3.UP, yaw) * slot_pose[i]
 		slot_emitters[i].set_load(StasisEmitter.load_for(bob))
 
 ## Einheitliche Schwebehöhe für ALLE Slots und Trays (siehe FLOAT_HEIGHT).
@@ -128,6 +136,7 @@ func _build_slots() -> void:
 		slot_emitters.append(emitter)
 		slot_base_y.append(rest_y)
 		slot_phase.append(float(i) * 0.7)
+		slot_pose.append(Quaternion.IDENTITY)
 
 ## Erweitert das Raster um Spalten, bis mindestens capacity Slots existieren
 ## (Ausziehtisch). Den sichtbaren Inhalt setzt der nächste fill()-Aufruf.
@@ -141,12 +150,15 @@ func ensure_capacity(capacity: int) -> void:
 
 ## Setzt den Inhalt komplett neu: erste defs.size() Slots gefüllt (kompakt
 ## von vorn, nie eine Lücke mittendrin), Rest ausgeblendet.
-func fill(defs: Array[DieDefinition]) -> void:
+## faces: je Würfel die Seite, die oben liegen soll (-1/fehlend = Ruhelage) -
+## nur das Ablage-Tray gibt sie mit.
+func fill(defs: Array[DieDefinition], faces: Array[int] = []) -> void:
 	for i in slot_roots.size():
 		if i < defs.size():
 			var def: DieDefinition = defs[i]
 			_set_slot_shown(i, true)
 			slot_defs[i] = def
+			slot_pose[i] = face_up_pose(faces[i] if i < faces.size() else -1)
 			slot_face_displays[i].apply_definition(def)
 			slot_face_displays[i].set_tint(_style_tint(def))
 		else:
@@ -160,13 +172,16 @@ func clear() -> void:
 
 ## Legt einen Würfel in den nächsten freien Slot (Ablage-Modus); das Feld rastet
 ## mit einem Ripple ein.
-func add_die(def: DieDefinition) -> void:
+## face: die Seite, mit der der Würfel abgelegt wurde - er liegt danach so da,
+## wie er in der Grube lag (-1 = Ruhelage).
+func add_die(def: DieDefinition, face: int = -1) -> void:
 	if next_free_index >= slot_roots.size():
 		return
 	var i := next_free_index
 	next_free_index += 1
 	_set_slot_shown(i, true)
 	slot_defs[i] = def
+	slot_pose[i] = face_up_pose(face)
 	slot_face_displays[i].apply_definition(def)
 	slot_face_displays[i].set_tint(_style_tint(def))
 	slot_emitters[i].ripple()  # das Feld rastet ein
@@ -177,6 +192,22 @@ func add_die(def: DieDefinition) -> void:
 func _set_slot_shown(index: int, shown: bool) -> void:
 	slot_roots[index].visible = shown
 	slot_emitters[index].set_engaged(1.0 if shown else 0.0)
+
+## Lage, die face nach oben bringt und ihre Ziffer aufrecht stehen lässt: die
+## Seiten-Achse dreht auf Welt-Oben, die Ziffern-Oben-Richtung auf lokal -Z -
+## dieselbe Kalibrierung, aus der die Ruhelage (Gieren um -90°) entstanden ist.
+static func face_up_pose(face: int) -> Quaternion:
+	if face < 0 or face > 5:
+		return Quaternion.IDENTITY
+	for axis: String in DiceController.AXIS_FACE_INDEX:
+		if DiceController.AXIS_FACE_INDEX[axis] != face:
+			continue
+		var normal: Vector3 = DiceController.AXIS_DIRECTIONS[axis]
+		var text_up: Vector3 = DiceController.FACE_TEXT_UP[axis]
+		var from := Basis(normal, text_up, normal.cross(text_up))
+		var to := Basis(Vector3.UP, Vector3.FORWARD, Vector3.LEFT)
+		return Quaternion(to * from.transposed()).normalized()
+	return Quaternion.IDENTITY
 
 func _style_tint(def: DieDefinition) -> Color:
 	return DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)

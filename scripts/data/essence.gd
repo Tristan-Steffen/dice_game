@@ -25,6 +25,7 @@ const SODIUM_VAPOR := "sodium_vapor"
 const FIREDAMP := "firedamp"
 const CARBON_DIOXIDE := "carbon_dioxide"
 const HALOGEN := "halogen"
+const ACETYLENE := "acetylene"
 
 static func carbon_dioxide() -> Essence:
 	return _make(CARBON_DIOXIDE, "Kohlendioxid",
@@ -63,6 +64,16 @@ const PHOSPHORESCENCE := "phosphorescence"
 const ETHYLENE := "ethylene"
 ## Das zweite Handelsgas unter den Phänomenen - abfüllbar, nur nicht ungefährlich.
 const DETONATING_GAS := "detonating_gas"
+const CHERENKOV := "cherenkov"
+const SHOOTING_STAR := "shooting_star"
+const FOXFIRE := "foxfire"
+const BLACK_LIGHT := "black_light"
+const VOLCANIC_LIGHTNING := "volcanic_lightning"
+const OPTICAL_FIBER := "optical_fiber"
+const LIGHT_PILLAR := "light_pillar"
+const MIDNIGHT_SUN := "midnight_sun"
+const GAMMA_BURST := "gamma_burst"
+const BACKGROUND_RADIATION := "background_radiation"
 
 const NONE := ""
 
@@ -146,6 +157,11 @@ static func firedamp() -> Essence:
 	return _make(FIREDAMP, "Grubengas",
 		"Jeder Krit dieser Hand zündet ihn mit: +20 Basispunkte, sofort.",
 		"+20 Basis je Krit dieser Hand", Rarity.COMMON, Color(0.5, 0.65, 0.8))
+
+static func acetylene() -> Essence:
+	return _make(ACETYLENE, "Acetylen",
+		"Die heißeste Flamme im Regal: +10 Basispunkte je Stufe der genommenen Kombination.",
+		"+10 Basis je Kombinationsstufe", Rarity.COMMON, Color(0.85, 0.92, 1.0))
 
 # --- Phänomene --------------------------------------------------------------------
 
@@ -262,6 +278,56 @@ static func detonating_gas() -> Essence:
 		"Bleibt er beim Rundenende ungezogen im Stapel liegen, zahlt JEDER Würfel hinter ihm +$1 zusätzlich.",
 		"+$1 je Würfel hinter ihm im Stapel", Rarity.RARE, Color(1.0, 0.62, 0.2))
 
+static func cherenkov() -> Essence:
+	return _make(CHERENKOV, "Tscherenkow-Licht",
+		"Das blaue Glühen überschneller Teilchen: jede seiner Auslösungen kritet ×(1 + gelagerte Energie ÷ 5).",
+		"kritet mit der gelagerten Energie", Rarity.RARE, Color(0.2, 0.45, 1.0))
+
+static func shooting_star() -> Essence:
+	return _make(SHOOTING_STAR, "Sternschnuppe",
+		"Ihre erste Wertung jeder Runde kritet ×4 - doch sie ist nur ein Strich am Himmel: der Würfel kann nie mehrfach auslösen.",
+		"Erstwertung kritet ×4, nie mehrfach", Rarity.RARE, Color(1.0, 0.95, 0.75))
+
+static func foxfire() -> Essence:
+	return _make(FOXFIRE, "Fuchsfeuer",
+		"Es gedeiht auf Vermodertem: +10 Augen je 2 Würfeln in der Ablage.",
+		"+10 Augen je 2 Ablage-Würfeln", Rarity.RARE, Color(0.65, 0.85, 0.5))
+
+static func black_light() -> Essence:
+	return _make(BLACK_LIGHT, "Schwarzlicht",
+		"Es zeigt, was keiner sieht: +$3 je gewertetem Würfel, der kein Material trägt.",
+		"+$3 je materiallosem Würfel", Rarity.RARE, Color(0.55, 0.3, 0.95))
+
+static func volcanic_lightning() -> Essence:
+	return _make(VOLCANIC_LIGHTNING, "Vulkanblitz",
+		"Gewitter in der Aschewolke: jede seiner Auslösungen kritet ×(1 + Fumbles dieser Runde).",
+		"kritet ×(1 + Fumbles der Runde)", Rarity.EPIC, Color(1.0, 0.5, 0.15))
+
+static func optical_fiber() -> Essence:
+	return _make(OPTICAL_FIBER, "Glasfaser",
+		"Einmal im Glas, verstärkt sich das Licht: zündet eine seiner Leiterbahnen, feuert die Zielseite zweimal.",
+		"Leiterbahn-Ziel feuert 2×", Rarity.EPIC, Color(0.6, 1.0, 0.95))
+
+static func light_pillar() -> Essence:
+	return _make(LIGHT_PILLAR, "Lichtsäule",
+		"Eine Säule aus gefrorenem Licht: jeder andere gewertete Würfel mit gleicher Augenzahl löst +1× aus.",
+		"Gleichzahlen lösen +1× aus", Rarity.EPIC, Color(0.92, 0.97, 1.0))
+
+static func midnight_sun() -> Essence:
+	return _make(MIDNIGHT_SUN, "Mitternachtssonne",
+		"Sie geht nicht unter: +1 Auslösung je bereits genommener Hand dieser Runde.",
+		"+1 Auslösung je genommener Hand", Rarity.EPIC, Color(1.0, 0.8, 0.35))
+
+static func background_radiation() -> Essence:
+	return _make(BACKGROUND_RADIATION, "Hintergrundstrahlung",
+		"Das älteste Licht, es ist überall: wird er gewertet, wachsen alle Seiten aller liegenden Würfel dauerhaft +1.",
+		"je Wertung: alle Seiten aller Würfel +1", Rarity.LEGENDARY, Color(0.75, 0.5, 0.4))
+
+static func gamma_burst() -> Essence:
+	return _secret(_make(GAMMA_BURST, "Gammablitz",
+		"Das hellste Licht des Universums, eine Sekunde lang: seine erste Wertung jeder Runde kritet ×10.",
+		"Erstwertung der Runde kritet ×10", Rarity.LEGENDARY, Color(0.9, 0.8, 1.0)))
+
 static func antimatter() -> Essence:
 	return _secret(_make(ANTIMATTER, "Antimaterie",
 		"Seine Augen zählen NEGATIV in die Basispunkte - dafür kritet er mit seiner Augenzahl.",
@@ -271,11 +337,13 @@ static func antimatter() -> Essence:
 static func all() -> Array[Essence]:
 	return [
 		helium(), neon(), argon(), krypton(), xenon(), nitrogen(), oxygen(),
-		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(),
+		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(), acetylene(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), will_o_wisp(), plasma(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), corona(), varnish(),
 		phosphorescence(), ethylene(), detonating_gas(), aurora(), quintessence(), antimatter(),
+		cherenkov(), shooting_star(), foxfire(), black_light(), volcanic_lightning(),
+		optical_fiber(), light_pillar(), midnight_sun(), background_radiation(), gamma_burst(),
 	]
 
 static func by_id(essence_id: String) -> Essence:

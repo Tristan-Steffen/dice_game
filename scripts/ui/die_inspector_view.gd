@@ -639,8 +639,9 @@ func _finish_apply(engraving_id: String, message: String, cost := 1) -> void:
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
 			message += " Gravierstift: Engraving nicht verbraucht!"
-		else:
-			run.consume_engravings(engraving_id, cost)
+		elif run.consume_applied_engraving(engraving_id, cost):
+			# Zwinge: die Material-Gravur blieb eingespannt (Glück, je Anwendung neu).
+			message += " Zwinge: Gravur nicht verbraucht!"
 	var keep: bool = int(_engraving_counts().get(engraving_id, 0)) > 0
 	held_id = engraving_id if keep else ""
 	first_face = -1

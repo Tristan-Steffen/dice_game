@@ -50,6 +50,18 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
 	var wild := DiceScoring.wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
 	var wild_eyes := DiceScoring.wild_value(key, dice, ctx) if wild >= 0 else 0
+	# Lauf-/Rundenzustand wie in DiceScoring._base_and_mult - einmal je Hand gelesen.
+	var charge := int(ctx.get(DiceScoring.CTX_CHARGE, 0))
+	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
+	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
+	var discard_values := DiceScoring.discard_values_in(ctx)
+	# Acetylen/Schneidbrenner hängen an der Übertaktungs-Stufe, das Metronom an
+	# den einmal zündenden Würfeln - beide stehen vor der Zählung fest.
+	var combo_level := int(combo_levels.get(key, 0))
+	var tail_slot: int = shape["tail_slot"]
+	var singles: Array[int] = []
+	if charm_ids.has(Charm.METRONOME):
+		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot)
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), PUR.
 	# Der Doppelte Boden reist NICHT stillschweigend in dieser Zahl mit - er
@@ -106,8 +118,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_base := 0
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids), eye_slots.size())
-			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids))
+				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids, dice, hands_taken), eye_slots.size(), tail_slot)
+			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Würfelgebundene Charms dieses Slots: Betrag JE Zündung, weil der laufende
 		# Wert ihn trägt. Die Kopfzeile des Schritts nennt die erste Zündung.
@@ -131,11 +143,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var det_links: Array[Dictionary] = []
 		for t in die_count + 1:
 			var firings: Array[Dictionary] = []
-			for _f in (face_count if t < die_count else 0):
+			for f in (face_count if t < die_count else 0):
 				var shown := DiceScoring.shown_value(running, charm_ids, essence_ids)
 				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
-					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers)
+					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
+					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
+					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
 				triggers += 1
 				var mult_now := 0
 				# Material-Krit (Rubin III, Glas ab II): zählt in crit_x mit, bekommt aber
@@ -143,7 +157,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var mat_crit_now := 1.0
 				if has_die_bonus:
 					mult_now = MaterialEffects.mult_once_for(face_material, shown, charm_ids, level) \
-						+ EssenceEffects.mult_bonus_of(essence_ids)
+						+ EssenceEffects.mult_bonus_of(essence_ids) \
+						+ EssenceEffects.combo_level_mult_of(essence_ids, combo_level, charm_ids)
 					mat_crit_now = MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 				# Der Betrag der würfelgebundenen Charms folgt dem laufenden Wert;
 				# gezielt wird weiter über die liegenden.
@@ -151,13 +166,24 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var charm_mult_now := 0
 				var charm_indices_now: Array[int] = []
 				for j in charm_ids.size():
-					var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, shown)
+					var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, shown, materials)
 					var cm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown)
 					cm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, shown)
 					if cb != 0 or cm != 0:
 						charm_base_now += cb
 						charm_mult_now += cm
 						charm_indices_now.append(j)
+				# Metronom und Stroboskop hängen an der Hand bzw. am Zündungszähler,
+				# nicht am zustandslosen Hook - ihr Anteil reist trotzdem im Charm-
+				# Anteil dieser Zündung, damit ihr Pad blitzt.
+				var metronome_add := CharmEffects.metronome_base(i, singles, charm_ids)
+				if metronome_add > 0:
+					charm_base_now += metronome_add
+					_merge_indices(charm_indices_now, CharmEffects.charm_indices_of(Charm.METRONOME, charm_ids))
+				var strobe_add := CharmEffects.strobe_mult(t * face_count + f, charm_ids)
+				if strobe_add > 0:
+					charm_mult_now += strobe_add
+					_merge_indices(charm_indices_now, CharmEffects.charm_indices_of(Charm.STROBE, charm_ids))
 				# Wasserfall hängt an der ganzen Hand, nicht am Würfel - sein Anteil
 				# reist trotzdem im Charm-Anteil dieser Zündung, damit sein Pad blitzt.
 				var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
@@ -191,7 +217,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var crit_steps: Array[Dictionary] = []
 				var crit_once := 1.0
 				var firedamp_add := 0
-				if not is_equal_approx(mat_crit_now, 1.0):
+				# Härteofen: auf Stufe III schlägt der Material-Krit zweimal - zwei
+				# eigene Schritte wie zwei Beherit-Kopien, nie einer im Quadrat.
+				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
+					if is_equal_approx(mat_crit_now, 1.0):
+						break
 					crits += 1
 					base += firedamp
 					firedamp_add += firedamp
@@ -200,7 +230,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					crit_steps.append(_crit_step(mat_crit_now, -1, firedamp, base, mult))
 				# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR sich.
 				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
-					wild_eyes if i == wild else 0)
+					wild_eyes if i == wild else 0, charm_ids, charge,
+					DiceScoring.first_scoring_for(ctx, i), volcanic)
 				if not is_equal_approx(essence_crit, 1.0):
 					crits += 1
 					base += firedamp
@@ -258,7 +289,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var link_charm_indices: Array[int] = []
 				if has_die_bonus:
 					for j in charm_ids.size():
-						var lb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, link_value)
+						var lb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, link_value, materials)
 						var lm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value)
 						lm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value)
 						if lb != 0 or lm != 0:
@@ -290,7 +321,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var link_crit_steps: Array[Dictionary] = []
 				var link_crit := 1.0
 				var link_firedamp := 0
-				if not is_equal_approx(link_mat_crit, 1.0):
+				for _r in MaterialEffects.payoff_repeats(link_level, charm_ids):
+					if is_equal_approx(link_mat_crit, 1.0):
+						break
 					crits += 1
 					base += firedamp
 					link_firedamp += firedamp
@@ -349,7 +382,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	for j in charm_ids.size():
 		var base_add := CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		var mult_add := CharmEffects.mult_bonus_at(j, key, charm_ids) \
-			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating)
+			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored)
 		var base_x := CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
 		# Krit: eigener Hook, wirkt im Schritt als Teil des Mult-Faktors;
 		# crit_x bleibt separat sichtbar, damit die UI Krits inszenieren kann.

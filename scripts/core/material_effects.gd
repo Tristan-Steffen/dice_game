@@ -56,29 +56,52 @@ class TakeReport:
 	var sparks: Array[int] = []
 	## Slots, deren Radon-Seele in diesem Zug eine Seite angefressen hat.
 	var decayed: Array[int] = []
+	## Materiallose Würfel dieser Hand - der Neonmarker schreibt sie als Runden-
+	## zähler fort (GameRun bucht, der Bericht meldet nur).
+	var bare_dice: int = 0
+	## Die Hintergrundstrahlung hat auch Ablage-Würfel wachsen lassen. Sie haben
+	## keinen Grubenslot, also kann nur eine Flagge davon erzählen.
+	var discard_grown: bool = false
 
 ## WÜRFEL-Achse des Slots i: wie oft der ganze Würfel antritt. Der Essenz-Faktor
 ## ist der einzige Faktor, alles andere addiert - die Echo-Kammer auf echo_slot,
 ## extra aus der Zählreihenfolge (Sauerstoff/Sonnenwind, die nur der Aufrufer
 ## kennt). scored_count = Zahl der gewerteten Würfel, für das Sechserpack.
-static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0) -> int:
+## tail_slot = Schluss der Zählreihenfolge (Rücklicht), Gegenstück zu echo_slot.
+static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0, tail_slot: int = -1) -> int:
+	# Sternschnuppe: gedeckelt auf genau EINEN Antritt. Der Deckel sitzt in BEIDEN
+	# Achsen-Funktionen, damit Wertung, Nehmen, Leiterbahn-Wurf und die Gold-
+	# Vorabzählung dieselbe Zahl sehen.
+	if EssenceEffects.caps_triggers_of(essence_ids, charm_ids):
+		return 1
 	var count := EssenceEffects.activation_factor_of(essence_ids, charm_ids, is_stress)
 	if i == echo_slot:
 		count += CharmEffects.echo_retriggers(charm_ids)
+	if i == tail_slot:
+		count += CharmEffects.tail_retriggers(charm_ids)
 	count += CharmEffects.full_hand_retriggers(charm_ids, scored_count)
 	return maxi(1, count + extra)
 
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -
 ## Retrigger-Charms auf value (Hasenpfote & Co.), extra für das Nachglühen
 ## (RuneEffects.extra_activations). value ist der VERWANDELTE Wert.
-static func face_trigger_count(value: int, charm_ids: Array[String], extra: int = 0) -> int:
+static func face_trigger_count(value: int, charm_ids: Array[String], extra: int = 0, essence_ids: Array[String] = []) -> int:
+	if EssenceEffects.caps_triggers_of(essence_ids, charm_ids):
+		return 1
 	return maxi(1, 1 + CharmEffects.retrigger_count(value, charm_ids) + extra)
 
 ## Zündungen der oberen Seite insgesamt: die beiden Achsen MULTIPLIZIEREN sich.
 ## Eine Quelle für Wertung, Schrittliste und Nehmen-Effekte.
-static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0, scored_count: int = 0) -> int:
-	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count) \
-		* face_trigger_count(value, charm_ids, face_extra)
+static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0, scored_count: int = 0, tail_slot: int = -1) -> int:
+	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count, tail_slot) \
+		* face_trigger_count(value, charm_ids, face_extra, essence_ids)
+
+## Härteofen: die AUSZAHLUNG einer Stufe-III-Seite läuft zweimal - Basis, Mult,
+## Geld und Wachstum. Die KOSTEN bleiben einfach (das Glas frisst sich weiter im
+## alten Tempo): ein Charm darf einen Würfel nie schlechter machen. Der Krit wird
+## darum auch nicht quadriert, sondern zweimal geschlagen (Beherit-Grammatik).
+static func payoff_repeats(level: int, charm_ids: Array[String]) -> int:
+	return 2 if level >= DieMaterial.MAX_LEVEL and charm_ids.has(Charm.KILN) else 1
 
 ## Basis-Bonus EINER Auslösung des Slots i - nur der Träger, ohne Augen.
 static func base_bonus_once(i: int, materials: Array[String], charm_ids: Array[String], level: int = 1, eye_sum: int = 0) -> int:
@@ -92,8 +115,8 @@ static func base_once_for(face_material: String, charm_ids: Array[String], level
 	if face_material != DieMaterial.AMBER:
 		return 0
 	var room := AMBER_ROOM_SURPLUS if charm_ids.has(Charm.AMBER_ROOM) else 0
-	return _amber_flat(level) + room \
-		+ eye_sum * (AMBER_EYE_FACTOR if level >= DieMaterial.MAX_LEVEL else 1)
+	var eyes := eye_sum * (AMBER_EYE_FACTOR if level >= DieMaterial.MAX_LEVEL else 1)
+	return (_amber_flat(level) + room + eyes) * payoff_repeats(level, charm_ids)
 
 ## Mult-Bonus EINER Auslösung des Slots i: Rubin fest (Rubinschleifer/Blood
 ## Diamond legen die Augenzahl drauf); Glas + rohe Augenzahl der oberen Seite.
@@ -107,11 +130,12 @@ static func mult_bonus_once(i: int, values: Array[int], materials: Array[String]
 static func mult_once_for(face_material: String, value: int, charm_ids: Array[String], level: int = 1) -> int:
 	# Rubinschleifer legt die Augenzahl EINMAL drauf, der Blood Diamond je Exemplar.
 	var eye_stacks := int(charm_ids.has(Charm.RUBY_GRINDER)) + charm_ids.count(Charm.BLOOD_DIAMOND)
+	var repeats := payoff_repeats(level, charm_ids)
 	if face_material == DieMaterial.RUBY:
-		return _ruby_mult(level) + value * eye_stacks
+		return (_ruby_mult(level) + value * eye_stacks) * repeats
 	# Stufe II tauscht das Additive gegen den Krit, Stufe III hat beides.
 	if face_material == DieMaterial.GLASS and level != 2:
-		return value
+		return value * repeats
 	return 0
 
 ## Material-Krit EINER Auslösung: eine Seite trägt genau ein Material - also
@@ -188,7 +212,9 @@ static func mutate_value_once(value: int, face_material: String,
 		rune_ids: Array[String] = []) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
-		result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
+		# Härteofen: das Wachstum ist eine Auszahlung und läuft auf Stufe III doppelt.
+		for _r in payoff_repeats(level, charm_ids):
+			result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rune_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	# Das Essenz-Wachstum reitet auf dem SCHON gewandelten Wert - der Druckkessel
@@ -202,7 +228,8 @@ static func mutate_value_once(value: int, face_material: String,
 static func mutate_link_value_once(value: int, face_material: String, charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = []) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
-		result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
+		for _r in payoff_repeats(level, charm_ids):
+			result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not EssenceEffects.protects_face_value_of(essence_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	return result
@@ -263,7 +290,9 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## lying: ALLE Slots mit einem Würfel auf dem Tisch - nur so kann das Streulicht
 ## die ungewerteten Übriggebliebenen sehen. Runen liest diese Seite direkt aus
 ## den Defs (wie die Material-Stufen), nicht aus dem ctx.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}) -> TakeReport:
+## hands_taken/round_bare_dice: Rundenstand VOR dieser Hand (Mitternachtssonne,
+## Neonmarker). discard_defs: die Ablage - nur das Radioteleskop greift hinein.
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}, hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = []) -> TakeReport:
 	var gold_boost := charm_ids.has(Charm.GOLDSMITH)
 	# Goldader legt auf JEDEN Gold-Träger denselben Zuschlag.
 	var vein := CharmEffects.gold_vein_bonus(materials, participating, charm_ids)
@@ -272,8 +301,19 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	var gold_surplus := plain_gold - GOLD_PAYOUT
 	# Gold III: +$1 je Gold-Seiten-Auslösung dieser Nahme - der Zähler steht VOR
 	# der ersten Buchung fest.
-	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, pointer_fires)
+	# Die GEZEIGTEN Werte und der Schluss der Reihe: beide Achsen müssen exakt so
+	# gezählt werden wie in der Wertung (Lichtsäule liest Gleichzahlen, das
+	# Rücklicht das Schlusslicht), sonst driften Simulation und Def auseinander.
+	var shown_values := _shown_values(defs, face_indices, charm_ids, essences)
+	var tail_slot: int = int(order[order.size() - 1]) if not order.is_empty() else -1
+	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, pointer_fires, shown_values, tail_slot, hands_taken)
+	# Schwarzlicht zahlt je gewertetem Würfel ohne Material - einmal je Zug.
+	var bare_dice := 0
+	for k in participating:
+		if k >= materials.size() or materials[k] == "":
+			bare_dice += 1
 	var report := TakeReport.new()
+	report.bare_dice = bare_dice
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
 			continue
@@ -285,7 +325,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var level := face_level(defs[i], face)
 		var rune_ids := defs[i].runes_on(face)
 		# Funkenflug speist EINEN Funken je Zug, nie je Zündung.
-		var spark := RuneEffects.charge_for_take(rune_ids)
+		var spark := RuneEffects.charge_for_take(rune_ids, charm_ids)
 		report.charge += spark
 		for _s in spark:
 			report.sparks.append(i)
@@ -293,18 +333,23 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(i, order, essences, charm_ids), participating.size())
-		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids))
+			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
+			participating.size(), tail_slot)
+		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 		var effect_count := die_triggers * face_triggers
 		var fires: Array = pointer_fires.get(i, [])
 
 		if face_material == DieMaterial.GOLD:
-			report.money += _gold_payout(level, gold_surplus, gold_triggers) * effect_count
+			# Härteofen: die Auszahlung einer Stufe-III-Seite läuft doppelt.
+			report.money += _gold_payout(level, gold_surplus, gold_triggers) * effect_count \
+				* payoff_repeats(level, charm_ids)
 		report.money += EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * effect_count
 		# Zyanidgas laugt die eigene Schale aus: je ZUG einmal, nie je Auslösung.
 		# Das Scheidewasser greift dazu die Gold-Seiten der Mitwürfel an.
 		report.money += EssenceEffects.gold_face_money_of(essence_ids, defs[i].materials, charm_ids,
 			_foreign_gold_faces(defs, participating, i))
+		report.money += EssenceEffects.bare_die_money_of(essence_ids, bare_dice, charm_ids,
+			round_bare_dice + bare_dice)
 
 		# Der Einbrand hat wirklich etwas abgewehrt - nur dann lohnt die Geste.
 		if face_material == DieMaterial.GLASS and RuneEffects.protects_face_value(rune_ids):
@@ -333,10 +378,12 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			report.grown.append(i)
 
 		# Deterministische Glieder (Röntgenlicht, Korona, Kehrseite): EINMAL nach
-		# allen Würfel-Triggern - anders als die gewürfelte Leiterbahn.
+		# allen Würfel-Triggern - anders als die gewürfelte Leiterbahn. Der Stichel
+		# lässt die Kehrseite zweimal zünden (det_link_fire_count).
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
 				defs[i].runes_on(face), charm_ids):
-			_fire_link(defs[i], link_face, charm_ids, essence_ids, gold_surplus, gold_triggers, report, i)
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids):
+				_fire_link(defs[i], link_face, charm_ids, essence_ids, gold_surplus, gold_triggers, report, i)
 
 		# Kontrastmittel: das Röntgenlicht belichtet die Achse durch - obere Seite
 		# halbiert, Gegenseite verdreifacht, beides dauerhaft.
@@ -354,6 +401,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 
 	if charm_ids.has(Charm.RECTIFIER):
 		_rectify_faces(defs, face_indices, participating, essences, report)
+
+	_spread_background_radiation(defs, participating, essences, charm_ids, lying, discard_defs, report)
 
 	# Streulicht: das Gegen-Ereignis zum Gold. Was am Zugende UNGEWERTET auf dem
 	# Tisch liegt und seine Runen-Seite zeigt, streut sein Licht ins Filz.
@@ -453,6 +502,39 @@ static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int],
 			if not report.grown.has(other):
 				report.grown.append(other)
 
+## Hintergrundstrahlung: wird sie gewertet, wachsen ALLE Seiten ALLER liegenden
+## Würfel dauerhaft - sie selbst eingeschlossen. Wachstum, also nie vom Einbrand
+## geblockt (der wehrt nur Verluste ab). Das Radioteleskop erreicht auch die
+## Ablage; deren Würfel haben keinen Grubenslot, darum meldet sie eine Flagge.
+static func _spread_background_radiation(defs: Array[DieDefinition], participating: Array[int],
+		essences: Dictionary, charm_ids: Array[String], lying: Array[int],
+		discard_defs: Array[DieDefinition], report: TakeReport) -> void:
+	var growth := 0
+	for i in participating:
+		if EssenceEffects.grows_all_dice_of(EssenceEffects.set_at(essences, i)):
+			growth += EssenceEffects.BACKGROUND_GROWTH
+	if growth <= 0:
+		return
+	var touched: Array[int] = participating.duplicate()
+	for i in lying:
+		if not touched.has(i):
+			touched.append(i)
+	for slot in touched:
+		if slot < 0 or slot >= defs.size() or defs[slot] == null:
+			continue
+		for face in defs[slot].faces.size():
+			defs[slot].faces[face] += growth
+		if not report.grown.has(slot):
+			report.grown.append(slot)
+	if not charm_ids.has(Charm.RADIO_TELESCOPE):
+		return
+	for die in discard_defs:
+		if die == null:
+			continue
+		for face in die.faces.size():
+			die.faces[face] += growth
+		report.discard_grown = true
+
 ## Gleichrichter: die oberen Seiten aller gewerteten Würfel gehen dauerhaft auf
 ## ihren aufgerundeten Mittelwert. LETZTER Wertwandel des Zuges - nach Knochen,
 ## Glas, Kontrastmittel, Zerfall und Miasma, damit er die Endwerte mittelt.
@@ -500,7 +582,8 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 	var link_material: String = def.materials[link_face] if link_face < def.materials.size() else ""
 	var link_level := face_level(def, link_face)
 	if link_material == DieMaterial.GOLD:
-		report.money += _gold_payout(link_level, gold_surplus, gold_triggers)
+		report.money += _gold_payout(link_level, gold_surplus, gold_triggers) \
+			* payoff_repeats(link_level, charm_ids)
 	var before: int = def.faces[link_face]
 	def.faces[link_face] = mutate_link_value_once(before, link_material, charm_ids, link_level, essence_ids)
 	if def.faces[link_face] > before and not report.grown.has(slot):
@@ -511,6 +594,20 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 ## Stufe des Materials DIESER Seite (Guard für Defs ohne volles Stufen-Array).
 static func face_level(def: DieDefinition, face: int) -> int:
 	return def.material_level(face) if def != null else 0
+
+## Die GEZEIGTEN Werte aller Slots - dieselbe Linse wie DiceScoring.shown_value
+## (Charm-Kette, Schutzgeld, dann die Essenz-Linse), nur ohne den Rückgriff auf
+## DiceScoring: die Nehmen-Seite darf nicht auf die Wertung zeigen.
+static func _shown_values(defs: Array[DieDefinition], face_indices: Array[int], charm_ids: Array[String], essences: Dictionary) -> Array[int]:
+	var out: Array[int] = []
+	for k in defs.size():
+		var face: int = face_indices[k] if k < face_indices.size() else -1
+		if defs[k] == null or face < 0 or face >= defs[k].faces.size():
+			out.append(0)
+			continue
+		out.append(EssenceEffects.lens_value_of(EssenceEffects.set_at(essences, k),
+			CharmEffects.shown_by_charms(defs[k].faces[face], charm_ids)))
+	return out
 
 ## Gold-Satz einer Stufe; surplus = Charm-/Goldader-Aufschlag, triggers zählt nur
 ## auf Stufe III.
@@ -524,7 +621,7 @@ static func _gold_payout(level: int, surplus: int, triggers: int) -> int:
 ## Wie oft in DIESER Nahme eine Gold-Seite zündet - beide Achsen aller
 ## beteiligten Slots plus jede GEZÜNDETE Leiterbahn und die Essenz-Glieder, auf
 ## jeder Stufe.
-static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], echo_slot: int, essences: Dictionary, order: Array[int], is_stress: bool, pointer_fires: Dictionary) -> int:
+static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], echo_slot: int, essences: Dictionary, order: Array[int], is_stress: bool, pointer_fires: Dictionary, shown_values: Array[int] = [], tail_slot: int = -1, hands_taken: int = 0) -> int:
 	var triggers := 0
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
@@ -536,8 +633,8 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 		if i < materials.size() and materials[i] == DieMaterial.GOLD:
 			var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 			triggers += total_trigger_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, order, essences, charm_ids),
-				RuneEffects.extra_activations(defs[i].runes_on(face)), participating.size())
+				EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
+				RuneEffects.extra_activations(defs[i].runes_on(face), charm_ids), participating.size(), tail_slot)
 		for group in pointer_fires.get(i, []):
 			for fire in group:
 				var fired: int = int(fire["face"])
@@ -546,7 +643,8 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
 				defs[i].runes_on(face), charm_ids):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
-				triggers += 1
+				triggers += EssenceEffects.det_link_fire_count(face, link_face,
+					defs[i].runes_on(face), charm_ids)
 	return triggers
 
 ## Wachstumsschritt einer Knochen-Seite: Stufe II mind. +3 bzw. 10 %, Stufe III

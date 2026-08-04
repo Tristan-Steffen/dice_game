@@ -143,7 +143,9 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 		# den die Buchung nicht einhält (Quotenpaket).
 		var stake_factor := run.side_bet_stake_factor() if run != null else 1
 		var reward_factor := run.side_bet_payout_factor() if run != null else 1
-		button.text = "%s → %s" % [bet.stake_label(stake_factor), bet.reward_label(reward_factor)]
+		var reward_charms := run.charm_ids() if run != null else [] as Array[String]
+		button.text = "%s → %s" % [bet.stake_label(stake_factor),
+			bet.reward_label(reward_factor, reward_charms)]
 		button.disabled = not enabled
 		button.pressed.connect(_on_bet_pressed.bind(index))
 	_style_button(button, _payout_accent(bet) if enabled else MUTED_COLOR)

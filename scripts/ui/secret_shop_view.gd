@@ -197,7 +197,8 @@ func _refresh_offers() -> void:
 			cards_row.add_child(_build_shadow_card(thumb_px))
 		return
 	for i in run.secret_stock.size():
-		cards_row.add_child(_build_offer_card(run.secret_stock[i], i, thumb_px))
+		cards_row.add_child(_build_offer_card(run.secret_stock[i], i, thumb_px,
+			run.secret_offer_price(run.secret_stock[i])))
 	_refresh_afford_state()
 
 ## Kaufbarkeit von Karten und Misch-Knopf am Ladungsstand ausrichten.
@@ -215,14 +216,15 @@ func _refresh_afford_state() -> void:
 		# Voller Charm-Dock sperrt den Charm-Platz wie ein leeres Konto.
 		var blocked: bool = offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and run.charms_full()
 		offer_buttons[i].disabled = sold or blocked \
-			or run.charge < int(offer[GameRun.OFFER_PRICE])
+			or run.charge < run.secret_offer_price(offer)
 
 ## Angebots-Karte: Ware groß, Preis in Ladung darunter; Name und Wirkung zeigt
 ## der Hover-Dropdown. Rahmen und Lichtfleck tragen die Seltenheit der Ware.
-func _build_offer_card(offer: Dictionary, index: int, thumb_px: int) -> Button:
+## price kommt fertig vom Aufrufer (GameRun.secret_offer_price) - die Hehlerware
+## soll auf dem Schild stehen, nicht erst an der Kasse auffallen.
+func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int) -> Button:
 	var kind: String = offer[GameRun.OFFER_KIND]
 	var sold: bool = offer[GameRun.OFFER_SOLD]
-	var price: int = offer[GameRun.OFFER_PRICE]
 	var tint := VIOLET
 	var title := ""
 	var body := ""
@@ -337,7 +339,7 @@ func _build_lock_overlay() -> void:
 func _on_offer_pressed(index: int) -> void:
 	if run == null or index < 0 or index >= run.secret_stock.size():
 		return
-	var price := int(run.secret_stock[index][GameRun.OFFER_PRICE])
+	var price := run.secret_offer_price(run.secret_stock[index])
 	var kind := String(run.secret_stock[index][GameRun.OFFER_KIND])
 	if run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		charge_spent.emit(price)

@@ -45,6 +45,48 @@ const STORM_FACTOR := 4
 ## Charm zählt er jeden Essenz-Würfel einfach).
 const SOLAR_SAIL_PER_ESSENCE := 2
 
+## Acetylen brennt an der Kombinationsstufe; der Schneidbrenner legt Mult auf
+## dieselbe Stufe. Stufe 0 = frische Kombination, also beide Male nichts.
+const ACETYLENE_PER_LEVEL := 10
+const CUTTING_TORCH_PER_LEVEL := 3
+
+## Schwarzlicht zahlt je gewertetem Würfel ohne Material.
+const BLACK_LIGHT_PER_DIE := 3
+
+## Lichtsäule: zusätzliche Antritte, die JEDER andere gewertete Würfel gleicher
+## Augenzahl bekommt - der Eisspiegel verdoppelt den Satz.
+const LIGHT_PILLAR_ACTIVATIONS := 1
+const LIGHT_PILLAR_ACTIVATIONS_MIRRORED := 2
+
+## Mitternachtssonne: Antritte je schon genommener Hand dieser Runde; der
+## Polartag zählt jede doppelt.
+const MIDNIGHT_SUN_ACTIVATIONS := 1
+const MIDNIGHT_SUN_ACTIVATIONS_POLAR := 2
+
+## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Moderator halbiert den Teiler
+## noch einmal mehr als zur Hälfte.
+const CHERENKOV_DIVISOR := 5.0
+const CHERENKOV_DIVISOR_MODERATED := 2.0
+
+## Sternschnuppe und Gammablitz kriten an ihrer ERSTEN Wertung der Runde; der
+## Magnetar löst den Gammablitz von dieser Bedingung.
+const SHOOTING_STAR_CRIT := 4.0
+const GAMMA_BURST_CRIT := 10.0
+
+## Fuchsfeuer: Augen je zwei Würfeln in der Ablage (Pilzgeflecht legt zusätzlich
+## die Augensumme der Ablage drauf).
+const FOXFIRE_PER_PAIR := 10
+
+## Hintergrundstrahlung: dauerhaftes Wachstum JEDER Seite JEDES liegenden
+## Würfels, je Wertung.
+const BACKGROUND_GROWTH := 1
+
+## Glasfaser: wie oft ein gezündetes Leiterbahn-Glied seine Zielseite feuert -
+## die Rückkopplung legt eine dritte Zündung drauf.
+const LINK_FIRES_DEFAULT := 1
+const OPTICAL_FIBER_FIRES := 2
+const OPTICAL_FIBER_FIRES_FEEDBACK := 3
+
 ## Faktor der WÜRFEL-Achse - die einzige Stelle, an der auf ihr ein Faktor
 ## entsteht. Quecksilberdampf (Charm) legt +1 auf jeden Faktor, der überhaupt
 ## einer ist: das verbannte Material lebt als Verstärker weiter.
@@ -68,12 +110,19 @@ static func activation_factor(essence_id: String, charm_ids: Array[String] = [],
 ## Sonnenwind reitet auf jedem Essenz-Würfel, der vor ihm gezählt wurde (mit
 ## Sonnensegel: +2 je VERSCHIEDENER Seele statt +1 je Würfel), und die Tarnkappe
 ## gibt jedem Krypton-Würfel einen Antritt dazu.
+## Das Manometer facht den Würfel an, wenn er der EINZIGE beseelte der Hand ist;
+## die Lichtsäule facht jeden anderen gewerteten Würfel gleicher Augenzahl an
+## (dafür braucht sie values - die GEZEIGTEN Werte, auf denen auch die Reihe sortiert).
 ## order ist die kanonische Reihe (DiceScoring.trigger_order), nie eine physische.
-static func extra_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String] = []) -> int:
+## hands_taken sind die schon genommenen Hände DIESER Runde (Mitternachtssonne).
+static func extra_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String] = [], values: Array[int] = [], hands_taken: int = 0) -> int:
 	var index := order.find(slot)
 	if index < 0:
 		return 0
 	var extra := 0
+	extra += _pressure_gauge_activations(slot, order, sets, charm_ids)
+	extra += _light_pillar_activations(slot, order, sets, charm_ids, values)
+	extra += _midnight_sun_activations(slot, sets, charm_ids, hands_taken)
 	if index > 0:
 		var before := set_at(sets, order[index - 1])
 		if before.has(Essence.OXYGEN):
@@ -96,6 +145,89 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 				if not set_at(sets, order[k]).is_empty():
 					extra += 1
 	return extra
+
+## Manometer: liegt GENAU EIN beseelter Würfel in der Hand, tritt er einmal mehr an.
+static func _pressure_gauge_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String]) -> int:
+	var copies := charm_ids.count(Charm.PRESSURE_GAUGE)
+	if copies == 0 or set_at(sets, slot).is_empty():
+		return 0
+	for other in order:
+		if other != slot and not set_at(sets, other).is_empty():
+			return 0
+	return copies
+
+## Lichtsäule: jeder ANDERE gewertete Würfel mit derselben Augenzahl tritt öfter
+## an - der Eisspiegel verdoppelt den Satz. Die Säule selbst geht leer aus.
+static func _light_pillar_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String], values: Array[int]) -> int:
+	if slot >= values.size():
+		return 0
+	var rate := LIGHT_PILLAR_ACTIVATIONS_MIRRORED if charm_ids.has(Charm.ICE_MIRROR) else LIGHT_PILLAR_ACTIVATIONS
+	var extra := 0
+	for other in order:
+		if other == slot or other >= values.size() or values[other] != values[slot]:
+			continue
+		if set_at(sets, other).has(Essence.LIGHT_PILLAR):
+			extra += rate
+	return extra
+
+## Mitternachtssonne: sie geht nicht unter - je schon genommener Hand dieser
+## Runde tritt sie einmal mehr an, mit Polartag zweimal.
+static func _midnight_sun_activations(slot: int, sets: Dictionary, charm_ids: Array[String], hands_taken: int) -> int:
+	if not set_at(sets, slot).has(Essence.MIDNIGHT_SUN):
+		return 0
+	var rate := MIDNIGHT_SUN_ACTIVATIONS_POLAR if charm_ids.has(Charm.POLAR_DAY) else MIDNIGHT_SUN_ACTIVATIONS
+	return rate * maxi(0, hands_taken)
+
+## Sternschnuppe: nur ein Strich am Himmel - der Würfel löst insgesamt GENAU
+## EINMAL aus, auf BEIDEN Achsen. Der Meteorit hebt die Grenze ganz auf.
+static func caps_triggers(essence_id: String, charm_ids: Array[String] = []) -> bool:
+	return essence_id == Essence.SHOOTING_STAR and not charm_ids.has(Charm.METEORITE)
+
+static func caps_triggers_of(essence_ids: Array[String], charm_ids: Array[String] = []) -> bool:
+	for essence_id in essence_ids:
+		if caps_triggers(essence_id, charm_ids):
+			return true
+	return false
+
+## Wie oft ein GEZÜNDETES Leiterbahn-Glied seine Zielseite feuert: die Glasfaser
+## verstärkt das Licht im Glas (Rückkopplung dreifach), die Zündspule tut
+## dasselbe am Plasma. Das MAXIMUM, nie das Produkt - zwei Verstärker sind kein
+## Faktor übereinander.
+static func link_fire_count(essence_ids: Array[String], charm_ids: Array[String] = []) -> int:
+	var shots := LINK_FIRES_DEFAULT
+	if essence_ids.has(Essence.OPTICAL_FIBER):
+		shots = maxi(shots, OPTICAL_FIBER_FIRES_FEEDBACK if charm_ids.has(Charm.FEEDBACK) else OPTICAL_FIBER_FIRES)
+	if essence_ids.has(Essence.PLASMA) and charm_ids.has(Charm.IGNITION_COIL):
+		shots = maxi(shots, OPTICAL_FIBER_FIRES)
+	return shots
+
+## Fuchsfeuer: +10 Augen je ZWEI Würfeln in der Ablage, je Auslösung. Das
+## Pilzgeflecht legt zusätzlich die Summe der oben liegenden Ablage-Seiten drauf.
+static func discard_eye_bonus(essence_id: String, discard_values: Array[int], charm_ids: Array[String] = []) -> int:
+	if essence_id != Essence.FOXFIRE:
+		return 0
+	var bonus := (discard_values.size() / 2) * FOXFIRE_PER_PAIR
+	if charm_ids.has(Charm.MYCELIUM):
+		for value in discard_values:
+			bonus += value
+	return bonus
+
+static func discard_eye_bonus_of(essence_ids: Array[String], discard_values: Array[int], charm_ids: Array[String] = []) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += discard_eye_bonus(essence_id, discard_values, charm_ids)
+	return total
+
+## Hintergrundstrahlung: wird sie gewertet, wachsen ALLE Seiten ALLER liegenden
+## Würfel dauerhaft. Nehmen-Effekt wie das Miasma - die Wertung bleibt unberührt.
+static func grows_all_dice(essence_id: String) -> bool:
+	return essence_id == Essence.BACKGROUND_RADIATION
+
+static func grows_all_dice_of(essence_ids: Array[String]) -> bool:
+	for essence_id in essence_ids:
+		if grows_all_dice(essence_id):
+			return true
+	return false
 
 ## Augen-Beitrag EINER Auslösung, nachdem die Charms ihren Augenwert gebildet
 ## haben. Antimaterie zählt NEGATIV - ihre Basis klemmt der Aufrufer. Der
@@ -127,6 +259,18 @@ static func trigger_eye_bonus(essence_id: String, triggers_before: int) -> int:
 	if essence_id != Essence.PHOTON_GAS:
 		return 0
 	return PHOTON_EYE_PER_TRIGGER * maxi(0, triggers_before)
+
+## Acetylen: Basispunkte je Stufe der genommenen Kombination, je Auslösung. Der
+## Schneidbrenner legt Mult auf dieselbe Stufe - beide hängen an derselben Zahl.
+static func combo_level_base(essence_id: String, combo_level: int) -> int:
+	if essence_id != Essence.ACETYLENE:
+		return 0
+	return ACETYLENE_PER_LEVEL * maxi(0, combo_level)
+
+static func combo_level_mult(essence_id: String, combo_level: int, charm_ids: Array[String] = []) -> int:
+	if essence_id != Essence.ACETYLENE or not charm_ids.has(Charm.CUTTING_TORCH):
+		return 0
+	return CUTTING_TORCH_PER_LEVEL * maxi(0, combo_level)
 
 ## Vorlauf der Hand-Zähler: normal fängt jede Hand bei null an, die Dunkelkammer
 ## (Auslösungen, Photonengas) und die Gewitterfront (Krits, Ozon) schleppen mit,
@@ -165,8 +309,13 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## ball_bonus: Zuschlag des Blitzableiters auf den Kugelblitz.
 ## wild_value: die Zahl, zu der sich das Polarlicht macht - nur der Polarfilter
 ## setzt sie, sonst 0 (= kein Krit).
+## charge: gelagerte Energie (Tscherenkow, Moderator halbiert den Teiler).
+## first_scoring: erste Wertung dieses Würfels in der Runde (Sternschnuppe,
+## Gammablitz - der Magnetar löst den Blitz davon).
+## fumbles: Fumbles, mit denen der Vulkanblitz kritet (Runde + Aschewolke).
 static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
-		ball_bonus: int = 0, wild_value: int = 0) -> float:
+		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
+		charge: int = 0, first_scoring: bool = false, fumbles: int = 0) -> float:
 	match essence_id:
 		Essence.XENON:
 			return XENON_CRIT
@@ -178,6 +327,15 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 			return maxf(1.0, float(value))
 		Essence.AURORA:
 			return maxf(1.0, float(wild_value))
+		Essence.CHERENKOV:
+			var divisor := CHERENKOV_DIVISOR_MODERATED if charm_ids.has(Charm.MODERATOR) else CHERENKOV_DIVISOR
+			return maxf(1.0, 1.0 + float(maxi(0, charge)) / divisor)
+		Essence.SHOOTING_STAR:
+			return SHOOTING_STAR_CRIT if first_scoring else 1.0
+		Essence.GAMMA_BURST:
+			return GAMMA_BURST_CRIT if (first_scoring or charm_ids.has(Charm.MAGNETAR)) else 1.0
+		Essence.VOLCANIC_LIGHTNING:
+			return maxf(1.0, 1.0 + float(maxi(0, fumbles)))
 	return 1.0
 
 ## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
@@ -318,6 +476,16 @@ static func link_faces(die: DieDefinition, up_face: int, essence_ids: Array[Stri
 			faces.append(opposite)
 	return faces
 
+## Wie oft EIN Glied aus link_faces zündet: normal einmal, unter dem Stichel
+## feuert die Kehrseite zweimal. Die Liste bleibt entdoppelt (jede Seite steht
+## genau einmal darin) - nur die Zahl wächst, und Wertung wie Nehmen-Effekte
+## lesen sie aus derselben Quelle.
+static func det_link_fire_count(up_face: int, link_face: int, rune_ids: Array[String],
+		charm_ids: Array[String]) -> int:
+	if not charm_ids.has(Charm.BURIN) or not rune_ids.has(Rune.REVERSE):
+		return 1
+	return 2 if link_face == DieDefinition.opposite_face(up_face) else 1
+
 ## Polarlicht: seine Augenzahl gilt der KOMBINATIONSSUCHE als Joker. Die Augen
 ## selbst bleiben die aufgedruckten - der Joker verschiebt nur, WELCHE Kategorie
 ## zutrifft, nie wie viel sie zahlt.
@@ -345,6 +513,20 @@ static func gold_face_money_of(essence_ids: Array[String], materials: Array[Stri
 	var money := materials.count(DieMaterial.GOLD) * CYANIDE_PER_GOLD
 	if charm_ids.has(Charm.AQUA_FORTIS):
 		money += maxi(0, foreign_gold_faces) * AQUA_FORTIS_PER_GOLD
+	return money
+
+## Schwarzlicht: +$3 je gewertetem Würfel, der kein Material zeigt - einmal je
+## ZUG wie das Zyanidgas, nie je Auslösung. bare_dice zählt der Aufrufer, er
+## kennt die Materialien der Hand.
+## Der Neonmarker eskaliert: zusätzlich $1 je materiallosem Würfel, den die Runde
+## schon gewertet hat - round_bare_dice ist dieser Stand INKLUSIVE dieser Hand.
+static func bare_die_money_of(essence_ids: Array[String], bare_dice: int,
+		charm_ids: Array[String] = [], round_bare_dice: int = 0) -> int:
+	if not essence_ids.has(Essence.BLACK_LIGHT):
+		return 0
+	var money := maxi(0, bare_dice) * BLACK_LIGHT_PER_DIE
+	if charm_ids.has(Charm.HIGHLIGHTER):
+		money += maxi(0, round_bare_dice)
 	return money
 
 ## Ethylen: zählt der Würfel in einer Runde zum ersten Mal, wirft er je
@@ -480,6 +662,18 @@ static func trigger_eye_bonus_of(essence_ids: Array[String], triggers_before: in
 		total += trigger_eye_bonus(essence_id, triggers_before)
 	return total
 
+static func combo_level_base_of(essence_ids: Array[String], combo_level: int) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += combo_level_base(essence_id, combo_level)
+	return total
+
+static func combo_level_mult_of(essence_ids: Array[String], combo_level: int, charm_ids: Array[String] = []) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += combo_level_mult(essence_id, combo_level, charm_ids)
+	return total
+
 ## Stufen-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
 static func level_boost_of(essence_ids: Array[String]) -> int:
 	var best := 0
@@ -527,10 +721,12 @@ static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,
-		ball_bonus: int = 0, wild_value: int = 0) -> float:
+		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
+		charge: int = 0, first_scoring: bool = false, fumbles: int = 0) -> float:
 	var factor := 1.0
 	for essence_id in essence_ids:
-		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value)
+		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value,
+			charm_ids, charge, first_scoring, fumbles)
 	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).

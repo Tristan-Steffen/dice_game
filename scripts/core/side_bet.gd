@@ -451,10 +451,12 @@ func stake_label(factor: int = 1) -> String:
 ## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Gravuren (klar benannt, damit
 ## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt). factor wie oben -
 ## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt die Turniernacht NICHT.
-func reward_label(factor: int = 1) -> String:
+## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
+## sonst verspricht er weniger, als die Abrechnung zahlt.
+func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 	match payout_kind:
 		Payout.MONEY:
-			return "$%d" % (payout_money * factor)
+			return "$%d" % CharmEffects.side_bet_money(payout_money * factor, charm_ids)
 		Payout.CHARGE:
 			return "%d ⚡" % (payout_charge * factor)
 		Payout.SPECIAL:

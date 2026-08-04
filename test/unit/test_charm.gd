@@ -23,7 +23,9 @@ func test_all_returns_all_charms():
 	# +5 Wirkungs-Charms: Quadratur, Sechserpack, Gleichrichter und die beiden
 	# ersten Vertrags-Charms Werbetrommel und Winkeladvokat.
 	# +3 aus den Playtest-Notizen: Schutzgeld, Wasserfall, Doppelter Boden.
-	assert_eq(Charm.all().size(), 114)
+	# +38 der zweiten Welle: 11 Essenz-Charms zu den 11 neuen Seelen und 27
+	# allgemeine (Energie/Leiterbahn, Runen/Werkbank, Automat, Auslösungen).
+	assert_eq(Charm.all().size(), 152)
 
 func test_all_ids_are_unique():
 	var seen := {}
