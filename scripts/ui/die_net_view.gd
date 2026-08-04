@@ -272,10 +272,10 @@ class RuneGlyph:
 				continue
 			var points := PackedVector2Array()
 			for point in line:
-				points.append(Rune.cell_to_face(point, slot) * size)
-			# 1-px-Boden: bei 17 px Zelle wäre ein Beistrich sonst weg.
+				points.append(Rune.cell_to_net(point, slot) * size)
+			# 1-px-Boden: bei 17 px Kachel wäre ein Beistrich sonst weg.
 			var weight: float = weights[index] if index < weights.size() else 1.0
-			var width := maxf(1.0, size.x * 0.036 * weight) * (1.0 + 0.8 * flare)
+			var width := maxf(1.0, size.x * 0.07 * weight) * (1.0 + 0.8 * flare)
 			# Unterzug zuerst, dann die Kernlinie darüber.
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
 			draw_polyline(points, tint.lerp(core, flare), width)

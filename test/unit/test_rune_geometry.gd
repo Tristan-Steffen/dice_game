@@ -35,6 +35,27 @@ func test_the_anchor_cells_never_overlap() -> void:
 			var overlaps := one.x < two.z and two.x < one.z and one.y < two.w and two.y < one.w
 			assert_false(overlaps, "Ankerzellen %d und %d überlappen" % [a, b])
 
+func test_the_net_cells_share_the_shoulders_but_never_overlap() -> void:
+	# Das Netz platziert dieselbe Figur groesser (kein Bloom, keine 3D-Ziffer),
+	# aber an DENSELBEN Ecken - sonst zeigt die Werkbank die Rune woanders als
+	# der Tisch. Ueberlappen duerfen sie trotzdem nicht.
+	assert_eq(Rune.NET_CELLS.size(), Rune.ANCHOR_CELLS.size(), "je Platz eine Kachel")
+	for slot in Rune.NET_CELLS.size():
+		var net := Rune.net_cell(slot)
+		var face := Rune.anchor_cell(slot)
+		assert_eq((net.x + net.z) < 1.0, (face.x + face.z) < 1.0,
+			"Platz %d bleibt auf seiner Seite" % slot)
+		assert_eq((net.y + net.w) < 1.0, (face.y + face.w) < 1.0,
+			"Platz %d bleibt auf seiner Höhe" % slot)
+		assert_gt((net.z - net.x) * (net.w - net.y), (face.z - face.x) * (face.w - face.y),
+			"im Netz ist die Kachel größer als die Ankerzelle")
+	for a in Rune.NET_CELLS.size():
+		for b in range(a + 1, Rune.NET_CELLS.size()):
+			var one := Rune.net_cell(a)
+			var two := Rune.net_cell(b)
+			var overlaps := one.x < two.z and two.x < one.z and one.y < two.w and two.y < one.w
+			assert_false(overlaps, "Netz-Kacheln %d und %d überlappen" % [a, b])
+
 func test_every_glyph_stays_inside_its_cell() -> void:
 	# Der Rand trägt den Hof (RuneTextures.FIELD): läuft die Figur bis an die
 	# Zellkante, schneidet der Shader ihren Ausbruch als Rechteck ab.

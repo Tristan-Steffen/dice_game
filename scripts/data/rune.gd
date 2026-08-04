@@ -265,9 +265,30 @@ const ANCHOR_CELLS: Array[Vector4] = [
 static func anchor_cell(slot: int) -> Vector4:
 	return ANCHOR_CELLS[slot] if slot >= 0 and slot < ANCHOR_CELLS.size() else ANCHOR_CELLS[0]
 
+## Dieselben Schultern fürs Würfelnetz, aber als QUADRANT statt als knappe Zelle.
+## Das Netz zeichnet keine leuchtende 3D-Ziffer und hat keinen Bloom, den die
+## Sperrzone abhalten müsste - seine Not ist die Größe: bei 17-40 px Kachel wäre
+## die Ankerzelle des Würfels ein 5-px-Gekritzel. Die FIGUR ist dieselbe, nur ihr
+## Kasten ist größer; die Reihenfolge der Plätze bleibt die des Würfels, damit
+## Tisch und Werkbank dieselbe Rune an derselben Ecke zeigen.
+const NET_CELLS: Array[Vector4] = [
+	Vector4(0.02, 0.50, 0.50, 0.98),  # unten links
+	Vector4(0.50, 0.02, 0.98, 0.50),  # oben rechts
+	Vector4(0.50, 0.50, 0.98, 0.98),  # unten rechts
+]
+
+static func net_cell(slot: int) -> Vector4:
+	return NET_CELLS[slot] if slot >= 0 and slot < NET_CELLS.size() else NET_CELLS[0]
+
 ## Ein Punkt aus ZELLEN-Koordinaten (0..1) in Seiten-Koordinaten.
 static func cell_to_face(point: Vector2, slot: int) -> Vector2:
-	var cell := anchor_cell(slot)
+	return _place(point, anchor_cell(slot))
+
+## Derselbe Punkt, aber in die Netz-Kachel gesetzt.
+static func cell_to_net(point: Vector2, slot: int) -> Vector2:
+	return _place(point, net_cell(slot))
+
+static func _place(point: Vector2, cell: Vector4) -> Vector2:
 	return Vector2(cell.x + point.x * (cell.z - cell.x), cell.y + point.y * (cell.w - cell.y))
 
 ## Ellipsen-Wert eines Punktes: >= 1 heißt "außerhalb der Sperrzone". Eine Quelle
