@@ -205,52 +205,55 @@ static func all() -> Array[Engraving]:
 const DRAFT_CATEGORIES := [CATEGORY_NUMBER, CATEGORY_MATERIAL, CATEGORY_DICE]
 
 ## Zieht count VERSCHIEDENE Gravur-Archetypen für die Lichtgravur-Ziehung: nur
-## inventarfähige Kategorien, mindestens von Seltenheit floor, seltenheits-
-## gewichtet ohne Zurücklegen. Zu kleiner Pool senkt die Untergrenze automatisch.
+## inventarfähige Kategorien, seltenheitsgewichtet ohne Zurücklegen, floor
+## verschiebt die Gewichte nach oben.
 static func roll_draft(count: int, floor: Rarity) -> Array[Engraving]:
-	var pool := _draft_pool(floor)
-	while pool.size() < count and floor > Rarity.COMMON:
-		floor = (floor - 1) as Rarity
-		pool = _draft_pool(floor)
-	return _weighted_distinct(pool, count)
+	return _weighted_distinct(_draft_pool(), count, floor)
 
 ## Zieht count VERSCHIEDENE Gravuren einer Kategorie (Paket-Inhalt), seltenheits-
-## gewichtet ohne Zurücklegen. Ein zu kleiner Pool senkt floor automatisch.
+## gewichtet ohne Zurücklegen.
 static func roll_in_category(target_category: String, count: int, floor: Rarity = Rarity.COMMON) -> Array[Engraving]:
-	var pool := _category_pool(target_category, floor)
-	while pool.size() < count and floor > Rarity.COMMON:
-		floor = (floor - 1) as Rarity
-		pool = _category_pool(target_category, floor)
-	return _weighted_distinct(pool, count)
+	return _weighted_distinct(_category_pool(target_category), count, floor)
 
-static func _category_pool(target_category: String, floor: Rarity) -> Array[Engraving]:
+static func _category_pool(target_category: String) -> Array[Engraving]:
 	var pool: Array[Engraving] = []
 	for engraving in all():
-		if engraving.category == target_category and engraving.rarity >= floor:
+		if engraving.category == target_category:
 			pool.append(engraving)
 	return pool
 
+## Dämpfung je Seltenheitsstufe unterhalb der Untergrenze.
+const BELOW_FLOOR_DAMPING := 8.0
+
 ## Seltenheits-gewichtete Auswahl von count verschiedenen Gravuren aus pool.
-static func _weighted_distinct(pool: Array[Engraving], count: int) -> Array[Engraving]:
+## Die Untergrenze gewichtet, sie schließt nicht aus - sonst wäre ein häufiger
+## Archetyp ab mittlerer Hub-Stufe überhaupt nicht mehr zu bekommen.
+static func _weighted_distinct(pool: Array[Engraving], count: int, floor := Rarity.COMMON) -> Array[Engraving]:
 	var working := pool.duplicate()
 	var chosen: Array[Engraving] = []
 	for i in mini(count, working.size()):
-		var total := 0
+		var total := 0.0
 		for c in working:
-			total += _rarity_weight(c.rarity)
-		var pick := randi() % total
+			total += _floored_weight(c.rarity, floor)
+		var pick := randf() * total
+		var hit := working.size() - 1  # randf() schließt 1.0 ein: letzter Eintrag faengt den Rand
 		for j in working.size():
-			pick -= _rarity_weight(working[j].rarity)
-			if pick < 0:
-				chosen.append(working[j])
-				working.remove_at(j)
+			pick -= _floored_weight(working[j].rarity, floor)
+			if pick < 0.0:
+				hit = j
 				break
+		chosen.append(working[hit])
+		working.remove_at(hit)
 	return chosen
 
-static func _draft_pool(floor: Rarity) -> Array[Engraving]:
+static func _floored_weight(value: Rarity, floor: Rarity) -> float:
+	var below := maxi(0, floor - value)
+	return _rarity_weight(value) / pow(BELOW_FLOOR_DAMPING, below)
+
+static func _draft_pool() -> Array[Engraving]:
 	var pool: Array[Engraving] = []
 	for engraving in all():
-		if DRAFT_CATEGORIES.has(engraving.category) and engraving.rarity >= floor:
+		if DRAFT_CATEGORIES.has(engraving.category):
 			pool.append(engraving)
 	return pool
 

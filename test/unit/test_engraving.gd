@@ -98,16 +98,55 @@ func test_roll_draft_returns_distinct_inventory_engravings():
 		assert_false(seen.has(engraving.id), "keine Dubletten: %s" % engraving.id)
 		seen[engraving.id] = true
 
-func test_roll_draft_respects_rarity_floor():
-	for i in 20:
+func test_roll_draft_weights_towards_rarity_floor():
+	# Die Untergrenze gewichtet: seltene Siegel dominieren, ohne die häufigen
+	# ganz zu streichen.
+	var high := 0
+	var low := 0
+	for i in 200:
 		for engraving in Engraving.roll_draft(3, Engraving.Rarity.UNCOMMON):
-			assert_true(engraving.rarity >= Engraving.Rarity.UNCOMMON, "kein häufiges Siegel unter der Grenze")
+			if engraving.rarity >= Engraving.Rarity.UNCOMMON:
+				high += 1
+			else:
+				low += 1
+	assert_gt(high, low * 2, "über der Grenze deutlich häufiger als darunter")
 
 func test_roll_draft_lowers_floor_when_pool_too_small():
-	# Mehr Siegel verlangt als es seltene+ gibt (8) -> die Untergrenze fällt,
-	# damit die Auslage voll wird (statt leer zu bleiben).
+	# Mehr Siegel verlangt als es seltene+ gibt (8) -> der Topf traegt trotzdem,
+	# weil die Untergrenze nur gewichtet.
 	var draft := Engraving.roll_draft(9, Engraving.Rarity.RARE)
 	assert_eq(draft.size(), 9, "Auslage voll trotz knapper seltener Siegel")
+
+func test_every_archetype_reachable_under_every_floor():
+	# Der Fehler, den das verhindert: eine hohe Untergrenze schloss die häufigen
+	# Archetypen komplett aus, sie kamen in keinem Paket mehr vor.
+	seed(20260804)
+	for floor in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON,
+			Engraving.Rarity.RARE, Engraving.Rarity.EPIC]:
+		for category in Engraving.CATEGORIES:
+			var expected := {}
+			for engraving in Engraving.all():
+				if engraving.category == category:
+					expected[engraving.id] = true
+			var seen := {}
+			for i in 600:
+				for engraving in Engraving.roll_in_category(category, 2, floor):
+					seen[engraving.id] = true
+			for id in expected:
+				assert_true(seen.has(id), "%s bleibt bei Untergrenze %s erreichbar"
+					% [id, Engraving.rarity_name(floor)])
+
+func test_high_floor_still_favours_rare_archetypes():
+	seed(20260805)
+	var rare_hits := 0
+	var common_hits := 0
+	for i in 400:
+		for engraving in Engraving.roll_in_category(Engraving.CATEGORY_NUMBER, 2, Engraving.Rarity.RARE):
+			if engraving.rarity >= Engraving.Rarity.RARE:
+				rare_hits += 1
+			elif engraving.rarity == Engraving.Rarity.COMMON:
+				common_hits += 1
+	assert_gt(rare_hits, common_hits * 3, "die Untergrenze muss sich noch lohnen")
 
 func test_roll_in_category_stays_in_category():
 	for category in Engraving.CATEGORIES:

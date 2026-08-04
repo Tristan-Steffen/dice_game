@@ -24,8 +24,16 @@ func test_dice_mod_pack_rolls_dice_engravings() -> void:
 func test_pack_carries_its_own_rarity_floor() -> void:
 	var pack := Pack.dice_mod_pack()
 	assert_eq(pack.rarity_floor, Engraving.Rarity.COMMON, "ohne Prägung die Untergrenze aller")
-	for engraving in pack.roll_engravings(Engraving.Rarity.RARE):
-		assert_gte(int(engraving.rarity), int(Engraving.Rarity.RARE))
+	# Die Untergrenze gewichtet, sie schließt nicht aus: gemessen wird die Mischung.
+	var high := 0
+	var low := 0
+	for i in 100:
+		for engraving in pack.roll_engravings(Engraving.Rarity.RARE):
+			if engraving.rarity >= Engraving.Rarity.RARE:
+				high += 1
+			else:
+				low += 1
+	assert_gt(high, low, "die hohe Untergrenze verschiebt den Inhalt nach oben")
 
 func test_engraving_pack_rolls_its_count_in_category() -> void:
 	var pack := Pack.material_pack()
