@@ -1,17 +1,15 @@
 class_name SecretShopView
 extends Panel
 ## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten. Es steht
-## von Anfang an da, aber VERGITTERT - ein einziger Knopf in der Mitte kauft den
-## Zutritt für Ladung frei (set_locked, unlock_requested); solange liegen nur
-## Schatten-Plätze aus, denn die Auslage wird erst beim Freischalten gewürfelt.
+## von Anfang an da, aber VERGITTERT - erst die Lizenzstufe hebt das Gitter
+## (set_locked); solange liegen nur Schatten-Plätze aus, denn die Auslage wird
+## erst beim Freischalten gewürfelt.
 ## Danach: bezahlt wird ausschließlich in Ladung (⚡) - drei Plätze, jeder EINMAL
 ## kaufbar, "Neu mischen" tauscht alle drei zu steigendem Preis. Zustands-Mutation
 ## läuft ausschließlich über GameRun (buy_secret_offer/reroll_secret_stock); die
 ## Anzeige folgt secret_stock_changed und charge_changed. Geschlossen wird wie bei
 ## jedem Fenster per Rechtsklick (Kamera zoomt zurück) - kein eigener Knopf.
 
-## Der Spieler will das Gitter heben; die Buchung macht scene_root über GameRun.
-signal unlock_requested
 ## Ladung ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
 ## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
 signal charge_spent(amount: int)
@@ -59,9 +57,8 @@ var run: GameRun:
 ## Einheit aus BEIDEN Achsen (in refresh gesetzt).
 var u := 4.0
 
-## Vergittert: Schatten-Plätze unter einem dunklen Schleier, davor der Knopf.
+## Vergittert: Schatten-Plätze unter einem dunklen Schleier mit der Bedingung.
 var locked := true
-var can_afford := false
 
 var wallet_label: Label
 var cards_row: HBoxContainer
@@ -69,7 +66,8 @@ var reroll_button: Button
 ## Ein Knopf je Auslage-Platz (Tests und _refresh arbeiten dagegen).
 var offer_buttons: Array[Button] = []
 var lock_overlay: Panel
-var unlock_button: Button
+## Auf dem Schleier steht, was das Gitter hebt - kein Knopf, nichts zu kaufen.
+var lock_notice: Label
 
 ## Hover-Dropdown (Name + Wirkung), wie im Shop.
 var detail_card: PanelContainer
@@ -100,12 +98,11 @@ func refresh() -> void:
 	_refresh_offers()
 	_apply_lock_state()
 
-## Gitter-Zustand von scene_root (einziger Schreiber): locked = noch nicht
-## freigeschaltet, affordable = die Börse trägt das Eintrittsgeld.
-func set_locked(is_locked: bool, affordable: bool) -> void:
+## Gitter-Zustand von scene_root (einziger Schreiber): locked = die Lizenzstufe
+## reicht noch nicht.
+func set_locked(is_locked: bool) -> void:
 	var was_locked := locked
 	locked = is_locked
-	can_afford = affordable
 	if not _built:
 		return
 	if was_locked != locked:
@@ -117,7 +114,6 @@ func _apply_lock_state() -> void:
 	if not _built:
 		return
 	lock_overlay.visible = locked
-	unlock_button.disabled = not can_afford
 	reroll_button.visible = not locked
 	cards_row.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
@@ -315,7 +311,7 @@ func _build_shadow_card(thumb_px: int) -> Control:
 
 # --- Gitter -------------------------------------------------------------------
 
-## Dunkler Schleier über der ganzen Tasche, in seiner Mitte der Freischalt-Knopf.
+## Dunkler Schleier über der ganzen Tasche, in seiner Mitte die Bedingung.
 ## Liegt als LETZTES Kind auf allem anderen.
 func _build_lock_overlay() -> void:
 	lock_overlay = Panel.new()
@@ -332,13 +328,9 @@ func _build_lock_overlay() -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lock_overlay.add_child(center)
-	unlock_button = _neon_button("Freischalten ⚡%d" % GameRun.SECRET_UNLOCK_PRICE,
-		VIOLET, u * 4.2, Vector2(u * 46.0, u * 10.0))
-	unlock_button.pressed.connect(_on_unlock_pressed)
-	center.add_child(unlock_button)
-
-func _on_unlock_pressed() -> void:
-	unlock_requested.emit()
+	lock_notice = _label("Ab Lizenzstufe %d" % GameRun.SECRET_UNLOCK_HUB_LEVEL,
+		u * 4.6, VIOLET, HORIZONTAL_ALIGNMENT_CENTER)
+	center.add_child(lock_notice)
 
 # --- Käufe --------------------------------------------------------------------
 

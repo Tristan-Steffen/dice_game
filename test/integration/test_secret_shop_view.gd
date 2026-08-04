@@ -10,14 +10,13 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle Börse (25) - reicht für jeden Kauf
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()  # Schwarzmarkt freigeschaltet
 	run.charge = run.charge_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
 	view.size = Vector2(451, 251)  # gemessene Glas-Tasche unter den Automaten
 	view.run = run
-	view.set_locked(false, true)
+	view.set_locked(false)
 	view.refresh()
 
 func test_window_shows_three_offer_cards() -> void:
@@ -94,44 +93,24 @@ func _barred() -> SecretShopView:
 	add_child_autofree(barred)
 	barred.size = Vector2(448, 345)
 	barred.run = barred_run
-	barred.set_locked(true, barred_run.charge >= GameRun.SECRET_UNLOCK_PRICE)
+	barred.set_locked(true)
 	barred.refresh()
 	return barred
 
-func test_locked_window_shows_the_unlock_button_and_the_veil() -> void:
+func test_locked_window_names_the_condition_under_the_veil() -> void:
 	var barred := _barred()
 	await wait_frames(2)
 	assert_true(barred.lock_overlay.visible, "der Schleier liegt über der Auslage")
-	assert_string_contains(barred.unlock_button.text, str(GameRun.SECRET_UNLOCK_PRICE))
+	assert_string_contains(barred.lock_notice.text, str(GameRun.SECRET_UNLOCK_HUB_LEVEL))
+	assert_false("unlock_button" in barred, "nichts zu kaufen: der Zutritt kommt mit der Lizenz")
 	assert_eq(barred.offer_buttons.size(), 0, "vergittert ist nichts kaufbar")
 	assert_false(barred.reroll_button.visible, "es gibt noch nichts zu mischen")
-
-func test_the_unlock_button_is_dead_without_the_entry_fee() -> void:
-	var barred := _barred()
-	await wait_frames(2)
-	assert_true(barred.unlock_button.disabled, "leere Börse: kein Zutritt")
-	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
-	barred.set_locked(true, true)
-	assert_false(barred.unlock_button.disabled)
-
-func test_pressing_unlock_only_reports_the_wish() -> void:
-	# Gebucht wird in GameRun (scene_root hört zu) - das Fenster meldet nur.
-	var barred := _barred()
-	await wait_frames(2)
-	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
-	barred.set_locked(true, true)
-	var fired: Array = []
-	barred.unlock_requested.connect(func() -> void: fired.append(true))
-	barred.unlock_button.pressed.emit()
-	assert_eq(fired.size(), 1)
-	assert_false(barred.run.secret_shop_unlocked, "die Buchung macht das Fenster nicht selbst")
 
 func test_unlocking_lifts_the_veil_and_lays_out_the_stock() -> void:
 	var barred := _barred()
 	await wait_frames(2)
-	barred.run.charge = GameRun.SECRET_UNLOCK_PRICE
 	assert_true(barred.run.unlock_secret_shop())
-	barred.set_locked(false, false)
+	barred.set_locked(false)
 	await wait_frames(2)
 	assert_false(barred.lock_overlay.visible)
 	assert_eq(barred.offer_buttons.size(), 3, "die Auslage liegt")

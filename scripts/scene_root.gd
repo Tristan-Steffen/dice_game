@@ -5840,8 +5840,6 @@ func _connect_run() -> void:
 	charm_shop.run = run
 	if table_screen != null and table_screen.secret_shop_window != null:
 		table_screen.secret_shop_window.run = run
-		if not table_screen.secret_shop_window.unlock_requested.is_connected(_on_secret_shop_unlock_requested):
-			table_screen.secret_shop_window.unlock_requested.connect(_on_secret_shop_unlock_requested)
 		if not table_screen.secret_shop_window.charge_spent.is_connected(_on_secret_shop_charge_spent):
 			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
@@ -5873,6 +5871,7 @@ func _connect_run() -> void:
 	run.pool_changed.connect(_on_pool_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	run.hub_level_changed.connect(_on_hub_level_changed)
+	run.secret_shop_discovered.connect(_on_secret_shop_discovered)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
 	run.charge_changed.connect(_on_charge_changed)
@@ -5884,9 +5883,9 @@ func _connect_run() -> void:
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
 
 ## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
-## steht IMMER auf dem Tisch und ist immer anklickbar - vergittert, bis das
-## Eintrittsgeld bezahlt ist. Ein frischer Lauf schließt es damit sofort wieder
-## zu, OHNE Zeremonie; die spielt nur den Übergang.
+## steht IMMER auf dem Tisch und ist immer anklickbar - vergittert, bis die
+## Lizenzstufe reicht. Ein frischer Lauf schließt es damit sofort wieder zu,
+## OHNE Zeremonie; die spielt nur den Übergang.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
@@ -5895,8 +5894,7 @@ func _sync_secret_shop_state() -> void:
 	if table_screen != null:
 		table_screen.set_secret_shop_installed(true)
 		if table_screen.secret_shop_window != null:
-			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked,
-				run.charge >= GameRun.SECRET_UNLOCK_PRICE)
+			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked)
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
 		secret_shop_click_zone.collision_layer = 8
@@ -5910,29 +5908,22 @@ func _on_charge_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(value, run.charge_cap())
 	_sync_capacitor()
-	# Der Freischalt-Knopf des vergitterten Ladens folgt dem Ladungsstand.
-	if table_screen != null and table_screen.secret_shop_window != null and run != null:
-		table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked,
-			value >= GameRun.SECRET_UNLOCK_PRICE)
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 
-## Eintrittsgeld bezahlt: der Hub quittiert golden, das Gitter fällt und das
-## Fenster meldet sich mit einer Stoßwelle - dieselbe Sprache wie ein neu
-## installierter Automat.
-func _on_secret_shop_unlock_requested() -> void:
-	if run == null or not run.unlock_secret_shop():
-		return
-	var paying_run := run
+## Die Lizenz hat das Gitter gehoben: der Hub quittiert golden, ein Licht fährt
+## die Hinterzimmer-Ader hinüber und das Fenster meldet sich mit einer Stoßwelle -
+## dieselbe Sprache wie ein neu installierter Automat. Gebucht ist längst.
+func _on_secret_shop_discovered() -> void:
+	var opening_run := run
 	_sync_secret_shop_state()
 	if table_screen == null:
 		return
 	if table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	# Das Eintrittsgeld fährt zuerst als Ladung hinüber, dann fällt das Gitter.
 	var travel := table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
-	if run != paying_run or table_screen == null:
+	if run != opening_run or table_screen == null:
 		return  # Reset während des Kometen
 	table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)
 

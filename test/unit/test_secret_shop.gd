@@ -9,7 +9,6 @@ func _run() -> GameRun:
 ## Frischer Lauf mit freigeschaltetem Schwarzmarkt (erste Auslage liegt).
 func _discovered() -> GameRun:
 	var run := _run()
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()
 	return run
 
@@ -102,34 +101,47 @@ func test_charge_split_on_empty_wallet_stores_everything() -> void:
 
 # --- Freischalten --------------------------------------------------------------
 
-func test_unlock_price_is_one_full_row() -> void:
-	assert_eq(GameRun.SECRET_UNLOCK_PRICE, 5)
-
-func test_too_little_charge_keeps_the_market_barred() -> void:
+func test_fresh_run_starts_barred() -> void:
 	var run := _run()
-	run.charge = GameRun.SECRET_UNLOCK_PRICE - 1
-	var fired: Array = []
-	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
-	assert_false(run.unlock_secret_shop())
 	assert_false(run.secret_shop_unlocked)
-	assert_eq(run.charge, GameRun.SECRET_UNLOCK_PRICE - 1, "kein Abzug")
-	assert_eq(run.secret_stock.size(), 0)
-	assert_eq(fired.size(), 0)
+	assert_eq(run.secret_stock.size(), 0, "die Auslage wird erst beim Öffnen gewürfelt")
+	assert_lt(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL)
 
-func test_unlocking_spends_the_entry_fee_exactly_once() -> void:
+func test_unlocking_costs_no_charge_and_fires_once() -> void:
 	var run := _run()
 	run.hub_level = GameRun.HUB_MAX_LEVEL  # Deckel 25, damit der Rest liegen bleibt
-	run.charge = GameRun.SECRET_UNLOCK_PRICE + 2
+	run.charge = 7
 	var fired: Array = []
 	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
 	assert_true(run.unlock_secret_shop())
 	assert_true(run.secret_shop_unlocked)
-	assert_eq(run.charge, 2, "genau das Eintrittsgeld ist weg")
+	assert_eq(run.charge, 7, "der Zutritt kostet keine Energie mehr")
 	assert_eq(run.secret_stock.size(), 3, "erste Auslage gratis gewürfelt")
 	assert_eq(fired.size(), 1)
 	assert_false(run.unlock_secret_shop(), "ein zweites Mal gibt es nichts zu öffnen")
-	assert_eq(run.charge, 2, "und kostet auch nichts")
 	assert_eq(fired.size(), 1, "kein zweites Signal")
+
+func test_hub_upgrade_opens_the_market_at_its_level() -> void:
+	var run := _run()
+	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL - 1
+	run.money = 100000
+	var fired: Array = []
+	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
+	run.upgrade_hub()
+	assert_eq(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL)
+	assert_true(run.secret_shop_unlocked, "die Lizenz hebt das Gitter")
+	assert_eq(fired.size(), 1)
+	assert_eq(run.secret_stock.size(), 3)
+	run.upgrade_hub()
+	assert_eq(fired.size(), 1, "spätere Stufen öffnen nicht noch einmal")
+
+func test_market_stays_barred_below_its_hub_level() -> void:
+	var run := _run()
+	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL - 2
+	run.money = 100000
+	run.upgrade_hub()
+	assert_eq(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL - 1)
+	assert_false(run.secret_shop_unlocked, "eine Stufe zu früh bleibt vergittert")
 
 # --- Auslage -------------------------------------------------------------------
 
@@ -184,7 +196,6 @@ func test_owned_legendaries_are_excluded_from_the_roll() -> void:
 	var spared: Charm = pool.pop_back()
 	for charm in pool:
 		run.owned_charms.append(charm)
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()
 	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
@@ -195,7 +206,6 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	var run := _run()
 	for charm in _legendaries():
 		run.owned_charms.append(charm)
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()
 	assert_eq(run.secret_stock.size(), 3)
 	for offer in run.secret_stock:
@@ -317,7 +327,6 @@ func test_the_wildcard_can_offer_an_essence_die() -> void:
 	# Über viele Auslagen muss der Würfel-Platz vorkommen - er ist die einzige
 	# Quelle der geheimen Essenzen.
 	var run := _run()
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()
 	var seen_die := false
 	for i in 200:
@@ -386,7 +395,6 @@ func test_buying_the_secret_die_reports_the_new_pack() -> void:
 
 func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()
-	run.charge = GameRun.SECRET_UNLOCK_PRICE
 	run.unlock_secret_shop()
 	run.owned_pool[0].essence_id = Essence.ANTIMATTER
 	for i in 200:

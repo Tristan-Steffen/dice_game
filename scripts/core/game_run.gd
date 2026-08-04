@@ -340,6 +340,9 @@ func upgrade_hub() -> void:
 	add_money(-hub_upgrade_price())
 	hub_level += 1
 	_grant_hub_rewards(hub_level)
+	# >=, nicht ==: ein direkt gesetzter Stand darf nicht daran vorbeilaufen.
+	if hub_level >= SECRET_UNLOCK_HUB_LEVEL:
+		unlock_secret_shop()
 	hub_level_changed.emit(hub_level)
 
 ## Belohnung einer frisch erreichten Stufe: versiegelte Ware ins Lager. JEDE
@@ -1731,8 +1734,9 @@ const CHARGE_OVERFLOW_MONEY := 5
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
 const SECRET_CHARM_PRICE := 5
 const SECRET_ENGRAVING_PRICE := 5
-## Einmaliges Eintrittsgeld: der vergitterte Laden öffnet für diese Ladung.
-const SECRET_UNLOCK_PRICE := 5
+## Lizenzstufe, ab der das Gitter fällt - der Zutritt ist Teil des Ausbaus,
+## nicht der erste Energie-Posten des Laufs.
+const SECRET_UNLOCK_HUB_LEVEL := 5
 ## Preis des Neuwurfs - FLACH, jedes Mal derselbe. Die alte Fibonacci-Leiter
 ## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
 ## bleiben, die ⚡ selbst ist die Schranke.
@@ -1767,8 +1771,8 @@ var charge: int = 0:
 		charge = value
 		charge_changed.emit(charge)
 
-## Freigeschaltet per Eintrittsgeld (unlock_secret_shop), danach für den Rest des
-## Laufs offen. Ein frischer Lauf startet wieder vergittert.
+## Freigeschaltet mit der Lizenzstufe (unlock_secret_shop), danach für den Rest
+## des Laufs offen. Ein frischer Lauf startet wieder vergittert.
 var secret_shop_unlocked: bool = false
 var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
@@ -1811,12 +1815,11 @@ func spend_charge(count: int) -> void:
 	charge = maxi(0, charge - count)
 
 ## Freischalten des Schwarzmarkts: der Laden steht von Anfang an auf dem Tisch,
-## aber vergittert - erst SECRET_UNLOCK_PRICE ⚡ heben das Gitter, dann liegt die
-## erste Auslage gratis. false, wenn er offen ist oder die Ladung nicht reicht.
+## aber vergittert - die Lizenzstufe hebt das Gitter, dann liegt die erste
+## Auslage gratis. false, wenn er schon offen ist.
 func unlock_secret_shop() -> bool:
-	if secret_shop_unlocked or charge < SECRET_UNLOCK_PRICE:
+	if secret_shop_unlocked:
 		return false
-	spend_charge(SECRET_UNLOCK_PRICE)
 	secret_shop_unlocked = true
 	_roll_secret_stock()
 	secret_shop_discovered.emit()
