@@ -52,6 +52,9 @@ const SINGLE_DIE_DISCOUNT := 0.8
 ## Hinterlegte Würfel liegen kleiner als die Ware in der Schale - ein Regal,
 ## keine zweite Auslage.
 const STASH_DIE_SIZE := 8.0
+## Untergrenze der Regal-Miniaturen - darunter bricht die Reihe um, statt weiter
+## zu schrumpfen (dieselbe Regel wie SINGLE_MIN_SCALE in der Schale).
+const STASH_MIN_SCALE := 0.6
 ## Spaltenzahl der Tausch-Auswahl (wie das Pool-Raster der Werkstatt).
 const EXCHANGE_COLUMNS := 6
 
@@ -966,18 +969,35 @@ func _build_stash_shelf() -> Control:
 	shelf.size_flags_vertical = Control.SIZE_SHRINK_END
 	shelf.add_theme_constant_override("separation", int(u * 0.2))
 	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shelf.add_child(_label("Hinterlegt – klicken zum Eintauschen", u * 1.3, NEON_MUTED,
-		HORIZONTAL_ALIGNMENT_CENTER))
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", int(u * 0.8))
+	var caption := _label("Hinterlegt – klicken zum Eintauschen", u * 1.3, NEON_MUTED,
+		HORIZONTAL_ALIGNMENT_CENTER)
+	# Ohne Umbruch zieht schon die Zeile das Regal ueber die Schalenbreite.
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	shelf.add_child(caption)
+	# Umbrechend wie die Schale darueber: ein volles Regal bricht um und
+	# schrumpft, es drueckt nicht die ganze Hauptzeile aus dem Fenster.
+	var row := HFlowContainer.new()
+	row.alignment = FlowContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("h_separation", int(u * 0.8))
+	row.add_theme_constant_override("v_separation", int(u * 0.4))
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shelf.add_child(row)
+	var scale_factor := _stash_scale(run.pending_dice.size())
 	for i in run.pending_dice.size():
-		row.add_child(_build_stash_thumb(i))
+		row.add_child(_build_stash_thumb(i, scale_factor))
 	return shelf
 
-func _build_stash_thumb(index: int) -> Button:
+## Breitenfaktor des Regals nach dem Vorbild von _singles_scale: passt eine
+## Reihe nicht mehr in die Schale, schrumpfen die Miniaturen mit.
+func _stash_scale(count: int) -> float:
+	if count <= 1:
+		return 1.0
+	var wanted := float(count) * STASH_DIE_SIZE + float(count - 1) * 0.8
+	if wanted <= BOWL_INNER_U:
+		return 1.0
+	return maxf(STASH_MIN_SCALE, BOWL_INNER_U / wanted)
+
+func _build_stash_thumb(index: int, scale_factor: float) -> Button:
 	var def: DieDefinition = run.pending_dice[index]
 	var essence := Essence.by_id(def.essence_id)
 	var title := def.display_name if essence == null \
@@ -986,8 +1006,9 @@ func _build_stash_thumb(index: int) -> Button:
 	if essence != null:
 		body += "\n%s: %s" % [essence.display_name, essence.description]
 	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
-	var stage := DiceRowView.build_thumb(def, int(u * STASH_DIE_SIZE), true)
-	var thumb := _bare_single(stage, Vector2.ONE * u * STASH_DIE_SIZE)
+	var side := u * STASH_DIE_SIZE * scale_factor
+	var stage := DiceRowView.build_thumb(def, int(side), true)
+	var thumb := _bare_single(stage, Vector2.ONE * side)
 	thumb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	# Kein Preis: bezahlt ist bezahlt, hier geht es nur noch um den Platz.
 	thumb.mouse_entered.connect(_show_shop_tooltip.bind(thumb, title, body, -1, def))
