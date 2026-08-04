@@ -8,8 +8,11 @@ class_name ScoreBreakdown
 ## trägt Zwischenstände, damit die Anzeige nie von der Rechnung abweicht.
 
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
-## Ergebnis: key, participating, eye_slots, combo, die_steps, charm_steps,
-## base, mult, merge_total, post_steps, total (== score_category).
+## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, die_steps,
+## charm_steps, base, mult, merge_total, post_steps, total (== score_category).
+## "combo" trägt die PUREN Kategorie-Werte; jede Doppelter-Boden-Kopie ist ein
+## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
+## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" der
 ## für diesen Trigger gezündeten Leiterbahn; die deterministischen
@@ -48,13 +51,24 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var wild := DiceScoring.wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
 	var wild_eyes := DiceScoring.wild_value(key, dice, ctx) if wild >= 0 else 0
 
-	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), beides
-	# vom Doppelten Boden verdoppelt - wie in DiceScoring._base_and_mult.
-	var combo_factor := CharmEffects.combo_factor(charm_ids)
-	var base := DiceScoring.points_for(key, combo_levels) * combo_factor
-	var combo_mult := DiceScoring.mult_for(key, combo_levels) * combo_factor
+	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), PUR.
+	# Der Doppelte Boden reist NICHT stillschweigend in dieser Zahl mit - er
+	# bekommt je Kopie einen eigenen Schritt, wie jeder Krit seinen eigenen
+	# Einschlag bekommt. Die Summe bleibt dieselbe wie in DiceScoring.
+	var base := DiceScoring.points_for(key, combo_levels)
+	var combo_mult := DiceScoring.mult_for(key, combo_levels)
 	var mult := float(combo_mult)
 	var combo := {"base_add": base, "mult_add": combo_mult}
+	var combo_factor_steps: Array[Dictionary] = []
+	for dock in CharmEffects.charm_indices_of(Charm.DOUBLE_BOTTOM, charm_ids):
+		base *= 2
+		combo_mult *= 2
+		mult = float(combo_mult)
+		combo_factor_steps.append({
+			"charm_indices": [dock],
+			"base_after": base,
+			"mult_after": mult,
+		})
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
 
@@ -419,6 +433,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"participating": participating,
 		"eye_slots": eye_slots,
 		"combo": combo,
+		# Ein Schritt je Doppelter-Boden-Kopie, direkt hinter der Kombination.
+		"combo_factor_steps": combo_factor_steps,
 		"die_steps": die_steps,
 		"charm_steps": charm_steps,
 		"base": base,

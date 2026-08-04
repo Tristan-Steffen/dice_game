@@ -5205,6 +5205,21 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	if not await _score_arrival_gap(combo_travel):
 		return
 
+	# 2b) Doppelter Boden: je Kopie ein eigener Schlag vom Dock-Pad auf den Zähler.
+	# Die Kombination reist pur, die Verdopplung kommt sichtbar hinterher - sonst
+	# stünde am Zähler eine Zahl, deren Herkunft nirgends zu sehen ist.
+	for step: Dictionary in breakdown.get("combo_factor_steps", []):
+		for charm_index: int in step["charm_indices"]:
+			_flash_charm_and_pad(charm_index)
+		var factor_px := _charm_trail_source_px(step["charm_indices"])
+		var factor_base: int = step["base_after"]
+		var factor_mult: float = step["mult_after"]
+		_spawn_score_gains(factor_px, 0, 0, 2, 2.0)
+		var factor_travel := _fire_score_light(factor_px, "charm", ["base", "mult"],
+			func() -> void: table_screen.update_pit_score(factor_base, factor_mult))
+		if not await _score_arrival_gap(factor_travel):
+			return
+
 	# Straßenmusiker zahlt PRO ausgelöstem Würfel: je Dock-Position ein $1-Paket,
 	# im Moment des Würfel-Triggers (nicht gebündelt am Ende).
 	var musician_indices: Array[int] = []

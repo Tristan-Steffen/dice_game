@@ -12,6 +12,7 @@ const ENTRY_FARKLE := "farkle"
 
 const STEP_POSE := "pose"  # der Eintrag selbst, ohne Wertung (Wurf, Fumble)
 const STEP_COMBO := "combo"
+const STEP_COMBO_FACTOR := "combo_factor"  # eine Doppelter-Boden-Kopie
 const STEP_FIRING := "firing"
 const STEP_CRIT := "crit"
 const STEP_LINK := "link"
@@ -94,6 +95,16 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 			DiceScoring.label_for(String(breakdown.get("key", ""))), combo_base,
 			ScoreBreakdown.format_number(combo_mult)],
 		combo_base, combo_mult, overrides))
+
+	# Der Doppelte Boden steht als eigener Schritt direkt hinter der Kombination -
+	# im Rückblick wie in der Zeremonie, sonst springt die Zahl unerklärt.
+	for factor_step: Dictionary in breakdown.get("combo_factor_steps", []):
+		var factor := _step(STEP_COMBO_FACTOR,
+			"%s · Kombination ×2" % charm_name(Charm.DOUBLE_BOTTOM),
+			int(factor_step.get("base_after", 0)), float(factor_step.get("mult_after", 0.0)),
+			overrides)
+		factor["charm_indices"] = _int_list(factor_step.get("charm_indices", []))
+		steps.append(factor)
 
 	for die_step: Dictionary in breakdown.get("die_steps", []):
 		var slot := int(die_step.get("slot", -1))

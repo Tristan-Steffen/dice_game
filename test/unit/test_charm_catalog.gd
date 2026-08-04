@@ -337,6 +337,50 @@ func test_double_bottom_leaves_the_printed_level_alone():
 	assert_eq(CharmEffects.combo_factor(_ids([Charm.DOUBLE_BOTTOM, Charm.DOUBLE_BOTTOM])), 4)
 	assert_eq(CharmEffects.combo_factor(_ids([])), 1)
 
+func test_the_breakdown_shows_the_combination_pure_and_the_doubling_as_its_own_step():
+	# Die Schrittliste wird feiner, die Summe darf sich um keinen Punkt aendern.
+	var ids := _ids([Charm.DOUBLE_BOTTOM])
+	var plain := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), _ids([]))
+	var doubled := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), ids)
+	assert_eq(int(doubled["total"]),
+		DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids),
+		"die Summe bleibt die der Wertung")
+	assert_eq(doubled["combo"]["base_add"], plain["combo"]["base_add"],
+		"die Kombination reist pur, wie ohne den Charm")
+	assert_eq(doubled["combo"]["mult_add"], plain["combo"]["mult_add"])
+	var steps: Array = doubled["combo_factor_steps"]
+	assert_eq(steps.size(), 1, "ein Schritt je Kopie")
+	assert_eq(int(steps[0]["base_after"]), int(plain["combo"]["base_add"]) * 2)
+	assert_almost_eq(float(steps[0]["mult_after"]), float(plain["combo"]["mult_add"]) * 2.0, 0.001)
+	assert_eq(steps[0]["charm_indices"], [0], "das Pad der Kopie blinkt")
+
+func test_two_copies_are_two_steps_not_one_times_four():
+	# Dieselbe Regel wie bei den Krits: jede Kopie ist ein eigener Einschlag.
+	var ids := _ids([Charm.DOUBLE_BOTTOM, Charm.DOUBLE_BOTTOM])
+	var doubled := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), ids)
+	var steps: Array = doubled["combo_factor_steps"]
+	assert_eq(steps.size(), 2)
+	assert_eq(int(steps[0]["base_after"]), 20)
+	assert_eq(int(steps[1]["base_after"]), 40)
+	assert_eq(int(doubled["total"]),
+		DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids))
+
+func test_the_double_bottom_never_shows_up_twice():
+	# Er hat keinen charm_*_at-Hook - stuende er auch in charm_steps, zaehlte die
+	# Zeremonie ihn zweimal.
+	var doubled := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.DOUBLE_BOTTOM]))
+	var mentions := 0
+	for step: Dictionary in doubled["combo_factor_steps"]:
+		if step.get("charm_indices", []).has(0):
+			mentions += 1
+	for step: Dictionary in doubled["charm_steps"]:
+		if step.get("charm_indices", []).has(0):
+			mentions += 1
+	for step: Dictionary in doubled["post_steps"]:
+		if step.get("charm_indices", []).has(0):
+			mentions += 1
+	assert_eq(mentions, 1, "genau ein Schritt gehört dem Doppelten Boden")
+
 # --- Wasserfall: nur fallende Augenzahlen legen nach ----------------------------------
 
 func test_the_waterfall_only_fires_on_a_falling_value():
