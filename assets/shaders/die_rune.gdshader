@@ -1,7 +1,8 @@
-// Runen der Würfelschale: EIN Shader für alle vier Rune-Muster und die Vakuum-
+// Runen der Würfelschale: EIN Shader für alle sechs Zeichen und die Vakuum-
 // Umkehrung. Die Maske ist FARBLOS (R Kern, G Bogenlänge, B Abstand zur
-// Mittellinie, A Deckung), die Tönung kommt als Uniform - darum gibt es vier
-// Texturen im Spiel und nicht dreißig.
+// Mittellinie, A Deckung) und in ZELLEN-Koordinaten gebacken; die Tönung kommt
+// als Uniform, die Platzierung als cell - darum gibt es sechs Texturen im Spiel
+// und nicht dreißig.
 //
 // unshaded verwirft EMISSION - die Helligkeit muss über ALBEDO raus. Genau daran
 // ist die alte Auflage gescheitert: sie animierte emission_energy_multiplier auf
@@ -32,8 +33,12 @@ uniform float halo_width = 0.35;
 uniform float halo_flare = 2.8;
 uniform vec2 halo_bias = vec2(0.0);    // gerichtetes Ausbluten (Streulicht: nach unten)
 uniform vec2 digit_half = vec2(0.26, 0.38);
-uniform vec2 impact = vec2(0.20, 0.68);  // Einschlag des Sternbruchs
-uniform bool mirror = false;           // zweiter Bruch des Vakuum-Würfels
+uniform vec2 impact = vec2(0.14, 0.84);  // Zellmitte: Ursprung des Schutz-Rings
+// Ankerzelle in SEITEN-Koordinaten (min.xy, max.xy). Die Maske ist in ZELLEN-
+// Koordinaten gebacken, also setzt erst dieses Rechteck das Zeichen auf die
+// Seite - und ein zweites Zeichen derselben Seite bekommt schlicht eine andere
+// Zelle, statt gespiegelt zu werden.
+uniform vec4 cell = vec4(0.0, 0.0, 1.0, 1.0);
 uniform bool block_flare = false;      // Einbrand: Schutz-Blitz statt Wertungswelle
 
 // Länge der wandernden Bande als Anteil der Naht (TAU ist eingebaut).
@@ -50,10 +55,11 @@ float swept(float s, float head, float soft) {
 }
 
 void fragment() {
-	vec2 uv = UV;
-	if (mirror) {
-		uv.x = 1.0 - uv.x;
-	}
+	vec2 face_uv = UV;
+	vec2 uv = (face_uv - cell.xy) / max(cell.zw - cell.xy, vec2(0.0001));
+	// Außerhalb der Zelle wird nichts gezeichnet: repeat_disable klemmt sonst den
+	// Randwert über die halbe Seite.
+	float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
 	vec4 mask = texture(glyph_map, uv);
 	float core = mask.r;
 	float s = mask.g;
@@ -110,7 +116,9 @@ void fragment() {
 			// Der Schutz-Blitz: der einzige Moment, in dem die Wirkung überhaupt
 			// sichtbar wird - hart weiß, plus ein Ring über die ganze Seite.
 			float env = clamp(u / 0.111, 0.0, 1.0) * (1.0 - clamp((u - 0.111) / 0.889, 0.0, 1.0));
-			ring = (1.0 - smoothstep(0.0, 0.10, abs(length(uv - impact) - u * 0.9))) * env;
+			// Der Ring läuft über die ganze SEITE, nicht nur durch die Zelle:
+			// er ist die Schutz-Geste des Würfels, nicht die des Zeichens.
+			ring = (1.0 - smoothstep(0.0, 0.10, abs(length(face_uv - impact) - u * 0.9))) * env;
 			energy += flare_peak * 1.21 * env;
 			tint = mix(tint, core_color, env);
 			widen = 1.0 + (halo_flare - 1.0) * env;
@@ -135,10 +143,11 @@ void fragment() {
 		widen = 1.0 + (halo_flare - 1.0) * env;
 	}
 
-	// Ziffern-Wächter: die Naht DIMMT, wo sie hinter einer breiten Zahl liegt.
-	// Sie ändert nie ihre Form - Knochen lässt Werte wachsen, und eine Rune, der
-	// sich dabei neu zeichnet, liest als Fehler.
-	energy *= smoothstep(0.85, 1.15, length((uv - 0.5) / digit_half));
+	// Ziffern-Wächter: das Zeichen DIMMT, wo es hinter einer breiten Zahl liegt.
+	// Es ändert nie seine Form - Knochen lässt Werte wachsen, und eine Rune, die
+	// sich dabei neu zeichnet, liest als Fehler. Gemessen wird in SEITEN-Koordinaten:
+	// die Ziffer sitzt auf der Seite, nicht in der Zelle.
+	energy *= smoothstep(0.85, 1.15, length((face_uv - 0.5) / digit_half));
 
 	float band = halo_width * widen;
 	float halo = clamp(1.0 - radial / max(band, 0.001), 0.0, 1.0);
@@ -178,5 +187,5 @@ void fragment() {
 	}
 
 	ALBEDO = out_albedo;
-	ALPHA = out_alpha;
+	ALPHA = out_alpha * inside;
 }

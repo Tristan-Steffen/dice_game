@@ -644,7 +644,7 @@ func test_cyanide_pays_per_own_gold_face_once_per_turn():
 
 func test_xray_fires_the_opposite_face_once():
 	var die := _die_with(Essence.XRAY)
-	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
+	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
 	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "genau die Gegenseite")
 
 func test_essence_links_ignore_the_pointer_wiring():
@@ -652,20 +652,20 @@ func test_essence_links_ignore_the_pointer_wiring():
 	# Die Leiterbahn läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
 	# nur, was die Seele deterministisch mitzieht.
 	die.pointers[1] = 0
-	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
+	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
 	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "der Zeiger gehört nicht hierher")
-	var ring := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
+	var ring := EssenceEffects.link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
 	assert_eq(ring.count(DieDefinition.opposite_face(1)), 1, "jede Seite feuert höchstens einmal")
 
 func test_corona_fires_one_neighbour():
 	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA]))
+	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA]))
 	assert_eq(faces, _p([DieDefinition.adjacent_faces(2)[0]]), "die erste Nachbarseite")
 	assert_false(faces.has(DieDefinition.opposite_face(2)), "die Gegenseite gehört dem Röntgenlicht")
 
 func test_corona_ring_comes_before_the_xray_face():
 	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.essence_link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
+	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
 	assert_eq(faces.size(), 2)
 	assert_eq(faces[1], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
 

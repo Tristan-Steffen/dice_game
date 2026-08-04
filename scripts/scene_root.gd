@@ -446,7 +446,7 @@ var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Wü
 ## keine offene Wahl), und die vier Seiten in Knopf-Reihenfolge.
 var _tip_choice_slot: int = -1
 var _tip_choice_faces: Array[int] = []
-var pre_reroll_essence_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
+var pre_reroll_det_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
@@ -4173,11 +4173,12 @@ func _discarded_essence_ids() -> Array[String]:
 func _effective_essence_sets() -> Dictionary:
 	return EssenceEffects.effective_sets(_slot_essences(), _discarded_essence_ids())
 
-## Essenz-Glieder je Wurf-Slot (Röntgenlicht, Korona): einmal HIER aufgelöst,
-## damit Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen - über
-## dieselbe Quelle wie die Nehmen-Effekte (EssenceEffects.essence_link_faces).
-## Die Leiterbahn steht NICHT hier: sie wird beim Nehmen ausgewürfelt.
-func _essence_links() -> Dictionary:
+## Deterministische Glieder je Wurf-Slot (Röntgenlicht, Korona, Kehrseite-Rune):
+## einmal HIER aufgelöst, damit Vorschau, Nehmen und Farkle-Vergleich dieselben
+## Glieder sehen - über dieselbe Quelle wie die Nehmen-Effekte
+## (EssenceEffects.link_faces). Die Leiterbahn steht NICHT hier: sie wird beim
+## Nehmen ausgewürfelt.
+func _det_links() -> Dictionary:
 	var links := {}
 	var sets := _effective_essence_sets()
 	for i in dice.count():
@@ -4186,7 +4187,8 @@ func _essence_links() -> Dictionary:
 		if face < 0 or def == null:
 			continue
 		var essence_ids := EssenceEffects.set_at(sets, i)
-		var chain := EssenceEffects.essence_link_faces(def, face, essence_ids, run.charm_ids())
+		var chain := EssenceEffects.link_faces(def, face, essence_ids,
+			def.runes_on(face), run.charm_ids())
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -4272,7 +4274,7 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
-		DiceScoring.CTX_ESSENCE_LINKS: _essence_links(),  # Röntgenlicht/Korona
+		DiceScoring.CTX_DET_LINKS: _det_links(),  # Röntgenlicht/Korona
 		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Sättigung der Seiten
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
@@ -4310,7 +4312,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
 	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
 	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
-	for link_key in [DiceScoring.CTX_ESSENCE_LINKS, DiceScoring.CTX_POINTER_FIRES]:
+	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_POINTER_FIRES]:
 		var mapped_links := {}
 		var links: Dictionary = ctx.get(link_key, {})
 		for s in links:
@@ -4535,7 +4537,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_materials = _rolled_materials()
 		pre_reroll_essences = _slot_essences()
 		pre_reroll_runes = _slot_runes()
-		pre_reroll_essence_links = _essence_links()
+		pre_reroll_det_links = _det_links()
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_phosphor_mult = _phosphor_mults()
@@ -4739,7 +4741,7 @@ func _on_roll_finished() -> void:
 	# rechnet mit IHREN Essenz-Gliedern (vor dem Neuwurf), wie mit den
 	# alten Materialien.
 	var old_ctx := _score_ctx()
-	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
+	old_ctx[DiceScoring.CTX_DET_LINKS] = pre_reroll_det_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
@@ -5032,6 +5034,11 @@ func _on_take_button_pressed() -> void:
 	var harvested := run.apply_material_harvest(active_kinds, participating, _effective_essence_sets())
 	if harvested > 0:
 		hand_note = "Ethylen: %d Material-Gravuren geerntet." % harvested
+	# Abguss-Rune: aus demselben Grund wie die Ethylen-Ernte HIER - sie gießt das
+	# Material ab, mit dem die Hand gezählt hat, nicht das frisch vergoldete.
+	var cast_copies := run.apply_rune_cast(active_kinds, dice.face_indices, participating)
+	if cast_copies > 0:
+		hand_note = "Abguss: %d Material-Gravuren abgeformt." % cast_copies
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
@@ -5321,7 +5328,7 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 		if not await _play_die_links(group["links"], slot, die_px, gain_px, glow_by_slot):
 			return false
 	# Essenz-Glieder (Röntgenlicht, Korona) zuletzt - sie hängen am ganzen Würfel.
-	return await _play_die_links(step.get("essence_links", []), slot, die_px, gain_px, glow_by_slot)
+	return await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot)
 
 ## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem
 ## GLIED im Gold-Rahmen - so wandert die Kette sichtbar. false = Abbruch (Reset).

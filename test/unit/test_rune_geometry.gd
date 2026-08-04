@@ -1,25 +1,67 @@
 extends GutTest
-## Der Dauerwächter der Runenzeichen. Zwei Regeln, die jedes künftige Muster
-## einhalten muss: es hält die Ziffer frei, und es trägt zu jeder Linie ein
-## Gewicht. Beides ist billig zu prüfen und teuer zu übersehen - eine Figur, die
-## durch die Ziffer läuft, macht den Würfel unlesbar, und das fällt headless
-## sonst niemandem auf.
+## Der Dauerwächter der Runenzeichen. Die Platzierung trägt jetzt die Regel, die
+## früher die Figur trug: ein Riss lief von Rand zu Rand und hielt sich damit von
+## selbst von der Ziffer frei, ein Zeichen ist kompakt und tut das nicht. Also
+## prüfen wir beides getrennt - die ZELLE meidet die Ziffer, die FIGUR bleibt in
+## ihrer Zelle. Billig zu prüfen und teuer zu übersehen: eine Figur über der
+## Ziffer macht den Würfel unlesbar, und das fällt headless sonst niemandem auf.
 
 ## Stützstellen JE SEGMENT. Nur die Eckpunkte zu prüfen reicht nicht: zwei freie
 ## Endpunkte können die Sperr-Ellipse trotzdem als Sehne durchschneiden.
 const SAMPLES := 32
+## float32-Toleranz der PackedVector2Array-Speicherung.
+const EPS := 0.0001
 
-func test_no_crack_segment_cuts_the_glyph_keepout() -> void:
-	for pattern in Rune.all_glyphs():
-		var lines := Rune.glyph_lines(pattern)
-		assert_false(lines.is_empty(), "%s hat überhaupt eine Figur" % pattern)
+func test_every_anchor_cell_clears_the_digit_keepout() -> void:
+	# Geprüft wird der ganze Zellrand: die Ellipse ist konvex, also genügt es,
+	# dass keine Kante sie schneidet.
+	for slot in Rune.ANCHOR_CELLS.size():
+		var cell := Rune.anchor_cell(slot)
+		var corners := [
+			Vector2(cell.x, cell.y), Vector2(cell.z, cell.y),
+			Vector2(cell.z, cell.w), Vector2(cell.x, cell.w),
+		]
+		for i in corners.size():
+			var worst := _worst_clearance(corners[i], corners[(i + 1) % corners.size()])
+			assert_gt(worst, 1.0,
+				"Ankerzelle %d schneidet die Ziffern-Sperrzone (%.3f)" % [slot, worst])
+
+func test_the_anchor_cells_never_overlap() -> void:
+	# Zwei Zeichen einer Vakuum-Seite müssen getrennte Schultern nehmen.
+	for a in Rune.ANCHOR_CELLS.size():
+		for b in range(a + 1, Rune.ANCHOR_CELLS.size()):
+			var one := Rune.anchor_cell(a)
+			var two := Rune.anchor_cell(b)
+			var overlaps := one.x < two.z and two.x < one.z and one.y < two.w and two.y < one.w
+			assert_false(overlaps, "Ankerzellen %d und %d überlappen" % [a, b])
+
+func test_every_glyph_stays_inside_its_cell() -> void:
+	# Der Rand trägt den Hof (RuneTextures.FIELD): läuft die Figur bis an die
+	# Zellkante, schneidet der Shader ihren Ausbruch als Rechteck ab.
+	for glyph in Rune.all_glyphs():
+		var lines := Rune.glyph_lines(glyph)
+		assert_false(lines.is_empty(), "%s hat überhaupt eine Figur" % glyph)
 		for line_index in lines.size():
 			var line: PackedVector2Array = lines[line_index]
-			for i in range(line.size() - 1):
-				var worst := _worst_clearance(line[i], line[i + 1])
-				assert_gt(worst, 1.0,
-					"%s Linie %d Segment %d schneidet die Ziffern-Sperrzone (%.3f)"
-						% [pattern, line_index, i, worst])
+			for point in line:
+				# EPS: PackedVector2Array speichert float32, ein glattes 0.8 landet
+				# knapp darüber.
+				assert_between(point.x, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+					"%s Linie %d: x verlässt den Zellrand" % [glyph, line_index])
+				assert_between(point.y, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+					"%s Linie %d: y verlässt den Zellrand" % [glyph, line_index])
+
+func test_a_glyph_in_its_cell_never_touches_the_digit() -> void:
+	# Die eigentliche Zusage, beide Regeln zusammengenommen: die FERTIG platzierte
+	# Figur liegt außerhalb der Ziffern-Sperrzone, auf jedem Platz.
+	for slot in Rune.ANCHOR_CELLS.size():
+		for glyph in Rune.all_glyphs():
+			for line in Rune.glyph_lines(glyph):
+				for i in range(line.size() - 1):
+					var worst := _worst_clearance(Rune.cell_to_face(line[i], slot),
+						Rune.cell_to_face(line[i + 1], slot))
+					assert_gt(worst, 1.0,
+						"%s auf Platz %d schneidet die Ziffer (%.3f)" % [glyph, slot, worst])
 
 ## Schlechtester Ellipsen-Wert entlang eines Segments (kleinster = engster).
 func _worst_clearance(from: Vector2, to: Vector2) -> float:
@@ -30,46 +72,28 @@ func _worst_clearance(from: Vector2, to: Vector2) -> float:
 	return worst
 
 func test_every_polyline_carries_a_weight() -> void:
-	for pattern in Rune.all_glyphs():
-		assert_eq(Rune.glyph_weights(pattern).size(), Rune.glyph_lines(pattern).size(),
-			"%s: je Linie genau ein Gewicht" % pattern)
+	for glyph in Rune.all_glyphs():
+		assert_eq(Rune.glyph_weights(glyph).size(), Rune.glyph_lines(glyph).size(),
+			"%s: je Linie genau ein Gewicht" % glyph)
 
-func test_branch_weights_stay_below_the_trunk() -> void:
-	# Eine Gabel ist dünner und kürzer als ihr Stamm - das ist das Kintsugi-Merkmal.
-	for pattern in Rune.all_glyphs():
-		var weights := Rune.glyph_weights(pattern)
+func test_side_strokes_stay_below_the_main_stroke() -> void:
+	for glyph in Rune.all_glyphs():
+		var weights := Rune.glyph_weights(glyph)
 		var heaviest := 0.0
 		for weight in weights:
-			assert_between(weight, 0.3, 1.0, "%s: Gewichte bleiben im Rahmen" % pattern)
+			assert_between(weight, 0.3, 1.0, "%s: Gewichte bleiben im Rahmen" % glyph)
 			heaviest = maxf(heaviest, weight)
-		assert_almost_eq(heaviest, 1.0, 0.001, "%s: mindestens ein Hauptbruch" % pattern)
+		assert_almost_eq(heaviest, 1.0, 0.001, "%s: mindestens ein Hauptstrich" % glyph)
 
-func test_every_line_runs_to_a_border() -> void:
-	# Rand zu Rand ist die Regel: was in der Fläche anfängt UND aufhört, ist ein
-	# Kratzer. Ausgenommen sind Linien, die an einer anderen Linie ansetzen
-	# (Ausläufer, Gabeln) - die erben deren Rand.
-	for pattern in Rune.all_glyphs():
-		var lines := Rune.glyph_lines(pattern)
-		for line_index in lines.size():
-			var line: PackedVector2Array = lines[line_index]
-			var touches := _at_border(line[0]) or _at_border(line[line.size() - 1])
-			if not touches:
-				touches = _joins_another(lines, line_index)
-			assert_true(touches,
-				"%s Linie %d hängt frei in der Fläche" % [pattern, line_index])
-
-func _at_border(point: Vector2) -> bool:
-	return point.x <= 0.06 or point.x >= 0.94 or point.y <= 0.06 or point.y >= 0.94
-
-func _joins_another(lines: Array[PackedVector2Array], line_index: int) -> bool:
-	var line: PackedVector2Array = lines[line_index]
-	for other_index in lines.size():
-		if other_index == line_index:
-			continue
-		for point in lines[other_index]:
-			if point.distance_to(line[0]) < 0.01 or point.distance_to(line[line.size() - 1]) < 0.01:
-				return true
-	return false
+func test_every_rune_owns_exactly_one_glyph() -> void:
+	# Je Wirkung eine erkennbare Idee - zwei Runen mit derselben Figur wären
+	# am Würfel nicht auseinanderzuhalten.
+	var seen := {}
+	for rune in Rune.all():
+		assert_false(seen.has(rune.glyph), "%s teilt sein Zeichen" % rune.id)
+		seen[rune.glyph] = true
+		assert_true(Rune.all_glyphs().has(rune.glyph), "%s: Zeichen ist registriert" % rune.id)
+	assert_eq(seen.size(), Rune.all_glyphs().size(), "kein Zeichen ohne Rune")
 
 # --- Die Ruhe-Regel (Schritt 13 der Umsetzungsliste) --------------------------------
 

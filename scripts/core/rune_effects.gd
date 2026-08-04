@@ -4,8 +4,13 @@ class_name RuneEffects
 ## Seite oben liegt; Leiterbahn-Glieder feuern ihn NICHT (siehe DiceScoring).
 ##
 ## Zwei Klassen: WERTUNGS-Runen feuern, wenn die Seite gewertet wird
-## (Nachglühen, Funkenflug); ÖKONOMIE-/SCHUTZ-Runen hängen an anderen Ereignissen
-## (Streulicht am Zugende, Einbrand als Dauerzustand der Seite).
+## (Nachglühen, Funkenflug, Kehrseite); ÖKONOMIE-/SCHUTZ-Runen hängen an anderen
+## Ereignissen (Streulicht am Zugende, Abguss beim Werten in den Vorrat, Einbrand
+## als Dauerzustand der Seite).
+##
+## Die Kehrseite steht bewusst NICHT hier: sie ist ein deterministisches Glied
+## und wohnt darum in EssenceEffects.link_faces, zusammen mit Röntgenlicht und
+## Korona - ein zweiter Glied-Pfad würde nur irgendwann auseinanderlaufen.
 
 ## Streulicht zahlt je ungewertetem Würfel am Zugende.
 const STRAY_LIGHT_MONEY := 1
@@ -33,6 +38,12 @@ static func protects_face_value(rune_ids: Array[String]) -> bool:
 ## einmal, unabhängig von der Zahl der Auslösungen.
 static func charge_for_take(rune_ids: Array[String]) -> int:
 	return SPARK_FLIGHT_CHARGE if rune_ids.has(Rune.SPARK_FLIGHT) else 0
+
+## Abguss: nimmt die gewertete Seite eine Kopie ihrer Material-Gravur mit in den
+## Vorrat? Nur das Prädikat - gebucht wird in GameRun (die fünfte Wirkungsform:
+## sie greift in den Vorrat, nicht in die Wertung).
+static func casts_material(rune_ids: Array[String]) -> bool:
+	return rune_ids.has(Rune.CAST)
 
 ## Geld einer LIEGENDEN, aber ungewerteten Seite am Zugende (Streulicht) - das
 ## bewusste Gegen-Ereignis zum Gold-Material.

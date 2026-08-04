@@ -20,31 +20,31 @@ func _display(def: DieDefinition) -> DieFaceDisplay:
 	faces.apply_definition(def)
 	return faces
 
-# --- Der Bake: vier Texturen, für immer ---------------------------------------------
+# --- Der Bake: sechs Texturen, für immer ---------------------------------------------
 
-func test_the_bake_is_cached_per_pattern_only() -> void:
+func test_the_bake_is_cached_per_glyph_only() -> void:
 	RuneTextures.warm()
 	assert_eq(RuneTextures.cache_size(), Rune.all_glyphs().size(),
-		"genau eine Textur je Muster")
+		"genau eine Textur je Zeichen")
 	# Ein Vakuum-Würfel trug früher seine eigene schwarze Kopie je Kombination.
 	# Farblos gebacken kostet er nichts extra - das ist der ganze Sinn der Umstellung.
 	_display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
 	_display(_die([Rune.BURN_IN], Essence.NEON))
-	assert_lte(RuneTextures.cache_size(), 4,
-		"auch mit Essenzen und Doppelbrüchen bleiben es höchstens vier")
+	assert_lte(RuneTextures.cache_size(), Rune.all_glyphs().size(),
+		"auch mit Essenzen und zwei Zeichen je Seite bleibt es bei einer je Zeichen")
 
-func test_the_same_pattern_hands_back_the_same_texture() -> void:
-	assert_same(RuneTextures.for_glyph(Rune.GLYPH_BOLT),
-		RuneTextures.for_glyph(Rune.GLYPH_BOLT), "gecacht, nicht neu gebacken")
+func test_the_same_glyph_hands_back_the_same_texture() -> void:
+	assert_same(RuneTextures.for_glyph(Rune.GLYPH_SPARK_FLIGHT),
+		RuneTextures.for_glyph(Rune.GLYPH_SPARK_FLIGHT), "gecacht, nicht neu gebacken")
 	assert_same(RuneTextures.for_rune(Rune.SPARK_FLIGHT),
-		RuneTextures.for_glyph(Rune.GLYPH_BOLT), "Rune und Muster teilen die Maske")
+		RuneTextures.for_glyph(Rune.GLYPH_SPARK_FLIGHT), "Rune und Zeichen teilen die Maske")
 
-func test_an_unknown_pattern_bakes_nothing() -> void:
+func test_an_unknown_glyph_bakes_nothing() -> void:
 	assert_null(RuneTextures.for_glyph(""))
-	assert_null(RuneTextures.for_glyph("kein_muster"))
+	assert_null(RuneTextures.for_glyph("kein_zeichen"))
 
 func test_the_mask_carries_all_four_channels() -> void:
-	var image := RuneTextures.for_glyph(Rune.GLYPH_BOLT).get_image()
+	var image := RuneTextures.for_glyph(Rune.GLYPH_SPARK_FLIGHT).get_image()
 	image.clear_mipmaps()
 	var arc_low := 1.0
 	var arc_high := 0.0
@@ -69,7 +69,7 @@ func test_the_mask_carries_all_four_channels() -> void:
 func test_the_mask_is_colourless() -> void:
 	# Die Tönung ist ein Uniform. Wäre sie im Pixel, müssten sich die Masken von
 	# Nachglühen (silbrig) und Funkenflug (cyan) unterscheiden - tun sie nicht.
-	var image := RuneTextures.for_glyph(Rune.GLYPH_RING).get_image()
+	var image := RuneTextures.for_glyph(Rune.GLYPH_AFTERGLOW).get_image()
 	image.clear_mipmaps()
 	var tinted := 0
 	for y in RuneTextures.SIZE:
@@ -83,19 +83,20 @@ func test_the_mask_is_colourless() -> void:
 
 # --- Die Auflage am Würfel ----------------------------------------------------------
 
-func test_a_runeed_face_carries_the_shader() -> void:
+func test_a_face_with_a_rune_carries_the_shader() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW]))
 	var overlay := _overlay(faces, 0)
-	assert_true(overlay.visible, "die gebrochene Seite zeigt ihre Auflage")
+	assert_true(overlay.visible, "die beschriftete Seite zeigt ihre Auflage")
 	var material := overlay.material_override as ShaderMaterial
 	assert_not_null(material, "ShaderMaterial statt StandardMaterial3D")
 	assert_same(material.shader, DieBuilder.RUNE_SHADER, "EIN Shader, ein Compile")
 	assert_eq(material.get_shader_parameter("motion"), Rune.MOTION_ECHO)
-	assert_false(bool(material.get_shader_parameter("mirror")))
+	assert_eq(material.get_shader_parameter("cell"), Rune.anchor_cell(0),
+		"der erste Platz zeichnet in die erste Ankerzelle")
 
 func test_an_unbroken_face_shows_nothing() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW]))
-	assert_false(_overlay(faces, 3).visible, "eine heile Seite trägt keinen Rune")
+	assert_false(_overlay(faces, 3).visible, "eine leere Seite trägt kein Zeichen")
 
 func test_the_seam_colour_reaches_the_shader_normalized() -> void:
 	var faces := _display(_die([Rune.SPARK_FLIGHT]))
@@ -104,16 +105,17 @@ func test_the_seam_colour_reaches_the_shader_normalized() -> void:
 		"energy heißt in jedem Profil dasselbe")
 	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Cyan")
 
-func test_the_vacuum_swallows_every_rune_and_mirrors_the_second() -> void:
+func test_the_vacuum_swallows_every_rune_and_moves_the_second_to_its_own_cell() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
 	assert_eq(_material(faces, 0).get_shader_parameter("motion"), Rune.MOTION_INTAKE,
 		"auf einem Vakuum-Würfel saugt auch das Nachglühen")
 	var second: MeshInstance3D = faces.rune_overlays_second.get(_axis_of(faces, 0))
-	assert_not_null(second, "der zweite Bruch bekommt seine eigene Auflage")
+	assert_not_null(second, "das zweite Zeichen bekommt seine eigene Auflage")
 	assert_true(second.visible)
 	var second_material := second.material_override as ShaderMaterial
-	assert_true(bool(second_material.get_shader_parameter("mirror")),
-		"gespiegelt - sonst verheddern sich beide Brüche im selben Rand")
+	assert_eq(second_material.get_shader_parameter("cell"), Rune.anchor_cell(1),
+		"eigene Schulter - sonst liegen beide Zeichen übereinander")
+	assert_ne(Rune.anchor_cell(1), Rune.anchor_cell(0))
 	assert_eq(second_material.get_shader_parameter("motion"), Rune.MOTION_INTAKE)
 
 func test_a_single_rune_builds_no_second_overlay() -> void:
@@ -153,7 +155,7 @@ func test_a_two_digit_value_widens_the_guard_not_the_crack() -> void:
 	assert_almost_eq(half.y, Rune.DIGIT_KEEPOUT.y, 0.001, "die Höhe bleibt")
 	# Die Figur selbst ist NIE eine Funktion des Werts - Knochen lässt Werte
 	# wachsen, und eine Rune, der sich dabei neu zeichnet, liest als Fehler.
-	assert_eq(Rune.glyph_lines(Rune.GLYPH_RING), Rune.glyph_lines(Rune.GLYPH_RING))
+	assert_eq(Rune.glyph_lines(Rune.GLYPH_AFTERGLOW), Rune.glyph_lines(Rune.GLYPH_AFTERGLOW))
 
 func test_a_single_digit_keeps_the_authored_keepout() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW]))
@@ -176,28 +178,28 @@ func _material(faces: DieFaceDisplay, face_index: int) -> ShaderMaterial:
 
 # --- Das 2D-Netz: still, außer auf der Grubenkarte ----------------------------------
 
-func test_the_net_draws_one_crack_per_rune_and_knows_its_face() -> void:
+func test_the_net_draws_one_glyph_per_rune_and_knows_its_face() -> void:
 	var def := _die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM)
 	def.set_rune(4, Rune.STRAY_LIGHT)
 	var cracks := DieNetView.rune_glyphs(def, 40.0)
-	assert_eq(cracks.size(), 3, "zwei Brüche auf Seite 1, einer auf Seite 5")
+	assert_eq(cracks.size(), 3, "zwei Zeichen auf Seite 1, eines auf Seite 5")
 	var faces := {}
 	for crack in cracks:
 		faces[(crack as DieNetView.RuneGlyph).face] = true
-	assert_true(faces.has(0) and faces.has(4), "jeder Rune kennt seine Zelle")
+	assert_true(faces.has(0) and faces.has(4), "jede Rune kennt ihre Zelle")
 
 func test_the_net_carries_the_branch_weights() -> void:
 	var cracks := DieNetView.rune_glyphs(_die([Rune.SPARK_FLIGHT]), 40.0)
 	var crack := cracks[0] as DieNetView.RuneGlyph
 	assert_eq(crack.weights.size(), crack.lines.size(), "je Linie ein Gewicht")
-	assert_lt(crack.weights[1], crack.weights[0], "die Gabel ist dünner als ihr Stamm")
+	assert_lt(crack.weights[1], crack.weights[0], "der Beistrich ist dünner als der Hauptstrich")
 
 func test_a_net_crack_rests_without_flare() -> void:
-	# Das 30-Würfel-Raster ist eine Lesefläche, keine Bühne: dort steht der Rune
+	# Das 30-Würfel-Raster ist eine Lesefläche, keine Bühne: dort steht das Zeichen
 	# still, weil er nie eine andere Flare-Quelle als die Grubenkarte bekommt.
 	var crack := DieNetView.rune_glyphs(_die([Rune.BURN_IN]), 40.0)[0] as DieNetView.RuneGlyph
 	assert_almost_eq(crack.flare, 0.0, 0.001)
 
 func test_the_vacuum_breaks_black_in_the_net_too() -> void:
 	var crack := DieNetView.rune_glyphs(_die([Rune.AFTERGLOW], Essence.VACUUM), 40.0)[0] as DieNetView.RuneGlyph
-	assert_lt(crack.tint.r + crack.tint.g + crack.tint.b, 0.3, "das Vakuum bricht schwarz")
+	assert_lt(crack.tint.r + crack.tint.g + crack.tint.b, 0.3, "das Vakuum steht schwarz")

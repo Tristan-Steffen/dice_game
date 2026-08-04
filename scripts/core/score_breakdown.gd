@@ -13,7 +13,7 @@ class_name ScoreBreakdown
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" der
 ## für diesen Trigger gezündeten Leiterbahn; die deterministischen
-## "essence_links" folgen ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
+## "det_links" folgen ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
 ## -> Krit-Schläge, mit After-Ständen je Teilschritt; "crit_steps" listet JEDEN
 ## Krit einzeln (Material, Essenz, dann je Charm-Position), damit zwei Kopien auch
 ## zweimal einschlagen - "crit_x" bleibt ihr Produkt. Je Zündung trägt der
@@ -114,7 +114,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# ihn gewürfelte Leiterbahn. Ein Durchgang mehr - der letzte trägt nur die
 		# deterministischen Essenz-Glieder (Röntgenlicht, Korona).
 		var groups: Array[Dictionary] = []
-		var essence_links: Array[Dictionary] = []
+		var det_links: Array[Dictionary] = []
 		for t in die_count + 1:
 			var firings: Array[Dictionary] = []
 			for _f in (face_count if t < die_count else 0):
@@ -226,7 +226,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.
 			var links: Array[Dictionary] = []
-			for link in (DiceScoring.pointer_fires_at(ctx, i, t) if t < die_count else DiceScoring.essence_links_for(ctx, i)):
+			for link in (DiceScoring.pointer_fires_at(ctx, i, t) if t < die_count else DiceScoring.det_links_for(ctx, i)):
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))
@@ -307,7 +307,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			if t < die_count:
 				groups.append({"firings": firings, "links": links})
 			else:
-				essence_links = links
+				det_links = links
 		die_steps.append({
 			"slot": i,
 			"phosphor_add": phosphor,
@@ -326,7 +326,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"mult_after": mult,
 			"eye_charm_indices": _eye_charm_indices(raw[i], charm_ids),
 			"die_triggers": groups,
-			"essence_links": essence_links,
+			"det_links": det_links,
 		})
 
 	# 3. Statische Charm-Schritte strikt in Besitz-Reihenfolge: additive Boni

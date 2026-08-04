@@ -46,7 +46,7 @@ func _pulses(step: Dictionary) -> Array:
 	for group in step["die_triggers"]:
 		out.append_array(group["firings"])
 		out.append_array(group["links"])
-	out.append_array(step.get("essence_links", []))
+	out.append_array(step.get("det_links", []))
 	return out
 
 ## Nur die Seiten-Zündungen eines Würfel-Schritts (ohne Glieder).

@@ -293,12 +293,15 @@ static func pointer_chance(essence_id: String, base: float) -> float:
 const CORONA_FACES := 1
 const CORONA_FACES_ECLIPSED := 3
 
-## Die Seiten, die als ESSENZ-Glied feuern - deterministisch und einmal nach
-## allen Würfel-Triggern (die gewürfelte Leiterbahn läuft getrennt davon).
-## Reihenfolge: erst der Korona-Ring (aufsteigend), dann die Röntgen-Gegenseite;
+## Die Seiten, die als DETERMINISTISCHES Glied feuern - einmal nach allen
+## Würfel-Triggern (die gewürfelte Leiterbahn läuft getrennt davon). Sie vereinigt
+## Essenz- und Runen-Glieder in EINER Liste: die Kehrseiten-Rune ist mechanisch
+## dasselbe wie Röntgenlicht, nur an der Seite statt an der Seele, und ein
+## zweiter Glied-Pfad daneben würde nur irgendwann auseinanderlaufen.
+## Reihenfolge: erst der Korona-Ring (aufsteigend), dann die Gegenseite;
 ## jede Seite höchstens einmal.
-static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String],
-		charm_ids: Array[String] = []) -> Array[int]:
+static func link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String],
+		rune_ids: Array[String] = [], charm_ids: Array[String] = []) -> Array[int]:
 	var faces: Array[int] = []
 	if die == null or up_face < 0 or up_face >= 6:
 		return faces
@@ -309,7 +312,7 @@ static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Ar
 				break
 			if not faces.has(face):
 				faces.append(face)
-	if essence_ids.has(Essence.XRAY):
+	if essence_ids.has(Essence.XRAY) or rune_ids.has(Rune.REVERSE):
 		var opposite := DieDefinition.opposite_face(up_face)
 		if not faces.has(opposite):
 			faces.append(opposite)

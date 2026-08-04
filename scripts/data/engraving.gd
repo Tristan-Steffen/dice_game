@@ -78,6 +78,8 @@ const FOOTPRINT := {
 	RUNE_PREFIX + Rune.BURN_IN: Vector2i(2, 1),
 	RUNE_PREFIX + Rune.AFTERGLOW: Vector2i(2, 2),
 	RUNE_PREFIX + Rune.SPARK_FLIGHT: Vector2i(2, 2),
+	RUNE_PREFIX + Rune.CAST: Vector2i(2, 2),
+	RUNE_PREFIX + Rune.REVERSE: Vector2i(2, 2),
 	# Material-Gravuren (id = Material-id)
 	DieMaterial.GOLD: Vector2i(1, 1),
 	DieMaterial.AMBER: Vector2i(2, 1),
@@ -141,12 +143,15 @@ static func blueprint() -> Engraving:
 	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.EPIC)
 
 ## Runen-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
-## darüber, Nachglühen und Funkenflug sind die begehrten Zeichen.
+## darüber, die übrigen vier sind die begehrten Zeichen - Abguss und Kehrseite
+## sind beide stark, keines davon ist Alltagsware.
 const RUNE_RARITY := {
 	Rune.STRAY_LIGHT: Rarity.COMMON,
 	Rune.BURN_IN: Rarity.UNCOMMON,
 	Rune.AFTERGLOW: Rarity.RARE,
 	Rune.SPARK_FLIGHT: Rarity.RARE,
+	Rune.CAST: Rarity.RARE,
+	Rune.REVERSE: Rarity.RARE,
 }
 
 ## Rune: ätzt EIN Zeichen in eine Seite, das ihren Kernlicht-Funken anzapft.

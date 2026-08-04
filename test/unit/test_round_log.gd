@@ -71,7 +71,7 @@ func _hand_built() -> Dictionary:
 					"base_after_crit": 24, "mult_after_crit": 7.5,
 				}],
 			}],
-			"essence_links": [{
+			"det_links": [{
 				"face": 5, "material": "",
 				"base_add": 1, "mult_add": 0,
 				"base_after": 25, "mult_after": 7.5,
@@ -102,7 +102,7 @@ func test_flatten_gibt_jeden_ausloeser_als_eigenen_schritt() -> void:
 		RoundLog.STEP_FIRING,
 		RoundLog.STEP_FIRING, RoundLog.STEP_CRIT,
 		RoundLog.STEP_LINK,
-		RoundLog.STEP_ESSENCE_LINK,
+		RoundLog.STEP_DET_LINK,
 		RoundLog.STEP_CHARM,
 		RoundLog.STEP_MERGE,
 		RoundLog.STEP_POST,

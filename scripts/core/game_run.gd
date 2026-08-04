@@ -222,6 +222,8 @@ var essence_smother_used: Dictionary = {}
 var essence_tip_used: Dictionary = {}
 ## Schon abgeerntete Ethylen-Würfel dieser Runde.
 var essence_harvest_used: Dictionary = {}
+## Würfel, die diese Runde schon einen Abguss genommen haben (Rune.CAST).
+var rune_cast_used: Dictionary = {}
 ## Auslösungen und Krits der bisherigen Hände DIESER Runde - Dunkelkammer und
 ## Gewitterfront schleppen sie in die nächste Hand mit.
 var round_trigger_count: int = 0
@@ -1298,6 +1300,36 @@ func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int
 				granted += 1
 	return granted
 
+## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
+## frische Kopie davon in den Vorrat - IMMER Stufe I, der Abguss erbt die
+## Sättigung nicht. Liefert die Zahl der Kopien.
+## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
+## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
+func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
+		participating: Array[int]) -> int:
+	var granted := 0
+	for i in participating:
+		if i >= defs.size() or defs[i] == null or i >= faces.size():
+			continue
+		var face: int = faces[i]
+		if face < 0 or face >= defs[i].materials.size():
+			continue
+		if not RuneEffects.casts_material(defs[i].runes_on(face)):
+			continue
+		# Ohne Material auf der Seite gibt es nichts abzugießen.
+		var material := DieMaterial.by_id(defs[i].materials[face])
+		if material == null:
+			continue
+		var key := defs[i].get_instance_id()
+		if rune_cast_used.has(key):
+			continue
+		rune_cast_used[key] = true
+		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
+			Engraving.Rarity.UNCOMMON)
+		grant_engraving(Engraving.material_engraving(material, rarity))
+		granted += 1
+	return granted
+
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
 ## denselben Weg auffrischen.
@@ -1309,6 +1341,7 @@ func roll_essence_round_state() -> void:
 	essence_smother_used.clear()
 	essence_tip_used.clear()
 	essence_harvest_used.clear()
+	rune_cast_used.clear()
 	round_trigger_count = 0
 	round_crit_count = 0
 

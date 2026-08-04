@@ -284,10 +284,11 @@ func test_aqua_fortis_reaches_the_gold_of_the_others():
 func test_solar_eclipse_widens_the_corona_ring():
 	var die := _die_with(Essence.CORONA)
 	var ids := _ids([Essence.CORONA])
-	assert_eq(EssenceEffects.essence_link_faces(die, 2, ids).size(), EssenceEffects.CORONA_FACES)
-	assert_eq(EssenceEffects.essence_link_faces(die, 2, ids, _ids([Charm.SOLAR_ECLIPSE])).size(),
+	var no_runes: Array[String] = []
+	assert_eq(EssenceEffects.link_faces(die, 2, ids).size(), EssenceEffects.CORONA_FACES)
+	assert_eq(EssenceEffects.link_faces(die, 2, ids, no_runes, _ids([Charm.SOLAR_ECLIPSE])).size(),
 		EssenceEffects.CORONA_FACES_ECLIPSED)
-	for face in EssenceEffects.essence_link_faces(die, 2, ids, _ids([Charm.SOLAR_ECLIPSE])):
+	for face in EssenceEffects.link_faces(die, 2, ids, no_runes, _ids([Charm.SOLAR_ECLIPSE])):
 		assert_ne(face, DieDefinition.opposite_face(2), "die Gegenseite bleibt dem Röntgenlicht")
 
 func test_contrast_agent_halves_the_top_and_triples_the_bottom():

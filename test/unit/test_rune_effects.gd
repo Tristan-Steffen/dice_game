@@ -30,8 +30,8 @@ func _rune_ctx(slot: int, rune_ids: Array) -> Dictionary:
 
 # --- Datensatz ---------------------------------------------------------------------
 
-func test_all_four_runes_are_registered_and_filled():
-	assert_eq(Rune.all().size(), 4)
+func test_all_six_runes_are_registered_and_filled():
+	assert_eq(Rune.all().size(), 6)
 	var seen := {}
 	for rune in Rune.all():
 		assert_false(seen.has(rune.id), "doppelte id: %s" % rune.id)
@@ -40,7 +40,7 @@ func test_all_four_runes_are_registered_and_filled():
 		assert_ne(rune.short, "", "short fehlt bei %s" % rune.id)
 		assert_ne(rune.description, "", "description fehlt bei %s" % rune.id)
 		assert_ne(rune.kind, "", "Klasse fehlt bei %s" % rune.id)
-		assert_false(Rune.glyph_lines(rune.pattern).is_empty(), "Runenzeichen fehlt bei %s" % rune.id)
+		assert_false(Rune.glyph_lines(rune.glyph).is_empty(), "Zeichen fehlt bei %s" % rune.id)
 
 func test_spark_flight_wears_the_charge_cyan():
 	# Der Funke ist derselbe Stoff, den das Casino als Energie abfüllt - die
@@ -269,3 +269,87 @@ func test_rune_id_of_rejects_everything_else():
 	assert_eq(Engraving.rune_id_of(DieMaterial.GOLD), "")
 	assert_eq(Engraving.rune_id_of(Engraving.RUNE_PREFIX + "unobtainium"), "")
 	assert_false(Engraving.is_rune_id(Engraving.CHISEL))
+
+# --- Abguss: greift in den Vorrat, nicht in die Wertung ------------------------
+
+func _cast_die(material_id: String) -> DieDefinition:
+	var def := DieDefinition.new()
+	def.faces = _p([3, 3, 3, 3, 3, 3])
+	if material_id != "":
+		def.set_face_material(0, material_id)
+	def.set_rune(0, Rune.CAST)
+	return def
+
+func _stock(run: GameRun, id: String) -> int:
+	var count := 0
+	for engraving in run.owned_engravings:
+		if engraving.id == id:
+			count += 1
+	return count
+
+func test_the_cast_copies_the_material_engraving_once_per_round_and_die():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_cast_die(DieMaterial.GOLD)]
+	var before := _stock(run, DieMaterial.GOLD)
+	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 1, "ein Abguss")
+	assert_eq(_stock(run, DieMaterial.GOLD), before + 1, "die Kopie liegt im Vorrat")
+	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 0,
+		"derselbe Würfel gießt in derselben Runde nicht noch einmal ab")
+	assert_eq(_stock(run, DieMaterial.GOLD), before + 1)
+	run.roll_essence_round_state()
+	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 1, "die neue Runde macht die Form frei")
+
+func test_the_cast_of_nothing_is_nothing():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_cast_die("")]
+	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 0,
+		"eine Seite ohne Material hat nichts abzuformen")
+
+func test_the_cast_only_fires_on_the_scored_face():
+	var run := GameRun.new_run()
+	var defs: Array[DieDefinition] = [_cast_die(DieMaterial.GOLD)]
+	# Seite 2 liegt oben, die Rune sitzt auf Seite 0.
+	assert_eq(run.apply_rune_cast(defs, _p([2]), _p([0])), 0)
+
+func test_the_cast_never_inherits_the_saturation():
+	# Der Abguss ist eine frische Gravur der Stufe I - sonst wäre eine Stufe-III-
+	# Seite eine Druckerpresse für Stufe-III-Material.
+	var run := GameRun.new_run()
+	var def := _cast_die(DieMaterial.RUBY)
+	def.levels[0] = 3
+	var defs: Array[DieDefinition] = [def]
+	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 1)
+	assert_eq(_stock(run, DieMaterial.RUBY), 1, "genau eine, nicht drei")
+
+# --- Kehrseite: ein deterministisches Glied, kein zweiter Pfad -----------------
+
+func _reverse_die() -> DieDefinition:
+	var def := DieDefinition.new()
+	def.faces = _p([1, 2, 3, 4, 5, 6])
+	def.set_rune(0, Rune.REVERSE)
+	return def
+
+func test_the_reverse_links_the_opposite_face():
+	var no_essence: Array[String] = []
+	var faces := EssenceEffects.link_faces(_reverse_die(), 0, no_essence, _ids([Rune.REVERSE]))
+	assert_eq(faces, [DieDefinition.opposite_face(0)], "die Gegenseite, deterministisch")
+
+func test_the_reverse_and_the_xray_never_link_the_same_face_twice():
+	# Beide meinen die Gegenseite - zusammen bleibt es EIN Glied.
+	var faces := EssenceEffects.link_faces(_reverse_die(), 0, _ids([Essence.XRAY]),
+		_ids([Rune.REVERSE]))
+	assert_eq(faces.size(), 1, "jede Seite höchstens einmal")
+
+func test_a_die_without_the_reverse_links_nothing():
+	var no_essence: Array[String] = []
+	var faces := EssenceEffects.link_faces(_reverse_die(), 0, no_essence, _ids([Rune.AFTERGLOW]))
+	assert_true(faces.is_empty())
+
+func test_a_link_fires_no_runes_of_its_own():
+	# Eine Rune gehört der OBEREN Seite. Stünde auf der Gegenseite eine zweite
+	# Kehrseite, schaukelten sich beide sonst gegenseitig hoch.
+	var def := _reverse_die()
+	def.set_rune(DieDefinition.opposite_face(0), Rune.REVERSE)
+	var no_essence: Array[String] = []
+	var faces := EssenceEffects.link_faces(def, 0, no_essence, def.runes_on(0))
+	assert_eq(faces.size(), 1, "das Glied zündet keine weitere Kehrseite")

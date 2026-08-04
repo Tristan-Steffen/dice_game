@@ -94,11 +94,11 @@ static func _legal_dice(dice: Array[int], legal: Array[int]) -> Array[int]:
 ## NUR Röntgenlicht und Korona - deterministisch, einmal nach allen Würfel-
 ## Triggern. Der Aufrufer löst sie EINMAL auf (scene_root kennt Defs + obere
 ## Seiten), so sehen Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder.
-const CTX_ESSENCE_LINKS := "essence_links"
+const CTX_DET_LINKS := "det_links"
 
 ## Essenz-Glieder des Slots aus dem ctx ([] = keine).
-static func essence_links_for(ctx: Dictionary, slot: int) -> Array:
-	var links: Dictionary = ctx.get(CTX_ESSENCE_LINKS, {})
+static func det_links_for(ctx: Dictionary, slot: int) -> Array:
+	var links: Dictionary = ctx.get(CTX_DET_LINKS, {})
 	return links.get(slot, [])
 
 ## Gezündete Leiterbahn (ctx-Schlüssel): Dictionary Slot -> Array über die
@@ -617,7 +617,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			# eingefrorenen Wert (eine Kette meint fremde Seiten). RUNES feuern hier
 			# NICHT: eine Rune gehört der oben liegenden Seite, ein Glied ist per
 			# Definition eine andere.
-			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else essence_links_for(ctx, i)):
+			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else det_links_for(ctx, i)):
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))

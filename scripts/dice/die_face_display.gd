@@ -168,8 +168,10 @@ var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
 ## kommt und geht mit dem Rahmen - ohne Einlage gibt es nichts abzudichten.
 var gaskets: Dictionary = {}
 var rune_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Runen-Auflage)
-## Zweite Auflage NUR für Vakuum-Würfel (zwei Brüche je Seite), faul gebaut.
+## Zweite und dritte Auflage NUR für Vakuum-Würfel (bis zu drei Zeichen je
+## Seite, die dritte erst unter der Glasglocke), beide faul gebaut.
 var rune_overlays_second: Dictionary = {}
+var rune_overlays_third: Dictionary = {}
 ## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar. EIN
 ## Mesh mit eigenem Lampen-Material.
 var corner_caps: MeshInstance3D = null
@@ -189,7 +191,7 @@ var _pool_color := Color(0, 0, 0, 0)
 ## Spanne, über die das Polarlicht seinen Farbton wandern lässt (Grün -> Violett).
 const AURORA_HUE_SPAN := 0.22
 
-## Zweiter Bruch des Vakuum-Würfels: knapp vor dem ersten, hinter der Ziffer.
+## Tiefenstufe je weiterem Runen-Platz: knapp vor dem vorigen, hinter der Ziffer.
 const SECOND_RUNE_DEPTH := 0.0085
 ## Verbreiterung der Ziffern-Sperrzone je zusätzlicher Stelle (§2.4): eine
 ## zweistellige Zahl beansprucht ~0.375 statt 0.26 halbe Breite.
@@ -483,27 +485,32 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 ## Runen der Seiten: sichtbar nur, wo eine Rune sitzt. In Ruhe schimmern sie
 ## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_runes). Genau
 ## diese zeitliche Signatur trennt sie vom DAUERND glühenden Essenz-Rand.
-## Der Vakuum-Würfel trägt zwei Brüche je Seite; der zweite bekommt seine eigene
-## Auflage, erst bei Bedarf gebaut und GESPIEGELT - so nehmen die beiden Brüche
-## entgegengesetzte Ränder, statt sich im selben zu verheddern.
+## Der Vakuum-Würfel trägt bis zu drei Zeichen je Seite; jedes weitere bekommt
+## seine eigene Auflage, erst bei Bedarf gebaut, und seine eigene Ankerzelle -
+## so nehmen die Zeichen gegenüberliegende Schultern, statt sich zu überlagern.
 func _refresh_rune_overlays(def: DieDefinition) -> void:
 	for axis in rune_overlays:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var on_face := def.runes_on(face_index)
-		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def, false)
-		var second: MeshInstance3D = rune_overlays_second.get(axis)
-		if on_face.size() > 1:
-			if second == null:
-				second = DieBuilder.build_rune_overlay(SECOND_RUNE_DEPTH)
-				quads[axis].add_child(second)
-				rune_overlays_second[axis] = second
-			_apply_rune_overlay(second, on_face, 1, def, true)
-		elif second != null:
-			second.visible = false
+		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def)
+		for slot in range(1, Rune.ANCHOR_CELLS.size()):
+			var extra: MeshInstance3D = _extra_overlays(slot).get(axis)
+			if on_face.size() > slot:
+				if extra == null:
+					extra = DieBuilder.build_rune_overlay(SECOND_RUNE_DEPTH * float(slot))
+					quads[axis].add_child(extra)
+					_extra_overlays(slot)[axis] = extra
+				_apply_rune_overlay(extra, on_face, slot, def)
+			elif extra != null:
+				extra.visible = false
 		_sync_digit_guard(axis)
 
+## Auflagen-Ablage eines Runen-Platzes > 0 (faul gebaut, nur am Vakuum belegt).
+func _extra_overlays(slot: int) -> Dictionary:
+	return rune_overlays_second if slot == 1 else rune_overlays_third
+
 func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index: int,
-		def: DieDefinition, mirrored: bool) -> void:
+		def: DieDefinition) -> void:
 	overlay.visible = index < on_face.size()
 	if not overlay.visible:
 		return
@@ -515,7 +522,7 @@ func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 		overlay.visible = false
 		return
 	var material: ShaderMaterial = overlay.material_override
-	material.set_shader_parameter("glyph_map", RuneTextures.for_glyph(rune.pattern))
+	material.set_shader_parameter("glyph_map", RuneTextures.for_glyph(rune.glyph))
 	var seam := profile.normalized_seam()
 	material.set_shader_parameter("seam_color", Vector3(seam.r, seam.g, seam.b))
 	material.set_shader_parameter("core_color",
@@ -531,7 +538,11 @@ func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 	material.set_shader_parameter("halo_bias", profile.halo_bias)
 	# Je Würfel eine eigene Phase - 30 Tray-Würfel atmen nie im Gleichschritt.
 	material.set_shader_parameter("phase", _pulse_phase)
-	material.set_shader_parameter("mirror", mirrored)
+	var cell := Rune.anchor_cell(index)
+	material.set_shader_parameter("cell", cell)
+	# Der Schutz-Ring des Einbrands geht von der Zellmitte aus.
+	material.set_shader_parameter("impact",
+		Vector2((cell.x + cell.z) * 0.5, (cell.y + cell.w) * 0.5))
 	material.set_shader_parameter("flare", 0.0)
 	material.set_shader_parameter("block_flare", false)
 
@@ -545,7 +556,7 @@ func _sync_digit_guard(axis: String) -> void:
 	var digits := maxi(1, label.text.length())
 	var half := Vector2(Rune.DIGIT_KEEPOUT.x + DIGIT_GUARD_WIDEN * float(digits - 1),
 		Rune.DIGIT_KEEPOUT.y)
-	for store in [rune_overlays, rune_overlays_second]:
+	for store in [rune_overlays, rune_overlays_second, rune_overlays_third]:
 		var overlay: MeshInstance3D = store.get(axis)
 		if overlay == null or not overlay.visible:
 			continue
@@ -559,7 +570,7 @@ func flare_runes(strength: float, face_index := -1, block := false) -> void:
 	for axis in rune_overlays:
 		if face_index >= 0 and DiceController.AXIS_FACE_INDEX[axis] != face_index:
 			continue
-		for store in [rune_overlays, rune_overlays_second]:
+		for store in [rune_overlays, rune_overlays_second, rune_overlays_third]:
 			var overlay: MeshInstance3D = store.get(axis)
 			if overlay == null or not overlay.visible:
 				continue

@@ -332,9 +332,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		elif swelled:
 			report.grown.append(i)
 
-		# Essenz-Glieder (Röntgenlicht, Korona): deterministisch und EINMAL nach
+		# Deterministische Glieder (Röntgenlicht, Korona, Kehrseite): EINMAL nach
 		# allen Würfel-Triggern - anders als die gewürfelte Leiterbahn.
-		for link_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids, charm_ids):
+		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
+				defs[i].runes_on(face), charm_ids):
 			_fire_link(defs[i], link_face, charm_ids, essence_ids, gold_surplus, gold_triggers, report, i)
 
 		# Kontrastmittel: das Röntgenlicht belichtet die Achse durch - obere Seite
@@ -542,7 +543,8 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 				var fired: int = int(fire["face"])
 				if fired < defs[i].materials.size() and defs[i].materials[fired] == DieMaterial.GOLD:
 					triggers += 1
-		for link_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids, charm_ids):
+		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
+				defs[i].runes_on(face), charm_ids):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += 1
 	return triggers

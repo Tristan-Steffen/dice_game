@@ -214,29 +214,32 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Je gebrochener Seite die Glyphenlinien AUSSEN UM DIE ZIFFER HERUM: die Mitte ist
-## der unfreieste Platz der Zelle, nicht der freieste (Rune.DIGIT_KEEPOUT). Ein
-## Bruch läuft ohnehin von Rand zu Rand, also fallen Echtheit und Lesbarkeit
-## zusammen. Geometrie statt Typo: bei ~17 px Zelle liest sich ein Linienzug, eine
-## Ziffer nicht. Das Vakuum bricht schwarz.
+## Je beschrifteter Seite ihr Zeichen, in derselben Ankerzelle wie am 3D-Würfel
+## (Rune.ANCHOR_CELLS) - eine Schulter außerhalb der Ziffern-Sperrzone. Die
+## Zeichnung selbst kommt aus derselben EINEN Quelle wie der Bake, sonst zeigt die
+## Werkbank ein anderes Zeichen als der Tisch. Geometrie statt Typo: bei ~17 px
+## Zelle liest sich ein Linienzug, eine Ziffer nicht. Das Vakuum steht schwarz.
 static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
-	var cracks: Array[Control] = []
+	var glyphs: Array[Control] = []
 	for face in mini(6, def.runes.size()):
-		for rune_id in def.runes_on(face):
+		var on_face := def.runes_on(face)
+		for slot in on_face.size():
+			var rune_id: String = on_face[slot]
 			var rune := Rune.by_id(rune_id)
 			if rune == null:
 				continue
-			var crack := RuneGlyph.new()
-			crack.face = face
-			crack.lines = Rune.glyph_lines(rune.pattern)
-			crack.weights = Rune.glyph_weights(rune.pattern)
-			crack.tint = RuneEffects.glyph_color(rune_id, def.essence_id)
-			crack.core = rune.core
-			crack.size = Vector2.ONE * cell
-			crack.position = _cell_pos(face, cell)
-			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			cracks.append(crack)
-	return cracks
+			var mark := RuneGlyph.new()
+			mark.face = face
+			mark.lines = Rune.glyph_lines(rune.glyph)
+			mark.weights = Rune.glyph_weights(rune.glyph)
+			mark.slot = slot
+			mark.tint = RuneEffects.glyph_color(rune_id, def.essence_id)
+			mark.core = rune.core
+			mark.size = Vector2.ONE * cell
+			mark.position = _cell_pos(face, cell)
+			mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			glyphs.append(mark)
+	return glyphs
 
 ## Der Rune selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
 ## Zeiger-Pfeile und Stufen-Plakette, damit er auch auf einer hellen Material-
@@ -255,6 +258,9 @@ class RuneGlyph:
 	var face: int = -1
 	var lines: Array[PackedVector2Array] = []
 	var weights := PackedFloat32Array()
+	## Runen-Platz = Ankerzelle. Zwei Zeichen einer Vakuum-Seite nehmen so
+	## gegenüberliegende Schultern, genau wie am 3D-Würfel.
+	var slot: int = 0
 	var tint := Color.WHITE
 	var core := Color.WHITE
 	var flare: float = 0.0
@@ -266,10 +272,10 @@ class RuneGlyph:
 				continue
 			var points := PackedVector2Array()
 			for point in line:
-				points.append(point * size)
-			# 1-px-Boden: bei 17 px Zelle würde eine 0.45er Gabel sonst verschwinden.
+				points.append(Rune.cell_to_face(point, slot) * size)
+			# 1-px-Boden: bei 17 px Zelle wäre ein Beistrich sonst weg.
 			var weight: float = weights[index] if index < weights.size() else 1.0
-			var width := maxf(1.0, size.x * 0.055 * weight) * (1.0 + 0.8 * flare)
+			var width := maxf(1.0, size.x * 0.036 * weight) * (1.0 + 0.8 * flare)
 			# Unterzug zuerst, dann die Kernlinie darüber.
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
 			draw_polyline(points, tint.lerp(core, flare), width)

@@ -15,7 +15,7 @@ const STEP_COMBO := "combo"
 const STEP_FIRING := "firing"
 const STEP_CRIT := "crit"
 const STEP_LINK := "link"
-const STEP_ESSENCE_LINK := "essence_link"
+const STEP_DET_LINK := "det_link"
 const STEP_CHARM := "charm"
 const STEP_CHARM_PULSE := "charm_pulse"
 const STEP_MERGE := "merge"
@@ -102,8 +102,8 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 				_append_firing(steps, firing, slot, charm_ids, overrides)
 			for link: Dictionary in group.get("links", []):
 				_append_link(steps, link, slot, charm_ids, overrides, STEP_LINK)
-		for link: Dictionary in die_step.get("essence_links", []):
-			_append_link(steps, link, slot, charm_ids, overrides, STEP_ESSENCE_LINK)
+		for link: Dictionary in die_step.get("det_links", []):
+			_append_link(steps, link, slot, charm_ids, overrides, STEP_DET_LINK)
 
 	for charm_step: Dictionary in breakdown.get("charm_steps", []):
 		_append_charm(steps, charm_step, charm_ids, overrides)
@@ -162,7 +162,7 @@ static func _append_firing(steps: Array[Dictionary], firing: Dictionary, slot: i
 static func _append_link(steps: Array[Dictionary], link: Dictionary, slot: int,
 		charm_ids: Array[String], overrides: Dictionary, kind: String) -> void:
 	var face := int(link.get("face", 0))
-	var head := "Essenz-Glied → Seite %d" % (face + 1) if kind == STEP_ESSENCE_LINK \
+	var head := "Glied → Seite %d" % (face + 1) if kind == STEP_DET_LINK \
 		else "Leiterbahn → Seite %d" % (face + 1)
 	var parts: Array[String] = [head]
 	_add_amounts(parts, int(link.get("base_add", 0)), float(link.get("mult_add", 0)))

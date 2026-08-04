@@ -1,12 +1,13 @@
 class_name RuneTextures
-## Backt EIN Runenzeichen je Muster - FARBLOS. Die Tönung ist ein Shader-Uniform, kein
-## Pixel: vorher entstand je Kombination aus Runenn und Essenz eine eigene Textur
-## (bis zu ~30), und jeder Vakuum-Würfel buk sich seine eigene schwarze Kopie.
-## Jetzt gibt es vier Texturen im ganzen Spiel, für immer.
+## Backt EIN Zeichen je Rune - FARBLOS, und in ZELLEN-Koordinaten: die Textur
+## bildet die Ankerzelle ab, nicht die ganze Seite, also trägt dieselbe Maske
+## jeden Runen-Platz. Die Tönung ist ein Shader-Uniform, kein Pixel: vorher
+## entstand je Kombination aus Runen und Essenz eine eigene Textur (bis zu ~30).
+## Jetzt gibt es sechs Texturen im ganzen Spiel, für immer - eine je Zeichen.
 ##
 ## Kanäle (RGBA8, Datentextur - NICHT source_color, sonst zerrt die sRGB-Kurve
 ## Bogenlänge und Abstand krumm):
-##   R  Kern - der scharfe Faden, die Verjüngung steckt schon in seiner Breite
+##   R  Kern - der scharfe Faden, die Strichstärke steckt schon in seiner Breite
 ##   G  Bogenlänge s entlang des verketteten Pfads (0..1); trägt jede Wanderung
 ##   B  Abstand zur Mittellinie, auf FIELD normiert (0 = Kern, 1 = Feldrand)
 ##   A  Deckung als Antialias-Hülle am Feldrand
@@ -16,28 +17,33 @@ class_name RuneTextures
 ## das 2,5- bis 3,5-fache, ohne dass irgendetwas neu erzeugt wird.
 
 ## Kantenlänge der Textur - reiner Qualitätsregler, gemessen am Bake-Preis:
-## 256 kostet 337 ms, 192 kostet 192 ms, 128 kostet 82 ms (alle vier Muster
-## zusammen, einmalig beim Start). 128 wäre der billigste Rückfall, drückt die
-## 0.45er Gabel aber auf 0.9 px halbe Breite und damit unter die Sichtbarkeit -
-## und die Gabel IST das Kintsugi-Merkmal. 192 hält sie bei 1.35 px.
+## alle Zeichen zusammen, einmalig beim Start. Gemessen bei SIZE 192: ~39 ms JE
+## ZEICHEN, 234 ms für alle sechs. Je Maske ist das billiger als ein randläufiger
+## Riss (der lag bei ~48 ms), in der Summe aber teurer - sechs statt vier, und
+## FIELD ist gewachsen. Bleibt hinter dem Titelbild unsichtbar.
 const SIZE := 192
-## Kernbreite als Anteil der SEITE bei Gewicht 1.0 (volle Breite, vor Verjüngung).
-## Als Anteil und nicht in Pixeln, damit SIZE ein reiner Qualitätsregler bleibt:
-## eine andere Auflösung darf die Rune nicht dicker oder dünner machen.
-const STROKE := 0.031
-## Reichweite des Abstandsfelds als Anteil der Seite. Bewusst so gewählt, dass das
-## Ruhe-Band (halo_width 0.35) genau den gebackenen Hof trifft und das Ausbruch-
-## Band (0.35 × 2.8) fast das ganze Feld - beide Zahlen aus dem Entwurf passen
-## damit ohne Nachstellen.
-const FIELD := 0.16
-## Anteil der Linie, über den ein freies Ende auf Haarstrich ausläuft. Eine Naht
-## hört nicht auf, sie verliert sich - in Licht gelesen: eine immer feinere Spalte.
-const TAPER_SPAN := 0.15
+## Kernbreite als Anteil der ZELLE bei Gewicht 1.0. Die Textur bildet die
+## ANKERZELLE ab, nicht die ganze Seite (siehe Rune.ANCHOR_CELLS), also sind das
+## 0.14 × 0.26 ≈ 0.036 Seitenbreiten - bewusst KRÄFTIGER als der alte Riss
+## (0.031): ein Zeichen sitzt in einer Ecke statt über die ganze Seite zu laufen,
+## also muss der Strich die verlorene Länge über Stärke zurückholen.
+const STROKE := 0.14
+## Reichweite des Abstandsfelds als Anteil der Zelle. Es ist zugleich der Rand,
+## den Rune.GLYPH_MARGIN um jede Figur frei lässt: der Ausbruch weitet nur das
+## angenommene Band INNERHALB des gebackenen Felds, also endet der Hof genau an
+## der Zellkante und wird dort nie abgeschnitten.
+const FIELD := 0.19
+## Anteil der Linie, über den ein freies Ende schmaler wird. Ein geätzter Strich
+## hat konstante Tiefe - das hier ist nur die Auslaufzone gegen einen abrupten
+## Antialias-Bruch, keine Riss-Verjüngung mehr.
+const TAPER_SPAN := 0.08
+## Restbreite am freien Ende (Anteil der vollen Breite).
+const TAPER_FLOOR := 0.82
 
 static var _cache := {}  # glyph_id -> ImageTexture
 
-## Maske eines Musters ("" oder unbekannt -> null). Gecacht je MUSTER, also nie
-## mehr als vier Einträge.
+## Maske eines Zeichens ("" oder unbekannt -> null). Gecacht je ZEICHEN, also
+## nie mehr als sechs Einträge.
 static func for_glyph(glyph_id: String) -> ImageTexture:
 	if glyph_id == "":
 		return null
@@ -48,17 +54,17 @@ static func for_glyph(glyph_id: String) -> ImageTexture:
 		_cache[glyph_id] = texture
 	return texture
 
-## Maske zum Rune - die bequeme Form für die Anzeige.
+## Maske zur Rune - die bequeme Form für die Anzeige.
 static func for_rune(rune_id: String) -> ImageTexture:
 	var rune := Rune.by_id(rune_id)
-	return for_glyph(rune.pattern) if rune != null else null
+	return for_glyph(rune.glyph) if rune != null else null
 
-## Alle vier auf einmal backen. Der Aufrufer wählt den Moment (hinter dem
+## Alle sechs auf einmal backen. Der Aufrufer wählt den Moment (hinter dem
 ## Titelbild sind 40 ms unsichtbar), damit der erste beschriftete Würfel nicht mitten
 ## im Spiel für den Bake bezahlt.
 static func warm() -> void:
-	for pattern in Rune.all_glyphs():
-		for_glyph(pattern)
+	for glyph in Rune.all_glyphs():
+		for_glyph(glyph)
 
 static func cache_size() -> int:
 	return _cache.size()
@@ -72,24 +78,18 @@ static func _bake(glyph_id: String) -> ImageTexture:
 	if lines.is_empty():
 		return null
 	var weights := Rune.glyph_weights(glyph_id)
-	var peak := _taper_peak(glyph_id)
-	var taper_start := _tapers_at_start(glyph_id)
 
 	var lengths := PackedFloat32Array()
 	var total := 0.0
-	var longest := 0.0
 	for line in lines:
 		var length := 0.0
 		for i in range(line.size() - 1):
 			length += line[i].distance_to(line[i + 1]) * float(SIZE)
 		lengths.append(length)
 		total += length
-		longest = maxf(longest, length)
-	# Der Sternbruch misst die Bogenlänge JE STRAHL ab dem Einschlag, nicht über
-	# die Kette: seine Glut soll auf allen fünf Strahlen bei s = 0 am heißesten
-	# sein. Alle anderen Muster verketten, damit jede Linie ihre eigene Phase erbt.
-	var radial_arc := glyph_id == Rune.GLYPH_STAR
-	var arc_span := maxf(longest if radial_arc else total, 0.001)
+	# Die Bogenlänge läuft über die ganze VERKETTETE Figur, damit jede Linie ihre
+	# eigene Phase erbt und die Bewegungen die Figur entlangwandern.
+	var arc_span := maxf(total, 0.001)
 
 	var field := FIELD * float(SIZE)
 	var pixels := SIZE * SIZE
@@ -138,16 +138,16 @@ static func _bake(glyph_id: String) -> ImageTexture:
 						continue
 					var index := row + x
 					# Die NÄCHSTE Mittellinie gewinnt. Ohne diese Regel überschreiben
-					# sich am Einschlag des Sterns die Strahlen gegenseitig ihre
-					# Bogenwerte, und die Glutwelle zeigt dort eine Naht.
+					# sich an jeder Kreuzung zwei Striche gegenseitig ihre
+					# Bogenwerte, und die Bewegung zeigt dort eine Naht.
 					if gap_sq >= nearest[index]:
 						continue
 					nearest[index] = gap_sq
 					var distance := sqrt(gap_sq)
 					var run := walked + t * span_length
 					var along := run / maxf(line_length, 0.001)
-					var arc := (run if radial_arc else before + run) / arc_span
-					var half := _half_width(along, weight, peak, taper_start)
+					var arc := (before + run) / arc_span
+					var half := _half_width(along, weight)
 					var radial := clampf(distance / field, 0.0, 1.0)
 					var core := 1.0 - smoothstep(half * 0.55, half * 1.25, distance)
 					var cover := 1.0 - smoothstep(0.86, 1.0, radial)
@@ -159,35 +159,16 @@ static func _bake(glyph_id: String) -> ImageTexture:
 		before += line_length
 
 	var image := Image.create_from_data(SIZE, SIZE, false, Image.FORMAT_RGBA8, data)
-	# Ohne Mipmaps flimmert ein 1-px-Rune im 30-Würfel-Tray. Dass dabei auch der
+	# Ohne Mipmaps flimmert ein 1-px-Strich im 30-Würfel-Tray. Dass dabei auch der
 	# G-Kanal gemittelt wird, ist entlang einer Linie harmlos und an Kreuzungen
 	# Unsinn - vertretbar, weil auf Tray-Distanz nichts animiert.
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 
-## Halbe Kernbreite an der Stelle along (0..1 auf DIESER Linie). Lack füllt den
-## Spalt: breit, wo die Scherben auseinandergingen, und zum Ende hin auf null.
-static func _half_width(along: float, weight: float, peak: float, taper_start: bool) -> float:
-	var span := maxf(maxf(peak, 1.0 - peak), 0.001)
-	var offset := (along - peak) / span
-	var bump := 1.0 - 0.75 * offset * offset          # 1 am Bauch, 0.25 an den Enden
-	var ends := smoothstep(0.0, TAPER_SPAN, 1.0 - along)
-	if taper_start:
-		ends = minf(ends, smoothstep(0.0, TAPER_SPAN, along))
-	return 0.5 * STROKE * float(SIZE) * weight * (0.45 + 0.55 * bump) * (0.22 + 0.78 * ends)
-
-## Stelle der größten Breite auf einer Linie.
-static func _taper_peak(glyph_id: String) -> float:
-	match glyph_id:
-		Rune.GLYPH_STAR:
-			return 0.0        # der Einschlag IST die breiteste Stelle
-		Rune.GLYPH_BOLT:
-			return 0.55
-		Rune.GLYPH_HAIRLINES:
-			return 0.42
-	return 0.45
-
-## Läuft auch der ANFANG einer Linie auf Haarstrich aus? Beim Sternbruch nicht -
-## dort sitzt der Einschlag, und ein verjüngter Einschlag wäre kein Einschlag.
-static func _tapers_at_start(glyph_id: String) -> bool:
-	return glyph_id != Rune.GLYPH_STAR
+## Halbe Kernbreite an der Stelle along (0..1 auf DIESER Linie). Konstant: ein
+## geätzter Strich hat überall dieselbe Tiefe. Nur die freien Enden laufen ein
+## Stück schmaler aus, damit der Antialias dort nicht abrupt bricht.
+static func _half_width(along: float, weight: float) -> float:
+	var ends := minf(smoothstep(0.0, TAPER_SPAN, along),
+		smoothstep(0.0, TAPER_SPAN, 1.0 - along))
+	return 0.5 * STROKE * float(SIZE) * weight * (TAPER_FLOOR + (1.0 - TAPER_FLOOR) * ends)

@@ -2,20 +2,20 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
 func test_all_returns_etchings_materials_and_runes():
-	# 10 Ätzungen + Leiterbahn + Dotierung + 5 Material-Gravuren + 4 Rune.
-	assert_eq(Engraving.all().size(), 21)
+	# 10 Ätzungen + Leiterbahn + Dotierung + 5 Material-Gravuren + 6 Runen.
+	assert_eq(Engraving.all().size(), 23)
 
 func test_no_engraving_targets_the_edges_anymore():
 	# Die Kanten sind als Ausbau-Slot gestrichen - es gibt keine Gravur mehr,
 	# die den ganzen Würfel überzieht. Die Würfel-Kategorie füllen jetzt die
-	# Rune neben der Leiterbahn.
+	# Runen neben der Leiterbahn.
 	for engraving in Engraving.all():
 		assert_false(engraving.id.begins_with("edge_"), "keine Kanten-Gravur mehr: %s" % engraving.id)
 	var dice_ids: Array[String] = []
 	for engraving in Engraving.all():
 		if engraving.category == Engraving.CATEGORY_DICE:
 			dice_ids.append(engraving.id)
-	assert_eq(dice_ids.size(), 5, "Leiterbahn + vier Rune")
+	assert_eq(dice_ids.size(), 7, "Leiterbahn + sechs Runen")
 	assert_true(dice_ids.has(Engraving.POINTER))
 	for rune in Rune.all():
 		assert_true(dice_ids.has(Engraving.RUNE_PREFIX + rune.id), "Rune für %s" % rune.id)
