@@ -279,7 +279,7 @@ func test_aqua_fortis_reaches_the_gold_of_the_others():
 	assert_eq(report.money, EssenceEffects.CYANIDE_PER_GOLD + 2 * EssenceEffects.AQUA_FORTIS_PER_GOLD
 		+ MaterialEffects.GOLD_PAYOUT)
 
-# --- Seiten & Risse ---------------------------------------------------------------
+# --- Seiten & Runen ---------------------------------------------------------------
 
 func test_solar_eclipse_widens_the_corona_ring():
 	var die := _die_with(Essence.CORONA)
@@ -299,16 +299,16 @@ func test_contrast_agent_halves_the_top_and_triples_the_bottom():
 	assert_eq(die.faces[0], 4, "obere Seite halbiert")
 	assert_eq(die.faces[DieDefinition.opposite_face(0)], 18, "Gegenseite verdreifacht")
 
-func test_the_bell_jar_opens_a_third_rift_only_on_the_vacuum():
+func test_the_bell_jar_opens_a_third_rune_only_on_the_vacuum():
 	var vacuum := _die_with(Essence.VACUUM)
-	assert_eq(vacuum.rift_slots(), 2, "ohne Charm zwei")
-	assert_eq(vacuum.rift_slots(1), 3)
-	assert_true(vacuum.set_rift(0, Rift.AFTERGLOW, 2, 1))
-	assert_eq(vacuum.rifts_on(0).size(), 1, "die ersten beiden Plätze sind noch leer")
-	assert_true(vacuum.rifts_on(0).has(Rift.AFTERGLOW))
+	assert_eq(vacuum.rune_slots(), 2, "ohne Charm zwei")
+	assert_eq(vacuum.rune_slots(1), 3)
+	assert_true(vacuum.set_rune(0, Rune.AFTERGLOW, 2, 1))
+	assert_eq(vacuum.runes_on(0).size(), 1, "die ersten beiden Plätze sind noch leer")
+	assert_true(vacuum.runes_on(0).has(Rune.AFTERGLOW))
 	var plain := DieDefinition.standard()
-	assert_eq(plain.rift_slots(1), 1, "ohne Vakuum bleibt es bei einem Riss")
-	assert_false(plain.set_rift(0, Rift.AFTERGLOW, 2, 1))
+	assert_eq(plain.rune_slots(1), 1, "ohne Vakuum bleibt es bei einer Rune")
+	assert_false(plain.set_rune(0, Rune.AFTERGLOW, 2, 1))
 
 func test_the_censer_spreads_without_paying():
 	var miasma := _die_with(Essence.MIASMA)

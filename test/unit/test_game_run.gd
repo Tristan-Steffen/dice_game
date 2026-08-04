@@ -634,15 +634,15 @@ func test_randomize_all_essences_keeps_uniques_unique():
 			assert_eq(counts[id], 1, "%s bleibt Unikat" % id)
 
 func test_clear_all_essences_also_takes_the_second_break():
-	# Ohne Vakuum trägt die Schale keinen zweiten Bruch mehr.
+	# Ohne Vakuum trägt die Schale keinen zweite Rune mehr.
 	run.randomize_all_essences()
 	run.owned_pool[0].essence_id = Essence.VACUUM
-	run.owned_pool[0].set_rift(0, Rift.AFTERGLOW, 1)
+	run.owned_pool[0].set_rune(0, Rune.AFTERGLOW, 1)
 	run.clear_all_essences()
 	for die in run.owned_pool:
 		assert_eq(die.essence_id, "", "Seele entfernt")
-		for rift_id: String in die.second_rifts:
-			assert_eq(rift_id, "", "zweiter Bruch entfernt")
+		for rune_id: String in die.second_runes:
+			assert_eq(rune_id, "", "zweiter Bruch entfernt")
 
 # --- Nebenwetten --------------------------------------------------------------
 
@@ -1400,7 +1400,7 @@ func test_golden_handshake_spares_a_burned_in_material_face():
 	run.round_goal = 100
 	var die := DieDefinition.standard()
 	die.set_face_material(2, DieMaterial.RUBY)
-	die.rifts[2] = Rift.BURN_IN
+	die.runes[2] = Rune.BURN_IN
 	assert_true(run.apply_golden_handshake(die, 100))
 	assert_eq(die.materials[2], DieMaterial.RUBY, "Einbrand sperrt das Übermalen")
 	assert_eq(die.materials[0], DieMaterial.GOLD, "der Rest wird trotzdem Gold")

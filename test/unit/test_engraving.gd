@@ -1,24 +1,24 @@
 extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ziehung).
 
-func test_all_returns_etchings_materials_and_rifts():
-	# 10 Ätzungen + Leiterbahn + Dotierung + 5 Material-Gravuren + 4 Bruchmuster.
+func test_all_returns_etchings_materials_and_runes():
+	# 10 Ätzungen + Leiterbahn + Dotierung + 5 Material-Gravuren + 4 Rune.
 	assert_eq(Engraving.all().size(), 21)
 
 func test_no_engraving_targets_the_edges_anymore():
 	# Die Kanten sind als Ausbau-Slot gestrichen - es gibt keine Gravur mehr,
 	# die den ganzen Würfel überzieht. Die Würfel-Kategorie füllen jetzt die
-	# Bruchmuster neben der Leiterbahn.
+	# Rune neben der Leiterbahn.
 	for engraving in Engraving.all():
 		assert_false(engraving.id.begins_with("edge_"), "keine Kanten-Gravur mehr: %s" % engraving.id)
 	var dice_ids: Array[String] = []
 	for engraving in Engraving.all():
 		if engraving.category == Engraving.CATEGORY_DICE:
 			dice_ids.append(engraving.id)
-	assert_eq(dice_ids.size(), 5, "Leiterbahn + vier Bruchmuster")
+	assert_eq(dice_ids.size(), 5, "Leiterbahn + vier Rune")
 	assert_true(dice_ids.has(Engraving.POINTER))
-	for rift in Rift.all():
-		assert_true(dice_ids.has(Engraving.BREAK_PREFIX + rift.id), "Bruchmuster für %s" % rift.id)
+	for rune in Rune.all():
+		assert_true(dice_ids.has(Engraving.RUNE_PREFIX + rune.id), "Rune für %s" % rune.id)
 
 func test_all_ids_are_unique():
 	var seen := {}

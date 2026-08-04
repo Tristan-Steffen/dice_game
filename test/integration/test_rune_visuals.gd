@@ -1,15 +1,15 @@
 extends GutTest
-## Die Riss-Anzeige: der farblose Bake, die Shader-Auflage und die Regel, dass
+## Die Runen-Anzeige: der farblose Bake, die Shader-Auflage und die Regel, dass
 ## nur die OBERE Seite auflodert. Was hier nicht geprüft werden kann, ist das
 ## Aussehen - aber alles, was die Anzeige falsch verdrahten könnte, schon.
 
-func _die(rift_ids: Array = [], essence_id := "") -> DieDefinition:
+func _die(rune_ids: Array = [], essence_id := "") -> DieDefinition:
 	var def := DieDefinition.new()
 	var faces: Array[int] = [1, 2, 3, 4, 5, 6]
 	def.faces = faces
 	def.essence_id = essence_id
-	for i in rift_ids.size():
-		def.set_rift(0, String(rift_ids[i]), i)
+	for i in rune_ids.size():
+		def.set_rune(0, String(rune_ids[i]), i)
 	return def
 
 ## Gebauter Würfel mit seinem Anzeige-Knoten.
@@ -23,35 +23,35 @@ func _display(def: DieDefinition) -> DieFaceDisplay:
 # --- Der Bake: vier Texturen, für immer ---------------------------------------------
 
 func test_the_bake_is_cached_per_pattern_only() -> void:
-	RiftTextures.warm()
-	assert_eq(RiftTextures.cache_size(), Rift.all_patterns().size(),
+	RuneTextures.warm()
+	assert_eq(RuneTextures.cache_size(), Rune.all_glyphs().size(),
 		"genau eine Textur je Muster")
 	# Ein Vakuum-Würfel trug früher seine eigene schwarze Kopie je Kombination.
 	# Farblos gebacken kostet er nichts extra - das ist der ganze Sinn der Umstellung.
-	_display(_die([Rift.AFTERGLOW, Rift.SPARK_FLIGHT], Essence.VACUUM))
-	_display(_die([Rift.BURN_IN], Essence.NEON))
-	assert_lte(RiftTextures.cache_size(), 4,
+	_display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
+	_display(_die([Rune.BURN_IN], Essence.NEON))
+	assert_lte(RuneTextures.cache_size(), 4,
 		"auch mit Essenzen und Doppelbrüchen bleiben es höchstens vier")
 
 func test_the_same_pattern_hands_back_the_same_texture() -> void:
-	assert_same(RiftTextures.for_pattern(Rift.PATTERN_BOLT),
-		RiftTextures.for_pattern(Rift.PATTERN_BOLT), "gecacht, nicht neu gebacken")
-	assert_same(RiftTextures.for_rift(Rift.SPARK_FLIGHT),
-		RiftTextures.for_pattern(Rift.PATTERN_BOLT), "Rift und Muster teilen die Maske")
+	assert_same(RuneTextures.for_glyph(Rune.GLYPH_BOLT),
+		RuneTextures.for_glyph(Rune.GLYPH_BOLT), "gecacht, nicht neu gebacken")
+	assert_same(RuneTextures.for_rune(Rune.SPARK_FLIGHT),
+		RuneTextures.for_glyph(Rune.GLYPH_BOLT), "Rune und Muster teilen die Maske")
 
 func test_an_unknown_pattern_bakes_nothing() -> void:
-	assert_null(RiftTextures.for_pattern(""))
-	assert_null(RiftTextures.for_pattern("kein_muster"))
+	assert_null(RuneTextures.for_glyph(""))
+	assert_null(RuneTextures.for_glyph("kein_muster"))
 
 func test_the_mask_carries_all_four_channels() -> void:
-	var image := RiftTextures.for_pattern(Rift.PATTERN_BOLT).get_image()
+	var image := RuneTextures.for_glyph(Rune.GLYPH_BOLT).get_image()
 	image.clear_mipmaps()
 	var arc_low := 1.0
 	var arc_high := 0.0
 	var on_core := 0
 	var far_field := 0
-	for y in RiftTextures.SIZE:
-		for x in RiftTextures.SIZE:
+	for y in RuneTextures.SIZE:
+		for x in RuneTextures.SIZE:
 			var texel := image.get_pixel(x, y)
 			if texel.a > 0.02:
 				arc_low = minf(arc_low, texel.g)
@@ -69,11 +69,11 @@ func test_the_mask_carries_all_four_channels() -> void:
 func test_the_mask_is_colourless() -> void:
 	# Die Tönung ist ein Uniform. Wäre sie im Pixel, müssten sich die Masken von
 	# Nachglühen (silbrig) und Funkenflug (cyan) unterscheiden - tun sie nicht.
-	var image := RiftTextures.for_pattern(Rift.PATTERN_RING).get_image()
+	var image := RuneTextures.for_glyph(Rune.GLYPH_RING).get_image()
 	image.clear_mipmaps()
 	var tinted := 0
-	for y in RiftTextures.SIZE:
-		for x in RiftTextures.SIZE:
+	for y in RuneTextures.SIZE:
+		for x in RuneTextures.SIZE:
 			var texel := image.get_pixel(x, y)
 			# Auf der Mittellinie ist R hoch und B null - eine echte Farbe hätte
 			# hier den Farbton der Tönung, keine Kanal-Semantik.
@@ -83,121 +83,121 @@ func test_the_mask_is_colourless() -> void:
 
 # --- Die Auflage am Würfel ----------------------------------------------------------
 
-func test_a_rifted_face_carries_the_shader() -> void:
-	var faces := _display(_die([Rift.AFTERGLOW]))
+func test_a_runeed_face_carries_the_shader() -> void:
+	var faces := _display(_die([Rune.AFTERGLOW]))
 	var overlay := _overlay(faces, 0)
 	assert_true(overlay.visible, "die gebrochene Seite zeigt ihre Auflage")
 	var material := overlay.material_override as ShaderMaterial
 	assert_not_null(material, "ShaderMaterial statt StandardMaterial3D")
-	assert_same(material.shader, DieBuilder.RIFT_SHADER, "EIN Shader, ein Compile")
-	assert_eq(material.get_shader_parameter("motion"), Rift.MOTION_ECHO)
+	assert_same(material.shader, DieBuilder.RUNE_SHADER, "EIN Shader, ein Compile")
+	assert_eq(material.get_shader_parameter("motion"), Rune.MOTION_ECHO)
 	assert_false(bool(material.get_shader_parameter("mirror")))
 
 func test_an_unbroken_face_shows_nothing() -> void:
-	var faces := _display(_die([Rift.AFTERGLOW]))
-	assert_false(_overlay(faces, 3).visible, "eine heile Seite trägt keinen Riss")
+	var faces := _display(_die([Rune.AFTERGLOW]))
+	assert_false(_overlay(faces, 3).visible, "eine heile Seite trägt keinen Rune")
 
 func test_the_seam_colour_reaches_the_shader_normalized() -> void:
-	var faces := _display(_die([Rift.SPARK_FLIGHT]))
+	var faces := _display(_die([Rune.SPARK_FLIGHT]))
 	var seam: Vector3 = _material(faces, 0).get_shader_parameter("seam_color")
 	assert_almost_eq(maxf(seam.x, maxf(seam.y, seam.z)), 1.0, 0.001,
 		"energy heißt in jedem Profil dasselbe")
 	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Cyan")
 
-func test_the_vacuum_swallows_every_rift_and_mirrors_the_second() -> void:
-	var faces := _display(_die([Rift.AFTERGLOW, Rift.SPARK_FLIGHT], Essence.VACUUM))
-	assert_eq(_material(faces, 0).get_shader_parameter("motion"), Rift.MOTION_INTAKE,
+func test_the_vacuum_swallows_every_rune_and_mirrors_the_second() -> void:
+	var faces := _display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
+	assert_eq(_material(faces, 0).get_shader_parameter("motion"), Rune.MOTION_INTAKE,
 		"auf einem Vakuum-Würfel saugt auch das Nachglühen")
-	var second: MeshInstance3D = faces.rift_overlays_second.get(_axis_of(faces, 0))
+	var second: MeshInstance3D = faces.rune_overlays_second.get(_axis_of(faces, 0))
 	assert_not_null(second, "der zweite Bruch bekommt seine eigene Auflage")
 	assert_true(second.visible)
 	var second_material := second.material_override as ShaderMaterial
 	assert_true(bool(second_material.get_shader_parameter("mirror")),
 		"gespiegelt - sonst verheddern sich beide Brüche im selben Rand")
-	assert_eq(second_material.get_shader_parameter("motion"), Rift.MOTION_INTAKE)
+	assert_eq(second_material.get_shader_parameter("motion"), Rune.MOTION_INTAKE)
 
-func test_a_single_rift_builds_no_second_overlay() -> void:
-	var faces := _display(_die([Rift.BURN_IN]))
-	var second: MeshInstance3D = faces.rift_overlays_second.get(_axis_of(faces, 0))
+func test_a_single_rune_builds_no_second_overlay() -> void:
+	var faces := _display(_die([Rune.BURN_IN]))
+	var second: MeshInstance3D = faces.rune_overlays_second.get(_axis_of(faces, 0))
 	assert_true(second == null or not second.visible, "faul gebaut: kein Vakuum, keine zweite Auflage")
 
 # --- Nur die obere Seite lodert -----------------------------------------------------
 
 func test_the_flare_reaches_only_the_named_face() -> void:
-	var def := _die([Rift.AFTERGLOW])
-	def.set_rift(3, Rift.SPARK_FLIGHT)
+	var def := _die([Rune.AFTERGLOW])
+	def.set_rune(3, Rune.SPARK_FLIGHT)
 	var faces := _display(def)
-	faces.flare_rifts(1.0, 0)
+	faces.flare_runes(1.0, 0)
 	assert_almost_eq(float(_material(faces, 0).get_shader_parameter("flare")), 1.0, 0.001,
 		"die gewertete Seite lodert")
 	assert_almost_eq(float(_material(faces, 3).get_shader_parameter("flare")), 0.0, 0.001,
 		"eine Seitenfläche behauptet sonst eine Wirkung, die es nicht gibt")
 
 func test_the_block_flare_is_its_own_gesture() -> void:
-	var faces := _display(_die([Rift.BURN_IN]))
-	faces.flare_rifts(1.0, 0, true)
+	var faces := _display(_die([Rune.BURN_IN]))
+	faces.flare_runes(1.0, 0, true)
 	assert_true(bool(_material(faces, 0).get_shader_parameter("block_flare")),
 		"ein verhinderter Schrumpf sieht anders aus als eine Wertung")
-	faces.flare_rifts(1.0, 0, false)
+	faces.flare_runes(1.0, 0, false)
 	assert_false(bool(_material(faces, 0).get_shader_parameter("block_flare")))
 
 # --- Der Ziffern-Wächter ------------------------------------------------------------
 
 func test_a_two_digit_value_widens_the_guard_not_the_crack() -> void:
-	var def := _die([Rift.AFTERGLOW])
+	var def := _die([Rune.AFTERGLOW])
 	def.faces[0] = 12
 	var faces := _display(def)
-	var half: Vector2 = _material(faces, 0).get_shader_parameter("glyph_half")
-	assert_almost_eq(half.x, Rift.GLYPH_KEEPOUT.x + DieFaceDisplay.GLYPH_DIGIT_WIDEN, 0.001,
+	var half: Vector2 = _material(faces, 0).get_shader_parameter("digit_half")
+	assert_almost_eq(half.x, Rune.DIGIT_KEEPOUT.x + DieFaceDisplay.DIGIT_GUARD_WIDEN, 0.001,
 		"zwei Stellen -> breitere Sperrzone")
-	assert_almost_eq(half.y, Rift.GLYPH_KEEPOUT.y, 0.001, "die Höhe bleibt")
+	assert_almost_eq(half.y, Rune.DIGIT_KEEPOUT.y, 0.001, "die Höhe bleibt")
 	# Die Figur selbst ist NIE eine Funktion des Werts - Knochen lässt Werte
-	# wachsen, und ein Riss, der sich dabei neu zeichnet, liest als Fehler.
-	assert_eq(Rift.crack_lines(Rift.PATTERN_RING), Rift.crack_lines(Rift.PATTERN_RING))
+	# wachsen, und eine Rune, der sich dabei neu zeichnet, liest als Fehler.
+	assert_eq(Rune.glyph_lines(Rune.GLYPH_RING), Rune.glyph_lines(Rune.GLYPH_RING))
 
 func test_a_single_digit_keeps_the_authored_keepout() -> void:
-	var faces := _display(_die([Rift.AFTERGLOW]))
-	var half: Vector2 = _material(faces, 0).get_shader_parameter("glyph_half")
-	assert_almost_eq(half.x, Rift.GLYPH_KEEPOUT.x, 0.001)
+	var faces := _display(_die([Rune.AFTERGLOW]))
+	var half: Vector2 = _material(faces, 0).get_shader_parameter("digit_half")
+	assert_almost_eq(half.x, Rune.DIGIT_KEEPOUT.x, 0.001)
 
 # --- Helfer -------------------------------------------------------------------------
 
 func _axis_of(faces: DieFaceDisplay, face_index: int) -> String:
-	for axis: String in faces.rift_overlays:
+	for axis: String in faces.rune_overlays:
 		if DiceController.AXIS_FACE_INDEX[axis] == face_index:
 			return axis
 	return ""
 
 func _overlay(faces: DieFaceDisplay, face_index: int) -> MeshInstance3D:
-	return faces.rift_overlays[_axis_of(faces, face_index)]
+	return faces.rune_overlays[_axis_of(faces, face_index)]
 
 func _material(faces: DieFaceDisplay, face_index: int) -> ShaderMaterial:
 	return _overlay(faces, face_index).material_override as ShaderMaterial
 
 # --- Das 2D-Netz: still, außer auf der Grubenkarte ----------------------------------
 
-func test_the_net_draws_one_crack_per_rift_and_knows_its_face() -> void:
-	var def := _die([Rift.AFTERGLOW, Rift.SPARK_FLIGHT], Essence.VACUUM)
-	def.set_rift(4, Rift.STRAY_LIGHT)
-	var cracks := DieNetView.rift_cracks(def, 40.0)
+func test_the_net_draws_one_crack_per_rune_and_knows_its_face() -> void:
+	var def := _die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM)
+	def.set_rune(4, Rune.STRAY_LIGHT)
+	var cracks := DieNetView.rune_glyphs(def, 40.0)
 	assert_eq(cracks.size(), 3, "zwei Brüche auf Seite 1, einer auf Seite 5")
 	var faces := {}
 	for crack in cracks:
-		faces[(crack as DieNetView.RiftCrack).face] = true
-	assert_true(faces.has(0) and faces.has(4), "jeder Riss kennt seine Zelle")
+		faces[(crack as DieNetView.RuneGlyph).face] = true
+	assert_true(faces.has(0) and faces.has(4), "jeder Rune kennt seine Zelle")
 
 func test_the_net_carries_the_branch_weights() -> void:
-	var cracks := DieNetView.rift_cracks(_die([Rift.SPARK_FLIGHT]), 40.0)
-	var crack := cracks[0] as DieNetView.RiftCrack
+	var cracks := DieNetView.rune_glyphs(_die([Rune.SPARK_FLIGHT]), 40.0)
+	var crack := cracks[0] as DieNetView.RuneGlyph
 	assert_eq(crack.weights.size(), crack.lines.size(), "je Linie ein Gewicht")
 	assert_lt(crack.weights[1], crack.weights[0], "die Gabel ist dünner als ihr Stamm")
 
 func test_a_net_crack_rests_without_flare() -> void:
-	# Das 30-Würfel-Raster ist eine Lesefläche, keine Bühne: dort steht der Riss
+	# Das 30-Würfel-Raster ist eine Lesefläche, keine Bühne: dort steht der Rune
 	# still, weil er nie eine andere Flare-Quelle als die Grubenkarte bekommt.
-	var crack := DieNetView.rift_cracks(_die([Rift.BURN_IN]), 40.0)[0] as DieNetView.RiftCrack
+	var crack := DieNetView.rune_glyphs(_die([Rune.BURN_IN]), 40.0)[0] as DieNetView.RuneGlyph
 	assert_almost_eq(crack.flare, 0.0, 0.001)
 
 func test_the_vacuum_breaks_black_in_the_net_too() -> void:
-	var crack := DieNetView.rift_cracks(_die([Rift.AFTERGLOW], Essence.VACUUM), 40.0)[0] as DieNetView.RiftCrack
+	var crack := DieNetView.rune_glyphs(_die([Rune.AFTERGLOW], Essence.VACUUM), 40.0)[0] as DieNetView.RuneGlyph
 	assert_lt(crack.tint.r + crack.tint.g + crack.tint.b, 0.3, "das Vakuum bricht schwarz")

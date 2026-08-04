@@ -43,7 +43,7 @@ class TakeReport:
 	extends RefCounted
 
 	var money: int = 0
-	var charge: int = 0  # Energie aus Funkenflug-Rissen (je Zug einmal je Seite)
+	var charge: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
 	var grown: Array[int] = []  # Slots, deren Seite gewachsen ist (Knochen/Helium)
 	var shrunk: Array[int] = []  # Slots, deren Seite geschrumpft ist (Glas)
 	## Slots, die Streulicht kassiert haben - die Zeremonie lässt genau die
@@ -70,7 +70,7 @@ static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int =
 
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -
 ## Retrigger-Charms auf value (Hasenpfote & Co.), extra für das Nachglühen
-## (RiftEffects.extra_activations). value ist der VERWANDELTE Wert.
+## (RuneEffects.extra_activations). value ist der VERWANDELTE Wert.
 static func face_trigger_count(value: int, charm_ids: Array[String], extra: int = 0) -> int:
 	return maxi(1, 1 + CharmEffects.retrigger_count(value, charm_ids) + extra)
 
@@ -181,15 +181,15 @@ static func shrink_value(value: int, step: int, floor_value: int) -> int:
 
 ## Wertwandel EINER Auslösung: Knochen wächst, Glas schrumpft, Helium hebt die
 ## obere Seite - dieselbe Folge wie apply_take_effects. Stickstoff (Essenz) und
-## Einbrand (Rift dieser Seite) schützen vor jedem Verlust, ihr Glas schrumpft
+## Einbrand (Rune dieser Seite) schützen vor jedem Verlust, ihr Glas schrumpft
 ## also nicht.
 static func mutate_value_once(value: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rift_ids: Array[String] = []) -> int:
+		rune_ids: Array[String] = []) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
 		result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
-	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rift_ids):
+	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rune_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	# Das Essenz-Wachstum reitet auf dem SCHON gewandelten Wert - der Druckkessel
 	# rechnet prozentual, also muss die Zahl stimmen, auf die er fällt.
@@ -209,17 +209,17 @@ static func mutate_link_value_once(value: int, face_material: String, charm_ids:
 
 ## Verliert diese Seite überhaupt Wert? Stickstoff schützt den ganzen Würfel,
 ## der Einbrand nur seine eigene Seite.
-static func _value_protected(essence_ids: Array[String], rift_ids: Array[String]) -> bool:
-	return EssenceEffects.protects_face_value_of(essence_ids) or RiftEffects.protects_face_value(rift_ids)
+static func _value_protected(essence_ids: Array[String], rune_ids: Array[String]) -> bool:
+	return EssenceEffects.protects_face_value_of(essence_ids) or RuneEffects.protects_face_value(rune_ids)
 
 ## Endwert der oberen Seite nach activations Auslösungen - genau der Wert, den
 ## apply_take_effects in die Def schreibt (per Test abgesichert).
 static func value_after_activations(value: int, activations: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rift_ids: Array[String] = []) -> int:
+		rune_ids: Array[String] = []) -> int:
 	var result := value
 	for _a in maxi(0, activations):
-		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rift_ids)
+		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rune_ids)
 	return result
 
 ## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
@@ -261,7 +261,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## CTX_POINTER_FIRES, Slot -> je Würfel-Trigger die gezündeten Glieder) - hier
 ## wird nie neu gewürfelt, sonst zahlte der Zug andere Glieder als er zählte.
 ## lying: ALLE Slots mit einem Würfel auf dem Tisch - nur so kann das Streulicht
-## die ungewerteten Übriggebliebenen sehen. Rifts liest diese Seite direkt aus
+## die ungewerteten Übriggebliebenen sehen. Runen liest diese Seite direkt aus
 ## den Defs (wie die Material-Stufen), nicht aus dem ctx.
 static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}) -> TakeReport:
 	var gold_boost := charm_ids.has(Charm.GOLDSMITH)
@@ -283,9 +283,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var level := face_level(defs[i], face)
-		var rift_ids := defs[i].rifts_on(face)
+		var rune_ids := defs[i].runes_on(face)
 		# Funkenflug speist EINEN Funken je Zug, nie je Zündung.
-		var spark := RiftEffects.charge_for_take(rift_ids)
+		var spark := RuneEffects.charge_for_take(rune_ids)
 		report.charge += spark
 		for _s in spark:
 			report.sparks.append(i)
@@ -294,7 +294,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids), participating.size())
-		var face_triggers := face_trigger_count(shown, charm_ids, RiftEffects.extra_activations(rift_ids))
+		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids))
 		var effect_count := die_triggers * face_triggers
 		var fires: Array = pointer_fires.get(i, [])
 
@@ -307,7 +307,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			_foreign_gold_faces(defs, participating, i))
 
 		# Der Einbrand hat wirklich etwas abgewehrt - nur dann lohnt die Geste.
-		if face_material == DieMaterial.GLASS and RiftEffects.protects_face_value(rift_ids):
+		if face_material == DieMaterial.GLASS and RuneEffects.protects_face_value(rune_ids):
 			report.blocked.append(i)
 
 		# Knochen/Glas/Helium laufen Zündung für Zündung: der prozentuale Satz
@@ -318,7 +318,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var swelled := false
 		for t in die_triggers:
 			for _f in face_triggers:
-				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rift_ids)
+				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rune_ids)
 				# Strahlungsdruck bläht die GANZE Schale: die obere Seite ist über
 				# mutate_value_once schon gewachsen, die übrigen fünf folgen je
 				# Zündung - jede auf IHREM Wert, der Druckkessel rechnet prozentual.
@@ -355,14 +355,14 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		_rectify_faces(defs, face_indices, participating, essences, report)
 
 	# Streulicht: das Gegen-Ereignis zum Gold. Was am Zugende UNGEWERTET auf dem
-	# Tisch liegt und seine Riss-Seite zeigt, streut sein Licht ins Filz.
+	# Tisch liegt und seine Runen-Seite zeigt, streut sein Licht ins Filz.
 	for i in lying:
 		if participating.has(i) or i >= defs.size() or i >= face_indices.size():
 			continue
 		var idle_face: int = face_indices[i]
 		if idle_face < 0:
 			continue
-		var stray := RiftEffects.stray_money(defs[i].rifts_on(idle_face))
+		var stray := RuneEffects.stray_money(defs[i].runes_on(idle_face))
 		if stray > 0:
 			report.money += stray
 			report.stray.append(i)
@@ -398,7 +398,7 @@ static func _apply_contrast_agent(def: DieDefinition, face: int, essence_ids: Ar
 		charm_ids: Array[String], report: TakeReport, slot: int) -> void:
 	if def == null or not charm_ids.has(Charm.CONTRAST_AGENT) or not essence_ids.has(Essence.XRAY):
 		return
-	if face < 0 or face >= def.faces.size() or _value_protected(essence_ids, def.rifts_on(face)):
+	if face < 0 or face >= def.faces.size() or _value_protected(essence_ids, def.runes_on(face)):
 		return
 	var loss: int = def.faces[face] / 2
 	if loss <= 0:
@@ -433,7 +433,7 @@ static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int],
 				infects = true
 		if not infects:
 			continue
-		if _value_protected(essence_ids, defs[i].rifts_on(face)):
+		if _value_protected(essence_ids, defs[i].runes_on(face)):
 			continue
 		var amount: int = defs[i].faces[face] / 2
 		if amount <= 0:
@@ -480,7 +480,7 @@ static func _rectify_faces(defs: Array[DieDefinition], face_indices: Array[int],
 		var current: int = defs[i].faces[face]
 		if mean == current:
 			continue
-		if mean < current and _value_protected(EssenceEffects.set_at(essences, i), defs[i].rifts_on(face)):
+		if mean < current and _value_protected(EssenceEffects.set_at(essences, i), defs[i].runes_on(face)):
 			continue
 		defs[i].faces[face] = mean
 		if mean > current:
@@ -536,7 +536,7 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 			triggers += total_trigger_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, order, essences, charm_ids),
-				RiftEffects.extra_activations(defs[i].rifts_on(face)), participating.size())
+				RuneEffects.extra_activations(defs[i].runes_on(face)), participating.size())
 		for group in pointer_fires.get(i, []):
 			for fire in group:
 				var fired: int = int(fire["face"])

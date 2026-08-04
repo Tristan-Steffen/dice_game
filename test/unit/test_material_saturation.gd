@@ -57,7 +57,7 @@ func test_an_unknown_material_stays_white_at_every_level() -> void:
 
 func test_the_step_never_pushes_emission_over_the_bloom_threshold() -> void:
 	# Das Signal der Stufe ist Farbreinheit, nie Helligkeit - dieselbe Regel wie
-	# bei den Rissen. Geprüft wird der Zuwachs: die Stufe darf die Emission eines
+	# bei die Runenn. Geprüft wird der Zuwachs: die Stufe darf die Emission eines
 	# Materials nicht nennenswert heller machen.
 	for material in DieMaterial.all():
 		if material.glow <= 0.0:

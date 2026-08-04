@@ -345,8 +345,10 @@ func _pop_card(card: Control) -> void:
 		return
 	card.pivot_offset = card.size * 0.5
 	var tween := create_tween()
-	tween.tween_property(card, "scale", Vector2.ONE * 1.18, 0.10) 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(card, "scale", Vector2.ONE, 0.22) 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "scale", Vector2.ONE * 1.18, 0.10) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "scale", Vector2.ONE, 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # --- Zeremonie: öffnen, zeigen, verwenden --------------------------------------
 

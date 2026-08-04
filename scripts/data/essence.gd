@@ -215,12 +215,12 @@ static func aurora() -> Essence:
 		"Joker für die Kombination", Rarity.LEGENDARY, Color(0.45, 1.0, 0.65))
 
 ## Vakuum: die einzige Essenz OHNE eigene Wirkung - ihr Wert liegt in der Schale.
-## Ohne Innendruck trägt jede Seite zwei Rifts, und die sind schwarz: das Vakuum
+## Ohne Innendruck trägt jede Seite zwei Runen, und die sind schwarz: das Vakuum
 ## saugt das Kernlicht nach innen, statt es zu entlassen.
 static func vacuum() -> Essence:
 	return _make(VACUUM, "Vakuum",
-		"Keine eigene Wirkung - dafür trägt jede Seite bis zu zwei Rifts, und sie brechen schwarz auf.",
-		"zwei Rifts je Seite", Rarity.EPIC, Color(0.06, 0.05, 0.09))
+		"Keine eigene Wirkung - dafür trägt jede Seite bis zu zwei Runen, und sie stehen schwarz.",
+		"zwei Runen je Seite", Rarity.EPIC, Color(0.06, 0.05, 0.09))
 
 static func radiation_pressure() -> Essence:
 	return _make(RADIATION_PRESSURE, "Strahlungsdruck",

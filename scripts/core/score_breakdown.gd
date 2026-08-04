@@ -29,12 +29,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var participating: Array[int] = shape["participating"]
 	var scored: Array[int] = shape["scored"]
 	var essences := DiceScoring.essence_sets_in(ctx)
-	var rifts := DiceScoring.rifts_in(ctx)
+	var runes := DiceScoring.runes_in(ctx)
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
 	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant wegen Beherit).
 	var eye_slots: Array[int] = shape["order"]
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
-		or not essences.is_empty() or not rifts.is_empty()
+		or not essences.is_empty() or not runes.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
 	# (Ozon wächst mit ihnen, Grubengas bucht an jedem sofort). Beide Zähler
 	# starten beim Rundenstand, wenn Gewitterfront bzw. Dunkelkammer stehen.
@@ -70,7 +70,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var eye_sum := int(info.get("eye_sum", 0))
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
-		var rift_ids := RiftEffects.rifts_at(rifts, i)
+		var rune_ids := RuneEffects.runes_at(runes, i)
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
 		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		var phosphor := DiceScoring.phosphor_store_for(ctx, i)
@@ -93,7 +93,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids), eye_slots.size())
-			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
+			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids))
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Würfelgebundene Charms dieses Slots: Betrag JE Zündung, weil der laufende
 		# Wert ihn trägt. Die Kopfzeile des Schritts nennt die erste Zündung.
@@ -218,7 +218,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["base_after_crit"] = base
 				entry["mult_after_crit"] = mult
 				if has_die_bonus:
-					running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids)
+					running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rune_ids)
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running

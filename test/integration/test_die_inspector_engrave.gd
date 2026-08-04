@@ -328,50 +328,50 @@ func test_the_face_net_marks_the_lifted_face() -> void:
 			badges.append((node as DieNetView.LevelBadge).level)
 	assert_eq(badges, [3] as Array[int], "die gehobene Seite trägt ihre Plakette auch im Stations-Netz")
 
-# --- Bruchmuster: eine Seite kontrolliert aufreißen ------------------------------
+# --- Rune: eine Seite kontrolliert aufreißen ------------------------------
 
-func _hold_break(rift_id: String) -> void:
-	view.run.grant_engraving(Engraving.rift_engraving(Rift.by_id(rift_id), Engraving.Rarity.RARE))
+func _hold_break(rune_id: String) -> void:
+	view.run.grant_engraving(Engraving.rune_engraving(Rune.by_id(rune_id), Engraving.Rarity.RARE))
 	view._sync_drawers()
-	view._on_engraving_pressed(Engraving.BREAK_PREFIX + rift_id)
+	view._on_engraving_pressed(Engraving.RUNE_PREFIX + rune_id)
 
 func test_a_break_pattern_cracks_the_clicked_face() -> void:
 	view.show_die(_die())
-	_hold_break(Rift.AFTERGLOW)
-	assert_eq(view.held_id, Engraving.BREAK_PREFIX + Rift.AFTERGLOW, "aufgenommen")
+	_hold_break(Rune.AFTERGLOW)
+	assert_eq(view.held_id, Engraving.RUNE_PREFIX + Rune.AFTERGLOW, "aufgenommen")
 	view._on_chip_clicked(1, 1)
-	assert_eq(view.current_def.rifts_on(1), [Rift.AFTERGLOW] as Array[String], "die Seite ist gebrochen")
-	assert_eq(_stock(Engraving.BREAK_PREFIX + Rift.AFTERGLOW), 0, "Bruchmuster verbraucht")
+	assert_eq(view.current_def.runes_on(1), [Rune.AFTERGLOW] as Array[String], "die Seite ist gebrochen")
+	assert_eq(_stock(Engraving.RUNE_PREFIX + Rune.AFTERGLOW), 0, "Rune verbraucht")
 
 func test_every_face_is_a_valid_break_target() -> void:
 	view.show_die(_die())
-	_hold_break(Rift.STRAY_LIGHT)
+	_hold_break(Rune.STRAY_LIGHT)
 	for face in 6:
 		assert_true(view._face_eligible(face), "Seite %d darf brechen" % face)
 
 func test_a_second_break_replaces_the_first() -> void:
 	var def := _die()
-	def.set_rift(1, Rift.AFTERGLOW)
+	def.set_rune(1, Rune.AFTERGLOW)
 	view.show_die(def)
-	_hold_break(Rift.BURN_IN)
+	_hold_break(Rune.BURN_IN)
 	view._on_chip_clicked(1, 1)
-	assert_eq(view.current_def.rifts_on(1), [Rift.BURN_IN] as Array[String], "neu brechen ersetzt")
+	assert_eq(view.current_def.runes_on(1), [Rune.BURN_IN] as Array[String], "neu brechen ersetzt")
 
 func test_a_vacuum_die_fills_its_second_slot_first() -> void:
 	var def := _die()
 	def.essence_id = Essence.VACUUM
-	def.set_rift(1, Rift.AFTERGLOW)
+	def.set_rune(1, Rune.AFTERGLOW)
 	view.show_die(def)
-	_hold_break(Rift.SPARK_FLIGHT)
+	_hold_break(Rune.SPARK_FLIGHT)
 	view._on_chip_clicked(1, 1)
-	assert_eq(view.current_def.rifts_on(1), [Rift.AFTERGLOW, Rift.SPARK_FLIGHT] as Array[String],
-		"das Vakuum trägt beide Risse")
+	assert_eq(view.current_def.runes_on(1), [Rune.AFTERGLOW, Rune.SPARK_FLIGHT] as Array[String],
+		"das Vakuum trägt beide Runen")
 
 # --- Einbrand sperrt das Übermalen, nicht das Sättigen ---------------------------
 
 func test_burn_in_blocks_a_foreign_material() -> void:
 	var def := _doped_target()  # Seite 0 Gold, Seite 1 Rubin
-	def.set_rift(0, Rift.BURN_IN)
+	def.set_rune(0, Rune.BURN_IN)
 	view.show_die(def)
 	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.amber(), Engraving.Rarity.COMMON))
 	view._sync_drawers()
@@ -381,7 +381,7 @@ func test_burn_in_blocks_a_foreign_material() -> void:
 
 func test_burn_in_still_allows_saturating_the_same_material() -> void:
 	var def := _doped_target()
-	def.set_rift(0, Rift.BURN_IN)  # Seite 0 trägt Gold
+	def.set_rune(0, Rune.BURN_IN)  # Seite 0 trägt Gold
 	view.show_die(def)
 	# Stufe II kostet zwei Duplikate - mit nur einem wäre die Seite kein Ziel.
 	for _i in 2:
@@ -391,11 +391,11 @@ func test_burn_in_still_allows_saturating_the_same_material() -> void:
 	assert_true(view._face_eligible(0), "dasselbe Material weiter zu sättigen bleibt erlaubt")
 	view._on_chip_clicked(5, 0)
 	assert_eq(view.current_def.material_level(0), 2)
-	assert_eq(view.current_def.rifts_on(0), [Rift.BURN_IN] as Array[String], "der Riss überlebt")
+	assert_eq(view.current_def.runes_on(0), [Rune.BURN_IN] as Array[String], "der Rune überlebt")
 
 func test_burn_in_leaves_value_engravings_alone() -> void:
 	var def := _die()
-	def.set_rift(0, Rift.BURN_IN)
+	def.set_rune(0, Rune.BURN_IN)
 	view.show_die(def)
 	view.run.grant_engraving(Engraving.notch())
 	view._sync_drawers()

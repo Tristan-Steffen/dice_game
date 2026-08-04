@@ -71,15 +71,15 @@ func test_the_gasket_follows_the_frame_when_the_die_changes() -> void:
 	assert_true((display.gaskets[_axis_for(3)] as Node3D).visible, "und an der neuen Seite da")
 
 func test_the_gasket_sits_between_the_quad_and_the_frame() -> void:
-	# Vor dem Quad (sonst Z-Fighting), hinter Rahmen und Riss-Auflage - eine
-	# Risslinie bis zum Flächenrand muss darüber sichtbar bleiben.
+	# Vor dem Quad (sonst Z-Fighting), hinter Rahmen und Runen-Auflage - eine
+	# Glyphenlinie bis zum Flächenrand muss darüber sichtbar bleiben.
 	var display := _display()
 	var depth: float = (display.gaskets[_axis_for(0)] as Node3D).position.z
 	assert_gt(depth, 0.0, "vor der Fläche")
 	assert_lt(depth, (display.frames[_axis_for(0)] as MeshInstance3D).position.z,
 		"hinter dem Leuchtrahmen")
-	assert_lt(depth, (display.rift_overlays[_axis_for(0)] as MeshInstance3D).position.z,
-		"und hinter den Rissen")
+	assert_lt(depth, (display.rune_overlays[_axis_for(0)] as MeshInstance3D).position.z,
+		"und hinter die Runenn")
 
 func test_the_gasket_is_dark_and_does_not_glow() -> void:
 	# Eine Dichtung strahlt nicht - sie ist die Trennzone gegen das Kantenbloom.

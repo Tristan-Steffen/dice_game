@@ -67,7 +67,7 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 				root.add_child(_up_frame(pos, cell))
 			root.add_child(_face_cell(def, face_index, pos, cell))
 	root.add_child(_edge_chip(def, cell))
-	for crack in rift_cracks(def, cell):
+	for crack in rune_glyphs(def, cell):
 		root.add_child(crack)
 	for badge in level_badges(def, cell):
 		root.add_child(badge)
@@ -91,7 +91,7 @@ static func face_at(local: Vector2, cell: float) -> int:
 	return NET_LAYOUT[row][col]
 
 ## Kurz-Erklärzeile zu einer Netz-Zelle: Materialname + Kurzwirkung (face_hint),
-## dazu die Leiterbahn und die Risse dieser Seite; der Kanten-Chip (EDGE) erklärt
+## dazu die Leiterbahn und die Runen dieser Seite; der Kanten-Chip (EDGE) erklärt
 ## die Seele des Würfels. "" für eine nackte Seite oder außerhalb des Kreuzes.
 ## EINE Quelle für alle Netze - Grube wie Werkbank.
 static func hint_for(def: DieDefinition, face: int) -> String:
@@ -106,9 +106,9 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	if target >= 0:
 		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d zu 50 %% einmal mit aus" % def.faces[target]
 		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
-	for rift_id in def.rifts_on(face):
-		var rift_hint := Rift.hint(rift_id)
-		hint = "%s  ·  %s" % [hint, rift_hint] if hint != "" else rift_hint
+	for rune_id in def.runes_on(face):
+		var rune_hint := Rune.hint(rune_id)
+		hint = "%s  ·  %s" % [hint, rune_hint] if hint != "" else rune_hint
 	return hint
 
 ## Seiten-Zelle im Look der Würfelseiten-Chips (DiceRowView).
@@ -128,7 +128,7 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.5)))
 	chip.add_theme_color_override("font_color", CasinoStyle.INK)
 	# Saum in der Plattenfarbe: auf der Zelle unsichtbar, aber dort, wo eine
-	# Risslinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
+	# Glyphenlinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
 	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
 	chip.add_theme_color_override("font_outline_color", fill)
 	chip.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
@@ -214,43 +214,43 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Je gebrochener Seite die Risslinien AUSSEN UM DIE ZIFFER HERUM: die Mitte ist
-## der unfreieste Platz der Zelle, nicht der freieste (Rift.GLYPH_KEEPOUT). Ein
+## Je gebrochener Seite die Glyphenlinien AUSSEN UM DIE ZIFFER HERUM: die Mitte ist
+## der unfreieste Platz der Zelle, nicht der freieste (Rune.DIGIT_KEEPOUT). Ein
 ## Bruch läuft ohnehin von Rand zu Rand, also fallen Echtheit und Lesbarkeit
 ## zusammen. Geometrie statt Typo: bei ~17 px Zelle liest sich ein Linienzug, eine
 ## Ziffer nicht. Das Vakuum bricht schwarz.
-static func rift_cracks(def: DieDefinition, cell: float) -> Array[Control]:
+static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
 	var cracks: Array[Control] = []
-	for face in mini(6, def.rifts.size()):
-		for rift_id in def.rifts_on(face):
-			var rift := Rift.by_id(rift_id)
-			if rift == null:
+	for face in mini(6, def.runes.size()):
+		for rune_id in def.runes_on(face):
+			var rune := Rune.by_id(rune_id)
+			if rune == null:
 				continue
-			var crack := RiftCrack.new()
+			var crack := RuneGlyph.new()
 			crack.face = face
-			crack.lines = Rift.crack_lines(rift.pattern)
-			crack.weights = Rift.crack_weights(rift.pattern)
-			crack.tint = RiftEffects.crack_color(rift_id, def.essence_id)
-			crack.core = rift.core
+			crack.lines = Rune.glyph_lines(rune.pattern)
+			crack.weights = Rune.glyph_weights(rune.pattern)
+			crack.tint = RuneEffects.glyph_color(rune_id, def.essence_id)
+			crack.core = rune.core
 			crack.size = Vector2.ONE * cell
 			crack.position = _cell_pos(face, cell)
 			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			cracks.append(crack)
 	return cracks
 
-## Der Riss selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
+## Der Rune selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
 ## Zeiger-Pfeile und Stufen-Plakette, damit er auch auf einer hellen Material-
 ## Zelle steht.
 ##
-## Das Netz animiert NICHT. 30 Würfel × bis zu 6 Risse hieße bis zu 180 Controls,
+## Das Netz animiert NICHT. 30 Würfel × bis zu 6 Runen hieße bis zu 180 Controls,
 ## die je Frame neu zeichnen - für eine Figur von 9 px Breite. Die Werkbank ist
 ## eine Lesefläche, keine Bühne. Einzige Ausnahme ist die Grubenkarte, die beim
 ## Zählen ohnehin schon lebt: sie setzt flare, und das wirkt allein auf Farbe und
 ## Breite. Ein wandernder Kopf ist bei Kartengröße nicht darstellbar; heller und
 ## dicker ist die ehrliche Übersetzung von "hat gefeuert".
-class RiftCrack:
+class RuneGlyph:
 	extends Control
-	## Seite, auf der dieser Riss sitzt - die Grubenkarte lässt gezielt SIE
+	## Seite, auf der dieser Rune sitzt - die Grubenkarte lässt gezielt SIE
 	## aufblitzen, nie das ganze Netz.
 	var face: int = -1
 	var lines: Array[PackedVector2Array] = []

@@ -199,57 +199,57 @@ func test_die_plakette_skaliert_mit_der_zelle() -> void:
 			"Plakette skaliert mit der Zelle (%d)" % int(cell))
 		assert_gt(badge.size.x, 4.0, "auch bei Zelle %d noch sichtbar" % int(cell))
 
-# --- Rifts: Risslinien quer durch die Zellmitte ---------------------------------
+# --- Runen: Glyphenlinien quer durch die Zellmitte ---------------------------------
 
 func _cracks(net: Control) -> Array:
 	var found := []
 	for child in net.get_children():
-		if child is DieNetView.RiftCrack:
+		if child is DieNetView.RuneGlyph:
 			found.append(child)
 	return found
 
 func test_gebrochene_seiten_zeigen_ihre_risslinien() -> void:
 	var def := _def_with_materials()
-	def.set_rift(0, Rift.AFTERGLOW)
-	def.set_rift(4, Rift.SPARK_FLIGHT)
+	def.set_rune(0, Rune.AFTERGLOW)
+	def.set_rune(4, Rune.SPARK_FLIGHT)
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
 	assert_eq(_cracks(net).size(), 2, "je gebrochener Seite ein Linienzug")
 
-func test_ohne_rift_keine_risse() -> void:
+func test_ohne_rune_keine_risse() -> void:
 	var net := DieNetView.build(_def_with_materials(), -1, 40.0)
 	add_child_autofree(net)
 	assert_eq(_cracks(net).size(), 0)
 
-func test_der_riss_traegt_die_riftfarbe_und_sitzt_in_seiner_zelle() -> void:
+func test_der_riss_traegt_die_runefarbe_und_sitzt_in_seiner_zelle() -> void:
 	var def := _def_with_materials()
-	def.set_rift(0, Rift.AFTERGLOW)  # Seite 0 = Kreuzmitte
+	def.set_rune(0, Rune.AFTERGLOW)  # Seite 0 = Kreuzmitte
 	var cell := 40.0
 	var net := DieNetView.build(def, -1, cell)
 	add_child_autofree(net)
-	var crack: DieNetView.RiftCrack = _cracks(net)[0]
-	assert_eq(crack.tint, Rift.tint_for(Rift.AFTERGLOW))
-	assert_eq(crack.position, DieNetView.cell_position(0, cell), "der Riss liegt auf seiner Zelle")
-	assert_false(crack.lines.is_empty(), "das Rissbild kommt aus dem Datensatz")
+	var crack: DieNetView.RuneGlyph = _cracks(net)[0]
+	assert_eq(crack.tint, Rune.tint_for(Rune.AFTERGLOW))
+	assert_eq(crack.position, DieNetView.cell_position(0, cell), "der Rune liegt auf seiner Zelle")
+	assert_false(crack.lines.is_empty(), "das Runenzeichen kommt aus dem Datensatz")
 
 func test_vakuum_bricht_schwarz() -> void:
 	var def := _def_with_materials()
 	def.essence_id = Essence.VACUUM
-	def.set_rift(0, Rift.SPARK_FLIGHT)
+	def.set_rune(0, Rune.SPARK_FLIGHT)
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	var crack: DieNetView.RiftCrack = _cracks(net)[0]
-	assert_ne(crack.tint, Rift.tint_for(Rift.SPARK_FLIGHT), "nicht die Riftfarbe")
-	assert_eq(crack.tint, RiftEffects.crack_color(Rift.SPARK_FLIGHT, Essence.VACUUM))
+	var crack: DieNetView.RuneGlyph = _cracks(net)[0]
+	assert_ne(crack.tint, Rune.tint_for(Rune.SPARK_FLIGHT), "nicht die Runefarbe")
+	assert_eq(crack.tint, RuneEffects.glyph_color(Rune.SPARK_FLIGHT, Essence.VACUUM))
 
 func test_der_vakuum_doppelriss_zeigt_zwei_linienzuege() -> void:
 	var def := _def_with_materials()
 	def.essence_id = Essence.VACUUM
-	def.set_rift(0, Rift.AFTERGLOW, 0)
-	def.set_rift(0, Rift.STRAY_LIGHT, 1)
+	def.set_rune(0, Rune.AFTERGLOW, 0)
+	def.set_rune(0, Rune.STRAY_LIGHT, 1)
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	assert_eq(_cracks(net).size(), 2, "beide Risse einer Seite werden gezeichnet")
+	assert_eq(_cracks(net).size(), 2, "beide Runen einer Seite werden gezeichnet")
 
 # --- Sättigung im Netz --------------------------------------------------------------
 

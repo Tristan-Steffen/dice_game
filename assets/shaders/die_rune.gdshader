@@ -1,4 +1,4 @@
-// Risse der Würfelschale: EIN Shader für alle vier Rift-Muster und die Vakuum-
+// Runen der Würfelschale: EIN Shader für alle vier Rune-Muster und die Vakuum-
 // Umkehrung. Die Maske ist FARBLOS (R Kern, G Bogenlänge, B Abstand zur
 // Mittellinie, A Deckung), die Tönung kommt als Uniform - darum gibt es vier
 // Texturen im Spiel und nicht dreißig.
@@ -8,7 +8,7 @@
 // einem unschattierten Material, also passierte sichtbar nie etwas.
 //
 // Zwei Regeln formen jede Bewegung. In Ruhe darf nichts die Bloom-Schwelle (0.95)
-// erreichen - das hält sechs gerissene Würfel in der Grube mechanisch davon ab,
+// erreichen - das hält sechs beschriftete Würfel in der Grube mechanisch davon ab,
 // eine Disco zu werden. Und ein Ausbruch liest auf Übersichts-Distanz über
 // BREITE: eine Naht ist dort ~1 px, Helligkeit allein bliebe ein Subpixel-Punkt.
 
@@ -17,7 +17,7 @@ render_mode unshaded, cull_disabled, depth_draw_never, blend_mix;
 
 // Datentextur, KEIN source_color: die sRGB-Kurve zöge Bogenlänge und Abstand
 // krumm. repeat_disable, weil die Bias-Probe über den Rand greifen darf.
-uniform sampler2D crack_map : filter_linear_mipmap, repeat_disable;
+uniform sampler2D glyph_map : filter_linear_mipmap, repeat_disable;
 uniform vec3 seam_color = vec3(1.0);   // normiert: hellste Komponente == 1
 uniform vec3 core_color = vec3(1.0);
 uniform int motion = 0;                // 0 ECHO 1 SCATTER 2 EMBER 3 SPARK 4 INTAKE
@@ -25,13 +25,13 @@ uniform float idle_low = 0.22;
 uniform float idle_high = 0.62;        // MUSS unter 0.95 bleiben
 uniform float idle_speed = 0.238;      // 1 / Ruhe-Periode
 uniform float phase = 0.0;             // je Würfel versetzt: 30 Tray-Würfel atmen nie im Gleichschritt
-uniform float flare = 0.0;             // 1 -> 0 über RIFT_FLARE_TIME
+uniform float flare = 0.0;             // 1 -> 0 über RUNE_FLARE_TIME
 uniform float flare_peak = 3.0;
 uniform float core_share = 0.55;       // Kern gegen Hof - unser Gegenstück zur Pulverkörnung
 uniform float halo_width = 0.35;
 uniform float halo_flare = 2.8;
 uniform vec2 halo_bias = vec2(0.0);    // gerichtetes Ausbluten (Streulicht: nach unten)
-uniform vec2 glyph_half = vec2(0.26, 0.38);
+uniform vec2 digit_half = vec2(0.26, 0.38);
 uniform vec2 impact = vec2(0.20, 0.68);  // Einschlag des Sternbruchs
 uniform bool mirror = false;           // zweiter Bruch des Vakuum-Würfels
 uniform bool block_flare = false;      // Einbrand: Schutz-Blitz statt Wertungswelle
@@ -54,7 +54,7 @@ void fragment() {
 	if (mirror) {
 		uv.x = 1.0 - uv.x;
 	}
-	vec4 mask = texture(crack_map, uv);
+	vec4 mask = texture(glyph_map, uv);
 	float core = mask.r;
 	float s = mask.g;
 	float radial = mask.b;
@@ -83,7 +83,7 @@ void fragment() {
 		energy += flare_peak * b1 + flare_peak * 0.45 * b2;
 		widen = 1.0 + (halo_flare - 1.0) * max(b1, b2 * 0.66);
 	} else if (motion == 1) {
-		// SCATTER - kein Lauf, nur Glitzern an Ort und Stelle. Der einzige Riss,
+		// SCATTER - kein Lauf, nur Glitzern an Ort und Stelle. Der einzige Rune,
 		// dessen Ruhe seine Hauptvorstellung ist: er bezahlt fürs Nichtstun.
 		float crawl = 0.5 + 0.5 * sin(ts * 0.65 + s * 11.0);
 		float glint = pow(max(0.0, sin(ts * 0.43 + s * 23.0)), 8.0);
@@ -100,7 +100,7 @@ void fragment() {
 		widen = 1.0 + (halo_flare - 1.0) * env;
 	} else if (motion == 2) {
 		// EMBER - die Glut kriecht die Strahlen hoch und zieht sich zurück. Der
-		// einzige Riss mit einem Farbverlauf ENTLANG der Naht: weißglühend am
+		// einzige Rune mit einem Farbverlauf ENTLANG der Naht: weißglühend am
 		// Einschlag, orange auf halbem Weg, tiefrot an den Spitzen.
 		float k = 3.2 + 1.4 * sin(ts * 0.60);
 		float heat = exp(-s * k);
@@ -116,7 +116,7 @@ void fragment() {
 			widen = 1.0 + (halo_flare - 1.0) * env;
 		} else {
 			// Wertungs-Welle: langsamster Anschlag UND langsamster Abfall im Satz.
-			// Einbrand ist der einzige Riss, der nicht schnappt.
+			// Einbrand ist der einzige Rune, der nicht schnappt.
 			float env = swept(s, u * 2.0, 0.25) * (1.0 - clamp((u - 0.5) / 0.5, 0.0, 1.0));
 			energy += flare_peak * env;
 			tint = mix(tint, core_color, env);
@@ -136,9 +136,9 @@ void fragment() {
 	}
 
 	// Ziffern-Wächter: die Naht DIMMT, wo sie hinter einer breiten Zahl liegt.
-	// Sie ändert nie ihre Form - Knochen lässt Werte wachsen, und ein Riss, der
+	// Sie ändert nie ihre Form - Knochen lässt Werte wachsen, und eine Rune, der
 	// sich dabei neu zeichnet, liest als Fehler.
-	energy *= smoothstep(0.85, 1.15, length((uv - 0.5) / glyph_half));
+	energy *= smoothstep(0.85, 1.15, length((uv - 0.5) / digit_half));
 
 	float band = halo_width * widen;
 	float halo = clamp(1.0 - radial / max(band, 0.001), 0.0, 1.0);
@@ -146,7 +146,7 @@ void fragment() {
 	// Gerichtetes Ausbluten: eine zweite Probe gegen die Bias-Richtung schiebt den
 	// Hof zur Bias-Seite - bei Streulicht fällt das Licht so vom Würfel aufs Filz.
 	float spill = 0.05 * (widen - 1.0) / max(halo_flare - 1.0, 0.001);
-	float shifted = clamp(1.0 - texture(crack_map, uv - halo_bias * spill).b / max(band, 0.001), 0.0, 1.0);
+	float shifted = clamp(1.0 - texture(glyph_map, uv - halo_bias * spill).b / max(band, 0.001), 0.0, 1.0);
 	halo = max(halo, shifted * shifted);
 
 	float bright = clamp(energy, 0.0, 1.0);

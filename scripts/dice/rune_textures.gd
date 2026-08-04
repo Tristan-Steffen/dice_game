@@ -1,6 +1,6 @@
-class_name RiftTextures
-## Backt EIN Rissbild je Muster - FARBLOS. Die Tönung ist ein Shader-Uniform, kein
-## Pixel: vorher entstand je Kombination aus Rissen und Essenz eine eigene Textur
+class_name RuneTextures
+## Backt EIN Runenzeichen je Muster - FARBLOS. Die Tönung ist ein Shader-Uniform, kein
+## Pixel: vorher entstand je Kombination aus Runenn und Essenz eine eigene Textur
 ## (bis zu ~30), und jeder Vakuum-Würfel buk sich seine eigene schwarze Kopie.
 ## Jetzt gibt es vier Texturen im ganzen Spiel, für immer.
 ##
@@ -23,7 +23,7 @@ class_name RiftTextures
 const SIZE := 192
 ## Kernbreite als Anteil der SEITE bei Gewicht 1.0 (volle Breite, vor Verjüngung).
 ## Als Anteil und nicht in Pixeln, damit SIZE ein reiner Qualitätsregler bleibt:
-## eine andere Auflösung darf den Riss nicht dicker oder dünner machen.
+## eine andere Auflösung darf die Rune nicht dicker oder dünner machen.
 const STROKE := 0.031
 ## Reichweite des Abstandsfelds als Anteil der Seite. Bewusst so gewählt, dass das
 ## Ruhe-Band (halo_width 0.35) genau den gebackenen Hof trifft und das Ausbruch-
@@ -34,31 +34,31 @@ const FIELD := 0.16
 ## hört nicht auf, sie verliert sich - in Licht gelesen: eine immer feinere Spalte.
 const TAPER_SPAN := 0.15
 
-static var _cache := {}  # pattern_id -> ImageTexture
+static var _cache := {}  # glyph_id -> ImageTexture
 
 ## Maske eines Musters ("" oder unbekannt -> null). Gecacht je MUSTER, also nie
 ## mehr als vier Einträge.
-static func for_pattern(pattern_id: String) -> ImageTexture:
-	if pattern_id == "":
+static func for_glyph(glyph_id: String) -> ImageTexture:
+	if glyph_id == "":
 		return null
-	if _cache.has(pattern_id):
-		return _cache[pattern_id]
-	var texture := _bake(pattern_id)
+	if _cache.has(glyph_id):
+		return _cache[glyph_id]
+	var texture := _bake(glyph_id)
 	if texture != null:
-		_cache[pattern_id] = texture
+		_cache[glyph_id] = texture
 	return texture
 
-## Maske zum Rift - die bequeme Form für die Anzeige.
-static func for_rift(rift_id: String) -> ImageTexture:
-	var rift := Rift.by_id(rift_id)
-	return for_pattern(rift.pattern) if rift != null else null
+## Maske zum Rune - die bequeme Form für die Anzeige.
+static func for_rune(rune_id: String) -> ImageTexture:
+	var rune := Rune.by_id(rune_id)
+	return for_glyph(rune.pattern) if rune != null else null
 
 ## Alle vier auf einmal backen. Der Aufrufer wählt den Moment (hinter dem
-## Titelbild sind 40 ms unsichtbar), damit der erste gerissene Würfel nicht mitten
+## Titelbild sind 40 ms unsichtbar), damit der erste beschriftete Würfel nicht mitten
 ## im Spiel für den Bake bezahlt.
 static func warm() -> void:
-	for pattern in Rift.all_patterns():
-		for_pattern(pattern)
+	for pattern in Rune.all_glyphs():
+		for_glyph(pattern)
 
 static func cache_size() -> int:
 	return _cache.size()
@@ -67,13 +67,13 @@ static func cache_size() -> int:
 ## Segmente ≈ 2,6 Mio. Distanzen in GDScript. Stattdessen läuft jedes Segment nur
 ## über seinen EIGENEN Kasten (Segment plus Feldreichweite) - dieselbe Größenordnung
 ## Arbeit wie das alte Punkt-Stempeln, aber mit exakten Abständen statt Treppen.
-static func _bake(pattern_id: String) -> ImageTexture:
-	var lines := Rift.crack_lines(pattern_id)
+static func _bake(glyph_id: String) -> ImageTexture:
+	var lines := Rune.glyph_lines(glyph_id)
 	if lines.is_empty():
 		return null
-	var weights := Rift.crack_weights(pattern_id)
-	var peak := _taper_peak(pattern_id)
-	var taper_start := _tapers_at_start(pattern_id)
+	var weights := Rune.glyph_weights(glyph_id)
+	var peak := _taper_peak(glyph_id)
+	var taper_start := _tapers_at_start(glyph_id)
 
 	var lengths := PackedFloat32Array()
 	var total := 0.0
@@ -88,7 +88,7 @@ static func _bake(pattern_id: String) -> ImageTexture:
 	# Der Sternbruch misst die Bogenlänge JE STRAHL ab dem Einschlag, nicht über
 	# die Kette: seine Glut soll auf allen fünf Strahlen bei s = 0 am heißesten
 	# sein. Alle anderen Muster verketten, damit jede Linie ihre eigene Phase erbt.
-	var radial_arc := pattern_id == Rift.PATTERN_STAR
+	var radial_arc := glyph_id == Rune.GLYPH_STAR
 	var arc_span := maxf(longest if radial_arc else total, 0.001)
 
 	var field := FIELD * float(SIZE)
@@ -159,7 +159,7 @@ static func _bake(pattern_id: String) -> ImageTexture:
 		before += line_length
 
 	var image := Image.create_from_data(SIZE, SIZE, false, Image.FORMAT_RGBA8, data)
-	# Ohne Mipmaps flimmert ein 1-px-Riss im 30-Würfel-Tray. Dass dabei auch der
+	# Ohne Mipmaps flimmert ein 1-px-Rune im 30-Würfel-Tray. Dass dabei auch der
 	# G-Kanal gemittelt wird, ist entlang einer Linie harmlos und an Kreuzungen
 	# Unsinn - vertretbar, weil auf Tray-Distanz nichts animiert.
 	image.generate_mipmaps()
@@ -177,17 +177,17 @@ static func _half_width(along: float, weight: float, peak: float, taper_start: b
 	return 0.5 * STROKE * float(SIZE) * weight * (0.45 + 0.55 * bump) * (0.22 + 0.78 * ends)
 
 ## Stelle der größten Breite auf einer Linie.
-static func _taper_peak(pattern_id: String) -> float:
-	match pattern_id:
-		Rift.PATTERN_STAR:
+static func _taper_peak(glyph_id: String) -> float:
+	match glyph_id:
+		Rune.GLYPH_STAR:
 			return 0.0        # der Einschlag IST die breiteste Stelle
-		Rift.PATTERN_BOLT:
+		Rune.GLYPH_BOLT:
 			return 0.55
-		Rift.PATTERN_HAIRLINES:
+		Rune.GLYPH_HAIRLINES:
 			return 0.42
 	return 0.45
 
 ## Läuft auch der ANFANG einer Linie auf Haarstrich aus? Beim Sternbruch nicht -
 ## dort sitzt der Einschlag, und ein verjüngter Einschlag wäre kein Einschlag.
-static func _tapers_at_start(pattern_id: String) -> bool:
-	return pattern_id != Rift.PATTERN_STAR
+static func _tapers_at_start(glyph_id: String) -> bool:
+	return glyph_id != Rune.GLYPH_STAR

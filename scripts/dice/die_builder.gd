@@ -19,7 +19,7 @@ const FACE_SIZE := HALF_EXTENT * 2.0 - EDGE_THICKNESS
 const CAP_SIZE := 0.46
 ## Dunkle Fassung: Breite des Dichtungsrings und seine Tiefe. Die Tiefe liegt
 ## bewusst zwischen Quad (0) und Rahmen (0.006) - groß genug gegen Z-Fighting,
-## klein genug, dass Rahmen und Risslinien darüber liegen.
+## klein genug, dass Rahmen und Glyphenlinien darüber liegen.
 const GASKET_WIDTH := 0.10
 const GASKET_DEPTH := 0.004
 ## Fast schwarz, eine Spur unter der Körperfarbe - sie soll dichten, nicht malen.
@@ -28,7 +28,7 @@ const GASKET_COLOR := Color(0.02, 0.02, 0.035)
 ## Gleiche PhysicsMaterial-Charakteristik liegt auch auf den Grubenwänden,
 ## damit beide Seiten eines Aufpralls Energie zurückgeben.
 const POOL_SHADER := preload("res://assets/shaders/die_glow_pool.gdshader")
-const RIFT_SHADER := preload("res://assets/shaders/die_rift.gdshader")
+const RUNE_SHADER := preload("res://assets/shaders/die_rune.gdshader")
 
 const BOUNCE := 0.25
 const FRICTION := 0.4
@@ -231,9 +231,9 @@ static func build() -> Node3D:
 		quad.add_child(frame)
 		faces.frames[axis] = frame
 
-		var crack := build_rift_overlay()
+		var crack := build_rune_overlay()
 		quad.add_child(crack)
-		faces.rift_overlays[axis] = crack
+		faces.rune_overlays[axis] = crack
 
 		var label := _build_label(default_value)
 		quad.add_child(label)
@@ -270,7 +270,7 @@ static func _build_face_frame() -> MeshInstance3D:
 ## Ziffer: Bloom blutet im Bildschirmraum, und nur eine dunkle Trennzone hält
 ## ihn von der Einlage fern. Vier dünne Balken statt eines Rings, weil sich so
 ## zwei Meshes teilen lassen und die Ecken stoßfrei aneinanderliegen.
-## Liegt VOR dem Quad, aber HINTER Rahmen und Riss-Auflage - eine Risslinie, die
+## Liegt VOR dem Quad, aber HINTER Rahmen und Runen-Auflage - eine Glyphenlinie, die
 ## bis an den Flächenrand läuft, bleibt darüber sichtbar.
 # Alle Fassungen sind identisch - Material und beide Meshes werden geteilt
 # (dasselbe Muster wie der _trace_mesh_cache), statt je Seite neu zu entstehen.
@@ -310,16 +310,16 @@ static func _build_face_gasket() -> Node3D:
 		gasket.add_child(post)
 	return gasket
 
-## Riss-Auflage einer gebrochenen Seite (unsichtbar ohne Rift): das farblose
-## Rissbild unter die_rift.gdshader - das Kernlicht bricht aus der Schale. Ein
-## eigenes Light je Riss verbietet das 16-Light-Budget des gekachelten Bodens,
+## Runen-Auflage einer gebrochenen Seite (unsichtbar ohne Rune): das farblose
+## Runenzeichen unter die_rune.gdshader - das Kernlicht bricht aus der Schale. Ein
+## eigenes Light je Rune verbietet das 16-Light-Budget des gekachelten Bodens,
 ## also trägt die Helligkeit allein die ALBEDO des Shaders.
 ## Die Shader-RESSOURCE ist preloaded, also gibt es genau EINEN Compile, auch
 ## wenn jede Seite ihr eigenes ShaderMaterial trägt (wie vorher ihr eigenes
 ## StandardMaterial3D - an der Zahl der Materialien ändert sich nichts).
-static func build_rift_overlay(depth := 0.008) -> MeshInstance3D:
+static func build_rune_overlay(depth := 0.008) -> MeshInstance3D:
 	var crack := MeshInstance3D.new()
-	crack.name = "RiftCracks"
+	crack.name = "RuneGlyphs"
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2.ONE * FACE_SIZE
 	crack.mesh = mesh
@@ -327,7 +327,7 @@ static func build_rift_overlay(depth := 0.008) -> MeshInstance3D:
 	crack.visible = false
 	crack.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var material := ShaderMaterial.new()
-	material.shader = RIFT_SHADER
+	material.shader = RUNE_SHADER
 	crack.material_override = material
 	return crack
 
@@ -369,7 +369,7 @@ static func _build_label(value: int) -> Label3D:
 	label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS  # schreibt Tiefe: korrektes Sortieren bei vielen Würfeln
 	# Dunkler Saum um die Ziffer: Bloom blutet im Bildschirmraum, also wäscht eine
 	# auflodernde Naht die Zahl auch dann aus, wenn sie sie gar nicht berührt. Weil
-	# der Prepass auch für den Saum Tiefe schreibt, VERDECKT der Ring den Riss
+	# der Prepass auch für den Saum Tiefe schreibt, VERDECKT der Ring die Rune
 	# dahinter - ein Trennband, das Bloom nicht überqueren kann.
 	label.outline_size = DieFaceDisplay.LABEL_OUTLINE_SIZE
 	label.outline_modulate = DieFaceDisplay.BODY_COLOR

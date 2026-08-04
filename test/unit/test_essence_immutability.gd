@@ -55,10 +55,10 @@ func test_face_writes_never_touch_the_essence():
 	def.set_face_material(0, DieMaterial.RUBY)
 	def.raise_level(0)
 	def.set_face_material(0, DieMaterial.GOLD)
-	def.set_rift(0, Rift.AFTERGLOW)
-	def.set_rift(0, Rift.BURN_IN)
+	def.set_rune(0, Rune.AFTERGLOW)
+	def.set_rune(0, Rune.BURN_IN)
 	def.pointers[0] = 2
-	assert_eq(def.essence_id, Essence.ARGON, "Material, Stufe und Riss lassen die Seele in Ruhe")
+	assert_eq(def.essence_id, Essence.ARGON, "Material, Stufe und Rune lassen die Seele in Ruhe")
 
 func test_etchings_never_touch_the_essence():
 	var def := DieDefinition.new()

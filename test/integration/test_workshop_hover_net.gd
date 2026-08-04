@@ -17,7 +17,7 @@ func _die(name := "Prüfwürfel") -> DieDefinition:
 	def.display_name = name
 	def.set_face_material(0, DieMaterial.RUBY)
 	def.raise_level(0)
-	def.set_rift(1, Rift.AFTERGLOW)
+	def.set_rune(1, Rune.AFTERGLOW)
 	def.essence_id = Essence.NEON
 	return def
 
@@ -59,10 +59,10 @@ func _labels_of(node: Node) -> Array:
 	return out
 
 func test_the_card_shows_the_net_of_the_die_it_was_given() -> void:
-	# Materialfarben, Stufen, Risse und der Essenz-Chip kommen alle aus dem Netz.
+	# Materialfarben, Stufen, Runen und der Essenz-Chip kommen alle aus dem Netz.
 	view.show_hover_net(_die())
 	await wait_frames(2)
-	assert_gt(_count_of_type(_card(), "RiftCrack"), 0, "der Riss ist im Netz")
+	assert_gt(_count_of_type(_card(), "RuneGlyph"), 0, "der Rune ist im Netz")
 	assert_gt(_count_of_type(_card(), "LevelBadge"), 0, "und die Stufen-Plakette")
 
 func _count_of_type(node: Node, type_name: String) -> int:
@@ -73,7 +73,7 @@ func _count_of_type(node: Node, type_name: String) -> int:
 			and String(node.get_script().resource_path).contains("die_net_view"):
 		pass
 	for child in node.get_children():
-		if (child is DieNetView.RiftCrack and type_name == "RiftCrack") \
+		if (child is DieNetView.RuneGlyph and type_name == "RuneGlyph") \
 				or (child is DieNetView.LevelBadge and type_name == "LevelBadge"):
 			count += 1
 		count += _count_of_type(child, type_name)

@@ -156,11 +156,11 @@ const CTX_ESSENCE_SET := "essence_sets"
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
 const CTX_STRESS := "stress_round"
 
-## Rifts (ctx-Schlüssel): Dictionary Slot -> Liste der Rift-ids auf der OBEN
+## Runen (ctx-Schlüssel): Dictionary Slot -> Liste der Runen-ids auf der OBEN
 ## liegenden Seite. Wie die Essenz-Glieder löst der Aufrufer das EINMAL auf;
 ## das Nachglühen ändert Auslösungen, also braucht auch der Farkle-Vergleich die
-## alten Risse.
-const CTX_RIFTS := "rifts"
+## alten Runen.
+const CTX_RUNES := "runes"
 
 ## Vom Spieler in der Grube gelegte Zählreihenfolge (Array von Slot-Indizes).
 ## Eine ANSAGE, kein Messwert: die Reihe wird aus diesem Array gerendert, nie
@@ -170,11 +170,11 @@ const CTX_PLAYER_ORDER := "player_order"
 ## Rang eines Würfels, den die Ansage nicht nennt.
 const UNRANKED := 1 << 30
 
-static func rifts_in(ctx: Dictionary) -> Dictionary:
-	return ctx.get(CTX_RIFTS, {})
+static func runes_in(ctx: Dictionary) -> Dictionary:
+	return ctx.get(CTX_RUNES, {})
 
-static func rifts_for(ctx: Dictionary, slot: int) -> Array[String]:
-	return RiftEffects.rifts_at(rifts_in(ctx), slot)
+static func runes_for(ctx: Dictionary, slot: int) -> Array[String]:
+	return RuneEffects.runes_at(runes_in(ctx), slot)
 
 static func essences_in(ctx: Dictionary) -> Dictionary:
 	return ctx.get(CTX_ESSENCES, {})
@@ -401,7 +401,7 @@ static func pointer_chance_for(chance: float, firings: int) -> float:
 
 ## Würfelt die Leiterbahn EINES Würfels für die ganze Hand aus: je Würfel-Trigger
 ## ein Wurf mit der aggregierten Chance; ein Treffer zündet die Zielseite EINMAL
-## (die Seiten-Achse gilt dort nicht - Risse gehören der oberen Seite). Trägt die
+## (die Seiten-Achse gilt dort nicht - Runen gehören der oberen Seite). Trägt die
 ## gezündete Seite selbst eine Leiterbahn, geht es Sprung für Sprung mit der
 ## EINFACHEN Chance weiter; ein Zyklus würfelt einfach weiter.
 ## Die Werte wandern mit: eine zweimal gezündete Knochen-Seite zählt beim zweiten
@@ -423,11 +423,11 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 	var running: Array[int] = die.faces.duplicate()
 	var up_material: String = die.materials[up_face] if up_face < die.materials.size() else ""
 	var up_level := MaterialEffects.face_level(die, up_face)
-	var up_rifts := die.rifts_on(up_face)
+	var up_runes := die.runes_on(up_face)
 	for _t in maxi(1, die_triggers):
 		for _f in maxi(1, face_triggers):
 			running[up_face] = MaterialEffects.mutate_value_once(running[up_face], up_material,
-				charm_ids, up_level, essence_ids, up_rifts)
+				charm_ids, up_level, essence_ids, up_runes)
 		var fires: Array[Dictionary] = []
 		var face := up_face
 		var roll_chance := aggregated
@@ -508,7 +508,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var base := points_for(key, combo_levels) * combo_factor
 	var mult := float(mult_for(key, combo_levels) * combo_factor)
 	var essences := essence_sets_in(ctx)
-	var rifts := rifts_in(ctx)
+	var runes := runes_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
 	# Krits dieser Hand, laufend gezählt: Ozon wächst mit ihnen, Grubengas bucht
 	# an JEDEM von ihnen sofort seinen Zuschlag. Die Gewitterfront startet den
@@ -527,7 +527,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var wild_eyes := wild_value(key, dice, ctx) if wild >= 0 else 0
 	# Auch ohne Materialien können Charms und Essenzen Aktivierungen stapeln.
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
-		or not essences.is_empty() or not rifts.is_empty()
+		or not essences.is_empty() or not runes.is_empty()
 	var order: Array[int] = shape["order"]
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
@@ -540,7 +540,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var eye_sum := int(info.get("eye_sum", 0))
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
-		var rift_ids := RiftEffects.rifts_at(rifts, i)
+		var rune_ids := RuneEffects.runes_at(runes, i)
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
 		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		base += phosphor_store_for(ctx, i)
@@ -552,7 +552,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				EssenceEffects.extra_activations(i, order, essences, charm_ids), order.size())
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
-			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RiftEffects.extra_activations(rift_ids))
+			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids))
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
 		# Zündungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
 		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
@@ -609,13 +609,13 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						crits += 1
 						base += firedamp
 					mult *= die_crit
-				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rift_ids)
+				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rune_ids)
 			# Glieder: erst die für DIESEN Würfel-Trigger gewürfelte Leiterbahn, im
 			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
 			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position
 			# dieses Würfels, weil Krits die Reihenfolge werten. Glieder tragen ihren
-			# eingefrorenen Wert (eine Kette meint fremde Seiten). RIFTS feuern hier
-			# NICHT: ein Riss gehört der oben liegenden Seite, ein Glied ist per
+			# eingefrorenen Wert (eine Kette meint fremde Seiten). RUNES feuern hier
+			# NICHT: eine Rune gehört der oben liegenden Seite, ein Glied ist per
 			# Definition eine andere.
 			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else essence_links_for(ctx, i)):
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)

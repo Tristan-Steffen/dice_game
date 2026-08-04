@@ -746,7 +746,7 @@ static func ignition_coil() -> Charm:
 	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Leiterbahn-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
 
 static func bell_jar() -> Charm:
-	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Riss.")
+	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Rune.")
 
 static func solar_eclipse() -> Charm:
 	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")

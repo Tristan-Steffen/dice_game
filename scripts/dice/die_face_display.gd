@@ -157,7 +157,7 @@ const LABEL_PIXEL_SIZE := 0.0085
 ## Nutzbare Kantenlänge des Ziffernfelds (< DieBuilder.FACE_SIZE).
 const LABEL_FIT_EXTENT := 1.5
 ## Dunkler Saum der Ziffer in Font-Pixeln (12.5 % von LABEL_FONT_SIZE): das
-## Trennband gegen auslaufenden Riss-Bloom. Mehr macht die Zahl fett, weniger
+## Trennband gegen auslaufendie Runen-Bloom. Mehr macht die Zahl fett, weniger
 ## trennt bei voller Naht-Breite nicht mehr.
 const LABEL_OUTLINE_SIZE := 20
 
@@ -167,9 +167,9 @@ var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
 ## Achse -> Node3D (dunkle Fassung): die Dichtung gegen das Kantenbloom. Sie
 ## kommt und geht mit dem Rahmen - ohne Einlage gibt es nichts abzudichten.
 var gaskets: Dictionary = {}
-var rift_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Riss-Auflage)
+var rune_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Runen-Auflage)
 ## Zweite Auflage NUR für Vakuum-Würfel (zwei Brüche je Seite), faul gebaut.
-var rift_overlays_second: Dictionary = {}
+var rune_overlays_second: Dictionary = {}
 ## Eck-Kappen der Kanten (Silhouetten-Signal); nur mit Essenz sichtbar. EIN
 ## Mesh mit eigenem Lampen-Material.
 var corner_caps: MeshInstance3D = null
@@ -190,10 +190,10 @@ var _pool_color := Color(0, 0, 0, 0)
 const AURORA_HUE_SPAN := 0.22
 
 ## Zweiter Bruch des Vakuum-Würfels: knapp vor dem ersten, hinter der Ziffer.
-const SECOND_RIFT_DEPTH := 0.0085
+const SECOND_RUNE_DEPTH := 0.0085
 ## Verbreiterung der Ziffern-Sperrzone je zusätzlicher Stelle (§2.4): eine
 ## zweistellige Zahl beansprucht ~0.375 statt 0.26 halbe Breite.
-const GLYPH_DIGIT_WIDEN := 0.115
+const DIGIT_GUARD_WIDEN := 0.115
 
 ## Lebendiges Licht: das Kanten-Neon atmet langsam - Material-Würfel stärker.
 var _pulse_phase := randf() * TAU
@@ -213,7 +213,7 @@ var face_levels: Dictionary = {}
 var essence_id: String = ""
 ## Rarität der Essenz (-1 = seelenlos) - entscheidet die Animationsstufen.
 var essence_rarity: int = -1
-## Seelenfunken (nur legendär, faul gebaut wie das zweite Rift-Overlay).
+## Seelenfunken (nur legendär, faul gebaut wie das zweite Runen-Overlay).
 var soul_motes: CPUParticles3D = null
 ## Gemeinsames Punktbild aller Funken - einmal für alle Würfel.
 static var _mote_tex: GradientTexture2D = null
@@ -250,7 +250,7 @@ func apply_definition(def: DieDefinition) -> void:
 	edge_base = essence.glow if essence != null else EDGE_COLOR
 	if edge_material_res != null:
 		_set_textures(edge_material_res, "")
-	_refresh_rift_overlays(def)
+	_refresh_rune_overlays(def)
 	_rebuild_pointer_traces(def)
 	_refresh_face_colors()
 
@@ -269,7 +269,7 @@ func _set_face_value(axis: String, value: int) -> void:
 	var label: Label3D = labels[axis]
 	label.text = str(value)
 	DieFaceDisplay.fit_label(label)
-	_sync_glyph_guard(axis)
+	_sync_digit_guard(axis)
 
 ## Schreibt die Ziffer EINER Seite abweichend von der Def (Anzeige-
 ## Überschreibung: Verwandlungs-Charm, Wertwandel während des Zählens).
@@ -480,42 +480,42 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	material.metallic = profile.metallic
 	material.roughness = profile.roughness
 
-## Risse der Seiten: sichtbar nur, wo ein Rift sitzt. In Ruhe schimmern sie
-## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_rifts). Genau
+## Runen der Seiten: sichtbar nur, wo eine Rune sitzt. In Ruhe schimmern sie
+## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_runes). Genau
 ## diese zeitliche Signatur trennt sie vom DAUERND glühenden Essenz-Rand.
 ## Der Vakuum-Würfel trägt zwei Brüche je Seite; der zweite bekommt seine eigene
 ## Auflage, erst bei Bedarf gebaut und GESPIEGELT - so nehmen die beiden Brüche
 ## entgegengesetzte Ränder, statt sich im selben zu verheddern.
-func _refresh_rift_overlays(def: DieDefinition) -> void:
-	for axis in rift_overlays:
+func _refresh_rune_overlays(def: DieDefinition) -> void:
+	for axis in rune_overlays:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
-		var on_face := def.rifts_on(face_index)
-		_apply_rift_overlay(rift_overlays[axis], on_face, 0, def, false)
-		var second: MeshInstance3D = rift_overlays_second.get(axis)
+		var on_face := def.runes_on(face_index)
+		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def, false)
+		var second: MeshInstance3D = rune_overlays_second.get(axis)
 		if on_face.size() > 1:
 			if second == null:
-				second = DieBuilder.build_rift_overlay(SECOND_RIFT_DEPTH)
+				second = DieBuilder.build_rune_overlay(SECOND_RUNE_DEPTH)
 				quads[axis].add_child(second)
-				rift_overlays_second[axis] = second
-			_apply_rift_overlay(second, on_face, 1, def, true)
+				rune_overlays_second[axis] = second
+			_apply_rune_overlay(second, on_face, 1, def, true)
 		elif second != null:
 			second.visible = false
-		_sync_glyph_guard(axis)
+		_sync_digit_guard(axis)
 
-func _apply_rift_overlay(overlay: MeshInstance3D, on_face: Array[String], index: int,
+func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index: int,
 		def: DieDefinition, mirrored: bool) -> void:
 	overlay.visible = index < on_face.size()
 	if not overlay.visible:
 		return
-	var rift_id: String = on_face[index]
-	var rift := Rift.by_id(rift_id)
-	# Die Essenz schlägt den Rift: auf einem Vakuum-Würfel saugt jeder Bruch.
-	var profile := Rift.profile_for(rift_id, def.essence_id)
-	if rift == null or profile == null:
+	var rune_id: String = on_face[index]
+	var rune := Rune.by_id(rune_id)
+	# Die Essenz schlägt die Rune: auf einem Vakuum-Würfel saugt jede Rune.
+	var profile := Rune.profile_for(rune_id, def.essence_id)
+	if rune == null or profile == null:
 		overlay.visible = false
 		return
 	var material: ShaderMaterial = overlay.material_override
-	material.set_shader_parameter("crack_map", RiftTextures.for_pattern(rift.pattern))
+	material.set_shader_parameter("glyph_map", RuneTextures.for_glyph(rune.pattern))
 	var seam := profile.normalized_seam()
 	material.set_shader_parameter("seam_color", Vector3(seam.r, seam.g, seam.b))
 	material.set_shader_parameter("core_color",
@@ -536,30 +536,30 @@ func _apply_rift_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 	material.set_shader_parameter("block_flare", false)
 
 ## Ziffern-Wächter (§2.4): eine zweistellige Zahl ist breiter, also wird die
-## SPERRZONE breiter - nie die Figur. Knochen lässt Werte wachsen, und ein Riss,
+## SPERRZONE breiter - nie die Figur. Knochen lässt Werte wachsen, und eine Rune,
 ## der sich beim Wachsen neu zeichnet, liest als Fehler.
-func _sync_glyph_guard(axis: String) -> void:
+func _sync_digit_guard(axis: String) -> void:
 	var label: Label3D = labels.get(axis)
 	if label == null:
 		return
 	var digits := maxi(1, label.text.length())
-	var half := Vector2(Rift.GLYPH_KEEPOUT.x + GLYPH_DIGIT_WIDEN * float(digits - 1),
-		Rift.GLYPH_KEEPOUT.y)
-	for store in [rift_overlays, rift_overlays_second]:
+	var half := Vector2(Rune.DIGIT_KEEPOUT.x + DIGIT_GUARD_WIDEN * float(digits - 1),
+		Rune.DIGIT_KEEPOUT.y)
+	for store in [rune_overlays, rune_overlays_second]:
 		var overlay: MeshInstance3D = store.get(axis)
 		if overlay == null or not overlay.visible:
 			continue
-		(overlay.material_override as ShaderMaterial).set_shader_parameter("glyph_half", half)
+		(overlay.material_override as ShaderMaterial).set_shader_parameter("digit_half", half)
 
-## Lässt die Risse EINER Seite auflodern (0 = Ruhe, 1 = voller Ausbruch) -
+## Lässt die Runen EINER Seite auflodern (0 = Ruhe, 1 = voller Ausbruch) -
 ## scene_root ruft das im Aktivierungs-Puls der Zählanimation. face_index < 0
 ## meint alle Seiten (Vorschau/Test); im Spiel feuert immer nur die OBERE, denn
-## dort sitzt der Riss, der gewertet wird.
-func flare_rifts(strength: float, face_index := -1, block := false) -> void:
-	for axis in rift_overlays:
+## dort sitzt die Rune, die gewertet wird.
+func flare_runes(strength: float, face_index := -1, block := false) -> void:
+	for axis in rune_overlays:
 		if face_index >= 0 and DiceController.AXIS_FACE_INDEX[axis] != face_index:
 			continue
-		for store in [rift_overlays, rift_overlays_second]:
+		for store in [rune_overlays, rune_overlays_second]:
 			var overlay: MeshInstance3D = store.get(axis)
 			if overlay == null or not overlay.visible:
 				continue

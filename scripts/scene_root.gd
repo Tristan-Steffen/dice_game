@@ -33,9 +33,9 @@ const CHARM_PAYOUT_STEP_INTERVAL := 0.45
 ## Start-Takt der Frankiermaschinen-Salve: die Meteore starten dicht
 ## hintereinander, ohne auf die vorige Ankunft zu warten.
 const STAMP_METEOR_GAP := 0.18
-## Abklingzeit des Riss-Ausbruchs: kurz genug, dass der nächste Würfel seinen
+## Abklingzeit des Runen-Ausbruchs: kurz genug, dass der nächste Würfel seinen
 ## eigenen Ausbruch bekommt, lang genug zum Sehen.
-const RIFT_FLARE_TIME := 0.45
+const RUNE_FLARE_TIME := 0.45
 ## Pendel-Schwung: verlorener Mult steigt in Warnrot auf, gewonnener in Gold.
 const PENDULUM_LOSS_COLOR := Color(1.0, 0.35, 0.3)
 const PENDULUM_SWING_FONT := 0.7
@@ -441,7 +441,7 @@ var last_thrown_slots: Array[int] = []
 var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Vergleich)
 var pre_reroll_materials: Array[String] = []
 var pre_reroll_essences: Dictionary = {}  # Essenzen VOR dem Neu-Würfeln
-var pre_reroll_rifts: Dictionary = {}  # Risse der oberen Seiten VOR dem Neu-Würfeln
+var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Würfeln
 ## Irrlicht-Auswahl: der Slot, dessen Nachbarseiten gerade zur Wahl stehen (-1 =
 ## keine offene Wahl), und die vier Seiten in Knopf-Reihenfolge.
 var _tip_choice_slot: int = -1
@@ -554,10 +554,10 @@ const DICE_START_POSITIONS: Array[Vector3] = [
 ]
 
 func _ready() -> void:
-	# Die vier Rissbilder EINMAL backen, bevor irgendein Würfel sie braucht -
-	# sonst zahlt der erste gerissene Würfel mitten im Spiel dafür. Hier kostet es
+	# Die vier Runenzeichen EINMAL backen, bevor irgendein Würfel sie braucht -
+	# sonst zahlt der erste beschriftete Würfel mitten im Spiel dafür. Hier kostet es
 	# ~190 ms in einem Start, der ohnehin den ganzen Tisch aufbaut.
-	RiftTextures.warm()
+	RuneTextures.warm()
 	_strip_table_rim()
 	_setup_dice()
 	_setup_table_screen()
@@ -1990,24 +1990,24 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
 ## den Nebenwetten), darum _fly_charge_to_capacitor(false).
-## sparks nennt je ⚡ den Würfel, aus dem es springt: sein Riss lodert GENAU dann,
+## sparks nennt je ⚡ den Würfel, aus dem es springt: seine Rune lodert GENAU dann,
 ## wenn der Komet losfliegt. Der Funke, der von der Naht abspringt, und die
 ## Energie, die im Kondensator landet, werden so zu EINEM Vorgang - der stärkste
-## Ursache-Wirkung-Lesbarkeitsgewinn, den das Riss-System zu bieten hat.
-func _play_rift_charge_volley(count: int, sparks: Array[int] = []) -> void:
+## Ursache-Wirkung-Lesbarkeitsgewinn, den das Runen-System zu bieten hat.
+func _play_rune_charge_volley(count: int, sparks: Array[int] = []) -> void:
 	var launched := run
 	for i in count:
 		var slot: int = sparks[i] if i < sparks.size() else -1
 		if i == 0:
-			_launch_rift_spark(slot)
+			_launch_rune_spark(slot)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if run == launched:
-					_launch_rift_spark(slot))
+					_launch_rune_spark(slot))
 
-func _launch_rift_spark(slot: int) -> void:
+func _launch_rune_spark(slot: int) -> void:
 	if slot >= 0 and slot < dice.count():
-		_flare_rifts(slot)
+		_flare_runes(slot)
 	_fly_charge_to_capacitor(false)
 
 ## Ladungs-Gewinn: je ⚡ ein Komet, dicht gestaffelt wie die Vertrags-Salve -
@@ -4106,17 +4106,17 @@ func _rolled_materials() -> Array[String]:
 			materials.append("")
 	return materials
 
-## Rifts je Wurf-Slot (Slot -> Liste der Risse auf der OBEN liegenden Seite).
+## Runen je Wurf-Slot (Slot -> Liste der Runen auf der OBEN liegenden Seite).
 ## Einmal HIER aufgelöst, wie die Leiterbahn-Ketten - das Nachglühen ändert
-## Auslösungen, also muss auch der Farkle-Vergleich dieselben Risse sehen.
-func _slot_rifts() -> Dictionary:
+## Auslösungen, also muss auch der Farkle-Vergleich dieselben Runen sehen.
+func _slot_runes() -> Dictionary:
 	var out := {}
 	for i in dice.count():
 		var def: DieDefinition = dice.slot_defs[i]
 		if def == null:
 			continue
 		var face: int = dice.face_indices[i]
-		var on_face := def.rifts_on(face)
+		var on_face := def.runes_on(face)
 		if not on_face.is_empty():
 			out[i] = on_face
 	return out
@@ -4209,7 +4209,7 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 	var order: Array[int] = shape["order"]
 	var echo_slot: int = shape["echo_slot"]
 	var essences := DiceScoring.essence_sets_in(sel_ctx)
-	var rifts := DiceScoring.rifts_in(sel_ctx)
+	var runes := DiceScoring.runes_in(sel_ctx)
 	var is_stress := GameRun.is_stress_round(run.round_number)
 	var shown := DiceScoring.shown_values(sel_values, ids, sel_ctx)
 	var fires := {}
@@ -4220,10 +4220,10 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		if def == null or face < 0 or def.pointer_target(face) < 0:
 			continue
 		var essence_ids := EssenceEffects.set_at(essences, k)
-		var rift_ids := RiftEffects.rifts_at(rifts, k)
+		var rune_ids := RuneEffects.runes_at(runes, k)
 		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(k, order, essences, ids), order.size())
-		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RiftEffects.extra_activations(rift_ids))
+		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RuneEffects.extra_activations(rune_ids))
 		var groups := DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
 			ids, essence_ids, pointer_rng)
 		for group in groups:
@@ -4278,7 +4278,7 @@ func _score_ctx() -> Dictionary:
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
-		DiceScoring.CTX_RIFTS: _slot_rifts(),  # Risse der oben liegenden Seiten
+		DiceScoring.CTX_RUNES: _slot_runes(),  # Runen der oben liegenden Seiten
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 		DiceScoring.CTX_PHOSPHOR_STORE: _phosphor_stores(),  # Speicherlicht
 		DiceScoring.CTX_PHOSPHOR_MULT: _phosphor_mults(),  # Speicherlicht + Leuchtstoffröhre
@@ -4325,8 +4325,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 		if to_filtered.has(s):
 			mapped_levels[to_filtered[s]] = levels[s]
 	ctx[DiceScoring.CTX_MATERIAL_LEVELS] = mapped_levels
-	# Essenzen, Risse und der Phosphor-Speicher hängen ebenso am Slot.
-	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RIFTS,
+	# Essenzen, Runen und der Phosphor-Speicher hängen ebenso am Slot.
+	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RUNES,
 			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
@@ -4534,7 +4534,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_values = dice.values.duplicate()
 		pre_reroll_materials = _rolled_materials()
 		pre_reroll_essences = _slot_essences()
-		pre_reroll_rifts = _slot_rifts()
+		pre_reroll_runes = _slot_runes()
 		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
@@ -4743,7 +4743,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
-	old_ctx[DiceScoring.CTX_RIFTS] = pre_reroll_rifts
+	old_ctx[DiceScoring.CTX_RUNES] = pre_reroll_runes
 	old_ctx[DiceScoring.CTX_PHOSPHOR_STORE] = pre_reroll_phosphor
 	old_ctx[DiceScoring.CTX_PHOSPHOR_MULT] = pre_reroll_phosphor_mult
 	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
@@ -5036,14 +5036,14 @@ func _on_take_button_pressed() -> void:
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.charge > 0:
 		run.add_charge(report.charge)
-		_play_rift_charge_volley(report.charge, report.sparks)
+		_play_rune_charge_volley(report.charge, report.sparks)
 	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
 	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
 	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
 	for slot in report.stray:
-		_flare_rifts(slot)
+		_flare_runes(slot)
 	for slot in report.blocked:
-		_flare_rifts(slot, true)
+		_flare_runes(slot, true)
 	var take_money := report.money
 	if not report.grown.is_empty() or not report.shrunk.is_empty() or not report.decayed.is_empty():
 		# Knochen/Glas/Radon haben Pool-Würfel verändert - die in der Grube
@@ -5619,28 +5619,28 @@ func _flash_scoring_die(slot: int) -> void:
 		return
 	var tint: Color = DiceController.KIND_TINTS.get(dice.slot_defs[slot].style_id, Color.WHITE)
 	_flash_die_tint(dice.face_displays[slot], tint, Vector3.ONE * DiceTrayView.DIE_SCALE)
-	_flare_rifts(slot)
+	_flare_runes(slot)
 
-## Riss-Ausbruch im Aktivierungs-Puls: der Riss flammt auf und fällt zurück auf
+## Runen-Ausbruch im Aktivierungs-Puls: der Rune flammt auf und fällt zurück auf
 ## sein Ruhe-Schimmern. Die Essenz glüht durchgehend weiter - die zeitliche
 ## Signatur trennt die beiden Licht-Systeme.
 ## block = der Schutz-Blitz des Einbrands (ein verhinderter Schrumpf), sonst die
-## Wertungs-Bewegung des jeweiligen Rifts.
-func _flare_rifts(slot: int, block := false) -> void:
+## Wertungs-Bewegung des jeweiligen Runen.
+func _flare_runes(slot: int, block := false) -> void:
 	var display: DieFaceDisplay = dice.face_displays[slot]
 	if display == null:
 		return
-	# NUR die obere Seite: der Riss gehört der Seite, die gewertet wird - eine
+	# NUR die obere Seite: der Rune gehört der Seite, die gewertet wird - eine
 	# Seitenfläche, die mitleuchtet, behauptet eine Wirkung, die es nicht gibt.
 	var face_index: int = dice.face_indices[slot] if slot < dice.face_indices.size() else -1
-	display.flare_rifts(1.0, face_index, block)
+	display.flare_runes(1.0, face_index, block)
 	var tween := create_tween()
 	tween.tween_method(func(strength: float) -> void:
 		if is_instance_valid(display):
-			display.flare_rifts(strength, face_index, block), 1.0, 0.0, RIFT_FLARE_TIME)
+			display.flare_runes(strength, face_index, block), 1.0, 0.0, RUNE_FLARE_TIME)
 	# Die Grubenkarte blitzt im selben Takt mit, sofern sie diesen Würfel zeigt.
 	if table_screen != null and slot < dice.slot_defs.size():
-		table_screen.flare_pit_rifts(dice.slot_defs[slot], face_index, RIFT_FLARE_TIME)
+		table_screen.flare_pit_runes(dice.slot_defs[slot], face_index, RUNE_FLARE_TIME)
 
 ## Kleiner Größen-Pop eines Goldlichts, wenn sein Würfel gezählt wird.
 func _pulse_glow(glow: Control) -> void:
@@ -6925,7 +6925,7 @@ func _log_display_state() -> Dictionary:
 	}
 
 ## Die liegende Grube als Chronik-Zeilen. Aufgezeichnet wird die SEITE, nicht nur
-## der Wert: Material, Riss und Leiterbahn hängen an ihr, und ein Wert kann auf
+## der Wert: Material, Rune und Leiterbahn hängen an ihr, und ein Wert kann auf
 ## mehreren Seiten stehen.
 func _log_pit_state() -> Array[Dictionary]:
 	var pit: Array[Dictionary] = []

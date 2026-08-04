@@ -18,9 +18,9 @@ const CATEGORY_DICE := "dice"
 # --- Würfel-Gravur ohne Material: die Leiterbahn (Zeiger-Mechanik) ---
 const POINTER := "pointer"
 
-# --- Bruchmuster: Schablonen, die eine Seite kontrolliert aufreißen. Die
-# Gravur-id IST die Rift-id, wie bei den Material-Gravuren.
-const BREAK_PREFIX := "break_"
+# --- Runen: Schablonen, die ein Zeichen in eine Seite ätzen. Die Gravur-id IST
+# die Runen-id, wie bei den Material-Gravuren.
+const RUNE_PREFIX := "rune_"
 
 # --- Material-Gravur ohne eigenes Material: die Dotierung (+1 Sättigungsstufe) ---
 const DOPING := "doping"
@@ -73,11 +73,11 @@ const FOOTPRINT := {
 	BLUEPRINT: Vector2i(3, 3),
 	POINTER: Vector2i(3, 3),
 	DOPING: Vector2i(3, 3),
-	# Bruchmuster (Würfel-Kategorie) - die Fläche IST die Seltenheit
-	BREAK_PREFIX + Rift.STRAY_LIGHT: Vector2i(1, 1),
-	BREAK_PREFIX + Rift.BURN_IN: Vector2i(2, 1),
-	BREAK_PREFIX + Rift.AFTERGLOW: Vector2i(2, 2),
-	BREAK_PREFIX + Rift.SPARK_FLIGHT: Vector2i(2, 2),
+	# Runen (Würfel-Kategorie) - die Fläche IST die Seltenheit
+	RUNE_PREFIX + Rune.STRAY_LIGHT: Vector2i(1, 1),
+	RUNE_PREFIX + Rune.BURN_IN: Vector2i(2, 1),
+	RUNE_PREFIX + Rune.AFTERGLOW: Vector2i(2, 2),
+	RUNE_PREFIX + Rune.SPARK_FLIGHT: Vector2i(2, 2),
 	# Material-Gravuren (id = Material-id)
 	DieMaterial.GOLD: Vector2i(1, 1),
 	DieMaterial.AMBER: Vector2i(2, 1),
@@ -140,30 +140,30 @@ static func punch() -> Engraving:
 static func blueprint() -> Engraving:
 	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.EPIC)
 
-## Bruchmuster-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
-## darüber, Nachglühen und Funkenflug sind die begehrten Risse.
-const RIFT_RARITY := {
-	Rift.STRAY_LIGHT: Rarity.COMMON,
-	Rift.BURN_IN: Rarity.UNCOMMON,
-	Rift.AFTERGLOW: Rarity.RARE,
-	Rift.SPARK_FLIGHT: Rarity.RARE,
+## Runen-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
+## darüber, Nachglühen und Funkenflug sind die begehrten Zeichen.
+const RUNE_RARITY := {
+	Rune.STRAY_LIGHT: Rarity.COMMON,
+	Rune.BURN_IN: Rarity.UNCOMMON,
+	Rune.AFTERGLOW: Rarity.RARE,
+	Rune.SPARK_FLIGHT: Rarity.RARE,
 }
 
-## Bruchmuster: reißt EINE Seite entlang seines Musters auf und versiegelt sie
-## mit getönter Glasur. Name und Beschreibung kommen direkt vom Rift.
-static func rift_engraving(rift: Rift, rarity: Rarity) -> Engraving:
-	return _make(BREAK_PREFIX + rift.id, "Bruchmuster: %s" % rift.display_name,
-		rift.description, rarity, CATEGORY_DICE)
+## Rune: ätzt EIN Zeichen in eine Seite, das ihren Kernlicht-Funken anzapft.
+## Name und Beschreibung kommen direkt von der Rune.
+static func rune_engraving(rune: Rune, rarity: Rarity) -> Engraving:
+	return _make(RUNE_PREFIX + rune.id, "Rune: %s" % rune.display_name,
+		rune.description, rarity, CATEGORY_DICE)
 
-## Rift-id hinter einem Bruchmuster ("" bei allen anderen Gravuren).
-static func rift_id_of(engraving_id: String) -> String:
-	if not engraving_id.begins_with(BREAK_PREFIX):
+## Runen-id hinter einer Runen-Gravur ("" bei allen anderen Gravuren).
+static func rune_id_of(engraving_id: String) -> String:
+	if not engraving_id.begins_with(RUNE_PREFIX):
 		return ""
-	var rift_id := engraving_id.trim_prefix(BREAK_PREFIX)
-	return rift_id if Rift.is_valid_id(rift_id) else ""
+	var rune_id := engraving_id.trim_prefix(RUNE_PREFIX)
+	return rune_id if Rune.is_valid_id(rune_id) else ""
 
-static func is_rift_id(engraving_id: String) -> bool:
-	return rift_id_of(engraving_id) != ""
+static func is_rune_id(engraving_id: String) -> bool:
+	return rune_id_of(engraving_id) != ""
 
 ## Leiterbahn: die Würfel-Gravur, die Seiten miteinander verdrahtet.
 static func pointer_engraving() -> Engraving:
@@ -197,8 +197,8 @@ static func all() -> Array[Engraving]:
 	]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
-	for rift in Rift.all():
-		result.append(rift_engraving(rift, RIFT_RARITY.get(rift.id, Rarity.RARE)))
+	for rune in Rune.all():
+		result.append(rune_engraving(rune, RUNE_RARITY.get(rune.id, Rarity.RARE)))
 	return result
 
 ## Kategorien, die sicher im Inventar landen - Shop und Ziehung zeigen nur diese.

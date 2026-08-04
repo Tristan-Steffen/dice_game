@@ -72,7 +72,7 @@ const TRAY_TILE := 5.0
 const CONTENT_UNITS := 51.0
 
 ## Textbreite des Seiten-Fensters in Einheiten - breit genug für die Stufe-III-
-## Zeilen und die Riss-Beinamen, ohne ins Raster hinauszulaufen.
+## Zeilen und die Runen-Beinamen, ohne ins Raster hinauszulaufen.
 const TOOLTIP_WIDTH := 30.0
 ## Rückfall-Skala des Ziel-Rasters, solange seine Spalte noch kein Maß hat.
 const GRID_UNIT_SCALE := 0.80
@@ -136,7 +136,7 @@ var edge_frame: PanelContainer
 var face_tooltip: PanelContainer
 var face_tooltip_title: Label
 ## Je Aussage EINE Zeile. Vorher lief alles in ein Label - eine Seite mit
-## Material UND Riss schrieb dann zwei Wirkungstexte ineinander.
+## Material UND Rune schrieb dann zwei Wirkungstexte ineinander.
 var face_tooltip_lines: VBoxContainer
 
 ## Das Gravur-Bord liegt NICHT im Panel, sondern in den drei Vorrats-Schubladen
@@ -442,20 +442,20 @@ func _targeting_of(engraving_id: String) -> String:
 			return TARGET_WHOLE_DIE
 	return TARGET_FACE  # Kerbe, Feile, Stanze, Blaupause
 
-## Zusätzliche Riss-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
+## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
 ## dritten. Die Def kennt keine Charms, also entscheidet die Station.
-func _extra_rift_slots() -> int:
+func _extra_rune_slots() -> int:
 	return 1 if run != null and run.charm_ids().has(Charm.BELL_JAR) else 0
 
-## Platz, auf den das nächste Bruchmuster dieser Seite fällt: der erste FREIE
+## Platz, auf den das nächste Rune dieser Seite fällt: der erste FREIE
 ## (Vakuum trägt zwei, mit Glasglocke drei), sonst der erste - er wird ersetzt.
-func _free_rift_slot(face_index: int) -> int:
-	for slot in current_def.rift_slots(_extra_rift_slots()):
-		var occupied: String = current_def.rifts[face_index]
+func _free_rune_slot(face_index: int) -> int:
+	for slot in current_def.rune_slots(_extra_rune_slots()):
+		var occupied: String = current_def.runes[face_index]
 		if slot == 1:
-			occupied = current_def.second_rifts[face_index]
+			occupied = current_def.second_runes[face_index]
 		elif slot == 2:
-			occupied = current_def.third_rifts[face_index]
+			occupied = current_def.third_runes[face_index]
 		if occupied == "":
 			return slot
 	return 0
@@ -568,12 +568,12 @@ func _apply_single_face(face_index: int) -> void:
 			current_def.set_face_material(face_index, held_id)  # frisches Material, Stufe I
 			_finish_apply(held_id, "Material angebracht: %s" % material.display_name)
 		return
-	if Engraving.is_rift_id(held_id):
+	if Engraving.is_rune_id(held_id):
 		# Ein besetzter Platz wird ersetzt - neu brechen ist erlaubt. Auf dem
-		# Vakuum-Würfel füllt der zweite Riss erst den freien Zweitplatz.
-		var rift_id := Engraving.rift_id_of(held_id)
-		current_def.set_rift(face_index, rift_id, _free_rift_slot(face_index), _extra_rift_slots())
-		_finish_apply(held_id, "Bruchmuster gesetzt: %s" % Rift.by_id(rift_id).display_name)
+		# Vakuum-Würfel füllt der zweite Rune erst den freien Zweitplatz.
+		var rune_id := Engraving.rune_id_of(held_id)
+		current_def.set_rune(face_index, rune_id, _free_rune_slot(face_index), _extra_rune_slots())
+		_finish_apply(held_id, "Rune gesetzt: %s" % Rune.by_id(rune_id).display_name)
 		return
 	match held_id:
 		Engraving.DOPING:
@@ -722,7 +722,7 @@ func _eligible_faces() -> Array[bool]:
 
 ## Ist der Wert dieser Seite eingebrannt? Dann lässt sie sich nicht übermalen.
 func _face_burned_in(face_index: int) -> bool:
-	return RiftEffects.protects_face_value(current_def.rifts_on(face_index))
+	return RuneEffects.protects_face_value(current_def.runes_on(face_index))
 
 func _face_eligible(face_index: int) -> bool:
 	return _eligible_faces()[face_index]
@@ -1027,9 +1027,9 @@ func _held_prompt() -> String:
 			return "Politur: klicke den Würfel (alle Seiten +1)."
 		Engraving.SANDPAPER:
 			return "Schmirgel: klicke den Würfel (alle Seiten −1)."
-	if Engraving.is_rift_id(held_id):
-		var rift := Rift.by_id(Engraving.rift_id_of(held_id))
-		return "Bruchmuster %s: klicke eine Seite (ein besetzter Riss wird ersetzt)." % rift.display_name
+	if Engraving.is_rune_id(held_id):
+		var rune := Rune.by_id(Engraving.rune_id_of(held_id))
+		return "Rune %s: klicke eine Seite (ein besetzter Rune wird ersetzt)." % rune.display_name
 	if DieMaterial.is_valid_id(held_id):
 		var name := DieMaterial.by_id(held_id).display_name
 		# Erst die mögliche Handlung, dann der Mangel: eine bezahlbare Sättigung
@@ -1108,12 +1108,12 @@ func _refresh_face_summary() -> void:
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
 
-	# Essenz-Chip in die leere Kreuz-Ecke, Risse durch die Zellmitten, Stufen-
+	# Essenz-Chip in die leere Kreuz-Ecke, Runen durch die Zellmitten, Stufen-
 	# Plaketten in die Zellecken und die Leiterbahn-Pfeile obendrauf - die Pfeile
 	# zuletzt, sie liegen über den Zellrändern. Die Station baut ihre Zellen
-	# selbst, also auch Risse und Plaketten.
+	# selbst, also auch Runen und Plaketten.
 	face_grid.add_child(DieNetView.edge_chip(current_def, cell))
-	for crack in DieNetView.rift_cracks(current_def, cell):
+	for crack in DieNetView.rune_glyphs(current_def, cell):
 		face_grid.add_child(crack)
 	for badge in DieNetView.level_badges(current_def, cell):
 		face_grid.add_child(badge)
@@ -1260,7 +1260,7 @@ func _build_face_tooltip() -> void:
 	add_child(face_tooltip)
 
 ## Füllt das Overlay und stellt es an seinen FESTEN Platz. Es folgt bewusst
-## nicht mehr dem Zeiger: eine Seite kann Material, zwei Risse und eine
+## nicht mehr dem Zeiger: eine Seite kann Material, zwei Runen und eine
 ## Leiterbahn tragen, und eine wandernde Karte dieser Höhe springt bei jedem
 ## Chip woandershin. Jede Aussage bekommt ihre eigene Zeile.
 func _show_face_tooltip(title: String, lines: Array[String]) -> void:
@@ -1316,9 +1316,9 @@ func _face_tooltip_lines_for(face_index: int) -> Array[String]:
 	var material_id := _material_of(current_def, face_index)
 	if DieMaterial.is_valid_id(material_id):
 		lines.append(DieMaterial.face_hint(material_id, current_def.material_level(face_index)))
-	for rift_id in current_def.rifts_on(face_index):
-		var rift := Rift.by_id(rift_id)
-		lines.append("%s – %s: %s" % [rift.display_name, rift.kind, rift.short])
+	for rune_id in current_def.runes_on(face_index):
+		var rune := Rune.by_id(rune_id)
+		lines.append("%s – %s: %s" % [rune.display_name, rune.kind, rune.short])
 	var pointer_target: int = current_def.pointers[face_index] if face_index < current_def.pointers.size() else -1
 	if pointer_target >= 0:
 		lines.append("Leiterbahn: löst die Seite mit Wert %d zu 50 %% einmal mit aus." % current_def.faces[pointer_target])

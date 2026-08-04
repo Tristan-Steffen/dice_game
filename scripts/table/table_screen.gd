@@ -939,7 +939,8 @@ func place_workshop_window(rect: Rect2) -> void:
 ## Ader Hub -> Werkstatt: gerade waagerecht durch die Lücke, auf halber Höhe der
 ## Überlappung beider Fenster (dort liegt nur Filz).
 func _link_workshop_to_hub() -> void:
-	if workshop_hub_strip == null or hub == null or hub.size.x <= 0.0 			or workshop_window == null or not workshop_window.visible:
+	if workshop_hub_strip == null or hub == null or hub.size.x <= 0.0 \
+			or workshop_window == null or not workshop_window.visible:
 		return
 	var top := maxf(hub.position.y, workshop_window.position.y)
 	var bottom := minf(hub.position.y + hub.size.y, workshop_window.position.y + workshop_window.size.y)
@@ -2806,7 +2807,7 @@ func set_pit_die(def: DieDefinition, up_face: int) -> void:
 		_clear_pit_net()
 		pit_net_holder.add_child(DieNetView.build(def, up_face, _pit_net_cell))
 
-## Lässt die Risse EINER Seite in der Grubenkarte mit aufblitzen - dieselbe Uhr
+## Lässt die Runen EINER Seite in der Grubenkarte mit aufblitzen - dieselbe Uhr
 ## wie am Würfel drei Meter weiter, aber NUR über Farbe und Breite. Ein wandernder
 ## Kopf ist bei Kartengröße nicht darstellbar; heller und dicker ist die ehrliche
 ## Übersetzung von "hat gefeuert".
@@ -2816,13 +2817,13 @@ func set_pit_die(def: DieDefinition, up_face: int) -> void:
 ## bleibt still, weil es sonst bis zu 180 Controls je Frame neu zeichnen müsste -
 ## die Werkbank ist eine Lesefläche, keine Bühne. Der Aufrufer gibt seine Def mit:
 ## zeigt die Karte gerade einen ANDEREN Würfel, passiert nichts.
-func flare_pit_rifts(def: DieDefinition, face_index: int, duration: float) -> void:
+func flare_pit_runes(def: DieDefinition, face_index: int, duration: float) -> void:
 	if pit_net_holder == null or def == null or def != _pit_net_def:
 		return
 	if pit_net_holder.get_child_count() == 0:
 		return
 	for child in pit_net_holder.get_child(0).get_children():
-		var crack := child as DieNetView.RiftCrack
+		var crack := child as DieNetView.RuneGlyph
 		if crack == null or (face_index >= 0 and crack.face != face_index):
 			continue
 		crack.flare = 1.0

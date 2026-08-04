@@ -380,7 +380,7 @@ static func decay_die(die: DieDefinition, charm_ids: Array[String] = []) -> bool
 	for face in die.faces.size():
 		if die.faces[face] <= EtchingEffects.MIN_FACE_VALUE:
 			continue
-		if RiftEffects.protects_face_value(die.rifts_on(face)):
+		if RuneEffects.protects_face_value(die.runes_on(face)):
 			continue
 		candidates.append(face)
 	if candidates.is_empty():

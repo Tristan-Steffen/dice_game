@@ -182,32 +182,32 @@ func _lines(values: Array) -> Array[String]:
 
 # --- Das Seiten-Fenster: eine Zeile je Aussage, fester Platz ----------------------
 
-func test_a_face_with_material_and_rift_shows_both_lines() -> void:
-	# DER kaputte Fall: vorher liefen Material- und Riss-Wirkung in EIN Label
+func test_a_face_with_material_and_rune_shows_both_lines() -> void:
+	# DER kaputte Fall: vorher liefen Material- und Runen-Wirkung in EIN Label
 	# und überschrieben sich gegenseitig.
 	var def := _die()
 	def.set_face_material(0, DieMaterial.RUBY)
 	def.raise_level(0)
-	def.set_rift(0, Rift.AFTERGLOW)
+	def.set_rune(0, Rune.AFTERGLOW)
 	view.show_die(def)
 	view._show_face_info(0)
 	var lines := _tooltip_lines()
-	assert_eq(lines.size(), 2, "Material und Riss stehen nebeneinander, nicht ineinander")
+	assert_eq(lines.size(), 2, "Material und Rune stehen nebeneinander, nicht ineinander")
 	assert_true(lines[0].contains("Rubin"), "erst das Material: %s" % lines[0])
 	assert_true(lines[0].contains("II"), "mit seiner Stufe")
-	assert_true(lines[1].contains("Nachglühen"), "dann der Riss: %s" % lines[1])
+	assert_true(lines[1].contains("Nachglühen"), "dann der Rune: %s" % lines[1])
 
-func test_a_vacuum_face_lists_both_of_its_rifts() -> void:
+func test_a_vacuum_face_lists_both_of_its_runes() -> void:
 	var def := _die()
 	def.essence_id = Essence.VACUUM
 	def.set_face_material(0, DieMaterial.GOLD)
-	def.set_rift(0, Rift.AFTERGLOW, 0)
-	def.set_rift(0, Rift.SPARK_FLIGHT, 1)
+	def.set_rune(0, Rune.AFTERGLOW, 0)
+	def.set_rune(0, Rune.SPARK_FLIGHT, 1)
 	def.pointers[0] = 2
 	view.show_die(def)
 	view._show_face_info(0)
 	var lines := _tooltip_lines()
-	assert_eq(lines.size(), 4, "Material + zwei Risse + Leiterbahn - der volle Fall")
+	assert_eq(lines.size(), 4, "Material + zwei Runen + Leiterbahn - der volle Fall")
 	assert_true(lines[3].contains("Leiterbahn"), "die Bahn steht zuletzt")
 
 func test_the_face_title_names_number_and_value() -> void:

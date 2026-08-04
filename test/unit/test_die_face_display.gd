@@ -572,7 +572,7 @@ func test_the_level_steps_the_frame_glow_too():
 
 func test_no_level_lifts_a_face_over_the_bloom_threshold():
 	# Das Signal der Stufe ist Farbreinheit, nie Helligkeit - dieselbe Regel wie
-	# bei den Rissen, sonst wird jede Stufe-III-Seite zur Lampe.
+	# bei die Runenn, sonst wird jede Stufe-III-Seite zur Lampe.
 	var display := _display()
 	for material in DieMaterial.all():
 		for level in [1, 2, 3]:

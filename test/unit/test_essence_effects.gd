@@ -394,13 +394,13 @@ func test_smothering_costs_the_up_face():
 	die.faces[2] = 6
 	die.set_face_material(2, DieMaterial.GOLD)
 	die.raise_level(2)
-	die.set_rift(2, Rift.AFTERGLOW)
+	die.set_rune(2, Rune.AFTERGLOW)
 	run.roll_essence_round_state()
 	run.consume_smother(die, 2)
 	assert_eq(die.faces[2], 1, "die obere Seite fällt auf 1")
 	assert_eq(die.materials[2], "", "und verliert ihr Material")
 	assert_eq(die.material_level(2), 0, "die Stufe geht mit dem Material")
-	assert_true(die.has_rift(2, Rift.AFTERGLOW), "der Riss sitzt in der Schale, nicht in der Glasur")
+	assert_true(die.has_rune(2, Rune.AFTERGLOW), "die Rune sitzt in der Schale, nicht in der Glasur")
 
 func test_smothering_without_a_face_only_burns_the_charge():
 	var run := GameRun.new_run()
@@ -782,7 +782,7 @@ func test_nitrogen_and_the_brand_block_the_infection():
 	# Einbrand auf DER Seite tut dasselbe.
 	var burned := _die_with(Essence.MIASMA)
 	burned.faces[0] = 8
-	burned.set_rift(0, Rift.BURN_IN)
+	burned.set_rune(0, Rune.BURN_IN)
 	var third := DieDefinition.standard()
 	var burned_defs: Array[DieDefinition] = [burned, third]
 	MaterialEffects.apply_take_effects(burned_defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),

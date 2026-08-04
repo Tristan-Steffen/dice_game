@@ -1210,7 +1210,7 @@ func apply_golden_handshake(def: DieDefinition, hand_points: int) -> bool:
 	if not _clause_active(DealClause.GOLDEN_HANDSHAKE) or hand_points < effective_goal():
 		return false
 	for face in def.materials.size():
-		if def.materials[face] != "" and RiftEffects.protects_face_value(def.rifts_on(face)):
+		if def.materials[face] != "" and RuneEffects.protects_face_value(def.runes_on(face)):
 			continue
 		def.set_face_material(face, DieMaterial.GOLD)
 	golden_handshake_used_this_round = true
@@ -1354,13 +1354,14 @@ func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
 	for i in slots:
 		if i >= defs.size() or defs[i] == null:
 			continue
-		if EssenceEffects.smothers_farkle(defs[i].essence_id) 				and not essence_smother_used.has(defs[i].get_instance_id()):
+		if EssenceEffects.smothers_farkle(defs[i].essence_id) \
+				and not essence_smother_used.has(defs[i].get_instance_id()):
 			return i
 	return -1
 
 ## Verbraucht die Löschgas-Ladung dieses Würfels für die laufende Runde. Das
 ## Löschen kostet: die oben liegende Seite fällt auf 1 und verliert ihr Material
-## (set_face_material nimmt die Stufe mit, der Riss bleibt).
+## (set_face_material nimmt die Stufe mit, der Rune bleibt).
 func consume_smother(die: DieDefinition, up_face: int = -1) -> void:
 	if die == null:
 		return
@@ -1884,7 +1885,8 @@ func _secret_wildcard_offer() -> Dictionary:
 		var die_offer := _secret_die_offer()
 		if not die_offer.is_empty():
 			return die_offer
-	return _secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE 		else _secret_engraving_offer()
+	return _secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE \
+		else _secret_engraving_offer()
 
 ## Essenzwürfel: ein frischer Würfel mit einer Schwarzmarkt-Seele. Unikate, die
 ## der Spieler schon besitzt, fallen weg; ist der Topf leer, liefert der Platz
@@ -2018,12 +2020,12 @@ func randomize_all_essences() -> void:
 		owned_pool[i].essence_id = essence.id
 	pool_changed.emit()
 
-## Nimmt jedem Pool-Würfel die Seele - und mit dem Vakuum den zweiten Bruch,
-## den allein seine Schale trägt (rift_slots).
+## Nimmt jedem Pool-Würfel die Seele - und mit dem Vakuum den zweite Rune,
+## den allein seine Schale trägt (rune_slots).
 func clear_all_essences() -> void:
 	for die in owned_pool:
 		die.essence_id = ""
-		die.second_rifts = ["", "", "", "", "", ""] as Array[String]
+		die.second_runes = ["", "", "", "", "", ""] as Array[String]
 	pool_changed.emit()
 
 

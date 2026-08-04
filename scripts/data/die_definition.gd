@@ -18,19 +18,19 @@ extends Resource
 ## Die Stufe wohnt in der Glasur, nicht in der Seite - ein neues Material fängt
 ## wieder bei I an (set_face_material ist der einzige Schreibweg).
 @export var levels: Array[int] = [0, 0, 0, 0, 0, 0]
-## Rift je Seite (Rift-id, "" = keiner), parallel zu faces. Rifts wohnen in der
+## Rune je Seite (Runen-id, "" = keiner), parallel zu faces. Runen wohnen in der
 ## STRUKTUR der Schale, nicht in der Glasur: ein neues Material übermalt die
-## Stufe, den Riss nie (set_face_material fasst sie darum nicht an).
-@export var rifts: Array[String] = ["", "", "", "", "", ""]
-## Zweiter Riss je Seite - NUR Vakuum-Würfel dürfen ihn tragen: ohne Innendruck
-## trägt die Schale den zweiten Bruch. Bewusst ein PARALLELES Array statt einer
-## Liste je Seite, damit jede Schleife über Rifts dieselbe flache Form sieht wie
+## Stufe, die Rune nie (set_face_material fasst sie darum nicht an).
+@export var runes: Array[String] = ["", "", "", "", "", ""]
+## Zweite Rune je Seite - NUR Vakuum-Würfel dürfen ihn tragen: ohne Innendruck
+## trägt die Schale eine zweite Rune. Bewusst ein PARALLELES Array statt einer
+## Liste je Seite, damit jede Schleife über Runen dieselbe flache Form sieht wie
 ## über Materialien und Stufen.
-@export var second_rifts: Array[String] = ["", "", "", "", "", ""]
-## Dritter Riss je Seite - ebenfalls nur am Vakuum, und nur unter der Glasglocke
+@export var second_runes: Array[String] = ["", "", "", "", "", ""]
+## Dritte Rune je Seite - ebenfalls nur am Vakuum, und nur unter der Glasglocke
 ## (Charm) überhaupt zu setzen. Was sitzt, wirkt weiter: der Charm entscheidet
-## über das BRECHEN, nicht über den Riss.
-@export var third_rifts: Array[String] = ["", "", "", "", "", ""]
+## über das ÄTZEN, nicht über die Rune.
+@export var third_runes: Array[String] = ["", "", "", "", "", ""]
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
 
@@ -44,9 +44,9 @@ func become(other: DieDefinition) -> void:
 	materials = other.materials.duplicate()
 	pointers = other.pointers.duplicate()
 	levels = other.levels.duplicate()
-	rifts = other.rifts.duplicate()
-	second_rifts = other.second_rifts.duplicate()
-	third_rifts = other.third_rifts.duplicate()
+	runes = other.runes.duplicate()
+	second_runes = other.second_runes.duplicate()
+	third_runes = other.third_runes.duplicate()
 	essence_id = other.essence_id
 	style_id = other.style_id
 	display_name = other.display_name
@@ -58,15 +58,15 @@ func instantiate() -> DieDefinition:
 	copy.materials = materials.duplicate()
 	copy.pointers = pointers.duplicate()
 	copy.levels = levels.duplicate()
-	copy.rifts = rifts.duplicate()
-	copy.second_rifts = second_rifts.duplicate()
-	copy.third_rifts = third_rifts.duplicate()
+	copy.runes = runes.duplicate()
+	copy.second_runes = second_runes.duplicate()
+	copy.third_runes = third_runes.duplicate()
 	return copy
 
 ## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Stufe hängt am
 ## Material-Exemplar, nicht an der Seite - ein neues Material startet bei I.
-## Die Rifts bleiben UNBERÜHRT: Stufen wohnen in der Glasur, Rifts in der
-## Struktur der Schale - Übermalen löscht nie einen Bruch.
+## Die Runen bleiben UNBERÜHRT: Stufen wohnen in der Glasur, Runen in der
+## Struktur der Schale - Übermalen löscht nie eine Rune.
 func set_face_material(face: int, material_id: String) -> void:
 	if face < 0 or face >= materials.size():
 		return
@@ -90,50 +90,50 @@ func raise_level(face: int) -> bool:
 	levels[face] = maxi(1, levels[face]) + 1
 	return true
 
-## Wie viele Risse diese Schale je Seite trägt: das Vakuum saugt das Kernlicht
-## nach innen und hält ohne Innendruck einen zweiten Bruch aus - unter der
-## Glasglocke einen dritten. extra kommt vom Aufrufer, der die Charms kennt (die
-## Def kennt sie nicht); ohne Vakuum bleibt es bei einem Riss.
-func rift_slots(extra: int = 0) -> int:
+## Wie viele Runen diese Schale je Seite trägt: das Vakuum saugt das Kernlicht
+## nach innen und hält ohne Innendruck eine zweite Rune aus - unter der
+## Glasglocke unter der Glasglocke eine dritte. extra kommt vom Aufrufer, der die Charms kennt (die
+## Def kennt sie nicht); ohne Vakuum bleibt es bei einer Rune.
+func rune_slots(extra: int = 0) -> int:
 	if essence_id != Essence.VACUUM:
 		return 1
-	return mini(MAX_RIFT_SLOTS, 2 + maxi(0, extra))
+	return mini(MAX_RUNE_SLOTS, 2 + maxi(0, extra))
 
-## Harte Grenze: mehr als drei parallele Riss-Arrays trägt keine Schale.
-const MAX_RIFT_SLOTS := 3
+## Harte Grenze: mehr als drei parallele Runen-Arrays trägt keine Schale.
+const MAX_RUNE_SLOTS := 3
 
-## Die Rifts EINER Seite (0-3 Einträge, leere übersprungen). Gelesen wird, was
-## WIRKLICH sitzt - der Charm entscheidet nur, ob ein dritter Bruch entstehen darf.
-func rifts_on(face: int) -> Array[String]:
+## Die Runen EINER Seite (0-3 Einträge, leere übersprungen). Gelesen wird, was
+## WIRKLICH sitzt - der Charm entscheidet nur, ob eine dritte Rune entstehen darf.
+func runes_on(face: int) -> Array[String]:
 	var out: Array[String] = []
-	if face < 0 or face >= rifts.size():
+	if face < 0 or face >= runes.size():
 		return out
-	if rifts[face] != "":
-		out.append(rifts[face])
+	if runes[face] != "":
+		out.append(runes[face])
 	if essence_id != Essence.VACUUM:
 		return out
-	if face < second_rifts.size() and second_rifts[face] != "":
-		out.append(second_rifts[face])
-	if face < third_rifts.size() and third_rifts[face] != "":
-		out.append(third_rifts[face])
+	if face < second_runes.size() and second_runes[face] != "":
+		out.append(second_runes[face])
+	if face < third_runes.size() and third_runes[face] != "":
+		out.append(third_runes[face])
 	return out
 
-func has_rift(face: int, rift_id: String) -> bool:
-	return rifts_on(face).has(rift_id)
+func has_rune(face: int, rune_id: String) -> bool:
+	return runes_on(face).has(rune_id)
 
-## Bricht eine Seite auf. Slot 1 und 2 gehören dem Vakuum (2 nur unter der
+## Ätzt ein Zeichen in eine Seite. Slot 1 und 2 gehören dem Vakuum (2 nur unter der
 ## Glasglocke, darum extra) und werden an jedem anderen Würfel abgewiesen; ein
-## besetzter Platz wird ersetzt (neu brechen ist erlaubt). true, wenn der Riss sitzt.
-func set_rift(face: int, rift_id: String, slot: int = 0, extra: int = 0) -> bool:
-	if face < 0 or face >= rifts.size() or slot < 0 or slot >= rift_slots(extra):
+## besetzter Platz wird ersetzt (neu ätzen ist erlaubt). true, wenn die Rune sitzt.
+func set_rune(face: int, rune_id: String, slot: int = 0, extra: int = 0) -> bool:
+	if face < 0 or face >= runes.size() or slot < 0 or slot >= rune_slots(extra):
 		return false
 	match slot:
 		2:
-			third_rifts[face] = rift_id
+			third_runes[face] = rune_id
 		1:
-			second_rifts[face] = rift_id
+			second_runes[face] = rune_id
 		_:
-			rifts[face] = rift_id
+			runes[face] = rune_id
 	return true
 
 ## Gegenseite eines Seitenindex (Kalibrierung: DiceController.AXIS_FACE_INDEX
