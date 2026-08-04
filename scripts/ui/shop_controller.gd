@@ -3,7 +3,7 @@ extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
 ## Tisch-Displays, bedient über die Maus-Weiterleitung. Links das Lager mit den
 ## versiegelten Paketen (Würfel/Zahlen/Materialien/Kanten) - geöffnet werden sie
-## erst in der Werkstatt -, rechts Charms und Übertaktungen. "Umblättern"
+## erst in der Werkstatt -, rechts Charms und Einzelstücke. "Umblättern"
 ## auf eine NEUE Seite würfelt frische Angebote aus und kostet eine steigende
 ## Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind gratis
 ## erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf
@@ -19,7 +19,7 @@ const CHARM_PRICE := 15
 ## Der Laden ist ELASTISCH: Anzahl der Plätze je Rubrik liefert GameRun (SHOP_*_SLOTS),
 ## die Kartengröße skaliert gegenläufig - wenige, große Angebote am Anfang, viele
 ## kleine später. Drei Rubriken/Segmente: Lager (Pakete) links, Charm-Regal +
-## Chip-Schale (Übertaktungen) rechts.
+## Chip-Schale (Einzelstücke) rechts.
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
@@ -94,8 +94,6 @@ class MenuSpread:
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	var overclock_offers: Array[String] = []  # Kombinations-Keys zum Übertakten
-	var overclock_bought: Array[bool] = []
 	## Einzelstücke der Chip-Schale: OFFENE Würfel (alles vor dem Kauf sichtbar)
 	## und einzelne Gravuren. Sie gehören zur gerollten Auslage - die
 	## Sortiment-Sperre friert sie mit ein, Gekauftes bleibt gekauft.
@@ -168,9 +166,6 @@ var charm_bought: Array[bool] = []
 var engraving_packs: Array[Pack] = []
 var engraving_pack_bought: Array[bool] = []
 var engraving_pack_buttons: Array[Button] = []
-var overclock_offers: Array[String] = []
-var overclock_bought: Array[bool] = []
-var overclock_buttons: Array[Button] = []
 var single_dice: Array[DieDefinition] = []
 var single_dice_prices: Array[int] = []
 var single_dice_bought: Array[bool] = []
@@ -405,7 +400,7 @@ func _play_flip_animation() -> void:
 # --- Doppelseiten bauen --------------------------------------------------------
 
 ## Frische Doppelseite: Charms oben, unten versiegelte Würfel- und Gravur-Pakete
-## plus die Übertaktungs-Chips.
+## plus die Einzelstücke der Schale.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
 	spread.dice_packs = _roll_dice_packs(run.shop_dice_slots())
@@ -445,14 +440,6 @@ func _build_spread() -> MenuSpread:
 		spread.engraving_packs.append(Pack.roll_engraving_pack(run.hub_level))
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
-
-	# Übertaktungen: verschiedene Kombinationen, je Angebot einmal kaufbar.
-	var keys := DiceScoring.HAND_PRIORITY.duplicate()
-	keys.shuffle()
-	for i in run.shop_overclock_slots():
-		spread.overclock_offers.append(keys[i])
-	spread.overclock_bought.resize(spread.overclock_offers.size())
-	spread.overclock_bought.fill(false)
 
 	# Einzelstücke der Chip-Schale. Die Würfel werden HIER ausgewürfelt und
 	# vollständig gezeigt - kein Blindkauf, das ist ihr ganzer Zweck.
@@ -525,8 +512,6 @@ func _show_spread() -> void:
 	charm_bought = spread.charm_bought
 	engraving_packs = spread.engraving_packs
 	engraving_pack_bought = spread.engraving_pack_bought
-	overclock_offers = spread.overclock_offers
-	overclock_bought = spread.overclock_bought
 	single_dice = spread.single_dice
 	single_dice_prices = spread.single_dice_prices
 	single_dice_bought = spread.single_dice_bought
@@ -546,10 +531,9 @@ func _clear_pages() -> void:
 	dice_pack_buttons.clear()
 	charm_buttons.clear()
 	engraving_pack_buttons.clear()
-	overclock_buttons.clear()
 
 ## Baut die drei Segmente: links das Lager (flache Paket-Reihen), rechts das
-## Charm-Regal über der Chip-Schale (Übertaktungen). Alle Rubriken FÜLLEN ihre
+## Charm-Regal über der Chip-Schale (Einzelstücke). Alle Rubriken FÜLLEN ihre
 ## Fläche - bei wenigen Plätzen werden Reihen und Karten groß.
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
@@ -557,7 +541,6 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	dice_pack_buttons.clear()
 	charm_buttons.clear()
 	engraving_pack_buttons.clear()
-	overclock_buttons.clear()
 	single_dice_buttons.clear()
 	single_engraving_buttons.clear()
 
@@ -613,32 +596,15 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		charm_row.add_child(ccard)
 		_maybe_flicker(ccard, i, _flicker_charm_from)
 
-	# Segment 3: Chip-Schale - runde Casino-Chips (Übertaktungen), als Tablett
-	# umbrechend und in der Schale zentriert. Füllt die restliche Höhe rechts.
-	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "Chips & Einzelstücke", true)
+	# Segment 3: Chip-Schale - die Einzelstücke liegen blank in der Schale.
+	# Füllt die restliche Höhe rechts.
+	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "Einzelstücke", true)
 	chip_zone.get_parent().size_flags_stretch_ratio = 0.55
-	# Zwei Etagen in EINER Schale: oben die runden Chips, unten die Einzelstücke.
-	# Feste Anteile, damit die Karten der Chip-Reihe nicht den Platz wegnehmen -
-	# und umgekehrt (die Chips würden sonst bei vollem Regal auf Münzgröße fallen).
 	var chip_deck := VBoxContainer.new()
 	chip_deck.add_theme_constant_override("separation", int(u * 1.0))
 	chip_deck.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	chip_deck.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_zone.add_child(chip_deck)
-
-	var tray := HFlowContainer.new()
-	tray.add_theme_constant_override("h_separation", int(u * 1.2))
-	tray.add_theme_constant_override("v_separation", int(u * 1.2))
-	tray.alignment = FlowContainer.ALIGNMENT_CENTER
-	tray.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tray.size_flags_stretch_ratio = 0.42
-	tray.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip_deck.add_child(tray)
-	var dia := _chip_dia(spread.overclock_offers.size())
-	for i in spread.overclock_offers.size():
-		var ocard := _build_overclock_chip(spread.overclock_offers[i], i, dia)
-		tray.add_child(ocard)
-		_maybe_flicker(ocard, i, _flicker_chip_from)
 
 	# Umbrechend, nicht abschneidend: die Auslage bleibt in der Schale, auch wenn
 	# der Händler alles auf einmal hinlegt.
@@ -647,7 +613,6 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	singles.add_theme_constant_override("v_separation", int(u * SINGLE_GAP))
 	singles.alignment = FlowContainer.ALIGNMENT_CENTER
 	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	singles.size_flags_stretch_ratio = 0.58
 	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_deck.add_child(singles)
 	var single_scale := _singles_scale(_unsold(spread.single_dice_bought),
@@ -729,14 +694,6 @@ func _pack_metrics(count: int) -> Vector2:
 	if count <= 5:
 		return Vector2(u * 9.5, u * 6.0)
 	return Vector2(u * 7.4, u * 4.8)
-
-## Chip-Durchmesser je nach Anzahl der Übertaktungs-Chips.
-func _chip_dia(count: int) -> float:
-	if count <= 4:
-		return u * 12.0
-	if count <= 7:
-		return u * 9.5
-	return u * 7.8
 
 ## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum (dezent stufengetönt) und
 ## weichem Außen-Glow, darin die Kopfzeile. Wird an parent gehängt; liefert die
@@ -901,29 +858,6 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Übertaktungs-Chip: goldene Scheibe mit ⚡; hebt die Stufe EINER Kombination
-## (Preis steigt mit ihrer Stufe). Aktuelle/nächste Werte im Hover-Dropdown.
-func _build_overclock_chip(combo_key: String, index: int, dia: float) -> Control:
-	var level := run.combo_level(combo_key)
-	var price := run.overclock_price(combo_key)
-	var face := _label("⚡", dia * 0.42, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	face.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	face.custom_minimum_size = Vector2(dia * 0.56, dia * 0.56)
-	var next_levels: Dictionary = run.combo_levels.duplicate()
-	next_levels[combo_key] = level + 1
-	var title := "Übertaktung – %s (Stufe %d → %d)" % [DiceScoring.label_for(combo_key), level, level + 1]
-	var body := "Jetzt: %d Punkte × %d. Nach dem Kauf: %d Punkte × %d." % [
-		DiceScoring.points_for(combo_key, run.combo_levels), DiceScoring.mult_for(combo_key, run.combo_levels),
-		DiceScoring.points_for(combo_key, next_levels), DiceScoring.mult_for(combo_key, next_levels)]
-	var bought := overclock_bought[index]
-	var chip := _chip_button(dia, NEON_GOLD, face, price, bought, title, body)
-	if bought:
-		chip.disabled = true
-	else:
-		chip.pressed.connect(_on_overclock_buy_pressed.bind(index))
-	overclock_buttons.append(chip)
-	return chip
-
 ## Ungekaufte Plätze einer Auslage-Rubrik.
 func _unsold(bought: Array[bool]) -> int:
 	return bought.count(false)
@@ -1072,55 +1006,6 @@ func _on_single_engraving_pressed(index: int) -> void:
 	run.grant_engraving(engraving)
 	single_engravings_bought[index] = true
 	_show_spread()
-
-## Runder Casino-Chip als Kauf-Knopf: Rauchglas-Scheibe mit Saum in seam, darin das
-## Gesicht (face) und der Preis. Gekaufte Chips zeigen ✓ und sind gedimmt.
-func _chip_button(dia: float, seam: Color, face: Control, price: int, bought: bool,
-		title: String, body: String) -> Button:
-	var radius := int(dia * 0.5)
-	var chip := Button.new()
-	chip.focus_mode = Control.FOCUS_NONE
-	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	chip.custom_minimum_size = Vector2(dia, dia)
-	chip.add_theme_stylebox_override("normal", _chip_box(Color("#1b1738e6"), seam, 0.75, radius))
-	chip.add_theme_stylebox_override("hover", _chip_box(Color("#2a2358f0"), NEON_GOLD, 0.95, radius))
-	chip.add_theme_stylebox_override("pressed", _chip_box(Color("#352a68"), NEON_GOLD, 1.0, radius))
-	chip.add_theme_stylebox_override("disabled", _chip_box(Color("#16133455"), seam, 0.28, radius))
-	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	chip.mouse_entered.connect(_show_shop_tooltip.bind(chip, title, body, -1 if bought else price))
-	chip.mouse_exited.connect(_hide_shop_tooltip)
-
-	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 0)
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(column)
-
-	if bought:
-		face.modulate = Color(1, 1, 1, 0.35)
-	var stage := CenterContainer.new()
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(face)
-	column.add_child(stage)
-
-	# Kein gedrucktes Preisschild mehr: die Ware liegt bar, der Preis kommt beim
-	# Zugreifen. Das ✓ bleibt - es ist ein Zustand, kein Preis.
-	if bought:
-		column.add_child(_label("✓", dia * 0.17, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	return chip
-
-## Runde Chip-Scheibe (Saum + weicher Glow); radius = halber Durchmesser.
-func _chip_box(bg: Color, border: Color, border_alpha: float, radius: int) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = Color(border.r, border.g, border.b, border_alpha)
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(radius)
-	box.set_content_margin_all(int(u * 0.5))
-	box.shadow_color = Color(border.r, border.g, border.b, 0.12)
-	box.shadow_size = int(u * 0.5)
-	return box
 
 ## Regal-Reihe eines VERSIEGELTEN Pakets: Siegel links, Sorte und Menge daneben,
 ## Preis rechts - nie der Inhalt selbst. Flache Reihen statt Hochkant-Karten:
@@ -1400,7 +1285,7 @@ func _pack_price(pack: Pack) -> int:
 	var base := CharmEffects.die_price(pack.price, run.charm_ids(), pack.count) if pack.is_dice_pack() else pack.price
 	return run.shop_price(CharmEffects.pack_price(base, pack.type, run.charm_ids()))
 
-## Der Übertaktungsrabatt schenkt den ERSTEN Charm des Blocks - danach zählt
+## Der Hausgutschein schenkt den ERSTEN Charm des Blocks - danach zählt
 ## wieder der normale Preis samt Inflation/Skonto.
 func _charm_price() -> int:
 	if run.charm_is_free():
@@ -1445,18 +1330,6 @@ func _on_charm_clicked(index: int) -> void:
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
-## Kauft die Übertaktung (je Angebot einmal); die Doppelseite wird neu bebaut,
-## damit Stufen-Anzeige und Preisschild sofort den neuen Stand zeigen.
-func _on_overclock_buy_pressed(index: int) -> void:
-	if overclock_bought[index]:
-		return
-	var combo_key := overclock_offers[index]
-	if not run.can_overclock(combo_key):
-		return
-	run.overclock_combo(combo_key)
-	overclock_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	_show_spread()
-
 ## Deaktiviert alles Unbezahlbare und hält den Geldstand der Kopfzeile aktuell.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
@@ -1469,8 +1342,6 @@ func _refresh_afford_state() -> void:
 			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
 	for i in engraving_pack_buttons.size():
 		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
-	for i in overclock_buttons.size():
-		overclock_buttons[i].disabled = overclock_bought[i] or not run.can_overclock(overclock_offers[i])
 	for i in single_dice_buttons.size():
 		if single_dice_buttons[i] == null:
 			continue  # verkauft: liegt nicht mehr in der Schale

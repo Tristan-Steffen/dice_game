@@ -5,7 +5,8 @@ extends Node3D
 ## zeichnet (ComboCellView.socket_mode). Der Gehäusedeckel TRÄGT das Chip-
 ## Display: Name, Basispunkte, ×Mult und die Übertaktungs-Stufe stehen als
 ## Label3D flach auf einem Glasfeld - die Fläche, die die Kamera am besten
-## sieht. Die Hitze der Stufe glüht im Glasfeld, im Frontband und im Sockel.
+## sieht. Der Chip leuchtet in EINEM Betriebston; die Stufe zeigt das LVL-Feld,
+## nicht die Farbe. Im Kombinations-Zoom liegt vor dem Band das ⚡-Preisschild.
 
 const CHIP_SCENE := "res://assets/models/chip.glb"
 
@@ -51,8 +52,7 @@ const SCREEN_INSET_BACK := 2.0
 const SCREEN_INSET_FRONT := 3.6
 const SCREEN_GLASS := Color(0.04, 0.045, 0.075)
 ## Backlight des Glases: bewusst niedrig UND gedeckelt - das Feld ist
-## Hintergrund für Text, kein Leuchtkörper. Ohne Deckel überstrahlt es bei
-## hohen Stufen die Schrift; die Hitze zeigen Frontband und Sockelbett.
+## Hintergrund für Text, kein Leuchtkörper.
 const SCREEN_EMISSION_SHARE := 0.10
 const SCREEN_EMISSION_MAX := 0.3
 
@@ -76,19 +76,11 @@ const LEVEL_COLOR_GOLD := Color("#ffd319")
 ## Große Atlas-Schrift, klein skaliert = scharfe Kanten.
 const FONT_SIZE := 96
 
-## Hitze-Rampe innerhalb eines Kühler-Rangs (Stufe % 5): kühl -> cyan -> hell
-## -> amber -> rotglühend. Der 5. Kauf montiert (künftig) den nächsten Kühler
-## und setzt die Hitze zurück; ab MAX_LEVEL bleibt es weißglühend.
-## Der Boden liegt über der Bloom-Schwelle (glow_hdr_threshold 0.95): Stufe 0
-## soll "in Betrieb, kalt" leuchten, nicht wie ein Fleck aussehen.
-const HEAT_COLORS: Array[Color] = [
-	Color("#3f9bb5"), Color("#2aa8c9"), Color("#8be9fd"),
-	Color("#e8a33a"), Color("#ff5555"),
-]
-const HEAT_ENERGY := [0.8, 1.4, 2.1, 2.7, 3.2]
-const WHITE_HOT := Color(1.0, 0.93, 0.75)
-const WHITE_HOT_ENERGY := 4.0
-const MAX_LEVEL := 25  # 5 Kühler-Ränge × 5 Hitzestufen
+## EIN Betriebston für jeden Chip, unabhängig von der Stufe. Er liegt über der
+## Bloom-Schwelle (glow_hdr_threshold 0.95), damit ein Chip "in Betrieb"
+## leuchtet und nicht wie ein Fleck aussieht.
+const BAND_COLOR := Color("#3f9bb5")
+const BAND_ENERGY := 0.8
 
 ## Hervorhebung der gewürfelten Hand: der GANZE Chip geht ins Gold - Gehäuse,
 ## Pins, Frontband und Deckelglas zusammen (Ton wie das alte 2D-Highlight,
@@ -107,17 +99,30 @@ const HIGHLIGHT_SCREEN_ENERGY := 0.12
 const THROTTLE_COLOR := Color("#ff5555")
 const THROTTLE_ENERGY := 0.45
 
-## Rampenlicht (Charm): der Chip atmet golden und übertönt die Hitzefarbe -
+## Rampenlicht (Charm): der Chip atmet golden und übertönt den Betriebston -
 ## seit die Zelle nichts mehr zeichnet, trägt der Chip diese Anzeige selbst.
 const SPOTLIGHT_COLOR := Color("#ffd319")
 const SPOTLIGHT_SPEED := 2.4
 const SPOTLIGHT_BASE := 2.0
 const SPOTLIGHT_SWING := 1.6
 
-## Anteil der Hitze-Energie, mit dem das Frontband glüht (Lichtleiste vorn).
+## Anteil der Betriebs-Energie, mit dem das Frontband glüht (Lichtleiste vorn).
 const BAND_EMISSION_SHARE := 0.7
 ## Wie weit das Frontband unter die Deckelfläche rutscht (Modelleinheiten).
 const BAND_SEAT_DROP := 0.5
+
+## Übertaktungs-Schild: liegt im Kombinations-Zoom flach auf dem Filz VOR dem
+## Frontband und nennt den ⚡-Preis. Der freie Streifen zwischen zwei Chipreihen
+## misst rund 6.5 Modelleinheiten (Zellrand + CELL_GAP + Zellrand) - Schild und
+## Abstand schöpfen ihn fast aus, denn aus der Kombinations-Distanz ist die
+## Schrift ohnehin klein. Getroffen wird über einen eigenen Pick-Körper, der den
+## GANZEN Chip abdeckt: das Schild allein wäre ein zu kleines Ziel.
+const UPGRADE_PICK_LAYER := 128
+const TAG_HEIGHT := 5.0
+const TAG_MARGIN := 0.8
+const TAG_COLOR := CasinoStyle.CHARGE    # bezahlbar - dieselbe ⚡-Signalfarbe
+const TAG_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
+const TAG_HOVER_SWELL := 1.18
 
 ## Hervorhebung der gewürfelten Hand (0..1): hebt Glas und Band an.
 var glow := 0.0
@@ -138,6 +143,10 @@ var _level := -1
 var _spotlit := false
 var _spotlight_phase := 0.0
 var _throttled := false
+var _tag_label: Label3D
+var _pick_body: StaticBody3D
+var _tag_affordable := false
+var _tag_hover := false
 
 ## Pin-Positionen der Chips in Screen-Pixeln, relativ zur ZELLMITTE - einzige
 ## Quelle für alles, was an die Pins andockt (TableScreen verlegt daran die
@@ -203,7 +212,8 @@ func setup(length_world: float, depth_world: float) -> void:
 	_override(inst, "Pins", _pins_material)
 
 	_build_screen(z_shift)
-	_apply_heat()
+	_build_upgrade_tag(z_shift)
+	_apply_materials()
 
 ## Körnungs-Textur (Rauheits-Kanal): Simplex-Rauschen, kachelbar.
 func _grain_texture(frequency: float) -> NoiseTexture2D:
@@ -275,12 +285,7 @@ func sync_cell(cell: ComboCellView) -> void:
 	_mult = cell.mult
 	_level = cell.level
 	_layout_labels()
-	_apply_heat()
-
-## Hitzefarbe der aktuellen Stufe (Rampe innerhalb des Kühler-Rangs).
-func _heat_color() -> Color:
-	var level := maxi(0, _level)
-	return WHITE_HOT if level >= MAX_LEVEL else HEAT_COLORS[level % 5]
+	_apply_materials()
 
 ## Zeilenlayout auf dem Deckel: Name über die ganze Breite, darunter Punkte,
 ## ×Mult und - ab Stufe 1 - die Stufenmarke "LVL n". Der Name schrumpft, wenn er
@@ -325,7 +330,7 @@ func _text_width(label: Label3D) -> float:
 ## Hervorhebung der aktiven Kombination (scene_root tweent den Wert).
 func set_glow(value: float) -> void:
 	glow = value
-	_apply_heat()
+	_apply_materials()
 
 ## Stresstest-Drossel an/aus: der Chip wertet diese Runde nicht.
 func set_throttled(on: bool) -> void:
@@ -333,7 +338,7 @@ func set_throttled(on: bool) -> void:
 		return
 	_throttled = on
 	_layout_labels()
-	_apply_heat()
+	_apply_materials()
 
 ## Rampenlicht an/aus: läuft nur, solange der Chip im Licht steht.
 func set_spotlight(on: bool) -> void:
@@ -342,23 +347,20 @@ func set_spotlight(on: bool) -> void:
 	_spotlit = on
 	_spotlight_phase = 0.0
 	set_process(on)
-	_apply_heat()
+	_apply_materials()
 
 func _process(delta: float) -> void:
 	_spotlight_phase += delta * SPOTLIGHT_SPEED
-	_apply_heat()
+	_apply_materials()
 
-## Kauf-Licht angekommen: kurzes Aufglühen, dann zurück zur Hitze-Ruhe.
+## Kauf-Licht angekommen: kurzes Aufglühen, dann zurück in den Ruheton.
 func play_upgrade_flash() -> void:
 	var tween := create_tween()
 	tween.tween_method(set_glow, 1.5, 0.0, 1.2)
 
-func _apply_heat() -> void:
-	var level := maxi(0, _level)
-	var color := _heat_color()
-	var energy := WHITE_HOT_ENERGY
-	if level < MAX_LEVEL:
-		energy = float(HEAT_ENERGY[level % 5])
+func _apply_materials() -> void:
+	var color := BAND_COLOR
+	var energy := BAND_ENERGY
 	if _spotlit:
 		color = SPOTLIGHT_COLOR
 		energy = SPOTLIGHT_BASE + SPOTLIGHT_SWING * (0.5 + 0.5 * sin(_spotlight_phase))
@@ -383,6 +385,79 @@ func _apply_heat() -> void:
 	if _pins_material != null:
 		_pins_material.emission = PIN_ALBEDO.lerp(HIGHLIGHT_COLOR, lit)
 		_pins_material.emission_energy_multiplier = PIN_EMISSION + HIGHLIGHT_PIN_ENERGY * glow
+
+# --- Übertaktungs-Schild (nur im Kombinations-Zoom sichtbar) -----------------
+
+## Preisschild vor dem Frontband plus der Pick-Körper über dem ganzen Chip.
+## Beide starten unsichtbar: erst der Kombinations-Zoom holt sie hervor.
+func _build_upgrade_tag(z_shift: float) -> void:
+	_tag_label = Label3D.new()
+	_tag_label.name = "UpgradeTag"
+	_tag_label.font_size = FONT_SIZE
+	_tag_label.outline_size = 12
+	_tag_label.modulate = TAG_DIM
+	_tag_label.pixel_size = TAG_HEIGHT * _sz / float(FONT_SIZE)
+	_tag_label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	# Flach auf den Filz legen wie die Deckel-Labels auf das Glas.
+	_tag_label.rotation.x = -PI / 2.0
+	_tag_label.position = Vector3(0.0, 0.02,
+		z_shift + (MODEL_Z_MAX + TAG_MARGIN + TAG_HEIGHT / 2.0) * _sz)
+	_tag_label.visible = false
+	add_child(_tag_label)
+
+	# Der Pick-Körper deckt Gehäuse UND Schild ab - aus der Kombinations-Distanz
+	# ist das Schild allein zu klein, um es sicher zu treffen.
+	var z_near := -BODY_WIDTH / 2.0                     # Gehäuse-Rückkante
+	var z_far := MODEL_Z_MAX + TAG_MARGIN + TAG_HEIGHT  # Schild-Vorderkante
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(BODY_LENGTH * _sx, BODY_TOP * _sz, (z_far - z_near) * _sz)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	_pick_body = StaticBody3D.new()
+	_pick_body.name = "UpgradePick"
+	_pick_body.collision_layer = 0  # erst set_upgrade_visible schaltet scharf
+	_pick_body.collision_mask = 0
+	_pick_body.position = Vector3(0.0, BODY_TOP * _sz / 2.0,
+		z_shift + (z_near + z_far) / 2.0 * _sz)
+	_pick_body.add_child(collider)
+	add_child(_pick_body)
+
+## Zeigt/verbirgt das Schild samt Trefferfläche (Kombinations-Zoom an/aus).
+func set_upgrade_visible(on: bool) -> void:
+	if _tag_label == null:
+		return
+	_tag_label.visible = on
+	_pick_body.collision_layer = UPGRADE_PICK_LAYER if on else 0
+	if not on:
+		_tag_hover = false
+		_apply_tag()
+
+## Schreibt den ⚡-Preis aufs Schild; affordable färbt es in die Signalfarbe.
+func set_upgrade_offer(cost: int, affordable: bool) -> void:
+	if _tag_label == null:
+		return
+	_tag_affordable = affordable
+	_tag_label.text = "⚡%d" % cost
+	_apply_tag()
+
+## Zeigerkontakt: das Schild schwillt an - einen Rahmen zum Färben hat es nicht.
+func set_upgrade_hover(on: bool) -> void:
+	if _tag_label == null or _tag_hover == on:
+		return
+	_tag_hover = on
+	_apply_tag()
+
+## Einziger Schreiber des Schild-Aussehens: Preis-Zustand × Zeigerkontakt.
+func _apply_tag() -> void:
+	var color := TAG_COLOR if _tag_affordable else TAG_DIM
+	if _tag_hover:
+		color = color.lightened(0.35)
+	_tag_label.modulate = color
+	_tag_label.scale = Vector3.ONE * (TAG_HOVER_SWELL if _tag_hover else 1.0)
+
+## Der Pick-Körper des Schilds - scene_root ordnet ihn seiner Kombination zu.
+func upgrade_pick_body() -> StaticBody3D:
+	return _pick_body
 
 ## Verschiebt eine Modellfläche in der Höhe (Modelleinheiten, unskaliert).
 func _nudge(inst: Node3D, node_name: String, dy: float) -> void:

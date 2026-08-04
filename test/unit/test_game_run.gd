@@ -699,37 +699,47 @@ func _template(id: String) -> Dictionary:
 			return t
 	return {}
 
-# --- Übertakten (Systemkonsole) ------------------------------------------------
+# --- Übertakten (am Chip, bezahlt mit Energie) ---------------------------------
 
-func test_overclock_price_scales_with_combo_strength():
-	# Basis = 4 + Basis-Mult: schwache Chips billig, starke teuer.
-	assert_eq(GameRun.overclock_price_at(DiceScoring.TWO_KIND, 0), 6)
-	assert_eq(GameRun.overclock_price_at(DiceScoring.SIX_KIND, 0), 19)
+func test_overclock_cost_climbs_per_stage_and_caps():
+	# 1 ⚡ plus eine je erklommener Stufe, gedeckelt bei 5 - unabhängig davon,
+	# WELCHE Kombination übertaktet wird.
+	assert_eq(GameRun.overclock_cost_at(0), 1)
+	assert_eq(GameRun.overclock_cost_at(1), 2)
+	assert_eq(GameRun.overclock_cost_at(4), 5)
+	assert_eq(GameRun.overclock_cost_at(7), 5, "gedeckelt, aber ohne Stufen-Limit")
 
-func test_overclock_price_rises_per_stage_without_cap():
-	var base := GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 0)
-	assert_eq(GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 1), base * 2)
-	assert_eq(GameRun.overclock_price_at(DiceScoring.FULL_HOUSE, 7), base * 8, "kein Limit, Preis steigt weiter")
+func test_overclock_cost_is_the_same_for_every_combination():
+	assert_eq(run.overclock_cost(DiceScoring.TWO_KIND), run.overclock_cost(DiceScoring.SIX_KIND))
 
-func test_overclock_combo_deducts_and_levels():
+func test_overclock_combo_spends_charge_and_levels():
 	watch_signals(run)
-	run.money = 50
-	var price := run.overclock_price(DiceScoring.FULL_HOUSE)
-	run.overclock_combo(DiceScoring.FULL_HOUSE)
-	assert_eq(run.money, 50 - price, "Preis abgezogen")
+	run.charge = 5
+	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
+	assert_eq(run.charge, 4, "eine Energie für die erste Stufe")
 	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1)
 	assert_signal_emitted(run, "combo_upgraded")
+	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
+	assert_eq(run.charge, 2, "die zweite Stufe kostet zwei")
+
+func test_overclock_without_charge_changes_nothing():
+	watch_signals(run)
+	run.charge = 0
+	assert_false(run.overclock_combo(DiceScoring.FULL_HOUSE))
+	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 0)
+	assert_eq(run.charge, 0, "nichts abgebucht")
+	assert_signal_not_emitted(run, "combo_upgraded")
 
 func test_overclock_raises_scoring():
-	run.money = 100
+	run.charge = 5
 	run.overclock_combo(DiceScoring.TWO_KIND)
-	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, run.combo_levels), 4, "Stufe 1 verdoppelt den Mult")
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, run.combo_levels), 4, "Paar: +2 je Stufe")
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, run.combo_levels), 20)
 
-func test_can_overclock_checks_money():
-	run.money = GameRun.overclock_price_at(DiceScoring.TWO_KIND, 0)
+func test_can_overclock_checks_charge():
+	run.charge = GameRun.overclock_cost_at(0)
 	assert_true(run.can_overclock(DiceScoring.TWO_KIND))
-	run.money -= 1
+	run.charge -= 1
 	assert_false(run.can_overclock(DiceScoring.TWO_KIND))
 
 # --- Rampenlicht & Midashandschuh -------------------------------------------------
@@ -1295,7 +1305,7 @@ func test_shop_price_clauses_multiply():
 	assert_eq(run.shop_price(100), 80)
 
 func test_the_first_charm_of_the_block_is_free():
-	_sign([DealClause.OVERCLOCK_DISCOUNT])
+	_sign([DealClause.FREE_CHARM])
 	assert_true(run.charm_is_free())
 	run.consume_free_charm()
 	assert_false(run.charm_is_free(), "der Gutschein verbraucht sich")

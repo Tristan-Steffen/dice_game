@@ -24,20 +24,46 @@ func _m(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Übertaktungs-Stufen (Systemkonsole, siehe GameRun.overclock_combo) ------------
+# --- Übertaktungs-Stufen (am Chip, siehe GameRun.overclock_combo) -----------------
 
 func test_mult_for_scales_with_combo_levels():
-	# Jede Stufe addiert den Basis-Multiplikator erneut: Paar ×2 -> ×4 -> ×6.
+	# Jede Stufe addiert den autorierten mult_step: Paar +2 -> ×2, ×4, ×6.
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 4)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 2}), 6)
 
 func test_points_for_scales_with_combo_levels():
-	# Die festen Kategorie-Punkte wachsen mit den Übertaktungs-Stufen wie der Mult.
+	# Die festen Kategorie-Punkte wachsen um points_step je Stufe.
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND), 10)
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 20)
 	assert_eq(DiceScoring.points_for(DiceScoring.SIX_KIND), 60)
 	assert_eq(DiceScoring.points_for("not_a_category"), 0)
+
+func test_strong_combos_climb_slower_than_their_base():
+	# Der Kern des Reworks: die Schritte sind autoriert, NICHT die Basis erneut.
+	# Sonst zöge der Sechserpasch (+60/+15 je Stufe) um Größenordnungen davon.
+	assert_eq(DiceScoring.points_for(DiceScoring.SIX_KIND, {DiceScoring.SIX_KIND: 1}), 90)
+	assert_eq(DiceScoring.mult_for(DiceScoring.SIX_KIND, {DiceScoring.SIX_KIND: 1}), 19)
+	assert_eq(DiceScoring.points_for(DiceScoring.TWO_PAIR, {DiceScoring.TWO_PAIR: 2}), 35)
+	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_PAIR, {DiceScoring.TWO_PAIR: 2}), 7)
+
+func test_every_category_carries_authored_steps():
+	# Ohne Schritt-Spalten wäre eine Kategorie stumm nicht übertaktbar; und die
+	# beiden untersten behalten ausdrücklich ihren alten Anstieg.
+	var last_points := 0
+	var last_mult := 0
+	for cat in DiceScoring.CATEGORIES:
+		assert_gt(int(cat["points_step"]), 0, "%s hat einen Punkte-Schritt" % cat["key"])
+		assert_gt(int(cat["mult_step"]), 0, "%s hat einen Mult-Schritt" % cat["key"])
+		assert_true(int(cat["points_step"]) >= last_points,
+			"Schritte steigen die Leiter hinauf: %s" % cat["key"])
+		assert_true(int(cat["mult_step"]) >= last_mult, "dito für den Mult: %s" % cat["key"])
+		last_points = int(cat["points_step"])
+		last_mult = int(cat["mult_step"])
+	assert_eq(DiceScoring.CATEGORIES[0]["points_step"], 5, "Höchste Zahl unverändert")
+	assert_eq(DiceScoring.CATEGORIES[0]["mult_step"], 1)
+	assert_eq(DiceScoring.CATEGORIES[1]["points_step"], 10, "Paar unverändert")
+	assert_eq(DiceScoring.CATEGORIES[1]["mult_step"], 2)
 
 func test_score_category_uses_combo_levels():
 	# Paar Fünfer: Basis (10 Punkte + 10 Augen) × Mult 2 = 40;

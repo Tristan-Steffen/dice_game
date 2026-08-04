@@ -210,59 +210,21 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_packs_and_overclocks():
-	# Angebot = Lager (Würfel- + Gravur-Pakete) links, Übertaktungs-Chips rechts;
-	# die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 3 Pakete, 2 Übertaktungen).
+func test_spread_offers_packs():
+	# Angebot = Lager (Würfel- + Gravur-Pakete) links, Charms und Einzelstücke
+	# rechts; die Zahlen liefert die Hub-Stufe (hier Suite: 3 Würfel, 3 Pakete).
 	assert_eq(shop.dice_packs.size(), run.shop_dice_slots(), "drei Würfel-Pakete")
 	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots(), "Gravur-Pakete im Regal")
-	assert_eq(shop.overclock_offers.size(), run.shop_overclock_slots(), "zwei Übertaktungen")
 	for pack in shop.engraving_packs:
 		assert_false(pack.is_dice_pack())
 		assert_true(Engraving.CATEGORIES.has(pack.engraving_category())
 			or pack.type == Pack.TYPE_MIXED, "echte Gravur-Kategorie oder gemischt")
 
-# --- Übertaktungen ---------------------------------------------------------------
-
-## Erzwingt ein bestimmtes Übertaktungs-Sortiment auf der aktuellen Doppelseite.
-func _force_overclock_offers(keys: Array) -> void:
+## Übertaktet wird am Chip, nicht im Laden - die Schale führt keine Chips mehr.
+func test_the_shop_no_longer_sells_overclocks():
+	assert_false(shop.has_method("_on_overclock_buy_pressed"))
 	var spread = shop.spreads[shop.current_spread_index]
-	var typed: Array[String] = []
-	typed.assign(keys)
-	spread.overclock_offers = typed
-	spread.overclock_bought.resize(typed.size())
-	spread.overclock_bought.fill(false)
-	shop._show_spread()
-
-func test_overclock_offers_are_distinct_valid_combos():
-	var seen := {}
-	for key in shop.overclock_offers:
-		assert_true(DiceScoring.HAND_PRIORITY.has(key), "%s ist eine echte Kombination" % key)
-		assert_false(seen.has(key), "keine doppelte Kombination: %s" % key)
-		seen[key] = true
-
-func test_buy_overclock_levels_combo_and_deducts():
-	_force_overclock_offers([DiceScoring.FULL_HOUSE])
-	var price := run.overclock_price(DiceScoring.FULL_HOUSE)
-	shop._on_overclock_buy_pressed(0)
-	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1, "Stufe gekauft")
-	assert_eq(run.money, 100 - price, "Preis abgezogen")
-	assert_true(shop.overclock_bought[0], "als gekauft vermerkt")
-
-func test_overclock_offer_is_single_use():
-	_force_overclock_offers([DiceScoring.TWO_KIND])
-	shop._on_overclock_buy_pressed(0)
-	var money_after := run.money
-	shop._on_overclock_buy_pressed(0)  # zweiter Kauf desselben Angebots
-	assert_eq(run.combo_level(DiceScoring.TWO_KIND), 1, "nur eine Stufe")
-	assert_eq(run.money, money_after, "nur einmal abgezogen")
-	assert_true(shop.overclock_buttons[0].disabled, "Karte ist danach gekauft")
-
-func test_cannot_buy_overclock_without_funds():
-	run.money = 0
-	_force_overclock_offers([DiceScoring.SIX_KIND])
-	shop._on_overclock_buy_pressed(0)
-	assert_eq(run.combo_level(DiceScoring.SIX_KIND), 0, "ohne Geld keine Stufe")
-	assert_eq(run.money, 0)
+	assert_false("overclock_offers" in spread, "auch die Auslage kennt sie nicht mehr")
 
 func test_engraving_packs_persist_when_flipping_back():
 	var first_types: Array = []
@@ -398,14 +360,14 @@ func test_each_archetype_appears_at_most_once_per_spread():
 func test_locked_shop_keeps_the_same_offers_on_reopen():
 	var charms = shop.charm_options
 	var packs = shop.dice_packs
-	var overclocks = shop.overclock_offers
+	var engravings = shop.engraving_packs
 	shop._on_lock_pressed()
 	assert_true(shop.sortiment_locked)
 	shop._on_done_pressed()
 	shop.open()
 	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
 	assert_true(shop.dice_packs == packs, "dieselben Pakete")
-	assert_true(shop.overclock_offers == overclocks, "dieselben Übertaktungen")
+	assert_true(shop.engraving_packs == engravings, "dieselben Gravur-Pakete")
 
 func test_locked_shop_keeps_bought_marks_on_reopen():
 	shop._on_charm_clicked(0)
@@ -677,12 +639,6 @@ func _has_price_label(node: Node) -> bool:
 		if _has_price_label(child):
 			return true
 	return false
-
-func test_the_overclock_chip_dropped_its_price_tag_too() -> void:
-	await wait_frames(2)
-	assert_gt(shop.overclock_buttons.size(), 0)
-	assert_false(_has_price_label(shop.overclock_buttons[0]),
-		"die ganze Schale spricht eine Sprache")
 
 # --- Die Preiszeile im Hover-Fenster ------------------------------------------------
 

@@ -216,9 +216,6 @@ const NET_FADE_TIME := 0.3
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
 const MONEY_PULSE_GAP := 0.12
 const MONEY_PULSE_BOOST := 2.2  # Chip-Farbe -> überhelle Leiterbahn-Farbe
-## Kleiner Nachlauf, nachdem das letzte Geld-Licht den Hub erreicht hat, bevor
-## der Übertaktungs-Puls losläuft (klare Kette Geld -> Hub -> Aufwertung).
-const OVERCLOCK_MONEY_MARGIN := 0.12
 
 ## Energiefeld-Blitz bei Wandkontakt (siehe _on_die_wall_contact).
 const FIELD_FLASH_MIN_SPEED := 2.0
@@ -348,6 +345,9 @@ var die_inspector: DieInspectorView
 var combo_labels: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 var combo_chips: Dictionary = {}  # DiceScoring-Key -> ComboChipView (3D-Chip auf dem Glas)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination
+## Trefferkörper der Übertaktungs-Schilder -> Kombinations-Key (Klick und Hover).
+var combo_pick_keys: Dictionary = {}
+var _hovered_combo_key: String = ""
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var dice_pit: DicePit = $DiceTray
@@ -1175,6 +1175,7 @@ func _setup_combo_chips() -> void:
 		chip.setup(absf(corner_b.z - corner_a.z), absf(corner_b.x - corner_a.x))
 		chip.sync_cell(cell)
 		combo_chips[key] = chip
+		combo_pick_keys[chip.upgrade_pick_body()] = key
 	ScreenReflection.mark_reflective(chips_root)
 
 ## Rampenlicht auf genau eine Kombination ("" = auf keine): ihr Chip atmet
@@ -1208,6 +1209,73 @@ func _refresh_combo_display(key: String) -> void:
 	row.set_level(run.combo_level(key))
 	_sync_combo_chip(key)
 
+## --- Übertakten am Chip ------------------------------------------------------
+
+## Die Schilder stehen NUR im Kombinations-Zoom; jedes trägt seinen ⚡-Preis und
+## zeigt an, ob die Bank ihn deckt. Idempotent - Moduswechsel, Ladungsänderung
+## und jede gekaufte Stufe rufen dasselbe.
+func _sync_combo_upgrade_buttons() -> void:
+	var show := camera_rig != null and camera_rig.mode == CameraRig.Mode.COMBOS
+	for key: String in combo_chips:
+		var chip: ComboChipView = combo_chips[key]
+		chip.set_upgrade_visible(show)
+		if show and run != null:
+			chip.set_upgrade_offer(run.overclock_cost(key), run.can_overclock(key))
+	if not show:
+		_clear_combo_upgrade_hover()
+
+## Kauft die Stufe der angeklickten Kombination. Reicht die Ladung nicht,
+## verpufft der Klick - er darf aber NICHT als Zoom-Klick weiterlaufen, sonst
+## fährt die Kamera weg, weil man sich einen Chip nicht leisten kann.
+func _try_combo_upgrade_click(screen_pos: Vector2) -> bool:
+	if run == null or camera_rig == null or camera_rig.mode != CameraRig.Mode.COMBOS \
+			or camera_rig.is_animating:
+		return false
+	var hit := _ray_pick(screen_pos, ComboChipView.UPGRADE_PICK_LAYER)
+	if hit.is_empty() or not combo_pick_keys.has(hit.get("collider")):
+		return false
+	var key: String = combo_pick_keys[hit["collider"]]
+	run.overclock_combo(key)  # false = zu wenig Energie
+	_sync_combo_upgrade_buttons()
+	_update_combo_upgrade_hover()  # Preis und Vorschau stehen schon auf der Karte
+	return true
+
+## Zeigerkontakt am Schild (je Frame): der Zeiger liegt auf dem TISCH, nicht im
+## SubViewport - mouse_entered feuert dort nie. Wie bei den Grubenmarken.
+func _update_combo_upgrade_hover() -> void:
+	if run == null or camera_rig == null or camera_rig.mode != CameraRig.Mode.COMBOS \
+			or camera_rig.is_animating:
+		_clear_combo_upgrade_hover()
+		return
+	var hit := _ray_pick(get_viewport().get_mouse_position(), ComboChipView.UPGRADE_PICK_LAYER)
+	var key: String = combo_pick_keys.get(hit.get("collider"), "") if not hit.is_empty() else ""
+	if key == "":
+		_clear_combo_upgrade_hover()
+		return
+	if key != _hovered_combo_key:
+		_clear_combo_upgrade_hover()
+		_hovered_combo_key = key
+		combo_chips[key].set_upgrade_hover(true)
+	var level := run.combo_level(key)
+	var next_levels: Dictionary = run.combo_levels.duplicate()
+	next_levels[key] = level + 1
+	table_screen.show_combo_hint(key,
+		"Übertaktung – %s (Stufe %d → %d)" % [DiceScoring.label_for(key), level, level + 1],
+		"Kostet %d ⚡. Jetzt: %d Punkte × %d. Danach: %d Punkte × %d." % [
+			run.overclock_cost(key),
+			DiceScoring.points_for(key, run.combo_levels), DiceScoring.mult_for(key, run.combo_levels),
+			DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels)],
+		CasinoStyle.CHARGE)
+
+func _clear_combo_upgrade_hover() -> void:
+	if _hovered_combo_key == "":
+		return
+	if combo_chips.has(_hovered_combo_key):
+		combo_chips[_hovered_combo_key].set_upgrade_hover(false)
+	_hovered_combo_key = ""
+	if table_screen != null:
+		table_screen.hide_combo_hint()
+
 ## Blendet das Glühen des 3D-Chips weich auf target (0 = Ruhe, 1 = aktiv).
 func _glow_combo_chip(key: String, target: float) -> void:
 	if not combo_chips.has(key):
@@ -1230,31 +1298,24 @@ func _collect_combo_labels() -> void:
 ## bis zur Ankunft die ALTEN Werte (siehe _on_combo_upgraded).
 var _pulsing_combos: Dictionary = {}
 
-## Kombination übertaktet: erst wandert das bezahlte Geld zum Hub (der Kauf
-## löste zugleich _animate_money_spend aus), dann - nach OVERCLOCK_MONEY_DELAY -
-## zündet der Hub und schickt das Licht über die Leiterbahnen zum Chip
-## (play_overclock_pulse). Erst bei Ankunft zeigt die Zelle die neuen Werte.
+## Kombination übertaktet: gebucht ist beim Eintreffen des Signals längst, also
+## zeigt die Zelle SOFORT die neuen Werte - der Spieler steht vor dem Chip. Das
+## ⚡-Licht fährt danach aus der Bank über die Chip-Adern nach (nicht abgewartet,
+## darum überlagern sich schnelle Klicks gefahrlos). Der Hitzestau senkt eine
+## Stufe über dasselbe Signal: der wird nicht gefeiert.
 func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 	if table_screen == null or not combo_labels.has(combo_key):
 		_refresh_combo_label_texts()
 		return
-	_pulsing_combos[combo_key] = true
-	# Warten, bis das letzte bezahlte Geld-Licht den Hub erreicht hat (der Kauf
-	# löste über money_changed zugleich _animate_money_spend samt Kometen aus):
-	# so viele Kometen wie der Zahlplan Chips zog; jede Ankunft lädt den Hub
-	# eine Stufe weiter golden auf.
-	var chips := maxi(1, _last_payment_comets)
-	_hub_charge_expected += chips
-	# Jeder Zahlungs-Komet fährt erst NACH dem Absorbieren seines Chips (MINT_TIME).
-	var delay := float(maxi(0, chips - 1)) * MONEY_PULSE_GAP \
-		+ ChipStackView.MINT_TIME + table_screen.money_travel_time() + OVERCLOCK_MONEY_MARGIN
-	await get_tree().create_timer(delay).timeout
-	_hub_charge_expected = 0
-	_hub_charge_received = 0
-	await table_screen.play_overclock_pulse(combo_key)
-	_pulsing_combos.erase(combo_key)
 	var row: ComboCellView = combo_labels[combo_key]
+	var climbed := new_level > row.level
 	_refresh_combo_display(combo_key)
+	_sync_combo_upgrade_buttons()  # die nächste Stufe kostet mehr
+	if not climbed:
+		return
+	if capacitor_bank != null:
+		capacitor_bank.pulse()  # die Bank gibt ab
+	await table_screen.play_charge_overclock_pulse(combo_key)
 	if combo_chips.has(combo_key):
 		combo_chips[combo_key].play_upgrade_flash()
 	if combo_key != highlighted_combo_key:
@@ -1502,14 +1563,6 @@ func _sync_hub_level_state() -> void:
 		if table_screen.slot_bank_window != null:
 			table_screen.slot_bank_window.refresh()
 
-## Offene Gold-Ladung des Hubs: Chips, die für einen Übertaktungs-Kauf
-## unterwegs sind - jede Ankunft lädt den Hub eine Stufe weiter auf statt zu
-## blitzen (siehe _on_combo_upgraded).
-var _hub_charge_expected := 0
-var _hub_charge_received := 0
-## Anzahl Zahlungs-Kometen der letzten Ausgabe (= gezahlte Chips lt. Zahlplan).
-## _on_combo_upgraded liest sie, um den Hub-Goldlader richtig zu skalieren.
-var _last_payment_comets := 0
 ## Laufende Nummer der Meteore eines Pakets - sie steuert die Ausbruch-Richtung,
 ## damit mehrere Stücke sichtbar auseinanderfliegen.
 var _meteor_index := 0
@@ -1574,7 +1627,6 @@ func _animate_money_spend(amount: int) -> void:
 	chip_stack.add_chips(change_values)  # Börse jetzt endgültig (netto -Preis)
 	# Zwischenbild: Börse OHNE das noch nicht sichtbare Wechselgeld.
 	chip_stack.show_counts(ChipStackView.without(chip_stack.wallet(), change_values))
-	_last_payment_comets = spend_values.size()
 
 	for i in spend_values.size():
 		var value: int = spend_values[i]
@@ -1759,16 +1811,10 @@ func _run_chip_exchange(value: int, count: int, upgraded: Array[int], ghost: Nod
 			chip_stack.show_wallet()
 			chip_stack.pulse()))
 
-## Ankunft eines Zahlungs-Kometen am Hub: lädt eine wartende Übertaktung weiter
-## golden auf (siehe _on_combo_upgraded), sonst blitzt der Rahmen in Chip-Farbe.
+## Ankunft eines Zahlungs-Kometen am Hub: der Rahmen blitzt in Chip-Farbe.
 func _on_payment_comet_arrived(chip_color: Color) -> void:
 	var hub := table_screen.hub if table_screen != null else null
-	if hub == null:
-		return
-	if _hub_charge_expected > 0:
-		_hub_charge_received = mini(_hub_charge_received + 1, _hub_charge_expected)
-		hub.charge_gold(float(_hub_charge_received) / float(_hub_charge_expected))
-	else:
+	if hub != null:
 		hub.flash_frame(chip_color)
 
 ## Wette angeklickt (vor der Zahlung): das generische Geld-Licht unterdrücken und
@@ -2204,6 +2250,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if camera_rig.mode == CameraRig.Mode.CHIPS and _try_start_chip_drag(event.position):
+		return
+
+	# Übertakten: die Chips liegen UNTER der Kombinations-Klickzone, ihr Griff
+	# muss also vor den Zoom-Klick.
+	if event.button_index == MOUSE_BUTTON_LEFT and _try_combo_upgrade_click(event.position):
 		return
 
 	_try_zoom_click(event.position)
@@ -3586,6 +3637,7 @@ func _process(delta: float) -> void:
 	_update_pit_hover(delta)
 	_update_workshop_hover()
 	_update_engraving_hover()
+	_update_combo_upgrade_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
@@ -5873,6 +5925,7 @@ func _on_charge_changed(value: int) -> void:
 	if table_screen != null and table_screen.secret_shop_window != null and run != null:
 		table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked,
 			value >= GameRun.SECRET_UNLOCK_PRICE)
+	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 
 ## Eintrittsgeld bezahlt: der Hub quittiert golden, das Gitter fällt und das
 ## Fenster meldet sich mit einer Stoßwelle - dieselbe Sprache wie ein neu
@@ -6681,6 +6734,8 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	if is_pit_focused and route_pending and phase == Phase.IDLE \
 			and (route_choice == null or not route_choice.visible):
 		_open_route_choice()
+	# Übertaktet wird nur vor den Chips - und dort jederzeit.
+	_sync_combo_upgrade_buttons()
 	_update_gameplay_ui_visibility()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel

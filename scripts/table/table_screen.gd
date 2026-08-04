@@ -115,6 +115,10 @@ const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
 const TRACE_RISE := 30.0 * SUPERSAMPLE
 
 var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
+## Hover-Karte am Übertaktungs-Schild; Einheit aus der Zellhöhe (der Cluster hat
+## kein Fenster, aus dem sie sonst käme).
+const COMBO_HINT_U := 0.13
+var combo_hint: HintCard
 
 ## Adernetz der Kombi-Chips: senkrechte Sammelschienen zwischen den Spalten,
 ## kurze Stiche an jeden Pin. Ersetzt Fenster UND gezeichnete Leiterbahnen -
@@ -1230,6 +1234,32 @@ func _add_combo_cell(key: String, at: Vector2) -> void:
 		DiceScoring.points_for(key), DiceScoring.mult_for(key))
 	combo_cells[key] = cell
 
+## Hinweis-Karte über dem Kombi-Cluster: der Cluster ist KEIN Fenster, also
+## braucht die Karte eine eigene Bühne - eine randlose Ebene über der ganzen
+## Fläche (der SubViewport selbst ist kein Control und taugt nicht als Bühne).
+## scene_root fragt den Hover je Frame ab: der Zeiger liegt auf dem Tisch.
+func show_combo_hint(combo_key: String, title: String, body: String, accent: Color) -> void:
+	if not combo_cells.has(combo_key):
+		return
+	var u := CELL_SIZE.y * COMBO_HINT_U
+	if combo_hint == null:
+		var stage := Control.new()
+		stage.name = "ClusterHintLayer"
+		stage.set_anchors_preset(Control.PRESET_FULL_RECT)
+		stage.size = Vector2(RESOLUTION)
+		stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(stage)
+		combo_hint = HintCard.new(u)
+		combo_hint.name = "ComboHint"
+		stage.add_child(combo_hint)
+	combo_hint.get_parent().move_to_front()  # die Fenster entstanden nach den Zellen
+	combo_hint.show_for(combo_cells[combo_key], combo_hint.get_parent(),
+		title, body, accent, u * 1.2)
+
+func hide_combo_hint() -> void:
+	if combo_hint != null:
+		combo_hint.hide_card()
+
 ## --- Rundenziel-Balken -------------------------------------------------------
 
 func _build_goal_bar() -> void:
@@ -2038,6 +2068,9 @@ const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
 const OVERCLOCK_PULSE_CORE := 3.0 * SUPERSAMPLE
 const OVERCLOCK_PULSE_GLOW := 7.0 * SUPERSAMPLE
 const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
+## Aus der Bank bezahlte Übertaktung: dieselbe ⚡-Signalfarbe, gleiche Dämpfung.
+const CHARGE_PULSE_COLOR := Color(CasinoStyle.CHARGE.r, CasinoStyle.CHARGE.g,
+	CasinoStyle.CHARGE.b, 0.6)
 
 ## Der (durch die Geld-Ankünfte) voll geladene Hub entlädt sich RESTLOS in die
 ## Leiste: das Licht schießt los, der Rahmen erlischt ohne Nachglühen, der
@@ -2053,19 +2086,29 @@ func play_overclock_pulse(combo_key: String) -> void:
 		hub.charge_gold(1.0)  # sicherstellen: voll geladen, dann komplett abgeben
 		hub.discharge_gold(minf(0.35, link_time * 0.6))
 	await get_tree().create_timer(link_time).timeout
-	var index := DiceScoring.HAND_PRIORITY.find(combo_key)
-	var board_time := 0.3
-	var paths := wiring_paths_to_cell(index)
-	if not paths.is_empty():
-		# Gleiche Dauer für alle vier Pfade (gleichzeitige Ankunft); die Dauer
-		# folgt dem LÄNGSTEN Pfad bei einheitlicher Geschwindigkeit.
-		var longest := 0.0
-		for path in paths:
-			longest = maxf(longest, _path_length(path))
-		board_time = maxf(0.12, longest / PULSE_SPEED)
-		for path in paths:
-			_pulse_along(path, board_time)
-	await get_tree().create_timer(board_time).timeout
+	await get_tree().create_timer(_pulse_wiring_to_chip(combo_key, OVERCLOCK_PULSE_COLOR)).timeout
+
+## Energie-Übertaktung: die Kondensatorbank steht an der Ecke des Chip-Netzes,
+## ihr Licht fährt also nur noch die verlegten Schienen zum Chip - kein Hub-Weg,
+## denn bezahlt wird aus der Bank. Gebucht ist beim Start längst.
+func play_charge_overclock_pulse(combo_key: String) -> void:
+	await get_tree().create_timer(
+		_pulse_wiring_to_chip(combo_key, CHARGE_PULSE_COLOR)).timeout
+
+## Bus-Kometen von den Randkontakten zum Chip; liefert ihre Laufzeit.
+func _pulse_wiring_to_chip(combo_key: String, color: Color) -> float:
+	var paths := wiring_paths_to_cell(DiceScoring.HAND_PRIORITY.find(combo_key))
+	if paths.is_empty():
+		return 0.3
+	# Gleiche Dauer für alle vier Pfade (gleichzeitige Ankunft); die Dauer
+	# folgt dem LÄNGSTEN Pfad bei einheitlicher Geschwindigkeit.
+	var longest := 0.0
+	for path in paths:
+		longest = maxf(longest, _path_length(path))
+	var board_time := maxf(0.12, longest / PULSE_SPEED)
+	for path in paths:
+		_pulse_along(path, board_time)
+	return board_time
 
 ## Leiterbahn-Route Quelle -> Ader -> Ziel: L-Anschluss auf den Ader-Anfang, die
 ## Ader selbst, L-Anschluss ins Ziel. Alles achsenparallel, wie score_route.

@@ -21,20 +21,24 @@ const LARGE_STRAIGHT := "large_straight"
 const FIVE_KIND := "five_kind"
 const SIX_KIND := "six_kind"
 
+## Basiswerte und die Übertaktungs-Schritte je Stufe. Die Schritte sind AUTORIERT,
+## nicht abgeleitet: würde jede Stufe die Basis erneut addieren, wüchse das feste
+## Produkt quadratisch und der Sechserpasch zöge um das 180-fache der Höchsten
+## Zahl davon. Höchste Zahl und Paar behalten ihren alten Schritt.
 const CATEGORIES := [
-	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5},
-	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10},
-	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15},
-	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18},
-	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4, "points": 22},
-	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4, "points": 25},
-	{"key": FULL_HOUSE, "label": "Full House", "mult": 4, "points": 28},
-	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5, "points": 32},
-	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5, "points": 36},
-	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6, "points": 40},
-	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8, "points": 45},
-	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10, "points": 50},
-	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60},
+	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5, "mult_step": 1, "points_step": 5},
+	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10, "mult_step": 2, "points_step": 10},
+	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15, "mult_step": 2, "points_step": 10},
+	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18, "mult_step": 2, "points_step": 10},
+	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4, "points": 22, "mult_step": 2, "points_step": 12},
+	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4, "points": 25, "mult_step": 3, "points_step": 12},
+	{"key": FULL_HOUSE, "label": "Full House", "mult": 4, "points": 28, "mult_step": 3, "points_step": 14},
+	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5, "points": 32, "mult_step": 3, "points_step": 16},
+	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5, "points": 36, "mult_step": 3, "points_step": 18},
+	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6, "points": 40, "mult_step": 3, "points_step": 20},
+	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8, "points": 45, "mult_step": 4, "points_step": 22},
+	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10, "points": 50, "mult_step": 4, "points_step": 25},
+	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60, "mult_step": 4, "points_step": 30},
 ]
 
 # Prestigeträchtigste zuerst: best_hand() nimmt den ERSTEN Treffer dieser Liste,
@@ -236,18 +240,18 @@ static func label_for(key: String) -> String:
 			return cat["label"]
 	return key
 
-## Jede Menü-Stufe addiert den Basis-Multiplikator erneut (×2 -> ×4 -> ×6, ...).
+## Jede Übertaktungs-Stufe addiert den autorierten mult_step der Kategorie.
 static func mult_for(key: String, combo_levels: Dictionary = {}) -> int:
 	for cat in CATEGORIES:
 		if cat["key"] == key:
-			return cat["mult"] * (1 + int(combo_levels.get(key, 0)))
+			return cat["mult"] + cat["mult_step"] * int(combo_levels.get(key, 0))
 	return 1
 
 ## Feste Basispunkte ("Chips") - skalieren mit Menü-Stufen wie mult_for.
 static func points_for(key: String, combo_levels: Dictionary = {}) -> int:
 	for cat in CATEGORIES:
 		if cat["key"] == key:
-			return cat["points"] * (1 + int(combo_levels.get(key, 0)))
+			return cat["points"] + cat["points_step"] * int(combo_levels.get(key, 0))
 	return 0
 
 ## Der Joker-Slot (Polarlicht) oder -1. Legendär und damit Unikat: es kann NIE

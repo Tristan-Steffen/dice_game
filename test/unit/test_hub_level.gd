@@ -91,28 +91,19 @@ func test_shop_slots_scale_with_level() -> void:
 	# Stufe 1: wenige, große Angebote (2 Charms / 1 Würfel-Paket / 1 Gravur-Paket).
 	assert_eq(run.shop_charm_slots(), 2)
 	assert_eq(run.shop_dice_slots(), 1)
-	assert_eq(run.shop_chip_slots(), 2)
-	assert_eq(run.shop_overclock_slots(), 1)
 	assert_eq(run.shop_pack_slots(), 1)
-	run.upgrade_hub()  # 2 Spielecke: mehr Chips, aber noch kein 2. Paket
-	assert_eq(run.shop_chip_slots(), 3)
+	run.upgrade_hub()  # 2 Spielecke: noch kein 2. Paket
 	assert_eq(run.shop_dice_slots(), 1)
 	run.upgrade_hub()  # 3 Lizenz: größerer Laden
 	assert_eq(run.shop_charm_slots(), 3)
 	assert_eq(run.shop_dice_slots(), 2)
-	assert_eq(run.shop_chip_slots(), 5)
-	assert_eq(run.shop_overclock_slots(), 1)
 	for i in 4:
-		run.upgrade_hub()  # -> 7 Suite: 3. Würfel-Paket + 2. Übertaktung
+		run.upgrade_hub()  # -> 7 Suite: 3. Würfel-Paket
 	assert_eq(run.shop_dice_slots(), 3)
-	assert_eq(run.shop_chip_slots(), 8)
-	assert_eq(run.shop_overclock_slots(), 2)
 	assert_eq(run.shop_pack_slots(), 3)
 	for i in 3:
 		run.upgrade_hub()  # -> 10 High Roller: voller Laden
 	assert_eq(run.shop_charm_slots(), 5)
-	assert_eq(run.shop_chip_slots(), 10)
-	assert_eq(run.shop_overclock_slots(), 3, "Übertaktungen gedeckelt bei 3")
 	assert_eq(run.shop_pack_slots(), 4)
 
 func test_overcharge_capped_at_three_below_salon() -> void:

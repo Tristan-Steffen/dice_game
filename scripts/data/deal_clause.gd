@@ -36,7 +36,7 @@ const TAG_MONEY := "geld"
 
 # Bonus, Stufe 1
 const SAVINGS_BONUS := "savings_bonus"
-const OVERCLOCK_DISCOUNT := "overclock_discount"
+const FREE_CHARM := "free_charm"
 const ADVANCE_PAYMENT := "advance_payment"
 const SPOTLIGHT := "spotlight"
 const CASH_DISCOUNT := "cash_discount"
@@ -160,8 +160,8 @@ static func savings_bonus() -> DealClause:
 	return _bonus(SAVINGS_BONUS, "Sparprämie", "+1$ je übrigem Würfel",
 		Scope.ROUND, Tier.ONE, [TAG_LEFTOVER, TAG_MONEY])
 
-static func overclock_discount() -> DealClause:
-	return _bonus(OVERCLOCK_DISCOUNT, "Übertaktungsrabatt", "Der erste Charm im Laden ist gratis",
+static func free_charm() -> DealClause:
+	return _bonus(FREE_CHARM, "Hausgutschein", "Der erste Charm im Laden ist gratis",
 		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func advance_payment() -> DealClause:
@@ -369,7 +369,7 @@ static func balanced_scales() -> DealClause:
 
 static func all() -> Array[DealClause]:
 	return [
-		savings_bonus(), overclock_discount(), advance_payment(), spotlight(),
+		savings_bonus(), free_charm(), advance_payment(), spotlight(),
 		cash_discount(), insurance_fraud(), seed_capital(),
 		maintenance_engraving(), high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),

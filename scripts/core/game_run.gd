@@ -123,10 +123,9 @@ const HUB_UPGRADE_UNLOCKS := [
 
 ## Shop-Platzzahlen je Hub-Stufe (1-basiert). Der Laden wächst nicht sprunghaft,
 ## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
-## tauschen Kartengröße gegen Anzahl. "Chips" = Gravur- + Übertaktungs-Schale.
+## tauschen Kartengröße gegen Anzahl.
 const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
-const SHOP_CHIP_SLOTS  := [2, 3, 5, 5, 6, 7, 8, 8, 9, 10]
 const SHOP_PACK_SLOTS  := [1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
 
 ## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
@@ -161,7 +160,7 @@ var route_offers: Array[Dictionary] = []
 ## fest; nur die Boss-Konditionen (Allrounder, Standardprotokoll) lassen sie mit
 ## jeder genommenen Hand weiterwachsen.
 var throttled_combos: Array[String] = []
-## Übertaktungsrabatt: der nächste Charm im Laden ist gratis (verbraucht sich).
+## Hausgutschein: der nächste Charm im Laden ist gratis (verbraucht sich).
 var free_charm_pending: bool = false
 ## Freispiele: Automaten, die ihren Gratisdreh dieser Runde schon hatten.
 var free_spins_used: Array[int] = []
@@ -196,8 +195,8 @@ var unlimited_engravings: bool = false:
 			return
 		unlimited_engravings = value
 		engravings_changed.emit()
-## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert
-## Basis-Mult und Basispunkte erneut (siehe DiceScoring/Systemkonsole).
+## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert die
+## autorierten Schritte der Kategorie (siehe DiceScoring.CATEGORIES).
 var combo_levels: Dictionary = {}
 
 # Zustand der Effektkatalog-Charms:
@@ -436,13 +435,6 @@ func shop_charm_slots() -> int:
 func shop_dice_slots() -> int:
 	return _slot_at(SHOP_DICE_SLOTS, 3)
 
-## Gesamtbudget der Chip-Schale; ein Drittel davon sind Übertaktungen (1..3).
-func shop_chip_slots() -> int:
-	return _slot_at(SHOP_CHIP_SLOTS, 10)
-
-func shop_overclock_slots() -> int:
-	return clampi(shop_chip_slots() / 3, 1, 3)
-
 ## Gravur-Pakete im Regal. Deutlich weniger Plätze als früher Einzel-Gravuren -
 ## ein Paket ersetzt drei bis vier davon.
 func shop_pack_slots() -> int:
@@ -641,30 +633,35 @@ func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 	target.become(def)
 	pool_changed.emit()
 
-# --- Übertakten (Systemkonsole): Kombinationen ohne Stufen-Limit aufwerten ----
+# --- Übertakten (am Chip): Kombinationen ohne Stufen-Limit aufwerten ---------
+
+## Deckel des ⚡-Preises: ab der fünften Stufe kostet jede weitere gleich viel.
+const OVERCLOCK_COST_CAP := 5
 
 ## Aktuelle Übertaktungs-Stufe einer Kombination.
 func combo_level(combo_key: String) -> int:
 	return int(combo_levels.get(combo_key, 0))
 
-## Preis der Stufe level+1: Basis folgt der Kombinationsstärke (Basis-Mult),
-## jede weitere Stufe desselben Chips kostet die Basis erneut obendrauf -
-## kein Stufen-Limit, die Preiskurve ist die einzige Bremse.
-static func overclock_price_at(combo_key: String, level: int) -> int:
-	return (4 + DiceScoring.mult_for(combo_key)) * (level + 1)
+## ⚡-Preis der Stufe level+1: eine Energie plus je bereits erklommener Stufe
+## eine weitere, gedeckelt bei 5. Kein Stufen-Limit - die Ladung ist die einzige
+## Bremse. Bewusst OHNE Ladenpreis-Klauseln: ⚡-Preise sind überall flach.
+static func overclock_cost_at(level: int) -> int:
+	return mini(1 + maxi(0, level), OVERCLOCK_COST_CAP)
 
-## Preis der nächsten Stufe dieser Kombination (Ladenpreis-Klauseln eingerechnet).
-func overclock_price(combo_key: String) -> int:
-	return shop_price(overclock_price_at(combo_key, combo_level(combo_key)))
+func overclock_cost(combo_key: String) -> int:
+	return overclock_cost_at(combo_level(combo_key))
 
 func can_overclock(combo_key: String) -> bool:
-	return money >= overclock_price(combo_key)
+	return charge >= overclock_cost(combo_key)
 
-## Kauft die nächste Stufe: Preis abziehen, Stufe heben (hebt Basispunkte und
-## Multiplikator der Kombination, siehe DiceScoring).
-func overclock_combo(combo_key: String) -> void:
-	add_money(-overclock_price(combo_key))
+## Kauft die nächste Stufe mit Energie; false = Ladung reicht nicht (dann bleibt
+## alles unverändert). Prüfen-dann-abbuchen wie buy_secret_offer.
+func overclock_combo(combo_key: String) -> bool:
+	if combo_key == "" or not can_overclock(combo_key):
+		return false
+	spend_charge(overclock_cost(combo_key))
 	grant_combo_level(combo_key)
+	return true
 
 ## Hebt eine Kombination ohne Zahlung eine Stufe (Wett-Gewinn) - dieselbe
 ## Buchung wie ein Kauf, damit die Zeremonie am Signal hängt.
@@ -926,7 +923,7 @@ func _apply_instant_clause(clause_id: String) -> void:
 			add_charge(instant_clause_charge(clause_id, boost))
 		DealClause.DISCHARGE:
 			spend_charge(DISCHARGE_CHARGE)
-		DealClause.OVERCLOCK_DISCOUNT:
+		DealClause.FREE_CHARM:
 			free_charm_pending = true
 		DealClause.FREE_SPINS:
 			free_spins_used.clear()
@@ -1101,9 +1098,9 @@ func shop_price(base: int) -> int:
 		return base
 	return maxi(1, roundi(base * shop_price_factor()))
 
-## Übertaktungsrabatt: der nächste Charm im Laden ist gratis.
+## Hausgutschein: der nächste Charm im Laden ist gratis.
 func charm_is_free() -> bool:
-	return free_charm_pending and _clause_active(DealClause.OVERCLOCK_DISCOUNT)
+	return free_charm_pending and _clause_active(DealClause.FREE_CHARM)
 
 func consume_free_charm() -> void:
 	free_charm_pending = false

@@ -68,6 +68,50 @@ func test_a_clause_spotlight_is_redeemable_without_any_charm() -> void:
 	assert_true(run.claim_spotlight(key), "ohne Charm genauso einlösbar")
 	assert_eq(run.combo_level(key), 1)
 
+# --- Übertaktungs-Schild am Chip ----------------------------------------------------
+
+func _chip() -> ComboChipView:
+	var chip := ComboChipView.new()
+	add_child_autofree(chip)
+	chip.setup(4.0, 1.5)  # Weltmaße einer Zelle
+	return chip
+
+func test_the_tag_is_armed_only_while_the_combos_view_is_open() -> void:
+	# Die Trefferfläche liegt UNTER der Kombinations-Klickzone: bliebe sie
+	# dauerhaft scharf, fingen die Chips Klicks aus jeder anderen Sicht ab.
+	var chip := _chip()
+	var body := chip.upgrade_pick_body()
+	assert_eq(body.collision_layer, 0, "geschlossen: nichts zu treffen")
+	chip.set_upgrade_visible(true)
+	assert_eq(body.collision_layer, ComboChipView.UPGRADE_PICK_LAYER)
+	chip.set_upgrade_visible(false)
+	assert_eq(body.collision_layer, 0)
+
+func test_the_tag_prints_the_charge_price_and_dims_when_unaffordable() -> void:
+	var chip := _chip()
+	chip.set_upgrade_visible(true)
+	var tag := chip.get_node("UpgradeTag") as Label3D
+	chip.set_upgrade_offer(3, true)
+	assert_eq(tag.text, "⚡3")
+	assert_eq(tag.modulate, ComboChipView.TAG_COLOR, "bezahlbar: Signalfarbe")
+	chip.set_upgrade_offer(3, false)
+	assert_eq(tag.modulate, ComboChipView.TAG_DIM, "zu wenig Energie: gedimmt")
+
+func test_the_level_no_longer_colours_the_chip() -> void:
+	# Die Hitze-Rampe ist weg: der Betriebston steht fest, die Stufe zeigt das
+	# LVL-Feld. Sonst wäre der Chip bei jeder Stufe eine andere Farbe.
+	var chip := _chip()
+	var band := chip.find_child("Display", true, false) as MeshInstance3D
+	var key: String = DiceScoring.HAND_PRIORITY[0]
+	var cell := _cell(key)
+	cell.set_level(0)
+	chip.sync_cell(cell)
+	var cold: Color = (band.material_override as StandardMaterial3D).emission
+	cell.set_level(9)
+	chip.sync_cell(cell)
+	assert_eq((band.material_override as StandardMaterial3D).emission, cold,
+		"neun Stufen später leuchtet er genauso")
+
 # --- Zähler-Charms am Dock ----------------------------------------------------------
 
 func _dock() -> CharmDockView:
