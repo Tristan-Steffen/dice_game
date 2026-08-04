@@ -6,7 +6,9 @@ extends Node3D
 ## Display: Name, Basispunkte, ×Mult und die Übertaktungs-Stufe stehen als
 ## Label3D flach auf einem Glasfeld - die Fläche, die die Kamera am besten
 ## sieht. Der Chip leuchtet in EINEM Betriebston; die Stufe zeigt das LVL-Feld,
-## nicht die Farbe. Im Kombinations-Zoom liegt vor dem Band das ⚡-Preisschild.
+## nicht die Farbe. Auch das Übertakten steht ganz auf diesem Deckel: der
+## Zeigerkontakt schaltet die Wertzeile grün auf die Werte nach dem Kauf und
+## blendet links der Stufe den ⚡-Preis ein.
 
 const CHIP_SCENE := "res://assets/models/chip.glb"
 
@@ -111,18 +113,15 @@ const BAND_EMISSION_SHARE := 0.7
 ## Wie weit das Frontband unter die Deckelfläche rutscht (Modelleinheiten).
 const BAND_SEAT_DROP := 0.5
 
-## Übertaktungs-Schild: liegt im Kombinations-Zoom flach auf dem Filz VOR dem
-## Frontband und nennt den ⚡-Preis. Der freie Streifen zwischen zwei Chipreihen
-## misst rund 6.5 Modelleinheiten (Zellrand + CELL_GAP + Zellrand) - Schild und
-## Abstand schöpfen ihn fast aus, denn aus der Kombinations-Distanz ist die
-## Schrift ohnehin klein. Getroffen wird über einen eigenen Pick-Körper, der den
-## GANZEN Chip abdeckt: das Schild allein wäre ein zu kleines Ziel.
+## Übertakten: ALLES dazu steht auf dem Deckel selbst - kein Schild daneben und
+## kein Hover-Fenster. Der Zeigerkontakt schaltet die Wertzeile auf die Werte
+## NACH dem Kauf (grün: "steht noch nicht so da", dasselbe Grün wie am Würfel)
+## und blendet links der Stufe den ⚡-Preis ein. Getroffen wird über einen
+## eigenen Pick-Körper über dem ganzen Chip.
 const UPGRADE_PICK_LAYER := 128
-const TAG_HEIGHT := 5.0
-const TAG_MARGIN := 0.8
-const TAG_COLOR := CasinoStyle.CHARGE    # bezahlbar - dieselbe ⚡-Signalfarbe
-const TAG_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
-const TAG_HOVER_SWELL := 1.18
+const PREVIEW_COLOR := DieFaceDisplay.PREVIEW_NUMBER_COLOR
+const COST_COLOR := CasinoStyle.CHARGE    # bezahlbar - dieselbe ⚡-Signalfarbe
+const COST_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
 
 ## Hervorhebung der gewürfelten Hand (0..1): hebt Glas und Band an.
 var glow := 0.0
@@ -137,16 +136,20 @@ var _name_label: Label3D
 var _points_label: Label3D
 var _mult_label: Label3D
 var _level_label: Label3D
+var _cost_label: Label3D
 var _points := 0
 var _mult := 1
 var _level := -1
 var _spotlit := false
 var _spotlight_phase := 0.0
 var _throttled := false
-var _tag_label: Label3D
 var _pick_body: StaticBody3D
-var _tag_affordable := false
-var _tag_hover := false
+## Angebot der nächsten Stufe (nur beim Zeigerkontakt sichtbar).
+var _cost := 0
+var _cost_affordable := false
+var _next_points := 0
+var _next_mult := 0
+var _hover := false
 
 ## Pin-Positionen der Chips in Screen-Pixeln, relativ zur ZELLMITTE - einzige
 ## Quelle für alles, was an die Pins andockt (TableScreen verlegt daran die
@@ -212,7 +215,7 @@ func setup(length_world: float, depth_world: float) -> void:
 	_override(inst, "Pins", _pins_material)
 
 	_build_screen(z_shift)
-	_build_upgrade_tag(z_shift)
+	_build_upgrade_pick(z_shift)
 	_apply_materials()
 
 ## Körnungs-Textur (Rauheits-Kanal): Simplex-Rauschen, kachelbar.
@@ -264,6 +267,7 @@ func _build_screen(z_shift: float) -> void:
 	_points_label = _make_label(board, POINTS_COLOR)
 	_mult_label = _make_label(board, MULT_COLOR)
 	_level_label = _make_label(board, LEVEL_COLOR)
+	_cost_label = _make_label(board, COST_COLOR)
 
 func _make_label(board: Node3D, color: Color) -> Label3D:
 	var label := Label3D.new()
@@ -289,7 +293,8 @@ func sync_cell(cell: ComboCellView) -> void:
 
 ## Zeilenlayout auf dem Deckel: Name über die ganze Breite, darunter Punkte,
 ## ×Mult und - ab Stufe 1 - die Stufenmarke "LVL n". Der Name schrumpft, wenn er
-## zu breit wird; die Zahlen behalten ihre Größe.
+## zu breit wird; die Zahlen behalten ihre Größe. Beim Zeigerkontakt zeigt die
+## Wertzeile grün die Werte NACH dem Kauf und links der Stufe steht der Preis.
 func _layout_labels() -> void:
 	var half := (BODY_LENGTH / 2.0 - TEXT_MARGIN) * _sx
 	var gap := TEXT_GAP * _sx
@@ -298,18 +303,27 @@ func _layout_labels() -> void:
 	_level_label.modulate = THROTTLE_COLOR if _throttled \
 		else (LEVEL_COLOR_GOLD if _level >= ComboCellView.GOLD_LEVEL else LEVEL_COLOR)
 	_level_label.pixel_size = LEVEL_HEIGHT * _sz / float(FONT_SIZE)
-	_points_label.text = str(_points)
-	_mult_label.text = "×%d" % _mult
+	_points_label.text = str(_next_points if _hover else _points)
+	_mult_label.text = "×%d" % (_next_mult if _hover else _mult)
+	_points_label.modulate = PREVIEW_COLOR if _hover else POINTS_COLOR
+	_mult_label.modulate = PREVIEW_COLOR if _hover else MULT_COLOR
 	_points_label.pixel_size = SCORE_HEIGHT * _sz / float(FONT_SIZE)
 	_mult_label.pixel_size = _points_label.pixel_size
+	_cost_label.text = "⚡%d" % _cost if _hover else ""
+	_cost_label.modulate = COST_COLOR if _cost_affordable else COST_DIM
+	_cost_label.pixel_size = _level_label.pixel_size
 
-	# Untere Zeile von links: Punkte, ×Mult; die Stufe steht rechtsbündig.
+	# Untere Zeile von links: Punkte, ×Mult; rechtsbündig Preis und Stufe.
 	var points_w := _text_width(_points_label)
 	var mult_w := _text_width(_mult_label)
 	var level_w := _text_width(_level_label)
+	var cost_w := _text_width(_cost_label)
 	_points_label.position = Vector3(-half + points_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
 	_mult_label.position = Vector3(-half + points_w + gap + mult_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
 	_level_label.position = Vector3(half - level_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
+	# Der Preis rückt links an die Stufe; ohne Stufenmarke sitzt er an ihrem Platz.
+	var cost_right := half - level_w - (gap if level_w > 0.0 else 0.0)
+	_cost_label.position = Vector3(cost_right - cost_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
 
 	# Name über die volle Deckelbreite, nur bei Überlänge kleiner.
 	var name_ps := NAME_HEIGHT * _sz / float(FONT_SIZE)
@@ -386,76 +400,53 @@ func _apply_materials() -> void:
 		_pins_material.emission = PIN_ALBEDO.lerp(HIGHLIGHT_COLOR, lit)
 		_pins_material.emission_energy_multiplier = PIN_EMISSION + HIGHLIGHT_PIN_ENERGY * glow
 
-# --- Übertaktungs-Schild (nur im Kombinations-Zoom sichtbar) -----------------
+# --- Übertakten: Trefferfläche und Angebot auf dem Deckel --------------------
 
-## Preisschild vor dem Frontband plus der Pick-Körper über dem ganzen Chip.
-## Beide starten unsichtbar: erst der Kombinations-Zoom holt sie hervor.
-func _build_upgrade_tag(z_shift: float) -> void:
-	_tag_label = Label3D.new()
-	_tag_label.name = "UpgradeTag"
-	_tag_label.font_size = FONT_SIZE
-	_tag_label.outline_size = 12
-	_tag_label.modulate = TAG_DIM
-	_tag_label.pixel_size = TAG_HEIGHT * _sz / float(FONT_SIZE)
-	_tag_label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	# Flach auf den Filz legen wie die Deckel-Labels auf das Glas.
-	_tag_label.rotation.x = -PI / 2.0
-	_tag_label.position = Vector3(0.0, 0.02,
-		z_shift + (MODEL_Z_MAX + TAG_MARGIN + TAG_HEIGHT / 2.0) * _sz)
-	_tag_label.visible = false
-	add_child(_tag_label)
-
-	# Der Pick-Körper deckt Gehäuse UND Schild ab - aus der Kombinations-Distanz
-	# ist das Schild allein zu klein, um es sicher zu treffen.
-	var z_near := -BODY_WIDTH / 2.0                     # Gehäuse-Rückkante
-	var z_far := MODEL_Z_MAX + TAG_MARGIN + TAG_HEIGHT  # Schild-Vorderkante
+## Pick-Körper über dem ganzen Chip. Er startet stumpf: erst der
+## Kombinations-Zoom schaltet ihn scharf.
+func _build_upgrade_pick(z_shift: float) -> void:
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(BODY_LENGTH * _sx, BODY_TOP * _sz, (z_far - z_near) * _sz)
+	shape.size = Vector3(BODY_LENGTH * _sx, BODY_TOP * _sz, BODY_WIDTH * _sz)
 	var collider := CollisionShape3D.new()
 	collider.shape = shape
 	_pick_body = StaticBody3D.new()
 	_pick_body.name = "UpgradePick"
 	_pick_body.collision_layer = 0  # erst set_upgrade_visible schaltet scharf
 	_pick_body.collision_mask = 0
-	_pick_body.position = Vector3(0.0, BODY_TOP * _sz / 2.0,
-		z_shift + (z_near + z_far) / 2.0 * _sz)
+	_pick_body.position = Vector3(0.0, BODY_TOP * _sz / 2.0, z_shift)
 	_pick_body.add_child(collider)
 	add_child(_pick_body)
 
-## Zeigt/verbirgt das Schild samt Trefferfläche (Kombinations-Zoom an/aus).
+## Schaltet die Trefferfläche scharf (Kombinations-Zoom an/aus).
 func set_upgrade_visible(on: bool) -> void:
-	if _tag_label == null:
+	if _pick_body == null:
 		return
-	_tag_label.visible = on
 	_pick_body.collision_layer = UPGRADE_PICK_LAYER if on else 0
 	if not on:
-		_tag_hover = false
-		_apply_tag()
+		set_upgrade_hover(false)
 
-## Schreibt den ⚡-Preis aufs Schild; affordable färbt es in die Signalfarbe.
-func set_upgrade_offer(cost: int, affordable: bool) -> void:
-	if _tag_label == null:
+## Das Angebot der nächsten Stufe: Preis, ob die Bank ihn deckt, und die Werte
+## danach. Sichtbar wird davon nichts - erst der Zeigerkontakt zeigt es.
+func set_upgrade_offer(cost: int, affordable: bool, next_points: int, next_mult: int) -> void:
+	if cost == _cost and affordable == _cost_affordable \
+			and next_points == _next_points and next_mult == _next_mult:
 		return
-	_tag_affordable = affordable
-	_tag_label.text = "⚡%d" % cost
-	_apply_tag()
+	_cost = cost
+	_cost_affordable = affordable
+	_next_points = next_points
+	_next_mult = next_mult
+	if _hover:
+		_layout_labels()
 
-## Zeigerkontakt: das Schild schwillt an - einen Rahmen zum Färben hat es nicht.
+## Zeigerkontakt: die Wertzeile springt auf die Werte nach dem Kauf, der Preis
+## erscheint. Die ganze Auskunft steht auf dem Deckel - daneben liegt nichts.
 func set_upgrade_hover(on: bool) -> void:
-	if _tag_label == null or _tag_hover == on:
+	if _hover == on:
 		return
-	_tag_hover = on
-	_apply_tag()
+	_hover = on
+	_layout_labels()
 
-## Einziger Schreiber des Schild-Aussehens: Preis-Zustand × Zeigerkontakt.
-func _apply_tag() -> void:
-	var color := TAG_COLOR if _tag_affordable else TAG_DIM
-	if _tag_hover:
-		color = color.lightened(0.35)
-	_tag_label.modulate = color
-	_tag_label.scale = Vector3.ONE * (TAG_HOVER_SWELL if _tag_hover else 1.0)
-
-## Der Pick-Körper des Schilds - scene_root ordnet ihn seiner Kombination zu.
+## Der Pick-Körper des Chips - scene_root ordnet ihn seiner Kombination zu.
 func upgrade_pick_body() -> StaticBody3D:
 	return _pick_body
 

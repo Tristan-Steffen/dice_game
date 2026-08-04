@@ -115,10 +115,6 @@ const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
 const TRACE_RISE := 30.0 * SUPERSAMPLE
 
 var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
-## Hover-Karte am Übertaktungs-Schild; Einheit aus der Zellhöhe (der Cluster hat
-## kein Fenster, aus dem sie sonst käme).
-const COMBO_HINT_U := 0.13
-var combo_hint: HintCard
 
 ## Adernetz der Kombi-Chips: senkrechte Sammelschienen zwischen den Spalten,
 ## kurze Stiche an jeden Pin. Ersetzt Fenster UND gezeichnete Leiterbahnen -
@@ -1233,32 +1229,6 @@ func _add_combo_cell(key: String, at: Vector2) -> void:
 	cell.setup(DiceScoring.label_for(key), DiceScoring.EXAMPLE_DICE[key],
 		DiceScoring.points_for(key), DiceScoring.mult_for(key))
 	combo_cells[key] = cell
-
-## Hinweis-Karte über dem Kombi-Cluster: der Cluster ist KEIN Fenster, also
-## braucht die Karte eine eigene Bühne - eine randlose Ebene über der ganzen
-## Fläche (der SubViewport selbst ist kein Control und taugt nicht als Bühne).
-## scene_root fragt den Hover je Frame ab: der Zeiger liegt auf dem Tisch.
-func show_combo_hint(combo_key: String, title: String, body: String, accent: Color) -> void:
-	if not combo_cells.has(combo_key):
-		return
-	var u := CELL_SIZE.y * COMBO_HINT_U
-	if combo_hint == null:
-		var stage := Control.new()
-		stage.name = "ClusterHintLayer"
-		stage.set_anchors_preset(Control.PRESET_FULL_RECT)
-		stage.size = Vector2(RESOLUTION)
-		stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(stage)
-		combo_hint = HintCard.new(u)
-		combo_hint.name = "ComboHint"
-		stage.add_child(combo_hint)
-	combo_hint.get_parent().move_to_front()  # die Fenster entstanden nach den Zellen
-	combo_hint.show_for(combo_cells[combo_key], combo_hint.get_parent(),
-		title, body, accent, u * 1.2)
-
-func hide_combo_hint() -> void:
-	if combo_hint != null:
-		combo_hint.hide_card()
 
 ## --- Rundenziel-Balken -------------------------------------------------------
 

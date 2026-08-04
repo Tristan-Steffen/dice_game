@@ -1211,16 +1211,19 @@ func _refresh_combo_display(key: String) -> void:
 
 ## --- Übertakten am Chip ------------------------------------------------------
 
-## Die Schilder stehen NUR im Kombinations-Zoom; jedes trägt seinen ⚡-Preis und
-## zeigt an, ob die Bank ihn deckt. Idempotent - Moduswechsel, Ladungsänderung
-## und jede gekaufte Stufe rufen dasselbe.
+## Übertaktet wird NUR im Kombinations-Zoom; dort trägt jeder Chip sein Angebot
+## (Preis, Deckung, Werte danach) - sichtbar erst beim Zeigerkontakt.
+## Idempotent: Moduswechsel, Ladungsänderung und jede gekaufte Stufe rufen dasselbe.
 func _sync_combo_upgrade_buttons() -> void:
 	var show := camera_rig != null and camera_rig.mode == CameraRig.Mode.COMBOS
 	for key: String in combo_chips:
 		var chip: ComboChipView = combo_chips[key]
 		chip.set_upgrade_visible(show)
 		if show and run != null:
-			chip.set_upgrade_offer(run.overclock_cost(key), run.can_overclock(key))
+			var next_levels: Dictionary = run.combo_levels.duplicate()
+			next_levels[key] = run.combo_level(key) + 1
+			chip.set_upgrade_offer(run.overclock_cost(key), run.can_overclock(key),
+				DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels))
 	if not show:
 		_clear_combo_upgrade_hover()
 
@@ -1236,11 +1239,10 @@ func _try_combo_upgrade_click(screen_pos: Vector2) -> bool:
 		return false
 	var key: String = combo_pick_keys[hit["collider"]]
 	run.overclock_combo(key)  # false = zu wenig Energie
-	_sync_combo_upgrade_buttons()
-	_update_combo_upgrade_hover()  # Preis und Vorschau stehen schon auf der Karte
+	_sync_combo_upgrade_buttons()  # neuer Preis, neue Vorschau - der Zeiger steht ja noch drauf
 	return true
 
-## Zeigerkontakt am Schild (je Frame): der Zeiger liegt auf dem TISCH, nicht im
+## Zeigerkontakt am Chip (je Frame): der Zeiger liegt auf dem TISCH, nicht im
 ## SubViewport - mouse_entered feuert dort nie. Wie bei den Grubenmarken.
 func _update_combo_upgrade_hover() -> void:
 	if run == null or camera_rig == null or camera_rig.mode != CameraRig.Mode.COMBOS \
@@ -1249,23 +1251,12 @@ func _update_combo_upgrade_hover() -> void:
 		return
 	var hit := _ray_pick(get_viewport().get_mouse_position(), ComboChipView.UPGRADE_PICK_LAYER)
 	var key: String = combo_pick_keys.get(hit.get("collider"), "") if not hit.is_empty() else ""
-	if key == "":
-		_clear_combo_upgrade_hover()
+	if key == _hovered_combo_key:
 		return
-	if key != _hovered_combo_key:
-		_clear_combo_upgrade_hover()
+	_clear_combo_upgrade_hover()
+	if key != "":
 		_hovered_combo_key = key
 		combo_chips[key].set_upgrade_hover(true)
-	var level := run.combo_level(key)
-	var next_levels: Dictionary = run.combo_levels.duplicate()
-	next_levels[key] = level + 1
-	table_screen.show_combo_hint(key,
-		"Übertaktung – %s (Stufe %d → %d)" % [DiceScoring.label_for(key), level, level + 1],
-		"Kostet %d ⚡. Jetzt: %d Punkte × %d. Danach: %d Punkte × %d." % [
-			run.overclock_cost(key),
-			DiceScoring.points_for(key, run.combo_levels), DiceScoring.mult_for(key, run.combo_levels),
-			DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels)],
-		CasinoStyle.CHARGE)
 
 func _clear_combo_upgrade_hover() -> void:
 	if _hovered_combo_key == "":
@@ -1273,8 +1264,6 @@ func _clear_combo_upgrade_hover() -> void:
 	if combo_chips.has(_hovered_combo_key):
 		combo_chips[_hovered_combo_key].set_upgrade_hover(false)
 	_hovered_combo_key = ""
-	if table_screen != null:
-		table_screen.hide_combo_hint()
 
 ## Blendet das Glühen des 3D-Chips weich auf target (0 = Ruhe, 1 = aktiv).
 func _glow_combo_chip(key: String, target: float) -> void:

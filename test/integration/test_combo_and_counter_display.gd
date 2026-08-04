@@ -76,7 +76,7 @@ func _chip() -> ComboChipView:
 	chip.setup(4.0, 1.5)  # Weltmaße einer Zelle
 	return chip
 
-func test_the_tag_is_armed_only_while_the_combos_view_is_open() -> void:
+func test_the_pick_body_is_armed_only_while_the_combos_view_is_open() -> void:
 	# Die Trefferfläche liegt UNTER der Kombinations-Klickzone: bliebe sie
 	# dauerhaft scharf, fingen die Chips Klicks aus jeder anderen Sicht ab.
 	var chip := _chip()
@@ -87,15 +87,53 @@ func test_the_tag_is_armed_only_while_the_combos_view_is_open() -> void:
 	chip.set_upgrade_visible(false)
 	assert_eq(body.collision_layer, 0)
 
-func test_the_tag_prints_the_charge_price_and_dims_when_unaffordable() -> void:
+func _labels(chip: ComboChipView) -> Dictionary:
+	var board := chip.find_child("ScreenLabels", true, false)
+	var kids := board.get_children()
+	return {"points": kids[1], "mult": kids[2], "level": kids[3], "cost": kids[4]}
+
+func test_the_offer_stays_hidden_until_the_pointer_arrives() -> void:
+	# Das Angebot steht ganz auf dem Deckel - ohne Zeiger sieht man nichts davon.
+	var chip := _chip()
+	var key: String = DiceScoring.HAND_PRIORITY[0]
+	var cell := _cell(key)
+	cell.set_score(60, 15)
+	chip.sync_cell(cell)
+	chip.set_upgrade_visible(true)
+	chip.set_upgrade_offer(2, true, 90, 19)
+	var l := _labels(chip)
+	assert_eq((l["cost"] as Label3D).text, "", "kein Preis ohne Zeigerkontakt")
+	assert_eq((l["points"] as Label3D).text, "60", "die echten Werte stehen da")
+	assert_eq((l["mult"] as Label3D).text, "×15")
+
+func test_hovering_previews_the_next_level_in_green_and_shows_the_price() -> void:
+	var chip := _chip()
+	var key: String = DiceScoring.HAND_PRIORITY[0]
+	var cell := _cell(key)
+	cell.set_score(60, 15)
+	chip.sync_cell(cell)
+	chip.set_upgrade_visible(true)
+	chip.set_upgrade_offer(2, true, 90, 19)
+	chip.set_upgrade_hover(true)
+	var l := _labels(chip)
+	assert_eq((l["points"] as Label3D).text, "90", "Vorschau: Punkte nach dem Kauf")
+	assert_eq((l["mult"] as Label3D).text, "×19")
+	assert_eq((l["points"] as Label3D).modulate, ComboChipView.PREVIEW_COLOR,
+		"grün heißt überall 'steht so noch nicht da'")
+	assert_eq((l["mult"] as Label3D).modulate, ComboChipView.PREVIEW_COLOR)
+	assert_eq((l["cost"] as Label3D).text, "⚡2")
+	assert_eq((l["cost"] as Label3D).modulate, ComboChipView.COST_COLOR, "bezahlbar")
+	chip.set_upgrade_hover(false)
+	assert_eq((l["points"] as Label3D).text, "60", "danach wieder der echte Stand")
+	assert_eq((l["points"] as Label3D).modulate, ComboChipView.POINTS_COLOR)
+	assert_eq((l["cost"] as Label3D).text, "")
+
+func test_an_unaffordable_price_is_dimmed() -> void:
 	var chip := _chip()
 	chip.set_upgrade_visible(true)
-	var tag := chip.get_node("UpgradeTag") as Label3D
-	chip.set_upgrade_offer(3, true)
-	assert_eq(tag.text, "⚡3")
-	assert_eq(tag.modulate, ComboChipView.TAG_COLOR, "bezahlbar: Signalfarbe")
-	chip.set_upgrade_offer(3, false)
-	assert_eq(tag.modulate, ComboChipView.TAG_DIM, "zu wenig Energie: gedimmt")
+	chip.set_upgrade_offer(4, false, 90, 19)
+	chip.set_upgrade_hover(true)
+	assert_eq((_labels(chip)["cost"] as Label3D).modulate, ComboChipView.COST_DIM)
 
 func test_the_level_no_longer_colours_the_chip() -> void:
 	# Die Hitze-Rampe ist weg: der Betriebston steht fest, die Stufe zeigt das
