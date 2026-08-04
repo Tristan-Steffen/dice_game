@@ -304,6 +304,22 @@ var round_committed := false
 ## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
 const ROUTE_CHOICE_INSET := 0.04
 
+## Rückblick: die Chronik der laufenden Runde und ihr Fenster in der Grube.
+## log_open ist das EINZIGE Arbitrierungs-Bit des Erinnerungs-Modus (die Phase
+## bleibt IDLE) - solange es steht, schweigen alle Anzeigen-Schreiber pro Frame
+## und der Tisch zeigt die aufgezeichnete Vergangenheit.
+var round_log := RoundLog.new()
+var log_view: LogView
+var log_open := false
+## (Eintrag, Schritt); Eintrag -1 = die Liste steht, noch nichts posiert.
+var log_cursor := Vector2i(-1, 0)
+var _log_posed_entry := -1
+## Spiegel der lebenden Grube, gestellt beim Öffnen und beim Schließen zurück.
+var _log_pit_mirror: Dictionary = {}
+## Höhe der Schritt-Leiste als Anteil der Grubenhöhe - sie steht am oberen Rand,
+## die posierten Würfel liegen darunter.
+const LOG_BAR_HEIGHT := 0.16
+
 ## Titel-HUD (Startbildschirm + Menü) als Hub-Seite; davor stand die Kamera in
 ## title_prev_mode und kehrt beim "Weiterspielen" dorthin zurück.
 var title_view: TitleView
@@ -702,6 +718,7 @@ func _setup_table_screen() -> void:
 		table_screen.tip_face_buttons[i].pressed.connect(_on_tip_face_pressed.bind(i))
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
+	table_screen.log_action_button.pressed.connect(_on_log_button_pressed)
 
 	# Nebenwetten-Fenster rechts von der Energie-Hülle, in den Maßen des
 	# Kombi-Fensters; Unterkante bündig mit Grube und Kombinationen-Fenster.
@@ -952,6 +969,18 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(route_choice)
 	route_choice.route_chosen.connect(_on_route_chosen)
+
+	# Der Rückblick teilt sich den Grubenboden mit der Vertragswahl - beide sind
+	# Gruben-Mobiliar und reisen mit der Kamera ab.
+	log_view = LogView.new()
+	if table_screen != null:
+		table_screen.add_child(log_view)
+		_place_log_view()
+	else:
+		$UI.add_child(log_view)
+	log_view.entry_selected.connect(_on_log_entry_selected)
+	log_view.step_requested.connect(_log_step)
+	log_view.close_requested.connect(_close_round_log)
 
 	# Gravur-Station in der WERKSTATT: dort liegen die Vorräte, dort werden sie
 	# angewandt (ohne Werkstatt-Fenster: keine Zeremonie).
@@ -2051,6 +2080,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_floating_drag_input(event)
 		return
 
+	# Im Rückblick gehören die Pfeiltasten dem Cursor und Escape dem Schließen -
+	# Tastatur erreicht die Fenster-UI nie, sie wird hier weitergereicht.
+	if log_open:
+		if event.is_action_pressed("ui_cancel"):
+			_close_round_log()
+			return
+		if event.is_action_pressed("ui_left"):
+			_log_step(-1)
+			return
+		if event.is_action_pressed("ui_right"):
+			_log_step(1)
+			return
+
 	if event.is_action_pressed("ui_cancel"):
 		_toggle_title()
 		return
@@ -2088,6 +2130,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if camera_rig.mode == CameraRig.Mode.TITLE:
 			if title_view.visible:
 				title_view.go_back()
+			return
+		# Der Rückblick schließt sich vor der Kamera - erst zurück in die
+		# Gegenwart, dann darf man den Zoom verlassen.
+		if log_open:
+			_close_round_log()
 			return
 		# Aus der Werkstück-Sicht führt Rechtsklick eine Stufe zurück an die Bank -
 		# das Werkstück abzulegen ist noch kein Abbruch der Zeremonie.
@@ -3325,6 +3372,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 			if route_choice != null and route_choice.visible \
 					and Rect2(route_choice.position, route_choice.size).has_point(pixel):
 				return true
+			# Der Rückblick ebenso - Liste wie Schritt-Leiste.
+			if log_view != null and log_view.hit(pixel):
+				return true
 			return table_screen.pit_actions_hit(pixel)
 		CameraRig.Mode.SIDE_BETS:
 			# Im Zoom auf die Wettannahme gehen Klicks/Hover an die Setzen-Knöpfe.
@@ -3483,7 +3533,9 @@ func _zoom_to_mode(target: int) -> void:
 ## Zeremonie heraus - das Abbrechen ist eine gewollte Geste und darf nicht an
 ## einem Radstups hängen.
 func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
-	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.is_animating:
+	# Im Rückblick ist das Rad taub: der Cursor gehört den Pfeilen, und ein
+	# Radstups darf die Erinnerung nicht aus Versehen verlassen.
+	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.is_animating or log_open:
 		wheel_accum = 0.0
 		return
 
@@ -3596,8 +3648,8 @@ func _hovered_tray_def(screen_pos: Vector2) -> DieDefinition:
 ## Verlässt die Maus den Würfel, steht das Netz noch NET_LINGER_TIME - genug,
 ## um in das Feld zu fahren; dort hält es, und Zellen erklären ihr Material.
 func _update_pit_hover(delta: float) -> void:
-	if table_screen == null:
-		return
+	if table_screen == null or log_open:
+		return  # im Rückblick gehört das Netz-Feld den Gliedern der Vergangenheit
 	if is_pit_focused and phase == Phase.IDLE and not camera_rig.is_animating:
 		var mouse := get_viewport().get_mouse_position()
 		var index := _hovered_die_index(mouse)
@@ -3671,6 +3723,19 @@ func _sync_screen_action_buttons() -> void:
 	# (der nächste Grubenzoom legt sie wieder auf - _on_camera_mode_changed).
 	if _route_choice_open() and not (gameplay_ui_state_visible and is_pit_focused):
 		route_choice.close()
+	# Der Rückblick ist ebenso Gruben-Mobiliar: die Grube zu verlassen schließt
+	# ihn samt Wiederherstellung des lebenden Tisches.
+	if log_open and not (gameplay_ui_state_visible and is_pit_focused):
+		_close_round_log()
+	if log_open:
+		# Im Erinnerungs-Modus gehört der Grubenboden der Chronik; nur das
+		# Netz-Feld bleibt, es zeigt die Glieder der Vergangenheit.
+		table_screen.pit_actions_root.visible = false
+		table_screen.pit_deal_rail.visible = false
+		table_screen.pit_info_bar.visible = true
+		table_screen.hide_pit_deal_hint()
+		table_screen.clear_fumble_marks()
+		return
 	# Die Vertragswahl braucht den ganzen Grubenboden: solange sie liegt, weicht
 	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
 	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
@@ -3702,7 +3767,10 @@ func _sync_screen_action_buttons() -> void:
 	var can_bank := phase == Phase.IDLE and stages >= 1
 	table_screen.bank_action_button.visible = can_bank
 	if can_bank:
-		table_screen.bank_action_button.text = "Beenden ⚡×%d" % stages
+		table_screen.set_bank_label("Beenden ⚡×%d" % stages)
+	# Der Rückblick öffnet nur zwischen zwei Händen - dann liegt nichts, was er
+	# verstellen könnte.
+	table_screen.log_action_button.visible = _log_can_open()
 
 ## Irrlicht: der Kipp-Knopf steht nur, wenn ein kippbarer Würfel liegt und die
 ## Grube überhaupt bedienbar ist (nie während des Zählens). Die Seiten-Reihe
@@ -3817,10 +3885,12 @@ func _all_in_play_dice_selected() -> bool:
 ## zählt die ganze Grube: die Kombi-Würfel leuchten hell, alle übrigen liegenden
 ## schwach (sie werten mit, gehören aber nicht zur Kombination).
 func _update_selection_glows() -> void:
-	var want := phase == Phase.IDLE and has_rolled_current_hand
+	# Im Rückblick leuchten die AUFGEZEICHNETEN Auswahl-Flaggen; der Vollzähler
+	# bleibt draußen, er läse die Charms der Gegenwart.
+	var want := phase == Phase.IDLE and (has_rolled_current_hand or log_open)
 	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
-	var full_counter := want and run != null and run.charm_ids().has(Charm.FULL_COUNTER)
+	var full_counter := want and not log_open and run != null and run.charm_ids().has(Charm.FULL_COUNTER)
 	var combo := {}
 	if full_counter:
 		for s in _pit_combination_slots():
@@ -4646,6 +4716,7 @@ func _on_roll_finished() -> void:
 			_line_up_settled_dice()
 			has_rolled_current_hand = true
 			last_throw_was_reroll = false
+			_log_record_throw()
 			_refresh_deck_trays()
 			_refresh_ui()
 			return
@@ -4663,6 +4734,7 @@ func _on_roll_finished() -> void:
 			_line_up_settled_dice()
 			has_rolled_current_hand = true
 			last_throw_was_reroll = false
+			_log_record_throw()
 			_refresh_deck_trays()
 			_refresh_ui()
 			return
@@ -4684,6 +4756,7 @@ func _on_roll_finished() -> void:
 	_line_up_settled_dice()
 
 	has_rolled_current_hand = true
+	_log_record_throw()
 	_refresh_deck_trays()
 	_refresh_ui()
 
@@ -4703,6 +4776,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
 		last_throw_was_reroll = false
+		_log_record_throw()
 		_refresh_deck_trays()
 		_refresh_ui()
 		return
@@ -4716,6 +4790,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
 		last_throw_was_reroll = false
+		_log_record_throw()
 		_refresh_deck_trays()
 		_refresh_ui()
 		return
@@ -4731,6 +4806,8 @@ func _on_farkle(forgivable: bool = true) -> void:
 	# quittiert den echten Farkle (verziehene oben raus). Charm-Meldungen
 	# (Standuhr/Phönixfeder) dürfen die Leiste weiter nutzen.
 	hand_note = ""
+	# Der Fumble geht in die Chronik, solange die Würfel noch liegen.
+	_log_record_farkle()
 	if table_screen != null:
 		table_screen.pit_fumble()
 		# Beim Fumble fliegen die Würfel zu schnell weg, um sie zu lesen: an ihrer
@@ -4779,6 +4856,8 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if consolation > 0:
 		run.add_money(consolation)
 
+	_log_finish_entry()
+
 	if _round_should_end():
 		_on_round_complete()
 	else:
@@ -4819,6 +4898,7 @@ func _keep_highest_die_and_continue(ids: Array[String]) -> void:
 	last_throw_was_reroll = false
 	hand_note = "Flickenteppich: Der höchste Würfel bleibt liegen – die Hand läuft weiter."
 	_flash_charm_and_pad(ids.find(Charm.PATCHWORK_RUG))
+	_log_record_throw()
 	_refresh_deck_trays()
 	_refresh_ui()
 
@@ -4855,6 +4935,9 @@ func _on_take_button_pressed() -> void:
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
 	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
 	_remap_breakdown_to_slots(breakdown, slots)
+	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
+	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
+	_log_begin_take(breakdown, String(hand["key"]), ids)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
 	await _play_take_animation(breakdown, new_total)
@@ -4995,6 +5078,8 @@ func _on_take_button_pressed() -> void:
 
 	for kind in active_kinds:
 		_discard_kind(kind)
+
+	_log_finish_entry()
 
 	if _round_should_end():
 		_on_round_complete()
@@ -5702,6 +5787,9 @@ func _reset_game() -> void:
 	if route_choice != null:
 		route_choice.close()  # eine offene Wahl gehört zum alten Lauf
 	route_pending = false
+	if log_open:
+		_close_round_log()
+	round_log.clear()
 	_start_new_round()
 
 ## Verdrahtet einen frisch erzeugten Run: Shop/Gravur-Station bekommen ihn
@@ -5907,6 +5995,10 @@ func _start_new_round() -> void:
 	discarded_this_round = []
 	slot_draw_positions = []
 	queue_activated = false  # Nachschub-Tray erst beim ersten Grubenzoom
+	# Der Rückblick reicht genau eine Runde weit.
+	if log_open:
+		_close_round_log()
+	round_log.clear()
 
 	# Liegt eine Auslage bereit, warten die Rundenbeginn-Wirkungen auf die
 	# Unterschrift: sonst stünde die Drossel fest, bevor die Boss-Kondition
@@ -6686,6 +6778,8 @@ func _show_game_over(total: int) -> void:
 	camera_rig.show_title()
 
 func _refresh_ui() -> void:
+	if log_open:
+		return  # der gestellte Tisch gehört der Chronik
 	_refresh_round_hud()
 	_sync_transform_previews()
 
@@ -6726,8 +6820,8 @@ func _refresh_ui() -> void:
 ## Während des Zählens schweigt die Vorschau: dort führt der Wertwandel
 ## zwischen den Aktivierungen die Anzeige (siehe _play_die_pulse).
 func _sync_transform_previews() -> void:
-	if dice == null or run == null or phase == Phase.SCORING:
-		return
+	if dice == null or run == null or phase == Phase.SCORING or log_open:
+		return  # im Rückblick führen die aufgezeichneten laufenden Werte
 	var ids := run.charm_ids()
 	var sets := _effective_essence_sets()
 	var overrides := {}
@@ -6766,5 +6860,399 @@ func _set_displayed_points(value: int) -> void:
 ## Übergibt den Balken den Überladungs-Fortschritt bei points (Stufe, Punkte in
 ## der Stufe, Stufengröße, gefüllte Stufen).
 func _sync_goal_bar(points: int) -> void:
+	if log_open:
+		return  # der Balken zeigt den aufgezeichneten Stand
 	var p := run.stage_progress(points)
 	table_screen.set_goal_progress(p["into_stage"], p["stage_size"], p["stage"], p["cleared"])
+
+#region Rückblick
+
+## Der Anzeige-Block eines Moments: alles, was der Tisch zeigt, als reine Zahlen
+## und Kopien. KEIN GameRun-Abzug - der Erinnerungs-Modus schreibt nie in den
+## Lauf zurück, er malt nur die Anzeigen.
+func _log_display_state() -> Dictionary:
+	var queue_size := mini(_queue_display_capacity(), _remaining_in_pool())
+	var pool_start := next_draw_index + _queue_display_capacity()
+	return {
+		"money": run.money,
+		"charge": run.charge,
+		"charge_cap": run.charge_cap(),
+		"hand_total": hand_total,
+		"round_number": run.round_number,
+		"goal": run.stage_progress(hand_total).duplicate(),
+		"combo_levels": run.combo_levels.duplicate(true),
+		"throttled": run.throttled_combos.duplicate(),
+		"spotlight": run.spotlight_combo,
+		"deal_sides": run.active_deal_sides().duplicate(true),
+		"queue_defs": RoundLog.copy_defs(round_pool_kinds.slice(next_draw_index, next_draw_index + queue_size)),
+		"pool_defs": RoundLog.copy_defs(round_pool_kinds.slice(pool_start, round_pool_kinds.size())),
+		"discard_defs": RoundLog.copy_defs(discarded_this_round),
+	}
+
+## Die liegende Grube als Chronik-Zeilen. Aufgezeichnet wird die SEITE, nicht nur
+## der Wert: Material, Riss und Leiterbahn hängen an ihr, und ein Wert kann auf
+## mehreren Seiten stehen.
+func _log_pit_state() -> Array[Dictionary]:
+	var pit: Array[Dictionary] = []
+	for i in dice.count():
+		pit.append(RoundLog.pit_slot_record(dice.slot_defs[i], dice.face_indices[i],
+			dice.values[i], dice.roots[i].visible, dice.selected[i]))
+	return pit
+
+func _log_entry_base(kind: String, label: String) -> Dictionary:
+	return {
+		"kind": kind,
+		"hand_index": hands_taken_this_round,
+		"label": label,
+		"state": _log_display_state(),
+		"pit": _log_pit_state(),
+		"player_order": player_order.duplicate(),
+	}
+
+## Ein gefallener Wurf. Ein verziehener Fumble (Anker, Löschgas, Schornsteinfeger,
+## Ankerklausel, Flickenteppich) ist auch einer - seine Notiz steht in der Zeile.
+func _log_record_throw() -> void:
+	if run == null:
+		return
+	var entry := _log_entry_base(RoundLog.ENTRY_THROW, "")
+	entry["label"] = "Wurf: %s" % RoundLog.values_label(entry["pit"])
+	if not hand_note.is_empty():
+		entry["label"] += " — %s" % hand_note
+	round_log.add_entry(entry)
+
+## Der Zug, aufgezeichnet VOR jeder Buchung: die Schrittliste kommt aus der
+## fertigen (schon auf echte Slots geremappten) Zerlegung, die Dock-Plätze der
+## Charms reisen mit - der Erinnerungs-Modus fragt den Lauf nie nach ihnen.
+func _log_begin_take(breakdown: Dictionary, key: String, ids: Array[String]) -> void:
+	if run == null:
+		return
+	var entry := _log_entry_base(RoundLog.ENTRY_TAKE,
+		"Zug: %s — %d Punkte" % [DiceScoring.label_for(key), int(breakdown["total"])])
+	entry["breakdown"] = breakdown.duplicate(true)
+	entry["steps"] = RoundLog.flatten(entry["breakdown"], ids)
+	entry["charm_ids"] = ids.duplicate()
+	entry["charm_slots"] = run.charm_slots().duplicate()
+	entry["post_state"] = entry["state"].duplicate(true)
+	round_log.add_entry(entry)
+
+## Der Stand NACH den Buchungen des Zuges - der Ergebnis-Schritt zeigt ihn.
+func _log_finish_entry() -> void:
+	if run == null or round_log.is_empty():
+		return
+	round_log.entries[round_log.entries.size() - 1]["post_state"] = _log_display_state()
+
+func _log_record_farkle() -> void:
+	if run == null:
+		return
+	var entry := _log_entry_base(RoundLog.ENTRY_FARKLE, "")
+	entry["label"] = "Fumble: %s" % RoundLog.values_label(entry["pit"])
+	entry["post_state"] = entry["state"].duplicate(true)
+	round_log.add_entry(entry)
+
+## Der Rückblick steht nur ZWISCHEN zwei Händen offen: die Grube ist leer, es
+## gibt keine liegende Auswahl und keinen halben Zug, der zurückgestellt werden
+## müsste. Eine unterschriftsreife Runde gehört den Vertragskarten.
+func _log_can_open() -> bool:
+	return run != null and phase == Phase.IDLE and not has_rolled_current_hand \
+		and not route_pending and not round_log.is_empty()
+
+func _on_log_button_pressed() -> void:
+	if log_open:
+		_close_round_log()
+	elif _log_can_open():
+		_open_round_log()
+
+## Liste auf dem Grubenboden, Leiste auf dem Marken-Streifen am oberen Rand.
+func _place_log_view() -> void:
+	if log_view == null or table_screen == null or table_screen.pit_window == null:
+		return
+	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
+	var inset := pit.size.x * ROUTE_CHOICE_INSET
+	log_view.set_list_rect(Rect2(pit.position + Vector2(inset, inset),
+		pit.size - Vector2(inset, inset) * 2.0))
+	# Die Schritt-Leiste steht am oberen Grubenrand über die ganze Breite - der
+	# Streifen der Deal-Marken sitzt links der Mitte und wäre viel zu schmal.
+	log_view.set_bar_rect(Rect2(pit.position + Vector2(inset, inset),
+		Vector2(pit.size.x - inset * 2.0, pit.size.y * LOG_BAR_HEIGHT)))
+
+func _log_entry_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for entry in round_log.entries:
+		rows.append({
+			"label": String(entry.get("label", "")),
+			"hand_index": int(entry.get("hand_index", 0)),
+			"kind": String(entry.get("kind", "")),
+		})
+	return rows
+
+func _open_round_log() -> void:
+	if log_open or not _log_can_open():
+		return
+	_log_snapshot_live_pit()
+	log_open = true  # ab hier schweigen die Anzeigen-Schreiber je Frame
+	log_cursor = Vector2i(-1, 0)
+	_log_posed_entry = -1
+	if table_screen != null:
+		table_screen.set_memory_veil(true)
+		table_screen.move_child(log_view, table_screen.get_child_count() - 1)  # über den Schleier
+	_place_log_view()
+	log_view.open(_log_entry_rows())
+
+## Spiegel der lebenden Grube. Die Defs reisen als REFERENZ mit - die Grube muss
+## nach dem Rückblick wieder auf dieselben Instanzen zeigen wie der Pool.
+func _log_snapshot_live_pit() -> void:
+	var slots: Array[Dictionary] = []
+	for i in dice.count():
+		slots.append({
+			"def": dice.slot_defs[i],
+			"transform": dice.bodies[i].global_transform,
+			"freeze": dice.bodies[i].freeze,
+			"visible": dice.roots[i].visible,
+			"selected": dice.selected[i],
+			"value": dice.values[i],
+			"face_index": dice.face_indices[i],
+			"settled": dice.settled[i],
+		})
+	_log_pit_mirror = {
+		"slots": slots,
+		"player_order": player_order.duplicate(),
+		"overrides": dice.value_overrides.duplicate(),
+		"discard_next": discard_tray_view.next_free_index,
+	}
+
+func _on_log_entry_selected(index: int) -> void:
+	if not log_open or index < 0 or index >= round_log.entries.size():
+		return
+	log_cursor = Vector2i(index, 0)
+	log_view.set_compact(true)
+	_log_render_cursor()
+
+## Ein Schritt vor oder zurück - auch über Eintragsgrenzen hinweg.
+func _log_step(delta: int) -> void:
+	if not log_open or log_cursor.x < 0:
+		return
+	var next := round_log.advance(log_cursor, delta)
+	if next == log_cursor:
+		return
+	log_cursor = next
+	_log_render_cursor()
+
+## Malt den Stand des Cursors. Idempotent: jeder Schritt trägt seine
+## After-Stände selbst, es wird nie inkrementell animiert - nur so kann der
+## Cursor auch rückwärts springen.
+func _log_render_cursor() -> void:
+	var entry := round_log.entry_at(log_cursor.x)
+	if entry.is_empty():
+		return
+	var steps: Array = entry.get("steps", [])
+	var step: Dictionary = steps[log_cursor.y - 1] if log_cursor.y > 0 and log_cursor.y <= steps.size() else {}
+	var kind := String(step.get("kind", RoundLog.STEP_POSE))
+	var is_result := kind == RoundLog.STEP_RESULT
+	_log_apply_display(entry["post_state"] if is_result and entry.has("post_state") else entry["state"])
+
+	var entry_changed := _log_posed_entry != log_cursor.x
+	if entry_changed:
+		_log_pose_pit(entry)
+		_log_posed_entry = log_cursor.x
+
+	if step.is_empty():
+		table_screen.update_pit_score(0, 0)
+		table_screen.clear_pit_die()
+		log_view.set_cursor(log_cursor.x, log_cursor.y, round_log.step_count(log_cursor.x),
+			String(entry.get("label", "")))
+		return
+
+	_log_apply_overrides(step.get("overrides", {}))
+	if int(step.get("total_after", RoundLog.NO_TOTAL)) != RoundLog.NO_TOTAL:
+		table_screen.update_pit_total(int(step["total_after"]), false)
+	else:
+		table_screen.update_pit_score(int(step.get("base_after", 0)), float(step.get("mult_after", 1.0)))
+	_log_play_step_effects(entry, step, kind)
+	log_view.set_cursor(log_cursor.x, log_cursor.y, round_log.step_count(log_cursor.x),
+		String(step.get("label", "")))
+
+## Die einmaligen Effekte eines Schritts: der Würfel blitzt, ein Krit wirft seine
+## Zahl, das Glied zeigt sein Netz, die Charm-Pads schlagen an. Die Dock-Plätze
+## kommen aus dem EINTRAG - der Rückblick fragt den Lauf nie nach ihnen.
+func _log_play_step_effects(entry: Dictionary, step: Dictionary, kind: String) -> void:
+	var slot := int(step.get("flash_slot", -1))
+	if slot >= 0:
+		_flash_scoring_die(slot)
+	var net: Dictionary = step.get("net", {})
+	if not net.is_empty():
+		var pit: Array = entry.get("pit", [])
+		var net_slot := int(net.get("slot", -1))
+		if net_slot >= 0 and net_slot < pit.size():
+			_show_pit_net(pit[net_slot]["def"], int(net.get("face", 0)))
+	else:
+		table_screen.clear_pit_die()
+	var slots: Array = entry.get("charm_slots", [])
+	for index: int in step.get("charm_indices", []):
+		if index >= 0 and index < slots.size():
+			_log_flash_charm(int(slots[index]))
+	if kind == RoundLog.STEP_CRIT and slot >= 0 and slot < dice.count():
+		table_screen.spawn_gain_number(
+			table_screen.world_to_pixel(dice.bodies[slot].global_position),
+			ScoreBreakdown.format_mult(float(step.get("crit_x", 1.0))), TableScreen.CRIT_COLOR, 1.2)
+
+## Charm-Pad und Blende blitzen an einem AUFGEZEICHNETEN Dock-Platz.
+func _log_flash_charm(slot: int) -> void:
+	if slot < 0:
+		return
+	if charm_row != null:
+		charm_row.flash_charm(slot)
+	if table_screen != null and table_screen.charm_dock != null:
+		table_screen.charm_dock.flash_pad(slot)
+
+## Die laufenden Werte auf den Würfeln: ungetönt wie in der Zeremonie, denn die
+## Änderung war dauerhaft. Trifft der Wert die Seite der Def, verschwindet sie.
+func _log_apply_overrides(values: Dictionary) -> void:
+	var overrides: Dictionary = {}
+	for slot: int in values:
+		if slot < 0 or slot >= dice.count() or slot >= dice.face_indices.size():
+			continue
+		var face := dice.face_indices[slot]
+		if face < 0 or face >= dice.slot_defs[slot].faces.size():
+			continue
+		if int(values[slot]) != dice.slot_defs[slot].faces[face]:
+			overrides[slot] = int(values[slot])
+	dice.set_value_overrides(overrides, false)
+
+## Der ganze Tisch auf den Stand eines Moments - reine Anzeige, kein Signal.
+func _log_apply_display(state: Dictionary) -> void:
+	if state.is_empty():
+		return
+	if chip_stack != null:
+		chip_stack.clear_mints()
+		chip_stack.seed_wallet(int(state.get("money", 0)))
+	if capacitor_bank != null:
+		capacitor_bank.set_charge(int(state.get("charge", 0)), int(state.get("charge_cap", 0)))
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_run_info(int(state.get("round_number", 1)), int(state.get("money", 0)), _round_note())
+		table_screen.hub.set_charge_display(int(state.get("charge", 0)), int(state.get("charge_cap", 0)))
+		var sides: Array[Dictionary] = []
+		sides.assign(state.get("deal_sides", []))
+		table_screen.hub.set_deal_tokens(sides)
+	var goal: Dictionary = state.get("goal", {})
+	if table_screen != null and not goal.is_empty():
+		table_screen.set_goal_progress(int(goal["into_stage"]), int(goal["stage_size"]),
+			int(goal["stage"]), int(goal["cleared"]))
+	var levels: Dictionary = state.get("combo_levels", {})
+	for key: String in combo_labels:
+		var row: ComboCellView = combo_labels[key]
+		row.set_score(DiceScoring.points_for(key, levels), DiceScoring.mult_for(key, levels))
+		row.set_level(int(levels.get(key, 0)))
+		_sync_combo_chip(key)
+	var throttled: Array[String] = []
+	throttled.assign(state.get("throttled", []))
+	_set_throttled_combos(throttled)
+	_set_spotlight_combo(String(state.get("spotlight", "")))
+	_log_fill_trays(state)
+
+func _log_fill_trays(state: Dictionary) -> void:
+	var queue_defs: Array[DieDefinition] = []
+	queue_defs.assign(state.get("queue_defs", []))
+	var pool_defs: Array[DieDefinition] = []
+	pool_defs.assign(state.get("pool_defs", []))
+	var discard_defs: Array[DieDefinition] = []
+	discard_defs.assign(state.get("discard_defs", []))
+	queue_tray_view.ensure_capacity(_queue_capacity())
+	queue_tray_view.fill(queue_defs)
+	pool_tray_view.fill(pool_defs)
+	discard_tray_view.fill(discard_defs)
+
+## Stellt die Grube eines Eintrags: aufgezeichnete Defs in die Slots, jede Seite
+## nach oben gekippt, dann die Reihe wie nach dem Aufreihen - hart gesetzt, denn
+## ein Sprung zurück darf nicht erst hinterhertweenen.
+func _log_pose_pit(entry: Dictionary) -> void:
+	_cancel_lineup()
+	var pit: Array = entry.get("pit", [])
+	var defs: Array[DieDefinition] = []
+	for slot: Dictionary in pit:
+		defs.append(slot["def"])
+	dice.set_slot_defs(defs)
+	dice.clear_value_overrides()
+	var order: Array = entry.get("player_order", [])
+	var row: Array[int] = []
+	for index: int in order:
+		if index >= 0 and index < pit.size() and bool(pit[index].get("visible", false)):
+			row.append(index)
+	for i in pit.size():
+		if bool(pit[i].get("visible", false)) and not row.has(i):
+			row.append(i)
+	for i in dice.count():
+		var shown := i < pit.size() and bool(pit[i].get("visible", false))
+		dice.roots[i].visible = shown
+		dice.set_selected(i, shown and bool(pit[i].get("selected", false)))
+		if not shown:
+			continue
+		dice.bodies[i].freeze = true
+		dice.tip_to_face(i, int(pit[i].get("face_index", 0)))
+	var rest_y := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
+	var span := PIT_TOP_ROW_SPACING * float(maxi(row.size() - 1, 0))
+	for k in row.size():
+		var body := dice.bodies[row[k]]
+		body.global_transform = Transform3D(_readable_upright_basis(body.global_basis),
+			Vector3(DicePit.PIT_CENTER.x + PIT_CENTER_ROW_X, rest_y,
+				DicePit.PIT_CENTER.z - span * 0.5 + PIT_TOP_ROW_SPACING * float(k)))
+	player_order = row.duplicate()
+
+## Zurück in die Gegenwart: erst schweigt der Erinnerungs-Modus, dann bekommt der
+## Tisch seine echten Anzeigen zurück - die Grube wieder mit den POOL-Instanzen,
+## nicht mit den Kopien der Chronik.
+func _close_round_log() -> void:
+	if not log_open:
+		return
+	log_open = false
+	if log_view != null:
+		log_view.close()
+	if table_screen != null:
+		table_screen.set_memory_veil(false)
+		table_screen.clear_pit_die()
+	dice.clear_value_overrides()
+	_log_restore_pit()
+	_log_posed_entry = -1
+	log_cursor = Vector2i(-1, 0)
+	_log_pit_mirror = {}
+	if run == null:
+		return
+	if chip_stack != null:
+		chip_stack.clear_mints()
+		chip_stack.seed_wallet(run.money)
+	_refresh_hub_info()
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
+	_sync_capacitor()
+	for key: String in combo_labels:
+		_refresh_combo_display(key)
+	_set_throttled_combos(run.throttled_combos)
+	_set_spotlight_combo(run.spotlight_combo)
+	_refresh_deck_trays()
+	discard_tray_view.clear()
+	discard_tray_view.fill(discarded_this_round)
+	discard_tray_view.next_free_index = discarded_this_round.size()
+	if table_screen != null:
+		table_screen.reset_pit_score()
+	_refresh_ui()
+
+func _log_restore_pit() -> void:
+	var slots: Array = _log_pit_mirror.get("slots", [])
+	if slots.is_empty():
+		return
+	var defs: Array[DieDefinition] = []
+	for slot: Dictionary in slots:
+		defs.append(slot["def"])  # die LEBENDEN Instanzen, nie die Kopien
+	dice.set_slot_defs(defs)
+	for i in mini(dice.count(), slots.size()):
+		var slot: Dictionary = slots[i]
+		dice.roots[i].visible = bool(slot["visible"])
+		dice.set_selected(i, bool(slot["selected"]))
+		dice.values[i] = int(slot["value"])
+		dice.face_indices[i] = int(slot["face_index"])
+		dice.settled[i] = bool(slot["settled"])
+		dice.bodies[i].global_transform = slot["transform"]
+		dice.bodies[i].freeze = bool(slot["freeze"])
+	player_order.assign(_log_pit_mirror.get("player_order", []))
+	dice.refresh_faces()
+
+#endregion

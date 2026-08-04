@@ -75,6 +75,9 @@ const DRAIN_SPARKS := 5
 ## Krit-Einschlag auf dem Mult-Orb (siehe crit_pit_mult): Hit-Stop (Anspannung),
 ## Slam mit Doppel-Stoßwelle, abklingendes Beben. Heißes Magenta als EIGENE
 ## Farbe - Krits sollen sofort als eigene Klasse lesbar sein.
+## Der Rückblick tönt den Tisch, statt ihn zu verstellen - dunkles Violettblau,
+## gerade so viel, dass die Gegenwart erkennbar abwesend ist.
+const MEMORY_VEIL_COLOR := Color(0.05, 0.04, 0.14, 0.16)
 const CRIT_COLOR := Color(2.2, 0.45, 1.15, 0.95)
 const CRIT_HITSTOP := 0.12
 const CRIT_ECHO_DELAY := 0.08
@@ -85,6 +88,8 @@ const CRIT_SHAKE_PX := 5.0 * SUPERSAMPLE
 const PIT_ACTION_SIZE := Vector2(66, 24) * SUPERSAMPLE
 const PIT_ACTION_GAP := 10.0 * SUPERSAMPLE
 const PIT_ACTION_FONT := 12 * SUPERSAMPLE
+## Abstand der wandnahen Knöpfe (Beenden, Rückblick) zur Grubenwand.
+const PIT_WALL_MARGIN := 5.0 * SUPERSAMPLE
 
 ## Licht-Trails: LEITERBAHNEN (rein achsenparallel, siehe ScoreTraceView) -
 ## Cyan in die Basis, Gold in Mult/Gesamtzahl.
@@ -239,6 +244,11 @@ var tip_face_buttons: Array[Button] = []
 var take_action_button: Button
 var roll_action_button: Button
 var bank_action_button: Button  # Runde bei ≥1 Überladungs-Stufe vorzeitig beenden
+var log_action_button: Button  # Rückblick: die Chronik der laufenden Runde
+## Zeile, in der "Beenden" neben "Nehmen" sitzt (aus place_pit_actions).
+var _bank_row_y := 0.0
+## Schleier des Erinnerungs-Modus - ein Rechteck über den Fenstern, sonst nichts.
+var memory_veil: ColorRect
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
@@ -2536,9 +2546,17 @@ func _build_pit_actions() -> void:
 	# Bank-Knopf: über Würfeln im rechten Flügel, erscheint erst ab Stufe 1;
 	# kleinere Schrift, damit "Beenden ⚡×N" in die Knopfbreite passt.
 	bank_action_button = _make_pit_button("Beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
-	bank_action_button.add_theme_font_size_override("font_size", 9 * SUPERSAMPLE)
+	# Kleinere Schrift als die Nachbarn: links von "Nehmen" steht nur die Lücke
+	# zur Grubenwand zur Verfügung, und "Beenden ⚡×N" muss ganz hineinpassen.
+	bank_action_button.add_theme_font_size_override("font_size", 7 * SUPERSAMPLE)
 	bank_action_button.visible = false
 	pit_actions_root.add_child(bank_action_button)
+
+	# Rückblick: über dem Bank-Knopf im rechten Flügel, nur zwischen zwei Händen.
+	log_action_button = _make_pit_button("Rückblick", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK)
+	log_action_button.add_theme_font_size_override("font_size", 9 * SUPERSAMPLE)
+	log_action_button.visible = false
+	pit_actions_root.add_child(log_action_button)
 
 	# Irrlicht: der Kipp-Knopf klappt eine Reihe mit den vier Nachbarseiten auf.
 	# Beides ist Gruben-Mobiliar und geht mit dem Rest, wenn die Kamera abreist.
@@ -2593,14 +2611,16 @@ func _pit_button_box(fill: Color, border: Color) -> StyleBoxFlat:
 
 ## Passt die Aktions-Knöpfe an das Würfelnetz-Feld an: Nehmen links daneben,
 ## Würfeln rechts daneben - beide in fester Knopfhöhe, bündig mit der
-## Feld-Unterkante -, der Bank-Knopf über Würfeln (unter dem Feld ist bis
-## zur Grubenwand kein Platz mehr).
+## Feld-Unterkante -, "Beenden" links neben "Nehmen" in derselben Reihe und der
+## Rückblick oben rechts in der Grubenecke.
 func place_pit_actions(bar_rect: Rect2) -> void:
 	if pit_actions_root == null:
 		return
-	for button: Button in [take_action_button, roll_action_button, bank_action_button]:
+	for button: Button in [take_action_button, roll_action_button, log_action_button]:
 		button.custom_minimum_size = PIT_ACTION_SIZE
 		button.size = PIT_ACTION_SIZE
+	# "Beenden" darf schmaler bleiben als die anderen (siehe _anchor_bank_button).
+	bank_action_button.custom_minimum_size = Vector2(0.0, PIT_ACTION_SIZE.y)
 	pit_actions_root.position = bar_rect.position - Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.size = Vector2(
 		bar_rect.size.x + 2.0 * (PIT_ACTION_SIZE.x + PIT_ACTION_GAP),
@@ -2612,9 +2632,43 @@ func place_pit_actions(bar_rect: Rect2) -> void:
 	tip_action_button.position = Vector2(0.0, side_y - PIT_ACTION_SIZE.y - PIT_ACTION_GAP)
 	tip_face_row.position = Vector2(0.0, tip_action_button.position.y - PIT_ACTION_SIZE.y - PIT_ACTION_GAP)
 	roll_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x, side_y)
+	_place_pit_wing_buttons(side_y)
+
+## "Beenden" und der Rückblick hängen an der GRUBENWAND, nicht am Netzfeld: der
+## Bank-Knopf füllt die Lücke zwischen Wand und "Nehmen" (seine Breite ist damit
+## gerechnet, nicht geraten - links bleiben nur ~1,1 Knopfbreiten), der Rückblick
+## steht in der oberen rechten Ecke. Ohne Grubenfenster (2D-Rückfall) bleibt es
+## beim alten rechten Flügel.
+func _place_pit_wing_buttons(side_y: float) -> void:
+	if pit_window == null:
+		bank_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x,
+			side_y - PIT_ACTION_GAP - PIT_ACTION_SIZE.y)
+		log_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x,
+			side_y - 2.0 * (PIT_ACTION_GAP + PIT_ACTION_SIZE.y))
+		return
+	_bank_row_y = side_y
+	_anchor_bank_button()
+	var right := pit_window.position.x + pit_window.size.x - pit_actions_root.position.x
+	log_action_button.position = Vector2(right - PIT_WALL_MARGIN - PIT_ACTION_SIZE.x,
+		pit_window.position.y - pit_actions_root.position.y + PIT_WALL_MARGIN)
+
+## "Beenden ⚡×N" wächst mit seiner Zahl, darum hängt es mit der RECHTEN Kante an
+## "Nehmen" - so läuft es nie in den Nachbarn, sondern höchstens zur Wand hin.
+func set_bank_label(text: String) -> void:
+	if bank_action_button == null or bank_action_button.text == text:
+		return
+	bank_action_button.text = text
+	_anchor_bank_button()
+
+## Es wird NICHT an der Wand geklemmt: lieber ragt der Knopf im Extremfall in den
+## Grubenrand, als dass er "Nehmen" überdeckt - in der echten Grube reicht der
+## Platz auch für die zweistellige Stufenzahl.
+func _anchor_bank_button() -> void:
+	if pit_actions_root == null or pit_window == null:
+		return
+	bank_action_button.reset_size()
 	bank_action_button.position = Vector2(
-		pit_actions_root.size.x - PIT_ACTION_SIZE.x,
-		side_y - PIT_ACTION_GAP - PIT_ACTION_SIZE.y)
+		take_action_button.position.x - PIT_ACTION_GAP - bank_action_button.size.x, _bank_row_y)
 
 ## Trifft pixel einen sichtbaren Aktions-Knopf? Die Wurzel spannt die ganze
 ## Grubenbreite - für die Maus-Weiterleitung zählen nur die Knöpfe selbst,
@@ -2622,10 +2676,27 @@ func place_pit_actions(bar_rect: Rect2) -> void:
 func pit_actions_hit(pixel: Vector2) -> bool:
 	if pit_actions_root == null or not pit_actions_root.visible:
 		return false
-	for button in [take_action_button, roll_action_button, bank_action_button]:
+	for button in [take_action_button, roll_action_button, bank_action_button, log_action_button]:
 		if button.visible and Rect2(pit_actions_root.position + button.position, button.size).has_point(pixel):
 			return true
 	return false
+
+## Schleier des Erinnerungs-Modus: ein dunkles Rechteck über den Fenstern, unter
+## dem Rückblick selbst. Kein Licht, kein Shader - der Boden hat ein Lichtbudget,
+## und der Schleier muss beim Schließen restlos verschwinden.
+func set_memory_veil(active: bool) -> void:
+	if memory_veil == null:
+		if not active:
+			return
+		memory_veil = ColorRect.new()
+		memory_veil.name = "MemoryVeil"
+		memory_veil.color = MEMORY_VEIL_COLOR
+		memory_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		memory_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(memory_veil)
+	memory_veil.visible = active
+	if active:
+		move_child(memory_veil, get_child_count() - 1)
 
 ## Spannt das kompakte Würfelnetz-Feld über rect auf (mit Abstand zur
 ## Grubenwand): das Netz sitzt mittig, Zellgröße füllt das Feld.
@@ -2681,6 +2752,10 @@ func _layout_pit_deal_rail() -> void:
 	pit_deal_rail.reset_size()
 	pit_deal_rail.position = _pit_deal_rect.position \
 		+ (_pit_deal_rect.size - pit_deal_rail.size) * 0.5
+
+## Der Streifen der Grubenmarken - der Rückblick stellt seine Leiste dorthin.
+func pit_deal_rect() -> Rect2:
+	return _pit_deal_rect
 
 ## Abrechnung: die Grubenmarken wischen mit denen am Hub (gleiche Dauer).
 func sweep_pit_deal_tokens() -> float:

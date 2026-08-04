@@ -110,9 +110,10 @@ func test_pit_info_bar_fuellt_und_leert_das_wuerfelnetz():
 
 func test_pit_actions_flankieren_das_wuerfelnetz():
 	# Nehmen dockt links ans Netz-Feld, Würfeln rechts (feste Knopfhöhe, bündig
-	# mit der Feld-Unterkante), der Bank-Knopf über Würfeln; die
+	# mit der Feld-Unterkante), "Beenden" links neben "Nehmen"; die
 	# Maus-Weiterleitung (pit_actions_hit) trifft NUR die sichtbaren Knöpfe.
 	var bar := Rect2(Vector2(600, 700), Vector2(400, 300))
+	screen.place_pit_window(Rect2(Vector2(200, 400), Vector2(1200, 700)), 40.0)
 	screen.place_pit_actions(bar)
 	var gap := TableScreen.PIT_ACTION_GAP
 	var size := TableScreen.PIT_ACTION_SIZE
@@ -124,15 +125,27 @@ func test_pit_actions_flankieren_das_wuerfelnetz():
 	var roll_pos := screen.pit_actions_root.position + screen.roll_action_button.position
 	assert_eq(roll_pos, Vector2(1000 + gap, 1000 - size.y), "Würfeln an der rechten unteren Feldecke")
 	var roll_rect := Rect2(roll_pos, screen.roll_action_button.size)
+	# "Beenden" hängt mit der RECHTEN Kante an "Nehmen" - es wächst mit seiner
+	# Zahl nach links zur Grubenwand, nie in den Nachbarn hinein.
 	var bank_pos := screen.pit_actions_root.position + screen.bank_action_button.position
-	assert_eq(bank_pos, roll_pos - Vector2(0.0, gap + size.y), "Bank über Würfeln")
 	var bank_rect := Rect2(bank_pos, screen.bank_action_button.size)
+	assert_eq(bank_pos.y, take_pos.y, "Beenden steht in der Reihe von Nehmen")
+	assert_eq(bank_rect.end.x, take_pos.x - gap, "Beenden dockt links an Nehmen")
+	screen.set_bank_label("Beenden ⚡×12")
+	var grown := Rect2(screen.pit_actions_root.position + screen.bank_action_button.position,
+		screen.bank_action_button.size)
+	assert_gt(grown.size.x, bank_rect.size.x, "der längere Text macht den Knopf breiter")
+	assert_eq(grown.end.x, take_pos.x - gap, "und er wächst nach links, nicht über Nehmen")
+	# Der Rückblick steht in der oberen rechten Grubenecke.
+	var log_pos := screen.pit_actions_root.position + screen.log_action_button.position
+	var margin := TableScreen.PIT_WALL_MARGIN
+	assert_eq(log_pos, Vector2(200 + 1200 - margin - size.x, 400 + margin), "Rückblick oben rechts")
 	assert_true(screen.pit_actions_hit(take_rect.get_center()))
 	assert_true(screen.pit_actions_hit(roll_rect.get_center()))
 	assert_false(screen.pit_actions_hit(bar.get_center()), "Feld-Mitte gehört dem Netz, nicht den Knöpfen")
-	assert_false(screen.pit_actions_hit(bank_rect.get_center()), "Bank unsichtbar -> kein Treffer")
+	assert_false(screen.pit_actions_hit(grown.get_center()), "Bank unsichtbar -> kein Treffer")
 	screen.bank_action_button.visible = true
-	assert_true(screen.pit_actions_hit(bank_rect.get_center()))
+	assert_true(screen.pit_actions_hit(grown.get_center()))
 
 func test_pit_waves_ride_inside_the_pit_window():
 	# Der Rundenpuls lebt als Overlay IM Gruben-Fenster, leicht eingerückt
