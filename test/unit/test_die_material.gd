@@ -67,39 +67,33 @@ func test_short_hints_stay_short():
 		assert_lt(DieMaterial.face_hint(material.id).length(), 40,
 			"Seiten-Kurzhinweis zu lang bei %s" % material.id)
 
-func test_every_material_has_three_levels():
-	# Die Sättigung hebt jedes Material - nur Seiten, Kanten kennen keine Stufe.
+func test_every_material_has_a_doped_state():
+	# Die Dotierung verwandelt jedes Material - und nie in dieselbe Wirkung.
 	for material in DieMaterial.all():
-		for level in [2, 3]:
-			assert_ne(material.short_for(level), "", "Stufe %d ohne Kurzwirkung bei %s" % [level, material.id])
-			assert_ne(material.description_for(level), "", "Stufe %d ohne Beschreibung bei %s" % [level, material.id])
-		assert_ne(material.short_for(2), material.short, "Stufe II wirkt anders bei %s" % material.id)
-		assert_ne(material.short_for(3), material.short_for(2), "Stufe III wirkt anders bei %s" % material.id)
+		assert_ne(material.short_doped, "", "dotiert ohne Kurzwirkung bei %s" % material.id)
+		assert_ne(material.description_doped, "", "dotiert ohne Beschreibung bei %s" % material.id)
+		assert_ne(material.short_doped, material.short, "dotiert wirkt anders bei %s" % material.id)
 
-func test_short_for_falls_back_to_the_first_level():
+func test_short_for_falls_back_to_the_plain_state():
 	var ruby := DieMaterial.ruby()
 	assert_eq(ruby.short_for(1), ruby.short)
 	assert_eq(ruby.description_for(1), ruby.description)
-	assert_eq(ruby.short_for(0), ruby.short, "auch ohne gesetzte Stufe gilt I")
+	assert_eq(ruby.short_for(0), ruby.short, "auch ohne gesetzten Zustand gilt normal")
+	assert_eq(ruby.short_for(DieMaterial.MAX_LEVEL), ruby.short_doped)
+	assert_eq(ruby.description_for(DieMaterial.MAX_LEVEL), ruby.description_doped)
 
-func test_level_roman_names_only_the_raised_levels():
-	assert_eq(DieMaterial.level_roman(1), "", "Stufe I nennt sich nicht - sie ist der Normalfall")
-	assert_eq(DieMaterial.level_roman(2), "II")
-	assert_eq(DieMaterial.level_roman(3), "III")
-
-func test_face_hint_marks_the_raised_level():
+func test_face_hint_marks_the_doped_state():
 	var ruby := DieMaterial.ruby()
-	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 2), "%s II: %s" % [ruby.display_name, ruby.short_for(2)])
-	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 3), "%s III: %s" % [ruby.display_name, ruby.short_for(3)])
+	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"%s (dotiert): %s" % [ruby.display_name, ruby.short_doped])
 	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 1), "%s: %s" % [ruby.display_name, ruby.short],
-		"Stufe I bleibt die schlichte Namenszeile")
-	assert_eq(DieMaterial.face_hint("", 3), "", "ohne Material auch gehoben nichts")
+		"normal bleibt die schlichte Namenszeile")
+	assert_eq(DieMaterial.face_hint("", DieMaterial.MAX_LEVEL), "", "ohne Material auch dotiert nichts")
 
-func test_raised_short_hints_stay_short():
+func test_doped_short_hints_stay_short():
 	for material in DieMaterial.all():
-		for level in [2, 3]:
-			assert_lt(DieMaterial.face_hint(material.id, level).length(), 44,
-				"Stufen-Kurzhinweis zu lang bei %s (Stufe %d)" % [material.id, level])
+		assert_lt(DieMaterial.face_hint(material.id, DieMaterial.MAX_LEVEL).length(), 44,
+			"Dotier-Kurzhinweis zu lang bei %s" % material.id)
 
 func test_hints_are_empty_without_a_material():
 	assert_eq(DieMaterial.face_hint(""), "", "keine Seite ohne Material erklärt sich")

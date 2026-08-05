@@ -532,71 +532,71 @@ func test_the_flow_runs_on_shader_time_with_a_per_die_phase():
 		float(second.pointer_material.get_shader_parameter("phase")),
 		"zwei Würfel fließen versetzt")
 
-# --- Sättigung: die Stufe färbt, sie leuchtet nicht --------------------------------
+# --- Dotierung: sie färbt, sie leuchtet nicht --------------------------------------
 
 func _leveled(face_index: int, material_id: String, level: int) -> DieDefinition:
 	var def := DieDefinition.standard()
 	def.set_face_material(face_index, material_id)
-	for _step in range(1, level):
-		def.raise_level(face_index)
+	if level >= DieMaterial.MAX_LEVEL:
+		def.dope(face_index)
 	return def
 
-func test_level_three_saturates_the_face_albedo():
+func test_doping_saturates_the_face_albedo():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	var base: Color = _face_material(display, 0).albedo_color
-	display.apply_definition(_leveled(0, DieMaterial.RUBY, 3))
+	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
 	var rich: Color = _face_material(display, 0).albedo_color
-	assert_ne(rich, base, "Stufe III sieht anders aus als Stufe I")
+	assert_ne(rich, base, "dotiert sieht anders aus als normal")
 	var profile := DieMaterial.by_id(DieMaterial.RUBY)
-	var expected := DieMaterial.saturated(profile.surface_color, 3) * display.body_tint
+	var expected := DieMaterial.saturated(profile.surface_color, DieMaterial.MAX_LEVEL) * display.body_tint
 	assert_almost_eq(rich.r, expected.r, 0.001)
 	assert_almost_eq(rich.g, expected.g, 0.001)
 	assert_almost_eq(rich.b, expected.b, 0.001)
 	assert_gt(rich.s, base.s, "und zwar SATTER, nicht nur anders")
 
-func test_level_one_leaves_the_face_exactly_where_it_was():
-	# Stufe I ist der Normalfall und kündigt sich nie an.
+func test_the_plain_state_leaves_the_face_exactly_where_it_was():
+	# Normal ist der Regelfall und kündigt sich nie an.
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	var expected := DieMaterial.by_id(DieMaterial.RUBY).surface_color * display.body_tint
 	assert_eq(_face_material(display, 0).albedo_color, expected)
 
-func test_the_level_steps_the_frame_glow_too():
+func test_doping_steps_the_frame_glow_too():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	var base: Color = display.frames[_axis_for(0)].material_override.emission
-	display.apply_definition(_leveled(0, DieMaterial.RUBY, 3))
+	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
 	var rich: Color = display.frames[_axis_for(0)].material_override.emission
 	assert_gt(rich.s, base.s, "der Leuchtrahmen zieht mit")
 
-func test_no_level_lifts_a_face_over_the_bloom_threshold():
-	# Das Signal der Stufe ist Farbreinheit, nie Helligkeit - dieselbe Regel wie
-	# bei die Runenn, sonst wird jede Stufe-III-Seite zur Lampe.
+func test_doping_never_lifts_a_face_over_the_bloom_threshold():
+	# Das Signal der Dotierung ist Farbreinheit, nie Helligkeit - dieselbe Regel
+	# wie bei den Runen, sonst wird jede dotierte Seite zur Lampe.
 	var display := _display()
 	for material in DieMaterial.all():
-		for level in [1, 2, 3]:
+		for level in [1, DieMaterial.MAX_LEVEL]:
 			display.apply_definition(_leveled(0, material.id, level))
 			var lit: Color = _face_material(display, 0).emission
 			var frame: Color = display.frames[_axis_for(0)].material_override.emission
 			var grew := _peak(lit) - _peak(DieFaceDisplay.intense(material.tint) * material.glow)
 			assert_lt(grew, 0.10,
-				"%s Stufe %d leuchtet höchstens einen Hauch heller" % [material.id, level])
+				"%s Zustand %d leuchtet höchstens einen Hauch heller" % [material.id, level])
 			assert_true(_peak(frame) < BLOOM_THRESHOLD or material.glow > 0.0,
 				"%s: ohne Glühen bleibt auch der Rahmen dunkel" % material.id)
 
-func test_bone_stays_dead_matte_at_level_three():
+func test_bone_stays_dead_matte_when_doped():
 	var display := _display()
-	display.apply_definition(_leveled(0, DieMaterial.BONE, 3))
-	assert_eq(_peak(_face_material(display, 0).emission), 0.0, "Knochen glüht auf keiner Stufe")
+	display.apply_definition(_leveled(0, DieMaterial.BONE, DieMaterial.MAX_LEVEL))
+	assert_eq(_peak(_face_material(display, 0).emission), 0.0, "Knochen glüht nie")
 	assert_eq(_peak(display.frames[_axis_for(0)].material_override.emission), 0.0,
 		"und sein Rahmen auch nicht")
 	assert_gt(_face_material(display, 0).albedo_color.s,
 		DieMaterial.by_id(DieMaterial.BONE).surface_color.s,
-		"seine Stufe reitet allein auf der Albedo")
+		"seine Dotierung reitet allein auf der Albedo")
 
-func test_the_level_reaches_the_pool_through_face_base():
+func test_doping_reaches_the_pool_through_face_base():
 	var display := _display()
-	display.apply_definition(_leveled(0, DieMaterial.RUBY, 3))
-	assert_eq(display.face_base[_axis_for(0)], DieMaterial.tint_for(DieMaterial.RUBY, 3),
+	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
+	assert_eq(display.face_base[_axis_for(0)], DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
 		"Lache, Hülle und Neon-Mischung erben die Sättigung von hier")

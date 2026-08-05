@@ -218,7 +218,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var crit_steps: Array[Dictionary] = []
 				var crit_once := 1.0
 				var firedamp_add := 0
-				# Härteofen: auf Stufe III schlägt der Material-Krit zweimal - zwei
+				# Härteofen: dotiert schlägt der Material-Krit zweimal - zwei
 				# eigene Schritte wie zwei Beherit-Kopien, nie einer im Quadrat.
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if is_equal_approx(mat_crit_now, 1.0):

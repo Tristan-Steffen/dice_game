@@ -150,17 +150,13 @@ func test_stufe_eins_bleibt_unmarkiert() -> void:
 	add_child_autofree(net)
 	assert_eq(_badges(net).size(), 0)
 
-func test_die_plakette_zaehlt_ihre_balken() -> void:
+func test_jede_dotierte_seite_bekommt_ihre_plakette() -> void:
 	var def := _def_with_materials()
-	def.levels[0] = 2
-	def.levels[4] = 3
+	def.levels[0] = DieMaterial.MAX_LEVEL
+	def.levels[4] = DieMaterial.MAX_LEVEL
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	var levels := []
-	for badge in _badges(net):
-		levels.append(badge.level)
-	levels.sort()
-	assert_eq(levels, [2, 3], "die Plakette kennt ihre Stufe")
+	assert_eq(_badges(net).size(), 2, "eine Marke je dotierter Seite, mehr Zustände gibt es nicht")
 
 func test_die_plakette_sitzt_in_der_freien_zellecke() -> void:
 	# Untere RECHTE Ecke der Quell-Zelle: dort liegt kein Zeiger-Pfeil (die sitzen
@@ -259,26 +255,23 @@ func _cell_for(net: Control, value: String) -> Label:
 			return cell
 	return null
 
-func test_die_zellfuellung_folgt_der_materialstufe() -> void:
+func test_die_zellfuellung_folgt_der_dotierung() -> void:
 	var def := _def_with_materials()
-	def.raise_level(0)  # Bernstein auf Stufe II
+	def.dope(0)  # Bernstein dotiert
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
 	var box: StyleBoxFlat = _cell_for(net, "1").get_theme_stylebox("normal")
-	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER, 2),
-		"gehobene Seite: die Zelle wird satter")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL),
+		"dotierte Seite: die Zelle wird satter")
 	var plain: StyleBoxFlat = _cell_for(net, "3").get_theme_stylebox("normal")
 	assert_eq(plain.bg_color, DieMaterial.tint_for(DieMaterial.AMBER),
-		"dasselbe Material auf Stufe I bleibt exakt wie vorher")
+		"dasselbe Material undotiert bleibt exakt wie vorher")
 	assert_gt(box.bg_color.s, plain.bg_color.s, "und zwar SATTER, nicht nur anders")
 
-func test_die_stufen_plakette_traegt_dieselbe_saettigung() -> void:
+func test_die_dotier_plakette_traegt_dieselbe_saettigung() -> void:
 	var def := _def_with_materials()
-	def.raise_level(0)
-	def.raise_level(0)  # Stufe III
+	def.dope(0)
 	var badges := DieNetView.level_badges(def, 40.0)
-	assert_eq(badges.size(), 1, "nur die gehobene Seite bekommt eine Plakette")
+	assert_eq(badges.size(), 1, "nur die dotierte Seite bekommt eine Plakette")
 	assert_eq((badges[0] as DieNetView.LevelBadge).tint,
-		DieMaterial.tint_for(DieMaterial.AMBER, 3))
-	# Die Balken selbst bleiben das genaue Maß - die Sättigung ist der Blick von weitem.
-	assert_eq((badges[0] as DieNetView.LevelBadge).level, 3)
+		DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL))

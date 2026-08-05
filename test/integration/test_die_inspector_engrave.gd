@@ -188,35 +188,23 @@ func test_the_doping_lifts_a_material_face() -> void:
 	_hold_doping()
 	assert_eq(view.held_id, Engraving.DOPING, "aufgenommen")
 	view._on_chip_clicked(1, 1)  # Rubin-Seite
-	# Die Dotierung hebt nicht um eins, sie springt ganz nach oben - das ist ihre
-	# Wildcard-Kraft und der Grund, warum sie ein epischer Sonderposten ist.
-	assert_eq(view.current_def.material_level(1), DieMaterial.MAX_LEVEL,
-		"von Stufe I direkt auf III")
+	assert_eq(view.current_def.material_level(1), DieMaterial.MAX_LEVEL, "die Seite ist dotiert")
 	assert_eq(view.held_id, "", "letztes Exemplar verbraucht -> abgelegt")
 	assert_eq(_stock(Engraving.DOPING), 0, "Dotierung verbraucht")
-
-func test_the_doping_lifts_a_second_level_to_the_third() -> void:
-	var def := _doped_target()
-	def.levels[1] = 2
-	view.show_die(def)
-	_hold_doping()
-	assert_true(view._face_eligible(1), "Stufe II ist noch hebbar")
-	view._on_chip_clicked(1, 1)
-	assert_eq(view.current_def.material_level(1), DieMaterial.MAX_LEVEL)
 
 func test_the_doping_refuses_a_face_without_material() -> void:
 	view.show_die(_doped_target())
 	_hold_doping()
 	view._on_chip_clicked(2, 2)  # leere Seite
-	assert_eq(view.current_def.material_level(2), 0, "ohne Material gibt es nichts zu heben")
+	assert_eq(view.current_def.material_level(2), 0, "ohne Material gibt es nichts zu dotieren")
 	assert_eq(view.held_id, Engraving.DOPING, "das Werkzeug bleibt in der Hand")
 
-func test_the_doping_refuses_a_saturated_face() -> void:
+func test_the_doping_refuses_an_already_doped_face() -> void:
 	var def := _doped_target()
 	def.levels[0] = DieMaterial.MAX_LEVEL
 	view.show_die(def)
 	_hold_doping()
-	assert_false(view._face_eligible(0), "Stufe III ist kein Ziel mehr")
+	assert_false(view._face_eligible(0), "dotiert ist kein Ziel mehr")
 	view._on_chip_clicked(5, 0)
 	assert_eq(_stock(Engraving.DOPING), 1, "nichts verbraucht")
 
@@ -224,31 +212,19 @@ func test_the_doping_finds_no_target_on_a_bare_die() -> void:
 	view.show_die(_die())  # ganz ohne Materialien
 	_hold_doping()
 	for i in 6:
-		assert_false(view._face_eligible(i), "ohne Material gibt es nichts zu heben")
+		assert_false(view._face_eligible(i), "ohne Material gibt es nichts zu dotieren")
 
 func test_a_new_material_resets_the_level() -> void:
-	# Die Stufe wohnt in der Glasur: ein ANDERES Material fängt wieder bei I an.
+	# Die Dotierung wohnt in der Glasur: ein ANDERES Material fängt wieder normal an.
 	var def := _doped_target()
-	def.levels[1] = 3
+	def.levels[1] = DieMaterial.MAX_LEVEL
 	view.show_die(def)
 	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.amber(), Engraving.Rarity.COMMON))
 	view._sync_drawers()
 	view._on_engraving_pressed(DieMaterial.AMBER)
 	view._on_chip_clicked(1, 1)
 	assert_eq(view.current_def.materials[1], DieMaterial.AMBER, "neues Material liegt an")
-	assert_eq(view.current_def.material_level(1), 1, "die alte Stufe ist mit weg")
-
-func test_the_same_material_again_saturates_the_face() -> void:
-	# Dubletten haben endlich einen Zweck: dieselbe Gravur hebt statt zu streichen -
-	# und die ZIELSTUFE ist der Preis. Stufe II kostet zwei Stück, Stufe III drei.
-	view.show_die(_doped_target())
-	for expected in [2, 3]:
-		_grant_ruby(expected)
-		view._on_engraving_pressed(DieMaterial.RUBY)
-		view._on_chip_clicked(1, 1)  # trägt schon Rubin
-		assert_eq(view.current_def.materials[1], DieMaterial.RUBY, "kein Neuanstrich")
-		assert_eq(view.current_def.material_level(1), expected)
-		assert_eq(_stock(DieMaterial.RUBY), 0, "Stufe %d hat %d Duplikate gekostet" % [expected, expected])
+	assert_eq(view.current_def.material_level(1), 1, "die alte Dotierung ist mit weg")
 
 ## Legt count Rubin-Gravuren in den Vorrat.
 func _grant_ruby(count: int) -> void:
@@ -256,34 +232,22 @@ func _grant_ruby(count: int) -> void:
 		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
 	view._sync_drawers()
 
-func test_a_raise_is_no_target_while_the_stock_is_short() -> void:
-	# Der Preis der Sättigung ist die ZIELSTUFE in Dubletten - was der Vorrat nicht
-	# deckt, ist kein Ziel und dimmt wie jede andere Nicht-Zielseite.
-	view.show_die(_doped_target())
-	_grant_ruby(1)
-	view._on_engraving_pressed(DieMaterial.RUBY)
-	assert_false(view._face_eligible(1), "ein Stück deckt Stufe II nicht")
-	_grant_ruby(1)
-	assert_true(view._face_eligible(1), "zwei Stück decken Stufe II")
-
-func test_fresh_paint_still_costs_a_single_copy() -> void:
+func test_fresh_paint_costs_a_single_copy() -> void:
 	view.show_die(_doped_target())
 	_grant_ruby(1)
 	view._on_engraving_pressed(DieMaterial.RUBY)
 	assert_true(view._face_eligible(0), "die Gold-Seite lässt sich übermalen")
 	view._on_chip_clicked(5, 0)  # Seite 0 trägt den Wert 5
 	assert_eq(view.current_def.materials[0], DieMaterial.RUBY)
-	assert_eq(view.current_def.material_level(0), 1, "frisch gestrichen ist Stufe I")
+	assert_eq(view.current_def.material_level(0), 1, "frisch gestrichen ist undotiert")
 	assert_eq(_stock(DieMaterial.RUBY), 0, "und kostet genau ein Stück")
 
-func test_a_saturated_face_is_no_target_for_its_own_material() -> void:
-	var def := _doped_target()
-	def.levels[1] = DieMaterial.MAX_LEVEL
-	view.show_die(def)
-	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.ruby(), Engraving.Rarity.COMMON))
-	view._sync_drawers()
+func test_the_same_material_is_no_target_at_all() -> void:
+	# Der Dubletten-Aufstieg ist weg: dieselbe Gravur auf dieselbe Seite ist kein Ziel.
+	view.show_die(_doped_target())
+	_grant_ruby(2)
 	view._on_engraving_pressed(DieMaterial.RUBY)
-	assert_false(view._face_eligible(1), "Stufe III nimmt kein weiteres Exemplar mehr an")
+	assert_false(view._face_eligible(1), "die Rubin-Seite nimmt keinen zweiten Rubin an")
 	assert_true(view._face_eligible(0), "die Gold-Seite bleibt übermalbar")
 
 func test_the_engraving_pen_does_not_refund_the_doping() -> void:
@@ -305,17 +269,17 @@ func test_the_engraving_pen_still_refunds_an_etching() -> void:
 	assert_eq(_stock(Engraving.NOTCH), 1, "Kerbe nicht verbraucht")
 	assert_true(view.run.gravierstift_used_this_round)
 
-func test_the_face_net_marks_the_lifted_face() -> void:
+func test_the_face_net_marks_the_doped_face() -> void:
 	# Die Station baut ihre Zellen selbst - die Plakette muss auch dort ankommen.
 	var def := _doped_target()
-	def.levels[1] = 3
+	def.levels[1] = DieMaterial.MAX_LEVEL
 	view.show_die(def)
 	await wait_frames(2)
-	var badges: Array[int] = []
+	var badges := 0
 	for node in view.find_children("*", "Control", true, false):
 		if node is DieNetView.LevelBadge:
-			badges.append((node as DieNetView.LevelBadge).level)
-	assert_eq(badges, [3] as Array[int], "die gehobene Seite trägt ihre Plakette auch im Stations-Netz")
+			badges += 1
+	assert_eq(badges, 1, "die dotierte Seite trägt ihre Plakette auch im Stations-Netz")
 
 # --- Rune: eine Seite kontrolliert aufreißen ------------------------------
 
@@ -368,18 +332,14 @@ func test_burn_in_blocks_a_foreign_material() -> void:
 	assert_false(view._face_eligible(0), "die eingebrannte Seite nimmt kein fremdes Material")
 	assert_true(view._face_eligible(1), "die Nachbarseite bleibt frei")
 
-func test_burn_in_still_allows_saturating_the_same_material() -> void:
+func test_burn_in_still_allows_doping_the_same_material() -> void:
 	var def := _doped_target()
 	def.set_rune(0, Rune.BURN_IN)  # Seite 0 trägt Gold
 	view.show_die(def)
-	# Stufe II kostet zwei Duplikate - mit nur einem wäre die Seite kein Ziel.
-	for _i in 2:
-		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.gold(), Engraving.Rarity.COMMON))
-	view._sync_drawers()
-	view._on_engraving_pressed(DieMaterial.GOLD)
-	assert_true(view._face_eligible(0), "dasselbe Material weiter zu sättigen bleibt erlaubt")
+	_hold_doping()
+	assert_true(view._face_eligible(0), "der Einbrand sperrt nur das Übermalen")
 	view._on_chip_clicked(5, 0)
-	assert_eq(view.current_def.material_level(0), 2)
+	assert_eq(view.current_def.material_level(0), DieMaterial.MAX_LEVEL)
 	assert_eq(view.current_def.runes_on(0), [Rune.BURN_IN] as Array[String], "der Rune überlebt")
 
 func test_burn_in_leaves_value_engravings_alone() -> void:
@@ -391,54 +351,51 @@ func test_burn_in_leaves_value_engravings_alone() -> void:
 	view._on_engraving_pressed(Engraving.NOTCH)
 	assert_true(view._face_eligible(0), "die Kerbe ändert den Wert, nicht das Material")
 
-# --- Sättigung an der Station -------------------------------------------------------
+# --- Dotierung an der Station -------------------------------------------------------
 
 func _leveled_ruby_die(level: int) -> DieDefinition:
 	var def := _die()
 	def.set_face_material(0, DieMaterial.RUBY)
-	for _step in range(1, level):
-		def.raise_level(0)
+	if level >= DieMaterial.MAX_LEVEL:
+		def.dope(0)
 	return def
 
 func _fill_of(face_index: int) -> Color:
 	var box: StyleBoxFlat = view.face_chips[face_index].get_theme_stylebox("normal")
 	return box.bg_color
 
-func test_die_station_zeigt_die_stufe_als_saettigung() -> void:
-	view.show_die(_leveled_ruby_die(3))
+func test_die_station_zeigt_die_dotierung_als_saettigung() -> void:
+	view.show_die(_leveled_ruby_die(DieMaterial.MAX_LEVEL))
 	await wait_frames(2)
-	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 3),
-		"die Zelle trägt die Sättigung ihrer Stufe")
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"die dotierte Zelle trägt ihre Sättigung")
 	view.show_die(_leveled_ruby_die(1))
 	await wait_frames(2)
 	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY),
-		"Stufe I bleibt exakt die alte Farbe")
+		"undotiert bleibt exakt die alte Farbe")
 
-func test_das_gehaltene_material_zeigt_die_zielstufe_vorab() -> void:
-	# Dasselbe Material noch einmal sättigt die Seite - dafür sind Dubletten da,
-	# und die Zelle sagt vorab, wie satt sie danach wäre.
+func test_die_gehaltene_dotierung_zeigt_den_zielzustand_vorab() -> void:
+	# Die Zelle sagt vorab, wie satt sie nach der Dotierung wäre.
 	view.show_die(_leveled_ruby_die(1))
-	# Stufe II kostet ZWEI Duplikate - mit nur einem bliebe die Seite gesperrt.
-	for _i in 2:
-		view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY), Engraving.Rarity.RARE))
+	view.run.grant_engraving(Engraving.doping())
 	await wait_frames(2)
-	view.held_id = DieMaterial.RUBY
+	view.held_id = Engraving.DOPING
 	view._on_face_hover(0)
 	await wait_frames(2)
-	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 2),
-		"Vorschau auf Stufe II")
+	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"Vorschau auf den dotierten Zustand")
 	view._on_face_hover_exit()
 	await wait_frames(2)
 	assert_eq(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY),
-		"Zeiger weg -> zurück auf die echte Stufe")
+		"Zeiger weg -> zurück auf den echten Zustand")
 
-func test_ein_fremdes_material_hebt_keine_stufe() -> void:
-	view.show_die(_leveled_ruby_die(2))
+func test_ein_fremdes_material_dotiert_nichts() -> void:
+	view.show_die(_leveled_ruby_die(1))
 	view.run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.GOLD), Engraving.Rarity.COMMON))
 	await wait_frames(2)
 	view.held_id = DieMaterial.GOLD
 	view._on_face_hover(0)
 	await wait_frames(2)
-	# Frisches Material streicht neu und beginnt bei Stufe I - keine Sättigung.
-	assert_ne(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, 3),
-		"Übermalen ist kein Heben")
+	# Frisches Material streicht neu und beginnt undotiert - keine Sättigung.
+	assert_ne(_fill_of(0), DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"Übermalen ist kein Dotieren")

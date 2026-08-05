@@ -14,13 +14,13 @@ extends Resource
 ## Leiterbahn je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Sie zündet nur
 ## auf Chance (DiceScoring.POINTER_CHANCE), Sprung für Sprung.
 @export var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
-## Sättigung je Seite: Stufe des Materials DIESER Seite (0 = keins, sonst 1-3).
-## Die Stufe wohnt in der Glasur, nicht in der Seite - ein neues Material fängt
-## wieder bei I an (set_face_material ist der einzige Schreibweg).
+## Zustand des Materials DIESER Seite (0 = keins, 1 = normal, 2 = dotiert).
+## Er wohnt in der Glasur, nicht in der Seite - ein neues Material fängt wieder
+## undotiert an (set_face_material ist der einzige Schreibweg).
 @export var levels: Array[int] = [0, 0, 0, 0, 0, 0]
 ## Rune je Seite (Runen-id, "" = keiner), parallel zu faces. Runen wohnen in der
 ## STRUKTUR der Schale, nicht in der Glasur: ein neues Material übermalt die
-## Stufe, die Rune nie (set_face_material fasst sie darum nicht an).
+## Dotierung, die Rune nie (set_face_material fasst sie darum nicht an).
 @export var runes: Array[String] = ["", "", "", "", "", ""]
 ## Zweite Rune je Seite - NUR Vakuum-Würfel dürfen ihn tragen: ohne Innendruck
 ## trägt die Schale eine zweite Rune. Bewusst ein PARALLELES Array statt einer
@@ -63,10 +63,10 @@ func instantiate() -> DieDefinition:
 	copy.third_runes = third_runes.duplicate()
 	return copy
 
-## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Stufe hängt am
-## Material-Exemplar, nicht an der Seite - ein neues Material startet bei I.
-## Die Runen bleiben UNBERÜHRT: Stufen wohnen in der Glasur, Runen in der
-## Struktur der Schale - Übermalen löscht nie eine Rune.
+## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Dotierung hängt
+## am Material-Exemplar, nicht an der Seite - ein neues Material startet undotiert.
+## Die Runen bleiben UNBERÜHRT: die Glasur trägt die Dotierung, die Struktur der
+## Schale die Rune - Übermalen löscht nie eine Rune.
 func set_face_material(face: int, material_id: String) -> void:
 	if face < 0 or face >= materials.size():
 		return
@@ -74,20 +74,20 @@ func set_face_material(face: int, material_id: String) -> void:
 	if face < levels.size():
 		levels[face] = 0 if material_id == "" else 1
 
-## Stufe des Materials auf dieser Seite (0 = keins/außerhalb).
+## Zustand des Materials auf dieser Seite (0 = keins/außerhalb).
 func material_level(face: int) -> int:
 	if face < 0 or face >= levels.size():
 		return 0
 	return levels[face]
 
-## Hebt die Seite um eine Stufe (Deckel DieMaterial.MAX_LEVEL); true, wenn sie
-## sich bewegt hat. Eine nackte Seite lässt sich nicht sättigen.
-func raise_level(face: int) -> bool:
+## Dotiert das Material dieser Seite; true, wenn sie sich bewegt hat. Eine nackte
+## Seite hat nichts zu dotieren, eine dotierte nichts mehr zu gewinnen.
+func dope(face: int) -> bool:
 	if face < 0 or face >= levels.size() or face >= materials.size():
 		return false
 	if materials[face] == "" or levels[face] >= DieMaterial.MAX_LEVEL:
 		return false
-	levels[face] = maxi(1, levels[face]) + 1
+	levels[face] = DieMaterial.MAX_LEVEL
 	return true
 
 ## Wie viele Runen diese Schale je Seite trägt: das Vakuum saugt das Kernlicht

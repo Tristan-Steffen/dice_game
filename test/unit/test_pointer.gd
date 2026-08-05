@@ -356,9 +356,9 @@ func test_both_axes_and_the_link_land_where_the_roll_counted():
 	assert_eq(def.faces[0], 24, "obere Seite: zwei Zündungen, je +2")
 	assert_eq(def.faces[2], 24, "Glied-Seite: zwei Zündungen, je +2")
 
-# --- Gesättigte Glieder: die Stufe des GLIEDS zählt, nicht die der oberen Seite ---
+# --- Dotierte Glieder: der Zustand des GLIEDS zählt, nicht der der oberen Seite ---
 
-## Würfel mit einer Leiterbahn 0 -> 2 und einem Material der Stufe level darauf.
+## Würfel mit einer Leiterbahn 0 -> 2 und einem Material im Zustand level darauf.
 func _linked_die(material: String, level: int, link_value := -1) -> DieDefinition:
 	var def := DieDefinition.new()
 	def.pointers[0] = 2
@@ -368,53 +368,53 @@ func _linked_die(material: String, level: int, link_value := -1) -> DieDefinitio
 		def.faces[2] = link_value
 	return def
 
-func test_amber_link_levels_scale_the_eye_sum():
+func test_amber_link_doping_scales_the_eye_sum():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
-	var first := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
 		false, no_mats, {}, _ctx_fires_up(0, [_link(2, 4, DieMaterial.AMBER, 1)], 21))
-	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_fires_up(0, [_link(2, 4, DieMaterial.AMBER, 3)], 21))
-	assert_eq(first, 130, "(10 + 10 + 4 + 20 + 21) × 2")
-	assert_eq(third, 258, "(10 + 10 + 4 + 5×21) × 2")
+	var doped := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires_up(0, [_link(2, 4, DieMaterial.AMBER, DieMaterial.MAX_LEVEL)], 21))
+	assert_eq(plain, 130, "(10 + 10 + 4 + 20 + 21) × 2")
+	assert_eq(doped, 258, "(10 + 10 + 4 + 5×21) × 2")
 
-func test_ruby_link_adds_more_on_two_and_crits_on_three():
+func test_a_ruby_link_crits_when_doped():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
 		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY)]))
-	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY, 2)]))
-	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY, 3)]))
+	var doped := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.RUBY, DieMaterial.MAX_LEVEL)]))
 	assert_eq(plain, 144, "24 × (2 + 4)")
-	assert_eq(second, 288, "24 × (2 + 10)")
-	assert_eq(third, 96, "24 × (2 ×2)")
+	assert_eq(doped, 96, "24 × (2 ×2)")
 
-func test_a_glass_link_adds_on_two_and_crits_on_three():
+func test_a_glass_link_crits_when_doped():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
-	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 2)]))
-	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
-		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 3)]))
-	assert_eq(second, 144, "24 × (2 + 4)")
-	assert_eq(third, 96, "24 × (2 ×2) - der Krit nimmt die halben Augen des Glieds")
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS)]))
+	var doped := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
+		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, DieMaterial.MAX_LEVEL)]))
+	assert_eq(plain, 144, "24 × (2 + 4)")
+	assert_eq(doped, 96, "24 × (2 ×2) - der Krit nimmt die halben Augen des Glieds")
 
-func test_a_gold_link_on_level_three_pays_the_raised_rate():
-	var def := _linked_die(DieMaterial.GOLD, 3)
-	var report := _take(def, _fires(0, [_link(2, 3, DieMaterial.GOLD, 3)]))
+func test_a_doped_gold_link_pays_the_raised_rate():
+	var def := _linked_die(DieMaterial.GOLD, DieMaterial.MAX_LEVEL)
+	var report := _take(def, _fires(0, [_link(2, 3, DieMaterial.GOLD, DieMaterial.MAX_LEVEL)]))
 	assert_eq(report.money, 8, "$7 + $1 für die eine Gold-Seite dieser Nahme")
 
-func test_bone_link_levels_grow_by_their_own_step():
-	var second := _linked_die(DieMaterial.BONE, 2, 40)
-	_take(second, _fires(0, [_link(2, 40, DieMaterial.BONE, 2)]))
-	assert_eq(second.faces[2], 45, "Stufe II wächst flach +5 - eine Zündung, ein Schritt")
-	var third := _linked_die(DieMaterial.BONE, 3, 40)
-	_take(third, _fires(0, [_link(2, 40, DieMaterial.BONE, 3)]))
-	assert_eq(third.faces[2], 50, "20 % von 40 wären 8 - die Untergrenze +10 greift")
+func test_bone_link_grows_by_its_own_step():
+	var plain := _linked_die(DieMaterial.BONE, 1, 40)
+	_take(plain, _fires(0, [_link(2, 40, DieMaterial.BONE)]))
+	assert_eq(plain.faces[2], 42, "normal wächst flach +2 - eine Zündung, ein Schritt")
+	var doped := _linked_die(DieMaterial.BONE, DieMaterial.MAX_LEVEL, 40)
+	_take(doped, _fires(0, [_link(2, 40, DieMaterial.BONE, DieMaterial.MAX_LEVEL)]))
+	assert_eq(doped.faces[2], 50, "20 % von 40 wären 8 - die Untergrenze +10 greift")
 
-func test_a_glass_link_shrinks_by_the_raised_step():
-	var def := _linked_die(DieMaterial.GLASS, 2, 40)
-	_take(def, _fires(0, [_link(2, 40, DieMaterial.GLASS, 2)]))
-	assert_eq(def.faces[2], 37, "Stufe II frisst flach 3")
+func test_a_glass_link_shrinks_by_its_own_step():
+	var plain := _linked_die(DieMaterial.GLASS, 1, 40)
+	_take(plain, _fires(0, [_link(2, 40, DieMaterial.GLASS)]))
+	assert_eq(plain.faces[2], 39, "normal frisst flach 1")
+	var doped := _linked_die(DieMaterial.GLASS, DieMaterial.MAX_LEVEL, 40)
+	_take(doped, _fires(0, [_link(2, 40, DieMaterial.GLASS, DieMaterial.MAX_LEVEL)]))
+	assert_eq(doped.faces[2], 20, "dotiert halbiert sich")

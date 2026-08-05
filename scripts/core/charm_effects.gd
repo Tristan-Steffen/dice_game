@@ -911,19 +911,3 @@ static func engraving_spare_chance(charm_ids: Array[String]) -> float:
 ## Zugabe: so viele Stücke legt jedes GRAVUR-Paket obendrauf (je Vorkommen eins).
 static func pack_extra_engravings(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ENCORE)
-
-## Politur: am Rundenende steigt eine zufällige Material-Seite des Pools.
-static func polishes_pool(charm_ids: Array[String]) -> bool:
-	return charm_ids.has(Charm.POLISH)
-
-## Gießkanne: wie viele Kopien EIN Abguss einer Seite der Stufe level in den
-## Vorrat legt. Ohne den Charm bleibt es bei einer (Stufe I). Der Vorrat kennt
-## keine Stufen - eine Stufe kostet dort ihre Dubletten (I→II zwei, II→III drei),
-## also IST die Kopie "in Stufe N" genau die Summe 1+2+…+N. Der Stichel legt
-## darauf noch einmal denselben Satz obendrauf (Runen wirken doppelt).
-static func cast_copies_for_level(level: int, charm_ids: Array[String]) -> int:
-	var copies := 1
-	if charm_ids.has(Charm.WATERING_CAN):
-		var stage := clampi(level, 1, DieMaterial.MAX_LEVEL)
-		copies = stage * (stage + 1) / 2
-	return copies * RuneEffects.burin_factor(charm_ids)

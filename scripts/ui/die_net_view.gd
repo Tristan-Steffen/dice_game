@@ -25,7 +25,7 @@ const EDGE_CELL := Vector2i(0, 0)
 ## Leiterbahn-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
 const POINTER_COLOR := Color("#8be9fd")
 
-## Stufen-Plakette (ab Stufe II) in der unteren RECHTEN Zellecke - Kantenanteil.
+## Dotier-Plakette in der unteren RECHTEN Zellecke - Kantenanteil.
 ## Die Ecke ist frei: die Zeiger-Pfeile sitzen mittig auf den Zellrändern.
 const LEVEL_BADGE := 0.34
 ## Je Seite: welcher Zellrand der gequerten Würfelkante zum Nachbarn entspricht,
@@ -115,8 +115,8 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
 	var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 	var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
-	# Die Stufe sättigt die Zelle - der Blick von weitem. Die Balken der Plakette
-	# bleiben daneben das genaue, zählbare Maß.
+	# Die Dotierung sättigt die Zelle - der Blick von weitem; die Plakette daneben
+	# ist die genaue Marke.
 	var fill := DieMaterial.tint_for(material_id, def.material_level(face_index))
 	var chip := Label.new()
 	chip.text = str(value)
@@ -191,19 +191,17 @@ static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	return _pointer_arrows(def, cell)
 
-## Je gehobener Seite eine Plakette in ihrer unteren rechten Zellecke. Stufe I
-## bleibt unmarkiert - sie ist der Normalfall, und eine Marke auf jeder Material-
-## Zelle wäre Rauschen. Geometrie statt Schrift: im 30er-Raster misst eine Zelle
-## nur ~17 px, eine Ziffer wäre dort Matsch - die helle Platte trägt allein, die
-## Balken ("II"/"III") lösen erst an der Station auf.
+## Je dotierter Seite eine Plakette in ihrer unteren rechten Zellecke. Der normale
+## Zustand bleibt unmarkiert - er ist der Regelfall, und eine Marke auf jeder
+## Material-Zelle wäre Rauschen. Geometrie statt Schrift: im 30er-Raster misst
+## eine Zelle nur ~17 px, eine Ziffer wäre dort Matsch.
 static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 	var badges: Array[Control] = []
 	for face in mini(6, def.levels.size()):
 		var level: int = def.levels[face]
-		if level < 2:
+		if level < DieMaterial.MAX_LEVEL:
 			continue
 		var badge := LevelBadge.new()
-		badge.level = level
 		badge.tint = DieMaterial.tint_for(
 			def.materials[face] if face < def.materials.size() else "", level)
 		var side := cell * LEVEL_BADGE
@@ -242,7 +240,7 @@ static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
 	return glyphs
 
 ## Der Rune selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
-## Zeiger-Pfeile und Stufen-Plakette, damit er auch auf einer hellen Material-
+## Zeiger-Pfeile und Dotier-Plakette, damit er auch auf einer hellen Material-
 ## Zelle steht.
 ##
 ## Das Netz animiert NICHT. 30 Würfel × bis zu 6 Runen hieße bis zu 180 Controls,
@@ -280,28 +278,28 @@ class RuneGlyph:
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
 			draw_polyline(points, tint.lerp(core, flare), width)
 
-## Die Plakette selbst: dunkle Platte mit einem hellen Balken je Stufe in der
-## Materialfarbe - dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf
-## dunklem Unterzug). Die dunkle Platte trägt allein, wenn die Balken bei
-## winzigen Zellen zu Textur zerfallen: jede Material-Zelle ist hell.
+## Die Plakette selbst: dunkle Platte mit drei hellen Balken in der Materialfarbe -
+## dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf dunklem Unterzug).
+## Die dunkle Platte trägt allein, wenn die Balken bei winzigen Zellen zu Textur
+## zerfallen: jede Material-Zelle ist hell.
 class LevelBadge:
 	extends Control
 	var tint := Color.WHITE
-	var level := 2
+
+	const BARS := 3
 
 	func _draw() -> void:
 		var mark := tint.lightened(0.35)
 		mark.a = 1.0
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.12, 0.95), true)
 		draw_rect(Rect2(Vector2.ZERO, size), mark, false, maxf(1.0, size.x * 0.09))
-		var bars := clampi(level, 2, DieMaterial.MAX_LEVEL)
-		# Drei Balken brauchen schmalere Striche, sonst laufen sie zusammen.
-		var bar_w := maxf(1.0, size.x * (0.15 if bars < 3 else 0.11))
+		# Drei Balken brauchen schmale Striche, sonst laufen sie zusammen.
+		var bar_w := maxf(1.0, size.x * 0.11)
 		var bar_h := size.y * 0.46
 		var top := (size.y - bar_h) * 0.5
 		var step := size.x * 0.26
-		for b in bars:
-			var cx: float = size.x * 0.5 + (float(b) - float(bars - 1) * 0.5) * step - bar_w * 0.5
+		for b in BARS:
+			var cx: float = size.x * 0.5 + (float(b) - float(BARS - 1) * 0.5) * step - bar_w * 0.5
 			draw_rect(Rect2(Vector2(cx, top), Vector2(bar_w, bar_h)), mark, true)
 
 ## Zellposition eines Seiten-Index im Kreuz.

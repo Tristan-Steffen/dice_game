@@ -1268,7 +1268,7 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 	return copied
 
 ## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
-## Stufe III trägt, fällt stattdessen eine Kopie ihres Materials in den Vorrat -
+## dotiert ist, fällt stattdessen eine Kopie ihres Materials in den Vorrat -
 ## einmal je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Kopien.
 func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		participating: Array[int]) -> int:
@@ -1327,10 +1327,8 @@ func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int
 	return granted
 
 ## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
-## frische Kopie davon in den Vorrat - Stufe I, der Abguss erbt die Sättigung
-## nicht. Nur die Gießkanne gießt in der Stufe der Seite: der Vorrat kennt keine
-## Stufen, also legt sie so viele Kopien hinein, wie die Stufe in Dubletten
-## kostet (CharmEffects.cast_copies_for_level). Liefert die Zahl der Kopien.
+## frische Kopie davon in den Vorrat - immer undotiert, der Abguss erbt die
+## Dotierung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
 ## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
 ## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
 func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
@@ -1354,34 +1352,11 @@ func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
 		rune_cast_used[key] = true
 		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
 			Engraving.Rarity.UNCOMMON)
-		var copies := CharmEffects.cast_copies_for_level(defs[i].material_level(face), charm_ids())
+		var copies := RuneEffects.burin_factor(charm_ids())
 		for _c in copies:
 			grant_engraving(Engraving.material_engraving(material, rarity))
 			granted += 1
 	return granted
-
-## Politur: EINE zufällige Material-Seite des Pools steigt am Rundenende eine
-## Stufe. Gleichverteilt über ALLE steigerbaren Seiten, nicht erst über die
-## Würfel - sonst hinge die Chance an der Zahl der Seiten je Würfel. rng
-## injizierbar, damit ein Test die Wahl festnagelt. {} = keine Seite in Frage.
-func apply_polish(rng: RandomNumberGenerator = null) -> Dictionary:
-	if not CharmEffects.polishes_pool(charm_ids()):
-		return {}
-	var targets: Array[Vector2i] = []
-	for i in owned_pool.size():
-		var die := owned_pool[i]
-		if die == null:
-			continue
-		for face in die.materials.size():
-			if die.materials[face] != "" and die.material_level(face) < DieMaterial.MAX_LEVEL:
-				targets.append(Vector2i(i, face))
-	if targets.is_empty():
-		return {}
-	var pick: Vector2i = targets[rng.randi() % targets.size()] if rng != null else targets.pick_random()
-	if not owned_pool[pick.x].raise_level(pick.y):
-		return {}
-	pool_changed.emit()
-	return {"index": pick.x, "face": pick.y, "level": owned_pool[pick.x].material_level(pick.y)}
 
 ## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
 ## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
@@ -1556,8 +1531,7 @@ func consume_engraving(id: String) -> bool:
 	return consume_engravings(id, 1)
 
 ## Verbraucht count Gravuren derselben id - ALLES ODER NICHTS und mit genau
-## EINEM Signal. Sättigen bezahlt in Dubletten: Stufe II kostet zwei Stück,
-## Stufe III drei, frisch streichen eines - von nackt bis III also 1+2+3 = 6.
+## EINEM Signal.
 func consume_engravings(id: String, count: int) -> bool:
 	if unlimited_engravings or count <= 0:
 		return true
@@ -1593,7 +1567,7 @@ func consume_applied_engraving(id: String, count: int = 1,
 ## Bestand einer Gravur-id (Testmodus: immer reichlich).
 func engraving_stock(id: String) -> int:
 	if unlimited_engravings:
-		return DieMaterial.MAX_LEVEL
+		return 9
 	var count := 0
 	for engraving in owned_engravings:
 		if engraving.id == id:
@@ -2114,11 +2088,11 @@ func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
-## Chance je Stufe, im Testmodus noch eine höher zu steigen - sonst wären die
-## Stufen II/III nur über Gravuren zu sehen.
+## Chance, eine Seite im Testmodus dotiert auszuliefern - sonst wäre der
+## dotierte Zustand nur über die Gravur zu sehen.
 const TEST_LEVEL_CHANCE := 0.34
 
-## Belegt jede Seite aller Pool-Würfel mit zufälligen Materialien und hebt
+## Belegt jede Seite aller Pool-Würfel mit zufälligen Materialien und dotiert
 ## einen Teil davon. Jeder Würfel bekommt frische Arrays (nie geteilt).
 func randomize_all_materials() -> void:
 	var ids: Array[String] = []
@@ -2143,7 +2117,7 @@ func clear_all_materials() -> void:
 		var levels: Array[int] = []
 		for i in die.materials.size():
 			mats.append("")
-			levels.append(0)  # ohne Material keine Stufe
+			levels.append(0)  # ohne Material kein Zustand
 		die.materials = mats
 		die.levels = levels
 	pool_changed.emit()

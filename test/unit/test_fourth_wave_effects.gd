@@ -43,8 +43,8 @@ func _die(faces: Array, face_material := "", level := 1) -> DieDefinition:
 	def.faces = _d(faces)
 	if face_material != "":
 		def.set_face_material(0, face_material)
-		for _l in maxi(0, level - 1):
-			def.raise_level(0)
+		if level >= DieMaterial.MAX_LEVEL:
+			def.dope(0)
 	return def
 
 func _has_id(pool: Array[Charm], charm_id: String) -> bool:
@@ -316,48 +316,6 @@ func test_the_jackpot_bell_measures_against_the_effective_goal():
 	assert_eq(CharmEffects.jackpot_income(run.charm_ids(), 151, run.effective_goal(), true),
 		CharmEffects.JACKPOT_BELL_MONEY)
 
-# --- Politur: eine Material-Seite des Pools steigt ---------------------------------
-
-func test_the_polish_raises_exactly_one_material_face():
-	run.owned_charms.append(Charm.polish())
-	run.owned_pool[3].set_face_material(2, DieMaterial.RUBY)
-	var polished := run.apply_polish()
-	assert_eq(int(polished["index"]), 3)
-	assert_eq(int(polished["face"]), 2)
-	assert_eq(run.owned_pool[3].material_level(2), 2)
-
-func test_the_polish_stays_silent_without_a_target():
-	run.owned_charms.append(Charm.polish())
-	assert_true(run.apply_polish().is_empty(), "ein nackter Pool hat nichts zu polieren")
-	run.owned_pool[0].set_face_material(0, DieMaterial.GOLD)
-	run.owned_pool[0].raise_level(0)
-	run.owned_pool[0].raise_level(0)
-	assert_eq(run.owned_pool[0].material_level(0), DieMaterial.MAX_LEVEL)
-	assert_true(run.apply_polish().is_empty(), "Stufe III ist kein Ziel mehr")
-
-func test_the_polish_needs_its_charm():
-	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
-	assert_true(run.apply_polish().is_empty())
-	assert_eq(run.owned_pool[0].material_level(0), 1)
-
-func test_the_polish_reports_the_pool_change():
-	run.owned_charms.append(Charm.polish())
-	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
-	var seen := [0]
-	run.pool_changed.connect(func() -> void: seen[0] += 1)
-	run.apply_polish()
-	assert_eq(seen[0], 1, "die Trays hängen an diesem Signal")
-
-func test_the_polish_picks_uniformly_over_the_faces():
-	run.owned_charms.append(Charm.polish())
-	run.owned_pool[0].set_face_material(0, DieMaterial.RUBY)
-	run.owned_pool[0].set_face_material(4, DieMaterial.BONE)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	var polished := run.apply_polish(rng)
-	assert_true(int(polished["face"]) == 0 or int(polished["face"]) == 4)
-	assert_eq(int(polished["level"]), 2)
-
 # --- Stichel: JEDE Rune wirkt doppelt (nur der Einbrand kennt keinen Betrag) --------
 
 func test_the_burin_doubles_the_stray_light():
@@ -427,67 +385,60 @@ func test_the_doubled_reverse_pays_its_gold_link_twice():
 		_ids([Charm.BURIN]), -1, {}, _p([0]), false, _p([0]))
 	assert_eq(doubled.money, 2 * MaterialEffects.GOLD_PAYOUT, "die Kehrseite zündet zweimal")
 
-# --- Gießkanne: der Abguss gießt in der Stufe der Seite ------------------------------
+# --- Abguss: eine Kopie ins Lager, der Stichel verdoppelt ----------------------------
 
-func test_the_watering_can_prices_the_level_in_duplicates():
-	assert_eq(CharmEffects.cast_copies_for_level(3, NO_CHARMS), 1, "ohne Charm immer Stufe I")
-	var can := _ids([Charm.WATERING_CAN])
-	assert_eq(CharmEffects.cast_copies_for_level(1, can), 1)
-	assert_eq(CharmEffects.cast_copies_for_level(2, can), 3, "I→II kostet zwei, frisch eines")
-	assert_eq(CharmEffects.cast_copies_for_level(3, can), 6, "1+2+3")
-
-func test_the_cast_grants_the_level_worth_of_copies():
+func test_the_cast_grants_one_copy_and_the_burin_two():
 	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	def.runes[0] = Rune.CAST
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1, "ohne Charm eine Kopie")
 	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
 	var twin := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	twin.runes[0] = Rune.CAST
-	var watering := GameRun.new_run()
-	watering.owned_charms.append(Charm.watering_can())
-	assert_eq(watering.apply_rune_cast(_defs([twin]), _p([0]), _p([0])), 6)
-	assert_eq(watering.engraving_stock(DieMaterial.RUBY), 6)
+	var burin := GameRun.new_run()
+	burin.owned_charms.append(Charm.burin())
+	assert_eq(burin.apply_rune_cast(_defs([twin]), _p([0]), _p([0])), 2)
+	assert_eq(burin.engraving_stock(DieMaterial.RUBY), 2)
 
 func test_the_cast_stays_once_per_round_and_die():
-	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, 2)
+	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	def.runes[0] = Rune.CAST
-	run.owned_charms.append(Charm.watering_can())
-	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 3)
+	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1)
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 0, "die Marke hält")
 
-# --- Härteofen: Stufe-III-Materialien zahlen doppelt --------------------------------
+# --- Härteofen: dotierte Materialien zahlen doppelt ----------------------------------
 
-func test_the_kiln_only_repeats_the_top_level():
-	assert_eq(MaterialEffects.payoff_repeats(3, _ids([Charm.KILN])), 2)
-	assert_eq(MaterialEffects.payoff_repeats(2, _ids([Charm.KILN])), 1, "erst Stufe III")
-	assert_eq(MaterialEffects.payoff_repeats(3, NO_CHARMS), 1)
+func test_the_kiln_only_repeats_the_doped_state():
+	assert_eq(MaterialEffects.payoff_repeats(DieMaterial.MAX_LEVEL, _ids([Charm.KILN])), 2)
+	assert_eq(MaterialEffects.payoff_repeats(1, _ids([Charm.KILN])), 1, "erst dotiert")
+	assert_eq(MaterialEffects.payoff_repeats(DieMaterial.MAX_LEVEL, NO_CHARMS), 1)
 
 func test_the_kiln_doubles_base_and_mult():
 	var kiln := _ids([Charm.KILN])
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 3, 6),
-		2 * MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 3, 6))
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 2, 6),
-		MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 2, 6), "Stufe II unberührt")
-	# Auf Stufe III addiert kein Material mehr von sich aus - der einzige additive
-	# Mult, den der Ofen dort verdoppeln kann, sind die Blood-Diamond-Augen.
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, DieMaterial.MAX_LEVEL, 6),
+		2 * MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, DieMaterial.MAX_LEVEL, 6))
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 1, 6),
+		MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 1, 6), "normal unberührt")
+	# Dotiert addiert kein Material mehr von sich aus - der einzige additive Mult,
+	# den der Ofen dort verdoppeln kann, sind die Blood-Diamond-Augen.
 	var bloody := _ids([Charm.KILN, Charm.BLOOD_DIAMOND])
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, bloody, 3), 10)
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 3), 5)
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, bloody, DieMaterial.MAX_LEVEL), 10)
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), DieMaterial.MAX_LEVEL), 5)
 
 func test_the_kiln_doubles_the_growth_but_never_the_cost():
 	var kiln := _ids([Charm.KILN])
-	var grown := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, kiln, 3)
-	var plain := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, NO_CHARMS, 3)
+	var lvl := DieMaterial.MAX_LEVEL
+	var grown := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, kiln, lvl)
+	var plain := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, NO_CHARMS, lvl)
 	assert_gt(grown, plain, "das Wachstum ist eine Auszahlung")
-	assert_eq(grown, MaterialEffects.grow_bone_value(plain, 3, kiln,
+	assert_eq(grown, MaterialEffects.grow_bone_value(plain, lvl, kiln,
 		MaterialEffects.bone_trigger_count(kiln)),
 		"genau zwei Wachstumsschritte")
-	assert_eq(MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, kiln, 3),
-		MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, NO_CHARMS, 3),
+	assert_eq(MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, kiln, lvl),
+		MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, NO_CHARMS, lvl),
 		"das Glas frisst sich weiter im alten Tempo")
 
 func test_the_kiln_crit_strikes_twice_instead_of_squaring_once():
-	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3, "eye_sum": 0}}}
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": DieMaterial.MAX_LEVEL, "eye_sum": 0}}}
 	var mats := _m([DieMaterial.RUBY, ""])
 	var plain := DiceScoring.score_category(PAIR, _d([5, 5]), NO_CHARMS, false, mats, {}, ctx)
 	var kiln := DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.KILN]), false, mats, {}, ctx)
@@ -495,7 +446,7 @@ func test_the_kiln_crit_strikes_twice_instead_of_squaring_once():
 	assert_eq(kiln, 20 * 2 * MaterialEffects.RUBY_CRIT * MaterialEffects.RUBY_CRIT)
 
 func test_the_breakdown_mirrors_the_doubled_material_steps():
-	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3, "eye_sum": 0}}}
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": DieMaterial.MAX_LEVEL, "eye_sum": 0}}}
 	var ids := _ids([Charm.KILN])
 	var mats := _m([DieMaterial.RUBY, ""])
 	var breakdown := ScoreBreakdown.build(PAIR, _d([5, 5]), ids, false, mats, {}, ctx)
@@ -517,7 +468,7 @@ func test_the_kiln_pays_its_gold_twice_and_the_def_follows_the_simulation():
 	assert_eq(report.money, 2 * plain.money, "die Auszahlung läuft zweimal")
 
 func test_the_kiln_keeps_simulation_and_def_byte_identical():
-	# Ein Knochen auf Stufe III unter dem Härteofen: die Def muss exakt dort landen,
+	# Ein dotierter Knochen unter dem Härteofen: die Def muss exakt dort landen,
 	# wo value_after_activations sie erwartet (Drift-Doktrin).
 	var kiln := _ids([Charm.KILN])
 	var bone := _die([8, 2, 3, 4, 5, 6], DieMaterial.BONE, DieMaterial.MAX_LEVEL)

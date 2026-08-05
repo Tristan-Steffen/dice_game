@@ -26,7 +26,7 @@ const GOLD := Color("#ffd319")
 ## damit das Raster wie das Tray darüber liest.
 const POOL_COLUMNS := 6
 ## Maße der Hover-Netzkarte in Einheiten - groß genug, dass Materialfarben,
-## Stufen-Plaketten und der Essenz-Chip auf Werkbank-Distanz lesen.
+## Dotier-Plaketten und der Essenz-Chip auf Werkbank-Distanz lesen.
 const HOVER_CELL := 3.2
 const HOVER_TITLE := 2.2
 const HOVER_BODY := 1.7

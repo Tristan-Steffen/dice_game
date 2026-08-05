@@ -454,7 +454,7 @@ var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Wü
 var _tip_choice_slot: int = -1
 var _tip_choice_faces: Array[int] = []
 var pre_reroll_det_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
-var pre_reroll_levels: Dictionary = {}  # Material-Stufen VOR dem Neu-Würfeln
+var pre_reroll_levels: Dictionary = {}  # Material-Zustände VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
@@ -4235,8 +4235,8 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 			ids, essence_ids, pointer_rng)
 	return fires
 
-## Stufen-Infos je Wurf-Slot: die Sättigung des Materials der OBEREN Seite, dazu
-## die Augensumme (Bernstein zahlt sie auf jeder Stufe).
+## Material-Infos je Wurf-Slot: der Zustand des Materials der OBEREN Seite, dazu
+## die Augensumme (Bernstein zahlt sie in beiden Zuständen).
 func _material_levels() -> Dictionary:
 	var levels := {}
 	var sets := _effective_essence_sets()
@@ -4276,7 +4276,7 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
 		DiceScoring.CTX_DET_LINKS: _det_links(),  # Röntgenlicht/Korona
-		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Sättigung der Seiten
+		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Dotierung der Seiten
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
@@ -4361,8 +4361,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 			if to_filtered.has(s):
 				mapped_links[to_filtered[s]] = links[s]
 		ctx[link_key] = mapped_links
-	# Material-Stufen hängen ebenso am Slot - ohne Umschlüsselung wertet jede
-	# Auswahl-Vorschau die falschen Würfel als gehoben.
+	# Material-Zustände hängen ebenso am Slot - ohne Umschlüsselung wertet jede
+	# Auswahl-Vorschau die falschen Würfel als dotiert.
 	var mapped_levels := {}
 	var levels: Dictionary = ctx.get(DiceScoring.CTX_MATERIAL_LEVELS, {})
 	for s in levels:
@@ -6499,8 +6499,6 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 					await _play_charm_money_payout(j, amounts[j])
 			Charm.STAMP_MACHINE:
 				await _play_stamp_machine_meteors(j)
-			Charm.POLISH:
-				await _play_polish_ceremony(j)
 			Charm.DYNAMO:
 				await _play_dynamo_charge(j, CharmEffects.round_end_charge_at(j, ids))
 		if phase != Phase.PAYOUT:
@@ -6598,24 +6596,6 @@ func _play_stamp_machine_meteors(index: int) -> void:
 	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return
-	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
-
-## Politur: EINE Material-Seite des Pools steigt eine Stufe. Gebucht ist sie,
-## bevor das Licht startet - der Komet zeigt nur, wohin die Politur greift, und
-## die Werkstatt quittiert seine Ankunft wie eine Paket-Lieferung.
-func _play_polish_ceremony(index: int) -> void:
-	var polished := run.apply_polish()
-	if polished.is_empty():
-		return
-	_flash_charm_and_pad(index)
-	var travel: float = table_screen.charm_workshop_comet(
-		_charm_trail_source_px([index]), CasinoStyle.GOLD)
-	if travel <= 0.0:
-		return
-	await get_tree().create_timer(travel).timeout
-	if phase != Phase.PAYOUT:
-		return
-	table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD)
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## Schickt EINEN Gravur-Meteor über die Adern in den Schubladen-Platz und

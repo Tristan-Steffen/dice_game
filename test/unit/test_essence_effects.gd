@@ -393,13 +393,13 @@ func test_smothering_costs_the_up_face():
 	die.essence_id = Essence.CARBON_DIOXIDE
 	die.faces[2] = 6
 	die.set_face_material(2, DieMaterial.GOLD)
-	die.raise_level(2)
+	die.dope(2)
 	die.set_rune(2, Rune.AFTERGLOW)
 	run.roll_essence_round_state()
 	run.consume_smother(die, 2)
 	assert_eq(die.faces[2], 1, "die obere Seite fällt auf 1")
 	assert_eq(die.materials[2], "", "und verliert ihr Material")
-	assert_eq(die.material_level(2), 0, "die Stufe geht mit dem Material")
+	assert_eq(die.material_level(2), 0, "der Zustand geht mit dem Material")
 	assert_true(die.has_rune(2, Rune.AFTERGLOW), "die Rune sitzt in der Schale, nicht in der Glasur")
 
 func test_smothering_without_a_face_only_burns_the_charge():
@@ -669,35 +669,34 @@ func test_corona_ring_comes_before_the_xray_face():
 	assert_eq(faces.size(), 2)
 	assert_eq(faces[1], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
 
-func test_varnish_clamps_at_three_and_spares_bare_faces():
+func test_varnish_clamps_at_doped_and_spares_bare_faces():
 	var varnish := _ids([Essence.VARNISH])
 	assert_eq(EssenceEffects.boosted_level(0, varnish), 0, "eine nackte Seite bleibt nackt")
-	assert_eq(EssenceEffects.boosted_level(1, varnish), 2)
-	assert_eq(EssenceEffects.boosted_level(2, varnish), 3)
-	assert_eq(EssenceEffects.boosted_level(3, varnish), DieMaterial.MAX_LEVEL, "III bleibt III")
-	assert_eq(EssenceEffects.boosted_level(2, _ids([Essence.NEON])), 2, "ohne Firnis keine Schicht")
+	assert_eq(EssenceEffects.boosted_level(1, varnish), DieMaterial.MAX_LEVEL)
+	assert_eq(EssenceEffects.boosted_level(DieMaterial.MAX_LEVEL, varnish), DieMaterial.MAX_LEVEL,
+		"dotiert bleibt dotiert")
+	assert_eq(EssenceEffects.boosted_level(1, _ids([Essence.NEON])), 1, "ohne Firnis keine Schicht")
 
 func test_varnish_lifts_the_level_only_in_the_score():
 	assert_eq(EssenceEffects.level_boost(Essence.VARNISH), 1)
 	assert_eq(EssenceEffects.level_boost(Essence.NEON), 0)
-	# Rubin auf Stufe II zahlt +10 Mult, auf III kritet er ×2 - der Firnis hebt
-	# eine echte Stufe-II-Seite in den Krit-Zweig.
-	var two := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 2}}})
-	var three := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 3}}})
-	assert_eq(two, 20 * 12)
-	assert_eq(three, 20 * 4, "Stufe III kritet statt zu addieren")
+	# Rubin zahlt normal +4 Mult, dotiert kritet er ×2 - der Firnis hebt eine
+	# echte Normal-Seite in den Krit-Zweig.
+	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 1}}})
+	var doped := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": DieMaterial.MAX_LEVEL}}})
+	assert_eq(plain, 20 * 6)
+	assert_eq(doped, 20 * 4, "dotiert kritet statt zu addieren")
 
 func test_varnish_never_writes_the_level_into_the_def():
 	var die := _die_with(Essence.VARNISH)
 	die.set_face_material(0, DieMaterial.GOLD)
-	die.raise_level(0)
 	var defs: Array[DieDefinition] = [die]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.VARNISH}, _p([0]))
-	assert_eq(die.material_level(0), 2, "die Def bleibt auf ihrer echten Stufe")
-	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT_2, "Gold zahlt den echten Stufensatz II")
+	assert_eq(die.material_level(0), 1, "die Def bleibt auf ihrem echten Zustand")
+	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT, "Gold zahlt den echten, undotierten Satz")
 
 func test_phosphorescence_stores_and_repeats_its_base():
 	var run := GameRun.new_run()

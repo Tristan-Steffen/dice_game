@@ -20,7 +20,7 @@ const STRAY_LIGHT_MONEY := 1
 const SPARK_FLIGHT_CHARGE := 1
 
 ## Stichel: JEDE Rune wirkt doppelt - Nachglühen, Funkenflug, Streulicht und der
-## Abguss (CharmEffects.cast_copies_for_level); die Kehrseite zündet über
+## Abguss (GameRun.apply_rune_cast); die Kehrseite zündet über
 ## EssenceEffects.det_link_fire_count zweimal. Nur der Einbrand kennt keine
 ## Verdopplung, er ist ein Dauerzustand und kein Betrag.
 static func burin_factor(charm_ids: Array[String]) -> int:

@@ -384,13 +384,13 @@ static func all_faces_growth(essence_id: String, charm_ids: Array[String] = [], 
 		return face_growth(essence_id, charm_ids, value)
 	return 0
 
-## Firnis: seine Materialstufen zählen in der WERTUNG eine Stufe höher - nie in
-## der Def, die Nehmen-Effekte rechnen weiter mit der echten Stufe.
+## Firnis: seine Materialseiten zählen in der WERTUNG als dotiert - nie in der
+## Def, die Nehmen-Effekte rechnen weiter mit dem echten Zustand.
 static func level_boost(essence_id: String) -> int:
 	return 1 if essence_id == Essence.VARNISH else 0
 
-## Stufe, mit der die WERTUNG rechnet. Eine nackte Seite bleibt nackt (der Firnis
-## legt auf Glasur, nicht auf Schale), und über III geht nichts.
+## Zustand, mit dem die WERTUNG rechnet. Eine nackte Seite bleibt nackt (der
+## Firnis legt auf Glasur, nicht auf Schale), dotiert bleibt dotiert.
 static func boosted_level(level: int, essence_ids: Array[String]) -> int:
 	var boost := level_boost_of(essence_ids)
 	if level <= 0 or boost <= 0:
@@ -674,7 +674,7 @@ static func combo_level_mult_of(essence_ids: Array[String], combo_level: int, ch
 		total += combo_level_mult(essence_id, combo_level, charm_ids)
 	return total
 
-## Stufen-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
+## Dotier-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
 static func level_boost_of(essence_ids: Array[String]) -> int:
 	var best := 0
 	for essence_id in essence_ids:

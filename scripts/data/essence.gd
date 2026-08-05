@@ -260,8 +260,8 @@ static func corona() -> Essence:
 
 static func varnish() -> Essence:
 	return _make(VARNISH, "Firnis",
-		"Eine zweite Schicht Glasur: seine Materialstufen zählen beim Werten eine Stufe höher (III bleibt III).",
-		"Materialstufen +1 in der Wertung", Rarity.EPIC, Color(0.9, 0.7, 0.4))
+		"Eine zweite Schicht Glasur: seine Materialseiten zählen beim Werten als dotiert.",
+		"Materialseiten zählen dotiert", Rarity.EPIC, Color(0.9, 0.7, 0.4))
 
 static func phosphorescence() -> Essence:
 	return _make(PHOSPHORESCENCE, "Phosphoreszenz",

@@ -71,7 +71,7 @@ const TRAY_TILE := 5.0
 ## unveränderte Fensterhöhe hinaus - die Breite allein ist kein Platzgewinn.
 const CONTENT_UNITS := 51.0
 
-## Textbreite des Seiten-Fensters in Einheiten - breit genug für die Stufe-III-
+## Textbreite des Seiten-Fensters in Einheiten - breit genug für die dotierten
 ## Zeilen und die Runen-Beinamen, ohne ins Raster hinauszulaufen.
 const TOOLTIP_WIDTH := 30.0
 ## Rückfall-Skala des Ziel-Rasters, solange seine Spalte noch kein Maß hat.
@@ -93,7 +93,7 @@ var held_id: String = ""
 var first_face: int = -1
 ## Vorschau aktiv (Chip-Texte zeigen das Ergebnis, noch nicht angewandt).
 var preview_active: bool = false
-## Seite unter dem Zeiger (-1 = keine) - nur die Stufen-Vorschau braucht sie.
+## Seite unter dem Zeiger (-1 = keine) - nur die Dotier-Vorschau braucht sie.
 var hovered_face: int = -1
 ## Die zwei Zeiger-Quellen getrennt: der Chip im Netz meldet über die eigenen
 ## Hover-Signale, das schwebende Werkstück lässt scene_root je Frame picken.
@@ -536,16 +536,8 @@ func _on_chip_clicked(_value: int, face_index: int) -> void:
 ## Einseitige Gravuren + Material auf die geklickte Seite.
 func _apply_single_face(face_index: int) -> void:
 	if DieMaterial.is_valid_id(held_id):
-		# Dieselbe Gravur noch einmal auf dieselbe Seite sättigt sie, statt sie
-		# neu zu streichen - dafür sind Dubletten da.
-		if current_def.materials[face_index] == held_id:
-			current_def.raise_level(face_index)
-			var level := current_def.material_level(face_index)
-			# Die erreichte Stufe IST der Preis in Dubletten.
-			_finish_apply(held_id, level)
-		else:
-			current_def.set_face_material(face_index, held_id)  # frisches Material, Stufe I
-			_finish_apply(held_id)
+		current_def.set_face_material(face_index, held_id)
+		_finish_apply(held_id)
 		return
 	if Engraving.is_rune_id(held_id):
 		# Ein besetzter Platz wird ersetzt - neu brechen ist erlaubt. Auf dem
@@ -556,11 +548,8 @@ func _apply_single_face(face_index: int) -> void:
 		return
 	match held_id:
 		Engraving.DOPING:
-			# Sie hebt DIREKT auf die höchste Stufe, egal von wo - das ist ihre
-			# Wildcard-Kraft und der Grund, warum sie ein epischer Sonderposten ist.
-			for _step in DieMaterial.MAX_LEVEL:
-				if not current_def.raise_level(face_index):
-					break
+			# Der einzige Weg in den dotierten Zustand - darum ein epischer Sonderposten.
+			current_def.dope(face_index)
 			_finish_apply(held_id)
 		Engraving.NOTCH:
 			EtchingEffects.notch(current_def, face_index)
@@ -607,7 +596,7 @@ func _apply_whole_die() -> void:
 
 ## Verbraucht die Gravur und meldet changed/applied. Das Werkzeug bleibt in der
 ## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
-func _finish_apply(engraving_id: String, cost := 1) -> void:
+func _finish_apply(engraving_id: String) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
 		# Materialien und die Sonderposten (Leiterbahn, Dotierung) nie.
@@ -617,7 +606,7 @@ func _finish_apply(engraving_id: String, cost := 1) -> void:
 			run.gravierstift_used_this_round = true
 		else:
 			# Zwinge: die Material-Gravur bleibt manchmal eingespannt (je Anwendung neu).
-			run.consume_applied_engraving(engraving_id, cost)
+			run.consume_applied_engraving(engraving_id)
 	var keep: bool = int(_engraving_counts().get(engraving_id, 0)) > 0
 	held_id = engraving_id if keep else ""
 	first_face = -1
@@ -666,22 +655,18 @@ func _eligible_faces() -> Array[bool]:
 			else:
 				for i in 6: e[i] = current_def.can_point(first_face, i)
 		Engraving.DOPING:
-			# Sie hebt ein vorhandenes Material - leere und ausgesättigte Seiten fallen weg.
+			# Sie dotiert ein vorhandenes Material - leere und schon dotierte
+			# Seiten fallen weg.
 			for i in 6: e[i] = DieMaterial.is_valid_id(current_def.materials[i]) \
 				and current_def.material_level(i) < DieMaterial.MAX_LEVEL
 		_:
 			match _targeting_of(held_id):
 				TARGET_FACE:
 					if DieMaterial.is_valid_id(held_id):
-						# Die eigene Seite bleibt Ziel, solange sie Stufen frei hat.
-						# Ein EINBRAND sperrt nur das ÜBERMALEN - dasselbe Material
-						# weiter zu sättigen bleibt erlaubt.
+						# Dasselbe Material noch einmal ist kein Ziel; ein Einbrand
+						# sperrt das Übermalen.
 						for i in 6:
-							if current_def.materials[i] == held_id:
-								e[i] = current_def.material_level(i) < DieMaterial.MAX_LEVEL \
-									and _raise_affordable(i)
-							else:
-								e[i] = not _face_burned_in(i)
+							e[i] = current_def.materials[i] != held_id and not _face_burned_in(i)
 					else:
 						e.fill(true)
 				TARGET_WHOLE_DIE:
@@ -752,9 +737,8 @@ func _apply_hover() -> void:
 	else:
 		_preview_face(face)
 
-## Stufe, die diese Seite NACH dem gehaltenen Werkzeug trüge - die Zelle zeigt
-## die Sättigung der ZIELSTUFE, sobald das Werkzeug über ihr steht. Dasselbe
-## Material noch einmal hebt um eins, die Dotierung springt ganz nach oben.
+## Zustand, den diese Seite NACH dem gehaltenen Werkzeug trüge - die Zelle zeigt
+## die Ziel-Sättigung, sobald das Werkzeug über ihr steht.
 func _level_after(face_index: int) -> int:
 	if current_def == null:
 		return 1
@@ -763,23 +747,10 @@ func _level_after(face_index: int) -> int:
 		return level
 	if held_id == Engraving.DOPING:
 		return DieMaterial.MAX_LEVEL
-	if DieMaterial.is_valid_id(held_id) and _material_of(current_def, face_index) == held_id:
-		return mini(level + 1, DieMaterial.MAX_LEVEL)
 	return level
 
-## Preis einer Sättigung: die ZIELSTUFE in Dubletten (II kostet 2, III kostet 3).
-func _raise_cost(face_index: int) -> int:
-	return mini(current_def.material_level(face_index) + 1, DieMaterial.MAX_LEVEL)
-
-## Deckt der Vorrat die nächste Stufe dieser Seite? Das gehaltene Stück zählt mit -
-## es liegt bis zum Anwenden noch im Bestand.
-func _raise_affordable(face_index: int) -> bool:
-	if run == null:
-		return false
-	return run.engraving_stock(held_id) >= _raise_cost(face_index)
-
-## Malt die Zellen auf die Stufe um, die sie NACH dem Werkzeug trügen. Ohne
-## Zeiger fällt jede auf ihre echte Stufe zurück - der Aufruf ist idempotent.
+## Malt die Zellen auf den Zustand um, den sie NACH dem Werkzeug trügen. Ohne
+## Zeiger fällt jede auf ihren echten zurück - der Aufruf ist idempotent.
 func _sync_level_preview() -> void:
 	if current_def == null:
 		return
@@ -984,7 +955,7 @@ func _refresh_face_summary() -> void:
 		face_chip_font[face_index] = chip.get_theme_color("font_color")
 		face_grid.add_child(chip)
 
-	# Essenz-Chip in die leere Kreuz-Ecke, Runen durch die Zellmitten, Stufen-
+	# Essenz-Chip in die leere Kreuz-Ecke, Runen durch die Zellmitten, Dotier-
 	# Plaketten in die Zellecken und die Leiterbahn-Pfeile obendrauf - die Pfeile
 	# zuletzt, sie liegen über den Zellrändern. Die Station baut ihre Zellen
 	# selbst, also auch Runen und Plaketten.

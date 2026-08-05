@@ -13,20 +13,18 @@ const GLASS := "glass"        # Mult += Augen (max 6), Seite schrumpft −1 beim
 
 const NONE := ""
 
-## Sättigung: jedes Seiten-Material steht auf Stufe I-III. Höher geht nicht -
-## Stufe III ist das Ende der Leiter, nicht bloß die nächste Zahl.
-const MAX_LEVEL := 3
+## Zustand eines Seiten-Materials: 0 = keins, 1 = normal, 2 = dotiert. Mehr gibt
+## es nicht - dotiert ist ein Zustand, keine Leiter.
+const MAX_LEVEL := 2
 
 @export var id: String = ""
 @export var display_name: String = ""
 @export var description: String = ""
 ## Kurzwirkung fürs Grube-Hover-Feld ("+20 Basispunkte").
 @export var short: String = ""
-## Stufen II/III; Stufe I steht in short/description.
-@export var short_2: String = ""
-@export var description_2: String = ""
-@export var short_3: String = ""
-@export var description_3: String = ""
+## Dotierter Zustand; der normale steht in short/description.
+@export var short_doped: String = ""
+@export var description_doped: String = ""
 ## Körperfarbe der Seite - bewusst hell genug für die dunkle Augenzahl.
 @export var tint: Color = Color.WHITE
 
@@ -56,10 +54,8 @@ static func ruby() -> DieMaterial:
 	m.roughness = 0.08
 	m.glow = 0.5
 	m.short = "+4 Mult"
-	m.short_2 = "+10 Mult"
-	m.description_2 = "+10 Mult statt +4."
-	m.short_3 = "Krit ×2"
-	m.description_3 = "Krit ×2 auf den Mult, statt zu addieren."
+	m.short_doped = "Krit ×2"
+	m.description_doped = "Krit ×2 auf den Mult, statt zu addieren."
 	return m
 
 static func amber() -> DieMaterial:
@@ -70,10 +66,8 @@ static func amber() -> DieMaterial:
 	m.roughness = 0.35
 	m.glow = 1.1
 	m.short = "+20 Basis +Augensumme"
-	m.short_2 = "+50 Basis +Augensumme"
-	m.description_2 = "+50 Basispunkte plus die Augensumme des Würfels."
-	m.short_3 = "5 × Augensumme"
-	m.description_3 = "Die fünffache Augensumme des Würfels - ohne festen Zuschlag."
+	m.short_doped = "5 × Augensumme"
+	m.description_doped = "Die fünffache Augensumme des Würfels - ohne festen Zuschlag."
 	return m
 
 static func gold() -> DieMaterial:
@@ -87,10 +81,8 @@ static func gold() -> DieMaterial:
 	m.roughness = 0.14
 	m.glow = 0.26
 	m.short = "+$3"
-	m.short_2 = "+$7"
-	m.description_2 = "+$7 statt +$3."
-	m.short_3 = "+$7 +$1 je Gold-Seite"
-	m.description_3 = "+$7, dazu +$1 je ausgelöster Gold-Seite dieser Nahme."
+	m.short_doped = "+$7 +$1 je Gold-Seite"
+	m.description_doped = "+$7, dazu +$1 je ausgelöster Gold-Seite dieser Nahme."
 	return m
 
 static func bone() -> DieMaterial:
@@ -101,10 +93,8 @@ static func bone() -> DieMaterial:
 	m.roughness = 0.95
 	m.glow = 0.0
 	m.short = "Seite wächst +2"
-	m.short_2 = "Seite wächst +5"
-	m.description_2 = "Die Seite wächst um 5 statt um 2."
-	m.short_3 = "Seite wächst +10 / +20 %"
-	m.description_3 = "Die Seite wächst um 10 oder 20 %, je nachdem was mehr ist."
+	m.short_doped = "Seite wächst +10 / +20 %"
+	m.description_doped = "Die Seite wächst um 10 oder 20 %, je nachdem was mehr ist."
 	return m
 
 static func glass() -> DieMaterial:
@@ -116,10 +106,8 @@ static func glass() -> DieMaterial:
 	m.glow = 0.3
 	m.alpha = 0.42
 	m.short = "Mult += Augen (max 6)"
-	m.short_2 = "Mult += Augen"
-	m.description_2 = "Mult += Augen dieser Seite, auch über 6; beim Nehmen schrumpft sie um 3."
-	m.short_3 = "Krit ×Augen/2"
-	m.description_3 = "Krit ×(Augen/2), statt zu addieren; beim Nehmen halbiert sich die Seite."
+	m.short_doped = "Krit ×Augen/2"
+	m.description_doped = "Krit ×(Augen/2), statt zu addieren; beim Nehmen halbiert sich die Seite."
 	return m
 
 ## Kanonische Registrierung aller ERWERBBAREN Materialien - jede Ziehung, jede
@@ -136,17 +124,16 @@ static func by_id(material_id: String) -> DieMaterial:
 static func is_valid_id(material_id: String) -> bool:
 	return by_id(material_id) != null
 
-## Restsättigungs-Schrumpf je Stufe: s' = 1 − (1 − s) × k. Ein glattes Multiplizieren
-## ginge nicht - Rubin liegt schon bei S≈0.81 und wäre sofort am Anschlag, Knochen
-## bei S≈0.34 und käme kaum vom Fleck. So schreiten BEIDE zweimal sichtbar:
-## Rubin 0.81 → 0.86 → 0.90, Knochen 0.34 → 0.51 → 0.65.
-const LEVEL_SATURATION := {2: 0.74, 3: 0.53}
+## Restsättigungs-Schrumpf der Dotierung: s' = 1 − (1 − s) × k. Ein glattes
+## Multiplizieren ginge nicht - Rubin liegt schon bei S≈0.81 und wäre sofort am
+## Anschlag, Knochen bei S≈0.34 und käme kaum vom Fleck.
+const LEVEL_SATURATION := {2: 0.53}
 ## Kleiner Hellwert-Zuschlag, damit "satter" nie als "matschiger" liest. Bewusst
-## klein: die Stufe ist ein Signal aus Farbreinheit, nie aus Helligkeit.
-const LEVEL_VALUE := {2: 1.04, 3: 1.08}
+## klein: die Dotierung ist ein Signal aus Farbreinheit, nie aus Helligkeit.
+const LEVEL_VALUE := {2: 1.08}
 
-## Sättigt eine Farbe auf die Materialstufe. Stufe 0/I gibt sie UNVERÄNDERT
-## zurück - Stufe I ist der Normalfall und kündigt sich nie an.
+## Sättigt eine Farbe auf den dotierten Zustand. Normal gibt sie UNVERÄNDERT
+## zurück - der Normalfall kündigt sich nie an.
 static func saturated(color: Color, level: int) -> Color:
 	if level <= 1 or not LEVEL_SATURATION.has(level):
 		return color
@@ -156,47 +143,27 @@ static func saturated(color: Color, level: int) -> Color:
 	return result
 
 ## Körperfarbe zur id - Weiß bei NONE/unbekannt (kein Sonderfall in der Anzeige).
-## level gilt für die Farbe der SEITE; ohne Angabe bleibt jeder Aufrufer auf
-## Stufe I, also exakt auf der Farbe von vorher.
+## level gilt für die Farbe der SEITE; ohne Angabe bleibt jeder Aufrufer normal,
+## also exakt auf der Farbe von vorher.
 static func tint_for(material_id: String, level := 1) -> Color:
 	var material := by_id(material_id)
 	return saturated(material.tint, level) if material != null else Color.WHITE
 
-## Kurzwirkung der Stufe; Stufe I steht in short/description.
+## Kurzwirkung des Zustands; der normale steht in short/description.
 func short_for(level: int) -> String:
-	match level:
-		2:
-			return short_2
-		3:
-			return short_3
-	return short
+	return short_doped if level >= MAX_LEVEL else short
 
 func description_for(level: int) -> String:
-	match level:
-		2:
-			return description_2
-		3:
-			return description_3
-	return description
-
-## Römische Stufenziffer für die Anzeige - Stufe I nennt sich nicht, sie ist der
-## Normalfall.
-static func level_roman(level: int) -> String:
-	match level:
-		2:
-			return "II"
-		3:
-			return "III"
-	return ""
+	return description_doped if level >= MAX_LEVEL else description
 
 ## Kurz-Erklärzeile einer Seite fürs Hover-Feld ("" ohne Material): «Name»: Wirkung.
-## Ab Stufe II trägt der Name die römische Ziffer.
+## Dotiert nennt sich im Namen, normal kündigt sich nie an.
 static func face_hint(material_id: String, level := 1) -> String:
 	var material := by_id(material_id)
 	if material == null:
 		return ""
-	if level >= 2:
-		return "%s %s: %s" % [material.display_name, level_roman(level), material.short_for(level)]
+	if level >= MAX_LEVEL:
+		return "%s (dotiert): %s" % [material.display_name, material.short_doped]
 	return "%s: %s" % [material.display_name, material.short]
 
 # Oberflächen-Texturen: helle, fast farblose Muster; die Materialfarbe liefert

@@ -22,7 +22,7 @@ const POINTER := "pointer"
 # die Runen-id, wie bei den Material-Gravuren.
 const RUNE_PREFIX := "rune_"
 
-# --- Material-Gravur ohne eigenes Material: die Dotierung (+1 Sättigungsstufe) ---
+# --- Material-Gravur ohne eigenes Material: die Dotierung ---
 const DOPING := "doping"
 
 ## Sonderposten: einmalige Spezial-Gravuren. Sie behalten ihre Kategorie (und
@@ -149,9 +149,9 @@ static func pointer_engraving() -> Engraving:
 	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Die Zielseite löst mit 50 % Chance einmal voll mit aus (Augen, Material, Charms) - und von dort geht es weiter.", Rarity.EPIC, CATEGORY_DICE)
 
 ## Dotierung: die einzige Material-Gravur, die selbst kein Material belegt -
-## sie hebt das vorhandene Material EINER Seite direkt auf die höchste Stufe.
+## sie dotiert das vorhandene Material EINER Seite.
 static func doping() -> Engraving:
-	return _make(DOPING, "Dotierung", "Hebt das Material einer Seite auf Stufe III.", Rarity.EPIC, CATEGORY_MATERIAL)
+	return _make(DOPING, "Dotierung", "Dotiert das Material einer Seite.", Rarity.EPIC, CATEGORY_MATERIAL)
 
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 

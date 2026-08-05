@@ -113,9 +113,7 @@ const SOLDERING_IRON := "soldering_iron"
 const GROUND_WIRE := "ground_wire"
 # Runen & Werkbank
 const BURIN := "burin"
-const WATERING_CAN := "watering_can"
 const LUMINOUS_PAINT := "luminous_paint"
-const POLISH := "polish"
 const KILN := "kiln"
 const CLAMP := "clamp"
 const ENCORE := "encore"
@@ -372,9 +370,7 @@ const RARITIES := {
 	GROUND_WIRE: RARITY_COMMON,
 	# Runen & Werkbank
 	BURIN: RARITY_RARE,
-	WATERING_CAN: RARITY_UNCOMMON,
 	LUMINOUS_PAINT: RARITY_COMMON,
-	POLISH: RARITY_RARE,
 	KILN: RARITY_LEGENDARY,
 	CLAMP: RARITY_UNCOMMON,
 	ENCORE: RARITY_UNCOMMON,
@@ -844,7 +840,7 @@ static func solar_eclipse() -> Charm:
 	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")
 
 static func glaze_brush() -> Charm:
-	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon Stufe III trägt, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
+	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon dotiert ist, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
 
 static func fluorescent_tube() -> Charm:
 	return _make(FLUORESCENT_TUBE, "Leuchtstoffröhre", "Die Phosphoreszenz speichert zusätzlich jeden Mult, den sie erarbeitet hat, und zahlt ihn erneut aus.")
@@ -922,17 +918,11 @@ static func ground_wire() -> Charm:
 static func burin() -> Charm:
 	return _make(BURIN, "Stichel", "Runen wirken doppelt.")
 
-static func watering_can() -> Charm:
-	return _make(WATERING_CAN, "Gießkanne", "Der Abguss gießt in der Stufe der Seite statt in Stufe I.")
-
 static func luminous_paint() -> Charm:
 	return _make(LUMINOUS_PAINT, "Leuchtfarbe", "+2 Mult je Rune auf einem gewerteten Würfel - gezündet oder nicht.")
 
-static func polish() -> Charm:
-	return _make(POLISH, "Politur", "Am Rundenende steigt eine zufällige Material-Seite im Pool eine Stufe.")
-
 static func kiln() -> Charm:
-	return _make(KILN, "Härteofen", "Materialeffekte von Stufe-III-Seiten wirken doppelt.")
+	return _make(KILN, "Härteofen", "Materialeffekte dotierter Seiten wirken doppelt.")
 
 ## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
 static func bench_clamp() -> Charm:
@@ -1030,7 +1020,7 @@ static func all() -> Array[Charm]:
 		feedback(), ice_mirror(), polar_day(), magnetar(), radio_telescope(),
 		# Zweite Welle
 		superconductor(), dynamo(), standby_light(), soldering_iron(), ground_wire(),
-		burin(), watering_can(), luminous_paint(), polish(), kiln(), bench_clamp(), encore(),
+		burin(), luminous_paint(), kiln(), bench_clamp(), encore(),
 		odds_sheet(), free_spin(), fenced_goods(), jackpot_bell(), deposit_shelf(),
 		tip_jar(), consolation_prize(),
 		factory_finish(), bottle_rack(), pressure_gauge(), empty_plinth(), odometer(),

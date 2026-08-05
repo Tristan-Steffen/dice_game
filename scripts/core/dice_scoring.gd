@@ -120,12 +120,12 @@ static func pointer_fires_at(ctx: Dictionary, slot: int, trigger_index: int) -> 
 	var groups := pointer_fires_for(ctx, slot)
 	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
 
-## Material-Stufen (ctx-Schlüssel): Dictionary Slot -> {"level": int (Sättigung
-## des Materials der OBEREN Seite), "eye_sum": int}. Wie die Essenz-Glieder
-## löst der Aufrufer das EINMAL auf.
+## Material-Zustände (ctx-Schlüssel): Dictionary Slot -> {"level": int (0 keins,
+## 1 normal, 2 dotiert - das Material der OBEREN Seite), "eye_sum": int}. Wie die
+## Essenz-Glieder löst der Aufrufer das EINMAL auf.
 const CTX_MATERIAL_LEVELS := "material_levels"
 
-## Stufen-Infos des Slots aus dem ctx ({} = Stufe I, siehe MaterialEffects.level_in).
+## Material-Infos des Slots aus dem ctx ({} = normal, siehe MaterialEffects.level_in).
 static func level_info_for(ctx: Dictionary, slot: int) -> Dictionary:
 	var levels: Dictionary = ctx.get(CTX_MATERIAL_LEVELS, {})
 	return levels.get(slot, {})
@@ -464,7 +464,7 @@ static func pointer_chance_for(chance: float, firings: int) -> float:
 ## gezündete Seite selbst eine Leiterbahn, geht es Sprung für Sprung mit der
 ## EINFACHEN Chance weiter; ein Zyklus würfelt einfach weiter.
 ## Die Werte wandern mit: eine zweimal gezündete Knochen-Seite zählt beim zweiten
-## Mal den gewachsenen Wert. Gerechnet wird mit der ECHTEN Stufe - genau diese
+## Mal den gewachsenen Wert. Gerechnet wird mit dem ECHTEN Zustand - genau diese
 ## Zahl landet später in der Def, der Firnis hebt nur die Wertung.
 static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: int, face_triggers: int,
 		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator) -> Array:
@@ -694,7 +694,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
 				# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
 				# das Grubengas zündet an JEDEM Krit sofort mit.
-				# Härteofen: der Krit einer Stufe-III-Seite schlägt zweimal - je Schlag
+				# Härteofen: der Krit einer dotierten Seite schlägt zweimal - je Schlag
 				# ein eigener Krit, nie einer im Quadrat (Beherit-Grammatik).
 				var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
@@ -864,7 +864,7 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 ## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
 ## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
 ## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx
-## mit (Essenz-Glieder, Stufen und Essenzen hängen an den Würfeln VOR dem
+## mit (Essenz-Glieder, Dotierungen und Essenzen hängen an den Würfeln VOR dem
 ## Neuwurf, wie old_materials).
 static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
 	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, combo_levels, ctx)

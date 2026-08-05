@@ -16,7 +16,7 @@ func _die(name := "Prüfwürfel") -> DieDefinition:
 	def.faces = faces
 	def.display_name = name
 	def.set_face_material(0, DieMaterial.RUBY)
-	def.raise_level(0)
+	def.dope(0)
 	def.set_rune(1, Rune.AFTERGLOW)
 	def.essence_id = Essence.NEON
 	return def

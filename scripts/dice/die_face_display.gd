@@ -208,8 +208,8 @@ var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
 ## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
-## Materialstufe je Achse (1..3). Die Stufe färbt NUR - satter statt heller,
-## damit sie neben dem Essenzglühen als eigenes Signal lesbar bleibt.
+## Material-Zustand je Achse (1 normal, 2 dotiert). Er färbt NUR - satter statt
+## heller, damit er neben dem Essenzglühen als eigenes Signal lesbar bleibt.
 var face_levels: Dictionary = {}
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
 var essence_id: String = ""

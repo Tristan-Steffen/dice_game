@@ -28,7 +28,8 @@ func test_all_returns_all_charms():
 	# −5 im Charm-Rework: Goldener Skarabäus, Leuchtturm, Blackjack, Runde Sache
 	# (zu flach oder zu eng) und der Rubinschleifer, dessen Wirkung der Blood
 	# Diamond geerbt hat.
-	assert_eq(Charm.all().size(), 147)
+	# −2 mit der Dotierung: Politur und Gießkanne hatten keine Stufenleiter mehr.
+	assert_eq(Charm.all().size(), 145)
 
 func test_all_ids_are_unique():
 	var seen := {}

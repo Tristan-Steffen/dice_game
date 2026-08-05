@@ -187,14 +187,14 @@ func test_a_face_with_material_and_rune_shows_both_lines() -> void:
 	# und überschrieben sich gegenseitig.
 	var def := _die()
 	def.set_face_material(0, DieMaterial.RUBY)
-	def.raise_level(0)
+	def.dope(0)
 	def.set_rune(0, Rune.AFTERGLOW)
 	view.show_die(def)
 	view._show_face_info(0)
 	var lines := _tooltip_lines()
 	assert_eq(lines.size(), 2, "Material und Rune stehen nebeneinander, nicht ineinander")
 	assert_true(lines[0].contains("Rubin"), "erst das Material: %s" % lines[0])
-	assert_true(lines[0].contains("II"), "mit seiner Stufe")
+	assert_true(lines[0].contains("dotiert"), "mit seinem Zustand")
 	assert_true(lines[1].contains("Nachglühen"), "dann der Rune: %s" % lines[1])
 
 func test_a_vacuum_face_lists_both_of_its_runes() -> void:

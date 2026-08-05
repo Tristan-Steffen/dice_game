@@ -882,7 +882,7 @@ func _singles_scale(dice_count: int, seal_count: int) -> float:
 ## OFFENER Würfel der Chip-Schale: er LIEGT dort als echter, langsam taumelnder
 ## Würfel - kein Kasten, kein Preisschild, dieselbe Grammatik wie die Kombi-Chips
 ## auf dem Filz. Wer danach greift, bekommt im Hover-Fenster das ganze Dossier:
-## Netz mit allen sechs Seiten (Materialfarben, Stufen, Runen, Essenz-Chip), die
+## Netz mit allen sechs Seiten (Materialfarben, Dotierung, Runen, Essenz-Chip), die
 ## Seele und den Preis. Kein Blindkauf, das ist der Sinn - nur ohne Möbel.
 func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 	var def := single_dice[index]
@@ -1141,7 +1141,7 @@ func _build_shop_tooltip() -> void:
 	add_child(shop_tooltip)
 
 ## Tausch-Auswahl: der ganze 30er-Vorrat als Raster über der Ladenseite. Gewarnt
-## wird NICHT - die Netze zeigen Materialien, Stufen, Runen und den Essenz-Chip,
+## wird NICHT - die Netze zeigen Materialien, Dotierung, Runen und den Essenz-Chip,
 ## also sieht der Spieler selbst, welche Seele er überschreibt. Das ist die
 ## Einwilligung; ein Dialog wäre nur Papier davor.
 func _open_exchange_picker(pending_index: int) -> void:
