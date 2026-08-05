@@ -1,7 +1,7 @@
 extends GutTest
 ## Tier-3-Tests der vierten Inhalts-Welle: Ökonomie, Werkbank und Zeremonien -
 ## Supraleiter, Dynamo, Trostpreis, Hehlerware, Freispiel, Quotenblatt, Zwinge,
-## Zugabe, Pfandregal, Jackpotglocke, Politur, Stichel, Gießkanne, Härteofen und
+## Füllhorn, Pfandregal, Jackpotglocke, Politur, Stichel, Gießkanne, Härteofen und
 ## die Angebots-Sperren der Charms ohne ihr Spielzeug.
 
 func _d(values: Array) -> Array[int]:
@@ -257,7 +257,7 @@ func test_the_clamp_never_holds_a_special_item():
 	assert_false(spared)
 	assert_eq(run.engraving_stock(Engraving.DOPING), 0)
 
-# --- Zugabe: jedes Gravur-Paket legt ein Stück obendrauf ----------------------------
+# --- Füllhorn: jedes Gravur-Paket legt ein Stück obendrauf ----------------------------
 
 func test_the_pack_rolls_its_extra_out_of_its_own_pot():
 	var pack := Pack.number_pack()

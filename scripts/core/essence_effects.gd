@@ -63,7 +63,7 @@ const LIGHT_PILLAR_ACTIVATIONS_MIRRORED := 2
 const MIDNIGHT_SUN_ACTIVATIONS := 1
 const MIDNIGHT_SUN_ACTIVATIONS_POLAR := 2
 
-## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Moderator halbiert den Teiler
+## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Steuerstab halbiert den Teiler
 ## noch einmal mehr als zur Hälfte.
 const CHERENKOV_DIVISOR := 5.0
 const CHERENKOV_DIVISOR_MODERATED := 2.0
@@ -309,7 +309,7 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## ball_bonus: Zuschlag des Blitzableiters auf den Kugelblitz.
 ## wild_value: die Zahl, zu der sich das Polarlicht macht - nur der Polarfilter
 ## setzt sie, sonst 0 (= kein Krit).
-## charge: gelagerte Energie (Tscherenkow, Moderator halbiert den Teiler).
+## charge: gelagerte Energie (Tscherenkow, Steuerstab halbiert den Teiler).
 ## first_scoring: erste Wertung dieses Würfels in der Runde (Sternschnuppe,
 ## Gammablitz - der Magnetar löst den Blitz davon).
 ## fumbles: Fumbles, mit denen der Vulkanblitz kritet (Runde + Aschewolke).

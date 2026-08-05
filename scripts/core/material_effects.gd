@@ -16,7 +16,7 @@ const GOLD_PAYOUT := 3
 const GOLDSMITH_BONUS := 3
 const GOLD_PAYOUT_DOPED := 7
 
-## Rubin: fester Mult je Träger (Blood Diamond addiert die Augenzahl).
+## Rubin: fester Mult je Träger (Blutdiamant addiert die Augenzahl).
 const RUBY_MULT := 4
 const RUBY_CRIT := 2              # dotiert kritet, statt zu addieren
 
@@ -38,7 +38,7 @@ const GLASS_SHRINK_PERCENT_DOPED := 50
 const GLASS_EYE_CAP := 6
 const GLASS_CRIT_DIVISOR := 2.0
 
-## Glasbläserlunge: Glas schrumpft weiter, aber nie unter diesen Wert.
+## Glasbläserpfeife: Glas schrumpft weiter, aber nie unter diesen Wert.
 const GLASSBLOWER_LUNG_FLOOR := 6
 
 ## Bericht der Nehmen-Effekte für die UI.
@@ -125,7 +125,7 @@ static func base_once_for(face_material: String, charm_ids: Array[String], level
 	var eyes := eye_sum * (AMBER_EYE_FACTOR if level >= DieMaterial.MAX_LEVEL else 1)
 	return (_amber_flat(level) + room + eyes) * payoff_repeats(level, charm_ids)
 
-## Mult-Bonus EINER Auslösung des Slots i: Rubin fest (der Blood Diamond legt die
+## Mult-Bonus EINER Auslösung des Slots i: Rubin fest (der Blutdiamant legt die
 ## Augenzahl drauf); Glas + rohe Augenzahl der oberen Seite.
 static func mult_bonus_once(i: int, values: Array[int], materials: Array[String], charm_ids: Array[String], level: int = 1) -> int:
 	return mult_once_for(materials[i] if i < materials.size() else "", values[i], charm_ids, level)
@@ -135,7 +135,7 @@ static func mult_bonus_once(i: int, values: Array[int], materials: Array[String]
 ## (dotierter Rubin, dotiertes Glas) - siehe mult_crit_once_for; nur der Blood
 ## Diamond bleibt beim Rubin additiv, damit der Krit nicht exponentiell wird.
 static func mult_once_for(face_material: String, value: int, charm_ids: Array[String], level: int = 1) -> int:
-	# Der Blood Diamond legt die Augenzahl EINMAL drauf, nie je Exemplar.
+	# Der Blutdiamant legt die Augenzahl EINMAL drauf, nie je Exemplar.
 	var eye_stacks := int(charm_ids.has(Charm.BLOOD_DIAMOND))
 	var repeats := payoff_repeats(level, charm_ids)
 	if face_material == DieMaterial.RUBY:
@@ -192,7 +192,7 @@ static func bone_growth_step(value: int, level: int, charm_ids: Array[String]) -
 static func bone_trigger_count(charm_ids: Array[String]) -> int:
 	return 2 if charm_ids.has(Charm.BONE_MARROW) else 1
 
-## Glasbläserlunge hebt nur den Boden - geschrumpft wird weiter.
+## Glasbläserpfeife hebt nur den Boden - geschrumpft wird weiter.
 static func glass_floor_for(charm_ids: Array[String]) -> int:
 	var glass_floor := EtchingEffects.MIN_FACE_VALUE
 	if charm_ids.has(Charm.GLASSBLOWER_LUNG):
@@ -289,7 +289,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## Gold zahlt seinen Satz (Goldschmied legt drauf); Knochen wächst
 ## (Knochenleim: +3 Aufschlag, Knochenmark lässt jede Knochen-Auslösung ein Mal
 ## mehr feuern); Glas schrumpft, nie unter das Floor
-## (Glasbläserlunge hebt es auf 6); Essenz-Geld (Neon, Natriumdampf, Miasma) und
+## (Glasbläserpfeife hebt es auf 6); Essenz-Geld (Neon, Natriumdampf, Miasma) und
 ## Helium-Wachstum reiten in derselben Schleife. Alles je Effekt-Aktivierung.
 ## essences/order: Slot -> Essenz-id und die kanonische Zählreihenfolge - beide
 ## Achsen MÜSSEN dieselben sein wie in der Wertung (Argon & Co.).
@@ -480,7 +480,7 @@ static func _apply_contrast_agent(def: DieDefinition, face: int, essence_ids: Ar
 ## auf jeder anderen gewerteten Seite der Hand. Läuft NACH allen Wertwandeln des
 ## Zuges, damit Knochen/Glas exakt auf dem value_after der Simulation landen.
 ## Stickstoff (Würfel) und Einbrand (Seite) verhindern die Halbierung - dann
-## bekommt auch niemand etwas. Mit Räucherwerk steckt der Dunst weiter an, OHNE
+## bekommt auch niemand etwas. Mit dem Weihrauchfass steckt der Dunst weiter an, OHNE
 ## dass die Quelle verliert.
 static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int], essences: Dictionary, charm_ids: Array[String], report: TakeReport) -> void:
 	for i in participating:

@@ -11,8 +11,8 @@ func test_all_returns_all_charms():
 	# Doppelte Perforation, Doppelte Sechs, Glücksknoten, Großformat,
 	# Hausmarke, Legierung und Nachzügler.
 	# +11 außerhalb des Katalogs: Beherit, Hochstapler, Prime Time, Vorreiter,
-	# Hausjoker, Gratis Getränk, Rampenlicht, Midashandschuh, Goldader,
-	# Blood Diamond, Knochenmark.
+	# Hausjoker, Freigetränk, Rampenlicht, Midashandschuh, Goldader,
+	# Blutdiamant, Knochenmark.
 	# +3 Verwandler: Zylinderhut, Silberdollar, Achterknoten.
 	# −3 mit den Kanten: Rahmenvergolder (wäre ein Doppel des Goldschmieds),
 	# Magnetring und Zargenglanz hatten kein Ziel mehr.

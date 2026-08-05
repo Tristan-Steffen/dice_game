@@ -508,7 +508,7 @@ func test_glass_stops_at_the_floor():
 	assert_eq(report.shrunk, [], "was nicht fällt, meldet auch nichts")
 
 func test_glass_shrinks_to_the_lungs_floor():
-	# Die Glasbläserlunge hebt nur den Boden: der Schritt läuft weiter.
+	# Die Glasbläserpfeife hebt nur den Boden: der Schritt läuft weiter.
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _ids([Charm.GLASSBLOWER_LUNG]))
 	assert_eq(defs[0].faces[0], 39, "normal frisst 1 - auch mit Lunge")

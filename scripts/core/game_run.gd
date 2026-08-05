@@ -626,7 +626,7 @@ func open_pack(index: int) -> Dictionary:
 		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
 	else:
 		# Das Paket bringt seine eigene Untergrenze mit (Automaten-Stufe); es gilt
-		# die höhere von beiden. Die Zugabe legt je Vorkommen ein Stück aus dem
+		# die höhere von beiden. Das Füllhorn legt je Vorkommen ein Stück aus dem
 		# EIGENEN Topf des Pakets obendrauf.
 		var floor_rarity := maxi(pack.rarity_floor, pack_engraving_floor()) as Engraving.Rarity
 		result["engravings"] = pack.roll_engravings(floor_rarity,

@@ -5,7 +5,7 @@ class_name CharmEffects
 ##
 ## Trigger-Reihenfolge der Wertung (fix, KEINE Ausnahmen). Zwei Charm-Klassen:
 ##   - WÜRFELGEBUNDEN (die_charm_*-Hooks): der Effekt hängt an einem konkreten
-##     Würfel (Breitband je Kombi-Würfel, Hochstapler am höchsten,
+##     Würfel (Mehrfachstecker je Kombi-Würfel, Hochstapler am höchsten,
 ##     Beherit am niedrigsten gewerteten). Sie feuern MIT ihrem Würfel in der
 ##     Würfelphase - und je Aktivierung erneut (Quecksilber, Hasenpfote & Co.,
 ##     Echo-Kammer).
@@ -19,10 +19,10 @@ class_name CharmEffects
 ## wertungsrelevant - Vorschau, Wertung und Anzeige nutzen deshalb dieselbe
 ## kanonische Ordnung.
 
-## Alles-oder-nichts: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
+## Roter Knopf: +Mult je Voll-Neuwurf (auch für die Tisch-Anzeige genutzt).
 const ALL_OR_NOTHING_MULT := 10
 
-## Flache Dauer-Boni ohne Bedingung (Hausjoker, Gratis Getränk).
+## Flache Dauer-Boni ohne Bedingung (Hausjoker, Freigetränk).
 const HOUSE_JOKER_MULT := 4
 const FREE_DRINK_BASE := 50
 
@@ -33,7 +33,7 @@ const FULL_HAND_DICE := 6
 ## Quadratur: ab so vielen gewerteten Würfeln legt sie los.
 const QUADRATURE_MIN_DICE := 4
 
-## Gleichmacher: Basispunkt-Boden je beteiligtem Würfel.
+## Equalizer: Basispunkt-Boden je beteiligtem Würfel.
 const EQUALIZER_FLOOR := 10
 
 ## Kleinvieh: was eine beteiligte 1 oder 2 einbringt - Basis in eye_value, Mult
@@ -54,11 +54,11 @@ const EMPTY_PLINTH_MULT := 3
 ## Leuchtfarbe: Mult je Rune auf einem gewerteten Würfel.
 const LUMINOUS_PAINT_MULT := 2
 
-## Vitrine: Mult je oben liegender Material-Seite. Momentum: je Hand in Folge.
+## Vitrine: Mult je oben liegender Material-Seite. Schwungrad: je Hand in Folge.
 const DISPLAY_CASE_MULT := 4
 const MOMENTUM_MULT := 2
 
-## Werksglanz: Basispunkte je gewertetem Würfel ohne Material, Rune und Essenz.
+## Schutzfolie: Basispunkte je gewertetem Würfel ohne Material, Rune und Essenz.
 const FACTORY_FINISH_BASE := 15
 
 ## Metronom: Basispunkte je Paar von Würfeln, die beide genau EINMAL zünden.
@@ -86,8 +86,8 @@ static func pendulum_mult(ctx: Dictionary) -> int:
 ## const, damit ein Tippfehler beim Setzen (scene_root) ODER Lesen ein Compile-
 ## Fehler ist - nicht der stille Null-Rückfall von ctx.get(). Werte je Schlüssel:
 ##   PENDULUM      int   - akkumulierter Pendel-Mult (überlebt Runden)
-##   FULL_REROLLS  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Alles-oder-nichts)
-##   STREAK        int   - genommene Hände in Folge ohne Farkle (Momentum)
+##   FULL_REROLLS  int   - Neuwürfe ALLER 6 seit dem letzten Nehmen (Roter Knopf)
+##   STREAK        int   - genommene Hände in Folge ohne Farkle (Schwungrad)
 ##   POOL_EMPTY    bool  - kein Würfel mehr im Nachziehstapel (Feierabendbier)
 ##   AFTER_FARKLE  bool  - erste Hand nach einem Farkle (Galgenhumor)
 ##   FARKLE_STACKS int   - Farkles des gesamten Runs (Zerbrochener Spiegel)
@@ -183,7 +183,7 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 	for charm_id in charm_ids:
 		if charm_id == Charm.SMALL_FRY and is_small_fry_value(face_value):
 			value += SMALL_FRY_BASE
-	# Gleichmacher zuletzt (unabhängig von der Besitz-Reihenfolge): min. 10.
+	# Equalizer zuletzt (unabhängig von der Besitz-Reihenfolge): min. 10.
 	if charm_ids.has(Charm.EQUALIZER):
 		value = maxi(value, EQUALIZER_FLOOR)
 	return value
@@ -195,7 +195,7 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 ## order: die gewerteten Slots in ZÄHLREIHENFOLGE - der Vorreiter meint deren Kopf.
 ## value_override > 0: die feuernde Augenzahl dieser Zündung (laufender Wert oder
 ## Leiterbahn-Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
-## materials: die Material-id der OBEN liegenden Seite je Slot - der Werksglanz
+## materials: die Material-id der OBEN liegenden Seite je Slot - die Schutzfolie
 ## ist der einzige Charm hier, der nach ihr fragt.
 static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], value_override: int = 0, materials: Array[String] = []) -> int:
 	match charm_ids[j]:
@@ -218,7 +218,7 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 				return value * value
 	return 0
 
-## Werksglanz-Prüfung: der Würfel zeigt eine nackte Seite (kein Material, keine
+## Schutzfolie-Prüfung: der Würfel zeigt eine nackte Seite (kein Material, keine
 ## Rune) und trägt keine eigene Seele. Gemessen wird an der OBEREN Seite - mehr
 ## kennt die Wertung von einem Würfel nicht.
 static func _is_bare_die(slot: int, materials: Array[String], ctx: Dictionary) -> bool:
@@ -857,11 +857,11 @@ static func has_phoenix(charm_ids: Array[String]) -> bool:
 static func draws_materials_first(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.FRESH_GOODS)
 
-## Recycling: die erste genommene Hand jeder Runde kehrt in den Stapel zurück.
+## Bumerang: die erste genommene Hand jeder Runde kehrt in den Stapel zurück.
 static func recycles_first_hand(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.RECYCLING)
 
-## Charm-Preis nach Skonto (je Vorkommen -$5, min. $1).
+## Charm-Preis nach Rabattmarke (je Vorkommen -$5, min. $1).
 static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
 	var price := base_price
 	for charm_id in charm_ids:
@@ -908,6 +908,6 @@ const CLAMP_SPARE_CAP := 0.75
 static func engraving_spare_chance(charm_ids: Array[String]) -> float:
 	return minf(charm_ids.count(Charm.CLAMP) * CLAMP_SPARE_CHANCE, CLAMP_SPARE_CAP)
 
-## Zugabe: so viele Stücke legt jedes GRAVUR-Paket obendrauf (je Vorkommen eins).
+## Füllhorn: so viele Stücke legt jedes GRAVUR-Paket obendrauf (je Vorkommen eins).
 static func pack_extra_engravings(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.ENCORE)

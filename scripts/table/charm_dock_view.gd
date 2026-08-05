@@ -63,7 +63,7 @@ var _body_label: Label
 var _sell_label: Label
 var _sell_rect := Rect2()
 var _sell_values: Array[int] = []
-## Dauer-Chips mit laufendem Wert UNTER den Karten (Alles-oder-nichts-/Momentum-
+## Dauer-Chips mit laufendem Wert UNTER den Karten (Roter-Knopf-/Schwungrad-
 ## Mult, Lumpensammler-Glückszahl); scene_root füllt sie über set_badges.
 ## Ein Chip je Platz, leerer Text = versteckt.
 var _badge_labels: Array[Label] = []

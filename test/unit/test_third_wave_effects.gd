@@ -49,7 +49,7 @@ func _soul_ctx(essence_id: String) -> Dictionary:
 func _pair_score(charm_ids: Array[String], ctx: Dictionary) -> int:
 	return DiceScoring.score_category(PAIR, _d([5, 5]), charm_ids, false, _m(["", ""]), {}, ctx)
 
-# --- Tscherenkow-Licht & Moderator: die gelagerte Energie kritet -------------------
+# --- Tscherenkow-Licht & Steuerstab: die gelagerte Energie kritet -------------------
 
 func test_the_cherenkov_crit_rides_the_stored_charge():
 	var soul := _ids([Essence.CHERENKOV])
@@ -61,7 +61,7 @@ func test_the_moderator_shrinks_the_divisor():
 	var soul := _ids([Essence.CHERENKOV])
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, _ids([Charm.MODERATOR]), 10), 6.0, 0.0001)
 	assert_almost_eq(EssenceEffects.crit_of(_ids([Essence.NEON]), 5, 0, 0, 0, _ids([Charm.MODERATOR]), 10),
-		1.0, 0.0001, "der Moderator gehört dem Tscherenkow allein")
+		1.0, 0.0001, "der Steuerstab gehört dem Tscherenkow allein")
 
 func test_the_cherenkov_crit_lands_in_the_score():
 	var ctx := _soul_ctx(Essence.CHERENKOV)

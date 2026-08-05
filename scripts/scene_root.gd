@@ -471,9 +471,9 @@ var player_order: Array[int] = []
 var rerolls_this_hand: int = 0  # Anker
 var taken_dice_this_round: int = 0  # nur Statistik/Report (Nebenwetten)
 var pendulum_acc: int = 0  # Pendel: akkumulierter Mult, überlebt Runden (+2/Neuwurf, -1/genommen)
-var full_reroll_stacks: int = 0  # Alles-oder-nichts
+var full_reroll_stacks: int = 0  # Roter Knopf
 var _pendulum_shown: int = 0  # zuletzt angezeigter Pendel-Mult (Schwung-Animation)
-var momentum_streak: int = 0  # Momentum
+var momentum_streak: int = 0  # Schwungrad
 var first_hand_after_farkle: bool = false  # Galgenhumor
 var recycling_used_this_round: bool = false
 var slot_draw_positions: Array[int] = []  # je Slot die Zieh-Position (Bodensatz)
@@ -4603,7 +4603,7 @@ func _on_throw_button_pressed() -> void:
 				active_kinds[i] = _draw_one()
 				thrown_indices.append(i)
 		dice.set_slot_defs(active_kinds)
-		# Effektkatalog-Zähler: Pendel, Anker, Alles-oder-nichts.
+		# Effektkatalog-Zähler: Pendel, Anker, Roter Knopf.
 		rerolls_this_hand += 1
 		pendulum_acc += 2 * thrown_indices.size()  # Pendel schwingt hoch (überlebt Runden)
 		if thrown_indices.size() == dice.count():
@@ -4917,7 +4917,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	round_farkled = true
 	_refresh_side_bet_panel()
 
-	# Zerbrochener Spiegel zählt, die Momentum-Serie reißt, Galgenhumor merkt vor.
+	# Zerbrochener Spiegel zählt, die Schwungrad-Serie reißt, Galgenhumor merkt vor.
 	run.farkle_count += 1
 	# Vulkanblitz/Aschewolke: der Zähler der Runde und der run-lange. Der
 	# Trostpreis prägt seine Energie gleich mit - gebucht in GameRun, das Licht
@@ -5178,7 +5178,7 @@ func _on_take_button_pressed() -> void:
 				return  # Reset während der Zeremonie
 	phase = Phase.IDLE
 
-	# Momentum/Galgenhumor/Pendel/Alles-oder-nichts fortschreiben.
+	# Schwungrad/Galgenhumor/Pendel/Roter Knopf fortschreiben.
 	momentum_streak += 1
 	first_hand_after_farkle = false
 	taken_dice_this_round += dice.count()
@@ -5196,7 +5196,7 @@ func _on_take_button_pressed() -> void:
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
-	# Recycling: die erste genommene Hand kehrt ans Stapel-Ende zurück.
+	# Bumerang: die erste genommene Hand kehrt ans Stapel-Ende zurück.
 	if CharmEffects.recycles_first_hand(ids) and not recycling_used_this_round:
 		recycling_used_this_round = true
 		round_pool_kinds.append_array(active_kinds)
@@ -6204,7 +6204,7 @@ func _start_new_hand() -> void:
 	active_kinds = []
 	rerolls_this_hand = 0
 	_update_charm_badges()
-	# full_reroll_stacks bleibt stehen - Alles-oder-nichts stapelt bis zum
+	# full_reroll_stacks bleibt stehen - der Rote Knopf stapelt bis zum
 	# nächsten NEHMEN, nicht je Hand.
 	dice.reset()
 	_refresh_deck_trays()

@@ -283,7 +283,7 @@ func test_retrigger_interleaves_the_per_die_charm_share():
 	var acts: Array = _firings(step)
 	assert_eq(acts.size(), 2)
 	for pulse: Dictionary in acts:
-		assert_eq(int(pulse["charm_base_add"]), 5, "Breitband-Anteil je Auslösung")
+		assert_eq(int(pulse["charm_base_add"]), 5, "Mehrfachstecker-Anteil je Auslösung")
 	assert_eq(int(acts[1]["base_after"]), int(acts[0]["charm_base_after"]) + int(acts[1]["base_add"]),
 		"Würfel-Puls 2 startet nach Charm-Anteil 1")
 	assert_eq(int(acts[1]["charm_base_after"]), int(step["base_after"]), "Ende der Kette = Schritt-Endstand")
@@ -318,13 +318,13 @@ func test_additive_charm_gets_its_own_step():
 	assert_eq(steps[0]["mult_add"], 8, "Hufeisen: Full House +8 Mult")
 
 func test_per_die_charm_fires_inside_the_die_step():
-	# Breitband feuert MIT jedem beteiligten Würfel, nicht in der Charm-Phase:
+	# Mehrfachstecker feuert MIT jedem beteiligten Würfel, nicht in der Charm-Phase:
 	# zwei Kopien -> +10 im Schritt jedes Paar-Würfels, beide Positionen genannt.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.BROADBAND, Charm.BROADBAND]))
 	var steps: Array = breakdown["die_steps"]
 	assert_eq(steps.size(), 2)
 	for step: Dictionary in steps:
-		assert_eq(step["charm_base_add"], 10, "beide Breitband-Kopien am Würfel selbst")
+		assert_eq(step["charm_base_add"], 10, "beide Mehrfachstecker-Kopien am Würfel selbst")
 		assert_eq(step["die_charm_indices"], [0, 1])
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
 
@@ -373,7 +373,7 @@ func test_spotlight_stays_silent_on_a_different_combination():
 	assert_eq(breakdown["charm_steps"].size(), 0, "andere Kombination, kein Schritt")
 
 func test_crit_charm_respects_dock_order():
-	# KEINE Ausnahmen: Einserkult VOR Momentum kritet dessen +6 nicht,
+	# KEINE Ausnahmen: Einserkult VOR Schwungrad kritet dessen +6 nicht,
 	# dahinter schon - und die Schrittliste läuft in Besitz-Reihenfolge.
 	var ctx := {CharmEffects.CTX_STREAK: 3}
 	var dice := _d([5, 5, 1, 2, 3, 6])

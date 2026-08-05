@@ -237,7 +237,7 @@ func test_engraving_packs_persist_when_flipping_back():
 		back_types.append(pack.type)
 	assert_eq(back_types, first_types, "zurückgeblättert = dasselbe Sortiment")
 
-# --- Rabatt-Charms im Shop (Skonto, Wechselgeld, Mengenrabatt) -------------------
+# --- Rabatt-Charms im Shop (Rabattmarke, Trickdieb-Manschette, Mengenrabatt) -----
 
 ## Zwingt bestimmte Charms als Angebot auf die aktuelle Doppelseite (das echte
 ## Angebot ist zufällig) - für Tests, die einen Shop-Charm IM Besuch kaufen.
@@ -253,10 +253,10 @@ func _force_charm_options(charms: Array) -> void:
 	shop._show_spread()
 
 func test_cash_discount_lowers_the_second_charm_in_the_same_visit():
-	# Skonto kaufen ($15), danach kostet der zweite Charm sofort $10.
+	# Rabattmarke kaufen ($15), danach kostet der zweite Charm sofort $10.
 	_force_charm_options([Charm.cash_discount(), Charm.rabbits_foot()])
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 85, "Skonto selbst kostet den vollen Preis")
+	assert_eq(run.money, 85, "die Rabattmarke selbst kostet den vollen Preis")
 	shop._on_charm_clicked(1)
 	assert_eq(run.money, 75, "der nächste Charm kostet im selben Besuch $10")
 	assert_true(shop.charm_bought[0] and shop.charm_bought[1], "beide als gekauft vermerkt")
@@ -269,7 +269,7 @@ func test_cash_discount_lowers_charm_price():
 		pass_test("keine Charm-Angebote auf dieser Seite ausgewürfelt")
 		return
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 90, "Skonto: $10 statt $15")
+	assert_eq(run.money, 90, "Rabattmarke: $10 statt $15")
 
 func test_bulk_discount_only_hits_triple_packs():
 	run.owned_charms.append(Charm.bulk_discount())

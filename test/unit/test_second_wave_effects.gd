@@ -1,7 +1,7 @@
 extends GutTest
 ## Tier-1-Tests der Wirkungen, die mit der zweiten Inhalts-Welle dazukamen und
 ## auf der bestehenden Wertungs-Verdrahtung sitzen: Acetylen/Schneidbrenner,
-## Werksglanz, Leuchtfarbe, Leerer Sockel, Metronom, Stroboskop, Rücklicht,
+## Schutzfolie, Leuchtfarbe, Leerer Sockel, Metronom, Stroboskop, Rücklicht,
 ## Manometer, Lichtsäule/Eisspiegel und das Schwarzlicht-Geld.
 
 func _d(values: Array) -> Array[int]:
@@ -60,7 +60,7 @@ func test_acetylene_stays_dark_without_an_upgrade():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
 		_m(["", ""]), {}, soul), (10 + 10) * 2)
 
-# --- Werksglanz: der fabrikneue Würfel ------------------------------------------
+# --- Schutzfolie: der fabrikneue Würfel ------------------------------------------
 
 func test_the_factory_finish_pays_only_bare_dice():
 	var ids := _ids([Charm.FACTORY_FINISH])

@@ -227,7 +227,7 @@ func test_high_stacker_also_lights_other_combinations():
 	assert_eq(CharmEffects.die_charm_target_mult_at(0, 5, _d([2, 2, 1, 3, 4, 6]), ids, _p([0, 1])), 0)
 
 func test_flat_charms_pay_without_a_condition():
-	# Hausjoker und Gratis Getränk hängen an keiner Kombination: Paar Fünfer,
+	# Hausjoker und Freigetränk hängen an keiner Kombination: Paar Fünfer,
 	# Basis (10 + 10 Augen + 50) × Mult (2 + 4) = 420.
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.HOUSE_JOKER])), 4)
 	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.ONE_KIND, _d(PAIR), _p([0]), _ids([Charm.FREE_DRINK])), 50)
@@ -473,7 +473,7 @@ func test_beherit_crits_once_per_activation_of_its_die():
 	assert_eq(score, 87)
 
 func test_per_die_charms_retrigger_with_their_die():
-	# Breitband feuert je Auslösung seines Würfels: Basis (10 + (5+5)×2 + 5+5)
+	# Mehrfachstecker feuert je Auslösung seines Würfels: Basis (10 + (5+5)×2 + 5+5)
 	# × Mult 2 = 40 × 2 = 80.
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND]), false, NO_MATS, {}, _argon(0))
 	assert_eq(score, 80)
@@ -805,13 +805,13 @@ func test_rag_collector_rerolls_lucky_value_each_round():
 func test_additive_bonuses_stack_per_occurrence():
 	# Genau das machen die Totems: dieselbe id liegt zweimal in der Liste.
 	var twice := _ids([Charm.BROADBAND, Charm.BROADBAND])
-	assert_eq(CharmEffects.die_charm_base(0, DiceScoring.TWO_KIND, _d(PAIR), twice), 10, "zweimal Breitband: +10 je Würfel")
+	assert_eq(CharmEffects.die_charm_base(0, DiceScoring.TWO_KIND, _d(PAIR), twice), 10, "zweimal Mehrfachstecker: +10 je Würfel")
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.MOMENTUM, Charm.MOMENTUM]), {"streak": 3}), 12)
 	assert_eq(CharmEffects.round_end_income(30, 0, _ids([Charm.INTEREST_PENNY, Charm.INTEREST_PENNY])), 6)
 	assert_eq(CharmEffects.take_income(_ids([Charm.STREET_MUSICIAN, Charm.STREET_MUSICIAN]), 2), 4)
 
 func test_totem_copy_actually_doubles_a_scoring_charm():
-	# Ende-zu-Ende: Papagei neben Breitband -> +10 Basis wird +20.
+	# Ende-zu-Ende: Papagei neben Mehrfachstecker -> +10 Basis wird +20.
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.broadband())
 	run.owned_charms.append(Charm.parrot_totem())
@@ -819,7 +819,7 @@ func test_totem_copy_actually_doubles_a_scoring_charm():
 	assert_eq(score, 80, "(10 Punkte + 10 Augen + 2×10) × 2")
 
 func test_totem_chain_resolves_each_neighbor_independently():
-	# [Breitband, Papagei, Echo, Hufeisen]: Papagei kopiert links (Breitband),
+	# [Mehrfachstecker, Papagei, Echo, Hufeisen]: Papagei kopiert links (Mehrfachstecker),
 	# Echo kopiert rechts (Hufeisen).
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.broadband())

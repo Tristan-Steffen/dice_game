@@ -1339,7 +1339,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	_show_spread()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
-## Shop-Charms (Skonto, Wechselgeld, ...) wirken schon in DIESEM Besuch -
+## Shop-Charms (Rabattmarke, Trickdieb-Manschette, ...) wirken schon in DIESEM Besuch -
 ## alle Preisschilder und Schwellen zeigen sonst alte Preise.
 func _on_charm_clicked(index: int) -> void:
 	var charm := charm_options[index]
