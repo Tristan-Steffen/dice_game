@@ -525,11 +525,11 @@ func test_bone_marrow_adds_one_flat_trigger():
 	# Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _ids([Charm.BONE_MARROW]))
-	assert_eq(defs[0].faces[0], 7, "zwei Auslösungen à +1")
+	assert_eq(defs[0].faces[0], 9, "zwei Auslösungen à +2")
 	var twice: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(twice, _p([0]), _m([DieMaterial.BONE]), _p([0]),
 		_ids([Charm.BONE_MARROW, Charm.BONE_MARROW, Charm.BONE_GLUE]))
-	assert_eq(twice[0].faces[0], 13, "Leim setzt den Satz 4, das Mark bleibt bei zwei Auslösungen")
+	assert_eq(twice[0].faces[0], 15, "Leim setzt den Satz 5, das Mark bleibt bei zwei Auslösungen")
 
 func test_mercury_vapor_lifts_every_retrigger_essence():
 	# Das verbannte Material lebt als Verstärker weiter: es hebt JEDEN Essenz-
@@ -543,7 +543,7 @@ func test_goldsmith_and_bone_glue_strengthen_takes():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE]), _p([0, 1]), _ids([Charm.GOLDSMITH, Charm.BONE_GLUE]))
 	assert_eq(report.money, 6, "Goldschmied legt $3 auf die $3")
-	assert_eq(defs[1].faces[0], 9, "Knochenleim wächst +4")
+	assert_eq(defs[1].faces[0], 10, "Knochenleim wächst +5: Stufe I +2 plus Aufschlag +3")
 
 func test_glassblower_lung_holds_the_glass_floor_at_six():
 	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]

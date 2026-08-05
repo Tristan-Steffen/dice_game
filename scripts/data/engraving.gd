@@ -6,7 +6,7 @@ extends Resource
 ## Kategorien: Zahl (verändert Augen), Material (belegt eine Seite), Würfel
 ## (verdrahtet den ganzen Würfel). Kombinationen wertet die Systemkonsole auf.
 
-enum Rarity { COMMON, UNCOMMON, RARE, EPIC }
+enum Rarity { COMMON, UNCOMMON, RARE, EPIC, LEGENDARY }
 
 # categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
 # (id = Material-id), WÜRFEL wirkt auf den ganzen Würfel (bislang nur die
@@ -67,43 +67,11 @@ static func is_number_id(engraving_id: String) -> bool:
 ## Konvention: Textur-Dateiname = Gravur-id (chisel.jpg, ...).
 const TEXTURE_DIR := "res://assets/textures/engravings/"
 
-## Fläche (Breite × Höhe in Rasterzellen) je Gravur - die Fläche IST die
-## Rarität (bestimmt die Ziehgewichtung).
-const FOOTPRINT := {
-	CHISEL: Vector2i(3, 2),
-	GRINDSTONE: Vector2i(2, 1),
-	NOTCH: Vector2i(1, 1),
-	FILE_DOWN: Vector2i(1, 1),
-	AVERAGING: Vector2i(2, 2),
-	STRAIGHTEN: Vector2i(2, 3),
-	POLISH: Vector2i(2, 2),
-	SANDPAPER: Vector2i(2, 2),
-	PUNCH: Vector2i(3, 2),
-	BLUEPRINT: Vector2i(3, 3),
-	POINTER: Vector2i(3, 3),
-	DOPING: Vector2i(3, 3),
-	# Runen (Würfel-Kategorie) - die Fläche IST die Seltenheit
-	RUNE_PREFIX + Rune.STRAY_LIGHT: Vector2i(1, 1),
-	RUNE_PREFIX + Rune.BURN_IN: Vector2i(2, 1),
-	RUNE_PREFIX + Rune.AFTERGLOW: Vector2i(2, 2),
-	RUNE_PREFIX + Rune.SPARK_FLIGHT: Vector2i(2, 2),
-	RUNE_PREFIX + Rune.CAST: Vector2i(2, 2),
-	RUNE_PREFIX + Rune.REVERSE: Vector2i(2, 2),
-	# Material-Gravuren (id = Material-id)
-	DieMaterial.GOLD: Vector2i(1, 1),
-	DieMaterial.AMBER: Vector2i(2, 1),
-	DieMaterial.GLASS: Vector2i(1, 2),
-	DieMaterial.BONE: Vector2i(2, 2),
-	DieMaterial.RUBY: Vector2i(2, 2),
-}
-
 @export var id: String = ""
 @export var display_name: String = ""
 @export var description: String = ""
 @export var category: String = CATEGORY_NUMBER
 @export var rarity: Rarity = Rarity.COMMON
-@export var width: int = 1  # Fläche in Rasterzellen (siehe FOOTPRINT)
-@export var height: int = 1
 @export var texture_path: String = ""
 
 static func _make(engraving_id: String, name: String, desc: String, rarity: Rarity, category := CATEGORY_NUMBER) -> Engraving:
@@ -113,16 +81,13 @@ static func _make(engraving_id: String, name: String, desc: String, rarity: Rari
 	engraving.description = desc
 	engraving.rarity = rarity
 	engraving.category = category
-	var size: Vector2i = FOOTPRINT.get(engraving_id, Vector2i.ONE)
-	engraving.width = size.x
-	engraving.height = size.y
 	engraving.texture_path = TEXTURE_DIR + engraving_id + ".jpg"
 	return engraving
 
 # --- Zahl-Gravuren: verändern die Seiten EINES Würfels (siehe EtchingEffects) ---
 
 static func chisel() -> Engraving:
-	return _make(CHISEL, "Meißel", "Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.", Rarity.RARE)
+	return _make(CHISEL, "Meißel", "Kopiere eine Seite eines Würfels auf eine andere Seite desselben Würfels.", Rarity.EPIC)
 
 static func grindstone() -> Engraving:
 	return _make(GRINDSTONE, "Schleifstein", "−1 auf eine Seite, +1 auf eine andere Seite desselben Würfels.", Rarity.COMMON)
@@ -149,7 +114,7 @@ static func punch() -> Engraving:
 	return _make(PUNCH, "Stanze", "+5 auf eine Seite.", Rarity.RARE)
 
 static func blueprint() -> Engraving:
-	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.EPIC)
+	return _make(BLUEPRINT, "Blaupause", "Setze alle Seiten des Würfels auf den Wert einer gewählten Seite.", Rarity.LEGENDARY)
 
 ## Runen-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
 ## darüber, die übrigen vier sind die begehrten Zeichen - Abguss und Kehrseite
@@ -288,21 +253,26 @@ static func rarity_name(value: Rarity) -> String:
 			return "selten"
 		Rarity.EPIC:
 			return "episch"
+		Rarity.LEGENDARY:
+			return "legendär"
 	return "?"
 
 ## Anzeigename der Kategorie einer Gravur.
 func category_name() -> String:
 	return CATEGORY_NAMES.get(category, category)
 
-## Ziehgewicht je Seltenheit (relativ).
+## Ziehgewicht je Seltenheit (relativ). Die Leiter ist nach unten gespreizt,
+## damit die legendäre Stufe bei Gewicht 1 Platz hat.
 static func _rarity_weight(value: Rarity) -> int:
 	match value:
 		Rarity.COMMON:
-			return 16
+			return 64
 		Rarity.UNCOMMON:
-			return 6
+			return 24
 		Rarity.RARE:
-			return 2
+			return 8
 		Rarity.EPIC:
+			return 4
+		Rarity.LEGENDARY:
 			return 1
 	return 1

@@ -105,7 +105,8 @@ static func size_for(drawer_category: String, unit: float) -> Vector2:
 ## kanonische Reihenfolge, damit die Geografie stabil liegt.
 static func _archetypes_of(drawer_category: String) -> Array[Engraving]:
 	var out: Array[Engraving] = []
-	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE, Engraving.Rarity.EPIC]:
+	for rarity in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON, Engraving.Rarity.RARE,
+			Engraving.Rarity.EPIC, Engraving.Rarity.LEGENDARY]:
 		for archetype in Engraving.all():
 			if _belongs_to(archetype, drawer_category) and archetype.rarity == rarity:
 				out.append(archetype)

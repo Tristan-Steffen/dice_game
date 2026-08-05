@@ -83,6 +83,7 @@ const SINGLE_ENGRAVING_PRICES := {
 	Engraving.Rarity.UNCOMMON: 9,
 	Engraving.Rarity.RARE: 13,
 	Engraving.Rarity.EPIC: 18,
+	Engraving.Rarity.LEGENDARY: 25,
 }
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -

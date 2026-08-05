@@ -184,7 +184,7 @@ func test_a_twice_fired_bone_link_counts_the_grown_value():
 	def.faces[2] = 4
 	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([]), rng)
 	assert_eq(int((groups[0] as Array)[0]["value"]), 4, "erste Zündung: der gedruckte Wert")
-	assert_eq(int((groups[1] as Array)[0]["value"]), 5, "zweite Zündung: der gewachsene")
+	assert_eq(int((groups[1] as Array)[0]["value"]), 6, "zweite Zündung: der gewachsene")
 
 # --- Wertung: gezündete Glieder --------------------------------------------------
 
@@ -312,7 +312,7 @@ func test_bone_and_glass_hit_the_link_face():
 	def.materials[2] = DieMaterial.BONE
 	var before: int = def.faces[2]
 	var report := _take(def, _fires(0, [_link(2, before, DieMaterial.BONE)]))
-	assert_eq(def.faces[2], before + 1, "Knochen wächst auf der GLIED-Seite")
+	assert_eq(def.faces[2], before + 2, "Knochen wächst auf der GLIED-Seite")
 	assert_true(report.grown.has(0))
 	var glass := DieDefinition.new()
 	glass.pointers[0] = 2
@@ -333,7 +333,7 @@ func test_a_twice_fired_bone_link_lands_where_the_simulation_counted():
 	var last_counted := int((groups[1] as Array)[0]["value"])
 	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([""]), _d([0]),
 		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), {0: groups})
-	assert_eq(def.faces[2], last_counted + 1, "die Def steht eine Wandlung hinter der letzten Zählung")
+	assert_eq(def.faces[2], last_counted + 2, "die Def steht eine Wandlung hinter der letzten Zählung")
 
 func test_both_axes_and_the_link_land_where_the_roll_counted():
 	# Argon (zwei Antritte) auf einem Knochen-Würfel, dessen Leiterbahn beide Male
@@ -350,11 +350,11 @@ func test_both_axes_and_the_link_land_where_the_roll_counted():
 	var groups := DiceScoring.roll_pointer_fires(def, 0, 2, 1, _ids([]), _ids([Essence.ARGON]), rng)
 	assert_eq((groups[0] as Array).size() + (groups[1] as Array).size(), 2, "beide Antritte trafen")
 	assert_eq(int((groups[0] as Array)[0]["value"]), 20, "erste Zündung: der gedruckte Wert")
-	assert_eq(int((groups[1] as Array)[0]["value"]), 21, "zweite Zündung: der gewachsene")
+	assert_eq(int((groups[1] as Array)[0]["value"]), 22, "zweite Zündung: der gewachsene")
 	MaterialEffects.apply_take_effects(_defs(def), _d([0]), _m([DieMaterial.BONE]), _d([0]),
 		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]), {0: groups})
-	assert_eq(def.faces[0], 22, "obere Seite: zwei Zündungen, je +1")
-	assert_eq(def.faces[2], 22, "Glied-Seite: zwei Zündungen, je +1")
+	assert_eq(def.faces[0], 24, "obere Seite: zwei Zündungen, je +2")
+	assert_eq(def.faces[2], 24, "Glied-Seite: zwei Zündungen, je +2")
 
 # --- Gesättigte Glieder: die Stufe des GLIEDS zählt, nicht die der oberen Seite ---
 
@@ -391,15 +391,15 @@ func test_ruby_link_adds_more_on_two_and_crits_on_three():
 	assert_eq(second, 288, "24 × (2 + 10)")
 	assert_eq(third, 96, "24 × (2 ×2)")
 
-func test_glass_link_crits_with_the_link_eyes():
+func test_a_glass_link_adds_on_two_and_crits_on_three():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats := _m(["", "", "", "", "", ""])
 	var second := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
 		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 2)]))
 	var third := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]),
 		false, no_mats, {}, _ctx_fires(0, [_link(2, 4, DieMaterial.GLASS, 3)]))
-	assert_eq(second, 192, "24 × (2 ×4) - der Krit nimmt die Augen des Glieds")
-	assert_eq(third, 576, "24 × ((2 + 4) ×4) - Stufe III addiert UND kritet")
+	assert_eq(second, 144, "24 × (2 + 4)")
+	assert_eq(third, 96, "24 × (2 ×2) - der Krit nimmt die halben Augen des Glieds")
 
 func test_a_gold_link_on_level_three_pays_the_raised_rate():
 	var def := _linked_die(DieMaterial.GOLD, 3)
@@ -409,12 +409,12 @@ func test_a_gold_link_on_level_three_pays_the_raised_rate():
 func test_bone_link_levels_grow_by_their_own_step():
 	var second := _linked_die(DieMaterial.BONE, 2, 40)
 	_take(second, _fires(0, [_link(2, 40, DieMaterial.BONE, 2)]))
-	assert_eq(second.faces[2], 44, "10 % von 40 - eine Zündung, ein Schritt")
+	assert_eq(second.faces[2], 45, "Stufe II wächst flach +5 - eine Zündung, ein Schritt")
 	var third := _linked_die(DieMaterial.BONE, 3, 40)
 	_take(third, _fires(0, [_link(2, 40, DieMaterial.BONE, 3)]))
-	assert_eq(third.faces[2], 48, "20 % von 40")
+	assert_eq(third.faces[2], 50, "20 % von 40 wären 8 - die Untergrenze +10 greift")
 
 func test_a_glass_link_shrinks_by_the_raised_step():
 	var def := _linked_die(DieMaterial.GLASS, 2, 40)
 	_take(def, _fires(0, [_link(2, 40, DieMaterial.GLASS, 2)]))
-	assert_eq(def.faces[2], 32, "20 % von 40")
+	assert_eq(def.faces[2], 37, "Stufe II frisst flach 3")

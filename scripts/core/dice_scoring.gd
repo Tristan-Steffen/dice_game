@@ -690,7 +690,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				if cascade_add > 0:
 					mult += float(cascade_add)
 					cascade_last = shown
-				# Material-Krit (Rubin III, Glas ab II), dann der Essenz-Krit - beide
+				# Material-Krit (Rubin III, Glas III), dann der Essenz-Krit - beide
 				# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
 				# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
 				# das Grubengas zündet an JEDEM Krit sofort mit.

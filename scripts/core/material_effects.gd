@@ -27,13 +27,22 @@ const AMBER_BASE_2 := 50
 const AMBER_ROOM_SURPLUS := 80
 const AMBER_EYE_FACTOR := 5       # Stufe III: nur noch Augensumme, dafür ×5
 
-## Knochen wächst ab Stufe II prozentual (mind. +3), Glas schrumpft ab Stufe II
-## um mind. 5 bzw. 20 % - beides je Auslösung am schon veränderten Wert.
-const BONE_GROWTH_MIN := 3
-const BONE_GROWTH_PERCENT := 10
+## Knochen wächst auf I und II flach und erst auf III prozentual (mind. +10);
+## Glas schrumpft flach und halbiert sich auf III - beides je Auslösung am schon
+## veränderten Wert.
+const BONE_GROWTH := 2
+const BONE_GROWTH_2 := 5
+const BONE_GROWTH_MIN_3 := 10
 const BONE_GROWTH_PERCENT_3 := 20
-const GLASS_SHRINK_MIN := 5
-const GLASS_SHRINK_PERCENT := 20
+const GLASS_SHRINK := 1
+const GLASS_SHRINK_2 := 3
+const GLASS_SHRINK_PERCENT_3 := 50
+
+## Glas zählt auf Stufe I höchstens eine 6 - dass dieser Deckel fällt, IST der
+## Aufstieg auf Stufe II. Stufe III addiert gar nicht mehr, sie kritet mit der
+## halben Augenzahl.
+const GLASS_EYE_CAP := 6
+const GLASS_CRIT_DIVISOR := 2.0
 
 ## Glasbläserlunge: Glas schrumpft weiter, aber nie unter diesen Wert.
 const GLASSBLOWER_LUNG_FLOOR := 6
@@ -129,7 +138,7 @@ static func mult_bonus_once(i: int, values: Array[int], materials: Array[String]
 
 ## Wie mult_bonus_once über die Material-id; value ist die feuernde Augenzahl
 ## (beim Leiterbahn-Glied die der Zielseite). Was kritet, addiert hier NICHT
-## (Rubin III, Glas II) - siehe mult_crit_once_for; nur der Blood Diamond
+## (Rubin III, Glas III) - siehe mult_crit_once_for; nur der Blood Diamond
 ## bleibt beim Rubin auf jeder Stufe additiv, damit der Krit nicht exponentiell wird.
 static func mult_once_for(face_material: String, value: int, charm_ids: Array[String], level: int = 1) -> int:
 	# Der Blood Diamond legt die Augenzahl EINMAL drauf, nie je Exemplar.
@@ -137,20 +146,21 @@ static func mult_once_for(face_material: String, value: int, charm_ids: Array[St
 	var repeats := payoff_repeats(level, charm_ids)
 	if face_material == DieMaterial.RUBY:
 		return (_ruby_mult(level) + value * eye_stacks) * repeats
-	# Stufe II tauscht das Additive gegen den Krit, Stufe III hat beides.
-	if face_material == DieMaterial.GLASS and level != 2:
-		return value * repeats
+	if face_material == DieMaterial.GLASS:
+		return _glass_mult(value, level) * repeats
 	return 0
 
 ## Material-Krit EINER Auslösung: eine Seite trägt genau ein Material - also
-## höchstens ein Faktor. 1 = kein Krit. Rubin kritet erst auf der letzten Stufe,
-## Glas schon ab der zweiten.
+## höchstens ein Faktor. 1 = kein Krit. Beide Kriter warten bis zur letzten
+## Stufe; unter ×1 drückt keiner, ein Krit macht eine Hand nie schlechter.
 static func mult_crit_once_for(face_material: String, value: int, _charm_ids: Array[String], level: int) -> float:
+	if level < DieMaterial.MAX_LEVEL:
+		return 1.0
 	match face_material:
 		DieMaterial.RUBY:
-			return float(RUBY_CRIT) if level >= DieMaterial.MAX_LEVEL else 1.0
+			return float(RUBY_CRIT)
 		DieMaterial.GLASS:
-			return maxf(1.0, float(value)) if level >= 2 else 1.0
+			return maxf(1.0, float(value) / GLASS_CRIT_DIVISOR)
 	return 1.0
 
 ## Stufen-Infos eines Slots (Form wie DiceScoring.CTX_MATERIAL_LEVELS).
@@ -182,8 +192,10 @@ static func _ruby_mult(level: int) -> int:
 ## Knochenleim legt +3 auf den Wachstumsschritt - einmalig, nicht je Exemplar.
 const BONE_GLUE_SURPLUS := 3
 
-static func bone_growth_step(charm_ids: Array[String]) -> int:
-	return 1 + (BONE_GLUE_SURPLUS if charm_ids.has(Charm.BONE_GLUE) else 0)
+## Wachstumsschritt einer Knochen-Seite auf ihrer Stufe; der Knochenleim legt
+## seinen Aufschlag auf JEDE Stufe drauf, nie als Faktor auf sie.
+static func bone_growth_step(value: int, level: int, charm_ids: Array[String]) -> int:
+	return _bone_step(value, level) + (BONE_GLUE_SURPLUS if charm_ids.has(Charm.BONE_GLUE) else 0)
 
 ## Knochenmark verlängert nicht den Schritt, sondern die Zahl der Auslösungen -
 ## flach eine zusätzliche, egal wie viele Exemplare im Dock stehen.
@@ -197,12 +209,12 @@ static func glass_floor_for(charm_ids: Array[String]) -> int:
 		glass_floor = maxi(glass_floor, GLASSBLOWER_LUNG_FLOOR)
 	return glass_floor
 
-## Wachstum über triggers Auslösungen; ab Stufe II rechnet die Seite ihren
+## Wachstum über triggers Auslösungen; auf Stufe III rechnet die Seite ihren
 ## Prozentschritt je Auslösung am schon gewachsenen Wert neu.
-static func grow_bone_value(value: int, level: int, step: int, triggers: int) -> int:
+static func grow_bone_value(value: int, level: int, charm_ids: Array[String], triggers: int) -> int:
 	var result := value
 	for _t in triggers:
-		result += (_bone_step(result, level) + step - 1) if level >= 2 else step
+		result += bone_growth_step(result, level, charm_ids)
 	return result
 
 ## Schrumpft um step, nie unter floor_value (unveränderter Wert = kein Schritt).
@@ -221,7 +233,7 @@ static func mutate_value_once(value: int, face_material: String,
 	if face_material == DieMaterial.BONE:
 		# Härteofen: das Wachstum ist eine Auszahlung und läuft auf Stufe III doppelt.
 		for _r in payoff_repeats(level, charm_ids):
-			result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
+			result = grow_bone_value(result, level, charm_ids, bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rune_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	# Das Essenz-Wachstum reitet auf dem SCHON gewandelten Wert - der Druckkessel
@@ -236,7 +248,7 @@ static func mutate_link_value_once(value: int, face_material: String, charm_ids:
 	var result := value
 	if face_material == DieMaterial.BONE:
 		for _r in payoff_repeats(level, charm_ids):
-			result = grow_bone_value(result, level, bone_growth_step(charm_ids), bone_trigger_count(charm_ids))
+			result = grow_bone_value(result, level, charm_ids, bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not EssenceEffects.protects_face_value_of(essence_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	return result
@@ -272,7 +284,7 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 
 ## Mult-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests).
 ## Nur ADDITIV und nur auf dem LIEGENDEN Wert - ein Material-Krit (Rubin III,
-## Glas ab II) und der Wertwandel zwischen den Aktivierungen (Knochen/Glas)
+## Glas III) und der Wertwandel zwischen den Aktivierungen (Knochen/Glas)
 ## lassen sich als Summe nicht ausdrücken; maßgeblich ist
 ## DiceScoring._base_and_mult.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, levels: Dictionary = {}) -> int:
@@ -659,15 +671,23 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 					defs[i].runes_on(face), charm_ids)
 	return triggers
 
-## Wachstumsschritt einer Knochen-Seite: Stufe II mind. +3 bzw. 10 %, Stufe III
-## dieselbe Untergrenze bei 20 % (aufgerundet).
+## Nackter Wachstumsschritt einer Knochen-Seite: I +2, II +5, III mind. +10 bzw.
+## 20 % (aufgerundet).
 static func _bone_step(value: int, level: int) -> int:
-	var percent := BONE_GROWTH_PERCENT_3 if level >= DieMaterial.MAX_LEVEL else BONE_GROWTH_PERCENT
-	return maxi(BONE_GROWTH_MIN, ceili(float(value) * percent / 100.0))
+	if level >= DieMaterial.MAX_LEVEL:
+		return maxi(BONE_GROWTH_MIN_3, ceili(float(value) * BONE_GROWTH_PERCENT_3 / 100.0))
+	return BONE_GROWTH_2 if level == 2 else BONE_GROWTH
 
-## Schrumpfschritt einer Glas-Seite: Stufe I −1, ab Stufe II mind. 5 bzw. 20 %
-## (Stufe III frisst sich im II-Tempo).
+## Additiver Glas-Mult der Stufe: I deckelt die Augen bei 6, II zählt auch
+## Überzahlen voll, III addiert nicht mehr - sie kritet (mult_crit_once_for).
+static func _glass_mult(value: int, level: int) -> int:
+	if level >= DieMaterial.MAX_LEVEL:
+		return 0
+	return value if level == 2 else mini(value, GLASS_EYE_CAP)
+
+## Schrumpfschritt einer Glas-Seite: I −1, II −3, III die halbe Augenzahl
+## (aufgerundet, damit die Seite wirklich auf die Hälfte fällt).
 static func _glass_step(value: int, level: int) -> int:
-	if level < 2:
-		return 1
-	return maxi(GLASS_SHRINK_MIN, ceili(float(value) * GLASS_SHRINK_PERCENT / 100.0))
+	if level >= DieMaterial.MAX_LEVEL:
+		return maxi(1, ceili(float(value) * GLASS_SHRINK_PERCENT_3 / 100.0))
+	return GLASS_SHRINK_2 if level == 2 else GLASS_SHRINK

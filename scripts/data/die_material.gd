@@ -8,8 +8,8 @@ extends Resource
 const RUBY := "ruby"          # +4 Mult
 const AMBER := "amber"        # +20 Basispunkte + Augensumme
 const GOLD := "gold"          # +$3 beim Nehmen
-const BONE := "bone"          # Seite wächst +1 beim Nehmen
-const GLASS := "glass"        # Mult += Augen, Seite schrumpft −1 beim Nehmen
+const BONE := "bone"          # Seite wächst +2 beim Nehmen
+const GLASS := "glass"        # Mult += Augen (max 6), Seite schrumpft −1 beim Nehmen
 
 const NONE := ""
 
@@ -95,31 +95,31 @@ static func gold() -> DieMaterial:
 
 static func bone() -> DieMaterial:
 	var m := _make(BONE, "Knochen",
-		"Diese Seite wächst dauerhaft +1, wenn sie in der genommenen Kombination liegt.",
+		"Diese Seite wächst dauerhaft +2, wenn sie in der genommenen Kombination liegt.",
 		Color(0.76, 0.69, 0.5))
 	m.surface_color = Color(0.82, 0.76, 0.6)  # tot-matt: das EINZIGE Material ohne Leuchten
 	m.roughness = 0.95
 	m.glow = 0.0
-	m.short = "Seite wächst +1"
-	m.short_2 = "Seite wächst +3 / +10 %"
-	m.description_2 = "Die Seite wächst um 3 oder 10 %, je nachdem was mehr ist."
-	m.short_3 = "Seite wächst +3 / +20 %"
-	m.description_3 = "Die Seite wächst um 3 oder 20 %, je nachdem was mehr ist."
+	m.short = "Seite wächst +2"
+	m.short_2 = "Seite wächst +5"
+	m.description_2 = "Die Seite wächst um 5 statt um 2."
+	m.short_3 = "Seite wächst +10 / +20 %"
+	m.description_3 = "Die Seite wächst um 10 oder 20 %, je nachdem was mehr ist."
 	return m
 
 static func glass() -> DieMaterial:
 	var m := _make(GLASS, "Glas",
-		"Mult += Augen dieser Seite; beim Nehmen schrumpft sie dauerhaft −1 (min. 1).",
+		"Mult += Augen dieser Seite, höchstens 6; beim Nehmen schrumpft sie dauerhaft −1 (min. 1).",
 		Color(0.3, 0.66, 0.78))
 	m.surface_color = Color(0.62, 0.8, 0.86)  # durchsichtig: das Würfelinnere scheint durch
 	m.roughness = 0.05
 	m.glow = 0.3
 	m.alpha = 0.42
-	m.short = "Mult += Augen"
-	m.short_2 = "Krit ×Augen"
-	m.description_2 = "Krit ×Augen dieser Seite; beim Nehmen schrumpft sie um 5 oder 20 %."
-	m.short_3 = "Mult += Augen, Krit ×Augen"
-	m.description_3 = "Mult += Augen UND Krit ×Augen; beim Nehmen schrumpft sie um 5 oder 20 %."
+	m.short = "Mult += Augen (max 6)"
+	m.short_2 = "Mult += Augen"
+	m.description_2 = "Mult += Augen dieser Seite, auch über 6; beim Nehmen schrumpft sie um 3."
+	m.short_3 = "Krit ×Augen/2"
+	m.description_3 = "Krit ×(Augen/2), statt zu addieren; beim Nehmen halbiert sich die Seite."
 	return m
 
 ## Kanonische Registrierung aller ERWERBBAREN Materialien - jede Ziehung, jede

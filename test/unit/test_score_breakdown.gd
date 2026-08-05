@@ -254,7 +254,7 @@ func test_beherit_follows_the_growing_bone_face():
 	var acts: Array = _firings(breakdown["die_steps"][0])
 	assert_eq(acts.size(), 2)
 	assert_almost_eq(float(acts[0]["crit_x"]), 1.4, 0.0001, "erste Zündung: die liegende 4")
-	assert_almost_eq(float(acts[1]["crit_x"]), 1.5, 0.0001, "zweite Zündung: die gewachsene 5")
+	assert_almost_eq(float(acts[1]["crit_x"]), 1.6, 0.0001, "zweite Zündung: die gewachsene 6")
 
 func test_the_high_stacker_amount_follows_the_running_value():
 	# Dasselbe für einen additiven würfelgebundenen Charm - das ZIEL bleibt am
@@ -263,7 +263,7 @@ func test_the_high_stacker_amount_follows_the_running_value():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.HIGH_STACKER]), false, mats, {}, _argon(0))
 	var acts: Array = _firings(breakdown["die_steps"][0])
 	assert_eq(int(acts[0]["charm_mult_add"]), 4)
-	assert_eq(int(acts[1]["charm_mult_add"]), 5, "die gewachsene Seite legt mehr Mult")
+	assert_eq(int(acts[1]["charm_mult_add"]), 6, "die gewachsene Seite legt mehr Mult")
 
 func test_a_material_crit_slams_without_a_dock_pad():
 	# Rubin III kommt vom Würfel selbst - sein Schlag nennt keine Charm-Position.

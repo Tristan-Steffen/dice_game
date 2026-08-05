@@ -195,7 +195,7 @@ func test_gold_vein_without_other_carriers_pays_the_plain_rate():
 func test_bone_grows_the_face_permanently():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
-	assert_eq(defs[0].faces[0], 6, "Knochen: Seite +1")
+	assert_eq(defs[0].faces[0], 7, "Knochen: Seite +2")
 	assert_eq(report.grown, [0])
 
 func test_glass_shrinks_the_face_permanently():
@@ -217,10 +217,10 @@ func test_take_effects_ignore_non_participating_faces():
 	assert_eq(defs[1].faces[0], 5, "unbeteiligter Knochen wächst nicht")
 
 func test_bone_grows_without_upper_cap():
-	# Knochen ist nach oben offen (wie Überzahlen) - eine 6 wächst zu 7.
+	# Knochen ist nach oben offen (wie Überzahlen) - eine 6 wächst zu 8.
 	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 1])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
-	assert_eq(defs[0].faces[0], 7, "Knochen kennt keine Obergrenze")
+	assert_eq(defs[0].faces[0], 8, "Knochen kennt keine Obergrenze")
 
 func test_take_effects_skip_unrolled_face():
 	# face_indices[i] < 0 (Slot lag nicht oben / kein Wert) -> kein Effekt.
@@ -235,15 +235,15 @@ func test_take_effects_combined_report_across_slots():
 	assert_eq(report.money, 3, "eine Gold-Seite")
 	assert_eq(report.grown, [1], "Slot 1 ist gewachsen")
 	assert_eq(report.shrunk, [2], "Slot 2 ist geschrumpft")
-	assert_eq(defs[1].faces[0], 6)
+	assert_eq(defs[1].faces[0], 7)
 	assert_eq(defs[2].faces[0], 4)
 
 func test_multiple_bone_faces_each_grow():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([3, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.BONE, DieMaterial.BONE]), _p([0, 1]))
 	assert_eq(report.grown, [0, 1])
-	assert_eq(defs[0].faces[0], 6)
-	assert_eq(defs[1].faces[0], 4)
+	assert_eq(defs[0].faces[0], 7)
+	assert_eq(defs[1].faces[0], 5)
 
 # --- Einrechnung in DiceScoring ---------------------------------------------------
 
@@ -365,23 +365,27 @@ func test_ruby_levels_flow_through_the_score():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 3)),
 		80, "20 × (2 ×2)")
 
-# Glas: +Augen, auf II Krit ×Augen statt additiv, auf III beides.
+# Glas: +Augen, auf I bei 6 gedeckelt, auf III Krit ×(Augen/2) statt additiv.
 
-func test_glass_crits_from_level_two_and_does_both_on_three():
+func test_glass_caps_the_eyes_on_level_one_only():
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 1), 5)
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 2), 0, "Stufe II tauscht additiv gegen Krit")
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 5, "Stufe III hat beides")
-	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 1), 1)
-	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 2), 5)
-	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 5)
-	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 0, NO_CHARMS, 3), 1, "nie unter ×1")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 9, NO_CHARMS, 1), 6, "Stufe I zählt höchstens eine 6")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 9, NO_CHARMS, 2), 9, "der Deckel zu fallen IST der Aufstieg")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 0, "Stufe III addiert nicht mehr")
 
-func test_glass_level_three_adds_and_crits_in_the_score():
-	# Paar Fünfer, Glas III auf Slot 0: Mult 2 + 5 = 7, dann ×5 = 35.
+func test_glass_crits_only_on_the_last_level():
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 6, NO_CHARMS, 1), 1)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 6, NO_CHARMS, 2), 1)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 6, NO_CHARMS, 3), 3, "Krit ×(Augen/2)")
+	assert_almost_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 2.5, 0.0001)
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 1, NO_CHARMS, 3), 1, "nie unter ×1")
+
+func test_glass_level_three_only_crits_in_the_score():
+	# Paar Fünfer, Glas III auf Slot 0: Mult 2 ×2,5 = 5, nichts Additives dazu.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m([DieMaterial.GLASS, "", "", "", "", ""])
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 3)),
-		700, "20 × 35")
+		100, "20 × 5")
 
 ## Eine Seite trägt genau EIN Material - also höchstens ein Material-Krit.
 func test_only_the_face_carrier_can_crit():
@@ -441,18 +445,21 @@ func test_gold_levels_keep_the_goldsmith_surplus():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _ids([Charm.GOLDSMITH]))
 	assert_eq(report.money, 11, "$7 + $1 Zähler + $3 Aufschlag")
 
-# Knochen: +1, ab II +3 bzw. 10 %, auf III 20 % - je Aktivierung neu gerechnet.
+# Knochen: +2, auf II +5, auf III mind. +10 bzw. 20 % - je Aktivierung neu gerechnet.
 
-func test_bone_level_two_grows_by_at_least_three():
+func test_bone_level_two_grows_by_five():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
-	assert_eq(defs[0].faces[0], 8, "10 % von 5 sind zu wenig - es bleibt bei +3")
+	assert_eq(defs[0].faces[0], 10, "Stufe II wächst flach +5")
 	assert_eq(report.grown, [0])
 
 func test_bone_level_three_grows_by_a_fifth():
-	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 3})]
+	var defs: Array[DieDefinition] = [_die([100, 2, 3, 4, 5, 6], [], {0: 3})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
-	assert_eq(defs[0].faces[0], 48, "20 % von 40 - Stufe II gäbe nur +4")
+	assert_eq(defs[0].faces[0], 120, "20 % von 100")
+	var small: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 3})]
+	MaterialEffects.apply_take_effects(small, _p([0]), _m([DieMaterial.BONE]), _p([0]))
+	assert_eq(small[0].faces[0], 50, "20 % von 40 wären 8 - die Untergrenze +10 greift")
 
 func test_the_magic_card_grows_only_the_combination_bone():
 	# Die Nehmen-Seite muss dieselbe Grenze ziehen wie die Wertung: die Zauberkarte
@@ -462,40 +469,42 @@ func test_the_magic_card_grows_only_the_combination_bone():
 	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.BONE, DieMaterial.BONE]),
 		_p([0, 1]), _ids([Charm.MAGIC_CARD]), -1, {}, _p([0, 1]), false, _p([0, 1]), {}, 0, 0,
 		[] as Array[DieDefinition], _p([0]))
-	assert_eq(defs[0].faces[0], 7, "Kombinations-Würfel: zwei Auslösungen à +1")
-	assert_eq(defs[1].faces[0], 6, "nur mitgewertet: eine Auslösung")
+	assert_eq(defs[0].faces[0], 9, "Kombinations-Würfel: zwei Auslösungen à +2")
+	assert_eq(defs[1].faces[0], 7, "nur mitgewertet: eine Auslösung")
 
 func test_bone_levels_keep_the_glue_surplus():
-	# Knochenleim (Satz 4) = Aufschlag +3 über den Stufen-Schritt (+3).
+	# Knochenleim = Aufschlag +3 über den Stufen-Schritt (+5).
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _ids([Charm.BONE_GLUE]))
-	assert_eq(defs[0].faces[0], 11, "+3 (Stufe II) +3 (Aufschlag)")
+	assert_eq(defs[0].faces[0], 13, "+5 (Stufe II) +3 (Aufschlag)")
 
 func test_bone_levels_compound_per_marrow_trigger():
-	# Knochenmark gibt eine zweite Auslösung; die rechnet ihren Schritt am schon
-	# gewachsenen Wert neu (5 -> +6 = 11 -> +6 = 17), nie 2 × derselbe Schritt.
-	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
+	# Knochenmark gibt eine zweite Auslösung; auf Stufe III rechnet die ihren
+	# Prozentschritt am schon gewachsenen Wert neu (40 -> +10+3 = 53 -> +11+3 = 67),
+	# nie 2 × denselben Schritt.
+	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 3})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]),
 		_ids([Charm.BONE_GLUE, Charm.BONE_MARROW]))
-	assert_eq(defs[0].faces[0], 17)
+	assert_eq(defs[0].faces[0], 67)
 
-# Glas: −1, ab II −5 bzw. −20 % (Stufe III frisst sich im II-Tempo).
+# Glas: −1, auf II −3, auf III die halbe Seite.
 
-func test_glass_level_two_shrinks_by_a_fifth():
+func test_glass_level_two_shrinks_by_three():
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 2})]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
-	assert_eq(defs[0].faces[0], 32, "20 % von 40 sind 8")
+	assert_eq(defs[0].faces[0], 37, "Stufe II frisst flach 3")
 	assert_eq(report.shrunk, [0])
 
-func test_glass_level_three_shrinks_at_the_same_pace():
+func test_glass_level_three_halves_the_face():
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 3})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
-	assert_eq(defs[0].faces[0], 32, "Stufe III frisst sich im II-Tempo")
+	assert_eq(defs[0].faces[0], 20, "Stufe III halbiert sich")
 
-func test_glass_levels_shrink_at_least_five():
-	var defs: Array[DieDefinition] = [_die([12, 2, 3, 4, 5, 6], [], {0: 2})]
+func test_glass_level_three_always_loses_at_least_one():
+	# Die Hälfte wird aufgerundet, damit auch eine kleine Seite wirklich fällt.
+	var defs: Array[DieDefinition] = [_die([3, 2, 3, 4, 5, 6], [], {0: 3})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
-	assert_eq(defs[0].faces[0], 7, "20 % von 12 wären 3 - der Mindestschritt greift")
+	assert_eq(defs[0].faces[0], 1, "3 verliert 2")
 
 func test_glass_levels_stop_at_the_floor():
 	var defs: Array[DieDefinition] = [_die([3, 2, 3, 4, 5, 6], [], {0: 2})]
@@ -504,13 +513,13 @@ func test_glass_levels_stop_at_the_floor():
 	assert_eq(report.shrunk, [0])
 
 func test_glass_levels_shrink_to_the_lungs_floor():
-	# Die Glasbläserlunge hebt nur den Boden: der Prozent-Schritt läuft weiter.
+	# Die Glasbläserlunge hebt nur den Boden: der Schritt läuft weiter.
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _ids([Charm.GLASSBLOWER_LUNG]))
-	assert_eq(defs[0].faces[0], 32, "20 % von 40 sind 8 - auch mit Lunge")
+	assert_eq(defs[0].faces[0], 37, "Stufe II frisst 3 - auch mit Lunge")
 	var low: Array[DieDefinition] = [_die([8, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(low, _p([0]), _m([DieMaterial.GLASS]), _p([0]), _ids([Charm.GLASSBLOWER_LUNG]))
-	assert_eq(low[0].faces[0], MaterialEffects.GLASSBLOWER_LUNG_FLOOR, "8 − 5 wäre 3, geklemmt auf 6")
+	assert_eq(low[0].faces[0], MaterialEffects.GLASSBLOWER_LUNG_FLOOR, "8 − 3 wäre 5, geklemmt auf 6")
 
 # --- Wertwandel ZWISCHEN den Aktivierungen --------------------------------------
 # Knochen wächst, Glas schrumpft und Helium hebt mitten im Zug: die zweite
@@ -563,7 +572,7 @@ func test_take_effects_land_on_the_simulated_running_value():
 				"Wert %d, Seite '%s', Stufe %d, Essenz '%s', %d Echos" % [value, face_material, level, essence_id, echoes])
 
 func test_the_six_pack_take_lands_on_the_simulated_running_value():
-	# Volle Hand: der Knochen tritt zweimal an, wächst also 5 -> 6 -> 7. Die
+	# Volle Hand: der Knochen tritt zweimal an, wächst also 5 -> 7 -> 9. Die
 	# Buchung muss exakt dort landen, wo die Simulation aufhört.
 	var ids := _ids([Charm.SIX_PACK])
 	var defs: Array[DieDefinition] = []
@@ -592,11 +601,11 @@ func _firings(step: Dictionary) -> Array:
 	return out
 
 func test_the_second_activation_counts_the_grown_bone():
-	# Argon löst zweimal aus: 5 Augen, dann 6 (der Knochen wuchs dazwischen).
+	# Argon löst zweimal aus: 5 Augen, dann 7 (der Knochen wuchs dazwischen).
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 4]),
 		NO_CHARMS, false, mats, {}, _argon(0))
-	assert_eq(score, (10 + 5 + 6 + 5) * 2)
+	assert_eq(score, (10 + 5 + 7 + 5) * 2)
 
 func test_the_second_activation_counts_the_shrunken_glass():
 	# Glas zählt seine Augen als Mult UND als Basis: 6 dann 5.
@@ -616,12 +625,12 @@ func test_preview_and_take_agree_on_a_growing_bone():
 
 func test_the_running_value_rides_the_physical_face_not_the_transform():
 	# Glückszigaretten zeigen die 1 als 6, gewachsen wird die ECHTE Seite:
-	# Auslösung 1 zählt 6, Auslösung 2 die gewachsene 2.
+	# Auslösung 1 zählt 6, Auslösung 2 die gewachsene 3.
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
 	var ids := _ids([Charm.LUCKY_CIGARETTES])
 	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([1, 1, 3, 4, 5, 2]),
 		ids, false, mats, {}, _argon(0))
-	assert_eq(score, (10 + 6 + 2 + 6) * 2)
+	assert_eq(score, (10 + 6 + 3 + 6) * 2)
 
 func test_breakdown_carries_the_value_of_every_activation():
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
@@ -630,9 +639,9 @@ func test_breakdown_carries_the_value_of_every_activation():
 	var acts: Array = _firings(breakdown["die_steps"][0])
 	assert_eq(acts.size(), 2, "Argon löst zweimal aus")
 	assert_eq(acts[0]["value"], 5)
-	assert_eq(acts[0]["value_after"], 6, "zwischen den Zählungen gewachsen")
-	assert_eq(acts[1]["value"], 6)
-	assert_eq(acts[1]["value_after"], 7)
+	assert_eq(acts[0]["value_after"], 7, "zwischen den Zählungen gewachsen")
+	assert_eq(acts[1]["value"], 7)
+	assert_eq(acts[1]["value_after"], 9)
 
 # --- Gleichrichter: der LETZTE Wertwandel des Zuges ------------------------------
 
@@ -654,12 +663,12 @@ func test_the_rectifier_levels_the_scored_faces_to_the_rounded_mean():
 	assert_eq(report.shrunk, [2], "der hohe ist geschrumpft")
 
 func test_the_rectifier_runs_after_the_value_mutations():
-	# Der Knochen wächst erst von 5 auf 6, DANN wird gemittelt: (6 + 2) / 2 = 4.
+	# Der Knochen wächst erst von 5 auf 7, DANN wird gemittelt: (7 + 2) / 2 = 4,5 -> 5.
 	var defs := _rectifier_defs([5, 2])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]),
 		_m([DieMaterial.BONE, ""]), _p([0, 1]), _ids([Charm.RECTIFIER]))
-	assert_eq(defs[0].faces[0], 4, "der gewachsene Knochen fällt auf den Mittelwert")
-	assert_eq(defs[1].faces[0], 4)
+	assert_eq(defs[0].faces[0], 5, "der gewachsene Knochen fällt auf den Mittelwert")
+	assert_eq(defs[1].faces[0], 5)
 	assert_true(report.grown.has(0), "gewachsen ist er trotzdem gemeldet")
 
 func test_the_rectifier_never_shrinks_a_protected_face():

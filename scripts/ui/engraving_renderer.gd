@@ -15,6 +15,7 @@ const SEAM_COLORS := {
 	Engraving.Rarity.UNCOMMON: Color("#8be9fd"),
 	Engraving.Rarity.RARE: Color("#ffd319"),
 	Engraving.Rarity.EPIC: Color("#bd93f9"),
+	Engraving.Rarity.LEGENDARY: Color("#ff79c6"),
 }
 ## Unbeleuchtete Gravur-Rille (nicht besessen / noch nicht gezündet).
 const CHANNEL_COLOR := Color(0.32, 0.36, 0.46, 0.4)

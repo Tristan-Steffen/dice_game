@@ -468,16 +468,19 @@ func test_the_kiln_doubles_base_and_mult():
 		2 * MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 3, 6))
 	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 2, 6),
 		MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 2, 6), "Stufe II unberührt")
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, kiln, 3), 10)
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 3), 5)
+	# Auf Stufe III addiert kein Material mehr von sich aus - der einzige additive
+	# Mult, den der Ofen dort verdoppeln kann, sind die Blood-Diamond-Augen.
+	var bloody := _ids([Charm.KILN, Charm.BLOOD_DIAMOND])
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, bloody, 3), 10)
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 3), 5)
 
 func test_the_kiln_doubles_the_growth_but_never_the_cost():
 	var kiln := _ids([Charm.KILN])
 	var grown := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, kiln, 3)
 	var plain := MaterialEffects.mutate_value_once(10, DieMaterial.BONE, NO_CHARMS, 3)
 	assert_gt(grown, plain, "das Wachstum ist eine Auszahlung")
-	assert_eq(grown, MaterialEffects.grow_bone_value(plain, 3,
-		MaterialEffects.bone_growth_step(kiln), MaterialEffects.bone_trigger_count(kiln)),
+	assert_eq(grown, MaterialEffects.grow_bone_value(plain, 3, kiln,
+		MaterialEffects.bone_trigger_count(kiln)),
 		"genau zwei Wachstumsschritte")
 	assert_eq(MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, kiln, 3),
 		MaterialEffects.mutate_value_once(20, DieMaterial.GLASS, NO_CHARMS, 3),

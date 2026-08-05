@@ -45,12 +45,6 @@ func test_material_engravings_use_the_material_id():
 			material_ids[engraving.id] = true
 	assert_eq(material_ids.size(), DieMaterial.all().size(), "je Material genau ein Engraving")
 
-func test_material_engravings_have_footprints():
-	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_MATERIAL:
-			assert_true(engraving.width >= 1 and engraving.height >= 1)
-			assert_true(Engraving.FOOTPRINT.has(engraving.id), "Fläche definiert für %s" % engraving.id)
-
 func test_factory_id_matches_constant():
 	assert_eq(Engraving.chisel().id, Engraving.CHISEL)
 	assert_eq(Engraving.notch().id, Engraving.NOTCH)
@@ -64,9 +58,10 @@ func test_rarities_match_the_spec():
 	assert_eq(Engraving.averaging().rarity, Engraving.Rarity.UNCOMMON)
 	assert_eq(Engraving.polish().rarity, Engraving.Rarity.UNCOMMON)
 	assert_eq(Engraving.sandpaper().rarity, Engraving.Rarity.UNCOMMON)
-	assert_eq(Engraving.chisel().rarity, Engraving.Rarity.RARE)
 	assert_eq(Engraving.punch().rarity, Engraving.Rarity.RARE)
-	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.EPIC)
+	assert_eq(Engraving.chisel().rarity, Engraving.Rarity.EPIC)
+	assert_eq(Engraving.blueprint().rarity, Engraving.Rarity.LEGENDARY,
+		"die einzige legendäre Gravur")
 
 func test_the_doping_is_an_epic_material_engraving_without_material():
 	var doping := Engraving.doping()
@@ -74,7 +69,6 @@ func test_the_doping_is_an_epic_material_engraving_without_material():
 	assert_eq(doping.rarity, Engraving.Rarity.EPIC)
 	assert_eq(doping.material_id(), "", "die Dotierung belegt kein Material, sie hebt eines")
 	assert_true(Engraving.is_special_id(Engraving.DOPING), "sie liegt im Sonderbestand")
-	assert_true(Engraving.FOOTPRINT.has(Engraving.DOPING))
 
 func test_all_categories_are_inventory_kinds():
 	# Nach dem Wegfall der Menü-Gravuren sind alle Archetypen inventarfähig.
@@ -86,6 +80,7 @@ func test_rarity_name_is_german():
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.UNCOMMON), "ungewöhnlich")
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.RARE), "selten")
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.EPIC), "episch")
+	assert_eq(Engraving.rarity_name(Engraving.Rarity.LEGENDARY), "legendär")
 
 # --- Lichtgravur-Ziehung -----------------------------------------------------
 
@@ -122,7 +117,7 @@ func test_every_archetype_reachable_under_every_floor():
 	# Archetypen komplett aus, sie kamen in keinem Paket mehr vor.
 	seed(20260804)
 	for floor in [Engraving.Rarity.COMMON, Engraving.Rarity.UNCOMMON,
-			Engraving.Rarity.RARE, Engraving.Rarity.EPIC]:
+			Engraving.Rarity.RARE, Engraving.Rarity.EPIC, Engraving.Rarity.LEGENDARY]:
 		for category in Engraving.CATEGORIES:
 			var expected := {}
 			for engraving in Engraving.all():

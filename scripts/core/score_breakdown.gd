@@ -153,7 +153,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
 				triggers += 1
 				var mult_now := 0
-				# Material-Krit (Rubin III, Glas ab II): zählt in crit_x mit, bekommt aber
+				# Material-Krit (Rubin III, Glas III): zählt in crit_x mit, bekommt aber
 				# keinen Charm-Index - er kommt vom Würfel, nicht von einem Dock-Pad.
 				var mat_crit_now := 1.0
 				if has_die_bonus:
