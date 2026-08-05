@@ -181,11 +181,11 @@ func test_take_retrigger_checks_the_transformed_value():
 
 func test_gold_vein_pays_extra_per_other_carrier():
 	# Zwei Gold-Seiten + eine Rubin-Seite: jeder Gold-Träger sieht einen anderen
-	# Gold-Träger ($3) und einen anderen Material-Träger ($1) -> $3 + $4 je Seite.
+	# Gold-Träger ($2) und einen anderen Material-Träger ($1) -> $3 + $3 je Seite.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.RUBY])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), faces, _p([0, 1, 2]), _ids([Charm.GOLD_VEIN]))
-	assert_eq(report.money, 14, "2 × ($3 Gold + $3 anderes Gold + $1 Rubin)")
+	assert_eq(report.money, 12, "2 × ($3 Gold + $2 anderes Gold + $1 Rubin)")
 
 func test_gold_vein_without_other_carriers_pays_the_plain_rate():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -324,10 +324,10 @@ func test_amber_pays_the_eye_sum_on_every_level():
 		"Stufe III: 5 × 21, ohne festen Zuschlag")
 
 func test_amber_keeps_the_amber_room_surplus_on_every_level():
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 1, 21), 71,
-		"20 + 30 Aufschlag + 21")
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 3, 21), 135,
-		"5 × 21 + 30 Aufschlag - der Aufschlag wird nie zum Faktor")
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 1, 21), 121,
+		"20 + 80 Aufschlag + 21")
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 3, 21), 185,
+		"5 × 21 + 80 Aufschlag - der Aufschlag wird nie zum Faktor")
 
 func test_amber_levels_flow_through_the_score():
 	var dice := _d([5, 5, 1, 2, 3, 6])
@@ -347,13 +347,14 @@ func test_ruby_adds_more_on_level_two_and_crits_on_three():
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 2), 1, "Stufe II kritet noch nicht")
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 1), 1)
 
-func test_ruby_keeps_grinder_and_blood_diamond_additive_on_every_level():
+func test_ruby_keeps_the_blood_diamond_additive_on_every_level():
 	# Sonst würde der Aufschlag den Krit exponentiell machen.
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.RUBY_GRINDER]), 1), 9, "4 + 5")
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.RUBY_GRINDER]), 3), 5,
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 1), 9, "4 + 5")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 3), 5,
 		"auf III bleibt nur der Aufschlag additiv")
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.RUBY_GRINDER, Charm.BLOOD_DIAMOND]), 3), 10)
-	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, _ids([Charm.RUBY_GRINDER]), 3), 2,
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND, Charm.BLOOD_DIAMOND]), 3), 5,
+		"kein Stapeln je Exemplar")
+	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 3), 2,
 		"der Krit bleibt ×2")
 
 func test_ruby_levels_flow_through_the_score():
@@ -453,19 +454,30 @@ func test_bone_level_three_grows_by_a_fifth():
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]))
 	assert_eq(defs[0].faces[0], 48, "20 % von 40 - Stufe II gäbe nur +4")
 
+func test_the_magic_card_grows_only_the_combination_bone():
+	# Die Nehmen-Seite muss dieselbe Grenze ziehen wie die Wertung: die Zauberkarte
+	# gibt dem Kombinations-Würfel einen zweiten Antritt, dem nur mitgewerteten
+	# (Vollzähler/Krypton) nicht - sonst liefen Simulation und Def auseinander.
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.BONE, DieMaterial.BONE]),
+		_p([0, 1]), _ids([Charm.MAGIC_CARD]), -1, {}, _p([0, 1]), false, _p([0, 1]), {}, 0, 0,
+		[] as Array[DieDefinition], _p([0]))
+	assert_eq(defs[0].faces[0], 7, "Kombinations-Würfel: zwei Auslösungen à +1")
+	assert_eq(defs[1].faces[0], 6, "nur mitgewertet: eine Auslösung")
+
 func test_bone_levels_keep_the_glue_surplus():
-	# Knochenleim (Satz 2) = Aufschlag +1 über den Stufen-Schritt (+3).
+	# Knochenleim (Satz 4) = Aufschlag +3 über den Stufen-Schritt (+3).
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]), _ids([Charm.BONE_GLUE]))
-	assert_eq(defs[0].faces[0], 9, "+3 (Stufe II) +1 (Aufschlag)")
+	assert_eq(defs[0].faces[0], 11, "+3 (Stufe II) +3 (Aufschlag)")
 
 func test_bone_levels_compound_per_marrow_trigger():
 	# Knochenmark gibt eine zweite Auslösung; die rechnet ihren Schritt am schon
-	# gewachsenen Wert neu (5 -> +4 = 9 -> +4 = 13), nie 2 × derselbe Schritt.
+	# gewachsenen Wert neu (5 -> +6 = 11 -> +6 = 17), nie 2 × derselbe Schritt.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]),
 		_ids([Charm.BONE_GLUE, Charm.BONE_MARROW]))
-	assert_eq(defs[0].faces[0], 13)
+	assert_eq(defs[0].faces[0], 17)
 
 # Glas: −1, ab II −5 bzw. −20 % (Stufe III frisst sich im II-Tempo).
 

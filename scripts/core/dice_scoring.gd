@@ -389,11 +389,11 @@ static func _qualifies_plain(key: String, dice: Array[int]) -> bool:
 ## würfelgebundene Charms - Knochen/Glas wandeln den Wert zwischen den
 ## Zündungen; je Würfel-Trigger danach die gewürfelte Leiterbahn, zuletzt die
 ## Essenz-Glieder), dann
-## statische Charms strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
-## Position), nach Basis × Mult die Gesamtzahl-Effekte - ebenfalls in Besitz-
-## Reihenfolge. materials: DieMaterial-id je Slot ("" = keins).
-## ctx: Wurf-/Runden-Zustand.
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
+## statische Charms strikt in Besitz-Reihenfolge (Boni UND Krits an ihrer
+## Position), zuletzt das EINE Verschmelzen. materials: DieMaterial-id je Slot
+## ("" = keins). ctx: Wurf-/Runden-Zustand - dort steht auch, die wievielte Hand
+## der Runde das ist (die Zauberkarte fragt danach).
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], _is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	# raw = die PHYSISCHEN Seitenwerte; nur auf ihnen läuft der Wertwandel
 	# (Knochen/Glas/Helium), damit die Wertung genau dort landet, wo die Def landet.
 	var raw := dice
@@ -403,10 +403,7 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, combo_levels, ctx)
 	# Die EINZIGE Rundung der ganzen Rechnung: erst beim Verschmelzen, und
 	# aufgerundet. Zwei ×1,5 müssen ×2,25 ergeben, nie zweimal ×2.
-	var score: int = ceili(float(pair[0]) * maxf(1.0, pair[1]))
-	for j in charm_ids.size():
-		score *= CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
-	return score
+	return ceili(float(pair[0]) * maxf(1.0, pair[1]))
 
 ## Kompletter Kombi-Multiplikator - die Mult-Seite derselben Rechnung; min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.
@@ -520,7 +517,7 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 	var dice := shown_values(raw, charm_ids, ctx)
 	var participating := participating_indices(key, raw, charm_ids, ctx)
 	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
-	# nur die beteiligten. Kombi-Charms (Blackjack & Co.) bleiben auf participating.
+	# nur die beteiligten. Kombi-Charms (Snake Eyes & Co.) bleiben auf participating.
 	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
 	# Auch der Vollzähler zieht keine paritätsgesperrten Würfel herein.
 	var legal := legal_indices(dice, ctx)
@@ -563,7 +560,7 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 ## Achse). Nur das Metronom fragt danach - ein zustandsloser die_charm_*-Hook
 ## kann die Auslösungen der Mitwürfel nicht kennen, also läuft die Vorabrunde,
 ## und auch nur dann.
-static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids: Array[String], ctx: Dictionary, echo_slot: int, tail_slot: int) -> Array[int]:
+static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids: Array[String], ctx: Dictionary, echo_slot: int, tail_slot: int, participating: Array[int] = []) -> Array[int]:
 	var singles: Array[int] = []
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
@@ -572,7 +569,8 @@ static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids:
 	for i in order:
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var die_triggers := MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot)
+			EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot,
+			hands_taken == 0, participating.has(i))
 		var face_triggers := MaterialEffects.face_trigger_count(dice[i], charm_ids,
 			RuneEffects.extra_activations(RuneEffects.runes_at(runes, i), charm_ids), essence_ids)
 		if die_triggers * face_triggers == 1:
@@ -628,7 +626,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Metronom: die einmal zündenden Würfel stehen VOR der Zählung fest.
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
-		singles = single_trigger_slots(order, dice, charm_ids, ctx, echo_slot, tail_slot)
+		singles = single_trigger_slots(order, dice, charm_ids, ctx, echo_slot, tail_slot, participating)
 	# Würfelphase in Reihen-Ordnung. ZWEI Achsen: der Würfel tritt die_triggers-mal
 	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
 	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
@@ -647,7 +645,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var face_triggers := 1
 		if has_die_bonus:
 			die_triggers = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot)
+				EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot,
+				hands_taken == 0, participating.has(i))
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
 			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
@@ -758,9 +757,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += float(CharmEffects.mult_bonus_at(j, key, charm_ids) \
 			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored))
-		base *= CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
-		mult *= float(CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx))
-		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
+		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key)
 		if not is_equal_approx(static_crit, 1.0):
 			crits += 1
 			base += firedamp

@@ -86,12 +86,14 @@ func test_the_overclock_price_the_chip_shows_carries_the_charm():
 
 # --- Dynamo & Trostpreis: zwei neue ⚡-Quellen -------------------------------------
 
-func test_the_dynamo_mints_only_on_the_first_taken_hand():
-	var ids := _ids([Charm.DYNAMO])
-	assert_eq(CharmEffects.take_charge(ids, true), CharmEffects.DYNAMO_CHARGE)
-	assert_eq(CharmEffects.take_charge(ids, false), 0, "nur die erste Hand der Runde")
-	assert_eq(CharmEffects.take_charge(NO_CHARMS, true), 0)
-	assert_eq(CharmEffects.take_charge(_ids([Charm.DYNAMO, Charm.DYNAMO]), true), 2)
+func test_the_dynamo_mints_at_the_end_of_a_cleared_round():
+	var ids := _ids([Charm.DYNAMO, Charm.HORSESHOE])
+	assert_eq(CharmEffects.round_end_charge_at(0, ids), CharmEffects.DYNAMO_CHARGE)
+	assert_eq(CharmEffects.round_end_charge_at(1, ids), 0, "nur der Dynamo prägt")
+	# Je Exemplar ein eigener Schritt der Rundenende-Zeremonie, nie eine Summe.
+	var twins := _ids([Charm.DYNAMO, Charm.DYNAMO])
+	assert_eq(CharmEffects.round_end_charge_at(0, twins), CharmEffects.DYNAMO_CHARGE)
+	assert_eq(CharmEffects.round_end_charge_at(1, twins), CharmEffects.DYNAMO_CHARGE)
 
 func test_the_consolation_prize_books_its_charge_on_the_fumble():
 	run.hub_level = 3  # zwei erwachte Reihen, der Deckel steht nicht im Weg
@@ -169,11 +171,11 @@ func test_without_the_charm_the_spin_costs_as_before():
 	run.spin_slot(0)
 	assert_eq(run.money, 100 - price)
 
-# --- Quotenblatt: Bargeld-Gewinne 50 % höher ----------------------------------------
+# --- Quotenblatt: Bargeld-Gewinne doppelt --------------------------------------------
 
-func test_the_odds_sheet_rounds_the_money_payout_up():
-	assert_eq(CharmEffects.side_bet_money(10, _ids([Charm.ODDS_SHEET])), 15)
-	assert_eq(CharmEffects.side_bet_money(5, _ids([Charm.ODDS_SHEET])), 8, "aufgerundet")
+func test_the_odds_sheet_doubles_the_money_payout():
+	assert_eq(CharmEffects.side_bet_money(10, _ids([Charm.ODDS_SHEET])), 20)
+	assert_eq(CharmEffects.side_bet_money(5, _ids([Charm.ODDS_SHEET])), 10)
 	assert_eq(CharmEffects.side_bet_money(10, NO_CHARMS), 10)
 	assert_eq(CharmEffects.side_bet_money(0, _ids([Charm.ODDS_SHEET])), 0)
 
@@ -186,12 +188,12 @@ func test_the_odds_sheet_lands_in_the_settlement():
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	run.resolve_side_bets(result)
-	assert_eq(run.money, after_stake + ceili(bet.payout_money * 1.5))
+	assert_eq(run.money, after_stake + ceili(bet.payout_money * CharmEffects.ODDS_SHEET_FACTOR))
 
 func test_the_odds_sheet_stands_on_the_bet_button():
 	var bet := SideBet._from_template(_template("jackpot"))
 	assert_eq(bet.reward_label(1, _ids([Charm.ODDS_SHEET])),
-		"$%d" % ceili(bet.payout_money * 1.5), "der Knopf verspricht, was die Abrechnung zahlt")
+		"$%d" % ceili(bet.payout_money * CharmEffects.ODDS_SHEET_FACTOR), "der Knopf verspricht, was die Abrechnung zahlt")
 	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
 
 func test_a_charge_payout_stays_untouched_by_the_odds_sheet():
@@ -237,13 +239,23 @@ func test_the_clamp_misses_and_the_engraving_is_gone():
 	assert_false(spared)
 	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
 
-func test_the_clamp_never_holds_an_etching():
+func test_the_clamp_also_holds_a_number_engraving():
 	run.owned_charms.append(Charm.bench_clamp())
 	run.grant_engraving(Engraving.chisel())
 	var spared := run.consume_applied_engraving(Engraving.CHISEL, 1,
 		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
-	assert_false(spared, "die Zwinge hält nur Material-Gravuren")
-	assert_eq(run.engraving_stock(Engraving.CHISEL), 0)
+	assert_true(spared, "die Zwinge hält Zahl- UND Material-Gravuren")
+	assert_eq(run.engraving_stock(Engraving.CHISEL), 1)
+
+func test_the_clamp_never_holds_a_special_item():
+	# Sonderposten und Runen bleiben außen vor - die Zwinge kennt nur die zwei
+	# Alltags-Kategorien.
+	run.owned_charms.append(Charm.bench_clamp())
+	run.grant_engraving(Engraving.doping())
+	var spared := run.consume_applied_engraving(Engraving.DOPING, 1,
+		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
+	assert_false(spared)
+	assert_eq(run.engraving_stock(Engraving.DOPING), 0)
 
 # --- Zugabe: jedes Gravur-Paket legt ein Stück obendrauf ----------------------------
 
@@ -346,7 +358,29 @@ func test_the_polish_picks_uniformly_over_the_faces():
 	assert_true(int(polished["face"]) == 0 or int(polished["face"]) == 4)
 	assert_eq(int(polished["level"]), 2)
 
-# --- Stichel: die Wertungs-Runen wirken doppelt -------------------------------------
+# --- Stichel: JEDE Rune wirkt doppelt (nur der Einbrand kennt keinen Betrag) --------
+
+func test_the_burin_doubles_the_stray_light():
+	var runes := _ids([Rune.STRAY_LIGHT])
+	assert_eq(RuneEffects.stray_money(runes), RuneEffects.STRAY_LIGHT_MONEY)
+	assert_eq(RuneEffects.stray_money(runes, _ids([Charm.BURIN])), 2)
+	assert_eq(RuneEffects.stray_money(_ids([Rune.AFTERGLOW]), _ids([Charm.BURIN])), 0)
+
+func test_the_doubled_stray_light_lands_in_the_take():
+	# Der ungewertete Nachbar zeigt seine Streulicht-Seite: $1, mit Stichel $2.
+	var idle := _die([1, 2, 3, 4, 5, 6])
+	idle.runes[0] = Rune.STRAY_LIGHT
+	var report := MaterialEffects.apply_take_effects(_defs([_die([1, 2, 3, 4, 5, 6]), idle]),
+		_p([0, 0]), _m(["", ""]), _p([0]), _ids([Charm.BURIN]), -1, {}, _p([0]), false, _p([0, 1]))
+	assert_eq(report.money, 2, "Streulicht zahlt doppelt")
+	assert_eq(report.stray, _p([1]))
+
+func test_the_burin_casts_two_copies():
+	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY)
+	def.runes[0] = Rune.CAST
+	run.owned_charms.append(Charm.burin())
+	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 2, "der Abguss gießt zweimal")
+	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2)
 
 func test_the_burin_doubles_the_afterglow():
 	var runes := _ids([Rune.AFTERGLOW])

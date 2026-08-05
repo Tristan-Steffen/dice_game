@@ -4,8 +4,8 @@ class_name ScoreBreakdown
 ## REIHENFOLGE von DiceScoring.score_category: Würfel in Reihen-Ordnung
 ## (trigger_order), je Zündung Augen -> Material -> würfelgebundene
 ## Charms (additiv, dann Krits); danach statische Charms strikt in Besitz-
-## Reihenfolge, nach dem Verschmelzen die Gesamtzahl-Effekte. Jeder Schritt
-## trägt Zwischenstände, damit die Anzeige nie von der Rechnung abweicht.
+## Reihenfolge, zuletzt das Verschmelzen. Jeder Schritt trägt Zwischenstände,
+## damit die Anzeige nie von der Rechnung abweicht.
 
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
 ## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, die_steps,
@@ -61,7 +61,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var tail_slot: int = shape["tail_slot"]
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
-		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot)
+		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot, participating)
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), PUR.
 	# Der Doppelte Boden reist NICHT stillschweigend in dieser Zahl mit - er
@@ -118,7 +118,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_base := 0
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
-				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids, dice, hands_taken), eye_slots.size(), tail_slot)
+				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids, dice, hands_taken), eye_slots.size(), tail_slot,
+				hands_taken == 0, participating.has(i))
 			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Würfelgebundene Charms dieses Slots: Betrag JE Zündung, weil der laufende
@@ -383,31 +384,30 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var base_add := CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		var mult_add := CharmEffects.mult_bonus_at(j, key, charm_ids) \
 			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored)
-		var base_x := CharmEffects.charm_base_factor_at(j, dice, charm_ids, ctx)
-		# Krit: eigener Hook, wirkt im Schritt als Teil des Mult-Faktors;
-		# crit_x bleibt separat sichtbar, damit die UI Krits inszenieren kann.
-		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating)
+		# Krit: eigener Hook, wirkt im Schritt als Mult-Faktor; crit_x bleibt
+		# separat sichtbar, damit die UI Krits inszenieren kann.
+		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key)
 		var firedamp_add := 0
 		if not is_equal_approx(crit_x, 1.0):
 			crits += 1
 			firedamp_add = firedamp
-		var mult_x := float(CharmEffects.charm_mult_factor_at(j, dice, charm_ids, ctx)) * crit_x
+		var mult_x := crit_x
 		# Rampenlicht wertet nicht, braucht aber seinen Schritt: es hebt die
 		# Kombination an SEINER Dock-Position, nicht nach dem Zählen.
 		var spotlight := CharmEffects.spotlight_fires_at(j, key, charm_ids, ctx)
-		if base_add == 0 and mult_add == 0 and base_x == 1 and is_equal_approx(mult_x, 1.0) and not spotlight:
+		if base_add == 0 and mult_add == 0 and is_equal_approx(mult_x, 1.0) and not spotlight:
 			continue
 		var base_before := base
 		var mult_before := mult
-		# Reihenfolge wie in DiceScoring: erst der Basis-Faktor, DANN der
-		# Grubengas-Zuschlag des Krits - sonst vervielfachte ihn der eigene Charm.
-		base = (base + base_add) * base_x + firedamp_add
+		# Der Grubengas-Zuschlag des Krits liegt HINTER dem Basis-Bonus - wie in
+		# DiceScoring.
+		base = base + base_add + firedamp_add
 		mult = (mult + mult_add) * mult_x
 		var step_indices: Array[int] = [j]
 		var step := {
 			"charm_indices": step_indices,
 			"base_add": base_add, "mult_add": mult_add,
-			"base_x": base_x, "mult_x": mult_x, "crit_x": crit_x,
+			"base_x": 1, "mult_x": mult_x, "crit_x": crit_x,
 			"firedamp_add": firedamp_add,
 			"base_after": base, "mult_after": mult,
 			"spotlight": spotlight,
@@ -416,14 +416,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# ihren Beitrag in Einzel-Pulse auf, damit die Animation je Würfel einen
 		# Meteor schickt - aber nur, wenn die Pulse-Summe den Beitrag exakt
 		# trifft (sonst Rückfall auf einen Meteor, nie falsche Zahlen).
-		var pulses := _per_die_pulses(charm_ids[j], key, dice, participating)
+		var pulses := _per_die_pulses(charm_ids[j], dice)
 		if not pulses.is_empty():
 			var sum_base := 0
 			var sum_mult := 0
 			for p in pulses:
 				sum_base += int(p["base"])
 				sum_mult += int(p["mult"])
-			if sum_base == base_add and sum_mult == mult_add and base_x == 1 and is_equal_approx(mult_x, 1.0):
+			if sum_base == base_add and sum_mult == mult_add and is_equal_approx(mult_x, 1.0):
 				var acc_base := base_before
 				var acc_mult := mult_before
 				for p in pulses:
@@ -441,18 +441,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var total := ceili(float(base) * mult)
 	var merge_total := total
 
-	# 5. Nach-Schritte auf die fertige Punktzahl - ebenfalls Besitz-Reihenfolge.
+	# 5. Nach-Schritte auf die fertige Punktzahl: derzeit kennt kein Charm mehr
+	# einen Gesamtzahl-Effekt - die Liste bleibt als Bühne für den nächsten.
 	var post_steps: Array[Dictionary] = []
-	for j in charm_ids.size():
-		var total_x := CharmEffects.charm_total_factor_at(j, charm_ids, is_first_hand)
-		if total_x == 1:
-			continue
-		total *= total_x
-		var post_indices: Array[int] = [j]
-		post_steps.append({
-			"charm_indices": post_indices,
-			"total_add": 0, "total_x": float(total_x), "total_after": total,
-		})
 
 	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je
 	# hinter einer DiceScoring-Änderung zurückbleibt.
@@ -518,17 +509,12 @@ static func format_mult(value: float) -> String:
 
 ## Zerlegt den Beitrag eines Hand-Charms MIT Würfel-Bezug in Einzel-Pulse
 ## {slot, base, mult} für die Meteor-je-Würfel-Animation. Betrifft nur Charms,
-## deren Bezugswürfel NICHT beteiligt sind (Schlangenaugen) oder paarweise zählen
-## (Zwillingsring) - würfelgebundene Charms feuern in den Würfel-Schritten. Leer
-## für alle anderen; der Aufrufer prüft zusätzlich, dass die Pulse-Summe passt.
-static func _per_die_pulses(charm_id: String, key: String, dice: Array[int], participating: Array[int]) -> Array[Dictionary]:
+## die paarweise zählen (Zwillingsring) - würfelgebundene Charms feuern in den
+## Würfel-Schritten. Leer für alle anderen; der Aufrufer prüft zusätzlich, dass
+## die Pulse-Summe passt.
+static func _per_die_pulses(charm_id: String, dice: Array[int]) -> Array[Dictionary]:
 	var pulses: Array[Dictionary] = []
 	match charm_id:
-		Charm.SNAKE_EYES:
-			if key == DiceScoring.TWO_KIND and CharmEffects._participating_are_ones(dice, participating):
-				for i in dice.size():
-					if not participating.has(i):
-						pulses.append({"slot": i, "base": 0, "mult": dice[i]})
 		Charm.TWIN_RING:
 			for slot in CharmEffects.twin_pair_slots(dice):
 				pulses.append({"slot": slot, "base": 0, "mult": dice[slot]})

@@ -163,11 +163,11 @@ func test_the_krypton_die_brings_its_eyes_along():
 	assert_eq(krypton, 23 * 2, "die 3 des Krypton-Würfels zählt mit")
 
 func test_krypton_does_not_change_the_combination_charms():
-	# Blackjack rechnet auf participating - der mitzählende Krypton-Würfel darf
-	# die Augensumme der KOMBINATION nicht verschieben.
+	# Kombi-Charms rechnen auf participating - der mitzählende Krypton-Würfel
+	# darf die KOMBINATION nicht verschieben.
 	var dice := _p([5, 5, 3])
 	var ctx := {DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}}
-	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, dice, _ids([Charm.BLACKJACK]), ctx)
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, dice, _ids([Charm.LADYBUG]), ctx)
 	assert_eq(shape["participating"], _p([0, 1]))
 
 func test_the_scored_set_stays_its_own_list():

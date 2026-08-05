@@ -107,7 +107,7 @@ func test_the_empty_plinth_pays_for_the_free_spots():
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([5, 5]), NO_MATS,
 		_ids([Charm.EMPTY_PLINTH])), 5 * CharmEffects.EMPTY_PLINTH_MULT)
 	var full := _ids([Charm.EMPTY_PLINTH, Charm.HOUSE_JOKER, Charm.LADYBUG, Charm.HORSESHOE,
-		Charm.BLACKJACK, Charm.FREE_DRINK])
+		Charm.PEARL_NECKLACE, Charm.FREE_DRINK])
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([5, 5]), NO_MATS, full), 0,
 		"volles Dock, kein freier Sockel")
 
@@ -132,9 +132,9 @@ func test_a_retriggered_die_leaves_the_metronome():
 		"die Hasenpfoten-6 zündet zweimal und fällt aus dem Takt")
 
 func test_the_metronome_lands_in_the_score():
-	# Drei Einzelzünder: jeder zahlt +4 je ANDEREM, also 3 × 8.
+	# Drei Einzelzünder: jeder zahlt +6 je ANDEREM, also 3 × 12.
 	assert_eq(DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]), _ids([Charm.METRONOME]),
-		false, _m(["", "", ""]), {}, {}), (18 + 15 + 24) * 3)
+		false, _m(["", "", ""]), {}, {}), (18 + 15 + 36) * 3)
 
 # --- Stroboskop: jede weitere Zündung desselben Würfels ---------------------------
 

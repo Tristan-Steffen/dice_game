@@ -1401,17 +1401,13 @@ func _update_charm_badges() -> void:
 					texts[slot] = "+%d" % (full_reroll_stacks * CharmEffects.ALL_OR_NOTHING_MULT)
 			Charm.MOMENTUM:
 				if momentum_streak > 0:
-					texts[slot] = "+%d" % momentum_streak
+					texts[slot] = "+%d" % (momentum_streak * CharmEffects.MOMENTUM_MULT)
 			Charm.PENDULUM:
 				if pendulum > 0:
 					texts[slot] = "+%d" % pendulum
 			Charm.RAG_COLLECTOR:
 				if run.lumpensammler_value > 0:
 					texts[slot] = "%d" % run.lumpensammler_value
-			Charm.ROUND_NUMBER:
-				var used := _used_faces_sum()
-				if used > 0:
-					texts[slot] = "%d" % used
 			Charm.OLD_PENNY:
 				# Nicht der rohe Zähler, sondern was er JETZT auszahlen würde -
 				# die Zahl, die der Spieler beim Rundenende sehen wird.
@@ -1438,29 +1434,6 @@ func _show_pendulum_swing(ids: Array[String], value: int) -> void:
 	var color := CasinoStyle.GOLD if delta > 0 else PENDULUM_LOSS_COLOR
 	table_screen.spawn_gain_number(_charm_trail_source_px([resolved]),
 		"%+d" % delta, color, PENDULUM_SWING_FONT)
-
-## Augensumme der aktuell gewerteten (beteiligten) Würfel nach Verwandlung -
-## genau der Wert, den Runde Sache prüft; als Chip sichtbar, damit man auf ein
-## Vielfaches von 10 hinspielen kann. 0 = keine Hand (Chip bleibt versteckt).
-func _used_faces_sum() -> int:
-	if not has_rolled_current_hand:
-		return 0
-	var slots := _hand_slots()
-	if slots.is_empty():
-		return 0
-	var ids := run.charm_ids()
-	var materials := _rolled_materials()
-	var sel_values: Array[int] = []
-	var sel_materials: Array[String] = []
-	for s in slots:
-		sel_values.append(dice.values[s])
-		sel_materials.append(materials[s])
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
-	var transformed := CharmEffects.transform_values(sel_values, ids)
-	var sum := 0
-	for i in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
-		sum += transformed[i]
-	return sum
 
 ## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
 func _charm_sell_values() -> Array[int]:
@@ -4226,6 +4199,7 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 	var order: Array[int] = shape["order"]
 	var echo_slot: int = shape["echo_slot"]
 	var tail_slot: int = shape["tail_slot"]
+	var combination: Array[int] = shape["participating"]
 	var essences := DiceScoring.essence_sets_in(sel_ctx)
 	var runes := DiceScoring.runes_in(sel_ctx)
 	var is_stress := GameRun.is_stress_round(run.round_number)
@@ -4241,7 +4215,8 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		var essence_ids := EssenceEffects.set_at(essences, k)
 		var rune_ids := RuneEffects.runes_at(runes, k)
 		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(k, order, essences, ids, shown, hands_taken), order.size(), tail_slot)
+			EssenceEffects.extra_activations(k, order, essences, ids, shown, hands_taken), order.size(), tail_slot,
+			hands_taken == 0, combination.has(k))
 		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RuneEffects.extra_activations(rune_ids, ids), essence_ids)
 		# Auch der reine Fehlwurf wird eingefroren: das Erdungskabel zählt genau die
 		# leeren Gruppen, und im ctx stehen nur Würfel MIT Leiterbahn.
@@ -5079,6 +5054,11 @@ func _on_take_button_pressed() -> void:
 	var participating: Array[int] = []
 	for p in sel_scored:
 		participating.append(slots[p])
+	# Die engere KOMBINATIONS-Menge auf echte Slots: Vollzähler und Krypton weiten
+	# die gewertete Menge, gehören der Kombination aber nicht an (Zauberkarte).
+	var combination: Array[int] = []
+	for p in sel_participating:
+		combination.append(slots[p])
 	# Die übrige Rundenbilanz der Nebenwetten braucht die GEWERTETEN Würfel.
 	_note_hand_for_side_bets(String(hand["key"]), int(breakdown["total"]), slots.size(),
 		CharmEffects.transform_values(sel_values, ids), sel_scored)
@@ -5095,7 +5075,7 @@ func _on_take_button_pressed() -> void:
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
-		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round)
+		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination)
 	# Erstwertung und Neonmarker-Zähler gehören dem Zug, nicht der Vorschau.
 	run.note_dice_scored(active_kinds, participating)
 	run.note_bare_dice(report.bare_dice)
@@ -5119,15 +5099,10 @@ func _on_take_button_pressed() -> void:
 	if cast_copies > 0:
 		hand_note = "Abguss: %d Material-Gravuren abgeformt." % cast_copies
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
-	# hinterher (wie die Nebenwetten-Energie). Der Dynamo hängt sich an dieselbe
-	# Salve - seine Energie kommt aus keinem Würfel, sie fliegt ohne Funken.
-	var take_charge := report.charge \
-		+ CharmEffects.take_charge(ids, hands_taken_this_round == 1)
-	if take_charge > 0:
-		run.add_charge(take_charge)
-		if take_charge > report.charge:
-			_flash_charm_and_pad(ids.find(Charm.DYNAMO))
-		_play_rune_charge_volley(take_charge, report.sparks)
+	# hinterher (wie die Nebenwetten-Energie).
+	if report.charge > 0:
+		run.add_charge(report.charge)
+		_play_rune_charge_volley(report.charge, report.sparks)
 	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
 	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
 	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
@@ -5180,11 +5155,11 @@ func _on_take_button_pressed() -> void:
 		run.add_money(take_money)
 		_suppress_money_light = false
 		_play_take_money_comet(take_money)
-	# Goldrausch: nur die ERSTE Hand der Runde, und nur wenn sie alle liegenden
+	# Goldrausch: nur die ERSTE Hand der Runde, und nur wenn sie alle SECHS
 	# Würfel nutzt -> Geld +20% (max. $50). hands_taken_this_round zählt oben schon.
 	# Zahlt als Chip-Pakete vom Charm-Pad zur Truhe, wie die Rundenende-Charms;
 	# die Phase bleibt solange SCORING, damit kein Wurf dazwischenfunkt.
-	if CharmEffects.gold_rush_applies(ids, participating.size(), dice.count(), hands_taken_this_round == 1):
+	if CharmEffects.gold_rush_applies(ids, participating.size(), hands_taken_this_round == 1):
 		var rush := CharmEffects.gold_rush_income(run.money)
 		if rush > 0:
 			await _play_charm_money_payout(ids.find(Charm.GOLD_RUSH), rush, Phase.SCORING)
@@ -6515,8 +6490,21 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 				await _play_stamp_machine_meteors(j)
 			Charm.POLISH:
 				await _play_polish_ceremony(j)
+			Charm.DYNAMO:
+				await _play_dynamo_charge(j, CharmEffects.round_end_charge_at(j, ids))
 		if phase != Phase.PAYOUT:
 			return
+
+## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
+## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
+## darum die reine Anzeige-Salve.
+func _play_dynamo_charge(index: int, count: int) -> void:
+	if count <= 0:
+		return
+	run.add_charge(count)
+	_flash_charm_and_pad(index)
+	_play_deal_charge_volley(count)
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## EIN Geld-Charm zahlt sichtbar: Pad blitzt, "+N$" steigt am Pad auf, und der
 ## Betrag fährt als ECHTE Chip-Pakete (Stückelung 1/5/25/100, je in seiner

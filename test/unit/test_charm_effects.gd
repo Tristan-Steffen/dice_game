@@ -69,9 +69,9 @@ func test_retrigger_rabbits_foot_counts_sixes():
 	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT])), 1)
 	assert_eq(CharmEffects.retrigger_count(5, _ids([Charm.RABBITS_FOOT])), 0, "nur 6 betroffen")
 
-func test_retrigger_clover_and_scarab_hit_their_face():
+func test_retrigger_clover_hits_its_face():
 	assert_eq(CharmEffects.retrigger_count(4, _ids([Charm.FOUR_LEAF_CLOVER])), 1)
-	assert_eq(CharmEffects.retrigger_count(5, _ids([Charm.GOLDEN_SCARAB])), 1)
+	assert_eq(CharmEffects.retrigger_count(5, _ids([Charm.FOUR_LEAF_CLOVER])), 0, "nur 4 betroffen")
 
 func test_retrigger_stacks_per_copy():
 	assert_eq(CharmEffects.retrigger_count(6, _ids([Charm.RABBITS_FOOT, Charm.RABBITS_FOOT])), 2)
@@ -130,7 +130,7 @@ func test_eye_value_no_charms_is_identity():
 # --- Wertung (ganze Hand) ----------------------------------------------------
 
 func test_mult_bonus_horseshoe_only_full_house():
-	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.HORSESHOE])), 12)
+	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.HORSESHOE])), 8)
 	assert_eq(CharmEffects.mult_bonus("two_kind", _ids([Charm.HORSESHOE])), 0)
 
 func test_mult_bonus_ladybug_pairs():
@@ -139,13 +139,13 @@ func test_mult_bonus_ladybug_pairs():
 	assert_eq(CharmEffects.mult_bonus("three_kind", _ids([Charm.LADYBUG])), 0)
 
 func test_mult_bonus_pearl_three_kind():
-	assert_eq(CharmEffects.mult_bonus("three_kind", _ids([Charm.PEARL_NECKLACE])), 8)
+	assert_eq(CharmEffects.mult_bonus("three_kind", _ids([Charm.PEARL_NECKLACE])), 6)
 	assert_eq(CharmEffects.mult_bonus("three_pairs", _ids([Charm.PEARL_NECKLACE])), 0)
 	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.PEARL_NECKLACE])), 0)
 
 func test_rainbow_trout_gives_mult_on_straights_only():
-	assert_eq(CharmEffects.mult_bonus("small_straight", _ids([Charm.RAINBOW_TROUT])), 10)
-	assert_eq(CharmEffects.mult_bonus("large_straight", _ids([Charm.RAINBOW_TROUT])), 10)
+	assert_eq(CharmEffects.mult_bonus("small_straight", _ids([Charm.RAINBOW_TROUT])), 8)
+	assert_eq(CharmEffects.mult_bonus("large_straight", _ids([Charm.RAINBOW_TROUT])), 8)
 	assert_eq(CharmEffects.mult_bonus("full_house", _ids([Charm.RAINBOW_TROUT])), 0)
 
 func test_collectors_amulet_gives_mult_per_other_charm():
@@ -153,10 +153,21 @@ func test_collectors_amulet_gives_mult_per_other_charm():
 	assert_eq(CharmEffects.charm_mult_bonus("two_kind", [] as Array[int], [] as Array[String], _ids([Charm.COLLECTORS_AMULET, Charm.HORSESHOE, Charm.LADYBUG])), 4)
 	assert_eq(CharmEffects.charm_mult_bonus("two_kind", [] as Array[int], [] as Array[String], _ids([Charm.COLLECTORS_AMULET])), 0)
 
-func test_total_factor_magic_card_first_hand_only():
-	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.MAGIC_CARD]), true), 2)
-	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.MAGIC_CARD]), false), 1)
-	assert_eq(CharmEffects.charm_total_factor_at(0, _ids([Charm.HORSESHOE]), true), 1)
+func test_magic_card_retriggers_only_the_first_hand():
+	var card := _ids([Charm.MAGIC_CARD])
+	assert_eq(CharmEffects.first_hand_retriggers(card, true, true), 1)
+	assert_eq(CharmEffects.first_hand_retriggers(card, false, true), 0, "nur die erste Hand")
+	assert_eq(CharmEffects.first_hand_retriggers(card, true, false), 0, "nur Kombinations-Würfel")
+	assert_eq(CharmEffects.first_hand_retriggers(_ids([Charm.MAGIC_CARD, Charm.MAGIC_CARD]), true, true), 2)
+	assert_eq(CharmEffects.first_hand_retriggers(_ids([Charm.HORSESHOE]), true, true), 0)
+
+func test_the_magic_card_rides_the_die_axis():
+	# Additiv wie das Sechserpack: ein Antritt mehr, nie ein Faktor - und nur am
+	# Würfel der Kombination.
+	var ids := _ids([Charm.MAGIC_CARD])
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, -1, [] as Array[String], false, 0, 2, -1, true, true), 2)
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, -1, [] as Array[String], false, 0, 2, -1, true, false), 1)
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, -1, [] as Array[String], false, 0, 2, -1, false, true), 1)
 
 # --- Geld --------------------------------------------------------------------
 

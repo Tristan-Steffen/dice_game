@@ -1577,10 +1577,11 @@ func consume_engravings(id: String, count: int) -> bool:
 
 ## Verbraucht die angewandte Gravur - es sei denn, die Zwinge hält sie fest.
 ## true = die Gravur blieb in der Zwinge (der Aufrufer sagt es dem Spieler). Nur
-## MATERIAL-Gravuren; rng injizierbar, damit ein Test beide Ausgänge erzwingt.
+## ZAHL- und MATERIAL-Gravuren; die Sonderposten und die Runen bleiben außen vor.
+## rng injizierbar, damit ein Test beide Ausgänge erzwingt.
 func consume_applied_engraving(id: String, count: int = 1,
 		rng: RandomNumberGenerator = null) -> bool:
-	if DieMaterial.is_valid_id(id):
+	if DieMaterial.is_valid_id(id) or Engraving.is_number_id(id):
 		var chance := CharmEffects.engraving_spare_chance(charm_ids())
 		var roll := rng.randf() if rng != null else randf()
 		if chance > 0.0 and roll < chance:

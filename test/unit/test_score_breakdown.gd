@@ -165,12 +165,12 @@ func test_mercury_edge_retrigger_stays_at_its_die():
 		assert_eq(int(pulse["mult_add"]), 4, "Rubin je Auslösung")
 	assert_eq(_firings(breakdown["die_steps"][1]).size(), 1, "der Partner löst einfach aus")
 
-func test_lighthouse_fires_with_its_die_per_activation():
-	# Würfelgebunden: der Leuchtturm feuert MIT dem höchsten gewerteten Würfel,
+func test_high_stacker_fires_with_its_die_per_activation():
+	# Würfelgebunden: der Hochstapler feuert MIT dem höchsten gewerteten Würfel,
 	# je Aktivierung +5 Mult als Charm-Anteil der jeweiligen Auslösung.
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.LIGHTHOUSE]), false, NO_MATS, {}, _argon(0))
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.HIGH_STACKER]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
-	assert_eq(step["die_charm_indices"], [0], "der Leuchtturm hängt am Zielwürfel")
+	assert_eq(step["die_charm_indices"], [0], "der Hochstapler hängt am Zielwürfel")
 	for pulse: Dictionary in _firings(step):
 		assert_eq(int(pulse["charm_mult_add"]), 5, "+5 Mult je Auslösung")
 	assert_eq(breakdown["die_steps"][1]["die_charm_indices"], [], "der Partner-Würfel bleibt leer")
@@ -315,7 +315,7 @@ func test_additive_charm_gets_its_own_step():
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
 	assert_eq(steps[0]["charm_indices"], [0])
-	assert_eq(steps[0]["mult_add"], 12, "Hufeisen: Full House +12 Mult")
+	assert_eq(steps[0]["mult_add"], 8, "Hufeisen: Full House +8 Mult")
 
 func test_per_die_charm_fires_inside_the_die_step():
 	# Breitband feuert MIT jedem beteiligten Würfel, nicht in der Charm-Phase:
@@ -333,12 +333,12 @@ func test_nonlinear_charms_still_sum_exactly():
 	# verschränkte Beiträge - die Teleskopsumme muss trotzdem exakt stimmen.
 	_build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([Charm.HERMIT_CRAB, Charm.COLLECTORS_AMULET]))
 
-func test_cult_of_one_becomes_factor_step():
+func test_cult_of_one_becomes_a_crit_step():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 1, 3, 6]), _ids([Charm.CULT_OF_ONE]))
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
-	assert_eq(steps[0]["base_x"], 4, "×2 je gewürfelter 1 (zwei Einsen)")
-	assert_eq(steps[0]["mult_x"], 4)
+	assert_eq(steps[0]["crit_x"], 4.0, "×2 je gewürfelter 1 (zwei Einsen)")
+	assert_eq(steps[0]["mult_x"], 4.0)
 	assert_eq(steps[0]["charm_indices"], [0])
 
 func test_gallows_humor_is_a_positioned_crit_step():
@@ -346,8 +346,8 @@ func test_gallows_humor_is_a_positioned_crit_step():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, {"after_farkle": true})
 	var crit_steps: Array = breakdown["charm_steps"].filter(func(s: Dictionary) -> bool: return s["crit_x"] > 1)
 	assert_eq(crit_steps.size(), 1)
-	assert_eq(crit_steps[0]["mult_x"], 4, "Krit ×4 an der eigenen Position")
-	assert_eq(crit_steps[0]["crit_x"], 4, "als Krit markiert - die UI kann ihn inszenieren")
+	assert_eq(crit_steps[0]["mult_x"], 4.0, "Krit ×4 an der eigenen Position")
+	assert_eq(crit_steps[0]["crit_x"], 4.0, "als Krit markiert - die UI kann ihn inszenieren")
 	assert_eq(crit_steps[0]["charm_indices"], [0])
 
 func test_spotlight_gets_its_own_step_at_its_dock_position():
@@ -372,22 +372,17 @@ func test_spotlight_stays_silent_on_a_different_combination():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {}, ctx)
 	assert_eq(breakdown["charm_steps"].size(), 0, "andere Kombination, kein Schritt")
 
-func test_non_crit_factor_steps_carry_crit_one():
-	# Einserkult ist KEIN Krit (Faktor auf Basis UND Mult) - crit_x bleibt 1.
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 1, 3, 6]), _ids([Charm.CULT_OF_ONE]))
-	assert_eq(breakdown["charm_steps"][0]["crit_x"], 1)
-
-func test_factor_charm_respects_dock_order():
-	# KEINE Ausnahmen: Einserkult VOR Momentum verdoppelt dessen +3 nicht,
+func test_crit_charm_respects_dock_order():
+	# KEINE Ausnahmen: Einserkult VOR Momentum kritet dessen +6 nicht,
 	# dahinter schon - und die Schrittliste läuft in Besitz-Reihenfolge.
 	var ctx := {CharmEffects.CTX_STREAK: 3}
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var cult_first := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.CULT_OF_ONE, Charm.MOMENTUM]), false, NO_MATS, {}, ctx)
 	var cult_last := _build_and_check(DiceScoring.TWO_KIND, dice, _ids([Charm.MOMENTUM, Charm.CULT_OF_ONE]), false, NO_MATS, {}, ctx)
-	# Eine 1 im Wurf: ×2. Vorn: (2×2 + 3) = 7 Mult, Basis 40 -> 280.
-	# Hinten: (2 + 3) × 2 = 10 Mult, Basis 40 -> 400.
-	assert_eq(cult_first["total"], 280)
-	assert_eq(cult_last["total"], 400)
+	# Eine 1 im Wurf: Krit ×2. Vorn: (2×2 + 6) = 10 Mult, Basis 20 -> 200.
+	# Hinten: (2 + 6) × 2 = 16 Mult, Basis 20 -> 320.
+	assert_eq(cult_first["total"], 200)
+	assert_eq(cult_last["total"], 320)
 	assert_eq(cult_first["charm_steps"][0]["charm_indices"], [0], "Schritte folgen der Dock-Reihenfolge")
 	assert_eq(cult_first["charm_steps"][1]["charm_indices"], [1])
 
@@ -397,17 +392,31 @@ func test_rainbow_trout_is_a_mult_step():
 	var breakdown := _build_and_check(DiceScoring.SMALL_STRAIGHT, _d([1, 2, 3, 4, 5, 5]), _ids([Charm.RAINBOW_TROUT]))
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
-	assert_eq(steps[0]["mult_add"], 10)
+	assert_eq(steps[0]["mult_add"], 8)
 	assert_eq(steps[0]["charm_indices"], [0])
 	assert_true(breakdown["post_steps"].is_empty(), "kein Nach-Schritt mehr")
 
-func test_magic_card_is_a_total_factor():
+func test_the_magic_card_shows_as_extra_firings():
+	# Die erste Hand der Runde tritt jeden Würfel zweimal an - keine Nach-Schritte.
 	var ids := _ids([Charm.MAGIC_CARD])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, true)
-	var posts: Array = breakdown["post_steps"]
-	assert_eq(posts.size(), 1)
-	assert_eq(posts[0]["total_x"], 2.0)
-	assert_eq(posts[0]["charm_indices"], [0])
+	var ctx := {DiceScoring.CTX_HANDS_TAKEN: 0}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, true, NO_MATS, {}, ctx)
+	assert_eq(breakdown["die_steps"][0]["die_triggers"].size(), 2, "zwei Antritte je Würfel")
+	assert_true(breakdown["post_steps"].is_empty(), "die Zauberkarte ist kein Gesamtzahl-Effekt mehr")
+	var later := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, false, NO_MATS, {},
+		{DiceScoring.CTX_HANDS_TAKEN: 1})
+	assert_eq(later["die_steps"][0]["die_triggers"].size(), 1, "spätere Hände treten einfach an")
+
+func test_the_magic_card_spares_dice_that_only_the_full_counter_scores():
+	# Die Grenze der Zauberkarte: sie meint die KOMBINATION, nicht die gewertete
+	# Menge. Der Vollzähler zieht die unbeteiligte 6 in die Wertung - einen
+	# zweiten Antritt bekommt sie deshalb nicht.
+	var ids := _ids([Charm.MAGIC_CARD, Charm.FULL_COUNTER])
+	var ctx := {DiceScoring.CTX_HANDS_TAKEN: 0}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), ids, true, NO_MATS, {}, ctx)
+	assert_eq(_step_for_slot(breakdown, 0)["die_triggers"].size(), 2, "der Kombinations-Würfel tritt zweimal an")
+	assert_eq(_step_for_slot(breakdown, 5)["die_triggers"].size(), 1,
+		"nur mitgewertet - kein zweiter Antritt")
 
 func test_after_work_beer_crits_on_an_empty_pool():
 	# Leerer Nachziehstapel: ein reiner Krit-Schritt, die Basis bleibt unberührt.
@@ -417,8 +426,8 @@ func test_after_work_beer_crits_on_an_empty_pool():
 	var steps: Array = breakdown["charm_steps"]
 	assert_eq(steps.size(), 1)
 	assert_eq(steps[0]["base_x"], 1, "kein Basis-Faktor mehr")
-	assert_eq(steps[0]["mult_x"], 4, "Krit steckt im Mult-Faktor")
-	assert_eq(steps[0]["crit_x"], 4, "und bleibt als Krit sichtbar")
+	assert_eq(steps[0]["mult_x"], 5.0, "Krit steckt im Mult-Faktor")
+	assert_eq(steps[0]["crit_x"], 5.0, "und bleibt als Krit sichtbar")
 	assert_eq(steps[0]["charm_indices"], [0])
 	assert_true(breakdown["post_steps"].is_empty(), "kein Nach-Schritt mehr")
 
@@ -489,22 +498,22 @@ func test_bonus_that_is_not_per_die_carries_no_pulses():
 func _prop_charm_sets() -> Array:
 	return [
 		[],
-		[Charm.LIGHTHOUSE], [Charm.TWIN_RING], [Charm.SNAKE_EYES],
+		[Charm.TWIN_RING], [Charm.SNAKE_EYES],
 		[Charm.PENDULUM], [Charm.ALL_OR_NOTHING], [Charm.MOMENTUM], [Charm.BROKEN_MIRROR],
 		[Charm.EVEN_COMPANY], [Charm.ODD_PATH], [Charm.HERMIT_CRAB], [Charm.DISPLAY_CASE],
 		[Charm.COLLECTORS_AMULET], [Charm.ECHO_CHAMBER], [Charm.STREET_SWEEPER],
 		[Charm.FULL_COUNTER], [Charm.BROADBAND], [Charm.SEDIMENT],
-		[Charm.BLACKJACK], [Charm.ROUND_NUMBER], [Charm.HORSESHOE],
+		[Charm.HORSESHOE],
 		[Charm.LADYBUG], [Charm.PEARL_NECKLACE], [Charm.RAINBOW_TROUT], [Charm.MAGIC_CARD],
 		[Charm.CULT_OF_ONE], [Charm.GALLOWS_HUMOR], [Charm.AFTER_WORK_BEER],
 		[Charm.LUCKY_CIGARETTES], [Charm.PENCIL_STUB], [Charm.FOX_TAIL],
 		[Charm.SMALL_FRY], [Charm.EQUALIZER],
-		[Charm.RABBITS_FOOT], [Charm.FOUR_LEAF_CLOVER], [Charm.GOLDEN_SCARAB],
+		[Charm.RABBITS_FOOT], [Charm.FOUR_LEAF_CLOVER],
 		[Charm.PROTECTION_MONEY], [Charm.WATERFALL], [Charm.DOUBLE_BOTTOM],
 		[Charm.BEHERIT], [Charm.HIGH_STACKER], [Charm.PRIME_TIME], [Charm.QUADRATURE],
 		[Charm.FRONT_RUNNER], [Charm.SIX_PACK],
 		[Charm.CULT_OF_ONE, Charm.GALLOWS_HUMOR, Charm.MAGIC_CARD],
-		[Charm.LUCKY_CIGARETTES, Charm.ECHO_CHAMBER, Charm.BLACKJACK],
+		[Charm.LUCKY_CIGARETTES, Charm.ECHO_CHAMBER, Charm.FREE_DRINK],
 		[Charm.EQUALIZER, Charm.SMALL_FRY, Charm.ECHO_CHAMBER, Charm.FULL_COUNTER],
 		[Charm.WATERFALL, Charm.BEHERIT, Charm.ECHO_CHAMBER],
 		[Charm.PROTECTION_MONEY, Charm.RABBITS_FOOT, Charm.DOUBLE_BOTTOM],

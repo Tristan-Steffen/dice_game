@@ -19,9 +19,11 @@ const STRAY_LIGHT_MONEY := 1
 ## Argon-Würfel die Bank doppelt füllen.
 const SPARK_FLIGHT_CHARGE := 1
 
-## Stichel: die WERTUNGS-Runen wirken doppelt (Nachglühen, Funkenflug; die
-## Kehrseite zündet über EssenceEffects.det_link_fire_count zweimal).
-static func _burin_factor(charm_ids: Array[String]) -> int:
+## Stichel: JEDE Rune wirkt doppelt - Nachglühen, Funkenflug, Streulicht und der
+## Abguss (CharmEffects.cast_copies_for_level); die Kehrseite zündet über
+## EssenceEffects.det_link_fire_count zweimal. Nur der Einbrand kennt keine
+## Verdopplung, er ist ein Dauerzustand und kein Betrag.
+static func burin_factor(charm_ids: Array[String]) -> int:
 	return 2 if charm_ids.has(Charm.BURIN) else 1
 
 ## ZUSÄTZLICHE Auslösungen aus die Runen der oben liegenden Seite. Additiv wie
@@ -31,7 +33,7 @@ static func extra_activations(rune_ids: Array[String], charm_ids: Array[String] 
 	var extra := 0
 	for rune_id in rune_ids:
 		if rune_id == Rune.AFTERGLOW:
-			extra += _burin_factor(charm_ids)
+			extra += burin_factor(charm_ids)
 	return extra
 
 ## Einbrand: der Wert dieser Seite ist eingebrannt - er schrumpft nicht (Glas,
@@ -44,7 +46,7 @@ static func protects_face_value(rune_ids: Array[String]) -> bool:
 static func charge_for_take(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
 	if not rune_ids.has(Rune.SPARK_FLIGHT):
 		return 0
-	return SPARK_FLIGHT_CHARGE * _burin_factor(charm_ids)
+	return SPARK_FLIGHT_CHARGE * burin_factor(charm_ids)
 
 ## Abguss: nimmt die gewertete Seite eine Kopie ihrer Material-Gravur mit in den
 ## Vorrat? Nur das Prädikat - gebucht wird in GameRun (die fünfte Wirkungsform:
@@ -54,8 +56,10 @@ static func casts_material(rune_ids: Array[String]) -> bool:
 
 ## Geld einer LIEGENDEN, aber ungewerteten Seite am Zugende (Streulicht) - das
 ## bewusste Gegen-Ereignis zum Gold-Material.
-static func stray_money(rune_ids: Array[String]) -> int:
-	return STRAY_LIGHT_MONEY if rune_ids.has(Rune.STRAY_LIGHT) else 0
+static func stray_money(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
+	if not rune_ids.has(Rune.STRAY_LIGHT):
+		return 0
+	return STRAY_LIGHT_MONEY * burin_factor(charm_ids)
 
 ## Runen eines Slots aus dem ctx-Dictionary ([] = keine).
 static func runes_at(runes: Dictionary, slot: int) -> Array[String]:

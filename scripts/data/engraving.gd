@@ -55,6 +55,14 @@ const SANDPAPER := "sandpaper"
 const PUNCH := "punch"
 const BLUEPRINT := "blueprint"
 
+## Dieselben ids als Liste - die Zwinge fragt danach, ohne dafür ein Engraving
+## bauen zu müssen.
+const NUMBER_IDS := [CHISEL, GRINDSTONE, NOTCH, FILE_DOWN, AVERAGING, STRAIGHTEN,
+	POLISH, SANDPAPER, PUNCH, BLUEPRINT]
+
+static func is_number_id(engraving_id: String) -> bool:
+	return NUMBER_IDS.has(engraving_id)
+
 ## Konvention: Textur-Dateiname = Gravur-id (chisel.jpg, ...).
 const TEXTURE_DIR := "res://assets/textures/engravings/"
 

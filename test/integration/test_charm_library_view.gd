@@ -118,27 +118,27 @@ func test_owned_charm_is_marked_in_inspect():
 func test_debug_grant_adds_charm_to_run():
 	run.money = 30
 	library.open()
-	library.inspect(Charm.blackjack())
+	library.inspect(Charm.ladybug())
 	assert_false(library.inspect_grant_button.disabled, "holbar, solange nicht besessen")
 	library._on_grant_pressed()
-	assert_true(run.owned_charm_ids().has(Charm.BLACKJACK), "Charm liegt jetzt im Run")
+	assert_true(run.owned_charm_ids().has(Charm.LADYBUG), "Charm liegt jetzt im Run")
 	assert_eq(run.money, 30, "Debug-Grant kostet nichts (Geld unverändert)")
 	assert_true(library.inspect_grant_button.disabled, "danach nicht erneut holbar")
-	assert_eq(library.inspect_name_label.text, "%s  ✓" % Charm.blackjack().display_name)
+	assert_eq(library.inspect_name_label.text, "%s  ✓" % Charm.ladybug().display_name)
 
 func test_debug_grant_disabled_for_owned_charm():
-	run.owned_charms.append(Charm.blackjack())
+	run.owned_charms.append(Charm.ladybug())
 	library.open()
-	library.inspect(Charm.blackjack())
+	library.inspect(Charm.ladybug())
 	assert_true(library.inspect_grant_button.disabled, "bereits besessen = nicht holbar")
 
 func test_debug_grant_is_idempotent():
 	library.open()
-	library.inspect(Charm.blackjack())
+	library.inspect(Charm.ladybug())
 	library._on_grant_pressed()
 	library._on_grant_pressed()  # zweiter Aufruf prallt ab
 	var count := 0
 	for id in run.owned_charm_ids():
-		if id == Charm.BLACKJACK:
+		if id == Charm.LADYBUG:
 			count += 1
 	assert_eq(count, 1, "kein doppelter Eintrag")

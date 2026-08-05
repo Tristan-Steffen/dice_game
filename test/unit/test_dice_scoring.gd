@@ -173,30 +173,34 @@ func test_rabbits_foot_retriggers_material_effects_too():
 
 func test_horseshoe_raises_full_house_mult():
 	var hand := DiceScoring.best_hand(_d([2,2,2,5,5,1]), _ids([Charm.HORSESHOE]))
-	assert_eq(hand["mult"], 16, "Full-House-Mult inkl. Hufeisen-Bonus (+12)")
-	# Beteiligt 2 2 2 5 5 = 16 (der 1er zählt nicht), plus 28 Punkte, × (4+12).
-	assert_eq(hand["score"], (28 + 16) * 16)
+	assert_eq(hand["mult"], 12, "Full-House-Mult inkl. Hufeisen-Bonus (+8)")
+	# Beteiligt 2 2 2 5 5 = 16 (der 1er zählt nicht), plus 28 Punkte, × (4+8).
+	assert_eq(hand["score"], (28 + 16) * 12)
 
 func test_pearl_necklace_boosts_only_three_kind():
-	# Dreierpasch 3er: Basis (18 + 9) × (3+8).
-	assert_eq(DiceScoring.best_hand(_d([3,3,3,1,2,6]), _ids([Charm.PEARL_NECKLACE]))["score"], (18 + 9) * 11)
+	# Dreierpasch 3er: Basis (18 + 9) × (3+6).
+	assert_eq(DiceScoring.best_hand(_d([3,3,3,1,2,6]), _ids([Charm.PEARL_NECKLACE]))["score"], (18 + 9) * 9)
 	# Drei Zweierpäsche bleiben unberührt: (32 + _sum 18) × 5.
 	assert_eq(DiceScoring.best_hand(_d([1,1,3,3,5,5]), _ids([Charm.PEARL_NECKLACE]))["score"], (32 + 18) * 5)
 
 func test_rainbow_trout_adds_mult_to_straight():
 	# kleine Straße: beteiligt 1 2 3 4 5 = 15 (die zweite 5 zählt nicht),
-	# (22 + 15) × (4 + 10).
-	assert_eq(DiceScoring.best_hand(_d([1,2,3,4,5,5]), _ids([Charm.RAINBOW_TROUT]))["score"], (22 + 15) * 14)
+	# (22 + 15) × (4 + 8).
+	assert_eq(DiceScoring.best_hand(_d([1,2,3,4,5,5]), _ids([Charm.RAINBOW_TROUT]))["score"], (22 + 15) * 12)
 
-func test_magic_card_only_doubles_first_hand():
+func test_magic_card_only_retriggers_the_first_hand():
+	# Erste Hand: jeder Kombi-Würfel tritt zweimal an, die Augen zählen doppelt -
+	# Basis (10 + 2×(3+3)) × 2 = 44. Später bleibt es bei 32.
 	var ids := _ids([Charm.MAGIC_CARD])
-	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, true)["score"], 64, "erste Hand verdoppelt")
-	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, false)["score"], 32, "spätere Hand normal")
+	var first := {DiceScoring.CTX_HANDS_TAKEN: 0}
+	var later := {DiceScoring.CTX_HANDS_TAKEN: 1}
+	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, true, [] as Array[String], {}, first)["score"], 44)
+	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids, false, [] as Array[String], {}, later)["score"], 32)
 
 func test_collectors_amulet_adds_mult_per_other_charm():
 	# Nur das Amulett greift bei einem Paar 3er; die anderen sind neutral.
 	# +2 Mult je anderem Charm: Basis (10 + 6) × (2 + 4) = 96.
-	var ids := _ids([Charm.COLLECTORS_AMULET, Charm.RABBITS_FOOT, Charm.GOLDEN_SCARAB])
+	var ids := _ids([Charm.COLLECTORS_AMULET, Charm.RABBITS_FOOT, Charm.FOUR_LEAF_CLOVER])
 	assert_eq(DiceScoring.best_hand(_d([3,3,1,2,4,6]), ids)["score"], 96)
 
 func test_retrigger_charms_never_change_the_category():

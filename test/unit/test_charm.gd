@@ -25,7 +25,10 @@ func test_all_returns_all_charms():
 	# +3 aus den Playtest-Notizen: Schutzgeld, Wasserfall, Doppelter Boden.
 	# +38 der zweiten Welle: 11 Essenz-Charms zu den 11 neuen Seelen und 27
 	# allgemeine (Energie/Leiterbahn, Runen/Werkbank, Automat, Auslösungen).
-	assert_eq(Charm.all().size(), 152)
+	# −5 im Charm-Rework: Goldener Skarabäus, Leuchtturm, Blackjack, Runde Sache
+	# (zu flach oder zu eng) und der Rubinschleifer, dessen Wirkung der Blood
+	# Diamond geerbt hat.
+	assert_eq(Charm.all().size(), 147)
 
 func test_all_ids_are_unique():
 	var seen := {}
@@ -65,7 +68,7 @@ func test_placeholder_model_is_a_colored_card():
 	var model: Node3D = autofree(CharmRowView.placeholder_model(Charm.PENDULUM))
 	var mesh_instance: MeshInstance3D = model.get_child(0)
 	assert_true(mesh_instance.mesh is BoxMesh, "Platzhalter ist ein flacher Kasten")
-	var other: Node3D = autofree(CharmRowView.placeholder_model(Charm.BLACKJACK))
+	var other: Node3D = autofree(CharmRowView.placeholder_model(Charm.LADYBUG))
 	var color_a: Color = mesh_instance.material_override.albedo_color
 	var color_b: Color = (other.get_child(0) as MeshInstance3D).material_override.albedo_color
 	assert_ne(color_a, color_b, "verschiedene Charms bekommen verschiedene Kartenfarben")
