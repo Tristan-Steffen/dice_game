@@ -88,7 +88,7 @@ func test_locked_ceremony_disables_owned_slots_but_keeps_them_hoverable() -> voi
 	assert_true(owned.disabled, "gesperrt: der besessene Platz fängt keine Klicks")
 	assert_eq(owned.mouse_filter, Control.MOUSE_FILTER_STOP, "aber überfahrbar bleibt er")
 	var seen: Array[String] = []
-	drawer.hovered.connect(func(info: String) -> void: seen.append(info))
+	drawer.hovered.connect(func(title: String, body: String) -> void: seen.append("%s|%s" % [title, body]))
 	owned.mouse_entered.emit()
 	assert_eq(seen, [_chisel_info()] as Array[String], "das Überfahren meldet die Beschreibung")
 
@@ -105,22 +105,22 @@ func test_pressing_a_tool_reports_its_id() -> void:
 
 func test_hover_reports_the_description_even_at_the_station() -> void:
 	# Regression: an der Station (Zeremonie) muss das Überfahren die Beschreibung
-	# weiter melden - sonst friert die Info-Leiste auf dem gewählten Werkzeug ein.
+	# weiter melden - sonst friert die Hinweiskarte auf dem gewählten Werkzeug ein.
 	run.grant_engraving(Engraving.chisel())
 	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
 	drawer.set_ceremony(true)
 	var seen: Array[String] = []
-	drawer.hovered.connect(func(info: String) -> void: seen.append(info))
+	drawer.hovered.connect(func(title: String, body: String) -> void: seen.append("%s|%s" % [title, body]))
 	for entry in drawer.slots:
 		if entry["id"] == Engraving.CHISEL:
 			entry["button"].mouse_entered.emit()
 			entry["button"].mouse_exited.emit()
-	assert_eq(seen, [_chisel_info(), ""], "Beschreibung beim Überfahren, leer beim Verlassen")
+	assert_eq(seen, [_chisel_info(), "|"], "Beschreibung beim Überfahren, leer beim Verlassen")
 
+## Name und Wirkung getrennt - die Hinweiskarte setzt sie unterschiedlich.
 func _chisel_info() -> String:
-	# Nur Name und Wirkung - keine Seltenheits-Angabe.
 	var chisel := Engraving.chisel()
-	return "%s: %s" % [chisel.display_name, chisel.description]
+	return "%s|%s" % [chisel.display_name, chisel.description]
 
 func test_enabled_ids_narrow_the_usable_slots() -> void:
 	run.grant_engraving(Engraving.chisel())

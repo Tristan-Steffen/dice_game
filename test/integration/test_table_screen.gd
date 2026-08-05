@@ -394,26 +394,25 @@ func _place_workbench_corner() -> void:
 	screen.place_hub(Vector2(2400, 2200), Vector2(1400, 1200))
 	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(900, 500)))
 	var rects: Array[Rect2] = []
-	for i in Engraving.CATEGORIES.size():
+	for i in Engraving.CATEGORIES.size() + 1:
 		rects.append(Rect2(Vector2(3300 + i * 300, 2600), Vector2(280, 200)))
 	screen.place_supply_drawers(rects, 8.0)
 
-func test_the_special_stock_sits_beside_the_bench_with_a_horizontal_strip():
-	# Der Sonderbestand ist die 4. Schublade: rechts NEBEN der Werkbank, seine
-	# Ader läuft waagerecht aus deren Seite - nicht senkrecht aus der Unterkante.
+func test_the_special_stock_is_the_fourth_drawer_of_the_row():
+	# Der Sonderbestand steht in der Reihe wie jede andere Schublade - seine Ader
+	# läuft senkrecht aus der Werkbank-Unterkante in seine Oberkante.
 	_place_workbench_corner()
-	var rect := Rect2(Vector2(4250, 2000), Vector2(120, 500))
-	screen.place_special_stock(rect, 8.0)
 	var index := screen._drawer_index(SupplyDrawerView.CATEGORY_SPECIAL)
+	assert_eq(index, Engraving.CATEGORIES.size(), "er ist die letzte Schublade der Reihe")
 	var stock: SupplyDrawerView = screen.supply_drawers[index]
 	assert_true(stock.visible, "der Sonderbestand ist aufgespannt")
-	assert_eq(stock.position, rect.position)
+	assert_eq(stock.position, Vector2(3300 + index * 300, 2600))
 	assert_eq(stock.slots.size(), Engraving.SPECIAL_IDS.size(), "je Sonderposten ein Platz")
 	var strip: LedStripView = screen.supply_strips[index]
-	assert_eq(strip.strip_path.size(), 2, "eine gerade Ader")
-	assert_eq(strip.strip_path[0], Vector2(4200.0, strip.strip_path[1].y),
-		"sie tritt aus der Werkbank-SEITE aus")
-	assert_eq(strip.strip_path[1].x, rect.position.x, "und endet an der Vitrine")
+	assert_eq(strip.strip_path[0].y, 2500.0, "sie tritt aus der Werkbank-UNTERKANTE aus")
+	assert_eq(strip.strip_path[strip.strip_path.size() - 1],
+		Vector2(stock.position.x + stock.size.x * 0.5, stock.position.y),
+		"und endet mittig in der Schubladen-Oberkante")
 
 func test_pack_delivery_runs_along_the_hub_workshop_strip():
 	_place_workbench_corner()

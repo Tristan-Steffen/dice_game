@@ -12,9 +12,9 @@ extends Panel
 
 ## Werkzeug aufgenommen/abgelegt (nur in der Station-Betriebsart).
 signal tool_pressed(engraving_id: String)
-## Lager-Betrieb: Überfahren einer Kachel liefert ihre Beschreibungszeile ("" beim
-## Verlassen). Die Station schweigt hier - dort führt die Hinweiszeile selbst.
-signal hovered(info_text: String)
+## Überfahren einer Kachel liefert Name und Wirkung getrennt (beides "" beim
+## Verlassen) - die Hinweiskarte der Werkbank setzt sie unterschiedlich.
+signal hovered(title: String, body: String)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -33,9 +33,9 @@ const PAD := 0.7
 const GAP := 0.25
 ## Nachglühen eines getroffenen Platzes (siehe pop).
 const AFTERGLOW_TIME := 2.5
-## Pseudo-Kategorie des Sonderbestands rechts der Werkbank: die Sonderposten
-## (Engraving.SPECIAL_IDS) - in ihrer Kategorien-Schublade machte eine dritte
-## Platz-Reihe die ganze Reihe höher und drückte die Werkbank zusammen.
+## Pseudo-Kategorie des Sonderbestands, der vierten Schublade rechts in der
+## Reihe: die Sonderposten (Engraving.SPECIAL_IDS) - in ihrer Kategorien-
+## Schublade machte eine dritte Platz-Reihe die ganze Reihe höher.
 const CATEGORY_SPECIAL := "special"
 
 const COLUMNS := {
@@ -176,11 +176,6 @@ func rebuild() -> void:
 		slots.append({"button": chip, "id": archetype.id, "count": count})
 	restyle()
 
-## Beschreibungszeile fürs Hover-Feld: Name, dann die Wirkung - ohne
-## Seltenheits-Angabe (die trägt der Lichtsaum des Siegels).
-static func info_line(archetype: Engraving) -> String:
-	return "%s: %s" % [archetype.display_name, archetype.description]
-
 ## Bestand je Gravur-id (Testmodus: alles einmal vorhanden).
 func _counts() -> Dictionary:
 	var counts := {}
@@ -202,11 +197,12 @@ func _chip(archetype: Engraving, count: int) -> Button:
 	chip.custom_minimum_size = Vector2(CHIP.x * u, CHIP.y * u)
 	chip.tooltip_text = "%s\n%s" % [archetype.display_name, archetype.description]
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
-	var info := info_line(archetype)
-	# Überfahren meldet die Beschreibung IMMER (auch an der Station): dort
-	# überschreibt sie kurz den Werkzeug-Prompt, im Lager füllt sie die Info-Leiste.
-	chip.mouse_entered.connect(func() -> void: hovered.emit(info))
-	chip.mouse_exited.connect(func() -> void: hovered.emit(""))
+	# Überfahren meldet die Beschreibung IMMER - auch an der Station, wo die
+	# Schubladen das Werkzeug-Bord sind.
+	var title := archetype.display_name
+	var body := archetype.description
+	chip.mouse_entered.connect(func() -> void: hovered.emit(title, body))
+	chip.mouse_exited.connect(func() -> void: hovered.emit("", ""))
 
 	var face := EngravingRenderer.for_engraving(archetype)
 	face.bare = true  # die Schublade IST der Grund - keine zweite Kachel darauf
@@ -244,7 +240,7 @@ func restyle() -> void:
 			and (_enabled_ids.is_empty() or _enabled_ids.has(id))
 		chip.disabled = not usable
 		# Auch im Lager fangen die Kacheln die Maus - fürs Überfahren (Beschreibung
-		# in der Info-Leiste); nur der Klick bleibt der Station vorbehalten.
+		# auf der Hinweiskarte); nur der Klick bleibt der Station vorbehalten.
 		chip.mouse_filter = Control.MOUSE_FILTER_STOP
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if usable \
 			else Control.CURSOR_ARROW

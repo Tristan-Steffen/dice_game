@@ -153,9 +153,9 @@ var slot_bank_window: SlotBankView
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
-## Die drei Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Kanten),
-## je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen, nicht als
-## drei fremde Fenster daneben.
+## Die vier Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Würfel +
+## Sonderbestand), je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen,
+## nicht als fremde Fenster daneben.
 var supply_drawers: Array[SupplyDrawerView] = []
 var supply_strips: Array[LedStripView] = []
 var workshop_hub_strip: LedStripView
@@ -164,9 +164,6 @@ var slot_hub_strip: LedStripView
 ## Ader Schwarzmarkt <-> Hub: der Zwilling der Automaten-Ader eine Etage tiefer -
 ## alles, was der Hinterzimmer-Laden kostet, fährt als Ladung hier hinüber.
 var secret_hub_strip: LedStripView
-var supply_info_bar: Panel
-## RichTextLabel: der Gravur-Name steht fett in seiner Seltenheits-Farbe (BBCode).
-var supply_info_label: RichTextLabel
 ## Ständiges Würfelnetz-Feld unter den Grubenwürfeln (DieNetView): gefüllt vom
 ## Hover (set_pit_die/clear_pit_die), sichtbar mit den Aktions-Knöpfen.
 var pit_info_bar: Panel
@@ -546,9 +543,9 @@ func _build_content() -> void:
 	secret_hub_strip.name = "SecretHubStrip"
 	add_child(secret_hub_strip)
 
-	# Vorrats-Schubladen (drei Kategorien + der Sonderbestand rechts der
-	# Werkbank): Maße/Position setzt scene_root über place_supply_drawers bzw.
-	# place_special_stock. Die Adern zuerst, damit sie UNTER den Schubladen liegen.
+	# Vorrats-Schubladen (drei Kategorien + der Sonderbestand als vierte): Maße
+	# und Position setzt scene_root über place_supply_drawers. Die Adern zuerst,
+	# damit sie UNTER den Schubladen liegen.
 	var drawer_categories: Array = Engraving.CATEGORIES.duplicate()
 	drawer_categories.append(SupplyDrawerView.CATEGORY_SPECIAL)
 	for i in drawer_categories.size():
@@ -563,25 +560,6 @@ func _build_content() -> void:
 		drawer.visible = false
 		add_child(drawer)
 		supply_drawers.append(drawer)
-
-	# Info-Leiste unter den Schubladen: die Hinweiszeile der Gravur-Station
-	# (die Station schreibt direkt in supply_info_label, siehe set_prompt_label).
-	supply_info_bar = Panel.new()
-	supply_info_bar.name = "SupplyInfoBar"
-	supply_info_bar.visible = false
-	supply_info_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	supply_info_bar.add_theme_stylebox_override("panel", window_style())
-	add_child(supply_info_bar)
-	supply_info_label = RichTextLabel.new()
-	supply_info_label.name = "InfoLabel"
-	supply_info_label.bbcode_enabled = true
-	supply_info_label.scroll_active = false
-	supply_info_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	supply_info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	supply_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	supply_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	supply_info_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	supply_info_bar.add_child(supply_info_label)
 
 	# Würfelnetz-Feld der Grube: Position/Größe setzt scene_root über
 	# place_pit_info_bar; ein-/ausgeblendet zusammen mit den Aktions-Knöpfen.
@@ -949,7 +927,8 @@ func _link_workshop_to_hub() -> void:
 	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
 		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
-## Legt die drei Schubladen unter der Werkbank aus (Reihenfolge = CATEGORIES).
+## Legt die Schubladen unter der Werkbank aus (Reihenfolge = CATEGORIES, danach
+## der Sonderbestand).
 func place_supply_drawers(rects: Array[Rect2], unit: float) -> void:
 	for i in mini(rects.size(), supply_drawers.size()):
 		supply_drawers[i].place(rects[i], unit)
@@ -965,50 +944,18 @@ func _link_supply_strips() -> void:
 	var bench_bottom := workshop_window.position.y + workshop_window.size.y
 	for i in mini(supply_strips.size(), supply_drawers.size()):
 		var drawer := supply_drawers[i]
-		# Der Sonderbestand steht NEBEN der Werkbank - seine Ader verlegt
-		# place_special_stock waagerecht.
-		if not drawer.visible or drawer.category == SupplyDrawerView.CATEGORY_SPECIAL:
+		if not drawer.visible:
 			continue
 		var enter_x := drawer.position.x + drawer.size.x * 0.5
 		var lane_y := (bench_bottom + drawer.position.y) * 0.5
 		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
 			lane_y, HUB_STRIP_WIDTH)
 
-## Spannt den Sonderbestand rechts der Werkbank auf (die 4. Schublade) und
-## verlegt seine Ader WAAGERECHT aus der Werkbank-Seite auf Höhe des obersten
-## Platzes - er steht neben der Werkbank, nicht unter ihr.
-func place_special_stock(rect: Rect2, unit: float) -> void:
-	var index := _drawer_index(SupplyDrawerView.CATEGORY_SPECIAL)
-	if index < 0:
-		return
-	var drawer := supply_drawers[index]
-	drawer.place(rect, unit)
-	drawer.visible = true
-	if workshop_window != null and workshop_window.visible and index < supply_strips.size():
-		var lane_y := rect.position.y + (SupplyDrawerView.PAD + SupplyDrawerView.CHIP.y * 0.5) * unit
-		supply_strips[index].link_horizontal(
-			workshop_window.position.x + workshop_window.size.x, rect.position.x,
-			lane_y, HUB_STRIP_WIDTH)
-	_sync_reflection_windows()
-
 func _drawer_index(category: String) -> int:
 	for i in supply_drawers.size():
 		if supply_drawers[i].category == category:
 			return i
 	return -1
-
-## Spannt die Info-Leiste unter der Schubladen-Reihe auf.
-func place_supply_info_bar(rect: Rect2, unit: float) -> void:
-	supply_info_bar.position = rect.position
-	supply_info_bar.size = rect.size
-	supply_info_label.offset_left = unit * 1.6
-	supply_info_label.offset_right = -unit * 1.6
-	var info_font := maxi(8, int(unit * 2.4))
-	supply_info_label.add_theme_font_size_override("normal_font_size", info_font)
-	supply_info_label.add_theme_font_size_override("bold_font_size", info_font)
-	supply_info_label.modulate = Color(1.35, 1.35, 1.3)
-	supply_info_bar.visible = true
-	_sync_reflection_windows()
 
 ## Schaltet alle Schubladen in die Station-Betriebsart (Werkzeug-Bord) und zurück.
 func set_drawers_in_ceremony(active: bool) -> void:
@@ -1071,11 +1018,6 @@ func _sync_reflection_windows() -> void:
 			rects.append(Vector4(drawer.position.x, drawer.position.y,
 				drawer.position.x + drawer.size.x, drawer.position.y + drawer.size.y))
 			radii.append(10.0)
-	if supply_info_bar != null and supply_info_bar.visible:
-		rects.append(Vector4(supply_info_bar.position.x, supply_info_bar.position.y,
-			supply_info_bar.position.x + supply_info_bar.size.x,
-			supply_info_bar.position.y + supply_info_bar.size.y))
-		radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))

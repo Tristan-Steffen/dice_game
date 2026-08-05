@@ -27,7 +27,8 @@ const DOPING := "doping"
 
 ## Sonderposten: einmalige Spezial-Gravuren. Sie behalten ihre Kategorie (und
 ## damit Paket/Ziehung), liegen aber NICHT in deren Schublade, sondern im
-## Sonderbestand rechts der Werkbank - künftige Einmal-Effekte kommen dazu.
+## Sonderbestand, der letzten Schublade der Reihe - künftige Einmal-Effekte
+## kommen dazu.
 const SPECIAL_IDS := [POINTER, DOPING]
 
 static func is_special_id(engraving_id: String) -> bool:

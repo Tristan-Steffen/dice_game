@@ -394,9 +394,13 @@ var engraving_source_tray: DiceTrayView
 var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
 ## Zuletzt überfahrene Seite des Werkstücks (-1 = keine) - nur Wechsel melden.
 var engraving_hover_face := -1
-## Zuletzt von einem Paket-Netz geschriebene Zeile der Info-Leiste (siehe
-## _on_workshop_net_hint) - nur sie darf es auch wieder zurücknehmen.
+## Die Hinweiskarte der Werkbank hat zwei Sprecher: die überfahrene Vorrats-
+## Kachel (meldet sich beim Betreten/Verlassen) und die Netz-Zelle unter dem
+## Zeiger (wird je Bild gefragt). Die Kachel geht vor - jeder nimmt nur die
+## EIGENE Zeile zurück.
 var _workshop_line := ""
+var _supply_title := ""
+var _supply_body := ""
 
 ## Die Paket-Würfel, die zur Wahl über der Werkbank schweben (leer = keine
 ## Zeremonie); ihre Reihenfolge ist die des Werkstatt-Fensters.
@@ -822,67 +826,45 @@ func _setup_table_screen() -> void:
 	# ihre Schrift nicht aus der eigenen Breite ableiten, sonst wird sie winzig.
 	# Sie hängt an der TRAY-Breite, nicht an der gewachsenen Werkbank-Breite.
 	var corner_unit := (tray_bounds.size.x + slot_half * 2.0) / 100.0
-	var drawer_rects := _supply_drawer_rects(
-		Vector2(tray_bounds.position.x - slot_half, 0.0),
-		tray_bounds.size.x + slot_half * 2.0, corner_unit)
-	var drawer_height: float = drawer_rects[0].size.y
+	var bench_left := tray_bounds.position.x - slot_half
 	var drawer_gap := slot_half
-	var info_height := corner_unit * 6.0 + 10.0
-	# Die Werkbank nimmt, was zwischen Tray-Reihe und Anzeigenrand übrig bleibt,
-	# nachdem Schubladen und Info-Leiste ihren Platz haben. Der Rand ist RUND:
-	# maßgeblich ist nicht die Rechteckkante, sondern wie tief das Glas in der
-	# Spalte der rechten unteren Ecke noch trägt - sonst schneidet die Glaskante
-	# Info-Leiste und Vitrine schräg an.
-	# Die Info-Leiste ist der TIEFSTE Punkt der Ecke, und wie tief das Glas trägt,
-	# hängt daran, wie weit rechts sie endet. Sie hört deshalb schon über der
-	# zweiten Schublade auf: jeder Pixel, den sie kürzer ist, wird zu Höhe für
-	# die Werkbank - und eine Hinweiszeile braucht die Breite nicht.
-	var info_right := drawer_rects[1].end.x
-	var corner_bottom := table_screen.glass_bottom_limit(info_right) - slot_half * WORKSHOP_BOTTOM_GAP
-	var workshop_height := corner_bottom - workshop_top - drawer_gap * 1.5 - drawer_height - info_height
-	# Breite AUS der Höhe (siehe WORKSHOP_ASPECT), aber nie schmaler als die
-	# Schubladenreihe darunter - sie muss unter der Werkbank Platz haben.
-	var drawer_span := drawer_rects[drawer_rects.size() - 1].end.x - drawer_rects[0].position.x
-	var workshop_rect := Rect2(
-		Vector2(tray_bounds.position.x - slot_half, workshop_top),
-		Vector2(maxf(workshop_height * WORKSHOP_ASPECT, drawer_span), workshop_height))
-	# Die Vitrine steht rechts der Werkbank und ist damit der äußerste Punkt: die
-	# Werkbank darf nur so breit werden, dass die Vitrine an ihrer UNTERKANTE
-	# (dort ist das Glas am schmalsten) noch ganz auf der Anzeige steht.
-	var special_width := SupplyDrawerView.size_for(SupplyDrawerView.CATEGORY_SPECIAL, corner_unit).x
-	var right_room := table_screen.glass_right_limit(workshop_rect.end.y) \
-		- slot_half * WORKSHOP_BOTTOM_GAP - drawer_gap - special_width
-	workshop_rect.size.x = minf(workshop_rect.size.x, right_room - workshop_rect.position.x)
+	var corner_margin := slot_half * WORKSHOP_BOTTOM_GAP
+	# Nullbreite = die Reihe ohne jede Luft: nur so erfährt man ihre Höhe und ihr
+	# schmalstes Maß. Die Luft dazwischen kommt erst, wenn die Werkbank steht.
+	var drawer_probe := _supply_drawer_rects(Vector2.ZERO, 0.0, corner_unit)
+	var drawer_height: float = drawer_probe[0].size.y
+	var drawer_min_span: float = drawer_probe[drawer_probe.size() - 1].end.x
+	# Die Werkbank nimmt, was zwischen Tray-Reihe und Anzeigenrand übrig bleibt.
+	# Der Rand ist RUND: maßgeblich ist nicht die Rechteckkante, sondern wie tief
+	# das Glas in der Spalte trägt, in der die Schubladen-Reihe endet - gemessen an
+	# ihrem INHALT, nicht an ihrer Luft. Die Spreizung darf die Werkbank nichts
+	# kosten, sonst zahlt die Bank für den Abstand ihrer Schubladen.
+	var corner_bottom := table_screen.glass_bottom_limit(bench_left + drawer_min_span) - corner_margin
+	var workshop_height := corner_bottom - workshop_top - drawer_gap - drawer_height
+	# Breite AUS der Höhe (siehe WORKSHOP_ASPECT), nie schmaler als die Reihe und
+	# nie weiter, als das Glas an der Werkbank-Unterkante trägt.
+	var workshop_rect := Rect2(Vector2(bench_left, workshop_top),
+		Vector2(maxf(workshop_height * WORKSHOP_ASPECT, drawer_min_span), workshop_height))
+	var right_room := table_screen.glass_right_limit(workshop_rect.end.y) - corner_margin
+	workshop_rect.size.x = minf(workshop_rect.size.x, right_room - bench_left)
 	table_screen.place_workshop_window(workshop_rect)
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
 
-	# Schubladen-Reihe direkt unter die Werkbank schieben.
+	# Schubladen-Reihe direkt unter die Werkbank: sie spannt deren GANZE Breite,
+	# der Sonderbestand schließt also rechts bündig mit der Werkbank ab. Die
+	# Spreizung ist reine Luft und weicht dem Glas - sie steht eine Zeile tiefer,
+	# wo der Rand schon enger ist, und wird dort notfalls schmaler.
 	var drawer_top := workshop_rect.end.y + drawer_gap
-	for i in drawer_rects.size():
-		drawer_rects[i].position.y = drawer_top
+	var row_room := table_screen.glass_right_limit(drawer_top + drawer_height) - bench_left
+	var drawer_rects := _supply_drawer_rects(Vector2(bench_left, drawer_top),
+		maxf(minf(workshop_rect.size.x, row_room), drawer_min_span), corner_unit)
 	table_screen.place_supply_drawers(drawer_rects, corner_unit)
-
-	# Sonderbestand: schmale Vitrine RECHTS der Werkbank, so hoch wie sie, für
-	# die Sonderposten (Leiterbahn & Co.) - in der Würfel-Schublade machte die
-	# dritte Platz-Reihe die ganze Reihe höher und drückte die Werkbank zusammen.
-	var special_rect := Rect2(
-		Vector2(workshop_rect.end.x + drawer_gap, workshop_rect.position.y),
-		Vector2(special_width, workshop_rect.size.y))
-	table_screen.place_special_stock(special_rect, corner_unit)
 	for drawer in table_screen.supply_drawers:
 		drawer.hovered.connect(_on_supply_hovered)
 
-	# Info-Leiste unter der Schubladen-Reihe: flach und deutlich schmaler als die
-	# Reihe - rechts eingekürzt, damit der Lichtsaum der Tischkante sie nicht
-	# anschneidet. Hier landet die Hinweiszeile der Gravur-Station.
-	var info_rect := Rect2(
-		Vector2(drawer_rects[0].position.x, drawer_top + drawer_height + drawer_gap * 0.5),
-		Vector2(info_right - drawer_rects[0].position.x, info_height))
-	table_screen.place_supply_info_bar(info_rect, corner_unit)
-
-	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen,
-	# Sonderbestand und Info-Leiste unten. Nur so liegt der Ziel-Würfel mit im Bild.
-	var corner := workshop_rect.merge(tray_bounds).merge(info_rect).merge(special_rect)
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen
+	# (samt Sonderbestand) unten. Nur so liegt der Ziel-Würfel mit im Bild.
+	var corner := workshop_rect.merge(tray_bounds)
 	for rect in drawer_rects:
 		corner = corner.merge(rect)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
@@ -890,7 +872,7 @@ func _setup_table_screen() -> void:
 	# Nahsicht (Doppelklick): dieselbe Ecke OHNE die Trays - genau der Teil, der
 	# flach auf dem Glas liegt. workshop_close_rect bleibt als Prüffläche für den
 	# Doppelklick liegen (nur darauf öffnet die zweite Stufe).
-	workshop_close_rect = workshop_rect.merge(info_rect).merge(special_rect)
+	workshop_close_rect = workshop_rect
 	for rect in drawer_rects:
 		workshop_close_rect = workshop_close_rect.merge(rect)
 	var close_a := table_screen.pixel_to_world(workshop_close_rect.position)
@@ -996,7 +978,6 @@ func _setup_panels() -> void:
 		$UI.add_child(die_inspector)
 	if table_screen != null:
 		die_inspector.set_drawers(table_screen.supply_drawers)
-		die_inspector.set_prompt_label(table_screen.supply_info_label)
 	# Titel-HUD: eigene Hub-Seite, damit Menü, Einstellungen und Credits auf
 	# demselben Fenster liegen wie der Shop. Ohne Hub gibt es keinen Titel -
 	# dann startet das Spiel wie bisher direkt.
@@ -3281,24 +3262,24 @@ func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> S
 	return zone
 
 ## Die Schubladen-Reihe unter der Werkbank: je Kategorie so breit wie ihr Inhalt
-## (Zahlen am breitesten, Kanten am schmalsten), zusammen auf der Werkbank-Breite
-## verteilt. Die y-Position setzt der Aufrufer.
+## (Zahlen am breitesten, der Sonderbestand als schmale letzte Spalte rechts),
+## linksbündig ab origin. Die Luft dazwischen ist der REST: die Reihe spannt
+## total_width ganz aus, die letzte Schublade endet also auf der Werkbank-Kante.
 func _supply_drawer_rects(origin: Vector2, total_width: float, unit: float) -> Array[Rect2]:
+	var categories: Array = Engraving.CATEGORIES.duplicate()
+	categories.append(SupplyDrawerView.CATEGORY_SPECIAL)
 	var sizes: Array[Vector2] = []
 	var content_width := 0.0
 	var height := 0.0
-	for drawer_category in Engraving.CATEGORIES:
+	for drawer_category in categories:
 		var drawer_size := SupplyDrawerView.size_for(drawer_category, unit)
 		sizes.append(drawer_size)
 		content_width += drawer_size.x
 		height = maxf(height, drawer_size.y)
-	# Luft dazwischen, aber gedeckelt - sonst driften die drei Schubladen über die
-	# ganze Werkbank-Breite auseinander und wirken wie drei fremde Fenster.
-	var slack := maxf(0.0, total_width - content_width)
-	var gap := minf(slack / float(maxi(sizes.size() - 1, 1)), unit * 4.0)
+	var gap := maxf(0.0, total_width - content_width) / float(maxi(sizes.size() - 1, 1))
 	var rects: Array[Rect2] = []
-	# Linksbündig unter der Werkbank: die breiteste Schublade (Zahlen) beginnt an
-	# derselben Kante wie das Fenster darüber.
+	# Die breiteste Schublade (Zahlen) beginnt an derselben Kante wie das Fenster
+	# darüber.
 	var x := origin.x
 	for drawer_size in sizes:
 		rects.append(Rect2(Vector2(x, origin.y), Vector2(drawer_size.x, height)))
@@ -3619,15 +3600,20 @@ func _update_workshop_hover() -> void:
 	var workshop := table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
-	var in_workshop := camera_rig.mode == CameraRig.Mode.WORKSHOP
-	if not in_workshop or engraving_active or camera_rig.is_animating:
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP:
+		# Beim Wegzoomen bleibt eine überfahrene Kachel ohne mouse_exited stehen.
 		workshop.clear_hover_net()
-		_sync_workshop_line("")
+		_supply_title = ""
+		_supply_body = ""
+		_workshop_line = ""
+		_sync_workshop_info()
+		return
+	if engraving_active or camera_rig.is_animating:
+		workshop.clear_hover_net()
+		_sync_workshop_line("")  # die Schubladen sprechen an der Station weiter
 		return
 	var mouse := get_viewport().get_mouse_position()
-	# Die überfahrene Netz-Zelle geht vor; sonst führt der Schritt selbst.
-	var hint := workshop.net_hint_at(_screen_pixel(mouse))
-	_sync_workshop_line(hint if hint != "" else workshop.prompt())
+	_sync_workshop_line(workshop.net_hint_at(_screen_pixel(mouse)))
 	# Nur Tray-Würfel: ein Paket-Würfel trägt sein Netz schon unter sich, die Karte
 	# zeigte dasselbe ein zweites Mal.
 	var def := _hovered_tray_def(mouse)
@@ -3636,19 +3622,23 @@ func _update_workshop_hover() -> void:
 		return
 	workshop.show_hover_net(def)
 
-## Was die Werkbank gerade zu sagen hat - Führung des Schritts oder die
-## überfahrene Netz-Zelle - in derselben Info-Leiste wie Schubladen und
-## Gravur-Station. Zurück nimmt sie nur die EIGENE Zeile: in die Leiste schreiben
-## mehrere, und wer zuletzt etwas anderes hineingeschrieben hat, soll es behalten.
+## Zeile der überfahrenen Netz-Zelle ("" = keine).
 func _sync_workshop_line(text: String) -> void:
-	if text == _workshop_line or table_screen == null or table_screen.supply_info_label == null:
-		return
-	var label := table_screen.supply_info_label
-	if text == "" and label.text != _workshop_line:
-		_workshop_line = ""
+	if text == _workshop_line:
 		return
 	_workshop_line = text
-	label.text = text
+	_sync_workshop_info()
+
+## Schreibt die Hinweiskarte der Werkbank: die überfahrene Vorrats-Kachel schlägt
+## die Netz-Zeile - sie ist die gezieltere Auskunft und meldet sich seltener.
+func _sync_workshop_info() -> void:
+	var workshop := table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	if _supply_title != "" or _supply_body != "":
+		workshop.show_hover_info(_supply_title, _supply_body)
+	else:
+		workshop.show_hover_info("", _workshop_line)
 
 ## Def des Tray-Würfels unter screen_pos (null = keiner). Vorrat und Ablage -
 ## die Warteschlange gehört der Grube.
@@ -6855,19 +6845,13 @@ func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
 
-## Die überfahrene Vorrats-Kachel schreibt ihre Beschreibung in die Info-Leiste -
-## auch an der Station: dort überschreibt das Überfahren kurz den Werkzeug-Prompt
-## und gibt die Leiste beim Verlassen wieder frei (zurück zum Stations-Prompt).
-func _on_supply_hovered(info_text: String) -> void:
-	if table_screen == null or table_screen.supply_info_label == null:
-		return
-	if engraving_active:
-		if info_text != "":
-			table_screen.supply_info_label.text = info_text
-		else:
-			die_inspector.refresh_prompt()
-		return
-	table_screen.supply_info_label.text = info_text
+## Die überfahrene Vorrats-Kachel schreibt Name und Wirkung auf die Hinweiskarte
+## am unteren Werkbank-Rand - im Lager wie an der Station, wo die Schubladen das
+## Werkzeug-Bord sind.
+func _on_supply_hovered(title: String, body: String) -> void:
+	_supply_title = title
+	_supply_body = body
+	_sync_workshop_info()
 
 # --- Reaktionen auf Shop/Gravur-Station -------------------------------------
 # Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen

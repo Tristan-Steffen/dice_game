@@ -33,14 +33,10 @@ func _slot_for(engraving_id: String) -> Button:
 			return entry["button"]
 	return null
 
-func test_locked_editing_refuses_pickup_and_shows_the_round_message() -> void:
+func test_locked_editing_refuses_pickup() -> void:
 	# Während der Runde: der Würfel bleibt einsehbar, aber keine Gravur lässt sich
-	# aufnehmen, das Bord ist gesperrt und die Info-Leiste meldet die Sperre.
-	var info := RichTextLabel.new()
-	add_child_autofree(info)
-	view.set_prompt_label(info)
+	# aufnehmen, und das Bord ist gesperrt.
 	view.set_editing_locked(true)
-	assert_eq(info.text, DieInspectorView.ROUND_RUNNING_PROMPT, "die Leiste meldet die Sperre")
 	view._on_engraving_pressed(Engraving.CHISEL)
 	assert_eq(view.held_id, "", "gesperrt: kein Werkzeug lässt sich aufnehmen")
 	assert_true(_slot_for(Engraving.CHISEL).disabled, "der besessene Platz ist gesperrt")
@@ -224,14 +220,11 @@ func test_the_doping_refuses_a_saturated_face() -> void:
 	view._on_chip_clicked(5, 0)
 	assert_eq(_stock(Engraving.DOPING), 1, "nichts verbraucht")
 
-func test_the_doping_says_so_when_a_die_has_no_target() -> void:
-	var info := RichTextLabel.new()
-	add_child_autofree(info)
-	view.set_prompt_label(info)
+func test_the_doping_finds_no_target_on_a_bare_die() -> void:
 	view.show_die(_die())  # ganz ohne Materialien
 	_hold_doping()
-	assert_true(info.text.contains("keine hebbare Seite"),
-		"die Leiste sagt es, statt den Spieler ins Leere klicken zu lassen")
+	for i in 6:
+		assert_false(view._face_eligible(i), "ohne Material gibt es nichts zu heben")
 
 func test_a_new_material_resets_the_level() -> void:
 	# Die Stufe wohnt in der Glasur: ein ANDERES Material fängt wieder bei I an.
@@ -264,18 +257,14 @@ func _grant_ruby(count: int) -> void:
 	view._sync_drawers()
 
 func test_a_raise_is_no_target_while_the_stock_is_short() -> void:
-	# Eine gedimmte Seite allein sagt nicht, dass nur der Vorrat fehlt - der
-	# Hinweis muss den Grund nennen.
+	# Der Preis der Sättigung ist die ZIELSTUFE in Dubletten - was der Vorrat nicht
+	# deckt, ist kein Ziel und dimmt wie jede andere Nicht-Zielseite.
 	view.show_die(_doped_target())
 	_grant_ruby(1)
 	view._on_engraving_pressed(DieMaterial.RUBY)
 	assert_false(view._face_eligible(1), "ein Stück deckt Stufe II nicht")
-	var prompt := view._held_prompt()
-	assert_true(prompt.contains("2 Duplikate"), prompt)
-	assert_true(prompt.contains("nur 1 im Vorrat"), prompt)
 	_grant_ruby(1)
 	assert_true(view._face_eligible(1), "zwei Stück decken Stufe II")
-	assert_true(view._held_prompt().contains("Stufe II"), "und der Hinweis nennt den Preis")
 
 func test_fresh_paint_still_costs_a_single_copy() -> void:
 	view.show_die(_doped_target())

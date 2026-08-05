@@ -30,6 +30,14 @@ const POOL_COLUMNS := 6
 const HOVER_CELL := 3.2
 const HOVER_TITLE := 2.2
 const HOVER_BODY := 1.7
+## Maße der Hinweiskarte am unteren Fensterrand (Schubladen-Kachel, Netz-Zelle).
+const INFO_TITLE := 2.4
+const INFO_BODY := 1.9
+## Feste Breite des Fließtexts: eine Karte, die mit ihrem Text wächst, springt
+## bei jeder Kachel in eine andere Größe.
+const INFO_WIDTH := 58.0
+## Randluft der Karte zum Fensterrand.
+const INFO_MARGIN := 1.4
 
 ## Höhe der Bühne eines schwebenden Paket-Würfels (Breiteneinheiten u): Platz für
 ## den Würfel UND seine Stasis-Station, die durch die Parallaxe ein Stück unter
@@ -81,6 +89,11 @@ var editing_locked: bool = false
 ## Netz-Karte des überfahrenen Tray-Würfels (nur bei geschlossener Station).
 var _hover_card: PanelContainer
 var _hover_def: DieDefinition
+## Hinweiskarte am unteren Rand samt der Einheit, für die sie gebaut wurde.
+var _info_card: PanelContainer
+var _info_title: Label
+var _info_body: Label
+var _info_unit := 0.0
 
 var _phase: Phase = Phase.STASH
 ## Inhalt des gerade geöffneten Pakets.
@@ -200,6 +213,67 @@ func refresh_hover_net() -> void:
 		var def := _hover_def
 		clear_hover_net()
 		show_hover_net(def)
+
+## Hinweiskarte am UNTEREN Rand der Werkbank: was gerade überfahren wird -
+## Schubladen-Kachel (Titel + Wirkung) oder Netz-Zelle (nur Zeile). Sie hängt
+## direkt am Panel, nicht am Inhalt, und wird vor die Gravur-Station gehoben:
+## die ist ein späteres Kind und läge sonst darüber.
+func show_hover_info(title: String, body: String) -> void:
+	if title == "" and body == "":
+		clear_hover_info()
+		return
+	_build_info_card()
+	_info_title.text = title
+	_info_title.visible = title != ""
+	_info_body.text = body
+	_info_body.visible = body != ""
+	_info_card.visible = true
+	_info_card.move_to_front()
+	_info_card.reset_size()
+	var u := maxf(size.x, 200.0) / 100.0 * INFO_MARGIN
+	_info_card.position = Vector2(
+		clampf((size.x - _info_card.size.x) * 0.5, u, maxf(u, size.x - _info_card.size.x - u)),
+		maxf(u, size.y - _info_card.size.y - u))
+
+func clear_hover_info() -> void:
+	if _info_card != null and is_instance_valid(_info_card):
+		_info_card.visible = false
+
+func hover_info_visible() -> bool:
+	return _info_card != null and is_instance_valid(_info_card) and _info_card.visible
+
+## Die Karte steht STEHEND (nur Text wechselt) - neu gebaut wird sie nur, wenn
+## sich die Maßeinheit des Fensters geändert hat.
+func _build_info_card() -> void:
+	var u := maxf(size.x, 200.0) / 100.0
+	if _info_card != null and is_instance_valid(_info_card) and is_equal_approx(_info_unit, u):
+		return
+	if _info_card != null and is_instance_valid(_info_card):
+		remove_child(_info_card)
+		_info_card.queue_free()
+	_info_unit = u
+	_info_card = PanelContainer.new()
+	_info_card.name = "HoverInfo"
+	_info_card.visible = false
+	_info_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	CasinoStyle.style_panel(_info_card)
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", int(u * 0.3))
+	_info_card.add_child(column)
+	_info_title = Label.new()
+	_info_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	CasinoStyle.style_score_label(_info_title, int(u * INFO_TITLE), CasinoStyle.GOLD)
+	column.add_child(_info_title)
+	_info_body = Label.new()
+	_info_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_info_body.custom_minimum_size = Vector2(u * INFO_WIDTH, 0)
+	CasinoStyle.style_body_label(_info_body, int(u * INFO_BODY), CasinoStyle.CREAM)
+	column.add_child(_info_body)
+	add_child(_info_card)
 
 ## Baut das Fenster neu und meldet danach, wo die Würfel-Bühnen jetzt liegen -
 ## die ECHTEN Würfel darüber gehören scene_root, nicht diesem Fenster.
@@ -629,18 +703,6 @@ func _die_net(index: int, u: float, choosable: bool) -> Button:
 ## statt gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als
 ## gui_input durch, und wer genau dort stehen bleibt, bekäme nie einen Text.
 ## scene_root fragt darum je Bild - dieselbe Lösung wie am Netzfeld der Grube.
-## Die Führungszeile des laufenden Schritts. Sie steht NICHT im Fenster: das
-## gehört dem Würfel und dem Raster (wie an der Gravur-Station), gesprochen wird
-## in der Info-Leiste unter der Bank. Eine Zeile im Fenster hätte hier keinen
-## Umbruch und risse die Würfel-Spalte über das halbe Fenster.
-func prompt() -> String:
-	if _phase != Phase.PLACE_DICE:
-		return ""
-	var line := "Platz im Vorrat wählen – der Würfel dort weicht."
-	if _pack_dice.size() > 1:
-		line += "  ·  Rechtsklick: zurück zur Wahl."
-	return line
-
 func net_hint_at(pixel: Vector2) -> String:
 	var u := maxf(size.x, 200.0) / 100.0
 	for i in _die_nets.size():

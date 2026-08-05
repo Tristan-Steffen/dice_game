@@ -105,15 +105,9 @@ var _hover_die: int = -1
 ## Während der Runde gesperrt: der Würfel ist einsehbar, aber keine Gravur lässt
 ## sich aufnehmen/anwenden (setzt scene_root über set_editing_locked).
 var editing_locked: bool = false
-const ROUND_RUNNING_PROMPT := "Die Runde läuft – Würfel lassen sich nicht bearbeiten."
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
-
-## Die Hinweiszeile lebt AUSSERHALB des Panels: in der Info-Leiste unter den
-## Schubladen (setzt scene_root über set_prompt_label). Ohne Leiste bleibt die
-## Station stumm - die leuchtenden Schubladen führen auch allein.
-var prompt_label: RichTextLabel
 
 # Gerüst-Referenzen (je show_die frisch gebaut).
 var summary_list: VBoxContainer  # Seiten-Raster im Kanten-Rahmen
@@ -180,7 +174,6 @@ func show_die(def: DieDefinition) -> void:
 		_build_layout()
 	_sync_drawers()
 	_refresh_face_summary()
-	_update_prompt()
 	for drawer in drawers:
 		drawer.set_ceremony(true)  # die Schubladen werden zum Werkzeug-Bord
 	_sync_drawers()
@@ -199,7 +192,6 @@ func close() -> void:
 		return
 	for drawer in drawers:
 		drawer.set_ceremony(false)  # zurück in die Lager-Anzeige
-	_set_prompt("")  # die Info-Leiste gehört wieder dem Lager
 	visible = false
 	closed.emit()
 
@@ -357,7 +349,7 @@ func _sync_drawers() -> void:
 			drawer.set_state(held_id, [] as Array[String], editing_locked)
 
 ## Sperrt/entsperrt das Bearbeiten (Runde läuft): der Würfel bleibt einsehbar,
-## die Gravuren werden unbenutzbar und die Info-Leiste meldet die Sperre.
+## die Gravuren werden unbenutzbar.
 func set_editing_locked(locked: bool) -> void:
 	if editing_locked == locked:
 		return
@@ -365,23 +357,8 @@ func set_editing_locked(locked: bool) -> void:
 	if locked and held_id != "":
 		_put_down_tool()  # ein gehaltenes Werkzeug fällt ab
 	_sync_drawers()
-	_update_prompt()
 
-## Verdrahtet die externe Hinweiszeile (Label der Info-Leiste).
-func set_prompt_label(label: RichTextLabel) -> void:
-	prompt_label = label
-
-## Setzt die Info-Leiste wieder auf den Stations-Prompt - scene_root ruft das,
-## nachdem das Überfahren einer Schubladen-Gravur die Leiste kurz übernommen hat.
-func refresh_prompt() -> void:
-	if current_def != null:
-		_update_prompt()
-
-func _set_prompt(text: String) -> void:
-	if prompt_label != null and is_instance_valid(prompt_label):
-		prompt_label.text = text
-
-## Verdrahtet die drei Schubladen als Werkzeug-Bord (setzt scene_root).
+## Verdrahtet die Schubladen als Werkzeug-Bord (setzt scene_root).
 func set_drawers(list: Array[SupplyDrawerView]) -> void:
 	drawers = list
 	for drawer in drawers:
@@ -477,7 +454,6 @@ func _pick_up_tool(engraving_id: String) -> void:
 	preview_active = false
 	_restyle_slots()
 	_refresh_face_summary()
-	_update_prompt()
 
 func _put_down_tool() -> void:
 	held_id = ""
@@ -487,7 +463,6 @@ func _put_down_tool() -> void:
 	preview_active = false
 	_restyle_slots()
 	_refresh_face_summary()
-	_update_prompt()
 
 ## Bricht das laufende Werkzeug ab (Rechtsklick, siehe scene_root).
 func cancel_pending() -> void:
@@ -504,7 +479,6 @@ func _handle_face_target(face_index: int) -> void:
 	if held_id == "":
 		selected_face = face_index
 		_refresh_face_summary()
-		_update_prompt()
 		return
 	match _targeting_of(held_id):
 		TARGET_WHOLE_DIE:
@@ -520,7 +494,6 @@ func _handle_face_target(face_index: int) -> void:
 				selected_face = face_index  # erster Klick violett hervorgehoben
 				_clear_preview()
 				_refresh_face_summary()
-				_update_prompt()
 			else:
 				_apply_pair(first_face, face_index)
 
@@ -555,25 +528,23 @@ func _on_chip_clicked(_value: int, face_index: int) -> void:
 ## Einseitige Gravuren + Material auf die geklickte Seite.
 func _apply_single_face(face_index: int) -> void:
 	if DieMaterial.is_valid_id(held_id):
-		var material := DieMaterial.by_id(held_id)
 		# Dieselbe Gravur noch einmal auf dieselbe Seite sättigt sie, statt sie
 		# neu zu streichen - dafür sind Dubletten da.
 		if current_def.materials[face_index] == held_id:
 			current_def.raise_level(face_index)
 			var level := current_def.material_level(face_index)
 			# Die erreichte Stufe IST der Preis in Dubletten.
-			_finish_apply(held_id, "%s %s (%d Duplikate): %s"
-				% [material.display_name, DieMaterial.level_roman(level), level, material.short_for(level)], level)
+			_finish_apply(held_id, level)
 		else:
 			current_def.set_face_material(face_index, held_id)  # frisches Material, Stufe I
-			_finish_apply(held_id, "Material angebracht: %s" % material.display_name)
+			_finish_apply(held_id)
 		return
 	if Engraving.is_rune_id(held_id):
 		# Ein besetzter Platz wird ersetzt - neu brechen ist erlaubt. Auf dem
 		# Vakuum-Würfel füllt der zweite Rune erst den freien Zweitplatz.
 		var rune_id := Engraving.rune_id_of(held_id)
 		current_def.set_rune(face_index, rune_id, _free_rune_slot(face_index), _extra_rune_slots())
-		_finish_apply(held_id, "Rune gesetzt: %s" % Rune.by_id(rune_id).display_name)
+		_finish_apply(held_id)
 		return
 	match held_id:
 		Engraving.DOPING:
@@ -582,55 +553,53 @@ func _apply_single_face(face_index: int) -> void:
 			for _step in DieMaterial.MAX_LEVEL:
 				if not current_def.raise_level(face_index):
 					break
-			var lifted := DieMaterial.by_id(current_def.materials[face_index])
-			var new_level := current_def.material_level(face_index)
-			_finish_apply(held_id, "Dotierung: %s %s – %s" % [lifted.display_name, DieMaterial.level_roman(new_level), lifted.short_for(new_level)])
+			_finish_apply(held_id)
 		Engraving.NOTCH:
 			EtchingEffects.notch(current_def, face_index)
-			_finish_apply(held_id, "Kerbe: Seite +1")
+			_finish_apply(held_id)
 		Engraving.FILE_DOWN:
 			EtchingEffects.file_down(current_def, face_index)
-			_finish_apply(held_id, "Feile: Seite −1")
+			_finish_apply(held_id)
 		Engraving.PUNCH:
 			EtchingEffects.punch(current_def, face_index)
-			_finish_apply(held_id, "Stanze: Seite +5")
+			_finish_apply(held_id)
 		Engraving.BLUEPRINT:
 			EtchingEffects.blueprint(current_def, face_index)
-			_finish_apply(held_id, "Blaupause: ganzer Würfel auf den gewählten Wert gesetzt")
+			_finish_apply(held_id)
 
 ## Gerichtete/ungeordnete Paare: a = erster Klick (Quelle/−1), b = zweiter (Ziel/+1).
 func _apply_pair(a: int, b: int) -> void:
 	match held_id:
 		Engraving.CHISEL:
 			EtchingEffects.chisel(current_def, a, b)  # Quelle a -> Ziel b
-			_finish_apply(held_id, "Meißel: Seite kopiert")
+			_finish_apply(held_id)
 		Engraving.GRINDSTONE:
 			EtchingEffects.grindstone(current_def, a, b)  # −1 auf a, +1 auf b
-			_finish_apply(held_id, "Schleifstein: −1 / +1 angewandt")
+			_finish_apply(held_id)
 		Engraving.AVERAGING:
 			EtchingEffects.averaging(current_def, a, b)
-			_finish_apply(held_id, "Mittelung: zwei Seiten gemittelt")
+			_finish_apply(held_id)
 		Engraving.POINTER:
 			# Überschreiben erlaubt - je Seite höchstens eine Leiterbahn.
 			current_def.pointers[a] = b
-			_finish_apply(held_id, "Leiterbahn gelegt: Seite %d löst Seite %d mit aus" % [current_def.faces[a], current_def.faces[b]])
+			_finish_apply(held_id)
 
 ## Ganz-Würfel-Gravuren (ein Klick auf den Würfel genügt).
 func _apply_whole_die() -> void:
 	match held_id:
 		Engraving.STRAIGHTEN:
 			EtchingEffects.straighten(current_def)
-			_finish_apply(held_id, "Begradigung: ungerade Seiten +1")
+			_finish_apply(held_id)
 		Engraving.POLISH:
 			EtchingEffects.polish(current_def)
-			_finish_apply(held_id, "Politur: alle Seiten +1")
+			_finish_apply(held_id)
 		Engraving.SANDPAPER:
 			EtchingEffects.sandpaper(current_def)
-			_finish_apply(held_id, "Schmirgel: alle Seiten −1")
+			_finish_apply(held_id)
 
 ## Verbraucht die Gravur und meldet changed/applied. Das Werkzeug bleibt in der
 ## Hand, solange noch Exemplare da sind (direkt weitergravieren) - sonst abgelegt.
-func _finish_apply(engraving_id: String, message: String, cost := 1) -> void:
+func _finish_apply(engraving_id: String, cost := 1) -> void:
 	if run != null:
 		# Gravierstift: einmal pro Runde wird eine ÄTZUNG nicht verbraucht -
 		# Materialien und die Sonderposten (Leiterbahn, Dotierung) nie.
@@ -638,10 +607,9 @@ func _finish_apply(engraving_id: String, message: String, cost := 1) -> void:
 			and not Engraving.is_special_id(engraving_id)
 		if is_etching and CharmEffects.has_engraving_pen(run.charm_ids()) and not run.gravierstift_used_this_round:
 			run.gravierstift_used_this_round = true
-			message += " Gravierstift: Engraving nicht verbraucht!"
-		elif run.consume_applied_engraving(engraving_id, cost):
-			# Zwinge: die Material-Gravur blieb eingespannt (Glück, je Anwendung neu).
-			message += " Zwinge: Gravur nicht verbraucht!"
+		else:
+			# Zwinge: die Material-Gravur bleibt manchmal eingespannt (je Anwendung neu).
+			run.consume_applied_engraving(engraving_id, cost)
 	var keep: bool = int(_engraving_counts().get(engraving_id, 0)) > 0
 	held_id = engraving_id if keep else ""
 	first_face = -1
@@ -652,10 +620,6 @@ func _finish_apply(engraving_id: String, message: String, cost := 1) -> void:
 	applied.emit(engraving_id, _slot_center_px(engraving_id))
 	_sync_drawers()  # der Bestand hat sich geändert (die Schubladen bauen selbst neu)
 	_refresh_face_summary()
-	if keep:
-		_set_prompt("%s. Nochmal anwenden oder Rechtsklick: ablegen." % message)
-	else:
-		_set_prompt("%s. Nächste Gravur wählen oder Rechtsklick zum Schließen." % message)
 
 ## Display-Pixel der Bord-Kachel einer Gravur (Quelle der Absorptions-Bahn);
 ## Panel-Mitte als Rückfall.
@@ -742,11 +706,6 @@ func dimmed_faces() -> Array[bool]:
 		dim[i] = i != selected_face and not eligible[i]
 	return dim
 
-## Hat die gehaltene Gravur an diesem Würfel überhaupt ein Ziel? Nur die
-## Dotierung kann leer ausgehen (ein Würfel ganz ohne Material).
-func _any_face_eligible() -> bool:
-	return _eligible_faces().has(true)
-
 ## Rahmenfarbe: das Essenzglühen (neutral das Kanten-Neon), gedimmt unter einem
 ## Seiten-Werkzeug - der Rahmen ist nur noch Anzeige.
 func _edge_frame_border() -> Color:
@@ -810,28 +769,6 @@ func _raise_affordable(face_index: int) -> bool:
 	if run == null:
 		return false
 	return run.engraving_stock(held_id) >= _raise_cost(face_index)
-
-## Erste Seite, die NUR am Vorrat scheitert (-1 = keine) - sie begründet den Hinweis.
-func _short_stock_face() -> int:
-	if current_def == null or not DieMaterial.is_valid_id(held_id):
-		return -1
-	for i in 6:
-		if current_def.materials[i] == held_id \
-				and current_def.material_level(i) < DieMaterial.MAX_LEVEL \
-				and not _raise_affordable(i):
-			return i
-	return -1
-
-## Erste Seite, deren Sättigung bezahlt ist (-1 = keine).
-func _affordable_raise_face() -> int:
-	if current_def == null or not DieMaterial.is_valid_id(held_id):
-		return -1
-	for i in 6:
-		if current_def.materials[i] == held_id \
-				and current_def.material_level(i) < DieMaterial.MAX_LEVEL \
-				and _raise_affordable(i):
-			return i
-	return -1
 
 ## Malt die Zellen auf die Stufe um, die sie NACH dem Werkzeug trügen. Ohne
 ## Zeiger fällt jede auf ihre echte Stufe zurück - der Aufruf ist idempotent.
@@ -981,76 +918,6 @@ func _restore_face_chips() -> void:
 		var col: Color = face_chip_font[i] if i < face_chip_font.size() else CasinoStyle.INK
 		for st in ["font_color", "font_hover_color", "font_pressed_color"]:
 			chip.add_theme_color_override(st, col)
-
-func _update_prompt() -> void:
-	if editing_locked:
-		_set_prompt(ROUND_RUNNING_PROMPT)  # überfahren einer Gravur zeigt kurz deren Text
-		return
-	if held_id != "":
-		_set_prompt(_held_prompt())
-		return
-	if selected_face != -1:
-		_set_prompt("Seite gewählt (Wert %d)." % current_def.faces[selected_face])
-	else:
-		_set_prompt("")  # die leuchtenden Schubladen sagen es schon
-
-## Führungstext der gehaltenen Gravur (Schritt-abhängig bei Paaren).
-func _held_prompt() -> String:
-	var second := first_face != -1
-	match held_id:
-		Engraving.NOTCH:
-			return "Kerbe: klicke eine Seite (+1). Rechtsklick: ablegen."
-		Engraving.FILE_DOWN:
-			return "Feile: klicke eine Seite (−1). Rechtsklick: ablegen."
-		Engraving.PUNCH:
-			return "Stanze: klicke eine Seite (+5). Rechtsklick: ablegen."
-		Engraving.BLUEPRINT:
-			return "Blaupause: klicke die Vorlage-Seite (alle Seiten erhalten ihren Wert)."
-		Engraving.CHISEL:
-			return "Meißel: klicke die Zielseite (erhält den Quellwert)." if second \
-				else "Meißel: klicke die Quellseite. Rechtsklick: ablegen."
-		Engraving.GRINDSTONE:
-			return "Schleifstein: jetzt die Seite für +1." if second \
-				else "Schleifstein: klicke die Seite für −1. Rechtsklick: ablegen."
-		Engraving.AVERAGING:
-			return "Mittelung: klicke die zweite Seite." if second \
-				else "Mittelung: klicke die erste Seite. Rechtsklick: ablegen."
-		Engraving.POINTER:
-			return "Leiterbahn: klicke die Zielseite (ein Nachbar - sie löst mit 50 % Chance mit aus)." if second \
-				else "Leiterbahn: klicke die Startseite. Rechtsklick: ablegen."
-		Engraving.DOPING:
-			if not _any_face_eligible():
-				return "Dotierung: dieser Würfel hat keine hebbare Seite - sie braucht ein Material unter Stufe III. Anderen Würfel wählen oder Rechtsklick: ablegen."
-			return "Dotierung: klicke eine Material-Seite (hebt sie auf Stufe III). Rechtsklick: ablegen."
-		Engraving.STRAIGHTEN:
-			return "Begradigung: klicke den Würfel."
-		Engraving.POLISH:
-			return "Politur: klicke den Würfel (alle Seiten +1)."
-		Engraving.SANDPAPER:
-			return "Schmirgel: klicke den Würfel (alle Seiten −1)."
-	if Engraving.is_rune_id(held_id):
-		var rune := Rune.by_id(Engraving.rune_id_of(held_id))
-		return "Rune %s: klicke eine Seite (ein besetzter Rune wird ersetzt)." % rune.display_name
-	if DieMaterial.is_valid_id(held_id):
-		var name := DieMaterial.by_id(held_id).display_name
-		# Erst die mögliche Handlung, dann der Mangel: eine bezahlbare Sättigung
-		# schlägt die Erklärung, warum eine andere Seite gedimmt bleibt.
-		var raise_face := _affordable_raise_face()
-		if raise_face != -1:
-			var target := _raise_cost(raise_face)
-			return "%s: klicke eine Seite (dieselbe noch einmal hebt auf Stufe %s für %d Duplikate)." \
-				% [name, DieMaterial.level_roman(target), target]
-		var short_face := _short_stock_face()
-		if short_face != -1:
-			# Der Grund muss dastehen: eine gedimmte Seite allein sagt nicht, dass
-			# nur der Vorrat fehlt.
-			var need := _raise_cost(short_face)
-			return "%s: Stufe %s kostet %d Duplikate - nur %d im Vorrat. Rechtsklick: ablegen." \
-				% [name, DieMaterial.level_roman(need), need, run.engraving_stock(held_id)]
-		if not _any_face_eligible():
-			return "%s: jede Seite ist eingebrannt oder ausgesättigt - anderen Würfel wählen oder Rechtsklick: ablegen." % name
-		return "%s: klicke eine Seite (eingebrannte Seiten lassen sich nicht übermalen)." % name
-	return "Klicke ein Ziel."
 
 # --- Seiten-Übersicht -------------------------------------------------------------
 

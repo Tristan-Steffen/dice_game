@@ -315,26 +315,13 @@ func _net_pixel(index: int, face: int) -> Vector2:
 		+ DieNetView.cell_position(face, cell) + Vector2.ONE * cell * 0.5
 
 func test_the_placement_step_keeps_its_window_free_of_text() -> void:
-	# Regression: die Hinweiszeile hatte keinen Umbruch - ihre Mindestbreite riss
-	# die Würfel-Spalte über das halbe Fenster, und das Raster blieb ein Briefmarken-
-	# Feld. Die Führung gehört in die Info-Leiste, wie an der Gravur-Station.
+	# Regression: eine Hinweiszeile ohne Umbruch riss mit ihrer Mindestbreite die
+	# Würfel-Spalte über das halbe Fenster, und das Raster blieb ein Briefmarken-
+	# Feld. Das Fenster gehört dem Würfel und dem Raster.
 	_open_dice_pack()
 	await wait_frames(2)
 	for child in view._content.get_children():
 		assert_false(child is Label, "kein Text im Fenster - das gehört Würfel und Raster")
-	assert_true(view.prompt().contains("Platz"), "geführt wird in der Leiste: '%s'" % view.prompt())
-	assert_true(view.prompt().contains("Rechtsklick"), "samt Rückweg, wenn es einen gibt")
-
-func test_only_the_placement_step_has_a_prompt() -> void:
-	assert_eq(view.prompt(), "", "das Lager führt niemanden")
-	_reveal_dice_pack()
-	assert_eq(view.prompt(), "", "und die Wahl spricht durch die Würfel selbst")
-
-func test_a_single_die_pack_promises_no_way_back() -> void:
-	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
-	view.open_pack(0)
-	view._unseal.finish_now()
-	assert_false(view.prompt().contains("Rechtsklick"), "dort gibt es keine Wahl zurück")
 
 func test_the_pool_grid_gets_the_room_the_die_column_leaves() -> void:
 	# Wie an der Gravur-Station: links der Würfel, der Rest gehört dem Raster.
@@ -505,3 +492,28 @@ func test_discarding_drops_the_whole_content() -> void:
 	assert_eq(view._revealed_dice.size(), 0, "Inhalt ist abgeräumt")
 	for def in run.owned_pool:
 		assert_eq(def.style_id, "normal", "verworfene Würfel verfallen")
+
+# --- Hinweiskarte am unteren Rand ---------------------------------------------
+
+func test_the_hover_card_shows_title_and_body_and_sits_at_the_bottom() -> void:
+	view.show_hover_info("Meißel", "Kopiert einen Seitenwert auf eine andere Seite.")
+	await wait_frames(2)
+	assert_true(view.hover_info_visible(), "die Karte steht")
+	assert_eq(view._info_title.text, "Meißel")
+	assert_eq(view._info_body.text, "Kopiert einen Seitenwert auf eine andere Seite.")
+	var card := view._info_card.get_rect()
+	assert_gt(card.position.y, view.size.y * 0.5, "sie liegt in der unteren Fensterhälfte")
+	assert_true(Rect2(Vector2.ZERO, view.size).encloses(card), "und ganz im Fenster")
+
+func test_the_hover_card_takes_a_body_without_a_title() -> void:
+	view.show_hover_info("", "Rubin II: +10 Mult")
+	await wait_frames(2)
+	assert_true(view.hover_info_visible(), "eine einzelne Zeile genügt")
+	assert_false(view._info_title.visible, "ohne Titel bleibt die Titelzeile weg")
+
+func test_clearing_hides_the_hover_card() -> void:
+	view.show_hover_info("Meißel", "Kopiert einen Seitenwert.")
+	view.clear_hover_info()
+	assert_false(view.hover_info_visible(), "leer heißt weg")
+	view.show_hover_info("", "")
+	assert_false(view.hover_info_visible(), "und zwei leere Texte räumen sie ebenso ab")
