@@ -394,13 +394,16 @@ var engraving_source_tray: DiceTrayView
 var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
 ## Zuletzt überfahrene Seite des Werkstücks (-1 = keine) - nur Wechsel melden.
 var engraving_hover_face := -1
-## Die Hinweiskarte der Werkbank hat zwei Sprecher: die überfahrene Vorrats-
-## Kachel (meldet sich beim Betreten/Verlassen) und die Netz-Zelle unter dem
-## Zeiger (wird je Bild gefragt). Die Kachel geht vor - jeder nimmt nur die
-## EIGENE Zeile zurück.
+## Die Hinweiskarte der Werkbank hat zwei Sprecher, und BEIDE werden je Bild
+## gefragt (siehe _update_workshop_hover): die überfahrene Vorrats-Kachel geht
+## vor, sonst spricht die Netz-Zelle bzw. die Raster-Kachel unter dem Zeiger.
 var _workshop_line := ""
 var _supply_title := ""
 var _supply_body := ""
+## Was zuletzt WIRKLICH auf der Karte stand - der Frage-Takt soll sie nicht in
+## jedem Bild neu setzen und vermessen.
+var _info_shown_title := ""
+var _info_shown_body := ""
 
 ## Die Paket-Würfel, die zur Wahl über der Werkbank schweben (leer = keine
 ## Zeremonie); ihre Reihenfolge ist die des Werkstatt-Fensters.
@@ -859,8 +862,6 @@ func _setup_table_screen() -> void:
 	var drawer_rects := _supply_drawer_rects(Vector2(bench_left, drawer_top),
 		maxf(minf(workshop_rect.size.x, row_room), drawer_min_span), corner_unit)
 	table_screen.place_supply_drawers(drawer_rects, corner_unit)
-	for drawer in table_screen.supply_drawers:
-		drawer.hovered.connect(_on_supply_hovered)
 
 	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen
 	# (samt Sonderbestand) unten. Nur so liegt der Ziel-Würfel mit im Bild.
@@ -3600,26 +3601,30 @@ func _update_workshop_hover() -> void:
 	var workshop := table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
-	if camera_rig.mode != CameraRig.Mode.WORKSHOP:
-		# Beim Wegzoomen bleibt eine überfahrene Kachel ohne mouse_exited stehen.
+	# Wegzoomen und die laufende Fahrt räumen ab: der Zeiger steht dann irgendwo,
+	# und eine überfahrene Kachel bekäme ohne weitergereichte Bewegung nie ihr
+	# mouse_exited.
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.is_animating:
 		workshop.clear_hover_net()
 		_supply_title = ""
 		_supply_body = ""
 		_workshop_line = ""
 		_sync_workshop_info()
 		return
-	if engraving_active or camera_rig.is_animating:
-		workshop.clear_hover_net()
-		# An der Station spricht ihr Ziel-Raster (die Seele der überfahrenen
-		# Kachel); die Vorrats-Kacheln behalten Vorrang, siehe _sync_workshop_info.
-		var station_hint := ""
-		if engraving_active and not camera_rig.is_animating and die_inspector != null:
-			station_hint = die_inspector.grid_hint_at(
-				_screen_pixel(get_viewport().get_mouse_position()))
-		_sync_workshop_line(station_hint)
-		return
 	var mouse := get_viewport().get_mouse_position()
-	_sync_workshop_line(workshop.net_hint_at(_screen_pixel(mouse)))
+	var pixel := _screen_pixel(mouse)
+	var supply := _supply_hint_at(pixel)
+	_supply_title = supply.get("title", "")
+	_supply_body = supply.get("body", "")
+	# An der Station spricht ihr Ziel-Raster, sonst das Netz unter dem Zeiger.
+	if engraving_active:
+		_workshop_line = die_inspector.grid_hint_at(pixel) if die_inspector != null else ""
+	else:
+		_workshop_line = workshop.net_hint_at(pixel)
+	_sync_workshop_info()
+	if engraving_active:
+		workshop.clear_hover_net()  # die Station füllt das Fenster allein
+		return
 	# Nur Tray-Würfel: ein Paket-Würfel trägt sein Netz schon unter sich, die Karte
 	# zeigte dasselbe ein zweites Mal.
 	var def := _hovered_tray_def(mouse)
@@ -3628,23 +3633,33 @@ func _update_workshop_hover() -> void:
 		return
 	workshop.show_hover_net(def)
 
-## Zeile der überfahrenen Netz-Zelle ("" = keine).
-func _sync_workshop_line(text: String) -> void:
-	if text == _workshop_line:
-		return
-	_workshop_line = text
-	_sync_workshop_info()
+## Name und Wirkung der Vorrats-Kachel unter pixel ({} = keine).
+func _supply_hint_at(pixel: Vector2) -> Dictionary:
+	if table_screen == null:
+		return {}
+	for drawer in table_screen.supply_drawers:
+		var hint := drawer.hint_at(pixel)
+		if not hint.is_empty():
+			return hint
+	return {}
 
 ## Schreibt die Hinweiskarte der Werkbank: die überfahrene Vorrats-Kachel schlägt
-## die Netz-Zeile - sie ist die gezieltere Auskunft und meldet sich seltener.
+## die Netz-/Raster-Zeile - sie ist die gezieltere Auskunft. Läuft je Bild, meldet
+## der Karte aber nur ECHTE Wechsel: show_hover_info misst und setzt sie jedes Mal
+## neu.
 func _sync_workshop_info() -> void:
 	var workshop := table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
-	if _supply_title != "" or _supply_body != "":
-		workshop.show_hover_info(_supply_title, _supply_body)
-	else:
-		workshop.show_hover_info("", _workshop_line)
+	var title := _supply_title
+	var body := _supply_body
+	if title == "" and body == "":
+		body = _workshop_line  # keine Vorrats-Kachel unter dem Zeiger
+	if title == _info_shown_title and body == _info_shown_body:
+		return
+	_info_shown_title = title
+	_info_shown_body = body
+	workshop.show_hover_info(title, body)
 
 ## Def des Tray-Würfels unter screen_pos (null = keiner). Vorrat und Ablage -
 ## die Warteschlange gehört der Grube.
@@ -6850,14 +6865,6 @@ func _activate_queue() -> void:
 func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
-
-## Die überfahrene Vorrats-Kachel schreibt Name und Wirkung auf die Hinweiskarte
-## am unteren Werkbank-Rand - im Lager wie an der Station, wo die Schubladen das
-## Werkzeug-Bord sind.
-func _on_supply_hovered(title: String, body: String) -> void:
-	_supply_title = title
-	_supply_body = body
-	_sync_workshop_info()
 
 # --- Reaktionen auf Shop/Gravur-Station -------------------------------------
 # Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen

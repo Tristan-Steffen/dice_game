@@ -87,10 +87,9 @@ func test_locked_ceremony_disables_owned_slots_but_keeps_them_hoverable() -> voi
 			owned = entry["button"]
 	assert_true(owned.disabled, "gesperrt: der besessene Platz fängt keine Klicks")
 	assert_eq(owned.mouse_filter, Control.MOUSE_FILTER_STOP, "aber überfahrbar bleibt er")
-	var seen: Array[String] = []
-	drawer.hovered.connect(func(title: String, body: String) -> void: seen.append("%s|%s" % [title, body]))
-	owned.mouse_entered.emit()
-	assert_eq(seen, [_chisel_info()] as Array[String], "das Überfahren meldet die Beschreibung")
+	await wait_frames(2)
+	assert_eq(_hint_string(drawer, owned), _chisel_info(),
+		"und erklärt sich weiter, wenn der Zeiger auf ihm steht")
 
 func test_pressing_a_tool_reports_its_id() -> void:
 	run.grant_engraving(Engraving.chisel())
@@ -103,19 +102,33 @@ func test_pressing_a_tool_reports_its_id() -> void:
 			entry["button"].pressed.emit()
 	assert_eq(picked, [Engraving.CHISEL] as Array[String])
 
-func test_hover_reports_the_description_even_at_the_station() -> void:
-	# Regression: an der Station (Zeremonie) muss das Überfahren die Beschreibung
-	# weiter melden - sonst friert die Hinweiskarte auf dem gewählten Werkzeug ein.
+func test_hover_explains_the_chip_even_at_the_station() -> void:
+	# Regression: an der Station (Zeremonie) muss die Kachel sich weiter erklären -
+	# sonst friert die Hinweiskarte auf dem gewählten Werkzeug ein.
 	run.grant_engraving(Engraving.chisel())
 	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
 	drawer.set_ceremony(true)
-	var seen: Array[String] = []
-	drawer.hovered.connect(func(title: String, body: String) -> void: seen.append("%s|%s" % [title, body]))
-	for entry in drawer.slots:
-		if entry["id"] == Engraving.CHISEL:
-			entry["button"].mouse_entered.emit()
-			entry["button"].mouse_exited.emit()
-	assert_eq(seen, [_chisel_info(), "|"], "Beschreibung beim Überfahren, leer beim Verlassen")
+	await wait_frames(2)
+	var chip := _chip_of(drawer, Engraving.CHISEL)
+	assert_eq(_hint_string(drawer, chip), _chisel_info(), "auf der Kachel spricht sie")
+
+func test_leaving_the_chip_takes_the_text_back() -> void:
+	# DER Grund für die Frage je Bild: verlässt der Zeiger die Schublade nach
+	# außen (Lücke zur nächsten, Filz darunter), reicht scene_root gar keine
+	# Bewegung mehr ins SubViewport - ein gemeldetes mouse_exited käme nie an,
+	# und der Text bliebe für immer stehen.
+	run.grant_engraving(Engraving.chisel())
+	var drawer := _drawer(Engraving.CATEGORY_NUMBER)
+	await wait_frames(2)
+	var chip := _chip_of(drawer, Engraving.CHISEL)
+	assert_ne(_hint_string(drawer, chip), "|", "auf der Kachel steht etwas")
+	var outside := chip.get_global_rect().end + Vector2.ONE * 500.0
+	assert_true(drawer.hint_at(outside).is_empty(), "daneben schweigt die Schublade")
+
+## Der Hinweis der Kachel als "Titel|Rumpf" ("|" = keiner).
+func _hint_string(drawer: SupplyDrawerView, chip: Button) -> String:
+	var hint := drawer.hint_at(chip.get_global_rect().get_center())
+	return "%s|%s" % [hint.get("title", ""), hint.get("body", "")]
 
 ## Name und Wirkung getrennt - die Hinweiskarte setzt sie unterschiedlich.
 func _chisel_info() -> String:

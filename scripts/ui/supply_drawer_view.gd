@@ -12,9 +12,6 @@ extends Panel
 
 ## Werkzeug aufgenommen/abgelegt (nur in der Station-Betriebsart).
 signal tool_pressed(engraving_id: String)
-## Überfahren einer Kachel liefert Name und Wirkung getrennt (beides "" beim
-## Verlassen) - die Hinweiskarte der Werkbank setzt sie unterschiedlich.
-signal hovered(title: String, body: String)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -173,8 +170,26 @@ func rebuild() -> void:
 		var count: int = counts.get(archetype.id, 0)
 		var chip := _chip(archetype, count)
 		_grid.add_child(chip)
-		slots.append({"button": chip, "id": archetype.id, "count": count})
+		slots.append({"button": chip, "id": archetype.id, "count": count,
+			"archetype": archetype})
 	restyle()
+
+## Name und Wirkung des Platzes unter pixel ({} = keiner). GEFRAGT statt
+## gemeldet: verlässt der Zeiger die Schublade nach AUSSEN - in die Lücke zur
+## nächsten oder auf den Filz darunter -, wird gar keine Bewegung mehr ins
+## SubViewport weitergereicht, ein mouse_exited käme also nie an und der Text
+## bliebe stehen. Gilt auch an der Station, wo die Schubladen das Werkzeug-Bord
+## sind: dort spricht das Überfahren genauso.
+func hint_at(pixel: Vector2) -> Dictionary:
+	if not visible:
+		return {}
+	for entry in slots:
+		var chip: Button = entry["button"]
+		if not is_instance_valid(chip) or not chip.get_global_rect().has_point(pixel):
+			continue
+		var archetype: Engraving = entry["archetype"]
+		return {"title": archetype.display_name, "body": archetype.description}
+	return {}
 
 ## Bestand je Gravur-id (Testmodus: alles einmal vorhanden).
 func _counts() -> Dictionary:
@@ -197,12 +212,6 @@ func _chip(archetype: Engraving, count: int) -> Button:
 	chip.custom_minimum_size = Vector2(CHIP.x * u, CHIP.y * u)
 	chip.tooltip_text = "%s\n%s" % [archetype.display_name, archetype.description]
 	chip.pressed.connect(func() -> void: tool_pressed.emit(archetype.id))
-	# Überfahren meldet die Beschreibung IMMER - auch an der Station, wo die
-	# Schubladen das Werkzeug-Bord sind.
-	var title := archetype.display_name
-	var body := archetype.description
-	chip.mouse_entered.connect(func() -> void: hovered.emit(title, body))
-	chip.mouse_exited.connect(func() -> void: hovered.emit("", ""))
 
 	var face := EngravingRenderer.for_engraving(archetype)
 	face.bare = true  # die Schublade IST der Grund - keine zweite Kachel darauf
