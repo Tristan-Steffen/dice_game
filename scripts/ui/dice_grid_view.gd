@@ -83,6 +83,17 @@ func slot_at(global_point: Vector2) -> int:
 			return i
 	return -1
 
+## Erklärzeile zur Kachel unter pixel ("" = leerer Platz, keine Kachel oder ein
+## Würfel ohne Seele). Die Seele ist das EINZIGE, was die Kachel nicht selbst
+## zeigt: Materialien, Stufen und Leiterbahnen stehen im Netz, aber das Glühen
+## des Saums nennt keinen Namen. GEFRAGT statt gemeldet - dieselbe Lösung wie am
+## Netzfeld der Grube, und dieselbe Quelle wie der Essenz-Chip (Essence.hint).
+func hint_at(pixel: Vector2) -> String:
+	var index := slot_at(pixel)
+	if index < 0 or index >= _defs.size() or _defs[index] == null:
+		return ""
+	return Essence.hint(_defs[index].essence_id)
+
 ## Maße einer detaillierten Kachel bei Einheit unit: das Würfelnetz plus Rand.
 static func detail_tile_size(unit: float) -> Vector2:
 	return DieNetView.net_size(unit * DETAIL_CELL) + Vector2.ONE * unit * TILE_PAD * 2.0

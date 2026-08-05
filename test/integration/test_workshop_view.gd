@@ -332,6 +332,19 @@ func test_the_pool_grid_gets_the_room_the_die_column_leaves() -> void:
 	assert_gt(view._pool_grid.get_global_rect().position.x,
 		view._die_nets[0].get_global_rect().end.x, "und steht rechts neben der Würfel-Spalte")
 
+func test_the_pool_grid_reports_the_soul_under_the_pointer() -> void:
+	# Dieselbe Frage wie ans Netz: scene_root fragt je Bild EINE Stelle ab, also
+	# muss auch die Raster-Kachel darüber antworten.
+	_open_dice_pack()
+	await wait_frames(2)
+	run.owned_pool[0].essence_id = Essence.NEON
+	view._pool_grid.fill(view._pool_defs())
+	await wait_frames(2)
+	assert_eq(view.net_hint_at(view._pool_grid.tiles[0].get_global_rect().get_center()),
+		Essence.hint(Essence.NEON), "die beseelte Kachel nennt ihre Seele")
+	assert_eq(view.net_hint_at(view._pool_grid.tiles[1].get_global_rect().get_center()), "",
+		"die seelenlose daneben schweigt")
+
 func test_the_placement_net_is_information_not_a_button() -> void:
 	_open_dice_pack()
 	await wait_frames(2)

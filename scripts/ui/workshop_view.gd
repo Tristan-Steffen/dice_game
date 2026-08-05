@@ -714,6 +714,11 @@ func net_hint_at(pixel: Vector2) -> String:
 			continue
 		return DieNetView.hint_for(_revealed_dice[i],
 			DieNetView.face_at(pixel - rect.position, u * CHOICE_CELL))
+	# Das Pool-Raster nennt die Seele der überfahrenen Kachel. Nur während des
+	# Einsetzens: danach hängt _pool_grid noch am freigegebenen Inhalt und träfe
+	# mit einem veralteten Rechteck.
+	if _phase == Phase.PLACE_DICE and _pool_grid != null and is_instance_valid(_pool_grid):
+		return _pool_grid.hint_at(pixel)
 	return ""
 
 ## Das Netz unter einem gerade körperlich gewordenen Würfel (null = keins).

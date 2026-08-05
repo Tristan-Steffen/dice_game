@@ -292,6 +292,14 @@ func set_target_grid(columns: int, defs: Array[DieDefinition], current_slot: int
 	target_current = current_slot
 	_refresh_target_grid()
 
+## Erklärzeile zur Ziel-Kachel unter pixel ("" = keine). Die Station schreibt
+## sonst nichts mehr auf die Hinweiskarte - nur die Seele des Würfels, über den
+## der Zeiger gerade steht (scene_root fragt je Bild).
+func grid_hint_at(pixel: Vector2) -> String:
+	if target_grid == null or not is_instance_valid(target_grid):
+		return ""
+	return target_grid.hint_at(pixel)
+
 func _refresh_target_grid() -> void:
 	if target_grid == null or not is_instance_valid(target_grid):
 		return

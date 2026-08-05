@@ -78,6 +78,33 @@ func test_the_highlight_keeps_gold_but_the_soul_keeps_its_width() -> void:
 	assert_gt(box.border_width_left, maxi(1, int(grid.u * DiceGridView.PLAIN_BORDER_U)),
 		"die Saum-Dicke der Seele bleibt trotzdem")
 
+# --- Seelen-Auskunft beim Überfahren einer Kachel -----------------------------
+
+func test_hovering_a_souled_tile_names_its_essence() -> void:
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)]))
+	await wait_frames(2)
+	var hint := grid.hint_at(grid.tiles[0].get_global_rect().get_center())
+	assert_string_contains(hint, Essence.by_id(Essence.NEON).display_name,
+		"die überfahrene Kachel nennt ihre Seele")
+	assert_eq(hint, Essence.hint(Essence.NEON),
+		"und zwar aus derselben Quelle wie der Essenz-Chip im Netz")
+
+func test_a_soulless_tile_says_nothing() -> void:
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6])]))
+	await wait_frames(2)
+	assert_eq(grid.hint_at(grid.tiles[0].get_global_rect().get_center()), "",
+		"ohne Seele gibt es nichts zu sagen")
+
+func test_empty_slots_and_the_space_outside_stay_silent() -> void:
+	grid.fill(_defs([null, _die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)]))
+	await wait_frames(2)
+	var placeholder: Control = grid.get_child(0)
+	assert_eq(grid.hint_at(placeholder.get_global_rect().get_center()), "",
+		"der leere Platz bleibt stumm")
+	assert_eq(grid.hint_at(Vector2(-100, -100)), "", "außerhalb des Rasters ebenso")
+	assert_ne(grid.hint_at(grid.tiles[1].get_global_rect().get_center()), "",
+		"der beseelte Nachbar spricht trotzdem")
+
 # --- Detail-Kacheln: dieselbe Darstellung wie im Netzfeld der Grube -----------
 
 func _detail_grid() -> DiceGridView:

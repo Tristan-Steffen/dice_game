@@ -3610,7 +3610,13 @@ func _update_workshop_hover() -> void:
 		return
 	if engraving_active or camera_rig.is_animating:
 		workshop.clear_hover_net()
-		_sync_workshop_line("")  # die Schubladen sprechen an der Station weiter
+		# An der Station spricht ihr Ziel-Raster (die Seele der überfahrenen
+		# Kachel); die Vorrats-Kacheln behalten Vorrang, siehe _sync_workshop_info.
+		var station_hint := ""
+		if engraving_active and not camera_rig.is_animating and die_inspector != null:
+			station_hint = die_inspector.grid_hint_at(
+				_screen_pixel(get_viewport().get_mouse_position()))
+		_sync_workshop_line(station_hint)
 		return
 	var mouse := get_viewport().get_mouse_position()
 	_sync_workshop_line(workshop.net_hint_at(_screen_pixel(mouse)))
