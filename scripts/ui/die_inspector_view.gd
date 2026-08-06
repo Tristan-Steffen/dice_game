@@ -280,9 +280,34 @@ func _build_target_grid(root: Control) -> void:
 	target_grid = DiceGridView.new()
 	target_grid.name = "TargetGrid"
 	target_grid.place(target_columns, u * GRID_UNIT_SCALE, true)
+	# Ziehen legt um, Tippen wechselt das Werkstück - dieselbe Aufteilung wie am
+	# echten Tray. Der Knopf meldet sein pressed nur beim Loslassen ÜBER sich
+	# selbst, die beiden Gesten können sich also nicht überschneiden.
+	target_grid.reorder_enabled = true
 	target_grid.slot_pressed.connect(func(index: int) -> void: select_tray_die.emit(index))
+	target_grid.slots_reordered.connect(_on_target_slots_reordered)
 	root.add_child(target_grid)
 	_refresh_target_grid()
+
+## Kachel auf Kachel gezogen: derselbe Griff in den Vorrat wie am Tray - der
+## Würfel wird am Ziel eingesetzt, die anderen rücken auf. Gesperrt, sobald die
+## Runde unterschrieben ist; scene_root führt Tray und Raster danach nach.
+func _on_target_slots_reordered(from_index: int, to_index: int) -> void:
+	if run == null or editing_locked:
+		return
+	if from_index < 0 or from_index >= target_defs.size():
+		return
+	if to_index < 0 or to_index >= target_defs.size():
+		return
+	var moved: DieDefinition = target_defs[from_index]
+	var onto: DieDefinition = target_defs[to_index]
+	if moved == null or onto == null:
+		return
+	var from_pool := run.owned_pool.find(moved)
+	var to_pool := run.owned_pool.find(onto)
+	if from_pool < 0 or to_pool < 0:
+		return
+	run.reorder_pool(from_pool, to_pool)
 
 ## Übernimmt das Raster des Ursprungs-Trays (je ECHTEM Slot eine Def, null =
 ## leer) und welcher Slot gerade bearbeitet wird.
@@ -290,7 +315,7 @@ func set_target_grid(columns: int, defs: Array[DieDefinition], current_slot: int
 	target_columns = maxi(columns, 1)
 	target_defs = defs
 	target_current = current_slot
-	_refresh_target_grid()
+	_rebuild_target_grid()
 
 ## Erklärzeile zur Ziel-Kachel unter pixel ("" = keine). Die Station schreibt
 ## sonst nichts mehr auf die Hinweiskarte - nur die Seele des Würfels, über den
@@ -300,14 +325,22 @@ func grid_hint_at(pixel: Vector2) -> String:
 		return ""
 	return target_grid.hint_at(pixel)
 
+## Auf ein resized hin: bei gleicher Einheit steht das Raster schon richtig
+## (resized feuert während des Layouts mehrfach - nicht jedes Mal neu bauen).
 func _refresh_target_grid() -> void:
 	if target_grid == null or not is_instance_valid(target_grid):
 		return
-	var unit := _target_grid_unit()
-	if is_equal_approx(unit, _grid_unit) and target_grid.get_child_count() > 0:
-		return  # resized feuert während des Layouts mehrfach - nicht neu bauen
-	_grid_unit = unit
-	target_grid.place(target_columns, unit, true)
+	if is_equal_approx(_target_grid_unit(), _grid_unit) and target_grid.get_child_count() > 0:
+		return
+	_rebuild_target_grid()
+
+## Neuer INHALT (anderes Werkstück, umgelegter Vorrat) - die Einheit sagt darüber
+## nichts, also wird immer neu gezeichnet.
+func _rebuild_target_grid() -> void:
+	if target_grid == null or not is_instance_valid(target_grid):
+		return
+	_grid_unit = _target_grid_unit()
+	target_grid.place(target_columns, _grid_unit, true)
 	target_grid.fill(target_defs, target_current)
 	_center_target_grid.call_deferred()
 

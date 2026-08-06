@@ -1,16 +1,48 @@
 extends GutTest
-## Plätze tauschen im Vorrat. ANORDNUNG, nicht Ersetzung: die Würfel wandern
-## mitsamt ihrer Identität, ihr Inhalt wird nie überschrieben - become gilt nur
-## beim Ersetzen. Daran hängt, dass instanz-gebundener Zustand am richtigen
-## Würfel bleibt.
+## Umlegen im Vorrat. ANORDNUNG, nicht Ersetzung: die Würfel wandern mitsamt
+## ihrer Identität, ihr Inhalt wird nie überschrieben - become gilt nur beim
+## Ersetzen. Daran hängt, dass instanz-gebundener Zustand am richtigen Würfel
+## bleibt. Und es ist kein TAUSCH: der Würfel landet genau auf dem Platz, auf dem
+## er losgelassen wurde, die Reihe dazwischen rückt auf.
 
-func test_reorder_swaps_the_two_places() -> void:
+func test_the_die_lands_on_the_place_it_was_dropped_on() -> void:
 	var run := GameRun.new_run()
 	var a := run.owned_pool[0]
-	var b := run.owned_pool[4]
 	assert_true(run.reorder_pool(0, 4))
 	assert_same(run.owned_pool[4], a, "A liegt jetzt auf Platz 4")
-	assert_same(run.owned_pool[0], b, "und B auf Platz 0")
+
+func test_moving_forwards_pulls_the_others_up_the_line() -> void:
+	var run := GameRun.new_run()
+	var before: Array[DieDefinition] = []
+	for die in run.owned_pool:
+		before.append(die)
+	run.reorder_pool(0, 3)
+	assert_same(run.owned_pool[0], before[1], "die Lücke schließt sich von hinten")
+	assert_same(run.owned_pool[1], before[2])
+	assert_same(run.owned_pool[2], before[3])
+	assert_same(run.owned_pool[3], before[0], "und der gezogene sitzt am Ziel")
+	assert_same(run.owned_pool[4], before[4], "dahinter bleibt alles unberührt")
+
+func test_moving_backwards_pushes_the_others_down_the_line() -> void:
+	var run := GameRun.new_run()
+	var before: Array[DieDefinition] = []
+	for die in run.owned_pool:
+		before.append(die)
+	run.reorder_pool(3, 0)
+	assert_same(run.owned_pool[0], before[3], "der gezogene sitzt am Ziel")
+	assert_same(run.owned_pool[1], before[0], "die anderen rücken nach hinten")
+	assert_same(run.owned_pool[2], before[1])
+	assert_same(run.owned_pool[3], before[2])
+
+func test_nobody_is_lost_or_duplicated_by_a_move() -> void:
+	var run := GameRun.new_run()
+	var size := run.owned_pool.size()
+	run.reorder_pool(2, 9)
+	assert_eq(run.owned_pool.size(), size, "der Vorrat behält seine Größe")
+	var seen := []
+	for die in run.owned_pool:
+		assert_false(seen.has(die.get_instance_id()), "kein Würfel liegt doppelt")
+		seen.append(die.get_instance_id())
 
 func test_the_instances_keep_their_identity() -> void:
 	# Genau daran hängt der Xenon-/Kugelblitz-Zustand (nach get_instance_id).
@@ -32,20 +64,20 @@ func test_the_contents_are_never_rewritten() -> void:
 	run.owned_pool[3].essence_id = Essence.ARGON
 	run.reorder_pool(1, 3)
 	assert_eq(run.owned_pool[3].essence_id, Essence.NEON, "die Seele reist mit")
-	assert_eq(run.owned_pool[1].essence_id, Essence.ARGON)
+	assert_eq(run.owned_pool[2].essence_id, Essence.ARGON, "der Nachbar rückt nur auf")
 
 func test_reorder_reports_the_change_once() -> void:
 	var run := GameRun.new_run()
 	var emits := []
 	run.pool_changed.connect(func() -> void: emits.append(1))
 	run.reorder_pool(0, 1)
-	assert_eq(emits.size(), 1, "ein Tausch, ein Signal")
+	assert_eq(emits.size(), 1, "ein Umlegen, ein Signal")
 
 func test_a_pointless_or_impossible_reorder_is_a_no_op() -> void:
 	var run := GameRun.new_run()
 	var emits := []
 	run.pool_changed.connect(func() -> void: emits.append(1))
-	assert_false(run.reorder_pool(3, 3), "auf sich selbst ist kein Tausch")
+	assert_false(run.reorder_pool(3, 3), "auf sich selbst ist kein Umlegen")
 	assert_false(run.reorder_pool(-1, 2), "kein Platz unter null")
 	assert_false(run.reorder_pool(0, 999), "und keiner hinter dem Ende")
 	assert_eq(emits.size(), 0, "und nichts davon meldet sich")

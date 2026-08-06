@@ -558,6 +558,7 @@ var reorder_ghost: Node3D
 var tray_drag_index: int = -1
 var tray_drag_start_pos: Vector2
 var tray_is_dragging: bool = false
+var tray_drag_ghost: Node3D
 var pit_drag_index: int = -1
 var pit_drag_start_pos: Vector2
 var pit_is_dragging: bool = false
@@ -2912,12 +2913,14 @@ func _handle_reorder_input(event: InputEvent) -> void:
 		reorder_is_dragging = false
 
 ## Umlegen im Pool-Tray: Drücken merkt sich den Würfel, Loslassen über einem
-## anderen TAUSCHT die beiden Plätze. Nur im Werkbank-Fenster (vor der
-## Unterschrift bzw. im Laden) - danach ist der Vorrat für die Runde gestellt.
-## Die Ablage bleibt außen vor: _return_dice_to_pool_tray leert sie zum
+## anderen SETZT ihn dort ein (die anderen rücken auf). Nur im Werkbank-Fenster
+## (vor der Unterschrift bzw. im Laden) - danach ist der Vorrat für die Runde
+## gestellt. Die Ablage bleibt außen vor: _return_dice_to_pool_tray leert sie zum
 ## Ladenbeginn, in der Werkbank-Zeit liegt dort also ohnehin nichts.
+## Läuft AUCH bei offener Gravur-Station: erst der Weg entscheidet: gezogen wird
+## umgelegt, bloß getippt wechselt wie bisher das Werkstück.
 func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
-	if run == null or _dice_editing_locked() or engraving_active:
+	if run == null or _dice_editing_locked():
 		return false
 	# Nur dort, wo das Tray die lokale Bühne ist: aus der Übersicht muss der
 	# Druck zu den Zoom-Zonen durchfallen, sonst frisst die Geste den Klick.
@@ -2935,26 +2938,24 @@ func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
 func _handle_tray_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_RIGHT:
+		if tray_is_dragging:
+			_animate_tray_snapback()
 		_end_tray_drag()
 		return
 	if event is InputEventMouseMotion:
-		# Erst der Weg macht die Geste - das Anheben wartet auf den Schwellwert,
-		# damit ein bloßer Klick den Würfel nicht hüpfen lässt.
+		# Erst der Weg macht die Geste - der Würfel verlässt seinen Platz erst
+		# ab dem Schwellwert, damit ein bloßer Klick nichts anfasst.
 		if not tray_is_dragging \
 				and event.position.distance_to(tray_drag_start_pos) > REORDER_DRAG_THRESHOLD:
 			tray_is_dragging = true
-			pool_tray_view.lift_slot(tray_drag_index, true)
+			_begin_tray_drag()
+		if tray_is_dragging:
+			_update_tray_drag(event.position)
 		return
 	if event is InputEventMouseButton and not event.pressed \
 			and event.button_index == MOUSE_BUTTON_LEFT:
 		if tray_is_dragging:
-			var target := _pool_tray_slot_at(event.position)
-			if target >= 0 and target != tray_drag_index:
-				var from_pool := run.owned_pool.find(pool_tray_view.slot_defs[tray_drag_index])
-				var to_pool := run.owned_pool.find(pool_tray_view.slot_defs[target])
-				if from_pool >= 0 and to_pool >= 0:
-					run.reorder_pool(from_pool, to_pool)
-			_end_tray_drag()
+			_finish_tray_drag(event.position)
 			return
 		# Nur getippt: der alte Weg - der Klick öffnet die Gravur-Station.
 		var pos: Vector2 = event.position
@@ -2972,11 +2973,86 @@ func _pool_tray_slot_at(screen_pos: Vector2) -> int:
 	return index if pool_tray_view.slot_defs[index] != null else -1
 
 func _end_tray_drag() -> void:
-	if tray_drag_index >= 0 and tray_is_dragging:
-		pool_tray_view.lift_slot(tray_drag_index, false)
 	tray_drag_index = -1
 	tray_is_dragging = false
 	camera_rig.release_tilt_immediately()
+
+## Der gegriffene Würfel verlässt seinen Platz: der Slot wird leer, ein freier
+## Ghost folgt ab jetzt der Maus - dieselbe Geste wie in der Warteschlange.
+func _begin_tray_drag() -> void:
+	var def: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
+	pool_tray_view.set_slot_visible(tray_drag_index, false)
+	tray_drag_ghost = _spawn_deck_ghost(def)
+	tray_drag_ghost.global_position = pool_tray_view.slot_global_position(tray_drag_index) \
+		+ Vector3.UP * REORDER_LIFT_HEIGHT
+
+func _update_tray_drag(screen_pos: Vector2) -> void:
+	if tray_drag_ghost == null:
+		return
+	var hit: Variant = _mouse_on_plane(screen_pos,
+		pool_tray_view.global_position.y + DiceTrayView.FLOAT_HEIGHT + REORDER_LIFT_HEIGHT)
+	if hit != null:
+		tray_drag_ghost.global_position = hit
+
+## Loslassen: über einem anderen belegten Platz rückt die Reihe sichtbar auf,
+## sonst gleitet der Ghost auf seinen alten Platz zurück.
+func _finish_tray_drag(screen_pos: Vector2) -> void:
+	var from_slot := tray_drag_index
+	var to_slot := _pool_tray_slot_at(screen_pos)
+	var from_pool := -1
+	var to_pool := -1
+	if to_slot >= 0 and to_slot != from_slot:
+		from_pool = run.owned_pool.find(pool_tray_view.slot_defs[from_slot])
+		to_pool = run.owned_pool.find(pool_tray_view.slot_defs[to_slot])
+	if from_pool >= 0 and to_pool >= 0:
+		_animate_tray_reorder(from_slot, to_slot, from_pool, to_pool)
+	else:
+		_animate_tray_snapback()
+	_end_tray_drag()
+
+## Kein gültiges Ziel: der Ghost gleitet sichtbar auf seinen Platz zurück.
+func _animate_tray_snapback() -> void:
+	var ghost := tray_drag_ghost
+	tray_drag_ghost = null
+	if ghost == null:
+		_refresh_dice_trays()
+		return
+	var home := pool_tray_view.slot_global_position(tray_drag_index)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(ghost, "global_position", home, DECK_SHIFT_DURATION)
+	tween.tween_callback(func() -> void:
+		ghost.queue_free()
+		_refresh_dice_trays())
+
+## Umlegen im Pool-Tray mit der Aufrück-Animation der Warteschlange: jeder
+## betroffene Platz wird zu einem Ghost, der zu seinem neuen Platz gleitet - der
+## gezogene bringt seinen eigenen schon mit. Die Ghosts stehen VOR der Buchung,
+## denn ihr Vorhandensein ist es, was den pool_changed-Refresh so lange anhält.
+func _animate_tray_reorder(from_slot: int, to_slot: int, from_pool: int, to_pool: int) -> void:
+	_cancel_deck_shift()
+	var lo: int = mini(from_slot, to_slot)
+	var hi: int = maxi(from_slot, to_slot)
+	var targets: Array[Vector3] = []
+	for index in range(lo, hi + 1):
+		var ghost: Node3D
+		if index == from_slot:
+			ghost = tray_drag_ghost
+			tray_drag_ghost = null
+		else:
+			ghost = _spawn_deck_ghost(pool_tray_view.slot_defs[index])
+			ghost.global_position = pool_tray_view.slot_global_position(index)
+			pool_tray_view.set_slot_visible(index, false)
+		deck_shift_ghosts.append(ghost)
+		targets.append(pool_tray_view.slot_global_position(
+			_queue_index_after_move(index, from_slot, to_slot)))
+	run.reorder_pool(from_pool, to_pool)
+	deck_shift_tween = create_tween()
+	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	deck_shift_tween.set_parallel(true)
+	for i in deck_shift_ghosts.size():
+		deck_shift_tween.tween_property(deck_shift_ghosts[i], "global_position", targets[i], DECK_SHIFT_DURATION)
+	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
 
 ## Bewegung/Loslassen in der Grube: unter dem Schwellwert bleibt es ein
 ## Auswahl-Klick, darüber wird die Reihe umgelegt. Rechtsklick bricht ab.
@@ -4549,7 +4625,36 @@ func _animate_deck_shift(shift: int) -> void:
 
 func _finish_deck_shift() -> void:
 	_cancel_deck_shift()
-	_refresh_deck_trays()
+	_refresh_dice_trays()
+
+## Trays neu setzen, aus der richtigen Quelle: im Laden ist die Runde vorbei und
+## der ganze Vorrat liegt im Pool-Tray, sonst zeigt es den Rundenstapel. Hält an,
+## solange eine Aufrück-Animation läuft - die ruft am Ende selbst her.
+func _refresh_dice_trays() -> void:
+	if not deck_shift_ghosts.is_empty():
+		return
+	if phase == Phase.SHOP:
+		_return_dice_to_pool_tray()
+	else:
+		_refresh_deck_trays()
+	# Das Werkstück hängt am Slot-KNOTEN, die Umlegung bewegt aber die Defs -
+	# ohne Nachführen graviert die Station plötzlich am Nachbarplatz.
+	if engraving_active:
+		_rebind_engraving_source()
+		_refresh_engraving_target_grid()
+
+## Sucht den Tray-Platz, auf dem das Werkstück nach einem Umlegen liegt, und
+## versteckt ihn wieder (der Würfel selbst schwebt ja an der Station).
+func _rebind_engraving_source() -> void:
+	if engraving_source_tray == null or die_inspector.current_def == null:
+		return
+	var index := engraving_source_tray.slot_defs.find(die_inspector.current_def)
+	if index < 0 or index >= engraving_source_tray.slot_roots.size():
+		return
+	if engraving_source_root != null and is_instance_valid(engraving_source_root):
+		engraving_source_root.visible = true
+	engraving_source_root = engraving_source_tray.slot_roots[index]
+	engraving_source_root.visible = false
 
 func _cancel_deck_shift() -> void:
 	if deck_shift_tween:
@@ -7311,10 +7416,13 @@ func _on_die_engraved() -> void:
 ## Instanzen werden nie getauscht (GameRun.become), also reicht Neuzeichnen.
 func _on_pool_changed() -> void:
 	# Vor dem Zurren IST der Stapel der Pool: ein Anordnen (reorder_pool) muss
-	# darum sofort in den Trays stehen. Danach ist er gemischt und unantastbar.
+	# darum sofort in den Trays stehen. Danach ist er gemischt und unantastbar -
+	# außer im Laden, wo die Runde vorbei ist und schlicht alles im Tray liegt.
 	if not round_committed and next_draw_index == 0:
 		round_pool_kinds = run.owned_pool.duplicate()
-		_refresh_deck_trays()
+		_refresh_dice_trays()
+	elif phase == Phase.SHOP:
+		_refresh_dice_trays()
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()

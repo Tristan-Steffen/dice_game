@@ -578,9 +578,9 @@ func _pool_index_of(grid_index: int) -> int:
 		return -1
 	return run.owned_pool.find(defs[grid_index])
 
-## Zwei Kacheln getauscht: die PLÄTZE im Vorrat wechseln, die Würfel selbst
-## bleiben, was sie sind. Gesperrt, sobald die Runde unterschrieben ist - es ist
-## dasselbe Zeitfenster wie fürs Gravieren.
+## Kachel auf Kachel gezogen: der Würfel wird am Ziel EINGESETZT, die anderen
+## rücken auf - die Würfel selbst bleiben, was sie sind. Gesperrt, sobald die
+## Runde unterschrieben ist - dasselbe Zeitfenster wie fürs Gravieren.
 func _on_pool_slots_reordered(from_grid: int, to_grid: int) -> void:
 	if run == null or editing_locked:
 		return

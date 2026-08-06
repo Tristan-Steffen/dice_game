@@ -1500,11 +1500,14 @@ func owned_essence_ids() -> Array[String]:
 func note_pool_changed() -> void:
 	pool_changed.emit()
 
-## Tauscht zwei Pool-PLÄTZE. Das ist ANORDNUNG, nicht Ersetzung: die beiden
-## Instanzen wandern mitsamt ihrer Identität an die neue Stelle, ihr Inhalt wird
-## nie überschrieben (become gilt nur beim Ersetzen). Damit bleibt jeder
-## instanz-gebundene Zustand - der Phosphor-Speicher, die Löschgas-Ladung -
-## automatisch am richtigen Würfel.
+## Legt EINEN Würfel auf einen anderen Pool-PLATZ um: er wird herausgenommen und
+## dort wieder eingesetzt, alle dazwischen rücken auf. Kein Tausch - der Würfel
+## liegt danach genau dort, wo er losgelassen wurde, und die Reihe schließt sich
+## hinter ihm (dieselbe Rechnung wie beim Warteschlangen-Umlegen).
+## Das ist ANORDNUNG, nicht Ersetzung: die Instanzen wandern mitsamt ihrer
+## Identität, ihr Inhalt wird nie überschrieben (become gilt nur beim Ersetzen).
+## Damit bleibt jeder instanz-gebundene Zustand - der Phosphor-Speicher, die
+## Löschgas-Ladung - automatisch am richtigen Würfel.
 ## Die Pool-Reihenfolge IST die Ziehreihenfolge des Rundendecks; das Umlegen vor
 ## der Runde ist also Strategie und wird nirgends nachträglich normalisiert.
 func reorder_pool(from_index: int, to_index: int) -> bool:
@@ -1515,8 +1518,8 @@ func reorder_pool(from_index: int, to_index: int) -> bool:
 	if to_index < 0 or to_index >= owned_pool.size():
 		return false
 	var moved := owned_pool[from_index]
-	owned_pool[from_index] = owned_pool[to_index]
-	owned_pool[to_index] = moved
+	owned_pool.remove_at(from_index)
+	owned_pool.insert(to_index, moved)
 	pool_changed.emit()
 	return true
 
