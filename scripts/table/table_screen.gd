@@ -646,8 +646,9 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 
 ## Punkt-Puls: schnelle Stoßwelle vom Würfel (screen_px) in der Farbe der
 ## Punktart - "base" (Cyan), "mult" (Gold), "crit" (Magenta). Hell bei Geburt,
-## verklingt beim Auslaufen; läuft unabhängig vom Rundenpuls.
-func pit_impulse(screen_px: Vector2, kind: String) -> void:
+## verklingt beim Auslaufen; läuft unabhängig vom Rundenpuls. Ein Aufrufer mit
+## eigener Farbe (Augen-Pip auf dem Grubenboden) reicht sie direkt herein.
+func pit_impulse(screen_px: Vector2, kind: String, color := Color(0, 0, 0, 0)) -> void:
 	if pit_waves == null or not pit_window.visible:
 		return
 	var slot := _pit_impulse_next
@@ -656,7 +657,7 @@ func pit_impulse(screen_px: Vector2, kind: String) -> void:
 	if old != null and old.is_valid():
 		old.kill()
 	_pit_impulse_pos[slot] = screen_px - pit_window.position - pit_waves.position
-	_pit_impulse_colors[slot] = PIT_IMPULSE_COLORS.get(kind, TRAIL_BASE_COLOR)
+	_pit_impulse_colors[slot] = color if color.a > 0.0 else PIT_IMPULSE_COLORS.get(kind, TRAIL_BASE_COLOR)
 	var waves_material: ShaderMaterial = pit_waves.material
 	waves_material.set_shader_parameter("impulse_pos", _pit_impulse_pos)
 	waves_material.set_shader_parameter("impulse_color", _pit_impulse_colors)
@@ -1601,6 +1602,131 @@ func _make_gain_label(text: String, color: Color, font_scale: float = 1.0) -> La
 	label.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
+
+## --- Augen-Pips (Augen als Materie) -----------------------------------------
+## Dritter Bewegungskanal neben steigendem Geld und fallenden Zahlen: gewonnene
+## Augen regnen von der Grubenkante in den Würfel, verlorene fallen aus ihm
+## heraus auf den Grubenboden. Stückelung 5/1 wie die Chips.
+
+const EYE_PIP_COLOR := Color(1.0, 0.92, 0.75, 1.0)       # warmes Elfenbein: Zuwachs
+const EYE_PIP_LOSS_COLOR := Color(0.82, 0.94, 1.0, 1.0)  # kaltes Glasweiß: Verlust
+const EYE_PIP_UNIT := 9.0 * SUPERSAMPLE                  # Pip zu 1
+const EYE_PIP_FIVE := 15.0 * SUPERSAMPLE                 # Pip zu 5: größer UND heller
+const EYE_PIP_FIVE_GAIN := 1.45
+const EYE_PIP_GAP := 0.06                                # Startversatz je Pip
+const EYE_PIP_TIME := 0.4
+const EYE_PIP_TIME_JITTER := 0.06
+const EYE_PIP_ARC := 0.15                                # Bogen, Anteil der Sehnenlänge
+const EYE_PIP_TRAIL := 26.0 * SUPERSAMPLE
+const EYE_PIP_TRAIL_WIDTH := 0.55                        # Anteil des Kopfdurchmessers
+const EYE_PIP_TRAIL_ALPHA := 0.5
+const EYE_PIP_FLOOR_GAP := 10.0 * SUPERSAMPLE            # Abstand über Karte/Leiste
+const EYE_PIP_FLOOR_INSET := 16.0 * SUPERSAMPLE          # Abstand über der Grubenwand
+const EYE_PIP_CEILING_INSET := 14.0 * SUPERSAMPLE        # Abstand unter der Grubendecke
+const EYE_PIP_JITTER := 13.0 * SUPERSAMPLE               # seitlicher Streuwurf je Pip
+const EYE_DENOMINATIONS := [5, 1]
+
+var _eye_pip_texture: GradientTexture2D  # geteilter Punkt, einmalig gebaut
+
+## Gierige Stückelung eines Augen-Betrags - Spiegel von ChipStackView.split_gain.
+static func split_eyes(amount: int) -> Array[int]:
+	var values: Array[int] = []
+	var rest := maxi(0, amount)
+	for value: int in EYE_DENOMINATIONS:
+		while rest >= value:
+			rest -= value
+			values.append(value)
+	return values
+
+## Ein Augen-Pip fliegt von from_px nach to_px: leichter Bogen, kurzer Schleier,
+## beschleunigt wie im Fall. Rein visuell - der Aufrufer bucht in on_arrival.
+func spawn_eye_pip(from_px: Vector2, to_px: Vector2, denom: int, color: Color, on_arrival := Callable()) -> void:
+	var five := denom >= 5
+	var side := EYE_PIP_FIVE if five else EYE_PIP_UNIT
+	var gain := EYE_PIP_FIVE_GAIN if five else 1.0
+	var tint := Color(color.r * gain, color.g * gain, color.b * gain, 1.0)
+	var streak := _make_gain_blur(tint)
+	streak.modulate = Color(tint.r, tint.g, tint.b, EYE_PIP_TRAIL_ALPHA)
+	# Ohne IGNORE_SIZE zieht die Textur eine Mindestgröße ein und der Pip wird
+	# auf ihre Auflösung aufgeblasen - ein Einser käme so groß wie ein Fünfer.
+	streak.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	streak.size = Vector2(side * EYE_PIP_TRAIL_WIDTH, EYE_PIP_TRAIL)
+	# Drehpunkt = Kopfende des Schleiers, damit er beim Drehen am Pip klebt.
+	streak.pivot_offset = Vector2(streak.size.x / 2.0, streak.size.y)
+	add_child(streak)
+	var head := TextureRect.new()
+	head.texture = _eye_pip_dot()
+	head.stretch_mode = TextureRect.STRETCH_SCALE
+	head.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.size = Vector2(side, side)
+	head.modulate = tint
+	add_child(head)
+	# Kontrollpunkt seitlich der Sehne, Vorzeichen zufällig - kein Pip fliegt
+	# die Bahn des anderen.
+	var chord := to_px - from_px
+	var bulge := Vector2(-chord.y, chord.x).normalized() * chord.length() * EYE_PIP_ARC
+	var control := from_px + chord * 0.5 + (bulge if randf() < 0.5 else -bulge)
+	var flight := maxf(EYE_PIP_TIME + randf_range(-EYE_PIP_TIME_JITTER, EYE_PIP_TIME_JITTER), 0.1)
+	_advance_eye_pip(head, streak, from_px, control, to_px, 0.0)
+	var tween := create_tween()
+	# EASE_IN = Schwerkraft: das Auge löst sich und wird schneller.
+	tween.tween_method(func(t: float) -> void:
+		_advance_eye_pip(head, streak, from_px, control, to_px, t),
+		0.0, 1.0, flight).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(func() -> void:
+		head.queue_free()
+		streak.queue_free()
+		if on_arrival.is_valid():
+			on_arrival.call())
+
+## Setzt Kopf und Schleier auf den Punkt t der quadratischen Bezierkurve; der
+## Schleier zeigt gegen die Tangente, hängt der Bewegung also hinterher.
+func _advance_eye_pip(head: TextureRect, streak: TextureRect, p0: Vector2, p1: Vector2, p2: Vector2, t: float) -> void:
+	var inv := 1.0 - t
+	var pos := p0 * (inv * inv) + p1 * (2.0 * inv * t) + p2 * (t * t)
+	head.position = pos - head.size / 2.0
+	var vel := (p1 - p0) * (2.0 * inv) + (p2 - p1) * (2.0 * t)
+	if vel.length_squared() > 0.0:
+		streak.rotation = Vector2.DOWN.angle_to(vel)
+	streak.position = pos - streak.pivot_offset
+
+## Runder Leuchtpunkt: heller Kern, nach außen ausgeblendet.
+func _eye_pip_dot() -> GradientTexture2D:
+	if _eye_pip_texture == null:
+		var gradient := Gradient.new()
+		gradient.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+		gradient.colors = PackedColorArray([Color(1, 1, 1, 1.0), Color(1, 1, 1, 0.7), Color(1, 1, 1, 0.0)])
+		_eye_pip_texture = GradientTexture2D.new()
+		_eye_pip_texture.gradient = gradient
+		_eye_pip_texture.fill = GradientTexture2D.FILL_RADIAL
+		_eye_pip_texture.fill_from = Vector2(0.5, 0.5)
+		_eye_pip_texture.fill_to = Vector2(1.0, 0.5)
+		_eye_pip_texture.width = 32
+		_eye_pip_texture.height = 32
+	return _eye_pip_texture
+
+## Aufschlaghöhe eines herausfallenden Pips in DIESER Spalte: die oberste Kante,
+## die dort im Weg steht (Netz-Karte, Erklärleiste) - dieselbe Klemmung, die die
+## Zuwachs-Zahlen von der Karte fernhält -, sonst die Grubenwand.
+func pit_floor_y(center_x: float) -> float:
+	var floor_y := INF
+	if pit_window != null and pit_window.visible:
+		floor_y = pit_window.position.y + pit_window.size.y - EYE_PIP_FLOOR_INSET
+	for obstacle: Control in [pit_info_bar, pit_net_hint]:
+		if obstacle == null or not obstacle.visible:
+			continue
+		var rect := obstacle.get_rect()
+		if center_x < rect.position.x or center_x > rect.end.x:
+			continue
+		floor_y = minf(floor_y, rect.position.y - EYE_PIP_FLOOR_GAP)
+	return floor_y if is_finite(floor_y) else float(RESOLUTION.y)
+
+## Abwurfhöhe hereinregnender Pips: knapp unter der oberen Grubenwand.
+func pit_ceiling_y() -> float:
+	if pit_window == null or not pit_window.visible:
+		return 0.0
+	return pit_window.position.y + EYE_PIP_CEILING_INSET
 
 ## Goldenes Leucht-Podest unter einem zählenden/ausgewählten Würfel.
 ## side_px = Kantenlänge; der Aufrufer hält und entsorgt die Knoten.

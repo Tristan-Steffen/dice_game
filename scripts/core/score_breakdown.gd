@@ -267,11 +267,24 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["firedamp_add"] = firedamp_add
 				entry["base_after_crit"] = base
 				entry["mult_after_crit"] = mult
+				# Physischer Wert VOR der Wandlung - die Augen-Pips rechnen im
+				# physischen Bereich, "value" ist die GEZÄHLTE (gezeigte) Zahl.
+				entry["value_before"] = running_values[i]
 				if has_die_bonus:
 					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids)
 					# Ansteckung an derselben Stelle wie in DiceScoring: der Miasma-
 					# Würfel gibt jetzt ab, die Mitwürfel tragen es in ihre nächste Zündung.
-					MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
+					var spread := MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
+					if spread > 0:
+						# Nur MITGESCHRIEBEN, nie noch einmal angewandt: spread_miasma_once
+						# hat den Eigenverlust schon abgezogen und jeden anderen beschenkt.
+						entry["miasma_amount"] = spread
+						entry["miasma_self_loss"] = MaterialEffects.miasma_self_loss(spread, charm_ids)
+						var recipients: Array[int] = []
+						for other in scored:
+							if other != i:
+								recipients.append(other)
+						entry["miasma_recipients"] = recipients
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running_values[i]

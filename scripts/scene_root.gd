@@ -190,6 +190,11 @@ var _score_seq := 0
 var _score_applied := -1
 var _score_pending := 0
 var _score_gap := 0.0  # aktuelle Nach-Ankunft-Pause (Accelerando, je Hand zurückgesetzt)
+## Augen-Pips: laufende Tick-Nummer, je Slot die zuletzt angewandte (hält die
+## Ziffer monoton) und der Stand, auf den der Slot zuläuft.
+var _eye_tick_seq := 0
+var _eye_tick_applied := {}
+var _eye_planned := {}
 
 ## Ständiges Würfelnetz-Feld der Grube, mittig über der langen Grubenachse;
 ## die Aktions-Knöpfe docken links/rechts an, der Bank-Knopf darunter
@@ -515,6 +520,8 @@ var _net_fade := 0.0
 ## Seelen-Zeile des gezeigten Würfels - nur beim Wechsel gebaut (Essence.by_id
 ## legt den ganzen Katalog an, und _show_pit_net läuft je Frame).
 var _net_essence_hint := ""
+## Glühen des Miasma für seine Augen-Pips - aus demselben Grund einmal geholt.
+var _miasma_glow := Color(0, 0, 0, 0)
 
 var lineup_tween: Tween
 
@@ -5287,6 +5294,8 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	_score_applied = -1
 	_score_pending = 0
 	_score_gap = SCORE_STEP_GAP_START
+	_eye_tick_applied.clear()
+	_eye_planned.clear()
 	_cancel_lineup()
 
 	# 1) Schwebende Reihe: zählende Würfel zuerst, unbeteiligte rechts daneben.
@@ -5590,8 +5599,186 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 	# Knochen/Glas wandeln die Seite ZWISCHEN den Auslösungen: die Ziffer auf dem
 	# Würfel zieht nach, damit die nächste Auslösung sichtbar den neuen Wert zählt.
 	if pulse.has("value_after"):
-		_show_die_value_progress(slot, int(pulse["value_after"]))
+		_play_eye_pips(pulse, slot, die_px)
 	return true
+
+## Augen-Pips einer Zündung. Zwei Volleys im PHYSISCHEN Bereich: erst die eigene
+## Wandlung (Knochen wächst, Glas schrumpft, Helium hebt), dann der Miasma-
+## Aushauch samt Weitergabe. value_after ist um den Eigenverlust schon gemindert,
+## der Stand davor liegt also um ihn höher. Nie abgewartet; kommt kein Pip
+## zustande, setzt die Ziffer hart um - die Anzeige hängt nie an der Animation.
+func _play_eye_pips(pulse: Dictionary, slot: int, die_px: Vector2) -> void:
+	var after := int(pulse["value_after"])
+	var before := int(pulse.get("value_before", after))
+	var amount := int(pulse.get("miasma_amount", 0))
+	var self_loss := int(pulse.get("miasma_self_loss", 0))
+	var recipients: Array = pulse.get("miasma_recipients", [])
+	var post_mutate := after + self_loss
+	var launches := 0
+	if _eye_pips_available():
+		if post_mutate > before:
+			launches += _rain_eyes_in(slot, before, post_mutate, TableScreen.EYE_PIP_COLOR, 0.0, die_px)
+		elif post_mutate < before:
+			launches += _drop_eyes_out(slot, before, post_mutate, TableScreen.EYE_PIP_LOSS_COLOR, 0.0, [], die_px)
+		if amount > 0:
+			var offset := float(launches) * TableScreen.EYE_PIP_GAP
+			var tint := _miasma_pip_color()
+			if self_loss > 0:
+				# Der Aushauch fällt heraus; jeder Aufschlag trägt ihn weiter.
+				launches += _drop_eyes_out(slot, post_mutate, after, tint, offset, recipients, die_px)
+			else:
+				# Weihrauchfass: nichts fällt heraus, angesteckt wird trotzdem.
+				launches += _rain_miasma_gift(recipients, amount, tint, offset)
+	if launches == 0:
+		_tick_die_value(slot, after, _plan_eye_tick(slot, after), run)
+
+## Pips brauchen die Grube - ohne sichtbares Fenster gibt es keine Kante, von der
+## sie fallen könnten.
+func _eye_pips_available() -> bool:
+	return table_screen != null and table_screen.pit_window != null and table_screen.pit_window.visible
+
+## Miasma-Pips tragen das Glühen ihrer Seele; einmal geholt, Essence.by_id baut
+## sonst je Zündung den ganzen Katalog.
+func _miasma_pip_color() -> Color:
+	if _miasma_glow.a <= 0.0:
+		_miasma_glow = Essence.glow_for(Essence.MIASMA)
+		_miasma_glow.a = 1.0
+	return _miasma_glow
+
+## Gewonnene Augen regnen von der Grubendecke in den Würfel. Jede Ankunft setzt
+## den ABSOLUTEN Zwischenstand - relative Schritte liefen bei verschränkten
+## Volleys auseinander, absolute treffen am Ende genau das Ziel. Liefert die Zahl
+## der gestarteten Pips.
+func _rain_eyes_in(slot: int, start_value: int, target_value: int, color: Color, delay: float, die_px: Vector2) -> int:
+	var pips := TableScreen.split_eyes(target_value - start_value)
+	if pips.is_empty():
+		return 0
+	var launched := run
+	var running := start_value
+	for i in pips.size():
+		var denom: int = pips[i]
+		running += denom
+		var value := running
+		var seq := _plan_eye_tick(slot, value)
+		var from_px := Vector2(die_px.x + _eye_pip_jitter(), table_screen.pit_ceiling_y())
+		_launch_eye_pip(delay + float(i) * TableScreen.EYE_PIP_GAP, func() -> void:
+			table_screen.spawn_eye_pip(from_px, die_px, denom, color, func() -> void:
+				_tick_die_value(slot, value, seq, launched)))
+	return pips.size()
+
+## Verlorene Augen fallen AUS dem Würfel auf den Grubenboden: die Ziffer sinkt im
+## Moment des Abwurfs (das Auge verlässt den Würfel), der Aufschlag schlägt eine
+## Welle. Mit Empfängern trägt jeder Aufschlag seine Stückelung an JEDEN anderen
+## gewerteten Würfel weiter - der Dunst geht nicht verloren.
+func _drop_eyes_out(slot: int, start_value: int, target_value: int, color: Color, delay: float, recipients: Array, die_px: Vector2) -> int:
+	var pips := TableScreen.split_eyes(start_value - target_value)
+	if pips.is_empty():
+		return 0
+	var launched := run
+	var running := start_value
+	for i in pips.size():
+		var denom: int = pips[i]
+		running -= denom
+		var value := running
+		var seq := _plan_eye_tick(slot, value)
+		# Die Weitergabe wird HIER geplant, nicht erst beim Aufschlag: nur so steht
+		# sie in der Reihenfolge vor den Ticks der nächsten Zündung.
+		var relay := _plan_miasma_relay(recipients, denom)
+		var floor_x := die_px.x + _eye_pip_jitter()
+		var to_px := Vector2(floor_x, table_screen.pit_floor_y(floor_x))
+		_launch_eye_pip(delay + float(i) * TableScreen.EYE_PIP_GAP, func() -> void:
+			_tick_die_value(slot, value, seq, launched)
+			table_screen.spawn_eye_pip(die_px, to_px, denom, color, func() -> void:
+				if run != launched or phase != Phase.SCORING:
+					return
+				table_screen.pit_impulse(to_px, "base", color)
+				_fly_miasma_relay(relay, denom, color, launched)))
+	return pips.size()
+
+## Plant die Weitergabe EINES Aufschlags: je anderem gewerteten Würfel ein Tick
+## auf seinen nächsten Stand. spread_miasma_once gibt jedem den vollen Betrag,
+## also bekommt jeder dieselbe Stückelung - über alle Pips summiert genau ihn.
+func _plan_miasma_relay(recipients: Array, denom: int) -> Array[Dictionary]:
+	var plan: Array[Dictionary] = []
+	for other: int in recipients:
+		var value := _planned_die_value(other) + denom
+		plan.append({"slot": other, "value": value, "seq": _plan_eye_tick(other, value)})
+	return plan
+
+## Fliegt die geplante Weitergabe: je Empfänger ein Pip von der Decke herab.
+func _fly_miasma_relay(plan: Array, denom: int, color: Color, launched: GameRun) -> void:
+	for entry: Dictionary in plan:
+		var other := int(entry["slot"])
+		var value := int(entry["value"])
+		var seq := int(entry["seq"])
+		var die_px := _die_px_for(other)
+		var from_px := Vector2(die_px.x + _eye_pip_jitter(), table_screen.pit_ceiling_y())
+		table_screen.spawn_eye_pip(from_px, die_px, denom, color, func() -> void:
+			_tick_die_value(other, value, seq, launched))
+
+## Weihrauchfass: die Quelle verliert nichts, die Mitwürfel bekommen trotzdem -
+## ihre Augen regnen ohne Umweg herein.
+func _rain_miasma_gift(recipients: Array, amount: int, color: Color, delay: float) -> int:
+	var launches := 0
+	for i in recipients.size():
+		var other: int = recipients[i]
+		var start := _planned_die_value(other)
+		launches += _rain_eyes_in(other, start, start + amount, color, delay + float(i) * TableScreen.EYE_PIP_GAP, _die_px_for(other))
+	return launches
+
+## Startet einen Pip nach delay - unter derselben Wache wie die Geld-Pakete
+## (noch in der Zählung, noch dieselbe Partie).
+func _launch_eye_pip(delay: float, launcher: Callable) -> void:
+	if delay <= 0.0:
+		launcher.call()
+		return
+	var launched := run
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
+		if phase == Phase.SCORING and run == launched:
+			launcher.call())
+
+## Plant EINEN Ziffern-Tick. Die laufende Nummer wird in PLANUNGS-Reihenfolge
+## vergeben, also genau der Folge, in der die Zahl stehen soll - ein verspätet
+## ankommender Pip einer älteren Zündung wird damit verworfen (dieselbe Monotonie
+## wie _score_applied), statt die Ziffer zurückzudrehen.
+func _plan_eye_tick(slot: int, value: int) -> int:
+	_eye_tick_seq += 1
+	_eye_planned[slot] = value
+	return _eye_tick_seq
+
+## Der Stand, auf den dieser Würfel ZULÄUFT - noch fliegende Pips eingerechnet.
+func _planned_die_value(slot: int) -> int:
+	return int(_eye_planned.get(slot, _current_die_display_value(slot)))
+
+## Ein Pip schaltet die Ziffer weiter - reine Anzeige, gebucht wird ohnehin erst
+## nach der Zeremonie in apply_take_effects.
+func _tick_die_value(slot: int, value: int, seq: int, launched: GameRun) -> void:
+	if phase != Phase.SCORING or run != launched:
+		return
+	if seq < int(_eye_tick_applied.get(slot, 0)):
+		return
+	_eye_tick_applied[slot] = seq
+	_show_die_value_progress(slot, value)
+
+## Pixelmitte eines liegenden Würfels - Start und Ziel jedes Pips.
+func _die_px_for(slot: int) -> Vector2:
+	if table_screen == null or slot < 0 or slot >= dice.bodies.size():
+		return Vector2.ZERO
+	return table_screen.world_to_pixel(dice.bodies[slot].global_position)
+
+## Die Zahl, die der Würfel GERADE zeigt (Überschreibung schlägt die Def).
+func _current_die_display_value(slot: int) -> int:
+	if slot < 0 or slot >= dice.count() or slot >= dice.face_indices.size():
+		return 0
+	if dice.value_overrides.has(slot):
+		return int(dice.value_overrides[slot])
+	var face := dice.face_indices[slot]
+	if face < 0 or face >= dice.slot_defs[slot].faces.size():
+		return 0
+	return dice.slot_defs[slot].faces[face]
+
+func _eye_pip_jitter() -> float:
+	return randf_range(-TableScreen.EYE_PIP_JITTER, TableScreen.EYE_PIP_JITTER)
 
 ## Zwischenstand des physischen Werts auf dem liegenden Würfel: normal gefärbt,
 ## denn die Änderung ist dauerhaft. Trifft der Wert wieder die Def, verschwindet
@@ -5790,6 +5977,8 @@ func _cleanup_take_animation() -> void:
 	_score_seq = 0
 	_score_applied = -1
 	_score_pending = 0
+	_eye_tick_applied.clear()
+	_eye_planned.clear()
 	table_screen.reset_pit_score()
 
 ## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
@@ -5968,6 +6157,16 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 	breakdown["participating"] = mapped_part
 	for step: Dictionary in breakdown["die_steps"]:
 		step["slot"] = slots[step["slot"]]
+		# Die Ansteckung nennt ihre Empfänger ebenfalls in Auswahl-Indizes -
+		# die Augen-Pips fliegen sonst auf fremde Würfel zu.
+		for group: Dictionary in step["die_triggers"]:
+			for firing: Dictionary in group["firings"]:
+				if not firing.has("miasma_recipients"):
+					continue
+				var mapped: Array[int] = []
+				for idx: int in firing["miasma_recipients"]:
+					mapped.append(slots[idx])
+				firing["miasma_recipients"] = mapped
 	# Auch die Pro-Würfel-Pulse tragen Auswahl-Indizes - auf echte Slots umrechnen.
 	for step: Dictionary in breakdown["charm_steps"]:
 		if step.has("pulses"):
