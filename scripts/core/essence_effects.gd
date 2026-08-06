@@ -31,6 +31,9 @@ const HALOGEN_MULT := 5
 ## Photonengas sammelt Licht: Augen je Auslösung, die vor ihm zählte.
 const PHOTON_EYE_PER_TRIGGER := 5
 
+## Helium hebt die obere Seite je Auslösung.
+const HELIUM_GROWTH := 3
+
 ## Strahlungsdruck bläht ALLE Seiten je Auslösung auf - der Druckkessel tauscht
 ## den festen Schritt gegen einen prozentualen (mindestens +1).
 const PRESSURE_GROWTH := 2
@@ -370,7 +373,7 @@ static func protects_face_value(essence_id: String) -> bool:
 static func face_growth(essence_id: String, charm_ids: Array[String] = [], value: int = 0) -> int:
 	match essence_id:
 		Essence.HELIUM:
-			return 1
+			return HELIUM_GROWTH
 		Essence.RADIATION_PRESSURE:
 			if charm_ids.has(Charm.PRESSURE_VESSEL):
 				return maxi(1, ceili(float(maxi(0, value)) * PRESSURE_GROWTH_PERCENT / 100.0))

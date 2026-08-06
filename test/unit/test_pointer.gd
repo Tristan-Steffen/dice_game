@@ -288,7 +288,7 @@ func test_a_gold_link_pays_per_fired_occurrence():
 	def.pointers[0] = 2
 	def.materials[2] = DieMaterial.GOLD
 	var report := _take(def, _fires(0, [_link(2, 3)]))
-	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT, "eine Zündung, ein Satz")
+	assert_eq(report.total_money(), MaterialEffects.GOLD_PAYOUT, "eine Zündung, ein Satz")
 	var twice := DieDefinition.new()
 	twice.pointers[0] = 2
 	twice.materials[2] = DieMaterial.GOLD
@@ -296,7 +296,7 @@ func test_a_gold_link_pays_per_fired_occurrence():
 	var argon_report := MaterialEffects.apply_take_effects(_defs(twice), _d([0]), _m([""]), _d([0]),
 		_ids([]), -1, {0: Essence.ARGON}, _d([0]), false, _d([]),
 		{0: [[_link(2, 3)], [_link(2, 3)]]})
-	assert_eq(argon_report.money, MaterialEffects.GOLD_PAYOUT * 2, "zwei Zündungen, zwei Sätze")
+	assert_eq(argon_report.total_money(), MaterialEffects.GOLD_PAYOUT * 2, "zwei Zündungen, zwei Sätze")
 
 func test_a_roll_that_missed_pays_nothing():
 	var def := DieDefinition.new()
@@ -401,7 +401,7 @@ func test_a_glass_link_crits_when_doped():
 func test_a_doped_gold_link_pays_the_raised_rate():
 	var def := _linked_die(DieMaterial.GOLD, DieMaterial.MAX_LEVEL)
 	var report := _take(def, _fires(0, [_link(2, 3, DieMaterial.GOLD, DieMaterial.MAX_LEVEL)]))
-	assert_eq(report.money, 8, "$7 + $1 für die eine Gold-Seite dieser Nahme")
+	assert_eq(report.total_money(), 8, "$7 + $1 für die eine Gold-Seite dieser Nahme")
 
 func test_bone_link_grows_by_its_own_step():
 	var plain := _linked_die(DieMaterial.BONE, 1, 40)

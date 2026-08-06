@@ -271,7 +271,7 @@ func test_essence_money_lands_in_the_take_report():
 	var defs: Array[DieDefinition] = [def]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.NEON}, _p([0]))
-	assert_eq(report.money, EssenceEffects.NEON_MONEY_PER_DIE, "ein gezählter Würfel = $2")
+	assert_eq(report.total_money(), EssenceEffects.NEON_MONEY_PER_DIE, "ein gezählter Würfel = $2")
 
 # --- Schutz und Sperren ------------------------------------------------------------
 
@@ -283,8 +283,9 @@ func test_nitrogen_keeps_the_glass_from_shrinking():
 	assert_eq(plain, 4, "ohne Stickstoff schrumpft Glas normal")
 
 func test_helium_grows_the_up_face():
-	assert_eq(EssenceEffects.face_growth(Essence.HELIUM), 1)
-	assert_eq(MaterialEffects.mutate_value_once(3, "", NO_CHARMS, 1, _ids([Essence.HELIUM])), 4)
+	assert_eq(EssenceEffects.face_growth(Essence.HELIUM), EssenceEffects.HELIUM_GROWTH)
+	assert_eq(MaterialEffects.mutate_value_once(3, "", NO_CHARMS, 1, _ids([Essence.HELIUM])),
+		3 + EssenceEffects.HELIUM_GROWTH)
 
 func test_krypton_slips_past_a_dice_filter_but_not_past_a_throttle():
 	# Nur ungerade: die 4 fiele raus - Krypton bleibt trotzdem legal.
@@ -608,7 +609,8 @@ func test_borrowed_protection_and_growth():
 		{0: Essence.QUINTESSENCE, 1: Essence.NITROGEN, 2: Essence.HELIUM})
 	var borrowed := EssenceEffects.set_at(sets, 0)
 	assert_true(EssenceEffects.protects_face_value_of(borrowed), "Schutzatmosphäre geborgt")
-	assert_eq(EssenceEffects.face_growth_of(borrowed), 1, "Helium hebt auch sie")
+	assert_eq(EssenceEffects.face_growth_of(borrowed), EssenceEffects.HELIUM_GROWTH,
+		"Helium hebt auch sie")
 
 # --- Die sieben neuen Seelen ------------------------------------------------------
 
@@ -696,7 +698,7 @@ func test_varnish_never_writes_the_level_into_the_def():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.VARNISH}, _p([0]))
 	assert_eq(die.material_level(0), 1, "die Def bleibt auf ihrem echten Zustand")
-	assert_eq(report.money, MaterialEffects.GOLD_PAYOUT, "Gold zahlt den echten, undotierten Satz")
+	assert_eq(report.total_money(), MaterialEffects.GOLD_PAYOUT, "Gold zahlt den echten, undotierten Satz")
 
 func test_phosphorescence_stores_and_repeats_its_base():
 	var run := GameRun.new_run()

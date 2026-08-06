@@ -321,7 +321,7 @@ func test_the_highlighter_escalates_with_the_round():
 		_p([0, 1]), _ids([Charm.HIGHLIGHTER]), -1, {0: Essence.BLACK_LIGHT}, _p([0, 1]),
 		false, _p([]), {}, 0, 3)
 	assert_eq(report.bare_dice, 2)
-	assert_eq(report.money, 2 * EssenceEffects.BLACK_LIGHT_PER_DIE + 5,
+	assert_eq(report.total_money(), 2 * EssenceEffects.BLACK_LIGHT_PER_DIE + 5,
 		"drei aus früheren Händen plus die zwei von jetzt")
 
 func test_without_the_highlighter_the_black_light_stays_flat():

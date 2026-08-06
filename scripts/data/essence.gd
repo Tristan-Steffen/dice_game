@@ -110,8 +110,8 @@ static func _secret(essence: Essence) -> Essence:
 
 static func helium() -> Essence:
 	return _make(HELIUM, "Helium",
-		"Liegt dieser Würfel in einer genommenen Kombination, wächst seine obere Seite dauerhaft +1.",
-		"obere Seite wächst +1", Rarity.COMMON, Color(1.0, 0.72, 0.55))
+		"Liegt dieser Würfel in einer genommenen Kombination, wächst seine obere Seite dauerhaft +3.",
+		"obere Seite wächst +3", Rarity.COMMON, Color(1.0, 0.72, 0.55))
 
 static func neon() -> Essence:
 	return _make(NEON, "Neon",

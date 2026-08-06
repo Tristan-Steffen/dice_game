@@ -377,13 +377,13 @@ func test_the_doubled_reverse_pays_its_gold_link_twice():
 	def.runes[0] = Rune.REVERSE
 	var plain := MaterialEffects.apply_take_effects(_defs([def]), _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, {}, _p([0]), false, _p([0]))
-	assert_eq(plain.money, MaterialEffects.GOLD_PAYOUT)
+	assert_eq(plain.total_money(), MaterialEffects.GOLD_PAYOUT)
 	var twin := _die([1, 2, 3, 4, 5, 6])
 	twin.set_face_material(5, DieMaterial.GOLD)
 	twin.runes[0] = Rune.REVERSE
 	var doubled := MaterialEffects.apply_take_effects(_defs([twin]), _p([0]), _m([""]), _p([0]),
 		_ids([Charm.BURIN]), -1, {}, _p([0]), false, _p([0]))
-	assert_eq(doubled.money, 2 * MaterialEffects.GOLD_PAYOUT, "die Kehrseite zündet zweimal")
+	assert_eq(doubled.total_money(), 2 * MaterialEffects.GOLD_PAYOUT, "die Kehrseite zündet zweimal")
 
 # --- Abguss: eine Kopie ins Lager, der Stichel verdoppelt ----------------------------
 
@@ -465,7 +465,7 @@ func test_the_kiln_pays_its_gold_twice_and_the_def_follows_the_simulation():
 	var plain_die := _die([4, 2, 3, 4, 5, 6], DieMaterial.GOLD, DieMaterial.MAX_LEVEL)
 	var plain := MaterialEffects.apply_take_effects(_defs([plain_die]), _p([0]),
 		_m([DieMaterial.GOLD]), _p([0]), NO_CHARMS, -1, {}, _p([0]), false, _p([0]))
-	assert_eq(report.money, 2 * plain.money, "die Auszahlung läuft zweimal")
+	assert_eq(report.total_money(), 2 * plain.total_money(), "die Auszahlung läuft zweimal")
 
 func test_the_kiln_keeps_simulation_and_def_byte_identical():
 	# Ein dotierter Knochen unter dem Härteofen: die Def muss exakt dort landen,

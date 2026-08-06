@@ -35,12 +35,22 @@ func _argon(slot: int) -> Dictionary:
 # --- Augenwerte -------------------------------------------------------------------
 
 func test_small_fry_pays_base_and_mult_on_ones_and_twos():
-	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 6)
-	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 7)
-	assert_eq(CharmEffects.eye_value(5, _ids([Charm.SMALL_FRY])), 5)
+	# BEIDE Anteile entspringen dem Charm - das Auge bleibt unberührt.
+	assert_eq(CharmEffects.eye_value(1, _ids([Charm.SMALL_FRY])), 1)
+	assert_eq(CharmEffects.eye_value(2, _ids([Charm.SMALL_FRY])), 2)
 	var ids := _ids([Charm.SMALL_FRY])
-	assert_eq(CharmEffects.die_charm_mult_at(0, 0, _d([1, 1, 3, 4, 5, 6]), ids), CharmEffects.SMALL_FRY_MULT)
-	assert_eq(CharmEffects.die_charm_mult_at(0, 4, _d([1, 1, 3, 4, 5, 6]), ids), 0, "nur 1 und 2")
+	var dice := _d([1, 1, 3, 4, 5, 6])
+	assert_eq(CharmEffects.die_charm_base_at(0, 0, DiceScoring.TWO_KIND, dice, ids), CharmEffects.SMALL_FRY_BASE)
+	assert_eq(CharmEffects.die_charm_base_at(0, 4, DiceScoring.TWO_KIND, dice, ids), 0, "nur 1 und 2")
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, dice, ids), CharmEffects.SMALL_FRY_MULT)
+	assert_eq(CharmEffects.die_charm_mult_at(0, 4, dice, ids), 0, "nur 1 und 2")
+
+func test_small_fry_stacks_on_the_equalizer_floor():
+	# Der Equalizer hebt die AUGEN auf 10, Kleinvieh legt seine 5 daneben.
+	var ids := _ids([Charm.EQUALIZER, Charm.SMALL_FRY])
+	var dice := _d([1, 1])
+	assert_eq(CharmEffects.eye_value(1, ids), CharmEffects.EQUALIZER_FLOOR)
+	assert_eq(CharmEffects.die_charm_base_at(1, 0, DiceScoring.TWO_KIND, dice, ids), CharmEffects.SMALL_FRY_BASE)
 
 func test_equalizer_floors_base_points_at_ten():
 	assert_eq(CharmEffects.eye_value(1, _ids([Charm.EQUALIZER])), 10)
@@ -286,6 +296,54 @@ func test_beherit_scales_with_a_grown_face():
 	# Der Sinn der Zehntel-Regel: knochengewachsene Seiten schlagen weiter hart zu.
 	var ids := _ids([Charm.BEHERIT])
 	assert_almost_eq(CharmEffects.die_charm_crit_at(0, 0, _d([45, 45]), ids, _p([0, 1])), 5.5, 0.0001)
+
+# --- Die Verwandlung gilt für ALLES: Zielwahl, Gleichstand, Betrag -----------------
+# Ein Fuchsschwanz macht aus der 3 eine 4 - für Reihenfolge, Zielwahl und jeden
+# Betrag IST sie eine 4. Die Linse ist die Wahrheit, nur die Def bleibt roh.
+
+func test_beherit_targets_and_pays_on_transformed_values():
+	# Roh [3, 4]: mit Fuchsschwanz zeigen BEIDE eine 4 - Gleichstand, also der
+	# kleinste Slot, und der Krit ist ×1,4 (nie ×1,3).
+	var ids := _ids([Charm.FOX_TAIL, Charm.BEHERIT])
+	var shown := DiceScoring.shown_values(_d([3, 4]), ids)
+	assert_eq(shown, _d([4, 4]), "die 3 IST eine 4")
+	assert_eq(CharmEffects.target_die(shown, _p([0, 1]), false), 0, "Gleichstand -> kleinster Slot")
+	assert_almost_eq(CharmEffects.die_charm_crit_at(1, 0, shown, ids, _p([0, 1]), 4), 1.4, 0.0001)
+	# Ende-zu-Ende: Paar Vierer (Basis 10 + 4 + 4) × Mult 2 × Krit 1,4 = 51.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([3, 4]), ids), 51)
+
+func test_high_stacker_ties_break_on_transformed_values():
+	# Roh [5, 6]: mit dem Silberdollar zeigen beide eine 6 - der Hochstapler nimmt
+	# den kleinsten Slot, nicht die natürliche 6.
+	var ids := _ids([Charm.SILVER_DOLLAR, Charm.HIGH_STACKER])
+	var shown := DiceScoring.shown_values(_d([5, 6]), ids)
+	assert_eq(shown, _d([6, 6]))
+	assert_eq(CharmEffects.target_die(shown, _p([0, 1]), true), 0, "Gleichstand -> kleinster Slot")
+	assert_eq(CharmEffects.die_charm_target_mult_at(1, 0, shown, ids, _p([0, 1])), 6)
+	assert_eq(CharmEffects.die_charm_target_mult_at(1, 1, shown, ids, _p([0, 1])), 0)
+
+func test_front_runner_sums_transformed_values():
+	# Vorreiter zählt die Augensumme der Reihe - auf den GEZEIGTEN Werten.
+	var ids := _ids([Charm.FOX_TAIL, Charm.FRONT_RUNNER])
+	var shown := DiceScoring.shown_values(_d([3, 3]), ids)
+	assert_eq(CharmEffects.die_charm_base_at(1, 0, DiceScoring.TWO_KIND, shown, ids, {}, _p([0, 1])), 8,
+		"4 + 4, nicht 3 + 3")
+
+func test_transformed_hands_keep_breakdown_and_score_in_step():
+	# Die Schrittliste spiegelt die Formel 1:1 - auch durch die Linse.
+	var cases := [
+		[_d([3, 4]), [Charm.FOX_TAIL, Charm.BEHERIT]],
+		[_d([5, 6]), [Charm.SILVER_DOLLAR, Charm.HIGH_STACKER]],
+		[_d([3, 3]), [Charm.FOX_TAIL, Charm.FRONT_RUNNER]],
+		[_d([1, 1, 2, 3, 4, 6]), [Charm.LUCKY_CIGARETTES, Charm.BEHERIT, Charm.SMALL_FRY]],
+	]
+	for case in cases:
+		var dice: Array[int] = case[0]
+		var ids := _ids(case[1])
+		var key: String = DiceScoring.best_hand(dice, ids)["key"]
+		var breakdown := ScoreBreakdown.build(key, dice, ids)
+		assert_eq(int(breakdown["total"]), DiceScoring.score_category(key, dice, ids),
+			"Schrittliste == Wertung (%s)" % str(case[1]))
 
 # --- Schutzgeld: Aufschlag auf jeden gezeigten Wert, Gebühr beim Nehmen --------------
 
@@ -542,7 +600,7 @@ func test_mercury_vapor_lifts_every_retrigger_essence():
 func test_goldsmith_and_bone_glue_strengthen_takes():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE]), _p([0, 1]), _ids([Charm.GOLDSMITH, Charm.BONE_GLUE]))
-	assert_eq(report.money, 6, "Goldschmied legt $3 auf die $3")
+	assert_eq(report.total_money(), 6, "Goldschmied legt $3 auf die $3")
 	assert_eq(defs[1].faces[0], 10, "Knochenleim wächst +5: Stufe I +2 plus Aufschlag +3")
 
 func test_glassblower_lung_holds_the_glass_floor_at_six():
@@ -557,7 +615,7 @@ func test_goldsmith_lifts_every_gold_face():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), faces, _p([0, 1]), _ids([Charm.GOLDSMITH]))
-	assert_eq(report.money, 12, "$6 je beteiligter Gold-Seite")
+	assert_eq(report.total_money(), 12, "$6 je beteiligter Gold-Seite")
 
 func _die(faces: Array) -> DieDefinition:
 	var def := DieDefinition.new()
@@ -773,20 +831,28 @@ func test_jewelry_box_upgrades_unused_dice_at_payout():
 	var many: Array[DieDefinition] = []
 	for i in 300:
 		many.append(DieDefinition.standard())
-	var upgraded := run.apply_jewelry_box(many)
-	assert_gt(upgraded, 0, "bei 300 Würfeln veredelt das Schmuckkästchen praktisch sicher")
+	var upgrades := run.apply_jewelry_box(many)
+	assert_gt(upgrades.size(), 0, "bei 300 Würfeln veredelt das Schmuckkästchen praktisch sicher")
 	var material_faces := 0
 	for def in many:
 		material_faces += def.materials.size() - def.materials.count("")
-	assert_eq(material_faces, upgraded, "jede Veredelung sitzt auf genau einer Seite")
-	assert_eq(run.apply_jewelry_box([] as Array[DieDefinition]), 0, "ohne übrige Würfel passiert nichts")
+	assert_eq(material_faces, upgrades.size(), "jede Veredelung sitzt auf genau einer Seite")
+	# Die Zeremonie braucht je Aufwertung Würfel, Seite und Material.
+	for upgrade in upgrades:
+		var die: DieDefinition = upgrade["die"]
+		var face: int = upgrade["face"]
+		assert_true(many.has(die), "der Eintrag zeigt auf den echten Würfel")
+		assert_eq(die.materials[face], String(upgrade["material_id"]))
+		assert_eq(int(upgrade["copy"]), 0, "ein Exemplar - alles gehört Dock-Platz 0")
+	assert_eq(run.apply_jewelry_box([] as Array[DieDefinition]).size(), 0,
+		"ohne übrige Würfel passiert nichts")
 
 func test_jewelry_box_does_nothing_without_the_charm():
 	var run := GameRun.new_run()
 	var many: Array[DieDefinition] = []
 	for i in 50:
 		many.append(DieDefinition.standard())
-	assert_eq(run.apply_jewelry_box(many), 0)
+	assert_eq(run.apply_jewelry_box(many).size(), 0)
 
 func test_rag_collector_rolls_lucky_value_on_purchase():
 	var run := GameRun.new_run()
@@ -831,10 +897,10 @@ func test_totem_chain_resolves_each_neighbor_independently():
 # --- Zusammenspiel mit Augenwert-Charms ---------------------------------------------
 
 func test_echo_chamber_respects_base_point_charms():
-	# Kleinvieh hebt die Basispunkte einer 2 auf 7 - auch beim Echo-Nachzählen des
-	# zuerst GEWERTETEN Würfels (hier das Paar Zweier).
-	var bonus := MaterialEffects.base_bonus(_d([2, 2, 1, 3, 4, 6]), NO_MATS, _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.SMALL_FRY]), 0)
-	assert_eq(bonus, 7, "Echo der gewerteten 2 zählt mit Kleinvieh als 7")
+	# Der Equalizer hebt die Basispunkte einer 2 auf 10 - auch beim Echo-Nachzählen
+	# des zuerst GEWERTETEN Würfels (hier das Paar Zweier).
+	var bonus := MaterialEffects.base_bonus(_d([2, 2, 1, 3, 4, 6]), NO_MATS, _p([0, 1]), _ids([Charm.ECHO_CHAMBER, Charm.EQUALIZER]), 0)
+	assert_eq(bonus, CharmEffects.EQUALIZER_FLOOR, "Echo der gewerteten 2 zählt mit Equalizer als 10")
 
 func test_full_counter_sees_transformed_values():
 	# Glückszigaretten verwandeln VOR der Wertung: die unbeteiligte 1 IST eine 6,

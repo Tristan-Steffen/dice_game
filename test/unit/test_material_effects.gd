@@ -163,21 +163,21 @@ func test_materials_shorter_than_values_are_safe():
 func test_gold_pays_three_per_participating_face():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.GOLD]), _p([0, 1]))
-	assert_eq(report.money, 6, "$3 je beteiligter Gold-Seite")
+	assert_eq(report.total_money(), 6, "$3 je beteiligter Gold-Seite")
 	assert_eq(defs[0].faces[0], 5, "Gold verändert die Seite nicht")
 
 func test_gold_pays_twice_on_a_retriggered_six():
 	# Hasenpfote löst die 6 erneut aus - inklusive Nehmen-Effekte.
 	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _ids([Charm.RABBITS_FOOT]))
-	assert_eq(report.money, 6, "Gold-Seite feuert je Auslösung")
+	assert_eq(report.total_money(), 6, "Gold-Seite feuert je Auslösung")
 
 func test_take_retrigger_checks_the_transformed_value():
 	# Glückszigaretten: die 1 IST eine 6 - Hasenpfote löst auch sie erneut aus.
 	var defs: Array[DieDefinition] = [_die([1, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
 		_ids([Charm.RABBITS_FOOT, Charm.LUCKY_CIGARETTES]))
-	assert_eq(report.money, 6, "zwei Auslösungen à $3")
+	assert_eq(report.total_money(), 6, "zwei Auslösungen à $3")
 
 func test_gold_vein_pays_extra_per_other_carrier():
 	# Zwei Gold-Seiten + eine Rubin-Seite: jeder Gold-Träger sieht einen anderen
@@ -185,12 +185,12 @@ func test_gold_vein_pays_extra_per_other_carrier():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.RUBY])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), faces, _p([0, 1, 2]), _ids([Charm.GOLD_VEIN]))
-	assert_eq(report.money, 12, "2 × ($3 Gold + $2 anderes Gold + $1 Rubin)")
+	assert_eq(report.total_money(), 12, "2 × ($3 Gold + $2 anderes Gold + $1 Rubin)")
 
 func test_gold_vein_without_other_carriers_pays_the_plain_rate():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _ids([Charm.GOLD_VEIN]))
-	assert_eq(report.money, 3, "allein bleibt Gold bei $3")
+	assert_eq(report.total_money(), 3, "allein bleibt Gold bei $3")
 
 func test_bone_grows_the_face_permanently():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -213,7 +213,7 @@ func test_glass_never_shrinks_below_one():
 func test_take_effects_ignore_non_participating_faces():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE]), _p([0]))
-	assert_eq(report.money, 3, "nur die beteiligte Gold-Seite zahlt")
+	assert_eq(report.total_money(), 3, "nur die beteiligte Gold-Seite zahlt")
 	assert_eq(defs[1].faces[0], 5, "unbeteiligter Knochen wächst nicht")
 
 func test_bone_grows_without_upper_cap():
@@ -232,7 +232,7 @@ func test_take_effects_skip_unrolled_face():
 func test_take_effects_combined_report_across_slots():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m([DieMaterial.GOLD, DieMaterial.BONE, DieMaterial.GLASS]), _p([0, 1, 2]))
-	assert_eq(report.money, 3, "eine Gold-Seite")
+	assert_eq(report.total_money(), 3, "eine Gold-Seite")
 	assert_eq(report.grown, [1], "Slot 1 ist gewachsen")
 	assert_eq(report.shrunk, [2], "Slot 2 ist geschrumpft")
 	assert_eq(defs[1].faces[0], 7)
@@ -421,24 +421,24 @@ func test_breakdown_mirrors_the_material_crit():
 func test_gold_pays_three_when_undoped():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]))
-	assert_eq(report.money, 3, "normal zahlt fest, ohne Zähler")
+	assert_eq(report.total_money(), 3, "normal zahlt fest, ohne Zähler")
 
 func test_doped_gold_pays_seven_plus_one_per_gold_face():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]))
-	assert_eq(report.money, 8, "$7 + $1 für die eigene Auslösung")
+	assert_eq(report.total_money(), 8, "$7 + $1 für die eigene Auslösung")
 
 func test_doped_gold_counts_every_gold_face_of_the_take():
 	# Drei Gold-Seiten, davon eine dotiert: der Zähler steht bei 3.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2}), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var gold := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), gold, _p([0, 1, 2]))
-	assert_eq(report.money, 16, "($7+$3) + $3 + $3")
+	assert_eq(report.total_money(), 16, "($7+$3) + $3 + $3")
 
 func test_gold_keeps_the_goldsmith_surplus_when_doped():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2})]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _ids([Charm.GOLDSMITH]))
-	assert_eq(report.money, 11, "$7 + $1 Zähler + $3 Aufschlag")
+	assert_eq(report.total_money(), 11, "$7 + $1 Zähler + $3 Aufschlag")
 
 # Knochen: +2, dotiert mind. +10 bzw. 20 % - je Aktivierung neu gerechnet.
 
@@ -758,3 +758,106 @@ func test_set_face_material_ignores_faces_out_of_range():
 	def.set_face_material(-1, DieMaterial.GOLD)
 	def.set_face_material(9, DieMaterial.GOLD)
 	assert_eq(def.materials, _m(["", "", "", "", "", ""]), "nichts geschrieben")
+
+# --- Zündungs-Geld: was an einer Zündung hängt, zahlt in ihrem Moment ------------
+# plan_activation_money plant es in derselben Verschachtelung, die der Zug läuft;
+# der Zug meldet es nur noch als Summe (activation_money) und bucht es NICHT.
+# Diese Batterie hält Plan, Bericht und Schrittliste auf einer Zahl.
+
+## Summiert einen Plan von Hand - so bleibt der Test unabhängig von der Summe,
+## die MaterialEffects selbst zieht.
+func _plan_sum(plan: Dictionary) -> int:
+	var total := 0
+	for slot in plan:
+		var entry: Dictionary = plan[slot]
+		for group: Dictionary in entry["groups"]:
+			for amount: int in group["firings"]:
+				total += amount
+			for amount: int in group["links"]:
+				total += amount
+		for amount: int in entry["det_links"]:
+			total += amount
+	return total
+
+## Fälle: [Name, Seiten-Material, Zustand, Charms, Seelen, Leiterbahn-Zündungen].
+func _activation_money_cases() -> Array:
+	return [
+		["Neon einfach", "", 1, [], [Essence.NEON], {}],
+		["Neon × Argon", "", 1, [], [Essence.NEON, Essence.ARGON], {}],
+		["Neon × Quecksilberdampf", "", 1, [], [Essence.NEON, Essence.MERCURY_VAPOR], {}],
+		["Gold normal", DieMaterial.GOLD, 1, [], [], {}],
+		["Gold dotiert", DieMaterial.GOLD, 2, [], [], {}],
+		["Gold im Härteofen", DieMaterial.GOLD, 2, [Charm.KILN], [], {}],
+		["Gold + Seele", DieMaterial.GOLD, 1, [], [Essence.NEON], {}],
+		["Gold-Glied", "", 1, [], [],
+			{0: [[{"face": 2, "value": 3, "material": DieMaterial.GOLD, "level": 1}]]}],
+	]
+
+func test_activation_money_is_planned_exactly_as_the_take_reports_it():
+	for case in _activation_money_cases():
+		var label: String = case[0]
+		var mats := _m([case[1], "", DieMaterial.GOLD, "", "", ""])
+		var def := _die([5, 2, 3, 4, 5, 6], mats, {0: int(case[2]), 2: 1})
+		var ids := _ids(case[3])
+		var souls := _ids(case[4])
+		var essences := {0: souls} if not souls.is_empty() else {}
+		var fires: Dictionary = case[5]
+		var plan := MaterialEffects.plan_activation_money([def] as Array[DieDefinition], _p([0]),
+			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false, fires)
+		var report := MaterialEffects.apply_take_effects([def] as Array[DieDefinition], _p([0]),
+			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false, _p([0]), fires)
+		assert_eq(report.activation_money, _plan_sum(plan), "%s: Plan == Bericht" % label)
+		assert_eq(report.money, 0, "%s: nichts davon bleibt in money" % label)
+		assert_gt(report.total_money(), 0, "%s: es floss überhaupt Geld" % label)
+
+func test_the_breakdown_carries_the_same_activation_money():
+	# Argon-Neon-Gold: zwei Würfel-Trigger, je eine Zündung - jede zahlt selbst.
+	var mats := _m([DieMaterial.GOLD, "", "", "", "", ""])
+	var def := _die([5, 5, 3, 4, 5, 6], mats)
+	var defs: Array[DieDefinition] = [def, _die([5, 2, 3, 4, 5, 6])]
+	var essences := {0: Essence.ARGON}
+	var ctx := {DiceScoring.CTX_ESSENCES: essences}
+	var plan := MaterialEffects.plan_activation_money(defs, _p([0, 0]),
+		_m([DieMaterial.GOLD, ""]), _p([0, 1]), NO_CHARMS, -1, essences, _p([0, 1]))
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS,
+		false, _m([DieMaterial.GOLD, ""]), {}, ctx)
+	ScoreBreakdown.attach_activation_money(breakdown, plan)
+	var shown := 0
+	for step: Dictionary in breakdown["die_steps"]:
+		for group: Dictionary in step["die_triggers"]:
+			for firing: Dictionary in group["firings"]:
+				shown += int(firing.get("money", 0))
+			for link: Dictionary in group["links"]:
+				shown += int(link.get("money", 0))
+		for link: Dictionary in step.get("det_links", []):
+			shown += int(link.get("money", 0))
+	assert_eq(shown, _plan_sum(plan), "die Zeremonie zeigt exakt den Plan")
+	assert_eq(shown, 2 * MaterialEffects.GOLD_PAYOUT, "zwei Argon-Zündungen à $3")
+
+func test_per_turn_money_stays_out_of_the_activation_plan():
+	# Streulicht (ungewertete Seite) und Schwarzlicht zahlen je ZUG - sie gehören
+	# weiter in money, damit der Schluss-Komet sie trägt.
+	var lit := _die([5, 2, 3, 4, 5, 6])
+	lit.essence_id = Essence.BLACK_LIGHT
+	var idle := _die([5, 2, 3, 4, 5, 6])
+	idle.runes[0] = Rune.STRAY_LIGHT
+	var defs: Array[DieDefinition] = [lit, idle]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0]),
+		NO_CHARMS, -1, {0: Essence.BLACK_LIGHT}, _p([0]), false, _p([0, 1]))
+	assert_eq(report.activation_money, 0, "nichts davon hängt an einer Zündung")
+	assert_eq(report.money, EssenceEffects.BLACK_LIGHT_PER_DIE + RuneEffects.STRAY_LIGHT_MONEY)
+
+func test_packet_bookings_sum_like_one_booking_under_a_money_factor():
+	# Zündungs-Geld bucht Paket für Paket (Straßenmusiker-Grammatik). Die
+	# Rundenfaktoren sind ganzzahlig, also kann die Stückelung nichts verlieren.
+	var run := GameRun.new_run()
+	run.sign_clauses(_ids([DealClause.HAPPY_HOUR]))
+	var factor := run.money_gain_factor()
+	assert_almost_eq(factor, 2.0, 0.0001)
+	var before := run.money
+	for value in ChipStackView.split_gain(7):
+		run.add_money(value)
+	var packets := run.money - before
+	run.money = before
+	run.add_money(7)
+	assert_eq(packets, run.money - before, "Pakete und Summe landen auf derselben Zahl")

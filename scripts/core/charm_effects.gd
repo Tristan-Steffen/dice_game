@@ -36,8 +36,9 @@ const QUADRATURE_MIN_DICE := 4
 ## Equalizer: Basispunkt-Boden je beteiligtem Würfel.
 const EQUALIZER_FLOOR := 10
 
-## Kleinvieh: was eine beteiligte 1 oder 2 einbringt - Basis in eye_value, Mult
-## würfelgebunden in die_charm_mult_at.
+## Kleinvieh: was eine beteiligte 1 oder 2 einbringt. BEIDE Anteile sind
+## würfelgebunden (die_charm_base_at/die_charm_mult_at) - sie entspringen dem
+## Charm, nicht dem Auge, und fliegen darum auch vom Dock-Pad.
 const SMALL_FRY_BASE := 5
 const SMALL_FRY_MULT := 2
 
@@ -179,14 +180,10 @@ static func retrigger_count(value: int, charm_ids: Array[String]) -> int:
 
 ## Basispunkt-Beitrag eines Werts - wirkt NIE auf die Kategorie-Erkennung.
 static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
-	var value := face_value
-	for charm_id in charm_ids:
-		if charm_id == Charm.SMALL_FRY and is_small_fry_value(face_value):
-			value += SMALL_FRY_BASE
-	# Equalizer zuletzt (unabhängig von der Besitz-Reihenfolge): min. 10.
+	# Equalizer: Boden von 10 auf der reinen Augenzahl.
 	if charm_ids.has(Charm.EQUALIZER):
-		value = maxi(value, EQUALIZER_FLOOR)
-	return value
+		return maxi(face_value, EQUALIZER_FLOOR)
+	return face_value
 
 # --- Würfelphase: würfelgebundene Charms (feuern MIT ihrem Würfel, je
 # Auslösung EINMAL - die Aktivierungs-Schleife liegt beim Aufrufer) -----------
@@ -216,6 +213,10 @@ static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int]
 			if order.size() >= QUADRATURE_MIN_DICE and slot == target_die(values, order, false):
 				var value := value_override if value_override > 0 else values[slot]
 				return value * value
+		Charm.SMALL_FRY:
+			var small := value_override if value_override > 0 else (values[slot] if slot < values.size() else 0)
+			if is_small_fry_value(small):
+				return SMALL_FRY_BASE
 	return 0
 
 ## Schutzfolie-Prüfung: der Würfel zeigt eine nackte Seite (kein Material, keine

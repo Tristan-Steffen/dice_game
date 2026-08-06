@@ -68,6 +68,11 @@ const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
 ## Größen-Pop, langsameres Abklingen - die Blitze überlappen wie eine Welle.
 const DIE_FLASH_PEAK_COLOR := Color(1.9, 1.55, 0.6)
+## Goldener Handschlag: Sweep -> Blitz -> Zurücksetzen, zusammen ~0,8 s.
+const HANDSHAKE_SWEEP_TIME := 0.32
+const HANDSHAKE_FLASH_TIME := 0.16
+const HANDSHAKE_SETTLE_TIME := 0.32
+const HANDSHAKE_SWELL := 1.22
 const DIE_FLASH_RAMP_UP := 0.07
 const DIE_FLASH_RAMP_DOWN := 0.38
 const DIE_FLASH_SCALE := 1.25
@@ -1518,6 +1523,10 @@ var _meteor_index := 0
 ## Temporäre Reveal-Auslage über der Hub-Mitte (Hub-Belohnung, Stresstest-Preis).
 ## Sie liegt im Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
 var _hub_reward_overlay: Control = null
+
+## Was das Schmuckkästchen an diesem Rundenende veredelt hat - gebucht beim
+## Rundenabschluss, gezeigt an seinem Dock-Platz in der Charm-Zeremonie.
+var _jewelry_box_upgrades: Array[Dictionary] = []
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
@@ -4096,6 +4105,29 @@ func _rolled_materials() -> Array[String]:
 			materials.append("")
 	return materials
 
+## Die Defs bzw. Oben-Seiten eines Auswahl-Teilwurfs - dieselbe Umschlüsselung
+## wie sel_values/sel_materials, damit der Zündungs-Plan in Auswahl-Indizes rechnet.
+func _selected_defs(slots: Array[int]) -> Array[DieDefinition]:
+	var defs: Array[DieDefinition] = []
+	for s in slots:
+		defs.append(dice.slot_defs[s])
+	return defs
+
+func _selected_faces(slots: Array[int]) -> Array[int]:
+	var faces: Array[int] = []
+	for s in slots:
+		faces.append(dice.face_indices[s] if s < dice.face_indices.size() else -1)
+	return faces
+
+## Die GEZEIGTEN Werte der liegenden Würfel (Verwandlungskette + Essenz-Linse).
+## Alles, was ordnet oder zielt, rechnet auf ihnen - eine per Fuchsschwanz zur 4
+## verwandelte 3 IST für Reihe und Zielwahl eine 4.
+func _shown_pit_values() -> Array[int]:
+	if run == null:
+		return dice.values
+	return DiceScoring.shown_values(dice.values, run.charm_ids(),
+		{DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets()})
+
 ## Runen je Wurf-Slot (Slot -> Liste der Runen auf der OBEN liegenden Seite).
 ## Einmal HIER aufgelöst, wie die Leiterbahn-Ketten - das Nachglühen ändert
 ## Auslösungen, also muss auch der Farkle-Vergleich dieselben Runen sehen.
@@ -4680,6 +4712,8 @@ func _line_up_settled_dice() -> void:
 		return
 	# Die Reihe wird aus der ANSAGE gerendert; nur was sie nicht nennt, fällt
 	# hinten kanonisch ein (frisch gefallene Würfel vor dem ersten Aufräumen).
+	# Gerechnet wird auf den GEZEIGTEN Werten - die Reihe ist die Zählreihenfolge.
+	var shown := _shown_pit_values()
 	indices.sort_custom(func(a: int, b: int) -> bool:
 		var ra := player_order.find(a)
 		var rb := player_order.find(b)
@@ -4687,8 +4721,8 @@ func _line_up_settled_dice() -> void:
 			return rb < 0 or (ra >= 0 and ra < rb)
 		if dice.selected[a] != dice.selected[b]:
 			return dice.selected[a]  # Kombinations-Würfel nach links
-		if dice.values[a] != dice.values[b]:
-			return dice.values[a] > dice.values[b]
+		if shown[a] != shown[b]:
+			return shown[a] > shown[b]
 		return a < b)
 	player_order = indices.duplicate()
 	# Alle auf die niedrigste Ruhehöhe der Gruppe - ein auf einem Nachbarn
@@ -4971,13 +5005,11 @@ func _on_farkle(forgivable: bool = true) -> void:
 			run.add_money(income)
 		_start_new_hand()
 
-## Klausel-Wirkungen einer genommenen Hand: Gebühren, Wartungs-Gravur, Hitzestau
-## und die mitwachsende Boss-Drossel. Gebühren nehmen nie mehr, als da ist - ein
-## negativer Kontostand hätte im ganzen Laden keine Bedeutung.
-func _apply_hand_clauses(combo_key: String, scored_dice: int) -> void:
-	var fee := run.hand_fee() + run.scored_die_fee() * scored_dice
-	if fee > 0:
-		run.add_money(-mini(fee, run.money))
+## Klausel-Wirkungen einer genommenen Hand: Wartungs-Gravur, Hitzestau und die
+## mitwachsende Boss-Drossel. Die GEBÜHREN stehen nicht mehr hier - sie zahlen
+## an ihrem Auslöser (Servicegebühr beim Banken der Hand, Abzocke je gezähltem
+## Würfel in der Zähl-Animation).
+func _apply_hand_clauses(combo_key: String) -> void:
 	if run.grants_engraving_per_hand():
 		run.grant_engraving(run.roll_stamp_engraving())
 	if run.apply_heat_buildup(combo_key):
@@ -4994,7 +5026,7 @@ func _keep_highest_die_and_continue(ids: Array[String]) -> void:
 	for i in dice.count():
 		lying.append(i)
 	# Gleichstand: der erste passende Würfel gewinnt (CharmEffects.target_die).
-	var best := CharmEffects.target_die(dice.values, lying, true)
+	var best := CharmEffects.target_die(_shown_pit_values(), lying, true)
 	if best >= 0:
 		dice.set_selected(best, true)
 	_line_up_settled_dice()
@@ -5038,12 +5070,34 @@ func _on_take_button_pressed() -> void:
 	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
 	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
+	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
+	# als die Punkte, die er gerade gezeigt hat.
+	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
+	var sel_participating: Array[int] = sel_shape["participating"]
+	var sel_scored: Array[int] = sel_shape["scored"]
+	var sel_order: Array[int] = sel_shape["order"]
+	# Geld, das EINZELNE Zündungen erzeugen (Goldseiten, Seelen-Geld), hängt an
+	# seiner Zündung: der Plan reist in der Schrittliste mit, die Zeremonie zahlt
+	# ihn dort. Noch in AUSWAHL-Indizes, also vor dem Rückrechnen anhängen.
+	ScoreBreakdown.attach_activation_money(breakdown, MaterialEffects.plan_activation_money(
+		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
+		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
+		GameRun.is_stress_round(run.round_number), sel_fires, hands_taken_this_round,
+		sel_participating))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
 	_log_begin_take(breakdown, String(hand["key"]), ids)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
+	# Verluste zahlen an ihrem Auslöser: Servicegebühr und Steuerwetten hängen an
+	# der HAND, fallen also in dem Moment an, in dem sie gebankt wird - vor dem
+	# Zählen. Nie über den Kassenstand hinaus; tax_side_bets klemmt selbst und
+	# lässt eine ungedeckte Wette verfallen.
+	var hand_fee := run.hand_fee()
+	if hand_fee > 0:
+		run.add_money(-mini(hand_fee, run.money))
+	run.tax_side_bets(slots.size())
 	await _play_take_animation(breakdown, new_total)
 	if phase != Phase.SCORING:
 		return  # Reset während der Animation - nichts mehr anwenden
@@ -5056,12 +5110,7 @@ func _on_take_button_pressed() -> void:
 
 	# Nehmen-Effekte der Materialien - die gewerteten AUSGEWÄHLTEN Würfel (mit
 	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
-	# Knochen/Glas verändern die Pool-Würfel dauerhaft.
-	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
-	# als die Punkte, die er gerade gezeigt hat.
-	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
-	var sel_participating: Array[int] = sel_shape["participating"]
-	var sel_scored: Array[int] = sel_shape["scored"]
+	# Knochen/Glas verändern die Pool-Würfel dauerhaft. sel_shape steht schon.
 	var participating: Array[int] = []
 	for p in sel_scored:
 		participating.append(slots[p])
@@ -5077,7 +5126,7 @@ func _on_take_button_pressed() -> void:
 	# echten Slot zurück.
 	var echo_sel: int = sel_shape["echo_slot"]
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
-	var take_order := DiceScoring.trigger_order(participating, dice.values, player_order)
+	var take_order := DiceScoring.trigger_order(participating, _shown_pit_values(), player_order)
 	# Die gezündete Leiterbahn zurück auf echte Slots - der ctx sprach in Auswahl-
 	# Indizes, die Nehmen-Effekte arbeiten am Pool.
 	var slot_fires := {}
@@ -5121,6 +5170,8 @@ func _on_take_button_pressed() -> void:
 		_flare_runes(slot)
 	for slot in report.blocked:
 		_flare_runes(slot, true)
+	# Nur der REST des Zug-Geldes: was an einer Zündung hing (Goldseiten,
+	# Seelen-Geld), ist längst gebucht - Paket für Paket in seinem Moment.
 	var take_money := report.money
 	if not report.grown.is_empty() or not report.shrunk.is_empty() \
 			or not report.decayed.is_empty() or report.discard_grown:
@@ -5141,8 +5192,10 @@ func _on_take_button_pressed() -> void:
 	var handshake_slot: int = take_order[0] if not take_order.is_empty() else -1
 	if handshake_slot >= 0 and handshake_slot < active_kinds.size():
 		if run.apply_golden_handshake(active_kinds[handshake_slot], int(breakdown["total"])):
-			_flash_scoring_die(handshake_slot)
 			hand_note = "Goldener Handschlag: der Würfel ist pures Gold."
+			await _play_golden_handshake(handshake_slot)
+			if phase != Phase.SCORING:
+				return  # Reset während der Zeremonie
 
 	# Durchschlagpapier: die erste Hand der Runde kopiert ihre Materialien.
 	var copied := run.apply_carbon_copy(active_kinds, dice.face_indices, participating,
@@ -5184,15 +5237,9 @@ func _on_take_button_pressed() -> void:
 	taken_dice_this_round += dice.count()
 	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
-	# Schutzgeld kassiert wie eine Klausel-Gebühr: NACH dem Ertrag der Hand, je
-	# gewertetem Würfel, und nie über den Kassenstand hinaus.
-	var protection := CharmEffects.take_fee(ids, participating.size())
-	if protection > 0:
-		run.add_money(-mini(protection, run.money))
-		_flash_charm_and_pad(ids.find(Charm.PROTECTION_MONEY))
-	_apply_hand_clauses(String(hand["key"]), participating.size())
-	# Steuerwetten kassieren wie die Klausel-Gebühr NACH dem Ertrag der Hand.
-	run.tax_side_bets(slots.size())
+	# Schutzgeld und Abzocke sind längst kassiert - je gezähltem Würfel im Moment
+	# seines Schritts (siehe _pay_die_fees).
+	_apply_hand_clauses(String(hand["key"]))
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
 
@@ -5303,6 +5350,14 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for j in cids.size():
 		if cids[j] == Charm.STREET_MUSICIAN:
 			musician_indices.append(j)
+	# Dieselbe Regel andersherum: Abzocke und Schutzgeld kosten JE gezähltem
+	# Würfel - beide fallen an SEINEM Schritt an, nicht gebündelt am Ende.
+	var protection_indices: Array[int] = []
+	for j in cids.size():
+		if cids[j] == Charm.PROTECTION_MONEY:
+			protection_indices.append(j)
+	var die_fee := run.scored_die_fee()
+	var protection_fee := CharmEffects.take_fee(cids, 1)
 
 	# 3) Würfel-Schritte in Reihen-Ordnung: je Aktivierung Augen + Material,
 	# dann die würfelgebundenen Charms DIESES Würfels (additiv, dann Krit) -
@@ -5310,6 +5365,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
 		_pay_street_musician(musician_indices)
+		_pay_die_fees(die_fee, protection_fee, protection_indices)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		# Zuwachs-Zahlen steigen aus dem Podest unter dem Würfel auf.
 		var gain_px := die_px
@@ -5403,6 +5459,18 @@ func _pay_street_musician(musician_indices: Array[int]) -> void:
 		_flash_charm_and_pad(j)
 		_fire_charm_money_packet(_charm_trail_source_px([j]), 1, Phase.SCORING)
 
+## Die Verluste EINES gezählten Würfels: die Abzocke-Klausel und das Schutzgeld.
+## Gebucht im Moment seines Zähl-Schritts (die Ausgabe-Animation läuft von
+## selbst), nie über den Kassenstand hinaus; das Schutzgeld blitzt an seinen Pads.
+func _pay_die_fees(die_fee: int, protection_fee: int, protection_indices: Array[int]) -> void:
+	if die_fee > 0:
+		run.add_money(-mini(die_fee, run.money))
+	if protection_fee <= 0:
+		return
+	run.add_money(-mini(protection_fee, run.money))
+	for j in protection_indices:
+		_flash_charm_and_pad(j)
+
 ## Würfel-Schritt: jede Auslösung als eigene Kette Würfel-Puls (Augen+Material)
 ## -> Charm-Anteil (würfelgebundene Charms, Komet vom Dock-Pad) -> Krit-Schlag
 ## (Beherit), mit eigener Ankunftspause je Glied - so ist das Mehrfach-Auslösen
@@ -5437,6 +5505,9 @@ func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2,
 func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array) -> bool:
 	var die_charm_indices: Array = pulse.get("die_charm_indices", [])
 	_flash_scoring_die(slot)
+	# Geld, das DIESE Zündung erzeugt, fliegt sofort los - eine Neon-Seele mit
+	# zwei Auslösungen zahlt ihr erstes Paket vor ihrer zweiten Zündung.
+	_fire_die_money(die_px, int(pulse.get("money", 0)))
 	if glow_by_slot.has(slot):
 		_pulse_glow(glow_by_slot[slot])
 	for charm_index: int in eye_charm_indices:
@@ -5711,6 +5782,54 @@ func _charm_trail_source_px(charm_indices: Array) -> Vector2:
 		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
 	return table_screen.charm_dock.pad_center(slot)
 
+## Goldener Handschlag: der Würfel wird vor aller Augen zu Gold - Ton-Sweep mit
+## Pop, Blitz auf dem Höhepunkt, dann zurück auf den Ruheton. Die Seiten TRAGEN
+## das Gold bereits (apply_golden_handshake hat gebucht und pool_changed
+## gemeldet), die Zeremonie erzählt nur die Verwandlung. Ein Reset bricht ab und
+## setzt den Ton zurück.
+func _play_golden_handshake(slot: int) -> void:
+	if slot < 0 or slot >= dice.count() or not dice.roots[slot].visible:
+		return
+	var display: DieFaceDisplay = dice.face_displays[slot]
+	if display == null:
+		return
+	var rest: Color = DiceController.KIND_TINTS.get(dice.slot_defs[slot].style_id, Color.WHITE)
+	var base_scale := Vector3.ONE * DiceTrayView.DIE_SCALE
+	var sweep := create_tween()
+	sweep.set_parallel(true)
+	sweep.tween_method(display.set_tint, rest, CasinoStyle.GOLD_INTENSE, HANDSHAKE_SWEEP_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	sweep.tween_property(display, "scale", base_scale * HANDSHAKE_SWELL, HANDSHAKE_SWEEP_TIME) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await sweep.finished
+	if not _handshake_alive(display, rest):
+		return
+	var flash := create_tween()
+	flash.tween_method(display.set_tint, CasinoStyle.GOLD_INTENSE, DIE_FLASH_PEAK_COLOR, HANDSHAKE_FLASH_TIME * 0.5) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	flash.tween_method(display.set_tint, DIE_FLASH_PEAK_COLOR, CasinoStyle.GOLD_INTENSE, HANDSHAKE_FLASH_TIME * 0.5) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await flash.finished
+	if not _handshake_alive(display, rest):
+		return
+	var settle := create_tween()
+	settle.set_parallel(true)
+	settle.tween_method(display.set_tint, CasinoStyle.GOLD_INTENSE, rest, HANDSHAKE_SETTLE_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	settle.tween_property(display, "scale", base_scale, HANDSHAKE_SETTLE_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await settle.finished
+
+## Trägt die Phase die Handschlag-Zeremonie noch? Sonst fällt der Ton sofort
+## zurück, damit kein Würfel golden hängen bleibt.
+func _handshake_alive(display: DieFaceDisplay, rest: Color) -> bool:
+	if not is_instance_valid(display):
+		return false
+	if phase == Phase.SCORING:
+		return true
+	display.set_tint(rest)
+	return false
+
 ## Lässt den Wurf-Würfel in slot golden aufblitzen (Zähl-Animation).
 func _flash_scoring_die(slot: int) -> void:
 	if slot < 0 or slot >= dice.count() or not dice.roots[slot].visible:
@@ -5909,6 +6028,7 @@ func _reset_game() -> void:
 	# Reveal-Auslage des alten Laufs abräumen; ihr Ablauf merkt den Lauf-Wechsel
 	# erst an seiner nächsten await-Grenze.
 	_clear_hub_reward_overlay()
+	_jewelry_box_upgrades.clear()  # Würfel des alten Laufs sind fort
 	last_thrown_slots.clear()
 	if table_screen != null:
 		table_screen.clear_fumble_marks()
@@ -5981,21 +6101,22 @@ func _connect_run() -> void:
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
 
 ## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
-## steht IMMER auf dem Tisch und ist immer anklickbar - vergittert, bis die
-## Lizenzstufe reicht. Ein frischer Lauf schließt es damit sofort wieder zu,
-## OHNE Zeremonie; die spielt nur den Übergang.
+## gibt es erst mit der Lizenz - vorher steht dort nichts, und die Zoom-Zone ist
+## abgeschaltet (Ebene 0), damit weder Klick noch Rad ein Ziel finden. Ein
+## frischer Lauf nimmt es damit sofort wieder vom Tisch, OHNE Zeremonie; die
+## spielt nur den Übergang.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
 	if table_screen != null:
-		table_screen.set_secret_shop_installed(true)
+		table_screen.set_secret_shop_installed(run.secret_shop_unlocked)
 		if table_screen.secret_shop_window != null:
 			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked)
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
-		secret_shop_click_zone.collision_layer = 8
+		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
 
 func _sync_capacitor() -> void:
 	if capacitor_bank == null or run == null:
@@ -6246,7 +6367,9 @@ func _on_round_complete() -> void:
 		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
 		var per_die_row := _leftover_die_payouts(per_die, ids)
 		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
-		run.apply_jewelry_box(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
+		_jewelry_box_upgrades = run.apply_jewelry_box(
+			round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
 		# bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
@@ -6491,6 +6614,7 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids,
 			run.old_penny_payouts, run.owned_engravings.size()):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
+	var jewelry_copy := 0
 	for j in ids.size():
 		match ids[j]:
 			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND, \
@@ -6501,8 +6625,77 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 				await _play_stamp_machine_meteors(j)
 			Charm.DYNAMO:
 				await _play_dynamo_charge(j, CharmEffects.round_end_charge_at(j, ids))
+			Charm.JEWELRY_BOX:
+				await _play_jewelry_box_meteors(j, jewelry_copy)
+				jewelry_copy += 1
 		if phase != Phase.PAYOUT:
 			return
+
+## Schmuckkästchen: je veredeltem Würfel ein Meteor vom Dock-Pad die Werkstatt-
+## Ader hinunter, dicht gestaffelt wie die Frankiermaschine. Gebucht ist längst
+## (Rundenabschluss) - die Salve zeigt nur, wer welchen Würfel bekommen hat.
+func _play_jewelry_box_meteors(index: int, copy: int) -> void:
+	var mine: Array[Dictionary] = []
+	for upgrade in _jewelry_box_upgrades:
+		if int(upgrade["copy"]) == copy:
+			mine.append(upgrade)
+	if mine.is_empty():
+		return
+	_flash_charm_and_pad(index)
+	var from_px := _charm_trail_source_px([index])
+	var travel := 0.0
+	for i in mine.size():
+		var upgrade := mine[i]
+		if i == 0:
+			travel = _fire_jewelry_box_meteor(upgrade, from_px)
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if phase == Phase.PAYOUT:
+					_fire_jewelry_box_meteor(upgrade, from_px))
+	var last_arrival := float(maxi(0, mine.size() - 1)) * STAMP_METEOR_GAP + maxf(travel, 0.05)
+	await get_tree().create_timer(last_arrival + ENGRAVE_TRAIL_TIME).timeout
+	if phase != Phase.PAYOUT:
+		return
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
+
+## EIN Meteor der Salve: Dock-Pad -> Werkstatt-Fenster, bei Ankunft die kurze
+## Spur zum betroffenen Tray-Würfel. Liefert die Laufzeit der Ader.
+func _fire_jewelry_box_meteor(upgrade: Dictionary, from_px: Vector2) -> float:
+	if table_screen == null or table_screen.workshop_window == null:
+		return 0.0
+	var die: DieDefinition = upgrade["die"]
+	var material := DieMaterial.by_id(String(upgrade["material_id"]))
+	var tint := material.tint if material != null else CasinoStyle.GOLD
+	var travel := table_screen.charm_workshop_comet(from_px, tint)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if phase == Phase.PAYOUT:
+			_deliver_jewelry_box_die(die, tint))
+	return travel
+
+## Letztes Stück: vom Werkstatt-Fenster eine kurze Spur an den Tray-Würfel, der
+## bei ihrer Ankunft die Kraft schluckt (Blitz-Pop). Seine Seiten tragen das
+## Material längst - pool_changed lief beim Buchen.
+func _deliver_jewelry_box_die(die: DieDefinition, tint: Color) -> void:
+	var tray: DiceTrayView = null
+	var index := -1
+	for candidate in [queue_tray_view, pool_tray_view]:
+		for i in candidate.slot_defs.size():
+			if candidate.slot_defs[i] == die and candidate.slot_roots[i].visible:
+				tray = candidate
+				index = i
+				break
+		if tray != null:
+			break
+	if tray == null or table_screen == null or table_screen.workshop_window == null:
+		return
+	var center := table_screen.workshop_window.position + table_screen.workshop_window.size * 0.5
+	table_screen.spawn_trace(center, table_screen.world_to_pixel(tray.slot_global_position(index)),
+		tint, ENGRAVE_TRAIL_TIME)
+	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
+	if phase != Phase.PAYOUT or not is_instance_valid(tray) or index >= tray.slot_face_displays.size():
+		return
+	_flash_die_tint(tray.slot_face_displays[index],
+		DiceController.KIND_TINTS.get(die.style_id, Color.WHITE), Vector3.ONE * DiceTrayView.DIE_SCALE)
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
 ## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
@@ -6542,11 +6735,18 @@ func _play_charm_money_payout(index: int, amount: int, guard: Phase = Phase.PAYO
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
-## Schickt EIN Chip-Paket los und bucht seinen Wert bei ANKUNFT (Truhe glimmt,
-## Einzahlungs-Schlitz blitzt in der Chipfarbe). Liefert die Flugzeit.
+## Schickt EIN Chip-Paket vom Dock-Pad los und bucht seinen Wert bei ANKUNFT.
+## Liefert die Flugzeit.
 func _fire_charm_money_packet(from_px: Vector2, value: int, guard: Phase = Phase.PAYOUT) -> float:
 	var chip_color := ChipStackView.denomination_color(value)
 	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
+	_book_money_packet_on_arrival(travel, value, chip_color, guard)
+	return travel
+
+## Bucht den Wert eines Chip-Pakets bei ANKUNFT (Truhe glimmt, Einzahlungs-
+## Schlitz blitzt in der Chipfarbe). Das generische Geld-Licht bleibt aus: die
+## Pakete SIND die Gutschrift.
+func _book_money_packet_on_arrival(travel: float, value: int, chip_color: Color, guard: Phase) -> void:
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if phase != guard:
 			return
@@ -6556,11 +6756,36 @@ func _fire_charm_money_packet(from_px: Vector2, value: int, guard: Phase = Phase
 		if table_screen.treasure_window != null:
 			table_screen.treasure_window.glint()
 			table_screen.treasure_window.flash_receive_slot(chip_color))
-	return travel
 
-## Geld eines Zuges (Goldseiten, Seelen-Geld, Streulicht, Lumpensammler): EIN
-## Komet trägt die Summe von der Grube zur Truhe. Rein visuell - gebucht ist
-## beim Nehmen, die Ankunft glimmt nur (book first, fly afterwards).
+## Geld EINER Zündung (Goldseite, Seelen-Geld): die Summe fährt als ECHTE
+## Chip-Pakete dicht gestaffelt AUS DER GRUBE über die Zug-Bahn in die Truhe,
+## jedes bucht seinen Wert bei Ankunft. Bewusst nicht abgewartet - die nächste
+## Zündung muss nur NACH dem Start kommen, nicht nach der Ankunft.
+func _fire_die_money(from_px: Vector2, amount: int) -> void:
+	if table_screen == null or amount <= 0:
+		return
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
+	var values := ChipStackView.split_gain(amount)
+	for i in values.size():
+		var value: int = values[i]
+		if i == 0:
+			_fire_die_money_packet(from_px, value)
+		else:
+			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(func() -> void:
+				if phase == Phase.SCORING:
+					_fire_die_money_packet(from_px, value))
+
+## Ein Chip-Paket aus der Grube - dieselbe Buchung wie am Dock-Pad, nur reist es
+## die Zug-Bahn (Grube -> Hub -> Geld-Leiste -> Truhe).
+func _fire_die_money_packet(from_px: Vector2, value: int) -> void:
+	var chip_color := ChipStackView.denomination_color(value)
+	var travel: float = table_screen.take_money_comet(_money_trail_color(chip_color), from_px)
+	_book_money_packet_on_arrival(travel, value, chip_color, Phase.SCORING)
+
+## Geld eines Zuges, das NICHT an einer Zündung hängt (Zyanidgas/Scheidewasser,
+## Neonmarker, Streulicht, Lumpensammler, Jackpotglocke): EIN Komet trägt den
+## Rest von der Grube zur Truhe. Rein visuell - gebucht ist beim Nehmen, die
+## Ankunft glimmt nur (book first, fly afterwards).
 func _play_take_money_comet(amount: int) -> void:
 	if amount <= 0 or table_screen == null:
 		return

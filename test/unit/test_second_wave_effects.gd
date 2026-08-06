@@ -235,7 +235,7 @@ func test_black_light_pays_for_every_bare_die():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]),
 		_m(["", "", DieMaterial.GOLD]), _p([0, 1, 2]), NO_CHARMS, -1,
 		{0: Essence.BLACK_LIGHT}, _p([0, 1, 2]))
-	assert_eq(report.money, 2 * EssenceEffects.BLACK_LIGHT_PER_DIE + MaterialEffects.GOLD_PAYOUT,
+	assert_eq(report.total_money(), 2 * EssenceEffects.BLACK_LIGHT_PER_DIE + MaterialEffects.GOLD_PAYOUT,
 		"zwei materiallose Würfel, dazu die Gold-Seite selbst")
 
 func test_black_light_pays_once_per_take_not_per_activation():

@@ -473,6 +473,30 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"crits": crits - crit_offset,
 	}
 
+## Hängt das Geld EINZELNER Zündungen an die Schrittliste: MaterialEffects plant
+## es in derselben Verschachtelung, die der Zug läuft, die Zeremonie zahlt es im
+## Moment der Zündung. Ohne Plan-Eintrag bleibt "money" schlicht ungesetzt (0).
+## Der Plan spricht in denselben Indizes wie die Schrittliste - vor dem
+## Rückrechnen auf echte Slots anhängen, dann reist das Geld mit.
+static func attach_activation_money(breakdown: Dictionary, plan: Dictionary) -> void:
+	for step: Dictionary in breakdown.get("die_steps", []):
+		var slot: int = step["slot"]
+		if not plan.has(slot):
+			continue
+		var entry: Dictionary = plan[slot]
+		var groups: Array = entry["groups"]
+		var trigger_steps: Array = step["die_triggers"]
+		for t in mini(groups.size(), trigger_steps.size()):
+			var group: Dictionary = groups[t]
+			var trigger: Dictionary = trigger_steps[t]
+			_assign_money(trigger["firings"], group["firings"])
+			_assign_money(trigger["links"], group["links"])
+		_assign_money(step.get("det_links", []), entry["det_links"])
+
+static func _assign_money(entries: Array, amounts: Array) -> void:
+	for k in mini(entries.size(), amounts.size()):
+		entries[k]["money"] = int(amounts[k])
+
 ## Nimmt Besitz-Positionen in eine bestehende Liste auf und hält sie dock-sortiert.
 static func _merge_indices(into: Array[int], extra: Array[int]) -> void:
 	for j in extra:

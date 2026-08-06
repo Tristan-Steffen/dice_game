@@ -1187,18 +1187,21 @@ func _roll_lumpensammler_value() -> void:
 			charm.description = Charm.rag_collector_description(lumpensammler_value)
 
 ## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
-## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert die Anzahl.
-func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> int:
-	var upgraded := 0
+## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert je Aufwertung
+## {die, face, material_id, copy} - die Zeremonie zeigt jede einzeln, "copy" ist
+## das Exemplar, dem sie gehört (der Dock-Platz, von dem sie ausgeht).
+func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
+	var upgrades: Array[Dictionary] = []
 	for i in charm_ids().count(Charm.JEWELRY_BOX):
 		for die in unused_dice:
 			if randf() < 0.1:
 				var material: DieMaterial = DieMaterial.all().pick_random()
-				die.set_face_material(randi() % die.materials.size(), material.id)
-				upgraded += 1
-	if upgraded > 0:
+				var face := randi() % die.materials.size()
+				die.set_face_material(face, material.id)
+				upgrades.append({"die": die, "face": face, "material_id": material.id, "copy": i})
+	if not upgrades.is_empty():
 		pool_changed.emit()
-	return upgraded
+	return upgrades
 
 ## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
 ## dauerhaft eine Stufe - höchstens einmal je Runde. true = eingelöst (der

@@ -276,7 +276,7 @@ func test_aqua_fortis_reaches_the_gold_of_the_others():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", DieMaterial.GOLD]), _p([0, 1]),
 		_ids([Charm.AQUA_FORTIS]), -1, {0: Essence.CYANIDE}, _p([0, 1]))
 	# Eigene Gold-Seite + zwei fremde, dazu die Gold-Seite, auf der der Mitwürfel liegt.
-	assert_eq(report.money, EssenceEffects.CYANIDE_PER_GOLD + 2 * EssenceEffects.AQUA_FORTIS_PER_GOLD
+	assert_eq(report.total_money(), EssenceEffects.CYANIDE_PER_GOLD + 2 * EssenceEffects.AQUA_FORTIS_PER_GOLD
 		+ MaterialEffects.GOLD_PAYOUT)
 
 # --- Seiten & Runen ---------------------------------------------------------------

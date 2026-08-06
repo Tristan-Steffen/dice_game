@@ -857,7 +857,7 @@ func place_secret_shop_window(rect: Rect2) -> void:
 
 ## Ader Schwarzmarkt -> Hub: dieselbe gerade Waagerechte wie die Automaten-Ader,
 ## nur eine Etage tiefer - auf halber Höhe der Überlappung beider Fenster, wo nur
-## Filz liegt. Der Laden steht immer auf dem Tisch, also liegt auch die Ader immer.
+## Filz liegt. Sie wird immer gelegt, aber wie der Laden erst mit ihm sichtbar.
 func _link_secret_shop_to_hub() -> void:
 	if secret_hub_strip == null or hub == null or hub.size.x <= 0.0 \
 			or secret_shop_window == null or secret_shop_window.size.x <= 0.0:
@@ -874,6 +874,8 @@ func _link_secret_shop_to_hub() -> void:
 func set_secret_shop_installed(installed: bool) -> void:
 	if secret_shop_window == null or secret_shop_window.size.x <= 0.0:
 		return  # noch nicht platziert
+	if secret_hub_strip != null:
+		secret_hub_strip.visible = installed  # ohne Laden liegt dort keine Ader
 	if secret_shop_window.visible == installed:
 		return
 	secret_shop_window.visible = installed
@@ -2358,7 +2360,9 @@ func charm_money_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
 ## Datenbus der Grube, umrundet die Grubenhälfte am RAHMEN, fährt über die
 ## Bank-Leiste in den Hub und von dort über die Geld-Leiste in die Truhe -
 ## dieselbe Bahn wie ein Rundenende-Charm, nur ohne dessen Konsolen-Vorlauf.
-func take_money_comet(color := SIDE_MONEY_COLOR) -> float:
+## from_px (optional): Geld EINER Zündung startet am WÜRFEL und läuft von dort
+## im eigenen Fenster auf den Datenbus - danach dieselbe Bahn.
+func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF) -> float:
 	if pit_window == null or hub == null or treasure_strip == null \
 			or treasure_strip.strip_path.size() < 2:
 		return 0.0
@@ -2366,7 +2370,10 @@ func take_money_comet(color := SIDE_MONEY_COLOR) -> float:
 	var pcx := pr.get_center().x
 	var entry := Vector2(pcx, pr.position.y)
 	var exit := Vector2(pcx, pr.end.y)
-	var path := PackedVector2Array([entry])
+	var path := PackedVector2Array()
+	if from_px.is_finite():
+		path.append(from_px)
+	path.append(entry)
 	for corner in _border_route(pr, entry, exit):
 		path.append(corner)
 	path.append(exit)
