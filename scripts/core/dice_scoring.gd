@@ -68,16 +68,14 @@ const PARITY_ANY := 0
 const PARITY_ODD := 1
 const PARITY_EVEN := 2
 
-## Slots, die unter dem Paritäts-Filter überhaupt werten dürfen. Krypton
-## übersieht der Filter - Essenzen sperren keine Kategorien, aber sie können
-## einen Würfel aus einer WÜRFEL-Sperre herausnehmen.
+## Slots, die unter dem Paritäts-Filter überhaupt werten dürfen. KEINE Essenz
+## nimmt einen Würfel aus der Sperre - auch Krypton nicht, dessen "zählt immer
+## mit" die Kombination weitet, nicht die Klausel aushebelt.
 static func legal_indices(dice: Array[int], ctx: Dictionary) -> Array[int]:
 	var legal: Array[int] = []
 	var parity := int(ctx.get(CTX_PARITY, PARITY_ANY))
-	var essences := essence_sets_in(ctx)
 	for i in dice.size():
-		if parity == PARITY_ANY or (absi(dice[i]) % 2 == 1) == (parity == PARITY_ODD) \
-				or EssenceEffects.ignores_dice_filters_of(EssenceEffects.set_at(essences, i)):
+		if parity == PARITY_ANY or (absi(dice[i]) % 2 == 1) == (parity == PARITY_ODD):
 			legal.append(i)
 	return legal
 
@@ -151,14 +149,14 @@ const CTX_ROUND_CRITS := "round_crits"
 ## Hand-weiter Lauf-/Rundenzustand (ctx-Schlüssel, alle int): gelagerte Energie
 ## (Tscherenkow, Standby-Licht), Rundennummer (Kilometerzähler), schon genommene
 ## Hände dieser Runde (Mitternachtssonne), Fumbles der Runde plus der run-lange
-## Vulkanblitz-Zähler (Aschewolke) und die Zahl VERSCHIEDENER Essenzen im Pool
-## (Flaschenregal).
+## Vulkanblitz-Zähler (Aschewolke) und die Zahl der beseelten Würfel in der ABLAGE
+## (Flaschenregal - gezählt werden Würfel, nicht Sorten).
 const CTX_CHARGE := "charge"
 const CTX_ROUND := "round_number"
 const CTX_HANDS_TAKEN := "hands_taken"
 const CTX_FUMBLES := "round_fumbles"
 const CTX_ASH_FUMBLES := "ash_fumbles"
-const CTX_ESSENCE_KINDS := "essence_kinds"
+const CTX_DISCARD_SOULS := "discard_souls"
 
 ## Augen der Ablage (ctx-Schlüssel): die OBEN liegenden Werte aller abgelegten
 ## Würfel dieser Runde, in Ablage-Reihenfolge. Live aus den Defs gebildet, damit
@@ -333,8 +331,7 @@ static func wild_value(key: String, shown: Array[int], ctx: Dictionary) -> int:
 	return 0
 
 ## Position des Jokers INNERHALB der gefilterten Liste (-1, wenn er gar nicht
-## mitspielt - der Paritätsfilter urteilt über seine AUFGEDRUCKTE Zahl, Sperren
-## sind Kryptons Revier, nicht seines).
+## mitspielt - der Paritätsfilter urteilt über seine AUFGEDRUCKTE Zahl).
 static func _wild_index_in(legal: Array[int], ctx: Dictionary) -> int:
 	var slot := wild_slot(ctx)
 	return legal.find(slot) if slot >= 0 else -1
@@ -621,6 +618,12 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty()
 	var order: Array[int] = shape["order"]
+	# LAUFENDE Werte der GANZEN Hand, nicht je Würfel: die Ansteckung (Miasma)
+	# schiebt Augen quer über die Reihe, ein später zählender Würfel zählt also
+	# schon den gewachsenen Wert.
+	var running_values: Array[int] = []
+	for i in dice.size():
+		running_values.append(raw[i] if i < raw.size() else dice[i])
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
 	# Metronom: die einmal zündenden Würfel stehen VOR der Zählung fest.
@@ -657,12 +660,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		# Rechnung DIESES Würfels und die BETRÄGE der würfelgebundenen Charms folgen
 		# ihm; Trigger-Ordnung, Erkennung und jede ZIELWAHL bleiben an den liegenden
 		# Werten.
-		var running: int = raw[i] if i < raw.size() else dice[i]
 		# Ein Durchgang mehr als Würfel-Trigger: der letzte trägt keine Zündung
 		# mehr, nur die deterministischen Essenz-Glieder.
 		for t in die_triggers + 1:
 			for f in (face_triggers if t < die_triggers else 0):
-				var shown := shown_value(running, charm_ids, essence_ids)
+				var shown := shown_value(running_values[i], charm_ids, essence_ids)
 				# Augen erst durch die Charm-Linse, dann durch die Essenz (Antimaterie
 				# kehrt um). Radons +2 auf FREMDE Würfel kommt danach, und das
 				# Photonengas legt das Licht jeder Zündung vor sich obendrauf.
@@ -715,7 +717,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						crits += 1
 						base += firedamp
 					mult *= die_crit
-				running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rune_ids)
+				running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids)
+				# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
+				# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
+				# sie den Zuwachs schon mit. Nur die obere Seite steckt an, nie ein Glied.
+				MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
 			# Glieder: erst die für DIESEN Würfel-Trigger gewürfelte Leiterbahn, im
 			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
 			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position

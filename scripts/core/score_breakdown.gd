@@ -83,6 +83,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		})
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
+	# LAUFENDE Werte der GANZEN Hand wie in DiceScoring._base_and_mult - die
+	# Ansteckung (Miasma) schiebt Augen quer über die Reihe.
+	var running_values: Array[int] = []
+	for i in dice.size():
+		running_values.append(raw[i] if i < raw.size() else dice[i])
 
 	# 2. Würfel-Schritte in Reihen-Ordnung. Je Aktivierung: Augen + Material,
 	# dann die würfelgebundenen Charms (additiv, dann Krits) - exakt die
@@ -132,7 +137,6 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# PHYSISCHEN Wert (raw) ZWISCHEN den Zündungen, die Verwandlung liegt als
 		# Linse darüber. Augen, Mult-Material und Material-Krit rechnen je Zündung
 		# neu, alles andere bleibt. Die Kopfzeile trägt die ERSTE Zündung.
-		var running: int = raw[i] if i < raw.size() else dice[i]
 		var eye := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(dice[i], charm_ids), charm_ids)
 		var once_mult := 0
 		var step_crit := 1.0
@@ -145,7 +149,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		for t in die_count + 1:
 			var firings: Array[Dictionary] = []
 			for f in (face_count if t < die_count else 0):
-				var shown := DiceScoring.shown_value(running, charm_ids, essence_ids)
+				var shown := DiceScoring.shown_value(running_values[i], charm_ids, essence_ids)
 				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
@@ -264,10 +268,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["base_after_crit"] = base
 				entry["mult_after_crit"] = mult
 				if has_die_bonus:
-					running = MaterialEffects.mutate_value_once(running, face_material, charm_ids, level, essence_ids, rune_ids)
+					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids)
+					# Ansteckung an derselben Stelle wie in DiceScoring: der Miasma-
+					# Würfel gibt jetzt ab, die Mitwürfel tragen es in ihre nächste Zündung.
+					MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
-				entry["value_after"] = running
+				entry["value_after"] = running_values[i]
 				firings.append(entry)
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.

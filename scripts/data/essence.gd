@@ -125,8 +125,8 @@ static func argon() -> Essence:
 
 static func krypton() -> Essence:
 	return _make(KRYPTON, "Krypton",
-		"Zählt immer mit - auch außerhalb der Kombination; und Klauseln, die Würfel aussperren (Schieflage, Gleichgewicht), übersehen ihn.",
-		"zählt immer mit, ignoriert Würfel-Sperren", Rarity.COMMON, Color(0.55, 0.95, 0.7))
+		"Zählt immer mit - auch außerhalb der Kombination.",
+		"zählt immer mit", Rarity.COMMON, Color(0.55, 0.95, 0.7))
 
 static func xenon() -> Essence:
 	return _make(XENON, "Xenon",
@@ -177,8 +177,8 @@ static func radon() -> Essence:
 
 static func miasma() -> Essence:
 	return _secret(_make(MIASMA, "Miasma",
-		"Beim Werten verliert seine obere Seite dauerhaft die Hälfte ihrer Augen - genau diesen Betrag wächst jede andere gewertete Seite der Hand.",
-		"halbiert sich, die Hand wächst", Rarity.EPIC, Color(0.4, 0.55, 0.35)))
+		"Nach JEDER seiner Zündungen verliert seine obere Seite dauerhaft die Hälfte ihrer Augen - genau diesen Betrag wächst jede andere gewertete Seite der Hand, noch bevor sie zählt.",
+		"halbiert sich je Zündung, die Hand wächst", Rarity.EPIC, Color(0.4, 0.55, 0.35)))
 
 static func st_elmos_fire() -> Essence:
 	return _make(ST_ELMOS_FIRE, "Elmsfeuer",

@@ -81,17 +81,15 @@ func test_the_odometer_counts_the_played_rounds():
 	assert_eq(_pair_score(_ids([Charm.ODOMETER]), {DiceScoring.CTX_ROUND: 7}),
 		20 * (2 + 7 * CharmEffects.ODOMETER_MULT))
 
-func test_the_bottle_rack_counts_the_distinct_souls():
-	assert_eq(_pair_score(_ids([Charm.BOTTLE_RACK]), {DiceScoring.CTX_ESSENCE_KINDS: 3}),
+func test_the_bottle_rack_counts_the_souls_in_the_discard():
+	assert_eq(_pair_score(_ids([Charm.BOTTLE_RACK]), {DiceScoring.CTX_DISCARD_SOULS: 3}),
 		20 * (2 + 3 * CharmEffects.BOTTLE_RACK_MULT))
+	assert_eq(_pair_score(_ids([Charm.BOTTLE_RACK]), {}), 40, "leere Ablage, leerer Charm")
 
-func test_the_bottle_rack_reads_the_pool_not_the_hand():
-	var run := GameRun.new_run()
-	assert_eq(run.essence_kinds(), 0, "der Standard-Pool ist seelenlos")
-	run.owned_pool[0].essence_id = Essence.NEON
-	run.owned_pool[1].essence_id = Essence.NEON
-	run.owned_pool[2].essence_id = Essence.XENON
-	assert_eq(run.essence_kinds(), 2, "gezählt wird die Sorte, nicht der Würfel")
+func test_the_bottle_rack_counts_dice_not_kinds():
+	# Zwei Würfel mit derselben Seele zahlen zweimal - gezählt wird der Würfel.
+	assert_eq(_pair_score(_ids([Charm.BOTTLE_RACK]), {DiceScoring.CTX_DISCARD_SOULS: 2}),
+		20 * (2 + 2 * CharmEffects.BOTTLE_RACK_MULT))
 
 # --- Mitternachtssonne & Polartag: je genommener Hand ein Antritt mehr -------------
 
@@ -405,7 +403,7 @@ func test_the_breakdown_mirrors_every_new_source():
 		DiceScoring.CTX_ROUND: 4,
 		DiceScoring.CTX_HANDS_TAKEN: 2,
 		DiceScoring.CTX_FUMBLES: 1,
-		DiceScoring.CTX_ESSENCE_KINDS: 2,
+		DiceScoring.CTX_DISCARD_SOULS: 2,
 		DiceScoring.CTX_DISCARD_VALUES: _d([3, 4, 5]),
 		DiceScoring.CTX_FIRST_SCORING: {0: true, 1: true},
 		DiceScoring.CTX_POINTER_FIRES: {2: [[]]},

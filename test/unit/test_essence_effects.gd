@@ -287,13 +287,31 @@ func test_helium_grows_the_up_face():
 	assert_eq(MaterialEffects.mutate_value_once(3, "", NO_CHARMS, 1, _ids([Essence.HELIUM])),
 		3 + EssenceEffects.HELIUM_GROWTH)
 
-func test_krypton_slips_past_a_dice_filter_but_not_past_a_throttle():
-	# Nur ungerade: die 4 fiele raus - Krypton bleibt trotzdem legal.
-	var ctx := _ctx({1: Essence.KRYPTON}, {DiceScoring.CTX_PARITY: DiceScoring.PARITY_ODD})
-	assert_eq(DiceScoring.legal_indices(_d([1, 4, 2]), ctx), _p([0, 1]))
+## Zwei Fünfer plus ein gerader Krypton, der NICHT zur Kombination gehört.
+const KRYPTON_DICE := [5, 5, 4]
+
+func test_a_parity_clause_locks_krypton_out_like_any_other_die():
+	# Nur ungerade: die 4 fällt raus, auch mit Seele - Krypton weitet die gewertete
+	# Menge, er hebelt keine Klausel aus.
+	var ctx := _ctx({2: Essence.KRYPTON}, {DiceScoring.CTX_PARITY: DiceScoring.PARITY_ODD})
+	assert_eq(DiceScoring.legal_indices(_d(KRYPTON_DICE), ctx), _p([0, 1]))
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, _d(KRYPTON_DICE), NO_CHARMS, ctx)
+	assert_eq(Array(shape["scored"]), [0, 1], "gesperrt bleibt gesperrt")
+	# Ohne Klausel zählt er weiter immer mit.
+	var free := DiceScoring.hand_shape(DiceScoring.TWO_KIND, _d(KRYPTON_DICE), NO_CHARMS,
+		_ctx({2: Essence.KRYPTON}))
+	assert_eq(Array(free["scored"]), [0, 1, 2], "ohne Sperre bleibt der Vollzähler-Effekt")
 	# Die Kategorie-Drossel ist keine Würfel-Sperre: sie greift weiter.
 	var throttled := _ctx({0: Essence.KRYPTON}, {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.TWO_KIND])})
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false, NO_MATS, {}, throttled), 0)
+
+func test_a_locked_krypton_scores_nothing():
+	var locked := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(KRYPTON_DICE), NO_CHARMS, false,
+		NO_MATS, {}, _ctx({2: Essence.KRYPTON}, {DiceScoring.CTX_PARITY: DiceScoring.PARITY_ODD}))
+	var free := DiceScoring.score_category(DiceScoring.TWO_KIND, _d(KRYPTON_DICE), NO_CHARMS, false,
+		NO_MATS, {}, _ctx({2: Essence.KRYPTON}))
+	assert_eq(locked, (10 + 5 + 5) * 2, "nur die beiden legalen Fünfer zählen")
+	assert_eq(free, (10 + 5 + 5 + 4) * 2, "ohne Klausel zählen seine Augen mit")
 
 # --- Zählreihenfolge: keine Essenz greift ein -------------------------------------
 
@@ -511,12 +529,12 @@ func test_the_parity_filter_judges_the_wilds_printed_value():
 		"der gefilterte Joker spielt gar nicht mit")
 	assert_true(DiceScoring.qualifies(DiceScoring.FOUR_KIND, dice, ctx), "die vier Fünfer bleiben")
 
-func test_a_krypton_wild_would_still_be_filtered_by_its_own_parity():
-	# Gegenprobe zur Regel: Krypton nimmt einen Würfel aus der Sperre - der
-	# Joker selbst tut das nicht.
+func test_no_essence_takes_a_die_out_of_the_parity_lock():
+	# Gegenprobe zur Regel: auch Krypton bleibt gesperrt - keine Seele hebelt eine
+	# Würfel-Sperre aus.
 	var dice := _d([5, 5, 5, 5, 2])
 	var ctx := _ctx({4: Essence.KRYPTON}, {DiceScoring.CTX_PARITY: DiceScoring.PARITY_ODD})
-	assert_eq(DiceScoring.legal_indices(dice, ctx), _p([0, 1, 2, 3, 4]), "Krypton bleibt legal")
+	assert_eq(DiceScoring.legal_indices(dice, ctx), _p([0, 1, 2, 3]), "die gerade 2 fällt raus")
 	assert_eq(DiceScoring.legal_indices(dice, _wild(4)).size(), 5, "ohne Filter ist ohnehin alles legal")
 
 func test_a_throttled_wild_hand_falls_one_rank():
@@ -794,15 +812,107 @@ func test_nitrogen_and_the_brand_block_the_infection():
 func test_miasma_no_longer_pays_money():
 	assert_eq(EssenceEffects.money_for(Essence.MIASMA, 6, 3), 0)
 
-func test_borrowed_krypton_slips_past_a_filter():
-	var dice := _d([2, 4])
-	var ctx := {
-		DiceScoring.CTX_ESSENCE_SET: EssenceEffects.effective_sets(
-			{0: Essence.QUINTESSENCE, 1: Essence.KRYPTON}),
-		DiceScoring.CTX_PARITY: DiceScoring.PARITY_ODD,
+# --- Ansteckung: verschachtelt in die Zählung, nicht im Schwanz -------------------
+# Ein Paar Achter zählt in Slot-Reihenfolge; das Miasma gibt NACH jeder Zündung
+# ab, der Mitwürfel trägt den Zuwachs also schon in seine eigene Zündung.
+
+## sets = fertige Essenz-MENGEN je Slot, mats = Seiten-Material je Slot.
+## Wertung, Schrittliste und Nahme laufen über dieselbe Hand - nur so lässt sich
+## prüfen, dass Simulation und Def auf derselben Zahl enden.
+func _infection_hand(sets: Dictionary, charm_ids: Array[String] = NO_CHARMS,
+		mats: Array[String] = _m(["", ""])) -> Dictionary:
+	var dice := _d([8, 8])
+	var ctx := {DiceScoring.CTX_ESSENCE_SET: sets}
+	var defs: Array[DieDefinition] = []
+	for i in 2:
+		var die := DieDefinition.new()
+		die.faces = _d([8, 2, 3, 4, 5, 6])
+		if i < mats.size() and mats[i] != "":
+			die.set_face_material(0, mats[i])
+		defs.append(die)
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), mats, _p([0, 1]),
+		charm_ids, -1, sets, _p([0, 1]))
+	return {
+		"score": DiceScoring.score_category(DiceScoring.TWO_KIND, dice, charm_ids, false, mats, {}, ctx),
+		"breakdown": ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, charm_ids, false, mats, {}, ctx),
+		"defs": defs,
 	}
-	assert_eq(DiceScoring.legal_indices(dice, ctx), _p([0, 1]),
-		"geborgte Tarnung nimmt auch die Quintessenz aus der Sperre")
+
+## Endwert der Simulation je Slot: die LETZTE Zündung trägt ihn als value_after.
+func _simulated_values(breakdown: Dictionary) -> Dictionary:
+	var out := {}
+	for step: Dictionary in breakdown["die_steps"]:
+		var last := 0
+		for group: Dictionary in step["die_triggers"]:
+			for firing: Dictionary in group["firings"]:
+				last = int(firing["value_after"])
+		out[int(step["slot"])] = last
+	return out
+
+func test_the_infection_reaches_the_later_die_before_it_counts():
+	var hand := _infection_hand({0: _ids([Essence.MIASMA])})
+	# Slot 0 zählt 8 und gibt 4 ab - Slot 1 zählt darum 12 statt 8.
+	assert_eq(int(hand["score"]), (10 + 8 + 12) * 2)
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 4)
+	assert_eq(defs[1].faces[0], 12)
+
+func test_a_later_miasma_leaves_the_eyes_of_the_earlier_die_alone():
+	var hand := _infection_hand({1: _ids([Essence.MIASMA])})
+	assert_eq(int(hand["score"]), (10 + 8 + 8) * 2, "Slot 0 hat längst gezählt")
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 12, "seine Def wächst trotzdem")
+	assert_eq(defs[1].faces[0], 4)
+
+func test_the_infection_compounds_over_two_triggers():
+	var hand := _infection_hand({0: _ids([Essence.MIASMA, Essence.ARGON])})
+	# 8 gibt 4 ab (4 / 12), der zweite Antritt zählt 4 und gibt 2 ab (2 / 14).
+	assert_eq(int(hand["score"]), (10 + 8 + 4 + 14) * 2)
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 2)
+	assert_eq(defs[1].faces[0], 14)
+
+func test_the_censer_spreads_the_same_amount_every_trigger():
+	# Ohne Selbstverlust schrumpft die Quelle nie - sie steckt zweimal mit 4 an.
+	var hand := _infection_hand({0: _ids([Essence.MIASMA, Essence.ARGON])}, _ids([Charm.CENSER]))
+	assert_eq(int(hand["score"]), (10 + 8 + 8 + 16) * 2)
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 8)
+	assert_eq(defs[1].faces[0], 16)
+
+func test_nitrogen_blocks_the_infection_at_every_trigger():
+	var hand := _infection_hand({0: _ids([Essence.MIASMA, Essence.ARGON, Essence.NITROGEN])})
+	assert_eq(int(hand["score"]), (10 + 8 + 8 + 8) * 2, "nichts wandert")
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 8)
+	assert_eq(defs[1].faces[0], 8)
+
+func test_the_bone_grows_first_then_the_infection_halves():
+	# 8 +2 = 10 gibt 5 ab (5 / 13); 5 +2 = 7 gibt 3 ab (4 / 16).
+	var hand := _infection_hand({0: _ids([Essence.MIASMA, Essence.ARGON])}, NO_CHARMS,
+		_m([DieMaterial.BONE, ""]))
+	assert_eq(int(hand["score"]), (10 + 8 + 5 + 16) * 2)
+	var defs: Array = hand["defs"]
+	assert_eq(defs[0].faces[0], 4)
+	assert_eq(defs[1].faces[0], 16)
+	var simulated := _simulated_values(hand["breakdown"])
+	assert_eq(int(simulated[0]), defs[0].faces[0], "Simulation und Def enden gleich")
+	assert_eq(int(simulated[1]), defs[1].faces[0])
+
+func test_the_breakdown_mirrors_the_infection():
+	# merge_total ist die EIGENE Summe der Schrittliste - das Sicherheitsnetz in
+	# build() würde total sonst still auf die Wertung ziehen.
+	for sets: Dictionary in [{0: _ids([Essence.MIASMA])}, {1: _ids([Essence.MIASMA])},
+			{0: _ids([Essence.MIASMA, Essence.ARGON])}]:
+		var hand := _infection_hand(sets)
+		assert_eq(int(hand["breakdown"]["merge_total"]), int(hand["score"]),
+			"Schrittliste und Wertung zählen dieselbe Ansteckung")
+
+func test_borrowed_krypton_still_counts_every_lying_die():
+	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.KRYPTON})
+	var ctx := {DiceScoring.CTX_ESSENCE_SET: sets}
+	var shape := DiceScoring.hand_shape(DiceScoring.ONE_KIND, _d([2, 4]), NO_CHARMS, ctx)
+	assert_eq(Array(shape["scored"]), [0, 1], "die geborgte Seele zählt beide mit")
 
 func test_borrowed_money_adds_up():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.NEON})

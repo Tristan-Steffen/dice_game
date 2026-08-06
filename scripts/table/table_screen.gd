@@ -1517,9 +1517,12 @@ const GAIN_BLUR_ALPHA := 0.6
 
 var _gain_blur_texture: GradientTexture2D  # geteilter Verlauf, einmalig gebaut
 
-func spawn_gain_number(from_px: Vector2, text: String, color: Color, font_scale: float = 1.0) -> void:
+## rise = die Zahl STEIGT statt zu fallen (Geld aus einem zählenden Würfel).
+## Der Schleier hängt dann unter dem Kopf statt darüber, und die Netz-Karten-
+## Kappung entfällt: sie hält nur fallende Zahlen von der Karte fern.
+func spawn_gain_number(from_px: Vector2, text: String, color: Color, font_scale: float = 1.0, rise: bool = false) -> void:
 	var label := _make_gain_label(text, color, font_scale)
-	var streak := _make_gain_blur(color)
+	var streak := _make_gain_blur(color, rise)
 	add_child(streak)  # zuerst = unter der Zahl
 	add_child(label)
 	label.reset_size()
@@ -1535,8 +1538,8 @@ func spawn_gain_number(from_px: Vector2, text: String, color: Color, font_scale:
 	# EXPO_OUT: der Weg ist fast sofort zurückgelegt, danach kriecht die Zahl nur
 	# noch aus - genau in diesem Auslauf blendet sie weg.
 	tween.tween_method(
-		func(dist: float) -> void: _advance_gain_number(label, streak, start, center_x, width, half_h, dist),
-		0.0, _gain_drift(center_x, start.y + half_h), GAIN_TIME).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		func(dist: float) -> void: _advance_gain_number(label, streak, start, center_x, width, half_h, dist, rise),
+		0.0, GAIN_DRIFT if rise else _gain_drift(center_x, start.y + half_h), GAIN_TIME).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	tween.tween_property(label, "scale", Vector2.ONE, 0.3) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(label, "modulate:a", 0.0, GAIN_FADE_TIME).set_delay(GAIN_FADE_DELAY) \
@@ -1559,15 +1562,18 @@ func _gain_drift(center_x: float, from_center_y: float) -> float:
 	return clampf(bar.position.y - GAIN_NET_GAP - from_center_y, 0.0, GAIN_DRIFT)
 
 ## Rückt die Zahl auf ihre Gleithöhe und spannt den Schleier von der Kopfmitte
-## um bis zu GAIN_BLUR_LENGTH nach oben auf.
-func _advance_gain_number(label: Label, streak: TextureRect, start: Vector2, center_x: float, width: float, half_h: float, dist: float) -> void:
-	label.position.y = start.y + dist
-	var bottom := start.y + dist + half_h
-	var top := maxf(start.y + half_h, bottom - GAIN_BLUR_LENGTH)
+## um bis zu GAIN_BLUR_LENGTH gegen die Flugrichtung auf.
+func _advance_gain_number(label: Label, streak: TextureRect, start: Vector2, center_x: float, width: float, half_h: float, dist: float, rise: bool = false) -> void:
+	label.position.y = (start.y - dist) if rise else (start.y + dist)
+	var head := label.position.y + half_h
+	var origin := start.y + half_h
+	var top := minf(head, origin) if rise else maxf(origin, head - GAIN_BLUR_LENGTH)
+	var bottom := minf(origin, head + GAIN_BLUR_LENGTH) if rise else head
 	streak.position = Vector2(center_x - width / 2.0, top)
 	streak.size = Vector2(width, maxf(bottom - top, 1.0))
 
-func _make_gain_blur(color: Color) -> TextureRect:
+## rise dreht den Verlauf: der deckende Kopf steht dann oben, der Schwanz unten.
+func _make_gain_blur(color: Color, rise: bool = false) -> TextureRect:
 	if _gain_blur_texture == null:
 		var gradient := Gradient.new()
 		gradient.offsets = PackedFloat32Array([0.0, 1.0])
@@ -1581,6 +1587,7 @@ func _make_gain_blur(color: Color) -> TextureRect:
 	var streak := TextureRect.new()
 	streak.texture = _gain_blur_texture
 	streak.stretch_mode = TextureRect.STRETCH_SCALE
+	streak.flip_v = rise
 	streak.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	streak.modulate = Color(color.r, color.g, color.b, GAIN_BLUR_ALPHA)
 	return streak

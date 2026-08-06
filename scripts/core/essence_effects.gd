@@ -400,11 +400,6 @@ static func boosted_level(level: int, essence_ids: Array[String]) -> int:
 		return level
 	return mini(DieMaterial.MAX_LEVEL, level + boost)
 
-## Krypton: Klauseln, die Würfel AUSSPERREN (Parität), übersehen ihn. Kategorie-
-## Drosseln bleiben davon unberührt - die sperren keine Würfel, sondern Hände.
-static func ignores_dice_filters(essence_id: String) -> bool:
-	return essence_id == Essence.KRYPTON
-
 ## Krypton zählt IMMER mit: er tritt an, auch wenn er nicht zur Kombination
 ## gehört (Augen, Material, würfelgebundene Charms). Die ERKENNUNG bleibt davon
 ## unberührt - participating und die Kombi-Charms sehen ihn nicht, genau wie beim
@@ -501,10 +496,17 @@ static func is_wild(essence_id: String) -> bool:
 static func smothers_farkle(essence_id: String) -> bool:
 	return essence_id == Essence.CARBON_DIOXIDE
 
-## Miasma: seine obere Seite halbiert sich dauerhaft, der Verlust wächst auf den
-## übrigen gewerteten Seiten der Hand wieder nach (Nehmen-Effekt, je Zug einmal).
+## Miasma: NACH jeder Zündung halbiert sich seine obere Seite dauerhaft, und genau
+## dieser Betrag wächst auf jeder anderen gewerteten Seite der Hand - verschachtelt
+## in die Zählung, spätere Würfel zählen also schon den Zuwachs.
 static func redistributes_faces(essence_id: String) -> bool:
 	return essence_id == Essence.MIASMA
+
+static func redistributes_faces_of(essence_ids: Array[String]) -> bool:
+	for essence_id in essence_ids:
+		if redistributes_faces(essence_id):
+			return true
+	return false
 
 ## Zyanidgas: +$2 je Gold-Seite DIESES Würfels, einmal je Zug. Das Scheidewasser
 ## legt zusätzlich $1 je Gold-Seite der MITWÜRFEL drauf (foreign_gold_faces zählt
@@ -705,12 +707,6 @@ static func all_faces_growth_of(essence_ids: Array[String], charm_ids: Array[Str
 static func protects_face_value_of(essence_ids: Array[String]) -> bool:
 	for essence_id in essence_ids:
 		if protects_face_value(essence_id):
-			return true
-	return false
-
-static func ignores_dice_filters_of(essence_ids: Array[String]) -> bool:
-	for essence_id in essence_ids:
-		if ignores_dice_filters(essence_id):
 			return true
 	return false
 

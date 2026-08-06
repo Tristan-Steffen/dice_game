@@ -960,7 +960,7 @@ static func factory_finish() -> Charm:
 	return _make(FACTORY_FINISH, "Schutzfolie", "Würfel ohne Material, Rune und Essenz geben +15 Basispunkte.")
 
 static func bottle_rack() -> Charm:
-	return _make(BOTTLE_RACK, "Flaschenregal", "+1 Mult je verschiedener Essenz im Besitz.")
+	return _make(BOTTLE_RACK, "Flaschenregal", "+1 Mult je Essenz-Würfel in der Ablage.")
 
 static func pressure_gauge() -> Charm:
 	return _make(PRESSURE_GAUGE, "Manometer", "Liegt genau ein Essenz-Würfel in der Hand, löst er +1× aus.")

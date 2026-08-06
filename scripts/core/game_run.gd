@@ -1444,15 +1444,6 @@ func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> 
 func note_bare_dice(count: int) -> void:
 	round_bare_dice += maxi(0, count)
 
-## Verschiedene Essenzen im Pool (Flaschenregal) - gezählt wird die Sorte, nicht
-## der Würfel.
-func essence_kinds() -> int:
-	var seen: Array[String] = []
-	for die in owned_pool:
-		if die != null and die.essence_id != "" and not seen.has(die.essence_id):
-			seen.append(die.essence_id)
-	return seen.size()
-
 ## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
 ## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
 func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:

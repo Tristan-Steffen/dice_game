@@ -512,6 +512,9 @@ var is_pit_focused: bool = false
 var _net_die_def: DieDefinition
 var _net_linger := 0.0
 var _net_fade := 0.0
+## Seelen-Zeile des gezeigten Würfels - nur beim Wechsel gebaut (Essence.by_id
+## legt den ganzen Katalog an, und _show_pit_net läuft je Frame).
+var _net_essence_hint := ""
 
 var lineup_tween: Tween
 
@@ -1402,6 +1405,10 @@ func _update_charm_badges() -> void:
 			Charm.BROKEN_MIRROR:
 				if run.farkle_count > 0:
 					texts[slot] = "+%d" % run.farkle_count
+			Charm.BOTTLE_RACK:
+				var souls := _discard_souls()
+				if souls > 0:
+					texts[slot] = "+%d" % (souls * CharmEffects.BOTTLE_RACK_MULT)
 	table_screen.charm_dock.set_badges(texts)
 	_show_pendulum_swing(ids, pendulum)
 
@@ -3724,13 +3731,17 @@ func _update_pit_hover(delta: float) -> void:
 	table_screen.set_pit_net_hint("")
 
 ## Zeigt def im Netz-Feld, voll deckend, und spannt Nachlauf + Ausblenden neu auf.
+## Trägt der Würfel eine Seele, steht sie sofort in der Erklärzeile - dieselbe
+## Zeile, die auch der Essenz-Chip des Netzes spricht (seelenlos bleibt sie leer).
 func _show_pit_net(def: DieDefinition, up_face: int) -> void:
+	if def != _net_die_def:
+		_net_essence_hint = DieNetView.hint_for(def, DieNetView.EDGE)
 	_net_die_def = def
 	_net_linger = NET_LINGER_TIME
 	_net_fade = NET_FADE_TIME
 	table_screen.set_pit_die(def, up_face)
 	table_screen.set_pit_net_alpha(1.0)
-	table_screen.set_pit_net_hint("")
+	table_screen.set_pit_net_hint(_net_essence_hint)
 
 ## Kurz-Erklärzeile zur Netz-Zelle unter pixel (siehe DieNetView.hint_for).
 func _net_face_hint(pixel: Vector2) -> String:
@@ -4328,10 +4339,19 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_HANDS_TAKEN: hands_taken_this_round,
 		DiceScoring.CTX_FUMBLES: run.round_fumbles,
 		DiceScoring.CTX_ASH_FUMBLES: run.ash_fumbles,
-		DiceScoring.CTX_ESSENCE_KINDS: run.essence_kinds(),
+		DiceScoring.CTX_DISCARD_SOULS: _discard_souls(),
 		DiceScoring.CTX_DISCARD_VALUES: _discard_values(),
 		DiceScoring.CTX_FIRST_SCORING: _first_scoring_flags(),
 	}
+
+## Beseelte Würfel in der Ablage (Flaschenregal) - gezählt wird der WÜRFEL, zwei
+## gleiche Seelen zählen also zweimal.
+func _discard_souls() -> int:
+	var souls := 0
+	for def in discarded_this_round:
+		if def != null and def.essence_id != "":
+			souls += 1
+	return souls
 
 ## Die oben liegenden Augen der Ablage - LIVE aus den Defs, damit ein späterer
 ## Wertwandel (Knochen, Glas) auch in der Ablage durchschlägt. Die Seite selbst
@@ -6694,8 +6714,10 @@ func _deliver_jewelry_box_die(die: DieDefinition, tint: Color) -> void:
 	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
 	if phase != Phase.PAYOUT or not is_instance_valid(tray) or index >= tray.slot_face_displays.size():
 		return
+	# Ruhegröße OHNE DIE_SCALE: im Tray sitzt die Skalierung auf der WURZEL, die
+	# Anzeige selbst steht auf ONE (anders als ein Grubenwürfel).
 	_flash_die_tint(tray.slot_face_displays[index],
-		DiceController.KIND_TINTS.get(die.style_id, Color.WHITE), Vector3.ONE * DiceTrayView.DIE_SCALE)
+		DiceController.KIND_TINTS.get(die.style_id, Color.WHITE))
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
 ## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
@@ -6761,10 +6783,12 @@ func _book_money_packet_on_arrival(travel: float, value: int, chip_color: Color,
 ## Chip-Pakete dicht gestaffelt AUS DER GRUBE über die Zug-Bahn in die Truhe,
 ## jedes bucht seinen Wert bei Ankunft. Bewusst nicht abgewartet - die nächste
 ## Zündung muss nur NACH dem Start kommen, nicht nach der Ankunft.
+## Die Zahl STEIGT aus dem Würfel auf - Geld kommt aus ihm heraus, Basis und Mult
+## fallen weiter herab.
 func _fire_die_money(from_px: Vector2, amount: int) -> void:
 	if table_screen == null or amount <= 0:
 		return
-	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR, 1.0, true)
 	var values := ChipStackView.split_gain(amount)
 	for i in values.size():
 		var value: int = values[i]

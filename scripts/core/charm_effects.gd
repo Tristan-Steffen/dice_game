@@ -69,7 +69,7 @@ const METRONOME_BASE := 6
 const STROBE_MULT := 2
 
 ## Standby-Licht: Mult je gelagerter Energie. Kilometerzähler: je gespielter
-## Runde. Flaschenregal: je VERSCHIEDENER Essenz im Pool.
+## Runde. Flaschenregal: je Essenz-Würfel in der Ablage.
 const STANDBY_LIGHT_MULT := 1
 const ODOMETER_MULT := 1
 const BOTTLE_RACK_MULT := 1
@@ -477,7 +477,7 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 		Charm.ODOMETER:
 			return ODOMETER_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ROUND, 0)))
 		Charm.BOTTLE_RACK:
-			return BOTTLE_RACK_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ESSENCE_KINDS, 0)))
+			return BOTTLE_RACK_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_DISCARD_SOULS, 0)))
 		Charm.GROUND_WIRE:
 			# Ein Fehlwurf entlädt sich - die Vorschau kennt die Zündungen nicht
 			# und sieht darum nichts.

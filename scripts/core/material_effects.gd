@@ -233,7 +233,7 @@ static func mutate_value_once(value: int, face_material: String,
 		# Härteofen: das Wachstum ist eine Auszahlung und läuft dotiert doppelt.
 		for _r in payoff_repeats(level, charm_ids):
 			result = grow_bone_value(result, level, charm_ids, bone_trigger_count(charm_ids))
-	if face_material == DieMaterial.GLASS and not _value_protected(essence_ids, rune_ids):
+	if face_material == DieMaterial.GLASS and not value_protected(essence_ids, rune_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	# Das Essenz-Wachstum reitet auf dem SCHON gewandelten Wert - der Druckkessel
 	# rechnet prozentual, also muss die Zahl stimmen, auf die er fällt.
@@ -254,8 +254,40 @@ static func mutate_link_value_once(value: int, face_material: String, charm_ids:
 
 ## Verliert diese Seite überhaupt Wert? Stickstoff schützt den ganzen Würfel,
 ## der Einbrand nur seine eigene Seite.
-static func _value_protected(essence_ids: Array[String], rune_ids: Array[String]) -> bool:
+static func value_protected(essence_ids: Array[String], rune_ids: Array[String]) -> bool:
 	return EssenceEffects.protects_face_value_of(essence_ids) or RuneEffects.protects_face_value(rune_ids)
+
+## Ansteckung: was eine Miasma-Seite NACH dieser Zündung an jeden anderen
+## gewerteten Würfel abgibt (0 = nichts). Gerechnet auf dem schon gewandelten
+## Wert, damit Knochen/Glas zuerst greifen; Stickstoff und Einbrand wehren die
+## Halbierung ab - dann bekommt auch niemand etwas.
+static func miasma_spread_once(value: int, essence_ids: Array[String], rune_ids: Array[String]) -> int:
+	if not EssenceEffects.redistributes_faces_of(essence_ids):
+		return 0
+	if value_protected(essence_ids, rune_ids):
+		return 0
+	return maxi(0, value / 2)
+
+## Was die Quelle dabei selbst verliert - mit dem Weihrauchfass nichts (der Dunst
+## steckt weiter an, ohne dass die Zahl je kleiner wird).
+static func miasma_self_loss(amount: int, charm_ids: Array[String]) -> int:
+	return 0 if charm_ids.has(Charm.CENSER) else amount
+
+## Dieselbe Ansteckung auf die LAUFENDEN Werte einer Hand (Wertung und
+## Schrittliste; apply_take_effects läuft die gleiche Rechnung auf den Defs).
+## Liefert den verteilten Betrag.
+static func spread_miasma_once(running: Array[int], slot: int, scored: Array[int],
+		essence_ids: Array[String], rune_ids: Array[String], charm_ids: Array[String]) -> int:
+	if slot < 0 or slot >= running.size():
+		return 0
+	var amount := miasma_spread_once(running[slot], essence_ids, rune_ids)
+	if amount <= 0:
+		return 0
+	running[slot] -= miasma_self_loss(amount, charm_ids)
+	for other in scored:
+		if other != slot and other >= 0 and other < running.size():
+			running[other] += amount
+	return amount
 
 ## Endwert der oberen Seite nach activations Auslösungen - genau der Wert, den
 ## apply_take_effects in die Def schreibt (per Test abgesichert).
@@ -298,10 +330,12 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## Gold zahlt seinen Satz (Goldschmied legt drauf); Knochen wächst
 ## (Knochenleim: +3 Aufschlag, Knochenmark lässt jede Knochen-Auslösung ein Mal
 ## mehr feuern); Glas schrumpft, nie unter das Floor
-## (Glasbläserpfeife hebt es auf 6); Essenz-Geld (Neon, Natriumdampf, Miasma) und
+## (Glasbläserpfeife hebt es auf 6); Essenz-Geld (Neon, Natriumdampf) und
 ## Helium-Wachstum reiten in derselben Schleife. Alles je Effekt-Aktivierung.
 ## essences/order: Slot -> Essenz-id und die kanonische Zählreihenfolge - beide
-## Achsen MÜSSEN dieselben sein wie in der Wertung (Argon & Co.).
+## Achsen MÜSSEN dieselben sein wie in der Wertung (Argon & Co.). Gelaufen wird
+## in genau dieser REIHENFOLGE (_take_order), weil die Ansteckung (Miasma) quer
+## über die Würfel wirkt: wer später zählt, findet den Zuwachs schon vor.
 ## pointer_fires: der EINMAL ausgewürfelte Leiterbahn-Wurf (DiceScoring.
 ## CTX_POINTER_FIRES, Slot -> je Würfel-Trigger die gezündeten Glieder) - hier
 ## wird nie neu gewürfelt, sonst zahlte der Zug andere Glieder als er zählte.
@@ -320,6 +354,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# gezählt werden wie in der Wertung (Lichtsäule liest Gleichzahlen, das
 	# Rücklicht das Schlusslicht), sonst driften Simulation und Def auseinander.
 	var shown_values := _shown_values(defs, face_indices, charm_ids, essences)
+	# Die Seiten-Achse liest den VERWANDELTEN Seitenwert - eingefroren vor jeder
+	# Mutation, sonst zählte ein vom Miasma gewachsener Würfel andere Retrigger
+	# als die Wertung.
+	var charm_values := _charm_values(defs, face_indices, charm_ids)
 	var tail_slot: int = int(order[order.size() - 1]) if not order.is_empty() else -1
 	var is_first_hand := hands_taken == 0
 	# Schwarzlicht zahlt je gewertetem Würfel ohne Material - einmal je Zug.
@@ -334,7 +372,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	report.activation_money = activation_money_total(plan_activation_money(defs, face_indices,
 		materials, participating, charm_ids, echo_slot, essences, order, is_stress,
 		pointer_fires, hands_taken, combination))
-	for i in participating:
+	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
 			continue
 		var face: int = face_indices[i]
@@ -350,7 +388,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		for _s in spark:
 			report.sparks.append(i)
 		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
-		var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
+		var shown: int = charm_values[i] if i < charm_values.size() else 0
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
@@ -382,6 +420,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				# mutate_value_once schon gewachsen, die übrigen fünf folgen je
 				# Zündung - jede auf IHREM Wert, der Druckkessel rechnet prozentual.
 				swelled = _swell_other_faces(defs[i], face, essence_ids, charm_ids) or swelled
+				# Ansteckung an genau dieser Stelle - dieselbe wie in der Wertung.
+				_infect_from(defs, face_indices, participating, i, face, essence_ids, rune_ids, charm_ids, report)
 			for fire in (fires[t] if t < fires.size() else []):
 				_fire_link(defs[i], int(fire["face"]), charm_ids, essence_ids, report, i)
 		if defs[i].faces[face] > before:
@@ -410,8 +450,6 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# bleibt unberührt, ihre Werte sind längst im ctx festgehalten.
 		if EssenceEffects.decay_die(defs[i], charm_ids):
 			report.decayed.append(i)
-
-	_spread_miasma(defs, face_indices, participating, essences, charm_ids, report)
 
 	if charm_ids.has(Charm.RECTIFIER):
 		_rectify_faces(defs, face_indices, participating, essences, report)
@@ -544,7 +582,7 @@ static func _apply_contrast_agent(def: DieDefinition, face: int, essence_ids: Ar
 		charm_ids: Array[String], report: TakeReport, slot: int) -> void:
 	if def == null or not charm_ids.has(Charm.CONTRAST_AGENT) or not essence_ids.has(Essence.XRAY):
 		return
-	if face < 0 or face >= def.faces.size() or _value_protected(essence_ids, def.runes_on(face)):
+	if face < 0 or face >= def.faces.size() or value_protected(essence_ids, def.runes_on(face)):
 		return
 	var loss: int = def.faces[face] / 2
 	if loss <= 0:
@@ -558,45 +596,28 @@ static func _apply_contrast_agent(def: DieDefinition, face: int, essence_ids: Ar
 		if not report.grown.has(slot):
 			report.grown.append(slot)
 
-## Ansteckung: jeder gewertete Miasma-Würfel verliert auf seiner oberen Seite
-## dauerhaft die abgerundete Hälfte ihrer Augen, und GENAU dieser Betrag wächst
-## auf jeder anderen gewerteten Seite der Hand. Läuft NACH allen Wertwandeln des
-## Zuges, damit Knochen/Glas exakt auf dem value_after der Simulation landen.
-## Stickstoff (Würfel) und Einbrand (Seite) verhindern die Halbierung - dann
-## bekommt auch niemand etwas. Mit dem Weihrauchfass steckt der Dunst weiter an, OHNE
-## dass die Quelle verliert.
-static func _spread_miasma(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int], essences: Dictionary, charm_ids: Array[String], report: TakeReport) -> void:
-	for i in participating:
-		if i >= defs.size() or i >= face_indices.size() or defs[i] == null:
+## Ansteckung EINER Zündung auf die Defs: die obere Seite des Miasma-Würfels gibt
+## die abgerundete Hälfte ihrer Augen ab, und GENAU dieser Betrag wächst sofort
+## auf jeder anderen gewerteten Seite der Hand - noch bevor sie zählt. Dieselbe
+## Stelle und dieselbe Rechnung wie DiceScoring._base_and_mult, damit Simulation
+## und Def nicht driften; die Empfänger meldet sie selbst als gewachsen, weil ihr
+## eigener Vorher/Nachher-Vergleich längst gelaufen sein kann.
+static func _infect_from(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int],
+		slot: int, face: int, essence_ids: Array[String], rune_ids: Array[String],
+		charm_ids: Array[String], report: TakeReport) -> void:
+	var amount := miasma_spread_once(defs[slot].faces[face], essence_ids, rune_ids)
+	if amount <= 0:
+		return
+	defs[slot].faces[face] -= miasma_self_loss(amount, charm_ids)
+	for other in participating:
+		if other == slot or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
 			continue
-		var face: int = face_indices[i]
-		if face < 0 or face >= defs[i].faces.size():
+		var other_face: int = face_indices[other]
+		if other_face < 0 or other_face >= defs[other].faces.size():
 			continue
-		var essence_ids := EssenceEffects.set_at(essences, i)
-		var infects := false
-		for essence_id in essence_ids:
-			if EssenceEffects.redistributes_faces(essence_id):
-				infects = true
-		if not infects:
-			continue
-		if _value_protected(essence_ids, defs[i].runes_on(face)):
-			continue
-		var amount: int = defs[i].faces[face] / 2
-		if amount <= 0:
-			continue
-		if not charm_ids.has(Charm.CENSER):
-			defs[i].faces[face] -= amount
-			if not report.shrunk.has(i):
-				report.shrunk.append(i)
-		for other in participating:
-			if other == i or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
-				continue
-			var other_face: int = face_indices[other]
-			if other_face < 0 or other_face >= defs[other].faces.size():
-				continue
-			defs[other].faces[other_face] += amount
-			if not report.grown.has(other):
-				report.grown.append(other)
+		defs[other].faces[other_face] += amount
+		if not report.grown.has(other):
+			report.grown.append(other)
 
 ## Hintergrundstrahlung: wird sie gewertet, wachsen ALLE Seiten ALLER liegenden
 ## Würfel dauerhaft - sie selbst eingeschlossen. Wachstum, also nie vom Einbrand
@@ -659,7 +680,7 @@ static func _rectify_faces(defs: Array[DieDefinition], face_indices: Array[int],
 		var current: int = defs[i].faces[face]
 		if mean == current:
 			continue
-		if mean < current and _value_protected(EssenceEffects.set_at(essences, i), defs[i].runes_on(face)):
+		if mean < current and value_protected(EssenceEffects.set_at(essences, i), defs[i].runes_on(face)):
 			continue
 		defs[i].faces[face] = mean
 		if mean > current:
@@ -684,9 +705,34 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 	elif def.faces[link_face] < before and not report.shrunk.has(slot):
 		report.shrunk.append(slot)
 
+## Reihenfolge, in der die Nehmen-Effekte über die gewerteten Slots laufen: die
+## Zählreihenfolge, denn die Ansteckung wirkt quer über die Würfel. Was die Reihe
+## nicht nennt (ältere Aufrufer ohne order), hängt sich slot-sortiert hinten an.
+static func _take_order(order: Array[int], participating: Array[int]) -> Array[int]:
+	var walk: Array[int] = []
+	for i in order:
+		if participating.has(i) and not walk.has(i):
+			walk.append(i)
+	for i in participating:
+		if not walk.has(i):
+			walk.append(i)
+	return walk
+
 ## Zustand des Materials DIESER Seite (Guard für Defs ohne volles levels-Array).
 static func face_level(def: DieDefinition, face: int) -> int:
 	return def.material_level(face) if def != null else 0
+
+## Nur die Charm-Kette, ohne Essenz-Linse: die Seiten-Achse (Retrigger) liest
+## genau diesen Wert, und er muss VOR jeder Mutation eingefroren sein.
+static func _charm_values(defs: Array[DieDefinition], face_indices: Array[int], charm_ids: Array[String]) -> Array[int]:
+	var out: Array[int] = []
+	for k in defs.size():
+		var face: int = face_indices[k] if k < face_indices.size() else -1
+		if defs[k] == null or face < 0 or face >= defs[k].faces.size():
+			out.append(0)
+			continue
+		out.append(CharmEffects.shown_by_charms(defs[k].faces[face], charm_ids))
+	return out
 
 ## Die GEZEIGTEN Werte aller Slots - dieselbe Linse wie DiceScoring.shown_value
 ## (Charm-Kette, Schutzgeld, dann die Essenz-Linse), nur ohne den Rückgriff auf
