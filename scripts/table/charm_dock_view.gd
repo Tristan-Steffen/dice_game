@@ -134,6 +134,18 @@ func console_rects() -> Array[Rect2]:
 func console_corner_radius() -> float:
 	return _pad_size.x * 0.16
 
+## Bild-Screen füllt die Konsole unter dem Projektor - Kanten decken sich mit dem
+## Chassis (links/rechts/unten bündig), nur die Linse bleibt oben frei. Bild und
+## Text sitzen darin, also wachsen sie mit der Konsole.
+func _card_rect(i: int) -> Rect2:
+	var console := _console_rects[i]
+	var top := _aperture_offsets[i].y + _projector_r() + _pad_size.y * PROJECTOR_GAP
+	return Rect2(console.position.x, top, console.size.x, console.end.y - top)
+
+## Karten-Maße (alle Konsolen gleich); vor place() noch die Kartengröße selbst.
+func _card_size() -> Vector2:
+	return _card_rect(0).size if not _console_rects.is_empty() else _pad_size
+
 ## Übernimmt Belegung + Raritätsfarben (Reihenfolge = Besitz) und rendert je
 ## belegtem Platz eine Charm-Kachel. Überzählige Charms (> Plätze) fallen weg.
 ## sell_values (je Platz, gleiche Reihenfolge) speist den Verkaufs-Chip; ohne
@@ -145,13 +157,14 @@ func set_charms(charms: Array[Charm], sell_values: Array[int] = []) -> void:
 	_charms = charms.duplicate()
 	_sell_values = sell_values.duplicate()
 	_clear_thumbs()
-	var inner := maxf(1.0, _pad_size.y * THUMB_INSET)
+	var card := _card_size()
+	var inner := maxf(1.0, minf(card.x, card.y) * THUMB_INSET)
 	for i in _occupied:
 		_pad_colors.append(Charm.RARITY_COLORS.get(charms[i].rarity,
 			Charm.RARITY_COLORS[Charm.RARITY_COMMON]))
 		var thumb := CharmThumb.new(charms[i], int(inner), false)
 		thumb.pivot_offset = Vector2(inner, inner) / 2.0
-		var home := _pad_offsets[i] - Vector2(inner, inner) / 2.0
+		var home := _card_rect(i).get_center() - Vector2(inner, inner) / 2.0
 		thumb.position = home
 		add_child(thumb)
 		_thumbs.append(thumb)
@@ -175,18 +188,21 @@ func _update_badges() -> void:
 		add_child(fresh)
 		_badge_labels.append(fresh)
 		_style_badge(fresh)
-	var bw := _pad_size.x * 0.62
-	var bh := _pad_size.y * 0.2
+	var card := _card_size()
+	var bw := card.x * 0.6
+	var bh := card.y * 0.16
 	for i in _badge_labels.size():
 		var label := _badge_labels[i]
 		var text: String = str(_badge_texts.get(i, ""))
-		var active := text != "" and i < _occupied and i < _pad_offsets.size()
+		# Beim Hover trägt der Verkaufs-Chip den Kartenboden - dann Dauer-Chip aus.
+		var active := text != "" and i < _occupied and i < _pad_offsets.size() and i != _hover
 		label.visible = active
 		if not active:
 			continue
 		label.text = text
-		var card_bottom := _pad_offsets[i] + Vector2(0, _pad_size.y * 0.5)
-		label.position = card_bottom + Vector2(-bw * 0.5, _pad_size.y * BADGE_GAP)
+		var cr := _card_rect(i)
+		var bottom_center := Vector2(cr.get_center().x, cr.end.y)
+		label.position = bottom_center + Vector2(-bw * 0.5, -bh - cr.size.y * BADGE_GAP)
 		label.size = Vector2(bw, bh)
 		move_child(label, get_child_count() - 1)
 
@@ -234,6 +250,7 @@ func set_hover(i: int) -> void:
 	_name_label.visible = _hover >= 0
 	_body_label.visible = _hover >= 0
 	_sell_label.visible = _hover >= 0 and _sell_label.text != ""
+	_update_badges()
 	queue_redraw()
 
 ## Kurzer Helligkeits-Puls auf Konsole i ("dieser Charm feuert") - Projektor UND
@@ -322,9 +339,10 @@ func _ensure_labels() -> void:
 
 ## Schriftgrößen an der Kartengröße ausrichten (Name in Gold, Wirkung in Creme).
 func _style_labels() -> void:
-	CasinoStyle.style_score_label(_name_label, int(_pad_size.y * 0.13), CasinoStyle.GOLD)
-	CasinoStyle.style_body_label(_body_label, int(_pad_size.y * 0.105), CasinoStyle.CREAM)
-	CasinoStyle.style_score_label(_sell_label, int(_pad_size.y * 0.09), CasinoStyle.GOLD)
+	var ch := _card_size().y
+	CasinoStyle.style_score_label(_name_label, int(ch * 0.12), CasinoStyle.GOLD)
+	CasinoStyle.style_body_label(_body_label, int(ch * 0.1), CasinoStyle.CREAM)
+	CasinoStyle.style_score_label(_sell_label, int(ch * 0.08), CasinoStyle.GOLD)
 	var chip := StyleBoxFlat.new()
 	chip.bg_color = Color(0.05, 0.035, 0.02, 0.92)
 	chip.border_color = Color(CasinoStyle.GOLD.r, CasinoStyle.GOLD.g, CasinoStyle.GOLD.b, 0.55)
@@ -349,19 +367,21 @@ func _style_badge(label: Label) -> void:
 ## schrumpft schrittweise, bis er in die verfügbare Höhe passt. Am Kartenboden
 ## sitzt der Verkaufs-Chip (Treffer-Rect für sell_index_at).
 func _place_labels_in_card(i: int) -> void:
-	var inset := _pad_size.x * 0.09
-	var card_top_left := _pad_offsets[i] - _pad_size / 2.0
-	var inner_w := _pad_size.x - inset * 2.0
-	var chip_h := _pad_size.y * 0.16 if _sell_label.text != "" else 0.0
-	var body_h := _pad_size.y - inset * 1.2 - _pad_size.y * 0.18 - chip_h
+	var cr := _card_rect(i)
+	var inset := cr.size.x * 0.07
+	var card_top_left := cr.position
+	var inner_w := cr.size.x - inset * 2.0
+	var name_h := cr.size.y * 0.18
+	var chip_h := cr.size.y * 0.16 if _sell_label.text != "" else 0.0
+	var body_h := cr.size.y - inset * 1.2 - name_h - chip_h
 	_name_label.position = card_top_left + Vector2(inset, inset * 0.6)
-	_name_label.size = Vector2(inner_w, _pad_size.y * 0.18)
-	_body_label.position = card_top_left + Vector2(inset, inset * 0.6 + _pad_size.y * 0.18)
+	_name_label.size = Vector2(inner_w, name_h)
+	_body_label.position = card_top_left + Vector2(inset, inset * 0.6 + name_h)
 	_body_label.size = Vector2(inner_w, body_h)
 	_fit_body_font(inner_w, body_h)
 	var chip_w := inner_w * 0.9
 	_sell_label.position = card_top_left \
-		+ Vector2((_pad_size.x - chip_w) * 0.5, _pad_size.y - inset * 0.6 - chip_h)
+		+ Vector2((cr.size.x - chip_w) * 0.5, cr.size.y - inset * 0.6 - chip_h)
 	_sell_label.size = Vector2(chip_w, chip_h)
 	_sell_rect = Rect2(_sell_label.position, _sell_label.size)
 	# Text über die Kachel-Kinder heben.
@@ -375,8 +395,8 @@ func _fit_body_font(width: float, height: float) -> void:
 	var font := _body_label.get_theme_font("font")
 	if font == null:
 		return
-	var font_size := int(_pad_size.y * 0.105)
-	var min_size := maxi(8, int(_pad_size.y * 0.055))
+	var font_size := int(_card_size().y * 0.1)
+	var min_size := maxi(8, int(_card_size().y * 0.05))
 	while font_size > min_size:
 		var text_size := font.get_multiline_string_size(_body_label.text,
 			HORIZONTAL_ALIGNMENT_LEFT, width, font_size)
@@ -424,14 +444,14 @@ func _draw() -> void:
 	var radius := console_corner_radius()
 	var hair_w := maxf(1.5, _pad_size.y * 0.014)   # Haarlinie statt Klotz-Rahmen
 	var edge_w := maxf(2.0, _pad_size.y * 0.02)
-	var card_radius := int(_pad_size.y * 0.16)
 	for i in _pad_offsets.size():
 		var occupied := i < _occupied
 		var rarity: Color = _pad_colors[i] if occupied else PLATINUM
 		var lit := occupied and (i == _hover or (i == _drop_hint and _drag_index >= 0))
 		var flash: float = _flash[i] if i < _flash.size() else 0.0
 		var hair := _hairline(occupied, lit)
-		var card_rect := Rect2(_pad_offsets[i] - _pad_size / 2.0, _pad_size)
+		var card_rect := _card_rect(i)
+		var card_radius := int(console_corner_radius())  # deckt sich mit dem Chassis-Radius
 
 		# Chassis: gleicher Fenster-Grund wie alle Screens; Linse und Karte bleiben
 		# dunkler (Kraftfeld-Generator bzw. Bild/Text). Platin-Haarlinie.
