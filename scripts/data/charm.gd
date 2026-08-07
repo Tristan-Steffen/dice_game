@@ -735,7 +735,7 @@ static func display_case() -> Charm:
 	return _make(DISPLAY_CASE, "Vitrine", "+4 Mult je oben liegender Material-Seite.")
 
 static func jewelry_box() -> Charm:
-	return _make(JEWELRY_BOX, "Schmuckkästchen", "Bei der Auszahlung der übrigen Würfel nach dem Rundenziel: jeder übrige Würfel erhält mit 10% Chance eine zufällige Material-Seite (dauerhaft).")
+	return _make(JEWELRY_BOX, "Schmuckkästchen", "Bei der Auszahlung der übrigen Würfel nach dem Rundenziel: jeder übrige Würfel legt mit 10% Chance eine zufällige Material-Gravur in den Vorrat.")
 
 static func rectifier() -> Charm:
 	return _make(RECTIFIER, "Gleichrichter", "Nach jeder genommenen Hand werden die oben liegenden Seiten aller gewerteten Würfel dauerhaft auf ihren aufgerundeten Mittelwert gesetzt.")

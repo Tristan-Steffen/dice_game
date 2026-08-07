@@ -2530,18 +2530,6 @@ func charm_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2,
 	_pulse_along(path, travel, color)
 	return travel
 
-## Rundenende-Komet zur WERKSTATT selbst (das Schmuckkästchen greift an die
-## Würfel, nicht in eine Schublade): dieselbe Bahn wie der Gravur-Meteor, nur
-## endet sie im Fenster.
-func charm_workshop_comet(from_px: Vector2, color: Color) -> float:
-	if workshop_window == null or not workshop_window.visible:
-		return 0.0
-	var to_px := workshop_window.position + workshop_window.size * 0.5
-	var path := _round_end_route(from_px, [workshop_hub_strip], to_px)
-	var travel := _round_end_travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
-
 ## Die Rundenende-Bahn ist lang (Score -> Grube -> Hub -> Ziel) - ihre Kometen
 ## fahren doppelt so schnell wie die normale Licht-Geschwindigkeit, damit die
 ## Zeremonie bei mehreren Charms nicht zäh wird.

@@ -1539,9 +1539,9 @@ var _meteor_index := 0
 ## Sie liegt im Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
 var _hub_reward_overlay: Control = null
 
-## Was das Schmuckkästchen an diesem Rundenende veredelt hat - gebucht beim
-## Rundenabschluss, gezeigt an seinem Dock-Platz in der Charm-Zeremonie.
-var _jewelry_box_upgrades: Array[Dictionary] = []
+## Was das Schmuckkästchen an diesem Rundenende gewürfelt hat - gebucht wird
+## erst bei der Ankunft des jeweiligen Meteors in der Charm-Zeremonie.
+var _jewelry_box_engravings: Array[Dictionary] = []
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
@@ -6352,7 +6352,7 @@ func _reset_game() -> void:
 	# Reveal-Auslage des alten Laufs abräumen; ihr Ablauf merkt den Lauf-Wechsel
 	# erst an seiner nächsten await-Grenze.
 	_clear_hub_reward_overlay()
-	_jewelry_box_upgrades.clear()  # Würfel des alten Laufs sind fort
+	_jewelry_box_engravings.clear()  # Gravuren des alten Laufs sind fort
 	last_thrown_slots.clear()
 	if table_screen != null:
 		table_screen.clear_fumble_marks()
@@ -6690,10 +6690,10 @@ func _on_round_complete() -> void:
 		# Knallgas: die Kettenreaktion im Stapel - je übrigem Würfel ein eigener
 		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
 		var per_die_row := _leftover_die_payouts(per_die, ids)
-		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
-		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
-		_jewelry_box_upgrades = run.apply_jewelry_box(
-			round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Gravur.
+		# Nur GEWÜRFELT - gebucht wird jede erst bei der Ankunft ihres Meteors.
+		_jewelry_box_engravings = run.roll_jewelry_box_engravings(
+			round_pool_kinds.size() - next_draw_index)
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
 		# bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
@@ -6955,73 +6955,15 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 		if phase != Phase.PAYOUT:
 			return
 
-## Schmuckkästchen: je veredeltem Würfel ein Meteor vom Dock-Pad die Werkstatt-
-## Ader hinunter, dicht gestaffelt wie die Frankiermaschine. Gebucht ist längst
-## (Rundenabschluss) - die Salve zeigt nur, wer welchen Würfel bekommen hat.
+## Schmuckkästchen: je gewürfelter Gravur ein Meteor in ihre Schublade - dieselbe
+## Salve wie die Frankiermaschine, nur ist die Zahl hier erwürfelt statt fest.
 func _play_jewelry_box_meteors(index: int, copy: int) -> void:
-	var mine: Array[Dictionary] = []
-	for upgrade in _jewelry_box_upgrades:
-		if int(upgrade["copy"]) == copy:
-			mine.append(upgrade)
-	if mine.is_empty():
-		return
-	_flash_charm_and_pad(index)
-	var from_px := _charm_trail_source_px([index])
-	var travel := 0.0
-	for i in mine.size():
-		var upgrade := mine[i]
-		if i == 0:
-			travel = _fire_jewelry_box_meteor(upgrade, from_px)
-		else:
-			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
-				if phase == Phase.PAYOUT:
-					_fire_jewelry_box_meteor(upgrade, from_px))
-	var last_arrival := float(maxi(0, mine.size() - 1)) * STAMP_METEOR_GAP + maxf(travel, 0.05)
-	await get_tree().create_timer(last_arrival + ENGRAVE_TRAIL_TIME).timeout
-	if phase != Phase.PAYOUT:
-		return
-	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
-
-## EIN Meteor der Salve: Dock-Pad -> Werkstatt-Fenster, bei Ankunft die kurze
-## Spur zum betroffenen Tray-Würfel. Liefert die Laufzeit der Ader.
-func _fire_jewelry_box_meteor(upgrade: Dictionary, from_px: Vector2) -> float:
-	if table_screen == null or table_screen.workshop_window == null:
-		return 0.0
-	var die: DieDefinition = upgrade["die"]
-	var material := DieMaterial.by_id(String(upgrade["material_id"]))
-	var tint := material.tint if material != null else CasinoStyle.GOLD
-	var travel := table_screen.charm_workshop_comet(from_px, tint)
-	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if phase == Phase.PAYOUT:
-			_deliver_jewelry_box_die(die, tint))
-	return travel
-
-## Letztes Stück: vom Werkstatt-Fenster eine kurze Spur an den Tray-Würfel, der
-## bei ihrer Ankunft die Kraft schluckt (Blitz-Pop). Seine Seiten tragen das
-## Material längst - pool_changed lief beim Buchen.
-func _deliver_jewelry_box_die(die: DieDefinition, tint: Color) -> void:
-	var tray: DiceTrayView = null
-	var index := -1
-	for candidate in [queue_tray_view, pool_tray_view]:
-		for i in candidate.slot_defs.size():
-			if candidate.slot_defs[i] == die and candidate.slot_roots[i].visible:
-				tray = candidate
-				index = i
-				break
-		if tray != null:
-			break
-	if tray == null or table_screen == null or table_screen.workshop_window == null:
-		return
-	var center := table_screen.workshop_window.position + table_screen.workshop_window.size * 0.5
-	table_screen.spawn_trace(center, table_screen.world_to_pixel(tray.slot_global_position(index)),
-		tint, ENGRAVE_TRAIL_TIME)
-	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
-	if phase != Phase.PAYOUT or not is_instance_valid(tray) or index >= tray.slot_face_displays.size():
-		return
-	# Ruhegröße OHNE DIE_SCALE: im Tray sitzt die Skalierung auf der WURZEL, die
-	# Anzeige selbst steht auf ONE (anders als ein Grubenwürfel).
-	_flash_die_tint(tray.slot_face_displays[index],
-		DiceController.KIND_TINTS.get(die.style_id, Color.WHITE))
+	var mine: Array[Engraving] = []
+	for rolled in _jewelry_box_engravings:
+		if int(rolled["copy"]) == copy:
+			var engraving: Engraving = rolled["engraving"]
+			mine.append(engraving)
+	await _play_engraving_salvo(index, mine)
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
 ## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
@@ -7130,22 +7072,32 @@ func _play_take_money_comet(amount: int) -> void:
 		table_screen.treasure_window.flash_receive_slot(chip_color))
 
 ## Die Frankiermaschine schickt ihre Zahl-Gravuren als dichte Meteor-Salve auf
-## die Adern: die Starts folgen im STAMP_METEOR_GAP-Takt, ohne auf die vorige
-## Ankunft zu warten - jede Gravur liegt erst bei IHRER Ankunft im Vorrat
-## (der Meteor ist die Gravur, nicht ihre Ankündigung).
+## die Adern - je Meteor eine Gravur, gewürfelt beim Start.
 func _play_stamp_machine_meteors(index: int) -> void:
+	var engravings: Array[Engraving] = []
+	for _i in GameRun.STAMP_ENGRAVINGS:
+		engravings.append(run.roll_stamp_engraving())
+	await _play_engraving_salvo(index, engravings)
+
+## Gemeinsame Gravur-Salve der Rundenende-Charms: die Starts folgen im
+## STAMP_METEOR_GAP-Takt, ohne auf die vorige Ankunft zu warten - jede Gravur
+## liegt erst bei IHRER Ankunft im Vorrat (der Meteor ist die Gravur, nicht
+## ihre Ankündigung). Leere Salve: kein Pad-Blitz, der Charm blieb stumm.
+func _play_engraving_salvo(index: int, engravings: Array[Engraving]) -> void:
+	if engravings.is_empty():
+		return
 	_flash_charm_and_pad(index)
 	var from_px := _charm_trail_source_px([index])
 	var travel := 0.0
-	for i in GameRun.STAMP_ENGRAVINGS:
-		var engraving := run.roll_stamp_engraving()
+	for i in engravings.size():
+		var engraving := engravings[i]
 		if i == 0:
 			travel = _fire_charm_engraving(engraving, from_px)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if phase == Phase.PAYOUT:
 					_fire_charm_engraving(engraving, from_px))
-	var last_arrival := float(GameRun.STAMP_ENGRAVINGS - 1) * STAMP_METEOR_GAP + maxf(travel, 0.05)
+	var last_arrival := float(engravings.size() - 1) * STAMP_METEOR_GAP + maxf(travel, 0.05)
 	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return

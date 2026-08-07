@@ -99,12 +99,10 @@ func test_take_effects_never_rewrite_a_soul():
 func test_charms_that_repaint_dice_never_rewrite_a_soul():
 	var run := _souled_run()
 	var before := _souls_of(run)
-	run.owned_charms.append(Charm.jewelry_box())
-	run.apply_jewelry_box(run.owned_pool)
 	run.owned_charms.append(Charm.midas_glove())
 	var faces := _p([0, 0, 0, 0, 0, 0])
 	run.apply_midas_glove(run.owned_pool.slice(0, 6), faces, _p([0, 1, 2, 3, 4, 5]))
-	assert_eq(_souls_of(run), before, "Schmuckkästchen und Midashandschuh malen nur Seiten")
+	assert_eq(_souls_of(run), before, "der Midashandschuh malt nur Seiten")
 
 func test_the_test_mode_helpers_never_rewrite_a_soul():
 	var run := _souled_run()

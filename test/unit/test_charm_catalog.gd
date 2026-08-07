@@ -824,35 +824,39 @@ func test_stamp_machine_rolls_number_engravings_for_the_ceremony():
 		run.grant_engraving(engraving)
 	assert_eq(run.owned_engravings.size(), GameRun.STAMP_ENGRAVINGS)
 
-func test_jewelry_box_upgrades_unused_dice_at_payout():
+func test_jewelry_box_rolls_material_engravings_for_the_ceremony():
+	# Wie die Frankiermaschine: der Wurf liefert nur die Liste, gebucht wird jede
+	# Gravur erst bei der Ankunft ihres Meteors.
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.jewelry_box())
-	# 10% je Würfel: bei 300 Würfeln ist "keiner veredelt" praktisch ausgeschlossen.
-	var many: Array[DieDefinition] = []
-	for i in 300:
-		many.append(DieDefinition.standard())
-	var upgrades := run.apply_jewelry_box(many)
-	assert_gt(upgrades.size(), 0, "bei 300 Würfeln veredelt das Schmuckkästchen praktisch sicher")
-	var material_faces := 0
-	for def in many:
-		material_faces += def.materials.size() - def.materials.count("")
-	assert_eq(material_faces, upgrades.size(), "jede Veredelung sitzt auf genau einer Seite")
-	# Die Zeremonie braucht je Aufwertung Würfel, Seite und Material.
-	for upgrade in upgrades:
-		var die: DieDefinition = upgrade["die"]
-		var face: int = upgrade["face"]
-		assert_true(many.has(die), "der Eintrag zeigt auf den echten Würfel")
-		assert_eq(die.materials[face], String(upgrade["material_id"]))
-		assert_eq(int(upgrade["copy"]), 0, "ein Exemplar - alles gehört Dock-Platz 0")
-	assert_eq(run.apply_jewelry_box([] as Array[DieDefinition]).size(), 0,
-		"ohne übrige Würfel passiert nichts")
+	# 10% je Würfel: bei 300 übrigen Würfeln ist "kein Treffer" praktisch ausgeschlossen.
+	var rolled := run.roll_jewelry_box_engravings(300)
+	assert_gt(rolled.size(), 0, "bei 300 übrigen Würfeln trifft das Schmuckkästchen praktisch sicher")
+	assert_eq(run.owned_engravings.size(), 0, "roll allein grantet nicht")
+	for entry in rolled:
+		var engraving: Engraving = entry["engraving"]
+		assert_eq(engraving.category, Engraving.CATEGORY_MATERIAL)
+		assert_ne(engraving.material_id(), "", "eine echte Material-Gravur, kein Sonderposten")
+		assert_eq(int(entry["copy"]), 0, "ein Exemplar - alles gehört Dock-Platz 0")
+	assert_eq(run.roll_jewelry_box_engravings(0).size(), 0, "ohne übrige Würfel passiert nichts")
+
+func test_jewelry_box_no_longer_paints_a_face():
+	var run := GameRun.new_run()
+	run.owned_charms.append(Charm.jewelry_box())
+	var before := _material_face_count(run.owned_pool)
+	run.roll_jewelry_box_engravings(300)
+	assert_eq(_material_face_count(run.owned_pool), before,
+		"die Gravur wandert in den Vorrat, nicht auf eine Würfelseite")
+
+func _material_face_count(pool: Array[DieDefinition]) -> int:
+	var faces := 0
+	for def in pool:
+		faces += def.materials.size() - def.materials.count("")
+	return faces
 
 func test_jewelry_box_does_nothing_without_the_charm():
 	var run := GameRun.new_run()
-	var many: Array[DieDefinition] = []
-	for i in 50:
-		many.append(DieDefinition.standard())
-	assert_eq(run.apply_jewelry_box(many).size(), 0)
+	assert_eq(run.roll_jewelry_box_engravings(50).size(), 0)
 
 func test_rag_collector_rolls_lucky_value_on_purchase():
 	var run := GameRun.new_run()

@@ -798,19 +798,6 @@ func test_midas_glove_resets_the_level_of_the_face_it_gilds():
 		assert_eq(defs[i].materials[faces[i]], DieMaterial.GOLD)
 		assert_eq(defs[i].material_level(faces[i]), 1, "die Rubin-Stufe ist mit dem Rubin weg")
 
-func test_jewelry_box_resets_the_level_of_the_face_it_hits():
-	run.owned_charms.append(Charm.jewelry_box())
-	var many: Array[DieDefinition] = []
-	for i in 200:
-		var die := DieDefinition.standard()
-		die.levels.fill(DieMaterial.MAX_LEVEL)
-		many.append(die)
-	run.apply_jewelry_box(many)
-	for die in many:
-		for face in 6:
-			if die.materials[face] != "":
-				assert_eq(die.material_level(face), 1, "belegte Seite fängt wieder bei I an")
-
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 
 func test_stress_round_is_every_last_block_station():

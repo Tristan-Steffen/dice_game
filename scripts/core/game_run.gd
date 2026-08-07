@@ -1186,22 +1186,28 @@ func _roll_lumpensammler_value() -> void:
 		if charm.id == Charm.RAG_COLLECTOR:
 			charm.description = Charm.rag_collector_description(lumpensammler_value)
 
-## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
-## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert je Aufwertung
-## {die, face, material_id, copy} - die Zeremonie zeigt jede einzeln, "copy" ist
-## das Exemplar, dem sie gehört (der Dock-Platz, von dem sie ausgeht).
-func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
-	var upgrades: Array[Dictionary] = []
+## Trefferchance des Schmuckkästchens je übrigem Würfel und Exemplar.
+const JEWELRY_BOX_CHANCE := 0.1
+
+## Schmuckkästchen: je Vorkommen legt jeder übrige Würfel mit 10% Chance eine
+## zufällige Material-Gravur in den Vorrat. Es fasst die Würfel nicht mehr an -
+## es zählt sie nur, darum der reine Zahl-Parameter. Liefert je Treffer
+## {engraving, copy}; "copy" ist das Exemplar, dem sie gehört (der Dock-Platz,
+## von dem ihr Meteor ausgeht). Gewürfelt, nicht gebucht: die Gravur liegt erst
+## im Vorrat, wenn ihr Meteor angekommen ist (wie die Frankiermaschine).
+func roll_jewelry_box_engravings(unused_dice: int) -> Array[Dictionary]:
+	var rolled: Array[Dictionary] = []
 	for i in charm_ids().count(Charm.JEWELRY_BOX):
-		for die in unused_dice:
-			if randf() < 0.1:
+		for _die in maxi(0, unused_dice):
+			if randf() < JEWELRY_BOX_CHANCE:
 				var material: DieMaterial = DieMaterial.all().pick_random()
-				var face := randi() % die.materials.size()
-				die.set_face_material(face, material.id)
-				upgrades.append({"die": die, "face": face, "material_id": material.id, "copy": i})
-	if not upgrades.is_empty():
-		pool_changed.emit()
-	return upgrades
+				var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
+					Engraving.Rarity.UNCOMMON)
+				rolled.append({
+					"engraving": Engraving.material_engraving(material, rarity),
+					"copy": i,
+				})
+	return rolled
 
 ## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
 ## dauerhaft eine Stufe - höchstens einmal je Runde. true = eingelöst (der
