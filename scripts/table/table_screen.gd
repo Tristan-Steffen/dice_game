@@ -2530,8 +2530,9 @@ func charm_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2,
 	_pulse_along(path, travel, color)
 	return travel
 
-## Rundenende-Komet zur WERKSTATT selbst (Politur greift an die Würfel, nicht in
-## eine Schublade): dieselbe Bahn wie der Gravur-Meteor, nur endet sie im Fenster.
+## Rundenende-Komet zur WERKSTATT selbst (das Schmuckkästchen greift an die
+## Würfel, nicht in eine Schublade): dieselbe Bahn wie der Gravur-Meteor, nur
+## endet sie im Fenster.
 func charm_workshop_comet(from_px: Vector2, color: Color) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
