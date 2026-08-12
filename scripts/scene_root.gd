@@ -181,6 +181,10 @@ const DATA_CELL_SINK_TIME := 0.30
 const PRESS_PORTAL_STAGGER := 0.08
 const PRESS_METEOR_GAP := 0.07
 const PRESS_METEOR_SLOT_GAP := 0.12
+## Frist nach dem letzten Start, nach der die Beute auch ohne ihren Einschlag
+## aufgedeckt wird - reichlich über jeder echten Flugzeit, damit die Frist nie
+## einem fliegenden Meteor zuvorkommt.
+const PRESS_METEOR_GRACE := 2.0
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
@@ -3245,6 +3249,13 @@ func _on_press_rolled(sorts: Array, readers: Array, cost: int) -> void:
 			_fly_press_meteor(workshop, slot, int(uid), sorts, launch)  # nicht erwartet
 			launch += PRESS_METEOR_GAP
 		launch += PRESS_METEOR_SLOT_GAP
+	# Verdeckt hebt NUR ein Einschlag auf - ein einziger ausgebliebener hielte
+	# sein Stück für immer unsichtbar, samt gesperrtem Regal (pressing hängt
+	# daran). Also landet nach der Frist, was noch verdeckt liegt; ein längst
+	# gelandetes Stück merkt davon nichts.
+	await get_tree().create_timer(launch + PRESS_METEOR_GRACE).timeout
+	if run == launched and is_instance_valid(workshop):
+		_land_press_pieces(workshop, flying)
 
 ## EIN Meteor: er startet im Anzeigefeld seines Lesers und schlägt auf dem Platz
 ## seines Chips ein - erst dort wird das Stück sichtbar.

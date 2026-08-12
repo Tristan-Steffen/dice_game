@@ -517,6 +517,46 @@ func test_the_readers_keep_their_sort_colour_while_the_press_runs() -> void:
 	assert_eq((view._press_portals[0] as PressPortalView).sort, "",
 		"mit dem letzten Meteor wird er dunkel")
 
+## Das Netz unter der Zeremonie (scene_root deckt nach der letzten planmäßigen
+## Ankunft auf, was noch verdeckt liegt): dafür muss ein zweites Landen folgenlos
+## sein - sonst plusterte jedes Stück ein zweites Mal auf.
+func test_landing_a_piece_twice_changes_nothing() -> void:
+	_select_number_packs(2)
+	view.start_press()
+	var uids: Array[int] = []
+	for piece in run.press_pieces:
+		uids.append(int(piece["piece_uid"]))
+	view.withhold_press_pieces(uids)
+	await wait_frames(2)
+	for uid in uids:
+		view.land_press_piece(uid)
+	await wait_frames(2)
+	var chips := view._ablage_chips.size()
+	for uid in uids:
+		view.land_press_piece(uid)  # das Netz greift nach - es findet nichts mehr
+	await wait_frames(2)
+	assert_eq(view._ablage_chips.size(), chips, "kein Stück liegt doppelt")
+	assert_eq(view._withheld.size(), 0)
+
+## Bleibt ein Einschlag aus, darf die Beute nicht FÜR IMMER verdeckt bleiben:
+## nachträgliches Landen deckt jedes Stück auf und gibt die Bank wieder frei.
+func test_a_missed_impact_can_still_be_landed_afterwards() -> void:
+	_select_number_packs(3)
+	view.start_press()
+	var uids: Array[int] = []
+	for piece in run.press_pieces:
+		uids.append(int(piece["piece_uid"]))
+	view.withhold_press_pieces(uids)
+	await wait_frames(2)
+	assert_eq(view._ablage_chips.size(), 0, "verdeckt liegt nichts auf dem Glas")
+	assert_true(view.pressing(), "und die Bank ist gesperrt, solange etwas fliegt")
+	for uid in uids:
+		view.land_press_piece(uid)
+	await wait_frames(2)
+	assert_eq(view._ablage_chips.size(), uids.size(), "jedes Stück liegt")
+	assert_false(view.pressing(), "die Bank ist wieder frei")
+	assert_eq(view._press_sorts, [] as Array[String], "und die Leser sind dunkel")
+
 # --- Die Ablage: die Beute liegt auf dem Glas ---------------------------------------
 
 func test_the_pressed_pieces_lie_in_the_strip_below_the_nets() -> void:
