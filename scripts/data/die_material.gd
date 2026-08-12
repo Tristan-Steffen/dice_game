@@ -10,6 +10,7 @@ const AMBER := "amber"        # +20 Basispunkte + Augensumme
 const GOLD := "gold"          # +$3 beim Nehmen
 const BONE := "bone"          # Seite wächst +2 beim Nehmen
 const GLASS := "glass"        # Mult += Augen (max 6), Seite schrumpft −1 beim Nehmen
+const COPPER := "copper"      # +1 ⚡ beim Nehmen; Überlauf zahlt bar
 
 const NONE := ""
 
@@ -110,10 +111,26 @@ static func glass() -> DieMaterial:
 	m.description_doped = "Krit ×(Augen/2), statt zu addieren; beim Nehmen halbiert sich die Seite."
 	return m
 
+static func copper() -> DieMaterial:
+	var m := _make(COPPER, "Kupfer",
+		"+1 ⚡, wenn diese Seite in der genommenen Kombination liegt.",
+		Color(0.36, 0.82, 0.76))
+	# Metall wie Gold, nur glimmt die Patina im Energie-Cyan - angelaufenes Kupfer
+	# ist von Natur aus grünspan-cyan, das Material trägt seine Wirkung im Farbton.
+	m.surface_color = Color(0.55, 0.88, 0.84)
+	m.metallic = 0.55
+	m.roughness = 0.18
+	m.glow = 0.42
+	m.short = "+1 ⚡"
+	m.short_doped = "+2 ⚡"
+	m.description_doped = "+2 ⚡; was über den Speicher hinausgeht, zahlt $2 je ⚡."
+	return m
+
 ## Kanonische Registrierung aller ERWERBBAREN Materialien - jede Ziehung, jede
-## Gravur und jeder Würfelkauf rollt aus dieser Liste.
+## Gravur und jeder Würfelkauf rollt aus dieser Liste. GENAU SECHS: sie sind die
+## sechs Seiten des Material-Phantomwürfels (PhantomPress.ICONS liest hier).
 static func all() -> Array[DieMaterial]:
-	return [ruby(), amber(), gold(), bone(), glass()]
+	return [ruby(), amber(), gold(), bone(), glass(), copper()]
 
 static func by_id(material_id: String) -> DieMaterial:
 	for material in all():
@@ -176,7 +193,10 @@ static var _die_textures := {}  # Textur-id -> Texture2D oder null (Cache)
 ## Oberflächen-Textur zur id (""/unbekannt = Basis-Textur); null, falls die Datei fehlt.
 static func die_texture_for(material_id: String) -> Texture2D:
 	var texture_id := material_id if is_valid_id(material_id) else BASE_TEXTURE_ID
-	return _load_die_texture(texture_id)
+	var texture := _load_die_texture(texture_id)
+	# Fehlt die Materialtextur, trägt die Basis - eine musterlose Seite läse sich
+	# wie gar kein Material.
+	return texture if texture != null else _load_die_texture(BASE_TEXTURE_ID)
 
 ## Normal-Map zur id (Konvention <id>_n.png); null, wenn das Material keine hat.
 static func die_normal_for(material_id: String) -> Texture2D:

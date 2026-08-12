@@ -107,17 +107,18 @@ func test_the_guarantee_falls_back_rather_than_leaving_a_die_soulless() -> void:
 
 # --- Die Tabelle ---------------------------------------------------------------------
 
-func test_level_five_adds_a_number_and_a_combination_pack() -> void:
+func test_level_five_adds_two_number_and_one_material_pack() -> void:
 	var before := _counts(_run_at(4))
 	var after := _counts(_run_at(5))
-	assert_eq(int(after.get(Pack.TYPE_NUMBER, 0)) - int(before.get(Pack.TYPE_NUMBER, 0)), 1)
-	assert_eq(int(after.get(Pack.TYPE_MIXED, 0)) - int(before.get(Pack.TYPE_MIXED, 0)), 1)
+	assert_eq(int(after.get(Pack.TYPE_NUMBER, 0)) - int(before.get(Pack.TYPE_NUMBER, 0)), 2)
+	assert_eq(int(after.get(Pack.TYPE_MATERIAL, 0)) - int(before.get(Pack.TYPE_MATERIAL, 0)), 1)
 
-func test_level_ten_adds_two_number_and_three_combination_packs() -> void:
+func test_level_ten_adds_three_number_two_material_and_a_rune_pack() -> void:
 	var before := _counts(_run_at(9))
 	var after := _counts(_run_at(10))
-	assert_eq(int(after.get(Pack.TYPE_NUMBER, 0)) - int(before.get(Pack.TYPE_NUMBER, 0)), 2)
-	assert_eq(int(after.get(Pack.TYPE_MIXED, 0)) - int(before.get(Pack.TYPE_MIXED, 0)), 3)
+	assert_eq(int(after.get(Pack.TYPE_NUMBER, 0)) - int(before.get(Pack.TYPE_NUMBER, 0)), 3)
+	assert_eq(int(after.get(Pack.TYPE_MATERIAL, 0)) - int(before.get(Pack.TYPE_MATERIAL, 0)), 2)
+	assert_eq(int(after.get(Pack.TYPE_DICE_MOD, 0)) - int(before.get(Pack.TYPE_DICE_MOD, 0)), 1)
 
 func test_unlisted_levels_grant_only_the_dice_pack() -> void:
 	for level in [2, 3, 4, 6, 7, 8, 9]:
@@ -136,14 +137,15 @@ func test_the_upgrade_remembers_exactly_the_packs_it_granted() -> void:
 	assert_true(run.last_hub_reward_packs[0].essence_guaranteed)
 
 func test_the_reward_list_leads_with_the_dice_pack() -> void:
-	var run := _run_at(5)  # Stufe 5: Würfel + Zahlen + Gemischt
-	assert_eq(run.last_hub_reward_packs.size(), 3)
+	var run := _run_at(5)  # Stufe 5: Würfel + 2x Zahlen + Material
+	assert_eq(run.last_hub_reward_packs.size(), 4)
 	assert_eq(run.last_hub_reward_packs[0].type, Pack.TYPE_DICE, "das beseelte Paket zuerst")
 	var extras: Array[String] = []
 	for i in range(1, run.last_hub_reward_packs.size()):
 		extras.append(run.last_hub_reward_packs[i].type)
 	assert_true(extras.has(Pack.TYPE_NUMBER))
-	assert_true(extras.has(Pack.TYPE_MIXED))
+	assert_true(extras.has(Pack.TYPE_MATERIAL))
+	assert_eq(extras.count(Pack.TYPE_NUMBER), 2)
 
 func test_the_reward_list_holds_the_packs_that_really_went_into_stock() -> void:
 	# Die Zeremonie darf nichts zeigen, was nicht im Lager liegt - sie bucht nicht.

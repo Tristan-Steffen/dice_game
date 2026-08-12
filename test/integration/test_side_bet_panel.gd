@@ -42,14 +42,14 @@ func test_place_bet_deducts_and_registers():
 	assert_true(panel.placed[0])
 
 func test_place_engraving_stake_bet_consumes_engraving():
-	run.grant_engraving(Engraving.chisel())
+	run.grant_pack(Pack.number_pack())
 	var pawn: Array[SideBet] = []
 	for t in SideBet.TEMPLATES:
 		if t["id"] == "pawn":  # 1 Gravur Einsatz
 			pawn.append(SideBet._from_template(t))
 	panel.open_betting(pawn)
 	panel._on_bet_pressed(0)
-	assert_eq(run.owned_engravings.size(), 0, "Gravur als Einsatz geopfert")
+	assert_eq(run.owned_packs.size(), 0, "Paket als Einsatz geopfert")
 	assert_eq(run.active_side_bets.size(), 1, "Gravur-Wette registriert")
 
 func test_cannot_place_twice():

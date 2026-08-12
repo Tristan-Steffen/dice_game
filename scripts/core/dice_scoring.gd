@@ -238,9 +238,6 @@ static func essence_sets_in(ctx: Dictionary) -> Dictionary:
 		return ctx[CTX_ESSENCE_SET]
 	return EssenceEffects.effective_sets(essences_in(ctx))
 
-static func essence_for(ctx: Dictionary, slot: int) -> String:
-	return EssenceEffects.essence_at(essences_in(ctx), slot)
-
 ## Gespeicherte Basispunkte des Slots (Phosphoreszenz; 0 = leer).
 static func phosphor_store_for(ctx: Dictionary, slot: int) -> int:
 	var store: Dictionary = ctx.get(CTX_PHOSPHOR_STORE, {})
@@ -412,7 +409,7 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 ## Zählreihenfolge der Würfelphase: die Reihe, wie sie beim Nehmen aufgereiht
 ## liegt - Wert absteigend, bei Gleichstand kleinster Slot zuerst. Deterministisch
 ## aus den Werten, damit Vorschau, Wertung und Grubenanimation identisch laufen
-## (die Ordnung ist wertungsrelevant, sobald ein Krit am Würfel hängt - Beherit).
+## (die Ordnung ist wertungsrelevant: Echo-Kammer, Wasserfall, Stroboskop, Miasma).
 ## declared = die vom Spieler in der Grube gelegte Reihenfolge (Slot-Indizes).
 ## Ist sie leer, gilt die kanonische Regel; liegt sie an, ERSETZT sie diesen
 ## Rang: die Anordnung der Hand ist eine Ansage des Spielers, keine Ableitung
@@ -585,11 +582,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var tail_slot: int = shape["tail_slot"]
 	# Acetylen und Schneidbrenner hängen beide an der Übertaktungs-Stufe.
 	var combo_level := int(combo_levels.get(key, 0))
-	# Doppelter Boden verdoppelt NUR die Kombination - points_for/mult_for selbst
-	# bleiben die reine Stufe (Chips, Preise, Vorschauen drucken sie).
+	# Dreifacher Boden vervielfacht NUR die Basispunkte der Kombination -
+	# points_for/mult_for selbst bleiben die reine Stufe (Chips, Preise, Vorschauen).
 	var combo_factor := CharmEffects.combo_factor(charm_ids)
 	var base := points_for(key, combo_levels) * combo_factor
-	var mult := float(mult_for(key, combo_levels) * combo_factor)
+	var mult := float(mult_for(key, combo_levels))
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
@@ -693,11 +690,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					mult += float(cascade_add)
 					cascade_last = shown
 				# Material-Krit (Rubin III, Glas III), dann der Essenz-Krit - beide
-				# in der Würfel-Substufe, VOR den Charm-Krits (Beherit). Ozon liest
-				# crits VOR seinem eigenen Schlag, zählt sich also nie selbst mit;
-				# das Grubengas zündet an JEDEM Krit sofort mit.
+				# in der Würfel-Substufe, VOR den würfelgebundenen Charm-Krits. Ozon
+				# liest crits VOR seinem eigenen Schlag, zählt sich also nie selbst
+				# mit; das Grubengas zündet an JEDEM Krit sofort mit.
 				# Härteofen: der Krit einer dotierten Seite schlägt zweimal - je Schlag
-				# ein eigener Krit, nie einer im Quadrat (Beherit-Grammatik).
+				# ein eigener Krit, nie einer im Quadrat.
 				var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if not is_equal_approx(mat_crit, 1.0):

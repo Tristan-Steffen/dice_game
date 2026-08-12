@@ -189,11 +189,6 @@ func _strokes_for(id: String) -> Array:
 			s.append_array(_minus(Vector2(0.29, 0.5), 0.06))
 			s.append_array(_plus(Vector2(0.71, 0.5), 0.06))
 			return s
-		Engraving.FILE_DOWN:
-			# Eine Seite −1.
-			var s: Array = [_square(Vector2(0.5, 0.5), 0.17)]
-			s.append_array(_minus(Vector2(0.5, 0.5), 0.08))
-			return s
 		Engraving.POLISH:
 			# Alle Seiten +1: drei Seiten in Reihe, jede mit Plus.
 			var s: Array = [_square(Vector2(0.22, 0.5), 0.105), _square(Vector2(0.5, 0.5), 0.105),
@@ -201,15 +196,8 @@ func _strokes_for(id: String) -> Array:
 			for x in [0.22, 0.5, 0.78]:
 				s.append_array(_plus(Vector2(x, 0.5), 0.045))
 			return s
-		Engraving.SANDPAPER:
-			# Alle Seiten −1: drei Seiten in Reihe, jede mit Minus.
-			var s: Array = [_square(Vector2(0.22, 0.5), 0.105), _square(Vector2(0.5, 0.5), 0.105),
-				_square(Vector2(0.78, 0.5), 0.105)]
-			for x in [0.22, 0.5, 0.78]:
-				s.append_array(_minus(Vector2(x, 0.5), 0.045))
-			return s
-		Engraving.PUNCH:
-			# Wie die Kerbe, aber mit doppeltem Querbalken: die schwere +5-Stanze.
+		Engraving.OVERPRESSURE:
+			# Die höchste Seite, doppelt quergebalkt: der schwere Druck nach oben.
 			return [
 				_square(Vector2(0.5, 0.66), 0.14),
 				_seg(Vector2(0.5, 0.56), Vector2(0.5, 0.14)),
@@ -223,19 +211,11 @@ func _strokes_for(id: String) -> Array:
 				_seg(Vector2(0.5, 0.52), Vector2(0.5, 0.16)),
 				_seg(Vector2(0.4, 0.27), Vector2(0.6, 0.27)),
 			]
-		Engraving.AVERAGING:
-			# Zwei Seiten treffen sich in der Mitte (Mittelwert).
-			var s: Array = [_square(Vector2(0.22, 0.5), 0.11), _square(Vector2(0.78, 0.5), 0.11),
-				_seg(Vector2(0.5, 0.35), Vector2(0.5, 0.65))]
-			s.append_array(_arrow_to(Vector2(0.33, 0.5), Vector2(0.44, 0.5)))
-			s.append_array(_arrow_to(Vector2(0.67, 0.5), Vector2(0.56, 0.5)))
+		Engraving.GROWTH:
+			# Die niedrigste Seite holt auf: kleine Seite unten, Pfeil hinauf.
+			var s: Array = [_square(Vector2(0.5, 0.74), 0.115)]
+			s.append_array(_arrow_to(Vector2(0.5, 0.6), Vector2(0.5, 0.18)))
 			return s
-		Engraving.STRAIGHTEN:
-			# Treppe aufwärts: ungerade Seiten +1.
-			return [_staircase()]
-		Engraving.BLUEPRINT:
-			# Ganzer Würfel auf einen Wert: 3x2-Raster leuchtet.
-			return _grid()
 		Engraving.POINTER:
 			# Zwei Nachbarseiten; die Leiterbahn quert die gemeinsame Kante.
 			var s: Array = [_square(Vector2(0.32, 0.5), 0.15), _square(Vector2(0.68, 0.5), 0.15)]
@@ -262,21 +242,6 @@ func _arrow_to(a: Vector2, b: Vector2) -> Array:
 	var perp := Vector2(-dir.y, dir.x)
 	var back := b - dir * 0.055
 	return [_seg(a, b), PackedVector2Array([back + perp * 0.045, b, back - perp * 0.045])]
-
-## Aufsteigende Treppe (Begradigung).
-func _staircase() -> PackedVector2Array:
-	return PackedVector2Array([
-		Vector2(0.18, 0.75), Vector2(0.37, 0.75), Vector2(0.37, 0.57),
-		Vector2(0.57, 0.57), Vector2(0.57, 0.39), Vector2(0.77, 0.39), Vector2(0.77, 0.23),
-	])
-
-## 3x2-Raster kleiner Seiten (Blaupause).
-func _grid() -> Array:
-	var squares: Array = []
-	for y in [0.38, 0.62]:
-		for x in [0.3, 0.5, 0.7]:
-			squares.append(_square(Vector2(x, y), 0.078))
-	return squares
 
 func _square(center: Vector2, half: float) -> PackedVector2Array:
 	return PackedVector2Array([

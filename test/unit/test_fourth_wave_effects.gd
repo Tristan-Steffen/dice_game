@@ -214,66 +214,64 @@ func _template(id: String) -> Dictionary:
 # --- Zwinge: die Material-Gravur bleibt manchmal eingespannt ------------------------
 
 func test_the_clamp_chance_stacks_and_caps():
-	assert_eq(CharmEffects.engraving_spare_chance(NO_CHARMS), 0.0)
-	assert_almost_eq(CharmEffects.engraving_spare_chance(_ids([Charm.CLAMP])), 0.25, 0.0001)
+	assert_eq(CharmEffects.piece_double_chance(NO_CHARMS), 0.0)
+	assert_almost_eq(CharmEffects.piece_double_chance(_ids([Charm.CLAMP])), 0.25, 0.0001)
 	var four := _ids([Charm.CLAMP, Charm.CLAMP, Charm.CLAMP, Charm.CLAMP])
-	assert_almost_eq(CharmEffects.engraving_spare_chance(four), CharmEffects.CLAMP_SPARE_CAP, 0.0001)
+	assert_almost_eq(CharmEffects.piece_double_chance(four), CharmEffects.CLAMP_DOUBLE_CAP, 0.0001)
 
-func test_the_clamp_spares_exactly_one_material_engraving():
+func test_the_clamp_gives_a_piece_a_second_application():
 	run.owned_charms.append(Charm.bench_clamp())
-	for _i in 3:
-		run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY),
-			Engraving.Rarity.UNCOMMON))
-	var spared := run.consume_applied_engraving(DieMaterial.RUBY, 2,
-		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
-	assert_true(spared, "der Wurf lag unter der Chance")
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2, "genau eine bleibt eingespannt")
+	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
+		"stufe": 1, "applications": 1})
+	var die: DieDefinition = run.clamped_dice[0]
+	assert_true(run.apply_press_number(0, die, _d([0]),
+		_rng_rolling(true, CharmEffects.CLAMP_DOUBLE_CHANCE)))
+	assert_eq(run.press_pieces.size(), 1, "das Stück wirkt zweimal")
+	assert_eq(int(run.press_pieces[0]["applications"]), 1)
 
-func test_the_clamp_misses_and_the_engraving_is_gone():
+func test_the_clamp_misses_and_the_piece_is_used_up():
 	run.owned_charms.append(Charm.bench_clamp())
-	for _i in 3:
-		run.grant_engraving(Engraving.material_engraving(DieMaterial.by_id(DieMaterial.RUBY),
-			Engraving.Rarity.UNCOMMON))
-	var spared := run.consume_applied_engraving(DieMaterial.RUBY, 2,
-		_rng_rolling(false, CharmEffects.CLAMP_SPARE_CHANCE))
-	assert_false(spared)
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
+		"stufe": 1, "applications": 1})
+	var die: DieDefinition = run.clamped_dice[0]
+	assert_true(run.apply_press_number(0, die, _d([0]),
+		_rng_rolling(false, CharmEffects.CLAMP_DOUBLE_CHANCE)))
+	assert_eq(run.press_pieces.size(), 0)
 
-func test_the_clamp_also_holds_a_number_engraving():
-	run.owned_charms.append(Charm.bench_clamp())
-	run.grant_engraving(Engraving.chisel())
-	var spared := run.consume_applied_engraving(Engraving.CHISEL, 1,
-		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
-	assert_true(spared, "die Zwinge hält Zahl- UND Material-Gravuren")
-	assert_eq(run.engraving_stock(Engraving.CHISEL), 1)
+func test_without_the_clamp_nothing_ever_doubles():
+	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
+		"stufe": 1, "applications": 1})
+	var die: DieDefinition = run.clamped_dice[0]
+	assert_true(run.apply_press_number(0, die, _d([0]),
+		_rng_rolling(true, CharmEffects.CLAMP_DOUBLE_CHANCE)))
+	assert_eq(run.press_pieces.size(), 0, "ohne Zwinge keine zweite Anwendung")
 
-func test_the_clamp_never_holds_a_special_item():
-	# Sonderposten und Runen bleiben außen vor - die Zwinge kennt nur die zwei
-	# Alltags-Kategorien.
-	run.owned_charms.append(Charm.bench_clamp())
-	run.grant_engraving(Engraving.doping())
-	var spared := run.consume_applied_engraving(Engraving.DOPING, 1,
-		_rng_rolling(true, CharmEffects.CLAMP_SPARE_CHANCE))
-	assert_false(spared)
-	assert_eq(run.engraving_stock(Engraving.DOPING), 0)
+# --- Füllhorn: jede Pressung wirft eine Gravur gratis dazu ----------------------------
 
-# --- Füllhorn: jedes Gravur-Paket legt ein Stück obendrauf ----------------------------
+func _rng(value: int) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = value
+	return rng
 
-func test_the_pack_rolls_its_extra_out_of_its_own_pot():
-	var pack := Pack.number_pack()
-	var normal := pack.roll_engravings(Engraving.Rarity.COMMON)
-	var extra := pack.roll_engravings(Engraving.Rarity.COMMON, 1)
-	assert_eq(extra.size(), normal.size() + 1)
-	for engraving in extra:
-		assert_eq(engraving.category, Engraving.CATEGORY_NUMBER, "nie eine fremde Sorte")
+func test_the_encore_adds_a_free_piece():
+	run.grant_pack(Pack.material_pack())
+	var plain: int = run.open_press(_d([0]), _rng(7)).get("pieces", []).size()
+	var gifted := GameRun.new_run()
+	gifted.owned_charms.append(Charm.encore())
+	gifted.grant_pack(Pack.material_pack())
+	var pieces: Array = gifted.open_press(_d([0]), _rng(7)).get("pieces", [])
+	assert_eq(pieces.size(), plain + 1, "ein Stück mehr aus derselben Ausbeute")
+	assert_eq(String(pieces[pieces.size() - 1]["sort"]), Engraving.CATEGORY_MATERIAL,
+		"in der Mehrheits-Sorte der Pressung")
 
-func test_the_encore_fills_every_engraving_pack():
+func test_the_free_piece_falls_out_of_a_reader():
 	run.owned_charms.append(Charm.encore())
-	var pack := Pack.material_pack()
-	run.grant_pack(pack)
-	var content := run.open_pack(0)
-	var engravings: Array[Engraving] = content["engravings"]
-	assert_eq(engravings.size(), pack.count + 1)
+	run.grant_pack(Pack.material_pack())
+	var readers: Array = run.open_press(_d([0]), _rng(8))["readers"]
+	var counted := 0
+	for uids in readers:
+		counted += uids.size()
+	assert_eq(counted, run.press_pieces.size(), "auch die Zugabe fliegt aus einem Leser")
 
 func test_the_encore_leaves_a_dice_pack_alone():
 	run.owned_charms.append(Charm.encore())
@@ -338,7 +336,7 @@ func test_the_burin_casts_two_copies():
 	def.runes[0] = Rune.CAST
 	run.owned_charms.append(Charm.burin())
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 2, "der Abguss gießt zweimal")
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2)
+	assert_eq(_pack_stock(run, DieMaterial.RUBY), 2)
 
 func test_the_burin_doubles_the_afterglow():
 	var runes := _ids([Rune.AFTERGLOW])
@@ -391,13 +389,13 @@ func test_the_cast_grants_one_copy_and_the_burin_two():
 	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	def.runes[0] = Rune.CAST
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1, "ohne Charm eine Kopie")
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+	assert_eq(_pack_stock(run, DieMaterial.RUBY), 1)
 	var twin := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	twin.runes[0] = Rune.CAST
 	var burin := GameRun.new_run()
 	burin.owned_charms.append(Charm.burin())
 	assert_eq(burin.apply_rune_cast(_defs([twin]), _p([0]), _p([0])), 2)
-	assert_eq(burin.engraving_stock(DieMaterial.RUBY), 2)
+	assert_eq(_pack_stock(burin, DieMaterial.RUBY), 2)
 
 func test_the_cast_stays_once_per_round_and_die():
 	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
@@ -512,3 +510,11 @@ func test_the_back_room_charm_slot_passes_the_gate():
 	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
 	run.unlock_secret_shop()
 	assert_eq(run.secret_stock.size(), 3, "die Auslage steht")
+
+## Versiegelte Fixinhalt-Pakete dieser Gravur im Lager - lose wartet nichts mehr.
+func _pack_stock(run: GameRun, id: String) -> int:
+	var count := 0
+	for pack in run.owned_packs:
+		if pack.fixed_engraving != null and pack.fixed_engraving.id == id:
+			count += 1
+	return count

@@ -174,23 +174,19 @@ func reset_session() -> void:
 
 func _make_run(kind: int, run_cells: Array, direction: Array) -> Dictionary:
 	var length := run_cells.size()
-	var run_cols: Array = []
-	for cell in run_cells:
-		run_cols.append(cell[0])
-	var specs := _run_specs(kind, length, run_cols)
+	var specs := _run_specs(kind, length)
 	return {
 		"kind": kind, "length": length, "cells": run_cells, "direction": direction,
 		"start_col": run_cells[0][0], "specs": specs, "label": _run_label(kind, length, specs),
 	}
 
 ## Belohnungs-Vorlage(n) einer Reihe (für SlotPrize.from_spec). Meist eine; eine
-## lange Würfel-Reihe liefert zwei. Länge und überspannte Automaten bestimmen Wert
-## und Rarität.
-func _run_specs(kind: int, length: int, run_cols: Array) -> Array:
+## lange Würfel-Reihe liefert zwei. Die Länge bestimmt die Menge - eine Rarität
+## gibt es seit dem Werkstatt-Umbau nicht mehr, die Stärke kommt aus der Hand.
+func _run_specs(kind: int, length: int) -> Array:
 	match kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			return [{"kind": "pack", "symbol": kind, "count": _pack_count(kind, length),
-				"floor": _engraving_floor(run_cols)}]
+			return [{"kind": "pack", "symbol": kind, "count": _pack_count(kind, length)}]
 		SlotPrize.Kind.CHARM:
 			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
 		SlotPrize.Kind.DIE:
@@ -208,15 +204,6 @@ func _pack_count(kind: int, length: int) -> int:
 		SlotPrize.Kind.DICE_ENGRAVING: return maxi(1, length - 3)
 	return length - 2
 
-## Gravur-Untergrenze = höchster überspannter Automat (Kupfer→Common … Gold→Rare).
-func _engraving_floor(run_cols: Array) -> int:
-	var tier := 0
-	for col in run_cols:
-		tier = maxi(tier, col / MACHINE_COLS)
-	match tier:
-		0: return Engraving.Rarity.COMMON
-		1: return Engraving.Rarity.UNCOMMON
-	return Engraving.Rarity.RARE
 
 ## Charm-Rarität GENAU nach Reihenlänge (immer nur ein Charm; die Länge bestimmt die
 ## Rarität): 3→gewöhnlich, 4→ungewöhnlich, 5→selten, 6+→legendär.

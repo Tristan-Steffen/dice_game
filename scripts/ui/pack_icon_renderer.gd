@@ -8,23 +8,29 @@ extends Control
 ##   Würfel   - isometrischer Würfel mit Augen
 ##   Zahlen   - ein großes Auge mit Doppel-Chevron: die Augenzahl steigt
 ##   Material - facettierter Edelstein
-##   Würfel   - nur die vier Ecken eines Rahmens (er fasst den ganzen Würfel)
-##   Gemischt - Auge, Stein und Ecke als Mini-Trio in ihren Sortenfarben
+##   Runen    - das Nachglüh-Zeichen (Rune.glyph_lines), das Wappen der Sorte
 
-## Farbe der Würfel-Gravuren: im gemischten Siegel, auf den Automatenwalzen und
-## auf dem Würfel-Gravur-Paket (das nur der Automat ausschüttet).
+## Farbe der Würfel-Gravuren: auf den Automatenwalzen und auf dem Runen-Paket,
+## das seit dem Werkstatt-Umbau auch im Regal liegt.
 const DICE_ENGRAVING_COLOR := Color("#ffd319")
+
+## Wappen des Runen-Pakets: EIN Runenzeichen steht für die Sorte - genommen wird
+## das Nachglühen, weil seine Doppelfigur auf Siegelgröße am klarsten liest.
+const SHELF_RUNE := Rune.GLYPH_AFTERGLOW
 
 ## Kanonische Sortenfarbe (Laden und Werkstatt färben ihre Karten hieraus).
 const COLORS := {
 	Pack.TYPE_DICE: Color("#8be9fd"),
 	Pack.TYPE_NUMBER: Color("#50fa7b"),
 	Pack.TYPE_MATERIAL: Color("#ff79c6"),
-	Pack.TYPE_MIXED: Color("#bd93f9"),
 	Pack.TYPE_DICE_MOD: DICE_ENGRAVING_COLOR,
 }
 
 var pack_type: String = Pack.TYPE_NUMBER
+## Abweichende Sortenfarbe (Alpha 0 = keine). Die leere Regal-Bucht zeichnet ihr
+## Zeichen aus PackShelfView.COLORS - auch dort, wo das Siegel selbst keine Sorte
+## kennt (Sonderbestand).
+var tint := Color(0.0, 0.0, 0.0, 0.0)
 
 static func for_type(type: String) -> PackIconRenderer:
 	var icon := PackIconRenderer.new()
@@ -40,12 +46,14 @@ func _draw() -> void:
 			_draw_rising_pip(Vector2(0.5, 0.5), 1.0, _accent())
 		Pack.TYPE_MATERIAL:
 			_draw_gem(Vector2(0.5, 0.5), 1.0, _accent())
-		Pack.TYPE_MIXED:
-			_draw_mixed()
+		Pack.TYPE_DICE_MOD:
+			_draw_rune(_accent())
 		_:
 			_draw_corners(Vector2(0.5, 0.5), 1.0, _accent())
 
 func _accent() -> Color:
+	if tint.a > 0.0:
+		return tint
 	return COLORS.get(pack_type, Color.WHITE)
 
 ## Isometrischer Würfel: Sechseck-Umriss, drei Innenkanten, ein Auge je Fläche.
@@ -88,6 +96,15 @@ func _draw_gem(at: Vector2, scale_f: float, color: Color) -> void:
 	_stroke([crown_l, o + Vector2(0.5, 0.42) * scale_f, crown_r] as Array[Vector2], color)
 	_stroke([o + Vector2(0.5, 0.42) * scale_f, tip] as Array[Vector2], color)
 
+## Das Runenzeichen selbst, aus derselben Quelle wie Würfelnetz und 3D-Auflage -
+## ein zweites Mal gezeichnet zeigte der Laden ein anderes Zeichen als der Würfel.
+func _draw_rune(color: Color) -> void:
+	for line in Rune.glyph_lines(SHELF_RUNE):
+		var points: Array[Vector2] = []
+		for p in line:
+			points.append(p)
+		_stroke(points, color)
+
 ## Nur die vier Ecken eines Rahmens - wie der Kanten-Rahmen um die Seiten-Chips.
 func _draw_corners(at: Vector2, scale_f: float, color: Color) -> void:
 	var o := at - Vector2(0.5, 0.5) * scale_f
@@ -98,13 +115,6 @@ func _draw_corners(at: Vector2, scale_f: float, color: Color) -> void:
 	_stroke([o + Vector2(hi - arm, lo), o + Vector2(hi, lo), o + Vector2(hi, lo + arm)] as Array[Vector2], color)
 	_stroke([o + Vector2(hi, hi - arm), o + Vector2(hi, hi), o + Vector2(hi - arm, hi)] as Array[Vector2], color)
 	_stroke([o + Vector2(lo + arm, hi), o + Vector2(lo, hi), o + Vector2(lo, hi - arm)] as Array[Vector2], color)
-
-## Gemischt: die drei Gravur-Siegel als Mini-Trio, jedes in seiner Sortenfarbe -
-## das einzige mehrfarbige Siegel, damit "alles drin" auf einen Blick lesbar ist.
-func _draw_mixed() -> void:
-	_draw_rising_pip(Vector2(0.27, 0.26), 0.46, COLORS[Pack.TYPE_NUMBER])
-	_draw_gem(Vector2(0.75, 0.28), 0.46, COLORS[Pack.TYPE_MATERIAL])
-	_draw_corners(Vector2(0.51, 0.74), 0.46, DICE_ENGRAVING_COLOR)
 
 # --- Monoline-Bausteine (normierte 0..1-Koordinaten) -------------------------------
 

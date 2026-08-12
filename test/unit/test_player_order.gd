@@ -117,13 +117,15 @@ func test_the_declared_head_takes_the_echo_retrigger() -> void:
 		{DiceScoring.CTX_PLAYER_ORDER: [0, 1, 2, 3]})
 	assert_eq(canonical - declared, 3 * 3)
 
-func test_the_front_runner_pays_at_the_declared_head() -> void:
+func test_the_declared_order_leaves_the_front_runner_cold() -> void:
+	# Der Vorreiter hängt seit dem Umbau an der ganzen Grube, nicht am Kopf der
+	# Reihe - eine Ansage verschiebt seinen Beitrag also nicht mehr.
 	var dice := _p([2, 2, 5, 5])
 	var ids := _ids([Charm.FRONT_RUNNER])
-	var shape := DiceScoring.hand_shape(DiceScoring.TWO_PAIR, dice, ids,
+	var mats := _m(["", "", "", ""])
+	var canonical := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, ids, false, mats, {}, {})
+	var declared := DiceScoring.score_category(DiceScoring.TWO_PAIR, dice, ids, false, mats, {},
 		{DiceScoring.CTX_PLAYER_ORDER: [1, 0, 3, 2]})
-	var order: Array[int] = shape["order"]
-	assert_eq(CharmEffects.die_charm_base_at(0, 1, DiceScoring.TWO_PAIR, dice, ids, {}, order), 14,
-		"die ganze Augensumme am angesagten Kopf")
-	assert_eq(CharmEffects.die_charm_base_at(0, 2, DiceScoring.TWO_PAIR, dice, ids, {}, order), 0,
-		"der kanonische Kopf zahlt nicht mehr")
+	assert_eq(canonical, declared, "die Ansage ändert seinen Beitrag nicht")
+	assert_eq(CharmEffects.charm_base_bonus_at(0, DiceScoring.TWO_PAIR, dice, _p([0, 1, 2, 3]), ids), 14,
+		"die ganze Augensumme, einmal")

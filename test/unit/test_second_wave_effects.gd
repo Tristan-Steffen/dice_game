@@ -117,13 +117,17 @@ func test_the_plinth_mirrors_the_dock_capacity():
 
 # --- Metronom: die Einzelzünder takten sich gegenseitig ---------------------------
 
-func test_the_metronome_pairs_the_single_shot_dice():
+func test_the_metronome_counts_up_along_the_row():
+	# Der Takt baut sich auf: der erste Einzelzünder zahlt nichts, jeder weitere
+	# +6 je Einzelzünder VOR ihm.
 	var ids := _ids([Charm.METRONOME])
 	var singles := _p([0, 1, 2])
-	assert_eq(CharmEffects.metronome_base(0, singles, ids), 2 * CharmEffects.METRONOME_BASE)
+	assert_eq(CharmEffects.metronome_base(0, singles, ids), 0, "der erste gibt den Takt nur vor")
+	assert_eq(CharmEffects.metronome_base(1, singles, ids), CharmEffects.METRONOME_BASE)
+	assert_eq(CharmEffects.metronome_base(2, singles, ids), 2 * CharmEffects.METRONOME_BASE)
 	assert_eq(CharmEffects.metronome_base(3, singles, ids), 0, "wer mehrfach zündet, taktet nicht mit")
 	assert_eq(CharmEffects.metronome_base(0, _p([0]), ids), 0, "allein schlägt kein Takt")
-	assert_eq(CharmEffects.metronome_base(0, singles, _ids([Charm.METRONOME, Charm.METRONOME])),
+	assert_eq(CharmEffects.metronome_base(2, singles, _ids([Charm.METRONOME, Charm.METRONOME])),
 		4 * CharmEffects.METRONOME_BASE, "je Exemplar erneut")
 
 func test_a_retriggered_die_leaves_the_metronome():
@@ -132,9 +136,9 @@ func test_a_retriggered_die_leaves_the_metronome():
 		"die Hasenpfoten-6 zündet zweimal und fällt aus dem Takt")
 
 func test_the_metronome_lands_in_the_score():
-	# Drei Einzelzünder: jeder zahlt +6 je ANDEREM, also 3 × 12.
+	# Drei Einzelzünder in der Reihe: 0 + 6 + 12 = 18 Basispunkte.
 	assert_eq(DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]), _ids([Charm.METRONOME]),
-		false, _m(["", "", ""]), {}, {}), (18 + 15 + 36) * 3)
+		false, _m(["", "", ""]), {}, {}), (18 + 15 + 18) * 3)
 
 # --- Stroboskop: jede weitere Zündung desselben Würfels ---------------------------
 

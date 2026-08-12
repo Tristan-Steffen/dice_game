@@ -32,7 +32,8 @@ static func hub_face_factor(hub_level: int) -> float:
 	return 1.0 + HUB_FACE_GROWTH * float(clampi(hub_level, 1, 10) - 1)
 
 ## Größte Augenzahl, die auf dieser Stufe überhaupt fallen kann - die Obergrenze
-## der Kurve, nicht ihr Regelfall.
+## der Kurve, nicht ihr Regelfall. Kein Aufrufer im Spiel: sie ist das Orakel, an
+## dem die Testreihe die echten Würfe misst, ohne die Formel nachzubauen.
 static func max_face_for(hub_level: int) -> int:
 	return maxi(MAX_TEMPLATE_FACE,
 		int(round(float(MAX_TEMPLATE_FACE) * hub_face_factor(hub_level) * (1.0 + FACE_JITTER))))
@@ -74,34 +75,19 @@ func size() -> int:
 	return dice.size()
 
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
-## eine Veredelung; Mengenrabatt garantiert ein 3er-Bündel in der Auslage.
+## eine Veredelung samt dotierter Seite.
 static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DiceOffer]:
 	var offers: Array[DiceOffer] = []
-	for t in pick_templates(count, charm_ids):
+	for t in pick_templates(count):
 		offers.append(_from_template(t, charm_ids, owned_essences, hub_level))
 	return offers
 
 ## Zieht count verschiedene Vorlagen (auch die Paket-Auslage nutzt das).
-## Mengenrabatt garantiert eine 3er-Vorlage im Fenster.
-static func pick_templates(count: int, charm_ids: Array[String] = []) -> Array[Dictionary]:
+static func pick_templates(count: int) -> Array[Dictionary]:
 	var templates := TEMPLATES.duplicate()
 	templates.shuffle()
-	var window := mini(count, templates.size())
-	if charm_ids.has(Charm.BULK_DISCOUNT) and window > 0:
-		var has_bundle := false
-		for i in window:
-			if int(templates[i]["count"]) >= 3:
-				has_bundle = true
-				break
-		if not has_bundle:
-			for j in range(window, templates.size()):
-				if int(templates[j]["count"]) >= 3:
-					var bundle: Dictionary = templates[j]
-					templates[j] = templates[window - 1]
-					templates[window - 1] = bundle
-					break
 	var picked: Array[Dictionary] = []
-	for i in window:
+	for i in mini(count, templates.size()):
 		picked.append(templates[i])
 	return picked
 
@@ -113,10 +99,18 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 	offer.dice = []
 	var base := make_die(t, hub_level)
 	var surcharge := roll_refinements(base)
-	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
-	if CharmEffects.forces_refinement(charm_ids) and base.materials.count("") == base.materials.size():
-		base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
-		surcharge += FACE_MATERIAL_SURCHARGE
+	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite - und
+	# mindestens eine ist dotiert. Die Dotierung kostet wie das Material, das sie
+	# aufwertet.
+	if CharmEffects.forces_refinement(charm_ids):
+		if base.materials.count("") == base.materials.size():
+			base.set_face_material(randi() % base.materials.size(), DieMaterial.all().pick_random().id)
+			surcharge += FACE_MATERIAL_SURCHARGE
+		if not has_doped_side(base):
+			for f in base.materials.size():
+				if base.dope(f):
+					surcharge += FACE_MATERIAL_SURCHARGE
+					break
 	# Ein Unikat nur im Einzel-Bündel: drei Kopien derselben Legende gäbe es nicht.
 	base.essence_id = roll_essence(owned_essences, int(t["count"]) == 1)
 	surcharge += essence_surcharge(base.essence_id)
@@ -124,6 +118,13 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 	for i in int(t["count"]):
 		offer.dice.append(base.instantiate())
 	return offer
+
+## Trägt der Würfel schon eine dotierte Seite? (Gütesiegel, hier und im Paket.)
+static func has_doped_side(def: DieDefinition) -> bool:
+	for f in def.levels.size():
+		if def.levels[f] >= DieMaterial.MAX_LEVEL:
+			return true
+	return false
 
 ## Würfelt Veredelungen aus (1-2 Material-Seiten); liefert den Aufpreis je Würfel.
 static func roll_refinements(def: DieDefinition) -> int:

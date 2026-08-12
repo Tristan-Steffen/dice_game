@@ -96,11 +96,11 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 			ScoreBreakdown.format_number(combo_mult)],
 		combo_base, combo_mult, overrides))
 
-	# Der Doppelte Boden steht als eigener Schritt direkt hinter der Kombination -
+	# Der Dreifache Boden steht als eigener Schritt direkt hinter der Kombination -
 	# im Rückblick wie in der Zeremonie, sonst springt die Zahl unerklärt.
 	for factor_step: Dictionary in breakdown.get("combo_factor_steps", []):
 		var factor := _step(STEP_COMBO_FACTOR,
-			"%s · Kombination ×2" % charm_name(Charm.DOUBLE_BOTTOM),
+			"%s · Kombination ×3" % charm_name(Charm.DOUBLE_BOTTOM),
 			int(factor_step.get("base_after", 0)), float(factor_step.get("mult_after", 0.0)),
 			overrides)
 		factor["charm_indices"] = _int_list(factor_step.get("charm_indices", []))

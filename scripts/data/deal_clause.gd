@@ -457,9 +457,6 @@ static func tags_of(clause_id: String) -> Array[String]:
 		return []
 	return clause.tags
 
-static func has_tag(clause_id: String, tag: String) -> bool:
-	return tags_of(clause_id).has(tag)
-
 ## Laufzeit-Etikett der Klausel ("sofort" / "diese Runde" / "bis zur Abrechnung").
 static func scope_label(clause_scope: Scope) -> String:
 	match clause_scope:

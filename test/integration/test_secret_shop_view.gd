@@ -53,7 +53,7 @@ func test_sold_slot_becomes_a_dead_placeholder() -> void:
 	await wait_frames(2)
 	view.offer_buttons[1].pressed.emit()
 	await wait_frames(2)
-	assert_eq(run.owned_engravings.size(), 1, "Gravur im Vorrat")
+	assert_eq(run.owned_packs.size(), 1, "Sonderposten versiegelt im Lager")
 	assert_true(view.offer_buttons[1].disabled, "der verkaufte Platz ist tot")
 
 func test_reroll_button_swaps_the_whole_stock() -> void:

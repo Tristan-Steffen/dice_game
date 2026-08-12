@@ -1,6 +1,8 @@
 extends GutTest
-## Tier-2-Tests der Werkstatt (WorkshopView): das Lager zeigt je gekauftem Paket
-## eine Karte, meldet den Öffnen-Wunsch als Signal und folgt dem Lagerbestand.
+## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt die Aufspannung
+## als Projektor- und Netzzeile, versiegelte Pakete liegen als Stapel in der
+## Regal-Leiste statt als Karten im Fenster, und die Würfel-Pakete laufen hier
+## ihre Zeremonie.
 
 var view: WorkshopView
 var run: GameRun
@@ -12,115 +14,43 @@ func before_each() -> void:
 	add_child_autofree(view)
 	view.run = run
 
-func test_empty_stash_shows_a_hint_and_no_cards() -> void:
-	assert_eq(view._pack_buttons.size(), 0, "leeres Lager hat keine Karten")
+# --- Die Grundseite gehört der Aufspannung --------------------------------------
 
-func test_each_pack_gets_its_own_card() -> void:
+func test_packs_never_render_as_cards_in_the_window() -> void:
+	# Das Regal ist der EINZIGE Ort versiegelter Ware - im Fenster stehen nur die
+	# Netze der Aufspannung und die Presse-Plätze.
 	run.purchase_pack(Pack.number_pack(), 0)
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
-	assert_eq(view._pack_buttons.size(), 2, "je Paket eine Lagerkarte")
+	assert_eq(view._clamp_nets.size(), run.clamp_count(), "die Netzzeile steht")
+	assert_eq(view._press_slot_buttons.size(), PhantomPress.BATCH_CAP)
+	assert_eq(run.owned_packs.size(), 2, "und die Siegel bleiben ganz")
 
-func test_stash_follows_the_run() -> void:
-	run.purchase_pack(Pack.material_pack(), 0)
-	assert_eq(view._pack_buttons.size(), 1, "Kauf erscheint sofort im Lager")
-	view.open_pack(0)
-	view._unseal.finish_now()
-	assert_eq(view._pack_buttons.size(), 0, "geöffnetes Paket verschwindet")
+func test_the_net_row_is_the_readout_of_the_clamped_dice() -> void:
+	assert_eq(view._clamp_nets.size(), run.clamped_dice.size())
 
-func test_clicking_a_card_opens_that_pack() -> void:
+func test_opening_the_top_dice_pack_reports_its_slot() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
-	run.purchase_pack(Pack.material_pack(), 0)
+	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
 	var opened: Array[int] = []
 	view.pack_activated.connect(func(index: int) -> void: opened.append(index))
-	view._pack_buttons[1].pressed.emit()
-	assert_eq(opened, [1] as Array[int], "der geklickte Platz wird gemeldet")
-	assert_eq(run.owned_packs.size(), 1, "das Kanten-Paket ist verbraucht")
+	assert_true(view.open_top_dice_pack())
+	assert_eq(opened, [1] as Array[int], "der Platz des Würfel-Pakets wird gemeldet")
+	assert_eq(run.owned_packs.size(), 1, "das Würfel-Paket ist verbraucht")
 
-# --- Lieferung aus dem Laden (das Licht IST das Paket) --------------------------
-
-func test_pending_delivery_holds_the_newest_card_back() -> void:
+func test_without_a_dice_pack_nothing_opens() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
-	assert_eq(view._pack_buttons.size(), 1, "das ältere Paket liegt im Regal")
-	run.purchase_pack(Pack.material_pack(), 0)
-	view.expect_delivery()
-	assert_eq(view._pack_buttons.size(), 1, "das unterwegs befindliche Paket fehlt noch")
-	view.deliver_pack()
-	assert_eq(view._pack_buttons.size(), 2, "bei Ankunft erscheint es")
-
-func test_delivery_counter_survives_several_purchases_at_once() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	run.purchase_pack(Pack.material_pack(), 0)
-	view.expect_delivery()
-	view.expect_delivery()
-	assert_eq(view._pack_buttons.size(), 0, "beide Lichter sind noch unterwegs")
-	view.deliver_pack()
-	assert_eq(view._pack_buttons.size(), 1, "eines nach dem anderen")
-	view.deliver_pack()
-	assert_eq(view._pack_buttons.size(), 2)
-
-func test_extra_deliveries_are_ignored() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.deliver_pack()  # ohne angemeldete Lieferung
-	assert_eq(view._pack_buttons.size(), 1, "das Regal bleibt, wie es ist")
-
-func test_a_new_run_cancels_pending_deliveries() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.expect_delivery()
-	var fresh := GameRun.new_run()
-	fresh.purchase_pack(Pack.material_pack(), 0)
-	view.run = fresh
-	assert_eq(view._pack_buttons.size(), 1, "der neue Lauf zeigt sein Lager vollständig")
+	assert_false(view.open_top_dice_pack())
+	assert_eq(view._phase, WorkshopView.Phase.STASH)
 
 # --- Zeremonie: Entsiegelung -----------------------------------------------------
 
-func test_opening_a_pack_starts_the_unsealing() -> void:
+## Gravur-Pakete laufen über die Presse (test_workshop_press) - open_pack ist der
+## Weg der Würfel-Pakete und lässt sie unangetastet liegen.
+func test_open_pack_leaves_an_engraving_pack_sealed() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.open_pack(0)
-	assert_eq(view._phase, WorkshopView.Phase.UNSEAL)
-	assert_eq(view._revealed_engravings.size(), Pack.NUMBER_COUNT, "Inhalt ist ausgewürfelt")
-	assert_not_null(view._unseal, "die Zeremonie läuft")
-
-func test_the_stash_is_not_booked_before_the_seal_breaks() -> void:
-	# Die Schubladen hängen an engravings_changed - buchte das Öffnen sofort,
-	# verrieten ihre Zähler die Seltenheit noch während des Ladens.
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.open_pack(0)
-	assert_eq(run.owned_engravings.size(), 0, "während des Ladens ist nichts verbucht")
-	view._unseal.finish_now()
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "erst der Bruch bucht")
-
-func test_engraving_pack_returns_to_the_stash_on_its_own() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.open_pack(0)
-	view._unseal.finish_now()
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "kein Klick nötig")
-	assert_null(view._unseal, "die Zeremonie ist abgeräumt")
-
-func test_every_engraving_is_dispatched_exactly_once() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	var sent: Array[String] = []
-	view.engraving_dispatched.connect(func(id: String, _px: Vector2, _rarity: int) -> void:
-		sent.append(id))
-	view.open_pack(0)
-	view._unseal.finish_now()
-	assert_eq(sent.size(), Pack.NUMBER_COUNT, "je Stück ein Licht in die Schublade")
-
-func test_the_content_is_booked_only_once() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.open_pack(0)
-	view._unseal.finish_now()
-	view.finish_ceremony()  # doppelter Abschluss darf nicht nachbuchen
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT)
-
-func test_an_interrupted_ceremony_still_books_its_content() -> void:
-	# Die Gravur-Station legt sich über die Werkbank und beendet die Zeremonie -
-	# der schon ausgewürfelte Inhalt darf dabei nicht verfallen.
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.open_pack(0)
-	var station := Control.new()
-	view.attach_station(station)
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt ist gerettet")
-	assert_eq(view._phase, WorkshopView.Phase.STASH)
+	assert_eq(view._phase, WorkshopView.Phase.STASH, "keine Zeremonie")
+	assert_eq(run.owned_packs.size(), 1, "und das Paket bleibt liegen")
 
 func test_a_new_run_does_not_inherit_a_die_that_still_seeks_a_slot() -> void:
 	# Der Würfel schwebt bis zum Einsetzen auf der Bank - er darf den Laufwechsel
@@ -130,14 +60,6 @@ func test_a_new_run_does_not_inherit_a_die_that_still_seeks_a_slot() -> void:
 	view.run = GameRun.new_run()
 	assert_eq(view._phase, WorkshopView.Phase.STASH, "das Einsetzen verfällt mit dem Lauf")
 	assert_true(view.revealed_dice().is_empty(), "und der Würfel mit ihm")
-
-func test_a_new_run_does_not_inherit_the_open_content() -> void:
-	run.purchase_pack(Pack.number_pack(), 0)
-	view.open_pack(0)
-	var fresh := GameRun.new_run()
-	view.run = fresh
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "der alte Lauf behält ihn")
-	assert_eq(fresh.owned_engravings.size(), 0, "der neue erbt nichts")
 
 # --- Zeremonie: Würfel-Pakete ---------------------------------------------------
 
@@ -351,17 +273,14 @@ func test_the_placement_net_is_information_not_a_button() -> void:
 	assert_eq(view._die_nets.size(), 1, "auch der gewählte Würfel hat sein Netz")
 	assert_true(view._die_nets[0].disabled, "dort gibt es nichts mehr zu wählen")
 
-func test_the_net_is_as_big_as_the_one_in_the_engraving_station() -> void:
-	# Wer ÜBER einen Würfel entscheidet, sieht ihn in derselben Größe wie an der
-	# Gravur-Station - nicht in der kleineren Auskunfts-Größe der Hover-Karte.
+func test_the_net_is_as_big_as_a_die_one_decides_about() -> void:
+	# Wer ÜBER einen Würfel entscheidet, sieht ihn in der Entscheidungs-Größe.
 	_reveal_dice_pack()
 	await wait_frames(2)
 	var u := maxf(view.size.x, 200.0) / 100.0
 	assert_almost_eq(view._die_nets[0].size,
-		DieNetView.net_size(u * DieInspectorView.TRAY_TILE),
+		DieNetView.net_size(u * DieNetView.TRAY_TILE),
 		Vector2.ONE * 1.0)  # der Container rundet auf ganze Pixel
-	assert_gt(view._die_nets[0].size.x, DieNetView.net_size(u * WorkshopView.HOVER_CELL).x,
-		"und damit größer als die Hover-Karte")
 
 func test_the_placement_step_keeps_a_stage_for_the_chosen_die() -> void:
 	_open_dice_pack()
@@ -371,6 +290,41 @@ func test_the_placement_step_keeps_a_stage_for_the_chosen_die() -> void:
 func test_the_stash_has_no_stages_at_all() -> void:
 	assert_eq(view.die_stage_centers().size(), 0)
 	assert_true(view.revealed_dice().is_empty())
+
+# --- Die Aufspannung räumt dem Paket das Fenster ---------------------------------
+# Solange ein Paket das Fenster füllt, gibt es keine Netzzeile - und damit keine
+# Spalte, über der ein Zwingen-Würfel stehen dürfte. scene_root lässt sie abtreten.
+
+func test_the_clamps_leave_the_bench_while_a_pack_holds_the_window() -> void:
+	assert_true(view.clamps_on_bench(), "auf der Grundseite stehen sie")
+	_open_pack_without_ceremony()
+	assert_eq(view._phase, WorkshopView.Phase.CHOOSE_DIE)
+	assert_false(view.clamps_on_bench(), "die Wahl gehört dem Paket")
+	view._unseal.finish_now()
+	view.choose_die(0)
+	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE)
+	assert_false(view.clamps_on_bench(), "und das Einsetzen ebenso")
+	view.finish_ceremony()
+	assert_true(view.clamps_on_bench(), "danach kommen sie zurück")
+
+func test_opening_a_pack_already_clears_the_bench() -> void:
+	# Die Entsiegelung ist der erste Moment - die Zeichen fliegen schon.
+	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
+	var beats: Array = []
+	view.die_stages_changed.connect(func() -> void: beats.append(1))
+	view.open_pack(0)
+	assert_gt(beats.size(), 0, "scene_root erfährt vom Wechsel")
+	assert_false(view.clamps_on_bench())
+
+func test_the_press_keeps_the_clamps_standing() -> void:
+	# Die Pressung läuft UNTER der Netzzeile, und ihre Beute liegt darunter - die
+	# Zwingen bleiben stehen, sie sind die Ziele.
+	run.purchase_pack(Pack.number_pack(), 0)
+	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	view.start_press()
+	assert_eq(view._phase, WorkshopView.Phase.STASH)
+	assert_true(view.placing(), "die Beute liegt")
+	assert_true(view.clamps_on_bench())
 
 func test_every_rebuild_reports_the_stages() -> void:
 	# scene_root hängt die echten Würfel daran - ohne die Meldung stünden sie über
@@ -506,17 +460,19 @@ func test_discarding_drops_the_whole_content() -> void:
 	for def in run.owned_pool:
 		assert_eq(def.style_id, "normal", "verworfene Würfel verfallen")
 
-# --- Hinweiskarte am unteren Rand ---------------------------------------------
+# --- Hinweiskarte in der linken Flanke -----------------------------------------
 
-func test_the_hover_card_shows_title_and_body_and_sits_at_the_bottom() -> void:
+func test_the_hover_card_shows_title_and_body_and_sits_in_the_left_flank() -> void:
 	view.show_hover_info("Meißel", "Kopiert einen Seitenwert auf eine andere Seite.")
 	await wait_frames(2)
-	assert_true(view.hover_info_visible(), "die Karte steht")
+	assert_true(view.hover_info_visible(), "der Schirm trägt einen Hinweis")
 	assert_eq(view._info_title.text, "Meißel")
 	assert_eq(view._info_body.text, "Kopiert einen Seitenwert auf eine andere Seite.")
-	var card := view._info_card.get_rect()
-	assert_gt(card.position.y, view.size.y * 0.5, "sie liegt in der unteren Fensterhälfte")
-	assert_true(Rect2(Vector2.ZERO, view.size).encloses(card), "und ganz im Fenster")
+	var screen := view._info_screen.get_rect()
+	assert_eq(screen.position.x, 0.0, "bündig mit der linken Fensterkante")
+	assert_almost_eq(screen.size.x, view.info_width(), 1.0, "und füllt die Flanke")
+	assert_gte(screen.position.x, 0.0)
+	assert_lte(screen.end.y, view.shelf_top() + 1.0, "und nie unter die Buchten")
 
 func test_the_hover_card_takes_a_body_without_a_title() -> void:
 	view.show_hover_info("", "Rubin II: +10 Mult")
@@ -530,3 +486,44 @@ func test_clearing_hides_the_hover_card() -> void:
 	assert_false(view.hover_info_visible(), "leer heißt weg")
 	view.show_hover_info("", "")
 	assert_false(view.hover_info_visible(), "und zwei leere Texte räumen sie ebenso ab")
+
+## Der Schirm ist kein Kartenauftritt: er STEHT, auch wenn nichts unter dem
+## Zeiger liegt - Text auf blankem Filz wäre Text im Nichts.
+func test_the_info_screen_stands_even_without_a_hint() -> void:
+	await wait_frames(2)
+	assert_not_null(view._info_screen, "der Schirm steht von Anfang an")
+	assert_true(view._info_screen.visible)
+	assert_false(view.hover_info_visible(), "aber er trägt noch nichts")
+	var standing := view._info_screen.get_rect()
+	view.show_hover_info("Rubin", "+4 Mult")
+	await wait_frames(2)
+	assert_true(view.hover_info_visible())
+	assert_eq(view._info_screen.get_rect(), standing, "und er rührt sich dabei nicht")
+	view.clear_hover_info()
+	await wait_frames(2)
+	assert_false(view.hover_info_visible(), "der Hinweis erlischt")
+	assert_eq(view._info_screen.get_rect(), standing, "der Schirm bleibt")
+
+## Der Schirm hat eine feste Größe, also paßt sich der TEXT ein: der längste Satz
+## des Spiels bleibt darin, ein kurzer behält den vollen Grad.
+func test_a_long_hint_shrinks_itself_into_the_screen() -> void:
+	await wait_frames(2)
+	var u := view.size.x / 100.0
+	var longest := ""
+	for engraving in Engraving.all():
+		if engraving.description.length() > longest.length():
+			longest = engraving.description
+	view.show_hover_info("Leiterbahn", longest)
+	await wait_frames(2)
+	var small: int = view._info_body.get_theme_font_size("font_size")
+	assert_lt(small, int(u * WorkshopView.INFO_BODY), "der lange Satz wird kleiner gesetzt")
+	var font := view._info_body.get_theme_font("font")
+	var block := font.get_multiline_string_size(longest, HORIZONTAL_ALIGNMENT_CENTER,
+		view._info_text_width(), small)
+	assert_lte(block.y, view.info_screen_rect().size.y,
+		"und paßt damit in den Schirm")
+
+	view.show_hover_info("Rubin", "+4 Mult")
+	await wait_frames(2)
+	assert_eq(view._info_body.get_theme_font_size("font_size"), int(u * WorkshopView.INFO_BODY),
+		"ein kurzer Hinweis behält den vollen Grad")

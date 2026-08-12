@@ -63,16 +63,13 @@ func test_face_writes_never_touch_the_essence():
 func test_etchings_never_touch_the_essence():
 	var def := DieDefinition.new()
 	def.essence_id = Essence.KRYPTON
-	EtchingEffects.notch(def, 0)
-	EtchingEffects.punch(def, 1)
-	EtchingEffects.file_down(def, 2)
-	EtchingEffects.polish(def)
-	EtchingEffects.sandpaper(def)
-	EtchingEffects.straighten(def)
-	EtchingEffects.chisel(def, 0, 1)
-	EtchingEffects.grindstone(def, 0, 1)
-	EtchingEffects.averaging(def, 2, 3)
-	EtchingEffects.blueprint(def, 0)
+	var target: Array[int] = [1]
+	EtchingEffects.notch(def, 0, 6)
+	EtchingEffects.overpressure(def, 6)
+	EtchingEffects.growth(def, 6)
+	EtchingEffects.polish(def, 6)
+	EtchingEffects.chisel(def, 0, target, 6)
+	EtchingEffects.grindstone(def, 0, 1, 6)
 	assert_eq(def.essence_id, Essence.KRYPTON, "Ätzungen ändern Augen, nie die Seele")
 
 func test_instantiate_keeps_the_soul_but_shares_nothing():
@@ -99,12 +96,14 @@ func test_take_effects_never_rewrite_a_soul():
 func test_charms_that_repaint_dice_never_rewrite_a_soul():
 	var run := _souled_run()
 	var before := _souls_of(run)
+	# Das Schmuckkästchen füllt nur noch den Vorrat, der Midashandschuh malt Seiten -
+	# an die Seelen kommt keiner der beiden.
 	run.owned_charms.append(Charm.jewelry_box())
 	run.apply_jewelry_box(run.owned_pool)
 	run.owned_charms.append(Charm.midas_glove())
 	var faces := _p([0, 0, 0, 0, 0, 0])
 	run.apply_midas_glove(run.owned_pool.slice(0, 6), faces, _p([0, 1, 2, 3, 4, 5]))
-	assert_eq(_souls_of(run), before, "Schmuckkästchen und Midashandschuh malen nur Seiten")
+	assert_eq(_souls_of(run), before, "keiner von beiden fasst eine Seele an")
 
 func test_the_test_mode_helpers_never_rewrite_a_soul():
 	var run := _souled_run()

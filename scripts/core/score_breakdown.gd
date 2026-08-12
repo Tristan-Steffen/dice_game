@@ -34,7 +34,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var essences := DiceScoring.essence_sets_in(ctx)
 	var runes := DiceScoring.runes_in(ctx)
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
-	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant wegen Beherit).
+	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant, siehe trigger_order).
 	var eye_slots: Array[int] = shape["order"]
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty()
@@ -64,18 +64,16 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot, participating)
 
 	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), PUR.
-	# Der Doppelte Boden reist NICHT stillschweigend in dieser Zahl mit - er
+	# Der Dreifache Boden reist NICHT stillschweigend in dieser Zahl mit - er
 	# bekommt je Kopie einen eigenen Schritt, wie jeder Krit seinen eigenen
-	# Einschlag bekommt. Die Summe bleibt dieselbe wie in DiceScoring.
+	# Einschlag bekommt. Er hebt nur die Basis; der Mult bleibt die reine Stufe.
 	var base := DiceScoring.points_for(key, combo_levels)
 	var combo_mult := DiceScoring.mult_for(key, combo_levels)
 	var mult := float(combo_mult)
 	var combo := {"base_add": base, "mult_add": combo_mult}
 	var combo_factor_steps: Array[Dictionary] = []
 	for dock in CharmEffects.charm_indices_of(Charm.DOUBLE_BOTTOM, charm_ids):
-		base *= 2
-		combo_mult *= 2
-		mult = float(combo_mult)
+		base *= 3
 		combo_factor_steps.append({
 			"charm_indices": [dock],
 			"base_after": base,
@@ -217,13 +215,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["charm_base_after"] = base
 				entry["charm_mult_after"] = mult
 				# JEDER Krit ein eigener Schlag - Material, Essenz, dann jede Charm-
-				# Position einzeln. Zwei Beherit-Kopien schlagen zweimal, nie einmal
-				# mit ihrem Produkt. Grubengas zündet MIT dem Krit, an dessen Stelle.
+				# Position einzeln. Zwei Kopien schlagen zweimal, nie einmal mit
+				# ihrem Produkt. Grubengas zündet MIT dem Krit, an dessen Stelle.
 				var crit_steps: Array[Dictionary] = []
 				var crit_once := 1.0
 				var firedamp_add := 0
 				# Härteofen: dotiert schlägt der Material-Krit zweimal - zwei
-				# eigene Schritte wie zwei Beherit-Kopien, nie einer im Quadrat.
+				# eigene Schritte, nie einer im Quadrat.
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if is_equal_approx(mat_crit_now, 1.0):
 						break
@@ -413,9 +411,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			firedamp_add = firedamp
 		var mult_x := crit_x
 		# Rampenlicht wertet nicht, braucht aber seinen Schritt: es hebt die
-		# Kombination an SEINER Dock-Position, nicht nach dem Zählen.
+		# Kombination an SEINER Dock-Position, nicht nach dem Zählen. Das
+		# Schutzgeld genauso - seine Gebühr fällt an seinem Schritt an und rührt
+		# Basis, Mult und Summe nicht an.
 		var spotlight := CharmEffects.spotlight_fires_at(j, key, charm_ids, ctx)
-		if base_add == 0 and mult_add == 0 and is_equal_approx(mult_x, 1.0) and not spotlight:
+		var fee := CharmEffects.charm_fee_at(j, charm_ids)
+		if base_add == 0 and mult_add == 0 and is_equal_approx(mult_x, 1.0) and not spotlight and fee == 0:
 			continue
 		var base_before := base
 		var mult_before := mult
@@ -431,6 +432,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"firedamp_add": firedamp_add,
 			"base_after": base, "mult_after": mult,
 			"spotlight": spotlight,
+			"fee": fee,
 		}
 		# Hand-Charms mit Würfel-Bezug (Schlangenaugen, Zwillingsring) fächern
 		# ihren Beitrag in Einzel-Pulse auf, damit die Animation je Würfel einen

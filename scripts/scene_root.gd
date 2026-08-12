@@ -54,14 +54,16 @@ const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
 ## Saum gegen die Nachbarzelle (das Raster soll den Platz sichtbar ausfüllen).
 const CAPACITOR_SLOT_FILL := 0.97
 ## Der freie Chip-Platz ist flach (3.16:1); die Bank darf so viel höher in den
-## freien Filz DARUNTER wachsen (unter dem Cluster ist nur blanker Filz bis zur
-## Glaskante). Der Fußabdruck der Bank ist auf dieses Verhältnis mitgetrimmt.
+## freien Filz DARUNTER wachsen (unter dem Cluster liegt nur blanker Filz). Der
+## Fußabdruck der Bank ist auf dieses Verhältnis mitgetrimmt.
 const CAPACITOR_SLOT_TALL := 2.0
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
-## Sicherheitsabstand der Fenster-Unterkante zur Glaskante (die Ellipse steigt
-## nach links an - siehe _secret_shop_rect).
-const SECRET_SHOP_GLASS_MARGIN := 12.0
+## Seitenverhältnis des Schwarzmarkt-Fensters. Früher schnitt die Glas-Ellipse
+## seine linke Kante zu; die ist fort, also steht das Maß jetzt AUTORISIERT da -
+## und zwar auf dem Wert, den die Ellipse ergab: klein und flach ist die ganze
+## Gestaltung dieses Fensters (Zoom und Schriftgrad sind darauf gelöst).
+const SECRET_SHOP_ASPECT := 1.8
 ## Violett der legendären Rarität - die Signaturfarbe des Schwarzmarkts.
 const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
 
@@ -100,20 +102,16 @@ const HUB_HEIGHT_WORLD := 30.0
 ## alten Tischrand und bleibt bewusst - das Layout soll nicht verrutschen.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
 
-## SEITENVERHÄLTNIS der Werkbank, nicht ihre Breite: bei ~2:1 steht das 6×5-
-## Ziel-Raster der Gravur-Station bündig neben der Würfel-Spalte. Ist das Fenster
-## flacher, bleibt das Raster (höhenbegrenzt) schmaler als sein Platz und
-## zwischen Spalte und Raster klafft tote Fläche. Die Breite folgt also der
-## Höhe - und die Höhe nimmt, was das Glas hergibt.
-const WORKSHOP_ASPECT := 2.0
 ## Die MASSEINHEIT der Ecke bleibt an der Tray-Breite hängen: hinge sie an der
 ## Werkbank-Breite, wüchse mit ihr die Schubladenhöhe und fräße den Höhengewinn.
-## Abstände der Ecke in halben Slot-Breiten: oben zur Tray-Reihe, unten zum Rand.
-## tray_bounds umfasst nur die Slot-MITTEN - unter 1.0 läge die unterste
-## Würfelreihe körperlich auf der Werkbank.
+## Luft zwischen der gelösten Werkbank-Breite und der rechten Anzeigekante: der
+## Tisch ist endlich, und ein Fenster, das darüber hinausliefe, wäre halb weg.
+const WORKSHOP_RIGHT_MARGIN := 20.0
+## Abstand der Ecke zur Tray-Reihe in halben Slot-Breiten. tray_bounds umfasst
+## nur die Slot-MITTEN - unter 1.0 läge die unterste Würfelreihe körperlich auf
+## der Werkbank. Nach unten braucht es kein Maß mehr: dort endet die Ecke auf der
+## Hub-Unterkante (siehe _fit_workshop_rect).
 const WORKSHOP_TOP_GAP := 1.15
-const WORKSHOP_BOTTOM_GAP := 2.0
-
 ## Gefaktes Screen-Abstrahlen: gl_compatibility hat kein GI, also steht über
 ## jedem großen Fenster ein kurzes, getöntes Omni-Licht (Schatten aus) - Würfel,
 ## Chips und Props baden im Farbton "ihres" Screens (dunkler Raum, Lichtquelle
@@ -141,22 +139,48 @@ const SLOT_COIN_COLOR := Color(2.0, 1.55, 0.35, 0.9)
 const SLOT_CHARM_COLOR := Color(1.6, 0.9, 2.0, 0.9)
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 
-## Gravur-Zeremonie: der geklickte Würfel wird zum Ziel - sein Tray-Slot leert
-## sich und der ECHTE Würfel fliegt über die Hub-Bühne (kein Abbild).
+## Platzierung: das gesetzte Stück fährt als Licht von seinem Hand-Chip in das
+## Netz seines Würfels, und der Projektor darüber schluckt die Kraft.
 const ENGRAVE_TRAIL_TIME := 0.5
 const ENGRAVE_ABSORB_COLOR := Color(2.0, 1.6, 0.3, 0.9)
-const ENGRAVE_FLY_TIME := 0.55
-## Das Werkstück schwebt wie ein Tray-Würfel, auf derselben Höhe und über
-## derselben Stasis-Station - es liegt nicht auf der Werkbank, es steht IM Feld.
+## Ein Würfel schwebt über der Werkbank wie ein Tray-Würfel, auf derselben Höhe
+## und über derselben Stasis-Station - er liegt nicht auf, er steht IM Feld.
 const ENGRAVE_HOVER := DiceTrayView.FLOAT_HEIGHT
-## Feldfarbe der Werkstück-Station: das Gold der Gravur, nicht das Tray-Blau.
-const ENGRAVE_EMITTER_TINT := Color(0.95, 0.72, 0.2)
 ## Ab hier ist die Geste ein Drehen und kein Klick mehr (Bildschirmpixel).
 const ENGRAVE_DRAG_THRESHOLD := 6.0
 ## Feldfarbe der Paket-Würfel, die zur Wahl schweben: das Cyan der Werkstatt.
 const PACK_EMITTER_TINT := Color(0.2, 0.65, 0.9)
+## Feldfarbe der Zwingen: das Blau der Trays - sie sind Bestand, keine Zeremonie.
+const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
+## Schwebehöhe NUR der Zwingen: sie stehen als einzige über einem Diagramm, und
+## der seitliche Versatz gegen dieses Netz wächst linear mit der Höhe, sobald die
+## Kamera nicht in der kanonischen Werkbank-Lage steht (Nahsicht). Aus der
+## Würfelgeometrie gelöst statt geschätzt: die Mitte steht eine ganze Kantenlänge
+## über dem Glas, die freie Feldsäule darunter ist damit genau eine halbe
+## Würfelhöhe - kürzer wäre kein Feld mehr, nur noch ein Sockel.
+const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 ## Der gewählte Würfel wandert auf den Einsetz-Platz - er verschwindet nicht.
 const PACK_MOVE_TIME := 0.4
+## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
+const CLAMP_MATERIALIZE_STAGGER := 0.07
+
+## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
+## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
+const DATA_CELL_STAGGER := 0.06
+const DATA_CELL_SLIDE_TIME := 0.32
+const DATA_CELL_RAISE_TIME := 0.22
+const DATA_CELL_PLUNGE_TIME := 0.28
+## Die Dekompression beim Pressen: der Kern brennt aus, dann sinkt der Sliver den
+## Rest des Weges und ist geschluckt.
+const DATA_CELL_DRAIN_STAGGER := 0.09
+const DATA_CELL_DRAIN_HOLD := 0.22
+const DATA_CELL_SINK_TIME := 0.30
+## Die Pressung: die Portale der belegten Leser wirbeln gestaffelt an, und aus
+## jeder Entladung fahren die Meteore der Beute in dichter Folge in die Ablage -
+## ein Sechs-Pakete-Jackpot soll als Schauer lesen, nicht als Warteschlange.
+const PRESS_PORTAL_STAGGER := 0.08
+const PRESS_METEOR_GAP := 0.07
+const PRESS_METEOR_SLOT_GAP := 0.12
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
@@ -165,7 +189,6 @@ const SCORE_HOVER_HEIGHT := 0.0  # 0 = die Würfel liegen beim Zählen auf dem T
 const SCORE_LIFT_TIME := 0.5
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Glow-Kantenlänge als Vielfaches der Würfelgröße
 const FULL_COUNTER_GLOW_FAINT := 0.32  # Vollzähler: schwacher Glow der Nicht-Kombi-Würfel
-const SCORE_TRAIL_TIME := 0.3
 ## Rhythmus: jeder Schritt wartet die ANKUNFT seines Kometen ab (Ursache→Wirkung
 ## sichtbar geschlossen), dann eine sich verkürzende Pause (Accelerando) - erste
 ## Würfel wirken bedacht, lange Hände ziehen sich zu einem Trommelwirbel zusammen.
@@ -281,11 +304,11 @@ var test_materials_enabled: bool = false
 var test_pointers_button: Button
 var test_pointers_enabled: bool = false
 
-## Dritter Testmodus: unerschöpfliches Gravur-Bord (jeder Archetyp, auch die
-## Sonderposten) OHNE die Würfel anzutasten - die Testmaterialien schreiben
-## jeden Würfel um, was zum Ausprobieren einer einzelnen Gravur zu viel ist.
+## Dritter Testmodus, kein Schalter sondern eine LIEFERUNG: je Datenkarten-Sorte
+## außer den Würfel-Paketen ein voller Stapel ins Regal, damit die Presse ohne
+## Einkaufsrunden geprüft werden kann.
 var test_engravings_button: Button
-var test_engravings_enabled: bool = false
+const TEST_PACK_COUNT := 20
 
 var charm_library: CharmLibraryView
 @onready var hand_label: Label = $UI/HandLabel
@@ -335,9 +358,6 @@ var title_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
-
-## Die Gravur-Station - ebenfalls ein Hub-Panel (siehe _open_engraving).
-var die_inspector: DieInspectorView
 
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
 @onready var discard_tray_view: DiceTrayView = $DiscardTrayView
@@ -395,32 +415,57 @@ var _exchange_busy := false
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
-## Zustand der Gravur-Zeremonie: der ECHTE Würfel fliegt als Weltobjekt aus
-## dem Tray über die Hub-Bühne; sein Tray-Slot bleibt solange versteckt.
-var engraving_active := false
-var engraving_stage: FloatingDie          # das Werkstück im Stasis-Feld
-var engraving_source_root: Node3D        # versteckter Tray-Slot des Ziels
-var engraving_source_tray: DiceTrayView
-var engraving_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
-## Zuletzt überfahrene Seite des Werkstücks (-1 = keine) - nur Wechsel melden.
-var engraving_hover_face := -1
 ## Die Hinweiskarte der Werkbank hat zwei Sprecher, und BEIDE werden je Bild
 ## gefragt (siehe _update_workshop_hover): die überfahrene Vorrats-Kachel geht
 ## vor, sonst spricht die Netz-Zelle bzw. die Raster-Kachel unter dem Zeiger.
 var _workshop_line := ""
 var _supply_title := ""
 var _supply_body := ""
+## Färbung der Wirkungszeile: rot sagt der Schirm nur über einen Preis, der gerade
+## nicht zu zahlen ist.
+var _supply_tint: Color = CasinoStyle.CREAM
 ## Was zuletzt WIRKLICH auf der Karte stand - der Frage-Takt soll sie nicht in
 ## jedem Bild neu setzen und vermessen.
 var _info_shown_title := ""
 var _info_shown_body := ""
+var _info_shown_tint: Color = CasinoStyle.CREAM
 
 ## Die Paket-Würfel, die zur Wahl über der Werkbank schweben (leer = keine
 ## Zeremonie); ihre Reihenfolge ist die des Werkstatt-Fensters.
 var pack_stages: Array[FloatingDie] = []
 
-## Der gerade herangeholte schwebende Würfel (null = keiner) - Werkstück ODER
-## Paket-Würfel. Er allein reagiert in der Nahsicht auf Ziehen und Klick.
+## Die sechs Zwingen-Würfel der Runde: sie schweben die GANZE Runde IM
+## Werkstatt-Fenster, je einer über seinem Netz und gleich unter dem oberen
+## Fensterrand. Reihenfolge = run.clamped_dice; ein Platz ohne Würfel bleibt null.
+var clamp_stages: Array[FloatingDie] = []
+
+## Der Würfel des Dossiers: EIN Körper über der Bühne der Inspektions-Seite
+## (null = die Seite steht nicht). Sein Sitz im Tray bleibt derweil leer.
+var inspect_stage: FloatingDie
+## Der Würfel, dessen Dossier steht - nur sein WECHSEL füllt die Trays neu.
+var _inspected_die: DieDefinition
+## Nur der ZULETZT angestoßene Aufbau läuft nach dem gewarteten Bild weiter.
+var _inspect_gen := 0
+
+## Die physischen Datenzellen der Werkbank: je Regal-Sorte ein liegender Stapel
+## und je belegter Bucht die Kassette, die darin steckt. Weltkörper wie die
+## Zwingen - reine ANZEIGE: sie tragen keine Kollision und fangen keinen Klick,
+## der läuft weiter durch die leeren Knöpfe im Fenster (Chip-Schalen-Regel).
+var shelf_cells: Dictionary = {}
+var socket_cells: Array[DataCellView] = []
+## Zellen unterwegs: heimfliegende Rückläufer (je Sorte gezählt, damit ihr Stapel
+## erst bei Ankunft wächst) und die Körper, die gerade dekomprimiert werden.
+var _cell_returns: Dictionary = {}
+var _returning_cells: Array[DataCellView] = []
+var _draining_cells: Array[DataCellView] = []
+## Ankunfts-Pluster, deren Stapel noch gar nicht wieder stand.
+var _pending_cell_pops: Array[String] = []
+## Nur der ZULETZT angestoßene Abgleich läuft nach dem gewarteten Bild weiter -
+## sonst stellten zwei Aufbauten im selben Bild zwei Körper auf denselben Platz.
+var _data_cell_gen := 0
+
+## Der gerade herangeholte schwebende Paket-Würfel (null = keiner). Er allein
+## reagiert in der Nahsicht auf Ziehen und Klick.
 var focused_stage: FloatingDie
 ## Zieh-Geste an einem schwebenden Würfel: der gegriffene, und ob der Zeiger
 ## seither einen Weg zurückgelegt hat (dann war es keine Wahl mehr).
@@ -840,58 +885,44 @@ func _setup_table_screen() -> void:
 			first_slot = false
 	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
 	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
+	# Unter der Tray-Reihe beginnt sofort die Werkbank: der Projektor-Streifen auf
+	# dem Filz ist fort, die sechs Zwingen schweben IM Fenster.
 	var workshop_top := tray_bounds.end.y + slot_half * WORKSHOP_TOP_GAP
-	# EINE Maßeinheit für die ganze Werkbank-Ecke: die schmalen Schubladen dürfen
-	# ihre Schrift nicht aus der eigenen Breite ableiten, sonst wird sie winzig.
-	# Sie hängt an der TRAY-Breite, nicht an der gewachsenen Werkbank-Breite.
+	# EINE Maßeinheit für die ganze Werkbank-Ecke, an der TRAY-Breite hängend:
+	# hinge sie an der gewachsenen Fensterbreite, wüchse der Inhalt mit und fräße
+	# den Höhengewinn wieder auf.
 	var corner_unit := (tray_bounds.size.x + slot_half * 2.0) / 100.0
 	var bench_left := tray_bounds.position.x - slot_half
-	var drawer_gap := slot_half
-	var corner_margin := slot_half * WORKSHOP_BOTTOM_GAP
-	# Nullbreite = die Reihe ohne jede Luft: nur so erfährt man ihre Höhe und ihr
-	# schmalstes Maß. Die Luft dazwischen kommt erst, wenn die Werkbank steht.
-	var drawer_probe := _supply_drawer_rects(Vector2.ZERO, 0.0, corner_unit)
-	var drawer_height: float = drawer_probe[0].size.y
-	var drawer_min_span: float = drawer_probe[drawer_probe.size() - 1].end.x
-	# Die Werkbank nimmt, was zwischen Tray-Reihe und Anzeigenrand übrig bleibt.
-	# Der Rand ist RUND: maßgeblich ist nicht die Rechteckkante, sondern wie tief
-	# das Glas in der Spalte trägt, in der die Schubladen-Reihe endet - gemessen an
-	# ihrem INHALT, nicht an ihrer Luft. Die Spreizung darf die Werkbank nichts
-	# kosten, sonst zahlt die Bank für den Abstand ihrer Schubladen.
-	var corner_bottom := table_screen.glass_bottom_limit(bench_left + drawer_min_span) - corner_margin
-	var workshop_height := corner_bottom - workshop_top - drawer_gap - drawer_height
-	# Breite AUS der Höhe (siehe WORKSHOP_ASPECT), nie schmaler als die Reihe und
-	# nie weiter, als das Glas an der Werkbank-Unterkante trägt.
-	var workshop_rect := Rect2(Vector2(bench_left, workshop_top),
-		Vector2(maxf(workshop_height * WORKSHOP_ASPECT, drawer_min_span), workshop_height))
-	var right_room := table_screen.glass_right_limit(workshop_rect.end.y) - corner_margin
-	workshop_rect.size.x = minf(workshop_rect.size.x, right_room - bench_left)
+	# Die Ecke endet auf der Hub-Unterkante - dort liegen die Buchten auf.
+	var bench_bottom := hub_r.position.y + hub_r.size.y
+	var workshop_rect := _fit_workshop_rect(bench_left, workshop_top, bench_bottom)
 	table_screen.place_workshop_window(workshop_rect)
-	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", workshop_rect, camera_rig.configure_workshop_target)
+	# Die Werkbank misst Regal und Buchten an der ECHTEN Größe einer liegenden
+	# Datenzelle - sie muss sie also kennen, bevor sie auslegt (wie beim Wurf).
+	if table_screen.workshop_window != null:
+		table_screen.workshop_window.data_cell_px = _data_cell_apparent_px()
+		# Die SCHÜRZE: Konsole und Buchten hängen unter dem Fenster, und die
+		# Buchten enden auf der Unterkante des Hubs. Der Tisch weiß das, das
+		# Fenster nicht - also misst scene_root und schiebt es herein.
+		table_screen.workshop_window.apron_bottom = \
+			hub_r.position.y + hub_r.size.y - workshop_rect.position.y
+	# Klick, Zeiger und Kamera messen sich an Fenster PLUS Schürze.
+	var bench_rect := Rect2(workshop_rect.position, Vector2(workshop_rect.size.x,
+		hub_r.position.y + hub_r.size.y - workshop_rect.position.y))
+	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", bench_rect, camera_rig.configure_workshop_target)
 
-	# Schubladen-Reihe direkt unter die Werkbank: sie spannt deren GANZE Breite,
-	# der Sonderbestand schließt also rechts bündig mit der Werkbank ab. Die
-	# Spreizung ist reine Luft und weicht dem Glas - sie steht eine Zeile tiefer,
-	# wo der Rand schon enger ist, und wird dort notfalls schmaler.
-	var drawer_top := workshop_rect.end.y + drawer_gap
-	var row_room := table_screen.glass_right_limit(drawer_top + drawer_height) - bench_left
-	var drawer_rects := _supply_drawer_rects(Vector2(bench_left, drawer_top),
-		maxf(minf(workshop_rect.size.x, row_room), drawer_min_span), corner_unit)
-	table_screen.place_supply_drawers(drawer_rects, corner_unit)
+	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster und Schürze
+	# darunter. Nur so liegt der Ziel-Würfel mit im Bild.
+	var corner := bench_rect.merge(tray_bounds)
+	var corner_a := table_screen.pixel_to_world(corner.position)
+	var corner_b := table_screen.pixel_to_world(corner.end)
+	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
+		Vector2(absf(corner_a.z - corner_b.z), absf(corner_a.x - corner_b.x)) * 0.5)
 
-	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster, Schubladen
-	# (samt Sonderbestand) unten. Nur so liegt der Ziel-Würfel mit im Bild.
-	var corner := workshop_rect.merge(tray_bounds)
-	for rect in drawer_rects:
-		corner = corner.merge(rect)
-	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()))
-
-	# Nahsicht (Doppelklick): dieselbe Ecke OHNE die Trays - genau der Teil, der
-	# flach auf dem Glas liegt. workshop_close_rect bleibt als Prüffläche für den
-	# Doppelklick liegen (nur darauf öffnet die zweite Stufe).
-	workshop_close_rect = workshop_rect
-	for rect in drawer_rects:
-		workshop_close_rect = workshop_close_rect.merge(rect)
+	# Nahsicht (Doppelklick): dieselbe Ecke OHNE die Trays - Fenster samt Schürze,
+	# die flach auf dem Tisch liegen. workshop_close_rect bleibt als Prüffläche für
+	# den Doppelklick liegen (nur darauf öffnet die zweite Stufe).
+	workshop_close_rect = bench_rect
 	var close_a := table_screen.pixel_to_world(workshop_close_rect.position)
 	var close_b := table_screen.pixel_to_world(workshop_close_rect.end)
 	camera_rig.configure_workshop_close_target(
@@ -899,6 +930,35 @@ func _setup_table_screen() -> void:
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
 
 	_setup_screen_spill_lights(corner)
+	# Beim Aufbau steht die Kamera über dem Tisch, nicht an der Bank: das Fenster
+	# beginnt leer und füllt sich beim ersten Zoom.
+	_sync_bench_focus()
+
+## Das Rechteck der Werkbank: linke Kante bündig mit den Trays, obere unter ihnen.
+## Die Höhe misst nicht mehr das Glas (die ovale Platte ist fort, die Anzeige ist
+## ihr Rechteck), sondern die SCHÜRZE darunter: von der Hub-Unterkante steigt sie
+## auf - Buchten, Naht, ganzes Konsolen-Band -, und was bis zur Tray-Reihe übrig
+## bleibt, ist das Fenster. Die BREITE ist gelöst statt gesetzt: sie ist die, bei
+## der die Dossier-Seite bündig aufgeht (WorkshopView.dossier_aspect). Die Schürze
+## rechnet in u = Breite/100 und die Breite in der Höhe, also steht die Gleichung
+## geschlossen da: h * (1 + Schürze_u * Verhältnis/100) = Spanne.
+func _fit_workshop_rect(left: float, top: float, bottom: float) -> Rect2:
+	var aspect := WorkshopView.dossier_aspect()
+	var apron_units := 0.0
+	if table_screen.workshop_window != null:
+		apron_units = table_screen.workshop_window.apron_units()
+	var span := maxf(bottom - top, 1.0)
+	var height := span / (1.0 + apron_units * aspect / 100.0)
+	var width := height * aspect
+	# Der Tisch ist endlich: passt die gelöste Breite nicht mehr auf die Anzeige,
+	# wird gekappt (das Dossier behält dann Restluft) und die Höhe aus der
+	# gekappten Schürze zurückgerechnet - die Buchten enden weiter auf der Hub-Linie.
+	var room := float(TableScreen.RESOLUTION.x) - left - WORKSHOP_RIGHT_MARGIN
+	if width > room:
+		push_warning("Werkbank gekappt: %.0f statt %.0f px breit" % [room, width])
+		width = room
+		height = maxf(span - apron_units * width / 100.0, 1.0)
+	return Rect2(Vector2(left, top), Vector2(width, height))
 
 ## Je großem Fenster ein Spill-Licht in dessen Farbwelt; die Werkbank-Ecke
 ## bekommt EIN gemeinsames Licht (ihre Fenster teilen sich den Zoom sowieso).
@@ -985,16 +1045,6 @@ func _setup_panels() -> void:
 	log_view.step_requested.connect(_log_step)
 	log_view.close_requested.connect(_close_round_log)
 
-	# Gravur-Station in der WERKSTATT: dort liegen die Vorräte, dort werden sie
-	# angewandt (ohne Werkstatt-Fenster: keine Zeremonie).
-	die_inspector = DieInspectorView.new()
-	die_inspector.visible = false
-	if table_screen != null and table_screen.workshop_window != null:
-		table_screen.workshop_window.attach_station(die_inspector)
-	else:
-		$UI.add_child(die_inspector)
-	if table_screen != null:
-		die_inspector.set_drawers(table_screen.supply_drawers)
 	# Titel-HUD: eigene Hub-Seite, damit Menü, Einstellungen und Credits auf
 	# demselben Fenster liegen wie der Shop. Ohne Hub gibt es keinen Titel -
 	# dann startet das Spiel wie bisher direkt.
@@ -1012,13 +1062,6 @@ func _setup_panels() -> void:
 		camera_rig.configure_title_target(
 			Vector3(hub_anchor.global_position.x, 0.0, hub_anchor.global_position.z),
 			Vector2(HUB_WIDTH_WORLD * 0.5, HUB_HEIGHT_WORLD * 0.5))
-
-	die_inspector.closed.connect(_end_engraving_ceremony)
-	die_inspector.applied.connect(_on_engraving_applied)
-	die_inspector.select_tray_die.connect(_on_tray_die_selected)
-	die_inspector.changed.connect(_on_die_engraved)
-	# Auswahl und Eignung stehen am ECHTEN schwebenden Würfel - er ist die Ansicht.
-	die_inspector.selection_changed.connect(func(_face: int) -> void: _highlight_engraving_die())
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -1061,11 +1104,11 @@ func _setup_settings_ui() -> void:
 	_refresh_test_pointers_button()
 
 	test_engravings_button = Button.new()
+	test_engravings_button.text = HubView.TEST_PACKS_LABEL
 	test_engravings_button.custom_minimum_size = Vector2(0, 48)
 	test_engravings_button.pressed.connect(_on_test_engravings_pressed)
 	settings_menu.add_child(test_engravings_button)
 	CasinoStyle.style_button(test_engravings_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
-	_refresh_test_engravings_button()
 
 ## Casino-Look der verbliebenen 2D-Spiel-UI; der Shop stylt sich selbst.
 func _style_ui() -> void:
@@ -1119,10 +1162,10 @@ func _toggle_title() -> void:
 		return
 	_open_title(true)
 
-## Nur in Ruhephasen: während Wurf, Zählen oder Gravur-Zeremonie wird die
-## Kamera gebraucht, und das Menü risse sie mitten aus der Bewegung.
+## Nur in Ruhephasen: während Wurf oder Zählen wird die Kamera gebraucht, und
+## das Menü risse sie mitten aus der Bewegung.
 func _can_open_title() -> bool:
-	if camera_rig.is_animating or engraving_active or _dice_in_motion():
+	if camera_rig.is_animating or _dice_in_motion():
 		return false
 	return phase == Phase.IDLE or phase == Phase.SHOP or phase == Phase.GAME_OVER
 
@@ -1225,7 +1268,8 @@ func _sync_combo_upgrade_buttons() -> void:
 			var next_levels: Dictionary = run.combo_levels.duplicate()
 			next_levels[key] = run.combo_level(key) + 1
 			chip.set_upgrade_offer(run.overclock_cost(key), run.can_overclock(key),
-				DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels))
+				DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels),
+				run.free_overclocks > 0)
 	if not show:
 		_clear_combo_upgrade_hover()
 
@@ -1539,8 +1583,9 @@ var _meteor_index := 0
 ## Sie liegt im Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
 var _hub_reward_overlay: Control = null
 
-## Was das Schmuckkästchen an diesem Rundenende veredelt hat - gebucht beim
-## Rundenabschluss, gezeigt an seinem Dock-Platz in der Charm-Zeremonie.
+## Welche Material-Gravuren das Schmuckkästchen an diesem Rundenende gefunden
+## hat - gebucht beim Rundenabschluss, gezeigt an seinem Dock-Platz in der
+## Charm-Zeremonie.
 var _jewelry_box_upgrades: Array[Dictionary] = []
 
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
@@ -1814,7 +1859,7 @@ func _on_side_bet_placed(index: int) -> void:
 	var from_hub := bet.stake_kind != SideBet.Stake.MONEY
 	var comet_color := TableScreen.SIDE_MONEY_COLOR
 	var glow_color := SideBetPanel.GOLD
-	if bet.stake_kind == SideBet.Stake.ENGRAVINGS:
+	if bet.stake_kind == SideBet.Stake.PACKS:
 		comet_color = TableScreen.SIDE_ENGRAVING_COLOR
 		glow_color = SideBetPanel.ENGRAVING_GLOW
 	elif bet.stake_kind == SideBet.Stake.CHARGE:
@@ -1935,40 +1980,41 @@ func _fly_side_bet_to_hub() -> void:
 		if table_screen != null and table_screen.hub != null:
 			table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW))
 
-## Sonderposten-Gewinn: der Komet fährt bis in seinen Platz (der Sonderbestand
-## ist eine Schublade wie jede andere) und lässt ihn nachglühen.
+## Sonderposten-Gewinn: er liegt als Fixinhalt-Paket im Sonderbestand-Stapel der
+## Werkbank - der Komet fährt bis dorthin, und erst seine Ankunft legt das Siegel
+## auf den Stapel (der Komet IST das Paket).
 func _fly_side_bet_special(engraving: Engraving) -> void:
-	if engraving == null:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if engraving == null or workshop == null or not workshop.visible:
+		_fly_side_bet_to_hub()  # keine Werkbank: der Hub quittiert
 		return
-	for drawer in table_screen.supply_drawers:
-		var target := drawer.slot_center_px(engraving.id)
-		if target.x < 0.0:
-			continue
-		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-		var travel := table_screen.side_bet_engraving_comet(drawer.category, target, tint)
-		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-			if is_instance_valid(drawer):
-				drawer.pop(engraving.id, tint))
-		return
-	_fly_side_bet_to_hub()  # kein Schubladen-Platz: der Hub quittiert
+	var shelf := PackShelfView.CATEGORY_SPECIAL
+	var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
+	workshop.expect_pack_delivery(shelf)
+	var travel := table_screen.side_bet_engraving_comet(workshop.stack_anchor_px(shelf), tint)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if is_instance_valid(workshop):
+			workshop.deliver_pack(shelf))
 
-## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang ins Lager -
-## die Karte erscheint erst bei Ankunft, wie bei einem gekauften Paket.
+## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang auf seinen
+## Stapel - der wächst erst bei Ankunft, wie bei einem gekauften Paket.
 func _fly_side_bet_pack(pack: Pack) -> void:
-	var window := table_screen.workshop_window
-	if pack == null or window == null or table_screen.hub == null:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var shelf := PackShelfView.shelf_of(pack)
+	if pack == null or shelf == "" or workshop == null or table_screen.hub == null:
 		return
 	var tint: Color = PackIconRenderer.COLORS.get(pack.type, Color.WHITE)
-	window.expect_delivery()
+	workshop.expect_pack_delivery(shelf)
 	await get_tree().create_timer(
 		maxf(table_screen.side_bet_payout_comet(true, tint), 0.05)).timeout
-	if table_screen == null or table_screen.hub == null or not is_instance_valid(window):
+	if table_screen == null or table_screen.hub == null or not is_instance_valid(workshop):
 		return
 	var hub_px := table_screen.hub.position + table_screen.hub.size * 0.5
 	await get_tree().create_timer(
-		maxf(table_screen.pack_delivery_comet(hub_px, tint), 0.05)).timeout
-	if is_instance_valid(window):
-		window.deliver_pack()
+		maxf(table_screen.pack_delivery_comet(hub_px, tint,
+			workshop.stack_anchor_px(shelf)), 0.05)).timeout
+	if is_instance_valid(workshop):
+		workshop.deliver_pack(shelf)
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
@@ -1994,6 +2040,22 @@ func _launch_rune_spark(slot: int) -> void:
 	if slot >= 0 and slot < dice.count():
 		_flare_runes(slot)
 	_fly_charge_to_capacitor(false)
+
+## Kupfer-Energie eines Zuges: dieselbe Salve wie der Funkenflug, nur ohne
+## Funken - ein Material lodert nicht, es speist. Die ⚡ sind beim Aufruf SCHON
+## gebucht, hier fliegt nur das Licht; ein Laufwechsel während der Salve lässt
+## den Rest liegen.
+func _play_copper_charge_volley(count: int) -> void:
+	if count <= 0 or table_screen == null:
+		return
+	var launched := run
+	for i in count:
+		if i == 0:
+			_fly_charge_to_capacitor(false)
+		else:
+			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
+				if run == launched:
+					_fly_charge_to_capacitor(false))
 
 ## Ladungs-Gewinn: je ⚡ ein Komet, dicht gestaffelt wie die Vertrags-Salve -
 ## erst aus dem Wettfenster in den Hub, dann die Hub-Cluster-Ader zur Börse.
@@ -2156,19 +2218,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if log_open:
 			_close_round_log()
 			return
-		# Aus der Werkstück-Sicht führt Rechtsklick eine Stufe zurück an die Bank -
-		# das Werkstück abzulegen ist noch kein Abbruch der Zeremonie.
+		# Aus der Würfel-Nahsicht führt Rechtsklick eine Stufe zurück an die Bank.
 		if camera_rig.die_focus:
 			_leave_die_focus()
-			return
-		# In der Zeremonie bricht Rechtsklick erst einen laufenden Zweitschritt
-		# ab, dann die Zeremonie selbst - sie darf nie offen zurückbleiben,
-		# während die Kamera schon woanders steht.
-		if engraving_active:
-			if die_inspector.has_pending_action():
-				die_inspector.cancel_pending()
-			else:
-				die_inspector.close()  # closed -> _end_engraving_ceremony
 			return
 		# An der Werkbank geht Rechtsklick zuerst einen Schritt im ABLAUF zurück:
 		# vom Einsetzen zurück zur Würfel-Wahl. Erst wenn dort nichts mehr zurück
@@ -2212,15 +2264,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera_rig.set_tilt_locked(true)
 			return
 
-	# Warteschlangen-Umsortieren nur außerhalb der Zeremonie - dort holt ein
-	# Klick den Würfel ins Edit-Panel statt eine Zieh-Geste zu starten.
-	if not engraving_active and not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
+	if not _dice_in_motion() and deck_shift_ghosts.is_empty() and _try_start_queue_reorder(event.position):
 		return
 
 	if not _dice_in_motion() and _try_start_pool_tray_drag(event.position):
 		return
 
-	if not _dice_in_motion() and _try_tray_die_click(event.position):
+	if not _dice_in_motion() and _try_inspect_discard_die(event.position):
 		return
 
 	if camera_rig.mode == CameraRig.Mode.CHIPS and _try_start_chip_drag(event.position):
@@ -2254,168 +2304,94 @@ func _mouse_on_plane(screen_pos: Vector2, height: float) -> Variant:
 	return Plane(Vector3.UP, height).intersects_ray(
 		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 
-## Klick auf einen sichtbaren Tray-Würfel (SLOT_PICK_LAYER) - öffnet die
-## Gravur-Zeremonie für genau diesen Würfel (bzw. wechselt das Ziel). Am Hub
-## zählt JEDES Tray (der Nutzer will bearbeiten, nicht navigieren), sonst nur
-## das gerade fokussierte - aus der Übersicht zoomt ein Klick stattdessen.
-func _try_tray_die_click(screen_pos: Vector2) -> bool:
-	var candidate_trays: Array[DiceTrayView] = []
-	if engraving_active or camera_rig.mode == CameraRig.Mode.WORKSHOP:
-		candidate_trays = [pool_tray_view, discard_tray_view, queue_tray_view]
-	else:
-		match camera_rig.mode:
-			CameraRig.Mode.POOL:
-				candidate_trays = [pool_tray_view]
-			CameraRig.Mode.DISCARD:
-				candidate_trays = [discard_tray_view]
-			_:
-				return false
-
-	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
-	if result.is_empty():
-		return false
-
-	for target_tray in candidate_trays:
-		var index: int = target_tray.find_slot_index(result.collider)
-		if index != -1:
-			_open_engraving(target_tray.slot_defs[index], target_tray.slot_roots[index], target_tray)
-			return true
-	return false
-
-# --- Gravur-Zeremonie ------------------------------------------------------------
-# Der geklickte Würfel wird zum GRAVUR-ZIEL: sein Tray-Platz leert sich, das
-# Hub-Panel öffnet, die Kamera zoomt auf den Hub - bleibt aber frei. Ein Klick
-# auf einen anderen Tray-Würfel wechselt das Ziel; Fertig schließt.
-
-## Öffnet die Zeremonie ODER wechselt das Ziel. def ist die echte
-## Pool-Instanz; ohne Hub öffnet nur das Panel als Fenster-UI.
-func _open_engraving(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
-	# Der Würfel ist immer einsehbar; sobald die Runde festgezurrt ist, bleiben nur
-	# die Gravuren gesperrt. Die Sperre hängt am GEZEIGTEN Würfel (Halogen brennt
-	# weiter), also erst zeigen, dann synchronisieren.
-	if table_screen == null or table_screen.workshop_window == null:
-		die_inspector.show_die(def)
-		_sync_editing_lock()
-		return
-	if not engraving_active:
-		engraving_active = true
-		engraving_prev_mode = camera_rig.mode
-		engraving_source_root = null
-	_grab_engraving_die(def, source_root, source_tray)
-
-## Macht def zum aktuellen Gravur-Ziel: der bisherige Slot wird wieder
-## sichtbar, der neue verschwindet und der ECHTE Würfel fliegt an seiner
-## Stelle über die Hub-Bühne.
-func _grab_engraving_die(def: DieDefinition, source_root: Node3D, source_tray: DiceTrayView) -> void:
-	if source_root == engraving_source_root:
-		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)  # schon das Ziel - nur herzoomen
-		return
-	if engraving_source_root != null and is_instance_valid(engraving_source_root):
-		engraving_source_root.visible = true
-	engraving_source_root = source_root
-	engraving_source_tray = source_tray
-	var start_pos: Vector3 = source_root.global_position
-	source_root.visible = false
-	die_inspector.show_die(def)
-	_sync_editing_lock()
-	_refresh_engraving_target_grid()
-	camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
-	_fly_engraving_die(def, start_pos)
-
-## Lässt den echten Würfel vom Tray-Slot über die Hub-Bühne gleiten (in
-## Tray-Größe); ein alter schwebender Würfel wird zuvor freigegeben. Über der
-## Bühne rastet er ins Stasis-Feld ein - wie ein Tray-Würfel über seinem Emitter.
-func _fly_engraving_die(def: DieDefinition, start_pos: Vector3) -> void:
-	_free_engraving_die()
-	engraving_stage = _spawn_floating_die(def, ENGRAVE_EMITTER_TINT, start_pos)
-
-	# Landeziel erst berechnen, wenn das frisch gebaute Panel ausgelegt ist.
-	await get_tree().process_frame
-	if not engraving_active or engraving_stage == null or not is_instance_valid(engraving_stage):
-		return
-	engraving_stage.land_at(_bench_hover_target(die_inspector.stage_center_px()), ENGRAVE_FLY_TIME)
-
 ## Ein Würfel im Stasis-Feld über der Werkbank; der Aufrufer lässt ihn landen.
-func _spawn_floating_die(def: DieDefinition, tint: Color, from: Vector3) -> FloatingDie:
+## hover muss VOR setup stehen: die Station baut ihre Säule auf diese Höhe.
+func _spawn_floating_die(def: DieDefinition, tint: Color, from: Vector3,
+		hover: float = ENGRAVE_HOVER) -> FloatingDie:
 	var stage := FloatingDie.new()
 	stage.name = "FloatingDie"
+	stage.hover_height = hover
 	add_child(stage)
 	stage.setup(def, tint, from)
 	ScreenReflection.mark_reflective(stage)  # er schwebt über dem Werkbank-Glas
 	return stage
 
-## Landepunkt über einem Display-Pixel: auf die Tischfläche zurückprojiziert,
-## dann entlang des Kamerastrahls auf Schwebehöhe gehoben (Parallaxe
-## kompensiert) - der Würfel steht so über dem Pixel, seine Station darunter.
-func _bench_hover_target(px: Vector2) -> Vector3:
-	var surface: Vector3 = table_screen.pixel_to_world(px)
-	var zoom_distance := CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS
-	var cam_pos: Vector3 = camera_rig.workshop_target - CameraRig.ZOOM_FORWARD * zoom_distance
-	var hover_y := surface.y + ENGRAVE_HOVER
-	var denom := surface.y - cam_pos.y
-	if is_zero_approx(denom):
-		return Vector3(surface.x, hover_y, surface.z)
-	var t := (hover_y - cam_pos.y) / denom
-	return cam_pos + (surface - cam_pos) * t
+## Landepunkt über einem Display-Pixel: auf die Tischfläche zurückprojiziert und
+## senkrecht auf Schwebehöhe gehoben. Der ANKER ist der Projektor, nicht der
+## Körper - die Station steht auf dem Glas, also in derselben Ebene wie das Netz,
+## und zwei Dinge in einer Ebene treffen unter JEDER Kamera dasselbe Pixel. Darum
+## braucht dieser Platz keine Kamera und keinen Ausgleich.
+## height: die Höhe der KÖRPERMITTE über der Fläche; ein Körper, der auf dem Glas
+## LIEGEN soll, übergibt seine halbe Kantenlänge (0 = die Kassette hebt sich selbst).
+func _bench_hover_target(px: Vector2, height: float = ENGRAVE_HOVER) -> Vector3:
+	return table_screen.pixel_to_world(px) + Vector3.UP * height
 
-## Ätzung angewandt: goldene Leiterbahn Gravur-Kachel -> schwebender Würfel;
-## bei der Ankunft absorbiert er die Kraft (Seiten nachziehen + Blitz-Pop).
-func _on_engraving_applied(_engraving_id: String, slot_px: Vector2) -> void:
-	if not engraving_active:
+## Ein Beutestück hat seinen Platz gefunden: das Licht fährt aus seinem Leser ins
+## Netz des Würfels, und bei der Ankunft schluckt sein Projektor die Kraft. Rein
+## visuell - GameRun hat längst gebucht.
+func _on_piece_placed(die: DieDefinition, engraving_id: String, from_px: Vector2) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or die == null:
 		return
-	table_screen.spawn_trace(slot_px, die_inspector.stage_center_px(), ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
+	# Das Fenster ist mit der Buchung neu gebaut worden - sein Netz hat erst nach
+	# dem Layout ein Rechteck. Der Startpunkt reiste darum im Signal mit.
+	var launched := run
+	await get_tree().process_frame
+	if run != launched or not is_instance_valid(workshop):
+		return
+	var target := _clamp_net_center(workshop, die)
+	if target.x < 0.0:
+		return
+	table_screen.spawn_trace(from_px, target, ENGRAVE_ABSORB_COLOR, ENGRAVE_TRAIL_TIME)
 	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
-	if not engraving_active:
+	if run != launched:
 		return
-	_refresh_engraving_die_faces()
-	if engraving_stage != null and is_instance_valid(engraving_stage):
-		engraving_stage.pulse()  # der Würfel schluckt die Kraft
+	var stage := _clamp_stage_of(die)
+	if stage != null:
+		stage.pulse()
 
-## Zieht die Augenzahlen des schwebenden Würfels aus current_def nach.
-func _refresh_engraving_die_faces() -> void:
-	if engraving_stage == null or not is_instance_valid(engraving_stage):
+## Das Fertig hat die Reste der Hand ausgezahlt: die Zahl steigt über der Konsole
+## auf - wie jedes Geld, das aus einem Ding herauskommt. Rein visuell, gebucht hat
+## GameRun im selben Moment.
+func _on_press_cashed_out(amount: int, from_px: Vector2) -> void:
+	if table_screen == null or amount <= 0:
 		return
-	if die_inspector.current_def == null:
-		return
-	engraving_stage.apply_definition(die_inspector.current_def)
-	_highlight_engraving_die()  # apply_definition setzt die Seiten zurück
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR, 1.0, true)
 
-## Malt Auswahl UND Eignung auf das schwebende Werkstück: die gewählte Ziffer
-## violett, ungeeignete Ziele grau. Der Würfel selbst ist die Anzeige - eine
-## flache Projektion, die das früher zeigte, gibt es nicht mehr.
-func _highlight_engraving_die() -> void:
-	if engraving_stage == null or not is_instance_valid(engraving_stage):
-		return
-	if die_inspector.current_def == null:
-		return
-	var faces := engraving_stage.faces
-	faces.set_tint(DiceController.KIND_TINTS.get(die_inspector.current_def.style_id, Color.WHITE))
-	faces.reset_number_tints()
-	if die_inspector.whole_die_targeted():
-		# Werkzeug für den GANZEN Würfel: der Rahmen ist sein Klickziel.
-		faces.set_edge_tint(DieFaceDisplay.SELECT_NUMBER_COLOR)
-	elif die_inspector.selected_face != -1:
-		# Nur die gewählte ZIFFER leuchtet - der Würfelkörper bleibt neutral.
-		faces.set_face_number_tint(die_inspector.selected_face, DieFaceDisplay.SELECT_NUMBER_COLOR)
-	var dimmed := die_inspector.dimmed_faces()
-	for i in dimmed.size():
-		if dimmed[i]:
-			faces.set_face_number_tint(i, DieInspectorView.DIM_NUMBER_COLOR)
+## Display-Pixel des Netzes dieses Würfels (Vector2(-1,-1) = er liegt gerade
+## nicht aus).
+func _clamp_net_center(workshop: WorkshopView, die: DieDefinition) -> Vector2:
+	var centers := workshop.clamp_net_centers()
+	# Bewusst nicht "dice": so hieße die lokale Liste wie der DiceController-Handle,
+	# und der Geister-Aufruf-Test hielte ihr Suchen für einen Aufruf an der Grube.
+	var laid_out := workshop.net_dice()
+	var index := laid_out.find(die)
+	if index < 0 or index >= centers.size():
+		return Vector2(-1, -1)
+	return centers[index]
+
+## Der schwebende Zwingen-Würfel dieser Def (null = keiner).
+func _clamp_stage_of(die: DieDefinition) -> FloatingDie:
+	for stage in clamp_stages:
+		if stage != null and is_instance_valid(stage) and stage.def == die:
+			return stage
+	return null
 
 # --- Schwebende Würfel in der Hand -----------------------------------------------
-# Ein schwebender Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
-# Werkbank-Stufe), dort dreht ihn das Ziehen und ein Klick ohne Weg entscheidet -
-# am Werkstück die Seite darunter, an einem Paket-Würfel die Wahl. Getroffen wird
-# über die Bildschirm-Projektion; die Würfel tragen keine Kollisionsform.
+# Ein schwebender Paket-Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
+# Werkbank-Stufe), dort dreht ihn das Ziehen. Gewählt wird er über sein Netz auf
+# der Bank, nicht über den Körper. Getroffen wird über die Bildschirm-Projektion;
+# die Würfel tragen keine Kollisionsform.
 
-## Alle gerade schwebenden Würfel (Werkstück + Paket-Auswahl).
+## Alle gerade schwebenden Würfel, die man anfassen darf: die Paket-Auswahl und
+## der Würfel des Dossiers.
 func _floating_stages() -> Array[FloatingDie]:
 	var stages: Array[FloatingDie] = []
-	if engraving_stage != null and is_instance_valid(engraving_stage):
-		stages.append(engraving_stage)
 	for stage in pack_stages:
 		if is_instance_valid(stage):
 			stages.append(stage)
+	if inspect_stage != null and is_instance_valid(inspect_stage):
+		stages.append(inspect_stage)
 	return stages
 
 ## Der schwebende Würfel unter dem Bildschirmpunkt (null = keiner). In der
@@ -2468,9 +2444,7 @@ func _handle_floating_drag_input(event: InputEvent) -> void:
 	grabbed_stage = null
 	if grab_moved or not is_instance_valid(stage):
 		return  # ein Weg war dabei - das war ein Drehen, keine Wahl
-	if camera_rig.die_focus:
-		_click_focused_die(button.position)
-	else:
+	if not camera_rig.die_focus:
 		_focus_floating_die(stage)
 
 ## Holt einen schwebenden Würfel heran (dritte Werkbank-Stufe) und legt ihn dabei
@@ -2494,39 +2468,27 @@ func _leave_die_focus() -> void:
 		focused_stage.pose_to(FloatingDie.rest_pose(), CameraRig.ZOOM_DURATION)
 	focused_stage = null
 
-## Klick auf den herangeholten Würfel. Am Werkstück wählt er Seite oder
-## Kanten-Rahmen (was dem Klick näher liegt), an einem Paket-Würfel ist er die
-## Entscheidung: DIESER kommt mit.
-func _click_focused_die(screen_pos: Vector2) -> void:
-	var camera := get_viewport().get_camera_3d()
-	if focused_stage == null or not is_instance_valid(focused_stage) or camera == null:
-		return
-	# Ein Paket-Würfel wird hier nur angesehen: gewählt wird er über sein Netz auf
-	# der Bank, nicht über den Körper.
-	if focused_stage != engraving_stage:
-		return
-	var pick := focused_stage.pick(camera, screen_pos)
-	if pick == FloatingDie.PICK_FRAME:
-		die_inspector.click_edges()
-	elif pick >= 0:
-		die_inspector.click_face(pick)
-
 # --- Paket-Würfel über der Werkbank ----------------------------------------------
 # Was ein Paket hergibt, LIEGT auf der Bank: je Würfel eine Stasis-Station, das
 # Fenster darunter sagt nur, worum es geht. Wer einen mustern will, holt ihn
 # heran (dieselbe Geste wie am Werkstück) - und dort fällt auch die Wahl.
 
 ## Die Werkstatt hat ihre Bühnen neu gelegt (Wahl, Einsetzen oder Ende): die
-## schwebenden Würfel ziehen nach.
+## schwebenden Würfel ziehen nach - die Paket-Würfel IM Fenster wie die Zwingen
+## im Projektor-Streifen darüber.
 func _on_die_stages_changed() -> void:
+	_sync_inspected_die()  # der gezeigte Würfel fehlt in seinem Tray
 	_rebuild_pack_stages()
+	_rebuild_clamp_stages()
+	_rebuild_inspect_stage()
+	_sync_data_cells()  # Regal-Stapel und Buchten hängen am selben Layout
 
 ## Stellt die schwebenden Paket-Würfel auf: je Bühne einer, sobald die Werkstatt
 ## ihn für körperlich erklärt. Er entsteht AN SEINEM PLATZ - dort ist gerade sein
 ## Zeichen aus dem Siegel verloschen, und zwei Würfel liegen nie übereinander.
 ## Trägt die Aufstellung schon diese Würfel, bleiben sie stehen und rücken nur nach.
 func _rebuild_pack_stages() -> void:
-	var workshop := table_screen.workshop_window if table_screen != null else null
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	var defs := workshop.revealed_dice()
@@ -2567,53 +2529,504 @@ func _carry_over_pack_stages(defs: Array[DieDefinition]) -> void:
 			_free_stage(stage)
 	pack_stages = kept
 
-## Je Frame: die Seite des Werkstücks unter dem Zeiger treibt die Gravur-
-## Vorschau. Der Zeiger liegt auf dem Tisch, nicht im SubViewport - also wird
-## gepickt, wie beim Vertrags-Hinweis der Grube.
-func _update_engraving_hover() -> void:
-	var face := -1
-	if engraving_active and engraving_stage != null and is_instance_valid(engraving_stage) \
-			and not camera_rig.is_animating and not grab_moved:
-		var pick := engraving_stage.pick(get_viewport().get_camera_3d(),
-			get_viewport().get_mouse_position())
-		face = pick if pick >= 0 else -1
-	if face != engraving_hover_face:
-		engraving_hover_face = face
-		die_inspector.set_die_hover(face)
+# --- Die Aufspannung auf der Werkbank --------------------------------------------
+# Die sechs Zwingen der Runde stehen als ECHTE Würfel über dem Werkstatt-Fenster
+# selbst - die ganze Runde lang, durch Spiel und Laden. Unter jedem liegt sein
+# Netz; Spalte UND Zeile nennt das Fenster (clamp_net_centers/clamp_projector_y).
 
-## Beendet die Zeremonie: Tray-Slot wieder sichtbar, Kamera zurück in die
-## Ansicht von vor der Zeremonie; was der Hub zeigt, entscheidet er selbst.
-func _end_engraving_ceremony() -> void:
-	if not engraving_active:
+## Stellt die Zwingen-Würfel auf: je Netzkachel einer, darüber im Streifen. Wer
+## schon steht, bleibt DERSELBE Körper und wandert nur (die Netzzeile rückt beim
+## Neuaufbau des Fensters). Ein Würfel, den die Station gerade als Werkstück
+## hält, tritt aus seinem Feld - ein Würfel wird nie zweimal gezeigt.
+func _rebuild_clamp_stages() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
 		return
-	engraving_active = false
-	camera_rig.release_tilt_immediately()  # falls noch eine Dreh-Geste "hängt"
-	_free_engraving_die()
-	if engraving_source_root != null and is_instance_valid(engraving_source_root):
-		engraving_source_root.visible = true
-	engraving_source_root = null
-	engraving_source_tray = null
-	# Die Werkstück-Sicht hat _free_engraving_die schon zurückgenommen (aus ihr
-	# führt kein Moduswechsel heraus - der Modus bleibt WORKSHOP).
-	if engraving_prev_mode == CameraRig.Mode.OVERVIEW:
-		camera_rig.zoom_out()
-	else:
-		camera_rig.zoom_to(engraving_prev_mode)
-	_on_die_engraved()  # Trays sicher aktuell
+	var defs: Array[DieDefinition] = []
+	if run != null:
+		defs = run.clamped_dice
+	_carry_over_clamp_stages(defs)
+	if clamp_stages.is_empty():
+		return
+	# Ein Paket füllt das Fenster: es gibt keine Netzzeile, über der sie stehen
+	# könnten. Sie treten ab, statt an alten Plätzen über der Wahl zu hängen -
+	# freigegeben wird dabei NIE, es sind dieselben Körper wie danach.
+	if not workshop.clamps_on_bench():
+		_hide_clamp_stages()
+		return
+
+	# Die Spalten stehen erst nach dem Layout des Fensters fest - und ZWEI Bilder
+	# weit: ändert sich die Spaltenzahl (Hub-Ausbau, neue Aufspannung), hat der
+	# Kasten nach einem Bild erst seine Kinder, aber noch nicht sortiert, und alle
+	# Netze meldeten dieselbe Mitte. Dann stünden sechs Würfel übereinander.
+	var launched := run
+	await get_tree().process_frame
+	if not is_instance_valid(workshop) or run != launched or run == null:
+		return  # Laufwechsel während des Bildes: der nächste Aufbau räumt selbst auf
+	await get_tree().process_frame
+	if not is_instance_valid(workshop) or run != launched or run == null:
+		return
+	var centers := workshop.clamp_net_centers()
+	var fresh := 0
+	for i in mini(mini(clamp_stages.size(), centers.size()), defs.size()):
+		var target := _bench_hover_target(
+			Vector2(centers[i].x, workshop.clamp_projector_y()), CLAMP_HOVER)
+		var stage: FloatingDie = clamp_stages[i]
+		if stage != null and is_instance_valid(stage):
+			if stage.visible:
+				if not stage.stands_at(target):
+					stage.move_to(target, PACK_MOVE_TIME)
+				continue
+			# Zurück aus der Paket-Wahl: derselbe Körper geht an seinem Platz wieder
+			# auf - gestaffelt wie eine frische Aufspannung.
+			stage.land_at(target, 0.0)
+			stage.materialize(float(fresh) * CLAMP_MATERIALIZE_STAGGER)
+			fresh += 1
+			continue
+		stage = _spawn_floating_die(defs[i], CLAMP_EMITTER_TINT, target, CLAMP_HOVER)
+		stage.land_at(target, 0.0)
+		# Die neue Aufspannung ENTSTEHT in ihren Feldern, statt hart dazustehen -
+		# gestaffelt, damit die Zeile von links nach rechts aufgeht.
+		stage.materialize(float(fresh) * CLAMP_MATERIALIZE_STAGGER)
+		fresh += 1
+		clamp_stages[i] = stage
+
+## Die Zwingen treten ab (ein Paket nimmt das Fenster): sie schrumpfen an Ort und
+## Stelle und werden unsichtbar - damit sind sie zugleich für jedes Zeigen taub.
+func _hide_clamp_stages() -> void:
+	for stage in clamp_stages:
+		if stage != null and is_instance_valid(stage):
+			stage.dematerialize()
+
+## Ordnet die stehenden Zwingen-Würfel der neuen Aufspannung zu: wer noch
+## eingespannt ist, bleibt derselbe Körper, der Rest wird abgeräumt.
+func _carry_over_clamp_stages(defs: Array[DieDefinition]) -> void:
+	var kept: Array[FloatingDie] = []
+	kept.resize(defs.size())
+	for i in defs.size():
+		for stage in clamp_stages:
+			if stage != null and is_instance_valid(stage) and stage.def == defs[i]:
+				kept[i] = stage
+				break
+	for stage in clamp_stages:
+		if stage != null and not kept.has(stage):
+			_free_stage(stage)
+	clamp_stages = kept
+
+# --- Der Würfel des Dossiers -----------------------------------------------------
+# Wer über einen Würfel etwas wissen will, bekommt IHN - nicht sein Bild: der
+# getippte Tray-Würfel steht als echter Körper über der Inspektions-Seite, und
+# sein Sitz im Tray bleibt derweil leer.
+
+## Stellt ihn auf: einer, über der Bühne der Seite. Wechselt der gezeigte Würfel,
+## tritt der alte ab und der neue entsteht an seinem Platz - nie zwei zugleich.
+func _rebuild_inspect_stage() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	_inspect_gen += 1
+	var generation := _inspect_gen
+	var def := workshop.inspected_die()
+	if inspect_stage != null and is_instance_valid(inspect_stage) and inspect_stage.def != def:
+		_free_stage(inspect_stage)
+		inspect_stage = null
+	if def == null:
+		return
+	# Der Platz steht erst nach dem Layout des Fensters fest - und ZWEI Bilder
+	# weit: die Spalte hängt zwischen zwei dehnbaren Leerzeilen, ihre Mitte steht
+	# also erst, wenn der Kasten die Restluft verteilt hat.
+	var launched := run
+	await get_tree().process_frame
+	if generation != _inspect_gen or run != launched or run == null \
+			or not is_instance_valid(workshop) or workshop.inspected_die() != def:
+		return
+	await get_tree().process_frame
+	if generation != _inspect_gen or run != launched or run == null \
+			or not is_instance_valid(workshop) or workshop.inspected_die() != def:
+		return
+	var center := workshop.inspect_stage_center()
+	if center.x < 0.0:
+		return
+	var target := _bench_hover_target(center)
+	if inspect_stage != null and is_instance_valid(inspect_stage):
+		if not inspect_stage.stands_at(target):
+			inspect_stage.move_to(target, PACK_MOVE_TIME)
+		return
+	inspect_stage = _spawn_floating_die(def, PACK_EMITTER_TINT, target)
+	inspect_stage.land_at(target, 0.0)
+	inspect_stage.materialize()
+
+## Öffnet das Dossier eines Würfels (Tippen im Vorrats- oder Ablage-Tray). Es ist
+## reine Auskunft; gemustert wird an der Werkbank, also fährt die Kamera hin.
+func _open_die_dossier(def: DieDefinition) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or def == null:
+		return
+	if not workshop.open_inspect(def):
+		return
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP:
+		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
+
+## Der gezeigte Würfel hat gewechselt: die Trays lassen seinen Sitz leer und geben
+## den vorigen zurück. Nur der Wechsel - die Meldung läuft nach jedem Neuaufbau.
+func _sync_inspected_die() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var shown: DieDefinition = null
+	if workshop != null and is_instance_valid(workshop):
+		shown = workshop.inspected_die()
+	if shown == _inspected_die:
+		return
+	_inspected_die = shown
+	_refresh_dice_trays()
+	_refresh_discard_tray()
+
+## Zieht die Augenzahlen der Zwingen-Würfel nach (geteilte Instanzen: eine Gravur
+## ändert den Würfel, nicht seinen Platz).
+func _refresh_clamp_stage_faces() -> void:
+	for stage in clamp_stages:
+		if stage != null and is_instance_valid(stage) and stage.def != null:
+			stage.apply_definition(stage.def)
+
+# --- Die Datenzellen der Werkbank ------------------------------------------------
+# Ein versiegeltes Paket ist ein DING: es liegt als Kassette auf dem Glas, im
+# Regal als Stapel und in der Bucht als eingesetztes Stück. Die Körper gehören
+# scene_root wie die Zwingen, ihre PLÄTZE nennt das Fenster (stack_anchor_px,
+# press_slot_anchors). Sie tragen keine Kollision: geklickt wird der leere Knopf
+# unter ihnen, es gibt keinen zweiten Trefferweg.
+
+## Der EINE idempotente Schreiber: Regal-Stapel und Bucht-Zellen. Er läuft nach
+## jedem Neuaufbau des Fensters - die Plätze stehen erst nach dessen Layout fest,
+## daher das gewartete Bild.
+func _sync_data_cells() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or run == null:
+		_drop_data_cells()
+		return
+	_data_cell_gen += 1
+	var generation := _data_cell_gen
+	var launched := run
+	# Zwei Bilder wie bei den Zwingen-Bühnen: nach einem Neuaufbau der Leiste
+	# steht ihr Layout erst im zweiten - eine Messung im ersten liefert die Ecke.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if generation != _data_cell_gen or run != launched or not is_instance_valid(workshop):
+		return
+	_sync_shelf_cells(workshop)
+	_sync_socket_cells(workshop)
+	_flush_cell_pops()
+
+## Die Regal-Stapel: je belegter Sorte einer, an seinem Anker auf dem Glas. Wer
+## schon steht, bleibt derselbe Körper - er rückt nur nach und zählt neu.
+func _sync_shelf_cells(workshop: WorkshopView) -> void:
+	var wanted: Dictionary = {}
+	for entry in workshop.shelf_entries():
+		var category := String(entry.get("category", ""))
+		if category == "":
+			continue
+		# Was noch heimfliegt, fehlt im Stapel - es wächst erst bei der Ankunft.
+		wanted[category] = maxi(int(entry.get("count", 0))
+			- int(_cell_returns.get(category, 0)), 0)
+	for category: String in shelf_cells.keys():
+		if not wanted.has(category):
+			_free_data_cell(shelf_cells[category])
+			shelf_cells.erase(category)
+	var fresh := 0
+	for category: String in PackShelfView.SHELF_ORDER:
+		if not wanted.has(category):
+			continue
+		var target := _data_cell_seat(workshop.stack_anchor_px(category))
+		var cell: DataCellView = shelf_cells.get(category)
+		if cell == null or not is_instance_valid(cell):
+			cell = _spawn_data_cell(category, target)
+			shelf_cells[category] = cell
+			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+			fresh += 1
+		else:
+			cell.global_position = target
+			if not cell.visible:
+				cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+				fresh += 1
+		cell.set_count(int(wanted[category]))
+		cell.set_dimmed(workshop.shelf_locked())
+		# Im Regal wächst der Körper mit seiner Bucht - reine Anzeige, der Anker
+		# bleibt derselbe Glaspunkt.
+		cell.set_body_scale(workshop.shelf_cell_scale())
+
+## Die Leseschlitze: je belegtem Platz eine Zelle, senkrecht im Tisch steckend.
+## Eine frisch eingelegte kommt aus ihrem Stapel geglitten - gebucht war die
+## Vormerkung längst, der Körper folgt.
+func _sync_socket_cells(workshop: WorkshopView) -> void:
+	var sorts := workshop.press_slot_sorts()
+	var anchors := workshop.press_slot_anchors()
+	var kept: Array[DataCellView] = []
+	kept.resize(sorts.size())
+	for i in sorts.size():
+		if i >= socket_cells.size():
+			continue
+		var standing: DataCellView = socket_cells[i]
+		if standing != null and is_instance_valid(standing) and standing.sort == sorts[i]:
+			kept[i] = standing
+	for cell in socket_cells:
+		if cell != null and not kept.has(cell):
+			_free_data_cell(cell)
+	socket_cells = kept
+	for i in mini(sorts.size(), anchors.size()):
+		var target := _data_cell_seat(anchors[i])
+		var cell: DataCellView = socket_cells[i]
+		if cell != null and is_instance_valid(cell):
+			if not cell.busy():
+				cell.seat_hard(target)  # steht das Fenster neu, steckt sie sofort richtig
+			cell.set_dimmed(workshop.shelf_locked())
+			continue
+		cell = _spawn_data_cell(sorts[i],
+			_data_cell_seat(workshop.stack_anchor_px(sorts[i])))
+		cell.set_dimmed(workshop.shelf_locked())
+		cell.set_body_scale(workshop.shelf_cell_scale())  # sie kommt aus dem Regal
+		socket_cells[i] = cell
+		_seat_data_cell(cell, target)  # nicht erwartet: der Körper folgt der Buchung
+
+## Ein Paket ist aus seiner Bucht zurück ins Regal gegangen: seine Zelle fliegt
+## heim, und erst dort wächst der Stapel um eins.
+func _on_pack_unslotted(slot_index: int, stack_category: String) -> void:
+	if slot_index < 0 or slot_index >= socket_cells.size():
+		return
+	var cell: DataCellView = socket_cells[slot_index]
+	socket_cells.remove_at(slot_index)
+	if cell == null or not is_instance_valid(cell) or stack_category == "":
+		_free_data_cell(cell)
+		return
+	_cell_returns[stack_category] = int(_cell_returns.get(stack_category, 0)) + 1
+	_returning_cells.append(cell)
+	_return_data_cell(cell, stack_category)  # nicht erwartet
+
+## Der Wurf beginnt: die eingesetzten Zellen geben ihre Daten her. Sie lodern auf
+## und lösen sich gestaffelt auf, während ihre Leser darüber anlaufen.
+## Rein dekorativ - gebucht wird gleich danach, und ein übersprungener Tween darf
+## keinen Körper zurücklassen.
+func _on_press_started() -> void:
+	var cells := socket_cells.duplicate()
+	socket_cells.clear()
+	for i in cells.size():
+		var cell: DataCellView = cells[i]
+		if cell == null or not is_instance_valid(cell):
+			continue
+		_draining_cells.append(cell)
+		_drain_data_cell(cell, float(i) * DATA_CELL_DRAIN_STAGGER)  # nicht erwartet
+
+## Ein Liefer-Licht ist eingeschlagen: der Stapel wächst um eins und lodert auf.
+## Steht sein Körper gerade nicht (Presse, Paket-Wahl), wartet der Pluster - wie
+## der des Fensters auf seine Leiste.
+func _on_stack_popped(stack_category: String) -> void:
+	var cell: DataCellView = shelf_cells.get(stack_category)
+	if cell == null or not is_instance_valid(cell) or not cell.visible:
+		if not _pending_cell_pops.has(stack_category):
+			_pending_cell_pops.append(stack_category)
+		return
+	cell.flare()
+
+func _flush_cell_pops() -> void:
+	if _pending_cell_pops.is_empty():
+		return
+	var waiting := _pending_cell_pops.duplicate()
+	_pending_cell_pops.clear()
+	for category in waiting:
+		_on_stack_popped(String(category))
+
+## Standplatz einer Zelle über einem Display-Pixel: OHNE Hub. Die Kassette hebt
+## ihren Körper selbst auf halbe Dicke, ihr Ursprung liegt also schon auf dem
+## Glas - und damit projiziert sie unter jeder Kamera auf genau diesen Punkt.
+func _data_cell_seat(px: Vector2) -> Vector3:
+	return _bench_hover_target(px, 0.0)
+
+func _spawn_data_cell(sort: String, at: Vector3) -> DataCellView:
+	var cell := DataCellView.new()
+	cell.name = "DataCell"
+	add_child(cell)
+	cell.setup(sort)
+	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
+	# aufrecht im Bild (Bildschirm-oben = Welt+X).
+	cell.rotation.y = -PI / 2.0
+	cell.global_position = at
+	return cell
+
+## Der Weg aus dem Stapel in den Leseschlitz: über ihn gleiten, aufrichten, und
+## dann senkrecht in den Tisch fahren, bis nur die Kopfkante übersteht. Bei der
+## Ankunft rastet die Zelle mit einem Ausbruch ein.
+func _seat_data_cell(cell: DataCellView, target: Vector3) -> void:
+	var launched := run
+	cell.glide_to(target, DATA_CELL_SLIDE_TIME)
+	cell.set_body_scale(1.0, DATA_CELL_SLIDE_TIME)  # der Schlitz kennt nur das Grundmaß
+	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.raise_upright(DATA_CELL_RAISE_TIME)
+	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.plunge(DataCellView.SUNK_SHOW, DATA_CELL_PLUNGE_TIME)
+	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.set_socketed(true)
+	cell.flare()
+
+## Der Weg zurück ins Regal: heraussteigen, flach kippen, heimgleiten. Der Anker
+## wird erst NACH dem Neuaufbau geholt: der Stapel dieser Sorte kann eben erst
+## entstanden sein.
+func _return_data_cell(cell: DataCellView, stack_category: String) -> void:
+	var launched := run
+	await get_tree().process_frame
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	if workshop == null or not is_instance_valid(workshop):
+		_finish_cell_return(cell, stack_category, null)
+		return
+	cell.set_socketed(false)
+	cell.plunge(1.0, DATA_CELL_PLUNGE_TIME)
+	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.lay_over(DATA_CELL_RAISE_TIME)
+	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	if not is_instance_valid(workshop):
+		_finish_cell_return(cell, stack_category, null)
+		return
+	cell.glide_to(_data_cell_seat(workshop.stack_anchor_px(stack_category)),
+		DATA_CELL_SLIDE_TIME)
+	cell.set_body_scale(workshop.shelf_cell_scale(), DATA_CELL_SLIDE_TIME)  # zurück ins Regalmaß
+	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	_finish_cell_return(cell, stack_category,
+		workshop if is_instance_valid(workshop) else null)
+
+## Angekommen: der Rückläufer verschwindet IN seinem Stapel, und genau jetzt
+## wächst der um eins.
+func _finish_cell_return(cell: DataCellView, stack_category: String,
+		workshop: WorkshopView) -> void:
+	_returning_cells.erase(cell)
+	_free_data_cell(cell)
+	_cell_returns[stack_category] = maxi(int(_cell_returns.get(stack_category, 0)) - 1, 0)
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var stack: DataCellView = shelf_cells.get(stack_category)
+	if stack == null or not is_instance_valid(stack):
+		return
+	stack.set_count(maxi(workshop.sealed_pack_count(stack_category)
+		- int(_cell_returns.get(stack_category, 0)), 0))
+	if stack.visible:
+		stack.flare()
+
+## Die Dekompression EINER Zelle: der Sliver lodert ein letztes Mal auf und sinkt
+## dann den Rest des Weges in den Tisch - der Leser hat sie geschluckt.
+func _drain_data_cell(cell: DataCellView, delay: float) -> void:
+	var launched := run
+	if delay > 0.0:
+		await get_tree().create_timer(delay).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.flare()
+	await get_tree().create_timer(DATA_CELL_DRAIN_HOLD).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.plunge(DataCellView.SUNK_GONE, DATA_CELL_SINK_TIME)
+	await get_tree().create_timer(DATA_CELL_SINK_TIME).timeout
+	if cell == null or not is_instance_valid(cell):
+		return
+	_draining_cells.erase(cell)
+	_free_data_cell(cell)
+
+## Laufwechsel: alle Körper fallen weg, auch die noch unterwegs sind. Es ist der
+## EINZIGE Abgang - die Stapel liegen in der Schürze und treten für keinen Ablauf
+## mehr ab.
+func _drop_data_cells() -> void:
+	for category: String in shelf_cells:
+		_free_data_cell(shelf_cells[category])
+	shelf_cells.clear()
+	for cell in socket_cells:
+		_free_data_cell(cell)
+	socket_cells.clear()
+	for cell in _returning_cells:
+		_free_data_cell(cell)
+	_returning_cells.clear()
+	for cell in _draining_cells:
+		_free_data_cell(cell)
+	_draining_cells.clear()
+	_cell_returns.clear()
+	_pending_cell_pops.clear()
+
+func _free_data_cell(cell: DataCellView) -> void:
+	if cell == null or not is_instance_valid(cell):
+		return
+	remove_child(cell)
+	cell.queue_free()
+
+## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln. Sie liegt auf dem
+## Glas wie die Werkbank selbst - beide werden gleich projiziert, ein Weltmaß
+## rechnet sich also sauber in Fensterpixel um.
+func _data_cell_apparent_px() -> Vector2:
+	if table_screen == null:
+		return Vector2.ZERO
+	var origin := table_screen.world_to_pixel(Vector3.ZERO)
+	var wide := absf(table_screen.world_to_pixel(
+		Vector3(0.0, 0.0, DataCellView.WIDTH)).x - origin.x)
+	var tall := absf(table_screen.world_to_pixel(
+		Vector3(DataCellView.HEIGHT, 0.0, 0.0)).y - origin.y)
+	return Vector2(wide, tall)
+
+## Der Zwingen-Würfel unter dem Bildschirmpunkt (null = keiner). Bewusst NICHT in
+## _floating_stages: die Projektoren sind Anzeige, kein Griff - ein Klick auf sie
+## bleibt folgenlos.
+func _clamp_stage_under(screen_pos: Vector2) -> FloatingDie:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or camera_rig.die_focus:
+		return null
+	for stage in clamp_stages:
+		if stage == null or not is_instance_valid(stage) or not stage.visible:
+			continue
+		if stage.under(camera, screen_pos):
+			return stage
+	return null
 
 ## Paket im Laden gekauft: es FÄHRT als Licht die Hub-Werkstatt-Ader entlang und
-## liegt erst bei Ankunft im Lager - der Komet ist das Paket, nicht seine Ankündigung.
+## liegt erst bei Ankunft in seinem Regal - der Komet ist das Paket, nicht seine
+## Ankündigung.
 func _on_pack_purchased(from_px: Vector2, pack_type: String) -> void:
-	if table_screen == null or table_screen.workshop_window == null:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
 		return
-	var window := table_screen.workshop_window
-	window.expect_delivery()
+	var shelf := PackShelfView.shelf_category_for_pack_type(pack_type)
+	workshop.expect_pack_delivery(shelf)
 	var tint: Color = PackIconRenderer.COLORS.get(pack_type, Color.WHITE)
-	var travel := table_screen.pack_delivery_comet(from_px, tint)
+	var travel := table_screen.pack_delivery_comet(from_px, tint,
+		workshop.stack_anchor_px(shelf))
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
-	if is_instance_valid(window):
-		window.deliver_pack()
+	if is_instance_valid(workshop):
+		workshop.deliver_pack(shelf)
+
+## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
+## die Truhe. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
+## verpasste Ankunft den Spieler nie aus.
+func _on_pack_refunded(from_px: Vector2, amount: int) -> void:
+	if table_screen == null or amount <= 0:
+		return
+	var launched := run
+	# Farbe wie bei jedem Geld-Kometen: die GRÖSSTE Stückelung des Betrags -
+	# denomination_color(6) gäbe es als Chip nicht und liefe weiß.
+	var packets := ChipStackView.split_gain(amount)
+	var chip_color := ChipStackView.denomination_color(packets[0] if not packets.is_empty() else 1)
+	var travel := table_screen.shop_refund_comet(from_px, _money_trail_color(chip_color))
+	if travel <= 0.0:
+		return
+	await get_tree().create_timer(travel).timeout
+	if run != launched or table_screen == null or table_screen.treasure_window == null:
+		return
+	table_screen.treasure_window.glint()
+	table_screen.treasure_window.flash_receive_slot(chip_color)
 
 ## Takt der Hub-Belohnung: Siegel ploppen gestaffelt auf, stehen kurz, dann fährt
 ## je Paket ein Komet zur Werkbank.
@@ -2795,71 +3208,80 @@ func _drop_hub_reward_overlay(overlay) -> void:
 func _clear_hub_reward_overlay() -> void:
 	_drop_hub_reward_overlay(_hub_reward_overlay)
 
-## Ein Stück fliegt aus dem zerbrochenen Siegel: als Meteor in seiner SELTENHEITS-
-## farbe, geschleudert und doch auf seine Schublade zu. Der Einschlag ist die
-## eigentliche Auflösung - der getroffene Platz glüht danach nach, damit der
-## Spieler in Ruhe liest, was angekommen ist. Der Takt kommt aus der Zeremonie.
-func _on_engraving_dispatched(engraving_id: String, from_px: Vector2, rarity: int) -> void:
-	_fly_engraving_to_drawer(engraving_id, from_px, rarity)
-
-## Der Meteor selbst - geteilt von der Paket-Zeremonie und den Automaten-Gewinnen:
-## beide schicken eine Gravur aus einem Fenster in ihren Schubladen-Platz.
-func _fly_engraving_to_drawer(engraving_id: String, from_px: Vector2, rarity: int) -> void:
-	if table_screen == null or table_screen.workshop_window == null:
+## DIE PRESSUNG: die Leser werden zu Portalen, wirbeln sich fest und entladen sich,
+## und aus jedem fahren die Meteore SEINER Stücke in die Ablage. Aufgedeckt wird
+## bei der LANDUNG - vorher sagt kein Chip, was gefallen ist. Gebucht hat GameRun
+## längst (open_press): das hier ist reine Anzeige, und ein Laufwechsel mitten im
+## Flug legt den Haufen einfach hart hin.
+func _on_press_rolled(sorts: Array, readers: Array, cost: int) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
-	for drawer in table_screen.supply_drawers:
-		var target := drawer.slot_center_px(engraving_id)
-		if target.x < 0.0:
-			continue
-		var tint: Color = EngravingRenderer.SEAM_COLORS[rarity]
-		var spread := _meteor_index
-		_meteor_index += 1
-		var travel := table_screen.meteor_comet(from_px, drawer.category, target, tint, spread)
-		if travel > 0.0:
-			await get_tree().create_timer(travel).timeout
-		if is_instance_valid(drawer):
-			drawer.pop(engraving_id, tint)
+	var flying: Array[int] = []
+	for uids in readers:
+		for uid in uids:
+			flying.append(int(uid))
+	if flying.is_empty():
 		return
-
-## Klick ins Würfel-Raster der Station: Ziel auf diesen Würfel wechseln
-## (No-Op, wenn es der bereits gegriffene ist).
-func _on_tray_die_selected(slot: int) -> void:
-	if not engraving_active or engraving_source_tray == null:
+	workshop.withhold_press_pieces(flying)  # der Haufen bleibt verdeckt, bis er landet
+	_pay_press_cost(cost)
+	var launched := run
+	# Portale und Ablage haben erst nach dem Layout ein Rechteck.
+	await get_tree().process_frame
+	if run != launched or not is_instance_valid(workshop):
+		_land_press_pieces(workshop, flying)
 		return
-	if slot < 0 or slot >= engraving_source_tray.slot_roots.size():
+	for slot in readers.size():
+		workshop.swirl_press_portal(slot, float(slot) * PRESS_PORTAL_STAGGER)
+	await get_tree().create_timer(PressPortalView.SWIRL_TIME
+		+ float(maxi(readers.size() - 1, 0)) * PRESS_PORTAL_STAGGER).timeout
+	if run != launched or not is_instance_valid(workshop):
+		_land_press_pieces(workshop, flying)
 		return
-	_grab_engraving_die(engraving_source_tray.slot_defs[slot],
-		engraving_source_tray.slot_roots[slot], engraving_source_tray)
+	var launch := 0.0
+	for slot in readers.size():
+		var uids: Array = readers[slot]
+		for uid in uids:
+			_fly_press_meteor(workshop, slot, int(uid), sorts, launch)  # nicht erwartet
+			launch += PRESS_METEOR_GAP
+		launch += PRESS_METEOR_SLOT_GAP
 
-## Füllt das Würfel-Raster der Station mit dem Ursprungs-Tray (leere Slots als
-## leere Zellen), der gerade bearbeitete Würfel ist hervorgehoben.
-func _refresh_engraving_target_grid() -> void:
-	if engraving_source_tray == null:
+## EIN Meteor: er startet im Anzeigefeld seines Lesers und schlägt auf dem Platz
+## seines Chips ein - erst dort wird das Stück sichtbar.
+func _fly_press_meteor(workshop: WorkshopView, slot: int, uid: int, sorts: Array,
+		delay: float) -> void:
+	var launched := run
+	if delay > 0.0:
+		await get_tree().create_timer(delay).timeout
+	if run != launched or not is_instance_valid(workshop):
+		_land_press_pieces(workshop, [uid])
 		return
-	var tray := engraving_source_tray
-	var slot_defs: Array[DieDefinition] = []
-	for i in tray.slot_roots.size():
-		var occupied: bool = tray.slot_roots[i].visible or tray.slot_roots[i] == engraving_source_root
-		slot_defs.append(tray.slot_defs[i] if occupied else null)
-	# In der FORM des Trays (Spaltenzahl übernommen): das Raster im Editor liest
-	# sich wie das echte Tray darüber, Platz für Platz.
-	die_inspector.set_target_grid(tray.columns, slot_defs, tray.slot_roots.find(engraving_source_root))
+	var anchors := workshop.press_display_anchors()
+	var from_px: Vector2 = anchors[slot] if slot < anchors.size() \
+		else workshop.get_global_rect().get_center()
+	var sort: String = String(sorts[slot]) if slot < sorts.size() else ""
+	var tint: Color = PackShelfView.COLORS.get(sort, CasinoStyle.GOLD)
+	var travel := table_screen.press_meteor(from_px, workshop.ablage_spot_px(uid), tint)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != launched:
+		return
+	_land_press_pieces(workshop, [uid])
 
-## Harter Abbruch der Zeremonie ohne Animationen (Spiel-Reset).
-func _abort_engraving() -> void:
-	engraving_active = false
-	_free_engraving_die()
-	if engraving_source_root != null and is_instance_valid(engraving_source_root):
-		engraving_source_root.visible = true
-	engraving_source_root = null
-	engraving_source_tray = null
-	die_inspector.visible = false  # ohne closed-Signal
+## Legt Stücke hart hin (Laufwechsel, fehlendes Fenster) - der Stand darf nie an
+## einer übersprungenen Zeremonie hängen.
+func _land_press_pieces(workshop: WorkshopView, uids: Array) -> void:
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	for uid in uids:
+		workshop.land_press_piece(int(uid))
 
-## Gibt das schwebende Werkstück samt seiner Station frei.
-func _free_engraving_die() -> void:
-	_free_stage(engraving_stage)
-	engraving_stage = null
-	engraving_hover_face = -1
+## Der Preis der Pressung fährt als Ladung die Werkstatt-Ader hinüber. Gebucht hat
+## GameRun im selben Moment - das Licht kommt hinterher und wird nie erwartet.
+func _pay_press_cost(cost: int) -> void:
+	if table_screen == null or cost <= 0:
+		return  # die erste Pressung einer Sitzung ist frei
+	table_screen.press_pay_comet(TableScreen.CHARGE_PULSE_COLOR)
 
 ## Räumt einen schwebenden Würfel ab und löst alles, was noch auf ihn zeigt. War
 ## er herangeholt, fährt die Kamera mit zurück - sie stünde sonst vor nichts.
@@ -2874,8 +3296,9 @@ func _free_stage(stage: FloatingDie) -> void:
 	stage.queue_free()
 
 ## Klick auf einen Warteschlangen-Würfel: startet einen POTENZIELLEN
-## Umsortier-Drag; ob es ein Drag oder nur ein Klick (öffnet die Gravur)
-## wird, entscheidet REORDER_DRAG_THRESHOLD beim Loslassen.
+## Umsortier-Drag; ob es ein Drag oder nur ein folgenloser Klick wird, entscheidet
+## REORDER_DRAG_THRESHOLD beim Loslassen. Die Warteschlange gehört der Grube -
+## ihr Dossier zeigt das Netzfeld dort, nicht die Werkbank.
 func _try_start_queue_reorder(screen_pos: Vector2) -> bool:
 	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
 	if result.is_empty():
@@ -2889,8 +3312,8 @@ func _try_start_queue_reorder(screen_pos: Vector2) -> bool:
 	return true
 
 ## Maus-Bewegung/-Loslassen während eines Umsortier-Drags: Rechtsklick bricht
-## ab; Bewegung über den Schwellwert hebt den Würfel an; Loslassen ohne
-## Bewegung öffnet stattdessen die Gravur-Station.
+## ab; Bewegung über den Schwellwert hebt den Würfel an; Loslassen ohne Bewegung
+## lässt ihn liegen.
 func _handle_reorder_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		_cancel_reorder_drag()
@@ -2907,8 +3330,6 @@ func _handle_reorder_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if reorder_is_dragging:
 			_finish_reorder_drag(event.position)
-		else:
-			_open_engraving(queue_tray_view.slot_defs[reorder_drag_index], queue_tray_view.slot_roots[reorder_drag_index], queue_tray_view)
 		reorder_drag_index = -1
 		reorder_is_dragging = false
 
@@ -2917,8 +3338,8 @@ func _handle_reorder_input(event: InputEvent) -> void:
 ## (vor der Unterschrift bzw. im Laden) - danach ist der Vorrat für die Runde
 ## gestellt. Die Ablage bleibt außen vor: _return_dice_to_pool_tray leert sie zum
 ## Ladenbeginn, in der Werkbank-Zeit liegt dort also ohnehin nichts.
-## Läuft AUCH bei offener Gravur-Station: erst der Weg entscheidet: gezogen wird
-## umgelegt, bloß getippt wechselt wie bisher das Werkstück.
+## Erst der Weg entscheidet: gezogen wird umgelegt, bloß getippt geht das Dossier
+## des Würfels auf.
 func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
 	if run == null or _dice_editing_locked():
 		return false
@@ -2957,10 +3378,28 @@ func _handle_tray_drag_input(event: InputEvent) -> void:
 		if tray_is_dragging:
 			_finish_tray_drag(event.position)
 			return
-		# Nur getippt: der alte Weg - der Klick öffnet die Gravur-Station.
-		var pos: Vector2 = event.position
+		# Nur getippt: sein Dossier geht auf der Werkbank auf - der Würfel selbst
+		# kommt dorthin, sein Sitz bleibt leer. Bearbeitet wird er weiterhin nur
+		# dort, wo er aufgespannt ist.
+		var tapped: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
 		_end_tray_drag()
-		_try_tray_die_click(pos)
+		_open_die_dossier(tapped)
+
+## Tippen auf einen Ablage-Würfel öffnet sein Dossier. In der Ablage wird nichts
+## umgelegt, es braucht also keine Zieh-Geste. Nur dort, wo das Tray die lokale
+## Bühne ist - aus der Übersicht muss der Klick zur Zoom-Zone durchfallen.
+func _try_inspect_discard_die(screen_pos: Vector2) -> bool:
+	if run == null or (camera_rig.mode != CameraRig.Mode.WORKSHOP
+			and camera_rig.mode != CameraRig.Mode.DISCARD):
+		return false
+	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
+	if result.is_empty():
+		return false
+	var index: int = discard_tray_view.find_slot_index(result.collider)
+	if index < 0 or index >= discard_tray_view.slot_defs.size():
+		return false
+	_open_die_dossier(discard_tray_view.slot_defs[index])
+	return true
 
 ## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
 func _pool_tray_slot_at(screen_pos: Vector2) -> int:
@@ -3040,6 +3479,10 @@ func _animate_tray_reorder(from_slot: int, to_slot: int, from_pool: int, to_pool
 			ghost = tray_drag_ghost
 			tray_drag_ghost = null
 		else:
+			# Eine Lücke hat keinen Körper, der aufrücken könnte - ihr Platz wandert
+			# trotzdem mit, das zieht der Neuaufbau danach nach.
+			if pool_tray_view.slot_defs[index] == null:
+				continue
 			ghost = _spawn_deck_ghost(pool_tray_view.slot_defs[index])
 			ghost.global_position = pool_tray_view.slot_global_position(index)
 			pool_tray_view.set_slot_visible(index, false)
@@ -3306,21 +3749,14 @@ func _screen_pixel(screen_pos: Vector2) -> Vector2:
 	return table_screen.pixel_from_ray(
 		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
 
-## Schwarzmarkt-Fenster: die Glas-Tasche UNTER den Automaten. Rechte Kante und
-## Unterkante sind gesetzt (bündig mit der Automaten-Spalte bzw. mit dem Hub);
-## die LINKE Kante ist ausgerechnet, nicht geraten - die Ellipse steigt nach links
-## an, also rückt sie so weit nach rechts, bis das Glas die Unterkante trägt.
+## Schwarzmarkt-Fenster: die Tasche UNTER den Automaten. Rechte Kante und
+## Unterkante sind gesetzt (bündig mit der Automaten-Spalte bzw. mit dem Hub),
+## die Breite folgt der Höhe (SECRET_SHOP_ASPECT) - nie breiter als die Spalte.
 func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 	var top := slots_rect.end.y + SECRET_SHOP_TOP_GAP
-	var bottom := hub_rect.end.y
-	var right := slots_rect.end.x
-	var left := slots_rect.position.x
-	# Schrittweise nach rechts, bis das Glas an dieser Spalte tief genug reicht.
-	var step := (right - left) / 64.0
-	while left < right - step \
-			and table_screen.glass_bottom_limit(left) < bottom + SECRET_SHOP_GLASS_MARGIN:
-		left += step
-	return Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
+	var height := hub_rect.end.y - top
+	var width := minf(height * SECRET_SHOP_ASPECT, slots_rect.size.x)
+	return Rect2(Vector2(slots_rect.end.x - width, top), Vector2(width, height))
 
 ## Die Ladungs-Bank steht IM Chip-Raster: auf dem freien Platz unten rechts,
 ## zwischen Grube und Kombinationen. Das 5×5-Raster hat einen FESTEN Fußabdruck,
@@ -3360,31 +3796,6 @@ func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> S
 	zone.add_child(shape)
 	add_child(zone)
 	return zone
-
-## Die Schubladen-Reihe unter der Werkbank: je Kategorie so breit wie ihr Inhalt
-## (Zahlen am breitesten, der Sonderbestand als schmale letzte Spalte rechts),
-## linksbündig ab origin. Die Luft dazwischen ist der REST: die Reihe spannt
-## total_width ganz aus, die letzte Schublade endet also auf der Werkbank-Kante.
-func _supply_drawer_rects(origin: Vector2, total_width: float, unit: float) -> Array[Rect2]:
-	var categories: Array = Engraving.CATEGORIES.duplicate()
-	categories.append(SupplyDrawerView.CATEGORY_SPECIAL)
-	var sizes: Array[Vector2] = []
-	var content_width := 0.0
-	var height := 0.0
-	for drawer_category in categories:
-		var drawer_size := SupplyDrawerView.size_for(drawer_category, unit)
-		sizes.append(drawer_size)
-		content_width += drawer_size.x
-		height = maxf(height, drawer_size.y)
-	var gap := maxf(0.0, total_width - content_width) / float(maxi(sizes.size() - 1, 1))
-	var rects: Array[Rect2] = []
-	# Die breiteste Schublade (Zahlen) beginnt an derselben Kante wie das Fenster
-	# darüber.
-	var x := origin.x
-	for drawer_size in sizes:
-		rects.append(Rect2(Vector2(x, origin.y), Vector2(drawer_size.x, height)))
-		x += drawer_size.x + gap
-	return rects
 
 ## Zoom-Ziel + Klickzone EINES Display-Fensters aus seinem Screen-Rechteck -
 ## einheitlich für alle Tisch-Fenster (Kombis, Wettannahme, künftige Screens):
@@ -3553,29 +3964,21 @@ func _sync_screen_reflection() -> void:
 	screen_reflection.set_enabled(camera_rig.mode != CameraRig.Mode.TITLE
 		and not camera_rig.workshop_close)
 
-## Ob unter dem Display-Pixel ein aktiver Knopf der Werkbank-Ecke liegt
-## (Fenster samt Station, Schubladen).
+## Ob unter dem Display-Pixel ein aktiver Knopf der Werkbank liegt - Station,
+## Regal-Leiste und Hand-Leiste liegen seit dem Umbau alle in ihrem Fenster.
 func _workshop_interactive_at(pixel: Vector2) -> bool:
 	if table_screen.workshop_window != null and table_screen.workshop_window.visible \
 			and TableScreen.interactive_under(table_screen.workshop_window, pixel):
 		return true
-	for drawer in table_screen.supply_drawers:
-		if drawer.visible and TableScreen.interactive_under(drawer, pixel):
-			return true
 	return false
 
-## Ob ein Display-Pixel in der Werkbank-Ecke liegt - Fenster ODER Schublade;
-## die Zeremonie reicht über beide (Werkzeug links unten, Würfel im Fenster).
+## Ob ein Display-Pixel in der Werkbank liegt - Fenster PLUS Schürze: Konsole und
+## Regal-Buchten hängen unter der Fensterkante und müssen Klicks bekommen.
 func _workshop_window_has_point(pixel: Vector2) -> bool:
 	if table_screen == null:
 		return false
 	var window := table_screen.workshop_window
-	if window != null and window.visible and Rect2(window.position, window.size).has_point(pixel):
-		return true
-	for drawer in table_screen.supply_drawers:
-		if drawer.visible and Rect2(drawer.position, drawer.size).has_point(pixel):
-			return true
-	return false
+	return window != null and window.visible and window.bench_rect().has_point(pixel)
 
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
@@ -3654,8 +4057,6 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		_zoom_wheel_in(event.position)
 	elif camera_rig.die_focus:
 		_leave_die_focus()  # eine Stufe zurück an die Bank
-	elif engraving_active:
-		return  # aus der Zeremonie führt das Rad nicht heraus
 	elif camera_rig.workshop_close:
 		camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
 	else:
@@ -3675,8 +4076,6 @@ func _zoom_wheel_in(screen_pos: Vector2) -> void:
 			and not camera_rig.die_focus and _workshop_close_zoom_allowed(screen_pos):
 		camera_rig.zoom_workshop_close()
 		return
-	if engraving_active:
-		return  # aus der Zeremonie führt das Rad nicht zu einem Nachbarfenster
 	var target := _zone_mode_at(screen_pos)
 	if target != camera_rig.mode:
 		_zoom_to_mode(target)
@@ -3685,7 +4084,6 @@ func _process(delta: float) -> void:
 	_update_charm_hover()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
-	_update_engraving_hover()
 	_update_combo_upgrade_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
@@ -3695,18 +4093,18 @@ func _process(delta: float) -> void:
 ## auf dem Tisch, nicht im SubViewport - also wird je Frame gepickt, wie beim
 ## Vertrags-Hinweis der Grube. Gepickt wird über DIESELBE Maske wie beim Klick
 ## auf einen Tray-Würfel, damit es nur einen Trefferweg gibt.
-## Nur bei geschlossener Station: sie füllt das Fenster allein.
+## Nur Tray-Würfel: was IM Fenster liegt, trägt sein Netz schon unter sich.
 func _update_workshop_hover() -> void:
-	var workshop := table_screen.workshop_window if table_screen != null else null
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	# Wegzoomen und die laufende Fahrt räumen ab: der Zeiger steht dann irgendwo,
 	# und eine überfahrene Kachel bekäme ohne weitergereichte Bewegung nie ihr
 	# mouse_exited.
 	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.is_animating:
-		workshop.clear_hover_net()
 		_supply_title = ""
 		_supply_body = ""
+		_supply_tint = CasinoStyle.CREAM
 		_workshop_line = ""
 		_sync_workshop_info()
 		return
@@ -3715,62 +4113,44 @@ func _update_workshop_hover() -> void:
 	var supply := _supply_hint_at(pixel)
 	_supply_title = supply.get("title", "")
 	_supply_body = supply.get("body", "")
-	# An der Station spricht ihr Ziel-Raster, sonst das Netz unter dem Zeiger.
-	if engraving_active:
-		_workshop_line = die_inspector.grid_hint_at(pixel) if die_inspector != null else ""
-	else:
-		_workshop_line = workshop.net_hint_at(pixel)
+	_supply_tint = supply.get("tint", CasinoStyle.CREAM)
+	_workshop_line = workshop.net_hint_at(pixel)
+	# Der schwebende Zwingen-Würfel selbst nennt seine Seele - dieselbe Regel wie
+	# in der Grube, und es ist wörtlich der Text seines Essenz-Chips.
+	if _workshop_line == "":
+		var clamped := _clamp_stage_under(mouse)
+		if clamped != null:
+			_workshop_line = DieNetView.hint_for(clamped.def, DieNetView.EDGE)
 	_sync_workshop_info()
-	if engraving_active:
-		workshop.clear_hover_net()  # die Station füllt das Fenster allein
-		return
-	# Nur Tray-Würfel: ein Paket-Würfel trägt sein Netz schon unter sich, die Karte
-	# zeigte dasselbe ein zweites Mal.
-	var def := _hovered_tray_def(mouse)
-	if def == null:
-		workshop.clear_hover_net()
-		return
-	workshop.show_hover_net(def)
 
-## Name und Wirkung der Vorrats-Kachel unter pixel ({} = keine).
+## Name und Wirkung des Werkbank-Dings unter pixel ({} = keins): Regal-Bucht,
+## Ablage-Chip oder der Handlungs-Sitz mit seinem Preis - alle schreiben auf
+## denselben Hinweis-Schirm.
 func _supply_hint_at(pixel: Vector2) -> Dictionary:
-	if table_screen == null:
+	if table_screen == null or table_screen.workshop_window == null:
 		return {}
-	for drawer in table_screen.supply_drawers:
-		var hint := drawer.hint_at(pixel)
-		if not hint.is_empty():
-			return hint
-	return {}
+	return table_screen.workshop_window.chip_hint_at(pixel)
 
 ## Schreibt die Hinweiskarte der Werkbank: die überfahrene Vorrats-Kachel schlägt
 ## die Netz-/Raster-Zeile - sie ist die gezieltere Auskunft. Läuft je Bild, meldet
 ## der Karte aber nur ECHTE Wechsel: show_hover_info misst und setzt sie jedes Mal
 ## neu.
 func _sync_workshop_info() -> void:
-	var workshop := table_screen.workshop_window if table_screen != null else null
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	var title := _supply_title
 	var body := _supply_body
+	var tint := _supply_tint
 	if title == "" and body == "":
 		body = _workshop_line  # keine Vorrats-Kachel unter dem Zeiger
-	if title == _info_shown_title and body == _info_shown_body:
+		tint = CasinoStyle.CREAM
+	if title == _info_shown_title and body == _info_shown_body and tint == _info_shown_tint:
 		return
 	_info_shown_title = title
 	_info_shown_body = body
-	workshop.show_hover_info(title, body)
-
-## Def des Tray-Würfels unter screen_pos (null = keiner). Vorrat und Ablage -
-## die Warteschlange gehört der Grube.
-func _hovered_tray_def(screen_pos: Vector2) -> DieDefinition:
-	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
-	if result.is_empty():
-		return null
-	for tray: DiceTrayView in [pool_tray_view, discard_tray_view]:
-		var index: int = tray.find_slot_index(result.collider)
-		if index != -1 and index < tray.slot_defs.size():
-			return tray.slot_defs[index]
-	return null
+	_info_shown_tint = tint
+	workshop.show_hover_info(title, body, tint)
 
 ## Würfelnetz-Feld der Grube: zeigt den Würfel unter der Maus - ruhende
 ## Grubenwürfel (mit Gold-Rahmen auf der oben liegenden Seite) und die
@@ -4162,24 +4542,10 @@ func _can_toggle_selection() -> bool:
 func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 	return round_committed and phase != Phase.SHOP
 
-## Zieht die Sperre der offenen Station nach (Unterschrift/erster Wurf) - für den
-## Würfel, der gerade auf dem Bock liegt.
+## Zieht die Sperre der Werkbank nach (Unterschrift/erster Wurf).
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
-	if die_inspector != null:
-		die_inspector.set_editing_locked(_dice_editing_locked(die_inspector.current_def))
-	if die_inspector != null and die_inspector.target_grid != null:
-		die_inspector.target_grid.set_locked_indices(_locked_pool_indices())
-
-## Pool-Plätze, die die laufende Runde sperrt (alle oder keiner).
-func _locked_pool_indices() -> Array[int]:
-	var locked: Array[int] = []
-	if not _dice_editing_locked():
-		return locked
-	for i in run.owned_pool.size():
-		locked.append(i)
-	return locked
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -4539,7 +4905,8 @@ func _draw_one() -> DieDefinition:
 func _discard_kind(def: DieDefinition, face: int) -> void:
 	discarded_this_round.append(def)
 	discarded_faces_this_round.append(face)
-	discard_tray_view.add_die(def, face)
+	if _tray_shows(def):
+		discard_tray_view.add_die(def, face)
 
 ## Legt die ganze liegende Grube ab - je Würfel mit der Seite, die oben lag.
 func _discard_pit() -> void:
@@ -4568,8 +4935,62 @@ func _refresh_deck_trays() -> void:
 	queue_window_size = min(_queue_display_capacity(), _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
 	queue_tray_view.fill(queue_defs)  # leer, solange nicht aktiviert
+	var seats := _tray_holes(_pool_tray_source())
+	pool_tray_view.ensure_capacity(seats.size())  # Lücken belegen ihren Platz mit
+	pool_tray_view.fill(seats)
+
+## Die Belegung des Pool-Trays MIT allen Würfeln - auch denen, deren Körper
+## gerade woanders steht. Im Laden ist die Runde vorbei und der ganze Vorrat
+## liegt da, sonst der noch ungezogene Rest hinter dem Warteschlangen-Fenster.
+func _pool_tray_source() -> Array[DieDefinition]:
+	if run == null:
+		return [] as Array[DieDefinition]
+	if phase == Phase.SHOP:
+		return run.owned_pool
 	var pool_start := next_draw_index + _queue_display_capacity()
-	pool_tray_view.fill(round_pool_kinds.slice(pool_start, round_pool_kinds.size()))
+	return round_pool_kinds.slice(pool_start, round_pool_kinds.size())
+
+## Zeigt ein Bank-Tray den Körper dieses Würfels? Ein aufgespannter steht auf der
+## Werkbank, ein gezeigter im Dossier - daneben im Tray wäre er ein zweiter Leib.
+## Die Regel selbst wohnt bei der Sitzordnung (DiceTrayView.seat_shows): im
+## Dossier sind die Zwingen von der Bank abgetreten, also füllen sich ihre Sitze.
+## REINE Anzeige: gezogen, geworfen und gewertet wird er wie jeder andere, und die
+## Warteschlange (Grube) zeigt ihn weiter.
+func _tray_shows(def: DieDefinition) -> bool:
+	# Ein Würfel fehlt im Tray genau dann, wenn er WIRKLICH auf der Bank steht -
+	# die Werkbank selbst gibt darüber Auskunft (clamps_on_bench: nicht im Paket,
+	# nicht im Dossier und nur im Zoom). Von weitem liegt der ganze Pool im Tray.
+	var clamped: Array[DieDefinition] = []
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if run != null and workshop != null and is_instance_valid(workshop) \
+			and workshop.clamps_on_bench():
+		clamped = run.clamped_dice
+	return DiceTrayView.seat_shows(def, clamped, _inspected_die)
+
+## Dieselbe Liste mit LÜCKEN statt Auslassungen: der Platz eines abwesenden
+## Würfels bleibt leer, alle anderen behalten ihren Sitz. Nur so bleibt Platz i
+## derselbe Würfel wie vorher - das Pool-Tray ist eine Ordnung, keine Aufreihung.
+func _tray_holes(defs: Array[DieDefinition]) -> Array[DieDefinition]:
+	var seats: Array[DieDefinition] = []
+	for def in defs:
+		seats.append(def if _tray_shows(def) else null)
+	return seats
+
+## Die Aufspannung hat sich geändert (Rundenbeginn, Hub-Ausbau): die Trays
+## verlieren die frisch eingespannten Würfel und bekommen heimgekehrte zurück.
+func _on_clamped_changed() -> void:
+	_refresh_dice_trays()
+	_refresh_discard_tray()
+
+## Das Ablage-Tray neu füllen - es kennt nur add_die, hat also keine eigene
+## Quelle: die Runden-Ablage ist sie.
+func _refresh_discard_tray() -> void:
+	if phase == Phase.SHOP:
+		return  # dort ist die Ablage leer, der ganze Vorrat liegt im Pool-Tray
+	discard_tray_view.clear()
+	for i in discarded_this_round.size():
+		if _tray_shows(discarded_this_round[i]):
+			discard_tray_view.add_die(discarded_this_round[i], discarded_faces_this_round[i])
 
 ## Shop-Eröffnung: der ganze Bestand ruht sichtbar im Pool-Tray, Warteschlange
 ## und Ablage sind leer - die Runde ist vorbei, es wird nicht mehr gezogen.
@@ -4577,7 +4998,7 @@ func _return_dice_to_pool_tray() -> void:
 	queue_tray_view.clear()
 	discard_tray_view.clear()
 	pool_tray_view.ensure_capacity(run.owned_pool.size())
-	pool_tray_view.fill(run.owned_pool)
+	pool_tray_view.fill(_tray_holes(_pool_tray_source()))
 
 ## Warteschlangen-Fenster: fest HAND_SIZE Plätze.
 func _queue_capacity() -> int:
@@ -4594,6 +5015,8 @@ func _deck_slot_position(deck_index: int, cursor: int) -> Vector3:
 	var offset := deck_index - cursor
 	if offset < _queue_display_capacity():
 		return queue_tray_view.slot_global_position(offset)
+	# Im Pool-Tray hat JEDER Eintrag seinen Sitz - ein abwesender Würfel lässt ihn
+	# leer, statt die Reihe aufrücken zu lassen. Also reine Indexrechnung.
 	return pool_tray_view.slot_global_position(offset - _queue_display_capacity())
 
 ## Freier, nicht-kollidierender Würfel für die Gleit-Animationen.
@@ -4617,6 +5040,11 @@ func _animate_deck_shift(shift: int) -> void:
 	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	deck_shift_tween.set_parallel(true)
 	for deck_index in range(next_draw_index, round_pool_kinds.size()):
+		# Ein abwesender Würfel (aufgespannt, im Dossier) hat im Pool-Tray keinen
+		# Körper, der aufrücken könnte - nur eine Lücke. In der Warteschlange schon.
+		if deck_index - next_draw_index >= _queue_display_capacity() \
+				and not _tray_shows(round_pool_kinds[deck_index]):
+			continue
 		var ghost := _spawn_deck_ghost(round_pool_kinds[deck_index])
 		ghost.global_position = _deck_slot_position(deck_index, old_cursor)
 		deck_shift_ghosts.append(ghost)
@@ -4637,24 +5065,6 @@ func _refresh_dice_trays() -> void:
 		_return_dice_to_pool_tray()
 	else:
 		_refresh_deck_trays()
-	# Das Werkstück hängt am Slot-KNOTEN, die Umlegung bewegt aber die Defs -
-	# ohne Nachführen graviert die Station plötzlich am Nachbarplatz.
-	if engraving_active:
-		_rebind_engraving_source()
-		_refresh_engraving_target_grid()
-
-## Sucht den Tray-Platz, auf dem das Werkstück nach einem Umlegen liegt, und
-## versteckt ihn wieder (der Würfel selbst schwebt ja an der Station).
-func _rebind_engraving_source() -> void:
-	if engraving_source_tray == null or die_inspector.current_def == null:
-		return
-	var index := engraving_source_tray.slot_defs.find(die_inspector.current_def)
-	if index < 0 or index >= engraving_source_tray.slot_roots.size():
-		return
-	if engraving_source_root != null and is_instance_valid(engraving_source_root):
-		engraving_source_root.visible = true
-	engraving_source_root = engraving_source_tray.slot_roots[index]
-	engraving_source_root.visible = false
 
 func _cancel_deck_shift() -> void:
 	if deck_shift_tween:
@@ -5143,7 +5553,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 ## Würfel in der Zähl-Animation).
 func _apply_hand_clauses(combo_key: String) -> void:
 	if run.grants_engraving_per_hand():
-		run.grant_engraving(run.roll_stamp_engraving())
+		run.grant_pack(run.roll_stamp_pack())
 	if run.apply_heat_buildup(combo_key):
 		hand_note = "Hitzestau: %s fällt eine Stufe zurück." % DiceScoring.label_for(combo_key)
 	if run.note_hand_taken(combo_key):
@@ -5295,6 +5705,13 @@ func _on_take_button_pressed() -> void:
 	if report.charge > 0:
 		run.add_charge(report.charge)
 		_play_rune_charge_volley(report.charge, report.sparks)
+	# Kupfer speist je Zündung; was über den Speicher hinausläuft, zahlt bar (das
+	# Geld reitet die Geld-Bahn und braucht nichts Eigenes). Gebucht wird SOFORT,
+	# das Licht fliegt hinterher - dieselbe Regel wie beim Funkenflug.
+	if report.copper_charge > 0:
+		var banked := run.charge
+		run.book_copper_charge(report.copper_charge)
+		_play_copper_charge_volley(run.charge - banked)
 	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
 	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
 	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
@@ -5369,8 +5786,8 @@ func _on_take_button_pressed() -> void:
 	taken_dice_this_round += dice.count()
 	pendulum_acc = maxi(0, pendulum_acc - dice.count())  # Pendel schwingt zurück, nie unter 0
 	full_reroll_stacks = 0
-	# Schutzgeld und Abzocke sind längst kassiert - je gezähltem Würfel im Moment
-	# seines Schritts (siehe _pay_die_fees).
+	# Abzocke und Schutzgeld sind längst kassiert - die Abzocke je gezähltem
+	# Würfel (_pay_die_fees), das Schutzgeld an seinem Charm-Schritt.
 	_apply_hand_clauses(String(hand["key"]))
 	_update_charm_badges()
 	_refresh_side_bet_panel()  # Live-Fortschritt der Nebenwetten (alle Stats final)
@@ -5462,9 +5879,9 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	if not await _score_arrival_gap(combo_travel):
 		return
 
-	# 2b) Doppelter Boden: je Kopie ein eigener Schlag vom Dock-Pad auf den Zähler.
-	# Die Kombination reist pur, die Verdopplung kommt sichtbar hinterher - sonst
-	# stünde am Zähler eine Zahl, deren Herkunft nirgends zu sehen ist.
+	# 2b) Dreifacher Boden: je Kopie ein eigener Schlag vom Dock-Pad auf den Zähler.
+	# Die Kombination reist pur, die Verdreifachung der Basis kommt sichtbar
+	# hinterher - sonst stünde am Zähler eine Zahl ohne sichtbare Herkunft.
 	for step: Dictionary in breakdown.get("combo_factor_steps", []):
 		for charm_index: int in step["charm_indices"]:
 			_flash_charm_and_pad(charm_index)
@@ -5484,14 +5901,9 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for j in cids.size():
 		if cids[j] == Charm.STREET_MUSICIAN:
 			musician_indices.append(j)
-	# Dieselbe Regel andersherum: Abzocke und Schutzgeld kosten JE gezähltem
-	# Würfel - beide fallen an SEINEM Schritt an, nicht gebündelt am Ende.
-	var protection_indices: Array[int] = []
-	for j in cids.size():
-		if cids[j] == Charm.PROTECTION_MONEY:
-			protection_indices.append(j)
+	# Dieselbe Regel andersherum: die Abzocke kostet JE gezähltem Würfel und
+	# fällt an SEINEM Schritt an, nicht gebündelt am Ende.
 	var die_fee := run.scored_die_fee()
-	var protection_fee := CharmEffects.take_fee(cids, 1)
 
 	# 3) Würfel-Schritte in Reihen-Ordnung: je Aktivierung Augen + Material,
 	# dann die würfelgebundenen Charms DIESES Würfels (additiv, dann Krit) -
@@ -5499,7 +5911,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for step: Dictionary in breakdown["die_steps"]:
 		var slot: int = step["slot"]
 		_pay_street_musician(musician_indices)
-		_pay_die_fees(die_fee, protection_fee, protection_indices)
+		_pay_die_fees(die_fee)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
 		# Zuwachs-Zahlen steigen aus dem Podest unter dem Würfel auf.
 		var gain_px := die_px
@@ -5515,6 +5927,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# 4) Charm-Schritte strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
 	# Position): je Komet vom Dock-Pad in die betroffene Zahl.
 	for step: Dictionary in breakdown["charm_steps"]:
+		# Schutzgeld: die Gebühr fällt an SEINEM Schritt an, nie über die Kasse
+		# hinaus - Basis und Mult rührt sie nicht an.
+		var fee := int(step.get("fee", 0))
+		if fee > 0:
+			run.add_money(-mini(fee, run.money))
 		# Rampenlicht: wertet nicht, hebt an SEINER Position die Kombination.
 		if step.get("spotlight", false):
 			if not await _play_spotlight_step(step, String(breakdown["key"])):
@@ -5593,21 +6010,16 @@ func _pay_street_musician(musician_indices: Array[int]) -> void:
 		_flash_charm_and_pad(j)
 		_fire_charm_money_packet(_charm_trail_source_px([j]), 1, Phase.SCORING)
 
-## Die Verluste EINES gezählten Würfels: die Abzocke-Klausel und das Schutzgeld.
-## Gebucht im Moment seines Zähl-Schritts (die Ausgabe-Animation läuft von
-## selbst), nie über den Kassenstand hinaus; das Schutzgeld blitzt an seinen Pads.
-func _pay_die_fees(die_fee: int, protection_fee: int, protection_indices: Array[int]) -> void:
+## Der Verlust EINES gezählten Würfels: die Abzocke-Klausel. Gebucht im Moment
+## seines Zähl-Schritts (die Ausgabe-Animation läuft von selbst), nie über den
+## Kassenstand hinaus.
+func _pay_die_fees(die_fee: int) -> void:
 	if die_fee > 0:
 		run.add_money(-mini(die_fee, run.money))
-	if protection_fee <= 0:
-		return
-	run.add_money(-mini(protection_fee, run.money))
-	for j in protection_indices:
-		_flash_charm_and_pad(j)
 
 ## Würfel-Schritt: jede Auslösung als eigene Kette Würfel-Puls (Augen+Material)
-## -> Charm-Anteil (würfelgebundene Charms, Komet vom Dock-Pad) -> Krit-Schlag
-## (Beherit), mit eigener Ankunftspause je Glied - so ist das Mehrfach-Auslösen
+## -> Charm-Anteil (würfelgebundene Charms, Komet vom Dock-Pad) -> Krit-Schläge
+## (Material, Essenz), mit eigener Ankunftspause je Glied - so ist das Mehrfach-Auslösen
 ## (Quecksilber, Retrigger-Charms, Echo-Kammer) als Verzahnung sichtbar.
 ## false = Abbruch (Reset).
 func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
@@ -5676,8 +6088,8 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		if not await _score_arrival_gap(ctravel):
 			return false
 	# Krit-Schläge dieser Auslösung, EINZELN: der Würfel blitzt je Schlag erneut,
-	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen). Zwei Beherit-
-	# Kopien schlagen darum zweimal ×1,4 statt einmal ×1,96.
+	# dann schlägt der heiße Komet am Mult ein (Hit-Stop, Stoßwellen). Ein dotierter
+	# Rubin im Härteofen schlägt darum zweimal ×2 statt einmal ×4.
 	for crit: Dictionary in pulse.get("crit_steps", []):
 		var crit_x := float(crit["crit_x"])
 		var crit_indices: Array = crit["charm_indices"]
@@ -5902,11 +6314,11 @@ func _show_die_value_progress(slot: int, value: int) -> void:
 		overrides[slot] = value
 	dice.set_value_overrides(overrides, false)
 
-## Spielt einen STATISCHEN Krit-Schritt (Galgenhumor, Feierabendbier): der Komet
-## läuft in Krit-Magenta vom Dock-Pad zum Mult-Orb, bei Ankunft übernimmt
+## Spielt einen STATISCHEN Krit-Schritt (Galgenhumor, Feierabendbier, Beherit):
+## der Komet läuft in Krit-Magenta vom Dock-Pad zum Mult-Orb, bei Ankunft übernimmt
 ## TableScreen.crit_pit_mult (Hit-Stop -> Slam mit Stoßwellen -> Beben). Der
-## Extra-Halt (CRIT_HOLD) lässt den Moment atmen. Beherit ist würfelgebunden
-## und schlägt in _play_die_step ein. false = Abbruch (Reset).
+## Extra-Halt (CRIT_HOLD) lässt den Moment atmen. Material- und Essenz-Krits
+## schlagen dagegen in _play_die_step ein. false = Abbruch (Reset).
 func _play_crit_step(step: Dictionary) -> bool:
 	for charm_index: int in step["charm_indices"]:
 		_flash_charm_and_pad(charm_index)
@@ -6316,20 +6728,23 @@ func _refresh_test_pointers_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_pointers_label(label)
 
-## Gravur-Testmodus umschalten: An = jeder Archetyp unerschöpflich am Bord.
-## Rührt die Würfel NICHT an, darum auch kein Rundenneustart - das Bord baut
-## an der Bestandsänderung selbst neu, mitten in der Zeremonie.
+## Testlieferung: TEST_PACK_COUNT Datenkarten je Sorte ins Regal - Zahlen,
+## Material, Runen und der Sonderbestand, aber KEINE Würfel-Pakete (die ändern
+## den Pool und damit den ganzen Lauf). Rührt die Würfel nicht an, darum auch
+## kein Rundenneustart; mehrfaches Drücken legt nach.
 func _on_test_engravings_pressed() -> void:
-	test_engravings_enabled = not test_engravings_enabled
-	run.unlimited_engravings = test_engravings_enabled or test_materials_enabled
-	_refresh_test_engravings_button()
-
-func _refresh_test_engravings_button() -> void:
-	var label := "🧪 Testgravuren: %s" % ("AN" if test_engravings_enabled else "aus")
-	if test_engravings_button != null:
-		test_engravings_button.text = label
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_test_engravings_label(label)
+	if run == null:
+		return
+	var delivery: Array[Pack] = []
+	for i in TEST_PACK_COUNT:
+		delivery.append(Pack.number_pack())
+		delivery.append(Pack.material_pack())
+		delivery.append(Pack.dice_mod_pack())
+		for special_id in Engraving.SPECIAL_IDS:
+			var special := Engraving.by_id(String(special_id))
+			if special != null:
+				delivery.append(Pack.fixed_engraving_pack(special))
+	run.grant_packs(delivery)
 
 func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
@@ -6348,11 +6763,10 @@ func _reset_game() -> void:
 	full_reroll_stacks = 0
 	run = GameRun.new_run()
 	_connect_run()
-	_abort_engraving()  # falls der Reset mitten in der Zeremonie kam
 	# Reveal-Auslage des alten Laufs abräumen; ihr Ablauf merkt den Lauf-Wechsel
 	# erst an seiner nächsten await-Grenze.
 	_clear_hub_reward_overlay()
-	_jewelry_box_upgrades.clear()  # Würfel des alten Laufs sind fort
+	_jewelry_box_upgrades.clear()  # Funde des alten Laufs sind fort
 	last_thrown_slots.clear()
 	if table_screen != null:
 		table_screen.clear_fumble_marks()
@@ -6386,31 +6800,45 @@ func _connect_run() -> void:
 			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
 			table_screen.secret_shop_window.die_purchased.connect(_on_secret_die_purchased)
-	die_inspector.run = run
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.run = run
 		table_screen.slot_bank_window.refresh()
 	if table_screen != null and table_screen.workshop_window != null:
-		table_screen.workshop_window.run = run
-		if not table_screen.workshop_window.engraving_dispatched.is_connected(_on_engraving_dispatched):
-			table_screen.workshop_window.engraving_dispatched.connect(_on_engraving_dispatched)
+		# Erst verdrahten, DANN den Lauf reichen: der Setter baut das Fenster sofort
+		# neu, und diese erste Meldung stellt die Zwingen-Würfel auf.
+		if not table_screen.workshop_window.press_rolled.is_connected(_on_press_rolled):
+			table_screen.workshop_window.press_rolled.connect(_on_press_rolled)
 		# Ein eingesetzter Paket-Würfel meldet sich über run.pool_changed selbst.
 		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
 			table_screen.workshop_window.pack_activated.connect(_on_pack_opened)
 		if not table_screen.workshop_window.die_stages_changed.is_connected(_on_die_stages_changed):
 			table_screen.workshop_window.die_stages_changed.connect(_on_die_stages_changed)
+		if not table_screen.workshop_window.piece_placed.is_connected(_on_piece_placed):
+			table_screen.workshop_window.piece_placed.connect(_on_piece_placed)
+		if not table_screen.workshop_window.press_cashed_out.is_connected(_on_press_cashed_out):
+			table_screen.workshop_window.press_cashed_out.connect(_on_press_cashed_out)
+		# Die physischen Datenzellen: Ankunft, Rückgabe und Dekompression.
+		if not table_screen.workshop_window.stack_popped.is_connected(_on_stack_popped):
+			table_screen.workshop_window.stack_popped.connect(_on_stack_popped)
+		if not table_screen.workshop_window.pack_unslotted.is_connected(_on_pack_unslotted):
+			table_screen.workshop_window.pack_unslotted.connect(_on_pack_unslotted)
+		if not table_screen.workshop_window.press_started.is_connected(_on_press_started):
+			table_screen.workshop_window.press_started.connect(_on_press_started)
+		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
+		table_screen.workshop_window.run = run
 	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
 		charm_shop.pack_purchased.connect(_on_pack_purchased)
-	if table_screen != null:
-		for drawer in table_screen.supply_drawers:
-			drawer.run = run
+	if charm_shop != null and not charm_shop.pack_refunded.is_connected(_on_pack_refunded):
+		charm_shop.pack_refunded.connect(_on_pack_refunded)
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
 	# Würfel-Änderungen (Kauf, Paket, Gravur, Nehmen-Effekt) laufen über EINEN Weg.
 	run.pool_changed.connect(_on_pool_changed)
+	# Die Zwingen stehen auf der Bank und fehlen darum in den Trays daneben.
+	run.clamped_changed.connect(_on_clamped_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
 	run.hub_level_changed.connect(_on_hub_level_changed)
 	run.secret_shop_discovered.connect(_on_secret_shop_discovered)
@@ -6546,7 +6974,6 @@ func _start_new_round() -> void:
 	_cancel_reorder_drag()
 	_cancel_charm_drag()
 	_cancel_lineup()
-	_abort_engraving()  # der schwebende Zeremonien-Würfel gehört zur alten Runde
 	# Die Runde ist noch nicht festgezurrt: die Werkbank bleibt bis zur
 	# Unterschrift (bzw. bis zum ersten Wurf) bearbeitbar.
 	round_committed = false
@@ -6584,9 +7011,6 @@ func _start_new_round() -> void:
 	if not route_pending:
 		_apply_round_start_effects()
 
-	# Testmodus: unbedingt gesetzt, damit der Zugriff beim Ausschalten und auf
-	# frischen Runs mit umschaltet.
-	run.unlimited_engravings = test_materials_enabled or test_engravings_enabled
 	if test_materials_enabled:
 		run.randomize_all_materials()
 		run.randomize_all_essences()
@@ -6618,6 +7042,8 @@ func _commit_round() -> void:
 	if round_committed:
 		return
 	round_committed = true
+	run.lapse_press()  # ohne Anwenden verfällt der ganze Guss - ohne einen Cent
+	run.reset_press_cycle()  # und die nächste Werkstatt-Sitzung presst wieder frei
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - NACH
 	# dem Mischen, sonst mischte sie sich wieder auseinander.
@@ -6690,7 +7116,7 @@ func _on_round_complete() -> void:
 		# Knallgas: die Kettenreaktion im Stapel - je übrigem Würfel ein eigener
 		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
 		var per_die_row := _leftover_die_payouts(per_die, ids)
-		# Schmuckkästchen: übrige Würfel haben je 10% Chance auf eine Material-Seite.
+		# Schmuckkästchen: je übrigem Würfel 10% Chance auf eine Material-Gravur.
 		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
 		_jewelry_box_upgrades = run.apply_jewelry_box(
 			round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
@@ -6737,10 +7163,6 @@ func _on_round_complete() -> void:
 			table_screen.set_round_pulse(false)
 		_set_gameplay_ui_visible(false)
 		_return_dice_to_pool_tray()
-		# Läuft noch die Zeremonie, sauber beenden - sonst schwebte der echte
-		# Zeremonien-Würfel weiter über der Hub-Fläche und verdeckte die Seiten.
-		if engraving_active:
-			die_inspector.close()
 		# Kamera auf den Hub, dann den Shop öffnen.
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
@@ -6936,7 +7358,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> void:
 	var amounts := {}
 	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids,
-			run.old_penny_payouts, run.owned_engravings.size()):
+			run.old_penny_payouts, run.owned_packs.size()):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	var jewelry_copy := 0
 	for j in ids.size():
@@ -6955,73 +7377,50 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 		if phase != Phase.PAYOUT:
 			return
 
-## Schmuckkästchen: je veredeltem Würfel ein Meteor vom Dock-Pad die Werkstatt-
-## Ader hinunter, dicht gestaffelt wie die Frankiermaschine. Gebucht ist längst
-## (Rundenabschluss) - die Salve zeigt nur, wer welchen Würfel bekommen hat.
+## Schmuckkästchen: je gefundener Material-Gravur ein Meteor vom Dock-Pad in die
+## Material-Schublade, dicht gestaffelt wie die Frankiermaschine. Gebucht ist
+## längst (Rundenabschluss) - die Salve zeigt nur, was dazugekommen ist.
 func _play_jewelry_box_meteors(index: int, copy: int) -> void:
 	var mine: Array[Dictionary] = []
-	for upgrade in _jewelry_box_upgrades:
-		if int(upgrade["copy"]) == copy:
-			mine.append(upgrade)
+	for grant in _jewelry_box_upgrades:
+		if int(grant["copy"]) == copy:
+			mine.append(grant)
 	if mine.is_empty():
 		return
 	_flash_charm_and_pad(index)
 	var from_px := _charm_trail_source_px([index])
 	var travel := 0.0
 	for i in mine.size():
-		var upgrade := mine[i]
+		var material_id := String(mine[i]["material_id"])
 		if i == 0:
-			travel = _fire_jewelry_box_meteor(upgrade, from_px)
+			travel = _fire_jewelry_box_meteor(material_id, from_px)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if phase == Phase.PAYOUT:
-					_fire_jewelry_box_meteor(upgrade, from_px))
+					_fire_jewelry_box_meteor(material_id, from_px))
 	var last_arrival := float(maxi(0, mine.size() - 1)) * STAMP_METEOR_GAP + maxf(travel, 0.05)
-	await get_tree().create_timer(last_arrival + ENGRAVE_TRAIL_TIME).timeout
+	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
-## EIN Meteor der Salve: Dock-Pad -> Werkstatt-Fenster, bei Ankunft die kurze
-## Spur zum betroffenen Tray-Würfel. Liefert die Laufzeit der Ader.
-func _fire_jewelry_box_meteor(upgrade: Dictionary, from_px: Vector2) -> float:
-	if table_screen == null or table_screen.workshop_window == null:
+## EIN Meteor der Salve: Dock-Pad -> Material-Stapel der Werkbank. Das
+## Schmuckkästchen schenkt ein FIXINHALT-PAKET, kein loses Stück - der Stapel
+## hält sein Siegel darum zurück, bis das Licht ankommt. Liefert die Flugzeit.
+func _fire_jewelry_box_meteor(material_id: String, from_px: Vector2) -> float:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
 		return 0.0
-	var die: DieDefinition = upgrade["die"]
-	var material := DieMaterial.by_id(String(upgrade["material_id"]))
+	var material := DieMaterial.by_id(material_id)
 	var tint := material.tint if material != null else CasinoStyle.GOLD
-	var travel := table_screen.charm_workshop_comet(from_px, tint)
+	var shelf := Engraving.CATEGORY_MATERIAL
+	workshop.expect_pack_delivery(shelf)
+	var travel := table_screen.charm_engraving_comet(from_px,
+		workshop.stack_anchor_px(shelf), tint)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if phase == Phase.PAYOUT:
-			_deliver_jewelry_box_die(die, tint))
+		if is_instance_valid(workshop):
+			workshop.deliver_pack(shelf))
 	return travel
-
-## Letztes Stück: vom Werkstatt-Fenster eine kurze Spur an den Tray-Würfel, der
-## bei ihrer Ankunft die Kraft schluckt (Blitz-Pop). Seine Seiten tragen das
-## Material längst - pool_changed lief beim Buchen.
-func _deliver_jewelry_box_die(die: DieDefinition, tint: Color) -> void:
-	var tray: DiceTrayView = null
-	var index := -1
-	for candidate in [queue_tray_view, pool_tray_view]:
-		for i in candidate.slot_defs.size():
-			if candidate.slot_defs[i] == die and candidate.slot_roots[i].visible:
-				tray = candidate
-				index = i
-				break
-		if tray != null:
-			break
-	if tray == null or table_screen == null or table_screen.workshop_window == null:
-		return
-	var center := table_screen.workshop_window.position + table_screen.workshop_window.size * 0.5
-	table_screen.spawn_trace(center, table_screen.world_to_pixel(tray.slot_global_position(index)),
-		tint, ENGRAVE_TRAIL_TIME)
-	await get_tree().create_timer(ENGRAVE_TRAIL_TIME).timeout
-	if phase != Phase.PAYOUT or not is_instance_valid(tray) or index >= tray.slot_face_displays.size():
-		return
-	# Ruhegröße OHNE DIE_SCALE: im Tray sitzt die Skalierung auf der WURZEL, die
-	# Anzeige selbst steht auf ONE (anders als ein Grubenwürfel).
-	_flash_die_tint(tray.slot_face_displays[index],
-		DiceController.KIND_TINTS.get(die.style_id, Color.WHITE))
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
 ## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
@@ -7129,50 +7528,46 @@ func _play_take_money_comet(amount: int) -> void:
 		table_screen.treasure_window.glint()
 		table_screen.treasure_window.flash_receive_slot(chip_color))
 
-## Die Frankiermaschine schickt ihre Zahl-Gravuren als dichte Meteor-Salve auf
+## Die Frankiermaschine schickt ihre 1er-Pakete als dichte Meteor-Salve auf
 ## die Adern: die Starts folgen im STAMP_METEOR_GAP-Takt, ohne auf die vorige
-## Ankunft zu warten - jede Gravur liegt erst bei IHRER Ankunft im Vorrat
-## (der Meteor ist die Gravur, nicht ihre Ankündigung).
+## Ankunft zu warten - jedes Paket liegt erst bei SEINER Ankunft im Lager
+## (der Meteor ist das Paket, nicht seine Ankündigung).
 func _play_stamp_machine_meteors(index: int) -> void:
 	_flash_charm_and_pad(index)
 	var from_px := _charm_trail_source_px([index])
+	var launched := run
 	var travel := 0.0
-	for i in GameRun.STAMP_ENGRAVINGS:
-		var engraving := run.roll_stamp_engraving()
+	for i in GameRun.STAMP_PACKS:
+		var pack := run.roll_stamp_pack()
 		if i == 0:
-			travel = _fire_charm_engraving(engraving, from_px)
+			travel = _fire_charm_pack(pack, from_px)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
-				if phase == Phase.PAYOUT:
-					_fire_charm_engraving(engraving, from_px))
-	var last_arrival := float(GameRun.STAMP_ENGRAVINGS - 1) * STAMP_METEOR_GAP + maxf(travel, 0.05)
+				if run == launched and phase == Phase.PAYOUT:
+					_fire_charm_pack(pack, from_px))
+	var last_arrival := float(GameRun.STAMP_PACKS - 1) * STAMP_METEOR_GAP + maxf(travel, 0.05)
 	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
-## Schickt EINEN Gravur-Meteor über die Adern in den Schubladen-Platz und
-## grantet bei ANKUNFT; der Einschlag lässt den Platz in der Seltenheitsfarbe
-## nachglühen. Liefert die Flugzeit.
-func _fire_charm_engraving(engraving: Engraving, from_px: Vector2) -> float:
+## Schickt EIN versiegeltes Paket über die Werkstatt-Ader und bucht es bei
+## ANKUNFT; die Werkbank feiert den Einschlag. Liefert die Flugzeit. Die Ankunft
+## vergleicht die Lauf-INSTANZ, nicht nur die Phase: ein "Neues Spiel" im Flug
+## bekäme sonst das Paket des alten Laufs gutgeschrieben.
+func _fire_charm_pack(pack: Pack, from_px: Vector2) -> float:
 	if table_screen == null or table_screen.workshop_window == null:
-		run.grant_engraving(engraving)  # ohne Display: still buchen, nichts verlieren
+		run.grant_pack(pack)  # ohne Display: still buchen, nichts verlieren
 		return 0.0
-	for drawer in table_screen.supply_drawers:
-		var target := drawer.slot_center_px(engraving.id)
-		if target.x < 0.0:
-			continue
-		var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-		var travel := table_screen.charm_engraving_comet(from_px, drawer.category, target, tint)
-		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-			if phase != Phase.PAYOUT:
-				return
-			run.grant_engraving(engraving)
-			if is_instance_valid(drawer):
-				drawer.pop(engraving.id, tint))
-		return travel
-	run.grant_engraving(engraving)  # kein Schubladen-Platz: still buchen
-	return 0.0
+	var launched := run
+	var tint: Color = PackIconRenderer.COLORS.get(pack.type, TableScreen.SIDE_ENGRAVING_COLOR)
+	var travel := table_screen.pack_delivery_comet(from_px, tint)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run != launched or phase != Phase.PAYOUT or table_screen == null:
+			return
+		run.grant_pack(pack)
+		table_screen.celebrate_workshop_delivery(tint))
+	return travel
 
 ## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
 ## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine
@@ -7362,12 +7757,8 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	_sync_bench_focus()
 	_sync_screen_reflection()
-	# Die Gravur-Station lebt an der Werkbank: verlässt die Kamera sie, ist die
-	# Zeremonie vorbei. Kein Rekursions-Risiko - _end_engraving_ceremony löscht
-	# engraving_active, bevor es selbst zurückfährt.
-	if engraving_active and new_mode != CameraRig.Mode.WORKSHOP:
-		die_inspector.close()
 	# Wer aus dem Laden in die Grube fährt, hat "Fertig" gemeint: der Laden macht
 	# zu und die neue Runde steht - sonst säße der Spieler vor gesperrten Knöpfen.
 	# Synchron, damit Nachschub-Tray und Vertragsauslage unten dieselbe Fahrt noch
@@ -7387,6 +7778,25 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	_sync_combo_upgrade_buttons()
 	_update_gameplay_ui_visibility()
 
+## Die Werkbank tritt erst auf, wenn der Spieler an ihr steht: außerhalb ihres
+## Zooms bleibt das Fenster leer, die Aufspannung liegt derweil in ihren eigenen
+## Tray-Sitzen. Die Schürze (Konsole, Buchten) steht unberührt weiter - sie
+## gehört dem Tisch, nicht dem Blick. Der Kamera-Modus ist die EINE Quelle;
+## gerufen wird auch bei gleichbleibendem Modus (die Nahsicht meldet sich so),
+## also bleibt die Prüfung auf den Wechsel hier stehen.
+func _sync_bench_focus() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var focused := camera_rig.mode == CameraRig.Mode.WORKSHOP
+	if workshop.bench_focused == focused:
+		return
+	workshop.bench_focused = focused
+	if run == null:
+		return
+	_refresh_dice_trays()  # die Sitze der Aufspannung füllen sich bzw. leeren sich
+	_refresh_discard_tray()
+
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel
 ## wandern aus dem Dice-Tray hierher.
 func _activate_queue() -> void:
@@ -7399,17 +7809,9 @@ func _update_gameplay_ui_visibility() -> void:
 	var show_ui := gameplay_ui_state_visible and is_pit_focused
 	hand_label.visible = show_ui
 
-# --- Reaktionen auf Shop/Gravur-Station -------------------------------------
-# Käufe und Gravur-Verbrauch mutieren den GameRun direkt; die Anzeigen folgen
-# über die Run-Signale. Hier nur Reaktionen, die echte Szenen-Arbeit brauchen.
-
-## Ätzung angewandt: die faces sind schon verändert - die Meldung an GameRun ist
-## der EINE Weg, über den alle Würfel-Anzeigen auffrischen.
-func _on_die_engraved() -> void:
-	if run == null:
-		_on_pool_changed()
-		return
-	run.note_pool_changed()
+# --- Reaktionen auf Laden und Werkbank --------------------------------------
+# Käufe und Setzungen mutieren den GameRun direkt; die Anzeigen folgen über die
+# Run-Signale. Hier nur Reaktionen, die echte Szenen-Arbeit brauchen.
 
 ## Ein Pool-Würfel hat sich geändert (Kauf, Paket, Gravur, Nehmen-Effekt,
 ## Testmodus): alle Anzeigen, die eine Würfel-Instanz zeigen, ziehen nach. Die
@@ -7427,24 +7829,35 @@ func _on_pool_changed() -> void:
 	queue_tray_view.refresh_faces()
 	discard_tray_view.refresh_faces()
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
+	_refresh_clamp_stage_faces()  # die Zwingen halten geteilte Instanzen
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
-	if engraving_active:
-		die_inspector.refresh_die()
-	# Die Hover-Karte hält eine GETEILTE Instanz - sie muss den neuen Stand zeigen.
-	if table_screen != null and table_screen.workshop_window != null:
-		table_screen.workshop_window.refresh_hover_net()
+	# Das Dossier hält eine GETEILTE Instanz - es muss den neuen Stand zeigen.
+	if table_screen != null and table_screen.workshop_window != null 			and table_screen.workshop_window.inspecting():
+		table_screen.workshop_window.refresh()
 
 ## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
 ## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben
 ## links einen anderen Würfel als der Platz oben links auf dem Tisch.
 func _on_pack_opened(_index: int) -> void:
 	_meteor_index = 0  # je Paket ein frischer Fächer von Ausbruch-Richtungen
+	# Die oberste Kassette des Würfel-Stapels gibt sich her: sie lodert auf, und
+	# der Neuaufbau gleich danach lässt den ganzen Stapel abtreten - Ausbruch und
+	# Auflösen in einem, ohne eigenen Weg.
+	var stack: DataCellView = shelf_cells.get(PackShelfView.CATEGORY_DICE_PACK)
+	if stack != null and is_instance_valid(stack) and stack.visible:
+		stack.flare()
 	if table_screen == null or table_screen.workshop_window == null:
 		return
-	var slot_defs: Array[DieDefinition] = []
-	for i in pool_tray_view.slot_roots.size():
-		slot_defs.append(pool_tray_view.slot_defs[i] if pool_tray_view.slot_roots[i].visible else null)
-	table_screen.workshop_window.set_pool_order(slot_defs, pool_tray_view.columns)
+	table_screen.workshop_window.set_pool_order(_pool_tray_layout(), pool_tray_view.columns)
+
+## Die Sitzordnung des Pool-Trays für das Raster im Fenster: dieselben Plätze,
+## aber MIT den Würfeln, deren Körper gerade woanders steht - eine Zwinge muss
+## austauschbar bleiben. Auf die Platzzahl des Trays aufgefüllt.
+func _pool_tray_layout() -> Array[DieDefinition]:
+	var seats: Array[DieDefinition] = []
+	seats.assign(_pool_tray_source())
+	seats.resize(pool_tray_view.slot_roots.size())
+	return seats
 
 ## Shop geschlossen, die nächste Runde beginnt. Nur der "Fertig"-Knopf fährt
 ## zurück in die Übersicht (dort ist das Wettannahme-Fenster im Blick); wer den

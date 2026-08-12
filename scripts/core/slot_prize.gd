@@ -10,14 +10,6 @@ extends RefCounted
 ## zahlt NUR in Ware; Geld verdient man an den Runden, nicht am Automaten.
 enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, CHARM, DIE }
 
-## Gravur-Kategorie eines Symbol-Kinds ("" = kein Gravur-Symbol).
-static func category_of(kind_value: int) -> String:
-	match kind_value:
-		Kind.ENGRAVING: return Engraving.CATEGORY_NUMBER
-		Kind.MATERIAL: return Engraving.CATEGORY_MATERIAL
-		Kind.DICE_ENGRAVING: return Engraving.CATEGORY_DICE
-	return ""
-
 ## Paketsorte hinter einem Gravur-Symbol ("" = kein Gravur-Symbol).
 static func pack_type_of(kind_value: int) -> String:
 	match kind_value:
@@ -48,12 +40,9 @@ static func from_spec(spec: Dictionary, hub_level: int = 1, owned_essences: Arra
 		"pack":
 			p.kind = int(spec.get("symbol", Kind.ENGRAVING))
 			var count := maxi(1, int(spec.get("count", 1)))
-			var floor_rarity := int(spec.get("floor", Engraving.Rarity.COMMON))
 			var pack_type := pack_type_of(p.kind)
 			for i in count:
-				var pack := Pack.by_type(pack_type)
-				pack.rarity_floor = floor_rarity
-				p.packs.append(pack)
+				p.packs.append(Pack.by_type(pack_type))
 			p.label = "%d %s" % [count, pack_name(p.kind, count)]
 		"charm":
 			p.kind = Kind.CHARM
@@ -76,16 +65,6 @@ static func symbol_for(kind_value: int) -> String:
 		Kind.CHARM: return "✦"
 		Kind.DIE: return "⬢"
 	return "✖"   # Fumble
-
-## Anzeigename eines Symbols; count steuert den Plural.
-static func category_name(kind_value: int, count: int = 1) -> String:
-	match kind_value:
-		Kind.ENGRAVING: return "Gravur" if count == 1 else "Gravuren"
-		Kind.MATERIAL: return "Material" if count == 1 else "Materialien"
-		Kind.DICE_ENGRAVING: return "Würfel-Gravur" if count == 1 else "Würfel-Gravuren"
-		Kind.CHARM: return "Charm" if count == 1 else "Charms"
-		Kind.DIE: return "Würfel"
-	return "Fumble"
 
 ## Zufälliger Charm GENAU der Rarität rarity_name, gewichtet. Fehlt diese Stufe,
 ## eine Stufe tiefer, bis der Pool nicht leer ist.

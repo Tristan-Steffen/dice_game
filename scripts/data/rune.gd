@@ -388,8 +388,3 @@ static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
 static func all_glyphs() -> Array[String]:
 	return [GLYPH_AFTERGLOW, GLYPH_STRAY_LIGHT, GLYPH_BURN_IN, GLYPH_SPARK_FLIGHT,
 		GLYPH_CAST, GLYPH_REVERSE]
-
-## Runenzeichen eines Runen (leer bei unbekannter id).
-static func lines_for(rune_id: String) -> Array[PackedVector2Array]:
-	var rune := by_id(rune_id)
-	return glyph_lines(rune.glyph) if rune != null else [] as Array[PackedVector2Array]

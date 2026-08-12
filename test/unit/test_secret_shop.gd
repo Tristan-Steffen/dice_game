@@ -267,8 +267,9 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	assert_true(run.buy_secret_offer(1))
 	assert_eq(run.charge, 0)
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_eq(run.owned_engravings[0].id, engraving.id)
+	assert_eq(run.owned_packs.size(), 1, "der Sonderposten liegt versiegelt im Lager")
+	assert_not_null(run.owned_packs[0].fixed_engraving)
+	assert_eq(run.owned_packs[0].fixed_engraving.id, engraving.id)
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()
@@ -276,10 +277,10 @@ func test_sold_slot_cannot_be_bought_twice() -> void:
 	run.charge = GameRun.SECRET_ENGRAVING_PRICE * 2  # reicht für zwei Gravur-Käufe
 	assert_true(run.buy_secret_offer(1))
 	var charge_after := run.charge
-	var owned := run.owned_engravings.size()
+	var owned := run.owned_packs.size()
 	assert_false(run.buy_secret_offer(1), "der Platz ist leer")
 	assert_eq(run.charge, charge_after, "kein zweiter Abzug")
-	assert_eq(run.owned_engravings.size(), owned)
+	assert_eq(run.owned_packs.size(), owned)
 
 func test_buying_without_charge_is_rejected() -> void:
 	var run := _discovered()

@@ -2,7 +2,7 @@ extends GutTest
 ## Tier-2-Tests der Entsiegelung (PackUnsealView): brechendes Siegel, die
 ## Vorstellungsrunde im Kreis, und der Takt, WANN welches Stück abfliegt. Was
 ## danach kommt, gehört den Meteoren (TableScreen) und dem Einschlag
-## (SupplyDrawerView).
+## (Regal-Leiste).
 
 var view: PackUnsealView
 

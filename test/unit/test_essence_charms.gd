@@ -397,7 +397,7 @@ func test_the_glaze_brush_copies_a_capped_material():
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 0, "Stufe I lässt sich noch heben")
 	die.levels[0] = DieMaterial.MAX_LEVEL
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 1)
-	assert_eq(run.engraving_stock(DieMaterial.GOLD), 1, "die Kopie liegt im Vorrat")
+	assert_eq(_pack_stock(run, DieMaterial.GOLD), 1, "die Kopie liegt im Vorrat")
 
 # --- Ethylen: die Ernte und ihre Druckerpresse -----------------------------------
 
@@ -415,8 +415,8 @@ func test_ethylene_harvests_each_material_once():
 	var defs: Array[DieDefinition] = [_ethylene_die()]
 	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2,
 		"je verschiedenem Material eine Gravur, nicht je Seite")
-	assert_eq(run.engraving_stock(DieMaterial.GOLD), 1)
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 1)
+	assert_eq(_pack_stock(run, DieMaterial.GOLD), 1)
+	assert_eq(_pack_stock(run, DieMaterial.RUBY), 1)
 
 func test_the_harvest_fires_once_per_round_per_die():
 	var run := GameRun.new_run()
@@ -433,8 +433,8 @@ func test_the_printing_press_prints_every_copy_twice():
 	run.owned_charms.append(Charm.printing_press())
 	var defs: Array[DieDefinition] = [_ethylene_die()]
 	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 4)
-	assert_eq(run.engraving_stock(DieMaterial.GOLD), 2)
-	assert_eq(run.engraving_stock(DieMaterial.RUBY), 2)
+	assert_eq(_pack_stock(run, DieMaterial.GOLD), 2)
+	assert_eq(_pack_stock(run, DieMaterial.RUBY), 2)
 
 func test_the_quintessence_borrows_the_harvest():
 	var run := GameRun.new_run()
@@ -468,3 +468,11 @@ func test_alkahest_lends_the_discarded_souls_to_the_quintessence():
 	var uncopyable := EssenceEffects.set_at(
 		EssenceEffects.effective_sets(lying, _ids([Essence.AURORA, Essence.PHOSPHORESCENCE])), 0)
 	assert_eq(uncopyable.size(), 1, "die Unikat-Sperre gilt auch für die Ablage")
+
+## Versiegelte Fixinhalt-Pakete dieser Gravur im Lager - lose wartet nichts mehr.
+func _pack_stock(run: GameRun, id: String) -> int:
+	var count := 0
+	for pack in run.owned_packs:
+		if pack.fixed_engraving != null and pack.fixed_engraving.id == id:
+			count += 1
+	return count

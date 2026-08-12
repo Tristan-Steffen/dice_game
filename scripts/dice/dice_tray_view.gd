@@ -16,8 +16,6 @@ const DIE_SCALE := 0.6  # gemeinsame Würfelgröße (Tray + Grube)
 ## (auch die einreihige Warteschlange) - hoch genug, dass der Emitter darunter
 ## sichtbar bleibt und nicht vom Würfel verdeckt wird.
 const FLOAT_HEIGHT := 2.22
-## Rest-Höhe, wenn ein Würfel den Tisch BERÜHRT (Gravur/Zählen, extern genutzt).
-const REST_Y := DIE_SCALE
 
 ## Schweb-Animation: Wippen (vertikal) + leichtes Gieren (Drehung), je Slot
 ## phasenversetzt, damit die Vitrine lebt ohne die Augenzahl unlesbar zu drehen.
@@ -144,21 +142,37 @@ func ensure_capacity(capacity: int) -> void:
 		child.queue_free()
 	_build_slots()
 
-## Setzt den Inhalt komplett neu: erste defs.size() Slots gefüllt (kompakt
-## von vorn, nie eine Lücke mittendrin), Rest ausgeblendet.
+## Zeigt ein Tray den Körper dieses Würfels, oder steht der gerade WOANDERS? Die
+## eine Quelle der Lücken-Regel (scene_root fragt sie für beide Trays).
+## Aufgespannte Würfel stehen auf der Werkbank - solange dort die Aufspannung
+## steht. Steht statt ihrer das DOSSIER, sind die Zwingen von der Bank abgetreten
+## und liegen wieder in ihren eigenen Sitzen; dann ist nur der gezeigte Würfel
+## woanders, und seine Lücke ist die einzige.
+static func seat_shows(def: DieDefinition, clamped: Array[DieDefinition],
+		inspected: DieDefinition) -> bool:
+	if def == null or def == inspected:
+		return false
+	if inspected != null:
+		return true
+	return not clamped.has(def)
+
+## Setzt den Inhalt komplett neu: Platz i zeigt defs[i], der Rest bleibt leer.
+## Ein null-Eintrag ist eine LÜCKE - der Platz bleibt leer, die Reihe rückt nicht
+## auf: jeder Würfel hat seinen Platz (aufgespannt oder im Dossier steht sein
+## Körper anderswo, sein Sitz bleibt trotzdem seiner).
 ## faces: je Würfel die Seite, die oben liegen soll (-1/fehlend = Ruhelage) -
 ## nur das Ablage-Tray gibt sie mit.
 func fill(defs: Array[DieDefinition], faces: Array[int] = []) -> void:
 	for i in slot_roots.size():
-		if i < defs.size():
-			var def: DieDefinition = defs[i]
-			_set_slot_shown(i, true)
-			slot_defs[i] = def
-			slot_pose[i] = face_up_pose(faces[i] if i < faces.size() else -1)
-			slot_face_displays[i].apply_definition(def)
-			slot_face_displays[i].set_tint(_style_tint(def))
-		else:
+		var def: DieDefinition = defs[i] if i < defs.size() else null
+		slot_defs[i] = def
+		if def == null:
 			_set_slot_shown(i, false)
+			continue
+		_set_slot_shown(i, true)
+		slot_pose[i] = face_up_pose(faces[i] if i < faces.size() else -1)
+		slot_face_displays[i].apply_definition(def)
+		slot_face_displays[i].set_tint(_style_tint(def))
 
 ## Leert das Tray (Ablage-Modus, z.B. zu Rundenbeginn).
 func clear() -> void:

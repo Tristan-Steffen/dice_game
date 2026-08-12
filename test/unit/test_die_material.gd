@@ -3,10 +3,11 @@ extends GutTest
 ## analog zu test_charm/test_engraving: Vollständigkeit, eindeutige ids, gefüllte
 ## Anzeigefelder und die Auflösungs-Helfer (by_id/is_valid_id/tint_for).
 
-func test_all_returns_five_materials():
+func test_all_returns_six_materials():
 	# Quecksilber ist raus: es zahlte nicht, es löste aus - und gehört damit in
-	# eine andere Schicht (die Essenzen).
-	assert_eq(DieMaterial.all().size(), 5)
+	# eine andere Schicht (die Essenzen). Kupfer kam mit der Presse dazu: sechs
+	# Materialien, sechs Seiten des Material-Phantomwürfels.
+	assert_eq(DieMaterial.all().size(), 6)
 
 func test_all_ids_are_unique():
 	var seen := {}

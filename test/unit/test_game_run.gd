@@ -19,7 +19,7 @@ func test_new_run_starts_empty_handed():
 	assert_eq(run.round_number, 1)
 	assert_eq(run.round_goal, GameRun.BASE_GOAL)
 	assert_eq(run.owned_charms.size(), 0)
-	assert_eq(run.owned_engravings.size(), 0)
+	assert_eq(run.owned_packs.size(), 0)
 
 func test_new_run_fills_pool_with_standard_dice():
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
@@ -41,61 +41,52 @@ func test_add_money_accumulates_and_emits():
 	assert_eq(run.money, 8)
 	assert_signal_emit_count(run, "money_changed", 2)
 
-# --- Würfelkauf -----------------------------------------------------------------
+# --- Ein Würfel nimmt einen Pool-Platz ein --------------------------------------
+## Seit der Laden nur noch hinterlegt (stash_die), führt genau EIN Weg in einen
+## Pool-Platz: der Automaten-Würfel über _replace_pool_entry. Seine Regeln stehen
+## hier - sie gelten für jede künftige Quelle mit.
 
-func test_purchase_die_deducts_and_keeps_pool_size():
-	run.money = 20
-	run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 15)
-	assert_eq(run.money, 5)
-	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
-	assert_eq(_count_style("fixed_6"), 1)
+## Gewinnt einen Würfel am Automaten (der lebende Weg in _replace_pool_entry).
+func _win_die(def: DieDefinition) -> void:
+	var prize := SlotPrize.new()
+	prize.kind = SlotPrize.Kind.DIE
+	prize.die = def
+	run.book_slot_prize(prize)
 
-func test_purchase_die_stores_independent_copy():
+func test_a_won_die_stores_an_independent_copy():
 	var template := DieDefinition.fixed(6, "Immer 6")
-	run.purchase_die(template, 0)
+	_win_die(template)
 	for def in run.owned_pool:
 		if def.style_id == "fixed_6":
-			def.faces[0] = 1  # späteres "Upgrade" des gekauften Würfels
-	assert_eq(template.faces[0], 6, "Shop-Vorlage bleibt unverändert")
+			def.faces[0] = 1  # spätere Aufwertung des gewonnenen Würfels
+	assert_eq(template.faces[0], 6, "die Vorlage des Gewinns bleibt unverändert")
 
-func test_purchase_die_prefers_replacing_normal_dice():
-	# Solange normale Würfel übrig sind, verdrängt ein Kauf nie einen früher
-	# gekauften Spezialwürfel.
+func test_a_won_die_prefers_replacing_normal_dice():
+	# Solange normale Würfel übrig sind, verdrängt ein Gewinn nie einen früher
+	# gewonnenen Spezialwürfel.
 	for i in GameRun.POOL_SIZE - 1:
-		run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 0)
+		_win_die(DieDefinition.fixed(6, "Immer 6"))
 	assert_eq(_count_style("fixed_6"), GameRun.POOL_SIZE - 1)
 	assert_eq(_count_style("normal"), 1)
 
-func test_purchase_dice_bundle_deducts_once_and_adds_all():
-	run.money = 30
-	var bundle: Array[DieDefinition] = [
-		DieDefinition.fixed(2, "A"), DieDefinition.fixed(2, "B"), DieDefinition.fixed(2, "C"),
-	]
-	for def in bundle:
-		def.style_id = "low"
-	run.purchase_dice(bundle, 15)
-	assert_eq(run.money, 15, "nur ein Preis fürs ganze Bündel")
-	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool bleibt konstant groß")
-	assert_eq(_count_style("low"), 3, "alle drei Würfel liegen im Pool")
-
 ## --- Ein Weg für alle Würfel-Anzeigen: pool_changed --------------------------
 ## Die Instanz wird NIE getauscht (become) - wer sie hält (Rundendeck, Trays,
-## Raster, Station), zeigt den neuen Würfel sofort; das Signal löst nur das
+## Raster, Dossier), zeigt den neuen Würfel sofort; das Signal löst nur das
 ## Neuzeichnen aus.
 
-func test_purchase_die_overwrites_the_instance_in_place():
+func test_a_won_die_overwrites_the_instance_in_place():
 	var kept := run.owned_pool.duplicate()
-	run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	_win_die(DieDefinition.fixed(6, "Immer 6"))
 	for i in GameRun.POOL_SIZE:
 		assert_same(run.owned_pool[i], kept[i], "kein Instanz-Tausch im Pool")
 	var styles: Array[String] = []
 	for def in kept:
 		styles.append(def.style_id)
-	assert_true(styles.has("fixed_6"), "der gehaltene Würfel IST der gekaufte")
+	assert_true(styles.has("fixed_6"), "der gehaltene Würfel IST der gewonnene")
 
-func test_purchase_die_emits_pool_changed():
+func test_a_won_die_emits_pool_changed():
 	watch_signals(run)
-	run.purchase_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	_win_die(DieDefinition.fixed(6, "Immer 6"))
 	assert_signal_emit_count(run, "pool_changed", 1)
 
 func test_place_pack_die_emits_pool_changed():
@@ -244,65 +235,18 @@ func test_charm_sell_value_reads_the_charm_base():
 	assert_eq(run.charm_sell_value(0), 8)
 	assert_eq(run.charm_sell_value(1), 0, "leerer Platz ist wertlos")
 
-# --- Gravuren --------------------------------------------------------------------
+# --- Eine Aufwertung existiert nur versiegelt oder angewendet ---------------------
 
-func test_grant_and_consume_engraving():
-	watch_signals(run)
-	run.grant_engraving(Engraving.chisel())
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_true(run.consume_engraving(Engraving.CHISEL))
-	assert_eq(run.owned_engravings.size(), 0)
-	assert_signal_emit_count(run, "engravings_changed", 2)
+func test_a_material_find_lands_as_a_sealed_pack():
+	run.grant_material_pack(DieMaterial.by_id(DieMaterial.GOLD))
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.owned_packs[0].type, Pack.TYPE_MATERIAL)
+	assert_eq(run.owned_packs[0].fixed_engraving.id, DieMaterial.GOLD)
+	assert_eq(run.owned_packs[0].price, 0)
 
-func test_consume_missing_engraving_returns_false_without_signal():
-	watch_signals(run)
-	assert_false(run.consume_engraving(Engraving.CHISEL))
-	assert_signal_emit_count(run, "engravings_changed", 0)
-
-func test_consume_removes_only_one_of_a_kind():
-	run.grant_engraving(Engraving.chisel())
-	run.grant_engraving(Engraving.chisel())
-	run.consume_engraving(Engraving.CHISEL)
-	assert_eq(run.owned_engravings.size(), 1)
-
-func test_unlimited_engravings_consume_is_a_noop_and_reports_success():
-	# Testmodus (siehe scene_root): Gravuren sind unerschöpflich - consume verbraucht
-	# nichts, meldet aber Erfolg, auch wenn gar kein Exemplar im Inventar liegt.
-	run.unlimited_engravings = true
-	watch_signals(run)
-	assert_true(run.consume_engraving(Engraving.CHISEL), "meldet Erfolg trotz leerem Inventar")
-	assert_eq(run.owned_engravings.size(), 0, "nichts verbraucht")
-	assert_signal_emit_count(run, "engravings_changed", 0, "kein Bestandswechsel")
-
-func test_unlimited_engravings_toggle_reports_a_stock_change():
-	# Bord und Schubladen bauen an engravings_changed neu - ohne das Signal
-	# bliebe das Gravur-Bord beim Umschalten stehen (kein Rundenneustart).
-	watch_signals(run)
-	run.unlimited_engravings = true
-	assert_signal_emit_count(run, "engravings_changed", 1)
-	run.unlimited_engravings = true
-	assert_signal_emit_count(run, "engravings_changed", 1, "gleicher Wert meldet nichts")
-	run.unlimited_engravings = false
-	assert_signal_emit_count(run, "engravings_changed", 2)
-
-func test_unlimited_engravings_keeps_owned_stock_intact():
-	run.unlimited_engravings = true
-	run.grant_engraving(Engraving.chisel())
-	run.consume_engraving(Engraving.CHISEL)
-	assert_eq(run.owned_engravings.size(), 1, "vorhandene Gravuren bleiben liegen")
-
-# --- Einzel-Gravur-Kauf ----------------------------------------------------------
-
-func test_purchase_engraving_deducts_and_stores():
-	run.money = 20
-	run.purchase_engraving(Engraving.chisel(), 5)
-	assert_eq(run.money, 15, "Preis abgezogen")
-	assert_eq(run.owned_engravings.size(), 1, "Gravur im Inventar")
-
-func test_granting_other_engravings_still_stores_them():
-	run.grant_engraving(Engraving.chisel())
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_false(run.combo_levels.has(Engraving.CHISEL))
+func test_granting_an_engraving_pack_ignores_nothing():
+	run.grant_engraving_pack(null)
+	assert_eq(run.owned_packs.size(), 0)
 
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
@@ -351,38 +295,20 @@ func test_purchase_pack_deducts_and_stores_sealed():
 	run.purchase_pack(Pack.number_pack(), Pack.NUMBER_PRICE)
 	assert_eq(run.money, 20 - Pack.NUMBER_PRICE, "Preis abgezogen")
 	assert_eq(run.owned_packs.size(), 1, "Paket liegt im Lager")
-	assert_eq(run.owned_engravings.size(), 0, "Kauf würfelt noch keinen Inhalt aus")
+	assert_eq(run.owned_packs[0].count, Pack.ENGRAVING_PACK_COUNT, "ein Paket, ein Phantomwürfel")
 	assert_signal_emitted(run, "packs_changed")
 
-func test_open_engraving_pack_rolls_contents_and_clears_the_slot():
+func test_open_pack_refuses_an_engraving_pack():
+	# Gravur-Pakete laufen über die Presse (open_press) - open_pack lässt sie liegen.
 	run.purchase_pack(Pack.number_pack(), 0)
-	var result := run.open_pack(0)
-	var engravings: Array = result["engravings"]
-	assert_eq(engravings.size(), Pack.NUMBER_COUNT)
-	assert_eq(run.owned_engravings.size(), 0, "Öffnen bucht noch nicht - das tut die Zeremonie")
-	assert_eq(run.owned_packs.size(), 0, "Paket ist verbraucht")
-
-func test_stash_engravings_books_the_rolled_contents():
-	run.purchase_pack(Pack.number_pack(), 0)
-	var engravings: Array[Engraving] = []
-	engravings.assign(run.open_pack(0)["engravings"])
-	watch_signals(run)
-	run.stash_engravings(engravings)
-	assert_eq(run.owned_engravings.size(), Pack.NUMBER_COUNT, "Inhalt in den Vorräten")
-	assert_signal_emitted(run, "engravings_changed")
-
-func test_stash_engravings_ignores_empty_content():
-	watch_signals(run)
-	run.stash_engravings([] as Array[Engraving])
-	assert_eq(run.owned_engravings.size(), 0)
-	assert_signal_not_emitted(run, "engravings_changed")
+	assert_eq(run.open_pack(0)["engravings"].size(), 0)
+	assert_eq(run.owned_packs.size(), 1, "und verbraucht sie nicht")
 
 func test_open_dice_pack_hands_the_dice_to_the_ceremony():
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[2]), 0)
 	var result := run.open_pack(0)
 	var dice: Array = result["dice"]
 	assert_eq(dice.size(), int(DiceOffer.TEMPLATES[2]["count"]))
-	assert_eq(run.owned_engravings.size(), 0, "Würfel landen nicht in den Vorräten")
 	assert_eq(_count_style("normal"), GameRun.POOL_SIZE, "Pool erst nach dem Einsetzen")
 
 func test_open_pack_ignores_invalid_index():
@@ -456,18 +382,16 @@ func test_booking_a_prize_multiple_times_gives_separate_packs():
 	assert_eq(run.owned_packs.size(), 4, "Multiplikator vervielfacht die Pakete")
 	assert_false(run.owned_packs[0] == run.owned_packs[2], "keine geteilte Resource")
 
-func test_a_slot_pack_keeps_its_own_rarity_floor():
-	# Die Automaten-Stufe prägt die Untergrenze ins Paket; das Öffnen achtet sie.
+func test_a_slot_pack_is_a_plain_sealed_pack():
+	# Der Raritäts-Boden ist gestorben: alle sechs Seiten sind gleich wahrscheinlich,
+	# die Stärke kommt aus der Hand.
 	var prize := SlotPrize.from_spec({"kind": "pack", "symbol": SlotPrize.Kind.DICE_ENGRAVING,
-		"count": 1, "floor": Engraving.Rarity.RARE})
+		"count": 1})
 	assert_eq(prize.packs.size(), 1)
 	assert_eq(prize.packs[0].type, Pack.TYPE_DICE_MOD)
-	assert_eq(prize.packs[0].rarity_floor, Engraving.Rarity.RARE)
+	assert_eq(prize.packs[0].count, Pack.ENGRAVING_PACK_COUNT)
 	run.book_slot_prize(prize)
-	var content: Array = run.open_pack(run.owned_packs.size() - 1)["engravings"]
-	assert_eq(content.size(), Pack.DICE_MOD_COUNT, "das Paket gibt seinen Inhalt her")
-	for engraving in content:
-		assert_gte(int(engraving.rarity), int(Engraving.Rarity.RARE), "mindestens selten")
+	assert_eq(run.owned_packs.size(), 1, "versiegelt ins Lager")
 
 func test_booking_a_won_die_takes_a_pool_slot():
 	var prize := SlotPrize.new()
@@ -485,13 +409,6 @@ func test_booking_a_won_charm_puts_it_on_the_shelf():
 	run.book_slot_prize(prize)
 	assert_eq(run.owned_charms.size(), 1)
 	assert_signal_emitted(run, "charms_changed")
-
-func test_pack_content_floor_rises_with_the_hub():
-	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.COMMON, "Stufe 1: alles")
-	run.hub_level = GameRun.HUB_RARITY_UNCOMMON_LEVEL
-	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.UNCOMMON)
-	run.hub_level = GameRun.HUB_RARITY_RARE_LEVEL
-	assert_eq(run.pack_engraving_floor(), Engraving.Rarity.RARE)
 
 # --- Rundenfortschritt -----------------------------------------------------------
 
@@ -616,6 +533,9 @@ func test_randomize_all_essences_deals_instead_of_drawing():
 	assert_eq(seen.size(), run.owned_pool.size(), "keine Seele doppelt")
 
 func test_randomize_all_essences_covers_every_rarity():
+	# Gesät: ausgeteilt werden 30 von 33 Seelen - fielen die drei Übrigen zufällig
+	# alle auf eine Stufe, wäre der Test flatterhaft statt aussagekräftig.
+	seed(20260808)
 	run.randomize_all_essences()
 	var rarities := {}
 	for die in run.owned_pool:
@@ -655,32 +575,32 @@ func test_place_side_bet_deducts_stake_and_stores():
 	assert_eq(run.active_side_bets.size(), 1)
 	assert_signal_emitted(run, "side_bets_changed")
 
-func test_place_engraving_stake_consumes_engravings():
-	run.grant_engraving(Engraving.chisel())
-	run.grant_engraving(Engraving.file_down())
-	var before := run.owned_engravings.size()
-	var bet := SideBet._from_template(_template("pawn"))  # 1 Gravur Einsatz
-	assert_true(run.can_place_side_bet(bet), "mit Gravuren bezahlbar")
+func test_place_pack_stake_consumes_packs():
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	var before := run.owned_packs.size()
+	var bet := SideBet._from_template(_template("pawn"))  # 1 Paket Einsatz
+	assert_true(run.can_place_side_bet(bet), "mit Paketen bezahlbar")
 	run.place_side_bet(bet)
-	assert_eq(run.owned_engravings.size(), before - 1, "eine Gravur geopfert")
+	assert_eq(run.owned_packs.size(), before - 1, "ein Paket geopfert")
 
-func test_cannot_place_engraving_stake_without_engravings():
-	var bet := SideBet._from_template(_template("collateral"))  # 2 Gravuren Einsatz
-	assert_false(run.can_place_side_bet(bet), "ohne genug Gravuren nicht setzbar")
+func test_cannot_place_pack_stake_without_packs():
+	var bet := SideBet._from_template(_template("collateral"))  # 2 Pakete Einsatz
+	assert_false(run.can_place_side_bet(bet), "ohne genug Pakete nicht setzbar")
 
-func test_resolve_engraving_payout_grants_engravings_and_clears():
+func test_resolve_pack_payout_grants_packs_and_clears():
 	run.money = 50
 	var win := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
 	var lose := SideBet._from_template(_template("big_hand"))
 	run.place_side_bet(win)
 	run.place_side_bet(lose)
-	var before := run.owned_engravings.size()
+	var before := run.owned_packs.size()
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	var won := run.resolve_side_bets(result)
 	assert_eq(won.size(), 1, "nur das volle Haus gewinnt")
 	assert_eq(won[0].id, "full_house")
-	assert_eq(run.owned_engravings.size(), before + win.reward_engravings, "Gravuren ausgeschüttet")
+	assert_eq(run.owned_packs.size(), before + win.reward_packs, "Pakete ausgeschüttet")
 	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
 
 func test_resolve_money_payout_adds_cash():
@@ -798,18 +718,24 @@ func test_midas_glove_resets_the_level_of_the_face_it_gilds():
 		assert_eq(defs[i].materials[faces[i]], DieMaterial.GOLD)
 		assert_eq(defs[i].material_level(faces[i]), 1, "die Rubin-Stufe ist mit dem Rubin weg")
 
-func test_jewelry_box_resets_the_level_of_the_face_it_hits():
+func test_the_jewelry_box_never_touches_a_die():
+	# Sie füllt den Vorrat, nicht den Würfel - Seiten und Zustände bleiben, wie
+	# sie waren, egal wie oft sie zuschlägt.
 	run.owned_charms.append(Charm.jewelry_box())
 	var many: Array[DieDefinition] = []
 	for i in 200:
 		var die := DieDefinition.standard()
-		die.levels.fill(DieMaterial.MAX_LEVEL)
+		die.set_face_material(0, DieMaterial.RUBY)
+		die.levels[0] = DieMaterial.MAX_LEVEL
 		many.append(die)
-	run.apply_jewelry_box(many)
+	var grants := run.apply_jewelry_box(many)
+	assert_gt(grants.size(), 0, "bei 200 Würfeln findet sie praktisch sicher")
+	assert_eq(run.owned_packs.size(), grants.size(), "je Fund ein versiegeltes Mini-Paket")
 	for die in many:
-		for face in 6:
-			if die.materials[face] != "":
-				assert_eq(die.material_level(face), 1, "belegte Seite fängt wieder bei I an")
+		assert_eq(die.materials[0], DieMaterial.RUBY)
+		assert_eq(die.material_level(0), DieMaterial.MAX_LEVEL, "die Dotierung bleibt stehen")
+		for face in range(1, 6):
+			assert_eq(die.materials[face], "", "keine neue Seite wurde belegt")
 
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 
@@ -823,19 +749,19 @@ func test_stress_round_is_every_last_block_station():
 func test_hottest_combo_takes_the_highest_level():
 	run.combo_levels[DiceScoring.TWO_KIND] = 3
 	run.combo_levels[DiceScoring.FOUR_KIND] = 5
-	assert_eq(run.hottest_combo(), DiceScoring.FOUR_KIND)
+	assert_eq(run.hottest_combos(1)[0], DiceScoring.FOUR_KIND)
 
 func test_hottest_combo_breaks_ties_by_rank():
 	run.combo_levels[DiceScoring.TWO_KIND] = 3
 	run.combo_levels[DiceScoring.FOUR_KIND] = 3
-	assert_eq(run.hottest_combo(), DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere Chip")
+	assert_eq(run.hottest_combos(1)[0], DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere Chip")
 
 func test_hottest_combo_never_throttles_the_fallback_category():
 	# "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand: gedrosselt könnte eine
 	# Hand ohne jede wertbare Kategorie enden.
 	run.combo_levels[DiceScoring.ONE_KIND] = 9
 	run.combo_levels[DiceScoring.TWO_KIND] = 2
-	assert_eq(run.hottest_combo(), DiceScoring.TWO_KIND)
+	assert_eq(run.hottest_combos(1)[0], DiceScoring.TWO_KIND)
 
 func test_hottest_combos_rank_by_level_then_priority():
 	run.combo_levels[DiceScoring.TWO_KIND] = 5
@@ -1262,9 +1188,9 @@ func test_leftover_clauses_silence_the_die_row():
 func test_maintenance_engraving_is_a_per_hand_grant():
 	_sign([DealClause.MAINTENANCE_ENGRAVING])
 	assert_true(run.grants_engraving_per_hand())
-	var before := run.owned_engravings.size()
+	var before := run.owned_packs.size()
 	run.apply_round_start_charms()
-	assert_eq(run.owned_engravings.size(), before, "der Rundenbeginn schenkt nichts mehr")
+	assert_eq(run.owned_packs.size(), before, "der Rundenbeginn schenkt nichts mehr")
 
 func test_high_voltage_and_stage_cap_resolve_in_order():
 	assert_eq(run.max_overcharge_stages(), 3, "Hinterzimmer ohne Vertrag")
@@ -1359,16 +1285,16 @@ func test_odds_bonus_and_betting_tax_are_separate_clauses():
 	run.place_side_bet(bet)
 	assert_eq(run.money, 0, "der doppelte Einsatz wird abgebucht")
 
-func test_tournament_night_doubles_engraving_rewards():
+func test_tournament_night_doubles_pack_rewards():
 	_sign([DealClause.TOURNAMENT_NIGHT])
-	var bet := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
+	var bet := SideBet._from_template(_template("full_house"))  # Paket-Gewinn
 	run.money = 50
 	run.place_side_bet(bet)
-	var before := run.owned_engravings.size()
+	var before := run.owned_packs.size()
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	run.resolve_side_bets(result)
-	assert_eq(run.owned_engravings.size(), before + bet.reward_engravings * 2)
+	assert_eq(run.owned_packs.size(), before + bet.reward_packs * 2)
 
 func test_power_spike_spotlights_without_the_charm():
 	_sign([DealClause.POWER_SPIKE])
@@ -1413,8 +1339,8 @@ func test_carbon_copy_copies_every_shown_material_of_the_first_hand():
 	var faces: Array[int] = [0]
 	var participating: Array[int] = [0]
 	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 1)
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_eq(run.owned_engravings[0].material_id(), DieMaterial.GOLD)
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.owned_packs[0].fixed_engraving.material_id(), DieMaterial.GOLD)
 
 func test_carbon_copy_only_pays_the_first_hand_and_only_signed():
 	var die := DieDefinition.standard()
@@ -1425,7 +1351,7 @@ func test_carbon_copy_only_pays_the_first_hand_and_only_signed():
 	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 0, "ohne Unterschrift nichts")
 	_sign([DealClause.CARBON_COPY])
 	assert_eq(run.apply_carbon_copy(defs, faces, participating, false), 0, "nur die erste Hand")
-	assert_eq(run.owned_engravings.size(), 0)
+	assert_eq(run.owned_packs.size(), 0)
 
 func test_carbon_copy_skips_a_bare_face():
 	_sign([DealClause.CARBON_COPY])
@@ -1595,8 +1521,8 @@ func test_special_payout_grants_the_sonderposten():
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
-	assert_eq(run.owned_engravings.size(), 1)
-	assert_eq(run.owned_engravings[0].id, Engraving.POINTER)
+	assert_eq(run.owned_packs.size(), 1, "auch der Sonderposten kommt versiegelt")
+	assert_eq(run.owned_packs[0].fixed_engraving.id, Engraving.POINTER)
 
 func test_tournament_night_spares_unique_goods():
 	_sign([DealClause.TOURNAMENT_NIGHT])
@@ -1604,7 +1530,7 @@ func test_tournament_night_spares_unique_goods():
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
-	assert_eq(run.owned_engravings.size(), 1, "ein Sonderposten bleibt einer")
+	assert_eq(run.owned_packs.size(), 1, "ein Sonderposten bleibt einer")
 
 # --- Helfer -----------------------------------------------------------------------
 

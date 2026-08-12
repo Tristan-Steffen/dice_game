@@ -26,38 +26,31 @@ func before_each() -> void:
 	world.add_child(screen)
 	screen.attach_to(mesh)
 
-# --- Umriss der Anzeigefläche ------------------------------------------------
-# Die echte Anzeige ist abgerundet: Fenster in den Rundungen würden von der
-# Glaskante schräg angeschnitten. glass_*_limit meldet, wie weit das Glas in
-# einer Zeile/Spalte trägt - die Werkbank-Ecke wird damit zugeschnitten.
+# --- Die Anzeigefläche ist ihr Rechteck ----------------------------------------
+# Das Tisch-GLB brachte eine ovale Platte mit; ihre Rundungen schnitten alles an,
+# was in einer Ecke lag, obwohl die UI dort längst gezeichnet war. attach_to legt
+# darum den eigenen Hüllquader der Platte als Fläche auf - die Abbildung hängt
+# ohnehin am Quader, es kommen nur die Ecken dazu.
 
-func test_glass_limits_report_the_mesh_edge() -> void:
-	# Der Testtisch ist ein Quader: das Glas trägt überall bis an die Kante.
-	var middle := float(screen.size.y) * 0.5
-	assert_almost_eq(screen.glass_right_limit(middle), float(screen.size.x), 1.0,
-		"rechteckige Anzeige -> volle Breite")
-	assert_almost_eq(screen.glass_bottom_limit(float(screen.size.x) * 0.5),
-		float(screen.size.y), 1.0, "und volle Höhe")
+func test_attach_lays_a_rectangular_surface_over_the_mesh() -> void:
+	var plane := mesh.mesh as PlaneMesh
+	assert_not_null(plane, "die Anzeige ist eine ebene Fläche, kein Möbelstück")
+	assert_almost_eq(plane.size.x, 31.2, 0.01, "so breit wie der Hüllquader")
+	assert_almost_eq(plane.size.y, 21.2, 0.01, "und so tief")
 
-func test_glass_limits_shrink_towards_a_rounded_corner() -> void:
-	# Dieselbe Fläche als Ellipse: zum Rand hin trägt das Glas immer weniger -
-	# genau der Verlauf, an dem die Werkbank ihre Breite und Höhe abliest.
+func test_a_round_platter_becomes_its_own_bounding_rect() -> void:
+	# Die Probe aufs Exempel: eine runde Platte trägt danach bis in die Ecken.
 	var round_mesh := MeshInstance3D.new()
 	round_mesh.mesh = SphereMesh.new()  # in der Draufsicht ein Kreis
 	add_child_autofree(round_mesh)
 	var round_screen := TableScreen.new()
 	add_child_autofree(round_screen)
+	var before := round_mesh.get_aabb()
 	round_screen.attach_to(round_mesh)
-	var mid := float(round_screen.size.y) * 0.5
-	var low := float(round_screen.size.y) * 0.9
-	assert_lt(round_screen.glass_right_limit(low), round_screen.glass_right_limit(mid),
-		"unten trägt das Glas weniger weit nach rechts als in der Mitte")
-
-func test_glass_limits_fall_back_to_the_full_rect_without_an_outline() -> void:
-	var bare := TableScreen.new()
-	add_child_autofree(bare)
-	assert_eq(bare.glass_right_limit(10.0), float(bare.size.x), "ohne Umriss nichts zu beschneiden")
-	assert_eq(bare.glass_bottom_limit(10.0), float(bare.size.y))
+	var plane := round_mesh.mesh as PlaneMesh
+	assert_not_null(plane, "auch die Kugel wird zur Fläche")
+	assert_almost_eq(plane.size.x, before.size.x, 0.01)
+	assert_almost_eq(plane.size.y, before.size.z, 0.01)
 
 func test_attach_sets_viewport_material():
 	# Display-Glas als ShaderMaterial (siehe screen_glass.gdshader): die
@@ -393,26 +386,6 @@ func test_cluster_rect_covers_all_cells():
 func _place_workbench_corner() -> void:
 	screen.place_hub(Vector2(2400, 2200), Vector2(1400, 1200))
 	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(900, 500)))
-	var rects: Array[Rect2] = []
-	for i in Engraving.CATEGORIES.size() + 1:
-		rects.append(Rect2(Vector2(3300 + i * 300, 2600), Vector2(280, 200)))
-	screen.place_supply_drawers(rects, 8.0)
-
-func test_the_special_stock_is_the_fourth_drawer_of_the_row():
-	# Der Sonderbestand steht in der Reihe wie jede andere Schublade - seine Ader
-	# läuft senkrecht aus der Werkbank-Unterkante in seine Oberkante.
-	_place_workbench_corner()
-	var index := screen._drawer_index(SupplyDrawerView.CATEGORY_SPECIAL)
-	assert_eq(index, Engraving.CATEGORIES.size(), "er ist die letzte Schublade der Reihe")
-	var stock: SupplyDrawerView = screen.supply_drawers[index]
-	assert_true(stock.visible, "der Sonderbestand ist aufgespannt")
-	assert_eq(stock.position, Vector2(3300 + index * 300, 2600))
-	assert_eq(stock.slots.size(), Engraving.SPECIAL_IDS.size(), "je Sonderposten ein Platz")
-	var strip: LedStripView = screen.supply_strips[index]
-	assert_eq(strip.strip_path[0].y, 2500.0, "sie tritt aus der Werkbank-UNTERKANTE aus")
-	assert_eq(strip.strip_path[strip.strip_path.size() - 1],
-		Vector2(stock.position.x + stock.size.x * 0.5, stock.position.y),
-		"und endet mittig in der Schubladen-Oberkante")
 
 func test_pack_delivery_runs_along_the_hub_workshop_strip():
 	_place_workbench_corner()
@@ -447,28 +420,27 @@ func test_route_without_a_strip_falls_back_to_a_straight_line():
 func test_meteor_gets_a_real_travel_time():
 	_place_workbench_corner()
 	# Ohne sichtbare Werkstatt gäbe es keine Laufzeit - hier ist sie gesetzt.
-	var travel := screen.meteor_comet(Vector2(3400, 2000), Engraving.CATEGORY_MATERIAL,
-		Vector2(3900, 2700), Color.WHITE, 0)
+	var travel := screen.meteor_comet(Vector2(3400, 2000), Vector2(3900, 2400), Color.WHITE, 0)
 	assert_gt(travel, 0.0, "der Meteor bekommt eine echte Flugzeit")
 
 func test_meteor_flies_from_the_seal_into_its_slot():
 	_place_workbench_corner()
 	var from := Vector2(3400, 2000)
-	var slot := Vector2(3900, 2700)
-	var route := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 0)
+	var slot := Vector2(3900, 2400)
+	var route := screen.meteor_route(from, slot, 0)
 	assert_eq(route[0], from, "der Meteor startet am Siegel")
-	assert_eq(route[route.size() - 1], slot, "und endet genau im Platz")
+	assert_eq(route[route.size() - 1], slot, "und endet genau im Chip")
 
-func test_meteor_is_caught_by_the_strip_of_its_category():
+func test_meteor_swings_out_instead_of_flying_straight():
+	# Start und Ziel liegen BEIDE im Werkstatt-Fenster - da ist keine Ader zu
+	# fahren, nur der Bogen aus dem zerbrochenen Siegel.
 	_place_workbench_corner()
-	var strip: LedStripView = screen._supply_strip(Engraving.CATEGORY_MATERIAL)
-	var route := screen.meteor_route(Vector2(3400, 2000), Engraving.CATEGORY_MATERIAL,
-		Vector2(3900, 2700), 0)
-	var caught := false
-	for p in route:
-		if p.is_equal_approx(strip.strip_path[0]):
-			caught = true
-	assert_true(caught, "die Ader der Kategorie fängt ihn an der Werkbank-Unterkante auf")
+	var from := Vector2(3400, 2100)
+	var slot := Vector2(3900, 2400)
+	var route := screen.meteor_route(from, slot, 0)
+	assert_gt(route.size(), 2, "der Wurf ist eine Kurve, keine Luftlinie")
+	var straight := from.lerp(slot, 0.5)
+	assert_gt(route[route.size() / 2].distance_to(straight), 1.0, "und weicht sichtbar aus")
 
 # --- Automaten-Ader (Einsatz hin, Gewinn zurück) --------------------------------
 
@@ -546,63 +518,7 @@ func test_a_won_die_flies_a_free_arc_to_the_tray():
 	assert_true(first[first.size() - 1].is_equal_approx(to), "und landet auf dem Platz")
 	assert_gt(first[6].distance_to(second[6]), 1.0, "zwei Würfel fliegen nicht dieselbe Bahn")
 
-# --- Gewonnene Gravur: den ganzen Weg über die Adern ----------------------------
-
-func _place_slots_hub_and_bench() -> void:
-	_place_workbench_corner()   # Hub + Werkstatt + Schubladen
-	screen.place_slot_bank_window(Rect2(Vector2(300, 2000), Vector2(1000, 1100)))
-	screen.set_slot_bank_installed(true)
-
-func test_a_won_engraving_rides_every_vein_to_its_drawer():
-	# Der Automat liegt LINKS, die Schublade RECHTS vom Hub: das Licht darf nicht
-	# quer über den Tisch fliegen, sondern fährt Automaten-, Werkstatt- und
-	# Schubladen-Ader hintereinander ab.
-	_place_slots_hub_and_bench()
-	var from := Vector2(800, 2400)
-	var slot := Vector2(3900, 2700)
-	var route := screen.slot_engraving_route(from, Engraving.CATEGORY_MATERIAL, slot)
-	assert_eq(route[0], from, "sie startet am Token im Automaten")
-	assert_eq(route[route.size() - 1], slot, "und endet genau im Platz")
-	for strip in [screen.slot_hub_strip, screen.workshop_hub_strip,
-			screen._supply_strip(Engraving.CATEGORY_MATERIAL)]:
-		for point in strip.strip_path:
-			assert_true(route.has(point), "die Ader %s liegt in der Route" % strip.name)
-
-func test_the_long_way_stays_axis_parallel():
-	# Kein Diagonalflug über den Hub - Leiterbahn-Look über die ganze Strecke.
-	_place_slots_hub_and_bench()
-	var route := screen.slot_engraving_route(Vector2(800, 2400),
-		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
-	for i in route.size() - 1:
-		var leg: Vector2 = route[i + 1] - route[i]
-		assert_true(is_zero_approx(leg.x) or is_zero_approx(leg.y),
-			"Abschnitt %d läuft achsenparallel" % i)
-
-func test_passing_light_hugs_the_frame_instead_of_crossing_the_screen():
-	# Fremde Bildschirme werden am RAHMEN passiert, nie mittendurch: kein
-	# Streckenabschnitt darf im Inneren von Hub oder Werkstatt liegen.
-	_place_slots_hub_and_bench()
-	var route := screen.slot_engraving_route(Vector2(800, 2400),
-		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
-	var hub_inner := Rect2(screen.hub.position, screen.hub.size).grow(-2.0)
-	var bench_inner := Rect2(screen.workshop_window.position,
-		screen.workshop_window.size).grow(-2.0)
-	for i in route.size() - 1:
-		var mid: Vector2 = (route[i] + route[i + 1]) * 0.5
-		assert_false(hub_inner.has_point(mid), "Abschnitt %d quert das Hub-Innere" % i)
-		assert_false(bench_inner.has_point(mid), "Abschnitt %d quert die Werkstatt" % i)
-
-func test_the_frame_walk_takes_the_shorter_side():
-	# Ein- und Ausstieg liegen in der unteren Hub-Hälfte: der Umweg führt über die
-	# UNTEREN Ecken, nicht einmal oben herum.
-	_place_slots_hub_and_bench()
-	var route := screen.slot_engraving_route(Vector2(800, 2400),
-		Engraving.CATEGORY_MATERIAL, Vector2(3900, 2700))
-	var hub_rect := Rect2(screen.hub.position, screen.hub.size)
-	assert_true(route.has(Vector2(hub_rect.position.x, hub_rect.end.y)),
-		"über die linke untere Ecke")
-	assert_true(route.has(hub_rect.end), "und die rechte untere Ecke")
-	assert_false(route.has(hub_rect.position), "aber nicht oben herum")
+# --- Automaten ohne Freischaltung ----------------------------------------------
 
 func test_without_machines_no_strip_is_lit():
 	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
@@ -612,9 +528,9 @@ func test_without_machines_no_strip_is_lit():
 func test_two_meteors_fling_in_different_directions():
 	_place_workbench_corner()
 	var from := Vector2(3400, 2000)
-	var slot := Vector2(3900, 2700)
-	var first := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 0)
-	var second := screen.meteor_route(from, Engraving.CATEGORY_MATERIAL, slot, 1)
+	var slot := Vector2(3900, 2400)
+	var first := screen.meteor_route(from, slot, 0)
+	var second := screen.meteor_route(from, slot, 1)
 	# Gleicher Start, gleiches Ziel - aber der Ausbruch muss sichtbar auseinander
 	# laufen, sonst wirken mehrere Stücke wie ein einziger Strahl.
 	assert_gt(first[6].distance_to(second[6]), 1.0, "die Bahnen brechen verschieden aus")

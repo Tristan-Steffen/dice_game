@@ -89,31 +89,6 @@ static func style_body_label(label: Label, size: int = 15, color: Color = CREAM)
 	label.add_theme_color_override("font_outline_color", INK)
 	label.add_theme_constant_override("outline_size", 2)
 
-## Tooltip aus einem "Name\nWirkung"-String: Name in Gold, Wirkung in Creme.
-## Größen/Breite sind Parameter (2D-UI vs. hochaufgelöstes Display).
-## Leerer String -> null (kein Tooltip).
-static func build_material_tooltip(for_text: String, title_size: int = 20, body_size: int = 15, body_width: float = 280.0) -> Control:
-	if for_text == "":
-		return null
-	var panel := PanelContainer.new()
-	style_panel(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	panel.add_child(box)
-	var parts := for_text.split("\n", false, 1)  # [Name, Wirkung]
-	var title := Label.new()
-	title.text = parts[0]
-	style_score_label(title, title_size, GOLD)
-	box.add_child(title)
-	if parts.size() > 1:
-		var body := Label.new()
-		body.text = parts[1]
-		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size = Vector2(body_width, 0)
-		style_body_label(body, body_size, CREAM)
-		box.add_child(body)
-	return panel
-
 ## Dunkles Casino-Panel mit dickem Goldrahmen und Schatten.
 static func style_panel(panel: Control) -> void:
 	var box := StyleBoxFlat.new()

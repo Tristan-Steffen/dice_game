@@ -20,9 +20,10 @@ const GOLD_PAYOUT_DOPED := 7
 const RUBY_MULT := 4
 const RUBY_CRIT := 2              # dotiert kritet, statt zu addieren
 
-## Bernstein-Grundwert; Bernsteinzimmer legt seinen Aufschlag auf beide Zustände.
+## Bernstein-Grundwert; das Bernsteinzimmer legt +30 je Bernstein-Auslösung
+## drauf, dotiert wie undotiert.
 const AMBER_BASE := 20
-const AMBER_ROOM_SURPLUS := 80
+const AMBER_ROOM_SURPLUS := 30
 const AMBER_EYE_FACTOR := 5       # dotiert: nur noch Augensumme, dafür ×5
 
 ## Knochen wächst normal flach und dotiert prozentual (mind. +10); Glas schrumpft
@@ -41,6 +42,13 @@ const GLASS_CRIT_DIVISOR := 2.0
 ## Glasbläserpfeife: Glas schrumpft weiter, aber nie unter diesen Wert.
 const GLASSBLOWER_LUNG_FLOOR := 6
 
+## Kupfer speist je Zündung Energie; dotiert das Doppelte. Was über den Speicher
+## hinausläuft, zahlt bar (GameRun.book_copper_charge) - dieselbe Überlauf-
+## Grammatik wie die Stufen-Auszahlung.
+const COPPER_CHARGE := 1
+const COPPER_CHARGE_DOPED := 2
+const COPPER_OVERFLOW_MONEY := 2
+
 ## Bericht der Nehmen-Effekte für die UI.
 class TakeReport:
 	extends RefCounted
@@ -51,6 +59,11 @@ class TakeReport:
 	## der Zug meldet es nur noch als Summe (siehe plan_activation_money).
 	var activation_money: int = 0
 	var charge: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
+	## Energie aus Kupfer-Seiten - JE ZÜNDUNG, darum getrennt von charge: nur sie
+	## läuft bei vollem Speicher in Geld über (GameRun.book_copper_charge).
+	var copper_charge: int = 0
+	## Slots, deren Kupfer gezündet hat - je Eintrag eine Zündung.
+	var copper: Array[int] = []
 	var grown: Array[int] = []  # Slots, deren Seite gewachsen ist (Knochen/Helium)
 	var shrunk: Array[int] = []  # Slots, deren Seite geschrumpft ist (Glas)
 	## Slots, die Streulicht kassiert haben - die Zeremonie lässt genau die
@@ -115,7 +128,7 @@ static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0
 ## Härteofen: die AUSZAHLUNG einer dotierten Seite läuft zweimal - Basis, Mult,
 ## Geld und Wachstum. Die KOSTEN bleiben einfach (das Glas frisst sich weiter im
 ## alten Tempo): ein Charm darf einen Würfel nie schlechter machen. Der Krit wird
-## darum auch nicht quadriert, sondern zweimal geschlagen (Beherit-Grammatik).
+## darum auch nicht quadriert, sondern zweimal geschlagen - je Kopie ein Schlag.
 static func payoff_repeats(level: int, charm_ids: Array[String]) -> int:
 	return 2 if level >= DieMaterial.MAX_LEVEL and charm_ids.has(Charm.KILN) else 1
 
@@ -413,8 +426,12 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# genau diesen Trigger gewürfelten Leiterbahn-Glieder.
 		var before: int = defs[i].faces[face]
 		var swelled := false
+		var copper_once := copper_charge_once_for(face_material, level, charm_ids)
 		for t in die_triggers:
 			for _f in face_triggers:
+				if copper_once > 0:
+					report.copper_charge += copper_once
+					report.copper.append(i)
 				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rune_ids)
 				# Strahlungsdruck bläht die GANZE Schale: die obere Seite ist über
 				# mutate_value_once schon gewachsen, die übrigen fünf folgen je
@@ -543,6 +560,14 @@ static func gold_money_once_for(face_material: String, level: int, surplus: int,
 	if face_material != DieMaterial.GOLD:
 		return 0
 	return _gold_payout(level, surplus, triggers) * payoff_repeats(level, charm_ids)
+
+## Energie EINER Zündung einer Seite: nur Kupfer speist, der Härteofen zweimal.
+## EINE Quelle für obere Seite und Glied.
+static func copper_charge_once_for(face_material: String, level: int, charm_ids: Array[String]) -> int:
+	if face_material != DieMaterial.COPPER:
+		return 0
+	var amount := COPPER_CHARGE_DOPED if level >= DieMaterial.MAX_LEVEL else COPPER_CHARGE
+	return amount * payoff_repeats(level, charm_ids)
 
 ## Gold EINER Glied-Zündung - das Glied trägt seine eigene Seite, also auch deren
 ## Zustand (nie den der oberen).
@@ -698,6 +723,11 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 		return
 	var link_material: String = def.materials[link_face] if link_face < def.materials.size() else ""
 	var link_level := face_level(def, link_face)
+	# Ein Glied ist eine Zündung wie jede andere - auch sein Kupfer speist.
+	var copper_once := copper_charge_once_for(link_material, link_level, charm_ids)
+	if copper_once > 0:
+		report.copper_charge += copper_once
+		report.copper.append(slot)
 	var before: int = def.faces[link_face]
 	def.faces[link_face] = mutate_link_value_once(before, link_material, charm_ids, link_level, essence_ids)
 	if def.faces[link_face] > before and not report.grown.has(slot):

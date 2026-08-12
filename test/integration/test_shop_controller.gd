@@ -64,7 +64,7 @@ func test_buy_engraving_pack_deducts_and_grants_nothing_yet():
 	shop._on_pack_buy_pressed(0, false)
 	assert_eq(run.money, 100 - pack.price)
 	assert_eq(run.owned_packs.size(), 1)
-	assert_eq(run.owned_engravings.size(), 0, "Inhalt erst beim Öffnen")
+	assert_eq(run.owned_packs[0].count, Pack.ENGRAVING_PACK_COUNT, "ein Phantomwürfel je Paket")
 
 func test_pack_offer_is_single_use():
 	shop._on_pack_buy_pressed(0, true)
@@ -86,7 +86,7 @@ func test_con_artist_cuff_discounts_dice_pack_price():
 	shop.open()
 	var pack = shop.dice_packs[0]
 	shop._on_pack_buy_pressed(0, true)
-	assert_eq(run.money, 100 - CharmEffects.die_price(pack.price, run.charm_ids(), pack.count),
+	assert_eq(run.money, 100 - CharmEffects.die_price(pack.price, run.charm_ids()),
 		"33% Rabatt auf den Paketpreis")
 
 func test_pack_price_is_raw_price_without_discount():
@@ -98,11 +98,11 @@ func test_pack_price_is_raw_price_without_discount():
 func test_bargain_hunter_discounts_every_pack_kind():
 	run.owned_charms.append(Charm.bargain_hunter())
 	for pack in shop.dice_packs + shop.engraving_packs:
-		var plain: int = CharmEffects.die_price(pack.price, [] as Array[String], pack.count) if pack.is_dice_pack() else pack.price
+		var plain: int = CharmEffects.die_price(pack.price, [] as Array[String]) if pack.is_dice_pack() else pack.price
 		assert_eq(shop._pack_price(pack), maxi(1, plain - 3), "%s: $3 guenstiger" % pack.type)
 
 func test_pack_buttons_disabled_by_price():
-	run.money = 5  # unter jedem Paketpreis
+	run.money = 0  # unter jedem Paketpreis (das 1er-Paket kostet $5)
 	shop.open()
 	for button in shop.dice_pack_buttons:
 		assert_true(button.disabled, "Würfel-Paket bei zu wenig Geld nicht kaufbar")
@@ -217,8 +217,7 @@ func test_spread_offers_packs():
 	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots(), "Gravur-Pakete im Regal")
 	for pack in shop.engraving_packs:
 		assert_false(pack.is_dice_pack())
-		assert_true(Engraving.CATEGORIES.has(pack.engraving_category())
-			or pack.type == Pack.TYPE_MIXED, "echte Gravur-Kategorie oder gemischt")
+		assert_true(Engraving.CATEGORIES.has(pack.engraving_category()), "echte Gravur-Kategorie")
 
 ## Übertaktet wird am Chip, nicht im Laden - die Schale führt keine Chips mehr.
 func test_the_shop_no_longer_sells_overclocks():
@@ -271,11 +270,12 @@ func test_cash_discount_lowers_charm_price():
 	shop._on_charm_clicked(0)
 	assert_eq(run.money, 90, "Rabattmarke: $10 statt $15")
 
-func test_bulk_discount_only_hits_triple_packs():
+func test_bulk_discount_hits_every_dice_pack():
+	# Seit dem Umbau zählt die Bündelgröße nicht mehr: jedes Würfel-Paket ist $5
+	# günstiger, das einzelne wie das dreifache.
 	run.owned_charms.append(Charm.bulk_discount())
 	for pack in shop.dice_packs:
-		var expected: int = pack.price - 5 if pack.count >= 3 else pack.price
-		assert_eq(shop._pack_price(pack), maxi(1, expected))
+		assert_eq(shop._pack_price(pack), maxi(1, pack.price - 5))
 
 # --- Kaufbarkeit bei Geldänderung ----------------------------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
@@ -463,11 +463,10 @@ func test_done_hides_panel_and_emits_closed():
 
 # --- Chip-Schale: die Einzelstücke ------------------------------------------------
 
-func test_the_bowl_offers_open_dice_and_single_engravings() -> void:
+func test_the_bowl_offers_open_dice_only() -> void:
 	assert_gt(shop.single_dice.size(), 0, "mindestens ein offener Würfel liegt aus")
 	assert_lte(shop.single_dice.size(), ShopController.SINGLE_DICE_MAX)
 	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size(), "je Würfel ein Preis")
-	assert_gt(shop.single_engravings.size(), 0, "und einzelne Gravuren")
 
 func test_a_single_die_is_fully_rolled_before_the_purchase() -> void:
 	# Der ganze Sinn der offenen Auslage: der Würfel steht schon fest, es gibt
@@ -476,25 +475,6 @@ func test_a_single_die_is_fully_rolled_before_the_purchase() -> void:
 		var die: DieDefinition = shop.single_dice[i]
 		assert_eq(die.faces.size(), 6, "alle sechs Seiten stehen")
 		assert_gt(int(shop.single_dice_prices[i]), 0, "und der Preis auch")
-
-func test_single_engravings_come_from_both_shelves() -> void:
-	var categories := {}
-	for engraving in shop.single_engravings:
-		categories[engraving.category] = true
-		assert_true(Engraving.CATEGORIES.has(engraving.category))
-	assert_true(categories.has(Engraving.CATEGORY_MATERIAL), "Material-Gravuren sind gesetzt")
-
-func test_a_single_engraving_costs_more_per_piece_than_the_pack() -> void:
-	# Das Einzelstück ist bequem, das Paket bleibt das bessere Geschäft je Stück.
-	var per_piece := float(Pack.NUMBER_PRICE) / float(Pack.NUMBER_COUNT)
-	var single := ShopController.single_engraving_price(Engraving.notch())
-	assert_gt(float(single), per_piece, "Einzelkauf zahlt den Bequemlichkeitsaufschlag")
-
-func test_the_single_price_climbs_with_the_rarity() -> void:
-	assert_lt(ShopController.single_engraving_price(Engraving.notch()),
-		ShopController.single_engraving_price(Engraving.chisel()), "häufig < selten")
-	assert_lt(ShopController.single_engraving_price(Engraving.chisel()),
-		ShopController.single_engraving_price(Engraving.blueprint()), "selten < episch")
 
 func test_buying_an_open_die_stashes_it_with_the_dealer() -> void:
 	# Bezahlt, aber NICHT eingesetzt: der Automat wählte sonst blind einen
@@ -516,17 +496,6 @@ func test_buying_an_open_die_stashes_it_with_the_dealer() -> void:
 		pool_after.append(def.style_id)
 	assert_eq(pool_after, pool_before, "der Vorrat bleibt unangetastet")
 
-func test_buying_a_single_engraving_grants_it() -> void:
-	run.money = 500
-	var engraving: Engraving = shop.single_engravings[0]
-	var price := ShopController.single_engraving_price(engraving)
-	var before := run.money
-	var owned_before := run.owned_engravings.size()
-	shop._on_single_engraving_pressed(0)
-	assert_eq(run.money, before - price)
-	assert_eq(run.owned_engravings.size(), owned_before + 1, "sie liegt im Vorrat")
-	assert_true(shop.single_engravings_bought[0])
-
 func test_a_single_is_only_sold_once() -> void:
 	run.money = 500
 	shop._on_single_die_pressed(0)
@@ -536,30 +505,23 @@ func test_a_single_is_only_sold_once() -> void:
 
 func test_singles_are_not_sold_without_the_money() -> void:
 	run.money = 0
-	var owned_before := run.owned_engravings.size()
-	shop._on_single_engraving_pressed(0)
-	assert_eq(run.owned_engravings.size(), owned_before, "ohne Geld kein Kauf")
-	assert_false(shop.single_engravings_bought[0])
+	var before := run.pending_dice.size()
+	shop._on_single_die_pressed(0)
+	assert_eq(run.pending_dice.size(), before, "ohne Geld kein Kauf")
+	assert_false(shop.single_dice_bought[0])
 
 func test_the_locked_assortment_freezes_the_singles_too() -> void:
 	run.money = 500
 	var die_names: Array[String] = []
 	for def in shop.single_dice:
 		die_names.append(def.display_name)
-	var engraving_ids: Array[String] = []
-	for engraving in shop.single_engravings:
-		engraving_ids.append(engraving.id)
 	shop.sortiment_locked = true
 	shop.close()
 	shop.open()
 	var after_names: Array[String] = []
 	for def in shop.single_dice:
 		after_names.append(def.display_name)
-	var after_ids: Array[String] = []
-	for engraving in shop.single_engravings:
-		after_ids.append(engraving.id)
 	assert_eq(after_names, die_names, "dieselben Würfel liegen wieder da")
-	assert_eq(after_ids, engraving_ids, "und dieselben Gravuren")
 
 func test_a_bought_single_stays_bought_inside_a_locked_spread() -> void:
 	run.money = 500
@@ -601,19 +563,11 @@ func test_a_bought_single_die_is_gone_from_the_bowl() -> void:
 	assert_eq(_laid_out_singles(shop.single_dice_buttons).size(), before - 1,
 		"gekauftes Stück liegt nicht mehr in der Schale")
 
-func test_a_bought_single_engraving_is_gone_from_the_bowl() -> void:
-	await wait_frames(2)
-	var before := _laid_out_singles(shop.single_engraving_buttons).size()
-	shop._on_single_engraving_pressed(0)
-	await wait_frames(2)
-	assert_true(shop.single_engravings_bought[0])
-	assert_eq(_laid_out_singles(shop.single_engraving_buttons).size(), before - 1)
-
 func test_the_singles_lie_bare_without_a_box() -> void:
 	# Kein Fenster unter einem physischen Ding - dieselbe Regel wie bei den
 	# Kombi-Chips auf dem Filz.
 	await wait_frames(2)
-	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+	for button in _laid_out_singles(shop.single_dice_buttons):
 		for state in ["normal", "hover", "pressed", "disabled"]:
 			assert_true(button.get_theme_stylebox(state) is StyleBoxEmpty,
 				"Einzelstück ohne Kasten (%s)" % state)
@@ -629,7 +583,7 @@ func test_a_single_die_lies_in_the_bowl_as_a_real_die() -> void:
 func test_no_single_prints_a_price_in_the_bowl() -> void:
 	# Der Preis kommt beim Zugreifen, nicht als Schild auf der Ware.
 	await wait_frames(2)
-	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+	for button in _laid_out_singles(shop.single_dice_buttons):
 		assert_false(_has_price_label(button), "kein gedrucktes Preisschild")
 
 func _has_price_label(node: Node) -> bool:
@@ -661,14 +615,6 @@ func test_hovering_a_single_shows_its_price_and_dossier() -> void:
 	assert_eq(shop.shop_tooltip_price.text, ShopController.price_text(shop.single_dice_prices[0]))
 	assert_true(shop.shop_tooltip_stage.visible, "und das Würfelnetz als Dossier")
 	shop._hide_shop_tooltip()
-
-func test_hovering_a_single_engraving_shows_a_price_but_no_net() -> void:
-	await wait_frames(2)
-	var card: Button = _laid_out_singles(shop.single_engraving_buttons)[0]
-	card.mouse_entered.emit()
-	await wait_frames(2)
-	assert_true(shop.shop_tooltip_price.visible)
-	assert_false(shop.shop_tooltip_stage.visible, "eine Gravur ist kein Würfel")
 
 func test_the_hover_window_stays_inside_the_shop_page() -> void:
 	await wait_frames(2)
@@ -704,19 +650,19 @@ func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 		assert_gt(int(price), 0)
 
 func test_the_fullest_bowl_still_fits_its_width() -> void:
-	# Schlimmster Fall der Auslage: 2 Würfel + 4 Siegel (Material und "anderes"
-	# rollen je 1-2). In voller Größe sprengt das die Schale, also schrumpfen alle
-	# Stücke gemeinsam.
-	var factor: float = shop._singles_scale(2, 4)
-	var row: float = (2.0 * ShopController.SINGLE_DIE_SIZE + 4.0 * ShopController.SINGLE_SEAL_SIZE) \
-		* factor + 5.0 * ShopController.SINGLE_GAP
+	# Schlimmster Fall der Auslage: SINGLE_DICE_MAX offene Würfel - in voller
+	# Größe sprengt das die Schale, also schrumpfen alle Stücke gemeinsam.
+	var count: int = ShopController.SINGLE_DICE_MAX
+	var factor: float = shop._singles_scale(count)
+	var row: float = float(count) * ShopController.SINGLE_DIE_SIZE * factor
+	row += float(count - 1) * ShopController.SINGLE_GAP
 	assert_lte(row, ShopController.BOWL_INNER_U + 0.001, "die volle Auslage passt in die Schale")
-	assert_eq(shop._singles_scale(1, 1), 1.0, "eine magere Auslage bleibt groß")
+	assert_eq(shop._singles_scale(1), 1.0, "eine magere Auslage bleibt groß")
 
 func test_no_single_reaches_past_the_shop_panel() -> void:
 	await wait_frames(2)
 	var right: float = shop.get_global_rect().end.x
-	for button in _laid_out_singles(shop.single_dice_buttons) + _laid_out_singles(shop.single_engraving_buttons):
+	for button in _laid_out_singles(shop.single_dice_buttons):
 		assert_lte(button.get_global_rect().end.x, right, "Einzelstück ragt aus dem Laden")
 
 # --- Das Regal des Händlers und der Tausch ------------------------------------------

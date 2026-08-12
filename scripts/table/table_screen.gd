@@ -156,8 +156,6 @@ var workshop_window: WorkshopView
 ## Die vier Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Würfel +
 ## Sonderbestand), je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen,
 ## nicht als fremde Fenster daneben.
-var supply_drawers: Array[SupplyDrawerView] = []
-var supply_strips: Array[LedStripView] = []
 var workshop_hub_strip: LedStripView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
@@ -187,8 +185,6 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
-## Umriss der Anzeigefläche als Dreiecke in Display-Pixeln (siehe glass_*_limit).
-var _glass_tris: Array = []
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -298,59 +294,23 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	material.set_shader_parameter("screen_px", Vector2(size))
 	screen_mesh.material_override = material
 	_glass_material = material
-	_capture_glass_outline(screen_mesh)
+	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
 
-## Dreiecke des Anzeige-Meshes in Display-Pixeln. Die Anzeige ist NICHT das
-## volle Rechteck, sondern eine abgerundete Fläche - Fenster in den Rundungen
-## würden von der Glaskante schräg angeschnitten (siehe glass_*_limit).
-func _capture_glass_outline(screen_mesh: MeshInstance3D) -> void:
-	_glass_tris.clear()
-	if screen_mesh.mesh == null or screen_mesh.mesh.get_surface_count() == 0:
-		return
-	var arrays := screen_mesh.mesh.surface_get_arrays(0)
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var to_world := screen_mesh.global_transform
-	var flat: Array[Vector2] = []
-	for v in verts:
-		flat.append(world_to_pixel(to_world * v))
-	var index: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	if index.is_empty():
-		for i in range(0, flat.size() - 2, 3):
-			_glass_tris.append([flat[i], flat[i + 1], flat[i + 2]])
-		return
-	for i in range(0, index.size() - 2, 3):
-		_glass_tris.append([flat[index[i]], flat[index[i + 1]], flat[index[i + 2]]])
-
-## Weiteste Spalte, die in Zeile pixel_y noch auf dem Glas liegt (bzw. tiefste
-## Zeile in Spalte pixel_x). Ohne Umriss die volle Rechteckkante - dann gibt es
-## nichts zu beschneiden.
-func glass_right_limit(pixel_y: float) -> float:
-	return _glass_limit(pixel_y, true, float(size.x))
-
-func glass_bottom_limit(pixel_x: float) -> float:
-	return _glass_limit(pixel_x, false, float(size.y))
-
-## Schnitt aller Dreiecke mit einer Achsengeraden; along = waagerecht schneiden
-## (Zeile) und das größte x melden, sonst senkrecht und das größte y.
-func _glass_limit(coordinate: float, along_row: bool, fallback: float) -> float:
-	if _glass_tris.is_empty():
-		return fallback
-	var best := -INF
-	for tri in _glass_tris:
-		for e in 3:
-			var a: Vector2 = tri[e]
-			var b: Vector2 = tri[(e + 1) % 3]
-			var a_fix := a.y if along_row else a.x
-			var b_fix := b.y if along_row else b.x
-			if is_equal_approx(a_fix, b_fix):
-				continue
-			var t := (coordinate - a_fix) / (b_fix - a_fix)
-			if t < 0.0 or t > 1.0:
-				continue
-			var hit := a.lerp(b, t)
-			best = maxf(best, hit.x if along_row else hit.y)
-	return best if best > -INF else fallback
+## Die Anzeigefläche IST das Rechteck ihrer Textur. Das Tisch-GLB bringt eine
+## ovale Platte mit; ihre Rundungen schnitten alles an, was in der Ecke lag
+## (Buchten, Schürze), obwohl die UI dort längst gezeichnet war - die
+## Pixel-Abbildung hing schon immer am Hüllquader, nicht am Oval. Also wird das
+## Oval durch seinen eigenen Hüllquader ersetzt: nichts verschiebt sich, die
+## Ecken kommen dazu. Der Filz läuft daneben unverändert weiter (TableGround
+## blendet aus DEMSELBEN Rechteck aus).
+func _lay_display_surface(screen_mesh: MeshInstance3D, aabb: AABB) -> void:
+	# PlaneMesh statt eigener Geometrie: seine UV läuft u entlang +x, v entlang
+	# +z - genau die Achsen, die world_to_pixel liest.
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(aabb.size.x, aabb.size.z)
+	plane.center_offset = aabb.get_center()
+	screen_mesh.mesh = plane
 
 ## Weltposition -> Display-Pixel (y der Weltposition ist egal).
 func world_to_pixel(world: Vector3) -> Vector2:
@@ -542,24 +502,6 @@ func _build_content() -> void:
 	secret_hub_strip = LedStripView.new()
 	secret_hub_strip.name = "SecretHubStrip"
 	add_child(secret_hub_strip)
-
-	# Vorrats-Schubladen (drei Kategorien + der Sonderbestand als vierte): Maße
-	# und Position setzt scene_root über place_supply_drawers. Die Adern zuerst,
-	# damit sie UNTER den Schubladen liegen.
-	var drawer_categories: Array = Engraving.CATEGORIES.duplicate()
-	drawer_categories.append(SupplyDrawerView.CATEGORY_SPECIAL)
-	for i in drawer_categories.size():
-		var strip := LedStripView.new()
-		strip.name = "SupplyStrip%d" % i
-		add_child(strip)
-		supply_strips.append(strip)
-	for drawer_category in drawer_categories:
-		var drawer := SupplyDrawerView.new()
-		drawer.name = "SupplyDrawer_%s" % drawer_category
-		drawer.category = drawer_category
-		drawer.visible = false
-		add_child(drawer)
-		supply_drawers.append(drawer)
 
 	# Würfelnetz-Feld der Grube: Position/Größe setzt scene_root über
 	# place_pit_info_bar; ein-/ausgeblendet zusammen mit den Aktions-Knöpfen.
@@ -930,41 +872,6 @@ func _link_workshop_to_hub() -> void:
 	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
 		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
-## Legt die Schubladen unter der Werkbank aus (Reihenfolge = CATEGORIES, danach
-## der Sonderbestand).
-func place_supply_drawers(rects: Array[Rect2], unit: float) -> void:
-	for i in mini(rects.size(), supply_drawers.size()):
-		supply_drawers[i].place(rects[i], unit)
-		supply_drawers[i].visible = true
-	_link_supply_strips()
-	_sync_reflection_windows()
-
-## Je Schublade eine kurze Ader von der Werkbank-Unterkante in die Schubladen-
-## Oberkante - in DERSELBEN Breite wie alle anderen Adern des Tisches.
-func _link_supply_strips() -> void:
-	if workshop_window == null or not workshop_window.visible:
-		return
-	var bench_bottom := workshop_window.position.y + workshop_window.size.y
-	for i in mini(supply_strips.size(), supply_drawers.size()):
-		var drawer := supply_drawers[i]
-		if not drawer.visible:
-			continue
-		var enter_x := drawer.position.x + drawer.size.x * 0.5
-		var lane_y := (bench_bottom + drawer.position.y) * 0.5
-		supply_strips[i].link_edges(bench_bottom, enter_x, drawer.position.y, enter_x,
-			lane_y, HUB_STRIP_WIDTH)
-
-func _drawer_index(category: String) -> int:
-	for i in supply_drawers.size():
-		if supply_drawers[i].category == category:
-			return i
-	return -1
-
-## Schaltet alle Schubladen in die Station-Betriebsart (Werkzeug-Bord) und zurück.
-func set_drawers_in_ceremony(active: bool) -> void:
-	for drawer in supply_drawers:
-		drawer.set_ceremony(active)
-
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -1016,11 +923,6 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(workshop_window.position.x, workshop_window.position.y,
 			workshop_window.position.x + workshop_window.size.x, workshop_window.position.y + workshop_window.size.y))
 		radii.append(10.0)
-	for drawer in supply_drawers:
-		if drawer != null and drawer.visible:
-			rects.append(Vector4(drawer.position.x, drawer.position.y,
-				drawer.position.x + drawer.size.x, drawer.position.y + drawer.size.y))
-			radii.append(10.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
@@ -2119,6 +2021,11 @@ const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
 ## Aus der Bank bezahlte Übertaktung: dieselbe ⚡-Signalfarbe, gleiche Dämpfung.
 const CHARGE_PULSE_COLOR := Color(CasinoStyle.CHARGE.r, CasinoStyle.CHARGE.g,
 	CasinoStyle.CHARGE.b, 0.6)
+## Wölbung eines LOKALEN Bogenflugs (Presse-Meteor): Anteil der Luftlinie, aber nie
+## flacher als ein Mindestmaß - ein kurzer Hüpfer soll trotzdem fliegen.
+const ARC_LIFT_SHARE := 0.42
+const ARC_LIFT_MIN := 30.0 * SUPERSAMPLE
+const ARC_SAMPLES := 16
 
 ## Der (durch die Geld-Ankünfte) voll geladene Hub entlädt sich RESTLOS in die
 ## Leiste: das Licht schießt los, der Rahmen erlischt ohne Nachglühen, der
@@ -2260,15 +2167,49 @@ func _border_route(rect: Rect2, from: Vector2, to: Vector2) -> PackedVector2Arra
 	return path
 
 ## Liefer-Komet Laden -> Werkstatt: das gekaufte Paket FÄHRT als Licht die
-## Hub-Werkstatt-Ader entlang, statt im Lager zu erscheinen. Liefert die Laufzeit.
-func pack_delivery_comet(from_px: Vector2, color: Color) -> float:
+## Hub-Werkstatt-Ader entlang, statt im Lager zu erscheinen. Ziel ist der Stapel,
+## auf dem es landet (target); ohne Angabe die Fenstermitte. Liefert die Laufzeit.
+func pack_delivery_comet(from_px: Vector2, color: Color,
+		target := Vector2(-1, -1)) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
 	var to_px := workshop_window.position + workshop_window.size * 0.5
+	if target.x >= 0.0:
+		to_px = target
 	var path := _route_via_strip(from_px, workshop_hub_strip, to_px)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
+
+## Meteor der Presse: ein Beutestück fährt aus seinem Leser in die Ablage. Ein
+## LOKALER Flug INNERHALB der Werkbank-Ecke, keine Ader - der Bogen führt über die
+## Naht zwischen Konsolenband und Fenster. Liefert die Laufzeit.
+func press_meteor(from_px: Vector2, to_px: Vector2, color: Color) -> float:
+	var path := _arc_path(from_px, to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Zahlungs-Komet Hub -> Werkbank: der Preis einer Pressung fährt die Werkstatt-
+## Ader hinüber, wie jede andere Energie, die den Tisch verlässt.
+func press_pay_comet(color: Color) -> float:
+	if workshop_hub_strip == null or workshop_hub_strip.strip_path.size() < 2:
+		return 0.0
+	var path := workshop_hub_strip.strip_path.duplicate()
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Quadratische Bézier als Punktliste: der Kometen-Primitive fährt Polylinien, der
+## Bogen wölbt sich nach OBEN aus der Verbindung heraus.
+func _arc_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
+	var lift := maxf(from_px.distance_to(to_px) * ARC_LIFT_SHARE, ARC_LIFT_MIN)
+	var control := (from_px + to_px) * 0.5 - Vector2(0.0, lift)
+	var path := PackedVector2Array()
+	for i in ARC_SAMPLES + 1:
+		var t := float(i) / float(ARC_SAMPLES)
+		path.append(from_px.lerp(control, t).lerp(control.lerp(to_px, t), t))
+	return path
 
 ## Ladungs-Komet Hub -> Kondensator-Bank: die zweite Etappe einer Überladungs-
 ## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt die Bank steht.
@@ -2330,20 +2271,6 @@ func slot_pack_comet(from_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Gewonnene Gravur: den ganzen Weg über die Adern - Automaten-Ader in den Hub,
-## Werkstatt-Ader zur Werkbank, Schubladen-Ader in den Platz. Quer über den Tisch
-## fliegt hier nichts; erst der letzte Meter ist ein freier Bogen wie beim Paket.
-func slot_engraving_route(from_px: Vector2, category: String, slot_px: Vector2) -> PackedVector2Array:
-	var supply := _supply_strip(category)
-	return _route_via_strips(from_px, [slot_hub_strip, workshop_hub_strip, supply], slot_px)
-
-func slot_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2,
-		color: Color) -> float:
-	var path := slot_engraving_route(from_px, category, slot_px)
-	var travel := _travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
-
 ## Freiflug ohne Ader (gewonnener Würfel -> Vorrats-Ablage): zu den 3D-Ablagen
 ## führt keine Leiterbahn, also fliegt das Licht als Bogen wie ein Meteor. Start
 ## ist das Ende der Automaten-Ader am Hub, nicht das Fenster - so hängt auch der
@@ -2367,23 +2294,12 @@ const METEOR_SWING := 0.5
 const METEOR_RISE := 0.3
 const METEOR_STEPS := 24
 
-## Flugbahn eines Meteors: aus dem zerbrochenen Siegel geschleudert (freie Kurve -
-## im Bildschirm braucht Licht keine rechten Winkel), aber schon im Flug auf den
-## Kopf der Kategorie-Ader zu, die es an der Fenster-Unterkante auffängt. Von dort
-## fährt es geführt in seinen Platz. Chaos beim Bruch, Ordnung bei der Zustellung.
-func meteor_route(from_px: Vector2, category: String, slot_px: Vector2,
+## Flugbahn eines Meteors: aus dem zerbrochenen Siegel geschleudert und in freiem
+## Bogen auf seinen Platz zu. Start und Ziel liegen seit dem Umbau BEIDE im
+## Werkstatt-Fenster - da ist keine Ader mehr zu fahren, nur der Wurf.
+func meteor_route(from_px: Vector2, slot_px: Vector2,
 		spread_index: int) -> PackedVector2Array:
-	var strip := _supply_strip(category)
-	if strip == null or strip.strip_path.size() < 2:
-		return PackedVector2Array([from_px, slot_px])
-	var head := strip.strip_path[0]   # link_edges beginnt an der Werkbank-Unterkante
-	var path := _meteor_launch(from_px, head, spread_index)
-	for i in range(1, strip.strip_path.size()):
-		path.append(strip.strip_path[i])
-	var tail := strip.strip_path[strip.strip_path.size() - 1]
-	path.append(Vector2(tail.x, slot_px.y))
-	path.append(slot_px)
-	return path
+	return _meteor_launch(from_px, slot_px, spread_index)
 
 ## Der geschleuderte Teil: quadratische Bézier vom Siegel über einen seitlich
 ## versetzten, höher liegenden Kontrollpunkt zum Ader-Kopf.
@@ -2397,19 +2313,13 @@ func _meteor_launch(from_px: Vector2, head: Vector2, spread_index: int) -> Packe
 		path.append(from_px.lerp(control, t).lerp(control.lerp(head, t), t))
 	return path
 
-func _supply_strip(category: String) -> LedStripView:
-	for i in mini(supply_drawers.size(), supply_strips.size()):
-		if supply_drawers[i].category == category:
-			return supply_strips[i]
-	return null
-
 ## Schickt einen Meteor los; liefert die Flugzeit (einheitliche Lichtgeschwindigkeit,
 ## die Kurve macht ihn dadurch von selbst etwas langsamer als eine gerade Ader).
-func meteor_comet(from_px: Vector2, category: String, slot_px: Vector2, color: Color,
+func meteor_comet(from_px: Vector2, slot_px: Vector2, color: Color,
 		spread_index: int) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
-	var path := meteor_route(from_px, category, slot_px, spread_index)
+	var path := meteor_route(from_px, slot_px, spread_index)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -2477,6 +2387,19 @@ func _round_end_route(from_px: Vector2, tail_strips: Array, to_px: Vector2) -> P
 		path.append(tail[i])
 	return path
 
+## Rückerstattung des Ladens (Kleingedrucktes): der Kaufpreis fährt vom Knopf am
+## Hub-Rahmen entlang auf die Geld-Leiste und in die Truhe. Anders als der
+## Rundenende-Komet nimmt er keinen Konsolen-Vorlauf - der Laden IST der Hub.
+## Gebucht ist längst; das hier ist nur das Licht.
+func shop_refund_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
+	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
+		return 0.0
+	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
+	var path := _route_via_strip(from_px, treasure_strip, to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
 ## Geld-Komet eines Rundenende-Charms (EIN Chip-Paket in seiner Stückelungs-
 ## farbe): die Rundenende-Bahn bis zum Hub, dann am Hub-Rahmen zur Geld-Leiste
 ## und über sie in die Schatztruhe - der Aufrufer bucht bei Ankunft.
@@ -2519,24 +2442,12 @@ func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF) -> floa
 	_pulse_along(path, travel, color)
 	return travel
 
-## Gravur-Meteor der Frankiermaschine: die Rundenende-Bahn bis zum Hub, dann
-## Werkstatt-Ader und Schubladen-Ader bis in den Platz - derselbe Aderweg wie
-## ein Automaten-Gewinn (slot_engraving_route). Liefert die Laufzeit.
-func charm_engraving_comet(from_px: Vector2, category: String, slot_px: Vector2, color: Color) -> float:
+## Rundenende-Meteor bis in einen Platz der Werkbank: die Rundenende-Bahn bis zum
+## Hub, dann die Werkstatt-Ader ins Fenster. Liefert die Laufzeit.
+func charm_engraving_comet(from_px: Vector2, slot_px: Vector2, color: Color) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
-	var path := _round_end_route(from_px, [workshop_hub_strip, _supply_strip(category)], slot_px)
-	var travel := _round_end_travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
-
-## Rundenende-Komet zur WERKSTATT selbst (Politur greift an die Würfel, nicht in
-## eine Schublade): dieselbe Bahn wie der Gravur-Meteor, nur endet sie im Fenster.
-func charm_workshop_comet(from_px: Vector2, color: Color) -> float:
-	if workshop_window == null or not workshop_window.visible:
-		return 0.0
-	var to_px := workshop_window.position + workshop_window.size * 0.5
-	var path := _round_end_route(from_px, [workshop_hub_strip], to_px)
+	var path := _round_end_route(from_px, [workshop_hub_strip], slot_px)
 	var travel := _round_end_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -2608,16 +2519,15 @@ func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Gravur-Gewinn einer Nebenwette bis in seinen Schubladen-Platz: der
-## Auszahlungs-Komet zum Hub, dann Werkstatt- und Schubladen-Ader (derselbe
-## Aderweg wie ein Automaten-Gewinn). Liefert die Laufzeit.
-func side_bet_engraving_comet(category: String, slot_px: Vector2, color: Color) -> float:
+## Gewinn einer Nebenwette bis in seinen Platz an der Werkbank: der
+## Auszahlungs-Komet zum Hub, dann die Werkstatt-Ader ins Fenster.
+## Liefert die Laufzeit.
+func side_bet_engraving_comet(slot_px: Vector2, color: Color) -> float:
 	var path := _hub_to_side_path()
 	if path.size() < 2 or workshop_window == null or not workshop_window.visible:
 		return 0.0
 	path.reverse()
-	var tail := _route_via_strips(path[path.size() - 1],
-		[workshop_hub_strip, _supply_strip(category)], slot_px)
+	var tail := _route_via_strips(path[path.size() - 1], [workshop_hub_strip], slot_px)
 	for i in range(1, tail.size()):
 		path.append(tail[i])
 	var travel := _travel_time(path)
@@ -2860,10 +2770,6 @@ func _layout_pit_deal_rail() -> void:
 	pit_deal_rail.position = _pit_deal_rect.position \
 		+ (_pit_deal_rect.size - pit_deal_rail.size) * 0.5
 
-## Der Streifen der Grubenmarken - der Rückblick stellt seine Leiste dorthin.
-func pit_deal_rect() -> Rect2:
-	return _pit_deal_rect
-
 ## Abrechnung: die Grubenmarken wischen mit denen am Hub (gleiche Dauer).
 func sweep_pit_deal_tokens() -> float:
 	if pit_deal_rail == null:
@@ -2941,10 +2847,6 @@ func clear_pit_die() -> void:
 func set_pit_net_alpha(a: float) -> void:
 	if pit_net_holder != null:
 		pit_net_holder.modulate.a = a
-
-## Zeigt der Würfel im Netz-Feld gerade ein Netz?
-func has_pit_die() -> bool:
-	return _pit_net_def != null
 
 ## Face-Index der Netz-Zelle unter dem Display-Pixel (-1 = keine Zelle/leer).
 func pit_net_face_at(pixel: Vector2) -> int:

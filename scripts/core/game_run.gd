@@ -6,7 +6,6 @@ extends RefCounted
 
 signal money_changed(money: int)
 signal charms_changed
-signal engravings_changed
 signal packs_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
@@ -21,8 +20,20 @@ signal pending_dice_changed
 signal charge_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
+## Die sechs aufgespannten Würfel der Runde wurden neu gezogen.
+signal clamped_changed
+## Der Phantomwurf oder die noch nicht platzierte Beute hat sich geändert.
+signal press_changed
 
 const POOL_SIZE := 30
+## Zwingen der Werkbank auf der HÖCHSTEN Lizenzstufe - die Zahl der Netze, die
+## das Fenster überhaupt tragen muss (siehe clamp_count).
+const CLAMP_COUNT := 6
+## Kleinste Aufspannung (Lizenzstufe 1).
+const CLAMP_MIN := 2
+## Hub-Stufen, die je eine Zwinge dazugeben - dieselbe Meilenstein-Folge wie die
+## erwachenden Reihen des Kondensators (charge_cap_rows).
+const CLAMP_LEVELS := [3, 5, 7, 10]
 ## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
 ## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
 const CHARM_CAPACITY := 6
@@ -99,11 +110,12 @@ const HUB_UPGRADE_PRICES := [8, 12, 18, 25, 35, 55, 80, 120, 170]
 ## ZUSÄTZLICHE Gravur-Pakete je frisch erreichter Stufe - eine Datentabelle, das
 ## Stellen daran ist eine Zahlenänderung, kein Code. Das beseelte 3er-Würfel-
 ## Paket kommt bei JEDER Stufe ab 2 obendrauf und steht darum nicht hier drin;
-## nicht gelistete Stufen bekommen nur dieses. "Kombination" ist das gemischte
-## Paket - es zieht quer durch alle Sorten.
+## nicht gelistete Stufen bekommen nur dieses. Seit ein Paket EIN Phantomwürfel
+## ist, entscheiden die Stückzahlen hier, wie lang eine Reihe werden kann.
 const HUB_REWARD_PACKS := {
-	5: [Pack.TYPE_NUMBER, Pack.TYPE_MIXED],
-	10: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MIXED, Pack.TYPE_MIXED, Pack.TYPE_MIXED],
+	5: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL],
+	10: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
+		Pack.TYPE_MATERIAL, Pack.TYPE_DICE_MOD],
 }
 ## Lizenz-Namen je Stufe (1-basiert), aufsteigende Casino-Prestige-Tiers.
 const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Salon",
@@ -176,8 +188,8 @@ var hub_level: int = 1
 ## damit eine Ätzung nie mehrere Würfel zugleich verändert.
 var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
-var owned_engravings: Array[Engraving] = []
-## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange.
+## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange. Eine
+## Aufwertung existiert nur SO oder angewendet - einen losen Vorrat gibt es nicht.
 var owned_packs: Array[Pack] = []
 ## Die Pakete des JÜNGSTEN Hub-Ausbaus, in Gewähr-Reihenfolge - Vorlage der
 ## Reveal-Zeremonie. Gebucht sind sie längst (upgrade_hub); das hier ist nur die
@@ -190,22 +202,43 @@ var last_hub_reward_packs: Array[Pack] = []
 var pending_dice: Array[DieDefinition] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
-## Testmodus: consume_engraving verbraucht nichts, Bord und Schubladen zeigen
-## jeden Archetyp. Meldet sich als Bestandsänderung - sie bauen daran neu.
-var unlimited_engravings: bool = false:
-	set(value):
-		if unlimited_engravings == value:
-			return
-		unlimited_engravings = value
-		engravings_changed.emit()
 ## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert die
 ## autorierten Schritte der Kategorie (siehe DiceScoring.CATEGORIES).
 var combo_levels: Dictionary = {}
+## Gebankte Gratis-Übertaktungen: overclock_combo greift sie ab, BEVOR es Energie
+## abbucht. Die Presse speist sie nicht mehr - der Vorrat wartet auf seine nächste
+## Quelle.
+var free_overclocks: int = 0
+
+## Die aufgespannten Würfel dieser Runde (Referenzen in owned_pool). Sie stehen
+## die GANZE Runde, den Shop danach eingeschlossen; erst der nächste Rundenstart
+## zieht sechs neue. Anwenden ändert die Auswahl nicht.
+var clamped_dice: Array[DieDefinition] = []
+
+## Pressungen dieser Werkstatt-Sitzung: die erste ist frei, jede weitere kostet
+## eine Energie mehr. Zurückgesetzt wird erst bei der Unterschrift - EIN Bogen
+## über Laden und Vorrunde, nicht je Runde.
+var press_uses: int = 0
+## Gepresste Beute, die noch auf ihren Platz wartet - sie LIEGT auf der Werkbank
+## und darf sich stapeln: eine zweite Pressung legt dazu.
+var press_pieces: Array[Dictionary] = []
+## Das Journal des noch nassen Gusses: je Anwendung ein Eintrag mit dem Stück und
+## dem Zustand JEDER berührten Seite davor. Bis zum ANWENDEN lässt sich jede
+## Setzung wieder herausnehmen (unseat_press_piece); erst dann erkaltet der Guss
+## (apply_press_placements), und wer stattdessen die Runde unterschreibt, verliert
+## ihn ganz (lapse_press). INVARIANTE: zwischen Setzen und Anwenden wird nie
+## gewertet - die aufgespannten Würfel liegen still, also kann keine Wertungs-
+## Mutation (Knochen, Glas, Miasma) zwischen Journal und Def geraten. Nur darum
+## ist das exakte Zurückschreiben sicher.
+var press_journal: Array[Dictionary] = []
+## Laufende Nummer der Beutestücke: sie wird dem ORIGINAL-Stück aufgeprägt, bevor
+## das Journal seine Kopie zieht - so bleiben alle Einträge EINES Stücks (die
+## Zwinge doppelt seine Anwendung) als dasselbe Stück erkennbar.
+var press_piece_serial: int = 0
 
 # Zustand der Effektkatalog-Charms:
 var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
-var gravierstift_used_this_round: bool = false
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
 ## sie schon kassiert wurde - je Runde steigt höchstens EINE Stufe.
@@ -250,6 +283,7 @@ static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
+	run.roll_clamped_dice()
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -320,6 +354,12 @@ func money_gain_factor() -> float:
 		factor *= 3.0 * boost
 	return factor
 
+## Rücknahme einer AUSGABE (Kleingedrucktes): das Geld hat den Lauf nie verlassen,
+## also greift kein Einnahme-Faktor. Liefe eine Erstattung durch add_money, machte
+## die Happy Hour aus jedem Paketkauf ein Geschäft - $6 hin, $24 zurück.
+func refund_money(amount: int) -> void:
+	money += maxi(0, amount)
+
 # --- Hub-Ausbau ---------------------------------------------------------------
 
 ## Preis des nächsten Aufstiegs; 0, wenn die Maximalstufe erreicht ist.
@@ -355,6 +395,9 @@ func upgrade_hub() -> void:
 	add_money(-hub_upgrade_price())
 	hub_level += 1
 	_grant_hub_rewards(hub_level)
+	# Die neue Zwinge muss sofort sichtbar werden - dasselbe Vorrecht wie beim
+	# Sortiment des Ladens (refresh_after_hub_upgrade).
+	extend_clamped_dice()
 	# >=, nicht ==: ein direkt gesetzter Stand darf nicht daran vorbeilaufen.
 	if hub_level >= SECRET_UNLOCK_HUB_LEVEL:
 		unlock_secret_shop()
@@ -458,10 +501,6 @@ func shop_dice_slots() -> int:
 func shop_pack_slots() -> int:
 	return _slot_at(SHOP_PACK_SLOTS, 4)
 
-func purchase_die(def: DieDefinition, price: int) -> void:
-	add_money(-price)
-	_replace_pool_entry(def)
-
 ## Kauf aus der Chip-Schale: bezahlt, aber NICHT eingesetzt - der Würfel bleibt
 ## beim Händler liegen, bis der Spieler selbst den Platz wählt. Hinterlegt wird
 ## eine eigene Instanz, denn die Auslage hält das Original weiter (Referenz-Regel).
@@ -474,7 +513,7 @@ func stash_die(def: DieDefinition, price: int) -> void:
 ## Lager. Ausgewürfelt wird der Würfel erst beim Öffnen in der Werkstatt - wie
 ## bei jedem Paket.
 func grant_stress_reward() -> Pack:
-	var templates := DiceOffer.pick_templates(1, charm_ids())
+	var templates := DiceOffer.pick_templates(1)
 	if templates.is_empty():
 		return null
 	var pack := Pack.stress_die(templates[0])
@@ -496,11 +535,6 @@ func exchange_pending_die(pending_index: int, pool_index: int) -> bool:
 	pool_changed.emit()
 	pending_dice_changed.emit()
 	return true
-
-func purchase_dice(defs: Array[DieDefinition], price: int) -> void:
-	add_money(-price)
-	for def in defs:
-		_replace_pool_entry(def)
 
 ## Überschreibt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
 ## Käufe nicht verdrängt werden) mit dem Inhalt von def. Der Eintrag wird IN
@@ -582,65 +616,68 @@ func sell_charm(index: int) -> void:
 	add_money(value)
 	charms_changed.emit()
 
-## Kauft eine einzelne Gravur (Shop): Preis abziehen, sofort ins Inventar.
-func purchase_engraving(engraving: Engraving, price: int) -> void:
-	add_money(-price)
-	grant_engraving(engraving)
-
-func grant_engraving(engraving: Engraving) -> void:
-	owned_engravings.append(engraving)
-	engravings_changed.emit()
-
 # --- Pakete (Kauf im Laden, Öffnen in der Werkstatt) --------------------------
 
-func purchase_pack(pack: Pack, price: int) -> void:
+## Legt ein Fixinhalt-Paket mit genau dieser Gravur ins Lager - der Weg, den seit
+## dem Werkstatt-Umbau JEDE Quelle geht, die früher lose Gravuren lieferte
+## (Abguss, Schmuckkästchen, Durchschlagpapier, Ernte, Schwarzmarkt).
+func grant_engraving_pack(engraving: Engraving) -> void:
+	if engraving == null:
+		return
+	grant_pack(Pack.fixed_engraving_pack(engraving))
+
+## Fixinhalt-Paket zur Material-Gravur eines Materials.
+func grant_material_pack(material: DieMaterial) -> void:
+	if material == null:
+		return
+	grant_engraving_pack(Engraving.material_engraving(material,
+		Engraving.MATERIAL_RARITY.get(material.id, Engraving.Rarity.UNCOMMON)))
+
+## Kauft ein versiegeltes Paket. Erst zahlen, dann würfelt das Kleingedruckte auf
+## volle Rückerstattung - in dieser Reihenfolge, damit eine knappe Börse den Kauf
+## weiter sperrt und der Erstattungswurf nie im Preis mitgerechnet wird. Liefert
+## das zurückgegebene Geld (0 = keins); rng injizierbar, damit ein Test beide
+## Ausgänge erzwingt.
+func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) -> int:
 	add_money(-price)
 	grant_pack(pack)
+	var chance := CharmEffects.pack_refund_chance(charm_ids())
+	if price <= 0 or chance <= 0.0:
+		return 0  # erst prüfen, dann würfeln: ohne Charm wird gar nicht gezogen
+	if (rng.randf() if rng != null else randf()) >= chance:
+		return 0
+	refund_money(price)
+	return price
 
 ## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn).
 func grant_pack(pack: Pack) -> void:
 	owned_packs.append(pack)
 	packs_changed.emit()
 
-## Mindest-Seltenheit im Paketinhalt; steigt mit der Raritäts-Stufe des Hubs.
-func pack_engraving_floor() -> Engraving.Rarity:
-	match shop_rarity_tier():
-		0:
-			return Engraving.Rarity.COMMON
-		1:
-			return Engraving.Rarity.UNCOMMON
-	return Engraving.Rarity.RARE
+## Eine ganze Lieferung auf einmal - EINE Bestandsmeldung, sonst baut das Regal
+## bei einer Testlieferung achtzigmal neu.
+func grant_packs(packs: Array[Pack]) -> void:
+	if packs.is_empty():
+		return
+	owned_packs.append_array(packs)
+	packs_changed.emit()
 
-## Öffnet das Paket auf Platz index - der Inhalt wird ERST JETZT ausgewürfelt,
-## aber NOCH NICHT verbucht: die Entsiegelungs-Zeremonie darf die Seltenheit
-## anteasern, ohne dass die Schubladen-Zähler sie vorab verraten. Gravuren bucht
-## erst stash_engravings, Würfel place_pack_die.
+## Öffnet ein WÜRFEL-Paket auf Platz index - der Inhalt wird ERST JETZT
+## ausgewürfelt, aber noch nicht verbucht (das tut place_pack_die). Gravur-Pakete
+## laufen nicht hier durch, sondern über die Presse (open_press) - sie bleiben
+## unangetastet liegen, wenn sie hier landen.
 func open_pack(index: int) -> Dictionary:
 	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
 	if index < 0 or index >= owned_packs.size():
 		return empty
 	var pack := owned_packs[index]
+	if not pack.is_dice_pack():
+		return empty
 	owned_packs.remove_at(index)
 	var result := empty
-	if pack.is_dice_pack():
-		result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
-	else:
-		# Das Paket bringt seine eigene Untergrenze mit (Automaten-Stufe); es gilt
-		# die höhere von beiden. Das Füllhorn legt je Vorkommen ein Stück aus dem
-		# EIGENEN Topf des Pakets obendrauf.
-		var floor_rarity := maxi(pack.rarity_floor, pack_engraving_floor()) as Engraving.Rarity
-		result["engravings"] = pack.roll_engravings(floor_rarity,
-			CharmEffects.pack_extra_engravings(charm_ids()))
+	result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
 	packs_changed.emit()
 	return result
-
-## Verbucht ausgewürfelten Paket-Inhalt in die Vorräte (Zeremonie-Abschluss).
-func stash_engravings(engravings: Array[Engraving]) -> void:
-	if engravings.is_empty():
-		return
-	for engraving in engravings:
-		owned_engravings.append(engraving)
-	engravings_changed.emit()
 
 ## Setzt einen Paket-Würfel auf einen SELBST gewählten Pool-Platz; der bisherige
 ## Würfel dort verfällt. Abgelehnte Würfel laufen hier nie ein.
@@ -652,6 +689,440 @@ func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 	var target := owned_pool[pool_index]
 	target.become(def)
 	pool_changed.emit()
+
+# --- Aufspannung: die Zwingen der Werkbank ------------------------------------
+
+## Wie viele Würfel die Lizenz aufspannt: 2/3/4/5/6 ab Hub 1/3/5/7/10 - dieselbe
+## Meilenstein-Folge wie charge_cap_rows, damit ein Ausbau überall gleich klingt.
+## Ein Ausbau greift SOFORT (extend_clamped_dice) - die neue Zwinge muss sichtbar
+## werden, das schlägt die Rundenstabilität.
+func clamp_count() -> int:
+	var count := CLAMP_MIN
+	for level in CLAMP_LEVELS:
+		if hub_level >= int(level):
+			count += 1
+	return mini(count, CLAMP_COUNT)
+
+## Zieht clamp_count() VERSCHIEDENE Pool-Würfel, uniform. Bewusst nie "die
+## nächsten der Reihe": die Queue ist spielergeordnet und jede deterministische
+## Auswahl damit steuerbar. Die Ziehung darf Nieten enthalten.
+func roll_clamped_dice() -> void:
+	var indices: Array[int] = []
+	for i in owned_pool.size():
+		indices.append(i)
+	indices.shuffle()
+	clamped_dice.clear()
+	for k in mini(clamp_count(), indices.size()):
+		clamped_dice.append(owned_pool[indices[k]])
+	clamped_changed.emit()
+
+## Ein Hub-Ausbau erweitert die STEHENDE Aufspannung: gezogen werden nur die
+## fehlenden Zwingen, die eingespannten bleiben unangetastet - an ihnen hängt der
+## nasse Guss der Presse. false = nichts dazugekommen.
+func extend_clamped_dice() -> bool:
+	var missing := clamp_count() - clamped_dice.size()
+	if missing <= 0:
+		return false
+	var free: Array[DieDefinition] = []
+	for die in owned_pool:
+		if not is_clamped(die):
+			free.append(die)
+	if free.is_empty():
+		return false
+	free.shuffle()
+	for k in mini(missing, free.size()):
+		clamped_dice.append(free[k])
+	clamped_changed.emit()
+	return true
+
+## Liegt dieses Würfel-EXEMPLAR in einer Zwinge? Verglichen wird die Instanz -
+## Pool-Einträge werden überschrieben und umgelegt, nie getauscht.
+func is_clamped(die: DieDefinition) -> bool:
+	return die != null and clamped_dice.has(die)
+
+# --- Die Presse ----------------------------------------------------------------
+
+## Preis der NÄCHSTEN Pressung: die erste einer Sitzung ist frei, dann je schon
+## getätigter eine Energie mehr. Ein Preis je Pressung, gleich wie viele Pakete
+## darin liegen - flach wie jeder ⚡-Preis, also ohne Ladenpreis-Klauseln.
+func press_cost() -> int:
+	return press_uses
+
+func can_press() -> bool:
+	return charge >= press_cost()
+
+## Die Unterschrift schließt die Werkstatt-Sitzung: die nächste Pressung ist
+## wieder frei. Bewusst NICHT im Rundenwechsel - ein Bogen spannt vom Laden bis
+## zur nächsten Unterschrift.
+func reset_press_cycle() -> void:
+	press_uses = 0
+
+## Die Pakete auf diesen Plätzen, ohne Doppelte, ohne Würfel-Pakete, gedeckelt.
+func _pressable_packs(pack_indices: Array[int]) -> Array[int]:
+	var chosen: Array[int] = []
+	for index in pack_indices:
+		if index < 0 or index >= owned_packs.size() or chosen.has(index):
+			continue
+		if owned_packs[index].is_dice_pack():
+			continue
+		chosen.append(index)
+		if chosen.size() >= PhantomPress.BATCH_CAP:
+			break
+	return chosen
+
+## Prägt einem Stück seine Nummer auf, bevor es in die Ablage geht - an ihr hängt
+## sein Platz auf dem Glas, und der muss jeden Neuaufbau überstehen.
+func _mint_press_piece(piece: Dictionary) -> Dictionary:
+	press_piece_serial += 1
+	piece["piece_uid"] = press_piece_serial
+	return piece
+
+## Die Ausbeute EINES Pakets: ein Fixinhalt liefert genau sein Stück (keine
+## Menge, kein Icon-Wurf), jedes andere würfelt Menge und Icons aus.
+func _press_pack_pieces(pack: Pack, rng: RandomNumberGenerator) -> Array[Dictionary]:
+	if pack.fixed_engraving != null:
+		return [PhantomPress.piece(pack.press_sort(), pack.fixed_engraving.id)]
+	return PhantomPress.payout(pack.press_sort(), rng)
+
+## DIE PRESSUNG: ein Preis, dann je Paket seine Ausbeute. Atomar - prüfen,
+## abbuchen, würfeln, prägen, Pakete verbrauchen. Reicht die Energie nicht,
+## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung räumt weder
+## Ablage noch nassen Guss ab.
+## Liefert {"cost", "pieces", "readers"} - readers[i] sind die Nummern der Stücke,
+## die Leser i ausgeworfen hat (die Zeremonie fliegt sie von dort in die Ablage).
+func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
+	var empty := {"cost": 0, "pieces": [] as Array[Dictionary], "readers": [] as Array}
+	var chosen := _pressable_packs(pack_indices)
+	if chosen.is_empty():
+		return empty
+	var cost := press_cost()
+	if charge < cost:
+		return empty  # prüfen, dann abbuchen
+	spend_charge(cost)
+	press_uses += 1
+	var sorts: Array[String] = []
+	for index in chosen:
+		sorts.append(owned_packs[index].press_sort())
+	var minted: Array[Dictionary] = []
+	var readers: Array = []
+	for k in chosen.size():
+		var uids: Array[int] = []
+		for piece in _press_pack_pieces(owned_packs[chosen[k]], rng):
+			_mint_press_piece(piece)
+			minted.append(piece)
+			uids.append(int(piece["piece_uid"]))
+		readers.append(uids)
+	# Füllhorn: je Vorkommen ein Stück obendrauf, in der Mehrheits-Sorte der
+	# Pressung. Es fällt beim ersten Leser heraus - irgendwo muss es entstehen.
+	var extra := PhantomPress.payout_of(PhantomPress.majority_sort(sorts),
+		CharmEffects.press_extra_pieces(charm_ids()), rng)
+	for piece in extra:
+		_mint_press_piece(piece)
+		minted.append(piece)
+		var seat: Array[int] = readers[0]
+		seat.append(int(piece["piece_uid"]))
+	for piece in minted:
+		press_pieces.append(piece)
+	chosen.sort()
+	for k in range(chosen.size() - 1, -1, -1):
+		owned_packs.remove_at(chosen[k])
+	packs_changed.emit()
+	press_changed.emit()
+	return {"cost": cost, "pieces": minted, "readers": readers}
+
+## Darf ein Beutestück auf diesen Würfel? Die Bank sind die Zwingen - sonst keine.
+func press_target_allowed(die: DieDefinition) -> bool:
+	if die == null:
+		return false
+	return is_clamped(die)
+
+## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
+## dritten.
+func extra_rune_slots() -> int:
+	return 1 if charm_ids().has(Charm.BELL_JAR) else 0
+
+func _press_piece(index: int) -> Dictionary:
+	if index < 0 or index >= press_pieces.size():
+		return {}
+	return press_pieces[index]
+
+## Bucht EINE Anwendung ab. Die Zwinge würfelt je Anwendung: trifft sie, kommt die
+## Anwendung geschenkt zurück - das Stück wirkt zweimal. true = gedoppelt.
+## rng injizierbar, damit ein Test beide Ausgänge erzwingt.
+func _consume_press_application(index: int, rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty():
+		return false
+	var left := int(piece.get("applications", 1)) - 1
+	var chance := CharmEffects.piece_double_chance(charm_ids())
+	var roll := rng.randf() if rng != null else randf()
+	var doubled := chance > 0.0 and roll < chance
+	if doubled:
+		left += 1
+	if left > 0:
+		piece["applications"] = left
+	else:
+		press_pieces.remove_at(index)
+	press_changed.emit()
+	return doubled
+
+## Zahl-Stück: die Stufe klettert die Leiter seiner Gravur. faces sind die vom
+## Spieler gewählten Seiten - Überdruck, Aufholen und Politur zielen selbst.
+func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = [],
+		rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty() or not press_target_allowed(die):
+		return false
+	var before := _snapshot_die(die)
+	var stufe := int(piece.get("stufe", 1))
+	match String(piece.get("id", "")):
+		Engraving.NOTCH:
+			if faces.is_empty():
+				return false
+			EtchingEffects.notch(die, faces[0], stufe)
+		Engraving.OVERPRESSURE:
+			EtchingEffects.overpressure(die, stufe)
+		Engraving.GROWTH:
+			EtchingEffects.growth(die, stufe)
+		Engraving.POLISH:
+			EtchingEffects.polish(die, stufe)
+		Engraving.CHISEL:
+			if faces.size() < 2:
+				return false
+			var targets: Array[int] = []
+			targets.assign(faces.slice(1))
+			EtchingEffects.chisel(die, faces[0], targets, stufe)
+		Engraving.GRINDSTONE:
+			if faces.size() < 2 or EtchingEffects.grindstone(die, faces[0], faces[1], stufe) <= 0:
+				return false
+		_:
+			return false
+	_journal_application(piece, die, before)
+	_consume_press_application(index, rng)
+	note_pool_changed()
+	return true
+
+## Material-Stück: belegt eine Seite. Die Reihe hebt es nicht - aus der Presse
+## kommt Material immer undotiert.
+func apply_press_material(index: int, die: DieDefinition, face: int,
+		rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty() or not press_target_allowed(die):
+		return false
+	if face < 0 or face >= die.materials.size():
+		return false
+	# Der Einbrand sperrt das Übermalen einer belegten Seite.
+	if die.materials[face] != "" and RuneEffects.protects_face_value(die.runes_on(face)):
+		return false
+	var before := _snapshot_die(die)
+	die.set_face_material(face, String(piece.get("id", "")))
+	_journal_application(piece, die, before)
+	_consume_press_application(index, rng)
+	note_pool_changed()
+	return true
+
+## Runen-Stück: dieselbe Rune, Reihe-mal setzbar - jede Setzung eine Seite, nach
+## der normalen Ersetzungs-Regel.
+func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0,
+		rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty() or not press_target_allowed(die):
+		return false
+	var rune_id := Engraving.rune_id_of(String(piece.get("id", "")))
+	if rune_id == "":
+		return false
+	var before := _snapshot_die(die)
+	if not die.set_rune(face, rune_id, slot, extra_rune_slots()):
+		return false
+	_journal_application(piece, die, before)
+	_consume_press_application(index, rng)
+	note_pool_changed()
+	return true
+
+## Leiterbahn-Stück: verdrahtet zwei benachbarte Seiten; Überschreiben erlaubt.
+func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face: int,
+		rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty() or not press_target_allowed(die):
+		return false
+	if String(piece.get("id", "")) != Engraving.POINTER or not die.can_point(from_face, to_face):
+		return false
+	var before := _snapshot_die(die)
+	die.pointers[from_face] = to_face
+	_journal_application(piece, die, before)
+	_consume_press_application(index, rng)
+	note_pool_changed()
+	return true
+
+# --- Der nasse Guss: Setzungen bleiben bis zur Unterschrift vorläufig ----------
+
+## Zustand EINER Seite - alles, was ein Beutestück daran fassen kann.
+func _face_state(die: DieDefinition, face: int) -> Dictionary:
+	return {
+		"face": face,
+		"value": int(die.faces[face]) if face < die.faces.size() else 0,
+		"material": String(die.materials[face]) if face < die.materials.size() else "",
+		"level": int(die.levels[face]) if face < die.levels.size() else 0,
+		"rune": String(die.runes[face]) if face < die.runes.size() else "",
+		"second": String(die.second_runes[face]) if face < die.second_runes.size() else "",
+		"third": String(die.third_runes[face]) if face < die.third_runes.size() else "",
+		"pointer": int(die.pointers[face]) if face < die.pointers.size() else -1,
+	}
+
+## Alle sechs Seiten vor dem Stück. Bewusst der ganze Würfel: welche Seiten es
+## WIRKLICH berührt, sagt hinterher der Vergleich - kein Stück muss seine Ziele
+## selbst melden.
+func _snapshot_die(die: DieDefinition) -> Array[Dictionary]:
+	var states: Array[Dictionary] = []
+	if die == null:
+		return states
+	for face in 6:
+		states.append(_face_state(die, face))
+	return states
+
+## Schreibt die Anwendung ins Journal: gespeichert wird nur, was sich WIRKLICH
+## bewegt hat - eine Seite, die ein späteres Stück nicht angefasst hat, bleibt
+## beim Herausnehmen unangetastet. Das Stück reist als Kopie mit EINER Anwendung
+## mit; seine Nummer wird dem ORIGINAL aufgeprägt, bevor die Kopie sie erbt.
+func _journal_application(piece: Dictionary, die: DieDefinition,
+		before: Array[Dictionary]) -> void:
+	if die == null or before.is_empty():
+		return
+	var touched: Array[Dictionary] = []
+	for state in before:
+		if _face_state(die, int(state["face"])) != state:
+			touched.append(state)
+	if not piece.has("piece_uid"):
+		_mint_press_piece(piece)  # von Hand gelegte Stücke bekommen sie hier
+	var record := piece.duplicate()
+	record["applications"] = 1
+	press_journal.append({"piece": record, "die": die,
+		"die_id": die.get_instance_id(), "faces": touched})
+
+## Seiten-Schlüssel eines Eintrags ("Instanz:Seite") - die Schicht-Regel vergleicht
+## Seiten, nicht Würfel: zwei Stücke auf demselben Würfel stören einander nicht,
+## solange sie verschiedene Seiten fassen.
+func _journal_face_keys(entry: Dictionary) -> Array[String]:
+	var keys: Array[String] = []
+	var die_id := int(entry.get("die_id", 0))
+	for state in entry.get("faces", []):
+		keys.append("%d:%d" % [die_id, int(state["face"])])
+	return keys
+
+## Schicht-Regel: herausnehmbar ist ein Stück nur, solange KEIN später gesetztes
+## eine seiner Seiten berührt hat. Der jüngste Eintrag geht darum immer.
+func press_piece_reseatable(index: int) -> bool:
+	if index < 0 or index >= press_journal.size():
+		return false
+	var keys := _journal_face_keys(press_journal[index])
+	if keys.is_empty():
+		return true
+	for later in range(index + 1, press_journal.size()):
+		for key in _journal_face_keys(press_journal[later]):
+			if keys.has(key):
+				return false
+	return true
+
+## Je Seite dieses Würfels die JÜNGSTE Setzung, die sie berührt hat:
+## face -> {"index": i, "id": gravur, "wet": bool}. Das ist der ganze UI-Eingang
+## des nassen Gusses - die Netzzelle trägt ihre Plakette daran, und ein Klick
+## darauf nimmt genau diesen Eintrag heraus.
+func press_face_marks(die: DieDefinition) -> Dictionary:
+	var marks := {}
+	if die == null:
+		return marks
+	var die_id := die.get_instance_id()
+	for index in press_journal.size():
+		var entry: Dictionary = press_journal[index]
+		if int(entry.get("die_id", 0)) != die_id:
+			continue
+		var wet := press_piece_reseatable(index)
+		for state in entry.get("faces", []):
+			marks[int(state["face"])] = {"index": index,
+				"id": String(entry["piece"].get("id", "")), "wet": wet}
+	return marks
+
+## Journal-Eintrag, den ein Klick auf die Plakette dieser Seite meint (-1 = keiner).
+func press_mark_at(die: DieDefinition, face: int) -> int:
+	var mark: Dictionary = press_face_marks(die).get(face, {})
+	return int(mark.get("index", -1))
+
+## Schreibt die gemerkten Seiten zurück - über dieselben Schreibwege, die sie
+## gesetzt haben (die Dotierung hängt am Material-Exemplar, die Rune an der Schale).
+func _restore_face_states(die: DieDefinition, states: Array) -> void:
+	for state in states:
+		var face := int(state["face"])
+		if face < 0 or face >= 6:
+			continue
+		if face < die.faces.size():
+			die.faces[face] = int(state["value"])
+		die.set_face_material(face, String(state["material"]))
+		if int(state["level"]) >= DieMaterial.MAX_LEVEL:
+			die.dope(face)
+		var extra := extra_rune_slots()
+		die.set_rune(face, String(state["rune"]), 0, extra)
+		die.set_rune(face, String(state["second"]), 1, extra)
+		die.set_rune(face, String(state["third"]), 2, extra)
+		if face < die.pointers.size():
+			die.pointers[face] = int(state["pointer"])
+
+## Nimmt eine Setzung wieder heraus: die berührten Seiten stehen exakt wie davor,
+## das Stück liegt wieder im Vorrat. Geld wird dabei NIE erstattet.
+func unseat_press_piece(index: int) -> bool:
+	if not press_piece_reseatable(index):
+		return false
+	var entry := press_journal[index]
+	var die: DieDefinition = entry.get("die")
+	if die != null:
+		_restore_face_states(die, entry.get("faces", []))
+	press_journal.remove_at(index)
+	press_pieces.append(entry["piece"])
+	press_changed.emit()
+	note_pool_changed()
+	return true
+
+## Die Unterschrift: der Guss erkaltet, jede Setzung dieser Runde steht. Die
+## nassen Chips werden damit stumm - es gibt keinen Eintrag mehr, der sie trüge.
+func harden_press_journal() -> void:
+	if press_journal.is_empty():
+		return
+	press_journal.clear()
+	press_changed.emit()
+
+## Restwert der Hand beim FERTIG: je STÜCK eine Münze, nicht je offener Anwendung -
+## ein Stück ist eine Aufwertung, so oft es auch noch setzen dürfte.
+func press_cash_out_value() -> int:
+	return press_pieces.size() * PhantomPress.FIZZLE_MONEY
+
+## FERTIG: erst hier wird der Guss echt. Vorher ist keine Setzung endgültig. Was
+## noch in der Hand liegt, löst sich dabei in Geld auf: einzeln verkauft wird ein
+## Stück nie, nur die Reste der Hand im Moment des Abschlusses.
+## false = es gibt gar nichts abzuschließen.
+func apply_press_placements() -> bool:
+	if press_journal.is_empty() and press_pieces.is_empty():
+		return false
+	var cash := press_cash_out_value()
+	press_pieces.clear()
+	if cash > 0:
+		add_money(cash)
+	harden_press_journal()
+	press_changed.emit()
+	return true
+
+## DER VERFALL: die Runde ist unterschrieben (oder eine neue hat begonnen), ohne
+## dass angewendet wurde - die ganze Sitzung fällt zurück. Jede Setzung wird über
+## den geprüften Weg herausgenommen (jüngste zuerst, damit die Schicht-Regel immer
+## trägt), die Ablage verfällt, und Geld fließt KEINES: was nicht angewendet
+## wurde, hat nie gezahlt.
+func lapse_press() -> void:
+	if press_journal.is_empty() and press_pieces.is_empty():
+		return
+	while not press_journal.is_empty():
+		if not unseat_press_piece(press_journal.size() - 1):
+			press_journal.clear()  # Notbremse: ein Eintrag, der nicht zurückwill
+			break
+	press_pieces.clear()
+	press_changed.emit()
 
 # --- Übertakten (am Chip): Kombinationen ohne Stufen-Limit aufwerten ---------
 
@@ -674,14 +1145,18 @@ func overclock_cost(combo_key: String) -> int:
 	return overclock_cost_at(combo_level(combo_key), charm_ids())
 
 func can_overclock(combo_key: String) -> bool:
-	return charge >= overclock_cost(combo_key)
+	return free_overclocks > 0 or charge >= overclock_cost(combo_key)
 
-## Kauft die nächste Stufe mit Energie; false = Ladung reicht nicht (dann bleibt
-## alles unverändert). Prüfen-dann-abbuchen wie buy_secret_offer.
+## Kauft die nächste Stufe; false = weder Gutschrift noch Ladung reichen (dann
+## bleibt alles unverändert). Prüfen-dann-abbuchen wie buy_secret_offer. Die
+## Presse-Gutschrift geht VOR der Energie - sonst verfiele sie ungenutzt.
 func overclock_combo(combo_key: String) -> bool:
 	if combo_key == "" or not can_overclock(combo_key):
 		return false
-	spend_charge(overclock_cost(combo_key))
+	if free_overclocks > 0:
+		free_overclocks -= 1
+	else:
+		spend_charge(overclock_cost(combo_key))
 	grant_combo_level(combo_key)
 	return true
 
@@ -698,8 +1173,9 @@ func grant_combo_level(combo_key: String) -> void:
 ## gesetzt; die Klauseln der Runde stehen zu diesem Zeitpunkt schon
 ## (unterschrieben wird VOR dem Rundenstart).
 func apply_round_start_charms() -> void:
-	gravierstift_used_this_round = false
 	roll_essence_round_state()
+	# Die Bank dieser Runde steht, bevor der Shop öffnet - das ist die Spannung.
+	roll_clamped_dice()
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
@@ -744,10 +1220,6 @@ func hottest_combos(count: int) -> Array[String]:
 	return keys.slice(0, maxi(0, count))
 
 ## Der heißeste Chip ("" = keiner) - Kurzform von hottest_combos.
-func hottest_combo() -> String:
-	var hottest := hottest_combos(1)
-	return "" if hottest.is_empty() else hottest[0]
-
 ## Gedrosselte Chips beim Rundenbeginn: nur noch die Hitzewarnung drosselt von
 ## sich aus - der Stresstest hat dafür seine eigenen Konditionen.
 func _round_throttled_combos() -> Array[String]:
@@ -1157,26 +1629,23 @@ func side_bet_stake_factor() -> int:
 func side_bet_stake(bet: SideBet) -> int:
 	return bet.stake * side_bet_stake_factor()
 
-## Fälliger Gravur-Einsatz einer Wette.
-func side_bet_stake_engravings(bet: SideBet) -> int:
-	return bet.stake_engravings * side_bet_stake_factor()
+## Fälliger Paket-Einsatz einer Wette.
+func side_bet_stake_packs(bet: SideBet) -> int:
+	return bet.stake_packs * side_bet_stake_factor()
 
 ## Fälliger Ladungs-Einsatz einer Wette (⚡).
 func side_bet_stake_charge(bet: SideBet) -> int:
 	return bet.stake_charge * side_bet_stake_factor()
 
-## Frankiermaschine: so viele Zahl-Gravuren schenkt sie am Rundenende - je eine
-## pro Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
-const STAMP_ENGRAVINGS := 3
+## Frankiermaschine: so viele 1er-Pakete prägt sie am Rundenende - je eines pro
+## Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
+const STAMP_PACKS := 3
 
-## Würfelt EINE zufällige Zahl-Gravur der Frankiermaschine aus - noch ohne
-## grant: die Gravur liegt erst im Vorrat, wenn ihr Meteor angekommen ist.
-func roll_stamp_engraving() -> Engraving:
-	var number_engravings: Array[Engraving] = []
-	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_NUMBER:
-			number_engravings.append(engraving)
-	return number_engravings[randi() % number_engravings.size()]
+## Würfelt EIN 1er-Gravur-Paket der Frankiermaschine aus (Sorte nach den
+## Regal-Gewichten) - noch ohne grant: es liegt erst im Lager, wenn sein Meteor
+## angekommen ist.
+func roll_stamp_pack() -> Pack:
+	return Pack.roll_engraving_pack()
 
 ## Neue Glückszahl würfeln und sie in die Beschreibung jedes Lumpensammlers
 ## schreiben (die Karten-Instanzen, die der Dock live liest).
@@ -1186,22 +1655,19 @@ func _roll_lumpensammler_value() -> void:
 		if charm.id == Charm.RAG_COLLECTOR:
 			charm.description = Charm.rag_collector_description(lumpensammler_value)
 
-## Schmuckkästchen: je Vorkommen erhält jeder übrige Würfel mit 10% Chance eine
-## zufällige Material-Seite (dauerhaft - Pool-Instanzen). Liefert je Aufwertung
-## {die, face, material_id, copy} - die Zeremonie zeigt jede einzeln, "copy" ist
-## das Exemplar, dem sie gehört (der Dock-Platz, von dem sie ausgeht).
+## Schmuckkästchen: je Vorkommen und übrigem Würfel 10% Chance auf ein
+## Fixinhalt-Mini-Paket des gefundenen Materials - nie auf den Würfel selbst.
+## Liefert je Fund {material_id, copy} für die Zeremonie; "copy" ist das
+## Exemplar, dem er gehört (der Dock-Platz, von dem er ausgeht).
 func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
-	var upgrades: Array[Dictionary] = []
+	var grants: Array[Dictionary] = []
 	for i in charm_ids().count(Charm.JEWELRY_BOX):
-		for die in unused_dice:
+		for _die in unused_dice:
 			if randf() < 0.1:
 				var material: DieMaterial = DieMaterial.all().pick_random()
-				var face := randi() % die.materials.size()
-				die.set_face_material(face, material.id)
-				upgrades.append({"die": die, "face": face, "material_id": material.id, "copy": i})
-	if not upgrades.is_empty():
-		pool_changed.emit()
-	return upgrades
+				grant_material_pack(material)
+				grants.append({"material_id": material.id, "copy": i})
+	return grants
 
 ## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
 ## dauerhaft eine Stufe - höchstens einmal je Runde. true = eingelöst (der
@@ -1249,7 +1715,7 @@ func apply_golden_handshake(def: DieDefinition, hand_points: int) -> bool:
 	return true
 
 ## Durchschlagpapier: die erste gewertete Hand der Runde kopiert jedes oben
-## liegende Material als Gravur in den Vorrat. Liefert die Zahl der Kopien.
+## liegende Material als versiegeltes Fixinhalt-Paket. Liefert die Zahl der Kopien.
 func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 		participating: Array[int], first_hand: bool) -> int:
 	if not first_hand or not _clause_active(DealClause.CARBON_COPY):
@@ -1264,14 +1730,12 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 		var material := DieMaterial.by_id(defs[i].materials[face])
 		if material == null:
 			continue
-		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
-			Engraving.Rarity.UNCOMMON)
-		grant_engraving(Engraving.material_engraving(material, rarity))
+		grant_material_pack(material)
 		copied += 1
 	return copied
 
 ## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
-## dotiert ist, fällt stattdessen eine Kopie ihres Materials in den Vorrat -
+## dotiert ist, fällt stattdessen ein Fixinhalt-Paket ihres Materials an -
 ## einmal je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Kopien.
 func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		participating: Array[int]) -> int:
@@ -1291,16 +1755,14 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		var material := DieMaterial.by_id(defs[i].materials[face])
 		if material == null:
 			continue
-		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
-			Engraving.Rarity.UNCOMMON)
-		grant_engraving(Engraving.material_engraving(material, rarity))
+		grant_material_pack(material)
 		copied += 1
 	return copied
 
 ## Ethylen-Ernte: zählt ein Würfel mit dieser Seele in dieser Runde zum ersten
-## Mal, wandert je VERSCHIEDENEM Material seiner sechs Seiten eine Gravur in den
-## Vorrat - die Druckerpresse legt von jeder eine zweite dazu. Liefert die Zahl
-## der Kopien. Die Marke hängt am Würfel-Exemplar, nicht am Pool-Platz.
+## Mal, fällt je VERSCHIEDENEM Material seiner sechs Seiten ein Fixinhalt-Paket
+## an - die Druckerpresse legt je eine zweite Kopie dazu. Liefert die Zahl der
+## Kopien. Die Marke hängt am Würfel-Exemplar, nicht am Pool-Platz.
 func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int],
 		essences: Dictionary) -> int:
 	var copies := 2 if charm_ids().has(Charm.PRINTING_PRESS) else 1
@@ -1322,16 +1784,14 @@ func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int
 			var material := DieMaterial.by_id(material_id)
 			if material == null:
 				continue
-			var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
-				Engraving.Rarity.UNCOMMON)
 			for _c in copies:
-				grant_engraving(Engraving.material_engraving(material, rarity))
+				grant_material_pack(material)
 				granted += 1
 	return granted
 
 ## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
-## frische Kopie davon in den Vorrat - immer undotiert, der Abguss erbt die
-## Dotierung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
+## frische Kopie davon als versiegeltes Fixinhalt-Paket ins Lager - der Abguss
+## erbt die Dotierung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
 ## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
 ## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
 func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
@@ -1353,11 +1813,9 @@ func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
 		if rune_cast_used.has(key):
 			continue
 		rune_cast_used[key] = true
-		var rarity: Engraving.Rarity = Engraving.MATERIAL_RARITY.get(material.id,
-			Engraving.Rarity.UNCOMMON)
 		var copies := RuneEffects.burin_factor(charm_ids())
 		for _c in copies:
-			grant_engraving(Engraving.material_engraving(material, rarity))
+			grant_material_pack(material)
 			granted += 1
 	return granted
 
@@ -1523,72 +1981,24 @@ func reorder_pool(from_index: int, to_index: int) -> bool:
 	pool_changed.emit()
 	return true
 
-## Verbraucht genau eine Gravur der id; true, wenn eine da war.
-func consume_engraving(id: String) -> bool:
-	return consume_engravings(id, 1)
-
-## Verbraucht count Gravuren derselben id - ALLES ODER NICHTS und mit genau
-## EINEM Signal.
-func consume_engravings(id: String, count: int) -> bool:
-	if unlimited_engravings or count <= 0:
-		return true
-	var found: Array[int] = []
-	for i in owned_engravings.size():
-		if owned_engravings[i].id == id:
-			found.append(i)
-			if found.size() == count:
-				break
-	if found.size() < count:
-		return false
-	# Von hinten löschen, sonst verschieben sich die noch offenen Indizes.
-	for k in range(found.size() - 1, -1, -1):
-		owned_engravings.remove_at(found[k])
-	engravings_changed.emit()
-	return true
-
-## Verbraucht die angewandte Gravur - es sei denn, die Zwinge hält sie fest.
-## true = die Gravur blieb in der Zwinge (der Aufrufer sagt es dem Spieler). Nur
-## ZAHL- und MATERIAL-Gravuren; die Sonderposten und die Runen bleiben außen vor.
-## rng injizierbar, damit ein Test beide Ausgänge erzwingt.
-func consume_applied_engraving(id: String, count: int = 1,
-		rng: RandomNumberGenerator = null) -> bool:
-	if DieMaterial.is_valid_id(id) or Engraving.is_number_id(id):
-		var chance := CharmEffects.engraving_spare_chance(charm_ids())
-		var roll := rng.randf() if rng != null else randf()
-		if chance > 0.0 and roll < chance:
-			consume_engravings(id, count - 1)  # genau EINE bleibt eingespannt
-			return true
-	consume_engravings(id, count)
-	return false
-
-## Bestand einer Gravur-id (Testmodus: immer reichlich).
-func engraving_stock(id: String) -> int:
-	if unlimited_engravings:
-		return 9
-	var count := 0
-	for engraving in owned_engravings:
-		if engraving.id == id:
-			count += 1
-	return count
-
 ## Ob der Einsatz einer Wette bezahlbar ist. Steuerwetten sind immer platzierbar -
 ## sie kosten erst beim Nehmen (und reißen dort ab, siehe tax_side_bets).
 func can_place_side_bet(bet: SideBet) -> bool:
 	match bet.stake_kind:
-		SideBet.Stake.ENGRAVINGS:
-			return owned_engravings.size() >= side_bet_stake_engravings(bet)
+		SideBet.Stake.PACKS:
+			return owned_packs.size() >= side_bet_stake_packs(bet)
 		SideBet.Stake.CHARGE:
 			return charge >= side_bet_stake_charge(bet)
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
 			return true
 	return money >= side_bet_stake(bet)
 
-## Platziert eine Nebenwette: Einsatz sofort fällig (Geld, geopferte Gravuren
+## Platziert eine Nebenwette: Einsatz sofort fällig (Geld, geopferte Pakete
 ## oder Ladung), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
 	match bet.stake_kind:
-		SideBet.Stake.ENGRAVINGS:
-			_consume_engravings(side_bet_stake_engravings(bet))
+		SideBet.Stake.PACKS:
+			_consume_packs(side_bet_stake_packs(bet))
 		SideBet.Stake.CHARGE:
 			spend_charge(side_bet_stake_charge(bet))
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
@@ -1625,14 +2035,14 @@ func tax_side_bets(hand_dice: int) -> int:
 		side_bets_changed.emit()
 	return paid
 
-## Opfert n Gravuren vom Anfang des Inventars (Einsatz einer Gravur-Wette).
-func _consume_engravings(count: int) -> void:
+## Opfert n Pakete vom Anfang des Lagers (Einsatz einer Paket-Wette).
+func _consume_packs(count: int) -> void:
 	var removed := false
-	for i in mini(count, owned_engravings.size()):
-		owned_engravings.remove_at(0)
+	for i in mini(count, owned_packs.size()):
+		owned_packs.remove_at(0)
 		removed = true
 	if removed:
-		engravings_changed.emit()
+		packs_changed.emit()
 
 ## Wertet alle platzierten Wetten gegen die Rundenbilanz aus, schüttet die
 ## Gewinne aus (Gravuren oder Bargeld je payout_kind) und leert die Auslage.
@@ -1649,7 +2059,7 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	return won
 
 ## Schüttet EINEN gewonnenen Einsatz aus. Der Turniernacht-Faktor greift auf
-## Geld, Gravuren und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
+## Geld, Ware und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
 ## verdoppelt er nicht.
 func _pay_side_bet(bet: SideBet, factor: int) -> void:
 	match bet.payout_kind:
@@ -1661,18 +2071,16 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 			if overflow > 0:
 				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # volle Börse zahlt bar
 		SideBet.Payout.SPECIAL:
-			var special := bet.special_engraving()
-			if special != null:
-				grant_engraving(special)
+			grant_engraving_pack(bet.special_engraving())
 		SideBet.Payout.PACK:
-			bet.awarded_pack = Pack.roll_engraving_pack(hub_level)
+			bet.awarded_pack = Pack.roll_engraving_pack()
 			grant_pack(bet.awarded_pack)
 		SideBet.Payout.COMBO_LEVEL:
 			grant_combo_level(bet.target_combo)
 		_:
 			for i in factor:
-				for engraving in bet.reward_list():
-					grant_engraving(engraving)
+				for pack in bet.reward_list():
+					grant_pack(pack)
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 
@@ -1764,6 +2172,8 @@ static func goal_for_round(n: int) -> int:
 ## Die ERSTE Runde eines Laufs bekommt bewusst keine - der Spieler soll einmal
 ## würfeln, bevor das Haus ihm Konditionen anbietet.
 func advance_round() -> void:
+	# Was bis hierhin nicht angewendet wurde, verfällt - samt seinem Geld.
+	lapse_press()
 	round_number += 1
 	round_goal = goal_for_round(round_number)
 	roll_route_offers()
@@ -1911,7 +2321,7 @@ func charge_cap() -> int:
 ## Erwachte Reihen der Bank je Hub-Stufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
 func charge_cap_rows() -> int:
 	if hub_level >= 10:
-		return 5
+		return CHARGE_ROWS_MAX
 	if hub_level >= 7:
 		return 4
 	if hub_level >= 5:
@@ -1940,6 +2350,19 @@ func add_charge(count: int) -> int:
 
 func spend_charge(count: int) -> void:
 	charge = maxi(0, charge - count)
+
+## Bucht die Kupfer-Energie eines Zuges: was in die Börse passt, wird geprägt;
+## was darüber hinausläuft, zahlt bar. Liefert das ausgezahlte Geld - dieselbe
+## Überlauf-Grammatik wie die Stufen-Auszahlung, nur zum Kupfer-Satz.
+func book_copper_charge(count: int) -> int:
+	if count <= 0:
+		return 0
+	var overflow := add_charge(count)
+	if overflow <= 0:
+		return 0
+	var paid := overflow * MaterialEffects.COPPER_OVERFLOW_MONEY
+	add_money(paid)
+	return paid
 
 ## Freischalten des Schwarzmarkts: der Laden steht von Anfang an auf dem Tisch,
 ## aber vergittert - die Lizenzstufe hebt das Gitter, dann liegt die erste
@@ -2000,8 +2423,8 @@ func buy_secret_offer(index: int) -> bool:
 			owned_packs.append(Pack.secret_die(die))
 			packs_changed.emit()
 		_:
-			var engraving: Engraving = offer[OFFER_ITEM]
-			grant_engraving(engraving)
+			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
+			grant_engraving_pack(offer[OFFER_ITEM] as Engraving)
 	offer[OFFER_SOLD] = true
 	secret_stock_changed.emit()
 	return true

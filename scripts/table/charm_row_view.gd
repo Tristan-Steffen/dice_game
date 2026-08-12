@@ -9,7 +9,6 @@ const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-obe
 const LINE_SPACING := 9.0
 const SPOT_Y := 0.0  # Tischoberfläche
 const MODEL_SCALE := 4.0
-const MODEL_FALLBACK := "res://assets/models/rabbits_foot.glb"
 
 ## Anzahl fester Plätze; die Obergrenze besitzbarer Charms führt GameRun, damit
 ## Laden und Tisch nie auseinanderlaufen.

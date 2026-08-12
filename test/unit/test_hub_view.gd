@@ -2,7 +2,7 @@ extends GutTest
 ## Tests der Seiten-Verwaltung des Hubs (HubView): zu jeder Zeit ist höchstens
 ## EINE angehängte Seite ODER die Home-Übersicht (content_root) sichtbar. Die
 ## Seiten öffnen/schließen sich selbst über ihr visible (wie Shop.open() /
-## DieInspectorView.show_die()/close()); der Hub hört auf visibility_changed und
+## Shop.close()); der Hub hört auf visibility_changed und
 ## setzt die Regel durch. Verdrängte Seiten kehren beim Schließen der
 ## verdrängenden zurück (LIFO); reset_pages räumt hart auf (Spiel-Neustart).
 

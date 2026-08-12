@@ -13,6 +13,9 @@ signal closed
 ## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
 ## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln).
 signal pack_purchased(from_px: Vector2, pack_type: String)
+## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
+## scene_root schickt ihn nur noch als Licht in die Truhe.
+signal pack_refunded(from_px: Vector2, amount: int)
 
 const CHARM_PRICE := 15
 
@@ -32,11 +35,10 @@ const NEON_GOLD := Color("#ffd319")
 const NEON_GREEN := Color("#50fa7b")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
-## Kantenlängen der nackten Einzelstücke in Einheiten. Ohne Kasten und ohne
+## Kantenlänge eines nackten Einzelstücks in Einheiten. Ohne Kasten und ohne
 ## Preiszeile bleibt der Platz dem Ding selbst - der Würfel darf größer liegen
-## als die alte Karte hoch war, das Siegel wächst über seine alten u*6 hinaus.
+## als die alte Karte hoch war.
 const SINGLE_DIE_SIZE := 13.0
-const SINGLE_SEAL_SIZE := 8.5
 ## Fuge zwischen zwei Einzelstücken.
 const SINGLE_GAP := 1.0
 ## Innenbreite der Schale in u, aus dem Layout gerechnet: Inhaltsfläche (100
@@ -68,23 +70,6 @@ const FLIP_DURATION := 0.25
 ## Einzelstücke der Chip-Schale: wie viele je Besuch in der Auslage liegen.
 const SINGLE_DICE_MIN := 1
 const SINGLE_DICE_MAX := 2
-const SINGLE_MATERIAL_MIN := 1
-const SINGLE_MATERIAL_MAX := 2
-const SINGLE_OTHER_MIN := 1
-const SINGLE_OTHER_MAX := 2
-
-## Preis einer EINZELNEN Gravur je Seltenheit. Bezugsgröße ist der Stückpreis im
-## Paket (Zahlen-Paket $12 für 4 Stück = $3, Material-Paket $14 für 3 ≈ $4,7):
-## das Einzelstück kostet rund das Doppelte davon und steigt mit der Seltenheit.
-## So ist der Einzelkauf bequem - man nimmt genau das, was man braucht -, aber
-## das Paket bleibt das bessere Geschäft je Stück.
-const SINGLE_ENGRAVING_PRICES := {
-	Engraving.Rarity.COMMON: 6,
-	Engraving.Rarity.UNCOMMON: 9,
-	Engraving.Rarity.RARE: 13,
-	Engraving.Rarity.EPIC: 18,
-	Engraving.Rarity.LEGENDARY: 25,
-}
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
 ## Zurückblättern zeigt exakt diese Seite wieder.
@@ -98,14 +83,13 @@ class MenuSpread:
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	## Einzelstücke der Chip-Schale: OFFENE Würfel (alles vor dem Kauf sichtbar)
-	## und einzelne Gravuren. Sie gehören zur gerollten Auslage - die
-	## Sortiment-Sperre friert sie mit ein, Gekauftes bleibt gekauft.
+	## Einzelstücke der Chip-Schale: OFFENE Würfel, alles vor dem Kauf sichtbar.
+	## Einzel-Gravuren gibt es nicht mehr - das 1er-Paket ist der Einstieg. Sie
+	## gehören zur gerollten Auslage: die Sortiment-Sperre friert sie mit ein,
+	## Gekauftes bleibt gekauft.
 	var single_dice: Array[DieDefinition] = []
 	var single_dice_prices: Array[int] = []
 	var single_dice_bought: Array[bool] = []
-	var single_engravings: Array[Engraving] = []
-	var single_engravings_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
@@ -174,9 +158,6 @@ var single_dice: Array[DieDefinition] = []
 var single_dice_prices: Array[int] = []
 var single_dice_bought: Array[bool] = []
 var single_dice_buttons: Array[Button] = []
-var single_engravings: Array[Engraving] = []
-var single_engravings_bought: Array[bool] = []
-var single_engraving_buttons: Array[Button] = []
 ## Regal-Knöpfe der hinterlegten Würfel und die offene Tausch-Auswahl.
 var stash_buttons: Array[Button] = []
 var exchange_overlay: Panel
@@ -441,7 +422,7 @@ func _build_spread() -> MenuSpread:
 	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
 	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
 	for i in run.shop_pack_slots():
-		spread.engraving_packs.append(Pack.roll_engraving_pack(run.hub_level))
+		spread.engraving_packs.append(Pack.roll_engraving_pack())
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
@@ -461,26 +442,13 @@ func _build_spread() -> MenuSpread:
 	spread.single_dice_bought.resize(spread.single_dice.size())
 	spread.single_dice_bought.fill(false)
 
-	for engraving in Engraving.roll_in_category(Engraving.CATEGORY_MATERIAL,
-			randi_range(SINGLE_MATERIAL_MIN, SINGLE_MATERIAL_MAX)):
-		spread.single_engravings.append(engraving)
-	var other_category := Engraving.CATEGORY_NUMBER if randf() < 0.7 else Engraving.CATEGORY_DICE
-	for engraving in Engraving.roll_in_category(other_category,
-			randi_range(SINGLE_OTHER_MIN, SINGLE_OTHER_MAX)):
-		spread.single_engravings.append(engraving)
-	spread.single_engravings_bought.resize(spread.single_engravings.size())
-	spread.single_engravings_bought.fill(false)
 	return spread
 
-## Preis eines Einzelstücks aus dem Gravur-Regal.
-static func single_engraving_price(engraving: Engraving) -> int:
-	return int(SINGLE_ENGRAVING_PRICES.get(engraving.rarity, 9))
-
-## Würfel-Pakete der Auslage: je Platz eine andere Vorlage (Mengenrabatt sorgt
-## für ein 3er-Bündel), Inhalt bleibt bis zum Öffnen verborgen.
+## Würfel-Pakete der Auslage: je Platz eine andere Vorlage, Inhalt bleibt bis
+## zum Öffnen verborgen.
 func _roll_dice_packs(count: int) -> Array[Pack]:
 	var packs: Array[Pack] = []
-	for template in DiceOffer.pick_templates(count, run.charm_ids()):
+	for template in DiceOffer.pick_templates(count):
 		packs.append(Pack.dice_pack(template))
 	return packs
 
@@ -519,8 +487,6 @@ func _show_spread() -> void:
 	single_dice = spread.single_dice
 	single_dice_prices = spread.single_dice_prices
 	single_dice_bought = spread.single_dice_bought
-	single_engravings = spread.single_engravings
-	single_engravings_bought = spread.single_engravings_bought
 
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
@@ -546,7 +512,6 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	charm_buttons.clear()
 	engraving_pack_buttons.clear()
 	single_dice_buttons.clear()
-	single_engraving_buttons.clear()
 
 	var main_row := HBoxContainer.new()
 	main_row.add_theme_constant_override("separation", int(u * 1.6))
@@ -619,8 +584,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_deck.add_child(singles)
-	var single_scale := _singles_scale(_unsold(spread.single_dice_bought),
-		_unsold(spread.single_engravings_bought))
+	var single_scale := _singles_scale(_unsold(spread.single_dice_bought))
 	# Gekauftes liegt nicht mehr da: die Schale zeigt, was noch zu haben ist. Die
 	# *_bought-Flags bleiben im Spread, also zeigt die Sortiment-Sperre denselben
 	# Laden mit der verkauften Ware fort. Die Knopf-Listen bleiben index-treu
@@ -630,11 +594,6 @@ func _rebuild_content(spread: MenuSpread) -> void:
 			single_dice_buttons.append(null)
 			continue
 		singles.add_child(_build_single_die_card(i, single_scale))
-	for i in spread.single_engravings.size():
-		if spread.single_engravings_bought[i]:
-			single_engraving_buttons.append(null)
-			continue
-		singles.add_child(_build_single_engraving_card(i, single_scale))
 
 	# Das Regal des Händlers: schmal, unter der Schale, und nur da, wenn wirklich
 	# etwas hinterlegt ist. Es ist KEINE zweite Schale - die Ware ist schon bezahlt.
@@ -869,12 +828,11 @@ func _unsold(bought: Array[bool]) -> int:
 ## Gemeinsamer Maßstab der Einzelstücke: die Auslage darf nie breiter werden als
 ## die Schale. Bei voller Auslage schrumpfen ALLE Stücke gleich weit - ein
 ## einzelnes Stück in Sondergröße wäre keine Schale mehr.
-func _singles_scale(dice_count: int, seal_count: int) -> float:
-	var pieces := dice_count + seal_count
-	if pieces <= 1:
+func _singles_scale(dice_count: int) -> float:
+	if dice_count <= 1:
 		return 1.0
-	var wanted := float(dice_count) * SINGLE_DIE_SIZE + float(seal_count) * SINGLE_SEAL_SIZE
-	var room := BOWL_INNER_U - float(pieces - 1) * SINGLE_GAP
+	var wanted := float(dice_count) * SINGLE_DIE_SIZE
+	var room := BOWL_INNER_U - float(dice_count - 1) * SINGLE_GAP
 	if wanted <= room:
 		return 1.0
 	return maxf(SINGLE_MIN_SCALE, room / wanted)
@@ -903,21 +861,6 @@ func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 	card.mouse_exited.connect(_hide_shop_tooltip)
 	card.pressed.connect(_on_single_die_pressed.bind(index))
 	single_dice_buttons.append(card)
-	return card
-
-## EINZELNE Gravur der Chip-Schale: das Siegel allein, ohne Karte darum.
-func _build_single_engraving_card(index: int, scale_factor: float = 1.0) -> Button:
-	var engraving := single_engravings[index]
-	var price := single_engraving_price(engraving)
-	var seal := EngravingRenderer.for_engraving(engraving)
-	var side := u * SINGLE_SEAL_SIZE * scale_factor
-	seal.custom_minimum_size = Vector2.ONE * side
-	var card := _bare_single(seal, Vector2.ONE * side)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, engraving.display_name,
-		engraving.description, price))
-	card.mouse_exited.connect(_hide_shop_tooltip)
-	card.pressed.connect(_on_single_engraving_pressed.bind(index))
-	single_engraving_buttons.append(card)
 	return card
 
 ## Ein Einzelstück LIEGT in der Schale: der Knopf bleibt (Hover und Klick), er ist
@@ -1017,17 +960,6 @@ func _build_stash_thumb(index: int, scale_factor: float) -> Button:
 	thumb.pressed.connect(_open_exchange_picker.bind(index))
 	stash_buttons.append(thumb)
 	return thumb
-
-## Kauf einer einzelnen Gravur: sie wandert direkt in den Vorrat.
-func _on_single_engraving_pressed(index: int) -> void:
-	var engraving := single_engravings[index]
-	var price := single_engraving_price(engraving)
-	if single_engravings_bought[index] or run.money < price:
-		return
-	run.add_money(-price)
-	run.grant_engraving(engraving)
-	single_engravings_bought[index] = true
-	_show_spread()
 
 ## Regal-Reihe eines VERSIEGELTEN Pakets: Siegel links, Sorte und Menge daneben,
 ## Preis rechts - nie der Inhalt selbst. Flache Reihen statt Hochkant-Karten:
@@ -1304,7 +1236,7 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 ## Gravur-Pakete ihren festen Sortenpreis; der Schnäppchenjäger zieht danach
 ## von JEDER Sorte ab.
 func _pack_price(pack: Pack) -> int:
-	var base := CharmEffects.die_price(pack.price, run.charm_ids(), pack.count) if pack.is_dice_pack() else pack.price
+	var base := CharmEffects.die_price(pack.price, run.charm_ids()) if pack.is_dice_pack() else pack.price
 	return run.shop_price(CharmEffects.pack_price(base, pack.type, run.charm_ids()))
 
 ## Der Hausgutschein schenkt den ERSTEN Charm des Blocks - danach zählt
@@ -1328,7 +1260,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	var from_px := Vector2.ZERO
 	if index < buttons.size() and is_instance_valid(buttons[index]):
 		from_px = buttons[index].get_global_rect().get_center()
-	run.purchase_pack(pack, price)
+	var refunded := run.purchase_pack(pack, price)
 	# Liegt im Spread - übersteht den Neuaufbau.
 	if is_dice:
 		dice_pack_bought[index] = true
@@ -1336,6 +1268,8 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 		engraving_pack_bought[index] = true
 	if from_px != Vector2.ZERO:
 		pack_purchased.emit(from_px, pack.type)
+		if refunded > 0:
+			pack_refunded.emit(from_px, refunded)
 	_show_spread()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
@@ -1368,11 +1302,6 @@ func _refresh_afford_state() -> void:
 		if single_dice_buttons[i] == null:
 			continue  # verkauft: liegt nicht mehr in der Schale
 		single_dice_buttons[i].disabled = single_dice_bought[i] or money < single_dice_prices[i]
-	for i in single_engraving_buttons.size():
-		if single_engraving_buttons[i] == null:
-			continue  # verkauft: liegt nicht mehr in der Schale
-		single_engraving_buttons[i].disabled = single_engravings_bought[i] \
-			or money < single_engraving_price(single_engravings[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

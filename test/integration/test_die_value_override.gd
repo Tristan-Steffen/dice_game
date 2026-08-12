@@ -38,7 +38,7 @@ func _top_label(slot: int) -> Label3D:
 
 func test_the_green_is_the_same_one_the_workbench_uses() -> void:
 	# "Grün heißt vorläufig" muss überall dasselbe Grün sein.
-	assert_eq(DieInspectorView.PREVIEW_UP, DieFaceDisplay.PREVIEW_NUMBER_COLOR)
+	assert_eq(PressNetView.PREVIEW_UP, DieFaceDisplay.PREVIEW_NUMBER_COLOR)
 
 func test_override_writes_the_top_face_in_green() -> void:
 	dice.set_value_overrides({0: 6})

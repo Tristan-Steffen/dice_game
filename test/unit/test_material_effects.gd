@@ -323,10 +323,12 @@ func test_amber_pays_the_eye_sum_in_both_states():
 		"dotiert: 5 × 21, ohne festen Zuschlag")
 
 func test_amber_keeps_the_amber_room_surplus_in_both_states():
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 1, 21), 121,
-		"20 + 80 Aufschlag + 21")
-	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 2, 21), 185,
-		"5 × 21 + 80 Aufschlag - der Aufschlag wird nie zum Faktor")
+	var surplus := MaterialEffects.AMBER_ROOM_SURPLUS
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 1, 21),
+		MaterialEffects.AMBER_BASE + surplus + 21, "20 + Aufschlag + 21")
+	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, _ids([Charm.AMBER_ROOM]), 2, 21),
+		MaterialEffects.AMBER_EYE_FACTOR * 21 + surplus,
+		"5 × 21 + Aufschlag - der Aufschlag wird nie zum Faktor")
 
 func test_amber_doping_flows_through_the_score():
 	var dice := _d([5, 5, 1, 2, 3, 6])
@@ -397,12 +399,13 @@ func test_material_crit_fires_at_its_own_die_not_at_the_end():
 	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 2))
 	assert_eq(score, 180, "20 × (2 ×2 + 5)")
 
-func test_material_crit_lands_before_beherit_on_the_same_die():
-	# Slot 0: Mult 2 -> Material-Krit ×2 -> Beherit ×1,5 = 6, dann Glas +5 = 11.
+func test_the_material_crit_lands_in_the_die_phase_beherit_only_after_it():
+	# Slot 0: Mult 2 -> Material-Krit ×2 = 4, dann Glas +5 = 9 - und ERST in der
+	# Charm-Phase Beherit ×6 (1 + niedrigste gewertete 5) = 54.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
 	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.BEHERIT]), false, mats, {}, _ctx_lvl(0, 2))
-	assert_eq(score, 220, "20 × 11")
+	assert_eq(score, 1080, "20 × 54")
 
 func test_breakdown_mirrors_the_material_crit():
 	var dice := _d([5, 5, 1, 2, 3, 6])

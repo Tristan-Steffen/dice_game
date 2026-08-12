@@ -24,12 +24,12 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 	DISTINCT_COMBOS, HAND_LIMIT, COMEBACK, HIGH_DICE, CLEARED, MAX_HAND_DICE,
 	FULL_HANDS, NO_REPEAT, NO_FALLBACK }
 
-## Womit der Einsatz bezahlt wird. MONEY/ENGRAVINGS/CHARGE sind beim Platzieren
+## Womit der Einsatz bezahlt wird. MONEY/PACKS/CHARGE sind beim Platzieren
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
-enum Stake { MONEY, ENGRAVINGS, MONEY_PER_HAND, MONEY_PER_DIE, CHARGE }
+enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, CHARGE }
 ## Was der Gewinn ausschüttet.
-enum Payout { ENGRAVINGS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL }
+enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL }
 
 ## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
 ## die Nebenwetten überhaupt installiert, GameRun.HUB_SIDE_BETS_LEVEL).
@@ -50,10 +50,10 @@ var target_combo: String = ""   # COMBO/COMBO_LEVEL: DiceScoring-Kategorie-Key
 var target_factor: float = 0.0
 var stake_kind: int = Stake.MONEY
 var stake: int = 0              # Geld-Einsatz (einmalig bzw. je Hand/Würfel)
-var stake_engravings: int = 0      # nur Stake.ENGRAVINGS: Anzahl geopferter Gravuren
+var stake_packs: int = 0           # nur Stake.PACKS: Anzahl geopferter Pakete
 var stake_charge: int = 0          # nur Stake.CHARGE: Ladung (⚡)
-var payout_kind: int = Payout.ENGRAVINGS
-var reward_engravings: int = 1     # nur Payout.ENGRAVINGS: Anzahl gewürfelter Aufwertungen
+var payout_kind: int = Payout.PACKS
+var reward_packs: int = 1          # nur Payout.PACKS: Anzahl versiegelter Pakete
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var payout_charge: int = 0     # nur Payout.CHARGE: Gewinn in Ladung (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
@@ -90,10 +90,10 @@ const TEMPLATES := [
 	{"id": "jackpot", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
 		"stake": 6, "payout": Payout.MONEY, "payout_money": 18, "name": "Jackpot",
 		"desc": "Nimm ein Full House oder besser."},
-	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1,
+	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"payout": Payout.MONEY, "payout_money": 16, "name": "Pfandleihe",
 		"desc": "Räume die Runde ohne Farkle."},
-	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1,
+	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"reward": 2, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Farkle."},
 	# --- Salon (5) ---
@@ -111,11 +111,11 @@ const TEMPLATES := [
 		"unlock": 5, "desc": "Räume die Runde - jede genommene Hand kostet."},
 	# --- VIP-Lounge (6) ---
 	{"id": "collateral", "condition": Condition.HAND_SCORE, "target_factor": 1.3,
-		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 2,
+		"stake_kind": Stake.PACKS, "stake_packs": 2,
 		"payout": Payout.MONEY, "payout_money": 34, "name": "Sicherheit",
 		"unlock": 6, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "refinement", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1, "reward": 3, "name": "Veredelung",
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 3, "name": "Veredelung",
 		"unlock": 6, "desc": "Nimm eine Große Straße."},
 	{"id": "connoisseur", "condition": Condition.DISTINCT_COMBOS, "target": 3,
 		"stake": 6, "reward": 2, "name": "Kenner", "unlock": 6,
@@ -145,7 +145,7 @@ const TEMPLATES := [
 		"unlock": 7, "desc": "Nimm nie die Höchste Zahl."},
 	# --- Penthouse (8) ---
 	{"id": "deep_charge", "condition": Condition.OVERCHARGE, "target": 4,
-		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1, "reward": 3,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 3,
 		"name": "Tiefenladung", "unlock": 8,
 		"desc": "Räume mindestens vier Überladungs-Stufen."},
 	{"id": "blank_check", "condition": Condition.FIRST_HAND, "target_factor": 1.2,
@@ -160,7 +160,7 @@ const TEMPLATES := [
 		"desc": "Nimm ein Full House oder besser."},
 	# --- Privatclub (9) ---
 	{"id": "collector", "condition": Condition.DISTINCT_COMBOS, "target": 5,
-		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1, "reward": 4,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 4,
 		"name": "Sammler", "unlock": 9,
 		"desc": "Nimm fünf verschiedene Kombinationen."},
 	{"id": "whale", "condition": Condition.HAND_SCORE, "target_factor": 2.5,
@@ -170,7 +170,7 @@ const TEMPLATES := [
 		"stake": 10, "payout": Payout.PACK, "name": "Warensendung", "unlock": 9,
 		"desc": "Räume die Runde mit höchstens 8 genommenen Würfeln."},
 	{"id": "full_grip", "condition": Condition.FULL_HANDS,
-		"stake_kind": Stake.ENGRAVINGS, "stake_engravings": 1, "reward": 4,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 4,
 		"name": "Vollgriff", "unlock": 9,
 		"desc": "Nimm jede Hand mit allen sechs Würfeln."},
 	# --- High Roller (10): die Sonderposten ---
@@ -179,17 +179,13 @@ const TEMPLATES := [
 		"name": "Platinenauftrag", "unlock": 10,
 		"desc": "Räume mindestens fünf Überladungs-Stufen."},
 	{"id": "clean_room", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
-		"stake": 20, "payout": Payout.SPECIAL, "special": Engraving.DOPING,
-		"name": "Reinraum", "unlock": 10,
+		"stake": 20, "reward": 4, "name": "Reinraum", "unlock": 10,
 		"desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "all_in_hand", "condition": Condition.HAND_LIMIT, "target": 1,
 		"stake": 15, "reward": 5, "name": "Alles auf eine Hand", "unlock": 10,
 		"desc": "Räume die Runde mit einer einzigen Hand."},
 ]
 
-## Gravur-Kategorien, die ein Gewinn ausschüttet (Zahl + Material; kein Menü/
-## Würfel-Sonderfall, damit die Belohnung immer im Inventar landet).
-const REWARD_KINDS := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL]
 
 ## Kleinstes ausgelegtes Punktziel.
 const MIN_TARGET := 25
@@ -213,10 +209,10 @@ static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
 	bet.target_factor = float(t.get("target_factor", 0.0))
 	bet.stake_kind = int(t.get("stake_kind", Stake.MONEY))
 	bet.stake = int(t.get("stake", 0))
-	bet.stake_engravings = int(t.get("stake_engravings", 0))
+	bet.stake_packs = int(t.get("stake_packs", 0))
 	bet.stake_charge = int(t.get("stake_charge", 0))
-	bet.payout_kind = int(t.get("payout", Payout.ENGRAVINGS))
-	bet.reward_engravings = int(t.get("reward", 1))
+	bet.payout_kind = int(t.get("payout", Payout.PACKS))
+	bet.reward_packs = int(t.get("reward", 1))
 	bet.payout_money = int(t.get("payout_money", 0))
 	bet.payout_charge = int(t.get("payout_charge", 0))
 	bet.special_id = t.get("special", "")
@@ -410,17 +406,12 @@ func status_label(result: Dictionary) -> String:
 			return "Rückfall!" if bool(result.get("fallback_taken", false)) else "sauber"
 	return ""
 
-## Die bei Gewinn gutzuschreibenden Gravuren (zufällig aus REWARD_KINDS).
-func reward_list() -> Array[Engraving]:
-	var pool: Array[Engraving] = []
-	for engraving in Engraving.all():
-		if REWARD_KINDS.has(engraving.category):
-			pool.append(engraving)
-	var result: Array[Engraving] = []
-	if pool.is_empty():
-		return result
-	for i in reward_engravings:
-		result.append(pool[randi() % pool.size()])
+## Die bei Gewinn gutzuschreibenden Pakete - Sorte je nach Regal-Gewichten.
+## Versiegelt, nie lose: die Presse an der Werkbank macht daraus Beute.
+func reward_list() -> Array[Pack]:
+	var result: Array[Pack] = []
+	for i in reward_packs:
+		result.append(Pack.roll_engraving_pack())
 	return result
 
 ## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
@@ -432,14 +423,14 @@ func special_engraving() -> Engraving:
 			return engraving
 	return null
 
-## Einsatz-Etikett: Geld, geopferte Gravuren, Ladung oder laufende Steuer.
+## Einsatz-Etikett: Geld, geopferte Pakete, Ladung oder laufende Steuer.
 ## factor = Deal-Aufschlag (Quotenpaket) - der Knopf muss den WIRKLICH fälligen
 ## Einsatz zeigen.
 func stake_label(factor: int = 1) -> String:
 	match stake_kind:
-		Stake.ENGRAVINGS:
-			var count := stake_engravings * factor
-			return "%d Gravur%s" % [count, "" if count == 1 else "en"]
+		Stake.PACKS:
+			var count := stake_packs * factor
+			return "%d Paket%s" % [count, "" if count == 1 else "e"]
 		Stake.MONEY_PER_HAND:
 			return "$%d je Hand" % (stake * factor)
 		Stake.MONEY_PER_DIE:
@@ -448,7 +439,7 @@ func stake_label(factor: int = 1) -> String:
 			return "%d ⚡" % (stake_charge * factor)
 	return "$%d" % (stake * factor)
 
-## Gewinn-Etikett: Barbetrag oder Anzahl gewürfelter Gravuren (klar benannt, damit
+## Gewinn-Etikett: Barbetrag oder Anzahl versiegelter Pakete (klar benannt, damit
 ## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt). factor wie oben -
 ## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt die Turniernacht NICHT.
 ## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
@@ -466,5 +457,5 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 			return "1 Paket"
 		Payout.COMBO_LEVEL:
 			return "+1 Stufe"
-	var count := reward_engravings * factor
-	return "%d Gravur%s" % [count, "" if count == 1 else "en"]
+	var count := reward_packs * factor
+	return "%d Paket%s" % [count, "" if count == 1 else "e"]

@@ -7,6 +7,11 @@ class_name DieNetView
 
 const GAP_FACTOR := 0.1  # Zellabstand relativ zur Zellgröße
 
+## Zellgröße (Breiteneinheiten u), in der ein Würfel gezeigt wird, wo man ÜBER
+## ihn entscheidet - Paket-Wahl und Platzierung. Die Hover-Karte ist kleiner:
+## sie ist nur Auskunft.
+const TRAY_TILE := 5.0
+
 # Kreuz-Layout Zelle -> physischer Face-Index (DiceController.AXIS_FACE_INDEX):
 #          [OBEN=3]
 # [LINKS=1][VORNE=0][RECHTS=4][HINTEN=5]

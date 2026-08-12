@@ -29,7 +29,9 @@ func test_all_returns_all_charms():
 	# (zu flach oder zu eng) und der Rubinschleifer, dessen Wirkung der Blood
 	# Diamond geerbt hat.
 	# −2 mit der Dotierung: Politur und Gießkanne hatten keine Stufenleiter mehr.
-	assert_eq(Charm.all().size(), 145)
+	# −1 mit der Presse: der Gravierstift schonte einen Verbrauchs-Haushalt, den
+	# es nicht mehr gibt.
+	assert_eq(Charm.all().size(), 144)
 
 func test_all_ids_are_unique():
 	var seen := {}

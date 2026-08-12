@@ -122,6 +122,10 @@ const UPGRADE_PICK_LAYER := 128
 const PREVIEW_COLOR := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const COST_COLOR := CasinoStyle.CHARGE    # bezahlbar - dieselbe ⚡-Signalfarbe
 const COST_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
+## Eine gebankte Gratis-Stufe (GameRun.free_overclocks) ERSETZT den Preis, sie rechnet ihn
+## nicht auf null: "kostet nichts" und "wird nicht bezahlt" sind zwei Zustände.
+const FREE_TEXT := "GRATIS"
+const FREE_COLOR := LEVEL_COLOR_GOLD
 
 ## Hervorhebung der gewürfelten Hand (0..1): hebt Glas und Band an.
 var glow := 0.0
@@ -147,6 +151,8 @@ var _pick_body: StaticBody3D
 ## Angebot der nächsten Stufe (nur beim Zeigerkontakt sichtbar).
 var _cost := 0
 var _cost_affordable := false
+## Eine gebankte Gratis-Stufe liegt bereit (GameRun.free_overclocks).
+var _free := false
 var _next_points := 0
 var _next_mult := 0
 var _hover := false
@@ -309,8 +315,8 @@ func _layout_labels() -> void:
 	_mult_label.modulate = PREVIEW_COLOR if _hover else MULT_COLOR
 	_points_label.pixel_size = SCORE_HEIGHT * _sz / float(FONT_SIZE)
 	_mult_label.pixel_size = _points_label.pixel_size
-	_cost_label.text = "⚡%d" % _cost if _hover else ""
-	_cost_label.modulate = COST_COLOR if _cost_affordable else COST_DIM
+	_cost_label.text = upgrade_cost_text(_cost, _free) if _hover else ""
+	_cost_label.modulate = upgrade_cost_tint(_free, _cost_affordable)
 	_cost_label.pixel_size = _level_label.pixel_size
 
 	# Untere Zeile von links: Punkte, ×Mult; rechtsbündig Preis und Stufe.
@@ -425,14 +431,28 @@ func set_upgrade_visible(on: bool) -> void:
 	if not on:
 		set_upgrade_hover(false)
 
-## Das Angebot der nächsten Stufe: Preis, ob die Bank ihn deckt, und die Werte
-## danach. Sichtbar wird davon nichts - erst der Zeigerkontakt zeigt es.
-func set_upgrade_offer(cost: int, affordable: bool, next_points: int, next_mult: int) -> void:
-	if cost == _cost and affordable == _cost_affordable \
-			and next_points == _next_points and next_mult == _next_mult:
+## Was auf dem Preisplatz steht: eine gebankte Gratis-Stufe verdrängt die Zahl.
+static func upgrade_cost_text(cost: int, free: bool) -> String:
+	return FREE_TEXT if free else "⚡%d" % cost
+
+## Seine Farbe - die eine Bezahlbarkeits-Auskunft des Chips. Gratis ist immer
+## golden: es gibt nichts, was daran nicht reichen könnte.
+static func upgrade_cost_tint(free: bool, affordable: bool) -> Color:
+	if free:
+		return FREE_COLOR
+	return COST_COLOR if affordable else COST_DIM
+
+## Das Angebot der nächsten Stufe: Preis, ob die Bank ihn deckt, die Werte danach
+## und ob eine Gratis-Stufe gebankt liegt. Sichtbar wird davon nichts - erst der
+## Zeigerkontakt zeigt es.
+func set_upgrade_offer(cost: int, affordable: bool, next_points: int, next_mult: int,
+		free: bool = false) -> void:
+	var same_price := cost == _cost and affordable == _cost_affordable and free == _free
+	if same_price and next_points == _next_points and next_mult == _next_mult:
 		return
 	_cost = cost
 	_cost_affordable = affordable
+	_free = free
 	_next_points = next_points
 	_next_mult = next_mult
 	if _hover:

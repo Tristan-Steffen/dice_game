@@ -304,7 +304,9 @@ func mint_chip(value: int, incoming: bool) -> void:
 	var start := slot if incoming else pile
 	var end := pile if incoming else slot
 
-	var move := create_tween()
+	# An den Chip gebunden: räumt clear_mints ihn ab, sterben die Tweens mit -
+	# sonst feuern ihre Lambdas später auf einen freigegebenen Chip.
+	var move := chip.create_tween()
 	move.tween_method(func(a: float) -> void:
 		if not is_instance_valid(chip):
 			return
@@ -316,7 +318,7 @@ func mint_chip(value: int, incoming: bool) -> void:
 		if is_instance_valid(chip):
 			chip.queue_free())
 
-	var scale_tw := create_tween()
+	var scale_tw := chip.create_tween()
 	if incoming:
 		chip.scale = Vector3.ZERO
 		scale_tw.tween_property(chip, "scale", Vector3.ONE, MINT_TIME * 0.45) \

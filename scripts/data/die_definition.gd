@@ -92,7 +92,7 @@ func dope(face: int) -> bool:
 
 ## Wie viele Runen diese Schale je Seite trägt: das Vakuum saugt das Kernlicht
 ## nach innen und hält ohne Innendruck eine zweite Rune aus - unter der
-## Glasglocke unter der Glasglocke eine dritte. extra kommt vom Aufrufer, der die Charms kennt (die
+## Glasglocke eine dritte. extra kommt vom Aufrufer, der die Charms kennt (die
 ## Def kennt sie nicht); ohne Vakuum bleibt es bei einer Rune.
 func rune_slots(extra: int = 0) -> int:
 	if essence_id != Essence.VACUUM:

@@ -4,48 +4,43 @@ extends Resource
 ## später in der Werkstatt. Der Inhalt wird ERST beim Öffnen ausgewürfelt - der
 ## Kauf entscheidet nur die Sorte. ids sind Konstanten, damit Tippfehler
 ## Compilerfehler sind.
+##
+## Ein Gravur-Paket ist GENAU EIN Phantomwürfel (PhantomPress): seine sechs
+## Seiten tragen die sechs Icons seiner Sorte, und benachbarte Leser mit demselben
+## Icon heben einander. Mehrere Pakete auf einmal zu öffnen ist die einzige
+## Schiene, auf der Beute stärker wird.
 
 ## Paketsorten. Die drei Gravur-Sorten bilden auf Engraving-Kategorien ab
 ## (siehe engraving_category), Würfel-Pakete auf eine DiceOffer-Vorlage.
 const TYPE_NUMBER := "number"
 const TYPE_MATERIAL := "material"
 const TYPE_DICE := "dice"
-const TYPE_MIXED := "mixed"
-## Nur Automaten-Gewinn: liegt nie im Regal, darum ohne SHELF_WEIGHTS-Eintrag.
+## Runen-Paket: liegt seit dem Werkstatt-Umbau auch im Regal, nicht mehr nur im
+## Automaten.
 const TYPE_DICE_MOD := "dice_mod"
 
-## Inhaltsmenge und Preis je Gravur-Sorte - die Sorte STEUERT die Häufigkeit:
-## viele Zahlen, mäßig Materialien.
-const NUMBER_COUNT := 4
-const MATERIAL_COUNT := 3
-const MIXED_COUNT := 4
-const DICE_MOD_COUNT := 2
+## Ein Gravur-Paket = ein Phantomwürfel. Die Zahl steht als Konstante, damit
+## niemand sie an einer Fabrik wieder aufbläht.
+const ENGRAVING_PACK_COUNT := 1
 
-const NUMBER_PRICE := 12
-const MATERIAL_PRICE := 14
-const MIXED_PRICE := 15
+## Preise je 1er-Paket - Runen sind die teuerste Sorte, sechs Zahlen-Pakete sind
+## der Lauf auf den Sechserpasch.
+const NUMBER_PRICE := 5
+const MATERIAL_PRICE := 6
+const DICE_MOD_PRICE := 7
 
 ## Auslage-Gewichte der Gravur-Pakete (relativ).
 const SHELF_WEIGHTS := {
 	TYPE_NUMBER: 6,
 	TYPE_MATERIAL: 3,
-	TYPE_MIXED: 2,
-}
-
-## Kategorie-Gewichte JE STÜCK eines gemischten Pakets - dieselbe Häufigkeits-
-## Idee wie die Auslage: viele Zahlen, mäßig Material, selten eine Würfel-Gravur.
-const MIXED_CATEGORY_WEIGHTS := {
-	Engraving.CATEGORY_NUMBER: 6,
-	Engraving.CATEGORY_MATERIAL: 3,
-	Engraving.CATEGORY_DICE: 1,
+	TYPE_DICE_MOD: 2,
 }
 
 const TYPE_NAMES := {
 	TYPE_NUMBER: "Zahlen-Paket",
 	TYPE_MATERIAL: "Material-Paket",
 	TYPE_DICE: "Würfel-Paket",
-	TYPE_MIXED: "Gemischtes Paket",
-	TYPE_DICE_MOD: "Würfel-Gravur-Paket",
+	TYPE_DICE_MOD: "Runen-Paket",
 }
 
 @export var type: String = TYPE_NUMBER
@@ -58,12 +53,13 @@ const TYPE_NAMES := {
 ## Alle Auswahl-Würfel dieses Pakets tragen garantiert eine Seele - so kommt das
 ## Würfel-Paket der Hub-Belohnung heraus. Der Unikat-Ausschluss gilt weiter.
 @export var essence_guaranteed: bool = false
-## Eigene Mindest-Seltenheit des Inhalts; der Automat prägt seine Maschinen-Stufe
-## hier hinein. Beim Öffnen gilt die HÖHERE von Paket und Hub.
-@export var rarity_floor: int = Engraving.Rarity.COMMON
 ## Genau DIESER Würfel liegt im Paket (Schwarzmarkt): nichts wird nachgewürfelt -
 ## die Seele, die der Spieler im Regal gesehen hat, ist die, die er auspackt.
 @export var fixed_die: DieDefinition = null
+## Genau DIESE Gravur liegt im Paket (Abguss, Schmuckkästchen, Schwarzmarkt-
+## Sonderposten). Ihr Phantomwürfel landet FEST auf diesem Icon und lässt sich
+## nicht nachwürfeln - er spielt in der Hand trotzdem mit. Spiegel von fixed_die.
+@export var fixed_engraving: Engraving = null
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -75,21 +71,36 @@ static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pa
 	return pack
 
 static func number_pack() -> Pack:
-	return _make(TYPE_NUMBER, NUMBER_COUNT, NUMBER_PRICE,
-		"%d Zahlen-Gravuren, versiegelt." % NUMBER_COUNT)
+	return _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, NUMBER_PRICE,
+		"Ein Phantomwurf auf die sechs Zahlen-Gravuren, versiegelt.")
 
 static func material_pack() -> Pack:
-	return _make(TYPE_MATERIAL, MATERIAL_COUNT, MATERIAL_PRICE,
-		"%d Material-Gravuren, versiegelt." % MATERIAL_COUNT)
+	return _make(TYPE_MATERIAL, ENGRAVING_PACK_COUNT, MATERIAL_PRICE,
+		"Ein Phantomwurf auf die sechs Materialien, versiegelt.")
 
-## Würfel-Gravur-Paket: reiner Automaten-Gewinn, darum Preis 0.
 static func dice_mod_pack() -> Pack:
-	return _make(TYPE_DICE_MOD, DICE_MOD_COUNT, 0,
-		"%d Würfel-Gravuren, versiegelt." % DICE_MOD_COUNT)
+	return _make(TYPE_DICE_MOD, ENGRAVING_PACK_COUNT, DICE_MOD_PRICE,
+		"Ein Phantomwurf auf die sechs Runen, versiegelt.")
 
-static func mixed_pack() -> Pack:
-	return _make(TYPE_MIXED, MIXED_COUNT, MIXED_PRICE,
-		"%d Gravuren quer durch alle Sorten, versiegelt." % MIXED_COUNT)
+## Fixinhalt-Paket: der Phantomwürfel liegt fest auf diesem Icon. Preis 0 - so
+## etwas wird gefunden oder abgegossen, nie verkauft.
+static func fixed_engraving_pack(engraving: Engraving) -> Pack:
+	if engraving == null:
+		return number_pack()
+	var pack := _make(pack_type_for_category(engraving.category), ENGRAVING_PACK_COUNT, 0,
+		"%s, versiegelt." % engraving.display_name)
+	pack.display_name = engraving.display_name
+	pack.fixed_engraving = engraving
+	return pack
+
+## Paketsorte einer Gravur-Kategorie (Umkehrung von engraving_category).
+static func pack_type_for_category(category: String) -> String:
+	match category:
+		Engraving.CATEGORY_MATERIAL:
+			return TYPE_MATERIAL
+		Engraving.CATEGORY_DICE:
+			return TYPE_DICE_MOD
+	return TYPE_NUMBER
 
 ## Würfel-Paket zu einer DiceOffer-Vorlage: die Sorte ist bekannt, die Augen
 ## nicht. Veredelungen kosten hier keinen Aufschlag - das ist der Blindkauf-Bonus.
@@ -102,8 +113,7 @@ const DICE_PACK_PICK_SURCHARGE := 4
 static func dice_pack(template: Dictionary) -> Pack:
 	var count := int(template["count"])
 	var price := int(template["price"]) + (count - 1) * DICE_PACK_PICK_SURCHARGE
-	var text := "%s, ungeöffnet." % template["name"] if count == 1 \
-		else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
+	var text := "%s, ungeöffnet." % template["name"] if count == 1 else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
 	var pack := _make(TYPE_DICE, count, price, text)
 	pack.display_name = template["name"]
 	pack.template_id = template["style_id"]
@@ -129,7 +139,7 @@ static func secret_die(die: DieDefinition) -> Pack:
 
 ## Kanonische Auslage der Gravur-Pakete.
 static func all_engraving_packs() -> Array[Pack]:
-	return [number_pack(), material_pack(), mixed_pack()]
+	return [number_pack(), material_pack(), dice_mod_pack()]
 
 ## Frisches Gravur-Paket zur Sorte - damit Tabellen (Hub-Belohnung) mit Typ-ids
 ## arbeiten können statt mit Fabrik-Referenzen.
@@ -137,8 +147,6 @@ static func by_type(pack_type: String) -> Pack:
 	match pack_type:
 		TYPE_MATERIAL:
 			return material_pack()
-		TYPE_MIXED:
-			return mixed_pack()
 		TYPE_DICE_MOD:
 			return dice_mod_pack()
 	return number_pack()
@@ -157,33 +165,10 @@ func engraving_category() -> String:
 func is_dice_pack() -> bool:
 	return type == TYPE_DICE
 
-## Inhalt eines Gravur-Pakets (leer bei Würfel-Paketen).
-## extra: Zugaben aus DEMSELBEN Topf (Charm), also nie eine fremde Kategorie.
-func roll_engravings(floor: Engraving.Rarity = Engraving.Rarity.COMMON, extra: int = 0) -> Array[Engraving]:
-	var total := count + maxi(0, extra)
-	if type == TYPE_MIXED:
-		# Jedes Stück würfelt seine Kategorie einzeln (Doppelte erlaubt - der
-		# Bestand stapelt ohnehin als ×Anzahl).
-		var out: Array[Engraving] = []
-		for i in total:
-			out.append_array(Engraving.roll_in_category(_mixed_category(), 1, floor))
-		return out
-	var category := engraving_category()
-	if category == "":
-		return [] as Array[Engraving]
-	return Engraving.roll_in_category(category, total, floor)
-
-## Gewichtete Kategorie EINES Stücks aus einem gemischten Paket.
-func _mixed_category() -> String:
-	var total := 0
-	for weight in MIXED_CATEGORY_WEIGHTS.values():
-		total += weight
-	var pick := randi() % total
-	for category: String in MIXED_CATEGORY_WEIGHTS:
-		pick -= MIXED_CATEGORY_WEIGHTS[category]
-		if pick < 0:
-			return category
-	return Engraving.CATEGORY_NUMBER
+## Sorte für die Presse: die Gravur-Kategorie, auf deren Ikonensatz der
+## Phantomwürfel dieses Pakets fällt ("" bei Würfel-Paketen).
+func press_sort() -> String:
+	return engraving_category()
 
 ## Inhalt eines Würfel-Pakets: count EIGENSTÄNDIG ausgewürfelte Würfel derselben
 ## Art. Sie müssen sich unterscheiden - der Spieler deckt alle auf und nimmt
@@ -207,9 +192,15 @@ func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []
 	for i in count:
 		var die := DiceOffer.make_die(template, hub_level)
 		DiceOffer.roll_refinements(die)
-		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite.
-		if CharmEffects.forces_refinement(charm_ids) and die.materials.count("") == die.materials.size():
-			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite -
+		# und mindestens eine ist dotiert. Aufpreis gibt es hier keinen.
+		if CharmEffects.forces_refinement(charm_ids):
+			if die.materials.count("") == die.materials.size():
+				die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+			if not DiceOffer.has_doped_side(die):
+				for f in die.materials.size():
+					if die.dope(f):
+						break
 		die.essence_id = DiceOffer.roll_essence(taken, true, essence_guaranteed)
 		if die.essence_id != "" and not taken.has(die.essence_id):
 			taken.append(die.essence_id)
@@ -222,8 +213,10 @@ func _template() -> Dictionary:
 			return t
 	return {}
 
-## Zufällige Gravur-Paketsorte für einen Auslage-Platz.
-static func roll_engraving_pack(hub_level: int) -> Pack:
+## Zufällige Gravur-Paketsorte für einen Auslage-Platz. Bewusst OHNE Hub-Stufe:
+## die Sorte entscheiden allein die Regal-Gewichte - stark wird Beute an der
+## Presse (Ausbeute, Seltenheits-Gewichte), nicht an der Lizenz.
+static func roll_engraving_pack() -> Pack:
 	var pool: Array[String] = []
 	var weights: Array[int] = []
 	for pack_type: String in SHELF_WEIGHTS:
@@ -236,13 +229,5 @@ static func roll_engraving_pack(hub_level: int) -> Pack:
 	for i in pool.size():
 		pick -= weights[i]
 		if pick < 0:
-			return _by_type(pool[i])
-	return number_pack()
-
-static func _by_type(pack_type: String) -> Pack:
-	match pack_type:
-		TYPE_MATERIAL:
-			return material_pack()
-		TYPE_MIXED:
-			return mixed_pack()
+			return by_type(pool[i])
 	return number_pack()

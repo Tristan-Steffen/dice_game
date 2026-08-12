@@ -212,49 +212,52 @@ func test_six_pack_sleeps_below_a_full_hand():
 	for step: Dictionary in breakdown["die_steps"]:
 		assert_eq(_firings(step).size(), 1, "fünf Würfel reichen nicht")
 
-func test_beherit_crits_inside_its_die_step():
-	# Beherit schlägt im Schritt SEINES Würfels ein: je Auslösung ×1,4, verzahnt
-	# (Würfel -> Charm -> Würfel -> Charm), Kette endet am Schritt-Endstand.
+func test_beherit_crits_once_in_the_charm_phase():
+	# Beherit hängt an der HAND: sein Krit steht in charm_steps, nicht im Würfel-
+	# Schritt - auch wenn Argon den Zielwürfel zweimal zünden lässt.
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
-	var acts: Array = _firings(step)
-	assert_eq(acts.size(), 2)
-	assert_almost_eq(float(acts[0]["crit_x"]), 1.4, 0.0001)
-	assert_almost_eq(float(acts[0]["mult_after_crit"]) * 1.4, float(acts[1]["mult_after_crit"]), 0.0001)
-	assert_almost_eq(float(acts[1]["mult_after_crit"]), float(step["mult_after"]), 0.0001, "letzter Schlag = Endstand")
-	assert_eq(step["crit_charm_indices"], [0])
-	assert_eq(breakdown["charm_steps"].size(), 0, "kein Charm-Phase-Schritt mehr")
+	assert_eq(_firings(step).size(), 2)
+	assert_eq(step["crit_charm_indices"], [], "kein Krit mehr in der Würfelphase")
+	var charm_steps: Array = breakdown["charm_steps"]
+	assert_eq(charm_steps.size(), 1, "genau ein Schlag, egal wie oft der Würfel zündet")
+	assert_almost_eq(float(charm_steps[0]["crit_x"]), 5.0, 0.0001, "1 + niedrigste gewertete 4")
 
-func test_beherit_without_retrigger_slams_once():
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
-	var step: Dictionary = breakdown["die_steps"][0]
-	assert_eq(_firings(step).size(), 1)
-	assert_almost_eq(float(step["crit_x"]), 1.4, 0.0001, "×1,4 am eigenen Würfel, einmal")
-
-func test_every_crit_gets_its_own_slam():
-	# Zwei Beherit-Kopien schlagen ZWEIMAL ×1,4 ein, nicht einmal ×1,96 - die
-	# Zeremonie soll jeden Krit zeigen. Das Produkt bleibt crit_x.
+func test_two_beherit_copies_are_two_charm_steps():
+	# Dieselbe Regel wie eh und je: jede Kopie schlägt für sich, nie einmal mit
+	# ihrem Produkt - nur eben in der Charm-Phase.
 	var ids := _ids([Charm.BEHERIT, Charm.BEHERIT])
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids)
-	var pulse: Dictionary = _firings(breakdown["die_steps"][0])[0]
-	var crits: Array = pulse["crit_steps"]
-	assert_eq(crits.size(), 2, "je Kopie ein eigener Schlag")
-	for crit: Dictionary in crits:
-		assert_almost_eq(float(crit["crit_x"]), 1.4, 0.0001)
-		assert_false(bool(crit["from_die"]), "beide kommen von einem Dock-Pad")
-	assert_eq(crits[0]["charm_indices"], [0])
-	assert_eq(crits[1]["charm_indices"], [1])
-	assert_almost_eq(float(pulse["crit_x"]), 1.96, 0.0001, "crit_x bleibt das Produkt")
+	var charm_steps: Array = breakdown["charm_steps"]
+	assert_eq(charm_steps.size(), 2, "je Kopie ein eigener Schritt")
+	for step: Dictionary in charm_steps:
+		assert_almost_eq(float(step["crit_x"]), 5.0, 0.0001)
+	assert_eq(charm_steps[0]["charm_indices"], [0])
+	assert_eq(charm_steps[1]["charm_indices"], [1])
 
-func test_beherit_follows_the_growing_bone_face():
-	# Knochen wächst ZWISCHEN den Zündungen - der Betrag des würfelgebundenen
-	# Krits rechnet mit dem laufenden Wert, nicht mit dem liegenden.
+func test_beherit_reads_the_settled_value_not_the_grown_one():
+	# Knochen wächst ZWISCHEN den Zündungen - Beherit feuert danach und rechnet
+	# trotzdem mit der LIEGENDEN 4, nicht mit der gewachsenen Seite.
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, mats, {}, _argon(0))
-	var acts: Array = _firings(breakdown["die_steps"][0])
-	assert_eq(acts.size(), 2)
-	assert_almost_eq(float(acts[0]["crit_x"]), 1.4, 0.0001, "erste Zündung: die liegende 4")
-	assert_almost_eq(float(acts[1]["crit_x"]), 1.6, 0.0001, "zweite Zündung: die gewachsene 6")
+	var charm_steps: Array = breakdown["charm_steps"]
+	assert_eq(charm_steps.size(), 1)
+	assert_almost_eq(float(charm_steps[0]["crit_x"]), 5.0, 0.0001)
+
+func test_every_crit_gets_its_own_slam():
+	# Zwei Härteofen-Schläge auf einem dotierten Rubin: ZWEIMAL ×2, nie einmal ×4 -
+	# die Zeremonie soll jeden Krit zeigen. Das Produkt bleibt crit_x.
+	var ids := _ids([Charm.KILN])
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var levels := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": DieMaterial.MAX_LEVEL, "eye_sum": 0}}}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids, false, mats, {}, levels)
+	var pulse: Dictionary = _firings(breakdown["die_steps"][0])[0]
+	var crits: Array = pulse["crit_steps"]
+	assert_eq(crits.size(), 2, "je Schlag ein eigener Eintrag")
+	for crit: Dictionary in crits:
+		assert_almost_eq(float(crit["crit_x"]), 2.0, 0.0001)
+		assert_true(bool(crit["from_die"]), "beide kommen vom Würfel, nicht vom Dock-Pad")
+	assert_almost_eq(float(pulse["crit_x"]), 4.0, 0.0001, "crit_x bleibt das Produkt")
 
 func test_the_high_stacker_amount_follows_the_running_value():
 	# Dasselbe für einen additiven würfelgebundenen Charm - das ZIEL bleibt am

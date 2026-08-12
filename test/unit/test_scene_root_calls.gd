@@ -9,7 +9,6 @@ extends GutTest
 
 ## Handle in scene_root -> Skript der Ansicht dahinter.
 const HANDLES := {
-	"die_inspector": "res://scripts/ui/die_inspector_view.gd",
 	"table_screen": "res://scripts/table/table_screen.gd",
 	"pool_tray_view": "res://scripts/dice/dice_tray_view.gd",
 	"discard_tray_view": "res://scripts/dice/dice_tray_view.gd",

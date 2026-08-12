@@ -127,12 +127,16 @@ const CLOSE_CENTER := Vector3(-27, 0, 22)
 ## Bild): so schlägt die HÖHE an, und genau daraus lebt diese Zoomstufe.
 const CLOSE_HALF := Vector2(12.9, 9.1)
 const CLOSE_BOTTOM := Vector3(-27 - 9.1, 0, 22)  # Mitte der Unterkante (-X = Bild-unten)
+## Halbe Ausmaße der GANZEN Ecke - Trays, Fenster UND Schürze - am echten Tisch.
+const WIDE_HALF := Vector2(12.2, 14.65)
+const WIDE_BOTTOM := Vector3(-24 - 14.65, 0, 22)
+const WIDE_TOP := Vector3(-24 + 14.65, 0, 22)
 
 func _aim_at_workshop() -> void:
 	# GUT läuft in einem QUADRATISCHEN Viewport - dort schlüge die Breite an und
 	# die Zoomstufe stünde weit weg. Für die Höhenfrage muss das Bild breit sein.
 	get_viewport().size = Vector2i(1600, 900)
-	rig.configure_workshop_target(WORKSHOP_CENTER)
+	rig.configure_workshop_target(WORKSHOP_CENTER, WIDE_HALF)
 	rig.configure_workshop_close_target(CLOSE_CENTER, CLOSE_HALF)
 	rig.zoom_to(CameraRig.Mode.WORKSHOP)
 	rig.is_animating = false  # Fahrt überspringen, die Lage steht
@@ -234,9 +238,20 @@ func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
 	assert_false(rig.workshop_close)
 	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "eine Stufe zurück, nicht ganz raus")
 	assert_almost_eq(rig.anchor_origin,
-		WORKSHOP_CENTER - CameraRig.ZOOM_FORWARD
-			* (CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS),
+		WORKSHOP_CENTER - CameraRig.ZOOM_FORWARD * rig.workshop_wide_distance(),
 		Vector3.ONE * 0.001, "wieder die weite Werkbank-Lage")
+
+## Die weite Sicht rahmt die GANZE Ecke, und die untere Kante ist die harte: sie
+## liegt näher an der geneigten Kamera und bildet sich darum größer ab.
+func test_the_wide_step_frames_the_whole_corner_including_the_near_edge() -> void:
+	_aim_at_workshop()
+	assert_gt(rig.workshop_wide_distance(),
+		CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS,
+		"die gewachsene Ecke braucht mehr Abstand als der alte feste")
+	assert_lte(absf(_frame_height(WIDE_BOTTOM)), 1.0, "die Buchten stehen im Bild")
+	assert_lte(absf(_frame_height(WIDE_TOP)), 1.0, "und die Trays ebenso")
+	assert_gt(absf(_frame_height(WIDE_BOTTOM)), absf(_frame_height(WIDE_TOP)),
+		"die nähere Kante füllt mehr Bild - genau darum reicht eine Höhenrechnung nicht")
 
 func test_leaving_the_workshop_drops_the_close_flag() -> void:
 	for leave in ["zoom_out", "pit", "title"]:

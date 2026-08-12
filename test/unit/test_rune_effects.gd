@@ -280,10 +280,11 @@ func _cast_die(material_id: String) -> DieDefinition:
 	def.set_rune(0, Rune.CAST)
 	return def
 
+## Versiegelte Fixinhalt-Pakete dieser Gravur im Lager - lose wartet nichts mehr.
 func _stock(run: GameRun, id: String) -> int:
 	var count := 0
-	for engraving in run.owned_engravings:
-		if engraving.id == id:
+	for pack in run.owned_packs:
+		if pack.fixed_engraving != null and pack.fixed_engraving.id == id:
 			count += 1
 	return count
 
@@ -292,7 +293,7 @@ func test_the_cast_copies_the_material_engraving_once_per_round_and_die():
 	var defs: Array[DieDefinition] = [_cast_die(DieMaterial.GOLD)]
 	var before := _stock(run, DieMaterial.GOLD)
 	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 1, "ein Abguss")
-	assert_eq(_stock(run, DieMaterial.GOLD), before + 1, "die Kopie liegt im Vorrat")
+	assert_eq(_stock(run, DieMaterial.GOLD), before + 1, "die Kopie liegt versiegelt im Lager")
 	assert_eq(run.apply_rune_cast(defs, _p([0]), _p([0])), 0,
 		"derselbe Würfel gießt in derselben Runde nicht noch einmal ab")
 	assert_eq(_stock(run, DieMaterial.GOLD), before + 1)

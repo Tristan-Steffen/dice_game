@@ -25,8 +25,6 @@ const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GOLD := Color("#ffd319")
 const CYAN := Color("#8be9fd")
-## Tönung eines gesperrten Platzes: erkennbar tot, aber noch lesbar.
-const LOCKED_TINT := Color(0.45, 0.45, 0.5)
 
 ## Zellgröße des Würfelnetzes (Einheiten u) und der Rand der Kachel darum; die
 ## Kachelgröße wird DARAUS abgeleitet (detail_tile_size), damit Netz und Kachel
@@ -38,6 +36,10 @@ const LOCKED_TINT := Color(0.45, 0.45, 0.5)
 ## Streifen wird zu größeren Zellen.
 const DETAIL_CELL := 2.0
 const TILE_PAD := 0.4
+## Fuge zwischen zwei Kacheln (Einheiten u). EINE Quelle: place() setzt sie, und
+## detail_span rechnet mit derselben Zahl - sonst löst ein Aufrufer sein Raster
+## auf eine Breite auf, die der Kasten nachher gar nicht einnimmt.
+const SEPARATION := 0.6
 
 ## Breiteneinheit; setzt der Aufrufer über place().
 var u := 8.0
@@ -49,8 +51,6 @@ var _defs: Array[DieDefinition] = []
 ## Hervorgehobene Plätze: EIN Ziel im Würfel-Editor, MEHRERE beim Einsetzen
 ## eines Würfel-Pakets.
 var _highlights: Array[int] = []
-## Gesperrte Plätze (laufende Runde) - gedimmt, aber weiter sichtbar.
-var _locked: Array[int] = []
 ## Augensummen der Detail-Kacheln (nach Index) - so wechselt die Hervorhebung
 ## ihre Farbe, ohne das teure Raster neu zu bauen.
 var _totals: Array[Label] = []
@@ -98,21 +98,27 @@ func hint_at(pixel: Vector2) -> String:
 static func detail_tile_size(unit: float) -> Vector2:
 	return DieNetView.net_size(unit * DETAIL_CELL) + Vector2.ONE * unit * TILE_PAD * 2.0
 
+## Maße eines detaillierten Rasters columns×rows bei Einheit 1 - daraus folgt die
+## Einheit (unit_for) und, umgekehrt, das Seitenverhältnis eines Fensters, das
+## sein Raster bündig fassen soll (WorkshopView.dossier_aspect).
+static func detail_span(column_count: int, row_count: int) -> Vector2:
+	var tile := detail_tile_size(1.0)
+	return Vector2(column_count * tile.x + (column_count - 1) * SEPARATION,
+		row_count * tile.y + (row_count - 1) * SEPARATION)
+
 ## Größte Maßeinheit, bei der ein detailliertes Raster columns×rows noch in avail
 ## passt - damit ein Aufrufer das Raster seinen Platz ausfüllen lassen kann.
 static func unit_for(column_count: int, row_count: int, avail: Vector2) -> float:
-	var tile := detail_tile_size(1.0)
-	var span_w := column_count * tile.x + (column_count - 1) * 0.6
-	var span_h := row_count * tile.y + (row_count - 1) * 0.6
-	return maxf(1.0, minf(avail.x / span_w, avail.y / span_h))
+	var span := detail_span(column_count, row_count)
+	return maxf(1.0, minf(avail.x / span.x, avail.y / span.y))
 
 ## Spaltenzahl, Maßeinheit und Ausführung festlegen (vor fill).
 func place(column_count: int, unit: float, with_faces: bool = false) -> void:
 	columns = maxi(column_count, 1)
 	u = unit
 	detailed = with_faces
-	add_theme_constant_override("h_separation", int(u * 0.6))
-	add_theme_constant_override("v_separation", int(u * 0.6))
+	add_theme_constant_override("h_separation", int(u * SEPARATION))
+	add_theme_constant_override("v_separation", int(u * SEPARATION))
 
 ## Füllt das Raster; null-Einträge sind leere Plätze (stille Platzhalter).
 func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
@@ -132,20 +138,8 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 			tiles.append(null)
 		else:
 			var tile := _tile(defs[i], i == highlight_index, i)
-			if _locked.has(i):
-				tile.modulate = LOCKED_TINT
 			add_child(tile)
 			tiles.append(tile)
-
-## Plätze, die die laufende Runde sperrt - sie werden gedimmt. Halogen-Würfel
-## stehen NICHT drin: ihre Werkstattlampe brennt weiter, also bleiben sie hell.
-func set_locked_indices(indices: Array[int]) -> void:
-	if indices == _locked:
-		return
-	_locked = indices.duplicate()
-	for i in tiles.size():
-		if tiles[i] != null:
-			tiles[i].modulate = LOCKED_TINT if _locked.has(i) else Color.WHITE
 
 ## Hebt einen anderen Platz hervor, ohne das Raster neu zu bauen.
 func set_highlight(index: int) -> void:

@@ -22,6 +22,9 @@ const PULSE_UP := 1.18
 ## Entstehen aus dem Zeichen: von diesem Bruchteil seiner Größe wächst er auf.
 const MATERIALIZE_FROM := 0.15
 const MATERIALIZE_TIME := 0.28
+## Abtreten (das Fenster gehört gerade einem Paket): schneller als das Entstehen -
+## Platz machen ist keine Zeremonie.
+const DEMATERIALIZE_TIME := 0.16
 
 var die: Node3D
 var faces: DieFaceDisplay
@@ -37,6 +40,9 @@ var rest_y := 0.0
 var _bob_phase := 0.0
 var _fly_tween: Tween
 var _pose_tween: Tween
+## Wachsen und Schrumpfen teilen sich EINEN Tween: sonst versteckte ein spätes
+## Abtreten den Würfel, der längst wieder aufgeht.
+var _scale_tween: Tween
 
 ## Freier, nicht-kollidierender Würfel in Tray-Größe und Tray-Ausrichtung - die
 ## Grundform jedes Würfels, der außerhalb von Grube und Tray gezeigt wird.
@@ -135,14 +141,37 @@ func apply_definition(shown: DieDefinition) -> void:
 
 ## Aus dem Zeichen wird der Körper: der Würfel wächst an Ort und Stelle ins Feld
 ## hinein - er fliegt nirgends her, sein Zeichen stand schon hier.
-func materialize() -> void:
+## delay: das Kleinwerden geschieht SOFORT, nur das Wachsen wartet - eine ganze
+## Aufspannung entsteht gestaffelt, ohne dass ein Würfel vorher in voller Größe
+## dastünde.
+func materialize(delay: float = 0.0) -> void:
 	if die == null or not is_instance_valid(die):
 		return
+	_kill(_scale_tween)
+	visible = true
 	var base := Vector3.ONE * DiceTrayView.DIE_SCALE
 	die.scale = base * MATERIALIZE_FROM
-	var grow := create_tween()
-	grow.tween_property(die, "scale", base, MATERIALIZE_TIME) \
+	_scale_tween = create_tween()
+	if delay > 0.0:
+		_scale_tween.tween_interval(delay)
+	_scale_tween.tween_property(die, "scale", base, MATERIALIZE_TIME) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Abtreten, ohne freigegeben zu werden: der Würfel schrumpft an Ort und Stelle
+## und wird unsichtbar - das Feld geht als Kind mit aus. Derselbe Körper steht
+## später wieder auf (materialize), er hat nur Platz gemacht.
+func dematerialize() -> void:
+	if die == null or not is_instance_valid(die) or not visible:
+		return
+	_kill(_scale_tween)
+	_scale_tween = create_tween()
+	var shrink := _scale_tween.tween_property(die, "scale",
+		Vector3.ONE * DiceTrayView.DIE_SCALE * MATERIALIZE_FROM, DEMATERIALIZE_TIME)
+	shrink.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_scale_tween.tween_callback(_hide_body)
+
+func _hide_body() -> void:
+	visible = false
 
 ## Aufpluster-Pop: der Würfel schluckt eine Gravur.
 func pulse() -> void:
@@ -171,8 +200,11 @@ func screen_half(camera: Camera3D) -> float:
 func pick_radius(camera: Camera3D) -> float:
 	return screen_half(camera) * PICK_FACTOR
 
-## Liegt der Bildschirmpunkt auf dem Würfel?
+## Liegt der Bildschirmpunkt auf dem Würfel? Ein abgetretener Würfel liegt
+## nirgends - die Sperre steht HIER, damit kein Aufrufer sie vergessen kann.
 func under(camera: Camera3D, screen_pos: Vector2) -> bool:
+	if not is_visible_in_tree():
+		return false
 	var radius := pick_radius(camera)
 	if radius <= 0.0:
 		return false

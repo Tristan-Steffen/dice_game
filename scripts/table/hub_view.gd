@@ -18,6 +18,9 @@ signal library_requested
 signal test_materials_requested
 signal test_pointers_requested
 signal test_engravings_requested
+
+## Aufschrift der Testlieferung - scene_root beschriftet seinen Zwilling damit.
+const TEST_PACKS_LABEL := "🧪 +20 Datenkarten je Sorte"
 ## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
 signal hub_upgrade_requested
 
@@ -250,8 +253,9 @@ func _build_settings_menu(u: float) -> void:
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
 	_test_pointers_button = _make_menu_button(box, "🧪 Testleiterbahnen: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_pointers_requested.emit)
-	_test_engravings_button = _make_menu_button(box, "🧪 Testgravuren: aus",
-		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_engravings_requested.emit)
+	# Kein Schalter, eine Lieferung - und sie bleibt offen fürs Nachlegen.
+	_test_engravings_button = _make_menu_button(box, TEST_PACKS_LABEL,
+		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_engravings_requested.emit, true)
 
 ## keep_open = true lässt das Menü nach dem Klick offen (für Mehrfach-Klick-Debug).
 func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,
@@ -278,11 +282,6 @@ func set_test_materials_label(text: String) -> void:
 func set_test_pointers_label(text: String) -> void:
 	if _test_pointers_button != null:
 		_test_pointers_button.text = text
-
-## Beschriftung des Testgravuren-Eintrags (AN/aus).
-func set_test_engravings_label(text: String) -> void:
-	if _test_engravings_button != null:
-		_test_engravings_button.text = text
 
 func _toggle_settings_menu() -> void:
 	settings_pressed.emit()

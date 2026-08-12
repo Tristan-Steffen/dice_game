@@ -81,6 +81,29 @@ func test_turning_the_die_keeps_its_size() -> void:
 	stage._apply_pose(CameraRig.die_focus_basis())
 	assert_almost_eq(stage.die.global_basis.get_scale(), before, Vector3.ONE * 0.001)
 
+## Abtreten: ein Paket nimmt das Fenster, die Zwinge macht Platz. Sie wird NICHT
+## freigegeben - derselbe Körper steht später wieder auf -, ist aber für jedes
+## Zeigen taub, solange sie unsichtbar ist.
+func test_a_die_that_stepped_aside_is_under_no_pointer() -> void:
+	stage.land_at(TARGET, 0.0)
+	_look_at_stage()
+	await wait_frames(2)
+	var center := camera.unproject_position(stage.center())
+	assert_true(stage.under(camera, center), "sichtbar liegt er unter dem Zeiger")
+	stage.dematerialize()
+	stage.visible = false  # das Ende des Schrumpfens, ohne auf den Tween zu warten
+	assert_false(stage.under(camera, center), "abgetreten trifft ihn nichts mehr")
+	assert_true(is_instance_valid(stage.die), "und freigegeben wurde er nicht")
+
+func test_materializing_brings_the_same_body_back() -> void:
+	stage.land_at(TARGET, 0.0)
+	stage.dematerialize()
+	stage.visible = false
+	var body := stage.die
+	stage.materialize()
+	assert_true(stage.visible, "er steht wieder da")
+	assert_same(stage.die, body, "und zwar als derselbe Körper")
+
 func test_the_rest_pose_is_the_tray_pose() -> void:
 	# Zurück an der Bank liest sich der Würfel wieder wie im Tray.
 	var tray_die := FloatingDie.build_ghost(_die())

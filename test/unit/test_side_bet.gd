@@ -237,21 +237,22 @@ func test_status_label_reads_progress():
 func test_reward_list_size_and_kinds():
 	var bet := _bet("full_house")
 	var rewards := bet.reward_list()
-	assert_eq(rewards.size(), bet.reward_engravings)
-	for engraving in rewards:
-		assert_true(SideBet.REWARD_KINDS.has(engraving.category), "Belohnung ist Ätzung/Material")
+	assert_eq(rewards.size(), bet.reward_packs)
+	for pack in rewards:
+		assert_true(Pack.SHELF_WEIGHTS.has(pack.type), "Belohnung ist Regal-Ware")
+		assert_eq(pack.count, Pack.ENGRAVING_PACK_COUNT, "je ein Phantomwürfel")
 
-# --- Wett-Sorten (Geld/Gravur × Einsatz/Gewinn) ------------------------------
+# --- Wett-Sorten (Geld/Paket × Einsatz/Gewinn) ------------------------------
 
 func test_templates_cover_all_four_quadrants():
 	var seen := {}
 	for t in SideBet.TEMPLATES:
 		var bet := SideBet._from_template(t)
 		seen["%d_%d" % [bet.stake_kind, bet.payout_kind]] = true
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.ENGRAVINGS]), "Geld -> Gravuren")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.PACKS]), "Geld -> Pakete")
 	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.MONEY]), "Geld -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.ENGRAVINGS, SideBet.Payout.MONEY]), "Gravur -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.ENGRAVINGS, SideBet.Payout.ENGRAVINGS]), "Gravur -> Gravuren")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.PACKS, SideBet.Payout.MONEY]), "Paket -> Geld")
+	assert_true(seen.has("%d_%d" % [SideBet.Stake.PACKS, SideBet.Payout.PACKS]), "Paket -> Pakete")
 
 func test_template_ids_are_unique():
 	var ids := {}
@@ -273,12 +274,12 @@ func test_money_stake_label():
 	assert_eq(bet.stake_kind, SideBet.Stake.MONEY)
 	assert_eq(bet.stake_label(), "$%d" % bet.stake)
 
-func test_engraving_stake_label_pluralizes():
-	var bet := _bet("pawn")  # 1 Gravur
-	assert_eq(bet.stake_kind, SideBet.Stake.ENGRAVINGS)
-	assert_eq(bet.stake_label(), "1 Gravur")
-	var two := _bet("collateral")  # 2 Gravuren
-	assert_eq(two.stake_label(), "2 Gravuren")
+func test_pack_stake_label_pluralizes():
+	var bet := _bet("pawn")  # 1 Paket
+	assert_eq(bet.stake_kind, SideBet.Stake.PACKS)
+	assert_eq(bet.stake_label(), "1 Paket")
+	var two := _bet("collateral")  # 2 Pakete
+	assert_eq(two.stake_label(), "2 Pakete")
 
 func test_tax_and_charge_stake_labels():
 	assert_eq(_bet("table_fee").stake_label(), "$3 je Hand")
@@ -291,24 +292,24 @@ func test_money_payout_reward_label():
 	assert_eq(bet.payout_kind, SideBet.Payout.MONEY)
 	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
 
-func test_engraving_payout_reward_label_pluralizes():
-	var single := _bet("two_pair")  # 1 Gravur Gewinn
-	assert_eq(single.payout_kind, SideBet.Payout.ENGRAVINGS)
-	assert_eq(single.reward_label(), "1 Gravur")
-	var many := _bet("full_house")  # 2 Gravuren Gewinn
-	assert_eq(many.reward_label(), "2 Gravuren")
+func test_pack_payout_reward_label_pluralizes():
+	var single := _bet("two_pair")  # 1 Paket Gewinn
+	assert_eq(single.payout_kind, SideBet.Payout.PACKS)
+	assert_eq(single.reward_label(), "1 Paket")
+	var many := _bet("full_house")  # 2 Pakete Gewinn
+	assert_eq(many.reward_label(), "2 Pakete")
 
 func test_new_payout_reward_labels():
 	assert_eq(_bet("feedback_loop").reward_label(), "8 ⚡")
 	assert_eq(_bet("shipment").reward_label(), "1 Paket")
 	assert_eq(_bet("patent").reward_label(), "+1 Stufe")
 	assert_eq(_bet("circuit_contract").reward_label(), "1 Leiterbahn")
-	assert_eq(_bet("clean_room").reward_label(), "1 Dotierung")
+	assert_eq(_bet("clean_room").reward_label(), "4 Pakete", "die Dotierung ist als Ware gestorben")
 
-## Turniernacht (×2) verdoppelt Geld, Gravuren und Ladung - Einzelstücke nicht.
+## Turniernacht (×2) verdoppelt Geld, Ware und Ladung - Einzelstücke nicht.
 func test_payout_factor_spares_unique_goods():
 	assert_eq(_bet("jackpot").reward_label(2), "$36")
-	assert_eq(_bet("full_house").reward_label(2), "4 Gravuren")
+	assert_eq(_bet("full_house").reward_label(2), "4 Pakete")
 	assert_eq(_bet("feedback_loop").reward_label(2), "16 ⚡")
 	assert_eq(_bet("circuit_contract").reward_label(2), "1 Leiterbahn")
 	assert_eq(_bet("shipment").reward_label(2), "1 Paket")

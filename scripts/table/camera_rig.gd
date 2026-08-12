@@ -34,8 +34,8 @@ const PIT_ZOOM_DISTANCE_BONUS := 5.0
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 
-## Der Schwarzmarkt ist das kleinste Fenster (die Glaskante lässt unter den
-## Automaten nur eine schmale Tasche): keine 500 Textur-px breit. Die Distanz ist
+## Der Schwarzmarkt ist das kleinste Fenster (eine flache Tasche unter den
+## Automaten): keine 500 Textur-px breit. Die Distanz ist
 ## deshalb der TEXTUR-Auflösung gerechnet, nicht dem Bildeindruck: bei Abzug 11
 ## lag das Fenster auf ~780 Bildschirm-px, also 0,58 Textur-px je Bildschirm-px -
 ## eine 1,7-fache Hochskalierung, die als "360p" gelesen wurde. Bei Abzug 4 füllen
@@ -47,8 +47,14 @@ const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
 
 ## Die Werkbank rahmt Trays UND Fenster; darunter schneidet der obere Bildrand
-## die erste Tray-Reihe an, und die ist Klickziel.
+## die erste Tray-Reihe an, und die ist Klickziel. Untergrenze, kein Maß: seit die
+## Schürze unter das Fenster gewachsen ist, wird der Abstand GERECHNET (siehe
+## workshop_wide_distance) - eine feste Zahl schnitte die Buchten ab.
 const WORKSHOP_ZOOM_DISTANCE_BONUS := 1.0
+## Zugabe der weiten Werkbank-Sicht. Sie muss über die reine Passung hinausgehen:
+## anders als in der Nahsicht schwenkt hier das Rundschauen mit (±5° Pitch), und
+## ohne diese Luft schöbe es die Buchten aus dem Bild.
+const WORKSHOP_WIDE_MARGIN := 1.14
 
 ## Zweite Werkbank-Stufe (Doppelklick auf leere Fläche): rahmt NUR Fenster und
 ## Schubladen, mit einem Hauch Zugabe - anders als der Titel (TITLE_MARGIN), der
@@ -90,6 +96,9 @@ var slots_target := Vector3(-24, 0, -22)
 var secret_shop_target := Vector3(-24, 0, -12)
 var chips_target := Vector3(0, 1.5, 10)
 var workshop_target := Vector3(-24, 0, 22)
+## Halbe Ausmaße der GANZEN Ecke (Trays + Fenster + Schürze) - daraus rechnet die
+## weite Sicht ihren Abstand.
+var workshop_wide_half := Vector2(12.0, 14.0)
 ## Nahsicht-Ziel + halbe Ausmaße der Werkbank-Ecke ohne Trays (x = entlang
 ## Welt-Z, y = entlang Welt-X) - wie beim Titel aus den echten Rechtecken.
 var workshop_close_target := Vector3(-24, 0, 22)
@@ -272,8 +281,12 @@ func configure_secret_shop_target(target: Vector3) -> void:
 func configure_chips_target(target: Vector3) -> void:
 	chips_target = target
 
-func configure_workshop_target(target: Vector3) -> void:
+## half_extent = halbe Ausmaße der Ecke; ZERO (die Klickzone meldet nur den Punkt)
+## lässt das zuletzt gemessene Maß stehen.
+func configure_workshop_target(target: Vector3, half_extent := Vector2.ZERO) -> void:
 	workshop_target = target
+	if half_extent.x > 0.0 and half_extent.y > 0.0:
+		workshop_wide_half = half_extent
 
 func configure_workshop_close_target(center: Vector3, half_extent: Vector2) -> void:
 	workshop_close_target = center
@@ -309,6 +322,27 @@ func workshop_close_distance() -> float:
 	return maxf(
 		_fit_distance(Vector2(workshop_close_half.x, 0.0), WORKSHOP_CLOSE_SIDE_MARGIN),
 		_fit_distance(Vector2(0.0, workshop_close_half.y), WORKSHOP_CLOSE_MARGIN))
+
+## Abstand der WEITEN Werkbank-Sicht: sie rahmt die ganze Ecke - Trays oben,
+## Fenster und Schürze darunter. Der Blick ist hier GENEIGT, also liegt die untere
+## Kante der Ecke näher an der Kamera und bildet sich größer ab als die obere:
+## eine reine Höhenrechnung (_fit_distance) schnitte genau die Buchten ab. Gelöst
+## wie in _workshop_close_origin - Bildhöhe = dot(P-Ziel, up) / ((dot(P-Ziel,
+## forward) + d) * tan), nach d aufgelöst und über beide Kanten maximiert. Der
+## alte feste Abstand bleibt Untergrenze: näher als früher kommt sie nie.
+func workshop_wide_distance() -> float:
+	var need := ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS
+	var half_fov := tan(deg_to_rad(fov * 0.5))
+	if half_fov <= 0.0:
+		return need
+	var up := ZOOM_BASIS.y
+	var forward := -ZOOM_BASIS.z
+	for edge: Vector3 in [Vector3.RIGHT, Vector3.LEFT]:  # Bild-oben/-unten = Welt ±X
+		var to_edge := edge * workshop_wide_half.y
+		need = maxf(need, absf(to_edge.dot(up)) * WORKSHOP_WIDE_MARGIN / half_fov
+			- to_edge.dot(forward))
+	# Waagerecht liegt die Ecke parallel zur Bildebene - reine Breitenrechnung.
+	return maxf(need, _fit_distance(Vector2(workshop_wide_half.x, 0.0), WORKSHOP_WIDE_MARGIN))
 
 ## Kamerastandort der Nahsicht. Die Ecke passt immer ganz ins Bild (Zugabe ≥ 1),
 ## füllt es aber fast nie genau aus - und wo die überschüssige Luft landet,
@@ -393,7 +427,7 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.WORKSHOP:
-		distance += WORKSHOP_ZOOM_DISTANCE_BONUS
+		distance = workshop_wide_distance()
 	var target_origin := target_point - ZOOM_FORWARD * distance
 	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufen
 	die_focus = false
@@ -430,8 +464,7 @@ func zoom_workshop_wide() -> void:
 		return
 	workshop_close = false
 	die_focus = false
-	var target_origin := workshop_target \
-		- ZOOM_FORWARD * (ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS)
+	var target_origin := workshop_target - ZOOM_FORWARD * workshop_wide_distance()
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO
