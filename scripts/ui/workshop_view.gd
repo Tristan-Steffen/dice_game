@@ -336,9 +336,9 @@ var _selected_packs: Array[int] = []
 ## Nummer, nicht nach Platz oder id: der Haufen liegt frei, und dieselbe Gravur
 ## darf mehrfach darin liegen.
 var _held_uid := 0
-## Index, an dem das geführte Stück zuletzt stand - daran rückt die Hand nach,
-## wenn es gesetzt ist.
-var _held_index := 0
+## Die GRAVUR, die zuletzt in der Hand lag - sie überlebt ihr Stück, denn daran
+## rückt die Hand nach, sobald es gesetzt ist.
+var _held_id := ""
 ## Der erste Klick eines gerichteten Paares und der Würfel, auf dem er fiel.
 var _first_face := -1
 var _first_die: DieDefinition
@@ -1423,19 +1423,27 @@ func held_uid() -> int:
 func _held_stufe() -> int:
 	return int(_held_piece().get("stufe", 1))
 
-## Es liegt IMMER ein Stück in der Hand: ist das geführte gesetzt oder verpufft,
-## rückt das nächste im Haufen nach - der Schritt braucht keine zweite Geste.
+## Es liegt IMMER ein Stück in der Hand, und nach einer Setzung rückt die NÄCHSTE
+## GLEICHE Gravur nach, solange noch eine liegt - wer eine Reihe Kerben setzt, will
+## nicht nach jedem Klick neu greifen. Erst wenn dieser Stapel leer ist, greift die
+## Hand ans LINKE ENDE der Reihe: ablage_order IST diese Reihe (auch eine
+## eingefrorene hat ihre Plätze in dieser Folge bekommen).
 func _sync_held() -> void:
-	var index := _piece_index(_held_uid)
-	if index >= 0:
-		_held_index = index
+	if _piece_index(_held_uid) >= 0:
 		return
 	if run == null or run.press_pieces.is_empty():
 		_held_uid = 0
+		_held_id = ""
 		_clear_pair()
 		return
-	_held_index = clampi(_held_index, 0, run.press_pieces.size() - 1)
-	_held_uid = _piece_uid(run.press_pieces[_held_index], _held_index)
+	var order := ablage_order()
+	var pick: int = order[0]
+	for uid in order:
+		if _piece_id(uid) == _held_id:
+			pick = uid
+			break
+	_held_uid = pick
+	_held_id = _piece_id(pick)
 	_clear_pair()
 
 func _clear_pair() -> void:
@@ -1448,7 +1456,7 @@ func hold_piece(uid: int) -> void:
 	if not placing() or index < 0:
 		return
 	_held_uid = uid
-	_held_index = index
+	_held_id = _piece_id(uid)
 	_clear_pair()
 	refresh()
 
@@ -2141,7 +2149,7 @@ func _drop_press() -> void:
 	_ablage_slots = 0
 	_ablage_stack.clear()
 	_held_uid = 0
-	_held_index = 0
+	_held_id = ""
 	_clear_pair()
 
 ## Zurück ans Lager - der Inhalt ist verbucht bzw. abgelehnt.

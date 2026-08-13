@@ -718,6 +718,43 @@ func test_the_held_copy_carries_the_count() -> void:
 	assert_eq(held.get_index(), held.get_parent().get_child_count() - 1,
 		"es liegt auch wirklich vorn")
 
+## --- Die Hand nach einer Setzung -------------------------------------------------
+## Sie soll BLEIBEN, wo sie war: eine Reihe Kerben setzt man am Stück.
+
+func test_the_hand_stays_on_the_same_engraving_after_a_placement() -> void:
+	var twins: Array[int] = [
+		_seed_piece(Engraving.CATEGORY_NUMBER, Engraving.NOTCH),
+		_seed_piece(Engraving.CATEGORY_NUMBER, Engraving.NOTCH),
+	]
+	# Ein Material daneben, damit die Hand überhaupt abrutschen KÖNNTE.
+	_seed_piece(Engraving.CATEGORY_MATERIAL, DieMaterial.RUBY)
+	await wait_frames(2)
+	view.hold_piece(twins[0])
+	view._on_net_face_pressed(0, run.clamped_dice[0])
+	await wait_frames(2)
+	assert_eq(view.held_piece_id(), Engraving.NOTCH, "dieselbe Gravur bleibt in der Hand")
+	assert_eq(view.held_uid(), twins[1], "und zwar die zweite Kerbe")
+
+func test_the_hand_falls_to_the_left_end_when_the_stack_is_spent() -> void:
+	var notch := _seed_piece(Engraving.CATEGORY_NUMBER, Engraving.NOTCH)
+	_seed_piece(Engraving.CATEGORY_MATERIAL, DieMaterial.RUBY)
+	_seed_piece(Engraving.CATEGORY_DICE, Engraving.RUNE_PREFIX + Rune.STRAY_LIGHT)
+	await wait_frames(2)
+	view.hold_piece(notch)
+	view._on_net_face_pressed(0, run.clamped_dice[0])
+	await wait_frames(2)
+	assert_eq(view.held_uid(), view.ablage_order()[0],
+		"die einzige Kerbe ist weg - die Hand greift ans linke Ende")
+
+func test_the_last_placement_empties_the_hand() -> void:
+	var notch := _seed_piece(Engraving.CATEGORY_NUMBER, Engraving.NOTCH)
+	await wait_frames(2)
+	view.hold_piece(notch)
+	view._on_net_face_pressed(0, run.clamped_dice[0])
+	await wait_frames(2)
+	assert_eq(view.held_uid(), 0, "leere Ablage, leere Hand")
+	assert_eq(view.held_piece_id(), "")
+
 ## Die Zahl ist LEBEND: eine gesetzte Kopie fehlt auf dem Platz.
 func test_the_stack_count_drops_with_a_placed_copy() -> void:
 	var twins: Array[int] = [
