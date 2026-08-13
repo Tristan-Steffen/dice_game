@@ -73,7 +73,7 @@ const INFO_PAD := 0.9
 const INFO_LINE_GAP := 0.3
 ## Schriftgrade der Wirkungszeile, absteigend: der Schirm hat eine feste Größe,
 ## also nimmt der Text den ersten Grad, dessen Umbruch noch hineinpaßt. Der
-## längste Satz des Spiels (die Leiterbahn, 165 Zeichen) landet auf der letzten
+## längste Satz des Spiels (der Pointer, 165 Zeichen) landet auf der letzten
 ## Stufe - darunter läse ihn niemand mehr, darüber stünde er halb im Rahmen.
 const INFO_BODY_STEPS := [1.9, 1.65, 1.4, 1.2, 1.05]
 
@@ -1528,6 +1528,8 @@ func _apply_single(piece: int, die: DieDefinition, face: int, placed: String) ->
 	if Engraving.is_rune_id(placed):
 		return run.apply_press_rune(piece, die, face,
 			PressTargeting.free_rune_slot(die, face, run.extra_rune_slots()))
+	if placed == Engraving.DOPING:
+		return run.apply_press_doping(piece, die, face)
 	if placed == Engraving.NOTCH:
 		return run.apply_press_number(piece, die, _faces([face]))
 	return false

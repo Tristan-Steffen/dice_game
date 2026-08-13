@@ -104,7 +104,7 @@ const SHYSTER := "shyster"
 const PARROT_TOTEM := "parrot_totem"
 const ECHO_TOTEM := "echo_totem"
 const HERMIT_CRAB := "hermit_crab"
-# Energie & Leiterbahn
+# Energie & Pointer
 const SUPERCONDUCTOR := "superconductor"
 const DYNAMO := "dynamo"
 const STANDBY_LIGHT := "standby_light"
@@ -360,7 +360,7 @@ const RARITIES := {
 	PARROT_TOTEM: RARITY_LEGENDARY,
 	ECHO_TOTEM: RARITY_LEGENDARY,
 	HERMIT_CRAB: RARITY_COMMON,
-	# Energie & Leiterbahn
+	# Energie & Pointer
 	SUPERCONDUCTOR: RARITY_RARE,
 	DYNAMO: RARITY_UNCOMMON,
 	STANDBY_LIGHT: RARITY_RARE,
@@ -730,7 +730,7 @@ static func mercury_vapor() -> Charm:
 	return _make(MERCURY_VAPOR, "Quecksilberlampe", "Essenzen, die einen Würfel mehrfach auslösen lassen, lösen ihn ein weiteres Mal aus.")
 
 static func display_case() -> Charm:
-	return _make(DISPLAY_CASE, "Vitrine", "+2 Mult je oben liegender Material-Seite, +6 wenn dotiert.")
+	return _make(DISPLAY_CASE, "Vitrine", "+2 Mult je oben liegender Material-Seite, +6 wenn veredelt.")
 
 static func jewelry_box() -> Charm:
 	return _make(JEWELRY_BOX, "Schmuckkästchen", "Am Rundenende: je übriger Würfel 10% Chance auf ein versiegeltes Material-Paket.")
@@ -763,7 +763,7 @@ static func sediment() -> Charm:
 # --- Shop & Angebote ---
 
 static func seal_of_quality() -> Charm:
-	return _make(SEAL_OF_QUALITY, "Gütesiegel", "Würfel-Angebote im Shop sind immer veredelt (mind. eine dotierte Material-Seite).")
+	return _make(SEAL_OF_QUALITY, "Gütesiegel", "Würfel-Angebote im Shop tragen immer eine veredelte Material-Seite.")
 
 static func bulk_discount() -> Charm:
 	return _make(BULK_DISCOUNT, "Mengenrabatt", "Würfelbündel kosten $5 weniger.")
@@ -826,7 +826,7 @@ static func swamp_lantern() -> Charm:
 	return _make(SWAMP_LANTERN, "Sumpflaterne", "Irrlicht darf beliebig oft gekippt werden statt einmal je Runde.")
 
 static func ignition_coil() -> Charm:
-	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Leiterbahn-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
+	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Pointer-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
 
 static func bell_jar() -> Charm:
 	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Rune.")
@@ -835,7 +835,7 @@ static func solar_eclipse() -> Charm:
 	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")
 
 static func glaze_brush() -> Charm:
-	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon dotiert ist, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
+	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon veredelt ist, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
 
 static func fluorescent_tube() -> Charm:
 	return _make(FLUORESCENT_TUBE, "Leuchtstoffröhre", "Die Phosphoreszenz speichert zusätzlich jeden Mult, den sie erarbeitet hat, und zahlt ihn erneut aus.")
@@ -877,7 +877,7 @@ static func ash_cloud() -> Charm:
 	return _make(ASH_CLOUD, "Aschewolke", "Jeder Fumble, an dem ein Vulkanblitz beteiligt war, hebt seinen Krit dauerhaft +1.")
 
 static func feedback() -> Charm:
-	return _make(FEEDBACK, "Rückkopplung", "Die Glasfaser feuert die Zielseite ihrer Leiterbahnen dreimal statt zweimal.")
+	return _make(FEEDBACK, "Rückkopplung", "Die Glasfaser feuert die Zielseite ihrer Pointer dreimal statt zweimal.")
 
 static func ice_mirror() -> Charm:
 	return _make(ICE_MIRROR, "Eisspiegel", "Die Lichtsäule spiegelt doppelt: Gleichzahlen lösen +2× aus statt +1×.")
@@ -891,7 +891,7 @@ static func magnetar() -> Charm:
 static func radio_telescope() -> Charm:
 	return _make(RADIO_TELESCOPE, "Radioteleskop", "Die Hintergrundstrahlung erreicht auch die Ablage: deren Würfel wachsen mit.")
 
-# --- Energie & Leiterbahn ---
+# --- Energie & Pointer ---
 
 static func superconductor() -> Charm:
 	return _make(SUPERCONDUCTOR, "Supraleiter", "Kombinationen übertakten kostet 1 ⚡ weniger (mindestens 1).")
@@ -903,10 +903,10 @@ static func standby_light() -> Charm:
 	return _make(STANDBY_LIGHT, "Standby-Licht", "+1 Mult je gelagerter Energie.")
 
 static func soldering_iron() -> Charm:
-	return _make(SOLDERING_IRON, "Lötkolben", "+10 Prozentpunkte Zündchance auf jede Leiterbahn.")
+	return _make(SOLDERING_IRON, "Lötkolben", "+10 Prozentpunkte Zündchance auf jeden Pointer.")
 
 static func ground_wire() -> Charm:
-	return _make(GROUND_WIRE, "Erdungskabel", "Jede Leiterbahn, die nicht zündet, entlädt sich als +5 Mult.")
+	return _make(GROUND_WIRE, "Erdungskabel", "Jeder Pointer, der nicht zündet, entlädt sich als +5 Mult.")
 
 # --- Runen & Werkbank ---
 
@@ -917,7 +917,7 @@ static func luminous_paint() -> Charm:
 	return _make(LUMINOUS_PAINT, "Leuchtfarbe", "+2 Mult je Rune auf einem gewerteten Würfel.")
 
 static func kiln() -> Charm:
-	return _make(KILN, "Härteofen", "Materialeffekte dotierter Seiten wirken doppelt.")
+	return _make(KILN, "Härteofen", "Materialeffekte veredelter Seiten wirken doppelt.")
 
 ## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
 static func bench_clamp() -> Charm:

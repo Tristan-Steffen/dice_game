@@ -27,10 +27,10 @@ const EDGE := -2
 ## Kreuz-Ecke des Kanten-Chips (Zeile, Spalte) - leer im NET_LAYOUT.
 const EDGE_CELL := Vector2i(0, 0)
 
-## Leiterbahn-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
+## Pointer-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
 const POINTER_COLOR := Color("#8be9fd")
 
-## Dotier-Plakette in der unteren RECHTEN Zellecke - Kantenanteil.
+## Veredelungs-Plakette in der unteren RECHTEN Zellecke - Kantenanteil.
 ## Die Ecke ist frei: die Zeiger-Pfeile sitzen mittig auf den Zellrändern.
 const LEVEL_BADGE := 0.34
 ## Je Seite: welcher Zellrand der gequerten Würfelkante zum Nachbarn entspricht,
@@ -96,7 +96,7 @@ static func face_at(local: Vector2, cell: float) -> int:
 	return NET_LAYOUT[row][col]
 
 ## Kurz-Erklärzeile zu einer Netz-Zelle: Materialname + Kurzwirkung (face_hint),
-## dazu die Leiterbahn und die Runen dieser Seite; der Kanten-Chip (EDGE) erklärt
+## dazu die Pointer und die Runen dieser Seite; der Kanten-Chip (EDGE) erklärt
 ## die Seele des Würfels. "" für eine nackte Seite oder außerhalb des Kreuzes.
 ## EINE Quelle für alle Netze - Grube wie Werkbank.
 static func hint_for(def: DieDefinition, face: int) -> String:
@@ -109,7 +109,7 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
 	var target: int = def.pointers[face] if face < def.pointers.size() else -1
 	if target >= 0:
-		var pointer_hint := "Leiterbahn: löst die Seite mit Wert %d zu 50 %% einmal mit aus" % def.faces[target]
+		var pointer_hint := "Pointer: löst die Seite mit Wert %d zu 50 %% einmal mit aus" % def.faces[target]
 		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
 	for rune_id in def.runes_on(face):
 		var rune_hint := Rune.hint(rune_id)
@@ -120,7 +120,7 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
 	var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 	var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
-	# Die Dotierung sättigt die Zelle - der Blick von weitem; die Plakette daneben
+	# Die Veredelung sättigt die Zelle - der Blick von weitem; die Plakette daneben
 	# ist die genaue Marke.
 	var fill := DieMaterial.tint_for(material_id, def.material_level(face_index))
 	var chip := Label.new()
@@ -189,14 +189,14 @@ static func total_badge(def: DieDefinition, cell: float) -> Label:
 	badge.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.8)))
 	return badge
 
-## Kanten-Chip und Leiterbahn-Pfeile einzeln, für denselben Zweck.
+## Kanten-Chip und Pointer-Pfeile einzeln, für denselben Zweck.
 static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 	return _edge_chip(def, cell)
 
 static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	return _pointer_arrows(def, cell)
 
-## Je dotierter Seite eine Plakette in ihrer unteren rechten Zellecke. Der normale
+## Je veredelter Seite eine Plakette in ihrer unteren rechten Zellecke. Der normale
 ## Zustand bleibt unmarkiert - er ist der Regelfall, und eine Marke auf jeder
 ## Material-Zelle wäre Rauschen. Geometrie statt Schrift: im 30er-Raster misst
 ## eine Zelle nur ~17 px, eine Ziffer wäre dort Matsch.
@@ -245,7 +245,7 @@ static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
 	return glyphs
 
 ## Der Rune selbst: heller Linienzug auf dunklem Unterzug - dieselbe Sprache wie
-## Zeiger-Pfeile und Dotier-Plakette, damit er auch auf einer hellen Material-
+## Zeiger-Pfeile und Veredelungs-Plakette, damit er auch auf einer hellen Material-
 ## Zelle steht.
 ##
 ## Das Netz animiert NICHT. 30 Würfel × bis zu 6 Runen hieße bis zu 180 Controls,
@@ -316,7 +316,7 @@ static func _cell_pos(face_index: int, cell: float) -> Vector2:
 				return Vector2(col * (cell + gap), row * (cell + gap))
 	return Vector2.ZERO
 
-## Je Leiterbahn ein Pfeil auf dem Zellrand der gequerten Kante, nach außen zeigend.
+## Je Pointer ein Pfeil auf dem Zellrand der gequerten Kante, nach außen zeigend.
 static func _pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	var arrows: Array[Control] = []
 	for face in def.pointers.size():

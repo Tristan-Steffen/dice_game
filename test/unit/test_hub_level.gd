@@ -226,3 +226,32 @@ func test_redeem_books_run_prizes() -> void:
 	assert_eq(run.owned_packs.size(), packs_before + 1, "3er-Zahlen-Reihe gebucht")
 	assert_eq(run.money, money_before, "der Automat zahlt kein Geld")
 	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
+
+# --- Sonderposten im normalen Regal (ab Lizenz 8) ------------------------------
+
+## Vor der Schwelle gibt es sie einzig im Hinterzimmer.
+func test_the_shelf_carries_no_special_before_its_level() -> void:
+	var run := GameRun.new_run()
+	for level in range(1, GameRun.SHOP_SPECIAL_LEVEL):
+		run.hub_level = level
+		assert_eq(run.shop_special_chance(), 0.0, "Stufe %d führt keinen" % level)
+
+## Ab der Schwelle steigt die Chance mit jeder Stufe - nie fällt sie.
+func test_the_special_chance_climbs_with_the_licence() -> void:
+	var run := GameRun.new_run()
+	var previous := 0.0
+	for level in range(GameRun.SHOP_SPECIAL_LEVEL, GameRun.HUB_MAX_LEVEL + 1):
+		run.hub_level = level
+		var chance := run.shop_special_chance()
+		assert_gt(chance, previous, "Stufe %d liegt über der vorigen" % level)
+		assert_lte(chance, 1.0, "eine Chance bleibt eine Chance")
+		previous = chance
+
+## Eine Stufe über dem Maximum darf die Chance nicht auf null zurückfallen
+## lassen - die Tabelle endet, die Regel nicht.
+func test_a_level_beyond_the_cap_keeps_the_top_chance() -> void:
+	var run := GameRun.new_run()
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	var top := run.shop_special_chance()
+	run.hub_level = GameRun.HUB_MAX_LEVEL + 5
+	assert_eq(run.shop_special_chance(), top)

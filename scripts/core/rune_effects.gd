@@ -1,7 +1,7 @@
 class_name RuneEffects
 ## Reine Wirkung der Runen (siehe Rune), über die id aufgelöst - nie ein stiller
 ## Zweig in scene_root. Eine Rune gehört EINER Seite und wirkt nur, wenn diese
-## Seite oben liegt; Leiterbahn-Glieder feuern ihn NICHT (siehe DiceScoring).
+## Seite oben liegt; Pointer-Glieder feuern ihn NICHT (siehe DiceScoring).
 ##
 ## Zwei Klassen: WERTUNGS-Runen feuern, wenn die Seite gewertet wird
 ## (Nachglühen, Funkenflug, Kehrseite); ÖKONOMIE-/SCHUTZ-Runen hängen an anderen

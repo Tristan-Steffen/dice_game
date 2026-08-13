@@ -245,7 +245,7 @@ func test_beherit_reads_the_settled_value_not_the_grown_one():
 	assert_almost_eq(float(charm_steps[0]["crit_x"]), 5.0, 0.0001)
 
 func test_every_crit_gets_its_own_slam():
-	# Zwei Härteofen-Schläge auf einem dotierten Rubin: ZWEIMAL ×2, nie einmal ×4 -
+	# Zwei Härteofen-Schläge auf einem veredelten Rubin: ZWEIMAL ×2, nie einmal ×4 -
 	# die Zeremonie soll jeden Krit zeigen. Das Produkt bleibt crit_x.
 	var ids := _ids([Charm.KILN])
 	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])

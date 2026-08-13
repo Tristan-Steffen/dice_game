@@ -431,7 +431,7 @@ func test_the_action_seat_stands_right_of_the_console() -> void:
 		"das Blech steht weiter mittig")
 
 func test_a_fixed_content_pack_yields_exactly_its_piece() -> void:
-	# Die Leiterbahn liegt auf keinem Ikonensatz - geliefert wird sie trotzdem
+	# Der Pointer liegt auf keinem Ikonensatz - geliefert wird er trotzdem
 	# durch dieselbe Presse.
 	run.grant_engraving_pack(Engraving.pointer_engraving())
 	view.slot_pack_from_stack(PackShelfView.CATEGORY_SPECIAL)

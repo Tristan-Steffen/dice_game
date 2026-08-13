@@ -475,7 +475,7 @@ func test_clear_all_materials_also_clears_the_levels():
 		for level: int in die.levels:
 			assert_eq(level, 0, "ohne Material keine Stufe")
 
-# --- Testhilfen: Zufalls-Leiterbahnen (Testmodus) --------------------------------
+# --- Testhilfen: Zufalls-Pointer (Testmodus) --------------------------------
 
 func test_randomize_all_pointers_gives_every_die_one_to_five_valid_links():
 	run.randomize_all_pointers()
@@ -489,7 +489,7 @@ func test_randomize_all_pointers_gives_every_die_one_to_five_valid_links():
 			count += 1
 			assert_true(die.can_point(face, target),
 				"Seite %d zeigt auf einen Nachbarn (%d)" % [face, target])
-		assert_between(count, 1, 5, "1-5 Leiterbahnen je Würfel")
+		assert_between(count, 1, 5, "1-5 Pointer je Würfel")
 
 func test_randomize_pointers_gives_each_die_an_independent_array():
 	run.randomize_all_pointers()
@@ -514,7 +514,7 @@ func test_clear_all_pointers_removes_every_link():
 	run.clear_all_pointers()
 	for die in run.owned_pool:
 		for target: int in die.pointers:
-			assert_eq(target, -1, "Leiterbahn entfernt")
+			assert_eq(target, -1, "Pointer entfernt")
 
 # --- Testhilfen: Zufalls-Seelen (Testmodus) -------------------------------------
 
@@ -733,7 +733,7 @@ func test_the_jewelry_box_never_touches_a_die():
 	assert_eq(run.owned_packs.size(), grants.size(), "je Fund ein versiegeltes Mini-Paket")
 	for die in many:
 		assert_eq(die.materials[0], DieMaterial.RUBY)
-		assert_eq(die.material_level(0), DieMaterial.MAX_LEVEL, "die Dotierung bleibt stehen")
+		assert_eq(die.material_level(0), DieMaterial.MAX_LEVEL, "die Veredelung bleibt stehen")
 		for face in range(1, 6):
 			assert_eq(die.materials[face], "", "keine neue Seite wurde belegt")
 

@@ -1,5 +1,5 @@
 extends GutTest
-## Tests des Kupfers: das ⚡-Material. Es speist je Zündung, dotiert doppelt, und
+## Tests des Kupfers: das ⚡-Material. Es speist je Zündung, veredelt doppelt, und
 ## was über den Speicher hinausläuft, zahlt bar - dieselbe Überlauf-Grammatik wie
 ## die Stufen-Auszahlung.
 
@@ -25,7 +25,7 @@ func _defs(values: Array) -> Array[DieDefinition]:
 
 const NO_CHARMS: Array[String] = []
 
-## Ein Würfel mit Kupfer auf Seite 0 (doped = dotiert).
+## Ein Würfel mit Kupfer auf Seite 0 (doped = veredelt).
 func _copper_die(doped := false) -> DieDefinition:
 	var def := DieDefinition.new()
 	def.set_face_material(0, DieMaterial.COPPER)
@@ -48,7 +48,7 @@ func test_copper_states_read_as_energy():
 	var copper := DieMaterial.by_id(DieMaterial.COPPER)
 	assert_eq(copper.short, "+1 ⚡")
 	assert_eq(copper.short_doped, "+2 ⚡")
-	assert_ne(copper.description_doped, "", "der dotierte Zustand erklärt sich")
+	assert_ne(copper.description_doped, "", "der veredelte Zustand erklärt sich")
 
 func test_copper_has_a_texture_even_without_its_own_file():
 	# Konvention Dateiname = id; fehlt copper.png, trägt die Basis-Textur.

@@ -1,5 +1,5 @@
 extends GutTest
-## Dotierung als Farbe: die dotierte Seite trägt ihre Materialfarbe SATTER. Der
+## Veredelung als Farbe: die veredelte Seite trägt ihre Materialfarbe SATTER. Der
 ## normale Zustand muss dabei überall byteweise die alte Farbe bleiben - er ist
 ## der Regelfall und kündigt sich nie an.
 
@@ -22,7 +22,7 @@ func test_every_material_gets_richer_when_doped() -> void:
 	for material in DieMaterial.all():
 		var plain := DieMaterial.tint_for(material.id, 1)
 		var doped := DieMaterial.tint_for(material.id, DieMaterial.MAX_LEVEL)
-		assert_gt(doped.s, plain.s, "%s: dotiert ist satter" % material.id)
+		assert_gt(doped.s, plain.s, "%s: veredelt ist satter" % material.id)
 
 func test_saturation_and_value_stay_in_range() -> void:
 	for material in DieMaterial.all():
@@ -36,7 +36,7 @@ func test_richer_never_reads_as_darker() -> void:
 	for material in DieMaterial.all():
 		assert_gte(DieMaterial.tint_for(material.id, DieMaterial.MAX_LEVEL).v,
 			DieMaterial.tint_for(material.id, 1).v,
-			"%s: dotiert wird nicht dunkler" % material.id)
+			"%s: veredelt wird nicht dunkler" % material.id)
 
 func test_the_hue_survives_the_step() -> void:
 	# Satter, nicht anders: eine verschobene Farbe wäre ein anderes Material.
@@ -44,7 +44,7 @@ func test_the_hue_survives_the_step() -> void:
 		if material.tint.s <= 0.001:
 			continue
 		assert_almost_eq(DieMaterial.tint_for(material.id, DieMaterial.MAX_LEVEL).h, material.tint.h, 0.001,
-			"%s behält dotiert seinen Farbton" % material.id)
+			"%s behält veredelt seinen Farbton" % material.id)
 
 func test_an_unknown_material_stays_white_at_every_level() -> void:
 	for level in [1, DieMaterial.MAX_LEVEL]:
@@ -52,7 +52,7 @@ func test_an_unknown_material_stays_white_at_every_level() -> void:
 		assert_eq(DieMaterial.tint_for("kein_material", level), Color.WHITE)
 
 func test_the_step_never_pushes_emission_over_the_bloom_threshold() -> void:
-	# Das Signal der Dotierung ist Farbreinheit, nie Helligkeit - dieselbe Regel
+	# Das Signal der Veredelung ist Farbreinheit, nie Helligkeit - dieselbe Regel
 	# wie bei den Runen.
 	for material in DieMaterial.all():
 		if material.glow <= 0.0:
@@ -60,10 +60,10 @@ func test_the_step_never_pushes_emission_over_the_bloom_threshold() -> void:
 		var base := DieFaceDisplay.intense(material.tint).v * material.glow
 		var top := DieFaceDisplay.intense(DieMaterial.tint_for(material.id, DieMaterial.MAX_LEVEL)).v * material.glow
 		assert_lt(top - base, 0.10,
-			"%s: dotiert leuchtet höchstens einen Hauch heller" % material.id)
+			"%s: veredelt leuchtet höchstens einen Hauch heller" % material.id)
 
 func test_bone_stays_dead_matte_at_every_level() -> void:
-	# Tot-matt IST die Identität des Knochens; seine Dotierung reitet allein auf
+	# Tot-matt IST die Identität des Knochens; seine Veredelung reitet allein auf
 	# der Albedo. Ein Glühen wäre ein anderes Material.
 	var bone := DieMaterial.by_id(DieMaterial.BONE)
 	assert_eq(bone.glow, 0.0, "Knochen glüht nie")

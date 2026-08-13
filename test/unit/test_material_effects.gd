@@ -32,7 +32,7 @@ const NO_CHARMS: Array[String] = []
 func _argon(slot: int) -> Dictionary:
 	return {DiceScoring.CTX_ESSENCES: {slot: Essence.ARGON}}
 
-## Würfel für die Nehmen-Tests; levels dotiert einzelne Seiten (Seite -> Zustand),
+## Würfel für die Nehmen-Tests; levels veredelt einzelne Seiten (Seite -> Zustand),
 ## jede andere Material-Seite bleibt normal.
 func _die(faces: Array, materials: Array = [], levels: Dictionary = {}) -> DieDefinition:
 	var def := DieDefinition.new()
@@ -302,12 +302,12 @@ func test_is_strictly_better_judges_each_side_with_its_own_levels():
 	var new_ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 2, "eye_sum": 21}}}
 	var old_ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 1, "eye_sum": 21}}}
 	assert_false(DiceScoring.is_strictly_better(same, same, NO_CHARMS, ruby, ruby, {}, new_ctx, old_ctx),
-		"gleicher Rang bleibt Farkle, auch wenn die neue Seite dotiert ist")
+		"gleicher Rang bleibt Farkle, auch wenn die neue Seite veredelt ist")
 	assert_true(DiceScoring.is_strictly_better(better, same, NO_CHARMS, ruby, ruby, {}, new_ctx, old_ctx),
-		"Dreierpasch schlägt das Paar - unabhängig von der Dotierung")
+		"Dreierpasch schlägt das Paar - unabhängig von der Veredelung")
 
-# --- Dotierung: normal vs. dotiert ----------------------------------------------
-# Der dotierte Zustand ist von Hand gesetzt - mal Skalierung (Bernstein, Gold,
+# --- Veredelung: normal vs. veredelt ----------------------------------------------
+# Der veredelte Zustand ist von Hand gesetzt - mal Skalierung (Bernstein, Gold,
 # Knochen), mal Verwandlung (Rubin und Glas kriten). Charm-Aufschläge liegen über
 # BEIDEN Zuständen (Bernsteinzimmer, Knochenleim, Goldschmied ...), nie als Faktor.
 
@@ -315,12 +315,12 @@ func test_is_strictly_better_judges_each_side_with_its_own_levels():
 func _ctx_lvl(slot: int, level: int, eye_sum := 0) -> Dictionary:
 	return {DiceScoring.CTX_MATERIAL_LEVELS: {slot: {"level": level, "eye_sum": eye_sum}}}
 
-# Bernstein: +20 Basis plus Augensumme, dotiert nur die fünffache Augensumme.
+# Bernstein: +20 Basis plus Augensumme, veredelt nur die fünffache Augensumme.
 
 func test_amber_pays_the_eye_sum_in_both_states():
 	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 1, 21), 41, "20 + 21")
 	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 2, 21), 105,
-		"dotiert: 5 × 21, ohne festen Zuschlag")
+		"veredelt: 5 × 21, ohne festen Zuschlag")
 
 func test_amber_keeps_the_amber_room_surplus_in_both_states():
 	var surplus := MaterialEffects.AMBER_ROOM_SURPLUS
@@ -338,11 +338,11 @@ func test_amber_doping_flows_through_the_score():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 2, 21)),
 		250, "(10+5+5+105) × 2")
 
-# Rubin: +4 Mult, dotiert ein Krit ×2.
+# Rubin: +4 Mult, veredelt ein Krit ×2.
 
 func test_ruby_crits_when_doped():
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 1), 4)
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 2), 0, "dotiert addiert nicht mehr")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 2), 0, "veredelt addiert nicht mehr")
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 2), 2)
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, NO_CHARMS, 1), 1, "normal kritet nicht")
 
@@ -350,7 +350,7 @@ func test_ruby_keeps_the_blood_diamond_additive_in_both_states():
 	# Sonst würde der Aufschlag den Krit exponentiell machen.
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 1), 9, "4 + 5")
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 2), 5,
-		"dotiert bleibt nur der Aufschlag additiv")
+		"veredelt bleibt nur der Aufschlag additiv")
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND, Charm.BLOOD_DIAMOND]), 2), 5,
 		"kein Stapeln je Exemplar")
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.RUBY, 5, _ids([Charm.BLOOD_DIAMOND]), 2), 2,
@@ -364,12 +364,12 @@ func test_ruby_doping_flows_through_the_score():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 2)),
 		80, "20 × (2 ×2)")
 
-# Glas: +Augen, normal bei 6 gedeckelt, dotiert Krit ×(Augen/2) statt additiv.
+# Glas: +Augen, normal bei 6 gedeckelt, veredelt Krit ×(Augen/2) statt additiv.
 
 func test_glass_caps_the_eyes_when_undoped():
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 1), 5)
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 9, NO_CHARMS, 1), 6, "normal zählt höchstens eine 6")
-	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 2), 0, "dotiert addiert nicht mehr")
+	assert_eq(MaterialEffects.mult_once_for(DieMaterial.GLASS, 5, NO_CHARMS, 2), 0, "veredelt addiert nicht mehr")
 
 func test_glass_crits_only_when_doped():
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 6, NO_CHARMS, 1), 1)
@@ -378,7 +378,7 @@ func test_glass_crits_only_when_doped():
 	assert_eq(MaterialEffects.mult_crit_once_for(DieMaterial.GLASS, 1, NO_CHARMS, 2), 1, "nie unter ×1")
 
 func test_doped_glass_only_crits_in_the_score():
-	# Paar Fünfer, dotiertes Glas auf Slot 0: Mult 2 ×2,5 = 5, nichts Additives dazu.
+	# Paar Fünfer, veredeltes Glas auf Slot 0: Mult 2 ×2,5 = 5, nichts Additives dazu.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m([DieMaterial.GLASS, "", "", "", "", ""])
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, mats, {}, _ctx_lvl(0, 2)),
@@ -392,7 +392,7 @@ func test_only_the_face_carrier_can_crit():
 # Der Material-Krit schlägt an der Position SEINES Würfels ein.
 
 func test_material_crit_fires_at_its_own_die_not_at_the_end():
-	# Dotierter Rubin auf Slot 0 (Krit ×2), Glas auf Slot 1 (+5 Mult danach).
+	# Veredelter Rubin auf Slot 0 (Krit ×2), Glas auf Slot 1 (+5 Mult danach).
 	# Feuerte der Krit erst am Ende, wäre es (2+5)×2 = 14 statt 9.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
@@ -419,7 +419,7 @@ func test_breakdown_mirrors_the_material_crit():
 	var activation: Dictionary = ((first_step["die_triggers"] as Array)[0]["firings"] as Array)[0]
 	assert_true(bool(activation["crit_from_die"]), "der Strahl kommt vom Würfel, nicht vom Dock-Pad")
 
-# Gold: $3, dotiert $7 plus $1 je ausgelöster Gold-Seite dieser Nahme.
+# Gold: $3, veredelt $7 plus $1 je ausgelöster Gold-Seite dieser Nahme.
 
 func test_gold_pays_three_when_undoped():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -432,7 +432,7 @@ func test_doped_gold_pays_seven_plus_one_per_gold_face():
 	assert_eq(report.total_money(), 8, "$7 + $1 für die eigene Auslösung")
 
 func test_doped_gold_counts_every_gold_face_of_the_take():
-	# Drei Gold-Seiten, davon eine dotiert: der Zähler steht bei 3.
+	# Drei Gold-Seiten, davon eine veredelt: der Zähler steht bei 3.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], [], {0: 2}), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var gold := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), gold, _p([0, 1, 2]))
@@ -443,7 +443,7 @@ func test_gold_keeps_the_goldsmith_surplus_when_doped():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]), _ids([Charm.GOLDSMITH]))
 	assert_eq(report.total_money(), 11, "$7 + $1 Zähler + $3 Aufschlag")
 
-# Knochen: +2, dotiert mind. +10 bzw. 20 % - je Aktivierung neu gerechnet.
+# Knochen: +2, veredelt mind. +10 bzw. 20 % - je Aktivierung neu gerechnet.
 
 func test_bone_grows_by_two_when_undoped():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
@@ -477,7 +477,7 @@ func test_bone_keeps_the_glue_surplus():
 	assert_eq(defs[0].faces[0], 10, "+2 (normal) +3 (Aufschlag)")
 
 func test_doped_bone_compounds_per_marrow_trigger():
-	# Knochenmark gibt eine zweite Auslösung; dotiert rechnet die ihren
+	# Knochenmark gibt eine zweite Auslösung; veredelt rechnet die ihren
 	# Prozentschritt am schon gewachsenen Wert neu (40 -> +10+3 = 53 -> +11+3 = 67),
 	# nie 2 × denselben Schritt.
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 2})]
@@ -485,7 +485,7 @@ func test_doped_bone_compounds_per_marrow_trigger():
 		_ids([Charm.BONE_GLUE, Charm.BONE_MARROW]))
 	assert_eq(defs[0].faces[0], 67)
 
-# Glas: −1, dotiert die halbe Seite.
+# Glas: −1, veredelt die halbe Seite.
 
 func test_glass_shrinks_by_one_when_undoped():
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6])]
@@ -496,7 +496,7 @@ func test_glass_shrinks_by_one_when_undoped():
 func test_doped_glass_halves_the_face():
 	var defs: Array[DieDefinition] = [_die([40, 2, 3, 4, 5, 6], [], {0: 2})]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
-	assert_eq(defs[0].faces[0], 20, "dotiert halbiert sich")
+	assert_eq(defs[0].faces[0], 20, "veredelt halbiert sich")
 
 func test_doped_glass_always_loses_at_least_one():
 	# Die Hälfte wird aufgerundet, damit auch eine kleine Seite wirklich fällt.
@@ -717,7 +717,7 @@ func test_instantiate_and_become_copy_the_levels():
 func test_a_fresh_definition_has_no_levels():
 	assert_eq(DieDefinition.new().levels, [0, 0, 0, 0, 0, 0] as Array[int])
 
-# --- dope: der einzige Weg in den dotierten Zustand ------------------------------
+# --- dope: der einzige Weg in den veredelten Zustand ------------------------------
 
 func test_dope_lifts_the_face_once():
 	var def := DieDefinition.new()
@@ -725,12 +725,12 @@ func test_dope_lifts_the_face_once():
 	assert_eq(def.material_level(0), 1, "ein frisches Material steht normal")
 	assert_true(def.dope(0))
 	assert_eq(def.material_level(0), DieMaterial.MAX_LEVEL)
-	assert_false(def.dope(0), "dotiert ist der Deckel")
+	assert_false(def.dope(0), "veredelt ist der Deckel")
 	assert_eq(def.material_level(0), DieMaterial.MAX_LEVEL)
 
 func test_dope_needs_a_material():
 	var def := DieDefinition.new()
-	assert_false(def.dope(0), "eine nackte Seite hat nichts zu dotieren")
+	assert_false(def.dope(0), "eine nackte Seite hat nichts zu veredeln")
 	assert_eq(def.material_level(0), 0)
 
 func test_dope_ignores_faces_out_of_range():
@@ -744,7 +744,7 @@ func test_set_face_material_resets_the_level():
 	var def := _die([5, 2, 3, 4, 5, 6], [DieMaterial.RUBY, "", "", "", "", ""], {0: 2})
 	def.set_face_material(0, DieMaterial.GOLD)
 	assert_eq(def.materials[0], DieMaterial.GOLD)
-	assert_eq(def.material_level(0), 1, "die Dotierung wohnt in der Glasur, nicht in der Seite")
+	assert_eq(def.material_level(0), 1, "die Veredelung wohnt in der Glasur, nicht in der Seite")
 
 func test_set_face_material_clears_the_level_when_wiped():
 	var def := _die([5, 2, 3, 4, 5, 6], [DieMaterial.RUBY, "", "", "", "", ""], {0: 2})
@@ -754,7 +754,7 @@ func test_set_face_material_clears_the_level_when_wiped():
 func test_set_face_material_leaves_other_faces_alone():
 	var def := _die([5, 2, 3, 4, 5, 6], [DieMaterial.RUBY, DieMaterial.GOLD, "", "", "", ""], {0: 1, 1: 2})
 	def.set_face_material(0, DieMaterial.AMBER)
-	assert_eq(def.material_level(1), 2, "die Nachbarseite bleibt dotiert")
+	assert_eq(def.material_level(1), 2, "die Nachbarseite bleibt veredelt")
 
 func test_set_face_material_ignores_faces_out_of_range():
 	var def := _die([5, 2, 3, 4, 5, 6])
@@ -782,14 +782,14 @@ func _plan_sum(plan: Dictionary) -> int:
 			total += amount
 	return total
 
-## Fälle: [Name, Seiten-Material, Zustand, Charms, Seelen, Leiterbahn-Zündungen].
+## Fälle: [Name, Seiten-Material, Zustand, Charms, Seelen, Pointer-Zündungen].
 func _activation_money_cases() -> Array:
 	return [
 		["Neon einfach", "", 1, [], [Essence.NEON], {}],
 		["Neon × Argon", "", 1, [], [Essence.NEON, Essence.ARGON], {}],
 		["Neon × Quecksilberdampf", "", 1, [], [Essence.NEON, Essence.MERCURY_VAPOR], {}],
 		["Gold normal", DieMaterial.GOLD, 1, [], [], {}],
-		["Gold dotiert", DieMaterial.GOLD, 2, [], [], {}],
+		["Gold veredelt", DieMaterial.GOLD, 2, [], [], {}],
 		["Gold im Härteofen", DieMaterial.GOLD, 2, [Charm.KILN], [], {}],
 		["Gold + Seele", DieMaterial.GOLD, 1, [], [Essence.NEON], {}],
 		["Gold-Glied", "", 1, [], [],

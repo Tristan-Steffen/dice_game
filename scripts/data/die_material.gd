@@ -1,6 +1,6 @@
 class_name DieMaterial
 extends Resource
-## Datensatz eines Materials (Veredelung EINER Würfelseite).
+## Datensatz eines Materials (Belegung EINER Würfelseite).
 ## Anzeige-Infos hier, Wirkung löst MaterialEffects über die id auf; die
 ## Gravur-id der Material-Gravuren IST die Material-id.
 
@@ -14,8 +14,8 @@ const COPPER := "copper"      # +1 ⚡ beim Nehmen; Überlauf zahlt bar
 
 const NONE := ""
 
-## Zustand eines Seiten-Materials: 0 = keins, 1 = normal, 2 = dotiert. Mehr gibt
-## es nicht - dotiert ist ein Zustand, keine Leiter.
+## Zustand eines Seiten-Materials: 0 = keins, 1 = normal, 2 = veredelt. Mehr gibt
+## es nicht - veredelt ist ein Zustand, keine Leiter.
 const MAX_LEVEL := 2
 
 @export var id: String = ""
@@ -23,7 +23,7 @@ const MAX_LEVEL := 2
 @export var description: String = ""
 ## Kurzwirkung fürs Grube-Hover-Feld ("+20 Basispunkte").
 @export var short: String = ""
-## Dotierter Zustand; der normale steht in short/description.
+## Veredelter Zustand; der normale steht in short/description.
 @export var short_doped: String = ""
 @export var description_doped: String = ""
 ## Körperfarbe der Seite - bewusst hell genug für die dunkle Augenzahl.
@@ -141,15 +141,15 @@ static func by_id(material_id: String) -> DieMaterial:
 static func is_valid_id(material_id: String) -> bool:
 	return by_id(material_id) != null
 
-## Restsättigungs-Schrumpf der Dotierung: s' = 1 − (1 − s) × k. Ein glattes
+## Restsättigungs-Schrumpf der Veredelung: s' = 1 − (1 − s) × k. Ein glattes
 ## Multiplizieren ginge nicht - Rubin liegt schon bei S≈0.81 und wäre sofort am
 ## Anschlag, Knochen bei S≈0.34 und käme kaum vom Fleck.
 const LEVEL_SATURATION := {2: 0.53}
 ## Kleiner Hellwert-Zuschlag, damit "satter" nie als "matschiger" liest. Bewusst
-## klein: die Dotierung ist ein Signal aus Farbreinheit, nie aus Helligkeit.
+## klein: die Veredelung ist ein Signal aus Farbreinheit, nie aus Helligkeit.
 const LEVEL_VALUE := {2: 1.08}
 
-## Sättigt eine Farbe auf den dotierten Zustand. Normal gibt sie UNVERÄNDERT
+## Sättigt eine Farbe auf den veredelten Zustand. Normal gibt sie UNVERÄNDERT
 ## zurück - der Normalfall kündigt sich nie an.
 static func saturated(color: Color, level: int) -> Color:
 	if level <= 1 or not LEVEL_SATURATION.has(level):
@@ -174,13 +174,13 @@ func description_for(level: int) -> String:
 	return description_doped if level >= MAX_LEVEL else description
 
 ## Kurz-Erklärzeile einer Seite fürs Hover-Feld ("" ohne Material): «Name»: Wirkung.
-## Dotiert nennt sich im Namen, normal kündigt sich nie an.
+## Veredelt nennt sich im Namen, normal kündigt sich nie an.
 static func face_hint(material_id: String, level := 1) -> String:
 	var material := by_id(material_id)
 	if material == null:
 		return ""
 	if level >= MAX_LEVEL:
-		return "%s (dotiert): %s" % [material.display_name, material.short_doped]
+		return "%s (veredelt): %s" % [material.display_name, material.short_doped]
 	return "%s: %s" % [material.display_name, material.short]
 
 # Oberflächen-Texturen: helle, fast farblose Muster; die Materialfarbe liefert

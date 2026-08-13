@@ -249,9 +249,15 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 		face = net
 	else:
 		var engraving: Engraving = offer[GameRun.OFFER_ITEM]
+		# Ein Bündel liegt als EINE Karte da - die Menge steht im Titel, damit sie
+		# schon auf dem Schild steht und nicht erst beim Auspacken auffällt.
+		var bundle := int(offer.get(GameRun.OFFER_COUNT, 1))
 		tint = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-		title = engraving.display_name
+		title = engraving.display_name if bundle == 1 else "%d× %s" % [bundle, engraving.display_name]
 		body = engraving.description
+		if bundle > 1:
+			body = "%s
+Eine Datenkarte mit %d Stücken darin." % [body, bundle]
 		var renderer := EngravingRenderer.for_engraving(engraving)
 		renderer.custom_minimum_size = Vector2(thumb_px, thumb_px)
 		face = renderer

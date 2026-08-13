@@ -49,7 +49,7 @@ func test_dice_carry_a_non_normal_style_id():
 		for die in offer.dice:
 			assert_ne(die.style_id, "normal")
 
-# --- Veredelungen (Material-Seiten / Kanten, siehe roll_refinements) -----------
+# --- Material-Seiten (siehe roll_refinements) ---------------------------------
 
 func test_refinement_surcharge_matches_applied_content():
 	# Der gemeldete Aufpreis passt exakt zu dem, was auf dem Würfel gelandet ist.
@@ -77,7 +77,7 @@ func test_refinements_apply_at_most_two_face_materials():
 		assert_lte(count, 2, "höchstens zwei Material-Seiten je Angebots-Würfel")
 
 func test_refinements_appear_sometimes_but_not_always():
-	# Über viele Angebote: Veredelungen kommen vor, aber nicht auf jedem Würfel.
+	# Über viele Angebote: Material-Seiten kommen vor, aber nicht auf jedem Würfel.
 	var refined := 0
 	var total := 0
 	for i in 80:
@@ -86,7 +86,7 @@ func test_refinements_appear_sometimes_but_not_always():
 		total += 1
 		if def.essence_id != "" or def.materials.count("") < 6:
 			refined += 1
-	assert_gt(refined, 0, "Veredelungen tauchen auf")
+	assert_gt(refined, 0, "Material-Seiten tauchen auf")
 	assert_lt(refined, total, "aber nicht auf jedem Würfel")
 
 func test_bundle_copies_share_refinements_as_independent_instances():
@@ -101,8 +101,8 @@ func test_bundle_copies_share_refinements_as_independent_instances():
 			if offer.size() > 1 and (first.essence_id != "" or first.materials.count("") < 6):
 				offer.dice[1].materials[0] = "test_sentinel"
 				assert_ne(first.materials[0], "test_sentinel", "Kopien sind unabhängig")
-				return  # ein veredeltes Mehrfach-Bündel gefunden und geprüft - fertig
-	fail_test("kein veredeltes Mehrfach-Bündel in 120 Versuchen gefunden")
+				return  # ein belegtes Mehrfach-Bündel gefunden und geprüft - fertig
+	fail_test("kein belegtes Mehrfach-Bündel in 120 Versuchen gefunden")
 
 func test_even_bundle_has_two_dice_with_only_even_faces():
 	var t := _template("even")

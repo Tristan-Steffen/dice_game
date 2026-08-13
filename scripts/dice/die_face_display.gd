@@ -27,7 +27,7 @@ const FACE_FRONT_MIN_DOT := 0.15
 const EDGE_COLOR := Color(0.8, 0.8, 0.83)
 ## Neutrale Linienfarbe der Kanten: Weiß. Kahle Kanten leuchten bewusst
 ## UNTER der Bloom-Schwelle (EDGE_GLOW) - dadurch bleiben sie weiße Linien
-## statt eines farbigen Klumpens und treten hinter jede veredelte Kante
+## statt eines farbigen Klumpens und treten hinter jede Material-Kante
 ## zurück.
 const EDGE_NEON := Color(0.95, 0.96, 0.98)
 ## Emissions-Stärken. Die KANTEN sind die Lichtquelle des Würfels, die
@@ -44,7 +44,7 @@ const EDGE_GLOW := 0.7
 const FRAME_GLOW := 0.95
 ## Kanten-Material leuchtet IMMER kräftig, auch wenn das Profil selbst kaum
 ## glüht (Gold 0.26, Quecksilber 0.22) - die Kante ist die Lampe, nicht die
-## Oberfläche. Liegt bewusst ÜBER EDGE_GLOW: eine veredelte Kante muss die
+## Oberfläche. Liegt bewusst ÜBER EDGE_GLOW: eine Material-Kante muss die
 ## kahle überstrahlen, sonst kehrt sich die Rangfolge um. Ausnahme bleibt
 ## glow == 0 (Knochen).
 const MATERIAL_EDGE_GLOW_FLOOR := 1.15
@@ -62,7 +62,7 @@ const EDGE_METALLIC := 0.35
 
 ## Der Würfel wirft KEIN echtes Licht mehr. Ein OmniStrahler beleuchtete in
 ## dieser Szene nur die anderen Würfel (Grubenboden, Wände und Screens sind
-## unshaded): in einer Reihe aus sechs veredelten Würfeln addierten sich die
+## unshaded): in einer Reihe aus sechs leuchtenden Würfeln addierten sich die
 ## Strahler, bis die mittleren weiß auswuschen. Er zwang außerdem die
 ## Ungleichheit, denn 30+ Tray-Würfel hätten das Per-Objekt-Lichtlimit
 ## gesprengt - ein Würfel sah in der Grube anders aus als im Tray. Ohne ihn
@@ -119,7 +119,7 @@ const MOTE_GLOW := 1.5
 ## Stützpunkte je Kante, aus denen die Funken treten (12 Kanten × 6).
 const MOTE_EDGE_SAMPLES := 6
 
-## Leiterbahn auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
+## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
 ## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
 ## zur Pfeilspitze auf der Zielseite. Überall gleich breit: die gequerte Kante
 ## darf keine dickere Stelle sein, sonst zerfällt das Kabel in Einzelteile.
@@ -127,7 +127,7 @@ const MOTE_EDGE_SAMPLES := 6
 ## Kantenbalken ginge das blasse Cyan unter - dieselbe Regel wie DIE_SATURATION.
 const POINTER_COLOR := Color("#00d9ff")
 ## Kamm der Chevrons: ÜBER der Bloom-Schwelle (0.95), aber unter dem Boden der
-## Material-Kanten - die veredelte Kante bleibt die hellste Lampe des Würfels.
+## Material-Kanten - die Material-Kante bleibt die hellste Lampe des Würfels.
 const POINTER_GLOW := 1.08
 ## Rille zwischen den Chevrons: deutlich UNTER der Schwelle. Der Kontrast nach
 ## unten IST die Lesbarkeit der Strömung - liegt schon der Grund am Klemmwert,
@@ -208,7 +208,7 @@ var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
 ## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
-## Material-Zustand je Achse (1 normal, 2 dotiert). Er färbt NUR - satter statt
+## Material-Zustand je Achse (1 normal, 2 veredelt). Er färbt NUR - satter statt
 ## heller, damit er neben dem Essenzglühen als eigenes Signal lesbar bleibt.
 var face_levels: Dictionary = {}
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
@@ -629,7 +629,7 @@ func _process(delta: float) -> void:
 			for material: ShaderMaterial in [beam_material, cap_material]:
 				if material != null:
 					material.set_shader_parameter("lamp_color", Vector3(lamp.r, lamp.g, lamp.b))
-	# Die Leiterbahn-Strömung braucht hier nichts: sie läuft über TIME im
+	# Die Pointer-Strömung braucht hier nichts: sie läuft über TIME im
 	# Shader, versetzt um die einmalig gesetzte phase (siehe _pointer_material).
 	# Ohne Baum gibt es keine Welttransformation - die Lache braucht beides.
 	if glow_pool == null or not glow_pool.visible or not is_inside_tree():
@@ -759,7 +759,7 @@ func edge_distance(camera: Camera3D, screen_pos: Vector2, radius: float) -> floa
 				best_dist = dist
 	return best_dist
 
-# --- Leiterbahn-Spuren --------------------------------------------------------
+# --- Pointer-Spuren --------------------------------------------------------
 
 ## Achse eines Seiten-Index (Umkehrung von DiceController.AXIS_FACE_INDEX).
 static func axis_of_face(face_index: int) -> String:
@@ -768,7 +768,7 @@ static func axis_of_face(face_index: int) -> String:
 			return axis
 	return ""
 
-## Baut alle Leiterbahnen aus def.pointers neu. Ein Zeiger auf eine
+## Baut alle Pointer aus def.pointers neu. Ein Zeiger auf eine
 ## Nicht-Nachbarseite (sollte nie vorkommen) bleibt stumm.
 func _rebuild_pointer_traces(def: DieDefinition) -> void:
 	for trace in pointer_traces:

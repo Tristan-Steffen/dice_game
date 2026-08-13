@@ -169,12 +169,12 @@ static func _append_firing(steps: Array[Dictionary], firing: Dictionary, slot: i
 	steps.append(step)
 	_append_crits(steps, firing, slot, charm_ids, overrides)
 
-## Ein Leiterbahn- oder Essenz-Glied: wie eine Zündung mit getauschter Seite.
+## Ein Pointer- oder Essenz-Glied: wie eine Zündung mit getauschter Seite.
 static func _append_link(steps: Array[Dictionary], link: Dictionary, slot: int,
 		charm_ids: Array[String], overrides: Dictionary, kind: String) -> void:
 	var face := int(link.get("face", 0))
 	var head := "Glied → Seite %d" % (face + 1) if kind == STEP_DET_LINK \
-		else "Leiterbahn → Seite %d" % (face + 1)
+		else "Pointer → Seite %d" % (face + 1)
 	var parts: Array[String] = [head]
 	_add_amounts(parts, int(link.get("base_add", 0)), float(link.get("mult_add", 0)))
 	var step := _step(kind, " · ".join(parts),

@@ -252,8 +252,22 @@ func test_the_pointer_only_wires_a_neighbour() -> void:
 	assert_eq(die.pointers[0], -1, "die Gegenseite wird verweigert")
 	assert_eq(view._first_face, 0, "der erste Klick bleibt stehen")
 	view._on_net_face_pressed(1, die)
-	assert_eq(die.pointers[0], 1, "die Leiterbahn liegt")
+	assert_eq(die.pointers[0], 1, "der Pointer liegt")
 	assert_true(run.press_pieces.is_empty())
+
+## Die Veredelung ist ein EIN-Klick-Werkzeug wie Material und Rune: die geklickte
+## Seite wird gesättigt, eine nackte gar nicht erst angenommen.
+func test_the_doping_saturates_the_clicked_face() -> void:
+	var uid := _piece(Engraving.DOPING, {"sort": Engraving.CATEGORY_MATERIAL})
+	var die := _clamped()
+	die.set_face_material(3, DieMaterial.GOLD)
+	view._on_net_face_pressed(0, die)  # nackte Seite: kein Ziel
+	assert_eq(run.press_pieces.size(), 1, "der Fehlgriff verbraucht nichts")
+	assert_true(_held_frame(uid), "und das Stück bleibt in der Hand")
+	view._on_net_face_pressed(3, die)
+	assert_eq(die.material_level(3), DieMaterial.MAX_LEVEL, "die Gold-Seite ist veredelt")
+	assert_true(run.press_pieces.is_empty())
+	assert_eq(run.press_journal.size(), 1, "und die Setzung liegt nass im Journal")
 
 func test_the_grindstone_moves_one_eye_from_a_to_b() -> void:
 	_piece(Engraving.GRINDSTONE)
@@ -292,7 +306,7 @@ func test_a_material_piece_lands_undoped_and_pays_nothing() -> void:
 	view._on_net_face_pressed(1, die)
 	assert_eq(die.materials[1], DieMaterial.GOLD)
 	assert_lt(die.material_level(1), DieMaterial.MAX_LEVEL,
-		"aus der Presse kommt Material undotiert")
+		"aus der Presse kommt Material unveredelt")
 	assert_eq(run.money, money, "beim Setzen fließt nichts")
 	view.apply_placements()
 	assert_eq(run.money, money, "und beim Fertig auch nicht - es hat gesessen")

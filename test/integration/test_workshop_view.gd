@@ -513,7 +513,7 @@ func test_a_long_hint_shrinks_itself_into_the_screen() -> void:
 	for engraving in Engraving.all():
 		if engraving.description.length() > longest.length():
 			longest = engraving.description
-	view.show_hover_info("Leiterbahn", longest)
+	view.show_hover_info("Pointer", longest)
 	await wait_frames(2)
 	var small: int = view._info_body.get_theme_font_size("font_size")
 	assert_lt(small, int(u * WorkshopView.INFO_BODY), "der lange Satz wird kleiner gesetzt")

@@ -89,7 +89,7 @@ func test_kanten_chip_traegt_die_kanten_materialfarbe() -> void:
 	assert_eq(box.bg_color, Essence.glow_for(Essence.NEON), "Chip im Essenzglühen")
 
 
-func test_leiterbahn_pfeile_sitzen_am_zellrand() -> void:
+func test_pointer_pfeile_sitzen_am_zellrand() -> void:
 	# Zeiger 3 -> 0 (im Kreuz direkt untereinander) und 5 -> 1 (wickelt herum):
 	# je ein Pfeil, positioniert auf dem Rand der QUELL-Zelle in Kanten-Richtung.
 	var def := DieDefinition.new()
@@ -121,7 +121,7 @@ func test_ohne_zeiger_keine_pfeile() -> void:
 	var net := DieNetView.build(DieDefinition.new(), -1, 40.0)
 	add_child_autofree(net)
 	for child in net.get_children():
-		assert_false(child is DieNetView.PointerArrow, "kein Pfeil ohne Leiterbahn")
+		assert_false(child is DieNetView.PointerArrow, "kein Pfeil ohne Pointer")
 
 # --- Sättigung: Stufen-Plakette in der Zellecke ----------------------------------
 
@@ -150,13 +150,13 @@ func test_stufe_eins_bleibt_unmarkiert() -> void:
 	add_child_autofree(net)
 	assert_eq(_badges(net).size(), 0)
 
-func test_jede_dotierte_seite_bekommt_ihre_plakette() -> void:
+func test_jede_veredelte_seite_bekommt_ihre_plakette() -> void:
 	var def := _def_with_materials()
 	def.levels[0] = DieMaterial.MAX_LEVEL
 	def.levels[4] = DieMaterial.MAX_LEVEL
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	assert_eq(_badges(net).size(), 2, "eine Marke je dotierter Seite, mehr Zustände gibt es nicht")
+	assert_eq(_badges(net).size(), 2, "eine Marke je veredelter Seite, mehr Zustände gibt es nicht")
 
 func test_die_plakette_sitzt_in_der_freien_zellecke() -> void:
 	# Untere RECHTE Ecke der Quell-Zelle: dort liegt kein Zeiger-Pfeil (die sitzen
@@ -255,23 +255,23 @@ func _cell_for(net: Control, value: String) -> Label:
 			return cell
 	return null
 
-func test_die_zellfuellung_folgt_der_dotierung() -> void:
+func test_die_zellfuellung_folgt_der_veredelung() -> void:
 	var def := _def_with_materials()
-	def.dope(0)  # Bernstein dotiert
+	def.dope(0)  # Bernstein veredelt
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
 	var box: StyleBoxFlat = _cell_for(net, "1").get_theme_stylebox("normal")
 	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL),
-		"dotierte Seite: die Zelle wird satter")
+		"veredelte Seite: die Zelle wird satter")
 	var plain: StyleBoxFlat = _cell_for(net, "3").get_theme_stylebox("normal")
 	assert_eq(plain.bg_color, DieMaterial.tint_for(DieMaterial.AMBER),
-		"dasselbe Material undotiert bleibt exakt wie vorher")
+		"dasselbe Material unveredelt bleibt exakt wie vorher")
 	assert_gt(box.bg_color.s, plain.bg_color.s, "und zwar SATTER, nicht nur anders")
 
-func test_die_dotier_plakette_traegt_dieselbe_saettigung() -> void:
+func test_die_veredelungs_plakette_traegt_dieselbe_saettigung() -> void:
 	var def := _def_with_materials()
 	def.dope(0)
 	var badges := DieNetView.level_badges(def, 40.0)
-	assert_eq(badges.size(), 1, "nur die dotierte Seite bekommt eine Plakette")
+	assert_eq(badges.size(), 1, "nur die veredelte Seite bekommt eine Plakette")
 	assert_eq((badges[0] as DieNetView.LevelBadge).tint,
 		DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL))

@@ -225,7 +225,7 @@ func test_display_case_counts_face_up_materials():
 		2 * CharmEffects.DISPLAY_CASE_MULT)
 
 func test_display_case_pays_more_for_a_doped_side():
-	# Dotiert zählt die Seite MEHR, nicht zusätzlich: 6 statt 2.
+	# Veredelt zählt die Seite MEHR, nicht zusätzlich: 6 statt 2.
 	var materials := _m(["", "", DieMaterial.RUBY, DieMaterial.AMBER, "", ""])
 	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {3: {"level": DieMaterial.MAX_LEVEL, "eye_sum": 0}}}
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), materials,
@@ -803,13 +803,13 @@ func test_seal_of_quality_forces_refinements():
 			assert_lt(die.materials.count(""), die.materials.size(),
 				"%s trägt mindestens eine Material-Seite" % offer.display_name)
 			assert_true(DiceOffer.has_doped_side(die),
-				"%s trägt mindestens eine DOTIERTE Seite" % offer.display_name)
+				"%s trägt mindestens eine VEREDELTE Seite" % offer.display_name)
 
 func test_seal_of_quality_also_dopes_a_pack_die():
 	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
 	for die in pack.roll_dice(_ids([Charm.SEAL_OF_QUALITY])):
-		assert_lt(die.materials.count(""), die.materials.size(), "auch im Paket veredelt")
-		assert_true(DiceOffer.has_doped_side(die), "auch im Paket dotiert")
+		assert_lt(die.materials.count(""), die.materials.size(), "auch im Paket belegt")
+		assert_true(DiceOffer.has_doped_side(die), "auch im Paket veredelt")
 
 # --- GameRun: Totems, Stammgast, Rundenbeginn ---------------------------------------------
 

@@ -79,8 +79,8 @@ func test_a_failed_application_writes_nothing() -> void:
 # --- Herausnehmen stellt Seite für Seite wieder her -----------------------------
 
 func test_unseating_restores_every_face_array_byte_for_byte() -> void:
-	# Ein reich beschriebener Würfel: Werte, Material samt Dotierung, drei Runen
-	# (Vakuum unter der Glasglocke) und eine Leiterbahn.
+	# Ein reich beschriebener Würfel: Werte, Material samt Veredelung, drei Runen
+	# (Vakuum unter der Glasglocke) und einen Pointer.
 	run.owned_charms.append(Charm.bell_jar())
 	var die: DieDefinition = run.clamped_dice[0]
 	die.essence_id = Essence.VACUUM
@@ -148,19 +148,30 @@ func test_a_pointer_is_unseated_too() -> void:
 	assert_true(run.unseat_press_piece(0))
 	assert_eq(die.pointer_target(0), 2, "die alte Verdrahtung steht wieder")
 
+func test_a_doping_is_unseated_too() -> void:
+	var die: DieDefinition = run.clamped_dice[0]
+	die.set_face_material(1, DieMaterial.AMBER)
+	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": Engraving.DOPING, "applications": 1})
+	assert_true(run.apply_press_doping(0, die, 1, _rng(9)))
+	assert_eq(die.material_level(1), DieMaterial.MAX_LEVEL)
+	assert_true(run.unseat_press_piece(0))
+	assert_eq(die.material_level(1), 1, "die Seite liegt wieder unveredelt")
+	assert_eq(die.materials[1], DieMaterial.AMBER, "ihr Material stand nie zur Debatte")
+	assert_eq(run.press_pieces.size(), 1, "und das Stück liegt zurück in der Ablage")
+
 func test_an_overpainted_material_comes_back_with_its_doping() -> void:
-	# Dotiert kommt eine Seite nicht mehr aus der Presse (Gütesiegel, Meißel) - das
-	# Zurückschreiben muss sie trotzdem exakt wiederherstellen.
+	# Frische Farbe liegt immer unveredelt - das Zurückschreiben muss die alte
+	# Sättigung trotzdem exakt wiederherstellen.
 	var die: DieDefinition = run.clamped_dice[0]
 	die.set_face_material(1, DieMaterial.AMBER)
 	assert_true(die.dope(1))
 	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": DieMaterial.GOLD, "applications": 1})
 	assert_true(run.apply_press_material(0, die, 1, _rng(10)))
 	assert_eq(die.materials[1], DieMaterial.GOLD)
-	assert_lt(die.material_level(1), DieMaterial.MAX_LEVEL, "frische Farbe liegt undotiert")
+	assert_lt(die.material_level(1), DieMaterial.MAX_LEVEL, "frische Farbe liegt unveredelt")
 	assert_true(run.unseat_press_piece(0))
 	assert_eq(die.materials[1], DieMaterial.AMBER)
-	assert_eq(die.material_level(1), DieMaterial.MAX_LEVEL, "und wieder dotiert")
+	assert_eq(die.material_level(1), DieMaterial.MAX_LEVEL, "und wieder veredelt")
 
 # --- Die Schicht-Regel ----------------------------------------------------------
 

@@ -9,7 +9,7 @@ extends RefCounted
 
 ## Ziel-Form je Gravur - steuert Eignung, Vorschau und Anwendung.
 const TARGET_FACE := "face"                    # Kerbe, Materialien, Runen
-const TARGET_PAIR_DIRECTED := "pair_directed"  # Meißel, Schleifstein, Leiterbahn
+const TARGET_PAIR_DIRECTED := "pair_directed"  # Meißel, Schleifstein, Pointer
 const TARGET_WHOLE_DIE := "whole_die"          # Politur, Überdruck, Aufholen
 
 static func kind_of(engraving_id: String) -> String:
@@ -44,11 +44,17 @@ static func eligible_faces(def: DieDefinition, engraving_id: String,
 			else:
 				for i in 6: e[i] = i != first_face
 		Engraving.POINTER:
-			# Ziel nur eine NACHBAR-Seite - die Leiterbahn quert genau eine Kante.
+			# Ziel nur eine NACHBAR-Seite - der Pointer quert genau eine Kante.
 			if first_face == -1:
 				e.fill(true)
 			else:
 				for i in 6: e[i] = def.can_point(first_face, i)
+		Engraving.DOPING:
+			# Sie sättigt ein vorhandenes Material - eine nackte Seite hat nichts
+			# zu veredeln, eine veredelte nichts mehr zu gewinnen. Der Einbrand
+			# sperrt nur das Übermalen, nie die Glasur darauf.
+			for i in 6:
+				e[i] = DieMaterial.is_valid_id(def.materials[i]) 					and def.material_level(i) < DieMaterial.MAX_LEVEL
 		_:
 			match kind_of(engraving_id):
 				TARGET_WHOLE_DIE:

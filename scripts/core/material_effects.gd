@@ -7,8 +7,8 @@ class_name MaterialEffects
 ## (apply_take_effects, einmal beim echten Nehmen).
 ## values/materials sind parallele Arrays je Wurf-Slot.
 ##
-## DOTIERUNG: jedes Material steht normal oder dotiert (DieDefinition.levels).
-## Dotiert ist nie nur eine größere Zahl - mal skaliert es (Bernstein, Gold,
+## VEREDELUNG: jedes Material steht normal oder veredelt (DieDefinition.levels).
+## Veredelt ist nie nur eine größere Zahl - mal skaliert es (Bernstein, Gold,
 ## Knochen), mal verwandelt es (Rubin und Glas kriten).
 
 ## Gold zahlt je Träger beim Nehmen; der Goldschmied legt auf beide Zustände drauf.
@@ -18,23 +18,23 @@ const GOLD_PAYOUT_DOPED := 7
 
 ## Rubin: fester Mult je Träger (Blutdiamant addiert die Augenzahl).
 const RUBY_MULT := 4
-const RUBY_CRIT := 2              # dotiert kritet, statt zu addieren
+const RUBY_CRIT := 2              # veredelt kritet, statt zu addieren
 
 ## Bernstein-Grundwert; das Bernsteinzimmer legt +30 je Bernstein-Auslösung
-## drauf, dotiert wie undotiert.
+## drauf, veredelt wie unveredelt.
 const AMBER_BASE := 20
 const AMBER_ROOM_SURPLUS := 30
-const AMBER_EYE_FACTOR := 5       # dotiert: nur noch Augensumme, dafür ×5
+const AMBER_EYE_FACTOR := 5       # veredelt: nur noch Augensumme, dafür ×5
 
-## Knochen wächst normal flach und dotiert prozentual (mind. +10); Glas schrumpft
-## flach und halbiert sich dotiert - beides je Auslösung am schon veränderten Wert.
+## Knochen wächst normal flach und veredelt prozentual (mind. +10); Glas schrumpft
+## flach und halbiert sich veredelt - beides je Auslösung am schon veränderten Wert.
 const BONE_GROWTH := 2
 const BONE_GROWTH_MIN_DOPED := 10
 const BONE_GROWTH_PERCENT_DOPED := 20
 const GLASS_SHRINK := 1
 const GLASS_SHRINK_PERCENT_DOPED := 50
 
-## Glas zählt normal höchstens eine 6; dotiert addiert es gar nicht mehr, sondern
+## Glas zählt normal höchstens eine 6; veredelt addiert es gar nicht mehr, sondern
 ## kritet mit der halben Augenzahl.
 const GLASS_EYE_CAP := 6
 const GLASS_CRIT_DIVISOR := 2.0
@@ -42,7 +42,7 @@ const GLASS_CRIT_DIVISOR := 2.0
 ## Glasbläserpfeife: Glas schrumpft weiter, aber nie unter diesen Wert.
 const GLASSBLOWER_LUNG_FLOOR := 6
 
-## Kupfer speist je Zündung Energie; dotiert das Doppelte. Was über den Speicher
+## Kupfer speist je Zündung Energie; veredelt das Doppelte. Was über den Speicher
 ## hinausläuft, zahlt bar (GameRun.book_copper_charge) - dieselbe Überlauf-
 ## Grammatik wie die Stufen-Auszahlung.
 const COPPER_CHARGE := 1
@@ -98,7 +98,7 @@ class TakeReport:
 ## Zauberkarte, die nur die Kombinationswürfel meint.
 static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false) -> int:
 	# Sternschnuppe: gedeckelt auf genau EINEN Antritt. Der Deckel sitzt in BEIDEN
-	# Achsen-Funktionen, damit Wertung, Nehmen, Leiterbahn-Wurf und die Gold-
+	# Achsen-Funktionen, damit Wertung, Nehmen, Pointer-Wurf und die Gold-
 	# Vorabzählung dieselbe Zahl sehen.
 	if EssenceEffects.caps_triggers_of(essence_ids, charm_ids):
 		return 1
@@ -125,7 +125,7 @@ static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0
 	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count, tail_slot, is_first_hand, in_combination) \
 		* face_trigger_count(value, charm_ids, face_extra, essence_ids)
 
-## Härteofen: die AUSZAHLUNG einer dotierten Seite läuft zweimal - Basis, Mult,
+## Härteofen: die AUSZAHLUNG einer veredelten Seite läuft zweimal - Basis, Mult,
 ## Geld und Wachstum. Die KOSTEN bleiben einfach (das Glas frisst sich weiter im
 ## alten Tempo): ein Charm darf einen Würfel nie schlechter machen. Der Krit wird
 ## darum auch nicht quadriert, sondern zweimal geschlagen - je Kopie ein Schlag.
@@ -137,8 +137,8 @@ static func base_bonus_once(i: int, materials: Array[String], charm_ids: Array[S
 	return base_once_for(materials[i] if i < materials.size() else "", charm_ids, level, eye_sum)
 
 ## Wie base_bonus_once, aber direkt über die Material-id - so feuern auch
-## Leiterbahn-Glieder (fremde Seite) über dieselbe Tabelle.
-## eye_sum: Augensumme des Würfels - Bernstein zahlt sie immer, dotiert fünffach
+## Pointer-Glieder (fremde Seite) über dieselbe Tabelle.
+## eye_sum: Augensumme des Würfels - Bernstein zahlt sie immer, veredelt fünffach
 ## und ohne festen Zuschlag.
 static func base_once_for(face_material: String, charm_ids: Array[String], level: int = 1, eye_sum: int = 0) -> int:
 	if face_material != DieMaterial.AMBER:
@@ -153,8 +153,8 @@ static func mult_bonus_once(i: int, values: Array[int], materials: Array[String]
 	return mult_once_for(materials[i] if i < materials.size() else "", values[i], charm_ids, level)
 
 ## Wie mult_bonus_once über die Material-id; value ist die feuernde Augenzahl
-## (beim Leiterbahn-Glied die der Zielseite). Was kritet, addiert hier NICHT
-## (dotierter Rubin, dotiertes Glas) - siehe mult_crit_once_for; nur der Blood
+## (beim Pointer-Glied die der Zielseite). Was kritet, addiert hier NICHT
+## (veredelter Rubin, veredeltes Glas) - siehe mult_crit_once_for; nur der Blood
 ## Diamond bleibt beim Rubin additiv, damit der Krit nicht exponentiell wird.
 static func mult_once_for(face_material: String, value: int, charm_ids: Array[String], level: int = 1) -> int:
 	# Der Blutdiamant legt die Augenzahl EINMAL drauf, nie je Exemplar.
@@ -167,7 +167,7 @@ static func mult_once_for(face_material: String, value: int, charm_ids: Array[St
 	return 0
 
 ## Material-Krit EINER Auslösung: eine Seite trägt genau ein Material - also
-## höchstens ein Faktor. 1 = kein Krit. Beide Kriter warten auf die Dotierung;
+## höchstens ein Faktor. 1 = kein Krit. Beide Kriter warten auf die Veredelung;
 ## unter ×1 drückt keiner, ein Krit macht eine Hand nie schlechter.
 static func mult_crit_once_for(face_material: String, value: int, _charm_ids: Array[String], level: int) -> float:
 	if level < DieMaterial.MAX_LEVEL:
@@ -187,11 +187,11 @@ static func level_of(levels: Dictionary, slot: int) -> Dictionary:
 static func level_in(info: Dictionary) -> int:
 	return int(info.get("level", 1))
 
-## Fester Bernstein-Zuschlag (dotiert zahlt nur noch Augensumme).
+## Fester Bernstein-Zuschlag (veredelt zahlt nur noch Augensumme).
 static func _amber_flat(level: int) -> int:
 	return 0 if level >= DieMaterial.MAX_LEVEL else AMBER_BASE
 
-## Additiver Rubin-Mult (dotiert kritet stattdessen).
+## Additiver Rubin-Mult (veredelt kritet stattdessen).
 static func _ruby_mult(level: int) -> int:
 	return 0 if level >= DieMaterial.MAX_LEVEL else RUBY_MULT
 
@@ -221,7 +221,7 @@ static func glass_floor_for(charm_ids: Array[String]) -> int:
 		glass_floor = maxi(glass_floor, GLASSBLOWER_LUNG_FLOOR)
 	return glass_floor
 
-## Wachstum über triggers Auslösungen; dotiert rechnet die Seite ihren
+## Wachstum über triggers Auslösungen; veredelt rechnet die Seite ihren
 ## Prozentschritt je Auslösung am schon gewachsenen Wert neu.
 static func grow_bone_value(value: int, level: int, charm_ids: Array[String], triggers: int) -> int:
 	var result := value
@@ -243,7 +243,7 @@ static func mutate_value_once(value: int, face_material: String,
 		rune_ids: Array[String] = []) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
-		# Härteofen: das Wachstum ist eine Auszahlung und läuft dotiert doppelt.
+		# Härteofen: das Wachstum ist eine Auszahlung und läuft veredelt doppelt.
 		for _r in payoff_repeats(level, charm_ids):
 			result = grow_bone_value(result, level, charm_ids, bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not value_protected(essence_ids, rune_ids):
@@ -255,7 +255,7 @@ static func mutate_value_once(value: int, face_material: String,
 ## Wertwandel EINER Glied-Zündung: wie mutate_value_once, aber OHNE das
 ## Essenz-Wachstum und ohne den Einbrand-Schutz - ein Glied ist eine fremde
 ## Seite, kein Aufblähen der Schale. Einzige Quelle, damit der eingefrorene
-## Leiterbahn-Wurf und apply_take_effects nie auseinanderlaufen.
+## Pointer-Wurf und apply_take_effects nie auseinanderlaufen.
 static func mutate_link_value_once(value: int, face_material: String, charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = []) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
@@ -327,8 +327,8 @@ static func base_bonus(values: Array[int], materials: Array[String], participati
 	return bonus
 
 ## Mult-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests).
-## Nur ADDITIV und nur auf dem LIEGENDEN Wert - ein Material-Krit (dotierter
-## Rubin, dotiertes Glas) und der Wertwandel zwischen den Aktivierungen
+## Nur ADDITIV und nur auf dem LIEGENDEN Wert - ein Material-Krit (veredelter
+## Rubin, veredeltes Glas) und der Wertwandel zwischen den Aktivierungen
 ## (Knochen/Glas) lassen sich als Summe nicht ausdrücken; maßgeblich ist
 ## DiceScoring._base_and_mult.
 static func mult_bonus(values: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, levels: Dictionary = {}) -> int:
@@ -349,12 +349,12 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## Achsen MÜSSEN dieselben sein wie in der Wertung (Argon & Co.). Gelaufen wird
 ## in genau dieser REIHENFOLGE (_take_order), weil die Ansteckung (Miasma) quer
 ## über die Würfel wirkt: wer später zählt, findet den Zuwachs schon vor.
-## pointer_fires: der EINMAL ausgewürfelte Leiterbahn-Wurf (DiceScoring.
+## pointer_fires: der EINMAL ausgewürfelte Pointer-Wurf (DiceScoring.
 ## CTX_POINTER_FIRES, Slot -> je Würfel-Trigger die gezündeten Glieder) - hier
 ## wird nie neu gewürfelt, sonst zahlte der Zug andere Glieder als er zählte.
 ## lying: ALLE Slots mit einem Würfel auf dem Tisch - nur so kann das Streulicht
 ## die ungewerteten Übriggebliebenen sehen. Runen liest diese Seite direkt aus
-## den Defs (wie die Dotierung), nicht aus dem ctx.
+## den Defs (wie die Veredelung), nicht aus dem ctx.
 ## hands_taken/round_bare_dice: Rundenstand VOR dieser Hand (Mitternachtssonne,
 ## Neonmarker). discard_defs: die Ablage - nur das Radioteleskop greift hinein.
 ## participating sind die GEWERTETEN Slots (Vollzähler/Krypton weiten sie);
@@ -423,7 +423,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# Knochen/Glas/Helium laufen Zündung für Zündung: der prozentuale Satz
 		# rechnet sich am schon veränderten Wert neu. Verschachtelt wie in der
 		# Wertung - je Würfel-Trigger erst die Seiten-Zündungen, dann die für
-		# genau diesen Trigger gewürfelten Leiterbahn-Glieder.
+		# genau diesen Trigger gewürfelten Pointer-Glieder.
 		var before: int = defs[i].faces[face]
 		var swelled := false
 		var copper_once := copper_charge_once_for(face_material, level, charm_ids)
@@ -449,7 +449,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			report.grown.append(i)
 
 		# Deterministische Glieder (Röntgenlicht, Korona, Kehrseite): EINMAL nach
-		# allen Würfel-Triggern - anders als die gewürfelte Leiterbahn. Der Stichel
+		# allen Würfel-Triggern - anders als der gewürfelte Pointer. Der Stichel
 		# lässt die Kehrseite zweimal zünden (det_link_fire_count).
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
 				defs[i].runes_on(face), charm_ids):
@@ -502,7 +502,7 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 		+ CharmEffects.gold_vein_bonus(materials, participating, charm_ids)
 	var shown_values := _shown_values(defs, face_indices, charm_ids, essences)
 	var tail_slot: int = int(order[order.size() - 1]) if not order.is_empty() else -1
-	# Dotiertes Gold: +$1 je Gold-Seiten-Auslösung dieser Nahme - der Zähler steht
+	# Veredeltes Gold: +$1 je Gold-Seiten-Auslösung dieser Nahme - der Zähler steht
 	# VOR der ersten Buchung fest.
 	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, pointer_fires, shown_values, tail_slot, hands_taken, combo_slots)
 	var plan := {}
@@ -778,14 +778,14 @@ static func _shown_values(defs: Array[DieDefinition], face_indices: Array[int], 
 			CharmEffects.shown_by_charms(defs[k].faces[face], charm_ids)))
 	return out
 
-## Gold-Satz; surplus = Charm-/Goldader-Aufschlag, triggers zählt nur dotiert.
+## Gold-Satz; surplus = Charm-/Goldader-Aufschlag, triggers zählt nur veredelt.
 static func _gold_payout(level: int, surplus: int, triggers: int) -> int:
 	if level >= DieMaterial.MAX_LEVEL:
 		return GOLD_PAYOUT_DOPED + surplus + triggers
 	return GOLD_PAYOUT + surplus
 
 ## Wie oft in DIESER Nahme eine Gold-Seite zündet - beide Achsen aller
-## beteiligten Slots plus jede GEZÜNDETE Leiterbahn und die Essenz-Glieder, in
+## beteiligten Slots plus jeden GEZÜNDETEN Pointer und die Essenz-Glieder, in
 ## jedem Zustand.
 static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], echo_slot: int, essences: Dictionary, order: Array[int], is_stress: bool, pointer_fires: Dictionary, shown_values: Array[int] = [], tail_slot: int = -1, hands_taken: int = 0, combination: Array[int] = []) -> int:
 	var triggers := 0
@@ -814,21 +814,21 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 					defs[i].runes_on(face), charm_ids)
 	return triggers
 
-## Nackter Wachstumsschritt einer Knochen-Seite: normal +2, dotiert mind. +10
+## Nackter Wachstumsschritt einer Knochen-Seite: normal +2, veredelt mind. +10
 ## bzw. 20 % (aufgerundet).
 static func _bone_step(value: int, level: int) -> int:
 	if level >= DieMaterial.MAX_LEVEL:
 		return maxi(BONE_GROWTH_MIN_DOPED, ceili(float(value) * BONE_GROWTH_PERCENT_DOPED / 100.0))
 	return BONE_GROWTH
 
-## Additiver Glas-Mult: normal deckelt die Augen bei 6, dotiert addiert nicht
+## Additiver Glas-Mult: normal deckelt die Augen bei 6, veredelt addiert nicht
 ## mehr - es kritet (mult_crit_once_for).
 static func _glass_mult(value: int, level: int) -> int:
 	if level >= DieMaterial.MAX_LEVEL:
 		return 0
 	return mini(value, GLASS_EYE_CAP)
 
-## Schrumpfschritt einer Glas-Seite: normal −1, dotiert die halbe Augenzahl
+## Schrumpfschritt einer Glas-Seite: normal −1, veredelt die halbe Augenzahl
 ## (aufgerundet, damit die Seite wirklich auf die Hälfte fällt).
 static func _glass_step(value: int, level: int) -> int:
 	if level >= DieMaterial.MAX_LEVEL:

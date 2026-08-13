@@ -24,11 +24,11 @@ func test_all_returns_all_charms():
 	# ersten Vertrags-Charms Werbetrommel und Winkeladvokat.
 	# +3 aus den Playtest-Notizen: Schutzgeld, Wasserfall, Doppelter Boden.
 	# +38 der zweiten Welle: 11 Essenz-Charms zu den 11 neuen Seelen und 27
-	# allgemeine (Energie/Leiterbahn, Runen/Werkbank, Automat, Auslösungen).
+	# allgemeine (Energie/Pointer, Runen/Werkbank, Automat, Auslösungen).
 	# −5 im Charm-Rework: Goldener Skarabäus, Leuchtturm, Blackjack, Runde Sache
 	# (zu flach oder zu eng) und der Rubinschleifer, dessen Wirkung der Blood
 	# Diamond geerbt hat.
-	# −2 mit der Dotierung: Politur und Gießkanne hatten keine Stufenleiter mehr.
+	# −2 mit der Veredelung: Politur und Gießkanne hatten keine Stufenleiter mehr.
 	# −1 mit der Presse: der Gravierstift schonte einen Verbrauchs-Haushalt, den
 	# es nicht mehr gibt.
 	assert_eq(Charm.all().size(), 144)

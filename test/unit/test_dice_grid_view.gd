@@ -131,7 +131,7 @@ func test_detail_tiles_draw_the_die_net() -> void:
 		Vector2.ONE * 0.5, "in Netzmaßen - dieselbe Geometrie wie in der Grube")
 
 func test_detail_tiles_show_pointers() -> void:
-	# Der eigentliche Zweck des Wechsels: Leiterbahnen sind im Lager sichtbar.
+	# Der eigentliche Zweck des Wechsels: Pointer sind im Lager sichtbar.
 	var detail := _detail_grid()
 	var plain := _die([1, 2, 3, 4, 5, 6])
 	var wired := _die([1, 2, 3, 4, 5, 6])
@@ -139,8 +139,8 @@ func test_detail_tiles_show_pointers() -> void:
 	wired.pointers = pointers
 	detail.fill(_defs([plain, wired]))
 	await wait_frames(2)
-	assert_eq(_arrow_count(_net_of(detail.tiles[0])), 0, "ohne Leiterbahn kein Pfeil")
-	assert_eq(_arrow_count(_net_of(detail.tiles[1])), 1, "je Leiterbahn ein Pfeil")
+	assert_eq(_arrow_count(_net_of(detail.tiles[0])), 0, "ohne Pointer kein Pfeil")
+	assert_eq(_arrow_count(_net_of(detail.tiles[1])), 1, "je Pointer ein Pfeil")
 
 func _arrow_count(net: Control) -> int:
 	var count := 0

@@ -12,7 +12,10 @@ extends Control
 signal closed
 ## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
 ## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln).
-signal pack_purchased(from_px: Vector2, pack_type: String)
+## Gekauft: die Lieferung meldet die REGAL-BUCHT, nicht die Paketsorte. Ein
+## Sonderposten ist ein Material- oder Runen-Paket und landet trotzdem im
+## Sonderbestand - PackShelfView.shelf_of ist die eine Stelle, die das weiß.
+signal pack_purchased(from_px: Vector2, shelf: String)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht in die Truhe.
 signal pack_refunded(from_px: Vector2, amount: int)
@@ -90,6 +93,9 @@ class MenuSpread:
 	var single_dice: Array[DieDefinition] = []
 	var single_dice_prices: Array[int] = []
 	var single_dice_bought: Array[bool] = []
+	## Sonderposten der Schale: das versiegelte Paket, das der Kauf ausliefert.
+	var single_specials: Array[Pack] = []
+	var single_special_bought: Array[bool] = []
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
@@ -158,6 +164,9 @@ var single_dice: Array[DieDefinition] = []
 var single_dice_prices: Array[int] = []
 var single_dice_bought: Array[bool] = []
 var single_dice_buttons: Array[Button] = []
+var single_specials: Array[Pack] = []
+var single_special_bought: Array[bool] = []
+var single_special_buttons: Array[Button] = []
 ## Regal-Knöpfe der hinterlegten Würfel und die offene Tausch-Auswahl.
 var stash_buttons: Array[Button] = []
 var exchange_overlay: Panel
@@ -442,6 +451,14 @@ func _build_spread() -> MenuSpread:
 	spread.single_dice_bought.resize(spread.single_dice.size())
 	spread.single_dice_bought.fill(false)
 
+	# Sonderposten ab der achten Lizenz: er LIEGT in der Schale, nicht als Karte
+	# im Regal. Anders als ein Paket ist er kein Blindkauf - man sieht, welcher
+	# der beiden da liegt, und genau dafür ist die Schale da.
+	if randf() < run.shop_special_chance():
+		spread.single_specials.append(Pack.roll_special_pack())
+	spread.single_special_bought.resize(spread.single_specials.size())
+	spread.single_special_bought.fill(false)
+
 	return spread
 
 ## Würfel-Pakete der Auslage: je Platz eine andere Vorlage, Inhalt bleibt bis
@@ -487,6 +504,8 @@ func _show_spread() -> void:
 	single_dice = spread.single_dice
 	single_dice_prices = spread.single_dice_prices
 	single_dice_bought = spread.single_dice_bought
+	single_specials = spread.single_specials
+	single_special_bought = spread.single_special_bought
 
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
@@ -512,6 +531,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	charm_buttons.clear()
 	engraving_pack_buttons.clear()
 	single_dice_buttons.clear()
+	single_special_buttons.clear()
 
 	var main_row := HBoxContainer.new()
 	main_row.add_theme_constant_override("separation", int(u * 1.6))
@@ -584,7 +604,10 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip_deck.add_child(singles)
-	var single_scale := _singles_scale(_unsold(spread.single_dice_bought))
+	# EIN Maßstab für die ganze Schale - Würfel und Sonderposten schrumpfen
+	# gemeinsam, sonst läge ein Stück in Sondergröße darin.
+	var single_scale := _singles_scale(_unsold(spread.single_dice_bought)
+		+ _unsold(spread.single_special_bought))
 	# Gekauftes liegt nicht mehr da: die Schale zeigt, was noch zu haben ist. Die
 	# *_bought-Flags bleiben im Spread, also zeigt die Sortiment-Sperre denselben
 	# Laden mit der verkauften Ware fort. Die Knopf-Listen bleiben index-treu
@@ -594,6 +617,11 @@ func _rebuild_content(spread: MenuSpread) -> void:
 			single_dice_buttons.append(null)
 			continue
 		singles.add_child(_build_single_die_card(i, single_scale))
+	for i in spread.single_specials.size():
+		if spread.single_special_bought[i]:
+			single_special_buttons.append(null)
+			continue
+		singles.add_child(_build_single_special_card(i, single_scale))
 
 	# Das Regal des Händlers: schmal, unter der Schale, und nur da, wenn wirklich
 	# etwas hinterlegt ist. Es ist KEINE zweite Schale - die Ware ist schon bezahlt.
@@ -828,11 +856,11 @@ func _unsold(bought: Array[bool]) -> int:
 ## Gemeinsamer Maßstab der Einzelstücke: die Auslage darf nie breiter werden als
 ## die Schale. Bei voller Auslage schrumpfen ALLE Stücke gleich weit - ein
 ## einzelnes Stück in Sondergröße wäre keine Schale mehr.
-func _singles_scale(dice_count: int) -> float:
-	if dice_count <= 1:
+func _singles_scale(piece_count: int) -> float:
+	if piece_count <= 1:
 		return 1.0
-	var wanted := float(dice_count) * SINGLE_DIE_SIZE
-	var room := BOWL_INNER_U - float(dice_count - 1) * SINGLE_GAP
+	var wanted := float(piece_count) * SINGLE_DIE_SIZE
+	var room := BOWL_INNER_U - float(piece_count - 1) * SINGLE_GAP
 	if wanted <= room:
 		return 1.0
 	return maxf(SINGLE_MIN_SCALE, room / wanted)
@@ -840,7 +868,7 @@ func _singles_scale(dice_count: int) -> float:
 ## OFFENER Würfel der Chip-Schale: er LIEGT dort als echter, langsam taumelnder
 ## Würfel - kein Kasten, kein Preisschild, dieselbe Grammatik wie die Kombi-Chips
 ## auf dem Filz. Wer danach greift, bekommt im Hover-Fenster das ganze Dossier:
-## Netz mit allen sechs Seiten (Materialfarben, Dotierung, Runen, Essenz-Chip), die
+## Netz mit allen sechs Seiten (Materialfarben, Veredelung, Runen, Essenz-Chip), die
 ## Seele und den Preis. Kein Blindkauf, das ist der Sinn - nur ohne Möbel.
 func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 	var def := single_dice[index]
@@ -862,6 +890,48 @@ func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 	card.pressed.connect(_on_single_die_pressed.bind(index))
 	single_dice_buttons.append(card)
 	return card
+
+## Sonderposten der Schale: das nackte Siegel LIEGT da, ohne Rauchglas-Kachel und
+## ohne Lichtsaum - unter einem physischen Ding steht kein Fenster. Es ist die
+## einzige Ware des Ladens, die man SIEHT, bevor man sie kauft und trotzdem
+## versiegelt bekommt: welcher der beiden Sonderposten es ist, ist die ganze
+## Auskunft, und die gehört in die Schale, nicht hinter ein Siegel.
+func _build_single_special_card(index: int, scale_factor: float = 1.0) -> Button:
+	var pack: Pack = single_specials[index]
+	var engraving := pack.fixed_engraving
+	var side := u * SINGLE_DIE_SIZE * scale_factor
+	var seal := EngravingRenderer.for_engraving(engraving)
+	seal.bare = true
+	seal.custom_minimum_size = Vector2.ONE * side
+	var card := _bare_single(seal, Vector2.ONE * side)
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, engraving.display_name,
+		engraving.description, _pack_price(pack)))
+	card.mouse_exited.connect(_hide_shop_tooltip)
+	card.pressed.connect(_on_single_special_pressed.bind(index))
+	single_special_buttons.append(card)
+	return card
+
+## Kauf eines Sonderpostens aus der Schale: er geht VERSIEGELT ins Lager wie jedes
+## Paket - offen wartet keine Aufwertung. Derselbe Kaufweg wie die Regal-Pakete,
+## samt Kleingedrucktem und Lieferkomet.
+func _on_single_special_pressed(index: int) -> void:
+	if single_special_bought[index]:
+		return
+	var pack: Pack = single_specials[index]
+	var price := _pack_price(pack)
+	if run.money < price:
+		return
+	# Startpunkt VOR dem Neuaufbau abgreifen - danach liegt das Stück nicht mehr da.
+	var from_px := Vector2.ZERO
+	if index < single_special_buttons.size() and is_instance_valid(single_special_buttons[index]):
+		from_px = single_special_buttons[index].get_global_rect().get_center()
+	var refunded := run.purchase_pack(pack, price)
+	single_special_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	if from_px != Vector2.ZERO:
+		pack_purchased.emit(from_px, PackShelfView.shelf_of(pack))
+		if refunded > 0:
+			pack_refunded.emit(from_px, refunded)
+	_show_spread()
 
 ## Ein Einzelstück LIEGT in der Schale: der Knopf bleibt (Hover und Klick), er ist
 ## nur unsichtbar. Kein Fenster unter einem physischen Ding - dieselbe Regel wie
@@ -1073,7 +1143,7 @@ func _build_shop_tooltip() -> void:
 	add_child(shop_tooltip)
 
 ## Tausch-Auswahl: der ganze 30er-Vorrat als Raster über der Ladenseite. Gewarnt
-## wird NICHT - die Netze zeigen Materialien, Dotierung, Runen und den Essenz-Chip,
+## wird NICHT - die Netze zeigen Materialien, Veredelung, Runen und den Essenz-Chip,
 ## also sieht der Spieler selbst, welche Seele er überschreibt. Das ist die
 ## Einwilligung; ein Dialog wäre nur Papier davor.
 func _open_exchange_picker(pending_index: int) -> void:
@@ -1267,7 +1337,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	else:
 		engraving_pack_bought[index] = true
 	if from_px != Vector2.ZERO:
-		pack_purchased.emit(from_px, pack.type)
+		pack_purchased.emit(from_px, PackShelfView.shelf_of(pack))
 		if refunded > 0:
 			pack_refunded.emit(from_px, refunded)
 	_show_spread()
@@ -1302,6 +1372,10 @@ func _refresh_afford_state() -> void:
 		if single_dice_buttons[i] == null:
 			continue  # verkauft: liegt nicht mehr in der Schale
 		single_dice_buttons[i].disabled = single_dice_bought[i] or money < single_dice_prices[i]
+	for i in single_special_buttons.size():
+		if single_special_buttons[i] == null:
+			continue
+		single_special_buttons[i].disabled = single_special_bought[i] 			or money < _pack_price(single_specials[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

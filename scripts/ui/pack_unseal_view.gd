@@ -82,7 +82,7 @@ func setup(pack_type: String, engravings: Array[Engraving], dice: Array[DieDefin
 			face.ignite = 0.0   # das Zeichen zieht sich erst im Flug nach draußen
 			_add_piece(face, engraving.id, int(engraving.rarity))
 	else:
-		# Würfel haben keine Seltenheit - ihre Veredelung ist sie (siehe _dice_rarity).
+		# Würfel haben keine Seltenheit - ihre Ausstattung ist sie (siehe _dice_rarity).
 		_dice_mode = true
 		var rarity := _dice_rarity(dice)
 		for die in dice:
@@ -125,7 +125,7 @@ func _schedule() -> Array[float]:
 		times.append(t)
 	return times
 
-## Würfel haben keine Seltenheit - die Veredelung ist ihre: eine Essenz zählt
+## Würfel haben keine Seltenheit - die Ausstattung ist ihre: eine Essenz zählt
 ## als selten, eine Material-Seite als ungewöhnlich, ein blanker Würfel als
 ## gewöhnlich.
 func _dice_rarity(dice: Array[DieDefinition]) -> int:

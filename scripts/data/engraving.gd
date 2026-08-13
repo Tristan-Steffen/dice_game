@@ -10,23 +10,26 @@ enum Rarity { COMMON, UNCOMMON, RARE, EPIC, LEGENDARY }
 
 # categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
 # (id = Material-id), WÜRFEL wirkt auf den ganzen Würfel (bislang nur die
-# Leiterbahn - die Kanten sind als Ausbau-Slot gestrichen).
+# Pointer - die Kanten sind als Ausbau-Slot gestrichen).
 const CATEGORY_NUMBER := "number"
 const CATEGORY_MATERIAL := "material"
 const CATEGORY_DICE := "dice"
 
-# --- Würfel-Gravur ohne Material: die Leiterbahn (Zeiger-Mechanik) ---
+# --- Würfel-Gravur ohne Material: der Pointer (Zeiger-Mechanik) ---
 const POINTER := "pointer"
+
+# --- Material-Gravur ohne eigenes Material: die Veredelung ---
+const DOPING := "doping"
 
 # --- Runen: Schablonen, die ein Zeichen in eine Seite ätzen. Die Gravur-id IST
 # die Runen-id, wie bei den Material-Gravuren.
 const RUNE_PREFIX := "rune_"
 
-## Sonderposten: einmalige Spezial-Gravuren. Sie behalten ihre Kategorie (und
-## damit Paket/Ziehung), liegen aber NICHT in deren Schublade, sondern im
-## Sonderbestand. Die Dotierung ist keine Ware mehr - die Presse dotiert nicht,
-## dotiert wird ein Würfel geboren (Gütesiegel) oder vom Meißel kopiert.
-const SPECIAL_IDS := [POINTER]
+## Sonderposten: Spezial-Gravuren, die auf keinem Ikonensatz liegen. Sie behalten
+## ihre Kategorie (und damit Paketsorte), liegen aber NICHT im normalen Regal,
+## sondern im Sonderbestand: gekauft im Hinterzimmer, versiegelt als Fixinhalt,
+## gepresst wie alles andere.
+const SPECIAL_IDS := [POINTER, DOPING]
 
 static func is_special_id(engraving_id: String) -> bool:
 	return SPECIAL_IDS.has(engraving_id)
@@ -168,9 +171,14 @@ static func rune_id_of(engraving_id: String) -> String:
 static func is_rune_id(engraving_id: String) -> bool:
 	return rune_id_of(engraving_id) != ""
 
-## Leiterbahn: die Würfel-Gravur, die Seiten miteinander verdrahtet.
+## Pointer: die Würfel-Gravur, die Seiten miteinander verdrahtet.
 static func pointer_engraving() -> Engraving:
-	return _make(POINTER, "Leiterbahn", "Ätze eine Leiterbahn von einer Seite über eine Kante: Die Zielseite löst mit 50 % Chance einmal voll mit aus (Augen, Material, Charms) - und von dort geht es weiter.", Rarity.EPIC, CATEGORY_DICE)
+	return _make(POINTER, "Pointer", "Ätze einen Pointer von einer Seite über eine Kante: Die Zielseite löst mit 50 % Chance einmal voll mit aus (Augen, Material, Charms) - und von dort geht es weiter.", Rarity.EPIC, CATEGORY_DICE)
+
+## Veredelung: die einzige Material-Gravur, die selbst kein Material belegt - sie
+## sättigt eins, das schon auf der Seite liegt.
+static func doping() -> Engraving:
+	return _make(DOPING, "Veredelung", "Veredelt das Material einer gewählten Seite: es wirkt fortan in seiner starken Form. Nackte und schon veredelte Seiten sind kein Ziel.", Rarity.EPIC, CATEGORY_MATERIAL)
 
 # --- Material-Gravuren: Name/Beschreibung kommen direkt vom DieMaterial ---
 
@@ -191,7 +199,7 @@ const MATERIAL_RARITY := {
 static func all() -> Array[Engraving]:
 	var result: Array[Engraving] = [
 		notch(), overpressure(), polish(), chisel(), grindstone(), growth(),
-		pointer_engraving(),
+		pointer_engraving(), doping(),
 	]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))

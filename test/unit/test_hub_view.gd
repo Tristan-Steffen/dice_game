@@ -143,6 +143,20 @@ func test_debug_money_button_emits_and_keeps_menu_open() -> void:
 	assert_signal_emit_count(hub, "debug_money_requested", 2, "je Klick ein Signal")
 	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
+func test_debug_charge_button_emits_and_keeps_menu_open() -> void:
+	watch_signals(hub)
+	hub.settings_button.pressed.emit()  # aufklappen
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var found := false
+	for button: Button in box.get_children():
+		if button.text == "Debug: +10 ⚡":
+			found = true
+			button.pressed.emit()
+			button.pressed.emit()  # zweimal für Mehrfach-Klick
+	assert_true(found, "der Energie-Knopf ist im Menü")
+	assert_signal_emit_count(hub, "debug_charge_requested", 2, "je Klick ein Signal")
+	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+
 func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:
 	hub.settings_button.pressed.emit()  # Menü offen auf der Home-Seite
 	assert_true(hub.settings_menu.visible)
@@ -181,14 +195,14 @@ func test_test_materials_label_can_be_updated() -> void:
 	assert_true(found, "die Testmaterialien-Beschriftung ist aktualisiert")
 
 func test_test_pointers_label_can_be_updated() -> void:
-	hub.set_test_pointers_label("🧪 Testleiterbahnen: AN")
+	hub.set_test_pointers_label("🧪 Testpointer: AN")
 	hub.settings_button.pressed.emit()
 	var box: VBoxContainer = hub.settings_menu.get_node("Box")
 	var found := false
 	for button: Button in box.get_children():
-		if button.text == "🧪 Testleiterbahnen: AN":
+		if button.text == "🧪 Testpointer: AN":
 			found = true
-	assert_true(found, "die Testleiterbahnen-Beschriftung ist aktualisiert")
+	assert_true(found, "die Testpointer-Beschriftung ist aktualisiert")
 
 func test_the_pointer_test_button_reports_its_own_signal() -> void:
 	# Eigener Schalter, nicht an die Materialien gekoppelt.
@@ -197,9 +211,9 @@ func test_the_pointer_test_button_reports_its_own_signal() -> void:
 	hub.test_materials_requested.connect(func() -> void: fired[1] += 1)
 	var box: VBoxContainer = hub.settings_menu.get_node("Box")
 	for button: Button in box.get_children():
-		if button.text.begins_with("🧪 Testleiterbahnen"):
+		if button.text.begins_with("🧪 Testpointer"):
 			button.pressed.emit()
-	assert_eq(fired, [1, 0], "nur der Leiterbahn-Schalter meldet sich")
+	assert_eq(fired, [1, 0], "nur der Pointer-Schalter meldet sich")
 
 func test_attaching_an_already_visible_panel_takes_the_page() -> void:
 	var eager := Control.new()

@@ -303,14 +303,15 @@ func test_new_payout_reward_labels():
 	assert_eq(_bet("feedback_loop").reward_label(), "8 ⚡")
 	assert_eq(_bet("shipment").reward_label(), "1 Paket")
 	assert_eq(_bet("patent").reward_label(), "+1 Stufe")
-	assert_eq(_bet("circuit_contract").reward_label(), "1 Leiterbahn")
-	assert_eq(_bet("clean_room").reward_label(), "4 Pakete", "die Dotierung ist als Ware gestorben")
+	assert_eq(_bet("circuit_contract").reward_label(), "1 Pointer")
+	assert_eq(_bet("clean_room").reward_label(), "1 Veredelung")
 
 ## Turniernacht (×2) verdoppelt Geld, Ware und Ladung - Einzelstücke nicht.
 func test_payout_factor_spares_unique_goods():
 	assert_eq(_bet("jackpot").reward_label(2), "$36")
 	assert_eq(_bet("full_house").reward_label(2), "4 Pakete")
 	assert_eq(_bet("feedback_loop").reward_label(2), "16 ⚡")
-	assert_eq(_bet("circuit_contract").reward_label(2), "1 Leiterbahn")
+	assert_eq(_bet("circuit_contract").reward_label(2), "1 Pointer")
+	assert_eq(_bet("clean_room").reward_label(2), "1 Veredelung")
 	assert_eq(_bet("shipment").reward_label(2), "1 Paket")
 	assert_eq(_bet("patent").reward_label(2), "+1 Stufe")

@@ -140,6 +140,13 @@ const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
 const SHOP_PACK_SLOTS  := [1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
 
+## Ab dieser Lizenzstufe führt auch das normale Regal Sonderposten - vorher gibt
+## es sie einzig im Hinterzimmer.
+const SHOP_SPECIAL_LEVEL := 8
+## Chance je Auslage, dass einer dabei ist. Sie wächst mit der Lizenz: auf der
+## letzten Stufe liegt öfter einer aus als nicht.
+const SHOP_SPECIAL_CHANCE := {8: 0.25, 9: 0.4, 10: 0.55}
+
 ## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
 const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern
 const HUB_SIDE_BETS_LEVEL := 4     # Nebenwetten installiert
@@ -501,6 +508,14 @@ func shop_dice_slots() -> int:
 func shop_pack_slots() -> int:
 	return _slot_at(SHOP_PACK_SLOTS, 4)
 
+## Chance auf EINEN Sonderposten in der Auslage (0 = keiner). Höchstens einer je
+## Doppelseite: er belegt einen der Paket-Plätze, statt einen dazuzustellen -
+## das Regal bleibt gleich breit, und er kostet einen normalen Wurf.
+func shop_special_chance() -> float:
+	if hub_level < SHOP_SPECIAL_LEVEL:
+		return 0.0
+	return float(SHOP_SPECIAL_CHANCE.get(mini(hub_level, HUB_MAX_LEVEL), 0.0))
+
 ## Kauf aus der Chip-Schale: bezahlt, aber NICHT eingesetzt - der Würfel bleibt
 ## beim Händler liegen, bis der Spieler selbst den Platz wählt. Hinterlegt wird
 ## eine eigene Instanz, denn die Auslage hält das Original weiter (Referenz-Regel).
@@ -781,7 +796,12 @@ func _mint_press_piece(piece: Dictionary) -> Dictionary:
 ## Menge, kein Icon-Wurf), jedes andere würfelt Menge und Icons aus.
 func _press_pack_pieces(pack: Pack, rng: RandomNumberGenerator) -> Array[Dictionary]:
 	if pack.fixed_engraving != null:
-		return [PhantomPress.piece(pack.press_sort(), pack.fixed_engraving.id)]
+		# Ein Bündel ist EINE Karte mit mehreren Stücken darin - gewürfelt wird
+		# hier nichts, weder die Menge noch das Icon.
+		var fixed: Array[Dictionary] = []
+		for i in maxi(pack.count, 1):
+			fixed.append(PhantomPress.piece(pack.press_sort(), pack.fixed_engraving.id))
+		return fixed
 	return PhantomPress.payout(pack.press_sort(), rng)
 
 ## DIE PRESSUNG: ein Preis, dann je Paket seine Ausbeute. Atomar - prüfen,
@@ -902,8 +922,8 @@ func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = [],
 	note_pool_changed()
 	return true
 
-## Material-Stück: belegt eine Seite. Die Reihe hebt es nicht - aus der Presse
-## kommt Material immer undotiert.
+## Material-Stück: belegt eine Seite. Frische Farbe liegt immer unveredelt - die
+## Sättigung ist ein eigenes Stück (Sonderposten Veredelung).
 func apply_press_material(index: int, die: DieDefinition, face: int,
 		rng: RandomNumberGenerator = null) -> bool:
 	var piece := _press_piece(index)
@@ -939,7 +959,7 @@ func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0,
 	note_pool_changed()
 	return true
 
-## Leiterbahn-Stück: verdrahtet zwei benachbarte Seiten; Überschreiben erlaubt.
+## Pointer-Stück: verdrahtet zwei benachbarte Seiten; Überschreiben erlaubt.
 func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face: int,
 		rng: RandomNumberGenerator = null) -> bool:
 	var piece := _press_piece(index)
@@ -949,6 +969,23 @@ func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face
 		return false
 	var before := _snapshot_die(die)
 	die.pointers[from_face] = to_face
+	_journal_application(piece, die, before)
+	_consume_press_application(index, rng)
+	note_pool_changed()
+	return true
+
+## Veredelungs-Stück: sättigt das Material einer Seite. dope() IST die Probe - eine
+## nackte oder schon veredelte Seite bewegt sich nicht und ist damit kein Ziel.
+func apply_press_doping(index: int, die: DieDefinition, face: int,
+		rng: RandomNumberGenerator = null) -> bool:
+	var piece := _press_piece(index)
+	if piece.is_empty() or not press_target_allowed(die):
+		return false
+	if String(piece.get("id", "")) != Engraving.DOPING:
+		return false
+	var before := _snapshot_die(die)
+	if not die.dope(face):
+		return false
 	_journal_application(piece, die, before)
 	_consume_press_application(index, rng)
 	note_pool_changed()
@@ -1048,7 +1085,7 @@ func press_mark_at(die: DieDefinition, face: int) -> int:
 	return int(mark.get("index", -1))
 
 ## Schreibt die gemerkten Seiten zurück - über dieselben Schreibwege, die sie
-## gesetzt haben (die Dotierung hängt am Material-Exemplar, die Rune an der Schale).
+## gesetzt haben (die Veredelung hängt am Material-Exemplar, die Rune an der Schale).
 func _restore_face_states(die: DieDefinition, states: Array) -> void:
 	for state in states:
 		var face := int(state["face"])
@@ -1735,7 +1772,7 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 	return copied
 
 ## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
-## dotiert ist, fällt stattdessen ein Fixinhalt-Paket ihres Materials an -
+## veredelt ist, fällt stattdessen ein Fixinhalt-Paket ihres Materials an -
 ## einmal je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Kopien.
 func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		participating: Array[int]) -> int:
@@ -1791,7 +1828,7 @@ func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int
 
 ## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
 ## frische Kopie davon als versiegeltes Fixinhalt-Paket ins Lager - der Abguss
-## erbt die Dotierung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
+## erbt die Veredelung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
 ## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
 ## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
 func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
@@ -2270,7 +2307,15 @@ const CHARGE_OVERFLOW_MONEY := 5
 ## Preise der Schwarzmarkt-Ware in Ladung. Der Charm kostet genau eine volle
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
 const SECRET_CHARM_PRICE := 5
-const SECRET_ENGRAVING_PRICE := 5
+
+## Bündel des Sonderposten-Platzes: Menge, ⚡-Preis und Ziehgewicht. Ein Bündel
+## ist EINE Datenkarte mit mehreren Stücken darin - je größer, desto seltener,
+## aber der Stückpreis fällt (3 / 2,33 / 2 ⚡).
+const SECRET_SPECIAL_BUNDLES := [
+	{"count": 1, "price": 3, "weight": 3},
+	{"count": 3, "price": 7, "weight": 2},
+	{"count": 5, "price": 10, "weight": 1},
+]
 ## Lizenzstufe, ab der das Gitter fällt - der Zutritt ist Teil des Ausbaus,
 ## nicht der erste Energie-Posten des Laufs.
 const SECRET_UNLOCK_HUB_LEVEL := 5
@@ -2296,6 +2341,8 @@ const SECRET_DIE_PRICES := {
 const OFFER_KIND := "kind"
 const OFFER_ITEM := "item"
 const OFFER_PRICE := "price"
+## Stückzahl EINER Karte (Sonderposten-Bündel); alles andere liegt einzeln.
+const OFFER_COUNT := "count"
 const OFFER_SOLD := "sold"
 const KIND_CHARM := "charm"
 const KIND_ENGRAVING := "engraving"
@@ -2424,7 +2471,9 @@ func buy_secret_offer(index: int) -> bool:
 			packs_changed.emit()
 		_:
 			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
-			grant_engraving_pack(offer[OFFER_ITEM] as Engraving)
+			# Ein Bündel bleibt dabei EINE Karte mit mehreren Stücken darin.
+			grant_pack(Pack.fixed_engraving_pack(offer[OFFER_ITEM] as Engraving,
+				int(offer.get(OFFER_COUNT, 1))))
 	offer[OFFER_SOLD] = true
 	secret_stock_changed.emit()
 	return true
@@ -2501,18 +2550,34 @@ func _secret_engraving_offer() -> Dictionary:
 			pool.append(engraving)
 	if pool.is_empty():
 		pool = all_specials
-	return _secret_offer(KIND_ENGRAVING, pool.pick_random(), SECRET_ENGRAVING_PRICE)
+	var bundle := _roll_special_bundle()
+	return _secret_offer(KIND_ENGRAVING, pool.pick_random(), int(bundle["price"]),
+		int(bundle["count"]))
 
-func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
-	return {OFFER_KIND: kind, OFFER_ITEM: item, OFFER_PRICE: price, OFFER_SOLD: false}
+## Gewichteter Griff in SECRET_SPECIAL_BUNDLES - das große Bündel ist der Fund,
+## nicht der Regelfall.
+func _roll_special_bundle() -> Dictionary:
+	var total := 0
+	for bundle: Dictionary in SECRET_SPECIAL_BUNDLES:
+		total += int(bundle["weight"])
+	var pick := randi() % maxi(total, 1)
+	for bundle: Dictionary in SECRET_SPECIAL_BUNDLES:
+		pick -= int(bundle["weight"])
+		if pick < 0:
+			return bundle
+	return SECRET_SPECIAL_BUNDLES[0]
+
+func _secret_offer(kind: String, item: Resource, price: int, count := 1) -> Dictionary:
+	return {OFFER_KIND: kind, OFFER_ITEM: item, OFFER_PRICE: price,
+		OFFER_COUNT: count, OFFER_SOLD: false}
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
-## Chance, eine Seite im Testmodus dotiert auszuliefern - sonst wäre der
-## dotierte Zustand nur über die Gravur zu sehen.
+## Chance, eine Seite im Testmodus veredelt auszuliefern - sonst wäre der
+## veredelte Zustand nur über die Gravur zu sehen.
 const TEST_LEVEL_CHANCE := 0.34
 
-## Belegt jede Seite aller Pool-Würfel mit zufälligen Materialien und dotiert
+## Belegt jede Seite aller Pool-Würfel mit zufälligen Materialien und veredelt
 ## einen Teil davon. Jeder Würfel bekommt frische Arrays (nie geteilt).
 func randomize_all_materials() -> void:
 	var ids: Array[String] = []
@@ -2542,7 +2607,7 @@ func clear_all_materials() -> void:
 		die.levels = levels
 	pool_changed.emit()
 
-## Legt jedem Pool-Würfel 1-5 zufällige Leiterbahnen (je Seite höchstens eine,
+## Legt jedem Pool-Würfel 1-5 zufällige Pointer (je Seite höchstens eine,
 ## nur zu Nachbarn). Jeder Würfel bekommt ein frisches pointers-Array.
 func randomize_all_pointers() -> void:
 	for die in owned_pool:

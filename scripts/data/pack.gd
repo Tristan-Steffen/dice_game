@@ -82,16 +82,32 @@ static func dice_mod_pack() -> Pack:
 	return _make(TYPE_DICE_MOD, ENGRAVING_PACK_COUNT, DICE_MOD_PRICE,
 		"Ein Phantomwurf auf die sechs Runen, versiegelt.")
 
-## Fixinhalt-Paket: der Phantomwürfel liegt fest auf diesem Icon. Preis 0 - so
-## etwas wird gefunden oder abgegossen, nie verkauft.
-static func fixed_engraving_pack(engraving: Engraving) -> Pack:
+## Fester Goldpreis eines Sonderposten-Einzelstücks im normalen Regal - er hängt
+## weder an der Sorte noch an der Lizenz. Bündel gibt es nur im Hinterzimmer.
+const SPECIAL_PRICE := 30
+
+## Fixinhalt-Paket: der Phantomwürfel liegt fest auf diesem Icon. amount > 1 legt
+## mehrere Kopien in DIESELBE Karte - ein Bündel ist eine Datenkarte, kein Stapel.
+## Preis 0 ist der Regelfall: so etwas wird gefunden oder abgegossen; nur der
+## Handel setzt einen.
+static func fixed_engraving_pack(engraving: Engraving, amount := ENGRAVING_PACK_COUNT,
+		cost := 0) -> Pack:
 	if engraving == null:
 		return number_pack()
-	var pack := _make(pack_type_for_category(engraving.category), ENGRAVING_PACK_COUNT, 0,
-		"%s, versiegelt." % engraving.display_name)
+	var many := maxi(amount, 1)
+	var text := "%s, versiegelt." % engraving.display_name if many == 1 		else "%d× %s auf EINER Karte, versiegelt." % [many, engraving.display_name]
+	var pack := _make(pack_type_for_category(engraving.category), many, cost, text)
 	pack.display_name = engraving.display_name
 	pack.fixed_engraving = engraving
 	return pack
+
+## Sonderposten fürs normale Regal: welcher, entscheidet der Wurf - dass überhaupt
+## einer ausliegt, entscheidet GameRun.shop_special_chance.
+static func roll_special_pack() -> Pack:
+	var special := Engraving.by_id(String(Engraving.SPECIAL_IDS.pick_random()))
+	if special == null:
+		return roll_engraving_pack()
+	return fixed_engraving_pack(special, ENGRAVING_PACK_COUNT, SPECIAL_PRICE)
 
 ## Paketsorte einer Gravur-Kategorie (Umkehrung von engraving_category).
 static func pack_type_for_category(category: String) -> String:
@@ -103,7 +119,7 @@ static func pack_type_for_category(category: String) -> String:
 	return TYPE_NUMBER
 
 ## Würfel-Paket zu einer DiceOffer-Vorlage: die Sorte ist bekannt, die Augen
-## nicht. Veredelungen kosten hier keinen Aufschlag - das ist der Blindkauf-Bonus.
+## nicht. Material-Seiten kosten hier keinen Aufschlag - das ist der Blindkauf-Bonus.
 ## Mehrfach-Pakete decken ALLE Würfel auf und geben genau EINEN mit: gekauft
 ## wird die Auswahl, nicht die Menge. Je zusätzlich aufgedecktem Würfel kostet
 ## das Paket darum etwas mehr - "der beste aus dreien" ist mehr wert als "einer
@@ -173,13 +189,13 @@ func press_sort() -> String:
 ## Inhalt eines Würfel-Pakets: count EIGENSTÄNDIG ausgewürfelte Würfel derselben
 ## Art. Sie müssen sich unterscheiden - der Spieler deckt alle auf und nimmt
 ## GENAU EINEN mit (siehe WorkshopView.Phase.CHOOSE_DIE); wären es Kopien, wäre
-## die Wahl eine Attrappe. Veredelungen kosten hier nichts extra - dafür ist es
+## die Wahl eine Attrappe. Material-Seiten kosten hier nichts extra - dafür ist es
 ## ein Blindkauf.
 func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DieDefinition]:
 	var dice: Array[DieDefinition] = []
 	if not is_dice_pack():
 		return dice
-	# Fest eingelegter Würfel (Schwarzmarkt): keine Veredelung, kein Seelen-Wurf.
+	# Fest eingelegter Würfel (Schwarzmarkt): keine Material-Seiten, kein Seelen-Wurf.
 	if fixed_die != null:
 		dice.append(fixed_die.instantiate())
 		return dice
@@ -193,7 +209,7 @@ func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = []
 		var die := DiceOffer.make_die(template, hub_level)
 		DiceOffer.roll_refinements(die)
 		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite -
-		# und mindestens eine ist dotiert. Aufpreis gibt es hier keinen.
+		# und mindestens eine ist veredelt. Aufpreis gibt es hier keinen.
 		if CharmEffects.forces_refinement(charm_ids):
 			if die.materials.count("") == die.materials.size():
 				die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)

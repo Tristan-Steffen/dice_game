@@ -69,11 +69,11 @@ func test_short_hints_stay_short():
 			"Seiten-Kurzhinweis zu lang bei %s" % material.id)
 
 func test_every_material_has_a_doped_state():
-	# Die Dotierung verwandelt jedes Material - und nie in dieselbe Wirkung.
+	# Die Veredelung verwandelt jedes Material - und nie in dieselbe Wirkung.
 	for material in DieMaterial.all():
-		assert_ne(material.short_doped, "", "dotiert ohne Kurzwirkung bei %s" % material.id)
-		assert_ne(material.description_doped, "", "dotiert ohne Beschreibung bei %s" % material.id)
-		assert_ne(material.short_doped, material.short, "dotiert wirkt anders bei %s" % material.id)
+		assert_ne(material.short_doped, "", "veredelt ohne Kurzwirkung bei %s" % material.id)
+		assert_ne(material.description_doped, "", "veredelt ohne Beschreibung bei %s" % material.id)
+		assert_ne(material.short_doped, material.short, "veredelt wirkt anders bei %s" % material.id)
 
 func test_short_for_falls_back_to_the_plain_state():
 	var ruby := DieMaterial.ruby()
@@ -86,15 +86,17 @@ func test_short_for_falls_back_to_the_plain_state():
 func test_face_hint_marks_the_doped_state():
 	var ruby := DieMaterial.ruby()
 	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
-		"%s (dotiert): %s" % [ruby.display_name, ruby.short_doped])
+		"%s (veredelt): %s" % [ruby.display_name, ruby.short_doped])
 	assert_eq(DieMaterial.face_hint(DieMaterial.RUBY, 1), "%s: %s" % [ruby.display_name, ruby.short],
 		"normal bleibt die schlichte Namenszeile")
-	assert_eq(DieMaterial.face_hint("", DieMaterial.MAX_LEVEL), "", "ohne Material auch dotiert nichts")
+	assert_eq(DieMaterial.face_hint("", DieMaterial.MAX_LEVEL), "", "ohne Material auch veredelt nichts")
 
+## Wachstums-Sperre, keine gemessene Balkenbreite: die Schranke steht auf der
+## längsten Zeile (Knochen) plus eins.
 func test_doped_short_hints_stay_short():
 	for material in DieMaterial.all():
-		assert_lt(DieMaterial.face_hint(material.id, DieMaterial.MAX_LEVEL).length(), 44,
-			"Dotier-Kurzhinweis zu lang bei %s" % material.id)
+		assert_lt(DieMaterial.face_hint(material.id, DieMaterial.MAX_LEVEL).length(), 45,
+			"Veredelungs-Kurzhinweis zu lang bei %s" % material.id)
 
 func test_hints_are_empty_without_a_material():
 	assert_eq(DieMaterial.face_hint(""), "", "keine Seite ohne Material erklärt sich")

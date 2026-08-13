@@ -213,7 +213,7 @@ func test_the_capped_star_stays_single_in_the_score():
 	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.ECHO_CHAMBER]), false,
 		_m(["", ""]), {}, ctx), 40, "der Strich am Himmel zündet genau einmal")
 
-# --- Leiterbahn: Lötkolben, Erdungskabel, Glasfaser ---------------------------------
+# --- Pointer: Lötkolben, Erdungskabel, Glasfaser ---------------------------------
 
 func test_the_soldering_iron_raises_the_base_chance():
 	assert_almost_eq(DiceScoring.pointer_base_chance(NO_CHARMS), DiceScoring.POINTER_CHANCE, 0.0001)

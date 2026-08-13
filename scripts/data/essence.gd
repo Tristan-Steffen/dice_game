@@ -212,8 +212,8 @@ static func will_o_wisp() -> Essence:
 
 static func plasma() -> Essence:
 	return _make(PLASMA, "Plasma",
-		"Der Lichtbogen hält: seine Leiterbahnen bekommen zwei Zündversuche statt einem (50 % werden 75 %).",
-		"Leiterbahn zündet zweimal so wahrscheinlich", Rarity.EPIC, Color(0.78, 0.72, 1.0))
+		"Der Lichtbogen hält: seine Pointer bekommen zwei Zündversuche statt einem (50 % werden 75 %).",
+		"Pointer zündet zweimal so wahrscheinlich", Rarity.EPIC, Color(0.78, 0.72, 1.0))
 
 ## Quintessenz: der fünfte Stoff - sie borgt sich die Seelen aller anderen
 ## liegenden Würfel. Legendär und damit Unikat, also gibt es nie den Fall
@@ -250,18 +250,18 @@ static func cyanide() -> Essence:
 
 static func xray() -> Essence:
 	return _make(XRAY, "Röntgenlicht",
-		"Das Licht geht durch die Schale: die Gegenseite wird wie ein Leiterbahn-Glied mitgewertet.",
+		"Das Licht geht durch die Schale: die Gegenseite wird wie ein Pointer-Glied mitgewertet.",
 		"Gegenseite zählt mit", Rarity.RARE, Color(0.7, 0.95, 1.0))
 
 static func corona() -> Essence:
 	return _make(CORONA, "Korona",
-		"Ein Ring um jedes Licht: eine Nachbarseite wertet wie ein Leiterbahn-Glied mit.",
+		"Ein Ring um jedes Licht: eine Nachbarseite wertet wie ein Pointer-Glied mit.",
 		"1 Nachbarseite zählt mit", Rarity.EPIC, Color(1.0, 0.92, 0.7))
 
 static func varnish() -> Essence:
 	return _make(VARNISH, "Firnis",
-		"Eine zweite Schicht Glasur: seine Materialseiten zählen beim Werten als dotiert.",
-		"Materialseiten zählen dotiert", Rarity.EPIC, Color(0.9, 0.7, 0.4))
+		"Eine zweite Schicht Glasur: seine Materialseiten zählen beim Werten als veredelt.",
+		"Materialseiten zählen veredelt", Rarity.EPIC, Color(0.9, 0.7, 0.4))
 
 static func phosphorescence() -> Essence:
 	return _make(PHOSPHORESCENCE, "Phosphoreszenz",
@@ -305,8 +305,8 @@ static func volcanic_lightning() -> Essence:
 
 static func optical_fiber() -> Essence:
 	return _make(OPTICAL_FIBER, "Glasfaser",
-		"Einmal im Glas, verstärkt sich das Licht: zündet eine seiner Leiterbahnen, feuert die Zielseite zweimal.",
-		"Leiterbahn-Ziel feuert 2×", Rarity.EPIC, Color(0.6, 1.0, 0.95))
+		"Einmal im Glas, verstärkt sich das Licht: zündet einer seiner Pointer, feuert die Zielseite zweimal.",
+		"Pointer-Ziel feuert 2×", Rarity.EPIC, Color(0.6, 1.0, 0.95))
 
 static func light_pillar() -> Essence:
 	return _make(LIGHT_PILLAR, "Lichtsäule",

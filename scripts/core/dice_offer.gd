@@ -38,7 +38,7 @@ static func max_face_for(hub_level: int) -> int:
 	return maxi(MAX_TEMPLATE_FACE,
 		int(round(float(MAX_TEMPLATE_FACE) * hub_face_factor(hub_level) * (1.0 + FACE_JITTER))))
 
-# Veredelungs-Chancen; jede Veredelung schlägt je Würfel auf den Preis auf.
+# Material-Chancen; jede belegte Seite schlägt je Würfel auf den Preis auf.
 const FACE_MATERIAL_CHANCE := 0.35
 const SECOND_FACE_CHANCE := 0.35
 const FACE_MATERIAL_SURCHARGE := 2
@@ -75,7 +75,7 @@ func size() -> int:
 	return dice.size()
 
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
-## eine Veredelung samt dotierter Seite.
+## eine Material-Seite, und eine davon veredelt.
 static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DiceOffer]:
 	var offers: Array[DiceOffer] = []
 	for t in pick_templates(count):
@@ -100,7 +100,7 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 	var base := make_die(t, hub_level)
 	var surcharge := roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite - und
-	# mindestens eine ist dotiert. Die Dotierung kostet wie das Material, das sie
+	# mindestens eine ist veredelt. Die Veredelung kostet wie das Material, das sie
 	# aufwertet.
 	if CharmEffects.forces_refinement(charm_ids):
 		if base.materials.count("") == base.materials.size():
@@ -119,14 +119,14 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 		offer.dice.append(base.instantiate())
 	return offer
 
-## Trägt der Würfel schon eine dotierte Seite? (Gütesiegel, hier und im Paket.)
+## Trägt der Würfel schon eine veredelte Seite? (Gütesiegel, hier und im Paket.)
 static func has_doped_side(def: DieDefinition) -> bool:
 	for f in def.levels.size():
 		if def.levels[f] >= DieMaterial.MAX_LEVEL:
 			return true
 	return false
 
-## Würfelt Veredelungen aus (1-2 Material-Seiten); liefert den Aufpreis je Würfel.
+## Würfelt 1-2 Material-Seiten aus; liefert den Aufpreis je Würfel.
 static func roll_refinements(def: DieDefinition) -> int:
 	var surcharge := 0
 	if randf() < FACE_MATERIAL_CHANCE:

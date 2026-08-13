@@ -403,11 +403,11 @@ func test_the_cast_stays_once_per_round_and_die():
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1)
 	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 0, "die Marke hält")
 
-# --- Härteofen: dotierte Materialien zahlen doppelt ----------------------------------
+# --- Härteofen: veredelte Materialien zahlen doppelt ----------------------------------
 
 func test_the_kiln_only_repeats_the_doped_state():
 	assert_eq(MaterialEffects.payoff_repeats(DieMaterial.MAX_LEVEL, _ids([Charm.KILN])), 2)
-	assert_eq(MaterialEffects.payoff_repeats(1, _ids([Charm.KILN])), 1, "erst dotiert")
+	assert_eq(MaterialEffects.payoff_repeats(1, _ids([Charm.KILN])), 1, "erst veredelt")
 	assert_eq(MaterialEffects.payoff_repeats(DieMaterial.MAX_LEVEL, NO_CHARMS), 1)
 
 func test_the_kiln_doubles_base_and_mult():
@@ -416,7 +416,7 @@ func test_the_kiln_doubles_base_and_mult():
 		2 * MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, DieMaterial.MAX_LEVEL, 6))
 	assert_eq(MaterialEffects.base_once_for(DieMaterial.AMBER, kiln, 1, 6),
 		MaterialEffects.base_once_for(DieMaterial.AMBER, NO_CHARMS, 1, 6), "normal unberührt")
-	# Dotiert addiert kein Material mehr von sich aus - der einzige additive Mult,
+	# Veredelt addiert kein Material mehr von sich aus - der einzige additive Mult,
 	# den der Ofen dort verdoppeln kann, sind die Blood-Diamond-Augen.
 	var bloody := _ids([Charm.KILN, Charm.BLOOD_DIAMOND])
 	assert_eq(MaterialEffects.mult_once_for(DieMaterial.RUBY, 5, bloody, DieMaterial.MAX_LEVEL), 10)
@@ -466,7 +466,7 @@ func test_the_kiln_pays_its_gold_twice_and_the_def_follows_the_simulation():
 	assert_eq(report.total_money(), 2 * plain.total_money(), "die Auszahlung läuft zweimal")
 
 func test_the_kiln_keeps_simulation_and_def_byte_identical():
-	# Ein dotierter Knochen unter dem Härteofen: die Def muss exakt dort landen,
+	# Ein veredelter Knochen unter dem Härteofen: die Def muss exakt dort landen,
 	# wo value_after_activations sie erwartet (Drift-Doktrin).
 	var kiln := _ids([Charm.KILN])
 	var bone := _die([8, 2, 3, 4, 5, 6], DieMaterial.BONE, DieMaterial.MAX_LEVEL)

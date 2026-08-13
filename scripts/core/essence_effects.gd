@@ -84,7 +84,7 @@ const FOXFIRE_PER_PAIR := 10
 ## Würfels, je Wertung.
 const BACKGROUND_GROWTH := 1
 
-## Glasfaser: wie oft ein gezündetes Leiterbahn-Glied seine Zielseite feuert -
+## Glasfaser: wie oft ein gezündetes Pointer-Glied seine Zielseite feuert -
 ## die Rückkopplung legt eine dritte Zündung drauf.
 const LINK_FIRES_DEFAULT := 1
 const OPTICAL_FIBER_FIRES := 2
@@ -192,7 +192,7 @@ static func caps_triggers_of(essence_ids: Array[String], charm_ids: Array[String
 			return true
 	return false
 
-## Wie oft ein GEZÜNDETES Leiterbahn-Glied seine Zielseite feuert: die Glasfaser
+## Wie oft ein GEZÜNDETES Pointer-Glied seine Zielseite feuert: die Glasfaser
 ## verstärkt das Licht im Glas (Rückkopplung dreifach), die Zündspule tut
 ## dasselbe am Plasma. Das MAXIMUM, nie das Produkt - zwei Verstärker sind kein
 ## Faktor übereinander.
@@ -387,13 +387,13 @@ static func all_faces_growth(essence_id: String, charm_ids: Array[String] = [], 
 		return face_growth(essence_id, charm_ids, value)
 	return 0
 
-## Firnis: seine Materialseiten zählen in der WERTUNG als dotiert - nie in der
+## Firnis: seine Materialseiten zählen in der WERTUNG als veredelt - nie in der
 ## Def, die Nehmen-Effekte rechnen weiter mit dem echten Zustand.
 static func level_boost(essence_id: String) -> int:
 	return 1 if essence_id == Essence.VARNISH else 0
 
 ## Zustand, mit dem die WERTUNG rechnet. Eine nackte Seite bleibt nackt (der
-## Firnis legt auf Glasur, nicht auf Schale), dotiert bleibt dotiert.
+## Firnis legt auf Glasur, nicht auf Schale), veredelt bleibt veredelt.
 static func boosted_level(level: int, essence_ids: Array[String]) -> int:
 	var boost := level_boost_of(essence_ids)
 	if level <= 0 or boost <= 0:
@@ -432,12 +432,12 @@ static func leftover_die_payouts(essence_ids: Array[String], base_per_die: int, 
 			chain += 1
 	return out
 
-## Plasma: der Lichtbogen hält die Leiterbahn - sie bekommt ZWEI Versuche statt
+## Plasma: der Lichtbogen hält den Pointer - er bekommt ZWEI Versuche statt
 ## einem. "Doppelte Chance" heißt also aggregiert (1 − (1−p)²), nie p × 2: aus
-## 50 % werden 75 %, und eine Leiterbahn erreicht damit NIE 100 %.
+## 50 % werden 75 %, und ein Pointer erreicht damit NIE 100 %.
 const PLASMA_SHOTS := 2
 
-## Zünd-Chance der Leiterbahn an diesem Würfel; base = DiceScoring.POINTER_CHANCE
+## Zünd-Chance der Pointer an diesem Würfel; base = DiceScoring.POINTER_CHANCE
 ## (die Grundchance wohnt dort, damit die Essenz nicht zurückgreifen muss).
 static func pointer_chance(essence_id: String, base: float) -> float:
 	if essence_id != Essence.PLASMA:
@@ -450,7 +450,7 @@ const CORONA_FACES := 1
 const CORONA_FACES_ECLIPSED := 3
 
 ## Die Seiten, die als DETERMINISTISCHES Glied feuern - einmal nach allen
-## Würfel-Triggern (die gewürfelte Leiterbahn läuft getrennt davon). Sie vereinigt
+## Würfel-Triggern (der gewürfelte Pointer läuft getrennt davon). Sie vereinigt
 ## Essenz- und Runen-Glieder in EINER Liste: die Kehrseiten-Rune ist mechanisch
 ## dasselbe wie Röntgenlicht, nur an der Seite statt an der Seele, und ein
 ## zweiter Glied-Pfad daneben würde nur irgendwann auseinanderlaufen.
@@ -679,7 +679,7 @@ static func combo_level_mult_of(essence_ids: Array[String], combo_level: int, ch
 		total += combo_level_mult(essence_id, combo_level, charm_ids)
 	return total
 
-## Dotier-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
+## Veredelungs-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.
 static func level_boost_of(essence_ids: Array[String]) -> int:
 	var best := 0
 	for essence_id in essence_ids:

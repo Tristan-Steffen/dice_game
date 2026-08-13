@@ -750,3 +750,82 @@ func test_the_stash_survives_a_reroll_and_the_lock() -> void:
 
 func test_a_fresh_run_has_an_empty_shelf() -> void:
 	assert_eq(GameRun.new_run().pending_dice.size(), 0, "ein neuer Lauf schuldet nichts")
+
+# --- Sonderposten in der Chip-Schale ------------------------------------------
+# Geprueft wird die AUSWUERFELUNG (_build_spread), nicht der Neuaufbau der Seite:
+# _show_spread baut je Schalen-Wuerfel eine eigene TumbleStage mit SubViewport,
+# und sechzig davon sind kein Test, sondern ein Lasttest.
+
+## Der Sonderposten liegt in der SCHALE - die Paket-Zeile bleibt unberührt.
+func test_a_special_lies_in_the_bowl_not_in_the_pack_row() -> void:
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	var seen := 0
+	for i in 60:
+		var spread = shop._build_spread()
+		assert_eq(spread.engraving_packs.size(), run.shop_pack_slots(),
+			"die Paket-Zeile behält ihre Breite")
+		for pack: Pack in spread.engraving_packs:
+			assert_null(pack.fixed_engraving, "im Regal liegt kein Sonderposten mehr")
+		seen += spread.single_specials.size()
+	assert_gt(seen, 0, "auf Stufe 10 liegt irgendwann einer in der Schale")
+
+## Und wenn, dann als Einzelstück zum festen Preis - Bündel bleiben Hehlerware.
+func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	for i in 60:
+		var spread = shop._build_spread()
+		assert_lte(spread.single_specials.size(), 1, "höchstens einer je Auslage")
+		for pack: Pack in spread.single_specials:
+			assert_true(Engraving.is_special_id(pack.fixed_engraving.id))
+			assert_eq(pack.count, 1, "in der Schale liegen keine Bündel")
+			assert_eq(pack.price, Pack.SPECIAL_PRICE)
+			assert_eq(spread.single_special_bought.size(), spread.single_specials.size())
+
+## Unter der Schwelle nie - der Sonderposten ist die Belohnung für die Lizenz.
+func test_a_low_licence_bowl_never_carries_one() -> void:
+	run.hub_level = GameRun.SHOP_SPECIAL_LEVEL - 1
+	for i in 60:
+		assert_true(shop._build_spread().single_specials.is_empty(),
+			"vor Stufe %d kein Sonderposten" % GameRun.SHOP_SPECIAL_LEVEL)
+
+## Der Kauf zahlt und liefert die VERSIEGELTE Karte - offen wartet keine
+## Aufwertung, auch nicht die aus der Schale.
+func test_a_bowl_special_is_bought_sealed() -> void:
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.money = 999
+	var spread = shop._build_spread()
+	if spread.single_specials.is_empty():
+		spread.single_specials.append(Pack.roll_special_pack())
+		spread.single_special_bought.append(false)
+	# Kein Array-Literal: spreads ist getypt, und GDScript wandelt nicht um.
+	shop.spreads.clear()
+	shop.spreads.append(spread)
+	shop.current_spread_index = 0
+	shop._show_spread()
+	var special: Pack = shop.single_specials[0]
+	var before := run.money
+	shop._on_single_special_pressed(0)
+	assert_eq(run.owned_packs.size(), 1, "die Karte liegt versiegelt im Lager")
+	assert_eq(run.owned_packs[0].fixed_engraving.id, special.fixed_engraving.id)
+	assert_lt(run.money, before, "und sie ist bezahlt")
+	assert_true(shop.single_special_bought[0], "das Stück liegt nicht mehr in der Schale")
+
+## Die Lieferung fährt in den SONDERBESTAND, nicht in die Material- oder
+## Runen-Bucht: ein Sonderposten ist zwar ein Material-/Runen-Paket, liegt aber
+## in seiner eigenen Bucht.
+func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.money = 999
+	var spread = shop._build_spread()
+	spread.single_specials.clear()
+	spread.single_special_bought.clear()
+	spread.single_specials.append(Pack.roll_special_pack())
+	spread.single_special_bought.append(false)
+	shop.spreads.clear()
+	shop.spreads.append(spread)
+	shop.current_spread_index = 0
+	shop._show_spread()
+	var shelves: Array[String] = []
+	shop.pack_purchased.connect(func(_px: Vector2, shelf: String) -> void: shelves.append(shelf))
+	shop._on_single_special_pressed(0)
+	assert_eq(shelves, [PackShelfView.CATEGORY_SPECIAL] as Array[String])

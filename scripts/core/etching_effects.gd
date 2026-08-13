@@ -70,7 +70,7 @@ static func chisel_target_count(stufe: int) -> int:
 	return int(CHISEL_TARGETS[clampi(stufe, 1, MAX_STUFE) - 1])
 
 ## Meißel: kopiert den Wert der Quellseite auf die Zielseiten. Ab Stufe 5 wandert
-## auch ihr MATERIAL mit (samt Dotierung), ab Stufe 6 ihre RUNE. Kopiert wird nur,
+## auch ihr MATERIAL mit (samt Veredelung), ab Stufe 6 ihre RUNE. Kopiert wird nur,
 ## was die Quelle wirklich trägt - der Meißel nimmt nie etwas weg. Ein Einbrand
 ## auf dem Ziel sperrt das Übermalen des Materials, den Wert nie.
 static func chisel(die: DieDefinition, source_face: int, targets: Array[int], stufe: int = 1) -> void:

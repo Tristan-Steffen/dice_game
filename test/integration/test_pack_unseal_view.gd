@@ -203,7 +203,7 @@ func test_dice_rarity_comes_from_the_refinement() -> void:
 	var dice: Array[DieDefinition] = []
 	dice.append(edged)
 	_setup([] as Array[Engraving], dice)
-	assert_eq(view.tier(), int(Engraving.Rarity.RARE), "Kanten-Material ist die seltene Veredelung")
+	assert_eq(view.tier(), int(Engraving.Rarity.RARE), "Kanten-Material ist die seltene Ausstattung")
 
 # --- Abschluss --------------------------------------------------------------------
 

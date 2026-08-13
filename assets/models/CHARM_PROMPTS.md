@@ -175,7 +175,7 @@ kommt aus den Generatoren meist kaputt heraus).
 - `magnetar.glb` **Magnetar** — A brilliant white orb held in a sleek polished armature, elegant curved magnetic field arcs radiating outward.
 - `radio_telescope.glb` **Radioteleskop** — A pristine white radio telescope dish on a slim lattice mount, tilted skyward, its receiver glowing soft green.
 
-## Energie & Leiterbahn
+## Energie & Pointer
 
 - `superconductor.glb` **Supraleiter** — A flawless black ceramic puck levitating above a polished chrome magnet block, a gentle frost mist and a clean cyan underglow.
 - `dynamo.glb` **Dynamo** — A polished brass hand-crank dynamo with gleaming gears and a small bright bulb, its crank handle lacquered.

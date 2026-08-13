@@ -11,16 +11,16 @@ extends Resource
 ## Essenz des GANZEN Würfels ("" = keine). ANGEBOREN: beim Guss versiegelt, es
 ## gibt keinen Auftragsweg - nur Würfelfabriken und Angebote schreiben sie.
 @export var essence_id: String = ""
-## Leiterbahn je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Sie zündet nur
+## Pointer je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Er zündet nur
 ## auf Chance (DiceScoring.POINTER_CHANCE), Sprung für Sprung.
 @export var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
-## Zustand des Materials DIESER Seite (0 = keins, 1 = normal, 2 = dotiert).
+## Zustand des Materials DIESER Seite (0 = keins, 1 = normal, 2 = veredelt).
 ## Er wohnt in der Glasur, nicht in der Seite - ein neues Material fängt wieder
-## undotiert an (set_face_material ist der einzige Schreibweg).
+## unveredelt an (set_face_material ist der einzige Schreibweg).
 @export var levels: Array[int] = [0, 0, 0, 0, 0, 0]
 ## Rune je Seite (Runen-id, "" = keiner), parallel zu faces. Runen wohnen in der
 ## STRUKTUR der Schale, nicht in der Glasur: ein neues Material übermalt die
-## Dotierung, die Rune nie (set_face_material fasst sie darum nicht an).
+## Veredelung, die Rune nie (set_face_material fasst sie darum nicht an).
 @export var runes: Array[String] = ["", "", "", "", "", ""]
 ## Zweite Rune je Seite - NUR Vakuum-Würfel dürfen ihn tragen: ohne Innendruck
 ## trägt die Schale eine zweite Rune. Bewusst ein PARALLELES Array statt einer
@@ -63,9 +63,9 @@ func instantiate() -> DieDefinition:
 	copy.third_runes = third_runes.duplicate()
 	return copy
 
-## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Dotierung hängt
-## am Material-Exemplar, nicht an der Seite - ein neues Material startet undotiert.
-## Die Runen bleiben UNBERÜHRT: die Glasur trägt die Dotierung, die Struktur der
+## Belegt eine Seite mit einem Material. EINZIGER Schreibweg: die Veredelung hängt
+## am Material-Exemplar, nicht an der Seite - ein neues Material startet unveredelt.
+## Die Runen bleiben UNBERÜHRT: die Glasur trägt die Veredelung, die Struktur der
 ## Schale die Rune - Übermalen löscht nie eine Rune.
 func set_face_material(face: int, material_id: String) -> void:
 	if face < 0 or face >= materials.size():
@@ -80,8 +80,8 @@ func material_level(face: int) -> int:
 		return 0
 	return levels[face]
 
-## Dotiert das Material dieser Seite; true, wenn sie sich bewegt hat. Eine nackte
-## Seite hat nichts zu dotieren, eine dotierte nichts mehr zu gewinnen.
+## Veredelt das Material dieser Seite; true, wenn sie sich bewegt hat. Eine nackte
+## Seite hat nichts zu veredeln, eine veredelte nichts mehr zu gewinnen.
 func dope(face: int) -> bool:
 	if face < 0 or face >= levels.size() or face >= materials.size():
 		return false
@@ -149,13 +149,13 @@ static func adjacent_faces(face: int) -> Array[int]:
 			result.append(i)
 	return result
 
-## Darf eine Leiterbahn von from_face nach to_face führen? Nur zu Nachbarn.
+## Darf ein Pointer von from_face nach to_face führen? Nur zu Nachbarn.
 func can_point(from_face: int, to_face: int) -> bool:
 	if from_face < 0 or from_face >= 6 or to_face < 0 or to_face >= 6:
 		return false
 	return to_face != from_face and to_face != opposite_face(from_face)
 
-## Ziel-Seite der Leiterbahn dieser Seite (-1 = keine). Ob sie zündet, würfelt
+## Ziel-Seite des Pointers dieser Seite (-1 = keiner). Ob er zündet, würfelt
 ## DiceScoring.roll_pointer_fires aus - die Def kennt nur die Verdrahtung.
 func pointer_target(face: int) -> int:
 	if face < 0 or face >= pointers.size():

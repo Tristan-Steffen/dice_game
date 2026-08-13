@@ -15,7 +15,7 @@ class_name ScoreBreakdown
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" der
-## für diesen Trigger gezündeten Leiterbahn; die deterministischen
+## für diesen Trigger gezündeten Pointer; die deterministischen
 ## "det_links" folgen ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
 ## -> Krit-Schläge, mit After-Ständen je Teilschritt; "crit_steps" listet JEDEN
 ## Krit einzeln (Material, Essenz, dann je Charm-Position), damit zwei Kopien auch
@@ -140,7 +140,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var step_crit := 1.0
 		var first_firing := true
 		# Gruppen der WÜRFEL-Achse: je Trigger seine Seiten-Zündungen und die für
-		# ihn gewürfelte Leiterbahn. Ein Durchgang mehr - der letzte trägt nur die
+		# ihn gewürfelte Pointer. Ein Durchgang mehr - der letzte trägt nur die
 		# deterministischen Essenz-Glieder (Röntgenlicht, Korona).
 		var groups: Array[Dictionary] = []
 		var det_links: Array[Dictionary] = []
@@ -220,7 +220,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var crit_steps: Array[Dictionary] = []
 				var crit_once := 1.0
 				var firedamp_add := 0
-				# Härteofen: dotiert schlägt der Material-Krit zweimal - zwei
+				# Härteofen: veredelt schlägt der Material-Krit zweimal - zwei
 				# eigene Schritte, nie einer im Quadrat.
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if is_equal_approx(mat_crit_now, 1.0):

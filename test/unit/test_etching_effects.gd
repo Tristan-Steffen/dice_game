@@ -150,14 +150,14 @@ func test_chisel_stufe_five_copies_the_material_with_its_doping():
 	d.dope(5)
 	EtchingEffects.chisel(d, 5, _targets([0]), 5)
 	assert_eq(d.materials[0], DieMaterial.GOLD)
-	assert_eq(d.material_level(0), DieMaterial.MAX_LEVEL, "die Dotierung wandert mit")
+	assert_eq(d.material_level(0), DieMaterial.MAX_LEVEL, "die Veredelung wandert mit")
 
 func test_chisel_stufe_five_copies_an_undoped_material_undoped():
 	var d := _die([1, 2, 3, 4, 5, 6])
 	d.set_face_material(5, DieMaterial.RUBY)
 	EtchingEffects.chisel(d, 5, _targets([0]), 5)
 	assert_eq(d.materials[0], DieMaterial.RUBY)
-	assert_eq(d.material_level(0), 1, "undotiert bleibt undotiert")
+	assert_eq(d.material_level(0), 1, "unveredelt bleibt unveredelt")
 
 func test_chisel_never_strips_a_target_when_the_source_is_bare():
 	var d := _die([1, 2, 3, 4, 5, 6])

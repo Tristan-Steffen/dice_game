@@ -43,7 +43,7 @@ func _box(face: int) -> StyleBoxFlat:
 # --- Aufbau ---------------------------------------------------------------------
 
 func test_the_net_lays_its_cells_out_as_the_die_net() -> void:
-	# Nach PHYSISCHER Lage, nicht nach Augenzahl: nur so treffen die Leiterbahn-
+	# Nach PHYSISCHER Lage, nicht nach Augenzahl: nur so treffen die Pointer-
 	# Pfeile die Kante, über die sie zeigen.
 	_build()
 	for face in 6:
@@ -79,8 +79,8 @@ func test_the_net_carries_edge_chip_pointers_and_badges() -> void:
 		elif child is Panel and not (child is Button):
 			chips += 1
 	assert_eq(chips, 1, "der Essenz-Chip sitzt in der leeren Kreuz-Ecke")
-	assert_eq(arrows, 1, "je Leiterbahn ein Pfeil - der Grund für das Netz")
-	assert_eq(badges, 1, "die dotierte Seite trägt ihre Plakette")
+	assert_eq(arrows, 1, "je Pointer ein Pfeil - der Grund für das Netz")
+	assert_eq(badges, 1, "die veredelte Seite trägt ihre Plakette")
 	assert_eq(glyphs, 1, "und die Rune ihr Zeichen")
 
 # --- Ohne Werkzeug: reine Anzeige ------------------------------------------------

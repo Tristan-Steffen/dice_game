@@ -669,7 +669,7 @@ func test_xray_fires_the_opposite_face_once():
 
 func test_essence_links_ignore_the_pointer_wiring():
 	var die := _die_with(Essence.XRAY)
-	# Die Leiterbahn läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
+	# Der Pointer läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
 	# nur, was die Seele deterministisch mitzieht.
 	die.pointers[1] = 0
 	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
@@ -694,20 +694,20 @@ func test_varnish_clamps_at_doped_and_spares_bare_faces():
 	assert_eq(EssenceEffects.boosted_level(0, varnish), 0, "eine nackte Seite bleibt nackt")
 	assert_eq(EssenceEffects.boosted_level(1, varnish), DieMaterial.MAX_LEVEL)
 	assert_eq(EssenceEffects.boosted_level(DieMaterial.MAX_LEVEL, varnish), DieMaterial.MAX_LEVEL,
-		"dotiert bleibt dotiert")
+		"veredelt bleibt veredelt")
 	assert_eq(EssenceEffects.boosted_level(1, _ids([Essence.NEON])), 1, "ohne Firnis keine Schicht")
 
 func test_varnish_lifts_the_level_only_in_the_score():
 	assert_eq(EssenceEffects.level_boost(Essence.VARNISH), 1)
 	assert_eq(EssenceEffects.level_boost(Essence.NEON), 0)
-	# Rubin zahlt normal +4 Mult, dotiert kritet er ×2 - der Firnis hebt eine
+	# Rubin zahlt normal +4 Mult, veredelt kritet er ×2 - der Firnis hebt eine
 	# echte Normal-Seite in den Krit-Zweig.
 	var plain := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
 		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 1}}})
 	var doped := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
 		_m([DieMaterial.RUBY, ""]), {}, {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": DieMaterial.MAX_LEVEL}}})
 	assert_eq(plain, 20 * 6)
-	assert_eq(doped, 20 * 4, "dotiert kritet statt zu addieren")
+	assert_eq(doped, 20 * 4, "veredelt kritet statt zu addieren")
 
 func test_varnish_never_writes_the_level_into_the_def():
 	var die := _die_with(Essence.VARNISH)
@@ -716,7 +716,7 @@ func test_varnish_never_writes_the_level_into_the_def():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.VARNISH}, _p([0]))
 	assert_eq(die.material_level(0), 1, "die Def bleibt auf ihrem echten Zustand")
-	assert_eq(report.total_money(), MaterialEffects.GOLD_PAYOUT, "Gold zahlt den echten, undotierten Satz")
+	assert_eq(report.total_money(), MaterialEffects.GOLD_PAYOUT, "Gold zahlt den echten, unveredelten Satz")
 
 func test_phosphorescence_stores_and_repeats_its_base():
 	var run := GameRun.new_run()

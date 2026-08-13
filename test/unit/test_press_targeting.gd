@@ -58,16 +58,32 @@ func test_directed_pair_step2_excludes_the_first_face() -> void:
 	assert_false(PressTargeting.eligible_faces(def, Engraving.CHISEL, 2)[2], "Schritt 2 meidet die Quelle")
 
 func test_the_pointer_only_reaches_a_neighbour() -> void:
-	# Die Leiterbahn quert genau eine Kante - die Gegenseite ist kein Ziel.
+	# Der Pointer quert genau eine Kante - die Gegenseite ist kein Ziel.
 	var def := _die([1, 2, 3, 4, 5, 6])
 	var second := PressTargeting.eligible_faces(def, Engraving.POINTER, 0)
 	assert_true(second[1], "der Nachbar ist Ziel")
 	assert_false(second[5], "die Gegenseite nicht")
 	assert_false(second[0], "und die Quelle erst recht nicht")
 
+## Die Veredelung sättigt, was schon liegt: nackt hat nichts zu veredeln, veredelt
+## nichts mehr zu gewinnen.
+func test_the_doping_only_targets_an_undoped_material() -> void:
+	var def := _die([1, 2, 3, 4, 5, 6])
+	def.set_face_material(1, DieMaterial.GOLD)
+	def.set_face_material(2, DieMaterial.AMBER)
+	def.dope(2)
+	var e := PressTargeting.eligible_faces(def, Engraving.DOPING)
+	assert_true(e[1], "das frische Gold nimmt die Glasur an")
+	assert_false(e[2], "der veredelte Bernstein hat nichts mehr zu gewinnen")
+	assert_false(e[0], "eine nackte Seite hat nichts zu veredeln")
+	assert_eq(PressTargeting.kind_of(Engraving.DOPING), PressTargeting.TARGET_FACE,
+		"ein Klick, eine Seite")
+	assert_null(PressTargeting.ghost_after(def, Engraving.DOPING, 1, 1),
+		"sie verschiebt keine Augen - es gibt nichts vorzuschauen")
+
 func test_material_never_targets_its_own_face() -> void:
 	# Dieselbe Gravur auf dieselbe Seite ist kein Ziel mehr - der Dubletten-
-	# Aufstieg ist weg, und die Presse dotiert überhaupt nichts.
+	# Aufstieg ist weg; gesättigt wird allein mit der Veredelung.
 	var def := _die([1, 2, 3, 4, 5, 6])
 	def.set_face_material(0, DieMaterial.GOLD)
 	var e := PressTargeting.eligible_faces(def, DieMaterial.GOLD)
@@ -140,7 +156,7 @@ func test_preview_overpressure_hits_the_highest_face() -> void:
 	assert_eq(ghost.faces, [1, 2, 3, 4, 5, 8] as Array[int])
 
 func test_a_piece_without_moving_eyes_has_no_preview() -> void:
-	# Material, Rune und Leiterbahn ändern keine Augenzahl - dort gibt es nichts
+	# Material, Rune und Pointer ändern keine Augenzahl - dort gibt es nichts
 	# vorzuzeigen, und die Zelle bleibt bei ihrer Ziffer.
 	var def := _die([1, 2, 3, 4, 5, 6])
 	assert_null(PressTargeting.ghost_after(def, DieMaterial.GOLD, 1, 0))

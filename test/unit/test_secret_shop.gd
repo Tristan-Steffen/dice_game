@@ -159,7 +159,8 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	assert_eq(int(run.secret_stock[0][GameRun.OFFER_PRICE]), GameRun.SECRET_CHARM_PRICE)
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	assert_true(Engraving.is_special_id(engraving.id), "Sonderbestand statt Regalware")
-	assert_eq(int(run.secret_stock[1][GameRun.OFFER_PRICE]), GameRun.SECRET_ENGRAVING_PRICE)
+	assert_true(_is_bundle_price(int(run.secret_stock[1][GameRun.OFFER_PRICE]),
+		int(run.secret_stock[1][GameRun.OFFER_COUNT])), "Menge und Preis kommen als Paar")
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
 func test_stock_never_lists_a_charm_twice() -> void:
@@ -261,20 +262,47 @@ func test_buying_a_charm_spends_charge_and_docks_it() -> void:
 	assert_true(run.owned_charm_ids().has(charm.id))
 	assert_true(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
+## Menge und Preis eines Angebots müssen aus DERSELBEN Zeile der Bündel-Tabelle
+## stammen - ein 5er zum 1er-Preis wäre ein stiller Fehler.
+func _is_bundle_price(price: int, count: int) -> bool:
+	for bundle: Dictionary in GameRun.SECRET_SPECIAL_BUNDLES:
+		if int(bundle["count"]) == count and int(bundle["price"]) == price:
+			return true
+	return false
+
 func test_buying_a_special_engraving_stocks_it() -> void:
 	var run := _discovered()
-	run.charge = GameRun.SECRET_ENGRAVING_PRICE
+	run.charge = 99
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
+	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
+	var price := run.secret_offer_price(run.secret_stock[1])
 	assert_true(run.buy_secret_offer(1))
-	assert_eq(run.charge, 0)
+	assert_eq(run.charge, 99 - price)
 	assert_eq(run.owned_packs.size(), 1, "der Sonderposten liegt versiegelt im Lager")
 	assert_not_null(run.owned_packs[0].fixed_engraving)
 	assert_eq(run.owned_packs[0].fixed_engraving.id, engraving.id)
+	assert_eq(run.owned_packs[0].count, count, "ein Bündel ist EINE Karte mit n Stücken")
+
+## Ein Bündel ist eine Karte, aber es presst n Stücke - genau darin liegt sein Wert.
+func test_a_bundle_presses_every_piece_it_holds() -> void:
+	var run := _discovered()
+	run.charge = 99
+	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
+	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
+	assert_true(run.buy_secret_offer(1))
+	assert_eq(run.owned_packs.size(), 1, "eine Karte, nicht n Karten")
+	run.charge = 99
+	var slots: Array[int] = [0]
+	var result := run.open_press(slots)
+	var pieces: Array = result["pieces"]
+	assert_eq(pieces.size(), count, "je Stück im Bündel ein Beutestück")
+	for piece: Dictionary in pieces:
+		assert_eq(String(piece["id"]), engraving.id, "alle tragen dasselbe Icon")
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = GameRun.SECRET_ENGRAVING_PRICE * 2  # reicht für zwei Gravur-Käufe
+	run.charge = 99  # reicht für jedes Bündel
 	assert_true(run.buy_secret_offer(1))
 	var charge_after := run.charge
 	var owned := run.owned_packs.size()

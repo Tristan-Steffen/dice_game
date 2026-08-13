@@ -28,7 +28,7 @@ const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
 const WET := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const SET_TINT := Color(0.55, 0.58, 0.68)
 ## Kantenlänge der Plakette relativ zur Zelle (obere LINKE Ecke - dort sitzt
-## weder eine Rune noch die Dotier-Plakette).
+## weder eine Rune noch die Veredelungs-Plakette).
 const MARK_SIZE := 0.34
 
 var def: DieDefinition
@@ -75,7 +75,7 @@ func build() -> void:
 		chip.size = Vector2.ONE * cell
 		_chips[face] = chip
 		add_child(chip)
-	# Essenz-Chip, Runen, Dotier-Plaketten und Leiterbahn-Pfeile obendrauf - die
+	# Essenz-Chip, Runen, Veredelungs-Plaketten und Pointer-Pfeile obendrauf - die
 	# Pfeile zuletzt, sie liegen über den Zellrändern.
 	add_child(DieNetView.edge_chip(def, cell))
 	for glyph in DieNetView.rune_glyphs(def, cell):

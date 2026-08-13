@@ -92,3 +92,38 @@ func test_dice_pack_contents_are_independent_copies() -> void:
 func test_engraving_packs_roll_no_dice() -> void:
 	for pack in Pack.all_engraving_packs():
 		assert_eq(pack.roll_dice().size(), 0)
+
+# --- Sonderposten: Einzelstueck im Regal, Buendel im Hinterzimmer --------------
+
+func test_a_fixed_pack_holds_one_piece_by_default() -> void:
+	var pack := Pack.fixed_engraving_pack(Engraving.doping())
+	assert_eq(pack.count, Pack.ENGRAVING_PACK_COUNT)
+	assert_eq(pack.price, 0, "gefunden oder abgegossen wird gratis")
+	assert_eq(pack.fixed_engraving.id, Engraving.DOPING)
+	assert_eq(pack.type, Pack.TYPE_MATERIAL, "die Kategorie entscheidet die Sorte")
+
+## Ein Bündel ist EINE Karte mit n Stücken - nicht n Karten.
+func test_a_bundle_is_one_card_with_several_pieces() -> void:
+	var pack := Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 5, 10)
+	assert_eq(pack.count, 5)
+	assert_eq(pack.price, 10)
+	assert_eq(pack.fixed_engraving.id, Engraving.POINTER)
+	assert_true(pack.description.contains("5×"), "die Menge steht auf der Karte")
+	assert_eq(pack.type, Pack.TYPE_DICE_MOD)
+
+func test_the_shop_special_is_a_single_at_the_flat_price() -> void:
+	for i in 30:
+		var pack := Pack.roll_special_pack()
+		assert_not_null(pack.fixed_engraving)
+		assert_true(Engraving.is_special_id(pack.fixed_engraving.id),
+			"im Regal liegen nur Sonderposten: %s" % pack.fixed_engraving.id)
+		assert_eq(pack.count, 1, "im Regal gibt es keine Bündel")
+		assert_eq(pack.price, Pack.SPECIAL_PRICE, "ein Sonderposten kostet immer dasselbe")
+
+## Über viele Würfe kommen BEIDE Sonderposten vor - sonst wäre einer unerreichbar.
+func test_both_specials_reach_the_shelf() -> void:
+	var seen := {}
+	for i in 200:
+		seen[Pack.roll_special_pack().fixed_engraving.id] = true
+	for special_id: String in Engraving.SPECIAL_IDS:
+		assert_true(seen.has(special_id), "%s liegt irgendwann aus" % special_id)

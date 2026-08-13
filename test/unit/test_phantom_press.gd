@@ -38,7 +38,7 @@ func test_sort_of_finds_the_icon_set() -> void:
 	assert_eq(PhantomPress.sort_of(Engraving.RUNE_PREFIX + Rune.CAST), RUNES)
 
 func test_the_pointer_lies_on_no_icon_set() -> void:
-	# Genau darum gibt es die Leiterbahn nur als Fixinhalt - gewürfelt wird sie nie.
+	# Genau darum gibt es den Pointer nur als Fixinhalt - gewürfelt wird er nie.
 	assert_eq(PhantomPress.sort_of(Engraving.POINTER), "")
 	assert_eq(PhantomPress.face_of(RUNES, Engraving.POINTER), -1)
 

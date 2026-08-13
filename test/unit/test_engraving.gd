@@ -2,8 +2,8 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ikonensätze).
 
 func test_all_returns_etchings_materials_and_runes():
-	# 6 Zahl-Gravuren + Leiterbahn + 6 Material-Gravuren + 6 Runen.
-	assert_eq(Engraving.all().size(), 19)
+	# 6 Zahl-Gravuren + Pointer + 6 Material-Gravuren + 6 Runen.
+	assert_eq(Engraving.all().size(), 20)
 
 func test_the_number_set_is_exactly_six():
 	assert_eq(Engraving.NUMBER_IDS.size(), 6, "sechs Seiten, sechs Verben")
@@ -16,10 +16,10 @@ func test_the_number_set_is_exactly_six():
 		assert_true(number_ids.has(id), "NUMBER_IDS nennt nur echte Archetypen: %s" % id)
 
 func test_the_dead_archetypes_are_gone():
-	# Feile, Mittelung, Begradigung, Stanze, Blaupause und die Dotierung sind
-	# ersatzlos gestorben - ihre Rollen stecken in den sechs Leitern.
+	# Feile, Mittelung, Begradigung, Stanze und Blaupause sind ersatzlos
+	# gestorben - ihre Rollen stecken in den sechs Leitern.
 	var dead := ["file_down", "averaging", "straighten", "sandpaper", "punch",
-		"blueprint", "doping"]
+		"blueprint"]
 	for engraving in Engraving.all():
 		assert_false(dead.has(engraving.id), "toter Archetyp lebt noch: %s" % engraving.id)
 
@@ -30,7 +30,7 @@ func test_no_engraving_targets_the_edges_anymore():
 	for engraving in Engraving.all():
 		if engraving.category == Engraving.CATEGORY_DICE:
 			dice_ids.append(engraving.id)
-	assert_eq(dice_ids.size(), 7, "Leiterbahn + sechs Runen")
+	assert_eq(dice_ids.size(), 7, "Pointer + sechs Runen")
 	assert_true(dice_ids.has(Engraving.POINTER))
 	for rune in Rune.all():
 		assert_true(dice_ids.has(Engraving.RUNE_PREFIX + rune.id), "Rune für %s" % rune.id)
@@ -70,10 +70,22 @@ func test_by_id_finds_every_archetype():
 		assert_not_null(Engraving.by_id(engraving.id), "by_id findet %s" % engraving.id)
 	assert_null(Engraving.by_id("gibt_es_nicht"))
 
-func test_the_pointer_is_the_only_special_left():
-	assert_eq(Engraving.SPECIAL_IDS, [Engraving.POINTER],
-		"die Dotierung ist als Ware gestorben - die Presse dotiert gar nicht mehr")
-	assert_eq(Engraving.pointer_engraving().material_id(), "", "der Sonderposten belegt kein Material")
+func test_the_specials_are_the_pointer_and_the_doping():
+	assert_eq(Engraving.SPECIAL_IDS, [Engraving.POINTER, Engraving.DOPING],
+		"beide liegen im Sonderbestand, auf keinem Ikonensatz")
+	for special in [Engraving.pointer_engraving(), Engraving.doping()]:
+		assert_eq(special.material_id(), "", "%s belegt kein Material" % special.id)
+
+## Die Veredelung behält die Material-Kategorie (und damit Paketsorte), belegt
+## aber selbst nichts - sie sättigt, was schon liegt.
+func test_the_doping_is_a_material_special_without_a_material():
+	var doping := Engraving.doping()
+	assert_eq(doping.id, Engraving.DOPING)
+	assert_eq(doping.category, Engraving.CATEGORY_MATERIAL)
+	assert_true(Engraving.is_special_id(doping.id))
+	assert_false(DieMaterial.is_valid_id(doping.id), "\"doping\" ist keine Material-id")
+	assert_eq(Pack.pack_type_for_category(doping.category), Pack.TYPE_MATERIAL,
+		"versiegelt geht sie als Material-Paket raus")
 
 func test_rarity_name_is_german():
 	assert_eq(Engraving.rarity_name(Engraving.Rarity.COMMON), "häufig")

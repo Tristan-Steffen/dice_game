@@ -85,7 +85,7 @@ func slot_at(global_point: Vector2) -> int:
 
 ## Erklärzeile zur Kachel unter pixel ("" = leerer Platz, keine Kachel oder ein
 ## Würfel ohne Seele). Die Seele ist das EINZIGE, was die Kachel nicht selbst
-## zeigt: Materialien, Stufen und Leiterbahnen stehen im Netz, aber das Glühen
+## zeigt: Materialien, Stufen und Pointer stehen im Netz, aber das Glühen
 ## des Saums nennt keinen Namen. GEFRAGT statt gemeldet - dieselbe Lösung wie am
 ## Netzfeld der Grube, und dieselbe Quelle wie der Essenz-Chip (Essence.hint).
 func hint_at(pixel: Vector2) -> String:
@@ -184,7 +184,7 @@ func _tile_size() -> Vector2:
 	return Vector2(u * 6.4, u * 4.6)
 
 ## Detail-Kachel: das WÜRFELNETZ wie im Netzfeld der Grube, damit Materialien
-## UND Leiterbahnen hier wie dort gelesen werden - die Augensumme sitzt in der
+## UND Pointer hier wie dort gelesen werden - die Augensumme sitzt in der
 ## leeren oberen rechten Kreuz-Ecke. Keine oben liegende Seite: im Lager liegt
 ## kein Würfel.
 func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:
@@ -236,7 +236,7 @@ func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	tile.add_theme_stylebox_override("pressed", _box(Color("#3a2f66"), GOLD))
 	tile.add_theme_stylebox_override("focus", _box(bg, border, width_u, glow_alpha))
 
-## Tooltip: Name, Augensumme, Seiten (aufsteigend) und Veredelungen.
+## Tooltip: Name, Augensumme, Seiten (aufsteigend) und Material-Seiten.
 func _describe(def: DieDefinition) -> String:
 	var values: Array[int] = []
 	for v in def.faces:

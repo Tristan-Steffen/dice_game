@@ -331,7 +331,7 @@ func test_edges_outshine_the_faces_by_far() -> void:
 func test_bare_dice_stay_below_the_bloom_threshold() -> void:
 	# Der blanke Würfel soll NICHT strahlen: seine weißen Kanten bleiben unter
 	# der Bloom-Schwelle der Szene (glow_hdr_threshold 0.95), erst ein Material
-	# hebt ihn darüber. Sonst leuchtet der Grundwürfel wie ein veredelter.
+	# hebt ihn darüber. Sonst leuchtet der Grundwürfel wie einer mit Material-Kante.
 	var display := _display()
 	display.apply_definition(DieDefinition.standard())
 	assert_lt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
@@ -340,7 +340,7 @@ func test_bare_dice_stay_below_the_bloom_threshold() -> void:
 	def.essence_id = Essence.NEON
 	display.apply_definition(def)
 	assert_gt(_peak(display.edge_material_res.emission), BLOOM_THRESHOLD,
-		"eine veredelte Kante glüht sehr wohl")
+		"eine Material-Kante glüht sehr wohl")
 
 func test_intense_saturates_without_leaving_the_hue():
 	var tint := DieMaterial.tint_for(DieMaterial.RUBY)
@@ -350,7 +350,7 @@ func test_intense_saturates_without_leaving_the_hue():
 	assert_eq(DieMaterial.tint_for(DieMaterial.RUBY), tint, "die UI-Quelle bleibt unberührt")
 
 func test_material_edges_outshine_bare_ones() -> void:
-	# Rangfolge: eine veredelte Kante muss die kahle überstrahlen, sonst wirkt
+	# Rangfolge: eine Material-Kante muss die kahle überstrahlen, sonst wirkt
 	# der blanke Würfel aufgeladener als der mit Material.
 	assert_gt(DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR, DieFaceDisplay.EDGE_GLOW,
 		"Material-Kanten brennen heller als kahle")
@@ -406,7 +406,7 @@ func test_pool_follows_the_die_size():
 	assert_almost_eq(display.glow_pool.scale.x, 0.5, 0.05,
 		"halb so großer Würfel, halb so große Lache")
 
-# --- Leiterbahnen (durchgehendes Band) ------------------------------------------
+# --- Pointer (durchgehendes Band) ------------------------------------------
 
 func test_a_pointer_builds_one_continuous_ribbon():
 	# EIN Band je Zeiger - kein Baukasten aus Einzelteilen, die an der Kante
@@ -513,7 +513,7 @@ func test_chevron_crest_blooms_and_the_groove_stays_dark():
 	var crest: float = display.pointer_material.get_shader_parameter("crest_energy")
 	assert_gt(peak * crest, BLOOM_THRESHOLD, "der Kamm blüht")
 	assert_lt(peak * crest, DieFaceDisplay.MATERIAL_EDGE_GLOW_FLOOR,
-		"aber unter der veredelten Kante")
+		"aber unter der Material-Kante")
 	var groove: float = display.pointer_material.get_shader_parameter("base_energy")
 	assert_lt(peak * groove, BLOOM_THRESHOLD * 0.5, "die Rille bleibt deutlich dunkel")
 
@@ -532,7 +532,7 @@ func test_the_flow_runs_on_shader_time_with_a_per_die_phase():
 		float(second.pointer_material.get_shader_parameter("phase")),
 		"zwei Würfel fließen versetzt")
 
-# --- Dotierung: sie färbt, sie leuchtet nicht --------------------------------------
+# --- Veredelung: sie färbt, sie leuchtet nicht --------------------------------------
 
 func _leveled(face_index: int, material_id: String, level: int) -> DieDefinition:
 	var def := DieDefinition.standard()
@@ -547,7 +547,7 @@ func test_doping_saturates_the_face_albedo():
 	var base: Color = _face_material(display, 0).albedo_color
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
 	var rich: Color = _face_material(display, 0).albedo_color
-	assert_ne(rich, base, "dotiert sieht anders aus als normal")
+	assert_ne(rich, base, "veredelt sieht anders aus als normal")
 	var profile := DieMaterial.by_id(DieMaterial.RUBY)
 	var expected := DieMaterial.saturated(profile.surface_color, DieMaterial.MAX_LEVEL) * display.body_tint
 	assert_almost_eq(rich.r, expected.r, 0.001)
@@ -571,8 +571,8 @@ func test_doping_steps_the_frame_glow_too():
 	assert_gt(rich.s, base.s, "der Leuchtrahmen zieht mit")
 
 func test_doping_never_lifts_a_face_over_the_bloom_threshold():
-	# Das Signal der Dotierung ist Farbreinheit, nie Helligkeit - dieselbe Regel
-	# wie bei den Runen, sonst wird jede dotierte Seite zur Lampe.
+	# Das Signal der Veredelung ist Farbreinheit, nie Helligkeit - dieselbe Regel
+	# wie bei den Runen, sonst wird jede veredelte Seite zur Lampe.
 	var display := _display()
 	for material in DieMaterial.all():
 		for level in [1, DieMaterial.MAX_LEVEL]:
@@ -593,7 +593,7 @@ func test_bone_stays_dead_matte_when_doped():
 		"und sein Rahmen auch nicht")
 	assert_gt(_face_material(display, 0).albedo_color.s,
 		DieMaterial.by_id(DieMaterial.BONE).surface_color.s,
-		"seine Dotierung reitet allein auf der Albedo")
+		"seine Veredelung reitet allein auf der Albedo")
 
 func test_doping_reaches_the_pool_through_face_base():
 	var display := _display()

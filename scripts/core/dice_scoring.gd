@@ -99,13 +99,13 @@ static func det_links_for(ctx: Dictionary, slot: int) -> Array:
 	var links: Dictionary = ctx.get(CTX_DET_LINKS, {})
 	return links.get(slot, [])
 
-## Gezündete Leiterbahn (ctx-Schlüssel): Dictionary Slot -> Array über die
+## Gezündete Pointer (ctx-Schlüssel): Dictionary Slot -> Array über die
 ## WÜRFEL-Trigger, je Trigger die Liste der gezündeten Glieder (leer = der Wurf
 ## ist danebengegangen). Einträge wie bei den Essenz-Gliedern.
-## Die Leiterbahn ist die einzige Zufallsquelle der Wertung: sie wird beim Nehmen
+## Der Pointer ist die einzige Zufallsquelle der Wertung: er wird beim Nehmen
 ## EINMAL ausgewürfelt (roll_pointer_fires) und hier eingefroren, damit Wertung,
 ## Schrittliste und Nehmen-Effekte dieselben Zündungen sehen. Der VORSCHAU fehlt
-## der Schlüssel - sie zeigt die Hand ohne Leiterbahn.
+## der Schlüssel - sie zeigt die Hand ohne Pointer.
 const CTX_POINTER_FIRES := "pointer_fires"
 
 ## Alle Trigger-Gruppen des Slots ([] = nichts gezündet).
@@ -119,7 +119,7 @@ static func pointer_fires_at(ctx: Dictionary, slot: int, trigger_index: int) -> 
 	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
 
 ## Material-Zustände (ctx-Schlüssel): Dictionary Slot -> {"level": int (0 keins,
-## 1 normal, 2 dotiert - das Material der OBEREN Seite), "eye_sum": int}. Wie die
+## 1 normal, 2 veredelt - das Material der OBEREN Seite), "eye_sum": int}. Wie die
 ## Essenz-Glieder löst der Aufrufer das EINMAL auf.
 const CTX_MATERIAL_LEVELS := "material_levels"
 
@@ -187,8 +187,8 @@ static func volcanic_fumbles_in(ctx: Dictionary, charm_ids: Array[String]) -> in
 		fumbles += int(ctx.get(CTX_ASH_FUMBLES, 0))
 	return maxi(0, fumbles)
 
-## Leiterbahn-Würfe, die danebengegangen sind (Erdungskabel): je Würfel-Trigger
-## eine leere Gruppe. Im ctx stehen nur Würfel, die überhaupt eine Leiterbahn
+## Pointer-Würfe, die danebengegangen sind (Erdungskabel): je Würfel-Trigger
+## eine leere Gruppe. Im ctx stehen nur Würfel, die überhaupt einen Pointer
 ## tragen - ein leerer Eintrag IST also ein Fehlwurf.
 static func pointer_misses_in(ctx: Dictionary) -> int:
 	var misses := 0
@@ -381,7 +381,7 @@ static func _qualifies_plain(key: String, dice: Array[int]) -> bool:
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
 ## Würfel in Reihen-Ordnung (trigger_order; je Zündung Augen, Material,
 ## würfelgebundene Charms - Knochen/Glas wandeln den Wert zwischen den
-## Zündungen; je Würfel-Trigger danach die gewürfelte Leiterbahn, zuletzt die
+## Zündungen; je Würfel-Trigger danach der gewürfelte Pointer, zuletzt die
 ## Essenz-Glieder), dann
 ## statische Charms strikt in Besitz-Reihenfolge (Boni UND Krits an ihrer
 ## Position), zuletzt das EINE Verschmelzen. materials: DieMaterial-id je Slot
@@ -430,12 +430,12 @@ static func trigger_order(scored: Array[int], dice: Array[int], declared: Array 
 		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
 	return order
 
-# --- Leiterbahn: eine Chance, EINMAL ausgewürfelt -------------------------------
+# --- Pointer: eine Chance, EINMAL ausgewürfelt -------------------------------
 
-## Grundchance, mit der eine Leiterbahn je Wurf zündet.
+## Grundchance, mit der ein Pointer je Wurf zündet.
 const POINTER_CHANCE := 0.5
 ## Lötkolben: +10 Prozentpunkte auf die GRUNDCHANCE je Exemplar - gedeckelt,
-## denn eine Leiterbahn, die sicher zündet, wäre keine Chance mehr.
+## denn ein Pointer, der sicher zündet, wäre keine Chance mehr.
 const SOLDERING_IRON_BONUS := 0.1
 const POINTER_CHANCE_MAX := 0.95
 ## Harte Schranke gegen pathologisches RNG (2^-32); Ketten dürfen kreisen.
@@ -447,15 +447,15 @@ static func pointer_base_chance(charm_ids: Array[String]) -> float:
 		POINTER_CHANCE + SOLDERING_IRON_BONUS * float(charm_ids.count(Charm.SOLDERING_IRON)))
 
 ## Aggregierte Chance über firings Seiten-Zündungen: 1 − (1−p)^n. Ein Würfel-
-## Trigger würfelt EINMAL mit ihr statt je Zündung neu - so bleibt die Leiterbahn
+## Trigger würfelt EINMAL mit ihm statt je Zündung neu - so bleibt der Pointer
 ## auch bei vielen Zündungen bei höchstens einer Kette je Trigger.
 static func pointer_chance_for(chance: float, firings: int) -> float:
 	return 1.0 - pow(1.0 - clampf(chance, 0.0, 1.0), float(maxi(1, firings)))
 
-## Würfelt die Leiterbahn EINES Würfels für die ganze Hand aus: je Würfel-Trigger
+## Würfelt die Pointer EINES Würfels für die ganze Hand aus: je Würfel-Trigger
 ## ein Wurf mit der aggregierten Chance; ein Treffer zündet die Zielseite EINMAL
 ## (die Seiten-Achse gilt dort nicht - Runen gehören der oberen Seite). Trägt die
-## gezündete Seite selbst eine Leiterbahn, geht es Sprung für Sprung mit der
+## gezündete Seite selbst einen Pointer, geht es Sprung für Sprung mit der
 ## EINFACHEN Chance weiter; ein Zyklus würfelt einfach weiter.
 ## Die Werte wandern mit: eine zweimal gezündete Knochen-Seite zählt beim zweiten
 ## Mal den gewachsenen Wert. Gerechnet wird mit dem ECHTEN Zustand - genau diese
@@ -505,7 +505,7 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 	return groups
 
 ## Der Vorspann jeder Wertung: die gewertete Menge, ihre Zählreihenfolge und der
-## Echo-Slot. EINE Quelle für _base_and_mult, ScoreBreakdown und den Leiterbahn-
+## Echo-Slot. EINE Quelle für _base_and_mult, ScoreBreakdown und den Pointer-
 ## Wurf - sonst würfelte der Wurf andere Achsen aus, als die Wertung zählt.
 static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], ctx: Dictionary) -> Dictionary:
 	var dice := shown_values(raw, charm_ids, ctx)
@@ -595,7 +595,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Zähler beim Stand der Runde statt bei null.
 	var crits := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(CTX_ROUND_CRITS, 0)))
 	var firedamp := EssenceEffects.firedamp_step(scored, essences)
-	# Laufender Auslösungszähler der ganzen Hand (Leiterbahn-Glieder zählen mit):
+	# Laufender Auslösungszähler der ganzen Hand (Pointer-Glieder zählen mit):
 	# das Photonengas sammelt das Licht aller Auslösungen vor sich - mit
 	# Dunkelkammer auch das der bisherigen Hände der Runde.
 	var triggers := EssenceEffects.round_trigger_offset(charm_ids, int(ctx.get(CTX_ROUND_TRIGGERS, 0)))
@@ -693,7 +693,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# in der Würfel-Substufe, VOR den würfelgebundenen Charm-Krits. Ozon
 				# liest crits VOR seinem eigenen Schlag, zählt sich also nie selbst
 				# mit; das Grubengas zündet an JEDEM Krit sofort mit.
-				# Härteofen: der Krit einer dotierten Seite schlägt zweimal - je Schlag
+				# Härteofen: der Krit einer veredelten Seite schlägt zweimal - je Schlag
 				# ein eigener Krit, nie einer im Quadrat.
 				var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
@@ -719,7 +719,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
 				# sie den Zuwachs schon mit. Nur die obere Seite steckt an, nie ein Glied.
 				MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
-			# Glieder: erst die für DIESEN Würfel-Trigger gewürfelte Leiterbahn, im
+			# Glieder: erst der für DIESEN Würfel-Trigger gewürfelte Pointer, im
 			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
 			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position
 			# dieses Würfels, weil Krits die Reihenfolge werten. Glieder tragen ihren
@@ -867,7 +867,7 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 ## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
 ## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
 ## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx
-## mit (Essenz-Glieder, Dotierungen und Essenzen hängen an den Würfeln VOR dem
+## mit (Essenz-Glieder, Veredelungen und Essenzen hängen an den Würfeln VOR dem
 ## Neuwurf, wie old_materials).
 static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
 	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, combo_levels, ctx)

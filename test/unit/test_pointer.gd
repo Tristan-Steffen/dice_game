@@ -1,5 +1,5 @@
 extends GutTest
-## Die Leiterbahn (Zeiger-Mechanik): Verdrahtung am Datensatz, der Chance-Wurf
+## Der Pointer (Zeiger-Mechanik): Verdrahtung am Datensatz, der Chance-Wurf
 ## (einmal je Würfel-Trigger, Sprung für Sprung weiter), die Wertung der
 ## gezündeten Glieder, Schrittliste und Nehmen-Effekte.
 
@@ -112,7 +112,7 @@ func test_plasma_gives_the_pointer_a_second_shot():
 		"zwei Versuche: aus 50 % werden 75 %")
 	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), 0.3), 0.51, 0.0001)
 	assert_lt(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]), 0.9), 1.0,
-		"eine Leiterbahn zündet NIE sicher")
+		"ein Pointer zündet NIE sicher")
 	assert_almost_eq(EssenceEffects.pointer_chance_of(_ids([Essence.NEON]), base), 0.5, 0.0001)
 	# Auch aggregiert bleibt der Lichtbogen vorn.
 	assert_almost_eq(DiceScoring.pointer_chance_for(0.75, 2), 0.9375, 0.0001)
@@ -215,7 +215,7 @@ func test_each_die_trigger_carries_only_its_own_fires():
 	assert_eq(twice, 66, "(10 + 5×2 + 5 + 4 + 4) × 2 - beide Antritte trafen")
 
 func test_a_link_crit_fires_at_the_dies_position():
-	# Dotierter Rubin auf dem Glied von Slot 0: es kritet ×2 - BEVOR das Glas von
+	# Veredelter Rubin auf dem Glied von Slot 0: es kritet ×2 - BEVOR das Glas von
 	# Slot 1 seinen Mult legt. Feuerte das Glied erst am Ende, läge der Gesamtwert
 	# höher ((2+5)×2 statt 2×2+5).
 	var dice := _d([5, 5, 1, 2, 3, 6])
@@ -234,7 +234,7 @@ func test_link_values_are_transformed_like_eyes():
 
 func test_the_preview_scores_without_the_pointer():
 	# Ohne den eingefrorenen Wurf fehlt der Schlüssel - die Vorschau zeigt die
-	# Hand ohne Leiterbahn, das Nehmen legt sie drauf.
+	# Hand ohne Pointer, das Nehmen legt ihn drauf.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var preview := DiceScoring.best_hand(dice, _ids([]), false, _m([]), {}, {})
 	var taken := DiceScoring.best_hand(dice, _ids([]), false, _m([]), {},
@@ -339,7 +339,7 @@ func test_a_twice_fired_bone_link_lands_where_the_simulation_counted():
 	assert_eq(def.faces[2], last_counted + 2, "die Def steht eine Wandlung hinter der letzten Zählung")
 
 func test_both_axes_and_the_link_land_where_the_roll_counted():
-	# Argon (zwei Antritte) auf einem Knochen-Würfel, dessen Leiterbahn beide Male
+	# Argon (zwei Antritte) auf einem Knochen-Würfel, dessen Pointer beide Male
 	# zündet: obere Seite UND Glied-Seite müssen genau dort stehen, wo der
 	# eingefrorene Wurf gezählt hat - sonst zeigt der Würfel eine andere Zahl.
 	var rng := _rng_two_hits()
@@ -359,9 +359,9 @@ func test_both_axes_and_the_link_land_where_the_roll_counted():
 	assert_eq(def.faces[0], 24, "obere Seite: zwei Zündungen, je +2")
 	assert_eq(def.faces[2], 24, "Glied-Seite: zwei Zündungen, je +2")
 
-# --- Dotierte Glieder: der Zustand des GLIEDS zählt, nicht der der oberen Seite ---
+# --- Veredelte Glieder: der Zustand des GLIEDS zählt, nicht der der oberen Seite ---
 
-## Würfel mit einer Leiterbahn 0 -> 2 und einem Material im Zustand level darauf.
+## Würfel mit einem Pointer 0 -> 2 und einem Material im Zustand level darauf.
 func _linked_die(material: String, level: int, link_value := -1) -> DieDefinition:
 	var def := DieDefinition.new()
 	def.pointers[0] = 2
@@ -420,4 +420,4 @@ func test_a_glass_link_shrinks_by_its_own_step():
 	assert_eq(plain.faces[2], 39, "normal frisst flach 1")
 	var doped := _linked_die(DieMaterial.GLASS, DieMaterial.MAX_LEVEL, 40)
 	_take(doped, _fires(0, [_link(2, 40, DieMaterial.GLASS, DieMaterial.MAX_LEVEL)]))
-	assert_eq(doped.faces[2], 20, "dotiert halbiert sich")
+	assert_eq(doped.faces[2], 20, "veredelt halbiert sich")

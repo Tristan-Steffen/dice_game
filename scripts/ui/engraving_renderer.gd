@@ -42,7 +42,7 @@ static func for_engraving(source: Engraving) -> EngravingRenderer:
 	engraving.engraving_id = source.id
 	engraving.category = source.category
 	engraving.rarity = source.rarity
-	# Die Leiterbahn hat kein Material - sie behält das Ätzungs-Cyan.
+	# Der Pointer hat kein Material - er behält das Ätzungs-Cyan.
 	if (source.category == Engraving.CATEGORY_MATERIAL or source.category == Engraving.CATEGORY_DICE) \
 			and source.material_id() != "":
 		engraving.accent = DieMaterial.tint_for(source.material_id())
@@ -90,9 +90,14 @@ func _draw_seam() -> void:
 func _draw_engraving() -> void:
 	match category:
 		Engraving.CATEGORY_MATERIAL:
-			_draw_material_core()
+			# Die Veredelung belegt kein Material, sie sättigt eins - darum trägt
+			# sie ein eigenes Siegel statt eines Material-Kerns.
+			if engraving_id == Engraving.DOPING:
+				_draw_strokes(_strokes_for(engraving_id))
+			else:
+				_draw_material_core()
 		Engraving.CATEGORY_DICE:
-			# Die Leiterbahn ist die einzige Würfel-Gravur mit eigenem Pfad-Siegel.
+			# Der Pointer ist die einzige Würfel-Gravur mit eigenem Pfad-Siegel.
 			if engraving_id == Engraving.POINTER:
 				_draw_strokes(_strokes_for(engraving_id))
 			else:
@@ -217,9 +222,15 @@ func _strokes_for(id: String) -> Array:
 			s.append_array(_arrow_to(Vector2(0.5, 0.6), Vector2(0.5, 0.18)))
 			return s
 		Engraving.POINTER:
-			# Zwei Nachbarseiten; die Leiterbahn quert die gemeinsame Kante.
+			# Zwei Nachbarseiten; der Pointer quert die gemeinsame Kante.
 			var s: Array = [_square(Vector2(0.32, 0.5), 0.15), _square(Vector2(0.68, 0.5), 0.15)]
 			s.append_array(_arrow_to(Vector2(0.32, 0.5), Vector2(0.6, 0.5)))
+			return s
+		Engraving.DOPING:
+			# Der Materialring, und dicht darunter die zweite Schicht Glasur.
+			var s: Array = [_circle_points(Vector2(0.5, 0.5), 0.33),
+				_circle_points(Vector2(0.5, 0.5), 0.24)]
+			s.append_array(_plus(Vector2(0.5, 0.5), 0.1))
 			return s
 		_:
 			return [_square(Vector2(0.5, 0.5), 0.16)]

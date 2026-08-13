@@ -50,7 +50,7 @@ static func icon_of(sort: String, face: int) -> String:
 	return icons[face]
 
 ## Seitenindex eines Icons in seiner Sorte (-1 = liegt auf keinem Ikonensatz -
-## so wie die Leiterbahn, die es nur als Fixinhalt gibt).
+## so wie der Pointer, den es nur als Fixinhalt gibt).
 static func face_of(sort: String, engraving_id: String) -> int:
 	return icons_for(sort).find(engraving_id)
 

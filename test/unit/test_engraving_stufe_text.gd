@@ -81,7 +81,7 @@ func test_a_rune_line_counts_its_applications() -> void:
 
 func test_material_and_specials_have_no_ladder() -> void:
 	for id: String in [DieMaterial.GOLD, DieMaterial.BONE, DieMaterial.COPPER,
-			Engraving.POINTER]:
+			Engraving.POINTER, Engraving.DOPING]:
 		for stufe in [1, 3, 6]:
 			assert_eq(Engraving.stufe_text(id, stufe), "",
 				"%s skaliert nicht - der Grundtext gilt" % id)

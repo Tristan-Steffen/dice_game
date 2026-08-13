@@ -56,7 +56,7 @@ const EMPTY_PLINTH_MULT := 3
 ## Leuchtfarbe: Mult je Rune auf einem gewerteten Würfel.
 const LUMINOUS_PAINT_MULT := 2
 
-## Vitrine: Mult je oben liegender Material-Seite - dotiert zählt sie mehr,
+## Vitrine: Mult je oben liegender Material-Seite - veredelt zählt sie mehr,
 ## statt zusätzlich. Schwungrad: je Hand in Folge.
 const DISPLAY_CASE_MULT := 2
 const DISPLAY_CASE_DOPED_MULT := 6
@@ -77,7 +77,7 @@ const STANDBY_LIGHT_MULT := 1
 const ODOMETER_MULT := 1
 const BOTTLE_RACK_MULT := 1
 
-## Erdungskabel: Mult je Leiterbahn-Wurf, der danebengegangen ist.
+## Erdungskabel: Mult je Pointer-Wurf, der danebengegangen ist.
 const GROUND_WIRE_MULT := 5
 
 ## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
@@ -194,7 +194,7 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 ## Basispunkt-Beitrag der Besitz-Position j am beteiligten Würfel slot.
 ## order: die gewerteten Slots in ZÄHLREIHENFOLGE - die Quadratur misst an ihr.
 ## value_override > 0: die feuernde Augenzahl dieser Zündung (laufender Wert oder
-## Leiterbahn-Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
+## Pointer-Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
 ## materials: die Material-id der OBEN liegenden Seite je Slot - die Schutzfolie
 ## ist der einzige Charm hier, der nach ihr fragt.
 static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], value_override: int = 0, materials: Array[String] = []) -> int:
@@ -230,7 +230,7 @@ static func _is_bare_die(slot: int, materials: Array[String], ctx: Dictionary) -
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
 ## +3 je spät gezogenem Würfel; Prime Time: Augenzahl, wenn sie prim ist).
-## value_override > 0: feuernde Augenzahl eines Leiterbahn-Glieds - der Effekt
+## value_override > 0: feuernde Augenzahl eines Pointer-Glieds - der Effekt
 ## rechnet mit ihr, Slot-Bezüge (Bodensatz) bleiben beim Würfel.
 static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, value_override: int = 0) -> int:
 	match charm_ids[j]:
@@ -893,7 +893,7 @@ static func pack_refund_chance(charm_ids: Array[String]) -> float:
 			chance += 0.2
 	return minf(chance, 0.8)
 
-## Gütesiegel: Shop-Würfel sind immer veredelt.
+## Gütesiegel: Shop-Würfel tragen immer eine Material-Seite, eine davon veredelt.
 static func forces_refinement(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.SEAL_OF_QUALITY)
 

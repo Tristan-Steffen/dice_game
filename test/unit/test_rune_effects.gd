@@ -55,13 +55,13 @@ func test_hint_and_tint_fall_back_without_a_rune():
 # --- Besitzregel: Runen überleben das Übermalen ------------------------------------
 
 func test_a_repaint_keeps_the_rune():
-	# Die Dotierung wohnt in der Glasur, die Rune in der Struktur der Schale.
+	# Die Veredelung wohnt in der Glasur, die Rune in der Struktur der Schale.
 	var def := DieDefinition.new()
 	def.set_face_material(0, DieMaterial.RUBY)
 	def.set_rune(0, Rune.AFTERGLOW)
 	def.dope(0)
 	def.set_face_material(0, DieMaterial.GOLD)
-	assert_eq(def.material_level(0), 1, "die Dotierung fängt neu an")
+	assert_eq(def.material_level(0), 1, "die Veredelung fängt neu an")
 	assert_eq(def.runes_on(0), _ids([Rune.AFTERGLOW]), "der Rune bleibt")
 
 func test_become_and_instantiate_copy_the_runes_independently():
