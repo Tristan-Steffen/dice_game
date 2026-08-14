@@ -211,40 +211,56 @@ func _template(id: String) -> Dictionary:
 			return t
 	return {}
 
-# --- Zwinge: die Material-Gravur bleibt manchmal eingespannt ------------------------
+# --- Zwinge: die gepresste Datenzelle brennt manchmal nicht aus -------------------
 
 func test_the_clamp_chance_stacks_and_caps():
-	assert_eq(CharmEffects.piece_double_chance(NO_CHARMS), 0.0)
-	assert_almost_eq(CharmEffects.piece_double_chance(_ids([Charm.CLAMP])), 0.25, 0.0001)
+	assert_eq(CharmEffects.pack_survive_chance(NO_CHARMS), 0.0)
+	assert_almost_eq(CharmEffects.pack_survive_chance(_ids([Charm.CLAMP])), 0.25, 0.0001)
 	var four := _ids([Charm.CLAMP, Charm.CLAMP, Charm.CLAMP, Charm.CLAMP])
-	assert_almost_eq(CharmEffects.piece_double_chance(four), CharmEffects.CLAMP_DOUBLE_CAP, 0.0001)
+	assert_almost_eq(CharmEffects.pack_survive_chance(four), CharmEffects.CLAMP_SURVIVE_CAP, 0.0001)
 
-func test_the_clamp_gives_a_piece_a_second_application():
+## Sucht einen Seed mit dem gewünschten Ausgang. Die Ausbeute würfelt VOR der
+## Zwinge, der erste Wurf des Generators ist also nicht ihrer - der Ausgang lässt
+## sich nur an einer echten Pressung ablesen.
+func _press_seed(keeps: bool) -> RandomNumberGenerator:
+	for seed_value in 200:
+		var probe := GameRun.new_run()
+		probe.owned_charms.append(Charm.bench_clamp())
+		probe.grant_pack(Pack.material_pack())
+		if (int(probe.open_press(_d([0]), _rng(seed_value)).get("kept", 0)) > 0) == keeps:
+			return _rng(seed_value)
+	return _rng(0)
+
+func test_a_surviving_cell_stays_in_the_shelf_and_still_pays():
 	run.owned_charms.append(Charm.bench_clamp())
-	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
-		"stufe": 1, "applications": 1})
-	var die: DieDefinition = run.clamped_dice[0]
-	assert_true(run.apply_press_number(0, die, _d([0]),
-		_rng_rolling(true, CharmEffects.CLAMP_DOUBLE_CHANCE)))
-	assert_eq(run.press_pieces.size(), 1, "das Stück wirkt zweimal")
-	assert_eq(int(run.press_pieces[0]["applications"]), 1)
+	run.grant_pack(Pack.material_pack())
+	var result := run.open_press(_d([0]), _press_seed(true))
+	assert_gt((result.get("pieces", []) as Array).size(), 0, "die volle Ausbeute fällt trotzdem")
+	assert_eq(int(result.get("kept", 0)), 1)
+	assert_eq(run.owned_packs.size(), 1, "die Zelle liegt wieder im Regal")
 
-func test_the_clamp_misses_and_the_piece_is_used_up():
+func test_a_burnt_cell_is_gone():
 	run.owned_charms.append(Charm.bench_clamp())
-	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
-		"stufe": 1, "applications": 1})
-	var die: DieDefinition = run.clamped_dice[0]
-	assert_true(run.apply_press_number(0, die, _d([0]),
-		_rng_rolling(false, CharmEffects.CLAMP_DOUBLE_CHANCE)))
-	assert_eq(run.press_pieces.size(), 0)
+	run.grant_pack(Pack.material_pack())
+	var result := run.open_press(_d([0]), _press_seed(false))
+	assert_gt((result.get("pieces", []) as Array).size(), 0)
+	assert_eq(int(result.get("kept", 0)), 0)
+	assert_eq(run.owned_packs.size(), 0)
 
-func test_without_the_clamp_nothing_ever_doubles():
-	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
-		"stufe": 1, "applications": 1})
-	var die: DieDefinition = run.clamped_dice[0]
-	assert_true(run.apply_press_number(0, die, _d([0]),
-		_rng_rolling(true, CharmEffects.CLAMP_DOUBLE_CHANCE)))
-	assert_eq(run.press_pieces.size(), 0, "ohne Zwinge keine zweite Anwendung")
+func test_without_the_clamp_every_cell_burns():
+	run.grant_pack(Pack.material_pack())
+	var result := run.open_press(_d([0]), _press_seed(true))
+	assert_eq(int(result.get("kept", 0)), 0, "ohne Zwinge überlebt nichts")
+	assert_eq(run.owned_packs.size(), 0)
+
+func test_a_survivor_can_be_pressed_again():
+	run.owned_charms.append(Charm.bench_clamp())
+	run.grant_pack(Pack.material_pack())
+	run.open_press(_d([0]), _press_seed(true))
+	assert_eq(run.owned_packs.size(), 1)
+	run.add_charge(5)  # die zweite Pressung der Sitzung kostet
+	var again := run.open_press(_d([0]), _rng(3))
+	assert_gt((again.get("pieces", []) as Array).size(), 0, "sie presst ein zweites Mal")
 
 # --- Füllhorn: jede Pressung wirft eine Gravur gratis dazu ----------------------------
 

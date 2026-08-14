@@ -24,6 +24,8 @@ signal test_engravings_requested
 const TEST_PACKS_LABEL := "🧪 +20 Datenkarten je Sorte"
 ## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
 signal hub_upgrade_requested
+## Der Laden soll noch einmal aufmachen (Vorlauf der Runde, siehe scene_root).
+signal shop_reopen_requested
 
 ## Farben im Stil des Displays (80s Neon).
 const FRAME_COLOR := Color("#8be9fd")
@@ -61,6 +63,7 @@ var die_payout_label: Label
 var hub_level_label: Label
 var hub_next_label: Label
 var upgrade_button: Button
+var shop_button: Button
 var _hub_level := 1
 
 ## Roulette-Rim: die Fahrplan-Stationen liegen auf einem Rad-Rand, die Lizenz-
@@ -214,6 +217,16 @@ func layout() -> void:
 	settings_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	CasinoStyle.style_button(settings_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, int(u * 3.4))
 	settings_button.pressed.connect(_toggle_settings_menu)
+	# Der Laden steht LINKS daneben: er kommt und geht, die Einstellungen bleiben.
+	shop_button = Button.new()
+	shop_button.name = "ShopButton"
+	shop_button.text = "🛒  Laden"
+	shop_button.focus_mode = Control.FOCUS_NONE
+	shop_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	shop_button.visible = false  # nur im Vorlauf der Runde, bis der Vertrag steht
+	CasinoStyle.style_button(shop_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.4))
+	shop_button.pressed.connect(func() -> void: shop_reopen_requested.emit())
+	footer.add_child(shop_button)
 	footer.add_child(settings_button)
 
 	_menu_u = u
@@ -554,6 +567,13 @@ func set_hub_level(level: int, level_name: String, next_name: String, unlock: St
 		upgrade_button.text = "⬆ Ausbau  (%d$)" % price
 		hub_next_label.text = "→ %s: %s" % [next_name, unlock]
 	_apply_frame_tier()
+
+## Zeigt den Laden-Knopf. Er steht NUR im Vorlauf der Runde: nach dem Schließen
+## des Ladens bis zur Unterschrift (bzw. bis zum ersten Wurf) - dasselbe Fenster,
+## in dem auch die Werkbank offen ist.
+func set_shop_reopen_visible(shown: bool) -> void:
+	if _built and shop_button != null:
+		shop_button.visible = shown
 
 ## Graut den Aufstieg-Knopf aus, wenn der Preis (noch) nicht bezahlbar ist.
 func set_hub_upgrade_affordable(affordable: bool) -> void:

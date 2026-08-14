@@ -172,8 +172,8 @@ static func mercury_vapor() -> Essence:
 
 static func radon() -> Essence:
 	return _secret(_make(RADON, "Radon",
-		"+2 Augen auf jeden anderen Würfel der Kombination. Zerfall: je Abrechnung verliert eine zufällige eigene Seite 1 Auge.",
-		"+2 Augen auf Mitwürfel", Rarity.RARE, Color(0.5, 1.0, 0.3)))
+		"Bei jeder Zündung wachsen die oberen Seiten aller anderen gewerteten Würfel DAUERHAFT um 2 Augen. Zerfall: je Abrechnung verliert eine zufällige eigene Seite 1 Auge.",
+		"bestrahlt Mitwürfel dauerhaft", Rarity.RARE, Color(0.5, 1.0, 0.3)))
 
 static func miasma() -> Essence:
 	return _secret(_make(MIASMA, "Miasma",
@@ -285,8 +285,8 @@ static func cherenkov() -> Essence:
 
 static func shooting_star() -> Essence:
 	return _make(SHOOTING_STAR, "Sternschnuppe",
-		"Ihre erste Wertung jeder Runde kritet ×4 - doch sie ist nur ein Strich am Himmel: der Würfel kann nie mehrfach auslösen.",
-		"Erstwertung kritet ×4, nie mehrfach", Rarity.RARE, Color(1.0, 0.95, 0.75))
+		"Löst normal aus; einmal je Runde, bei ihrer ersten Wertung, kritet ihre erste Zündung ×4 - ein Strich am Himmel.",
+		"einmal je Runde Krit ×4", Rarity.RARE, Color(1.0, 0.95, 0.75))
 
 static func foxfire() -> Essence:
 	return _make(FOXFIRE, "Fuchsfeuer",

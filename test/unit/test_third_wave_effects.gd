@@ -160,6 +160,8 @@ func test_the_shooting_star_crits_only_on_its_first_scoring():
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 0, true),
 		EssenceEffects.SHOOTING_STAR_CRIT, 0.0001)
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 0, false), 1.0, 0.0001)
+	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 0, true, 0, false), 1.0, 0.0001,
+		"nur die ERSTE Zündung der Nahme trägt den Strich")
 
 func test_the_gamma_burst_crits_once_and_the_magnetar_always():
 	var soul := _ids([Essence.GAMMA_BURST])
@@ -189,29 +191,39 @@ func test_the_farkle_comparison_carries_the_first_scoring_snapshot():
 	assert_true(DiceScoring.is_strictly_better(_d([5, 5, 5]), _d([5, 5]), NO_CHARMS,
 		_m(["", "", ""]), _m(["", ""]), {}, new_ctx, old_ctx))
 
-# --- Sternschnuppen-Deckel & Meteorit ----------------------------------------------
+# --- Sternschnuppe & Meteorit ------------------------------------------------------
 
-func test_the_shooting_star_never_fires_twice():
+func test_the_shooting_star_fires_like_any_other_die():
+	# Der Deckel ist weg: Echo-Kammer, Hasenpfote und Nachglühen kommen durch.
 	var soul := _ids([Essence.SHOOTING_STAR])
 	var ids := _ids([Charm.ECHO_CHAMBER, Charm.RABBITS_FOOT])
-	assert_eq(MaterialEffects.die_trigger_count(0, ids, 0, soul, false, 3, 6, 0), 1,
-		"weder Echo-Kammer noch Extra-Antritte kommen durch")
-	assert_eq(MaterialEffects.face_trigger_count(6, ids, 1, soul), 1,
-		"weder Hasenpfote noch Nachglühen kommen durch")
-	assert_eq(MaterialEffects.total_trigger_count(0, ids, 6, 0, soul, false, 3, 1, 6, 0), 1)
-
-func test_the_meteorite_lifts_the_cap():
-	var soul := _ids([Essence.SHOOTING_STAR])
-	var ids := _ids([Charm.ECHO_CHAMBER, Charm.RABBITS_FOOT, Charm.METEORITE])
-	assert_eq(MaterialEffects.die_trigger_count(0, ids, 0, soul, false, 0, 0, -1), 2)
+	assert_eq(MaterialEffects.die_trigger_count(0, ids, 0, soul, false, 3, 6, 0), 5)
 	assert_eq(MaterialEffects.face_trigger_count(6, ids, 1, soul), 3)
-	assert_eq(MaterialEffects.total_trigger_count(0, ids, 6, 0, soul, false, 0, 1, 0, -1), 6)
+	assert_eq(MaterialEffects.total_trigger_count(0, ids, 6, 0, soul, false, 3, 1, 6, 0), 15)
 
-func test_the_capped_star_stays_single_in_the_score():
+func test_the_meteorite_crits_at_every_scoring():
+	# Ohne ihn kritet nur die ERSTE Wertung der Runde, mit ihm jede - beide Male
+	# aber nur an der ersten Zündung.
+	var soul := _ids([Essence.SHOOTING_STAR])
+	var meteor := _ids([Charm.METEORITE])
+	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, meteor, 0, false),
+		EssenceEffects.SHOOTING_STAR_CRIT, 0.0001)
+	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, meteor, 0, false, 0, false), 1.0, 0.0001,
+		"eine spätere Zündung bleibt kalt")
+
+func test_the_star_fires_often_but_crits_once():
+	# Echo-Kammer × Nachglühen: vier Zündungen à 5 Augen plus der Mitwürfel -
+	# Basis 35, Mult 2, und GENAU ein Strich ×4.
 	var ctx := _soul_ctx(Essence.SHOOTING_STAR)
 	ctx[DiceScoring.CTX_RUNES] = {0: _ids([Rune.AFTERGLOW])}
-	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.ECHO_CHAMBER]), false,
-		_m(["", ""]), {}, ctx), 40, "der Strich am Himmel zündet genau einmal")
+	ctx[DiceScoring.CTX_FIRST_SCORING] = {0: true}
+	var ids := _ids([Charm.ECHO_CHAMBER])
+	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), ids, false, _m(["", ""]), {}, ctx), 280)
+	ctx.erase(DiceScoring.CTX_FIRST_SCORING)
+	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), ids, false, _m(["", ""]), {}, ctx), 70,
+		"die zweite Wertung der Runde kritet nicht mehr")
+	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.ECHO_CHAMBER, Charm.METEORITE]),
+		false, _m(["", ""]), {}, ctx), 280, "mit Meteorit kritet auch sie - einmal")
 
 # --- Pointer: Lötkolben, Erdungskabel, Glasfaser ---------------------------------
 
@@ -426,7 +438,7 @@ func test_the_breakdown_mirrors_the_midnight_sun_activations():
 	var step: Dictionary = breakdown["die_steps"][0]
 	assert_eq((step["die_triggers"] as Array).size(), 3, "zwei genommene Hände, drei Antritte")
 
-func test_the_breakdown_mirrors_the_capped_star():
+func test_the_breakdown_mirrors_the_firing_star():
 	var ctx := _soul_ctx(Essence.SHOOTING_STAR)
 	ctx[DiceScoring.CTX_RUNES] = {0: _ids([Rune.AFTERGLOW])}
 	ctx[DiceScoring.CTX_FIRST_SCORING] = {0: true}
@@ -435,5 +447,11 @@ func test_the_breakdown_mirrors_the_capped_star():
 	assert_eq(int(breakdown["total"]),
 		DiceScoring.score_category(PAIR, _d([5, 5]), ids, false, _m(["", ""]), {}, ctx))
 	var step: Dictionary = breakdown["die_steps"][0]
-	assert_eq((step["die_triggers"] as Array).size(), 1)
-	assert_eq(((step["die_triggers"][0] as Dictionary)["firings"] as Array).size(), 1)
+	assert_eq((step["die_triggers"] as Array).size(), 2, "Echo-Kammer: zwei Antritte")
+	assert_eq(((step["die_triggers"][0] as Dictionary)["firings"] as Array).size(), 2,
+		"Nachglühen: zwei Zündungen je Antritt")
+	var slams := 0
+	for group: Dictionary in step["die_triggers"]:
+		for firing: Dictionary in group["firings"]:
+			slams += (firing["crit_steps"] as Array).size()
+	assert_eq(slams, 1, "der Strich fällt genau einmal")

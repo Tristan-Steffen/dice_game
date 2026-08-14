@@ -31,7 +31,8 @@ func test_all_returns_all_charms():
 	# −2 mit der Veredelung: Politur und Gießkanne hatten keine Stufenleiter mehr.
 	# −1 mit der Presse: der Gravierstift schonte einen Verbrauchs-Haushalt, den
 	# es nicht mehr gibt.
-	assert_eq(Charm.all().size(), 144)
+	# +1 Gleichschliff: der Würfel mit sechs gleichen Seiten.
+	assert_eq(Charm.all().size(), 145)
 
 func test_all_ids_are_unique():
 	var seen := {}

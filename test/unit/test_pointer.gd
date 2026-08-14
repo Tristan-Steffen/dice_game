@@ -252,12 +252,13 @@ func test_the_frozen_roll_scores_the_same_twice():
 # --- Schrittliste ---------------------------------------------------------------
 
 func test_breakdown_carries_links_and_matches_the_score():
-	var dice := _d([5, 5, 1, 2, 3, 6])
+	# Dreierpasch: unter drei gewerteten Würfeln schlägt das Beherit nicht mehr zu.
+	var dice := _d([5, 5, 5, 2, 3, 6])
 	var mats := _m(["", DieMaterial.GLASS, "", "", "", ""])
 	var ctx := _ctx_fires(0, [_link(2, 3, DieMaterial.AMBER)])
 	var ids := _ids([Charm.BEHERIT])
-	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, dice, ids, false, mats, {}, ctx)
-	var expected := DiceScoring.score_category(DiceScoring.TWO_KIND, dice, ids, false, mats, {}, ctx)
+	var breakdown := ScoreBreakdown.build(DiceScoring.THREE_KIND, dice, ids, false, mats, {}, ctx)
+	var expected := DiceScoring.score_category(DiceScoring.THREE_KIND, dice, ids, false, mats, {}, ctx)
 	assert_eq(int(breakdown["total"]), expected, "Schrittliste spiegelt die Formel")
 	var first_step: Dictionary = breakdown["die_steps"][0]
 	var groups: Array = first_step["die_triggers"]

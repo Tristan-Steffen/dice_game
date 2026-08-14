@@ -1012,6 +1012,16 @@ func test_the_shyster_applies_the_reductions_twice():
 		roundi(run.round_goal * GameRun.CALIBRATION_FACTOR * GameRun.CALIBRATION_FACTOR))
 	assert_gt(run.effective_goal(), 0, "das Ziel bleibt erreichbar")
 
+func test_work_hardening_grows_every_fired_face():
+	assert_eq(run.clause_face_growth(), 0, "ohne Unterschrift wächst nichts")
+	_sign([DealClause.WORK_HARDENING])
+	assert_eq(run.clause_face_growth(), GameRun.WORK_HARDENING_GROWTH)
+
+func test_the_shyster_doubles_the_work_hardening():
+	_shyster()
+	_sign([DealClause.WORK_HARDENING])
+	assert_eq(run.clause_face_growth(), 2 * GameRun.WORK_HARDENING_GROWTH)
+
 func test_the_shyster_never_touches_a_malus():
 	_shyster()
 	run.add_charge(5)

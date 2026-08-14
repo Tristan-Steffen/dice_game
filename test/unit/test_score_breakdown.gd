@@ -108,16 +108,17 @@ func test_plain_pair_matches_scoring():
 
 func test_sum_category_counts_only_participating_dice():
 	# Full House zählt nur die beteiligten Würfel; der unbeteiligte sechste
-	# (die 1) bleibt außen vor. Reihen-Ordnung: die Vierer vor den Zweiern.
+	# (die 1) bleibt außen vor. Reihen-Ordnung: der DREIER-Block vor dem Paar -
+	# die Größe entscheidet vor der Ziffer.
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([2, 2, 2, 4, 4, 1]))
-	assert_eq(breakdown["eye_slots"], [3, 4, 0, 1, 2])
+	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
 	assert_eq(breakdown["die_steps"].size(), 5)
 
 func test_composite_hands_count_in_row_order():
-	# Gezählt wird in Reihen-Ordnung (Wert absteigend, dann Slot) - hier liegt
-	# das hohe Paar zufällig auch links, die Reihe beginnt bei ihm.
+	# Gezählt wird kombinations-erst: der Dreier-Block steht vorn, auch wenn er
+	# rechts liegt und die kleinere Ziffer trägt - Blöcke bleiben beisammen.
 	var breakdown := _build_and_check(DiceScoring.FULL_HOUSE, _d([4, 4, 2, 2, 2, 1]))
-	assert_eq(breakdown["eye_slots"], [0, 1, 2, 3, 4])
+	assert_eq(breakdown["eye_slots"], [2, 3, 4, 0, 1])
 
 func test_dice_count_in_row_order_high_to_low():
 	# Die Zählreihenfolge ist die aufgereihte Reihe: Wert absteigend, bei
@@ -215,7 +216,7 @@ func test_six_pack_sleeps_below_a_full_hand():
 func test_beherit_crits_once_in_the_charm_phase():
 	# Beherit hängt an der HAND: sein Krit steht in charm_steps, nicht im Würfel-
 	# Schritt - auch wenn Argon den Zielwürfel zweimal zünden lässt.
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
+	var breakdown := _build_and_check(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
 	var step: Dictionary = breakdown["die_steps"][0]
 	assert_eq(_firings(step).size(), 2)
 	assert_eq(step["crit_charm_indices"], [], "kein Krit mehr in der Würfelphase")
@@ -227,7 +228,7 @@ func test_two_beherit_copies_are_two_charm_steps():
 	# Dieselbe Regel wie eh und je: jede Kopie schlägt für sich, nie einmal mit
 	# ihrem Produkt - nur eben in der Charm-Phase.
 	var ids := _ids([Charm.BEHERIT, Charm.BEHERIT])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids)
+	var breakdown := _build_and_check(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), ids)
 	var charm_steps: Array = breakdown["charm_steps"]
 	assert_eq(charm_steps.size(), 2, "je Kopie ein eigener Schritt")
 	for step: Dictionary in charm_steps:
@@ -239,7 +240,7 @@ func test_beherit_reads_the_settled_value_not_the_grown_one():
 	# Knochen wächst ZWISCHEN den Zündungen - Beherit feuert danach und rechnet
 	# trotzdem mit der LIEGENDEN 4, nicht mit der gewachsenen Seite.
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, mats, {}, _argon(0))
+	var breakdown := _build_and_check(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), _ids([Charm.BEHERIT]), false, mats, {}, _argon(0))
 	var charm_steps: Array = breakdown["charm_steps"]
 	assert_eq(charm_steps.size(), 1)
 	assert_almost_eq(float(charm_steps[0]["crit_x"]), 5.0, 0.0001)
@@ -477,7 +478,8 @@ func test_full_counter_scores_bystanders_as_die_steps():
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
 		_ids([Charm.FULL_COUNTER]))
 	assert_eq(breakdown["die_steps"].size(), 6, "alle sechs Würfel als Schritt")
-	assert_eq(breakdown["eye_slots"], _d([5, 0, 1, 4, 3, 2]), "Reihen-Ordnung über ALLE Würfel")
+	assert_eq(breakdown["eye_slots"], _d([0, 1, 5, 4, 3, 2]),
+		"erst die Kombination, dann die bloß Mitgewerteten")
 	assert_eq(breakdown["charm_steps"].size(), 0, "kein eigener Vollzähler-Schritt")
 	assert_eq(int(breakdown["die_steps"][5]["eye_add"]), 1, "unbeteiligter Würfel (Auge 1) zählt mit")
 

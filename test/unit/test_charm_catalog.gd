@@ -280,8 +280,9 @@ func test_tie_breaking_charms_name_the_first_die():
 	var step: Dictionary = stacker["die_steps"][0]
 	assert_eq(int(step["slot"]), 0, "erster der beiden Sechser")
 	assert_eq(step["die_charm_indices"], [0], "der Hochstapler feuert an diesem Würfel")
-	# Beherit zielt auf dieselbe Weise, schlägt aber statisch am Ende zu.
-	var beherit := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]))
+	# Beherit zielt auf dieselbe Weise, schlägt aber statisch am Ende zu - und erst
+	# ab drei gewerteten Würfeln, darum ein Dreierpasch.
+	var beherit := ScoreBreakdown.build(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), _ids([Charm.BEHERIT]))
 	for die_step: Dictionary in beherit["die_steps"]:
 		assert_eq(die_step["crit_charm_indices"], [], "kein Krit mehr in der Würfelphase")
 	var charm_steps: Array = beherit["charm_steps"]
@@ -298,22 +299,41 @@ func test_high_stacker_matches_the_highest_counted_die():
 
 func test_beherit_crits_with_the_lowest_counted_die():
 	# Statisch am Ende der Zählung: Krit ×(1 + niedrigste GEWERTETE Augenzahl) -
-	# Slot 3 (4) und 5 (6) gewertet -> ×5.
+	# Slot 3 (4), 4 (5) und 5 (6) gewertet -> ×5.
 	var ids := _ids([Charm.BEHERIT])
-	assert_almost_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([3, 5])), 5.0, 0.0001)
-	assert_almost_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([0, 5])), 2.0, 0.0001,
+	var dice := _d([1, 2, 3, 4, 5, 6])
+	assert_almost_eq(CharmEffects.charm_crit_at(0, dice, ids, {}, _p([3, 4, 5]), "", _p([3, 4, 5])), 5.0, 0.0001)
+	assert_almost_eq(CharmEffects.charm_crit_at(0, dice, ids, {}, _p([0, 4, 5]), "", _p([0, 4, 5])), 2.0, 0.0001,
 		"die gewertete 1 kritet nur noch ×2")
-	assert_almost_eq(CharmEffects.charm_crit_at(0, _d([1, 2, 3, 4, 5, 6]), ids, {}, _p([])), 1.0, 0.0001,
+	assert_almost_eq(CharmEffects.charm_crit_at(0, dice, ids, {}, _p([]), "", _p([])), 1.0, 0.0001,
 		"ohne gewerteten Würfel kein Krit")
-	# Ende-zu-Ende: Paar Fünfer, Mult 2 × Krit 6 = 12 -> Basis 20 × 12 = 240.
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 240)
+	# Ende-zu-Ende: Dreierpasch Vierer, Basis (18 + 12) × Mult (3 × Krit 5) = 450.
+	assert_eq(DiceScoring.score_category(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), ids), 450)
+
+func test_beherit_stays_silent_below_three_counted_dice():
+	# Ein blankes Paar ruft nichts: Basis 20 × Mult 2 = 40, kein Krit.
+	var ids := _ids([Charm.BEHERIT])
+	var dice := _d([1, 2, 3, 4, 5, 6])
+	assert_almost_eq(CharmEffects.charm_crit_at(0, dice, ids, {}, _p([3, 5]), "", _p([3, 5])), 1.0, 0.0001,
+		"zwei gewertete Würfel sind zu wenig")
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 40)
+
+func test_beherit_counts_the_dice_krypton_pulls_in():
+	# Die Schwelle misst die GEWERTETE Menge: das Paar plus den Krypton-Würfel sind
+	# drei - gezielt wird weiter auf die Kombination (niedrigste 4 -> ×5).
+	var ids := _ids([Charm.BEHERIT])
+	var dice := _d([1, 2, 3, 4, 5, 6])
+	assert_almost_eq(CharmEffects.charm_crit_at(0, dice, ids, {}, _p([3, 5]), "", _p([1, 3, 5])), 5.0, 0.0001)
+	# Ende-zu-Ende: Paar Vierer + Krypton auf der 1 -> Basis (10 + 4 + 4 + 1) × (2 × 5).
+	var ctx := {DiceScoring.CTX_ESSENCES: {2: Essence.KRYPTON}}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids, false, NO_MATS, {}, ctx), 190)
 
 func test_beherit_reads_the_settled_value_not_the_running_one():
 	# Er feuert NACH allen Würfeln: der Knochen ist längst gewachsen, gezählt wird
 	# trotzdem die liegende 4 - ×5, nie ×7 aus dem Zwischenstand.
 	var ids := _ids([Charm.BEHERIT])
 	var mats := _m([DieMaterial.BONE, "", "", "", "", ""])
-	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), ids,
+	var breakdown := ScoreBreakdown.build(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), ids,
 		false, mats, {}, _argon(0))
 	var charm_steps: Array = breakdown["charm_steps"]
 	assert_eq(charm_steps.size(), 1)
@@ -324,15 +344,15 @@ func test_beherit_reads_the_settled_value_not_the_running_one():
 # Betrag IST sie eine 4. Die Linse ist die Wahrheit, nur die Def bleibt roh.
 
 func test_beherit_targets_and_pays_on_transformed_values():
-	# Roh [3, 4]: mit Fuchsschwanz zeigen BEIDE eine 4 - Gleichstand, also der
-	# kleinste Slot, und der Krit ist ×5 (nie ×4 aus der rohen 3).
+	# Roh [3, 4, 4]: mit Fuchsschwanz zeigen ALLE DREI eine 4 - Gleichstand, also
+	# der kleinste Slot, und der Krit ist ×5 (nie ×4 aus der rohen 3).
 	var ids := _ids([Charm.FOX_TAIL, Charm.BEHERIT])
-	var shown := DiceScoring.shown_values(_d([3, 4]), ids)
-	assert_eq(shown, _d([4, 4]), "die 3 IST eine 4")
-	assert_eq(CharmEffects.target_die(shown, _p([0, 1]), false), 0, "Gleichstand -> kleinster Slot")
-	assert_almost_eq(CharmEffects.charm_crit_at(1, shown, ids, {}, _p([0, 1])), 5.0, 0.0001)
-	# Ende-zu-Ende: Paar Vierer (Basis 10 + 4 + 4) × Mult 2 × Krit 5 = 180.
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([3, 4]), ids), 180)
+	var shown := DiceScoring.shown_values(_d([3, 4, 4]), ids)
+	assert_eq(shown, _d([4, 4, 4]), "die 3 IST eine 4")
+	assert_eq(CharmEffects.target_die(shown, _p([0, 1, 2]), false), 0, "Gleichstand -> kleinster Slot")
+	assert_almost_eq(CharmEffects.charm_crit_at(1, shown, ids, {}, _p([0, 1, 2]), "", _p([0, 1, 2])), 5.0, 0.0001)
+	# Ende-zu-Ende: Dreierpasch Vierer (Basis 18 + 12) × Mult 3 × Krit 5 = 450.
+	assert_eq(DiceScoring.score_category(DiceScoring.THREE_KIND, _d([3, 4, 4]), ids), 450)
 
 func test_high_stacker_ties_break_on_transformed_values():
 	# Roh [5, 6]: mit dem Silberdollar zeigen beide eine 6 - der Hochstapler nimmt
@@ -570,9 +590,9 @@ func test_high_stacker_retriggers_with_its_die():
 
 func test_beherit_crits_once_no_matter_how_often_the_die_fires():
 	# Er hängt an der Hand, nicht am Würfel: Argon lässt Slot 0 zweimal zünden,
-	# der Krit schlägt trotzdem genau einmal. Basis (10 + 4 + 4 + 4) × (2 × 5) = 220.
-	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2, 3, 5]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
-	assert_eq(score, 220)
+	# der Krit schlägt trotzdem genau einmal. Basis (18 + 4×4) × (3 × 5) = 510.
+	var score := DiceScoring.score_category(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), _ids([Charm.BEHERIT]), false, NO_MATS, {}, _argon(0))
+	assert_eq(score, 510)
 
 func test_per_die_charms_retrigger_with_their_die():
 	# Mehrfachstecker feuert je Auslösung seines Würfels: Basis (10 + (5+5)×2 + 5+5)
@@ -667,6 +687,82 @@ func _die(faces: Array) -> DieDefinition:
 	typed.assign(faces)
 	def.faces = typed
 	return def
+
+# --- Gleichschliff: sechs gleiche Seiten -----------------------------------------------
+
+func test_equal_grind_pays_the_common_face_value():
+	var ids := _ids([Charm.EQUAL_GRIND])
+	var dice := _d([4, 5, 1, 2, 3, 6])
+	var ctx := {DiceScoring.CTX_EQUAL_FACES: {0: 4}}
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, dice, ids, ctx), 4)
+	assert_eq(CharmEffects.die_charm_mult_at(0, 1, dice, ids, ctx), 0, "gemischte Seiten geben nichts")
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, dice, ids, {}), 0, "ohne Eintrag kein Schliff")
+
+func test_equal_grind_fires_per_counted_die_and_per_firing():
+	var ids := _ids([Charm.EQUAL_GRIND])
+	# Paar Vierer, beide gleichgeschliffen: Basis 18, Mult 2 + 4 + 4 = 10 -> 180.
+	var both := {DiceScoring.CTX_EQUAL_FACES: {0: 4, 1: 4}}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4]), ids, false, NO_MATS, {}, both), 180)
+	# Nur einer: Mult 2 + 4 = 6 -> 108.
+	var one := {DiceScoring.CTX_EQUAL_FACES: {0: 4}}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4]), ids, false, NO_MATS, {}, one), 108)
+	# Unbeteiligte zählen nicht mit - der Schliff auf Slot 2 bleibt stumm.
+	var idle := {DiceScoring.CTX_EQUAL_FACES: {2: 6}}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 6, 1, 2, 3]), ids, false, NO_MATS, {}, idle),
+		DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 6, 1, 2, 3]), _ids([]), false, NO_MATS, {}, idle))
+
+func test_equal_grind_fires_again_on_a_retrigger():
+	# Argon lässt Slot 0 zweimal zünden - der Schliff feuert mit ihm.
+	var ids := _ids([Charm.EQUAL_GRIND])
+	var ctx := _argon(0)
+	ctx[DiceScoring.CTX_EQUAL_FACES] = {0: 4}
+	# Basis 10 + 4 + 4 + 4 = 22, Mult 2 + 4 + 4 = 10 -> 220.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4]), ids, false, NO_MATS, {}, ctx), 220)
+
+# --- Trinkgeldglas: jeder Krit zahlt seinen ×-Wert -------------------------------------
+
+func test_tip_jar_pays_each_crit_its_rounded_factor():
+	var one := _ids([Charm.TIP_JAR])
+	assert_eq(CharmEffects.tip_money(1.5, one), 2, "×1,5 zahlt $2")
+	assert_eq(CharmEffects.tip_money(2.25, one), 3, "×2,25 zahlt $3")
+	assert_eq(CharmEffects.tip_money(4.0, one), 4)
+	assert_eq(CharmEffects.tip_money(1.0, one), 0, "×1 ist kein Krit")
+	assert_eq(CharmEffects.tip_money(1.5, _ids([Charm.TIP_JAR, Charm.TIP_JAR])), 4, "je Exemplar")
+	assert_eq(CharmEffects.tip_money(2.0, _ids([])), 0, "ohne Glas kein Trinkgeld")
+
+func test_tip_jar_collects_every_crit_of_the_hand():
+	# Zwei Xenon-Seelen: ZWEI Einschläge ×1,5, also zweimal $2 - nie einmal am
+	# Produkt ×2,25.
+	var ids := _ids([Charm.TIP_JAR])
+	var ctx := {DiceScoring.CTX_ESSENCES: {0: Essence.XENON, 1: Essence.XENON}}
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, ctx)
+	assert_eq(ScoreBreakdown.tip_money_total(breakdown), 4)
+	var plain := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), ids)
+	assert_eq(ScoreBreakdown.tip_money_total(plain), 0, "ohne Krit kein Trinkgeld")
+
+func test_tip_jar_pays_each_kiln_slam_separately():
+	# Härteofen: der veredelte Rubin schlägt zweimal ×2 - also zweimal $2.
+	var ids := _ids([Charm.KILN, Charm.TIP_JAR])
+	var mats := _m([DieMaterial.RUBY, "", "", "", "", ""])
+	var ctx := {DiceScoring.CTX_MATERIAL_LEVELS: {0: {"level": 2}}}
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), ids, false, mats, {}, ctx)
+	assert_eq(ScoreBreakdown.tip_money_total(breakdown), 4)
+
+func test_tip_jar_also_pays_the_static_crits():
+	# Beherit schlägt in der Charm-Phase zu (×5) - auch der zahlt.
+	var ids := _ids([Charm.BEHERIT, Charm.TIP_JAR])
+	var breakdown := ScoreBreakdown.build(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), ids)
+	assert_eq(ScoreBreakdown.tip_money_total(breakdown), 5)
+	var doubled := _ids([Charm.BEHERIT, Charm.TIP_JAR, Charm.TIP_JAR])
+	assert_eq(ScoreBreakdown.tip_money_total(
+		ScoreBreakdown.build(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 3]), doubled)), 10,
+		"zwei Gläser zahlen doppelt")
+
+func test_tip_jar_leaves_base_and_mult_alone():
+	# Es zahlt bar, es wertet nicht: dieselbe Punktzahl mit und ohne Glas.
+	var ctx := {DiceScoring.CTX_ESSENCES: {0: Essence.XENON}}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.TIP_JAR]), false, NO_MATS, {}, ctx),
+		DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), _ids([]), false, NO_MATS, {}, ctx))
 
 # --- Geld-Hooks -----------------------------------------------------------------------
 

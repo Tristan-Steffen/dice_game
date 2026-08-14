@@ -123,7 +123,6 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 	if index < 0:
 		return 0
 	var extra := 0
-	extra += _pressure_gauge_activations(slot, order, sets, charm_ids)
 	extra += _light_pillar_activations(slot, order, sets, charm_ids, values)
 	extra += _midnight_sun_activations(slot, sets, charm_ids, hands_taken)
 	if index > 0:
@@ -149,15 +148,24 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 					extra += 1
 	return extra
 
-## Manometer: liegt GENAU EIN beseelter Würfel in der Hand, tritt er einmal mehr an.
-static func _pressure_gauge_activations(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String]) -> int:
+## Manometer: liegt GENAU EIN beseelter Würfel in der gewerteten Reihe, wirkt
+## seine SEELE mehrfach - je Exemplar einmal mehr. Nicht der Würfel tritt öfter
+## an (das wäre ein zweiter Faktor auf der Würfel-Achse), sondern die Essenz
+## wirkt zweimal.
+## Wiederholt wird: der Essenz-Krit (je Wiederholung ein EIGENER Schlag, nie im
+## Quadrat), das Essenz-Geld je Zündung, das Seiten-Wachstum (Helium,
+## Strahlungsdruck) und die deterministischen Glieder (Röntgenlicht, Korona).
+## NICHT wiederholt: Linsen (Wasserstoff), die Augen-Umkehr der Antimaterie,
+## Kryptons "zählt immer mit", der Schutz (Stickstoff), der Faktor der
+## Würfel-Achse und alles, was einem Charm oder einem Material gehört.
+static func essence_repeat_count(slot: int, order: Array[int], sets: Dictionary, charm_ids: Array[String] = []) -> int:
 	var copies := charm_ids.count(Charm.PRESSURE_GAUGE)
 	if copies == 0 or set_at(sets, slot).is_empty():
-		return 0
+		return 1
 	for other in order:
 		if other != slot and not set_at(sets, other).is_empty():
-			return 0
-	return copies
+			return 1
+	return 1 + copies
 
 ## Lichtsäule: jeder ANDERE gewertete Würfel mit derselben Augenzahl tritt öfter
 ## an - der Eisspiegel verdoppelt den Satz. Die Säule selbst geht leer aus.
@@ -180,17 +188,6 @@ static func _midnight_sun_activations(slot: int, sets: Dictionary, charm_ids: Ar
 		return 0
 	var rate := MIDNIGHT_SUN_ACTIVATIONS_POLAR if charm_ids.has(Charm.POLAR_DAY) else MIDNIGHT_SUN_ACTIVATIONS
 	return rate * maxi(0, hands_taken)
-
-## Sternschnuppe: nur ein Strich am Himmel - der Würfel löst insgesamt GENAU
-## EINMAL aus, auf BEIDEN Achsen. Der Meteorit hebt die Grenze ganz auf.
-static func caps_triggers(essence_id: String, charm_ids: Array[String] = []) -> bool:
-	return essence_id == Essence.SHOOTING_STAR and not charm_ids.has(Charm.METEORITE)
-
-static func caps_triggers_of(essence_ids: Array[String], charm_ids: Array[String] = []) -> bool:
-	for essence_id in essence_ids:
-		if caps_triggers(essence_id, charm_ids):
-			return true
-	return false
 
 ## Wie oft ein GEZÜNDETES Pointer-Glied seine Zielseite feuert: die Glasfaser
 ## verstärkt das Licht im Glas (Rückkopplung dreifach), die Zündspule tut
@@ -285,15 +282,14 @@ static func round_trigger_offset(charm_ids: Array[String], round_triggers: int) 
 static func round_crit_offset(charm_ids: Array[String], round_crits: int) -> int:
 	return maxi(0, round_crits) if charm_ids.has(Charm.STORM_FRONT) else 0
 
-## Radon strahlt: +2 Augen auf JEDEN anderen gewerteten Würfel, je Auslösung -
-## +3 unter der Bleischürze.
-static func foreign_eye_bonus(slot: int, scored: Array[int], sets: Dictionary, charm_ids: Array[String] = []) -> int:
-	var rate := RADON_EYE_BONUS_SHIELDED if charm_ids.has(Charm.LEAD_APRON) else RADON_EYE_BONUS
-	var bonus := 0
-	for other in scored:
-		if other != slot and set_at(sets, other).has(Essence.RADON):
-			bonus += rate
-	return bonus
+## Radon strahlt: bei JEDER seiner Zündungen wachsen die oberen Seiten aller
+## ANDEREN gewerteten Würfel DAUERHAFT um +2 Augen - unter der Bleischürze um +3.
+## Die Augen wandern also wirklich (Miasma-Grammatik ins Positive); ein Gewinn
+## wird nie geblockt, Stickstoff und Einbrand wehren nur Verluste ab.
+static func radon_eye_gift(essence_ids: Array[String], charm_ids: Array[String] = []) -> int:
+	if not essence_ids.has(Essence.RADON):
+		return 0
+	return RADON_EYE_BONUS_SHIELDED if charm_ids.has(Charm.LEAD_APRON) else RADON_EYE_BONUS
 
 ## Wie viel der Blitzableiter auf den Kugelblitz-Krit legt: 1 je gewertetem
 ## Kugelblitz-Würfel (ohne den Charm nichts). Einmal je Hand bestimmt, wie der
@@ -316,9 +312,12 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## first_scoring: erste Wertung dieses Würfels in der Runde (Sternschnuppe,
 ## Gammablitz - der Magnetar löst den Blitz davon).
 ## fumbles: Fumbles, mit denen der Vulkanblitz kritet (Runde + Aschewolke).
+## first_firing: die ERSTE Zündung dieser Nahme (Würfel-Trigger 0, Seiten-Zündung
+## 0) - nur die Sternschnuppe fragt danach, ihr Strich fällt genau einmal.
 static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
-		charge: int = 0, first_scoring: bool = false, fumbles: int = 0) -> float:
+		charge: int = 0, first_scoring: bool = false, fumbles: int = 0,
+		first_firing: bool = true) -> float:
 	match essence_id:
 		Essence.XENON:
 			return XENON_CRIT
@@ -334,7 +333,12 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 			var divisor := CHERENKOV_DIVISOR_MODERATED if charm_ids.has(Charm.MODERATOR) else CHERENKOV_DIVISOR
 			return maxf(1.0, 1.0 + float(maxi(0, charge)) / divisor)
 		Essence.SHOOTING_STAR:
-			return SHOOTING_STAR_CRIT if first_scoring else 1.0
+			# Ein Strich am Himmel: der Würfel löst normal aus, der Krit fällt aber
+			# genau EINMAL - beim ersten Zünden der ersten Wertung der Runde. Der
+			# Meteorit lässt ihn bei JEDER Wertung eintreten, nie öfter als einmal.
+			if not first_firing:
+				return 1.0
+			return SHOOTING_STAR_CRIT if (first_scoring or charm_ids.has(Charm.METEORITE)) else 1.0
 		Essence.GAMMA_BURST:
 			return GAMMA_BURST_CRIT if (first_scoring or charm_ids.has(Charm.MAGNETAR)) else 1.0
 		Essence.VOLCANIC_LIGHTNING:
@@ -342,8 +346,8 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 	return 1.0
 
 ## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
-## Gebucht wird über GameRun.add_money. (Zyanidgas zahlt je ZUG, nicht je
-## Auslösung - siehe gold_face_money_of.)
+## Gebucht wird über GameRun.add_money. (Zyanidgas zahlt je ZUG statt je
+## Auslösung - siehe gold_face_money_of; es reitet auf der ERSTEN Zündung.)
 static func money_for(essence_id: String, _value: int, combo_size: int) -> int:
 	match essence_id:
 		Essence.NEON:
@@ -511,6 +515,8 @@ static func redistributes_faces_of(essence_ids: Array[String]) -> bool:
 ## Zyanidgas: +$2 je Gold-Seite DIESES Würfels, einmal je Zug. Das Scheidewasser
 ## legt zusätzlich $1 je Gold-Seite der MITWÜRFEL drauf (foreign_gold_faces zählt
 ## sie - der Aufrufer kennt die Defs, die Essenz nicht).
+## Gezahlt wird an der ERSTEN Zündung des Würfels (MaterialEffects.
+## plan_activation_money), damit das Geld sichtbar aus ihm herauskommt.
 static func gold_face_money_of(essence_ids: Array[String], materials: Array[String],
 		charm_ids: Array[String] = [], foreign_gold_faces: int = 0) -> int:
 	if not essence_ids.has(Essence.CYANIDE):
@@ -721,11 +727,12 @@ static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
-		charge: int = 0, first_scoring: bool = false, fumbles: int = 0) -> float:
+		charge: int = 0, first_scoring: bool = false, fumbles: int = 0,
+		first_firing: bool = true) -> float:
 	var factor := 1.0
 	for essence_id in essence_ids:
 		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value,
-			charm_ids, charge, first_scoring, fumbles)
+			charm_ids, charge, first_scoring, fumbles, first_firing)
 	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).

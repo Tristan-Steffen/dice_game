@@ -52,6 +52,7 @@ kommt aus den Generatoren meist kaputt heraus).
 - ✔ `cult_of_one.glb` **Einserkult** — A tiny immaculate shrine: a polished obsidian monolith bearing one glowing white die pip, flanked by two neat golden candles.
 - ✔ `street_sweeper.glb` **Straßenbesen** — A brand-new push broom leaning at an angle, varnished wooden handle, dense sharp bristles with neon glitter sparkling at the tips.
 - ✔ `equalizer.glb` **Equalizer** — A sleek audio equalizer unit with a spotless faceplate, a row of glowing sliders aligned at exactly the same height, chrome knobs.
+- `equal_grind.glb` **Gleichschliff** — A jeweler's grinding wheel mid-work, six identical polished die faces fanned out beside it, all showing the same pip count, fine metal dust catching the light.
 - ✔ `small_fry.glb` **Kleinvieh** — A polished brass hen with two little brass chicks, standing on a shiny oversized coin, folk-art style.
 - ✔ `beherit.glb` **Beherit** — A smooth egg-shaped idol with scrambled human facial features embossed across its flawless dark-red shell, thin crimson glow lines tracing the seams.
 - ✔ `high_stacker.glb` **Hochstapler** — A wildly leaning tower of glossy casino chips in crisp alternating colors, spotless and gleaming, tilted but never falling.

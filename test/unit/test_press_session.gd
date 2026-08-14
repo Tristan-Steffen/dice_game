@@ -68,7 +68,7 @@ func test_applying_never_moves_the_bank() -> void:
 	var before: Array[DieDefinition] = run.clamped_dice.duplicate()
 	run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
 		"stufe": 1, "applications": 1})
-	assert_true(run.apply_press_number(0, run.clamped_dice[0], _d([0]), _rng(1)))
+	assert_true(run.apply_press_number(0, run.clamped_dice[0], _d([0])))
 	assert_eq(run.clamped_dice, before, "kein Tausch bei Benutzung")
 
 func test_the_bank_reports_itself() -> void:
@@ -332,7 +332,7 @@ func test_a_number_piece_climbs_its_ladder_on_a_clamped_die() -> void:
 		"applications": 1})
 	var die: DieDefinition = run.clamped_dice[0]
 	var before: int = die.faces[0]
-	assert_true(run.apply_press_number(0, die, _d([0]), _rng(21)))
+	assert_true(run.apply_press_number(0, die, _d([0])))
 	assert_eq(die.faces[0], before + 12, "Stufe 6 der Kerbe")
 	assert_eq(run.press_pieces.size(), 0, "das Stück ist verbraucht")
 
@@ -340,7 +340,7 @@ func test_an_auto_targeting_piece_needs_no_face() -> void:
 	_piece({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.OVERPRESSURE, "stufe": 1,
 		"applications": 1})
 	var die: DieDefinition = run.clamped_dice[0]
-	assert_true(run.apply_press_number(0, die, _d([]), _rng(22)))
+	assert_true(run.apply_press_number(0, die, _d([])))
 	assert_eq(die.faces[5], 8, "die höchste Seite +2")
 
 func test_a_piece_never_reaches_past_the_bank() -> void:
@@ -352,14 +352,14 @@ func test_a_piece_never_reaches_past_the_bank() -> void:
 			outsider = die
 			break
 	assert_not_null(outsider)
-	assert_false(run.apply_press_number(0, outsider, _d([0]), _rng(23)),
+	assert_false(run.apply_press_number(0, outsider, _d([0])),
 		"die Bank sind die Zwingen - sonst keine")
 	assert_eq(run.press_pieces.size(), 1, "und nichts wird verbraucht")
 
 func test_a_material_piece_lands_undoped_and_pays_nothing() -> void:
 	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": DieMaterial.RUBY, "applications": 1})
 	var die: DieDefinition = run.clamped_dice[0]
-	assert_true(run.apply_press_material(0, die, 1, _rng(25)))
+	assert_true(run.apply_press_material(0, die, 1))
 	assert_eq(die.materials[1], DieMaterial.RUBY)
 	assert_lt(die.material_level(1), DieMaterial.MAX_LEVEL,
 		"aus der Presse kommt Material unveredelt")
@@ -371,7 +371,7 @@ func test_a_burn_in_face_refuses_the_overpaint() -> void:
 	die.set_face_material(1, DieMaterial.GOLD)
 	die.set_rune(1, Rune.BURN_IN)
 	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": DieMaterial.RUBY, "applications": 1})
-	assert_false(run.apply_press_material(0, die, 1, _rng(26)))
+	assert_false(run.apply_press_material(0, die, 1))
 	assert_eq(die.materials[1], DieMaterial.GOLD, "der Einbrand hält")
 
 func test_a_rune_piece_is_placeable_run_many_times() -> void:
@@ -379,23 +379,23 @@ func test_a_rune_piece_is_placeable_run_many_times() -> void:
 		"applications": 3})
 	var die: DieDefinition = run.clamped_dice[0]
 	for face in 3:
-		assert_true(run.apply_press_rune(0, die, face, 0, _rng(27)))
+		assert_true(run.apply_press_rune(0, die, face, 0))
 		assert_eq(die.runes[face], Rune.AFTERGLOW)
 	assert_eq(run.press_pieces.size(), 0, "nach drei Setzungen ist es leer")
 
 func test_rune_placements_may_spread_over_several_bank_dice() -> void:
 	_piece({"sort": Engraving.CATEGORY_DICE, "id": Engraving.RUNE_PREFIX + Rune.CAST,
 		"applications": 2})
-	assert_true(run.apply_press_rune(0, run.clamped_dice[0], 0, 0, _rng(28)))
-	assert_true(run.apply_press_rune(0, run.clamped_dice[1], 0, 0, _rng(28)))
+	assert_true(run.apply_press_rune(0, run.clamped_dice[0], 0, 0))
+	assert_true(run.apply_press_rune(0, run.clamped_dice[1], 0, 0))
 	assert_eq(run.clamped_dice[0].runes[0], Rune.CAST)
 	assert_eq(run.clamped_dice[1].runes[0], Rune.CAST)
 
 func test_a_pointer_piece_wires_two_adjacent_faces() -> void:
 	_piece({"sort": Engraving.CATEGORY_DICE, "id": Engraving.POINTER, "applications": 1})
 	var die: DieDefinition = run.clamped_dice[0]
-	assert_false(run.apply_press_pointer(0, die, 0, 5, _rng(29)), "die Gegenseite ist kein Nachbar")
-	assert_true(run.apply_press_pointer(0, die, 0, 1, _rng(29)))
+	assert_false(run.apply_press_pointer(0, die, 0, 5), "die Gegenseite ist kein Nachbar")
+	assert_true(run.apply_press_pointer(0, die, 0, 1))
 	assert_eq(die.pointer_target(0), 1)
 
 ## Die Veredelung ist der Weg in den veredelten Zustand, der sich kaufen lässt.
@@ -403,9 +403,9 @@ func test_a_doping_piece_saturates_an_existing_material() -> void:
 	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": Engraving.DOPING, "applications": 1})
 	var die: DieDefinition = run.clamped_dice[0]
 	die.set_face_material(2, DieMaterial.RUBY)
-	assert_false(run.apply_press_doping(0, die, 0, _rng(31)), "eine nackte Seite ist kein Ziel")
+	assert_false(run.apply_press_doping(0, die, 0), "eine nackte Seite ist kein Ziel")
 	assert_eq(run.press_pieces.size(), 1, "und der Fehlgriff verbraucht nichts")
-	assert_true(run.apply_press_doping(0, die, 2, _rng(31)))
+	assert_true(run.apply_press_doping(0, die, 2))
 	assert_eq(die.material_level(2), DieMaterial.MAX_LEVEL)
 	assert_eq(die.materials[2], DieMaterial.RUBY, "sie sättigt, sie überstreicht nicht")
 	assert_eq(run.press_pieces.size(), 0, "das Stück ist verbraucht")
@@ -415,7 +415,7 @@ func test_a_doped_face_has_nothing_left_to_gain() -> void:
 	var die: DieDefinition = run.clamped_dice[0]
 	die.set_face_material(2, DieMaterial.RUBY)
 	die.dope(2)
-	assert_false(run.apply_press_doping(0, die, 2, _rng(32)))
+	assert_false(run.apply_press_doping(0, die, 2))
 	assert_eq(run.press_pieces.size(), 1)
 
 ## Der Einbrand sperrt das ÜBERMALEN - die Glasur darauf bleibt erlaubt.
@@ -424,21 +424,21 @@ func test_a_burned_in_face_still_takes_the_glaze() -> void:
 	var die: DieDefinition = run.clamped_dice[0]
 	die.set_face_material(2, DieMaterial.RUBY)
 	die.set_rune(2, Rune.BURN_IN)
-	assert_true(run.apply_press_doping(0, die, 2, _rng(33)))
+	assert_true(run.apply_press_doping(0, die, 2))
 	assert_eq(die.material_level(2), DieMaterial.MAX_LEVEL)
 
 func test_a_doping_piece_refuses_a_die_outside_the_bank() -> void:
 	_piece({"sort": Engraving.CATEGORY_MATERIAL, "id": Engraving.DOPING, "applications": 1})
 	var loose := DieDefinition.standard()
 	loose.set_face_material(2, DieMaterial.RUBY)
-	assert_false(run.apply_press_doping(0, loose, 2, _rng(34)), "nur die Zwingen sind Bank")
+	assert_false(run.apply_press_doping(0, loose, 2), "nur die Zwingen sind Bank")
 	assert_lt(loose.material_level(2), DieMaterial.MAX_LEVEL)
 
 func test_placing_reports_the_pool_change() -> void:
 	_piece({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH, "stufe": 1,
 		"applications": 1})
 	watch_signals(run)
-	run.apply_press_number(0, run.clamped_dice[0], _d([0]), _rng(30))
+	run.apply_press_number(0, run.clamped_dice[0], _d([0]))
 	assert_signal_emitted(run, "pool_changed")
 
 # --- Das Fertig löst die Reste der Hand auf -------------------------------------

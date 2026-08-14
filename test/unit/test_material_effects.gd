@@ -400,12 +400,13 @@ func test_material_crit_fires_at_its_own_die_not_at_the_end():
 	assert_eq(score, 180, "20 × (2 ×2 + 5)")
 
 func test_the_material_crit_lands_in_the_die_phase_beherit_only_after_it():
-	# Slot 0: Mult 2 -> Material-Krit ×2 = 4, dann Glas +5 = 9 - und ERST in der
-	# Charm-Phase Beherit ×6 (1 + niedrigste gewertete 5) = 54.
-	var dice := _d([5, 5, 1, 2, 3, 6])
+	# Slot 0: Mult 3 -> Material-Krit ×2 = 6, dann Glas +5 = 11 - und ERST in der
+	# Charm-Phase Beherit ×6 (1 + niedrigste gewertete 5) = 66. Dreierpasch, weil
+	# das Siegel unter drei gewerteten Würfeln stumm bleibt.
+	var dice := _d([5, 5, 5, 2, 3, 6])
 	var mats := _m([DieMaterial.RUBY, DieMaterial.GLASS, "", "", "", ""])
-	var score: int = DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([Charm.BEHERIT]), false, mats, {}, _ctx_lvl(0, 2))
-	assert_eq(score, 1080, "20 × 54")
+	var score: int = DiceScoring.score_category(DiceScoring.THREE_KIND, dice, _ids([Charm.BEHERIT]), false, mats, {}, _ctx_lvl(0, 2))
+	assert_eq(score, 2178, "33 × 66")
 
 func test_breakdown_mirrors_the_material_crit():
 	var dice := _d([5, 5, 1, 2, 3, 6])
@@ -864,3 +865,33 @@ func test_packet_bookings_sum_like_one_booking_under_a_money_factor():
 	run.money = before
 	run.add_money(7)
 	assert_eq(packets, run.money - before, "Pakete und Summe landen auf derselben Zahl")
+
+# --- Kaltverfestigung: ein Knochen auf Zeit -------------------------------------
+
+func test_work_hardening_adds_its_eye_to_every_firing():
+	# Sie legt ihr Auge ÜBER das, was sonst auf der Seite passiert - nie statt ihm.
+	var no_ids: Array[String] = []
+	assert_eq(MaterialEffects.mutate_value_once(5, "", NO_CHARMS, 1, no_ids, no_ids, 1, 1), 6)
+	assert_eq(MaterialEffects.mutate_link_value_once(5, "", NO_CHARMS, 1, no_ids, 1), 6,
+		"auch das gezündete Glied")
+	assert_eq(MaterialEffects.mutate_value_once(5, DieMaterial.BONE, NO_CHARMS, 1, no_ids, no_ids, 1, 1),
+		5 + MaterialEffects.BONE_GROWTH + 1, "additiv über dem Knochen")
+	assert_eq(MaterialEffects.mutate_value_once(5, "", NO_CHARMS, 1, no_ids, no_ids, 1, 0), 5,
+		"ohne Klausel wächst nichts")
+
+func test_work_hardening_lands_in_sim_and_def_alike():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
+	var no_defs: Array[DieDefinition] = []
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, {}, _p([0]), false, _p([]), {}, 0, 0, no_defs, _p([]), 1)
+	assert_eq(defs[0].faces[0], 6, "eine Zündung, ein Auge")
+	assert_true(report.grown.has(0), "die Seite meldet sich als gewachsen")
+	# Die Wertung zählt dieselbe Folge: Argon lässt Slot 0 zweimal zünden, die
+	# zweite sieht schon die 6. Basis 10 + 5 + 6 + 5, Mult 2.
+	var ctx := _argon(0)
+	ctx[DiceScoring.CTX_CLAUSE_GROWTH] = 1
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m(["", ""]), {}, ctx), (10 + 5 + 6 + 5) * 2)
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m(["", ""]), {}, ctx)
+	assert_eq(int(breakdown["total"]), (10 + 5 + 6 + 5) * 2, "die Schrittliste spiegelt sie")

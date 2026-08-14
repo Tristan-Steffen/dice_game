@@ -148,10 +148,50 @@ func test_antimatter_counts_negative_but_never_below_zero_base():
 	assert_gte(score, 0, "die Basis fällt nie unter null")
 
 func test_radon_irradiates_the_others_not_itself():
-	var scored := _p([0, 1, 2])
-	var essences := {0: Essence.RADON}
-	assert_eq(EssenceEffects.foreign_eye_bonus(1, scored, essences), EssenceEffects.RADON_EYE_BONUS)
-	assert_eq(EssenceEffects.foreign_eye_bonus(0, scored, essences), 0, "sich selbst bestrahlt es nicht")
+	# Die Augen wandern wirklich: bei JEDER Zündung wachsen die LAUFENDEN Werte
+	# aller anderen gewerteten Würfel, der Strahler selbst nie.
+	var running := _d([5, 5, 5])
+	var amount := MaterialEffects.spread_radon_once(running, 0, _p([0, 1, 2]),
+		_ids([Essence.RADON]), NO_CHARMS)
+	assert_eq(amount, EssenceEffects.RADON_EYE_BONUS)
+	assert_eq(running, _d([5, 5 + EssenceEffects.RADON_EYE_BONUS, 5 + EssenceEffects.RADON_EYE_BONUS]))
+	assert_eq(MaterialEffects.spread_radon_once(running, 0, _p([0, 1, 2]), _ids([Essence.NEON]), NO_CHARMS), 0,
+		"ohne Radon strahlt nichts")
+
+func test_radon_grows_the_others_permanently_and_the_sim_agrees():
+	# Unter der Bleischürze zerfällt nichts, die Def ist also nachrechenbar.
+	var radon := _die_with(Essence.RADON)
+	radon.faces = _d([6, 2, 3, 4, 5, 6])
+	var mate := DieDefinition.standard()
+	mate.faces = _d([6, 2, 3, 4, 5, 6])
+	var defs: Array[DieDefinition] = [radon, mate]
+	var sets := {0: _ids([Essence.RADON])}
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		_ids([Charm.LEAD_APRON]), -1, sets, _p([0, 1]))
+	assert_eq(mate.faces[0], 6 + EssenceEffects.RADON_EYE_BONUS_SHIELDED, "der Mitwürfel wächst dauerhaft")
+	assert_eq(radon.faces[0], 6, "der Strahler selbst gibt nichts von sich her")
+	# Gezählt wird dieselbe Folge: Strahler 6, danach der schon gewachsene
+	# Mitwürfel 8 -> Basis 10 + 6 + 8, Mult 2.
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([6, 6]), NO_CHARMS, false,
+		_m(["", ""]), {}, _ctx({0: Essence.RADON}))
+	assert_eq(score, (10 + 6 + 8) * 2)
+
+func test_the_radiation_is_a_gain_and_protection_never_blocks_it():
+	var radon := _die_with(Essence.RADON)
+	var mate := DieDefinition.standard()
+	mate.essence_id = Essence.NITROGEN
+	var defs: Array[DieDefinition] = [radon, mate]
+	var sets := {0: _ids([Essence.RADON]), 1: _ids([Essence.NITROGEN])}
+	var before: int = mate.faces[0]
+	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, sets, _p([0, 1]))
+	assert_eq(mate.faces[0], before + EssenceEffects.RADON_EYE_BONUS, "Schutz wehrt nur Verluste ab")
+
+func test_the_lead_apron_irradiates_harder():
+	var running := _d([5, 5])
+	assert_eq(MaterialEffects.spread_radon_once(running, 0, _p([0, 1]), _ids([Essence.RADON]),
+		_ids([Charm.LEAD_APRON])), EssenceEffects.RADON_EYE_BONUS_SHIELDED)
+	assert_eq(running[1], 5 + EssenceEffects.RADON_EYE_BONUS_SHIELDED)
 
 # --- Krits ------------------------------------------------------------------------
 
@@ -612,10 +652,14 @@ func test_the_wild_is_never_borrowed_either():
 	assert_false(EssenceEffects.set_at(sets, 0).has(Essence.AURORA))
 
 func test_borrowed_radon_irradiates_the_others():
-	# Die Quintessenz strahlt wie ein Radon-Würfel auf ihre Mitwürfel.
+	# Die Quintessenz strahlt wie ein Radon-Würfel auf ihre Mitwürfel - beide
+	# Quellen zünden, also bekommt der Dritte zweimal.
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.RADON})
-	assert_eq(EssenceEffects.foreign_eye_bonus(2, _p([0, 1, 2]), sets),
-		EssenceEffects.RADON_EYE_BONUS * 2, "beide Quellen strahlen")
+	var running := _d([5, 5, 5])
+	var scored := _p([0, 1, 2])
+	MaterialEffects.spread_radon_once(running, 0, scored, EssenceEffects.set_at(sets, 0), NO_CHARMS)
+	MaterialEffects.spread_radon_once(running, 1, scored, EssenceEffects.set_at(sets, 1), NO_CHARMS)
+	assert_eq(running[2], 5 + EssenceEffects.RADON_EYE_BONUS * 2, "beide Quellen strahlen")
 
 func test_borrowed_lenses_chain():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.HYDROGEN})
@@ -655,12 +699,21 @@ func test_cyanide_pays_per_own_gold_face_once_per_turn():
 	die.set_face_material(4, DieMaterial.GOLD)
 	var ids := _ids([Essence.CYANIDE])
 	assert_eq(EssenceEffects.gold_face_money_of(ids, die.materials), 2 * EssenceEffects.CYANIDE_PER_GOLD)
-	# Zwei Auslösungen (Argon) dürfen NICHT zweimal zahlen.
+	# Zwei Auslösungen (Argon) dürfen NICHT zweimal zahlen. Gezahlt wird an der
+	# ERSTEN Zündung, das Geld reist also im Zündungs-Plan statt im Zug-Rest.
 	var defs: Array[DieDefinition] = [die]
 	var sets := {0: [Essence.CYANIDE, Essence.ARGON] as Array[String]}
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, sets, _p([0]))
-	assert_eq(report.money, 2 * EssenceEffects.CYANIDE_PER_GOLD, "je Zug, nie je Auslösung")
+	assert_eq(report.money, 0, "nichts davon hängt mehr am Zug-Rest")
+	assert_eq(report.activation_money, 2 * EssenceEffects.CYANIDE_PER_GOLD, "je Zug, nie je Auslösung")
+	var plan := MaterialEffects.plan_activation_money(defs, _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, sets, _p([0]))
+	var groups: Array = plan[0]["groups"]
+	assert_eq(groups.size(), 2, "Argon: zwei Antritte")
+	assert_eq(int((groups[0]["firings"] as Array)[0]), 2 * EssenceEffects.CYANIDE_PER_GOLD,
+		"an der ersten Zündung")
+	assert_eq(int((groups[1]["firings"] as Array)[0]), 0, "der zweite Antritt bleibt trocken")
 
 func test_xray_fires_the_opposite_face_once():
 	var die := _die_with(Essence.XRAY)

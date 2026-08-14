@@ -58,3 +58,21 @@ func _called_methods(source: String, handle: String) -> Array[String]:
 		if not found.has(name):
 			found.append(name)
 	return found
+
+## Die Werkbank-Sperre hängt an der PHASE (_dice_editing_locked), also muss JEDER
+## Phasenwechsel sie nachziehen. Der Laden war einen ganzen Besuch lang gesperrt,
+## weil genau diese eine Zeile fehlte - und keine Suite konnte es sehen.
+func test_der_wechsel_in_den_laden_zieht_die_werkbank_sperre_nach() -> void:
+	var source: String = load("res://scripts/scene_root.gd").source_code
+	var lines := source.split("\n")
+	var found := 0
+	for i in lines.size():
+		if lines[i].strip_edges() != "phase = Phase.SHOP":
+			continue
+		found += 1
+		var window := ""
+		for k in range(i, mini(i + 6, lines.size())):
+			window += lines[k]
+		assert_true(window.contains("_sync_editing_lock()"),
+			"nach 'phase = Phase.SHOP' fehlt _sync_editing_lock() (Zeile %d)" % (i + 1))
+	assert_gt(found, 0, "es gibt überhaupt einen Wechsel in den Laden")

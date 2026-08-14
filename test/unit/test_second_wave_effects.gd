@@ -27,6 +27,15 @@ func _ids(values: Array) -> Array[String]:
 const NO_CHARMS: Array[String] = []
 const NO_MATS: Array[String] = []
 
+## Würfel mit gesetzten Seitenwerten (optional Material auf Seite 0 und Seele).
+func _die(faces: Array, face_material := "", essence_id := "") -> DieDefinition:
+	var def := DieDefinition.new()
+	def.faces = _d(faces)
+	if face_material != "":
+		def.set_face_material(0, face_material)
+	def.essence_id = essence_id
+	return def
+
 # --- Acetylen & Schneidbrenner: beide an der Übertaktungs-Stufe ------------------
 
 func test_acetylene_pays_per_combo_level():
@@ -181,22 +190,57 @@ func test_the_tail_light_lands_in_the_score():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), _ids([Charm.TAIL_LIGHT]), false,
 		_m(["", ""]), {}, {}), (10 + 15) * 2)
 
-# --- Manometer: der einzige beseelte Würfel der Hand -------------------------------
+# --- Manometer: die SEELE des einzigen beseelten Würfels wirkt doppelt -------------
 
-func test_the_pressure_gauge_fans_the_only_soul_in_the_hand():
+func test_the_pressure_gauge_doubles_the_only_soul_in_the_hand():
 	var order := _p([0, 1, 2])
 	var ids := _ids([Charm.PRESSURE_GAUGE])
 	var one := {1: Essence.NEON}
-	assert_eq(EssenceEffects.extra_activations(1, order, one, ids), 1)
-	assert_eq(EssenceEffects.extra_activations(0, order, one, ids), 0, "der seelenlose bleibt einfach")
-	assert_eq(EssenceEffects.extra_activations(1, order, one, NO_CHARMS), 0, "ohne Charm kein Druck")
+	assert_eq(EssenceEffects.essence_repeat_count(1, order, one, ids), 2)
+	assert_eq(EssenceEffects.essence_repeat_count(0, order, one, ids), 1, "der seelenlose bleibt einfach")
+	assert_eq(EssenceEffects.essence_repeat_count(1, order, one, NO_CHARMS), 1, "ohne Charm kein Druck")
+	assert_eq(EssenceEffects.essence_repeat_count(1, order, one,
+		_ids([Charm.PRESSURE_GAUGE, Charm.PRESSURE_GAUGE])), 3, "je Exemplar einmal mehr")
+	# Der WÜRFEL tritt weiter einfach an - es ist die Seele, die doppelt wirkt.
+	assert_eq(EssenceEffects.extra_activations(1, order, one, ids), 0)
 
 func test_a_second_soul_lets_the_pressure_out():
 	var order := _p([0, 1, 2])
 	var ids := _ids([Charm.PRESSURE_GAUGE])
 	var two := {1: Essence.NEON, 2: Essence.XENON}
-	assert_eq(EssenceEffects.extra_activations(1, order, two, ids), 0)
-	assert_eq(EssenceEffects.extra_activations(2, order, two, ids), 0)
+	assert_eq(EssenceEffects.essence_repeat_count(1, order, two, ids), 1)
+	assert_eq(EssenceEffects.essence_repeat_count(2, order, two, ids), 1)
+
+func test_the_pressure_gauge_slams_the_essence_crit_twice():
+	# Xenon ×1,5 zweimal geschlagen = ×2,25 - nie einmal quadriert und nie ×3.
+	var ctx := {DiceScoring.CTX_ESSENCES: {0: Essence.XENON}}
+	var ids := _ids([Charm.PRESSURE_GAUGE])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), ids, false,
+		_m(["", ""]), {}, ctx), ceili(20.0 * 2.0 * 1.5 * 1.5))
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
+		_m(["", ""]), {}, ctx), ceili(20.0 * 2.0 * 1.5), "ohne Manometer ein Schlag")
+
+func test_the_pressure_gauge_doubles_the_essence_money():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], "", Essence.NEON)]
+	var sets := {0: _ids([Essence.NEON])}
+	var lone := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
+		_ids([Charm.PRESSURE_GAUGE]), -1, sets, _p([0]))
+	assert_eq(lone.total_money(), 2 * EssenceEffects.NEON_MONEY_PER_DIE, "die Seele zahlt zweimal")
+	var plain_defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], "", Essence.NEON)]
+	var plain := MaterialEffects.apply_take_effects(plain_defs, _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, sets, _p([0]))
+	assert_eq(plain.total_money(), EssenceEffects.NEON_MONEY_PER_DIE)
+
+func test_the_pressure_gauge_doubles_the_face_growth_in_sim_and_def():
+	# Helium hebt die obere Seite je Auslösung - unter Druck zweimal, und die Def
+	# landet auf genau der Zahl, die die Simulation gezählt hat.
+	var sets := {0: _ids([Essence.HELIUM])}
+	var ids := _ids([Charm.PRESSURE_GAUGE])
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6], "", Essence.HELIUM)]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), ids, -1, sets, _p([0]))
+	assert_eq(defs[0].faces[0], 5 + 2 * EssenceEffects.HELIUM_GROWTH)
+	assert_eq(MaterialEffects.mutate_value_once(5, "", ids, 1, _ids([Essence.HELIUM]), _ids([]), 2),
+		5 + 2 * EssenceEffects.HELIUM_GROWTH, "dieselbe Rechnung wie die Simulation")
 
 # --- Lichtsäule & Eisspiegel: die Gleichzahlen ------------------------------------
 

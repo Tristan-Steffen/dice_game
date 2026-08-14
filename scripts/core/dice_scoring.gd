@@ -99,6 +99,31 @@ static func det_links_for(ctx: Dictionary, slot: int) -> Array:
 	var links: Dictionary = ctx.get(CTX_DET_LINKS, {})
 	return links.get(slot, [])
 
+## Dieselben Glieder, aber so oft, wie die Seele wirkt (Manometer). Die Werte
+## wandern dabei weiter wie im eingefrorenen Pointer-Wurf - ein Knochen-Glied
+## zählt beim zweiten Durchlauf den gewachsenen Wert, und genau dort landet auch
+## die Def, weil apply_take_effects dieselbe Zahl von Zündungen läuft.
+static func repeated_det_links(ctx: Dictionary, slot: int, repeat: int,
+		charm_ids: Array[String], essence_ids: Array[String], clause_growth: int = 0) -> Array:
+	var links := det_links_for(ctx, slot)
+	if repeat <= 1 or links.is_empty():
+		return links
+	var out: Array = []
+	var running := {}
+	for _r in repeat:
+		for link: Dictionary in links:
+			var face := int(link["face"])
+			var material := String(link["material"])
+			var value: int = running.get(face, int(link["value"]))
+			var entry := link.duplicate()
+			entry["value"] = value
+			out.append(entry)
+			# Gewandelt wird mit dem ECHTEN Zustand der Seite - "level" trägt den
+			# Firnis-Aufschlag, der nur die Wertung hebt, nie die Def.
+			running[face] = MaterialEffects.mutate_link_value_once(value, material,
+				charm_ids, int(link.get("raw_level", link.get("level", 1))), essence_ids, clause_growth)
+	return out
+
 ## Gezündete Pointer (ctx-Schlüssel): Dictionary Slot -> Array über die
 ## WÜRFEL-Trigger, je Trigger die Liste der gezündeten Glieder (leer = der Wurf
 ## ist danebengegangen). Einträge wie bei den Essenz-Gliedern.
@@ -204,8 +229,26 @@ static func pointer_misses_in(ctx: Dictionary) -> int:
 ## der anderen liegenden Wuerfel dazu (siehe EssenceEffects.effective_sets).
 const CTX_ESSENCE_SET := "essence_sets"
 
+## Gleichschliff (ctx-Schlüssel): Slot -> die Zahl, die auf ALLEN SECHS Seiten
+## steht (0 = nicht einheitlich). Aus den Defs gelesen, weil die Hooks die Würfel
+## nicht kennen; slot-gebunden, also umgeschlüsselt. Bedingung UND Betrag stehen
+## damit bei Handbeginn fest - ein mitten in der Zählung gewachsener Knochen kippt
+## sie nicht (Zielwahl bleibt gepinnt, die stehende Regel).
+const CTX_EQUAL_FACES := "equal_faces"
+
+static func equal_faces_for(ctx: Dictionary, slot: int) -> int:
+	var faces: Dictionary = ctx.get(CTX_EQUAL_FACES, {})
+	return int(faces.get(slot, 0))
+
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
 const CTX_STRESS := "stress_round"
+
+## Klausel-Wachstum (ctx-Schlüssel, hand-weit): die Kaltverfestigung lässt JEDE
+## ausgelöste Seite um so viele Augen wachsen. Hand-weit, also ohne Umschlüsselung.
+const CTX_CLAUSE_GROWTH := "clause_growth"
+
+static func clause_growth_in(ctx: Dictionary) -> int:
+	return maxi(0, int(ctx.get(CTX_CLAUSE_GROWTH, 0)))
 
 ## Runen (ctx-Schlüssel): Dictionary Slot -> Liste der Runen-ids auf der OBEN
 ## liegenden Seite. Wie die Essenz-Glieder löst der Aufrufer das EINMAL auf;
@@ -407,18 +450,27 @@ static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String],
 	return maxf(1.0, _base_and_mult(key, dice, raw, charm_ids, materials, combo_levels, ctx)[1])
 
 ## Zählreihenfolge der Würfelphase: die Reihe, wie sie beim Nehmen aufgereiht
-## liegt - Wert absteigend, bei Gleichstand kleinster Slot zuerst. Deterministisch
-## aus den Werten, damit Vorschau, Wertung und Grubenanimation identisch laufen
-## (die Ordnung ist wertungsrelevant: Echo-Kammer, Wasserfall, Stroboskop, Miasma).
+## liegt - KOMBINATIONS-ERST. Die Kombinationswürfel bilden Blöcke je
+## Kombinationsziffer; die Blöcke stehen nach GRÖSSE absteigend, bei gleicher
+## Größe nach Ziffer absteigend, innerhalb eines Blocks nach gezeigtem Wert
+## absteigend und bei Gleichstand kleinster Slot zuerst. Dahinter die bloß
+## MITGEWERTETEN (Vollzähler, Krypton) nach derselben Wert/Slot-Regel.
+## So bleibt eine Gruppe beisammen: ein Full House zählt 3-3-3-5-5, nie 5-5-3-3-3.
+## Deterministisch aus den Werten, damit Vorschau, Wertung und Grubenanimation
+## identisch laufen (die Ordnung ist wertungsrelevant: Echo-Kammer, Wasserfall,
+## Stroboskop, Miasma, Radon).
 ## declared = die vom Spieler in der Grube gelegte Reihenfolge (Slot-Indizes).
 ## Ist sie leer, gilt die kanonische Regel; liegt sie an, ERSETZT sie diesen
 ## Rang: die Anordnung der Hand ist eine Ansage des Spielers, keine Ableitung
 ## aus der Physik. Keine Essenz greift mehr in die Reihenfolge ein.
-static func trigger_order(scored: Array[int], dice: Array[int], declared: Array = []) -> Array[int]:
+## participating = die Kombinationswürfel. Ohne sie (ältere Aufrufer) gibt es
+## keine Blöcke und die Reihe fällt auf die reine Wert-Ordnung zurück.
+static func trigger_order(scored: Array[int], dice: Array[int], declared: Array = [], participating: Array[int] = []) -> Array[int]:
 	var order := scored.duplicate()
 	var rank := {}
 	for i in declared.size():
 		rank[int(declared[i])] = i
+	var block_rank := _block_ranks(dice, participating)
 	order.sort_custom(func(a: int, b: int) -> bool:
 		if not rank.is_empty():
 			# Nicht angesagte Würfel hängen sich hinten an und sortieren sich
@@ -427,8 +479,40 @@ static func trigger_order(scored: Array[int], dice: Array[int], declared: Array 
 			var rb: int = rank.get(b, UNRANKED)
 			if ra != rb:
 				return ra < rb
+		var ba: int = block_rank.get(a, UNRANKED)
+		var bb: int = block_rank.get(b, UNRANKED)
+		if ba != bb:
+			return ba < bb
 		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
 	return order
+
+## Slot -> Rang seines Kombinations-Blocks (0 = vorderster). Blöcke nach Größe
+## absteigend, bei gleicher Größe nach Kombinationsziffer absteigend; der
+## Gleichstand muss AUSDRÜCKLICH brechen, sort_custom ist nicht stabil.
+static func _block_ranks(dice: Array[int], participating: Array[int]) -> Dictionary:
+	var ranks := {}
+	if participating.is_empty():
+		return ranks
+	var members := {}
+	for slot in participating:
+		if slot < 0 or slot >= dice.size():
+			continue
+		var digit := _digit(dice[slot])
+		if not members.has(digit):
+			members[digit] = [] as Array[int]
+		members[digit].append(slot)
+	var digits: Array[int] = []
+	digits.assign(members.keys())
+	digits.sort_custom(func(a: int, b: int) -> bool:
+		var sa: int = (members[a] as Array).size()
+		var sb: int = (members[b] as Array).size()
+		if sa != sb:
+			return sa > sb
+		return a > b)
+	for k in digits.size():
+		for slot: int in members[digits[k]]:
+			ranks[slot] = k
+	return ranks
 
 # --- Pointer: eine Chance, EINMAL ausgewürfelt -------------------------------
 
@@ -461,7 +545,8 @@ static func pointer_chance_for(chance: float, firings: int) -> float:
 ## Mal den gewachsenen Wert. Gerechnet wird mit dem ECHTEN Zustand - genau diese
 ## Zahl landet später in der Def, der Firnis hebt nur die Wertung.
 static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: int, face_triggers: int,
-		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator) -> Array:
+		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator,
+		essence_repeat: int = 1, clause_growth: int = 0) -> Array:
 	var groups: Array = []
 	if die == null or up_face < 0 or up_face >= 6 or rng == null:
 		return groups
@@ -480,7 +565,7 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 	for _t in maxi(1, die_triggers):
 		for _f in maxi(1, face_triggers):
 			running[up_face] = MaterialEffects.mutate_value_once(running[up_face], up_material,
-				charm_ids, up_level, essence_ids, up_runes)
+				charm_ids, up_level, essence_ids, up_runes, essence_repeat, clause_growth)
 		var fires: Array[Dictionary] = []
 		var face := up_face
 		var roll_chance := aggregated
@@ -498,7 +583,7 @@ static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: i
 					"level": EssenceEffects.boosted_level(level, essence_ids),
 				})
 				running[target] = MaterialEffects.mutate_link_value_once(running[target], material,
-					charm_ids, level, essence_ids)
+					charm_ids, level, essence_ids, clause_growth)
 			face = target
 			roll_chance = chance
 		groups.append(fires)
@@ -536,7 +621,7 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 			widened.append_array(extra)
 			widened.sort()
 			scored = widened
-	var order := trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, []))
+	var order := trigger_order(scored, dice, ctx.get(CTX_PLAYER_ORDER, []), participating)
 	return {
 		"dice": dice,
 		"participating": participating,
@@ -615,6 +700,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty()
 	var order: Array[int] = shape["order"]
+	# Kaltverfestigung: hand-weit, jede Zündung legt ihr Auge auf die Seite.
+	var clause_growth := clause_growth_in(ctx)
 	# LAUFENDE Werte der GANZEN Hand, nicht je Würfel: die Ansteckung (Miasma)
 	# schiebt Augen quer über die Reihe, ein später zählender Würfel zählt also
 	# schon den gewachsenen Wert.
@@ -650,6 +737,9 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
 			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
+		# Manometer: wie oft die SEELE wirkt - Krit, Wachstum und Glieder, nie der
+		# Würfel selbst (das bliebe ein zweiter Faktor auf der Würfel-Achse).
+		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
 		# Zündungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
 		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
@@ -663,10 +753,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			for f in (face_triggers if t < die_triggers else 0):
 				var shown := shown_value(running_values[i], charm_ids, essence_ids)
 				# Augen erst durch die Charm-Linse, dann durch die Essenz (Antimaterie
-				# kehrt um). Radons +2 auf FREMDE Würfel kommt danach, und das
-				# Photonengas legt das Licht jeder Zündung vor sich obendrauf.
+				# kehrt um); das Photonengas legt das Licht jeder Zündung vor sich
+				# obendrauf. Radon addiert hier NICHTS mehr - es schiebt die Augen
+				# unten wirklich hinüber (spread_radon_once).
 				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
-					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
 					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
@@ -703,22 +793,28 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					mult *= mat_crit
 				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
 					wild_eyes if i == wild else 0, charm_ids, charge,
-					first_scoring_for(ctx, i), volcanic)
-				if not is_equal_approx(ess_crit, 1.0):
-					crits += 1
-					base += firedamp
-				mult *= ess_crit
+					first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+				# Manometer: der Essenz-Krit schlägt mehrfach - je Schlag ein eigener,
+				# nie einer im Quadrat (Härteofen-Grammatik).
+				for _e in essence_repeat:
+					if not is_equal_approx(ess_crit, 1.0):
+						crits += 1
+						base += firedamp
+					mult *= ess_crit
 				for j in charm_ids.size():
 					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
 					if not is_equal_approx(die_crit, 1.0):
 						crits += 1
 						base += firedamp
 					mult *= die_crit
-				running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids)
+				running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 				# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
 				# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
 				# sie den Zuwachs schon mit. Nur die obere Seite steckt an, nie ein Glied.
 				MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
+				# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
+				# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
+				MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
 			# Glieder: erst der für DIESEN Würfel-Trigger gewürfelte Pointer, im
 			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
 			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position
@@ -726,7 +822,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			# eingefrorenen Wert (eine Kette meint fremde Seiten). RUNES feuern hier
 			# NICHT: eine Rune gehört der oben liegenden Seite, ein Glied ist per
 			# Definition eine andere.
-			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else det_links_for(ctx, i)):
+			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)):
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))
@@ -760,7 +856,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += float(CharmEffects.mult_bonus_at(j, key, charm_ids) \
 			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored))
-		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key)
+		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
 		if not is_equal_approx(static_crit, 1.0):
 			crits += 1
 			base += firedamp

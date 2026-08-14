@@ -72,6 +72,7 @@ const INSURANCE_FRAUD_MONEY := 15
 const SERVICE_FEE_MONEY := 3
 const RIP_OFF_PER_DIE := 1
 const GOLD_VEIN_MONEY := 10
+const WORK_HARDENING_GROWTH := 1
 const INTEREST_PER := 10
 const STAGE_CAP_LIMIT := 2
 const HIGH_VOLTAGE_STAGES := 3
@@ -808,8 +809,9 @@ func _press_pack_pieces(pack: Pack, rng: RandomNumberGenerator) -> Array[Diction
 ## abbuchen, würfeln, prägen, Pakete verbrauchen. Reicht die Energie nicht,
 ## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung räumt weder
 ## Ablage noch nassen Guss ab.
-## Liefert {"cost", "pieces", "readers"} - readers[i] sind die Nummern der Stücke,
-## die Leser i ausgeworfen hat (die Zeremonie fliegt sie von dort in die Ablage).
+## Liefert {"cost", "pieces", "readers", "kept"} - readers[i] sind die Nummern der
+## Stücke, die Leser i ausgeworfen hat (die Zeremonie fliegt sie von dort in die
+## Ablage), "kept" zählt die Zellen, die die Zwinge vor dem Ausbrennen bewahrt hat.
 func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
 	var empty := {"cost": 0, "pieces": [] as Array[Dictionary], "readers": [] as Array}
 	var chosen := _pressable_packs(pack_indices)
@@ -843,12 +845,24 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 		seat.append(int(piece["piece_uid"]))
 	for piece in minted:
 		press_pieces.append(piece)
-	chosen.sort()
-	for k in range(chosen.size() - 1, -1, -1):
-		owned_packs.remove_at(chosen[k])
+	# Zwinge: je Zelle ein Wurf - eine Überlebende wirft ihre volle Beute ab und
+	# bleibt trotzdem im Regal. Gilt für JEDE gepresste Zelle, Fixinhalte
+	# eingeschlossen.
+	var survive := CharmEffects.pack_survive_chance(charm_ids())
+	var kept := 0
+	var burned: Array[int] = []
+	for index in chosen:
+		var roll := rng.randf() if rng != null else randf()
+		if survive > 0.0 and roll < survive:
+			kept += 1
+		else:
+			burned.append(index)
+	burned.sort()
+	for k in range(burned.size() - 1, -1, -1):
+		owned_packs.remove_at(burned[k])
 	packs_changed.emit()
 	press_changed.emit()
-	return {"cost": cost, "pieces": minted, "readers": readers}
+	return {"cost": cost, "pieces": minted, "readers": readers, "kept": kept}
 
 ## Darf ein Beutestück auf diesen Würfel? Die Bank sind die Zwingen - sonst keine.
 func press_target_allowed(die: DieDefinition) -> bool:
@@ -866,30 +880,22 @@ func _press_piece(index: int) -> Dictionary:
 		return {}
 	return press_pieces[index]
 
-## Bucht EINE Anwendung ab. Die Zwinge würfelt je Anwendung: trifft sie, kommt die
-## Anwendung geschenkt zurück - das Stück wirkt zweimal. true = gedoppelt.
-## rng injizierbar, damit ein Test beide Ausgänge erzwingt.
-func _consume_press_application(index: int, rng: RandomNumberGenerator = null) -> bool:
+## Bucht EINE Anwendung ab. Ein Stück der Presse ist flach (applications 1), die
+## Zählung bleibt trotzdem stehen: eine künftige Leiter darf sie wieder füllen.
+func _consume_press_application(index: int) -> void:
 	var piece := _press_piece(index)
 	if piece.is_empty():
-		return false
+		return
 	var left := int(piece.get("applications", 1)) - 1
-	var chance := CharmEffects.piece_double_chance(charm_ids())
-	var roll := rng.randf() if rng != null else randf()
-	var doubled := chance > 0.0 and roll < chance
-	if doubled:
-		left += 1
 	if left > 0:
 		piece["applications"] = left
 	else:
 		press_pieces.remove_at(index)
 	press_changed.emit()
-	return doubled
 
 ## Zahl-Stück: die Stufe klettert die Leiter seiner Gravur. faces sind die vom
 ## Spieler gewählten Seiten - Überdruck, Aufholen und Politur zielen selbst.
-func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = [],
-		rng: RandomNumberGenerator = null) -> bool:
+func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = []) -> bool:
 	var piece := _press_piece(index)
 	if piece.is_empty() or not press_target_allowed(die):
 		return false
@@ -918,14 +924,13 @@ func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = [],
 		_:
 			return false
 	_journal_application(piece, die, before)
-	_consume_press_application(index, rng)
+	_consume_press_application(index)
 	note_pool_changed()
 	return true
 
 ## Material-Stück: belegt eine Seite. Frische Farbe liegt immer unveredelt - die
 ## Sättigung ist ein eigenes Stück (Sonderposten Veredelung).
-func apply_press_material(index: int, die: DieDefinition, face: int,
-		rng: RandomNumberGenerator = null) -> bool:
+func apply_press_material(index: int, die: DieDefinition, face: int) -> bool:
 	var piece := _press_piece(index)
 	if piece.is_empty() or not press_target_allowed(die):
 		return false
@@ -937,14 +942,13 @@ func apply_press_material(index: int, die: DieDefinition, face: int,
 	var before := _snapshot_die(die)
 	die.set_face_material(face, String(piece.get("id", "")))
 	_journal_application(piece, die, before)
-	_consume_press_application(index, rng)
+	_consume_press_application(index)
 	note_pool_changed()
 	return true
 
 ## Runen-Stück: dieselbe Rune, Reihe-mal setzbar - jede Setzung eine Seite, nach
 ## der normalen Ersetzungs-Regel.
-func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0,
-		rng: RandomNumberGenerator = null) -> bool:
+func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0) -> bool:
 	var piece := _press_piece(index)
 	if piece.is_empty() or not press_target_allowed(die):
 		return false
@@ -955,13 +959,12 @@ func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0,
 	if not die.set_rune(face, rune_id, slot, extra_rune_slots()):
 		return false
 	_journal_application(piece, die, before)
-	_consume_press_application(index, rng)
+	_consume_press_application(index)
 	note_pool_changed()
 	return true
 
 ## Pointer-Stück: verdrahtet zwei benachbarte Seiten; Überschreiben erlaubt.
-func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face: int,
-		rng: RandomNumberGenerator = null) -> bool:
+func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face: int) -> bool:
 	var piece := _press_piece(index)
 	if piece.is_empty() or not press_target_allowed(die):
 		return false
@@ -970,14 +973,13 @@ func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face
 	var before := _snapshot_die(die)
 	die.pointers[from_face] = to_face
 	_journal_application(piece, die, before)
-	_consume_press_application(index, rng)
+	_consume_press_application(index)
 	note_pool_changed()
 	return true
 
 ## Veredelungs-Stück: sättigt das Material einer Seite. dope() IST die Probe - eine
 ## nackte oder schon veredelte Seite bewegt sich nicht und ist damit kein Ziel.
-func apply_press_doping(index: int, die: DieDefinition, face: int,
-		rng: RandomNumberGenerator = null) -> bool:
+func apply_press_doping(index: int, die: DieDefinition, face: int) -> bool:
 	var piece := _press_piece(index)
 	if piece.is_empty() or not press_target_allowed(die):
 		return false
@@ -987,7 +989,7 @@ func apply_press_doping(index: int, die: DieDefinition, face: int,
 	if not die.dope(face):
 		return false
 	_journal_application(piece, die, before)
-	_consume_press_application(index, rng)
+	_consume_press_application(index)
 	note_pool_changed()
 	return true
 
@@ -1575,6 +1577,11 @@ func round_payout_factor() -> float:
 ## Sparprämie: Aufschlag je übrigem Würfel (zusätzlich zum Sparschwein-Charm).
 func deal_unused_die_bonus() -> int:
 	return SAVINGS_DIE_BONUS * deal_bonus_factor() if _clause_active(DealClause.SAVINGS_BONUS) else 0
+
+## Kaltverfestigung: ein Knochen auf Zeit - jede ausgelöste Seite (obere Seite
+## wie gezündetes Pointer-Glied) wächst dauerhaft um so viele Augen.
+func clause_face_growth() -> int:
+	return WORK_HARDENING_GROWTH * deal_bonus_factor() if _clause_active(DealClause.WORK_HARDENING) else 0
 
 ## Leergut/Blackout: übrige Würfel zahlen gar nichts.
 func unused_dice_pay() -> bool:

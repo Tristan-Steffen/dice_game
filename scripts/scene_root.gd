@@ -334,6 +334,13 @@ var route_pending := false
 ## ohne Auslage - der erste Wurf ist gefallen. Bis dahin bleibt die Werkbank offen
 ## (siehe _dice_editing_locked), danach sind die Würfel tabu.
 var round_committed := false
+## Der Laden darf noch einmal aufmachen: gesetzt beim ERSTEN Schließen eines
+## Besuchs, gelöscht mit der Unterschrift (bzw. dem ersten Wurf) - dasselbe
+## Fenster wie die Werkbank. Der Wieder-Eintritt würfelt NICHTS neu.
+var shop_reopen_allowed := false
+## Der offene Laden ist ein Wieder-Eintritt: sein Schließen zieht die Runde NICHT
+## noch einmal weiter.
+var shop_reopened := false
 ## Rand der Auslage als Anteil der Grubenbreite (rundum gleich). Sie nimmt den
 ## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
 const ROUTE_CHOICE_INSET := 0.04
@@ -571,6 +578,8 @@ var _net_fade := 0.0
 var _net_essence_hint := ""
 ## Glühen des Miasma für seine Augen-Pips - aus demselben Grund einmal geholt.
 var _miasma_glow := Color(0, 0, 0, 0)
+## Dasselbe für das Radon, dessen Bestrahlung ebenfalls Augen schiebt.
+var _radon_glow := Color(0, 0, 0, 0)
 
 var lineup_tween: Tween
 
@@ -1087,6 +1096,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
+		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
 
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
@@ -3722,6 +3732,13 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 		elif camera_rig.mode == CameraRig.Mode.CHARMS:
 			# Klick ohne Ziehen in der Charm-Sicht: Zoom auf diesen Charm schwenken.
 			_pan_zoom_to_charm(charm_drag_index)
+		elif is_pit_focused:
+			# Aus der Grube heraus: EIN Flug in die Charm-Sicht, mittig auf den
+			# geklickten Charm. zoom_to setzt den Modus (die Weiterleitung hängt
+			# daran), pan_to überschreibt im selben Frame nur den Blickpunkt -
+			# gleiche Basis, gleicher Abstand, also kein zweiter Flug.
+			camera_rig.zoom_to(CameraRig.Mode.CHARMS)
+			_pan_zoom_to_charm(charm_drag_index)
 		charm_drag_index = -1
 		charm_is_dragging = false
 
@@ -4698,9 +4715,12 @@ func _det_links() -> Dictionary:
 					"value": running,
 					"material": material,
 					"level": EssenceEffects.boosted_level(level, essence_ids),
+					# Der ECHTE Zustand daneben: das Manometer rollt die Liste weiter
+					# aus und muss dafür wandeln wie die Def, nicht wie die Wertung.
+					"raw_level": level,
 				})
 				running = MaterialEffects.mutate_link_value_once(running, material, ids,
-					level, essence_ids)
+					level, essence_ids, run.clause_face_growth())
 		links[i] = entries
 	return links
 
@@ -4735,7 +4755,8 @@ func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int],
 		# Auch der reine Fehlwurf wird eingefroren: das Erdungskabel zählt genau die
 		# leeren Gruppen, und im ctx stehen nur Würfel MIT Pointer.
 		fires[k] = DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
-			ids, essence_ids, pointer_rng)
+			ids, essence_ids, pointer_rng,
+			EssenceEffects.essence_repeat_count(k, order, essences, ids), run.clause_face_growth())
 	return fires
 
 ## Material-Infos je Wurf-Slot: der Zustand des Materials der OBEREN Seite, dazu
@@ -4781,11 +4802,14 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_DET_LINKS: _det_links(),  # Röntgenlicht/Korona
 		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Veredelung der Seiten
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
+		DiceScoring.CTX_EQUAL_FACES: _equal_face_values(),  # Gleichschliff
 		# Die EINE Aggregation: die Quintessenz borgt sich hier die Seelen der
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
 		DiceScoring.CTX_RUNES: _slot_runes(),  # Runen der oben liegenden Seiten
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
+		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
+		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),
 		DiceScoring.CTX_PHOSPHOR_STORE: _phosphor_stores(),  # Speicherlicht
 		DiceScoring.CTX_PHOSPHOR_MULT: _phosphor_mults(),  # Speicherlicht + Leuchtstoffröhre
 		# Was die bisherigen Hände der Runde gebracht haben - Dunkelkammer und
@@ -4825,6 +4849,24 @@ func _discard_values() -> Array[int]:
 			continue
 		values.append(def.faces[face])
 	return values
+
+## Slot -> die Zahl, die auf ALLEN SECHS Seiten steht (Gleichschliff); ungleiche
+## Würfel fehlen einfach. Aus der Def gelesen, nicht aus dem liegenden Wert.
+func _equal_face_values() -> Dictionary:
+	var uniform := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def == null or def.faces.is_empty():
+			continue
+		var value: int = def.faces[0]
+		var same := true
+		for face in def.faces:
+			if face != value:
+				same = false
+				break
+		if same and value > 0:
+			uniform[i] = value
+	return uniform
 
 ## Slot -> wertet dieser Würfel in dieser Runde zum ersten Mal (Sternschnuppe,
 ## Gammablitz). Die Marke führt GameRun am Würfel-Exemplar.
@@ -4884,7 +4926,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	# Essenzen, Runen und der Phosphor-Speicher hängen ebenso am Slot.
 	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RUNES,
 			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT,
-			DiceScoring.CTX_FIRST_SCORING]:
+			DiceScoring.CTX_FIRST_SCORING, DiceScoring.CTX_EQUAL_FACES]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -5249,11 +5291,13 @@ func _pit_top_row_position(slot_number: int, count: int, y: float) -> Vector3:
 	var z := -span * 0.5 + PIT_TOP_ROW_SPACING * float(slot_number)
 	return Vector3(DicePit.PIT_CENTER.x + PIT_TOP_ROW_X, y, DicePit.PIT_CENTER.z + z)
 
-## Rückt die ausgerollten Würfel in eine zentrierte Reihe in der Grubenmitte:
-## erst die Kombinations-Würfel (Auswahl), dann die übrigen, je mit den
-## höchsten Augen zuerst. Reine Kosmetik - jeder Würfel behält seine
-## gewürfelte Oben-Seite und dreht sich nur gerade. Die Körper werden
-## eingefroren; der nächste Wurf gibt sie wieder frei.
+## Rückt die ausgerollten Würfel in eine zentrierte Reihe in der Grubenmitte -
+## GENAU in der Zählreihenfolge (DiceScoring.trigger_order, Auswahl = Kombination):
+## Reihe und Zählung sind dasselbe Ding, also darf es hier keinen zweiten
+## Vergleicher geben. Die unbeteiligten Würfel hängen sich dahinter. Der
+## Aufrichtung ist es egal - jeder Würfel behält seine gewürfelte Oben-Seite und
+## dreht sich nur gerade. Die Körper werden eingefroren; der nächste Wurf gibt
+## sie wieder frei.
 func _line_up_settled_dice() -> void:
 	_cancel_lineup()
 	# Nur sichtbare Würfel - unsichtbare Slots sollen keine Lücken reißen.
@@ -5267,16 +5311,13 @@ func _line_up_settled_dice() -> void:
 	# hinten kanonisch ein (frisch gefallene Würfel vor dem ersten Aufräumen).
 	# Gerechnet wird auf den GEZEIGTEN Werten - die Reihe ist die Zählreihenfolge.
 	var shown := _shown_pit_values()
-	indices.sort_custom(func(a: int, b: int) -> bool:
-		var ra := player_order.find(a)
-		var rb := player_order.find(b)
-		if ra != rb and (ra >= 0 or rb >= 0):
-			return rb < 0 or (ra >= 0 and ra < rb)
-		if dice.selected[a] != dice.selected[b]:
-			return dice.selected[a]  # Kombinations-Würfel nach links
-		if shown[a] != shown[b]:
-			return shown[a] > shown[b]
-		return a < b)
+	# Die Auswahl IST die Kombination; die übrigen liegenden Würfel hängen sich
+	# als "nur mitgezählt" dahinter - dieselbe Trennung, die trigger_order kennt.
+	var selected: Array[int] = []
+	for i in indices:
+		if dice.selected[i]:
+			selected.append(i)
+	indices = DiceScoring.trigger_order(indices, shown, player_order, selected)
 	player_order = indices.duplicate()
 	# Alle auf die niedrigste Ruhehöhe der Gruppe - ein auf einem Nachbarn
 	# liegen gebliebener Würfel würde sonst in der Reihe schweben.
@@ -5679,7 +5720,7 @@ func _on_take_button_pressed() -> void:
 	# echten Slot zurück.
 	var echo_sel: int = sel_shape["echo_slot"]
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
-	var take_order := DiceScoring.trigger_order(participating, _shown_pit_values(), player_order)
+	var take_order := DiceScoring.trigger_order(participating, _shown_pit_values(), player_order, combination)
 	# Der gezündete Pointer zurück auf echte Slots - der ctx sprach in Auswahl-
 	# Indizes, die Nehmen-Effekte arbeiten am Pool.
 	var slot_fires := {}
@@ -5688,7 +5729,11 @@ func _on_take_button_pressed() -> void:
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
-		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination)
+		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
+		run.clause_face_growth())
+	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
+	# seinem Krit losgeschickt, gebucht wird bei Ankunft.
+	report.tip_money = ScoreBreakdown.tip_money_total(breakdown)
 	# Erstwertung und Neonmarker-Zähler gehören dem Zug, nicht der Vorschau.
 	run.note_dice_scored(active_kinds, participating)
 	run.note_bare_dice(report.bare_dice)
@@ -6110,6 +6155,8 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		# Material- und Essenz-Krit haben kein Dock-Pad - sie kommen vom Würfel.
 		var from_die: bool = crit["from_die"]
 		var crit_px := die_px if from_die else _charm_trail_source_px(crit_indices)
+		# Trinkgeldglas: der Einschlag zahlt bar, aus demselben Punkt, aus dem er kommt.
+		_fire_die_money(crit_px, int(crit.get("tip_money", 0)))
 		# Grubengas zündet MIT dem Krit - seine Basis steht schon im Stand danach.
 		var crit_base: int = crit["base_after"]
 		var crit_mult: float = crit["mult_after"]
@@ -6130,11 +6177,13 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		_play_eye_pips(pulse, slot, die_px)
 	return true
 
-## Augen-Pips einer Zündung. Zwei Volleys im PHYSISCHEN Bereich: erst die eigene
+## Augen-Pips einer Zündung. Drei Volleys im PHYSISCHEN Bereich: erst die eigene
 ## Wandlung (Knochen wächst, Glas schrumpft, Helium hebt), dann der Miasma-
-## Aushauch samt Weitergabe. value_after ist um den Eigenverlust schon gemindert,
-## der Stand davor liegt also um ihn höher. Nie abgewartet; kommt kein Pip
-## zustande, setzt die Ziffer hart um - die Anzeige hängt nie an der Animation.
+## Aushauch samt Weitergabe, zuletzt die Radon-Bestrahlung. value_after ist um den
+## Eigenverlust schon gemindert, der Stand davor liegt also um ihn höher. Die
+## Bestrahlung ist der Weihrauchfass-Fall: nichts fällt heraus, die Empfänger
+## bekommen trotzdem. Nie abgewartet; kommt kein Pip zustande, setzt die Ziffer
+## hart um - die Anzeige hängt nie an der Animation.
 func _play_eye_pips(pulse: Dictionary, slot: int, die_px: Vector2) -> void:
 	var after := int(pulse["value_after"])
 	var before := int(pulse.get("value_before", after))
@@ -6157,6 +6206,10 @@ func _play_eye_pips(pulse: Dictionary, slot: int, die_px: Vector2) -> void:
 			else:
 				# Weihrauchfass: nichts fällt heraus, angesteckt wird trotzdem.
 				launches += _rain_miasma_gift(recipients, amount, tint, offset)
+		var radon := int(pulse.get("radon_amount", 0))
+		if radon > 0:
+			launches += _rain_miasma_gift(pulse.get("radon_recipients", []), radon,
+				_radon_pip_color(), float(launches) * TableScreen.EYE_PIP_GAP)
 	if launches == 0:
 		_tick_die_value(slot, after, _plan_eye_tick(slot, after), run)
 
@@ -6172,6 +6225,13 @@ func _miasma_pip_color() -> Color:
 		_miasma_glow = Essence.glow_for(Essence.MIASMA)
 		_miasma_glow.a = 1.0
 	return _miasma_glow
+
+## Dasselbe für die Bestrahlung - gemerkt aus demselben Grund.
+func _radon_pip_color() -> Color:
+	if _radon_glow.a <= 0.0:
+		_radon_glow = Essence.glow_for(Essence.RADON)
+		_radon_glow.a = 1.0
+	return _radon_glow
 
 ## Gewonnene Augen regnen von der Grubendecke in den Würfel. Jede Ankunft setzt
 ## den ABSOLUTEN Zwischenstand - relative Schritte liefen bei verschränkten
@@ -6334,6 +6394,8 @@ func _play_crit_step(step: Dictionary) -> bool:
 	for charm_index: int in step["charm_indices"]:
 		_flash_charm_and_pad(charm_index)
 	var source_px := _charm_trail_source_px(step["charm_indices"])
+	# Trinkgeldglas: auch der statische Krit zahlt bar, aus seinem Dock-Pad.
+	_fire_die_money(source_px, int(step.get("tip_money", 0)))
 	var cbase: int = step["base_after"]
 	var cmult: float = step["mult_after"]
 	var crit_x: float = step["crit_x"]
@@ -6772,6 +6834,9 @@ func _reset_game() -> void:
 	pendulum_acc = 0  # Pendel überlebt Runden, aber nicht einen neuen Run
 	_pendulum_shown = 0
 	full_reroll_stacks = 0
+	# Der Laden des alten Laufs ist zu; _start_new_round zieht den Knopf nach.
+	shop_reopen_allowed = false
+	shop_reopened = false
 	run = GameRun.new_run()
 	_connect_run()
 	# Reveal-Auslage des alten Laufs abräumen; ihr Ablauf merkt den Lauf-Wechsel
@@ -6990,6 +7055,7 @@ func _start_new_round() -> void:
 	# Unterschrift (bzw. bis zum ersten Wurf) bearbeitbar.
 	round_committed = false
 	_sync_editing_lock()
+	_sync_shop_reopen_button()
 	hands_taken_this_round = 0
 	chimney_sweep_used_this_round = false
 	anchor_clause_used_this_round = false
@@ -7054,6 +7120,9 @@ func _commit_round() -> void:
 	if round_committed:
 		return
 	round_committed = true
+	# Mit der Unterschrift ist die Ladenzeit vorbei - der Knopf geht mit.
+	shop_reopen_allowed = false
+	_sync_shop_reopen_button()
 	run.lapse_press()  # ohne Anwenden verfällt der ganze Guss - ohne einen Cent
 	run.reset_press_cycle()  # und die nächste Werkstatt-Sitzung presst wieder frei
 	round_pool_kinds.shuffle()
@@ -7168,6 +7237,9 @@ func _on_round_complete() -> void:
 			run.settle_block_deals()
 			stress_reward = run.grant_stress_reward()
 		phase = Phase.SHOP
+		# Die Ladenzeit ist Werkbankzeit: die Sperre hängt an der Phase, also muss
+		# jeder Phasenwechsel sie nachziehen.
+		_sync_editing_lock()
 		# Ab in den Shop: der Rundenpuls verklingt (lief noch durch die Auszahlung).
 		# Die Drossel ist mit der Runde vorbei - der Chip soll im Shop kaufbar wirken.
 		_set_throttled_combos([] as Array[String])
@@ -7188,6 +7260,8 @@ func _on_round_complete() -> void:
 			_play_hub_reward_ceremony([stress_reward] as Array[Pack])
 	else:
 		phase = Phase.GAME_OVER
+		shop_reopen_allowed = false
+		_sync_shop_reopen_button()
 		if table_screen != null:
 			table_screen.set_round_pulse(false)
 		_show_game_over(hand_total)
@@ -7878,16 +7952,56 @@ func _pool_tray_layout() -> Array[DieDefinition]:
 	seats.resize(pool_tray_view.slot_roots.size())
 	return seats
 
-## Shop geschlossen, die nächste Runde beginnt. Nur der "Fertig"-Knopf fährt
-## zurück in die Übersicht (dort ist das Wettannahme-Fenster im Blick); wer den
-## Laden per Grubenzoom verlässt, ist schon unterwegs und bleibt es.
+## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
+## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der
+## "Fertig"-Knopf fährt zurück in die Übersicht (dort ist das Wettannahme-Fenster
+## im Blick); wer den Laden per Grubenzoom verlässt, ist schon unterwegs und
+## bleibt es.
 func _on_shop_closed() -> void:
-	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
+	# Zwei Modi: das ERSTE Schließen eines Besuchs zieht die Runde weiter, ein
+	# Wieder-Eintritt macht nur die Anzeige zu. Sonst rückte jeder Blick in den
+	# Laden die Runde eine Stelle vor.
+	var reopened := shop_reopened
+	shop_reopened = false
 	phase = Phase.IDLE
+	if reopened:
+		_set_gameplay_ui_visible(true)
+		_sync_editing_lock()
+		_refresh_dice_trays()
+		_sync_shop_reopen_button()
+		if camera_rig.mode == CameraRig.Mode.HUB:
+			camera_rig.zoom_out()
+		return
+	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
 	_set_gameplay_ui_visible(true)
 	if camera_rig.mode == CameraRig.Mode.HUB:
 		camera_rig.zoom_out()
 	_start_new_round()
+	# Erst NACH dem Rundenstart (der die Sperren zurücksetzt): ab hier steht der
+	# Knopf, bis die Runde festgezurrt ist.
+	shop_reopen_allowed = true
+	_sync_shop_reopen_button()
+
+## Der Laden macht noch einmal auf - dieselbe Auslage, kein neuer Wurf, kein
+## zweites Freispiel und keine neue Wettannahme (die gehören dem Besuch).
+func _on_shop_reopen_requested() -> void:
+	if run == null or not shop_reopen_allowed or phase != Phase.IDLE or charm_shop == null:
+		return
+	shop_reopened = true
+	phase = Phase.SHOP
+	_sync_editing_lock()
+	_set_gameplay_ui_visible(false)
+	_return_dice_to_pool_tray()
+	_sync_shop_reopen_button()
+	if camera_rig.mode != CameraRig.Mode.HUB:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
+	charm_shop.reopen()
+
+## Zeigt den Laden-Knopf genau im Vorlauf der Runde (Laden zu, noch nichts
+## unterschrieben) - sonst nie.
+func _sync_shop_reopen_button() -> void:
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.set_shop_reopen_visible(shop_reopen_allowed and phase == Phase.IDLE)
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
 ## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das

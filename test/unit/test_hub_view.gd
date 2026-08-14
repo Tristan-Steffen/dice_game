@@ -99,6 +99,21 @@ func test_settings_button_hides_with_the_home_page() -> void:
 	page_a.visible = false
 	assert_true(hub.settings_button.is_visible_in_tree(), "kehrt mit der Home-Seite zurück")
 
+func test_shop_button_stays_hidden_until_it_is_allowed() -> void:
+	assert_not_null(hub.shop_button, "der Laden-Knopf ist gebaut")
+	assert_true(hub.content_root.is_ancestor_of(hub.shop_button), "auf der Home-Seite")
+	assert_false(hub.shop_button.visible, "im Normalfall steht er nicht da")
+	hub.set_shop_reopen_visible(true)
+	assert_true(hub.shop_button.is_visible_in_tree())
+	hub.set_shop_reopen_visible(false)
+	assert_false(hub.shop_button.visible)
+
+func test_shop_button_emits_signal_when_pressed() -> void:
+	watch_signals(hub)
+	hub.set_shop_reopen_visible(true)
+	hub.shop_button.pressed.emit()
+	assert_signal_emitted(hub, "shop_reopen_requested")
+
 func test_settings_button_emits_signal_when_pressed() -> void:
 	watch_signals(hub)
 	hub.settings_button.pressed.emit()

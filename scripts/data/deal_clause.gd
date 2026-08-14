@@ -54,6 +54,7 @@ const FREE_SPINS := "free_spins"
 const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
+const WORK_HARDENING := "work_hardening"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -228,6 +229,11 @@ static func golden_handshake() -> DealClause:
 		"Erfüllt EINE Hand den Benchmark allein: ihr erster Würfel wird pures Gold",
 		Scope.ROUND, Tier.TWO)
 
+## Ein Knochen auf Zeit: solange die Klausel steht, wächst jede ausgelöste Seite.
+static func work_hardening() -> DealClause:
+	return _bonus(WORK_HARDENING, "Kaltverfestigung", "Jede ausgelöste Seite wächst dauerhaft um +1 Auge",
+		Scope.ROUND, Tier.TWO)
+
 static func all_on_red() -> DealClause:
 	return _bonus(ALL_ON_RED, "Alles auf Rot", "Alles Geld dieser Runde dreifach",
 		Scope.ROUND, Tier.THREE, [TAG_PAYOUT])
@@ -373,7 +379,7 @@ static func all() -> Array[DealClause]:
 		cash_discount(), insurance_fraud(), seed_capital(),
 		maintenance_engraving(), high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		golden_handshake(),
+		golden_handshake(), work_hardening(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(), carbon_copy(),
 		tournament_night(), power_spike(), seed_capital_ii(),
 		benchmark_surcharge(), betting_tax(), empties(), deduction(),
@@ -449,6 +455,8 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "Ladenware 36% günstiger"
 		GOLD_VEIN:
 			return "+20$ je geräumter Überladungs-Stufe"
+		WORK_HARDENING:
+			return "Jede ausgelöste Seite wächst dauerhaft um +2 Augen"
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

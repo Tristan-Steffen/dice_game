@@ -37,6 +37,7 @@ const TWIN_RING := "twin_ring"
 const CULT_OF_ONE := "cult_of_one"
 const STREET_SWEEPER := "street_sweeper"
 const EQUALIZER := "equalizer"
+const EQUAL_GRIND := "equal_grind"
 const SMALL_FRY := "small_fry"
 const BEHERIT := "beherit"
 const HIGH_STACKER := "high_stacker"
@@ -282,6 +283,7 @@ const RARITIES := {
 	CULT_OF_ONE: RARITY_RARE,
 	STREET_SWEEPER: RARITY_UNCOMMON,
 	EQUALIZER: RARITY_COMMON,
+	EQUAL_GRIND: RARITY_RARE,
 	SMALL_FRY: RARITY_COMMON,
 	BEHERIT: RARITY_UNCOMMON,
 	HIGH_STACKER: RARITY_UNCOMMON,
@@ -588,11 +590,14 @@ static func street_sweeper() -> Charm:
 static func equalizer() -> Charm:
 	return _make(EQUALIZER, "Equalizer", "Jeder beteiligte Würfel gibt mindestens 10 Basispunkte.")
 
+static func equal_grind() -> Charm:
+	return _make(EQUAL_GRIND, "Gleichschliff", "Jeder gewertete Würfel, dessen sechs Seiten dieselbe Zahl zeigen, gibt +Zahl Mult.")
+
 static func small_fry() -> Charm:
 	return _make(SMALL_FRY, "Kleinvieh", "Jede beteiligte 1 und 2 gibt +5 Basispunkte und +2 Mult.")
 
 static func beherit() -> Charm:
-	return _make(BEHERIT, "Beherit", "Am Ende der Zählung: Krit ×(1 + NIEDRIGSTE gewertete Augenzahl).")
+	return _make(BEHERIT, "Beherit", "Ab 3 gewerteten Würfeln: Krit ×(1 + NIEDRIGSTE gewertete Augenzahl).")
 
 static func high_stacker() -> Charm:
 	return _make(HIGH_STACKER, "Hochstapler", "+Mult in Höhe der höchsten gewerteten Augenzahl.")
@@ -793,7 +798,7 @@ static func amalgam() -> Charm:
 	return _make(AMALGAM, "Amalgam", "Quecksilberdampf färbt ab: der nächste Würfel der Zählreihenfolge löst +1× aus.")
 
 static func lead_apron() -> Charm:
-	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht mehr, und sein Strahlenbonus steigt auf +3 Augen je Mitwürfel.")
+	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht mehr, und seine Bestrahlung steigt auf +3 Augen je Mitwürfel.")
 
 static func storm_glass() -> Charm:
 	return _make(STORM_GLASS, "Sturmglas", "Für Elmsfeuer gilt JEDE Runde als Stresstest.")
@@ -865,7 +870,7 @@ static func moderator() -> Charm:
 	return _make(MODERATOR, "Steuerstab", "Für den Tscherenkow-Krit zählt die gelagerte Energie mehr als doppelt: ×(1 + Energie ÷ 2).")
 
 static func meteorite() -> Charm:
-	return _make(METEORITE, "Meteorit", "Sternschnuppen können wieder mehrfach auslösen - was durchkommt, ist Eisen.")
+	return _make(METEORITE, "Meteorit", "Die Sternschnuppe kritet bei JEDER Wertung - jeder Eintritt glüht.")
 
 static func mycelium() -> Charm:
 	return _make(MYCELIUM, "Pilzgeflecht", "Das Fuchsfeuer wächst mit jedem Fund: +Augen in Höhe der Summe aller oben liegenden Ablage-Seiten.")
@@ -921,7 +926,7 @@ static func kiln() -> Charm:
 
 ## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
 static func bench_clamp() -> Charm:
-	return _make(CLAMP, "Zwinge", "25 % Chance, dass ein Beutestück der Presse zweimal angewendet wird.")
+	return _make(CLAMP, "Zwinge", "Jede gepresste Datenzelle bleibt zu 25 % erhalten - sie brennt nicht aus.")
 
 static func encore() -> Charm:
 	return _make(ENCORE, "Füllhorn", "Jede Pressung wirft 1 Beutestück gratis dazu.")
@@ -944,7 +949,7 @@ static func deposit_shelf() -> Charm:
 	return _make(DEPOSIT_SHELF, "Pfandregal", "Am Rundenende +$1 je 3 versiegelte Pakete im Lager (max. $15).")
 
 static func tip_jar() -> Charm:
-	return _make(TIP_JAR, "Trinkgeldglas", "Jeder Krit der Hand zahlt $2.")
+	return _make(TIP_JAR, "Trinkgeldglas", "Jeder Krit der Hand zahlt seinen ×-Wert in $ (aufgerundet).")
 
 static func consolation_prize() -> Charm:
 	return _make(CONSOLATION_PRIZE, "Trostpreis", "Jeder Fumble generiert 1 ⚡.")
@@ -958,7 +963,7 @@ static func bottle_rack() -> Charm:
 	return _make(BOTTLE_RACK, "Flaschenregal", "+1 Mult je Essenz-Würfel in der Ablage.")
 
 static func pressure_gauge() -> Charm:
-	return _make(PRESSURE_GAUGE, "Manometer", "Liegt genau ein Essenz-Würfel in der Hand, löst er erneut aus.")
+	return _make(PRESSURE_GAUGE, "Manometer", "Liegt genau ein Essenz-Würfel in der Hand, wirkt seine Essenz doppelt.")
 
 static func empty_plinth() -> Charm:
 	return _make(EMPTY_PLINTH, "Leerer Sockel", "+3 Mult je leerem Charm-Platz.")
@@ -989,6 +994,7 @@ static func all() -> Array[Charm]:
 		# Effektkatalog
 		pendulum(), all_or_nothing(), anchor(),
 		echo_chamber(), twin_ring(), cult_of_one(), street_sweeper(), equalizer(), small_fry(),
+		equal_grind(),
 		beherit(), high_stacker(), prime_time(), front_runner(), quadrature(), six_pack(),
 		protection_money(), waterfall(),
 		house_joker(), free_drink(), spotlight(),

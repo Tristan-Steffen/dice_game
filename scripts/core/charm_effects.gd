@@ -34,6 +34,11 @@ const FULL_HAND_DICE := 6
 ## Quadratur: ab so vielen gewerteten Würfeln legt sie los.
 const QUADRATURE_MIN_DICE := 4
 
+## Beherit: unter so vielen gewerteten Würfeln bleibt das Siegel stumm - ein
+## blankes Paar ruft nichts. Gezählt wird die GEWERTETE Menge, Vollzähler und
+## Krypton also mit.
+const BEHERIT_MIN_DICE := 3
+
 ## Equalizer: Basispunkt-Boden je beteiligtem Würfel.
 const EQUALIZER_FLOOR := 10
 
@@ -247,6 +252,10 @@ static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: 
 			var small := value_override if value_override > 0 else (values[slot] if slot < values.size() else 0)
 			if is_small_fry_value(small):
 				return SMALL_FRY_MULT
+		Charm.EQUAL_GRIND:
+			# Sechs gleiche Seiten: Bedingung und Betrag stehen seit Handbeginn im
+			# ctx, nie am laufenden Wert - ein Knochen darf sie nicht kippen.
+			return DiceScoring.equal_faces_for(ctx, slot)
 	return 0
 
 ## Ziel-Mult der Besitz-Position j am Würfel slot: der Hochstapler
@@ -605,13 +614,17 @@ static func target_die(values: Array[int], candidates: Array[int], highest: bool
 ## gewürfelter 1, Galgenhumor nach Farkle, Feierabendbier bei leerem
 ## Nachziehstapel, Snake Eyes auf ein 1er-Paar, Beherit auf die niedrigste
 ## gewertete Augenzahl) - sie feuern EINMAL je Hand an ihrer Dock-Position.
-static func charm_crit_at(j: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = [], key: String = "") -> float:
+## scored: die GEWERTETEN Slots (Vollzähler/Krypton weiten sie über participating
+## hinaus) - nur das Beherit fragt nach ihrer Zahl.
+static func charm_crit_at(j: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = [], key: String = "", scored: Array[int] = []) -> float:
 	match charm_ids[j]:
 		Charm.CULT_OF_ONE:
 			return float(1 << values.count(1))
 		Charm.BEHERIT:
-			# Ziel wie eh und je: der niedrigste gewertete Würfel, Gleichstand an
-			# den kleinsten Slot - nur der Betrag ist jetzt die volle Augenzahl.
+			# Erst ab drei gewerteten Würfeln; Ziel bleibt der niedrigste Würfel der
+			# Kombination, Gleichstand an den kleinsten Slot.
+			if scored.size() < BEHERIT_MIN_DICE:
+				return 1.0
 			var low := target_die(values, participating, false)
 			if low >= 0:
 				return maxf(1.0, 1.0 + float(values[low]))
@@ -654,6 +667,15 @@ static func gold_vein_bonus(materials: Array[String], participating: Array[int],
 			other += 1
 	# "andere": der auslösende Träger ist selbst Gold und zählt sich nicht mit.
 	return stacks * (GOLD_VEIN_GOLD * maxi(0, gold - 1) + other)
+
+## Trinkgeldglas: JEDER Krit der Hand zahlt seinen ×-Wert bar, aufgerundet und je
+## Exemplar - ×1,5 gibt $2, ×2,25 gibt $3. Gezahlt wird je EINZELNEM Einschlag,
+## nie am Produkt: zwei Härteofen-Schläge zahlen zweimal. Ein Faktor von genau ×1
+## ist kein Krit (dieselbe Zählregel wie beim Ozon).
+static func tip_money(crit_x: float, charm_ids: Array[String]) -> int:
+	if is_equal_approx(crit_x, 1.0):
+		return 0
+	return ceili(crit_x) * charm_ids.count(Charm.TIP_JAR)
 
 ## Straßenmusiker: $1 je beteiligtem Würfel beim Nehmen.
 static func take_income(charm_ids: Array[String], participating_count: int = 1) -> int:
@@ -897,14 +919,15 @@ static func pack_refund_chance(charm_ids: Array[String]) -> float:
 static func forces_refinement(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.SEAL_OF_QUALITY)
 
-## Zwinge: Chance, dass ein Beutestück der Presse ZWEIMAL appliziert wird.
-## Je Vorkommen 25 %, gedeckelt wie das Kleingedruckte - ein Stück, das immer
-## doppelt sitzt, wäre kein Glück mehr, sondern ein zweites Testmodus-Häkchen.
-const CLAMP_DOUBLE_CHANCE := 0.25
-const CLAMP_DOUBLE_CAP := 0.75
+## Zwinge: Chance, dass eine gepresste Datenzelle die Pressung ÜBERSTEHT - sie
+## wirft ihre volle Beute ab und bleibt trotzdem im Regal. Je Vorkommen 25 %,
+## gedeckelt wie das Kleingedruckte: eine Zelle, die nie ausbrennt, wäre kein
+## Glück mehr, sondern ein zweites Testmodus-Häkchen.
+const CLAMP_SURVIVE_CHANCE := 0.25
+const CLAMP_SURVIVE_CAP := 0.75
 
-static func piece_double_chance(charm_ids: Array[String]) -> float:
-	return minf(charm_ids.count(Charm.CLAMP) * CLAMP_DOUBLE_CHANCE, CLAMP_DOUBLE_CAP)
+static func pack_survive_chance(charm_ids: Array[String]) -> float:
+	return minf(charm_ids.count(Charm.CLAMP) * CLAMP_SURVIVE_CHANCE, CLAMP_SURVIVE_CAP)
 
 ## Füllhorn: so viele Stücke wirft jede Pressung gratis dazu (je Vorkommen eins),
 ## in der Mehrheits-Sorte der Pressung.

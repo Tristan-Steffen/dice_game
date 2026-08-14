@@ -33,6 +33,59 @@ func test_an_empty_declared_order_changes_nothing() -> void:
 	assert_eq(DiceScoring.trigger_order(scored, dice, []),
 		DiceScoring.trigger_order(scored, dice), "leere Ansage = keine Ansage")
 
+# --- Kombinations-erst: Blöcke vor Werten --------------------------------------------
+
+func test_a_straight_orders_its_blocks_by_digit():
+	# Fünf Einer-Blöcke: die Größe ist überall 1, also entscheidet die ZIFFER -
+	# 14 und 13 zählen als 4 und 3 und rutschen hinter die 6 und die 5.
+	var dice := _p([14, 13, 6, 5, 2])
+	var all := _p([0, 1, 2, 3, 4])
+	assert_eq(DiceScoring.trigger_order(all, dice, [], all), _p([2, 3, 0, 1, 4]))
+
+func test_a_bigger_block_beats_a_higher_digit():
+	# Full House: der Dreier-Block steht vorn, auch mit der kleineren Ziffer.
+	var house := _p([3, 3, 3, 5, 5])
+	var all := _p([0, 1, 2, 3, 4])
+	assert_eq(DiceScoring.trigger_order(all, house, [], all), _p([0, 1, 2, 3, 4]))
+	# Andersherum liegt der Dreier rechts - er zieht trotzdem nach vorn.
+	var flipped := _p([5, 5, 5, 3, 3])
+	assert_eq(DiceScoring.trigger_order(all, flipped, [], all), _p([0, 1, 2, 3, 4]))
+	var mixed := _p([3, 3, 5, 5, 5])
+	assert_eq(DiceScoring.trigger_order(all, mixed, [], all), _p([2, 3, 4, 0, 1]),
+		"der Dreier-Block bleibt beisammen und steht vorn")
+
+func test_two_pair_leads_with_the_higher_digit():
+	var dice := _p([6, 6, 2, 2])
+	var all := _p([0, 1, 2, 3])
+	assert_eq(DiceScoring.trigger_order(all, dice, [], all), _p([0, 1, 2, 3]))
+	var swapped := _p([2, 2, 6, 6])
+	assert_eq(DiceScoring.trigger_order(all, swapped, [], all), _p([2, 3, 0, 1]))
+
+func test_the_widened_dice_fall_in_behind_the_combination():
+	# Paar Zweier plus ein bloß mitgewerteter Sechser (Krypton/Vollzähler):
+	# der Block steht vorn, die 6 hängt sich dahinter.
+	var dice := _p([2, 2, 6])
+	assert_eq(DiceScoring.trigger_order(_p([0, 1, 2]), dice, [], _p([0, 1])), _p([0, 1, 2]))
+
+func test_the_new_order_moves_the_total_on_purpose():
+	# Von Hand nachgerechnet. Full House [4,4,2,2,2,1], Rubin auf Slot 2 (+4 Mult),
+	# Xenon auf Slot 0 (Krit ×1,5). Basis = 28 + (2+2+2+4+4) = 42.
+	# Reihe [2,3,4,0,1]: erst der Rubin (Mult 4 -> 8), dann der Krit (-> 12).
+	# 42 × 12 = 504. Nach der ALTEN Wert-Ordnung [0,1,2,3,4] hätte der Krit vor
+	# dem Rubin geschlagen: 4 × 1,5 = 6, +4 = 10, also 420. Genau diese
+	# Verschiebung ist gewollt.
+	var dice := _p([4, 4, 2, 2, 2, 1])
+	var mats := _m(["", "", DieMaterial.RUBY, "", "", ""])
+	var ctx := {DiceScoring.CTX_ESSENCES: {0: Essence.XENON}}
+	assert_eq(DiceScoring.trigger_order(_p([0, 1, 2, 3, 4]), dice, [], _p([0, 1, 2, 3, 4])),
+		_p([2, 3, 4, 0, 1]))
+	assert_eq(DiceScoring.score_category(DiceScoring.FULL_HOUSE, dice, _ids([]), false, mats, {}, ctx), 504)
+
+func test_without_a_combination_the_plain_value_rule_holds():
+	# Ältere Aufrufer geben keine Kombination mit - dann gilt Wert/Slot wie eh und je.
+	var dice := _p([3, 6, 6, 1])
+	assert_eq(DiceScoring.trigger_order(_p([0, 1, 2, 3]), dice), _p([1, 2, 0, 3]))
+
 # --- Mit Ansage ----------------------------------------------------------------------
 
 func test_the_declared_order_decides_the_sequence() -> void:

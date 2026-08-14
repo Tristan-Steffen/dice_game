@@ -35,12 +35,14 @@ func test_open_shows_panel_and_offers_up_to_four_charms():
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
 	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Hub-Stufe erlaubt")
 
-func test_offer_repeats_owned_charms():
-	# Besitz sperrt nichts mehr - denselben Charm darf man mehrfach halten.
-	# Die Einmaligkeit JE DOPPELSEITE prüft der Test weiter unten.
+func test_owned_charms_never_appear_again():
+	# Besitz SPERRT: was im Dock steht, liegt nicht wieder aus.
 	run.owned_charms.append(Charm.rabbits_foot())
-	shop.open()
-	assert_gt(shop.charm_options.size(), 0, "das Angebot bleibt gefüllt")
+	for i in 10:
+		shop.open()
+		assert_gt(shop.charm_options.size(), 0, "das Angebot bleibt gefüllt")
+		for option in shop.charm_options:
+			assert_ne(option.id, Charm.RABBITS_FOOT, "besessener Charm liegt wieder aus")
 
 func test_open_rolls_three_dice_packs():
 	assert_eq(shop.dice_packs.size(), 3, "drei Würfel-Pakete je Besuch")
@@ -120,13 +122,13 @@ func test_buy_charm_grants_and_deducts():
 	# ihren Nachbarn auf - der Test war sonst flaky, wenn ein Totem gezogen wurde.
 	assert_true(run.owned_charm_ids().has(charm.id))
 
-func test_owned_charms_stay_available_but_never_twice_in_one_spread():
-	# Denselben Charm darf man mehrfach besitzen - er verschwindet also nicht
-	# aus dem Angebot. Innerhalb EINER Doppelseite bleibt er aber einmalig.
+func test_an_all_owned_pool_falls_back_instead_of_leaving_slots_empty():
+	# Erschöpfter Topf: eine Dublette ist besser als ein leerer Platz. Innerhalb
+	# EINER Doppelseite bleibt jeder Archetyp trotzdem einmalig.
 	for charm in Charm.all():
 		run.owned_charms.append(charm)
 	shop.open()
-	assert_gt(shop.charm_options.size(), 0, "besessene Charms werden weiter angeboten")
+	assert_gt(shop.charm_options.size(), 0, "kein leerer Platz")
 	var seen := {}
 	for option in shop.charm_options:
 		assert_false(seen.has(option.id), "Archetyp '%s' liegt doppelt aus" % option.id)
@@ -414,6 +416,40 @@ func test_a_new_run_clears_the_lock():
 	assert_false(shop.sortiment_locked, "ein frischer Lauf startet mit offenem Sortiment")
 	shop.open()
 	assert_eq(shop.spreads.size(), 1)
+
+# --- Wieder-Eintritt: derselbe Laden, nichts gewürfelt --------------------------
+
+func test_reopen_keeps_the_same_offers_without_rolling():
+	var charms = shop.charm_options
+	var packs = shop.dice_packs
+	var engravings = shop.engraving_packs
+	shop._on_done_pressed()
+	shop.reopen()
+	assert_true(shop.visible)
+	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
+	assert_true(shop.dice_packs == packs)
+	assert_true(shop.engraving_packs == engravings)
+	assert_eq(shop.spreads.size(), 1, "keine zweite Auslage")
+
+func test_reopen_keeps_bought_marks_and_the_page():
+	shop._on_charm_clicked(0)
+	shop._on_pack_buy_pressed(0, true)
+	shop._on_page_next_pressed()  # zweite Seite
+	shop._on_done_pressed()
+	shop.reopen()
+	assert_eq(shop.current_spread_index, 1, "der Laden öffnet, wo er zuging")
+	assert_true(shop.spreads[0].charm_bought[0], "der gekaufte Charm bleibt vermerkt")
+	assert_true(shop.spreads[0].dice_pack_bought[0])
+
+func test_reopen_without_a_spread_rolls_like_a_first_visit():
+	# Kommt der Knopf je vor dem ersten Öffnen, darf der Laden nicht leer sein.
+	var fresh := GameRun.new_run()
+	fresh.money = 100
+	shop.run = fresh  # der Setter räumt die Auslage
+	shop.close()
+	shop.reopen()
+	assert_gt(shop.spreads.size(), 0)
+	assert_gt(shop.charm_options.size(), 0)
 
 # --- Blätter-Ecken (Navigation auf den Seiten) --------------------------------
 

@@ -58,6 +58,10 @@ class TakeReport:
 	## steckt NICHT in money: die Zähl-Zeremonie zahlt es im Moment der Zündung,
 	## der Zug meldet es nur noch als Summe (siehe plan_activation_money).
 	var activation_money: int = 0
+	## Trinkgeld der Krits (Trinkgeldglas). Wie das Zündungs-Geld nur GEMELDET:
+	## die Zeremonie zahlt es an jedem Einschlag, und nur sie kennt die Krits -
+	## der Aufrufer trägt die Summe aus der Schrittliste ein.
+	var tip_money: int = 0
 	var charge: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
 	## Energie aus Kupfer-Seiten - JE ZÜNDUNG, darum getrennt von charge: nur sie
 	## läuft bei vollem Speicher in Geld über (GameRun.book_copper_charge).
@@ -84,9 +88,10 @@ class TakeReport:
 	var discard_grown: bool = false
 
 	## Das GESAMTE Geld des Zuges - die Zeremonie zahlt activation_money je
-	## Zündung, der Zug bucht money am Ende. Für Bilanzen und Tests.
+	## Zündung und tip_money je Krit, der Zug bucht money am Ende. Für Bilanzen
+	## und Tests.
 	func total_money() -> int:
-		return money + activation_money
+		return money + activation_money + tip_money
 
 ## WÜRFEL-Achse des Slots i: wie oft der ganze Würfel antritt. Der Essenz-Faktor
 ## ist der einzige Faktor, alles andere addiert - die Echo-Kammer auf echo_slot,
@@ -97,11 +102,6 @@ class TakeReport:
 ## gehört zur KOMBINATION (nicht bloß zur gewerteten Menge) - beides für die
 ## Zauberkarte, die nur die Kombinationswürfel meint.
 static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false) -> int:
-	# Sternschnuppe: gedeckelt auf genau EINEN Antritt. Der Deckel sitzt in BEIDEN
-	# Achsen-Funktionen, damit Wertung, Nehmen, Pointer-Wurf und die Gold-
-	# Vorabzählung dieselbe Zahl sehen.
-	if EssenceEffects.caps_triggers_of(essence_ids, charm_ids):
-		return 1
 	var count := EssenceEffects.activation_factor_of(essence_ids, charm_ids, is_stress)
 	if i == echo_slot:
 		count += CharmEffects.echo_retriggers(charm_ids)
@@ -114,9 +114,7 @@ static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int =
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -
 ## Retrigger-Charms auf value (Hasenpfote & Co.), extra für das Nachglühen
 ## (RuneEffects.extra_activations). value ist der VERWANDELTE Wert.
-static func face_trigger_count(value: int, charm_ids: Array[String], extra: int = 0, essence_ids: Array[String] = []) -> int:
-	if EssenceEffects.caps_triggers_of(essence_ids, charm_ids):
-		return 1
+static func face_trigger_count(value: int, charm_ids: Array[String], extra: int = 0, _essence_ids: Array[String] = []) -> int:
 	return maxi(1, 1 + CharmEffects.retrigger_count(value, charm_ids) + extra)
 
 ## Zündungen der oberen Seite insgesamt: die beiden Achsen MULTIPLIZIEREN sich.
@@ -238,9 +236,13 @@ static func shrink_value(value: int, step: int, floor_value: int) -> int:
 ## obere Seite - dieselbe Folge wie apply_take_effects. Stickstoff (Essenz) und
 ## Einbrand (Rune dieser Seite) schützen vor jedem Verlust, ihr Glas schrumpft
 ## also nicht.
+## essence_repeat: wie oft die SEELE wirkt (Manometer) - nur ihr Wachstum läuft
+## mehrfach, Knochen und Glas bleiben einfach.
+## clause_growth: die Kaltverfestigung, ein Knochen auf Zeit - sie legt auf JEDE
+## Zündung ihr Auge obendrauf, gleich was sonst auf der Seite sitzt.
 static func mutate_value_once(value: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rune_ids: Array[String] = []) -> int:
+		rune_ids: Array[String] = [], essence_repeat: int = 1, clause_growth: int = 0) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
 		# Härteofen: das Wachstum ist eine Auszahlung und läuft veredelt doppelt.
@@ -250,20 +252,24 @@ static func mutate_value_once(value: int, face_material: String,
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
 	# Das Essenz-Wachstum reitet auf dem SCHON gewandelten Wert - der Druckkessel
 	# rechnet prozentual, also muss die Zahl stimmen, auf die er fällt.
-	return result + EssenceEffects.face_growth_of(essence_ids, charm_ids, result)
+	for _r in maxi(1, essence_repeat):
+		result += EssenceEffects.face_growth_of(essence_ids, charm_ids, result)
+	return result + maxi(0, clause_growth)
 
 ## Wertwandel EINER Glied-Zündung: wie mutate_value_once, aber OHNE das
 ## Essenz-Wachstum und ohne den Einbrand-Schutz - ein Glied ist eine fremde
 ## Seite, kein Aufblähen der Schale. Einzige Quelle, damit der eingefrorene
 ## Pointer-Wurf und apply_take_effects nie auseinanderlaufen.
-static func mutate_link_value_once(value: int, face_material: String, charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = []) -> int:
+static func mutate_link_value_once(value: int, face_material: String, charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [], clause_growth: int = 0) -> int:
 	var result := value
 	if face_material == DieMaterial.BONE:
 		for _r in payoff_repeats(level, charm_ids):
 			result = grow_bone_value(result, level, charm_ids, bone_trigger_count(charm_ids))
 	if face_material == DieMaterial.GLASS and not EssenceEffects.protects_face_value_of(essence_ids):
 		result = shrink_value(result, _glass_step(result, level), glass_floor_for(charm_ids))
-	return result
+	# Die Kaltverfestigung greift auch am Glied - eine gezündete Seite ist eine
+	# gezündete Seite.
+	return result + maxi(0, clause_growth)
 
 ## Verliert diese Seite überhaupt Wert? Stickstoff schützt den ganzen Würfel,
 ## der Einbrand nur seine eigene Seite.
@@ -302,14 +308,29 @@ static func spread_miasma_once(running: Array[int], slot: int, scored: Array[int
 			running[other] += amount
 	return amount
 
+## Bestrahlung auf die LAUFENDEN Werte einer Hand: Schwester der Ansteckung, nur
+## ins Positive - der Strahler gibt ab, ohne selbst zu verlieren, und niemand ist
+## davor geschützt (Schutz wehrt Verluste ab). repeat = wie oft die Seele wirkt
+## (Manometer). Liefert den je Empfänger gutgeschriebenen Betrag.
+static func spread_radon_once(running: Array[int], slot: int, scored: Array[int],
+		essence_ids: Array[String], charm_ids: Array[String], repeat: int = 1) -> int:
+	var amount := EssenceEffects.radon_eye_gift(essence_ids, charm_ids) * maxi(1, repeat)
+	if amount <= 0:
+		return 0
+	for other in scored:
+		if other != slot and other >= 0 and other < running.size():
+			running[other] += amount
+	return amount
+
 ## Endwert der oberen Seite nach activations Auslösungen - genau der Wert, den
 ## apply_take_effects in die Def schreibt (per Test abgesichert).
 static func value_after_activations(value: int, activations: int, face_material: String,
 		charm_ids: Array[String], level: int = 1, essence_ids: Array[String] = [],
-		rune_ids: Array[String] = []) -> int:
+		rune_ids: Array[String] = [], essence_repeat: int = 1, clause_growth: int = 0) -> int:
 	var result := value
 	for _a in maxi(0, activations):
-		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rune_ids)
+		result = mutate_value_once(result, face_material, charm_ids, level, essence_ids, rune_ids,
+			essence_repeat, clause_growth)
 	return result
 
 ## Basis-Boni der beteiligten Träger über ALLE Aktivierungen (Vorschau/Tests);
@@ -361,7 +382,7 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## combination ist die engere Menge der Kombinationswürfel - leer heißt "beide
 ## gleich", was ohne diese beiden Erweiterungen immer stimmt. Nur die Zauberkarte
 ## fragt nach ihr.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}, hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = []) -> TakeReport:
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}, hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0) -> TakeReport:
 	var combo_slots := participating if combination.is_empty() else combination
 	# Die GEZEIGTEN Werte und der Schluss der Reihe: beide Achsen müssen exakt so
 	# gezählt werden wie in der Wertung (Lichtsäule liest Gleichzahlen, das
@@ -407,12 +428,13 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
 			participating.size(), tail_slot, is_first_hand, combo_slots.has(i))
 		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
+		# Manometer: wie oft die SEELE dieses Würfels wirkt (Wachstum, Geld, Glieder).
+		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		var fires: Array = pointer_fires.get(i, [])
 
-		# Zyanidgas laugt die eigene Schale aus: je ZUG einmal, nie je Auslösung.
-		# Das Scheidewasser greift dazu die Gold-Seiten der Mitwürfel an.
-		report.money += EssenceEffects.gold_face_money_of(essence_ids, defs[i].materials, charm_ids,
-			_foreign_gold_faces(defs, participating, i))
+		# Schwarzlicht zahlt je ZUG und hängt an keiner Zündung - es bleibt hier.
+		# (Das Zyanidgas hängt seit dem Umzug an der ersten Zündung des Würfels,
+		# siehe plan_activation_money.)
 		report.money += EssenceEffects.bare_die_money_of(essence_ids, bare_dice, charm_ids,
 			round_bare_dice + bare_dice)
 
@@ -432,15 +454,17 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				if copper_once > 0:
 					report.copper_charge += copper_once
 					report.copper.append(i)
-				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rune_ids)
+				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 				# Strahlungsdruck bläht die GANZE Schale: die obere Seite ist über
 				# mutate_value_once schon gewachsen, die übrigen fünf folgen je
 				# Zündung - jede auf IHREM Wert, der Druckkessel rechnet prozentual.
-				swelled = _swell_other_faces(defs[i], face, essence_ids, charm_ids) or swelled
+				swelled = _swell_other_faces(defs[i], face, essence_ids, charm_ids, essence_repeat) or swelled
 				# Ansteckung an genau dieser Stelle - dieselbe wie in der Wertung.
 				_infect_from(defs, face_indices, participating, i, face, essence_ids, rune_ids, charm_ids, report)
+				# ...und direkt danach die Bestrahlung, in derselben Folge wie dort.
+				_irradiate_from(defs, face_indices, participating, i, essence_ids, charm_ids, report, essence_repeat)
 			for fire in (fires[t] if t < fires.size() else []):
-				_fire_link(defs[i], int(fire["face"]), charm_ids, essence_ids, report, i)
+				_fire_link(defs[i], int(fire["face"]), charm_ids, essence_ids, report, i, clause_growth)
 		if defs[i].faces[face] > before:
 			report.grown.append(i)
 		elif defs[i].faces[face] < before:
@@ -453,8 +477,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# lässt die Kehrseite zweimal zünden (det_link_fire_count).
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
 				defs[i].runes_on(face), charm_ids):
-			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids):
-				_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i)
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
+				_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i, clause_growth)
 
 		# Kontrastmittel: das Röntgenlicht belichtet die Achse durch - obere Seite
 		# halbiert, Gegenseite verdreifacht, beides dauerhaft.
@@ -520,18 +544,26 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
 			participating.size(), tail_slot, hands_taken == 0, combo_slots.has(i))
 		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
+		# Manometer: das SEELEN-Geld zahlt mehrfach, das Gold der Seite nicht.
+		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		# Je Zündung derselbe Betrag: Gold hängt am ZUSTAND der Seite, das Seelen-
 		# Geld an ihrem Wert bei Zugbeginn - beides wandert innerhalb des Zuges nicht.
 		var per_firing := gold_money_once_for(face_material, face_level(defs[i], face), gold_surplus, gold_triggers, charm_ids) \
-			+ EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size())
+			+ EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * essence_repeat
+		# Zyanidgas laugt die eigene Schale aus: je ZUG einmal, also an der ERSTEN
+		# Zündung dieses Würfels - dort sieht man es aus ihm herauskommen. Das
+		# Scheidewasser greift dazu die Gold-Seiten der Mitwürfel an.
+		var cyanide := EssenceEffects.gold_face_money_of(essence_ids, defs[i].materials, charm_ids,
+			_foreign_gold_faces(defs, participating, i)) * essence_repeat
 		var fires: Array = pointer_fires.get(i, [])
 		var groups: Array[Dictionary] = []
 		var total := 0
 		for t in die_triggers:
 			var firings: Array[int] = []
-			for _f in face_triggers:
-				firings.append(per_firing)
-				total += per_firing
+			for f in face_triggers:
+				var amount := per_firing + (cyanide if t == 0 and f == 0 else 0)
+				firings.append(amount)
+				total += amount
 			var links: Array[int] = []
 			for fire in (fires[t] if t < fires.size() else []):
 				var fired := _link_money(defs[i], int(fire["face"]), charm_ids, gold_surplus, gold_triggers)
@@ -540,7 +572,7 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 			groups.append({"firings": firings, "links": links})
 		var det_links: Array[int] = []
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids, rune_ids, charm_ids):
-			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids):
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
 				var det := _link_money(defs[i], link_face, charm_ids, gold_surplus, gold_triggers)
 				det_links.append(det)
 				total += det
@@ -579,15 +611,16 @@ static func _link_money(def: DieDefinition, link_face: int, charm_ids: Array[Str
 
 ## Die übrigen fünf Seiten unter Strahlungsdruck - jede wächst auf IHREM eigenen
 ## Wert (der Druckkessel rechnet prozentual). true, wenn wirklich etwas gewachsen ist.
-static func _swell_other_faces(def: DieDefinition, up_face: int, essence_ids: Array[String], charm_ids: Array[String]) -> bool:
+static func _swell_other_faces(def: DieDefinition, up_face: int, essence_ids: Array[String], charm_ids: Array[String], essence_repeat: int = 1) -> bool:
 	var swelled := false
 	for other_face in def.faces.size():
 		if other_face == up_face:
 			continue
-		var growth := EssenceEffects.all_faces_growth_of(essence_ids, charm_ids, def.faces[other_face])
-		if growth > 0:
-			def.faces[other_face] += growth
-			swelled = true
+		for _r in maxi(1, essence_repeat):
+			var growth := EssenceEffects.all_faces_growth_of(essence_ids, charm_ids, def.faces[other_face])
+			if growth > 0:
+				def.faces[other_face] += growth
+				swelled = true
 	return swelled
 
 ## Gold-Seiten aller ANDEREN gewerteten Würfel (Scheidewasser zählt sie).
@@ -634,6 +667,26 @@ static func _infect_from(defs: Array[DieDefinition], face_indices: Array[int], p
 	if amount <= 0:
 		return
 	defs[slot].faces[face] -= miasma_self_loss(amount, charm_ids)
+	for other in participating:
+		if other == slot or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
+			continue
+		var other_face: int = face_indices[other]
+		if other_face < 0 or other_face >= defs[other].faces.size():
+			continue
+		defs[other].faces[other_face] += amount
+		if not report.grown.has(other):
+			report.grown.append(other)
+
+## Bestrahlung EINER Zündung auf die Defs: die oberen Seiten aller ANDEREN
+## gewerteten Würfel wachsen dauerhaft. Gegenstück zu _infect_from und an
+## derselben Stelle - nur gibt der Strahler nichts von sich her, und geschützt
+## ist niemand (Schutz wehrt Verluste ab, kein Wachstum).
+static func _irradiate_from(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int],
+		slot: int, essence_ids: Array[String], charm_ids: Array[String], report: TakeReport,
+		repeat: int = 1) -> void:
+	var amount := EssenceEffects.radon_eye_gift(essence_ids, charm_ids) * maxi(1, repeat)
+	if amount <= 0:
+		return
 	for other in participating:
 		if other == slot or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
 			continue
@@ -718,7 +771,7 @@ static func _rectify_faces(defs: Array[DieDefinition], face_indices: Array[int],
 ## Zustand (nie dem der oberen). Ein Glied kann mehrfach zünden - dann wandert
 ## der Wert Zündung für Zündung weiter, wie der eingefrorene Wurf ihn gezählt
 ## hat. Das Gold des Glieds zahlt der Plan, nicht diese Buchung.
-static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[String], essence_ids: Array[String], report: TakeReport, slot: int) -> void:
+static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[String], essence_ids: Array[String], report: TakeReport, slot: int, clause_growth: int = 0) -> void:
 	if def == null or link_face < 0 or link_face >= def.faces.size():
 		return
 	var link_material: String = def.materials[link_face] if link_face < def.materials.size() else ""
@@ -729,7 +782,7 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 		report.copper_charge += copper_once
 		report.copper.append(slot)
 	var before: int = def.faces[link_face]
-	def.faces[link_face] = mutate_link_value_once(before, link_material, charm_ids, link_level, essence_ids)
+	def.faces[link_face] = mutate_link_value_once(before, link_material, charm_ids, link_level, essence_ids, clause_growth)
 	if def.faces[link_face] > before and not report.grown.has(slot):
 		report.grown.append(slot)
 	elif def.faces[link_face] < before and not report.shrunk.has(slot):
@@ -807,11 +860,12 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 				var fired: int = int(fire["face"])
 				if fired < defs[i].materials.size() and defs[i].materials[fired] == DieMaterial.GOLD:
 					triggers += 1
+		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
 				defs[i].runes_on(face), charm_ids):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += EssenceEffects.det_link_fire_count(face, link_face,
-					defs[i].runes_on(face), charm_ids)
+					defs[i].runes_on(face), charm_ids) * essence_repeat
 	return triggers
 
 ## Nackter Wachstumsschritt einer Knochen-Seite: normal +2, veredelt mind. +10

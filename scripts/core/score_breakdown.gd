@@ -36,6 +36,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var is_stress := bool(ctx.get(DiceScoring.CTX_STRESS, false))
 	# Reihen-Ordnung = die aufgereihte Reihe (wertungsrelevant, siehe trigger_order).
 	var eye_slots: Array[int] = shape["order"]
+	# Kaltverfestigung: hand-weit wie in DiceScoring.
+	var clause_growth := DiceScoring.clause_growth_in(ctx)
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
@@ -125,6 +127,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				hands_taken == 0, participating.has(i))
 			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
+		# Manometer: wie oft die SEELE wirkt - Krit, Wachstum und Glieder.
+		var essence_repeat := EssenceEffects.essence_repeat_count(i, eye_slots, essences, charm_ids)
 		# Würfelgebundene Charms dieses Slots: Betrag JE Zündung, weil der laufende
 		# Wert ihn trägt. Die Kopfzeile des Schritts nennt die erste Zündung.
 		var charm_base_once := 0
@@ -149,7 +153,6 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			for f in (face_count if t < die_count else 0):
 				var shown := DiceScoring.shown_value(running_values[i], charm_ids, essence_ids)
 				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
-					+ EssenceEffects.foreign_eye_bonus(i, scored, essences, charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
 					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
@@ -230,18 +233,21 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					firedamp_add += firedamp
 					mult *= mat_crit_now
 					crit_once *= mat_crit_now
-					crit_steps.append(_crit_step(mat_crit_now, -1, firedamp, base, mult))
+					crit_steps.append(_crit_step(mat_crit_now, -1, firedamp, base, mult, charm_ids))
 				# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR sich.
 				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
 					wild_eyes if i == wild else 0, charm_ids, charge,
-					DiceScoring.first_scoring_for(ctx, i), volcanic)
-				if not is_equal_approx(essence_crit, 1.0):
+					DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+				# Manometer: je Wiederholung ein EIGENER Schlag, nie einer im Quadrat.
+				for _e in essence_repeat:
+					if is_equal_approx(essence_crit, 1.0):
+						break
 					crits += 1
 					base += firedamp
 					firedamp_add += firedamp
 					mult *= essence_crit
 					crit_once *= essence_crit
-					crit_steps.append(_crit_step(essence_crit, -1, firedamp, base, mult))
+					crit_steps.append(_crit_step(essence_crit, -1, firedamp, base, mult, charm_ids))
 				var crit_indices_now: Array[int] = []
 				for j in charm_ids.size():
 					var cx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
@@ -253,7 +259,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					mult *= cx
 					crit_once *= cx
 					crit_indices_now.append(j)
-					crit_steps.append(_crit_step(cx, j, firedamp, base, mult))
+					crit_steps.append(_crit_step(cx, j, firedamp, base, mult, charm_ids))
 				if first_firing:
 					step_crit = crit_once
 					crit_charm_indices = crit_indices_now
@@ -269,7 +275,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				# physischen Bereich, "value" ist die GEZÄHLTE (gezeigte) Zahl.
 				entry["value_before"] = running_values[i]
 				if has_die_bonus:
-					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids)
+					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 					# Ansteckung an derselben Stelle wie in DiceScoring: der Miasma-
 					# Würfel gibt jetzt ab, die Mitwürfel tragen es in ihre nächste Zündung.
 					var spread := MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
@@ -283,6 +289,16 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 							if other != i:
 								recipients.append(other)
 						entry["miasma_recipients"] = recipients
+					# Bestrahlung an derselben Stelle wie in DiceScoring: das Radon
+					# schiebt Augen auf jeden anderen gewerteten Würfel - dauerhaft.
+					var radon := MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
+					if radon > 0:
+						entry["radon_amount"] = radon
+						var irradiated: Array[int] = []
+						for other in scored:
+							if other != i:
+								irradiated.append(other)
+						entry["radon_recipients"] = irradiated
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running_values[i]
@@ -290,7 +306,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.
 			var links: Array[Dictionary] = []
-			for link in (DiceScoring.pointer_fires_at(ctx, i, t) if t < die_count else DiceScoring.det_links_for(ctx, i)):
+			for link in (DiceScoring.pointer_fires_at(ctx, i, t) if t < die_count else DiceScoring.repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)):
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))
@@ -348,7 +364,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					link_firedamp += firedamp
 					mult *= link_mat_crit
 					link_crit *= link_mat_crit
-					link_crit_steps.append(_crit_step(link_mat_crit, -1, firedamp, base, mult))
+					link_crit_steps.append(_crit_step(link_mat_crit, -1, firedamp, base, mult, charm_ids))
 				var link_crit_indices: Array[int] = []
 				if has_die_bonus:
 					for j in charm_ids.size():
@@ -361,7 +377,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 						mult *= lx
 						link_crit *= lx
 						link_crit_indices.append(j)
-						link_crit_steps.append(_crit_step(lx, j, firedamp, base, mult))
+						link_crit_steps.append(_crit_step(lx, j, firedamp, base, mult, charm_ids))
 				link_entry["crit_steps"] = link_crit_steps
 				link_entry["crit_charm_indices"] = link_crit_indices
 				link_entry["crit_x"] = link_crit
@@ -404,7 +420,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored)
 		# Krit: eigener Hook, wirkt im Schritt als Mult-Faktor; crit_x bleibt
 		# separat sichtbar, damit die UI Krits inszenieren kann.
-		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key)
+		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
 		var firedamp_add := 0
 		if not is_equal_approx(crit_x, 1.0):
 			crits += 1
@@ -433,6 +449,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_after": base, "mult_after": mult,
 			"spotlight": spotlight,
 			"fee": fee,
+			# Trinkgeldglas: auch der statische Krit zahlt seinen ×-Wert bar.
+			"tip_money": CharmEffects.tip_money(crit_x, charm_ids),
 		}
 		# Hand-Charms mit Würfel-Bezug (Schlangenaugen, Zwillingsring) fächern
 		# ihren Beitrag in Einzel-Pulse auf, damit die Animation je Würfel einen
@@ -515,6 +533,26 @@ static func attach_activation_money(breakdown: Dictionary, plan: Dictionary) -> 
 			_assign_money(trigger["links"], group["links"])
 		_assign_money(step.get("det_links", []), entry["det_links"])
 
+## Das gesamte Trinkgeld einer Hand: die Summe aller "tip_money" der Schrittliste.
+## NUR eine Bilanz - gebucht wird jedes Paket bei seiner Ankunft, und zwar genau
+## dort, wo sein Krit einschlägt.
+static func tip_money_total(breakdown: Dictionary) -> int:
+	var total := 0
+	for step: Dictionary in breakdown.get("die_steps", []):
+		for group: Dictionary in step.get("die_triggers", []):
+			total += _tip_in(group["firings"]) + _tip_in(group["links"])
+		total += _tip_in(step.get("det_links", []))
+	for step: Dictionary in breakdown.get("charm_steps", []):
+		total += int(step.get("tip_money", 0))
+	return total
+
+static func _tip_in(entries: Array) -> int:
+	var total := 0
+	for entry: Dictionary in entries:
+		for crit: Dictionary in entry.get("crit_steps", []):
+			total += int(crit.get("tip_money", 0))
+	return total
+
 static func _assign_money(entries: Array, amounts: Array) -> void:
 	for k in mini(entries.size(), amounts.size()):
 		entries[k]["money"] = int(amounts[k])
@@ -528,7 +566,7 @@ static func _merge_indices(into: Array[int], extra: Array[int]) -> void:
 
 ## Ein einzelner Krit-Schlag einer Zündung. charm_index < 0 = der Schlag kommt vom
 ## Würfel selbst (Material, Essenz) und hat kein Dock-Pad, aus dem er fliegen könnte.
-static func _crit_step(crit_x: float, charm_index: int, firedamp_add: int, base_after: int, mult_after: float) -> Dictionary:
+static func _crit_step(crit_x: float, charm_index: int, firedamp_add: int, base_after: int, mult_after: float, charm_ids: Array[String] = []) -> Dictionary:
 	var indices: Array[int] = []
 	if charm_index >= 0:
 		indices.append(charm_index)
@@ -539,6 +577,9 @@ static func _crit_step(crit_x: float, charm_index: int, firedamp_add: int, base_
 		"firedamp_add": firedamp_add,
 		"base_after": base_after,
 		"mult_after": mult_after,
+		# Trinkgeldglas: der Einschlag zahlt seinen ×-Wert bar. NUR gemeldet - die
+		# Zeremonie bucht ihn Paket für Paket bei Ankunft.
+		"tip_money": CharmEffects.tip_money(crit_x, charm_ids),
 	}
 
 ## EINE Formatregel für jede gedruckte Mult-Zahl, seit Krits Bruchzahlen sein

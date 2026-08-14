@@ -193,6 +193,21 @@ func open() -> void:
 	if not sortiment_locked or spreads.is_empty():
 		spreads = [_build_spread()]
 		current_spread_index = 0
+	_relayout_and_show()
+
+## Wieder-Eintritt über den Hub-Knopf: dieselbe Auslage, NICHTS wird neu gewürfelt.
+## Gekaufte Ware bleibt weg, die Seite bleibt stehen - der Laden ist derselbe, der
+## Spieler geht nur noch einmal hinein. Ohne Auslage (Laden nie offen gewesen)
+## rollt er wie beim ersten Öffnen.
+func reopen() -> void:
+	_build_layout()
+	if spreads.is_empty():
+		spreads = [_build_spread()]
+		current_spread_index = 0
+	_relayout_and_show()
+
+## Die stehende Auslage zeigen - der gemeinsame Schluss von open() und reopen().
+func _relayout_and_show() -> void:
 	current_spread_index = clampi(current_spread_index, 0, spreads.size() - 1)
 	_show_spread()
 	visible = true
@@ -401,14 +416,14 @@ func _build_spread() -> MenuSpread:
 	spread.dice_pack_bought.resize(spread.dice_packs.size())
 	spread.dice_pack_bought.fill(false)
 
-	# Besitz sperrt NICHTS: denselben Charm darf man mehrfach besitzen - er wiegt
-	# beim Ziehen nur halb so viel (Charm.OWNED_WEIGHT_FACTOR). Nur innerhalb EINER
-	# Doppelseite kommt jeder Archetyp höchstens einmal vor - darum wird ohne
-	# Zurücklegen aus available gezogen (erase unten).
+	# Besitz SPERRT: was im Dock steht, liegt nicht noch einmal aus - wie im
+	# Schwarzmarkt. Nur innerhalb EINER Doppelseite kommt jeder Archetyp ohnehin
+	# höchstens einmal vor (ohne Zurücklegen, erase unten).
 	# Essenz-Charms liegen nur aus, wenn ihre Seele wirklich im Pool steckt -
 	# ohne den Würfel wären sie tote Karten und verdünnten den Topf.
-	var available := Charm.offerable(Charm.all(), run.owned_essence_ids(), run.charm_offer_features())
 	var owned := run.owned_charm_ids()
+	var available := _without_owned(
+		Charm.offerable(Charm.all(), run.owned_essence_ids(), run.charm_offer_features()), owned)
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := run.shop_rarity_tier()
 	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
@@ -468,6 +483,16 @@ func _roll_dice_packs(count: int) -> Array[Pack]:
 	for template in DiceOffer.pick_templates(count):
 		packs.append(Pack.dice_pack(template))
 	return packs
+
+## Ohne die schon besessenen Archetypen. Ein LEERES Ergebnis fällt auf den vollen
+## Topf zurück - ein leerer Platz wäre schlimmer als eine Dublette (dieselbe
+## Erschöpfungs-Regel wie im Schwarzmarkt).
+func _without_owned(pool: Array[Charm], owned: Array[String]) -> Array[Charm]:
+	var out: Array[Charm] = []
+	for charm in pool:
+		if not owned.has(charm.id):
+			out.append(charm)
+	return out if not out.is_empty() else pool
 
 ## Charms mit mindestens der zur Raritäts-Stufe passenden Seltenheit; fällt bei
 ## leerem Ergebnis schrittweise auf die nächst-niedrigere Schwelle zurück (nie
