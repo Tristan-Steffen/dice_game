@@ -266,7 +266,7 @@ func test_the_growth_comes_out_of_the_slack_not_out_of_the_nets() -> void:
 	run.clamped_changed.emit()
 	await wait_frames(2)
 	assert_gt(view._content.get_node("BenchSlack").size.y, 0.0,
-		"auch bei sechs Zwingen bleibt Luft über der Konsole")
+		"selbst bei sechs Netzen - mehr als die Aufspannung je stellt - bleibt Luft")
 	assert_gt(view.clamp_cell(u), 0.0)
 	assert_lte(view.clamp_cell(u), u * WorkshopView.CLAMP_CELL_MAX,
 		"der Netz-Deckel steht unverändert")
@@ -428,49 +428,34 @@ func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
 	assert_eq(_console().get_global_rect(), console)
 	assert_false(view.shelf_locked(), "und die Bank steht wieder offen")
 
-# --- (e) Von weitem ist die Bank leer ---------------------------------------------
-# Die Würfel der Runde treten erst auf, wenn der Spieler heranfährt. Die SCHÜRZE
-# gehört dem Tisch, nicht dem Blick: sie steht in beiden Zuständen auf demselben
-# Pixel - sonst wanderten Konsole und Buchten bei jedem Zoom.
+# --- (e) Die Bank ist IMMER bestückt ----------------------------------------------
+# Der Blick entscheidet nichts mehr: Netzzeile, Zwingen und Dossier stehen in
+# jedem Kamera-Modus. Nur die PHASE (Paket, Dossier) nimmt die Zeile weg.
 
-func test_without_the_zoom_the_window_stands_empty() -> void:
+func test_the_bench_is_furnished_without_any_camera() -> void:
 	await wait_frames(2)
-	assert_false(view._clamp_nets.is_empty(), "an der Bank steht die Netzzeile")
-	view.bench_focused = false
-	await wait_frames(2)
-	assert_true(view._clamp_nets.is_empty(), "von weitem ist das Fenster leer")
-	assert_true(view._clamp_stage_hosts.is_empty(), "und keine Bühne trägt einen Würfel")
-	assert_false(view.clamps_on_bench(),
-		"also steht die Aufspannung auch nicht - ihre Würfel liegen im Tray")
+	assert_false(view._clamp_nets.is_empty(), "die Netzzeile steht")
+	assert_false(view._clamp_stage_hosts.is_empty(), "und je Zwinge eine Bühne")
+	assert_true(view.clamps_on_bench(), "die Aufspannung steht auf der Grundseite")
 
-func test_the_apron_never_moves_with_the_zoom() -> void:
+func test_only_the_phase_takes_the_net_row_away() -> void:
 	await wait_frames(2)
-	var segments := _segment_rects()
-	var slits := _slit_rects()
-	var seat := _seat_rect()
-	view.bench_focused = false
+	assert_true(view.open_inspect(run.owned_pool[0]))
 	await wait_frames(2)
-	_assert_same_segments(segments, _segment_rects(), "ohne Zoom")
-	_assert_same_slits(slits, _slit_rects(), "ohne Zoom")
-	assert_eq(_seat_rect(), seat, "und der Handlungs-Sitz steht, wo er stand")
-	view.bench_focused = true
+	assert_false(view.clamps_on_bench(), "das Dossier nimmt das Fenster")
+	view.close_inspect()
 	await wait_frames(2)
-	_assert_same_segments(segments, _segment_rects(), "zurück an der Bank")
-	_assert_same_slits(slits, _slit_rects(), "zurück an der Bank")
-	assert_eq(_seat_rect(), seat)
+	assert_true(view.clamps_on_bench(), "danach kommen sie zurück")
 
-func test_a_dossier_shows_itself_only_at_the_bench() -> void:
-	# Die Seite bleibt aufgeschlagen - sie zeigt sich nur nicht. Und ohne gezeigten
-	# Würfel liegt auch er wieder in seinem Sitz (inspected_die ist die Auskunft,
-	# an der scene_root Bühne und Tray-Lücke hängt).
+func test_a_dossier_stands_until_it_is_closed() -> void:
+	# Es überdauert jeden Kamera-Ausflug - dieselbe Grammatik wie die Platzierung.
 	var die := run.owned_pool[3]
 	assert_true(view.open_inspect(die))
 	await wait_frames(2)
 	assert_eq(view.inspected_die(), die)
-	view.bench_focused = false
+	view.refresh()
 	await wait_frames(2)
-	assert_true(view.inspecting(), "die Seite ist weiter aufgeschlagen")
-	assert_null(view.inspected_die(), "aber nichts von ihr steht auf der Bank")
-	view.bench_focused = true
+	assert_eq(view.inspected_die(), die, "ein Neuaufbau nimmt sie ihm nicht")
+	view.close_inspect()
 	await wait_frames(2)
-	assert_eq(view.inspected_die(), die, "an der Bank steht sie wieder da")
+	assert_null(view.inspected_die(), "erst das Schließen legt ihn zurück")

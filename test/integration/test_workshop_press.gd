@@ -848,23 +848,20 @@ func _assert_columns_spread() -> void:
 		assert_almost_eq(centers[i].x - centers[i - 1].x, step, 1.0, "gleiche Abstände")
 
 func test_the_columns_spread_across_the_whole_window() -> void:
-	# Jede Spalte nimmt ihr N-tel der GANZEN Fensterbreite - und das gilt für zwei
-	# Zwingen wie für sechs.
+	# Jede Spalte nimmt ihr Viertel der GANZEN Fensterbreite.
 	await wait_frames(2)
 	_assert_columns_spread()
 
-func test_a_grown_clamping_spreads_the_same_way() -> void:
+func test_the_highest_licence_spreads_the_same_way() -> void:
 	run.hub_level = 10
 	run.roll_clamped_dice()
 	await wait_frames(2)
-	assert_eq(run.clamp_count(), 6, "die höchste Lizenz spannt sechs auf")
+	assert_eq(run.clamp_count(), 4, "auch die höchste Lizenz spannt vier auf")
 	_assert_columns_spread()
 
-func test_the_net_row_stays_inside_the_window_at_full_clamping() -> void:
-	# Die Netzzeile teilt sich EINE Breite - sechs Spalten müssen darin bleiben,
-	# und der Deckel hält die Zellen davon ab, bei kleiner Aufspannung auszuufern.
-	run.hub_level = 10
-	run.roll_clamped_dice()
+func test_the_net_row_stays_inside_the_window() -> void:
+	# Die Netzzeile teilt sich EINE Breite - alle Spalten müssen darin bleiben,
+	# und der Deckel hält die Zellen davon ab, auszuufern.
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	assert_true(view.clamp_cell(u) <= u * WorkshopView.CLAMP_CELL_MAX + 0.01, "die Zelle ist gedeckelt")

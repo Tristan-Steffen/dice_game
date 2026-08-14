@@ -4,6 +4,10 @@ extends RefCounted
 ## Welcher Wert gezeigt wird, kommt aus der DieDefinition des Slots - die
 ## Physik liefert nur, welche physische Seite oben liegt.
 
+## Was sichtbar in der Grube liegt, hat gewechselt (Wurf, Ablegen, Zurücksetzen).
+## Die Werkbank hängt daran: ein Würfel wird nie zweimal gezeigt.
+signal pit_contents_changed
+
 # Lokale Achsen des Würfelmodells (RigidBody3D-Lokalraum).
 const AXIS_DIRECTIONS := {
 	"OBEN": Vector3.UP,
@@ -172,6 +176,7 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 			randf_range(-spin_strength, spin_strength),
 			randf_range(-spin_strength, spin_strength)
 		))
+	pit_contents_changed.emit()
 
 ## Flugzeit des Wurfbogens; je Würfel wächst sie um THROW_STAGGER, damit die
 ## Würfel NACHEINANDER einschlagen - gleichzeitig ankommende Würfel schoben sich
@@ -286,6 +291,7 @@ func reset() -> void:
 		stuck_timers[i] = 0.0
 		roots[i].visible = false
 		face_displays[i].set_tint(_style_tint(slot_defs[i]))
+	pit_contents_changed.emit()
 
 ## Leert die Schutz-Auswahl (nach jedem Wurf).
 func clear_selection() -> void:
@@ -301,6 +307,21 @@ func set_slot_defs(defs: Array[DieDefinition]) -> void:
 	while slot_defs.size() < count():
 		slot_defs.append(DieDefinition.standard())
 	refresh_faces()
+	pit_contents_changed.emit()
+
+## Wer von außen an roots[i].visible schreibt, meldet es hier - die Grube hat
+## sonst keinen zweiten Weg, ihren Bestand bekanntzugeben.
+func note_pit_changed() -> void:
+	pit_contents_changed.emit()
+
+## Welche Würfel-EXEMPLARE gerade sichtbar in der Grube liegen. Ein Würfel wird
+## nie zweimal gezeigt: wer hier steht, hat auf der Werkbank nichts zu suchen.
+func visible_slot_defs() -> Array[DieDefinition]:
+	var defs: Array[DieDefinition] = []
+	for i in count():
+		if roots[i].visible and slot_defs[i] != null:
+			defs.append(slot_defs[i])
+	return defs
 
 ## Zeichnet die Augenzahlen aller Slots neu aus slot_defs - nötig, sobald ein
 ## liegender Würfel sich ändert (Knochen/Glas beim Nehmen, Materialien). Rein

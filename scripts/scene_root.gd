@@ -107,6 +107,11 @@ const SLOTS_BOTTOM_INSET_WORLD := 7.5
 ## Luft zwischen der gelösten Werkbank-Breite und der rechten Anzeigekante: der
 ## Tisch ist endlich, und ein Fenster, das darüber hinausliefe, wäre halb weg.
 const WORKSHOP_RIGHT_MARGIN := 20.0
+## Aufschlag auf das gelöste Dossier-Verhältnis: die Bank steht bewusst BREITER,
+## als die Dossier-Seite es verlangt (sie behält dafür Restluft), damit Netzzeile
+## und Buchten mehr Bank bekommen. Die Spanne bleibt fest, also fällt die Höhe
+## dabei leicht - der wirkliche Breitengewinn liegt knapp unter dem Faktor.
+const WORKSHOP_WIDTH_FACTOR := 1.35
 ## Abstand der Ecke zur Tray-Reihe in halben Slot-Breiten. tray_bounds umfasst
 ## nur die Slot-MITTEN - unter 1.0 läge die unterste Würfelreihe körperlich auf
 ## der Werkbank. Nach unten braucht es kein Maß mehr: dort endet die Ecke auf der
@@ -445,10 +450,13 @@ var _info_shown_tint: Color = CasinoStyle.CREAM
 ## Zeremonie); ihre Reihenfolge ist die des Werkstatt-Fensters.
 var pack_stages: Array[FloatingDie] = []
 
-## Die sechs Zwingen-Würfel der Runde: sie schweben die GANZE Runde IM
+## Die vier Zwingen-Würfel der Runde: sie schweben die GANZE Runde IM
 ## Werkstatt-Fenster, je einer über seinem Netz und gleich unter dem oberen
 ## Fensterrand. Reihenfolge = run.clamped_dice; ein Platz ohne Würfel bleibt null.
 var clamp_stages: Array[FloatingDie] = []
+## Welche Zwingen-Würfel gerade STATT auf der Bank in der Grube liegen - nur der
+## Wechsel dieser Menge stellt die Bühnen neu (das Signal kommt bei jedem Wurf).
+var _clamp_pit_conflicts: Array[DieDefinition] = []
 
 ## Der Würfel des Dossiers: EIN Körper über der Bühne der Inspektions-Seite
 ## (null = die Seite steht nicht). Sein Sitz im Tray bleibt derweil leer.
@@ -691,6 +699,8 @@ func _setup_dice() -> void:
 		bodies.append(body)
 		face_displays.append(faces)
 	dice = DiceController.new(roots, bodies, face_displays)
+	# Was in der Grube liegt, darf nicht zugleich auf der Werkbank stehen.
+	dice.pit_contents_changed.connect(_on_pit_contents_changed)
 
 	dice_audio = DiceAudio.new()
 	dice_audio.name = "DiceAudio"
@@ -899,7 +909,7 @@ func _setup_table_screen() -> void:
 	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
 	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
 	# Unter der Tray-Reihe beginnt sofort die Werkbank: der Projektor-Streifen auf
-	# dem Filz ist fort, die sechs Zwingen schweben IM Fenster.
+	# dem Filz ist fort, die Zwingen schweben IM Fenster.
 	var workshop_top := tray_bounds.end.y + slot_half * WORKSHOP_TOP_GAP
 	# EINE Maßeinheit für die ganze Werkbank-Ecke, an der TRAY-Breite hängend:
 	# hinge sie an der gewachsenen Fensterbreite, wüchse der Inhalt mit und fräße
@@ -943,20 +953,18 @@ func _setup_table_screen() -> void:
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
 
 	_setup_screen_spill_lights(corner)
-	# Beim Aufbau steht die Kamera über dem Tisch, nicht an der Bank: das Fenster
-	# beginnt leer und füllt sich beim ersten Zoom.
-	_sync_bench_focus()
 
 ## Das Rechteck der Werkbank: linke Kante bündig mit den Trays, obere unter ihnen.
 ## Die Höhe misst nicht mehr das Glas (die ovale Platte ist fort, die Anzeige ist
 ## ihr Rechteck), sondern die SCHÜRZE darunter: von der Hub-Unterkante steigt sie
 ## auf - Buchten, Naht, ganzes Konsolen-Band -, und was bis zur Tray-Reihe übrig
 ## bleibt, ist das Fenster. Die BREITE ist gelöst statt gesetzt: sie ist die, bei
-## der die Dossier-Seite bündig aufgeht (WorkshopView.dossier_aspect). Die Schürze
+## der die Dossier-Seite bündig aufgeht (WorkshopView.dossier_aspect), mal dem
+## Aufschlag WORKSHOP_WIDTH_FACTOR - die Bank steht bewusst breiter. Die Schürze
 ## rechnet in u = Breite/100 und die Breite in der Höhe, also steht die Gleichung
 ## geschlossen da: h * (1 + Schürze_u * Verhältnis/100) = Spanne.
 func _fit_workshop_rect(left: float, top: float, bottom: float) -> Rect2:
-	var aspect := WorkshopView.dossier_aspect()
+	var aspect := WorkshopView.dossier_aspect() * WORKSHOP_WIDTH_FACTOR
 	var apron_units := 0.0
 	if table_screen.workshop_window != null:
 		apron_units = table_screen.workshop_window.apron_units()
@@ -2573,7 +2581,7 @@ func _carry_over_pack_stages(defs: Array[DieDefinition]) -> void:
 	pack_stages = kept
 
 # --- Die Aufspannung auf der Werkbank --------------------------------------------
-# Die sechs Zwingen der Runde stehen als ECHTE Würfel über dem Werkstatt-Fenster
+# Die vier Zwingen der Runde stehen als ECHTE Würfel über dem Werkstatt-Fenster
 # selbst - die ganze Runde lang, durch Spiel und Laden. Unter jedem liegt sein
 # Netz; Spalte UND Zeile nennt das Fenster (clamp_net_centers/clamp_projector_y).
 
@@ -2601,7 +2609,7 @@ func _rebuild_clamp_stages() -> void:
 	# Die Spalten stehen erst nach dem Layout des Fensters fest - und ZWEI Bilder
 	# weit: ändert sich die Spaltenzahl (Hub-Ausbau, neue Aufspannung), hat der
 	# Kasten nach einem Bild erst seine Kinder, aber noch nicht sortiert, und alle
-	# Netze meldeten dieselbe Mitte. Dann stünden sechs Würfel übereinander.
+	# Netze meldeten dieselbe Mitte. Dann stünden alle Würfel übereinander.
 	var launched := run
 	await get_tree().process_frame
 	if not is_instance_valid(workshop) or run != launched or run == null:
@@ -2610,11 +2618,20 @@ func _rebuild_clamp_stages() -> void:
 	if not is_instance_valid(workshop) or run != launched or run == null:
 		return
 	var centers := workshop.clamp_net_centers()
+	var in_pit: Array[DieDefinition] = []
+	if dice != null:
+		in_pit = dice.visible_slot_defs()
 	var fresh := 0
 	for i in mini(mini(clamp_stages.size(), centers.size()), defs.size()):
 		var target := _bench_hover_target(
 			Vector2(centers[i].x, workshop.clamp_projector_y()), CLAMP_HOVER)
 		var stage: FloatingDie = clamp_stages[i]
+		# Sein Körper liegt gerade in der Grube: die Zwinge bleibt leer, bis er
+		# von dort verschwindet - ein Würfel wird nie zweimal gezeigt.
+		if in_pit.has(defs[i]):
+			if stage != null and is_instance_valid(stage) and stage.visible:
+				stage.dematerialize()
+			continue
 		if stage != null and is_instance_valid(stage):
 			if stage.visible:
 				if not stage.stands_at(target):
@@ -2633,6 +2650,22 @@ func _rebuild_clamp_stages() -> void:
 		stage.materialize(float(fresh) * CLAMP_MATERIALIZE_STAGGER)
 		fresh += 1
 		clamp_stages[i] = stage
+
+## Der Grubenbestand hat gewechselt: eine Zwinge, deren Würfel jetzt dort liegt,
+## tritt von der Bank ab; wer aus der Grube verschwunden ist, geht wieder auf.
+## Verglichen wird in der Ordnung von clamped_dice, damit ein Neuwurf ohne
+## wirkliche Änderung keinen Aufbau anstößt.
+func _on_pit_contents_changed() -> void:
+	var conflicts: Array[DieDefinition] = []
+	if run != null and dice != null:
+		var in_pit := dice.visible_slot_defs()
+		for die in run.clamped_dice:
+			if in_pit.has(die):
+				conflicts.append(die)
+	if conflicts == _clamp_pit_conflicts:
+		return
+	_clamp_pit_conflicts = conflicts
+	_rebuild_clamp_stages()
 
 ## Die Zwingen treten ab (ein Paket nimmt das Fenster): sie schrumpfen an Ort und
 ## Stelle und werden unsichtbar - damit sind sie zugleich für jedes Zeigen taub.
@@ -5084,9 +5117,10 @@ func _pool_tray_source() -> Array[DieDefinition]:
 ## REINE Anzeige: gezogen, geworfen und gewertet wird er wie jeder andere, und die
 ## Warteschlange (Grube) zeigt ihn weiter.
 func _tray_shows(def: DieDefinition) -> bool:
-	# Ein Würfel fehlt im Tray genau dann, wenn er WIRKLICH auf der Bank steht -
-	# die Werkbank selbst gibt darüber Auskunft (clamps_on_bench: nicht im Paket,
-	# nicht im Dossier und nur im Zoom). Von weitem liegt der ganze Pool im Tray.
+	# Ein Würfel fehlt im Tray genau dann, wenn die Bank ihn beansprucht - die
+	# Werkbank selbst gibt darüber Auskunft (clamps_on_bench: nicht im Paket, nicht
+	# im Dossier). Der Sitz bleibt auch dann leer, wenn der Körper gerade in der
+	# Grube liegt: die Zwinge behält ihn, sie zeigt ihn nur nicht doppelt.
 	var clamped: Array[DieDefinition] = []
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if run != null and workshop != null and is_instance_valid(workshop) \
@@ -7924,7 +7958,6 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
-	_sync_bench_focus()
 	_sync_screen_reflection()
 	# Wer aus dem Laden in die Grube fährt, hat "Fertig" gemeint: der Laden macht
 	# zu und die neue Runde steht - sonst säße der Spieler vor gesperrten Knöpfen.
@@ -7944,25 +7977,6 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# Übertaktet wird nur vor den Chips - und dort jederzeit.
 	_sync_combo_upgrade_buttons()
 	_update_gameplay_ui_visibility()
-
-## Die Werkbank tritt erst auf, wenn der Spieler an ihr steht: außerhalb ihres
-## Zooms bleibt das Fenster leer, die Aufspannung liegt derweil in ihren eigenen
-## Tray-Sitzen. Die Schürze (Konsole, Buchten) steht unberührt weiter - sie
-## gehört dem Tisch, nicht dem Blick. Der Kamera-Modus ist die EINE Quelle;
-## gerufen wird auch bei gleichbleibendem Modus (die Nahsicht meldet sich so),
-## also bleibt die Prüfung auf den Wechsel hier stehen.
-func _sync_bench_focus() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return
-	var focused := camera_rig.mode == CameraRig.Mode.WORKSHOP
-	if workshop.bench_focused == focused:
-		return
-	workshop.bench_focused = focused
-	if run == null:
-		return
-	_refresh_dice_trays()  # die Sitze der Aufspannung füllen sich bzw. leeren sich
-	_refresh_discard_tray()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel
 ## wandern aus dem Dice-Tray hierher.
@@ -8504,6 +8518,7 @@ func _log_pose_pit(entry: Dictionary) -> void:
 			continue
 		dice.bodies[i].freeze = true
 		dice.tip_to_face(i, int(pit[i].get("face_index", 0)))
+	dice.note_pit_changed()  # auch die gestellte Erinnerung füllt die Grube
 	var rest_y := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
 	var span := PIT_TOP_ROW_SPACING * float(maxi(row.size() - 1, 0))
 	for k in row.size():
@@ -8569,6 +8584,7 @@ func _log_restore_pit() -> void:
 		dice.bodies[i].global_transform = slot["transform"]
 		dice.bodies[i].freeze = bool(slot["freeze"])
 	player_order.assign(_log_pit_mirror.get("player_order", []))
+	dice.note_pit_changed()
 	dice.refresh_faces()
 
 #endregion

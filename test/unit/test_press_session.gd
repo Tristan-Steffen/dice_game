@@ -22,21 +22,19 @@ func before_each() -> void:
 
 func test_a_fresh_run_already_has_its_bank() -> void:
 	assert_eq(run.clamped_dice.size(), run.clamp_count())
-	assert_eq(run.clamp_count(), GameRun.CLAMP_MIN, "Lizenzstufe 1 spannt die kleinste auf")
+	assert_eq(run.clamp_count(), GameRun.CLAMP_COUNT, "und das sind vier")
 
-## Die Aufspannung wächst mit der Lizenz - dieselbe Meilenstein-Folge wie die
-## Reihen des Kondensators, damit ein Ausbau überall gleich klingt.
-func test_the_clamp_count_climbs_with_the_hub_level() -> void:
-	var table := {1: 2, 2: 2, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5, 9: 5, 10: 6, 12: 6}
-	for level: int in table:
+## Die Aufspannung ist FEST: keine Lizenzstufe gibt eine Zwinge dazu.
+func test_the_clamp_count_never_moves_with_the_hub_level() -> void:
+	for level in [1, 2, 3, 5, 7, 10, 12]:
 		run.hub_level = level
-		assert_eq(run.clamp_count(), int(table[level]), "Hub %d" % level)
+		assert_eq(run.clamp_count(), 4, "Hub %d spannt vier auf" % level)
 
 func test_the_draw_takes_exactly_that_many_dice() -> void:
 	for level in [1, 3, 5, 7, 10]:
 		run.hub_level = level
 		run.roll_clamped_dice()
-		assert_eq(run.clamped_dice.size(), run.clamp_count(), "Hub %d zieht seine Zwingen" % level)
+		assert_eq(run.clamped_dice.size(), 4, "Hub %d zieht seine vier Zwingen" % level)
 
 func test_the_bank_holds_distinct_pool_dice() -> void:
 	var seen := {}
@@ -81,43 +79,16 @@ func test_a_redraw_announces_itself() -> void:
 	run.roll_clamped_dice()
 	assert_signal_emitted(run, "clamped_changed")
 
-## Ein Ausbau greift SOFORT: die stehende Aufspannung bekommt ihre neuen Zwingen
-## dazu, die alten bleiben - an ihnen hängt der nasse Guss.
-func test_a_hub_upgrade_extends_the_standing_clamping() -> void:
-	var before: Array[DieDefinition] = run.clamped_dice.duplicate()
-	run.hub_level = 3
-	watch_signals(run)
-	assert_true(run.extend_clamped_dice(), "eine Zwinge kommt dazu")
-	assert_signal_emitted(run, "clamped_changed")
-	assert_eq(run.clamped_dice.size(), run.clamp_count())
-	assert_eq(run.clamped_dice.slice(0, before.size()), before,
-		"die schon eingespannten stehen unverändert vorn")
-	for die in run.clamped_dice:
-		assert_true(run.owned_pool.has(die), "und jede neue kommt aus dem Pool")
-
-func test_the_extension_never_doubles_a_die() -> void:
-	run.hub_level = 10
-	run.extend_clamped_dice()
-	var seen := {}
-	for die in run.clamped_dice:
-		assert_false(seen.has(die.get_instance_id()), "kein Würfel zweimal in den Zwingen")
-		seen[die.get_instance_id()] = true
-
-func test_the_extension_is_a_no_op_without_a_new_level() -> void:
-	var before: Array[DieDefinition] = run.clamped_dice.duplicate()
-	assert_false(run.extend_clamped_dice(), "Stufe 1 spannt schon alles auf, was sie darf")
-	assert_eq(run.clamped_dice, before)
-
-## Der Weg, den der Spieler geht: kaufen - und die neue Zwinge steht sofort da.
-func test_buying_the_licence_grows_the_bank_in_place() -> void:
+## Ein Ausbau rührt die Aufspannung NICHT an - sie ist fest, und an den stehenden
+## Zwingen hängt der nasse Guss.
+func test_buying_the_licence_leaves_the_bank_alone() -> void:
 	run.hub_level = 2
 	run.roll_clamped_dice()
-	var before := run.clamped_dice.size()
+	var before: Array[DieDefinition] = run.clamped_dice.duplicate()
 	run.money = 100000
 	run.upgrade_hub()
 	assert_eq(run.hub_level, 3)
-	assert_eq(run.clamped_dice.size(), before + 1, "die dritte Zwinge steht in derselben Runde")
-	assert_eq(run.clamped_dice.size(), run.clamp_count())
+	assert_eq(run.clamped_dice, before, "dieselben vier stehen unverändert")
 
 # --- Der Preis: die erste Pressung ist frei, dann steigt er ---------------------
 

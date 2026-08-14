@@ -149,11 +149,11 @@ const POCKET_EDGE := 0.22
 const POCKET_RADIUS := 0.7
 ## Kopfhöhe über der Projektor-Zeile: der schwebende Zwingen-Würfel ragt über
 ## seine Bühne hinaus, und in der Nahsicht sitzt die obere Fensterkante exakt am
-## Bildrand - ohne diese Luft schnitte der Rahmen ihm die Oberseite ab. Gemessen,
-## nicht geraten: dort steht die Würfelmitte gut eine Einheit unter dem Rand.
-## (Nachgezogen, als das Fenster für die Schürze kürzer wurde: u schrumpfte mit,
-## der schwebende Würfel nicht - die Luft ist ein Weltmaß, kein Anteil.)
-const CLAMP_HEAD_ROOM := 2.1
+## Bildrand - ohne diese Luft schnitte der Rahmen ihm die Oberseite ab.
+## Zurückgenommen, als das breitere Fenster kürzer wurde: gemessen steht die
+## Würfeloberkante damit noch gut zwei Einheiten unter dem Rand, und die
+## gewonnene Höhe braucht die Ablage unter der Netzzeile.
+const CLAMP_HEAD_ROOM := 1.0
 ## Luft zwischen der Projektor-Bühne und dem Netz darunter: die Aufspannung ist
 ## Bestand und soll über ihren Diagrammen STEHEN, nicht auf ihnen aufliegen.
 ## Gemessen am scheinbaren Würfelmaß der Bank (4,92 u breit): unter der
@@ -199,10 +199,14 @@ const PIECE_FLARE_TIME := 0.45
 ## DIE ABLAGE: die gepressten Stücke liegen als nackte Chips auf dem Glas, im
 ## freien Band unter der Netzzeile. Der Streifen hängt am FENSTER (volle
 ## Inhaltsbreite, Unterkante am Inhaltsrand), nicht am Zeilenfluss - ob zwei oder
-## sechs Zwingen darüber stehen und ob er leer ist oder dreißig Chips trägt,
+## vier Zwingen darüber stehen und ob er leer ist oder dreißig Chips trägt,
 ## ändert keinen Pixel der Grundseite.
-const ABLAGE_STRIP := 17.0
-const ABLAGE_ROWS := 3
+## Höhe und Reihenzahl sind an DIESES Band gemessen: die Netze enden bei 26,8 u,
+## der Inhalt bei 36,3 u - der Streifen füllt den Rest und liegt damit unter den
+## Diagrammen statt auf ihnen. Zwei Reihen à 17 Spalten fassen auch den größten
+## Wurf, weil gleiche Gravuren sich einen Platz teilen.
+const ABLAGE_STRIP := 8.8
+const ABLAGE_ROWS := 2
 const ABLAGE_ROW_GAP := 0.9
 const ABLAGE_CHIP_MAX := 5.4
 ## Spaltenteilung (Vielfaches der Chipkante) und die Streuung um den Rasterplatz -
@@ -290,18 +294,6 @@ var apron_bottom := 0.0:
 var _pending_packs: Dictionary = {}
 ## Ankunfts-Pluster, die noch auf ihre Leiste warten (sie stand gerade nicht).
 var _queued_pops: Array[String] = []
-
-## Steht der Spieler an der Bank? Von weitem ist das Fenster LEER - die Würfel
-## der Runde treten erst auf, wenn er heranfährt (scene_root schiebt den Stand
-## aus dem Kamera-Modus herein). Die Schürze bleibt davon unberührt: Konsole und
-## Buchten sind Möbel, kein Auftritt. Voreingestellt steht die Bank da - ein
-## Prüffenster ohne Tisch hat keine Kamera, die es anders wüsste.
-var bench_focused: bool = true:
-	set(value):
-		if bench_focused == value:
-			return
-		bench_focused = value
-		refresh()
 
 ## Gesperrt, sobald die Runde unterschrieben ist - dasselbe Zeitfenster wie
 ## fürs Gravieren; scene_root schiebt den Stand herein. Die Presse hängt daran
@@ -542,7 +534,7 @@ func _info_body_text() -> String:
 
 ## Baut das Fenster neu und meldet danach, wo die Würfel-Bühnen jetzt liegen -
 ## die ECHTEN Würfel darüber gehören scene_root, nicht diesem Fenster. Das gilt
-## für die Paket-Würfel wie für die sechs Zwingen über ihren Netzen.
+## für die Paket-Würfel wie für die Zwingen über ihren Netzen.
 func refresh() -> void:
 	_refresh_content()
 	die_stages_changed.emit()
@@ -638,12 +630,9 @@ func _free_own(node: Node) -> void:
 # --- Grundseite: Aufspannung und Presse-Plätze ---------------------------------
 
 ## Die Zwingen-Zeile: je Spalte oben die leere Projektor-Bühne, darunter das
-## Würfelnetz ihres Würfels. Jede Spalte nimmt ihr N-tel der GANZEN Fensterbreite -
-## so weit auseinander, wie die Bank hergibt, und das gilt für zwei Zwingen wie
-## für sechs.
+## Würfelnetz ihres Würfels. Jede Spalte nimmt ihr Viertel der GANZEN Fensterbreite -
+## so weit auseinander, wie die Bank hergibt.
 func _build_clamp_row(u: float) -> void:
-	if not bench_focused:
-		return  # von weitem ist die Bank leer - die Zeile entsteht mit dem Zoom
 	var head := Control.new()
 	head.name = "ClampHeadRoom"
 	head.custom_minimum_size = Vector2(0, u * CLAMP_HEAD_ROOM)
@@ -725,11 +714,9 @@ func clamp_cell(u: float) -> float:
 ## lässt sie darum abtreten, statt sie an alten Plätzen stehen zu lassen; im
 ## Dossier hinge eine Zwinge sonst über der Seite, die genau sie zeigt. Pressung
 ## und Platzierung lassen sie STEHEN - sie sind die Ziele.
-## Ohne den Zoom auf die Bank steht sie ebenso wenig - und DIESE Antwort ist
-## zugleich die Lücken-Regel der Trays: ein Würfel fehlt im Tray genau dann,
-## wenn er auf der Bank steht.
+## Die KAMERA fragt hier nicht mit: die Bank ist aus jedem Blickwinkel bestückt.
 func clamps_on_bench() -> bool:
-	return bench_focused and _phase == Phase.STASH
+	return _phase == Phase.STASH
 
 ## Die Würfel der Aufspannung (ohne Lauf leer).
 func _clamped_dice() -> Array[DieDefinition]:
@@ -1758,7 +1745,7 @@ func _glide_ablage(order: Array[int]) -> void:
 ## Gravuren liegt die letzte obenauf und trägt die Zahl). Was noch fliegt, fehlt -
 ## aufgedeckt wird bei der Landung.
 func _build_ablage() -> void:
-	if run == null or run.press_pieces.is_empty() or not bench_focused or _phase != Phase.STASH:
+	if run == null or run.press_pieces.is_empty() or _phase != Phase.STASH:
 		return
 	var host := Control.new()
 	host.name = "Ablage"
@@ -2454,7 +2441,7 @@ func inspecting() -> bool:
 ## Der gezeigte Würfel (null = die Seite steht nicht) - scene_root stellt seinen
 ## ECHTEN Körper über die Bühne und lässt seinen Tray-Sitz leer.
 func inspected_die() -> DieDefinition:
-	return _inspect_die if _phase == Phase.INSPECT and bench_focused else null
+	return _inspect_die if _phase == Phase.INSPECT else null
 
 ## Mitte der Dossier-Bühne in Display-Pixeln (x < 0 = sie steht gerade nicht).
 func inspect_stage_center() -> Vector2:
@@ -2479,8 +2466,8 @@ func inspect_slot(grid_index: int) -> void:
 	refresh()
 
 func _build_inspect(u: float) -> void:
-	if _inspect_die == null or not bench_focused:
-		return  # das Dossier bleibt aufgeschlagen, zeigt sich aber nur an der Bank
+	if _inspect_die == null:
+		return
 	var body := HBoxContainer.new()
 	body.name = "InspectBody"
 	body.add_theme_constant_override("separation", int(u * BODY_GAP))

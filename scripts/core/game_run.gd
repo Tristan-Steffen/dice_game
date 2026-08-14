@@ -20,20 +20,15 @@ signal pending_dice_changed
 signal charge_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
-## Die sechs aufgespannten Würfel der Runde wurden neu gezogen.
+## Die aufgespannten Würfel der Runde wurden neu gezogen.
 signal clamped_changed
 ## Der Phantomwurf oder die noch nicht platzierte Beute hat sich geändert.
 signal press_changed
 
 const POOL_SIZE := 30
-## Zwingen der Werkbank auf der HÖCHSTEN Lizenzstufe - die Zahl der Netze, die
-## das Fenster überhaupt tragen muss (siehe clamp_count).
-const CLAMP_COUNT := 6
-## Kleinste Aufspannung (Lizenzstufe 1).
-const CLAMP_MIN := 2
-## Hub-Stufen, die je eine Zwinge dazugeben - dieselbe Meilenstein-Folge wie die
-## erwachenden Reihen des Kondensators (charge_cap_rows).
-const CLAMP_LEVELS := [3, 5, 7, 10]
+## Zwingen der Werkbank - FEST, auf jeder Lizenzstufe gleich. Die Aufspannung ist
+## kein Ausbau-Versprechen, sondern die Arbeitsfläche der Runde.
+const CLAMP_COUNT := 4
 ## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
 ## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
 const CHARM_CAPACITY := 6
@@ -403,9 +398,6 @@ func upgrade_hub() -> void:
 	add_money(-hub_upgrade_price())
 	hub_level += 1
 	_grant_hub_rewards(hub_level)
-	# Die neue Zwinge muss sofort sichtbar werden - dasselbe Vorrecht wie beim
-	# Sortiment des Ladens (refresh_after_hub_upgrade).
-	extend_clamped_dice()
 	# >=, nicht ==: ein direkt gesetzter Stand darf nicht daran vorbeilaufen.
 	if hub_level >= SECRET_UNLOCK_HUB_LEVEL:
 		unlock_secret_shop()
@@ -708,16 +700,9 @@ func place_pack_die(def: DieDefinition, pool_index: int) -> void:
 
 # --- Aufspannung: die Zwingen der Werkbank ------------------------------------
 
-## Wie viele Würfel die Lizenz aufspannt: 2/3/4/5/6 ab Hub 1/3/5/7/10 - dieselbe
-## Meilenstein-Folge wie charge_cap_rows, damit ein Ausbau überall gleich klingt.
-## Ein Ausbau greift SOFORT (extend_clamped_dice) - die neue Zwinge muss sichtbar
-## werden, das schlägt die Rundenstabilität.
+## Wie viele Würfel aufgespannt werden: immer vier, auf jeder Lizenzstufe.
 func clamp_count() -> int:
-	var count := CLAMP_MIN
-	for level in CLAMP_LEVELS:
-		if hub_level >= int(level):
-			count += 1
-	return mini(count, CLAMP_COUNT)
+	return CLAMP_COUNT
 
 ## Zieht clamp_count() VERSCHIEDENE Pool-Würfel, uniform. Bewusst nie "die
 ## nächsten der Reihe": die Queue ist spielergeordnet und jede deterministische
@@ -731,25 +716,6 @@ func roll_clamped_dice() -> void:
 	for k in mini(clamp_count(), indices.size()):
 		clamped_dice.append(owned_pool[indices[k]])
 	clamped_changed.emit()
-
-## Ein Hub-Ausbau erweitert die STEHENDE Aufspannung: gezogen werden nur die
-## fehlenden Zwingen, die eingespannten bleiben unangetastet - an ihnen hängt der
-## nasse Guss der Presse. false = nichts dazugekommen.
-func extend_clamped_dice() -> bool:
-	var missing := clamp_count() - clamped_dice.size()
-	if missing <= 0:
-		return false
-	var free: Array[DieDefinition] = []
-	for die in owned_pool:
-		if not is_clamped(die):
-			free.append(die)
-	if free.is_empty():
-		return false
-	free.shuffle()
-	for k in mini(missing, free.size()):
-		clamped_dice.append(free[k])
-	clamped_changed.emit()
-	return true
 
 ## Liegt dieses Würfel-EXEMPLAR in einer Zwinge? Verglichen wird die Instanz -
 ## Pool-Einträge werden überschrieben und umgelegt, nie getauscht.
