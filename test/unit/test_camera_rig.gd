@@ -355,3 +355,177 @@ func test_the_close_step_needs_the_workshop_mode() -> void:
 	rig.zoom_workshop_close()
 	assert_false(rig.workshop_close, "aus der Grube heraus gibt es keine Werkbank-Nahsicht")
 	assert_eq(rig.mode, CameraRig.Mode.PIT)
+
+# --- Freikamera (WASD + Mausrad) ---------------------------------------------
+# Zwei Systeme, die einander ausschließen: die Freikamera steht die ganze Zeit
+# auf OVERVIEW, parkt beim Loslassen dort, wo sie ist, und wird NUR von einer
+# gerechneten Fahrt verlassen - _animate_to ist der eine Ausstieg.
+
+const PIT_POINT := Vector3(4, 0, 0)
+const HUB_POINT := Vector3(-24, 0, 0)
+const SCORE_POINT := Vector3(-4, 0, 0)
+
+## Bringt die Kamera an einer Station zur Ruhe (die Fahrt wird übersprungen).
+func _stand_at(station: CameraRig.Mode) -> void:
+	rig.configure_pit_target(PIT_POINT)
+	rig.configure_hub_target(HUB_POINT)
+	rig.configure_score_target(SCORE_POINT)
+	rig.zoom_to(station)
+	rig.is_animating = false
+	rig.global_transform = Transform3D(rig.anchor_basis, rig.anchor_origin)
+
+func test_the_key_axes_lie_flat_on_the_table() -> void:
+	# Bild-Rechts = Welt +Z, Bild-Oben = Welt +X: abgeleitet aus der Zoom-Basis,
+	# nicht getippt - sonst hinge die Laufrichtung an einem Vorzeichen.
+	assert_almost_eq(CameraRig.GLIDE_RIGHT, Vector3(0, 0, 1), Vector3.ONE * 0.001)
+	assert_almost_eq(CameraRig.GLIDE_UP, Vector3(1, 0, 0), Vector3.ONE * 0.001)
+
+func test_the_free_camera_stays_over_the_display_surface() -> void:
+	var bounds := Rect2(-30, -40, 60, 80)
+	assert_almost_eq(CameraRig.clamp_to_bounds(Vector3(0, 0, 5), bounds, 6.0),
+		Vector3(0, 0, 5), Vector3.ONE * 0.001, "drinnen bleibt der Punkt unberührt")
+	var out := CameraRig.clamp_to_bounds(Vector3(500, 0, -500), bounds, 6.0)
+	assert_almost_eq(out, Vector3(36, 0, -46), Vector3.ONE * 0.001,
+		"draußen klemmt es auf das Rechteck plus Zugabe")
+
+func test_the_speed_follows_the_height_but_stays_steerable() -> void:
+	# Kartengrammatik: hoch oben weit ausgreifen, dicht über den Würfeln fein -
+	# aber nie so langsam, dass es kriecht, und nie so schnell, dass es entgleitet.
+	assert_almost_eq(CameraRig.free_speed(CameraRig.ZOOM_DISTANCE),
+		CameraRig.GLIDE_SPEED, 0.001, "auf Zoom-Höhe gilt der Gefühlswert selbst")
+	assert_lt(CameraRig.free_speed(CameraRig.ZOOM_DISTANCE * 0.5),
+		CameraRig.free_speed(CameraRig.ZOOM_DISTANCE), "tiefer ist langsamer")
+	assert_eq(CameraRig.free_speed(0.01), CameraRig.FREE_SPEED_MIN, "unten hält der Boden")
+	assert_eq(CameraRig.free_speed(10000.0), CameraRig.FREE_SPEED_MAX, "oben die Decke")
+
+func test_a_wheel_notch_scales_the_distance_and_stops_at_the_limits() -> void:
+	var near := CameraRig.zoom_step_distance(20.0, 1.0, 2.5, 70.0)
+	assert_almost_eq(near, 20.0 * (1.0 - CameraRig.FREE_ZOOM_STEP), 0.001,
+		"eine Kerbe heran nimmt denselben ANTEIL, egal auf welcher Höhe")
+	assert_gt(CameraRig.zoom_step_distance(20.0, -1.0, 2.5, 70.0), 20.0, "und zurück hinaus")
+	assert_eq(CameraRig.zoom_step_distance(2.5, 5.0, 2.5, 70.0), 2.5, "unten ist Schluss")
+	assert_eq(CameraRig.zoom_step_distance(70.0, -5.0, 2.5, 70.0), 70.0, "oben auch")
+
+func test_zooming_leaves_the_point_under_the_cursor_where_it_is() -> void:
+	# Der Blickpunkt wandert um denselben Faktor auf den Cursor zu, um den die
+	# Distanz schrumpft - nur so bleibt liegen, worauf man zeigt.
+	var cursor := Vector3(10, 0, -4)
+	assert_almost_eq(CameraRig.zoom_anchor(Vector3.ZERO, cursor, 0.5),
+		Vector3(5, 0, -2), Vector3.ONE * 0.001)
+	assert_almost_eq(CameraRig.zoom_anchor(Vector3.ZERO, cursor, 1.0),
+		Vector3.ZERO, Vector3.ONE * 0.001, "ohne Zoom wandert nichts")
+	assert_almost_eq(CameraRig.zoom_anchor(cursor, cursor, 0.3),
+		cursor, Vector3.ONE * 0.001, "auf dem Cursor selbst bleibt alles stehen")
+
+func test_the_free_camera_drops_the_mode_without_flying_anywhere() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	var before := rig.global_transform
+	assert_true(rig.begin_free(), "aus einer Station heraus geht es frei weiter")
+	assert_true(rig.free_camera)
+	assert_eq(rig.mode, CameraRig.Mode.OVERVIEW, "eine freie Kamera hat keinen Fokus")
+	assert_false(rig.is_animating, "aber sie FÄHRT nicht in die Übersicht")
+	assert_eq(rig.global_transform, before, "die Lage steht noch, wo sie stand")
+	assert_almost_eq(rig._free_target, Vector3(PIT_POINT.x, 0.0, PIT_POINT.z),
+		Vector3.ONE * 0.05, "der Blickpunkt der Grube ist der Ausgangspunkt")
+
+func test_the_keys_move_the_look_point_along_the_image_axes_and_then_park() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	var start: Vector3 = rig._free_target
+	for i in 10:
+		rig.free_step(Vector2(0, 1), 0.1)  # W
+	assert_gt(rig._free_target.x, start.x + 10.0, "W schiebt den Blick nach Welt +X")
+	assert_almost_eq(rig._free_target.z, start.z, 0.001, "und seitlich nicht")
+	start = rig._free_target
+	for i in 10:
+		rig.free_step(Vector2(1, 0), 0.1)  # D
+	assert_gt(rig._free_target.z, start.z + 10.0, "D schiebt ihn nach Welt +Z")
+	# Loslassen rastet nirgends ein: die Kamera bleibt stehen, wo sie steht.
+	for i in 10:
+		rig.free_step(Vector2.ZERO, 0.1)
+	assert_true(rig.free_camera, "die Freikamera bleibt stehen")
+	assert_false(rig.is_animating, "und fährt zu keiner Station")
+	assert_almost_eq(rig._free_velocity.length(), 0.0, 0.5, "sie läuft nur aus")
+
+func test_the_close_range_travels_slower_than_the_high_view() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	rig._free_distance = CameraRig.ZOOM_DISTANCE
+	rig._free_zoom_goal = rig._free_distance
+	var high := rig._free_target
+	for i in 5:
+		rig.free_step(Vector2(1, 0), 0.05)
+	var high_way: float = rig._free_target.distance_to(high)
+	rig._free_distance = CameraRig.FREE_ZOOM_MIN
+	rig._free_zoom_goal = rig._free_distance
+	rig._free_velocity = Vector3.ZERO
+	var low := rig._free_target
+	for i in 5:
+		rig.free_step(Vector2(1, 0), 0.05)
+	assert_lt(rig._free_target.distance_to(low), high_way,
+		"dicht über dem Tisch greift dieselbe Taste kürzer aus")
+
+func test_the_wheel_drives_the_distance_into_its_limits() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	for i in 60:
+		rig.free_zoom(1.0)
+	assert_almost_eq(rig._free_zoom_goal, CameraRig.FREE_ZOOM_MIN, 0.001,
+		"heran endet an der Untergrenze")
+	for i in 200:
+		rig.free_zoom(-1.0)
+	assert_almost_eq(rig._free_zoom_goal, rig.free_zoom_max(), 0.001,
+		"und hinaus ein Stück über der Übersicht")
+	# Die gezeigte Distanz läuft dem Ziel nach, sie springt nicht.
+	var goal: float = rig._free_zoom_goal
+	var before: float = rig._free_distance
+	rig.free_step(Vector2.ZERO, 0.016)
+	assert_gt(rig._free_distance, before, "ein Bild später ist sie unterwegs")
+	assert_lt(rig._free_distance, goal, "aber noch nicht da")
+	for i in 60:
+		rig.free_step(Vector2.ZERO, 0.016)
+	assert_almost_eq(rig._free_distance, goal, 0.01, "kommt aber an")
+
+func test_a_click_flight_wins_and_ends_the_free_camera() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	rig.free_step(Vector2(1, 1), 0.2)
+	rig.zoom_to(CameraRig.Mode.HUB)
+	assert_false(rig.free_camera, "eine gerechnete Fahrt gewinnt immer")
+	assert_eq(rig.mode, CameraRig.Mode.HUB, "und landet an ihrer Station")
+	assert_true(rig.is_animating)
+
+func test_the_way_home_flies_although_the_mode_already_says_overview() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	rig.free_step(Vector2(1, 0), 0.5)
+	rig.zoom_out()
+	assert_false(rig.free_camera)
+	assert_true(rig.is_animating, "sonst stünde die Kamera mitten auf dem Tisch")
+	assert_almost_eq(rig.anchor_origin, rig.base_origin, Vector3.ONE * 0.001)
+
+func test_a_running_flight_is_untouchable() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.zoom_to(CameraRig.Mode.SCORE)  # Klickfahrt läuft
+	assert_false(rig.begin_free(), "eine Fahrt hat ein Ziel und wird nicht aufgebrochen")
+	assert_false(rig.free_camera)
+
+func test_the_close_steps_stay_dead_to_the_free_camera() -> void:
+	_aim_at_workshop()
+	rig.zoom_workshop_close()
+	rig.is_animating = false
+	assert_false(rig.begin_free(), "in der Nahsicht ist der Rahmen randvoll")
+	rig.zoom_workshop_wide()
+	rig.is_animating = false
+	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
+	rig.is_animating = false
+	assert_false(rig.begin_free(), "am Werkstück dreht der Spieler den Würfel, nicht den Blick")
+	rig.show_title(true)
+	assert_false(rig.begin_free(), "und im Titel-HUD steht die Kamera still")
+
+func test_the_title_takes_the_camera_back_even_without_a_flight() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	rig.begin_free()
+	rig.show_title(true)  # Spielstart: harter Sprung, ohne _animate_to
+	assert_false(rig.free_camera, "auch der harte Sprung beendet die Freikamera")
+

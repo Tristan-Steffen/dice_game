@@ -1024,6 +1024,18 @@ func _setup_camera_targets() -> void:
 	# verschoben, damit die Charm-Konsolen mit im Blick sind.
 	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0, DicePit.PIT_CENTER.z))
 	_setup_charms_zoom()
+	_setup_glide_bounds()
+
+## Grenze des Gleitflugs: an der echten Anzeigefläche GEMESSEN (sie IST das
+## Rechteck ihrer Textur), nie getippt - daneben liegt nur noch dunkler Raum.
+func _setup_glide_bounds() -> void:
+	if table_screen == null:
+		return
+	var near := table_screen.pixel_to_world(Vector2.ZERO)
+	var far := table_screen.pixel_to_world(Vector2(table_screen.size))
+	camera_rig.configure_glide_bounds(Rect2(
+		Vector2(minf(near.x, far.x), minf(near.z, far.z)),
+		Vector2(absf(far.x - near.x), absf(far.z - near.z))))
 
 ## Shop, Gravur-Station und Bogen-Enthüllung anlegen und verdrahten.
 func _setup_panels() -> void:
@@ -2192,6 +2204,22 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("ui_cancel"):
 		_toggle_title()
+		return
+
+	# Die Freikamera ist Umsehen und Fahren, sonst nichts: kein Hover, keine
+	# Weiterleitung, kein Griff. Es bleiben drei Wege - das Rad zoomt weiter,
+	# Rechtsklick fährt heim, und ein Linksklick auf eine offene Zone ist der
+	# Wechsel zurück in den Fokus.
+	if camera_rig.free_camera:
+		var button := event as InputEventMouseButton
+		if button != null and button.pressed:
+			if button.button_index == MOUSE_BUTTON_WHEEL_UP \
+					or button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				_handle_zoom_wheel(button)
+			elif button.button_index == MOUSE_BUTTON_RIGHT:
+				camera_rig.zoom_out()
+			elif button.button_index == MOUSE_BUTTON_LEFT:
+				_zoom_to_mode(_zone_mode_at(button.position))
 		return
 
 	# Mausrad: hoch = heranfahren, runter = eine Stufe zurück. Steht hinter den
@@ -4022,31 +4050,46 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		return -1
 
 	var collider: Object = result.collider
+	var station := -1
 	if collider == pit_click_zone:
-		return CameraRig.Mode.PIT
-	if collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
-		return CameraRig.Mode.POOL
-	if collider == discard_tray_view.click_zone:
-		return CameraRig.Mode.DISCARD
-	if collider == combos_click_zone:
-		return CameraRig.Mode.COMBOS
-	if collider == charms_click_zone:
-		return CameraRig.Mode.CHARMS
-	if collider == hub_click_zone:
-		return CameraRig.Mode.HUB
-	if collider == side_bets_click_zone and run != null and run.side_bets_unlocked():
-		return CameraRig.Mode.SIDE_BETS
-	if collider == slots_click_zone and run != null and run.slots_unlocked() > 0:
-		return CameraRig.Mode.SLOTS
-	if collider == workshop_click_zone:
-		return CameraRig.Mode.WORKSHOP
-	if collider == score_click_zone:
-		return CameraRig.Mode.SCORE
-	if collider == chips_click_zone:
-		return CameraRig.Mode.CHIPS
-	if collider == secret_shop_click_zone:
-		return CameraRig.Mode.SECRET_SHOP
-	return -1
+		station = CameraRig.Mode.PIT
+	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
+		station = CameraRig.Mode.POOL
+	elif collider == discard_tray_view.click_zone:
+		station = CameraRig.Mode.DISCARD
+	elif collider == combos_click_zone:
+		station = CameraRig.Mode.COMBOS
+	elif collider == charms_click_zone:
+		station = CameraRig.Mode.CHARMS
+	elif collider == hub_click_zone:
+		station = CameraRig.Mode.HUB
+	elif collider == side_bets_click_zone:
+		station = CameraRig.Mode.SIDE_BETS
+	elif collider == slots_click_zone:
+		station = CameraRig.Mode.SLOTS
+	elif collider == workshop_click_zone:
+		station = CameraRig.Mode.WORKSHOP
+	elif collider == score_click_zone:
+		station = CameraRig.Mode.SCORE
+	elif collider == chips_click_zone:
+		station = CameraRig.Mode.CHIPS
+	elif collider == secret_shop_click_zone:
+		station = CameraRig.Mode.SECRET_SHOP
+	return station if station != -1 and _station_available(station) else -1
+
+## Ob eine Station offen steht. Die Klickzonen liegen zwar auch vergittert schon
+## da (der Schwarzmarkt schaltet seine Kollision sogar ab), aber ein gesperrtes
+## Fenster ist kein Ziel - EINE Wahrheit für den Fokus-Klick, gleich aus welchem
+## System er kommt.
+func _station_available(station: int) -> bool:
+	match station:
+		CameraRig.Mode.SIDE_BETS:
+			return run != null and run.side_bets_unlocked()
+		CameraRig.Mode.SLOTS:
+			return run != null and run.slots_unlocked() > 0
+		CameraRig.Mode.SECRET_SHOP:
+			return run != null and run.secret_shop_unlocked
+	return true
 
 ## Fährt auf ein Zoom-Ziel aus _zone_mode_at; -1 tut nichts.
 func _zoom_to_mode(target: int) -> void:
@@ -4059,10 +4102,10 @@ func _zoom_to_mode(target: int) -> void:
 		table_screen.slot_bank_window.refresh_if_idle()
 
 ## Ein Rad-Schritt. Taub während einer Kamerafahrt (das ist zugleich die Sperre
-## gegen nachlaufende Flicks). In der Gravur-Zeremonie bleibt es an der Werkbank:
-## es fährt zwischen ihren Stufen samt Werkstück-Sicht, führt aber nie aus der
-## Zeremonie heraus - das Abbrechen ist eine gewollte Geste und darf nicht an
-## einem Radstups hängen.
+## gegen nachlaufende Flicks). Die beiden senkrechten Werkbank-Stufen behalten
+## ihr altes Rad - dort führt es zwischen den Stufen, nie aus der Zeremonie
+## heraus. Überall sonst gehört das Rad der FREIKAMERA: es zoomt stufenlos und
+## schaltet dabei aus dem Fokus in sie hinüber.
 func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 	# Im Rückblick ist das Rad taub: der Cursor gehört den Pfeilen, und ein
 	# Radstups darf die Erinnerung nicht aus Versehen verlassen.
@@ -4081,34 +4124,63 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		return
 
 	wheel_accum = 0.0
-	if up:
-		_zoom_wheel_in(event.position)
-	elif camera_rig.die_focus:
-		_leave_die_focus()  # eine Stufe zurück an die Bank
-	elif camera_rig.workshop_close:
-		camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
-	else:
-		camera_rig.zoom_out()
-
-## Rad hoch: auf die Zone unter der Maus zufahren - genau das Ziel des
-## Linksklicks. Über freiem Filz passiert nichts (kein Standard-Ziel).
-func _zoom_wheel_in(screen_pos: Vector2) -> void:
-	# Über einem schwebenden Würfel ist die nächste Stufe der Würfel selbst.
-	if not camera_rig.die_focus:
-		var stage := _stage_under(screen_pos)
-		if stage != null:
-			_focus_floating_die(stage)
-			return
-	# Auf der Werkbank ist die Nahsicht die nächste Stufe, nicht ein Nachbarfenster.
-	if camera_rig.mode == CameraRig.Mode.WORKSHOP and not camera_rig.workshop_close \
-			and not camera_rig.die_focus and _workshop_close_zoom_allowed(screen_pos):
-		camera_rig.zoom_workshop_close()
+	if camera_rig.die_focus:
+		if not up:
+			_leave_die_focus()  # eine Stufe zurück an die Bank
 		return
-	var target := _zone_mode_at(screen_pos)
-	if target != camera_rig.mode:
-		_zoom_to_mode(target)
+	if camera_rig.workshop_close:
+		if up:
+			_zoom_wheel_in(event.position)  # über einem Würfel: das Werkstück
+		else:
+			camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
+		return
+	if not camera_rig.free_camera:
+		if not camera_rig.begin_free():
+			return
+		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
+	camera_rig.free_zoom(1.0 if up else -1.0)
+
+## Rad hoch in den senkrechten Werkbank-Stufen: über einem schwebenden Würfel ist
+## die nächste Stufe der Würfel selbst. Sonst nichts - die seitliche Navigation
+## gehört der Freikamera.
+func _zoom_wheel_in(screen_pos: Vector2) -> void:
+	var stage := _stage_under(screen_pos)
+	if stage != null:
+		_focus_floating_die(stage)
+
+## Ob WASD gerade greifen darf. Taub sind: jede laufende Zieh-Geste, der
+## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD und die beiden
+## Werkbank-Nahstufen - deren Rahmen ist randvoll, ein Fahren zöge nur die
+## Trays herein. Spielphasen sperren nichts, so freizügig wie das Rad.
+func _free_camera_allowed() -> bool:
+	if camera_rig == null or log_open:
+		return false
+	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.workshop_close \
+			or camera_rig.die_focus:
+		return false
+	return tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
+		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
+		and grabbed_stage == null
+
+## Blickfahrt je Bild: die erste Taste schaltet auf die Freikamera, danach bleibt
+## sie stehen - Loslassen parkt sie, wo sie ist. Zurück in den Fokus führen nur
+## Klick, Rechtsklick oder eine gerechnete Fahrt.
+func _sync_free_camera(delta: float) -> void:
+	if camera_rig == null:
+		return
+	var dir := Vector2.ZERO
+	if _free_camera_allowed():
+		dir = Input.get_vector("nav_left", "nav_right", "nav_down", "nav_up")
+	if not camera_rig.free_camera:
+		if dir == Vector2.ZERO:
+			return
+		if not camera_rig.begin_free():
+			return
+		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
+	camera_rig.free_step(dir, delta)
 
 func _process(delta: float) -> void:
+	_sync_free_camera(delta)
 	_update_charm_hover()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
@@ -4465,7 +4537,9 @@ func _update_selection_glows() -> void:
 func _update_charm_hover() -> void:
 	if table_screen == null or table_screen.charm_dock == null:
 		return
-	if camera_rig.is_animating or charm_is_dragging:
+	# In der Freikamera steht die Kamera mitten auf dem Tisch: was der Strahl
+	# dort trifft, hat der Spieler nicht gemeint.
+	if camera_rig.is_animating or camera_rig.free_camera or charm_is_dragging:
 		return
 	var mouse := get_viewport().get_mouse_position()
 	var index := charm_row.charm_index_at_screen_pos(camera_rig, mouse)

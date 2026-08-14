@@ -1,10 +1,10 @@
 class_name CameraRig
 extends Camera3D
-## Spielkamera: feste Übersicht mit begrenztem Maus-Rundschauen plus
-## Zoom-Ziele (Grube/Trays/Kombis/Charms/Hub). Mausrad hoch oder Linksklick auf
-## eine Zone zoomt heran, Rad runter oder Rechtsklick zurück; auch im Zoom
-## bleibt leichtes Rundschauen. Alle Wege lösen dieselben STUFEN aus - die
-## Distanzen sind gerechnet, es gibt bewusst kein freies Heranfahren.
+## Spielkamera mit ZWEI Systemen, die einander ausschließen. FOKUS: Linksklick
+## auf eine Zone fährt an ihre Station, Rechtsklick zurück - gerechnete Stufen,
+## und nur hier wird bedient. FREIKAMERA: WASD schiebt den Blick, das Rad zoomt
+## stufenlos, der Modus steht derweil auf OVERVIEW - reines Umsehen und Fahren.
+## In beiden bleibt das leichte Maus-Rundschauen.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 
@@ -158,6 +158,108 @@ const TITLE_TRAVEL := 1.1
 ## in dem sich der Tisch zeigt.
 const REVEAL_DURATION := 2.6
 
+## --- Freikamera (WASD + Mausrad) ---------------------------------------------
+## Zwei Kamera-Systeme schließen einander aus. Die Freikamera ist reines
+## Umsehen-und-Fahren: WASD schiebt den Blick über die Zoom-Ebene, das Rad zoomt
+## stufenlos. Der Modus steht dabei die GANZE Zeit auf OVERVIEW - eine freie
+## Kamera hat keinen Fokus, und nur so darf zoom_to auch auf die eben verlassene
+## Station zurückfahren. Verlassen wird sie nur über eine gerechnete Fahrt
+## (_animate_to ist der EINE Ausstieg) - Klick auf eine Zone, Rechtsklick auf die
+## Übersicht oder irgendeine Zeremonie.
+
+## GEFÜHLSWERT: Weltmeter je Sekunde bei voller Auslenkung auf ZOOM_DISTANCE.
+## Gemessen am Tisch spannen die Stationen 63 m (Kombis -> Ablage) bzw. 53 m
+## (Hub -> Charms), das sind ~1,8 bzw. ~1,5 s von Rand zu Rand.
+const GLIDE_SPEED := 36.0
+## Anlauf- und Auslaufzeit der Richtung: ein Tipper soll nicht rucken.
+const GLIDE_ACCEL := 0.15
+## Luft um die Anzeigefläche, in die der Blick noch hinausfahren darf. Weiter
+## hinaus geht es nicht: draußen ist nur noch dunkler Raum.
+const GLIDE_BOUNDS_MARGIN := 6.0
+
+## Das Tempo hängt an der Höhe (Kartengrammatik): dicht über den Würfeln wäre
+## der volle Wert unlenkbar, ganz oben ein Kriechen. Die Grenzen halten beides
+## im Griff.
+const FREE_SPEED_MIN := 4.0
+const FREE_SPEED_MAX := 70.0
+
+## Eine Radkerbe ändert die Distanz um diesen Anteil - klein genug, dass ein
+## Stups nicht springt, groß genug für einen zügigen Weg über die ganze Spanne.
+const FREE_ZOOM_STEP := 0.12
+## Nachlauf der Zoomfahrt: die Distanz nähert sich ihrem Ziel exponentiell an,
+## sonst hakt jede Kerbe.
+const FREE_ZOOM_SMOOTH := 0.12
+## Untergrenze: 2,4 m über der Fläche, also über allem, was auf ihr liegt oder
+## in einem Stasisfeld darüber schwebt. Ein liegender Würfel füllt dort schon gut
+## die halbe Bildhöhe - näher braucht reines Umsehen nicht, und darunter fährt
+## die Kamera durch die schwebenden Würfel der Werkbank hindurch.
+const FREE_ZOOM_MIN := 2.5
+## Obergrenze, gemessen an der Übersicht: ein Stück ÜBER ihr ist erlaubt, damit
+## der ganze Tisch bequem ins Bild passt.
+const FREE_ZOOM_MAX_FACTOR := 1.4
+## Einstieg: nur der WINKEL gleicht sich an (Übersicht 20°, Zoomblick 15°) -
+## Höhe und Blickpunkt bleiben, wo der Spieler sie sieht. Kein Sinkflug.
+const FREE_SETTLE := 0.35
+
+## Waagerechter Anteil einer Richtung (Länge 1); ZERO, wenn sie senkrecht steht.
+static func flatten(v: Vector3) -> Vector3:
+	var flat := Vector3(v.x, 0.0, v.z)
+	return flat.normalized() if flat.length() > 0.0001 else Vector3.ZERO
+
+## Bild-Achsen des Zoomblicks auf die Tischebene projiziert - die Laufrichtungen
+## der Tasten. Abgeleitet, nicht getippt: Bild-Rechts = Welt +Z, Bild-Oben = +X.
+static var GLIDE_RIGHT: Vector3 = flatten(ZOOM_BASIS.x)
+static var GLIDE_UP: Vector3 = flatten(-ZOOM_BASIS.z)
+
+## Steht die Freikamera? scene_root liest das Bit wie log_open: es verstummt,
+## was eine Kamera mitten auf dem Tisch nicht anfassen darf - und es steht die
+## ganze Zeit, nicht nur solange Tasten liegen.
+var free_camera: bool = false
+## Rechteck der Anzeigefläche in Welt-XZ (x = Welt-X, y = Welt-Z); scene_root
+## misst es an der echten Fläche.
+var glide_bounds := Rect2(-50.0, -50.0, 100.0, 100.0)
+## Abstand der Übersichtskamera zu ihrem Blickpunkt - in _ready am echten
+## Transform gemessen, denn daran hängt die obere Zoomgrenze.
+var overview_distance := ZOOM_DISTANCE * 2.5
+
+## Blickpunkt auf der Tischebene, um den die Freikamera rechnet.
+var _free_target := Vector3.ZERO
+var _free_velocity := Vector3.ZERO
+## Gezeigte und gewünschte Distanz - die eine läuft der anderen nach.
+var _free_distance := ZOOM_DISTANCE
+var _free_zoom_goal := ZOOM_DISTANCE
+## Einstiegs-Winkel und sein Fortschritt (0 = Einstieg, 1 = Zoomblick).
+var _free_from_basis := Basis()
+var _free_blend := 0.0
+## Liegt gerade eine Taste? Im Fahren blickt die Kamera geradeaus.
+var _free_moving := false
+
+## Hält einen Blickpunkt auf der Anzeigefläche plus margin fest - ins Leere
+## hinaus zu fahren darf es nicht geben.
+static func clamp_to_bounds(point: Vector3, bounds: Rect2, margin: float) -> Vector3:
+	var room := bounds.grow(margin)
+	return Vector3(
+		clampf(point.x, room.position.x, room.end.x),
+		point.y,
+		clampf(point.z, room.position.y, room.end.y))
+
+## Fahrtempo auf einer Höhe: linear an der Distanz, aber unten wie oben begrenzt.
+static func free_speed(distance: float) -> float:
+	return clampf(GLIDE_SPEED * distance / ZOOM_DISTANCE, FREE_SPEED_MIN, FREE_SPEED_MAX)
+
+## Distanz nach notches Radkerben (positiv = heran), in ihren Grenzen. Der Schritt
+## ist multiplikativ: oben große Sprünge, unten feine - sonst ist das letzte
+## Stück über den Würfeln nicht zu treffen.
+static func zoom_step_distance(current: float, notches: float,
+		min_distance: float, max_distance: float) -> float:
+	return clampf(current * pow(1.0 - FREE_ZOOM_STEP, notches), min_distance, max_distance)
+
+## Neuer Blickpunkt, wenn um den Punkt unter dem Cursor gezoomt wird: die Kamera
+## rückt entlang der Geraden Cursor->Standort, also wandert auch der Blickpunkt
+## um denselben Faktor auf den Cursor zu. So bleibt liegen, worauf man zeigt.
+static func zoom_anchor(look: Vector3, cursor: Vector3, factor: float) -> Vector3:
+	return cursor + (look - cursor) * factor
+
 var base_basis: Basis
 var base_origin: Vector3
 
@@ -185,13 +287,21 @@ func _ready() -> void:
 	base_origin = global_transform.origin
 	anchor_basis = base_basis
 	anchor_origin = base_origin
+	var hit: Variant = Plane(Vector3.UP, 0.0).intersects_ray(base_origin, -base_basis.z)
+	if hit is Vector3:
+		overview_distance = maxf(base_origin.distance_to(hit as Vector3), ZOOM_DISTANCE)
+
+## Obere Zoomgrenze der Freikamera: ein Stück über der Übersicht.
+func free_zoom_max() -> float:
+	return overview_distance * FREE_ZOOM_MAX_FACTOR
 
 func _process(delta: float) -> void:
 	# Im Titel-HUD steht die Kamera still: das Rundschauen schwenkte den Filz
 	# ins Bild und verriete, dass das Menü auf einem Tisch liegt. In der
 	# Werkbank-Nahsicht ebenso: dort ist der Rahmen randvoll, jedes Schwenken
 	# holte die Trays herein.
-	if is_animating or tilt_locked or mode == Mode.TITLE or workshop_close or die_focus:
+	if is_animating or tilt_locked or mode == Mode.TITLE \
+			or workshop_close or die_focus:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -203,14 +313,19 @@ func _process(delta: float) -> void:
 
 	var pitch_max: float
 	var yaw_max: float
-	if mode == Mode.OVERVIEW:
+	if mode == Mode.OVERVIEW and not free_camera:
 		# ny > 0 = Maus unten -> Blick Richtung Tisch (eigener Winkelbereich).
 		pitch_max = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
 		yaw_max = TILT_MAX_YAW_DEGREES
 	else:
+		# Die Freikamera steht im Zoomblick, also gelten dessen Winkel.
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
 	var target_tilt := Vector2(-ny * pitch_max, -nx * yaw_max)
+	# Im Fahren blickt die Kamera geradeaus: das Rundschauen blendet über
+	# dieselbe Glättung aus und beim Parken wieder ein - keine Sperre nötig.
+	if free_camera and _free_moving:
+		target_tilt = Vector2.ZERO
 	tilt_offset = tilt_offset.lerp(target_tilt, clamp(delta * TILT_SMOOTHING, 0.0, 1.0))
 
 	# Im Nachlauf vom eingefrorenen Blick sanft auf das lebende Rundschauen
@@ -379,45 +494,54 @@ func show_title(instant := false) -> void:
 	if active_tween:
 		active_tween.kill()
 	is_animating = false
+	free_camera = false  # der Sprung ins Titel-HUD geht an _animate_to vorbei
 	global_transform = Transform3D(TITLE_BASIS, target_origin)
 
 ## Der Rückzieher aus dem Titel-HUD auf den ganzen Tisch.
 func reveal_table() -> void:
 	zoom_out(REVEAL_DURATION, Tween.EASE_OUT)
 
+## Ob eine Lage eine STATION ist, also einen eigenen Blickpunkt hat. Übersicht
+## und Titel sind keine: die eine ist der Ausgangspunkt, der andere ein eigener
+## Rahmen.
+static func is_station(check_mode: Mode) -> bool:
+	return check_mode != Mode.OVERVIEW and check_mode != Mode.TITLE
+
+## Blickpunkt einer Station - die eine Tabelle, die zoom_to anfährt.
+func station_target(target_mode: Mode) -> Vector3:
+	match target_mode:
+		Mode.PIT:
+			return pit_target
+		Mode.POOL:
+			return pool_target
+		Mode.DISCARD:
+			return discard_target
+		Mode.COMBOS:
+			return combos_target
+		Mode.CHARMS:
+			return charms_target
+		Mode.HUB:
+			return hub_target
+		Mode.SIDE_BETS:
+			return side_bets_target
+		Mode.SCORE:
+			return score_target
+		Mode.SLOTS:
+			return slots_target
+		Mode.SECRET_SHOP:
+			return secret_shop_target
+		Mode.CHIPS:
+			return chips_target
+		Mode.WORKSHOP:
+			return workshop_target
+	return Vector3.ZERO
+
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
 func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		ease_mode := Tween.EASE_IN_OUT) -> void:
-	if mode == target_mode:
+	if mode == target_mode or not is_station(target_mode):
 		return
-	var target_point: Vector3
-	match target_mode:
-		Mode.PIT:
-			target_point = pit_target
-		Mode.POOL:
-			target_point = pool_target
-		Mode.DISCARD:
-			target_point = discard_target
-		Mode.COMBOS:
-			target_point = combos_target
-		Mode.CHARMS:
-			target_point = charms_target
-		Mode.HUB:
-			target_point = hub_target
-		Mode.SIDE_BETS:
-			target_point = side_bets_target
-		Mode.SCORE:
-			target_point = score_target
-		Mode.SLOTS:
-			target_point = slots_target
-		Mode.SECRET_SHOP:
-			target_point = secret_shop_target
-		Mode.CHIPS:
-			target_point = chips_target
-		Mode.WORKSHOP:
-			target_point = workshop_target
-		_:
-			return
+	var target_point := station_target(target_mode)
 	var distance := ZOOM_DISTANCE
 	if target_mode == Mode.PIT:
 		distance += PIT_ZOOM_DISTANCE_BONUS
@@ -519,24 +643,111 @@ func pan_to(target_point: Vector3) -> void:
 	tilt_offset = Vector2.ZERO
 	_animate_to(target_origin, ZOOM_BASIS)
 
-## Zurück zur Übersicht; No-Op, falls bereits dort.
+## Zurück zur Übersicht; No-Op, falls bereits dort. Die Freikamera ist die
+## Ausnahme: dort STEHT der Modus schon auf OVERVIEW, die Kamera aber mitten auf
+## dem Tisch - sie muss trotzdem heimfahren.
 func zoom_out(duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void:
-	if mode == Mode.OVERVIEW:
+	if mode == Mode.OVERVIEW and not free_camera:
 		return
 	workshop_close = false
 	die_focus = false
+	var changed := mode != Mode.OVERVIEW
 	mode = Mode.OVERVIEW
-	mode_changed.emit(mode)
+	if changed:
+		mode_changed.emit(mode)
 	anchor_basis = base_basis
 	anchor_origin = base_origin
 	tilt_offset = Vector2.ZERO
 	_animate_to(base_origin, base_basis, duration, ease_mode)
+
+## Rechteck der Anzeigefläche in Welt-XZ (Grenze der Freikamera).
+func configure_glide_bounds(bounds: Rect2) -> void:
+	if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+		glide_bounds = bounds
+
+## Schaltet auf die Freikamera (false = hier nicht erlaubt). Die LAGE bleibt, wo
+## der Spieler sie sieht - nur der Modus fällt auf OVERVIEW, ohne dorthin zu
+## fahren. Eine laufende Fahrt ist unantastbar: sie hat ein Ziel.
+func begin_free() -> bool:
+	if free_camera:
+		return true
+	if workshop_close or die_focus or mode == Mode.TITLE or is_animating:
+		return false
+	var origin := global_transform.origin
+	var hit: Variant = Plane(Vector3.UP, 0.0).intersects_ray(origin, -global_transform.basis.z)
+	var look := (hit as Vector3) if hit is Vector3 else anchor_origin + ZOOM_FORWARD * ZOOM_DISTANCE
+	_free_target = clamp_to_bounds(Vector3(look.x, 0.0, look.z), glide_bounds, GLIDE_BOUNDS_MARGIN)
+	_free_distance = clampf(origin.distance_to(_free_target), FREE_ZOOM_MIN, free_zoom_max())
+	_free_zoom_goal = _free_distance
+	# Angeglichen wird nur der RUHE-Winkel; die Rundschau-Neigung läuft
+	# ununterbrochen weiter, sonst ruckte der Einstieg um ihren Betrag.
+	_free_from_basis = anchor_basis
+	_free_blend = 0.0
+	_free_velocity = Vector3.ZERO
+	_free_moving = false
+	free_camera = true
+	if mode != Mode.OVERVIEW:
+		mode = Mode.OVERVIEW
+		mode_changed.emit(mode)
+	return true
+
+## Ein Bild Freikamera: dir in Bild-Achsen (x = rechts, y = oben), schon
+## normalisiert. Wird auch mit ZERO gerufen - die Zoomfahrt läuft weiter.
+func free_step(dir: Vector2, delta: float) -> void:
+	if not free_camera:
+		return
+	_free_moving = dir != Vector2.ZERO
+	var wish := (GLIDE_RIGHT * dir.x + GLIDE_UP * dir.y) * free_speed(_free_distance)
+	_free_velocity = _free_velocity.lerp(wish, clampf(delta / GLIDE_ACCEL, 0.0, 1.0))
+	_free_target += _free_velocity * delta
+	if not is_equal_approx(_free_distance, _free_zoom_goal):
+		var next := lerpf(_free_distance, _free_zoom_goal,
+			clampf(delta / FREE_ZOOM_SMOOTH, 0.0, 1.0))
+		# Zoom auf den Cursor: der Punkt unter ihm bleibt liegen. Bild für Bild
+		# neu gefragt, damit er es über die ganze Annäherung tut.
+		var cursor: Variant = _cursor_on_table()
+		if cursor != null:
+			_free_target = zoom_anchor(_free_target, cursor as Vector3, next / _free_distance)
+		_free_distance = next
+	_free_target = clamp_to_bounds(_free_target, glide_bounds, GLIDE_BOUNDS_MARGIN)
+	_free_blend = minf(_free_blend + delta / FREE_SETTLE, 1.0)
+	anchor_basis = _free_from_basis.slerp(ZOOM_BASIS, smoothstep(0.0, 1.0, _free_blend))
+	anchor_origin = _free_target - _free_forward() * _free_distance
+	global_transform = Transform3D(anchor_basis, anchor_origin)
+
+## Eine Radkerbe (positiv = heran). Ändert nur das ZIEL - die Fahrt dorthin
+## läuft in free_step, damit jede Kerbe weich anschließt.
+func free_zoom(notches: float) -> void:
+	if not free_camera:
+		return
+	_free_zoom_goal = zoom_step_distance(_free_zoom_goal, notches,
+		FREE_ZOOM_MIN, free_zoom_max())
+
+## Blickrichtung der Freikamera - während des Winkel-Angleichs die eben
+## gemischte, danach der reine Zoomblick.
+func _free_forward() -> Vector3:
+	return -anchor_basis.z
+
+## Punkt unter dem Mauszeiger auf der Tischebene; null, wenn der Strahl sie nicht
+## trifft (Blick über den Horizont) oder es keinen Viewport gibt.
+func _cursor_on_table() -> Variant:
+	var viewport := get_viewport()
+	if viewport == null:
+		return null
+	var mouse := viewport.get_mouse_position()
+	var hit: Variant = Plane(Vector3.UP, 0.0).intersects_ray(
+		project_ray_origin(mouse), project_ray_normal(mouse))
+	return hit if hit is Vector3 else null
 
 func _animate_to(target_origin: Vector3, target_basis: Basis,
 		duration := ZOOM_DURATION, ease_mode := Tween.EASE_IN_OUT) -> void:
 	if active_tween:
 		active_tween.kill()
 	is_animating = true
+	# DER Ausstieg aus der Freikamera: jede gerechnete Fahrt gewinnt, egal wer
+	# sie auslöst. Ein Aufrufer muss daran nie denken.
+	free_camera = false
+	_free_moving = false
 
 	var from_basis := global_transform.basis
 	active_tween = create_tween()
@@ -544,7 +755,8 @@ func _animate_to(target_origin: Vector3, target_basis: Basis,
 	active_tween.set_parallel(true)
 	active_tween.tween_property(self, "global_position", target_origin, duration)
 	active_tween.tween_method(_apply_basis_slerp.bind(from_basis, target_basis), 0.0, 1.0, duration)
-	active_tween.chain().tween_callback(func() -> void: is_animating = false)
+	active_tween.chain().tween_callback(func() -> void:
+		is_animating = false)
 
 func _apply_basis_slerp(t: float, from_basis: Basis, to_basis: Basis) -> void:
 	global_transform.basis = from_basis.slerp(to_basis, t)
