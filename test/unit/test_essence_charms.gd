@@ -101,15 +101,6 @@ func test_storm_glass_keeps_st_elmos_fire_in_the_storm():
 	assert_eq(EssenceEffects.activation_factor(Essence.ARGON, _ids([Charm.STORM_GLASS]), false), 2,
 		"das Glas gehört dem Elmsfeuer allein")
 
-func test_swamp_lantern_lifts_the_tip_limit():
-	var run := GameRun.new_run()
-	var die := _die_with(Essence.WILL_O_WISP)
-	assert_true(run.can_tip_die(die))
-	run.consume_tip(die)
-	assert_false(run.can_tip_die(die), "ohne Charm einmal je Runde")
-	run.owned_charms.append(Charm.swamp_lantern())
-	assert_true(run.can_tip_die(die), "mit Sumpflaterne beliebig oft")
-
 # --- Knallgas: die Kettenreaktion im Stapel ----------------------------------------
 
 func test_detonating_gas_pays_every_die_behind_it():
@@ -282,16 +273,6 @@ func test_aqua_fortis_reaches_the_gold_of_the_others():
 
 # --- Seiten & Runen ---------------------------------------------------------------
 
-func test_solar_eclipse_widens_the_corona_ring():
-	var die := _die_with(Essence.CORONA)
-	var ids := _ids([Essence.CORONA])
-	var no_runes: Array[String] = []
-	assert_eq(EssenceEffects.link_faces(die, 2, ids).size(), EssenceEffects.CORONA_FACES)
-	assert_eq(EssenceEffects.link_faces(die, 2, ids, no_runes, _ids([Charm.SOLAR_ECLIPSE])).size(),
-		EssenceEffects.CORONA_FACES_ECLIPSED)
-	for face in EssenceEffects.link_faces(die, 2, ids, no_runes, _ids([Charm.SOLAR_ECLIPSE])):
-		assert_ne(face, DieDefinition.opposite_face(2), "die Gegenseite bleibt dem Röntgenlicht")
-
 func test_contrast_agent_halves_the_top_and_triples_the_bottom():
 	var die := _die_with(Essence.XRAY)
 	die.faces = _p([8, 2, 3, 4, 5, 6])
@@ -402,66 +383,6 @@ func test_the_glaze_brush_grants_a_doping_pack_on_a_capped_face():
 	assert_eq(_pack_stock(run, DieMaterial.GOLD), 0, "keine Material-Kopie mehr")
 	assert_eq(PackShelfView.shelf_of(run.owned_packs[0]), PackShelfView.CATEGORY_SPECIAL,
 		"es liegt im Sonderbestand")
-
-# --- Ethylen: die Ernte und ihre Druckerpresse -----------------------------------
-
-## Ethylen-Würfel mit Gold auf zwei Seiten und Rubin auf einer - zwei
-## VERSCHIEDENE Materialien, also zwei Kopien je Ernte.
-func _ethylene_die() -> DieDefinition:
-	var die := _die_with(Essence.ETHYLENE)
-	die.set_face_material(0, DieMaterial.GOLD)
-	die.set_face_material(1, DieMaterial.GOLD)
-	die.set_face_material(2, DieMaterial.RUBY)
-	return die
-
-func test_ethylene_harvests_each_material_once():
-	var run := GameRun.new_run()
-	var defs: Array[DieDefinition] = [_ethylene_die()]
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2,
-		"je verschiedenem Material eine Gravur, nicht je Seite")
-	assert_eq(_pack_stock(run, DieMaterial.GOLD), 1)
-	assert_eq(_pack_stock(run, DieMaterial.RUBY), 1)
-
-func test_the_harvest_fires_once_per_round_per_die():
-	var run := GameRun.new_run()
-	var defs: Array[DieDefinition] = [_ethylene_die()]
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2)
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 0,
-		"die zweite Hand derselben Runde erntet nicht erneut")
-	run.roll_essence_round_state()
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 2,
-		"die neue Runde reift nach")
-
-func test_the_printing_press_prints_every_copy_twice():
-	var run := GameRun.new_run()
-	run.owned_charms.append(Charm.printing_press())
-	var defs: Array[DieDefinition] = [_ethylene_die()]
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE}), 4)
-	assert_eq(_pack_stock(run, DieMaterial.GOLD), 2)
-	assert_eq(_pack_stock(run, DieMaterial.RUBY), 2)
-
-func test_the_quintessence_borrows_the_harvest():
-	var run := GameRun.new_run()
-	var die := _ethylene_die()
-	die.essence_id = Essence.QUINTESSENCE
-	var defs: Array[DieDefinition] = [die]
-	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE}, _ids([Essence.ETHYLENE]))
-	assert_eq(run.apply_material_harvest(defs, _p([0]), sets), 2,
-		"die geborgte Seele erntet die EIGENEN Materialien")
-
-func test_a_soulless_die_harvests_nothing():
-	var run := GameRun.new_run()
-	var bare := _die_with(Essence.ETHYLENE)
-	var defs: Array[DieDefinition] = [_die_with(""), bare]
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {}), 0, "ohne Ethylen keine Ernte")
-	assert_eq(run.apply_material_harvest(defs, _p([1]), {1: Essence.ETHYLENE}), 0,
-		"ohne Material auf den Seiten nichts zu ernten")
-
-func test_an_unscored_ethylene_die_stays_unharvested():
-	var run := GameRun.new_run()
-	var defs: Array[DieDefinition] = [_ethylene_die(), _ethylene_die()]
-	assert_eq(run.apply_material_harvest(defs, _p([0]), {0: Essence.ETHYLENE, 1: Essence.ETHYLENE}), 2,
-		"nur der gewertete Würfel erntet")
 
 func test_alkahest_lends_the_discarded_souls_to_the_quintessence():
 	var lying := {0: Essence.QUINTESSENCE}

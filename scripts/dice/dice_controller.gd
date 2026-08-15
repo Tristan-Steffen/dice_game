@@ -358,7 +358,7 @@ func _style_tint(def: DieDefinition) -> Color:
 
 ## [Achsenname, Ausrichtungs-Dot]: Dot 1.0 = liegt exakt flach, deutlich
 ## niedriger = balanciert auf Kante/Ecke.
-## Irrlicht: kippt den Würfel in Slot i so, dass face oben liegt - eine ECHTE
+## Rückblick-Pose: kippt den Würfel in Slot i so, dass face oben liegt - eine ECHTE
 ## Neuausrichtung des Körpers, kein getauschter Zahlenwert. Der Würfel liegt
 ## danach still (kein neuer Wurf, also auch keine Farkle-Prüfung beim Aufrufer).
 ## false, wenn der Slot leer ist oder die Seite nicht zum Würfel gehört.

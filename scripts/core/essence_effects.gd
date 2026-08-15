@@ -14,15 +14,16 @@ class_name EssenceEffects
 const RADON_EYE_BONUS := 2
 const RADON_EYE_BONUS_SHIELDED := 3
 
-## Neon zahlt je gezähltem Würfel der Kombination (sich selbst eingeschlossen),
-## Natriumdampf je ANDEREM, Zyanidgas je eigener Gold-Seite - das Scheidewasser
-## legt seinen kleineren Satz auf die Gold-Seiten der MITWÜRFEL.
+## Neon zahlt je gezähltem Würfel der HAND (sich selbst eingeschlossen, Krypton
+## und Vollzähler mitgezählt), Natriumdampf je ANDEREM, Zyanidgas je eigener
+## Gold-Seite - das Scheidewasser legt seinen kleineren Satz auf die Gold-Seiten
+## der MITWÜRFEL.
 const NEON_MONEY_PER_DIE := 2
 const SODIUM_MONEY_PER_DIE := 1
 const CYANIDE_PER_GOLD := 2
 const AQUA_FORTIS_PER_GOLD := 1
 
-## Grubengas: Basispunkte, die JEDER Krit dieser Hand sofort zündet.
+## Grubengas: Basispunkte je Krit, der in dieser Hand VOR seiner Zündung fiel.
 const FIREDAMP_BASE := 20
 
 ## Halogen legt seinen Mult additiv auf jede Auslösung.
@@ -61,18 +62,18 @@ const BLACK_LIGHT_PER_DIE := 3
 
 ## Lichtsäule: zusätzliche Antritte, die JEDER andere gewertete Würfel gleicher
 ## Augenzahl bekommt - der Eisspiegel verdoppelt den Satz.
-const LIGHT_PILLAR_ACTIVATIONS := 1
-const LIGHT_PILLAR_ACTIVATIONS_MIRRORED := 2
+const LIGHT_PILLAR_ACTIVATIONS := 2
+const LIGHT_PILLAR_ACTIVATIONS_MIRRORED := 4
 
 ## Mitternachtssonne: Antritte je schon genommener Hand dieser Runde; der
 ## Polartag zählt jede doppelt.
 const MIDNIGHT_SUN_ACTIVATIONS := 1
 const MIDNIGHT_SUN_ACTIVATIONS_POLAR := 2
 
-## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Steuerstab halbiert den Teiler
-## noch einmal mehr als zur Hälfte.
+## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Steuerstab nimmt den Teiler
+## ganz heraus - dann kritet die gelagerte Energie voll.
 const CHERENKOV_DIVISOR := 5.0
-const CHERENKOV_DIVISOR_MODERATED := 2.0
+const CHERENKOV_DIVISOR_MODERATED := 1.0
 
 ## Sternschnuppe und Gammablitz kriten an ihrer ERSTEN Wertung der Runde; der
 ## Magnetar löst den Gammablitz von dieser Bedingung.
@@ -85,7 +86,7 @@ const FOXFIRE_PER_PAIR := 10
 
 ## Hintergrundstrahlung: dauerhaftes Wachstum JEDER Seite JEDES liegenden
 ## Würfels, je Wertung.
-const BACKGROUND_GROWTH := 1
+const BACKGROUND_GROWTH := 5
 
 ## Glasfaser: wie oft ein gezündetes Pointer-Glied seine Zielseite feuert -
 ## die Rückkopplung legt eine dritte Zündung drauf.
@@ -159,7 +160,7 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 ## wirkt zweimal.
 ## Wiederholt wird: der Essenz-Krit (je Wiederholung ein EIGENER Schlag, nie im
 ## Quadrat), das Essenz-Geld je Zündung, das Seiten-Wachstum (Helium,
-## Strahlungsdruck) und die deterministischen Glieder (Röntgenlicht, Korona).
+## Strahlungsdruck) und die Glieder (Röntgenlicht je Antritt, Kehrseite am Ende).
 ## NICHT wiederholt: Linsen (Wasserstoff), die Augen-Umkehr der Antimaterie,
 ## Kryptons "zählt immer mit", der Schutz (Stickstoff), der Faktor der
 ## Würfel-Achse und alles, was einem Charm oder einem Material gehört.
@@ -351,25 +352,31 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 	return 1.0
 
 ## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
-## Gebucht wird über GameRun.add_money. (Zyanidgas zahlt je ZUG statt je
-## Auslösung - siehe gold_face_money_of; es reitet auf der ERSTEN Zündung.)
-static func money_for(essence_id: String, _value: int, combo_size: int) -> int:
+## scored_size ist die GANZE gewertete Hand (Krypton und Vollzähler zählen mit),
+## nie die engere Kombination. Gebucht wird über GameRun.add_money. (Zyanidgas
+## zahlt je ZUG statt je Auslösung - siehe gold_face_money_of; es reitet auf der
+## ERSTEN Zündung.)
+static func money_for(essence_id: String, _value: int, scored_size: int) -> int:
 	match essence_id:
 		Essence.NEON:
-			return maxi(0, combo_size) * NEON_MONEY_PER_DIE
+			return maxi(0, scored_size) * NEON_MONEY_PER_DIE
 		Essence.SODIUM_VAPOR:
-			return maxi(0, combo_size - 1) * SODIUM_MONEY_PER_DIE
+			return maxi(0, scored_size - 1) * SODIUM_MONEY_PER_DIE
 	return 0
 
-## Basis-Zuschlag, den EIN Krit dieser Hand sofort zündet: +20 je gewertetem
-## Grubengas-Würfel. Der Aufrufer bucht ihn an genau der Stelle, an der der Krit
-## fiel - so steht er auch im ScoreBreakdown dort.
-static func firedamp_step(scored: Array[int], sets: Dictionary) -> int:
-	var bonus := 0
-	for slot in scored:
-		if set_at(sets, slot).has(Essence.FIREDAMP):
-			bonus += FIREDAMP_BASE
-	return bonus
+## Grubengas: +20 Basispunkte je Krit, der in dieser Hand VOR dieser Zündung
+## zündete. Der Zuschlag fällt an SEINER Auslösung, nicht am fremden Krit - er
+## hängt also an der Reihenfolge, und das ist die Absicht.
+static func firedamp_base(essence_id: String, crits_before: int) -> int:
+	if essence_id != Essence.FIREDAMP:
+		return 0
+	return FIREDAMP_BASE * maxi(0, crits_before)
+
+static func firedamp_base_of(essence_ids: Array[String], crits_before: int) -> int:
+	var total := 0
+	for essence_id in essence_ids:
+		total += firedamp_base(essence_id, crits_before)
+	return total
 
 ## Stickstoff: die Seiten dieses Würfels verlieren nie an Wert (Glas schrumpft
 ## nicht, Zerfall greift nicht).
@@ -453,34 +460,28 @@ static func pointer_chance(essence_id: String, base: float) -> float:
 		return base
 	return DiceScoring.pointer_chance_for(base, PLASMA_SHOTS)
 
-## Nachbarseiten, die der Korona-Ring mitwertet - eine, unter der Sonnenfinsternis
-## drei. Aufsteigend nach Seitenindex, damit die Auswahl deterministisch ist.
-const CORONA_FACES := 1
-const CORONA_FACES_ECLIPSED := 3
-
-## Die Seiten, die als DETERMINISTISCHES Glied feuern - einmal nach allen
-## Würfel-Triggern (der gewürfelte Pointer läuft getrennt davon). Sie vereinigt
-## Essenz- und Runen-Glieder in EINER Liste: die Kehrseiten-Rune ist mechanisch
-## dasselbe wie Röntgenlicht, nur an der Seite statt an der Seele, und ein
-## zweiter Glied-Pfad daneben würde nur irgendwann auseinanderlaufen.
-## Reihenfolge: erst der Korona-Ring (aufsteigend), dann die Gegenseite;
-## jede Seite höchstens einmal.
-static func link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String],
-		rune_ids: Array[String] = [], charm_ids: Array[String] = []) -> Array[int]:
+## Die Seiten, die das RÖNTGENLICHT mitwertet: die Gegenseite, einmal je
+## WÜRFEL-Trigger (ein Argon-Röntgen-Würfel belichtet also zweimal). Kein
+## Pointer - keine Chance, keine Kette, keine Runen; das Glied hängt hinter dem
+## Zündungs-Batch seines Antritts.
+static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String]) -> Array[int]:
 	var faces: Array[int] = []
 	if die == null or up_face < 0 or up_face >= 6:
 		return faces
-	if essence_ids.has(Essence.CORONA):
-		var wanted := CORONA_FACES_ECLIPSED if charm_ids.has(Charm.SOLAR_ECLIPSE) else CORONA_FACES
-		for face in DieDefinition.adjacent_faces(up_face):
-			if faces.size() >= wanted:
-				break
-			if not faces.has(face):
-				faces.append(face)
-	if essence_ids.has(Essence.XRAY) or rune_ids.has(Rune.REVERSE):
-		var opposite := DieDefinition.opposite_face(up_face)
-		if not faces.has(opposite):
-			faces.append(opposite)
+	if essence_ids.has(Essence.XRAY):
+		faces.append(DieDefinition.opposite_face(up_face))
+	return faces
+
+## Die Seiten, die als DETERMINISTISCHES Glied EINMAL nach allen Würfel-Triggern
+## feuern - das ist nur noch die Kehrseiten-Rune (der gewürfelte Pointer und das
+## Röntgenlicht laufen je Antritt). Trägt ein Röntgen-Würfel zusätzlich die Rune,
+## feuert seine Gegenseite je Antritt UND einmal am Ende; entdoppelt wird nicht.
+static func link_faces(die: DieDefinition, up_face: int, rune_ids: Array[String] = []) -> Array[int]:
+	var faces: Array[int] = []
+	if die == null or up_face < 0 or up_face >= 6:
+		return faces
+	if rune_ids.has(Rune.REVERSE):
+		faces.append(DieDefinition.opposite_face(up_face))
 	return faces
 
 ## Wie oft EIN Glied aus link_faces zündet: normal einmal, unter dem Stichel
@@ -499,9 +500,8 @@ static func det_link_fire_count(up_face: int, link_face: int, rune_ids: Array[St
 static func is_wild(essence_id: String) -> bool:
 	return essence_id == Essence.AURORA
 
-## Löschgas: dieser Würfel kann einen Fumble schlucken - einmal je Runde, und
-## nur wenn er am Wurf beteiligt war. Der Rundenzustand liegt bei GameRun.
-## Der Preis steht in GameRun.consume_smother: die obere Seite fällt auf 1.
+## Löschgas: dieser Würfel schluckt jeden Fumble, an dem er beteiligt war -
+## ohne Limit und ohne Preis.
 static func smothers_farkle(essence_id: String) -> bool:
 	return essence_id == Essence.CARBON_DIOXIDE
 
@@ -544,23 +544,6 @@ static func bare_die_money_of(essence_ids: Array[String], bare_dice: int,
 	if charm_ids.has(Charm.HIGHLIGHTER):
 		money += maxi(0, round_bare_dice)
 	return money
-
-## Ethylen: zählt der Würfel in einer Runde zum ersten Mal, wirft er je
-## VERSCHIEDENEM Material seiner Seiten eine Gravur ab. Die Ernte selbst bucht
-## GameRun.apply_material_harvest - sie greift in den Vorrat, nicht in die Wertung.
-static func harvests_materials(essence_id: String) -> bool:
-	return essence_id == Essence.ETHYLENE
-
-static func harvests_materials_of(essence_ids: Array[String]) -> bool:
-	for essence_id in essence_ids:
-		if harvests_materials(essence_id):
-			return true
-	return false
-
-## Irrlicht: der klassische Falschspieler-Move - einmal je Runde darf dieser
-## Würfel nach dem Liegen auf eine Nachbarseite kippen.
-static func can_tip(essence_id: String) -> bool:
-	return essence_id == Essence.WILL_O_WISP
 
 ## Zerfällt die Essenz eigene Seiten? (Radon, je Abrechnung.) Die Bleischürze
 ## nimmt dem Strahler genau diesen Preis ab.
@@ -697,10 +680,10 @@ static func level_boost_of(essence_ids: Array[String]) -> int:
 		best = maxi(best, level_boost(essence_id))
 	return best
 
-static func money_of(essence_ids: Array[String], value: int, combo_size: int) -> int:
+static func money_of(essence_ids: Array[String], value: int, scored_size: int) -> int:
 	var total := 0
 	for essence_id in essence_ids:
-		total += money_for(essence_id, value, combo_size)
+		total += money_for(essence_id, value, scored_size)
 	return total
 
 static func face_growth_of(essence_ids: Array[String], charm_ids: Array[String] = [], value: int = 0) -> int:

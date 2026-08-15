@@ -267,9 +267,9 @@ func test_the_ice_mirror_doubles_the_pillar():
 func test_the_light_pillar_lands_in_the_score():
 	var ctx := {DiceScoring.CTX_ESSENCES: {0: Essence.LIGHT_PILLAR}}
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), {}, ctx), (10 + 15) * 2, "der Mitwürfel tritt zweimal an")
+		_m(["", ""]), {}, ctx), (10 + 20) * 2, "der Mitwürfel tritt dreimal an")
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), _ids([Charm.ICE_MIRROR]), false,
-		_m(["", ""]), {}, ctx), (10 + 20) * 2, "mit Spiegel dreimal")
+		_m(["", ""]), {}, ctx), (10 + 30) * 2, "mit Spiegel fünfmal")
 
 # --- Schwarzlicht: Geld beim Nehmen -----------------------------------------------
 

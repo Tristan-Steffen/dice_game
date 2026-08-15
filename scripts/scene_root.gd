@@ -523,11 +523,8 @@ var pre_reroll_values: Array[int] = []  # Werte VOR dem Neu-Würfeln (Farkle-Ver
 var pre_reroll_materials: Array[String] = []
 var pre_reroll_essences: Dictionary = {}  # Essenzen VOR dem Neu-Würfeln
 var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Würfeln
-## Irrlicht-Auswahl: der Slot, dessen Nachbarseiten gerade zur Wahl stehen (-1 =
-## keine offene Wahl), und die vier Seiten in Knopf-Reihenfolge.
-var _tip_choice_slot: int = -1
-var _tip_choice_faces: Array[int] = []
-var pre_reroll_det_links: Dictionary = {}  # Essenz-Glieder VOR dem Neu-Würfeln
+var pre_reroll_det_links: Dictionary = {}  # Runen-Glieder VOR dem Neu-Würfeln
+var pre_reroll_essence_links: Dictionary = {}  # Röntgen-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Zustände VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
@@ -808,9 +805,6 @@ func _setup_table_screen() -> void:
 	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
 	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
-	table_screen.tip_action_button.pressed.connect(_on_tip_button_pressed)
-	for i in table_screen.tip_face_buttons.size():
-		table_screen.tip_face_buttons[i].pressed.connect(_on_tip_face_pressed.bind(i))
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 	table_screen.log_action_button.pressed.connect(_on_log_button_pressed)
@@ -4413,7 +4407,6 @@ func _sync_screen_action_buttons() -> void:
 	var can_roll := phase == Phase.IDLE and _remaining_in_pool() > 0 and not _all_in_play_dice_selected()
 	table_screen.roll_action_button.disabled = not can_roll
 	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
-	_sync_tip_controls(interactable)
 	var stages := run.stages_cleared(hand_total) if run != null else 0
 	var can_bank := phase == Phase.IDLE and stages >= 1
 	table_screen.bank_action_button.visible = can_bank
@@ -4422,20 +4415,6 @@ func _sync_screen_action_buttons() -> void:
 	# Der Rückblick öffnet nur zwischen zwei Händen - dann liegt nichts, was er
 	# verstellen könnte.
 	table_screen.log_action_button.visible = _log_can_open()
-
-## Irrlicht: der Kipp-Knopf steht nur, wenn ein kippbarer Würfel liegt und die
-## Grube überhaupt bedienbar ist (nie während des Zählens). Die Seiten-Reihe
-## klappt erst der Knopf auf.
-func _sync_tip_controls(interactable: bool) -> void:
-	var slot := _tippable_slot()
-	var can_tip := interactable and slot >= 0
-	table_screen.tip_action_button.visible = can_tip
-	if not can_tip:
-		table_screen.tip_face_row.visible = false
-		_tip_choice_slot = -1
-		return
-	if _tip_choice_slot >= 0:
-		_refresh_tip_face_buttons(_tip_choice_slot)
 
 ## Nachglüh-Silhouetten des Fumbles: je liegendem Würfel sein Umriss an der
 ## projizierten Stelle, mit der Augenzahl, die oben lag. Die Würfel des LETZTEN
@@ -4455,55 +4434,6 @@ func _die_pixel_side() -> float:
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
 	var edge := table_screen.world_to_pixel(Vector3(0.0, 0.0, DiceController.DIE_HALF * 2.0))
 	return absf(edge.x - origin.x)
-
-## Erster liegender Würfel, der diese Runde noch kippen darf (-1 = keiner).
-func _tippable_slot() -> int:
-	if run == null:
-		return -1
-	for i in _visible_pit_slots():
-		if dice.settled[i] and run.can_tip_die(dice.slot_defs[i]):
-			return i
-	return -1
-
-func _on_tip_button_pressed() -> void:
-	var slot := _tippable_slot()
-	if slot < 0:
-		return
-	_tip_choice_slot = slot
-	_refresh_tip_face_buttons(slot)
-	table_screen.tip_face_row.visible = not table_screen.tip_face_row.visible
-
-## Beschriftet die vier Nachbarseiten der oben liegenden Seite mit ihren Werten.
-func _refresh_tip_face_buttons(slot: int) -> void:
-	var def: DieDefinition = dice.slot_defs[slot]
-	var neighbours := DieDefinition.adjacent_faces(dice.face_indices[slot])
-	_tip_choice_faces = neighbours
-	for i in table_screen.tip_face_buttons.size():
-		var button: Button = table_screen.tip_face_buttons[i]
-		var known := i < neighbours.size()
-		button.visible = known
-		if known:
-			button.text = str(def.faces[neighbours[i]])
-
-## Kippen ist KEIN Neuwurf: es gibt keine Farkle-Prüfung, die Hand läuft mit dem
-## neuen Bild weiter (der Würfel lag ja schon).
-func _on_tip_face_pressed(index: int) -> void:
-	var slot := _tip_choice_slot
-	if slot < 0 or index >= _tip_choice_faces.size() or run == null:
-		return
-	if not run.can_tip_die(dice.slot_defs[slot]):
-		return
-	if not dice.tip_to_face(slot, _tip_choice_faces[index]):
-		return
-	run.consume_tip(dice.slot_defs[slot])
-	_tip_choice_slot = -1
-	table_screen.tip_face_row.visible = false
-	hand_note = "Irrlicht: Der Würfel kippt auf die Nachbarseite."
-	_flash_scoring_die(slot)
-	dice.clear_selection()
-	_auto_select_best_combo()
-	_line_up_settled_dice()
-	_refresh_ui()
 
 ## Hinweis-Karte der Gruben-Marken: dort erreicht die Maus die Marken nicht (der
 ## Zeiger liegt auf dem Tisch, nicht im SubViewport) - also je Frame das Pixel
@@ -4794,12 +4724,21 @@ func _discarded_essence_ids() -> Array[String]:
 func _effective_essence_sets() -> Dictionary:
 	return EssenceEffects.effective_sets(_slot_essences(), _discarded_essence_ids())
 
-## Deterministische Glieder je Wurf-Slot (Röntgenlicht, Korona, Kehrseite-Rune):
-## einmal HIER aufgelöst, damit Vorschau, Nehmen und Farkle-Vergleich dieselben
-## Glieder sehen - über dieselbe Quelle wie die Nehmen-Effekte
-## (EssenceEffects.link_faces). Der Pointer steht NICHT hier: er wird beim
-## Nehmen ausgewürfelt.
+## Runen-Glieder je Wurf-Slot (Kehrseite): einmal HIER aufgelöst, damit
+## Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen - über
+## dieselbe Quelle wie die Nehmen-Effekte. Der Pointer steht NICHT hier: er
+## wird beim Nehmen ausgewürfelt.
 func _det_links() -> Dictionary:
+	return _link_map(false)
+
+## Essenz-Glieder je Wurf-Slot (Röntgenlicht) - sie feuern JE Würfel-Trigger;
+## über die Antritte rollt die Wertung sie selbst weiter.
+func _essence_links() -> Dictionary:
+	return _link_map(true)
+
+## Beide Glieder-Karten aus EINER Quelle: essence = das Röntgen-Glied, sonst die
+## Runen-Glieder (der Stichel lässt die Kehrseite zweimal zünden).
+func _link_map(essence: bool) -> Dictionary:
 	var links := {}
 	var sets := _effective_essence_sets()
 	var ids := run.charm_ids()
@@ -4810,7 +4749,9 @@ func _det_links() -> Dictionary:
 			continue
 		var essence_ids := EssenceEffects.set_at(sets, i)
 		var rune_ids := def.runes_on(face)
-		var chain := EssenceEffects.link_faces(def, face, essence_ids, rune_ids, ids)
+		var chain: Array[int] = EssenceEffects.link_faces(def, face, rune_ids)
+		if essence:
+			chain = EssenceEffects.essence_link_faces(def, face, essence_ids)
 		if chain.is_empty():
 			continue
 		var entries: Array[Dictionary] = []
@@ -4820,7 +4761,8 @@ func _det_links() -> Dictionary:
 			var running: int = def.faces[link_face]
 			# Der Stichel lässt die Kehrseite zweimal zünden; der Wert wandert dabei
 			# mit wie beim Pointer-Wurf (Knochen wächst zwischen den Zündungen).
-			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, ids):
+			var fires := 1 if essence else EssenceEffects.det_link_fire_count(face, link_face, rune_ids, ids)
+			for _s in fires:
 				entries.append({
 					"face": link_face,
 					"value": running,
@@ -4910,7 +4852,8 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
-		DiceScoring.CTX_DET_LINKS: _det_links(),  # Röntgenlicht/Korona
+		DiceScoring.CTX_DET_LINKS: _det_links(),  # Kehrseite-Rune
+		DiceScoring.CTX_ESSENCE_LINKS: _essence_links(),  # Röntgenlicht
 		DiceScoring.CTX_MATERIAL_LEVELS: _material_levels(),  # Veredelung der Seiten
 		DiceScoring.CTX_ESSENCES: _slot_essences(),  # Seele je Würfel
 		DiceScoring.CTX_EQUAL_FACES: _equal_face_values(),  # Gleichschliff
@@ -5019,7 +4962,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
 	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
 	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
-	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_POINTER_FIRES]:
+	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS, DiceScoring.CTX_POINTER_FIRES]:
 		var mapped_links := {}
 		var links: Dictionary = ctx.get(link_key, {})
 		for s in links:
@@ -5330,6 +5273,7 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_essences = _slot_essences()
 		pre_reroll_runes = _slot_runes()
 		pre_reroll_det_links = _det_links()
+		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_phosphor_mult = _phosphor_mults()
@@ -5536,6 +5480,7 @@ func _on_roll_finished() -> void:
 	# alten Materialien.
 	var old_ctx := _score_ctx()
 	old_ctx[DiceScoring.CTX_DET_LINKS] = pre_reroll_det_links
+	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
@@ -5558,14 +5503,11 @@ func _on_roll_finished() -> void:
 			_refresh_deck_trays()
 			_refresh_ui()
 			return
-		# Löschgas: ein beteiligter CO2-Würfel schluckt den Fumble - einmal je
-		# Runde und je Würfel. Der Anker geht vor: er ist enger und kostet nichts.
+		# Löschgas: ein beteiligter CO2-Würfel schluckt den Fumble - ohne Limit
+		# und ohne Preis. Der Anker geht trotzdem vor: er ist enger.
 		var smother := run.smother_slot(active_kinds, _visible_pit_slots())
 		if smother >= 0:
-			# Der Preis des Löschens: die obere Seite fällt auf 1 und verliert
-			# ihr Material (GameRun schreibt es in die Def).
-			run.consume_smother(active_kinds[smother], dice.face_indices[smother])
-			hand_note = "Löschgas: Der Fumble verpufft – die obere Seite fällt auf 1."
+			hand_note = "Löschgas: Der Fumble verpufft."
 			_flash_scoring_die(smother)
 			dice.clear_selection()
 			_auto_select_best_combo()
@@ -5857,13 +5799,7 @@ func _on_take_button_pressed() -> void:
 	# Lasurpinsel: läuft die Firnis-Schicht auf einer Stufe-III-Seite ins Leere,
 	# fällt stattdessen eine Material-Kopie in den Vorrat.
 	run.apply_glaze_brush(active_kinds, dice.face_indices, participating)
-	# Ethylen-Ernte: VOR Midashandschuh und Goldenem Handschlag, damit sie die
-	# Materialien erntet, mit denen die Hand gezählt hat - nicht die frisch
-	# vergoldeten.
-	var harvested := run.apply_material_harvest(active_kinds, participating, _effective_essence_sets())
-	if harvested > 0:
-		hand_note = "Ethylen: %d Material-Gravuren geerntet." % harvested
-	# Abguss-Rune: aus demselben Grund wie die Ethylen-Ernte HIER - sie gießt das
+	# Abguss-Rune: VOR Midashandschuh und Goldenem Handschlag - sie gießt das
 	# Material ab, mit dem die Hand gezählt hat, nicht das frisch vergoldete.
 	var cast_copies := run.apply_rune_cast(active_kinds, dice.face_indices, participating)
 	if cast_copies > 0:
@@ -6200,7 +6136,7 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 				return false
 		if not await _play_die_links(group["links"], slot, die_px, gain_px, glow_by_slot):
 			return false
-	# Essenz-Glieder (Röntgenlicht, Korona) zuletzt - sie hängen am ganzen Würfel.
+	# Runen-Glieder (Kehrseite) zuletzt - sie hängen am ganzen Würfel.
 	return await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot)
 
 ## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem

@@ -111,6 +111,21 @@ func test_grindstone_stufe_six_moves_everything_above_one():
 	assert_eq(EtchingEffects.grindstone(d, 5, 0, 6), 19, "alles über der 1")
 	assert_eq(d.faces, [20, 2, 3, 4, 5, 1])
 
+func test_grindstone_spares_a_protected_source():
+	# Stickstoff: die Seite verliert nie an Wert - die Zielseite bekommt den
+	# vollen Betrag der Stufe trotzdem.
+	var d := _die([1, 2, 3, 4, 5, 6])
+	d.essence_id = Essence.NITROGEN
+	assert_eq(EtchingEffects.grindstone(d, 5, 0), 2)
+	assert_eq(d.faces, [3, 2, 3, 4, 5, 6], "die Quelle steht, das Ziel wächst")
+
+func test_grindstone_spares_a_burned_in_source():
+	# Der Einbrand auf der MINUS-Seite ist dieselbe eine Schutzregel.
+	var d := _die([1, 2, 3, 4, 5, 6])
+	d.set_rune(5, Rune.BURN_IN)
+	assert_eq(EtchingEffects.grindstone(d, 5, 0), 2)
+	assert_eq(d.faces, [3, 2, 3, 4, 5, 6])
+
 func test_can_grindstone_minus_respects_floor():
 	var d := _die([1, 2, 3, 4, 5, 6])
 	assert_false(EtchingEffects.can_grindstone_minus(d, 0), "eine 1 darf nicht auf 0")

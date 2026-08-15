@@ -255,12 +255,6 @@ var golden_handshake_used_this_round: bool = false
 ## den ganzen Run - sie sterben erst mit dem Run, nicht mit der Runde.
 var essence_phosphor_store: Dictionary = {}
 var essence_phosphor_mult: Dictionary = {}
-## Verbrauchtes Löschgas je Würfel-Exemplar - eine Runden-Marke.
-var essence_smother_used: Dictionary = {}
-## Schon gekippte Irrlicht-Würfel dieser Runde.
-var essence_tip_used: Dictionary = {}
-## Schon abgeerntete Ethylen-Würfel dieser Runde.
-var essence_harvest_used: Dictionary = {}
 ## Würfel, die diese Runde schon einen Abguss genommen haben (Rune.CAST).
 var rune_cast_used: Dictionary = {}
 ## Auslösungen und Krits der bisherigen Hände DIESER Runde - Dunkelkammer und
@@ -1771,36 +1765,6 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		copied += 1
 	return copied
 
-## Ethylen-Ernte: zählt ein Würfel mit dieser Seele in dieser Runde zum ersten
-## Mal, fällt je VERSCHIEDENEM Material seiner sechs Seiten ein Fixinhalt-Paket
-## an - die Druckerpresse legt je eine zweite Kopie dazu. Liefert die Zahl der
-## Kopien. Die Marke hängt am Würfel-Exemplar, nicht am Pool-Platz.
-func apply_material_harvest(defs: Array[DieDefinition], participating: Array[int],
-		essences: Dictionary) -> int:
-	var copies := 2 if charm_ids().has(Charm.PRINTING_PRESS) else 1
-	var granted := 0
-	for i in participating:
-		if i >= defs.size() or defs[i] == null:
-			continue
-		if not EssenceEffects.harvests_materials_of(EssenceEffects.set_at(essences, i)):
-			continue
-		var key := defs[i].get_instance_id()
-		if essence_harvest_used.has(key):
-			continue
-		essence_harvest_used[key] = true
-		var seen: Array[String] = []
-		for material_id in defs[i].materials:
-			if material_id == "" or seen.has(material_id):
-				continue
-			seen.append(material_id)
-			var material := DieMaterial.by_id(material_id)
-			if material == null:
-				continue
-			for _c in copies:
-				grant_material_pack(material)
-				granted += 1
-	return granted
-
 ## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
 ## frische Kopie davon als versiegeltes Fixinhalt-Paket ins Lager - der Abguss
 ## erbt die Veredelung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
@@ -1831,17 +1795,11 @@ func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
 			granted += 1
 	return granted
 
-## Meldet eine Würfel-Änderung, die AUSSERHALB von GameRun passiert ist
-## (Gravur-Station, Nehmen-Effekte der Materialien) - damit alle Anzeigen über
-## denselben Weg auffrischen.
-## Rundenzustand der Essenzen: Löschgas und Kipp-Erlaubnis fangen neu an, dazu
-## die Hand-Zähler der Runde. Der Phosphor-Speicher NICHT - er sammelt über den
-## ganzen Run. Alles hängt am Würfel-Exemplar, also an seiner Instanz-id - eine
-## Def wandert nie zwischen Pool-Plätzen.
+## Rundenzustand der Essenzen: die Abguss-Marken und die Hand-Zähler der Runde
+## fangen neu an. Der Phosphor-Speicher NICHT - er sammelt über den ganzen Run.
+## Alles hängt am Würfel-Exemplar, also an seiner Instanz-id - eine Def wandert
+## nie zwischen Pool-Plätzen.
 func roll_essence_round_state() -> void:
-	essence_smother_used.clear()
-	essence_tip_used.clear()
-	essence_harvest_used.clear()
 	rune_cast_used.clear()
 	die_scored_this_round.clear()
 	round_trigger_count = 0
@@ -1914,41 +1872,15 @@ func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> 
 func note_bare_dice(count: int) -> void:
 	round_bare_dice += maxi(0, count)
 
-## Erster beteiligter Löschgas-Würfel, dessen Ladung diese Runde noch steht
-## (-1 = keiner). Der Aufrufer verbraucht sie mit consume_smother.
+## Erster beteiligter Löschgas-Würfel (-1 = keiner). Er schluckt JEDEN Fumble,
+## an dem er beteiligt war - kein Rundenlimit, kein Preis.
 func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
 	for i in slots:
 		if i >= defs.size() or defs[i] == null:
 			continue
-		if EssenceEffects.smothers_farkle(defs[i].essence_id) \
-				and not essence_smother_used.has(defs[i].get_instance_id()):
+		if EssenceEffects.smothers_farkle(defs[i].essence_id):
 			return i
 	return -1
-
-## Verbraucht die Löschgas-Ladung dieses Würfels für die laufende Runde. Das
-## Löschen kostet: die oben liegende Seite fällt auf 1 und verliert ihr Material
-## (set_face_material nimmt die Stufe mit, der Rune bleibt).
-func consume_smother(die: DieDefinition, up_face: int = -1) -> void:
-	if die == null:
-		return
-	essence_smother_used[die.get_instance_id()] = true
-	if up_face < 0 or up_face >= die.faces.size():
-		return
-	die.faces[up_face] = 1
-	die.set_face_material(up_face, "")
-	note_pool_changed()
-
-## Darf dieser Würfel diese Runde (noch) gekippt werden? Die Sumpflaterne hebt
-## das Runden-Limit ganz auf.
-func can_tip_die(die: DieDefinition) -> bool:
-	if die == null or not EssenceEffects.can_tip(die.essence_id):
-		return false
-	return charm_ids().has(Charm.SWAMP_LANTERN) or not essence_tip_used.has(die.get_instance_id())
-
-## Verbraucht die Kipp-Erlaubnis dieses Würfels für die laufende Runde.
-func consume_tip(die: DieDefinition) -> void:
-	if die != null:
-		essence_tip_used[die.get_instance_id()] = true
 
 ## Was auf dem Tisch schon steht (Charm.FEATURE_*): ein Charm, dessen Spielzeug
 ## fehlt, ist so tot wie ein Essenz-Charm ohne Seele. EINE Quelle für Auslage,

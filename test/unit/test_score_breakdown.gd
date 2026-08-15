@@ -76,7 +76,6 @@ func _check_continuity(breakdown: Dictionary) -> void:
 			assert_almost_eq(float(pulse["charm_mult_after"]), mult, 0.0001)
 			# Jeder Krit schlägt EINZELN ein - die Kette läuft über die Schläge.
 			for crit: Dictionary in pulse["crit_steps"]:
-				base += int(crit["firedamp_add"])
 				mult *= float(crit["crit_x"])
 				assert_eq(crit["base_after"], base, "Zwischenstand nach dem Krit-Schlag")
 				assert_almost_eq(float(crit["mult_after"]), mult, 0.0001)
@@ -84,7 +83,7 @@ func _check_continuity(breakdown: Dictionary) -> void:
 		assert_eq(step["base_after"], base, "Würfel-Schritt endet am laufenden Stand")
 		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
 	for step: Dictionary in breakdown["charm_steps"]:
-		base = (base + int(step["base_add"])) * int(step["base_x"]) + int(step["firedamp_add"])
+		base = (base + int(step["base_add"])) * int(step["base_x"])
 		mult = (mult + float(step["mult_add"])) * float(step["mult_x"])
 		assert_eq(step["base_after"], base)
 		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
@@ -165,6 +164,18 @@ func test_mercury_edge_retrigger_stays_at_its_die():
 		assert_eq(int(pulse["base_add"]), 5, "Augen je Auslösung")
 		assert_eq(int(pulse["mult_add"]), 4, "Rubin je Auslösung")
 	assert_eq(_firings(breakdown["die_steps"][1]).size(), 1, "der Partner löst einfach aus")
+
+func test_the_xray_link_rides_every_die_trigger():
+	# Röntgenlicht: das Glied hängt in JEDER Trigger-Gruppe, nicht in den
+	# det_links am Ende - und die Schrittliste muss die Wertung treffen.
+	var ctx := _argon(0)
+	ctx[DiceScoring.CTX_ESSENCE_LINKS] = {0: [{"face": 5, "value": 6, "material": "", "level": 0}]}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
+		_ids([]), false, NO_MATS, {}, ctx)
+	var step: Dictionary = breakdown["die_steps"][0]
+	assert_eq(step["det_links"].size(), 0, "am Ende steht nur noch die Kehrseite-Rune")
+	for group: Dictionary in step["die_triggers"]:
+		assert_eq(group["links"].size(), 1, "je Antritt eine Belichtung")
 
 func test_high_stacker_fires_with_its_die_per_activation():
 	# Würfelgebunden: der Hochstapler feuert MIT dem höchsten gewerteten Würfel,

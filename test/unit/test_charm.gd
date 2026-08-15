@@ -17,9 +17,8 @@ func test_all_returns_all_charms():
 	# −3 mit den Kanten: Rahmenvergolder (wäre ein Doppel des Goldschmieds),
 	# Magnetring und Zargenglanz hatten kein Ziel mehr.
 	# +23 Essenz-Charms: je einer für jede Essenz ab "selten"
-	# (Charm.ESSENCE_REQUIREMENT ist die Liste) - Druckerpresse kam mit Ethylen,
-	# Zündschnur mit Knallgas, und die Tarnkappe hängt als erste an einer
-	# HÄUFIGEN Seele (Krypton).
+	# (Charm.ESSENCE_REQUIREMENT ist die Liste) - Zündschnur kam mit Knallgas,
+	# und die Tarnkappe hängt als erste an einer HÄUFIGEN Seele (Krypton).
 	# +5 Wirkungs-Charms: Quadratur, Sechserpack, Gleichrichter und die beiden
 	# ersten Vertrags-Charms Werbetrommel und Winkeladvokat.
 	# +3 aus den Playtest-Notizen: Schutzgeld, Wasserfall, Doppelter Boden.
@@ -32,7 +31,9 @@ func test_all_returns_all_charms():
 	# −1 mit der Presse: der Gravierstift schonte einen Verbrauchs-Haushalt, den
 	# es nicht mehr gibt.
 	# +1 Gleichschliff: der Würfel mit sechs gleichen Seiten.
-	assert_eq(Charm.all().size(), 145)
+	# −3 mit dem Essenz-Rework: Sumpflaterne, Sonnenfinsternis und Druckerpresse
+	# starben mit Irrlicht, Korona und Ethylen.
+	assert_eq(Charm.all().size(), 142)
 
 func test_all_ids_are_unique():
 	var seen := {}

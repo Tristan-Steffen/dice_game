@@ -57,9 +57,10 @@ func test_the_cherenkov_crit_rides_the_stored_charge():
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 10), 3.0, 0.0001)
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 5), 2.0, 0.0001)
 
-func test_the_moderator_shrinks_the_divisor():
+func test_the_moderator_drops_the_divisor():
 	var soul := _ids([Essence.CHERENKOV])
-	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, _ids([Charm.MODERATOR]), 10), 6.0, 0.0001)
+	# Voll: ×(1 + Energie), nicht mehr geteilt.
+	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, _ids([Charm.MODERATOR]), 10), 11.0, 0.0001)
 	assert_almost_eq(EssenceEffects.crit_of(_ids([Essence.NEON]), 5, 0, 0, 0, _ids([Charm.MODERATOR]), 10),
 		1.0, 0.0001, "der Steuerstab gehört dem Tscherenkow allein")
 
@@ -68,7 +69,7 @@ func test_the_cherenkov_crit_lands_in_the_score():
 	assert_eq(_pair_score(NO_CHARMS, ctx), 40, "ohne Energie zählt das Paar normal")
 	ctx[DiceScoring.CTX_CHARGE] = 10
 	assert_eq(_pair_score(NO_CHARMS, ctx), 20 * 2 * 3, "×3 an der Zündung des Würfels")
-	assert_eq(_pair_score(_ids([Charm.MODERATOR]), ctx), 20 * 2 * 6)
+	assert_eq(_pair_score(_ids([Charm.MODERATOR]), ctx), 20 * 2 * 11, "mit Steuerstab zählt sie voll")
 
 # --- Standby-Licht, Kilometerzähler, Flaschenregal: statische Mult-Charms ----------
 
@@ -357,9 +358,9 @@ func test_the_background_radiation_grows_every_lying_die():
 	var defs := _defs([source, mate, idle])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), _m(["", "", ""]),
 		_p([0, 1]), NO_CHARMS, -1, {0: Essence.BACKGROUND_RADIATION}, _p([0, 1]), false, _p([0, 1, 2]))
-	assert_eq(source.faces, _d([6, 3, 4, 5, 6, 7]), "sich selbst eingeschlossen")
-	assert_eq(mate.faces, _d([6, 3, 4, 5, 6, 7]))
-	assert_eq(idle.faces, _d([2, 2, 2, 2, 2, 2]), "auch der ungewertete liegt auf dem Tisch")
+	assert_eq(source.faces, _d([10, 7, 8, 9, 10, 11]), "sich selbst eingeschlossen")
+	assert_eq(mate.faces, _d([10, 7, 8, 9, 10, 11]))
+	assert_eq(idle.faces, _d([6, 6, 6, 6, 6, 6]), "auch der ungewertete liegt auf dem Tisch")
 	assert_true(report.grown.has(2), "die Zeremonie muss den Blitz sehen")
 
 func test_the_radiation_stays_in_the_pit_without_the_telescope():
@@ -377,7 +378,7 @@ func test_the_radio_telescope_reaches_the_discard():
 	var report := MaterialEffects.apply_take_effects(_defs([source]), _p([0]), _m([""]), _p([0]),
 		_ids([Charm.RADIO_TELESCOPE]), -1, {0: Essence.BACKGROUND_RADIATION}, _p([0]), false,
 		_p([0]), {}, 0, 0, _defs([filed]))
-	assert_eq(filed.faces, _d([5, 5, 5, 5, 5, 5]))
+	assert_eq(filed.faces, _d([9, 9, 9, 9, 9, 9]))
 	assert_true(report.discard_grown, "note_pool_changed hängt genau an dieser Flagge")
 
 func test_a_soulless_hand_grows_nothing():

@@ -87,17 +87,52 @@ static func _legal_dice(dice: Array[int], legal: Array[int]) -> Array[int]:
 		sub.append(dice[i])
 	return sub
 
-## Essenz-Glieder (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je Glied
-## {"face": int, "value": int (rohe Augen), "material": String, "level": int}.
-## NUR Röntgenlicht und Korona - deterministisch, einmal nach allen Würfel-
-## Triggern. Der Aufrufer löst sie EINMAL auf (scene_root kennt Defs + obere
-## Seiten), so sehen Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder.
+## Deterministische Glieder (ctx-Schlüssel): Dictionary Slot -> Glieder-Liste, je
+## Glied {"face": int, "value": int (rohe Augen), "material": String, "level": int}.
+## NUR die Kehrseiten-Rune - einmal nach allen Würfel-Triggern. Der Aufrufer löst
+## sie EINMAL auf (scene_root kennt Defs + obere Seiten), so sehen Vorschau,
+## Nehmen und Farkle-Vergleich dieselben Glieder.
 const CTX_DET_LINKS := "det_links"
 
-## Essenz-Glieder des Slots aus dem ctx ([] = keine).
+## Essenz-Glieder (ctx-Schlüssel): dieselbe Form, aber JE WÜRFEL-TRIGGER einmal
+## gefeuert - das Röntgenlicht belichtet bei jedem Antritt.
+const CTX_ESSENCE_LINKS := "essence_links"
+
+## Deterministische Glieder des Slots aus dem ctx ([] = keine).
 static func det_links_for(ctx: Dictionary, slot: int) -> Array:
 	var links: Dictionary = ctx.get(CTX_DET_LINKS, {})
 	return links.get(slot, [])
+
+## Die Essenz-Glieder eines Slots, aufgeteilt auf die Würfel-Trigger: je Antritt
+## die Glieder dieses Antritts (Manometer wiederholt sie). Die Werte wandern über
+## die ganze Reihe weiter, wie im eingefrorenen Pointer-Wurf - ein Knochen-Glied
+## zählt beim zweiten Antritt den gewachsenen Wert, und genau dort landet auch die
+## Def, weil apply_take_effects dieselbe Zahl von Zündungen läuft.
+static func essence_link_groups(ctx: Dictionary, slot: int, die_triggers: int, repeat: int,
+		charm_ids: Array[String], essence_ids: Array[String], clause_growth: int = 0) -> Array:
+	var links: Dictionary = ctx.get(CTX_ESSENCE_LINKS, {})
+	var base: Array = links.get(slot, [])
+	var groups: Array = []
+	if base.is_empty():
+		return groups
+	var running := {}
+	for _t in maxi(0, die_triggers):
+		var group: Array = []
+		for _r in maxi(1, repeat):
+			for link: Dictionary in base:
+				var face := int(link["face"])
+				var value: int = running.get(face, int(link["value"]))
+				var entry := link.duplicate()
+				entry["value"] = value
+				group.append(entry)
+				running[face] = MaterialEffects.mutate_link_value_once(value, String(link["material"]),
+					charm_ids, int(link.get("raw_level", link.get("level", 1))), essence_ids, clause_growth)
+		groups.append(group)
+	return groups
+
+## Die Essenz-Glieder EINES Würfel-Triggers ([] = keine).
+static func essence_links_at(groups: Array, trigger_index: int) -> Array:
+	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
 
 ## Dieselben Glieder, aber so oft, wie die Seele wirkt (Manometer). Die Werte
 ## wandern dabei weiter wie im eingefrorenen Pointer-Wurf - ein Knochen-Glied
@@ -675,11 +710,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
-	# Krits dieser Hand, laufend gezählt: Ozon wächst mit ihnen, Grubengas bucht
-	# an JEDEM von ihnen sofort seinen Zuschlag. Die Gewitterfront startet den
+	# Krits dieser Hand, laufend gezählt: Ozon wächst mit ihnen, das Grubengas legt
+	# je Krit davor +20 Basis auf SEINE Zündung. Die Gewitterfront startet den
 	# Zähler beim Stand der Runde statt bei null.
 	var crits := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(CTX_ROUND_CRITS, 0)))
-	var firedamp := EssenceEffects.firedamp_step(scored, essences)
 	# Laufender Auslösungszähler der ganzen Hand (Pointer-Glieder zählen mit):
 	# das Photonengas sammelt das Licht aller Auslösungen vor sich - mit
 	# Dunkelkammer auch das der bisherigen Hände der Runde.
@@ -740,6 +774,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		# Manometer: wie oft die SEELE wirkt - Krit, Wachstum und Glieder, nie der
 		# Würfel selbst (das bliebe ein zweiter Faktor auf der Würfel-Achse).
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
+		# Röntgenlicht: die Gegenseite feuert JE Würfel-Trigger, direkt hinter dem
+		# Zündungs-Batch dieses Antritts - wie ein garantierter Pointer, nur ohne
+		# Chance und ohne Kette.
+		var essence_links := essence_link_groups(ctx, i, die_triggers, essence_repeat,
+			charm_ids, essence_ids, clause_growth)
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
 		# Zündungen, die zweite zählt also den gewachsenen Wert. Gewandelt wird
 		# der PHYSISCHE Wert (raw), die Verwandlung liegt als Linse darüber - sonst
@@ -759,7 +798,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
 					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
-					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
+					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids) \
+					+ EssenceEffects.firedamp_base_of(essence_ids, crits)
 				triggers += 1
 				if not has_die_bonus:
 					continue
@@ -789,7 +829,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if not is_equal_approx(mat_crit, 1.0):
 						crits += 1
-						base += firedamp
 					mult *= mat_crit
 				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
 					wild_eyes if i == wild else 0, charm_ids, charge,
@@ -799,13 +838,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				for _e in essence_repeat:
 					if not is_equal_approx(ess_crit, 1.0):
 						crits += 1
-						base += firedamp
 					mult *= ess_crit
 				for j in charm_ids.size():
 					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
 					if not is_equal_approx(die_crit, 1.0):
 						crits += 1
-						base += firedamp
 					mult *= die_crit
 				running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 				# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
@@ -815,14 +852,19 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
 				# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
 				MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
-			# Glieder: erst der für DIESEN Würfel-Trigger gewürfelte Pointer, im
-			# letzten Durchgang die Essenz-Glieder. Jedes feuert EINMAL wie eine
-			# Zündung mit getauschter Seite (nie retriggert) - noch an der Position
-			# dieses Würfels, weil Krits die Reihenfolge werten. Glieder tragen ihren
-			# eingefrorenen Wert (eine Kette meint fremde Seiten). RUNES feuern hier
-			# NICHT: eine Rune gehört der oben liegenden Seite, ein Glied ist per
-			# Definition eine andere.
-			for link in (pointer_fires_at(ctx, i, t) if t < die_triggers else repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)):
+			# Glieder: je Würfel-Trigger erst der dafür gewürfelte Pointer, dann das
+			# Essenz-Glied (Röntgenlicht); im letzten Durchgang die Runen-Glieder.
+			# Jedes feuert EINMAL wie eine Zündung mit getauschter Seite (nie
+			# retriggert) - noch an der Position dieses Würfels, weil Krits die
+			# Reihenfolge werten. Glieder tragen ihren eingefrorenen Wert (eine Kette
+			# meint fremde Seiten). RUNES feuern hier NICHT: eine Rune gehört der oben
+			# liegenden Seite, ein Glied ist per Definition eine andere.
+			var links_now: Array = []
+			if t < die_triggers:
+				links_now = pointer_fires_at(ctx, i, t) + essence_links_at(essence_links, t)
+			else:
+				links_now = repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)
+			for link in links_now:
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))
@@ -844,13 +886,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				for _r in MaterialEffects.payoff_repeats(link_level, charm_ids):
 					if not is_equal_approx(link_crit, 1.0):
 						crits += 1
-						base += firedamp
 					mult *= link_crit
 				for j in charm_ids.size():
 					var link_die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, link_value)
 					if not is_equal_approx(link_die_crit, 1.0):
 						crits += 1
-						base += firedamp
 					mult *= link_die_crit
 	for j in charm_ids.size():
 		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
@@ -859,7 +899,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
 		if not is_equal_approx(static_crit, 1.0):
 			crits += 1
-			base += firedamp
 		mult *= static_crit
 	# Antimaterie zählt negativ - die Basis darf trotzdem nie unter null fallen.
 	return [maxi(0, base), mult]

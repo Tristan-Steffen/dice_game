@@ -331,19 +331,18 @@ func _reverse_die() -> DieDefinition:
 	return def
 
 func test_the_reverse_links_the_opposite_face():
-	var no_essence: Array[String] = []
-	var faces := EssenceEffects.link_faces(_reverse_die(), 0, no_essence, _ids([Rune.REVERSE]))
+	var faces := EssenceEffects.link_faces(_reverse_die(), 0, _ids([Rune.REVERSE]))
 	assert_eq(faces, [DieDefinition.opposite_face(0)], "die Gegenseite, deterministisch")
 
-func test_the_reverse_and_the_xray_never_link_the_same_face_twice():
-	# Beide meinen die Gegenseite - zusammen bleibt es EIN Glied.
-	var faces := EssenceEffects.link_faces(_reverse_die(), 0, _ids([Essence.XRAY]),
-		_ids([Rune.REVERSE]))
-	assert_eq(faces.size(), 1, "jede Seite höchstens einmal")
+func test_the_reverse_and_the_xray_keep_their_own_paths():
+	# Beide meinen die Gegenseite, feuern aber getrennt: das Röntgenlicht je
+	# Antritt, die Rune einmal am Ende. Entdoppelt wird nichts.
+	var die := _reverse_die()
+	assert_eq(EssenceEffects.link_faces(die, 0, _ids([Rune.REVERSE])).size(), 1)
+	assert_eq(EssenceEffects.essence_link_faces(die, 0, _ids([Essence.XRAY])).size(), 1)
 
 func test_a_die_without_the_reverse_links_nothing():
-	var no_essence: Array[String] = []
-	var faces := EssenceEffects.link_faces(_reverse_die(), 0, no_essence, _ids([Rune.AFTERGLOW]))
+	var faces := EssenceEffects.link_faces(_reverse_die(), 0, _ids([Rune.AFTERGLOW]))
 	assert_true(faces.is_empty())
 
 func test_a_link_fires_no_runes_of_its_own():
@@ -351,6 +350,5 @@ func test_a_link_fires_no_runes_of_its_own():
 	# Kehrseite, schaukelten sich beide sonst gegenseitig hoch.
 	var def := _reverse_die()
 	def.set_rune(DieDefinition.opposite_face(0), Rune.REVERSE)
-	var no_essence: Array[String] = []
-	var faces := EssenceEffects.link_faces(def, 0, no_essence, def.runes_on(0))
+	var faces := EssenceEffects.link_faces(def, 0, def.runes_on(0))
 	assert_eq(faces.size(), 1, "das Glied zündet keine weitere Kehrseite")

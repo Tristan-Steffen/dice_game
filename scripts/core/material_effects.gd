@@ -465,6 +465,11 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				_irradiate_from(defs, face_indices, participating, i, essence_ids, charm_ids, report, essence_repeat)
 			for fire in (fires[t] if t < fires.size() else []):
 				_fire_link(defs[i], int(fire["face"]), charm_ids, essence_ids, report, i, clause_growth)
+			# Röntgenlicht: die Gegenseite belichtet bei JEDEM Antritt, hinter dem
+			# Zündungs-Batch dieses Triggers - genau wie in der Wertung.
+			for link_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids):
+				for _r in essence_repeat:
+					_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i, clause_growth)
 		if defs[i].faces[face] > before:
 			report.grown.append(i)
 		elif defs[i].faces[face] < before:
@@ -472,11 +477,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		elif swelled:
 			report.grown.append(i)
 
-		# Deterministische Glieder (Röntgenlicht, Korona, Kehrseite): EINMAL nach
-		# allen Würfel-Triggern - anders als der gewürfelte Pointer. Der Stichel
-		# lässt die Kehrseite zweimal zünden (det_link_fire_count).
-		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
-				defs[i].runes_on(face), charm_ids):
+		# Runen-Glieder (Kehrseite): EINMAL nach allen Würfel-Triggern - anders als
+		# der gewürfelte Pointer und das Röntgen-Glied. Der Stichel lässt die
+		# Kehrseite zweimal zünden (det_link_fire_count).
+		for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
 			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
 				_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i, clause_growth)
 
@@ -514,7 +518,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ## Geld, das EINZELNE Zündungen erzeugen - Gold-Seiten und Seelen-Geld. Es zahlt
 ## im Moment seiner Zündung, nicht am Zugende, also braucht die Zeremonie es in
 ## genau der Verschachtelung, die auch apply_take_effects läuft (Würfel-Trigger ->
-## Seiten-Zündungen -> Glieder dieses Triggers, zuletzt die Essenz-Glieder).
+## Seiten-Zündungen -> Glieder dieses Triggers, zuletzt die Runen-Glieder).
 ## Parameter wie apply_take_effects. Ergebnis je Slot:
 ##   {"groups": [{"firings": [int], "links": [int]}], "det_links": [int], "total": int}
 ## EINE Quelle: der Zug meldet die Summe als activation_money und bucht sie nicht.
@@ -582,9 +586,18 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 					gold_so_far += 1
 				links.append(fired)
 				total += fired
+			# Das Röntgen-Glied hängt an diesem Antritt, nicht am Zugende.
+			for xray_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids):
+				for _r in essence_repeat:
+					var lit := _link_money(defs[i], xray_face, charm_ids,
+						gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
+					if _face_is_gold(defs[i], xray_face):
+						gold_so_far += 1
+					links.append(lit)
+					total += lit
 			groups.append({"firings": firings, "links": links})
 		var det_links: Array[int] = []
-		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids, rune_ids, charm_ids):
+		for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
 			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
 				var det := _link_money(defs[i], link_face, charm_ids,
 					gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
@@ -883,8 +896,14 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 				if fired < defs[i].materials.size() and defs[i].materials[fired] == DieMaterial.GOLD:
 					triggers += 1
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
-		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids,
-				defs[i].runes_on(face), charm_ids):
+		# Das Röntgen-Glied zündet je Würfel-Trigger, das Runen-Glied einmal.
+		var link_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
+			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
+			participating.size(), tail_slot, hands_taken == 0, combination.has(i))
+		for link_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids):
+			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
+				triggers += link_triggers * essence_repeat
+		for link_face in EssenceEffects.link_faces(defs[i], face, defs[i].runes_on(face)):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += EssenceEffects.det_link_fire_count(face, link_face,
 					defs[i].runes_on(face), charm_ids) * essence_repeat

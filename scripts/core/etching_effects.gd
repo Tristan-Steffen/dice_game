@@ -95,17 +95,26 @@ static func chisel(die: DieDefinition, source_face: int, targets: Array[int], st
 ## Schleifstein: verschiebt Augen von einer Seite auf eine andere - die
 ## Augensumme bleibt gleich. Die Quellseite fällt nie unter 1, verschoben wird
 ## also nur, was sie WIRKLICH abgeben kann. Liefert die gewanderten Augen.
+## Ist die Quellseite geschützt (Stickstoff, Einbrand), verliert sie NICHTS - die
+## Zielseite bekommt den Betrag der Stufe trotzdem. Dieselbe eine Schutzregel wie
+## in der Wertung: eine geschützte Seite verliert nie an Wert.
 static func grindstone(die: DieDefinition, minus_face: int, plus_face: int, stufe: int = 1) -> int:
 	if minus_face < 0 or minus_face >= die.faces.size():
 		return 0
 	if plus_face < 0 or plus_face >= die.faces.size() or plus_face == minus_face:
 		return 0
+	var souls: Array[String] = [die.essence_id]
+	var protected := MaterialEffects.value_protected(souls, die.runes_on(minus_face))
 	var available: int = die.faces[minus_face] - MIN_FACE_VALUE
-	if available <= 0:
-		return 0
 	var want := step_of(GRINDSTONE_LADDER, stufe)
-	var moved := available if want == GRINDSTONE_ALL else mini(want, available)
-	die.faces[minus_face] -= moved
+	var moved := available if want == GRINDSTONE_ALL else want
+	if not protected:
+		moved = mini(moved, available)
+		if moved <= 0:
+			return 0
+		die.faces[minus_face] -= moved
+	if moved <= 0:
+		return 0
 	die.faces[plus_face] += moved
 	return moved
 

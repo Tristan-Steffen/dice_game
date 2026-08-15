@@ -365,9 +365,9 @@ func test_the_burin_fires_the_reverse_twice():
 	assert_eq(EssenceEffects.det_link_fire_count(0, 5, reverse, NO_CHARMS), 1)
 	assert_eq(EssenceEffects.det_link_fire_count(0, 5, reverse, _ids([Charm.BURIN])), 2)
 	assert_eq(EssenceEffects.det_link_fire_count(0, 1, reverse, _ids([Charm.BURIN])), 1,
-		"ein Korona-Nachbar ist keine Kehrseite")
+		"eine Nachbarseite ist keine Kehrseite")
 	assert_eq(EssenceEffects.det_link_fire_count(0, 5, _ids([]), _ids([Charm.BURIN])), 1,
-		"ohne Kehrseite bleibt es beim Röntgenlicht-Glied")
+		"ohne Kehrseite verdoppelt der Stichel nichts")
 
 func test_the_afterglow_activations_land_in_the_score():
 	var ctx := {DiceScoring.CTX_RUNES: {0: _ids([Rune.AFTERGLOW])}}

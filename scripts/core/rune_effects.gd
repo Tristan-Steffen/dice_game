@@ -9,8 +9,8 @@ class_name RuneEffects
 ## als Dauerzustand der Seite).
 ##
 ## Die Kehrseite steht bewusst NICHT hier: sie ist ein deterministisches Glied
-## und wohnt darum in EssenceEffects.link_faces, zusammen mit Röntgenlicht und
-## Korona - ein zweiter Glied-Pfad würde nur irgendwann auseinanderlaufen.
+## und wohnt darum in EssenceEffects.link_faces - sie feuert EINMAL nach allen
+## Würfel-Triggern, während das Röntgenlicht je Antritt belichtet.
 
 ## Streulicht zahlt je ungewertetem Würfel am Zugende.
 const STRAY_LIGHT_MONEY := 1

@@ -39,7 +39,7 @@ func _hand_built() -> Dictionary:
 						"die_charm_indices": [],
 						"charm_base_after": 14, "charm_mult_after": 2.0,
 						"crit_steps": [], "crit_charm_indices": [], "crit_x": 1.0,
-						"crit_from_die": false, "firedamp_add": 0,
+						"crit_from_die": false,
 						"base_after_crit": 14, "mult_after_crit": 2.0,
 						"value_after": 5,
 					},
@@ -51,10 +51,10 @@ func _hand_built() -> Dictionary:
 						"charm_base_after": 21, "charm_mult_after": 5.0,
 						"crit_steps": [{
 							"crit_x": 1.5, "charm_indices": [], "from_die": true,
-							"firedamp_add": 0, "base_after": 21, "mult_after": 7.5,
+							"base_after": 21, "mult_after": 7.5,
 						}],
 						"crit_charm_indices": [], "crit_x": 1.5,
-						"crit_from_die": true, "firedamp_add": 0,
+						"crit_from_die": true,
 						"base_after_crit": 21, "mult_after_crit": 7.5,
 						"value_after": 6,
 					},
@@ -67,7 +67,7 @@ func _hand_built() -> Dictionary:
 					"die_charm_indices": [],
 					"charm_base_after": 24, "charm_mult_after": 7.5,
 					"crit_steps": [], "crit_charm_indices": [], "crit_x": 1.0,
-					"crit_from_die": false, "firedamp_add": 0,
+					"crit_from_die": false,
 					"base_after_crit": 24, "mult_after_crit": 7.5,
 				}],
 			}],
@@ -79,14 +79,14 @@ func _hand_built() -> Dictionary:
 				"die_charm_indices": [],
 				"charm_base_after": 25, "charm_mult_after": 7.5,
 				"crit_steps": [], "crit_charm_indices": [], "crit_x": 1.0,
-				"crit_from_die": false, "firedamp_add": 0,
+				"crit_from_die": false,
 				"base_after_crit": 25, "mult_after_crit": 7.5,
 			}],
 		}],
 		"charm_steps": [{
 			"charm_indices": [0],
 			"base_add": 5, "mult_add": 0, "base_x": 1, "mult_x": 1.0, "crit_x": 1.0,
-			"firedamp_add": 0, "base_after": 30, "mult_after": 7.5, "spotlight": false,
+			"base_after": 30, "mult_after": 7.5, "spotlight": false,
 		}],
 		"base": 30, "mult": 7.5, "merge_total": 225,
 		"post_steps": [{
@@ -162,9 +162,9 @@ func test_flatten_zaehlt_jede_krit_kopie_einzeln() -> void:
 	var breakdown := _hand_built()
 	var firing: Dictionary = breakdown["die_steps"][0]["die_triggers"][0]["firings"][1]
 	firing["crit_steps"] = [
-		{"crit_x": 1.4, "charm_indices": [0], "from_die": false, "firedamp_add": 0,
+		{"crit_x": 1.4, "charm_indices": [0], "from_die": false,
 			"base_after": 21, "mult_after": 7.0},
-		{"crit_x": 1.4, "charm_indices": [0], "from_die": false, "firedamp_add": 0,
+		{"crit_x": 1.4, "charm_indices": [0], "from_die": false,
 			"base_after": 21, "mult_after": 9.8},
 	]
 	var crits: Array[Dictionary] = []

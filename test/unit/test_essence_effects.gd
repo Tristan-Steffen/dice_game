@@ -230,24 +230,30 @@ func test_the_mult_format_rule_drops_trailing_zeros():
 	assert_eq(ScoreBreakdown.format_mult(2.25), "×2.25")
 	assert_eq(ScoreBreakdown.format_number(10.0), "10")
 
-# --- Grubengas: an JEDEM Krit der Hand -------------------------------------------
+# --- Grubengas: +20 Basis je Krit DAVOR, an seiner eigenen Zündung ---------------
 
-func test_firedamp_fires_with_every_crit():
-	var scored := _p([0])
-	var essences := {0: Essence.FIREDAMP}
-	assert_eq(EssenceEffects.firedamp_step(scored, essences), EssenceEffects.FIREDAMP_BASE)
-	assert_eq(EssenceEffects.firedamp_step(scored, {0: Essence.NEON}), 0)
+func test_firedamp_counts_the_crits_before_it():
+	assert_eq(EssenceEffects.firedamp_base(Essence.FIREDAMP, 2), 2 * EssenceEffects.FIREDAMP_BASE)
+	assert_eq(EssenceEffects.firedamp_base(Essence.FIREDAMP, 0), 0, "ohne Krit kein Schlagwetter")
+	assert_eq(EssenceEffects.firedamp_base(Essence.NEON, 2), 0)
+
+func test_firedamp_pays_at_its_own_activation():
+	# Kugelblitz kritet je Auslösung ×2. Zündet das Grubengas ZUERST, hat noch kein
+	# Krit gezündet - es zahlt nichts.
+	var early := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.FIREDAMP, 1: Essence.BALL_LIGHTNING}))
+	assert_eq(early, (10 + 5 + 5) * 4, "vor dem Krit bleibt die Grube still")
+	# Hinter dem Kugelblitz zählt es dessen Krit mit.
+	var late := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.BALL_LIGHTNING, 1: Essence.FIREDAMP}))
+	assert_eq(late, (10 + 5 + 5 + EssenceEffects.FIREDAMP_BASE) * 4, "ein Krit davor, ein Schlagwetter")
 
 func test_firedamp_scales_with_the_number_of_crits():
-	# Kugelblitz kritet je Auslösung ×2; das Grubengas legt je Krit +20 auf die Basis.
-	var one := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
-		NO_CHARMS, false, NO_MATS, {}, _ctx({0: Essence.FIREDAMP, 1: Essence.BALL_LIGHTNING}))
-	assert_eq(one, (10 + 5 + 5 + 20) * 4, "ein Krit, ein Schlagwetter")
-	# Zwei Kugelblitze = zwei Krits: +40 Basis, Mult 2 × 2 × 2.
+	# Zwei Kugelblitze vor ihm = zwei Krits: +40 Basis, Mult 3 × 2 × 2.
 	var two := DiceScoring.score_category(DiceScoring.THREE_KIND, _d([5, 5, 5]),
 		NO_CHARMS, false, NO_MATS, {},
-		_ctx({0: Essence.FIREDAMP, 1: Essence.BALL_LIGHTNING, 2: Essence.BALL_LIGHTNING}))
-	assert_eq(two, (18 + 5 + 5 + 5 + 40) * 12)
+		_ctx({0: Essence.BALL_LIGHTNING, 1: Essence.BALL_LIGHTNING, 2: Essence.FIREDAMP}))
+	assert_eq(two, (18 + 5 + 5 + 5 + 2 * EssenceEffects.FIREDAMP_BASE) * 12)
 
 # --- Halogen: Flutlicht, additiv je Auslösung ------------------------------------
 
@@ -312,6 +318,20 @@ func test_essence_money_lands_in_the_take_report():
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.NEON}, _p([0]))
 	assert_eq(report.total_money(), EssenceEffects.NEON_MONEY_PER_DIE, "ein gezählter Würfel = $2")
+
+func test_the_soul_money_counts_the_whole_scored_hand():
+	# Gezahlt wird je GEWERTETEM Würfel, nicht je Kombinationswürfel - der
+	# Krypton-Würfel liegt außerhalb der Kombination und zählt trotzdem mit.
+	var neon := DieDefinition.new()
+	neon.essence_id = Essence.NEON
+	var krypton := DieDefinition.new()
+	krypton.essence_id = Essence.KRYPTON
+	var defs: Array[DieDefinition] = [neon, krypton]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
+		NO_CHARMS, -1, {0: Essence.NEON, 1: Essence.KRYPTON}, _p([0, 1]), false, _p([0, 1]),
+		{}, 0, 0, [], _p([0]))
+	assert_eq(report.total_money(), 2 * EssenceEffects.NEON_MONEY_PER_DIE,
+		"zwei gewertete Würfel, obwohl nur einer die Kombination bildet")
 
 # --- Schutz und Sperren ------------------------------------------------------------
 
@@ -428,46 +448,23 @@ func test_a_purchase_prefers_a_soulless_pool_slot():
 	run._replace_pool_entry(fresh)
 	assert_eq(run.owned_pool[7].display_name, "Neuling", "der seelenlose Platz wird zuerst geräumt")
 
-# --- Kohlendioxid: das Löschgas schluckt einen Fumble je Runde ---------------------
+# --- Kohlendioxid: das Löschgas schluckt jeden Fumble ----------------------------
 
 func test_carbon_dioxide_is_the_only_smotherer():
 	assert_true(EssenceEffects.smothers_farkle(Essence.CARBON_DIOXIDE))
 	assert_false(EssenceEffects.smothers_farkle(Essence.NEON))
 
-func test_the_smother_charge_holds_once_per_round_per_die():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.CARBON_DIOXIDE
-	run.roll_essence_round_state()
-	var defs: Array[DieDefinition] = [die]
-	assert_eq(run.smother_slot(defs, _p([0])), 0, "zu Rundenbeginn steht die Ladung")
-	run.consume_smother(die, 0)
-	assert_eq(run.smother_slot(defs, _p([0])), -1, "verbraucht")
-	run.roll_essence_round_state()
-	assert_eq(run.smother_slot(defs, _p([0])), 0, "die neue Runde füllt nach")
-
-func test_smothering_costs_the_up_face():
+func test_the_smother_has_no_limit_and_no_price():
 	var run := GameRun.new_run()
 	var die := run.owned_pool[0]
 	die.essence_id = Essence.CARBON_DIOXIDE
 	die.faces[2] = 6
 	die.set_face_material(2, DieMaterial.GOLD)
-	die.dope(2)
-	die.set_rune(2, Rune.AFTERGLOW)
-	run.roll_essence_round_state()
-	run.consume_smother(die, 2)
-	assert_eq(die.faces[2], 1, "die obere Seite fällt auf 1")
-	assert_eq(die.materials[2], "", "und verliert ihr Material")
-	assert_eq(die.material_level(2), 0, "der Zustand geht mit dem Material")
-	assert_true(die.has_rune(2, Rune.AFTERGLOW), "die Rune sitzt in der Schale, nicht in der Glasur")
-
-func test_smothering_without_a_face_only_burns_the_charge():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.CARBON_DIOXIDE
-	run.roll_essence_round_state()
-	run.consume_smother(die, -1)
-	assert_eq(die.faces, [1, 2, 3, 4, 5, 6] as Array[int], "ohne obere Seite passiert nichts")
+	var defs: Array[DieDefinition] = [die]
+	for _n in 3:
+		assert_eq(run.smother_slot(defs, _p([0])), 0, "er löscht jeden Fumble, nicht einen je Runde")
+	assert_eq(die.faces[2], 6, "die obere Seite bleibt stehen")
+	assert_eq(die.materials[2], DieMaterial.GOLD, "und behält ihr Material")
 
 func test_the_smother_only_counts_dice_in_the_throw():
 	var run := GameRun.new_run()
@@ -478,41 +475,10 @@ func test_the_smother_only_counts_dice_in_the_throw():
 	assert_eq(run.smother_slot(defs, _p([0])), -1, "der CO2-Würfel liegt gar nicht im Wurf")
 	assert_eq(run.smother_slot(defs, _p([0, 1])), 1, "beteiligt: er löscht")
 
-func test_each_carbon_dioxide_die_brings_its_own_charge():
-	var run := GameRun.new_run()
-	var first := run.owned_pool[0]
-	var second := run.owned_pool[1]
-	first.essence_id = Essence.CARBON_DIOXIDE
-	second.essence_id = Essence.CARBON_DIOXIDE
-	run.roll_essence_round_state()
-	var defs: Array[DieDefinition] = [first, second]
-	run.consume_smother(first, 0)
-	assert_eq(run.smother_slot(defs, _p([0, 1])), 1, "der zweite Würfel hat seine eigene Ladung")
+# --- Nachbarseiten: über die Kante, nie gegenüber --------------------------------
 
-# --- Irrlicht: einmal je Runde auf eine Nachbarseite kippen ------------------------
-
-func test_will_o_wisp_is_the_only_tipper():
-	assert_true(EssenceEffects.can_tip(Essence.WILL_O_WISP))
-	assert_false(EssenceEffects.can_tip(Essence.NEON))
-
-func test_the_tip_holds_once_per_round_per_die():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.WILL_O_WISP
-	run.roll_essence_round_state()
-	assert_true(run.can_tip_die(die), "zu Rundenbeginn darf er kippen")
-	run.consume_tip(die)
-	assert_false(run.can_tip_die(die), "verbraucht")
-	run.roll_essence_round_state()
-	assert_true(run.can_tip_die(die), "die neue Runde erlaubt es wieder")
-
-func test_a_die_without_the_wisp_never_tips():
-	var run := GameRun.new_run()
-	assert_false(run.can_tip_die(run.owned_pool[0]))
-	assert_false(run.can_tip_die(null))
-
-func test_tipping_targets_are_the_four_neighbours():
-	# Die Gegenseite ist nie dabei - gekippt wird über eine Kante.
+func test_neighbour_faces_never_include_the_opposite():
+	# Nachbar heißt über eine KANTE - die Gegenseite ist nie dabei.
 	for face in 6:
 		var neighbours := DieDefinition.adjacent_faces(face)
 		assert_eq(neighbours.size(), 4)
@@ -715,32 +681,47 @@ func test_cyanide_pays_per_own_gold_face_once_per_turn():
 		"an der ersten Zündung")
 	assert_eq(int((groups[1]["firings"] as Array)[0]), 0, "der zweite Antritt bleibt trocken")
 
-func test_xray_fires_the_opposite_face_once():
+func test_xray_lights_the_opposite_face():
 	var die := _die_with(Essence.XRAY)
-	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
+	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
 	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "genau die Gegenseite")
+	assert_eq(EssenceEffects.essence_link_faces(die, 1, _ids([Essence.NEON])), _p([]),
+		"ohne Röntgenlicht kein Glied")
+
+func test_the_xray_link_fires_once_per_die_trigger():
+	# Argon lässt den Würfel zweimal antreten - die Gegenseite belichtet je Antritt.
+	var link := {"face": 5, "value": 6, "material": "", "level": 0}
+	var ctx := _ctx({0: Essence.ARGON}, {DiceScoring.CTX_ESSENCE_LINKS: {0: [link]}})
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]),
+		NO_CHARMS, false, NO_MATS, {}, ctx), (10 + 5 + 6 + 5 + 6 + 5) * 2,
+		"zwei Antritte, zwei Belichtungen")
+
+func test_the_xray_link_reaches_the_defs_once_per_trigger():
+	# Knochen auf der Gegenseite: jede Belichtung lässt sie wachsen.
+	var die := _die_with(Essence.XRAY)
+	die.faces = _p([5, 2, 3, 4, 5, 6])
+	die.set_face_material(5, DieMaterial.BONE)
+	var souls := {0: _ids([Essence.XRAY, Essence.ARGON])}
+	var defs: Array[DieDefinition] = [die]
+	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
+		NO_CHARMS, -1, souls, _p([0]))
+	assert_eq(die.faces[5], 6 + 2 * MaterialEffects.BONE_GROWTH,
+		"zwei Antritte, zweimal Knochenwachstum auf der Gegenseite")
 
 func test_essence_links_ignore_the_pointer_wiring():
 	var die := _die_with(Essence.XRAY)
 	# Der Pointer läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
 	# nur, was die Seele deterministisch mitzieht.
 	die.pointers[1] = 0
-	var faces := EssenceEffects.link_faces(die, 1, _ids([Essence.XRAY]))
+	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
 	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "der Zeiger gehört nicht hierher")
-	var ring := EssenceEffects.link_faces(die, 1, _ids([Essence.CORONA, Essence.XRAY]))
-	assert_eq(ring.count(DieDefinition.opposite_face(1)), 1, "jede Seite feuert höchstens einmal")
 
-func test_corona_fires_one_neighbour():
-	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA]))
-	assert_eq(faces, _p([DieDefinition.adjacent_faces(2)[0]]), "die erste Nachbarseite")
-	assert_false(faces.has(DieDefinition.opposite_face(2)), "die Gegenseite gehört dem Röntgenlicht")
-
-func test_corona_ring_comes_before_the_xray_face():
-	var die := _die_with(Essence.CORONA)
-	var faces := EssenceEffects.link_faces(die, 2, _ids([Essence.CORONA, Essence.XRAY]))
-	assert_eq(faces.size(), 2)
-	assert_eq(faces[1], DieDefinition.opposite_face(2), "Ring zuerst, dann die Gegenseite")
+func test_the_rune_link_stays_the_once_path():
+	var die := _die_with(Essence.XRAY)
+	assert_eq(EssenceEffects.link_faces(die, 2, _ids([])), _p([]),
+		"ohne Kehrseite-Rune steht am Ende nichts")
+	assert_eq(EssenceEffects.link_faces(die, 2, _ids([Rune.REVERSE])),
+		_p([DieDefinition.opposite_face(2)]), "die Rune feuert einmal nach allen Antritten")
 
 func test_varnish_clamps_at_doped_and_spares_bare_faces():
 	var varnish := _ids([Essence.VARNISH])

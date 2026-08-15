@@ -14,9 +14,9 @@ class_name ScoreBreakdown
 ## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
-## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" der
-## für diesen Trigger gezündeten Pointer; die deterministischen
-## "det_links" folgen ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
+## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" dieses
+## Triggers (gezündete Pointer und das Röntgen-Glied); die Runen-Glieder stehen
+## als "det_links" ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
 ## -> Krit-Schläge, mit After-Ständen je Teilschritt; "crit_steps" listet JEDEN
 ## Krit einzeln (Material, Essenz, dann je Charm-Position), damit zwei Kopien auch
 ## zweimal einschlagen - "crit_x" bleibt ihr Produkt. Je Zündung trägt der
@@ -41,12 +41,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty()
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
-	# (Ozon wächst mit ihnen, Grubengas bucht an jedem sofort). Beide Zähler
+	# (Ozon wächst mit ihnen, das Grubengas legt sie auf seine eigene Zündung).
+	# Beide Zähler
 	# starten beim Rundenstand, wenn Gewitterfront bzw. Dunkelkammer stehen.
 	var crit_offset := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(DiceScoring.CTX_ROUND_CRITS, 0)))
 	var trigger_offset := EssenceEffects.round_trigger_offset(charm_ids, int(ctx.get(DiceScoring.CTX_ROUND_TRIGGERS, 0)))
 	var crits := crit_offset
-	var firedamp := EssenceEffects.firedamp_step(scored, essences)
 	# Laufender Auslösungszähler der Hand (Glieder zählen mit) - Photonengas.
 	var triggers := trigger_offset
 	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
@@ -129,6 +129,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Manometer: wie oft die SEELE wirkt - Krit, Wachstum und Glieder.
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, eye_slots, essences, charm_ids)
+		# Röntgenlicht: sein Glied feuert je Würfel-Trigger - wie in DiceScoring.
+		var essence_links := DiceScoring.essence_link_groups(ctx, i, die_count, essence_repeat,
+			charm_ids, essence_ids, clause_growth)
 		# Würfelgebundene Charms dieses Slots: Betrag JE Zündung, weil der laufende
 		# Wert ihn trägt. Die Kopfzeile des Schritts nennt die erste Zündung.
 		var charm_base_once := 0
@@ -143,9 +146,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_mult := 0
 		var step_crit := 1.0
 		var first_firing := true
-		# Gruppen der WÜRFEL-Achse: je Trigger seine Seiten-Zündungen und die für
-		# ihn gewürfelte Pointer. Ein Durchgang mehr - der letzte trägt nur die
-		# deterministischen Essenz-Glieder (Röntgenlicht, Korona).
+		# Gruppen der WÜRFEL-Achse: je Trigger seine Seiten-Zündungen, die für ihn
+		# gewürfelten Pointer und das Röntgen-Glied. Ein Durchgang mehr - der
+		# letzte trägt nur die Runen-Glieder (Kehrseite).
 		var groups: Array[Dictionary] = []
 		var det_links: Array[Dictionary] = []
 		for t in die_count + 1:
@@ -155,7 +158,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
 					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
-					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids)
+					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids) \
+					+ EssenceEffects.firedamp_base_of(essence_ids, crits)
 				triggers += 1
 				var mult_now := 0
 				# Material-Krit (Rubin III, Glas III): zählt in crit_x mit, bekommt aber
@@ -219,21 +223,18 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["charm_mult_after"] = mult
 				# JEDER Krit ein eigener Schlag - Material, Essenz, dann jede Charm-
 				# Position einzeln. Zwei Kopien schlagen zweimal, nie einmal mit
-				# ihrem Produkt. Grubengas zündet MIT dem Krit, an dessen Stelle.
+				# ihrem Produkt.
 				var crit_steps: Array[Dictionary] = []
 				var crit_once := 1.0
-				var firedamp_add := 0
 				# Härteofen: veredelt schlägt der Material-Krit zweimal - zwei
 				# eigene Schritte, nie einer im Quadrat.
 				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
 					if is_equal_approx(mat_crit_now, 1.0):
 						break
 					crits += 1
-					base += firedamp
-					firedamp_add += firedamp
 					mult *= mat_crit_now
 					crit_once *= mat_crit_now
-					crit_steps.append(_crit_step(mat_crit_now, -1, firedamp, base, mult, charm_ids))
+					crit_steps.append(_crit_step(mat_crit_now, -1, base, mult, charm_ids))
 				# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR sich.
 				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
 					wild_eyes if i == wild else 0, charm_ids, charge,
@@ -243,23 +244,19 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					if is_equal_approx(essence_crit, 1.0):
 						break
 					crits += 1
-					base += firedamp
-					firedamp_add += firedamp
 					mult *= essence_crit
 					crit_once *= essence_crit
-					crit_steps.append(_crit_step(essence_crit, -1, firedamp, base, mult, charm_ids))
+					crit_steps.append(_crit_step(essence_crit, -1, base, mult, charm_ids))
 				var crit_indices_now: Array[int] = []
 				for j in charm_ids.size():
 					var cx := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
 					if is_equal_approx(cx, 1.0):
 						continue
 					crits += 1
-					base += firedamp
-					firedamp_add += firedamp
 					mult *= cx
 					crit_once *= cx
 					crit_indices_now.append(j)
-					crit_steps.append(_crit_step(cx, j, firedamp, base, mult, charm_ids))
+					crit_steps.append(_crit_step(cx, j, base, mult, charm_ids))
 				if first_firing:
 					step_crit = crit_once
 					crit_charm_indices = crit_indices_now
@@ -268,7 +265,6 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				entry["crit_charm_indices"] = crit_indices_now
 				entry["crit_x"] = crit_once
 				entry["crit_from_die"] = not is_equal_approx(mat_crit_now, 1.0)
-				entry["firedamp_add"] = firedamp_add
 				entry["base_after_crit"] = base
 				entry["mult_after_crit"] = mult
 				# Physischer Wert VOR der Wandlung - die Augen-Pips rechnen im
@@ -306,7 +302,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.
 			var links: Array[Dictionary] = []
-			for link in (DiceScoring.pointer_fires_at(ctx, i, t) if t < die_count else DiceScoring.repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)):
+			var links_now: Array = []
+			if t < die_count:
+				links_now = DiceScoring.pointer_fires_at(ctx, i, t) + DiceScoring.essence_links_at(essence_links, t)
+			else:
+				links_now = DiceScoring.repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)
+			for link in links_now:
 				var link_value := CharmEffects.transform_value(int(link["value"]), charm_ids)
 				var link_material := String(link["material"])
 				var link_level := int(link.get("level", 1))
@@ -355,16 +356,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				# Seite und fehlen hier.
 				var link_crit_steps: Array[Dictionary] = []
 				var link_crit := 1.0
-				var link_firedamp := 0
 				for _r in MaterialEffects.payoff_repeats(link_level, charm_ids):
 					if is_equal_approx(link_mat_crit, 1.0):
 						break
 					crits += 1
-					base += firedamp
-					link_firedamp += firedamp
 					mult *= link_mat_crit
 					link_crit *= link_mat_crit
-					link_crit_steps.append(_crit_step(link_mat_crit, -1, firedamp, base, mult, charm_ids))
+					link_crit_steps.append(_crit_step(link_mat_crit, -1, base, mult, charm_ids))
 				var link_crit_indices: Array[int] = []
 				if has_die_bonus:
 					for j in charm_ids.size():
@@ -372,17 +370,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 						if is_equal_approx(lx, 1.0):
 							continue
 						crits += 1
-						base += firedamp
-						link_firedamp += firedamp
 						mult *= lx
 						link_crit *= lx
 						link_crit_indices.append(j)
-						link_crit_steps.append(_crit_step(lx, j, firedamp, base, mult, charm_ids))
+						link_crit_steps.append(_crit_step(lx, j, base, mult, charm_ids))
 				link_entry["crit_steps"] = link_crit_steps
 				link_entry["crit_charm_indices"] = link_crit_indices
 				link_entry["crit_x"] = link_crit
 				link_entry["crit_from_die"] = not is_equal_approx(link_mat_crit, 1.0)
-				link_entry["firedamp_add"] = link_firedamp
 				link_entry["base_after_crit"] = base
 				link_entry["mult_after_crit"] = mult
 				links.append(link_entry)
@@ -421,10 +416,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# Krit: eigener Hook, wirkt im Schritt als Mult-Faktor; crit_x bleibt
 		# separat sichtbar, damit die UI Krits inszenieren kann.
 		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
-		var firedamp_add := 0
 		if not is_equal_approx(crit_x, 1.0):
 			crits += 1
-			firedamp_add = firedamp
 		var mult_x := crit_x
 		# Rampenlicht wertet nicht, braucht aber seinen Schritt: es hebt die
 		# Kombination an SEINER Dock-Position, nicht nach dem Zählen. Das
@@ -436,16 +429,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			continue
 		var base_before := base
 		var mult_before := mult
-		# Der Grubengas-Zuschlag des Krits liegt HINTER dem Basis-Bonus - wie in
-		# DiceScoring.
-		base = base + base_add + firedamp_add
+		base = base + base_add
 		mult = (mult + mult_add) * mult_x
 		var step_indices: Array[int] = [j]
 		var step := {
 			"charm_indices": step_indices,
 			"base_add": base_add, "mult_add": mult_add,
 			"base_x": 1, "mult_x": mult_x, "crit_x": crit_x,
-			"firedamp_add": firedamp_add,
 			"base_after": base, "mult_after": mult,
 			"spotlight": spotlight,
 			"fee": fee,
@@ -566,7 +556,7 @@ static func _merge_indices(into: Array[int], extra: Array[int]) -> void:
 
 ## Ein einzelner Krit-Schlag einer Zündung. charm_index < 0 = der Schlag kommt vom
 ## Würfel selbst (Material, Essenz) und hat kein Dock-Pad, aus dem er fliegen könnte.
-static func _crit_step(crit_x: float, charm_index: int, firedamp_add: int, base_after: int, mult_after: float, charm_ids: Array[String] = []) -> Dictionary:
+static func _crit_step(crit_x: float, charm_index: int, base_after: int, mult_after: float, charm_ids: Array[String] = []) -> Dictionary:
 	var indices: Array[int] = []
 	if charm_index >= 0:
 		indices.append(charm_index)
@@ -574,7 +564,6 @@ static func _crit_step(crit_x: float, charm_index: int, firedamp_add: int, base_
 		"crit_x": crit_x,
 		"charm_indices": indices,
 		"from_die": charm_index < 0,
-		"firedamp_add": firedamp_add,
 		"base_after": base_after,
 		"mult_after": mult_after,
 		# Trinkgeldglas: der Einschlag zahlt seinen ×-Wert bar. NUR gemeldet - die

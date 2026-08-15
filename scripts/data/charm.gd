@@ -146,16 +146,13 @@ const CONTRAST_AGENT := "contrast_agent"
 const CENSER := "censer"
 const SOLAR_SAIL := "solar_sail"
 const STORM_FRONT := "storm_front"
-const SWAMP_LANTERN := "swamp_lantern"
 const IGNITION_COIL := "ignition_coil"
 const BELL_JAR := "bell_jar"
-const SOLAR_ECLIPSE := "solar_eclipse"
 const GLAZE_BRUSH := "glaze_brush"
 const FLUORESCENT_TUBE := "fluorescent_tube"
 const POLARIZER := "polarizer"
 const ALKAHEST := "alkahest"
 const MAGNETIC_TRAP := "magnetic_trap"
-const PRINTING_PRESS := "printing_press"
 const CAMOUFLAGE := "camouflage"
 const FUSE := "fuse"
 const CUTTING_TORCH := "cutting_torch"
@@ -188,16 +185,13 @@ const ESSENCE_REQUIREMENT := {
 	CENSER: Essence.MIASMA,
 	SOLAR_SAIL: Essence.SOLAR_WIND,
 	STORM_FRONT: Essence.OZONE,
-	SWAMP_LANTERN: Essence.WILL_O_WISP,
 	IGNITION_COIL: Essence.PLASMA,
 	BELL_JAR: Essence.VACUUM,
-	SOLAR_ECLIPSE: Essence.CORONA,
 	GLAZE_BRUSH: Essence.VARNISH,
 	FLUORESCENT_TUBE: Essence.PHOSPHORESCENCE,
 	POLARIZER: Essence.AURORA,
 	ALKAHEST: Essence.QUINTESSENCE,
 	MAGNETIC_TRAP: Essence.ANTIMATTER,
-	PRINTING_PRESS: Essence.ETHYLENE,
 	FUSE: Essence.DETONATING_GAS,
 	MODERATOR: Essence.CHERENKOV,
 	METEORITE: Essence.SHOOTING_STAR,
@@ -404,16 +398,13 @@ const RARITIES := {
 	CENSER: RARITY_RARE,
 	SOLAR_SAIL: RARITY_RARE,
 	STORM_FRONT: RARITY_RARE,
-	SWAMP_LANTERN: RARITY_RARE,
 	IGNITION_COIL: RARITY_RARE,
 	BELL_JAR: RARITY_RARE,
-	SOLAR_ECLIPSE: RARITY_RARE,
 	GLAZE_BRUSH: RARITY_RARE,
 	FLUORESCENT_TUBE: RARITY_LEGENDARY,
 	POLARIZER: RARITY_LEGENDARY,
 	ALKAHEST: RARITY_LEGENDARY,
 	MAGNETIC_TRAP: RARITY_LEGENDARY,
-	PRINTING_PRESS: RARITY_UNCOMMON,
 	CAMOUFLAGE: RARITY_UNCOMMON,
 	FUSE: RARITY_RARE,
 	CUTTING_TORCH: RARITY_RARE,
@@ -827,17 +818,11 @@ static func solar_sail() -> Charm:
 static func storm_front() -> Charm:
 	return _make(STORM_FRONT, "Gewitterfront", "Auch die Krits der bisherigen Hände dieser Runde zählen in Ozons Krit.")
 
-static func swamp_lantern() -> Charm:
-	return _make(SWAMP_LANTERN, "Sumpflaterne", "Irrlicht darf beliebig oft gekippt werden statt einmal je Runde.")
-
 static func ignition_coil() -> Charm:
 	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Pointer-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
 
 static func bell_jar() -> Charm:
 	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Rune.")
-
-static func solar_eclipse() -> Charm:
-	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")
 
 static func glaze_brush() -> Charm:
 	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon veredelt ist, erhalte stattdessen ein Veredelungs-Paket.")
@@ -854,9 +839,6 @@ static func alkahest() -> Charm:
 static func magnetic_trap() -> Charm:
 	return _make(MAGNETIC_TRAP, "Magnetfalle", "Die Augen der Antimaterie zählen nicht mehr negativ - ihr Krit bleibt.")
 
-static func printing_press() -> Charm:
-	return _make(PRINTING_PRESS, "Druckerpresse", "Ethylen druckt jede Material-Kopie doppelt.")
-
 static func camouflage() -> Charm:
 	return _make(CAMOUFLAGE, "Tarnkappe", "Jeder Krypton-Würfel löst 1-mal zusätzlich aus.")
 
@@ -867,7 +849,7 @@ static func cutting_torch() -> Charm:
 	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Kombinationsstufe.")
 
 static func moderator() -> Charm:
-	return _make(MODERATOR, "Steuerstab", "Für den Tscherenkow-Krit zählt die gelagerte Energie mehr als doppelt: ×(1 + Energie ÷ 2).")
+	return _make(MODERATOR, "Steuerstab", "Für den Tscherenkow-Krit zählt die gelagerte Energie voll: ×(1 + Energie).")
 
 static func meteorite() -> Charm:
 	return _make(METEORITE, "Meteorit", "Die Sternschnuppe kritet bei JEDER Wertung - jeder Eintritt glüht.")
@@ -885,7 +867,7 @@ static func feedback() -> Charm:
 	return _make(FEEDBACK, "Rückkopplung", "Die Glasfaser feuert die Zielseite ihrer Pointer dreimal statt zweimal.")
 
 static func ice_mirror() -> Charm:
-	return _make(ICE_MIRROR, "Eisspiegel", "Die Lichtsäule spiegelt doppelt: Gleichzahlen lösen +2× aus statt +1×.")
+	return _make(ICE_MIRROR, "Eisspiegel", "Die Lichtsäule spiegelt doppelt: Gleichzahlen lösen +4× aus statt +2×.")
 
 static func polar_day() -> Charm:
 	return _make(POLAR_DAY, "Polartag", "Die Mitternachtssonne zählt jede genommene Hand doppelt: +2 Auslösungen statt +1.")
@@ -1014,9 +996,9 @@ static func all() -> Array[Charm]:
 		# Essenz-Charms
 		amalgam(), lead_apron(), storm_glass(), lightning_rod(), darkroom(),
 		pressure_vessel(), aqua_fortis(), contrast_agent(),
-		censer(), solar_sail(), storm_front(), swamp_lantern(), ignition_coil(),
-		bell_jar(), solar_eclipse(), glaze_brush(), fluorescent_tube(),
-		polarizer(), alkahest(), magnetic_trap(), printing_press(), camouflage(), fuse(),
+		censer(), solar_sail(), storm_front(), ignition_coil(),
+		bell_jar(), glaze_brush(), fluorescent_tube(),
+		polarizer(), alkahest(), magnetic_trap(), camouflage(), fuse(),
 		cutting_torch(), moderator(), meteorite(), mycelium(), highlighter(), ash_cloud(),
 		feedback(), ice_mirror(), polar_day(), magnetar(), radio_telescope(),
 		# Zweite Welle
