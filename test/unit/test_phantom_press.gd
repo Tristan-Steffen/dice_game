@@ -166,18 +166,3 @@ func test_the_fizzle_is_one_coin() -> void:
 	# Bei zwei Stücken je Paket im Schnitt wäre mehr eine Gelddruckmaschine.
 	assert_eq(PhantomPress.FIZZLE_MONEY, 1)
 
-# --- Füllhorn-Sorte -----------------------------------------------------------
-
-func _sorts(list: Array) -> Array[String]:
-	var typed: Array[String] = []
-	typed.assign(list)
-	return typed
-
-func test_the_free_piece_takes_the_majority_sort() -> void:
-	assert_eq(PhantomPress.majority_sort(_sorts([NUMBER, MATERIAL, MATERIAL])), MATERIAL)
-
-func test_a_tie_falls_back_to_the_first_pack() -> void:
-	assert_eq(PhantomPress.majority_sort(_sorts([RUNES, MATERIAL])), RUNES)
-
-func test_an_empty_press_has_a_sort_anyway() -> void:
-	assert_eq(PhantomPress.majority_sort(_sorts([])), NUMBER)

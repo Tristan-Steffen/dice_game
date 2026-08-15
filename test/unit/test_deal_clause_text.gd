@@ -11,7 +11,7 @@ const DOUBLED := {
 	DealClause.SEED_CAPITAL: "+2 Energie sofort",
 	DealClause.SEED_CAPITAL_II: "+4 Energie sofort",
 	DealClause.SAVINGS_BONUS: "+2$ je übrigem Würfel",
-	DealClause.INSURANCE_FRAUD: "Jeder Farkle zahlt 30$ Trost",
+	DealClause.INSURANCE_FRAUD: "Jeder Fumble zahlt 30$ Trost",
 	DealClause.HIGH_VOLTAGE: "+6 Überladungs-Stufen",
 	DealClause.ODDS_BONUS: "Nebenwetten zahlen vierfach",
 	DealClause.TOURNAMENT_NIGHT: "Nebenwetten zahlen vierfach",

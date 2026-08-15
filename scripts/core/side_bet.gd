@@ -92,10 +92,10 @@ const TEMPLATES := [
 		"desc": "Nimm ein Full House oder besser."},
 	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"payout": Payout.MONEY, "payout_money": 16, "name": "Pfandleihe",
-		"desc": "Räume die Runde ohne Farkle."},
+		"desc": "Räume die Runde ohne Fumble."},
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"reward": 2, "name": "Saubere Runde",
-		"desc": "Räume die Runde ohne Farkle."},
+		"desc": "Räume die Runde ohne Fumble."},
 	# --- Salon (5) ---
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
 		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
@@ -136,7 +136,7 @@ const TEMPLATES := [
 		"desc": "Räume die Runde mit höchstens drei Händen."},
 	{"id": "comeback", "condition": Condition.COMEBACK,
 		"stake": 4, "payout": Payout.MONEY, "payout_money": 16, "name": "Comeback",
-		"unlock": 7, "desc": "Räume die Runde nach einem Farkle."},
+		"unlock": 7, "desc": "Räume die Runde nach einem Fumble."},
 	{"id": "small_fry", "condition": Condition.MAX_HAND_DICE, "target": 3,
 		"stake": 7, "reward": 3, "name": "Kleinvieh", "unlock": 7,
 		"desc": "Nimm keine Hand aus mehr als drei Würfeln."},
@@ -380,7 +380,7 @@ func status_label(result: Dictionary) -> String:
 		Condition.FEW_DICE:
 			return "%d / %d Würfel" % [int(result.get("dice_taken", 0)), target]
 		Condition.NO_FARKLE:
-			return "Farkle!" if bool(result.get("farkled", false)) else "sauber"
+			return "Fumble!" if bool(result.get("farkled", false)) else "sauber"
 		Condition.FIRST_HAND:
 			if int(result.get("hands_taken", 0)) <= 0:
 				return "offen / %d" % target
@@ -392,7 +392,7 @@ func status_label(result: Dictionary) -> String:
 		Condition.HAND_LIMIT:
 			return "%d / %d Hände" % [int(result.get("hands_taken", 0)), target]
 		Condition.COMEBACK:
-			return "Farkle ✓" if bool(result.get("farkled", false)) else "noch kein Farkle"
+			return "Fumble ✓" if bool(result.get("farkled", false)) else "noch kein Fumble"
 		Condition.HIGH_DICE:
 			return "erreicht" if bool(result.get("high_hand", false)) else "offen"
 		Condition.CLEARED:

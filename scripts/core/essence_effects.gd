@@ -37,7 +37,10 @@ const HELIUM_GROWTH := 3
 ## Strahlungsdruck bläht ALLE Seiten je Auslösung auf - der Druckkessel tauscht
 ## den festen Schritt gegen einen prozentualen (mindestens +1).
 const PRESSURE_GROWTH := 2
-const PRESSURE_GROWTH_PERCENT := 20
+const PRESSURE_GROWTH_PERCENT := 10
+
+## Amalgam: zusätzliche ANTRITTE des Quecksilberdampf-Würfels selbst.
+const AMALGAM_EXTRA := 2
 
 ## Xenon/Kugelblitz kriten fest; Elmsfeuer verdoppelt seinen Faktor im Sturm.
 const XENON_CRIT := 1.5
@@ -129,8 +132,10 @@ static func extra_activations(slot: int, order: Array[int], sets: Dictionary, ch
 		var before := set_at(sets, order[index - 1])
 		if before.has(Essence.OXYGEN):
 			extra += 1
-		if before.has(Essence.MERCURY_VAPOR) and charm_ids.has(Charm.AMALGAM):
-			extra += 1
+	# Amalgam: der Quecksilberdampf-Würfel selbst tritt zweimal mehr an
+	# (Würfel-Achse, additiv - der Faktor 3 der Seele bleibt unberührt).
+	if charm_ids.has(Charm.AMALGAM) and set_at(sets, slot).has(Essence.MERCURY_VAPOR):
+		extra += AMALGAM_EXTRA
 	# Tarnkappe: der verborgene Würfel tritt einmal mehr an.
 	if charm_ids.has(Charm.CAMOUFLAGE) and set_at(sets, slot).has(Essence.KRYPTON):
 		extra += 1

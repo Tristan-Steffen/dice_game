@@ -595,16 +595,12 @@ static func format_mult(value: float) -> String:
 	return "×%s" % format_number(value)
 
 ## Zerlegt den Beitrag eines Hand-Charms MIT Würfel-Bezug in Einzel-Pulse
-## {slot, base, mult} für die Meteor-je-Würfel-Animation. Betrifft nur Charms,
-## die paarweise zählen (Zwillingsring) - würfelgebundene Charms feuern in den
-## Würfel-Schritten. Leer für alle anderen; der Aufrufer prüft zusätzlich, dass
-## die Pulse-Summe passt.
-static func _per_die_pulses(charm_id: String, dice: Array[int]) -> Array[Dictionary]:
+## {slot, base, mult} für die Meteor-je-Würfel-Animation - würfelgebundene Charms
+## feuern in den Würfel-Schritten. Aktuell trägt kein Charm hier etwas ein (der
+## Zwillingsring kritet seit 2026-08-15 am Dock-Pad); die Bühne bleibt für den
+## nächsten. Der Aufrufer prüft zusätzlich, dass die Pulse-Summe passt.
+static func _per_die_pulses(_charm_id: String, _dice: Array[int]) -> Array[Dictionary]:
 	var pulses: Array[Dictionary] = []
-	match charm_id:
-		Charm.TWIN_RING:
-			for slot in CharmEffects.twin_pair_slots(dice):
-				pulses.append({"slot": slot, "base": 0, "mult": dice[slot]})
 	return pulses
 
 ## Besitz-Positionen, die den Augen-Beitrag dieses ROHEN Werts verändern

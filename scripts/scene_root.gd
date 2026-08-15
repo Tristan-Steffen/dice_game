@@ -1623,6 +1623,10 @@ var _hub_reward_overlay: Control = null
 ## Charm-Zeremonie.
 var _jewelry_box_upgrades: Array[Dictionary] = []
 
+## Die Sonderposten, die das Füllhorn an diesem Rundenende gebucht hat - je
+## Dock-Exemplar eines, gezeigt an seinem Platz in der Charm-Zeremonie.
+var _encore_packs: Array[Pack] = []
+
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
 var _suppress_money_light := false
@@ -5543,7 +5547,7 @@ func _on_roll_finished() -> void:
 	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
-			hand_note = "Anker: Der erste Neuwurf kann nicht farkeln – die Hand läuft weiter."
+			hand_note = "Anker: Der erste Neuwurf kann nicht fumblen – die Hand läuft weiter."
 			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
 			dice.clear_selection()
 			_auto_select_best_combo()
@@ -5605,7 +5609,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	# ein verziehener Farkle löst KEINE Farkle-Effekte aus.
 	if forgivable and CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
 		chimney_sweep_used_this_round = true
-		hand_note = "Schornsteinfeger: Farkle verziehen – die Hand darf weiterlaufen."
+		hand_note = "Schornsteinfeger: Fumble verziehen – die Hand darf weiterlaufen."
 		dice.clear_selection()
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
@@ -5619,7 +5623,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	# Mechanik wie der Schornsteinfeger, nur aus dem Vertrag.
 	if forgivable and run.deal_anchor_active() and not anchor_clause_used_this_round:
 		anchor_clause_used_this_round = true
-		hand_note = "Ankerklausel: Der erste Farkle dieser Runde zählt nicht."
+		hand_note = "Ankerklausel: Der erste Fumble dieser Runde zählt nicht."
 		dice.clear_selection()
 		_auto_select_best_combo()
 		has_rolled_current_hand = true
@@ -5680,7 +5684,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if CharmEffects.farkle_doubles_points(ids) and hand_total > 0:
 		hand_total *= 2
 		_animate_points_to(hand_total)
-		hand_note = "Standuhr: Farkle – die Rundenpunkte verdoppeln sich!"
+		hand_note = "Standuhr: Fumble – die Rundenpunkte verdoppeln sich!"
 
 	# Phönixfeder: beim ERSTEN Fumble der Runde wandern die Würfel zurück in den
 	# Nachziehstapel statt in die Ablage (die Hand bleibt trotzdem verloren).
@@ -6951,6 +6955,7 @@ func _reset_game() -> void:
 	# erst an seiner nächsten await-Grenze.
 	_clear_hub_reward_overlay()
 	_jewelry_box_upgrades.clear()  # Funde des alten Laufs sind fort
+	_encore_packs.clear()
 	last_thrown_slots.clear()
 	if table_screen != null:
 		table_screen.clear_fumble_marks()
@@ -7236,28 +7241,22 @@ func _commit_round() -> void:
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - NACH
 	# dem Mischen, sonst mischte sie sich wieder auseinander.
-	if CharmEffects.draws_materials_first(run.charm_ids()):
-		round_pool_kinds = _materials_first(round_pool_kinds)
+	if CharmEffects.draws_essences_first(run.charm_ids()):
+		round_pool_kinds = _essences_first(round_pool_kinds)
 	_sync_editing_lock()
 	_refresh_deck_trays()
 
-## Sortiert Würfel mit Material (Seite ODER Kante) stabil an den Anfang
-## (Frische Ware). Gravuren in materials zählen nicht - nur echte Materialien.
-func _materials_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
-	var material: Array[DieDefinition] = []
+## Sortiert beseelte Würfel stabil an den Anfang (Frische Ware) - die Seele ist
+## angeboren, also entscheidet allein essence_id.
+func _essences_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
+	var souls: Array[DieDefinition] = []
 	var rest: Array[DieDefinition] = []
 	for def in pool:
-		if _has_material(def):
-			material.append(def)
+		if def != null and def.essence_id != "":
+			souls.append(def)
 		else:
 			rest.append(def)
-	return material + rest
-
-func _has_material(def: DieDefinition) -> bool:
-	for material_id in def.materials:
-		if DieMaterial.is_valid_id(material_id):
-			return true
-	return false
+	return souls + rest
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false
@@ -7309,6 +7308,9 @@ func _on_round_complete() -> void:
 		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
 		_jewelry_box_upgrades = run.apply_jewelry_box(
 			round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
+		# gebucht hier, gezeigt an seinem Dock-Platz.
+		_encore_packs = run.apply_encore(stages)
 		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
 		# bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
@@ -7555,6 +7557,7 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 			run.old_penny_payouts, run.owned_packs.size()):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	var jewelry_copy := 0
+	var encore_copy := 0
 	for j in ids.size():
 		match ids[j]:
 			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND, \
@@ -7568,8 +7571,36 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 			Charm.JEWELRY_BOX:
 				await _play_jewelry_box_meteors(j, jewelry_copy)
 				jewelry_copy += 1
+			Charm.ENCORE:
+				await _play_encore_meteor(j, encore_copy)
+				encore_copy += 1
 		if phase != Phase.PAYOUT:
 			return
+
+## Füllhorn: ab fünf geräumten Überladungs-Stufen fällt je Exemplar ein
+## versiegelter Sonderposten an. Gebucht ist er, bevor das Licht startet - der
+## Komet fliegt hinterher in die Sonderbestand-Bucht, die ihr Siegel bis zur
+## Ankunft zurückhält (Schmuckkästchen-Grammatik).
+func _play_encore_meteor(index: int, copy: int) -> void:
+	if copy >= _encore_packs.size():
+		return
+	var pack := _encore_packs[copy]
+	_flash_charm_and_pad(index)
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var travel := 0.0
+	if workshop != null and is_instance_valid(workshop):
+		var shelf := PackShelfView.shelf_of(pack)
+		var tint: Color = PackShelfView.COLORS.get(shelf, CasinoStyle.GOLD_INTENSE)
+		workshop.expect_pack_delivery(shelf)
+		travel = table_screen.pack_delivery_comet(_charm_trail_source_px([index]),
+			tint, workshop.stack_anchor_px(shelf))
+		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+			if is_instance_valid(workshop):
+				workshop.deliver_pack(shelf))
+	await get_tree().create_timer(maxf(travel, 0.05)).timeout
+	if phase != Phase.PAYOUT:
+		return
+	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## Schmuckkästchen: je gefundener Material-Gravur ein Meteor vom Dock-Pad in die
 ## Material-Schublade, dicht gestaffelt wie die Frankiermaschine. Gebucht ist

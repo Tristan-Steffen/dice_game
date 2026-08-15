@@ -86,24 +86,22 @@ func test_echo_chamber_also_fires_the_material_effects():
 	var other_slot := MaterialEffects.mult_bonus(_d(PAIR), mats, _p([0, 1]), ids, 1)
 	assert_eq(other_slot, 4, "echot ein anderer Slot, zahlt der Rubin einfach")
 
-func test_twin_ring_adds_pair_value_to_mult():
-	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.TWIN_RING]))
-	assert_eq(bonus, 5, "nur die 5 liegt genau zweimal: +5 Mult")
-	var two_pairs := CharmEffects.charm_mult_bonus(DiceScoring.TWO_PAIR, _d([5, 5, 3, 3, 1, 6]), NO_MATS, _ids([Charm.TWIN_RING]))
-	assert_eq(two_pairs, 8, "zwei Paare (5 und 3): +8 Mult")
+func test_twin_ring_crits_by_the_number_of_pairs():
+	var ids := _ids([Charm.TWIN_RING])
+	assert_eq(CharmEffects.charm_crit_at(0, _d(PAIR), ids), 2.0, "ein Paar: Krit ×2")
+	assert_eq(CharmEffects.charm_crit_at(0, _d([5, 5, 3, 3, 1, 6]), ids), 3.0, "zwei Paare: ×3")
+	assert_eq(CharmEffects.charm_crit_at(0, _d([5, 5, 3, 3, 1, 1]), ids), 4.0, "drei Paare: ×4")
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, ids), 0,
+		"kein Mult-Bonus mehr - der Ring kritet")
 
-func test_twin_ring_pays_the_lower_value_of_a_graved_pair():
+func test_twin_ring_counts_a_graved_pair():
 	# Gruppiert wird nach der Kombinationsziffer wie bei der Hand-Erkennung: 11 und
-	# 31 sind ein Paar - und es zahlt die NIEDRIGERE Augenzahl.
-	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d([11, 31, 2, 3, 4, 6]),
-		NO_MATS, _ids([Charm.TWIN_RING]))
-	assert_eq(bonus, 11, "das Paar 11+31 zahlt 11")
+	# 31 sind ein Paar.
+	assert_eq(CharmEffects.charm_crit_at(0, _d([11, 31, 2, 3, 4, 6]), _ids([Charm.TWIN_RING])), 2.0)
 
 func test_twin_ring_ignores_a_triple():
-	# "Exaktes Paar" bleibt exakt: eine Dreiergruppe zahlt nichts.
-	var bonus := CharmEffects.charm_mult_bonus(DiceScoring.THREE_KIND, _d([4, 4, 4, 1, 2, 6]),
-		NO_MATS, _ids([Charm.TWIN_RING]))
-	assert_eq(bonus, 0)
+	# "Exaktes Paar" bleibt exakt: eine Dreiergruppe ist kein Krit.
+	assert_eq(CharmEffects.charm_crit_at(0, _d([4, 4, 4, 1, 2, 6]), _ids([Charm.TWIN_RING])), 1.0)
 
 func test_twin_ring_slots_point_at_the_lower_die():
 	# Eine Quelle für Wirkung UND Pulse: der Slot des niedrigeren Würfels des
@@ -133,9 +131,9 @@ func test_broadband_pays_per_combination_die():
 	assert_eq(CharmEffects.die_charm_base(1, DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.BROADBAND])), 5)
 
 func test_sediment_boosts_late_drawn_dice():
-	# +3 Mult nur am beteiligten, spät gezogenen Würfel (der Hook sieht nur beteiligte Slots).
+	# +4 Mult nur am beteiligten, spät gezogenen Würfel (der Hook sieht nur beteiligte Slots).
 	var ids := _ids([Charm.SEDIMENT])
-	assert_eq(CharmEffects.die_charm_mult_at(0, 0, _d(PAIR), ids, {"late_slots": [0, 5]}), 3)
+	assert_eq(CharmEffects.die_charm_mult_at(0, 0, _d(PAIR), ids, {"late_slots": [0, 5]}), 4)
 	assert_eq(CharmEffects.die_charm_mult_at(0, 1, _d(PAIR), ids, {"late_slots": [0, 5]}), 0, "Slot 1 wurde früh gezogen")
 
 func test_prime_time_pays_prime_faces_as_mult():
@@ -200,8 +198,8 @@ func test_pendulum_reads_accumulated_mult_never_below_zero():
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.PENDULUM]), {CharmEffects.CTX_PENDULUM: -3}), 0, "fällt nie unter 0")
 
 func test_all_or_nothing_stacks_full_rerolls():
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {"full_rerolls": 1}), 10)
-	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {"full_rerolls": 3}), 30, "stapelt bis zum Nehmen")
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {"full_rerolls": 1}), 15)
+	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {"full_rerolls": 3}), 45, "stapelt bis zum Nehmen")
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.ALL_OR_NOTHING]), {}), 0)
 
 func test_momentum_follows_the_streak():
@@ -775,10 +773,10 @@ func test_take_and_farkle_incomes():
 		"ein Rest-Wurf aus drei Würfeln ist keine volle Hand")
 	assert_false(CharmEffects.gold_rush_applies(_ids([Charm.GOLD_RUSH]), 6, false), "nur die erste Hand der Runde")
 
-func test_gold_rush_grows_money_by_a_fifth_capped_at_fifty():
+func test_gold_rush_grows_money_by_a_fifth_capped_at_thirty():
 	assert_eq(CharmEffects.gold_rush_income(100), 20)
 	assert_eq(CharmEffects.gold_rush_income(4), 0, "unter $5 wächst nichts")
-	assert_eq(CharmEffects.gold_rush_income(1000), 50, "gedeckelt")
+	assert_eq(CharmEffects.gold_rush_income(1000), 30, "gedeckelt")
 
 func test_rag_collector_counts_lucky_values():
 	assert_eq(CharmEffects.rag_collector_income(_d([4, 4, 1, 4, 2, 3]), 4, _ids([Charm.RAG_COLLECTOR])), 12, "$4 je Treffer")
@@ -852,14 +850,14 @@ func test_the_emergency_fund_tops_up_the_running_balance():
 	var late := CharmEffects.round_end_income_entries(10, 0,
 		_ids([Charm.OLD_PENNY, Charm.EMERGENCY_FUND]))
 	assert_eq(late[0]["amount"], 3, "Glücksgroschen zuerst")
-	assert_eq(late[1]["amount"], 22, "$13 -> auffüllen auf $35")
+	assert_eq(late[1]["amount"], 32, "$13 -> auffüllen auf $45")
 	var early := CharmEffects.round_end_income_entries(10, 0,
 		_ids([Charm.EMERGENCY_FUND, Charm.OLD_PENNY]))
-	assert_eq(early[0]["amount"], 25, "$10 -> auffüllen auf $35")
+	assert_eq(early[0]["amount"], 35, "$10 -> auffüllen auf $45")
 	assert_eq(early[1]["amount"], 3, "und der Glücksgroschen legt obendrauf")
 
 func test_a_full_purse_needs_no_emergency_fund():
-	var entries := CharmEffects.round_end_income_entries(40, 0, _ids([Charm.EMERGENCY_FUND]))
+	var entries := CharmEffects.round_end_income_entries(50, 0, _ids([Charm.EMERGENCY_FUND]))
 	assert_eq(entries.size(), 0, "über dem Mindeststand zahlt er nichts")
 
 func test_the_projected_end_total_matches_the_bookings():
@@ -873,7 +871,7 @@ func test_the_projected_end_total_matches_the_bookings():
 		assert_eq(booked, start + CharmEffects.round_end_income(start, 1, ids), "$%d" % start)
 
 func test_money_floor_only_with_emergency_fund():
-	assert_eq(CharmEffects.money_floor(_ids([Charm.EMERGENCY_FUND])), 35)
+	assert_eq(CharmEffects.money_floor(_ids([Charm.EMERGENCY_FUND])), 45)
 	assert_eq(CharmEffects.money_floor(_ids([Charm.HORSESHOE])), 0)
 
 # --- Farkle-Hooks -----------------------------------------------------------------------

@@ -460,7 +460,7 @@ func test_kitchen_sink_scenario_matches_scoring():
 # --- Pro-Würfel-Meteor -------------------------------------------------------------
 
 func test_sediment_fires_in_the_die_steps():
-	# Bodensatz: Paar Fünfer, beide Slots spät gezogen -> +3 Mult IM Schritt
+	# Bodensatz: Paar Fünfer, beide Slots spät gezogen -> +4 Mult IM Schritt
 	# jedes beteiligten Würfels, keine Charm-Phase.
 	var ctx := {CharmEffects.CTX_LATE_SLOTS: [0, 1]}
 	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]),
@@ -468,7 +468,7 @@ func test_sediment_fires_in_the_die_steps():
 	var steps: Array = breakdown["die_steps"]
 	assert_eq(steps.size(), 2)
 	for step: Dictionary in steps:
-		assert_eq(step["charm_mult_add"], 3, "+3 Mult mit dem Würfel selbst")
+		assert_eq(step["charm_mult_add"], 4, "+4 Mult mit dem Würfel selbst")
 		assert_eq(step["die_charm_indices"], [0])
 	assert_eq(breakdown["charm_steps"].size(), 0)
 

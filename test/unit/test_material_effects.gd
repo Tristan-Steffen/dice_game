@@ -179,13 +179,29 @@ func test_take_retrigger_checks_the_transformed_value():
 		_ids([Charm.RABBITS_FOOT, Charm.LUCKY_CIGARETTES]))
 	assert_eq(report.total_money(), 6, "zwei Auslösungen à $3")
 
-func test_gold_vein_pays_extra_per_other_carrier():
-	# Zwei Gold-Seiten + eine Rubin-Seite: jeder Gold-Träger sieht einen anderen
-	# Gold-Träger ($2) und einen anderen Material-Träger ($1) -> $3 + $3 je Seite.
+func test_gold_vein_pays_per_gold_firing_before_it():
+	# Drei Gold-Seiten, je eine Zündung: die Ader wächst in Zählreihenfolge um $1
+	# je Gold-Zündung davor - $3 + $4 + $5. Ein Rubin zählt nicht mehr mit.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
-	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.RUBY])
+	var faces := _m([DieMaterial.GOLD, DieMaterial.GOLD, DieMaterial.GOLD])
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), faces, _p([0, 1, 2]), _ids([Charm.GOLD_VEIN]))
-	assert_eq(report.total_money(), 12, "2 × ($3 Gold + $2 anderes Gold + $1 Rubin)")
+	assert_eq(report.total_money(), 12, "$3 + $4 + $5")
+	var two_copies := MaterialEffects.apply_take_effects(defs, _p([0, 0, 0]), faces, _p([0, 1, 2]),
+		_ids([Charm.GOLD_VEIN, Charm.GOLD_VEIN]))
+	assert_eq(two_copies.total_money(), 15, "je Exemplar $1 je Zündung davor")
+
+func test_gold_vein_ignores_other_materials():
+	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
+	var faces := _m([DieMaterial.GOLD, DieMaterial.RUBY])
+	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), faces, _p([0, 1]), _ids([Charm.GOLD_VEIN]))
+	assert_eq(report.total_money(), 3, "ein Rubin ist keine Gold-Zündung")
+
+func test_gold_vein_counts_every_firing_of_the_same_die():
+	# Hasenpfote zündet die 6 zweimal: die zweite Zündung sieht die erste.
+	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
+	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]), _p([0]),
+		_ids([Charm.GOLD_VEIN, Charm.RABBITS_FOOT]))
+	assert_eq(report.total_money(), 7, "$3 + $4")
 
 func test_gold_vein_without_other_carriers_pays_the_plain_rate():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]

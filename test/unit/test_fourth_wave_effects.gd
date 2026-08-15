@@ -262,40 +262,33 @@ func test_a_survivor_can_be_pressed_again():
 	var again := run.open_press(_d([0]), _rng(3))
 	assert_gt((again.get("pieces", []) as Array).size(), 0, "sie presst ein zweites Mal")
 
-# --- Füllhorn: jede Pressung wirft eine Gravur gratis dazu ----------------------------
+# --- Füllhorn: ab fünf geräumten Überladungs-Stufen ein Sonderposten ------------------
 
 func _rng(value: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = value
 	return rng
 
-func test_the_encore_adds_a_free_piece():
-	run.grant_pack(Pack.material_pack())
-	var plain: int = run.open_press(_d([0]), _rng(7)).get("pieces", []).size()
-	var gifted := GameRun.new_run()
-	gifted.owned_charms.append(Charm.encore())
-	gifted.grant_pack(Pack.material_pack())
-	var pieces: Array = gifted.open_press(_d([0]), _rng(7)).get("pieces", [])
-	assert_eq(pieces.size(), plain + 1, "ein Stück mehr aus derselben Ausbeute")
-	assert_eq(String(pieces[pieces.size() - 1]["sort"]), Engraving.CATEGORY_MATERIAL,
-		"in der Mehrheits-Sorte der Pressung")
-
-func test_the_free_piece_falls_out_of_a_reader():
+func test_the_encore_pays_at_five_cleared_stages():
 	run.owned_charms.append(Charm.encore())
-	run.grant_pack(Pack.material_pack())
-	var readers: Array = run.open_press(_d([0]), _rng(8))["readers"]
-	var counted := 0
-	for uids in readers:
-		counted += uids.size()
-	assert_eq(counted, run.press_pieces.size(), "auch die Zugabe fliegt aus einem Leser")
+	assert_eq(run.apply_encore(GameRun.ENCORE_STAGES - 1).size(), 0, "unter der Schwelle nichts")
+	assert_eq(run.owned_packs.size(), 0)
+	var granted := run.apply_encore(GameRun.ENCORE_STAGES)
+	assert_eq(granted.size(), 1)
+	assert_eq(run.owned_packs.size(), 1, "gebucht, nicht nur gemeldet")
+	assert_true(Engraving.is_special_id(granted[0].fixed_engraving.id), "ein Sonderposten")
+	assert_eq(granted[0].price, 0, "gefunden, nicht gekauft")
+	assert_eq(PackShelfView.shelf_of(granted[0]), PackShelfView.CATEGORY_SPECIAL)
 
-func test_the_encore_leaves_a_dice_pack_alone():
+func test_two_encores_pay_twice():
 	run.owned_charms.append(Charm.encore())
-	var pack := Pack.stress_die(DiceOffer.TEMPLATES[0])
-	run.grant_pack(pack)
-	var content := run.open_pack(0)
-	var dice: Array[DieDefinition] = content["dice"]
-	assert_eq(dice.size(), pack.count, "Würfel bleiben Würfel")
+	run.owned_charms.append(Charm.encore())
+	assert_eq(run.apply_encore(9).size(), 2, "je Exemplar ein Paket")
+	assert_eq(run.owned_packs.size(), 2)
+
+func test_without_the_encore_nothing_falls():
+	assert_eq(run.apply_encore(9).size(), 0)
+	assert_eq(run.owned_packs.size(), 0)
 
 # --- Pfandregal: Rundenende-Einnahme aus dem Gravur-Vorrat --------------------------
 

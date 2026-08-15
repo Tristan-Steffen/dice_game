@@ -543,12 +543,12 @@ static func piggy_bank() -> Charm:
 	return _make(PIGGY_BANK, "Sparschwein", "Übrige Würfel zahlen $1 mehr.")
 
 static func crystal_ball() -> Charm:
-	return _make(CRYSTAL_BALL, "Kristallkugel", "+7$ für jeden überlebten Farkle.")
+	return _make(CRYSTAL_BALL, "Kristallkugel", "+7$ für jeden überlebten Fumble.")
 
 # --- Farkle-Charms ---
 
 static func chimney_sweep() -> Charm:
-	return _make(CHIMNEY_SWEEP, "Schornsteinfeger", "Der erste Farkle jeder Runde wird verziehen.")
+	return _make(CHIMNEY_SWEEP, "Schornsteinfeger", "Der erste Fumble jeder Runde wird verziehen.")
 
 # --- Pool-/Shop-Charms ---
 
@@ -568,10 +568,10 @@ static func pendulum() -> Charm:
 	return _make(PENDULUM, "Pendel", "+2 Mult je neu geworfenem Würfel, −1 je genommenem Würfel (nie unter 0).")
 
 static func all_or_nothing() -> Charm:
-	return _make(ALL_OR_NOTHING, "Roter Knopf", "Wirfst du alle 6 Würfel neu, bekommt die nächste genommene Hand +10 Mult.")
+	return _make(ALL_OR_NOTHING, "Roter Knopf", "Wirfst du alle 6 Würfel neu, bekommt die nächste genommene Hand +15 Mult.")
 
 static func anchor() -> Charm:
-	return _make(ANCHOR, "Anker", "Der erste Neuwurf jeder Hand kann nicht farkeln.")
+	return _make(ANCHOR, "Anker", "Der erste Neuwurf jeder Hand kann nicht fumblen.")
 
 # --- Augen & Werte ---
 
@@ -579,7 +579,7 @@ static func echo_chamber() -> Charm:
 	return _make(ECHO_CHAMBER, "Echo-Kammer", "Der zuerst gewertete Würfel löst erneut aus.")
 
 static func twin_ring() -> Charm:
-	return _make(TWIN_RING, "Zwillingsring", "Jedes Paar im Wurf erhöht den Mult um die niedrigste Augenzahl des Paars.")
+	return _make(TWIN_RING, "Zwillingsring", "Krit ×(1 + Anzahl der Paare im Wurf).")
 
 static func cult_of_one() -> Charm:
 	return _make(CULT_OF_ONE, "Einserkult", "Jede gewertete 1 kritet ×2.")
@@ -603,7 +603,7 @@ static func high_stacker() -> Charm:
 	return _make(HIGH_STACKER, "Hochstapler", "+Mult in Höhe der höchsten gewerteten Augenzahl.")
 
 static func prime_time() -> Charm:
-	return _make(PRIME_TIME, "Prime Time", "Jeder gewertete Würfel mit Primzahl-Augen (2, 3, 5, 7, ...) gibt seine Augenzahl als Mult.")
+	return _make(PRIME_TIME, "Prime Time", "Jeder gewertete Würfel mit Primzahl-Augen (2, 3, 5, 7, …) gibt seine Augenzahl als Mult.")
 
 static func front_runner() -> Charm:
 	return _make(FRONT_RUNNER, "Vorreiter", "Gibt die Augensumme ALLER liegenden Würfel als Basispunkte.")
@@ -615,7 +615,7 @@ static func six_pack() -> Charm:
 	return _make(SIX_PACK, "Sechserpack", "Nutzt die Hand alle sechs Würfel: jeder Würfel löst erneut aus.")
 
 static func protection_money() -> Charm:
-	return _make(PROTECTION_MONEY, "Schutzgeld", "Jeder Würfel zeigt temporär +10 auf alle Augen. Beim Nehmen der Hand: $3 Gebühr.")
+	return _make(PROTECTION_MONEY, "Schutzgeld", "Jeder Würfel zeigt temporär +10 auf alle Augen. $3 Gebühr pro genommener Hand.")
 
 static func waterfall() -> Charm:
 	return _make(WATERFALL, "Wasserfall", "+Mult in Höhe jeder gezählten Augenzahl, die niedriger ist als die letzte, die ihn ausgelöst hat.")
@@ -635,7 +635,7 @@ static func full_counter() -> Charm:
 	return _make(FULL_COUNTER, "Vollzähler", "ALLE liegenden Würfel werden gewertet.")
 
 static func momentum() -> Charm:
-	return _make(MOMENTUM, "Schwungrad", "+2 Mult je genommener Hand in Folge ohne Farkle (ein Farkle setzt zurück).")
+	return _make(MOMENTUM, "Schwungrad", "+2 Mult je genommener Hand in Folge ohne Fumble (ein Fumble setzt zurück).")
 
 static func after_work_beer() -> Charm:
 	return _make(AFTER_WORK_BEER, "Feierabendbier", "Liegt kein Würfel mehr im Nachziehstapel: Krit ×5.")
@@ -678,7 +678,7 @@ static func patchwork_rug() -> Charm:
 # --- Geld ---
 
 static func gold_rush() -> Charm:
-	return _make(GOLD_RUSH, "Goldrausch", "Nutzt die ERSTE genommene Hand der Runde alle 6 Würfel, wächst dein Geld um 20% (max. $50).")
+	return _make(GOLD_RUSH, "Goldrausch", "Nutzt die ERSTE genommene Hand der Runde alle 6 Würfel, wächst dein Geld um 20% (max. $30).")
 
 static func rag_collector() -> Charm:
 	return _make(RAG_COLLECTOR, "Lumpensammler", rag_collector_description(0))
@@ -697,7 +697,7 @@ static func street_musician() -> Charm:
 	return _make(STREET_MUSICIAN, "Straßenmusiker", "Jede genommene Hand zahlt $1 pro beteiligtem Würfel.")
 
 static func emergency_fund() -> Charm:
-	return _make(EMERGENCY_FUND, "Notgroschen", "Fällst du am Rundenende unter $35, wird auf $35 aufgefüllt.")
+	return _make(EMERGENCY_FUND, "Notgroschen", "Fällst du am Rundenende unter $45, wird auf $45 aufgefüllt.")
 
 static func cash_discount() -> Charm:
 	return _make(CASH_DISCOUNT, "Rabattmarke", "Charms kosten $5 weniger.")
@@ -711,7 +711,7 @@ static func midas_glove() -> Charm:
 	return _make(MIDAS_GLOVE, "Midashandschuh", "Nutzt eine genommene Hand alle sechs Würfel, wird jede oben liegende Seite dauerhaft Gold.")
 
 static func gold_vein() -> Charm:
-	return _make(GOLD_VEIN, "Goldader", "Jede auslösende Gold-Seite zahlt zusätzlich $1 je anderer bisher aktivierter Material-Seite - $2, wenn diese Gold ist.")
+	return _make(GOLD_VEIN, "Goldader", "Jede auslösende Gold-Seite zahlt zusätzlich $1 je davor aktivierter Gold-Seite.")
 
 static func goldsmith() -> Charm:
 	return _make(GOLDSMITH, "Goldschmied", "Gold-Seiten zahlen $3 mehr.")
@@ -723,7 +723,7 @@ static func blood_diamond() -> Charm:
 	return _make(BLOOD_DIAMOND, "Blutdiamant", "Rubin gibt zusätzlich die Augenzahl seines Würfels als Mult.")
 
 static func bone_marrow() -> Charm:
-	return _make(BONE_MARROW, "Knochenmark", "Jede Knochen-Auslösung feuert einmal öfter.")
+	return _make(BONE_MARROW, "Knochenmark", "Jede Knochen-Seite feuert einmal öfter.")
 
 static func bone_glue() -> Charm:
 	return _make(BONE_GLUE, "Knochenleim", "Jede Knochen-Auslösung lässt die Seite zusätzlich +3 wachsen.")
@@ -749,7 +749,7 @@ static func bargain_hunter() -> Charm:
 	return _make(BARGAIN_HUNTER, "Schnäppchenjäger", "Alle Pakete kosten $3 weniger.")
 
 static func stamp_machine() -> Charm:
-	return _make(STAMP_MACHINE, "Frankiermaschine", "Am Rundenende: 3 versiegelte Pakete.")
+	return _make(STAMP_MACHINE, "Frankiermaschine", "Am Rundenende: 1 zufälliges Upgrade-Paket.")
 
 static func fine_print() -> Charm:
 	return _make(FINE_PRINT, "Kleingedrucktes", "Nach jedem Pack-Kauf: 20% Chance auf volle Rückerstattung.")
@@ -760,10 +760,10 @@ static func recycling() -> Charm:
 	return _make(RECYCLING, "Bumerang", "Einmal je Runde kehrt die erste genommene Hand ans Ende des Nachziehstapels zurück.")
 
 static func fresh_goods() -> Charm:
-	return _make(FRESH_GOODS, "Frische Ware", "Würfel mit Material liegen nach dem Mischen ganz vorn im Nachziehstapel.")
+	return _make(FRESH_GOODS, "Frische Ware", "Würfel mit Essenzen liegen nach dem Mischen ganz vorn im Nachziehstapel.")
 
 static func sediment() -> Charm:
-	return _make(SEDIMENT, "Bodensatz", "Die letzten 6 Würfel des Nachziehstapels geben +3 Mult, wenn sie beteiligt sind.")
+	return _make(SEDIMENT, "Bodensatz", "Die letzten 6 Würfel des Nachziehstapels geben +4 Mult, wenn sie beteiligt sind.")
 
 # --- Shop & Angebote ---
 
@@ -795,7 +795,7 @@ static func hermit_crab() -> Charm:
 # --- Essenz-Charms (je einer ab "selten"; Bedingung siehe ESSENCE_REQUIREMENT) ---
 
 static func amalgam() -> Charm:
-	return _make(AMALGAM, "Amalgam", "Quecksilberdampf färbt ab: der nächste Würfel der Zählreihenfolge löst +1× aus.")
+	return _make(AMALGAM, "Amalgam", "Quecksilberdampf löst +2× aus.")
 
 static func lead_apron() -> Charm:
 	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht mehr, und seine Bestrahlung steigt auf +3 Augen je Mitwürfel.")
@@ -810,7 +810,7 @@ static func darkroom() -> Charm:
 	return _make(DARKROOM, "Dunkelkammer", "Photonengas sammelt auch die Auslösungen der bisherigen Hände dieser Runde.")
 
 static func pressure_vessel() -> Charm:
-	return _make(PRESSURE_VESSEL, "Druckkessel", "Strahlungsdruck bläht jede Seite um 20% auf statt um 2.")
+	return _make(PRESSURE_VESSEL, "Druckkessel", "Strahlungsdruck erhöht jede Seite um 10%, statt um 2.")
 
 static func aqua_fortis() -> Charm:
 	return _make(AQUA_FORTIS, "Scheidewasser", "Zyanidgas laugt die ganze Hand aus: +$1 je Gold-Seite jedes ANDEREN gewerteten Würfels.")
@@ -840,7 +840,7 @@ static func solar_eclipse() -> Charm:
 	return _make(SOLAR_ECLIPSE, "Sonnenfinsternis", "Der Korona-Ring wertet drei Nachbarseiten mit statt einer.")
 
 static func glaze_brush() -> Charm:
-	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon veredelt ist, wandert stattdessen eine Kopie ihres Materials in den Vorrat.")
+	return _make(GLAZE_BRUSH, "Lasurpinsel", "Trifft der Firnis eine Seite, die schon veredelt ist, erhalte stattdessen ein Veredelungs-Paket.")
 
 static func fluorescent_tube() -> Charm:
 	return _make(FLUORESCENT_TUBE, "Leuchtstoffröhre", "Die Phosphoreszenz speichert zusätzlich jeden Mult, den sie erarbeitet hat, und zahlt ihn erneut aus.")
@@ -855,7 +855,7 @@ static func magnetic_trap() -> Charm:
 	return _make(MAGNETIC_TRAP, "Magnetfalle", "Die Augen der Antimaterie zählen nicht mehr negativ - ihr Krit bleibt.")
 
 static func printing_press() -> Charm:
-	return _make(PRINTING_PRESS, "Druckerpresse", "Die Ethylen-Ernte druckt jede Material-Kopie doppelt.")
+	return _make(PRINTING_PRESS, "Druckerpresse", "Ethylen druckt jede Material-Kopie doppelt.")
 
 static func camouflage() -> Charm:
 	return _make(CAMOUFLAGE, "Tarnkappe", "Jeder Krypton-Würfel löst 1-mal zusätzlich aus.")
@@ -926,10 +926,10 @@ static func kiln() -> Charm:
 
 ## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
 static func bench_clamp() -> Charm:
-	return _make(CLAMP, "Zwinge", "Jede gepresste Datenzelle bleibt zu 25 % erhalten - sie brennt nicht aus.")
+	return _make(CLAMP, "Zwinge", "Jedes Upgrade-Paket bleibt mit 25% Chance erhalten – es brennt nicht aus.")
 
 static func encore() -> Charm:
-	return _make(ENCORE, "Füllhorn", "Jede Pressung wirft 1 Beutestück gratis dazu.")
+	return _make(ENCORE, "Füllhorn", "Wenn du Überladungs-Stufe 5 erreichst, erhalte einen gratis Sonderbestand.")
 
 # --- Automat, Nebenwette & Hinterzimmer ---
 
@@ -960,7 +960,7 @@ static func factory_finish() -> Charm:
 	return _make(FACTORY_FINISH, "Schutzfolie", "Würfel ohne Material, Rune und Essenz geben +15 Basispunkte.")
 
 static func bottle_rack() -> Charm:
-	return _make(BOTTLE_RACK, "Flaschenregal", "+1 Mult je Essenz-Würfel in der Ablage.")
+	return _make(BOTTLE_RACK, "Flaschenregal", "+4 Mult je Essenz-Würfel in der Ablage.")
 
 static func pressure_gauge() -> Charm:
 	return _make(PRESSURE_GAUGE, "Manometer", "Liegt genau ein Essenz-Würfel in der Hand, wirkt seine Essenz doppelt.")

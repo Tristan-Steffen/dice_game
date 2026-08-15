@@ -77,13 +77,14 @@ func test_the_shop_pool_follows_the_pool_of_dice():
 
 # --- Auslösungen -----------------------------------------------------------------
 
-func test_amalgam_fires_the_next_die_like_oxygen():
+func test_amalgam_fires_the_mercury_die_itself_twice_more():
 	var sets := {0: Essence.MERCURY_VAPOR}
 	var order := _p([0, 1])
-	assert_eq(EssenceEffects.extra_activations(1, order, sets, NO_CHARMS), 0, "ohne Charm färbt nichts ab")
-	assert_eq(EssenceEffects.extra_activations(1, order, sets, _ids([Charm.AMALGAM])), 1)
-	assert_eq(EssenceEffects.extra_activations(0, order, sets, _ids([Charm.AMALGAM])), 0,
-		"nur der NÄCHSTE der Zählreihenfolge")
+	assert_eq(EssenceEffects.extra_activations(0, order, sets, NO_CHARMS), 0, "ohne Charm nichts")
+	assert_eq(EssenceEffects.extra_activations(0, order, sets, _ids([Charm.AMALGAM])),
+		EssenceEffects.AMALGAM_EXTRA, "der Quecksilber-Würfel selbst")
+	assert_eq(EssenceEffects.extra_activations(1, order, sets, _ids([Charm.AMALGAM])), 0,
+		"der Nachbar bekommt nichts")
 
 func test_solar_sail_counts_distinct_souls_twice():
 	var sets := {0: Essence.ARGON, 1: Essence.ARGON, 2: Essence.XENON, 3: Essence.SOLAR_WIND}
@@ -250,7 +251,7 @@ func test_pressure_vessel_swells_by_percent():
 	var ids := _ids([Essence.RADIATION_PRESSURE])
 	assert_eq(EssenceEffects.face_growth_of(ids, NO_CHARMS, 40), EssenceEffects.PRESSURE_GROWTH)
 	var charmed := _ids([Charm.PRESSURE_VESSEL])
-	assert_eq(EssenceEffects.face_growth_of(ids, charmed, 40), 8, "20 % von 40")
+	assert_eq(EssenceEffects.face_growth_of(ids, charmed, 40), 4, "10 % von 40")
 	assert_eq(EssenceEffects.face_growth_of(ids, charmed, 1), 1, "aufgerundet, nie null")
 
 func test_pressure_vessel_writes_the_same_number_into_the_def():
@@ -263,8 +264,8 @@ func test_pressure_vessel_writes_the_same_number_into_the_def():
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]), charms, -1,
 		{0: Essence.RADIATION_PRESSURE}, _p([0]))
 	assert_eq(die.faces[0], simulated, "Sim und Def landen auf derselben Zahl")
-	assert_eq(die.faces[0], 12)
-	assert_eq(die.faces[3], 12, "auch die Seiten, die nicht oben lagen")
+	assert_eq(die.faces[0], 11)
+	assert_eq(die.faces[3], 11, "auch die Seiten, die nicht oben lagen")
 
 func test_aqua_fortis_reaches_the_gold_of_the_others():
 	var die := _die_with(Essence.CYANIDE)
@@ -387,17 +388,20 @@ func test_the_round_counters_reset_with_the_round():
 	assert_eq(run.round_trigger_count, 0)
 	assert_eq(run.round_crit_count, 0)
 
-func test_the_glaze_brush_copies_a_capped_material():
+func test_the_glaze_brush_grants_a_doping_pack_on_a_capped_face():
 	var run := GameRun.new_run()
 	var die := _die_with(Essence.VARNISH)
 	die.set_face_material(0, DieMaterial.GOLD)
 	var defs: Array[DieDefinition] = [die]
-	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 0, "ohne Charm keine Kopie")
+	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 0, "ohne Charm kein Paket")
 	run.owned_charms.append(Charm.glaze_brush())
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 0, "Stufe I lässt sich noch heben")
 	die.levels[0] = DieMaterial.MAX_LEVEL
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 1)
-	assert_eq(_pack_stock(run, DieMaterial.GOLD), 1, "die Kopie liegt im Vorrat")
+	assert_eq(_pack_stock(run, Engraving.DOPING), 1, "ein versiegeltes Veredelungs-Paket")
+	assert_eq(_pack_stock(run, DieMaterial.GOLD), 0, "keine Material-Kopie mehr")
+	assert_eq(PackShelfView.shelf_of(run.owned_packs[0]), PackShelfView.CATEGORY_SPECIAL,
+		"es liegt im Sonderbestand")
 
 # --- Ethylen: die Ernte und ihre Druckerpresse -----------------------------------
 

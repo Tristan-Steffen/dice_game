@@ -107,7 +107,7 @@ static func piece(sort: String, engraving_id: String) -> Dictionary:
 static func payout(sort: String, rng: RandomNumberGenerator = null) -> Array[Dictionary]:
 	return payout_of(sort, roll_yield(rng), rng)
 
-## Dieselbe Ausbeute bei VORGEGEBENER Menge (Test, Füllhorn-Zugabe).
+## Dieselbe Ausbeute bei VORGEGEBENER Menge (Fixinhalt, Test).
 static func payout_of(sort: String, count: int,
 		rng: RandomNumberGenerator = null) -> Array[Dictionary]:
 	var pieces: Array[Dictionary] = []
@@ -119,16 +119,3 @@ static func payout_of(sort: String, count: int,
 		pieces.append(piece(sort, id))
 	return pieces
 
-## Sorte der Füllhorn-Zugabe: die Mehrheits-Sorte der Pressung, bei Gleichstand
-## die des ersten Pakets.
-static func majority_sort(sorts: Array[String]) -> String:
-	if sorts.is_empty():
-		return Engraving.CATEGORY_NUMBER
-	var counts := {}
-	for sort in sorts:
-		counts[sort] = int(counts.get(sort, 0)) + 1
-	var best: String = sorts[0]
-	for sort in sorts:
-		if int(counts[sort]) > int(counts[best]):
-			best = sort
-	return best

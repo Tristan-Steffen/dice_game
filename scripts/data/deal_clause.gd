@@ -178,7 +178,7 @@ static func cash_discount() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func insurance_fraud() -> DealClause:
-	return _bonus(INSURANCE_FRAUD, "Versicherungsbetrug", "Jeder Farkle zahlt 15$ Trost",
+	return _bonus(INSURANCE_FRAUD, "Versicherungsbetrug", "Jeder Fumble zahlt 15$ Trost",
 		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func seed_capital() -> DealClause:
@@ -194,7 +194,7 @@ static func high_voltage() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func anchor_clause() -> DealClause:
-	return _bonus(ANCHOR_CLAUSE, "Ankerklausel", "Der erste Farkle dieser Runde zählt nicht",
+	return _bonus(ANCHOR_CLAUSE, "Ankerklausel", "Der erste Fumble dieser Runde zählt nicht",
 		Scope.ROUND, Tier.TWO)
 
 static func odds_bonus() -> DealClause:
@@ -436,7 +436,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		SAVINGS_BONUS:
 			return "+2$ je übrigem Würfel"
 		INSURANCE_FRAUD:
-			return "Jeder Farkle zahlt 30$ Trost"
+			return "Jeder Fumble zahlt 30$ Trost"
 		HIGH_VOLTAGE:
 			return "+6 Überladungs-Stufen"
 		ODDS_BONUS, TOURNAMENT_NIGHT:

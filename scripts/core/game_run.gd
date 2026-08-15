@@ -788,9 +788,6 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 		return empty  # prüfen, dann abbuchen
 	spend_charge(cost)
 	press_uses += 1
-	var sorts: Array[String] = []
-	for index in chosen:
-		sorts.append(owned_packs[index].press_sort())
 	var minted: Array[Dictionary] = []
 	var readers: Array = []
 	for k in chosen.size():
@@ -800,15 +797,6 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 			minted.append(piece)
 			uids.append(int(piece["piece_uid"]))
 		readers.append(uids)
-	# Füllhorn: je Vorkommen ein Stück obendrauf, in der Mehrheits-Sorte der
-	# Pressung. Es fällt beim ersten Leser heraus - irgendwo muss es entstehen.
-	var extra := PhantomPress.payout_of(PhantomPress.majority_sort(sorts),
-		CharmEffects.press_extra_pieces(charm_ids()), rng)
-	for piece in extra:
-		_mint_press_piece(piece)
-		minted.append(piece)
-		var seat: Array[int] = readers[0]
-		seat.append(int(piece["piece_uid"]))
 	for piece in minted:
 		press_pieces.append(piece)
 	# Zwinge: je Zelle ein Wurf - eine Überlebende wirft ihre volle Beute ab und
@@ -1649,7 +1637,7 @@ func side_bet_stake_charge(bet: SideBet) -> int:
 
 ## Frankiermaschine: so viele 1er-Pakete prägt sie am Rundenende - je eines pro
 ## Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
-const STAMP_PACKS := 3
+const STAMP_PACKS := 1
 
 ## Würfelt EIN 1er-Gravur-Paket der Frankiermaschine aus (Sorte nach den
 ## Regal-Gewichten) - noch ohne grant: es liegt erst im Lager, wenn sein Meteor
@@ -1664,6 +1652,23 @@ func _roll_lumpensammler_value() -> void:
 	for charm in owned_charms:
 		if charm.id == Charm.RAG_COLLECTOR:
 			charm.description = Charm.rag_collector_description(lumpensammler_value)
+
+## Füllhorn: räumt die Rundenauszahlung mindestens so viele Überladungs-Stufen,
+## fällt je Exemplar ein versiegelter Sonderposten an. Gezählt wird der BALKEN
+## (wie beim Überflieger), und der Ort erledigt das "einmal je Runde".
+const ENCORE_STAGES := 5
+
+## Bucht die Prämie und liefert die Pakete für die Zeremonie (leer = nichts).
+func apply_encore(cleared_stages: int) -> Array[Pack]:
+	var granted: Array[Pack] = []
+	if cleared_stages < ENCORE_STAGES:
+		return granted
+	for _i in charm_ids().count(Charm.ENCORE):
+		var pack := Pack.roll_special_pack()
+		pack.price = 0  # gefunden, nicht gekauft
+		granted.append(pack)
+	grant_packs(granted)
+	return granted
 
 ## Schmuckkästchen: je Vorkommen und übrigem Würfel 10% Chance auf ein
 ## Fixinhalt-Mini-Paket des gefundenen Materials - nie auf den Würfel selbst.
@@ -1745,8 +1750,8 @@ func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
 	return copied
 
 ## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
-## veredelt ist, fällt stattdessen ein Fixinhalt-Paket ihres Materials an -
-## einmal je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Kopien.
+## veredelt ist, fällt stattdessen ein versiegeltes Veredelungs-Paket an - einmal
+## je gewertetem Firnis-Würfel und Zug. Liefert die Zahl der Pakete.
 func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		participating: Array[int]) -> int:
 	if not charm_ids().has(Charm.GLAZE_BRUSH):
@@ -1762,10 +1767,7 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 			continue
 		if defs[i].material_level(face) < DieMaterial.MAX_LEVEL:
 			continue
-		var material := DieMaterial.by_id(defs[i].materials[face])
-		if material == null:
-			continue
-		grant_material_pack(material)
+		grant_engraving_pack(Engraving.by_id(Engraving.DOPING))
 		copied += 1
 	return copied
 

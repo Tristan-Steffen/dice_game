@@ -520,17 +520,19 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ## EINE Quelle: der Zug meldet die Summe als activation_money und bucht sie nicht.
 static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, pointer_fires: Dictionary = {}, hands_taken: int = 0, combination: Array[int] = []) -> Dictionary:
 	var combo_slots := participating if combination.is_empty() else combination
-	# Goldschmied und Goldader legen auf JEDEN Gold-Träger denselben Zuschlag -
-	# additiv über jedem Satz, nie als Faktor auf ihn.
-	var gold_surplus := (GOLDSMITH_BONUS if charm_ids.has(Charm.GOLDSMITH) else 0) \
-		+ CharmEffects.gold_vein_bonus(materials, participating, charm_ids)
+	# Der Goldschmied legt auf JEDEN Gold-Träger denselben Zuschlag - additiv über
+	# jedem Satz, nie als Faktor auf ihn. Die Goldader kommt je Zündung dazu.
+	var gold_surplus := GOLDSMITH_BONUS if charm_ids.has(Charm.GOLDSMITH) else 0
 	var shown_values := _shown_values(defs, face_indices, charm_ids, essences)
 	var tail_slot: int = int(order[order.size() - 1]) if not order.is_empty() else -1
 	# Veredeltes Gold: +$1 je Gold-Seiten-Auslösung dieser Nahme - der Zähler steht
 	# VOR der ersten Buchung fest.
 	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, pointer_fires, shown_values, tail_slot, hands_taken, combo_slots)
 	var plan := {}
-	for i in participating:
+	# Die Goldader zählt die Gold-Zündungen der ganzen Nahme mit - deshalb läuft
+	# der Plan in ZÄHLREIHENFOLGE, nicht slot-sortiert.
+	var gold_so_far := 0
+	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
 			continue
 		var face: int = face_indices[i]
@@ -546,10 +548,11 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 		# Manometer: das SEELEN-Geld zahlt mehrfach, das Gold der Seite nicht.
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
-		# Je Zündung derselbe Betrag: Gold hängt am ZUSTAND der Seite, das Seelen-
-		# Geld an ihrem Wert bei Zugbeginn - beides wandert innerhalb des Zuges nicht.
-		var per_firing := gold_money_once_for(face_material, face_level(defs[i], face), gold_surplus, gold_triggers, charm_ids) \
-			+ EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * essence_repeat
+		# Das Seelen-Geld hängt am Wert der Seite bei Zugbeginn und wandert innerhalb
+		# des Zuges nicht; das Gold rechnet je Zündung neu, weil die Goldader mit
+		# jeder Gold-Zündung davor wächst.
+		var level := face_level(defs[i], face)
+		var soul_per_firing := EssenceEffects.money_of(essence_ids, defs[i].faces[face], participating.size()) * essence_repeat
 		# Zyanidgas laugt die eigene Schale aus: je ZUG einmal, also an der ERSTEN
 		# Zündung dieses Würfels - dort sieht man es aus ihm herauskommen. Das
 		# Scheidewasser greift dazu die Gold-Seiten der Mitwürfel an.
@@ -561,19 +564,32 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 		for t in die_triggers:
 			var firings: Array[int] = []
 			for f in face_triggers:
-				var amount := per_firing + (cyanide if t == 0 and f == 0 else 0)
+				var vein := CharmEffects.gold_vein_rate(gold_so_far, charm_ids)
+				var amount := gold_money_once_for(face_material, level, gold_surplus + vein,
+					gold_triggers, charm_ids) + soul_per_firing
+				if t == 0 and f == 0:
+					amount += cyanide
+				if face_material == DieMaterial.GOLD:
+					gold_so_far += 1
 				firings.append(amount)
 				total += amount
 			var links: Array[int] = []
 			for fire in (fires[t] if t < fires.size() else []):
-				var fired := _link_money(defs[i], int(fire["face"]), charm_ids, gold_surplus, gold_triggers)
+				var link_face := int(fire["face"])
+				var fired := _link_money(defs[i], link_face, charm_ids,
+					gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
+				if _face_is_gold(defs[i], link_face):
+					gold_so_far += 1
 				links.append(fired)
 				total += fired
 			groups.append({"firings": firings, "links": links})
 		var det_links: Array[int] = []
 		for link_face in EssenceEffects.link_faces(defs[i], face, essence_ids, rune_ids, charm_ids):
 			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
-				var det := _link_money(defs[i], link_face, charm_ids, gold_surplus, gold_triggers)
+				var det := _link_money(defs[i], link_face, charm_ids,
+					gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
+				if _face_is_gold(defs[i], link_face):
+					gold_so_far += 1
 				det_links.append(det)
 				total += det
 		plan[i] = {"groups": groups, "det_links": det_links, "total": total}
@@ -600,6 +616,12 @@ static func copper_charge_once_for(face_material: String, level: int, charm_ids:
 		return 0
 	var amount := COPPER_CHARGE_DOPED if level >= DieMaterial.MAX_LEVEL else COPPER_CHARGE
 	return amount * payoff_repeats(level, charm_ids)
+
+## Trägt diese Seite Gold? Die Goldader zählt ZÜNDUNGEN, also auch die der
+## Glieder - und die kennen ihre Seite nur über die Def.
+static func _face_is_gold(def: DieDefinition, face: int) -> bool:
+	return def != null and face >= 0 and face < def.materials.size() \
+		and def.materials[face] == DieMaterial.GOLD
 
 ## Gold EINER Glied-Zündung - das Glied trägt seine eigene Seite, also auch deren
 ## Zustand (nie den der oberen).
