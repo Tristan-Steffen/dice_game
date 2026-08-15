@@ -46,7 +46,7 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 
 	var model: Node3D
 	if charm.model_path != "" and ResourceLoader.exists(charm.model_path):
-		model = (load(charm.model_path) as PackedScene).instantiate() as Node3D
+		model = CharmRowView.model_scene(charm.model_path).instantiate() as Node3D
 	else:
 		# Die flache Platzhalter-Karte liegt auf dem Tisch (Normale +Y) - hier
 		# aufgestellt, damit die Kamera ihre FLÄCHE sieht statt der dünnen Kante.

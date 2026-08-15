@@ -186,8 +186,18 @@ func _load_model(charm: Charm) -> Node3D:
 	if path == "" or not ResourceLoader.exists(path):
 		model = placeholder_model(charm.id)
 	else:
-		model = (load(path) as PackedScene).instantiate()
+		model = model_scene(path).instantiate()
 	return model
+
+## Geladene Charm-Modelle bleiben im Prozess liegen: ein GLB kostet KALT ~0,8 s,
+## warm 0 ms, und Bibliothek wie Tischkarten bauen ihre Modelle laufend neu auf.
+static var _model_scenes := {}  # Pfad -> PackedScene (Cache)
+
+## Einzige Ladestelle der Charm-Modelle - CharmThumb greift hier mit ab.
+static func model_scene(path: String) -> PackedScene:
+	if not _model_scenes.has(path):
+		_model_scenes[path] = load(path) as PackedScene
+	return _model_scenes[path]
 
 ## Stabile Farbe aus der Charm-id (Hash -> Farbton) - auch die Bibliothek
 ## nutzt sie, damit Tisch-Karte und Eintrag zusammenfinden.
