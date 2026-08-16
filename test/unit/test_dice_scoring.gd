@@ -283,6 +283,53 @@ func test_last_digit_holds_for_arbitrarily_large_faces():
 	assert_eq(DiceScoring.best_hand(_d([1, 11, 51, 1991, 31]))["key"], "five_kind")
 	assert_eq(DiceScoring.best_hand(_d([1, 2, 3, 44, 15, 26]))["key"], "large_straight")
 
+# --- Straßen auf dem Ziffernring 0-9 -----------------------------------------
+
+func test_the_ring_wraps_through_the_zero():
+	# 8,9,0,1,2,3 sind sechs Positionen in Folge - Umlauf über die 0 erlaubt.
+	assert_eq(DiceScoring.best_hand(_d([8, 9, 10, 21, 22, 23]))["key"], "large_straight")
+	assert_eq(DiceScoring.participating_indices("large_straight", _d([8, 9, 10, 21, 22, 23])),
+		_d([0, 1, 2, 3, 4, 5]), "alle sechs bilden sie")
+
+func test_the_zero_is_a_full_citizen_of_the_ring():
+	# 5,6,7,8,9 läuft ohne Umlauf, 6,7,8,9,0 mit - beides kleine Straßen.
+	assert_eq(DiceScoring.best_hand(_d([5, 6, 7, 8, 9]))["key"], "small_straight")
+	assert_eq(DiceScoring.best_hand(_d([16, 7, 8, 9, 20]))["key"], "small_straight")
+
+func test_gaps_on_the_ring_do_not_qualify():
+	# 1,2,3,4,6 lässt die 5 aus - kein Fenster von fünf Positionen trägt sie.
+	assert_false(DiceScoring.qualifies("small_straight", _d([1, 2, 3, 4, 6])))
+	assert_false(DiceScoring.qualifies("large_straight", _d([8, 9, 10, 21, 23, 24])))
+
+# --- Zahnlücke: eine Straße darf ein Loch tragen ------------------------------
+
+func test_the_gap_tooth_allows_exactly_one_hole():
+	var gap := _ids([Charm.GAP_TOOTH])
+	var holed := _d([1, 2, 3, 4, 6, 7])  # die 5 fehlt
+	assert_false(DiceScoring.qualifies("large_straight", holed), "ohne Charm keine Straße")
+	assert_true(DiceScoring.qualifies("large_straight", holed, {}, gap))
+	assert_eq(DiceScoring.participating_indices("large_straight", holed, gap), _d([0, 1, 2, 3, 4, 5]),
+		"alle sechs Würfel bilden die gelochte Straße")
+
+func test_the_gap_tooth_covers_the_small_straight_too():
+	var gap := _ids([Charm.GAP_TOOTH])
+	# Ziffern 1,2,4,5,6 - Fenster 1-6 (sechs Positionen), ein Loch auf der 3.
+	assert_false(DiceScoring.qualifies("small_straight", _d([1, 2, 4, 5, 6])))
+	assert_true(DiceScoring.qualifies("small_straight", _d([1, 2, 4, 5, 6]), {}, gap))
+
+func test_two_holes_stay_out():
+	var gap := _ids([Charm.GAP_TOOTH])
+	# Ziffern 1,2,4,6,8 - zwei Löcher, kein Fenster von sieben reicht.
+	assert_false(DiceScoring.qualifies("large_straight", _d([1, 2, 4, 6, 8, 9]), {}, gap))
+	assert_false(DiceScoring.qualifies("small_straight", _d([1, 2, 4, 6, 8]), {}, gap))
+
+func test_the_full_window_still_wins_over_the_holed_one():
+	# Mit Charm bleibt 1-2-3-4-5-6 die lückenlose Straße - dieselben sechs Slots.
+	var gap := _ids([Charm.GAP_TOOTH])
+	assert_eq(DiceScoring.participating_indices("large_straight", _d([1, 2, 3, 4, 5, 6]), gap),
+		_d([0, 1, 2, 3, 4, 5]))
+	assert_eq(DiceScoring.participating_indices("small_straight", _d([1, 2, 3, 4, 5, 6]), gap).size(), 5)
+
 func test_two_pair_with_overcounts_sums_real_values():
 	# 5-5 und 11-11 (Ziffern 5 und 1): Zwei Paare; die Basis summiert die ECHTEN
 	# Werte aller vier beteiligten Würfel (5+5+11+11 = 32), plus 15, × Mult 3.

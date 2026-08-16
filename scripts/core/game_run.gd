@@ -121,9 +121,9 @@ const HUB_UPGRADE_UNLOCKS := [
 	"Blättern + mehr Chips",    # → 2 Spielecke
 	"Größerer Laden + Automat I",  # → 3 Lizenz
 	"Nebenwetten",              # → 4 Parkett
-	"Überladung ×4",            # → 5 Salon
+	"Größerer Energie-Speicher", # → 5 Salon
 	"Bessere Ware + Automat II",   # → 6 VIP-Lounge
-	"Überladung ×5 + 3. Bündel",# → 7 Suite
+	"Größerer Energie-Speicher + 3. Bündel",# → 7 Suite
 	"Günstiges Blättern",       # → 8 Penthouse
 	"Erlesene Ware + Automat III", # → 9 Privatclub
 	"Legendäre Ware",           # → 10 High Roller
@@ -447,14 +447,10 @@ func max_overcharge_stages() -> int:
 		stages = UNLIMITED_OVERCHARGE_STAGES
 	return stages
 
-## Rahmen der Hub-Stufe OHNE Klausel-Wirkungen: 3 (bis Salon), 4 (Salon/VIP),
-## 5 (ab Suite).
+## Rahmen OHNE Klausel-Wirkungen: fünf Stufen ab der ersten Lizenz - der Rahmen
+## ist keine Hub-Belohnung mehr, nur Klauseln verschieben ihn.
 func overcharge_frame() -> int:
-	if hub_level >= 7:
-		return 5
-	if hub_level >= 5:
-		return 4
-	return 3
+	return 5
 
 func side_bets_unlocked() -> bool:
 	return hub_level >= HUB_SIDE_BETS_LEVEL

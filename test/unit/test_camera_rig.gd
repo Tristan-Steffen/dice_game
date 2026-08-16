@@ -224,12 +224,14 @@ func test_the_camera_stands_still_in_the_close_view() -> void:
 	rig._process(0.1)
 	assert_eq(rig.global_transform, before, "kein Rundschauen in der Nahsicht")
 
-func test_the_camera_still_looks_around_in_the_wide_workshop_view() -> void:
+func test_every_focused_station_stands_still() -> void:
+	# Rundschauen gibt es nur in Übersicht und Freikamera: auch die weite
+	# Werkbank-Sicht hält ihre Lage - wie jede andere Station.
 	_aim_at_workshop()
 	assert_false(rig.workshop_close, "die erste Stufe ist die weite")
+	var before := rig.global_transform
 	rig._process(0.1)
-	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP)
-	assert_false(rig.workshop_close, "das Rundschauen läuft dort weiter")
+	assert_eq(rig.global_transform, before, "kein Rundschauen in einer Fokus-Station")
 
 func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
 	_aim_at_workshop()

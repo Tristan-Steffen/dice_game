@@ -51,9 +51,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var triggers := trigger_offset
 	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
 	var wild := DiceScoring.wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
-	var wild_eyes := DiceScoring.wild_value(key, dice, ctx) if wild >= 0 else 0
+	var wild_eyes := DiceScoring.wild_value(key, dice, ctx, charm_ids) if wild >= 0 else 0
 	# Lauf-/Rundenzustand wie in DiceScoring._base_and_mult - einmal je Hand gelesen.
-	var charge := int(ctx.get(DiceScoring.CTX_CHARGE, 0))
+	# Laufender REST der Energie wie in DiceScoring - der Tscherenkow verbrennt sie.
+	var charge := maxi(0, int(ctx.get(DiceScoring.CTX_CHARGE, 0)))
+	var charge_spent := 0
 	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := DiceScoring.discard_values_in(ctx)
@@ -178,7 +180,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				for j in charm_ids.size():
 					var cb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, shown, materials)
 					var cm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown)
-					cm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, shown)
+					cm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown)
 					if cb != 0 or cm != 0:
 						charm_base_now += cb
 						charm_mult_now += cm
@@ -235,14 +237,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					mult *= mat_crit_now
 					crit_once *= mat_crit_now
 					crit_steps.append(_crit_step(mat_crit_now, -1, base, mult, charm_ids))
-				# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR sich.
-				var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
-					wild_eyes if i == wild else 0, charm_ids, charge,
-					DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
-				# Manometer: je Wiederholung ein EIGENER Schlag, nie einer im Quadrat.
+				# Essenz-Krit in derselben Substufe; Ozon liest die Krits VOR der Salve.
+				# Manometer: je Wiederholung ein EIGENER Schlag, nie einer im Quadrat -
+				# und je Schlag der frische Energierest (Tscherenkow).
+				var crits_before_essence := crits
+				var spends_charge := EssenceEffects.spends_charge(essence_ids, charm_ids)
 				for _e in essence_repeat:
+					var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
+						wild_eyes if i == wild else 0, charm_ids, charge,
+						DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+					if spends_charge and charge > 0:
+						charge -= 1
+						charge_spent += 1
 					if is_equal_approx(essence_crit, 1.0):
-						break
+						continue
 					crits += 1
 					mult *= essence_crit
 					crit_once *= essence_crit
@@ -327,7 +335,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					for j in charm_ids.size():
 						var lb := CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, eye_slots, link_value, materials)
 						var lm := CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value)
-						lm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value)
+						lm += CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, link_value)
 						if lb != 0 or lm != 0:
 							link_charm_base += lb
 							link_charm_mult += lm
@@ -501,6 +509,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# es in der nächsten Hand als Startstand.
 		"triggers": triggers - trigger_offset,
 		"crits": crits - crit_offset,
+		# Energie, die der Tscherenkow in dieser Hand verbrannt hat - gebucht wird
+		# sie beim Nehmen (TakeReport.charge_spent), wie das Trinkgeld.
+		"charge_spent": charge_spent,
 	}
 
 ## Hängt das Geld EINZELNER Zündungen an die Schrittliste: MaterialEffects plant

@@ -33,7 +33,8 @@ func test_all_returns_all_charms():
 	# +1 Gleichschliff: der Würfel mit sechs gleichen Seiten.
 	# −3 mit dem Essenz-Rework: Sumpflaterne, Sonnenfinsternis und Druckerpresse
 	# starben mit Irrlicht, Korona und Ethylen.
-	assert_eq(Charm.all().size(), 142)
+	# +3: Zahnlücke, Fallhöhe und Inventur.
+	assert_eq(Charm.all().size(), 145)
 
 func test_all_ids_are_unique():
 	var seen := {}

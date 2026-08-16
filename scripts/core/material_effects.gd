@@ -63,6 +63,10 @@ class TakeReport:
 	## der Aufrufer trägt die Summe aus der Schrittliste ein.
 	var tip_money: int = 0
 	var charge: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
+	## Energie, die der Tscherenkow-Krit verbrannt hat. Wie tip_money nur
+	## GEMELDET: nur die Schrittliste kennt die Schläge, der Aufrufer trägt die
+	## Summe ein und bucht sie negativ.
+	var charge_spent: int = 0
 	## Energie aus Kupfer-Seiten - JE ZÜNDUNG, darum getrennt von charge: nur sie
 	## läuft bei vollem Speicher in Geld über (GameRun.book_copper_charge).
 	var copper_charge: int = 0

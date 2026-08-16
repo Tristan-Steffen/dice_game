@@ -1203,9 +1203,9 @@ func test_maintenance_engraving_is_a_per_hand_grant():
 	assert_eq(run.owned_packs.size(), before, "der Rundenbeginn schenkt nichts mehr")
 
 func test_high_voltage_and_stage_cap_resolve_in_order():
-	assert_eq(run.max_overcharge_stages(), 3, "Hinterzimmer ohne Vertrag")
+	assert_eq(run.max_overcharge_stages(), 5, "Hinterzimmer ohne Vertrag: voller Rahmen")
 	_sign([DealClause.HIGH_VOLTAGE])
-	assert_eq(run.max_overcharge_stages(), 3 + GameRun.HIGH_VOLTAGE_STAGES, "kein Deckel bei 5")
+	assert_eq(run.max_overcharge_stages(), 5 + GameRun.HIGH_VOLTAGE_STAGES, "kein Deckel bei 5")
 	_sign([DealClause.STAGE_CAP])
 	assert_eq(run.max_overcharge_stages(), GameRun.STAGE_CAP_LIMIT + GameRun.HIGH_VOLTAGE_STAGES,
 		"erst der Deckel (2), dann der Bonus (+3)")

@@ -4,7 +4,8 @@ extends Camera3D
 ## auf eine Zone fährt an ihre Station, Rechtsklick zurück - gerechnete Stufen,
 ## und nur hier wird bedient. FREIKAMERA: WASD schiebt den Blick, das Rad zoomt
 ## stufenlos, der Modus steht derweil auf OVERVIEW - reines Umsehen und Fahren.
-## In beiden bleibt das leichte Maus-Rundschauen.
+## Das leichte Maus-Rundschauen gibt es nur in Übersicht und Freikamera -
+## jede fokussierte Station steht still.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 
@@ -13,7 +14,8 @@ signal mode_changed(new_mode: Mode)
 const TILT_MAX_UP_DEGREES := 5.0
 const TILT_MAX_DOWN_DEGREES := 5.0
 const TILT_MAX_YAW_DEGREES := 5.0
-# Im Zoom bewusst kleine Winkel, damit das Ziel im Blick bleibt.
+# Nur noch die geparkte Freikamera nutzt diese Winkel (sie steht im Zoomblick);
+# die Fokus-Stationen schauen gar nicht mehr umher.
 const ZOOM_TILT_MAX_PITCH_DEGREES := 5.0
 const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
@@ -51,9 +53,8 @@ const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
 ## Schürze unter das Fenster gewachsen ist, wird der Abstand GERECHNET (siehe
 ## workshop_wide_distance) - eine feste Zahl schnitte die Buchten ab.
 const WORKSHOP_ZOOM_DISTANCE_BONUS := 1.0
-## Zugabe der weiten Werkbank-Sicht. Sie muss über die reine Passung hinausgehen:
-## anders als in der Nahsicht schwenkt hier das Rundschauen mit (±5° Pitch), und
-## ohne diese Luft schöbe es die Buchten aus dem Bild.
+## Zugabe der weiten Werkbank-Sicht: reine Rahmungs-Luft. Einst deckte sie den
+## ±5°-Schwenk des Rundschauens - das ruht in den Stationen, die Rahmung bleibt.
 const WORKSHOP_WIDE_MARGIN := 1.14
 
 ## Zweite Werkbank-Stufe (Doppelklick auf leere Fläche): rahmt NUR Fenster und
@@ -296,12 +297,10 @@ func free_zoom_max() -> float:
 	return overview_distance * FREE_ZOOM_MAX_FACTOR
 
 func _process(delta: float) -> void:
-	# Im Titel-HUD steht die Kamera still: das Rundschauen schwenkte den Filz
-	# ins Bild und verriete, dass das Menü auf einem Tisch liegt. In der
-	# Werkbank-Nahsicht ebenso: dort ist der Rahmen randvoll, jedes Schwenken
-	# holte die Trays herein.
-	if is_animating or tilt_locked or mode == Mode.TITLE \
-			or workshop_close or die_focus:
+	# Jede Fokus-Station steht STILL - ein fokussierter Screen ist Anzeige, kein
+	# Ausblick, das Schwenken verschob nur das Fenster im Bild. Titel, Nahsicht
+	# und Werkstück-Sicht stecken in mode != OVERVIEW mit drin.
+	if is_animating or tilt_locked or mode != Mode.OVERVIEW:
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -313,14 +312,14 @@ func _process(delta: float) -> void:
 
 	var pitch_max: float
 	var yaw_max: float
-	if mode == Mode.OVERVIEW and not free_camera:
-		# ny > 0 = Maus unten -> Blick Richtung Tisch (eigener Winkelbereich).
-		pitch_max = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
-		yaw_max = TILT_MAX_YAW_DEGREES
-	else:
+	if free_camera:
 		# Die Freikamera steht im Zoomblick, also gelten dessen Winkel.
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
+	else:
+		# ny > 0 = Maus unten -> Blick Richtung Tisch (eigener Winkelbereich).
+		pitch_max = TILT_MAX_DOWN_DEGREES if ny > 0.0 else TILT_MAX_UP_DEGREES
+		yaw_max = TILT_MAX_YAW_DEGREES
 	var target_tilt := Vector2(-ny * pitch_max, -nx * yaw_max)
 	# Im Fahren blickt die Kamera geradeaus: das Rundschauen blendet über
 	# dieselbe Glättung aus und beim Parken wieder ein - keine Sperre nötig.

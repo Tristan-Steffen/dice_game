@@ -134,6 +134,10 @@ const ODOMETER := "odometer"
 const TAIL_LIGHT := "tail_light"
 const STROBE := "strobe"
 const METRONOME := "metronome"
+# Erkennung, Hand-Spanne & Vorrat
+const GAP_TOOTH := "gap_tooth"
+const DROP_HEIGHT := "drop_height"
+const INVENTORY := "inventory"
 # Essenz-Charms: je einer für jede Essenz ab "selten" - siehe ESSENCE_REQUIREMENT.
 const AMALGAM := "amalgam"
 const LEAD_APRON := "lead_apron"
@@ -385,6 +389,9 @@ const RARITIES := {
 	TAIL_LIGHT: RARITY_UNCOMMON,
 	STROBE: RARITY_UNCOMMON,
 	METRONOME: RARITY_COMMON,
+	GAP_TOOTH: RARITY_RARE,
+	DROP_HEIGHT: RARITY_UNCOMMON,
+	INVENTORY: RARITY_RARE,
 	# Essenz-Charms: die Rarität misst die STÄRKE mit der Seele, nicht die Nische -
 	# die Nische regelt schon die Angebots-Kopplung (ESSENCE_REQUIREMENT).
 	AMALGAM: RARITY_RARE,
@@ -849,7 +856,7 @@ static func cutting_torch() -> Charm:
 	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Kombinationsstufe.")
 
 static func moderator() -> Charm:
-	return _make(MODERATOR, "Steuerstab", "Für den Tscherenkow-Krit zählt die gelagerte Energie voll: ×(1 + Energie).")
+	return _make(MODERATOR, "Steuerstab", "Tscherenkow-Krits kosten keine Energie und schlagen ×(gelagerte Energie).")
 
 static func meteorite() -> Charm:
 	return _make(METEORITE, "Meteorit", "Die Sternschnuppe kritet bei JEDER Wertung - jeder Eintritt glüht.")
@@ -962,6 +969,15 @@ static func strobe() -> Charm:
 static func metronome() -> Charm:
 	return _make(METRONOME, "Metronom", "Jeder Würfel, der genau 1× auslöst, gibt +6 Basispunkte je Würfel vor ihm, der ebenfalls genau 1× auslöst.")
 
+static func zahnluecke() -> Charm:
+	return _make(GAP_TOOTH, "Zahnlücke", "Straßen dürfen eine Lücke haben.")
+
+static func drop_height() -> Charm:
+	return _make(DROP_HEIGHT, "Fallhöhe", "+Mult in Höhe der Differenz zwischen höchstem und niedrigstem gewerteten Würfel.")
+
+static func inventory() -> Charm:
+	return _make(INVENTORY, "Inventur", "+2 Basispunkte je Material-Seite im gesamten Würfelpool.")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -1008,4 +1024,5 @@ static func all() -> Array[Charm]:
 		tip_jar(), consolation_prize(),
 		factory_finish(), bottle_rack(), pressure_gauge(), empty_plinth(), odometer(),
 		tail_light(), strobe(), metronome(),
+		zahnluecke(), drop_height(), inventory(),
 	]

@@ -259,8 +259,8 @@ static func detonating_gas() -> Essence:
 
 static func cherenkov() -> Essence:
 	return _make(CHERENKOV, "Tscherenkow-Licht",
-		"Das blaue Glühen überschneller Teilchen: jede seiner Auslösungen kritet ×(1 + gelagerte Energie ÷ 5).",
-		"kritet mit der gelagerten Energie", Rarity.RARE, Color(0.2, 0.45, 1.0))
+		"Das blaue Glühen überschneller Teilchen: jede seiner Auslösungen kritet ×8 und verbrennt dafür 1 Energie.",
+		"kritet ×8 für 1 Energie", Rarity.RARE, Color(0.2, 0.45, 1.0))
 
 static func shooting_star() -> Essence:
 	return _make(SHOOTING_STAR, "Sternschnuppe",

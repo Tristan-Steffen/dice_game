@@ -70,10 +70,10 @@ const LIGHT_PILLAR_ACTIVATIONS_MIRRORED := 4
 const MIDNIGHT_SUN_ACTIVATIONS := 1
 const MIDNIGHT_SUN_ACTIVATIONS_POLAR := 2
 
-## Tscherenkow-Licht: Krit ×(1 + Energie ÷ 5); der Steuerstab nimmt den Teiler
-## ganz heraus - dann kritet die gelagerte Energie voll.
-const CHERENKOV_DIVISOR := 5.0
-const CHERENKOV_DIVISOR_MODERATED := 1.0
+## Tscherenkow-Licht: je Aktivierung ein ×8-Krit, der 1 Energie VERBRENNT - ist
+## keine mehr da, fällt er aus. Der Steuerstab macht ihn gratis und tauscht den
+## festen Faktor gegen die gelagerte Energie.
+const CHERENKOV_CRIT := 8.0
 
 ## Sternschnuppe und Gammablitz kriten an ihrer ERSTEN Wertung der Runde; der
 ## Magnetar löst den Gammablitz von dieser Bedingung.
@@ -314,7 +314,8 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## ball_bonus: Zuschlag des Blitzableiters auf den Kugelblitz.
 ## wild_value: die Zahl, zu der sich das Polarlicht macht - nur der Polarfilter
 ## setzt sie, sonst 0 (= kein Krit).
-## charge: gelagerte Energie (Tscherenkow, Steuerstab halbiert den Teiler).
+## charge: die noch VERFÜGBARE Energie (Tscherenkow verbrennt je Schlag eine,
+## der Aufrufer zählt herunter - siehe spends_charge).
 ## first_scoring: erste Wertung dieses Würfels in der Runde (Sternschnuppe,
 ## Gammablitz - der Magnetar löst den Blitz davon).
 ## fumbles: Fumbles, mit denen der Vulkanblitz kritet (Runde + Aschewolke).
@@ -336,8 +337,10 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		Essence.AURORA:
 			return maxf(1.0, float(wild_value))
 		Essence.CHERENKOV:
-			var divisor := CHERENKOV_DIVISOR_MODERATED if charm_ids.has(Charm.MODERATOR) else CHERENKOV_DIVISOR
-			return maxf(1.0, 1.0 + float(maxi(0, charge)) / divisor)
+			# Mit Steuerstab kostet der Schlag nichts und schlägt ×(gelagerte Energie).
+			if charm_ids.has(Charm.MODERATOR):
+				return maxf(1.0, float(maxi(0, charge)))
+			return CHERENKOV_CRIT if charge > 0 else 1.0
 		Essence.SHOOTING_STAR:
 			# Ein Strich am Himmel: der Würfel löst normal aus, der Krit fällt aber
 			# genau EINMAL - beim ersten Zünden der ersten Wertung der Runde. Der
@@ -350,6 +353,11 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		Essence.VOLCANIC_LIGHTNING:
 			return maxf(1.0, 1.0 + float(maxi(0, fumbles)))
 	return 1.0
+
+## Zahlt DIESER Schlag Energie? Nur der Tscherenkow, und nur ohne Steuerstab.
+## Der Aufrufer führt den laufenden Rest und zieht je Schlag eine ab.
+static func spends_charge(essence_ids: Array[String], charm_ids: Array[String]) -> bool:
+	return essence_ids.has(Essence.CHERENKOV) and not charm_ids.has(Charm.MODERATOR)
 
 ## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
 ## scored_size ist die GANZE gewertete Hand (Krypton und Vollzähler zählen mit),

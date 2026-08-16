@@ -278,6 +278,11 @@ static func equal_faces_for(ctx: Dictionary, slot: int) -> int:
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
 const CTX_STRESS := "stress_round"
 
+## Material-Seiten des GANZEN Würfelpools (ctx-Schlüssel, int): Laufzustand, den
+## die reine Wertung nicht kennt - nur die Inventur liest ihn. Hand-weit, also
+## ohne Umschlüsselung.
+const CTX_POOL_MATERIALS := "pool_materials"
+
 ## Klausel-Wachstum (ctx-Schlüssel, hand-weit): die Kaltverfestigung lässt JEDE
 ## ausgelöste Seite um so viele Augen wachsen. Hand-weit, also ohne Umschlüsselung.
 const CTX_CLAUSE_GROWTH := "clause_growth"
@@ -393,7 +398,7 @@ static func wild_slot(ctx: Dictionary) -> int:
 ## wenn keiner mitspielt oder keine Belegung trägt. Dieselbe Wahl wie
 ## participating_indices: der höchste Wert, der die Kategorie hält. Nur der
 ## Polarfilter fragt danach, er kritet mit ihr.
-static func wild_value(key: String, shown: Array[int], ctx: Dictionary) -> int:
+static func wild_value(key: String, shown: Array[int], ctx: Dictionary, charm_ids: Array[String] = []) -> int:
 	var legal := legal_indices(shown, ctx)
 	var wild := _wild_index_in(legal, ctx)
 	if wild < 0:
@@ -401,7 +406,7 @@ static func wild_value(key: String, shown: Array[int], ctx: Dictionary) -> int:
 	var sub := (shown if legal.size() == shown.size() else _legal_dice(shown, legal)).duplicate()
 	for value in range(6, 0, -1):
 		sub[wild] = value
-		if _qualifies_plain(key, sub):
+		if _qualifies_plain(key, sub, charm_ids):
 			return value
 	return 0
 
@@ -413,27 +418,28 @@ static func _wild_index_in(legal: Array[int], ctx: Dictionary) -> int:
 
 ## Trifft die Kategorie zu? Mit Joker wird jede Belegung durchprobiert - die
 ## Ersetzung passiert NUR hier in der Erkennung, nach dem legalen Filter.
-static func qualifies(key: String, dice: Array[int], ctx: Dictionary = {}) -> bool:
+## charm_ids: nur die Zahnlücke greift in die Erkennung ein (Straße mit Loch).
+static func qualifies(key: String, dice: Array[int], ctx: Dictionary = {}, charm_ids: Array[String] = []) -> bool:
 	var legal := legal_indices(dice, ctx)
 	var sub := dice if legal.size() == dice.size() else _legal_dice(dice, legal)
 	var wild := _wild_index_in(legal, ctx)
 	if wild < 0:
-		return _qualifies_plain(key, sub)
+		return _qualifies_plain(key, sub, charm_ids)
 	for value in range(6, 0, -1):
 		var variant := sub.duplicate()
 		variant[wild] = value
-		if _qualifies_plain(key, variant):
+		if _qualifies_plain(key, variant, charm_ids):
 			return true
 	return false
 
-static func _qualifies_plain(key: String, dice: Array[int]) -> bool:
+static func _qualifies_plain(key: String, dice: Array[int], charm_ids: Array[String] = []) -> bool:
 	match key:
 		SIX_KIND:
 			return _has_count_at_least(dice, 6)
 		FIVE_KIND:
 			return _has_count_at_least(dice, 5)
 		LARGE_STRAIGHT:
-			return _has_straight_of_length(dice, 6)
+			return _has_straight_of_length(dice, 6, charm_ids)
 		FOUR_KIND_AND_PAIR:
 			return _has_count_and_other_count(dice, 4, 2)
 		DOUBLE_THREE_KIND:
@@ -445,7 +451,7 @@ static func _qualifies_plain(key: String, dice: Array[int]) -> bool:
 		FULL_HOUSE:
 			return _has_count_and_other_count(dice, 3, 2)
 		SMALL_STRAIGHT:
-			return _has_straight_of_length(dice, 5)
+			return _has_straight_of_length(dice, 5, charm_ids)
 		THREE_KIND:
 			return _has_count_at_least(dice, 3)
 		TWO_PAIR:
@@ -470,7 +476,7 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 	# (Knochen/Glas/Helium), damit die Wertung genau dort landet, wo die Def landet.
 	var raw := dice
 	dice = shown_values(dice, charm_ids, ctx)
-	if is_throttled(key, ctx) or not qualifies(key, dice, ctx):
+	if is_throttled(key, ctx) or not qualifies(key, dice, ctx, charm_ids):
 		return 0
 	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, combo_levels, ctx)
 	# Die EINZIGE Rundung der ganzen Rechnung: erst beim Verschmelzen, und
@@ -723,10 +729,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var ball_bonus := EssenceEffects.ball_crit_bonus(scored, essences, charm_ids)
 	# Polarfilter: der Joker kritet mit der Zahl, zu der er sich macht.
 	var wild := wild_slot(ctx) if charm_ids.has(Charm.POLARIZER) else -1
-	var wild_eyes := wild_value(key, dice, ctx) if wild >= 0 else 0
+	var wild_eyes := wild_value(key, dice, ctx, charm_ids) if wild >= 0 else 0
 	# Lauf- und Rundenzustand der dritten Welle: einmal je Hand gelesen, damit
 	# sich kein Krit mitten in der Zählung verschiebt.
-	var charge := int(ctx.get(CTX_CHARGE, 0))
+	# Laufender REST der Energie: der Tscherenkow verbrennt je Schlag eine.
+	var charge := maxi(0, int(ctx.get(CTX_CHARGE, 0)))
 	var hands_taken := int(ctx.get(CTX_HANDS_TAKEN, 0))
 	var volcanic := volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := discard_values_in(ctx)
@@ -812,7 +819,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				for j in charm_ids.size():
 					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, shown, materials)
 					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown))
-					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, shown))
+					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown))
 				base += CharmEffects.metronome_base(i, singles, charm_ids)
 				mult += float(CharmEffects.strobe_mult(t * face_triggers + f, charm_ids))
 				var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
@@ -830,12 +837,17 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					if not is_equal_approx(mat_crit, 1.0):
 						crits += 1
 					mult *= mat_crit
-				var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits, ball_bonus,
-					wild_eyes if i == wild else 0, charm_ids, charge,
-					first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
 				# Manometer: der Essenz-Krit schlägt mehrfach - je Schlag ein eigener,
-				# nie einer im Quadrat (Härteofen-Grammatik).
+				# nie einer im Quadrat (Härteofen-Grammatik). Ozon liest den Stand VOR
+				# der Salve, der Tscherenkow dagegen je Schlag den frischen Energierest.
+				var crits_before_essence := crits
+				var spends_charge := EssenceEffects.spends_charge(essence_ids, charm_ids)
 				for _e in essence_repeat:
+					var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
+						wild_eyes if i == wild else 0, charm_ids, charge,
+						first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+					if spends_charge and charge > 0:
+						charge -= 1
 					if not is_equal_approx(ess_crit, 1.0):
 						crits += 1
 					mult *= ess_crit
@@ -877,7 +889,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				for j in charm_ids.size():
 					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, link_value, materials)
 					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, link_value))
-					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, participating, link_value))
+					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, link_value))
 				var link_cascade := CharmEffects.cascade_mult(link_value, cascade_last, charm_ids)
 				if link_cascade > 0:
 					mult += float(link_cascade)
@@ -916,7 +928,7 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 	var best_key := ONE_KIND
 	var best_score := 0  # bleibt 0, wenn keine Kategorie durchkommt (Drossel/Parität)
 	for key in HAND_PRIORITY:
-		if is_throttled(key, ctx) or not qualifies(key, shown, ctx):
+		if is_throttled(key, ctx) or not qualifies(key, shown, ctx, charm_ids):
 			continue
 		best_key = key
 		best_score = score_category(key, dice, charm_ids, is_first_hand, materials, combo_levels, ctx)
@@ -943,20 +955,20 @@ static func participating_indices(key: String, dice: Array[int], charm_ids: Arra
 		sub = sub.duplicate()
 		for value in range(6, 0, -1):
 			sub[wild] = value
-			if _qualifies_plain(key, sub):
+			if _qualifies_plain(key, sub, charm_ids):
 				break
 	var result: Array[int] = []
 	if legal.size() == dice.size():
 		# assign: die Zweige von _participating_unsorted liefern untypisierte Arrays.
-		result.assign(_participating_unsorted(key, sub))
+		result.assign(_participating_unsorted(key, sub, charm_ids))
 	else:
 		# Auf der gefilterten Liste erkennen, dann die Indizes zurückrechnen.
-		for k in _participating_unsorted(key, sub):
+		for k in _participating_unsorted(key, sub, charm_ids):
 			result.append(legal[k])
 	result.sort()
 	return result
 
-static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]:
+static func _participating_unsorted(key: String, dice: Array[int], charm_ids: Array[String] = []) -> Array[int]:
 	match key:
 		SIX_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 6), 6)
@@ -990,9 +1002,9 @@ static func _participating_unsorted(key: String, dice: Array[int]) -> Array[int]
 				result.append_array(_indices_for_value(dice, value, 2))
 			return result
 		SMALL_STRAIGHT:
-			return _indices_for_straight(dice, 5)
+			return _indices_for_straight(dice, 5, charm_ids)
 		LARGE_STRAIGHT:
-			return _indices_for_straight(dice, 6)
+			return _indices_for_straight(dice, 6, charm_ids)
 	return []
 
 ## Farkle-Regel: sicher ist ein Neu-Würfeln nur, wenn die neue Hand im RANG
@@ -1075,22 +1087,42 @@ static func _has_count_and_other_count(dice: Array[int], n: int, other_n: int) -
 				return true
 	return false
 
-## Straßen zählen über Kombinationsziffern: 11-12-13-14-15 gilt wie 1-2-3-4-5.
-static func _has_straight_of_length(dice: Array[int], length: int) -> bool:
+## Straßen laufen auf dem ZIFFERNRING 0-9: length aufeinanderfolgende Positionen,
+## Start beliebig, Umlauf über die 0 erlaubt (8,9,10,21,22,23 -> 8,9,0,1,2,3 ist
+## eine große Straße). 11-12-13-14-15 gilt weiter wie 1-2-3-4-5. Mit Zahnlücke
+## genügen length Ziffern in einem Fenster von length+1 - genau ein Loch.
+const DIGIT_RING := 10
+
+static func _has_straight_of_length(dice: Array[int], length: int, charm_ids: Array[String] = []) -> bool:
+	return not _straight_digits(dice, length, charm_ids).is_empty()
+
+## Die Ziffern der ersten passenden Straße in Ringfolge ([] = keine).
+static func _straight_digits(dice: Array[int], length: int, charm_ids: Array[String] = []) -> Array[int]:
+	if length <= 0:
+		return []
 	var unique := {}
 	for value in dice:
 		unique[_digit(value)] = true
-	var start := 1
-	while start + length - 1 <= 6:
-		var has_all := true
-		for value in range(start, start + length):
-			if not unique.has(value):
-				has_all = false
-				break
-		if has_all:
-			return true
-		start += 1
-	return false
+	# Erst lückenlos - ein volles Fenster gewinnt immer vor einem gelochten.
+	var plain := _straight_window(unique, length, length)
+	if not plain.is_empty() or not CharmEffects.straight_gap_allowed(charm_ids):
+		return plain
+	return _straight_window(unique, length, length + 1)
+
+## Erstes Fenster aus span Ringpositionen, in dem mindestens length Ziffern
+## liegen - geliefert werden genau diese Ziffern in Ringfolge.
+static func _straight_window(unique: Dictionary, length: int, span: int) -> Array[int]:
+	if span > DIGIT_RING:
+		return []
+	for start in DIGIT_RING:
+		var found: Array[int] = []
+		for step in span:
+			var d := (start + step) % DIGIT_RING
+			if unique.has(d):
+				found.append(d)
+		if found.size() >= length:
+			return found.slice(0, length)
+	return []
 
 static func _index_of_highest(dice: Array[int]) -> int:
 	var best_index := 0
@@ -1141,24 +1173,15 @@ static func _values_with_count_at_least(dice: Array[int], n: int) -> Array[int]:
 			found.append(value)
 	return found
 
-## Je ein Index pro Wert der ersten passenden Straße; Duplikate bleiben außen vor.
-static func _indices_for_straight(dice: Array[int], length: int) -> Array[int]:
+## Je ein Index pro Ziffer der ersten passenden Straße; Duplikate bleiben außen
+## vor, ein Loch (Zahnlücke) wird schlicht übersprungen.
+static func _indices_for_straight(dice: Array[int], length: int, charm_ids: Array[String] = []) -> Array[int]:
 	var first_index_of := {}
 	for i in dice.size():
 		var d := _digit(dice[i])
 		if not first_index_of.has(d):
 			first_index_of[d] = i
-	var start := 1
-	while start + length - 1 <= 6:
-		var has_all := true
-		for value in range(start, start + length):
-			if not first_index_of.has(value):
-				has_all = false
-				break
-		if has_all:
-			var result: Array[int] = []
-			for value in range(start, start + length):
-				result.append(first_index_of[value])
-			return result
-		start += 1
-	return []
+	var result: Array[int] = []
+	for d in _straight_digits(dice, length, charm_ids):
+		result.append(int(first_index_of[d]))
+	return result

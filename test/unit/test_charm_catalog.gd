@@ -293,6 +293,58 @@ func test_high_stacker_matches_the_highest_counted_die():
 	# Nur GEWERTETE Würfel zählen - die unbeteiligte 6 bleibt außen vor.
 	assert_eq(CharmEffects.die_charm_target_mult_at(0, 0, _d([2, 2, 1, 3, 4, 6]), ids, _p([0, 1])), 2)
 
+## Krypton auf dem letzten Slot: er zählt mit, gehört aber nicht zur Kombination.
+func _krypton_tail() -> Dictionary:
+	return {DiceScoring.CTX_ESSENCES: {5: Essence.KRYPTON}}
+
+func test_high_stacker_reaches_past_the_combination():
+	# Paar Fünfer, die 6 auf Slot 5 zählt über Krypton mit: der Hochstapler meint
+	# die GEWERTETE Menge, also die 6 - Basis (10 + 5+5+6) × Mult (2 + 6).
+	var ids := _ids([Charm.HIGH_STACKER])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, _krypton_tail()),
+		26 * 8, "der Hochstapler steigt auf den Krypton")
+	# Kontrolle ohne Seele: nur die beiden Fünfer zählen.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 20 * 7)
+
+func test_high_stacker_fires_on_the_krypton_step():
+	var breakdown := ScoreBreakdown.build(DiceScoring.TWO_KIND, _d(PAIR), _ids([Charm.HIGH_STACKER]),
+		false, NO_MATS, {}, _krypton_tail())
+	var fired: Array[int] = []
+	for step: Dictionary in breakdown["die_steps"]:
+		if not (step["die_charm_indices"] as Array).is_empty():
+			fired.append(int(step["slot"]))
+	assert_eq(fired, [5], "der Hochstapler feuert am Krypton-Würfel")
+
+# --- Fallhöhe: die Spanne der gewerteten Hand ---------------------------------------
+
+func test_drop_height_pays_the_spread_of_the_scored_hand():
+	var ids := _ids([Charm.DROP_HEIGHT])
+	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_PAIR, _d([1, 3, 3, 6]), NO_MATS,
+		ids, {}, _p([]), _p([0, 1, 2, 3])), 5, "6 minus 1")
+	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.ONE_KIND, _d([1, 3, 3, 6]), NO_MATS,
+		ids, {}, _p([]), _p([2])), 0, "ein Würfel hat keine Spanne")
+	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([4, 4]), NO_MATS,
+		ids, {}, _p([]), _p([0, 1])), 0, "gleiche Augen, keine Spanne")
+
+func test_drop_height_grows_with_the_scored_set():
+	# Paar Fünfer ohne Seele: Spanne 0. Mit Krypton zählt die 6 mit -> Spanne 1.
+	var ids := _ids([Charm.DROP_HEIGHT])
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids), 20 * 2, "5 und 5 liegen gleich")
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, _krypton_tail()),
+		26 * 3, "6 minus 5 = +1 Mult")
+
+# --- Inventur: die Material-Seiten des ganzen Pools ---------------------------------
+
+func test_inventory_pays_per_painted_face_in_the_pool():
+	var ids := _ids([Charm.INVENTORY])
+	var ctx := {DiceScoring.CTX_POOL_MATERIALS: 7}
+	assert_eq(CharmEffects.charm_base_bonus_at(0, DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), ids, ctx),
+		7 * CharmEffects.INVENTORY_BASE_PER_MATERIAL)
+	assert_eq(CharmEffects.charm_base_bonus_at(0, DiceScoring.TWO_KIND, _d(PAIR), _p([0, 1]), ids, {}), 0,
+		"unbemalter Pool zahlt nichts")
+	# Im Zug: Basis (10 + 10 Augen + 14) × Mult 2.
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), ids, false, NO_MATS, {}, ctx), 34 * 2)
+
 # --- Krit (multipliziert den AKTUELLEN Mult) ----------------------------------------
 
 func test_beherit_crits_with_the_lowest_counted_die():

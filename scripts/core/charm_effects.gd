@@ -87,6 +87,31 @@ const BOTTLE_RACK_MULT := 4
 ## Erdungskabel: Mult je Pointer-Wurf, der danebengegangen ist.
 const GROUND_WIRE_MULT := 5
 
+## Inventur: Basispunkte je Material-Seite im GANZEN Würfelpool (ctx-Zahl).
+const INVENTORY_BASE_PER_MATERIAL := 2
+
+## Zahnlücke: eine Straße darf EIN Loch tragen (length Ziffern in length+1
+## Ringpositionen). Der einzige Charm, der in die Erkennung greift.
+static func straight_gap_allowed(charm_ids: Array[String]) -> bool:
+	return charm_ids.has(Charm.GAP_TOOTH)
+
+## Fallhöhe: Spanne der gewerteten Hand - höchster minus niedrigster GEZEIGTER
+## Wert. Unter zwei gewerteten Würfeln gibt es keine.
+static func scored_spread(values: Array[int], scored: Array[int]) -> int:
+	if scored.size() < 2:
+		return 0
+	var high := -1
+	var low := -1
+	for slot in scored:
+		if slot < 0 or slot >= values.size():
+			continue
+		var v := values[slot]
+		if high < 0 or v > high:
+			high = v
+		if low < 0 or v < low:
+			low = v
+	return maxi(0, high - low)
+
 ## Pendel: akkumulierter Mult (scene_root: +2 je Neuwurf-Würfel, -1 je genommenem,
 ## nie unter 0) - überlebt Runden. Eigene Funktion, weil der Tisch-Chip denselben
 ## Wert zeigen muss, den die Wertung rechnet.
@@ -260,13 +285,14 @@ static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: 
 			return DiceScoring.equal_faces_for(ctx, slot)
 	return 0
 
-## Ziel-Mult der Besitz-Position j am Würfel slot: der Hochstapler
-## meint den HÖCHSTEN gewerteten Würfel und feuert mit ihm. Das Ziel bestimmt
-## IMMER die oben liegende Augenzahl - value_override ändert nur den Betrag.
-static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], participating: Array[int] = [], value_override: int = 0) -> int:
+## Ziel-Mult der Besitz-Position j am Würfel slot: der Hochstapler meint den
+## höchsten Würfel der GEWERTETEN Menge - Vollzähler und Krypton also mit, nicht
+## nur die Kombination. Das Ziel bestimmt IMMER die oben liegende Augenzahl -
+## value_override ändert nur den Betrag.
+static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], scored: Array[int] = [], value_override: int = 0) -> int:
 	match charm_ids[j]:
 		Charm.HIGH_STACKER:
-			if slot == target_die(values, participating, true):
+			if slot == target_die(values, scored, true):
 				return value_override if value_override > 0 else values[slot]
 	return 0
 
@@ -420,10 +446,13 @@ static func die_price(base_price: int, charm_ids: Array[String]) -> int:
 ## Pro-Würfel-Charms liegen in die_charm_base_at). Der Vollzähler ist KEIN
 ## base_bonus mehr - er weitet die gewertete Menge (scored_indices), damit auch
 ## unbeteiligte Würfel Augen, Material und Pro-Würfel-Charms auslösen.
-static func charm_base_bonus_at(j: int, _key: String, values: Array[int], _participating: Array[int], charm_ids: Array[String], _ctx: Dictionary = {}) -> int:
+static func charm_base_bonus_at(j: int, _key: String, values: Array[int], _participating: Array[int], charm_ids: Array[String], ctx: Dictionary = {}) -> int:
 	match charm_ids[j]:
 		Charm.FREE_DRINK:
 			return FREE_DRINK_BASE
+		Charm.INVENTORY:
+			# Der Pool ist Laufzustand - er reitet als fertige Zahl im ctx herein.
+			return INVENTORY_BASE_PER_MATERIAL * maxi(0, int(ctx.get(DiceScoring.CTX_POOL_MATERIALS, 0)))
 		Charm.FRONT_RUNNER:
 			# Die ganze Grube, nicht nur die Kombination - values sind alle liegenden.
 			var total := 0
@@ -511,6 +540,8 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 			return display
 		Charm.COLLECTORS_AMULET:
 			return 2 * maxi(0, charm_ids.size() - 1)
+		Charm.DROP_HEIGHT:
+			return scored_spread(values, scored)
 	return 0
 
 static func charm_mult_bonus(key: String, values: Array[int], materials: Array[String], charm_ids: Array[String], ctx: Dictionary = {}, participating: Array[int] = [], scored: Array[int] = []) -> int:

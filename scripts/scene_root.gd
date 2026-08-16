@@ -3886,7 +3886,7 @@ func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> S
 
 ## Zoom-Ziel + Klickzone EINES Display-Fensters aus seinem Screen-Rechteck -
 ## einheitlich für alle Tisch-Fenster (Kombis, Wettannahme, künftige Screens):
-## Klick zoomt heran, Rechtsklick zurück, im Zoom leichtes Rundschauen.
+## Klick zoomt heran, Rechtsklick zurück; im Zoom steht die Kamera still.
 func _screen_zoom_zone(zone_name: String, rect: Rect2, configure_target: Callable) -> StaticBody3D:
 	var center := table_screen.pixel_to_world(rect.get_center())
 	configure_target.call(center)
@@ -4880,7 +4880,20 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_DISCARD_SOULS: _discard_souls(),
 		DiceScoring.CTX_DISCARD_VALUES: _discard_values(),
 		DiceScoring.CTX_FIRST_SCORING: _first_scoring_flags(),
+		DiceScoring.CTX_POOL_MATERIALS: _pool_material_faces(),  # Inventur
 	}
+
+## Material-Seiten im GANZEN Würfelpool (Inventur) - gezählt wird jede bemalte
+## Seite, nicht der Würfel.
+func _pool_material_faces() -> int:
+	var count := 0
+	for def: DieDefinition in run.owned_pool:
+		if def == null:
+			continue
+		for material in def.materials:
+			if material != "":
+				count += 1
+	return count
 
 ## Beseelte Würfel in der Ablage (Flaschenregal) - gezählt wird der WÜRFEL, zwei
 ## gleiche Seelen zählen also zweimal.
@@ -5809,6 +5822,11 @@ func _on_take_button_pressed() -> void:
 	if report.charge > 0:
 		run.add_charge(report.charge)
 		_play_rune_charge_volley(report.charge, report.sparks)
+	# Tscherenkow: jeder Krit verbrennt eine Energie. Ausgeben animiert nicht -
+	# der Speicher zieht sich still aus charge_changed nach.
+	report.charge_spent = int(breakdown.get("charge_spent", 0))
+	if report.charge_spent > 0:
+		run.spend_charge(report.charge_spent)
 	# Kupfer speist je Zündung; was über den Speicher hinausläuft, zahlt bar (das
 	# Geld reitet die Geld-Bahn und braucht nichts Eigenes). Gebucht wird SOFORT,
 	# das Licht fliegt hinterher - dieselbe Regel wie beim Funkenflug.

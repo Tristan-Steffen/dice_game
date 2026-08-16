@@ -106,33 +106,30 @@ func test_shop_slots_scale_with_level() -> void:
 	assert_eq(run.shop_charm_slots(), 5)
 	assert_eq(run.shop_pack_slots(), 4)
 
-func test_overcharge_capped_at_three_below_salon() -> void:
+func test_overcharge_frame_is_five_from_the_first_level() -> void:
 	var run := _run()
 	run.round_goal = 150
-	assert_eq(run.max_overcharge_stages(), 3, "bis Parkett: Deckel 3")
-	# 4650 wäre Stufe 5, aber gedeckelt auf 3.
-	assert_eq(run.stages_cleared(4650), 3)
+	assert_eq(run.overcharge_frame(), 5, "Hinterzimmer: schon der volle Rahmen")
+	assert_eq(run.max_overcharge_stages(), 5)
+	assert_eq(run.stages_cleared(4650), 5)
 	var p := run.stage_progress(4650)
-	assert_eq(p["cleared"], 3)
-	assert_eq(p["stage"], 3)
-	assert_eq(p["into_stage"], p["stage_size"], "gedeckelte Stufe voll")
+	assert_eq(p["cleared"], 5)
+	assert_eq(p["stage"], 5)
+	assert_eq(p["into_stage"], p["stage_size"], "volle Stufe")
 
-func test_overcharge_cap_steps_four_then_five() -> void:
+func test_hub_upgrades_do_not_move_the_frame() -> void:
 	var run := _run(9999)
 	run.round_goal = 150
-	for i in 4:
-		run.upgrade_hub()  # -> 5 Salon
-	assert_eq(run.max_overcharge_stages(), 4, "Salon: Deckel 4")
-	for i in 2:
+	for i in 6:
 		run.upgrade_hub()  # -> 7 Suite
-	assert_eq(run.max_overcharge_stages(), 5, "Suite: volle 5")
+	assert_eq(run.max_overcharge_stages(), 5, "der Rahmen ist keine Hub-Belohnung mehr")
 	assert_eq(run.stages_cleared(4650), 5)
 
 func test_thresholds_crossed_respects_cap() -> void:
-	var run := _run()  # Stufe 1, Deckel 3
+	var run := _run()  # Stufe 1, Rahmen 5
 	run.round_goal = 150
-	# 0 -> 99999 kreuzt nur die ersten drei Schwellen.
-	assert_eq(run.thresholds_crossed(0, 99999).size(), 3)
+	# 0 -> 99999 kreuzt genau die fünf Schwellen des Rahmens.
+	assert_eq(run.thresholds_crossed(0, 99999).size(), 5)
 
 # --- Fahrplan (Ziel-Block bleibt stehen, bis er geschafft ist) ----------------
 
