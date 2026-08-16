@@ -30,5 +30,8 @@ jobs:
       - name: Import project
         run: godot --headless --editor --quit || true
 
+      # --fixed-fps 60 koppelt die Frames von der Echtzeit ab (Delta fest 1/60):
+      # die wait_frames/wait_seconds der Integrationstests laufen so schnell wie
+      # die CPU tickt statt in Echtzeit zu warten.
       - name: Run unit tests
-        run: godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
+        run: godot --headless --fixed-fps 60 -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json

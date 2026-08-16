@@ -12,19 +12,25 @@ const FIT_SIZE := 2.2           # Zielgröße des Modells in Welteinheiten
 var pivot: Node3D
 var camera: Camera3D
 var dragging := false
+var _viewport: SubViewport
+var _charm: Charm
+var _rotatable := false
+var _pending_path := ""  # Modell lädt noch im Ladethread
 
 func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
+	_charm = charm
+	_rotatable = rotatable
 	custom_minimum_size = Vector2(size, size)
 	stretch = true
 	mouse_filter = Control.MOUSE_FILTER_STOP if rotatable else Control.MOUSE_FILTER_IGNORE
 
-	var viewport := SubViewport.new()
-	viewport.own_world_3d = true
-	viewport.transparent_bg = true
-	viewport.size = Vector2i(size, size)
-	viewport.render_target_update_mode = \
+	_viewport = SubViewport.new()
+	_viewport.own_world_3d = true
+	_viewport.transparent_bg = true
+	_viewport.size = Vector2i(size, size)
+	_viewport.render_target_update_mode = \
 		SubViewport.UPDATE_ALWAYS if rotatable else SubViewport.UPDATE_ONCE
-	add_child(viewport)
+	add_child(_viewport)
 
 	var env := Environment.new()
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -32,38 +38,70 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 	env.ambient_light_energy = 0.9
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
-	viewport.add_child(world_env)
+	_viewport.add_child(world_env)
 
 	var key_light := DirectionalLight3D.new()
 	key_light.rotation_degrees = Vector3(-50, 35, 0)
 	key_light.light_energy = 1.1
-	viewport.add_child(key_light)
+	_viewport.add_child(key_light)
 
 	camera = Camera3D.new()
 	camera.fov = 30.0
 	camera.transform = Transform3D(Basis(), Vector3(0, 1.4, 6.0)).looking_at(Vector3.ZERO, Vector3.UP)
-	viewport.add_child(camera)
+	_viewport.add_child(camera)
 
-	var model: Node3D
-	if charm.model_path != "" and ResourceLoader.exists(charm.model_path):
-		model = CharmRowView.model_scene(charm.model_path).instantiate() as Node3D
-	else:
-		# Die flache Platzhalter-Karte liegt auf dem Tisch (Normale +Y) - hier
-		# aufgestellt, damit die Kamera ihre FLÄCHE sieht statt der dünnen Kante.
-		model = CharmRowView.placeholder_model(charm.id)
-		model.rotation_degrees.x = 90.0
-
-	# Modell über seine AABB einheitlich einpassen (auf FIT_SIZE skaliert) und
-	# um sein Zentrum drehbar aufhängen, leicht angekippt wie die Würfel.
 	pivot = Node3D.new()
-	viewport.add_child(pivot)
+	_viewport.add_child(pivot)
 	pivot.rotation_degrees = Vector3(-15, 30, 0)
+
+	# Kaltes Modell blockiert nicht: der Ladethread holt es, _process montiert es.
+	var path := charm.model_path
+	if path == "" or not ResourceLoader.exists(path):
+		_mount_placeholder()
+	else:
+		var cached := CharmRowView.cached_model_scene(path)
+		if cached != null:
+			_mount_model(cached.instantiate() as Node3D)
+		else:
+			_pending_path = path
+			CharmRowView.request_model_scene(path)
+	set_process(_pending_path != "")
+
+func _process(_delta: float) -> void:
+	if _pending_path == "":
+		set_process(false)
+		return
+	if CharmRowView.model_failed(_pending_path):
+		_pending_path = ""
+		_mount_placeholder()
+		set_process(false)
+		return
+	var scene := CharmRowView.poll_model_scene(_pending_path)
+	if scene == null:
+		return
+	_pending_path = ""
+	_mount_model(scene.instantiate() as Node3D)
+	set_process(false)
+
+## Die flache Platzhalter-Karte liegt auf dem Tisch (Normale +Y) - hier
+## aufgestellt, damit die Kamera ihre FLÄCHE sieht statt der dünnen Kante.
+func _mount_placeholder() -> void:
+	var model := CharmRowView.placeholder_model(_charm.id)
+	model.rotation_degrees.x = 90.0
+	_mount_model(model)
+
+## Modell über seine AABB einheitlich einpassen (auf FIT_SIZE skaliert) und
+## um sein Zentrum drehbar aufhängen, leicht angekippt wie die Würfel.
+func _mount_model(model: Node3D) -> void:
 	var aabb := merged_aabb(model)
 	var max_dim: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
 	var fit: float = FIT_SIZE / maxf(max_dim, 0.001)
 	model.scale = Vector3.ONE * fit
 	model.position = -aabb.get_center() * fit
 	pivot.add_child(model)
+	# Das einmalige Bild war schon gerendert, als das Modell noch fehlte.
+	if not _rotatable:
+		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 ## Freies Drehen per Ziehen (nur rotatable=true - sonst kommt wegen
 ## MOUSE_FILTER_IGNORE nie ein Ereignis an).

@@ -14,10 +14,12 @@ The Godot binary lives outside the repo at `E:/Godot/Godot_v4.7-stable_win64_con
 
 ```bash
 # Run the full test suite (headless, GUT). Exit code is non-zero on failure.
-E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --path . -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json -gexit
+# --fixed-fps 60 koppelt die Frames von der Echtzeit ab (Delta fest 1/60), so
+# laufen die wait_frames/wait_seconds der Integrationstests CPU-schnell statt in Echtzeit.
+E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --fixed-fps 60 --path . -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json -gexit
 
 # Run a single test SCRIPT (-gtest often falls through to the full suite; prefer -gdir on the file's folder + a unit script, or filter by directory):
-E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://test/unit -gexit
+E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --fixed-fps 60 --path . -s addons/gut/gut_cmdln.gd -gdir=res://test/unit -gexit
 
 # Register newly added `class_name`s in the class cache (required after adding a new global class before it resolves in tests/probes):
 E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --path . --import

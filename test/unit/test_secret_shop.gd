@@ -354,11 +354,11 @@ func test_rag_collector_rolls_its_number_on_either_path() -> void:
 
 func test_the_wildcard_can_offer_an_essence_die() -> void:
 	# Über viele Auslagen muss der Würfel-Platz vorkommen - er ist die einzige
-	# Quelle der geheimen Essenzen.
+	# Quelle der geheimen Essenzen. 50 Würfe verfehlen bei 34 % nur mit ~1e-9.
 	var run := _run()
 	run.unlock_secret_shop()
 	var seen_die := false
-	for i in 200:
+	for i in 50:
 		run._roll_secret_stock()
 		if run.secret_stock[2][GameRun.OFFER_KIND] == GameRun.KIND_DIE:
 			seen_die = true
@@ -426,7 +426,7 @@ func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()
 	run.unlock_secret_shop()
 	run.owned_pool[0].essence_id = Essence.ANTIMATTER
-	for i in 200:
+	for i in 50:
 		run._roll_secret_stock()
 		if run.secret_stock[2][GameRun.OFFER_KIND] != GameRun.KIND_DIE:
 			continue

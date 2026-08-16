@@ -191,13 +191,53 @@ func _load_model(charm: Charm) -> Node3D:
 
 ## Geladene Charm-Modelle bleiben im Prozess liegen: ein GLB kostet KALT ~0,8 s,
 ## warm 0 ms, und Bibliothek wie Tischkarten bauen ihre Modelle laufend neu auf.
-static var _model_scenes := {}  # Pfad -> PackedScene (Cache)
+static var _model_scenes := {}   # Pfad -> PackedScene (Cache)
+static var _model_requests := {}  # Pfad -> true (Ladeauftrag läuft im Ladethread)
+static var _model_failures := {}  # Pfad -> true (Laden endgültig fehlgeschlagen)
 
 ## Einzige Ladestelle der Charm-Modelle - CharmThumb greift hier mit ab.
+## Blockiert; ein laufender Ladeauftrag wird zu Ende geholt statt doppelt geladen.
 static func model_scene(path: String) -> PackedScene:
 	if not _model_scenes.has(path):
-		_model_scenes[path] = load(path) as PackedScene
+		if _model_requests.has(path):
+			_model_requests.erase(path)
+			_model_scenes[path] = ResourceLoader.load_threaded_get(path) as PackedScene
+		else:
+			_model_scenes[path] = load(path) as PackedScene
 	return _model_scenes[path]
+
+static func cached_model_scene(path: String) -> PackedScene:
+	return _model_scenes.get(path)
+
+static func model_failed(path: String) -> bool:
+	return _model_failures.has(path)
+
+## Stößt das Laden im Ladethread an - der Hauptfaden blockiert nie.
+static func request_model_scene(path: String) -> void:
+	if _model_scenes.has(path) or _model_requests.has(path) or _model_failures.has(path):
+		return
+	if ResourceLoader.load_threaded_request(path) == OK:
+		_model_requests[path] = true
+	else:
+		_model_failures[path] = true
+
+## null solange geladen wird; bei Fehlschlag bleibt es null und model_failed steht.
+static func poll_model_scene(path: String) -> PackedScene:
+	if _model_scenes.has(path):
+		return _model_scenes[path]
+	if not _model_requests.has(path):
+		return null
+	match ResourceLoader.load_threaded_get_status(path):
+		ResourceLoader.THREAD_LOAD_LOADED:
+			_model_requests.erase(path)
+			_model_scenes[path] = ResourceLoader.load_threaded_get(path) as PackedScene
+			return _model_scenes[path]
+		ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			return null
+		_:
+			_model_requests.erase(path)
+			_model_failures[path] = true
+			return null
 
 ## Stabile Farbe aus der Charm-id (Hash -> Farbton) - auch die Bibliothek
 ## nutzt sie, damit Tisch-Karte und Eintrag zusammenfinden.
