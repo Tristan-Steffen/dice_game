@@ -20,6 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Der Import-Pass dominiert die Jobzeit (~9 min fuer 221 MB Assets); der
+      # Cache drueckt ihn auf Sekunden. restore-keys reicht auch veraltet: der
+      # Import-Pass unten prueft selbst und importiert nur Geändertes nach.
+      - name: Restore import cache
+        uses: actions/cache@v4
+        with:
+          path: .godot
+          key: godot-import-${{ env.GODOT_VERSION }}-${{ hashFiles('**/*.import', 'project.godot') }}
+          restore-keys: |
+            godot-import-${{ env.GODOT_VERSION }}-
+
       - name: Download Godot ${{ env.GODOT_VERSION }} (headless)
         run: |
           set -e
