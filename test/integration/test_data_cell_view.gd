@@ -13,7 +13,7 @@ func _cell(sort: String) -> DataCellView:
 	return cell
 
 func test_every_shelf_sort_builds() -> void:
-	for sort: String in PackShelfView.SHELF_ORDER:
+	for sort: String in Pack.SHELF_ORDER:
 		var cell := _cell(sort)
 		assert_eq(cell.sort, sort)
 		assert_eq(cell.stack_size(), 1, "%s steht als eine Kassette da" % sort)
@@ -21,9 +21,9 @@ func test_every_shelf_sort_builds() -> void:
 			"%s hat seine Scheibe" % sort)
 
 func test_the_tint_comes_from_the_single_shelf_table() -> void:
-	for sort: String in PackShelfView.SHELF_ORDER:
+	for sort: String in Pack.SHELF_ORDER:
 		var cell := _cell(sort)
-		var expected: Color = PackShelfView.COLORS[sort]
+		var expected: Color = PackDrawerView.COLORS[sort]
 		assert_eq(cell.tint, expected, "%s trägt die Regal-Farbe" % sort)
 		var glow := cell.glow_color()
 		assert_almost_eq(glow.r, expected.r, 0.001)
@@ -31,7 +31,7 @@ func test_the_tint_comes_from_the_single_shelf_table() -> void:
 		assert_almost_eq(glow.b, expected.b, 0.001)
 
 func test_the_sealed_sort_shows_a_band_and_no_core() -> void:
-	var sealed := _cell(PackShelfView.CATEGORY_SPECIAL)
+	var sealed := _cell(Pack.SHELF_SPECIAL)
 	assert_true(sealed.sealed())
 	assert_false(sealed.has_core(), "Fixinhalt: es gibt nichts zu sehen")
 	assert_true(sealed.has_band(), "stattdessen das Siegelband")
@@ -125,7 +125,7 @@ func test_the_standing_height_grows_out_of_the_die_edge() -> void:
 # Tief im Leseschlitz steht NUR sie über dem Glas - sie ist dort die ganze Anzeige.
 
 func test_every_cell_carries_its_edge_strip() -> void:
-	for sort: String in PackShelfView.SHELF_ORDER:
+	for sort: String in Pack.SHELF_ORDER:
 		var cell := _cell(sort)
 		assert_not_null(cell.get_node_or_null("Body/Cell0/EdgeStrip"),
 			"%s hat seine Kopfkante" % sort)
@@ -181,16 +181,17 @@ func test_the_body_scale_lifts_the_body_and_leaves_the_seat_alone() -> void:
 	assert_almost_eq(cell.global_position.y, 0.0, 0.001)
 	assert_almost_eq(cell.global_position.z, -2.0, 0.001)
 
-func test_the_socket_takes_the_cell_back_to_its_base_size() -> void:
-	# Der Leseschlitz ist auf das Grundmaß abgestimmt - er darf nichts Gewachsenes
-	# schlucken müssen.
+func test_the_socket_stands_on_the_one_cassette_scale() -> void:
+	# Eine Karte behält ihre Größe ihr ganzes Leben lang: der Leseschlitz ist auf
+	# genau das Maß geschnitten, in dem sie auch im Magazin steht.
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.set_body_scale(1.4)
+	cell.set_body_scale(1.0)
 	cell.seat_hard(Vector3.ZERO)
-	assert_almost_eq(cell.body_scale(), 1.0, 0.001)
+	assert_almost_eq(cell.body_scale(), PackDrawerView.CASSETTE_SCALE, 0.001)
 	assert_almost_eq(cell.global_position.y,
-		-DataCellView.sunk_drop(DataCellView.SUNK_SHOW), 0.001,
-		"und steckt genauso tief wie eh und je")
+		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
+		"und hängt so tief darunter, wie sie groß ist")
+	assert_almost_eq(cell.glass_position().y, 0.0, 0.001, "ihr Glaspunkt bleibt")
 
 # --- Der Steckplatz (tief im Tisch) -----------------------------------------------
 
@@ -203,7 +204,7 @@ func test_the_socket_pose_stands_upright_and_sinks_to_its_share() -> void:
 	assert_true(cell.sunk())
 	assert_almost_eq(cell.show_share(), DataCellView.SUNK_SHOW, 0.001)
 	assert_almost_eq(cell.global_position.y,
-		-DataCellView.sunk_drop(DataCellView.SUNK_SHOW), 0.001,
+		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
 		"der Rest hängt unter dem Glas")
 	assert_almost_eq(cell.global_position.x, 2.0, 0.001, "über ihrem Schlitz")
 	assert_almost_eq(cell.global_position.z, -1.0, 0.001)
@@ -246,7 +247,7 @@ func test_a_glide_target_is_always_a_glass_point() -> void:
 	assert_almost_eq(cell.global_position.x, 1.0, 0.001)
 	assert_almost_eq(cell.global_position.z, 4.0, 0.001)
 	assert_almost_eq(cell.global_position.y,
-		-DataCellView.sunk_drop(DataCellView.SUNK_SHOW), 0.001,
+		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
 		"sie behält ihre Steck-Tiefe")
 
 func test_raising_and_laying_over_are_the_two_ends_of_one_blend() -> void:
@@ -285,16 +286,88 @@ func test_a_glide_without_time_seats_the_cell_hard() -> void:
 func test_the_glyph_comes_from_the_existing_seal_drawing() -> void:
 	# Kein zweites Zeichen: die Sorte findet ihren Pakettyp über die vorhandene
 	# Zuordnung zurück, der Sonderbestand fällt auf den Eckrahmen.
-	var dice := _cell(PackShelfView.CATEGORY_DICE_PACK)
+	var dice := _cell(Pack.SHELF_DICE_PACK)
 	var oven: SubViewport = dice.get_node("GlyphOven")
 	var icon: PackIconRenderer = oven.get_child(0)
 	assert_eq(icon.pack_type, Pack.TYPE_DICE)
 	var runes := _cell(Engraving.CATEGORY_DICE)
 	var rune_icon: PackIconRenderer = runes.get_node("GlyphOven").get_child(0)
 	assert_eq(rune_icon.pack_type, Pack.TYPE_DICE_MOD)
-	var special := _cell(PackShelfView.CATEGORY_SPECIAL)
+	var special := _cell(Pack.SHELF_SPECIAL)
 	var special_icon: PackIconRenderer = special.get_node("GlyphOven").get_child(0)
 	assert_eq(special_icon.pack_type, "", "der Sonderbestand nennt seine Sorte nicht")
+
+# --- Der Stand im MAGAZIN (die Grube) ---------------------------------------------
+# Die Kassetten stehen in einem echten Loch im Tisch; nichts ruht über dem Rand,
+# und die ganze Auskunft liegt auf der Kappe.
+
+func test_standing_in_the_pit_puts_the_cap_at_the_glass_point() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	cell.stand_in_pit(Vector3(3.0, 0.0, -1.5))
+	assert_false(cell.lying(), "im Magazin STEHT sie")
+	assert_false(cell.socketed(), "aber sie steckt in keinem Leser")
+	assert_almost_eq(cell.show_share(), DataCellView.PIT_SHOW, 0.001)
+	assert_lte(DataCellView.PIT_SHOW, 0.0,
+		"bündig oder eine Spur darunter - nichts ragt über den Rand")
+	assert_almost_eq(cell.global_position.x, 3.0, 0.001)
+	assert_almost_eq(cell.global_position.z, -1.5, 0.001)
+	assert_almost_eq(cell.global_position.y, -cell.drop_for(DataCellView.PIT_SHOW), 0.001)
+	# Und wieder zurückgerechnet ist es genau ihr Glaspunkt.
+	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
+
+func test_a_grown_cell_hangs_deeper_so_its_cap_stays_flush() -> void:
+	# Der Anzeige-Maßstab verändert die Standhöhe: ohne Ausgleich ragte eine große
+	# Kassette aus der Grube.
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	cell.set_body_scale(1.8)
+	cell.stand_in_pit(Vector3.ZERO)
+	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
+	cell.set_body_scale(1.0)
+	assert_almost_eq(cell.glass_position().y, 0.0, 0.001,
+		"und beim Schrumpfen ebenso - der Glaspunkt bleibt")
+
+func test_a_standing_bundle_is_one_card_with_its_count_on_the_cap() -> void:
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	cell.set_count(4)
+	assert_eq(cell.shown_cells(), 4, "liegend liegt der Stapel da")
+	assert_eq(cell.cap_badge_text(), "", "und die Zahl schwebt darüber")
+	cell.stand_in_pit(Vector3.ZERO)
+	assert_eq(cell.shown_cells(), 1, "stehend ist das Bündel EINE Karte")
+	assert_eq(cell.cap_badge_text(), "×4", "und die Zahl liegt auf ihrer Kappe")
+	assert_false((cell.get_node("Body/CountBadge") as Label3D).visible,
+		"die Schwebemarke ragte aus der Grube")
+	cell.set_count(1)
+	assert_eq(cell.cap_badge_text(), "", "ein Einzelstück zählt nichts")
+
+func test_every_cell_carries_its_sort_cap() -> void:
+	for sort: String in Pack.SHELF_ORDER:
+		var cell := _cell(sort)
+		assert_not_null(cell.get_node_or_null("Body/Cell0/Cap"), "%s hat seine Kappe" % sort)
+		assert_not_null(cell.get_node_or_null("Body/Cell0/CapGlyph"),
+			"%s trägt sein Zeichen darauf" % sort)
+	assert_gt(DataCellView.CAP_DEPTH, DataCellView.DEPTH,
+		"die Kappe kragt über die Dicke - sonst wäre sie ein Strich")
+	assert_lt(DataCellView.CAP_REST_ENERGY, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
+
+func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	cell.stand_in_pit(Vector3.ZERO)
+	var body: Node3D = cell.get_node("Body")
+	var resting: float = body.position.y
+	cell.set_hovered(true)
+	assert_true(cell.hovered())
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y,
+		resting + DataCellView.HEIGHT * DataCellView.HOVER_LIFT, 0.01,
+		"sie zieht sich aus der Grube")
+	assert_almost_eq(cell.glow_energy(), DataCellView.HOVER_ENERGY, 0.001,
+		"und hellt auf")
+	assert_lt(DataCellView.HOVER_ENERGY, DataCellView.FLARE_ENERGY,
+		"greifen ist kein Lesen")
+	cell.set_hovered(false)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück")
+	assert_almost_eq(cell.glow_energy(), DataCellView.REST_ENERGY, 0.001)
 
 func test_a_lying_cell_is_deliberately_not_mirrored() -> void:
 	# Dieselbe Regel wie beim Phantomwürfel: sie LIEGT auf dem Glas, ihr

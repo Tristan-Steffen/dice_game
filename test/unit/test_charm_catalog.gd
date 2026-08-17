@@ -1018,6 +1018,7 @@ func test_stamp_machine_mints_sealed_packs_for_the_ceremony():
 
 func test_jewelry_box_grants_sealed_material_packs_and_leaves_the_dice_alone():
 	var run := GameRun.new_run()
+	run.set_pack_capacity(500)  # hier zählt der Fund, nicht der Magazin-Deckel
 	run.owned_charms.append(Charm.jewelry_box())
 	# 10% je Würfel: bei 300 Würfeln ist "kein Fund" praktisch ausgeschlossen.
 	var many: Array[DieDefinition] = []
@@ -1119,6 +1120,7 @@ func test_without_the_charm_a_pack_purchase_never_refunds():
 	run.money = 100
 	for _i in 40:
 		assert_eq(run.purchase_pack(Pack.number_pack(), 5), 0, "ohne Kleingedrucktes nie")
+		run.owned_packs.clear()  # das Magazin ist endlich - hier zählt nur der Wurf
 	assert_eq(run.money, 100 - 40 * 5)
 
 func test_the_capped_charm_refunds_the_full_price_and_reports_it():
@@ -1133,6 +1135,7 @@ func test_the_capped_charm_refunds_the_full_price_and_reports_it():
 	for _i in 200:
 		if run.purchase_pack(Pack.number_pack(), 5, rng) == 5:
 			hits += 1
+		run.owned_packs.clear()  # das Magazin ist endlich - hier zählt nur der Wurf
 	assert_between(float(hits) / 200.0, 0.7, 0.9, "rund 80 % der Käufe kommen zurück")
 	assert_eq(run.money, 100 - (200 - hits) * 5, "erstattet wird GENAU der Kaufpreis")
 
@@ -1152,6 +1155,7 @@ func test_a_refund_ignores_the_income_factor():
 		var refunded := run.purchase_pack(Pack.number_pack(), 5, rng)
 		assert_true(refunded == 0 or refunded == 5)
 		assert_lte(run.money, before, "ein Kauf macht nie reicher")
+		run.owned_packs.clear()  # das Magazin ist endlich - hier zählt nur der Wurf
 
 func test_a_free_pack_has_nothing_to_refund():
 	var run := GameRun.new_run()

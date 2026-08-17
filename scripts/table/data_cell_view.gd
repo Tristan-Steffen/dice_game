@@ -8,7 +8,7 @@ extends Node3D
 ## Drei Regeln des Tisches gelten auch hier: nur EMISSION, keine eigenen Lichter
 ## (die Bodenkacheln vertragen 16); im Ruhezustand bleibt das Leuchten UNTER der
 ## Bloom-Schwelle, der Ausbruch (flare) gibt den Kopfraum aus; und die Sortenfarbe
-## kommt aus der einen Quelle PackShelfView.COLORS.
+## kommt aus der einen Quelle PackDrawerView.COLORS.
 ## Bewusst NICHT gespiegelt - dieselbe Regel wie beim Phantomwürfel: sie LIEGT auf
 ## dem Glas, ihr Spiegelbild fällt also neben sie und schmiert nur den Stapel und
 ## seine Marke zu (gemessen: ein zweites ×n neben dem echten).
@@ -63,14 +63,35 @@ const FLARE_TIME := 0.55
 ## Gedimmt (später die Signatur-Sperre): der Kern verglimmt, der KÖRPER bleibt.
 const DIM_ENERGY := 0.16
 
-## Der Leuchtstreifen auf der Kopfkante. Tief im Leseschlitz steht NUR er über dem
-## Glas, und die Tischkameras blicken auf genau diese Fläche - eine dunkle Kante
-## wäre dort schlicht weg. Er steht in Höhe und Dicke eine Spur vor: keine seiner
-## Flächen darf mit Gehäuse oder Kragen deckungsgleich liegen.
-const EDGE_STRIP_H := HEIGHT * 0.055
+## Die KAPPE auf der Kopfkante: eine massive Platte in der Sortenfarbe, breiter
+## als die Kassette dick ist. Sie ist die ganze Auskunft der stehenden Zelle -
+## im Magazin blickt die Kamera von oben in die Grube und sieht NUR sie, also
+## trägt sie Farbe, Sortenzeichen und (als Bündel) ihre Stückzahl. Ihre Oberkante
+## liegt exakt auf HEIGHT/2: die Zelle bleibt genau so hoch, wie sie war, und die
+## Einsink-Rechnung (sunk_drop) stimmt weiter.
+const CAP_H := HEIGHT * 0.055
+const CAP_WIDTH := WIDTH * 1.02
+const CAP_DEPTH := DEPTH * 2.9
+## Sie steht eine Spur ÜBER dem Gehäuse: läge ihre Deckfläche auf HEIGHT/2, wäre
+## sie deckungsgleich mit den Kopfflächen von Rahmen und Kragen, und von oben
+## zerschnitte deren Tiefenkampf die Kappe mit dunklen Nähten.
+const CAP_PROUD := DEPTH * 0.16
+## Ruhelicht der Kappe: satte Fläche, aber unter Rune.IDLE_CEILING.
+const CAP_REST_ENERGY := 0.80
+const CAP_DIM_ENERGY := 0.14
+## Zeichen und Zahl liegen FLACH auf der Kappe - dunkel auf der Sortenfarbe.
+const CAP_INK := Color(0.055, 0.05, 0.09)
+const CAP_GLYPH_SHARE := 0.78
+const CAP_BADGE_FONT := 64
+const CAP_BADGE_HEIGHT := DEPTH * 1.9
+
+## Der Leuchtstreifen unter der Kappe: ein Lichtsaum an ihrer Brüstung. Er bleibt
+## in JEDER Richtung KLEINER als die Kappe - ragte er darunter hervor, läse die
+## Kopfkante von oben als zweite, tiefer liegende Platte, und die Kassette sähe
+## aus wie ein Doppeldecker.
+const EDGE_STRIP_H := HEIGHT * 0.030
 const EDGE_STRIP_WIDTH := WIDTH * 0.94
-const EDGE_STRIP_DEPTH := DEPTH * 1.16
-const EDGE_STRIP_PROUD := DEPTH * 0.22
+const EDGE_STRIP_DEPTH := CAP_DEPTH * 0.90
 ## Ruhelicht der Kante im Regal - wie der Kern unter Rune.IDLE_CEILING.
 const EDGE_REST_ENERGY := 0.62
 ## Eingesteckt ist der Sliver die ganze Anzeige - hell, aber NICHT weiß: über
@@ -87,6 +108,18 @@ const SUNK_SHOW := 0.18
 ## Ganz geschluckt (Dekompression): eine Spur unter dem Glas, sonst flimmerte die
 ## Kopffläche gegen die Scheibe.
 const SUNK_GONE := -0.06
+## Der Stand im MAGAZIN: die Grube ist ein echtes Loch, die Zelle steht darin bis
+## zur Kappe. Eine Spur UNTER der Tischkante - nichts ruht über dem Rand, und der
+## Kragen der Grube deckt die Schnittkante darüber.
+const PIT_SHOW := -0.03
+
+## Das Herausziehen unterm Zeiger (wie eine Akte aus der Schublade): Anteil der
+## Höhe, um den die Kassette steigt, und die Zeit dafür. Nur so ist ein Griff in
+## der Grube überhaupt zu sehen - ein gemalter Schein läge unter dem Loch.
+const HOVER_LIFT := 0.42
+const HOVER_TIME := 0.16
+## Aufgehellt, aber deutlich unter dem Lese-Ausbruch: Greifen ist kein Lesen.
+const HOVER_ENERGY := 1.75
 
 ## Auftauchen und Abtreten wie ein schwebender Würfel (FloatingDie): der Körper
 ## wächst an Ort und Stelle aus dem Nichts und schrumpft wieder hinein. Skaliert
@@ -141,14 +174,17 @@ const BADGE_GAP := HEIGHT * 0.16
 ## die kleiner ist als eine Netzkachel - mehr Pixel wären Vorrat für nichts.
 const GLYPH_TEXTURE_SIZE := 128
 
-var sort: String = PackShelfView.CATEGORY_DICE_PACK
-var tint: Color = PackShelfView.GOLD
+var sort: String = Pack.SHELF_DICE_PACK
+var tint: Color = PackDrawerView.GOLD
 
 ## Alles Gebaute hängt unter _body: die Zelle steht mit ihrem URSPRUNG auf dem
 ## Glas, und _body trägt die Verschiebung, die aus Stehen Liegen macht.
 var _body: Node3D
 var _cells: Array[Node3D] = []
 var _badge: Label3D
+## Die Stückzahl auf der Kappe - die Marke der STEHENDEN Zelle. Die goldene
+## Schwebemarke oben bleibt der liegenden Lage; aus der Grube ragte sie heraus.
+var _cap_badge: Label3D
 ## LIEGEND ist die Grundlage: die Tischkameras blicken fast senkrecht nach unten,
 ## und stehend fällt die Kassette dort zu einem schwarzen Strich zusammen.
 var _lying := true
@@ -159,13 +195,17 @@ var _pose_blend := 0.0
 var _show_share := 1.0
 var _count := 1
 var _dimmed := false
-## Anzeige-Maßstab des KÖRPERS - nur das Regal nutzt ihn: seine Bucht ist das
-## ganze untere Viertel der Bank, in dem eine Kassette in Würfelgröße verloren
-## läge. Der Ursprung bleibt auf dem Glas, skaliert wird darunter; Leseschlitz,
-## Einschub und Steckplatz stehen weiter auf 1.
+## Anzeige-Maßstab des KÖRPERS: eine Kassette in bloßer Würfelgröße läge in der
+## Grube wie in ihrem Leser verloren. Magazin UND Schlitz stehen auf demselben
+## Maß (PackDrawerView.CASSETTE_SCALE) - eine Karte behält ihre Größe ihr ganzes
+## Leben lang. Der Ursprung bleibt dabei auf dem Glas, skaliert wird darunter.
 var _body_scale := 1.0
 ## Steckt sie in einem Leseschlitz? Dann brennt die Kopfkante.
 var _socketed := false
+## Der Zeiger liegt auf ihr: sie steigt aus der Grube und leuchtet auf.
+var _hovered := false
+var _hover_share := 0.0
+var _hover_tween: Tween
 var _flare_tween: Tween
 var _scale_tween: Tween
 var _glide_tween: Tween
@@ -181,28 +221,34 @@ var _core_material: StandardMaterial3D
 var _edge_material: StandardMaterial3D
 var _fin_material: StandardMaterial3D
 var _glyph_material: StandardMaterial3D
+var _cap_material: StandardMaterial3D
+## Dasselbe gebackene Zeichen, nur dunkel getönt: auf der hellen Kappe muss es
+## Tinte sein, kein Leuchten. Eine zweite Backung wäre Vorrat für nichts.
+var _cap_glyph_material: StandardMaterial3D
 var _band_material: StandardMaterial3D
 var _glyph_oven: SubViewport
 
 func _init() -> void:
 	name = "DataCell"
 
-## Einziger Eingang: baut die Zelle einer Sorte (PackShelfView.SHELF_ORDER).
+## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER).
 func setup(cell_sort: String) -> void:
 	sort = cell_sort
-	tint = PackShelfView.COLORS.get(sort, PackShelfView.GOLD)
+	tint = PackDrawerView.COLORS.get(sort, PackDrawerView.GOLD)
 	_build_materials()
 	_body = Node3D.new()
 	_body.name = "Body"
 	add_child(_body)
 	_badge = _build_badge()
 	_body.add_child(_badge)
+	_cap_badge = _build_cap_badge()
+	_body.add_child(_cap_badge)
 	_apply_pose()
 	set_count(_count)
 
 ## Der Sonderbestand ist versiegelt: Band quer über das Fenster, kein Kern.
 func sealed() -> bool:
-	return sort == PackShelfView.CATEGORY_SPECIAL
+	return sort == Pack.SHELF_SPECIAL
 
 ## Wie viele Kassetten der Stapel zeigt; darüber zählt nur noch die Marke.
 func set_count(n: int) -> void:
@@ -228,8 +274,21 @@ func count() -> int:
 func stack_size() -> int:
 	return _cells.size()
 
+## Wie viele Kassetten wirklich zu sehen sind: STEHEND ist ein Bündel EINE Karte
+## mit ihrer Zahl auf der Kappe - eine Reihe in die Tiefe läse sich in der Grube
+## als Fächer aus Slivern, nicht als Stapel.
+func shown_cells() -> int:
+	var shown := 0
+	for cell in _cells:
+		if cell.visible:
+			shown += 1
+	return shown
+
 func badge_text() -> String:
 	return _badge.text if _badge != null else ""
+
+func cap_badge_text() -> String:
+	return _cap_badge.text if _cap_badge != null and _cap_badge.visible else ""
 
 ## Gedimmt heißt: der Kern verglimmt. Der Körper bleibt stehen - eine gesperrte
 ## Zelle ist da, sie ist nur nicht anfassbar.
@@ -240,6 +299,33 @@ func set_dimmed(on: bool) -> void:
 
 func dimmed() -> bool:
 	return _dimmed
+
+## Der Zeiger liegt auf ihr: sie zieht sich ein Stück aus der Grube und leuchtet
+## auf, wie eine Akte, die man aus der Schublade hebt. Idempotent - der Abgleich
+## darf sie je Bild rufen; ein laufendes Gleiten stört sie nicht, der Hub sitzt im
+## Körper, nicht im Platz.
+func set_hovered(on: bool) -> void:
+	if _hovered == on:
+		return
+	_hovered = on
+	_kill_flare()
+	_set_glow(rest_energy())
+	_kill(_hover_tween)
+	_hover_tween = create_tween()
+	var lift := _hover_tween.tween_method(_set_hover_share, _hover_share,
+		1.0 if on else 0.0, HOVER_TIME)
+	lift.set_trans(Tween.TRANS_SINE)
+	lift.set_ease(Tween.EASE_OUT)
+
+func hovered() -> bool:
+	return _hovered
+
+func hover_share() -> float:
+	return _hover_share
+
+func _set_hover_share(value: float) -> void:
+	_hover_share = clampf(value, 0.0, 1.0)
+	_apply_pose()
 
 ## Der Lese-Moment: der Kern schießt über die Ruhegrenze und klingt zurück.
 func flare() -> void:
@@ -273,7 +359,7 @@ func plunge(show: float, time: float) -> void:
 	var next := clampf(show, SUNK_GONE, 1.0)
 	_kill(_glide_tween)
 	var target := global_position
-	target.y += sunk_drop(_show_share) - sunk_drop(next)
+	target.y += drop_for(_show_share) - drop_for(next)
 	_show_share = next
 	_place_badge()
 	if time <= 0.0:
@@ -300,28 +386,56 @@ func set_body_scale(value: float, time := 0.0) -> void:
 func body_scale() -> float:
 	return _body_scale
 
+## Der Anzeige-Maßstab verändert die STANDHÖHE, also auch, wie tief die Zelle
+## unter ihrem Glaspunkt hängt: die Differenz wird sofort ausgeglichen, sonst
+## stünde eine große Kassette aus der Grube heraus.
 func _apply_body_scale(value: float) -> void:
+	var before := drop_for(_show_share)
 	_body_scale = value
+	global_position.y += before - drop_for(_show_share)
 	_apply_pose()
 	_place_badge()
 
 ## Hart auf ihren Steckplatz (Glaspunkt): stehend, tief im Tisch, Kopfkante hell.
 ## Für den idempotenten Schreiber - die Richtigkeit hängt an keinem Tween. Der
-## Leseschlitz ist auf das ungewachsene Maß abgestimmt, also fällt der Regal-
-## Maßstab hier weg.
+## Leseschlitz ist auf das EINE Kassettenmaß geschnitten, also steht sie auch
+## darin in genau diesem.
 func seat_hard(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
-	set_body_scale(1.0)
+	set_body_scale(PackDrawerView.CASSETTE_SCALE)
 	_lying = false
 	_show_share = SUNK_SHOW  # vor der Lage: sie entscheidet über die Marke
 	_set_pose_blend(1.0)
 	set_socketed(true)
-	global_position = at - Vector3.UP * sunk_drop(SUNK_SHOW)
+	global_position = at - Vector3.UP * drop_for(SUNK_SHOW)
+
+## Hart auf ihren MAGAZIN-Platz: stehend in der Grube, Kopfkante bündig unter der
+## Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard - der eine idempotente
+## Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das Fach.
+func stand_in_pit(glass_at: Vector3) -> void:
+	_kill(_glide_tween)
+	_kill(_pose_tween)
+	_lying = false
+	_show_share = PIT_SHOW  # vor der Lage: sie entscheidet über die Marke
+	_set_pose_blend(1.0)
+	set_socketed(false)
+	global_position = glass_at - Vector3.UP * drop_for(PIT_SHOW)
 
 ## Wie tief die Zelle unter ihrem Glaspunkt hängt, wenn `show` von ihr übersteht.
+## Statisch auf dem Grundmaß (Schlitz und Einschub stehen auf 1) ...
 static func sunk_drop(show: float) -> float:
 	return HEIGHT * (1.0 - show)
+
+## ... und als Instanz MIT dem Anzeige-Maßstab: eine gewachsene Kassette hängt
+## tiefer, sonst ragte ihre Kappe über den Grubenrand.
+func drop_for(show: float) -> float:
+	return HEIGHT * _body_scale * (1.0 - show)
+
+## Ihr GLASPUNKT (der Platz, auf dem sie steht) - der Abgleich vergleicht damit,
+## nicht mit der eingesunkenen Position.
+func glass_position() -> Vector3:
+	return global_position + Vector3.UP * drop_for(_show_share)
 
 ## Sichtbarer Höhenanteil (1 = ganz über dem Glas).
 func show_share() -> float:
@@ -398,7 +512,7 @@ func dematerialize() -> void:
 ## setzt sie hart: die Richtigkeit hängt an keinem Tween.
 func glide_to(glass_target: Vector3, time: float) -> void:
 	_kill(_glide_tween)
-	var target := glass_target - Vector3.UP * sunk_drop(_show_share)
+	var target := glass_target - Vector3.UP * drop_for(_show_share)
 	if time <= 0.0:
 		global_position = target
 		return
@@ -410,9 +524,19 @@ func glide_to(glass_target: Vector3, time: float) -> void:
 func gliding() -> bool:
 	return _glide_tween != null and _glide_tween.is_valid()
 
-## Ruhelicht dieser Zelle (gedimmt oder normal) - Zielwert jedes Flare-Ausklangs.
+## Ruhelicht dieser Zelle (gedimmt, überfahren oder normal) - Zielwert jedes
+## Flare-Ausklangs.
 func rest_energy() -> float:
-	return DIM_ENERGY if _dimmed else REST_ENERGY
+	if _dimmed:
+		return DIM_ENERGY
+	return HOVER_ENERGY if _hovered else REST_ENERGY
+
+## Ruhelicht der Kappe. Sie ist eine satte Fläche, kein Punkt: sie bleibt auch
+## beim Greifen deutlich unter dem Kern, sonst frisst ihr Blühen ihr Zeichen.
+func cap_rest_energy() -> float:
+	if _dimmed:
+		return CAP_DIM_ENERGY
+	return CAP_REST_ENERGY * (1.45 if _hovered else 1.0)
 
 ## Der leuchtende Teil: Kern, beim Sonderbestand das Siegelband.
 func glow_material() -> StandardMaterial3D:
@@ -439,6 +563,10 @@ func has_band() -> bool:
 static func opening_center_y() -> float:
 	return (FOOT_BAR - TOP_BAR) * 0.5
 
+## Deckfläche der Kappe über der Gehäusemitte - die höchste Fläche der Kassette.
+static func cap_top_y() -> float:
+	return HEIGHT * 0.5 + CAP_PROUD
+
 static func opening_size() -> Vector2:
 	return Vector2(WIDTH - SIDE_BAR * 2.0, HEIGHT - TOP_BAR - FOOT_BAR)
 
@@ -450,6 +578,9 @@ func _apply_pose() -> void:
 	# gemischt - die Enden bleiben exakt die beiden Posen.
 	var angle := lerpf(-PI * 0.5, 0.0, _pose_blend)
 	var lift := lerpf(DEPTH * 0.5, HEIGHT * 0.5, _pose_blend) * _body_scale
+	# Der Griff hebt den KÖRPER, nicht den Platz: er überlebt jedes Gleiten und
+	# jeden Neuaufbau des Fachs. Nur stehend - liegend gibt es nichts zu ziehen.
+	lift += HEIGHT * HOVER_LIFT * _hover_share * _pose_blend * _body_scale
 	_body.transform = Transform3D(
 		Basis(Vector3.RIGHT, angle).scaled(Vector3.ONE * _body_scale),
 		Vector3(0.0, lift, 0.0))
@@ -483,11 +614,11 @@ func _build_materials() -> void:
 	_glass_material.cull_mode = BaseMaterial3D.CULL_BACK
 
 	_fin_material = StandardMaterial3D.new()
-	_fin_material.albedo_color = _scaled(PackShelfView.GOLD, 0.85)
+	_fin_material.albedo_color = _scaled(PackDrawerView.GOLD, 0.85)
 	_fin_material.metallic = 1.0
 	_fin_material.roughness = 0.24
 	_fin_material.emission_enabled = true
-	_fin_material.emission = _scaled(PackShelfView.GOLD, 1.0)
+	_fin_material.emission = _scaled(PackDrawerView.GOLD, 1.0)
 	_fin_material.emission_energy_multiplier = FIN_EMISSION_ENERGY
 
 	_glyph_material = StandardMaterial3D.new()
@@ -497,6 +628,17 @@ func _build_materials() -> void:
 	# Vor der Scheibe gezeichnet: zwei alphagemischte Flächen sortiert der
 	# Compatibility-Renderer sonst nach Laune.
 	_glyph_material.render_priority = 2
+
+	_cap_material = _lit_material(tint)
+	_cap_material.albedo_color = _scaled(tint, 0.55)  # satte Fläche, nicht nur Licht
+	_cap_material.emission_energy_multiplier = CAP_REST_ENERGY
+
+	_cap_glyph_material = StandardMaterial3D.new()
+	_cap_glyph_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_cap_glyph_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_cap_glyph_material.albedo_texture = _glyph_material.albedo_texture
+	_cap_glyph_material.albedo_color = CAP_INK  # dieselbe Backung, dunkel getönt
+	_cap_glyph_material.render_priority = 3
 
 	_edge_material = _lit_material(tint)
 	_edge_material.emission_energy_multiplier = EDGE_REST_ENERGY
@@ -605,10 +747,32 @@ func _build_cell() -> Node3D:
 		_add_box(cell, "Seal", Vector3(WIDTH * 1.04, HEIGHT * 0.16, DEPTH * 1.12),
 			Vector3(0.0, mid - opening.y * 0.24, 0.0), _band_material)
 
-	# Die leuchtende Kopfkante - steckt die Zelle, ist sie alles, was übersteht.
+	# Die KAPPE: massive Sortenfarbe auf der Kopfkante, ihre Oberfläche exakt auf
+	# HEIGHT/2 - so bleibt die Standhöhe die alte und die Einsink-Rechnung stimmt.
+	var cap_top := cap_top_y()
+	_add_box(cell, "Cap", Vector3(CAP_WIDTH, CAP_H, CAP_DEPTH),
+		Vector3(0.0, cap_top - CAP_H * 0.5, 0.0), _cap_material)
+	# Das Sortenzeichen liegt FLACH auf der Kappe, links; rechts bleibt Platz für
+	# die Bündelzahl. -90° um X dreht die Quad-Fläche nach oben, ihr Oben zeigt
+	# dann nach lokal -Z = Bildschirm-oben (die Zelle steht um -90° um Y gedreht).
+	var cap_side := CAP_DEPTH * CAP_GLYPH_SHARE
+	var cap_glyph := MeshInstance3D.new()
+	cap_glyph.name = "CapGlyph"
+	var cap_plate := QuadMesh.new()
+	cap_plate.size = Vector2(cap_side, cap_side)
+	cap_glyph.mesh = cap_plate
+	cap_glyph.material_override = _cap_glyph_material
+	cap_glyph.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	cap_glyph.position = Vector3(-(CAP_WIDTH * 0.5 - cap_side * 0.62),
+		cap_top + 0.002, 0.0)
+	cap_glyph.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cell.add_child(cap_glyph)
+
+	# Der Lichtsaum unter der Kappe - steckt die Zelle, steht mit ihr nur er über
+	# dem Glas; er ragt eine Spur weiter und zeichnet ihre Brüstung nach.
 	_add_box(cell, "EdgeStrip",
 		Vector3(EDGE_STRIP_WIDTH, EDGE_STRIP_H, EDGE_STRIP_DEPTH),
-		Vector3(0.0, HEIGHT * 0.5 + EDGE_STRIP_PROUD - EDGE_STRIP_H * 0.5, 0.0),
+		Vector3(0.0, cap_top - CAP_H - EDGE_STRIP_H * 0.5, 0.0),
 		_edge_material)
 
 	var fin_y := -(HEIGHT * 0.5) + FOOT_BAR * 0.34
@@ -636,12 +800,29 @@ func _build_badge() -> Label3D:
 	badge.name = "CountBadge"
 	badge.font_size = BADGE_FONT
 	badge.pixel_size = BADGE_HEIGHT / float(BADGE_FONT)
-	badge.modulate = PackShelfView.GOLD
+	badge.modulate = PackDrawerView.GOLD
 	badge.outline_size = 10
 	badge.outline_modulate = CasinoStyle.INK
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	badge.text = ""
+	return badge
+
+## Die Bündelzahl auf der Kappe: flach liegend, dunkel auf der Sortenfarbe, am
+## rechten Ende - links steht das Sortenzeichen.
+func _build_cap_badge() -> Label3D:
+	var badge := Label3D.new()
+	badge.name = "CapBadge"
+	badge.font_size = CAP_BADGE_FONT
+	badge.pixel_size = CAP_BADGE_HEIGHT / float(CAP_BADGE_FONT)
+	badge.modulate = CAP_INK
+	badge.outline_size = 0
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	badge.position = Vector3(CAP_WIDTH * 0.28, cap_top_y() + 0.004, 0.0)
+	badge.text = ""
+	badge.visible = false
 	return badge
 
 ## Die Marke sitzt über der OBERSTEN Kassette und in DEREN Ebene: einen halben
@@ -650,10 +831,17 @@ func _build_badge() -> Label3D:
 func _place_badge() -> void:
 	if _badge == null:
 		return
+	_sync_stack()
+	var standing := _pose_blend >= 0.5
+	if _cap_badge != null:
+		# STEHEND liegt die Zahl flach auf der Kappe: aus der Grube ragte eine
+		# schwebende Marke heraus, und ein Bündel steht dort als EINE Karte.
+		_cap_badge.text = "×%d" % _count if _count > 1 else ""
+		_cap_badge.visible = _count > 1 and standing
 	_badge.text = "×%d" % _count if _count > 1 else ""
-	# Eine steckende Zelle zeigt keine Marke: sie ist einzeln, und die Zahl stünde
-	# als einziges Stück Schrift aus dem Tisch heraus.
-	_badge.visible = _count > 1 and not sunk()
+	# Eine steckende Zelle zeigt keine Schwebemarke: sie ist einzeln, und die Zahl
+	# stünde als einziges Stück Schrift aus dem Tisch heraus.
+	_badge.visible = _count > 1 and not standing and not sunk()
 	var top := maxf(float(_cells.size()) - 1.0, 0.0)
 	if _pose_blend < 0.5:
 		# Liegend ist der Stapel ein Turm - die Marke sitzt auf seiner Spitze.
@@ -666,6 +854,14 @@ func _place_badge() -> void:
 	_badge.position = Vector3(top * STACK_STAGGER * 0.5,
 		HEIGHT * 0.5 + BADGE_GAP + top * STACK_PITCH, top * STACK_PITCH * 0.5)
 
+## Stehend ist ein Bündel EINE Karte (die Zahl steht auf ihrer Kappe); liegend
+## liegt der Stapel als flacher Haufen da. Eine Reihe stehender Sliver läse sich
+## in der Grube als Fächer, nicht als Stück.
+func _sync_stack() -> void:
+	var standing := _pose_blend >= 0.5
+	for i in _cells.size():
+		_cells[i].visible = not standing or i == 0
+
 ## Backt das Siegelzeichen der Sorte EINMAL in eine Textur - dieselbe Zeichnung
 ## wie im Regal (PackIconRenderer), nie ein zweites Zeichen.
 func _bake_glyph() -> Texture2D:
@@ -674,7 +870,7 @@ func _bake_glyph() -> Texture2D:
 	_glyph_oven.size = Vector2i(GLYPH_TEXTURE_SIZE, GLYPH_TEXTURE_SIZE)
 	_glyph_oven.transparent_bg = true
 	_glyph_oven.render_target_update_mode = SubViewport.UPDATE_ONCE
-	var icon := PackIconRenderer.for_type(PackShelfView.pack_type_of(sort))
+	var icon := PackIconRenderer.for_type(Pack.pack_type_of_shelf(sort))
 	icon.size = Vector2(GLYPH_TEXTURE_SIZE, GLYPH_TEXTURE_SIZE)
 	_glyph_oven.add_child(icon)
 	add_child(_glyph_oven)
@@ -685,6 +881,16 @@ func _set_glow(energy: float) -> void:
 	if material != null:
 		material.emission_energy_multiplier = energy
 	_sync_edge(energy)
+	_sync_cap(energy)
+
+## Die Kappe steht wie die Kopfkante auf ihrem EIGENEN Zustand und reißt beim
+## Lesen nur mit.
+func _sync_cap(core_energy: float) -> void:
+	if _cap_material == null:
+		return
+	var over := maxf(core_energy - rest_energy(), 0.0)
+	_cap_material.emission_energy_multiplier = (cap_rest_energy()
+		+ over * EDGE_FLARE_SHARE)
 
 ## Die Kopfkante steht auf ihrem eigenen Zustand und reißt bei einem Kern-Ausbruch
 ## nur mit - anders bliebe der gesteckte Sliver beim Lesen stumm.

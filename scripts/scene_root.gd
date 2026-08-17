@@ -171,6 +171,8 @@ const CLAMP_MATERIALIZE_STAGGER := 0.07
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
 ## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
+## Luftzuschlag auf die Grubentiefe über der höchsten angezeigten Kassette.
+const PACK_PIT_DEPTH_ROOM := 1.3
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
 const DATA_CELL_RAISE_TIME := 0.22
@@ -466,22 +468,40 @@ var _inspected_die: DieDefinition
 ## Nur der ZULETZT angestoßene Aufbau läuft nach dem gewarteten Bild weiter.
 var _inspect_gen := 0
 
-## Die physischen Datenzellen der Werkbank: je Regal-Sorte ein liegender Stapel
-## und je belegter Bucht die Kassette, die darin steckt. Weltkörper wie die
-## Zwingen - reine ANZEIGE: sie tragen keine Kollision und fangen keinen Klick,
-## der läuft weiter durch die leeren Knöpfe im Fenster (Chip-Schalen-Regel).
+## Die physischen Datenzellen der Werkbank: je Magazin-Paket (uid) seine STEHENDE
+## Kassette in der Grube und je belegtem Presse-Platz die, die darin steckt.
+## Weltkörper wie die Zwingen - reine ANZEIGE: sie tragen keine Kollision und
+## fangen keinen Klick, der läuft weiter durch die leeren Knöpfe im Fenster
+## (Chip-Schalen-Regel).
 var shelf_cells: Dictionary = {}
 var socket_cells: Array[DataCellView] = []
-## Zellen unterwegs: heimfliegende Rückläufer (je Sorte gezählt, damit ihr Stapel
-## erst bei Ankunft wächst) und die Körper, die gerade dekomprimiert werden.
+## uid je Schlitz, parallel zu socket_cells: daran erkennt der Abgleich SEINE
+## Zelle wieder und gibt sie beim Auswerfen an ihren Magazin-Platz zurück.
+var socket_uids: Array[int] = []
+## Zellen unterwegs: heimfliegende Rückläufer (uid -> Körper; sie fehlen im
+## Magazin-Abgleich, bis sie ankommen und dort selbst zur Kassette werden) und
+## die Körper, die gerade dekomprimiert werden.
 var _cell_returns: Dictionary = {}
-var _returning_cells: Array[DataCellView] = []
 var _draining_cells: Array[DataCellView] = []
-## Ankunfts-Pluster, deren Stapel noch gar nicht wieder stand.
-var _pending_cell_pops: Array[String] = []
+## Ankunfts-Pluster, deren Kassette noch gar nicht wieder stand (uids).
+var _pending_cell_pops: Array[int] = []
 ## Nur der ZULETZT angestoßene Abgleich läuft nach dem gewarteten Bild weiter -
 ## sonst stellten zwei Aufbauten im selben Bild zwei Körper auf denselben Platz.
 var _data_cell_gen := 0
+## Die MAGAZIN-GRUBE: Wände, Boden und Kragen unter dem Loch, das screen_glass in
+## die Anzeige schneidet. Möbel wie die Trays - sie steht ab dem Aufbau und tritt
+## für keinen Ablauf ab.
+var pack_pit: PackPitView
+## Der an der Grube GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
+## dem Tisch, nicht dem Lauf: _sync_pack_pit liest ihn ab, _connect_run schiebt
+## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
+## keine Fenster).
+var _pack_capacity := 0
+## Der Filzboden: er muss dort ausblenden, wo die Grube steht, sonst blickt man
+## durch das Loch auf Filz statt in die Vertiefung.
+var table_ground: TableGround
+## Die Kassette, die der Zeiger gerade aus der Grube zieht (0 = keine).
+var _hovered_pack_uid := 0
 
 ## Der gerade herangeholte schwebende Paket-Würfel (null = keiner). Er allein
 ## reagiert in der Nahsicht auf Ziehen und Klick.
@@ -715,6 +735,9 @@ func _setup_table_screen() -> void:
 	table_screen = TableScreen.new()
 	table_screen.name = "TableScreen"
 	add_child(table_screen)
+	# Der Filzboden muss unter der Magazin-Grube ausblenden - sonst blickt man
+	# durch das Loch auf Filz statt in die Vertiefung.
+	table_ground = $Room.find_child("TableGround", true, false) as TableGround
 	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
 	if screen_mesh == null:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")
@@ -923,6 +946,9 @@ func _setup_table_screen() -> void:
 		# Fenster nicht - also misst scene_root und schiebt es herein.
 		table_screen.workshop_window.apron_bottom = \
 			hub_r.position.y + hub_r.size.y - workshop_rect.position.y
+		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
+		# der Körper darunter hängen alle an DIESEM Streifen.
+		_sync_pack_pit(table_screen.workshop_window)
 	# Klick, Zeiger und Kamera messen sich an Fenster PLUS Schürze.
 	var bench_rect := Rect2(workshop_rect.position, Vector2(workshop_rect.size.x,
 		hub_r.position.y + hub_r.size.y - workshop_rect.position.y))
@@ -1575,7 +1601,7 @@ func _on_hub_level_changed(level: int) -> void:
 	# Die Belohnungs-Pakete liegen schon im Lager (gebucht in upgrade_hub) - die
 	# Zeremonie zeigt nur, WAS die Stufe gebracht hat und wohin es gegangen ist.
 	# Nicht awaiten: der Shop-Refresh darunter läuft parallel weiter.
-	_play_hub_reward_ceremony(run.last_hub_reward_packs)
+	_play_hub_reward_ceremony(run.last_hub_reward_packs, run.last_hub_reward_fizzle)
 	if charm_shop != null and charm_shop.visible:
 		charm_shop.refresh_after_hub_upgrade()
 	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
@@ -1993,7 +2019,7 @@ func _fly_side_bet_payout(bet: SideBet) -> void:
 		SideBet.Payout.CHARGE:
 			_play_side_bet_charge_volley(bet.payout_charge * run.side_bet_payout_factor())
 		SideBet.Payout.SPECIAL:
-			_fly_side_bet_special(bet.special_engraving())
+			_fly_side_bet_special(bet.awarded_pack)
 		SideBet.Payout.PACK:
 			_fly_side_bet_pack(bet.awarded_pack)
 		SideBet.Payout.COMBO_LEVEL:
@@ -2013,31 +2039,37 @@ func _fly_side_bet_to_hub() -> void:
 		if table_screen != null and table_screen.hub != null:
 			table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW))
 
-## Sonderposten-Gewinn: er liegt als Fixinhalt-Paket im Sonderbestand-Stapel der
-## Werkbank - der Komet fährt bis dorthin, und erst seine Ankunft legt das Siegel
-## auf den Stapel (der Komet IST das Paket).
-func _fly_side_bet_special(engraving: Engraving) -> void:
+## Sonderposten-Gewinn: er liegt als Fixinhalt-Paket im Magazin der Werkbank -
+## der Komet fährt bis auf SEINEN Platz, und erst seine Ankunft deckt die
+## Kassette auf (der Komet IST das Paket).
+func _fly_side_bet_special(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if engraving == null or workshop == null or not workshop.visible:
+	if pack == null:
+		_fly_side_bet_to_treasure()  # volles Magazin: der Gewinn kam als Geld
+		return
+	if pack.fixed_engraving == null or workshop == null or not workshop.visible:
 		_fly_side_bet_to_hub()  # keine Werkbank: der Hub quittiert
 		return
-	var shelf := PackShelfView.CATEGORY_SPECIAL
-	var tint: Color = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-	workshop.expect_pack_delivery(shelf)
-	var travel := table_screen.side_bet_engraving_comet(workshop.stack_anchor_px(shelf), tint)
+	var tint: Color = EngravingRenderer.SEAM_COLORS[int(pack.fixed_engraving.rarity)]
+	workshop.expect_pack_delivery(pack.pack_uid)
+	var travel := table_screen.side_bet_engraving_comet(
+		workshop.pack_anchor_px(pack.pack_uid), tint)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if is_instance_valid(workshop):
-			workshop.deliver_pack(shelf))
+			workshop.deliver_pack(pack.pack_uid))
 
 ## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang auf seinen
-## Stapel - der wächst erst bei Ankunft, wie bei einem gekauften Paket.
+## Magazin-Platz - die Kassette erscheint erst bei Ankunft, wie bei einem
+## gekauften Paket.
 func _fly_side_bet_pack(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	var shelf := PackShelfView.shelf_of(pack)
-	if pack == null or shelf == "" or workshop == null or table_screen.hub == null:
+	if pack == null:
+		_fly_side_bet_to_treasure()  # volles Magazin: der Gewinn kam als Geld
+		return
+	if pack.pack_uid <= 0 or workshop == null or table_screen.hub == null:
 		return
 	var tint: Color = PackIconRenderer.COLORS.get(pack.type, Color.WHITE)
-	workshop.expect_pack_delivery(shelf)
+	workshop.expect_pack_delivery(pack.pack_uid)
 	await get_tree().create_timer(
 		maxf(table_screen.side_bet_payout_comet(true, tint), 0.05)).timeout
 	if table_screen == null or table_screen.hub == null or not is_instance_valid(workshop):
@@ -2045,9 +2077,9 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 	var hub_px := table_screen.hub.position + table_screen.hub.size * 0.5
 	await get_tree().create_timer(
 		maxf(table_screen.pack_delivery_comet(hub_px, tint,
-			workshop.stack_anchor_px(shelf)), 0.05)).timeout
+			workshop.pack_anchor_px(pack.pack_uid)), 0.05)).timeout
 	if is_instance_valid(workshop):
-		workshop.deliver_pack(shelf)
+		workshop.deliver_pack(pack.pack_uid)
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
@@ -2776,6 +2808,7 @@ func _sync_data_cells() -> void:
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		_drop_data_cells()
 		return
+	_sync_pack_pit(workshop)
 	_data_cell_gen += 1
 	var generation := _data_cell_gen
 	var launched := run
@@ -2789,61 +2822,111 @@ func _sync_data_cells() -> void:
 	_sync_socket_cells(workshop)
 	_flush_cell_pops()
 
-## Die Regal-Stapel: je belegter Sorte einer, an seinem Anker auf dem Glas. Wer
-## schon steht, bleibt derselbe Körper - er rückt nur nach und zählt neu.
+## Die Grube unter dem Magazin: das Loch im Glas, der ausgeblendete Filz darunter
+## und der Körper, den man hindurch sieht. Idempotent - dieselben Maße schreiben
+## dasselbe. Die TIEFE ist der Stand einer größtmöglich angezeigten Kassette plus
+## Luft: was in der Grube steht, darf ihren Boden nie berühren.
+func _sync_pack_pit(workshop: WorkshopView) -> void:
+	if table_screen == null:
+		return
+	var rect := workshop.shelf_pit_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	# Der DECKEL des Magazins wird an DIESER Grube gemessen: so viele Kassetten
+	# stehen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
+	# entschieden werden - core misst keine Fenster.
+	_pack_capacity = PackDrawerView.capacity_for(rect.size, workshop.shelf_cell_px())
+	if run != null:
+		run.set_pack_capacity(_pack_capacity)
+	table_screen.set_apron_pit(rect, workshop.shelf_pit_radius())
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
+	var depth := DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
+	if pack_pit == null or not is_instance_valid(pack_pit):
+		pack_pit = PackPitView.new()
+		add_child(pack_pit)
+	pack_pit.setup(table_screen.pixel_to_world(rect.get_center()), half, depth)
+	if table_ground != null and is_instance_valid(table_ground) \
+			and table_ground.felt_material != null:
+		table_ground.felt_material.set_shader_parameter("pit_min", pack_pit.bounds_min())
+		table_ground.felt_material.set_shader_parameter("pit_max", pack_pit.bounds_max())
+
+## Die Magazin-Kassetten: je stehendem Paket (uid) EIN Körper an seinem Platz.
+## Wer schon steht, bleibt derselbe Körper - ein neuer Platz (Umsortieren, die
+## Reihe schließt sich) ist ein GLEITEN, kein Neuaufbau.
 func _sync_shelf_cells(workshop: WorkshopView) -> void:
+	var entries := workshop.drawer_entries()
+	var reserved := workshop.press_slot_uids()
 	var wanted: Dictionary = {}
-	for entry in workshop.shelf_entries():
-		var category := String(entry.get("category", ""))
-		if category == "":
+	for entry in entries:
+		var uid := int(entry.get("uid", 0))
+		# Was noch als Licht fliegt oder heimkehrt, hat keinen Körper im Fach.
+		if uid <= 0 or bool(entry.get("withheld", false)) or _cell_returns.has(uid):
 			continue
-		# Was noch heimfliegt, fehlt im Stapel - es wächst erst bei der Ankunft.
-		wanted[category] = maxi(int(entry.get("count", 0))
-			- int(_cell_returns.get(category, 0)), 0)
-	for category: String in shelf_cells.keys():
-		if not wanted.has(category):
-			_free_data_cell(shelf_cells[category])
-			shelf_cells.erase(category)
+		wanted[uid] = entry.get("pack")
+	for uid: int in shelf_cells.keys():
+		# Reservierte nicht abräumen: ihre Körper übernimmt der Schlitz-Abgleich.
+		if not wanted.has(uid) and not reserved.has(uid):
+			_free_data_cell(shelf_cells[uid])
+			shelf_cells.erase(uid)
 	var fresh := 0
-	for category: String in PackShelfView.SHELF_ORDER:
-		if not wanted.has(category):
+	for entry in entries:
+		var uid := int(entry.get("uid", 0))
+		if not wanted.has(uid):
 			continue
-		var target := _data_cell_seat(workshop.stack_anchor_px(category))
-		var cell: DataCellView = shelf_cells.get(category)
+		var pack: Pack = wanted[uid]
+		var target := _data_cell_seat(workshop.pack_anchor_px(uid))
+		var cell: DataCellView = shelf_cells.get(uid)
 		if cell == null or not is_instance_valid(cell):
-			cell = _spawn_data_cell(category, target)
-			shelf_cells[category] = cell
+			cell = _spawn_data_cell(Pack.shelf_of(pack), target)
+			cell.set_body_scale(workshop.shelf_cell_scale())
+			cell.stand_in_pit(target)
+			shelf_cells[uid] = cell
 			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 			fresh += 1
+		elif not cell.visible:
+			cell.stand_in_pit(target)
+			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+			fresh += 1
+		elif cell.busy():
+			pass  # sie gleitet oder richtet sich gerade - nicht dazwischenfunken
+		elif cell.glass_position().distance_to(target) > 0.01:
+			cell.glide_to(target, DATA_CELL_SLIDE_TIME)
 		else:
-			cell.global_position = target
-			if not cell.visible:
-				cell.materialize(float(fresh) * DATA_CELL_STAGGER)
-				fresh += 1
-		cell.set_count(int(wanted[category]))
+			cell.stand_in_pit(target)
+		# Die ×n-Marke heißt jetzt BÜNDEL: mehrere Stücke in EINER Karte.
+		cell.set_count(maxi(pack.count, 1))
 		cell.set_dimmed(workshop.shelf_locked())
-		# Im Regal wächst der Körper mit seiner Bucht - reine Anzeige, der Anker
-		# bleibt derselbe Glaspunkt.
+		# Der Körper wächst mit seinem Platz - reine Anzeige, der Anker bleibt
+		# derselbe Glaspunkt.
 		cell.set_body_scale(workshop.shelf_cell_scale())
 
 ## Die Leseschlitze: je belegtem Platz eine Zelle, senkrecht im Tisch steckend.
-## Eine frisch eingelegte kommt aus ihrem Stapel geglitten - gebucht war die
-## Vormerkung längst, der Körper folgt.
+## Eine frisch eingelegte ist der KÖRPER ihres Magazin-Platzes - er gleitet
+## herüber und steckt sich ein; gebucht war die Vormerkung längst.
 func _sync_socket_cells(workshop: WorkshopView) -> void:
 	var sorts := workshop.press_slot_sorts()
+	var uids := workshop.press_slot_uids()
 	var anchors := workshop.press_slot_anchors()
 	var kept: Array[DataCellView] = []
+	var kept_uids: Array[int] = []
 	kept.resize(sorts.size())
+	kept_uids.resize(sorts.size())
+	kept_uids.fill(0)
 	for i in sorts.size():
-		if i >= socket_cells.size():
+		if i >= socket_cells.size() or i >= uids.size():
 			continue
 		var standing: DataCellView = socket_cells[i]
-		if standing != null and is_instance_valid(standing) and standing.sort == sorts[i]:
+		if standing != null and is_instance_valid(standing) \
+				and i < socket_uids.size() and socket_uids[i] == uids[i]:
 			kept[i] = standing
+			kept_uids[i] = uids[i]
 	for cell in socket_cells:
 		if cell != null and not kept.has(cell):
 			_free_data_cell(cell)
 	socket_cells = kept
+	socket_uids = kept_uids
 	for i in mini(sorts.size(), anchors.size()):
 		var target := _data_cell_seat(anchors[i])
 		var cell: DataCellView = socket_cells[i]
@@ -2852,26 +2935,33 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 				cell.seat_hard(target)  # steht das Fenster neu, steckt sie sofort richtig
 			cell.set_dimmed(workshop.shelf_locked())
 			continue
-		cell = _spawn_data_cell(sorts[i],
-			_data_cell_seat(workshop.stack_anchor_px(sorts[i])))
+		var uid: int = uids[i] if i < uids.size() else 0
+		# Der Magazin-Körper dieses Pakets wird ÜBERNOMMEN, nie verdoppelt.
+		cell = shelf_cells.get(uid)
+		if cell != null and is_instance_valid(cell):
+			shelf_cells.erase(uid)
+		else:
+			cell = _spawn_data_cell(sorts[i], _data_cell_seat(workshop.pack_anchor_px(uid)))
+			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das eine Kassettenmaß
 		cell.set_dimmed(workshop.shelf_locked())
-		cell.set_body_scale(workshop.shelf_cell_scale())  # sie kommt aus dem Regal
 		socket_cells[i] = cell
+		socket_uids[i] = uid
 		_seat_data_cell(cell, target)  # nicht erwartet: der Körper folgt der Buchung
 
-## Ein Paket ist aus seiner Bucht zurück ins Regal gegangen: seine Zelle fliegt
-## heim, und erst dort wächst der Stapel um eins.
-func _on_pack_unslotted(slot_index: int, stack_category: String) -> void:
+## Ein Paket ist aus seinem Schlitz zurück ins Magazin gegangen: seine Zelle
+## fliegt heim auf ihren Platz und WIRD dort wieder die Magazin-Kassette.
+func _on_pack_unslotted(slot_index: int, uid: int) -> void:
 	if slot_index < 0 or slot_index >= socket_cells.size():
 		return
 	var cell: DataCellView = socket_cells[slot_index]
 	socket_cells.remove_at(slot_index)
-	if cell == null or not is_instance_valid(cell) or stack_category == "":
+	if slot_index < socket_uids.size():
+		socket_uids.remove_at(slot_index)
+	if cell == null or not is_instance_valid(cell) or uid <= 0:
 		_free_data_cell(cell)
 		return
-	_cell_returns[stack_category] = int(_cell_returns.get(stack_category, 0)) + 1
-	_returning_cells.append(cell)
-	_return_data_cell(cell, stack_category)  # nicht erwartet
+	_cell_returns[uid] = cell
+	_return_data_cell(cell, uid)  # nicht erwartet
 
 ## Der Wurf beginnt: die eingesetzten Zellen geben ihre Daten her. Sie lodern auf
 ## und lösen sich gestaffelt auf, während ihre Leser darüber anlaufen.
@@ -2880,6 +2970,7 @@ func _on_pack_unslotted(slot_index: int, stack_category: String) -> void:
 func _on_press_started() -> void:
 	var cells := socket_cells.duplicate()
 	socket_cells.clear()
+	socket_uids.clear()
 	for i in cells.size():
 		var cell: DataCellView = cells[i]
 		if cell == null or not is_instance_valid(cell):
@@ -2887,14 +2978,14 @@ func _on_press_started() -> void:
 		_draining_cells.append(cell)
 		_drain_data_cell(cell, float(i) * DATA_CELL_DRAIN_STAGGER)  # nicht erwartet
 
-## Ein Liefer-Licht ist eingeschlagen: der Stapel wächst um eins und lodert auf.
-## Steht sein Körper gerade nicht (Presse, Paket-Wahl), wartet der Pluster - wie
-## der des Fensters auf seine Leiste.
-func _on_stack_popped(stack_category: String) -> void:
-	var cell: DataCellView = shelf_cells.get(stack_category)
+## Ein Liefer-Licht ist eingeschlagen: die Kassette dieses Pakets lodert auf.
+## Steht ihr Körper gerade nicht (Presse, Paket-Wahl), wartet der Pluster - wie
+## der des Fensters auf sein Fach.
+func _on_pack_landed(uid: int) -> void:
+	var cell: DataCellView = shelf_cells.get(uid)
 	if cell == null or not is_instance_valid(cell) or not cell.visible:
-		if not _pending_cell_pops.has(stack_category):
-			_pending_cell_pops.append(stack_category)
+		if not _pending_cell_pops.has(uid):
+			_pending_cell_pops.append(uid)
 		return
 	cell.flare()
 
@@ -2903,8 +2994,8 @@ func _flush_cell_pops() -> void:
 		return
 	var waiting := _pending_cell_pops.duplicate()
 	_pending_cell_pops.clear()
-	for category in waiting:
-		_on_stack_popped(String(category))
+	for uid in waiting:
+		_on_pack_landed(int(uid))
 
 ## Standplatz einer Zelle über einem Display-Pixel: OHNE Hub. Die Kassette hebt
 ## ihren Körper selbst auf halbe Dicke, ihr Ursprung liegt also schon auf dem
@@ -2923,20 +3014,30 @@ func _spawn_data_cell(sort: String, at: Vector3) -> DataCellView:
 	cell.global_position = at
 	return cell
 
-## Der Weg aus dem Stapel in den Leseschlitz: über ihn gleiten, aufrichten, und
-## dann senkrecht in den Tisch fahren, bis nur die Kopfkante übersteht. Bei der
-## Ankunft rastet die Zelle mit einem Ausbruch ein.
+## Der Weg aus der Grube in den Leseschlitz: erst STEIGT sie aus dem Magazin,
+## dann gleitet sie über den Schlitz und fährt dort senkrecht in den Tisch, bis
+## nur Kappe und Lichtsaum überstehen. Bei der Ankunft rastet sie mit einem
+## Ausbruch ein. Dieselben drei Schläge wie eh - nur die Anfangslage ist neu.
 func _seat_data_cell(cell: DataCellView, target: Vector3) -> void:
 	var launched := run
+	cell.set_hovered(false)
+	if cell.sunk():
+		cell.plunge(1.0, DATA_CELL_PLUNGE_TIME)
+		await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
+		if run != launched or cell == null or not is_instance_valid(cell):
+			return
 	cell.glide_to(target, DATA_CELL_SLIDE_TIME)
-	cell.set_body_scale(1.0, DATA_CELL_SLIDE_TIME)  # der Schlitz kennt nur das Grundmaß
+	# EIN Maß durch das ganze Leben der Kassette: der Schlitz ist auf genau dieses
+	# geschnitten, also wächst und schrumpft auf dem Weg nichts mehr.
+	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE, DATA_CELL_SLIDE_TIME)
 	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
-	cell.raise_upright(DATA_CELL_RAISE_TIME)
-	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
-		return
+	if cell.lying():
+		cell.raise_upright(DATA_CELL_RAISE_TIME)
+		await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
+		if run != launched or cell == null or not is_instance_valid(cell):
+			return
 	cell.plunge(DataCellView.SUNK_SHOW, DATA_CELL_PLUNGE_TIME)
 	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
@@ -2944,55 +3045,52 @@ func _seat_data_cell(cell: DataCellView, target: Vector3) -> void:
 	cell.set_socketed(true)
 	cell.flare()
 
-## Der Weg zurück ins Regal: heraussteigen, flach kippen, heimgleiten. Der Anker
-## wird erst NACH dem Neuaufbau geholt: der Stapel dieser Sorte kann eben erst
-## entstanden sein.
-func _return_data_cell(cell: DataCellView, stack_category: String) -> void:
+## Der Weg zurück ins Magazin: heraussteigen, aufrecht heim auf SEINEN Platz
+## gleiten und dort in die Grube sinken - gekippt wird nichts mehr, im Magazin
+## STEHEN die Kassetten. Der Anker wird erst NACH dem Neuaufbau geholt: das Fach
+## hat sich eben neu gelegt.
+func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var launched := run
 	await get_tree().process_frame
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
 	if workshop == null or not is_instance_valid(workshop):
-		_finish_cell_return(cell, stack_category, null)
+		_finish_cell_return(cell, uid, false)
 		return
 	cell.set_socketed(false)
 	cell.plunge(1.0, DATA_CELL_PLUNGE_TIME)
 	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
-	cell.lay_over(DATA_CELL_RAISE_TIME)
-	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
-		return
 	if not is_instance_valid(workshop):
-		_finish_cell_return(cell, stack_category, null)
+		_finish_cell_return(cell, uid, false)
 		return
-	cell.glide_to(_data_cell_seat(workshop.stack_anchor_px(stack_category)),
-		DATA_CELL_SLIDE_TIME)
-	cell.set_body_scale(workshop.shelf_cell_scale(), DATA_CELL_SLIDE_TIME)  # zurück ins Regalmaß
+	cell.glide_to(_data_cell_seat(workshop.pack_anchor_px(uid)), DATA_CELL_SLIDE_TIME)
+	cell.set_body_scale(workshop.shelf_cell_scale(), DATA_CELL_SLIDE_TIME)  # zurück ins Fachmaß
 	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
-	_finish_cell_return(cell, stack_category,
-		workshop if is_instance_valid(workshop) else null)
+	cell.plunge(DataCellView.PIT_SHOW, DATA_CELL_PLUNGE_TIME)
+	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	_finish_cell_return(cell, uid, run != null and run.pack_by_uid(uid) != null)
 
-## Angekommen: der Rückläufer verschwindet IN seinem Stapel, und genau jetzt
-## wächst der um eins.
-func _finish_cell_return(cell: DataCellView, stack_category: String,
-		workshop: WorkshopView) -> void:
-	_returning_cells.erase(cell)
-	_free_data_cell(cell)
-	_cell_returns[stack_category] = maxi(int(_cell_returns.get(stack_category, 0)) - 1, 0)
-	if workshop == null or not is_instance_valid(workshop):
+## Angekommen: der Rückläufer WIRD wieder die Magazin-Kassette seines Pakets -
+## kein zweiter Körper, kein Abgang. Liegt das Paket nicht mehr (Laufwechsel,
+## Wett-Einsatz), fällt die Zelle weg; der nächste Abgleich bestätigt den Rest.
+func _finish_cell_return(cell: DataCellView, uid: int, adopt: bool) -> void:
+	_cell_returns.erase(uid)
+	if not adopt or cell == null or not is_instance_valid(cell):
+		_free_data_cell(cell)
 		return
-	var stack: DataCellView = shelf_cells.get(stack_category)
-	if stack == null or not is_instance_valid(stack):
-		return
-	stack.set_count(maxi(workshop.sealed_pack_count(stack_category)
-		- int(_cell_returns.get(stack_category, 0)), 0))
-	if stack.visible:
-		stack.flare()
+	var standing: DataCellView = shelf_cells.get(uid)
+	if standing != null and is_instance_valid(standing) and standing != cell:
+		_free_data_cell(standing)  # sollte nie stehen - der Abgleich meidet Rückkehrer
+	shelf_cells[uid] = cell
+	if cell.visible:
+		cell.flare()
 
 ## Die Dekompression EINER Zelle: der Sliver lodert ein letztes Mal auf und sinkt
 ## dann den Rest des Weges in den Tisch - der Leser hat sie geschluckt.
@@ -3014,23 +3112,24 @@ func _drain_data_cell(cell: DataCellView, delay: float) -> void:
 	_free_data_cell(cell)
 
 ## Laufwechsel: alle Körper fallen weg, auch die noch unterwegs sind. Es ist der
-## EINZIGE Abgang - die Stapel liegen in der Schürze und treten für keinen Ablauf
+## EINZIGE Abgang - das Magazin liegt in der Schürze und tritt für keinen Ablauf
 ## mehr ab.
 func _drop_data_cells() -> void:
-	for category: String in shelf_cells:
-		_free_data_cell(shelf_cells[category])
+	for uid: int in shelf_cells:
+		_free_data_cell(shelf_cells[uid])
 	shelf_cells.clear()
 	for cell in socket_cells:
 		_free_data_cell(cell)
 	socket_cells.clear()
-	for cell in _returning_cells:
-		_free_data_cell(cell)
-	_returning_cells.clear()
+	socket_uids.clear()
+	for uid: int in _cell_returns:
+		_free_data_cell(_cell_returns[uid])
+	_cell_returns.clear()
 	for cell in _draining_cells:
 		_free_data_cell(cell)
 	_draining_cells.clear()
-	_cell_returns.clear()
 	_pending_cell_pops.clear()
+	_hovered_pack_uid = 0
 
 func _free_data_cell(cell: DataCellView) -> void:
 	if cell == null or not is_instance_valid(cell):
@@ -3038,18 +3137,18 @@ func _free_data_cell(cell: DataCellView) -> void:
 	remove_child(cell)
 	cell.queue_free()
 
-## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln. Sie liegt auf dem
-## Glas wie die Werkbank selbst - beide werden gleich projiziert, ein Weltmaß
-## rechnet sich also sauber in Fensterpixel um.
+## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln: das, was aus der Grube
+## nach oben zeigt - ihre KAPPE, also Breite × Kappentiefe. Die Kappe liegt in der
+## Glasebene, wird also wie die Werkbank selbst projiziert.
 func _data_cell_apparent_px() -> Vector2:
 	if table_screen == null:
 		return Vector2.ZERO
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
 	var wide := absf(table_screen.world_to_pixel(
 		Vector3(0.0, 0.0, DataCellView.WIDTH)).x - origin.x)
-	var tall := absf(table_screen.world_to_pixel(
-		Vector3(DataCellView.HEIGHT, 0.0, 0.0)).y - origin.y)
-	return Vector2(wide, tall)
+	var deep := absf(table_screen.world_to_pixel(
+		Vector3(DataCellView.CAP_DEPTH, 0.0, 0.0)).y - origin.y)
+	return Vector2(wide, deep)
 
 ## Der Zwingen-Würfel unter dem Bildschirmpunkt (null = keiner). Bewusst NICHT in
 ## _floating_stages: die Projektoren sind Anzeige, kein Griff - ein Klick auf sie
@@ -3066,20 +3165,23 @@ func _clamp_stage_under(screen_pos: Vector2) -> FloatingDie:
 	return null
 
 ## Paket im Laden gekauft: es FÄHRT als Licht die Hub-Werkstatt-Ader entlang und
-## liegt erst bei Ankunft in seinem Regal - der Komet ist das Paket, nicht seine
-## Ankündigung.
-func _on_pack_purchased(from_px: Vector2, shelf: String) -> void:
+## liegt erst bei Ankunft auf seinem Magazin-Platz - der Komet ist das Paket,
+## nicht seine Ankündigung.
+func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
+	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
-	workshop.expect_pack_delivery(shelf)
-	var tint: Color = PackShelfView.COLORS.get(shelf, Color.WHITE)
+	var pack := run.pack_by_uid(uid)
+	if pack == null:
+		return
+	workshop.expect_pack_delivery(uid)
+	var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), Color.WHITE)
 	var travel := table_screen.pack_delivery_comet(from_px, tint,
-		workshop.stack_anchor_px(shelf))
+		workshop.pack_anchor_px(uid))
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
 	if is_instance_valid(workshop):
-		workshop.deliver_pack(shelf)
+		workshop.deliver_pack(uid)
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
 ## die Truhe. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
@@ -3101,6 +3203,30 @@ func _on_pack_refunded(from_px: Vector2, amount: int) -> void:
 	table_screen.treasure_window.glint()
 	table_screen.treasure_window.flash_receive_slot(chip_color)
 
+## Volles Magazin: eine Prämie ist zu Geld zerfallen, statt still zu verschwinden.
+## Gebucht hat GameRun beim Gewähren (book first, fly afterwards) - hier fährt nur
+## das Geld in die Truhe, in derselben Chip-Grammatik wie jede andere Gutschrift.
+## round_end nimmt die lange Rundenende-Bahn (Charm-Pad -> Truhe), sonst die kurze
+## Hub-Bahn. Liefert die Flugzeit.
+func _fly_pack_fizzle(from_px: Vector2, amount: int, round_end := false) -> float:
+	if table_screen == null or amount <= 0:
+		return 0.0
+	var launched := run
+	var packets := ChipStackView.split_gain(amount)
+	var chip_color := ChipStackView.denomination_color(packets[0] if not packets.is_empty() else 1)
+	var trail := _money_trail_color(chip_color)
+	var travel := table_screen.charm_money_comet(from_px, trail) if round_end \
+		else table_screen.shop_refund_comet(from_px, trail)
+	if travel <= 0.0:
+		return 0.0
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
+	get_tree().create_timer(travel).timeout.connect(func() -> void:
+		if run != launched or table_screen == null or table_screen.treasure_window == null:
+			return
+		table_screen.treasure_window.glint()
+		table_screen.treasure_window.flash_receive_slot(chip_color))
+	return travel
+
 ## Takt der Hub-Belohnung: Siegel ploppen gestaffelt auf, stehen kurz, dann fährt
 ## je Paket ein Komet zur Werkbank.
 const HUB_REWARD_POP_STAGGER := 0.06
@@ -3111,9 +3237,15 @@ const HUB_REWARD_SHRINK_TIME := 0.18
 ## Reveal des Hub-Ausbaus: über der Hub-Mitte steht je PAKETSORTE ein Siegel (bei
 ## mehreren ein "×n"), danach fährt je PAKET ein Komet die Werkstatt-Ader hinunter.
 ## Rein visuell - die Pakete liegen längst im Lager.
-func _play_hub_reward_ceremony(packs: Array[Pack]) -> void:
+## fizzled: so viele Pakete fanden im vollen Magazin keinen Platz mehr und sind zu
+## Geld zerfallen - für sie fährt ein Geld-Komet in die Truhe statt einer Kassette
+## zur Werkbank (gebucht hat GameRun beim Gewähren).
+func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
 	if table_screen == null or table_screen.hub == null or packs.is_empty():
 		if table_screen != null:
+			if fizzled > 0 and table_screen.hub != null:
+				_fly_pack_fizzle(table_screen.hub.position + table_screen.hub.size * 0.5,
+					fizzled * GameRun.PACK_FIZZLE_MONEY)
 			table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 		return
 	var launched := run
@@ -3163,6 +3295,11 @@ func _play_hub_reward_ceremony(packs: Array[Pack]) -> void:
 				if run != launched or table_screen == null or not is_instance_valid(overlay):
 					_drop_hub_reward_overlay(overlay)
 					return
+	# Was im vollen Magazin keinen Platz mehr fand, fährt als Geld in die Truhe.
+	if fizzled > 0 and table_screen.hub != null:
+		travel = maxf(travel, _fly_pack_fizzle(
+			table_screen.hub.position + table_screen.hub.size * 0.5,
+			fizzled * GameRun.PACK_FIZZLE_MONEY))
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
 	_drop_hub_reward_overlay(overlay)
 	if run == launched and table_screen != null:
@@ -3340,7 +3477,7 @@ func _fly_press_meteor(workshop: WorkshopView, slot: int, uid: int, sorts: Array
 	var from_px: Vector2 = anchors[slot] if slot < anchors.size() \
 		else workshop.get_global_rect().get_center()
 	var sort: String = String(sorts[slot]) if slot < sorts.size() else ""
-	var tint: Color = PackShelfView.COLORS.get(sort, CasinoStyle.GOLD)
+	var tint: Color = PackDrawerView.COLORS.get(sort, CasinoStyle.GOLD)
 	var travel := table_screen.press_meteor(from_px, workshop.ablage_spot_px(uid), tint)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
@@ -4237,10 +4374,12 @@ func _update_workshop_hover() -> void:
 		_supply_body = ""
 		_supply_tint = CasinoStyle.CREAM
 		_workshop_line = ""
+		_sync_pack_hover(0)
 		_sync_workshop_info()
 		return
 	var mouse := get_viewport().get_mouse_position()
 	var pixel := _screen_pixel(mouse)
+	_sync_pack_hover(workshop.shelf_hover_uid_at(pixel))
 	var supply := _supply_hint_at(pixel)
 	_supply_title = supply.get("title", "")
 	_supply_body = supply.get("body", "")
@@ -4253,6 +4392,20 @@ func _update_workshop_hover() -> void:
 		if clamped != null:
 			_workshop_line = DieNetView.hint_for(clamped.def, DieNetView.EDGE)
 	_sync_workshop_info()
+
+## Die Kassette unter dem Zeiger zieht sich ein Stück aus der Grube, die vorige
+## sinkt zurück. Nur der WECHSEL - set_hovered ist idempotent, aber ein Aufruf je
+## Bild an jede Zelle wäre Arbeit für nichts.
+func _sync_pack_hover(uid: int) -> void:
+	if uid == _hovered_pack_uid:
+		return
+	var previous: DataCellView = shelf_cells.get(_hovered_pack_uid)
+	if previous != null and is_instance_valid(previous):
+		previous.set_hovered(false)
+	_hovered_pack_uid = uid
+	var cell: DataCellView = shelf_cells.get(uid)
+	if cell != null and is_instance_valid(cell):
+		cell.set_hovered(true)
 
 ## Name und Wirkung des Werkbank-Dings unter pixel ({} = keins): Regal-Bucht,
 ## Ablage-Chip oder der Handlungs-Sitz mit seinem Preis - alle schreiben auf
@@ -6936,6 +7089,10 @@ func _reset_game() -> void:
 ## gereicht, seine Signale halten die Anzeigen aktuell. Der alte Run wird
 ## mitsamt Verbindungen freigegeben (RefCounted).
 func _connect_run() -> void:
+	# Der gemessene Magazin-Deckel gehört dem TISCH: ein frischer Lauf bekommt ihn
+	# sofort, bevor ein Fenster ihn abliest.
+	if run != null and _pack_capacity > 0:
+		run.set_pack_capacity(_pack_capacity)
 	charm_shop.run = run
 	if table_screen != null and table_screen.secret_shop_window != null:
 		table_screen.secret_shop_window.run = run
@@ -6963,8 +7120,8 @@ func _connect_run() -> void:
 		if not table_screen.workshop_window.press_cashed_out.is_connected(_on_press_cashed_out):
 			table_screen.workshop_window.press_cashed_out.connect(_on_press_cashed_out)
 		# Die physischen Datenzellen: Ankunft, Rückgabe und Dekompression.
-		if not table_screen.workshop_window.stack_popped.is_connected(_on_stack_popped):
-			table_screen.workshop_window.stack_popped.connect(_on_stack_popped)
+		if not table_screen.workshop_window.pack_landed.is_connected(_on_pack_landed):
+			table_screen.workshop_window.pack_landed.connect(_on_pack_landed)
 		if not table_screen.workshop_window.pack_unslotted.is_connected(_on_pack_unslotted):
 			table_screen.workshop_window.pack_unslotted.connect(_on_pack_unslotted)
 		if not table_screen.workshop_window.press_started.is_connected(_on_press_started):
@@ -7046,13 +7203,16 @@ func _on_secret_shop_charge_spent(_amount: int) -> void:
 	if table_screen != null:
 		table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
 
-## Schwarzmarkt-Würfel gekauft: gebucht ist er längst als versiegeltes Paket, die
-## Lieferung fährt vom Hub die Werkstatt-Ader hinunter wie jede andere Ware.
+## Schwarzmarkt-Würfel gekauft: gebucht ist er längst als versiegeltes Paket -
+## als JÜNGSTER Zugang liegt er hinten im Magazin; die Lieferung fährt vom Hub
+## die Werkstatt-Ader hinunter wie jede andere Ware.
 func _on_secret_die_purchased() -> void:
 	if table_screen == null or table_screen.hub == null:
 		return
+	if run == null or run.owned_packs.is_empty():
+		return
 	_on_pack_purchased(table_screen.hub.position + table_screen.hub.size * 0.5,
-		PackShelfView.CATEGORY_DICE_PACK)
+		run.owned_packs.back().pack_uid)
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
@@ -7297,8 +7457,11 @@ func _on_round_complete() -> void:
 		# Bestandener Stresstest: EIN versiegeltes Würfel-Paket als Preis. Gebucht
 		# wird hier, geliefert erst unten am Hub.
 		var stress_reward: Pack = null
+		var stress_fizzled := false
 		if GameRun.is_stress_round(run.round_number):
 			run.settle_block_deals()
+			# Volles Magazin: grant_stress_reward bucht statt des Pakets sein Geld.
+			stress_fizzled = run.packs_full()
 			stress_reward = run.grant_stress_reward()
 		phase = Phase.SHOP
 		# Die Ladenzeit ist Werkbankzeit: die Sperre hängt an der Phase, also muss
@@ -7322,6 +7485,9 @@ func _on_round_complete() -> void:
 		# awaiten: der Spieler soll den Laden sofort bedienen können.
 		if stress_reward != null:
 			_play_hub_reward_ceremony([stress_reward] as Array[Pack])
+		elif stress_fizzled:
+			# Volles Magazin: der Preis ist zu Geld zerfallen, und das Geld fliegt.
+			_play_hub_reward_ceremony([] as Array[Pack], 1)
 	else:
 		phase = Phase.GAME_OVER
 		shop_reopen_allowed = false
@@ -7542,15 +7708,19 @@ func _play_encore_meteor(index: int, copy: int) -> void:
 	_flash_charm_and_pad(index)
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	var travel := 0.0
-	if workshop != null and is_instance_valid(workshop):
-		var shelf := PackShelfView.shelf_of(pack)
-		var tint: Color = PackShelfView.COLORS.get(shelf, CasinoStyle.GOLD_INTENSE)
-		workshop.expect_pack_delivery(shelf)
+	if pack == null:
+		# Volles Magazin: der Sonderposten ist zu Geld zerfallen (gebucht am
+		# Rundenabschluss) - vom Pad fährt Geld statt einer Kassette.
+		travel = _fly_pack_fizzle(_charm_trail_source_px([index]),
+			GameRun.PACK_FIZZLE_MONEY, true)
+	elif workshop != null and is_instance_valid(workshop):
+		var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), CasinoStyle.GOLD_INTENSE)
+		workshop.expect_pack_delivery(pack.pack_uid)
 		travel = table_screen.pack_delivery_comet(_charm_trail_source_px([index]),
-			tint, workshop.stack_anchor_px(shelf))
+			tint, workshop.pack_anchor_px(pack.pack_uid))
 		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 			if is_instance_valid(workshop):
-				workshop.deliver_pack(shelf))
+				workshop.deliver_pack(pack.pack_uid))
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
 	if phase != Phase.PAYOUT:
 		return
@@ -7570,35 +7740,38 @@ func _play_jewelry_box_meteors(index: int, copy: int) -> void:
 	var from_px := _charm_trail_source_px([index])
 	var travel := 0.0
 	for i in mine.size():
-		var material_id := String(mine[i]["material_id"])
+		var grant: Dictionary = mine[i]
 		if i == 0:
-			travel = _fire_jewelry_box_meteor(material_id, from_px)
+			travel = _fire_jewelry_box_meteor(grant, from_px)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if phase == Phase.PAYOUT:
-					_fire_jewelry_box_meteor(material_id, from_px))
+					_fire_jewelry_box_meteor(grant, from_px))
 	var last_arrival := float(maxi(0, mine.size() - 1)) * STAMP_METEOR_GAP + maxf(travel, 0.05)
 	await get_tree().create_timer(last_arrival).timeout
 	if phase != Phase.PAYOUT:
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
-## EIN Meteor der Salve: Dock-Pad -> Material-Stapel der Werkbank. Das
-## Schmuckkästchen schenkt ein FIXINHALT-PAKET, kein loses Stück - der Stapel
-## hält sein Siegel darum zurück, bis das Licht ankommt. Liefert die Flugzeit.
-func _fire_jewelry_box_meteor(material_id: String, from_px: Vector2) -> float:
+## EIN Meteor der Salve: Dock-Pad -> Magazin-Platz seines Pakets. Das
+## Schmuckkästchen schenkt ein FIXINHALT-PAKET, kein loses Stück - die Kassette
+## bleibt verdeckt, bis das Licht ankommt. Liefert die Flugzeit.
+func _fire_jewelry_box_meteor(grant: Dictionary, from_px: Vector2) -> float:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var pack: Pack = grant.get("pack")
+	if pack == null:
+		# Volles Magazin: der Fund ist zu Geld zerfallen und fährt als Geld los.
+		return _fly_pack_fizzle(from_px, GameRun.PACK_FIZZLE_MONEY, true)
 	if workshop == null or not is_instance_valid(workshop):
 		return 0.0
-	var material := DieMaterial.by_id(material_id)
+	var material := DieMaterial.by_id(String(grant.get("material_id", "")))
 	var tint := material.tint if material != null else CasinoStyle.GOLD
-	var shelf := Engraving.CATEGORY_MATERIAL
-	workshop.expect_pack_delivery(shelf)
+	workshop.expect_pack_delivery(pack.pack_uid)
 	var travel := table_screen.charm_engraving_comet(from_px,
-		workshop.stack_anchor_px(shelf), tint)
+		workshop.pack_anchor_px(pack.pack_uid), tint)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if is_instance_valid(workshop):
-			workshop.deliver_pack(shelf))
+			workshop.deliver_pack(pack.pack_uid))
 	return travel
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
@@ -7738,6 +7911,11 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2) -> float:
 	if table_screen == null or table_screen.workshop_window == null:
 		run.grant_pack(pack)  # ohne Display: still buchen, nichts verlieren
 		return 0.0
+	if run.packs_full():
+		# Volles Magazin: das Paket zerfällt zu Geld - erst buchen, dann fliegt es
+		# als Geld in die Truhe statt als Kassette zur Werkbank.
+		run.grant_pack(pack)
+		return _fly_pack_fizzle(from_px, GameRun.PACK_FIZZLE_MONEY, true)
 	var launched := run
 	var tint: Color = PackIconRenderer.COLORS.get(pack.type, TableScreen.SIDE_ENGRAVING_COLOR)
 	var travel := table_screen.pack_delivery_comet(from_px, tint)
@@ -8004,14 +8182,13 @@ func _on_pool_changed() -> void:
 ## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
 ## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben
 ## links einen anderen Würfel als der Platz oben links auf dem Tisch.
-func _on_pack_opened(_index: int) -> void:
+func _on_pack_opened(uid: int) -> void:
 	_meteor_index = 0  # je Paket ein frischer Fächer von Ausbruch-Richtungen
-	# Die oberste Kassette des Würfel-Stapels gibt sich her: sie lodert auf, und
-	# der Neuaufbau gleich danach lässt den ganzen Stapel abtreten - Ausbruch und
-	# Auflösen in einem, ohne eigenen Weg.
-	var stack: DataCellView = shelf_cells.get(PackShelfView.CATEGORY_DICE_PACK)
-	if stack != null and is_instance_valid(stack) and stack.visible:
-		stack.flare()
+	# Die Kassette DIESES Pakets gibt sich her: sie lodert auf, und der Neuaufbau
+	# gleich danach lässt sie abtreten - Ausbruch und Auflösen in einem.
+	var cell: DataCellView = shelf_cells.get(uid)
+	if cell != null and is_instance_valid(cell) and cell.visible:
+		cell.flare()
 	if table_screen == null or table_screen.workshop_window == null:
 		return
 	table_screen.workshop_window.set_pool_order(_pool_tray_layout(), pool_tray_view.columns)

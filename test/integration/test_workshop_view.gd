@@ -28,13 +28,14 @@ func test_packs_never_render_as_cards_in_the_window() -> void:
 func test_the_net_row_is_the_readout_of_the_clamped_dice() -> void:
 	assert_eq(view._clamp_nets.size(), run.clamped_dice.size())
 
-func test_opening_the_top_dice_pack_reports_its_slot() -> void:
+func test_opening_the_top_dice_pack_reports_its_uid() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]), 0)
+	var dice_uid := run.owned_packs[1].pack_uid
 	var opened: Array[int] = []
-	view.pack_activated.connect(func(index: int) -> void: opened.append(index))
+	view.pack_activated.connect(func(uid: int) -> void: opened.append(uid))
 	assert_true(view.open_top_dice_pack())
-	assert_eq(opened, [1] as Array[int], "der Platz des Würfel-Pakets wird gemeldet")
+	assert_eq(opened, [dice_uid] as Array[int], "das Würfel-Paket meldet SEINE uid")
 	assert_eq(run.owned_packs.size(), 1, "das Würfel-Paket ist verbraucht")
 
 func test_without_a_dice_pack_nothing_opens() -> void:

@@ -48,6 +48,9 @@ const TYPE_NAMES := {
 @export var description: String = ""
 @export var count: int = 1
 @export var price: int = 0
+## Identität im Lager: GameRun stempelt sie beim Einlagern (_stash_pack). 0 = noch
+## nie eingelagert. An ihr hängen Magazin-Platz, Liefer-Vormerkung und Körper.
+@export var pack_uid: int = 0
 ## Nur bei TYPE_DICE: style_id der DiceOffer-Vorlage (bestimmt die Würfelart).
 @export var template_id: String = ""
 ## Alle Auswahl-Würfel dieses Pakets tragen garantiert eine Seele - so kommt das
@@ -166,6 +169,68 @@ static func by_type(pack_type: String) -> Pack:
 		TYPE_DICE_MOD:
 			return dice_mod_pack()
 	return number_pack()
+
+# --- Magazin-Taxonomie: welcher Sorte ein Paket im Lager zugehört -----------------
+# Wohnt in data/, weil auch GameRun (tidy_packs) danach sortiert; die Farben dazu
+# hält die UI (PackDrawerView.COLORS spiegelt die Schlüssel, Rune.tint-Regel).
+
+## Pseudo-Sorten der Sonderposten (Engraving.SPECIAL_IDS) und der Würfel-Pakete:
+## beide tragen keine Gravur-Kategorie, brauchen aber ihren Platz im Magazin.
+const SHELF_SPECIAL := "special"
+const SHELF_DICE_PACK := "dice_pack"
+
+## Kanonische Sorten-Reihenfolge - EINE Quelle für Magazin, tidy und Siegel.
+const SHELF_ORDER := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
+	Engraving.CATEGORY_DICE, SHELF_DICE_PACK, SHELF_SPECIAL]
+
+## Ein Fixinhalt-Paket mit Sonderposten gehört zum Sonderbestand. Würfel-Pakete
+## haben ihre eigene Sorte, alles andere zählt zu seiner Gravur-Sorte.
+static func pack_belongs(pack: Pack, shelf: String) -> bool:
+	if pack == null:
+		return false
+	if pack.is_dice_pack():
+		return shelf == SHELF_DICE_PACK
+	var fixed := pack.fixed_engraving
+	if fixed != null and Engraving.is_special_id(fixed.id):
+		return shelf == SHELF_SPECIAL
+	return pack.engraving_category() == shelf
+
+## Die Magazin-Sorte dieses Pakets ("" = keine).
+static func shelf_of(pack: Pack) -> String:
+	for shelf: String in SHELF_ORDER:
+		if pack_belongs(pack, shelf):
+			return shelf
+	return ""
+
+## Die Umkehrung: der Pakettyp, dessen Siegel diese Sorte zeichnet ("" = der
+## Sonderbestand, dessen Zeichen der Eckrahmen ist). EINE Zuordnung, in beide
+## Richtungen gelesen - eine zweite Tabelle liefe auseinander.
+static func pack_type_of_shelf(shelf: String) -> String:
+	for pack_type: String in [TYPE_DICE, TYPE_NUMBER, TYPE_MATERIAL, TYPE_DICE_MOD]:
+		if shelf_for_pack_type(pack_type) == shelf:
+			return pack_type
+	return ""
+
+## Sorte, in der ein Paket dieses Typs landet (Lieferweg des Ladens - dort ist
+## nur der Typ bekannt, nie ein Fixinhalt).
+static func shelf_for_pack_type(pack_type: String) -> String:
+	match pack_type:
+		TYPE_DICE:
+			return SHELF_DICE_PACK
+		TYPE_MATERIAL:
+			return Engraving.CATEGORY_MATERIAL
+		TYPE_DICE_MOD:
+			return Engraving.CATEGORY_DICE
+	return Engraving.CATEGORY_NUMBER
+
+## Name einer Magazin-Sorte: die Paketsorte, die dort wohnt - der Sonderbestand
+## trägt keine und nennt sich selbst.
+const SHELF_NAME_SPECIAL := "Sonderbestand"
+
+static func shelf_name(shelf: String) -> String:
+	if shelf == SHELF_SPECIAL:
+		return SHELF_NAME_SPECIAL
+	return String(TYPE_NAMES.get(pack_type_of_shelf(shelf), shelf))
 
 ## Engraving-Kategorie hinter einer Gravur-Paketsorte ("" bei Würfel-Paketen).
 func engraving_category() -> String:

@@ -193,11 +193,29 @@ var owned_pool: Array[DieDefinition] = []
 var owned_charms: Array[Charm] = []
 ## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange. Eine
 ## Aufwertung existiert nur SO oder angewendet - einen losen Vorrat gibt es nicht.
+## Das Magazin ist endlich, und der Deckel ist GEMESSEN: so viele Kassetten stehen
+## in voller Größe in der Grube (PackDrawerView.capacity_for, von scene_root
+## hereingeschoben - core misst keine Fenster). Er gilt für ALLES: der Kauf prüft
+## vor dem Zahlen, und eine Prämie, die keinen Platz mehr findet, zerfällt zu Geld
+## (PACK_FIZZLE_MONEY) - nichts verschwindet still, aber nichts schrumpft auch.
+## PACK_CAPACITY ist nur noch der Rückfall ohne gemessene Grube (Tests, Kopflos).
+const PACK_CAPACITY := 20
+## Zerfallswert eines Pakets, für das kein Platz mehr ist. Bewusst klein und flach:
+## ein Paket wirft im Schnitt zwei Stücke, und ein liegengebliebenes Stück löst
+## sich an der Presse für PhantomPress.FIZZLE_MONEY ($1) auf.
+const PACK_FIZZLE_MONEY := 3
+var pack_capacity: int = PACK_CAPACITY
 var owned_packs: Array[Pack] = []
+## Laufende Paket-Nummer: _stash_pack stempelt sie beim Einlagern. An ihr hängen
+## Magazin-Platz, Vormerkung und Körper - Indizes brechen beim Umsortieren.
+var pack_serial: int = 0
 ## Die Pakete des JÜNGSTEN Hub-Ausbaus, in Gewähr-Reihenfolge - Vorlage der
 ## Reveal-Zeremonie. Gebucht sind sie längst (upgrade_hub); das hier ist nur die
 ## Merkliste, wovon die Zeremonie erzählt.
 var last_hub_reward_packs: Array[Pack] = []
+## Wie viele Pakete desselben Ausbaus am vollen Magazin zu Geld zerfallen sind -
+## die Zeremonie schickt dafür Geld statt einer Kassette los.
+var last_hub_reward_fizzle: int = 0
 ## Beim Händler hinterlegte Würfel: in der Chip-Schale gekauft, aber noch nicht
 ## eingetauscht. Sie liegen im Laden, bis der Spieler selbst bestimmt, welchen
 ## Pool-Platz sie übernehmen - der Automat sucht ihn sonst allein aus, und eine
@@ -401,26 +419,28 @@ func upgrade_hub() -> void:
 ## Stufe ab 2 bringt ein 3er-Würfel-Paket, dessen drei Auswahl-Würfel ALLE eine
 ## Seele tragen; HUB_REWARD_PACKS legt je Stufe noch Gravur-Pakete obendrauf.
 ## Geöffnet wird alles über den gewohnten Weg in der Werkstatt.
+## Ist das Magazin voll, landen die vorderen und der Rest zerfällt zu Geld -
+## last_hub_reward_fizzle merkt sich, wie viele, damit die Zeremonie statt einer
+## Kassette Geld fliegen lässt.
 func _grant_hub_rewards(level: int) -> int:
 	last_hub_reward_packs.clear()
-	var granted := 0
+	last_hub_reward_fizzle = 0
+	var delivery: Array[Pack] = []
 	var template := _reward_dice_template()
 	if not template.is_empty():
 		var pack := Pack.dice_pack(template)
 		pack.essence_guaranteed = true
 		pack.description = "%d× %s aufgedeckt, alle beseelt - einer darf mit." \
 			% [int(template["count"]), template["name"]]
-		owned_packs.append(pack)
-		last_hub_reward_packs.append(pack)
-		granted += 1
+		delivery.append(pack)
 	for pack_type: String in HUB_REWARD_PACKS.get(level, []):
-		var extra := Pack.by_type(pack_type)
-		owned_packs.append(extra)
-		last_hub_reward_packs.append(extra)
-		granted += 1
-	if granted > 0:
-		packs_changed.emit()
-	return granted
+		delivery.append(Pack.by_type(pack_type))
+	for stashed in grant_packs(delivery):
+		if stashed == null:
+			last_hub_reward_fizzle += 1
+		else:
+			last_hub_reward_packs.append(stashed)
+	return last_hub_reward_packs.size()
 
 ## Vorlage des Belohnungs-Pakets: eine der 3er-Sorten, damit die Wahl echt ist.
 func _reward_dice_template() -> Dictionary:
@@ -509,15 +529,12 @@ func stash_die(def: DieDefinition, price: int) -> void:
 
 ## Bestandener Stresstest: EIN versiegeltes Würfel-Paket mit Seelengarantie ins
 ## Lager. Ausgewürfelt wird der Würfel erst beim Öffnen in der Werkstatt - wie
-## bei jedem Paket.
+## bei jedem Paket. null = volles Magazin, der Preis ist zu Geld zerfallen.
 func grant_stress_reward() -> Pack:
 	var templates := DiceOffer.pick_templates(1)
 	if templates.is_empty():
 		return null
-	var pack := Pack.stress_die(templates[0])
-	owned_packs.append(pack)
-	packs_changed.emit()
-	return pack
+	return grant_pack(Pack.stress_die(templates[0]))
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
 ## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
@@ -619,16 +636,17 @@ func sell_charm(index: int) -> void:
 ## Legt ein Fixinhalt-Paket mit genau dieser Gravur ins Lager - der Weg, den seit
 ## dem Werkstatt-Umbau JEDE Quelle geht, die früher lose Gravuren lieferte
 ## (Abguss, Schmuckkästchen, Durchschlagpapier, Ernte, Schwarzmarkt).
-func grant_engraving_pack(engraving: Engraving) -> void:
+func grant_engraving_pack(engraving: Engraving) -> Pack:
 	if engraving == null:
-		return
-	grant_pack(Pack.fixed_engraving_pack(engraving))
+		return null
+	return grant_pack(Pack.fixed_engraving_pack(engraving))
 
-## Fixinhalt-Paket zur Material-Gravur eines Materials.
-func grant_material_pack(material: DieMaterial) -> void:
+## Fixinhalt-Paket zur Material-Gravur eines Materials. Liefert das Paket - die
+## Zeremonien zielen ihre Kometen auf seine uid.
+func grant_material_pack(material: DieMaterial) -> Pack:
 	if material == null:
-		return
-	grant_engraving_pack(Engraving.material_engraving(material,
+		return null
+	return grant_engraving_pack(Engraving.material_engraving(material,
 		Engraving.MATERIAL_RARITY.get(material.id, Engraving.Rarity.UNCOMMON)))
 
 ## Kauft ein versiegeltes Paket. Erst zahlen, dann würfelt das Kleingedruckte auf
@@ -637,6 +655,8 @@ func grant_material_pack(material: DieMaterial) -> void:
 ## das zurückgegebene Geld (0 = keins); rng injizierbar, damit ein Test beide
 ## Ausgänge erzwingt.
 func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) -> int:
+	if packs_full():
+		return 0  # prüfen VOR dem Zahlen - wie purchase_charm bei vollem Dock
 	add_money(-price)
 	grant_pack(pack)
 	var chance := CharmEffects.pack_refund_chance(charm_ids())
@@ -647,18 +667,114 @@ func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) ->
 	refund_money(price)
 	return price
 
-## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn).
-func grant_pack(pack: Pack) -> void:
+## Der EINE Einlagerungsweg: stempelt die uid und hängt das Paket ans ENDE der
+## Magazin-Ordnung - eine Lieferung verrückt nie, was der Spieler sortiert hat.
+## Bewusst ohne Signal: das setzt der Aufrufer, damit eine Sammellieferung nur
+## einmal meldet. Volles Magazin = null: der EINE Engpass, an dem der Deckel greift.
+func _stash_pack(pack: Pack) -> Pack:
+	if packs_full():
+		return null
+	pack_serial += 1
+	pack.pack_uid = pack_serial
 	owned_packs.append(pack)
+	return pack
+
+## Der gemessene Deckel, den scene_root an der Grube abliest. Idempotent, und ein
+## unbrauchbarer Wert (kein Layout gemessen) lässt den Rückfall stehen.
+func set_pack_capacity(value: int) -> void:
+	if value <= 0 or value == pack_capacity:
+		return
+	pack_capacity = value
+
+func packs_full() -> bool:
+	return owned_packs.size() >= pack_capacity
+
+## Volles Magazin: die Prämie zerfällt zu Geld statt still zu verschwinden. Es ist
+## EINKOMMEN wie die liegengebliebene Pressbeute, also add_money (Multiplikatoren
+## gelten) - refund_money ist die Umkehr einer Ausgabe und hier falsch.
+func _fizzle_pack() -> void:
+	add_money(PACK_FIZZLE_MONEY)
+
+## Das Paket zu einer uid (null = liegt nicht im Lager).
+func pack_by_uid(uid: int) -> Pack:
+	var index := pack_index_of(uid)
+	return owned_packs[index] if index >= 0 else null
+
+func pack_index_of(uid: int) -> int:
+	if uid <= 0:
+		return -1
+	for i in owned_packs.size():
+		if owned_packs[i].pack_uid == uid:
+			return i
+	return -1
+
+## Verschiebt EIN Paket in der Magazin-Ordnung: bei from heraus, bei to hinein,
+## alles dazwischen rückt eine Stelle - dasselbe remove/insert wie reorder_pool,
+## nie ein Tausch.
+func reorder_packs(from: int, to: int) -> void:
+	if from < 0 or from >= owned_packs.size() or to < 0 or to >= owned_packs.size():
+		return
+	if from == to:
+		return
+	var pack := owned_packs[from]
+	owned_packs.remove_at(from)
+	owned_packs.insert(to, pack)
 	packs_changed.emit()
 
-## Eine ganze Lieferung auf einmal - EINE Bestandsmeldung, sonst baut das Regal
-## bei einer Testlieferung achtzigmal neu.
-func grant_packs(packs: Array[Pack]) -> void:
-	if packs.is_empty():
+## Räumt das Magazin auf: nach Sorte (SHELF_ORDER), dann Inhalt, dann uid - der
+## explizite Endvergleich, weil sort_custom nicht stabil ist.
+func tidy_packs() -> void:
+	if owned_packs.size() < 2:
 		return
-	owned_packs.append_array(packs)
+	owned_packs.sort_custom(func(a: Pack, b: Pack) -> bool:
+		var key_a := _tidy_key(a)
+		var key_b := _tidy_key(b)
+		return key_a < key_b)
 	packs_changed.emit()
+
+## Sortierschlüssel eines Pakets: Sorten-Rang, Inhalts-id, uid.
+func _tidy_key(pack: Pack) -> Array:
+	var shelf_rank := Pack.SHELF_ORDER.find(Pack.shelf_of(pack))
+	if shelf_rank < 0:
+		shelf_rank = Pack.SHELF_ORDER.size()
+	var content := pack.template_id
+	if pack.fixed_engraving != null:
+		content = pack.fixed_engraving.id
+	elif content == "":
+		content = pack.type
+	return [shelf_rank, content, pack.pack_uid]
+
+## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn). null = das Magazin war
+## voll, das Paket ist zu Geld zerfallen (gebucht) - der Aufrufer fliegt dann Geld
+## statt einer Kassette.
+func grant_pack(pack: Pack) -> Pack:
+	var stashed := _stash_pack(pack)
+	if stashed == null:
+		_fizzle_pack()
+		return null
+	packs_changed.emit()
+	return stashed
+
+## Eine ganze Lieferung auf einmal - EINE Bestandsmeldung, sonst baut das Regal
+## bei einer Testlieferung achtzigmal neu. Liefert je übergebenem Paket seinen
+## Platz in der Antwort: das gelandete Paket oder null für ein zerfallenes. So
+## bleibt die Zuordnung Exemplar -> Zeremonie erhalten, auch wenn nur ein Teil
+## der Salve noch Platz fand.
+func grant_packs(packs: Array[Pack]) -> Array[Pack]:
+	var landed: Array[Pack] = []
+	if packs.is_empty():
+		return landed
+	var any := false
+	for pack in packs:
+		var stashed := _stash_pack(pack)
+		landed.append(stashed)
+		if stashed == null:
+			_fizzle_pack()
+		else:
+			any = true
+	if any:
+		packs_changed.emit()
+	return landed
 
 ## Öffnet ein WÜRFEL-Paket auf Platz index - der Inhalt wird ERST JETZT
 ## ausgewürfelt, aber noch nicht verbucht (das tut place_pack_die). Gravur-Pakete
@@ -668,6 +784,18 @@ func open_pack(index: int) -> Dictionary:
 	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
 	if index < 0 or index >= owned_packs.size():
 		return empty
+	return _open_pack_at(index)
+
+## Dasselbe über die Paket-uid - der Weg der Magazin-Zellen, die beim Umsortieren
+## keine Indizes halten können.
+func open_pack_by_uid(uid: int) -> Dictionary:
+	var index := pack_index_of(uid)
+	if index < 0:
+		return {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
+	return _open_pack_at(index)
+
+func _open_pack_at(index: int) -> Dictionary:
+	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
 	var pack := owned_packs[index]
 	if not pack.is_dice_pack():
 		return empty
@@ -1648,7 +1776,9 @@ func _roll_lumpensammler_value() -> void:
 ## (wie beim Überflieger), und der Ort erledigt das "einmal je Runde".
 const ENCORE_STAGES := 5
 
-## Bucht die Prämie und liefert die Pakete für die Zeremonie (leer = nichts).
+## Bucht die Prämie und liefert je Exemplar seinen Platz (leer = nichts, null =
+## volles Magazin, das Paket ist zu Geld zerfallen). Die Plätze bleiben stehen,
+## damit die Zeremonie ihr Exemplar am Dock weiter wiederfindet.
 func apply_encore(cleared_stages: int) -> Array[Pack]:
 	var granted: Array[Pack] = []
 	if cleared_stages < ENCORE_STAGES:
@@ -1657,21 +1787,21 @@ func apply_encore(cleared_stages: int) -> Array[Pack]:
 		var pack := Pack.roll_special_pack()
 		pack.price = 0  # gefunden, nicht gekauft
 		granted.append(pack)
-	grant_packs(granted)
-	return granted
+	return grant_packs(granted)
 
 ## Schmuckkästchen: je Vorkommen und übrigem Würfel 10% Chance auf ein
 ## Fixinhalt-Mini-Paket des gefundenen Materials - nie auf den Würfel selbst.
-## Liefert je Fund {material_id, copy} für die Zeremonie; "copy" ist das
-## Exemplar, dem er gehört (der Dock-Platz, von dem er ausgeht).
+## Liefert je Fund {material_id, copy, pack} für die Zeremonie; "copy" ist das
+## Exemplar, dem er gehört (der Dock-Platz, von dem er ausgeht), "pack" das
+## gelandete Paket - null heißt volles Magazin, der Fund ist zu Geld zerfallen.
 func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
 	var grants: Array[Dictionary] = []
 	for i in charm_ids().count(Charm.JEWELRY_BOX):
 		for _die in unused_dice:
 			if randf() < 0.1:
 				var material: DieMaterial = DieMaterial.all().pick_random()
-				grant_material_pack(material)
-				grants.append({"material_id": material.id, "copy": i})
+				var pack := grant_material_pack(material)
+				grants.append({"material_id": material.id, "copy": i, "pack": pack})
 	return grants
 
 ## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
@@ -1975,11 +2105,12 @@ func tax_side_bets(hand_dice: int) -> int:
 		side_bets_changed.emit()
 	return paid
 
-## Opfert n Pakete vom Anfang des Lagers (Einsatz einer Paket-Wette).
+## Opfert n Pakete vom ENDE des Lagers (Einsatz einer Paket-Wette): dort landen
+## die Neuzugänge - was der Spieler nach vorn sortiert hat, bleibt ihm.
 func _consume_packs(count: int) -> void:
 	var removed := false
 	for i in mini(count, owned_packs.size()):
-		owned_packs.remove_at(0)
+		owned_packs.remove_at(owned_packs.size() - 1)
 		removed = true
 	if removed:
 		packs_changed.emit()
@@ -2011,10 +2142,12 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 			if overflow > 0:
 				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # volle Börse zahlt bar
 		SideBet.Payout.SPECIAL:
-			grant_engraving_pack(bet.special_engraving())
+			# Wie beim Paket-Gewinn gemerkt: die Zeremonie zielt auf SEINE uid.
+			bet.awarded_pack = grant_engraving_pack(bet.special_engraving())
 		SideBet.Payout.PACK:
-			bet.awarded_pack = Pack.roll_engraving_pack()
-			grant_pack(bet.awarded_pack)
+			# null = volles Magazin: der Gewinn ist zu Geld zerfallen, und die
+			# Zeremonie schickt darum Geld statt einer Kassette los.
+			bet.awarded_pack = grant_pack(Pack.roll_engraving_pack())
 		SideBet.Payout.COMBO_LEVEL:
 			grant_combo_level(bet.target_combo)
 		_:
@@ -2361,6 +2494,10 @@ func buy_secret_offer(index: int) -> bool:
 	# Voller Dock: der Charm-Platz bleibt liegen, die Ladung wird nicht abgebucht.
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
+	# Volles Magazin: alles andere geht versiegelt raus, also sperrt der Deckel es
+	# GENAUSO - prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3.
+	if offer[OFFER_KIND] != KIND_CHARM and packs_full():
+		return false
 	spend_charge(price)
 	match offer[OFFER_KIND]:
 		KIND_CHARM:
@@ -2370,8 +2507,7 @@ func buy_secret_offer(index: int) -> bool:
 			# Dieselbe Ware wie jedes Würfel-Paket: versiegelt in die Werkstatt,
 			# dort sucht der Spieler selbst den Platz - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
-			owned_packs.append(Pack.secret_die(die))
-			packs_changed.emit()
+			grant_pack(Pack.secret_die(die))
 		_:
 			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
 			# Ein Bündel bleibt dabei EINE Karte mit mehreren Stücken darin.

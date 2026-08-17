@@ -44,7 +44,7 @@ func setup(pack_sort: String, seed_index: int = 0, side: float = 0.0) -> void:
 	_dots = DOTS_MIN + absi(seed_index) % (DOTS_MAX - DOTS_MIN + 1)
 	if sort == "":
 		return
-	var icon := PackIconRenderer.for_type(PackShelfView.pack_type_of(sort))
+	var icon := PackIconRenderer.for_type(Pack.pack_type_of_shelf(sort))
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var inset := maxf(side, size.y) * GLYPH_INSET
 	icon.offset_left = inset
@@ -85,7 +85,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if _state == 0 or _delay > 0.0:
 		return
-	var tint: Color = PackShelfView.COLORS.get(sort, CasinoStyle.CHARGE)
+	var tint: Color = PackDrawerView.COLORS.get(sort, CasinoStyle.CHARGE)
 	var middle := size * 0.5
 	var reach := minf(size.x, size.y) * 0.5
 	if _state == 2:

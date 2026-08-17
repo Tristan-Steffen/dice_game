@@ -213,10 +213,18 @@ func _refresh_afford_state() -> void:
 			continue
 		var offer := run.secret_stock[i]
 		var sold: bool = offer[GameRun.OFFER_SOLD]
-		# Voller Charm-Dock sperrt den Charm-Platz wie ein leeres Konto.
-		var blocked: bool = offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and run.charms_full()
-		offer_buttons[i].disabled = sold or blocked \
+		offer_buttons[i].disabled = sold or _offer_blocked(offer) \
 			or run.charge < run.secret_offer_price(offer)
+
+## Ob ein Platz an einem vollen Lager hängt: der Charm am Dock, alles andere am
+## Magazin - Würfel wie Sonderposten gehen versiegelt raus (buy_secret_offer
+## prüft dasselbe VOR dem Zahlen).
+func _offer_blocked(offer: Dictionary) -> bool:
+	if run == null:
+		return false
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
+		return run.charms_full()
+	return run.packs_full()
 
 ## Angebots-Karte: Ware groß, Preis in Ladung darunter; Name und Wirkung zeigt
 ## der Hover-Dropdown. Rahmen und Lichtfleck tragen die Seltenheit der Ware.
@@ -290,9 +298,11 @@ Eine Datenkarte mit %d Stücken darin." % [body, bundle]
 		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
 	column.add_child(stage)
 
-	# Voller Charm-Dock: der Platz zeigt das statt seines Preises.
-	var blocked := kind == GameRun.KIND_CHARM and run != null and run.charms_full()
-	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
+	# Volles Lager: der Platz zeigt das statt seines Preises - Dock beim Charm,
+	# Magazin bei jeder versiegelten Ware.
+	var blocked := _offer_blocked(offer)
+	var full_tag := "DOCK VOLL" if kind == GameRun.KIND_CHARM else "MAGAZIN VOLL"
+	var tag := "VERKAUFT" if sold else (full_tag if blocked else "⚡ %d" % price)
 	column.add_child(_label(tag, u * 3.0,
 		NEON_MUTED if sold or blocked else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 

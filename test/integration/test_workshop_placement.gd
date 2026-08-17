@@ -374,7 +374,7 @@ func test_the_base_furniture_stands_through_the_whole_placement() -> void:
 	_piece(Engraving.NOTCH)
 	await wait_frames(2)
 	assert_eq(view._press_slot_buttons.size(), PhantomPress.BATCH_CAP, "die sechs Leser stehen")
-	assert_not_null(view._shelf, "und das Regal ebenso")
+	assert_not_null(view._drawer, "und das Regal ebenso")
 	assert_not_null(view._band, "und das Konsolen-Band der Schürze")
 	assert_eq(view._clamp_nets.size(), run.clamped_dice.size(), "die Netzzeile trägt die Ziele")
 

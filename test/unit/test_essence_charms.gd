@@ -381,7 +381,7 @@ func test_the_glaze_brush_grants_a_doping_pack_on_a_capped_face():
 	assert_eq(run.apply_glaze_brush(defs, _p([0]), _p([0])), 1)
 	assert_eq(_pack_stock(run, Engraving.DOPING), 1, "ein versiegeltes Veredelungs-Paket")
 	assert_eq(_pack_stock(run, DieMaterial.GOLD), 0, "keine Material-Kopie mehr")
-	assert_eq(PackShelfView.shelf_of(run.owned_packs[0]), PackShelfView.CATEGORY_SPECIAL,
+	assert_eq(Pack.shelf_of(run.owned_packs[0]), Pack.SHELF_SPECIAL,
 		"es liegt im Sonderbestand")
 
 func test_alkahest_lends_the_discarded_souls_to_the_quintessence():

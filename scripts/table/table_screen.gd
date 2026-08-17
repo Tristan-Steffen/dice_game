@@ -185,6 +185,11 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
+## Das LOCH der Magazin-Grube in Display-Pixeln (leeres Rechteck = keins). Kein
+## Fenster: es frisst keinen der MAX_WINDOWS-Plätze und hat eine eigene Uniform -
+## ein Loch spiegelt nicht, es ist weg.
+var apron_pit := Rect2()
+var apron_pit_radius := 0.0
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -292,6 +297,7 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_glass_material = material
 	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
+	_sync_apron_pit()
 
 ## Die Anzeigefläche IST das Rechteck ihrer Textur. Das Tisch-GLB bringt eine
 ## ovale Platte mit; ihre Rundungen schnitten alles an, was in der Ecke lag
@@ -874,6 +880,24 @@ func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.size = rect.size
 	treasure_window.visible = true
 	_sync_reflection_windows()
+
+## Schneidet das Loch der Magazin-Grube ins Display-Glas (leeres Rechteck =
+## keins). Der Körper darunter gehört scene_root (PackPitView), hier fällt nur
+## die Anzeige weg.
+func set_apron_pit(rect: Rect2, radius: float = 0.0) -> void:
+	apron_pit = rect
+	apron_pit_radius = maxf(radius, 0.0)
+	_sync_apron_pit()
+
+func _sync_apron_pit() -> void:
+	if _glass_material == null:
+		return
+	var hole := Vector4.ZERO
+	if apron_pit.size.x > 0.0 and apron_pit.size.y > 0.0:
+		hole = Vector4(apron_pit.position.x, apron_pit.position.y,
+			apron_pit.end.x, apron_pit.end.y)
+	_glass_material.set_shader_parameter("pit_rect", hole)
+	_glass_material.set_shader_parameter("pit_radius", apron_pit_radius)
 
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.

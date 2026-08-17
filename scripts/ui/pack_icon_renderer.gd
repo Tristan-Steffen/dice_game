@@ -28,7 +28,7 @@ const COLORS := {
 
 var pack_type: String = Pack.TYPE_NUMBER
 ## Abweichende Sortenfarbe (Alpha 0 = keine). Die leere Regal-Bucht zeichnet ihr
-## Zeichen aus PackShelfView.COLORS - auch dort, wo das Siegel selbst keine Sorte
+## Zeichen aus PackDrawerView.COLORS - auch dort, wo das Siegel selbst keine Sorte
 ## kennt (Sonderbestand).
 var tint := Color(0.0, 0.0, 0.0, 0.0)
 

@@ -92,8 +92,8 @@ func test_the_slits_sit_in_one_raised_console_plate() -> void:
 	assert_true(console.is_ancestor_of(view._press_slit_panels[5]), "alle sechs")
 	var plate: StyleBoxFlat = console.get_theme_stylebox("panel")
 	assert_eq(plate.bg_color, WorkshopView.CONSOLE_BASE, "neutrales Dunkelmetall")
-	for sort: String in PackShelfView.SHELF_ORDER:
-		assert_ne(plate.bg_color, PackShelfView.COLORS[sort],
+	for sort: String in Pack.SHELF_ORDER:
+		assert_ne(plate.bg_color, PackDrawerView.COLORS[sort],
 			"%s: das Blech trägt keine Sortenfarbe" % sort)
 	var licht: StyleBoxFlat = console.get_node("ConsoleLight").get_theme_stylebox("panel")
 	var schatten: StyleBoxFlat = console.get_node("ConsoleShade").get_theme_stylebox("panel")
@@ -142,12 +142,16 @@ func test_a_filled_slit_writes_no_word_of_its_own() -> void:
 	assert_eq(view._press_slot_buttons[0].text, "", "und keine Aufschrift auf dem Knopf")
 
 func test_a_slit_is_never_narrower_than_the_cell_it_swallows() -> void:
-	view.data_cell_px = Vector2(40, 60)
+	# Geschluckt wird die Kappe in dem EINEN Maß, in dem die Kassette überall
+	# steht - im Magazin wie hier.
+	view.data_cell_px = Vector2(40, 16)
 	await wait_frames(2)
 	var u := maxf(view.size.x, 200.0) / 100.0
-	assert_gte(view.slit_size(u).x, 40.0, "die Zelle geht hindurch, sie klemmt nicht")
+	var cap := view.data_cell_px * PackDrawerView.CASSETTE_SCALE
+	assert_gte(view.slit_size(u).x, cap.x, "die Zelle geht hindurch, sie klemmt nicht")
+	assert_gte(view.slit_size(u).y, cap.y, "und ihre Kappe liegt IM Schlitz, nicht darauf")
 	assert_lt(view.slit_size(u).y, view.slit_size(u).x * 0.5,
-		"und flach bleibt er: ein Schlitz ist eine Kante, keine Bucht")
+		"flach bleibt er trotzdem: ein Schlitz ist eine Kante, keine Bucht")
 	assert_eq(view._press_slot_buttons[0].custom_minimum_size, view.socket_size(u))
 
 func test_the_display_is_the_big_field_of_its_slot() -> void:
@@ -156,7 +160,7 @@ func test_the_display_is_the_big_field_of_its_slot() -> void:
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	var field := _display(0)
-	assert_almost_eq(field.size.y, u * WorkshopView.SLIT_DISPLAY, 1.0)
+	assert_almost_eq(field.size.y, view.display_side(u), 1.0)
 	assert_almost_eq(field.size.x, view.socket_size(u).x, 1.0,
 		"und er füllt die Breite seines Platzes")
 	assert_gt(field.size.y, view.slit_size(u).y * 3.0, "ein Vielfaches des Schlitzes")
@@ -166,7 +170,7 @@ func test_an_empty_slit_stays_dark_and_a_filled_one_lights_in_its_sort() -> void
 	view.slot_pack_from_stack(Engraving.CATEGORY_MATERIAL)
 	await wait_frames(2)
 	var lit: StyleBoxFlat = _slit(0).get_theme_stylebox("panel")
-	assert_eq(lit.border_color, PackShelfView.COLORS[Engraving.CATEGORY_MATERIAL],
+	assert_eq(lit.border_color, PackDrawerView.COLORS[Engraving.CATEGORY_MATERIAL],
 		"der belegte Schlitz brennt in seiner Sorte")
 	var dark: StyleBoxFlat = _slit(1).get_theme_stylebox("panel")
 	assert_eq(dark.border_color, WorkshopView.SOCKET_RIM, "der leere bleibt stumpf")
@@ -215,19 +219,20 @@ func test_the_sockets_report_their_sorts_and_places() -> void:
 	assert_eq(anchors.size(), PhantomPress.BATCH_CAP, "auch die leeren Buchten haben Plätze")
 	assert_true(view.bench_rect().has_point(anchors[0]), "und die liegen auf der Bank")
 
-func test_an_ejected_pack_reports_its_place_and_stack() -> void:
+func test_an_ejected_pack_reports_its_place_and_uid() -> void:
 	# Die Zelle dieses Platzes muss sich ausklinken, BEVOR neu abgezählt wird.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.material_pack())
+	var material_uid := run.owned_packs[1].pack_uid
 	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
 	view.slot_pack_from_stack(Engraving.CATEGORY_MATERIAL)
 	var reported: Array = []
-	view.pack_unslotted.connect(func(index: int, category: String) -> void:
-		reported.append([index, category]))
+	view.pack_unslotted.connect(func(index: int, uid: int) -> void:
+		reported.append([index, uid]))
 	view.clear_press_slot(1)
 	assert_eq(reported.size(), 1)
 	assert_eq(int(reported[0][0]), 1)
-	assert_eq(String(reported[0][1]), Engraving.CATEGORY_MATERIAL)
+	assert_eq(int(reported[0][1]), material_uid)
 
 func test_the_press_announces_itself_while_the_sockets_still_stand() -> void:
 	var seen: Array[int] = []
@@ -239,11 +244,11 @@ func test_the_press_announces_itself_while_the_sockets_still_stand() -> void:
 func test_the_press_leaves_the_base_page_standing() -> void:
 	# Die Pressung ersetzt nichts: sie läuft IN den Lesern der Grundseite, ihre
 	# Beute liegt darunter - Regal und Buchten stehen die ganze Zeit.
-	assert_not_null(view._shelf, "Grundseite: Regal und Buchten stehen")
+	assert_not_null(view._drawer, "Grundseite: Regal und Buchten stehen")
 	assert_false(view.pressing())
 	_select_number_packs(1)
 	view.start_press()
-	assert_not_null(view._shelf, "und sie stehen auch danach")
+	assert_not_null(view._drawer, "und sie stehen auch danach")
 	assert_true(view.placing(), "die Beute liegt in der Ablage")
 	assert_eq(view._phase, WorkshopView.Phase.STASH, "die Presse hat keine eigene Seite mehr")
 
@@ -280,7 +285,8 @@ func test_the_running_press_locks_the_shelf_until_the_last_piece_lands() -> void
 func test_a_stack_click_fills_the_next_free_slot() -> void:
 	run.grant_pack(Pack.number_pack())
 	assert_true(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER))
-	assert_eq(view._selected_packs, [0] as Array[int], "der Platz ist belegt")
+	assert_eq(view._selected_packs, [run.owned_packs[0].pack_uid] as Array[int],
+		"der Platz ist belegt")
 	assert_eq(view._phase, WorkshopView.Phase.STASH, "geöffnet wird noch nichts")
 	assert_eq(run.owned_packs.size(), 1, "das Siegel bleibt ganz")
 	assert_false(view._press_slot_buttons[0].disabled, "der belegte Platz ist anfassbar")
@@ -318,14 +324,16 @@ func test_the_batch_is_capped_at_six() -> void:
 	assert_eq(view._selected_packs.size(), PhantomPress.BATCH_CAP,
 		"sechs Seiten, sechs Plätze - mehr geht nicht in einen Wurf")
 
-func test_slotted_packs_are_reserved_against_their_shelf() -> void:
-	# Was im Platz liegt, fehlt im Stapel - sonst stünde dasselbe Siegel zweimal.
+func test_slotted_packs_are_reserved_against_the_drawer() -> void:
+	# Was im Platz steckt, liegt nicht im Fach - sonst stünde dieselbe Kassette
+	# zweimal auf dem Glas.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.material_pack())
+	var uid := run.owned_packs[0].pack_uid
 	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
-	var reserved := view.press_reserved_counts()
-	assert_eq(int(reserved.get(Engraving.CATEGORY_NUMBER, 0)), 1)
-	assert_eq(int(reserved.get(Engraving.CATEGORY_MATERIAL, 0)), 0)
+	assert_eq(view.press_slot_uids(), [uid] as Array[int], "der Schlitz kennt seine uid")
+	for entry in view.drawer_entries():
+		assert_ne(int(entry["uid"]), uid, "und das Fach führt sie nicht mehr")
 
 func test_a_locked_round_bars_the_press() -> void:
 	run.grant_pack(Pack.number_pack())
@@ -434,7 +442,7 @@ func test_a_fixed_content_pack_yields_exactly_its_piece() -> void:
 	# Der Pointer liegt auf keinem Ikonensatz - geliefert wird er trotzdem
 	# durch dieselbe Presse.
 	run.grant_engraving_pack(Engraving.pointer_engraving())
-	view.slot_pack_from_stack(PackShelfView.CATEGORY_SPECIAL)
+	view.slot_pack_from_stack(Pack.SHELF_SPECIAL)
 	view.start_press()
 	assert_eq(run.press_pieces.size(), 1)
 	assert_eq(String(run.press_pieces[0]["id"]), Engraving.POINTER)
@@ -878,127 +886,158 @@ func test_the_press_bar_is_lower_than_the_net_row() -> void:
 	assert_lt(view._press_slot_buttons[0].size.y,
 		DieNetView.net_size(view.clamp_cell(u)).y, "der Platz ist flacher als ein Netz")
 
-# --- Die Regal-Leiste im Fenster ---------------------------------------------------
+# --- Das Magazin im Fenster ---------------------------------------------------------
 
-func test_the_shelf_counts_its_sealed_packs() -> void:
-	run.grant_pack(Pack.number_pack())
+func test_the_drawer_lists_every_pack_in_owner_order() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.material_pack())
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 2)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_MATERIAL), 1)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_DICE), 0)
-	assert_eq(view.shelf_entries().size(), 2, "je belegter Sorte ein Stapel")
-
-func test_a_slotted_pack_leaves_its_stack() -> void:
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 0,
-		"was im Platz liegt, steht nicht mehr im Stapel")
+	var entries := view.drawer_entries()
+	assert_eq(entries.size(), 3, "je Paket ein Platz - keine Stapel mehr")
+	for i in entries.size():
+		assert_eq(int(entries[i]["uid"]), run.owned_packs[i].pack_uid,
+			"Platz %d = Magazin-Ordnung" % i)
+
+func test_a_slotted_pack_leaves_the_drawer_and_returns_to_its_place() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	var uid := run.owned_packs[0].pack_uid
+	view.slot_pack(uid)
+	var uids: Array[int] = []
+	for entry in view.drawer_entries():
+		uids.append(int(entry["uid"]))
+	assert_false(uids.has(uid), "was im Platz steckt, liegt nicht im Fach")
 	view.clear_press_slot(0)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 1)
+	assert_eq(int(view.drawer_entries()[0]["uid"]), uid,
+		"ausgeworfen liegt es wieder auf SEINEM Platz, nicht hinten")
 
-func test_a_pending_delivery_holds_its_seal_back() -> void:
+func test_a_pending_delivery_holds_its_chip_back() -> void:
 	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.number_pack())
-	view.expect_pack_delivery(Engraving.CATEGORY_NUMBER)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 1,
-		"das unterwegs befindliche Paket fehlt noch")
-	view.deliver_pack(Engraving.CATEGORY_NUMBER)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 2, "bei Ankunft wächst der Stapel")
+	var uid := run.owned_packs[0].pack_uid
+	view.expect_pack_delivery(uid)
+	assert_true(bool(view.drawer_entries()[0]["withheld"]),
+		"das fliegende Paket hält seinen Platz, aber keinen Chip")
+	view.deliver_pack(uid)
+	assert_false(bool(view.drawer_entries()[0]["withheld"]), "gelandet liegt es da")
 
 func test_an_extra_delivery_is_ignored() -> void:
 	run.grant_pack(Pack.number_pack())
-	view.deliver_pack(Engraving.CATEGORY_NUMBER)  # ohne angemeldete Lieferung
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 1, "der Stapel bleibt, wie er ist")
+	view.deliver_pack(run.owned_packs[0].pack_uid)  # ohne angemeldete Lieferung
+	assert_false(bool(view.drawer_entries()[0]["withheld"]))
 
 func test_a_new_run_cancels_pending_deliveries() -> void:
 	run.grant_pack(Pack.number_pack())
-	view.expect_pack_delivery(Engraving.CATEGORY_NUMBER)
+	view.expect_pack_delivery(run.owned_packs[0].pack_uid)
 	var fresh := GameRun.new_run()
 	fresh.grant_pack(Pack.number_pack())
 	view.run = fresh
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 1,
-		"der neue Lauf zählt sein eigenes Regal")
+	assert_false(bool(view.drawer_entries()[0]["withheld"]),
+		"der neue Lauf zählt sein eigenes Magazin")
 
-func test_the_stack_anchor_lands_in_the_apron() -> void:
-	# Ziel der Liefer-Kometen: seit dem Umbau ein Punkt in der SCHÜRZE, also unter
-	# der Fensterkante - dort liegen die Buchten.
+func test_the_pack_anchor_lands_in_the_apron() -> void:
+	# Ziel der Liefer-Kometen: ein Punkt in der SCHÜRZE, also unter der
+	# Fensterkante - dort liegt das Fach.
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
-	var anchor := view.stack_anchor_px(Engraving.CATEGORY_NUMBER)
+	var anchor := view.pack_anchor_px(run.owned_packs[0].pack_uid)
 	assert_true(view.bench_rect().has_point(anchor), "%s liegt auf der Bank" % anchor)
 	assert_gt(anchor.y, view.get_global_rect().end.y, "und unter dem Fenster")
 
-func test_a_delivery_during_the_press_still_finds_its_stack() -> void:
-	# Die Pressung lässt die Leiste stehen - der Komet trifft denselben Platz wie
+func test_a_delivery_during_the_press_still_finds_its_place() -> void:
+	# Die Pressung lässt das Fach stehen - der Komet trifft denselben Platz wie
 	# vorher, nicht die Fenstermitte.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	var second := run.owned_packs[1].pack_uid
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	var resting := view.stack_anchor_px(Engraving.CATEGORY_NUMBER)
+	var resting := view.pack_anchor_px(second)
 	view.start_press()
 	await wait_frames(2)
 	assert_true(view.placing(), "die Beute liegt")
-	var during := view.stack_anchor_px(Engraving.CATEGORY_NUMBER)
-	assert_almost_eq(during.x, resting.x, 1.0, "derselbe Platz wie im Regal")
+	var during := view.pack_anchor_px(second)
+	assert_almost_eq(during.x, resting.x, 1.0, "derselbe Platz wie im Fach")
 	assert_almost_eq(during.y, resting.y, 1.0)
 	assert_ne(during, view.get_global_rect().get_center(), "und nicht die Fenstermitte")
 
 func test_a_delivery_during_a_pack_flow_lands_at_once() -> void:
-	# Die Schürze steht auch, während ein Würfel-Paket das Fenster füllt: der
-	# Stapel wächst und ploppt sofort, es gibt nichts mehr zu warten.
+	# Die Schürze steht auch, während ein Würfel-Paket das Fenster füllt: die
+	# Kassette erscheint und ploppt sofort, es gibt nichts mehr zu warten.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
+	var uid := run.owned_packs[0].pack_uid
 	view.open_top_dice_pack()
 	await wait_frames(2)
-	assert_not_null(view._shelf, "die Wahl nimmt der Schürze nichts weg")
+	assert_not_null(view._drawer, "die Wahl nimmt der Schürze nichts weg")
 	assert_true(view.shelf_locked(), "sie ist nur zu")
-	var popped: Array[String] = []
-	view.stack_popped.connect(func(category: String) -> void: popped.append(category))
-	view.expect_pack_delivery(Engraving.CATEGORY_NUMBER)
-	view.deliver_pack(Engraving.CATEGORY_NUMBER)
-	assert_true(view._queued_pops.is_empty(), "nichts wartet mehr auf seine Leiste")
-	assert_eq(popped, [Engraving.CATEGORY_NUMBER] as Array[String], "der Pluster geht sofort raus")
+	var popped: Array[int] = []
+	view.pack_landed.connect(func(landed: int) -> void: popped.append(landed))
+	view.expect_pack_delivery(uid)
+	view.deliver_pack(uid)
+	assert_true(view._queued_pops.is_empty(), "nichts wartet mehr auf sein Fach")
+	assert_eq(popped, [uid] as Array[int], "der Pluster geht sofort raus")
 
 func test_a_pop_during_the_placement_lands_at_once() -> void:
-	# Die Ablage nimmt der Schürze nichts weg - das Regal steht auch mit Beute.
+	# Die Ablage nimmt der Schürze nichts weg - das Magazin steht auch mit Beute.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	var second := run.owned_packs[1].pack_uid
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	view.start_press()
 	await wait_frames(2)
 	assert_true(view.placing())
-	view.expect_pack_delivery(Engraving.CATEGORY_NUMBER)
-	var popped: Array[String] = []
-	view.stack_popped.connect(func(category: String) -> void: popped.append(category))
-	view.deliver_pack(Engraving.CATEGORY_NUMBER)
-	assert_eq(popped, [Engraving.CATEGORY_NUMBER] as Array[String])
+	view.expect_pack_delivery(second)
+	var popped: Array[int] = []
+	view.pack_landed.connect(func(landed: int) -> void: popped.append(landed))
+	view.deliver_pack(second)
+	assert_eq(popped, [second] as Array[int])
 	assert_true(view._queued_pops.is_empty())
 
 func test_a_pop_during_the_press_lands_at_once() -> void:
-	# Die Leiste steht durch die Pressung - da wartet nichts.
+	# Das Fach steht durch die Pressung - da wartet nichts.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
-	view.expect_pack_delivery(Engraving.CATEGORY_NUMBER)
+	var second := run.owned_packs[1].pack_uid
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	view.expect_pack_delivery(second)
 	view.start_press()
-	var popped: Array[String] = []
-	view.stack_popped.connect(func(category: String) -> void: popped.append(category))
-	view.deliver_pack(Engraving.CATEGORY_NUMBER)
-	assert_eq(popped, [Engraving.CATEGORY_NUMBER] as Array[String])
+	var popped: Array[int] = []
+	view.pack_landed.connect(func(landed: int) -> void: popped.append(landed))
+	view.deliver_pack(second)
+	assert_eq(popped, [second] as Array[int])
 	assert_true(view._queued_pops.is_empty())
 
-func test_a_dice_stack_click_opens_its_choice_instead_of_a_slot() -> void:
+func test_a_dice_cell_click_opens_its_choice_instead_of_a_slot() -> void:
 	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
-	view._on_stack_pressed(PackShelfView.CATEGORY_DICE_PACK)
+	view._on_pack_pressed(run.owned_packs[0].pack_uid)
 	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE, "Würfel-Pakete laufen nie durch die Presse")
 	assert_true(view._selected_packs.is_empty())
 
-func test_an_engraving_stack_click_fills_the_next_free_slot() -> void:
+func test_an_engraving_cell_click_fills_the_next_free_slot() -> void:
 	run.grant_pack(Pack.number_pack())
-	view._on_stack_pressed(Engraving.CATEGORY_NUMBER)
-	assert_eq(view._selected_packs, [0] as Array[int])
+	var uid := run.owned_packs[0].pack_uid
+	view._on_pack_pressed(uid)
+	assert_eq(view._selected_packs, [uid] as Array[int])
+
+func test_a_drawer_drag_reorders_the_owned_packs() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	run.grant_pack(Pack.dice_mod_pack())
+	var first := run.owned_packs[0]
+	view._on_packs_reordered(first.pack_uid, run.owned_packs[2].pack_uid)
+	assert_eq(run.owned_packs[2], first, "das gezogene Paket steht am Ziel")
+	assert_eq(run.owned_packs[0].type, Pack.TYPE_MATERIAL, "die Reihe schließt sich")
+
+func test_the_tidy_respects_the_lock() -> void:
+	run.grant_pack(Pack.dice_mod_pack())
+	run.grant_pack(Pack.number_pack())
+	view.editing_locked = true
+	view._on_tidy_requested()
+	assert_eq(run.owned_packs[0].type, Pack.TYPE_DICE_MOD, "gesperrt bleibt liegen")
+	view.editing_locked = false
+	view._on_tidy_requested()
+	assert_eq(run.owned_packs[0].type, Pack.TYPE_NUMBER,
+		"offen räumt der Doppelklick nach SHELF_ORDER auf")
 
 # --- Die Beute der Pressung ------------------------------------------------------------
 # Ihr Innenleben steht in test_workshop_placement; hier zählt nur der Übergang.

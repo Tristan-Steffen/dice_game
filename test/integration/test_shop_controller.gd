@@ -861,7 +861,9 @@ func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
 	shop.spreads.append(spread)
 	shop.current_spread_index = 0
 	shop._show_spread()
-	var shelves: Array[String] = []
-	shop.pack_purchased.connect(func(_px: Vector2, shelf: String) -> void: shelves.append(shelf))
+	var uids: Array[int] = []
+	shop.pack_purchased.connect(func(_px: Vector2, uid: int) -> void: uids.append(uid))
 	shop._on_single_special_pressed(0)
-	assert_eq(shelves, [PackShelfView.CATEGORY_SPECIAL] as Array[String])
+	assert_eq(uids.size(), 1, "die Lieferung meldet die Paket-uid")
+	assert_eq(Pack.shelf_of(run.pack_by_uid(uids[0])), Pack.SHELF_SPECIAL,
+		"und dahinter liegt der Sonderbestand")

@@ -278,7 +278,7 @@ func test_the_encore_pays_at_five_cleared_stages():
 	assert_eq(run.owned_packs.size(), 1, "gebucht, nicht nur gemeldet")
 	assert_true(Engraving.is_special_id(granted[0].fixed_engraving.id), "ein Sonderposten")
 	assert_eq(granted[0].price, 0, "gefunden, nicht gekauft")
-	assert_eq(PackShelfView.shelf_of(granted[0]), PackShelfView.CATEGORY_SPECIAL)
+	assert_eq(Pack.shelf_of(granted[0]), Pack.SHELF_SPECIAL)
 
 func test_two_encores_pay_twice():
 	run.owned_charms.append(Charm.encore())

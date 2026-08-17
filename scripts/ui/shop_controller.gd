@@ -11,11 +11,9 @@ extends Control
 
 signal closed
 ## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
-## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln).
-## Gekauft: die Lieferung meldet die REGAL-BUCHT, nicht die Paketsorte. Ein
-## Sonderposten ist ein Material- oder Runen-Paket und landet trotzdem im
-## Sonderbestand - PackShelfView.shelf_of ist die eine Stelle, die das weiß.
-signal pack_purchased(from_px: Vector2, shelf: String)
+## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln). Die Lieferung meldet die
+## PAKET-uid - der Komet landet auf genau ihrem Magazin-Platz.
+signal pack_purchased(from_px: Vector2, uid: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht in die Truhe.
 signal pack_refunded(from_px: Vector2, amount: int)
@@ -944,7 +942,9 @@ func _on_single_special_pressed(index: int) -> void:
 		return
 	var pack: Pack = single_specials[index]
 	var price := _pack_price(pack)
-	if run.money < price:
+	# Volles Magazin sperrt den Kauf wie eine knappe Börse (purchase_pack prüft
+	# ebenso, aber ein stiller Fehlkauf dürfte hier nie als gekauft gelten).
+	if run.money < price or run.packs_full():
 		return
 	# Startpunkt VOR dem Neuaufbau abgreifen - danach liegt das Stück nicht mehr da.
 	var from_px := Vector2.ZERO
@@ -953,7 +953,7 @@ func _on_single_special_pressed(index: int) -> void:
 	var refunded := run.purchase_pack(pack, price)
 	single_special_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	if from_px != Vector2.ZERO:
-		pack_purchased.emit(from_px, PackShelfView.shelf_of(pack))
+		pack_purchased.emit(from_px, pack.pack_uid)
 		if refunded > 0:
 			pack_refunded.emit(from_px, refunded)
 	_show_spread()
@@ -1348,7 +1348,8 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	if (dice_pack_bought[index] if is_dice else engraving_pack_bought[index]):
 		return
 	var price := _pack_price(pack)
-	if run.money < price:
+	# Volles Magazin sperrt wie eine knappe Börse - erst pressen, dann kaufen.
+	if run.money < price or run.packs_full():
 		return
 	# Startpunkt VOR dem Neuaufbau abgreifen - danach ist der Knopf weg.
 	var buttons := dice_pack_buttons if is_dice else engraving_pack_buttons
@@ -1362,7 +1363,7 @@ func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
 	else:
 		engraving_pack_bought[index] = true
 	if from_px != Vector2.ZERO:
-		pack_purchased.emit(from_px, PackShelfView.shelf_of(pack))
+		pack_purchased.emit(from_px, pack.pack_uid)
 		if refunded > 0:
 			pack_refunded.emit(from_px, refunded)
 	_show_spread()
@@ -1386,13 +1387,17 @@ func _refresh_afford_state() -> void:
 	var money: int = run.money
 	if money_label != null:
 		money_label.text = "$%d" % money
+	# Volles Magazin sperrt jeden Paket-Kauf - wie charms_full das Charm-Regal.
+	var full := run.packs_full()
 	for i in dice_pack_buttons.size():
-		dice_pack_buttons[i].disabled = dice_pack_bought[i] or money < _pack_price(dice_packs[i])
+		dice_pack_buttons[i].disabled = dice_pack_bought[i] or full \
+			or money < _pack_price(dice_packs[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
 	for i in engraving_pack_buttons.size():
-		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or money < _pack_price(engraving_packs[i])
+		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or full \
+			or money < _pack_price(engraving_packs[i])
 	for i in single_dice_buttons.size():
 		if single_dice_buttons[i] == null:
 			continue  # verkauft: liegt nicht mehr in der Schale
@@ -1400,7 +1405,8 @@ func _refresh_afford_state() -> void:
 	for i in single_special_buttons.size():
 		if single_special_buttons[i] == null:
 			continue
-		single_special_buttons[i].disabled = single_special_bought[i] 			or money < _pack_price(single_specials[i])
+		single_special_buttons[i].disabled = single_special_bought[i] or full \
+			or money < _pack_price(single_specials[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

@@ -8,13 +8,15 @@ extends Panel
 ## Alles darunter liegt in der SCHÜRZE, und sie beginnt UNTER der Fensterkante:
 ## eine Naht, dann das Konsolen-Band (in seiner Mitte die flache Reihe der
 ## Presse-Plätze, in seiner rechten Flanke der EINE Handlungs-Sitz - Pressen /
-## Nehmen / Fertig -, in seiner linken die Hinweiskarte), dieselbe Naht noch
-## einmal, dann die Regal-Leiste über die volle Fensterbreite; ihre Buchten enden
-## auf der Unterkante des Hubs (scene_root misst das und schiebt es als
-## apron_bottom herein). Ein Klick auf eine Bucht legt ihr oberstes Paket in den
-## nächsten freien Platz. Das Fenster gehört damit ganz der Aufspannung.
+## Fertig -, in seiner linken die Hinweiskarte), dieselbe Naht noch einmal, dann
+## das MAGAZIN über die volle Fensterbreite: EIN eingelassenes Fach, in dem jedes
+## versiegelte Paket als eigene Kassette in Spieler-Ordnung liegt (owned_packs);
+## es endet auf der Unterkante des Hubs (scene_root misst das und schiebt es als
+## apron_bottom herein). Getippt legt eine Kassette in den nächsten freien Platz
+## (Würfel-Pakete öffnen ihre Wahl), gezogen sortiert sie um, ein Doppelklick auf
+## leere Fach-Fläche räumt auf. Das Fenster gehört damit ganz der Aufspannung.
 ##
-## Band und Buchten STEHEN durch jeden Ablauf - Wurf, Platzierung, Paket-Wahl,
+## Band und Magazin STEHEN durch jeden Ablauf - Wurf, Platzierung, Paket-Wahl,
 ## Dossier -, gesperrt nur, wo nichts anzufassen ist (shelf_locked). Das
 ## Fensterinnere bleibt dabei frei: nichts von der Schürze ragt mehr herein.
 ##
@@ -28,7 +30,7 @@ extends Panel
 ## Zeremonien hängen an den Signalen und leben in scene_root.
 
 ## Ein Paket wurde geöffnet (scene_root hängt Ton/Licht daran).
-signal pack_activated(index: int)
+signal pack_activated(uid: int)
 ## Die Pressung ist gefallen: sorts sind die Sorten der belegten Leser, readers je
 ## Leser die Nummern der Stücke, die er auswirft, cost die eben bezahlte Energie.
 ## Gebucht ist da längst - scene_root fährt daran die Zeremonie (Wirbel, Entladung,
@@ -45,12 +47,12 @@ signal press_cashed_out(amount: int, from_px: Vector2)
 ## Die Bühnen der Paket-Würfel haben sich geändert (Wahl, Einsetzen, Ende) -
 ## scene_root stellt die ECHTEN Würfel darüber neu auf.
 signal die_stages_changed
-## Ein Liefer-Licht ist auf seinem Stapel eingeschlagen - scene_root lässt den
-## Körper dort aufleuchten (der Pluster lebt nicht mehr im 2D-Knopf).
-signal stack_popped(stack_category: String)
-## Ein Paket ist aus seinem Presse-Platz zurück ins Regal gegangen - die Zelle
-## dieses Platzes fliegt heim. Gebucht ist da längst.
-signal pack_unslotted(slot_index: int, stack_category: String)
+## Ein Liefer-Licht ist auf seinem Magazin-Platz eingeschlagen - scene_root lässt
+## den Körper dort aufleuchten (der Pluster lebt nicht mehr im 2D-Knopf).
+signal pack_landed(uid: int)
+## Ein Paket ist aus seinem Presse-Platz zurück ins Magazin gegangen - die Zelle
+## dieses Platzes fliegt heim auf ihren Platz. Gebucht ist da längst.
+signal pack_unslotted(slot_index: int, uid: int)
 ## Der Wurf beginnt: die eingesetzten Zellen geben ihre Daten an ihre Leser ab.
 ## Gemeldet wird VOR dem Öffnen, solange die Sockel noch stehen.
 signal press_started
@@ -115,9 +117,10 @@ const PRESS_SLOT := 5.4
 const SOCKET_BG := Color("#0b0a18dd")
 const SOCKET_RIM := Color("#3b356acc")
 const SOCKET_LIVE_RIM := Color("#8be9fdcc")
-## Der Schlitz muss die Zelle schlucken, also gibt ihre BREITE das Maß; flach
-## bleibt er trotzdem - ein Schlitz ist eine Kante, keine Bucht. Die gewonnene
-## Höhe geht an das Regal darunter.
+## Der Schlitz muss die Zelle schlucken, und zwar in dem EINEN Maß, in dem sie
+## überall steht (PackDrawerView.CASSETTE_SCALE): ihre Kappe gibt Breite UND Tiefe
+## vor. Flach bleibt er trotzdem - ein Schlitz ist eine Kante, keine Bucht;
+## SLIT_HEIGHT ist nur noch sein Mindestmaß.
 const SOCKET_ROOM := 1.30
 const SLIT_HEIGHT := 1.6
 ## Das Anzeigefeld über dem Schlitz - der eigentliche LESER: dunkel, solange
@@ -238,7 +241,7 @@ var run: GameRun:
 			run.packs_changed.disconnect(refresh)
 			run.clamped_changed.disconnect(refresh)
 			run.press_changed.disconnect(refresh)
-		_pending_packs.clear()  # Lieferungen des alten Laufs verfallen
+		_pending_arrivals.clear()  # Lieferungen des alten Laufs verfallen
 		_queued_pops.clear()
 		_abort_unseal()  # noch VOR dem Wechsel: der Inhalt gehört dem alten Lauf
 		_drop_placement()  # ebenso ein Würfel, der noch einen Platz suchte
@@ -276,8 +279,8 @@ var _press_slit_panels: Array[Panel] = []
 ## Entladung).
 var _press_display_panels: Array[Panel] = []
 var _press_portals: Array[PressPortalView] = []
-## Die Regal-Leiste der Bank (null = gerade nicht gebaut).
-var _shelf: PackShelfView
+## Das Magazin der Bank (null = gerade nicht gebaut).
+var _drawer: PackDrawerView
 ## Das Konsolen-Band auf der unteren Fensterkante (null = gerade nicht gebaut).
 var _band: Control
 ## Unterkante der SCHÜRZE in Fenster-Koordinaten: scene_root misst sie an der
@@ -289,11 +292,11 @@ var apron_bottom := 0.0:
 			return
 		apron_bottom = value
 		refresh()
-## Regal-Kategorie -> Pakete, deren Liefer-Licht noch fährt (der Komet IST das
-## Paket): sie fehlen im Stapel, bis es ankommt.
-var _pending_packs: Dictionary = {}
-## Ankunfts-Pluster, die noch auf ihre Leiste warten (sie stand gerade nicht).
-var _queued_pops: Array[String] = []
+## Paket-uids, deren Liefer-Licht noch fährt (der Komet IST das Paket): ihr Platz
+## im Magazin steht schon, der Chip erscheint erst bei der Landung.
+var _pending_arrivals: Dictionary = {}
+## Ankunfts-Pluster, die noch auf ihr Fach warten (es stand gerade nicht).
+var _queued_pops: Array[int] = []
 
 ## Gesperrt, sobald die Runde unterschrieben ist - dasselbe Zeitfenster wie
 ## fürs Gravieren; scene_root schiebt den Stand herein. Die Presse hängt daran
@@ -304,10 +307,11 @@ var editing_locked: bool = false:
 			return
 		editing_locked = value
 		refresh()
-## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln; scene_root misst ihn
-## an der Welt-Projektion und schiebt ihn herein (ZERO = noch unbekannt, dann
-## trägt das Rückfallmaß der Leiste). Regal und Buchten messen sich daran - die
-## Zelle ist ein Weltmaß, sie schrumpft nicht auf ein Fenster.
+## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln (ihre Kappe: Breite ×
+## Kappentiefe); scene_root misst ihn an der Welt-Projektion und schiebt ihn
+## herein (ZERO = noch unbekannt, dann trägt das Rückfallmaß der Leiste). Magazin
+## und Schlitze messen sich daran - die Zelle ist ein Weltmaß, sie schrumpft nicht
+## auf ein Fenster.
 var data_cell_px := Vector2.ZERO:
 	set(value):
 		if data_cell_px.is_equal_approx(value):
@@ -322,7 +326,8 @@ var _info_body: Label
 var _info_tint: Color = CasinoStyle.CREAM
 
 var _phase: Phase = Phase.STASH
-## Für die Presse gewählte Lagerplätze (Gravur-Pakete, höchstens BATCH_CAP).
+## Für die Presse gewählte Pakete, als uids (Gravur-Pakete, höchstens BATCH_CAP) -
+## uids, nicht Indizes: das Magazin darf unter der Vorwahl umsortiert werden.
 var _selected_packs: Array[int] = []
 ## Der Platzierungs-Schritt: die NUMMER des geführten Stücks (0 = keins). Nach der
 ## Nummer, nicht nach Platz oder id: der Haufen liegt frei, und dieselbe Gravur
@@ -550,8 +555,8 @@ func _refresh_content() -> void:
 	_press_slit_panels.clear()
 	_press_display_panels.clear()
 	_press_portals.clear()
-	_free_own(_shelf)  # Band, Regal und Ablage hängen am Panel, nicht am Inhalt
-	_shelf = null
+	_free_own(_drawer)  # Band, Magazin und Ablage hängen am Panel, nicht am Inhalt
+	_drawer = null
 	_free_own(_band)
 	_band = null
 	_free_own(_ablage_host)
@@ -579,7 +584,7 @@ func _refresh_content() -> void:
 	if placing():
 		_sync_held()
 	_build_press_slots(u)
-	_build_shelf(u)
+	_build_drawer(u)
 	_build_ablage()
 	if _phase == Phase.UNSEAL:
 		return  # die Entsiegelung hängt als eigenes Panel über dem Fensterinneren
@@ -788,8 +793,12 @@ static func dossier_aspect() -> float:
 ## Wie tief die Schürze unter der Fensterkante hängt, in Einheiten u: Naht,
 ## ganzes Konsolen-Band, Naht, Bucht-Streifen. scene_root löst damit die
 ## Fensterhöhe aus der Spanne bis zur Hub-Unterkante auf.
+## Das Band wird in ECHTEN u gemessen und zurückgerechnet: seit der Schlitz die
+## Kappe der Kassette schluckt, hängt seine Höhe an einem Weltmaß (data_cell_px)
+## und nicht mehr allein an u - console_size(1.0) läse das als Einheiten.
 func apron_units() -> float:
-	return CONSOLE_SHELF_GAP * 2.0 + console_size(1.0).y + SHELF_STRIP_UNITS
+	var u := maxf(size.x, 200.0) / 100.0
+	return CONSOLE_SHELF_GAP * 2.0 + console_size(u).y / u + SHELF_STRIP_UNITS
 
 ## Unterkante der Schürze in Fenster-Koordinaten (siehe apron_bottom). Ohne
 ## gemeldete Linie legt die Kette sie selbst - ein geratener Anteil hinge am
@@ -855,14 +864,14 @@ func _press_console(u: float) -> Panel:
 	var box := StyleBoxFlat.new()
 	box.bg_color = CONSOLE_BASE
 	box.set_corner_radius_all(radius)
-	box.shadow_color = PackShelfView.LIP_DROP
-	box.shadow_size = maxi(2, int(u * PackShelfView.LIP_DROP_SIZE))
-	box.shadow_offset = Vector2(0.0, maxf(2.0, u * PackShelfView.LIP_DROP_DOWN))
+	box.shadow_color = PackDrawerView.LIP_DROP
+	box.shadow_size = maxi(2, int(u * PackDrawerView.LIP_DROP_SIZE))
+	box.shadow_offset = Vector2(0.0, maxf(2.0, u * PackDrawerView.LIP_DROP_DOWN))
 	console.add_theme_stylebox_override("panel", box)
 	var edge := maxi(2, int(u * CONSOLE_EDGE))
-	console.add_child(PackShelfView.edge_band("ConsoleLight",
+	console.add_child(PackDrawerView.edge_band("ConsoleLight",
 		CONSOLE_BASE.lerp(CONSOLE_SHEEN, CONSOLE_SHEEN_MIX), edge, radius, true))
-	console.add_child(PackShelfView.edge_band("ConsoleShade", CONSOLE_SHADOW,
+	console.add_child(PackDrawerView.edge_band("ConsoleShade", CONSOLE_SHADOW,
 		edge, radius, false))
 	return console
 
@@ -890,8 +899,8 @@ func _slot_pocket(u: float) -> Panel:
 	box.set_corner_radius_all(radius)
 	pocket.add_theme_stylebox_override("panel", box)
 	var edge := maxi(2, int(u * POCKET_EDGE))
-	pocket.add_child(PackShelfView.edge_band("PocketShade", POCKET_SHADOW, edge, radius, true))
-	pocket.add_child(PackShelfView.edge_band("PocketLight", POCKET_SHEEN, edge, radius, false))
+	pocket.add_child(PackDrawerView.edge_band("PocketShade", POCKET_SHADOW, edge, radius, true))
+	pocket.add_child(PackDrawerView.edge_band("PocketLight", POCKET_SHEEN, edge, radius, false))
 	return pocket
 
 ## Der EINE Handlungs-Sitz, rechts neben dem Blech: "Pressen (n)", und solange
@@ -971,33 +980,27 @@ func _seat_fit(button: Button, u: float) -> Button:
 func action_size(u: float) -> Vector2:
 	return Vector2(u * ACTION_WIDTH, u * ACTION_HEIGHT)
 
-## Die Regal-Leiste: je Sorte ihre Bucht, mit oder ohne Stapel. Sie ist die
-## einzige Auslage versiegelter Ware - im Fenster steht nie eine Paketkarte.
-func _build_shelf(u: float) -> void:
-	_shelf = PackShelfView.new()
-	_shelf.stack_pressed.connect(_on_stack_pressed)
-	add_child(_shelf)  # direktes Kind: das Regal liegt AUSSERHALB des Fensters
+## Das Magazin: EIN eingelassenes Fach über die volle Fensterbreite, je Paket
+## seine eigene Kassette. Es ist die einzige Auslage versiegelter Ware - im
+## Fenster steht nie eine Paketkarte.
+func _build_drawer(u: float) -> void:
+	_drawer = PackDrawerView.new()
+	_drawer.pack_pressed.connect(_on_pack_pressed)
+	_drawer.packs_reordered.connect(_on_packs_reordered)
+	_drawer.tidy_requested.connect(_on_tidy_requested)
+	add_child(_drawer)  # direktes Kind: das Fach liegt AUSSERHALB des Fensters
 	var rect := shelf_rect()
-	_shelf.build(shelf_entries(), u, shelf_locked(), data_cell_px, rect.size)
-	# NUR die Ecke setzen: ihre Maße holt sich die Leiste aus ihren fünf Buchten.
-	# Eine von Hand gesetzte Größe stünde schon da, bevor die Buchten ausgelegt
-	# sind - und ein Anker aus dieser Lücke zeigte in die Fensterecke.
-	_shelf.position = rect.position
+	_drawer.position = rect.position
+	_drawer.size = rect.size
+	_drawer.build(drawer_entries(), u, shelf_locked(), data_cell_px, rect.size)
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
-## Der Streifen der Regal-Leiste: er liegt AUSSERHALB des Fensters, auf der
-## GANZEN Fensterbreite. Die Buchten teilen sie in ihre Fünftel - in GANZEN
-## Pixeln, denn der Kasten rundet jede Spalte auf, und aufgerundete Fünftel
-## schöben die Zeile über den rechten Rand hinaus; der Rest der Abrundung teilt
-## sich auf beide Seiten auf, sonst stünde die Zeile schief.
+## Der Streifen des Magazins: AUSSERHALB des Fensters, auf der GANZEN
+## Fensterbreite (ganze Pixel, damit die Platz-Rechnung nicht driftet).
 func shelf_strip_size() -> Vector2:
 	var u := maxf(size.x, 200.0) / 100.0
-	var room := maxf(size.x, u * 20.0)
-	var bays := float(PackShelfView.SHELF_ORDER.size())
-	var seam := PackShelfView.bay_gap_for(Vector2(room, 0.0))
-	var bay := floorf((room - seam * (bays - 1.0)) / bays)
-	return Vector2(bay * bays + seam * (bays - 1.0),
+	return Vector2(floorf(maxf(size.x, u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), u * SHELF_MIN_HEIGHT))
 
 ## Oberkante der Buchten: eine Naht unter dem Konsolen-Band. Der Abstand zur
@@ -1017,27 +1020,51 @@ func shelf_rect_global() -> Rect2:
 	rect.position += get_global_rect().position
 	return rect
 
-## Das Zellmaß, an dem sich die Buchten messen (ohne gemeldetes das Rückfallmaß).
+## Das LOCH des Magazins in Display-Pixeln: der Streifen abzüglich seiner gemalten
+## Fassung. scene_root schneidet danach das Glas und stellt die Grube darunter -
+## das Fenster selbst weiß vom Tisch nichts.
+func shelf_pit_rect() -> Rect2:
+	return PackDrawerView.pit_rect_in(shelf_rect_global(), shelf_unit())
+
+## Eckenradius des Lochs: der des Rahmens, um dessen Breite verkleinert.
+func shelf_pit_radius() -> float:
+	var unit := shelf_unit()
+	return maxf(unit * PackDrawerView.RADIUS - PackDrawerView.rim_inset(unit), 0.0)
+
+## Die Maßeinheit, in der die Schürze rechnet (u = Fensterbreite/100).
+func shelf_unit() -> float:
+	return maxf(size.x, 200.0) / 100.0
+
+## Das Zellmaß, an dem sich das Magazin misst (ohne gemeldetes das Rückfallmaß).
 func shelf_cell_px() -> Vector2:
 	if data_cell_px.x > 0.0 and data_cell_px.y > 0.0:
 		return data_cell_px
-	return PackShelfView.fallback_cell(maxf(size.x, 200.0) / 100.0)
+	return PackDrawerView.fallback_cell(maxf(size.x, 200.0) / 100.0)
 
-## Anzeige-Maßstab der Regal-Kassetten (scene_root skaliert die Körper darauf).
-## Er steht auch, wenn die Leiste gerade nicht gebaut ist - ein Rückläufer muss
-## wissen, wie groß sein Stapel ist, während das Fenster einem Paket gehört.
+## Anzeige-Maßstab der Magazin-Kassetten (scene_root skaliert die Körper darauf).
+## Er steht auch, wenn das Fach gerade nicht gebaut ist - ein Rückläufer muss
+## wissen, wie groß er liegt, während das Fenster einem Paket gehört.
 func shelf_cell_scale() -> float:
-	if _shelf != null and is_instance_valid(_shelf):
-		return _shelf.cell_scale()
-	return PackShelfView.cell_scale_for(shelf_cell_px(), shelf_strip_size())
+	if _drawer != null and is_instance_valid(_drawer):
+		return _drawer.cell_scale()
+	return PackDrawerView.cell_scale_for(shelf_cell_px(),
+		shelf_pit_rect().size, drawer_entries().size())
 
-## Ankunfts-Pluster, die auf ihre Leiste gewartet haben (sie stand während der
-## Lieferung nicht da - Presse, Wahl oder Station füllten das Fenster).
+## Die Kassette unter dem Display-Pixel (0 = keine): scene_root zieht daran den
+## Körper ein Stück aus der Grube. Gefragt, nicht gemeldet - der Zeiger liegt auf
+## dem Tisch.
+func shelf_hover_uid_at(pixel: Vector2) -> int:
+	if _drawer != null and is_instance_valid(_drawer):
+		return _drawer.hover_uid_at(pixel)
+	return 0
+
+## Ankunfts-Pluster, die auf ihr Fach gewartet haben (es stand während der
+## Lieferung nicht da - Presse, Wahl oder Dossier füllten das Fenster).
 func _flush_queued_pops() -> void:
-	if _shelf == null or not is_instance_valid(_shelf):
+	if _drawer == null or not is_instance_valid(_drawer):
 		return
-	for stack_category in _queued_pops:
-		stack_popped.emit(stack_category)
+	for uid in _queued_pops:
+		pack_landed.emit(uid)
 	_queued_pops.clear()
 
 ## Die Restluft sammelt sich UNTEN - dort steht die Hinweiskarte, und nichts über
@@ -1089,11 +1116,13 @@ func _press_slot(index: int, u: float, sort: String) -> Button:
 	_press_display_panels.append(display)
 	return slot
 
-## Grundseite: ein Klick auf den belegten Platz nimmt sein Paket zurück ins Regal.
+## Grundseite: ein Klick auf den belegten Platz nimmt sein Paket zurück ins Magazin.
 func _arm_eject(slot: Button, index: int) -> void:
 	if index >= _selected_packs.size() or run == null:
 		return
-	var pack: Pack = run.owned_packs[_selected_packs[index]]
+	var pack := run.pack_by_uid(_selected_packs[index])
+	if pack == null:
+		return
 	slot.disabled = editing_locked
 	slot.tooltip_text = pack.description
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -1117,7 +1146,7 @@ func _seat_piece_hint(button: Button, engraving_id: String) -> void:
 ## leer dunkel, belegt trägt es das Siegel seiner Sorte (dieselbe Zeichnung wie
 ## auf der Zelle), in der Pressung wirbelt es und entlädt sich.
 func _slit_display(sort: String, u: float, index: int) -> Panel:
-	var side := u * SLIT_DISPLAY
+	var side := display_side(u)
 	var field := Panel.new()
 	field.name = "SlitDisplay"
 	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1133,27 +1162,33 @@ func _slit_display(sort: String, u: float, index: int) -> Panel:
 
 ## Maße eines ganzen Platzes (Feld + Luft + Schlitz) und des Schlitzes allein.
 func socket_size(u: float) -> Vector2:
-	var slit := slit_size(u)
-	return Vector2(maxf(slit.x, u * SLIT_DISPLAY),
-		u * (SLIT_DISPLAY + SLIT_DISPLAY_GAP) + slit.y)
+	var side := display_side(u)
+	return Vector2(side, side + u * SLIT_DISPLAY_GAP + slit_size(u).y)
 
-## Der Schlitz: so breit, dass die Zelle hindurchgeht, und bewusst flach.
+## Kantenlänge des Anzeigefeldes: nie schmaler als der Schlitz darunter - der
+## Leser wächst mit der Kassette, die er schluckt.
+func display_side(u: float) -> float:
+	return maxf(u * SLIT_DISPLAY, slit_size(u).x)
+
+## Der Schlitz: so groß, dass die Kappe der Zelle hindurchgeht - in ihrem festen
+## Anzeigemaß, denn genau so steckt sie später darin. Bewusst flach.
 func slit_size(u: float) -> Vector2:
-	return Vector2(maxf(u * PRESS_SLOT, data_cell_px.x * SOCKET_ROOM), u * SLIT_HEIGHT)
+	var cap := data_cell_px * PackDrawerView.CASSETTE_SCALE * SOCKET_ROOM
+	return Vector2(maxf(u * PRESS_SLOT, cap.x), maxf(u * SLIT_HEIGHT, cap.y))
 
 ## Die Farbe eines Platzes: leer der stumpfe Rand, belegt die Sortenfarbe - eine
 ## Quelle für Schlitzrand und Anzeigefeld.
 func _socket_tint(sort: String) -> Color:
 	if sort == "":
 		return SOCKET_RIM
-	return PackShelfView.COLORS.get(sort, SOCKET_LIVE_RIM)
+	return PackDrawerView.COLORS.get(sort, SOCKET_LIVE_RIM)
 
 func _slit_box(rim: Color, u: float) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = SOCKET_BG
 	box.border_color = rim
 	box.set_border_width_all(maxi(1, int(u * 0.18)))
-	box.set_corner_radius_all(int(u * SLIT_HEIGHT * 0.35))
+	box.set_corner_radius_all(int(slit_size(u).y * 0.35))
 	return box
 
 ## Der Rahmen des Anzeigefeldes: leer der stumpfe Rand, gebucht die Sortenfarbe.
@@ -1171,11 +1206,16 @@ func press_slot_sorts() -> Array[String]:
 	var sorts: Array[String] = []
 	if run == null:
 		return sorts
-	for index in _selected_packs:
-		if index < 0 or index >= run.owned_packs.size():
-			continue
-		sorts.append(PackShelfView.shelf_of(run.owned_packs[index]))
+	for uid in _selected_packs:
+		var pack := run.pack_by_uid(uid)
+		if pack != null:
+			sorts.append(Pack.shelf_of(pack))
 	return sorts
+
+## Die uids derselben Reihe - scene_root übernimmt daran die Magazin-Körper in
+## die Schlitze und gibt sie beim Auswerfen an ihre Plätze zurück.
+func press_slot_uids() -> Array[int]:
+	return _selected_packs.duplicate()
 
 ## Display-Pixel der SCHLITZ-Mitten (leere eingeschlossen) - dort steckt die Zelle
 ## eines belegten Platzes. Nicht die Knopfmitte: der Knopf reicht bis über das
@@ -1214,141 +1254,145 @@ func _pack_flow() -> bool:
 func shelf_locked() -> bool:
 	return editing_locked or pressing() or _pack_flow() or inspecting()
 
-## Legt das oberste Paket dieses Regal-Stapels in den nächsten freien Platz.
-## false = kein Paket dieser Sorte, kein Platz frei oder die Runde ist zu.
-func slot_pack_from_stack(stack_category: String) -> bool:
+## Legt GENAU dieses Paket in den nächsten freien Presse-Platz. false = kein
+## Gravur-Paket, kein Platz frei oder das Magazin ist zu.
+func slot_pack(uid: int) -> bool:
 	if run == null or shelf_locked():
 		return false
 	if _selected_packs.size() >= PhantomPress.BATCH_CAP:
 		return false
-	for i in run.owned_packs.size():
-		if _selected_packs.has(i):
+	var pack := run.pack_by_uid(uid)
+	if pack == null or pack.is_dice_pack():
+		return false
+	if _selected_packs.has(uid) or _pending_arrivals.has(uid):
+		return false
+	_selected_packs.append(uid)
+	refresh()
+	return true
+
+## Legt das VORDERSTE Paket einer Sorte ein - der programmatische Griff (Tests,
+## Debug); am Tisch wählt der Spieler seine Kassette selbst.
+func slot_pack_from_stack(stack_category: String) -> bool:
+	if run == null:
+		return false
+	for pack in run.owned_packs:
+		if _selected_packs.has(pack.pack_uid) or _pending_arrivals.has(pack.pack_uid):
 			continue
-		if not PackShelfView.pack_belongs(run.owned_packs[i], stack_category):
+		if not Pack.pack_belongs(pack, stack_category):
 			continue
-		_selected_packs.append(i)
-		refresh()
-		return true
+		return slot_pack(pack.pack_uid)
 	return false
 
-## Öffnet das oberste WÜRFEL-Paket des Regals - es läuft nie durch die Presse.
+## Öffnet das VORDERSTE Würfel-Paket des Magazins (Tests, Debug) - es läuft nie
+## durch die Presse.
 func open_top_dice_pack() -> bool:
 	if run == null or shelf_locked():
 		return false
-	for i in run.owned_packs.size():
-		if run.owned_packs[i].is_dice_pack():
-			open_pack(i)
+	for pack in run.owned_packs:
+		if pack.is_dice_pack() and not _pending_arrivals.has(pack.pack_uid):
+			open_pack_uid(pack.pack_uid)
 			return true
 	return false
 
-## Nimmt ein Paket wieder aus seinem Presse-Platz - es liegt danach wieder im
-## Regal. Gemeldet wird VOR dem Neuaufbau: die Zelle dieses Platzes muss sich
-## ausklinken, bevor die Sockel neu abgezählt werden.
+## Nimmt ein Paket wieder aus seinem Presse-Platz - es liegt danach wieder auf
+## seinem Magazin-Platz. Gemeldet wird VOR dem Neuaufbau: die Zelle dieses
+## Platzes muss sich ausklinken, bevor die Sockel neu abgezählt werden.
 func clear_press_slot(index: int) -> void:
 	if index < 0 or index >= _selected_packs.size() or editing_locked:
 		return
-	var stack_category := ""
-	if run != null:
-		var slot := _selected_packs[index]
-		if slot >= 0 and slot < run.owned_packs.size():
-			stack_category = PackShelfView.shelf_of(run.owned_packs[slot])
+	var uid := _selected_packs[index]
 	_selected_packs.remove_at(index)
-	pack_unslotted.emit(index, stack_category)
+	pack_unslotted.emit(index, uid)
 	refresh()
 
-## Je Regal-Kategorie: wie viele ihrer Pakete gerade in einem Presse-Platz liegen.
-func press_reserved_counts() -> Dictionary:
-	var counts := {}
-	if run == null:
-		return counts
-	for index in _selected_packs:
-		if index < 0 or index >= run.owned_packs.size():
-			continue
-		var stack_category := PackShelfView.shelf_of(run.owned_packs[index])
-		if stack_category != "":
-			counts[stack_category] = int(counts.get(stack_category, 0)) + 1
-	return counts
+# --- Das Magazin (versiegelte Ware) ---------------------------------------------
 
-# --- Die Regal-Leiste (versiegelte Ware) ---------------------------------------
-
-## Je Stapel {category, pack, count} in kanonischer Reihenfolge; leere Sorten
-## bleiben weg - ihre BUCHT steht trotzdem (die Leiste baut alle fünf), nur ohne
-## Ware und damit ohne Körper auf dem Glas.
-func shelf_entries() -> Array[Dictionary]:
+## Je Paket {uid, pack, withheld} in Magazin-Ordnung (= run.owned_packs). Was in
+## einem Presse-Platz steckt, fehlt ganz; was noch als Licht fliegt, hält seinen
+## Platz und bleibt bis zur Landung verdeckt.
+func drawer_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
-	for stack_category: String in PackShelfView.SHELF_ORDER:
-		var count := sealed_pack_count(stack_category)
-		if count <= 0:
+	if run == null:
+		return entries
+	for pack in run.owned_packs:
+		if _selected_packs.has(pack.pack_uid):
 			continue
-		entries.append({"category": stack_category, "pack": top_pack(stack_category),
-			"count": count})
+		entries.append({"uid": pack.pack_uid, "pack": pack,
+			"withheld": _pending_arrivals.has(pack.pack_uid)})
 	return entries
 
-## Versiegelte Pakete einer Sorte, die WIRKLICH im Stapel liegen: was noch als
-## Licht unterwegs ist oder schon in einem Presse-Platz steht, fehlt hier.
-func sealed_pack_count(stack_category: String) -> int:
-	if run == null:
-		return 0
-	var total := 0
-	for pack in run.owned_packs:
-		if PackShelfView.pack_belongs(pack, stack_category):
-			total += 1
-	var reserved := int(press_reserved_counts().get(stack_category, 0))
-	return maxi(total - int(_pending_packs.get(stack_category, 0)) - reserved, 0)
-
-## Das oberste Paket eines Stapels (null = keins) - es gibt ihm sein Siegel und
-## ist das, was ein Klick greift.
-func top_pack(stack_category: String) -> Pack:
-	if run == null or sealed_pack_count(stack_category) <= 0:
-		return null
-	for pack in run.owned_packs:
-		if PackShelfView.pack_belongs(pack, stack_category):
-			return pack
-	return null
-
-## Ein Paket ist unterwegs: es fehlt im Stapel, bis sein Licht ankommt
-## (scene_root ruft das VOR dem Kometen).
-func expect_pack_delivery(stack_category: String) -> void:
-	_pending_packs[stack_category] = int(_pending_packs.get(stack_category, 0)) + 1
+## Ein Paket ist unterwegs: sein Platz steht, sein Chip erscheint erst mit der
+## Landung (scene_root ruft das VOR dem Kometen).
+func expect_pack_delivery(uid: int) -> void:
+	_pending_arrivals[uid] = true
 	refresh()
 
-## Das Liefer-Licht ist angekommen: der Stapel wächst und ploppt auf.
-func deliver_pack(stack_category: String) -> void:
-	var pending := int(_pending_packs.get(stack_category, 0))
-	if pending <= 0:
+## Das Liefer-Licht ist angekommen: die Kassette kommt zum Vorschein und ploppt.
+func deliver_pack(uid: int) -> void:
+	if not _pending_arrivals.has(uid):
 		return
-	_pending_packs[stack_category] = pending - 1
+	_pending_arrivals.erase(uid)
 	refresh()
-	if _shelf != null and is_instance_valid(_shelf):
-		pop_stack(stack_category)
+	if _drawer != null and is_instance_valid(_drawer):
+		pack_landed.emit(uid)
 		return
-	_queued_pops.append(stack_category)  # die Leiste steht gerade nicht - er wartet auf sie
+	_queued_pops.append(uid)  # das Fach steht gerade nicht - er wartet auf es
 
-## Display-Pixel eines Stapels - Ziel der Liefer-Kometen. Steht die Leiste gerade
-## nicht (Presse, Wahl), wird der Platz GERECHNET: seit das Regal fest auf der
-## Unterkante liegt, folgt er aus dem Streifen allein, es gibt nichts zu merken.
-func stack_anchor_px(stack_category: String) -> Vector2:
-	if _shelf != null and is_instance_valid(_shelf):
-		var anchor := _shelf.stack_anchor_px(stack_category)
+## Display-Pixel eines Magazin-Platzes - Standplatz des Körpers und Ziel der
+## Liefer-Kometen. Steht das Fach gerade nicht (Presse, Wahl), wird der Platz
+## GERECHNET - dieselbe Formel, damit ein Komet nicht springt, sobald es
+## zurückkommt. Auch ein RESERVIERTES Paket bekommt eine Antwort: den Platz, auf
+## den es beim Auswerfen zurückkehrt.
+func pack_anchor_px(uid: int) -> Vector2:
+	if _drawer != null and is_instance_valid(_drawer):
+		var anchor := _drawer.pack_anchor_px(uid)
 		if anchor.x >= 0.0:
 			return anchor
-	var derived := PackShelfView.stack_anchor_in(shelf_rect_global(), stack_category,
+	var index := -1
+	var count := 0
+	if run != null:
+		for pack in run.owned_packs:
+			if _selected_packs.has(pack.pack_uid) and pack.pack_uid != uid:
+				continue
+			if pack.pack_uid == uid:
+				index = count
+			count += 1
+	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), index, count,
 		shelf_cell_px())
-	return derived if derived.x >= 0.0 else get_global_rect().get_center()
+	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
 
-## Der Stapel plustert auf - im Körper auf dem Glas, nicht im leeren Knopf.
-func pop_stack(stack_category: String) -> void:
-	if _shelf != null and is_instance_valid(_shelf):
-		stack_popped.emit(stack_category)
+## Der Platz, auf dem die NÄCHSTE Lieferung landet (extra staffelt eine Salve):
+## hinten anschließend - eine Lieferung verrückt nie, was der Spieler sortiert hat.
+func arrival_anchor_px(extra: int = 0) -> Vector2:
+	var count := drawer_entries().size()
+	return PackDrawerView.anchor_in(shelf_pit_rect(), count + extra,
+		count + extra + 1, shelf_cell_px())
 
-## Ein Stapel wurde angefasst: sein oberstes Paket wandert in den nächsten freien
-## Presse-Platz. Würfel-Pakete laufen nie durch die Presse - sie öffnen sofort
-## ihre Wahl auf der Bank.
-func _on_stack_pressed(stack_category: String) -> void:
-	if stack_category == PackShelfView.CATEGORY_DICE_PACK:
-		open_top_dice_pack()
+## Eine Kassette wurde angetippt: Gravur-Pakete wandern in den nächsten freien
+## Presse-Platz, Würfel-Pakete öffnen sofort ihre Wahl auf der Bank.
+func _on_pack_pressed(uid: int) -> void:
+	var pack := run.pack_by_uid(uid) if run != null else null
+	if pack == null:
 		return
-	slot_pack_from_stack(stack_category)
+	if pack.is_dice_pack():
+		if not shelf_locked():
+			open_pack_uid(uid)
+		return
+	slot_pack(uid)
+
+## Kassette auf Kassette gezogen: das Magazin legt um - dieselbe remove/insert-
+## Semantik wie reorder_pool, und die Körper auf dem Glas gleiten hinterher
+## (uid-gebundene Zellen, scene_root).
+func _on_packs_reordered(from_uid: int, to_uid: int) -> void:
+	if run == null or shelf_locked():
+		return
+	run.reorder_packs(run.pack_index_of(from_uid), run.pack_index_of(to_uid))
+
+## Doppelklick auf leere Fach-Fläche: aufräumen nach Sorte, Inhalt, uid.
+func _on_tidy_requested() -> void:
+	if run == null or shelf_locked():
+		return
+	run.tidy_packs()
 
 # --- Der Platzierungs-Schritt (die Beute in der Ablage) ------------------------
 # Keine losen Aufwertungen: die gepresste Beute LIEGT auf der Werkbank und muss
@@ -1644,9 +1688,9 @@ func ablage_spot_px(uid: int) -> Vector2:
 ## Wertvollen hin), dann die Gravur, damit Gleiches beieinander liegt. Die Nummer
 ## bricht den Gleichstand - sort_custom ist nicht stabil.
 static func ablage_sort_key(piece: Dictionary, uid: int) -> Array:
-	var index: int = PackShelfView.SHELF_ORDER.find(String(piece.get("sort", "")))
+	var index: int = Pack.SHELF_ORDER.find(String(piece.get("sort", "")))
 	var archetype := Engraving.by_id(String(piece.get("id", "")))
-	return [index if index >= 0 else PackShelfView.SHELF_ORDER.size(),
+	return [index if index >= 0 else Pack.SHELF_ORDER.size(),
 		int(archetype.rarity) if archetype != null else 0,
 		String(piece.get("id", "")), uid]
 
@@ -1802,7 +1846,7 @@ func _ablage_chip(piece: Dictionary, uid: int, chip: float) -> Button:
 	button.disabled = editing_locked
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
-	var tint: Color = PackShelfView.COLORS.get(String(piece.get("sort", "")), GOLD)
+	var tint: Color = PackDrawerView.COLORS.get(String(piece.get("sort", "")), GOLD)
 	var glow := Panel.new()
 	glow.name = "ChipGlow"
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1952,12 +1996,14 @@ func swirl_press_portal(slot: int, delay: float) -> void:
 	if portal != null and is_instance_valid(portal):
 		portal.swirl(delay)
 
-## Name und Wirkung des Dings unter pixel ({} = keins): der Regal-Stapel spricht
+## Name und Wirkung des Dings unter pixel ({} = keins): das Magazin spricht
 ## zuerst, dann der Haufen (das oberste Stück gewinnt), zuletzt der Handlungs-Sitz
 ## mit seinem Preis - alle schreiben auf denselben Hinweis-Schirm.
 func chip_hint_at(pixel: Vector2) -> Dictionary:
-	if _shelf != null and is_instance_valid(_shelf):
-		var hint := _shelf.hint_at(pixel)
+	if _drawer != null and is_instance_valid(_drawer):
+		var hint := _drawer.hint_at(pixel)
+		if hint.has("stock"):
+			return _stock_hint()
 		if not hint.is_empty():
 			return hint
 	if _ablage_host != null and is_instance_valid(_ablage_host):
@@ -1967,6 +2013,21 @@ func chip_hint_at(pixel: Vector2) -> Dictionary:
 			if not found.is_empty():
 				return found
 	return _meta_hint(_press_button, pixel)
+
+## Die Fach-Fläche nennt den BESTAND am Deckel - dort, wo die Karten liegen, und
+## nicht auf den Karten selbst (eine Kassette nennt ihren Inhalt, das Fach seinen
+## Füllstand). Live vom Lauf gefragt: der gemessene Deckel kommt erst nach dem
+## Layout herein, ein beim Aufbau eingebackener wäre alt.
+func _stock_hint() -> Dictionary:
+	var capacity := run.pack_capacity if run != null else 0
+	if capacity <= 0:
+		return {"title": PackDrawerView.EMPTY_TITLE, "body": PackDrawerView.EMPTY_BODY}
+	var stock := run.owned_packs.size()
+	var free := maxi(capacity - stock, 0)
+	var body := PackDrawerView.EMPTY_BODY
+	if stock > 0:
+		body = PackDrawerView.FULL_BODY if free == 0 else PackDrawerView.STOCK_BODY % free
+	return {"title": PackDrawerView.STOCK_TITLE % [stock, capacity], "body": body}
 
 ## Die Meta-Auskunft eines Knopfes, wenn der Zeiger auf ihm steht ({} = nicht).
 func _meta_hint(node: Control, pixel: Vector2) -> Dictionary:
@@ -1990,21 +2051,27 @@ func _pop_card(card: Control) -> void:
 
 # --- Zeremonie: öffnen, zeigen, verwenden --------------------------------------
 
-## Öffnet das WÜRFEL-Paket auf Platz index. Der Inhalt entsteht ERST JETZT
-## (GameRun), bleibt aber unverbucht, bis die Entsiegelung ihn zündet.
-## Gravur-Pakete laufen nicht hier durch, sondern über die Presse (start_press).
+## Öffnet das WÜRFEL-Paket auf Platz index (Alt-Eingang der Tests).
 func open_pack(index: int) -> void:
 	if run == null or index < 0 or index >= run.owned_packs.size():
 		return
-	var pack := run.owned_packs[index]
-	if not pack.is_dice_pack():
+	open_pack_uid(run.owned_packs[index].pack_uid)
+
+## Öffnet GENAU dieses Würfel-Paket. Der Inhalt entsteht ERST JETZT (GameRun),
+## bleibt aber unverbucht, bis die Entsiegelung ihn zündet. Gravur-Pakete laufen
+## nicht hier durch, sondern über die Presse (start_press). Die Presse-Vorwahl
+## bleibt stehen - uids überleben das Rutschen des Lagers.
+func open_pack_uid(uid: int) -> void:
+	if run == null:
+		return
+	var pack := run.pack_by_uid(uid)
+	if pack == null or not pack.is_dice_pack():
 		return
 	_open_pack_type = pack.type
-	_selected_packs.clear()  # das Lager rutscht - die Vorwahl zeigte danach woandershin
 	# Phase VOR dem Öffnen setzen: packs_changed baut sofort neu auf.
 	_phase = Phase.UNSEAL
 	_selected_slot = -1
-	var result := run.open_pack(index)
+	var result := run.open_pack_by_uid(uid)
 	_revealed_dice.assign(result["dice"])
 	_pack_dice.assign(result["dice"])
 	# Die Würfel-Plätze stehen ab jetzt - die Zeichen brauchen ihr Ziel. Körperlich
@@ -2014,7 +2081,7 @@ func open_pack(index: int) -> void:
 	_materialized.fill(false)
 	if not _revealed_dice.is_empty():
 		_phase = Phase.CHOOSE_DIE if _revealed_dice.size() > 1 else Phase.PLACE_DICE
-	pack_activated.emit(index)
+	pack_activated.emit(uid)
 	refresh()
 	_begin_unseal()
 
@@ -2092,17 +2159,16 @@ func _clear_unseal() -> void:
 # dann wirft jedes Paket seine Menge aus. Pressen ist bindend - gewählt wird
 # darum vorher, im Regal.
 
-## Wirft Plätze aus der Vorwahl, die kein Gravur-Paket mehr tragen: das Lager
-## schrumpft auch anderswo (Würfel-Paket geöffnet, Wett-Einsatz).
+## Wirft uids aus der Vorwahl, hinter denen kein Gravur-Paket mehr liegt: das
+## Lager schrumpft auch anderswo (Wett-Einsatz, Laufwechsel).
 func _prune_selection() -> void:
 	if _selected_packs.is_empty():
 		return
 	var kept: Array[int] = []
-	for index in _selected_packs:
-		if run == null or index < 0 or index >= run.owned_packs.size():
-			continue
-		if not run.owned_packs[index].is_dice_pack():
-			kept.append(index)
+	for uid in _selected_packs:
+		var pack := run.pack_by_uid(uid) if run != null else null
+		if pack != null and not pack.is_dice_pack():
+			kept.append(uid)
 	_selected_packs = kept
 
 ## DIE PRESSUNG: ein Griff, und danach liegt die Beute. Gemeldet wird VOR dem
@@ -2112,13 +2178,18 @@ func _prune_selection() -> void:
 func start_press() -> void:
 	if not can_press():
 		return
-	_selected_packs.sort()
 	var sorts := press_slot_sorts()
 	press_started.emit()
 	# Die Sorten überleben das Schlucken: Leser und Portal brennen weiter in ihrer
 	# Farbe, bis der letzte Meteor liegt.
 	_press_sorts = sorts
-	var result := run.open_press(_selected_packs)
+	# Die Vorwahl hält uids - die Presse frisst Indizes, aufgelöst erst jetzt.
+	var indices: Array[int] = []
+	for uid in _selected_packs:
+		var index := run.pack_index_of(uid)
+		if index >= 0:
+			indices.append(index)
+	var result := run.open_press(indices)
 	var readers: Array = result.get("readers", [])
 	if readers.is_empty():
 		_press_sorts.clear()

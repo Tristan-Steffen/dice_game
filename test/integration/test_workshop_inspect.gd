@@ -181,7 +181,7 @@ func test_the_apron_stands_through_the_dossier() -> void:
 		slits.append(slit.get_global_rect())
 	_open()
 	await wait_frames(2)
-	assert_not_null(view._shelf, "die Buchten stehen")
+	assert_not_null(view._drawer, "die Buchten stehen")
 	assert_not_null(view._band, "und das Konsolen-Band")
 	for i in slits.size():
 		assert_eq(view._press_slit_panels[i].get_global_rect(), slits[i],

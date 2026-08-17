@@ -1,9 +1,11 @@
 extends GutTest
 ## Feste Plätze auf der Werkbank-Grundseite: nichts darf sich je verschieben.
-## Die Stabilität IST die Prüfung - gemessen werden die globalen Rechtecke der
-## fünf Regal-Buchten und der sechs Leseschlitze, danach wird die Bank benutzt
-## (Paket einlegen, Sorte leerlaufen lassen, in eine leere Bucht liefern) und
-## jedes Rechteck muss auf denselben Pixeln liegen wie vorher.
+## Die Stabilität IST die Prüfung - gemessen werden das Magazin-Fach, die sechs
+## Leseschlitze und der Handlungs-Sitz, danach wird die Bank benutzt (Paket
+## einlegen, Fach leerlaufen lassen, in ein leeres Fach liefern) und jedes
+## Rechteck muss auf denselben Pixeln liegen wie vorher. Die Plätze IN dem Fach
+## dürfen sich dabei ändern - die Reihe schließt sich hinter einem entnommenen
+## Paket, das ist Magazin-Ordnung, kein Reflow der Seite.
 
 var view: WorkshopView
 var run: GameRun
@@ -17,12 +19,8 @@ func before_each() -> void:
 	add_child_autofree(view)
 	view.run = run
 
-func _segment_rects() -> Dictionary:
-	var rects := {}
-	for category: String in PackShelfView.SHELF_ORDER:
-		var seat := view._shelf.segment_of(category)
-		rects[category] = seat.get_global_rect() if seat != null else Rect2()
-	return rects
+func _drawer_rect() -> Rect2:
+	return view._drawer.get_global_rect() if view._drawer != null else Rect2()
 
 func _slit_rects() -> Array[Rect2]:
 	var rects: Array[Rect2] = []
@@ -38,7 +36,7 @@ func _console() -> Control:
 	return view.get_node("PressBand/PressConsole")
 
 ## Die Schürzen-Linie, die scene_root am Tisch hereinschiebt: genau die Kette aus
-## apron_units. Ein geratenes Maß ließe die Buchten auf ihre Mindesthöhe fallen.
+## apron_units. Ein geratenes Maß ließe das Fach auf seine Mindesthöhe fallen.
 func _apron_line() -> float:
 	return view.size.y + view.size.x / 100.0 * view.apron_units()
 
@@ -48,107 +46,86 @@ func _row_names() -> Array[String]:
 		names.append(String(child.name))
 	return names
 
-func _assert_same_segments(before: Dictionary, after: Dictionary, what: String) -> void:
-	for category: String in PackShelfView.SHELF_ORDER:
-		assert_eq(after[category], before[category], "%s: %s steht unverrückt" % [what, category])
-
 func _assert_same_slits(before: Array[Rect2], after: Array[Rect2], what: String) -> void:
 	assert_eq(after.size(), before.size(), "%s: dieselbe Zahl Schlitze" % what)
 	for i in before.size():
 		assert_eq(after[i], before[i], "%s: Schlitz %d steht unverrückt" % [what, i])
 
-# --- (a) Ein Paket einlegen: nur die Sichtbarkeit des Knopfes ändert sich ---------
+# --- (a) Ein Paket einlegen: nur der Inhalt des Fachs ändert sich ------------------
 
 func test_slotting_a_pack_moves_nothing_on_the_page() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
 	assert_false(view._press_button.visible, "vorher zeigt sich kein Knopf")
 
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
 	assert_true(view._press_button.visible, "der Knopf ist da")
 	assert_eq(_seat_rect(), seat, "sein Sitz war schon vorher genau so hoch")
 	assert_eq(_row_names(), rows, "dieselben Zeilen in derselben Ordnung")
-	_assert_same_segments(segments, _segment_rects(), "eingelegt")
+	assert_eq(_drawer_rect(), fach, "das Fach steht unverrückt")
 	_assert_same_slits(slits, _slit_rects(), "eingelegt")
 
 func test_taking_the_pack_back_out_moves_nothing_either() -> void:
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
 
 	view.clear_press_slot(0)
 	await wait_frames(2)
 	assert_false(view._press_button.visible, "ohne Paket geht er wieder")
-	_assert_same_segments(segments, _segment_rects(), "zurückgenommen")
+	assert_eq(_drawer_rect(), fach, "zurückgenommen: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "zurückgenommen")
 
-# --- (b) Eine Sorte läuft leer: ihre Bucht bleibt stehen --------------------------
+# --- (b) Das Fach läuft leer: es bleibt stehen -------------------------------------
 
-func test_an_exhausted_sort_keeps_its_bay() -> void:
+func test_an_emptied_magazine_keeps_its_drawer() -> void:
 	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.material_pack())
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
-	assert_true(view._shelf.bay_stocked(Engraving.CATEGORY_NUMBER))
 
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)  # das letzte Zahlen-Paket verlässt den Stapel
+	view.slot_pack(run.owned_packs[0].pack_uid)  # das letzte Paket verlässt das Fach
 	await wait_frames(2)
-	assert_eq(view.sealed_pack_count(Engraving.CATEGORY_NUMBER), 0, "die Sorte ist leer")
-	_assert_same_segments(segments, _segment_rects(), "leergelaufen")
+	assert_true(view.drawer_entries().is_empty(), "das Magazin ist leer")
+	assert_eq(_drawer_rect(), fach, "leergelaufen: das Fach steht weiter")
 	_assert_same_slits(slits, _slit_rects(), "leergelaufen")
+	var hint := view._drawer.hint_at(_drawer_rect().get_center())
+	assert_eq(String(hint.get("title", "")), PackDrawerView.EMPTY_TITLE,
+		"und es nennt sich weiter selbst")
 
-	assert_false(view._shelf.bay_stocked(Engraving.CATEGORY_NUMBER))
-	assert_not_null(view._shelf.segment_of(Engraving.CATEGORY_NUMBER), "die Bucht steht weiter")
-	var chip := view._shelf.stack_button(Engraving.CATEGORY_NUMBER)
-	assert_true(chip.disabled, "aber sie fängt nichts mehr")
-	assert_eq(String(chip.get_meta("title", "")),
-		PackShelfView.bay_name(Engraving.CATEGORY_NUMBER), "sie nennt weiter ihre Sorte")
-	assert_eq(view._shelf.segment_of(Engraving.CATEGORY_NUMBER).modulate,
-		PackShelfView.BAY_REST, "und ihre Schale steht offen wie zuvor")
-	assert_true(view._shelf.bay_stocked(Engraving.CATEGORY_MATERIAL),
-		"die Nachbarin führt weiter Ware und rückt nicht auf")
+# --- (c) Lieferung ins leere Fach: sie landet auf dem stehenden Anker --------------
 
-# --- (c) Lieferung in eine leere Bucht: sie ploppt an ihren festen Platz ----------
-
-func test_a_delivery_into_an_empty_sort_lands_on_the_standing_anchor() -> void:
-	# Der Anker existiert, BEVOR die Ware kommt - genau das macht den Einschlag
-	# ruhig: scene_root stellt den Körper auf denselben Punkt, den die leere Bucht
-	# schon die ganze Zeit gemeldet hat.
-	assert_false(view._shelf.bay_stocked(Engraving.CATEGORY_DICE), "Runen führt niemand")
+func test_a_delivery_lands_on_the_standing_anchor() -> void:
+	# Der Anker existiert, BEVOR die Ware ankommt - genau das macht den Einschlag
+	# ruhig: scene_root stellt den Körper auf denselben Punkt, den der zurück-
+	# gehaltene Platz schon die ganze Zeit gemeldet hat.
 	run.grant_pack(Pack.dice_mod_pack())
-	view.expect_pack_delivery(Engraving.CATEGORY_DICE)  # unterwegs: der Stapel wächst erst bei Ankunft
+	var uid := run.owned_packs[0].pack_uid
+	view.expect_pack_delivery(uid)  # unterwegs: der Chip erscheint erst bei Ankunft
 	await wait_frames(2)
-	var segments := _segment_rects()
-	var slits := _slit_rects()
-	var anchor := view.stack_anchor_px(Engraving.CATEGORY_DICE)
-	assert_false(view._shelf.bay_stocked(Engraving.CATEGORY_DICE), "noch ist sie leer")
+	var fach := _drawer_rect()
+	var anchor := view.pack_anchor_px(uid)
+	assert_null(view._drawer.pack_button(uid), "noch liegt kein Chip da")
 
-	view.deliver_pack(Engraving.CATEGORY_DICE)
+	view.deliver_pack(uid)
 	await wait_frames(2)
-	assert_true(view._shelf.bay_stocked(Engraving.CATEGORY_DICE), "die Ware liegt da")
-	_assert_same_segments(segments, _segment_rects(), "geliefert")
-	_assert_same_slits(slits, _slit_rects(), "geliefert")
-	assert_eq(view.stack_anchor_px(Engraving.CATEGORY_DICE), anchor,
+	assert_not_null(view._drawer.pack_button(uid), "die Ware liegt da")
+	assert_eq(_drawer_rect(), fach, "geliefert: das Fach steht")
+	assert_eq(view.pack_anchor_px(uid), anchor,
 		"und zwar auf demselben Anker wie vor der Lieferung")
-	var found := false
-	for entry in view.shelf_entries():
-		if String(entry.get("category", "")) == Engraving.CATEGORY_DICE:
-			found = true
-	assert_true(found, "erst jetzt meldet die Sorte einen Stapel - vorher gab es keinen Körper")
 
-# --- (d) Die Schürze: Konsole unter der Kante, Buchten darunter --------------------
+# --- (d) Die Schürze: Konsole unter der Kante, das Fach darunter -------------------
 
 ## Das Konsolen-Band hängt GANZ unter dem Fenster, zwischen zwei gleichen Nähten:
-## Fensterkante - Naht - Band - Naht - Buchten.
+## Fensterkante - Naht - Band - Naht - Fach.
 func test_the_console_hangs_below_the_window_between_two_equal_seams() -> void:
 	view.apron_bottom = _apron_line()
 	await wait_frames(2)
@@ -158,8 +135,8 @@ func test_the_console_hangs_below_the_window_between_two_equal_seams() -> void:
 	assert_gt(console.position.y, window.end.y, "es steht vollständig außerhalb")
 	assert_almost_eq(console.position.y - window.end.y, u * WorkshopView.CONSOLE_SHELF_GAP,
 		1.0, "eine Naht unter der Fensterkante")
-	assert_almost_eq(view._shelf.get_global_rect().position.y - console.end.y,
-		console.position.y - window.end.y, 1.0, "und genau dieselbe Naht zu den Buchten")
+	assert_almost_eq(_drawer_rect().position.y - console.end.y,
+		console.position.y - window.end.y, 1.0, "und genau dieselbe Naht zum Fach")
 	assert_almost_eq(console.get_center().x, window.get_center().x, 1.0,
 		"waagerecht steht es weiter mittig")
 
@@ -175,10 +152,13 @@ func test_the_window_content_uses_the_full_interior() -> void:
 		_console().get_global_rect().position.y, "und nie unter dem Band")
 
 ## Die Kette, aus der scene_root die Fensterhöhe auflöst: Naht, ganzes Band,
-## Naht, Bucht-Streifen. Weicht sie ab, enden die Buchten nicht auf der Hub-Linie.
+## Naht, Fach-Streifen. Weicht sie ab, endet das Fach nicht auf der Hub-Linie.
 func test_the_apron_chain_is_seam_band_seam_bays() -> void:
+	var unit := view.size.x / 100.0
+	# Das Band wird in ECHTEN u gemessen: seit der Schlitz die Kappe der Kassette
+	# schluckt, hängt seine Höhe an einem Weltmaß und nicht mehr allein an u.
 	assert_almost_eq(view.apron_units(),
-		WorkshopView.CONSOLE_SHELF_GAP * 2.0 + view.console_size(1.0).y
+		WorkshopView.CONSOLE_SHELF_GAP * 2.0 + view.console_size(unit).y / unit
 			+ WorkshopView.SHELF_STRIP_UNITS, 0.001, "die Schürze in Einheiten")
 	var u := view.size.x / 100.0
 	view.apron_bottom = _apron_line()
@@ -187,32 +167,29 @@ func test_the_apron_chain_is_seam_band_seam_bays() -> void:
 		u * WorkshopView.CONSOLE_SHELF_GAP * 2.0 + view.console_size(u).y, 1.0,
 		"und dieselbe Kette misst sich am Fenster nach")
 
-## Die Buchten liegen GANZ außerhalb, über die volle Fensterbreite, und enden auf
+## Das Fach liegt GANZ außerhalb, über die volle Fensterbreite, und endet auf
 ## der gemeldeten Schürzen-Linie (am Tisch: der Unterkante des Hubs).
-func test_the_bays_lie_below_the_window_at_full_width() -> void:
+func test_the_drawer_lies_below_the_window_at_full_width() -> void:
 	view.apron_bottom = _apron_line()
 	await wait_frames(2)
-	var row := view._shelf.get_global_rect()
+	var row := _drawer_rect()
 	var window := view.get_global_rect()
-	assert_gt(row.position.y, window.end.y, "die Buchten liegen unter dem Fenster")
+	assert_gt(row.position.y, window.end.y, "das Fach liegt unter dem Fenster")
 	assert_almost_eq(row.end.y, window.position.y + view.apron_bottom, 1.0,
-		"und enden genau auf der gemeldeten Linie")
-	assert_lte(window.size.x - row.size.x, PackShelfView.SHELF_ORDER.size(),
-		"sie nehmen die volle Fensterbreite (bis auf die Pixel-Abrundung)")
-	assert_almost_eq(row.get_center().x, window.get_center().x, 1.0, "und stehen mittig")
-	for category: String in PackShelfView.SHELF_ORDER:
-		assert_almost_eq(view._shelf.segment_of(category).size.y, row.size.y, 1.0,
-			"%s füllt den Streifen" % category)
+		"und endet genau auf der gemeldeten Linie")
+	assert_lte(window.size.x - row.size.x, 2.0,
+		"es nimmt die volle Fensterbreite (bis auf die Pixel-Abrundung)")
+	assert_almost_eq(row.get_center().x, window.get_center().x, 1.0, "und steht mittig")
 
-## Der Abstand zur Konsole ist gesetzt, die HÖHE der Buchten folgt daraus.
-func test_the_bay_height_falls_out_of_the_gap_below_the_console() -> void:
+## Der Abstand zur Konsole ist gesetzt, die HÖHE des Fachs folgt daraus.
+func test_the_drawer_height_falls_out_of_the_gap_below_the_console() -> void:
 	view.apron_bottom = _apron_line()
 	await wait_frames(2)
 	var u := view.size.x / 100.0
-	var gap := view._shelf.get_global_rect().position.y - _console().get_global_rect().end.y
+	var gap := _drawer_rect().position.y - _console().get_global_rect().end.y
 	assert_almost_eq(gap, u * WorkshopView.CONSOLE_SHELF_GAP, 1.0, "eine Naht unter dem Blech")
-	assert_almost_eq(view._shelf.get_global_rect().size.y,
-		view.apron_bottom - view.shelf_top(), 1.0, "der Rest ist Buchthöhe")
+	assert_almost_eq(_drawer_rect().size.y, view.apron_bottom - view.shelf_top(), 1.0,
+		"der Rest ist Fachhöhe")
 
 ## Fenster PLUS Schürze - daran messen sich Klick-Weiterleitung und Kamera.
 func test_the_bench_rect_covers_window_and_apron() -> void:
@@ -221,23 +198,45 @@ func test_the_bench_rect_covers_window_and_apron() -> void:
 	var bench := view.bench_rect()
 	assert_true(bench.encloses(view.get_global_rect()), "das Fenster liegt darin")
 	assert_true(bench.encloses(_console().get_global_rect()), "das Blech ebenso")
-	assert_almost_eq(view._shelf.get_global_rect().end.y, bench.end.y, 1.0,
-		"und die Buchten enden genau auf seiner Unterkante")
+	assert_almost_eq(_drawer_rect().end.y, bench.end.y, 1.0,
+		"und das Fach endet genau auf seiner Unterkante")
 
-## Gemessen und gerechnet sind derselbe Punkt: solange die Leiste steht, misst der
-## Anker am Knopf, sonst folgt er aus dem Streifen. Weichen die beiden ab, springt
-## ein Liefer-Komet in dem Moment, in dem das Regal zurückkommt.
-func test_the_derived_stack_anchor_matches_the_measured_one() -> void:
+## Die GRUBE hängt am selben Streifen: sie ist er, abzüglich seiner gemalten
+## Fassung. Sie muss durch jeden Ablauf byteweise stehen - das Loch im Glas und
+## der Körper darunter werden aus ihr gestellt, ein Wandern wäre ein springendes
+## Loch im Tisch.
+func test_the_pit_hangs_on_the_standing_drawer_rect() -> void:
+	view.apron_bottom = _apron_line()
 	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
 	await wait_frames(2)
-	for category: String in PackShelfView.SHELF_ORDER:
-		var measured := view._shelf.stack_anchor_px(category)
-		var derived := PackShelfView.stack_anchor_in(view.shelf_rect_global(), category,
-			view.shelf_cell_px())
-		# Auf Pixelrundung genau: der Kasten verteilt in ganzen Pixeln, die Formel
-		# rechnet in Brüchen - alles darüber wäre ein sichtbarer Sprung.
-		assert_almost_eq(derived.x, measured.x, 1.5, "%s: dieselbe Spalte" % category)
-		assert_almost_eq(derived.y, measured.y, 1.5, "%s: dieselbe Höhe" % category)
+	var pit := view.shelf_pit_rect()
+	assert_true(_drawer_rect().encloses(pit), "das Loch liegt IM Fach")
+	assert_gt(pit.size.x, 0.0)
+	assert_gt(pit.size.y, 0.0)
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_eq(view.shelf_pit_rect(), pit, "eingelegt: die Grube steht")
+	view.clear_press_slot(0)
+	await wait_frames(2)
+	assert_eq(view.shelf_pit_rect(), pit, "zurückgenommen: die Grube steht")
+
+## Gemessen und gerechnet sind derselbe Punkt: solange das Fach steht, misst der
+## Anker am Chip, sonst folgt er aus dem Streifen. Weichen die beiden ab, springt
+## ein Liefer-Komet in dem Moment, in dem das Fach zurückkommt.
+func test_the_derived_pack_anchor_matches_the_measured_one() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	run.grant_pack(Pack.dice_mod_pack())
+	await wait_frames(2)
+	for i in run.owned_packs.size():
+		var uid := run.owned_packs[i].pack_uid
+		var measured := view._drawer.pack_anchor_px(uid)
+		var derived := PackDrawerView.anchor_in(view.shelf_pit_rect(), i,
+			run.owned_packs.size(), view.shelf_cell_px())
+		# Auf Pixelrundung genau - alles darüber wäre ein sichtbarer Sprung.
+		assert_almost_eq(derived.x, measured.x, 1.5, "uid %d: dieselbe Spalte" % uid)
+		assert_almost_eq(derived.y, measured.y, 1.5, "uid %d: dieselbe Höhe" % uid)
 
 ## Sitz und Hinweiskarte reisen MIT dem Band: er in seiner rechten Flanke, sie in
 ## seiner linken, beide auf seiner Mittellinie.
@@ -253,8 +252,8 @@ func test_seat_and_card_ride_the_console_band() -> void:
 	assert_lt(screen.end.x, console.position.x, "der Schirm steht links vom Blech")
 	assert_almost_eq(screen.get_center().y, console.get_center().y, screen.size.y * 0.5,
 		"und er steht auf dem Band")
-	assert_lte(screen.end.y, view._shelf.get_global_rect().position.y + 1.0,
-		"unter die Buchten taucht er nie - dort liegen die Kassetten davor")
+	assert_lte(screen.end.y, _drawer_rect().position.y + 1.0,
+		"unter das Fach taucht er nie - dort liegen die Kassetten davor")
 
 func test_the_growth_comes_out_of_the_slack_not_out_of_the_nets() -> void:
 	# Erst die Restluft, dann erst (und hier gar nicht) der Netz-Deckel.
@@ -271,25 +270,54 @@ func test_the_growth_comes_out_of_the_slack_not_out_of_the_nets() -> void:
 	assert_lte(view.clamp_cell(u), u * WorkshopView.CLAMP_CELL_MAX,
 		"der Netz-Deckel steht unverändert")
 
-func test_the_shelf_cells_grow_with_their_bays() -> void:
+func test_the_cell_scale_has_one_source() -> void:
+	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
-	assert_gt(view.shelf_cell_scale(), 1.0, "in der Bucht wächst die Kassette")
-	assert_lte(view.shelf_cell_scale(), PackShelfView.SHELF_SCALE_MAX)
-	assert_almost_eq(view.shelf_cell_scale(), view._shelf.cell_scale(), 0.001,
-		"eine Quelle, auch wenn die Leiste gerade nicht steht")
+	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001)
+	assert_almost_eq(view.shelf_cell_scale(), view._drawer.cell_scale(), 0.001,
+		"eine Quelle, auch wenn das Fach gerade nicht steht")
 
-# --- (e) Der Wurf läuft IN der Seite: auch er verrückt nichts --------------------
+## Das EINE Kassettenmaß: das Magazin trägt es, und der Leseschlitz ist darauf
+## geschnitten - eine Karte wächst und schrumpft auf ihrem Weg nicht mehr.
+func test_magazine_and_slit_are_cut_to_the_same_cassette() -> void:
+	view.data_cell_px = Vector2(40, 16)
+	await wait_frames(2)
+	var u := view.size.x / 100.0
+	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
+		"die Karte liegt im festen Maß im Fach")
+	var cap := view.data_cell_px * PackDrawerView.CASSETTE_SCALE
+	assert_gte(view.slit_size(u).x, cap.x, "und der Schlitz schluckt genau diese Kappe")
+	assert_gte(view.slit_size(u).y, cap.y)
+
+## Die Menge drückt keine Karte klein - nie. Der gemessene Deckel ist genau so
+## gewählt, dass eine randvolle Grube noch in voller Größe steht.
+func test_the_magazine_never_squeezes_its_cards_by_count() -> void:
+	view.apron_bottom = _apron_line()
+	await wait_frames(2)
+	var capacity := PackDrawerView.capacity_for(view.shelf_pit_rect().size,
+		view.shelf_cell_px())
+	assert_gt(capacity, GameRun.PACK_CAPACITY, "die echte Grube fasst mehr als der Rückfall")
+	run.set_pack_capacity(capacity)
+	for i in capacity:
+		run.grant_pack(Pack.number_pack())
+	await wait_frames(2)
+	assert_eq(run.owned_packs.size(), capacity, "bis an den Deckel gefüllt")
+	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
+		"die randvolle Grube steht in voller Größe")
+	assert_null(run.grant_pack(Pack.number_pack()), "und darüber hinaus kommt nichts")
+
+# --- (e) Der Wurf läuft IN der Seite: auch er verrückt nichts ----------------------
 
 func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	# Weder Pressung noch Platzierung haben eine eigene Seite - die eine läuft in
 	# den Anzeigefeldern, und ihre Beute LIEGT als Haufen über dem Zeilenfluss.
-	# Also stehen Buchten, Schlitze, Zeilen und der Sitz durch den ganzen Kreis auf
+	# Also stehen Fach, Schlitze, Zeilen und der Sitz durch den ganzen Kreis auf
 	# denselben Pixeln: vorher, mit liegender Beute und nach dem Fertig.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
@@ -304,7 +332,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	assert_null(view._press_button, "der Pressen-Knopf tritt ab")
 	assert_not_null(view._apply_button)
 	assert_eq(view._apply_button.get_global_rect(), seat, "und der Knopf füllt ihn genau")
-	_assert_same_segments(segments, _segment_rects(), "mit Beute")
+	assert_eq(_drawer_rect(), fach, "mit Beute: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "mit Beute")
 	assert_eq(view.press_display_anchors(), displays, "und die Leser stehen still")
 	assert_eq(view.ablage_rect(), strip, "der Streifen hängt am Fenster, nicht am Inhalt")
@@ -315,7 +343,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	assert_false(view.placing())
 	assert_eq(_row_names(), rows, "und nach dem Kreis steht wieder dieselbe Seite")
 	assert_eq(_seat_rect(), seat)
-	_assert_same_segments(segments, _segment_rects(), "danach")
+	assert_eq(_drawer_rect(), fach, "danach: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "danach")
 	assert_eq(view.press_display_anchors(), displays)
 	assert_eq(view.ablage_rect(), strip, "auch der leere Streifen steht, wo er stand")
@@ -324,7 +352,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 ## keinen Pixel der Grundseite.
 func test_a_full_pile_moves_nothing_on_the_page() -> void:
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
@@ -341,7 +369,7 @@ func test_a_full_pile_moves_nothing_on_the_page() -> void:
 	assert_eq(view._ablage_chips.size(), 30, "dreißig Chips liegen da")
 	assert_eq(_row_names(), rows, "dieselben Zeilen")
 	assert_eq(_seat_rect(), seat)
-	_assert_same_segments(segments, _segment_rects(), "voller Haufen")
+	assert_eq(_drawer_rect(), fach, "voller Haufen: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "voller Haufen")
 	for i in nets.size():
 		assert_eq(view._clamp_nets[i].get_global_rect(), nets[i], "Netz %d steht unverrückt" % i)
@@ -350,43 +378,43 @@ func test_a_full_pile_moves_nothing_on_the_page() -> void:
 		assert_true(strip.has_point(view.ablage_spot(int(uid))),
 			"und jeder Chip bleibt im Streifen")
 
-func test_the_console_stays_clear_of_the_shelf() -> void:
-	# Der gewachsene Leser darf die Buchten nicht anschneiden - die Restluft über
+func test_the_console_stays_clear_of_the_drawer() -> void:
+	# Der gewachsene Leser darf das Fach nicht anschneiden - die Restluft über
 	# der Konsole ist die Reserve, und sie bleibt positiv.
 	var u := view.size.x / 100.0
 	var console := _console()
 	await wait_frames(2)
-	assert_gt(view._shelf.get_global_rect().position.y, console.get_global_rect().end.y,
-		"die Konsole endet über dem Regal")
+	assert_gt(_drawer_rect().position.y, console.get_global_rect().end.y,
+		"die Konsole endet über dem Fach")
 	assert_gt(view._content.get_node("BenchSlack").size.y, 0.0, "und darüber bleibt Luft")
 	assert_gt(view.socket_size(u).y, u * WorkshopView.SLIT_DISPLAY,
 		"ein Platz trägt sein Feld UND seinen Schlitz")
 
-func test_the_bays_never_reflow_however_the_stock_stands() -> void:
-	# Der Beweis in einem Bild: derselbe Satz Rechtecke bei leerem, gemischtem und
-	# vollem Regal.
+func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
+	# Der Beweis in einem Bild: dasselbe Fach-Rechteck bei leerem, gemischtem und
+	# vollem Magazin.
 	await wait_frames(2)
-	var empty := _segment_rects()
+	var empty := _drawer_rect()
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.dice_mod_pack())
 	await wait_frames(2)
-	_assert_same_segments(empty, _segment_rects(), "gemischt")
+	assert_eq(_drawer_rect(), empty, "gemischt")
 	run.grant_pack(Pack.material_pack())
 	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
 	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving()))
 	await wait_frames(2)
-	_assert_same_segments(empty, _segment_rects(), "voll")
+	assert_eq(_drawer_rect(), empty, "voll")
 
 # --- (f) Auch ein Würfel-Paket nimmt der Schürze nichts weg ------------------------
 
 func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
-	# Die Schürze gehört der Bank, nicht einem Ablauf: Buchten, Schlitze und Blech
+	# Die Schürze gehört der Bank, nicht einem Ablauf: Fach, Schlitze und Blech
 	# stehen auf denselben Pixeln, während ein Würfel-Paket das Fenster füllt -
 	# nur anfassen lässt sich dann nichts.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[4]))  # 3 Würfel = echte Wahl
 	await wait_frames(2)
-	var segments := _segment_rects()
+	var fach := _drawer_rect()
 	var slits := _slit_rects()
 	var console := _console().get_global_rect()
 	var seat := _seat_rect()
@@ -395,11 +423,11 @@ func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
 	assert_true(view.open_top_dice_pack(), "das Würfel-Paket geht auf")
 	await wait_frames(2)
 	assert_eq(view._phase, WorkshopView.Phase.CHOOSE_DIE)
-	_assert_same_segments(segments, _segment_rects(), "in der Wahl")
+	assert_eq(_drawer_rect(), fach, "in der Wahl: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "in der Wahl")
 	assert_eq(_console().get_global_rect(), console, "und das Blech steht still")
 	assert_eq(_seat_rect(), seat, "der Sitz ebenso")
-	assert_true(view.shelf_locked(), "aber die Buchten sind zu")
+	assert_true(view.shelf_locked(), "aber das Fach ist zu")
 	assert_false(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER),
 		"kein Paket in eine laufende Wahl")
 	assert_false(view.open_top_dice_pack(), "und kein zweites Siegel nebenher")
@@ -408,7 +436,7 @@ func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
 	view.choose_die(0)
 	await wait_frames(2)
 	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE)
-	_assert_same_segments(segments, _segment_rects(), "beim Einsetzen")
+	assert_eq(_drawer_rect(), fach, "beim Einsetzen")
 	_assert_same_slits(slits, _slit_rects(), "beim Einsetzen")
 	assert_eq(_console().get_global_rect(), console)
 	assert_eq(_seat_rect(), seat)
@@ -417,18 +445,18 @@ func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
 	view.refresh()
 	await wait_frames(2)
 	assert_null(view._content, "das Fensterinnere gehört dem Siegel")
-	_assert_same_segments(segments, _segment_rects(), "beim Entsiegeln")
+	assert_eq(_drawer_rect(), fach, "beim Entsiegeln")
 	_assert_same_slits(slits, _slit_rects(), "beim Entsiegeln")
 	assert_eq(_console().get_global_rect(), console)
 
 	view.finish_ceremony()
 	await wait_frames(2)
-	_assert_same_segments(segments, _segment_rects(), "danach")
+	assert_eq(_drawer_rect(), fach, "danach")
 	_assert_same_slits(slits, _slit_rects(), "danach")
 	assert_eq(_console().get_global_rect(), console)
 	assert_false(view.shelf_locked(), "und die Bank steht wieder offen")
 
-# --- (e) Die Bank ist IMMER bestückt ----------------------------------------------
+# --- (g) Die Bank ist IMMER bestückt ----------------------------------------------
 # Der Blick entscheidet nichts mehr: Netzzeile, Zwingen und Dossier stehen in
 # jedem Kamera-Modus. Nur die PHASE (Paket, Dossier) nimmt die Zeile weg.
 

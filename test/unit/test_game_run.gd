@@ -317,6 +317,159 @@ func test_open_pack_ignores_invalid_index():
 	assert_eq(run.open_pack(5)["engravings"].size(), 0)
 	assert_eq(run.owned_packs.size(), 1, "Lager unangetastet")
 
+# --- Das Magazin: uid, Ordnung, Deckel -------------------------------------------
+
+func test_stashed_packs_carry_unique_uids():
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	run.grant_packs([Pack.dice_mod_pack(), Pack.number_pack()] as Array[Pack])
+	var seen := {}
+	for pack in run.owned_packs:
+		assert_gt(pack.pack_uid, 0, "jedes eingelagerte Paket trägt eine uid")
+		assert_false(seen.has(pack.pack_uid), "keine uid doppelt")
+		seen[pack.pack_uid] = true
+
+func test_pack_by_uid_finds_its_pack_and_survives_reorder():
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.material_pack())
+	var uid := run.owned_packs[0].pack_uid
+	run.reorder_packs(0, 1)
+	assert_eq(run.pack_index_of(uid), 1, "die uid folgt dem Paket, nicht dem Platz")
+	assert_eq(run.pack_by_uid(uid).type, Pack.TYPE_NUMBER)
+	assert_null(run.pack_by_uid(999), "unbekannte uid = kein Paket")
+
+func test_reorder_packs_moves_one_and_closes_the_row():
+	# remove/insert wie reorder_pool: das Gezogene landet GENAU am Ziel, alles
+	# dazwischen rückt eine Stelle - nie ein Tausch.
+	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.dice_mod_pack()] as Array[Pack])
+	var first := run.owned_packs[0]
+	watch_signals(run)
+	run.reorder_packs(0, 2)
+	assert_eq(run.owned_packs[2], first, "das gezogene Paket steht am Ziel")
+	assert_eq(run.owned_packs[0].type, Pack.TYPE_MATERIAL, "die Reihe schließt sich")
+	assert_signal_emitted(run, "packs_changed")
+	run.reorder_packs(5, 0)  # außerhalb: nichts passiert
+	assert_eq(run.owned_packs[2], first)
+
+func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
+	run.grant_packs([Pack.dice_mod_pack(), Pack.number_pack(),
+		Pack.dice_pack(DiceOffer.TEMPLATES[0]), Pack.number_pack()] as Array[Pack])
+	run.tidy_packs()
+	var shelves: Array[String] = []
+	for pack in run.owned_packs:
+		shelves.append(Pack.shelf_of(pack))
+	assert_eq(shelves, [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_NUMBER,
+		Engraving.CATEGORY_DICE, Pack.SHELF_DICE_PACK] as Array[String],
+		"Sortenfolge = SHELF_ORDER")
+	assert_lt(run.owned_packs[0].pack_uid, run.owned_packs[1].pack_uid,
+		"gleicher Inhalt: die uid bricht den Gleichstand")
+
+## Der Deckel ist GEMESSEN und wird hereingeschoben: die Konstante trägt nur noch
+## kopflos (Tests), und ein unbrauchbarer Wert lässt sie stehen.
+func test_the_pack_capacity_is_injected_and_idempotent():
+	assert_eq(run.pack_capacity, GameRun.PACK_CAPACITY, "ohne Grube der Rückfall")
+	run.set_pack_capacity(51)
+	assert_eq(run.pack_capacity, 51)
+	run.set_pack_capacity(51)
+	assert_eq(run.pack_capacity, 51, "dieselbe Zahl noch einmal ändert nichts")
+	run.set_pack_capacity(0)
+	run.set_pack_capacity(-3)
+	assert_eq(run.pack_capacity, 51, "ungemessen überschreibt nichts")
+
+func test_the_magazine_cap_is_hard_and_a_grant_fizzles_to_money():
+	run.money = 500
+	run.set_pack_capacity(4)
+	for _i in 4:
+		assert_not_null(run.grant_pack(Pack.number_pack()))
+	assert_true(run.packs_full())
+	var before := run.money
+	assert_eq(run.purchase_pack(Pack.number_pack(), 5), 0)
+	assert_eq(run.money, before, "ein voller Kauf zahlt nichts und liefert nichts")
+	assert_eq(run.owned_packs.size(), 4)
+	# Gewähr-Ware verdampft nicht, sie zerfällt zu Geld - eine Karte schrumpft nie.
+	assert_null(run.grant_pack(Pack.material_pack()), "kein Platz, kein Paket")
+	assert_eq(run.owned_packs.size(), 4, "der Deckel ist hart")
+	assert_eq(run.money, before + GameRun.PACK_FIZZLE_MONEY, "dafür Geld")
+
+func test_stash_pack_refuses_when_full():
+	run.set_pack_capacity(1)
+	assert_not_null(run._stash_pack(Pack.number_pack()))
+	assert_null(run._stash_pack(Pack.material_pack()), "der EINE Engpass sagt nein")
+	assert_eq(run.owned_packs.size(), 1)
+
+func test_a_multi_grant_lands_what_fits_and_fizzles_the_rest():
+	run.set_pack_capacity(2)
+	var before := run.money
+	var landed := run.grant_packs([Pack.number_pack(), Pack.material_pack(),
+		Pack.dice_mod_pack(), Pack.number_pack()] as Array[Pack])
+	assert_eq(landed.size(), 4, "je übergebenem Paket sein Platz in der Antwort")
+	assert_not_null(landed[0])
+	assert_not_null(landed[1])
+	assert_null(landed[2], "ab hier ist das Magazin voll")
+	assert_null(landed[3])
+	assert_eq(run.owned_packs.size(), 2)
+	assert_eq(run.money, before + 2 * GameRun.PACK_FIZZLE_MONEY,
+		"je zerfallenem Paket einmal gebucht")
+
+func test_every_grant_kind_fizzles_at_the_cap():
+	run.set_pack_capacity(1)
+	run.grant_pack(Pack.number_pack())
+	var before := run.money
+	assert_null(run.grant_engraving_pack(Engraving.pointer_engraving()))
+	assert_null(run.grant_material_pack(DieMaterial.by_id(DieMaterial.GOLD)))
+	assert_null(run.grant_stress_reward())
+	run.owned_charms.append(Charm.encore())
+	var encore := run.apply_encore(GameRun.ENCORE_STAGES)
+	assert_eq(encore.size(), 1, "der Platz des Exemplars bleibt stehen")
+	assert_null(encore[0], "aber leer")
+	assert_eq(run.owned_packs.size(), 1, "nichts kam dazu")
+	assert_eq(run.money, before + 4 * GameRun.PACK_FIZZLE_MONEY,
+		"vier Prämien, vier Zerfälle")
+
+func test_the_hub_reward_remembers_what_fizzled():
+	run.money = 10000
+	run.set_pack_capacity(1)
+	run.grant_pack(Pack.number_pack())  # der eine Platz ist weg
+	var price := run.hub_upgrade_price()
+	var before := run.money
+	run.upgrade_hub()
+	assert_eq(run.owned_packs.size(), 1, "der Ausbau drückt nichts hinein")
+	assert_true(run.last_hub_reward_packs.is_empty(), "die Merkliste kennt nur Gelandetes")
+	assert_gt(run.last_hub_reward_fizzle, 0, "und zählt, wofür Geld fliegen muss")
+	assert_eq(run.money, before - price
+		+ run.last_hub_reward_fizzle * GameRun.PACK_FIZZLE_MONEY)
+
+func test_a_secret_buy_checks_the_magazine_before_paying():
+	run.secret_shop_unlocked = true
+	run._roll_secret_stock()
+	run.set_pack_capacity(1)
+	run.grant_pack(Pack.number_pack())
+	run.charge = 99
+	for i in run.secret_stock.size():
+		if String(run.secret_stock[i][GameRun.OFFER_KIND]) == GameRun.KIND_CHARM:
+			continue
+		assert_false(run.buy_secret_offer(i), "volles Magazin sperrt versiegelte Ware")
+		assert_false(bool(run.secret_stock[i][GameRun.OFFER_SOLD]), "und der Platz bleibt")
+	assert_eq(run.charge, 99, "prüfen VOR dem Zahlen")
+
+func test_pack_stakes_consume_from_the_end():
+	# Neuzugänge liegen hinten - der Einsatz frisst sie, nie die sortierten Lieblinge vorn.
+	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.dice_mod_pack()] as Array[Pack])
+	var front := run.owned_packs[0]
+	run._consume_packs(2)
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.owned_packs[0], front, "vorn bleibt liegen, hinten wird geopfert")
+
+func test_open_pack_by_uid_opens_exactly_that_pack():
+	run.grant_packs([Pack.dice_pack(DiceOffer.TEMPLATES[0]),
+		Pack.dice_pack(DiceOffer.TEMPLATES[2])] as Array[Pack])
+	var uid := run.owned_packs[1].pack_uid
+	var result := run.open_pack_by_uid(uid)
+	assert_eq((result["dice"] as Array).size(), int(DiceOffer.TEMPLATES[2]["count"]),
+		"geöffnet wird DIESES Paket, nicht das oberste")
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.open_pack_by_uid(uid)["dice"].size(), 0, "eine verbrauchte uid öffnet nichts")
+
 func test_place_pack_die_replaces_the_chosen_slot_only():
 	var die := DieDefinition.fixed(6, "Immer 6")
 	run.place_pack_die(die, 7)
