@@ -17,6 +17,8 @@ signal pack_purchased(from_px: Vector2, uid: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht in die Truhe.
 signal pack_refunded(from_px: Vector2, amount: int)
+## Ein Schlüsselwort im Tooltip wurde geklickt - scene_root schlägt das Lexikon auf.
+signal lexikon_requested(entry_id: String)
 
 const CHARM_PRICE := 15
 
@@ -130,7 +132,14 @@ var lock_button: Button
 ## Hover-Dropdown (Charm-/Engraving-Beschreibung), wie die Gravur-Station.
 var shop_tooltip: PanelContainer
 var shop_tooltip_title: Label
-var shop_tooltip_body: Label
+## RichTextLabel statt Label: die Schlüsselwörter im Text sind Lexikon-Verweise.
+var shop_tooltip_body: RichTextLabel
+## Der Zeiger liegt auf dem Tooltip selbst - die Schonfrist lässt ihn stehen.
+var _tooltip_hovered := false
+## Entwertet laufende Ausblende-Fristen (jede Änderung macht ältere Timer taub).
+var _tooltip_hide_token := 0
+## Schonfrist beim Verlassen des Ankers: genug, um die Lücke zum Tooltip zu queren.
+const TOOLTIP_HIDE_GRACE := 0.25
 ## Würfelnetz im Hover-Fenster: der Inhalt der alten Würfel-Karte wohnt jetzt hier.
 var shop_tooltip_stage: CenterContainer
 ## Preiszeile - nur beim Hover, denn in der Schale steht kein Preis mehr.
@@ -1140,7 +1149,8 @@ func _build_shop_tooltip() -> void:
 	shop_tooltip = PanelContainer.new()
 	shop_tooltip.name = "ShopTooltip"
 	shop_tooltip.visible = false
-	shop_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# STOP statt IGNORE: der Tooltip ist anfahrbar, seine Schlüsselwörter klickbar.
+	shop_tooltip.mouse_filter = Control.MOUSE_FILTER_STOP
 	CasinoStyle.style_panel(shop_tooltip)
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1150,12 +1160,28 @@ func _build_shop_tooltip() -> void:
 	shop_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	CasinoStyle.style_score_label(shop_tooltip_title, int(u * 2.6), CasinoStyle.GOLD)
 	box.add_child(shop_tooltip_title)
-	shop_tooltip_body = Label.new()
-	shop_tooltip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shop_tooltip_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	shop_tooltip_body = RichTextLabel.new()
+	shop_tooltip_body.bbcode_enabled = true
+	shop_tooltip_body.fit_content = true
+	shop_tooltip_body.scroll_active = false
+	# STOP, nicht PASS: der Tooltip liegt in keinem Knopf, es gibt nichts weiterzureichen.
+	shop_tooltip_body.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_tooltip_body.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	shop_tooltip_body.custom_minimum_size = Vector2(u * 28.0, 0)
-	CasinoStyle.style_body_label(shop_tooltip_body, int(u * 1.9), CasinoStyle.CREAM)
+	shop_tooltip_body.add_theme_font_size_override("normal_font_size", int(u * 1.9))
+	shop_tooltip_body.add_theme_color_override("default_color", CasinoStyle.CREAM)
+	shop_tooltip_body.add_theme_color_override("font_outline_color", CasinoStyle.INK)
+	shop_tooltip_body.add_theme_constant_override("outline_size", 2)
+	shop_tooltip_body.meta_clicked.connect(_on_tooltip_meta)
 	box.add_child(shop_tooltip_body)
+	# Der Zeiger darf vom Anker auf den Tooltip wandern: solange er auf Panel
+	# oder Text liegt, hält _tooltip_hovered die Ausblende-Frist auf. Beide
+	# Knoten melden, denn der STOP-Text nimmt dem Panel den Hover weg.
+	for node: Control in [shop_tooltip, shop_tooltip_body]:
+		node.mouse_entered.connect(func() -> void: _tooltip_hovered = true)
+		node.mouse_exited.connect(func() -> void:
+			_tooltip_hovered = false
+			_hide_shop_tooltip())
 	shop_tooltip_stage = CenterContainer.new()
 	shop_tooltip_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_tooltip_stage.visible = false
@@ -1175,7 +1201,7 @@ func _open_exchange_picker(pending_index: int) -> void:
 	if run == null or pending_index < 0 or pending_index >= run.pending_dice.size():
 		return
 	_close_exchange_picker()
-	_hide_shop_tooltip()
+	_hide_tooltip_now()
 	exchange_index = pending_index
 
 	exchange_overlay = Panel.new()
@@ -1268,8 +1294,11 @@ func _show_shop_tooltip(anchor: Control, title: String, body: String,
 		price := -1, net_def: DieDefinition = null) -> void:
 	if shop_tooltip == null:
 		return
+	_tooltip_hide_token += 1  # eine laufende Ausblende-Frist gilt nicht mehr
 	shop_tooltip_title.text = title
-	shop_tooltip_body.text = body
+	# EIN Engpass für alle fünf Hover-Quellen: hier werden die Schlüsselwörter
+	# zu Lexikon-Verweisen.
+	shop_tooltip_body.text = Lexikon.linkify(body)
 	for child in shop_tooltip_stage.get_children():
 		shop_tooltip_stage.remove_child(child)
 		child.queue_free()
@@ -1293,9 +1322,28 @@ func _show_shop_tooltip(anchor: Control, title: String, body: String,
 	pos.y = clampf(pos.y, u * 1.0, maxf(u * 1.0, size.y - shop_tooltip.size.y - u * 1.0))
 	shop_tooltip.position = pos
 
+## Ausblenden mit Schonfrist: der Zeiger darf vom Anker zum Tooltip wandern, um
+## dort ein Schlüsselwort zu klicken - liegt er nach der Frist auf keinem von
+## beiden, geht der Tooltip zu. Die Hover-Quellen rufen weiter DIESE Funktion.
 func _hide_shop_tooltip() -> void:
+	_tooltip_hide_token += 1
+	var token := _tooltip_hide_token
+	get_tree().create_timer(TOOLTIP_HIDE_GRACE).timeout.connect(func() -> void:
+		if token == _tooltip_hide_token and not _tooltip_hovered:
+			_hide_tooltip_now())
+
+## Sofort zu, ohne Frist - für Stellen, an denen der Tooltip im Weg stünde
+## (Tausch-Auswahl, Verweis-Klick).
+func _hide_tooltip_now() -> void:
+	_tooltip_hide_token += 1  # entwertet laufende Fristen
+	_tooltip_hovered = false
 	if shop_tooltip != null:
 		shop_tooltip.visible = false
+
+## Verweis-Klick im Tooltip: zumachen und das Lexikon anfordern.
+func _on_tooltip_meta(meta: Variant) -> void:
+	_hide_tooltip_now()
+	lexikon_requested.emit(String(meta))
 
 ## Knopf im Display-Neon-Stil: dunkler Grund, Rahmen in der Rubriken-Farbe;
 ## Hover/Druck wechseln auf Gold, deaktiviert dimmt ab.

@@ -26,6 +26,10 @@ const CONTRACT_TIER_COLORS := [
 static func contract_tier_color(tier: int) -> Color:
 	return CONTRACT_TIER_COLORS[clampi(tier, 0, CONTRACT_TIER_COLORS.size() - 1)]
 
+## Verweis-Blau des Lexikons: klar getrennt von GOLD (Geld) und CHARGE (⚡).
+## LDR mit Absicht - BBCode-Hex kennt kein HDR (siehe Lexikon.linkify).
+const LEXIKON_LINK := Color("7ec8ff")
+
 const PANEL_BG := Color("16212e")  # dunkles Nachtblau
 const PANEL_BORDER := Color("ffbf3f")
 const CREAM := Color("f6efdd")  # heller Text

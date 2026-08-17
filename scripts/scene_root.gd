@@ -373,6 +373,11 @@ const LOG_BAR_HEIGHT := 0.16
 var title_view: TitleView
 var title_prev_mode: CameraRig.Mode = CameraRig.Mode.OVERVIEW
 
+## Lexikon als Hub-Seite; geöffnet aus dem Hub-Fußknopf oder per Schlüsselwort-
+## Klick (Laden-Tooltip). Schließen fliegt nach lexikon_prev_mode zurück.
+var lexikon_view: LexikonView
+var lexikon_prev_mode: CameraRig.Mode = CameraRig.Mode.HUB
+
 @onready var game_over_panel: Panel = $UI/GameOverPanel
 @onready var game_over_label: Label = $UI/GameOverPanel/VBoxContainer/GameOverLabel
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
@@ -1116,6 +1121,17 @@ func _setup_panels() -> void:
 			Vector3(hub_anchor.global_position.x, 0.0, hub_anchor.global_position.z),
 			Vector2(HUB_WIDTH_WORLD * 0.5, HUB_HEIGHT_WORLD * 0.5))
 
+	# Lexikon: das Nachschlagewerk als Hub-Seite. Ohne Hub gibt es keins (wie
+	# beim Titel) - alles, was das Spiel sagt, sagt es auf einem Display.
+	if table_screen != null and table_screen.hub != null:
+		lexikon_view = LexikonView.new()
+		lexikon_view.visible = false
+		table_screen.hub.attach_panel(lexikon_view)
+		lexikon_view.layout()
+		lexikon_view.close_requested.connect(_close_lexikon)
+		if charm_shop != null:
+			charm_shop.lexikon_requested.connect(open_lexikon)
+
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
 ## ohne Tisch-Display.
@@ -1137,6 +1153,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
+		table_screen.hub.lexikon_requested.connect(func() -> void: open_lexikon())
 
 	charm_library = CharmLibraryView.new()
 	$UI.add_child(charm_library)
@@ -2260,6 +2277,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				_zoom_to_mode(_zone_mode_at(button.position))
 		return
 
+	# Das offene Lexikon bekommt das Rad zuerst: über der Hub-Fläche scrollt es
+	# den Text, überall sonst bleibt das Rad Kamera.
+	if _forward_lexikon_wheel(event):
+		return
+
 	# Mausrad: hoch = heranfahren, runter = eine Stufe zurück. Steht hinter den
 	# Zieh-Gesten (dort ist das Rad taub) und vor jeder Weiterleitung.
 	if event is InputEventMouseButton and event.pressed \
@@ -2293,6 +2315,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if camera_rig.mode == CameraRig.Mode.TITLE:
 			if title_view.visible:
 				title_view.go_back()
+			return
+		# Im Lexikon geht Rechtsklick den Verweis-Weg zurück: Historie, dann
+		# Eintrag -> Index, und erst am Index klappt die Seite zu.
+		if lexikon_view != null and lexikon_view.visible \
+				and camera_rig.mode == CameraRig.Mode.HUB:
+			if not lexikon_view.go_back():
+				_close_lexikon()
 			return
 		# Der Rückblick schließt sich vor der Kamera - erst zurück in die
 		# Gegenwart, dann darf man den Zoom verlassen.
@@ -4091,6 +4120,36 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 		# Original ist in Fenster-Pixeln, nicht in Display-Pixeln).
 		forwarded.relative = (pixel - last_screen_pixel) if last_screen_pixel.x >= 0.0 else Vector2.ZERO
 	last_screen_pixel = pixel
+	table_screen.push_input(forwarded)
+	return true
+
+## Reicht das Mausrad an das offene Lexikon weiter (true = verbraucht): nur in
+## der Hub-Sicht und nur über der Hub-Fläche - dort scrollt es den Text statt
+## die Kamera. Der Freikamera-Einstieg per Rad ist am Hub solange geopfert;
+## überall sonst (und bei zugeklapptem Lexikon) bleibt das Rad Kamera.
+func _forward_lexikon_wheel(event: InputEvent) -> bool:
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed:
+		return false
+	if button.button_index != MOUSE_BUTTON_WHEEL_UP \
+			and button.button_index != MOUSE_BUTTON_WHEEL_DOWN:
+		return false
+	if camera_rig.mode != CameraRig.Mode.HUB or camera_rig.is_animating:
+		return false
+	if lexikon_view == null or not lexikon_view.visible or table_screen == null \
+			or table_screen.hub == null:
+		return false
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return false
+	var pixel := table_screen.pixel_from_ray(
+		camera.project_ray_origin(button.position),
+		camera.project_ray_normal(button.position))
+	if pixel.x < 0.0 or not table_screen.hub.get_rect().has_point(pixel):
+		return false
+	var forwarded := button.duplicate() as InputEventMouseButton
+	forwarded.position = pixel
+	forwarded.global_position = pixel
 	table_screen.push_input(forwarded)
 	return true
 
@@ -7070,6 +7129,8 @@ func _reset_game() -> void:
 	charm_shop.visible = false  # Fenster-UI-Rückfall ohne Hub
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.reset_pages()
+	if lexikon_view != null:
+		lexikon_view.reset()  # die Verweis-Historie stirbt mit dem Lauf
 	game_over_panel.visible = false
 	if title_view != null:
 		title_view.clear_game_over()
@@ -8122,6 +8183,13 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
 	_sync_screen_reflection()
+	# Wer mit offenem Lexikon wegfährt, hat es zugeklappt gemeint: hart zu, ohne
+	# Rückflug (der Spieler ist schon unterwegs). Hart und VOR der Laden-Logik
+	# unten, damit die Seitenregel einen verdrängten Laden JETZT zurückholt und
+	# die Grubenfahrt ihn noch als offen sieht.
+	if lexikon_view != null and lexikon_view.visible \
+			and new_mode != CameraRig.Mode.HUB and new_mode != CameraRig.Mode.TITLE:
+		lexikon_view.visible = false
 	# Wer aus dem Laden in die Grube fährt, hat "Fertig" gemeint: der Laden macht
 	# zu und die neue Runde steht - sonst säße der Spieler vor gesperrten Knöpfen.
 	# Synchron, damit Nachschub-Tray und Vertragsauslage unten dieselbe Fahrt noch
@@ -8252,6 +8320,41 @@ func _on_shop_reopen_requested() -> void:
 func _sync_shop_reopen_button() -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_shop_reopen_visible(shop_reopen_allowed and phase == Phase.IDLE)
+
+## Öffnet das Lexikon auf entry_id ("" = Index) und merkt sich die Herkunft:
+## Schließen fliegt dorthin zurück. Kamera und Seite starten im selben Frame,
+## nicht awaited - das Muster des Laden-Wieder-Eintritts. Die Seitenregel
+## verdrängt einen offenen Laden und holt ihn beim Schließen zurück (LIFO);
+## ShopController.closed feuert dabei nie, die Runde rückt also nicht vor.
+func open_lexikon(entry_id := "") -> void:
+	if lexikon_view == null or table_screen == null or table_screen.hub == null:
+		return
+	var fresh := not lexikon_view.visible
+	if fresh:
+		lexikon_prev_mode = camera_rig.mode
+		table_screen.hub.fade_page_in(lexikon_view)
+	if entry_id.is_empty():
+		lexikon_view.show_index()
+	elif fresh:
+		# Schlüsselwort-Klick von außen: ein Rechtsklick führt zurück ins Spiel.
+		lexikon_view.open_landing(entry_id)
+	else:
+		lexikon_view.open_entry(entry_id)
+	if camera_rig.mode != CameraRig.Mode.HUB:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
+
+## Klappt das Lexikon zu und fliegt zur Herkunft zurück - aber nur, wenn die
+## Kamera wirklich noch am Hub steht (die Regel von _on_shop_closed: eine
+## laufende Fahrt wird nie zurückgerissen).
+func _close_lexikon() -> void:
+	if lexikon_view == null or not lexikon_view.visible:
+		return
+	table_screen.hub.fade_page_out(lexikon_view)  # LIFO holt ggf. den Laden zurück
+	if camera_rig.mode == CameraRig.Mode.HUB and lexikon_prev_mode != CameraRig.Mode.HUB:
+		if lexikon_prev_mode == CameraRig.Mode.OVERVIEW:
+			camera_rig.zoom_out()
+		else:
+			camera_rig.zoom_to(lexikon_prev_mode)
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
 ## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das

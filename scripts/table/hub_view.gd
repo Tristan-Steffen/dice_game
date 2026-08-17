@@ -26,6 +26,8 @@ const TEST_PACKS_LABEL := "🧪 +20 Datenkarten je Sorte"
 signal hub_upgrade_requested
 ## Der Laden soll noch einmal aufmachen (Vorlauf der Runde, siehe scene_root).
 signal shop_reopen_requested
+## Das Lexikon soll aufschlagen (scene_root öffnet die Seite am Index).
+signal lexikon_requested
 
 ## Farben im Stil des Displays (80s Neon).
 const FRAME_COLOR := Color("#8be9fd")
@@ -64,6 +66,7 @@ var hub_level_label: Label
 var hub_next_label: Label
 var upgrade_button: Button
 var shop_button: Button
+var lexikon_button: Button
 var _hub_level := 1
 
 ## Roulette-Rim: die Fahrplan-Stationen liegen auf einem Rad-Rand, die Lizenz-
@@ -217,6 +220,15 @@ func layout() -> void:
 	settings_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	CasinoStyle.style_button(settings_button, CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, int(u * 3.4))
 	settings_button.pressed.connect(_toggle_settings_menu)
+	# Das Lexikon steht ganz links: es ist immer da, anders als der Laden.
+	lexikon_button = Button.new()
+	lexikon_button.name = "LexikonButton"
+	lexikon_button.text = "📖  Lexikon"
+	lexikon_button.focus_mode = Control.FOCUS_NONE
+	lexikon_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(lexikon_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, int(u * 3.4))
+	lexikon_button.pressed.connect(func() -> void: lexikon_requested.emit())
+	footer.add_child(lexikon_button)
 	# Der Laden steht LINKS daneben: er kommt und geht, die Einstellungen bleiben.
 	shop_button = Button.new()
 	shop_button.name = "ShopButton"
