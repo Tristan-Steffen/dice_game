@@ -6,9 +6,15 @@ on:
 
 jobs:
   gut:
-    name: GUT unit tests
+    # Zwei Runner-VMs statt zwei Prozessen auf einer: auf EINER Maschine ist
+    # Godot schon ausgelastet (lokal gemessen: parallel 135 s vs. seriell 65 s).
+    name: GUT ${{ matrix.dir }} tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [unit, integration]
     env:
       GODOT_VERSION: "4.7-stable"
     steps:
@@ -33,5 +39,5 @@ jobs:
       # --fixed-fps 60 koppelt die Frames von der Echtzeit ab (Delta fest 1/60):
       # die wait_frames/wait_seconds der Integrationstests laufen so schnell wie
       # die CPU tickt statt in Echtzeit zu warten.
-      - name: Run unit tests
-        run: godot --headless --fixed-fps 60 -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
+      - name: Run ${{ matrix.dir }} tests
+        run: godot --headless --fixed-fps 60 -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json -gdir=res://test/${{ matrix.dir }}

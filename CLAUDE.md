@@ -31,7 +31,7 @@ E:/Godot/Godot_v4.7-stable_win64_console.exe --path .
 E:/Godot/Godot_v4.7-stable_win64_console.exe --path . --resolution 1280x720 --script <path-to.gd>
 ```
 
-CI (`.github/workflows/tests.yml`) runs the same GUT command on Linux after a `--editor --quit` import pass. Test config is `.gutconfig.json` (scans `res://test/`, prefix `test_`, suffix `.gd`).
+CI (`.github/workflows/tests.yml`) runs the same GUT command on Linux after a `--editor --quit` import pass — as **two parallel matrix jobs** (`-gdir=res://test/unit` / `res://test/integration`) on separate runners. Locally never split the suite into two concurrent Godot processes: one instance already saturates the machine (measured: parallel 135 s vs. serial 65 s). Test config is `.gutconfig.json` (scans `res://test/`, prefix `test_`, suffix `.gd`).
 
 ## Architecture
 
