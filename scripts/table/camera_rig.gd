@@ -4,8 +4,8 @@ extends Camera3D
 ## auf eine Zone fährt an ihre Station, Rechtsklick zurück - gerechnete Stufen,
 ## und nur hier wird bedient. FREIKAMERA: WASD schiebt den Blick, das Rad zoomt
 ## stufenlos, der Modus steht derweil auf OVERVIEW - reines Umsehen und Fahren.
-## Das leichte Maus-Rundschauen gibt es nur in Übersicht und Freikamera -
-## jede fokussierte Station steht still.
+## Das leichte Maus-Rundschauen läuft überall außer an den drei Stationen, deren
+## Fenster das Bild füllt (Hub, Werkstatt, Titel) - dort verschöbe es nur.
 
 enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 
@@ -14,8 +14,8 @@ signal mode_changed(new_mode: Mode)
 const TILT_MAX_UP_DEGREES := 5.0
 const TILT_MAX_DOWN_DEGREES := 5.0
 const TILT_MAX_YAW_DEGREES := 5.0
-# Nur noch die geparkte Freikamera nutzt diese Winkel (sie steht im Zoomblick);
-# die Fokus-Stationen schauen gar nicht mehr umher.
+# Die Winkel des Zoomblicks: sie gelten für jede fokussierte Station und für die
+# geparkte Freikamera, die ebenfalls im Zoomblick steht.
 const ZOOM_TILT_MAX_PITCH_DEGREES := 5.0
 const ZOOM_TILT_MAX_YAW_DEGREES := 16.0
 const TILT_SMOOTHING := 6.0
@@ -306,11 +306,14 @@ func _ready() -> void:
 func free_zoom_max() -> float:
 	return overview_distance * FREE_ZOOM_MAX_FACTOR
 
+## Nur Hub, Werkstatt und Titel stehen STILL: ihr Fenster füllt das Bild, ein
+## Schwenk verschöbe es nur. Nahsicht und Werkstück-Sicht bleiben WORKSHOP und
+## stecken damit mit drin.
+func _tilt_frozen_mode() -> bool:
+	return mode == Mode.HUB or mode == Mode.WORKSHOP or mode == Mode.TITLE
+
 func _process(delta: float) -> void:
-	# Jede Fokus-Station steht STILL - ein fokussierter Screen ist Anzeige, kein
-	# Ausblick, das Schwenken verschob nur das Fenster im Bild. Titel, Nahsicht
-	# und Werkstück-Sicht stecken in mode != OVERVIEW mit drin.
-	if is_animating or tilt_locked or mode != Mode.OVERVIEW:
+	if is_animating or tilt_locked or _tilt_frozen_mode():
 		return
 
 	var vp_size := get_viewport().get_visible_rect().size
@@ -322,8 +325,8 @@ func _process(delta: float) -> void:
 
 	var pitch_max: float
 	var yaw_max: float
-	if free_camera:
-		# Die Freikamera steht im Zoomblick, also gelten dessen Winkel.
+	if free_camera or mode != Mode.OVERVIEW:
+		# Fokus-Stationen und die geparkte Freikamera stehen im Zoomblick.
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
 	else:

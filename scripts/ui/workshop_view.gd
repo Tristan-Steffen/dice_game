@@ -32,10 +32,9 @@ extends Panel
 ## Ein Paket wurde geöffnet (scene_root hängt Ton/Licht daran).
 signal pack_activated(uid: int)
 ## Die Pressung ist gefallen: sorts sind die Sorten der belegten Leser, readers je
-## Leser die Nummern der Stücke, die er auswirft, cost die eben bezahlte Energie.
-## Gebucht ist da längst - scene_root fährt daran die Zeremonie (Wirbel, Entladung,
-## Meteore in die Ablage).
-signal press_rolled(sorts: Array, readers: Array, cost: int)
+## Leser die Nummern der Stücke, die er auswirft. Gebucht ist da längst -
+## scene_root fährt daran die Zeremonie (Wirbel, Entladung, Meteore in die Ablage).
+signal press_rolled(sorts: Array, readers: Array)
 ## Ein Beutestück hat seinen Platz gefunden - scene_root lässt das Licht aus seinem
 ## Chip ins Netz fahren und den Projektor dieses Würfels aufblitzen. Der Startpunkt
 ## reist MIT: gebucht ist da längst und das Fenster schon neu gebaut.
@@ -1211,15 +1210,15 @@ func _seat_button(u: float) -> Button:
 	_seat_press_hint(_press_button)
 	return _press_button
 
-## Darf jetzt gepresst werden? Die Energie ist die eine Bremse, die der Preis
-## selbst setzt (die Erdungsklemme nimmt sie weg) - dazu die eine Regel des
-## Griffs: mindestens eine Kassette MIT Inhalt muss darin stecken.
+## Darf jetzt gepresst werden? Die eine Bremse ist die eine Pressung der Sitzung -
+## dazu die eine Regel des Griffs: mindestens eine Kassette MIT Inhalt muss darin
+## stecken.
 func can_press() -> bool:
 	return run != null and not editing_locked and not inspecting() and not pressing() \
-		and loot_slot_count() > 0 and run.charge >= run.press_cost_for(slotted_packs())
+		and loot_slot_count() > 0 and run.press_allowed()
 
-## Was eine Pressung kostet, steht NICHT auf dem Knopf (sein Rechteck ist fest) -
-## sie sagt es dem Hinweis-Schirm, sobald der Zeiger sie greift. Ein Griff ohne
+## Wie es um die Pressung steht, sagt NICHT der Knopf (sein Rechteck ist fest) -
+## das sagt der Hinweis-Schirm, sobald der Zeiger ihn greift. Ein Griff ohne
 ## Inhalt sagt dort auch, warum er nicht presst.
 func _seat_press_hint(button: Button) -> void:
 	if run == null:
@@ -1231,17 +1230,13 @@ func _seat_press_hint(button: Button) -> void:
 		button.set_meta("tint", CasinoStyle.RED)
 		button.tooltip_text = String(button.get_meta("body", ""))
 		return
-	var cost := run.press_cost_for(slotted_packs())
-	var body := "Die erste Pressung der Runde ist frei."
-	if cost > 0:
-		body = "Diese Pressung kostet %d Energie." % cost
-	elif run.press_cost() > 0:
-		body = "Die Erdungsklemme trägt diese Pressung."
+	var body := "Die Pressung dieser Runde ist bereits verbraucht."
+	if run.press_allowed():
+		body = "Die eine Pressung dieser Runde steht bereit."
+		if bool(GameRun.catalyst_terms(slotted_packs())["free"]):
+			body = "Die Erdungsklemme bewahrt die Pressung - dieser Griff verbraucht sie nicht."
 	button.set_meta("body", body)
-	if run.charge < cost:
-		button.set_meta("body", "%s Die Bank hält %d." % [body, run.charge])
-		button.set_meta("tint", CasinoStyle.RED)
-	button.tooltip_text = String(button.get_meta("body", ""))
+	button.tooltip_text = body
 
 ## Zwingt einen Knopf auf das Sitzmaß: clip_text nimmt der Aufschrift das Recht,
 ## das Rechteck zu verbreitern - erst dadurch ist der Sitz in jedem Zustand gleich.
@@ -2480,11 +2475,11 @@ func start_press() -> void:
 	var readers: Array = result.get("readers", [])
 	if readers.is_empty():
 		_press_sorts.clear()
-		refresh()  # die Energie reichte nicht: die Zellen kommen zurück in ihre Schlitze
+		refresh()  # die Pressung war verbraucht: die Zellen kommen zurück in ihre Schlitze
 		return
 	_selected_packs.clear()
 	refresh()
-	press_rolled.emit(sorts, readers, int(result.get("cost", 0)))
+	press_rolled.emit(sorts, readers)
 
 ## Eine Pressung gehört dem laufenden Spiel: beim Laufwechsel verfällt sie samt
 ## der Beute, die noch flöge.

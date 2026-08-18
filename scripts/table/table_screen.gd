@@ -2210,16 +2210,6 @@ func press_meteor(from_px: Vector2, to_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Zahlungs-Komet Hub -> Werkbank: der Preis einer Pressung fährt die Werkstatt-
-## Ader hinüber, wie jede andere Energie, die den Tisch verlässt.
-func press_pay_comet(color: Color) -> float:
-	if workshop_hub_strip == null or workshop_hub_strip.strip_path.size() < 2:
-		return 0.0
-	var path := workshop_hub_strip.strip_path.duplicate()
-	var travel := _travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
-
 ## Quadratische Bézier als Punktliste: der Kometen-Primitive fährt Polylinien, der
 ## Bogen wölbt sich nach OBEN aus der Verbindung heraus.
 func _arc_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:

@@ -472,6 +472,9 @@ var clamp_stages: Array[FloatingDie] = []
 ## Welche Zwingen-Würfel gerade STATT auf der Bank in der Grube liegen - nur der
 ## Wechsel dieser Menge stellt die Bühnen neu (das Signal kommt bei jedem Wurf).
 var _clamp_pit_conflicts: Array[DieDefinition] = []
+## Stehen die Zwingen gerade im Pool-Tray statt auf der Bank - nur der WECHSEL
+## stellt Bühnen und Trays neu (Kamerawechsel und Unterschrift melden beide her).
+var _clamps_visiting := false
 
 ## Der Würfel des Dossiers: EIN Körper über der Bühne der Inspektions-Seite
 ## (null = die Seite steht nicht). Sein Sitz im Tray bleibt derweil leer.
@@ -1572,6 +1575,7 @@ func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
 	_shown_money = new_money
 	_refresh_hub_info()
+	_refresh_side_bet_affordability()
 	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
 	# verwerfen - die Börse ist bereits endgültig gebucht.
 	_exchange_token += 1
@@ -2672,6 +2676,11 @@ func _rebuild_clamp_stages() -> void:
 	if not workshop.clamps_on_bench():
 		_hide_clamp_stages()
 		return
+	# Sie sind im Pool-Tray zu Gast: dieselben Körper treten ab und liegen derweil
+	# in ihren eigenen Sitzen - ein Würfel wird nie zweimal gezeigt.
+	if _clamps_visit_tray():
+		_hide_clamp_stages()
+		return
 
 	# Die Spalten stehen erst nach dem Layout des Fensters fest - und ZWEI Bilder
 	# weit: ändert sich die Spaltenzahl (Hub-Ausbau, neue Aufspannung), hat der
@@ -2733,6 +2742,25 @@ func _on_pit_contents_changed() -> void:
 		return
 	_clamp_pit_conflicts = conflicts
 	_rebuild_clamp_stages()
+
+## Sind die Zwingen im Pool-Tray zu Gast? Nur in der Pool-Sicht und nur, solange
+## die Würfel bearbeitbar sind - mitten in der Runde bleiben ihre Sitze leer.
+func _clamps_visit_tray() -> bool:
+	return run != null and camera_rig != null \
+		and camera_rig.mode == CameraRig.Mode.POOL and not _dice_editing_locked()
+
+## Der Besuch hat gewechselt (Kamera oder Unterschrift): die Zwingen wandern
+## zwischen Bank und Tray. Nur der Wechsel - gemeldet wird nach jedem Schritt.
+func _sync_clamps_visit() -> void:
+	var visiting := _clamps_visit_tray()
+	if visiting == _clamps_visiting:
+		return
+	_clamps_visiting = visiting
+	_rebuild_clamp_stages()
+	if run == null:
+		return
+	_refresh_dice_trays()
+	_refresh_discard_tray()
 
 ## Die Zwingen treten ab (ein Paket nimmt das Fenster): sie schrumpfen an Ort und
 ## Stelle und werden unsichtbar - damit sind sie zugleich für jedes Zeigen taub.
@@ -3463,14 +3491,13 @@ func _clear_hub_reward_overlay() -> void:
 ## vorher sagt kein Chip, was gefallen ist. Gebucht hat GameRun längst
 ## (open_press): das hier ist reine Anzeige, und ein Laufwechsel mitten im Flug
 ## legt den Haufen einfach hart hin.
-func _on_press_rolled(sorts: Array, readers: Array, cost: int) -> void:
+func _on_press_rolled(sorts: Array, readers: Array) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
 	var flying := _press_flying_uids(readers)
 	if not flying.is_empty():
 		workshop.withhold_press_pieces(flying)  # der Haufen bleibt verdeckt, bis er landet
-	_pay_press_cost(cost)
 	var launched := run
 	# Portale und Ablage haben erst nach dem Layout ein Rechteck.
 	await get_tree().process_frame
@@ -3577,13 +3604,6 @@ func _land_press_pieces(workshop: WorkshopView, uids: Array) -> void:
 		return
 	for uid in uids:
 		workshop.land_press_piece(int(uid))
-
-## Der Preis der Pressung fährt als Ladung die Werkstatt-Ader hinüber. Gebucht hat
-## GameRun im selben Moment - das Licht kommt hinterher und wird nie erwartet.
-func _pay_press_cost(cost: int) -> void:
-	if table_screen == null or cost <= 0:
-		return  # die erste Pressung einer Sitzung ist frei
-	table_screen.press_pay_comet(TableScreen.CHARGE_PULSE_COLOR)
 
 ## Räumt einen schwebenden Würfel ab und löst alles, was noch auf ihn zeigt. War
 ## er herangeholt, fährt die Kamera mit zurück - sie stünde sonst vor nichts.
@@ -4882,10 +4902,12 @@ func _can_toggle_selection() -> bool:
 func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 	return round_committed and phase != Phase.SHOP
 
-## Zieht die Sperre der Werkbank nach (Unterschrift/erster Wurf).
+## Zieht die Sperre der Werkbank nach (Unterschrift/erster Wurf) - und mit ihr den
+## Tray-Besuch der Zwingen, der an derselben Sperre hängt.
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
+	_sync_clamps_visit()
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -5357,7 +5379,10 @@ func _tray_shows(def: DieDefinition) -> bool:
 	if run != null and workshop != null and is_instance_valid(workshop) \
 			and workshop.clamps_on_bench():
 		clamped = run.clamped_dice
-	return DiceTrayView.seat_shows(def, clamped, _inspected_die)
+	# In der Pool-Sicht sind die Zwingen zu Gast - außer bei dem, dessen Körper
+	# gerade in der Grube liegt: der Besuch gilt je Würfel.
+	var visiting := _clamps_visit_tray() and not _clamp_pit_conflicts.has(def)
+	return DiceTrayView.seat_shows(def, clamped, _inspected_die, visiting)
 
 ## Dieselbe Liste mit LÜCKEN statt Auslassungen: der Platz eines abwesenden
 ## Würfels bleibt leer, alle anderen behalten ihren Sitz. Nur so bleibt Platz i
@@ -7260,6 +7285,8 @@ func _connect_run() -> void:
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
 	run.charge_changed.connect(_on_charge_changed)
+	# Paket-Einsätze werden bezahlbar oder knapp, während die Wettannahme offen ist.
+	run.packs_changed.connect(_refresh_side_bet_affordability)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
 	_on_money_changed(run.money)
 	_on_charms_changed()
@@ -7295,6 +7322,7 @@ func _on_charge_changed(value: int) -> void:
 		table_screen.hub.set_charge_display(value, run.charge_cap())
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
+	_refresh_side_bet_affordability()
 
 ## Die Lizenz hat das Gitter gehoben: der Hub quittiert golden, ein Licht fährt
 ## die Hinterzimmer-Ader hinüber und das Fenster meldet sich mit einer Stoßwelle -
@@ -7466,7 +7494,7 @@ func _commit_round() -> void:
 	shop_reopen_allowed = false
 	_sync_shop_reopen_button()
 	run.lapse_press()  # ohne Anwenden verfällt der ganze Guss - ohne einen Cent
-	run.reset_press_cycle()  # und die nächste Werkstatt-Sitzung presst wieder frei
+	run.reset_press_cycle()  # und die nächste Werkstatt-Sitzung bekommt ihre Pressung
 	round_pool_kinds.shuffle()
 	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - NACH
 	# dem Mischen, sonst mischte sie sich wieder auseinander.
@@ -7668,6 +7696,14 @@ func _close_side_bet_betting() -> void:
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.close_betting()
 	_refresh_side_bet_panel()
+
+## Bezahlbarkeit der offenen Wett-Auslage nachziehen: Geld, Pakete und Energie
+## ändern sich während der Wettannahme, der Setzen-Knopf muss das sofort zeigen.
+func _refresh_side_bet_affordability() -> void:
+	if not betting_open:
+		return
+	if table_screen != null and table_screen.side_bet_window != null:
+		table_screen.side_bet_window.refresh_affordability()
 
 ## Aktualisiert den Live-Fortschritt der aktiven Wetten (Fortschritts-Modus).
 func _refresh_side_bet_panel() -> void:
@@ -8268,6 +8304,8 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 		_open_route_choice()
 	# Übertaktet wird nur vor den Chips - und dort jederzeit.
 	_sync_combo_upgrade_buttons()
+	# Die Pool-Sicht holt die Zwingen ins Tray, jede andere gibt sie der Bank zurück.
+	_sync_clamps_visit()
 	_update_gameplay_ui_visibility()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel

@@ -65,10 +65,10 @@ func test_refresh_faces_survives_the_holes() -> void:
 # --- Wer bekommt gar keinen Sitz (die eine Quelle der Regel) ---------------------
 
 func _seats(defs: Array[DieDefinition], clamped: Array[DieDefinition],
-		inspected: DieDefinition) -> Array[bool]:
+		inspected: DieDefinition, visiting := false) -> Array[bool]:
 	var shown: Array[bool] = []
 	for def in defs:
-		shown.append(DiceTrayView.seat_shows(def, clamped, inspected))
+		shown.append(DiceTrayView.seat_shows(def, clamped, inspected, visiting))
 	return shown
 
 func test_a_clamped_die_leaves_its_seat_empty() -> void:
@@ -103,3 +103,26 @@ func test_an_empty_seat_stays_empty_in_every_case() -> void:
 	var defs := _dice(2)
 	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], null))
 	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], defs[0]))
+	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], null, true))
+
+# --- Der Besuch: in der Pool-Sicht liegen die Zwingen in ihren eigenen Sitzen ----
+
+func test_visiting_clamps_fill_their_own_seats() -> void:
+	var defs := _dice(4)
+	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
+	assert_eq(_seats(defs, clamped, null, true), [true, true, true, true],
+		"zu Gast steht jeder Würfel in seinem Sitz")
+
+func test_the_visit_does_not_fill_the_dossier_hole() -> void:
+	var defs := _dice(4)
+	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
+	assert_eq(_seats(defs, clamped, defs[1], true), [true, false, true, true],
+		"der gezeigte Würfel fehlt auch im Besuch")
+
+func test_without_the_visit_the_clamp_holes_stand() -> void:
+	# Der neue Parameter ist voreingestellt: alte Aufrufer sehen die alte Regel.
+	var defs := _dice(4)
+	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
+	assert_eq(_seats(defs, clamped, null, false), _seats(defs, clamped, null),
+		"ohne Besuch bleibt es bei den Lücken")
+	assert_eq(_seats(defs, clamped, null), [true, false, true, false])

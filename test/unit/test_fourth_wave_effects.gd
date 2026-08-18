@@ -256,7 +256,7 @@ func test_a_survivor_can_be_pressed_again():
 	run.grant_pack(Pack.material_pack())
 	run.open_press(_d([0]), _press_seed(true))
 	assert_eq(run.owned_packs.size(), 1)
-	run.add_charge(5)  # die zweite Pressung der Sitzung kostet
+	run.reset_press_cycle()  # eine Pressung je Sitzung - die Unterschrift gibt sie zurück
 	var again := run.open_press(_d([0]), _rng(3))
 	assert_gt((again.get("pieces", []) as Array).size(), 0, "sie presst ein zweites Mal")
 

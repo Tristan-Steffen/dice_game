@@ -45,7 +45,7 @@ const TIER_LABELS := {TIER_NORMAL: "Standard", TIER_GROSS: "Groß",
 ## (PhantomPress.expected_pieces), also 1 : 3 : 5 - die Preise liegen mit
 ## 1,00 : 3,45 : 5,75 gleichmäßig 15 % darüber. Der Aufschlag ist der Preis der
 ## DICHTE: dieselbe Beute aus weniger Magazin-Plätzen, weniger Lesern und weniger
-## Pressungen (deren ⚡-Preis mit jeder steigt).
+## Pressungen (und es gibt nur eine je Sitzung).
 const TIER_PRICE_FACTORS := [1.0, 3.45, 5.75]
 ## Auslage-Gewichte der Größen: die Norm liegt meistens da, das Kolossale selten.
 const TIER_WEIGHTS := [0.6, 0.3, 0.1]
@@ -216,7 +216,7 @@ const CATALYSTS := {
 	CATALYST_MATRIX: {"name": "Doppelmatrize", "price": 18,
 		"effect": "+1 Grundstück je Auslösung"},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
-		"effect": "Diese Pressung kostet keine Energie"},
+		"effect": "Dieser Griff verbraucht die Pressung der Runde nicht"},
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,

@@ -70,6 +70,17 @@ func refresh_betting() -> void:
 	if mode == Mode.BETTING:
 		_rebuild()
 
+## Zieht NUR die Bezahlbarkeit der offenen Auslage nach (Geld, Pakete, Energie
+## ändern sich während der Wettannahme). Kein Neuaufbau: der angekommene
+## Einsatz-Glanz und die gemerkten Knopfmitten bleiben stehen.
+func refresh_affordability() -> void:
+	if mode != Mode.BETTING:
+		return
+	for i in mini(bet_buttons.size(), offers.size()):
+		if placed[i] or not is_instance_valid(bet_buttons[i]):
+			continue
+		_sync_affordability(bet_buttons[i], offers[i])
+
 ## Aktualisiert den Live-Fortschritt (nur im Fortschritts-Modus wirksam).
 func update_progress(result: Dictionary) -> void:
 	_result = result
@@ -134,10 +145,10 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 	button.custom_minimum_size = Vector2(u * 24.0, u * 6.0)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	button.add_theme_font_size_override("font_size", maxi(8, int(u * 2.6)))
-	var enabled := not placed[index] and run != null and run.can_place_side_bet(bet)
 	if placed[index]:
 		button.text = "platziert"
 		button.disabled = true
+		_style_button(button, MUTED_COLOR)
 	else:
 		# Deal-Faktoren gehören auf den Knopf: sonst verspricht er einen Preis,
 		# den die Buchung nicht einhält (Quotenpaket).
@@ -146,13 +157,28 @@ func _setzen_button(bet: SideBet, index: int, u: float) -> Button:
 		var reward_charms := run.charm_ids() if run != null else [] as Array[String]
 		button.text = "%s → %s" % [bet.stake_label(stake_factor),
 			bet.reward_label(reward_factor, reward_charms)]
-		button.disabled = not enabled
 		button.pressed.connect(_on_bet_pressed.bind(index))
-	_style_button(button, _payout_accent(bet) if enabled else MUTED_COLOR)
+		_sync_affordability(button, bet)
 	# Angekommener Einsatz: den platzierten Knopf golden/violett glühen lassen.
 	if placed[index] and bet_glow.has(index):
 		_apply_stake_glow(button, bet_glow[index], false)
 	return button
+
+## Bezahlbarkeit auf dem Setzen-Knopf: rot heißt "der Einsatz reicht nicht" -
+## dieselbe Grammatik wie die Preiszeile im Laden (ShopController.price_tint).
+## can_place_side_bet entscheidet allein; Steuerwetten kosten beim Platzieren
+## nichts und werden darum nie rot.
+func _sync_affordability(button: Button, bet: SideBet) -> void:
+	if run == null:
+		button.disabled = true
+		_style_button(button, MUTED_COLOR)
+		return
+	var short := not run.can_place_side_bet(bet)
+	button.disabled = short
+	_style_button(button, CasinoStyle.RED if short else _payout_accent(bet))
+	if short:
+		button.add_theme_color_override("font_color", CasinoStyle.RED)
+		button.add_theme_color_override("font_disabled_color", CasinoStyle.RED)
 
 ## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Ladung cyan, alles übrige
 ## (Gravuren, Sonderposten, Paket, Chipstufe) grün.

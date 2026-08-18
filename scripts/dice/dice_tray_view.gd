@@ -148,11 +148,13 @@ func ensure_capacity(capacity: int) -> void:
 ## steht. Steht statt ihrer das DOSSIER, sind die Zwingen von der Bank abgetreten
 ## und liegen wieder in ihren eigenen Sitzen; dann ist nur der gezeigte Würfel
 ## woanders, und seine Lücke ist die einzige.
+## clamps_visiting: die Aufspannung ist im Tray zu GAST (Pool-Sicht, Würfel noch
+## bearbeitbar) - dann füllen sich ihre Sitze; der gezeigte Würfel fehlt weiter.
 static func seat_shows(def: DieDefinition, clamped: Array[DieDefinition],
-		inspected: DieDefinition) -> bool:
+		inspected: DieDefinition, clamps_visiting: bool = false) -> bool:
 	if def == null or def == inspected:
 		return false
-	if inspected != null:
+	if inspected != null or clamps_visiting:
 		return true
 	return not clamped.has(def)
 

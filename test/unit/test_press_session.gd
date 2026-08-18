@@ -1,7 +1,7 @@
 extends GutTest
 ## Tests der Werkbank-Seite: die Zwingen (Aufspannung, hub-gestaffelt) und die
-## Presse in GameRun - Preisleiter, die eine atomare Pressung, platzieren,
-## abschließen.
+## Presse in GameRun - eine Pressung je Sitzung, die eine atomare Pressung,
+## platzieren, abschließen.
 
 func _d(values: Array) -> Array[int]:
 	var typed: Array[int] = []
@@ -90,73 +90,60 @@ func test_buying_the_licence_leaves_the_bank_alone() -> void:
 	assert_eq(run.hub_level, 3)
 	assert_eq(run.clamped_dice, before, "dieselben vier stehen unverändert")
 
-# --- Der Preis: die erste Pressung ist frei, dann steigt er ---------------------
+# --- Eine Pressung je Sitzung, und sie kostet nichts ---------------------------
 
-func test_the_first_press_of_a_session_is_free() -> void:
-	assert_eq(run.press_cost(), 0)
-	assert_true(run.can_press(), "ohne Energie in der Bank")
+func test_a_fresh_session_may_press() -> void:
+	assert_true(run.press_allowed(), "ohne Energie in der Bank")
 
-func test_every_further_press_costs_one_more() -> void:
-	run.grant_pack(Pack.number_pack())
-	run.charge = 10
-	var prices: Array[int] = []
-	for i in 4:
-		prices.append(run.press_cost())
-		run.grant_pack(Pack.number_pack())
-		run.open_press(_d([run.owned_packs.size() - 1]), _rng(40 + i))
-	assert_eq(prices, [0, 1, 2, 3] as Array[int], "0 -> 1 -> 2 -> 3 Energie")
+func test_a_fresh_run_may_press() -> void:
+	assert_true(GameRun.new_run().press_allowed())
 
-func test_the_press_spends_exactly_its_price() -> void:
+## Die zweite Pressung einer Sitzung geschieht NICHT - unberührt wie ein Griff
+## ohne Ware.
+func test_a_second_press_of_a_session_is_refused() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	run.charge = 5
-	run.open_press(_d([0]), _rng(41))
-	assert_eq(run.charge, 5, "die erste ist frei")
-	var result := run.open_press(_d([0]), _rng(42))
-	assert_eq(int(result["cost"]), 1)
-	assert_eq(run.charge, 4, "die zweite kostet eine Energie")
-
-## Ein Preis je PRESSUNG, gleich wie viele Pakete darin liegen.
-func test_six_packs_cost_the_same_as_one() -> void:
-	for i in 7:
-		run.grant_pack(Pack.number_pack())
-	run.charge = 9
-	run.open_press(_d([0]), _rng(43))
-	run.open_press(_d([0, 1, 2, 3, 4, 5]), _rng(44))
-	assert_eq(run.charge, 8, "auch sechs Pakete kosten die eine Energie")
-
-func test_a_press_the_bank_cannot_pay_leaves_everything_untouched() -> void:
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.number_pack())
-	run.charge = 0
-	run.open_press(_d([0]), _rng(45))  # die freie erste
+	run.open_press(_d([0]), _rng(45))
+	assert_false(run.press_allowed(), "die Pressung der Sitzung ist verbraucht")
 	var packs := run.owned_packs.size()
 	var pieces := run.press_pieces.size()
 	var result := run.open_press(_d([0]), _rng(46))
-	assert_true(result["readers"].is_empty(), "prüfen, dann abbuchen")
+	assert_true(result["readers"].is_empty(), "nichts gepresst")
 	assert_eq(run.owned_packs.size(), packs, "das Paket bleibt versiegelt")
 	assert_eq(run.press_pieces.size(), pieces, "und die Ablage unverändert")
-	assert_eq(run.press_uses, 1, "die Pressung hat nie stattgefunden")
+	assert_eq(run.press_uses, 1, "die Sprosse steht, wo sie stand")
+
+## Die Presse ist keine ⚡-Senke mehr - die Bank bleibt unberührt.
+func test_pressing_never_touches_the_bank() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.number_pack())
+	run.charge = 3
+	run.open_press(_d([0]), _rng(41))
+	assert_eq(run.charge, 3, "die Pressung kostet nichts")
+	run.reset_press_cycle()
+	run.open_press(_d([0]), _rng(42))
+	assert_eq(run.charge, 3, "und die der nächsten Sitzung auch nicht")
+
+## Eine leere Bank hält keine Pressung auf.
+func test_an_empty_bank_still_presses() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.charge = 0
+	assert_false(run.open_press(_d([0]), _rng(43))["readers"].is_empty())
 
 func test_the_signature_opens_a_fresh_session() -> void:
 	run.grant_pack(Pack.number_pack())
-	run.charge = 5
 	run.open_press(_d([0]), _rng(47))
-	assert_eq(run.press_cost(), 1)
+	assert_false(run.press_allowed())
 	run.reset_press_cycle()
-	assert_eq(run.press_cost(), 0, "nach der Unterschrift presst es wieder frei")
+	assert_true(run.press_allowed(), "nach der Unterschrift presst es wieder")
 
-func test_a_fresh_run_presses_free() -> void:
-	assert_eq(GameRun.new_run().press_cost(), 0)
-
-## Der Bogen spannt über den Laden: ein Rundenwechsel allein setzt ihn NICHT
-## zurück (das tut nur die Unterschrift).
-func test_the_round_change_keeps_the_price_climbing() -> void:
+## Der Bogen spannt über den Laden: ein Rundenwechsel allein gibt die Pressung
+## NICHT zurück (das tut nur die Unterschrift).
+func test_the_round_change_keeps_the_session_closed() -> void:
 	run.grant_pack(Pack.number_pack())
-	run.charge = 5
 	run.open_press(_d([0]), _rng(48))
 	run.advance_round()
-	assert_eq(run.press_cost(), 1)
+	assert_false(run.press_allowed())
 
 # --- Die Pressung --------------------------------------------------------------
 
@@ -208,11 +195,11 @@ func test_a_bigger_pack_presses_more_pieces() -> void:
 	var counts: Array[int] = []
 	for tier in [Pack.TIER_NORMAL, Pack.TIER_KOLOSSAL]:
 		var session := GameRun.new_run()
-		session.charge = 500
 		var sum := 0
 		for i in 60:
 			session.grant_pack(Pack.tiered(Pack.number_pack(), tier))
 			var before := session.press_pieces.size()
+			session.reset_press_cycle()  # je Sitzung eine Pressung
 			session.open_press(_d([session.owned_packs.size() - 1]), _rng(200 + i))
 			sum += session.press_pieces.size() - before
 		counts.append(sum)
@@ -292,13 +279,13 @@ func test_a_mixed_press_gives_the_fixed_pack_its_own_reader() -> void:
 	assert_eq(readers.size(), 2)
 	assert_eq(int(readers[1].size()), 1, "der Fixinhalt wirft genau eins")
 
-## Nachpressen ist erlaubt: die Stücke LEGEN SICH DAZU.
+## Nachpressen ist erlaubt, wo die Sitzung es hergibt: die Stücke LEGEN SICH DAZU.
 func test_a_second_press_adds_to_the_pile() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
-	run.charge = 5
 	run.open_press(_d([0]), _rng(16))
 	var first := run.press_pieces.size()
+	run.reset_press_cycle()
 	run.open_press(_d([0]), _rng(17))
 	assert_gt(run.press_pieces.size(), first, "der Haufen wächst")
 
@@ -383,41 +370,46 @@ func test_a_catalyst_reader_throws_nothing() -> void:
 	assert_false((readers[1] as Array).is_empty())
 	assert_true((result["reader_uids"][0] as Array).is_empty())
 
-## Die Erdungsklemme erlässt den PREIS, nie die Sprosse.
-func test_the_grounding_clamp_skips_a_rung_without_resetting_the_ladder() -> void:
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
-	run.charge = 4
-	run.open_press(_d([0]), _rng(313))  # die freie erste
-	assert_eq(run.press_cost(), 1)
-	var result := run.open_press(_d([0, 1]), _rng(314))  # Paket + Klemme
-	assert_eq(int(result["cost"]), 0, "die Klemme trägt sie")
-	assert_eq(run.charge, 4, "keine Energie geflossen")
-	assert_eq(run.press_uses, 2, "die Leiter steigt trotzdem")
-	assert_eq(run.press_cost(), 2, "die nächste kostet zwei - nicht null")
-
-## Sie zahlt auch, wenn die Bank leer ist: press_cost_for ist die eine Auskunft.
-func test_the_grounding_clamp_presses_on_an_empty_bank() -> void:
+## Die Erdungsklemme BEWAHRT die Pressung der Sitzung: ihr Griff presst, ohne die
+## Sprosse zu setzen - danach geht es weiter.
+func test_the_grounding_clamp_keeps_the_session_pressing() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
-	run.press_uses = 5
-	run.charge = 0
-	assert_eq(run.press_cost_for(_catalysts([Pack.CATALYST_GROUND])), 0)
-	assert_eq(run.press_cost_for([] as Array[Pack]), 5)
-	assert_false(run.open_press(_d([0, 1]), _rng(315))["readers"].is_empty())
+	run.grant_pack(Pack.number_pack())
+	var result := run.open_press(_d([0, 1]), _rng(313))  # Paket + Klemme
+	assert_false(result["readers"].is_empty(), "gepresst wurde")
+	assert_eq(run.press_uses, 0, "die Klemme bewahrt die Pressung")
+	assert_true(run.press_allowed())
+	assert_false(run.open_press(_d([0]), _rng(314))["readers"].is_empty(),
+		"und die nächste geht noch")
+	assert_eq(run.press_uses, 1, "die verbraucht sie dann")
 
-## Ein Griff aus lauter Katalysatoren presst NICHT - und zahlt auch nichts.
+## Sie ist ein Schalter, kein Zähler - zwei Klemmen in einem Griff verpuffen.
+func test_two_grounding_clamps_in_one_grip_are_one() -> void:
+	var terms := GameRun.catalyst_terms(
+		_catalysts([Pack.CATALYST_GROUND, Pack.CATALYST_GROUND]))
+	assert_true(bool(terms["free"]))
+
+## Und sie holt keine verbrauchte Pressung zurück: ist die Sprosse gesetzt,
+## presst kein Griff mehr.
+func test_the_grounding_clamp_cannot_revive_a_spent_session() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	run.press_uses = 1
+	var result := run.open_press(_d([0, 1]), _rng(315))
+	assert_true(result["readers"].is_empty(), "nichts gepresst")
+	assert_eq(run.owned_packs.size(), 2, "und nichts verbraucht")
+
+## Ein Griff aus lauter Katalysatoren presst NICHT - und verbraucht auch nichts.
 func test_a_catalysts_only_grip_is_refused() -> void:
 	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
 	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
 	run.charge = 5
-	run.press_uses = 3
 	var result := run.open_press(_d([0, 1]), _rng(316))
 	assert_true(result["readers"].is_empty(), "nichts gepresst")
 	assert_eq(run.owned_packs.size(), 2, "und nichts verbraucht")
 	assert_eq(run.charge, 5, "nichts gezahlt")
-	assert_eq(run.press_uses, 3, "die Pressung hat nie stattgefunden")
+	assert_eq(run.press_uses, 0, "die Pressung hat nie stattgefunden")
 	assert_true(run.press_pieces.is_empty())
 
 ## Ein Katalysator IST ein Paket: die Zwinge würfelt auch für ihn.

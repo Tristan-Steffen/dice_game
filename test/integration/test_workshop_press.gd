@@ -353,53 +353,49 @@ func test_pressing_yields_pieces_per_pack() -> void:
 	assert_true(view._selected_packs.is_empty(), "die Plätze sind leer geräumt")
 	assert_true(view.placing(), "und die Beute liegt in der Ablage")
 
-func test_the_press_reports_its_readers_and_its_price() -> void:
-	run.add_charge(5)
+func test_the_press_reports_its_readers() -> void:
 	_select_number_packs(2)
 	var seen: Array = []
-	view.press_rolled.connect(func(sorts: Array, readers: Array, cost: int) -> void:
-		seen.append([sorts, readers, cost]))
+	view.press_rolled.connect(func(sorts: Array, readers: Array) -> void:
+		seen.append([sorts, readers]))
 	view.start_press()
 	assert_eq(seen.size(), 1, "eine Meldung, eine Pressung")
 	assert_eq(seen[0][0], [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_NUMBER],
 		"die Sorten der geschluckten Pakete")
 	assert_eq(seen[0][1].size(), 2, "je Paket ein Leser")
-	assert_eq(int(seen[0][2]), 0, "und die erste Pressung ist frei")
 
-func test_a_second_press_costs_energy_and_says_so() -> void:
+## Eine Pressung je Sitzung, und sie kostet keine Energie.
+func test_pressing_leaves_the_bank_alone() -> void:
 	run.add_charge(5)
 	_select_number_packs(1)
 	view.start_press()
-	var before := run.charge
-	_select_number_packs(1)
-	view.start_press()
-	assert_eq(run.charge, before - 1, "die zweite Pressung kostet eine Energie")
+	assert_eq(run.charge, 5, "die Presse ist keine ⚡-Senke mehr")
 
-func test_an_unaffordable_press_refuses_and_darkens_its_seat() -> void:
+func test_a_second_press_refuses_and_darkens_its_seat() -> void:
 	_select_number_packs(1)
-	view.start_press()  # die freie erste
+	view.start_press()  # die eine der Sitzung
 	_select_number_packs(1)
 	await wait_frames(2)
-	assert_false(view.can_press(), "die Bank ist leer")
+	assert_false(view.can_press(), "die Pressung ist verbraucht")
 	assert_true(view._press_button.disabled)
 	var packs := run.owned_packs.size()
 	view.start_press()
 	assert_eq(run.owned_packs.size(), packs, "und das Paket bleibt versiegelt")
 
-## Der Preis steht NICHT auf dem Knopf (sein Rechteck ist fest) - der Sitz sagt
-## ihn dem Hinweis-Schirm.
-func test_the_seat_names_its_price_on_the_hint_screen() -> void:
+## Wie es um die Pressung steht, sagt NICHT der Knopf (sein Rechteck ist fest) -
+## der Sitz sagt es dem Hinweis-Schirm.
+func test_the_seat_names_the_session_state_on_the_hint_screen() -> void:
 	_select_number_packs(1)
 	await wait_frames(2)
 	var hint := view.chip_hint_at(view._press_button.get_global_rect().get_center())
 	assert_eq(String(hint.get("title", "")), "Pressung")
-	assert_true(String(hint.get("body", "")).contains("frei"), "die erste ist frei")
+	assert_true(String(hint.get("body", "")).contains("bereit"), "sie steht bereit")
 	view.start_press()
 	_select_number_packs(1)
 	await wait_frames(2)
-	var poor := view.chip_hint_at(view._press_button.get_global_rect().get_center())
-	assert_true(String(poor.get("body", "")).contains("1 Energie"), "danach steht der Preis da")
-	assert_eq(poor.get("tint"), CasinoStyle.RED, "und rot, weil die Bank ihn nicht deckt")
+	var spent := view.chip_hint_at(view._press_button.get_global_rect().get_center())
+	assert_true(String(spent.get("body", "")).contains("verbraucht"),
+		"danach sagt der Schirm, dass sie verbraucht ist")
 
 func test_the_seat_carries_one_rect_through_both_labels() -> void:
 	run.grant_pack(Pack.number_pack())

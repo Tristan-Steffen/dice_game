@@ -853,14 +853,10 @@ func is_clamped(die: DieDefinition) -> bool:
 
 # --- Die Presse ----------------------------------------------------------------
 
-## Preis der NÄCHSTEN Pressung: die erste einer Sitzung ist frei, dann je schon
-## getätigter eine Energie mehr. Ein Preis je Pressung, gleich wie viele Pakete
-## darin liegen - flach wie jeder ⚡-Preis, also ohne Ladenpreis-Klauseln.
-func press_cost() -> int:
-	return press_uses
-
-func can_press() -> bool:
-	return charge >= press_cost()
+## Eine Pressung je Werkstatt-Sitzung, und sie kostet nichts. Zurück gibt sie erst
+## die Unterschrift (reset_press_cycle).
+func press_allowed() -> bool:
+	return press_uses == 0
 
 ## --- Die KATALYSATOREN eines Griffs -------------------------------------------
 ## Eine Katalysator-Kassette wirft nichts aus; sie legt der EINEN Pressung, in der
@@ -873,7 +869,8 @@ const CATALYST_CAP_STEP := 2
 const CATALYST_BASE_STEP := 1
 
 ## Was die Katalysatoren dieses Griffs zulegen: {chance, cap, base, free}.
-## "free" ist ein Schalter, kein Zähler - eine zweite Erdungsklemme verpufft.
+## "free" heißt: dieser Griff verbraucht die Pressung der Sitzung NICHT. Ein
+## Schalter, kein Zähler - eine zweite Erdungsklemme verpufft.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 	var terms := {"chance": 0.0, "cap": 0, "base": 0, "free": false}
 	for pack in packs:
@@ -889,12 +886,6 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 			Pack.CATALYST_GROUND:
 				terms["free"] = true
 	return terms
-
-## Was die Pressung dieses Griffs kostet: die Leiter - es sei denn, eine
-## Erdungsklemme steckt darin. Sie erlässt EINEN Preis und setzt die Leiter NICHT
-## zurück (press_uses steigt trotzdem), sie überspringt also eine Sprosse.
-func press_cost_for(packs: Array[Pack]) -> int:
-	return 0 if bool(catalyst_terms(packs)["free"]) else press_cost()
 
 ## --- Der Multicast: Chance und Limit der Kette --------------------------------
 ## Die EINE Auflösung. Der Sockel kommt aus der Lizenzstufe (PhantomPress.
@@ -933,9 +924,9 @@ func multicast_cap(catalyst_bonus: int = 0) -> int:
 func grant_press_boost() -> void:
 	press_boost_pending = true
 
-## Die Unterschrift schließt die Werkstatt-Sitzung: die nächste Pressung ist
-## wieder frei. Bewusst NICHT im Rundenwechsel - ein Bogen spannt vom Laden bis
-## zur nächsten Unterschrift.
+## Die Unterschrift schließt die Werkstatt-Sitzung: die nächste Sitzung bekommt
+## ihre eine Pressung zurück. Bewusst NICHT im Rundenwechsel - ein Bogen spannt
+## vom Laden bis zur nächsten Unterschrift.
 func reset_press_cycle() -> void:
 	press_uses = 0
 
@@ -977,19 +968,23 @@ func _press_pack_groups(pack: Pack, rng: RandomNumberGenerator,
 	return PhantomPress.payout_groups(pack.press_sort(), pack.tier, rng, chance, cap,
 		base_bonus)
 
-## DIE PRESSUNG: ein Preis, dann je Paket seine Ausbeute. Atomar - prüfen,
-## abbuchen, würfeln, prägen, Pakete verbrauchen. Reicht die Energie nicht,
-## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung räumt weder
-## Ablage noch nassen Guss ab.
-## Liefert {"cost", "pieces", "readers", "reader_uids", "kept"}: readers[i] ist die
+## DIE PRESSUNG: ein Griff, dann je Paket seine Ausbeute. Atomar - prüfen,
+## würfeln, prägen, Pakete verbrauchen. Ist die Pressung der Sitzung verbraucht,
+## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung (Erdungsklemme)
+## räumt weder Ablage noch nassen Guss ab.
+## Liefert {"pieces", "readers", "reader_uids", "kept"}: readers[i] ist die
 ## AUSLÖSUNGS-Folge von Leser i (je Auslösung die Nummern ihrer Stücke - die
 ## Zeremonie fliegt sie eine nach der anderen), reader_uids[i] dieselben Nummern
 ## flach; "kept" zählt die Zellen, die die Zwinge vor dem Ausbrennen bewahrt hat.
 ## Ein KATALYSATOR-Platz liefert eine leere Folge: er gibt seine Terme in den
 ## Griff und wirft selbst nichts aus.
 func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
-	var empty := {"cost": 0, "pieces": [] as Array[Dictionary], "readers": [] as Array,
+	var empty := {"pieces": [] as Array[Dictionary], "readers": [] as Array,
 		"reader_uids": [] as Array}
+	# Eine Pressung je Sitzung: ist sie verbraucht, presst kein Griff mehr - auch
+	# keiner mit Erdungsklemme.
+	if not press_allowed():
+		return empty
 	var chosen := _pressable_packs(pack_indices)
 	if chosen.is_empty():
 		return empty
@@ -1006,11 +1001,8 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 		return empty
 	var terms := catalyst_terms(catalysts)
 	var base_bonus := int(terms["base"])
-	var cost := 0 if bool(terms["free"]) else press_cost()
-	if charge < cost:
-		return empty  # prüfen, dann abbuchen
-	spend_charge(cost)
-	press_uses += 1  # die Erdungsklemme erlässt den Preis, nie die Sprosse
+	if not bool(terms["free"]):
+		press_uses += 1  # die Erdungsklemme bewahrt die Pressung der Sitzung
 	# Kette EINMAL für diesen Griff festlegen - jeder Leser wirft mit derselben.
 	# Der Wett-Schub gilt für genau diese Pressung und ist damit verbraucht.
 	var chance := multicast_chance(float(terms["chance"]))
@@ -1054,7 +1046,7 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 		owned_packs.remove_at(burned[k])
 	packs_changed.emit()
 	press_changed.emit()
-	return {"cost": cost, "pieces": minted, "readers": readers,
+	return {"pieces": minted, "readers": readers,
 		"reader_uids": reader_uids, "kept": kept}
 
 ## Darf ein Beutestück auf diesen Würfel? Die Bank sind die Zwingen - sonst keine.

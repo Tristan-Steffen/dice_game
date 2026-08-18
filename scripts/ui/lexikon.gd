@@ -228,7 +228,7 @@ static func _build_concepts() -> void:
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
-		"Die Maschine der Werkstatt: versiegelte Pakete stecken in den Lesern und werden in einem Griff zu Gravuren gepresst - je Auslösung 1, 3 oder 5 Stück, so oft der Multicast nachlegt. Die erste Pressung der Runde ist frei, danach steigt der Preis in Energie. Die Beute liegt auf dem Glas und wird von Hand gesetzt.",
+		"Die Maschine der Werkstatt: versiegelte Pakete stecken in den Lesern und werden in einem Griff zu Gravuren gepresst - je Auslösung 1, 3 oder 5 Stück, so oft der Multicast nachlegt. Je Runde presst die Werkstatt genau einmal, und es kostet nichts - nur ein Griff mit Erdungsklemme verbraucht die Pressung nicht. Die Beute liegt auf dem Glas und wird von Hand gesetzt.",
 		CAT_BEGRIFFE)
 	_add(MULTICAST, "Multicast",
 		"Die Kette der Presse. Jede Pressung zahlt zuerst den Sockel ihrer Paketgröße - Standard 1, Groß 3, Kolossal 5 Gravuren -, dann würfelt sie: jeder Treffer legt denselben Sockel noch einmal nach, bis zum ersten Fehlwurf oder bis zum Limit. Chance und Limit wachsen mit dem Ausbau des Casinos; Klauseln und Nebenwetten verschieben beide, nach oben wie nach unten. Ein Fixinhalt löst nie nach.",

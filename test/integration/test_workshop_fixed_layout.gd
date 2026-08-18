@@ -389,20 +389,26 @@ func test_a_catalysts_only_grip_locks_the_seat() -> void:
 	await wait_frames(2)
 	assert_true(view.can_press(), "mit einer Kassette voll Inhalt geht es")
 
-## Die Erdungsklemme nimmt dem Sitz die Energie-Bremse - ohne die Leiter zu heilen.
-func test_the_grounding_clamp_unlocks_an_empty_bank() -> void:
-	run.press_uses = 4
-	run.charge = 0
+## Eine verbrauchte Pressung sperrt den Sitz - und die Erdungsklemme holt sie
+## NICHT zurück.
+func test_a_spent_session_locks_the_seat() -> void:
+	run.press_uses = 1
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_false(view.can_press(), "vier Energie hat die Bank nicht")
+	assert_false(view.can_press(), "die Pressung dieser Runde ist verbraucht")
+	assert_true(String(view._press_button.get_meta("body", "")).contains("verbraucht"),
+		"und der Grund steht auf dem Hinweis-Schirm")
 	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
 	await wait_frames(2)
 	view.slot_pack(run.owned_packs[1].pack_uid)
 	await wait_frames(2)
-	assert_true(view.can_press(), "die Klemme trägt die Pressung")
+	assert_false(view.can_press(), "die Klemme bewahrt, sie belebt nicht")
+	run.reset_press_cycle()
+	view.refresh()
+	await wait_frames(2)
+	assert_true(view.can_press(), "die Unterschrift gibt die Pressung zurück")
 
 ## Der Schirm rührt sich auch mit Katalysatoren keinen Byte weit.
 func test_the_multicast_rect_survives_a_catalyst() -> void:
