@@ -2888,10 +2888,12 @@ static func interactive_under(node: Node, point: Vector2) -> bool:
 		if control != null:
 			if not control.visible:
 				continue
-			if control is BaseButton and not (control as BaseButton).disabled \
-					and control.mouse_filter != Control.MOUSE_FILTER_IGNORE \
-					and control.get_global_rect().has_point(point):
-				return true
+			# Knöpfe UND Verweis-Texte (Lexikon-Schlüsselwörter) sind Klickziele.
+			if (control is BaseButton and not (control as BaseButton).disabled) \
+					or control is RichTextLabel:
+				if control.mouse_filter != Control.MOUSE_FILTER_IGNORE \
+						and control.get_global_rect().has_point(point):
+					return true
 		if interactive_under(child, point):
 			return true
 	return false

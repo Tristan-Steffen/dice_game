@@ -39,6 +39,7 @@ const VERTRAG := "vertrag"
 const NEBENWETTE := "nebenwette"
 const MAGAZIN := "magazin"
 const PRESSE := "presse"
+const MULTICAST := "multicast"
 const SCHWARZMARKT := "schwarzmarkt"
 const UEBERTAKTEN := "uebertakten"
 
@@ -46,7 +47,7 @@ const UEBERTAKTEN := "uebertakten"
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	BENCHMARK, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, SCHWARZMARKT, UEBERTAKTEN]
+	PRESSE, MULTICAST, SCHWARZMARKT, UEBERTAKTEN]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -227,7 +228,10 @@ static func _build_concepts() -> void:
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
-		"Die Maschine der Werkstatt: versiegelte Pakete stecken in den Lesern und werden in einem Griff zu Gravuren gepresst - 1, 3 oder 5 Stück je Paket. Die erste Pressung der Runde ist frei, danach steigt der Preis in Energie. Die Beute liegt auf dem Glas und wird von Hand gesetzt.",
+		"Die Maschine der Werkstatt: versiegelte Pakete stecken in den Lesern und werden in einem Griff zu Gravuren gepresst - je Auslösung 1, 3 oder 5 Stück, so oft der Multicast nachlegt. Die erste Pressung der Runde ist frei, danach steigt der Preis in Energie. Die Beute liegt auf dem Glas und wird von Hand gesetzt.",
+		CAT_BEGRIFFE)
+	_add(MULTICAST, "Multicast",
+		"Die Kette der Presse. Jede Pressung zahlt zuerst den Sockel ihrer Paketgröße - Standard 1, Groß 3, Kolossal 5 Gravuren -, dann würfelt sie: jeder Treffer legt denselben Sockel noch einmal nach, bis zum ersten Fehlwurf oder bis zum Limit. Chance und Limit wachsen mit dem Ausbau des Casinos; Klauseln und Nebenwetten verschieben beide, nach oben wie nach unten. Ein Fixinhalt löst nie nach.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, freigeschaltet mit Lizenzstufe 5. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",

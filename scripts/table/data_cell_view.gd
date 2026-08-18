@@ -102,6 +102,27 @@ const EDGE_DIM_ENERGY := 0.12
 ## Anteil, mit dem die Kante einen Kern-Ausbruch mitreißt.
 const EDGE_FLARE_SHARE := 0.75
 
+## Die GRÖSSEN-Marke auf der Kappe (Pack.TIER_*): je Stufe ein heller Streifen
+## rechts neben dem Sortenzeichen - Groß einer, Kolossal zwei. Sie liegen FLACH
+## auf dem Deckel, denn von den Tischwinkeln sieht man von einer stehenden
+## Kassette nichts als ihn. Geometrie der Kassette selbst bleibt unberührt: das
+## eine Kassettenmaß trägt Schlitz und Grube, eine dickere Karte spränge beides.
+const TIER_STRIPE_W := CAP_WIDTH * 0.045
+const TIER_STRIPE_H := CAP_H * 0.55
+const TIER_STRIPE_DEPTH := CAP_DEPTH * 0.66
+## Abstand der Streifen zueinander und vom Zeichen weg (nach rechts, wo bis zur
+## Bündelzahl frei ist).
+const TIER_STRIPE_PITCH := CAP_WIDTH * 0.085
+const TIER_STRIPE_X := -CAP_WIDTH * 0.06
+## Sie stehen eine Spur über der Kappe - koplanar zerschnitte der Tiefenkampf sie.
+const TIER_STRIPE_PROUD := DEPTH * 0.05
+## Ihr Licht: heller als die Kappe, aber unter der Grenze, ab der die drei Kanäle
+## zu Weiß zusammenlaufen und aus zwei Streifen einer wird.
+const TIER_STRIPE_ENERGY := 1.45
+## Das Kolossale trägt zusätzlich einen GOLDENEN Kragen - der Rahmen um die Karte,
+## nicht die Blende davor: von oben ist er der Umriss, den man ohne Zoom liest.
+const TIER_COLLAR_GOLD := 0.62
+
 ## Sichtbarer Anteil der Höhe, wenn die Zelle im Leseschlitz steckt: gerade so
 ## viel, dass Kopfkante und Blende lesen, und so wenig, dass sie IM Tisch steckt.
 const SUNK_SHOW := 0.18
@@ -175,6 +196,8 @@ const BADGE_GAP := HEIGHT * 0.16
 const GLYPH_TEXTURE_SIZE := 128
 
 var sort: String = Pack.SHELF_DICE_PACK
+## Paketgröße (Pack.TIER_*): sie zeichnet die Streifen auf der Kappe.
+var tier: int = Pack.TIER_NORMAL
 var tint: Color = PackDrawerView.GOLD
 
 ## Alles Gebaute hängt unter _body: die Zelle steht mit ihrem URSPRUNG auf dem
@@ -226,14 +249,19 @@ var _cap_material: StandardMaterial3D
 ## Tinte sein, kein Leuchten. Eine zweite Backung wäre Vorrat für nichts.
 var _cap_glyph_material: StandardMaterial3D
 var _band_material: StandardMaterial3D
+## Die hellen Größen-Streifen und der (beim Kolossalen goldene) Kragen.
+var _tier_material: StandardMaterial3D
+var _collar_material: StandardMaterial3D
 var _glyph_oven: SubViewport
 
 func _init() -> void:
 	name = "DataCell"
 
-## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER).
-func setup(cell_sort: String) -> void:
+## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER) in ihrer
+## Paketgröße (Pack.TIER_*) - die Größe zeichnet nur die Kappe, nie den Körper.
+func setup(cell_sort: String, cell_tier: int = 0) -> void:
 	sort = cell_sort
+	tier = maxi(cell_tier, 0)
 	tint = PackDrawerView.COLORS.get(sort, PackDrawerView.GOLD)
 	_build_materials()
 	_body = Node3D.new()
@@ -643,6 +671,25 @@ func _build_materials() -> void:
 	_edge_material = _lit_material(tint)
 	_edge_material.emission_energy_multiplier = EDGE_REST_ENERGY
 
+	if tier > Pack.TIER_NORMAL:
+		_tier_material = _lit_material(tint.lerp(Color.WHITE, 0.55))
+		_tier_material.emission_energy_multiplier = TIER_STRIPE_ENERGY
+	# Der Kragen ist beim Kolossalen golden getönt - EIGENES Material, sonst zöge
+	# die Tönung die Blende vor der Scheibe mit.
+	_collar_material = _bezel_material
+	if tier >= Pack.TIER_KOLOSSAL:
+		_collar_material = StandardMaterial3D.new()
+		_collar_material.albedo_color = CHASSIS_ALBEDO.lerp(PackDrawerView.GOLD,
+			TIER_COLLAR_GOLD)
+		_collar_material.metallic = 0.85
+		_collar_material.roughness = 0.28
+		_collar_material.emission_enabled = true
+		_collar_material.emission = _scaled(PackDrawerView.GOLD, 1.0)
+		# Bewusst kaum heller als der normale Kragen: von oben sieht man von ihm nur
+		# schmale Kanten, und die blühten bei starkem Licht zu diagonalen Schlieren
+		# über die Nachbarzellen auf. Die Farbe trägt, nicht die Energie.
+		_collar_material.emission_energy_multiplier = CHASSIS_EMISSION_ENERGY * 1.2
+
 	if sealed():
 		_band_material = _lit_material(tint)
 	else:
@@ -681,13 +728,13 @@ func _build_cell() -> Node3D:
 	var collar_x := (WIDTH + CHASSIS_RIM) * 0.5
 	var collar_y := (HEIGHT + CHASSIS_RIM) * 0.5
 	_add_box(cell, "CollarLeft", Vector3(CHASSIS_RIM, HEIGHT + CHASSIS_RIM * 2.0, collar),
-		Vector3(-collar_x, 0.0, 0.0), _bezel_material)
+		Vector3(-collar_x, 0.0, 0.0), _collar_material)
 	_add_box(cell, "CollarRight", Vector3(CHASSIS_RIM, HEIGHT + CHASSIS_RIM * 2.0, collar),
-		Vector3(collar_x, 0.0, 0.0), _bezel_material)
+		Vector3(collar_x, 0.0, 0.0), _collar_material)
 	_add_box(cell, "CollarTop", Vector3(WIDTH, CHASSIS_RIM, collar),
-		Vector3(0.0, collar_y, 0.0), _bezel_material)
+		Vector3(0.0, collar_y, 0.0), _collar_material)
 	_add_box(cell, "CollarFoot", Vector3(WIDTH, CHASSIS_RIM, collar),
-		Vector3(0.0, -collar_y, 0.0), _bezel_material)
+		Vector3(0.0, -collar_y, 0.0), _collar_material)
 	var side_x := (WIDTH - SIDE_BAR) * 0.5
 	_add_box(cell, "BarLeft", Vector3(SIDE_BAR, HEIGHT, DEPTH),
 		Vector3(-side_x, 0.0, 0.0), _shell_material)
@@ -767,6 +814,15 @@ func _build_cell() -> Node3D:
 		cap_top + 0.002, 0.0)
 	cap_glyph.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	cell.add_child(cap_glyph)
+
+	# Die GRÖSSEN-Streifen: rechts neben dem Zeichen, einer je Stufe über Standard.
+	if _tier_material != null:
+		for i in mini(tier, Pack.TIER_KOLOSSAL):
+			_add_box(cell, "TierStripe%d" % i,
+				Vector3(TIER_STRIPE_W, TIER_STRIPE_H, TIER_STRIPE_DEPTH),
+				Vector3(TIER_STRIPE_X + float(i) * TIER_STRIPE_PITCH,
+					cap_top + TIER_STRIPE_PROUD - TIER_STRIPE_H * 0.5, 0.0),
+				_tier_material)
 
 	# Der Lichtsaum unter der Kappe - steckt die Zelle, steht mit ihr nur er über
 	# dem Glas; er ragt eine Spur weiter und zeichnet ihre Brüstung nach.

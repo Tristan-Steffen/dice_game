@@ -32,6 +32,10 @@ func _seat_rect() -> Rect2:
 	var seat: Control = view.get_node("PressBand/ActionSeat")
 	return seat.get_global_rect()
 
+func _multicast_rect() -> Rect2:
+	var screen: Control = view.get_node("PressBand/MulticastScreen")
+	return screen.get_global_rect()
+
 func _console() -> Control:
 	return view.get_node("PressBand/PressConsole")
 
@@ -61,12 +65,14 @@ func test_slotting_a_pack_moves_nothing_on_the_page() -> void:
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
+	var screen := _multicast_rect()
 	assert_false(view._press_button.visible, "vorher zeigt sich kein Knopf")
 
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
 	assert_true(view._press_button.visible, "der Knopf ist da")
 	assert_eq(_seat_rect(), seat, "sein Sitz war schon vorher genau so hoch")
+	assert_eq(_multicast_rect(), screen, "und der Multicast-Schirm daneben ebenso")
 	assert_eq(_row_names(), rows, "dieselben Zeilen in derselben Ordnung")
 	assert_eq(_drawer_rect(), fach, "das Fach steht unverrückt")
 	_assert_same_slits(slits, _slit_rects(), "eingelegt")
@@ -255,6 +261,229 @@ func test_seat_and_card_ride_the_console_band() -> void:
 	assert_lte(screen.end.y, _drawer_rect().position.y + 1.0,
 		"unter das Fach taucht er nie - dort liegen die Kassetten davor")
 
+# --- Der MULTICAST-SCHIRM: das Gegenstück zum Hinweis-Schirm ----------------------
+
+## Rechte Flanke, in dieser Ordnung: Blech - Naht - Sitz - Naht - Schirm, und der
+## endet bündig auf der Fensterkante. Nichts davon überlappt.
+func test_the_multicast_screen_takes_the_right_corner_behind_the_seat() -> void:
+	await wait_frames(2)
+	var console := _console().get_global_rect()
+	var seat := _seat_rect()
+	var screen := _multicast_rect()
+	var window := view.get_global_rect()
+	var u := view.size.x / 100.0
+	assert_gt(seat.position.x, console.end.x, "der Sitz steht rechts vom Blech")
+	assert_gte(screen.position.x, seat.end.x, "der Schirm steht rechts vom Sitz")
+	assert_almost_eq(screen.end.x, window.end.x, 1.0, "und endet auf der Fensterkante")
+	assert_almost_eq(screen.position.x - seat.end.x, u * WorkshopView.ACTION_GAP, 1.0,
+		"dieselbe Naht wie zwischen Blech und Sitz")
+	assert_almost_eq(screen.get_center().y, console.get_center().y, screen.size.y * 0.5,
+		"er steht auf dem Band")
+	assert_almost_eq(screen.size.y, view._info_screen.get_global_rect().size.y, 1.0,
+		"und ist so hoch wie sein Bruder links")
+
+## Der Sitz ist schmaler geworden - er muss seine breiteste Aufschrift trotzdem
+## ungeschnitten tragen, sonst hätte clip_text sie nur versteckt.
+func test_the_seat_still_carries_its_widest_label() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	var u := view.size.x / 100.0
+	var button := view._press_button
+	var font: Font = button.get_theme_font("font")
+	var px: int = button.get_theme_font_size("font_size")
+	var text := font.get_string_size("Pressen (6)", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	assert_lte(text + u * 1.2, _seat_rect().size.x,
+		"die breiteste Aufschrift paßt samt Rand in den Sitz")
+
+func test_the_screen_stays_dark_until_a_cassette_is_slotted() -> void:
+	run.grant_pack(Pack.number_pack())
+	await wait_frames(2)
+	assert_eq(view.multicast_text(), "", "ohne Kassette sagt er nichts")
+	assert_false(view._multicast_body.visible)
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_true(view._multicast_body.visible, "eingelegt spricht er")
+	assert_true(view.multicast_text().contains("Standard ×1"),
+		"die Größe sagt, was EIN Schlag auswirft")
+	assert_true(view.multicast_text().contains("Multicast 50 %"),
+		"die Chance ist für alle dieselbe und steht für sich")
+	assert_true(view.multicast_text().contains("max. ×3"), "und nennt die Decke")
+
+## Chance und Decke sind LEBENDIG: der Schirm liest sie aus dem Lauf, also stehen
+## Lizenzstufe, wirkende Klausel und vorgemerkter Wett-Schub sofort darauf.
+func test_the_screen_prints_the_live_chance_and_limit() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	run.hub_level = 10
+	await wait_frames(2)
+	assert_true(view.multicast_text().contains("Multicast 75 %"), "die Sprosse der Lizenz")
+	assert_true(view.multicast_text().contains("max. ×7"))
+	run.round_number = 1
+	run.sign_clauses([DealClause.CHAIN_DRIVER] as Array[String])
+	view.refresh()
+	await wait_frames(2)
+	assert_true(view.multicast_text().contains("max. ×9"), "der Kettentreiber steht drauf")
+
+## Je GRÖSSE eine Zeile, nie je Kassette - zwei Standard-Pakete sagen dasselbe wie
+## eins. Die Zeile nennt den Grundwurf, nicht die (flache) Chance.
+func test_one_line_per_distinct_size() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.tiered(Pack.material_pack(), Pack.TIER_KOLOSSAL))
+	await wait_frames(2)
+	for pack in run.owned_packs:
+		view.slot_pack(pack.pack_uid)
+	await wait_frames(2)
+	var lines := view.multicast_lines()
+	assert_eq(lines.size(), 2, "zwei Größen, zwei Zeilen")
+	assert_eq(lines[0], "Standard ×1")
+	assert_eq(lines[1], "Kolossal ×5")
+
+## Der Schirm sagt die WAHRHEIT ÜBER DEN GRIFF: die Terme der eingelegten
+## Katalysatoren fahren durch dieselben Abfragen wie die Pressung selbst.
+func test_the_screen_composes_the_slotted_catalysts() -> void:
+	run.hub_level = 1
+	var bare_chance := roundi(run.multicast_chance() * 100.0)
+	var bare_cap := run.multicast_cap()
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+	await wait_frames(2)
+	for pack in run.owned_packs:
+		view.slot_pack(pack.pack_uid)
+	await wait_frames(2)
+	var text := view.multicast_text()
+	assert_true(text.contains("Multicast %d %%" % (bare_chance + 20)),
+		"die Treibladung steht im Prozentsatz: %s" % text)
+	assert_true(text.contains("max. ×%d" % (bare_cap + 2)),
+		"und der Taktgeber im Limit: %s" % text)
+
+## Eine Doppelmatrize hebt den Grundwurf - die Größenzeilen nennen den WIRKSAMEN.
+func test_the_matrix_shows_in_the_size_lines() -> void:
+	run.grant_pack(Pack.tiered(Pack.material_pack(), Pack.TIER_GROSS))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
+	await wait_frames(2)
+	for pack in run.owned_packs:
+		view.slot_pack(pack.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.multicast_lines(), ["Groß ×4"] as Array[String],
+		"3 + 1, und der Katalysator selbst hat keine Zeile")
+
+## Ein Griff aus lauter Katalysatoren presst nicht - der Sitz sperrt, und der
+## Hinweis-Schirm sagt, warum.
+func test_a_catalysts_only_grip_locks_the_seat() -> void:
+	run.charge = 9
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+	await wait_frames(2)
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_eq(view.loot_slot_count(), 0)
+	assert_false(view.can_press(), "Katalysatoren allein pressen nichts")
+	assert_true(view._press_button.disabled)
+	assert_true(String(view._press_button.get_meta("body", "")).contains("Inhalt"),
+		"und der Grund steht auf dem Hinweis-Schirm")
+	run.grant_pack(Pack.number_pack())
+	await wait_frames(2)
+	view.slot_pack(run.owned_packs[1].pack_uid)
+	await wait_frames(2)
+	assert_true(view.can_press(), "mit einer Kassette voll Inhalt geht es")
+
+## Die Erdungsklemme nimmt dem Sitz die Energie-Bremse - ohne die Leiter zu heilen.
+func test_the_grounding_clamp_unlocks_an_empty_bank() -> void:
+	run.press_uses = 4
+	run.charge = 0
+	run.grant_pack(Pack.number_pack())
+	await wait_frames(2)
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_false(view.can_press(), "vier Energie hat die Bank nicht")
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	await wait_frames(2)
+	view.slot_pack(run.owned_packs[1].pack_uid)
+	await wait_frames(2)
+	assert_true(view.can_press(), "die Klemme trägt die Pressung")
+
+## Der Schirm rührt sich auch mit Katalysatoren keinen Byte weit.
+func test_the_multicast_rect_survives_a_catalyst() -> void:
+	var before := view.multicast_screen_rect()
+	var seat := _seat_rect()
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
+	run.grant_pack(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL))
+	await wait_frames(2)
+	for pack in run.owned_packs:
+		view.slot_pack(pack.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.multicast_screen_rect(), before)
+	assert_eq(_seat_rect(), seat, "und der Sitz behält sein Rechteck")
+
+func test_a_fixed_content_cassette_says_it_never_repeats() -> void:
+	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving()))
+	await wait_frames(2)
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_true(view.multicast_lines().has("Fixinhalt ×1"))
+
+## Der Wurf schreibt seinen höchsten Schlag auf den Schirm - und ein Neuaufbau
+## des Bandes nimmt ihn ihm nicht.
+func test_the_peak_of_a_running_press_survives_a_rebuild() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	view.start_press()
+	view.withhold_press_pieces([999])  # eine Pressung, die noch fliegt
+	view.flash_multicast(4)
+	await wait_frames(2)
+	assert_eq(view.multicast_text(), "×4!")
+	view.flash_multicast(2)
+	assert_eq(view.multicast_text(), "×4!", "ein kleinerer Schlag schreibt nicht zurück")
+	view.refresh()
+	await wait_frames(2)
+	assert_eq(view.multicast_text(), "×4!", "und der Neuaufbau liest ihn wieder")
+
+## Der Schirm ERKLÄRT sich nicht mehr - sein Text ist ein Verweis. Hovern sagt
+## darum nichts, und der Hinweis-Schirm bleibt frei für die anderen Sprecher.
+func test_hovering_the_multicast_screen_says_nothing() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_true(view.chip_hint_at(_multicast_rect().get_center()).is_empty())
+
+## Statt dessen ist das Wort ein Lexikon-Verweis wie im Laden-Tooltip: gefärbt,
+## klickbar, und der Klick meldet die Eintrags-id nach draußen.
+func test_the_multicast_word_is_a_lexikon_reference() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_true(Lexikon.has_entry(Lexikon.MULTICAST), "der Eintrag steht im Katalog")
+	assert_true(view._multicast_body.bbcode_enabled)
+	assert_true(view._multicast_body.text.contains("[url=%s]" % Lexikon.MULTICAST),
+		"das Wort trägt seinen Verweis")
+	assert_ne(view._multicast_body.mouse_filter, Control.MOUSE_FILTER_IGNORE,
+		"und ist damit anklickbar")
+	var seen: Array[String] = []
+	view.lexikon_requested.connect(func(id: String) -> void: seen.append(id))
+	view._multicast_body.meta_clicked.emit(Lexikon.MULTICAST)
+	assert_eq(seen, [Lexikon.MULTICAST] as Array[String])
+
+## Nur die Klickbarkeit ist neu - das Rechteck rührt sich durch den ganzen
+## Presse-Zyklus keinen Byte weit.
+func test_the_multicast_rect_is_byte_stable_through_the_cycle() -> void:
+	var before := view.multicast_screen_rect()
+	run.grant_pack(Pack.number_pack())
+	await wait_frames(2)
+	assert_eq(view.multicast_screen_rect(), before, "eine Kassette im Magazin")
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_eq(view.multicast_screen_rect(), before, "eingesteckt")
+	view.flash_multicast(4)
+	await wait_frames(2)
+	assert_eq(view.multicast_screen_rect(), before, "im Wurf")
+	run.hub_level = 10
+	view.refresh()
+	await wait_frames(2)
+	assert_eq(view.multicast_screen_rect(), before, "und mit längerem Text")
+
 func test_the_growth_comes_out_of_the_slack_not_out_of_the_nets() -> void:
 	# Erst die Restluft, dann erst (und hier gar nicht) der Netz-Deckel.
 	var u := view.size.x / 100.0
@@ -321,6 +550,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
+	var screen := _multicast_rect()
 	var displays := view.press_display_anchors()
 	var strip := view.ablage_rect()
 
@@ -329,6 +559,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	assert_true(view.placing(), "die Beute liegt in der Ablage")
 	assert_eq(_row_names(), rows, "dieselben Zeilen in derselben Ordnung")
 	assert_eq(_seat_rect(), seat, "derselbe Sitz, jetzt mit dem Fertig")
+	assert_eq(_multicast_rect(), screen, "der Multicast-Schirm steht durch den Wurf")
 	assert_null(view._press_button, "der Pressen-Knopf tritt ab")
 	assert_not_null(view._apply_button)
 	assert_eq(view._apply_button.get_global_rect(), seat, "und der Knopf füllt ihn genau")
@@ -343,6 +574,7 @@ func test_the_whole_press_cycle_never_reflows_the_page() -> void:
 	assert_false(view.placing())
 	assert_eq(_row_names(), rows, "und nach dem Kreis steht wieder dieselbe Seite")
 	assert_eq(_seat_rect(), seat)
+	assert_eq(_multicast_rect(), screen, "auch der Schirm steht danach, wo er stand")
 	assert_eq(_drawer_rect(), fach, "danach: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "danach")
 	assert_eq(view.press_display_anchors(), displays)

@@ -111,19 +111,162 @@ func test_a_bundle_is_one_card_with_several_pieces() -> void:
 	assert_true(pack.description.contains("5×"), "die Menge steht auf der Karte")
 	assert_eq(pack.type, Pack.TYPE_DICE_MOD)
 
+## Der Sonderposten-Platz führt zwei Familien: das Gravur-Einzelstück zum flachen
+## Preis und die Katalysator-Kassette zu ihrem eigenen. Nichts Drittes.
 func test_the_shop_special_is_a_single_at_the_flat_price() -> void:
-	for i in 30:
+	for i in 60:
 		var pack := Pack.roll_special_pack()
+		assert_eq(pack.count, 1, "im Regal gibt es keine Bündel")
+		if pack.is_catalyst():
+			assert_eq(pack.price, Pack.catalyst_price(pack.catalyst_id))
+			continue
 		assert_not_null(pack.fixed_engraving)
 		assert_true(Engraving.is_special_id(pack.fixed_engraving.id),
 			"im Regal liegen nur Sonderposten: %s" % pack.fixed_engraving.id)
-		assert_eq(pack.count, 1, "im Regal gibt es keine Bündel")
 		assert_eq(pack.price, Pack.SPECIAL_PRICE, "ein Sonderposten kostet immer dasselbe")
 
-## Über viele Würfe kommen BEIDE Sonderposten vor - sonst wäre einer unerreichbar.
+## Über viele Würfe kommen BEIDE Sonderposten und ALLE VIER Katalysatoren vor -
+## sonst wäre einer unerreichbar.
 func test_both_specials_reach_the_shelf() -> void:
 	var seen := {}
-	for i in 200:
-		seen[Pack.roll_special_pack().fixed_engraving.id] = true
+	for i in 400:
+		var pack := Pack.roll_special_pack()
+		seen[pack.catalyst_id if pack.is_catalyst() else pack.fixed_engraving.id] = true
 	for special_id: String in Engraving.SPECIAL_IDS:
 		assert_true(seen.has(special_id), "%s liegt irgendwann aus" % special_id)
+	for catalyst_id in Pack.catalyst_ids():
+		assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
+
+# --- Die Katalysator-Kassetten -------------------------------------------------
+
+func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
+	assert_eq(Pack.catalyst_ids().size(), 4, "vier Karten, nicht mehr")
+	for id in Pack.catalyst_ids():
+		var pack := Pack.catalyst(id)
+		assert_not_null(pack, "%s baut sich" % id)
+		assert_true(pack.is_catalyst())
+		assert_eq(pack.catalyst_id, id)
+		assert_ne(pack.display_name, "", "%s hat einen Namen" % id)
+		assert_gt(pack.price, 0, "%s hat einen Preis" % id)
+		assert_eq(Pack.shelf_of(pack), Pack.SHELF_SPECIAL,
+			"%s liegt im Sonderbestand" % id)
+		assert_true(pack.description.contains(Pack.catalyst_effect(id)),
+			"die Wirkung steht auf der Karte")
+		assert_true(pack.description.contains("verbraucht"),
+			"und dass sie mit ihrer Pressung verbraucht wird")
+
+func test_the_catalyst_prices_are_the_authored_ones() -> void:
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_TIMER), 14)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_MATRIX), 18)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_GROUND), 8)
+
+func test_an_unknown_catalyst_builds_nothing() -> void:
+	assert_null(Pack.catalyst("gibtsnicht"), "lieber keine Karte als eine namenlose")
+
+## Ein Katalysator wirft nichts aus - also trägt er auch keine Größe.
+func test_a_catalyst_is_never_tierable() -> void:
+	for id in Pack.catalyst_ids():
+		var pack := Pack.catalyst(id)
+		assert_false(Pack.tierable(pack))
+		var before := pack.display_name
+		Pack.tiered(pack, Pack.TIER_KOLOSSAL)
+		assert_eq(pack.tier, Pack.TIER_NORMAL, "die Größe bleibt draußen")
+		assert_eq(pack.display_name, before, "und der Name unangetastet")
+
+func test_a_catalyst_is_no_dice_pack_and_carries_no_engraving() -> void:
+	var pack := Pack.catalyst(Pack.CATALYST_MATRIX)
+	assert_false(pack.is_dice_pack())
+	assert_null(pack.fixed_engraving, "der Sonderbestand hat zwei Familien")
+	assert_eq(pack.roll_dice().size(), 0)
+
+## Die Gewichtstabelle IST die Regel: 40 % Gravur, der Rest gleichmäßig auf die
+## vier Karten.
+func test_the_special_roll_weights_are_the_documented_table() -> void:
+	assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[Pack.SPECIAL_ENGRAVING]), 40)
+	var rest := 0
+	for id in Pack.catalyst_ids():
+		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 15)
+		rest += int(Pack.SPECIAL_ROLL_WEIGHTS[id])
+	assert_eq(rest, 60, "und zusammen genau der Rest")
+
+# --- Die drei Paketgrößen -------------------------------------------------------
+
+func test_a_fresh_pack_is_a_standard_one() -> void:
+	for pack in Pack.all_engraving_packs():
+		assert_eq(pack.tier, Pack.TIER_NORMAL, "%s ist der Normalfall" % pack.type)
+		assert_false(pack.display_name.begins_with("Groß"), "und trägt kein Adjektiv")
+
+func test_the_size_stands_in_the_name() -> void:
+	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).display_name,
+		"Großes Zahlen-Paket")
+	assert_eq(Pack.tiered(Pack.material_pack(), Pack.TIER_KOLOSSAL).display_name,
+		"Kolossales Material-Paket")
+	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_NORMAL).display_name,
+		"Runen-Paket", "der Standard bleibt unmarkiert")
+
+func test_the_price_climbs_with_the_size() -> void:
+	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).price, 17)
+	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL).price, 29)
+	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_GROSS).price, 24)
+	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_KOLOSSAL).price, 40)
+
+## Der Aufschlag liegt ÜBER dem Zuwachs an Stücken: gekauft wird Dichte, nicht
+## ein Rabatt auf die Beute.
+func test_the_price_factor_stays_above_the_piece_gain() -> void:
+	var base := PhantomPress.expected_pieces(Pack.TIER_NORMAL)
+	for tier in [Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+		var pieces := PhantomPress.expected_pieces(tier) / base
+		assert_gt(Pack.tier_price_factor(tier), pieces,
+			"Größe %d kostet mehr, als sie an Stücken zulegt" % tier)
+		# ... und zwar gleichmäßig: der Aufschlag ist derselbe, nicht mal so, mal so.
+		assert_almost_eq(Pack.tier_price_factor(tier) / pieces, 1.15, 0.01,
+			"Größe %d trägt denselben Dichte-Aufschlag" % tier)
+
+func test_only_pressable_packs_carry_a_size() -> void:
+	var dice := Pack.dice_pack(DiceOffer.TEMPLATES[0])
+	var before := dice.display_name
+	assert_false(Pack.tierable(dice), "ein Würfel-Paket presst nie")
+	assert_eq(Pack.tiered(dice, Pack.TIER_KOLOSSAL).display_name, before)
+	assert_eq(dice.tier, Pack.TIER_NORMAL)
+	var fixed := Pack.fixed_engraving_pack(Engraving.pointer_engraving())
+	assert_false(Pack.tierable(fixed), "ein Fixinhalt würfelt nichts aus")
+	assert_eq(Pack.tiered(fixed, Pack.TIER_GROSS).tier, Pack.TIER_NORMAL)
+
+func test_the_size_weights_are_sixty_thirty_ten() -> void:
+	assert_eq(Pack.TIER_WEIGHTS, [0.6, 0.3, 0.1])
+	var sum := 0.0
+	for weight in Pack.TIER_WEIGHTS:
+		sum += float(weight)
+	assert_almost_eq(sum, 1.0, 0.0001, "die Gewichte schließen die Verteilung")
+
+func test_the_roll_hands_out_every_size_and_prefers_the_norm() -> void:
+	var seen := {}
+	for i in 400:
+		seen[Pack.roll_tier()] = int(seen.get(Pack.roll_tier(), 0)) + 1
+	for tier in [Pack.TIER_NORMAL, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+		assert_true(seen.has(tier), "Größe %d fällt überhaupt" % tier)
+
+func test_the_shop_roll_carries_the_size_through() -> void:
+	var pack := Pack.roll_engraving_pack(Pack.TIER_KOLOSSAL)
+	assert_eq(pack.tier, Pack.TIER_KOLOSSAL)
+	assert_true(pack.display_name.begins_with("Kolossales"))
+	assert_eq(Pack.roll_engraving_pack().tier, Pack.TIER_NORMAL,
+		"ohne Angabe prägt jede Quelle Standard")
+
+func test_the_multicast_line_reads_the_one_table() -> void:
+	assert_eq(Pack.multicast_line(Pack.TIER_NORMAL),
+		"1 Gravur je Auslösung, Multicast 50 %, max. ×3")
+	assert_eq(Pack.multicast_line(Pack.TIER_GROSS),
+		"3 Gravuren je Auslösung, Multicast 50 %, max. ×3")
+	assert_eq(Pack.multicast_line(Pack.TIER_KOLOSSAL),
+		"5 Gravuren je Auslösung, Multicast 50 %, max. ×3")
+
+## Chance und Decke kommen von außen - die Karte nennt, was die Presse JETZT kann.
+func test_the_multicast_line_takes_the_live_values() -> void:
+	assert_eq(Pack.multicast_line(Pack.TIER_GROSS, 0.75, 7),
+		"3 Gravuren je Auslösung, Multicast 75 %, max. ×7")
+	var run := GameRun.new_run()
+	run.hub_level = 10
+	assert_eq(Pack.multicast_line(Pack.TIER_NORMAL, run.multicast_chance(), run.multicast_cap()),
+		"1 Gravur je Auslösung, Multicast 75 %, max. ×7")

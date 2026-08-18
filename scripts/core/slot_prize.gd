@@ -23,6 +23,16 @@ static func pack_name(kind_value: int, count: int = 1) -> String:
 	var type_name := String(Pack.TYPE_NAMES.get(pack_type_of(kind_value), "Paket"))
 	return type_name if count == 1 else type_name + "e"
 
+## Derselbe Name MIT Paketgröße ("2 Große Zahlen-Pakete"). Der Automat ist neben
+## dem Laden die zweite Größenquelle, darum muss die Größe überall dranstehen, wo
+## er seine Beute nennt - sie ist der ganze Unterschied zwischen einer 4er- und
+## einer 6er-Reihe.
+static func pack_name_tiered(kind_value: int, count: int = 1,
+		pack_tier: int = Pack.TIER_NORMAL) -> String:
+	var base := pack_name(kind_value, count)
+	var adjective := Pack.tier_adjective(pack_tier, count)
+	return base if adjective == "" else "%s %s" % [adjective, base]
+
 var kind: int = Kind.FUMBLE
 var packs: Array[Pack] = []      # Basis-Ausschüttung (vor Multiplikator)
 var charm: Charm = null
@@ -40,10 +50,12 @@ static func from_spec(spec: Dictionary, hub_level: int = 1, owned_essences: Arra
 		"pack":
 			p.kind = int(spec.get("symbol", Kind.ENGRAVING))
 			var count := maxi(1, int(spec.get("count", 1)))
+			var pack_tier := int(spec.get("tier", Pack.TIER_NORMAL))
 			var pack_type := pack_type_of(p.kind)
 			for i in count:
-				p.packs.append(Pack.by_type(pack_type))
-			p.label = "%d %s" % [count, pack_name(p.kind, count)]
+				# Pack.tiered ist der eine Schreibweg: Aufschrift und Preis kommen mit.
+				p.packs.append(Pack.tiered(Pack.by_type(pack_type), pack_tier))
+			p.label = "%d %s" % [count, pack_name_tiered(p.kind, count, pack_tier)]
 		"charm":
 			p.kind = Kind.CHARM
 			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)), owned_essences, features)

@@ -129,12 +129,10 @@ func test_the_back_room_charges_the_discounted_price():
 	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
 	run.unlock_secret_shop()
 	run.owned_charms.append(Charm.fenced_goods())
-	var index := -1
-	for i in run.secret_stock.size():
-		if run.secret_stock[i][GameRun.OFFER_KIND] == GameRun.KIND_ENGRAVING:
-			index = i
-			break
-	assert_gt(index, -1, "ein Gravur-Platz liegt immer aus")
+	# Der Sonderposten-Platz führt seit den Katalysatoren zwei Familien - für diesen
+	# Test muss die Gravur darin liegen.
+	run.secret_stock[1] = run._secret_engraving_offer()
+	var index := 1
 	var price := run.secret_offer_price(run.secret_stock[index])
 	assert_eq(price, int(run.secret_stock[index][GameRun.OFFER_PRICE]) - 1)
 	run.charge = price

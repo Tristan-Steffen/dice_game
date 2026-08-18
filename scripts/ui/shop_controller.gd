@@ -452,8 +452,10 @@ func _build_spread() -> MenuSpread:
 
 	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
 	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
+	# Die GRÖSSE würfelt jeder Platz einzeln (60/30/10) - der Laden ist der EINE
+	# Weg zu Groß und Kolossal, jede Prämie prägt Standard.
 	for i in run.shop_pack_slots():
-		spread.engraving_packs.append(Pack.roll_engraving_pack())
+		spread.engraving_packs.append(Pack.roll_engraving_pack(Pack.roll_tier()))
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
@@ -928,16 +930,32 @@ func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
 ## einzige Ware des Ladens, die man SIEHT, bevor man sie kauft und trotzdem
 ## versiegelt bekommt: welcher der beiden Sonderposten es ist, ist die ganze
 ## Auskunft, und die gehört in die Schale, nicht hinter ein Siegel.
+## Der Sonderbestand führt zwei Familien: die Gravur-Sonderposten und die
+## KATALYSATOR-Kassetten. Beide liegen nackt in der Schale, nur ihr Zeichen
+## unterscheidet sich - die Gravur ihr eigenes, der Katalysator das Eckzeichen
+## des Sonderbestands in dessen Violett (dieselbe Zeichnung wie sein Siegel).
 func _build_single_special_card(index: int, scale_factor: float = 1.0) -> Button:
 	var pack: Pack = single_specials[index]
-	var engraving := pack.fixed_engraving
 	var side := u * SINGLE_DIE_SIZE * scale_factor
-	var seal := EngravingRenderer.for_engraving(engraving)
-	seal.bare = true
-	seal.custom_minimum_size = Vector2.ONE * side
-	var card := _bare_single(seal, Vector2.ONE * side)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, engraving.display_name,
-		engraving.description, _pack_price(pack)))
+	var title := pack.display_name
+	var body := pack.description
+	var face: Control
+	if pack.is_catalyst():
+		var seal_icon := PackIconRenderer.for_type("")
+		seal_icon.tint = PackDrawerView.COLORS[Pack.SHELF_SPECIAL]
+		seal_icon.custom_minimum_size = Vector2.ONE * side
+		face = seal_icon
+	else:
+		var engraving := pack.fixed_engraving
+		title = engraving.display_name
+		body = engraving.description
+		var seal := EngravingRenderer.for_engraving(engraving)
+		seal.bare = true
+		seal.custom_minimum_size = Vector2.ONE * side
+		face = seal
+	var card := _bare_single(face, Vector2.ONE * side)
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body,
+		_pack_price(pack)))
 	card.mouse_exited.connect(_hide_shop_tooltip)
 	card.pressed.connect(_on_single_special_pressed.bind(index))
 	single_special_buttons.append(card)
@@ -1086,7 +1104,8 @@ func _build_pack_card(pack: Pack, index: int, is_dice: bool, metrics: Vector2) -
 	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.12)
 	box.shadow_size = int(u * 0.7)
 	card.add_theme_stylebox_override("panel", box)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, pack.display_name, pack.description))
+	card.mouse_entered.connect(_show_shop_tooltip.bind(card, pack.display_name,
+		_pack_tooltip_body(pack)))
 	card.mouse_exited.connect(_hide_shop_tooltip)
 
 	var row := HBoxContainer.new()
@@ -1126,11 +1145,26 @@ func _build_pack_card(pack: Pack, index: int, is_dice: bool, metrics: Vector2) -
 	return card
 
 ## Mengenzeile der Regal-Reihe: nur WIE VIEL - die Sorte sagt das Siegel,
-## den Rest der Hover-Dropdown (pack.description).
+## den Rest der Hover-Dropdown. Bei einem Gravur-Paket steht die Menge nicht fest:
+## es zählt der Grundwurf seiner Größe, so oft die Kette hält.
 func _pack_count_text(pack: Pack) -> String:
 	if pack.is_dice_pack():
 		return "%d Würfel" % pack.count
-	return "1 Gravur" if pack.count == 1 else "%d Gravuren" % pack.count
+	if Pack.tierable(pack):
+		return "%s je Auslösung" % Pack.pieces_word(PhantomPress.base_for(pack.tier))
+	return Pack.pieces_word(pack.count)
+
+## Die Hover-Auskunft eines Pakets: seine Beschreibung, und bei Gravur-Paketen die
+## Multicast-Zeile darunter - die Größe muss vor dem Kauf lesbar sein.
+## Chance und Decke reicht der LAUF herein - der Laden zeigt, was die Presse jetzt
+## kann, samt Lizenzstufe, Klausel und vorgemerktem Wett-Schub.
+func _pack_tooltip_body(pack: Pack) -> String:
+	if not Pack.tierable(pack):
+		return pack.description
+	if run == null:
+		return "%s\n%s" % [pack.description, Pack.multicast_line(pack.tier)]
+	return "%s\n%s" % [pack.description,
+		Pack.multicast_line(pack.tier, run.multicast_chance(), run.multicast_cap())]
 
 # --- Neon-Bausteine --------------------------------------------------------------
 

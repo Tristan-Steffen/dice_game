@@ -31,6 +31,10 @@ const TAG_SLOT := "automat"
 const TAG_CHARGE := "ladung"
 const TAG_THROTTLE := "drossel"
 const TAG_MONEY := "geld"
+## Alles, was an der Kette der Presse dreht - Chance wie Limit tragen dasselbe
+## Etikett, damit die Paarungsregel nie einen Multicast-Bonus gegen einen
+## Multicast-Malus auf EINE Karte legt.
+const TAG_MULTICAST := "multicast"
 
 # --- Klausel-ids (Single Source of Truth) --------------------------------------
 
@@ -42,9 +46,9 @@ const SPOTLIGHT := "spotlight"
 const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
+const CHAIN_DRIVER := "chain_driver"
 
 # Bonus, Stufe 2
-const MAINTENANCE_ENGRAVING := "maintenance_engraving"
 const HIGH_VOLTAGE := "high_voltage"
 const ANCHOR_CLAUSE := "anchor_clause"
 const ODDS_BONUS := "odds_bonus"
@@ -55,18 +59,13 @@ const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
+const IGNITION_BOOST := "ignition_boost"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
 const BLANK_CHEQUE := "blank_cheque"
 const SUPERCONDUCTOR := "superconductor"
 const GOLD_VEIN := "gold_vein"
-const CARBON_COPY := "carbon_copy"
-
-# Werbegeschenke
-const TOURNAMENT_NIGHT := "tournament_night"
-const POWER_SPIKE := "power_spike"
-const SEED_CAPITAL_II := "seed_capital_ii"
 
 # Malus, Stufe 1
 const BENCHMARK_SURCHARGE := "benchmark_surcharge"
@@ -85,6 +84,8 @@ const MAINS_HUM := "mains_hum"
 const DISCHARGE := "discharge"
 const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
+const IGNITION_BLOCK := "ignition_block"
+const SHORT_CIRCUIT := "short_circuit"
 
 # Malus, Stufe 3
 const BENCHMARK_SHOCK := "benchmark_shock"
@@ -114,6 +115,7 @@ const TAG_COLORS := {
 	TAG_CHARGE: "#7ef9ff",
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
+	TAG_MULTICAST: "#6effc7",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
 
@@ -125,8 +127,6 @@ const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5
 @export var scope: Scope = Scope.ROUND
 @export var tier: Tier = Tier.ONE
 @export var tags: Array[String] = []
-## Doppelrolle: liegt zusätzlich im Werbegeschenk-Topf (Happy Hour).
-@export var also_treat: bool = false
 @export var color: Color = Color.WHITE
 
 static func _make(clause_id: String, name: String, effect: String, clause_kind: Kind,
@@ -185,9 +185,11 @@ static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
 		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
 
-static func maintenance_engraving() -> DealClause:
-	return _bonus(MAINTENANCE_ENGRAVING, "Wartungs-Gravur", "Je genommene Hand eine Zahl-Gravur",
-		Scope.ROUND, Tier.TWO)
+## Zwei Sprossen Kette obendrauf - billiger als Chance, weil die späten Glieder
+## nur zünden, wenn die frühen halten.
+static func chain_driver() -> DealClause:
+	return _bonus(CHAIN_DRIVER, "Kettentreiber", "Multicast-Limit +2",
+		Scope.ROUND, Tier.ONE, [TAG_MULTICAST])
 
 static func high_voltage() -> DealClause:
 	return _bonus(HIGH_VOLTAGE, "Hochspannung", "+3 Überladungs-Stufen",
@@ -201,12 +203,9 @@ static func odds_bonus() -> DealClause:
 	return _bonus(ODDS_BONUS, "Quotenbonus", "Nebenwetten zahlen doppelt",
 		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
 
-## Doppelrolle: Stufe-2-Bonus UND Werbegeschenk.
 static func happy_hour() -> DealClause:
-	var c := _bonus(HAPPY_HOUR, "Happy Hour", "Alles Geld dieser Runde doppelt",
+	return _bonus(HAPPY_HOUR, "Happy Hour", "Alles Geld dieser Runde doppelt",
 		Scope.ROUND, Tier.TWO, [TAG_PAYOUT])
-	c.also_treat = true
-	return c
 
 static func interest() -> DealClause:
 	return _bonus(INTEREST, "Zinsen", "Rundenende: +1$ je vollen 10$ Guthaben",
@@ -234,6 +233,10 @@ static func work_hardening() -> DealClause:
 	return _bonus(WORK_HARDENING, "Kaltverfestigung", "Jede ausgelöste Seite wächst dauerhaft um +1 Auge",
 		Scope.ROUND, Tier.TWO)
 
+static func ignition_boost() -> DealClause:
+	return _bonus(IGNITION_BOOST, "Zündverstärker", "Multicast-Chance +15 %",
+		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
+
 static func all_on_red() -> DealClause:
 	return _bonus(ALL_ON_RED, "Alles auf Rot", "Alles Geld dieser Runde dreifach",
 		Scope.ROUND, Tier.THREE, [TAG_PAYOUT])
@@ -249,25 +252,6 @@ static func superconductor() -> DealClause:
 static func gold_vein() -> DealClause:
 	return _bonus(GOLD_VEIN, "Goldader", "+10$ je geräumter Überladungs-Stufe",
 		Scope.ROUND, Tier.THREE, [TAG_CHARGE, TAG_MONEY])
-
-static func carbon_copy() -> DealClause:
-	return _bonus(CARBON_COPY, "Durchschlagpapier",
-		"Die erste gewertete Hand kopiert jedes oben liegende Material als Gravur",
-		Scope.ROUND, Tier.THREE)
-
-# --- Werbegeschenke -----------------------------------------------------------
-
-static func tournament_night() -> DealClause:
-	return _bonus(TOURNAMENT_NIGHT, "Turniernacht", "Nebenwetten zahlen doppelt",
-		Scope.ROUND, Tier.TREAT, [TAG_SIDEBET])
-
-static func power_spike() -> DealClause:
-	return _bonus(POWER_SPIKE, "Spannungsspitze", "Eine Kombination steht im Rampenlicht",
-		Scope.ROUND, Tier.TREAT)
-
-static func seed_capital_ii() -> DealClause:
-	return _bonus(SEED_CAPITAL_II, "Startkapital", "+2 Energie sofort",
-		Scope.INSTANT, Tier.TREAT, [TAG_CHARGE])
 
 # --- Malusklauseln ------------------------------------------------------------
 
@@ -312,7 +296,7 @@ static func stage_cap() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func mains_hum() -> DealClause:
-	return _malus(MAINS_HUM, "Netzbrummen", "Überladungs-Stufen brauchen +25% Punkte",
+	return _malus(MAINS_HUM, "Netzbrummen", "Überladungen skalieren ×3 statt ×2",
 		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
 
 static func discharge() -> DealClause:
@@ -326,6 +310,15 @@ static func heat_warning() -> DealClause:
 static func rip_off() -> DealClause:
 	return _malus(RIP_OFF, "Abzocke", "Jeder gewertete Würfel kostet 1$",
 		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
+
+static func ignition_block() -> DealClause:
+	return _malus(IGNITION_BLOCK, "Zündhemmung", "Multicast-Chance −20 %",
+		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
+
+## Die Kette reißt: jedes Paket löst genau einmal aus, wie groß es auch ist.
+static func short_circuit() -> DealClause:
+	return _malus(SHORT_CIRCUIT, "Kurzschluss", "Multicast-Limit ist 1",
+		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
 
 static func benchmark_shock() -> DealClause:
 	return _malus(BENCHMARK_SHOCK, "Benchmark-Schock", "Benchmark +250%",
@@ -376,28 +369,26 @@ static func balanced_scales() -> DealClause:
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), free_charm(), advance_payment(), spotlight(),
-		cash_discount(), insurance_fraud(), seed_capital(),
-		maintenance_engraving(), high_voltage(), anchor_clause(), odds_bonus(),
+		cash_discount(), insurance_fraud(), seed_capital(), chain_driver(),
+		high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		golden_handshake(), work_hardening(),
-		all_on_red(), blank_cheque(), superconductor(), gold_vein(), carbon_copy(),
-		tournament_night(), power_spike(), seed_capital_ii(),
+		golden_handshake(), work_hardening(), ignition_boost(),
+		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
 		benchmark_surcharge(), betting_tax(), empties(), deduction(),
 		service_fee(), inflation(), power_cut(),
 		benchmark_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
-		discharge(), heat_warning(), rip_off(),
+		discharge(), heat_warning(), rip_off(), ignition_block(), short_circuit(),
 		benchmark_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
 		tilted_floor(), balanced_scales(),
 	]
 
-## Alle Klausel-ids eines Topfes. Happy Hour liegt per also_treat in ZWEI Töpfen.
+## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
+## Werbegeschenk zieht aus dem normalen Bonustopf seiner Stufe.
 static func ids_for(clause_tier: Tier, clause_kind: Kind) -> Array[String]:
 	var ids: Array[String] = []
 	for clause in all():
-		if clause.kind != clause_kind:
-			continue
-		if clause.tier == clause_tier or (clause_tier == Tier.TREAT and clause.also_treat):
+		if clause.kind == clause_kind and clause.tier == clause_tier:
 			ids.append(clause.id)
 	return ids
 
@@ -431,15 +422,13 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "+80$ auf die Hand"
 		SEED_CAPITAL:
 			return "+2 Energie sofort"
-		SEED_CAPITAL_II:
-			return "+4 Energie sofort"
 		SAVINGS_BONUS:
 			return "+2$ je übrigem Würfel"
 		INSURANCE_FRAUD:
 			return "Jeder Fumble zahlt 30$ Trost"
 		HIGH_VOLTAGE:
 			return "+6 Überladungs-Stufen"
-		ODDS_BONUS, TOURNAMENT_NIGHT:
+		ODDS_BONUS:
 			return "Nebenwetten zahlen vierfach"
 		HAPPY_HOUR:
 			return "Alles Geld dieser Runde vierfach"
@@ -457,6 +446,10 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "+20$ je geräumter Überladungs-Stufe"
 		WORK_HARDENING:
 			return "Jede ausgelöste Seite wächst dauerhaft um +2 Augen"
+		CHAIN_DRIVER:
+			return "Multicast-Limit +4"
+		IGNITION_BOOST:
+			return "Multicast-Chance +30 %"
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

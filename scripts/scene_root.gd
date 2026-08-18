@@ -182,16 +182,24 @@ const DATA_CELL_PLUNGE_TIME := 0.28
 const DATA_CELL_DRAIN_STAGGER := 0.09
 const DATA_CELL_DRAIN_HOLD := 0.22
 const DATA_CELL_SINK_TIME := 0.30
-## Die Pressung: die Portale der belegten Leser wirbeln gestaffelt an, und aus
-## jeder Entladung fahren die Meteore der Beute in dichter Folge in die Ablage -
-## ein Sechs-Pakete-Jackpot soll als Schauer lesen, nicht als Warteschlange.
+## Die Pressung: die Portale der belegten Leser wirbeln gestaffelt an, und dann
+## läuft je Leser eine KETTE - Auslösung, Meteor, Einschlag, erst danach der
+## nächste Schlag. Die Ketten der sechs Leser laufen NEBENEINANDER, also liest ein
+## Sechs-Pakete-Jackpot weiter als Schauer, nur ist jedes Nachlegen einzeln zu
+## sehen.
 const PRESS_PORTAL_STAGGER := 0.08
 const PRESS_METEOR_GAP := 0.07
-const PRESS_METEOR_SLOT_GAP := 0.12
+## Luft zwischen zwei Auslösungen derselben Kette - der Einschlag soll stehen,
+## bevor der Leser noch einmal aufreißt.
+const PRESS_TRIGGER_GAP := 0.16
 ## Frist nach dem letzten Start, nach der die Beute auch ohne ihren Einschlag
 ## aufgedeckt wird - reichlich über jeder echten Flugzeit, damit die Frist nie
 ## einem fliegenden Meteor zuvorkommt.
 const PRESS_METEOR_GRACE := 2.0
+## Obergrenze EINES Meteorflugs für die Fristrechnung. Die echte Laufzeit misst
+## table_screen an der Bahn; hier wird nur nach oben abgeschätzt, damit die Frist
+## selbst die längstmögliche Kette überdauert.
+const PRESS_METEOR_MAX := 1.0
 
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
@@ -2908,7 +2916,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		var target := _data_cell_seat(workshop.pack_anchor_px(uid))
 		var cell: DataCellView = shelf_cells.get(uid)
 		if cell == null or not is_instance_valid(cell):
-			cell = _spawn_data_cell(Pack.shelf_of(pack), target)
+			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target)
 			cell.set_body_scale(workshop.shelf_cell_scale())
 			cell.stand_in_pit(target)
 			shelf_cells[uid] = cell
@@ -2970,7 +2978,9 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 		if cell != null and is_instance_valid(cell):
 			shelf_cells.erase(uid)
 		else:
-			cell = _spawn_data_cell(sorts[i], _data_cell_seat(workshop.pack_anchor_px(uid)))
+			var slotted: Pack = run.pack_by_uid(uid) if run != null else null
+			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
+				_data_cell_seat(workshop.pack_anchor_px(uid)))
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das eine Kassettenmaß
 		cell.set_dimmed(workshop.shelf_locked())
 		socket_cells[i] = cell
@@ -3032,11 +3042,11 @@ func _flush_cell_pops() -> void:
 func _data_cell_seat(px: Vector2) -> Vector3:
 	return _bench_hover_target(px, 0.0)
 
-func _spawn_data_cell(sort: String, at: Vector3) -> DataCellView:
+func _spawn_data_cell(sort: String, tier: int, at: Vector3) -> DataCellView:
 	var cell := DataCellView.new()
 	cell.name = "DataCell"
 	add_child(cell)
-	cell.setup(sort)
+	cell.setup(sort, tier)
 	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
 	# aufrecht im Bild (Bildschirm-oben = Welt+X).
 	cell.rotation.y = -PI / 2.0
@@ -3448,21 +3458,18 @@ func _clear_hub_reward_overlay() -> void:
 	_drop_hub_reward_overlay(_hub_reward_overlay)
 
 ## DIE PRESSUNG: die Leser werden zu Portalen, wirbeln sich fest und entladen sich,
-## und aus jedem fahren die Meteore SEINER Stücke in die Ablage. Aufgedeckt wird
-## bei der LANDUNG - vorher sagt kein Chip, was gefallen ist. Gebucht hat GameRun
-## längst (open_press): das hier ist reine Anzeige, und ein Laufwechsel mitten im
-## Flug legt den Haufen einfach hart hin.
+## und dann läuft je Leser SEINE Multicast-Kette - Meteor, Einschlag, und erst der
+## liegende Chip lässt den nächsten Schlag zu. Aufgedeckt wird bei der LANDUNG -
+## vorher sagt kein Chip, was gefallen ist. Gebucht hat GameRun längst
+## (open_press): das hier ist reine Anzeige, und ein Laufwechsel mitten im Flug
+## legt den Haufen einfach hart hin.
 func _on_press_rolled(sorts: Array, readers: Array, cost: int) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
-	var flying: Array[int] = []
-	for uids in readers:
-		for uid in uids:
-			flying.append(int(uid))
-	if flying.is_empty():
-		return
-	workshop.withhold_press_pieces(flying)  # der Haufen bleibt verdeckt, bis er landet
+	var flying := _press_flying_uids(readers)
+	if not flying.is_empty():
+		workshop.withhold_press_pieces(flying)  # der Haufen bleibt verdeckt, bis er landet
 	_pay_press_cost(cost)
 	var launched := run
 	# Portale und Ablage haben erst nach dem Layout ein Rechteck.
@@ -3471,48 +3478,97 @@ func _on_press_rolled(sorts: Array, readers: Array, cost: int) -> void:
 		_land_press_pieces(workshop, flying)
 		return
 	for slot in readers.size():
-		workshop.swirl_press_portal(slot, float(slot) * PRESS_PORTAL_STAGGER)
-	await get_tree().create_timer(PressPortalView.SWIRL_TIME
-		+ float(maxi(readers.size() - 1, 0)) * PRESS_PORTAL_STAGGER).timeout
-	if run != launched or not is_instance_valid(workshop):
-		_land_press_pieces(workshop, flying)
+		var delay := float(slot) * PRESS_PORTAL_STAGGER
+		# Ein leerer Leser ist ein KATALYSATOR: er speist ein und wirft nichts aus -
+		# kein Wirbel, kein Meteor, ein Blitz.
+		if (readers[slot] as Array).is_empty():
+			workshop.inject_press_portal(slot, delay)
+			continue
+		_run_press_chain(workshop, slot, readers[slot], sorts,
+			delay)  # nicht erwartet: die Ketten laufen parallel
+	if flying.is_empty():
 		return
-	var launch := 0.0
-	for slot in readers.size():
-		var uids: Array = readers[slot]
-		for uid in uids:
-			_fly_press_meteor(workshop, slot, int(uid), sorts, launch)  # nicht erwartet
-			launch += PRESS_METEOR_GAP
-		launch += PRESS_METEOR_SLOT_GAP
 	# Verdeckt hebt NUR ein Einschlag auf - ein einziger ausgebliebener hielte
 	# sein Stück für immer unsichtbar, samt gesperrtem Regal (pressing hängt
 	# daran). Also landet nach der Frist, was noch verdeckt liegt; ein längst
 	# gelandetes Stück merkt davon nichts.
-	await get_tree().create_timer(launch + PRESS_METEOR_GRACE).timeout
+	await get_tree().create_timer(_press_chain_deadline(readers)).timeout
 	if run == launched and is_instance_valid(workshop):
 		_land_press_pieces(workshop, flying)
 
-## EIN Meteor: er startet im Anzeigefeld seines Lesers und schlägt auf dem Platz
-## seines Chips ein - erst dort wird das Stück sichtbar.
-func _fly_press_meteor(workshop: WorkshopView, slot: int, uid: int, sorts: Array,
+## Alle Stücke einer Pressung, quer über Leser und Auslösungen.
+func _press_flying_uids(readers: Array) -> Array[int]:
+	var flying: Array[int] = []
+	for triggers in readers:
+		for uids in triggers:
+			for uid in uids:
+				flying.append(int(uid))
+	return flying
+
+## Die Frist, nach der die ganze Beute notfalls hart liegt: die LÄNGSTE Kette,
+## nach oben abgeschätzt (jeder Meteor mit seiner Höchstflugzeit), plus Gnadenzeit.
+## Sie rechnet mit den ECHTEN Stückzahlen je Auslösung - ein Kolossal wirft fünf
+## Stücke je Schlag, also bis zu 25 aus einem einzigen Leser.
+func _press_chain_deadline(readers: Array) -> float:
+	var longest := 0.0
+	for slot in readers.size():
+		var triggers: Array = readers[slot]
+		var span := float(slot) * PRESS_PORTAL_STAGGER + PressPortalView.SWIRL_TIME
+		for g in triggers.size():
+			if g > 0:
+				span += PressPortalView.MULTICAST_TIME + PRESS_TRIGGER_GAP
+			var uids: Array = triggers[g]
+			span += PRESS_METEOR_MAX + float(maxi(uids.size() - 1, 0)) * PRESS_METEOR_GAP
+		longest = maxf(longest, span)
+	return longest + PRESS_METEOR_GRACE
+
+## EINE Leser-Kette: Wirbel, dann Auslösung um Auslösung. Eine Auslösung wirft so
+## viele Stücke, wie die Paketgröße hergibt - die fliegen als kleine gestaffelte
+## Salve, und erst der LETZTE Einschlag läßt den nächsten Schlag zu. Das ist der
+## ganze Multicast: man sieht ihn zählen.
+func _run_press_chain(workshop: WorkshopView, slot: int, triggers: Array, sorts: Array,
 		delay: float) -> void:
 	var launched := run
-	if delay > 0.0:
-		await get_tree().create_timer(delay).timeout
-	if run != launched or not is_instance_valid(workshop):
-		_land_press_pieces(workshop, [uid])
-		return
+	workshop.swirl_press_portal(slot, delay)
+	await get_tree().create_timer(delay + PressPortalView.SWIRL_TIME).timeout
+	for g in triggers.size():
+		var uids: Array = triggers[g]
+		if run != launched or not is_instance_valid(workshop):
+			_land_press_pieces(workshop, uids)
+			continue
+		if g > 0:
+			# Der Leser reißt noch einmal auf und sagt, die wievielte es ist.
+			workshop.multicast_press_portal(slot, g + 1)
+			workshop.flash_multicast(g + 1)
+			await get_tree().create_timer(PressPortalView.MULTICAST_TIME).timeout
+			if run != launched or not is_instance_valid(workshop):
+				_land_press_pieces(workshop, uids)
+				continue
+		var travel := 0.0
+		for i in uids.size():
+			if i > 0:
+				await get_tree().create_timer(PRESS_METEOR_GAP).timeout
+			travel = maxf(travel, _launch_press_meteor(workshop, slot, int(uids[i]), sorts))
+		if travel > 0.0:
+			await get_tree().create_timer(travel).timeout
+		if run != launched:
+			return
+		_land_press_pieces(workshop, uids)
+		if g < triggers.size() - 1:
+			await get_tree().create_timer(PRESS_TRIGGER_GAP).timeout
+
+## EIN Meteor: er startet im Anzeigefeld seines Lesers und schlägt auf dem Platz
+## seines Chips ein. Liefert seine Laufzeit - die Kette wartet daran.
+func _launch_press_meteor(workshop: WorkshopView, slot: int, uid: int,
+		sorts: Array) -> float:
+	if table_screen == null or not is_instance_valid(workshop):
+		return 0.0
 	var anchors := workshop.press_display_anchors()
 	var from_px: Vector2 = anchors[slot] if slot < anchors.size() \
 		else workshop.get_global_rect().get_center()
 	var sort: String = String(sorts[slot]) if slot < sorts.size() else ""
 	var tint: Color = PackDrawerView.COLORS.get(sort, CasinoStyle.GOLD)
-	var travel := table_screen.press_meteor(from_px, workshop.ablage_spot_px(uid), tint)
-	if travel > 0.0:
-		await get_tree().create_timer(travel).timeout
-	if run != launched:
-		return
-	_land_press_pieces(workshop, [uid])
+	return table_screen.press_meteor(from_px, workshop.ablage_spot_px(uid), tint)
 
 ## Legt Stücke hart hin (Laufwechsel, fehlendes Fenster) - der Stand darf nie an
 ## einer übersprungenen Zeremonie hängen.
@@ -4089,7 +4145,10 @@ func _setup_charms_zoom() -> void:
 func _setup_hub_zoom() -> void:
 	var anchor := hub_anchor.global_position
 	var center := Vector3(anchor.x, 0.0, anchor.z)  # 0 = Screen-Oberfläche
-	camera_rig.configure_hub_target(center)
+	# Halbe Fenstermaße mit: der Hub-Abstand wird daraus gerechnet (hub_distance),
+	# damit die Fußzeile im geneigten Blick nicht unten herausfällt.
+	camera_rig.configure_hub_target(center,
+		Vector2(HUB_WIDTH_WORLD * 0.5, HUB_HEIGHT_WORLD * 0.5))
 	# Welt-X = Bildschirm-Höhe des Hubs, Welt-Z = seine Breite.
 	hub_click_zone = _add_click_zone("HubClickZone", center,
 		Vector3(HUB_HEIGHT_WORLD, 4.0, HUB_WIDTH_WORLD))
@@ -5878,13 +5937,11 @@ func _on_farkle(forgivable: bool = true) -> void:
 			run.add_money(income)
 		_start_new_hand()
 
-## Klausel-Wirkungen einer genommenen Hand: Wartungs-Gravur, Hitzestau und die
-## mitwachsende Boss-Drossel. Die GEBÜHREN stehen nicht mehr hier - sie zahlen
-## an ihrem Auslöser (Servicegebühr beim Banken der Hand, Abzocke je gezähltem
-## Würfel in der Zähl-Animation).
+## Klausel-Wirkungen einer genommenen Hand: Hitzestau und die mitwachsende
+## Boss-Drossel. Die GEBÜHREN stehen nicht mehr hier - sie zahlen an ihrem
+## Auslöser (Servicegebühr beim Banken der Hand, Abzocke je gezähltem Würfel
+## in der Zähl-Animation).
 func _apply_hand_clauses(combo_key: String) -> void:
-	if run.grants_engraving_per_hand():
-		run.grant_pack(run.roll_stamp_pack())
 	if run.apply_heat_buildup(combo_key):
 		hand_note = "Hitzestau: %s fällt eine Stufe zurück." % DiceScoring.label_for(combo_key)
 	if run.note_hand_taken(combo_key):
@@ -6079,12 +6136,6 @@ func _on_take_button_pressed() -> void:
 			await _play_golden_handshake(handshake_slot)
 			if phase != Phase.SCORING:
 				return  # Reset während der Zeremonie
-
-	# Durchschlagpapier: die erste Hand der Runde kopiert ihre Materialien.
-	var copied := run.apply_carbon_copy(active_kinds, dice.face_indices, participating,
-		hands_taken_this_round == 1)
-	if copied > 0:
-		hand_note = "Durchschlagpapier: %d Material-Gravuren kopiert." % copied
 
 	# Lumpensammler beim Nehmen. Straßenmusiker zahlt NICHT hier, sondern pro
 	# ausgelöstem Würfel während der Zähl-Animation (siehe _play_take_animation).
@@ -7187,6 +7238,9 @@ func _connect_run() -> void:
 			table_screen.workshop_window.pack_unslotted.connect(_on_pack_unslotted)
 		if not table_screen.workshop_window.press_started.is_connected(_on_press_started):
 			table_screen.workshop_window.press_started.connect(_on_press_started)
+		# Verweis-Klick auf dem Multicast-Schirm: derselbe Weg wie aus dem Laden.
+		if not table_screen.workshop_window.lexikon_requested.is_connected(open_lexikon):
+			table_screen.workshop_window.lexikon_requested.connect(open_lexikon)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
 	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
@@ -7591,7 +7645,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 	var names: Array[String] = []
 	for bet in won:
 		names.append(bet.display_name)
-	var doubled := " (Turniernacht ×2)" if run.side_bet_payout_factor() > 1 else ""
+	var doubled := " (Quotenbonus ×2)" if run.side_bet_payout_factor() > 1 else ""
 	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben%s." \
 		% [won.size(), placed, ", ".join(names), doubled]
 
@@ -7987,53 +8041,60 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2) -> float:
 		table_screen.celebrate_workshop_delivery(tint))
 	return travel
 
-## Bank-Entladung: schießt je geräumter Stufe (oberste zuerst) einen Bank-Komet
-## aus dem Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine
-## Stufe und bucht IHRE Stufe einzeln - die ersten stored Stufen als Ladung (cyaner
-## Komet, Börse pulst), die restlichen overflow als Geld (goldener Komet), weil die
-## Börse voll ist. So kommen N Stufen in N Stößen an, statt schlagartig.
+## Bank-Entladung: EIN Bank-Komet je geräumter STUFE (oberste zuerst), aus dem
+## Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine Stufe
+## und bucht, was GENAU DIESE Stufe geprägt hat - mit dem Doppellader zwei Ladungen
+## statt einer, nie zwei Kometen: doppelt so viele Einschläge läsen sich, als hätte
+## der Spieler doppelt so viele Stufen geräumt.
+## Was in die Börse passt, ist in charge_split vorausgeplant: die ersten stored
+## Ladungen der Reihe. Eine Stufe kann darum GETEILT ankommen (ein Teil Ladung, der
+## Rest Geld) - genau dann, wenn die Börse mittendrin volläuft.
 func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_stages: int,
 		hub: HubView) -> void:
-	var comets := stored + overflow
-	# Der Doppellader schickt zwei Kometen je Stufe - die Goldader zahlt aber je
-	# STUFE, also nur bei jedem n-ten Einschlag.
+	var comets := cleared_stages
+	if comets <= 0:
+		return
 	var per_stage := maxi(1, run.charge_per_stage())
-	var vein := run.gold_vein_income() if cleared_stages > 0 else 0
+	var vein := run.gold_vein_income()
 	var gap := BANK_STAGE_GAP_START
 	var minted := 0
 	for k in range(comets, 0, -1):
-		var is_charge := minted < stored
+		# Die Ladungen DIESER Stufe: erst was noch in die Börse passt, der Rest bar.
+		var charges := clampi(stored - minted, 0, per_stage)
+		var cash := per_stage - charges
 		# Balken auf die verbleibenden Stufen schrumpfen (in der nächst-tieferen Farbe).
 		var remaining_frac := float(k - 1) / float(comets)
 		table_screen.drain_goal_bar(remaining_frac, table_screen.stage_fill_color(maxi(k - 1, 1)),
 			BANK_BAR_DRAIN_TIME)
-		var color := CHARGE_COMET_COLOR if is_charge else table_screen.stage_fill_color(k)
+		var color := CHARGE_COMET_COLOR if charges > 0 else table_screen.stage_fill_color(k)
 		var travel: float = table_screen.bank_comet(color)
 		await get_tree().create_timer(travel).timeout
 		if phase != Phase.PAYOUT:
 			return  # Spiel während der Auszahlung zurückgesetzt
 		if hub != null:
 			hub.flash_frame(color)
-		if is_charge:
+		if charges > 0:
 			# Zweite Etappe: vom Hub über die Schatz-Leiste zur Kondensator-Bank.
 			# Bewusst NICHT abgewartet - die nächste Stufe startet sofort, wie bei
 			# der Frankiermaschinen-Salve; gebucht wird bei der ANKUNFT.
-			_fly_charge_to_capacitor()
-		else:
-			run.add_money(base_blind)
-		minted += 1
-		if vein > 0 and minted % per_stage == 0:
+			_fly_charge_to_capacitor(true, charges)
+		if cash > 0:
+			run.add_money(base_blind * cash)
+		minted += per_stage
+		if vein > 0:
 			run.add_money(vein)  # Goldader: je geräumter Stufe, nicht je Ladung
 		_pop_payout_label(hub.blind_payout_label if hub != null else null)
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
 
-## EINE Ladung vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
+## EINEN Kometen vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
 ## an deren Eintritt die Bank steht. Gebucht wird bei der Ankunft (dort pulsen
 ## Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
+## amount = was DIESER Komet trägt: der Doppellader prägt zwei Ladungen je Stufe,
+## und die reisen in EINEM Licht - eine Stufe, ein Einschlag.
 ## book = false: die Ladung ist schon gebucht (Sofort-Klausel), es fliegt nur
 ## das Licht - sonst zählte dieselbe ⚡ zweimal.
-func _fly_charge_to_capacitor(book: bool = true) -> void:
+func _fly_charge_to_capacitor(book: bool = true, amount: int = 1) -> void:
 	var launched := run
 	var travel := 0.0
 	if table_screen != null and capacitor_bank != null:
@@ -8041,13 +8102,13 @@ func _fly_charge_to_capacitor(book: bool = true) -> void:
 			table_screen.world_to_pixel(capacitor_bank.global_position), CHARGE_COMET_COLOR)
 	if travel <= 0.0:
 		if book:
-			run.add_charge(1)  # ohne Display still buchen, nichts verlieren
+			run.add_charge(amount)  # ohne Display still buchen, nichts verlieren
 		return
 	get_tree().create_timer(travel).timeout.connect(func() -> void:
 		if run != launched or (book and phase != Phase.PAYOUT):
 			return  # Lauf während des Flugs zurückgesetzt
 		if book:
-			run.add_charge(1)
+			run.add_charge(amount)
 		if capacitor_bank != null:
 			capacitor_bank.pulse()
 		if table_screen != null and table_screen.hub != null:
@@ -8244,7 +8305,8 @@ func _on_pool_changed() -> void:
 	_refresh_clamp_stage_faces()  # die Zwingen halten geteilte Instanzen
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
 	# Das Dossier hält eine GETEILTE Instanz - es muss den neuen Stand zeigen.
-	if table_screen != null and table_screen.workshop_window != null 			and table_screen.workshop_window.inspecting():
+	if table_screen != null and table_screen.workshop_window != null \
+			and table_screen.workshop_window.inspecting():
 		table_screen.workshop_window.refresh()
 
 ## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und

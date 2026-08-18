@@ -56,6 +56,9 @@ signal pack_unslotted(slot_index: int, uid: int)
 ## Der Wurf beginnt: die eingesetzten Zellen geben ihre Daten an ihre Leser ab.
 ## Gemeldet wird VOR dem Öffnen, solange die Sockel noch stehen.
 signal press_started
+## Ein Schlüsselwort auf dem Multicast-Schirm wurde geklickt - scene_root schlägt
+## das Lexikon auf (dieselbe Verweis-Grammatik wie im Laden-Tooltip).
+signal lexikon_requested(entry_id: String)
 
 const TITLE_COLOR := Color("#8be9fd")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
@@ -188,10 +191,28 @@ const CONTENT_GAP := 1.0
 ## Der EINE Handlungs-Sitz rechts neben der Konsole: er trägt der Reihe nach
 ## "Pressen (n)", "Nehmen" und "Fertig". EIN Maß für alle drei - der Sitz steht
 ## fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
-const ACTION_WIDTH := 20.0
+## Er ist so breit wie seine breiteste Aufschrift ("Pressen (6)") plus Rand - der
+## Rest der rechten Flanke gehört dem Multicast-Schirm hinter ihm.
+const ACTION_WIDTH := 15.0
 const ACTION_HEIGHT := 4.0
-## Luft zwischen Konsolenblech und Sitz bzw. Sitz und Fensterrand.
+## Luft zwischen Konsolenblech und Sitz bzw. Sitz und Multicast-Schirm.
 const ACTION_GAP := 1.6
+
+## DER MULTICAST-SCHIRM in der rechten Ecke des Bandes, rechts neben dem Sitz: das
+## Gegenstück zum Hinweis-Schirm links. Er sagt, wie oft die eingelegten Kassetten
+## nachlegen können - dunkel, solange keine steckt. Mindestbreite, damit er auch
+## bei einem breiten Blech noch eine Zeile trägt.
+const MULTICAST_MIN_WIDTH := 7.0
+## Schriftgrade des Kopfes und der Zeilen, absteigend. Der Kopf ist EIN Wort und
+## muss auf EINE Zeile - umgebrochen las er "MULTIC / AST"; also wird auch er
+## eingepaßt. Die Zeilen haben mehr Sprossen als der Hinweis-Schirm: der Schirm
+## ist halb so breit und trägt bis zu vier davon.
+const MULTICAST_TITLE_STEPS := [1.7, 1.5, 1.3, 1.15, 1.0]
+const MULTICAST_BODY_STEPS := [1.5, 1.35, 1.2, 1.05, 0.95, 0.85, 0.75, 0.68, 0.6]
+## Sicherheitsabschlag auf die gemessene Höhe: die Schrift misst sich ohne den
+## Zeilenabstand des Labels, und ein halb abgeschnittener Fuß wäre die Folge.
+const MULTICAST_ROOM_SHARE := 0.9
+const MULTICAST_HEAD := "MULTICAST"
 
 ## Die Landung eines Beutestücks: sein Chip plustert einmal auf und lodert in
 ## seiner Sortenfarbe. Erst DA wird sichtbar, was gefallen ist.
@@ -207,7 +228,9 @@ const PIECE_FLARE_TIME := 0.45
 ## Höhe und Reihenzahl sind an DIESES Band gemessen: die Netze enden bei 26,8 u,
 ## der Inhalt bei 36,3 u - der Streifen füllt den Rest und liegt damit unter den
 ## Diagrammen statt auf ihnen. Zwei Reihen à 17 Spalten fassen auch den größten
-## Wurf, weil gleiche Gravuren sich einen Platz teilen.
+## Wurf, weil gleiche Gravuren sich einen Platz teilen: ein Kolossal-Leser wirft bis
+## zu 25 Stücke, belegt damit aber höchstens die sechs Icons seiner Sorte - sechs
+## volle Leser höchstens 18 (gemessen: 60 Stücke wurden 11 Plätze).
 const ABLAGE_STRIP := 8.8
 const ABLAGE_ROWS := 2
 const ABLAGE_ROW_GAP := 0.9
@@ -324,6 +347,14 @@ var _info_screen: Panel
 var _info_title: Label
 var _info_body: Label
 var _info_tint: Color = CasinoStyle.CREAM
+
+## Der Multicast-Schirm in der rechten Ecke desselben Bandes.
+var _multicast_screen: Panel
+var _multicast_title: Label
+var _multicast_body: RichTextLabel
+## Höchster Schlag der LAUFENDEN Pressung (0 = keine läuft). Er überdauert den
+## Neuaufbau des Bandes und erlischt erst mit dem nächsten Griff.
+var _multicast_peak := 0
 
 var _phase: Phase = Phase.STASH
 ## Für die Presse gewählte Pakete, als uids (Gravur-Pakete, höchstens BATCH_CAP) -
@@ -528,6 +559,232 @@ func _info_label(px: int, tint: Color) -> Label:
 	else:
 		CasinoStyle.style_body_label(label, px, tint)
 	return label
+
+## --- Der MULTICAST-SCHIRM ----------------------------------------------------
+## Er steht in der rechten Ecke des Bandes und sagt EINE Sache: wie oft die
+## eingelegten Kassetten nachlegen können. Dunkel, solange keine steckt; im Wurf
+## trägt er den höchsten Schlag, den die Presse gerade geworfen hat.
+
+## Breite des Schirms: was von der rechten Flanke bleibt, wenn der Sitz mit seinen
+## beiden Nähten darin steht. Er endet bündig an der Fensterkante - dieselbe
+## Regel, die den Hinweis-Schirm links auf die Kante setzt.
+func multicast_width() -> float:
+	var u := maxf(size.x, 200.0) / 100.0
+	var flank := (size.x - console_size(u).x) * 0.5
+	return maxf(flank - u * (ACTION_WIDTH + ACTION_GAP * 2.0), u * MULTICAST_MIN_WIDTH)
+
+func multicast_screen_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	var top := size.y + u * CONSOLE_SHELF_GAP
+	var width := multicast_width()
+	return Rect2(Vector2(size.x - width, top),
+		Vector2(width, maxf(shelf_top() - u * CONSOLE_SHELF_GAP - top, u * 6.0)))
+
+## Die Zeilen, die auf dem Schirm stehen: je EINE Größe unter den eingelegten
+## Kassetten, in der Reihenfolge der Tabelle, und was sie JE AUSLÖSUNG auswirft.
+## Ein Fixinhalt legt nie nach und sagt das auch - sonst hielte ihn jemand für
+## einen Standard.
+func multicast_lines() -> Array[String]:
+	var lines: Array[String] = []
+	if run == null:
+		return lines
+	# Eine Doppelmatrize hebt den Grundwurf JEDER Größe - die Zeilen nennen also
+	# den wirksamen Wert, nicht den der Tabelle.
+	var bonus := int(GameRun.catalyst_terms(slotted_packs())["base"])
+	var seen := {}
+	var fixed := false
+	for pack in slotted_packs():
+		if pack.is_catalyst():
+			continue  # ein Katalysator hat keinen Grundwurf, er verschiebt ihn
+		if pack.fixed_engraving != null:
+			fixed = true
+			continue
+		seen[pack.tier] = true
+	for pack_tier in [Pack.TIER_NORMAL, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+		if seen.has(pack_tier):
+			lines.append("%s ×%d" % [Pack.tier_label(pack_tier),
+				PhantomPress.base_for(pack_tier, bonus)])
+	if fixed:
+		lines.append("Fixinhalt ×1")
+	return lines
+
+## Die eingelegten Kassetten als Pakete, in Platz-Reihenfolge - EINE Quelle für
+## Schirm, Sitz und Pressung. Was inzwischen aus dem Lager verschwand, fehlt.
+func slotted_packs() -> Array[Pack]:
+	var packs: Array[Pack] = []
+	if run == null:
+		return packs
+	for uid in _selected_packs:
+		var pack := run.pack_by_uid(uid)
+		if pack != null:
+			packs.append(pack)
+	return packs
+
+## Wie viele Kassetten MIT Inhalt stecken. Ein Griff aus lauter Katalysatoren
+## presst nicht: sie verstärken eine Pressung, sie sind keine.
+func loot_slot_count() -> int:
+	var count := 0
+	for pack in slotted_packs():
+		if not pack.is_catalyst():
+			count += 1
+	return count
+
+## Was gerade auf dem Schirm steht ("" = er ist dunkel). Der Spitzenschlag einer
+## laufenden Pressung geht vor: dann ist die Frage beantwortet, nicht gestellt.
+## Sonst: was jede Größe je Auslösung auswirft, darunter die für alle gleiche
+## Chance und die Decke.
+## Chance und Decke sind LEBENDIG: sie kommen aus dem Lauf, tragen also Lizenz-
+## stufe, wirkende Klausel und vorgemerkten Wett-Schub schon in sich.
+func multicast_text() -> String:
+	if _multicast_peak >= 2 and (pressing() or _selected_packs.is_empty()):
+		return "×%d!" % _multicast_peak
+	var packs := slotted_packs()
+	if packs.is_empty():
+		return ""
+	var lines := multicast_lines()
+	# Die Terme fahren IN die Abfragen des Laufs hinein - der Schirm setzt nie
+	# selbst zusammen, sonst könnten Anzeige und Presse auseinanderlaufen.
+	var terms := GameRun.catalyst_terms(packs)
+	var chance := run.multicast_chance(float(terms["chance"])) if run != null \
+		else PhantomPress.MULTICAST_CHANCE
+	var cap := run.multicast_cap(int(terms["cap"])) if run != null \
+		else PhantomPress.MULTICAST_CAP
+	lines.append("Multicast %d %%" % roundi(chance * 100.0))
+	lines.append("max. ×%d" % cap)
+	return "\n".join(lines)
+
+## Der höchste Schlag der laufenden Pressung - scene_root meldet ihn je Auslösung.
+## Er überdauert jeden Neuaufbau des Bandes und erlischt mit dem nächsten Griff.
+func flash_multicast(trigger: int) -> void:
+	if trigger <= _multicast_peak:
+		return
+	_multicast_peak = trigger
+	_sync_multicast_screen()
+
+## Lässt das Portal eines Lesers seinen Multicast-Schlag werfen.
+func multicast_press_portal(slot: int, trigger: int) -> void:
+	if slot < 0 or slot >= _press_portals.size():
+		return
+	var portal: PressPortalView = _press_portals[slot]
+	if portal != null and is_instance_valid(portal):
+		portal.multicast(trigger)
+
+func _build_multicast_screen(band: Control, u: float) -> void:
+	var rect := multicast_screen_rect()
+	var screen := Panel.new()
+	screen.name = "MulticastScreen"
+	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
+	screen.position = rect.position - band.position
+	screen.size = rect.size
+	band.add_child(screen)
+	_multicast_screen = screen
+	var column := VBoxContainer.new()
+	column.name = "MulticastText"
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.offset_left = u * INFO_PAD
+	column.offset_right = -u * INFO_PAD
+	column.offset_top = u * INFO_PAD
+	column.offset_bottom = -u * INFO_PAD
+	column.add_theme_constant_override("separation", int(u * INFO_LINE_GAP))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(column)
+	_multicast_title = _multicast_label(int(u * float(MULTICAST_TITLE_STEPS[0])),
+		CasinoStyle.GOLD)
+	_multicast_title.text = MULTICAST_HEAD
+	column.add_child(_multicast_title)
+	_multicast_body = _multicast_body_label(int(u * float(MULTICAST_BODY_STEPS[0])))
+	column.add_child(_multicast_body)
+	_fit_multicast_title()
+	_sync_multicast_screen()
+
+## Der Kopf ist EIN Wort: er nimmt den ersten Grad, bei dem er noch ohne Umbruch
+## in den Schirm paßt.
+func _fit_multicast_title() -> int:
+	var u := maxf(size.x, 200.0) / 100.0
+	var width := _multicast_text_width()
+	var font := _multicast_title.get_theme_font("font")
+	var px := int(u * float(MULTICAST_TITLE_STEPS[0]))
+	for step in MULTICAST_TITLE_STEPS:
+		px = int(u * float(step))
+		if font == null or px <= 0:
+			break
+		if font.get_string_size(MULTICAST_HEAD, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= width:
+			break
+	_multicast_title.add_theme_font_size_override("font_size", px)
+	return px
+
+func _multicast_label(px: int, tint: Color) -> Label:
+	var label := Label.new()
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size = Vector2(_multicast_text_width(), 0)
+	label.visible = false
+	if tint == CasinoStyle.GOLD:
+		CasinoStyle.style_score_label(label, px, tint)
+	else:
+		CasinoStyle.style_body_label(label, px, tint)
+	return label
+
+## Die Zeilen sind ein RichTextLabel, kein Label: das Wort "Multicast" darin ist
+## ein Lexikon-Verweis wie im Laden-Tooltip - gefärbt und klickbar. Darum STOP
+## statt IGNORE; der Schirm selbst bleibt taub.
+func _multicast_body_label(px: int) -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.bbcode_enabled = true
+	label.fit_content = true
+	label.scroll_active = false
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	label.custom_minimum_size = Vector2(_multicast_text_width(), 0)
+	label.visible = false
+	CasinoStyle.style_rich_body(label, px, CasinoStyle.CREAM)
+	label.meta_clicked.connect(func(meta: Variant) -> void:
+		lexikon_requested.emit(String(meta)))
+	return label
+
+func _multicast_text_width() -> float:
+	var u := maxf(size.x, 200.0) / 100.0
+	return maxf(multicast_width() - u * INFO_PAD * 2.0, u * 4.0)
+
+## Schreibt den Schirm neu. Der Schirm selbst STEHT immer - nur seine Zeilen
+## kommen und gehen, und sein Rechteck rührt sich dabei nie.
+func _sync_multicast_screen() -> void:
+	if _multicast_body == null or not is_instance_valid(_multicast_body):
+		return
+	var text := multicast_text()
+	# EIN Engpaß: hier wird "Multicast" zum klickbaren Verweis - genau wie im Laden.
+	_multicast_body.text = "[center]%s[/center]" % Lexikon.linkify(text)
+	_multicast_body.visible = text != ""
+	_multicast_title.visible = text != ""
+	_multicast_body.modulate = GOLD if _multicast_peak >= 2 else Color.WHITE
+	_fit_multicast_body(text)
+
+## Derselbe Einpasser wie beim Hinweis-Schirm, nur an dessen viel schmalerem
+## Bruder gemessen: der erste Grad, dessen Umbruch noch in die Höhe paßt.
+## Gemessen wird der NACKTE Text, nicht der verlinkte - das BBCode-Markup ist
+## keine Schrift und würde jede Zeile künstlich verlängern.
+func _fit_multicast_body(plain: String) -> void:
+	var u := maxf(size.x, 200.0) / 100.0
+	var width := _multicast_text_width()
+	var font := _multicast_body.get_theme_font("normal_font")
+	var room := (multicast_screen_rect().size.y - u * INFO_PAD * 2.0) * MULTICAST_ROOM_SHARE
+	if _multicast_title.visible and font != null:
+		room -= font.get_multiline_string_size(_multicast_title.text,
+			HORIZONTAL_ALIGNMENT_CENTER, width,
+			_multicast_title.get_theme_font_size("font_size")).y + u * INFO_LINE_GAP
+	for step in MULTICAST_BODY_STEPS:
+		var px := int(u * float(step))
+		if font == null or px <= 0:
+			_multicast_body.add_theme_font_size_override("normal_font_size", px)
+			return
+		var block := font.get_multiline_string_size(plain,
+			HORIZONTAL_ALIGNMENT_CENTER, width, px)
+		_multicast_body.add_theme_font_size_override("normal_font_size", px)
+		if block.y <= room:
+			return
 
 ## Der stehende Text übersteht den Neuaufbau des Bandes - sonst erlischt der
 ## Schirm bei jedem Bild, in dem sich sonst irgendetwas rührt.
@@ -825,6 +1082,7 @@ func _build_press_slots(u: float) -> void:
 	band.add_child(console)
 	_build_action_seat(band, u)
 	_build_info_screen(band, u)
+	_build_multicast_screen(band, u)
 	var row := HBoxContainer.new()
 	row.name = "PressSlots"
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -921,12 +1179,19 @@ func _build_action_seat(band: Control, u: float) -> void:
 		# Erst im Baum messen: die Zeilenhöhe der Schrift ist der wahre Boden des
 		# Sitzes - und sie ist für alle drei Aufschriften dieselbe.
 		span.y = maxf(span.y, button.get_combined_minimum_size().y)
+		# Danach trägt der SITZ das Maß allein: seine Größe fällt aus zwei
+		# Ankerabständen heraus und weicht um ein Bit von action_size ab - eine
+		# eigene Mindestgröße des Knopfes ragte dann darüber hinaus, und die
+		# Rechtecke von Sitz und Aufschrift liefen auseinander. clip_text bleibt.
+		button.custom_minimum_size = Vector2.ZERO
+	# Der Sitz rückt um den Multicast-Schirm nach links: der steht in der Ecke.
+	var right := multicast_width() + u * ACTION_GAP
 	seat.anchor_left = 1.0
 	seat.anchor_right = 1.0
 	seat.anchor_top = 0.5
 	seat.anchor_bottom = 0.5
-	seat.offset_left = -span.x - u * ACTION_GAP
-	seat.offset_right = -u * ACTION_GAP
+	seat.offset_left = -span.x - right
+	seat.offset_right = -right
 	seat.offset_top = -span.y * 0.5
 	seat.offset_bottom = span.y * 0.5
 
@@ -946,22 +1211,32 @@ func _seat_button(u: float) -> Button:
 	_seat_press_hint(_press_button)
 	return _press_button
 
-## Darf jetzt gepresst werden? Die Energie ist die einzige Bremse, die der Preis
-## selbst setzt - alles andere ist Zustand der Bank.
+## Darf jetzt gepresst werden? Die Energie ist die eine Bremse, die der Preis
+## selbst setzt (die Erdungsklemme nimmt sie weg) - dazu die eine Regel des
+## Griffs: mindestens eine Kassette MIT Inhalt muss darin stecken.
 func can_press() -> bool:
 	return run != null and not editing_locked and not inspecting() and not pressing() \
-		and not _selected_packs.is_empty() and run.can_press()
+		and loot_slot_count() > 0 and run.charge >= run.press_cost_for(slotted_packs())
 
 ## Was eine Pressung kostet, steht NICHT auf dem Knopf (sein Rechteck ist fest) -
-## sie sagt es dem Hinweis-Schirm, sobald der Zeiger sie greift.
+## sie sagt es dem Hinweis-Schirm, sobald der Zeiger sie greift. Ein Griff ohne
+## Inhalt sagt dort auch, warum er nicht presst.
 func _seat_press_hint(button: Button) -> void:
 	if run == null:
 		return
-	var cost := run.press_cost()
+	button.set_meta("title", "Pressung")
+	if not _selected_packs.is_empty() and loot_slot_count() == 0:
+		button.set_meta("body",
+			"Katalysatoren verstärken eine Pressung - lege eine Kassette mit Inhalt dazu.")
+		button.set_meta("tint", CasinoStyle.RED)
+		button.tooltip_text = String(button.get_meta("body", ""))
+		return
+	var cost := run.press_cost_for(slotted_packs())
 	var body := "Die erste Pressung der Runde ist frei."
 	if cost > 0:
 		body = "Diese Pressung kostet %d Energie." % cost
-	button.set_meta("title", "Pressung")
+	elif run.press_cost() > 0:
+		body = "Die Erdungsklemme trägt diese Pressung."
 	button.set_meta("body", body)
 	if run.charge < cost:
 		button.set_meta("body", "%s Die Bank hält %d." % [body, run.charge])
@@ -1996,6 +2271,15 @@ func swirl_press_portal(slot: int, delay: float) -> void:
 	if portal != null and is_instance_valid(portal):
 		portal.swirl(delay)
 
+## Der Leser eines Katalysators speist ein statt zu wirbeln - ein Blitz, dann
+## bleibt er dunkel.
+func inject_press_portal(slot: int, delay: float) -> void:
+	if slot < 0 or slot >= _press_portals.size():
+		return
+	var portal: PressPortalView = _press_portals[slot]
+	if portal != null and is_instance_valid(portal):
+		portal.inject(delay)
+
 ## Name und Wirkung des Dings unter pixel ({} = keins): das Magazin spricht
 ## zuerst, dann der Haufen (das oberste Stück gewinnt), zuletzt der Handlungs-Sitz
 ## mit seinem Preis - alle schreiben auf denselben Hinweis-Schirm.
@@ -2012,6 +2296,8 @@ func chip_hint_at(pixel: Vector2) -> Dictionary:
 			var found := _meta_hint(chips[i] as Control, pixel)
 			if not found.is_empty():
 				return found
+	# Der Multicast-Schirm ERKLÄRT sich nicht mehr: sein Text ist ein Verweis, und
+	# ein Klick schlägt das Lexikon auf. Hovern sagt darum nichts.
 	return _meta_hint(_press_button, pixel)
 
 ## Die Fach-Fläche nennt den BESTAND am Deckel - dort, wo die Karten liegen, und
@@ -2179,6 +2465,7 @@ func start_press() -> void:
 	if not can_press():
 		return
 	var sorts := press_slot_sorts()
+	_multicast_peak = 0  # der Schirm zählt die NEUE Pressung
 	press_started.emit()
 	# Die Sorten überleben das Schlucken: Leser und Portal brennen weiter in ihrer
 	# Farbe, bis der letzte Meteor liegt.
@@ -2205,6 +2492,7 @@ func _drop_press() -> void:
 	_selected_packs.clear()
 	_withheld.clear()
 	_press_sorts.clear()
+	_multicast_peak = 0
 	_ablage_order.clear()
 	_ablage_slots = 0
 	_ablage_stack.clear()

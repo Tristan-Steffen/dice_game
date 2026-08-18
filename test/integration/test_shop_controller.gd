@@ -812,10 +812,13 @@ func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
 		var spread = shop._build_spread()
 		assert_lte(spread.single_specials.size(), 1, "höchstens einer je Auslage")
 		for pack: Pack in spread.single_specials:
-			assert_true(Engraving.is_special_id(pack.fixed_engraving.id))
 			assert_eq(pack.count, 1, "in der Schale liegen keine Bündel")
-			assert_eq(pack.price, Pack.SPECIAL_PRICE)
 			assert_eq(spread.single_special_bought.size(), spread.single_specials.size())
+			if pack.is_catalyst():
+				assert_eq(pack.price, Pack.catalyst_price(pack.catalyst_id))
+				continue
+			assert_true(Engraving.is_special_id(pack.fixed_engraving.id))
+			assert_eq(pack.price, Pack.SPECIAL_PRICE)
 
 ## Unter der Schwelle nie - der Sonderposten ist die Belohnung für die Lizenz.
 func test_a_low_licence_bowl_never_carries_one() -> void:
@@ -842,7 +845,11 @@ func test_a_bowl_special_is_bought_sealed() -> void:
 	var before := run.money
 	shop._on_single_special_pressed(0)
 	assert_eq(run.owned_packs.size(), 1, "die Karte liegt versiegelt im Lager")
-	assert_eq(run.owned_packs[0].fixed_engraving.id, special.fixed_engraving.id)
+	assert_eq(Pack.shelf_of(run.owned_packs[0]), Pack.SHELF_SPECIAL)
+	if special.is_catalyst():
+		assert_eq(run.owned_packs[0].catalyst_id, special.catalyst_id)
+	else:
+		assert_eq(run.owned_packs[0].fixed_engraving.id, special.fixed_engraving.id)
 	assert_lt(run.money, before, "und sie ist bezahlt")
 	assert_true(shop.single_special_bought[0], "das Stück liegt nicht mehr in der Schale")
 

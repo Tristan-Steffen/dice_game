@@ -39,6 +39,21 @@ func test_ignores_buttons_that_let_the_mouse_pass() -> void:
 	assert_false(TableScreen.interactive_under(host, Vector2(30, 20)),
 		"wer die Maus durchlässt, fängt auch den Doppelklick nicht")
 
+## Nicht nur Knöpfe fangen den Klick: ein Verweis-Text (Lexikon-Schlüsselwörter,
+## Multicast-Schirm) ist genauso ein Ziel - sonst risse der Doppelklick darauf
+## die Kamera weg, während der Verweis aufschlägt.
+func test_finds_a_reference_text() -> void:
+	var text := RichTextLabel.new()
+	text.bbcode_enabled = true
+	text.position = Vector2(10, 10)
+	text.size = Vector2(60, 20)
+	host.add_child(text)
+	await wait_frames(2)
+	assert_true(TableScreen.interactive_under(host, Vector2(30, 20)), "auf dem Verweis")
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	assert_false(TableScreen.interactive_under(host, Vector2(30, 20)),
+		"wer die Maus durchlässt, fängt auch hier nichts")
+
 func test_searches_the_whole_subtree() -> void:
 	var box := Control.new()
 	box.position = Vector2(100, 40)

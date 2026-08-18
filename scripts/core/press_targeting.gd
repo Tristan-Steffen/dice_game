@@ -54,7 +54,8 @@ static func eligible_faces(def: DieDefinition, engraving_id: String,
 			# zu veredeln, eine veredelte nichts mehr zu gewinnen. Der Einbrand
 			# sperrt nur das Übermalen, nie die Glasur darauf.
 			for i in 6:
-				e[i] = DieMaterial.is_valid_id(def.materials[i]) 					and def.material_level(i) < DieMaterial.MAX_LEVEL
+				e[i] = DieMaterial.is_valid_id(def.materials[i]) \
+						and def.material_level(i) < DieMaterial.MAX_LEVEL
 		_:
 			match kind_of(engraving_id):
 				TARGET_WHOLE_DIE:

@@ -306,7 +306,7 @@ func test_new_payout_reward_labels():
 	assert_eq(_bet("circuit_contract").reward_label(), "1 Pointer")
 	assert_eq(_bet("clean_room").reward_label(), "1 Veredelung")
 
-## Turniernacht (×2) verdoppelt Geld, Ware und Ladung - Einzelstücke nicht.
+## Der Quotenbonus (×2) verdoppelt Geld, Ware und Ladung - Einzelstücke nicht.
 func test_payout_factor_spares_unique_goods():
 	assert_eq(_bet("jackpot").reward_label(2), "$36")
 	assert_eq(_bet("full_house").reward_label(2), "4 Pakete")

@@ -67,6 +67,13 @@ const WORKSHOP_CLOSE_MARGIN := 1.02
 ## einem hochformatigeren Fenster schlägt die BREITE an und bestimmt allein,
 ## wie nah die Kamera kommt.
 const WORKSHOP_CLOSE_SIDE_MARGIN := 1.01
+## Zugabe der Hub-Sicht. Der Hub ist das höchste Fenster des Tisches, und der
+## Blick auf ihn ist GENEIGT: seine Unterkante steht näher an der Kamera und
+## bildet sich größer ab - beim alten festen ZOOM_DISTANCE fiel genau die
+## Fußzeile aus dem Bild. Der Abstand wird darum gerechnet (hub_distance), diese
+## Zahl ist nur die Luft darum herum.
+const HUB_MARGIN := 1.04
+
 ## Werkstück-Sicht: der Würfel steht mit seiner Raumdiagonale im Bild, die Zugabe
 ## lässt ringsum Luft - er soll sich frei drehen lassen, ohne an den Rand zu
 ## stoßen. Über 2 heißt: der Würfel füllt knapp die halbe Bildhöhe.
@@ -91,6 +98,9 @@ var combos_target := Vector3(-8, 0, 0)
 var pit_target := Vector3.ZERO
 var charms_target := Vector3(24, 0, 0)
 var hub_target := Vector3(-24, 0, 0)
+## Halbe Hub-Fenstermaße (x = entlang Welt-Z = Bildbreite, y = entlang Welt-X =
+## Bildhöhe) - scene_root misst sie am echten Rechteck.
+var hub_half := Vector2(14.25, 15.0)
 var side_bets_target := Vector3(0, 0, 24)
 var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
@@ -377,8 +387,12 @@ func configure_pit_target(target: Vector3) -> void:
 func configure_charms_target(target: Vector3) -> void:
 	charms_target = target
 
-func configure_hub_target(target: Vector3) -> void:
+## half_extent = halbe Ausmaße des Hub-Fensters; ZERO lässt das zuletzt gemessene
+## Maß stehen (dieselbe Regel wie bei der Werkbank).
+func configure_hub_target(target: Vector3, half_extent := Vector2.ZERO) -> void:
 	hub_target = target
+	if half_extent.x > 0.0 and half_extent.y > 0.0:
+		hub_half = half_extent
 
 func configure_side_bets_target(target: Vector3) -> void:
 	side_bets_target = target
@@ -427,6 +441,24 @@ func _fit_distance(half: Vector2, margin: float) -> float:
 
 func title_distance() -> float:
 	return _fit_distance(title_half, TITLE_MARGIN)
+
+## Abstand der Hub-Sicht - dieselbe Rechnung wie bei der weiten Werkbank, und aus
+## demselben Grund: der Blick ist geneigt, die untere Fensterkante steht näher und
+## bildet sich größer ab. Eine reine Höhenrechnung (_fit_distance) schnitte die
+## Fußzeile ab. Bildhöhe = dot(P−Ziel, up) / ((dot(P−Ziel, forward) + d) · tan),
+## nach d aufgelöst und über beide Kanten maximiert; waagerecht liegt das Fenster
+## parallel zur Bildebene, dort genügt die Breitenrechnung.
+func hub_distance() -> float:
+	var need := ZOOM_DISTANCE
+	var half_fov := tan(deg_to_rad(fov * 0.5))
+	if half_fov <= 0.0:
+		return need
+	var up := ZOOM_BASIS.y
+	var forward := -ZOOM_BASIS.z
+	for edge: Vector3 in [Vector3.RIGHT, Vector3.LEFT]:  # Bild-oben/-unten = Welt ±X
+		var to_edge := edge * hub_half.y
+		need = maxf(need, absf(to_edge.dot(up)) * HUB_MARGIN / half_fov - to_edge.dot(forward))
+	return maxf(need, _fit_distance(Vector2(hub_half.x, 0.0), HUB_MARGIN))
 
 ## Beide Achsen getrennt gerechnet, weil sie bei der Werkbank fast gleichauf
 ## liegen und sonst mal die eine, mal die andere anschlägt. Diese beiden Zugaben
@@ -551,6 +583,9 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.WORKSHOP:
 		distance = workshop_wide_distance()
+	# Das höchste Fenster des Tisches: sein Abstand wird gerechnet, nicht gesetzt.
+	if target_mode == Mode.HUB:
+		distance = hub_distance()
 	var target_origin := target_point - ZOOM_FORWARD * distance
 	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufen
 	die_focus = false

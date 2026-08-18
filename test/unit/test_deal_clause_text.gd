@@ -9,12 +9,10 @@ const DOUBLED := {
 	DealClause.ADVANCE_PAYMENT: "+24$ auf die Hand",
 	DealClause.BLANK_CHEQUE: "+80$ auf die Hand",
 	DealClause.SEED_CAPITAL: "+2 Energie sofort",
-	DealClause.SEED_CAPITAL_II: "+4 Energie sofort",
 	DealClause.SAVINGS_BONUS: "+2$ je übrigem Würfel",
 	DealClause.INSURANCE_FRAUD: "Jeder Fumble zahlt 30$ Trost",
 	DealClause.HIGH_VOLTAGE: "+6 Überladungs-Stufen",
 	DealClause.ODDS_BONUS: "Nebenwetten zahlen vierfach",
-	DealClause.TOURNAMENT_NIGHT: "Nebenwetten zahlen vierfach",
 	DealClause.HAPPY_HOUR: "Alles Geld dieser Runde vierfach",
 	DealClause.ALL_ON_RED: "Alles Geld dieser Runde sechsfach",
 	DealClause.INTEREST: "Rundenende: +2$ je vollen 10$ Guthaben",
@@ -23,6 +21,8 @@ const DOUBLED := {
 	DealClause.CASH_DISCOUNT: "Ladenware 36% günstiger",
 	DealClause.GOLD_VEIN: "+20$ je geräumter Überladungs-Stufe",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite wächst dauerhaft um +2 Augen",
+	DealClause.CHAIN_DRIVER: "Multicast-Limit +4",
+	DealClause.IGNITION_BOOST: "Multicast-Chance +30 %",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

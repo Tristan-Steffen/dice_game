@@ -61,7 +61,6 @@ const ADVANCE_PAYMENT_MONEY := 12
 const BLANK_CHEQUE_MONEY := 40
 const SAVINGS_DIE_BONUS := 1
 const SEED_CAPITAL_CHARGE := 1
-const SEED_CAPITAL_II_CHARGE := 2
 const DISCHARGE_CHARGE := 2
 const INSURANCE_FRAUD_MONEY := 15
 const SERVICE_FEE_MONEY := 3
@@ -71,9 +70,16 @@ const WORK_HARDENING_GROWTH := 1
 const INTEREST_PER := 10
 const STAGE_CAP_LIMIT := 2
 const HIGH_VOLTAGE_STAGES := 3
+## Multicast-Klauseln: die beiden Boni sind quantitativ, der Winkeladvokat
+## verdoppelt sie also; der Malus bleibt unberührt, der Kurzschluss setzt absolut.
+const IGNITION_BOOST_CHANCE := 0.15
+const IGNITION_BLOCK_CHANCE := 0.2
+const CHAIN_DRIVER_CAP := 2
+const SHORT_CIRCUIT_CAP := 1
 const CALIBRATION_FACTOR := 0.5
-const MAINS_HUM_FACTOR := 1.25
+## Skalierung der Überladungs-Stufen: der Sicherungsfall schlägt das Netzbrummen.
 const FUSE_FAILURE_SCALE := 4.0
+const MAINS_HUM_SCALE := 3.0
 const SHOP_INFLATION_FACTOR := 1.25
 const SHOP_DISCOUNT_FACTOR := 0.8
 ## Benchmark-Aufschläge je Malusklausel. Die Eichung (Bonus) zieht separat ab -
@@ -201,8 +207,8 @@ var owned_charms: Array[Charm] = []
 ## PACK_CAPACITY ist nur noch der Rückfall ohne gemessene Grube (Tests, Kopflos).
 const PACK_CAPACITY := 20
 ## Zerfallswert eines Pakets, für das kein Platz mehr ist. Bewusst klein und flach:
-## ein Paket wirft im Schnitt zwei Stücke, und ein liegengebliebenes Stück löst
-## sich an der Presse für PhantomPress.FIZZLE_MONEY ($1) auf.
+## ein Standard-Paket wirft im Schnitt zwei Stücke, und ein liegengebliebenes Stück
+## löst sich an der Presse für PhantomPress.FIZZLE_MONEY ($1) auf.
 const PACK_FIZZLE_MONEY := 3
 var pack_capacity: int = PACK_CAPACITY
 var owned_packs: Array[Pack] = []
@@ -240,6 +246,9 @@ var clamped_dice: Array[DieDefinition] = []
 ## eine Energie mehr. Zurückgesetzt wird erst bei der Unterschrift - EIN Bogen
 ## über Laden und Vorrunde, nicht je Runde.
 var press_uses: int = 0
+## Prämie der Nebenwette Kettenreaktion: EINE Pressung bekommt mehr Kette. Sie
+## wird von open_press verbraucht und stirbt mit dem Lauf - ein Einmal-Schub.
+var press_boost_pending: bool = false
 ## Gepresste Beute, die noch auf ihren Platz wartet - sie LIEGT auf der Werkbank
 ## und darf sich stapeln: eine zweite Pressung legt dazu.
 var press_pieces: Array[Dictionary] = []
@@ -635,7 +644,7 @@ func sell_charm(index: int) -> void:
 
 ## Legt ein Fixinhalt-Paket mit genau dieser Gravur ins Lager - der Weg, den seit
 ## dem Werkstatt-Umbau JEDE Quelle geht, die früher lose Gravuren lieferte
-## (Abguss, Schmuckkästchen, Durchschlagpapier, Ernte, Schwarzmarkt).
+## (Abguss, Schmuckkästchen, Ernte, Schwarzmarkt).
 func grant_engraving_pack(engraving: Engraving) -> Pack:
 	if engraving == null:
 		return null
@@ -738,7 +747,9 @@ func _tidy_key(pack: Pack) -> Array:
 	if shelf_rank < 0:
 		shelf_rank = Pack.SHELF_ORDER.size()
 	var content := pack.template_id
-	if pack.fixed_engraving != null:
+	if pack.is_catalyst():
+		content = pack.catalyst_id
+	elif pack.fixed_engraving != null:
 		content = pack.fixed_engraving.id
 	elif content == "":
 		content = pack.type
@@ -851,6 +862,77 @@ func press_cost() -> int:
 func can_press() -> bool:
 	return charge >= press_cost()
 
+## --- Die KATALYSATOREN eines Griffs -------------------------------------------
+## Eine Katalysator-Kassette wirft nichts aus; sie legt der EINEN Pressung, in der
+## sie steckt, ihre Terme bei. Additiv und stapelbar - die Klemmen bleiben die
+## einzigen Schiedsrichter, denn die Terme fahren IN multicast_chance/_cap hinein
+## und werden nie daneben zusammengerechnet.
+
+const CATALYST_CHANCE_STEP := 0.2
+const CATALYST_CAP_STEP := 2
+const CATALYST_BASE_STEP := 1
+
+## Was die Katalysatoren dieses Griffs zulegen: {chance, cap, base, free}.
+## "free" ist ein Schalter, kein Zähler - eine zweite Erdungsklemme verpufft.
+static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
+	var terms := {"chance": 0.0, "cap": 0, "base": 0, "free": false}
+	for pack in packs:
+		if pack == null:
+			continue
+		match pack.catalyst_id:
+			Pack.CATALYST_PROPELLANT:
+				terms["chance"] = float(terms["chance"]) + CATALYST_CHANCE_STEP
+			Pack.CATALYST_TIMER:
+				terms["cap"] = int(terms["cap"]) + CATALYST_CAP_STEP
+			Pack.CATALYST_MATRIX:
+				terms["base"] = int(terms["base"]) + CATALYST_BASE_STEP
+			Pack.CATALYST_GROUND:
+				terms["free"] = true
+	return terms
+
+## Was die Pressung dieses Griffs kostet: die Leiter - es sei denn, eine
+## Erdungsklemme steckt darin. Sie erlässt EINEN Preis und setzt die Leiter NICHT
+## zurück (press_uses steigt trotzdem), sie überspringt also eine Sprosse.
+func press_cost_for(packs: Array[Pack]) -> int:
+	return 0 if bool(catalyst_terms(packs)["free"]) else press_cost()
+
+## --- Der Multicast: Chance und Limit der Kette --------------------------------
+## Die EINE Auflösung. Der Sockel kommt aus der Lizenzstufe (PhantomPress.
+## MULTICAST_LADDER), darauf legen Klausel und Wett-Schub; PhantomPress selbst
+## bleibt rein und bekommt beides als Parameter gereicht.
+
+## Zusammensetzung: Sockel der Lizenz, dann Boni, dann der Malus. Geklemmt, weil
+## ein Multicast, der IMMER zündet, keine Chance mehr wäre - dieselbe Begründung
+## wie bei der Pointer-Decke.
+func multicast_chance(catalyst_bonus: float = 0.0) -> float:
+	var chance := PhantomPress.base_chance(hub_level)
+	if _clause_active(DealClause.IGNITION_BOOST):
+		chance += IGNITION_BOOST_CHANCE * float(deal_bonus_factor())
+	if press_boost_pending:
+		chance += PhantomPress.BOOST_CHANCE
+	chance += catalyst_bonus  # Treibladungen: additiv wie jeder andere Bonus
+	if _clause_active(DealClause.IGNITION_BLOCK):
+		chance -= IGNITION_BLOCK_CHANCE
+	return clampf(chance, PhantomPress.MULTICAST_CHANCE_MIN, PhantomPress.MULTICAST_CHANCE_MAX)
+
+## Dieselbe Reihenfolge für die Decke - nur setzt der Kurzschluss ABSOLUT: er
+## überschreibt, was Lizenz, Klausel, Schub und Taktgeber zusammengetragen haben.
+func multicast_cap(catalyst_bonus: int = 0) -> int:
+	var cap := PhantomPress.base_cap(hub_level)
+	if _clause_active(DealClause.CHAIN_DRIVER):
+		cap += CHAIN_DRIVER_CAP * deal_bonus_factor()
+	if press_boost_pending:
+		cap += PhantomPress.BOOST_CAP
+	cap += catalyst_bonus
+	if _clause_active(DealClause.SHORT_CIRCUIT):
+		cap = SHORT_CIRCUIT_CAP
+	return maxi(cap, 1)
+
+## Die Prämie der Nebenwette: der nächsten Pressung mehr Kette. Sie stapelt sich
+## nicht - ein zweiter Gewinn erneuert dieselbe Vormerkung.
+func grant_press_boost() -> void:
+	press_boost_pending = true
+
 ## Die Unterschrift schließt die Werkstatt-Sitzung: die nächste Pressung ist
 ## wieder frei. Bewusst NICHT im Rundenwechsel - ein Bogen spannt vom Laden bis
 ## zur nächsten Unterschrift.
@@ -877,49 +959,87 @@ func _mint_press_piece(piece: Dictionary) -> Dictionary:
 	piece["piece_uid"] = press_piece_serial
 	return piece
 
-## Die Ausbeute EINES Pakets: ein Fixinhalt liefert genau sein Stück (keine
-## Menge, kein Icon-Wurf), jedes andere würfelt Menge und Icons aus.
-func _press_pack_pieces(pack: Pack, rng: RandomNumberGenerator) -> Array[Dictionary]:
+## Die Ausbeute EINES Pakets, nach AUSLÖSUNGEN gruppiert: je Eintrag die Stücke
+## einer Multicast-Auslösung (so viele, wie die Paketgröße hergibt - die Zeremonie
+## legt eine Gruppe nach der anderen hin). Ein Fixinhalt ist von der Kette
+## ausgenommen: EINE Auslösung, die genau seinen Inhalt trägt, kein Mengen- und
+## kein Icon-Wurf.
+func _press_pack_groups(pack: Pack, rng: RandomNumberGenerator,
+		chance: float, cap: int, base_bonus: int = 0) -> Array:
 	if pack.fixed_engraving != null:
 		# Ein Bündel ist EINE Karte mit mehreren Stücken darin - gewürfelt wird
-		# hier nichts, weder die Menge noch das Icon.
+		# hier nichts, weder die Menge noch das Icon. Die Doppelmatrize greift
+		# darum auch nicht: was fest liegt, wächst nicht.
 		var fixed: Array[Dictionary] = []
 		for i in maxi(pack.count, 1):
 			fixed.append(PhantomPress.piece(pack.press_sort(), pack.fixed_engraving.id))
-		return fixed
-	return PhantomPress.payout(pack.press_sort(), rng)
+		return [fixed]
+	return PhantomPress.payout_groups(pack.press_sort(), pack.tier, rng, chance, cap,
+		base_bonus)
 
 ## DIE PRESSUNG: ein Preis, dann je Paket seine Ausbeute. Atomar - prüfen,
 ## abbuchen, würfeln, prägen, Pakete verbrauchen. Reicht die Energie nicht,
 ## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung räumt weder
 ## Ablage noch nassen Guss ab.
-## Liefert {"cost", "pieces", "readers", "kept"} - readers[i] sind die Nummern der
-## Stücke, die Leser i ausgeworfen hat (die Zeremonie fliegt sie von dort in die
-## Ablage), "kept" zählt die Zellen, die die Zwinge vor dem Ausbrennen bewahrt hat.
+## Liefert {"cost", "pieces", "readers", "reader_uids", "kept"}: readers[i] ist die
+## AUSLÖSUNGS-Folge von Leser i (je Auslösung die Nummern ihrer Stücke - die
+## Zeremonie fliegt sie eine nach der anderen), reader_uids[i] dieselben Nummern
+## flach; "kept" zählt die Zellen, die die Zwinge vor dem Ausbrennen bewahrt hat.
+## Ein KATALYSATOR-Platz liefert eine leere Folge: er gibt seine Terme in den
+## Griff und wirft selbst nichts aus.
 func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
-	var empty := {"cost": 0, "pieces": [] as Array[Dictionary], "readers": [] as Array}
+	var empty := {"cost": 0, "pieces": [] as Array[Dictionary], "readers": [] as Array,
+		"reader_uids": [] as Array}
 	var chosen := _pressable_packs(pack_indices)
 	if chosen.is_empty():
 		return empty
-	var cost := press_cost()
+	# Der Griff zerfällt in Beute und Katalysatoren. Ein Griff aus lauter
+	# Katalysatoren presst NICHT: sie verstärken eine Pressung, sie sind keine.
+	var catalysts: Array[Pack] = []
+	var loot := 0
+	for index in chosen:
+		if owned_packs[index].is_catalyst():
+			catalysts.append(owned_packs[index])
+		else:
+			loot += 1
+	if loot == 0:
+		return empty
+	var terms := catalyst_terms(catalysts)
+	var base_bonus := int(terms["base"])
+	var cost := 0 if bool(terms["free"]) else press_cost()
 	if charge < cost:
 		return empty  # prüfen, dann abbuchen
 	spend_charge(cost)
-	press_uses += 1
+	press_uses += 1  # die Erdungsklemme erlässt den Preis, nie die Sprosse
+	# Kette EINMAL für diesen Griff festlegen - jeder Leser wirft mit derselben.
+	# Der Wett-Schub gilt für genau diese Pressung und ist damit verbraucht.
+	var chance := multicast_chance(float(terms["chance"]))
+	var cap := multicast_cap(int(terms["cap"]))
+	press_boost_pending = false
 	var minted: Array[Dictionary] = []
 	var readers: Array = []
+	var reader_uids: Array = []
 	for k in chosen.size():
-		var uids: Array[int] = []
-		for piece in _press_pack_pieces(owned_packs[chosen[k]], rng):
-			_mint_press_piece(piece)
-			minted.append(piece)
-			uids.append(int(piece["piece_uid"]))
-		readers.append(uids)
+		var triggers: Array = []
+		var flat: Array[int] = []
+		# Ein Katalysator-Leser bleibt LEER: er hat abgegeben, nicht ausgeworfen.
+		if not owned_packs[chosen[k]].is_catalyst():
+			for group in _press_pack_groups(owned_packs[chosen[k]], rng, chance, cap,
+					base_bonus):
+				var uids: Array[int] = []
+				for piece in group:
+					_mint_press_piece(piece)
+					minted.append(piece)
+					uids.append(int(piece["piece_uid"]))
+				triggers.append(uids)
+				flat.append_array(uids)
+		readers.append(triggers)
+		reader_uids.append(flat)
 	for piece in minted:
 		press_pieces.append(piece)
 	# Zwinge: je Zelle ein Wurf - eine Überlebende wirft ihre volle Beute ab und
-	# bleibt trotzdem im Regal. Gilt für JEDE gepresste Zelle, Fixinhalte
-	# eingeschlossen.
+	# bleibt trotzdem im Regal. Gilt für JEDE gepresste Zelle, Fixinhalte und
+	# Katalysatoren eingeschlossen: ein Katalysator IST ein Paket, eine Regel.
 	var survive := CharmEffects.pack_survive_chance(charm_ids())
 	var kept := 0
 	var burned: Array[int] = []
@@ -934,7 +1054,8 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 		owned_packs.remove_at(burned[k])
 	packs_changed.emit()
 	press_changed.emit()
-	return {"cost": cost, "pieces": minted, "readers": readers, "kept": kept}
+	return {"cost": cost, "pieces": minted, "readers": readers,
+		"reader_uids": reader_uids, "kept": kept}
 
 ## Darf ein Beutestück auf diesen Würfel? Die Bank sind die Zwingen - sonst keine.
 func press_target_allowed(die: DieDefinition) -> bool:
@@ -1295,8 +1416,7 @@ func apply_round_start_charms() -> void:
 	golden_handshake_used_this_round = false
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
-	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT) \
-			or _clause_active(DealClause.POWER_SPIKE):
+	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT):
 		var pool := DiceScoring.HAND_PRIORITY.filter(
 			func(key: String) -> bool: return not throttled_combos.has(key))
 		spotlight_combo = pool.pick_random() if not pool.is_empty() else ""
@@ -1391,9 +1511,9 @@ const CARD_BONUS := "bonus"
 const CARD_MALUS := "malus"
 
 ## Würfelt die Auslage der kommenden Runde: von links nach rechts immer Standard-,
-## Risiko- und Knebelvertrag. Mit TREAT_CHANCE wird EIN Platz stattdessen ein
-## Werbegeschenk (reiner Bonus); welcher, verteilt TREAT_TIER_WEIGHTS - meist der
-## Standard-, selten der Knebelplatz. In der Stresstest-Runde liegen stattdessen
+## Risiko- und Knebelvertrag. Mit TREAT_CHANCE fällt bei EINEM Platz das
+## Kleingedruckte weg - sein Bonus kommt aus dem normalen Topf seiner Stufe, die
+## Karte zeigt sich als Werbegeschenk; welcher Platz, verteilt TREAT_TIER_WEIGHTS. In der Stresstest-Runde liegen stattdessen
 ## drei Boss-Konditionen aus: dort entscheidet der Spieler, WIE er den Test angeht.
 func roll_route_offers() -> void:
 	route_offers.clear()
@@ -1404,8 +1524,7 @@ func roll_route_offers() -> void:
 	var tiers: Array[DealClause.Tier] = [
 		DealClause.Tier.ONE, DealClause.Tier.TWO, DealClause.Tier.THREE]
 	for i in tiers.size():
-		var tier: DealClause.Tier = DealClause.Tier.TREAT if i == treat_slot else tiers[i]
-		route_offers.append(_draw_card(tier))
+		route_offers.append(_draw_card(tiers[i], i == treat_slot))
 
 ## Chance, dass überhaupt ein Werbegeschenk ausliegt - die Werbetrommel verdreifacht
 ## sie. Erster Charm am Vertragswesen: die Wirkung ist eine Abfrage hier, weil sie
@@ -1444,13 +1563,16 @@ func _roll_boss_offers() -> void:
 		route_offers.append({CARD_TIER: DealClause.Tier.BOSS, CARD_BONUS: "", CARD_MALUS: pool[i]})
 
 ## Baut eine Vertragskarte: erst das Kleingedruckte, dann der Bonus - dessen Topf
-## muss die Tags des Malus meiden (sonst entstehen Nullsummen-Paare).
-func _draw_card(tier: DealClause.Tier) -> Dictionary:
+## muss die Tags des Malus meiden (sonst entstehen Nullsummen-Paare). Das
+## Werbegeschenk zieht seinen Bonus aus demselben Topf seiner Stufe und lässt nur
+## den Malus weg; TREAT ist reine Anzeigestufe.
+func _draw_card(tier: DealClause.Tier, treat: bool = false) -> Dictionary:
 	var malus_id := ""
-	if tier != DealClause.Tier.TREAT:
+	if not treat:
 		malus_id = _draw_clause(tier, DealClause.Kind.MALUS, [] as Array[String])
 	var bonus_id := _draw_clause(tier, DealClause.Kind.BONUS, DealClause.tags_of(malus_id))
-	return {CARD_TIER: tier, CARD_BONUS: bonus_id, CARD_MALUS: malus_id}
+	var card_tier: DealClause.Tier = DealClause.Tier.TREAT if treat else tier
+	return {CARD_TIER: card_tier, CARD_BONUS: bonus_id, CARD_MALUS: malus_id}
 
 ## Zieht eine Klausel des Topfes: nie eine, die schon in der Auslage liegt oder in
 ## diesem Block unterschrieben wurde, nie eine mit einem verbotenen Tag, nie einen
@@ -1524,7 +1646,7 @@ func _apply_instant_clause(clause_id: String) -> void:
 			add_money(ADVANCE_PAYMENT_MONEY * boost)
 		DealClause.BLANK_CHEQUE:
 			add_money(BLANK_CHEQUE_MONEY * boost)
-		DealClause.SEED_CAPITAL, DealClause.SEED_CAPITAL_II:
+		DealClause.SEED_CAPITAL:
 			add_charge(instant_clause_charge(clause_id, boost))
 		DealClause.DISCHARGE:
 			spend_charge(DISCHARGE_CHARGE)
@@ -1539,8 +1661,6 @@ static func instant_clause_charge(clause_id: String, bonus_factor: int = 1) -> i
 	match clause_id:
 		DealClause.SEED_CAPITAL:
 			return SEED_CAPITAL_CHARGE * bonus_factor
-		DealClause.SEED_CAPITAL_II:
-			return SEED_CAPITAL_II_CHARGE * bonus_factor
 	return 0
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
@@ -1676,10 +1796,6 @@ func hand_fee() -> int:
 func scored_die_fee() -> int:
 	return RIP_OFF_PER_DIE if _clause_active(DealClause.RIP_OFF) else 0
 
-## Wartungs-Gravur: je genommener Hand eine Zahl-Gravur.
-func grants_engraving_per_hand() -> bool:
-	return _clause_active(DealClause.MAINTENANCE_ENGRAVING)
-
 ## Zinsen: Rundenende-Ertrag auf das gehaltene Guthaben.
 func interest_income() -> int:
 	return (money / INTEREST_PER) * deal_bonus_factor() if _clause_active(DealClause.INTEREST) else 0
@@ -1732,10 +1848,9 @@ func begin_shop_visit() -> void:
 func charm_free_spin_open() -> bool:
 	return not free_spin_used_this_visit and CharmEffects.has_free_spin(charm_ids())
 
-## Quotenbonus/Turniernacht: Auszahlungsfaktor gewonnener Nebenwetten.
+## Quotenbonus: Auszahlungsfaktor gewonnener Nebenwetten.
 func side_bet_payout_factor() -> int:
-	return 2 * deal_bonus_factor() if _clause_active(DealClause.ODDS_BONUS) \
-		or _clause_active(DealClause.TOURNAMENT_NIGHT) else 1
+	return 2 * deal_bonus_factor() if _clause_active(DealClause.ODDS_BONUS) else 1
 
 ## Wettsteuer: Einsätze kosten doppelt (Anzeige UND Abbuchung lesen das hier).
 func side_bet_stake_factor() -> int:
@@ -1784,7 +1899,8 @@ func apply_encore(cleared_stages: int) -> Array[Pack]:
 	if cleared_stages < ENCORE_STAGES:
 		return granted
 	for _i in charm_ids().count(Charm.ENCORE):
-		var pack := Pack.roll_special_pack()
+		# Das Füllhorn verspricht einen SONDERPOSTEN - kein Katalysator.
+		var pack := Pack.roll_special_engraving_pack()
 		pack.price = 0  # gefunden, nicht gekauft
 		granted.append(pack)
 	return grant_packs(granted)
@@ -1848,26 +1964,6 @@ func apply_golden_handshake(def: DieDefinition, hand_points: int) -> bool:
 	golden_handshake_used_this_round = true
 	pool_changed.emit()
 	return true
-
-## Durchschlagpapier: die erste gewertete Hand der Runde kopiert jedes oben
-## liegende Material als versiegeltes Fixinhalt-Paket. Liefert die Zahl der Kopien.
-func apply_carbon_copy(defs: Array[DieDefinition], face_indices: Array[int],
-		participating: Array[int], first_hand: bool) -> int:
-	if not first_hand or not _clause_active(DealClause.CARBON_COPY):
-		return 0
-	var copied := 0
-	for i in participating:
-		if i >= defs.size() or i >= face_indices.size():
-			continue
-		var face: int = face_indices[i]
-		if face < 0 or face >= defs[i].materials.size():
-			continue
-		var material := DieMaterial.by_id(defs[i].materials[face])
-		if material == null:
-			continue
-		grant_material_pack(material)
-		copied += 1
-	return copied
 
 ## Lasurpinsel: läuft die Firnis-Schicht ins Leere, weil die obere Seite schon
 ## veredelt ist, fällt stattdessen ein versiegeltes Veredelungs-Paket an - einmal
@@ -2120,7 +2216,7 @@ func _consume_packs(count: int) -> void:
 ## Liefert die gewonnenen Wetten für die Auszahlungs-Anzeige.
 func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	var won: Array[SideBet] = []
-	var factor := side_bet_payout_factor()  # Turniernacht
+	var factor := side_bet_payout_factor()  # Quotenbonus
 	for bet in active_side_bets:
 		if bet.evaluate(result):
 			won.append(bet)
@@ -2129,7 +2225,7 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	side_bets_changed.emit()
 	return won
 
-## Schüttet EINEN gewonnenen Einsatz aus. Der Turniernacht-Faktor greift auf
+## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
 ## Geld, Ware und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
 ## verdoppelt er nicht.
 func _pay_side_bet(bet: SideBet, factor: int) -> void:
@@ -2150,6 +2246,9 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 			bet.awarded_pack = grant_pack(Pack.roll_engraving_pack())
 		SideBet.Payout.COMBO_LEVEL:
 			grant_combo_level(bet.target_combo)
+		SideBet.Payout.PRESS_BOOST:
+			# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
+			grant_press_boost()
 		_:
 			for i in factor:
 				for pack in bet.reward_list():
@@ -2274,15 +2373,15 @@ func goal_roadmap_index(count: int) -> int:
 ## 300, 600 … Basis ist das WIRKSAME Ziel, damit ein Benchmark-Malus den ganzen
 ## Balken mitzieht (Stufen, Schwellen, Sieg-Prüfung).
 func stage_size(stage: int) -> int:
-	return roundi(effective_goal() * stage_size_factor() * pow(stage_scale(), stage - 1))
+	return roundi(effective_goal() * pow(stage_scale(), stage - 1))
 
-## Sicherungsfall: die Stufen wachsen ×4 statt ×2.
+## Sicherungsfall ×4, Netzbrummen ×3, sonst ×2 - der schärfere Malus gewinnt.
 func stage_scale() -> float:
-	return FUSE_FAILURE_SCALE if _clause_active(DealClause.FUSE_FAILURE) else 2.0
-
-## Netzbrummen: jede Stufe braucht 25 % mehr Punkte.
-func stage_size_factor() -> float:
-	return MAINS_HUM_FACTOR if _clause_active(DealClause.MAINS_HUM) else 1.0
+	if _clause_active(DealClause.FUSE_FAILURE):
+		return FUSE_FAILURE_SCALE
+	if _clause_active(DealClause.MAINS_HUM):
+		return MAINS_HUM_SCALE
+	return 2.0
 
 ## Kumulative Punktschwelle zum ABSCHLUSS der Stufe (Summe der Stufengrößen);
 ## bei ×2 und ohne Aufschlag ergibt das die alten 150, 450, 1050, 2250, 4650.
@@ -2383,6 +2482,20 @@ const OFFER_SOLD := "sold"
 const KIND_CHARM := "charm"
 const KIND_ENGRAVING := "engraving"
 const KIND_DIE := "die"
+## Katalysator-Kassette: die zweite Familie des Sonderbestands, also auch die
+## zweite Ware des Sonderposten-Platzes.
+const KIND_CATALYST := "catalyst"
+
+## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
+## $30 - zehn Dollar auf die Ladung. Jede Ware, die beide Läden führen (die
+## Katalysatoren), preist sich danach, statt eine zweite Tabelle zu pflegen.
+const SECRET_MONEY_PER_CHARGE := 10
+## Anteil der Katalysatoren am Sonderposten-Platz - die Gravur bleibt die Regel.
+const SECRET_CATALYST_CHANCE := 0.35
+
+## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
+static func secret_charge_price(money_price: int) -> int:
+	return maxi(1, ceili(float(money_price) / float(SECRET_MONEY_PER_CHARGE)))
 
 var charge: int = 0:
 	set(value):
@@ -2508,6 +2621,9 @@ func buy_secret_offer(index: int) -> bool:
 			# dort sucht der Spieler selbst den Platz - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
 			grant_pack(Pack.secret_die(die))
+		KIND_CATALYST:
+			# Die Kassette liegt fertig im Angebot - sie geht, wie sie ist.
+			grant_pack(offer[OFFER_ITEM] as Pack)
 		_:
 			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
 			# Ein Bündel bleibt dabei EINE Karte mit mehreren Stücken darin.
@@ -2521,8 +2637,37 @@ func buy_secret_offer(index: int) -> bool:
 func _roll_secret_stock() -> void:
 	secret_stock.clear()
 	secret_stock.append(_secret_charm_offer())
-	secret_stock.append(_secret_engraving_offer())
+	secret_stock.append(_secret_special_offer())
 	secret_stock.append(_secret_wildcard_offer())
+
+## Der Sonderposten-Platz führt beide Familien des Sonderbestands: meist ein
+## Gravur-Bündel, manchmal eine Katalysator-Kassette. EIN Eingang, damit der
+## Wildcard-Platz dieselbe Auswahl bekommt.
+func _secret_special_offer() -> Dictionary:
+	if randf() < SECRET_CATALYST_CHANCE:
+		var card := _secret_catalyst_offer()
+		if not card.is_empty():
+			return card
+	return _secret_engraving_offer()
+
+## Eine Katalysator-Kassette, die nicht schon in der Auslage liegt - zwei gleiche
+## Plätze lesen sich als Fehler. Liegen alle vier, weicht der Platz auf eine
+## Gravur aus statt leer zu bleiben.
+func _secret_catalyst_offer() -> Dictionary:
+	var listed: Array[String] = []
+	for offer in secret_stock:
+		if offer[OFFER_KIND] == KIND_CATALYST:
+			var shown: Pack = offer[OFFER_ITEM]
+			listed.append(shown.catalyst_id)
+	var pool: Array[String] = []
+	for id in Pack.catalyst_ids():
+		if not listed.has(id):
+			pool.append(id)
+	if pool.is_empty():
+		return {}
+	var pick: String = pool.pick_random()
+	return _secret_offer(KIND_CATALYST, Pack.catalyst(pick),
+		secret_charge_price(Pack.catalyst_price(pick)))
 
 ## Der dritte Platz: Essenzwürfel, Charm oder Sonderposten. Der Würfel ist der
 ## EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel liegen sie nie.
@@ -2532,7 +2677,7 @@ func _secret_wildcard_offer() -> Dictionary:
 		if not die_offer.is_empty():
 			return die_offer
 	return _secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE \
-		else _secret_engraving_offer()
+		else _secret_special_offer()
 
 ## Essenzwürfel: ein frischer Würfel mit einer Schwarzmarkt-Seele. Unikate, die
 ## der Spieler schon besitzt, fallen weg; ist der Topf leer, liefert der Platz

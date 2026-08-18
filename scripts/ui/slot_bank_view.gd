@@ -415,13 +415,13 @@ func _pot_summary_chips(u: float) -> Control:
 	chips.add_theme_constant_override("v_separation", int(u * 0.6))
 	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var summary: Dictionary = run.slot_bank.pot_summary()
-	for entry in [[SlotPrize.Kind.ENGRAVING, "engravings"], [SlotPrize.Kind.MATERIAL, "materials"],
-			[SlotPrize.Kind.DICE_ENGRAVING, "edges"]]:
-		var count := int(summary[entry[1]])
-		if count > 0:
-			chips.add_child(_summary_chip(_kind_color(int(entry[0])), "%s %d %s"
-				% [SlotPrize.symbol_for(int(entry[0])), count,
-					SlotPrize.pack_name(int(entry[0]), count)], u))
+	# Je Sorte UND Größe ein Chip: die Größe ist der Ertrag, nicht die Stückzahl.
+	for line: Dictionary in summary["packs"]:
+		var symbol := int(line["symbol"])
+		var count := int(line["count"])
+		chips.add_child(_summary_chip(_kind_color(symbol), "%s %d %s"
+			% [SlotPrize.symbol_for(symbol), count,
+				SlotPrize.pack_name_tiered(symbol, count, int(line["tier"]))], u))
 	var charms: Array = summary["charms"]
 	if not charms.is_empty():
 		chips.add_child(_summary_chip(_kind_color(SlotPrize.Kind.CHARM), "%s %s"
@@ -748,7 +748,9 @@ func _token_for(prize: SlotPrize, u: float) -> Control:
 			return _glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), prize.charm.display_name, u)
 		SlotPrize.Kind.DIE:
 			return _glyph_token("⬢", CYAN, "Würfel", u)
-	return _pack_token(SlotPrize.pack_type_of(prize.kind), prize.packs.size(), u)
+	# Der Name kommt vom Paket selbst - Pack.tiered hat die Größe schon aufgedruckt.
+	var caption := prize.packs[0].display_name if not prize.packs.is_empty() else ""
+	return _pack_token(SlotPrize.pack_type_of(prize.kind), prize.packs.size(), u, caption)
 
 ## Ein Gewinn ohne Ware (defensive Prüfung: Fumble hat keinen Token).
 func _token_prize_is_empty(prize: SlotPrize) -> bool:
@@ -840,8 +842,9 @@ func _reveal_tween() -> Tween:
 	_reveal_tweens.append(tween)
 	return tween
 
-## Paket-Token: das Sorten-Siegel im Sortenrahmen, Anzahl-Plakette und Sortenname.
-func _pack_token(pack_type: String, count: int, u: float) -> Control:
+## Paket-Token: das Sorten-Siegel im Sortenrahmen, Anzahl-Plakette und Sortenname
+## (caption leer = der schlichte Sortenname ohne Größe).
+func _pack_token(pack_type: String, count: int, u: float, caption: String = "") -> Control:
 	var color: Color = PackIconRenderer.COLORS.get(pack_type, MUTED_COLOR)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(u * 0.5))
@@ -878,8 +881,8 @@ func _pack_token(pack_type: String, count: int, u: float) -> Control:
 		frame.add_child(badge)
 	box.add_child(frame)
 
-	var name := _label(String(Pack.TYPE_NAMES.get(pack_type, "Paket")), u * 1.9,
-		Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
+	var text := caption if caption != "" else String(Pack.TYPE_NAMES.get(pack_type, "Paket"))
+	var name := _label(text, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name.custom_minimum_size = Vector2(u * 11.5, 0)
 	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

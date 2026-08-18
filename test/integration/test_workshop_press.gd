@@ -704,6 +704,48 @@ func test_identical_pieces_stack_on_one_place() -> void:
 	assert_null(view._ablage_chips[other].get_node_or_null("Count"),
 		"ein einzelnes Stück trägt keine")
 
+## Die schwerste Beute der Leiter: EIN Kolossal-Leser auf der obersten Sprosse
+## wirft 35 Stücke. Sie belegen höchstens die sechs Icons ihrer Sorte, also bleibt
+## die Reihe EINE Zeile im Streifen - der Streifen darf davon keinen Pixel wachsen.
+func test_the_heaviest_kolossal_press_still_fits_the_strip() -> void:
+	var strip := view.ablage_rect()
+	var chip := view.ablage_chip_size()
+	var icons := PhantomPress.icons_for(Engraving.CATEGORY_NUMBER)
+	var uids: Array[int] = []
+	for i in PhantomPress.max_cap() * PhantomPress.base_for(Pack.TIER_KOLOSSAL):
+		uids.append(_seed_piece(Engraving.CATEGORY_NUMBER, String(icons[i % icons.size()])))
+	assert_eq(uids.size(), 35)
+	view.withhold_press_pieces(uids)
+	await wait_frames(2)
+	for uid in uids:
+		view.land_press_piece(uid)
+	await wait_frames(2)
+	assert_eq(view.ablage_rect(), strip, "der Streifen hängt am Fenster, nicht am Haufen")
+	assert_eq(view.ablage_chip_size(), chip, "und kein Chip schrumpft unter der Last")
+	assert_lte(view._ablage_slots, icons.size(),
+		"gleiche Gravuren teilen sich einen Platz - höchstens sechs")
+	for uid in uids:
+		assert_true(strip.grow(1.0).has_point(view.ablage_spot(uid)),
+			"Stück %d liegt im Streifen" % uid)
+
+## Sechs volle Leser: die Reihe fällt auf höchstens 18 Plätze zusammen, weil es
+## über alle drei Sorten nur 18 Icons gibt.
+func test_six_loaded_readers_collapse_onto_the_icon_count() -> void:
+	var uids: Array[int] = []
+	for sort: String in PhantomPress.ICONS:
+		var icons := PhantomPress.icons_for(sort)
+		for i in 20:
+			uids.append(_seed_piece(sort, String(icons[i % icons.size()])))
+	view.withhold_press_pieces(uids)
+	await wait_frames(2)
+	for uid in uids:
+		view.land_press_piece(uid)
+	await wait_frames(2)
+	assert_eq(uids.size(), 60)
+	assert_lte(view._ablage_slots, 18, "je Icon ein Platz, mehr Icons gibt es nicht")
+	assert_lte(view._ablage_slots, view._ablage_columns() * WorkshopView.ABLAGE_ROWS,
+		"und die Reihe paßt in den Streifen")
+
 ## Die Zahl liegt VORN: das geführte Stück darf sie nicht zudecken.
 func test_the_held_copy_carries_the_count() -> void:
 	var twins: Array[int] = [

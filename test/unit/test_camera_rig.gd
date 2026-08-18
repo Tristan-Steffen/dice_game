@@ -255,6 +255,44 @@ func test_the_wide_step_frames_the_whole_corner_including_the_near_edge() -> voi
 	assert_gt(absf(_frame_height(WIDE_BOTTOM)), absf(_frame_height(WIDE_TOP)),
 		"die nähere Kante füllt mehr Bild - genau darum reicht eine Höhenrechnung nicht")
 
+# --- Hub-Sicht ---------------------------------------------------------------
+# Das höchste Fenster des Tisches, geneigt betrachtet: seine Unterkante steht
+# näher an der Kamera und bildet sich größer ab. Beim alten festen ZOOM_DISTANCE
+# fiel genau die Fußzeile aus dem Bild.
+
+const HUB_CENTER := Vector3(-24, 0, 0)
+const HUB_HALF := Vector2(14.25, 15.0)  # halbe Maße des echten Hub-Fensters
+const HUB_BOTTOM := Vector3(-24 - 15.0, 0, 0)  # −X = Bild-unten
+const HUB_TOP := Vector3(-24 + 15.0, 0, 0)
+
+func _aim_at_hub() -> void:
+	get_viewport().size = Vector2i(1600, 900)
+	rig.configure_hub_target(HUB_CENTER, HUB_HALF)
+	rig.zoom_to(CameraRig.Mode.HUB)
+
+func test_the_hub_frames_its_footer_row() -> void:
+	_aim_at_hub()
+	assert_gt(rig.hub_distance(), CameraRig.ZOOM_DISTANCE,
+		"der alte feste Abstand schnitt unten ab")
+	assert_lte(absf(_frame_height(HUB_BOTTOM)), 1.0, "die Unterkante steht im Bild")
+	assert_lte(absf(_frame_height(HUB_TOP)), 1.0, "und die Oberkante ebenso")
+	assert_gt(absf(_frame_height(HUB_BOTTOM)), absf(_frame_height(HUB_TOP)),
+		"die nähere Kante füllt mehr Bild - darum reicht eine Höhenrechnung nicht")
+
+func test_the_hub_keeps_a_margin_and_does_not_fly_away() -> void:
+	_aim_at_hub()
+	# Zugabe, nicht Weite: die knappere Kante steht dicht unter dem Bildrand.
+	assert_gt(absf(_frame_height(HUB_BOTTOM)), 0.85, "kein halbleeres Bild")
+	assert_almost_eq(rig.anchor_origin,
+		HUB_CENTER - CameraRig.ZOOM_FORWARD * rig.hub_distance(),
+		Vector3.ONE * 0.001, "die Station steht auf dem gerechneten Abstand")
+
+func test_the_measured_hub_extent_survives_an_empty_report() -> void:
+	_aim_at_hub()
+	var before := rig.hub_half
+	rig.configure_hub_target(HUB_CENTER)
+	assert_eq(rig.hub_half, before, "ZERO läßt das gemessene Maß stehen")
+
 func test_leaving_the_workshop_drops_the_close_flag() -> void:
 	for leave in ["zoom_out", "pit", "title"]:
 		_aim_at_workshop()

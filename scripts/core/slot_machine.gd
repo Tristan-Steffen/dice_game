@@ -12,7 +12,8 @@ extends RefCounted
 ## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=3 Symbole; alle
 ## drei gedreht ergeben eine 3×9-Wand. Symbole sind bloße Zeichen (kein Preis) -
 ## Gewinne entstehen erst durch REIHEN: 3+ gleiche Symbole waagerecht nebeneinander
-## (Reihen dürfen Automaten-Grenzen überschreiten). Länger = überproportional mehr.
+## (Reihen dürfen Automaten-Grenzen überschreiten). Länger = mehr UND größere
+## Pakete (PACK_LADDER) - der Automat ist neben dem Laden die zweite Größenquelle.
 ## Drei Fumbles nebeneinander in einer Reihe = Bust: der ganze Topf ist verloren.
 ##
 ## Jeder Dreh EINMAL je Automat. „Auszahlen" löst alle Reihen in Preise auf und
@@ -30,6 +31,22 @@ const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.
 const DIRECTIONS := [[1, 0], [0, 1], [1, 1], [1, -1]]
+
+## DIE AUSZAHLUNGSLEITER einer Gravur-Reihe: die LÄNGE entscheidet Menge UND
+## Paketgröße - 3→1 Standard, 4→2 Standard, 5→1 Groß, 6→2 Groß, dann kolossal.
+## Sie gilt für alle drei Gravur-Sorten GLEICH: die Sortenschere steckt schon in
+## den Symbol-Gewichten (_symbol_table - viele Zahlen, kaum Würfel-Gravuren), eine
+## seltene Reihe ist also von sich aus seltener; sie obendrein schlechter zu zahlen
+## zählte die Knappheit doppelt. WELCHE Sorte fällt, sagt weiter das Symbol.
+const PACK_LADDER := {
+	3: {"count": 1, "tier": Pack.TIER_NORMAL},
+	4: {"count": 2, "tier": Pack.TIER_NORMAL},
+	5: {"count": 1, "tier": Pack.TIER_GROSS},
+	6: {"count": 2, "tier": Pack.TIER_GROSS},
+}
+## Ab hier läuft die Leiter kolossal weiter: 7→1, 8→2, 9→3 (TOTAL_COLS ist die
+## Decke). Abgeleitet statt ausgeschrieben - die Fortsetzung ist eine Regel.
+const KOLOSSAL_FROM := 7
 
 ## Aktuelle Wand: TOTAL_COLS Spalten, jede leer (ungedreht) oder ROWS Symbol-Kinds
 ## (SlotPrize.Kind als Symbol-Enum). Spalte c gehört Automat c / MACHINE_COLS.
@@ -110,22 +127,47 @@ func hit_count() -> int:
 
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
 ## Anzeige): je Gravur-Sorte die PAKETZAHL, dazu Charm-Raritäten und Würfel.
+## "packs" gliedert dieselben Pakete zusätzlich nach GRÖSSE - eine bloße Zahl
+## verschwiege den ganzen Unterschied zwischen einer 4er- und einer 6er-Reihe.
 func pot_summary() -> Dictionary:
 	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.DICE_ENGRAVING: 0}
+	var tiers := {}       # Symbol → {Größe → Paketzahl}
 	var charms: Array = []
 	var dice := 0
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
 			match String(spec["kind"]):
-				"pack": counts[int(spec["symbol"])] += int(spec["count"])
+				"pack":
+					var symbol := int(spec["symbol"])
+					var amount := int(spec["count"])
+					var pack_tier := int(spec.get("tier", Pack.TIER_NORMAL))
+					counts[symbol] += amount
+					if not tiers.has(symbol):
+						tiers[symbol] = {}
+					tiers[symbol][pack_tier] = int(tiers[symbol].get(pack_tier, 0)) + amount
 				"charm": charms.append(String(spec["rarity"]))
 				"die": dice += 1
 	return {
 		"engravings": counts[SlotPrize.Kind.ENGRAVING],
 		"materials": counts[SlotPrize.Kind.MATERIAL],
 		"edges": counts[SlotPrize.Kind.DICE_ENGRAVING],
+		"packs": _pack_lines(tiers),
 		"charms": charms, "dice": dice,
 	}
+
+## Die Paketzeilen des Topfs, je Sorte und Größe eine: {symbol, tier, count}. Feste
+## Reihenfolge (Sorte wie in der Legende, Größe aufsteigend) - eine Dictionary-
+## Reihenfolge ließe die Anzeige zwischen zwei Drehs springen.
+func _pack_lines(tiers: Dictionary) -> Array:
+	var out: Array = []
+	for symbol in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL,
+			SlotPrize.Kind.DICE_ENGRAVING]:
+		var by_tier: Dictionary = tiers.get(symbol, {})
+		for pack_tier in [Pack.TIER_NORMAL, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+			var amount := int(by_tier.get(pack_tier, 0))
+			if amount > 0:
+				out.append({"symbol": symbol, "tier": pack_tier, "count": amount})
+	return out
 
 ## Würfelt den Block eines Automaten (MACHINE_COLS Spalten à ROWS Kinds), OHNE ihn
 ## auf die Wand zu schreiben - so kann die Anzeige den Block erst nach der Walzen-
@@ -181,12 +223,14 @@ func _make_run(kind: int, run_cells: Array, direction: Array) -> Dictionary:
 	}
 
 ## Belohnungs-Vorlage(n) einer Reihe (für SlotPrize.from_spec). Meist eine; eine
-## lange Würfel-Reihe liefert zwei. Die Länge bestimmt die Menge - eine Rarität
-## gibt es seit dem Werkstatt-Umbau nicht mehr, die Stärke kommt aus der Hand.
+## lange Würfel-Reihe liefert zwei. Die Länge bestimmt Menge UND Paketgröße - eine
+## Rarität gibt es seit dem Werkstatt-Umbau nicht mehr, die Stärke kommt aus der Hand.
 func _run_specs(kind: int, length: int) -> Array:
 	match kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			return [{"kind": "pack", "symbol": kind, "count": _pack_count(kind, length)}]
+			var payout := pack_payout(length)
+			return [{"kind": "pack", "symbol": kind, "count": int(payout["count"]),
+				"tier": int(payout["tier"])}]
 		SlotPrize.Kind.CHARM:
 			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
 		SlotPrize.Kind.DIE:
@@ -196,13 +240,12 @@ func _run_specs(kind: int, length: int) -> Array:
 			return specs
 	return []
 
-## Paketzahl einer Gravur-Reihe. Die Sorte steuert die Ausbeute wie im Laden:
-## viele Zahlen, mäßig Material, sehr wenige Würfel-Gravuren.
-func _pack_count(kind: int, length: int) -> int:
-	match kind:
-		SlotPrize.Kind.MATERIAL: return maxi(1, length - 3)
-		SlotPrize.Kind.DICE_ENGRAVING: return maxi(1, length - 3)
-	return length - 2
+## Was eine Gravur-Reihe dieser Länge auswirft: {count, tier} aus der Leiter, ab
+## KOLOSSAL_FROM abgeleitet. Kopie, weil ein const-Dictionary schreibgeschützt ist.
+static func pack_payout(length: int) -> Dictionary:
+	if length >= KOLOSSAL_FROM:
+		return {"count": length - KOLOSSAL_FROM + 1, "tier": Pack.TIER_KOLOSSAL}
+	return (PACK_LADDER.get(length, PACK_LADDER[MIN_RUN]) as Dictionary).duplicate()
 
 
 ## Charm-Rarität GENAU nach Reihenlänge (immer nur ein Charm; die Länge bestimmt die
@@ -219,7 +262,9 @@ func _run_label(kind: int, length: int, specs: Array) -> String:
 	match kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			var n := int(specs[0]["count"])
-			return "%s ×%d → %d %s" % [sym, length, n, SlotPrize.pack_name(kind, n)]
+			var pack_tier := int(specs[0].get("tier", Pack.TIER_NORMAL))
+			return "%s ×%d → %d %s" % [sym, length, n,
+				SlotPrize.pack_name_tiered(kind, n, pack_tier)]
 		SlotPrize.Kind.CHARM:
 			return "%s ×%d → Charm" % [sym, length]
 		SlotPrize.Kind.DIE:

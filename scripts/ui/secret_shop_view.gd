@@ -250,11 +250,20 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 		var essence := Essence.by_id(die.essence_id)
 		tint = essence.glow
 		title = "%s-Würfel" % essence.display_name
-		body = "%s
-%s" % [essence.short, essence.description]
+		body = "%s\n%s" % [essence.short, essence.description]
 		var net := DieNetView.build(die, -1, float(thumb_px) / 4.4)
 		net.custom_minimum_size = Vector2(thumb_px, thumb_px)
 		face = net
+	elif kind == GameRun.KIND_CATALYST:
+		# Katalysator: kein Inhalt, sondern eine Wirkung auf die nächste Pressung.
+		# Er trägt das Eckzeichen des Sonderbestands - wie sein Siegel im Magazin.
+		var card_pack: Pack = offer[GameRun.OFFER_ITEM]
+		title = card_pack.display_name
+		body = card_pack.description
+		var seal := PackIconRenderer.for_type("")
+		seal.tint = VIOLET
+		seal.custom_minimum_size = Vector2(thumb_px, thumb_px)
+		face = seal
 	else:
 		var engraving: Engraving = offer[GameRun.OFFER_ITEM]
 		# Ein Bündel liegt als EINE Karte da - die Menge steht im Titel, damit sie
@@ -264,8 +273,7 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 		title = engraving.display_name if bundle == 1 else "%d× %s" % [bundle, engraving.display_name]
 		body = engraving.description
 		if bundle > 1:
-			body = "%s
-Eine Datenkarte mit %d Stücken darin." % [body, bundle]
+			body = "%s\nEine Datenkarte mit %d Stücken darin." % [body, bundle]
 		var renderer := EngravingRenderer.for_engraving(engraving)
 		renderer.custom_minimum_size = Vector2(thumb_px, thumb_px)
 		face = renderer

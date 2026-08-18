@@ -123,6 +123,20 @@ func test_url_tags_balanced() -> void:
 		assert_eq(marked.count("[url="), marked.count("[/url]"), id)
 
 
+## Der Multicast-Schirm der Werkbank und die vier Klauseltexte tragen dasselbe
+## Wort - es muss von überall auf denselben Eintrag zeigen. "Multicast-Chance"
+## trifft mit, weil der Bindestrich keine Wortgrenze ist.
+func test_multicast_links_from_screen_and_clauses() -> void:
+	assert_true(Lexikon.has_entry(Lexikon.MULTICAST))
+	assert_string_contains(Lexikon.linkify("Multicast 50 %"), "[url=multicast]")
+	assert_string_contains(Lexikon.linkify("Multicast-Chance +15 %"), "[url=multicast]")
+	assert_string_contains(Lexikon.linkify("Multicast-Limit ist 1"), "[url=multicast]")
+	for clause_id in [DealClause.IGNITION_BOOST, DealClause.CHAIN_DRIVER,
+			DealClause.IGNITION_BLOCK, DealClause.SHORT_CIRCUIT]:
+		var body: String = Lexikon.entry("clause:%s" % clause_id)["body"]
+		assert_string_contains(Lexikon.linkify(body), "[url=multicast]", clause_id)
+
+
 func test_glyph_surface_links_energie() -> void:
 	var marked := Lexikon.linkify("Kostet 1 ⚡ je Stufe.")
 	assert_string_contains(marked, "[url=energie]")

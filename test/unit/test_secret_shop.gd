@@ -145,23 +145,85 @@ func test_market_stays_barred_below_its_hub_level() -> void:
 
 # --- Auslage -------------------------------------------------------------------
 
+## Setzt den Sonderposten-Platz auf ein GRAVUR-Angebot: er führt seit den
+## Katalysatoren beide Familien des Sonderbestands, und ein Test, der den Bündel-
+## Kauf meint, braucht das Bündel.
+func _force_engraving_slot(run: GameRun) -> void:
+	run.secret_stock[1] = run._secret_engraving_offer()
+
 func test_stock_slots_are_charm_special_wildcard() -> void:
 	var run := _discovered()
 	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
-	assert_eq(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_ENGRAVING)
-	# Der dritte Platz ist die Wildcard: Charm, Sonderposten ODER Essenzwürfel.
+	# Der Sonderposten-Platz führt beide Familien des Sonderbestands.
+	var special: String = run.secret_stock[1][GameRun.OFFER_KIND]
+	assert_true(special == GameRun.KIND_ENGRAVING or special == GameRun.KIND_CATALYST,
+		"unbekannte Sonderbestands-Ware: %s" % special)
+	# Der dritte Platz ist die Wildcard: Charm, Sonderbestand ODER Essenzwürfel.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
 	assert_true(wildcard == GameRun.KIND_CHARM or wildcard == GameRun.KIND_ENGRAVING
-		or wildcard == GameRun.KIND_DIE, "unbekannte Wildcard-Ware: %s" % wildcard)
+		or wildcard == GameRun.KIND_CATALYST or wildcard == GameRun.KIND_DIE,
+		"unbekannte Wildcard-Ware: %s" % wildcard)
 
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)
 	assert_eq(int(run.secret_stock[0][GameRun.OFFER_PRICE]), GameRun.SECRET_CHARM_PRICE)
+	_force_engraving_slot(run)
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	assert_true(Engraving.is_special_id(engraving.id), "Sonderbestand statt Regalware")
 	assert_true(_is_bundle_price(int(run.secret_stock[1][GameRun.OFFER_PRICE]),
 		int(run.secret_stock[1][GameRun.OFFER_COUNT])), "Menge und Preis kommen als Paar")
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
+
+# --- Katalysatoren im Hinterzimmer ---------------------------------------------
+
+## Sie kommen wirklich vor, und dann als fertige Kassette zu ihrem eigenen ⚡-Preis.
+func test_the_special_slot_also_lists_catalysts() -> void:
+	var seen := {}
+	for i in 60:
+		var run := _discovered()
+		for offer in run.secret_stock:
+			if offer[GameRun.OFFER_KIND] != GameRun.KIND_CATALYST:
+				continue
+			var pack: Pack = offer[GameRun.OFFER_ITEM]
+			assert_true(pack.is_catalyst())
+			assert_eq(int(offer[GameRun.OFFER_PRICE]),
+				GameRun.secret_charge_price(Pack.catalyst_price(pack.catalyst_id)),
+				"der ⚡-Preis kommt aus dem Kurs, nicht aus einer zweiten Tabelle")
+			seen[pack.catalyst_id] = true
+	assert_gt(seen.size(), 0, "das Hinterzimmer führt sie")
+
+## Zwei gleiche Katalysator-Plätze lesen sich als Fehler - genau wie zwei gleiche
+## Sonderposten.
+func test_the_stock_never_lists_a_catalyst_twice() -> void:
+	for i in 40:
+		var run := _discovered()
+		var ids: Array[String] = []
+		for offer in run.secret_stock:
+			if offer[GameRun.OFFER_KIND] != GameRun.KIND_CATALYST:
+				continue
+			var pack: Pack = offer[GameRun.OFFER_ITEM]
+			assert_false(ids.has(pack.catalyst_id), "kein Katalysator doppelt")
+			ids.append(pack.catalyst_id)
+
+func test_buying_a_catalyst_stocks_the_sealed_cassette() -> void:
+	var run := _discovered()
+	run.secret_stock[1] = run._secret_catalyst_offer()
+	run.charge = 99
+	var pack: Pack = run.secret_stock[1][GameRun.OFFER_ITEM]
+	var price := run.secret_offer_price(run.secret_stock[1])
+	assert_true(run.buy_secret_offer(1))
+	assert_eq(run.charge, 99 - price)
+	assert_eq(run.owned_packs.size(), 1)
+	assert_eq(run.owned_packs[0].catalyst_id, pack.catalyst_id)
+	assert_eq(Pack.shelf_of(run.owned_packs[0]), Pack.SHELF_SPECIAL)
+
+## Der Kurs ist EINER: aufgerundet, nie unter 1 ⚡.
+func test_the_charge_price_follows_the_house_rate() -> void:
+	assert_eq(GameRun.secret_charge_price(Pack.SPECIAL_PRICE), 3,
+		"$30 = 3 ⚡, der Kurs, an dem er abgelesen ist")
+	assert_eq(GameRun.secret_charge_price(14), 2)
+	assert_eq(GameRun.secret_charge_price(8), 1)
+	assert_eq(GameRun.secret_charge_price(0), 1, "nie geschenkt")
 
 func test_stock_never_lists_a_charm_twice() -> void:
 	for i in 10:
@@ -272,6 +334,7 @@ func _is_bundle_price(price: int, count: int) -> bool:
 
 func test_buying_a_special_engraving_stocks_it() -> void:
 	var run := _discovered()
+	_force_engraving_slot(run)
 	run.charge = 99
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
@@ -286,6 +349,7 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 ## Ein Bündel ist eine Karte, aber es presst n Stücke - genau darin liegt sein Wert.
 func test_a_bundle_presses_every_piece_it_holds() -> void:
 	var run := _discovered()
+	_force_engraving_slot(run)
 	run.charge = 99
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])

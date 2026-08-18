@@ -166,9 +166,57 @@ func test_pressing_pays_out_per_pack() -> void:
 	var result := run.open_press(_d([0, 1]), _rng(9))
 	var readers: Array = result["readers"]
 	assert_eq(readers.size(), 2, "je Paket ein Leser")
-	for uids in readers:
-		assert_true(PhantomPress.YIELDS.has(uids.size()), "und je Leser seine Ausbeute")
-	assert_eq(run.press_pieces.size(), int(readers[0].size()) + int(readers[1].size()))
+	var total := 0
+	for triggers in readers:
+		assert_between(triggers.size(), 1, run.multicast_cap(),
+			"und je Leser seine Multicast-Kette")
+		for uids in triggers:
+			assert_eq(uids.size(), PhantomPress.base_for(Pack.TIER_NORMAL),
+				"eine Auslösung legt den Grundwurf ihrer Größe nach")
+			total += uids.size()
+	assert_eq(run.press_pieces.size(), total)
+
+## Die Kette ist die STRUKTUR des Ergebnisses: je Leser eine Folge von
+## Auslösungen, daneben dieselben Nummern flach.
+func test_the_result_carries_the_trigger_structure() -> void:
+	run.grant_pack(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL))
+	var result := run.open_press(_d([0]), _rng(90))
+	var triggers: Array = result["readers"][0]
+	var flat: Array = result["reader_uids"][0]
+	var rebuilt: Array = []
+	for uids in triggers:
+		rebuilt.append_array(uids)
+	assert_eq(rebuilt, flat, "flach ist genau die Kette hintereinander")
+	assert_eq(flat.size(), triggers.size() * PhantomPress.base_for(Pack.TIER_KOLOSSAL),
+		"je Auslösung fünf Stücke - das Kolossale schlägt schwer, nicht oft")
+	assert_lte(flat.size(), run.multicast_cap() * PhantomPress.base_for(Pack.TIER_KOLOSSAL),
+		"das Limit dieser Lizenzstufe ist die Decke eines Lesers")
+
+## Ein Fixinhalt ist von der Kette AUSGENOMMEN: EINE Auslösung, sein ganzer Inhalt.
+func test_a_fixed_content_pack_throws_everything_in_one_trigger() -> void:
+	var gold := Engraving.material_engraving(DieMaterial.by_id(DieMaterial.GOLD),
+		Engraving.Rarity.COMMON)
+	run.grant_pack(Pack.fixed_engraving_pack(gold, 5))
+	var result := run.open_press(_d([0]), _rng(91))
+	var triggers: Array = result["readers"][0]
+	assert_eq(triggers.size(), 1, "ein Fixinhalt löst genau einmal aus")
+	assert_eq(int(triggers[0].size()), 5, "und wirft sein ganzes Bündel dabei")
+
+## Die Größe schraubt am GEWICHT jedes Schlags, nicht an der Kette - über viele
+## Pressungen muss sie sich trotzdem zeigen.
+func test_a_bigger_pack_presses_more_pieces() -> void:
+	var counts: Array[int] = []
+	for tier in [Pack.TIER_NORMAL, Pack.TIER_KOLOSSAL]:
+		var session := GameRun.new_run()
+		session.charge = 500
+		var sum := 0
+		for i in 60:
+			session.grant_pack(Pack.tiered(Pack.number_pack(), tier))
+			var before := session.press_pieces.size()
+			session.open_press(_d([session.owned_packs.size() - 1]), _rng(200 + i))
+			sum += session.press_pieces.size() - before
+		counts.append(sum)
+	assert_gt(counts[1], counts[0], "das Kolossale wirft in Summe mehr aus")
 
 func test_every_piece_of_a_press_is_flat() -> void:
 	run.grant_pack(Pack.number_pack())
@@ -193,7 +241,7 @@ func test_the_reader_lists_name_exactly_the_pieces_they_threw() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.material_pack())
 	var result := run.open_press(_d([0, 1]), _rng(12))
-	var readers: Array = result["readers"]
+	var readers: Array = result["reader_uids"]
 	var index := 0
 	for slot in readers.size():
 		for uid in readers[slot]:
@@ -224,7 +272,7 @@ func test_a_fixed_content_pack_yields_exactly_one_piece() -> void:
 		Engraving.Rarity.COMMON)
 	run.grant_pack(Pack.fixed_engraving_pack(gold))
 	var result := run.open_press(_d([0]), _rng(4))
-	assert_eq(int(result["readers"][0].size()), 1)
+	assert_eq(int(result["reader_uids"][0].size()), 1)
 	assert_eq(run.press_pieces.size(), 1)
 	assert_eq(String(run.press_pieces[0]["id"]), DieMaterial.GOLD)
 
@@ -240,7 +288,7 @@ func test_a_mixed_press_gives_the_fixed_pack_its_own_reader() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving()))
 	var result := run.open_press(_d([0, 1]), _rng(15))
-	var readers: Array = result["readers"]
+	var readers: Array = result["reader_uids"]
 	assert_eq(readers.size(), 2)
 	assert_eq(int(readers[1].size()), 1, "der Fixinhalt wirft genau eins")
 
@@ -253,6 +301,145 @@ func test_a_second_press_adds_to_the_pile() -> void:
 	var first := run.press_pieces.size()
 	run.open_press(_d([0]), _rng(17))
 	assert_gt(run.press_pieces.size(), first, "der Haufen wächst")
+
+# --- Die Katalysator-Kassetten -------------------------------------------------
+# Sie werfen nichts aus; sie verändern die EINE Pressung, in der sie stecken, und
+# brennen mit ihr aus. Ihre Terme fahren IN die Abfragen des Laufs hinein - die
+# Klemmen dort bleiben der einzige Schiedsrichter.
+
+func _catalysts(ids: Array) -> Array[Pack]:
+	var packs: Array[Pack] = []
+	for id in ids:
+		packs.append(Pack.catalyst(String(id)))
+	return packs
+
+func test_a_propellant_lifts_the_chance_of_its_grip() -> void:
+	run.hub_level = 1
+	var base := run.multicast_chance()
+	var terms := GameRun.catalyst_terms(_catalysts([Pack.CATALYST_PROPELLANT]))
+	assert_almost_eq(run.multicast_chance(float(terms["chance"])), base + 0.2, 0.0001)
+
+func test_a_timer_lifts_the_cap_of_its_grip() -> void:
+	run.hub_level = 1
+	var terms := GameRun.catalyst_terms(_catalysts([Pack.CATALYST_TIMER]))
+	assert_eq(run.multicast_cap(int(terms["cap"])), PhantomPress.base_cap(1) + 2)
+
+## Stapeln ist erlaubt und additiv.
+func test_two_catalysts_of_a_kind_stack() -> void:
+	var terms := GameRun.catalyst_terms(
+		_catalysts([Pack.CATALYST_PROPELLANT, Pack.CATALYST_PROPELLANT]))
+	assert_almost_eq(float(terms["chance"]), 0.4, 0.0001)
+	var caps := GameRun.catalyst_terms(_catalysts([Pack.CATALYST_TIMER, Pack.CATALYST_TIMER]))
+	assert_eq(int(caps["cap"]), 4)
+	var bases := GameRun.catalyst_terms(_catalysts([Pack.CATALYST_MATRIX, Pack.CATALYST_MATRIX]))
+	assert_eq(int(bases["base"]), 2)
+
+## Die Klemme bleibt die Klemme: eine Treibladung auf einen vorgemerkten Schub
+## drückt die Chance nicht über 90 %.
+func test_the_ninety_percent_clamp_survives_a_propellant() -> void:
+	run.hub_level = 10
+	run.grant_press_boost()
+	var terms := GameRun.catalyst_terms(
+		_catalysts([Pack.CATALYST_PROPELLANT, Pack.CATALYST_PROPELLANT]))
+	assert_almost_eq(run.multicast_chance(float(terms["chance"])),
+		PhantomPress.MULTICAST_CHANCE_MAX, 0.0001)
+
+## Und der Kurzschluss schlägt den Taktgeber ABSOLUT - genau deshalb muss der Term
+## in die Abfrage hinein und nicht daneben.
+func test_the_short_circuit_beats_the_timer() -> void:
+	run.hub_level = 10
+	run.round_number = 1
+	var signed: Array[String] = []
+	signed.assign([DealClause.SHORT_CIRCUIT])
+	run.sign_clauses(signed)
+	var terms := GameRun.catalyst_terms(_catalysts([Pack.CATALYST_TIMER, Pack.CATALYST_TIMER]))
+	assert_eq(run.multicast_cap(int(terms["cap"])), 1)
+
+## Die Doppelmatrize hebt den Grundwurf JEDES Pakets im Griff.
+func test_the_matrix_lifts_the_base_of_every_trigger() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
+	var result := run.open_press(_d([0, 1]), _rng(310))
+	for uids in result["readers"][0]:
+		assert_eq(int(uids.size()), PhantomPress.base_for(Pack.TIER_NORMAL) + 1,
+			"Standard wirft mit Matrize zwei je Auslösung")
+
+func test_the_matrix_leaves_a_fixed_content_pack_alone() -> void:
+	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 3))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
+	var result := run.open_press(_d([0, 1]), _rng(311))
+	var triggers: Array = result["readers"][0]
+	assert_eq(triggers.size(), 1, "ein Fixinhalt löst einmal aus")
+	assert_eq(int(triggers[0].size()), 3, "und wirft genau seinen Inhalt, nicht mehr")
+
+## Der Katalysator-Leser bleibt LEER - er gibt ab, er wirft nicht aus.
+func test_a_catalyst_reader_throws_nothing() -> void:
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+	run.grant_pack(Pack.number_pack())
+	var result := run.open_press(_d([0, 1]), _rng(312))
+	var readers: Array = result["readers"]
+	assert_eq(readers.size(), 2, "beide Kassetten haben ihren Platz")
+	assert_true((readers[0] as Array).is_empty(), "der Katalysator wirft nichts")
+	assert_false((readers[1] as Array).is_empty())
+	assert_true((result["reader_uids"][0] as Array).is_empty())
+
+## Die Erdungsklemme erlässt den PREIS, nie die Sprosse.
+func test_the_grounding_clamp_skips_a_rung_without_resetting_the_ladder() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	run.charge = 4
+	run.open_press(_d([0]), _rng(313))  # die freie erste
+	assert_eq(run.press_cost(), 1)
+	var result := run.open_press(_d([0, 1]), _rng(314))  # Paket + Klemme
+	assert_eq(int(result["cost"]), 0, "die Klemme trägt sie")
+	assert_eq(run.charge, 4, "keine Energie geflossen")
+	assert_eq(run.press_uses, 2, "die Leiter steigt trotzdem")
+	assert_eq(run.press_cost(), 2, "die nächste kostet zwei - nicht null")
+
+## Sie zahlt auch, wenn die Bank leer ist: press_cost_for ist die eine Auskunft.
+func test_the_grounding_clamp_presses_on_an_empty_bank() -> void:
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	run.press_uses = 5
+	run.charge = 0
+	assert_eq(run.press_cost_for(_catalysts([Pack.CATALYST_GROUND])), 0)
+	assert_eq(run.press_cost_for([] as Array[Pack]), 5)
+	assert_false(run.open_press(_d([0, 1]), _rng(315))["readers"].is_empty())
+
+## Ein Griff aus lauter Katalysatoren presst NICHT - und zahlt auch nichts.
+func test_a_catalysts_only_grip_is_refused() -> void:
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+	run.charge = 5
+	run.press_uses = 3
+	var result := run.open_press(_d([0, 1]), _rng(316))
+	assert_true(result["readers"].is_empty(), "nichts gepresst")
+	assert_eq(run.owned_packs.size(), 2, "und nichts verbraucht")
+	assert_eq(run.charge, 5, "nichts gezahlt")
+	assert_eq(run.press_uses, 3, "die Pressung hat nie stattgefunden")
+	assert_true(run.press_pieces.is_empty())
+
+## Ein Katalysator IST ein Paket: die Zwinge würfelt auch für ihn.
+func test_the_clamp_charm_can_save_a_catalyst() -> void:
+	var saved := false
+	for i in 40:
+		var session := GameRun.new_run()
+		session.owned_charms.append(Charm.bench_clamp())
+		session.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+		session.grant_pack(Pack.number_pack())
+		session.open_press(_d([0, 1]), _rng(400 + i))
+		for pack in session.owned_packs:
+			if pack.is_catalyst():
+				saved = true
+	assert_true(saved, "eine Zwinge rettet irgendwann auch eine Katalysator-Kassette")
+
+## Ein Katalysator ohne Wirkung wäre ein Fehler - jede Karte muss einen Term haben.
+func test_every_catalyst_carries_a_term() -> void:
+	for id in Pack.catalyst_ids():
+		var terms := GameRun.catalyst_terms(_catalysts([id]))
+		assert_true(float(terms["chance"]) > 0.0 or int(terms["cap"]) > 0
+			or int(terms["base"]) > 0 or bool(terms["free"]), "%s wirkt" % id)
 
 ## Die Presse mintet NICHTS mehr nebenher: kein versiegeltes Paket, keine
 ## gebankte Stufe - nur die Stücke.

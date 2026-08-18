@@ -28,8 +28,9 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, CHARGE }
-## Was der Gewinn ausschüttet.
-enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL }
+## Was der Gewinn ausschüttet. PRESS_BOOST ist ein Einmal-Schub auf die nächste
+## Pressung (mehr Multicast-Kette), kein Bestand.
+enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL, PRESS_BOOST }
 
 ## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
 ## die Nebenwetten überhaupt installiert, GameRun.HUB_SIDE_BETS_LEVEL).
@@ -96,6 +97,10 @@ const TEMPLATES := [
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"reward": 2, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Fumble."},
+	# Eine Straße IST eine Kette - der Gewinn verlängert die der Presse.
+	{"id": "chain_reaction", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
+		"stake": 8, "payout": Payout.PRESS_BOOST, "name": "Kettenreaktion",
+		"desc": "Nimm eine Große Straße."},
 	# --- Salon (5) ---
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
 		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
@@ -442,7 +447,7 @@ func stake_label(factor: int = 1) -> String:
 
 ## Gewinn-Etikett: Barbetrag oder Anzahl versiegelter Pakete (klar benannt, damit
 ## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt). factor wie oben -
-## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt die Turniernacht NICHT.
+## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt der Quotenbonus NICHT.
 ## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
 ## sonst verspricht er weniger, als die Abrechnung zahlt.
 func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
@@ -458,5 +463,9 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 			return "1 Paket"
 		Payout.COMBO_LEVEL:
 			return "+1 Stufe"
+		Payout.PRESS_BOOST:
+			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Pressung.
+			return "Nächste Pressung: Limit +%d, Chance +%d %%" % [PhantomPress.BOOST_CAP,
+				roundi(PhantomPress.BOOST_CHANCE * 100.0)]
 	var count := reward_packs * factor
 	return "%d Paket%s" % [count, "" if count == 1 else "e"]

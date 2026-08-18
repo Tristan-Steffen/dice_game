@@ -535,6 +535,31 @@ func test_booking_a_prize_multiple_times_gives_separate_packs():
 	assert_eq(run.owned_packs.size(), 4, "Multiplikator vervielfacht die Pakete")
 	assert_false(run.owned_packs[0] == run.owned_packs[2], "keine geteilte Resource")
 
+func test_booking_carries_the_pack_size_into_the_magazine():
+	# Der Automat ist die zweite Größenquelle - die Kopie des Multiplikators darf
+	# die Größe nicht unterwegs verlieren.
+	var prize := SlotPrize.from_spec({"kind": "pack", "symbol": SlotPrize.Kind.MATERIAL,
+		"count": 2, "tier": Pack.TIER_KOLOSSAL})
+	run._book_slot_prize(prize, 2)
+	assert_eq(run.owned_packs.size(), 4)
+	for pack: Pack in run.owned_packs:
+		assert_eq(pack.tier, Pack.TIER_KOLOSSAL, "die Größe überlebt die Buchung")
+		assert_eq(pack.display_name, "Kolossales Material-Paket")
+
+func test_a_full_magazine_turns_a_slot_prize_into_money():
+	# Auch die dickste Reihe zerfällt am vollen Magazin Paket für Paket zu Geld -
+	# der Automat kennt dafür keine eigene Zeremonie, aber verschlucken darf er nichts.
+	run.set_pack_capacity(2)
+	run.grant_pack(Pack.number_pack())
+	run.grant_pack(Pack.number_pack())
+	var money_before := run.money
+	var prize := SlotPrize.from_spec({"kind": "pack", "symbol": SlotPrize.Kind.ENGRAVING,
+		"count": 3, "tier": Pack.TIER_KOLOSSAL})
+	run.book_slot_prize(prize)
+	assert_eq(run.owned_packs.size(), 2, "das Magazin bleibt voll")
+	assert_eq(run.money, money_before + 3 * GameRun.PACK_FIZZLE_MONEY,
+		"je zerfallenem Paket eine Münze")
+
 func test_a_slot_pack_is_a_plain_sealed_pack():
 	# Der Raritäts-Boden ist gestorben: alle sechs Seiten sind gleich wahrscheinlich,
 	# die Stärke kommt aus der Hand.
@@ -996,8 +1021,8 @@ func test_instant_clause_pays_once_on_signing():
 	assert_eq(run.money, before + GameRun.ADVANCE_PAYMENT_MONEY, "aber nur einmal")
 
 func test_instant_charge_clauses_book_immediately():
-	_sign([DealClause.SEED_CAPITAL_II])
-	assert_eq(run.charge, GameRun.SEED_CAPITAL_II_CHARGE)
+	_sign([DealClause.SEED_CAPITAL])
+	assert_eq(run.charge, GameRun.SEED_CAPITAL_CHARGE)
 	_sign([DealClause.DISCHARGE])
 	assert_eq(run.charge, 0, "unter null geht die Börse nie")
 
@@ -1087,6 +1112,24 @@ func test_a_werbegeschenk_can_land_on_any_slot():
 					"ein Werbegeschenk hat kein Kleingedrucktes")
 	assert_true(hit[0] and hit[1] and hit[2], "jeder Platz kann zum Werbegeschenk werden")
 
+## Das Werbegeschenk hat keinen eigenen Klauseltopf mehr: sein Bonus kommt aus dem
+## normalen Topf des Platzes, auf dem es liegt - nur der Malus fehlt.
+func test_a_werbegeschenk_draws_its_bonus_from_its_own_tier():
+	var tiers: Array[DealClause.Tier] = [
+		DealClause.Tier.ONE, DealClause.Tier.TWO, DealClause.Tier.THREE]
+	var seen := 0
+	for i in 200:
+		run.route_offers.clear()
+		run.roll_route_offers()
+		for slot in 3:
+			if int(run.route_offers[slot][GameRun.CARD_TIER]) != int(DealClause.Tier.TREAT):
+				continue
+			seen += 1
+			var pool := DealClause.ids_for(tiers[slot], DealClause.Kind.BONUS)
+			assert_true(pool.has(String(run.route_offers[slot][GameRun.CARD_BONUS])),
+				"Platz %d schenkt aus seinem eigenen Topf" % slot)
+	assert_gt(seen, 0, "über 200 Würfe liegt mindestens ein Werbegeschenk")
+
 # --- Werbetrommel: der erste Charm am Vertragswesen -------------------------------
 
 func test_the_ad_drum_triples_the_treat_chance():
@@ -1123,8 +1166,8 @@ func test_the_shyster_doubles_the_instant_money():
 
 func test_the_shyster_doubles_the_instant_charge():
 	_shyster()
-	_sign([DealClause.SEED_CAPITAL_II])
-	assert_eq(run.charge, GameRun.SEED_CAPITAL_II_CHARGE * 2)
+	_sign([DealClause.SEED_CAPITAL])
+	assert_eq(run.charge, GameRun.SEED_CAPITAL_CHARGE * 2)
 	assert_eq(GameRun.instant_clause_charge(DealClause.SEED_CAPITAL, 2),
 		GameRun.SEED_CAPITAL_CHARGE * 2, "die Zeremonie liest dieselbe Quelle")
 
@@ -1348,13 +1391,6 @@ func test_leftover_clauses_silence_the_die_row():
 	_sign([DealClause.BLACKOUT])
 	assert_false(run.unused_dice_pay(), "Blackout wirkt genauso, nur eine Runde")
 
-func test_maintenance_engraving_is_a_per_hand_grant():
-	_sign([DealClause.MAINTENANCE_ENGRAVING])
-	assert_true(run.grants_engraving_per_hand())
-	var before := run.owned_packs.size()
-	run.apply_round_start_charms()
-	assert_eq(run.owned_packs.size(), before, "der Rundenbeginn schenkt nichts mehr")
-
 func test_high_voltage_and_stage_cap_resolve_in_order():
 	assert_eq(run.max_overcharge_stages(), 5, "Hinterzimmer ohne Vertrag: voller Rahmen")
 	_sign([DealClause.HIGH_VOLTAGE])
@@ -1373,16 +1409,53 @@ func test_fuse_failure_scales_the_stages_by_four():
 	assert_eq(run.stage_size(2), run.effective_goal() * 4)
 	assert_eq(run.cumulative_threshold(2), run.effective_goal() * 5)
 
-func test_mains_hum_raises_every_stage_by_a_quarter():
-	var plain := run.stage_size(2)
+func test_mains_hum_scales_the_stages_by_three():
+	assert_eq(run.stage_size(2), run.effective_goal() * 2, "ohne Klausel wächst es ×2")
 	_sign([DealClause.MAINS_HUM])
-	assert_eq(run.stage_size(2), roundi(plain * GameRun.MAINS_HUM_FACTOR))
+	assert_eq(run.stage_size(1), run.effective_goal(), "die erste Stufe bleibt das Ziel")
+	assert_eq(run.stage_size(2), run.effective_goal() * 3)
+	assert_eq(run.cumulative_threshold(2), run.effective_goal() * 4)
+
+## Beide drehen an derselben Skalierung - der Sicherungsfall ist der schärfere.
+func test_fuse_failure_beats_the_mains_hum():
+	_sign([DealClause.MAINS_HUM, DealClause.FUSE_FAILURE])
+	assert_eq(run.stage_scale(), GameRun.FUSE_FAILURE_SCALE)
 
 func test_double_loader_mints_two_charges_per_stage():
 	_sign([DealClause.DOUBLE_LOADER])
 	assert_eq(run.charge_per_stage(), 2)
 	var split := run.charge_split(2)
 	assert_eq(int(split["stored"]), 4, "zwei Stufen prägen vier Ladungen")
+
+## Die Zeremonie fliegt EINEN Kometen je STUFE und bucht dessen Prägung bei der
+## Ankunft. charge_split rechnet weiterhin in LADUNGEN - beide Zahlen müssen
+## zusammenpassen, sonst plant die Vorschau anders, als gebucht wird.
+func test_the_stage_arithmetic_behind_one_comet_per_stage():
+	_sign([DealClause.DOUBLE_LOADER])
+	run.hub_level = 1  # Deckel 5
+	assert_eq(run.charge_cap(), 5)
+	var stages := 4
+	var split := run.charge_split(stages)
+	assert_eq(int(split["stored"]), 5, "die Börse nimmt fünf")
+	assert_eq(int(split["overflow"]), 3, "die übrigen drei zahlen bar")
+	# Je Stufe: erst was noch hineinpaßt, der Rest bar - genau die Aufteilung, die
+	# _play_bank_discharge je Einschlag bucht. Eine Stufe kann GETEILT ankommen.
+	var per_stage := run.charge_per_stage()
+	var minted := 0
+	var charges: Array[int] = []
+	var cash: Array[int] = []
+	for i in stages:
+		var take := clampi(int(split["stored"]) - minted, 0, per_stage)
+		charges.append(take)
+		cash.append(per_stage - take)
+		minted += per_stage
+	assert_eq(charges, [2, 2, 1, 0] as Array[int], "die dritte Stufe kommt geteilt an")
+	assert_eq(cash, [0, 0, 1, 2] as Array[int])
+	var booked := 0
+	for c in charges:
+		booked += c
+	assert_eq(booked, int(split["stored"]), "gebucht wird exakt die Vorschau")
+	assert_eq(charges.size(), stages, "ein Komet je Stufe, nie zwei")
 
 func test_shop_price_clauses_multiply():
 	_sign([DealClause.INFLATION])
@@ -1448,8 +1521,8 @@ func test_odds_bonus_and_betting_tax_are_separate_clauses():
 	run.place_side_bet(bet)
 	assert_eq(run.money, 0, "der doppelte Einsatz wird abgebucht")
 
-func test_tournament_night_doubles_pack_rewards():
-	_sign([DealClause.TOURNAMENT_NIGHT])
+func test_odds_bonus_doubles_pack_rewards():
+	_sign([DealClause.ODDS_BONUS])
 	var bet := SideBet._from_template(_template("full_house"))  # Paket-Gewinn
 	run.money = 50
 	run.place_side_bet(bet)
@@ -1459,12 +1532,12 @@ func test_tournament_night_doubles_pack_rewards():
 	run.resolve_side_bets(result)
 	assert_eq(run.owned_packs.size(), before + bet.reward_packs * 2)
 
-func test_power_spike_spotlights_without_the_charm():
-	_sign([DealClause.POWER_SPIKE])
+func test_the_spotlight_clause_lights_a_combo_without_the_charm():
+	_sign([DealClause.SPOTLIGHT])
 	run.apply_round_start_charms()
 	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "Rampenlicht ohne Charm")
 
-## --- Goldener Handschlag / Durchschlagpapier ---------------------
+## --- Goldener Handschlag ------------------------------------------------------
 
 func test_golden_handshake_needs_a_hand_that_clears_the_benchmark():
 	_sign([DealClause.GOLDEN_HANDSHAKE])
@@ -1493,35 +1566,6 @@ func test_golden_handshake_spares_a_burned_in_material_face():
 	assert_true(run.apply_golden_handshake(die, 100))
 	assert_eq(die.materials[2], DieMaterial.RUBY, "Einbrand sperrt das Übermalen")
 	assert_eq(die.materials[0], DieMaterial.GOLD, "der Rest wird trotzdem Gold")
-
-func test_carbon_copy_copies_every_shown_material_of_the_first_hand():
-	_sign([DealClause.CARBON_COPY])
-	var die := DieDefinition.standard()
-	die.set_face_material(0, DieMaterial.GOLD)
-	var defs: Array[DieDefinition] = [die]
-	var faces: Array[int] = [0]
-	var participating: Array[int] = [0]
-	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 1)
-	assert_eq(run.owned_packs.size(), 1)
-	assert_eq(run.owned_packs[0].fixed_engraving.material_id(), DieMaterial.GOLD)
-
-func test_carbon_copy_only_pays_the_first_hand_and_only_signed():
-	var die := DieDefinition.standard()
-	die.set_face_material(0, DieMaterial.GOLD)
-	var defs: Array[DieDefinition] = [die]
-	var faces: Array[int] = [0]
-	var participating: Array[int] = [0]
-	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 0, "ohne Unterschrift nichts")
-	_sign([DealClause.CARBON_COPY])
-	assert_eq(run.apply_carbon_copy(defs, faces, participating, false), 0, "nur die erste Hand")
-	assert_eq(run.owned_packs.size(), 0)
-
-func test_carbon_copy_skips_a_bare_face():
-	_sign([DealClause.CARBON_COPY])
-	var defs: Array[DieDefinition] = [DieDefinition.standard()]
-	var faces: Array[int] = [0]
-	var participating: Array[int] = [0]
-	assert_eq(run.apply_carbon_copy(defs, faces, participating, true), 0, "leere Seite kopiert nichts")
 
 # --- Drossel & Stresstest-Konditionen ----------------------------------------------
 
@@ -1687,15 +1731,124 @@ func test_special_payout_grants_the_sonderposten():
 	assert_eq(run.owned_packs.size(), 1, "auch der Sonderposten kommt versiegelt")
 	assert_eq(run.owned_packs[0].fixed_engraving.id, Engraving.POINTER)
 
-func test_tournament_night_spares_unique_goods():
-	_sign([DealClause.TOURNAMENT_NIGHT])
+func test_the_odds_bonus_spares_unique_goods():
+	_sign([DealClause.ODDS_BONUS])
 	var bet := SideBet._from_template(_template("circuit_contract"))
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
 	assert_eq(run.owned_packs.size(), 1, "ein Sonderposten bleibt einer")
 
+# --- Der Multicast: Lizenzstufe, Klauseln, Wett-Schub ------------------------------
+
+func test_the_multicast_queries_read_the_licence_ladder():
+	for level in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+		run.hub_level = level
+		assert_almost_eq(run.multicast_chance(), PhantomPress.base_chance(level), 0.0001,
+			"Chance auf Stufe %d" % level)
+		assert_eq(run.multicast_cap(), PhantomPress.base_cap(level),
+			"Limit auf Stufe %d" % level)
+
+func test_ignition_boost_lifts_the_chance():
+	run.hub_level = 1
+	_sign([DealClause.IGNITION_BOOST])
+	assert_almost_eq(run.multicast_chance(), 0.65, 0.0001)
+
+func test_the_shyster_doubles_the_quantitative_multicast_bonuses():
+	run.hub_level = 1
+	run.owned_charms.append(Charm.shyster())
+	_sign([DealClause.IGNITION_BOOST, DealClause.CHAIN_DRIVER])
+	assert_eq(run.deal_bonus_factor(), 2)
+	assert_almost_eq(run.multicast_chance(), 0.8, 0.0001, "+15 wird +30")
+	assert_eq(run.multicast_cap(), 3 + 4, "+2 wird +4")
+
+func test_the_chain_driver_lengthens_the_limit():
+	run.hub_level = 1
+	_sign([DealClause.CHAIN_DRIVER])
+	assert_eq(run.multicast_cap(), 5)
+
+func test_ignition_block_cuts_the_chance_and_is_never_doubled():
+	run.hub_level = 5
+	run.owned_charms.append(Charm.shyster())
+	_sign([DealClause.IGNITION_BLOCK])
+	assert_almost_eq(run.multicast_chance(), 0.42, 0.0001,
+		"der Malus bleibt einfach, auch beim Winkeladvokat")
+
+func test_the_short_circuit_overrides_the_limit_absolutely():
+	run.hub_level = 10
+	run.grant_press_boost()
+	_sign([DealClause.CHAIN_DRIVER, DealClause.SHORT_CIRCUIT])
+	assert_eq(run.multicast_cap(), 1, "Kurzschluss schlägt Leiter, Klausel und Schub")
+
+func test_the_chance_is_clamped_below_certainty():
+	# Ein Multicast, der IMMER zündet, wäre keine Chance mehr.
+	run.hub_level = 10
+	run.owned_charms.append(Charm.shyster())
+	run.grant_press_boost()
+	_sign([DealClause.IGNITION_BOOST])
+	assert_almost_eq(run.multicast_chance(), PhantomPress.MULTICAST_CHANCE_MAX, 0.0001)
+	assert_lt(run.multicast_chance(), 1.0)
+
+func test_the_press_boost_stacks_on_top_and_is_spent_by_one_press():
+	run.hub_level = 1
+	run.grant_press_boost()
+	assert_almost_eq(run.multicast_chance(), 0.75, 0.0001)
+	assert_eq(run.multicast_cap(), 5)
+	run.grant_pack(Pack.number_pack())
+	run.open_press([0] as Array[int], _seeded(7))
+	assert_false(run.press_boost_pending, "ein Schub, eine Pressung")
+	assert_almost_eq(run.multicast_chance(), PhantomPress.base_chance(1), 0.0001)
+	assert_eq(run.multicast_cap(), PhantomPress.base_cap(1))
+
+func test_a_fresh_run_carries_no_press_boost():
+	run.grant_press_boost()
+	assert_false(GameRun.new_run().press_boost_pending)
+
+## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
+## sonst wären die Multicast-Klauseln tote Buchstaben.
+func test_a_round_clause_still_reaches_the_shop_of_its_round():
+	_sign([DealClause.CHAIN_DRIVER], 3)
+	assert_eq(run.round_number, 3)
+	# Der Laden öffnet nach der Auszahlung, die Runde rückt erst beim Schließen vor.
+	assert_eq(run.multicast_cap(), PhantomPress.base_cap(run.hub_level) + GameRun.CHAIN_DRIVER_CAP,
+		"im Laden derselben Runde wirkt sie noch")
+	run.advance_round()
+	assert_eq(run.multicast_cap(), PhantomPress.base_cap(run.hub_level),
+		"in der nächsten Runde ist sie tot")
+
+func test_the_chain_reaction_bet_grants_the_boost_once():
+	var bet := SideBet._from_template(_template("chain_reaction"))
+	assert_eq(bet.payout_kind, SideBet.Payout.PRESS_BOOST)
+	assert_eq(bet.unlock_level, SideBet.UNLOCK_BASE)
+	run.money = 100
+	run.place_side_bet(bet)
+	run.resolve_side_bets({"cleared": true,
+		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
+	assert_true(run.press_boost_pending, "der Gewinn merkt die nächste Pressung vor")
+
+func test_the_press_boost_is_no_doubled_good():
+	# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
+	_sign([DealClause.ODDS_BONUS])
+	var bet := SideBet._from_template(_template("chain_reaction"))
+	run.money = 100
+	run.place_side_bet(bet)
+	run.resolve_side_bets({"cleared": true,
+		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
+	run.hub_level = 1
+	assert_almost_eq(run.multicast_chance(), 0.75, 0.0001, "EIN Schub, nicht zwei")
+	assert_eq(run.multicast_cap(), 5)
+
+func test_the_chain_reaction_button_states_its_prize():
+	var bet := SideBet._from_template(_template("chain_reaction"))
+	assert_eq(bet.reward_label(), "Nächste Pressung: Limit +2, Chance +25 %")
+	assert_eq(bet.reward_label(2), bet.reward_label(), "der Quotenbonus rührt es nicht an")
+
 # --- Helfer -----------------------------------------------------------------------
+
+func _seeded(value: int) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = value
+	return rng
 
 func _p(values: Array) -> Array[int]:
 	var typed: Array[int] = []
