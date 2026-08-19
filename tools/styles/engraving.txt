@@ -1,0 +1,5 @@
+A single engraving icon for a dark neon casino UI: monoline light-etching, one
+uniform stroke width, cyan-white glowing line on a near-black background, no
+fill, no gradient, no perspective, perfectly centered, square composition with
+generous margin, geometric and readable at 48 pixels, no text, no lettering,
+no drop shadow. Flat vector look, one continuous figure.
