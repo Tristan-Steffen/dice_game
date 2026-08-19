@@ -84,11 +84,49 @@ func test_footprint_matches_the_slot_aspect() -> void:
 	assert_gt(aspect, SLOT_ASPECT * 0.97, "füllt die kurze Achse fast ganz aus")
 
 func test_cells_fill_most_of_the_footprint() -> void:
-	# Die Zellen selbst - nicht nur die Platte - müssen den Platz ausfüllen:
-	# knappe Ränder, knappe Zellabstände.
-	var lit_z := float(CapacitorBankView.GRID_COLS - 1) * CapacitorBankView.CELL_PITCH \
-		+ CapacitorBankView.CELL_SIZE.z
-	var lit_x := float(CapacitorBankView.GRID_ROWS - 1) * CapacitorBankView.ROW_PITCH \
-		+ CapacitorBankView.CELL_SIZE.x
-	assert_gt(lit_z / CapacitorBankView.max_length(), 0.93, "Leuchtfläche füllt die Länge")
-	assert_gt(lit_x / CapacitorBankView.max_width(), 0.90, "Leuchtfläche füllt die Breite")
+	# Die Bauteile selbst - nicht nur die Platte - müssen den Platz ausfüllen:
+	# entlang Z belegt ein Elko Dose PLUS Beine, entlang X ist der Crimpring die
+	# breiteste Stelle. Bliebe hier Luft, läge ein Filzband im Platz.
+	var used_z := float(CapacitorBankView.GRID_COLS - 1) * CapacitorBankView.CELL_PITCH \
+		+ CapacitorBankView.CAN_LENGTH + CapacitorBankView.LEG_REACH
+	var used_x := float(CapacitorBankView.GRID_ROWS - 1) * CapacitorBankView.ROW_PITCH \
+		+ CapacitorBankView.CRIMP_DIAMETER
+	assert_gt(used_z / CapacitorBankView.max_length(), 0.93, "Bauteile füllen die Länge")
+	assert_gt(used_x / CapacitorBankView.max_width(), 0.90, "Bauteile füllen die Breite")
+	# Die leuchtende Dose selbst darf nicht zum Punkt schrumpfen - sie trägt den
+	# Bestand, die Beine sind nur Beiwerk.
+	assert_gt(CapacitorBankView.CAN_LENGTH / CapacitorBankView.CELL_PITCH, 0.55,
+		"die Dose trägt den Großteil der Spaltenteilung")
+	assert_gt(CapacitorBankView.CAN_DIAMETER / CapacitorBankView.ROW_PITCH, 0.6,
+		"die Dose trägt den Großteil der Reihenteilung")
+
+func test_capacitor_reads_as_a_radial_can() -> void:
+	# Proportion eines echten Radial-Elkos (Länge ~1.5× Durchmesser) - und die
+	# Reihenfuge bleibt offen, sonst verschmelzen die Reihen auf dem Schirm.
+	var ratio := CapacitorBankView.CAN_LENGTH / CapacitorBankView.CAN_DIAMETER
+	assert_between(ratio, 1.4, 1.6, "Dose liest sich als Elko, nicht als Scheibe")
+	assert_gt(CapacitorBankView.CRIMP_DIAMETER, CapacitorBankView.CAN_DIAMETER,
+		"der Crimpring ist die gerollte Bördelkante, also breiter als die Dose")
+	var gap := CapacitorBankView.ROW_PITCH - CapacitorBankView.CRIMP_DIAMETER
+	assert_gt(gap / CapacitorBankView.ROW_PITCH, 0.2, "klare Fuge zwischen den Reihen")
+
+func test_cell_parts_share_meshes_and_stay_static() -> void:
+	# Ring und Beine sind Kinder der Zelle, teilen sich aber Ressourcen über alle
+	# 25 Zellen - und kein Bauteil wirft Schatten oder bringt ein Licht mit.
+	var bank := _bank()
+	bank.set_charge(4, 25)
+	var cells := _cells(bank)
+	var first := cells[0].get_children()
+	var last := cells[24].get_children()
+	assert_eq(first.size(), 3, "Crimpring plus zwei Beine")
+	for i in first.size():
+		assert_eq((first[i] as MeshInstance3D).mesh, (last[i] as MeshInstance3D).mesh,
+			"geteiltes Mesh")
+		assert_eq((first[i] as MeshInstance3D).material_override,
+			(last[i] as MeshInstance3D).material_override, "geteiltes Material")
+	for cell in cells:
+		assert_eq(cell.cast_shadow, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+		for part in cell.get_children():
+			assert_true(part is MeshInstance3D, "kein Light3D im Raster")
+			assert_eq((part as MeshInstance3D).cast_shadow,
+				GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
