@@ -119,6 +119,29 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 		offer.dice.append(base.instantiate())
 	return offer
 
+## EIN Prämien-Würfel (Hub-Ausbau, Stresstest): frisch gewürfelt, mit dem
+## Gütesiegel wie jedes Angebot veredelt und mit GARANTIERTER Seele - die
+## Unikat-/Geheim-Ausschlüsse und der Nicht-Unikat-Rückfall stehen in roll_essence.
+## Preis kennt er keinen: er wird gewonnen, nie verkauft.
+static func roll_reward_die(charm_ids: Array[String] = [],
+		owned_essences: Array[String] = [], hub_level: int = 1) -> DieDefinition:
+	var templates := pick_templates(1)
+	if templates.is_empty():
+		return null
+	var die := make_die(templates[0], hub_level)
+	roll_refinements(die)
+	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite - und
+	# mindestens eine ist veredelt. Aufpreis gibt es hier keinen.
+	if CharmEffects.forces_refinement(charm_ids):
+		if die.materials.count("") == die.materials.size():
+			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+		if not has_doped_side(die):
+			for f in die.materials.size():
+				if die.dope(f):
+					break
+	die.essence_id = roll_essence(owned_essences, true, true)
+	return die
+
 ## Trägt der Würfel schon eine veredelte Seite? (Gütesiegel, hier und im Paket.)
 static func has_doped_side(def: DieDefinition) -> bool:
 	for f in def.levels.size():

@@ -87,17 +87,13 @@ func test_offers_carry_the_hub_level_through() -> void:
 				top = maxi(top, _max_face(die))
 	assert_gt(top, DiceOffer.MAX_TEMPLATE_FACE, "die Auslage reicht die Stufe durch")
 
-func test_packs_route_through_the_same_scaling() -> void:
-	# Pakete würfeln ihre Würfel beim Öffnen - über dieselbe Quelle.
-	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
+func test_reward_dice_route_through_the_same_scaling() -> void:
+	# Prämien-Würfel (Hub, Stresstest) kommen aus derselben Quelle.
 	var top := 0
 	for _i in 40:
-		for die in pack.roll_dice([], [], 10):
-			top = maxi(top, _max_face(die))
-	assert_gt(top, DiceOffer.MAX_TEMPLATE_FACE, "auch das Paket wächst mit")
+		top = maxi(top, _max_face(DiceOffer.roll_reward_die([], [], 10)))
+	assert_gt(top, DiceOffer.MAX_TEMPLATE_FACE, "auch die Prämie wächst mit")
 
-func test_a_pack_without_a_level_stays_small() -> void:
-	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
+func test_a_reward_die_without_a_level_stays_small() -> void:
 	for _i in 40:
-		for die in pack.roll_dice():
-			assert_lte(_max_face(die), DiceOffer.MAX_TEMPLATE_FACE)
+		assert_lte(_max_face(DiceOffer.roll_reward_die()), DiceOffer.MAX_TEMPLATE_FACE)

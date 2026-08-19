@@ -638,19 +638,19 @@ func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	await wait_frames(2)
 	assert_eq(_drawer_rect(), empty, "gemischt")
 	run.grant_pack(Pack.material_pack())
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
 	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving()))
 	await wait_frames(2)
 	assert_eq(_drawer_rect(), empty, "voll")
 
-# --- (f) Auch ein Würfel-Paket nimmt der Schürze nichts weg ------------------------
+# --- (f) Auch der Tausch nimmt der Schürze nichts weg ------------------------------
 
-func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
+func test_the_apron_stands_through_the_whole_exchange_flow() -> void:
 	# Die Schürze gehört der Bank, nicht einem Ablauf: Fach, Schlitze und Blech
-	# stehen auf denselben Pixeln, während ein Würfel-Paket das Fenster füllt -
+	# stehen auf denselben Pixeln, während der Tausch-Wähler das Fenster füllt -
 	# nur anfassen lässt sich dann nichts.
 	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[4]))  # 3 Würfel = echte Wahl
+	run.stash_die(DieDefinition.fixed(6, "Sechser"), 0)
 	await wait_frames(2)
 	var fach := _drawer_rect()
 	var slits := _slit_rects()
@@ -658,40 +658,24 @@ func test_the_apron_stands_through_the_whole_dice_pack_flow() -> void:
 	var seat := _seat_rect()
 	assert_false(view.shelf_locked(), "vorher steht die Bank offen")
 
-	assert_true(view.open_top_dice_pack(), "das Würfel-Paket geht auf")
+	assert_true(view.open_exchange(0), "der Wähler nimmt das Fenster")
 	await wait_frames(2)
-	assert_eq(view._phase, WorkshopView.Phase.CHOOSE_DIE)
-	assert_eq(_drawer_rect(), fach, "in der Wahl: das Fach steht")
-	_assert_same_slits(slits, _slit_rects(), "in der Wahl")
+	assert_eq(view._phase, WorkshopView.Phase.EXCHANGE)
+	assert_eq(_drawer_rect(), fach, "im Tausch: das Fach steht")
+	_assert_same_slits(slits, _slit_rects(), "im Tausch")
 	assert_eq(_console().get_global_rect(), console, "und das Blech steht still")
 	assert_eq(_seat_rect(), seat, "der Sitz ebenso")
 	assert_true(view.shelf_locked(), "aber das Fach ist zu")
 	assert_false(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER),
 		"kein Paket in eine laufende Wahl")
-	assert_false(view.open_top_dice_pack(), "und kein zweites Siegel nebenher")
 
-	view._materialized.fill(true)  # die Zeremonie hätte sie längst aufgestellt
-	view.choose_die(0)
+	view._on_exchange_slot_pressed(0)
 	await wait_frames(2)
-	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE)
-	assert_eq(_drawer_rect(), fach, "beim Einsetzen")
-	_assert_same_slits(slits, _slit_rects(), "beim Einsetzen")
-	assert_eq(_console().get_global_rect(), console)
-	assert_eq(_seat_rect(), seat)
-
-	view._phase = WorkshopView.Phase.UNSEAL  # der eine Zustand ohne Zeilenfluss
-	view.refresh()
-	await wait_frames(2)
-	assert_null(view._content, "das Fensterinnere gehört dem Siegel")
-	assert_eq(_drawer_rect(), fach, "beim Entsiegeln")
-	_assert_same_slits(slits, _slit_rects(), "beim Entsiegeln")
-	assert_eq(_console().get_global_rect(), console)
-
-	view.finish_ceremony()
-	await wait_frames(2)
+	assert_eq(view._phase, WorkshopView.Phase.STASH)
 	assert_eq(_drawer_rect(), fach, "danach")
 	_assert_same_slits(slits, _slit_rects(), "danach")
 	assert_eq(_console().get_global_rect(), console)
+	assert_eq(_seat_rect(), seat)
 	assert_false(view.shelf_locked(), "und die Bank steht wieder offen")
 
 # --- (g) Die Bank ist IMMER bestückt ----------------------------------------------

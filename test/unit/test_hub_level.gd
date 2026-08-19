@@ -88,22 +88,24 @@ func test_cheap_flipping_at_penthouse() -> void:
 
 func test_shop_slots_scale_with_level() -> void:
 	var run := _run(9999)
-	# Stufe 1: wenige, große Angebote (2 Charms / 1 Würfel-Paket / 1 Gravur-Paket).
+	# Stufe 1: wenige, große Angebote (2 Charms / 3 Einzelwürfel / 1 Gravur-Paket).
+	# Alle drei Leitern springen auf denselben Stufen (3/6/9).
 	assert_eq(run.shop_charm_slots(), 2)
-	assert_eq(run.shop_dice_slots(), 1)
+	assert_eq(run.shop_dice_slots(), 3)
 	assert_eq(run.shop_pack_slots(), 1)
-	run.upgrade_hub()  # 2 Spielecke: noch kein 2. Paket
-	assert_eq(run.shop_dice_slots(), 1)
+	run.upgrade_hub()  # 2 Spielecke: noch kein 4. Würfel
+	assert_eq(run.shop_dice_slots(), 3)
 	run.upgrade_hub()  # 3 Lizenz: größerer Laden
 	assert_eq(run.shop_charm_slots(), 3)
-	assert_eq(run.shop_dice_slots(), 2)
+	assert_eq(run.shop_dice_slots(), 4)
 	for i in 4:
-		run.upgrade_hub()  # -> 7 Suite: 3. Würfel-Paket
-	assert_eq(run.shop_dice_slots(), 3)
+		run.upgrade_hub()  # -> 7 Suite
+	assert_eq(run.shop_dice_slots(), 5)
 	assert_eq(run.shop_pack_slots(), 3)
 	for i in 3:
 		run.upgrade_hub()  # -> 10 High Roller: voller Laden
 	assert_eq(run.shop_charm_slots(), 5)
+	assert_eq(run.shop_dice_slots(), 6, "die Schale trägt sechs")
 	assert_eq(run.shop_pack_slots(), 4)
 
 func test_overcharge_frame_is_five_from_the_first_level() -> void:

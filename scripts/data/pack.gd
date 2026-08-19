@@ -1,8 +1,9 @@
 class_name Pack
 extends Resource
-## Ein versiegeltes Paket: der Shop verkauft nur noch Pakete, geöffnet werden sie
-## später in der Werkstatt. Der Inhalt wird ERST beim Öffnen ausgewürfelt - der
-## Kauf entscheidet nur die Sorte. ids sind Konstanten, damit Tippfehler
+## Ein versiegeltes Paket: alles Gravierbare wird SO gehandelt und erst an der
+## Presse geöffnet. Der Inhalt wird ERST dort ausgewürfelt - der Kauf entscheidet
+## nur die Sorte. Würfel sind keine Paketware: sie liegen offen im Laden und
+## fahren gekauft ins Ausgabefach. ids sind Konstanten, damit Tippfehler
 ## Compilerfehler sind.
 ##
 ## Ein Gravur-Paket ist GENAU EIN Phantomwürfel (PhantomPress): seine sechs
@@ -10,11 +11,11 @@ extends Resource
 ## Icon heben einander. Mehrere Pakete auf einmal zu öffnen ist die einzige
 ## Schiene, auf der Beute stärker wird.
 
-## Paketsorten. Die drei Gravur-Sorten bilden auf Engraving-Kategorien ab
-## (siehe engraving_category), Würfel-Pakete auf eine DiceOffer-Vorlage.
+## Paketsorten - alle drei bilden auf Engraving-Kategorien ab (siehe
+## engraving_category). Würfel werden NIE versiegelt: sie gehen als Ware direkt
+## ins Ausgabefach (GameRun.stash_die), egal ob gekauft, gewonnen oder gewährt.
 const TYPE_NUMBER := "number"
 const TYPE_MATERIAL := "material"
-const TYPE_DICE := "dice"
 ## Runen-Paket: liegt seit dem Werkstatt-Umbau auch im Regal, nicht mehr nur im
 ## Automaten.
 const TYPE_DICE_MOD := "dice_mod"
@@ -66,7 +67,6 @@ const SHELF_WEIGHTS := {
 const TYPE_NAMES := {
 	TYPE_NUMBER: "Zahlen-Paket",
 	TYPE_MATERIAL: "Material-Paket",
-	TYPE_DICE: "Würfel-Paket",
 	TYPE_DICE_MOD: "Runen-Paket",
 }
 
@@ -81,17 +81,9 @@ const TYPE_NAMES := {
 ## Identität im Lager: GameRun stempelt sie beim Einlagern (_stash_pack). 0 = noch
 ## nie eingelagert. An ihr hängen Magazin-Platz, Liefer-Vormerkung und Körper.
 @export var pack_uid: int = 0
-## Nur bei TYPE_DICE: style_id der DiceOffer-Vorlage (bestimmt die Würfelart).
-@export var template_id: String = ""
-## Alle Auswahl-Würfel dieses Pakets tragen garantiert eine Seele - so kommt das
-## Würfel-Paket der Hub-Belohnung heraus. Der Unikat-Ausschluss gilt weiter.
-@export var essence_guaranteed: bool = false
-## Genau DIESER Würfel liegt im Paket (Schwarzmarkt): nichts wird nachgewürfelt -
-## die Seele, die der Spieler im Regal gesehen hat, ist die, die er auspackt.
-@export var fixed_die: DieDefinition = null
 ## Genau DIESE Gravur liegt im Paket (Abguss, Schmuckkästchen, Schwarzmarkt-
 ## Sonderposten). Ihr Phantomwürfel landet FEST auf diesem Icon und lässt sich
-## nicht nachwürfeln - er spielt in der Hand trotzdem mit. Spiegel von fixed_die.
+## nicht nachwürfeln - er spielt in der Hand trotzdem mit.
 @export var fixed_engraving: Engraving = null
 ## KATALYSATOR-Kassette (CATALYST_*, "" = keine). Sie trägt gar keinen Inhalt: sie
 ## verändert die EINE Pressung, in der sie steckt, und wird mit ihr verbraucht.
@@ -122,12 +114,10 @@ static func tier_price_factor(pack_tier: int) -> float:
 		return 1.0
 	return float(TIER_PRICE_FACTORS[pack_tier])
 
-## Darf dieses Paket überhaupt eine Größe tragen? Würfel-Pakete pressen nie, ein
-## Fixinhalt wirft genau seinen Inhalt aus, und ein Katalysator wirft gar nichts -
-## alle drei sind größenlos.
+## Darf dieses Paket überhaupt eine Größe tragen? Ein Fixinhalt wirft genau seinen
+## Inhalt aus und ein Katalysator gar nichts - beide sind größenlos.
 static func tierable(pack: Pack) -> bool:
-	return pack != null and not pack.is_dice_pack() and pack.fixed_engraving == null \
-		and pack.catalyst_id == ""
+	return pack != null and pack.fixed_engraving == null and pack.catalyst_id == ""
 
 ## Setzt einem Gravur-Paket seine Größe auf: Name UND Preis wachsen mit. Der eine
 ## Weg - ein anderswo gesetztes tier bliebe ohne Aufschrift und ohne Preis.
@@ -302,41 +292,6 @@ static func pack_type_for_category(category: String) -> String:
 			return TYPE_DICE_MOD
 	return TYPE_NUMBER
 
-## Würfel-Paket zu einer DiceOffer-Vorlage: die Sorte ist bekannt, die Augen
-## nicht. Material-Seiten kosten hier keinen Aufschlag - das ist der Blindkauf-Bonus.
-## Mehrfach-Pakete decken ALLE Würfel auf und geben genau EINEN mit: gekauft
-## wird die Auswahl, nicht die Menge. Je zusätzlich aufgedecktem Würfel kostet
-## das Paket darum etwas mehr - "der beste aus dreien" ist mehr wert als "einer
-## auf gut Glück", auch wenn am Ende nur ein Würfel im Pool landet.
-const DICE_PACK_PICK_SURCHARGE := 4
-
-static func dice_pack(template: Dictionary) -> Pack:
-	var count := int(template["count"])
-	var price := int(template["price"]) + (count - 1) * DICE_PACK_PICK_SURCHARGE
-	var text := "%s, ungeöffnet." % template["name"] if count == 1 else "%d× %s aufgedeckt, einer darf mit." % [count, template["name"]]
-	var pack := _make(TYPE_DICE, count, price, text)
-	pack.display_name = template["name"]
-	pack.template_id = template["style_id"]
-	return pack
-
-## Stresstest-Prämie: EIN versiegelter Würfel der Vorlage, garantiert beseelt.
-## Preis 0 - dieses Paket wird gewonnen, nie verkauft.
-static func stress_die(template: Dictionary) -> Pack:
-	var pack := _make(TYPE_DICE, 1, 0, "%s, ungeöffnet - beseelt." % template["name"])
-	pack.display_name = template["name"]
-	pack.template_id = template["style_id"]
-	pack.essence_guaranteed = true
-	return pack
-
-## Schwarzmarkt-Würfel: EIN fest eingelegter Würfel, versiegelt. Preis 0 - der
-## Laden hat ihn schon in ⚡ kassiert.
-static func secret_die(die: DieDefinition) -> Pack:
-	var pack := _make(TYPE_DICE, 1, 0, "%s, versiegelt - Schwarzmarktware." % die.display_name)
-	pack.display_name = die.display_name
-	pack.template_id = die.style_id
-	pack.fixed_die = die
-	return pack
-
 ## Kanonische Auslage der Gravur-Pakete.
 static func all_engraving_packs() -> Array[Pack]:
 	return [number_pack(), material_pack(), dice_mod_pack()]
@@ -355,25 +310,22 @@ static func by_type(pack_type: String) -> Pack:
 # Wohnt in data/, weil auch GameRun (tidy_packs) danach sortiert; die Farben dazu
 # hält die UI (PackDrawerView.COLORS spiegelt die Schlüssel, Rune.tint-Regel).
 
-## Pseudo-Sorten der Sonderposten (Engraving.SPECIAL_IDS) und der Würfel-Pakete:
-## beide tragen keine Gravur-Kategorie, brauchen aber ihren Platz im Magazin.
+## Pseudo-Sorte der Sonderposten (Engraving.SPECIAL_IDS): sie trägt keine
+## Gravur-Kategorie, braucht aber ihren Platz im Magazin.
 const SHELF_SPECIAL := "special"
-const SHELF_DICE_PACK := "dice_pack"
 
 ## Kanonische Sorten-Reihenfolge - EINE Quelle für Magazin, tidy und Siegel.
 const SHELF_ORDER := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
-	Engraving.CATEGORY_DICE, SHELF_DICE_PACK, SHELF_SPECIAL]
+	Engraving.CATEGORY_DICE, SHELF_SPECIAL]
 
 ## Ein Fixinhalt-Paket mit Sonderposten gehört zum Sonderbestand, und die
-## Katalysatoren liegen als zweite Familie daneben. Würfel-Pakete haben ihre
-## eigene Sorte, alles andere zählt zu seiner Gravur-Sorte.
+## Katalysatoren liegen als zweite Familie daneben; alles andere zählt zu seiner
+## Gravur-Sorte.
 static func pack_belongs(pack: Pack, shelf: String) -> bool:
 	if pack == null:
 		return false
 	if pack.is_catalyst():
 		return shelf == SHELF_SPECIAL
-	if pack.is_dice_pack():
-		return shelf == SHELF_DICE_PACK
 	var fixed := pack.fixed_engraving
 	if fixed != null and Engraving.is_special_id(fixed.id):
 		return shelf == SHELF_SPECIAL
@@ -390,7 +342,7 @@ static func shelf_of(pack: Pack) -> String:
 ## Sonderbestand, dessen Zeichen der Eckrahmen ist). EINE Zuordnung, in beide
 ## Richtungen gelesen - eine zweite Tabelle liefe auseinander.
 static func pack_type_of_shelf(shelf: String) -> String:
-	for pack_type: String in [TYPE_DICE, TYPE_NUMBER, TYPE_MATERIAL, TYPE_DICE_MOD]:
+	for pack_type: String in [TYPE_NUMBER, TYPE_MATERIAL, TYPE_DICE_MOD]:
 		if shelf_for_pack_type(pack_type) == shelf:
 			return pack_type
 	return ""
@@ -399,8 +351,6 @@ static func pack_type_of_shelf(shelf: String) -> String:
 ## nur der Typ bekannt, nie ein Fixinhalt).
 static func shelf_for_pack_type(pack_type: String) -> String:
 	match pack_type:
-		TYPE_DICE:
-			return SHELF_DICE_PACK
 		TYPE_MATERIAL:
 			return Engraving.CATEGORY_MATERIAL
 		TYPE_DICE_MOD:
@@ -427,61 +377,15 @@ func engraving_category() -> String:
 			return Engraving.CATEGORY_DICE
 	return ""
 
-func is_dice_pack() -> bool:
-	return type == TYPE_DICE
-
 ## Eine Katalysator-Kassette? Sie kommt nie durch die Presse HERAUS - sie geht
 ## hinein und verändert, was die anderen Leser auswerfen.
 func is_catalyst() -> bool:
 	return catalyst_id != ""
 
 ## Sorte für die Presse: die Gravur-Kategorie, auf deren Ikonensatz der
-## Phantomwürfel dieses Pakets fällt ("" bei Würfel-Paketen).
+## Phantomwürfel dieses Pakets fällt.
 func press_sort() -> String:
 	return engraving_category()
-
-## Inhalt eines Würfel-Pakets: count EIGENSTÄNDIG ausgewürfelte Würfel derselben
-## Art. Sie müssen sich unterscheiden - der Spieler deckt alle auf und nimmt
-## GENAU EINEN mit (siehe WorkshopView.Phase.CHOOSE_DIE); wären es Kopien, wäre
-## die Wahl eine Attrappe. Material-Seiten kosten hier nichts extra - dafür ist es
-## ein Blindkauf.
-func roll_dice(charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DieDefinition]:
-	var dice: Array[DieDefinition] = []
-	if not is_dice_pack():
-		return dice
-	# Fest eingelegter Würfel (Schwarzmarkt): keine Material-Seiten, kein Seelen-Wurf.
-	if fixed_die != null:
-		dice.append(fixed_die.instantiate())
-		return dice
-	var template := _template()
-	if template.is_empty():
-		return dice
-	# Unikate dürfen nur EINMAL im Paket liegen: schon gerollte Seelen wandern in
-	# die Sperrliste, damit nicht zwei Legendäre nebeneinander aufgedeckt werden.
-	var taken := owned_essences.duplicate()
-	for i in count:
-		var die := DiceOffer.make_die(template, hub_level)
-		DiceOffer.roll_refinements(die)
-		# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite -
-		# und mindestens eine ist veredelt. Aufpreis gibt es hier keinen.
-		if CharmEffects.forces_refinement(charm_ids):
-			if die.materials.count("") == die.materials.size():
-				die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
-			if not DiceOffer.has_doped_side(die):
-				for f in die.materials.size():
-					if die.dope(f):
-						break
-		die.essence_id = DiceOffer.roll_essence(taken, true, essence_guaranteed)
-		if die.essence_id != "" and not taken.has(die.essence_id):
-			taken.append(die.essence_id)
-		dice.append(die)
-	return dice
-
-func _template() -> Dictionary:
-	for t in DiceOffer.TEMPLATES:
-		if t["style_id"] == template_id:
-			return t
-	return {}
 
 ## Zufällige Gravur-Paketsorte für einen Auslage-Platz. Bewusst OHNE Hub-Stufe:
 ## die Sorte entscheiden allein die Regal-Gewichte - stark wird Beute an der

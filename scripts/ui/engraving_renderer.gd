@@ -37,6 +37,55 @@ var bare := false
 
 var _pulse_time := 0.0
 
+## Gebackene NACKTE Siegel für physische Stücke (Buchten-Chips): die Zeichnung
+## kostet nichts, die Anlage ihres SubViewports gemessene ~11 ms. Also steht ein
+## Ofen je Gravur und Kantenlänge und wird geteilt - dieselbe Regel wie beim
+## Sortenzeichen der Data-Cells.
+static var _ovens: Dictionary = {}
+static var _oven_holder: Node = null
+
+## host ist der Rückfall: nimmt der Baum den geteilten Ofen gerade nicht auf,
+## backt der Aufrufer eben selbst.
+static func bare_texture(source: Engraving, side: int, host: Node = null) -> Texture2D:
+	var key := "%s:%d" % [source.id, side]
+	var known: SubViewport = _ovens.get(key)
+	if known != null and is_instance_valid(known):
+		return known.get_texture()
+	var oven := SubViewport.new()
+	oven.name = "EngravingOven"
+	oven.size = Vector2i(side, side)
+	oven.transparent_bg = true
+	oven.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var seal := for_engraving(source)
+	seal.bare = true  # kein Rauchglas unter einem physischen Ding
+	seal.size = Vector2(side, side)
+	oven.add_child(seal)
+	var shelf := _shared_shelf()
+	if shelf == null:
+		if host == null:
+			oven.free()
+			return null
+		host.add_child(oven)
+		return oven.get_texture()
+	shelf.add_child(oven)
+	_ovens[key] = oven
+	return oven.get_texture()
+
+static func _shared_shelf() -> Node:
+	if _oven_holder != null and is_instance_valid(_oven_holder):
+		return _oven_holder
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	var holder := Node.new()
+	holder.name = "EngravingOvens"
+	tree.root.add_child(holder)
+	if not holder.is_inside_tree():
+		holder.free()  # der Baum nimmt gerade nichts auf
+		return null
+	_oven_holder = holder
+	return _oven_holder
+
 static func for_engraving(source: Engraving) -> EngravingRenderer:
 	var engraving := EngravingRenderer.new()
 	engraving.engraving_id = source.id

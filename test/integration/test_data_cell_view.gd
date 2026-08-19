@@ -276,6 +276,33 @@ func test_the_body_grows_in_and_shrinks_out_without_being_freed() -> void:
 	assert_true(cell.visible)
 	assert_almost_eq(cell.scale.x, 1.0, 0.01, "und wieder in voller Größe")
 
+## Die Ankunft des Förderwerks: die Kassette steigt aus dem Grubenboden. Geprüft
+## wird nur der Endzustand - er ist derselbe wie stand_in_pit, sonst hinge die
+## Richtigkeit des Magazins an einem Tween.
+func test_the_arrival_rises_onto_the_exact_standing_spot() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	var spot := Vector3(2.0, 0.0, -1.5)
+	cell.stand_in_pit(spot)
+	var standing := cell.global_position
+	cell.rise_into_pit(spot, 3.0)
+	assert_lt(cell.global_position.y, standing.y - 2.9, "sie startet unter dem Boden")
+	assert_true(cell.gliding(), "und ist unterwegs - der Abgleich lässt sie in Ruhe")
+	await wait_seconds(DataCellView.RISE_TIME + 0.2)
+	assert_true(cell.global_position.is_equal_approx(standing),
+		"am Ende steht sie genau da, wo stand_in_pit sie hingestellt hätte")
+	assert_true(cell.glass_position().is_equal_approx(spot), "auf ihrem Glaspunkt")
+
+func test_an_arrival_without_time_stands_hard() -> void:
+	# Ein übersprungener Tween darf nichts schuldig bleiben (harter End-Schreiber).
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	var spot := Vector3(-1.0, 0.0, 4.0)
+	cell.stand_in_pit(spot)
+	var standing := cell.global_position
+	cell.rise_into_pit(spot, 3.0, 0.0, 0.0)
+	assert_eq(cell.global_position, standing, "byteweise derselbe Stand")
+	assert_false(cell.gliding())
+	assert_true(cell.visible)
+
 func test_a_glide_without_time_seats_the_cell_hard() -> void:
 	# Die Richtigkeit hängt an keinem Tween: Zeit 0 setzt sie sofort.
 	var cell := _cell(Engraving.CATEGORY_DICE)
@@ -286,16 +313,29 @@ func test_a_glide_without_time_seats_the_cell_hard() -> void:
 func test_the_glyph_comes_from_the_existing_seal_drawing() -> void:
 	# Kein zweites Zeichen: die Sorte findet ihren Pakettyp über die vorhandene
 	# Zuordnung zurück, der Sonderbestand fällt auf den Eckrahmen.
-	var dice := _cell(Pack.SHELF_DICE_PACK)
-	var oven: SubViewport = dice.get_node("GlyphOven")
-	var icon: PackIconRenderer = oven.get_child(0)
-	assert_eq(icon.pack_type, Pack.TYPE_DICE)
-	var runes := _cell(Engraving.CATEGORY_DICE)
-	var rune_icon: PackIconRenderer = runes.get_node("GlyphOven").get_child(0)
-	assert_eq(rune_icon.pack_type, Pack.TYPE_DICE_MOD)
-	var special := _cell(Pack.SHELF_SPECIAL)
-	var special_icon: PackIconRenderer = special.get_node("GlyphOven").get_child(0)
-	assert_eq(special_icon.pack_type, "", "der Sonderbestand nennt seine Sorte nicht")
+	for pair: Array in [[Engraving.CATEGORY_NUMBER, Pack.TYPE_NUMBER],
+			[Engraving.CATEGORY_DICE, Pack.TYPE_DICE_MOD],
+			[Pack.SHELF_SPECIAL, ""]]:
+		var sort: String = pair[0]
+		_cell(sort)
+		var oven: SubViewport = DataCellView._glyph_ovens.get(sort)
+		assert_not_null(oven, "%s hat ihren Ofen" % sort)
+		if oven == null:
+			continue
+		var icon: PackIconRenderer = oven.get_child(0)
+		assert_eq(icon.pack_type, String(pair[1]))
+
+func test_alle_kassetten_einer_sorte_teilen_EINE_backung() -> void:
+	# Ein eigener Ofen je Zelle kostete gemessene ~11,5 ms - das war der Ruck beim
+	# Bestücken einer Bucht und beim Aufbau des Magazins.
+	var sort := Engraving.CATEGORY_NUMBER
+	var first := _cell(sort)
+	var second := _cell(sort)
+	assert_null(first.get_node_or_null("GlyphOven"), "keine Zelle backt selbst")
+	assert_null(second.get_node_or_null("GlyphOven"))
+	var shared: Texture2D = DataCellView.glyph_texture(sort)
+	assert_not_null(shared, "die Sorte hat ihre eine Backung")
+	assert_eq(DataCellView.glyph_texture(sort), shared, "und behält sie")
 
 # --- Der Stand im MAGAZIN (die Grube) ---------------------------------------------
 # Die Kassetten stehen in einem echten Loch im Tisch; nichts ruht über dem Rand,

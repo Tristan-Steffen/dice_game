@@ -119,6 +119,14 @@ const TIER_STRIPE_PROUD := DEPTH * 0.05
 ## Ihr Licht: heller als die Kappe, aber unter der Grenze, ab der die drei Kanäle
 ## zu Weiß zusammenlaufen und aus zwei Streifen einer wird.
 const TIER_STRIPE_ENERGY := 1.45
+## Dieselbe Marke ein zweites Mal, auf der VORDERSEITE: in einer Verkaufs-Bucht
+## LIEGT die Kassette, ihre große Fläche zeigt nach oben und die Kappe zur Seite -
+## dann trägt der Kopfbalken die Größe, rechts neben dem Sortenzeichen wie auf der
+## Kappe. Sie steht bündig mit der Blende, damit sie die Liegehöhe nicht anhebt.
+const TIER_FACE_W := WIDTH * 0.055
+const TIER_FACE_H := TOP_BAR * 0.46
+const TIER_FACE_PITCH := WIDTH * 0.10
+const TIER_FACE_X := WIDTH * 0.16
 ## Das Kolossale trägt zusätzlich einen GOLDENEN Kragen - der Rahmen um die Karte,
 ## nicht die Blende davor: von oben ist er der Umriss, den man ohne Zoom liest.
 const TIER_COLLAR_GOLD := 0.62
@@ -133,12 +141,23 @@ const SUNK_GONE := -0.06
 ## zur Kappe. Eine Spur UNTER der Tischkante - nichts ruht über dem Rand, und der
 ## Kragen der Grube deckt die Schnittkante darüber.
 const PIT_SHOW := -0.03
+## Die Ankunft aus dem Förderwerk: die Kassette steigt aus dem Grubenboden auf
+## ihren Platz. Etwas länger als das Absinken - Ankommen darf sich setzen.
+const RISE_TIME := 0.35
 
 ## Das Herausziehen unterm Zeiger (wie eine Akte aus der Schublade): Anteil der
 ## Höhe, um den die Kassette steigt, und die Zeit dafür. Nur so ist ein Griff in
 ## der Grube überhaupt zu sehen - ein gemalter Schein läge unter dem Loch.
 const HOVER_LIFT := 0.42
 const HOVER_TIME := 0.16
+## Derselbe Hub als Stellschraube der Zelle: in der VITRINE liegt eine Scheibe
+## über der Grube, und ein Hub, der hindurchstößt, ist kein Griff mehr - dort
+## deckelt die Bucht ihn körperlokal. Im Magazin bleibt es beim vollen Maß.
+var hover_lift := HOVER_LIFT
+## Wohin die ×n-Marke der LIEGENDEN Zelle gehört. Normal steht sie neben der
+## Karte; in einer Bucht liegt die Karte in einer Grube und wird von oben gelesen -
+## neben ihr stünde die Marke in der Grubenwand, also liegt sie AUF der Karte.
+var badge_on_face := false
 ## Aufgehellt, aber deutlich unter dem Lese-Ausbruch: Greifen ist kein Lesen.
 const HOVER_ENERGY := 1.75
 
@@ -195,7 +214,7 @@ const BADGE_GAP := HEIGHT * 0.16
 ## die kleiner ist als eine Netzkachel - mehr Pixel wären Vorrat für nichts.
 const GLYPH_TEXTURE_SIZE := 128
 
-var sort: String = Pack.SHELF_DICE_PACK
+var sort: String = Engraving.CATEGORY_NUMBER
 ## Paketgröße (Pack.TIER_*): sie zeichnet die Streifen auf der Kappe.
 var tier: int = Pack.TIER_NORMAL
 var tint: Color = PackDrawerView.GOLD
@@ -252,7 +271,13 @@ var _band_material: StandardMaterial3D
 ## Die hellen Größen-Streifen und der (beim Kolossalen goldene) Kragen.
 var _tier_material: StandardMaterial3D
 var _collar_material: StandardMaterial3D
-var _glyph_oven: SubViewport
+
+## Das Siegelzeichen einer Sorte wird EINMAL gebacken und von allen Kassetten
+## geteilt. Ein eigener SubViewport je Zelle kostete gemessene ~11,5 ms - das war
+## der Ruck beim Bestücken einer Bucht und beim Aufbau des Magazins, und die
+## Zeichnung hängt an nichts als der Sorte.
+static var _glyph_ovens: Dictionary = {}
+static var _glyph_holder: Node = null
 
 func _init() -> void:
 	name = "DataCell"
@@ -450,6 +475,56 @@ func stand_in_pit(glass_at: Vector3) -> void:
 	set_socketed(false)
 	global_position = glass_at - Vector3.UP * drop_for(PIT_SHOW)
 
+## Hart auf ihren Platz in einer VERKAUFS-Bucht: sie LIEGT dort auf dem
+## Grubenboden, die große Fläche nach oben. Das Gegenstück zu stand_in_pit - im
+## Archiv steht die Kassette, in der Auslage liegt sie, und was der Aufrufer nennt,
+## ist beide Male ihr Platz, nicht ihre Einsinktiefe.
+func lie_in_pit(at: Vector3) -> void:
+	_kill(_glide_tween)
+	_kill(_pose_tween)
+	_lying = true
+	_show_share = 1.0  # liegend steckt sie in nichts - die Marke bleibt sichtbar
+	_set_pose_blend(0.0)
+	set_socketed(false)
+	global_position = at
+
+## Wie weit eine LIEGENDE Kassette unter ihren Ursprung reicht: die Kontaktfinnen
+## stehen hinten eine Spur über die Karte hinaus. Wer sie auf einen Boden legt,
+## hebt sie um genau dieses Maß an.
+static func lying_under(cell_scale: float) -> float:
+	return maxf(FIN_DEPTH - DEPTH, 0.0) * 0.5 * cell_scale
+
+## Und wie hoch sie über ihm steht - die Blende ist ihr höchster Punkt.
+static func lying_over(cell_scale: float) -> float:
+	return (DEPTH + BEZEL_RISE) * cell_scale
+
+## Die Ankunft des Förderwerks: die Kassette steigt aus dem Grubenboden auf ihren
+## Platz. Der ENDZUSTAND steht zuerst (stand_in_pit bzw. lie_in_pit, byteweise
+## derselbe) - gefahren wird nur der Weg dorthin, damit ein übersprungener oder
+## abgeräumter Tween nichts schuldig bleibt. from_below ist die Grubentiefe: so
+## tief startet sie, dass sie unter dem Boden liegt.
+func rise_into_pit(glass_at: Vector3, from_below: float, delay := 0.0,
+		time := RISE_TIME, lying_pose := false) -> void:
+	if lying_pose:
+		lie_in_pit(glass_at)
+	else:
+		stand_in_pit(glass_at)
+	_kill(_scale_tween)
+	visible = true
+	scale = Vector3.ONE
+	if time <= 0.0 or from_below <= 0.0:
+		return
+	var target := global_position
+	global_position = target - Vector3.UP * from_below
+	_glide_tween = create_tween()
+	if delay > 0.0:
+		_glide_tween.tween_interval(delay)
+	var rise := _glide_tween.tween_property(self, "global_position", target, time)
+	rise.set_trans(Tween.TRANS_CUBIC)
+	rise.set_ease(Tween.EASE_OUT)
+	# Erst oben lodert sie: ein Ausbruch unter dem Grubenboden sähe niemand.
+	_glide_tween.tween_callback(flare)
+
 ## Wie tief die Zelle unter ihrem Glaspunkt hängt, wenn `show` von ihr übersteht.
 ## Statisch auf dem Grundmaß (Schlitz und Einschub stehen auf 1) ...
 static func sunk_drop(show: float) -> float:
@@ -595,6 +670,12 @@ static func opening_center_y() -> float:
 static func cap_top_y() -> float:
 	return HEIGHT * 0.5 + CAP_PROUD
 
+## Ihre KRONE: die Kappe samt allem, was eine Spur darauf steht (Zeichen und
+## Größen-Streifen). Wer misst, wie viel Luft eine stehende Zelle nach oben hat,
+## misst hiergegen, nicht gegen die Kappe.
+static func crown_y() -> float:
+	return cap_top_y() + TIER_STRIPE_PROUD
+
 static func opening_size() -> Vector2:
 	return Vector2(WIDTH - SIDE_BAR * 2.0, HEIGHT - TOP_BAR - FOOT_BAR)
 
@@ -607,8 +688,10 @@ func _apply_pose() -> void:
 	var angle := lerpf(-PI * 0.5, 0.0, _pose_blend)
 	var lift := lerpf(DEPTH * 0.5, HEIGHT * 0.5, _pose_blend) * _body_scale
 	# Der Griff hebt den KÖRPER, nicht den Platz: er überlebt jedes Gleiten und
-	# jeden Neuaufbau des Fachs. Nur stehend - liegend gibt es nichts zu ziehen.
-	lift += HEIGHT * HOVER_LIFT * _hover_share * _pose_blend * _body_scale
+	# jeden Neuaufbau des Fachs. Er gilt in BEIDEN Lagen - im Archiv zieht man die
+	# stehende Akte heraus, in der Bucht hebt man die liegende Ware an; wie weit,
+	# sagt hover_lift, und das setzt der Wirt.
+	lift += HEIGHT * hover_lift * _hover_share * _body_scale
 	_body.transform = Transform3D(
 		Basis(Vector3.RIGHT, angle).scaled(Vector3.ONE * _body_scale),
 		Vector3(0.0, lift, 0.0))
@@ -652,7 +735,7 @@ func _build_materials() -> void:
 	_glyph_material = StandardMaterial3D.new()
 	_glyph_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_glyph_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_glyph_material.albedo_texture = _bake_glyph()
+	_glyph_material.albedo_texture = _sort_glyph()
 	# Vor der Scheibe gezeichnet: zwei alphagemischte Flächen sortiert der
 	# Compatibility-Renderer sonst nach Laune.
 	_glyph_material.render_priority = 2
@@ -824,6 +907,15 @@ func _build_cell() -> Node3D:
 					cap_top + TIER_STRIPE_PROUD - TIER_STRIPE_H * 0.5, 0.0),
 				_tier_material)
 
+		# Und dieselben Streifen auf dem Kopfbalken der VORDERSEITE: liegt die
+		# Kassette in einer Bucht, ist das die Fläche, die man von oben sieht.
+		for i in mini(tier, Pack.TIER_KOLOSSAL):
+			_add_box(cell, "TierFace%d" % i,
+				Vector3(TIER_FACE_W, TIER_FACE_H, BEZEL_RISE),
+				Vector3(TIER_FACE_X + float(i) * TIER_FACE_PITCH,
+					(HEIGHT - TOP_BAR) * 0.5, DEPTH * 0.5 + BEZEL_RISE * 0.5),
+				_tier_material)
+
 	# Der Lichtsaum unter der Kappe - steckt die Zelle, steht mit ihr nur er über
 	# dem Glas; er ragt eine Spur weiter und zeichnet ihre Brüstung nach.
 	_add_box(cell, "EdgeStrip",
@@ -898,8 +990,15 @@ func _place_badge() -> void:
 	# Eine steckende Zelle zeigt keine Schwebemarke: sie ist einzeln, und die Zahl
 	# stünde als einziges Stück Schrift aus dem Tisch heraus.
 	_badge.visible = _count > 1 and not standing and not sunk()
-	var top := maxf(float(_cells.size()) - 1.0, 0.0)
+	var top := maxf(float(shown_cells()) - 1.0, 0.0)
 	if _pose_blend < 0.5:
+		if badge_on_face:
+			# In der Bucht liegt die Karte in einer Grube: neben ihr steckte die
+			# Marke in der Wand, also liegt sie flach auf ihrer Fußhälfte - unter
+			# dem Sortenzeichen, das mittig auf der Fläche sitzt.
+			_badge.position = Vector3(0.0, -HEIGHT * 0.30,
+				top * STACK_PITCH + DEPTH * 1.5)
+			return
 		# Liegend ist der Stapel ein Turm - die Marke sitzt auf seiner Spitze.
 		_badge.position = Vector3(top * STACK_STAGGER, HEIGHT * 0.5 + BADGE_GAP,
 			top * STACK_PITCH + DEPTH)
@@ -919,18 +1018,48 @@ func _sync_stack() -> void:
 		_cells[i].visible = not standing or i == 0
 
 ## Backt das Siegelzeichen der Sorte EINMAL in eine Textur - dieselbe Zeichnung
-## wie im Regal (PackIconRenderer), nie ein zweites Zeichen.
-func _bake_glyph() -> Texture2D:
-	_glyph_oven = SubViewport.new()
-	_glyph_oven.name = "GlyphOven"
-	_glyph_oven.size = Vector2i(GLYPH_TEXTURE_SIZE, GLYPH_TEXTURE_SIZE)
-	_glyph_oven.transparent_bg = true
-	_glyph_oven.render_target_update_mode = SubViewport.UPDATE_ONCE
-	var icon := PackIconRenderer.for_type(Pack.pack_type_of_shelf(sort))
+## wie im Regal (PackIconRenderer), nie ein zweites Zeichen. Der Ofen bleibt für
+## alle Kassetten dieser Sorte stehen: seine Anlage ist das Teure daran.
+## null = gerade kein geteilter Ofen zu haben; dann backt die Zelle selbst.
+static func glyph_texture(cell_sort: String) -> Texture2D:
+	var known: SubViewport = _glyph_ovens.get(cell_sort)
+	if known != null and is_instance_valid(known):
+		return known.get_texture()
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	if _glyph_holder == null or not is_instance_valid(_glyph_holder):
+		var holder := Node.new()
+		holder.name = "DataCellGlyphOvens"
+		tree.root.add_child(holder)
+		if not holder.is_inside_tree():
+			holder.free()  # der Baum nimmt gerade nichts auf
+			return null
+		_glyph_holder = holder
+	var oven := _new_glyph_oven(cell_sort)
+	_glyph_holder.add_child(oven)
+	_glyph_ovens[cell_sort] = oven
+	return oven.get_texture()
+
+static func _new_glyph_oven(cell_sort: String) -> SubViewport:
+	var oven := SubViewport.new()
+	oven.name = "GlyphOven"
+	oven.size = Vector2i(GLYPH_TEXTURE_SIZE, GLYPH_TEXTURE_SIZE)
+	oven.transparent_bg = true
+	oven.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var icon := PackIconRenderer.for_type(Pack.pack_type_of_shelf(cell_sort))
 	icon.size = Vector2(GLYPH_TEXTURE_SIZE, GLYPH_TEXTURE_SIZE)
-	_glyph_oven.add_child(icon)
-	add_child(_glyph_oven)
-	return _glyph_oven.get_texture()
+	oven.add_child(icon)
+	return oven
+
+## Das geteilte Zeichen - notfalls backt diese Zelle es eben selbst.
+func _sort_glyph() -> Texture2D:
+	var shared := glyph_texture(sort)
+	if shared != null:
+		return shared
+	var oven := _new_glyph_oven(sort)
+	add_child(oven)
+	return oven.get_texture()
 
 func _set_glow(energy: float) -> void:
 	var material := glow_material()

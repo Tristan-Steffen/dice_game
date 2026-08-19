@@ -32,6 +32,14 @@ uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-T
 uniform vec2 pit_min = vec2(0.0);
 uniform vec2 pit_max = vec2(0.0);
 
+// Die Vitrinen-Buchten (screen_glass.vitrine_rects) in Welt-XZ. BINÄR wie das
+// Loch im Display-Glas und an derselben Schwelle: sobald sich eine Bucht öffnet,
+// darf hinter ihr kein Filz mehr stehen, sonst blickte man in die Bucht auf Filz.
+const int MAX_VITRINES = 2;
+uniform vec2 vitrine_min[MAX_VITRINES];
+uniform vec2 vitrine_max[MAX_VITRINES];
+uniform float vitrine_open[MAX_VITRINES];
+
 varying vec2 world_xz;
 
 float hash21(vec2 p) {
@@ -57,6 +65,13 @@ void fragment() {
 	if (pit_max.x > pit_min.x && world_xz.x > pit_min.x && world_xz.x < pit_max.x
 			&& world_xz.y > pit_min.y && world_xz.y < pit_max.y) {
 		discard;
+	}
+	for (int i = 0; i < MAX_VITRINES; i++) {
+		if (vitrine_open[i] > 0.0 && vitrine_max[i].x > vitrine_min[i].x
+				&& world_xz.x > vitrine_min[i].x && world_xz.x < vitrine_max[i].x
+				&& world_xz.y > vitrine_min[i].y && world_xz.y < vitrine_max[i].y) {
+			discard;
+		}
 	}
 	// Virtuelle Display-UVs: Welt-Z = Screen-Breite, Welt-X = Screen-Höhe.
 	// Ein Vorzeichen-Irrtum spiegelte nur das Rauschen - das Rauten-Gitter

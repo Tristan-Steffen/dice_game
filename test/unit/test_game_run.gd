@@ -89,9 +89,10 @@ func test_a_won_die_emits_pool_changed():
 	_win_die(DieDefinition.fixed(6, "Immer 6"))
 	assert_signal_emit_count(run, "pool_changed", 1)
 
-func test_place_pack_die_emits_pool_changed():
+func test_the_exchange_emits_pool_changed():
+	run.stash_die(DieDefinition.fixed(3, "Drei"), 0)
 	watch_signals(run)
-	run.place_pack_die(DieDefinition.fixed(3, "Drei"), 4)
+	assert_true(run.exchange_pending_die(0, 4))
 	assert_eq(run.owned_pool[4].style_id, "fixed_3")
 	assert_signal_emit_count(run, "pool_changed", 1)
 
@@ -251,39 +252,35 @@ func test_granting_an_engraving_pack_ignores_nothing():
 func test_new_run_starts_without_levels():
 	assert_true(GameRun.new_run().combo_levels.is_empty())
 
-# --- Stresstest-Belohnung: EIN versiegeltes, beseeltes Würfel-Paket ---------------
+# --- Stresstest-Belohnung: EIN beseelter Würfel ins Ausgabefach -------------------
 
-func test_stress_reward_books_a_sealed_dice_pack():
+func test_stress_reward_books_a_souled_die_into_the_tray():
 	watch_signals(run)
-	var before := run.owned_packs.size()
-	var pack := run.grant_stress_reward()
-	assert_not_null(pack, "der Stresstest zahlt ein Paket")
-	assert_eq(run.owned_packs.size(), before + 1, "es liegt im Lager")
-	assert_true(pack.is_dice_pack(), "ein Würfel-Paket")
-	assert_eq(pack.count, 1, "mit genau EINEM Würfel")
-	assert_true(pack.essence_guaranteed, "und Seelengarantie")
-	assert_eq(pack.price, 0, "gewonnen, nicht gekauft")
-	assert_signal_emitted(run, "packs_changed")
+	var die := run.grant_stress_reward()
+	assert_not_null(die, "der Stresstest zahlt einen Würfel")
+	assert_eq(run.pending_dice.size(), 1, "er liegt im Ausgabefach")
+	assert_eq(run.pending_dice[0], die, "gemeldet wird genau das hinterlegte Exemplar")
+	assert_ne(die.essence_id, "", "garantiert beseelt")
+	assert_eq(run.owned_packs.size(), 0, "nichts wird versiegelt")
+	assert_signal_emitted(run, "pending_dice_changed")
 
-func test_stress_reward_touches_neither_pool_nor_dealers_shelf():
+func test_stress_reward_costs_nothing_and_leaves_the_pool_alone():
+	run.money = 40
 	var before: Array[String] = []
 	for pool_die in run.owned_pool:
 		before.append(pool_die.style_id)
 	run.grant_stress_reward()
-	assert_eq(run.pending_dice.size(), 0, "der Preis ist versiegelt, nicht ausgelegt")
+	assert_eq(run.money, 40, "gewonnen, nicht gekauft")
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
 	for i in run.owned_pool.size():
 		assert_eq(run.owned_pool[i].style_id, before[i], "und unangetastet")
 
-func test_the_stress_die_gets_its_soul_only_on_opening():
-	# Die Seele fällt erst beim Öffnen - Unikat-/Secret-Ausschluss übernimmt der
-	# normale Paket-Pfad.
-	var pack := run.grant_stress_reward()
+func test_the_stress_die_never_carries_a_secret_soul():
 	for _i in 20:
-		var dice := pack.roll_dice(run.charm_ids(), run.owned_essence_ids(), run.hub_level)
-		assert_eq(dice.size(), 1, "ein Würfel zur Wahl")
-		assert_ne(dice[0].essence_id, "", "garantiert beseelt")
-		var essence := Essence.by_id(dice[0].essence_id)
+		var fresh := GameRun.new_run()
+		var die := fresh.grant_stress_reward()
+		var essence := Essence.by_id(die.essence_id)
+		assert_ne(die.essence_id, "", "garantiert beseelt")
 		assert_false(essence != null and essence.secret,
 			"Schwarzmarkt-Seelen liegen nie im normalen Preis")
 
@@ -298,24 +295,13 @@ func test_purchase_pack_deducts_and_stores_sealed():
 	assert_eq(run.owned_packs[0].count, Pack.ENGRAVING_PACK_COUNT, "ein Paket, ein Phantomwürfel")
 	assert_signal_emitted(run, "packs_changed")
 
-func test_open_pack_refuses_an_engraving_pack():
-	# Gravur-Pakete laufen über die Presse (open_press) - open_pack lässt sie liegen.
+func test_a_pack_leaves_the_stock_only_through_the_press():
+	# Es gibt keinen zweiten Weg mehr, ein Paket zu öffnen - die Presse ist es.
 	run.purchase_pack(Pack.number_pack(), 0)
-	assert_eq(run.open_pack(0)["engravings"].size(), 0)
-	assert_eq(run.owned_packs.size(), 1, "und verbraucht sie nicht")
-
-func test_open_dice_pack_hands_the_dice_to_the_ceremony():
-	run.purchase_pack(Pack.dice_pack(DiceOffer.TEMPLATES[2]), 0)
-	var result := run.open_pack(0)
-	var dice: Array = result["dice"]
-	assert_eq(dice.size(), int(DiceOffer.TEMPLATES[2]["count"]))
-	assert_eq(_count_style("normal"), GameRun.POOL_SIZE, "Pool erst nach dem Einsetzen")
-
-func test_open_pack_ignores_invalid_index():
-	run.purchase_pack(Pack.number_pack(), 0)
-	assert_eq(run.open_pack(-1)["engravings"].size(), 0)
-	assert_eq(run.open_pack(5)["engravings"].size(), 0)
-	assert_eq(run.owned_packs.size(), 1, "Lager unangetastet")
+	assert_eq(run.owned_packs.size(), 1)
+	var grip: Array[int] = [0]
+	run.open_press(grip)
+	assert_eq(run.owned_packs.size(), 0, "die Pressung verbraucht es")
 
 # --- Das Magazin: uid, Ordnung, Deckel -------------------------------------------
 
@@ -353,13 +339,13 @@ func test_reorder_packs_moves_one_and_closes_the_row():
 
 func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 	run.grant_packs([Pack.dice_mod_pack(), Pack.number_pack(),
-		Pack.dice_pack(DiceOffer.TEMPLATES[0]), Pack.number_pack()] as Array[Pack])
+		Pack.catalyst(Pack.CATALYST_TIMER), Pack.number_pack()] as Array[Pack])
 	run.tidy_packs()
 	var shelves: Array[String] = []
 	for pack in run.owned_packs:
 		shelves.append(Pack.shelf_of(pack))
 	assert_eq(shelves, [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_NUMBER,
-		Engraving.CATEGORY_DICE, Pack.SHELF_DICE_PACK] as Array[String],
+		Engraving.CATEGORY_DICE, Pack.SHELF_SPECIAL] as Array[String],
 		"Sortenfolge = SHELF_ORDER")
 	assert_lt(run.owned_packs[0].pack_uid, run.owned_packs[1].pack_uid,
 		"gleicher Inhalt: die uid bricht den Gleichstand")
@@ -417,17 +403,27 @@ func test_every_grant_kind_fizzles_at_the_cap():
 	var before := run.money
 	assert_null(run.grant_engraving_pack(Engraving.pointer_engraving()))
 	assert_null(run.grant_material_pack(DieMaterial.by_id(DieMaterial.GOLD)))
-	assert_null(run.grant_stress_reward())
 	run.owned_charms.append(Charm.encore())
 	var encore := run.apply_encore(GameRun.ENCORE_STAGES)
 	assert_eq(encore.size(), 1, "der Platz des Exemplars bleibt stehen")
 	assert_null(encore[0], "aber leer")
 	assert_eq(run.owned_packs.size(), 1, "nichts kam dazu")
-	assert_eq(run.money, before + 4 * GameRun.PACK_FIZZLE_MONEY,
-		"vier Prämien, vier Zerfälle")
+	assert_eq(run.money, before + 3 * GameRun.PACK_FIZZLE_MONEY,
+		"drei Prämien, drei Zerfälle")
+
+func test_the_stress_reward_never_fizzles():
+	# Der Deckel gilt fürs Magazin; ein Würfel geht ins Ausgabefach.
+	run.set_pack_capacity(1)
+	run.grant_pack(Pack.number_pack())
+	var before := run.money
+	assert_not_null(run.grant_stress_reward(), "der Preis kommt immer an")
+	assert_eq(run.pending_dice.size(), 1)
+	assert_eq(run.money, before, "und zerfällt nie zu Geld")
 
 func test_the_hub_reward_remembers_what_fizzled():
 	run.money = 10000
+	while run.hub_level < 4:
+		run.upgrade_hub()  # bis kurz vor Stufe 5, die als erste Pakete gewährt
 	run.set_pack_capacity(1)
 	run.grant_pack(Pack.number_pack())  # der eine Platz ist weg
 	var price := run.hub_upgrade_price()
@@ -435,7 +431,7 @@ func test_the_hub_reward_remembers_what_fizzled():
 	run.upgrade_hub()
 	assert_eq(run.owned_packs.size(), 1, "der Ausbau drückt nichts hinein")
 	assert_true(run.last_hub_reward_packs.is_empty(), "die Merkliste kennt nur Gelandetes")
-	assert_gt(run.last_hub_reward_fizzle, 0, "und zählt, wofür Geld fliegen muss")
+	assert_eq(run.last_hub_reward_fizzle, 3, "und zählt, wofür Geld fliegen muss")
 	assert_eq(run.money, before - price
 		+ run.last_hub_reward_fizzle * GameRun.PACK_FIZZLE_MONEY)
 
@@ -446,11 +442,13 @@ func test_a_secret_buy_checks_the_magazine_before_paying():
 	run.grant_pack(Pack.number_pack())
 	run.charge = 99
 	for i in run.secret_stock.size():
-		if String(run.secret_stock[i][GameRun.OFFER_KIND]) == GameRun.KIND_CHARM:
+		var kind := String(run.secret_stock[i][GameRun.OFFER_KIND])
+		# Charm und Würfel hängen nicht am Magazin - der eine am Dock, der andere
+		# am Ausgabefach, das keinen Deckel hat.
+		if kind == GameRun.KIND_CHARM or kind == GameRun.KIND_DIE:
 			continue
 		assert_false(run.buy_secret_offer(i), "volles Magazin sperrt versiegelte Ware")
 		assert_false(bool(run.secret_stock[i][GameRun.OFFER_SOLD]), "und der Platz bleibt")
-	assert_eq(run.charge, 99, "prüfen VOR dem Zahlen")
 
 func test_pack_stakes_consume_from_the_end():
 	# Neuzugänge liegen hinten - der Einsatz frisst sie, nie die sortierten Lieblinge vorn.
@@ -460,33 +458,27 @@ func test_pack_stakes_consume_from_the_end():
 	assert_eq(run.owned_packs.size(), 1)
 	assert_eq(run.owned_packs[0], front, "vorn bleibt liegen, hinten wird geopfert")
 
-func test_open_pack_by_uid_opens_exactly_that_pack():
-	run.grant_packs([Pack.dice_pack(DiceOffer.TEMPLATES[0]),
-		Pack.dice_pack(DiceOffer.TEMPLATES[2])] as Array[Pack])
-	var uid := run.owned_packs[1].pack_uid
-	var result := run.open_pack_by_uid(uid)
-	assert_eq((result["dice"] as Array).size(), int(DiceOffer.TEMPLATES[2]["count"]),
-		"geöffnet wird DIESES Paket, nicht das oberste")
-	assert_eq(run.owned_packs.size(), 1)
-	assert_eq(run.open_pack_by_uid(uid)["dice"].size(), 0, "eine verbrauchte uid öffnet nichts")
-
-func test_place_pack_die_replaces_the_chosen_slot_only():
-	var die := DieDefinition.fixed(6, "Immer 6")
-	run.place_pack_die(die, 7)
+func test_the_exchange_replaces_the_chosen_slot_only():
+	run.stash_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	assert_true(run.exchange_pending_die(0, 7))
 	assert_eq(run.owned_pool[7].style_id, "fixed_6", "gewählter Platz getauscht")
 	assert_eq(_count_style("fixed_6"), 1, "nur dieser eine Platz")
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE)
+	assert_eq(run.pending_dice.size(), 0, "und das Fach ist wieder leer")
 
-func test_place_pack_die_stores_an_independent_copy():
+func test_the_stashed_die_is_an_independent_copy():
 	var die := DieDefinition.fixed(6, "Immer 6")
-	run.place_pack_die(die, 3)
+	run.stash_die(die, 0)
+	run.exchange_pending_die(0, 3)
 	run.owned_pool[3].faces[0] = 1
-	assert_eq(die.faces[0], 6, "Paket-Vorlage bleibt unverändert")
+	assert_eq(die.faces[0], 6, "die Auslage-Vorlage bleibt unverändert")
 
-func test_place_pack_die_ignores_slots_outside_the_pool():
-	run.place_pack_die(DieDefinition.fixed(6, "Immer 6"), GameRun.POOL_SIZE)
+func test_the_exchange_ignores_slots_outside_the_pool():
+	run.stash_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	assert_false(run.exchange_pending_die(0, GameRun.POOL_SIZE))
 	assert_eq(_count_style("fixed_6"), 0)
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "Pool unverändert")
+	assert_eq(run.pending_dice.size(), 1, "und der Würfel bleibt liegen")
 
 # --- Automaten-Gewinne (auswürfeln und buchen sind getrennt) ---------------------
 

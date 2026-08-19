@@ -938,7 +938,7 @@ func test_anchor_saves_only_the_first_reroll():
 func test_shop_price_hooks():
 	assert_eq(CharmEffects.charm_price(25, _ids([Charm.CASH_DISCOUNT])), 20)
 	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_NUMBER, _ids([Charm.BARGAIN_HUNTER])), 7)
-	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_DICE, _ids([Charm.BARGAIN_HUNTER])), 7, "jede Sorte")
+	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_DICE_MOD, _ids([Charm.BARGAIN_HUNTER])), 7, "jede Sorte")
 	assert_eq(CharmEffects.pack_price(2, Pack.TYPE_MATERIAL, _ids([Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
 	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT])), 10, "jedes Bündel, auch das einzelne")
 	assert_almost_eq(CharmEffects.pack_refund_chance(_ids([Charm.FINE_PRINT])), 0.2, 0.001)
@@ -951,11 +951,11 @@ func test_seal_of_quality_forces_refinements():
 			assert_true(DiceOffer.has_doped_side(die),
 				"%s trägt mindestens eine VEREDELTE Seite" % offer.display_name)
 
-func test_seal_of_quality_also_dopes_a_pack_die():
-	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
-	for die in pack.roll_dice(_ids([Charm.SEAL_OF_QUALITY])):
-		assert_lt(die.materials.count(""), die.materials.size(), "auch im Paket belegt")
-		assert_true(DiceOffer.has_doped_side(die), "auch im Paket veredelt")
+func test_seal_of_quality_also_dopes_a_reward_die():
+	for _i in DiceOffer.TEMPLATES.size():
+		var die := DiceOffer.roll_reward_die(_ids([Charm.SEAL_OF_QUALITY]))
+		assert_lt(die.materials.count(""), die.materials.size(), "auch die Prämie ist belegt")
+		assert_true(DiceOffer.has_doped_side(die), "auch die Prämie ist veredelt")
 
 # --- GameRun: Totems, Stammgast, Rundenbeginn ---------------------------------------------
 

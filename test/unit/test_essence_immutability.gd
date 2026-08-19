@@ -152,12 +152,14 @@ func test_replacing_a_pool_entry_is_the_only_way_a_soul_changes():
 	assert_eq(run.owned_pool[5].essence_id, Essence.XENON, "become() trägt die neue Seele ein")
 	assert_eq(run.owned_pool[5].display_name, "Neuling")
 
-func test_place_pack_die_replaces_the_whole_die():
+func test_the_exchange_replaces_the_whole_die():
+	# Der EINE Weg eines gekauften Würfels in den Pool: hinterlegt, dann getauscht.
 	var run := _souled_run()
 	var fresh := DieDefinition.standard()
 	fresh.essence_id = Essence.OZONE
-	run.place_pack_die(fresh, 2)
-	assert_eq(run.owned_pool[2].essence_id, Essence.OZONE, "der Paket-Würfel bringt seine Seele mit")
+	run.stash_die(fresh, 0)
+	assert_true(run.exchange_pending_die(0, 2))
+	assert_eq(run.owned_pool[2].essence_id, Essence.OZONE, "der Fach-Würfel bringt seine Seele mit")
 
 func test_a_purchase_protects_souls_until_no_soulless_slot_is_left():
 	# Solange ein seelenloser Platz frei ist, wird NIE eine Seele übermalt.
@@ -184,9 +186,8 @@ func test_offers_never_hand_out_a_pool_instance():
 			for owned in run.owned_pool:
 				assert_ne(die, owned, "ein Angebot ist nie ein Pool-Würfel")
 
-func test_a_pack_die_is_a_fresh_instance_too():
+func test_a_reward_die_is_a_fresh_instance_too():
 	var run := _souled_run()
-	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
-	for die in pack.roll_dice(_ids([]), run.owned_essence_ids()):
-		for owned in run.owned_pool:
-			assert_ne(die, owned, "auch der Paket-Würfel ist frisch")
+	var die := DiceOffer.roll_reward_die(_ids([]), run.owned_essence_ids())
+	for owned in run.owned_pool:
+		assert_ne(die, owned, "auch der Prämien-Würfel ist frisch")

@@ -158,11 +158,10 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	var special: String = run.secret_stock[1][GameRun.OFFER_KIND]
 	assert_true(special == GameRun.KIND_ENGRAVING or special == GameRun.KIND_CATALYST,
 		"unbekannte Sonderbestands-Ware: %s" % special)
-	# Der dritte Platz ist die Wildcard: Charm, Sonderbestand ODER Essenzwürfel.
+	# Der dritte Platz ist die Wildcard - und sie würfelt nur noch WARE.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
-	assert_true(wildcard == GameRun.KIND_CHARM or wildcard == GameRun.KIND_ENGRAVING
-		or wildcard == GameRun.KIND_CATALYST or wildcard == GameRun.KIND_DIE,
-		"unbekannte Wildcard-Ware: %s" % wildcard)
+	assert_true(wildcard == GameRun.KIND_ENGRAVING or wildcard == GameRun.KIND_CATALYST
+		or wildcard == GameRun.KIND_DIE, "unbekannte Wildcard-Ware: %s" % wildcard)
 
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)
@@ -263,7 +262,46 @@ func test_owned_legendaries_are_excluded_from_the_roll() -> void:
 	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
 	assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_CHARM,
-		"er liegt schon in der Auslage - die Wildcard weicht auf Sonderbestand oder Essenzwürfel aus")
+		"die Wildcard führt ohnehin keine Karte mehr")
+
+# --- Genau EINE Karte je Auslage -----------------------------------------------
+# Das Hinterzimmer hat EINEN Karten-Sitz; die übrige Auslage liegt körperlich in
+# der Vitrine. Also darf nie eine zweite Karte gewürfelt werden - und solange der
+# legendäre Topf trägt, fehlt auch nie eine.
+
+func _charm_count(run: GameRun) -> int:
+	var seen := 0
+	for offer in run.secret_stock:
+		if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
+			seen += 1
+	return seen
+
+func test_every_stock_lays_out_exactly_one_card() -> void:
+	var run := _discovered()
+	for i in 120:
+		run._roll_secret_stock()
+		assert_eq(_charm_count(run), 1,
+			"ein Sitz, eine Karte - nie zwei, nie null (Wurf %d)" % i)
+
+func test_the_wildcard_never_deals_a_card() -> void:
+	# Der Charm-Zweig der Wildcard ist tot: der dritte Platz würfelt nur Ware.
+	var run := _discovered()
+	for i in 120:
+		run._roll_secret_stock()
+		assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_CHARM,
+			"der Wildcard-Platz trägt Ware, keine Lizenz")
+
+func test_an_exhausted_legendary_pot_leaves_the_seat_empty() -> void:
+	# Der EINE erlaubte Ausfall: ist der Topf leer, rückt eine Sonder-Gravur nach -
+	# deren Kassette steht dann in der Vitrine und der Sitz bleibt leer.
+	var run := _run()
+	for charm in _legendaries():
+		run.owned_charms.append(charm)
+	run.unlock_secret_shop()
+	for i in 20:
+		run._roll_secret_stock()
+		assert_eq(_charm_count(run), 0, "keine Karte mehr zu vergeben")
+		assert_eq(run.secret_stock.size(), 3, "die Plätze bleiben trotzdem besetzt")
 
 func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	var run := _run()
@@ -439,8 +477,8 @@ func test_the_die_price_climbs_with_the_rarity() -> void:
 	assert_lt(int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.EPIC]),
 		int(GameRun.SECRET_DIE_PRICES[Essence.Rarity.LEGENDARY]))
 
-## Der gekaufte Würfel geht als versiegeltes Paket in die Werkstatt - dort sucht
-## der Spieler den Platz selbst, statt dass der Laden still einen überschreibt.
+## Der gekaufte Würfel geht als WARE ins Ausgabefach - dort sucht der Spieler den
+## Platz selbst, statt dass der Laden still einen überschreibt.
 func _run_with_secret_die() -> GameRun:
 	var run := _run()
 	run.charge = 40
@@ -453,38 +491,44 @@ func _run_with_secret_die() -> GameRun:
 	}
 	return run
 
-func test_buying_an_essence_die_books_a_sealed_pack() -> void:
+func test_buying_an_essence_die_stashes_it_in_the_tray() -> void:
 	var run := _run_with_secret_die()
 	var before := run.charge
 	var pool_souls: Array[String] = []
 	for pool_die in run.owned_pool:
 		pool_souls.append(pool_die.essence_id)
 	assert_true(run.buy_secret_offer(2))
-	assert_eq(run.owned_packs.size(), 1, "die Ware liegt versiegelt in der Werkstatt")
-	assert_true(run.owned_packs[0].is_dice_pack())
-	assert_eq(run.owned_packs[0].count, 1)
+	assert_eq(run.pending_dice.size(), 1, "die Ware liegt im Ausgabefach")
+	assert_eq(run.owned_packs.size(), 0, "ein Würfel wird nie versiegelt")
 	assert_eq(run.charge, before - 6, "der Preis ist abgebucht")
 	assert_true(bool(run.secret_stock[2][GameRun.OFFER_SOLD]), "der Platz bleibt leer")
 	for i in run.owned_pool.size():
 		assert_eq(run.owned_pool[i].essence_id, pool_souls[i], "der Pool bleibt unangetastet")
 
-func test_the_sealed_secret_die_opens_as_exactly_the_bought_die() -> void:
+func test_the_stashed_secret_die_is_exactly_the_bought_die() -> void:
 	var run := _run_with_secret_die()
 	var bought: DieDefinition = run.secret_stock[2][GameRun.OFFER_ITEM]
 	assert_true(run.buy_secret_offer(2))
-	var none: Array[String] = []
-	var rolled := run.owned_packs[0].roll_dice(none, none, 1)
-	assert_eq(rolled.size(), 1)
-	assert_eq(rolled[0].essence_id, Essence.RADON, "die gesehene Seele wird geliefert")
-	assert_eq(rolled[0].faces, bought.faces)
-	assert_ne(rolled[0], bought, "eine eigene Instanz, kein geteilter Datensatz")
+	var stashed := run.pending_dice[0]
+	assert_eq(stashed.essence_id, Essence.RADON, "die gesehene Seele wird geliefert")
+	assert_eq(stashed.faces, bought.faces)
+	assert_ne(stashed, bought, "eine eigene Instanz, kein geteilter Datensatz")
 
-func test_buying_the_secret_die_reports_the_new_pack() -> void:
+func test_buying_the_secret_die_reports_the_tray() -> void:
 	var run := _run_with_secret_die()
 	var fired: Array = []
-	run.packs_changed.connect(func() -> void: fired.append(true))
+	run.pending_dice_changed.connect(func() -> void: fired.append(true))
 	assert_true(run.buy_secret_offer(2))
 	assert_eq(fired.size(), 1)
+
+func test_the_secret_die_ignores_a_full_magazine() -> void:
+	# Der Deckel gilt fürs Magazin, und der Würfel geht nicht dorthin.
+	var run := _run_with_secret_die()
+	run.set_pack_capacity(1)
+	run.grant_pack(Pack.number_pack())
+	assert_true(run.packs_full())
+	assert_true(run.buy_secret_offer(2), "der Würfel wird trotzdem verkauft")
+	assert_eq(run.pending_dice.size(), 1)
 
 func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()

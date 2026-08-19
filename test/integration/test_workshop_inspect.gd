@@ -48,11 +48,13 @@ func test_the_die_is_the_pool_instance_never_a_copy() -> void:
 	var die := _open(7)
 	assert_true(view.inspected_die() == run.owned_pool[7], "dieselbe Instanz")
 
-func test_the_grid_stands_right_of_the_die_and_never_reorders() -> void:
+func test_the_grid_stands_right_of_the_die_and_carries_the_drag() -> void:
+	# Getippt wechselt das Dossier, GEZOGEN legt der Vorrat um - dieselbe Teilung
+	# wie im Pool-Tray, und seit der Paket-Platzierung die zweite Stelle dafür.
 	_open()
 	await wait_frames(2)
 	assert_not_null(view._pool_grid, "das Raster steht")
-	assert_false(view._pool_grid.reorder_enabled, "aber es legt nichts um")
+	assert_true(view._pool_grid.reorder_enabled, "und trägt die Zieh-Geste")
 	assert_eq(view._pool_grid.tiles.size(), run.owned_pool.size(), "der GANZE Besitz")
 	var side: Control = view._content.get_node("InspectBody/InspectSide")
 	assert_gt(view._pool_grid.get_global_rect().position.x, side.get_global_rect().position.x,
@@ -138,10 +140,10 @@ func test_the_net_cells_explain_themselves_on_the_hover_card() -> void:
 # --- Wann sie aufgeht, und wie sie wieder zugeht ---------------------------------
 
 func test_the_page_opens_only_from_the_base_page() -> void:
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[4]))
-	assert_true(view.open_top_dice_pack(), "ein Paket nimmt die Bank")
+	run.stash_die(DieDefinition.fixed(6, "Sechser"), 0)
+	assert_true(view.open_exchange(0), "der Tausch-Wähler nimmt die Bank")
 	assert_false(view.open_inspect(run.owned_pool[0]), "daneben geht kein Dossier auf")
-	view.finish_ceremony()
+	view.close_exchange()
 	assert_true(view.open_inspect(run.owned_pool[0]), "danach schon")
 
 func test_a_die_outside_the_pool_has_no_dossier() -> void:

@@ -136,6 +136,9 @@ var _fumble_wave_tween: Tween
 ## Filz-Material: braucht die Fenster-Rechtecke, um seine Textur unter den
 ## durchscheinenden Fenstergründen auszublenden.
 var _felt_material: ShaderMaterial
+## Die Ebene des Förderwerks: sie hängt direkt über dem Filz und unter allem
+## anderen - jedes Unterlicht wird hier eingehängt, nie an die Wurzel.
+var underlight_layer: Control
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -190,6 +193,12 @@ var _glass_material: ShaderMaterial
 ## ein Loch spiegelt nicht, es ist weg.
 var apron_pit := Rect2()
 var apron_pit_radius := 0.0
+## Die VITRINEN-Löcher (0 = Laden, 1 = Schwarzmarkt): dieselbe Grubentechnik, nur
+## mit VORHANG - vitrine_open löst die Anzeige darüber als Rausch-Dissolve auf.
+## Auch sie kosten keinen MAX_WINDOWS-Platz.
+const VITRINE_HOLES := 2
+var vitrine_rects: Array[Rect2] = [Rect2(), Rect2()]
+var vitrine_open := PackedFloat32Array([0.0, 0.0])
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -298,6 +307,7 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
 	_sync_apron_pit()
+	_sync_vitrine_holes()
 
 ## Die Anzeigefläche IST das Rechteck ihrer Textur. Das Tisch-GLB bringt eine
 ## ovale Platte mit; ihre Rundungen schnitten alles an, was in der Ecke lag
@@ -337,6 +347,15 @@ func _build_content() -> void:
 	background.material = _felt_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
+
+	# Das FÖRDERWERK: sein Glimmen liegt unter ALLEM, was auf dem Tisch steht -
+	# auf offenen Filzstrecken sichtbar, unter Fenstern ehrlich verdeckt. Licht
+	# fliegt über dem Filz, Ware fährt darunter.
+	underlight_layer = Control.new()
+	underlight_layer.name = "Underlight"
+	underlight_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	underlight_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(underlight_layer)
 
 	# LED-Leisten (Hub<->Kombinationen, Hub<->Schatz): bewusst früh gebaut, damit
 	# sie UNTER allen Fenstern liegen; verlegt werden sie erst in
@@ -874,6 +893,28 @@ func _link_workshop_to_hub() -> void:
 	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
 		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
+## Das AUSGABEFACH liegt RECHTS neben der Werkbank: eine Naht Abstand, oben bündig
+## mit ihrer Fensterkante. Alle drei Maße in den Einheiten des Fensters (u =
+## Breite/100), damit die Schale mit ihm wächst. Rechts liegt keine Ader - die
+## Werkstatt-Hub-Ader läuft durch die Lücke LINKS davon zum Hub.
+## Die Breite ist GEMESSEN, nicht geraten: bei 14 u fasste die Schale zwei Spalten
+## (8 Plätze), und seit der Laden bis zu sechs Einzelwürfel führt, quetschte sie.
+## 17 u tragen genau DREI Spalten (12 Plätze) und lassen rechts noch ~340 px Filz -
+## der Tisch ist an dieser Kante nicht knapp.
+const FACH_GAP_UNITS := 2.4
+const FACH_WIDTH_UNITS := 17.0
+const FACH_HEIGHT_UNITS := 26.0
+
+## Ihr Rechteck in Display-Pixeln (leer = es steht keine Werkbank).
+func ausgabefach_rect() -> Rect2:
+	if workshop_window == null or not workshop_window.visible \
+			or workshop_window.size.x <= 0.0:
+		return Rect2()
+	var u := workshop_window.size.x / 100.0
+	return Rect2(Vector2(workshop_window.position.x + workshop_window.size.x
+		+ u * FACH_GAP_UNITS, workshop_window.position.y),
+		Vector2(u * FACH_WIDTH_UNITS, u * FACH_HEIGHT_UNITS))
+
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -898,6 +939,34 @@ func _sync_apron_pit() -> void:
 			apron_pit.end.x, apron_pit.end.y)
 	_glass_material.set_shader_parameter("pit_rect", hole)
 	_glass_material.set_shader_parameter("pit_radius", apron_pit_radius)
+
+## Stellt eine Vitrinen-Bucht: ihr Rechteck in Display-Pixeln und wie weit ihr
+## Vorhang offen steht. Der Körper darunter gehört scene_root (VitrineView).
+func set_vitrine_hole(index: int, rect: Rect2, open: float) -> void:
+	if index < 0 or index >= VITRINE_HOLES:
+		return
+	vitrine_rects[index] = rect
+	vitrine_open[index] = clampf(open, 0.0, 1.0)
+	_sync_vitrine_holes()
+
+## Nur den Vorhang fahren - das Rechteck bleibt, wo es steht.
+func set_vitrine_open(index: int, open: float) -> void:
+	if index < 0 or index >= VITRINE_HOLES:
+		return
+	vitrine_open[index] = clampf(open, 0.0, 1.0)
+	_sync_vitrine_holes()
+
+func _sync_vitrine_holes() -> void:
+	if _glass_material == null:
+		return
+	var rects := PackedVector4Array()
+	for rect in vitrine_rects:
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			rects.append(Vector4(rect.position.x, rect.position.y, rect.end.x, rect.end.y))
+		else:
+			rects.append(Vector4.ZERO)
+	_glass_material.set_shader_parameter("vitrine_rects", rects)
+	_glass_material.set_shader_parameter("vitrine_open", vitrine_open)
 
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
@@ -2200,6 +2269,51 @@ func pack_delivery_comet(from_px: Vector2, color: Color,
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
+
+## --- Das Förderwerk (Ware unter dem Filz) --------------------------------------
+## Breiter, matter und mit langem Schweif: kein Funke auf dem Tisch, sondern ein
+## Glimmen darin. Die Geschwindigkeit bleibt die der Kometen - die Routen-Zeit-
+## rechnung trägt sonst nicht.
+const UNDERLIGHT_CORE := 8.0 * SUPERSAMPLE
+const UNDERLIGHT_GLOW := 24.0 * SUPERSAMPLE
+const UNDERLIGHT_COMET := 130.0 * SUPERSAMPLE
+const UNDERLIGHT_ALPHA := 0.34
+## Der Tauchgang an einer Grubenkante: ein kurzer, kleiner Ring - was danach
+## geschieht, geschieht in der Grube.
+const DIVE_FLASH_RADIUS := 44.0 * SUPERSAMPLE
+const DIVE_FLASH_TIME := 0.32
+
+## Die Fracht-Strecke einer Bucht zur Werkbank: unter dem Hub hindurch auf die
+## Hub-Werkstatt-Ader und an die Grubenkante. Das Untergeschoss hat keine eigenen
+## Wege - es fährt dieselben Routen wie das Licht darüber.
+func underlight_workshop_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
+	return _route_via_strip(from_px, workshop_hub_strip, to_px)
+
+## Dieselbe Strecke aus dem Hinterzimmer: erst die Schwarzmarkt-Ader in den Hub,
+## dort auf die Werkstatt-Ader und an die Grubenkante.
+func underlight_secret_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
+	return _route_via_strips(from_px, [secret_hub_strip, workshop_hub_strip], to_px)
+
+## Schickt ein Unterlicht über eine fertige Route; liefert die Fahrzeit.
+func underlight_travel(points: PackedVector2Array, color: Color) -> float:
+	if points.size() < 2:
+		return 0.0
+	var travel := _travel_time(points)
+	var pulse := TracePulseView.new()
+	if underlight_layer != null and is_instance_valid(underlight_layer):
+		underlight_layer.add_child(pulse)
+	else:
+		add_child(pulse)
+	pulse.setup(points, Color(color.r, color.g, color.b, color.a * UNDERLIGHT_ALPHA),
+		UNDERLIGHT_CORE, UNDERLIGHT_GLOW, travel, UNDERLIGHT_COMET)
+	return travel
+
+## Der Tauchgang: hier verschwindet eine Lieferung unter dem Filz. Über dem Filz -
+## das Blitzen ist das Letzte, was man von ihr oben sieht.
+func pit_dive_flash(px: Vector2, color: Color) -> void:
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(px, Color(color.r, color.g, color.b, 0.85), DIVE_FLASH_RADIUS, DIVE_FLASH_TIME)
 
 ## Meteor der Presse: ein Beutestück fährt aus seinem Leser in die Ablage. Ein
 ## LOKALER Flug INNERHALB der Werkbank-Ecke, keine Ader - der Bogen führt über die

@@ -247,8 +247,8 @@ func test_the_batch_is_capped_at_six() -> void:
 	assert_eq(result["readers"].size(), PhantomPress.BATCH_CAP)
 	assert_eq(run.owned_packs.size(), 3, "was nicht in die Konsole passt, bleibt liegen")
 
-func test_a_dice_pack_is_no_press_material() -> void:
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
+func test_a_grip_of_pure_catalysts_is_no_pressing() -> void:
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
 	assert_true(run.open_press(_d([0]), _rng(3))["readers"].is_empty())
 	assert_eq(run.owned_packs.size(), 1, "und wird nicht verbraucht")
 	assert_eq(run.press_uses, 0, "eine Pressung ohne Ware ist keine")

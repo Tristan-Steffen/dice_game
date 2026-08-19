@@ -36,7 +36,6 @@ const COLORS := {
 	Engraving.CATEGORY_NUMBER: Color("#50fa7b"),
 	Engraving.CATEGORY_MATERIAL: Color("#ff79c6"),
 	Engraving.CATEGORY_DICE: Color("#ffd319"),
-	Pack.SHELF_DICE_PACK: Color("#8be9fd"),
 	Pack.SHELF_SPECIAL: Color("#bd93f9"),
 }
 

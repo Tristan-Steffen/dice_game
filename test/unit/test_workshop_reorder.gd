@@ -1,7 +1,7 @@
 extends GutTest
-## Umlegen im Würfel-Raster der Werkbank: Ziehen greift in denselben Vorrat wie am
+## Umlegen im Würfel-Raster des Dossiers: Ziehen greift in denselben Vorrat wie am
 ## Tray - die Kachel wird am Ziel EINGESETZT, die anderen rücken auf. Reine
-## Handler-Logik über die Anzeige-Reihenfolge, ohne Szenenbaum.
+## Handler-Logik über die Pool-Ordnung, ohne Szenenbaum.
 
 func _view(run: GameRun) -> WorkshopView:
 	var view: WorkshopView = autofree(WorkshopView.new())
@@ -38,29 +38,15 @@ func test_a_signed_round_locks_the_grid() -> void:
 	view._on_pool_slots_reordered(0, 4)
 	assert_same(run.owned_pool[0], first, "nach der Unterschrift steht der Vorrat")
 
-func test_an_empty_tile_is_no_target() -> void:
-	var run := GameRun.new_run()
-	var first := run.owned_pool[0]
-	var view := _view(run)
-	var order: Array[DieDefinition] = []
-	order.assign(run.owned_pool)
-	order[4] = null  # ein leerer Platz im Raster (gezogener Würfel)
-	view.set_pool_order(order, 6)
-	view._on_pool_slots_reordered(0, 4)
-	assert_same(run.owned_pool[0], first, "auf nichts legt man nichts")
-
-func test_the_grid_follows_the_tray_order_not_the_pool_order() -> void:
-	# scene_root reicht die Tray-Reihenfolge herein; Kachel 0 muss den Würfel
-	# treffen, der auf dem Tisch oben links liegt.
+func test_the_grid_is_the_pool_order() -> void:
+	# Seit der Paket-Platzierung tot ist, zeigt das Raster IMMER den ganzen Besitz
+	# in Pool-Ordnung: Kachel n ist Pool-Platz n, ohne Tray-Sitzordnung dazwischen.
 	var run := GameRun.new_run()
 	var view := _view(run)
-	var order: Array[DieDefinition] = []
-	order.append(run.owned_pool[7])
-	order.append(run.owned_pool[2])
-	view.set_pool_order(order, 2)
-	var moved := run.owned_pool[7]
-	view._on_pool_slots_reordered(0, 1)
-	assert_same(run.owned_pool[2], moved, "Kachel 0 war Pool-Platz 7, Kachel 1 Platz 2")
+	assert_eq(view._pool_defs().size(), run.owned_pool.size())
+	for i in run.owned_pool.size():
+		assert_same(view._pool_defs()[i], run.owned_pool[i], "Kachel %d = Pool-Platz %d" % [i, i])
+		assert_eq(view._pool_index_of(i), i)
 
 func test_places_outside_the_grid_are_ignored() -> void:
 	var run := GameRun.new_run()

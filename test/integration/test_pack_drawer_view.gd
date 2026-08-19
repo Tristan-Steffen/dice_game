@@ -25,11 +25,17 @@ func _field(row := Vector2(900, 150)) -> Rect2:
 
 # --- Taxonomie: sie wohnt jetzt in data/ (Pack), die Farben hier ------------------
 
-func test_a_dice_pack_belongs_only_to_the_dice_shelf() -> void:
-	var pack := Pack.dice_pack(DiceOffer.TEMPLATES[0])
-	assert_eq(Pack.shelf_of(pack), Pack.SHELF_DICE_PACK)
-	for category in [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
-			Engraving.CATEGORY_DICE, Pack.SHELF_SPECIAL]:
+func test_the_magazine_has_no_dice_shelf_any_more() -> void:
+	# Würfel werden nie versiegelt: die Taxonomie führt nur noch die drei
+	# Gravur-Sorten und den Sonderbestand.
+	assert_eq(Pack.SHELF_ORDER.size(), 4)
+	assert_false(Pack.SHELF_ORDER.has("dice_pack"))
+
+func test_an_engraving_pack_belongs_to_exactly_one_shelf() -> void:
+	var pack := Pack.number_pack()
+	assert_eq(Pack.shelf_of(pack), Engraving.CATEGORY_NUMBER)
+	for category in [Engraving.CATEGORY_MATERIAL, Engraving.CATEGORY_DICE,
+			Pack.SHELF_SPECIAL]:
 		assert_false(Pack.pack_belongs(pack, category), "%s zaehlt es nicht" % category)
 
 func test_a_fixed_special_pack_lies_on_the_stockpile() -> void:
@@ -41,11 +47,11 @@ func test_an_engraving_pack_lies_on_its_category() -> void:
 	assert_eq(Pack.shelf_of(Pack.material_pack()), Engraving.CATEGORY_MATERIAL)
 
 func test_the_delivery_route_reads_the_pack_type() -> void:
-	assert_eq(Pack.shelf_for_pack_type(Pack.TYPE_DICE), Pack.SHELF_DICE_PACK)
+	assert_eq(Pack.shelf_for_pack_type(Pack.TYPE_NUMBER), Engraving.CATEGORY_NUMBER)
 	assert_eq(Pack.shelf_for_pack_type(Pack.TYPE_MATERIAL), Engraving.CATEGORY_MATERIAL)
 
 func test_the_pack_type_map_reads_both_ways() -> void:
-	for pack_type: String in [Pack.TYPE_DICE, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
+	for pack_type: String in [Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
 			Pack.TYPE_DICE_MOD]:
 		var category := Pack.shelf_for_pack_type(pack_type)
 		assert_eq(Pack.pack_type_of_shelf(category), pack_type, "hin und zurück: %s" % pack_type)

@@ -110,10 +110,10 @@ const HUB_MAX_LEVEL := 10
 const HUB_UPGRADE_PRICES := [8, 12, 18, 25, 35, 55, 80, 120, 170]
 
 ## ZUSÄTZLICHE Gravur-Pakete je frisch erreichter Stufe - eine Datentabelle, das
-## Stellen daran ist eine Zahlenänderung, kein Code. Das beseelte 3er-Würfel-
-## Paket kommt bei JEDER Stufe ab 2 obendrauf und steht darum nicht hier drin;
-## nicht gelistete Stufen bekommen nur dieses. Seit ein Paket EIN Phantomwürfel
-## ist, entscheiden die Stückzahlen hier, wie lang eine Reihe werden kann.
+## Stellen daran ist eine Zahlenänderung, kein Code. Der beseelte Würfel kommt bei
+## JEDER Stufe ab 2 obendrauf und steht darum nicht hier drin; nicht gelistete
+## Stufen bekommen nur ihn. Seit ein Paket EIN Phantomwürfel ist, entscheiden die
+## Stückzahlen hier, wie lang eine Reihe werden kann.
 const HUB_REWARD_PACKS := {
 	5: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL],
 	10: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
@@ -138,8 +138,12 @@ const HUB_UPGRADE_UNLOCKS := [
 ## Shop-Platzzahlen je Hub-Stufe (1-basiert). Der Laden wächst nicht sprunghaft,
 ## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
 ## tauschen Kartengröße gegen Anzahl.
+## SHOP_DICE_SLOTS zählt EINZELWÜRFEL, keine Pakete mehr: der Laden legt sie offen
+## in die Schale. Dieselben Sprungstellen wie die beiden anderen Leitern (3/6/9),
+## damit ein Ausbau alle drei Rubriken zugleich wachsen lässt - 3 auf Stufe 1,
+## 6 auf Stufe 10.
 const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
-const SHOP_DICE_SLOTS  := [1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+const SHOP_DICE_SLOTS  := [3, 3, 4, 4, 4, 5, 5, 5, 6, 6]
 const SHOP_PACK_SLOTS  := [1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
 
 ## Ab dieser Lizenzstufe führt auch das normale Regal Sonderposten - vorher gibt
@@ -222,6 +226,9 @@ var last_hub_reward_packs: Array[Pack] = []
 ## Wie viele Pakete desselben Ausbaus am vollen Magazin zu Geld zerfallen sind -
 ## die Zeremonie schickt dafür Geld statt einer Kassette los.
 var last_hub_reward_fizzle: int = 0
+## Der beseelte Würfel desselben Ausbaus (null = keiner). Er liegt längst im
+## Ausgabefach; das hier ist die Merkliste für die Zeremonie.
+var last_hub_reward_die: DieDefinition = null
 ## Beim Händler hinterlegte Würfel: in der Chip-Schale gekauft, aber noch nicht
 ## eingetauscht. Sie liegen im Laden, bis der Spieler selbst bestimmt, welchen
 ## Pool-Platz sie übernehmen - der Automat sucht ihn sonst allein aus, und eine
@@ -424,24 +431,20 @@ func upgrade_hub() -> void:
 		unlock_secret_shop()
 	hub_level_changed.emit(hub_level)
 
-## Belohnung einer frisch erreichten Stufe: versiegelte Ware ins Lager. JEDE
-## Stufe ab 2 bringt ein 3er-Würfel-Paket, dessen drei Auswahl-Würfel ALLE eine
-## Seele tragen; HUB_REWARD_PACKS legt je Stufe noch Gravur-Pakete obendrauf.
-## Geöffnet wird alles über den gewohnten Weg in der Werkstatt.
-## Ist das Magazin voll, landen die vorderen und der Rest zerfällt zu Geld -
+## Belohnung einer frisch erreichten Stufe. JEDE Stufe ab 2 bringt EINEN beseelten
+## Würfel - direkt gewürfelt und ins Ausgabefach gelegt, nicht versiegelt: ein
+## Würfel ist Ware, kein Blindkauf. HUB_REWARD_PACKS legt je Stufe noch
+## Gravur-Pakete obendrauf; die gehen als Kassetten ins Magazin und werden an der
+## Presse geöffnet.
+## Ist das Magazin voll, landen die vorderen Pakete und der Rest zerfällt zu Geld -
 ## last_hub_reward_fizzle merkt sich, wie viele, damit die Zeremonie statt einer
-## Kassette Geld fliegen lässt.
+## Kassette Geld fliegen lässt. Der Würfel zerfällt nie: pending_dice hat keinen
+## Deckel.
 func _grant_hub_rewards(level: int) -> int:
 	last_hub_reward_packs.clear()
 	last_hub_reward_fizzle = 0
+	last_hub_reward_die = _grant_reward_die()
 	var delivery: Array[Pack] = []
-	var template := _reward_dice_template()
-	if not template.is_empty():
-		var pack := Pack.dice_pack(template)
-		pack.essence_guaranteed = true
-		pack.description = "%d× %s aufgedeckt, alle beseelt - einer darf mit." \
-			% [int(template["count"]), template["name"]]
-		delivery.append(pack)
 	for pack_type: String in HUB_REWARD_PACKS.get(level, []):
 		delivery.append(Pack.by_type(pack_type))
 	for stashed in grant_packs(delivery):
@@ -451,13 +454,15 @@ func _grant_hub_rewards(level: int) -> int:
 			last_hub_reward_packs.append(stashed)
 	return last_hub_reward_packs.size()
 
-## Vorlage des Belohnungs-Pakets: eine der 3er-Sorten, damit die Wahl echt ist.
-func _reward_dice_template() -> Dictionary:
-	var bundles: Array[Dictionary] = []
-	for t: Dictionary in DiceOffer.TEMPLATES:
-		if int(t["count"]) >= 3:
-			bundles.append(t)
-	return bundles.pick_random() if not bundles.is_empty() else {}
+## Der EINE Weg an einen Prämien-Würfel: frisch gewürfelt, Seele garantiert,
+## gratis ins Ausgabefach. Liefert das HINTERLEGTE Exemplar - die Zeremonie fliegt
+## genau dieses an. null = keine Vorlage (dann fährt nichts).
+func _grant_reward_die() -> DieDefinition:
+	var die := DiceOffer.roll_reward_die(charm_ids(), owned_essence_ids(), hub_level)
+	if die == null:
+		return null
+	stash_die(die, 0)
+	return pending_dice[pending_dice.size() - 1]
 
 ## --- Aus der Hub-Stufe abgeleitete Struktur-Freischaltungen -------------------
 ## Alles läuft über diese Abfragen, damit Aufrufer nie rohe Stufen vergleichen.
@@ -536,14 +541,12 @@ func stash_die(def: DieDefinition, price: int) -> void:
 	pending_dice.append(def.instantiate())
 	pending_dice_changed.emit()
 
-## Bestandener Stresstest: EIN versiegeltes Würfel-Paket mit Seelengarantie ins
-## Lager. Ausgewürfelt wird der Würfel erst beim Öffnen in der Werkstatt - wie
-## bei jedem Paket. null = volles Magazin, der Preis ist zu Geld zerfallen.
-func grant_stress_reward() -> Pack:
-	var templates := DiceOffer.pick_templates(1)
-	if templates.is_empty():
-		return null
-	return grant_pack(Pack.stress_die(templates[0]))
+## Bestandener Stresstest: EIN frisch gewürfelter Würfel mit Seelengarantie, gratis
+## ins Ausgabefach - derselbe Weg wie die Hub-Prämie. Liefert das hinterlegte
+## Exemplar (null = keine Vorlage); zerfallen kann er nicht, pending_dice ist
+## unbegrenzt.
+func grant_stress_reward() -> DieDefinition:
+	return _grant_reward_die()
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
 ## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
@@ -746,13 +749,11 @@ func _tidy_key(pack: Pack) -> Array:
 	var shelf_rank := Pack.SHELF_ORDER.find(Pack.shelf_of(pack))
 	if shelf_rank < 0:
 		shelf_rank = Pack.SHELF_ORDER.size()
-	var content := pack.template_id
+	var content := pack.type
 	if pack.is_catalyst():
 		content = pack.catalyst_id
 	elif pack.fixed_engraving != null:
 		content = pack.fixed_engraving.id
-	elif content == "":
-		content = pack.type
 	return [shelf_rank, content, pack.pack_uid]
 
 ## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn). null = das Magazin war
@@ -786,46 +787,6 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 	if any:
 		packs_changed.emit()
 	return landed
-
-## Öffnet ein WÜRFEL-Paket auf Platz index - der Inhalt wird ERST JETZT
-## ausgewürfelt, aber noch nicht verbucht (das tut place_pack_die). Gravur-Pakete
-## laufen nicht hier durch, sondern über die Presse (open_press) - sie bleiben
-## unangetastet liegen, wenn sie hier landen.
-func open_pack(index: int) -> Dictionary:
-	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
-	if index < 0 or index >= owned_packs.size():
-		return empty
-	return _open_pack_at(index)
-
-## Dasselbe über die Paket-uid - der Weg der Magazin-Zellen, die beim Umsortieren
-## keine Indizes halten können.
-func open_pack_by_uid(uid: int) -> Dictionary:
-	var index := pack_index_of(uid)
-	if index < 0:
-		return {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
-	return _open_pack_at(index)
-
-func _open_pack_at(index: int) -> Dictionary:
-	var empty := {"engravings": [] as Array[Engraving], "dice": [] as Array[DieDefinition]}
-	var pack := owned_packs[index]
-	if not pack.is_dice_pack():
-		return empty
-	owned_packs.remove_at(index)
-	var result := empty
-	result["dice"] = pack.roll_dice(charm_ids(), owned_essence_ids(), hub_level)
-	packs_changed.emit()
-	return result
-
-## Setzt einen Paket-Würfel auf einen SELBST gewählten Pool-Platz; der bisherige
-## Würfel dort verfällt. Abgelehnte Würfel laufen hier nie ein.
-func place_pack_die(def: DieDefinition, pool_index: int) -> void:
-	if def == null or pool_index < 0 or pool_index >= owned_pool.size():
-		return
-	# In den bestehenden Würfel hinein, nicht an seine Stelle: das Rundendeck und
-	# die Trays halten dieselbe Instanz und zeigen den Tausch dadurch sofort.
-	var target := owned_pool[pool_index]
-	target.become(def)
-	pool_changed.emit()
 
 # --- Aufspannung: die Zwingen der Werkbank ------------------------------------
 
@@ -930,13 +891,11 @@ func grant_press_boost() -> void:
 func reset_press_cycle() -> void:
 	press_uses = 0
 
-## Die Pakete auf diesen Plätzen, ohne Doppelte, ohne Würfel-Pakete, gedeckelt.
+## Die Pakete auf diesen Plätzen, ohne Doppelte, gedeckelt.
 func _pressable_packs(pack_indices: Array[int]) -> Array[int]:
 	var chosen: Array[int] = []
 	for index in pack_indices:
 		if index < 0 or index >= owned_packs.size() or chosen.has(index):
-			continue
-		if owned_packs[index].is_dice_pack():
 			continue
 		chosen.append(index)
 		if chosen.size() >= PhantomPress.BATCH_CAP:
@@ -2450,11 +2409,8 @@ const SECRET_UNLOCK_HUB_LEVEL := 5
 ## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
 ## bleiben, die ⚡ selbst ist die Schranke.
 const SECRET_REROLL_BASE := 3
-## Aufteilung des Wildcard-Platzes: ein Drittel Essenzwürfel, vom Rest die
-## Hälfte ein Charm - so bleibt der Platz unberechenbar, ohne die festen zwei
-## Plätze zu wiederholen.
+## Aufteilung des Wildcard-Platzes: ein Drittel Essenzwürfel, sonst Sonderbestand.
 const SECRET_WILDCARD_DIE_CHANCE := 0.34
-const SECRET_WILDCARD_CHARM_CHANCE := 0.5
 
 ## Preis eines Essenzwürfels je Seltenheit seiner Seele - die Leiter des Ladens
 ## (5 ⚡ = eine volle Grundreihe) nach oben verlängert.
@@ -2599,9 +2555,10 @@ func buy_secret_offer(index: int) -> bool:
 	# Voller Dock: der Charm-Platz bleibt liegen, die Ladung wird nicht abgebucht.
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
-	# Volles Magazin: alles andere geht versiegelt raus, also sperrt der Deckel es
-	# GENAUSO - prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3.
-	if offer[OFFER_KIND] != KIND_CHARM and packs_full():
+	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
+	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3. Der Würfel geht
+	# ins Ausgabefach und kennt darum keinen Deckel.
+	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE and packs_full():
 		return false
 	spend_charge(price)
 	match offer[OFFER_KIND]:
@@ -2609,10 +2566,10 @@ func buy_secret_offer(index: int) -> bool:
 			var charm: Charm = offer[OFFER_ITEM]
 			_grant_charm(charm)
 		KIND_DIE:
-			# Dieselbe Ware wie jedes Würfel-Paket: versiegelt in die Werkstatt,
-			# dort sucht der Spieler selbst den Platz - kein stiller Tausch.
+			# Ware wie jeder gekaufte Würfel: ab ins Ausgabefach, den Pool-Platz
+			# sucht der Spieler selbst - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
-			grant_pack(Pack.secret_die(die))
+			stash_die(die, 0)
 		KIND_CATALYST:
 			# Die Kassette liegt fertig im Angebot - sie geht, wie sie ist.
 			grant_pack(offer[OFFER_ITEM] as Pack)
@@ -2661,15 +2618,17 @@ func _secret_catalyst_offer() -> Dictionary:
 	return _secret_offer(KIND_CATALYST, Pack.catalyst(pick),
 		secret_charge_price(Pack.catalyst_price(pick)))
 
-## Der dritte Platz: Essenzwürfel, Charm oder Sonderposten. Der Würfel ist der
-## EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel liegen sie nie.
+## Der dritte Platz würfelt nur noch WARE: Essenzwürfel oder Sonderbestand. Der
+## Würfel ist der EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel
+## liegen sie nie. Kein Charm-Zweig mehr: das Hinterzimmer hat genau EINEN
+## Karten-Sitz, und der gehört dem legendären Platz - nie zwei Karten, nie null
+## (nur der Erschöpfungs-Rückfall des legendären Topfes lässt ihn leer).
 func _secret_wildcard_offer() -> Dictionary:
 	if randf() < SECRET_WILDCARD_DIE_CHANCE:
 		var die_offer := _secret_die_offer()
 		if not die_offer.is_empty():
 			return die_offer
-	return _secret_charm_offer() if randf() < SECRET_WILDCARD_CHARM_CHANCE \
-		else _secret_special_offer()
+	return _secret_special_offer()
 
 ## Essenzwürfel: ein frischer Würfel mit einer Schwarzmarkt-Seele. Unikate, die
 ## der Spieler schon besitzt, fallen weg; ist der Topf leer, liefert der Platz

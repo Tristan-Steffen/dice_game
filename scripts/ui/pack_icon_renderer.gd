@@ -18,9 +18,14 @@ const DICE_ENGRAVING_COLOR := Color("#ffd319")
 ## das Nachglühen, weil seine Doppelfigur auf Siegelgröße am klarsten liest.
 const SHELF_RUNE := Rune.GLYPH_AFTERGLOW
 
+## Der WÜRFEL ist keine Paketsorte mehr (er wird nie versiegelt), sein Siegel
+## lebt aber weiter: die Prämien-Zeremonie zeigt es über dem Hub. Eigener
+## Schlüssel, damit Pack keine tote Sorte tragen muss.
+const SEAL_DIE := "die"
+
 ## Kanonische Sortenfarbe (Laden und Werkstatt färben ihre Karten hieraus).
 const COLORS := {
-	Pack.TYPE_DICE: Color("#8be9fd"),
+	SEAL_DIE: Color("#8be9fd"),
 	Pack.TYPE_NUMBER: Color("#50fa7b"),
 	Pack.TYPE_MATERIAL: Color("#ff79c6"),
 	Pack.TYPE_DICE_MOD: DICE_ENGRAVING_COLOR,
@@ -40,7 +45,7 @@ static func for_type(type: String) -> PackIconRenderer:
 
 func _draw() -> void:
 	match pack_type:
-		Pack.TYPE_DICE:
+		SEAL_DIE:
 			_draw_die(_accent())
 		Pack.TYPE_NUMBER:
 			_draw_rising_pip(Vector2(0.5, 0.5), 1.0, _accent())

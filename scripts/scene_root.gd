@@ -152,7 +152,8 @@ const ENGRAVE_ABSORB_COLOR := Color(2.0, 1.6, 0.3, 0.9)
 const ENGRAVE_HOVER := DiceTrayView.FLOAT_HEIGHT
 ## Ab hier ist die Geste ein Drehen und kein Klick mehr (Bildschirmpixel).
 const ENGRAVE_DRAG_THRESHOLD := 6.0
-## Feldfarbe der Paket-Würfel, die zur Wahl schweben: das Cyan der Werkstatt.
+## Feldfarbe eines Würfels, der zur Auskunft über der Werkbank schwebt (Dossier):
+## das Cyan der Werkstatt.
 const PACK_EMITTER_TINT := Color(0.2, 0.65, 0.9)
 ## Feldfarbe der Zwingen: das Blau der Trays - sie sind Bestand, keine Zeremonie.
 const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
@@ -163,10 +164,16 @@ const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
 ## über dem Glas, die freie Feldsäule darunter ist damit genau eine halbe
 ## Würfelhöhe - kürzer wäre kein Feld mehr, nur noch ein Sockel.
 const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
-## Der gewählte Würfel wandert auf den Einsetz-Platz - er verschwindet nicht.
+## Wechselt das Dossier den Würfel, WANDERT sein Körper - er verschwindet nicht.
 const PACK_MOVE_TIME := 0.4
 ## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
 const CLAMP_MATERIALIZE_STAGGER := 0.07
+
+## Die beiden Vitrinen und ihre Loch-Indizes im Glas-Shader, dazu die Dauer, in
+## der der Rausch-Dissolve die Anzeige darüber auflöst.
+const VITRINE_SHOP := 0
+const VITRINE_SECRET := 1
+const VITRINE_DISSOLVE := 0.5
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
 ## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
@@ -460,10 +467,6 @@ var _info_shown_title := ""
 var _info_shown_body := ""
 var _info_shown_tint: Color = CasinoStyle.CREAM
 
-## Die Paket-Würfel, die zur Wahl über der Werkbank schweben (leer = keine
-## Zeremonie); ihre Reihenfolge ist die des Werkstatt-Fensters.
-var pack_stages: Array[FloatingDie] = []
-
 ## Die vier Zwingen-Würfel der Runde: sie schweben die GANZE Runde IM
 ## Werkstatt-Fenster, je einer über seinem Netz und gleich unter dem oberen
 ## Fensterrand. Reihenfolge = run.clamped_dice; ein Platz ohne Würfel bleibt null.
@@ -500,6 +503,10 @@ var _cell_returns: Dictionary = {}
 var _draining_cells: Array[DataCellView] = []
 ## Ankunfts-Pluster, deren Kassette noch gar nicht wieder stand (uids).
 var _pending_cell_pops: Array[int] = []
+## Pakete, deren Kassette beim nächsten Abgleich aus dem GRUBENBODEN steigen soll
+## statt an Ort und Stelle aufzuploppen - das ist die eine Ankunft des Magazins,
+## wer auch immer liefert (uid -> true).
+var _rising_packs: Dictionary = {}
 ## Nur der ZULETZT angestoßene Abgleich läuft nach dem gewarteten Bild weiter -
 ## sonst stellten zwei Aufbauten im selben Bild zwei Körper auf denselben Platz.
 var _data_cell_gen := 0
@@ -515,6 +522,52 @@ var _pack_capacity := 0
 ## Der Filzboden: er muss dort ausblenden, wo die Grube steht, sonst blickt man
 ## durch das Loch auf Filz statt in die Vertiefung.
 var table_ground: TableGround
+## Die LADEN-VITRINE: Bucht und Scheibe unter der Ladenseite. Sie hängt an dem
+## Rechteck, das ShopController meldet (apron_bottom-Muster) - der Laden weiß vom
+## Tisch nichts.
+var shop_vitrine: VitrineView
+var shop_vitrine_glass: VitrineGlassView
+## Stand des Vorhangs (0 = Display zu, 1 = Bucht ganz offen). EINE Zahl: Loch,
+## Filzboden und Scheibe lesen sie im selben Schritt.
+var _vitrine_open := 0.0
+## Zuletzt entschiedener Stand des Vorhangs - der Entscheider läuft je Bild.
+var _vitrine_curtain := false
+var _vitrine_tween: Tween
+## Wie beim Zellen-Abgleich: nur der ZULETZT angestoßene Aufbau misst weiter.
+var _vitrine_gen := 0
+## Die LUKE, durch die das zuletzt gegriffene Stück gesunken ist (Display-Pixel):
+## dort steigt das Unterlicht ein. (-1,-1) = keine gemerkte Luke.
+var _vitrine_hatch_px := Vector2(-1, -1)
+## Der aufgesparte Ankunfts-Grad: hinter geschlossenem Vorhang baut das Förderwerk
+## lautlos um, der Auftritt wartet aufs Aufdecken. Er wird EINMAL gefahren.
+var _vitrine_grade := ShopController.GRADE_STAND
+## Laufende Nummer des Warenumschlags - nur der jüngste stellt die Zielseite.
+var _vitrine_swap := 0
+## Solange die Bucht ihren Raum und ihre Körper baut, bleibt der Vorhang zu: der
+## Aufbau kostet Zeit, und ein Anrollen, das auf diesem Bild beginnt, stockt.
+var _vitrine_building := false
+
+## Die HINTERZIMMER-VITRINE: dieselbe Miniatur unter dem Schwarzmarkt-Fenster. Ihr
+## Vorhang hängt am FOKUS: er öffnet, wenn die Kamera das Hinterzimmer anfährt.
+var secret_vitrine: VitrineView
+var secret_vitrine_glass: VitrineGlassView
+var _secret_open := 0.0
+var _secret_curtain := false
+var _secret_tween: Tween
+var _secret_gen := 0
+var _secret_swap := 0
+var _secret_grade := ShopController.GRADE_STAND
+## Die Luke, durch die die zuletzt gekaufte Hehlerware gesunken ist.
+var _secret_hatch_px := Vector2(-1, -1)
+
+## Das AUSGABEFACH: die offene Schale rechts der Werkbank, in der die gekauften
+## Würfel liegen, bis der Spieler ihren Platz im Vorrat wählt. Sie steht IMMER -
+## pending_dice sind Lauf-Zustand und überdauern Besuche und Runden.
+var ausgabefach: AusgabefachView
+## Der nächste gemeldete Würfel ist noch unterwegs: der Abgleich hält seinen
+## Körper zurück, bis das Unterlicht ihn abgeliefert hat.
+var _fach_expecting := false
+
 ## Die Kassette, die der Zeiger gerade aus der Grube zieht (0 = keine).
 var _hovered_pack_uid := 0
 
@@ -963,10 +1016,21 @@ func _setup_table_screen() -> void:
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
 		# der Körper darunter hängen alle an DIESEM Streifen.
 		_sync_pack_pit(table_screen.workshop_window)
+	# Das AUSGABEFACH: die offene Schale rechts der Bank. Der Tisch misst ihr
+	# Rechteck an der Fensterkante, scene_root stellt den Körper darauf.
+	_place_ausgabefach()
 	# Klick, Zeiger und Kamera messen sich an Fenster PLUS Schürze.
 	var bench_rect := Rect2(workshop_rect.position, Vector2(workshop_rect.size.x,
 		hub_r.position.y + hub_r.size.y - workshop_rect.position.y))
-	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", bench_rect, camera_rig.configure_workshop_target)
+	# Die Klickzone nimmt die Schale MIT: sie gehört zur Bank, und ein Klick auf
+	# einen bezahlten Würfel soll dorthin fahren. Das Zoom-ZIEL bleibt die Ecke -
+	# es wird gleich darunter noch einmal gesetzt.
+	var zone_rect := bench_rect
+	var fach_rect := table_screen.ausgabefach_rect()
+	if fach_rect.size.x > 0.0:
+		zone_rect = zone_rect.merge(fach_rect)
+	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", zone_rect,
+		camera_rig.configure_workshop_target)
 
 	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster und Schürze
 	# darunter. Nur so liegt der Ziel-Würfel mit im Bild.
@@ -1088,6 +1152,12 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
+	# Die Bucht: der Laden MELDET seine Auslage, die Körper stellt scene_root.
+	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
+	# Der Vorhang hängt an der SEITENREGEL des Hubs, nicht nur am Laden-Ablauf:
+	# verdrängt eine andere Seite (Lexikon, Titel) die Ladenseite, muss das Loch zu
+	# sein - sonst stünde es offen unter fremdem Inhalt.
+	charm_shop.visibility_changed.connect(_sync_vitrine_curtain)
 
 	# Vertragswahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
 	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
@@ -1625,10 +1695,11 @@ func _on_hub_level_changed(level: int) -> void:
 	_sync_secret_shop_state()  # der Börsen-Deckel wächst mit der Stufe
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	# Die Belohnungs-Pakete liegen schon im Lager (gebucht in upgrade_hub) - die
+	# Prämien-Würfel und Belohnungs-Pakete sind schon gebucht (upgrade_hub) - die
 	# Zeremonie zeigt nur, WAS die Stufe gebracht hat und wohin es gegangen ist.
 	# Nicht awaiten: der Shop-Refresh darunter läuft parallel weiter.
-	_play_hub_reward_ceremony(run.last_hub_reward_packs, run.last_hub_reward_fizzle)
+	_play_hub_reward_ceremony(run.last_hub_reward_packs, run.last_hub_reward_fizzle,
+		run.last_hub_reward_die)
 	if charm_shop != null and charm_shop.visible:
 		charm_shop.refresh_after_hub_upgrade()
 	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
@@ -2066,8 +2137,8 @@ func _fly_side_bet_to_hub() -> void:
 			table_screen.hub.flash_frame(SideBetPanel.ENGRAVING_GLOW))
 
 ## Sonderposten-Gewinn: er liegt als Fixinhalt-Paket im Magazin der Werkbank -
-## der Komet fährt bis auf SEINEN Platz, und erst seine Ankunft deckt die
-## Kassette auf (der Komet IST das Paket).
+## der Komet fährt bis an die Grubenkante, taucht dort ab, und die Kassette steigt
+## auf ihrem reservierten Platz aus dem Boden.
 func _fly_side_bet_special(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if pack == null:
@@ -2079,14 +2150,12 @@ func _fly_side_bet_special(pack: Pack) -> void:
 	var tint: Color = EngravingRenderer.SEAM_COLORS[int(pack.fixed_engraving.rarity)]
 	workshop.expect_pack_delivery(pack.pack_uid)
 	var travel := table_screen.side_bet_engraving_comet(
-		workshop.pack_anchor_px(pack.pack_uid), tint)
+		_pack_arrival_px(workshop, pack.pack_uid), tint)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if is_instance_valid(workshop):
-			workshop.deliver_pack(pack.pack_uid))
+		_dive_pack_into_pit(workshop, pack.pack_uid, tint))
 
-## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang auf seinen
-## Magazin-Platz - die Kassette erscheint erst bei Ankunft, wie bei einem
-## gekauften Paket.
+## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang bis an die
+## Grubenkante - dort taucht das Licht ab und die Kassette steigt.
 func _fly_side_bet_pack(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if pack == null:
@@ -2103,9 +2172,8 @@ func _fly_side_bet_pack(pack: Pack) -> void:
 	var hub_px := table_screen.hub.position + table_screen.hub.size * 0.5
 	await get_tree().create_timer(
 		maxf(table_screen.pack_delivery_comet(hub_px, tint,
-			workshop.pack_anchor_px(pack.pack_uid)), 0.05)).timeout
-	if is_instance_valid(workshop):
-		workshop.deliver_pack(pack.pack_uid)
+			_pack_arrival_px(workshop, pack.pack_uid)), 0.05)).timeout
+	_dive_pack_into_pit(workshop, pack.pack_uid, tint)
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
@@ -2497,18 +2565,14 @@ func _clamp_stage_of(die: DieDefinition) -> FloatingDie:
 	return null
 
 # --- Schwebende Würfel in der Hand -----------------------------------------------
-# Ein schwebender Paket-Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
-# Werkbank-Stufe), dort dreht ihn das Ziehen. Gewählt wird er über sein Netz auf
-# der Bank, nicht über den Körper. Getroffen wird über die Bildschirm-Projektion;
-# die Würfel tragen keine Kollisionsform.
+# Ein schwebender Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
+# Werkbank-Stufe), dort dreht ihn das Ziehen. Getroffen wird über die
+# Bildschirm-Projektion; die Würfel tragen keine Kollisionsform.
 
-## Alle gerade schwebenden Würfel, die man anfassen darf: die Paket-Auswahl und
-## der Würfel des Dossiers.
+## Alle gerade schwebenden Würfel, die man anfassen darf - seit die Paket-Wahl
+## tot ist, ist das genau der Würfel des Dossiers.
 func _floating_stages() -> Array[FloatingDie]:
 	var stages: Array[FloatingDie] = []
-	for stage in pack_stages:
-		if is_instance_valid(stage):
-			stages.append(stage)
 	if inspect_stage != null and is_instance_valid(inspect_stage):
 		stages.append(inspect_stage)
 	return stages
@@ -2587,66 +2651,13 @@ func _leave_die_focus() -> void:
 		focused_stage.pose_to(FloatingDie.rest_pose(), CameraRig.ZOOM_DURATION)
 	focused_stage = null
 
-# --- Paket-Würfel über der Werkbank ----------------------------------------------
-# Was ein Paket hergibt, LIEGT auf der Bank: je Würfel eine Stasis-Station, das
-# Fenster darunter sagt nur, worum es geht. Wer einen mustern will, holt ihn
-# heran (dieselbe Geste wie am Werkstück) - und dort fällt auch die Wahl.
-
-## Die Werkstatt hat ihre Bühnen neu gelegt (Wahl, Einsetzen oder Ende): die
-## schwebenden Würfel ziehen nach - die Paket-Würfel IM Fenster wie die Zwingen
-## im Projektor-Streifen darüber.
+## Die Werkstatt hat ihre Bühnen neu gelegt: die schwebenden Würfel ziehen nach -
+## der Dossier-Würfel wie die Zwingen im Projektor-Streifen.
 func _on_die_stages_changed() -> void:
 	_sync_inspected_die()  # der gezeigte Würfel fehlt in seinem Tray
-	_rebuild_pack_stages()
 	_rebuild_clamp_stages()
 	_rebuild_inspect_stage()
 	_sync_data_cells()  # Regal-Stapel und Buchten hängen am selben Layout
-
-## Stellt die schwebenden Paket-Würfel auf: je Bühne einer, sobald die Werkstatt
-## ihn für körperlich erklärt. Er entsteht AN SEINEM PLATZ - dort ist gerade sein
-## Zeichen aus dem Siegel verloschen, und zwei Würfel liegen nie übereinander.
-## Trägt die Aufstellung schon diese Würfel, bleiben sie stehen und rücken nur nach.
-func _rebuild_pack_stages() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return
-	var defs := workshop.revealed_dice()
-	_carry_over_pack_stages(defs)
-	if pack_stages.is_empty():
-		return
-
-	# Die Plätze stehen erst nach dem Layout des Fensters fest.
-	await get_tree().process_frame
-	var centers := workshop.die_stage_centers()
-	for i in mini(pack_stages.size(), centers.size()):
-		if not workshop.die_materialized(i):
-			continue
-		var target := _bench_hover_target(centers[i])
-		var stage: FloatingDie = pack_stages[i]
-		if stage != null and is_instance_valid(stage):
-			if not stage.stands_at(target):
-				stage.move_to(target, PACK_MOVE_TIME)  # derselbe Würfel, neuer Platz
-			continue
-		stage = _spawn_floating_die(defs[i], PACK_EMITTER_TINT, target)
-		stage.land_at(target, 0.0)
-		stage.materialize()  # aus dem Zeichen wird der Körper
-		pack_stages[i] = stage
-
-## Ordnet die stehenden Würfel den neuen Plätzen zu: wer die Wahl überlebt hat,
-## bleibt DERSELBE Körper (er wandert nur), der Rest wird abgeräumt. Ein Platz
-## ohne Würfel bleibt leer - sein Zeichen ist noch unterwegs.
-func _carry_over_pack_stages(defs: Array[DieDefinition]) -> void:
-	var kept: Array[FloatingDie] = []
-	kept.resize(defs.size())
-	for i in defs.size():
-		for stage in pack_stages:
-			if stage != null and is_instance_valid(stage) and stage.def == defs[i]:
-				kept[i] = stage
-				break
-	for stage in pack_stages:
-		if stage != null and not kept.has(stage):
-			_free_stage(stage)
-	pack_stages = kept
 
 # --- Die Aufspannung auf der Werkbank --------------------------------------------
 # Die vier Zwingen der Runde stehen als ECHTE Würfel über dem Werkstatt-Fenster
@@ -2904,7 +2915,7 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	var a := table_screen.pixel_to_world(rect.position)
 	var b := table_screen.pixel_to_world(rect.end)
 	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
-	var depth := DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
+	var depth := _pack_pit_depth()
 	if pack_pit == null or not is_instance_valid(pack_pit):
 		pack_pit = PackPitView.new()
 		add_child(pack_pit)
@@ -2913,6 +2924,696 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 			and table_ground.felt_material != null:
 		table_ground.felt_material.set_shader_parameter("pit_min", pack_pit.bounds_min())
 		table_ground.felt_material.set_shader_parameter("pit_max", pack_pit.bounds_max())
+
+## Die Tiefe der Magazin-Grube: der Stand einer größtmöglich angezeigten Kassette
+## plus Luft. Sie ist zugleich die Strecke, die eine ankommende Zelle steigt -
+## darunter liegt sie ganz unter dem Boden.
+func _pack_pit_depth() -> float:
+	return DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
+
+# --- Die EINE Ankunft des Magazins ------------------------------------------
+# Wer auch immer liefert - Laden, Hub-Prämie, Charm, Nebenwette, Hinterzimmer -,
+# die Landung ist derselbe Vorgang: das Licht taucht an der Grubenkante unter den
+# Filz, und die Kassette steigt aus dem Boden auf ihren reservierten Platz.
+
+## Der Tauchpunkt: die Mitte der ZUM Tisch zeigenden Grubenkante in Display-Pixeln
+## ((-1,-1) = kein Magazin gemessen).
+func _pit_dive_point() -> Vector2:
+	if table_screen == null or table_screen.apron_pit.size.x <= 0.0:
+		return Vector2(-1, -1)
+	var rect := table_screen.apron_pit
+	return Vector2(rect.get_center().x, rect.position.y)
+
+## Wohin ein Liefer-Licht fliegt: an die Grubenkante, nie mehr auf den Platz
+## selbst - unter dem Loch landet nichts. Ohne gemessene Grube bleibt der Platz.
+func _pack_arrival_px(workshop: WorkshopView, uid: int) -> Vector2:
+	var dive := _pit_dive_point()
+	if dive.x >= 0.0:
+		return dive
+	return workshop.pack_anchor_px(uid) if workshop != null else Vector2.ZERO
+
+## Die Ankunft selbst: kurzes Eintauch-Blitzen, dann steigt die Zelle. Nichts wird
+## hier gebucht - gebucht war längst, das hier ist die Bühne.
+func _dive_pack_into_pit(workshop: WorkshopView, uid: int, tint: Color) -> void:
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	_rising_packs[uid] = true
+	if not workshop.deliver_pack(uid):
+		_rising_packs.erase(uid)  # war gar nicht unterwegs
+		return
+	if table_screen == null:
+		return
+	var dive := _pit_dive_point()
+	if dive.x >= 0.0:
+		table_screen.pit_dive_flash(dive, tint)
+
+## Ein Abbruch mitten in einer Zeremonie darf keine Kassette im Untergeschoss
+## vergessen: was noch schwebt, kommt sofort an.
+func _land_pending_packs(workshop: WorkshopView, uids: Array[int]) -> void:
+	for uid in uids:
+		_dive_pack_into_pit(workshop, uid, CasinoStyle.GOLD_INTENSE)
+
+## Eine Lieferung von AUSSERHALB des Förderwerks (Hinterzimmer, Automat, Charm):
+## Quelle und Flug bleiben, nur die Landung ist der Tauchgang. Liefert die Flugzeit.
+func _fly_pack_to_pit(workshop: WorkshopView, uid: int, from_px: Vector2,
+		tint: Color) -> float:
+	if workshop == null or not is_instance_valid(workshop) or table_screen == null:
+		return 0.0
+	var launched := run
+	workshop.expect_pack_delivery(uid)
+	var travel := table_screen.pack_delivery_comet(from_px, tint,
+		_pack_arrival_px(workshop, uid))
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run == launched:
+			_dive_pack_into_pit(workshop, uid, tint))
+	return travel
+
+# --- Die Laden-Vitrine ------------------------------------------------------
+# Dieselbe Kette wie das Magazin, nur mit Vorhang: der Laden MELDET sein Rechteck,
+# scene_root schneidet das Loch, blendet den Filz aus und stellt die Grube darunter.
+
+## Stellt die Bucht unter die Ladenseite. Wie beim Zellen-Abgleich zwei Bilder
+## Geduld: das Rechteck steht erst, wenn die Seite ausgelegt ist. reveal fährt den
+## Vorhang danach auf - erst messen, dann aufdecken.
+func _sync_shop_vitrine(reveal := false) -> void:
+	if table_screen == null or charm_shop == null:
+		return
+	# Der VORBAU: Raum und Ware entstehen in getrennten Bildern und hinter
+	# geschlossenem Vorhang. Beides zusammen kostete gemessene ~150 ms in EINEM
+	# Bild - genau dem, in dem das Anrollen begann, weshalb es stockte.
+	_vitrine_building = true
+	_vitrine_gen += 1
+	var generation := _vitrine_gen
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
+		return
+	_place_shop_vitrine()
+	await get_tree().process_frame
+	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
+		return
+	_sync_vitrine_stock()  # die Körper stehen, die Bucht ist noch zugedeckt
+	await get_tree().process_frame
+	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
+		return
+	_vitrine_building = false
+	if reveal:
+		_sync_vitrine_curtain()
+	# Erst der Vorhang, dann die Ware: der aufgesparte Grad IST der Auftritt des
+	# Aufdeckens. Bei zu bleibt es beim harten Stellen.
+	if _vitrine_curtain:
+		var grade := _vitrine_grade
+		_vitrine_grade = ShopController.GRADE_STAND
+		_sync_vitrine_stock(grade)
+
+## Loch, Grube und Scheibe auf das gemeldete Rechteck stellen. Idempotent -
+## dieselben Maße schreiben dasselbe.
+func _place_shop_vitrine() -> void:
+	var rect := charm_shop.vitrine_pit_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	if shop_vitrine == null or not is_instance_valid(shop_vitrine):
+		shop_vitrine = VitrineView.new("ShopVitrine")
+		add_child(shop_vitrine)
+	if shop_vitrine_glass == null or not is_instance_valid(shop_vitrine_glass):
+		shop_vitrine_glass = VitrineGlassView.new("ShopVitrineGlass")
+		add_child(shop_vitrine_glass)
+		shop_vitrine_glass.lexikon_requested.connect(open_lexikon)
+	_place_vitrine(VITRINE_SHOP, shop_vitrine, shop_vitrine_glass, rect, _vitrine_open)
+
+## Loch, Grube und Scheibe EINER Bucht auf ihr gemeldetes Rechteck stellen. Beide
+## Vitrinen gehen durch dieselbe Hand - eine zweite Rechnung liefe auseinander.
+func _place_vitrine(index: int, bay: VitrineView, glass: VitrineGlassView,
+		rect: Rect2, open: float) -> void:
+	table_screen.set_vitrine_hole(index, rect, open)
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
+	var at := table_screen.pixel_to_world(rect.get_center())
+	bay.setup(at, half)
+	# Die Beschriftung misst im Display-Pixelraster der Bucht - dieselbe Dichte
+	# wie die Anzeige darunter, sonst läse die Schrift gröber als der Tisch.
+	glass.setup(at, half, Vector2i(rect.size.round()))
+	# Und ihre untere Lage zeigt genau den Ausschnitt, den das Mesh darunter zeigte.
+	glass.set_display_field(table_screen.get_texture(),
+		Vector2(table_screen.size), rect)
+	bay.set_open(open)
+	glass.set_open(open)
+	_sync_vitrine_ground()
+
+## Der Filzboden blendet hinter jeder OFFENEN Bucht aus - sonst blickte man beim
+## Auflösen auf Filz statt in die Vertiefung.
+func _sync_vitrine_ground() -> void:
+	if table_ground == null or not is_instance_valid(table_ground) \
+			or table_ground.felt_material == null:
+		return
+	var mins := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
+	var maxs := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
+	var opens := PackedFloat32Array([0.0, 0.0])
+	if shop_vitrine != null and is_instance_valid(shop_vitrine):
+		mins[VITRINE_SHOP] = shop_vitrine.bounds_min()
+		maxs[VITRINE_SHOP] = shop_vitrine.bounds_max()
+		opens[VITRINE_SHOP] = _vitrine_open
+	if secret_vitrine != null and is_instance_valid(secret_vitrine):
+		mins[VITRINE_SECRET] = secret_vitrine.bounds_min()
+		maxs[VITRINE_SECRET] = secret_vitrine.bounds_max()
+		opens[VITRINE_SECRET] = _secret_open
+	table_ground.felt_material.set_shader_parameter("vitrine_min", mins)
+	table_ground.felt_material.set_shader_parameter("vitrine_max", maxs)
+	table_ground.felt_material.set_shader_parameter("vitrine_open", opens)
+
+## Der EINE Schreiber des Vorhangs: gefahren wird nur die Zahl - und an ihr hängt
+## ALLES der Bucht, Loch, Körper und Scheibe. Bei zu ist von der Bucht nichts da.
+func _set_vitrine_open(value: float) -> void:
+	_vitrine_open = clampf(value, 0.0, 1.0)
+	if table_screen != null:
+		table_screen.set_vitrine_open(VITRINE_SHOP, _vitrine_open)
+	if shop_vitrine != null and is_instance_valid(shop_vitrine):
+		shop_vitrine.set_open(_vitrine_open)
+	if shop_vitrine_glass != null and is_instance_valid(shop_vitrine_glass):
+		shop_vitrine_glass.set_open(_vitrine_open)
+	_sync_vitrine_ground()
+
+## Aufdecken oder zumachen. hard springt (Laufwechsel), sonst dissolvt es.
+func _reveal_shop_vitrine(open: bool, hard := false) -> void:
+	if _vitrine_tween != null and _vitrine_tween.is_valid():
+		_vitrine_tween.kill()
+	var target := 1.0 if open else 0.0
+	if hard:
+		_set_vitrine_open(target)
+		return
+	if is_equal_approx(_vitrine_open, target):
+		return  # steht schon so - eine Blende auf der Stelle wäre nur Arbeit
+	_vitrine_tween = create_tween()
+	_vitrine_tween.tween_method(_set_vitrine_open, _vitrine_open, target, VITRINE_DISSOLVE)
+
+## Der Vorhang hängt an der SEITENREGEL des Hubs - und daran, dass die Bucht
+## fertig gebaut ist: die Bucht deckt erst auf, wenn ihre Ware steht. Offen nur,
+## solange die
+## Ladenseite die sichtbare Seite ist und der Laden offen hat - eine verdrängte
+## Ladenseite (Lexikon, Titel) deckt ihre Bucht zu und holt sie beim Zurückkehren
+## wieder auf.
+## Der EINE Entscheider; er merkt sich seinen Stand, damit auch ein Aufruf je Bild
+## keine laufende Blende neu ansetzt.
+func _sync_vitrine_curtain() -> void:
+	if charm_shop == null or not is_instance_valid(charm_shop):
+		return
+	var want := not _vitrine_building and phase == Phase.SHOP and charm_shop.visible
+	if want == _vitrine_curtain:
+		return
+	_vitrine_curtain = want
+	_reveal_shop_vitrine(want)
+
+## Die Auslage des Ladens in die Bucht stellen. Der Laden fasst nie einen Körper
+## an - er meldet, was liegt, und die Bucht stellt es nach (idempotent).
+func _sync_vitrine_stock(grade := ShopController.GRADE_STAND) -> void:
+	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or charm_shop == null:
+		return
+	shop_vitrine.present_graded(charm_shop.vitrine_stock(), grade)
+
+## Der Laden zeigt eine Seite. Bei ZUGEDECKTER Bucht baut das Förderwerk lautlos
+## um und hebt den Grad für das Aufdecken auf; bei offener ist das Blättern ein
+## sichtbarer WARENUMSCHLAG.
+func _on_vitrine_changed() -> void:
+	if charm_shop == null or not is_instance_valid(charm_shop):
+		return
+	var grade := charm_shop.vitrine_grade()
+	if not _vitrine_curtain:
+		_vitrine_grade = ShopController.louder_grade(_vitrine_grade, grade)
+		_sync_vitrine_stock()
+		return
+	_swap_vitrine_stock(grade)
+
+## Der Umschlag: erst sinkt die stehende Ware gestaffelt durch ihre Luken, dann
+## kommt die Zielseite in ihrem Grad. Gebucht hat der Laden längst - das hier ist
+## reine Bühne, und ein Laufwechsel oder ein zweites Blättern räumt sie ab.
+func _swap_vitrine_stock(grade: String) -> void:
+	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or charm_shop == null:
+		return
+	if grade == ShopController.GRADE_STAND:
+		_sync_vitrine_stock()  # Kauf, Tausch, Sperre: dieselbe Seite bleibt liegen
+		return
+	_vitrine_swap += 1
+	var swap := _vitrine_swap
+	var launched := run
+	await get_tree().create_timer(maxf(shop_vitrine.sink_all(), 0.01)).timeout
+	if swap != _vitrine_swap or run != launched \
+			or shop_vitrine == null or not is_instance_valid(shop_vitrine):
+		return
+	_sync_vitrine_stock(grade)
+
+# --- Griff und Beschriftung in der Bucht ---------------------------------------
+
+## Das Stück unter dem Zeiger: pro Bild gefragt, nie gemeldet - der Zeiger liegt
+## auf dem Tisch, mouse_entered erreicht die Bucht nie (die Magazin-Grammatik).
+## Der Griff hebt das Stück, die Scheibe schreibt seine Beschriftung. BEIDE
+## Buchten laufen hier durch; ihre Rechteck-Geber sind Modus-gebunden, es kann
+## also immer nur eine greifbar sein.
+func _sync_vitrine_hover() -> void:
+	# Der Tausch-Wähler hat kein Signal und der Kamera-Fokus keinen eigenen Ruf -
+	# also werden beide Vorhänge hier je Bild mitgefragt.
+	_sync_vitrine_curtain()
+	_sync_secret_curtain()
+	if charm_shop != null and is_instance_valid(charm_shop):
+		var shop_bay := _shop_bay_rect()
+		_paint_bay_hover(shop_vitrine, shop_vitrine_glass, shop_bay,
+			maxf(shop_bay.size.x, 1.0) / 100.0, charm_shop.vitrine_annotation)
+	var market := _secret_window()
+	if market != null:
+		_paint_bay_hover(secret_vitrine, secret_vitrine_glass, _secret_bay_rect(),
+			market.vitrine_unit(), market.vitrine_annotation)
+
+## Griff und Beschriftung EINER Bucht. Ein leeres Rechteck heißt: zugedeckt oder
+## weggezoomt - dann ist nichts greifbar und nichts beschriftet.
+func _paint_bay_hover(bay: VitrineView, glass: VitrineGlassView, rect: Rect2,
+		unit: float, annotate: Callable) -> void:
+	if bay == null or not is_instance_valid(bay) \
+			or glass == null or not is_instance_valid(glass):
+		return
+	if rect.size.x <= 0.0:
+		bay.set_hovered("", -1)
+		glass.hide_annotation()
+		return
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	# Der Zeiger darf vom Stück auf seine Beschriftung wandern - die
+	# Schlüsselwörter sind Klickziele. Auf der Karte bleibt alles, wie es steht.
+	if pixel.x >= 0.0 and glass.card_has_point(pixel - rect.position):
+		return
+	var item := _bay_item_at(bay, rect, pixel)
+	if item.is_empty():
+		bay.set_hovered("", -1)
+		glass.hide_annotation()
+		return
+	var kind: String = item["kind"]
+	var index: int = item["index"]
+	bay.set_hovered(kind, index)
+	var data: Dictionary = annotate.call(kind, index)
+	if data.is_empty():
+		glass.hide_annotation()
+		return
+	glass.show_annotation(data, unit,
+		table_screen.world_to_pixel(item["spot"]) - rect.position)
+
+## Das Stück unter einem DISPLAY-Pixel ({} = keins): der Punkt geht zurück in die
+## Glasebene, und dort fragt die Bucht ihre Plätze ab.
+func _bay_item_at(bay: VitrineView, rect: Rect2, pixel: Vector2) -> Dictionary:
+	if pixel.x < 0.0 or rect.size.x <= 0.0 or not rect.has_point(pixel):
+		return {}
+	return bay.item_at(table_screen.pixel_to_world(pixel))
+
+## Das AUFGEDECKTE Buchten-Rechteck des Ladens (leer = zu, weggezoomt oder noch
+## nicht gemessen). Nur ein ganz offener Vorhang gibt die Ware frei.
+func _shop_bay_rect() -> Rect2:
+	if charm_shop == null or not is_instance_valid(charm_shop) or _vitrine_open <= 0.99 \
+			or camera_rig.mode != CameraRig.Mode.HUB or camera_rig.is_animating:
+		return Rect2()
+	return charm_shop.vitrine_pit_rect()
+
+## Dasselbe im Hinterzimmer - dort deckt der FOKUS auf.
+func _secret_bay_rect() -> Rect2:
+	var market := _secret_window()
+	if market == null or _secret_open <= 0.99 \
+			or camera_rig.mode != CameraRig.Mode.SECRET_SHOP or camera_rig.is_animating:
+		return Rect2()
+	return market.vitrine_pit_rect()
+
+func _secret_window() -> SecretShopView:
+	if table_screen == null or table_screen.secret_shop_window == null \
+			or not is_instance_valid(table_screen.secret_shop_window):
+		return null
+	return table_screen.secret_shop_window
+
+## Klick-Schlichtung in den Buchten-Rechtecken (true = verbraucht). Nur eine kann
+## offen stehen - die Rechteck-Geber hängen am Kamera-Modus.
+func _forward_vitrine_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
+	if _forward_bay_mouse(shop_vitrine, shop_vitrine_glass, _shop_bay_rect(),
+			event, pixel, _buy_vitrine_item):
+		return true
+	return _forward_bay_mouse(secret_vitrine, secret_vitrine_glass, _secret_bay_rect(),
+		event, pixel, _buy_secret_item)
+
+## Die Schlichtung EINER Bucht: erst die Beschriftung auf der Scheibe (ein
+## Lexikon-Verweis gewinnt), dann der physische Griff, sonst schluckt die Bucht
+## den Klick. Bewegungen laufen NEBENHER auch in die Scheibe, damit die Verweise
+## ihren Hover bekommen - weitergereicht werden sie trotzdem, sonst verlöre eine
+## Karte daneben ihr mouse_exited.
+func _forward_bay_mouse(bay: VitrineView, glass: VitrineGlassView, rect: Rect2,
+		event: InputEventMouse, pixel: Vector2, buy: Callable) -> bool:
+	if bay == null or not is_instance_valid(bay) or glass == null \
+			or not is_instance_valid(glass) or rect.size.x <= 0.0 \
+			or pixel.x < 0.0 or not rect.has_point(pixel):
+		return false
+	var local := pixel - rect.position
+	glass.push_pixel_input(event, local)
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed:
+		return false
+	if glass.interactive_at(local):
+		return true  # der Verweis hat ihn genommen
+	var item := _bay_item_at(bay, rect, pixel)
+	if not item.is_empty():
+		buy.call(String(item["kind"]), int(item["index"]))
+	return true
+
+## Der Griff kauft: JEDER Weg läuft über die bestehenden Buchungen des Ladens -
+## die Bucht ist Bühne, nicht Regel.
+func _buy_vitrine_item(kind: String, index: int) -> void:
+	if charm_shop == null:
+		return
+	# Die LUKE dieses Stücks merken: dort steigt das Unterlicht ein, sobald der
+	# Körper durch sie gesunken ist. Danach ist der Platz leer und nicht mehr zu
+	# erfragen - gemerkt wird also VOR der Buchung.
+	var hatch := Vector2(-1, -1)
+	if table_screen != null and shop_vitrine != null and is_instance_valid(shop_vitrine):
+		var spot := shop_vitrine.spot_of(kind, index)
+		if spot != Vector3.ZERO:
+			hatch = table_screen.world_to_pixel(spot)
+	_vitrine_hatch_px = hatch
+	match kind:
+		ShopController.KIND_ENGRAVING_PACK:
+			charm_shop.buy_engraving_pack(index)
+		ShopController.KIND_SPECIAL:
+			charm_shop.buy_single_special(index)
+		ShopController.KIND_DIE:
+			_buy_single_die(index, hatch)
+
+## Der offene Würfel: er sinkt in der Bucht, fährt unterflur die Werkstatt-Ader
+## und STEIGT in der Schale rechts der Bank herein. Der Abgleich hält ihn so lange
+## zurück (_fach_expecting), damit er nicht schon dort liegt, während er fährt.
+func _buy_single_die(index: int, hatch: Vector2) -> void:
+	var before := run.pending_dice.size() if run != null else 0
+	_fach_expecting = true
+	charm_shop.buy_single_die(index)
+	_fach_expecting = false
+	if run == null or run.pending_dice.size() <= before:
+		return  # nicht bezahlbar oder schon verkauft - es fährt nichts
+	_deliver_die_to_fach(run.pending_dice[run.pending_dice.size() - 1], hatch)
+
+# --- Das Ausgabefach an der Werkbank -------------------------------------------
+# Der Hub kauft, die Werkstatt nutzt: ein bezahlter Würfel wartet nicht mehr im
+# Laden, sondern LIEGT in der offenen Schale rechts der Bank, bis der Spieler
+# seinen Platz im Vorrat wählt. Gebucht wird weiter allein über GameRun.
+
+## Die Schale unter ihr gemessenes Rechteck stellen (idempotent).
+func _place_ausgabefach() -> void:
+	if table_screen == null:
+		return
+	var rect := table_screen.ausgabefach_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	if ausgabefach == null or not is_instance_valid(ausgabefach):
+		ausgabefach = AusgabefachView.new()
+		add_child(ausgabefach)
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	ausgabefach.setup(table_screen.pixel_to_world(rect.get_center()),
+		Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5)
+	_sync_ausgabefach()
+
+## Die hinterlegten Würfel in die Schale stellen - EIN idempotenter Schreiber.
+## Ein Würfel, der noch unterwegs ist, bekommt seinen Platz und wartet mit dem
+## Körper auf das Förderwerk.
+func _sync_ausgabefach() -> void:
+	if ausgabefach == null or not is_instance_valid(ausgabefach):
+		return
+	var stashed: Array[DieDefinition] = []
+	if run != null:
+		stashed = run.pending_dice
+	if _fach_expecting and not stashed.is_empty():
+		ausgabefach.expect_arrival(stashed[stashed.size() - 1])
+	ausgabefach.present(stashed)
+
+func _on_pending_dice_changed() -> void:
+	_sync_ausgabefach()
+
+## Die Fahrt eines gekauften Würfels: Absinken in der Bucht, Unterlicht über die
+## Werkstatt-Ader, Steigen in der Schale. Reine Bühne - gebucht ist längst, und
+## ein Laufwechsel mitten in der Fahrt lässt sie ins Leere laufen.
+func _deliver_die_to_fach(def: DieDefinition, hatch: Vector2) -> void:
+	if table_screen == null or ausgabefach == null or not is_instance_valid(ausgabefach):
+		return
+	var from := hatch
+	if from.x < 0.0 and charm_shop != null:
+		from = charm_shop.vitrine_pit_rect().get_center()
+	var launched := run
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null or not is_instance_valid(ausgabefach):
+		return
+	var travel := table_screen.underlight_travel(table_screen.underlight_workshop_route(
+		from, table_screen.ausgabefach_rect().get_center()), SLOT_DIE_COLOR)
+	await get_tree().create_timer(maxf(travel, 0.01)).timeout
+	if run != launched or not is_instance_valid(ausgabefach):
+		return
+	ausgabefach.deliver(def)
+
+## Das AUFGEDECKTE Rechteck der Schale (leer = weggezoomt oder in der Nahsicht,
+## in der sie nicht im Bild steht). Greifbar nur an ihrer eigenen Station.
+func _fach_rect() -> Rect2:
+	if table_screen == null or ausgabefach == null or not is_instance_valid(ausgabefach) \
+			or camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.is_animating \
+			or camera_rig.workshop_close or camera_rig.die_focus:
+		return Rect2()
+	return table_screen.ausgabefach_rect()
+
+## Der Würfel unter dem Zeiger hebt sich, die Auskunft läuft über den EINEN
+## Kanal der Bank (Hinweis-Schirm). Gefragt je Bild - der Zeiger liegt auf dem
+## Tisch, ein mouse_entered erreicht die Schale nie.
+func _sync_fach_hover() -> Dictionary:
+	if ausgabefach == null or not is_instance_valid(ausgabefach):
+		return {}
+	var rect := _fach_rect()
+	if rect.size.x <= 0.0:
+		ausgabefach.set_hovered(0)
+		return {}
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	if pixel.x < 0.0 or not rect.has_point(pixel):
+		ausgabefach.set_hovered(0)
+		return {}
+	var item := ausgabefach.item_at(table_screen.pixel_to_world(pixel))
+	if item.is_empty():
+		ausgabefach.set_hovered(0)
+		return {}
+	ausgabefach.set_hovered(int(item["key"]))
+	return item
+
+## Was ein Fach-Würfel auf dem Hinweis-Schirm sagt: Name, Seele und der eine
+## Satz, was ein Klick bedeutet. Gesperrt sagt er, warum jetzt nicht.
+func _fach_hint(def: DieDefinition) -> Dictionary:
+	var essence := Essence.by_id(def.essence_id)
+	var title := def.display_name
+	if essence != null:
+		title = "%s – %s" % [def.display_name, essence.display_name]
+	var body := "Augensumme %d." % DiceRowView.eye_total(def)
+	if essence != null:
+		# Die Seele steht schon im Titel - ein Schirm dieser Größe sagt kein Wort zweimal.
+		body += "\n%s" % essence.description
+	if _dice_editing_locked():
+		body += "\nDie Runde ist unterschrieben - eingesetzt wird vor dem Wurf oder im Laden."
+		return {"title": title, "body": body, "tint": CasinoStyle.RED}
+	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
+	return {"title": title, "body": body, "tint": CasinoStyle.CREAM}
+
+## Klick in der Schale (true = verbraucht): der getippte Würfel schlägt den
+## Tausch-Wähler IM Werkstatt-Fenster auf. Gebucht wird dort, nicht hier.
+func _forward_fach_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
+	var rect := _fach_rect()
+	if rect.size.x <= 0.0 or pixel.x < 0.0 or not rect.has_point(pixel):
+		return false
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed:
+		return false
+	var item := ausgabefach.item_at(table_screen.pixel_to_world(pixel))
+	if not item.is_empty() and not _dice_editing_locked():
+		var workshop: WorkshopView = table_screen.workshop_window
+		if workshop != null and is_instance_valid(workshop):
+			workshop.open_exchange(int(item["index"]))
+	return true  # auch daneben schluckt die Schale den Klick (kein Zoom-Sprung)
+
+# --- Die Hinterzimmer-Vitrine -----------------------------------------------
+# Dieselbe Miniatur wie im Laden, nur ohne Ausgabefach - dort geht jede Ware
+# versiegelt hinaus. Und ihr Vorhang hängt am FOKUS statt an einer Phase: das
+# Aufdecken IST der Eintritt ins Hinterzimmer.
+
+## Stellt die Bucht unter das Schwarzmarkt-Fenster. Wie im Laden zwei Bilder
+## Geduld - das Rechteck steht erst, wenn die Seite ausgelegt ist.
+func _sync_secret_vitrine() -> void:
+	if _secret_window() == null:
+		return
+	_secret_gen += 1
+	var generation := _secret_gen
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if generation != _secret_gen or _secret_window() == null:
+		return
+	_place_secret_vitrine()
+	_sync_secret_curtain()
+	# Erst der Vorhang, dann die Ware: der aufgesparte Grad IST der Auftritt des
+	# Aufdeckens. Bei zu bleibt es beim harten Stellen.
+	if _secret_curtain:
+		var grade := _secret_grade
+		_secret_grade = ShopController.GRADE_STAND
+		_sync_secret_stock(grade)
+	else:
+		_sync_secret_stock()
+
+func _place_secret_vitrine() -> void:
+	var market := _secret_window()
+	var rect := market.vitrine_pit_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	if secret_vitrine == null or not is_instance_valid(secret_vitrine):
+		secret_vitrine = VitrineView.new("SecretVitrine")
+		add_child(secret_vitrine)
+	if secret_vitrine_glass == null or not is_instance_valid(secret_vitrine_glass):
+		secret_vitrine_glass = VitrineGlassView.new("SecretVitrineGlass")
+		add_child(secret_vitrine_glass)
+		secret_vitrine_glass.lexikon_requested.connect(open_lexikon)
+	_place_vitrine(VITRINE_SECRET, secret_vitrine, secret_vitrine_glass, rect, _secret_open)
+
+## Der EINE Schreiber des Hinterzimmer-Vorhangs.
+func _set_secret_open(value: float) -> void:
+	_secret_open = clampf(value, 0.0, 1.0)
+	if table_screen != null:
+		table_screen.set_vitrine_open(VITRINE_SECRET, _secret_open)
+	if secret_vitrine != null and is_instance_valid(secret_vitrine):
+		secret_vitrine.set_open(_secret_open)
+	if secret_vitrine_glass != null and is_instance_valid(secret_vitrine_glass):
+		secret_vitrine_glass.set_open(_secret_open)
+	_sync_vitrine_ground()
+
+func _reveal_secret_vitrine(open: bool, hard := false) -> void:
+	if _secret_tween != null and _secret_tween.is_valid():
+		_secret_tween.kill()
+	var target := 1.0 if open else 0.0
+	if hard:
+		_set_secret_open(target)
+		return
+	if is_equal_approx(_secret_open, target):
+		return
+	_secret_tween = create_tween()
+	_secret_tween.tween_method(_set_secret_open, _secret_open, target, VITRINE_DISSOLVE)
+
+## Der Vorhang hängt am FOKUS: die Scheibe öffnet, wenn die Kamera das
+## Hinterzimmer anfährt, und schließt beim Verlassen. Vergittert bleibt sie zu -
+## dunkle Umrisse sind der bessere Köder als Platzhalter-Ware.
+func _sync_secret_curtain() -> void:
+	var market := _secret_window()
+	var want := market != null and market.visible and run != null \
+		and run.secret_shop_unlocked and camera_rig.mode == CameraRig.Mode.SECRET_SHOP
+	if want == _secret_curtain:
+		return
+	_secret_curtain = want
+	_reveal_secret_vitrine(want)
+
+## Die Auslage des Hinterzimmers in die Bucht stellen. Das Fenster fasst nie einen
+## Körper an - es meldet, was liegt.
+func _sync_secret_stock(grade := ShopController.GRADE_STAND) -> void:
+	var market := _secret_window()
+	if secret_vitrine == null or not is_instance_valid(secret_vitrine) or market == null:
+		return
+	secret_vitrine.present_graded(market.vitrine_stock(), grade)
+
+## Neue Auslage gemeldet: bei zugedeckter Bucht baut das Förderwerk lautlos um und
+## hebt den Grad fürs Aufdecken auf, bei offener ist ein Neuwurf ein sichtbarer
+## Warenumschlag.
+func _on_secret_vitrine_changed() -> void:
+	var market := _secret_window()
+	if market == null:
+		return
+	var grade := market.vitrine_grade()
+	if not _secret_curtain:
+		_secret_grade = ShopController.louder_grade(_secret_grade, grade)
+		_sync_secret_stock()
+		return
+	_swap_secret_stock(grade)
+
+func _swap_secret_stock(grade: String) -> void:
+	if secret_vitrine == null or not is_instance_valid(secret_vitrine):
+		return
+	if grade == ShopController.GRADE_STAND:
+		_sync_secret_stock()  # ein Kauf lässt die übrige Ware liegen
+		return
+	_secret_swap += 1
+	var swap := _secret_swap
+	var launched := run
+	await get_tree().create_timer(maxf(secret_vitrine.sink_all(), 0.01)).timeout
+	if swap != _secret_swap or run != launched \
+			or secret_vitrine == null or not is_instance_valid(secret_vitrine):
+		return
+	_sync_secret_stock(grade)
+
+## Der Griff im Hinterzimmer kauft: Gattung und Index meinen denselben Auslage-
+## Platz, gebucht wird über buy_secret_offer wie an der Karte. Die LUKE wird VOR
+## der Buchung gemerkt - danach ist der Platz leer und nicht mehr zu erfragen.
+func _buy_secret_item(kind: String, index: int) -> void:
+	var market := _secret_window()
+	if market == null or secret_vitrine == null or not is_instance_valid(secret_vitrine):
+		return
+	var spot := secret_vitrine.spot_of(kind, index)
+	_secret_hatch_px = table_screen.world_to_pixel(spot) if spot != Vector3.ZERO \
+		else Vector2(-1, -1)
+	market.buy_offer(index)
+
+## Der gekaufte Seelenwürfel: dieselbe Fahrt wie jede Hehlerware, nur endet sie im
+## AUSGABEFACH statt im Magazin - ein Würfel wird nie versiegelt. Gebucht hat
+## buy_secret_offer längst (stash_die); hier fährt nur die Ware.
+func _on_secret_die_purchased(def: DieDefinition) -> void:
+	if table_screen == null or run == null or def == null \
+			or ausgabefach == null or not is_instance_valid(ausgabefach):
+		return
+	var market := _secret_window()
+	if market == null:
+		return
+	var launched := run
+	ausgabefach.expect_arrival(def)
+	var hatch := _secret_hatch_px
+	_secret_hatch_px = Vector2(-1, -1)
+	if hatch.x < 0.0:
+		hatch = market.position + market.size * 0.5  # die Karte am Sitz hat keine Luke
+	# Erst ist die Ware unten, dann fährt sie.
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null or not is_instance_valid(ausgabefach):
+		return
+	var rect := table_screen.ausgabefach_rect()
+	var target := rect.get_center() if rect.size.x > 0.0 else hatch
+	var travel := table_screen.underlight_travel(
+		table_screen.underlight_secret_route(hatch, target), SLOT_DIE_COLOR)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != launched or not is_instance_valid(ausgabefach):
+		return
+	ausgabefach.deliver(def)
+
+## Hehlerware gekauft: KAUFEN HEISST ÜBERGEBEN. Der Körper sinkt durch seine Luke,
+## ein Unterlicht fährt die Hinterzimmer-Ader in den Hub und weiter die Werkstatt-
+## Ader, an der Grubenkante steigt die Kassette. Gebucht hat buy_secret_offer
+## längst - hier fährt nur noch die Ware.
+func _on_secret_goods_purchased(uid: int) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or run == null:
+		return
+	var pack := run.pack_by_uid(uid)
+	var market := _secret_window()
+	if pack == null or market == null:
+		return
+	var launched := run
+	workshop.expect_pack_delivery(uid)
+	var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), Color.WHITE)
+	var hatch := _secret_hatch_px
+	_secret_hatch_px = Vector2(-1, -1)
+	if hatch.x < 0.0:
+		hatch = market.position + market.size * 0.5  # die Karte am Sitz hat keine Luke
+	# Erst ist die Ware unten, dann fährt sie.
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null or not is_instance_valid(workshop):
+		return
+	var travel := table_screen.underlight_travel(
+		table_screen.underlight_secret_route(hatch, _pack_arrival_px(workshop, uid)), tint)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != launched:
+		return
+	_dive_pack_into_pit(workshop, uid, tint)
 
 ## Die Magazin-Kassetten: je stehendem Paket (uid) EIN Körper an seinem Platz.
 ## Wer schon steht, bleibt derselbe Körper - ein neuer Platz (Umsortieren, die
@@ -2943,13 +3644,11 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target)
 			cell.set_body_scale(workshop.shelf_cell_scale())
-			cell.stand_in_pit(target)
 			shelf_cells[uid] = cell
-			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+			_show_shelf_cell(cell, uid, target, fresh)
 			fresh += 1
 		elif not cell.visible:
-			cell.stand_in_pit(target)
-			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+			_show_shelf_cell(cell, uid, target, fresh)
 			fresh += 1
 		elif cell.busy():
 			pass  # sie gleitet oder richtet sich gerade - nicht dazwischenfunken
@@ -2963,6 +3662,17 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		# Der Körper wächst mit seinem Platz - reine Anzeige, der Anker bleibt
 		# derselbe Glaspunkt.
 		cell.set_body_scale(workshop.shelf_cell_scale())
+
+## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie aus dem Grubenboden
+## (und lodert oben selbst), sonst wächst sie an Ort und Stelle - ein Neuaufbau
+## des Fensters ist keine Lieferung.
+func _show_shelf_cell(cell: DataCellView, uid: int, target: Vector3, fresh: int) -> void:
+	if _rising_packs.erase(uid):
+		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
+		cell.rise_into_pit(target, _pack_pit_depth(), float(fresh) * DATA_CELL_STAGGER)
+		return
+	cell.stand_in_pit(target)
+	cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 
 ## Die Leseschlitze: je belegtem Platz eine Zelle, senkrecht im Tisch steckend.
 ## Eine frisch eingelegte ist der KÖRPER ihres Magazin-Platzes - er gleitet
@@ -3193,6 +3903,7 @@ func _drop_data_cells() -> void:
 		_free_data_cell(cell)
 	_draining_cells.clear()
 	_pending_cell_pops.clear()
+	_rising_packs.clear()  # eine Fahrt des alten Laufs endet nirgends mehr
 	_hovered_pack_uid = 0
 
 func _free_data_cell(cell: DataCellView) -> void:
@@ -3228,9 +3939,10 @@ func _clamp_stage_under(screen_pos: Vector2) -> FloatingDie:
 			return stage
 	return null
 
-## Paket im Laden gekauft: es FÄHRT als Licht die Hub-Werkstatt-Ader entlang und
-## liegt erst bei Ankunft auf seinem Magazin-Platz - der Komet ist das Paket,
-## nicht seine Ankündigung.
+## Paket im Laden gekauft: KAUFEN HEISST ÜBERGEBEN. Der Körper hebt sich und sinkt
+## durch seine Luke, ein Unterlicht wandert unter dem Filz die Werkstatt-Ader
+## entlang, und an der Grubenkante steigt die Kassette aus dem Boden. Gebucht hat
+## der Laden längst - hier fährt nur noch die Ware.
 func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
@@ -3238,14 +3950,23 @@ func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
 	var pack := run.pack_by_uid(uid)
 	if pack == null:
 		return
+	var launched := run
 	workshop.expect_pack_delivery(uid)
 	var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), Color.WHITE)
-	var travel := table_screen.pack_delivery_comet(from_px, tint,
-		workshop.pack_anchor_px(uid))
+	var hatch := _vitrine_hatch_px if _vitrine_hatch_px.x >= 0.0 else from_px
+	_vitrine_hatch_px = Vector2(-1, -1)
+	# Erst ist die Ware unten, dann fährt sie: das Förderwerk holt sie nicht ab,
+	# bevor sie durch die Luke ist.
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null or not is_instance_valid(workshop):
+		return
+	var travel := table_screen.underlight_travel(
+		table_screen.underlight_workshop_route(hatch, _pack_arrival_px(workshop, uid)), tint)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
-	if is_instance_valid(workshop):
-		workshop.deliver_pack(uid)
+	if run != launched:
+		return  # der Laufwechsel hat die Lieferung mitgenommen
+	_dive_pack_into_pit(workshop, uid, tint)
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
 ## die Truhe. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
@@ -3299,13 +4020,16 @@ const HUB_REWARD_HOLD := 0.7
 const HUB_REWARD_SHRINK_TIME := 0.18
 
 ## Reveal des Hub-Ausbaus: über der Hub-Mitte steht je PAKETSORTE ein Siegel (bei
-## mehreren ein "×n"), danach fährt je PAKET ein Komet die Werkstatt-Ader hinunter.
-## Rein visuell - die Pakete liegen längst im Lager.
+## mehreren ein "×n"), vorneweg das Würfel-Siegel der Prämie; danach fährt je
+## PAKET ein Komet die Werkstatt-Ader hinunter, und der Würfel fährt dieselbe Ader
+## bis ins AUSGABEFACH, wo er durch den Fachboden steigt.
+## Rein visuell - Pakete wie Würfel sind längst gebucht.
 ## fizzled: so viele Pakete fanden im vollen Magazin keinen Platz mehr und sind zu
 ## Geld zerfallen - für sie fährt ein Geld-Komet in die Truhe statt einer Kassette
-## zur Werkbank (gebucht hat GameRun beim Gewähren).
-func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
-	if table_screen == null or table_screen.hub == null or packs.is_empty():
+## zur Werkbank (gebucht hat GameRun beim Gewähren). Ein Würfel zerfällt nie.
+func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0,
+		die: DieDefinition = null) -> void:
+	if table_screen == null or table_screen.hub == null or (packs.is_empty() and die == null):
 		if table_screen != null:
 			if fizzled > 0 and table_screen.hub != null:
 				_fly_pack_fizzle(table_screen.hub.position + table_screen.hub.size * 0.5,
@@ -3314,19 +4038,36 @@ func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
 		return
 	var launched := run
 	_clear_hub_reward_overlay()  # ein zweiter Ausbau überholt den ersten nie
-	var groups := _group_packs_by_type(packs)
+	var groups := _group_packs_by_type(packs, die)
+	# Der Würfel wird ZURÜCKGEHALTEN wie eine Kassette: er liegt schon im Fach,
+	# aber sein Körper wartet auf seinen Kometen.
+	if die != null and ausgabefach != null and is_instance_valid(ausgabefach):
+		ausgabefach.expect_arrival(die)
 	var icons := _build_hub_reward_overlay(groups)
+	# Die Prämie liegt längst im Lager - also wird sie hier ZURÜCKGEHALTEN, bis ihr
+	# Komet an der Grubenkante abtaucht. Angemeldet wird VOR dem ersten Bild, damit
+	# der Zellen-Abgleich sie gar nicht erst aufstellt.
+	var workshop: WorkshopView = table_screen.workshop_window
+	var waiting: Array[int] = []
+	if workshop != null and is_instance_valid(workshop):
+		for pack in packs:
+			workshop.expect_pack_delivery(pack.pack_uid)
+			waiting.append(pack.pack_uid)
 	# Ab hier gehört die Zeremonie DIESER Auslage: ein späterer Ausbau setzt das
 	# Feld neu, und dann räumt der alte Ablauf nur noch sich selbst weg.
 	var overlay := _hub_reward_overlay
 	if icons.is_empty():
 		_drop_hub_reward_overlay(overlay)
+		_land_pending_packs(workshop, waiting)
+		_land_pending_die(die)
 		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 		return
 
 	await get_tree().process_frame  # Pivot braucht das fertige Layout
 	if run != launched or not is_instance_valid(overlay):
 		_drop_hub_reward_overlay(overlay)
+		_land_pending_packs(workshop, waiting)
+		_land_pending_die(die)
 		return
 	for i in icons.size():
 		var icon: Control = icons[i]
@@ -3340,9 +4081,13 @@ func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
 	await get_tree().create_timer(pop_done + HUB_REWARD_HOLD).timeout
 	if run != launched or not is_instance_valid(overlay) or table_screen == null:
 		_drop_hub_reward_overlay(overlay)
+		_land_pending_packs(workshop, waiting)
+		_land_pending_die(die)
 		return
 
-	# Je Sorte: das Siegel schrumpft weg, seine Pakete fahren einzeln los.
+	# Je Sorte: das Siegel schrumpft weg, seine Pakete fahren einzeln los - jedes
+	# an die Grubenkante, wo es abtaucht und als Kassette wieder aufsteigt. Das
+	# Würfel-Siegel schickt stattdessen EINEN Kometen ins Ausgabefach.
 	var travel := 0.0
 	for i in icons.size():
 		var icon: Control = icons[i]
@@ -3352,12 +4097,21 @@ func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
 		var fade := shrink.tween_property(icon, "scale", Vector2.ZERO, HUB_REWARD_SHRINK_TIME)
 		fade.set_trans(Tween.TRANS_BACK)
 		fade.set_ease(Tween.EASE_IN)
+		if bool(groups[i].get("die", false)):
+			travel = maxf(travel, _fly_reward_die_to_fach(from_px, die))
+			die = null  # gefahren ist gefahren - der Nachlauf holt ihn nicht noch einmal
+			continue
+		var uids: Array = groups[i].get("uids", [])
 		for k in int(groups[i]["count"]):
-			travel = maxf(travel, table_screen.pack_delivery_comet(from_px, tint))
+			var uid: int = int(uids[k]) if k < uids.size() else 0
+			travel = maxf(travel, _fly_hub_reward_pack(workshop, uid, from_px, tint))
+			waiting.erase(uid)
 			if k + 1 < int(groups[i]["count"]):
 				await get_tree().create_timer(STAMP_METEOR_GAP).timeout
 				if run != launched or table_screen == null or not is_instance_valid(overlay):
 					_drop_hub_reward_overlay(overlay)
+					_land_pending_packs(workshop, waiting)
+					_land_pending_die(die)
 					return
 	# Was im vollen Magazin keinen Platz mehr fand, fährt als Geld in die Truhe.
 	if fizzled > 0 and table_screen.hub != null:
@@ -3366,21 +4120,66 @@ func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0) -> void:
 			fizzled * GameRun.PACK_FIZZLE_MONEY))
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
 	_drop_hub_reward_overlay(overlay)
+	_land_pending_packs(workshop, waiting)  # was noch schwebt, ist jetzt da
+	_land_pending_die(die)
 	if run == launched and table_screen != null:
 		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 
-## Pakete zu {type, count} je Sorte, in der Reihenfolge ihres ersten Auftretens.
-func _group_packs_by_type(packs: Array[Pack]) -> Array[Dictionary]:
+## Der Prämien-Würfel: Siegel -> Werkstatt-Ader -> Ausgabefach, wo er durch den
+## Fachboden steigt. Liefert die Flugzeit. Ohne Schale fährt nichts - der Würfel
+## liegt trotzdem längst hinterlegt (gebucht vor dem Licht).
+func _fly_reward_die_to_fach(from_px: Vector2, def: DieDefinition) -> float:
+	if table_screen == null or def == null \
+			or ausgabefach == null or not is_instance_valid(ausgabefach):
+		return 0.0
+	var rect := table_screen.ausgabefach_rect()
+	if rect.size.x <= 0.0:
+		ausgabefach.deliver(def)  # kein Fenster gemessen: er steht einfach da
+		return 0.0
+	var launched := run
+	var travel := table_screen.pack_delivery_comet(from_px, SLOT_DIE_COLOR, rect.get_center())
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run == launched and is_instance_valid(ausgabefach):
+			ausgabefach.deliver(def))
+	return travel
+
+## Ein Abbruch mitten in der Zeremonie darf keinen Würfel unsichtbar lassen.
+func _land_pending_die(def: DieDefinition) -> void:
+	if def != null and ausgabefach != null and is_instance_valid(ausgabefach):
+		ausgabefach.deliver(def)
+
+## EIN Paket der Prämie: Siegel -> Grubenkante -> Tauchgang. Liefert die Flugzeit.
+## Ohne Werkbank fährt der Komet trotzdem, nur ohne Kassette am Ende.
+func _fly_hub_reward_pack(workshop: WorkshopView, uid: int, from_px: Vector2,
+		tint: Color) -> float:
+	if workshop == null or not is_instance_valid(workshop) or uid <= 0:
+		return table_screen.pack_delivery_comet(from_px, tint, _pit_dive_point())
+	var launched := run
+	var travel := table_screen.pack_delivery_comet(from_px, tint,
+		_pack_arrival_px(workshop, uid))
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run == launched:
+			_dive_pack_into_pit(workshop, uid, tint))
+	return travel
+
+## Pakete zu {type, count, uids} je Sorte, in der Reihenfolge ihres ersten
+## Auftretens. Die uids reisen mit: je Komet muss GENAU EIN Paket ankommen.
+## Ein Prämien-Würfel steht als eigene Gruppe VORNE - er ist die Schlagzeile der
+## Stufe, und sein Siegel fährt in eine andere Richtung als die Kassetten.
+func _group_packs_by_type(packs: Array[Pack], die: DieDefinition = null) -> Array[Dictionary]:
 	var groups: Array[Dictionary] = []
+	if die != null:
+		groups.append({"type": PackIconRenderer.SEAL_DIE, "count": 1, "uids": [], "die": true})
 	for pack in packs:
 		var found := false
 		for group in groups:
 			if String(group["type"]) == pack.type:
 				group["count"] = int(group["count"]) + 1
+				(group["uids"] as Array).append(pack.pack_uid)
 				found = true
 				break
 		if not found:
-			groups.append({"type": pack.type, "count": 1})
+			groups.append({"type": pack.type, "count": 1, "uids": [pack.pack_uid]})
 	return groups
 
 ## Baut die Siegel-Reihe über der Hub-Mitte; liefert die Siegel-Kacheln in
@@ -4185,6 +4984,13 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	var pixel := table_screen.pixel_from_ray(
 		camera.project_ray_origin(event.position),
 		camera.project_ray_normal(event.position))
+	# Die Bucht schlichtet VOR der normalen Weiterleitung: unter dem Loch liegt
+	# keine Seite mehr, die den Klick nehmen könnte. Die Schale der Bank ebenso -
+	# sie steht auf blankem Filz neben dem Fenster.
+	if _forward_vitrine_mouse(event, pixel):
+		return true
+	if _forward_fach_mouse(event, pixel):
+		return true
 	if pixel.x < 0.0 or not _screen_forwards_pixel(pixel, event is InputEventMouseButton):
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 		return false
@@ -4487,6 +5293,7 @@ func _process(delta: float) -> void:
 	_update_charm_hover()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
+	_sync_vitrine_hover()
 	_update_combo_upgrade_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
@@ -4510,11 +5317,23 @@ func _update_workshop_hover() -> void:
 		_supply_tint = CasinoStyle.CREAM
 		_workshop_line = ""
 		_sync_pack_hover(0)
+		_sync_fach_hover()
 		_sync_workshop_info()
 		return
 	var mouse := get_viewport().get_mouse_position()
 	var pixel := _screen_pixel(mouse)
 	_sync_pack_hover(workshop.shelf_hover_uid_at(pixel))
+	# Ein Würfel in der Schale spricht auf demselben Schirm wie alles an der Bank -
+	# und er schlägt die Regal-Kachel, weil er die gezieltere Auskunft ist.
+	var grabbed := _sync_fach_hover()
+	if not grabbed.is_empty():
+		var hint := _fach_hint(grabbed["def"])
+		_supply_title = hint["title"]
+		_supply_body = hint["body"]
+		_supply_tint = hint["tint"]
+		_workshop_line = ""
+		_sync_workshop_info()
+		return
 	var supply := _supply_hint_at(pixel)
 	_supply_title = supply.get("title", "")
 	_supply_body = supply.get("body", "")
@@ -7232,8 +8051,12 @@ func _connect_run() -> void:
 		table_screen.secret_shop_window.run = run
 		if not table_screen.secret_shop_window.charge_spent.is_connected(_on_secret_shop_charge_spent):
 			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
+		if not table_screen.secret_shop_window.goods_purchased.is_connected(_on_secret_goods_purchased):
+			table_screen.secret_shop_window.goods_purchased.connect(_on_secret_goods_purchased)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
 			table_screen.secret_shop_window.die_purchased.connect(_on_secret_die_purchased)
+		if not table_screen.secret_shop_window.vitrine_changed.is_connected(_on_secret_vitrine_changed):
+			table_screen.secret_shop_window.vitrine_changed.connect(_on_secret_vitrine_changed)
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.run = run
 	if table_screen != null and table_screen.slot_bank_window != null:
@@ -7244,9 +8067,6 @@ func _connect_run() -> void:
 		# neu, und diese erste Meldung stellt die Zwingen-Würfel auf.
 		if not table_screen.workshop_window.press_rolled.is_connected(_on_press_rolled):
 			table_screen.workshop_window.press_rolled.connect(_on_press_rolled)
-		# Ein eingesetzter Paket-Würfel meldet sich über run.pool_changed selbst.
-		if not table_screen.workshop_window.pack_activated.is_connected(_on_pack_opened):
-			table_screen.workshop_window.pack_activated.connect(_on_pack_opened)
 		if not table_screen.workshop_window.die_stages_changed.is_connected(_on_die_stages_changed):
 			table_screen.workshop_window.die_stages_changed.connect(_on_die_stages_changed)
 		if not table_screen.workshop_window.piece_placed.is_connected(_on_piece_placed):
@@ -7265,6 +8085,29 @@ func _connect_run() -> void:
 			table_screen.workshop_window.lexikon_requested.connect(open_lexikon)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
+	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
+	if shop_vitrine != null and is_instance_valid(shop_vitrine):
+		shop_vitrine.clear()
+	# Und die Schale der Bank steht leer da - eine Fahrt des alten Laufs endet
+	# nirgends mehr (ihr _arriving geht mit).
+	if ausgabefach != null and is_instance_valid(ausgabefach):
+		ausgabefach.clear()
+	_fach_expecting = false
+	_vitrine_hatch_px = Vector2(-1, -1)
+	_vitrine_curtain = false
+	_vitrine_grade = ShopController.GRADE_STAND
+	_vitrine_swap += 1  # ein Umschlag mitten in der Fahrt stellt nichts mehr
+	_vitrine_gen += 1   # und ein Vorbau mitten im Bauen gibt den Vorhang nicht frei
+	_vitrine_building = false
+	_reveal_shop_vitrine(false, true)
+	# Und das Hinterzimmer steht wieder vergittert da.
+	if secret_vitrine != null and is_instance_valid(secret_vitrine):
+		secret_vitrine.clear()
+	_secret_hatch_px = Vector2(-1, -1)
+	_secret_curtain = false
+	_secret_grade = ShopController.GRADE_STAND
+	_secret_swap += 1
+	_reveal_secret_vitrine(false, true)
 	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
 		charm_shop.pack_purchased.connect(_on_pack_purchased)
 	if charm_shop != null and not charm_shop.pack_refunded.is_connected(_on_pack_refunded):
@@ -7274,6 +8117,8 @@ func _connect_run() -> void:
 	run.charms_changed.connect(_on_charms_changed)
 	# Würfel-Änderungen (Kauf, Paket, Gravur, Nehmen-Effekt) laufen über EINEN Weg.
 	run.pool_changed.connect(_on_pool_changed)
+	# Die Schale rechts der Bank zeigt, was bezahlt ist und noch keinen Platz hat.
+	run.pending_dice_changed.connect(_on_pending_dice_changed)
 	# Die Zwingen stehen auf der Bank und fehlen darum in den Trays daneben.
 	run.clamped_changed.connect(_on_clamped_changed)
 	run.combo_upgraded.connect(_on_combo_upgraded)
@@ -7290,6 +8135,7 @@ func _connect_run() -> void:
 	_refresh_combo_label_texts()
 	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
+	_sync_ausgabefach()  # und die Schale zeigt, was dieser Lauf hinterlegt hat
 
 ## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
 ## gibt es erst mit der Lizenz - vorher steht dort nichts, und die Zoom-Zone ist
@@ -7308,6 +8154,8 @@ func _sync_secret_shop_state() -> void:
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
 		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
+	# Die Bucht misst sich am eben gestellten Fenster - idempotent, generationssicher.
+	_sync_secret_vitrine()
 
 func _sync_capacitor() -> void:
 	if capacitor_bank == null or run == null:
@@ -7344,17 +8192,6 @@ func _on_secret_shop_discovered() -> void:
 func _on_secret_shop_charge_spent(_amount: int) -> void:
 	if table_screen != null:
 		table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
-
-## Schwarzmarkt-Würfel gekauft: gebucht ist er längst als versiegeltes Paket -
-## als JÜNGSTER Zugang liegt er hinten im Magazin; die Lieferung fährt vom Hub
-## die Werkstatt-Ader hinunter wie jede andere Ware.
-func _on_secret_die_purchased() -> void:
-	if table_screen == null or table_screen.hub == null:
-		return
-	if run == null or run.owned_packs.is_empty():
-		return
-	_on_pack_purchased(table_screen.hub.position + table_screen.hub.size * 0.5,
-		run.owned_packs.back().pack_uid)
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
@@ -7596,14 +8433,11 @@ func _on_round_complete() -> void:
 		await _sweep_deal_tokens()
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während des Wischs zurückgesetzt
-		# Bestandener Stresstest: EIN versiegeltes Würfel-Paket als Preis. Gebucht
-		# wird hier, geliefert erst unten am Hub.
-		var stress_reward: Pack = null
-		var stress_fizzled := false
+		# Bestandener Stresstest: EIN beseelter Würfel als Preis. Gebucht wird hier
+		# (ins Ausgabefach), geliefert erst unten am Hub.
+		var stress_reward: DieDefinition = null
 		if GameRun.is_stress_round(run.round_number):
 			run.settle_block_deals()
-			# Volles Magazin: grant_stress_reward bucht statt des Pakets sein Geld.
-			stress_fizzled = run.packs_full()
 			stress_reward = run.grant_stress_reward()
 		phase = Phase.SHOP
 		# Die Ladenzeit ist Werkbankzeit: die Sperre hängt an der Phase, also muss
@@ -7623,13 +8457,12 @@ func _on_round_complete() -> void:
 		# Das Freispiel gehört dem BESUCH: der Laden öffnet, der Gratisdreh lebt auf.
 		run.begin_shop_visit()
 		charm_shop.open()
+		# Der Laden deckt seine Bucht auf - gemessen wird erst, wenn die Seite steht.
+		_sync_shop_vitrine(true)
 		# Erst jetzt steht der Hub im Bild - der Preis zeigt sich darüber. Nicht
 		# awaiten: der Spieler soll den Laden sofort bedienen können.
 		if stress_reward != null:
-			_play_hub_reward_ceremony([stress_reward] as Array[Pack])
-		elif stress_fizzled:
-			# Volles Magazin: der Preis ist zu Geld zerfallen, und das Geld fliegt.
-			_play_hub_reward_ceremony([] as Array[Pack], 1)
+			_play_hub_reward_ceremony([] as Array[Pack], 0, stress_reward)
 	else:
 		phase = Phase.GAME_OVER
 		shop_reopen_allowed = false
@@ -7849,8 +8682,8 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 
 ## Füllhorn: ab fünf geräumten Überladungs-Stufen fällt je Exemplar ein
 ## versiegelter Sonderposten an. Gebucht ist er, bevor das Licht startet - der
-## Komet fliegt hinterher in die Sonderbestand-Bucht, die ihr Siegel bis zur
-## Ankunft zurückhält (Schmuckkästchen-Grammatik).
+## Komet fliegt hinterher an die Grubenkante, taucht dort ab, und seine Kassette
+## steigt aus dem Boden (die eine Ankunft des Magazins).
 func _play_encore_meteor(index: int, copy: int) -> void:
 	if copy >= _encore_packs.size():
 		return
@@ -7865,12 +8698,8 @@ func _play_encore_meteor(index: int, copy: int) -> void:
 			GameRun.PACK_FIZZLE_MONEY, true)
 	elif workshop != null and is_instance_valid(workshop):
 		var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), CasinoStyle.GOLD_INTENSE)
-		workshop.expect_pack_delivery(pack.pack_uid)
-		travel = table_screen.pack_delivery_comet(_charm_trail_source_px([index]),
-			tint, workshop.pack_anchor_px(pack.pack_uid))
-		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-			if is_instance_valid(workshop):
-				workshop.deliver_pack(pack.pack_uid))
+		travel = _fly_pack_to_pit(workshop, pack.pack_uid,
+			_charm_trail_source_px([index]), tint)
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
 	if phase != Phase.PAYOUT:
 		return
@@ -7918,10 +8747,9 @@ func _fire_jewelry_box_meteor(grant: Dictionary, from_px: Vector2) -> float:
 	var tint := material.tint if material != null else CasinoStyle.GOLD
 	workshop.expect_pack_delivery(pack.pack_uid)
 	var travel := table_screen.charm_engraving_comet(from_px,
-		workshop.pack_anchor_px(pack.pack_uid), tint)
+		_pack_arrival_px(workshop, pack.pack_uid), tint)
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if is_instance_valid(workshop):
-			workshop.deliver_pack(pack.pack_uid))
+		_dive_pack_into_pit(workshop, pack.pack_uid, tint))
 	return travel
 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
@@ -8053,10 +8881,10 @@ func _play_stamp_machine_meteors(index: int) -> void:
 		return
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
-## Schickt EIN versiegeltes Paket über die Werkstatt-Ader und bucht es bei
-## ANKUNFT; die Werkbank feiert den Einschlag. Liefert die Flugzeit. Die Ankunft
-## vergleicht die Lauf-INSTANZ, nicht nur die Phase: ein "Neues Spiel" im Flug
-## bekäme sonst das Paket des alten Laufs gutgeschrieben.
+## Schickt EIN versiegeltes Paket über die Werkstatt-Ader an die Grubenkante und
+## bucht es bei ANKUNFT; dort taucht es ab und steigt als Kassette. Liefert die
+## Flugzeit. Die Ankunft vergleicht die Lauf-INSTANZ, nicht nur die Phase: ein
+## "Neues Spiel" im Flug bekäme sonst das Paket des alten Laufs gutgeschrieben.
 func _fire_charm_pack(pack: Pack, from_px: Vector2) -> float:
 	if table_screen == null or table_screen.workshop_window == null:
 		run.grant_pack(pack)  # ohne Display: still buchen, nichts verlieren
@@ -8068,11 +8896,19 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2) -> float:
 		return _fly_pack_fizzle(from_px, GameRun.PACK_FIZZLE_MONEY, true)
 	var launched := run
 	var tint: Color = PackIconRenderer.COLORS.get(pack.type, TableScreen.SIDE_ENGRAVING_COLOR)
-	var travel := table_screen.pack_delivery_comet(from_px, tint)
+	# Ohne gemessene Grube (-1,-1) bleibt die Fenstermitte das Ziel.
+	var travel := table_screen.pack_delivery_comet(from_px, tint, _pit_dive_point())
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if run != launched or phase != Phase.PAYOUT or table_screen == null:
 			return
-		run.grant_pack(pack)
+		# Gebucht wird bei Ankunft - die Kassette steigt danach aus dem Boden,
+		# statt auf ihrem Platz aufzuploppen.
+		var stashed := run.grant_pack(pack)
+		if stashed != null:
+			_rising_packs[stashed.pack_uid] = true
+		var dive := _pit_dive_point()
+		if dive.x >= 0.0:
+			table_screen.pit_dive_flash(dive, tint)
 		table_screen.celebrate_workshop_delivery(tint))
 	return travel
 
@@ -8346,29 +9182,6 @@ func _on_pool_changed() -> void:
 			and table_screen.workshop_window.inspecting():
 		table_screen.workshop_window.refresh()
 
-## Paket geöffnet: der Werkstatt die FORM des Pool-Trays reichen (Reihenfolge und
-## Spaltenzahl). Der Pool liegt gemischt im Tray - ohne das zeigte die Kachel oben
-## links einen anderen Würfel als der Platz oben links auf dem Tisch.
-func _on_pack_opened(uid: int) -> void:
-	_meteor_index = 0  # je Paket ein frischer Fächer von Ausbruch-Richtungen
-	# Die Kassette DIESES Pakets gibt sich her: sie lodert auf, und der Neuaufbau
-	# gleich danach lässt sie abtreten - Ausbruch und Auflösen in einem.
-	var cell: DataCellView = shelf_cells.get(uid)
-	if cell != null and is_instance_valid(cell) and cell.visible:
-		cell.flare()
-	if table_screen == null or table_screen.workshop_window == null:
-		return
-	table_screen.workshop_window.set_pool_order(_pool_tray_layout(), pool_tray_view.columns)
-
-## Die Sitzordnung des Pool-Trays für das Raster im Fenster: dieselben Plätze,
-## aber MIT den Würfeln, deren Körper gerade woanders steht - eine Zwinge muss
-## austauschbar bleiben. Auf die Platzzahl des Trays aufgefüllt.
-func _pool_tray_layout() -> Array[DieDefinition]:
-	var seats: Array[DieDefinition] = []
-	seats.assign(_pool_tray_source())
-	seats.resize(pool_tray_view.slot_roots.size())
-	return seats
-
 ## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
 ## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der
 ## "Fertig"-Knopf fährt zurück in die Übersicht (dort ist das Wettannahme-Fenster
@@ -8381,6 +9194,8 @@ func _on_shop_closed() -> void:
 	var reopened := shop_reopened
 	shop_reopened = false
 	phase = Phase.IDLE
+	# Die Anzeige kehrt über die Bucht zurück; die Ware bleibt wortlos unten stehen.
+	_sync_vitrine_curtain()
 	if reopened:
 		_set_gameplay_ui_visible(true)
 		_sync_editing_lock()
@@ -8413,6 +9228,7 @@ func _on_shop_reopen_requested() -> void:
 	if camera_rig.mode != CameraRig.Mode.HUB:
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 	charm_shop.reopen()
+	_sync_shop_vitrine(true)
 
 ## Zeigt den Laden-Knopf genau im Vorlauf der Runde (Laden zu, noch nichts
 ## unterschrieben) - sonst nie.

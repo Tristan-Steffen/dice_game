@@ -1,13 +1,18 @@
 extends GutTest
-## Tests der Paket-Datenklasse: ein Gravur-Paket ist EIN Phantomwürfel, die Sorte
-## bildet auf eine Gravur-Kategorie ab, Würfel-Pakete folgen ihrer DiceOffer-Vorlage.
+## Tests der Paket-Datenklasse: ein Gravur-Paket ist EIN Phantomwürfel, und die
+## Sorte bildet auf eine Gravur-Kategorie ab. Würfel sind KEINE Paketware mehr.
 
 func test_engraving_packs_map_to_their_category() -> void:
 	assert_eq(Pack.number_pack().engraving_category(), Engraving.CATEGORY_NUMBER)
 	assert_eq(Pack.material_pack().engraving_category(), Engraving.CATEGORY_MATERIAL)
 	assert_eq(Pack.dice_mod_pack().engraving_category(), Engraving.CATEGORY_DICE)
-	assert_eq(Pack.dice_pack(DiceOffer.TEMPLATES[0]).engraving_category(), "",
-		"Würfel-Pakete haben keine Gravur-Kategorie")
+
+func test_there_is_no_dice_pack_sort_any_more() -> void:
+	# Würfel werden nie versiegelt - sie gehen als Ware ins Ausgabefach.
+	assert_false(Pack.TYPE_NAMES.has("dice"))
+	assert_false(Pack.SHELF_WEIGHTS.has("dice"))
+	assert_eq(Pack.shelf_for_pack_type("dice"), Engraving.CATEGORY_NUMBER,
+		"eine unbekannte Sorte fällt auf die Zahlen zurück, sie bekommt kein Fach")
 
 func test_every_engraving_pack_is_exactly_one_phantom_die() -> void:
 	for pack in Pack.all_engraving_packs():
@@ -66,32 +71,6 @@ func test_fixed_engraving_pack_sorts_every_category() -> void:
 func test_press_sort_is_the_engraving_category() -> void:
 	assert_eq(Pack.number_pack().press_sort(), Engraving.CATEGORY_NUMBER)
 	assert_eq(Pack.dice_mod_pack().press_sort(), Engraving.CATEGORY_DICE)
-	assert_eq(Pack.dice_pack(DiceOffer.TEMPLATES[0]).press_sort(), "")
-
-# --- Würfel-Pakete ------------------------------------------------------------
-
-func test_dice_pack_follows_its_template() -> void:
-	# "Ungerade Würfel": 2 Würfel, nur ungerade Augen.
-	var template: Dictionary = DiceOffer.TEMPLATES[3]
-	var pack := Pack.dice_pack(template)
-	assert_eq(pack.count, int(template["count"]))
-	assert_eq(pack.template_id, template["style_id"])
-	var dice := pack.roll_dice()
-	assert_eq(dice.size(), int(template["count"]))
-	for die in dice:
-		assert_eq(die.style_id, template["style_id"])
-		for face in die.faces:
-			assert_true([1, 3, 5].has(face), "nur Augen der Vorlage")
-
-func test_dice_pack_contents_are_independent_copies() -> void:
-	var dice := Pack.dice_pack(DiceOffer.TEMPLATES[4]).roll_dice()
-	assert_gt(dice.size(), 1, "Vorlage liefert ein Bündel")
-	dice[0].faces[0] = 6
-	assert_ne(dice[1].faces[0], 6, "Kopien teilen keine Seiten")
-
-func test_engraving_packs_roll_no_dice() -> void:
-	for pack in Pack.all_engraving_packs():
-		assert_eq(pack.roll_dice().size(), 0)
 
 # --- Sonderposten: Einzelstueck im Regal, Buendel im Hinterzimmer --------------
 
@@ -174,11 +153,10 @@ func test_a_catalyst_is_never_tierable() -> void:
 		assert_eq(pack.tier, Pack.TIER_NORMAL, "die Größe bleibt draußen")
 		assert_eq(pack.display_name, before, "und der Name unangetastet")
 
-func test_a_catalyst_is_no_dice_pack_and_carries_no_engraving() -> void:
+func test_a_catalyst_carries_no_engraving() -> void:
 	var pack := Pack.catalyst(Pack.CATALYST_MATRIX)
-	assert_false(pack.is_dice_pack())
 	assert_null(pack.fixed_engraving, "der Sonderbestand hat zwei Familien")
-	assert_eq(pack.roll_dice().size(), 0)
+	assert_ne(pack.catalyst_id, "")
 
 ## Die Gewichtstabelle IST die Regel: 40 % Gravur, der Rest gleichmäßig auf die
 ## vier Karten.
@@ -224,11 +202,11 @@ func test_the_price_factor_stays_above_the_piece_gain() -> void:
 			"Größe %d trägt denselben Dichte-Aufschlag" % tier)
 
 func test_only_pressable_packs_carry_a_size() -> void:
-	var dice := Pack.dice_pack(DiceOffer.TEMPLATES[0])
-	var before := dice.display_name
-	assert_false(Pack.tierable(dice), "ein Würfel-Paket presst nie")
-	assert_eq(Pack.tiered(dice, Pack.TIER_KOLOSSAL).display_name, before)
-	assert_eq(dice.tier, Pack.TIER_NORMAL)
+	var catalyst := Pack.catalyst(Pack.CATALYST_TIMER)
+	var before := catalyst.display_name
+	assert_false(Pack.tierable(catalyst), "ein Katalysator wirft gar nichts aus")
+	assert_eq(Pack.tiered(catalyst, Pack.TIER_KOLOSSAL).display_name, before)
+	assert_eq(catalyst.tier, Pack.TIER_NORMAL)
 	var fixed := Pack.fixed_engraving_pack(Engraving.pointer_engraving())
 	assert_false(Pack.tierable(fixed), "ein Fixinhalt würfelt nichts aus")
 	assert_eq(Pack.tiered(fixed, Pack.TIER_GROSS).tier, Pack.TIER_NORMAL)

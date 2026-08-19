@@ -300,16 +300,11 @@ func test_clicking_a_filled_slot_returns_its_pack() -> void:
 	view._press_slot_buttons[0].pressed.emit()
 	assert_eq(view._selected_packs.size(), 1, "das Paket liegt wieder im Regal")
 
-func test_a_dice_pack_never_reaches_a_slot() -> void:
-	# Ein 1er-Paket steht nach dem Öffnen schon beim Einsetzen - Hauptsache, es
-	# läuft nicht durch die Presse.
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
-	assert_false(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER),
-		"das Würfel-Regal ist nicht das Zahlen-Regal")
-	assert_true(view.open_top_dice_pack())
-	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE,
-		"Würfel-Pakete laufen nicht durch die Presse")
-	assert_true(view._selected_packs.is_empty(), "und belegen keinen Platz")
+func test_a_catalyst_takes_a_slot_like_any_other_cassette() -> void:
+	# Sie wirft nichts aus, aber sie BESETZT einen Leser - das ist ihr Preis.
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+	assert_true(view.slot_pack_from_stack(Pack.SHELF_SPECIAL))
+	assert_eq(view._selected_packs.size(), 1)
 
 func test_the_press_button_appears_with_the_first_slotted_pack() -> void:
 	# Sein SITZ steht immer - sichtbar wird er erst mit dem ersten Paket.
@@ -998,15 +993,14 @@ func test_a_delivery_during_the_press_still_finds_its_place() -> void:
 	assert_almost_eq(during.y, resting.y, 1.0)
 	assert_ne(during, view.get_global_rect().get_center(), "und nicht die Fenstermitte")
 
-func test_a_delivery_during_a_pack_flow_lands_at_once() -> void:
-	# Die Schürze steht auch, während ein Würfel-Paket das Fenster füllt: die
-	# Kassette erscheint und ploppt sofort, es gibt nichts mehr zu warten.
+func test_a_delivery_during_the_dossier_lands_at_once() -> void:
+	# Die Schürze steht auch, während das Dossier das Fenster füllt: die Kassette
+	# erscheint und ploppt sofort, es gibt nichts mehr zu warten.
 	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
 	var uid := run.owned_packs[0].pack_uid
-	view.open_top_dice_pack()
+	view.open_inspect(run.owned_pool[0])
 	await wait_frames(2)
-	assert_not_null(view._drawer, "die Wahl nimmt der Schürze nichts weg")
+	assert_not_null(view._drawer, "das Dossier nimmt der Schürze nichts weg")
 	assert_true(view.shelf_locked(), "sie ist nur zu")
 	var popped: Array[int] = []
 	view.pack_landed.connect(func(landed: int) -> void: popped.append(landed))
@@ -1044,12 +1038,6 @@ func test_a_pop_during_the_press_lands_at_once() -> void:
 	view.deliver_pack(second)
 	assert_eq(popped, [second] as Array[int])
 	assert_true(view._queued_pops.is_empty())
-
-func test_a_dice_cell_click_opens_its_choice_instead_of_a_slot() -> void:
-	run.grant_pack(Pack.dice_pack(DiceOffer.TEMPLATES[0]))
-	view._on_pack_pressed(run.owned_packs[0].pack_uid)
-	assert_eq(view._phase, WorkshopView.Phase.PLACE_DICE, "Würfel-Pakete laufen nie durch die Presse")
-	assert_true(view._selected_packs.is_empty())
 
 func test_an_engraving_cell_click_fills_the_next_free_slot() -> void:
 	run.grant_pack(Pack.number_pack())

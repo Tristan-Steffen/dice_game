@@ -1,13 +1,16 @@
 class_name ShopController
 extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
-## Tisch-Displays, bedient über die Maus-Weiterleitung. Links das Lager mit den
-## versiegelten Paketen (Würfel/Zahlen/Materialien/Kanten) - geöffnet werden sie
-## erst in der Werkstatt -, rechts Charms und Einzelstücke. "Umblättern"
-## auf eine NEUE Seite würfelt frische Angebote aus und kostet eine steigende
-## Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind gratis
-## erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden; auf
-## closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
+## Tisch-Displays, bedient über die Maus-Weiterleitung. Bildschirm ist nur noch
+## Kopf, CHARM-ZEILE und Fuß: Lizenzen sind digitale Ware. Alles Körperliche -
+## versiegelte Pakete, offene Würfel, der Sonderposten - liegt in der VITRINE
+## darunter, einer echten Bucht im Tisch. Die zeichnet dieser Laden nie selbst;
+## er MELDET ihr Rechteck (vitrine_rect_px) und ihren Inhalt (vitrine_stock,
+## vitrine_annotation) nach oben, aufgestellt wird sie von scene_root.
+## "Umblättern" auf eine NEUE Seite würfelt frische Angebote aus und kostet eine
+## steigende Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind
+## gratis erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden;
+## auf closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
 ## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
@@ -19,6 +22,26 @@ signal pack_purchased(from_px: Vector2, uid: int)
 signal pack_refunded(from_px: Vector2, amount: int)
 ## Ein Schlüsselwort im Tooltip wurde geklickt - scene_root schlägt das Lexikon auf.
 signal lexikon_requested(entry_id: String)
+## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
+## stellt die Körper nach. Der Laden fasst nie einen an.
+signal vitrine_changed
+
+## Warengattungen der Bucht: der Laden nennt sie, die Bucht trägt sie durch und
+## meldet sie beim Griff zurück - so bleibt der Kaufweg EIN Paar (Gattung, Index).
+const KIND_ENGRAVING_PACK := "engraving_pack"
+const KIND_DIE := "die"
+const KIND_SPECIAL := "special"
+
+## Die drei ANKUNFTS-GRADE der Bucht: ROLLEN heißt Zufall (die Seite ist frisch
+## gewürfelt), STEIGEN heißt Abruf (dieselbe Ware kehrt zurück), LIEGENBLEIBEN
+## heißt, dass gar nichts geschehen ist - das sichtbar gemachte Versprechen der
+## Sortiment-Sperre. Der Laden ENTSCHEIDET nur; gefahren wird in der Bucht.
+const GRADE_STAND := "stand"
+const GRADE_RISE := "rise"
+const GRADE_ROLL_IN := "roll_in"
+
+## Was auf der Beschriftung statt des Preises steht, wenn das Lager zu ist.
+const FULL_TAG := "MAGAZIN VOLL"
 
 const CHARM_PRICE := 15
 
@@ -38,56 +61,38 @@ const NEON_GOLD := Color("#ffd319")
 const NEON_GREEN := Color("#50fa7b")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
-## Kantenlänge eines nackten Einzelstücks in Einheiten. Ohne Kasten und ohne
-## Preiszeile bleibt der Platz dem Ding selbst - der Würfel darf größer liegen
-## als die alte Karte hoch war.
-const SINGLE_DIE_SIZE := 13.0
-## Fuge zwischen zwei Einzelstücken.
-const SINGLE_GAP := 1.0
-## Innenbreite der Schale in u, aus dem Layout gerechnet: Inhaltsfläche (100
-## minus Seitenränder) ohne die Fuge der Hauptspalten, davon der rechte Anteil,
-## minus Rand und Rahmen der Zone.
-const BOWL_INNER_U := (100.0 - 6.0 - 1.6) * 0.60 - 3.2 - 0.4
-## So weit dürfen die Stücke gemeinsam schrumpfen, damit die volle Auslage
-## (2 Würfel + 4 Siegel) in die Schale passt - darunter bricht die Reihe um.
-const SINGLE_MIN_SCALE := 0.6
 ## Schalen-Rabatt: ein einzeln in der Schale liegender Würfel kostet weniger als
 ## derselbe Würfel im Angebotsregal - er kommt ohne Auswahl und ohne Paket.
 const SINGLE_DIE_DISCOUNT := 0.8
-## Hinterlegte Würfel liegen kleiner als die Ware in der Schale - ein Regal,
-## keine zweite Auslage.
-const STASH_DIE_SIZE := 8.0
-## Untergrenze der Regal-Miniaturen - darunter bricht die Reihe um, statt weiter
-## zu schrumpfen (dieselbe Regel wie SINGLE_MIN_SCALE in der Schale).
-const STASH_MIN_SCALE := 0.6
-## Spaltenzahl der Tausch-Auswahl (wie das Pool-Raster der Werkstatt).
-const EXCHANGE_COLUMNS := 6
+
+## Mindesthöhe der Vitrinen-Fläche in Einheiten - sie nimmt sonst die ganze
+## Resthöhe unter der Charm-Zeile (grob die halbe Fensterhöhe). Der Boden sorgt
+## nur dafür, dass auch ein Probe-Fenster eine Bucht meldet.
+const VITRINE_MIN_HEIGHT := 24.0
 
 ## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
 static func single_die_price(offer_price: int) -> int:
 	return maxi(1, roundi(float(offer_price) * SINGLE_DIE_DISCOUNT))
-const CARD_BG := Color("#241f4a99")
-
 const FLIP_DURATION := 0.25
-
-## Einzelstücke der Chip-Schale: wie viele je Besuch in der Auslage liegen.
-const SINGLE_DICE_MIN := 1
-const SINGLE_DICE_MAX := 2
+## Beide Zonen blättern DIESELBE Doppelseite: die Charm-Zeile wartet, bis die alte
+## Ware unter dem Glas versunken ist, sonst stünden neue Karten über alter Ware.
+## Spiegelt VitrineView.SWAP_TIME (ui/ greift nicht in table/ - ein Test hält die
+## beiden Zahlen gleich).
+const FLIP_DELAY := 0.32
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
 ## Zurückblättern zeigt exakt diese Seite wieder.
 class MenuSpread:
 	extends RefCounted
 
-	## Versiegelte Pakete: Würfel-Pakete (Vitrine) und Gravur-Pakete (Regal).
-	var dice_packs: Array[Pack] = []
-	var dice_pack_bought: Array[bool] = []
+	## Versiegelte Gravur-Pakete des Regals. Würfel-Pakete gibt es nicht mehr - ein
+	## Würfel liegt offen in der Schale.
 	var engraving_packs: Array[Pack] = []
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	## Einzelstücke der Chip-Schale: OFFENE Würfel, alles vor dem Kauf sichtbar.
-	## Einzel-Gravuren gibt es nicht mehr - das 1er-Paket ist der Einstieg. Sie
+	## Einzelstücke der Schale: OFFENE Würfel, alles vor dem Kauf sichtbar - der
+	## EINZIGE Weg des Ladens an einen Würfel (run.shop_dice_slots() Plätze). Sie
 	## gehören zur gerollten Auslage: die Sortiment-Sperre friert sie mit ein,
 	## Gekauftes bleibt gekauft.
 	var single_dice: Array[DieDefinition] = []
@@ -96,6 +101,9 @@ class MenuSpread:
 	## Sonderposten der Schale: das versiegelte Paket, das der Kauf ausliefert.
 	var single_specials: Array[Pack] = []
 	var single_special_bought: Array[bool] = []
+	## Hat diese Seite schon einmal körperlich in der Bucht gelegen? Genau daran
+	## hängt der Ankunfts-Grad: was noch nie da war, wird gewürfelt, nicht abgerufen.
+	var presented := false
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
 ## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
@@ -109,6 +117,8 @@ var run: GameRun:
 		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
 		sortiment_locked = false
 		spreads = []
+		_standing_spread = null
+		_vitrine_grade = GRADE_STAND
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
@@ -118,7 +128,11 @@ var u := 8.0
 
 ## Gerüst-Referenzen (je open() frisch gebaut).
 var money_label: Label
-var content_root: VBoxContainer  # trägt Charm-Bereich + Angebots-Bereich
+var content_root: VBoxContainer  # trägt die Charm-Zeile (der Rest liegt in der Bucht)
+## Die VITRINE: hier malt der Laden NICHTS. Unter diesem Rechteck schneidet das
+## Glas sein Loch und die echte Bucht steht darunter - der Laden meldet es nur
+## nach oben (apron_bottom-Muster), gebaut wird die Grube von scene_root.
+var vitrine_slot: Control
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
@@ -129,7 +143,8 @@ var hub_upgrade_button: Button
 ## Umschalter der Sortiment-Sperre (Shop-Fuß).
 var lock_button: Button
 
-## Hover-Dropdown (Charm-/Engraving-Beschreibung), wie die Gravur-Station.
+## Hover-Dropdown der CHARM-Karten - die einzige Ware, die Bildschirm bleibt.
+## Alles Körperliche erklärt sich auf der Scheibe (VitrineAnnotationView).
 var shop_tooltip: PanelContainer
 var shop_tooltip_title: Label
 ## RichTextLabel statt Label: die Schlüsselwörter im Text sind Lexikon-Verweise.
@@ -140,13 +155,15 @@ var _tooltip_hovered := false
 var _tooltip_hide_token := 0
 ## Schonfrist beim Verlassen des Ankers: genug, um die Lücke zum Tooltip zu queren.
 const TOOLTIP_HIDE_GRACE := 0.25
-## Würfelnetz im Hover-Fenster: der Inhalt der alten Würfel-Karte wohnt jetzt hier.
-var shop_tooltip_stage: CenterContainer
-## Preiszeile - nur beim Hover, denn in der Schale steht kein Preis mehr.
-var shop_tooltip_price: Label
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
+
+## Die Seite, die gerade körperlich in der Bucht liegt, und der Grad, in dem die
+## zuletzt gezeigte Seite dorthin kommt. Beides ist reine Anzeige-Buchführung -
+## an der Ökonomie ändert der Grad nichts.
+var _standing_spread: MenuSpread = null
+var _vitrine_grade := GRADE_STAND
 
 ## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
@@ -158,35 +175,24 @@ var sortiment_locked: bool = false
 var _charm_rebuild_queued: bool = false
 
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
-var dice_packs: Array[Pack] = []
-var dice_pack_bought: Array[bool] = []
-var dice_pack_buttons: Array[Button] = []
+# Knopf-Listen führt nur noch das Charm-Regal: alles andere LIEGT in der Bucht.
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 var charm_bought: Array[bool] = []
 var engraving_packs: Array[Pack] = []
 var engraving_pack_bought: Array[bool] = []
-var engraving_pack_buttons: Array[Button] = []
 var single_dice: Array[DieDefinition] = []
 var single_dice_prices: Array[int] = []
 var single_dice_bought: Array[bool] = []
-var single_dice_buttons: Array[Button] = []
 var single_specials: Array[Pack] = []
 var single_special_bought: Array[bool] = []
-var single_special_buttons: Array[Button] = []
-## Regal-Knöpfe der hinterlegten Würfel und die offene Tausch-Auswahl.
-var stash_buttons: Array[Button] = []
-var exchange_overlay: Panel
-var exchange_grid: DiceGridView
-var exchange_index: int = -1
 
 var flip_tween: Tween
 
-## Nach einem Hub-Aufstieg mitten im Shop: ab diesem Index je Rubrik flackern die
-## NEUEN Karten wie eine zündende Neonröhre auf (-1 = kein Flackern).
+## Nach einem Hub-Aufstieg mitten im Shop: ab diesem Index flackern die NEUEN
+## Charm-Karten wie eine zündende Neonröhre auf (-1 = kein Flackern). Die Ware in
+## der Bucht flackert nicht - sie ROLLT an (Grad-Regel der Bucht).
 var _flicker_charm_from: int = -1
-var _flicker_dice_from: int = -1
-var _flicker_chip_from: int = -1
 
 ## Einmalige Meldung, die beim nächsten Öffnen oben erscheint (Nebenwetten-
 ## Ergebnis der geräumten Runde); von scene_root vor open() gesetzt.
@@ -273,12 +279,23 @@ func _build_layout() -> void:
 		root.add_child(notice)
 		pending_bet_notice = ""
 
-	# Inhalts-Bereich: die zwei Zonen (Charms / Angebote) baut _rebuild_content je Seite.
+	# Bildschirm-Zone: nur noch die Charm-Zeile, in ihrer natürlichen Höhe -
+	# Lizenzen sind digitale Ware. Alles Körperliche liegt in der Bucht darunter.
 	content_root = VBoxContainer.new()
 	content_root.name = "Content"
 	content_root.add_theme_constant_override("separation", int(u * 1.6))
-	content_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_root.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	root.add_child(content_root)
+
+	# Die Bucht bekommt die ganze Resthöhe: sie ist die Auslage, nicht ein Fach
+	# darin. Gemalt wird allein die FASSUNG - die Mitte ist ein echtes Loch.
+	vitrine_slot = Control.new()
+	vitrine_slot.name = "Vitrine"
+	vitrine_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitrine_slot.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vitrine_slot.custom_minimum_size = Vector2(0.0, u * VITRINE_MIN_HEIGHT)
+	vitrine_slot.add_child(_vitrine_frame())
+	root.add_child(vitrine_slot)
 
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
@@ -312,6 +329,165 @@ func _build_layout() -> void:
 	_refresh_lock_button()
 
 	_build_shop_tooltip()  # zuletzt: liegt als Overlay über allem
+
+# --- Die Vitrine (gemeldete Geometrie, kein Inhalt) ----------------------------
+
+## Das Buchten-Rechteck in globalen Display-Pixeln (leeres Rect = keine Bucht,
+## etwa solange die Seite noch nicht ausgelegt ist).
+func vitrine_rect_px() -> Rect2:
+	if vitrine_slot == null or not is_instance_valid(vitrine_slot):
+		return Rect2()
+	return vitrine_slot.get_global_rect()
+
+## Das LOCH darin: der Streifen ohne seine gemalte Fassung - dieselbe Rechnung wie
+## am Magazin, damit beide Vertiefungen gleich im Glas sitzen.
+func vitrine_pit_rect() -> Rect2:
+	var strip := vitrine_rect_px()
+	if strip.size.x <= 0.0 or strip.size.y <= 0.0:
+		return Rect2()
+	return PackDrawerView.pit_rect_in(strip, u)
+
+## Die FASSUNG der Bucht: Rahmen ohne Füllung, Schatten oben, Licht unten. Ihre
+## Mitte wird nicht gemalt - dort ist ein echtes Loch, und ein gemalter Grund läge
+## hinter nichts. Rezeptur und Maße kommen aus der Magazin-Grube.
+func _vitrine_frame() -> Panel:
+	var well := Panel.new()
+	well.name = "VitrineWell"
+	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	well.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var radius := int(u * PackDrawerView.RADIUS)
+	var box := StyleBoxFlat.new()
+	box.draw_center = false
+	box.border_color = PackDrawerView.RIM_BASE
+	box.set_border_width_all(maxi(2, int(u * PackDrawerView.RIM_WIDTH)))
+	box.set_corner_radius_all(radius)
+	well.add_theme_stylebox_override("panel", box)
+	var edge := maxi(2, int(u * PackDrawerView.EDGE))
+	well.add_child(PackDrawerView.edge_band("VitrineShade",
+		PackDrawerView.WELL_SHADOW, edge, radius, true))
+	well.add_child(PackDrawerView.edge_band("VitrineSheen",
+		PackDrawerView.WELL_SHEEN, edge, radius, false))
+	return well
+
+# --- Die Auslage der Bucht (gemeldet, nie gezeichnet) --------------------------
+
+## Der Ankunfts-Grad der zuletzt gezeigten Seite. scene_root liest ihn und fährt
+## ihn EINMAL - jeder weitere Abgleich stellt hart nach.
+func vitrine_grade() -> String:
+	return _vitrine_grade
+
+## Der Grad aus zwei Fakten, und aus mehr nicht: lag diese Seite schon einmal in
+## der Bucht, und liegt sie dort gerade noch? Rollen heißt Zufall, Steigen heißt
+## Abruf. Rein und prüfbar - der Entscheid ist die halbe Zeremonie.
+static func grade_for(seen_before: bool, standing: bool) -> String:
+	if not seen_before:
+		return GRADE_ROLL_IN
+	return GRADE_STAND if standing else GRADE_RISE
+
+static func grade_rank(grade: String) -> int:
+	match grade:
+		GRADE_ROLL_IN: return 2
+		GRADE_RISE: return 1
+	return 0
+
+## Der lautere von zwei Graden gewinnt: sammeln sich Meldungen an, bis die Bucht
+## wirklich stellt, darf die leiseste die lauteste nicht verschlucken.
+static func louder_grade(a: String, b: String) -> String:
+	return a if grade_rank(a) >= grade_rank(b) else b
+
+## Was körperlich in der Bucht liegt: je Rubrik ein Platz je Index, null für
+## Verkauftes. Ausverkauft ist SICHTBAR - der Platz bleibt leer, und die
+## bought-Marken halten die Lücken index-treu, damit ein Griff immer denselben
+## Kaufweg meint.
+func vitrine_stock() -> Dictionary:
+	var engravings: Array = []
+	var dice: Array = []
+	var specials: Array = []
+	for i in engraving_packs.size():
+		engravings.append(null if engraving_pack_bought[i] else engraving_packs[i])
+	for i in single_dice.size():
+		dice.append(null if single_dice_bought[i] else single_dice[i])
+	for i in single_specials.size():
+		specials.append(null if single_special_bought[i] else single_specials[i])
+	return {
+		KIND_ENGRAVING_PACK: engravings,
+		KIND_DIE: dice,
+		KIND_SPECIAL: specials,
+	}
+
+## Die Beschriftung EINES Stücks: Titel, Wirkung (Lexikon-Verweise setzt die
+## Karte selbst), Preis und beim Würfel sein volles Netz. Der Preis steht NUR
+## hier - in der Bucht hängt kein Schild. {} = kein solches Stück.
+func vitrine_annotation(kind: String, index: int) -> Dictionary:
+	if run == null or index < 0:
+		return {}
+	match kind:
+		KIND_ENGRAVING_PACK:
+			if index >= engraving_packs.size():
+				return {}
+			return _pack_annotation(engraving_packs[index])
+		KIND_SPECIAL:
+			if index >= single_specials.size():
+				return {}
+			return _special_annotation(single_specials[index])
+		KIND_DIE:
+			if index >= single_dice.size():
+				return {}
+			return _die_annotation(single_dice[index], single_dice_prices[index], "")
+	return {}
+
+func _pack_annotation(pack: Pack) -> Dictionary:
+	# Die Mengenzeile steht nur da, wo die Multicast-Zeile sie nicht ohnehin nennt
+	# (Würfel- und Fixinhalt-Pakete) - zweimal dieselbe Zahl liest sich als Fehler.
+	var body := _pack_tooltip_body(pack)
+	if not Pack.tierable(pack):
+		body = "%s\n%s" % [_pack_count_text(pack), body]
+	return {
+		"title": pack.display_name,
+		"body": body,
+		"price": _pack_price(pack),
+		"money": run.money,
+		"blocked": FULL_TAG if run.packs_full() else "",
+	}
+
+## Der Sonderbestand führt zwei Familien: die Gravur-Sonderposten (sie LIEGEN
+## offen in der Schale) und die Katalysator-Kassetten (sie stehen versiegelt im
+## Regal). Der Katalysator nennt seinen Paketnamen, die Gravur ihren eigenen.
+func _special_annotation(pack: Pack) -> Dictionary:
+	var out := _pack_annotation(pack)
+	if not pack.is_catalyst() and pack.fixed_engraving != null:
+		out["title"] = pack.fixed_engraving.display_name
+		out["body"] = pack.fixed_engraving.description
+	return out
+
+func _die_annotation(def: DieDefinition, price: int, tail: String) -> Dictionary:
+	var essence := Essence.by_id(def.essence_id)
+	var title := def.display_name if essence == null \
+		else "%s – %s" % [def.display_name, essence.display_name]
+	var body := "Augensumme %d." % DiceRowView.eye_total(def)
+	if essence != null:
+		body += "\n%s: %s" % [essence.display_name, essence.description]
+	else:
+		body += "\nOhne Essenz."
+	return {
+		"title": title,
+		"body": body + tail,
+		"price": price,
+		"money": run.money,
+		"net": def,
+		"blocked": "",
+	}
+
+# --- Kauf-Eingänge der Bucht (scene_root meldet den Griff hierher) -------------
+
+func buy_engraving_pack(index: int) -> void:
+	_on_pack_buy_pressed(index)
+
+func buy_single_die(index: int) -> void:
+	_on_single_die_pressed(index)
+
+func buy_single_special(index: int) -> void:
+	_on_single_special_pressed(index)
 
 # --- Blättern ------------------------------------------------------------------
 
@@ -371,8 +547,6 @@ func refresh_after_hub_upgrade() -> void:
 	if not spreads.is_empty():
 		var old := spreads[current_spread_index]
 		_flicker_charm_from = old.charm_options.size()
-		_flicker_dice_from = old.dice_packs.size()
-		_flicker_chip_from = old.engraving_packs.size()
 		spreads[current_spread_index] = _build_spread()
 	_refresh_hub_footer()
 	_show_spread()
@@ -404,25 +578,24 @@ func _on_page_back_pressed() -> void:
 	_play_flip_animation()
 
 ## Rein kosmetische Einblendung - der Spielzustand ist schon gewechselt, die
-## Animation gate nichts (schnelles Klicken ersetzt sie einfach).
+## Animation gate nichts (schnelles Klicken ersetzt sie einfach). Sie wartet den
+## Warenumschlag darunter ab: die Karten der neuen Seite erscheinen, wenn auch die
+## neue Ware kommt.
 func _play_flip_animation() -> void:
 	if flip_tween != null and flip_tween.is_valid():
 		flip_tween.kill()
 	content_root.modulate = Color(1, 1, 1, 0)
 	flip_tween = create_tween()
+	flip_tween.tween_interval(FLIP_DELAY)
 	flip_tween.tween_property(content_root, "modulate:a", 1.0, FLIP_DURATION) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 # --- Doppelseiten bauen --------------------------------------------------------
 
-## Frische Doppelseite: Charms oben, unten versiegelte Würfel- und Gravur-Pakete
-## plus die Einzelstücke der Schale.
+## Frische Doppelseite: Charms oben, unten die versiegelten Gravur-Pakete des
+## Regals plus die offenen Einzelwürfel der Schale.
 func _build_spread() -> MenuSpread:
 	var spread := MenuSpread.new()
-	spread.dice_packs = _roll_dice_packs(run.shop_dice_slots())
-	spread.dice_pack_bought.resize(spread.dice_packs.size())
-	spread.dice_pack_bought.fill(false)
-
 	# Besitz SPERRT: was im Dock steht, liegt nicht noch einmal aus - wie im
 	# Schwarzmarkt. Nur innerhalb EINER Doppelseite kommt jeder Archetyp ohnehin
 	# höchstens einmal vor (ohne Zurücklegen, erase unten).
@@ -459,16 +632,20 @@ func _build_spread() -> MenuSpread:
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
-	# Einzelstücke der Chip-Schale. Die Würfel werden HIER ausgewürfelt und
-	# vollständig gezeigt - kein Blindkauf, das ist ihr ganzer Zweck.
+	# Die Einzelwürfel der Schale - der EINZIGE Würfelweg des Ladens. Sie werden
+	# HIER ausgewürfelt und vollständig gezeigt: kein Blindkauf, das ist ihr ganzer
+	# Zweck. Wie viele, sagt die Lizenz (shop_dice_slots).
 	var owned_souls := run.owned_essence_ids()
-	for i in randi_range(SINGLE_DICE_MIN, SINGLE_DICE_MAX):
+	for i in run.shop_dice_slots():
 		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.hub_level)
 		if offers.is_empty() or offers[0].dice.is_empty():
 			continue
 		var die: DieDefinition = offers[0].dice[0]
 		spread.single_dice.append(die)
-		spread.single_dice_prices.append(single_die_price(offers[0].price))
+		# Die Würfel-Rabatte (Trickdieb, Mengenrabatt) liegen jetzt hier: seit die
+		# Würfel-Pakete tot sind, ist die Schale der einzige Würfelkauf.
+		spread.single_dice_prices.append(
+			single_die_price(CharmEffects.die_price(offers[0].price, run.charm_ids())))
 		# Ein frisch gerolltes Unikat darf nicht zweimal in derselben Auslage liegen.
 		if die.essence_id != "" and not owned_souls.has(die.essence_id):
 			owned_souls.append(die.essence_id)
@@ -484,14 +661,6 @@ func _build_spread() -> MenuSpread:
 	spread.single_special_bought.fill(false)
 
 	return spread
-
-## Würfel-Pakete der Auslage: je Platz eine andere Vorlage, Inhalt bleibt bis
-## zum Öffnen verborgen.
-func _roll_dice_packs(count: int) -> Array[Pack]:
-	var packs: Array[Pack] = []
-	for template in DiceOffer.pick_templates(count):
-		packs.append(Pack.dice_pack(template))
-	return packs
 
 ## Ohne die schon besessenen Archetypen. Ein LEERES Ergebnis fällt auf den vollen
 ## Topf zurück - ein leerer Platz wäre schlimmer als eine Dublette (dieselbe
@@ -529,8 +698,9 @@ func _charm_rank(charm: Charm) -> int:
 ## bebauen, Navigation und Kaufbarkeit aktualisieren.
 func _show_spread() -> void:
 	var spread := spreads[current_spread_index]
-	dice_packs = spread.dice_packs
-	dice_pack_bought = spread.dice_pack_bought
+	_vitrine_grade = grade_for(spread.presented, spread == _standing_spread)
+	spread.presented = true
+	_standing_spread = spread
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
 	engraving_packs = spread.engraving_packs
@@ -544,6 +714,9 @@ func _show_spread() -> void:
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
 	_refresh_afford_state()
+	# EIN Melder für jede Änderung der Bucht: Seitenwechsel, Kauf und Tausch
+	# laufen alle durch _show_spread.
+	vitrine_changed.emit()
 
 ## Gibt den Inhalt frei - auch beim Schließen wichtig, damit die
 ## 3D-Vorschau-Viewports nicht im Hintergrund weiterrendern.
@@ -551,66 +724,24 @@ func _clear_pages() -> void:
 	if content_root != null:
 		for child in content_root.get_children():
 			child.queue_free()
-	dice_pack_buttons.clear()
 	charm_buttons.clear()
-	engraving_pack_buttons.clear()
 
-## Baut die drei Segmente: links das Lager (flache Paket-Reihen), rechts das
-## Charm-Regal über der Chip-Schale (Einzelstücke). Alle Rubriken FÜLLEN ihre
-## Fläche - bei wenigen Plätzen werden Reihen und Karten groß.
+## Baut die Bildschirm-Zone der Seite: seit dem Vitrinen-Umbau ist das NUR noch
+## das Charm-Regal - Pakete, Einzelstücke und das Händler-Regal liegen körperlich
+## in der Bucht darunter. Die Karten füllen die Breite, die Zeile bleibt so hoch,
+## wie sie sein muss; alles Weitere gehört der Vitrine.
 func _rebuild_content(spread: MenuSpread) -> void:
 	for child in content_root.get_children():
 		child.queue_free()
-	dice_pack_buttons.clear()
 	charm_buttons.clear()
-	engraving_pack_buttons.clear()
-	single_dice_buttons.clear()
-	single_special_buttons.clear()
 
-	var main_row := HBoxContainer.new()
-	main_row.add_theme_constant_override("separation", int(u * 1.6))
-	main_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content_root.add_child(main_row)
-
-	# Segment 1: Lager - alle versiegelten Pakete (Würfel oben, Gravuren darunter)
-	# als flache Regal-Reihen links. Geöffnet werden sie später in der Werkstatt.
-	var vitrine := _make_zone(main_row, NEON_CYAN, "LAGER", "versiegelt", true, 0.40)
-	var pack_col := VBoxContainer.new()
-	pack_col.add_theme_constant_override("separation", int(u * 1.2))
-	pack_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	pack_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vitrine.add_child(pack_col)
-	var pm := _pack_metrics(spread.dice_packs.size() + spread.engraving_packs.size())
-	for i in spread.dice_packs.size():
-		var dcard := _build_pack_card(spread.dice_packs[i], i, true, pm)
-		pack_col.add_child(dcard)
-		_maybe_flicker(dcard, i, _flicker_dice_from)
-	for i in spread.engraving_packs.size():
-		var ecard := _build_pack_card(spread.engraving_packs[i], i, false, pm)
-		pack_col.add_child(ecard)
-		_maybe_flicker(ecard, i, _flicker_chip_from)
-
-	# Rechte Spalte: Charm-Regal (natürliche Höhe) über der Chip-Schale (füllt Rest).
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", int(u * 1.4))
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right.size_flags_stretch_ratio = 0.60
-	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	main_row.add_child(right)
-
-	# Segment 2: Charm-Regal - eine Reihe dehnbarer Karten (nur Symbol; Rest im
-	# Hover). Teilt sich die Resthöhe mit der Chip-Schale, statt sie ihr zu lassen.
-	var charm_zone := _make_zone(right, NEON_MAGENTA, "CHARM-REGAL", "je $%d" % _charm_price(), true)
-	charm_zone.get_parent().size_flags_stretch_ratio = 0.45
+	var charm_zone := _make_zone(content_root, NEON_MAGENTA, "CHARM-REGAL",
+		"je $%d" % _charm_price())
 	var charm_row := HBoxContainer.new()
 	charm_row.add_theme_constant_override("separation", int(u * 1.4))
 	charm_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	charm_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	charm_zone.add_child(_v_spacer())
 	charm_zone.add_child(charm_row)
-	charm_zone.add_child(_v_spacer())
 	var cm := _charm_metrics(spread.charm_options.size())
 	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
 	for i in spread.charm_options.size():
@@ -619,54 +750,8 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		charm_row.add_child(ccard)
 		_maybe_flicker(ccard, i, _flicker_charm_from)
 
-	# Segment 3: Chip-Schale - die Einzelstücke liegen blank in der Schale.
-	# Füllt die restliche Höhe rechts.
-	var chip_zone := _make_zone(right, NEON_GOLD, "CHIP-SCHALE", "Einzelstücke", true)
-	chip_zone.get_parent().size_flags_stretch_ratio = 0.55
-	var chip_deck := VBoxContainer.new()
-	chip_deck.add_theme_constant_override("separation", int(u * 1.0))
-	chip_deck.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	chip_deck.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip_zone.add_child(chip_deck)
-
-	# Umbrechend, nicht abschneidend: die Auslage bleibt in der Schale, auch wenn
-	# der Händler alles auf einmal hinlegt.
-	var singles := HFlowContainer.new()
-	singles.add_theme_constant_override("h_separation", int(u * SINGLE_GAP))
-	singles.add_theme_constant_override("v_separation", int(u * SINGLE_GAP))
-	singles.alignment = FlowContainer.ALIGNMENT_CENTER
-	singles.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	singles.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip_deck.add_child(singles)
-	# EIN Maßstab für die ganze Schale - Würfel und Sonderposten schrumpfen
-	# gemeinsam, sonst läge ein Stück in Sondergröße darin.
-	var single_scale := _singles_scale(_unsold(spread.single_dice_bought)
-		+ _unsold(spread.single_special_bought))
-	# Gekauftes liegt nicht mehr da: die Schale zeigt, was noch zu haben ist. Die
-	# *_bought-Flags bleiben im Spread, also zeigt die Sortiment-Sperre denselben
-	# Laden mit der verkauften Ware fort. Die Knopf-Listen bleiben index-treu
-	# (null je verkauftem Platz), damit _refresh_affordability weiter passt.
-	for i in spread.single_dice.size():
-		if spread.single_dice_bought[i]:
-			single_dice_buttons.append(null)
-			continue
-		singles.add_child(_build_single_die_card(i, single_scale))
-	for i in spread.single_specials.size():
-		if spread.single_special_bought[i]:
-			single_special_buttons.append(null)
-			continue
-		singles.add_child(_build_single_special_card(i, single_scale))
-
-	# Das Regal des Händlers: schmal, unter der Schale, und nur da, wenn wirklich
-	# etwas hinterlegt ist. Es ist KEINE zweite Schale - die Ware ist schon bezahlt.
-	var shelf := _build_stash_shelf()
-	if shelf != null:
-		chip_deck.add_child(shelf)
-
 	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
 	_flicker_charm_from = -1
-	_flicker_dice_from = -1
-	_flicker_chip_from = -1
 
 ## Signaturfarbe der aktuellen Hub-Stufe (wie der Hub-Rahmen); der Laden trägt sie
 ## dezent auf seinen Segment-Säumen, damit er zur Hub-Stufe passt.
@@ -680,13 +765,6 @@ func _tier_color() -> Color:
 ## zu verfälschen).
 func _tinted(accent: Color) -> Color:
 	return accent.lerp(_tier_color(), 0.15)
-
-## Senkrechter Dehn-Platzhalter (zentriert die Chip-Schale in ihrer Fläche).
-func _v_spacer() -> Control:
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return spacer
 
 ## Neonröhren-Zündung einer frisch freigeschalteten Karte (ab index >= from).
 func _maybe_flicker(card: Control, index: int, from: int) -> void:
@@ -710,15 +788,6 @@ func _charm_metrics(count: int) -> Vector2:
 	if count == 4:
 		return Vector2(u * 13.5, u * 7.5)
 	return Vector2(u * 12.0, u * 5.6)
-
-## Lager-Reihe: (Reihenhöhe, Siegelkante) je Gesamtzahl der Pakete - wenige,
-## große Siegel am Anfang, kompakte Reihen im Vollausbau (bis zu 3 + 4 Pakete).
-func _pack_metrics(count: int) -> Vector2:
-	if count <= 2:
-		return Vector2(u * 12.0, u * 7.5)
-	if count <= 5:
-		return Vector2(u * 9.5, u * 6.0)
-	return Vector2(u * 7.4, u * 4.8)
 
 ## Glas-Zone: dunkles Rauchglas-Panel mit Akzent-Saum (dezent stufengetönt) und
 ## weichem Außen-Glow, darin die Kopfzeile. Wird an parent gehängt; liefert die
@@ -883,84 +952,6 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Ungekaufte Plätze einer Auslage-Rubrik.
-func _unsold(bought: Array[bool]) -> int:
-	return bought.count(false)
-
-## Gemeinsamer Maßstab der Einzelstücke: die Auslage darf nie breiter werden als
-## die Schale. Bei voller Auslage schrumpfen ALLE Stücke gleich weit - ein
-## einzelnes Stück in Sondergröße wäre keine Schale mehr.
-func _singles_scale(piece_count: int) -> float:
-	if piece_count <= 1:
-		return 1.0
-	var wanted := float(piece_count) * SINGLE_DIE_SIZE
-	var room := BOWL_INNER_U - float(piece_count - 1) * SINGLE_GAP
-	if wanted <= room:
-		return 1.0
-	return maxf(SINGLE_MIN_SCALE, room / wanted)
-
-## OFFENER Würfel der Chip-Schale: er LIEGT dort als echter, langsam taumelnder
-## Würfel - kein Kasten, kein Preisschild, dieselbe Grammatik wie die Kombi-Chips
-## auf dem Filz. Wer danach greift, bekommt im Hover-Fenster das ganze Dossier:
-## Netz mit allen sechs Seiten (Materialfarben, Veredelung, Runen, Essenz-Chip), die
-## Seele und den Preis. Kein Blindkauf, das ist der Sinn - nur ohne Möbel.
-func _build_single_die_card(index: int, scale_factor: float = 1.0) -> Button:
-	var def := single_dice[index]
-	var price := single_dice_prices[index]
-	var essence := Essence.by_id(def.essence_id)
-	var title := def.display_name if essence == null \
-		else "%s – %s" % [def.display_name, essence.display_name]
-	var body := "Augensumme %d." % DiceRowView.eye_total(def)
-	if essence != null:
-		body += "\n%s: %s" % [essence.display_name, essence.description]
-	else:
-		body += "\nOhne Essenz."
-
-	var side := u * SINGLE_DIE_SIZE * scale_factor
-	var stage := DiceRowView.build_thumb(def, int(side), true)
-	var card := _bare_single(stage, Vector2.ONE * side)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body, price, def))
-	card.mouse_exited.connect(_hide_shop_tooltip)
-	card.pressed.connect(_on_single_die_pressed.bind(index))
-	single_dice_buttons.append(card)
-	return card
-
-## Sonderposten der Schale: das nackte Siegel LIEGT da, ohne Rauchglas-Kachel und
-## ohne Lichtsaum - unter einem physischen Ding steht kein Fenster. Es ist die
-## einzige Ware des Ladens, die man SIEHT, bevor man sie kauft und trotzdem
-## versiegelt bekommt: welcher der beiden Sonderposten es ist, ist die ganze
-## Auskunft, und die gehört in die Schale, nicht hinter ein Siegel.
-## Der Sonderbestand führt zwei Familien: die Gravur-Sonderposten und die
-## KATALYSATOR-Kassetten. Beide liegen nackt in der Schale, nur ihr Zeichen
-## unterscheidet sich - die Gravur ihr eigenes, der Katalysator das Eckzeichen
-## des Sonderbestands in dessen Violett (dieselbe Zeichnung wie sein Siegel).
-func _build_single_special_card(index: int, scale_factor: float = 1.0) -> Button:
-	var pack: Pack = single_specials[index]
-	var side := u * SINGLE_DIE_SIZE * scale_factor
-	var title := pack.display_name
-	var body := pack.description
-	var face: Control
-	if pack.is_catalyst():
-		var seal_icon := PackIconRenderer.for_type("")
-		seal_icon.tint = PackDrawerView.COLORS[Pack.SHELF_SPECIAL]
-		seal_icon.custom_minimum_size = Vector2.ONE * side
-		face = seal_icon
-	else:
-		var engraving := pack.fixed_engraving
-		title = engraving.display_name
-		body = engraving.description
-		var seal := EngravingRenderer.for_engraving(engraving)
-		seal.bare = true
-		seal.custom_minimum_size = Vector2.ONE * side
-		face = seal
-	var card := _bare_single(face, Vector2.ONE * side)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, title, body,
-		_pack_price(pack)))
-	card.mouse_exited.connect(_hide_shop_tooltip)
-	card.pressed.connect(_on_single_special_pressed.bind(index))
-	single_special_buttons.append(card)
-	return card
-
 ## Kauf eines Sonderpostens aus der Schale: er geht VERSIEGELT ins Lager wie jedes
 ## Paket - offen wartet keine Aufwertung. Derselbe Kaufweg wie die Regal-Pakete,
 ## samt Kleingedrucktem und Lieferkomet.
@@ -973,45 +964,13 @@ func _on_single_special_pressed(index: int) -> void:
 	# ebenso, aber ein stiller Fehlkauf dürfte hier nie als gekauft gelten).
 	if run.money < price or run.packs_full():
 		return
-	# Startpunkt VOR dem Neuaufbau abgreifen - danach liegt das Stück nicht mehr da.
-	var from_px := Vector2.ZERO
-	if index < single_special_buttons.size() and is_instance_valid(single_special_buttons[index]):
-		from_px = single_special_buttons[index].get_global_rect().get_center()
+	var from_px := _buy_origin_px()
 	var refunded := run.purchase_pack(pack, price)
 	single_special_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	if from_px != Vector2.ZERO:
-		pack_purchased.emit(from_px, pack.pack_uid)
-		if refunded > 0:
-			pack_refunded.emit(from_px, refunded)
+	pack_purchased.emit(from_px, pack.pack_uid)
+	if refunded > 0:
+		pack_refunded.emit(from_px, refunded)
 	_show_spread()
-
-## Ein Einzelstück LIEGT in der Schale: der Knopf bleibt (Hover und Klick), er ist
-## nur unsichtbar. Kein Fenster unter einem physischen Ding - dieselbe Regel wie
-## bei den Kombi-Chips. Das Anfassen zeigt sich am Aufleuchten, der Preis im
-## Hover-Fenster; in der Schale steht keine Zahl mehr.
-func _bare_single(content: Control, min_size: Vector2) -> Button:
-	var card := Button.new()
-	card.focus_mode = Control.FOCUS_NONE
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.custom_minimum_size = min_size
-	card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
-		card.add_theme_stylebox_override(state, StyleBoxEmpty.new())
-	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	card.add_child(content)
-	card.mouse_entered.connect(_lift_single.bind(content, true))
-	card.mouse_exited.connect(_lift_single.bind(content, false))
-	return card
-
-## Greifbarkeit ohne Rahmen: das Stück wird heller und eine Spur größer.
-func _lift_single(content: Control, on: bool) -> void:
-	if not is_instance_valid(content):
-		return
-	content.pivot_offset = content.size * 0.5
-	var tween := create_tween().set_parallel(true)
-	tween.tween_property(content, "modulate", Color(1.3, 1.3, 1.3) if on else Color.WHITE, 0.12)
-	tween.tween_property(content, "scale", Vector2.ONE * (1.07 if on else 1.0), 0.12)
 
 ## Kauf eines offenen Würfels: bezahlt, aber NICHT eingesetzt. Er wandert ins
 ## Regal des Händlers, bis der Spieler selbst sagt, welcher Pool-Platz weichen
@@ -1023,133 +982,10 @@ func _on_single_die_pressed(index: int) -> void:
 	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
-## Regal der hinterlegten Würfel - dieselbe offene Grammatik wie die Schale: die
-## Würfel LIEGEN da, ohne Kasten. Kein Preis, sie sind bezahlt. null, solange
-## nichts hinterlegt ist, damit das Regal keinen Platz für nichts frisst.
-func _build_stash_shelf() -> Control:
-	stash_buttons.clear()
-	if run == null or run.pending_dice.is_empty():
-		return null
-	var shelf := VBoxContainer.new()
-	shelf.name = "StashShelf"
-	shelf.size_flags_vertical = Control.SIZE_SHRINK_END
-	shelf.add_theme_constant_override("separation", int(u * 0.2))
-	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var caption := _label("Hinterlegt – klicken zum Eintauschen", u * 1.3, NEON_MUTED,
-		HORIZONTAL_ALIGNMENT_CENTER)
-	# Ohne Umbruch zieht schon die Zeile das Regal ueber die Schalenbreite.
-	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	shelf.add_child(caption)
-	# Umbrechend wie die Schale darueber: ein volles Regal bricht um und
-	# schrumpft, es drueckt nicht die ganze Hauptzeile aus dem Fenster.
-	var row := HFlowContainer.new()
-	row.alignment = FlowContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("h_separation", int(u * 0.8))
-	row.add_theme_constant_override("v_separation", int(u * 0.4))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shelf.add_child(row)
-	var scale_factor := _stash_scale(run.pending_dice.size())
-	for i in run.pending_dice.size():
-		row.add_child(_build_stash_thumb(i, scale_factor))
-	return shelf
-
-## Breitenfaktor des Regals nach dem Vorbild von _singles_scale: passt eine
-## Reihe nicht mehr in die Schale, schrumpfen die Miniaturen mit.
-func _stash_scale(count: int) -> float:
-	if count <= 1:
-		return 1.0
-	var wanted := float(count) * STASH_DIE_SIZE + float(count - 1) * 0.8
-	if wanted <= BOWL_INNER_U:
-		return 1.0
-	return maxf(STASH_MIN_SCALE, BOWL_INNER_U / wanted)
-
-func _build_stash_thumb(index: int, scale_factor: float) -> Button:
-	var def: DieDefinition = run.pending_dice[index]
-	var essence := Essence.by_id(def.essence_id)
-	var title := def.display_name if essence == null \
-		else "%s – %s" % [def.display_name, essence.display_name]
-	var body := "Augensumme %d." % DiceRowView.eye_total(def)
-	if essence != null:
-		body += "\n%s: %s" % [essence.display_name, essence.description]
-	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
-	var side := u * STASH_DIE_SIZE * scale_factor
-	var stage := DiceRowView.build_thumb(def, int(side), true)
-	var thumb := _bare_single(stage, Vector2.ONE * side)
-	thumb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	# Kein Preis: bezahlt ist bezahlt, hier geht es nur noch um den Platz.
-	thumb.mouse_entered.connect(_show_shop_tooltip.bind(thumb, title, body, -1, def))
-	thumb.mouse_exited.connect(_hide_shop_tooltip)
-	thumb.pressed.connect(_open_exchange_picker.bind(index))
-	stash_buttons.append(thumb)
-	return thumb
-
-## Regal-Reihe eines VERSIEGELTEN Pakets: Siegel links, Sorte und Menge daneben,
-## Preis rechts - nie der Inhalt selbst. Flache Reihen statt Hochkant-Karten:
-## das Lager wächst mit der Hub-Stufe auf bis zu 7 Pakete, und nur Reihen halten
-## den Fuß (Fertig) im Panel. Details zeigt der Hover-Dropdown.
-func _build_pack_card(pack: Pack, index: int, is_dice: bool, metrics: Vector2) -> PanelContainer:
-	var accent: Color = PackIconRenderer.COLORS.get(pack.type, NEON_CYAN)
-	var bought: bool = dice_pack_bought[index] if is_dice else engraving_pack_bought[index]
-
-	var card := PanelContainer.new()
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(0, metrics.x)
-	var box := StyleBoxFlat.new()
-	box.bg_color = CARD_BG
-	box.border_color = Color(accent.r, accent.g, accent.b, 0.24 if bought else 0.5)
-	box.set_border_width_all(maxi(1, int(u * 0.16)))
-	box.set_corner_radius_all(int(u * 1.2))
-	box.set_content_margin_all(int(u * 0.8))
-	box.shadow_color = Color(accent.r, accent.g, accent.b, 0.12)
-	box.shadow_size = int(u * 0.7)
-	card.add_theme_stylebox_override("panel", box)
-	card.mouse_entered.connect(_show_shop_tooltip.bind(card, pack.display_name,
-		_pack_tooltip_body(pack)))
-	card.mouse_exited.connect(_hide_shop_tooltip)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(u * 1.0))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(row)
-
-	var seal := PackIconRenderer.for_type(pack.type)
-	seal.custom_minimum_size = Vector2.ONE * metrics.y
-	seal.modulate = Color(1, 1, 1, 0.4 if bought else 1.0)
-	var seal_stage := CenterContainer.new()
-	seal_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	seal_stage.add_child(seal)
-	row.add_child(seal_stage)
-
-	var text_col := VBoxContainer.new()
-	text_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text_col.add_theme_constant_override("separation", int(u * 0.2))
-	text_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(text_col)
-	text_col.add_child(_label(pack.display_name, u * 1.9, NEON_TEXT))
-	text_col.add_child(_label(_pack_count_text(pack), u * 1.6, NEON_MUTED))
-
-	var price := _pack_price(pack)
-	var buy := _neon_button("Im Lager" if bought else "$%d" % price, accent, u * 2.0, Vector2(u * 9.0, u * 4.2))
-	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	if bought:
-		buy.disabled = true
-	else:
-		buy.pressed.connect(_on_pack_buy_pressed.bind(index, is_dice))
-	row.add_child(buy)
-	if is_dice:
-		dice_pack_buttons.append(buy)
-	else:
-		engraving_pack_buttons.append(buy)
-	return card
-
 ## Mengenzeile der Regal-Reihe: nur WIE VIEL - die Sorte sagt das Siegel,
 ## den Rest der Hover-Dropdown. Bei einem Gravur-Paket steht die Menge nicht fest:
 ## es zählt der Grundwurf seiner Größe, so oft die Kette hält.
 func _pack_count_text(pack: Pack) -> String:
-	if pack.is_dice_pack():
-		return "%d Würfel" % pack.count
 	if Pack.tierable(pack):
 		return "%s je Auslösung" % Pack.pieces_word(PhantomPress.base_for(pack.tier))
 	return Pack.pieces_word(pack.count)
@@ -1216,102 +1052,7 @@ func _build_shop_tooltip() -> void:
 		node.mouse_exited.connect(func() -> void:
 			_tooltip_hovered = false
 			_hide_shop_tooltip())
-	shop_tooltip_stage = CenterContainer.new()
-	shop_tooltip_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shop_tooltip_stage.visible = false
-	box.add_child(shop_tooltip_stage)
-	shop_tooltip_price = Label.new()
-	shop_tooltip_price.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shop_tooltip_price.visible = false
-	CasinoStyle.style_score_label(shop_tooltip_price, int(u * 2.2), NEON_GOLD)
-	box.add_child(shop_tooltip_price)
 	add_child(shop_tooltip)
-
-## Tausch-Auswahl: der ganze 30er-Vorrat als Raster über der Ladenseite. Gewarnt
-## wird NICHT - die Netze zeigen Materialien, Veredelung, Runen und den Essenz-Chip,
-## also sieht der Spieler selbst, welche Seele er überschreibt. Das ist die
-## Einwilligung; ein Dialog wäre nur Papier davor.
-func _open_exchange_picker(pending_index: int) -> void:
-	if run == null or pending_index < 0 or pending_index >= run.pending_dice.size():
-		return
-	_close_exchange_picker()
-	_hide_tooltip_now()
-	exchange_index = pending_index
-
-	exchange_overlay = Panel.new()
-	exchange_overlay.name = "ExchangePicker"
-	exchange_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	exchange_overlay.mouse_filter = Control.MOUSE_FILTER_STOP  # schluckt Klicks daneben
-	CasinoStyle.style_panel(exchange_overlay)
-	add_child(exchange_overlay)
-
-	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.add_theme_constant_override("separation", int(u * 0.6))
-	exchange_overlay.add_child(column)
-
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", int(u * 1.0))
-	column.add_child(head)
-	var title := _label("Welchen Würfel ersetzen?", u * 2.4, NEON_GOLD, HORIZONTAL_ALIGNMENT_LEFT)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(title)
-	var cancel := _neon_button("Abbrechen", NEON_MUTED, u * 1.6, Vector2(u * 16.0, u * 4.0))
-	cancel.pressed.connect(_close_exchange_picker)
-	head.add_child(cancel)
-
-	var host := Control.new()
-	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(host)
-
-	exchange_grid = DiceGridView.new()
-	exchange_grid.name = "ExchangeGrid"
-	exchange_grid.slot_pressed.connect(_on_exchange_slot_pressed)
-	host.add_child(exchange_grid)
-	host.resized.connect(_fit_exchange_grid)
-	_fit_exchange_grid()
-
-## Größtes Kachelmaß, das die 30 Plätze in den Wirt bringt - dieselbe Rechnung
-## wie in der Werkstatt, damit beide Raster gleich lesen.
-func _fit_exchange_grid() -> void:
-	if exchange_grid == null or not is_instance_valid(exchange_grid):
-		return
-	var host := exchange_grid.get_parent() as Control
-	if host == null or host.size.x <= 0.0:
-		return
-	var rows := maxi(int(ceil(float(run.owned_pool.size()) / float(EXCHANGE_COLUMNS))), 1)
-	var unit := DiceGridView.unit_for(EXCHANGE_COLUMNS, rows, host.size - Vector2.ONE * u * 2.0)
-	exchange_grid.place(EXCHANGE_COLUMNS, unit, true)
-	exchange_grid.fill(run.owned_pool)
-	_center_exchange_grid.call_deferred()
-
-func _center_exchange_grid() -> void:
-	if exchange_grid == null or not is_instance_valid(exchange_grid):
-		return
-	var host := exchange_grid.get_parent() as Control
-	if host == null:
-		return
-	var span := exchange_grid.get_combined_minimum_size()
-	exchange_grid.size = span
-	exchange_grid.position = ((host.size - span) * 0.5).max(Vector2.ZERO)
-
-func _on_exchange_slot_pressed(pool_index: int) -> void:
-	if run != null and run.exchange_pending_die(exchange_index, pool_index):
-		_close_exchange_picker()
-		_show_spread()  # das Regal ist um ein Stück leerer
-
-## Abbruch lässt BEIDE Seiten unberührt - der Würfel bleibt hinterlegt.
-func _close_exchange_picker() -> void:
-	exchange_index = -1
-	exchange_grid = null
-	if exchange_overlay != null and is_instance_valid(exchange_overlay):
-		exchange_overlay.queue_free()
-	exchange_overlay = null
-
-func exchange_picker_open() -> bool:
-	return exchange_overlay != null and is_instance_valid(exchange_overlay)
 
 ## Preiszeile und ihre Farbe - reine Funktionen, damit die Entscheidung
 ## "bezahlbar oder nicht" prüfbar ist und nur an EINER Stelle fällt.
@@ -1321,29 +1062,17 @@ static func price_text(price: int) -> String:
 static func price_tint(price: int, money: int) -> Color:
 	return NEON_GOLD if money >= price else CasinoStyle.RED
 
-## Zeigt den Dropdown unter (oder notfalls über) dem überfahrenen Element,
-## immer im Panel eingeklemmt (clip_contents schneidet Überstände ab).
-## price < 0 blendet die Preiszeile aus, net_def das Würfelnetz.
-func _show_shop_tooltip(anchor: Control, title: String, body: String,
-		price := -1, net_def: DieDefinition = null) -> void:
+## Zeigt den Dropdown unter (oder notfalls über) der überfahrenen Charm-Karte,
+## immer im Panel eingeklemmt (clip_contents schneidet Überstände ab). Preis und
+## Würfelnetz führt er nicht mehr - die stehen auf der Scheibe über der Bucht.
+func _show_shop_tooltip(anchor: Control, title: String, body: String) -> void:
 	if shop_tooltip == null:
 		return
 	_tooltip_hide_token += 1  # eine laufende Ausblende-Frist gilt nicht mehr
 	shop_tooltip_title.text = title
-	# EIN Engpass für alle fünf Hover-Quellen: hier werden die Schlüsselwörter
-	# zu Lexikon-Verweisen.
+	# EIN Engpass für beide Hover-Quellen des Bildschirms: hier werden die
+	# Schlüsselwörter zu Lexikon-Verweisen.
 	shop_tooltip_body.text = Lexikon.linkify(body)
-	for child in shop_tooltip_stage.get_children():
-		shop_tooltip_stage.remove_child(child)
-		child.queue_free()
-	shop_tooltip_stage.visible = net_def != null
-	if net_def != null:
-		shop_tooltip_stage.add_child(DieNetView.build(net_def, -1, u * 2.2))
-	shop_tooltip_price.visible = price >= 0
-	if price >= 0:
-		shop_tooltip_price.text = price_text(price)
-		shop_tooltip_price.add_theme_color_override("font_color",
-			price_tint(price, run.money if run != null else 0))
 	shop_tooltip.visible = true
 	shop_tooltip.reset_size()
 	var local := anchor.get_global_rect().position - get_global_rect().position
@@ -1409,12 +1138,10 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 
 # --- Käufe ----------------------------------------------------------------------
 
-## Würfel-Pakete tragen zuerst die Würfel-Rabatte (Trickser, Mengenrabatt),
-## Gravur-Pakete ihren festen Sortenpreis; der Schnäppchenjäger zieht danach
-## von JEDER Sorte ab.
+## Jedes Paket trägt seinen festen Sortenpreis; der Schnäppchenjäger zieht davon
+## ab, danach Inflation/Skonto des Hauses.
 func _pack_price(pack: Pack) -> int:
-	var base := CharmEffects.die_price(pack.price, run.charm_ids()) if pack.is_dice_pack() else pack.price
-	return run.shop_price(CharmEffects.pack_price(base, pack.type, run.charm_ids()))
+	return run.shop_price(CharmEffects.pack_price(pack.price, pack.type, run.charm_ids()))
 
 ## Der Hausgutschein schenkt den ERSTEN Charm des Blocks - danach zählt
 ## wieder der normale Preis samt Inflation/Skonto.
@@ -1425,30 +1152,27 @@ func _charm_price() -> int:
 
 ## Kauft ein versiegeltes Paket (je Angebot einmal); es wandert ungeöffnet ins
 ## Werkstatt-Lager. Danach wird die Doppelseite neu bebaut.
-func _on_pack_buy_pressed(index: int, is_dice: bool) -> void:
-	var pack: Pack = dice_packs[index] if is_dice else engraving_packs[index]
-	if (dice_pack_bought[index] if is_dice else engraving_pack_bought[index]):
+func _on_pack_buy_pressed(index: int) -> void:
+	if index < 0 or index >= engraving_packs.size() or engraving_pack_bought[index]:
 		return
+	var pack: Pack = engraving_packs[index]
 	var price := _pack_price(pack)
 	# Volles Magazin sperrt wie eine knappe Börse - erst pressen, dann kaufen.
 	if run.money < price or run.packs_full():
 		return
-	# Startpunkt VOR dem Neuaufbau abgreifen - danach ist der Knopf weg.
-	var buttons := dice_pack_buttons if is_dice else engraving_pack_buttons
-	var from_px := Vector2.ZERO
-	if index < buttons.size() and is_instance_valid(buttons[index]):
-		from_px = buttons[index].get_global_rect().get_center()
+	var from_px := _buy_origin_px()
 	var refunded := run.purchase_pack(pack, price)
-	# Liegt im Spread - übersteht den Neuaufbau.
-	if is_dice:
-		dice_pack_bought[index] = true
-	else:
-		engraving_pack_bought[index] = true
-	if from_px != Vector2.ZERO:
-		pack_purchased.emit(from_px, pack.pack_uid)
-		if refunded > 0:
-			pack_refunded.emit(from_px, refunded)
+	engraving_pack_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	pack_purchased.emit(from_px, pack.pack_uid)
+	if refunded > 0:
+		pack_refunded.emit(from_px, refunded)
 	_show_spread()
+
+## Startpunkt eines Kauf-Kometen: die Ware liegt in der Bucht, also kommt er von
+## dort - eine 2D-Karte gibt es nur noch für Charms.
+func _buy_origin_px() -> Vector2:
+	var bay := vitrine_rect_px()
+	return bay.get_center() if bay.size.x > 0.0 else get_global_rect().get_center()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
 ## Shop-Charms (Rabattmarke, Trickdieb-Manschette, ...) wirken schon in DIESEM Besuch -
@@ -1465,30 +1189,15 @@ func _on_charm_clicked(index: int) -> void:
 	_show_spread()
 
 ## Deaktiviert alles Unbezahlbare und hält den Geldstand der Kopfzeile aktuell.
+## Die Ware in der Bucht hat keine Knöpfe mehr - ihre Kaufbarkeit steht in der
+## Preiszeile der Beschriftung (price_tint), und der Kaufweg prüft sie ohnehin.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
 	if money_label != null:
 		money_label.text = "$%d" % money
-	# Volles Magazin sperrt jeden Paket-Kauf - wie charms_full das Charm-Regal.
-	var full := run.packs_full()
-	for i in dice_pack_buttons.size():
-		dice_pack_buttons[i].disabled = dice_pack_bought[i] or full \
-			or money < _pack_price(dice_packs[i])
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
-	for i in engraving_pack_buttons.size():
-		engraving_pack_buttons[i].disabled = engraving_pack_bought[i] or full \
-			or money < _pack_price(engraving_packs[i])
-	for i in single_dice_buttons.size():
-		if single_dice_buttons[i] == null:
-			continue  # verkauft: liegt nicht mehr in der Schale
-		single_dice_buttons[i].disabled = single_dice_bought[i] or money < single_dice_prices[i]
-	for i in single_special_buttons.size():
-		if single_special_buttons[i] == null:
-			continue
-		single_special_buttons[i].disabled = single_special_bought[i] or full \
-			or money < _pack_price(single_specials[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):
@@ -1526,9 +1235,6 @@ func _on_done_pressed() -> void:
 
 ## Laden zu - per "Fertig" oder weil der Spieler die Runde in der Grube aufnimmt.
 func close() -> void:
-	# Die Tausch-Auswahl geht mit dem Laden zu - sonst stünde sie beim nächsten
-	# Besuch noch (Rechtsklick zoomt hinaus, ohne durch sie hindurchzugehen).
-	_close_exchange_picker()
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
 	visible = false
 	closed.emit()

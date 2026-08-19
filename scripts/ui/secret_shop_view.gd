@@ -2,20 +2,31 @@ class_name SecretShopView
 extends Panel
 ## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten. Es steht
 ## von Anfang an da, aber VERGITTERT - erst die Lizenzstufe hebt das Gitter
-## (set_locked); solange liegen nur Schatten-Plätze aus, denn die Auslage wird
-## erst beim Freischalten gewürfelt.
+## (set_locked); solange bleibt die Bucht zu, denn die Auslage wird erst beim
+## Freischalten gewürfelt.
 ## Danach: bezahlt wird ausschließlich in Ladung (⚡) - drei Plätze, jeder EINMAL
-## kaufbar, "Neu mischen" tauscht alle drei zu steigendem Preis. Zustands-Mutation
-## läuft ausschließlich über GameRun (buy_secret_offer/reroll_secret_stock); die
-## Anzeige folgt secret_stock_changed und charge_changed. Geschlossen wird wie bei
-## jedem Fenster per Rechtsklick (Kamera zoomt zurück) - kein eigener Knopf.
+## kaufbar, "Neu mischen" tauscht alle drei zum immer gleichen Preis.
+## Aufgeteilt ist das Fenster wie der Laden: Kopfstreifen und der feste
+## KARTEN-SITZ (genau EINE Charm-Karte - Lizenzen sind digitale Ware) bleiben
+## Bildschirm, die WARE liegt körperlich in der Bucht daneben. Die zeichnet dieses
+## Fenster nie selbst; es meldet nur ihr Rechteck und ihren Inhalt, aufgestellt
+## wird sie von scene_root. Das löst nebenbei das Auflösungs-Problem der kleinen
+## Tasche: ein echter Würfel unter Glas rendert in Bildschirmauflösung.
+## Zustands-Mutation läuft ausschließlich über GameRun (buy_secret_offer/
+## reroll_secret_stock); die Anzeige folgt secret_stock_changed und
+## charge_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick.
 
 ## Ladung ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
 ## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
 signal charge_spent(amount: int)
-## Ein Würfel ist gekauft: er liegt als versiegeltes Paket im Lager, scene_root
-## fliegt ihn nur noch die Werkstatt-Ader hinunter.
-signal die_purchased
+## Versiegelte Ware ist gekauft (Bündel oder Katalysator): sie liegt schon als
+## Paket im Magazin, scene_root fährt sie nur noch dorthin.
+signal goods_purchased(uid: int)
+## Ein Seelenwürfel ist gekauft: er liegt schon im Ausgabefach, scene_root fährt
+## ihn nur noch dorthin. Kein Paket - ein Würfel wird nie versiegelt.
+signal die_purchased(def: DieDefinition)
+## Die Auslage der Bucht hat sich geändert (Wurf, Kauf, Freischaltung).
+signal vitrine_changed
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -26,8 +37,9 @@ const NEON_MUTED := Color(0.72, 0.74, 0.86)
 const BACKROOM_BG := Color("#0b0918e6")
 const CARD_BG := Color("#150f2acc")
 
-## So viele Schatten-Plätze zeigt der vergitterte Laden (= die späteren Plätze).
-const SHADOW_SLOTS := 3
+## Breite des Karten-Sitzes in Einheiten. Er steht FEST - ob eine Karte darin
+## liegt oder der legendäre Topf erschöpft ist, ändert die Aufteilung nie.
+const CARD_SEAT_WIDTH := 28.0
 
 ## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
 ## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Vertragswahl).
@@ -52,6 +64,7 @@ var run: GameRun:
 			run.secret_stock_changed.connect(_on_run_changed)
 			run.charge_changed.connect(_on_charge_changed)
 			run.charms_changed.connect(_on_run_changed)  # der Charm-Platz sperrt am vollen Dock
+		_seen_rolls = -1  # frischer Lauf: die erste Auslage rollt wieder an
 		refresh()
 
 ## Einheit aus BEIDEN Achsen (in refresh gesetzt).
@@ -61,9 +74,12 @@ var u := 4.0
 var locked := true
 
 var wallet_label: Label
-var cards_row: HBoxContainer
+## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
+var card_seat: Control
+var vitrine_slot: Control
 var reroll_button: Button
-## Ein Knopf je Auslage-Platz (Tests und _refresh arbeiten dagegen).
+## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
+## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
 var offer_buttons: Array[Button] = []
 var lock_overlay: Panel
 ## Auf dem Schleier steht, was das Gitter hebt - kein Knopf, nichts zu kaufen.
@@ -75,6 +91,13 @@ var detail_title: Label
 var detail_body: Label
 
 var _built := false
+## Zuletzt gesehener Wurf-Stand (-1 = vergittert/noch keiner). Ein WURF rollt die
+## Ware an, ein Kauf lässt sie liegen - mehr entscheidet den Grad nicht.
+var _seen_rolls := -1
+var _vitrine_grade := ShopController.GRADE_STAND
+## Was körperlich in der Bucht liegt, je Auslage-Platz (null = kein solches Stück).
+var _bay_packs: Array = []
+var _bay_dice: Array = []
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -109,13 +132,13 @@ func set_locked(is_locked: bool) -> void:
 		_refresh_offers()  # Schatten <-> echte Ware ist ein Neuaufbau
 	_apply_lock_state()
 
-## Schleier, Knopf und Dimmung der Plätze am Gitter-Zustand ausrichten.
+## Schleier, Knopf und Dimmung des Sitzes am Gitter-Zustand ausrichten.
 func _apply_lock_state() -> void:
 	if not _built:
 		return
 	lock_overlay.visible = locked
 	reroll_button.visible = not locked
-	cards_row.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
+	card_seat.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
 # --- Gerüst -------------------------------------------------------------------
 
@@ -142,66 +165,218 @@ func _build_layout() -> void:
 	root.add_theme_constant_override("separation", int(u * 1.4))
 	margin.add_child(root)
 
+	# Kopfstreifen: Titel, Börse und der Neuwurf. Der alte Fuß ist weg - seine
+	# Höhe gehört jetzt der Bucht, und der Misch-Knopf steht ohnehin zum Titel.
 	var header := HBoxContainer.new()
 	header.name = "Header"
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_theme_constant_override("separation", int(u * 2.0))
+	header.add_theme_constant_override("separation", int(u * 1.2))
 	root.add_child(header)
-	header.add_child(_label("SCHWARZMARKT", u * 5.0, Color(1.35, 0.7, 1.7)))
+	header.add_child(_label("SCHWARZMARKT", u * 4.2, Color(1.35, 0.7, 1.7)))
 	var rail := _rail(VIOLET)
 	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(rail)
-	wallet_label = _label("⚡ 0/0", u * 5.0, CHARGE_COLOR)
+	wallet_label = _label("⚡ 0/0", u * 4.2, CHARGE_COLOR)
+	wallet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(wallet_label)
-
-	cards_row = HBoxContainer.new()
-	cards_row.name = "Offers"
-	cards_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cards_row.add_theme_constant_override("separation", int(u * 1.8))
-	cards_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(cards_row)
-
-	var footer := HBoxContainer.new()
-	footer.name = "Footer"
-	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	footer.add_theme_constant_override("separation", int(u * 1.5))
-	root.add_child(footer)
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	footer.add_child(spacer)
-	reroll_button = _neon_button("Neu mischen", VIOLET, u * 3.2, Vector2(u * 34.0, u * 7.0))
+	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.6, Vector2(u * 24.0, u * 6.2))
+	reroll_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	reroll_button.pressed.connect(_on_reroll_pressed)
-	footer.add_child(reroll_button)
+	header.add_child(reroll_button)
 
-	_build_detail_card()  # zuletzt: liegt als Overlay über den Karten
+	# Darunter die zwei Zonen: links der Karten-Sitz (Bildschirm), rechts die Bucht.
+	var body := HBoxContainer.new()
+	body.name = "Body"
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_constant_override("separation", int(u * 1.8))
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+
+	card_seat = Control.new()
+	card_seat.name = "CardSeat"
+	card_seat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_seat.custom_minimum_size = Vector2(u * CARD_SEAT_WIDTH, 0.0)
+	body.add_child(card_seat)
+
+	# Die Bucht bekommt den ganzen Rest. Gemalt wird allein die FASSUNG - die Mitte
+	# ist ein echtes Loch, und darunter liegt die Ware.
+	vitrine_slot = Control.new()
+	vitrine_slot.name = "Vitrine"
+	vitrine_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitrine_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vitrine_slot.add_child(_vitrine_frame())
+	body.add_child(vitrine_slot)
+
+	_build_detail_card()  # zuletzt: liegt als Overlay über der Karte
 	_build_lock_overlay()  # und ganz oben das Gitter
+
+# --- Die Bucht (gemeldete Geometrie, nie gezeichneter Inhalt) ------------------
+
+## Das Buchten-Rechteck in globalen Display-Pixeln (leeres Rect = noch keins).
+func vitrine_rect_px() -> Rect2:
+	if vitrine_slot == null or not is_instance_valid(vitrine_slot):
+		return Rect2()
+	return vitrine_slot.get_global_rect()
+
+## Das LOCH darin: der Streifen ohne seine gemalte Fassung - dieselbe Rechnung wie
+## am Magazin und in der Laden-Bucht.
+func vitrine_pit_rect() -> Rect2:
+	var strip := vitrine_rect_px()
+	if strip.size.x <= 0.0 or strip.size.y <= 0.0:
+		return Rect2()
+	return PackDrawerView.pit_rect_in(strip, u)
+
+## Maßeinheit der Beschriftung auf der Scheibe. Bewusst DIE DES FENSTERS: die
+## Tasche ist die kleinste des Tisches, und eine an der Buchtbreite hängende
+## Einheit schriebe dort kleiner als das Fenster selbst.
+func vitrine_unit() -> float:
+	return u
+
+## Die FASSUNG der Bucht - Rahmen ohne Füllung, Rezeptur aus der Magazin-Grube.
+func _vitrine_frame() -> Panel:
+	var well := Panel.new()
+	well.name = "VitrineWell"
+	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	well.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var radius := int(u * PackDrawerView.RADIUS)
+	var box := StyleBoxFlat.new()
+	box.draw_center = false
+	box.border_color = PackDrawerView.RIM_BASE
+	box.set_border_width_all(maxi(2, int(u * PackDrawerView.RIM_WIDTH)))
+	box.set_corner_radius_all(radius)
+	well.add_theme_stylebox_override("panel", box)
+	var edge := maxi(2, int(u * PackDrawerView.EDGE))
+	well.add_child(PackDrawerView.edge_band("VitrineShade",
+		PackDrawerView.WELL_SHADOW, edge, radius, true))
+	well.add_child(PackDrawerView.edge_band("VitrineSheen",
+		PackDrawerView.WELL_SHEEN, edge, radius, false))
+	return well
+
+## Der Ankunfts-Grad der zuletzt gezeigten Auslage; scene_root fährt ihn EINMAL.
+func vitrine_grade() -> String:
+	return _vitrine_grade
+
+## Der Platz mit der EINEN Karte (-1 = keiner - der legendäre Topf ist erschöpft
+## und eine Sonder-Gravur ist nachgerückt; dann steht deren Kassette in der Bucht
+## und der Sitz bleibt leer).
+func card_slot_index() -> int:
+	if run == null:
+		return -1
+	for i in run.secret_stock.size():
+		if run.secret_stock[i][GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
+			return i
+	return -1
+
+## Was körperlich in der Bucht liegt: je Auslage-Platz ein Eintrag, null für
+## Verkauftes und für den Karten-Sitz. Die Lücken halten die Indizes treu - ein
+## Griff meint immer denselben Kaufweg (buy_offer).
+func vitrine_stock() -> Dictionary:
+	return {
+		ShopController.KIND_ENGRAVING_PACK: _bay_packs.duplicate(),
+		ShopController.KIND_DIE: _bay_dice.duplicate(),
+		ShopController.KIND_SPECIAL: [],
+	}
+
+## Die Beschriftung EINES Stücks für die Scheibe. Der Preis steht NUR hier - in
+## der Bucht hängt kein Schild -, und er ist in ⚡ ausgewiesen.
+func vitrine_annotation(_kind: String, index: int) -> Dictionary:
+	if run == null or index < 0 or index >= run.secret_stock.size():
+		return {}
+	var offer := run.secret_stock[index]
+	if bool(offer[GameRun.OFFER_SOLD]):
+		return {}
+	var data := {
+		"price": run.secret_offer_price(offer),
+		"money": run.charge,
+		"charge": true,
+		"blocked": ShopController.FULL_TAG if _offer_blocked(offer) else "",
+	}
+	match String(offer[GameRun.OFFER_KIND]):
+		GameRun.KIND_DIE:
+			var die: DieDefinition = offer[GameRun.OFFER_ITEM]
+			var essence := Essence.by_id(die.essence_id)
+			data["title"] = "%s-Würfel" % essence.display_name
+			data["body"] = "%s\n%s" % [essence.short, essence.description]
+			data["net"] = die
+		GameRun.KIND_CATALYST:
+			var card_pack: Pack = offer[GameRun.OFFER_ITEM]
+			data["title"] = card_pack.display_name
+			data["body"] = card_pack.description
+		_:
+			var engraving: Engraving = offer[GameRun.OFFER_ITEM]
+			# Die Bündelgröße steht auf der Kappe der Kassette - hier nennt sie die
+			# Beschriftung noch einmal, damit Zahl und Wirkung beieinander stehen.
+			var bundle := int(offer.get(GameRun.OFFER_COUNT, 1))
+			data["title"] = engraving.display_name
+			data["body"] = engraving.description if bundle == 1 \
+				else "%s\nEine Datenkarte mit %d Stücken darin." % [engraving.description, bundle]
+	return data
+
+## Der Griff in der Bucht kauft: derselbe Weg wie die Karte am Sitz.
+func buy_offer(index: int) -> void:
+	_on_offer_pressed(index)
 
 # --- Auslage ------------------------------------------------------------------
 
-## Baut die drei Karten neu und zieht Börse und Misch-Preis nach. Rebuild statt
-## Patch: ein verkaufter Platz wechselt seine ganze Gestalt.
+## Baut den Karten-Sitz neu, sortiert die Ware in die Bucht und zieht Börse und
+## Misch-Preis nach. Rebuild statt Patch: ein verkaufter Platz wechselt seine
+## ganze Gestalt.
 func _refresh_offers() -> void:
 	if not _built or run == null:
 		return
 	wallet_label.text = "⚡ %d/%d" % [run.charge, run.charge_cap()]
-	for child in cards_row.get_children():
-		cards_row.remove_child(child)
+	for child in card_seat.get_children():
+		card_seat.remove_child(child)
 		child.queue_free()
 	offer_buttons.clear()
+	_bay_packs.clear()
+	_bay_dice.clear()
 	var thumb_px := int(u * 13.0)
 	if locked:
-		# Die Auslage wird erst beim Freischalten gewürfelt - hier stehen Schatten.
-		for i in SHADOW_SLOTS:
-			cards_row.add_child(_build_shadow_card(thumb_px))
+		# Vergittert wird nichts gewürfelt: der Sitz verspricht eine Karte, die
+		# Bucht bleibt dunkel - ein besserer Köder als Platzhalter-Ware.
+		card_seat.add_child(_build_shadow_card(thumb_px))
+		_vitrine_grade = ShopController.GRADE_STAND
+		vitrine_changed.emit()
 		return
+	offer_buttons.resize(run.secret_stock.size())
+	var seat := card_slot_index()
+	if seat >= 0:
+		var card := _build_charm_card(run.secret_stock[seat], seat, thumb_px,
+			run.secret_offer_price(run.secret_stock[seat]))
+		card_seat.add_child(card)
+		offer_buttons[seat] = card
 	for i in run.secret_stock.size():
-		cards_row.add_child(_build_offer_card(run.secret_stock[i], i, thumb_px,
-			run.secret_offer_price(run.secret_stock[i])))
+		_sort_into_bay(run.secret_stock[i], i == seat)
+	# Ein WURF rollt die Ware an, ein Kauf lässt sie liegen - mehr entscheidet nicht.
+	var rolls := run.secret_rerolls if run.secret_shop_unlocked else -1
+	_vitrine_grade = ShopController.GRADE_STAND if rolls == _seen_rolls \
+		else ShopController.GRADE_ROLL_IN
+	_seen_rolls = rolls
 	_refresh_afford_state()
+	vitrine_changed.emit()
 
-## Kaufbarkeit von Karten und Misch-Knopf am Ladungsstand ausrichten.
+## Ein Auslage-Platz wird zur körperlichen Ware: der Essenzwürfel liegt offen, der
+## Sonderbestand steht versiegelt als seine Kassette (das Bündel trägt sein ×n auf
+## der Kappe). Verkauft, vergeben oder Karte heißt: dieser Platz bleibt leer.
+func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
+	var pack: Pack = null
+	var die: DieDefinition = null
+	if not on_card_seat and not bool(offer[GameRun.OFFER_SOLD]):
+		match String(offer[GameRun.OFFER_KIND]):
+			GameRun.KIND_DIE:
+				die = offer[GameRun.OFFER_ITEM]
+			GameRun.KIND_CATALYST:
+				pack = offer[GameRun.OFFER_ITEM]
+			GameRun.KIND_ENGRAVING:
+				pack = Pack.fixed_engraving_pack(offer[GameRun.OFFER_ITEM] as Engraving,
+					int(offer.get(GameRun.OFFER_COUNT, 1)))
+	_bay_packs.append(pack)
+	_bay_dice.append(die)
+
+## Kaufbarkeit der Karte und des Misch-Knopfs am Ladungsstand ausrichten. Die Ware
+## in der Bucht sperrt sich nicht - sie sagt ihren Preis auf der Scheibe.
 func _refresh_afford_state() -> void:
 	if not _built or run == null:
 		return
@@ -209,80 +384,42 @@ func _refresh_afford_state() -> void:
 	reroll_button.text = "Neu mischen ⚡%d" % cost
 	reroll_button.disabled = run.charge < cost
 	for i in offer_buttons.size():
-		if i >= run.secret_stock.size():
+		if i >= run.secret_stock.size() or offer_buttons[i] == null:
 			continue
 		var offer := run.secret_stock[i]
 		var sold: bool = offer[GameRun.OFFER_SOLD]
 		offer_buttons[i].disabled = sold or _offer_blocked(offer) \
 			or run.charge < run.secret_offer_price(offer)
 
-## Ob ein Platz an einem vollen Lager hängt: der Charm am Dock, alles andere am
-## Magazin - Würfel wie Sonderposten gehen versiegelt raus (buy_secret_offer
-## prüft dasselbe VOR dem Zahlen).
+## Ob ein Platz an einem vollen Lager hängt: der Charm am Dock, die versiegelte
+## Ware am Magazin (buy_secret_offer prüft dasselbe VOR dem Zahlen). Der Würfel
+## hängt an keinem - er geht ins Ausgabefach, und das hat keinen Deckel.
 func _offer_blocked(offer: Dictionary) -> bool:
 	if run == null:
 		return false
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
 		return run.charms_full()
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
+		return false
 	return run.packs_full()
 
-## Angebots-Karte: Ware groß, Preis in Ladung darunter; Name und Wirkung zeigt
-## der Hover-Dropdown. Rahmen und Lichtfleck tragen die Seltenheit der Ware.
+## Die EINE Karte am Sitz: der legendäre Charm. Lizenzen sind digitale Ware und
+## bleiben darum Bildschirm - alles Körperliche liegt in der Bucht daneben.
+## Thumb groß, Preis in Ladung darunter; Name und Wirkung zeigt der Hover-Dropdown.
 ## price kommt fertig vom Aufrufer (GameRun.secret_offer_price) - die Hehlerware
 ## soll auf dem Schild stehen, nicht erst an der Kasse auffallen.
-func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int) -> Button:
-	var kind: String = offer[GameRun.OFFER_KIND]
+func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int) -> Button:
 	var sold: bool = offer[GameRun.OFFER_SOLD]
-	var tint := VIOLET
-	var title := ""
-	var body := ""
-	var face: Control
-	if kind == GameRun.KIND_CHARM:
-		var charm: Charm = offer[GameRun.OFFER_ITEM]
-		tint = charm.rarity_color()
-		title = charm.display_name
-		body = charm.description
-		face = CharmThumb.new(charm, thumb_px)
-	elif kind == GameRun.KIND_DIE:
-		# Essenzwürfel: die Seele trägt die Karte - Name, Kurzzeile und ihr
-		# Glühen als Rahmenfarbe.
-		var die: DieDefinition = offer[GameRun.OFFER_ITEM]
-		var essence := Essence.by_id(die.essence_id)
-		tint = essence.glow
-		title = "%s-Würfel" % essence.display_name
-		body = "%s\n%s" % [essence.short, essence.description]
-		var net := DieNetView.build(die, -1, float(thumb_px) / 4.4)
-		net.custom_minimum_size = Vector2(thumb_px, thumb_px)
-		face = net
-	elif kind == GameRun.KIND_CATALYST:
-		# Katalysator: kein Inhalt, sondern eine Wirkung auf die nächste Pressung.
-		# Er trägt das Eckzeichen des Sonderbestands - wie sein Siegel im Magazin.
-		var card_pack: Pack = offer[GameRun.OFFER_ITEM]
-		title = card_pack.display_name
-		body = card_pack.description
-		var seal := PackIconRenderer.for_type("")
-		seal.tint = VIOLET
-		seal.custom_minimum_size = Vector2(thumb_px, thumb_px)
-		face = seal
-	else:
-		var engraving: Engraving = offer[GameRun.OFFER_ITEM]
-		# Ein Bündel liegt als EINE Karte da - die Menge steht im Titel, damit sie
-		# schon auf dem Schild steht und nicht erst beim Auspacken auffällt.
-		var bundle := int(offer.get(GameRun.OFFER_COUNT, 1))
-		tint = EngravingRenderer.SEAM_COLORS[int(engraving.rarity)]
-		title = engraving.display_name if bundle == 1 else "%d× %s" % [bundle, engraving.display_name]
-		body = engraving.description
-		if bundle > 1:
-			body = "%s\nEine Datenkarte mit %d Stücken darin." % [body, bundle]
-		var renderer := EngravingRenderer.for_engraving(engraving)
-		renderer.custom_minimum_size = Vector2(thumb_px, thumb_px)
-		face = renderer
+	var charm: Charm = offer[GameRun.OFFER_ITEM]
+	var tint := charm.rarity_color()
+	var title := charm.display_name
+	var body := charm.description
+	var face: Control = CharmThumb.new(charm, thumb_px)
 
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	card.add_theme_stylebox_override("normal", _card_box(CARD_BG, tint, 0.7, 0.24))
 	card.add_theme_stylebox_override("hover", _card_box(Color("#241a4add"), Color(1.4, 1.1, 0.2), 0.95, 0.3))
 	card.add_theme_stylebox_override("pressed", _card_box(Color("#2e2160"), Color(1.4, 1.1, 0.2), 1.0, 0.3))
@@ -306,26 +443,22 @@ func _build_offer_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
 	column.add_child(stage)
 
-	# Volles Lager: der Platz zeigt das statt seines Preises - Dock beim Charm,
-	# Magazin bei jeder versiegelten Ware.
+	# Volles Dock: der Sitz zeigt das statt seines Preises.
 	var blocked := _offer_blocked(offer)
-	var full_tag := "DOCK VOLL" if kind == GameRun.KIND_CHARM else "MAGAZIN VOLL"
-	var tag := "VERKAUFT" if sold else (full_tag if blocked else "⚡ %d" % price)
+	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
 	column.add_child(_label(tag, u * 3.0,
 		NEON_MUTED if sold or blocked else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	if not sold:
 		card.pressed.connect(_on_offer_pressed.bind(index))
-	offer_buttons.append(card)
 	return card
 
-## Schatten-Platz des vergitterten Ladens: dieselbe Kartenform, aber leer - er
+## Schatten-Sitz des vergitterten Ladens: dieselbe Kartenform, aber leer - er
 ## verspricht einen Platz, nicht eine bestimmte Ware.
 func _build_shadow_card(thumb_px: int) -> Control:
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	card.add_theme_stylebox_override("panel", _card_box(Color("#100c2266"), VIOLET, 0.3, 0.0))
 	var stage := CenterContainer.new()
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -364,11 +497,18 @@ func _on_offer_pressed(index: int) -> void:
 	if run == null or index < 0 or index >= run.secret_stock.size():
 		return
 	var price := run.secret_offer_price(run.secret_stock[index])
-	var kind := String(run.secret_stock[index][GameRun.OFFER_KIND])
-	if run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
-		charge_spent.emit(price)
-		if kind == GameRun.KIND_DIE:
-			die_purchased.emit()
+	# Was versiegelt hinausgeht, ist ein neues Paket im Magazin, ein Würfel ein
+	# neuer Platz im Ausgabefach - gemerkt wird beides VOR dem Kauf, damit die
+	# Meldung genau dieses Exemplar meint.
+	var stocked := run.owned_packs.size()
+	var stashed := run.pending_dice.size()
+	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
+		return
+	charge_spent.emit(price)
+	if run.owned_packs.size() > stocked:
+		goods_purchased.emit(run.owned_packs.back().pack_uid)
+	elif run.pending_dice.size() > stashed:
+		die_purchased.emit(run.pending_dice.back())
 
 func _on_reroll_pressed() -> void:
 	if run == null:

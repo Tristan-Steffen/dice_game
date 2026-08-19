@@ -104,7 +104,7 @@ func _shop(level: int) -> ShopController:
 func test_level_one_shop_is_smaller() -> void:
 	var shop := _shop(1)
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
-	assert_eq(shop.dice_packs.size(), 1, "Stufe 1: 1 Würfel-Paket")
+	assert_eq(shop.single_dice.size(), 3, "Stufe 1: 3 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 1, "Stufe 1: 1 Gravur-Paket")
 
 func test_level_one_hides_flip_navigation() -> void:
@@ -116,19 +116,23 @@ func test_level_one_hides_flip_navigation() -> void:
 func test_level_two_unlocks_flipping() -> void:
 	var shop := _shop(2)
 	assert_eq(shop.engraving_packs.size(), 1, "Stufe 2: noch 1 Gravur-Paket")
-	assert_eq(shop.dice_packs.size(), 1, "Stufe 2: 2. Paket erst später")
+	assert_eq(shop.single_dice.size(), 3, "Stufe 2: der 4. Würfel kommt erst später")
 	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
 func test_level_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
-	assert_eq(shop.dice_packs.size(), 2, "Stufe 3: 2 Würfel-Pakete")
+	assert_eq(shop.single_dice.size(), 4, "Stufe 3: 4 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 2, "Stufe 3: 2 Gravur-Pakete")
 
 func test_level_seven_unlocks_third_pack() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.dice_packs.size(), 3, "Suite: 3. Würfel-Paket")
+	assert_eq(shop.single_dice.size(), 5, "Suite: 5 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 3, "Suite: 3 Gravur-Pakete")
+
+func test_level_ten_lays_out_six_dice() -> void:
+	var shop := _shop(10)
+	assert_eq(shop.single_dice.size(), 6, "High Roller: die Schale ist voll")
 
 func test_level_six_spread_contains_a_non_common_charm() -> void:
 	# Über mehrere Läufe stabil: der erste Platz ist garantiert nicht-gewöhnlich.
@@ -141,11 +145,16 @@ func test_level_six_spread_contains_a_non_common_charm() -> void:
 
 # --- Elastisches Layout (wenige, große Karten -> viele, kleine) --------------
 
-func test_every_offer_has_its_own_button() -> void:
+## Seit dem Vitrinen-Umbau liegt jedes Paket körperlich in der Bucht - der
+## Bildschirm führt nur noch die Charm-Karten und meldet das Buchten-Rechteck.
+func test_every_offer_has_its_own_charm_card() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.dice_pack_buttons.size() + shop.engraving_pack_buttons.size(),
-		shop.run.shop_dice_slots() + shop.run.shop_pack_slots(),
-		"jedes Paket im Lager ist ein Knopf")
+	assert_eq(shop.charm_buttons.size(), shop.charm_options.size(),
+		"jeder Charm im Regal ist eine Karte")
+	var stock := shop.vitrine_stock()
+	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), shop.engraving_packs.size(),
+		"Pakete liegen in der Bucht, nicht auf dem Bildschirm")
+	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
 
 func test_charm_cards_grow_when_there_are_fewer() -> void:
 	var shop := _shop(1)
