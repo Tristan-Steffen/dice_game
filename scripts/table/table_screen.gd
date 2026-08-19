@@ -2237,8 +2237,8 @@ func slot_pay_travel_time() -> float:
 		return 0.0
 	return _travel_time(slot_hub_strip.strip_path)
 
-## Einsatz-Komet Hub -> Automaten: die zweite Etappe der Münze (die erste fuhr als
-## money_comet vom Münzfenster in den Hub). Liefert die Laufzeit.
+## Einsatz-Komet Hub -> Automaten: die Energie des Drehs fährt die Automaten-Ader
+## gegen ihre Verlegerichtung, wie jede ⚡-Zahlung. Liefert die Laufzeit.
 func slot_pay_comet(color: Color) -> float:
 	if slot_hub_strip == null or slot_hub_strip.strip_path.size() < 2:
 		return 0.0

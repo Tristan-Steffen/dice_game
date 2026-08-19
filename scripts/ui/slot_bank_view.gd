@@ -11,8 +11,8 @@ extends Panel
 ## Ton/Licht. cashed_out nach der Auszahlung (Zahl der Reihen).
 signal spun_out(machine: int, fumbled: bool)
 signal cashed_out(multiplier: int)
-## Einsatz ist bezahlt: scene_root schickt die Münze als Licht zum Automaten. Die
-## Walze wartet auf ihre Ankunft (coin_travel_time).
+## Einsatz ist bezahlt: scene_root schickt die Energie als Licht zum Automaten.
+## Die Walze wartet auf ihre Ankunft (coin_travel_time).
 signal spin_paid(machine: int)
 ## Ein Gewinn verlässt das Fenster (Startpunkt in Display-Pixeln); scene_root
 ## fliegt ihn an sein Ziel. Erst hier wird er gebucht.
@@ -365,7 +365,7 @@ func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 		button.disabled = true
 		accent = MUTED_COLOR
 	else:
-		button.text = "gratis" if run.slot_spin_price(i) <= 0 else "Drehen  $%d" % run.slot_spin_price(i)
+		button.text = "gratis" if run.slot_spin_charge(i) <= 0 else "Drehen  %d⚡" % run.slot_spin_charge(i)
 		var can := not _spinning and run != null and run.can_spin_slot(i)
 		button.disabled = not can
 		if can:
@@ -520,8 +520,8 @@ func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 
 # --- Aktionen ------------------------------------------------------------------
 
-## Einwurf und Dreh: das Geld geht sofort weg (sein Licht macht sich auf den Weg),
-## die Walze läuft erst an, wenn die Münze angekommen ist - der Einwurf IST der
+## Einwurf und Dreh: die Energie geht sofort weg (ihr Licht macht sich auf den
+## Weg), die Walze läuft erst an, wenn sie angekommen ist - der Einwurf IST der
 ## Startschuss, nicht bloß Beiwerk.
 func _on_spin_pressed(machine: int) -> void:
 	if _spinning or run == null or not run.can_spin_slot(machine):
@@ -529,8 +529,8 @@ func _on_spin_pressed(machine: int) -> void:
 	_spinning = true
 	_spinning_index = machine
 	# Der Preis VOR dem Dreh: ein Gratisdreh (Freispiel-Charm, Freispiel-Klausel)
-	# wirft keine Münze ein, also fährt auch kein Einsatz-Licht.
-	var price := run.slot_spin_price(machine)
+	# kostet keine Energie, also fährt auch kein Einsatz-Licht.
+	var price := run.slot_spin_charge(machine)
 	var block := run.spin_slot(machine)
 	if block.is_empty():
 		_spinning = false

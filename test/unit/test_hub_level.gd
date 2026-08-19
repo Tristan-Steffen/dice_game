@@ -179,17 +179,19 @@ func test_slots_unlock_one_after_another() -> void:
 
 func test_spin_slot_pays_and_gates_on_unlock() -> void:
 	var run := _run(100)
+	run.charge = 5
 	run.hub_level = 3  # Automat I frei
 	run.slot_bank.fumble_chance = 0.0
 	assert_false(run.can_spin_slot(1), "Automat II noch gesperrt")
 	assert_true(run.can_spin_slot(0))
-	var before := run.money
+	var before := run.charge
 	run.spin_slot(0)
-	assert_eq(run.money, before - run.slot_spin_price(0), "Einsatz abgezogen")
+	assert_eq(run.charge, before - run.slot_spin_charge(0), "Einsatz abgezogen")
 	assert_false(run.slot_bank.can_spin(0), "Automat gedreht")
 
-func test_cannot_spin_slot_without_money() -> void:
-	var run := _run(2)  # Einsatz Automat I = 8
+func test_cannot_spin_slot_without_charge() -> void:
+	var run := _run(100)  # Geld hilft nicht: der Dreh kostet Energie
+	run.charge = 0
 	run.hub_level = 3
 	assert_false(run.can_spin_slot(0))
 

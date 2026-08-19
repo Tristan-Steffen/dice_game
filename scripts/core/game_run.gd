@@ -2256,17 +2256,17 @@ func slots_unlocked() -> int:
 			count += 1
 	return count
 
-## Einsatz für einen Dreh an Automat machine (Freispiele drehen gratis).
-func slot_spin_price(machine: int) -> int:
+## Einsatz für einen Dreh an Automat machine in ⚡ (Freispiele drehen gratis).
+func slot_spin_charge(machine: int) -> int:
 	if slot_spin_is_free(machine) or charm_free_spin_open():
 		return 0
-	return SlotMachine.SPIN_PRICES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
+	return SlotMachine.SPIN_CHARGES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
 ## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, nicht
 ## stromgesperrt, in der Sitzung noch frei und der Einsatz bezahlbar.
 func can_spin_slot(machine: int) -> bool:
 	return slots_enabled() and machine < slots_unlocked() and slot_bank.can_spin(machine) \
-		and money >= slot_spin_price(machine)
+		and charge >= slot_spin_charge(machine)
 
 ## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
 ## NICHT auf die Wand - das tut commit_slot erst nach der Walzen-Animation, damit
@@ -2280,7 +2280,7 @@ func spin_slot(machine: int) -> Array:
 	elif charm_free_spin_open():
 		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
-		add_money(-slot_spin_price(machine))
+		spend_charge(slot_spin_charge(machine))
 	return slot_bank.roll(machine)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,

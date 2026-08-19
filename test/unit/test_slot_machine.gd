@@ -304,8 +304,9 @@ func test_run_label_names_the_pack_size() -> void:
 	var kolossal: Variant = _find_run(_wall([_run_row(M, 8)]), [1, 0], M)
 	assert_eq(String(kolossal["label"]), "◆ ×8 → 2 Kolossale Material-Pakete")
 
-func test_spin_prices_rise_per_machine() -> void:
-	assert_eq(SlotMachine.SPIN_PRICES.size(), SlotMachine.MACHINE_COUNT)
-	for i in SlotMachine.MACHINE_COUNT - 1:
-		assert_gt(int(SlotMachine.SPIN_PRICES[i + 1]), int(SlotMachine.SPIN_PRICES[i]),
-			"höherer Automat kostet mehr")
+## Der Einsatz ist Energie und für alle drei Automaten gleich: die Stufe entscheidet
+## über den Gewinn, nicht über den Preis.
+func test_every_machine_costs_one_charge() -> void:
+	assert_eq(SlotMachine.SPIN_CHARGES.size(), SlotMachine.MACHINE_COUNT)
+	for i in SlotMachine.MACHINE_COUNT:
+		assert_eq(int(SlotMachine.SPIN_CHARGES[i]), 1, "jeder Dreh kostet 1 Energie")

@@ -143,14 +143,14 @@ func test_the_back_room_charges_the_discounted_price():
 
 func test_the_free_spin_pays_the_first_spin_of_a_visit():
 	run.hub_level = 3  # Automat I steht
-	run.money = 0
+	run.charge = 0
 	run.owned_charms.append(Charm.free_spin())
-	assert_eq(run.slot_spin_price(0), 0, "der erste Dreh geht aufs Haus")
-	assert_true(run.can_spin_slot(0), "ohne Geld drehbar")
+	assert_eq(run.slot_spin_charge(0), 0, "der erste Dreh geht aufs Haus")
+	assert_true(run.can_spin_slot(0), "ohne Energie drehbar")
 	assert_false(run.spin_slot(0).is_empty())
-	assert_eq(run.money, 0, "nichts abgebucht")
-	assert_gt(run.slot_spin_price(0), 0, "der zweite Dreh kostet wieder")
-	assert_false(run.can_spin_slot(0), "und ohne Geld geht er nicht")
+	assert_eq(run.charge, 0, "nichts abgebucht")
+	assert_gt(run.slot_spin_charge(0), 0, "der zweite Dreh kostet wieder")
+	assert_false(run.can_spin_slot(0), "und ohne Energie geht er nicht")
 
 func test_the_free_spin_lives_up_again_when_the_shop_opens():
 	run.hub_level = 3
@@ -159,15 +159,15 @@ func test_the_free_spin_lives_up_again_when_the_shop_opens():
 	assert_true(run.free_spin_used_this_visit)
 	run.begin_shop_visit()
 	assert_false(run.free_spin_used_this_visit)
-	assert_eq(run.slot_spin_price(0), 0)
+	assert_eq(run.slot_spin_charge(0), 0)
 
 func test_without_the_charm_the_spin_costs_as_before():
 	run.hub_level = 3
-	run.money = 100
-	var price := run.slot_spin_price(0)
+	run.charge = 10
+	var price := run.slot_spin_charge(0)
 	assert_gt(price, 0)
 	run.spin_slot(0)
-	assert_eq(run.money, 100 - price)
+	assert_eq(run.charge, 10 - price)
 
 # --- Quotenblatt: Bargeld-Gewinne doppelt --------------------------------------------
 

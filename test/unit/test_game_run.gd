@@ -1475,16 +1475,16 @@ func test_the_first_charm_of_the_block_is_free():
 func test_free_spins_are_one_per_machine():
 	run.hub_level = 10  # alle drei Automaten frei
 	_sign([DealClause.FREE_SPINS])
-	assert_eq(run.slot_spin_price(0), 0)
-	run.money = 0
-	assert_true(run.can_spin_slot(0), "gratis geht auch ohne Geld")
+	assert_eq(run.slot_spin_charge(0), 0)
+	run.charge = 0
+	assert_true(run.can_spin_slot(0), "gratis geht auch ohne Energie")
 	run.spin_slot(0)
-	assert_gt(run.slot_spin_price(0), 0, "der Gratisdreh ist verbraucht")
-	assert_eq(run.slot_spin_price(1), 0, "der nächste Automat hat seinen noch")
+	assert_gt(run.slot_spin_charge(0), 0, "der Gratisdreh ist verbraucht")
+	assert_eq(run.slot_spin_charge(1), 0, "der nächste Automat hat seinen noch")
 
 func test_power_cut_switches_the_slots_off():
 	run.hub_level = 10
-	run.money = 999
+	run.charge = 9
 	assert_true(run.can_spin_slot(0))
 	_sign([DealClause.POWER_CUT])
 	assert_false(run.slots_enabled())

@@ -15,6 +15,7 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 200
+	run.charge = 20  # Einsatz ist Energie
 	run.hub_level = 9  # alle drei Automaten frei
 	view = SlotBankView.new()
 	view.size = Vector2(900, 1400)
@@ -126,21 +127,23 @@ func test_spun_without_a_win_can_reset_to_spin_again() -> void:
 	assert_true(run.can_spin_slot(0), "nachher: Automat wieder drehbar")
 	assert_false(run.slot_bank.any_spun(), "Sitzung zurückgesetzt")
 
-# --- Einwurf: die Münze fährt, dann läuft die Walze ------------------------------
+# --- Einwurf: die Energie fährt, dann läuft die Walze ----------------------------
 
 func test_paying_the_stake_announces_the_coin() -> void:
 	var paid: Array[int] = []
 	view.spin_paid.connect(func(machine: int) -> void: paid.append(machine))
+	var charge_before := run.charge
 	var money_before := run.money
 	view._on_spin_pressed(0)
 	assert_eq(paid, [0] as Array[int], "der Einwurf meldet sich, damit das Licht losfährt")
-	assert_eq(run.money, money_before - run.slot_spin_price(0), "der Einsatz ist sofort weg")
+	assert_eq(run.charge, charge_before - run.slot_spin_charge(0), "der Einsatz ist sofort weg")
+	assert_eq(run.money, money_before, "Geld kostet der Dreh nicht")
 
 func test_the_reel_waits_for_the_coin_to_arrive() -> void:
 	view.coin_travel_time = 5.0  # so lang, dass sie im Test sicher nicht ankommt
 	view._on_spin_pressed(0)
 	await wait_frames(4)
-	assert_true(view._landed[0].is_empty(), "ohne angekommene Münze dreht sich nichts")
+	assert_true(view._landed[0].is_empty(), "ohne angekommene Energie dreht sich nichts")
 
 func test_without_strips_the_reel_starts_at_once() -> void:
 	# Fenster-UI-Rückfall (keine Adern verlegt): kein Warten, sonst hinge das Spiel.
@@ -151,19 +154,19 @@ func test_without_strips_the_reel_starts_at_once() -> void:
 	await wait_frames(2)
 	assert_eq(view._spinning_index, 0, "die Walze läuft ohne Umweg an")
 
-# --- Bezahlbarkeit folgt dem Geld (Wechsel auf den Automaten) --------------------
+# --- Bezahlbarkeit folgt der Energie (Wechsel auf den Automaten) -----------------
 
-func test_refresh_if_idle_tracks_the_current_money() -> void:
-	# Beim letzten Aufbau pleite -> gesperrt; nach Geldzuwachs macht refresh_if_idle
-	# den Automaten wieder drehbar (sonst bliebe der Knopf grau, obwohl das Geld reicht).
-	run.money = 0
+func test_refresh_if_idle_tracks_the_current_charge() -> void:
+	# Beim letzten Aufbau leer -> gesperrt; nach Energiezuwachs macht refresh_if_idle
+	# den Automaten wieder drehbar (sonst bliebe der Knopf grau, obwohl die ⚡ reicht).
+	run.charge = 0
 	view.refresh()
 	await wait_frames(2)
-	assert_true((view._spin_buttons[0] as Button).disabled, "pleite: Drehen gesperrt")
-	run.money = 100
+	assert_true((view._spin_buttons[0] as Button).disabled, "leer: Drehen gesperrt")
+	run.charge = 5
 	view.refresh_if_idle()
 	await wait_frames(2)
-	assert_false((view._spin_buttons[0] as Button).disabled, "nach Geldzuwachs drehbar")
+	assert_false((view._spin_buttons[0] as Button).disabled, "nach Energiezuwachs drehbar")
 
 func test_refresh_if_idle_leaves_a_running_spin_untouched() -> void:
 	await wait_frames(2)

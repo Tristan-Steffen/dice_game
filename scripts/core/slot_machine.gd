@@ -1,13 +1,13 @@
 class_name SlotMachine
 extends RefCounted
 ## Die Fumble-Automaten (Slot-Bank): drei Automaten (Stufe I–III) mit steigenden
-## Einsätzen und Gewinnen. Reine Logik/Daten - die UI (SlotBankView) spiegelt den
-## Zustand, GameRun bucht die Gewinne.
+## Gewinnen. Reine Logik/Daten - die UI (SlotBankView) spiegelt den Zustand,
+## GameRun bucht die Gewinne.
 ##
 ## Symbole sind AUSSCHLIESSLICH Ware: die drei Gravur-Sorten (Zahlen/Material/
 ## Würfel-Gravur - dieselbe Dreiteilung wie Pakete und Schubladen), Charm, Würfel,
 ## Fumble. Eine Gravur-Reihe zahlt versiegelte PAKETE, keine einzelnen Gravuren.
-## Geld gibt es hier nicht; verdient wird an den Runden, der Automat setzt es um.
+## Geld gibt es hier nicht: der Automat setzt Energie in Ware um.
 ##
 ## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=3 Symbole; alle
 ## drei gedreht ergeben eine 3×9-Wand. Symbole sind bloße Zeichen (kein Preis) -
@@ -26,7 +26,9 @@ const ROWS := 5
 const TOTAL_COLS := MACHINE_COUNT * MACHINE_COLS  # 9
 const MIN_RUN := 3          # ab so vielen gleichen nebeneinander zahlt eine Reihe
 const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
-const SPIN_PRICES := [12, 24, 36]
+## Einsatz je Dreh in ⚡ - für alle drei Automaten gleich: die Stufe entscheidet
+## über den Gewinn, nicht über den Preis.
+const SPIN_CHARGES := [1, 1, 1]
 const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.

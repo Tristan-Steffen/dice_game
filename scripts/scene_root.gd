@@ -138,9 +138,8 @@ const CLUSTER_SPILL_FACTOR := 2.6
 const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
 
 
-## Automaten-Lichter: Einsatz golden wie Geld, Charm violett wie im Regal,
-## Würfel zyan wie das Würfel-Symbol der Walze.
-const SLOT_COIN_COLOR := Color(2.0, 1.55, 0.35, 0.9)
+## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.CHARGE), Charm
+## violett wie im Regal, Würfel zyan wie das Würfel-Symbol der Walze.
 const SLOT_CHARM_COLOR := Color(1.6, 0.9, 2.0, 0.9)
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 
@@ -916,9 +915,8 @@ func _setup_table_screen() -> void:
 	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
 	table_screen.slot_bank_window.spin_paid.connect(_on_slot_spin_paid)
 	table_screen.slot_bank_window.prize_dispatched.connect(_on_slot_prize_dispatched)
-	# Die Walze wartet, bis die Münze beide Etappen hinter sich hat.
-	table_screen.slot_bank_window.coin_travel_time = \
-		table_screen.money_travel_time() + table_screen.slot_pay_travel_time()
+	# Die Walze wartet, bis die Energie am Automaten ist.
+	table_screen.slot_bank_window.coin_travel_time = table_screen.slot_pay_travel_time()
 
 	# Schwarzmarkt: direkt unter den Automaten in der Glas-Tasche, Unterkante
 	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster - auch vergittert
@@ -1970,14 +1968,13 @@ func _on_slot_cashed_out(_multiplier: int) -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 
-## Einsatz bezahlt: die Münze fährt in zwei Etappen zum Automaten - erst als
-## Geld-Licht vom Münzfenster in den Hub (das läuft schon über money_changed),
-## dann die Automaten-Ader entlang. Erst danach läuft die Walze an.
+## Einsatz bezahlt: die Energie fährt vom Hub die Automaten-Ader entlang - eine
+## Etappe wie jede ⚡-Zahlung (Schwarzmarkt-Grammatik), nicht zwei wie das Geld.
+## Erst nach ihrer Ankunft läuft die Walze an.
 func _on_slot_spin_paid(_machine: int) -> void:
 	if table_screen == null:
 		return
-	await get_tree().create_timer(table_screen.money_travel_time()).timeout
-	table_screen.slot_pay_comet(SLOT_COIN_COLOR)
+	table_screen.slot_pay_comet(CasinoStyle.CHARGE)
 
 ## Ein Gewinn verlässt den Automaten: Pakete fliegen ins Lager an der Werkbank,
 ## Charms die Automaten-Ader hinauf in den Hub, Würfel im Bogen auf die
@@ -7323,6 +7320,8 @@ func _on_charge_changed(value: int) -> void:
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
+	if table_screen != null and table_screen.slot_bank_window != null:
+		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
 
 ## Die Lizenz hat das Gitter gehoben: der Hub quittiert golden, ein Licht fährt
 ## die Hinterzimmer-Ader hinüber und das Fenster meldet sich mit einer Stoßwelle -
