@@ -39,30 +39,6 @@ uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln
 uniform vec2 screen_px = vec2(1.0, 1.0);  // Display-Auflösung (UV -> Pixel)
 
-// Das MAGAZIN ist ein echtes Loch im Tisch: innerhalb dieses Rechtecks wird die
-// Anzeige verworfen, damit der Blick in die Grube fällt (PackPitView stellt Wände
-// und Boden). KEIN Fenster - es frisst keinen der MAX_WINDOWS-Plätze, und ein
-// Null-Rechteck heißt "kein Loch".
-uniform vec4 pit_rect = vec4(0.0);
-uniform float pit_radius = 0.0;
-
-// Die VITRINEN sind dieselben Löcher, nur mit VORHANG - und das Loch ist BINÄR:
-// es schlägt auf, sobald vitrine_open über 0 geht, und schließt exakt bei 0. Den
-// Übergang trägt allein die Scheibe darüber (VitrineGlassView zeigt denselben
-// Ausschnitt und blendet ihn von deckend auf Glas). Ein Zwischenzustand hier hieße
-// Mesh und Scheibe zeichnen dasselbe Bild doppelt.
-// Auch diese Löcher kosten keinen MAX_WINDOWS-Platz. Index 0 = Laden, 1 = Schwarzmarkt.
-const int MAX_VITRINES = 2;
-uniform vec4 vitrine_rects[MAX_VITRINES];  // xy = Pixel-Min, zw = Pixel-Max
-uniform float vitrine_open[MAX_VITRINES];
-
-bool vitrine_hole(vec2 p, vec4 rect, float open) {
-	if (open <= 0.0 || rect.z <= rect.x) {
-		return false;
-	}
-	return p.x >= rect.x && p.x <= rect.z && p.y >= rect.y && p.y <= rect.w;
-}
-
 // Abdeckung eines abgerundeten Fenster-Rechtecks am Pixel p (SDF, weiche
 // 4-Pixel-Kante, damit die Spiegelung am Rahmen nicht hart abreißt).
 float window_mask(vec2 p, vec4 rect, float radius) {
@@ -75,15 +51,6 @@ float window_mask(vec2 p, vec4 rect, float radius) {
 
 void fragment() {
 	vec2 pixel = UV * screen_px;
-	// Zuerst das Loch: was in der Grube liegt, wird gar nicht erst gezeichnet.
-	if (pit_rect.z > pit_rect.x && window_mask(pixel, pit_rect, pit_radius) > 0.5) {
-		discard;
-	}
-	for (int i = 0; i < MAX_VITRINES; i++) {
-		if (vitrine_hole(pixel, vitrine_rects[i], vitrine_open[i])) {
-			discard;
-		}
-	}
 	vec3 ui = texture(screen_texture, UV).rgb;
 	vec2 mirror_uv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y);
 	vec4 reflection = texture(reflection_texture, mirror_uv);

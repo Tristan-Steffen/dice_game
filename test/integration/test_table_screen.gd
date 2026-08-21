@@ -641,71 +641,32 @@ func test_the_pit_rail_sweeps_with_the_hub_tokens():
 	screen.set_pit_deal_tokens(_sides([_side(DealClause.SAVINGS_BONUS)]))
 	assert_gt(screen.sweep_pit_deal_tokens(), 0.0)
 
-# --- Das Förderwerk (Ware unter dem Filz) --------------------------------------
-# Licht fliegt über dem Filz, Ware fährt darunter: das Unterlicht hängt darum in
-# einer eigenen Ebene, die VOR allen Fenstern gezeichnet wird - auf offenen
-# Filzstrecken sichtbar, unter Fenstern ehrlich verdeckt.
+# --- Warenfahrten über dem Filz ------------------------------------------------
+# Es gibt kein Untergeschoss mehr: gekaufte Ware fliegt als Komet über die
+# gelegten Adern, wie jedes andere Licht auf dem Tisch auch.
 
-func test_the_underlight_layer_lies_below_every_window():
-	assert_not_null(screen.underlight_layer, "die Ebene steht ab dem Aufbau")
-	for window: Control in [screen.hub, screen.workshop_window, screen.pit_window,
-			screen.treasure_window, screen.slot_bank_window]:
-		assert_lt(screen.underlight_layer.get_index(), window.get_index(),
-			"%s liegt über dem Förderwerk" % window.name)
+func test_no_underlight_layer_is_left_in_the_tree():
+	for child in screen.get_children():
+		assert_ne(String(child.name), "Underlight", "das Förderwerk ist tot")
 
-func test_an_underlight_runs_inside_that_layer_at_comet_speed():
-	var path := PackedVector2Array([Vector2(100, 100), Vector2(100, 400)])
-	var travel := screen.underlight_travel(path, Color.WHITE)
-	assert_eq(screen.underlight_layer.get_child_count(), 1,
-		"das Glimmen hängt unter den Fenstern, nicht an der Wurzel")
-	# Gleiche Reisegeschwindigkeit wie die Kometen - sonst trüge die Routen-
-	# Zeitrechnung nicht, auf der jede Ankunft steht.
+func test_the_backroom_delivery_flies_at_comet_speed():
+	# Ohne verlegte Ader bleibt die gerade Verbindung (headless); die Reisezeit ist
+	# die der Kometen - sonst trüge die Routen-Zeitrechnung nicht, auf der jede
+	# Ankunft steht.
+	var before := screen.get_child_count()
+	var travel := screen.secret_delivery_comet(
+		Vector2(100, 100), Vector2(100, 400), Color.WHITE)
 	assert_almost_eq(travel, 300.0 / TableScreen.PULSE_SPEED, 0.0001)
+	assert_gt(screen.get_child_count(), before, "der Komet steht auf dem Tisch")
 
-func test_an_empty_route_carries_nothing():
-	assert_eq(screen.underlight_travel(PackedVector2Array([Vector2.ZERO]), Color.WHITE), 0.0)
-	assert_eq(screen.underlight_layer.get_child_count(), 0)
+# --- Die Ankunft am Magazin-Platz -----------------------------------------------
+# Kein Tauchgang mehr: das Licht endet auf dem Platz selbst, und der Blitz ist das
+# Letzte, was man davon sieht, bevor die Kassette durch die Fläche steigt.
 
-func test_the_freight_route_runs_from_hatch_to_pit_edge():
-	# Ohne verlegte Ader bleibt die gerade Verbindung (headless) - Anfang und Ende
-	# gehören aber IMMER dem Aufrufer: die Luke und die Grubenkante.
-	var hatch := Vector2(220, 640)
-	var edge := Vector2(980, 300)
-	var route := screen.underlight_workshop_route(hatch, edge)
-	assert_gte(route.size(), 2)
-	assert_eq(route[0], hatch, "sie startet an der Luke")
-	assert_eq(route[route.size() - 1], edge, "und endet an der Grubenkante")
-
-func test_the_backroom_freight_runs_the_same_way():
-	# Aus dem Hinterzimmer geht es über zwei Adern (Schwarzmarkt -> Hub ->
-	# Werkbank); Anfang und Ende bleiben Luke und Grubenkante.
-	var hatch := Vector2(140, 700)
-	var edge := Vector2(980, 300)
-	var route := screen.underlight_secret_route(hatch, edge)
-	assert_gte(route.size(), 2)
-	assert_eq(route[0], hatch)
-	assert_eq(route[route.size() - 1], edge)
-
-# --- Die zwei Vitrinen-Löcher ---------------------------------------------------
-# Index 0 gehört dem Laden, Index 1 dem Schwarzmarkt. Beide sind Löcher mit
-# Vorhang und kosten keinen MAX_WINDOWS-Platz.
-
-func test_each_vitrine_keeps_its_own_hole():
-	var shop := Rect2(100, 200, 300, 150)
-	var market := Rect2(900, 800, 280, 190)
-	screen.set_vitrine_hole(0, shop, 1.0)
-	screen.set_vitrine_hole(1, market, 0.25)
-	assert_eq(screen.vitrine_rects[0], shop, "der Laden behält sein Rechteck")
-	assert_eq(screen.vitrine_rects[1], market, "und das Hinterzimmer seins")
-	assert_almost_eq(screen.vitrine_open[0], 1.0, 0.0001)
-	assert_almost_eq(screen.vitrine_open[1], 0.25, 0.0001)
-	# Der Vorhang der einen Bucht rührt die andere nicht an.
-	screen.set_vitrine_open(1, 1.0)
-	assert_almost_eq(screen.vitrine_open[0], 1.0, 0.0001)
-	assert_eq(screen.vitrine_rects[0], shop)
-
-func test_a_third_hole_is_refused():
-	screen.set_vitrine_hole(0, Rect2(10, 10, 20, 20), 1.0)
-	screen.set_vitrine_hole(TableScreen.VITRINE_HOLES, Rect2(50, 50, 60, 60), 1.0)
-	assert_eq(screen.vitrine_rects.size(), TableScreen.VITRINE_HOLES,
-		"zwei Buchten, mehr kennt der Shader nicht")
+func test_the_arrival_flash_stands_on_the_spot_and_ignores_a_missing_one():
+	var before := screen.get_child_count()
+	screen.pack_arrival_flash(Vector2(240, 180), Color.CYAN)
+	assert_eq(screen.get_child_count(), before + 1, "der Blitz steht am Platz")
+	screen.pack_arrival_flash(Vector2(-1, -1), Color.CYAN)
+	assert_eq(screen.get_child_count(), before + 1,
+		"ohne gemessenen Platz blitzt nichts")

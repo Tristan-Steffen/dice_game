@@ -27,6 +27,9 @@ signal goods_purchased(uid: int)
 signal die_purchased(def: DieDefinition)
 ## Die Auslage der Bucht hat sich geändert (Wurf, Kauf, Freischaltung).
 signal vitrine_changed
+## Ein Schlüsselwort auf der Beschriftung wurde geklickt - scene_root schlägt das
+## Lexikon auf.
+signal lexikon_requested(entry_id: String)
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -77,6 +80,8 @@ var wallet_label: Label
 ## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
 var card_seat: Control
 var vitrine_slot: Control
+## Die EINE Beschriftungskarte der Auslage - ein Stück, eine Karte.
+var annotation_card: VitrineAnnotationView
 var reroll_button: Button
 ## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
 ## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
@@ -200,7 +205,7 @@ func _build_layout() -> void:
 	body.add_child(card_seat)
 
 	# Die Bucht bekommt den ganzen Rest. Gemalt wird allein die FASSUNG - die Mitte
-	# ist ein echtes Loch, und darunter liegt die Ware.
+	# ist frei, denn dort steht die Ware auf der Fläche.
 	vitrine_slot = Control.new()
 	vitrine_slot.name = "Vitrine"
 	vitrine_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -209,6 +214,13 @@ func _build_layout() -> void:
 	body.add_child(vitrine_slot)
 
 	_build_detail_card()  # zuletzt: liegt als Overlay über der Karte
+	# Die Beschriftung der Auslage steht IM Fenster über dem Buchten-Band: alles,
+	# was das Spiel sagt, sagt es auf einer Anzeige.
+	annotation_card = VitrineAnnotationView.new()
+	annotation_card.lexikon_requested.connect(func(entry_id: String) -> void:
+		lexikon_requested.emit(entry_id))
+	add_child(annotation_card)
+	annotation_card.build(vitrine_unit())
 	_build_lock_overlay()  # und ganz oben das Gitter
 
 # --- Die Bucht (gemeldete Geometrie, nie gezeichneter Inhalt) ------------------
@@ -219,7 +231,7 @@ func vitrine_rect_px() -> Rect2:
 		return Rect2()
 	return vitrine_slot.get_global_rect()
 
-## Das LOCH darin: der Streifen ohne seine gemalte Fassung - dieselbe Rechnung wie
+## Das FELD darin: der Streifen ohne seine gemalte Fassung - dieselbe Rechnung wie
 ## am Magazin und in der Laden-Bucht.
 func vitrine_pit_rect() -> Rect2:
 	var strip := vitrine_rect_px()
@@ -227,13 +239,13 @@ func vitrine_pit_rect() -> Rect2:
 		return Rect2()
 	return PackDrawerView.pit_rect_in(strip, u)
 
-## Maßeinheit der Beschriftung auf der Scheibe. Bewusst DIE DES FENSTERS: die
+## Maßeinheit der Beschriftungs-Karte. Bewusst DIE DES FENSTERS: die
 ## Tasche ist die kleinste des Tisches, und eine an der Buchtbreite hängende
 ## Einheit schriebe dort kleiner als das Fenster selbst.
 func vitrine_unit() -> float:
 	return u
 
-## Die FASSUNG der Bucht - Rahmen ohne Füllung, Rezeptur aus der Magazin-Grube.
+## Die FASSUNG der Bucht - Rahmen ohne Füllung, Rezeptur aus der Magazin-Fassung.
 func _vitrine_frame() -> Panel:
 	var well := Panel.new()
 	well.name = "VitrineWell"
@@ -252,6 +264,27 @@ func _vitrine_frame() -> Panel:
 	well.add_child(PackDrawerView.edge_band("VitrineSheen",
 		PackDrawerView.WELL_SHEEN, edge, radius, false))
 	return well
+
+## Die Beschriftung EINES Stücks zeigen. anchor ist ein GLOBALER Display-Pixel -
+## die Karte rechnet ihn selbst in ihren Fenster-Platz um.
+func show_bay_annotation(data: Dictionary, anchor: Vector2) -> void:
+	if annotation_card == null or not is_instance_valid(annotation_card):
+		return
+	annotation_card.show_item(data, vitrine_unit())
+	annotation_card.place_over(anchor - get_global_rect().position, size)
+
+func hide_bay_annotation() -> void:
+	if annotation_card != null and is_instance_valid(annotation_card):
+		annotation_card.hide_card()
+
+## Ob der globale Display-Pixel auf der stehenden Karte liegt. Der Zeiger muss vom
+## Stück auf seine Beschriftung wandern dürfen - die Schlüsselwörter sind
+## Klickziele -, sonst verschwände sie unter ihm.
+func bay_annotation_has_point(px: Vector2) -> bool:
+	if annotation_card == null or not is_instance_valid(annotation_card) \
+			or not annotation_card.visible:
+		return false
+	return annotation_card.get_global_rect().has_point(px)
 
 ## Der Ankunfts-Grad der zuletzt gezeigten Auslage; scene_root fährt ihn EINMAL.
 func vitrine_grade() -> String:
@@ -278,7 +311,7 @@ func vitrine_stock() -> Dictionary:
 		ShopController.KIND_SPECIAL: [],
 	}
 
-## Die Beschriftung EINES Stücks für die Scheibe. Der Preis steht NUR hier - in
+## Die Beschriftung EINES Stücks für die Fenster-Karte. Der Preis steht NUR hier - in
 ## der Bucht hängt kein Schild -, und er ist in ⚡ ausgewiesen.
 func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 	if run == null or index < 0 or index >= run.secret_stock.size():
@@ -349,10 +382,10 @@ func _refresh_offers() -> void:
 		offer_buttons[seat] = card
 	for i in run.secret_stock.size():
 		_sort_into_bay(run.secret_stock[i], i == seat)
-	# Ein WURF rollt die Ware an, ein Kauf lässt sie liegen - mehr entscheidet nicht.
+	# Ein WURF lässt die neue Ware aufsteigen, ein Kauf lässt sie liegen.
 	var rolls := run.secret_rerolls if run.secret_shop_unlocked else -1
 	_vitrine_grade = ShopController.GRADE_STAND if rolls == _seen_rolls \
-		else ShopController.GRADE_ROLL_IN
+		else ShopController.GRADE_RISE
 	_seen_rolls = rolls
 	_refresh_afford_state()
 	vitrine_changed.emit()
@@ -376,7 +409,7 @@ func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
 	_bay_dice.append(die)
 
 ## Kaufbarkeit der Karte und des Misch-Knopfs am Ladungsstand ausrichten. Die Ware
-## in der Bucht sperrt sich nicht - sie sagt ihren Preis auf der Scheibe.
+## in der Bucht sperrt sich nicht - sie sagt ihren Preis auf der Karte.
 func _refresh_afford_state() -> void:
 	if not _built or run == null:
 		return

@@ -1,21 +1,20 @@
 class_name PackDrawerView
 extends Control
-## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze, in der jedes
-## versiegelte Paket als EIGENE Kassette STEHT - wie Akten im Fach, Rang hinter
-## Rang. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst, was in
-## ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach vorn.
-## Eine Kassette SCHRUMPFT NIE - was nicht mehr in die Grube passt, kommt gar
-## nicht erst herein: capacity_for misst den Deckel an der Grube, GameRun bekommt
+## Das MAGAZIN der Werkbank: EIN durchgehender Streifen in der Schürze, auf dem
+## jedes versiegelte Paket als EIGENE Kassette STEHT - wie Akten im Fach, Rang
+## hinter Rang. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
+## was in ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach
+## vorn. Eine Kassette SCHRUMPFT NIE - was nicht mehr auf den Streifen passt, kommt
+## gar nicht erst herein: capacity_for misst den Deckel am Feld, GameRun bekommt
 ## ihn hereingeschoben und sperrt Kauf wie Prämie daran.
-## Die Grube ist echt: screen_glass verwirft sein Bild darin, table_ground seinen
-## Filz, und PackPitView stellt Wände und Boden. Diese Klasse malt nur noch die
-## FASSUNG darum herum und trägt die Gesten.
+## Die Ware steht AUF der Fläche - kein Loch im Display, keine Wände: diese Klasse
+## malt die FASSUNG, trägt die Gesten, und die Körper stehen darin.
 ## Die Reihenfolge ist die Magazin-Ordnung des Spielers (run.owned_packs); eine
 ## Lieferung landet hinten und verrückt nichts.
 ## Chip-Schalen-Regel: je Paket ein leerer Knopf (StyleBoxEmpty in jedem Zustand),
-## der KÖRPER steht als DataCellView in der Grube (scene_root). Gegriffen wird
-## nicht durch einen gemalten Schein - der läge unter dem Loch -, sondern indem
-## sich die Kassette selbst ein Stück herauszieht.
+## der KÖRPER steht als DataCellView darauf (scene_root). Gegriffen wird nicht
+## durch einen gemalten Schein - unter einem physischen Ding liegt kein Panel -,
+## sondern indem sich die Kassette selbst ein Stück herauszieht.
 ## Reiner Renderer: was liegt, was reserviert ist und was noch fliegt, entscheidet
 ## WorkshopView (drawer_entries).
 
@@ -58,9 +57,9 @@ const SLOT_INSET := 0.12
 const CELL_FALLBACK := 5.0
 const CELL_FALLBACK_DEPTH := 0.41
 
-## Der gemalte RAHMEN um die Grube - Schatten oben, Licht unten, die Umkehrung
-## der Konsolenkante. Die Fläche darin ist ein echtes Loch (screen_glass schneidet
-## es, PackPitView stellt die Wände), gemalt wird also nur noch die Fassung.
+## Der gemalte RAHMEN um das Feld - Schatten oben, Licht unten, die Umkehrung der
+## Konsolenkante. Sein Grund bleibt ungemalt: darauf stehen die Kassetten, und ein
+## Panel unter einem physischen Ding gibt es nicht.
 ## Neutrales Dunkelmetall: die Sorte trägt jede Kassette selbst, das Fach ist Möbel.
 const RIM_BASE := Color("#34313f")
 const RIM_WIDTH := 0.45
@@ -90,8 +89,8 @@ var u := 8.0
 var cell_px := Vector2.ZERO
 ## Der Streifen, in dem das Fach liegt (= die eigene Größe, von build gemerkt).
 var strip := Vector2.ZERO
-## Das FELD darin: die Grube selbst, also der Streifen ohne seine gemalte Fassung -
-## dort und nur dort stehen die Kassetten (lokale Koordinaten).
+## Das FELD darin: der Streifen ohne seine gemalte Fassung - dort und nur dort
+## stehen die Kassetten (lokale Koordinaten).
 var field := Rect2()
 ## Das gelöste Raster des letzten Aufbaus (siehe grid_for).
 var _grid: Dictionary = {}
@@ -141,27 +140,27 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 			add_child(chip)
 			_chips[uid] = chip
 
-## Das gelöste Raster eines FELDES (der Grube selbst, nicht des Streifens):
+## Das gelöste Raster eines FELDES (des Innenrechtecks, nicht des Streifens):
 ## {"columns", "rows", "scale"}. EINE Rechnung, aus der Platz, Griff, Maßstab und
 ## Anker folgen - reine Funktion, damit ein Neuaufbau dasselbe Raster legt und ein
 ## Komet es RECHNEN kann.
 ## Der Maßstab ist FEST: eine Kassette schrumpft nie. Die Zeile fasst, was in ihrer
 ## Breite Platz hat, der Rest fließt in den nächsten Rang - und dass die Ränge nie
-## tiefer laufen als die Grube, sichert der Deckel (capacity_for), nicht das Raster.
+## tiefer laufen als das Feld, sichert der Deckel (capacity_for), nicht das Raster.
 static func grid_for(field_size: Vector2, cell: Vector2, count: int) -> Dictionary:
 	var columns := _columns_at(field_size, cell)
 	return {"columns": columns,
 		"rows": ceili(float(maxi(count, 1)) / float(columns)),
 		"scale": CASSETTE_SCALE}
 
-## Wie viele Kassetten in ihrer festen Größe nebeneinander in die Grube stehen.
+## Wie viele Kassetten in ihrer festen Größe nebeneinander auf das Feld stehen.
 static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
 	var wide := cell.x * CELL_SPAN * CASSETTE_SCALE
 	if field_size.x <= 0.0 or wide <= 0.0:
 		return 1
 	return maxi(int(field_size.x / wide), 1)
 
-## Wie viele Ränge in ihrer festen Tiefe hintereinander in die Grube passen.
+## Wie viele Ränge in ihrer festen Tiefe hintereinander auf das Feld passen.
 static func _ranks_at(field_size: Vector2, cell: Vector2) -> int:
 	var deep := cell.y * RANK_SPAN * CASSETTE_SCALE
 	if field_size.y <= 0.0 or deep <= 0.0:
@@ -169,7 +168,7 @@ static func _ranks_at(field_size: Vector2, cell: Vector2) -> int:
 	return maxi(int(field_size.y / deep), 1)
 
 ## Der DECKEL des Magazins: so viele Kassetten stehen in voller Größe in dieser
-## Grube - Spalten mal Ränge, dieselbe Arithmetik wie das Raster. Gemessen, nicht
+## Feld - Spalten mal Ränge, dieselbe Arithmetik wie das Raster. Gemessen, nicht
 ## autoriert: scene_root schiebt die Zahl in GameRun, und dort sperrt sie Kauf wie
 ## Prämie. Darüber hinaus legt das Raster nichts mehr an, weil nichts mehr kommt.
 static func capacity_for(field_size: Vector2, cell: Vector2) -> int:
@@ -195,7 +194,7 @@ static func _spot_in(grid: Dictionary, index: int, field_size: Vector2,
 	var slot := _slot_in(grid, field_size, cell)
 	var column := index % columns
 	var line := floori(float(index) / float(columns))
-	# Von OBEN angelegt: neue Ränge wachsen nach vorn in die leere Grube, und ein
+	# Von OBEN angelegt: neue Ränge wachsen nach vorn ins leere Feld, und ein
 	# halbvolles Magazin liest als vordere Zeile Ware, nicht als schwebendes Band.
 	return Vector2(slot.x * (float(column) + 0.5), slot.y * (float(line) + 0.5))
 
@@ -211,16 +210,17 @@ static func _slot_in(grid: Dictionary, field_size: Vector2, cell: Vector2) -> Ve
 	return Vector2(field_size.x / columns, cell.y * RANK_SPAN * scale)
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft. Er ist
-## bewusst größer als die Kappe - in der Grube gäbe ein Knopf im Kappenmaß einen
-## Streifen von wenigen Pixeln, und der Zeiger fände ihn nie.
+## bewusst größer als die Kappe - im Kappenmaß gäbe ein Knopf einen Streifen von
+## wenigen Pixeln, und der Zeiger fände ihn nie.
 static func grip_for(field_size: Vector2, cell: Vector2, count: int) -> Vector2:
 	return _grip_in(grid_for(field_size, cell, count), field_size, cell)
 
 static func _grip_in(grid: Dictionary, field_size: Vector2, cell: Vector2) -> Vector2:
 	return _slot_in(grid, field_size, cell) * (1.0 - SLOT_INSET * 2.0)
 
-## Die Grube selbst: das Rechteck INNERHALB des gemalten Rahmens - genau dort
-## schneidet screen_glass sein Loch, und der Rahmen überlebt es rings herum.
+## Das FELD: das Rechteck INNERHALB des gemalten Rahmens - genau darauf stehen die
+## Kassetten, und die Fassung liegt rings herum. Der Name ist älter als die Sache
+## (es war einmal ein Loch), er bleibt die EINE Quelle des Innenrechtecks.
 static func pit_rect_in(row_rect: Rect2, unit: float) -> Rect2:
 	var inset := rim_inset(unit)
 	return row_rect.grow(-inset)
@@ -229,7 +229,7 @@ static func pit_rect_in(row_rect: Rect2, unit: float) -> Rect2:
 static func rim_inset(unit: float) -> float:
 	return maxf(2.0, unit * RIM_WIDTH) + maxf(2.0, unit * EDGE)
 
-## Anzeige-Maßstab der Kassetten: das feste Maß, solange die Ränge in die Grube
+## Anzeige-Maßstab der Kassetten: das feste Maß, solange die Ränge auf das Feld
 ## passen. REINE Darstellung - der Schlitz misst sich am selben Maß.
 func cell_scale() -> float:
 	if _grid.has("scale"):
@@ -241,8 +241,8 @@ static func cell_scale_for(cell: Vector2, field_size: Vector2, count: int) -> fl
 
 ## Display-Pixel der Kassette dieser uid - Standplatz ihres Körpers und Ziel der
 ## Liefer-Kometen. Antwortet auch für zurückgehaltene Einträge ((-1,-1) = liegt
-## nicht im Fach). Es IST die Platzmitte: die Kassette steht in der Grube, über
-## ihr schwebt nichts mehr.
+## nicht im Fach). Es IST die Platzmitte: die Kassette steht darauf, über ihr
+## schwebt nichts mehr.
 func pack_anchor_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)
@@ -251,8 +251,8 @@ func pack_anchor_px(uid: int) -> Vector2:
 
 ## Derselbe Standplatz, GERECHNET statt gemessen - der Weg, wenn das Fach gerade
 ## nicht steht (Presse, Paket-Wahl); dieselbe Formel wie oben, damit ein Komet
-## nicht springt, sobald es zurückkommt. field_rect ist die GRUBE (pit_rect_in),
-## nicht der Streifen: die Kassetten stehen im Loch, nicht unter der Fassung.
+## nicht springt, sobald es zurückkommt. field_rect ist das FELD (pit_rect_in),
+## nicht der Streifen: die Kassetten stehen darin, nicht unter der Fassung.
 static func anchor_in(field_rect: Rect2, index: int, count: int,
 		cell: Vector2) -> Vector2:
 	if index < 0 or field_rect.size.x <= 0.0 or field_rect.size.y <= 0.0:
@@ -275,7 +275,7 @@ func pack_at(global_point: Vector2) -> int:
 
 ## Die Kassette unter dem Display-Pixel (0 = keine) - GEFRAGT, nicht gemeldet:
 ## der Zeiger liegt auf dem Tisch, ein mouse_entered käme nie an. scene_root hebt
-## daran den Körper aus der Grube.
+## daran den Körper aus der Reihe.
 func hover_uid_at(pixel: Vector2) -> int:
 	if not visible or _locked:
 		return 0
@@ -345,9 +345,9 @@ static func fallback_cell(unit: float) -> Vector2:
 	var wide := unit * CELL_FALLBACK * 2.0 / 3.0
 	return Vector2(wide, wide * CELL_FALLBACK_DEPTH)
 
-## Die FASSUNG der Grube: Schatten fällt von oben herein, das Licht fängt sich an
-## der unteren Kante. Ihre Mitte wird nicht mehr gemalt - dort ist ein echtes Loch
-## (screen_glass.pit_rect), und ein gemalter Grund läge hinter nichts.
+## Die FASSUNG des Feldes: Schatten fällt von oben herein, das Licht fängt sich an
+## der unteren Kante. Ihre Mitte bleibt ungemalt - darauf stehen die Kassetten, und
+## unter einem physischen Ding liegt kein Panel.
 func _well() -> Panel:
 	var well := Panel.new()
 	well.name = "DrawerWell"
@@ -386,8 +386,8 @@ func _on_well_input(event: InputEvent) -> void:
 	if click.pressed and click.double_click:
 		tidy_requested.emit()
 
-## Der unsichtbare Griff einer Kassette: er zeichnet NICHTS - der Körper steht in
-## der Grube, und ein gemalter Schein läge unter dem Loch. Das Greifen zeigt die
+## Der unsichtbare Griff einer Kassette: er zeichnet NICHTS - der Körper steht auf
+## der Fläche, und ein gemalter Schein läge unter ihm. Das Greifen zeigt die
 ## Kassette selbst, indem sie sich ein Stück herauszieht (DataCellView.set_hovered).
 func _chip(pack: Pack, uid: int, spot: Vector2) -> Button:
 	if pack == null:

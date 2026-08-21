@@ -569,3 +569,34 @@ func test_the_title_takes_the_camera_back_even_without_a_flight() -> void:
 	rig.show_title(true)  # Spielstart: harter Sprung, ohne _animate_to
 	assert_false(rig.free_camera, "auch der harte Sprung beendet die Freikamera")
 
+# --- Sichtbar heißt bedienbar --------------------------------------------------
+
+func test_the_table_takes_input_everywhere_but_the_title_and_a_running_flight() -> void:
+	_stand_at(CameraRig.Mode.PIT)
+	assert_true(rig.takes_input(), "an einer Station")
+	rig.begin_free()
+	assert_true(rig.takes_input(), "und in der Freikamera - sie ist kein Sonderfall mehr")
+	rig.zoom_to(CameraRig.Mode.HUB)
+	assert_false(rig.takes_input(), "halbe Übergänge klicken sich schlecht")
+	rig.is_animating = false
+	rig.show_title(true)
+	assert_false(rig.takes_input(), "das Titel-HUD ist modal")
+
+func test_a_felt_grip_answers_at_its_own_station_and_in_the_free_camera() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	assert_true(rig.felt_pick_live(CameraRig.Mode.POOL), "an seiner eigenen Station")
+	assert_false(rig.felt_pick_live(CameraRig.Mode.COMBOS), "fremde Station: nein")
+	rig.zoom_out()
+	rig.is_animating = false
+	assert_false(rig.felt_pick_live(CameraRig.Mode.POOL),
+		"aus der ruhenden Übersicht bleibt der Klick der FLUG dorthin")
+	rig.begin_free()
+	assert_true(rig.felt_pick_live(CameraRig.Mode.POOL), "in der Freikamera aber schon")
+	assert_true(rig.felt_pick_live(CameraRig.Mode.COMBOS), "und zwar für jeden Griff")
+
+func test_no_felt_grip_answers_during_a_flight() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	rig.begin_free()
+	rig.zoom_to(CameraRig.Mode.HUB)
+	assert_false(rig.felt_pick_live(CameraRig.Mode.HUB), "erst ankommen, dann greifen")
+

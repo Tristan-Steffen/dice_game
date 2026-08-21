@@ -88,11 +88,12 @@ func test_cheap_flipping_at_penthouse() -> void:
 
 func test_shop_slots_scale_with_level() -> void:
 	var run := _run(9999)
-	# Stufe 1: wenige, große Angebote (2 Charms / 3 Einzelwürfel / 1 Gravur-Paket).
-	# Alle drei Leitern springen auf denselben Stufen (3/6/9).
+	# Stufe 1: wenige, große Angebote (2 Charms / 3 Einzelwürfel).
+	# Charm- und Würfel-Leiter springen auf denselben Stufen (3/6/9); die
+	# Kassetten-Reihe ist FLACH - vier Plätze auf jeder Stufe.
 	assert_eq(run.shop_charm_slots(), 2)
 	assert_eq(run.shop_dice_slots(), 3)
-	assert_eq(run.shop_pack_slots(), 1)
+	assert_eq(run.shop_pack_slots(), 4)
 	run.upgrade_hub()  # 2 Spielecke: noch kein 4. Würfel
 	assert_eq(run.shop_dice_slots(), 3)
 	run.upgrade_hub()  # 3 Lizenz: größerer Laden
@@ -101,7 +102,7 @@ func test_shop_slots_scale_with_level() -> void:
 	for i in 4:
 		run.upgrade_hub()  # -> 7 Suite
 	assert_eq(run.shop_dice_slots(), 5)
-	assert_eq(run.shop_pack_slots(), 3)
+	assert_eq(run.shop_pack_slots(), 4, "die Reihe war schon auf Stufe 1 voll")
 	for i in 3:
 		run.upgrade_hub()  # -> 10 High Roller: voller Laden
 	assert_eq(run.shop_charm_slots(), 5)

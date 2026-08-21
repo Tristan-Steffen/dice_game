@@ -1297,16 +1297,11 @@ func shelf_rect_global() -> Rect2:
 	rect.position += get_global_rect().position
 	return rect
 
-## Das LOCH des Magazins in Display-Pixeln: der Streifen abzüglich seiner gemalten
-## Fassung. scene_root schneidet danach das Glas und stellt die Grube darunter -
+## Das FELD des Magazins in Display-Pixeln: der Streifen abzüglich seiner gemalten
+## Fassung. Darauf stellt scene_root die Kassetten und misst daran den Deckel -
 ## das Fenster selbst weiß vom Tisch nichts.
 func shelf_pit_rect() -> Rect2:
 	return PackDrawerView.pit_rect_in(shelf_rect_global(), shelf_unit())
-
-## Eckenradius des Lochs: der des Rahmens, um dessen Breite verkleinert.
-func shelf_pit_radius() -> float:
-	var unit := shelf_unit()
-	return maxf(unit * PackDrawerView.RADIUS - PackDrawerView.rim_inset(unit), 0.0)
 
 ## Die Maßeinheit, in der die Schürze rechnet (u = Fensterbreite/100).
 func shelf_unit() -> float:
@@ -1328,7 +1323,7 @@ func shelf_cell_scale() -> float:
 		shelf_pit_rect().size, drawer_entries().size())
 
 ## Die Kassette unter dem Display-Pixel (0 = keine): scene_root zieht daran den
-## Körper ein Stück aus der Grube. Gefragt, nicht gemeldet - der Zeiger liegt auf
+## Körper ein Stück aus der Reihe. Gefragt, nicht gemeldet - der Zeiger liegt auf
 ## dem Tisch.
 func shelf_hover_uid_at(pixel: Vector2) -> int:
 	if _drawer != null and is_instance_valid(_drawer):

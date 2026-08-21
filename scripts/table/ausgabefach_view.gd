@@ -38,7 +38,7 @@ const HOVER_LIFT := DIE_SCALE * 0.5
 const HOVER_SWELL := 1.1
 const HOVER_TIME := 0.14
 
-## Ankunft aus dem Förderwerk: der Würfel steigt durch den Fachboden herein.
+## Ankunft der Lieferung: der Würfel steigt durch den Fachboden herein.
 const ARRIVE_TIME := 0.35
 ## Eingelöst: er sinkt durch denselben Boden wieder weg.
 const LEAVE_TIME := 0.28
@@ -63,8 +63,8 @@ var _bodies: Dictionary = {}
 var _move_tweens: Dictionary = {}
 var _hover_tweens: Dictionary = {}
 var _hovered := 0
-## Würfel, die noch unterwegs sind: ihr Platz steht, ihr Körper wartet auf das
-## Förderwerk (Instanz-Id -> true).
+## Würfel, die noch unterwegs sind: ihr Platz steht, ihr Körper wartet auf seinen
+## Kometen (Instanz-Id -> true).
 var _arriving: Dictionary = {}
 
 ## Der Schlüssel eines Körpers: die WÜRFEL-Instanz. Ein Platz ist nur eine Reihe.
@@ -287,7 +287,7 @@ func _layout(arriving := 0) -> void:
 		var spot := Vector3(center.x - ranks[i / grid.x], rest_y,
 			center.z + lanes[i % grid.x])
 		if _arriving.has(key):
-			continue  # sein Platz steht, sein Körper wartet auf das Förderwerk
+			continue  # sein Platz steht, sein Körper wartet auf seinen Kometen
 		wanted[key] = true
 		var body: Node3D = _bodies.get(key)
 		var fresh := body == null or not is_instance_valid(body)

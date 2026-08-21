@@ -136,9 +136,6 @@ var _fumble_wave_tween: Tween
 ## Filz-Material: braucht die Fenster-Rechtecke, um seine Textur unter den
 ## durchscheinenden Fenstergründen auszublenden.
 var _felt_material: ShaderMaterial
-## Die Ebene des Förderwerks: sie hängt direkt über dem Filz und unter allem
-## anderen - jedes Unterlicht wird hier eingehängt, nie an die Wurzel.
-var underlight_layer: Control
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -188,17 +185,6 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
-## Das LOCH der Magazin-Grube in Display-Pixeln (leeres Rechteck = keins). Kein
-## Fenster: es frisst keinen der MAX_WINDOWS-Plätze und hat eine eigene Uniform -
-## ein Loch spiegelt nicht, es ist weg.
-var apron_pit := Rect2()
-var apron_pit_radius := 0.0
-## Die VITRINEN-Löcher (0 = Laden, 1 = Schwarzmarkt): dieselbe Grubentechnik, nur
-## mit VORHANG - vitrine_open löst die Anzeige darüber als Rausch-Dissolve auf.
-## Auch sie kosten keinen MAX_WINDOWS-Platz.
-const VITRINE_HOLES := 2
-var vitrine_rects: Array[Rect2] = [Rect2(), Rect2()]
-var vitrine_open := PackedFloat32Array([0.0, 0.0])
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -306,8 +292,6 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_glass_material = material
 	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
-	_sync_apron_pit()
-	_sync_vitrine_holes()
 
 ## Die Anzeigefläche IST das Rechteck ihrer Textur. Das Tisch-GLB bringt eine
 ## ovale Platte mit; ihre Rundungen schnitten alles an, was in der Ecke lag
@@ -347,15 +331,6 @@ func _build_content() -> void:
 	background.material = _felt_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
-
-	# Das FÖRDERWERK: sein Glimmen liegt unter ALLEM, was auf dem Tisch steht -
-	# auf offenen Filzstrecken sichtbar, unter Fenstern ehrlich verdeckt. Licht
-	# fliegt über dem Filz, Ware fährt darunter.
-	underlight_layer = Control.new()
-	underlight_layer.name = "Underlight"
-	underlight_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	underlight_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(underlight_layer)
 
 	# LED-Leisten (Hub<->Kombinationen, Hub<->Schatz): bewusst früh gebaut, damit
 	# sie UNTER allen Fenstern liegen; verlegt werden sie erst in
@@ -921,52 +896,6 @@ func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.size = rect.size
 	treasure_window.visible = true
 	_sync_reflection_windows()
-
-## Schneidet das Loch der Magazin-Grube ins Display-Glas (leeres Rechteck =
-## keins). Der Körper darunter gehört scene_root (PackPitView), hier fällt nur
-## die Anzeige weg.
-func set_apron_pit(rect: Rect2, radius: float = 0.0) -> void:
-	apron_pit = rect
-	apron_pit_radius = maxf(radius, 0.0)
-	_sync_apron_pit()
-
-func _sync_apron_pit() -> void:
-	if _glass_material == null:
-		return
-	var hole := Vector4.ZERO
-	if apron_pit.size.x > 0.0 and apron_pit.size.y > 0.0:
-		hole = Vector4(apron_pit.position.x, apron_pit.position.y,
-			apron_pit.end.x, apron_pit.end.y)
-	_glass_material.set_shader_parameter("pit_rect", hole)
-	_glass_material.set_shader_parameter("pit_radius", apron_pit_radius)
-
-## Stellt eine Vitrinen-Bucht: ihr Rechteck in Display-Pixeln und wie weit ihr
-## Vorhang offen steht. Der Körper darunter gehört scene_root (VitrineView).
-func set_vitrine_hole(index: int, rect: Rect2, open: float) -> void:
-	if index < 0 or index >= VITRINE_HOLES:
-		return
-	vitrine_rects[index] = rect
-	vitrine_open[index] = clampf(open, 0.0, 1.0)
-	_sync_vitrine_holes()
-
-## Nur den Vorhang fahren - das Rechteck bleibt, wo es steht.
-func set_vitrine_open(index: int, open: float) -> void:
-	if index < 0 or index >= VITRINE_HOLES:
-		return
-	vitrine_open[index] = clampf(open, 0.0, 1.0)
-	_sync_vitrine_holes()
-
-func _sync_vitrine_holes() -> void:
-	if _glass_material == null:
-		return
-	var rects := PackedVector4Array()
-	for rect in vitrine_rects:
-		if rect.size.x > 0.0 and rect.size.y > 0.0:
-			rects.append(Vector4(rect.position.x, rect.position.y, rect.end.x, rect.end.y))
-		else:
-			rects.append(Vector4.ZERO)
-	_glass_material.set_shader_parameter("vitrine_rects", rects)
-	_glass_material.set_shader_parameter("vitrine_open", vitrine_open)
 
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
@@ -1990,6 +1919,19 @@ func celebrate_workshop_delivery(color: Color) -> void:
 	add_child(wave)
 	wave.setup(center, Color(color.r, color.g, color.b, 0.9), workshop_window.size.x * 0.5, 0.7)
 
+## Die Ankunft am Magazin-Platz: ein kurzer, kleiner Ring - was danach geschieht,
+## geschieht körperlich, die Kassette steigt dort durch die Fläche.
+const ARRIVAL_FLASH_RADIUS := 44.0 * SUPERSAMPLE
+const ARRIVAL_FLASH_TIME := 0.32
+
+func pack_arrival_flash(px: Vector2, color: Color) -> void:
+	if px.x < 0.0:
+		return
+	var wave := ScoreShockwave.new()
+	add_child(wave)
+	wave.setup(px, Color(color.r, color.g, color.b, 0.85), ARRIVAL_FLASH_RADIUS,
+		ARRIVAL_FLASH_TIME)
+
 ## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
 func link_hub_to_treasure() -> void:
 	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \
@@ -2270,50 +2212,13 @@ func pack_delivery_comet(from_px: Vector2, color: Color,
 	_pulse_along(path, travel, color)
 	return travel
 
-## --- Das Förderwerk (Ware unter dem Filz) --------------------------------------
-## Breiter, matter und mit langem Schweif: kein Funke auf dem Tisch, sondern ein
-## Glimmen darin. Die Geschwindigkeit bleibt die der Kometen - die Routen-Zeit-
-## rechnung trägt sonst nicht.
-const UNDERLIGHT_CORE := 8.0 * SUPERSAMPLE
-const UNDERLIGHT_GLOW := 24.0 * SUPERSAMPLE
-const UNDERLIGHT_COMET := 130.0 * SUPERSAMPLE
-const UNDERLIGHT_ALPHA := 0.34
-## Der Tauchgang an einer Grubenkante: ein kurzer, kleiner Ring - was danach
-## geschieht, geschieht in der Grube.
-const DIVE_FLASH_RADIUS := 44.0 * SUPERSAMPLE
-const DIVE_FLASH_TIME := 0.32
-
-## Die Fracht-Strecke einer Bucht zur Werkbank: unter dem Hub hindurch auf die
-## Hub-Werkstatt-Ader und an die Grubenkante. Das Untergeschoss hat keine eigenen
-## Wege - es fährt dieselben Routen wie das Licht darüber.
-func underlight_workshop_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
-	return _route_via_strip(from_px, workshop_hub_strip, to_px)
-
-## Dieselbe Strecke aus dem Hinterzimmer: erst die Schwarzmarkt-Ader in den Hub,
-## dort auf die Werkstatt-Ader und an die Grubenkante.
-func underlight_secret_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
-	return _route_via_strips(from_px, [secret_hub_strip, workshop_hub_strip], to_px)
-
-## Schickt ein Unterlicht über eine fertige Route; liefert die Fahrzeit.
-func underlight_travel(points: PackedVector2Array, color: Color) -> float:
-	if points.size() < 2:
-		return 0.0
-	var travel := _travel_time(points)
-	var pulse := TracePulseView.new()
-	if underlight_layer != null and is_instance_valid(underlight_layer):
-		underlight_layer.add_child(pulse)
-	else:
-		add_child(pulse)
-	pulse.setup(points, Color(color.r, color.g, color.b, color.a * UNDERLIGHT_ALPHA),
-		UNDERLIGHT_CORE, UNDERLIGHT_GLOW, travel, UNDERLIGHT_COMET)
+## Hehlerware Hinterzimmer -> Werkbank: erst die Schwarzmarkt-Ader in den Hub,
+## dort auf die Werkstatt-Ader zum Ziel. Liefert die Laufzeit.
+func secret_delivery_comet(from_px: Vector2, to_px: Vector2, color: Color) -> float:
+	var path := _route_via_strips(from_px, [secret_hub_strip, workshop_hub_strip], to_px)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
 	return travel
-
-## Der Tauchgang: hier verschwindet eine Lieferung unter dem Filz. Über dem Filz -
-## das Blitzen ist das Letzte, was man von ihr oben sieht.
-func pit_dive_flash(px: Vector2, color: Color) -> void:
-	var wave := ScoreShockwave.new()
-	add_child(wave)
-	wave.setup(px, Color(color.r, color.g, color.b, 0.85), DIVE_FLASH_RADIUS, DIVE_FLASH_TIME)
 
 ## Meteor der Presse: ein Beutestück fährt aus seinem Leser in die Ablage. Ein
 ## LOKALER Flug INNERHALB der Werkbank-Ecke, keine Ader - der Bogen führt über die
@@ -2983,6 +2888,24 @@ func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
 		return Vector2(-1, -1)
 	return pixel
+
+## SICHTBAR HEISST BEDIENBAR: ob ein sichtbares Fenster diesen Display-Pixel
+## annimmt. Gefragt wird der Zustand des Fensters, nicht die Kamerastation -
+## BEWEGUNGEN gehen über seine ganze Fläche (sauberer Knopf-Hover), KLICKS nur auf
+## ein echtes Bedienteil, solange die Kamera woanders steht; sonst fräße das
+## Fenster den Flug auf seine eigene leere Fläche. Steht sie schon an dieser
+## Station, schluckt es auch das Leere - dort wäre ein Zoom auf sich selbst nichts.
+## Während einer Kamerafahrt nimmt nichts etwas an: halbe Übergänge klicken sich
+## schlecht.
+static func window_takes_pixel(window: Control, rect: Rect2, pixel: Vector2,
+		is_click: bool, focused: bool, flying := false) -> bool:
+	if flying or window == null or not is_instance_valid(window) or not window.visible:
+		return false
+	if pixel.x < 0.0 or not rect.has_point(pixel):
+		return false
+	if not is_click or focused:
+		return true
+	return interactive_under(window, pixel)
 
 ## Ob unter dem Display-Pixel ein sichtbarer, aktiver Knopf im Teilbaum liegt -
 ## so unterscheidet scene_root Knopf-Klick von Klick auf freie Fläche.

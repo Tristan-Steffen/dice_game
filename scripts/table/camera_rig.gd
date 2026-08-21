@@ -222,9 +222,9 @@ static func flatten(v: Vector3) -> Vector3:
 static var GLIDE_RIGHT: Vector3 = flatten(ZOOM_BASIS.x)
 static var GLIDE_UP: Vector3 = flatten(-ZOOM_BASIS.z)
 
-## Steht die Freikamera? scene_root liest das Bit wie log_open: es verstummt,
-## was eine Kamera mitten auf dem Tisch nicht anfassen darf - und es steht die
-## ganze Zeit, nicht nur solange Tasten liegen.
+## Steht die Freikamera? Sie ist kein Sonderfall der Bedienung mehr - SICHTBAR
+## HEISST BEDIENBAR gilt dort wie an jeder Station; das Bit entscheidet nur noch
+## über die Griffe auf dem Filz (felt_pick_live) und über Zoom/Heimfahrt.
 var free_camera: bool = false
 ## Rechteck der Anzeigefläche in Welt-XZ (x = Welt-X, y = Welt-Z); scene_root
 ## misst es an der echten Fläche.
@@ -305,6 +305,22 @@ func _ready() -> void:
 ## Obere Zoomgrenze der Freikamera: ein Stück über der Übersicht.
 func free_zoom_max() -> float:
 	return overview_distance * FREE_ZOOM_MAX_FACTOR
+
+## Nimmt der Tisch gerade Bedienung an? SICHTBAR HEISST BEDIENBAR - zwei Ausnahmen
+## bleiben: das Titel-HUD ist MODAL (dahinter ist nichts anzufassen), und während
+## einer Kamerafahrt ist alles taub, denn halbe Übergänge klicken sich schlecht.
+func takes_input() -> bool:
+	return mode != Mode.TITLE and not is_animating
+
+## Ob ein physischer Griff auf dem FILZ antwortet - Tray-Würfel, Chip-Stufe,
+## Dock-Kachel: an seiner eigenen Station und in der FREIKAMERA, wo der Spieler
+## bewusst an ein Ding heranfährt. Aus der RUHENDEN Übersicht bleibt der Klick der
+## FLUG dorthin, sonst fräße die Geste die Navigation - diese Griffe liegen unter
+## den Zoom-Zonen, anders als ein Knopf, der sein eigenes Fenster hat.
+func felt_pick_live(station: int) -> bool:
+	if not takes_input():
+		return false
+	return free_camera or mode == station
 
 ## Nur Hub, Werkstatt und Titel stehen STILL: ihr Fenster füllt das Bild, ein
 ## Schwenk verschöbe es nur. Nahsicht und Werkstück-Sicht bleiben WORKSHOP und

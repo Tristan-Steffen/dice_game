@@ -58,6 +58,33 @@ static func style_button(button: Button, accent: Color, dark: Color, font_size: 
 	button.add_theme_color_override("font_outline_color", SHADOW)
 	button.add_theme_constant_override("outline_size", 3)
 
+## Der EINE gefüllte Knopf einer Seite: die primäre Aktion steht auf sattem
+## Akzent-Grund mit dunkler Schrift, alles andere bleibt Umriss. u = Breiten-
+## einheit der Seite, damit Saum und Radius zur Neon-Grammatik der Displays passen.
+static func style_primary_button(button: Button, accent: Color, u: float) -> void:
+	button.add_theme_stylebox_override("normal", _filled_box(accent, accent.lightened(0.35), u))
+	button.add_theme_stylebox_override("hover", _filled_box(accent.lightened(0.18), CREAM, u))
+	button.add_theme_stylebox_override("pressed", _filled_box(accent.darkened(0.22), accent, u))
+	button.add_theme_stylebox_override("focus", _filled_box(accent, accent.lightened(0.35), u))
+	button.add_theme_stylebox_override("disabled", _filled_box(DISABLED_FILL, DISABLED_BORDER, u))
+	# Dunkle Schrift auf hellem Grund - die Umkehr ist der ganze Rangunterschied.
+	button.add_theme_color_override("font_color", INK)
+	button.add_theme_color_override("font_hover_color", INK)
+	button.add_theme_color_override("font_pressed_color", INK)
+	button.add_theme_color_override("font_disabled_color", MUTED)
+	button.add_theme_constant_override("outline_size", 0)
+
+static func _filled_box(fill: Color, border: Color, u: float) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = border
+	box.set_border_width_all(maxi(1, int(u * 0.22)))
+	box.set_corner_radius_all(int(u * 0.9))
+	box.set_content_margin_all(int(u * 0.8))
+	box.shadow_color = Color(fill.r, fill.g, fill.b, 0.3)
+	box.shadow_size = maxi(1, int(u * 0.8))
+	return box
+
 static func _button_box(fill: Color, border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill

@@ -142,9 +142,12 @@ const HUB_UPGRADE_UNLOCKS := [
 ## in die Schale. Dieselben Sprungstellen wie die beiden anderen Leitern (3/6/9),
 ## damit ein Ausbau alle drei Rubriken zugleich wachsen lässt - 3 auf Stufe 1,
 ## 6 auf Stufe 10.
+## SHOP_PACK_SLOTS ist bewusst FLACH: die Kassetten-Reihe ist auf jeder Stufe
+## gleich voll - sie gehört zu den festen Proportionen der Ladenseite, und ein
+## wachsendes Möbel baute die Seite bei jedem Aufstieg um.
 const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [3, 3, 4, 4, 4, 5, 5, 5, 6, 6]
-const SHOP_PACK_SLOTS  := [1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
+const SHOP_PACK_SLOTS  := [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
 
 ## Ab dieser Lizenzstufe führt auch das normale Regal Sonderposten - vorher gibt
 ## es sie einzig im Hinterzimmer.
@@ -204,11 +207,11 @@ var owned_charms: Array[Charm] = []
 ## Versiegelte Pakete im Werkstatt-Lager; sie warten dort beliebig lange. Eine
 ## Aufwertung existiert nur SO oder angewendet - einen losen Vorrat gibt es nicht.
 ## Das Magazin ist endlich, und der Deckel ist GEMESSEN: so viele Kassetten stehen
-## in voller Größe in der Grube (PackDrawerView.capacity_for, von scene_root
+## in voller Größe im Magazin-Feld (PackDrawerView.capacity_for, von scene_root
 ## hereingeschoben - core misst keine Fenster). Er gilt für ALLES: der Kauf prüft
 ## vor dem Zahlen, und eine Prämie, die keinen Platz mehr findet, zerfällt zu Geld
 ## (PACK_FIZZLE_MONEY) - nichts verschwindet still, aber nichts schrumpft auch.
-## PACK_CAPACITY ist nur noch der Rückfall ohne gemessene Grube (Tests, Kopflos).
+## PACK_CAPACITY ist nur noch der Rückfall ohne gemessenes Feld (Tests, Kopflos).
 const PACK_CAPACITY := 20
 ## Zerfallswert eines Pakets, für das kein Platz mehr ist. Bewusst klein und flach:
 ## ein Standard-Paket wirft im Schnitt zwei Stücke, und ein liegengebliebenes Stück
@@ -691,7 +694,7 @@ func _stash_pack(pack: Pack) -> Pack:
 	owned_packs.append(pack)
 	return pack
 
-## Der gemessene Deckel, den scene_root an der Grube abliest. Idempotent, und ein
+## Der gemessene Deckel, den scene_root am Magazin-Feld abliest. Idempotent, und ein
 ## unbrauchbarer Wert (kein Layout gemessen) lässt den Rückfall stehen.
 func set_pack_capacity(value: int) -> void:
 	if value <= 0 or value == pack_capacity:

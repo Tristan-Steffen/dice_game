@@ -222,10 +222,10 @@ func test_the_pit_hangs_on_the_standing_drawer_rect() -> void:
 	assert_gt(pit.size.y, 0.0)
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_eq(view.shelf_pit_rect(), pit, "eingelegt: die Grube steht")
+	assert_eq(view.shelf_pit_rect(), pit, "eingelegt: das Feld steht")
 	view.clear_press_slot(0)
 	await wait_frames(2)
-	assert_eq(view.shelf_pit_rect(), pit, "zurückgenommen: die Grube steht")
+	assert_eq(view.shelf_pit_rect(), pit, "zurückgenommen: das Feld steht")
 
 ## Gemessen und gerechnet sind derselbe Punkt: solange das Fach steht, misst der
 ## Anker am Chip, sonst folgt er aus dem Streifen. Weichen die beiden ab, springt
@@ -531,14 +531,14 @@ func test_the_magazine_never_squeezes_its_cards_by_count() -> void:
 	await wait_frames(2)
 	var capacity := PackDrawerView.capacity_for(view.shelf_pit_rect().size,
 		view.shelf_cell_px())
-	assert_gt(capacity, GameRun.PACK_CAPACITY, "die echte Grube fasst mehr als der Rückfall")
+	assert_gt(capacity, GameRun.PACK_CAPACITY, "das echte Feld fasst mehr als der Rückfall")
 	run.set_pack_capacity(capacity)
 	for i in capacity:
 		run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
 	assert_eq(run.owned_packs.size(), capacity, "bis an den Deckel gefüllt")
 	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
-		"die randvolle Grube steht in voller Größe")
+		"das randvolle Feld steht in voller Größe")
 	assert_null(run.grant_pack(Pack.number_pack()), "und darüber hinaus kommt nichts")
 
 # --- (e) Der Wurf läuft IN der Seite: auch er verrückt nichts ----------------------

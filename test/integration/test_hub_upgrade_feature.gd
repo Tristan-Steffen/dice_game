@@ -105,17 +105,20 @@ func test_level_one_shop_is_smaller() -> void:
 	var shop := _shop(1)
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 1: 3 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 1, "Stufe 1: 1 Gravur-Paket")
+	assert_eq(shop.engraving_packs.size(), 4, "die Kassetten-Reihe ist immer voll")
 
-func test_level_one_hides_flip_navigation() -> void:
+func test_level_one_locks_the_pager_instead_of_hiding_it() -> void:
+	# Die Pfeile BLEIBEN stehen und tragen ein Schloss - der Satz im Fuß ist weg.
 	var shop := _shop(1)
-	assert_false(shop.page_next_button.visible, "Stufe 1: kein Vorblättern")
-	assert_false(shop.page_back_button.visible)
-	assert_true(shop.flip_hint_label.visible, "stattdessen der Hinweis")
+	assert_true(shop.page_next_button.visible, "Stufe 1: der Pfeil steht trotzdem")
+	assert_true(shop.page_back_button.visible)
+	assert_eq(shop.page_next_button.text, ShopController.PAGER_LOCK, "mit Schloss")
+	assert_eq(shop.page_back_button.text, ShopController.PAGER_LOCK)
+	assert_true(shop.page_next_button.disabled, "und gesperrt")
 
 func test_level_two_unlocks_flipping() -> void:
 	var shop := _shop(2)
-	assert_eq(shop.engraving_packs.size(), 1, "Stufe 2: noch 1 Gravur-Paket")
+	assert_eq(shop.engraving_packs.size(), 4, "Stufe 2: die Reihe war schon voll")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 2: der 4. Würfel kommt erst später")
 	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
@@ -123,12 +126,12 @@ func test_level_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
 	assert_eq(shop.single_dice.size(), 4, "Stufe 3: 4 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 2, "Stufe 3: 2 Gravur-Pakete")
+	assert_eq(shop.engraving_packs.size(), 4, "Stufe 3: die Reihe bleibt voll")
 
-func test_level_seven_unlocks_third_pack() -> void:
+func test_level_seven_grows_the_bowl_not_the_slit_row() -> void:
 	var shop := _shop(7)
 	assert_eq(shop.single_dice.size(), 5, "Suite: 5 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 3, "Suite: 3 Gravur-Pakete")
+	assert_eq(shop.engraving_packs.size(), 4, "die Reihe wächst nicht mit - sie steht")
 
 func test_level_ten_lays_out_six_dice() -> void:
 	var shop := _shop(10)
@@ -145,23 +148,29 @@ func test_level_six_spread_contains_a_non_common_charm() -> void:
 
 # --- Elastisches Layout (wenige, große Karten -> viele, kleine) --------------
 
-## Seit dem Vitrinen-Umbau liegt jedes Paket körperlich in der Bucht - der
-## Bildschirm führt nur noch die Charm-Karten und meldet das Buchten-Rechteck.
+## Seit dem Schlitz-Umbau steckt jedes Paket in seiner Kerbe und nur die offenen
+## Würfel liegen in der Bucht - der Bildschirm führt allein die Charm-Karten.
 func test_every_offer_has_its_own_charm_card() -> void:
 	var shop := _shop(7)
 	assert_eq(shop.charm_buttons.size(), shop.charm_options.size(),
 		"jeder Charm im Regal ist eine Karte")
-	var stock := shop.vitrine_stock()
-	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), shop.engraving_packs.size(),
-		"Pakete liegen in der Bucht, nicht auf dem Bildschirm")
-	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
+	assert_eq(shop.slit_stock().size(), shop.slit_seats().size(),
+		"jedes Paket steckt in seinem Schlitz, nicht auf dem Bildschirm")
+	assert_eq(shop.vitrine_stock()[ShopController.KIND_DIE].size(), shop.single_dice.size())
 
-func test_charm_cards_grow_when_there_are_fewer() -> void:
+## Die Karte ist GEDECKELT, seit Name und Wirkungszeile auf ihr stehen: wenige
+## Angebote stehen kompakt und mittig statt als Panorama, und das Modell hängt
+## an der festen Bandhöhe, nicht mehr an der Anzahl.
+func test_charm_cards_are_capped_instead_of_stretching() -> void:
 	var shop := _shop(1)
 	var few: Vector2 = shop._charm_metrics(2)
 	var many: Vector2 = shop._charm_metrics(5)
-	assert_gt(few.x, many.x, "wenige Charms -> höhere Karten")
-	assert_gt(few.y, many.y, "wenige Charms -> größeres Modell")
+	assert_eq(few.x, many.x, "die Kartenhöhe ist fest - das Band steht")
+	assert_gte(few.y, many.y, "wenige Charms -> nie ein kleineres Modell")
+	var wide: float = shop._charm_card_width(2)
+	assert_almost_eq(wide, shop.u * ShopController.CARD_MAX_UNITS, 0.01,
+		"zwei Karten stehen auf dem Deckel, nicht über die halbe Seite")
+	assert_lt(shop._charm_card_width(5), wide, "fünf teilen sich die Zeile")
 
 # --- Roulette-Rim: Rad-Rand (Fahrplan) + Lizenz-Nabe -------------------------
 

@@ -26,20 +26,6 @@ uniform vec2 screen_half = vec2(42.4, 62.4);
 uniform float pool_fade = 110.0;    // Weltstrecke des Auslaufs hinter der Screen-Kante
 uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-Ton der Kante
 
-// Die Magazin-Grube ist ein echtes Loch (siehe screen_glass.pit_rect): der Boden
-// darf nicht dahinterstehen, sonst blickt man auf Filz statt in die Grube.
-// Welt-XZ, min == max = kein Loch.
-uniform vec2 pit_min = vec2(0.0);
-uniform vec2 pit_max = vec2(0.0);
-
-// Die Vitrinen-Buchten (screen_glass.vitrine_rects) in Welt-XZ. BINÄR wie das
-// Loch im Display-Glas und an derselben Schwelle: sobald sich eine Bucht öffnet,
-// darf hinter ihr kein Filz mehr stehen, sonst blickte man in die Bucht auf Filz.
-const int MAX_VITRINES = 2;
-uniform vec2 vitrine_min[MAX_VITRINES];
-uniform vec2 vitrine_max[MAX_VITRINES];
-uniform float vitrine_open[MAX_VITRINES];
-
 varying vec2 world_xz;
 
 float hash21(vec2 p) {
@@ -62,17 +48,6 @@ void vertex() {
 }
 
 void fragment() {
-	if (pit_max.x > pit_min.x && world_xz.x > pit_min.x && world_xz.x < pit_max.x
-			&& world_xz.y > pit_min.y && world_xz.y < pit_max.y) {
-		discard;
-	}
-	for (int i = 0; i < MAX_VITRINES; i++) {
-		if (vitrine_open[i] > 0.0 && vitrine_max[i].x > vitrine_min[i].x
-				&& world_xz.x > vitrine_min[i].x && world_xz.x < vitrine_max[i].x
-				&& world_xz.y > vitrine_min[i].y && world_xz.y < vitrine_max[i].y) {
-			discard;
-		}
-	}
 	// Virtuelle Display-UVs: Welt-Z = Screen-Breite, Welt-X = Screen-Höhe.
 	// Ein Vorzeichen-Irrtum spiegelte nur das Rauschen - das Rauten-Gitter
 	// ist spiegelsymmetrisch und bliebe trotzdem in Phase.

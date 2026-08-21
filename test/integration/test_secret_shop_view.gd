@@ -217,10 +217,10 @@ func test_a_sold_slot_has_nothing_to_say() -> void:
 
 # --- Die Ankunfts-Grade ---------------------------------------------------------
 
-func test_a_fresh_stock_rolls_its_goods_in() -> void:
-	# Der ERSTE Bericht einer frisch gewürfelten Auslage rollt sie an; ein zweiter
-	# Bericht derselben Ware lässt sie liegen - scene_root sammelt den lauteren
-	# Grad, solange die Bucht noch zugedeckt ist.
+func test_a_fresh_stock_raises_its_goods() -> void:
+	# Der ERSTE Bericht einer frisch gewürfelten Auslage lässt sie aufsteigen; ein
+	# zweiter Bericht derselben Ware lässt sie liegen - scene_root sammelt den
+	# lauteren Grad, solange die Auslage noch abgedeckt ist.
 	var barred := _barred()
 	await wait_frames(2)
 	var grades: Array[String] = []
@@ -228,7 +228,7 @@ func test_a_fresh_stock_rolls_its_goods_in() -> void:
 	assert_true(barred.run.unlock_secret_shop())
 	barred.set_locked(false)
 	assert_gt(grades.size(), 0, "die neue Auslage meldet sich")
-	assert_eq(grades[0], ShopController.GRADE_ROLL_IN, "die erste Auslage rollt an")
+	assert_eq(grades[0], ShopController.GRADE_RISE, "die erste Auslage steigt auf")
 	barred.refresh()
 	assert_eq(barred.vitrine_grade(), ShopController.GRADE_STAND,
 		"dieselbe Ware ein zweites Mal gemeldet wurde nicht neu gewürfelt")
@@ -239,13 +239,13 @@ func test_a_purchase_leaves_the_rest_lying() -> void:
 	assert_eq(view.vitrine_grade(), ShopController.GRADE_STAND,
 		"ein Kauf würfelt nichts - die übrige Ware bleibt liegen")
 
-func test_a_reroll_rolls_in_again() -> void:
+func test_a_reroll_raises_the_new_goods() -> void:
 	await wait_frames(2)
 	view.buy_offer(1)
 	assert_eq(view.vitrine_grade(), ShopController.GRADE_STAND)
 	assert_true(run.reroll_secret_stock())
 	await wait_frames(2)
-	assert_eq(view.vitrine_grade(), ShopController.GRADE_ROLL_IN,
+	assert_eq(view.vitrine_grade(), ShopController.GRADE_RISE,
 		"ein Neuwurf ist ein voller Warenumschlag")
 
 func test_every_change_of_the_bay_is_reported() -> void:
@@ -299,5 +299,5 @@ func test_unlocking_lifts_the_veil_and_lays_out_the_stock() -> void:
 	assert_eq(barred.offer_buttons.size(), 3, "die Plätze liegen index-treu")
 	assert_eq(barred.card_slot_index(), 0, "und der Sitz trägt seine Karte")
 	assert_true(barred.reroll_button.visible)
-	assert_eq(barred.vitrine_grade(), ShopController.GRADE_ROLL_IN,
-		"die erste Auslage rollt an")
+	assert_eq(barred.vitrine_grade(), ShopController.GRADE_RISE,
+		"die erste Auslage steigt auf")

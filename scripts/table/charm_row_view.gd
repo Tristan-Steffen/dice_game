@@ -66,7 +66,7 @@ func set_charms(charms: Array[Charm]) -> void:
 		var model := _load_model(charms[i])
 		pivot.add_child(model)
 		var materials: Array[ShaderMaterial] = []
-		_apply_hologram(model, materials)
+		apply_hologram(model, materials)
 		charm_nodes.append(pivot)
 		charm_models.append(model)
 		current_charms.append(charms[i])
@@ -104,7 +104,9 @@ func _beam_material_for(rarity: String) -> ShaderMaterial:
 
 ## Stülpt je Fläche ein Hologramm-Material über, das die Originalfarbe
 ## (Textur + albedo_color) übernimmt; out_materials sammelt sie für flash_charm.
-func _apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
+## STATISCH, weil der Laden dieselbe Sprache spricht: seine Karten tragen dieselben
+## Modelle, und zwei Rezepte für einen Look liefen auseinander.
+static func apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
 		var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
@@ -126,7 +128,7 @@ func _apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
 			mesh_instance.set_surface_override_material(s, material)
 			out_materials.append(material)
 	for child in node.get_children():
-		_apply_hologram(child, out_materials)
+		apply_hologram(child, out_materials)
 
 ## Lässt den Charm auf Platz index kurz aufblitzen ("dieser Charm feuert"):
 ## Helligkeits-Puls über den flash-Parameter plus kleiner Größen-Pop.
