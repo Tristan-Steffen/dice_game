@@ -24,7 +24,9 @@ ROOT = Path(__file__).resolve().parent.parent
 STYLE_DIR = Path(__file__).resolve().parent / "styles"
 STATE_FILE = Path(__file__).resolve().parent / ".imagegen_state.json"
 
-DEFAULT_MODEL = "gemini-3.1-flash-image"
+# Lite ist das billigste Bildmodell ($0.034/Bild, nur 1K, keine Stil-Refs).
+# Fuer Laeufe mit Referenzbildern --model gemini-3.1-flash-image (512er: $0.045).
+DEFAULT_MODEL = "gemini-3.1-flash-lite-image"
 
 # Kostenbremse: eine unbeaufsichtigte Schleife soll nicht durchdrehen. Beides
 # sind harte Grenzen im Skript, nicht im Prompt - ein Prompt-Limit hält nicht.
@@ -99,7 +101,7 @@ def main() -> None:
     ap.add_argument("--ref", action="append", default=[], help="Referenzbild (mehrfach erlaubt)")
     ap.add_argument("--n", type=int, default=1, help="Varianten (max %d)" % MAX_PER_CALL)
     ap.add_argument("--aspect", default="1:1", help="Seitenverhältnis, z. B. 1:1, 16:9")
-    ap.add_argument("--size", default="1K", help="512px, 1K, 2K oder 4K (großes K!)")
+    ap.add_argument("--size", default="1K", help="512, 1K, 2K oder 4K (Lite kann nur 1K)")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--dry-run", action="store_true", help="Nur den fertigen Prompt zeigen")
     args = ap.parse_args()
@@ -138,7 +140,7 @@ def main() -> None:
     if not out.is_absolute():
         out = ROOT / out
     out.parent.mkdir(parents=True, exist_ok=True)
-    mime = "image/png" if out.suffix.lower() == ".png" else "image/jpeg"
+    # Die API liefert nur JPEG; ein PNG-Ziel wird nach dem Abruf konvertiert.
 
     client = genai.Client()
     written = []
@@ -149,12 +151,18 @@ def main() -> None:
             input=parts,
             response_format={
                 "type": "image",
-                "mime_type": mime,
+                "mime_type": "image/jpeg",
                 "aspect_ratio": args.aspect,
                 "image_size": args.size,
             },
         )
-        target.write_bytes(_extract_image(interaction))
+        blob = _extract_image(interaction)
+        if target.suffix.lower() == ".png":
+            import io
+            from PIL import Image
+            Image.open(io.BytesIO(blob)).save(target)
+        else:
+            target.write_bytes(blob)
         written.append(target)
         _book(state, 1)
         print(target)

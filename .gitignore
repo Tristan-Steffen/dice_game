@@ -18,3 +18,6 @@ tools/contact_sheet.png.import
 
 # Zaehlerstand des Bildgenerators (tools/imagegen.py)
 tools/.imagegen_state.json
+
+# Lokale Claude-Code-Arbeitsverzeichnisse
+.claude/worktrees/
