@@ -65,7 +65,7 @@ const DIM_ENERGY := 0.16
 
 ## Die KAPPE auf der Kopfkante: eine massive Platte in der Sortenfarbe, breiter
 ## als die Kassette dick ist. Sie ist die ganze Auskunft der stehenden Zelle -
-## im Magazin blickt die Kamera von oben auf den Streifen und sieht NUR sie, also
+## im Magazin blickt die Kamera von oben in die Grube und sieht NUR sie, also
 ## trägt sie Farbe, Sortenzeichen und (als Bündel) ihre Stückzahl. Ihre Oberkante
 ## liegt exakt auf HEIGHT/2: die Zelle bleibt genau so hoch, wie sie war, und die
 ## Einsink-Rechnung (sunk_drop) stimmt weiter.
@@ -106,7 +106,7 @@ const EDGE_FLARE_SHARE := 0.75
 ## rechts neben dem Sortenzeichen - Groß einer, Kolossal zwei. Sie liegen FLACH
 ## auf dem Deckel, denn von den Tischwinkeln sieht man von einer stehenden
 ## Kassette nichts als ihn. Geometrie der Kassette selbst bleibt unberührt: das
-## eine Kassettenmaß trägt Schlitz und Magazin, eine dickere Karte spränge beides.
+## eine Kassettenmaß trägt Schlitz und Grube, eine dickere Karte spränge beides.
 const TIER_STRIPE_W := CAP_WIDTH * 0.045
 const TIER_STRIPE_H := CAP_H * 0.55
 const TIER_STRIPE_DEPTH := CAP_DEPTH * 0.66
@@ -137,13 +137,17 @@ const SUNK_SHOW := 0.18
 ## Ganz geschluckt (Dekompression): eine Spur unter dem Glas, sonst flimmerte die
 ## Kopffläche gegen die Scheibe.
 const SUNK_GONE := -0.06
-## Die Ankunft: die Kassette steigt durch die Tischfläche auf ihren Platz. Etwas
-## länger als das Absinken - Ankommen darf sich setzen.
+## Der Stand im MAGAZIN: die Grube ist ein echtes Loch, die Zelle steht darin bis
+## zur Kappe. Eine Spur UNTER der Tischkante - nichts ruht über dem Rand, und der
+## Kragen der Grube deckt die Schnittkante darüber.
+const PIT_SHOW := -0.03
+## Die Ankunft: die Kassette steigt auf ihren Platz. Etwas länger als das
+## Absinken - Ankommen darf sich setzen.
 const RISE_TIME := 0.35
 
 ## Das Herausziehen unterm Zeiger (wie eine Akte aus der Schublade): Anteil der
-## Höhe, um den die Kassette steigt, und die Zeit dafür. Ein gemalter Schein wäre
-## kein Griff - gegriffen wird der Körper selbst.
+## Höhe, um den die Kassette steigt, und die Zeit dafür. Nur so ist ein Griff in
+## der Grube überhaupt zu sehen - ein gemalter Schein läge unter dem Loch.
 const HOVER_LIFT := 0.42
 const HOVER_TIME := 0.16
 ## Derselbe Hub als Stellschraube der Zelle: ein Wirt darf ihn kappen, wenn über
@@ -220,7 +224,7 @@ var _body: Node3D
 var _cells: Array[Node3D] = []
 var _badge: Label3D
 ## Die Stückzahl auf der Kappe - die Marke der STEHENDEN Zelle. Die goldene
-## Schwebemarke oben bleibt der liegenden Lage; stehend schwebte sie über der Reihe.
+## Schwebemarke oben bleibt der liegenden Lage; aus der Grube ragte sie heraus.
 var _cap_badge: Label3D
 ## LIEGEND ist die Grundlage: die Tischkameras blicken fast senkrecht nach unten,
 ## und stehend fällt die Kassette dort zu einem schwarzen Strich zusammen.
@@ -233,13 +237,13 @@ var _show_share := 1.0
 var _count := 1
 var _dimmed := false
 ## Anzeige-Maßstab des KÖRPERS: eine Kassette in bloßer Würfelgröße läge in der
-## Reihe wie in ihrem Leser verloren. Magazin UND Schlitz stehen auf demselben
+## Grube wie in ihrem Leser verloren. Magazin UND Schlitz stehen auf demselben
 ## Maß (PackDrawerView.CASSETTE_SCALE) - eine Karte behält ihre Größe ihr ganzes
 ## Leben lang. Der Ursprung bleibt dabei auf dem Glas, skaliert wird darunter.
 var _body_scale := 1.0
 ## Steckt sie in einem Leseschlitz? Dann brennt die Kopfkante.
 var _socketed := false
-## Der Zeiger liegt auf ihr: sie hebt sich aus der Reihe und leuchtet auf.
+## Der Zeiger liegt auf ihr: sie steigt aus der Grube und leuchtet auf.
 var _hovered := false
 var _hover_share := 0.0
 var _hover_tween: Tween
@@ -323,8 +327,8 @@ func stack_size() -> int:
 	return _cells.size()
 
 ## Wie viele Kassetten wirklich zu sehen sind: STEHEND ist ein Bündel EINE Karte
-## mit ihrer Zahl auf der Kappe - eine Reihe in die Tiefe läse sich im Fach als
-## Fächer aus Slivern, nicht als Stapel.
+## mit ihrer Zahl auf der Kappe - eine Reihe in die Tiefe läse sich in der Grube
+## als Fächer aus Slivern, nicht als Stapel.
 func shown_cells() -> int:
 	var shown := 0
 	for cell in _cells:
@@ -348,7 +352,7 @@ func set_dimmed(on: bool) -> void:
 func dimmed() -> bool:
 	return _dimmed
 
-## Der Zeiger liegt auf ihr: sie zieht sich ein Stück aus der Reihe und leuchtet
+## Der Zeiger liegt auf ihr: sie zieht sich ein Stück aus der Grube und leuchtet
 ## auf, wie eine Akte, die man aus der Schublade hebt. Idempotent - der Abgleich
 ## darf sie je Bild rufen; ein laufendes Gleiten stört sie nicht, der Hub sitzt im
 ## Körper, nicht im Platz.
@@ -436,7 +440,7 @@ func body_scale() -> float:
 
 ## Der Anzeige-Maßstab verändert die STANDHÖHE, also auch, wie tief die Zelle
 ## unter ihrem Glaspunkt hängt: die Differenz wird sofort ausgeglichen, sonst
-## säße eine große Kassette in ihrem Schlitz zu hoch.
+## stünde eine große Kassette aus der Grube heraus.
 func _apply_body_scale(value: float) -> void:
 	var before := drop_for(_show_share)
 	_body_scale = value
@@ -458,9 +462,23 @@ func seat_hard(at: Vector3) -> void:
 	set_socketed(true)
 	global_position = at - Vector3.UP * drop_for(SUNK_SHOW)
 
-## Hart auf ihren MAGAZIN-Platz: stehend AUF der Tischfläche, mit voller Höhe über
-## dem Glas, nicht gesteckt. Das Gegenstück zu seat_hard - der eine idempotente
-## Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das Fach.
+## GRUBE (Magazin): hart auf ihren Magazin-Platz - stehend im Loch, Kopfkante
+## bündig unter der Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard - der
+## eine idempotente Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das
+## Fach. Genannt wird ihr GLASPUNKT, nicht ihre Einsinktiefe.
+func stand_in_pit(glass_at: Vector3) -> void:
+	_kill(_glide_tween)
+	_kill(_pose_tween)
+	_lying = false
+	_show_share = PIT_SHOW  # vor der Lage: sie entscheidet über die Marke
+	_set_pose_blend(1.0)
+	set_socketed(false)
+	global_position = glass_at - Vector3.UP * drop_for(PIT_SHOW)
+
+## FLÄCHE (Läden): hart stehend AUF der Tischfläche, mit voller Höhe über dem
+## Glas, nicht gesteckt - so steht eine Kassette dort, wo es kein Loch gibt.
+## Heute LIEGT jede Ware in einer Auslage; die stehende Lage hält der Aufstieg
+## offen (rise_through_glass ohne lying_pose), einen Wirt hat sie gerade nicht.
 func stand_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
@@ -470,10 +488,9 @@ func stand_on_glass(at: Vector3) -> void:
 	set_socketed(false)
 	global_position = at
 
-## Hart auf ihren Platz in einer VERKAUFS-Auslage: sie LIEGT dort auf der
-## Tischfläche, die große Fläche nach oben. Das Gegenstück zu stand_on_glass - im
-## Archiv steht die Kassette, in der Auslage liegt sie, und was der Aufrufer nennt,
-## ist beide Male ihr Platz.
+## FLÄCHE (Läden): hart auf ihren Platz in einer VERKAUFS-Auslage - sie LIEGT dort
+## auf der Tischfläche, die große Fläche nach oben. Im Archiv steht die Kassette,
+## in der Auslage liegt sie, und was der Aufrufer nennt, ist beide Male ihr Platz.
 func lie_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
@@ -493,10 +510,20 @@ static func lying_under(cell_scale: float) -> float:
 static func lying_over(cell_scale: float) -> float:
 	return (DEPTH + BEZEL_RISE) * cell_scale
 
-## Die Ankunft: die Kassette steigt DURCH die Tischfläche auf ihren Platz - unten
-## testet das opake Display sie weg, dann wächst sie heraus. Der ENDZUSTAND steht
-## zuerst (stand_on_glass bzw. lie_on_glass, byteweise derselbe) - gefahren wird
-## nur der Weg dorthin, damit ein übersprungener oder abgeräumter Tween nichts
+## GRUBE (Magazin): die Ankunft im Loch - die Kassette steigt aus dem Grubenboden
+## auf ihre versenkte Standhöhe. Der ENDZUSTAND steht zuerst (stand_in_pit,
+## byteweise derselbe) - gefahren wird nur der Weg dorthin, damit ein übersprungener
+## oder abgeräumter Tween nichts schuldig bleibt. from_below ist die Grubentiefe:
+## so tief startet sie, dass sie unter dem Boden liegt.
+func rise_into_pit(glass_at: Vector3, from_below: float, delay := 0.0,
+		time := RISE_TIME) -> void:
+	stand_in_pit(glass_at)
+	_start_rise(from_below, delay, time)
+
+## FLÄCHE (Läden): die Kassette steigt DURCH die Tischfläche auf ihren Platz -
+## unten testet das opake Display sie weg, dann wächst sie heraus. Der ENDZUSTAND
+## steht zuerst (stand_on_glass bzw. lie_on_glass, byteweise derselbe) - gefahren
+## wird nur der Weg dorthin, damit ein übersprungener oder abgeräumter Tween nichts
 ## schuldig bleibt. from_below < 0 heißt: ihr eigenes Körpermaß (rise_depth).
 func rise_through_glass(at: Vector3, delay := 0.0, time := RISE_TIME,
 		lying_pose := false, from_below := -1.0) -> void:
@@ -504,26 +531,31 @@ func rise_through_glass(at: Vector3, delay := 0.0, time := RISE_TIME,
 		lie_on_glass(at)
 	else:
 		stand_on_glass(at)
+	_start_rise(from_below if from_below >= 0.0 else rise_depth(), delay, time)
+
+## Der Weg NACH dem Endzustand: von so tief unten herauf auf die Stelle, an der die
+## Zelle schon steht. Beide Ankünfte teilen ihn - nur die Starttiefe unterscheidet
+## sie (Grubenboden bzw. eigenes Körpermaß).
+func _start_rise(from_below: float, delay: float, time: float) -> void:
 	_kill(_scale_tween)
 	visible = true
 	scale = Vector3.ONE
-	var deep := from_below if from_below >= 0.0 else rise_depth()
-	if time <= 0.0 or deep <= 0.0:
+	if time <= 0.0 or from_below <= 0.0:
 		return
 	var target := global_position
-	global_position = target - Vector3.UP * deep
+	global_position = target - Vector3.UP * from_below
 	_glide_tween = create_tween()
 	if delay > 0.0:
 		_glide_tween.tween_interval(delay)
 	var rise := _glide_tween.tween_property(self, "global_position", target, time)
 	rise.set_trans(Tween.TRANS_CUBIC)
 	rise.set_ease(Tween.EASE_OUT)
-	# Erst oben lodert sie: ein Ausbruch unter der Tischfläche sähe niemand.
+	# Erst oben lodert sie: ein Ausbruch unter der Fläche sähe niemand.
 	_glide_tween.tween_callback(flare)
 
-## Wie tief die Zelle unter der Tischfläche startet, bis nichts mehr von ihr über
-## dem Glas steht - ihr eigenes Körpermaß in der jeweiligen Lage. Das IST der Weg
-## des Aufstiegs; eine Grubentiefe gibt es nicht mehr.
+## Wie tief eine Zelle AUF der Fläche startet, bis nichts mehr von ihr über dem
+## Glas steht - ihr eigenes Körpermaß in der jeweiligen Lage. In der Grube nennt
+## der Aufrufer stattdessen deren Tiefe.
 func rise_depth() -> float:
 	if _lying:
 		return lying_over(_body_scale)
@@ -535,7 +567,7 @@ static func sunk_drop(show: float) -> float:
 	return HEIGHT * (1.0 - show)
 
 ## ... und als Instanz MIT dem Anzeige-Maßstab: eine gewachsene Kassette hängt
-## tiefer, sonst stünde ihre Kappe zu hoch aus ihrem Schlitz.
+## tiefer, sonst ragte ihre Kappe über den Grubenrand.
 func drop_for(show: float) -> float:
 	return HEIGHT * _body_scale * (1.0 - show)
 
@@ -986,8 +1018,8 @@ func _place_badge() -> void:
 	_sync_stack()
 	var standing := _pose_blend >= 0.5
 	if _cap_badge != null:
-		# STEHEND liegt die Zahl flach auf der Kappe: eine schwebende Marke stünde
-		# über der Reihe, und ein Bündel steht dort als EINE Karte.
+		# STEHEND liegt die Zahl flach auf der Kappe: aus der Grube ragte eine
+		# schwebende Marke heraus, und ein Bündel steht dort als EINE Karte.
 		_cap_badge.text = "×%d" % _count if _count > 1 else ""
 		_cap_badge.visible = _count > 1 and standing
 	_badge.text = "×%d" % _count if _count > 1 else ""
@@ -1015,7 +1047,7 @@ func _place_badge() -> void:
 
 ## Stehend ist ein Bündel EINE Karte (die Zahl steht auf ihrer Kappe); liegend
 ## liegt der Stapel als flacher Haufen da. Eine Reihe stehender Sliver läse sich
-## im Magazin-Feld als Fächer, nicht als Stück.
+## in der Grube als Fächer, nicht als Stück.
 func _sync_stack() -> void:
 	var standing := _pose_blend >= 0.5
 	for i in _cells.size():

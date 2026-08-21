@@ -171,6 +171,8 @@ const CLAMP_MATERIALIZE_STAGGER := 0.07
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
 ## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
+## Luftzuschlag auf die Grubentiefe über der höchsten angezeigten Kassette.
+const PACK_PIT_DEPTH_ROOM := 1.3
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
 const DATA_CELL_RAISE_TIME := 0.22
@@ -505,12 +507,17 @@ var _rising_packs: Dictionary = {}
 ## Nur der ZULETZT angestoßene Abgleich läuft nach dem gewarteten Bild weiter -
 ## sonst stellten zwei Aufbauten im selben Bild zwei Körper auf denselben Platz.
 var _data_cell_gen := 0
-## Der am Magazin-Streifen GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
-## dem Tisch, nicht dem Lauf: _sync_pack_capacity liest ihn ab, _connect_run schiebt
+## Die MAGAZIN-GRUBE: Wände, Boden und Kragen unter dem Loch, das screen_glass in
+## die Anzeige schneidet. Möbel wie die Trays - sie steht ab dem Aufbau und tritt
+## für keinen Ablauf ab. Die EINZIGE Grube des Tisches; die Läden stehen flächig.
+var pack_pit: PackPitView
+## Der an der Grube GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
+## dem Tisch, nicht dem Lauf: _sync_pack_pit liest ihn ab, _connect_run schiebt
 ## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
 ## keine Fenster).
 var _pack_capacity := 0
-## Der Filzboden rings um die Anzeige.
+## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
+## sonst blickt man durch das Loch auf Filz statt in die Vertiefung.
 var table_ground: TableGround
 ## Die LADEN-AUSLAGE: die Ware, die auf der Ladenseite steht. Sie hängt an dem
 ## Rechteck, das ShopController meldet (apron_bottom-Muster) - der Laden weiß vom
@@ -1006,7 +1013,7 @@ func _setup_table_screen() -> void:
 			hub_r.position.y + hub_r.size.y - workshop_rect.position.y
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
 		# der Körper darunter hängen alle an DIESEM Streifen.
-		_sync_pack_capacity(table_screen.workshop_window)
+		_sync_pack_pit(table_screen.workshop_window)
 	# Das AUSGABEFACH: die offene Schale rechts der Bank. Der Tisch misst ihr
 	# Rechteck an der Fensterkante, scene_root stellt den Körper darauf.
 	_place_ausgabefach()
@@ -2138,7 +2145,7 @@ func _fly_side_bet_to_hub() -> void:
 
 ## Sonderposten-Gewinn: er liegt als Fixinhalt-Paket im Magazin der Werkbank -
 ## der Komet fährt bis auf den reservierten Platz, und dort steigt die Kassette
-## durch die Tischfläche.
+## aus dem Grubenboden.
 func _fly_side_bet_special(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if pack == null:
@@ -2155,7 +2162,7 @@ func _fly_side_bet_special(pack: Pack) -> void:
 		_land_pack_in_magazine(workshop, pack.pack_uid, tint))
 
 ## Paket-Gewinn: erst in den Hub, dann die Werkstatt-Ader entlang auf den
-## Magazin-Platz - dort steigt die Kassette durch die Fläche.
+## Magazin-Platz - dort steigt die Kassette aus dem Grubenboden.
 func _fly_side_bet_pack(pack: Pack) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if pack == null:
@@ -2871,7 +2878,7 @@ func _sync_data_cells() -> void:
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		_drop_data_cells()
 		return
-	_sync_pack_capacity(workshop)
+	_sync_pack_pit(workshop)
 	_data_cell_gen += 1
 	var generation := _data_cell_gen
 	var launched := run
@@ -2885,24 +2892,46 @@ func _sync_data_cells() -> void:
 	_sync_socket_cells(workshop)
 	_flush_cell_pops()
 
-## Der MAGAZIN-Streifen: gemessen wird nur, wie viele Kassetten darauf stehen -
-## sie stehen AUF der Fläche, es gibt kein Loch mehr darunter. Idempotent:
-## dieselben Maße schreiben dasselbe.
-func _sync_pack_capacity(workshop: WorkshopView) -> void:
+## Die Grube unter dem Magazin: das Loch im Glas, der ausgeblendete Filz darunter
+## und der Körper, den man hindurch sieht. Idempotent - dieselben Maße schreiben
+## dasselbe. Die TIEFE ist der Stand einer größtmöglich angezeigten Kassette plus
+## Luft: was in der Grube steht, darf ihren Boden nie berühren.
+func _sync_pack_pit(workshop: WorkshopView) -> void:
+	if table_screen == null:
+		return
 	var rect := workshop.shelf_pit_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	# Der DECKEL des Magazins wird an DIESEM Rechteck gemessen: so viele Kassetten
-	# stehen darauf in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
+	# Der DECKEL des Magazins wird an DIESER Grube gemessen: so viele Kassetten
+	# stehen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
 	# entschieden werden - core misst keine Fenster.
 	_pack_capacity = PackDrawerView.capacity_for(rect.size, workshop.shelf_cell_px())
 	if run != null:
 		run.set_pack_capacity(_pack_capacity)
+	table_screen.set_apron_pit(rect, workshop.shelf_pit_radius())
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
+	if pack_pit == null or not is_instance_valid(pack_pit):
+		pack_pit = PackPitView.new()
+		add_child(pack_pit)
+	pack_pit.setup(table_screen.pixel_to_world(rect.get_center()), half,
+		_pack_pit_depth())
+	if table_ground != null and is_instance_valid(table_ground) \
+			and table_ground.felt_material != null:
+		table_ground.felt_material.set_shader_parameter("pit_min", pack_pit.bounds_min())
+		table_ground.felt_material.set_shader_parameter("pit_max", pack_pit.bounds_max())
+
+## Die Tiefe der Magazin-Grube: der Stand einer größtmöglich angezeigten Kassette
+## plus Luft. Sie ist zugleich die Strecke, die eine ankommende Zelle steigt -
+## darunter liegt sie ganz unter dem Boden.
+func _pack_pit_depth() -> float:
+	return DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
 
 # --- Die EINE Ankunft des Magazins ------------------------------------------
 # Wer auch immer liefert - Laden, Hub-Prämie, Charm, Nebenwette, Hinterzimmer -,
 # die Landung ist derselbe Vorgang: das Licht endet auf dem reservierten Platz,
-# und dort steigt die Kassette durch die Tischfläche.
+# und dort steigt die Kassette aus dem Grubenboden.
 
 ## Wohin ein Liefer-Licht fliegt: auf den ANKER seines reservierten Platzes. Das
 ## Fach antwortet auch, wenn es gerade nicht steht - dann gerechnet (anchor_in).
@@ -2921,7 +2950,7 @@ func _land_pack_in_magazine(workshop: WorkshopView, uid: int, tint: Color) -> vo
 	if table_screen != null:
 		table_screen.pack_arrival_flash(_pack_arrival_px(workshop, uid), tint)
 
-## Ein Abbruch mitten in einer Zeremonie darf keine Kassette unter der Fläche
+## Ein Abbruch mitten in einer Zeremonie darf keine Kassette unter dem Grubenboden
 ## vergessen: was noch schwebt, kommt sofort an.
 func _land_pending_packs(workshop: WorkshopView, uids: Array[int]) -> void:
 	for uid in uids:
@@ -3840,7 +3869,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		elif cell.glass_position().distance_to(target) > 0.01:
 			cell.glide_to(target, DATA_CELL_SLIDE_TIME)
 		else:
-			cell.stand_on_glass(target)
+			cell.stand_in_pit(target)
 		# Die ×n-Marke heißt jetzt BÜNDEL: mehrere Stücke in EINER Karte.
 		cell.set_count(maxi(pack.count, 1))
 		cell.set_dimmed(workshop.shelf_locked())
@@ -3848,15 +3877,15 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		# derselbe Glaspunkt.
 		cell.set_body_scale(workshop.shelf_cell_scale())
 
-## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie durch die Tischfläche
+## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie aus dem Grubenboden
 ## (und lodert oben selbst), sonst wächst sie an Ort und Stelle - ein Neuaufbau
 ## des Fensters ist keine Lieferung.
 func _show_shelf_cell(cell: DataCellView, uid: int, target: Vector3, fresh: int) -> void:
 	if _rising_packs.erase(uid):
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
-		cell.rise_through_glass(target, float(fresh) * DATA_CELL_STAGGER)
+		cell.rise_into_pit(target, _pack_pit_depth(), float(fresh) * DATA_CELL_STAGGER)
 		return
-	cell.stand_on_glass(target)
+	cell.stand_in_pit(target)
 	cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 
 ## Die Leseschlitze: je belegtem Platz eine Zelle, senkrecht im Tisch steckend.
@@ -3973,7 +4002,7 @@ func _spawn_data_cell(sort: String, tier: int, at: Vector3) -> DataCellView:
 	cell.global_position = at
 	return cell
 
-## Der Weg aus dem Feld in den Leseschlitz: erst STEIGT sie aus dem Magazin,
+## Der Weg aus der Grube in den Leseschlitz: erst STEIGT sie aus dem Magazin,
 ## dann gleitet sie über den Schlitz und fährt dort senkrecht in den Tisch, bis
 ## nur Kappe und Lichtsaum überstehen. Bei der Ankunft rastet sie mit einem
 ## Ausbruch ein. Dieselben drei Schläge wie eh - nur die Anfangslage ist neu.
@@ -4004,10 +4033,10 @@ func _seat_data_cell(cell: DataCellView, target: Vector3) -> void:
 	cell.set_socketed(true)
 	cell.flare()
 
-## Der Weg zurück ins Magazin: aus dem Schlitz steigen und aufrecht heim auf SEINEN
-## Platz gleiten - gekippt wird nichts mehr, im Magazin STEHEN die Kassetten auf
-## der Fläche. Der Anker wird erst NACH dem Neuaufbau geholt: das Fach hat sich
-## eben neu gelegt.
+## Der Weg zurück ins Magazin: aus dem Schlitz steigen, aufrecht heim auf SEINEN
+## Platz gleiten und dort in die Grube sinken - gekippt wird nichts mehr, im
+## Magazin STEHEN die Kassetten. Der Anker wird erst NACH dem Neuaufbau geholt:
+## das Fach hat sich eben neu gelegt.
 func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var launched := run
 	await get_tree().process_frame
@@ -4028,6 +4057,10 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	cell.glide_to(_data_cell_seat(workshop.pack_anchor_px(uid)), DATA_CELL_SLIDE_TIME)
 	cell.set_body_scale(workshop.shelf_cell_scale(), DATA_CELL_SLIDE_TIME)  # zurück ins Fachmaß
 	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
+	if run != launched or cell == null or not is_instance_valid(cell):
+		return
+	cell.plunge(DataCellView.PIT_SHOW, DATA_CELL_PLUNGE_TIME)
+	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
 	_finish_cell_return(cell, uid, run != null and run.pack_by_uid(uid) != null)

@@ -26,6 +26,12 @@ uniform vec2 screen_half = vec2(42.4, 62.4);
 uniform float pool_fade = 110.0;    // Weltstrecke des Auslaufs hinter der Screen-Kante
 uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-Ton der Kante
 
+// Die Magazin-Grube ist ein echtes Loch (siehe screen_glass.pit_rect): der Boden
+// darf nicht dahinterstehen, sonst blickt man auf Filz statt in die Grube.
+// Welt-XZ, min == max = kein Loch.
+uniform vec2 pit_min = vec2(0.0);
+uniform vec2 pit_max = vec2(0.0);
+
 varying vec2 world_xz;
 
 float hash21(vec2 p) {
@@ -48,6 +54,10 @@ void vertex() {
 }
 
 void fragment() {
+	if (pit_max.x > pit_min.x && world_xz.x > pit_min.x && world_xz.x < pit_max.x
+			&& world_xz.y > pit_min.y && world_xz.y < pit_max.y) {
+		discard;
+	}
 	// Virtuelle Display-UVs: Welt-Z = Screen-Breite, Welt-X = Screen-Höhe.
 	// Ein Vorzeichen-Irrtum spiegelte nur das Rauschen - das Rauten-Gitter
 	// ist spiegelsymmetrisch und bliebe trotzdem in Phase.

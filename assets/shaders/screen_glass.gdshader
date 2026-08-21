@@ -39,6 +39,14 @@ uniform vec4 window_rects[MAX_WINDOWS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float window_radius[MAX_WINDOWS]; // Eckenradius in Pixeln
 uniform vec2 screen_px = vec2(1.0, 1.0);  // Display-Auflösung (UV -> Pixel)
 
+// Das MAGAZIN ist ein echtes Loch im Tisch: innerhalb dieses Rechtecks wird die
+// Anzeige verworfen, damit der Blick in die Grube fällt (PackPitView stellt Wände
+// und Boden). Es ist das EINZIGE Loch der Anzeige - die Verkaufs-Auslagen stehen
+// flächig darauf. KEIN Fenster: es frisst keinen der MAX_WINDOWS-Plätze, und ein
+// Null-Rechteck heißt "kein Loch".
+uniform vec4 pit_rect = vec4(0.0);
+uniform float pit_radius = 0.0;
+
 // Abdeckung eines abgerundeten Fenster-Rechtecks am Pixel p (SDF, weiche
 // 4-Pixel-Kante, damit die Spiegelung am Rahmen nicht hart abreißt).
 float window_mask(vec2 p, vec4 rect, float radius) {
@@ -51,6 +59,10 @@ float window_mask(vec2 p, vec4 rect, float radius) {
 
 void fragment() {
 	vec2 pixel = UV * screen_px;
+	// Zuerst das Loch: was in der Grube liegt, wird gar nicht erst gezeichnet.
+	if (pit_rect.z > pit_rect.x && window_mask(pixel, pit_rect, pit_radius) > 0.5) {
+		discard;
+	}
 	vec3 ui = texture(screen_texture, UV).rgb;
 	vec2 mirror_uv = vec2(1.0 - SCREEN_UV.x, SCREEN_UV.y);
 	vec4 reflection = texture(reflection_texture, mirror_uv);

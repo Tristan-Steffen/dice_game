@@ -45,17 +45,18 @@ func test_das_loch_liegt_in_der_fassung() -> void:
 	assert_almost_eq(strip.end.y - hole.end.y, inset, 0.0001)
 	assert_almost_eq(hole.size.x, strip.size.x - inset * 2.0, 0.0001)
 
-func test_kein_shader_schneidet_noch_ein_loch() -> void:
-	# Der Untergrund ist tot: weder das Display-Glas noch der Filzboden verwerfen
-	# noch irgendwo ihr Bild.
+func test_keine_auslage_schneidet_ein_loch() -> void:
+	# Die Buchten stehen flächig: kein Vorhang, kein Vitrinen-Loch. Das EINZIGE
+	# Loch beider Shader ist die Magazin-Grube.
 	var glass: String = load("res://assets/shaders/screen_glass.gdshader").code
 	var ground: String = load("res://assets/shaders/table_ground.gdshader").code
-	for gone: String in ["vitrine_rects", "vitrine_open", "vitrine_hole", "pit_rect"]:
+	for gone: String in ["vitrine_rects", "vitrine_open", "vitrine_hole"]:
 		assert_false(glass.contains(gone), "das Glas kennt %s nicht mehr" % gone)
-	for gone: String in ["vitrine_open", "pit_min", "pit_max"]:
+	for gone: String in ["vitrine_min", "vitrine_max", "vitrine_open"]:
 		assert_false(ground.contains(gone), "der Boden kennt %s nicht mehr" % gone)
-	assert_false(glass.contains("discard"), "und nichts wird mehr verworfen")
-	assert_false(ground.contains("discard"))
+	assert_true(glass.contains("pit_rect"), "die Magazin-Grube bleibt das eine Loch")
+	assert_true(ground.contains("pit_min") and ground.contains("pit_max"),
+		"und hinter ihr steht kein Filz")
 
 # --- Die Plätze der Ware (reine Mathematik, keine Körper) ----------------------
 

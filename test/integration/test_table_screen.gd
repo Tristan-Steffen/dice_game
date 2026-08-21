@@ -661,7 +661,7 @@ func test_the_backroom_delivery_flies_at_comet_speed():
 
 # --- Die Ankunft am Magazin-Platz -----------------------------------------------
 # Kein Tauchgang mehr: das Licht endet auf dem Platz selbst, und der Blitz ist das
-# Letzte, was man davon sieht, bevor die Kassette durch die Fläche steigt.
+# Letzte, was man davon sieht, bevor die Kassette aus dem Grubenboden steigt.
 
 func test_the_arrival_flash_stands_on_the_spot_and_ignores_a_missing_one():
 	var before := screen.get_child_count()
@@ -670,3 +670,19 @@ func test_the_arrival_flash_stands_on_the_spot_and_ignores_a_missing_one():
 	screen.pack_arrival_flash(Vector2(-1, -1), Color.CYAN)
 	assert_eq(screen.get_child_count(), before + 1,
 		"ohne gemessenen Platz blitzt nichts")
+
+# --- Das EINE Loch der Anzeige (die Magazin-Grube) --------------------------------
+# Kein Fenster: es kostet keinen der MAX_WINDOWS-Plätze und hat eine eigene
+# Uniform. Die Verkaufs-Auslagen stehen flächig - ein zweites Loch gibt es nicht.
+
+func test_the_apron_pit_is_the_only_hole_and_keeps_its_rect():
+	var hole := Rect2(120, 640, 900, 150)
+	screen.set_apron_pit(hole, 7.0)
+	assert_eq(screen.apron_pit, hole, "die Grube behält ihr Rechteck")
+	assert_almost_eq(screen.apron_pit_radius, 7.0, 0.0001)
+	screen.set_apron_pit(Rect2(), 0.0)
+	assert_eq(screen.apron_pit.size, Vector2.ZERO, "ein Null-Rechteck heißt: kein Loch")
+
+func test_a_negative_pit_radius_is_refused():
+	screen.set_apron_pit(Rect2(10, 10, 20, 20), -4.0)
+	assert_almost_eq(screen.apron_pit_radius, 0.0, 0.0001)

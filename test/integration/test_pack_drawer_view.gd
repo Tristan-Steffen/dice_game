@@ -1,7 +1,7 @@
 extends GutTest
-## Tier-2-Tests des Magazins (PackDrawerView): EIN Streifen in der Schürze, je Paket
-## seine eigene STEHENDE Kassette in Spieler-Ordnung - sie stehen AUF der Fläche.
-## Gezählt und arbitriert wird in WorkshopView - hier steht nur, was liegt.
+## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube in der Schürze, je Paket
+## seine eigene STEHENDE Kassette in Spieler-Ordnung. Gezählt und arbitriert wird
+## in WorkshopView - hier steht nur, was liegt.
 
 ## Fußabdruck einer stehenden Kassette (Kappe: breit und flach).
 const CELL := Vector2(30, 12)
@@ -18,7 +18,7 @@ func _drawer(entries: Array[Dictionary], locked := false,
 	drawer.build(entries, 8.0, locked, CELL, row)
 	return drawer
 
-## Das FELD eines Streifens: der Streifen ohne seine gemalte Fassung -
+## Das FELD eines Streifens: die Grube, also der Streifen ohne seine Fassung -
 ## dort stehen die Kassetten, und daran misst sich jeder gerechnete Anker.
 func _field(row := Vector2(900, 150)) -> Rect2:
 	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, row), 8.0)
@@ -80,7 +80,7 @@ func test_spots_run_row_major_in_owner_order() -> void:
 
 func test_a_line_holds_what_fits_and_the_rest_flows_into_the_next_rank() -> void:
 	# Der Magazin-Deckel formt das Raster NICHT mehr: die Spaltenzahl folgt allein
-	# aus der Breite des Feldes und dem festen Kartenmaß.
+	# aus der Breite der Grube und dem festen Kartenmaß.
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
 	var card := CELL.x * PackDrawerView.CELL_SPAN * PackDrawerView.CASSETTE_SCALE
@@ -89,14 +89,14 @@ func test_a_line_holds_what_fits_and_the_rest_flows_into_the_next_rank() -> void
 	assert_eq(PackDrawerView.rows_for(field, CELL, columns + 1), 2,
 		"die nächste Kassette eröffnet den nächsten Rang")
 
-func test_the_ranks_start_at_the_top_of_the_field_and_grow_forward() -> void:
+func test_the_ranks_start_at_the_top_of_the_pit_and_grow_forward() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
 	var depth := PackDrawerView.slot_size(field, CELL, 1).y
 	assert_almost_eq(PackDrawerView.spot_for(0, 1, field, CELL).y, depth * 0.5, 0.01,
 		"der erste Rang liegt an der hinteren Kante")
 	assert_almost_eq(PackDrawerView.spot_for(columns, columns + 1, field, CELL).y,
-		depth * 1.5, 0.01, "und die neuen wachsen nach vorn ins leere Feld")
+		depth * 1.5, 0.01, "und die neuen wachsen nach vorn in die leere Grube")
 
 func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 	# Der ganze Punkt: eine Kassette schrumpft NIE - auch nicht jenseits des
@@ -114,8 +114,8 @@ func test_the_capacity_is_columns_times_the_ranks_that_fit() -> void:
 	assert_eq(PackDrawerView.capacity_for(field, CELL), columns * ranks,
 		"dieselbe Arithmetik wie das Raster")
 
-func test_the_capacity_lays_out_without_shrinking_and_within_the_field() -> void:
-	# Der Deckel ist so gewählt, dass das volle Feld noch in voller Größe steht.
+func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
+	# Der Deckel ist so gewählt, dass die volle Grube noch in voller Größe steht.
 	var field := _field().size
 	var capacity := PackDrawerView.capacity_for(field, CELL)
 	var grid := PackDrawerView.grid_for(field, CELL, capacity)
@@ -123,14 +123,14 @@ func test_the_capacity_lays_out_without_shrinking_and_within_the_field() -> void
 		"am Deckel wird nichts gedrückt")
 	var depth := float(grid["rows"]) * CELL.y * PackDrawerView.RANK_SPAN \
 		* PackDrawerView.CASSETTE_SCALE
-	assert_lte(depth, field.y + 0.001, "und die Ränge bleiben im Feld")
+	assert_lte(depth, field.y + 0.001, "und die Ränge bleiben in der Grube")
 
 func test_the_capacity_is_pure() -> void:
 	var field := _field().size
 	assert_eq(PackDrawerView.capacity_for(field, CELL),
 		PackDrawerView.capacity_for(field, CELL), "dieselbe Rechnung")
 	assert_gt(PackDrawerView.capacity_for(field * 2.0, CELL),
-		PackDrawerView.capacity_for(field, CELL), "ein größeres Feld fasst mehr")
+		PackDrawerView.capacity_for(field, CELL), "eine größere Grube fasst mehr")
 
 func test_the_grid_is_deterministic() -> void:
 	var field := _field().size
@@ -178,8 +178,8 @@ func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
 # --- Chip-Schalen-Regel: der Knopf zeichnet nichts --------------------------------
 
 func test_a_chip_draws_nothing_at_all() -> void:
-	# Kein gemalter Schein mehr: er läge unter dem Körper. Gegriffen wird die
-	# Kassette selbst, indem sie sich aus der Reihe zieht.
+	# Kein gemalter Schein mehr: er läge unter dem Loch. Gegriffen wird die
+	# Kassette selbst, indem sie sich aus der Grube zieht.
 	var drawer := _drawer([_entry(Pack.number_pack(), 4)] as Array[Dictionary])
 	var chip := drawer.pack_button(4)
 	assert_not_null(chip)
@@ -190,7 +190,7 @@ func test_a_chip_draws_nothing_at_all() -> void:
 
 func test_the_drawer_names_the_pack_under_the_pointer() -> void:
 	# GEFRAGT statt gemeldet: der Zeiger liegt auf dem Tisch, ein mouse_entered
-	# käme nie an - scene_root hebt daran den Körper aus der Reihe.
+	# käme nie an - scene_root hebt daran den Körper aus der Grube.
 	var drawer := _drawer([_entry(Pack.number_pack(), 4),
 		_entry(Pack.material_pack(), 5)] as Array[Dictionary])
 	await wait_frames(2)
@@ -214,20 +214,20 @@ func test_the_lock_bars_every_chip_and_dims_the_well() -> void:
 		"und die Sperre schlägt das Überfahren")
 
 func test_the_well_paints_only_its_frame() -> void:
-	# Auf der Mitte stehen die Kassetten - unter einem physischen Ding liegt kein
-	# gemalter Grund.
+	# Die Mitte ist ein echtes Loch (screen_glass.pit_rect) - ein gemalter Grund
+	# läge hinter nichts.
 	var drawer := _drawer([] as Array[Dictionary])
 	var well: Panel = drawer.get_node("DrawerWell")
 	var box: StyleBoxFlat = well.get_theme_stylebox("panel")
 	assert_false(box.draw_center, "die Fassung, nicht der Grund")
 	assert_gt(box.border_width_left, 0)
 
-func test_the_field_is_the_strip_minus_its_painted_frame() -> void:
+func test_the_pit_is_the_strip_minus_its_painted_frame() -> void:
 	var strip := Rect2(Vector2(40, 200), Vector2(900, 150))
 	var inset := PackDrawerView.rim_inset(8.0)
 	assert_gt(inset, 0.0)
 	assert_eq(PackDrawerView.pit_rect_in(strip, 8.0), strip.grow(-inset),
-		"das Feld endet, wo der Rahmen beginnt")
+		"das Loch endet, wo der Rahmen beginnt")
 
 # --- Auskunft ---------------------------------------------------------------------
 
@@ -277,7 +277,7 @@ func test_the_drawer_reports_the_scale_it_built_with() -> void:
 		"gemessen und gerechnet sind dasselbe Maß")
 
 func test_the_grip_is_the_whole_slot_minus_its_air() -> void:
-	# Ein Knopf im Kappenmaß gäbe einen Streifen von wenigen Pixeln.
+	# In der Grube gäbe ein Knopf im Kappenmaß einen Streifen von wenigen Pixeln.
 	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
 	await wait_frames(2)
 	var slot := PackDrawerView.slot_size(drawer.field.size, CELL, 1)
@@ -286,8 +286,8 @@ func test_the_grip_is_the_whole_slot_minus_its_air() -> void:
 	assert_gt(drawer.pack_button(1).size.y, CELL.y, "und er ist tiefer als die Kappe")
 
 func test_the_anchor_is_the_centre_of_its_spot() -> void:
-	# Die Kassette STEHT mittig auf ihrem Platz - über ihr schwebt nichts mehr,
-	# für das Kopfraum abzuziehen wäre.
+	# In der Grube STEHT die Kassette mittig auf ihrem Platz - über ihr schwebt
+	# nichts mehr, für das Kopfraum abzuziehen wäre.
 	var drawer := _drawer([_entry(Pack.number_pack(), 2)] as Array[Dictionary])
 	await wait_frames(2)
 	var chip := drawer.pack_button(2)
