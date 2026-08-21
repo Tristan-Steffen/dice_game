@@ -1209,8 +1209,6 @@ func _setup_panels() -> void:
 		table_screen.hub.attach_panel(lexikon_view)
 		lexikon_view.layout()
 		lexikon_view.close_requested.connect(_close_lexikon)
-		if charm_shop != null:
-			charm_shop.lexikon_requested.connect(open_lexikon)
 
 ## Einstellungs-Menü, Charm-Bibliothek und Testmodus-Knopf verdrahten. Das
 ## Menü lebt auf dem Display (HubView); die 2D-Knöpfe bleiben als Rückfall
@@ -3228,7 +3226,8 @@ func _sync_slit_visibility() -> void:
 
 ## Der Griff auf einen Stellplatz: die liegende Kassette hebt sich an und leuchtet
 ## auf - dieselbe Geste wie im Magazin. GEFRAGT je Bild (der Zeiger liegt auf dem
-## Tisch); die Beschriftung schreibt weiter der Knopf darunter.
+## Tisch). Mehr geschieht nicht: gesagt wird nichts, denn Kappe und Preisschild
+## tragen die Entscheidung selbst.
 func _sync_slit_hover() -> void:
 	if slit_cells.is_empty() or charm_shop == null or not is_instance_valid(charm_shop):
 		return
@@ -3251,8 +3250,9 @@ func _drop_slit_cells() -> void:
 	_slit_keys.clear()
 
 # --- Die Würfelnetze unter der Auslage -----------------------------------------
-# Steht die Schale, liegt unter jedem Würfel sein NETZ auf der Ladenseite:
-# dieselbe Zeichnung wie überall, nur als reine Auskunft ohne Maus. Sie sind fort,
+# Steht die Schale, liegen unter jedem Würfel sein NETZ, seine SEELEN-ZEILE und
+# sein PREIS auf der Ladenseite: dieselbe Zeichnung wie überall, nur als reine
+# Auskunft ohne Maus - die Ware trägt, was der Spieler wissen muß. Sie sind fort,
 # solange etwas steigt oder sinkt - eine Beschriftung unter einem fahrenden Würfel
 # wäre eine Lüge - und fort, solange die Auslage abgedeckt ist.
 
@@ -3269,16 +3269,19 @@ const VITRINE_NET_SHARE := 0.9
 ## er muß in der Reserve und im wirklichen Aufbau derselbe sein - sonst rechnete
 ## die Auslage mit einem anderen Netz, als die Seite später zeichnet.
 const VITRINE_NET_BAND_SHARE := 0.5
-## Der Platz des Preisschilds unter dem Netz (Luft plus Zeile), in Einheiten.
-const VITRINE_NET_PRICE := 3.0
+## Der Platz der BESCHRIFTUNG unter dem Netz, in Einheiten: Luft, Seelen-Zeile,
+## Luft, Preisschild. Die Ware sagt hier selbst, was in ihr steckt und was sie
+## kostet - dafür gibt der Beschriftungs-Streifen die Tiefe her.
+const VITRINE_NET_LABELS := 6.4
 
 ## Das Zellmaß der Buchten-Netze - EINE Quelle: die gemessene Teilung deckelt es,
 ## das freie Band ebenfalls.
 static func _vitrine_net_cell(pitch: float, band: float) -> float:
 	return DieNetView.cell_for(Vector2(pitch * VITRINE_NET_SHARE, band))
 
-## Was die Beschriftung VOR der Schale beansprucht, in Welt-Tiefe: Luft, Netz
-## und Preisschild - gemessen ab dem ANKER des Würfels, denn dort hängt sie an.
+## Was die Beschriftung VOR der Schale beansprucht, in Welt-Tiefe: Luft, Netz,
+## Seelen-Zeile und Preisschild - gemessen ab dem ANKER des Würfels, denn dort
+## hängt sie an.
 ## Gerechnet aus der TEILUNG allein: so hängt der Platz der Würfel nicht an dem
 ## Band, das er selbst erst freiläßt.
 func _vitrine_label_reserve() -> float:
@@ -3297,7 +3300,7 @@ func _vitrine_label_reserve() -> float:
 	var pitch := rect.size.x * (1.0 - VitrineView.EDGE_MARGIN * 2.0) / float(count)
 	var cell := _vitrine_net_cell(pitch, rect.size.y * VITRINE_NET_BAND_SHARE)
 	var block := unit * VITRINE_NET_GAP + DieNetView.net_size(cell).y \
-		+ unit * VITRINE_NET_PRICE
+		+ unit * VITRINE_NET_LABELS
 	return block * _vitrine_depth_per_pixel(rect)
 
 ## Wieviel Welt-TIEFE ein Display-Pixel der Bucht wert ist (Pixel-y = Welt-x).
@@ -3344,8 +3347,8 @@ func _sync_vitrine_nets() -> void:
 	var deepest := 0.0
 	for anchor in anchors:
 		deepest = maxf(deepest, anchor.y)
-	# Das Preisschild hängt unter dem Netz und zählt zum Band.
-	var band := rect.size.y - deepest - gap - margin - unit * VITRINE_NET_PRICE
+	# Seelen-Zeile und Preisschild hängen unter dem Netz und zählen zum Band.
+	var band := rect.size.y - deepest - gap - margin - unit * VITRINE_NET_LABELS
 	# Derselbe Deckel wie in der Reserve: sonst zeichnete die Seite ein anderes
 	# Netz, als die Auslage beim Stellen der Würfel eingeplant hat.
 	band = minf(band, rect.size.y * VITRINE_NET_BAND_SHARE)
@@ -3356,31 +3359,13 @@ func _sync_vitrine_nets() -> void:
 		var pos := Vector2(anchors[i].x - span.x * 0.5, anchors[i].y + gap)
 		pos.x = clampf(pos.x, margin, maxf(margin, rect.size.x - span.x - margin))
 		pos.y = clampf(pos.y, margin,
-			maxf(margin, rect.size.y - span.y - margin - unit * VITRINE_NET_PRICE))
+			maxf(margin, rect.size.y - span.y - margin - unit * VITRINE_NET_LABELS))
 		entries.append({"def": defs[i], "pos": pos})
 	charm_shop.set_die_nets(entries, cell)
 
 func _clear_vitrine_nets() -> void:
 	if charm_shop != null and is_instance_valid(charm_shop):
 		charm_shop.clear_die_nets()
-
-## Die Netze beantworten den Zeiger: Zelle = ihre Zeile, Essenz-Ecke = die Seele.
-## GEFRAGT je Bild wie jede andere Auskunft der Auslage, mit eigenem Kürzel - so
-## wischt kein Sprecher den Text eines anderen weg.
-func _sync_vitrine_net_hover() -> void:
-	var rect := _shop_bay_rect()
-	if rect.size.x <= 0.0:
-		charm_shop.clear_info(ShopController.INFO_NETS)
-		return
-	var pixel := _screen_pixel(get_viewport().get_mouse_position())
-	if pixel.x < 0.0:
-		charm_shop.clear_info(ShopController.INFO_NETS)
-		return
-	var data := charm_shop.net_hint_at(pixel)
-	if data.is_empty():
-		charm_shop.clear_info(ShopController.INFO_NETS)
-		return
-	charm_shop.show_info(ShopController.INFO_NETS, data)
 
 # --- Griff und Beschriftung in der Auslage -------------------------------------
 
@@ -3397,15 +3382,9 @@ func _sync_vitrine_hover() -> void:
 	_sync_slit_visibility()
 	_sync_slit_hover()
 	if charm_shop != null and is_instance_valid(charm_shop):
-		# Der Laden schreibt seine Auskunft auf den HINWEIS-SCHIRM: ein Würfel nennt
-		# seinen Preis auf derselben Anzeige wie jede andere Ware des Ladens.
-		_paint_bay_hover(shop_vitrine, _shop_bay_rect(), charm_shop.vitrine_annotation,
-			func(data: Dictionary, _anchor: Vector2) -> void:
-				charm_shop.show_info(ShopController.INFO_BAY, data),
-			func() -> void: charm_shop.clear_info(ShopController.INFO_BAY))
-		# Und danach das SPEZIFISCHERE: liegt der Zeiger auf einem Würfelnetz,
-		# nennt es die Seite statt den Würfel. Die Reihenfolge IST die Regel.
-		_sync_vitrine_net_hover()
+		# Im Laden HEBT der Griff nur - gesagt wird nichts: unter jedem Würfel liegen
+		# sein Netz, seine Seelen-Zeile und sein Preis, und die stehen ohne Zeiger da.
+		_paint_bay_hover(shop_vitrine, _shop_bay_rect())
 	var market := _secret_window()
 	if market != null:
 		_paint_bay_hover(secret_vitrine, _secret_bay_rect(), market.vitrine_annotation,
@@ -3414,19 +3393,20 @@ func _sync_vitrine_hover() -> void:
 			func() -> void: market.hide_bay_annotation(),
 			market.bay_annotation_has_point)
 
-## Griff und Auskunft EINER Auslage. Ein leeres Rechteck heißt: abgedeckt oder
-## weggezoomt - dann ist nichts greifbar und nichts beschriftet. WOHIN die
-## Auskunft geht, entscheidet der Wirt: das Hinterzimmer auf seine Karte, der
-## Laden auf seinen Schirm. holds meldet, ob der Zeiger auf der stehenden
-## Beschriftung liegt - dort bleibt alles, wie es steht (ihre Schlüsselwörter sind
-## Klickziele).
-func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate: Callable,
-		show: Callable, hide: Callable, holds := Callable()) -> void:
+## Griff und (wo es eine gibt) Beschriftung EINER Auslage. Ein leeres Rechteck
+## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Der LADEN greift
+## nur (seine Ware trägt ihre Auskunft selbst und übergibt keine Callables), das
+## Hinterzimmer schreibt zusätzlich auf seine Fenster-Karte. holds meldet, ob der
+## Zeiger auf der stehenden Karte liegt - dort bleibt alles, wie es steht (ihre
+## Schlüsselwörter sind Klickziele).
+func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
+		show := Callable(), hide := Callable(), holds := Callable()) -> void:
 	if bay == null or not is_instance_valid(bay):
 		return
 	if rect.size.x <= 0.0:
 		bay.set_hovered("", -1)
-		hide.call()
+		if hide.is_valid():
+			hide.call()
 		return
 	var pixel := _screen_pixel(get_viewport().get_mouse_position())
 	if pixel.x >= 0.0 and holds.is_valid() and bool(holds.call(pixel)):
@@ -3434,14 +3414,18 @@ func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate: Callable,
 	var item := _bay_item_at(bay, rect, pixel)
 	if item.is_empty():
 		bay.set_hovered("", -1)
-		hide.call()
+		if hide.is_valid():
+			hide.call()
 		return
 	var kind: String = item["kind"]
 	var index: int = item["index"]
 	bay.set_hovered(kind, index)
+	if not annotate.is_valid() or not show.is_valid():
+		return
 	var data: Dictionary = annotate.call(kind, index)
 	if data.is_empty():
-		hide.call()
+		if hide.is_valid():
+			hide.call()
 		return
 	show.call(data, table_screen.world_to_pixel(item["spot"]))
 

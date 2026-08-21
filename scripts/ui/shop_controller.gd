@@ -3,13 +3,18 @@ extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
 ## Tisch-Displays, bedient über die Maus-Weiterleitung. Die Seite liest sich von
 ## oben nach unten als vier Bänder mit FESTEN Anteilen: CHARM-ZEILE (digitale
-## Ware, die als Karte bleibt), das Info-Band (links der
-## HINWEIS-SCHIRM - die EINE Anzeige, auf der jede Auskunft des Ladens steht -,
-## rechts die KASSETTEN-PLÄTZE, auf denen die versiegelte Ware LIEGT), darunter
-## die VITRINE mit den offenen Würfeln und zuletzt der Fuß. Kein Band wächst mit
-## Lizenzstufe oder Bestand. Körper zeichnet dieser Laden nie selbst; er MELDET
-## Rechtecke und Inhalte nach oben (vitrine_rect_px/vitrine_stock,
+## Ware, die als Karte bleibt und ihren VOLLEN Wirkungstext beim Hover zeigt), das
+## GRAVUREN-Band mit den KASSETTEN-PLÄTZEN, auf denen die versiegelte Ware LIEGT,
+## darunter die VITRINE mit den offenen Würfeln und zuletzt der Fuß. Kein Band
+## wächst mit Lizenzstufe oder Bestand. Körper zeichnet dieser Laden nie selbst;
+## er MELDET Rechtecke und Inhalte nach oben (vitrine_rect_px/vitrine_stock,
 ## slit_anchors/slit_stock), aufgestellt wird alles von scene_root.
+## DIE WARE TRÄGT IHRE AUSKUNFT SELBST: es gibt keinen Hinweis-Schirm mehr. Die
+## Charm-Karte trägt ihren Effekttext an der Stelle ihres Modells (Hover-Tausch,
+## kein Reflow), die Kappe der Kassette ihre Sorte und
+## Größe, und unter jedem Würfel liegen sein Netz, seine Seelen-Zeile und sein
+## Preis. Die körperliche Ware braucht dafür keinen Zeiger, die Charm-Karte nur
+## ihren eigenen.
 ## "Umblättern" auf eine NEUE Seite würfelt frische Angebote aus und kostet eine
 ## steigende Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind
 ## gratis erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden;
@@ -23,8 +28,6 @@ signal pack_purchased(from_px: Vector2, uid: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht in die Truhe.
 signal pack_refunded(from_px: Vector2, amount: int)
-## Ein Schlüsselwort im Tooltip wurde geklickt - scene_root schlägt das Lexikon auf.
-signal lexikon_requested(entry_id: String)
 ## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
 ## stellt die Körper nach. Der Laden fasst nie einen an.
 signal vitrine_changed
@@ -42,23 +45,11 @@ const KIND_SPECIAL := "special"
 const GRADE_STAND := "stand"
 const GRADE_RISE := "rise"
 
-## Was auf der Beschriftung statt des Preises steht, wenn das Lager zu ist.
+## Was statt eines Preises steht, wenn das Lager zu ist - ein Kauf, der stumm
+## scheitert, wäre schlimmer als eine Zahl weniger. Die lange Fassung trägt die
+## Karte des Hinterzimmers, die kurze das schmale Preisschild einer Kassette.
 const FULL_TAG := "MAGAZIN VOLL"
-## Und wenn der Charm-Dock zu ist.
-const DOCK_TAG := "DOCK VOLL"
-
-## Die drei Sprecher des Hinweis-Schirms. Jeder nimmt nur seinen EIGENEN Text
-## zurück: die Bucht fragt je Bild, die Karten melden - ohne das Kürzel löschte
-## die eine Quelle, was die andere eben geschrieben hat.
-const INFO_CHARM := "charm"
-const INFO_SLIT := "slit"
-const INFO_BAY := "bay"
-## Die Netze unter der Ware sind der SPEZIFISCHERE Sprecher der Bucht: was sie
-## sagen, schlägt die Grundzeile des Würfels darüber.
-const INFO_NETS := "nets"
-## Und die gesperrten Blätter-Pfeile: eine gesperrte Funktion erklärt sich auf dem
-## Schirm, nicht in einem Satz im Fuß.
-const INFO_PAGER := "pager"
+const FULL_MARK := "VOLL"
 
 const CHARM_PRICE := 15
 
@@ -104,55 +95,27 @@ const HUB_BUTTON_ACCENT := Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.5)
 ## Das Schloss auf einem gesperrten Blätter-Pfeil - dasselbe Zeichen wie an der
 ## Sortiment-Sperre.
 const PAGER_LOCK := "🔒"
-## Was der Schirm sagt, wenn der Zeiger auf einem gesperrten Pfeil liegt.
-const PAGER_LOCK_TITLE := "Blättern"
-const PAGER_LOCK_BODY := "Blättern ab Hub-Stufe 2."
+
+## Der gesperrte Pfeil ERKLÄRT SICH SELBST: Schloss plus die Stufe, ab der er
+## aufgeht. Kein Hover, kein zweites Element - die Aufschrift IST die Auskunft.
+static func pager_lock_text() -> String:
+	return "%s %d" % [PAGER_LOCK, GameRun.HUB_FLIPPING_LEVEL]
 
 ## Der STELLPLATZ eines Kassetten-Schlitzes: die Ware LIEGT dort flach auf der
 ## Fläche, gemessen wird also ihr liegender Grundriß (Breite × Höhe der Karte)
 ## im EINEN Anzeigemaß (PackDrawerView.CASSETTE_SCALE), plus Stellluft. Die
 ## u-Maße sind nur ihr Boden, solange kein Grundriß gemeldet ist.
-const SLIT_ROOM := 1.12
+## Seit die Reihe das GANZE Band bekommt (der Schirm daneben ist tot), ist Breite
+## keine Not mehr - die Stellluft steht auf einem bequemen Maß. Die Höhe ist die
+## verbliebene Fessel: sie bestimmt das Band, und was das Band nimmt, fehlt der
+## Bucht (gemessen: 1,3 kostet die Auslage 15 px).
+const SLIT_ROOM := 1.3
 const SLIT_MIN_WIDTH := 5.4
 const SLIT_MIN_HEIGHT := 8.0
-## Sitzhöhe eines Platzes und die Luft zwischen zwei Stellplätzen. Vier liegende
-## Karten samt Fugen müssen ins Drittel - die Fuge ist deshalb schmal.
+## Sitzhöhe eines Platzes und die Luft zwischen zwei Stellplätzen. Die Reihe steht
+## jetzt über der vollen Seitenbreite, die Fuge darf also atmen.
 const SLIT_SEAT_HEIGHT := 4.2
-const SLIT_GAP := 1.2
-
-## Der HINWEIS-SCHIRM: feste Höhe, fester Platz - er STEHT dunkel und leer, bis
-## der Zeiger etwas findet. Text auf blankem Grund wäre Text im Nichts.
-## Die Höhe ist knapp bemessen: der Schirm trägt die längste Auskunft des Ladens,
-## aber die Schriftgrade walken sich ohnehin ein - was er nicht braucht, gehört
-## der Charm-Zeile, die jetzt Modelle über ihren Karten trägt.
-const INFO_HEIGHT := 16.0
-const INFO_PAD := 1.0
-const INFO_LINE_GAP := 0.4
-const INFO_TITLE := 2.6
-const INFO_BODY := 1.9
-const INFO_PRICE := 2.2
-## Höchster Anteil des Schirms, den die Kennung belegen darf - die Wirkung
-## darunter braucht den Rest.
-const INFO_TITLE_SHARE := 0.4
-## Schriftgrade, von voll abwärts: genommen wird der erste, dessen Umbruch noch
-## in den Schirm paßt (die Grammatik des Werkbank-Schirms).
-const INFO_TITLE_STEPS := [2.6, 2.25, 1.95, 1.7, 1.45, 1.25]
-const INFO_BODY_STEPS := [1.9, 1.68, 1.48, 1.3, 1.15, 1.0, 0.88, 0.78]
-
-## Der Schirm im LEERLAUF: das größte Element der Seitenmitte darf nicht das Auge
-## auf nichts ziehen. Ohne Inhalt verliert er seinen hellen Rahmen - dunkel, Saum
-## stark gedimmt, aber NIE weg: das Fixture bleibt ablesbar. Der Wechsel wartet
-## eine kurze Gnadenfrist ab, damit ein Hover-Wackler ihn nicht flackern läßt;
-## aufgehellt wird sofort.
-const INFO_IDLE_GRACE := 0.3
-const INFO_IDLE_FADE := 0.22
-const INFO_IDLE_BG := Color("#0d0b20aa")
-const INFO_IDLE_BORDER_ALPHA := 0.2
-## Die Leerlaufzeile: eine Gebrauchszeile, klein und weit unter den Inhaltsfarben -
-## sie darf aus zwei Metern Nichtssagen bestehen, nie mit Auskunft verwechselbar.
-const INFO_IDLE_TEXT := "Zeige auf eine Ware."
-const INFO_IDLE_FONT := 1.8
-const INFO_IDLE_COLOR := Color(0.66, 0.7, 0.85, 0.42)
+const SLIT_GAP := 2.4
 
 ## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
 static func single_die_price(offer_price: int) -> int:
@@ -189,14 +152,17 @@ class MenuSpread:
 	## hängt der Ankunfts-Grad: was noch nie da war, wird gewürfelt, nicht abgerufen.
 	var presented := false
 
-## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed,
-## damit sich die Kaufbarkeit auch bei Geldzugängen von außen aktualisiert.
+## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed und
+## packs_changed, damit Kaufbarkeit und Magazin-Marke auch bei Änderungen von
+## außen (Pressen, Prämien) nachziehen.
 var run: GameRun:
 	set(value):
 		if run != null and run.money_changed.is_connected(_on_run_money_changed):
 			run.money_changed.disconnect(_on_run_money_changed)
 		if run != null and run.charms_changed.is_connected(_on_run_charms_changed):
 			run.charms_changed.disconnect(_on_run_charms_changed)
+		if run != null and run.packs_changed.is_connected(_on_run_packs_changed):
+			run.packs_changed.disconnect(_on_run_packs_changed)
 		run = value
 		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
 		sortiment_locked = false
@@ -206,6 +172,7 @@ var run: GameRun:
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
+			run.packs_changed.connect(_on_run_packs_changed)
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
@@ -244,26 +211,6 @@ var _slit_prices: Array[Label] = []
 ## Je Platz {kind, index} - die Zahl hängt an der LIZENZ, nicht an der Auslage.
 var _slit_seats: Array[Dictionary] = []
 
-## Der HINWEIS-SCHIRM und wer gerade auf ihm steht.
-var info_screen: Panel
-var info_title: Label
-## RichTextLabel statt Label: die Schlüsselwörter im Text sind Lexikon-Verweise.
-var info_body: RichTextLabel
-var info_price: Label
-## Die Leerlaufzeile hängt FREI im Schirm (nicht in der Textspalte) - sonst
-## verschöbe sie die Auskunft, sobald sie ein- oder ausblendet.
-var info_idle: Label
-var _info_source := ""
-## Der NACKTE Wirkungstext - gemessen wird er, nicht sein BBCode.
-var _info_body_text := ""
-## Der Rahmen des Schirms und wie hell er gerade steht (1 = Inhalt, 0 = Leerlauf).
-var _info_box: StyleBoxFlat
-var _info_lit := 0.0
-## Was zuletzt wirklich gezeichnet wurde (-1 = noch nie) - der Schirm wird je Bild
-## gefragt, gemalt wird er nur bei echter Änderung.
-var _info_lit_applied := -1.0
-var _info_tween: Tween
-
 ## Fußabdruck einer LIEGENDEN Kassette in Display-Pixeln (meldet scene_root).
 ## Daran ist der Stellplatz geschnitten - ein Weltmaß, kein u-Maß.
 var data_cell_lie_px := Vector2.ZERO:
@@ -284,14 +231,15 @@ var _standing_spread: MenuSpread = null
 var _vitrine_grade := GRADE_STAND
 ## Unterschrift der stehenden Würfelnetze - gleiche Unterschrift, kein Neuaufbau.
 var _net_signature := ""
-## Wessen Netz an welcher Stelle des Layers hängt, und in welchem Zellmaß - die
-## Hover-Auskunft der Netze fragt beides ab.
+## Wessen Netz an welcher Stelle des Layers hängt - daran hängen die beiden Zeilen
+## darunter.
 var _net_dice: Array[DieDefinition] = []
-var _net_views: Array[Control] = []
-## Je Netz sein Preisschild darunter - dieselbe Quelle wie der Kauf
-## (single_dice_prices), nur klein und an der Ware.
+## Je Netz sein Preisschild - dieselbe Quelle wie der Kauf (single_dice_prices),
+## nur klein und an der Ware.
 var _net_prices: Array[Label] = []
-var _net_cell := 0.0
+## Und dazwischen die SEELEN-ZEILE: der Name der Essenz im Glühton der Essenz. Sie
+## steht IMMER (kein Hover) und bleibt leer, wo kein Würfel eine Seele hat.
+var _net_souls: Array[Label] = []
 
 ## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
@@ -308,6 +256,10 @@ var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 ## Je Karte ihr Kartenbild - daran ist das schwebende Modell darüber gemessen.
 var charm_thumbs: Array[Control] = []
+## Die zwei Gesichter der Mittelfläche je Karte: im Ruhezustand steht die Bühne
+## mit dem Modell, beim Hover der Wirkungstext. Immer genau eines ist sichtbar.
+var charm_stages: Array[Control] = []
+var charm_effects: Array[Label] = []
 var charm_bought: Array[bool] = []
 var engraving_packs: Array[Pack] = []
 var engraving_pack_bought: Array[bool] = []
@@ -360,7 +312,6 @@ func _relayout_and_show() -> void:
 ## Kopfzeile (Titel + Geld), Inhalts-Bereich (Charms oben, Angebote unten),
 ## Fußbereich (Blättern + Fertig). Der Neon-Rahmen kommt vom Hub darunter.
 func _build_layout() -> void:
-	_kill_info_tween()  # der alte Schirm wird gleich freigegeben
 	for child in get_children():
 		child.queue_free()
 	u = maxf(size.x, 640.0) / 100.0
@@ -421,36 +372,22 @@ func _build_layout() -> void:
 	content_root.custom_minimum_size = Vector2(0.0, u * BAND_CHARM_UNITS)
 	root.add_child(content_root)
 
-	# EIN Band unter den Karten: links der Schirm (zwei Drittel der Breite),
-	# rechts stehen die Kassetten-Schlitze in seinem Drittel - der Schirm war
-	# allein zu breit, und die Reihe braucht keine eigene Zeile. Beide stehen
-	# UNABHÄNGIG von der Doppelseite - ein Kauf baut sie nicht um.
-	var info_band := HBoxContainer.new()
-	info_band.name = "InfoBand"
-	info_band.add_theme_constant_override("separation", int(u * 1.6))
-	root.add_child(info_band)
-	info_screen = _build_info_screen()
-	info_screen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info_screen.size_flags_stretch_ratio = 2.0
-	info_band.add_child(info_screen)
-	# Die Reihe steht mittig in ihrem Drittel, unter dem Zonentitel in der
-	# Charm-Regal-Grammatik; ihre Stellplätze melden weiter globale Rects, die
-	# stehenden Kassetten folgen also von allein.
-	var slit_third := VBoxContainer.new()
-	slit_third.name = "SlitThird"
-	slit_third.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
-	slit_third.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slit_third.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slit_third.size_flags_stretch_ratio = 1.0
-	slit_third.add_child(_heading_row("GRAVUREN", _tinted(NEON_CYAN), ""))
+	# EIN Band unter den Karten, und es gehört ganz der GRAVUREN-Reihe: seit der
+	# Hinweis-Schirm tot ist, steht sie mittig über der vollen Seitenbreite. Sie
+	# steht UNABHÄNGIG von der Doppelseite - ein Kauf baut sie nicht um.
+	var gravur_band := VBoxContainer.new()
+	gravur_band.name = "GravurBand"
+	gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
+	gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gravur_band.add_child(_heading_row("GRAVUREN", _tinted(NEON_CYAN), ""))
 	var slit_center := CenterContainer.new()
 	slit_center.name = "SlitCenter"
 	slit_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slit_center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	slit_row = _build_slit_row()
 	slit_center.add_child(slit_row)
-	slit_third.add_child(slit_center)
-	info_band.add_child(slit_third)
+	gravur_band.add_child(slit_center)
+	root.add_child(gravur_band)
 
 	# Die Bucht bekommt die ganze Resthöhe: sie ist die Auslage, nicht ein Fach
 	# darin. Gemalt wird allein die FASSUNG - die Ware steht körperlich darauf.
@@ -489,16 +426,12 @@ func _build_layout() -> void:
 	root.add_child(footer)
 	page_back_button = _neon_button("‹", NEON_CYAN, u * 3.2, Vector2(u * 7.0, u * 5.0))
 	page_back_button.pressed.connect(_on_page_back_pressed)
-	page_back_button.mouse_entered.connect(_on_pager_hovered)
-	page_back_button.mouse_exited.connect(clear_info.bind(INFO_PAGER))
 	footer.add_child(page_back_button)
 	page_label = _label("Seite 1", u * 2.8, NEON_MUTED)
 	page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	footer.add_child(page_label)
 	page_next_button = _neon_button("›", NEON_CYAN, u * 3.2, Vector2(u * 12.0, u * 5.0))
 	page_next_button.pressed.connect(_on_page_next_pressed)
-	page_next_button.mouse_entered.connect(_on_pager_hovered)
-	page_next_button.mouse_exited.connect(clear_info.bind(INFO_PAGER))
 	footer.add_child(page_next_button)
 	var footer_spacer := Control.new()
 	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -602,9 +535,10 @@ func _slit_seat(seat: int) -> Button:
 	tag.size = Vector2(pad_size.x, price_height)
 	button.add_child(tag)
 	_slit_prices.append(tag)
+	# Nur der KLICK hängt hier: das Anheben der liegenden Kassette fragt scene_root
+	# je Bild ab (der Zeiger liegt auf dem Tisch), und gesagt wird nichts mehr -
+	# Kappe und Preisschild tragen die Entscheidung.
 	button.pressed.connect(_on_slit_pressed.bind(seat))
-	button.mouse_entered.connect(_on_slit_hovered.bind(seat))
-	button.mouse_exited.connect(clear_info.bind(INFO_SLIT))
 	return button
 
 ## Der Stellplatz ist eine flache Marke im Kartengrundriß - eine Karte liegt
@@ -663,15 +597,6 @@ func _on_slit_pressed(seat: int) -> void:
 	else:
 		_on_pack_buy_pressed(int(entry["index"]))
 
-func _on_slit_hovered(seat: int) -> void:
-	if seat < 0 or seat >= _slit_seats.size():
-		return
-	var entry := _slit_seats[seat]
-	if _slit_pack(entry) == null:
-		clear_info(INFO_SLIT)
-		return
-	show_info(INFO_SLIT, vitrine_annotation(String(entry["kind"]), int(entry["index"])))
-
 ## Der Platz EINES Angebots (-1 = keiner) - der Kauf-Komet startet dort.
 func _seat_of(kind: String, index: int) -> int:
 	for i in _slit_seats.size():
@@ -711,56 +636,48 @@ func set_die_nets(entries: Array, cell: float) -> void:
 	_drop_die_nets()
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
 		return
-	_net_cell = cell
 	var span := DieNetView.net_size(cell)
-	var price_height := ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
+	var font := ThemeDB.fallback_font
+	var soul_height := font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
+	var price_height := font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
 		var net := DieNetView.build(def, VitrineView.die_up_face(), cell)
 		net.position = entry["pos"]
 		vitrine_nets.add_child(net)
 		_net_dice.append(def)
-		_net_views.append(net)
-		# Das Preisschild hängt UNTER dem Netz - dieselbe Zahl, die der Kauf zahlt.
+		# Unter dem Netz die SEELE, darunter der PREIS - die Ware sagt selbst, was
+		# in ihr steckt und was sie kostet. Beide Zeilen stehen immer, damit die
+		# Reihe nicht je Würfel anders hoch wird.
+		var soul_y: float = entry["pos"].y + span.y + u * WARE_PRICE_GAP
+		var essence := Essence.by_id(def.essence_id)
+		var soul := _label(essence.display_name if essence != null else "",
+			u * WARE_SOUL_FONT, soul_tint(def.essence_id), HORIZONTAL_ALIGNMENT_CENTER)
+		soul.position = Vector2(entry["pos"].x, soul_y)
+		soul.size = Vector2(span.x, soul_height)
+		vitrine_nets.add_child(soul)
+		_net_souls.append(soul)
 		var tag := _label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-		tag.position = entry["pos"] + Vector2(0.0, span.y + u * WARE_PRICE_GAP)
+		tag.position = Vector2(entry["pos"].x, soul_y + soul_height + u * WARE_PRICE_GAP)
 		tag.size = Vector2(span.x, price_height)
 		vitrine_nets.add_child(tag)
 		_net_prices.append(tag)
 	_refresh_ware_prices()
+
+## Der Ton der Seelen-Zeile: das Kantenglühen der Essenz selbst. Ein dunkler Ton
+## (Vakuum glüht schwarz) wird auf ein lesbares Maß gehoben - sonst stünde die
+## Zeile als Loch auf dunklem Grund.
+static func soul_tint(essence_id: String) -> Color:
+	var glow := Essence.glow_for(essence_id)
+	if glow.get_luminance() >= SOUL_MIN_LUMINANCE:
+		return glow
+	return glow.lerp(Color(1, 1, 1), SOUL_LIFT)
 
 func clear_die_nets() -> void:
 	if _net_signature == "":
 		return
 	_net_signature = ""
 	_drop_die_nets()
-
-## Die Auskunft der NETZE unter der Ware ({} = der Zeiger liegt auf keinem):
-## Zelle = ihre Material-/Veredelungs-/Runen-Zeile, Essenz-Ecke = die Seele -
-## dieselbe EINE Quelle wie an der Werkbank. Gefragt, nicht gemeldet: der Zeiger
-## liegt auf dem Tisch, die Netze bekommen nie ein mouse_entered.
-func net_hint_at(pixel: Vector2) -> Dictionary:
-	if vitrine_nets == null or not is_instance_valid(vitrine_nets) or _net_cell <= 0.0:
-		return {}
-	for i in mini(_net_dice.size(), _net_views.size()):
-		var net := _net_views[i]
-		if net == null or not is_instance_valid(net):
-			continue
-		var rect := net.get_global_rect()
-		if not rect.has_point(pixel):
-			continue
-		var def: DieDefinition = _net_dice[i]
-		var hint := DieNetView.hint_for(def, DieNetView.face_at(pixel - rect.position, _net_cell))
-		if hint == "":
-			return {}
-		return {
-			"title": def.display_name,
-			"body": hint,
-			"price": _shown_die_price(def),
-			"money": run.money if run != null else 0,
-			"blocked": "",
-		}
-	return {}
 
 ## Der Preis des Würfels, unter dem dieses Netz liegt (-1 = keiner gefunden).
 func _shown_die_price(def: DieDefinition) -> int:
@@ -776,9 +693,8 @@ func net_count() -> int:
 
 func _drop_die_nets() -> void:
 	_net_dice.clear()
-	_net_views.clear()
 	_net_prices.clear()
-	_net_cell = 0.0
+	_net_souls.clear()
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
 		return
 	for child in vitrine_nets.get_children():
@@ -814,70 +730,6 @@ func vitrine_stock() -> Dictionary:
 	for i in single_dice.size():
 		dice.append(null if single_dice_bought[i] else single_dice[i])
 	return {KIND_DIE: dice}
-
-## Die Auskunft EINES Stücks: Titel, Wirkung (die Lexikon-Verweise setzt der
-## Schirm selbst) und Preis. Die EINE Inhaltsquelle - Kassette wie Würfel gehen
-## hier durch, gezeigt wird beides auf dem Hinweis-Schirm. {} = kein solches Stück.
-func vitrine_annotation(kind: String, index: int) -> Dictionary:
-	if run == null or index < 0:
-		return {}
-	match kind:
-		KIND_ENGRAVING_PACK:
-			if index >= engraving_packs.size():
-				return {}
-			return _pack_annotation(engraving_packs[index])
-		KIND_SPECIAL:
-			if index >= single_specials.size():
-				return {}
-			return _special_annotation(single_specials[index])
-		KIND_DIE:
-			if index >= single_dice.size():
-				return {}
-			return _die_annotation(single_dice[index], single_dice_prices[index], "")
-	return {}
-
-func _pack_annotation(pack: Pack) -> Dictionary:
-	# Die Mengenzeile steht nur da, wo die Multicast-Zeile sie nicht ohnehin nennt
-	# (Würfel- und Fixinhalt-Pakete) - zweimal dieselbe Zahl liest sich als Fehler.
-	var body := _pack_tooltip_body(pack)
-	if not Pack.tierable(pack):
-		body = "%s\n%s" % [_pack_count_text(pack), body]
-	return {
-		"title": pack.display_name,
-		"body": body,
-		"price": _pack_price(pack),
-		"money": run.money,
-		"blocked": FULL_TAG if run.packs_full() else "",
-	}
-
-## Der Sonderbestand führt zwei Familien: die Gravur-Sonderposten (sie LIEGEN
-## offen in der Schale) und die Katalysator-Kassetten (sie stehen versiegelt im
-## Regal). Der Katalysator nennt seinen Paketnamen, die Gravur ihren eigenen.
-func _special_annotation(pack: Pack) -> Dictionary:
-	var out := _pack_annotation(pack)
-	if not pack.is_catalyst() and pack.fixed_engraving != null:
-		out["title"] = pack.fixed_engraving.display_name
-		out["body"] = pack.fixed_engraving.description
-	return out
-
-func _die_annotation(def: DieDefinition, price: int, tail: String) -> Dictionary:
-	var essence := Essence.by_id(def.essence_id)
-	var title := def.display_name if essence == null \
-		else "%s – %s" % [def.display_name, essence.display_name]
-	var body := "Augensumme %d." % DiceRowView.eye_total(def)
-	if essence != null:
-		body += "\n%s: %s" % [essence.display_name, essence.description]
-	else:
-		body += "\nOhne Essenz."
-	# Kein Netz in der Auskunft: es LIEGT unter dem Würfel in der Seite - ein
-	# Würfel wird nie zweimal gezeigt.
-	return {
-		"title": title,
-		"body": body + tail,
-		"price": price,
-		"money": run.money,
-		"blocked": "",
-	}
 
 # --- Kauf-Eingänge der Bucht (scene_root meldet den Griff hierher) -------------
 
@@ -945,9 +797,9 @@ func _tint_hub_price(price: int) -> void:
 	hub_upgrade_button.add_theme_color_override("font_disabled_color",
 		Color(tint.r, tint.g, tint.b, 0.75))
 
-## Blättern gesperrt (Hub-Stufe 1): die Pfeile BLEIBEN stehen und tragen ein
-## Schloss - erklärt wird die Sperre auf dem Hinweis-Schirm, den es genau dafür
-## gibt, nicht in einem Satz im Fuß.
+## Blättern gesperrt (Hub-Stufe 1): die Pfeile BLEIBEN stehen und tragen Schloss
+## UND die nötige Stufe ("🔒 2") - eine gesperrte Funktion erklärt sich in ihrer
+## eigenen Aufschrift, nicht in einem Hover woanders.
 func _refresh_pager_lock() -> void:
 	var locked := not run.shop_flipping_unlocked()
 	var pagers: Array[Button] = [page_back_button, page_next_button]
@@ -956,11 +808,11 @@ func _refresh_pager_lock() -> void:
 			continue
 		button.visible = true
 		if locked:
-			button.text = PAGER_LOCK
+			button.text = pager_lock_text()
 			button.disabled = true
-			# Gesperrt tragen beide dasselbe Zeichen - dann stehen sie auch gleich
+			# Gesperrt tragen beide dieselbe Aufschrift - dann stehen sie auch gleich
 			# breit; die Gebühren-Breite des Vorwärts-Pfeils braucht hier niemand.
-			button.custom_minimum_size = Vector2(u * 7.0, u * 5.0)
+			button.custom_minimum_size = Vector2(u * 12.0, u * 5.0)
 			button.add_theme_stylebox_override("normal",
 				_button_box(Color("#1a183666"), Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.22)))
 		else:
@@ -970,23 +822,7 @@ func _refresh_pager_lock() -> void:
 		page_back_button.custom_minimum_size = Vector2(u * 7.0, u * 5.0)
 		page_next_button.text = "›"
 		page_next_button.custom_minimum_size = Vector2(u * 12.0, u * 5.0)
-		# Ein Aufstieg mitten im Besuch löst die Sperre - ihre Erklärung ist damit tot.
-		clear_info(INFO_PAGER)
 	page_label.visible = true
-
-## Der Zeiger liegt auf einem Blätter-Pfeil: nur die SPERRE erklärt sich - ein
-## offener Pfeil sagt schon mit seinem Preis, was er tut.
-func _on_pager_hovered() -> void:
-	if run == null or run.shop_flipping_unlocked():
-		clear_info(INFO_PAGER)
-		return
-	show_info(INFO_PAGER, {
-		"title": PAGER_LOCK_TITLE,
-		"body": PAGER_LOCK_BODY,
-		"price": -1,
-		"money": 0,
-		"blocked": "",
-	})
 
 ## Nach einem Hub-Aufstieg mitten im Shop: aktuelle Doppelseite an die neue Stufe
 ## anpassen (mehr Plätze/Blättern werden sofort sichtbar) und Fuß-Zeile neu.
@@ -1170,8 +1006,6 @@ func _show_spread() -> void:
 	_slit_seats = slit_seats()
 
 	_rebuild_content(spread)
-	# Was eben noch auf dem Schirm stand, ist womöglich gekauft oder weggeblättert.
-	clear_info()
 	page_label.text = "Seite %d" % (current_spread_index + 1)
 	_refresh_afford_state()
 	# EIN Melder für jede Änderung der Bucht: Seitenwechsel, Kauf und Tausch
@@ -1186,6 +1020,8 @@ func _clear_pages() -> void:
 			child.queue_free()
 	charm_buttons.clear()
 	charm_thumbs.clear()
+	charm_stages.clear()
+	charm_effects.clear()
 
 ## Baut die Bildschirm-Zone der Seite: seit dem Vitrinen-Umbau ist das NUR noch
 ## das Charm-Regal - Pakete, Einzelstücke und das Händler-Regal liegen körperlich
@@ -1196,6 +1032,8 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		child.queue_free()
 	charm_buttons.clear()
 	charm_thumbs.clear()
+	charm_stages.clear()
+	charm_effects.clear()
 
 	var charm_zone := _make_zone(content_root, NEON_MAGENTA, "CHARM-REGAL",
 		"je $%d" % _charm_price(), true)
@@ -1210,21 +1048,19 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	charm_zone.add_child(charm_row)
 	var cm := _charm_metrics(spread.charm_options.size())
 	var card_w := _charm_card_width(spread.charm_options.size())
-	# Die Schriftgrade der Zeile gelten für die GANZE Seite: Karten nebeneinander,
-	# jede in ihrem eigenen Grad, lasen sich als Flickenteppich.
+	# Der NAMENS-Grad gilt für die GANZE Zeile: Namen nebeneinander, jeder in seinem
+	# eigenen Grad, lasen sich als Flickenteppich. Der Wirkungstext dagegen sucht
+	# sich seinen Grad je KARTE - es ist ohnehin immer nur eine gehovert.
 	var text_w := card_w - u * CARD_MARGIN * 2.0
 	var names: Array[String] = []
-	var effects: Array[String] = []
 	for charm in spread.charm_options:
 		names.append(charm.display_name)
-		effects.append(charm.description)
 	var name_px := _row_font(names, text_w, CARD_NAME_STEPS)
-	var effect_px := _row_font(effects, text_w, CARD_EFFECT_STEPS)
 	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
 	for i in spread.charm_options.size():
 		var podest := i == podest_index
 		var ccard := _build_charm_card(spread.charm_options[i], i, cm.x, int(cm.y),
-			card_w, name_px, effect_px, podest)
+			card_w, name_px, podest)
 		charm_row.add_child(ccard)
 		_maybe_flicker(ccard, i, _flicker_charm_from)
 
@@ -1270,10 +1106,12 @@ const CARD_PRICE_FONT := 2.0
 ## Der NAME steht IMMER auf der Karte - eine Ware ohne Namen ist keine Ware. Er
 ## walkt sich ein wie jede andere Zeile des Ladens und wird notfalls beschnitten.
 const CARD_NAME_STEPS := [2.1, 1.9, 1.7, 1.5, 1.35]
-## Die Wirkung darunter ist EINE Zeile: passt sie auch im kleinsten Grad nicht,
-## FÄLLT SIE WEG statt umzubrechen - die Karte bleibt ruhig, den vollen Text
-## trägt ohnehin der Hinweis-Schirm.
-const CARD_EFFECT_STEPS := [1.6, 1.45, 1.3, 1.15, 1.05]
+## Die WIRKUNG steht VOLLSTÄNDIG auf der Karte, aber erst beim HOVER: sie nimmt
+## den Platz des Modells ein, nie einen eigenen. Weil immer nur EINE Karte gehovert
+## ist, sucht sich jede Karte ihren Grad selbst - der oberste, der umgebrochen noch
+## in ihre Mittelfläche paßt. Der letzte Grad trägt nachweislich alle 145 echten
+## Beschreibungen, auch auf der schmalsten Karte (Hub 10).
+const CARD_EFFECT_STEPS := [1.8, 1.65, 1.5, 1.35, 1.2, 1.1, 1.0, 0.95, 0.85]
 ## Breiten-Deckel EINER Karte: zwei Angebote sollen kompakt und mittig stehen
 ## statt als Panorama. Gemessen an dem, was fünf Karten auf Stufe 10 bekommen.
 const CARD_MAX_UNITS := 17.0
@@ -1281,9 +1119,16 @@ const CARD_MAX_UNITS := 17.0
 const PAGE_MARGIN := 3.0
 
 ## Das Preisschild AN der Ware: klein - kleiner als der Karten-Preis der Charms,
-## damit die Hierarchie Charm-Karte > Ware bleibt. Der Schirm sagt den Rest.
+## damit die Hierarchie Charm-Karte > Ware bleibt.
 const WARE_PRICE_FONT := 1.7
 const WARE_PRICE_GAP := 0.6
+## Die SEELEN-ZEILE unter einem Würfelnetz: eine Spur kleiner als der Preis - der
+## Preis ist die Entscheidung, die Seele ihr Grund.
+const WARE_SOUL_FONT := 1.6
+## Ab welcher Helligkeit ein Essenz-Glühen als Schriftfarbe taugt, und wie weit
+## ein dunkleres zum Weiß gezogen wird (Vakuum glüht schwarz).
+const SOUL_MIN_LUMINANCE := 0.45
+const SOUL_LIFT := 0.6
 ## Wie breit ein Modell auf seiner Karte höchstens werden darf.
 const THUMB_WIDTH_SHARE := 0.62
 ## Und der Boden, unter den es nicht fällt - kleiner liest es als Fleck.
@@ -1294,18 +1139,30 @@ const THUMB_MIN := 3.2
 ## allein das Modell, das mit der Kartenbreite schrumpft. Gemessen, nicht getippt:
 ## die Kopfzeile fragt ihre Schrifthöhe ab.
 func _charm_metrics(count: int) -> Vector2:
+	var thumb := minf(card_mid_height(), _charm_card_width(count) * THUMB_WIDTH_SHARE)
+	return Vector2(_charm_card_height(), maxf(thumb, u * THUMB_MIN))
+
+## Die feste Kartenhöhe: das Band minus Zonenrand und Kopfzeile.
+func _charm_card_height() -> float:
 	var font := ThemeDB.fallback_font
-	var head := font.get_height(maxi(8, int(u * HEADING_FONT)))
+	var head := u * HEADING_FONT * 1.4
+	if font != null:
+		head = font.get_height(maxi(8, int(u * HEADING_FONT)))
+	return maxf(u * BAND_CHARM_UNITS - u * ZONE_MARGIN * 2.0 - head - u * ZONE_SEPARATION,
+		u * 6.0)
+
+## Die MITTELFLÄCHE einer Charm-Karte in Pixeln: die Karte minus Rand, Name und
+## Preis. Sie ist FEST - im Ruhezustand steht das Modell darin, beim Hover der
+## volle Wirkungstext an SEINER Stelle. Getauscht wird nur die Sichtbarkeit, das
+## Maß nie, also reflowt die Karte über den Tausch kein Pixel.
+func card_mid_height() -> float:
+	var font := ThemeDB.fallback_font
+	if font == null:
+		return maxf(_charm_card_height() * 0.5, u * THUMB_MIN)
 	var price := font.get_height(maxi(8, int(u * CARD_PRICE_FONT)))
-	# Name und Wirkungszeile sind FEST eingeplant, auch wo die Wirkung wegfällt -
-	# sonst stünden auf einer Seite verschieden große Modelle.
 	var name_h := font.get_height(maxi(8, int(u * float(CARD_NAME_STEPS[0]))))
-	var effect_h := font.get_height(maxi(8, int(u * float(CARD_EFFECT_STEPS[0]))))
-	var card_h := u * BAND_CHARM_UNITS - u * ZONE_MARGIN * 2.0 - head - u * ZONE_SEPARATION
-	var thumb := card_h - u * CARD_MARGIN * 2.0 - price - name_h - effect_h \
-		- u * CARD_SEPARATION * 3.0
-	thumb = minf(thumb, _charm_card_width(count) * THUMB_WIDTH_SHARE)
-	return Vector2(maxf(card_h, u * 6.0), maxf(thumb, u * THUMB_MIN))
+	return maxf(_charm_card_height() - u * CARD_MARGIN * 2.0 - price - name_h \
+		- u * CARD_SEPARATION * 2.0, u * THUMB_MIN)
 
 ## Die Breite EINER Karte: was die Zeile hergibt, aber höchstens CARD_MAX_UNITS.
 ## Das Podest zieht mehr Breite (Faktor 1,4), die anderen Karten also weniger -
@@ -1407,12 +1264,13 @@ func _glow_disc(tint: Color, side: float) -> TextureRect:
 	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return disc
 
-## Charm-Karte: Symbol, NAME, eine Wirkungszeile und der Preis. Rahmen und
-## Lichtfleck tragen die Charm-Rarität (weiß/grün/blau/violett). card_h, thumb_px
-## und card_w kommen aus _charm_metrics/_charm_card_width; podest = garantierter
-## Premium-Charm (Rarität freigeschaltet): breiter, stärkerer Lichtfleck, dickerer Saum.
+## Charm-Karte: oben der NAME, in der Mitte das MODELL, unten der PREIS - und beim
+## Hover tritt an die Stelle des Modells die volle Wirkung. Rahmen und Lichtfleck
+## tragen die Charm-Rarität (weiß/grün/blau/violett). card_h, thumb_px und card_w
+## kommen aus _charm_metrics/_charm_card_width; podest = garantierter Premium-Charm
+## (Rarität freigeschaltet): breiter, stärkerer Lichtfleck, dickerer Saum.
 func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
-		card_w: float, name_px: int, effect_px: int, podest := false) -> Control:
+		card_w: float, name_px: int, podest := false) -> Control:
 	var bought := charm_bought[index]
 	# Voller Dock steht wie "gekauft" da: der Platz ist zu, egal was er kostet.
 	var full := run.charms_full()
@@ -1433,8 +1291,6 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
 	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
 	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	card.mouse_entered.connect(_on_charm_hovered.bind(index))
-	card.mouse_exited.connect(clear_info.bind(INFO_CHARM))
 
 	var column := VBoxContainer.new()
 	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1443,11 +1299,26 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(column)
 
-	# Lichtfleck hinter dem Modell. Er QUILLT über das Modell hinaus, zählt aber
-	# nicht zur Mindesthöhe: sonst schöbe sein Rand den Preis aus der Karte.
+	# Der NAME steht oben - eine Ware ohne Namen ist keine Ware.
+	var text_width := width - u * CARD_MARGIN * 2.0
+	column.add_child(_card_line(charm.display_name, name_px,
+		NEON_MUTED if bought else NEON_TEXT))
+
+	# Die MITTELFLÄCHE: eine feste Fläche, kein Container - beide Kinder liegen
+	# deckungsgleich darin, also kostet der Tausch keinen Umbruch.
+	var mid_h := card_mid_height()
+	var mid := Control.new()
+	mid.custom_minimum_size = Vector2(text_width, mid_h)
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(mid)
+
+	# Ruhezustand: das Modell im Lichtfleck. Der Fleck QUILLT über das Modell
+	# hinaus, zählt aber nicht zur Mindesthöhe - sonst schöbe sein Rand den Preis
+	# aus der Karte.
 	var glow := tint if not bought else Color(tint.r, tint.g, tint.b, 0.3)
-	var disc_side := thumb_px * (1.5 if podest else 1.27)
+	var disc_side := thumb_px * (1.32 if podest else 1.18)
 	var stage := CenterContainer.new()
+	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var halo := Control.new()
 	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1462,28 +1333,29 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	halo.add_child(thumb)
 	stage.add_child(halo)
 	charm_thumbs.append(thumb)
-	column.add_child(stage)
+	mid.add_child(stage)
 
-	# Der NAME steht immer da, die Wirkung als EINE Zeile darunter - passt sie
-	# nicht, fällt sie weg; den vollen Text trägt der Hinweis-Schirm.
-	var text_width := width - u * CARD_MARGIN * 2.0
-	column.add_child(_card_line(charm.display_name, text_width, name_px,
-		NEON_MUTED if bought else NEON_TEXT, false))
-	var effect := _card_line(charm.description, text_width, effect_px, NEON_MUTED, true)
-	if effect != null:
-		column.add_child(effect)
-	else:
-		# Die weggefallene Zeile behält ihren PLATZ: sonst stünden Name und Preis
-		# auf Nachbarkarten verschieden hoch.
-		var hole := Control.new()
-		hole.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hole.custom_minimum_size = Vector2(0.0, ThemeDB.fallback_font.get_height(effect_px))
-		column.add_child(hole)
+	# Hover: an SEINER Stelle die volle Wirkung - ungekürzt, umbrechend, im größten
+	# Grad, den DIESE Mittelfläche hergibt. Auch eine gekaufte oder gesperrte Karte
+	# tauscht: der Text ist dann erst recht die einzige Auskunft.
+	var effect := _card_effect(charm.description, text_width, mid_h,
+		_card_block_font(charm.description, text_width, mid_h), NEON_MUTED)
+	effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	effect.visible = false
+	mid.add_child(effect)
+	charm_stages.append(stage)
+	charm_effects.append(effect)
 
 	var tag := "gekauft" if bought else ("voll" if full else \
 		("gratis" if _charm_price() <= 0 else "$%d" % _charm_price()))
 	column.add_child(_label(tag, u * CARD_PRICE_FONT,
 		NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+
+	# Der Zeiger liegt auf dem Tisch, aber die Bewegung wird in den SubViewport
+	# weitergeleitet - der Knopf meldet seinen Hover also selbst. Ein gesperrter
+	# Knopf meldet ihn ebenso, seine Auskunft bleibt erreichbar.
+	card.mouse_entered.connect(set_charm_hover.bind(index, true))
+	card.mouse_exited.connect(set_charm_hover.bind(index, false))
 
 	# Der Handler hängt an JEDER ungekauften Karte: ein voller Dock sperrt sie nur
 	# als Startzustand, ein Verkauf gibt sie ohne Neuverdrahtung wieder frei
@@ -1495,9 +1367,19 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	charm_buttons.append(card)
 	return card
 
+## Der TAUSCH auf der Karte: Modell weg, Text her - und zurück. Mehr passiert
+## nicht, insbesondere bewegt sich kein Rechteck.
+func set_charm_hover(index: int, hovered: bool) -> void:
+	if index < 0 or index >= charm_stages.size() or index >= charm_effects.size():
+		return
+	if not is_instance_valid(charm_stages[index]) or not is_instance_valid(charm_effects[index]):
+		return
+	charm_stages[index].visible = not hovered
+	charm_effects[index].visible = hovered
+
 ## Der Grad EINER Zeile für die ganze Kartenreihe: der erste, in dem JEDER Text
-## noch einzeilig in die Karte paßt - sonst der kleinste. Die Grammatik des
-## Hinweis-Schirms, nur auf eine Zeile statt auf einen Block.
+## noch einzeilig in die Karte paßt - sonst der kleinste. Karten nebeneinander,
+## jede in ihrem eigenen Grad, lasen sich als Flickenteppich.
 func _row_font(texts: Array[String], width: float, steps: Array) -> int:
 	var font := ThemeDB.fallback_font
 	var smallest := maxi(8, int(u * float(steps[steps.size() - 1])))
@@ -1514,34 +1396,39 @@ func _row_font(texts: Array[String], width: float, steps: Array) -> int:
 			return px
 	return smallest
 
-## Eine Kartenzeile im gesetzten Grad. droppable heißt: paßt der Text auch so
-## nicht einzeilig, FÄLLT die Zeile weg (null) statt umzubrechen - die Karte
-## bleibt ruhig, den vollen Text trägt der Hinweis-Schirm.
-func _card_line(text: String, width: float, px: int, color: Color, droppable: bool) -> Label:
+## Der Grad des WIRKUNGSTEXTES EINER Karte: der erste, in dem er umgebrochen noch
+## in ihre Mittelfläche paßt. Je Karte gefunden, denn gehovert ist immer nur eine -
+## eine Karte darf so groß schreiben, wie ihre eigene Fläche hergibt. Der letzte
+## Schritt der Leiter trägt nachweislich alle 145 Beschreibungen; abgeschnitten
+## wird nie.
+func _card_block_font(text: String, width: float, block: float) -> int:
 	var font := ThemeDB.fallback_font
-	if droppable and font != null \
-			and font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, px).x > width:
-		return null
+	var smallest := maxi(8, int(u * float(CARD_EFFECT_STEPS[CARD_EFFECT_STEPS.size() - 1])))
+	if font == null:
+		return smallest
+	for step in CARD_EFFECT_STEPS:
+		var px := maxi(8, int(u * float(step)))
+		if WorkshopView.text_block_height(font, text, width, px, 0) <= block:
+			return px
+	return smallest
+
+## Eine einzeilige Kartenzeile im gesetzten Grad (der Name) - sie wird notfalls
+## beschnitten, denn ein Name bricht nicht um.
+func _card_line(text: String, px: int, color: Color) -> Label:
 	var label := _label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
 	label.clip_text = true
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	return label
 
-## Die Charm-Karte erklärt sich auf dem Schirm wie jede andere Ware - Name,
-## Wirkung, Preis. Ein voller Dock steht dort, wo sonst der Preis steht.
-func _on_charm_hovered(index: int) -> void:
-	if run == null or index < 0 or index >= charm_options.size():
-		return
-	var charm: Charm = charm_options[index]
-	var bought: bool = index < charm_bought.size() and charm_bought[index]
-	var blocked := DOCK_TAG if run.charms_full() and not bought else ""
-	show_info(INFO_CHARM, {
-		"title": charm.display_name,
-		"body": charm.description,
-		"price": _charm_price(),
-		"money": run.money,
-		"blocked": blocked,
-	})
+## Der WIRKUNGSTEXT der Karte: umbrechend, mittig in der Mittelfläche. Er trägt
+## die ganze Beschreibung - das ist die Auskunft, für die es früher einen Schirm
+## gab, und beim Hover steht sie an der Stelle des Modells.
+func _card_effect(text: String, width: float, block: float, px: int, color: Color) -> Label:
+	var label := _label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.custom_minimum_size = Vector2(width, block)
+	return label
 
 ## Kartenrahmen im Raritäts-Tint: Saum + weicher Außen-Glow (StyleBox-Schatten).
 func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
@@ -1586,26 +1473,6 @@ func _on_single_die_pressed(index: int) -> void:
 	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
 	_show_spread()
 
-## Mengenzeile der Regal-Reihe: nur WIE VIEL - die Sorte sagt das Siegel,
-## den Rest der Hover-Dropdown. Bei einem Gravur-Paket steht die Menge nicht fest:
-## es zählt der Grundwurf seiner Größe, so oft die Kette hält.
-func _pack_count_text(pack: Pack) -> String:
-	if Pack.tierable(pack):
-		return "%s je Auslösung" % Pack.pieces_word(PhantomPress.base_for(pack.tier))
-	return Pack.pieces_word(pack.count)
-
-## Die Hover-Auskunft eines Pakets: seine Beschreibung, und bei Gravur-Paketen die
-## Multicast-Zeile darunter - die Größe muss vor dem Kauf lesbar sein.
-## Chance und Decke reicht der LAUF herein - der Laden zeigt, was die Presse jetzt
-## kann, samt Lizenzstufe, Klausel und vorgemerktem Wett-Schub.
-func _pack_tooltip_body(pack: Pack) -> String:
-	if not Pack.tierable(pack):
-		return pack.description
-	if run == null:
-		return "%s\n%s" % [pack.description, Pack.multicast_line(pack.tier)]
-	return "%s\n%s" % [pack.description,
-		Pack.multicast_line(pack.tier, run.multicast_chance(), run.multicast_cap())]
-
 # --- Neon-Bausteine --------------------------------------------------------------
 
 func _label(text: String, font_size: float, color: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
@@ -1617,7 +1484,7 @@ func _label(text: String, font_size: float, color: Color, align: int = HORIZONTA
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
-# --- Der Hinweis-Schirm --------------------------------------------------------
+# --- Die Preiszeile ------------------------------------------------------------
 
 ## Preiszeile und ihre Farbe - reine Funktionen, damit die Entscheidung
 ## "bezahlbar oder nicht" prüfbar ist und nur an EINER Stelle fällt.
@@ -1626,219 +1493,6 @@ static func price_text(price: int) -> String:
 
 static func price_tint(price: int, money: int) -> Color:
 	return NEON_GOLD if money >= price else CasinoStyle.RED
-
-## Der Schirm hat eine FESTE Größe und einen festen Platz: er steht, was auch
-## immer auf ihm steht. Gezeichnet wird auf ein Panel, nicht in einen Container -
-## ein Container wüchse mit seinem Text und verschöbe die Bucht darunter.
-func _build_info_screen() -> Panel:
-	var screen := Panel.new()
-	screen.name = "ShopInfoScreen"
-	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.clip_contents = true
-	screen.custom_minimum_size = Vector2(0.0, u * INFO_HEIGHT)
-	_info_box = TableScreen.window_style()
-	screen.add_theme_stylebox_override("panel", _info_box)
-	var column := VBoxContainer.new()
-	column.name = "InfoText"
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.offset_left = u * INFO_PAD
-	column.offset_right = -u * INFO_PAD
-	column.offset_top = u * INFO_PAD
-	column.offset_bottom = -u * INFO_PAD
-	column.add_theme_constant_override("separation", int(u * INFO_LINE_GAP))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_child(column)
-
-	info_title = Label.new()
-	info_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	info_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	info_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info_title.visible = false
-	CasinoStyle.style_score_label(info_title, maxi(8, int(u * INFO_TITLE)), CasinoStyle.GOLD)
-	column.add_child(info_title)
-
-	info_body = RichTextLabel.new()
-	info_body.bbcode_enabled = true
-	info_body.fit_content = true
-	info_body.scroll_active = false
-	# STOP: die Schlüsselwörter sind Klickziele, der Schirm fängt sie ein.
-	info_body.mouse_filter = Control.MOUSE_FILTER_STOP
-	info_body.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	info_body.visible = false
-	CasinoStyle.style_rich_body(info_body, maxi(8, int(u * INFO_BODY)))
-	info_body.meta_clicked.connect(_on_info_meta)
-	column.add_child(info_body)
-
-	info_price = Label.new()
-	info_price.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	info_price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info_price.visible = false
-	CasinoStyle.style_score_label(info_price, maxi(8, int(u * INFO_PRICE)), NEON_GOLD)
-	column.add_child(info_price)
-
-	# Die Leerlaufzeile liegt ÜBER dem ganzen Schirm, nicht in seiner Spalte: so
-	# rührt sie die Auskunft nicht an, wenn sie kommt und geht.
-	info_idle = _label(INFO_IDLE_TEXT, u * INFO_IDLE_FONT, INFO_IDLE_COLOR,
-		HORIZONTAL_ALIGNMENT_CENTER)
-	info_idle.name = "InfoIdle"
-	info_idle.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	info_idle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	screen.add_child(info_idle)
-
-	# Ein frischer Schirm steht leer - also gleich im Leerlauf, ohne Gnadenfrist.
-	_info_lit_applied = -1.0
-	_apply_info_lit(0.0)
-	return screen
-
-## Die EINE Stelle, an der Leerlauf und Inhalt sich unterscheiden: Grund, Saum und
-## Leerlaufzeile hängen an einem Wert. Das Rechteck rührt sich dabei nie.
-func _apply_info_lit(lit: float) -> void:
-	var value := clampf(lit, 0.0, 1.0)
-	# Der Schirm wird je Bild gefragt - eine unveränderte Stufe darf ihn nicht in
-	# jedem Bild neu zeichnen lassen.
-	if is_equal_approx(value, _info_lit_applied):
-		_info_lit = value
-		return
-	_info_lit_applied = value
-	_info_lit = value
-	if _info_box != null:
-		_info_box.bg_color = INFO_IDLE_BG.lerp(TableScreen.FRAME_BG, _info_lit)
-		var edge := TableScreen.FRAME_COLOR
-		_info_box.border_color = Color(edge.r, edge.g, edge.b,
-			lerpf(INFO_IDLE_BORDER_ALPHA, 1.0, _info_lit))
-	if info_idle != null and is_instance_valid(info_idle):
-		info_idle.modulate.a = 1.0 - _info_lit
-
-## Wie hell der Schirm gerade steht - der prüfbare Zustand (1 = Inhalt).
-func info_lit() -> float:
-	return _info_lit
-
-## Inhalt kam: sofort hell, kein Warten.
-func _light_info() -> void:
-	_kill_info_tween()
-	_apply_info_lit(1.0)
-
-## Inhalt ging: erst die Gnadenfrist, dann weich zurück in den Leerlauf.
-func _dim_info() -> void:
-	_kill_info_tween()
-	if not is_inside_tree():
-		_apply_info_lit(0.0)
-		return
-	_info_tween = create_tween()
-	_info_tween.tween_interval(INFO_IDLE_GRACE)
-	_info_tween.tween_method(_apply_info_lit, _info_lit, 0.0, INFO_IDLE_FADE) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-
-func _kill_info_tween() -> void:
-	if _info_tween != null and _info_tween.is_valid():
-		_info_tween.kill()
-	_info_tween = null
-
-## Der EINE Schreiber des Schirms. data ist eine Auskunft aus vitrine_annotation
-## (oder die einer Charm-Karte): title, body, price (-1 = keiner), money, blocked.
-func show_info(source: String, data: Dictionary) -> void:
-	if info_title == null or not is_instance_valid(info_title):
-		return
-	if data.is_empty():
-		clear_info(source)
-		return
-	_info_source = source
-	info_title.text = String(data.get("title", ""))
-	info_title.visible = info_title.text != ""
-	_info_body_text = String(data.get("body", ""))
-	# EIN Engpass für alle Hover-Quellen: hier werden die Schlüsselwörter zu
-	# Lexikon-Verweisen.
-	info_body.text = Lexikon.linkify(_info_body_text)
-	info_body.visible = _info_body_text != ""
-	var blocked := String(data.get("blocked", ""))
-	var price := int(data.get("price", -1))
-	info_price.visible = blocked != "" or price >= 0
-	if blocked != "":
-		info_price.text = blocked
-		info_price.add_theme_color_override("font_color", CasinoStyle.RED)
-	elif price >= 0:
-		info_price.text = price_text(price)
-		info_price.add_theme_color_override("font_color",
-			price_tint(price, int(data.get("money", 0))))
-	_light_info()
-	_fit_info()
-
-## Leeren - aber nur, wenn der Rufer auch der Sprecher ist. "" räumt hart.
-func clear_info(source: String = "") -> void:
-	if info_title == null or not is_instance_valid(info_title):
-		return
-	if source != "" and source != _info_source:
-		return
-	_info_source = ""
-	_info_body_text = ""
-	info_title.text = ""
-	info_title.visible = false
-	info_body.text = ""
-	info_body.visible = false
-	info_price.visible = false
-	_dim_info()
-
-func info_source() -> String:
-	return _info_source
-
-## Der Platz des Schirms in globalen Display-Pixeln.
-func info_screen_rect() -> Rect2:
-	if info_screen == null or not is_instance_valid(info_screen):
-		return Rect2()
-	return info_screen.get_global_rect()
-
-## Beide Zeilen passen sich EIN: erst die Kennung in ihren Anteil, dann die
-## Wirkung in den Rest. Gemessen wird an der Schrift, nicht am Layout - die
-## Antwort muss vor dem nächsten Bild stehen. Und gemessen wird der NACKTE Text:
-## BBCode-Auszeichnung ist keine Schrift.
-func _fit_info() -> void:
-	if info_body == null or not is_instance_valid(info_body):
-		return
-	var width := maxf(_info_text_width(), u * 8.0)
-	var room := u * INFO_HEIGHT - u * INFO_PAD * 2.0
-	room -= _fit_info_title(width, room)
-	if info_price.visible:
-		var price_font := info_price.get_theme_font("font")
-		if price_font != null:
-			room -= price_font.get_height(info_price.get_theme_font_size("font_size")) \
-				+ u * INFO_LINE_GAP
-	var font := info_body.get_theme_font("normal_font")
-	for step in INFO_BODY_STEPS:
-		var px := maxi(8, int(u * float(step)))
-		info_body.add_theme_font_size_override("normal_font_size", px)
-		if font == null:
-			return
-		if WorkshopView.text_block_height(font, _info_body_text, width, px, 0) <= room:
-			return
-
-## Die Kennung nimmt den ersten Grad, der in ihren Anteil paßt, und meldet, wie
-## viel Schirm sie samt Fuge verbraucht hat. EINE Zeile wird immer genommen.
-func _fit_info_title(width: float, room: float) -> float:
-	if info_title == null or not is_instance_valid(info_title) or not info_title.visible:
-		return 0.0
-	var font := info_title.get_theme_font("font")
-	var spacing := info_title.get_theme_constant("line_spacing")
-	var used := 0.0
-	for step in INFO_TITLE_STEPS:
-		var px := maxi(8, int(u * float(step)))
-		info_title.add_theme_font_size_override("font_size", px)
-		if font == null:
-			return 0.0
-		used = WorkshopView.text_block_height(font, info_title.text, width, px, spacing)
-		if used <= room * INFO_TITLE_SHARE \
-				or WorkshopView.text_block_lines(font, info_title.text, width, px) <= 1:
-			break
-	return used + u * INFO_LINE_GAP
-
-func _info_text_width() -> float:
-	var screen := info_screen_rect()
-	var span := screen.size.x if screen.size.x > 0.0 else size.x - u * 6.0
-	return maxf(span - u * INFO_PAD * 2.0, u * 8.0)
-
-## Verweis-Klick auf dem Schirm: das Lexikon anfordern.
-func _on_info_meta(meta: Variant) -> void:
-	lexikon_requested.emit(String(meta))
 
 ## Knopf im Display-Neon-Stil: dunkler Grund, Rahmen in der Rubriken-Farbe;
 ## Hover/Druck wechseln auf Gold, deaktiviert dimmt ab.
@@ -1967,6 +1621,12 @@ func _refresh_ware_prices() -> void:
 		if pack == null:
 			tag.text = ""  # leerer Platz: kein Schild
 			continue
+		# Ein volles Magazin steht DORT, wo der Preis stünde - dieselbe Grammatik
+		# wie am Sitz des Hinterzimmers.
+		if run != null and run.packs_full():
+			tag.text = FULL_MARK
+			tag.modulate = CasinoStyle.RED
+			continue
 		var price := _pack_price(pack)
 		tag.text = price_text(price)
 		tag.modulate = price_tint(price, money)
@@ -1985,8 +1645,14 @@ func _on_run_money_changed(_money: int) -> void:
 	if visible:
 		_refresh_afford_state()
 
-## Der Dock hat sich geändert (Kauf ODER Verkauf): "voll"-Tag und Hinweistext
-## stecken in der Karte, die Auslage muss also neu gebaut werden. DEFERRED, weil
+## Das Magazin hat sich geändert - die Preisschilder der Kassetten tragen die
+## VOLL-Marke, sie müssen also nachziehen.
+func _on_run_packs_changed() -> void:
+	if visible:
+		_refresh_ware_prices()
+
+## Der Dock hat sich geändert (Kauf ODER Verkauf): der "voll"-Tag steckt in der
+## Karte, die Auslage muss also neu gebaut werden. DEFERRED, weil
 ## ein Kauf-Klick charms_changed synchron feuert, bevor er seine charm_bought-
 ## Marke setzt - sonst bekäme der Neuaufbau den alten Stand.
 func _on_run_charms_changed() -> void:
@@ -2006,6 +1672,5 @@ func _on_done_pressed() -> void:
 ## Laden zu - per "Fertig" oder weil der Spieler die Runde in der Grube aufnimmt.
 func close() -> void:
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
-	clear_info()
 	visible = false
 	closed.emit()

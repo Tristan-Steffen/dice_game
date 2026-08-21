@@ -598,9 +598,9 @@ func test_the_vitrine_hole_sits_inside_its_frame() -> void:
 	assert_almost_eq(bay.end.y - hole.end.y,
 		PackDrawerView.rim_inset(shop.u), 0.51, "unten ebenso")
 
-## Die Bucht ist das Restband: sie bekommt, was Kopf, Charms, Schlitze, Schirm und
+## Die Bucht ist das Restband: sie bekommt, was Kopf, Charms, Gravuren-Reihe und
 ## Fuß übrig lassen. Gemessen wird deshalb an ihren Nachbarn, nicht an einem
-## Seitenanteil - der Schirm darf wachsen, ohne diesen Test umzuschreiben.
+## Seitenanteil - ein Band darf wachsen, ohne diesen Test umzuschreiben.
 func test_the_vitrine_keeps_the_biggest_band_of_the_page() -> void:
 	shop.size = Vector2(1068, 1125)  # Maß der Hub-Fläche auf dem Tisch-Display
 	shop.open()
@@ -609,8 +609,8 @@ func test_the_vitrine_keeps_the_biggest_band_of_the_page() -> void:
 	var bay: Rect2 = shop.vitrine_rect_px()
 	assert_gte(bay.size.y, shop.u * ShopController.VITRINE_MIN_HEIGHT,
 		"der gesetzte Boden der Bucht steht")
-	assert_gt(bay.size.y, shop.info_screen_rect().size.y,
-		"die Auslage bleibt größer als ihre Beschriftung")
+	assert_gt(bay.size.y, _band_rects()[2].size.y,
+		"die Auslage bleibt größer als die Gravuren-Reihe darüber")
 	assert_lt(bay.size.y, page.size.y * 0.75, "aber sie frisst Kopf, Charms und Fuß nicht")
 	assert_gt(bay.position.y, page.get_center().y - page.size.y * 0.25,
 		"sie liegt unter der Charm-Zeile")
@@ -717,43 +717,6 @@ func test_a_fresh_run_forgets_which_page_was_standing() -> void:
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE,
 		"ein frischer Lauf bekommt einen frisch gewürfelten Laden - er tritt auf")
 
-func test_the_annotation_names_price_and_effect() -> void:
-	var data: Dictionary = shop.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 0)
-	assert_eq(String(data["title"]), shop.engraving_packs[0].display_name)
-	assert_eq(int(data["price"]), shop._pack_price(shop.engraving_packs[0]),
-		"der Preis steht NUR hier - in der Bucht hängt kein Schild")
-	assert_eq(int(data["money"]), run.money, "und die Kaufbarkeit reist mit")
-	assert_eq(String(data["blocked"]), "", "ein freies Magazin sperrt nichts")
-
-func test_a_full_magazin_says_so_on_the_annotation() -> void:
-	# set_pack_capacity(0) ist ein No-op (ein nutzloser Wert wird verworfen) - das
-	# Magazin wird also mit einer echten Kassette auf einem Platz vollgestellt.
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.roll_engraving_pack())
-	assert_true(run.packs_full(), "das Magazin ist wirklich voll")
-	var data: Dictionary = shop.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 0)
-	assert_eq(String(data["blocked"]), ShopController.FULL_TAG,
-		"volles Magazin steht statt des Preises")
-
-func test_a_full_magazin_never_blocks_a_die() -> void:
-	# Der Würfel geht ins Ausgabefach - der Deckel des Magazins meint ihn nicht.
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.roll_engraving_pack())
-	var data: Dictionary = shop.vitrine_annotation(ShopController.KIND_DIE, 0)
-	assert_eq(String(data["blocked"]), "", "die Schale kennt keinen Deckel")
-
-func test_a_die_annotation_names_soul_and_price_but_no_net() -> void:
-	# Das Netz LIEGT unter dem Würfel auf der Scheibe - ein Würfel wird nie
-	# zweimal gezeigt.
-	var data: Dictionary = shop.vitrine_annotation(ShopController.KIND_DIE, 0)
-	assert_false(data.has("net"), "kein zweites Netz in der Auskunft")
-	assert_string_contains(String(data["body"]), "Augensumme")
-	assert_eq(int(data["price"]), shop.single_dice_prices[0])
-
-func test_an_empty_slot_has_no_annotation() -> void:
-	assert_eq(shop.vitrine_annotation(ShopController.KIND_DIE, 99), {})
-	assert_eq(shop.vitrine_annotation("unfug", 0), {})
-
 func test_the_buy_entrances_book_like_the_old_buttons() -> void:
 	# Der Griff in der Bucht läuft durch DIESELBEN Buchungen - die Bucht ist
 	# Bühne, nicht Regel.
@@ -798,7 +761,7 @@ func test_the_bands_stand_on_every_licence_level() -> void:
 	shop.open()
 	await wait_frames(2)
 	var low := _band_rects()
-	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Info-Band, Bucht, Fuß")
+	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Gravuren-Band, Bucht, Fuß")
 	run.hub_level = GameRun.HUB_MAX_LEVEL
 	shop.spreads.clear()
 	shop.open()
@@ -944,153 +907,181 @@ func test_every_die_net_carries_the_price_of_its_die() -> void:
 			ShopController.price_text(shop.single_dice_prices[i]),
 			"dieselbe Zahl, die der Kauf zahlt")
 
-# --- Der Hinweis-Schirm ---------------------------------------------------------
+# --- Die SEELEN-ZEILE unter dem Netz --------------------------------------------
+# Die Ware trägt ihre Auskunft selbst: unter jedem Netz steht der Name der Essenz
+# in ihrem Glühton. Kein Hover, kein Schirm - sie steht einfach da.
 
-func test_every_hover_source_writes_on_the_one_screen() -> void:
+func test_every_souled_die_names_its_essence_under_its_net() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var card: Button = shop.charm_buttons[0]
-	card.mouse_entered.emit()
-	assert_eq(shop.info_source(), ShopController.INFO_CHARM)
-	assert_eq(shop.info_title.text, shop.charm_options[0].display_name)
-	# Die Bucht fragt je Bild - sie darf dem Charm den Schirm nicht wegräumen.
-	shop.clear_info(ShopController.INFO_BAY)
-	assert_eq(shop.info_source(), ShopController.INFO_CHARM,
-		"jede Quelle nimmt nur ihren EIGENEN Text zurück")
-	shop.clear_info(ShopController.INFO_CHARM)
-	assert_eq(shop.info_source(), "")
-	assert_false(shop.info_title.visible, "leer heißt dunkel")
-	shop.show_info(ShopController.INFO_BAY,
-		shop.vitrine_annotation(ShopController.KIND_DIE, 0))
-	assert_eq(shop.info_source(), ShopController.INFO_BAY)
-	assert_string_contains(shop.info_price.text, "$")
+	# Ein beseelter und ein seelenloser Würfel nebeneinander - die Auskunft hängt
+	# am Würfel, nicht an seinem Platz.
+	var souled := DieDefinition.standard()
+	souled.essence_id = Essence.ARGON
+	var bare := DieDefinition.standard()
+	var dice: Array[DieDefinition] = [souled, bare]
+	var prices: Array[int] = [11, 12]
+	var bought: Array[bool] = [false, false]
+	shop.single_dice = dice
+	shop.single_dice_prices = prices
+	shop.single_dice_bought = bought
+	shop.set_die_nets([
+		{"def": souled, "pos": Vector2(0.0, 0.0)},
+		{"def": bare, "pos": Vector2(120.0, 0.0)},
+	], 8.0)
+	assert_eq(shop._net_souls.size(), 2, "je Netz eine Seelen-Zeile")
+	var essence := Essence.by_id(Essence.ARGON)
+	assert_eq(shop._net_souls[0].text, essence.display_name,
+		"der beseelte Würfel nennt seine Seele")
+	assert_eq(shop._net_souls[0].modulate, ShopController.soul_tint(Essence.ARGON),
+		"und zwar im Glühton genau dieser Essenz")
+	assert_eq(shop._net_souls[1].text, "", "ein seelenloser Würfel zeigt nichts")
 
-func test_the_info_screen_rect_never_moves() -> void:
+func test_the_soul_line_stands_between_the_net_and_the_price() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var before: Rect2 = shop.info_screen_rect()
-	assert_gt(before.size.y, 0.0)
-	shop.show_info(ShopController.INFO_SLIT,
-		shop.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 0))
-	await wait_frames(2)
-	assert_true(shop.info_screen_rect().is_equal_approx(before),
-		"nur der Inhalt wechselt, nie der Platz")
-	shop.clear_info()
-	await wait_frames(2)
-	assert_true(shop.info_screen_rect().is_equal_approx(before))
+	var die: DieDefinition = shop.single_dice[0]
+	shop.set_die_nets([{"def": die, "pos": Vector2(30.0, 40.0)}], 8.0)
+	assert_gte(shop._net_souls[0].position.y, 40.0 + DieNetView.net_size(8.0).y,
+		"die Seele steht unter dem Netz")
+	assert_gt(shop._net_prices[0].position.y, shop._net_souls[0].position.y,
+		"und der Preis unter der Seele")
 
-func test_the_worst_case_hover_still_fits_the_screen() -> void:
-	# Längster Würfelname samt Seele als Kennung, längste Essenzbeschreibung als
-	# Wirkung - das ist die schwerste Last, die der Schirm je trägt.
+func test_a_dark_glow_is_lifted_to_a_readable_tint() -> void:
+	# Vakuum glüht schwarz - als Schriftfarbe wäre das ein Loch auf dunklem Grund.
+	var raw := Essence.glow_for(Essence.VACUUM)
+	var lifted := ShopController.soul_tint(Essence.VACUUM)
+	assert_lt(raw.get_luminance(), ShopController.SOUL_MIN_LUMINANCE, "wirklich dunkel")
+	assert_gt(lifted.get_luminance(), raw.get_luminance(), "und wird angehoben")
+	# Ein helles Glühen bleibt, wie es ist - der Ton IST die Auskunft.
+	var bright := Essence.glow_for(Essence.ARGON)
+	if bright.get_luminance() >= ShopController.SOUL_MIN_LUMINANCE:
+		assert_eq(ShopController.soul_tint(Essence.ARGON), bright)
+
+# --- Die Charm-Karte tauscht Bild gegen Text ------------------------------------
+# Ruhezustand: Name, Modell, Preis. Hover: an der Stelle des Modells die volle
+# Beschreibung. Das Rechteck der Karte rührt sich dabei nicht.
+
+func test_the_card_shows_its_model_at_rest_and_no_text() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var title := ""
-	var body := ""
-	for essence in Essence.all():
-		if essence.display_name.length() > title.length():
-			title = essence.display_name
-		if essence.description.length() > body.length():
-			body = essence.description
-	shop.show_info(ShopController.INFO_BAY, {
-		"title": "Sechsseitiger Würfel – %s" % title,
-		"body": body, "price": 999, "money": 0, "blocked": "",
-	})
-	await wait_frames(2)
-	var screen: Rect2 = shop.info_screen_rect()
-	var text: Rect2 = shop.info_title.get_global_rect().merge(shop.info_body.get_global_rect())
-	text = text.merge(shop.info_price.get_global_rect())
-	assert_lte(text.size.y, screen.size.y + 1.0, "die Auskunft bleibt im Schirm")
-	# ... und sie bleibt LESBAR: der kürzere Schirm darf den Grad nicht bis auf
-	# den letzten Schritt der Leiter herunterwalken.
-	var floor_px := maxi(8, int(shop.u * float(ShopController.INFO_BODY_STEPS[-1])))
-	assert_gt(shop.info_body.get_theme_font_size("normal_font_size"), floor_px,
-		"der schlimmste Fall landet nicht auf dem kleinsten Grad")
+	for i in shop.charm_buttons.size():
+		assert_true(shop.charm_stages[i].visible, "im Ruhezustand steht das Modell (%d)" % i)
+		assert_false(shop.charm_effects[i].visible, "und kein Text (%d)" % i)
 
-func test_a_pack_hover_carries_its_multicast_line() -> void:
-	await wait_frames(2)
-	shop.show_info(ShopController.INFO_SLIT,
-		shop.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 0))
-	await wait_frames(2)
-	assert_string_contains(shop.info_body.get_parsed_text(), "Multicast")
-	assert_true(shop.info_price.visible, "und seinen Preis")
-
-func test_the_empty_screen_dims_itself_and_says_what_it_is_for() -> void:
-	# Leerlauf: dunkler Grund, stark gedimmter Saum, die Gebrauchszeile darauf.
+func test_hovering_swaps_the_model_for_the_whole_effect_text() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	assert_eq(shop.info_lit(), 0.0, "ein frischer Schirm steht leer - also dunkel")
-	assert_not_null(shop.info_idle, "und trägt seine Leerlaufzeile")
-	assert_eq(shop.info_idle.text, ShopController.INFO_IDLE_TEXT)
-	assert_almost_eq(shop.info_idle.modulate.a, 1.0, 0.01, "sie ist im Leerlauf da")
-	var box: StyleBoxFlat = shop.info_screen.get_theme_stylebox("panel")
-	assert_lt(box.border_color.a, 0.5, "der Rahmen zieht kein Auge - aber er bleibt")
-	assert_gt(box.border_color.a, 0.0, "das Fixture bleibt ablesbar")
+	shop.set_charm_hover(0, true)
+	assert_false(shop.charm_stages[0].visible, "das Modell weicht")
+	assert_true(shop.charm_effects[0].visible, "und der Text tritt an seine Stelle")
+	assert_eq(shop.charm_effects[0].text, shop.charm_options[0].description,
+		"ungekürzt - es gibt keinen Schirm, der nachreichte")
+	# Die Nachbarn bleiben, wie sie waren: gehovert ist immer nur eine Karte.
+	for i in range(1, shop.charm_buttons.size()):
+		assert_true(shop.charm_stages[i].visible, "der Nachbar zeigt weiter sein Modell (%d)" % i)
+	shop.set_charm_hover(0, false)
+	assert_true(shop.charm_stages[0].visible, "und zurück")
+	assert_false(shop.charm_effects[0].visible)
 
-func test_content_lights_the_screen_at_once_and_takes_the_idle_line_away() -> void:
+func test_the_card_rect_survives_the_swap_byte_identically() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	shop.show_info(ShopController.INFO_BAY,
-		shop.vitrine_annotation(ShopController.KIND_DIE, 0))
-	assert_eq(shop.info_lit(), 1.0, "Aufhellen sofort, ohne Gnadenfrist")
-	assert_almost_eq(shop.info_idle.modulate.a, 0.0, 0.01,
-		"die Leerlaufzeile verschwindet, sobald ein Sprecher schreibt")
-	var box: StyleBoxFlat = shop.info_screen.get_theme_stylebox("panel")
-	assert_almost_eq(box.border_color.a, 1.0, 0.01, "mit Inhalt kommt der volle Rahmen")
+	var before: Array[Rect2] = []
+	for card in shop.charm_buttons:
+		before.append(card.get_global_rect())
+	shop.set_charm_hover(0, true)
+	await wait_frames(2)
+	for i in shop.charm_buttons.size():
+		assert_eq(shop.charm_buttons[i].get_global_rect(), before[i],
+			"der Tausch bewegt kein Rechteck (%d)" % i)
+	# Auch der Name und der Preis stehen still.
+	var column := shop.charm_buttons[0].get_child(0) as Control
+	var name_y: float = (column.get_child(0) as Control).global_position.y
+	var price_y: float = (column.get_child(2) as Control).global_position.y
+	shop.set_charm_hover(0, false)
+	await wait_frames(2)
+	assert_almost_eq((column.get_child(0) as Control).global_position.y, name_y, 0.01,
+		"der Name bleibt oben stehen")
+	assert_almost_eq((column.get_child(2) as Control).global_position.y, price_y, 0.01,
+		"und der Preis unten")
 
-func test_the_screen_waits_a_grace_before_it_dims() -> void:
-	# Ein Hover-Wackler darf den Schirm nicht flackern lassen.
+func test_a_sold_card_swaps_just_the_same() -> void:
+	# Der Text ist bei einer gesperrten Karte erst recht die einzige Auskunft.
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	shop.show_info(ShopController.INFO_BAY,
-		shop.vitrine_annotation(ShopController.KIND_DIE, 0))
-	shop.clear_info(ShopController.INFO_BAY)
+	shop._on_charm_clicked(0)
 	await wait_frames(2)
-	assert_eq(shop.info_lit(), 1.0, "in der Gnadenfrist steht er noch hell")
-	shop.show_info(ShopController.INFO_BAY,
-		shop.vitrine_annotation(ShopController.KIND_DIE, 0))
-	assert_eq(shop.info_lit(), 1.0, "und der nächste Sprecher findet ihn hell vor")
-	shop.clear_info(ShopController.INFO_BAY)
-	await wait_seconds(ShopController.INFO_IDLE_GRACE + ShopController.INFO_IDLE_FADE + 0.2)
-	assert_almost_eq(shop.info_lit(), 0.0, 0.01, "danach ist er zurückgenommen")
+	assert_true(shop.charm_buttons[0].disabled, "die gekaufte Karte ist gesperrt")
+	assert_gt(shop.charm_buttons[0].get_signal_connection_list("mouse_entered").size(), 0,
+		"ihr Hover ist trotzdem verdrahtet - ein gesperrter Knopf meldet ihn weiter")
+	shop.set_charm_hover(0, true)
+	assert_true(shop.charm_effects[0].visible, "und tauscht trotzdem auf ihren Text")
 
-func test_the_screen_rect_is_the_same_in_every_state() -> void:
+func test_every_card_reports_its_own_hover() -> void:
+	# Der Zeiger liegt auf dem Tisch; die Bewegung wird in den SubViewport
+	# weitergeleitet, also meldet der Kartenknopf seinen Hover selbst.
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var idle: Rect2 = shop.info_screen_rect()
-	shop.show_info(ShopController.INFO_BAY,
-		shop.vitrine_annotation(ShopController.KIND_DIE, 0))
+	for i in shop.charm_buttons.size():
+		assert_gt(shop.charm_buttons[i].get_signal_connection_list("mouse_entered").size(), 0,
+			"Eintritt verdrahtet (%d)" % i)
+		assert_gt(shop.charm_buttons[i].get_signal_connection_list("mouse_exited").size(), 0,
+			"Austritt verdrahtet (%d)" % i)
+		assert_ne(shop.charm_buttons[i].mouse_filter, Control.MOUSE_FILTER_IGNORE,
+			"und der Knopf sieht die Maus überhaupt (%d)" % i)
+
+func test_the_longest_real_description_fits_the_narrowest_card() -> void:
+	# Gemessen an den echten Beschreibungen und der SCHMALSTEN Karte (Hub 10):
+	# der unterste Grad der Leiter muß jede von ihnen umgebrochen tragen.
+	shop.size = Vector2(1068, 1125)
+	run.hub_level = GameRun.HUB_MAX_LEVEL
+	shop.spreads.clear()
+	shop.open()
 	await wait_frames(2)
-	assert_true(shop.info_screen_rect().is_equal_approx(idle),
-		"nur der Stil wechselt, nie das Rechteck")
-	shop.clear_info()
-	await wait_seconds(ShopController.INFO_IDLE_GRACE + ShopController.INFO_IDLE_FADE + 0.2)
-	assert_true(shop.info_screen_rect().is_equal_approx(idle))
+	var font := ThemeDB.fallback_font
+	var card_w: float = shop._charm_card_width(shop.charm_options.size())
+	var text_w: float = card_w - shop.u * ShopController.CARD_MARGIN * 2.0
+	var block: float = shop.card_mid_height()
+	var steps: Array = ShopController.CARD_EFFECT_STEPS
+	var floor_px := maxi(8, int(shop.u * float(steps[steps.size() - 1])))
+	var worst := ""
+	for charm in Charm.all():
+		if WorkshopView.text_block_height(font, charm.description, text_w, floor_px, 0) > block:
+			worst = charm.description
+	assert_eq(worst, "", "keine einzige Beschreibung fällt aus der Mittelfläche")
+
+func test_the_mid_area_is_the_same_on_every_card() -> void:
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	await wait_frames(2)
+	var block: float = shop.card_mid_height()
+	for i in shop.charm_effects.size():
+		assert_almost_eq(shop.charm_effects[i].custom_minimum_size.y, block, 0.01,
+			"die Mittelfläche ist fix - die Karten bleiben bündig (%d)" % i)
 
 # --- Der gesperrte Pager --------------------------------------------------------
 
-func test_the_locked_pager_explains_itself_on_the_screen() -> void:
+func test_the_locked_pager_explains_itself_in_its_own_label() -> void:
 	run.hub_level = 1
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
-	assert_eq(shop.page_next_button.text, ShopController.PAGER_LOCK,
-		"gesperrt heißt Schloss, nicht Verschwinden")
+	assert_eq(shop.page_next_button.text, ShopController.pager_lock_text(),
+		"gesperrt heißt Schloss PLUS die nötige Stufe, nicht Verschwinden")
+	assert_string_contains(shop.page_next_button.text, ShopController.PAGER_LOCK)
+	assert_string_contains(shop.page_next_button.text, str(GameRun.HUB_FLIPPING_LEVEL),
+		"der Pfeil sagt selbst, ab wann er aufgeht")
 	assert_true(shop.page_next_button.disabled)
-	shop.page_next_button.mouse_entered.emit()
-	assert_eq(shop.info_source(), ShopController.INFO_PAGER,
-		"der Hover schreibt auf den Schirm, den es dafür gibt")
-	assert_eq(shop.info_title.text, ShopController.PAGER_LOCK_TITLE)
-	assert_string_contains(shop.info_body.get_parsed_text(), "Hub-Stufe 2")
-	assert_false(shop.info_price.visible, "eine Sperre hat keinen Preis")
-	shop.page_next_button.mouse_exited.emit()
-	assert_eq(shop.info_source(), "", "und nimmt ihn selbst wieder zurück")
+	assert_eq(shop.page_back_button.text, shop.page_next_button.text,
+		"und beide stehen gleich - dann auch gleich breit")
 
 # --- Die Hierarchie des Fußes ---------------------------------------------------
 
@@ -1120,23 +1111,33 @@ func test_the_hub_price_reads_as_a_price() -> void:
 	assert_almost_eq(shop.hub_upgrade_button.get_theme_color("font_disabled_color").r,
 		CasinoStyle.RED.r, 0.01, "auch gesperrt bleibt der Preis rot")
 
-func test_an_open_pager_says_nothing_on_the_screen() -> void:
-	# Ab Stufe 2 tragen die Pfeile ihre Gebühr selbst - der Schirm bleibt frei.
+func test_an_open_pager_carries_its_fee() -> void:
+	# Ab Stufe 2 tragen die Pfeile ihre Gebühr selbst - mehr sagt niemand dazu.
 	run.hub_level = 2
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
 	assert_eq(shop.page_next_button.text, "$2 ›", "offen: die Gebühr steht am Pfeil")
-	shop.page_next_button.mouse_entered.emit()
-	assert_eq(shop.info_source(), "", "und nichts davon landet auf dem Schirm")
 
 func test_a_full_magazin_stands_where_the_price_would() -> void:
+	# Ein Kauf, der stumm scheiterte, wäre schlimmer als eine Zahl weniger: das
+	# Preisschild der Kassette sagt es selbst.
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	await wait_frames(2)
 	run.set_pack_capacity(1)
 	run.grant_pack(Pack.roll_engraving_pack())
 	await wait_frames(2)
-	shop.show_info(ShopController.INFO_SLIT,
-		shop.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 0))
-	assert_eq(shop.info_price.text, ShopController.FULL_TAG)
+	assert_true(run.packs_full(), "das Magazin ist wirklich voll")
+	var seat := -1
+	var stock: Array = shop.slit_stock()
+	for i in stock.size():
+		if stock[i] != null:
+			seat = i
+			break
+	assert_gt(seat, -1, "eine Kassette liegt aus")
+	assert_eq(shop._slit_prices[seat].text, ShopController.FULL_MARK)
+	assert_eq(shop._slit_prices[seat].modulate, CasinoStyle.RED)
 
 # --- Schalen-Rabatt der Einzelwürfel ------------------------------------------------
 

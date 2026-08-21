@@ -108,12 +108,13 @@ func test_level_one_shop_is_smaller() -> void:
 	assert_eq(shop.engraving_packs.size(), 4, "die Kassetten-Reihe ist immer voll")
 
 func test_level_one_locks_the_pager_instead_of_hiding_it() -> void:
-	# Die Pfeile BLEIBEN stehen und tragen ein Schloss - der Satz im Fuß ist weg.
+	# Die Pfeile BLEIBEN stehen und tragen Schloss samt nötiger Stufe - erklärt
+	# wird die Sperre in ihrer eigenen Aufschrift, nicht anderswo.
 	var shop := _shop(1)
 	assert_true(shop.page_next_button.visible, "Stufe 1: der Pfeil steht trotzdem")
 	assert_true(shop.page_back_button.visible)
-	assert_eq(shop.page_next_button.text, ShopController.PAGER_LOCK, "mit Schloss")
-	assert_eq(shop.page_back_button.text, ShopController.PAGER_LOCK)
+	assert_eq(shop.page_next_button.text, ShopController.pager_lock_text(), "mit Schloss")
+	assert_eq(shop.page_back_button.text, ShopController.pager_lock_text())
 	assert_true(shop.page_next_button.disabled, "und gesperrt")
 
 func test_level_two_unlocks_flipping() -> void:
@@ -158,9 +159,8 @@ func test_every_offer_has_its_own_charm_card() -> void:
 		"jedes Paket steckt in seinem Schlitz, nicht auf dem Bildschirm")
 	assert_eq(shop.vitrine_stock()[ShopController.KIND_DIE].size(), shop.single_dice.size())
 
-## Die Karte ist GEDECKELT, seit Name und Wirkungszeile auf ihr stehen: wenige
-## Angebote stehen kompakt und mittig statt als Panorama, und das Modell hängt
-## an der festen Bandhöhe, nicht mehr an der Anzahl.
+## Die Karte ist GEDECKELT: wenige Angebote stehen kompakt und mittig statt als
+## Panorama, und das Modell hängt an der festen Bandhöhe, nicht mehr an der Anzahl.
 func test_charm_cards_are_capped_instead_of_stretching() -> void:
 	var shop := _shop(1)
 	var few: Vector2 = shop._charm_metrics(2)
