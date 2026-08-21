@@ -491,8 +491,12 @@ func test_the_footer_stays_inside_the_panel_on_every_hub_level() -> void:
 func test_done_hides_panel_and_emits_closed():
 	watch_signals(shop)
 	shop._on_done_pressed()
-	assert_false(shop.visible)
 	assert_signal_emitted(shop, "closed")
+	# Die SEITE steht noch: auf ihr spielt die Abräum-Zeremonie der Auslage. Erst
+	# finish_close() gibt die Fläche ab.
+	assert_true(shop.visible)
+	shop.finish_close()
+	assert_false(shop.visible)
 
 # --- Chip-Schale: die Einzelstücke ------------------------------------------------
 
@@ -686,12 +690,22 @@ func test_the_sortiment_lock_is_the_visible_promise() -> void:
 	shop.open()
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
 		"gesperrt wird nichts gewürfelt und nichts gehoben")
+	# Die Ware ist dieselbe - aber wenn die Bucht seit dem Abgang körperlich LEER
+	# ist, kommt sie trotzdem an. Die physische Regel schlägt die Seiten-Regel.
+	assert_eq(ShopController.grade_on_stand(shop.vitrine_grade(), false),
+		ShopController.GRADE_RISE, "eine leere Bucht zeigt sie als Ankunft")
 
 func test_a_reentry_shows_the_same_standing_shop() -> void:
 	shop.close()
 	shop.reopen()
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
 		"der Laden ist derselbe, der Spieler geht nur noch einmal hinein")
+	assert_eq(ShopController.grade_on_stand(shop.vitrine_grade(), false),
+		ShopController.GRADE_RISE,
+		"aber seine Ware ist hinausgefahren - der Wiedereintritt ist eine Ankunft")
+	assert_eq(ShopController.grade_on_stand(shop.vitrine_grade(), true),
+		ShopController.GRADE_STAND,
+		"eine bloß verdrängte Auslage behält ihre Körper und bleibt liegen")
 
 func test_an_unlocked_visit_raises_again() -> void:
 	shop.close()
@@ -944,7 +958,12 @@ func test_the_soul_line_stands_between_the_net_and_the_price() -> void:
 	await wait_frames(2)
 	var die: DieDefinition = shop.single_dice[0]
 	shop.set_die_nets([{"def": die, "pos": Vector2(30.0, 40.0)}], 8.0)
-	assert_gte(shop._net_souls[0].position.y, 40.0 + DieNetView.net_size(8.0).y,
+	# Gemessen wird IM Block: Netz, Seele und Preis liegen in EINEM Wrapper, der als
+	# Ganzes aus seinem Würfel wächst.
+	var block: Control = shop._net_blocks[0]
+	assert_true(block.position.is_equal_approx(Vector2(30.0, 40.0)),
+		"der Block steht auf dem gemeldeten Platz")
+	assert_gte(shop._net_souls[0].position.y, DieNetView.net_size(8.0).y,
 		"die Seele steht unter dem Netz")
 	assert_gt(shop._net_prices[0].position.y, shop._net_souls[0].position.y,
 		"und der Preis unter der Seele")
@@ -1485,46 +1504,215 @@ func test_the_two_speakers_move_no_band() -> void:
 	for i in seats.size():
 		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
 
-# --- Die LICHTFUGEN der Hebebühne ----------------------------------------------
+# --- Kein Rahmen mehr: die Lichtfugen sind restlos fort -------------------------
 
-func test_the_lift_seams_move_no_band() -> void:
-	# Die Fuge ist ein absolut gestelltes Overlay, kein Layout-Kind: die Bänder
-	# stehen mit und ohne sie byte-gleich.
+func test_the_page_carries_no_lift_seam_at_all() -> void:
+	# Es gibt keine Ankündigung mehr - kein Overlay, kein Symbol, und die Bänder
+	# stehen unverändert byte-gleich.
 	_lay_out_page()
 	await wait_frames(2)
 	var bands := _band_rects()
 	var bay: Rect2 = shop.vitrine_rect_px()
 	var seats: Array[Rect2] = shop.slit_rects()
-	for zone in ShopController.SEAM_ZONES:
-		shop.set_lift_seam(zone, true)
+	for gone: String in ["set_lift_seam", "hide_lift_seams", "seam_field", "seam_tint"]:
+		assert_false(shop.has_method(gone), "%s kündigt nichts mehr an" % gone)
+	for zone in 2:
+		assert_null(shop.get_node_or_null("LiftSeam%d" % zone),
+			"kein Fugen-Panel in der Seite (Zone %d)" % zone)
 	await wait_frames(2)
 	var after := _band_rects()
 	assert_eq(after.size(), bands.size(), "dieselben Bänder")
 	for i in bands.size():
 		assert_true(after[i].is_equal_approx(bands[i]),
-			"Band %d steht mit und ohne Fuge gleich (%s vs %s)" % [i, after[i], bands[i]])
+			"Band %d steht unverändert (%s vs %s)" % [i, after[i], bands[i]])
 	assert_true(shop.vitrine_rect_px().is_equal_approx(bay), "und die Bucht auch")
 	var seats_after: Array[Rect2] = shop.slit_rects()
 	for i in seats.size():
 		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
 
-func test_each_seam_lies_around_the_field_its_goods_come_from() -> void:
+# --- Die frisch gebaute Stellplatz-Reihe hat noch kein Rechteck ------------------
+# Der Stapel-Bug: ein Hub-Aufstieg im offenen Laden baut die Reihe neu, und wer
+# ihre Anker im selben Bild mißt, bekommt lauter Nullen - dann läge die ganze
+# Auslage auf dem linkesten Platz.
+
+func test_a_freshly_built_slit_row_says_it_does_not_stand_yet() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	assert_eq(shop.lift_seams.size(), ShopController.SEAM_ZONES, "je Zone eine Fuge")
-	for zone in ShopController.SEAM_ZONES:
-		var field: Rect2 = shop.seam_field(zone)
-		assert_gt(field.size.x, 0.0, "Zone %d meldet ihr Feld" % zone)
-		shop.set_lift_seam(zone, true)
-		var seam: Panel = shop.lift_seams[zone]
-		assert_true(seam.visible, "Zone %d glüht" % zone)
-		var box := seam.get_global_rect()
-		assert_true(box.encloses(field), "und ihre Fuge umschließt das Feld")
-	# Die Reihe ist die Gravuren-Zone, die Bucht die Würfel-Zone.
-	assert_true(shop.seam_field(ShopController.SEAM_ZONE_SLIT).is_equal_approx(
-		shop.slit_row.get_global_rect()))
-	assert_true(shop.seam_field(ShopController.SEAM_ZONE_BAY).is_equal_approx(
-		shop.vitrine_rect_px()))
-	shop.hide_lift_seams()
-	for seam: Panel in shop.lift_seams:
-		assert_false(seam.visible, "der Vorhangfall löscht sie hart")
+	assert_true(shop.slit_row_laid_out(), "die ausgelegte Reihe steht")
+	shop.rebuild_slit_row()
+	assert_false(shop.slit_row_laid_out(),
+		"frische Knöpfe haben noch kein Rechteck - hier darf niemand messen")
+	await wait_frames(2)
+	assert_true(shop.slit_row_laid_out(), "und im nächsten Layout steht sie wieder")
+
+func test_after_a_hub_upgrade_the_seats_stand_apart_not_on_top_of_each_other() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	run.money = 999
+	run.upgrade_hub()
+	shop.refresh_after_hub_upgrade()
+	await wait_frames(2)
+	var anchors: Array = shop.slit_anchors()
+	assert_gt(anchors.size(), 1, "die Reihe führt mehrere Plätze")
+	for i in range(1, anchors.size()):
+		assert_gt((anchors[i] as Vector2).x, (anchors[i - 1] as Vector2).x,
+			"Platz %d liegt RECHTS von seinem Nachbarn, nicht auf ihm" % i)
+
+# --- Der Laden schließt, seine SEITE bleibt stehen ------------------------------
+# Auf ihr spielt die Abräum-Zeremonie der Auslage. Die Spiel-Logik wartet nicht,
+# nur der Seitenwechsel.
+
+func test_closing_keeps_the_page_standing_and_dead() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var heard: Array = []
+	shop.closed.connect(func() -> void: heard.append(true))
+	shop.close()
+	assert_eq(heard.size(), 1, "die Spiel-Logik hört sofort")
+	assert_true(shop.visible, "die Ladenseite steht noch - dort spielt der Abgang")
+	assert_true(shop.leaving(), "und sie ist tot")
+	shop.close()
+	assert_eq(heard.size(), 1, "ein Laden schließt nur einmal")
+	shop.finish_close()
+	assert_false(shop.visible, "erst finish_close gibt die Fläche ab")
+	assert_false(shop.leaving())
+
+func test_a_reopening_shop_aborts_a_standing_page_hard() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.close()
+	assert_true(shop.leaving())
+	shop.reopen()
+	assert_false(shop.leaving(), "ein Wieder-Eintritt bricht den Abgang hart ab")
+	assert_true(shop.visible, "und deckt frisch auf")
+	shop.finish_close()
+	assert_true(shop.visible, "ein Nachzügler des alten Abgangs schließt nichts mehr")
+
+func test_a_displaced_page_that_closes_never_comes_back() -> void:
+	# Der Laden raeumt ab, eine fremde Seite verdraengt ihn - danach ist er WIRKLICH
+	# zu und die Seitenregel holt kein totes Standbild zurueck.
+	var hub := HubView.new()
+	add_child_autofree(hub)
+	hub.size = Vector2(600, 600)
+	await wait_frames(2)
+	var other := Panel.new()
+	other.visible = false
+	hub.attach_panel(other)
+	var page := Panel.new()
+	page.visible = true
+	hub.attach_panel(page)
+	other.visible = true  # verdraengt die Seite
+	assert_false(page.visible, "die Seite ist verdrängt")
+	hub.forget_page(page)
+	other.visible = false
+	assert_false(page.visible, "und sie kehrt nicht zurück")
+
+func test_a_closing_shop_stops_pulling_anything_after() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var pages: Array = []
+	shop.vitrine_changed.connect(func() -> void: pages.append(true))
+	shop.close()
+	run.add_money(50)
+	run.charms_changed.emit()
+	await wait_frames(2)
+	assert_eq(pages.size(), 0, "eine abräumende Seite baut nichts mehr um")
+
+# --- Die Netz-Blöcke wachsen aus ihren Würfeln ----------------------------------
+
+func _net_entries(at: Vector2) -> Array:
+	var die: DieDefinition = shop.single_dice[0]
+	return [{"def": die, "pos": at, "anchor": at + Vector2(20.0, -30.0)}]
+
+func test_after_an_arrival_the_block_grows_out_of_its_die() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0, true)
+	assert_true(shop.nets_growing(), "der Block wächst")
+	var block: Control = shop._net_blocks[0]
+	assert_lt(block.scale.x, 1.0, "er startet fast bei nichts")
+	assert_true(block.pivot_offset.is_equal_approx(Vector2(20.0, -30.0)),
+		"und er wächst aus dem ANKER des Würfels, nicht aus seiner eigenen Ecke")
+	assert_eq(shop.net_hint_at(shop.vitrine_rect_px().position + Vector2(35.0, 45.0)), "",
+		"ein wachsender Block antwortet nicht - sein Rechteck löge")
+	await wait_seconds(ShopController.NET_GROW_TIME
+		+ ShopController.NET_GROW_STAGGER * float(shop._net_blocks.size()) + 0.2)
+	assert_false(shop.nets_growing(), "danach steht er")
+	assert_true(block.scale.is_equal_approx(Vector2.ONE), "in voller Größe")
+	assert_almost_eq(block.modulate.a, 1.0, 0.001, "und voll sichtbar")
+
+func test_without_an_arrival_the_block_stands_at_once() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	assert_false(shop.nets_growing(), "liegen geblieben ist nirgends angekommen")
+	var block: Control = shop._net_blocks[0]
+	assert_true(block.scale.is_equal_approx(Vector2.ONE))
+	assert_almost_eq(block.modulate.a, 1.0, 0.001)
+
+func test_an_idempotent_resync_does_not_restart_the_growth() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var entries := _net_entries(Vector2(30.0, 40.0))
+	shop.set_die_nets(entries, 8.0, true)
+	var block: Control = shop._net_blocks[0]
+	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
+	var grown := block.scale.x
+	shop.set_die_nets(entries, 8.0, true)  # dieselbe Unterschrift
+	assert_eq(shop._net_blocks[0], block, "derselbe Block bleibt stehen")
+	assert_almost_eq(block.scale.x, grown, 0.05,
+		"und sein Wachstum läuft weiter, statt neu anzufangen")
+
+func test_a_rebuild_mid_growth_lays_the_finished_block_down_hard() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0, true)
+	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
+	shop.set_die_nets(_net_entries(Vector2(31.0, 41.0)), 8.0)
+	assert_false(shop.nets_growing(), "der Abbruch endet das Wachstum")
+	var block: Control = shop._net_blocks[0]
+	assert_true(block.scale.is_equal_approx(Vector2.ONE), "und legt fertig hin")
+	shop.clear_die_nets()
+	assert_false(shop.nets_growing(), "ein Vorhangfall ebenso")
+
+# --- Die ABSORPTION: das Wachstum rückwärts, VOR der Maschine -------------------
+
+func test_before_a_teardown_the_block_shrinks_back_into_its_die() -> void:
+	# Die Symmetrie zur Ankunft: der Block fährt in seinen Würfel zurück - und der
+	# Würfel steht dabei noch, denn die Maschine fährt erst nach dem Vorlauf.
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	var block: Control = shop._net_blocks[0]
+	var lead: float = shop.absorb_die_nets()
+	assert_almost_eq(lead, ShopController.absorb_time(1), 0.0001,
+		"der gemeldete Vorlauf ist der ehrliche Deckel")
+	assert_true(shop.nets_absorbing(), "der Block wird eingesogen")
+	assert_true(shop.nets_growing(), "und schweigt dabei")
+	assert_eq(shop.net_hint_at(shop.vitrine_rect_px().position + Vector2(35.0, 45.0)), "",
+		"ein schrumpfender Block antwortet nicht")
+	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
+	assert_lt(block.scale.x, 0.9, "auf halbem Weg ist er schon kleiner")
+	assert_gt(block.scale.x, ShopController.NET_GROW_FROM, "aber noch nicht fort")
+	await wait_seconds(lead + 0.2)
+	assert_false(shop.nets_absorbing(), "danach ist sie durch")
+	assert_eq(shop.net_count(), 0, "und die Blöcke sind abgeräumt")
+
+func test_an_empty_bay_absorbs_nothing_and_waits_for_nothing() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.clear_die_nets()
+	assert_eq(shop.absorb_die_nets(), 0.0, "steht kein Netz, ist der Vorlauf 0")
+	assert_false(shop.nets_absorbing())
+
+func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	shop.absorb_die_nets()
+	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
+	shop.clear_die_nets()  # Verdrängung, Laufwechsel: der harte Weg
+	assert_false(shop.nets_absorbing(), "die Absorption ist beendet")
+	assert_eq(shop.net_count(), 0, "und kein halb geschrumpfter Block bleibt liegen")
+	await wait_seconds(ShopController.NET_GROW_TIME + 0.2)
+	assert_eq(shop.net_count(), 0, "auch nachträglich stellt niemand mehr etwas")

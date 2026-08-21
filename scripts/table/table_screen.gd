@@ -201,6 +201,8 @@ var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()
 ## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.
 var _ground_material: ShaderMaterial
+## Die EINE Haut, die jede Hebebühnen-Plattform trägt (display_skin).
+var _display_skin: ShaderMaterial
 ## Die Magazin-Grube unter ihrem alten Namen: Platz 0, nur lesend.
 var apron_pit: Rect2:
 	get:
@@ -922,6 +924,21 @@ func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.size = rect.size
 	treasure_window.visible = true
 	_sync_reflection_windows()
+
+## Die HAUT für jede Hebebühnen-Plattform: sie zeigt das ECHTE Bild der Anzeige an
+## ihrer Stelle. EIN Material für alle Schächte - es rechnet aus der Weltposition,
+## nicht aus einer UV, und trägt darum überall dasselbe. Die Abbildung ist die von
+## world_to_pixel, Zahl für Zahl. Gemeldet nach draußen, denn eine View greift
+## nicht in die Szene; idempotent (dieselbe Instanz, dieselben Parameter).
+func display_skin() -> ShaderMaterial:
+	if _display_skin == null:
+		_display_skin = ShaderMaterial.new()
+		_display_skin.shader = load("res://assets/shaders/display_skin.gdshader")
+	_display_skin.set_shader_parameter("screen_texture", get_texture())
+	_display_skin.set_shader_parameter("display_map",
+		Vector4(_z_min, _z_span, _x_max, _x_span))
+	_display_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
+	return _display_skin
 
 ## Der Filzboden hinter den Löchern: er bekommt dieselbe Liste, nur in Welt-XZ.
 ## Gemeldet, nicht gesucht - table/ greift nicht in die Szene.

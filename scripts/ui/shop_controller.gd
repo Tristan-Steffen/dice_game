@@ -133,25 +133,6 @@ const FLANK_NAME_SHARE := 0.38
 const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
 const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 
-## Die LICHTFUGE der Hebebühne: der Umriss des Feldes glüht auf, BEVOR seine Ware
-## kommt - die Ankündigung des Automaten. Zone 0 ist die Gravuren-Schlitzreihe,
-## Zone 1 die Bucht, jede im Akzent ihres Bandes. Sie sind absolut gestellte
-## Overlays, KEINE Layout-Kinder: die Bandrechte bleiben byte-gleich.
-const SEAM_ZONE_SLIT := 0
-const SEAM_ZONE_BAY := 1
-const SEAM_ZONES := 2
-const SEAM_PAD := 0.9
-const SEAM_BORDER := 0.34
-const SEAM_FADE := 0.12
-## Überhell: die Fuge ist ein UMRISS, kein Feld - ihr Glühen kommt aus dem Bloom
-## des Displays, nicht aus einer gefüllten Fläche (eine gefüllte deckte die Ware zu).
-const SEAM_GLOW := 1.9
-
-## Der GRUND dieser Seite, wie er am Tisch wirklich leuchtet - die bündige
-## Plattform der Hebebühne trägt ihn, damit ihr Schließen nicht springt. GEMESSEN,
-## nicht gerechnet: über dem Fenstergrund liegen noch die Gründe der Seite.
-const BAY_GROUND := Color(0.149, 0.141, 0.277)
-
 ## Die Tiefe des INFO-FUSSES am unteren Buchtrand, in BUCHTEN-Einheiten
 ## (Streifenbreite/100) - dieselbe Einheit, in der scene_root seine Reserve
 ## rechnet, damit Reserve und wirklicher Aufbau nicht driften. Gemessen: die
@@ -160,15 +141,29 @@ const VITRINE_FOOTER_UNITS := 4.4
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
 
+## Die PROJEKTION der Netz-Blöcke: nach einer echten Ankunft wächst jeder Block aus
+## seinem Würfel heraus, und vor jedem Abräumen wird er in ihn zurück ABSORBIERT -
+## dieselbe Zeit, dieselbe Staffelung, nur rückwärts. Eine zurückkehrende Seite ist
+## KEINE Ankunft: dort steht der Block sofort.
+const NET_GROW_TIME := 0.5
+## Ein Hauch Versatz je Würfel: die Reihe projiziert sich von links nach rechts,
+## statt in einem Schlag dazustehen.
+const NET_GROW_STAGGER := 0.05
+## Woraus er wächst - fast nichts, aber nicht null: eine Null nähme dem Block seine
+## Richtung und ließe ihn aus dem Nirgendwo kommen.
+const NET_GROW_FROM := 0.02
+## Die Einblendung ist kürzer als das Wachsen: erst da, dann fertig gewachsen.
+const NET_FADE_SHARE := 0.6
+
 ## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
 static func single_die_price(offer_price: int) -> int:
 	return maxi(1, roundi(float(offer_price) * SINGLE_DIE_DISCOUNT))
 const FLIP_DURATION := 0.25
-## Beide Zonen blättern DIESELBE Doppelseite: die Charm-Zeile wartet, bis die alte
-## Ware unter dem Glas versunken ist, sonst stünden neue Karten über alter Ware.
-## Spiegelt VitrineView.SWAP_TIME (ui/ greift nicht in table/ - ein Test hält die
-## beiden Zahlen gleich).
-const FLIP_DELAY := 0.52
+## Beide Zonen blättern DIESELBE Doppelseite: die Charm-Zeile wechselt im Augenblick
+## des BAND-SCHRITTS - die alte Ware ist gesenkt und verschwunden, die neue rückt
+## nach. Spiegelt VitrineView.belt_moment() (ui/ greift nicht in table/ - ein Test
+## hält die beiden Zahlen gleich); der Vorlauf der Absorption kommt davor.
+const FLIP_DELAY := 0.4
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
 ## Zurückblättern zeigt exakt diese Seite wieder.
@@ -212,6 +207,7 @@ var run: GameRun:
 		spreads = []
 		_standing_spread = null
 		_vitrine_grade = GRADE_STAND
+		_leaving = false  # der alte Laden räumt für den neuen nichts mehr ab
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
@@ -238,9 +234,6 @@ var vitrine_nets: Control
 ## einer Netz-Zelle deren hint_for-Zeile trägt und beim Hover des Würfelkörpers
 ## seine Seelen-Zeile. Ohne Hover unsichtbar - kein Kasten, kein Leerlauf.
 var net_footer: Label
-## Die LICHTFUGEN der beiden Zonen (Index = SEAM_ZONE_*). Reine Anzeige.
-var lift_seams: Array[Panel] = []
-var _seam_tweens: Array[Tween] = []
 ## Die Auskunft der Schlitzreihe in ihrer rechten Flanke (Name + Beschreibung).
 ## Absolut positioniertes Overlay der SEITE, kein Layout-Kind - die Bandhöhen
 ## bleiben davon unberührt.
@@ -266,6 +259,11 @@ var _slit_pads: Array[Panel] = []
 var _slit_prices: Array[Label] = []
 ## Je Platz {kind, index} - die Zahl hängt an der LIZENZ, nicht an der Auslage.
 var _slit_seats: Array[Dictionary] = []
+## Eine eben gebaute Reihe hat noch KEIN Rechteck: der Container sortiert erst im
+## nächsten Layout-Durchgang, bis dahin liegen alle Stellplätze auf dem Ursprung
+## der Reihe. Wer die Anker dann mißt, stapelt die ganze Reihe auf den linkesten
+## Platz - deshalb meldet der Laden, ob sie wirklich steht.
+var _slit_row_fresh := true
 
 ## Fußabdruck einer LIEGENDEN Kassette in Display-Pixeln (meldet scene_root).
 ## Daran ist der Stellplatz geschnitten - ein Weltmaß, kein u-Maß.
@@ -287,6 +285,15 @@ var _standing_spread: MenuSpread = null
 var _vitrine_grade := GRADE_STAND
 ## Unterschrift der stehenden Würfelnetze - gleiche Unterschrift, kein Neuaufbau.
 var _net_signature := ""
+## Je Würfel EIN Wrapper mit Netz, Seelen-Zeile und Preisschild - der Block, der
+## aus seinem Würfel wächst.
+var _net_blocks: Array[Control] = []
+## Läuft eine Projektion (Wachstum ODER Absorption)? Solange schweigt der Info-Fuß.
+var _net_growing := false
+## Und läuft sie RÜCKWÄRTS? Dann gehören die Blöcke der Absorption, die sie am Ende
+## selbst abräumt.
+var _net_absorbing := false
+var _net_grow_tween: Tween
 ## Wessen Netz an welcher Stelle des Layers hängt - daran hängen die beiden Zeilen
 ## darunter.
 var _net_dice: Array[DieDefinition] = []
@@ -304,6 +311,11 @@ var _net_cell := 0.0
 var _net_hint := ""
 ## Welche Kassette die Flanke gerade erklärt ("" = keine).
 var _slit_info_key := ""
+
+## Der Laden RÄUMT AB: seine Seite steht noch (die Zeremonie der Auslage spielt auf
+## ihr), er ist aber tot - kein Kauf, kein Neuaufbau, kein Forwarding. Erst
+## finish_close() gibt die Fläche ab.
+var _leaving := false
 
 ## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
@@ -348,6 +360,7 @@ var pending_bet_notice: String = ""
 ## baut das Gerüst passend zur aktuellen Größe. Ist das Sortiment gesperrt,
 ## bleiben die bestehenden Seiten samt Kauf-Marken stehen.
 func open() -> void:
+	_leaving = false  # ein Wieder-Aufdecken bricht jeden Abgang hart ab
 	_build_layout()
 	if not sortiment_locked or spreads.is_empty():
 		spreads = [_build_spread()]
@@ -359,6 +372,7 @@ func open() -> void:
 ## Spieler geht nur noch einmal hinein. Ohne Auslage (Laden nie offen gewesen)
 ## rollt er wie beim ersten Öffnen.
 func reopen() -> void:
+	_leaving = false  # ein Wieder-Aufdecken bricht jeden Abgang hart ab
 	_build_layout()
 	if spreads.is_empty():
 		spreads = [_build_spread()]
@@ -384,11 +398,9 @@ func _build_layout() -> void:
 	# endet an der Hub-Fläche).
 	clip_contents = true
 
-	# Die Flankenauskunft und die Lichtfugen stehen VOR dem Layout in der Kindliste:
-	# sie sind Overlays, keine Bänder - und das Möbel der Seite bleibt so ihr
-	# letztes Kind.
+	# Die Flankenauskunft steht VOR dem Layout in der Kindliste: sie ist ein Overlay,
+	# kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
 	_build_slit_info()
-	_build_lift_seams()
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -557,6 +569,9 @@ func _build_slit_row() -> HBoxContainer:
 	_slit_seats = slit_seats()
 	for i in _slit_seats.size():
 		row.add_child(_slit_seat(i))
+	# GEMELDET, nicht geraten: der Container sagt selbst, wann er sortiert hat.
+	_slit_row_fresh = true
+	row.sort_children.connect(func() -> void: _slit_row_fresh = false)
 	return row
 
 ## Ein Hub-Aufstieg mitten im Besuch gibt neue Paket-Plätze - die müssen sichtbar
@@ -573,6 +588,7 @@ func rebuild_slit_row() -> void:
 	_slit_seats = slit_seats()
 	for i in _slit_seats.size():
 		slit_row.add_child(_slit_seat(i))
+	_slit_row_fresh = true  # frische Knöpfe, noch kein Rechteck
 	_slit_info_key = ""  # die Reihe ist neu, die Flanke erklärt nichts mehr
 	if slit_info != null and is_instance_valid(slit_info):
 		slit_info.visible = false
@@ -623,6 +639,12 @@ func _slit_box() -> StyleBoxFlat:
 	box.set_border_width_all(maxi(1, int(u * 0.18)))
 	box.set_corner_radius_all(int(u * 0.8))
 	return box
+
+## STEHT die Reihe wirklich? Eine eben gebaute (open, Hub-Aufstieg, neuer
+## Kartengrundriß) hat bis zum nächsten Layout keine Rechtecke - ihre Anker lägen
+## alle aufeinander. Wer stellt, mißt erst, wenn es soweit ist.
+func slit_row_laid_out() -> bool:
+	return not _slit_row_fresh
 
 ## Display-Pixel der STELLPLATZ-Mitten (leere eingeschlossen) - dort liegt die
 ## Kassette, und von dort fährt eine gekaufte los.
@@ -850,8 +872,8 @@ func _footer_font(font: Font, text: String, block: Vector2, bay_u: float) -> int
 ## Die hint_for-Zeile der Netz-Zelle unter einem globalen Display-Pixel ("" =
 ## keine). Gerechnet wird im STREIFEN, denn dort hängen die Netze.
 func net_hint_at(pixel: Vector2) -> String:
-	if _net_cell <= 0.0 or _net_positions.is_empty():
-		return ""
+	if _net_cell <= 0.0 or _net_positions.is_empty() or _net_growing:
+		return ""  # ein wachsender Block steht noch nicht dort, wo sein Rechteck sagt
 	var strip := vitrine_rect_px()
 	if strip.size.x <= 0.0 or not strip.has_point(pixel):
 		return ""
@@ -864,89 +886,6 @@ func net_hint_at(pixel: Vector2) -> String:
 		return DieNetView.hint_for(_net_dice[i],
 			DieNetView.face_at(local - _net_positions[i], _net_cell))
 	return ""
-
-# --- Die LICHTFUGEN der Hebebühne ----------------------------------------------
-# Der Automat kündigt an, bevor er fährt: der Umriss des Feldes glüht auf, bleibt
-# über die Fahrt und verlischt, sobald die Zone steht. Getaktet wird von scene_root
-# (dort liegen die Zeiten der Bühne) - hier wird nur gemalt.
-
-func _build_lift_seams() -> void:
-	lift_seams.clear()
-	_seam_tweens.clear()
-	for zone in SEAM_ZONES:
-		var seam := Panel.new()
-		seam.name = "LiftSeam%d" % zone
-		seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		seam.visible = false
-		seam.modulate = Color(1, 1, 1, 0)
-		seam.add_theme_stylebox_override("panel", _seam_box(seam_tint(zone)))
-		add_child(seam)
-		lift_seams.append(seam)
-		_seam_tweens.append(null)
-
-## Jede Zone glüht im Akzent ihres Bandes - Gravuren cyan, Würfel grün.
-static func seam_tint(zone: int) -> Color:
-	return NEON_GREEN if zone == SEAM_ZONE_BAY else NEON_CYAN
-
-func _seam_box(accent: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.draw_center = false  # unter einer Fuge liegt Ware, kein Panel
-	box.border_color = Color(accent.r * SEAM_GLOW, accent.g * SEAM_GLOW, accent.b * SEAM_GLOW)
-	box.set_border_width_all(maxi(2, int(u * SEAM_BORDER)))
-	box.set_corner_radius_all(int(u * 1.0))
-	box.anti_aliasing = true
-	return box
-
-## Das Feld, aus dem gleich Ware kommt (leer = die Seite steht noch nicht).
-func seam_field(zone: int) -> Rect2:
-	if zone == SEAM_ZONE_SLIT:
-		if slit_row == null or not is_instance_valid(slit_row):
-			return Rect2()
-		return slit_row.get_global_rect()
-	return vitrine_rect_px()
-
-## Die Fuge EINER Zone an- oder abblenden. Reine Anzeige - sie läßt keinen Zustand
-## zurück, den ein Abbruch aufräumen müßte (hide_lift_seams löscht hart).
-func set_lift_seam(zone: int, on: bool) -> void:
-	if zone < 0 or zone >= lift_seams.size():
-		return
-	var seam := lift_seams[zone]
-	if seam == null or not is_instance_valid(seam):
-		return
-	if on:
-		var field := seam_field(zone)
-		if field.size.x <= 0.0 or field.size.y <= 0.0:
-			return
-		var pad := u * SEAM_PAD
-		seam.position = field.position - get_global_rect().position - Vector2(pad, pad)
-		seam.size = field.size + Vector2(pad, pad) * 2.0
-		seam.visible = true
-	_kill_seam_tween(zone)
-	var fade := create_tween()
-	_seam_tweens[zone] = fade
-	fade.tween_property(seam, "modulate:a", 1.0 if on else 0.0, SEAM_FADE)
-	if not on:
-		fade.tween_callback(func() -> void:
-			if is_instance_valid(seam):
-				seam.visible = false)
-
-## Vorhangfall oder Laufwechsel: beide Fugen sind sofort fort.
-func hide_lift_seams() -> void:
-	for zone in lift_seams.size():
-		_kill_seam_tween(zone)
-		var seam := lift_seams[zone]
-		if seam == null or not is_instance_valid(seam):
-			continue
-		seam.modulate = Color(1, 1, 1, 0)
-		seam.visible = false
-
-func _kill_seam_tween(zone: int) -> void:
-	if zone < 0 or zone >= _seam_tweens.size():
-		return
-	var running := _seam_tweens[zone]
-	if running != null and running.is_valid():
-		running.kill()
-	_seam_tweens[zone] = null
 
 # --- Die Vitrine (gemeldete Geometrie, kein Inhalt) ----------------------------
 
@@ -965,17 +904,20 @@ func vitrine_pit_rect() -> Rect2:
 		return Rect2()
 	return PackDrawerView.pit_rect_in(strip, u)
 
-## Die WÜRFELNETZE der Auslage stellen: je Eintrag {def, pos} in Pixeln des
+## Die WÜRFELNETZE der Auslage stellen: je Eintrag {def, pos, anchor} in Pixeln des
 ## Buchten-Streifens, cell = Zellmaß. Idempotent - dieselbe Auslage baut nichts
 ## neu. Gefüllt von scene_root, das die Weltposition der Würfel kennt.
-func set_die_nets(entries: Array, cell: float) -> void:
+## Je Würfel steht der ganze BLOCK (Netz, Seelen-Zeile, Preisschild) in EINEM
+## Wrapper: nach einer echten ANKUNFT (grow) projiziert er sich aus seinem Würfel,
+## sonst steht er sofort da - liegen geblieben ist nirgends angekommen.
+func set_die_nets(entries: Array, cell: float, grow := false) -> void:
 	var signature := "%d|%.1f" % [entries.size(), cell]
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
 		var pos: Vector2 = entry["pos"]
 		signature += "|%d@%.1f,%.1f" % [def.get_instance_id(), pos.x, pos.y]
 	if signature == _net_signature:
-		return
+		return  # derselbe Stand: ein Abgleich mitten im Wachstum stört es nicht
 	_net_signature = signature
 	_drop_die_nets()
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
@@ -985,30 +927,130 @@ func set_die_nets(entries: Array, cell: float) -> void:
 	var font := ThemeDB.fallback_font
 	var soul_height := font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
 	var price_height := font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
+	var gap := u * WARE_PRICE_GAP
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
+		var pos: Vector2 = entry["pos"]
+		# Der BLOCK: alles, was zu diesem Würfel gehört, in EINEM Control - nur so
+		# kann es als ein Stück aus ihm wachsen.
+		var block := Control.new()
+		block.name = "NetBlock"
+		block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		block.position = pos
+		block.size = Vector2(span.x, span.y + gap * 2.0 + soul_height + price_height)
+		# Der ANKER ist der Würfel selbst: dort steht er, dorthin schrumpft der Block.
+		var anchor: Vector2 = entry.get("anchor", pos)
+		block.pivot_offset = anchor - pos
+		vitrine_nets.add_child(block)
+		_net_blocks.append(block)
 		var net := DieNetView.build(def, VitrineView.die_up_face(), cell)
-		net.position = entry["pos"]
-		vitrine_nets.add_child(net)
+		block.add_child(net)
 		_net_dice.append(def)
-		_net_positions.append(entry["pos"])
+		_net_positions.append(pos)
 		# Unter dem Netz die SEELE, darunter der PREIS - die Ware sagt selbst, was
 		# in ihr steckt und was sie kostet. Beide Zeilen stehen immer, damit die
 		# Reihe nicht je Würfel anders hoch wird.
-		var soul_y: float = entry["pos"].y + span.y + u * WARE_PRICE_GAP
 		var essence := Essence.by_id(def.essence_id)
 		var soul := _label(essence.display_name if essence != null else "",
 			u * WARE_SOUL_FONT, soul_tint(def.essence_id), HORIZONTAL_ALIGNMENT_CENTER)
-		soul.position = Vector2(entry["pos"].x, soul_y)
+		soul.position = Vector2(0.0, span.y + gap)
 		soul.size = Vector2(span.x, soul_height)
-		vitrine_nets.add_child(soul)
+		block.add_child(soul)
 		_net_souls.append(soul)
 		var tag := _label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-		tag.position = Vector2(entry["pos"].x, soul_y + soul_height + u * WARE_PRICE_GAP)
+		tag.position = Vector2(0.0, span.y + gap * 2.0 + soul_height)
 		tag.size = Vector2(span.x, price_height)
-		vitrine_nets.add_child(tag)
+		block.add_child(tag)
 		_net_prices.append(tag)
 	_refresh_ware_prices()
+	if grow:
+		_grow_die_nets()
+
+## Die PROJEKTION: der fertige Block steht zuerst (Endzustand-zuerst), dann fährt er
+## auf fast nichts am Würfel-Anker zurück und wächst in NET_GROW_TIME wieder heraus,
+## mit Alpha-Einblendung und einer Spur Versatz je Würfel. Jeder Abbruch läßt ihn
+## schlicht fertig stehen.
+func _grow_die_nets() -> void:
+	_kill_net_growth()
+	if _net_blocks.is_empty():
+		return
+	_net_growing = true
+	_net_grow_tween = create_tween().set_parallel(true)
+	for i in _net_blocks.size():
+		var block := _net_blocks[i]
+		if block == null or not is_instance_valid(block):
+			continue
+		block.scale = Vector2.ONE * NET_GROW_FROM
+		block.modulate.a = 0.0
+		var delay := NET_GROW_STAGGER * float(i)
+		var swell := _net_grow_tween.tween_property(block, "scale", Vector2.ONE,
+			NET_GROW_TIME)
+		swell.set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_net_grow_tween.tween_property(block, "modulate:a", 1.0,
+			NET_GROW_TIME * NET_FADE_SHARE).set_delay(delay)
+	_net_grow_tween.finished.connect(func() -> void: _net_growing = false)
+
+## Die ABSORPTION - das Wachstum rückwärts: vor JEDEM Abräumen (Umschlag wie
+## Abgang) fahren die Blöcke in NET_GROW_TIME in ihren Würfel zurück, in derselben
+## Staffelung von hinten nach vorn. Erst DANACH fährt die Maschine: die Würfel
+## stehen noch, wenn ihre Anzeige eingesogen wird. Sie räumt sich am Ende selbst ab
+## und liefert den ehrlichen Vorlauf (0 = es steht nichts zu saugen).
+func absorb_die_nets() -> float:
+	if _net_blocks.is_empty():
+		return 0.0
+	_kill_net_growth()
+	_net_growing = true
+	_net_absorbing = true
+	var count := _net_blocks.size()
+	_net_grow_tween = create_tween().set_parallel(true)
+	for i in count:
+		var block := _net_blocks[i]
+		if block == null or not is_instance_valid(block):
+			continue
+		var delay := NET_GROW_STAGGER * float(count - 1 - i)
+		var shrink := _net_grow_tween.tween_property(block, "scale",
+			Vector2.ONE * NET_GROW_FROM, NET_GROW_TIME)
+		shrink.set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		# Erst schrumpfen, dann verlöschen - umgekehrt wäre der Block fort, bevor er
+		# im Würfel angekommen ist.
+		_net_grow_tween.tween_property(block, "modulate:a", 0.0,
+			NET_GROW_TIME * NET_FADE_SHARE).set_delay(
+				delay + NET_GROW_TIME * (1.0 - NET_FADE_SHARE))
+	_net_grow_tween.finished.connect(func() -> void:
+		_net_absorbing = false
+		clear_die_nets())
+	return absorb_time(count)
+
+## Der ehrliche Deckel der Absorption: das Schrumpfen plus die rückwärts laufende
+## Staffelung. Rein und prüfbar - der Wirt taktet beide Zonen danach.
+static func absorb_time(count: int) -> float:
+	if count <= 0:
+		return 0.0
+	return NET_GROW_TIME + NET_GROW_STAGGER * float(count - 1)
+
+## Der EINE Abbruch-Pfad beider Projektionen: kein Tween mehr, jeder Block steht
+## ausgewachsen. Ein harter Abbruch mitten in der Absorption räumt danach ohnehin
+## ab - hier zählt nur, dass kein halb geschrumpfter Block liegen bleibt.
+func _kill_net_growth() -> void:
+	if _net_grow_tween != null and _net_grow_tween.is_valid():
+		_net_grow_tween.kill()
+	_net_grow_tween = null
+	_net_growing = false
+	_net_absorbing = false
+	for block in _net_blocks:
+		if block != null and is_instance_valid(block):
+			block.scale = Vector2.ONE
+			block.modulate.a = 1.0
+
+## Ist gerade ein Block in Bewegung? Solange antwortet der Info-Fuß nicht:
+## skalierte Rechtecke lögen - beim Wachsen wie beim Einsaugen.
+func nets_growing() -> bool:
+	return _net_growing
+
+## Werden die Blöcke gerade eingesogen? Solange gehören sie der Absorption: ein
+## Abräumen von außen risse sie mitten im Schrumpfen weg.
+func nets_absorbing() -> bool:
+	return _net_absorbing
 
 ## Der Ton der Seelen-Zeile: das Kantenglühen der Essenz selbst. Ein dunkler Ton
 ## (Vakuum glüht schwarz) wird auf ein lesbares Maß gehoben - sonst stünde die
@@ -1039,6 +1081,8 @@ func net_count() -> int:
 	return vitrine_nets.get_child_count()
 
 func _drop_die_nets() -> void:
+	_kill_net_growth()
+	_net_blocks.clear()
 	_net_dice.clear()
 	_net_prices.clear()
 	_net_souls.clear()
@@ -1061,6 +1105,13 @@ func vitrine_grade() -> String:
 ## bleibt sie liegen, sonst steigt sie auf. Rein und prüfbar.
 static func grade_for(standing: bool) -> String:
 	return GRADE_STAND if standing else GRADE_RISE
+
+## Die PHYSISCHE Regel schlägt die Seiten-Regel: eine Bucht OHNE Körper zeigt ihre
+## Ware immer als ANKUNFT - die Seite mag liegen geblieben sein, ihre Körper sind
+## seit dem Abgang körperlich fort (Wiedereintritt über den Laden-Knopf, gesperrtes
+## Sortiment). Rein und prüfbar; der Wirt zählt die Körper.
+static func grade_on_stand(grade: String, occupied: bool) -> String:
+	return grade if occupied else GRADE_RISE
 
 static func grade_rank(grade: String) -> int:
 	return 1 if grade == GRADE_RISE else 0
@@ -1217,13 +1268,15 @@ func _on_page_back_pressed() -> void:
 ## Rein kosmetische Einblendung - der Spielzustand ist schon gewechselt, die
 ## Animation gate nichts (schnelles Klicken ersetzt sie einfach). Sie wartet den
 ## Warenumschlag darunter ab: die Karten der neuen Seite erscheinen, wenn auch die
-## neue Ware kommt.
+## neue Ware kommt - also erst hinter der ABSORPTION, die vor der Maschine läuft
+## (die hat _show_spread eben angestoßen, ihr Vorlauf steht also schon).
 func _play_flip_animation() -> void:
 	if flip_tween != null and flip_tween.is_valid():
 		flip_tween.kill()
 	content_root.modulate = Color(1, 1, 1, 0)
 	flip_tween = create_tween()
-	flip_tween.tween_interval(FLIP_DELAY)
+	flip_tween.tween_interval(
+		absorb_time(_net_blocks.size() if _net_absorbing else 0) + FLIP_DELAY)
 	flip_tween.tween_property(content_root, "modulate:a", 1.0, FLIP_DURATION) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
@@ -1991,13 +2044,18 @@ func _refresh_ware_prices() -> void:
 		mark.modulate = price_tint(price, money)
 
 func _on_run_money_changed(_money: int) -> void:
-	if visible:
+	if _live():
 		_refresh_afford_state()
+
+## Eine Seite, die noch steht, weil der Abgang läuft, zieht NICHTS mehr nach: sie
+## ist ein Standbild, kein Laden.
+func _live() -> bool:
+	return visible and not _leaving
 
 ## Das Magazin hat sich geändert - die Preisschilder der Kassetten tragen die
 ## VOLL-Marke, sie müssen also nachziehen.
 func _on_run_packs_changed() -> void:
-	if visible:
+	if _live():
 		_refresh_ware_prices()
 
 ## Der Dock hat sich geändert (Kauf ODER Verkauf): der "voll"-Tag steckt in der
@@ -2005,21 +2063,40 @@ func _on_run_packs_changed() -> void:
 ## ein Kauf-Klick charms_changed synchron feuert, bevor er seine charm_bought-
 ## Marke setzt - sonst bekäme der Neuaufbau den alten Stand.
 func _on_run_charms_changed() -> void:
-	if not visible or spreads.is_empty() or _charm_rebuild_queued:
+	if not _live() or spreads.is_empty() or _charm_rebuild_queued:
 		return
 	_charm_rebuild_queued = true
 	_rebuild_after_charms_changed.call_deferred()
 
 func _rebuild_after_charms_changed() -> void:
 	_charm_rebuild_queued = false
-	if visible and not spreads.is_empty():
+	if _live() and not spreads.is_empty():
 		_show_spread()
 
 func _on_done_pressed() -> void:
 	close()
 
 ## Laden zu - per "Fertig" oder weil der Spieler die Runde in der Grube aufnimmt.
+## Die SEITE bleibt dabei STEHEN: auf IHR spielt die Abräum-Zeremonie der Auslage,
+## und Ware, die auf der Roadmap versänke, stünde am falschen Ort. Die SPIEL-Logik
+## wartet darauf nicht - closed feuert sofort, Runde und Kamera laufen wie immer -,
+## nur die FLÄCHE gibt der Laden erst in finish_close() ab. Bis dahin ist er INERT.
 func close() -> void:
+	if _leaving:
+		return  # ein Laden schließt nur einmal
+	_leaving = true
+	closed.emit()
+
+## Die Fläche wirklich abgeben: nach dem Abgang oder bei jedem Abbruch. Erst hier
+## sterben die 3D-Vorschauen - bis dahin steht die Seite und zeigt sie.
+func finish_close() -> void:
+	if not _leaving:
+		return
+	_leaving = false
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
 	visible = false
-	closed.emit()
+
+## Räumt der Laden gerade ab? Dann steht seine Seite noch, ist aber tot - kein Kauf
+## aus einem schließenden Laden.
+func leaving() -> bool:
+	return _leaving

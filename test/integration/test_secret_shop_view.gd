@@ -248,23 +248,19 @@ func test_a_reroll_raises_the_new_goods() -> void:
 	assert_eq(view.vitrine_grade(), ShopController.GRADE_RISE,
 		"ein Neuwurf ist ein voller Warenumschlag")
 
-func test_the_lift_seam_frames_the_bay_and_moves_nothing() -> void:
-	# EINE Fuge: beide Zonen des Hinterzimmers (Regal, Schale) fahren aus demselben
-	# Feld. Sie ist ein Overlay, kein Layout-Kind - der Sitz und die Bucht stehen
-	# mit und ohne sie gleich.
+func test_the_bay_carries_no_frame_at_all() -> void:
+	# Die Lichtfuge ist restlos fort: kein Umriss vor der Ware, kein Overlay, kein
+	# Symbol. Der Sitz und die Bucht stehen davon unberührt.
 	await wait_frames(2)
 	var bay: Rect2 = view.vitrine_rect_px()
 	var seat: Rect2 = view.card_seat.get_global_rect()
-	view.set_lift_seam(true)
+	for gone: String in ["set_lift_seam", "hide_lift_seam"]:
+		assert_false(view.has_method(gone), "%s kündigt nichts mehr an" % gone)
+	assert_null(view.get_node_or_null("LiftSeam"), "und kein Fugen-Panel steht im Fenster")
 	await wait_frames(2)
-	assert_true(view.lift_seam.visible, "die Fuge glüht")
-	assert_true(view.lift_seam.get_global_rect().encloses(bay),
-		"und umschließt das Feld, aus dem die Ware kommt")
 	assert_true(view.vitrine_rect_px().is_equal_approx(bay), "die Bucht steht gleich")
 	assert_true(view.card_seat.get_global_rect().is_equal_approx(seat),
 		"und der Karten-Sitz auch")
-	view.hide_lift_seam()
-	assert_false(view.lift_seam.visible, "der Vorhangfall löscht sie hart")
 
 func test_every_change_of_the_bay_is_reported() -> void:
 	await wait_frames(2)

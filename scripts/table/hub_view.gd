@@ -529,6 +529,13 @@ func _any_page_visible() -> bool:
 			return true
 	return false
 
+## Eine Seite ist WIRKLICH zu: sie kehrt nicht mehr zurück, auch wenn eine fremde
+## Seite sie eben verdrängt hat. Nötig für eine Seite, die im verdrängten Zustand
+## schließt (der abräumende Laden) - sonst holte die Seitenregel sie später als
+## totes Standbild zurück.
+func forget_page(panel: Control) -> void:
+	_suppressed.erase(panel)
+
 func _pop_suppressed() -> Control:
 	while not _suppressed.is_empty():
 		var candidate: Control = _suppressed.pop_back()

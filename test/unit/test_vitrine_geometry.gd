@@ -135,78 +135,105 @@ func test_der_lautere_grad_gewinnt() -> void:
 		ShopController.GRADE_STAND, ShopController.GRADE_STAND),
 		ShopController.GRADE_STAND)
 
-func test_der_umschlag_bleibt_im_budget() -> void:
-	# Eine ZONE taucht als Block: die Zahl der Stücke sagt nur noch, OB etwas geht.
+func test_der_umschlag_ist_EIN_band_schritt() -> void:
+	# Der Tausch ist kein Tauchgang plus Auftritt mehr, sondern EIN Förderband-
+	# Schritt: die Zahl der Stücke sagt nur noch, OB etwas geht.
 	var swap := VitrineView.swap_time(30)
-	assert_almost_eq(swap, VitrineView.SWAP_TIME, 0.0001, "die Zone taucht als Block")
-	assert_almost_eq(VitrineView.swap_time(1), VitrineView.SWAP_TIME, 0.0001,
-		"ein einzelnes Stück fährt denselben Zyklus")
-	assert_eq(VitrineView.swap_time(0), 0.0, "eine leere Auslage sinkt nicht")
-	var rise := VitrineView.entry_time(30, ShopController.GRADE_RISE)
-	# Der ganze Maschinenzyklus (Senken, Einschub, Hub) ist bewußt länger als das
-	# alte Durchscheinen - aber Stöbern darf nicht zäh werden.
-	assert_lte(swap + rise, 2.8, "der ganze Umschlag bleibt unter 2,8 s")
+	assert_almost_eq(swap, VitrineView.swap_time(1), 0.0001,
+		"eine Zone fährt als Block - die Stückzahl ändert nichts")
+	assert_eq(VitrineView.swap_time(0), 0.0, "eine leere Auslage tauscht nichts")
+	assert_almost_eq(swap, LiftShaftView.swap_cycle_time(), 0.0001,
+		"ohne Vorlauf ist es genau EIN Band-Schritt")
+	assert_almost_eq(VitrineView.swap_time(1, 0.7), 0.7 + LiftShaftView.swap_cycle_time(),
+		0.0001, "ein Vorlauf (die Absorption) legt sich davor")
+	assert_almost_eq(swap, VitrineView.entry_time(1, ShopController.GRADE_RISE), 0.0001,
+		"derselbe Zyklus wie ein Auftritt - der Einschub trägt nur zwei Fuhren")
+	# Stöbern darf nicht zäh werden: EIN Schritt statt Tauchen und Steigen.
+	assert_lte(swap, 2.0, "ein Seitenwechsel bleibt unter 2 s")
 	assert_eq(VitrineView.entry_time(30, ShopController.GRADE_STAND), 0.0,
 		"Liegenbleiben kostet keine Zeit")
 	assert_eq(VitrineView.entry_time(0, ShopController.GRADE_RISE), 0.0)
 
+func test_der_abgang_deckt_seine_fahrt() -> void:
+	# Senken mit der Ware, vorn hinaus, LEER herauf, Loch zu - danach ist die
+	# Auslage leer, und kein Schacht steht mehr offen.
+	assert_eq(VitrineView.exit_time(0), 0.0, "eine leere Auslage hat nichts zu schlucken")
+	assert_almost_eq(VitrineView.exit_time(1), LiftShaftView.exit_cycle_time(), 0.0001)
+	assert_almost_eq(VitrineView.exit_time(9), VitrineView.exit_time(1), 0.0001,
+		"auch der Abgang fährt als Block")
+	assert_almost_eq(VitrineView.exit_time(1, 0.7),
+		0.7 + LiftShaftView.exit_cycle_time(), 0.0001,
+		"und trägt denselben Vorlauf wie der Umschlag")
+	assert_almost_eq(LiftShaftView.exit_cycle_time(), LiftShaftView.cycle_time(), 0.0001,
+		"es ist dieselbe Maschine - nur fährt die Platte leer herauf")
+
+func test_es_gibt_keine_zonen_abhaengige_zeitquelle_mehr() -> void:
+	# Der Zonenversatz ist tot: kein Aufrufer kann sich eine Zeit HOLEN, die von der
+	# Zone abhängt - genau darum können die Zonen nicht mehr auseinanderlaufen.
+	for gone: String in ["lift_delay", "swap_delay", "exit_delay", "plan_delay",
+			"_mirror_lag"]:
+		assert_false((VitrineView as GDScript).has_method(gone),
+			"%s taktet keine Zone mehr" % gone)
+	var constants := (VitrineView as GDScript).get_script_constant_map()
+	for gone: String in ["LIFT_LAG", "SEAM_LEAD", "ZONE_COUNT"]:
+		assert_false(constants.has(gone), "%s gehört keiner Auslage mehr" % gone)
+	# Und alle drei Fahrpläne dauern gleich lang: EIN Maschinenzyklus.
+	assert_almost_eq(VitrineView.entry_time(1, ShopController.GRADE_RISE),
+		VitrineView.swap_time(1), 0.0001)
+	assert_almost_eq(VitrineView.swap_time(1), VitrineView.exit_time(1), 0.0001)
+
+func test_der_ausgang_spiegelt_den_eingang() -> void:
+	# Der Schacht ist symmetrisch: so weit die Ware hinten wartet, so weit fährt sie
+	# vorn hinaus. Beide Fuhren legen dasselbe Maß zurück, also bleibt ihr Abstand
+	# über den ganzen Band-Schritt derselbe - sie können sich nicht einholen.
+	var shaft: LiftShaftView = autofree(LiftShaftView.new())
+	shaft.half = Vector2(2.0, 6.0)
+	shaft.depth = VitrineView.shaft_depth()
+	assert_almost_eq(shaft.exit_offset(), shaft.waiting_offset(), 0.0001)
+	assert_gt(shaft.exit_offset(), shaft.half.x * 2.0,
+		"das Stück ist ganz aus dem Schacht heraus, wenn es steht")
+
 func test_der_auftritt_deckt_den_ganzen_maschinenzyklus() -> void:
-	# Der Deckel muss die ANKÜNDIGUNG, den Zonenversatz UND den ganzen Zyklus
-	# (Senken, Einschub, Hub, Setz-Dip) tragen - sonst hingen die Netze unter
-	# fahrender Ware, und ein Schacht stünde nach dem Deckel noch offen.
+	# Der Deckel ist genau EIN Zyklus (Senken, Einschub, Hub, Setz-Dip) - beide
+	# Zonen fahren ihn gleichzeitig. Stünde eine später, hingen die Netze unter
+	# fahrender Ware und ein Schacht bliebe nach dem Deckel offen.
 	var full := VitrineView.entry_time(1, ShopController.GRADE_RISE)
 	assert_almost_eq(full,
-		VitrineView.SEAM_LEAD + VitrineView.LIFT_LAG
-			+ LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
 			+ LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME, 0.0001,
-		"Fuge, Versatz bis zur letzten Zone und deren ganzer Zyklus")
+		"der ganze Zyklus, kein Versatz davor")
 	assert_almost_eq(VitrineView.machine_time(), LiftShaftView.cycle_time(), 0.0001,
 		"die Zeiten der Maschine gehören der Maschine")
 	assert_eq(VitrineView.entry_time(30, ShopController.GRADE_RISE), full,
 		"eine Zone fährt als Block - die Stückzahl ändert nichts")
-	assert_gt(full, VitrineView.lift_delay(VitrineView.ZONE_BOWL)
-		+ VitrineView.machine_time() - 0.0001,
+	assert_almost_eq(full, VitrineView.machine_time(), 0.0001,
 		"keine Zone steht später als der Deckel")
 
 func test_der_schacht_ist_tiefer_als_das_hoechste_stueck() -> void:
 	# Sonst stünde ein Würfel auf der gesenkten Plattform noch über der Fläche.
 	assert_gt(VitrineView.shaft_depth(), VitrineView.content_depth(),
 		"über dem höchsten Stück bleibt Kopffreiheit")
-	assert_gt(VitrineView.shaft_depth(), VitrineView.die_drop(),
+	assert_gt(VitrineView.shaft_depth(), VitrineView.sink_drop(),
 		"und der Würfel verschwindet ganz darin")
-	# Und das Öffnungsband der Rückwand muß das höchste Stück durchlassen, sonst
-	# schöbe es sich am Sturz fest.
+	# Und die Öffnungsbänder müssen das höchste Stück durchlassen, sonst schöbe es
+	# sich am Sturz fest - vorn wie hinten, denn der Schacht ist symmetrisch.
 	assert_gt(VitrineView.shaft_depth() * LiftShaftView.MOUTH_SHARE,
-		VitrineView.content_depth(), "die Rückwandöffnung läßt das höchste Stück durch")
-	assert_lt(LiftShaftView.MOUTH_SHARE, 1.0, "und darunter bleibt ein Sturz stehen")
+		VitrineView.content_depth(), "die Öffnungsbänder lassen das höchste Stück durch")
+	assert_lt(LiftShaftView.MOUTH_SHARE, 1.0, "und darüber bleibt ein Sturz stehen")
 	# Die Ware wartet am ENDE des Hohlraums, nicht knapp hinter dem Sturz - sonst
 	# läge sie im Blickwinkel durch das Öffnungsband.
 	assert_gte(LiftShaftView.CAVITY_SHARE, 1.0,
 		"der Hohlraum ist so tief wie der Schacht")
 
-func test_die_zonen_fahren_nacheinander_und_tauchen_gespiegelt() -> void:
-	assert_almost_eq(VitrineView.lift_delay(VitrineView.ZONE_SHELF),
-		VitrineView.SEAM_LEAD, 0.0001, "das Regal fährt zuerst - nach der Ankündigung")
-	assert_almost_eq(VitrineView.lift_delay(VitrineView.ZONE_BOWL),
-		VitrineView.SEAM_LEAD + VitrineView.LIFT_LAG, 0.0001,
-		"die Schale kommt um die Überlappung später")
-	assert_lt(VitrineView.LIFT_LAG, LiftShaftView.cycle_time(),
-		"Überlappung: Zone 2 fährt an, bevor Zone 1 steht")
-	# GESPIEGELT: beim Blättern taucht die Schale zuerst.
-	assert_eq(VitrineView.sink_delay(VitrineView.ZONE_BOWL), 0.0,
-		"die Schale taucht zuerst")
-	assert_almost_eq(VitrineView.sink_delay(VitrineView.ZONE_SHELF),
-		VitrineView.ZONE_LAG, 0.0001, "die Gravuren danach")
-
-func test_jeder_koerper_faehrt_seinen_eigenen_weg() -> void:
-	# Eine flache Kassette aus der Tiefe eines Würfels verbrächte ihre Fahrt
-	# unsichtbar und ploppte am Ende heraus - jedes Stück startet an SEINEM Maß.
-	assert_lt(VitrineView.cell_drop(), VitrineView.die_drop(),
-		"die liegende Karte ist flacher als ein Würfel samt Silhouette")
-	assert_almost_eq(VitrineView.die_drop(), VitrineView.sink_drop(), 0.0001,
-		"der Würfel IST das höchste Stück der Auslage")
-	assert_almost_eq(VitrineView.body_drop(autofree(DataCellView.new())),
-		VitrineView.cell_drop(), 0.0001)
+func test_die_zonen_fahren_gleichzeitig() -> void:
+	# Regal und Schale starten im selben Augenblick und stehen im selben - in JEDER
+	# Zeremonie. Gemessen an derselben Stelle beider Fahrpläne, dem Deckel.
+	for lead: float in [0.0, 0.55]:
+		assert_almost_eq(VitrineView.swap_time(1, lead),
+			VitrineView.exit_time(1, lead), 0.0001,
+			"Umschlag und Abgang tragen denselben Vorlauf für alle Zonen")
+	assert_almost_eq(VitrineView.entry_time(1, ShopController.GRADE_RISE),
+		VitrineView.machine_time(), 0.0001, "und der Auftritt ist der nackte Zyklus")
 
 func test_die_zone_haengt_am_platz_nicht_am_koerper() -> void:
 	assert_eq(VitrineView.zone_of(ShopController.KIND_DIE), VitrineView.ZONE_BOWL,
@@ -276,30 +303,130 @@ func test_die_oben_liegende_seite_der_auslage_ist_gestellt_nicht_geraten() -> vo
 func test_die_charm_zeile_blaettert_mit_der_ware() -> void:
 	# ui/ greift nicht in table/ - also spiegelt der Laden die Zahl, und dieser
 	# Test hält die beiden gleich.
-	assert_almost_eq(ShopController.FLIP_DELAY, VitrineView.SWAP_TIME, 0.0001,
-		"die neuen Karten erscheinen, wenn auch die neue Ware kommt")
+	assert_almost_eq(ShopController.FLIP_DELAY, VitrineView.belt_moment(), 0.0001,
+		"die neuen Karten erscheinen im Augenblick des Band-Schritts")
+	# Der Band-Schritt beginnt, wenn die Plattform unten ist - dort ist die alte
+	# Ware verschwunden und die neue rückt nach.
+	assert_almost_eq(VitrineView.belt_moment(), LiftShaftView.SINK_TIME, 0.0001)
+	assert_almost_eq(VitrineView.belt_moment(0.7), 0.7 + LiftShaftView.SINK_TIME,
+		0.0001, "ein Vorlauf schiebt auch den Seitenwechsel")
+	assert_lt(ShopController.FLIP_DELAY, VitrineView.swap_time(1),
+		"und die Seite ist gewechselt, bevor der Umschlag steht")
 
-# --- Die Übergabe an die Lieferung ---------------------------------------------
+# --- Der KAUF: eine Sektion der Plattform --------------------------------------
 
-func test_die_uebergabe_hebt_erst_an_und_sinkt_dann() -> void:
-	# Die Lieferung holt die Ware erst ab, wenn sie durch die Fläche ist - die
-	# Fahrt danach richtet sich nach genau dieser einen Zahl.
+func test_der_kauf_faehrt_die_sektion_und_der_komet_wartet_nur_auf_den_abgang() -> void:
+	# Senken und Band-Schritt: dann ist das Stück außer Sicht und die Lieferung
+	# fährt los - auf die leer hochfahrende Sektion wartet kein Komet.
 	assert_almost_eq(VitrineView.take_out_time(),
-		VitrineView.TAKE_LIFT_TIME + VitrineView.TAKE_SINK_TIME, 0.0001)
-	assert_lt(VitrineView.TAKE_LIFT_TIME, VitrineView.TAKE_SINK_TIME,
-		"das Anheben ist die Geste, das Absinken die Fahrt")
-	assert_lt(VitrineView.take_out_time(), 0.6, "Kaufen darf nicht zäh werden")
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME, 0.0001)
+	assert_almost_eq(VitrineView.take_time(), LiftShaftView.cycle_time(), 0.0001,
+		"der ganze Zyklus ist derselbe wie bei jeder anderen Zeremonie")
+	assert_lt(VitrineView.take_out_time(), VitrineView.take_time(),
+		"der Komet startet vor dem leeren Hub")
+	assert_lt(VitrineView.take_out_time(), 0.9, "Kaufen darf nicht zäh werden")
 
-func test_der_einzelkauf_faehrt_keinen_maschinenzyklus() -> void:
-	# Die Hebebühne gehört dem AUFDECKEN; eine Übergabe bleibt eine Übergabe.
+func test_der_kauf_ist_ein_zyklus_der_maschine_kein_eigener_weg() -> void:
+	# Es gibt keine Übergabe-Zeiten mehr: der Kauf liest ALLE seine Zahlen aus der
+	# Hebebühne, genau wie Auftritt, Umschlag und Abgang.
 	assert_lt(VitrineView.take_out_time(),
 		VitrineView.entry_time(1, ShopController.GRADE_RISE),
-		"der Kauf ist kürzer als ein Auftritt")
+		"eine Sektion ist außer Sicht, bevor die ganze Bühne steht")
+	var constants := (VitrineView as GDScript).get_script_constant_map()
+	for gone: String in ["TAKE_LIFT_TIME", "TAKE_SINK_TIME", "TAKE_PLUNGE"]:
+		assert_false(constants.has(gone), "%s gehört keiner Auslage mehr" % gone)
 
 func test_ankommen_darf_sich_setzen() -> void:
-	assert_gt(LiftShaftView.LIFT_TIME, VitrineView.SWAP_SINK,
+	assert_gt(LiftShaftView.LIFT_TIME, LiftShaftView.SINK_TIME,
 		"Aufsteigen dauert länger als Absinken - die Ankunft ist die Aussage")
 	assert_gt(LiftShaftView.DIP, 0.0, "und sie rastet mit einem Setz-Dip ein")
 	# Die alte Morph-Hebebühne der Zelle ist ersetzt: es gibt nur noch die Maschine.
-	assert_false(autofree(DataCellView.new()).has_method("lift_through_glass"),
+	var cell: DataCellView = autofree(DataCellView.new())
+	assert_false(cell.has_method("lift_through_glass"),
 		"eine Kassette steigt nicht mehr von selbst durch die Fläche")
+	assert_false(cell.has_method("sink_through_glass"),
+		"und sie sinkt auch nicht mehr von selbst hindurch - sie fährt")
+
+# --- Die ABSORPTION der Netz-Blöcke (reiner Deckel) ----------------------------
+
+func test_die_absorption_deckt_ihr_schrumpfen_samt_staffelung() -> void:
+	# Der Vorlauf, den beide Zonen abwarten: das Schrumpfen plus die rückwärts
+	# laufende Staffelung. Ohne Netz ist er 0 - ein leerer Laden wartet nicht.
+	assert_eq(ShopController.absorb_time(0), 0.0, "kein Netz, kein Vorlauf")
+	assert_almost_eq(ShopController.absorb_time(1), ShopController.NET_GROW_TIME, 0.0001,
+		"ein Block schrumpft schlicht seine Zeit")
+	assert_almost_eq(ShopController.absorb_time(4),
+		ShopController.NET_GROW_TIME + ShopController.NET_GROW_STAGGER * 3.0, 0.0001,
+		"vier Blöcke tragen ihre Staffelung mit")
+	assert_gt(ShopController.absorb_time(6), ShopController.absorb_time(3),
+		"mehr Blöcke, längerer Vorlauf")
+	# Und der Deckel der Zeremonie deckt ihn wirklich: erst saugen, dann fahren.
+	var lead := ShopController.absorb_time(6)
+	assert_gt(VitrineView.exit_time(1, lead), lead + LiftShaftView.SINK_TIME,
+		"die Maschine fährt erst nach der Absorption")
+	assert_almost_eq(VitrineView.swap_time(1, lead) - lead,
+		VitrineView.swap_time(1), 0.0001, "und dann ihren ganzen Zyklus")
+
+# --- Die PHYSISCHE Regel des Ankunfts-Grades -----------------------------------
+
+func test_eine_bucht_ohne_koerper_zeigt_ware_immer_als_ankunft() -> void:
+	# Die Seite mag glauben, sie liege noch da - seit dem Abgang ist sie körperlich
+	# fort. Der Wiedereintritt über den Laden-Knopf hängt genau daran.
+	assert_eq(ShopController.grade_on_stand(ShopController.GRADE_STAND, false),
+		ShopController.GRADE_RISE, "leere Bucht: die Ware kommt an")
+	assert_eq(ShopController.grade_on_stand(ShopController.GRADE_STAND, true),
+		ShopController.GRADE_STAND, "was wirklich liegt, bleibt liegen")
+	assert_eq(ShopController.grade_on_stand(ShopController.GRADE_RISE, true),
+		ShopController.GRADE_RISE, "und ein lauter Grad bleibt laut")
+	assert_eq(ShopController.grade_on_stand(ShopController.GRADE_RISE, false),
+		ShopController.GRADE_RISE)
+
+# --- Die Plattform trägt das Bild der Anzeige ----------------------------------
+
+func test_die_deckhaut_bildet_die_welt_genau_wie_world_to_pixel_ab() -> void:
+	# Der Shader rechnet Weltposition -> Display-UV. Die Abbildung MUSS die von
+	# world_to_pixel sein, sonst zeigte die Platte ein verschobenes Bild.
+	var code: String = load("res://assets/shaders/display_skin.gdshader").code
+	assert_true(code.contains("render_mode unshaded"), "unbeleuchtet wie das Glas")
+	assert_true(code.contains("(world_position.z - display_map.x) / display_map.y"),
+		"u = (z - z_min) / z_span")
+	assert_true(code.contains("(display_map.z - world_position.x) / display_map.w"),
+		"v = (x_max - x) / x_span - die Tiefenachse ist gespiegelt")
+	assert_true(code.contains("MODEL_MATRIX"),
+		"gerechnet wird aus der Weltposition, nicht aus einer UV")
+	# Die gemessenen Farbton-Konstanten sind tot - der bündige Stand ist jetzt per
+	# Konstruktion pixelidentisch.
+	assert_false((LiftShaftView as GDScript).get_script_constant_map().has("DECK_TOP"),
+		"kein gemessener Deckel-Ton mehr")
+	for gone: String in ["BAY_GROUND"]:
+		assert_false((ShopController as GDScript).get_script_constant_map().has(gone),
+			"der Laden mißt keinen Buchtgrund mehr")
+		assert_false((SecretShopView as GDScript).get_script_constant_map().has(gone),
+			"das Hinterzimmer ebenso wenig")
+
+# --- Kein Rahmen mehr: weder Lichtfuge noch Kragen -----------------------------
+
+func test_die_lichtfuge_und_der_kragen_sind_restlos_fort() -> void:
+	# Die Schnittkante steht nackt: kein Kragen auf der Fläche, keine Fuge davor.
+	# Was den Schacht lesbar macht, liegt IN ihm.
+	var shaft := (LiftShaftView as GDScript).get_script_constant_map()
+	for gone: String in ["RIM_IN", "RIM_OUT", "RIM_H", "RIM_SINK", "RIM_ALBEDO",
+			"RIM_EMISSION", "RIM_EMISSION_ENERGY"]:
+		assert_false(shaft.has(gone), "%s gehört keinem Schacht mehr" % gone)
+	assert_true(shaft.has("GLOW_H"), "der innere Lichtsaum bleibt")
+	for source: String in ["res://scripts/table/lift_shaft_view.gd",
+			"res://scripts/ui/shop_controller.gd",
+			"res://scripts/ui/secret_shop_view.gd",
+			"res://scripts/table/vitrine_view.gd"]:
+		var code: String = FileAccess.get_file_as_string(source)
+		assert_false(code.contains("lift_seam"), "%s kennt keine Lichtfuge" % source)
+		assert_false(code.contains("SEAM_"), "%s trägt kein SEAM_-Symbol" % source)
+	var machine: String = FileAccess.get_file_as_string(
+		"res://scripts/table/lift_shaft_view.gd")
+	assert_false(machine.contains("RIM_"), "und der Schacht kein RIM_-Symbol")
+	assert_false(machine.contains("_rim_material"), "auch kein Kragen-Material")
+	# Der Takt der Fugen ist mit ihnen gestorben.
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	for gone: String in ["_play_shop_seams", "_play_secret_seam", "_seam_token",
+			"_secret_seam_token", "set_lift_seam", "hide_lift_seam"]:
+		assert_false(root.contains(gone), "scene_root taktet kein %s mehr" % gone)
