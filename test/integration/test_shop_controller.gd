@@ -1308,3 +1308,179 @@ func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
 	assert_eq(uids.size(), 1, "die Lieferung meldet die Paket-uid")
 	assert_eq(Pack.shelf_of(run.pack_by_uid(uids[0])), Pack.SHELF_SPECIAL,
 		"und dahinter liegt der Sonderbestand")
+
+# --- Die FLANKENAUSKUNFT der Schlitzreihe ---------------------------------------
+# Die Kappe nennt Sorte und Größe, das Schild den Preis - was IN der Kassette
+# steckt, sagt die freie rechte Flanke, und nur mit Zeiger.
+
+## Gemessen an der echten Werkbank (scene_root._data_cell_lying_px).
+const LIE_PX := Vector2(40.5, 60.75)
+
+func _lay_out_page() -> void:
+	shop.size = Vector2(1069, 1125)
+	shop.data_cell_lie_px = LIE_PX
+	shop.open()
+
+## Der erste Platz, auf dem wirklich etwas liegt (-1 = keiner).
+func _filled_seat() -> int:
+	var stock: Array = shop.slit_stock()
+	for i in stock.size():
+		if stock[i] != null:
+			return i
+	return -1
+
+func test_the_flank_names_the_cassette_under_the_pointer() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var seat := _filled_seat()
+	assert_gt(seat, -1, "eine Kassette liegt aus")
+	var pack: Pack = shop.slit_stock()[seat]
+	shop.set_slit_hover(seat)
+	assert_true(shop.slit_info.visible, "gegriffen heißt: die Flanke spricht")
+	assert_eq(shop.slit_info_name.text, pack.display_name,
+		"der dekorierte Name - das Größen-Adjektiv kommt gratis mit")
+	assert_eq(shop.slit_info_body.text, pack.description, "und seine eigene Beschreibung")
+
+func test_the_flank_stands_right_of_the_row() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var flank: Rect2 = shop.slit_flank_rect()
+	var row: Rect2 = shop.slit_row.get_global_rect()
+	assert_gt(flank.size.x, 0.0, "rechts der Reihe bleibt Platz")
+	assert_gt(flank.position.x, row.end.x, "und zwar RECHTS von ihr, nicht darauf")
+	assert_lt(flank.end.x, shop.get_global_rect().end.x, "innerhalb der Seite")
+
+func test_without_a_pointer_the_flank_says_nothing() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.set_slit_hover(_filled_seat())
+	assert_true(shop.slit_info.visible)
+	shop.set_slit_hover(-1)
+	assert_false(shop.slit_info.visible, "ohne Zeiger steht dort NICHTS")
+
+func test_a_sold_seat_explains_nothing() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	run.money = 500
+	var seat := _filled_seat()
+	shop.set_slit_hover(seat)
+	assert_true(shop.slit_info.visible)
+	shop.buy_engraving_pack(int(shop._slit_seats[seat]["index"]))
+	await wait_frames(2)
+	shop.set_slit_hover(seat)
+	assert_false(shop.slit_info.visible, "auf einem leeren Platz liegt nichts, was spräche")
+
+func test_the_longest_real_description_fits_the_flank() -> void:
+	# Die längste reale Beschreibung über ALLE Quellen (Typen-Pakete, Bündel,
+	# beide Sonderposten, alle vier Katalysatoren) steht ungekürzt in der Flanke.
+	_lay_out_page()
+	await wait_frames(2)
+	var worst := _longest_pack()
+	var seat := _filled_seat()
+	assert_gt(seat, -1)
+	shop.engraving_packs[int(shop._slit_seats[seat]["index"])] = worst
+	shop.set_slit_hover(seat)
+	assert_true(shop.slit_info.visible)
+	assert_eq(shop.slit_info_body.text, worst.description, "nichts wird beschnitten")
+	var block: Rect2 = shop.slit_flank_rect()
+	assert_lte(shop.slit_info_body.position.y + shop.slit_info_body.size.y, block.size.y + 0.5,
+		"und der Block bleibt in der Reihenhöhe")
+	assert_gte(shop.slit_info_name.position.y, -0.5, "oben läuft er auch nicht heraus")
+
+## Das längste Paket, das im Laden je in einem Schlitz liegen kann.
+func _longest_pack() -> Pack:
+	var packs: Array[Pack] = [Pack.number_pack(), Pack.material_pack(), Pack.dice_mod_pack()]
+	for id in Pack.catalyst_ids():
+		packs.append(Pack.catalyst(id))
+	for id in Engraving.SPECIAL_IDS:
+		var engraving := Engraving.by_id(id)
+		if engraving != null:
+			packs.append(Pack.fixed_engraving_pack(engraving, 1, Pack.SPECIAL_PRICE))
+			packs.append(Pack.fixed_engraving_pack(engraving, 5, Pack.SPECIAL_PRICE))
+	var worst: Pack = packs[0]
+	for pack in packs:
+		if pack != null and pack.description.length() > worst.description.length():
+			worst = pack
+	return worst
+
+# --- Der INFO-FUSS der Bucht ----------------------------------------------------
+
+func test_the_footer_reads_the_cell_under_the_pointer() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var die := DieDefinition.standard()
+	die.essence_id = Essence.ARGON
+	die.set_face_material(0, DieMaterial.BONE)
+	var cell := 20.0
+	var pos := Vector2(60.0, 40.0)
+	shop.set_die_nets([{"def": die, "pos": pos}], cell)
+	var strip: Rect2 = shop.vitrine_rect_px()
+	var middle := Vector2(cell, cell) * 0.5
+	var material_px := strip.position + pos + DieNetView.cell_position(0, cell) + middle
+	assert_eq(shop.net_hint_at(material_px), DieNetView.hint_for(die, 0),
+		"die Material-Zelle liefert ihre eigene Zeile - EINE Quelle")
+	var edge_px := strip.position + pos + middle
+	assert_eq(shop.net_hint_at(edge_px), Essence.hint(die.essence_id),
+		"der Essenz-Chip erklärt die Seele")
+	assert_eq(shop.net_hint_at(strip.position + Vector2(4.0, 4.0)), "",
+		"neben den Netzen steht nichts")
+
+func test_the_footer_is_invisible_without_a_hint() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	assert_false(shop.net_footer.visible, "ohne Hover: kein Kasten, keine Zeile")
+	shop.set_net_hint("Knochen: Seite wächst +2")
+	assert_true(shop.net_footer.visible)
+	shop.set_net_hint("")
+	assert_false(shop.net_footer.visible)
+
+func test_the_longest_hint_chain_fits_the_footer() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var worst := _longest_hint()
+	shop.set_net_hint(worst)
+	assert_eq(shop.net_footer.text, worst, "nichts wird beschnitten")
+	var px: int = shop.net_footer.get_theme_font_size("font_size")
+	var lead: int = shop.net_footer.get_theme_constant("line_spacing")
+	assert_lte(ShopController.wrapped_height(ThemeDB.fallback_font, worst,
+		shop.net_footer.size.x, px, lead), shop.net_footer.size.y,
+		"die Zeile bleibt im Fuß")
+
+## Die längste real konstruierbare hint_for-Kette: veredeltes Material, Pointer
+## und drei Runen auf einer Vakuum-Seite.
+func _longest_hint() -> String:
+	var runes := Rune.all()
+	var worst := ""
+	for material in DieMaterial.all():
+		var die := DieDefinition.standard()
+		die.essence_id = Essence.VACUUM
+		die.set_face_material(0, material.id)
+		die.dope(0)
+		die.pointers[0] = 3
+		for slot in mini(3, runes.size()):
+			die.set_rune(0, runes[slot].id, slot, 1)
+		var hint := DieNetView.hint_for(die, 0)
+		if hint.length() > worst.length():
+			worst = hint
+	return worst
+
+# --- Die Bandrechte überleben beide Sprecher ------------------------------------
+
+func test_the_two_speakers_move_no_band() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var bands := _band_rects()
+	var bay: Rect2 = shop.vitrine_rect_px()
+	var seats: Array[Rect2] = shop.slit_rects()
+	shop.set_slit_hover(_filled_seat())
+	shop.set_net_hint(_longest_hint())
+	await wait_frames(2)
+	var after := _band_rects()
+	assert_eq(after.size(), bands.size())
+	for i in bands.size():
+		assert_true(after[i].is_equal_approx(bands[i]),
+			"Band %d steht mit und ohne Auskunft gleich (%s vs %s)" % [i, after[i], bands[i]])
+	assert_true(shop.vitrine_rect_px().is_equal_approx(bay), "und die Bucht auch")
+	var seats_after: Array[Rect2] = shop.slit_rects()
+	for i in seats.size():
+		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)

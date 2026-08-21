@@ -13,8 +13,11 @@ extends Control
 ## Charm-Karte trägt ihren Effekttext an der Stelle ihres Modells (Hover-Tausch,
 ## kein Reflow), die Kappe der Kassette ihre Sorte und
 ## Größe, und unter jedem Würfel liegen sein Netz, seine Seelen-Zeile und sein
-## Preis. Die körperliche Ware braucht dafür keinen Zeiger, die Charm-Karte nur
-## ihren eigenen.
+## Preis. Zwei Sprecher antworten zusätzlich auf den Zeiger, beide ohne eigenen
+## Kasten: die FLANKE der Schlitzreihe (Name + Beschreibung der gegriffenen
+## Kassette, rechts neben der Reihe) und der INFO-FUSS am unteren Buchtrand
+## (die hint_for-Zeile der Netz-Zelle bzw. die Seelen-Zeile des Würfelkörpers).
+## Ohne Hover steht an beiden Stellen NICHTS.
 ## "Umblättern" auf eine NEUE Seite würfelt frische Angebote aus und kostet eine
 ## steigende Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind
 ## gratis erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden;
@@ -117,6 +120,27 @@ const SLIT_MIN_HEIGHT := 8.0
 const SLIT_SEAT_HEIGHT := 4.2
 const SLIT_GAP := 2.4
 
+## Die FLANKE der Schlitzreihe: die Reihe steht mittig, links wie rechts bleiben
+## gemessene ~317 px frei. Die rechte davon ist der feste Platz der Auskunft -
+## Fuge zur Reihe, Mindestbreite, unter der gar nichts geschrieben wird, und die
+## Luft zwischen Name und Beschreibung.
+const FLANK_GAP := 2.0
+const FLANK_MIN_WIDTH := 14.0
+const FLANK_SEPARATION := 0.7
+## Wieviel der Reihenhöhe der NAME höchstens nimmt - der Rest gehört der
+## Beschreibung, die als einzige umbricht.
+const FLANK_NAME_SHARE := 0.38
+const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
+const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
+
+## Die Tiefe des INFO-FUSSES am unteren Buchtrand, in BUCHTEN-Einheiten
+## (Streifenbreite/100) - dieselbe Einheit, in der scene_root seine Reserve
+## rechnet, damit Reserve und wirklicher Aufbau nicht driften. Gemessen: die
+## längste reale hint_for-Kette steht darin umgebrochen auf zwei Zeilen.
+const VITRINE_FOOTER_UNITS := 4.4
+const FOOTER_MARGIN := 2.0
+const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
+
 ## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
 static func single_die_price(offer_price: int) -> int:
 	return maxi(1, roundi(float(offer_price) * SINGLE_DIE_DISCOUNT))
@@ -191,6 +215,16 @@ var vitrine_field: Control
 ## Anzeige, sie fängt keine Maus - gefüllt wird sie von scene_root, das allein die
 ## Weltposition der Würfel kennt.
 var vitrine_nets: Control
+## Der INFO-FUSS am unteren Rand der Bucht: eine rahmenlose Zeile, die beim Hover
+## einer Netz-Zelle deren hint_for-Zeile trägt und beim Hover des Würfelkörpers
+## seine Seelen-Zeile. Ohne Hover unsichtbar - kein Kasten, kein Leerlauf.
+var net_footer: Label
+## Die Auskunft der Schlitzreihe in ihrer rechten Flanke (Name + Beschreibung).
+## Absolut positioniertes Overlay der SEITE, kein Layout-Kind - die Bandhöhen
+## bleiben davon unberührt.
+var slit_info: Control
+var slit_info_name: Label
+var slit_info_body: Label
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
@@ -240,6 +274,14 @@ var _net_prices: Array[Label] = []
 ## Und dazwischen die SEELEN-ZEILE: der Name der Essenz im Glühton der Essenz. Sie
 ## steht IMMER (kein Hover) und bleibt leer, wo kein Würfel eine Seele hat.
 var _net_souls: Array[Label] = []
+## Wo die Netze liegen (Streifen-Pixel) und in welchem Zellmaß - daraus antwortet
+## net_hint_at, ohne die Controls abzulaufen.
+var _net_positions: Array[Vector2] = []
+var _net_cell := 0.0
+## Was im Fuß steht - idempotenter Schreiber, er läuft je Bild.
+var _net_hint := ""
+## Welche Kassette die Flanke gerade erklärt ("" = keine).
+var _slit_info_key := ""
 
 ## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
@@ -319,6 +361,10 @@ func _build_layout() -> void:
 	# Inhalt darf nie über den Hub-Rahmen hinausragen (die Maus-Weiterleitung
 	# endet an der Hub-Fläche).
 	clip_contents = true
+
+	# Die Flankenauskunft steht VOR dem Layout in der Kindliste: sie ist ein
+	# Overlay, kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
+	_build_slit_info()
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -414,6 +460,7 @@ func _build_layout() -> void:
 	vitrine_nets.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitrine_nets.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	vitrine_field.add_child(vitrine_nets)
+	_build_net_footer()
 	bay_column.add_child(vitrine_field)
 	vitrine_slot.add_child(bay_column)
 	root.add_child(vitrine_slot)
@@ -502,6 +549,9 @@ func rebuild_slit_row() -> void:
 	_slit_seats = slit_seats()
 	for i in _slit_seats.size():
 		slit_row.add_child(_slit_seat(i))
+	_slit_info_key = ""  # die Reihe ist neu, die Flanke erklärt nichts mehr
+	if slit_info != null and is_instance_valid(slit_info):
+		slit_info.visible = false
 	_refresh_ware_prices()
 
 ## Ein Platz: der leere KNOPF fängt Klick und Zeiger, gezeichnet wird allein der
@@ -535,9 +585,8 @@ func _slit_seat(seat: int) -> Button:
 	tag.size = Vector2(pad_size.x, price_height)
 	button.add_child(tag)
 	_slit_prices.append(tag)
-	# Nur der KLICK hängt hier: das Anheben der liegenden Kassette fragt scene_root
-	# je Bild ab (der Zeiger liegt auf dem Tisch), und gesagt wird nichts mehr -
-	# Kappe und Preisschild tragen die Entscheidung.
+	# Nur der KLICK hängt hier: das Anheben der liegenden Kassette und ihre
+	# Flankenauskunft fragt scene_root je Bild ab - der Zeiger liegt auf dem Tisch.
 	button.pressed.connect(_on_slit_pressed.bind(seat))
 	return button
 
@@ -604,6 +653,194 @@ func _seat_of(kind: String, index: int) -> int:
 			return i
 	return -1
 
+# --- Die FLANKENAUSKUNFT der Schlitzreihe --------------------------------------
+# Die Kappe nennt Sorte und Größe, das Schild den Preis - was in der Kassette
+# steckt, sagt die Flanke, und nur mit Zeiger. Der Platz ist der freie Streifen
+# RECHTS der mittigen Reihe.
+
+func _build_slit_info() -> void:
+	slit_info = Control.new()
+	slit_info.name = "SlitInfo"
+	slit_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slit_info.visible = false
+	slit_info_name = _wrapped_line(u * float(FLANK_NAME_STEPS[0]), NEON_TEXT,
+		HORIZONTAL_ALIGNMENT_LEFT)
+	slit_info.add_child(slit_info_name)
+	slit_info_body = _wrapped_line(u * float(FLANK_BODY_STEPS[0]), NEON_MUTED,
+		HORIZONTAL_ALIGNMENT_LEFT)
+	slit_info.add_child(slit_info_body)
+	add_child(slit_info)
+	_slit_info_key = ""
+
+## Die freie RECHTE Flanke in globalen Pixeln: von der Kante der Reihe plus Fuge
+## bis zum Seitenrand, senkrecht auf der Reihe. GEMESSEN - ein leeres Rechteck
+## heißt, dass die Seite noch nicht ausgelegt ist oder zu wenig Platz bleibt.
+func slit_flank_rect() -> Rect2:
+	if slit_row == null or not is_instance_valid(slit_row):
+		return Rect2()
+	var row := slit_row.get_global_rect()
+	if row.size.x <= 0.0 or row.size.y <= 0.0:
+		return Rect2()
+	var left := row.end.x + u * FLANK_GAP
+	var right := get_global_rect().end.x - u * PAGE_MARGIN
+	if right - left < u * FLANK_MIN_WIDTH:
+		return Rect2()
+	return Rect2(Vector2(left, row.position.y), Vector2(right - left, row.size.y))
+
+## Der EINE Schreiber der Flanke (-1 = kein Platz gegriffen). Ein verkaufter oder
+## nie gewürfelter Platz zeigt NICHTS - dort liegt keine Ware, die etwas sagen
+## könnte. Idempotent: dieselbe Kassette schreibt nichts neu.
+func set_slit_hover(seat: int) -> void:
+	if slit_info == null or not is_instance_valid(slit_info):
+		return
+	var pack: Pack = null
+	if seat >= 0 and seat < _slit_seats.size():
+		pack = _slit_pack(_slit_seats[seat])
+	var key := "" if pack == null else "%d:%d" % [seat, pack.get_instance_id()]
+	if key == _slit_info_key:
+		return
+	_slit_info_key = key
+	if pack == null:
+		slit_info.visible = false
+		return
+	var flank := slit_flank_rect()
+	if flank.size.x <= 0.0:
+		slit_info.visible = false
+		_slit_info_key = ""  # ungemessen: beim nächsten Bild noch einmal versuchen
+		return
+	slit_info.position = flank.position - get_global_rect().position
+	slit_info.size = flank.size
+	slit_info_name.text = pack.display_name
+	slit_info_name.modulate = PackDrawerView.COLORS.get(Pack.shelf_of(pack), NEON_TEXT)
+	slit_info_body.text = pack.description
+	_fit_slit_info(flank.size)
+	slit_info.visible = true
+
+## Beide Zeilen passen sich in die Flanke ein: erst der Name in seinen Anteil,
+## dann die Beschreibung in den Rest. Der Block bleibt in der Reihenhöhe und
+## steht senkrecht mittig darin.
+func _fit_slit_info(flank: Vector2) -> void:
+	var font := ThemeDB.fallback_font
+	if font == null:
+		return
+	var gap := u * FLANK_SEPARATION
+	var lead := slit_info_body.get_theme_constant("line_spacing")
+	var name_px := _block_font(font, slit_info_name.text, flank.x,
+		flank.y * FLANK_NAME_SHARE, FLANK_NAME_STEPS, lead)
+	var name_h := wrapped_height(font, slit_info_name.text, flank.x, name_px, lead)
+	var body_px := _block_font(font, slit_info_body.text, flank.x,
+		maxf(flank.y - name_h - gap, 1.0), FLANK_BODY_STEPS, lead)
+	var body_h := wrapped_height(font, slit_info_body.text, flank.x, body_px, lead)
+	var top := maxf((flank.y - name_h - gap - body_h) * 0.5, 0.0)
+	_lay_wrapped(slit_info_name, name_px, Vector2(0.0, top), Vector2(flank.x, name_h))
+	_lay_wrapped(slit_info_body, body_px, Vector2(0.0, top + name_h + gap),
+		Vector2(flank.x, body_h))
+
+## Eine umbrechende Zeile setzen: Grad, Platz, Rechteck. Sie MUSS clip_text tragen
+## (siehe _wrapped_line) - sonst klemmt Godot ihre Höhe an einer Mindesthöhe, die
+## aus der noch ungesetzten Breite gerechnet ist, und die Zeile wird meterhoch.
+func _lay_wrapped(label: Label, px: int, at: Vector2, span: Vector2) -> void:
+	label.add_theme_font_size_override("font_size", px)
+	label.position = at
+	label.size = span
+
+## Eine frei gesetzte, umbrechende Zeile: kein Layout-Kind, also trägt sie ihr
+## Rechteck selbst. clip_text nimmt ihr die autowrap-Mindesthöhe (und ist zugleich
+## das Netz, falls eine Leiter je zu kurz wäre).
+func _wrapped_line(font_size: float, color: Color, align: int) -> Label:
+	var label := _label("", font_size, color, align)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.clip_text = true
+	return label
+
+## Der größte Grad einer Leiter, in dem der umgebrochene Text noch in den Block
+## paßt - sonst der kleinste. Dieselbe Grammatik wie _card_block_font, nur mit
+## der Leiter als Parameter.
+func _block_font(font: Font, text: String, width: float, block: float, steps: Array,
+		spacing: int) -> int:
+	var smallest := maxi(8, int(u * float(steps[steps.size() - 1])))
+	for step in steps:
+		var px := maxi(8, int(u * float(step)))
+		if wrapped_height(font, text, width, px, spacing) <= block:
+			return px
+	return smallest
+
+## Wie hoch eine umbrechende Zeile WIRKLICH steht: Godot rechnet je Zeile
+## Schrifthöhe PLUS Zeilenabstand - text_block_height läßt den letzten weg, und
+## genau der schnitt die unterste Zeile ab.
+static func wrapped_height(font: Font, text: String, width: float, px: int,
+		spacing: int) -> float:
+	if font == null:
+		return 0.0
+	return float(WorkshopView.text_block_lines(font, text, width, px)) \
+		* (font.get_height(px) + float(spacing))
+
+# --- Der INFO-FUSS der Bucht ---------------------------------------------------
+# Eine flache, rahmenlose Zeile am unteren Bandrand: die EINE hint_for-Auskunft
+# der Netz-Zelle unter dem Zeiger, bzw. die Seelen-Zeile des Würfelkörpers. EIN
+# Schreiber (scene_root entscheidet, wer spricht), leer = unsichtbar.
+
+func _build_net_footer() -> void:
+	net_footer = _wrapped_line(u * float(FOOTER_STEPS[0]), NEON_MUTED,
+		HORIZONTAL_ALIGNMENT_CENTER)
+	net_footer.name = "NetFooter"
+	net_footer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	net_footer.visible = false
+	vitrine_field.add_child(net_footer)
+	_net_hint = ""
+
+func set_net_hint(text: String) -> void:
+	if net_footer == null or not is_instance_valid(net_footer) \
+			or vitrine_field == null or not is_instance_valid(vitrine_field):
+		return
+	if text == _net_hint:
+		return
+	_net_hint = text
+	net_footer.text = text
+	net_footer.visible = text != ""
+	if text == "":
+		return
+	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Feld gemessen da.
+	var field := vitrine_field.size
+	var bay_u := maxf(field.x, 1.0) / 100.0
+	var margin := bay_u * FOOTER_MARGIN
+	var room := Vector2(maxf(field.x - margin * 2.0, 1.0), bay_u * VITRINE_FOOTER_UNITS)
+	var font := ThemeDB.fallback_font
+	var px := maxi(8, int(bay_u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
+	if font != null:
+		px = _footer_font(font, text, room, bay_u)
+	_lay_wrapped(net_footer, px, Vector2(margin, maxf(field.y - room.y, 0.0)), room)
+
+## Der Grad der Fußzeile: der größte, in dem die Zeile umgebrochen noch in den
+## Fuß paßt. Gemessen in BUCHTEN-Einheiten, nicht in denen der Seite - der Fuß
+## gehört der Bucht.
+func _footer_font(font: Font, text: String, block: Vector2, bay_u: float) -> int:
+	var smallest := maxi(8, int(bay_u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
+	var lead := net_footer.get_theme_constant("line_spacing")
+	for step in FOOTER_STEPS:
+		var px := maxi(8, int(bay_u * float(step)))
+		if wrapped_height(font, text, block.x, px, lead) <= block.y:
+			return px
+	return smallest
+
+## Die hint_for-Zeile der Netz-Zelle unter einem globalen Display-Pixel ("" =
+## keine). Gerechnet wird im STREIFEN, denn dort hängen die Netze.
+func net_hint_at(pixel: Vector2) -> String:
+	if _net_cell <= 0.0 or _net_positions.is_empty():
+		return ""
+	var strip := vitrine_rect_px()
+	if strip.size.x <= 0.0 or not strip.has_point(pixel):
+		return ""
+	var local := pixel - strip.position
+	var span := DieNetView.net_size(_net_cell)
+	for i in mini(_net_dice.size(), _net_positions.size()):
+		var box := Rect2(_net_positions[i], span)
+		if not box.has_point(local):
+			continue
+		return DieNetView.hint_for(_net_dice[i],
+			DieNetView.face_at(local - _net_positions[i], _net_cell))
+	return ""
+
 # --- Die Vitrine (gemeldete Geometrie, kein Inhalt) ----------------------------
 
 ## Das Buchten-Rechteck in globalen Display-Pixeln (leeres Rect = keine Bucht,
@@ -636,6 +873,7 @@ func set_die_nets(entries: Array, cell: float) -> void:
 	_drop_die_nets()
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
 		return
+	_net_cell = cell
 	var span := DieNetView.net_size(cell)
 	var font := ThemeDB.fallback_font
 	var soul_height := font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
@@ -646,6 +884,7 @@ func set_die_nets(entries: Array, cell: float) -> void:
 		net.position = entry["pos"]
 		vitrine_nets.add_child(net)
 		_net_dice.append(def)
+		_net_positions.append(entry["pos"])
 		# Unter dem Netz die SEELE, darunter der PREIS - die Ware sagt selbst, was
 		# in ihr steckt und was sie kostet. Beide Zeilen stehen immer, damit die
 		# Reihe nicht je Würfel anders hoch wird.
@@ -674,6 +913,7 @@ static func soul_tint(essence_id: String) -> Color:
 	return glow.lerp(Color(1, 1, 1), SOUL_LIFT)
 
 func clear_die_nets() -> void:
+	set_net_hint("")  # ein Fuß unter verschwundenen Netzen wäre eine Lüge
 	if _net_signature == "":
 		return
 	_net_signature = ""
@@ -695,6 +935,8 @@ func _drop_die_nets() -> void:
 	_net_dice.clear()
 	_net_prices.clear()
 	_net_souls.clear()
+	_net_positions.clear()
+	_net_cell = 0.0
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
 		return
 	for child in vitrine_nets.get_children():

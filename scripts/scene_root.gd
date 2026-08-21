@@ -3225,22 +3225,26 @@ func _sync_slit_visibility() -> void:
 			cell.visible = show
 
 ## Der Griff auf einen Stellplatz: die liegende Kassette hebt sich an und leuchtet
-## auf - dieselbe Geste wie im Magazin. GEFRAGT je Bild (der Zeiger liegt auf dem
-## Tisch). Mehr geschieht nicht: gesagt wird nichts, denn Kappe und Preisschild
-## tragen die Entscheidung selbst.
+## auf - dieselbe Geste wie im Magazin -, und in der freien RECHTEN Flanke der
+## Reihe steht, was in ihr steckt (Name und Beschreibung). GEFRAGT je Bild (der
+## Zeiger liegt auf dem Tisch), EIN Walker für Griff und Auskunft.
 func _sync_slit_hover() -> void:
-	if slit_cells.is_empty() or charm_shop == null or not is_instance_valid(charm_shop):
+	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
 	var pixel := Vector2(-1, -1)
 	if _slit_cells_visible() and _table_operable():
 		pixel = _screen_pixel(get_viewport().get_mouse_position())
 	var rects := charm_shop.slit_rects()
+	var hovered := -1
 	for seat: int in slit_cells:
 		var cell: DataCellView = slit_cells[seat]
 		if cell == null or not is_instance_valid(cell):
 			continue
 		var on := pixel.x >= 0.0 and seat < rects.size() and rects[seat].has_point(pixel)
 		cell.set_hovered(on)
+		if on and hovered < 0:
+			hovered = seat
+	charm_shop.set_slit_hover(hovered)
 
 ## Laufwechsel: die Ware des alten Ladens liegt nirgends mehr.
 func _drop_slit_cells() -> void:
@@ -3274,6 +3278,13 @@ const VITRINE_NET_BAND_SHARE := 0.5
 ## kostet - dafür gibt der Beschriftungs-Streifen die Tiefe her.
 const VITRINE_NET_LABELS := 6.4
 
+## Was Beschriftung UND Info-Fuß zusammen vom Band nehmen. EINE Rechnung für die
+## Reserve und den wirklichen Aufbau - drifteten die beiden, stünde die Ware auf
+## anderen Plätzen, als die Seite später zeichnet. Die Fußzahl gehört dem Laden,
+## der den Fuß auch baut.
+static func _vitrine_label_units() -> float:
+	return VITRINE_NET_LABELS + ShopController.VITRINE_FOOTER_UNITS
+
 ## Das Zellmaß der Buchten-Netze - EINE Quelle: die gemessene Teilung deckelt es,
 ## das freie Band ebenfalls.
 static func _vitrine_net_cell(pitch: float, band: float) -> float:
@@ -3300,7 +3311,7 @@ func _vitrine_label_reserve() -> float:
 	var pitch := rect.size.x * (1.0 - VitrineView.EDGE_MARGIN * 2.0) / float(count)
 	var cell := _vitrine_net_cell(pitch, rect.size.y * VITRINE_NET_BAND_SHARE)
 	var block := unit * VITRINE_NET_GAP + DieNetView.net_size(cell).y \
-		+ unit * VITRINE_NET_LABELS
+		+ unit * _vitrine_label_units()
 	return block * _vitrine_depth_per_pixel(rect)
 
 ## Wieviel Welt-TIEFE ein Display-Pixel der Bucht wert ist (Pixel-y = Welt-x).
@@ -3347,8 +3358,9 @@ func _sync_vitrine_nets() -> void:
 	var deepest := 0.0
 	for anchor in anchors:
 		deepest = maxf(deepest, anchor.y)
-	# Seelen-Zeile und Preisschild hängen unter dem Netz und zählen zum Band.
-	var band := rect.size.y - deepest - gap - margin - unit * VITRINE_NET_LABELS
+	# Seelen-Zeile, Preisschild und der Info-Fuß hängen unter dem Netz und zählen
+	# zum Band.
+	var band := rect.size.y - deepest - gap - margin - unit * _vitrine_label_units()
 	# Derselbe Deckel wie in der Reserve: sonst zeichnete die Seite ein anderes
 	# Netz, als die Auslage beim Stellen der Würfel eingeplant hat.
 	band = minf(band, rect.size.y * VITRINE_NET_BAND_SHARE)
@@ -3359,13 +3371,54 @@ func _sync_vitrine_nets() -> void:
 		var pos := Vector2(anchors[i].x - span.x * 0.5, anchors[i].y + gap)
 		pos.x = clampf(pos.x, margin, maxf(margin, rect.size.x - span.x - margin))
 		pos.y = clampf(pos.y, margin,
-			maxf(margin, rect.size.y - span.y - margin - unit * VITRINE_NET_LABELS))
+			maxf(margin, rect.size.y - span.y - margin - unit * _vitrine_label_units()))
 		entries.append({"def": defs[i], "pos": pos})
 	charm_shop.set_die_nets(entries, cell)
 
 func _clear_vitrine_nets() -> void:
+	_vitrine_soul_hints.clear()
 	if charm_shop != null and is_instance_valid(charm_shop):
 		charm_shop.clear_die_nets()
+
+## Die Seelen-Zeile je Würfel-Instanz - Essence.by_id baut je Aufruf den ganzen
+## Katalog, und gefragt wird je Bild (die Grammatik der Grubenkarte).
+var _vitrine_soul_hints: Dictionary = {}
+
+## Der EINE Schreiber des Info-Fusses: die Netz-Zelle unter dem Zeiger gewinnt,
+## sonst antwortet der Würfelkörper mit seiner Seele, sonst steht dort nichts.
+## Beides in EINER Hand, damit Zelle und Körper sich nicht gegenseitig löschen.
+func _sync_vitrine_net_hover() -> void:
+	if charm_shop == null or not is_instance_valid(charm_shop):
+		return
+	var rect := _shop_bay_rect()
+	if not _vitrine_curtain or rect.size.x <= 0.0 or charm_shop.net_count() <= 0:
+		charm_shop.set_net_hint("")
+		return
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	if pixel.x < 0.0:
+		charm_shop.set_net_hint("")
+		return
+	var hint := charm_shop.net_hint_at(pixel)
+	if hint == "":
+		hint = _vitrine_soul_hint(_bay_item_at(shop_vitrine, rect, pixel))
+	charm_shop.set_net_hint(hint)
+
+## Die Seele des gegriffenen Würfels ("" für alles andere) - dieselbe Zeile, die
+## der Essenz-Chip im Netz erklärt.
+func _vitrine_soul_hint(item: Dictionary) -> String:
+	if item.is_empty() or String(item["kind"]) != ShopController.KIND_DIE:
+		return ""
+	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_DIE, [])
+	var index := int(item["index"])
+	if index < 0 or index >= lying.size():
+		return ""
+	var def: DieDefinition = lying[index]
+	if def == null:
+		return ""
+	var key := def.get_instance_id()
+	if not _vitrine_soul_hints.has(key):
+		_vitrine_soul_hints[key] = DieNetView.hint_for(def, DieNetView.EDGE)
+	return String(_vitrine_soul_hints[key])
 
 # --- Griff und Beschriftung in der Auslage -------------------------------------
 
@@ -3382,9 +3435,12 @@ func _sync_vitrine_hover() -> void:
 	_sync_slit_visibility()
 	_sync_slit_hover()
 	if charm_shop != null and is_instance_valid(charm_shop):
-		# Im Laden HEBT der Griff nur - gesagt wird nichts: unter jedem Würfel liegen
-		# sein Netz, seine Seelen-Zeile und sein Preis, und die stehen ohne Zeiger da.
+		# Im Laden HEBT der Griff nur - die Bucht selbst sagt nichts: unter jedem
+		# Würfel liegen sein Netz, seine Seelen-Zeile und sein Preis, und die stehen
+		# ohne Zeiger da. Was der Zeiger hinzufügt, schreibt der Info-Fuß - und der
+		# hat seinen EIGENEN Schreiber daneben, nicht hier eingefädelt.
 		_paint_bay_hover(shop_vitrine, _shop_bay_rect())
+		_sync_vitrine_net_hover()
 	var market := _secret_window()
 	if market != null:
 		_paint_bay_hover(secret_vitrine, _secret_bay_rect(), market.vitrine_annotation,
