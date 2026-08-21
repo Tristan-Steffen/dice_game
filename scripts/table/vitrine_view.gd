@@ -13,6 +13,11 @@ extends Node3D
 ## Bezahlte Ware wartet hier NICHT: sie fährt an die Werkbank und landet in der
 ## Schale daneben (AusgabefachView) - der Hub kauft, die Werkstatt nutzt.
 ## In der Auslage hängt kein Preisschild - hinsehen nennt ihn.
+## Aufgedeckt wird wie an einem Mahjong-Automaten: eine Lichtfuge kündigt an, dann
+## fährt jede ZONE als BLOCK linear aus der Fläche und rastet mit einem Setz-Dip
+## ein - Regal zuerst, Schale danach; beim Blättern taucht dieselbe Folge
+## gespiegelt. Eine echte Bühne gibt es dabei nicht: das opake Display verschluckt,
+## was unter der Fläche steht.
 ## Zwei Instanzen sind vorgesehen - Laden und Schwarzmarkt -, deshalb trägt jede
 ## ihren eigenen Namen und misst sich allein an dem Rechteck, das man ihr stellt.
 
@@ -41,22 +46,43 @@ const HOVER_SWELL := 1.08
 const HOVER_TIME := 0.14
 
 ## Übergeben: das gekaufte Stück hebt sich kurz an und sinkt dann durch die
-## Fläche - erst danach fährt die Lieferung damit los.
-const LIFT_TIME := 0.14
-const SINK_TIME := 0.3
+## Fläche - erst danach fährt die Lieferung damit los. Der EINZELKAUF fährt keinen
+## Maschinenzyklus: er ist eine Übergabe, kein Aufdecken.
+const TAKE_LIFT_TIME := 0.14
+const TAKE_SINK_TIME := 0.3
 
-## Der WARENUMSCHLAG des Blätterns: alles sinkt gestaffelt weg, ohne Anheben - das
-## Anheben ist die Geste der Übergabe, nicht die des Blätterns. Die Staffelung ist
-## gedeckelt, sonst würde Stöbern in einem vollen Laden zäh.
-const SWAP_SINK := 0.22
-const SWAP_STAGGER := 0.02
-const SWAP_SPREAD_MAX := 0.10
-const SWAP_TIME := SWAP_SINK + SWAP_SPREAD_MAX
+## Die ZONEN der Hebebühne: hinten das Regal, davor die Schale. Sie fahren
+## NACHEINANDER - innerhalb einer Zone aber SYNCHRON, als EIN Block. Im Laden führt
+## die Auslage nur die Schale; ihre Regal-Zone ist die Kassetten-Schlitzreihe des
+## Tisches, und die taktet scene_root nach denselben Zahlen.
+const ZONE_SHELF := 0
+const ZONE_BOWL := 1
+const ZONE_COUNT := 2
+## Die Überlappung des UMSCHLAGS (das Tauchen): Zone 2 taucht, wenn Zone 1 etwa
+## zu zwei Dritteln unten ist.
+const ZONE_LAG := 0.28
+## Und die des AUFTRITTS: der Maschinenzyklus ist länger als ein Tauchgang, also
+## darf die zweite Zone später anfahren - sie startet, während die erste noch
+## senkt. Eigene Zahl, damit die Sink-Seite unberührt bleibt.
+const LIFT_LAG := 0.42
+## Die ANKÜNDIGUNG: so lange glüht die Lichtfuge, bevor sich in ihrer Zone etwas
+## rührt. Der Automat meldet sich, dann fährt er.
+const SEAM_LEAD := 0.26
 
-## Die Bestückung: die Körper steigen gestaffelt auf (Hub-Prämien-Größenordnung),
-## und auch diese Staffelung ist gedeckelt.
-const ENTER_STAGGER := 0.06
-const ENTER_SPREAD_MAX := 0.18
+## Die ECHTE Mechanik des Auftritts (der Mahjong-Automat) steckt im Schachtkörper -
+## Senken, Einschub von hinten, gemeinsamer Hub. Ihre Zeiten gehören ihm
+## (LiftShaftView.cycle_time), der Auslage gehört nur der Takt ihrer Zonen.
+## Kopffreiheit über dem höchsten Stück: so tief fährt die Plattform, so tief
+## wartet die Ware.
+const SHAFT_ROOM := 1.45
+## Rand, den der Schacht um seine Reihe hält - als Anteil der Reichweite des
+## Stücks, damit er mit dem Inhalt wächst.
+const SHAFT_MARGIN_SHARE := 0.35
+
+## Der WARENUMSCHLAG des Blätterns: dieselbe Sprache rückwärts - je Zone ein
+## synchroner Plunge, die Reihenfolge GESPIEGELT (die Schale taucht zuerst).
+const SWAP_SINK := 0.24
+const SWAP_TIME := SWAP_SINK + ZONE_LAG
 
 ## Greifradius eines Stücks in der Tischebene (Vielfaches seiner halben Kante).
 const PICK_FACTOR := 1.15
@@ -74,6 +100,12 @@ static func pick_radius(wanted: float, offsets: PackedFloat32Array) -> float:
 ## Gemeldet, nicht abgefragt.
 signal dice_settled
 signal dice_moving
+
+## Ein Schacht steht offen bzw. ist zu. GEMELDET nach draußen, weil das LOCH in
+## der Anzeige den Shadern gehört und eine View nicht in sie greift: scene_root
+## reicht es an TableScreen weiter.
+signal shaft_opened(zone: int, at: Vector3, half_extents: Vector2)
+signal shaft_closed(zone: int)
 
 ## Zuletzt gestellte Maße - der Abgleich stellt idempotent nach.
 var center := Vector3.ZERO
@@ -110,11 +142,16 @@ var _hovered := ""
 var _hover_tweens: Dictionary = {}
 ## Hub je Körper - der Abgleich rechnet ihn beim Auslegen, nicht der Griff.
 var _hover_head: Dictionary = {}
-## Laufende Nummer der Auftritte EINER Bestückung - sie staffelt sie.
-var _entering := 0
 ## Steht die Schale? Gemessen wird am DECKEL des Auftritts (entry_time).
 var _bowl_settled := true
 var _settle_token := 0
+## Je Zone ihr Schachtkörper und der EINE Tween ihres Maschinenzyklus - Platte und
+## Ware fahren darin gemeinsam.
+var _shafts: Dictionary = {}
+var _zone_tweens: Dictionary = {}
+## Der Ton, den die bündige Plattform trägt - der Grund des Fensters, in dem die
+## Auslage steht. Gemeldet von draußen: die Auslage kennt ihre Seite nicht.
+var deck_tint := LiftShaftView.DECK_TOP
 
 ## Was die höchste liegende Ware über der Tischfläche einnimmt: ein Würfel samt
 ## SILHOUETTE oder eine liegende Kassette. Daran misst sich der Weg durch die
@@ -128,6 +165,20 @@ static func content_depth() -> float:
 ## Der Weg DURCH die Fläche - hinunter wie herauf.
 static func sink_drop() -> float:
 	return content_depth()
+
+## Was EIN Stück braucht, um verdeckt zu sein - sein eigenes Maß, nicht das des
+## höchsten. Eine flache Kassette, die aus der Tiefe eines Würfels käme, verbrächte
+## ihre Fahrt unsichtbar und ploppte am Ende heraus.
+static func cell_drop() -> float:
+	return FLOOR_CLEAR + DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE) \
+		+ DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE)
+
+static func die_drop() -> float:
+	return FLOOR_CLEAR + DieBuilder.HALF_EXTENT * DIE_SCALE * (1.0 + SILHOUETTE)
+
+## Und dasselbe für einen konkreten Körper.
+static func body_drop(body: Node3D) -> float:
+	return cell_drop() if body is DataCellView else die_drop()
 
 ## Plätze EINER Reihe: count Punkte, mittig über span verteilt. Die Teilung ist
 ## fest (pitch), solange sie passt - sonst rückt die Reihe zusammen. Reine
@@ -147,18 +198,48 @@ static func row_spots(count: int, span: float, pitch: float) -> PackedFloat32Arr
 static func slot_key(kind: String, index: int) -> String:
 	return "%s:%d" % [kind, index]
 
-## Wie lange der Umschlag braucht, bis die Auslage leer ist.
+## Die Zone eines Platzes: die offene Ware liegt in der Schale, alles Versiegelte
+## im Regal.
+static func zone_of(kind: String) -> int:
+	return ZONE_BOWL if kind == ShopController.KIND_DIE else ZONE_SHELF
+
+static func zone_of_key(key: String) -> int:
+	return zone_of(key.get_slice(":", 0))
+
+## Wann die Zone ANFÄHRT: nach der Ankündigung, um ihren Platz im Takt versetzt.
+static func lift_delay(zone: int) -> float:
+	return SEAM_LEAD + LIFT_LAG * float(maxi(zone, 0))
+
+## Wie lange EIN Maschinenzyklus dauert: Senken, Einschub, Hub und Setz-Dip.
+static func machine_time() -> float:
+	return LiftShaftView.cycle_time()
+
+## Wie tief der Schacht ist - das höchste Stück der Auslage plus Kopffreiheit. EIN
+## Maß für alle Schächte: sie sollen gleich tief lesen, und die Ware sinkt überall
+## um dieselbe Strecke.
+static func shaft_depth() -> float:
+	return content_depth() * SHAFT_ROOM
+
+## Und wann sie TAUCHT - gespiegelt: die vorderste Zone geht zuerst.
+static func sink_delay(zone: int) -> float:
+	return ZONE_LAG * float(ZONE_COUNT - 1 - clampi(zone, 0, ZONE_COUNT - 1))
+
+## Wie lange der Umschlag braucht, bis die Auslage leer ist: die letzte Zone taucht
+## zuletzt. Die Zahl der Stücke sagt nur, OB überhaupt etwas geht - eine Zone fährt
+## als Block, nicht Stück für Stück.
 static func swap_time(count: int) -> float:
 	if count <= 0:
 		return 0.0
-	return SWAP_SINK + minf(SWAP_STAGGER * float(count - 1), SWAP_SPREAD_MAX)
+	return SWAP_TIME
 
-## Wie lange eine Bestückung dauert - die längste Bahn darin. Liegenbleiben kostet
-## nichts, jeder andere Grad ist ein gestaffeltes Aufsteigen.
+## Wie lange ein Auftritt dauert - der ganze Maschinenzyklus: Ankündigung, der
+## Versatz bis zur letzten Zone und deren Fahrt (Senken, Einschub, Hub, Setz-Dip).
+## Liegenbleiben kostet nichts. Der EHRLICHE Deckel: keine Zone steht später als
+## hier, und kein Schacht ist danach noch offen.
 static func entry_time(count: int, grade: String) -> float:
 	if count <= 0 or grade == ShopController.GRADE_STAND:
 		return 0.0
-	return minf(ENTER_STAGGER * float(count - 1), ENTER_SPREAD_MAX) + DataCellView.RISE_TIME
+	return lift_delay(ZONE_COUNT - 1) + machine_time()
 
 func _init(vitrine_name := "Vitrine") -> void:
 	name = vitrine_name
@@ -175,8 +256,11 @@ func setup(at: Vector3, half_extents: Vector2) -> void:
 		_layout()
 
 ## Die Auslage zeigen oder abdecken. Zugedeckt ist von ihr KEIN Körper da: sie
-## läge sonst auf der Anzeige einer fremden Seite.
+## läge sonst auf der Anzeige einer fremden Seite - und kein Schacht bleibt offen,
+## denn ein Loch ohne Maschine wäre der schlimmste Rest.
 func set_shown(value: bool) -> void:
+	if not value:
+		settle()
 	visible = value
 
 ## Die Tischebene: das BETT der ganzen Auslage. Alles Liegende ruht darauf.
@@ -205,16 +289,16 @@ func present_graded(new_stock: Dictionary, grade: String) -> void:
 	stock = new_stock
 	_layout(grade)
 
-## Der Umschlag: alles Stehende sinkt gestaffelt durch die Fläche. Danach ist die
-## Auslage LEER - was sinkt, ist nicht mehr zu greifen. Liefert die Dauer, nach der
-## die Zielseite kommen darf.
+## Der Umschlag: jede Zone taucht als BLOCK durch die Fläche, in gespiegelter
+## Reihenfolge (die Schale zuerst). Danach ist die Auslage LEER - was sinkt, ist
+## nicht mehr zu greifen. Liefert die Dauer, nach der die Zielseite kommen darf.
 func sink_all() -> float:
 	settle()
 	_settle_token += 1  # eine laufende Frist gilt nicht mehr
 	_mark_bowl(false)
 	var keys := _bodies.keys()
 	for i in keys.size():
-		_sink_away(_bodies[keys[i]], minf(SWAP_STAGGER * float(i), SWAP_SPREAD_MAX))
+		_sink_away(_bodies[keys[i]], sink_delay(zone_of_key(String(keys[i]))))
 	_bodies.clear()
 	_rest_scale.clear()
 	_hover_tweens.clear()
@@ -224,9 +308,12 @@ func sink_all() -> float:
 	_hovered = ""
 	return swap_time(keys.size())
 
-## Alles, was gerade fährt, liegt sofort hart auf seinem Platz. Ein Laufwechsel
-## oder eine neue Auslage mitten im Auftritt darf nichts schuldig lassen.
+## Alles, was gerade fährt, liegt sofort hart auf seinem Platz, und jede Maschine
+## steht still: Platte bündig, Schacht fort, Loch zu. Ein Laufwechsel oder eine
+## neue Auslage mitten im Auftritt darf nichts schuldig lassen - der EINE
+## Aufräum-Pfad, den alle Abbrüche teilen.
 func settle() -> void:
+	close_shafts()
 	for key: String in _move_tweens.keys():
 		_kill(_move_tweens[key])
 		var body: Node3D = _bodies.get(key)
@@ -335,15 +422,17 @@ func _mark_bowl(settled: bool) -> void:
 func _layout(grade := ShopController.GRADE_STAND) -> void:
 	settle()  # eine laufende Fahrt endet hier, nicht irgendwann
 	items.clear()
-	_entering = 0
 	if half.x <= 0.0 or half.y <= 0.0:
 		return
 	var wanted: Dictionary = {}
-	_lay_shelf(wanted, grade)
-	_lay_bowl(wanted, grade)
+	var stage: Dictionary = {}  # Zone -> die Stücke, die sie als Block fährt
+	_lay_shelf(wanted, grade, stage)
+	_lay_bowl(wanted, grade, stage)
 	# Die Netze der Ladenseite folgen nur STEHENDER Ware: gemessen wird der Deckel
 	# des Auftritts.
 	_settle_after(entry_time(items.size(), grade))
+	for zone: int in stage.keys():
+		_run_machine(zone, stage[zone])
 	for key: String in _bodies.keys():
 		if not wanted.has(key):
 			_sink_out(_bodies[key], float(_hover_head.get(key, 0.0)))
@@ -357,7 +446,7 @@ func _layout(grade := ShopController.GRADE_STAND) -> void:
 
 ## Hinten das Regal: jede versiegelte Kassette LIEGT auf ihrem Platz, große Fläche
 ## nach oben - Sortenfarbe, Zeichen und Größen-Streifen liest man von dort.
-func _lay_shelf(wanted: Dictionary, grade: String) -> void:
+func _lay_shelf(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var entries: Array[Dictionary] = []
 	var row: Array = stock.get(ShopController.KIND_ENGRAVING_PACK, [])
 	for i in row.size():
@@ -391,10 +480,10 @@ func _lay_shelf(wanted: Dictionary, grade: String) -> void:
 		cell.lie_on_glass(spot)
 		items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
 			"node": cell, "cell": cell, "radius": radius})
-		_enter(key, cell, spot, grade)
+		_stage(key, cell, spot, grade, ZONE_SHELF, stage)
 
 ## Vorn die Schale: die offene Ware, die man vor dem Kauf SIEHT - echte Würfel.
-func _lay_bowl(wanted: Dictionary, grade: String) -> void:
+func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var entries: Array[Dictionary] = []
 	var dice: Array = stock.get(ShopController.KIND_DIE, [])
 	for i in dice.size():
@@ -424,7 +513,7 @@ func _lay_bowl(wanted: Dictionary, grade: String) -> void:
 		_seat(key, body, spot)
 		items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
 			"node": body, "cell": null, "radius": radius})
-		_enter(key, body, spot, grade)
+		_stage(key, body, spot, grade, ZONE_BOWL, stage)
 
 ## Wie weit eine liegende Kassette bzw. das höchste Stück der Schale von seiner
 ## Mitte aus nach vorn und hinten reicht - daran messen sich die beiden Bänder.
@@ -518,37 +607,91 @@ func _seat(key: String, body: Node3D, spot: Vector3) -> void:
 		return
 	body.global_position = _rest_position(key, spot)
 
-## Der AUFTRITT eines Stücks. Sein Platz steht schon hart - hier bekommt er nur
-## seinen Weg dorthin, gestaffelt in der Reihenfolge, in der die Auslage rechnet.
-func _enter(key: String, body: Node3D, spot: Vector3, grade: String) -> void:
+## Der AUFTRITT eines Stücks. Sein Platz steht schon hart - hier wird es nur in
+## seine ZONE eingereiht: die fährt danach als EIN Block, denn eine Hebebühne hebt
+## keine Einzelstücke.
+func _stage(key: String, body: Node3D, spot: Vector3, grade: String, zone: int,
+		stage: Dictionary) -> void:
 	if grade == ShopController.GRADE_STAND or body == null or not is_instance_valid(body):
 		return
 	_kill(_move_tweens.get(key))
 	_kill(_hover_tweens.get(key))
 	if not (body is DataCellView):
 		body.scale = Vector3.ONE * float(_rest_scale.get(key, 1.0))
-	var delay := minf(ENTER_STAGGER * float(_entering), ENTER_SPREAD_MAX)
-	_entering += 1
-	_rise(key, body, spot, delay)
+	# Gemerkt wird nur, DASS es unterwegs ist - settle legt es hart auf seinen Platz.
+	_move_tweens[key] = null
+	if not stage.has(zone):
+		stage[zone] = []
+	(stage[zone] as Array).append({"key": key, "body": body, "spot": spot})
 
-## Steigen heißt Abruf: dasselbe Stück kommt in seiner gemerkten Lage durch die
-## Fläche zurück. Der Endzustand steht schon - gefahren wird nur der Weg.
-func _rise(key: String, body: Node3D, spot: Vector3, delay: float) -> void:
-	var cell := body as DataCellView
-	if cell != null:
-		cell.rise_through_glass(spot, delay, DataCellView.RISE_TIME, true, sink_drop())
-		# Die Zelle fährt ihren Tween selbst - gemerkt wird nur, DASS sie unterwegs
-		# ist, damit settle sie hart auf ihren Platz legen kann.
-		_move_tweens[key] = null
+# --- Die HEBEBÜHNE --------------------------------------------------------------
+# Der Auftritt ist eine echte Maschine, nicht ein Durchscheinen: das Loch geht auf,
+# die BÜNDIGE leere Plattform senkt sich, die Ware schiebt VON HINTEN durch die
+# Rückwandöffnung auf sie, dann fahren Platte und Ware GEMEINSAM herauf und das
+# Loch schließt sich. EIN Tween je Zone trägt alles - zwei liefen auseinander, und
+# die Ware steht auf der Platte.
+
+## Der Zyklus EINER Zone. Der Endzustand steht längst (die Stücke sind hart
+## gesetzt); hier bekommen sie nur ihren Weg - und der ist die Maschine.
+func _run_machine(zone: int, entries: Array) -> void:
+	if entries.is_empty():
 		return
-	var target := _rest_position(key, spot)
-	body.global_position = target - Vector3.UP * sink_drop()
-	var tween := create_tween()
-	if delay > 0.0:
-		tween.tween_interval(delay)
-	tween.tween_property(body, "global_position", target, DataCellView.RISE_TIME) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_move_tweens[key] = tween
+	var shaft := _shaft_for(zone)
+	if shaft == null:
+		return
+	var bodies: Array = []
+	var seats: Array = []
+	var cells: Array = []
+	for entry: Dictionary in entries:
+		bodies.append(entry["body"])
+		seats.append(_rest_position(String(entry["key"]), entry["spot"]))
+		var cell := entry["body"] as DataCellView
+		if cell != null:
+			cells.append(cell)
+	var tween := shaft.run_cycle(bodies, seats, lift_delay(zone))
+	if tween == null:
+		return
+	_zone_tweens[zone] = tween
+	# Erst oben lodert die Kassette: ein Ausbruch im Schacht sähe niemand.
+	tween.tween_callback(func() -> void:
+		for cell: DataCellView in cells:
+			if is_instance_valid(cell):
+				cell.flare())
+
+## Der Schacht einer Zone: seine Spur ist die Reihe, seine Tiefe die des höchsten
+## Stücks. Er bleibt IM Buchtenrechteck - ein Loch daneben fräße die Seite an.
+func _shaft_for(zone: int) -> LiftShaftView:
+	var bands := _band_depths()
+	var depth_x := bands.x if zone == ZONE_SHELF else bands.y
+	var reach := shelf_reach() if zone == ZONE_SHELF else bowl_reach()
+	var margin := reach * SHAFT_MARGIN_SHARE
+	var back := minf(depth_x + reach + margin, center.x + half.x)
+	var front := maxf(depth_x - reach - margin, center.x - half.x)
+	if back - front <= 0.0:
+		return null
+	var span := minf(_field_width() * 0.5 + margin, half.y)
+	var shaft: LiftShaftView = _shafts.get(zone)
+	if shaft == null or not is_instance_valid(shaft):
+		shaft = LiftShaftView.new("LiftShaft%d" % zone)
+		add_child(shaft)
+		_shafts[zone] = shaft
+		# Das Loch meldet die Auslage weiter - geschnitten wird es ganz woanders.
+		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			shaft_opened.emit(zone, at, hole))
+		shaft.closed.connect(func() -> void: shaft_closed.emit(zone))
+	shaft.deck_color = deck_tint
+	shaft.setup(Vector3((back + front) * 0.5, center.y, _field_center_z()),
+		Vector2((back - front) * 0.5, span), shaft_depth())
+	return shaft
+
+## Jede Maschine steht still, jedes Loch ist zu. Der eine Weg, den settle, ein
+## Vorhangfall und ein Laufwechsel gemeinsam gehen.
+func close_shafts() -> void:
+	_zone_tweens.clear()
+	for zone: int in _shafts.keys():
+		var shaft: LiftShaftView = _shafts[zone]
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()
 
 func _apply_hover(key: String, on: bool) -> void:
 	if key == "":
@@ -584,7 +727,7 @@ func _kill(tween: Variant) -> void:
 ## Wie lange ein übergebenes Stück braucht, bis es unter der Tischfläche ist -
 ## erst dann fährt die Lieferung (scene_root richtet ihren Abflug danach).
 static func take_out_time() -> float:
-	return LIFT_TIME + SINK_TIME
+	return TAKE_LIFT_TIME + TAKE_SINK_TIME
 
 ## Verkauft: der Körper hebt sich kurz an - die Übergabe - und sinkt dann durch
 ## die Fläche, wo ihn das Display-Mesh verdeckt.
@@ -596,15 +739,16 @@ func _sink_out(body: Node3D, lift: float) -> void:
 		cell.set_hovered(false)
 	var tween := create_tween()
 	tween.tween_property(body, "global_position",
-		body.global_position + Vector3.UP * lift, LIFT_TIME) \
+		body.global_position + Vector3.UP * lift, TAKE_LIFT_TIME) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tween.tween_property(body, "global_position",
-		body.global_position - Vector3.UP * (sink_drop() + DataCellView.HEIGHT), SINK_TIME) \
+		body.global_position - Vector3.UP * (sink_drop() + DataCellView.HEIGHT),
+		TAKE_SINK_TIME) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_callback(_free_body.bind(body))
 
-## Umschlag: das Stück sinkt einfach weg. Kein Anheben - beim Blättern wird nichts
-## übergeben, die Seite wird gewechselt.
+## Umschlag: die Zone taucht als Block weg - linear wie die Fahrt herauf. Kein
+## Anheben: beim Blättern wird nichts übergeben, die Seite wird gewechselt.
 func _sink_away(body: Node3D, delay: float) -> void:
 	if body == null or not is_instance_valid(body):
 		return
@@ -614,9 +758,10 @@ func _sink_away(body: Node3D, delay: float) -> void:
 	var tween := create_tween()
 	if delay > 0.0:
 		tween.tween_interval(delay)
+	# Sein EIGENES Maß: der Weg endet, wo der Körper verdeckt ist - nicht tiefer.
 	tween.tween_property(body, "global_position",
-		body.global_position - Vector3.UP * (sink_drop() + DataCellView.HEIGHT), SWAP_SINK) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		body.global_position - Vector3.UP * body_drop(body), SWAP_SINK) \
+		.set_trans(Tween.TRANS_LINEAR)
 	tween.tween_callback(_free_body.bind(body))
 
 func _free_body(body: Node3D) -> void:

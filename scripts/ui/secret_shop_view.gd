@@ -44,6 +44,20 @@ const CARD_BG := Color("#150f2acc")
 ## liegt oder der legendäre Topf erschöpft ist, ändert die Aufteilung nie.
 const CARD_SEAT_WIDTH := 28.0
 
+## Die LICHTFUGE der Hebebühne: der Umriss der Bucht glüht auf, BEVOR die Ware
+## kommt. EINE Fuge genügt - beide Zonen (Regal, Schale) fahren aus demselben Feld.
+## Absolut gestelltes Overlay, kein Layout-Kind.
+const SEAM_PAD := 0.9
+const SEAM_BORDER := 0.34
+const SEAM_FADE := 0.12
+## Überhell: die Fuge ist ein UMRISS - ihr Glühen kommt aus dem Bloom des Displays.
+const SEAM_GLOW := 1.9
+
+## Der GRUND der Bucht, wie er am Tisch wirklich leuchtet - die bündige Plattform
+## der Hebebühne trägt ihn, damit ihr Schließen nicht springt. Das Hinterzimmer ist
+## dunkler als der Laden, also hat es seinen eigenen Wert (GEMESSEN).
+const BAY_GROUND := Color(0.048, 0.020, 0.118)
+
 ## Bauhöhe des Inhalts in Einheiten - die Tasche unter den Automaten ist flach,
 ## also darf die Einheit auch an der HÖHE hängen (wie Gravur-Station/Vertragswahl).
 ## Der Wert ist knapp UNTER dem Seitenverhältnis der echten Tasche (~1,8) gewählt,
@@ -80,6 +94,9 @@ var wallet_label: Label
 ## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
 var card_seat: Control
 var vitrine_slot: Control
+## Die Lichtfuge über dem Buchtfeld (reine Anzeige).
+var lift_seam: Panel
+var _seam_tween: Tween
 ## Die EINE Beschriftungskarte der Auslage - ein Stück, eine Karte.
 var annotation_card: VitrineAnnotationView
 var reroll_button: Button
@@ -213,6 +230,7 @@ func _build_layout() -> void:
 	vitrine_slot.add_child(_vitrine_frame())
 	body.add_child(vitrine_slot)
 
+	_build_lift_seam()  # über der Fassung, unter Karte und Gitter
 	_build_detail_card()  # zuletzt: liegt als Overlay über der Karte
 	# Die Beschriftung der Auslage steht IM Fenster über dem Buchten-Band: alles,
 	# was das Spiel sagt, sagt es auf einer Anzeige.
@@ -222,6 +240,56 @@ func _build_layout() -> void:
 	add_child(annotation_card)
 	annotation_card.build(vitrine_unit())
 	_build_lock_overlay()  # und ganz oben das Gitter
+
+# --- Die LICHTFUGE der Hebebühne -----------------------------------------------
+# Der Automat kündigt an, bevor er fährt. Getaktet wird von scene_root - hier wird
+# nur gemalt.
+
+func _build_lift_seam() -> void:
+	lift_seam = Panel.new()
+	lift_seam.name = "LiftSeam"
+	lift_seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lift_seam.visible = false
+	lift_seam.modulate = Color(1, 1, 1, 0)
+	var box := StyleBoxFlat.new()
+	box.draw_center = false  # unter einer Fuge liegt Ware, kein Panel
+	box.border_color = Color(VIOLET.r * SEAM_GLOW, VIOLET.g * SEAM_GLOW, VIOLET.b * SEAM_GLOW)
+	box.set_border_width_all(maxi(2, int(u * SEAM_BORDER)))
+	box.set_corner_radius_all(int(u * 1.0))
+	box.anti_aliasing = true
+	lift_seam.add_theme_stylebox_override("panel", box)
+	add_child(lift_seam)
+
+## Die Fuge an- oder abblenden. Reine Anzeige - hide_lift_seam löscht hart.
+func set_lift_seam(on: bool) -> void:
+	if lift_seam == null or not is_instance_valid(lift_seam):
+		return
+	if on:
+		var field := vitrine_rect_px()
+		if field.size.x <= 0.0 or field.size.y <= 0.0:
+			return
+		var pad := u * SEAM_PAD
+		lift_seam.position = field.position - get_global_rect().position - Vector2(pad, pad)
+		lift_seam.size = field.size + Vector2(pad, pad) * 2.0
+		lift_seam.visible = true
+	if _seam_tween != null and _seam_tween.is_valid():
+		_seam_tween.kill()
+	_seam_tween = create_tween()
+	_seam_tween.tween_property(lift_seam, "modulate:a", 1.0 if on else 0.0, SEAM_FADE)
+	if not on:
+		_seam_tween.tween_callback(func() -> void:
+			if is_instance_valid(lift_seam):
+				lift_seam.visible = false)
+
+## Vorhangfall oder Laufwechsel: die Fuge ist sofort fort.
+func hide_lift_seam() -> void:
+	if _seam_tween != null and _seam_tween.is_valid():
+		_seam_tween.kill()
+	_seam_tween = null
+	if lift_seam == null or not is_instance_valid(lift_seam):
+		return
+	lift_seam.modulate = Color(1, 1, 1, 0)
+	lift_seam.visible = false
 
 # --- Die Bucht (gemeldete Geometrie, nie gezeichneter Inhalt) ------------------
 

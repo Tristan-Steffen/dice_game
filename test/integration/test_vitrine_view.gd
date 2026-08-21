@@ -154,16 +154,124 @@ func test_jeder_grad_endet_dort_wo_ein_hartes_present_endet() -> void:
 	assert_gt(hard.keys().size(), 3, "die Probe trägt Regal und Schale")
 	_assert_same_poses(_poses(rise), hard, "Aufsteigen")
 
-func test_der_auftritt_beginnt_unter_der_flaeche() -> void:
-	# Steigen heißt: der Körper startet verdeckt und fährt herauf.
+func test_der_auftritt_beginnt_HINTER_und_UNTER_der_flaeche() -> void:
+	# Die Ware wartet im Hohlraum HINTER dem Schacht (Welt-+X ist hinten) und auf
+	# Schachttiefe - dort deckt das opake Display sie, bis sie hereinschiebt.
 	bay.set_shown(true)
 	bay.present_graded(_stock([], [_die()], []), ShopController.GRADE_RISE)
 	var body: Node3D = bay.items[0]["node"]
 	var spot: Vector3 = bay.items[0]["spot"]
-	assert_almost_eq(body.global_position.y, spot.y - VitrineView.sink_drop(), 0.0001,
+	assert_almost_eq(body.global_position.y, spot.y - VitrineView.shaft_depth(), 0.0001,
 		"er beginnt seinen Weg unter der Anzeige")
-	await wait_seconds(DataCellView.RISE_TIME + 0.1)
+	assert_gt(body.global_position.x, spot.x, "und HINTER seinem Platz")
+	# Und er RÜHRT sich nicht, solange die Fuge noch ankündigt.
+	var waiting := body.global_position
+	await wait_seconds(VitrineView.SEAM_LEAD * 0.5)
+	assert_true(body.global_position.is_equal_approx(waiting),
+		"vor der Ankündigung fährt nichts")
+	await wait_seconds(VitrineView.entry_time(1, ShopController.GRADE_RISE) + 0.1)
 	assert_true(body.global_position.is_equal_approx(spot), "und endet auf seinem Platz")
+
+func test_die_ware_schiebt_von_hinten_auf_die_gesenkte_plattform() -> void:
+	# Die drei Schläge der Maschine, jeder an seinem Punkt gemessen.
+	bay.set_shown(true)
+	bay.present_graded(_stock([], [_die()], []), ShopController.GRADE_RISE)
+	var body: Node3D = bay.items[0]["node"]
+	var spot: Vector3 = bay.items[0]["spot"]
+	var drop := VitrineView.shaft_depth()
+	var waiting := body.global_position
+	# Mitten im SENKEN: die Plattform fährt, die Ware wartet noch hinten.
+	await wait_seconds(VitrineView.lift_delay(VitrineView.ZONE_BOWL)
+		+ LiftShaftView.SINK_TIME * 0.5)
+	assert_almost_eq(body.global_position.x, waiting.x, 0.001,
+		"die Schale wartet noch im Hohlraum")
+	# Mitten im EINSCHUB: unterwegs nach vorn, aber noch auf der gesenkten Platte.
+	await wait_seconds(LiftShaftView.SINK_TIME * 0.5 + LiftShaftView.PUSH_TIME * 0.5)
+	assert_lt(body.global_position.x, waiting.x, "sie schiebt herein")
+	assert_gt(body.global_position.x, spot.x, "und ist noch nicht auf ihrem Platz")
+	assert_almost_eq(body.global_position.y, spot.y - drop, 0.001,
+		"dabei liegt sie auf der gesenkten Plattform")
+	# Mitten im HUB: sie steht auf ihrem Platz in x/z und fährt herauf.
+	await wait_seconds(LiftShaftView.PUSH_TIME * 0.5 + LiftShaftView.LIFT_TIME * 0.5)
+	assert_almost_eq(body.global_position.x, spot.x, 0.01)
+	assert_lt(body.global_position.y, spot.y, "sie ist mitten auf der Fahrt")
+	assert_gt(body.global_position.y, spot.y - drop, "und schon über der Sohle")
+
+func test_eine_zone_faehrt_als_block() -> void:
+	# Kein Stück-Stagger mehr: alle Würfel der Schale stehen zu jedem Zeitpunkt auf
+	# DERSELBEN Höhe - das ist die ganze Lesart der Hebebühne.
+	bay.set_shown(true)
+	bay.present_graded(_stock([], [_die(), _die(), _die()], []),
+		ShopController.GRADE_RISE)
+	await wait_seconds(VitrineView.lift_delay(VitrineView.ZONE_BOWL)
+		+ LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
+		+ LiftShaftView.LIFT_TIME * 0.5)
+	var heights: Array[float] = []
+	for item in bay.items:
+		heights.append((item["node"] as Node3D).global_position.y)
+	assert_eq(heights.size(), 3, "drei Würfel fahren")
+	for y in heights:
+		assert_almost_eq(y, heights[0], 0.0001, "alle auf gleicher Höhe")
+	assert_lt(heights[0], (bay.items[0]["spot"] as Vector3).y,
+		"und sie sind mitten auf der Fahrt")
+
+# --- Der Schacht: kein Loch bleibt offen ---------------------------------------
+# Der wichtigste Test der Maschine. Ein Loch, das nach dem Auftritt, nach dem
+# Vorhangfall oder nach einem Laufwechsel offen stünde, wäre ein Blick ins Nichts.
+
+## Welche Zonen gerade ein offenes Loch melden.
+func _open_zones(view: VitrineView) -> Array:
+	var open: Array = []
+	view.shaft_opened.connect(func(zone: int, _at: Vector3, _half: Vector2) -> void:
+		if not open.has(zone):
+			open.append(zone))
+	view.shaft_closed.connect(func(zone: int) -> void: open.erase(zone))
+	return open
+
+func test_der_schacht_versteckt_seine_wartende_ware() -> void:
+	# Sie wartet am ENDE des Hohlraums, hinter dem Sturz - dort deckt das opake
+	# Display sie, und der Blick durch das Öffnungsband reicht nicht bis zu ihr.
+	var shaft: LiftShaftView = LiftShaftView.new()
+	add_child_autofree(shaft)
+	shaft.setup(Vector3.ZERO, Vector2(2.0, 6.0), VitrineView.shaft_depth())
+	assert_gt(shaft.waiting_offset(), 2.0 + VitrineView.shaft_depth() * 0.9,
+		"die Wartestellung liegt hinter der Rückwand, nicht dicht dahinter")
+	assert_almost_eq(shaft.drop(), VitrineView.shaft_depth(), 0.0001,
+		"und so tief, wie die Plattform fährt")
+	assert_false(shaft.visible, "im Ruhezustand ist keine Maschine da")
+	assert_almost_eq(shaft.platform_y(), 0.0, 0.0001, "und ihre Platte steht bündig")
+
+func test_der_schacht_geht_auf_und_wieder_zu() -> void:
+	bay.set_shown(true)
+	var open := _open_zones(bay)
+	bay.present_graded(_stock([], [_die()], []), ShopController.GRADE_RISE)
+	assert_true(open.is_empty(), "vor dem Anfahren gibt es keine Maschine")
+	await wait_seconds(VitrineView.lift_delay(VitrineView.ZONE_BOWL)
+		+ LiftShaftView.SINK_TIME * 0.5)
+	assert_eq(open, [VitrineView.ZONE_BOWL], "während der Fahrt steht ihr Loch offen")
+	await wait_seconds(VitrineView.entry_time(1, ShopController.GRADE_RISE) + 0.1)
+	assert_true(open.is_empty(), "und danach ist es zu")
+
+func test_jeder_abbruch_schliesst_jedes_loch() -> void:
+	for abort: String in ["settle", "abdecken", "laufwechsel"]:
+		var probe := VitrineView.new("AbortProbe")
+		add_child_autofree(probe)
+		probe.setup(CENTER, HALF)
+		probe.set_shown(true)
+		var open := _open_zones(probe)
+		probe.present_graded(_stock([Pack.roll_engraving_pack()], [_die()], []),
+			ShopController.GRADE_RISE)
+		await wait_seconds(VitrineView.lift_delay(VitrineView.ZONE_BOWL)
+			+ LiftShaftView.SINK_TIME * 0.5)
+		assert_false(open.is_empty(), "%s: mitten im Auftritt steht ein Loch offen" % abort)
+		match abort:
+			"settle": probe.settle()
+			"abdecken": probe.set_shown(false)
+			_: probe.clear()
+		assert_true(open.is_empty(), "%s: danach ist jedes Loch zu" % abort)
+		# Und es bleibt zu - kein Rest-Tween öffnet es nach.
+		await wait_seconds(VitrineView.entry_time(1, ShopController.GRADE_RISE) + 0.1)
+		assert_true(open.is_empty(), "%s: und es bleibt zu" % abort)
 
 func test_ein_zweiter_grad_mitten_in_der_fahrt_legt_hart_nach() -> void:
 	var contents := _stock([Pack.roll_engraving_pack()], [_die()], [])
@@ -172,7 +280,10 @@ func test_ein_zweiter_grad_mitten_in_der_fahrt_legt_hart_nach() -> void:
 	reference.setup(CENTER, HALF)
 	reference.present(contents)
 	bay.present_graded(contents, ShopController.GRADE_RISE)
-	await wait_frames(2)
+	# Mitten in der FAHRT, nicht bloß in der Ankündigung: der harte Endzustand muss
+	# auch einen abgeräumten Zonen-Tween überstehen.
+	await wait_seconds(VitrineView.SEAM_LEAD + LiftShaftView.SINK_TIME
+		+ LiftShaftView.PUSH_TIME * 0.5)
 	bay.present(contents)  # neue Auslage mitten im Auftritt
 	await _await_appearance()
 	_assert_same_poses(_poses(bay), _poses(reference), "Laufwechsel")

@@ -1484,3 +1484,47 @@ func test_the_two_speakers_move_no_band() -> void:
 	var seats_after: Array[Rect2] = shop.slit_rects()
 	for i in seats.size():
 		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
+
+# --- Die LICHTFUGEN der Hebebühne ----------------------------------------------
+
+func test_the_lift_seams_move_no_band() -> void:
+	# Die Fuge ist ein absolut gestelltes Overlay, kein Layout-Kind: die Bänder
+	# stehen mit und ohne sie byte-gleich.
+	_lay_out_page()
+	await wait_frames(2)
+	var bands := _band_rects()
+	var bay: Rect2 = shop.vitrine_rect_px()
+	var seats: Array[Rect2] = shop.slit_rects()
+	for zone in ShopController.SEAM_ZONES:
+		shop.set_lift_seam(zone, true)
+	await wait_frames(2)
+	var after := _band_rects()
+	assert_eq(after.size(), bands.size(), "dieselben Bänder")
+	for i in bands.size():
+		assert_true(after[i].is_equal_approx(bands[i]),
+			"Band %d steht mit und ohne Fuge gleich (%s vs %s)" % [i, after[i], bands[i]])
+	assert_true(shop.vitrine_rect_px().is_equal_approx(bay), "und die Bucht auch")
+	var seats_after: Array[Rect2] = shop.slit_rects()
+	for i in seats.size():
+		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
+
+func test_each_seam_lies_around_the_field_its_goods_come_from() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	assert_eq(shop.lift_seams.size(), ShopController.SEAM_ZONES, "je Zone eine Fuge")
+	for zone in ShopController.SEAM_ZONES:
+		var field: Rect2 = shop.seam_field(zone)
+		assert_gt(field.size.x, 0.0, "Zone %d meldet ihr Feld" % zone)
+		shop.set_lift_seam(zone, true)
+		var seam: Panel = shop.lift_seams[zone]
+		assert_true(seam.visible, "Zone %d glüht" % zone)
+		var box := seam.get_global_rect()
+		assert_true(box.encloses(field), "und ihre Fuge umschließt das Feld")
+	# Die Reihe ist die Gravuren-Zone, die Bucht die Würfel-Zone.
+	assert_true(shop.seam_field(ShopController.SEAM_ZONE_SLIT).is_equal_approx(
+		shop.slit_row.get_global_rect()))
+	assert_true(shop.seam_field(ShopController.SEAM_ZONE_BAY).is_equal_approx(
+		shop.vitrine_rect_px()))
+	shop.hide_lift_seams()
+	for seam: Panel in shop.lift_seams:
+		assert_false(seam.visible, "der Vorhangfall löscht sie hart")

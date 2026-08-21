@@ -45,18 +45,39 @@ func test_das_loch_liegt_in_der_fassung() -> void:
 	assert_almost_eq(strip.end.y - hole.end.y, inset, 0.0001)
 	assert_almost_eq(hole.size.x, strip.size.x - inset * 2.0, 0.0001)
 
-func test_keine_auslage_schneidet_ein_loch() -> void:
-	# Die Buchten stehen flächig: kein Vorhang, kein Vitrinen-Loch. Das EINZIGE
-	# Loch beider Shader ist die Magazin-Grube.
+func test_beide_shader_fuehren_dieselbe_loecherliste() -> void:
+	# Eine STÄNDIGE Grube (das Magazin, Platz 0) plus die flüchtigen Schächte der
+	# Hebebühnen. Beide Shader lesen dieselbe Liste - hinter einem Loch darf weder
+	# Anzeige noch Filz stehen.
 	var glass: String = load("res://assets/shaders/screen_glass.gdshader").code
 	var ground: String = load("res://assets/shaders/table_ground.gdshader").code
-	for gone: String in ["vitrine_rects", "vitrine_open", "vitrine_hole"]:
-		assert_false(glass.contains(gone), "das Glas kennt %s nicht mehr" % gone)
-	for gone: String in ["vitrine_min", "vitrine_max", "vitrine_open"]:
-		assert_false(ground.contains(gone), "der Boden kennt %s nicht mehr" % gone)
-	assert_true(glass.contains("pit_rect"), "die Magazin-Grube bleibt das eine Loch")
-	assert_true(ground.contains("pit_min") and ground.contains("pit_max"),
-		"und hinter ihr steht kein Filz")
+	assert_true(glass.contains("pit_rects[MAX_PITS]"), "das Glas kennt die Liste")
+	assert_true(glass.contains("pit_count") and glass.contains("discard"))
+	assert_true(ground.contains("pit_bounds[MAX_PITS]"), "der Boden ebenso")
+	assert_true(ground.contains("pit_count"))
+	for code: String in [glass, ground]:
+		assert_true(code.contains("const int MAX_PITS = %d" % TableScreen.MAX_PITS),
+			"und beide auf demselben Deckel wie TableScreen")
+	# Die alten Einzel-Uniforms sind fort - sonst schriebe irgendwer noch an ihnen.
+	assert_false(ground.contains("pit_min"), "der Boden kennt pit_min nicht mehr")
+	assert_false(glass.contains("uniform float pit_radius"),
+		"und das Glas keinen einzelnen Radius")
+
+func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
+	# Sie ist Möbel, kein Auftritt: ihr Platz wird nie geräumt.
+	assert_eq(TableScreen.PIT_MAGAZIN, 0)
+	assert_gt(TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_MAGAZIN)
+	var slots := [TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL,
+		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL]
+	for slot: int in slots:
+		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
+	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	# Die Zonen einer Auslage liegen hintereinander - scene_root addiert sie auf
+	# ihren Sockel.
+	assert_eq(TableScreen.PIT_SHOP_SLITS + VitrineView.ZONE_BOWL,
+		TableScreen.PIT_SHOP_BOWL)
+	assert_eq(TableScreen.PIT_SECRET_SHELF + VitrineView.ZONE_BOWL,
+		TableScreen.PIT_SECRET_BOWL)
 
 # --- Die Plätze der Ware (reine Mathematik, keine Körper) ----------------------
 
@@ -115,24 +136,86 @@ func test_der_lautere_grad_gewinnt() -> void:
 		ShopController.GRADE_STAND)
 
 func test_der_umschlag_bleibt_im_budget() -> void:
-	# Stöbern darf nicht zäh werden: sinken plus Aufsteigen bleibt unter 1,2 s.
+	# Eine ZONE taucht als Block: die Zahl der Stücke sagt nur noch, OB etwas geht.
 	var swap := VitrineView.swap_time(30)
-	assert_lte(swap, VitrineView.SWAP_TIME + 0.0001, "die Staffelung ist gedeckelt")
-	assert_almost_eq(VitrineView.swap_time(1), VitrineView.SWAP_SINK, 0.0001,
-		"ein einzelnes Stück wartet auf niemanden")
+	assert_almost_eq(swap, VitrineView.SWAP_TIME, 0.0001, "die Zone taucht als Block")
+	assert_almost_eq(VitrineView.swap_time(1), VitrineView.SWAP_TIME, 0.0001,
+		"ein einzelnes Stück fährt denselben Zyklus")
 	assert_eq(VitrineView.swap_time(0), 0.0, "eine leere Auslage sinkt nicht")
 	var rise := VitrineView.entry_time(30, ShopController.GRADE_RISE)
-	assert_lte(swap + rise, 1.2, "der ganze Umschlag bleibt unter 1,2 s")
+	# Der ganze Maschinenzyklus (Senken, Einschub, Hub) ist bewußt länger als das
+	# alte Durchscheinen - aber Stöbern darf nicht zäh werden.
+	assert_lte(swap + rise, 2.8, "der ganze Umschlag bleibt unter 2,8 s")
 	assert_eq(VitrineView.entry_time(30, ShopController.GRADE_STAND), 0.0,
 		"Liegenbleiben kostet keine Zeit")
 	assert_eq(VitrineView.entry_time(0, ShopController.GRADE_RISE), 0.0)
 
-func test_der_auftritt_ist_gestaffelt_und_gedeckelt() -> void:
-	var one := VitrineView.entry_time(1, ShopController.GRADE_RISE)
-	assert_almost_eq(one, DataCellView.RISE_TIME, 0.0001, "der erste wartet auf niemanden")
-	assert_lte(VitrineView.entry_time(30, ShopController.GRADE_RISE),
-		VitrineView.ENTER_SPREAD_MAX + DataCellView.RISE_TIME + 0.0001,
-		"eine volle Auslage sprengt die Staffelung nicht")
+func test_der_auftritt_deckt_den_ganzen_maschinenzyklus() -> void:
+	# Der Deckel muss die ANKÜNDIGUNG, den Zonenversatz UND den ganzen Zyklus
+	# (Senken, Einschub, Hub, Setz-Dip) tragen - sonst hingen die Netze unter
+	# fahrender Ware, und ein Schacht stünde nach dem Deckel noch offen.
+	var full := VitrineView.entry_time(1, ShopController.GRADE_RISE)
+	assert_almost_eq(full,
+		VitrineView.SEAM_LEAD + VitrineView.LIFT_LAG
+			+ LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
+			+ LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME, 0.0001,
+		"Fuge, Versatz bis zur letzten Zone und deren ganzer Zyklus")
+	assert_almost_eq(VitrineView.machine_time(), LiftShaftView.cycle_time(), 0.0001,
+		"die Zeiten der Maschine gehören der Maschine")
+	assert_eq(VitrineView.entry_time(30, ShopController.GRADE_RISE), full,
+		"eine Zone fährt als Block - die Stückzahl ändert nichts")
+	assert_gt(full, VitrineView.lift_delay(VitrineView.ZONE_BOWL)
+		+ VitrineView.machine_time() - 0.0001,
+		"keine Zone steht später als der Deckel")
+
+func test_der_schacht_ist_tiefer_als_das_hoechste_stueck() -> void:
+	# Sonst stünde ein Würfel auf der gesenkten Plattform noch über der Fläche.
+	assert_gt(VitrineView.shaft_depth(), VitrineView.content_depth(),
+		"über dem höchsten Stück bleibt Kopffreiheit")
+	assert_gt(VitrineView.shaft_depth(), VitrineView.die_drop(),
+		"und der Würfel verschwindet ganz darin")
+	# Und das Öffnungsband der Rückwand muß das höchste Stück durchlassen, sonst
+	# schöbe es sich am Sturz fest.
+	assert_gt(VitrineView.shaft_depth() * LiftShaftView.MOUTH_SHARE,
+		VitrineView.content_depth(), "die Rückwandöffnung läßt das höchste Stück durch")
+	assert_lt(LiftShaftView.MOUTH_SHARE, 1.0, "und darunter bleibt ein Sturz stehen")
+	# Die Ware wartet am ENDE des Hohlraums, nicht knapp hinter dem Sturz - sonst
+	# läge sie im Blickwinkel durch das Öffnungsband.
+	assert_gte(LiftShaftView.CAVITY_SHARE, 1.0,
+		"der Hohlraum ist so tief wie der Schacht")
+
+func test_die_zonen_fahren_nacheinander_und_tauchen_gespiegelt() -> void:
+	assert_almost_eq(VitrineView.lift_delay(VitrineView.ZONE_SHELF),
+		VitrineView.SEAM_LEAD, 0.0001, "das Regal fährt zuerst - nach der Ankündigung")
+	assert_almost_eq(VitrineView.lift_delay(VitrineView.ZONE_BOWL),
+		VitrineView.SEAM_LEAD + VitrineView.LIFT_LAG, 0.0001,
+		"die Schale kommt um die Überlappung später")
+	assert_lt(VitrineView.LIFT_LAG, LiftShaftView.cycle_time(),
+		"Überlappung: Zone 2 fährt an, bevor Zone 1 steht")
+	# GESPIEGELT: beim Blättern taucht die Schale zuerst.
+	assert_eq(VitrineView.sink_delay(VitrineView.ZONE_BOWL), 0.0,
+		"die Schale taucht zuerst")
+	assert_almost_eq(VitrineView.sink_delay(VitrineView.ZONE_SHELF),
+		VitrineView.ZONE_LAG, 0.0001, "die Gravuren danach")
+
+func test_jeder_koerper_faehrt_seinen_eigenen_weg() -> void:
+	# Eine flache Kassette aus der Tiefe eines Würfels verbrächte ihre Fahrt
+	# unsichtbar und ploppte am Ende heraus - jedes Stück startet an SEINEM Maß.
+	assert_lt(VitrineView.cell_drop(), VitrineView.die_drop(),
+		"die liegende Karte ist flacher als ein Würfel samt Silhouette")
+	assert_almost_eq(VitrineView.die_drop(), VitrineView.sink_drop(), 0.0001,
+		"der Würfel IST das höchste Stück der Auslage")
+	assert_almost_eq(VitrineView.body_drop(autofree(DataCellView.new())),
+		VitrineView.cell_drop(), 0.0001)
+
+func test_die_zone_haengt_am_platz_nicht_am_koerper() -> void:
+	assert_eq(VitrineView.zone_of(ShopController.KIND_DIE), VitrineView.ZONE_BOWL,
+		"offene Ware liegt in der Schale")
+	assert_eq(VitrineView.zone_of(ShopController.KIND_ENGRAVING_PACK),
+		VitrineView.ZONE_SHELF, "Versiegeltes ins Regal")
+	assert_eq(VitrineView.zone_of_key(
+		VitrineView.slot_key(ShopController.KIND_DIE, 3)), VitrineView.ZONE_BOWL,
+		"und der Schlüssel trägt seine Gattung mit")
 
 func test_eine_auslage_ohne_regal_stellt_ihren_block_mittig() -> void:
 	# Der Laden führt keine Regalware mehr: dann gehört die Tiefe der Schale
@@ -202,11 +285,21 @@ func test_die_uebergabe_hebt_erst_an_und_sinkt_dann() -> void:
 	# Die Lieferung holt die Ware erst ab, wenn sie durch die Fläche ist - die
 	# Fahrt danach richtet sich nach genau dieser einen Zahl.
 	assert_almost_eq(VitrineView.take_out_time(),
-		VitrineView.LIFT_TIME + VitrineView.SINK_TIME, 0.0001)
-	assert_lt(VitrineView.LIFT_TIME, VitrineView.SINK_TIME,
+		VitrineView.TAKE_LIFT_TIME + VitrineView.TAKE_SINK_TIME, 0.0001)
+	assert_lt(VitrineView.TAKE_LIFT_TIME, VitrineView.TAKE_SINK_TIME,
 		"das Anheben ist die Geste, das Absinken die Fahrt")
 	assert_lt(VitrineView.take_out_time(), 0.6, "Kaufen darf nicht zäh werden")
 
+func test_der_einzelkauf_faehrt_keinen_maschinenzyklus() -> void:
+	# Die Hebebühne gehört dem AUFDECKEN; eine Übergabe bleibt eine Übergabe.
+	assert_lt(VitrineView.take_out_time(),
+		VitrineView.entry_time(1, ShopController.GRADE_RISE),
+		"der Kauf ist kürzer als ein Auftritt")
+
 func test_ankommen_darf_sich_setzen() -> void:
-	assert_gt(DataCellView.RISE_TIME, VitrineView.SINK_TIME,
+	assert_gt(LiftShaftView.LIFT_TIME, VitrineView.SWAP_SINK,
 		"Aufsteigen dauert länger als Absinken - die Ankunft ist die Aussage")
+	assert_gt(LiftShaftView.DIP, 0.0, "und sie rastet mit einem Setz-Dip ein")
+	# Die alte Morph-Hebebühne der Zelle ist ersetzt: es gibt nur noch die Maschine.
+	assert_false(autofree(DataCellView.new()).has_method("lift_through_glass"),
+		"eine Kassette steigt nicht mehr von selbst durch die Fläche")

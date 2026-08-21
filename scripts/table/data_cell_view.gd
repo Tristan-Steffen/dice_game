@@ -533,6 +533,19 @@ func rise_through_glass(at: Vector3, delay := 0.0, time := RISE_TIME,
 		stand_on_glass(at)
 	_start_rise(from_below if from_below >= 0.0 else rise_depth(), delay, time)
 
+## Der SCHLUCK: die Zelle taucht um genau ihr eigenes Körpermaß durch die Fläche -
+## so weit, wie sie herauf kam, keinen Zoll weiter. Ein tieferer Weg wäre nach dem
+## ersten Zehntel verdeckt und ließe den Rest der Fahrt leer.
+func sink_through_glass(time: float) -> void:
+	_kill(_glide_tween)
+	var target := global_position - Vector3.UP * rise_depth()
+	if time <= 0.0:
+		global_position = target
+		return
+	_glide_tween = create_tween()
+	_glide_tween.tween_property(self, "global_position", target, time) \
+		.set_trans(Tween.TRANS_LINEAR)
+
 ## Der Weg NACH dem Endzustand: von so tief unten herauf auf die Stelle, an der die
 ## Zelle schon steht. Beide Ankünfte teilen ihn - nur die Starttiefe unterscheidet
 ## sie (Grubenboden bzw. eigenes Körpermaß).

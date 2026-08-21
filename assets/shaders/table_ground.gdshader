@@ -26,11 +26,13 @@ uniform vec2 screen_half = vec2(42.4, 62.4);
 uniform float pool_fade = 110.0;    // Weltstrecke des Auslaufs hinter der Screen-Kante
 uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-Ton der Kante
 
-// Die Magazin-Grube ist ein echtes Loch (siehe screen_glass.pit_rect): der Boden
-// darf nicht dahinterstehen, sonst blickt man auf Filz statt in die Grube.
-// Welt-XZ, min == max = kein Loch.
-uniform vec2 pit_min = vec2(0.0);
-uniform vec2 pit_max = vec2(0.0);
+// Die Löcher des Tisches sind echt (siehe screen_glass.pit_rects): der Boden darf
+// nicht dahinterstehen, sonst blickt man auf Filz statt in Grube oder Schacht.
+// Platz 0 ist dauerhaft die Magazin-Grube, der Rest sind die Hebebühnen-Schächte.
+// xy = Welt-Min (x, z), zw = Welt-Max; min == max = kein Loch.
+const int MAX_PITS = 5;
+uniform int pit_count = 0;
+uniform vec4 pit_bounds[MAX_PITS];
 
 varying vec2 world_xz;
 
@@ -54,9 +56,12 @@ void vertex() {
 }
 
 void fragment() {
-	if (pit_max.x > pit_min.x && world_xz.x > pit_min.x && world_xz.x < pit_max.x
-			&& world_xz.y > pit_min.y && world_xz.y < pit_max.y) {
-		discard;
+	for (int i = 0; i < pit_count; i++) {
+		vec4 hole = pit_bounds[i];
+		if (hole.z > hole.x && world_xz.x > hole.x && world_xz.x < hole.z
+				&& world_xz.y > hole.y && world_xz.y < hole.w) {
+			discard;
+		}
 	}
 	// Virtuelle Display-UVs: Welt-Z = Screen-Breite, Welt-X = Screen-Höhe.
 	// Ein Vorzeichen-Irrtum spiegelte nur das Rauschen - das Rauten-Gitter

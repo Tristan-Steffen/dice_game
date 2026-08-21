@@ -671,9 +671,10 @@ func test_the_arrival_flash_stands_on_the_spot_and_ignores_a_missing_one():
 	assert_eq(screen.get_child_count(), before + 1,
 		"ohne gemessenen Platz blitzt nichts")
 
-# --- Das EINE Loch der Anzeige (die Magazin-Grube) --------------------------------
-# Kein Fenster: es kostet keinen der MAX_WINDOWS-Plätze und hat eine eigene
-# Uniform. Die Verkaufs-Auslagen stehen flächig - ein zweites Loch gibt es nicht.
+# --- Die Löcher der Anzeige -------------------------------------------------------
+# Keine Fenster: sie kosten keinen der MAX_WINDOWS-Plätze und haben eigene
+# Uniforms. Platz 0 ist DAUERHAFT die Magazin-Grube, die übrigen sind die
+# flüchtigen Schächte der Hebebühnen.
 
 func test_the_apron_pit_is_the_only_hole_and_keeps_its_rect():
 	var hole := Rect2(120, 640, 900, 150)
@@ -686,3 +687,31 @@ func test_the_apron_pit_is_the_only_hole_and_keeps_its_rect():
 func test_a_negative_pit_radius_is_refused():
 	screen.set_apron_pit(Rect2(10, 10, 20, 20), -4.0)
 	assert_almost_eq(screen.apron_pit_radius, 0.0, 0.0001)
+
+func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
+	var magazin := Rect2(120, 640, 900, 150)
+	screen.set_apron_pit(magazin, 7.0)
+	screen.set_pit(TableScreen.PIT_SHOP_BOWL, Rect2(200, 300, 400, 80))
+	assert_true(screen.pit_open(TableScreen.PIT_SHOP_BOWL), "der Schacht steht offen")
+	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
+	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
+	# Der EINE Aufräum-Pfad: jeder Schacht zu, die Grube unberührt.
+	screen.clear_lift_pits()
+	for slot in range(TableScreen.PIT_MAGAZIN + 1, TableScreen.MAX_PITS):
+		assert_false(screen.pit_open(slot), "Platz %d ist zu" % slot)
+	assert_eq(screen.pit_rect(TableScreen.PIT_MAGAZIN), magazin,
+		"die Magazin-Grube ist Möbel, kein Auftritt")
+
+func test_ein_schacht_wird_in_weltmassen_genannt():
+	# Der Körper steht in der Welt, das Loch wird in Pixeln geschnitten - die
+	# Umrechnung gehört dem Bildschirm, nicht dem Aufrufer.
+	var at := screen.pixel_to_world(Vector2(500, 400))
+	screen.set_lift_pit(TableScreen.PIT_SECRET_BOWL, at, Vector2(3.0, 5.0))
+	var rect := screen.pit_rect(TableScreen.PIT_SECRET_BOWL)
+	assert_gt(rect.size.x, 0.0)
+	assert_gt(rect.size.y, 0.0)
+	assert_almost_eq(rect.get_center().x, 500.0, 1.0, "das Loch liegt am genannten Punkt")
+	assert_almost_eq(rect.get_center().y, 400.0, 1.0)
+	screen.set_lift_pit(TableScreen.PIT_SECRET_BOWL, at, Vector2.ZERO)
+	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL),
+		"ohne Ausdehnung gibt es kein Loch")

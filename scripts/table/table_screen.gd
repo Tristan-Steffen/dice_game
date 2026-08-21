@@ -185,12 +185,31 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
-## Das LOCH der Magazin-Grube in Display-Pixeln (leeres Rechteck = keins) - das
-## EINZIGE Loch der Anzeige, die Verkaufs-Auslagen stehen flächig darauf. Kein
-## Fenster: es frisst keinen der MAX_WINDOWS-Plätze und hat eine eigene Uniform -
-## ein Loch spiegelt nicht, es ist weg.
-var apron_pit := Rect2()
-var apron_pit_radius := 0.0
+## Die LÖCHER der Anzeige in Display-Pixeln (leeres Rechteck = keins): Platz 0
+## gehört DAUERHAFT der Magazin-Grube, die übrigen sind die flüchtigen SCHÄCHTE
+## der Hebebühnen - offen nur, solange eine Auslage auffährt. Keine Fenster: sie
+## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
+## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
+## ließe irgendwann eines offen stehen.
+const MAX_PITS := 5
+const PIT_MAGAZIN := 0
+const PIT_SHOP_SLITS := 1
+const PIT_SHOP_BOWL := 2
+const PIT_SECRET_SHELF := 3
+const PIT_SECRET_BOWL := 4
+var _pit_rects: Array[Rect2] = []
+var _pit_radii := PackedFloat32Array()
+## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.
+var _ground_material: ShaderMaterial
+## Die Magazin-Grube unter ihrem alten Namen: Platz 0, nur lesend.
+var apron_pit: Rect2:
+	get:
+		_ensure_pits()
+		return _pit_rects[PIT_MAGAZIN]
+var apron_pit_radius: float:
+	get:
+		_ensure_pits()
+		return _pit_radii[PIT_MAGAZIN]
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -298,7 +317,7 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_glass_material = material
 	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
-	_sync_apron_pit()
+	_sync_pits()
 
 ## Die Anzeigefläche IST das Rechteck ihrer Textur. Das Tisch-GLB bringt eine
 ## ovale Platte mit; ihre Rundungen schnitten alles an, was in der Ecke lag
@@ -904,23 +923,104 @@ func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.visible = true
 	_sync_reflection_windows()
 
+## Der Filzboden hinter den Löchern: er bekommt dieselbe Liste, nur in Welt-XZ.
+## Gemeldet, nicht gesucht - table/ greift nicht in die Szene.
+func set_ground_material(material: ShaderMaterial) -> void:
+	_ground_material = material
+	_sync_pits()
+
+func _ensure_pits() -> void:
+	if _pit_rects.size() == MAX_PITS:
+		return
+	_pit_rects.resize(MAX_PITS)
+	_pit_radii.resize(MAX_PITS)
+	for i in MAX_PITS:
+		_pit_rects[i] = Rect2()
+		_pit_radii[i] = 0.0
+
 ## Schneidet das Loch der Magazin-Grube ins Display-Glas (leeres Rechteck =
 ## keins). Der Körper darunter gehört scene_root (PackPitView), hier fällt nur
 ## die Anzeige weg.
 func set_apron_pit(rect: Rect2, radius: float = 0.0) -> void:
-	apron_pit = rect
-	apron_pit_radius = maxf(radius, 0.0)
-	_sync_apron_pit()
+	set_pit(PIT_MAGAZIN, rect, radius)
 
-func _sync_apron_pit() -> void:
-	if _glass_material == null:
+## Ein Loch setzen (leeres Rechteck = keins). Idempotent - dasselbe Rechteck
+## schreibt keine Uniform neu.
+func set_pit(slot: int, rect: Rect2, radius: float = 0.0) -> void:
+	_ensure_pits()
+	if slot < 0 or slot >= MAX_PITS:
 		return
-	var hole := Vector4.ZERO
-	if apron_pit.size.x > 0.0 and apron_pit.size.y > 0.0:
-		hole = Vector4(apron_pit.position.x, apron_pit.position.y,
-			apron_pit.end.x, apron_pit.end.y)
-	_glass_material.set_shader_parameter("pit_rect", hole)
-	_glass_material.set_shader_parameter("pit_radius", apron_pit_radius)
+	var wanted := rect if rect.size.x > 0.0 and rect.size.y > 0.0 else Rect2()
+	var clean := maxf(radius, 0.0)
+	if _pit_rects[slot] == wanted and is_equal_approx(_pit_radii[slot], clean):
+		return
+	_pit_rects[slot] = wanted
+	_pit_radii[slot] = clean
+	_sync_pits()
+
+## Der SCHACHT einer Hebebühne, in Weltmaßen genannt (dort steht sein Körper):
+## Mitte auf der Tischebene, halbe Ausdehnung in Welt-X/Welt-Z.
+func set_lift_pit(slot: int, at: Vector3, half_extents: Vector2) -> void:
+	if half_extents.x <= 0.0 or half_extents.y <= 0.0:
+		clear_pit(slot)
+		return
+	var a := world_to_pixel(at - Vector3(half_extents.x, 0.0, half_extents.y))
+	var b := world_to_pixel(at + Vector3(half_extents.x, 0.0, half_extents.y))
+	set_pit(slot, Rect2(a, b - a).abs(), 0.0)
+
+func clear_pit(slot: int) -> void:
+	set_pit(slot, Rect2(), 0.0)
+
+## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die Magazin-Grube bleibt - sie ist
+## kein Auftritt, sondern Möbel.
+func clear_lift_pits() -> void:
+	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
+		clear_pit(slot)
+
+## Steht dieses Loch offen? (Der Leck-Test fragt genau das.)
+func pit_open(slot: int) -> bool:
+	_ensure_pits()
+	if slot < 0 or slot >= MAX_PITS:
+		return false
+	return _pit_rects[slot].size.x > 0.0 and _pit_rects[slot].size.y > 0.0
+
+func pit_rect(slot: int) -> Rect2:
+	_ensure_pits()
+	if slot < 0 or slot >= MAX_PITS:
+		return Rect2()
+	return _pit_rects[slot]
+
+## Der eine Schreiber beider Shader: Glas verwirft die Anzeige, der Filzboden den
+## Grund dahinter. Sie lesen DIESELBE Liste, sonst stünde hinter einem Loch Filz.
+func _sync_pits() -> void:
+	_ensure_pits()
+	var rects := PackedVector4Array()
+	var radii := PackedFloat32Array()
+	var bounds := PackedVector4Array()
+	var count := 0
+	for i in MAX_PITS:
+		var hole := _pit_rects[i]
+		var live := hole.size.x > 0.0 and hole.size.y > 0.0
+		if live:
+			count = i + 1
+		rects.append(Vector4(hole.position.x, hole.position.y, hole.end.x, hole.end.y)
+			if live else Vector4.ZERO)
+		radii.append(_pit_radii[i])
+		bounds.append(_world_bounds(hole) if live else Vector4.ZERO)
+	if _glass_material != null:
+		_glass_material.set_shader_parameter("pit_count", count)
+		_glass_material.set_shader_parameter("pit_rects", rects)
+		_glass_material.set_shader_parameter("pit_radii", radii)
+	if _ground_material != null:
+		_ground_material.set_shader_parameter("pit_count", count)
+		_ground_material.set_shader_parameter("pit_bounds", bounds)
+
+## Ein Pixel-Rechteck als Welt-XZ-Grenzen (world_to_pixel spiegelt die Tiefenachse,
+## also entscheidet min/max, nicht die Reihenfolge der Ecken).
+func _world_bounds(rect: Rect2) -> Vector4:
+	var a := pixel_to_world(rect.position)
+	var b := pixel_to_world(rect.end)
+	return Vector4(minf(a.x, b.x), minf(a.z, b.z), maxf(a.x, b.x), maxf(a.z, b.z))
 
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.

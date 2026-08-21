@@ -133,6 +133,25 @@ const FLANK_NAME_SHARE := 0.38
 const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
 const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 
+## Die LICHTFUGE der Hebebühne: der Umriss des Feldes glüht auf, BEVOR seine Ware
+## kommt - die Ankündigung des Automaten. Zone 0 ist die Gravuren-Schlitzreihe,
+## Zone 1 die Bucht, jede im Akzent ihres Bandes. Sie sind absolut gestellte
+## Overlays, KEINE Layout-Kinder: die Bandrechte bleiben byte-gleich.
+const SEAM_ZONE_SLIT := 0
+const SEAM_ZONE_BAY := 1
+const SEAM_ZONES := 2
+const SEAM_PAD := 0.9
+const SEAM_BORDER := 0.34
+const SEAM_FADE := 0.12
+## Überhell: die Fuge ist ein UMRISS, kein Feld - ihr Glühen kommt aus dem Bloom
+## des Displays, nicht aus einer gefüllten Fläche (eine gefüllte deckte die Ware zu).
+const SEAM_GLOW := 1.9
+
+## Der GRUND dieser Seite, wie er am Tisch wirklich leuchtet - die bündige
+## Plattform der Hebebühne trägt ihn, damit ihr Schließen nicht springt. GEMESSEN,
+## nicht gerechnet: über dem Fenstergrund liegen noch die Gründe der Seite.
+const BAY_GROUND := Color(0.149, 0.141, 0.277)
+
 ## Die Tiefe des INFO-FUSSES am unteren Buchtrand, in BUCHTEN-Einheiten
 ## (Streifenbreite/100) - dieselbe Einheit, in der scene_root seine Reserve
 ## rechnet, damit Reserve und wirklicher Aufbau nicht driften. Gemessen: die
@@ -149,7 +168,7 @@ const FLIP_DURATION := 0.25
 ## Ware unter dem Glas versunken ist, sonst stünden neue Karten über alter Ware.
 ## Spiegelt VitrineView.SWAP_TIME (ui/ greift nicht in table/ - ein Test hält die
 ## beiden Zahlen gleich).
-const FLIP_DELAY := 0.32
+const FLIP_DELAY := 0.52
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
 ## Zurückblättern zeigt exakt diese Seite wieder.
@@ -219,6 +238,9 @@ var vitrine_nets: Control
 ## einer Netz-Zelle deren hint_for-Zeile trägt und beim Hover des Würfelkörpers
 ## seine Seelen-Zeile. Ohne Hover unsichtbar - kein Kasten, kein Leerlauf.
 var net_footer: Label
+## Die LICHTFUGEN der beiden Zonen (Index = SEAM_ZONE_*). Reine Anzeige.
+var lift_seams: Array[Panel] = []
+var _seam_tweens: Array[Tween] = []
 ## Die Auskunft der Schlitzreihe in ihrer rechten Flanke (Name + Beschreibung).
 ## Absolut positioniertes Overlay der SEITE, kein Layout-Kind - die Bandhöhen
 ## bleiben davon unberührt.
@@ -362,9 +384,11 @@ func _build_layout() -> void:
 	# endet an der Hub-Fläche).
 	clip_contents = true
 
-	# Die Flankenauskunft steht VOR dem Layout in der Kindliste: sie ist ein
-	# Overlay, kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
+	# Die Flankenauskunft und die Lichtfugen stehen VOR dem Layout in der Kindliste:
+	# sie sind Overlays, keine Bänder - und das Möbel der Seite bleibt so ihr
+	# letztes Kind.
 	_build_slit_info()
+	_build_lift_seams()
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -840,6 +864,89 @@ func net_hint_at(pixel: Vector2) -> String:
 		return DieNetView.hint_for(_net_dice[i],
 			DieNetView.face_at(local - _net_positions[i], _net_cell))
 	return ""
+
+# --- Die LICHTFUGEN der Hebebühne ----------------------------------------------
+# Der Automat kündigt an, bevor er fährt: der Umriss des Feldes glüht auf, bleibt
+# über die Fahrt und verlischt, sobald die Zone steht. Getaktet wird von scene_root
+# (dort liegen die Zeiten der Bühne) - hier wird nur gemalt.
+
+func _build_lift_seams() -> void:
+	lift_seams.clear()
+	_seam_tweens.clear()
+	for zone in SEAM_ZONES:
+		var seam := Panel.new()
+		seam.name = "LiftSeam%d" % zone
+		seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		seam.visible = false
+		seam.modulate = Color(1, 1, 1, 0)
+		seam.add_theme_stylebox_override("panel", _seam_box(seam_tint(zone)))
+		add_child(seam)
+		lift_seams.append(seam)
+		_seam_tweens.append(null)
+
+## Jede Zone glüht im Akzent ihres Bandes - Gravuren cyan, Würfel grün.
+static func seam_tint(zone: int) -> Color:
+	return NEON_GREEN if zone == SEAM_ZONE_BAY else NEON_CYAN
+
+func _seam_box(accent: Color) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.draw_center = false  # unter einer Fuge liegt Ware, kein Panel
+	box.border_color = Color(accent.r * SEAM_GLOW, accent.g * SEAM_GLOW, accent.b * SEAM_GLOW)
+	box.set_border_width_all(maxi(2, int(u * SEAM_BORDER)))
+	box.set_corner_radius_all(int(u * 1.0))
+	box.anti_aliasing = true
+	return box
+
+## Das Feld, aus dem gleich Ware kommt (leer = die Seite steht noch nicht).
+func seam_field(zone: int) -> Rect2:
+	if zone == SEAM_ZONE_SLIT:
+		if slit_row == null or not is_instance_valid(slit_row):
+			return Rect2()
+		return slit_row.get_global_rect()
+	return vitrine_rect_px()
+
+## Die Fuge EINER Zone an- oder abblenden. Reine Anzeige - sie läßt keinen Zustand
+## zurück, den ein Abbruch aufräumen müßte (hide_lift_seams löscht hart).
+func set_lift_seam(zone: int, on: bool) -> void:
+	if zone < 0 or zone >= lift_seams.size():
+		return
+	var seam := lift_seams[zone]
+	if seam == null or not is_instance_valid(seam):
+		return
+	if on:
+		var field := seam_field(zone)
+		if field.size.x <= 0.0 or field.size.y <= 0.0:
+			return
+		var pad := u * SEAM_PAD
+		seam.position = field.position - get_global_rect().position - Vector2(pad, pad)
+		seam.size = field.size + Vector2(pad, pad) * 2.0
+		seam.visible = true
+	_kill_seam_tween(zone)
+	var fade := create_tween()
+	_seam_tweens[zone] = fade
+	fade.tween_property(seam, "modulate:a", 1.0 if on else 0.0, SEAM_FADE)
+	if not on:
+		fade.tween_callback(func() -> void:
+			if is_instance_valid(seam):
+				seam.visible = false)
+
+## Vorhangfall oder Laufwechsel: beide Fugen sind sofort fort.
+func hide_lift_seams() -> void:
+	for zone in lift_seams.size():
+		_kill_seam_tween(zone)
+		var seam := lift_seams[zone]
+		if seam == null or not is_instance_valid(seam):
+			continue
+		seam.modulate = Color(1, 1, 1, 0)
+		seam.visible = false
+
+func _kill_seam_tween(zone: int) -> void:
+	if zone < 0 or zone >= _seam_tweens.size():
+		return
+	var running := _seam_tweens[zone]
+	if running != null and running.is_valid():
+		running.kill()
+	_seam_tweens[zone] = null
 
 # --- Die Vitrine (gemeldete Geometrie, kein Inhalt) ----------------------------
 
