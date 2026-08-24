@@ -1,0 +1,5 @@
+# scripts/dice/ — der physische Würfel
+
+Ausgelagert aus der Wurzel-CLAUDE.md (2026-08-24, verlustfreies Umsortieren). Die Wurzel trägt Projekt, Commands, Schichtenregel und die globalen Invarianten; Querverweise („siehe *X*") können in einer Schwesterdatei liegen (scripts/table/, scripts/ui/, scripts/core/, scripts/data/, scripts/dice/, test/).
+
+- **`dice/`** — the physical die: `DiceController` (physics of the 6 dice slots — throw/hold/rest-detection; which value shows comes from each slot's `DieDefinition`, physics only reports which physical face is up), `DieBuilder` (builds dice entirely in code — no `.tscn`), `DieFaceDisplay` (also owns the **pointing** at a die: `pick_face`/`edge_distance` project the face and edge midpoints to the screen and take the nearest facing one — no physics ray, because the ceremony dice carry no collision shape), `StasisEmitter` (puck + iris + beam under a floating die; the trays hang one under every slot), `FloatingDie` (a real die hovering in such a field — see *A die is never shown twice*).
