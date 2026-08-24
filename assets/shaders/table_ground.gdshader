@@ -30,7 +30,7 @@ uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-T
 // nicht dahinterstehen, sonst blickt man auf Filz statt in Grube oder Schacht.
 // Platz 0 ist dauerhaft die Magazin-Grube, der Rest sind die Hebebühnen-Schächte.
 // xy = Welt-Min (x, z), zw = Welt-Max; min == max = kein Loch.
-const int MAX_PITS = 5;
+const int MAX_PITS = 8;
 uniform int pit_count = 0;
 uniform vec4 pit_bounds[MAX_PITS];
 

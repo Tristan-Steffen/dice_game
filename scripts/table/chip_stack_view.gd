@@ -121,6 +121,42 @@ func show_wallet() -> void:
 func show_counts(counts: Dictionary) -> void:
 	_build_pile(counts)
 
+## Die Spalten, die ein Bestand im Rack belegt - {value, count} je Turm, höchster
+## Wert zuerst. Rein statisch, damit der Wett-Tresen den Fußabdruck messen kann,
+## bevor der Stapel gebaut ist.
+static func pile_columns(counts: Dictionary) -> Array:
+	var columns: Array = []
+	for value in VALUES:
+		var count := int(counts.get(value, 0))
+		while count > 0:
+			var height := mini(count, COLUMN_CAP)
+			columns.append({"value": value, "count": height})
+			count -= height
+	return columns
+
+## Wie viele TÜRME ein Betrag im Rack belegt - daran mißt der Fußabdruck.
+static func pile_tower_count(amount: int) -> int:
+	var counts := {100: 0, 25: 0, 5: 0, 1: 0}
+	for value in split_gain(maxi(amount, 0)):
+		counts[value] += 1
+	return pile_columns(consolidate(counts)).size()
+
+## Wie hoch das i-te GEWORFENE Stück über seiner Landefläche aufsetzt: genau auf dem
+## schon liegenden Stapel, ein Chip je Schritt. Reine Rechnung - damit stapelt die
+## Wurf-Zeremonie eine Salve zu EINEM flachen Turm, statt sie zu fächern.
+static func stack_lift(index: int) -> float:
+	return CHIP_HEIGHT * float(maxi(index, 0))
+
+## Der Fußabdruck eines Betrags im Rack (x = Welt-X, y = Welt-Z), ohne ihn zu bauen.
+## Die eine Quelle für Sitz und Loch und für den Körper, der beide später füllt.
+static func pile_span(amount: int) -> Vector2:
+	var offsets := _rack_offsets(pile_tower_count(amount))
+	var reach := Vector2(CHIP_RADIUS, CHIP_RADIUS)
+	for at in offsets:
+		reach.x = maxf(reach.x, absf(at.x) + CHIP_RADIUS)
+		reach.y = maxf(reach.y, absf(at.y) + CHIP_RADIUS)
+	return reach * 2.0
+
 ## Baut den Chip-Turm aus einem Bestand {value: count} neu auf.
 func _build_pile(counts: Dictionary) -> void:
 	_ensure_resources()
@@ -128,9 +164,7 @@ func _build_pile(counts: Dictionary) -> void:
 		node.queue_free()
 	_chip_nodes.clear()
 
-	var columns: Array = []  # {value, count} je Spalte, höchster Wert zuerst
-	for value in VALUES:
-		_append_columns(columns, value, int(counts.get(value, 0)))
+	var columns := pile_columns(counts)  # {value, count} je Spalte, höchster Wert zuerst
 
 	var offsets := _rack_offsets(columns.size())
 	var tallest := 0
@@ -144,6 +178,10 @@ func _build_pile(counts: Dictionary) -> void:
 ## Zuletzt gebaute Türme: {value, count, at: Vector2 (lokales XZ)} je Turm.
 func towers() -> Array:
 	return _towers
+
+## Die SPITZE des Stapels über seinem Ursprung - dort hebt ein geworfener Chip ab.
+func top_y() -> float:
+	return _top_y
 
 ## Turm-Index unter einem lokalen XZ-Punkt (-1 = keiner).
 func tower_at(local_xz: Vector2) -> int:
@@ -240,12 +278,6 @@ static func without(counts: Dictionary, values: Array) -> Dictionary:
 	for value in values:
 		result[int(value)] = int(result.get(int(value), 0)) - 1
 	return result
-
-func _append_columns(columns: Array, value: int, count: int) -> void:
-	while count > 0:
-		var height := mini(count, COLUMN_CAP)
-		columns.append({"value": value, "count": height})
-		count -= height
 
 func _build_column(col_i: int, value: int, count: int, at: Vector2) -> void:
 	for j in count:

@@ -336,6 +336,14 @@ func live_state(result: Dictionary) -> int:
 			return Live.FAILED if bool(result.get("fallback_taken", false)) else Live.ON_TRACK
 	return Live.PENDING
 
+## Kann diese Wette schon MITTEN in der Runde erfüllt sein? Genau die Bedingungen,
+## deren live_state offen beginnt und dann auf ON_TRACK kippt - die übrigen lauten
+## bloß "noch nicht gescheitert" und entscheiden sich erst am Rundenende. Abgeleitet
+## aus derselben EINEN Fortschritts-Rechnung (leere Bilanz = nichts ist geschehen),
+## damit es keine zweite Bedingungs-Auswertung gibt.
+func decides_early() -> bool:
+	return live_state({}) == Live.PENDING
+
 ## Balkenfüllung 0..1 (binäre Bedingungen liefern 0 oder 1).
 func progress_fraction(result: Dictionary) -> float:
 	match condition:

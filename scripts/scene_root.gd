@@ -561,6 +561,56 @@ var _slit_leaving: Array[DataCellView] = []
 ## Schacht scene_root - die Schlitzreihe ist Tischmöbel, keine Auslage.
 var slit_shaft: LiftShaftView
 
+## Der WETT-TRESEN unter dem Nebenwetten-Fenster: je Angebot EIN Plot - das
+## Rechteck seines Setzen-Knopfes - und darauf seine KÖRPER. Ein Plot kann MEHRERES
+## tragen (die Steuerwette ihre Zählplatte UND ihren Gewinn), darum ist der Schlüssel
+## Plot PLUS Rolle (_bet_slot), nicht der Plot allein.
+## Das Fenster meldet die Plätze, die Körper gehören scene_root - dieselbe Grammatik
+## wie die Kassetten-Schlitzreihe des Ladens.
+## Die Körper sind reine ANZEIGE: keine Buchung hängt an einem von ihnen.
+var bet_bodies: Dictionary = {}
+## Signatur je Platz - eine andere Signatur heißt anderer Körper, kein umgestecktes
+## Blech.
+var _bet_keys: Dictionary = {}
+## Wo jeder Körper auf seinem Plot sitzt (Platz-Schlüssel -> Weltpunkt auf dem Glas) -
+## geschrieben vom EINEN Schreiber, gelesen von der Abrechnung.
+var _bet_seats: Dictionary = {}
+## Die GEPARKTEN Gruben: Plot-Index -> {depth, field}. Ihr Loch steht OFFEN und der
+## Gewinn wartet unten sichtbar darin - ein legitimer ENDZUSTAND, den der Schreiber
+## jederzeit hart wiederherstellt. Loch und Tiefe bleiben dabei gemerkt: ein neu
+## gemessener Schacht ließe die wartende Ware springen.
+var _bet_parked: Dictionary = {}
+## Der gelandete EINSATZ, den die Sektion ihres Plots gleich SCHLUCKT (Plot-Index ->
+## Wurfkörper). Vom Einsatz bleibt danach nichts liegen.
+var _bet_swallow: Dictionary = {}
+## Wo die Timeline gerade steht (die Regel dazu gehört dem Fenster,
+## SideBetPanel.counter_lies): nichts, die offene Wettannahme, die laufende Runde
+## oder in der Abrechnung allein die Gewinne.
+var _bet_stage := SideBetPanel.STAGE_NONE
+## Die gewonnenen Wetten der laufenden Abrechnung (nur für STAGE_WON).
+var _bet_won: Array[SideBet] = []
+## Wetten, deren Bedingung ERFÜLLT ist: ihr Gewinn fährt aus der Grube herauf.
+## Gespeist allein aus der bestehenden Fortschritts-Rechnung (_note_bet_progress) -
+## es gibt keine zweite Bedingungs-Auswertung.
+var _bet_fulfilled: Array[SideBet] = []
+## Und ihr Spiegel: Wetten, deren Bedingung GESCHEITERT ist - ihr Gewinn wird
+## eingezogen. Dieselbe eine Quelle, derselbe Melder.
+var _bet_failed: Array[SideBet] = []
+## Was eine Steuerwette bisher gezahlt hat (Wett-Instanz -> Summe) - die ZÄHLPLATTE
+## wird daraus gestellt, damit ein verpasster Chip-Flug sie nicht untertreibt.
+var _bet_tax: Dictionary = {}
+## Die Körper, die gerade HINAUSFAHREN - freigegeben am Ende des Band-Schritts und
+## bei JEDEM Abbruch (_settle_bet_shafts).
+var _bet_leaving: Array[Node3D] = []
+## Die HEBEBÜHNEN des Tresens: je Plot EINE eigene Sektion mit eigenem Platz in der
+## Löcherliste. Drei Wetten parken, fahren auf und gehen ab, ohne einander zu stören.
+var bet_shafts: Array[LiftShaftView] = []
+## Laufende Nummer der Abrechnungs-Zeremonie - nur die jüngste räumt den Tresen.
+var _bet_settle := 0
+## Ein AUFTRITT ist fällig, aber keiner schaut hin: der Tresen stellt still und
+## fährt ihn nach, sobald er wirklich zu sehen ist (die Grad-Regel der Läden).
+var _bet_pending_rise := false
+
 ## Die HINTERZIMMER-AUSLAGE: dieselbe Miniatur am Schwarzmarkt-Fenster. Sie hängt
 ## am FOKUS: sie deckt auf, wenn die Kamera das Hinterzimmer anfährt.
 var secret_vitrine: VitrineView
@@ -926,8 +976,8 @@ func _setup_table_screen() -> void:
 	var win_pos := Vector2(shell_px.x + table_screen.size.x * 0.045, pit_r.end.y - win_size.y)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
-	# Einsatz/Auszahlung als Licht über die Schatz-Leiste (einmalig verdrahtet -
-	# das Fenster überlebt Run-Wechsel, nur sein run wird neu gesetzt).
+	# Wurf und Auszahlung hängen am Fenster (einmalig verdrahtet - es überlebt
+	# Run-Wechsel, nur sein run wird neu gesetzt).
 	table_screen.side_bet_window.bet_selected.connect(_on_side_bet_selected)
 	table_screen.side_bet_window.bet_placed.connect(_on_side_bet_placed)
 
@@ -1775,8 +1825,11 @@ var _encore_packs: Array[Pack] = []
 ## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
 var _suppress_money_light := false
-## Knopfmitte der zuletzt gesetzten Wette (Screen-Pixel), Ziel des Diffusions-Lichts.
-var _pending_bet_center := Vector2(-1, -1)
+## Die Magazin-Plätze der Pakete, die der nächste Einsatz verzehrt, und die Chips
+## seines Zahlplans - gemerkt VOR der Buchung, denn danach steht an beiden Orten
+## nichts mehr, das sich werfen ließe.
+var _pending_bet_packs: Array[Vector2] = []
+var _pending_bet_chips: Array[int] = []
 
 ## Überhellte Trail-Farbe eines Chips (fürs Bloom der Kometen).
 func _money_trail_color(chip_color: Color) -> Color:
@@ -2018,46 +2071,79 @@ func _on_payment_comet_arrived(chip_color: Color) -> void:
 	if hub != null:
 		hub.flash_frame(chip_color)
 
-## Wette angeklickt (vor der Zahlung): das generische Geld-Licht unterdrücken und
-## die Knopfmitte merken (sie ist gleich, nachdem der Knopf zu "platziert" wird).
+## Wette angeklickt (VOR der Zahlung): das generische Geld-Licht unterdrücken und
+## merken, was gleich fliegt - der Zahlplan aus der Börse und, solange die Pakete
+## noch liegen, ihre Magazin-Plätze. Danach steht an beiden Orten nichts mehr.
 func _on_side_bet_selected(index: int) -> void:
 	_suppress_money_light = true
-	if table_screen != null and table_screen.side_bet_window != null:
-		_pending_bet_center = table_screen.side_bet_window.bet_button_center(index)
+	_pending_bet_packs.clear()
+	_pending_bet_chips.clear()
+	var panel := _side_bet_panel()
+	if panel == null or index < 0 or index >= panel.offers.size():
+		return
+	var bet: SideBet = panel.offers[index]
+	_pending_bet_packs = _bet_stake_pack_anchors(bet)
+	_pending_bet_chips = _bet_stake_chips(bet)
 
-## Wette platziert (nach der Zahlung): der Einsatz reist als Licht zum Fenster
-## (Geld vom Schatz, Gravur vom Hub), diffundiert in den Knopf und lässt ihn
-## golden/violett glühen. Reines Schmuckwerk - der Einsatz ist bereits gebucht.
+## Die Chips, die der Spieler für diesen Einsatz WIRKLICH hinlegt - der Zahlplan
+## seiner Börse, höchster Wert zuerst. Gefragt VOR der Buchung.
+func _bet_stake_chips(bet: SideBet) -> Array[int]:
+	var out: Array[int] = []
+	if run == null or SideBetPanel.is_tax_bet(bet) \
+			or bet.stake_kind != SideBet.Stake.MONEY:
+		return out
+	var plan := ChipStackView.payment_plan(chip_stack.wallet(), run.side_bet_stake(bet))
+	var spend: Dictionary = plan["spend"]
+	for value in ChipStackView.VALUES:
+		for i in int(spend.get(value, 0)):
+			out.append(int(value))
+	return out
+
+## Wette platziert (nach der Zahlung): der Einsatz WIRD GEWORFEN - Geld als
+## gestapelte Salve von der Spitze des Schatzes, jedes geopferte Paket von seinem
+## Magazin-Sitz, ⚡ als lose Zelle von der Bank. Er landet auf der PLATTFORM, und die
+## senkt ihn ein: vom Einsatz liegt danach nie mehr etwas. In derselben Fahrt kommt
+## der GEWINN in Sicht. Reines Schmuckwerk - gebucht ist der Einsatz längst.
 func _on_side_bet_placed(index: int) -> void:
 	_suppress_money_light = false
 	var panel := table_screen.side_bet_window if table_screen != null else null
 	if panel == null or index < 0 or index >= panel.offers.size():
 		return
 	var bet: SideBet = panel.offers[index]
-	# Steuerwetten zahlen beim Platzieren nichts - kein Einsatz-Licht, nur der Knopf.
-	if bet.stake_kind == SideBet.Stake.MONEY_PER_HAND \
-			or bet.stake_kind == SideBet.Stake.MONEY_PER_DIE:
+	# Steuerwetten zahlen beim Platzieren nichts - es fliegt nichts. Ihre leere
+	# ZÄHLPLATTE und ihr Gewinn fahren sofort auf: sie SIND die Aussage.
+	if SideBetPanel.is_tax_bet(bet):
 		panel.glow_bet(index, SideBetPanel.GOLD)
+		_write_bet_counter(ShopController.GRADE_RISE, true)
 		return
-	# Geld kommt vom Schatz, Gravur UND Ladung vom Hub.
-	var from_hub := bet.stake_kind != SideBet.Stake.MONEY
-	var comet_color := TableScreen.SIDE_MONEY_COLOR
 	var glow_color := SideBetPanel.GOLD
 	if bet.stake_kind == SideBet.Stake.PACKS:
-		comet_color = TableScreen.SIDE_ENGRAVING_COLOR
 		glow_color = SideBetPanel.ENGRAVING_GLOW
 	elif bet.stake_kind == SideBet.Stake.CHARGE:
-		comet_color = CHARGE_COMET_COLOR
 		glow_color = CHARGE_COMET_COLOR
-	var center := _pending_bet_center
-	var travel := table_screen.side_bet_stake_comet(from_hub, comet_color)
-	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if center.x < 0.0:
-			panel.glow_bet(index, glow_color)
-			return
-		var diffuse: float = table_screen.diffuse_into_side_bet(center, comet_color)
-		get_tree().create_timer(maxf(diffuse, 0.05)).timeout.connect(func() -> void:
-			panel.glow_bet(index, glow_color)))
+	# Das Maß des Einsatzes wird JETZT genommen - bei der Landung steht der nächste
+	# Zahlplan längst woanders, und der Schacht muß den ganzen Stapel schlucken.
+	var stake_high := _bet_stake_height(bet, _pending_bet_chips)
+	_throw_bet_stake(bet, _pending_bet_packs, _pending_bet_chips,
+		_bet_stake_seat(index), func(landed: Array) -> void:
+			# Der Stapel steht: jetzt SCHLUCKT ihn die Sektion, und der Gewinn kommt
+			# in derselben Fahrt herein.
+			_bet_swallow[index] = {"bodies": landed, "height": stake_high}
+			_write_bet_counter(ShopController.GRADE_RISE, true)
+			panel.glow_bet(index, glow_color))
+
+## Wie hoch der geworfene EINSATZ über der Plattform aufragt - der Schacht muß tief
+## genug sein, dass der ganze Stapel beim Schlucken darin verschwindet. Gemessen an
+## dem, was wirklich fliegt (der Wurf deckelt die Salve bei THROW_SALVO_CAP).
+func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
+	match bet.stake_kind:
+		SideBet.Stake.PACKS:
+			return BetPrizeView.FLOOR_CLEAR \
+				+ DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
+		SideBet.Stake.CHARGE:
+			return BetPrizeView.FLOOR_CLEAR + CapacitorBankView.loose_cell_height()
+	return BetPrizeView.FLOOR_CLEAR + ChipStackView.CHIP_HEIGHT \
+		+ ChipStackView.stack_lift(mini(chips.size(), THROW_SALVO_CAP) - 1)
 
 ## Automaten-Sitzung ausgezahlt: der Hub-Rahmen quittiert mit einem goldenen
 ## Blitz; die Ware selbst fliegt einzeln (siehe _on_slot_prize_dispatched).
@@ -2123,16 +2209,21 @@ func _fly_die_to_pool(from_px: Vector2) -> void:
 
 ## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Abflug vom Nebenwetten-
 ## Fenster, leicht gestaffelt. Gebucht hat GameRun bereits - hier fliegt nur Licht.
-func _play_side_bet_payouts(won: Array[SideBet]) -> void:
+## lead = Vorlauf des Tresens: erst räumt das Haus ab, dann reist der Gewinn.
+func _play_side_bet_payouts(won: Array[SideBet], lead := 0.0) -> void:
 	if table_screen == null or won.is_empty():
 		return
+	var launched := run
 	for i in won.size():
 		var bet: SideBet = won[i]
-		var fire := func() -> void: _fly_side_bet_payout(bet)
-		if i == 0:
+		var fire := func() -> void:
+			if run == launched:
+				_fly_side_bet_payout(bet)
+		var wait := lead + float(i) * MONEY_PULSE_GAP
+		if wait <= 0.0:
 			fire.call()
 		else:
-			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
+			get_tree().create_timer(wait).timeout.connect(fire)
 
 ## Je Gewinnart ihre Bahn: Geld zum Schatz, Gravuren zum Hub, Sonderposten in
 ## den Sonderbestand, Pakete ins Lager, Ladung zur Kondensator-Bank.
@@ -3077,6 +3168,7 @@ func _close_lift_shafts() -> void:
 	if secret_vitrine != null and is_instance_valid(secret_vitrine):
 		secret_vitrine.close_shafts()
 	_settle_slit_shaft()
+	_settle_bet_shafts()
 	if table_screen != null:
 		table_screen.clear_lift_pits()
 
@@ -3571,6 +3663,1033 @@ func _drop_slit_cells() -> void:
 	_slit_keys.clear()
 	_settle_slit_shaft()  # auch, was noch hinausfuhr, gehört dem alten Laden
 
+#region Der WURF
+# Das Bewegungs-Gesetz liest sich nach URHEBER: was der SPIELER ZAHLT, fliegt als
+# KÖRPER im ballistischen Bogen über den Filz - vom echten Zuhause der Ressource zum
+# Ziel. (Was der TISCH liefert, reist als Licht über die gelegten Adern; was er
+# präsentiert oder einzieht, fährt per Hebebühne - die bleibt dem Haus.)
+# EINE Zeremonie für alle Zahlungen: sie bekommt fertige Körper samt Weg, staffelt
+# sie zur Salve und meldet die Laufzeit. Die Körper gehören scene_root und sind reine
+# Zeremonie - keine Buchung hängt an einem von ihnen, die Quelle rendert längst OHNE
+# das geworfene Stück, und JEDER Abbruch läuft durch _settle_throws.
+
+## Ein Wurf dauert eine halbe Sekunde; eine Salve staffelt sich um THROW_STAGGER.
+const THROW_TIME := 0.5
+const THROW_STAGGER := 0.06
+## Scheitelhöhe des Bogens als Anteil der Wurfweite, gedeckelt - über den halben
+## Tisch fliegt nichts in den Himmel.
+const THROW_ARC_SHARE := 0.22
+const THROW_ARC_MIN := 1.4
+const THROW_ARC_MAX := 7.0
+## Das SETZEN bei der Landung: das Stück federt kurz nach.
+const THROW_SET := 0.35
+const THROW_SET_TIME := 0.1
+## Ein geworfenes Stück trudelt - und landet FLACH: das Trudeln endet auf GANZEN
+## Umdrehungen je Achse, also genau in der Lage, in der das Stück gebaut wurde.
+## Nichts bleibt schief im Glas stecken.
+const THROW_SPIN := Vector3(TAU, TAU, TAU)
+## Mehr Stücke wirft niemand: eine Salve ist eine Geste, keine Ladung.
+const THROW_SALVO_CAP := 8
+## Wie weit eine Salve um ihren Platz streut - ein Haufen, kein Turm. Geld streut
+## NICHT: es stapelt (throw_stack_lift).
+const THROW_SCATTER := ChipStackView.CHIP_RADIUS * 1.5
+
+## Was gerade FLIEGT, und die Fahrten dazu - der eine Aufräum-Pfad räumt beides.
+var _thrown: Array[Node3D] = []
+var _throw_tweens: Array[Tween] = []
+
+## Die EINE Wurf-Zeremonie. entries sind {body, from, to} in Weltmaßen und fliegen
+## der Reihe nach gestaffelt los; on_land feuert, wenn das LETZTE Stück liegt, und
+## erst danach räumt die Zeremonie ihre Flugkörper ab. Liefert die Gesamtlaufzeit.
+## hand_over: die gelandeten Körper gehören danach dem Aufrufer (er bekommt sie in
+## on_land gereicht) - so kann die Hebebühne genau die Stücke einsenken, die eben
+## gelandet sind, statt sie zu ersetzen.
+func _throw_bodies(entries: Array, on_land := Callable(),
+		hand_over := false) -> float:
+	if entries.is_empty():
+		if on_land.is_valid():
+			if hand_over:
+				on_land.call([] as Array)
+			else:
+				on_land.call()
+		return 0.0
+	var launched := run
+	var bodies: Array[Node3D] = []
+	var tweens: Array[Tween] = []
+	for i in entries.size():
+		var entry: Dictionary = entries[i]
+		var body: Node3D = entry["body"]
+		if body == null or not is_instance_valid(body):
+			continue
+		bodies.append(body)
+		_thrown.append(body)
+		tweens.append(_throw_one(body, entry["from"], entry["to"],
+			THROW_STAGGER * float(i)))
+	var travel := THROW_TIME + THROW_SET_TIME \
+		+ THROW_STAGGER * float(maxi(entries.size() - 1, 0))
+	get_tree().create_timer(travel).timeout.connect(func() -> void:
+		if run != launched:
+			return  # der Laufwechsel hat längst alles abgeräumt
+		# Erst die Fahrt aus, dann der Körper fort - ein Tween, der auf einen
+		# entfernten Knoten schreibt, meldet einen Fehler.
+		_kill_throws(tweens)
+		if hand_over:
+			for body: Node3D in bodies:
+				_thrown.erase(body)
+			if on_land.is_valid():
+				on_land.call(bodies)
+			return
+		if on_land.is_valid():
+			on_land.call()
+		_clear_thrown(bodies))
+	return travel
+
+## EIN Wurf: ballistischer Bogen (XZ linear, Y als Parabel über dem Filz), Trudeln im
+## Flug und ein kurzes Setzen bei der Landung.
+func _throw_one(body: Node3D, from: Vector3, to: Vector3, delay: float) -> Tween:
+	body.global_position = from
+	body.visible = true
+	var peak := clampf(Vector2(to.x - from.x, to.z - from.z).length() * THROW_ARC_SHARE,
+		THROW_ARC_MIN, THROW_ARC_MAX)
+	var spin := body.rotation + THROW_SPIN
+	var tween := create_tween()
+	_throw_tweens.append(tween)
+	if delay > 0.0:
+		tween.tween_interval(delay)
+	tween.tween_method(_fly_arc.bind(body, from, to, peak), 0.0, 1.0, THROW_TIME)
+	tween.parallel().tween_property(body, "rotation", spin, THROW_TIME) \
+		.set_trans(Tween.TRANS_SINE)
+	tween.tween_property(body, "global_position", to + Vector3.UP * THROW_SET,
+		THROW_SET_TIME * 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(body, "global_position", to, THROW_SET_TIME * 0.6) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	return tween
+
+## Die Bahn selbst - gebunden statt als Lambda, damit sie eine gewöhnliche Funktion
+## bleibt (der Tween reicht den Fortschritt voran).
+func _fly_arc(t: float, body: Node3D, from: Vector3, to: Vector3, peak: float) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	var at := from.lerp(to, t)
+	at.y += 4.0 * peak * t * (1.0 - t)
+	body.global_position = at
+
+## Wohin das i-te Stück einer Salve fällt: ein kleiner Fächer um den Platz - und
+## immer FLOOR_CLEAR über der Fläche, sonst steckte das Stück im Glas.
+func _throw_scatter(target: Vector3, index: int, count: int) -> Vector3:
+	var lie := target + Vector3.UP * BetPrizeView.FLOOR_CLEAR
+	if count <= 1:
+		return lie
+	var angle := TAU * float(index) / float(count) + 0.6
+	return lie + Vector3(cos(angle), 0.0, sin(angle)) * THROW_SCATTER
+
+## Die Spitze des SCHATZES - dort hebt jedes geworfene Geld ab.
+func _treasure_throw_point() -> Vector3:
+	return chip_stack.global_position + Vector3.UP * chip_stack.top_y()
+
+## EIN Wurf-Chip in echter Stückelung, geliehen aus der Börse des Schatzes (ihre
+## Meshes und Materialien, kein zweiter Satz) und hierher umgehängt.
+func _throw_chip_body(value: int) -> Node3D:
+	var ghost := chip_stack.build_ghost_tower(value, 1)
+	chip_stack.remove_child(ghost)
+	add_child(ghost)
+	return ghost
+
+## Die Körper einer GELD-Salve: ein Chip je Stückelung des Zahlplans, höchster Wert
+## zuerst, gedeckelt - so fliegt sichtbar, was der Spieler wirklich hinlegt.
+func _throw_chip_bodies(values: Array[int]) -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for i in mini(values.size(), THROW_SALVO_CAP):
+		out.append(_throw_chip_body(values[i]))
+	return out
+
+## Eine lose Elko-Zelle als Wurfkörper - dieselbe Dose wie in der Bank, nur an einem
+## Halter, dessen Ursprung der Flug fassen darf.
+func _throw_charge_body() -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "WurfElko"
+	add_child(holder)
+	holder.add_child(CapacitorBankView.build_loose_cell(true))
+	return holder
+
+## Eine liegende Kassette als Wurfkörper - dieselbe Ware, die auch im Magazin liegt.
+func _throw_cell_body(at: Vector3) -> Node3D:
+	var cell := _spawn_data_cell(Pack.SHELF_SPECIAL, Pack.TIER_NORMAL, at)
+	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	cell.lie_on_glass(at)
+	return cell
+
+## Der EINE Aufräum-Pfad des Wurfs: jede Fahrt aus, jeder Flugkörper fort. Ein
+## Abbruch mitten im Flug hinterläßt weder Körper noch offene Schuld - gebucht war
+## längst, und der Endzustand steht ohnehin.
+func _settle_throws() -> void:
+	_kill_throws(_throw_tweens.duplicate())
+	_clear_thrown(_thrown.duplicate())
+
+func _kill_throws(tweens: Array) -> void:
+	for tween: Tween in tweens:
+		if tween != null and tween.is_valid():
+			tween.kill()
+		_throw_tweens.erase(tween)
+
+func _clear_thrown(bodies: Array) -> void:
+	for body: Node3D in bodies:
+		_thrown.erase(body)
+		if body == null or not is_instance_valid(body):
+			continue
+		remove_child(body)
+		body.queue_free()
+#endregion
+
+# --- Der WETT-TRESEN ------------------------------------------------------------
+# Die Nebenwetten sind körperlich, und ihre Timeline ist die des Spielers. DER
+# SETZEN-KNOPF IST DER STELLPLATZ: vor dem Setzen liegt NICHTS (der Knopf nennt den
+# Preis), beim Setzen WIRFT der Spieler seinen Einsatz von dessen Zuhause auf die
+# Plattform seines Plots - und der Tisch SCHLUCKT ihn: vom Einsatz liegt danach nie
+# mehr etwas. In derselben Fahrt kommt der GEWINN in Sicht. Kann die Wette mitten in
+# der Runde noch kippen (decides_early), wartet er UNTEN in der offen bleibenden
+# Grube und fährt erst bei der Erfüllung herauf; eine grün beginnende Wette zeigt
+# ihren Gewinn sofort ausgefahren, und er sinkt beim Scheitern.
+# Gefahren wird das je Plot von SEINER eigenen Sektion - drei Hebebühnen, drei feste
+# Plätze in der Löcherliste, drei unabhängige Lebensläufe. Die Körper sind reine
+# ANZEIGE: keine Buchung hängt an einem von ihnen, jede Zahl steht in GameRun.
+
+## Die Rollen, die ein Plot tragen kann. Der Steuer-Plot trägt beide zugleich.
+const BET_ROLE_TALLY := "tally"
+const BET_ROLE_PRIZE := "prize"
+
+## Der Schlüssel EINES Körper-Platzes: Plot plus Rolle. Der ORT (unten/oben) gehört
+## bewusst NICHT hinein - der Gewinn behält beim Auffahren SEINEN Körper, sonst wäre
+## die Erfüllung ein Neubau statt einer Fahrt.
+static func _bet_slot(spot: int, role: String) -> String:
+	return "%d|%s" % [spot, role]
+
+static func _bet_slot_spot(key: String) -> int:
+	return int(key.get_slice("|", 0))
+
+## Einen Eintrag in die Liste seines Plots legen (Plot-Index -> Array).
+static func _bet_push(map: Dictionary, spot: int, entry: Dictionary) -> void:
+	if not map.has(spot):
+		map[spot] = []
+	(map[spot] as Array).append(entry)
+
+func _side_bet_panel() -> SideBetPanel:
+	if table_screen == null or table_screen.side_bet_window == null \
+			or not is_instance_valid(table_screen.side_bet_window):
+		return null
+	return table_screen.side_bet_window
+
+## Die Plätze des Tresens - das Fenster meldet sie, die Körper gehören hierher.
+func _bet_rects() -> Array[Rect2]:
+	var empty: Array[Rect2] = []
+	var panel := _side_bet_panel()
+	return panel.counter_rects() if panel != null else empty
+
+## Der Tresen zeigt nur, solange sein Fenster wirklich auf dem Tisch steht: ein
+## abgebautes Fenster (Hub-Stufe zu niedrig, Laufwechsel) läßt nichts liegen - und
+## ohne Sicht fährt auch keine Maschine, denn ihr Loch säße auf fremder Anzeige.
+func _bet_counter_visible() -> bool:
+	var panel := _side_bet_panel()
+	return panel != null and panel.visible and panel.counter_laid_out()
+
+## Hat das Fenster überhaupt schon ein Rechteck? Ohne Maß meldet es keine Plätze -
+## und ohne Plätze schreibt niemand an ihm.
+func _bet_counter_laid_out() -> bool:
+	var panel := _side_bet_panel()
+	return panel != null and panel.counter_laid_out()
+
+## Gefahren wird nur, wenn der Tresen auch wirklich angeschaut wird: an seiner
+## eigenen Station, in der Übersicht oder in der Freikamera. Sonst wartet der
+## Auftritt: eine Maschine, die keiner sieht, hat nicht gespielt.
+func _bet_counter_watched() -> bool:
+	if not _bet_counter_visible() or not _table_operable():
+		return false
+	if camera_rig == null:
+		return false
+	return camera_rig.free_camera or camera_rig.mode == CameraRig.Mode.OVERVIEW \
+		or camera_rig.mode == CameraRig.Mode.SIDE_BETS
+
+## Die reine Regel des Fensters, auf die laufende Auslage angewandt: Plot-Index ->
+## Liste von LIE_*. EINE Quelle für Bestand UND Ort (unten/oben).
+func _bet_lies() -> Dictionary:
+	var panel := _side_bet_panel()
+	if panel == null or run == null:
+		return {}
+	return SideBetPanel.counter_lies(_bet_stage, panel.offers, panel.placed,
+		_bet_fulfilled, _bet_failed, _bet_won)
+
+## Was auf dem Tresen stehen soll: Platz-Schlüssel -> Beschreibung. WELCHER Plot was
+## trägt, entscheidet die reine Regel des Fensters; hier steht nur, WAS es ist, auf
+## welcher Plot-Seite es sitzt und ob es unten in der Grube wartet.
+func _bet_stock() -> Dictionary:
+	var out: Dictionary = {}
+	var panel := _side_bet_panel()
+	if panel == null or run == null:
+		return out
+	var lies := _bet_lies()
+	for index: int in lies:
+		if index < 0 or index >= panel.offers.size():
+			continue
+		var bet: SideBet = panel.offers[index]
+		if bet == null:
+			continue
+		var split := SideBetPanel.is_tax_bet(bet)
+		for lie: String in lies[index]:
+			if lie == SideBetPanel.LIE_TALLY:
+				var plate := _bet_tally_spec(bet)
+				plate["spot"] = index
+				plate["role"] = BET_ROLE_TALLY
+				plate["side"] = SideBetPanel.SEAT_LEFT
+				out[_bet_slot(index, BET_ROLE_TALLY)] = plate
+				continue
+			var prize := _bet_price_spec(bet)
+			prize["spot"] = index
+			prize["role"] = BET_ROLE_PRIZE
+			prize["side"] = SideBetPanel.SEAT_RIGHT if split else SideBetPanel.SEAT_FULL
+			prize["pit"] = lie == SideBetPanel.LIE_PRIZE_PIT
+			out[_bet_slot(index, BET_ROLE_PRIZE)] = prize
+	return out
+
+## Der Körper eines GEWINNS - was die Wette NENNT, liegt da: Geld als echte
+## Stückelung, Energie als Stück Kondensator-Bank, ein Einzelstück als geprägte
+## Marke. Jedes Paket liegt als VERSIEGELTE Kassette: welche Sorte es wird, würfelt
+## erst der Gewinn, und ein Tresen wirbt nicht mit einem Inhalt, den er noch nicht
+## kennt.
+func _bet_price_spec(bet: SideBet) -> Dictionary:
+	var factor := run.side_bet_payout_factor()
+	match bet.payout_kind:
+		SideBet.Payout.MONEY:
+			return {"body": "chips",
+				"amount": CharmEffects.side_bet_money(bet.payout_money * factor, run.charm_ids())}
+		SideBet.Payout.CHARGE:
+			return {"body": "charge", "count": bet.payout_charge * factor}
+		SideBet.Payout.COMBO_LEVEL:
+			return {"body": "token", "text": "LVL+1", "tint": CasinoStyle.GOLD_INTENSE}
+		SideBet.Payout.PRESS_BOOST:
+			return {"body": "token", "text": "PRESSE",
+				"tint": PackDrawerView.COLORS[Pack.SHELF_SPECIAL]}
+		SideBet.Payout.SPECIAL, SideBet.Payout.PACK:
+			return {"body": "cell", "sort": Pack.SHELF_SPECIAL, "count": 1}
+	return {"body": "cell", "sort": Pack.SHELF_SPECIAL,
+		"count": maxi(bet.reward_packs * factor, 1)}
+
+## Die ZÄHLPLATTE einer Steuerwette: ihr Einsatz entsteht erst WÄHREND der Runde,
+## also läuft er hier auf, statt geworfen und geschluckt zu werden.
+func _bet_tally_spec(bet: SideBet) -> Dictionary:
+	return {"body": "tally", "tint": SideBetPanel.GOLD,
+		"paid": int(_bet_tax.get(bet.get_instance_id(), 0))}
+
+## Die Signatur eines Platzes: eine andere heißt ANDERER Körper. Die Zählplatte
+## trägt ihre wachsende Summe bewusst NICHT darin - sie wächst, sie wird nicht neu.
+## Der ORT (unten/oben) steht ebenfalls nicht darin: die Auffahrt ist eine FAHRT
+## desselben Körpers, kein Neubau.
+func _bet_spec_key(spec: Dictionary) -> String:
+	var body := String(spec.get("body", ""))
+	if body == "tally":
+		return "tally"
+	return "%s|%s|%d|%d|%s|%s" % [body, spec.get("sort", ""), int(spec.get("count", 0)),
+		int(spec.get("amount", 0)), spec.get("text", ""), spec.get("role", "")]
+
+## Der Fußabdruck einer Bauform in Welt-Maßen, OHNE sie zu bauen - EINE Rechnung für
+## den Sitz auf dem Plot und den Schacht darunter.
+func _bet_spec_span(spec: Dictionary) -> Vector2:
+	var body_kind := String(spec.get("body", ""))
+	if body_kind == "cell":
+		return Vector2(DataCellView.HEIGHT, DataCellView.WIDTH) \
+			* PackDrawerView.CASSETTE_SCALE
+	var amount := int(spec.get("amount", 0)) if body_kind == "chips" \
+		else int(spec.get("count", 1))
+	return BetPrizeView.span_for(body_kind, amount)
+
+## Wo ein Körper AUF seinem Plot sitzt: die Regel gehört dem Fenster, der gemessene
+## Fußabdruck hierher. Gewöhnlich steht der Gewinn mittig; nur der Steuer-Plot teilt
+## sich (Zählplatte links, Gewinn rechts).
+func _bet_seat(spot: int, spec: Dictionary) -> Vector3:
+	return _bet_seat_at(spot, int(spec.get("side", SideBetPanel.SEAT_FULL)),
+		_bet_span_px(_bet_spec_span(spec)))
+
+func _bet_seat_at(spot: int, side: int, footprint: Vector2) -> Vector3:
+	var rects := _bet_rects()
+	if spot < 0 or spot >= rects.size():
+		return Vector3.ZERO
+	return _data_cell_seat(SideBetPanel.seat_in(rects[spot], footprint, side))
+
+## Wohin der EINSATZ geworfen wird: mittig auf den Plot - also auf die Plattform, die
+## ihn gleich einsenkt.
+func _bet_stake_seat(spot: int) -> Vector3:
+	return _bet_seat_at(spot, SideBetPanel.SEAT_FULL, Vector2.ZERO)
+
+## Der EINE idempotente Schreiber des Tresens: was stehen soll, steht - was nicht
+## mehr hingehört, fährt hinaus, und was unten warten soll, wartet in seiner offenen
+## Grube. GRADE_RISE fährt die Hebebühnen, swap heißt zusätzlich, dass die
+## abgeräumten Körper dabei durchs Band hinausfahren, statt still zu verschwinden.
+func _write_bet_counter(grade := ShopController.GRADE_STAND,
+		swap := false) -> void:
+	if table_screen == null or not _bet_counter_laid_out():
+		return
+	# Jeder Schreiber räumt zuerst: jedes Loch zu, jede Abgangsware frei.
+	_settle_bet_shafts()
+	var show := _bet_counter_visible()
+	var wanted := _bet_stock()
+	var watched := _bet_counter_watched()
+	var rising := grade == ShopController.GRADE_RISE and watched
+	if grade == ShopController.GRADE_RISE and not watched:
+		_bet_pending_rise = true  # der Auftritt wartet, bis jemand hinsieht
+	elif rising:
+		_bet_pending_rise = false
+	var plots := _bet_rects()
+	# Je Plot: was hinausgeht, was hereinkommt, was stehen bleibt.
+	var outgoing: Dictionary = {}
+	var entering: Dictionary = {}
+	var staying: Dictionary = {}
+	# Was seinen Platz verliert (oder anders aussieht), verläßt ihn: mit laufender
+	# Maschine durchs Band, sonst still.
+	for key: String in bet_bodies.keys():
+		var kept: Dictionary = wanted.get(key, {})
+		if not kept.is_empty() and String(_bet_keys.get(key, "")) == _bet_spec_key(kept):
+			continue
+		var spot := _bet_slot_spot(key)
+		var leaving: Node3D = bet_bodies[key]
+		var was_at: Vector3 = _bet_seats.get(key, Vector3.ZERO)
+		bet_bodies.erase(key)
+		_bet_keys.erase(key)
+		_bet_seats.erase(key)
+		if swap and rising and spot >= 0 and spot < plots.size() \
+				and is_instance_valid(leaving):
+			_set_bet_hovered(leaving, false)  # der Griff sitzt am Körper, nicht am Ort
+			_bet_push(outgoing, spot, {"body": leaving, "spot": spot, "target": was_at})
+			_bet_leaving.append(leaving)
+		else:
+			_free_bet_body(leaving)
+	# Der gelandete EINSATZ gehört jetzt der Maschine: sie schluckt ihn in derselben
+	# Fahrt, in der der Gewinn hereinkommt. Sein Sitz ist, wo er WIRKLICH liegt -
+	# ein Stapel fiele sonst beim Senken in sich zusammen.
+	for spot: int in _bet_swallow.keys():
+		var stake: Dictionary = _bet_swallow[spot]
+		for body: Node3D in stake["bodies"]:
+			if body == null or not is_instance_valid(body):
+				continue
+			if not (rising and spot >= 0 and spot < plots.size()):
+				_free_bet_body(body)
+				continue
+			_bet_leaving.append(body)
+			_bet_push(outgoing, spot, {"body": body, "spot": spot,
+				"target": body.global_position, "height": float(stake["height"])})
+	_bet_swallow.clear()
+	for key: String in wanted.keys():
+		var spec: Dictionary = wanted[key]
+		var spot := int(spec["spot"])
+		if spot < 0 or spot >= plots.size():
+			continue
+		var target := _bet_seat(spot, spec)
+		var body: Node3D = bet_bodies.get(key)
+		var fresh := body == null or not is_instance_valid(body)
+		if fresh:
+			body = _spawn_bet_body(spec, target)
+			if body == null:
+				continue
+			bet_bodies[key] = body
+			_bet_keys[key] = _bet_spec_key(spec)
+		_bet_seats[key] = target
+		_refresh_bet_body(body, spec)
+		body.visible = show
+		var entry := {"body": body, "spot": spot, "target": target}
+		if fresh:
+			_bet_push(entering, spot, entry)
+		else:
+			_bet_push(staying, spot, entry)
+	for spot in SideBetPanel.OFFER_COUNT:
+		_run_bet_plot(spot, entering.get(spot, []), outgoing.get(spot, []),
+			staying.get(spot, []), bool(wanted.get(_bet_slot(spot, BET_ROLE_PRIZE),
+				{}).get("pit", false)), rising, show)
+
+## Ein frisch gebauter Körper für einen Platz (null = unbekannte Bauform). Er liegt
+## in ECHTER Größe da und darf über seinen Plot hinausragen - der Schacht mißt an ihm.
+func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
+	var body_kind := String(spec.get("body", ""))
+	if body_kind == "cell":
+		var cell := _spawn_data_cell(String(spec.get("sort", Pack.SHELF_SPECIAL)),
+			Pack.TIER_NORMAL, target)
+		cell.set_count(maxi(int(spec.get("count", 1)), 1))
+		cell.badge_on_face = true  # neben der Karte läge die Marke im Nachbarplatz
+		cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+		return cell
+	var prize := BetPrizeView.new()
+	add_child(prize)
+	var tint: Color = spec.get("tint", CasinoStyle.GOLD_INTENSE)
+	match body_kind:
+		"chips":
+			prize.setup_chips(int(spec.get("amount", 0)))
+		"charge":
+			prize.setup_charge(int(spec.get("count", 1)))
+		"token":
+			prize.setup_token(String(spec.get("text", "")), tint)
+		"tally":
+			prize.setup_tally(tint)
+		_:
+			remove_child(prize)
+			prize.queue_free()
+			return null
+	prize.seat_hard(target)
+	return prize
+
+## Der wirkliche Fußabdruck eines Tresen-Körpers in Welt-Maßen (x = Welt-X,
+## y = Welt-Z). Nichts schrumpft mehr auf seinen Platz, also mißt das LOCH an der
+## Ware - sonst ragte beim Senken etwas durch die Anzeige.
+func _bet_body_span(body: Node3D) -> Vector2:
+	if body is BetPrizeView:
+		return (body as BetPrizeView).natural_span()
+	if body is DataCellView:
+		return Vector2(DataCellView.HEIGHT, DataCellView.WIDTH) \
+			* PackDrawerView.CASSETTE_SCALE
+	return Vector2.ZERO
+
+## Wie hoch ein Tresen-Körper über der Fläche steht - der Schacht muß tief genug
+## sein, dass er beim Sinken ganz darin verschwindet.
+func _bet_body_height(body: Node3D) -> float:
+	if body is BetPrizeView:
+		return (body as BetPrizeView).body_height()
+	if body is DataCellView:
+		return DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
+	return 0.0
+
+## Ein Welt-Fußabdruck in Display-Pixeln (Welt-Z liegt in Pixel-x, Welt-X in
+## Pixel-y - world_to_pixel dreht die Achsen). Gemessen, nicht gerechnet.
+func _bet_span_px(span: Vector2) -> Vector2:
+	if table_screen == null:
+		return Vector2.ZERO
+	var origin := table_screen.world_to_pixel(Vector3.ZERO)
+	var per_z := absf(table_screen.world_to_pixel(Vector3(0.0, 0.0, 1.0)).x - origin.x)
+	var per_x := absf(table_screen.world_to_pixel(Vector3(1.0, 0.0, 0.0)).y - origin.y)
+	return Vector2(span.y * per_z, span.x * per_x)
+
+## Hart auf seinen Platz - der Endzustand steht zuerst, gefahren wird nur der Weg.
+func _seat_bet_body(body: Node3D, target: Vector3) -> void:
+	if body is DataCellView:
+		(body as DataCellView).lie_on_glass(target)
+	elif body is BetPrizeView:
+		(body as BetPrizeView).seat_hard(target)
+	else:
+		body.global_position = target
+
+## Nachgeführt, was am stehenden Körper wachsen darf: die Zählplatte trägt, was die
+## Steuer bisher wirklich gekostet hat - so untertreibt sie auch ein verpasster
+## Chip-Flug nicht.
+func _refresh_bet_body(body: Node3D, spec: Dictionary) -> void:
+	if not (body is BetPrizeView) or String(spec.get("body", "")) != "tally":
+		return
+	var plate := body as BetPrizeView
+	var missing := int(spec.get("paid", 0)) - plate.tally_total()
+	if missing > 0:
+		plate.add_tally(missing)
+
+## Ein Körper taucht an Ort und Stelle auf - der Weg ohne Maschine (niemand sieht
+## hin, also fährt nichts).
+func _appear_bet_body(body: Node3D) -> void:
+	if body is DataCellView:
+		(body as DataCellView).materialize()
+	elif body is BetPrizeView:
+		(body as BetPrizeView).materialize()
+
+func _flare_bet_body(body: Node3D) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	if body is DataCellView:
+		(body as DataCellView).flare()
+	elif body is BetPrizeView:
+		(body as BetPrizeView).flare()
+
+func _set_bet_hovered(body: Node3D, on: bool) -> void:
+	if body is DataCellView:
+		(body as DataCellView).set_hovered(on)
+	elif body is BetPrizeView:
+		(body as BetPrizeView).set_hovered(on)
+
+func _free_bet_body(body: Variant) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	var node: Node3D = body
+	remove_child(node)
+	node.queue_free()
+
+func _bodies_of(entries: Array) -> Array:
+	var out: Array = []
+	for entry: Dictionary in entries:
+		out.append(entry["body"])
+	return out
+
+func _release_bet_bodies(bodies: Array) -> void:
+	for body: Node3D in bodies:
+		_bet_leaving.erase(body)
+		_free_bet_body(body)
+
+## Die SEKTION EINES Plots: seine eigene Hebebühne mit seinem eigenen Loch. Sie kennt
+## sechs Wege - Auftritt nach oben, Auftritt in den PARK (Loch bleibt offen, die Ware
+## wartet sichtbar unten), Schluck-plus-Auftritt in beide Richtungen, Auffahrt aus dem
+## Park, Abgang aus dem Park und Abgang von oben. Welcher es ist, sagt der Bestand.
+## staying sind die Körper, die stehen bleiben und im offenen Loch mitfahren müssen.
+func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
+		to_pit: bool, rising: bool, show: bool) -> void:
+	var here := entering + outgoing + staying
+	if here.is_empty() or table_screen == null:
+		_release_bet_bodies(_bodies_of(outgoing))
+		_bet_parked.erase(spot)
+		_drop_bet_cover(spot)
+		return
+	var was_parked := _bet_parked.has(spot)
+	var park: Dictionary = _bet_parked.get(spot, {})
+	# Eine geparkte Grube behält Loch UND Tiefe: neu gemessen ließe sie die wartende
+	# Ware springen.
+	var field: Rect2 = park["field"] if was_parked else _bet_field(here)
+	var deep: float = float(park["depth"]) if was_parked else _bet_shaft_depth(here)
+	var shaft := _bet_shaft_on(spot, field, deep)
+	if shaft == null:
+		_release_bet_bodies(_bodies_of(outgoing))
+		_bet_parked.erase(spot)
+		_drop_bet_cover(spot)
+		return  # ohne gemessene Spur bleibt es beim harten Stand
+	# Der SCHIRM ist Teil des Park-Endzustands: nur eine parkende Grube bestellt ihn,
+	# und er trägt die EINE Gewinn-Zeile des Fensters (der Schacht kennt keine Wetten).
+	if to_pit:
+		shaft.order_cover(_bet_cover_text(spot), _bet_cover_tint(spot))
+	else:
+		shaft.drop_cover()
+	# ENDZUSTAND ZUERST: jeder bleibende Körper steht hart auf seinem Platz - im Park
+	# um die Parkhöhe tiefer -, und erst dann fährt die Maschine den Weg dorthin.
+	var drop := shaft.park_y() if to_pit else 0.0
+	for entry: Dictionary in entering + staying:
+		_seat_bet_body(entry["body"], (entry["target"] as Vector3) - Vector3.UP * drop)
+	if to_pit:
+		_bet_parked[spot] = {"depth": deep, "field": field}
+	else:
+		_bet_parked.erase(spot)
+	var out_bodies := _bodies_of(outgoing)
+	if not rising:
+		# Niemand sieht hin (oder es ist ein harter Stand): alles steht sofort.
+		_release_bet_bodies(out_bodies)
+		if show:
+			if to_pit:
+				shaft.park_hard()
+			for entry: Dictionary in entering:
+				_appear_bet_body(entry["body"])
+		return
+	var in_bodies := _bodies_of(entering)
+	var swept := _release_bet_bodies.bind(out_bodies)
+	var tween: Tween = null
+	if to_pit:
+		# Der Gewinn kommt in Sicht und BLEIBT unten: die Grube steht offen.
+		tween = shaft.run_park(out_bodies, _seats_of(outgoing), in_bodies,
+			_seats_of(entering), 0.0, swept)
+	elif was_parked and in_bodies.is_empty() and out_bodies.is_empty():
+		tween = shaft.run_rise(_bodies_of(staying), _seats_of(staying), 0.0)
+	elif was_parked and in_bodies.is_empty():
+		tween = shaft.run_leave_park(out_bodies, _seats_of(outgoing), 0.0, swept,
+			_bodies_of(staying), _seats_of(staying))
+	elif in_bodies.is_empty():
+		tween = shaft.run_exit(out_bodies, _seats_of(outgoing), 0.0, swept,
+			_bodies_of(staying), _seats_of(staying))
+	elif out_bodies.is_empty():
+		tween = shaft.run_cycle(in_bodies, _seats_of(entering), 0.0,
+			_bodies_of(staying), _seats_of(staying))
+	else:
+		tween = shaft.run_swap(out_bodies, _seats_of(outgoing), in_bodies,
+			_seats_of(entering), 0.0, swept, _bodies_of(staying), _seats_of(staying))
+	if tween == null:
+		_release_bet_bodies(out_bodies)
+		if to_pit and show:
+			shaft.park_hard()  # der Park ist ein Endzustand, er steht auch ohne Fahrt
+		return
+	tween.tween_callback(func() -> void:
+		for body: Node3D in in_bodies:
+			_flare_bet_body(body))
+
+func _seats_of(entries: Array) -> Array:
+	var out: Array = []
+	for entry: Dictionary in entries:
+		out.append(entry["target"])
+	return out
+
+## Was auf dem SCHIRM einer geparkten Grube steht: die Gewinn-Beschriftung, die der
+## Setzen-Knopf schon nennt. EINE Textquelle - hier wird nichts formuliert.
+func _bet_cover_text(spot: int) -> String:
+	var panel := _side_bet_panel()
+	return panel.prize_label(spot) if panel != null else ""
+
+func _bet_cover_tint(spot: int) -> Color:
+	var panel := _side_bet_panel()
+	return panel.prize_accent(spot) if panel != null else CasinoStyle.GOLD_INTENSE
+
+## Ein Plot parkt nicht mehr: seine Schirm-Bestellung erlischt. Ein Schirm ohne Grube
+## darunter wäre ein Deckel über der blanken Anzeige.
+func _drop_bet_cover(spot: int) -> void:
+	if spot < 0 or spot >= bet_shafts.size():
+		return
+	var shaft := bet_shafts[spot]
+	if shaft != null and is_instance_valid(shaft):
+		shaft.drop_cover()
+
+## Der Grundriß EINES Eintrags: sein Plot, geweitet auf den echten Fußabdruck seines
+## Körpers AN SEINEM SITZ. Nichts schrumpft mehr und der Sitz liegt nicht mehr in der
+## Plot-Mitte, also muß das Loch die Ware dort decken, wo sie wirklich liegt.
+func _bet_plot_field(entry: Dictionary) -> Rect2:
+	var rects := _bet_rects()
+	var spot := int(entry.get("spot", -1))
+	if spot < 0 or spot >= rects.size() or table_screen == null:
+		return Rect2()
+	var rect: Rect2 = rects[spot]
+	var footprint := _bet_span_px(_bet_body_span(entry["body"]))
+	if footprint.x <= 0.0 or footprint.y <= 0.0:
+		return rect
+	var at := table_screen.world_to_pixel(entry["target"] as Vector3)
+	return rect.merge(Rect2(at - footprint * 0.5, footprint))
+
+## Die SPUR einer Fahrt: die Vereinigung der beteiligten Plots samt Überstand.
+func _bet_field(entries: Array) -> Rect2:
+	var field := Rect2()
+	for entry: Dictionary in entries:
+		var rect := _bet_plot_field(entry)
+		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+			continue
+		field = rect if field.size.x <= 0.0 else field.merge(rect)
+	return field
+
+## Wie hoch EIN Eintrag über der Fläche aufragt. Ein geworfener Einsatz meldet sein
+## Maß mit (ein Chip-Stapel ist kein Körper, den man messen könnte).
+func _bet_entry_height(entry: Dictionary) -> float:
+	if entry.has("height"):
+		return float(entry["height"])
+	return _bet_body_height(entry["body"])
+
+## Wie tief die Sektion eines Plots fährt: das gewohnte Schachtmaß der Auslagen,
+## mindestens aber so tief, dass das HÖCHSTE beteiligte Stück durch sein Öffnungsband
+## paßt (Stückhöhe x SHAFT_ROOM) - im Kauf-Zyklus ist das meist der Einsatz-Stapel.
+## EIN Maß für alle Fahrten, und der Park endet genau darauf.
+func _bet_shaft_depth(entries: Array) -> float:
+	var tallest := 0.0
+	for entry: Dictionary in entries:
+		tallest = maxf(tallest, _bet_entry_height(entry))
+	return maxf(VitrineView.shaft_depth(), tallest * VitrineView.SHAFT_ROOM)
+
+## Wie weit die Sektion eines Plots hinter ihrer Öffnung Platz nehmen darf: bis an
+## den NACHBAR-Plot, nicht weiter. Die drei Plots stehen in einer Spalte, ihre
+## Maschinen schieben längs derselben Achse - ein Hohlraum unter dem offenen Loch der
+## Nachbarin läse sich dort als schwarzer Balken quer durch die Grube.
+func _bet_cavity_reach() -> float:
+	var rects := _bet_rects()
+	if table_screen == null or rects.size() < 2:
+		return 0.0
+	var above: Rect2 = rects[0]
+	var below: Rect2 = rects[1]
+	var a := table_screen.pixel_to_world(Vector2(above.get_center().x, above.end.y))
+	var b := table_screen.pixel_to_world(Vector2(below.get_center().x, below.position.y))
+	# Vor und hinter dem Hohlraum steht je eine Wand - die zählen mit.
+	return maxf(absf(a.x - b.x) - LiftShaftView.WALL * 2.0, 0.05)
+
+## Die Sektion EINES Wett-Plots, auf ein Display-Rechteck gestellt (null = keine
+## Spur). Je Plot ein eigener Schacht mit eigenem, festem Platz in der Löcherliste:
+## zwei geparkte Gruben dürfen einander nicht schließen.
+func _bet_shaft_on(spot: int, field: Rect2, deep: float) -> LiftShaftView:
+	if table_screen == null or spot < 0 or spot >= SideBetPanel.OFFER_COUNT \
+			or field.size.x <= 0.0 or field.size.y <= 0.0:
+		return null
+	while bet_shafts.size() < SideBetPanel.OFFER_COUNT:
+		bet_shafts.append(null)
+	var shaft := bet_shafts[spot]
+	if shaft == null or not is_instance_valid(shaft):
+		var slot := TableScreen.side_bet_pit(spot)
+		shaft = LiftShaftView.new("BetShaft%d" % spot)
+		add_child(shaft)
+		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(slot, at, hole))
+		shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(slot))
+		bet_shafts[spot] = shaft
+	shaft.deck_skin = table_screen.display_skin()
+	shaft.cavity_reach = _bet_cavity_reach()
+	var a := table_screen.pixel_to_world(field.position)
+	var b := table_screen.pixel_to_world(field.end)
+	shaft.setup(table_screen.pixel_to_world(field.get_center()),
+		Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5, deep)
+	return shaft
+
+## Der Abbruch der Maschine: jede Sektion bündig, jedes Loch zu - und was hinausfuhr,
+## ist frei. Der EINE Aufräum-Pfad; die drei denkbaren Reste (offenes Loch, geparkte
+## Grube, verwaister Abgangs-Körper) sterben hier zusammen. Was WEITER parken soll,
+## stellt der Schreiber gleich danach wieder hin - bzw. _sync_bet_counter je Bild.
+func _settle_bet_shafts() -> void:
+	for shaft in bet_shafts:
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()  # nimmt den Schirm mit zurück
+	_release_bet_bodies(_bet_leaving.duplicate())
+
+## Laufwechsel: der Tresen des alten Laufs liegt nirgends mehr - und was noch flog,
+## fliegt nicht weiter.
+func _drop_bet_bodies() -> void:
+	for key: String in bet_bodies:
+		_free_bet_body(bet_bodies[key])
+	bet_bodies.clear()
+	_bet_keys.clear()
+	_bet_seats.clear()
+	_bet_parked.clear()
+	for spot: int in _bet_swallow:
+		for body: Node3D in (_bet_swallow[spot] as Dictionary)["bodies"]:
+			_free_bet_body(body)
+	_bet_swallow.clear()
+	_bet_pending_rise = false
+	_bet_tax.clear()
+	_bet_won.clear()
+	_bet_fulfilled.clear()
+	_bet_failed.clear()
+	_bet_stage = SideBetPanel.STAGE_NONE
+	_bet_settle += 1  # eine laufende Abrechnung räumt nichts mehr
+	for shaft in bet_shafts:
+		if shaft != null and is_instance_valid(shaft):
+			shaft.drop_cover()  # die Bestellung des alten Laufs gilt nicht mehr
+	_settle_bet_shafts()
+	_settle_throws()
+
+## Je Bild: die Körper stehen nur, solange der Tresen zu sehen ist, und der Griff
+## hebt an, was unter dem Zeiger liegt (die Magazin-Geste - gefragt, nie gemeldet).
+## Und die GEPARKTEN Gruben stehen, solange das Fenster steht: sie sind Möbel, nicht
+## Zeremonie - ein fremder Aufräum-Pfad (Vorhangfall, Laufwechsel) schließt sie, und
+## hier stehen sie beim nächsten Hinsehen wieder.
+func _sync_bet_counter() -> void:
+	if not _bet_counter_laid_out():
+		return
+	# Ein aufgesparter Auftritt fährt, sobald jemand hinsieht - EINMAL.
+	if _bet_pending_rise and _bet_counter_watched():
+		_bet_pending_rise = false
+		_write_bet_counter(ShopController.GRADE_RISE, true)
+	var show := _bet_counter_visible()
+	var pixel := Vector2(-1, -1)
+	if show and _table_operable():
+		pixel = _screen_pixel(get_viewport().get_mouse_position())
+	var rects := _bet_rects()
+	for key: String in bet_bodies:
+		var body: Node3D = bet_bodies[key]
+		if body == null or not is_instance_valid(body):
+			continue
+		if body.visible != show:
+			body.visible = show
+		var spot := _bet_slot_spot(key)
+		_set_bet_hovered(body, pixel.x >= 0.0 and spot >= 0 and spot < rects.size()
+			and rects[spot].has_point(pixel))
+	for spot: int in _bet_parked:
+		if spot < 0 or spot >= bet_shafts.size():
+			continue
+		var shaft := bet_shafts[spot]
+		if shaft == null or not is_instance_valid(shaft) or shaft.riding():
+			continue  # eine laufende Fahrt schreibt ihren Zustand selbst
+		if show and not shaft.visible:
+			shaft.park_hard()
+		elif not show and shaft.visible:
+			shaft.settle_hard()
+		# Der SCHIRM sagt, was unten liegt - aber nur, solange der Zeiger auf dem Plot
+		# steht. Gefragt je Bild, dieselbe Griff-Grammatik wie die Körper darüber.
+		shaft.set_cover_hovered(pixel.x >= 0.0 and spot < rects.size()
+			and rects[spot].has_point(pixel))
+
+## Die Steuer EINER genommenen Hand: gebucht hat GameRun, hier springt je zahlender
+## Wette EIN Chip vom Schatz auf ihre Zählplatte - so sieht der Spieler seine Kosten
+## wachsen. Reine Anzeige - was die Platte trägt, steht in _bet_tax, damit ein
+## verpasster Flug sie nicht untertreibt.
+func _tax_side_bets(hand_dice: int) -> void:
+	var live: Array[SideBet] = []
+	for bet in run.active_side_bets:
+		if not bet.voided and SideBetPanel.is_tax_bet(bet):
+			live.append(bet)
+	run.tax_side_bets(hand_dice)
+	var broke := false
+	for bet in live:
+		if bet.voided:
+			broke = true  # zahlungsunfähig: es kam kein Chip herein, die Platte geht
+			continue
+		var due := run.side_bet_stake(bet)
+		if bet.stake_kind == SideBet.Stake.MONEY_PER_DIE:
+			due *= maxi(hand_dice, 0)
+		if due <= 0:
+			continue
+		_bet_tax[bet.get_instance_id()] = int(_bet_tax.get(bet.get_instance_id(), 0)) + due
+		_throw_bet_tax_chip(bet, due)
+	if broke:
+		# Eine gerissene Steuerwette hat nichts mehr auf dem Tresen zu suchen: Platte
+		# UND Gewinn fahren hinaus, wie alles Verlorene in der Abrechnung.
+		_write_bet_counter(ShopController.GRADE_RISE, true)
+
+## EIN Chip-WURF je Buchung: der Schatz wirft einen echten Chip auf die Zählplatte,
+## und die Landung legt ihn auf. Was der Spieler zahlt, fliegt als Körper - hier
+## sieht er seine Kosten wachsen. Fire-and-forget mit Lauf-Marke; gebucht ist längst.
+func _throw_bet_tax_chip(bet: SideBet, amount: int) -> void:
+	var panel := _side_bet_panel()
+	if table_screen == null or panel == null or not _bet_counter_visible():
+		return
+	var index := panel.offers.find(bet)
+	if index < 0:
+		return
+	var values := ChipStackView.split_gain(amount)
+	var chip := _throw_chip_body(values[0] if not values.is_empty() else 1)
+	var plate := _bet_seat_at(index, SideBetPanel.SEAT_LEFT,
+		_bet_span_px(BetPrizeView.span_for(BetPrizeView.KIND_TALLY))) \
+		+ Vector3.UP * (BetPrizeView.FLOOR_CLEAR + BetPrizeView.PLATE_HEIGHT)
+	_throw_bodies([{"body": chip, "from": _treasure_throw_point(), "to": plate}],
+		_land_bet_tax_chip.bind(bet))
+
+## Der Chip liegt: die Platte trägt, was die Steuer WIRKLICH gekostet hat (_bet_tax
+## ist die eine Wahrheit) - so zählt auch ein zwischenzeitlicher Abgleich nicht doppelt.
+func _land_bet_tax_chip(bet: SideBet) -> void:
+	var panel := _side_bet_panel()
+	if panel == null:
+		return
+	var index := panel.offers.find(bet)
+	if index < 0:
+		return
+	var body: Node3D = bet_bodies.get(_bet_slot(index, BET_ROLE_TALLY))
+	if not (body is BetPrizeView) or not is_instance_valid(body):
+		return
+	var plate := body as BetPrizeView
+	var missing := int(_bet_tax.get(bet.get_instance_id(), 0)) - plate.tally_total()
+	if missing <= 0:
+		return
+	plate.add_tally(missing)
+	plate.flare()
+
+## Die ABRECHNUNG am Tresen. Erst nimmt das HAUS: Zählplatten und alle nicht
+## gewonnenen Gewinne fahren hinaus - was UNTEN wartete, verläßt seine Grube, ohne je
+## aufzutauchen. Dann verläßt allein der gewonnene Preis den Tresen nach HINTEN: er
+## reist zum Spieler.
+## Nicht erwartet, Lauf- und Token-Marke - gebucht hat GameRun längst.
+func _play_bet_settlement(won: Array[SideBet]) -> void:
+	if not _bet_counter_laid_out():
+		return
+	_bet_settle += 1
+	var token := _bet_settle
+	var launched := run
+	_bet_won = won.duplicate()
+	_bet_stage = SideBetPanel.STAGE_WON
+	_write_bet_counter(ShopController.GRADE_RISE, true)
+	if bet_bodies.is_empty():
+		_bet_stage = SideBetPanel.STAGE_NONE
+		return
+	await get_tree().create_timer(LiftShaftView.swap_cycle_time()).timeout
+	if run != launched or token != _bet_settle:
+		return
+	_take_bet_prices()
+	_bet_stage = SideBetPanel.STAGE_NONE
+
+## Der Gewinn verläßt den Tresen: dieselbe Sektion-Fahrt wie ein Kauf im Laden -
+## durch die HINTERE Öffnung, denn Gewonnenes reist zum Spieler.
+func _take_bet_prices() -> void:
+	var per_plot: Dictionary = {}
+	for key: String in bet_bodies.keys():
+		var body: Node3D = bet_bodies[key]
+		if body == null or not is_instance_valid(body) or not _bet_seats.has(key):
+			continue
+		var spot := _bet_slot_spot(key)
+		_set_bet_hovered(body, false)
+		_bet_push(per_plot, spot,
+			{"body": body, "spot": spot, "target": _bet_seats[key]})
+		_bet_leaving.append(body)
+	bet_bodies.clear()
+	_bet_keys.clear()
+	_bet_seats.clear()
+	_bet_parked.clear()
+	for spot in SideBetPanel.OFFER_COUNT:
+		_drop_bet_cover(spot)  # nach der Abrechnung parkt nichts mehr
+	var watched := _bet_counter_watched()
+	for spot: int in per_plot:
+		var entries: Array = per_plot[spot]
+		var bodies := _bodies_of(entries)
+		var shaft := _bet_shaft_on(spot, _bet_field(entries),
+			_bet_shaft_depth(entries)) if watched else null
+		if shaft == null or shaft.run_take(bodies, _seats_of(entries), 0.0,
+				_release_bet_bodies.bind(bodies)) == null:
+			_release_bet_bodies(bodies)
+
+## Wie lange der Gewinn-Komet auf den Tresen wartet: bis das Haus abgeräumt hat.
+## Ohne Tresen (kein Fenster, nichts gestellt) wartet er nicht.
+func _bet_settlement_lead() -> float:
+	if not _bet_counter_watched() or bet_bodies.is_empty():
+		return 0.0
+	return LiftShaftView.swap_cycle_time()
+
+## Der FORTSCHRITTS-MELDER und sein Spiegel, gespeist allein aus der EINEN
+## bestehenden Fortschritts-Rechnung - es gibt keine zweite Bedingungs-Auswertung.
+## Kippt der live_state einer Wette auf ON_TRACK, ist ihre Bedingung ERFÜLLT: ihr
+## Gewinn fährt aus der geparkten Grube herauf und steht ausgefahren da. Kippt er auf
+## FAILED, ist sie GESCHEITERT: ihr Gewinn wird eingezogen, das Loch schließt.
+## Gemeldet wird je Wette genau EINMAL, und je Seite nur, wer dort überhaupt kippen
+## kann - eine offen beginnende Wette (decides_early) erfüllt sich mitten in der
+## Runde, eine grün beginnende kann nur noch scheitern.
+func _note_bet_progress(stats: Dictionary) -> void:
+	if run == null or _bet_stage != SideBetPanel.STAGE_ROUND:
+		return
+	var fresh := false
+	for bet in run.active_side_bets:
+		if _bet_fulfilled.has(bet) or _bet_failed.has(bet):
+			continue
+		var live := bet.live_state(stats)
+		if live == SideBet.Live.FAILED:
+			_bet_failed.append(bet)
+			fresh = true
+		elif live == SideBet.Live.ON_TRACK and bet.decides_early():
+			_bet_fulfilled.append(bet)
+			fresh = true
+	if fresh:
+		_write_bet_counter(ShopController.GRADE_RISE, true)
+
+## Die Magazin-Plätze der Pakete, die dieser Einsatz gleich verzehrt - gefragt VOR
+## der Buchung, denn danach steht dort nichts mehr. _consume_packs nimmt vom ENDE.
+func _bet_stake_pack_anchors(bet: SideBet) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or run == null or bet.stake_kind != SideBet.Stake.PACKS:
+		return out
+	var count := mini(run.side_bet_stake_packs(bet), run.owned_packs.size())
+	for i in count:
+		var pack: Pack = run.owned_packs[run.owned_packs.size() - 1 - i]
+		out.append(workshop.pack_anchor_px(pack.pack_uid))
+	return out
+
+## Der EINSATZ wird GEWORFEN: was der Spieler zahlt, fliegt als Körper von seinem
+## echten Zuhause MITTIG auf den Plot - Geld als gestaffelte Salve von der Spitze des
+## Schatzes, die sich dort zu EINEM flachen Turm stapelt, jedes geopferte Paket von
+## SEINEM Magazin-Sitz, ⚡ als lose Zelle von der Kondensator-Bank. Erst wenn der
+## Stapel VOLL steht, bekommt on_land die gelandeten Körper - und die Sektion senkt
+## sie ein. Liefert die Laufzeit der Salve.
+func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
+		chips: Array[int], seat: Vector3, on_land: Callable) -> float:
+	if table_screen == null or not _bet_counter_visible():
+		on_land.call([] as Array)
+		return 0.0
+	var entries: Array = []
+	match bet.stake_kind:
+		SideBet.Stake.PACKS:
+			# Je geopfertem Paket EINE Kassette, jede von IHREM Sitz - ohne Magazin
+			# (Werkbank nicht gestellt) wirft der Schatz vom Hub-Rand her.
+			var anchors := pack_anchors.duplicate()
+			if anchors.is_empty():
+				anchors.append(Vector2(-1, -1))  # kein Magazin: der Hub zahlt
+			for i in anchors.size():
+				var from := _data_cell_seat(anchors[i]) if anchors[i].x >= 0.0 \
+					else _treasure_throw_point()
+				entries.append({"body": _throw_cell_body(from), "from": from,
+					"to": _throw_scatter(seat, i, anchors.size())})
+		SideBet.Stake.CHARGE:
+			var count := BetPrizeView.charge_cells(run.side_bet_stake_charge(bet))
+			var from := capacitor_bank.global_position if capacitor_bank != null \
+				else _treasure_throw_point()
+			for i in mini(count, THROW_SALVO_CAP):
+				entries.append({"body": _throw_charge_body(), "from": from,
+					"to": _throw_scatter(seat, i, mini(count, THROW_SALVO_CAP))})
+		_:
+			var bodies := _throw_chip_bodies(chips)
+			var from := _treasure_throw_point()
+			for i in bodies.size():
+				entries.append({"body": bodies[i], "from": from,
+					"to": seat + Vector3.UP * (BetPrizeView.FLOOR_CLEAR
+						+ ChipStackView.stack_lift(i))})
+	return _throw_bodies(entries, on_land, true)
+
 # --- Die Würfelnetze unter der Auslage -----------------------------------------
 # Steht die Schale, liegen unter jedem Würfel sein NETZ, seine SEELEN-ZEILE und
 # sein PREIS auf der Ladenseite: dieselbe Zeichnung wie überall, nur als reine
@@ -3768,6 +4887,7 @@ func _sync_vitrine_hover() -> void:
 	_sync_secret_curtain()
 	_sync_slit_visibility()
 	_sync_slit_hover()
+	_sync_bet_counter()
 	if charm_shop != null and is_instance_valid(charm_shop):
 		# Im Laden HEBT der Griff nur - die Bucht selbst sagt nichts: unter jedem
 		# Würfel liegen sein Netz, seine Seelen-Zeile und sein Preis, und die stehen
@@ -7524,7 +8644,7 @@ func _on_take_button_pressed() -> void:
 	var hand_fee := run.hand_fee()
 	if hand_fee > 0:
 		run.add_money(-mini(hand_fee, run.money))
-	run.tax_side_bets(slots.size())
+	_tax_side_bets(slots.size())  # bucht wie eh und läßt je Zahlung einen Chip auflaufen
 	await _play_take_animation(breakdown, new_total)
 	if phase != Phase.SCORING:
 		return  # Reset während der Animation - nichts mehr anwenden
@@ -8761,6 +9881,7 @@ func _connect_run() -> void:
 	_vitrine_building = false
 	_slit_gen += 1
 	_drop_slit_cells()  # die versiegelte Ware des alten Ladens liegt nirgends mehr
+	_drop_bet_bodies()  # und der Wett-Tresen des alten Laufs ebenso
 	_hide_vitrine_hard()  # ein Abgang des alten Laufs endet hier, Loch und Ware fort
 	# Und das Hinterzimmer steht wieder vergittert da.
 	if secret_vitrine != null and is_instance_valid(secret_vitrine):
@@ -9160,7 +10281,11 @@ func _resolve_side_bets(cleared: bool) -> void:
 	var won := run.resolve_side_bets(result)
 	_suppress_money_light = false
 	_refresh_side_bet_panel()  # Wetten geleert -> Fenster zeigt "keine aktiv"
-	_play_side_bet_payouts(won)
+	# Der Tresen räumt sich selbst ab; der Gewinn-Komet wartet, bis das Haus fertig
+	# ist. Der Vorlauf wird VOR der Zeremonie geholt - danach steht nichts mehr da.
+	var lead := _bet_settlement_lead()
+	_play_bet_settlement(won)  # nicht erwartet
+	_play_side_bet_payouts(won, lead)
 	if won.is_empty():
 		charm_shop.pending_bet_notice = "Nebenwetten: 0/%d gewonnen." % placed
 		return
@@ -9181,6 +10306,16 @@ func _open_side_bet_betting() -> void:
 		# eine später unterschriebene Klausel darf kein gedrucktes Ziel verschieben.
 		table_screen.side_bet_window.open_betting(
 			SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.hub_level, run.round_goal))
+		# Vor dem Setzen liegt NICHTS: der Tresen ist leer und die Knöpfe nennen die
+		# Preise. Eine laufende Abrechnung bricht dabei ab - EIN Aufräum-Pfad, und
+		# der räumt Loch wie Abgangs-Körper.
+		_bet_tax.clear()
+		_bet_won.clear()
+		_bet_fulfilled.clear()
+		_bet_failed.clear()
+		_bet_settle += 1
+		_bet_stage = SideBetPanel.STAGE_OPEN
+		_write_bet_counter()
 
 ## Schließt die Wettannahme (erster Wurf) - ab jetzt zeigt das Fenster Fortschritt.
 func _close_side_bet_betting() -> void:
@@ -9189,6 +10324,10 @@ func _close_side_bet_betting() -> void:
 	betting_open = false
 	if table_screen != null and table_screen.side_bet_window != null:
 		table_screen.side_bet_window.close_betting()
+		# Der Rundenbeginn nimmt dem Tresen nichts: die Gewinne stehen, wo sie stehen -
+		# ab hier feuern nur die Melder für Erfüllung und Scheitern.
+		_bet_stage = SideBetPanel.STAGE_ROUND
+		_write_bet_counter()
 	_refresh_side_bet_panel()
 
 ## Bezahlbarkeit der offenen Wett-Auslage nachziehen: Geld, Pakete und Energie
@@ -9203,7 +10342,9 @@ func _refresh_side_bet_affordability() -> void:
 func _refresh_side_bet_panel() -> void:
 	if table_screen == null or table_screen.side_bet_window == null or run == null:
 		return
-	table_screen.side_bet_window.update_progress(_side_bet_stats())
+	var stats := _side_bet_stats()
+	table_screen.side_bet_window.update_progress(stats)
+	_note_bet_progress(stats)  # und meldet, wer eben erfüllt hat bzw. gescheitert ist
 
 ## Die Rundenbilanz, gegen die die Nebenwetten laufen - EINE Quelle für Live-
 ## Fortschritt und Abrechnung ("cleared" setzt nur die Abrechnung dazu).

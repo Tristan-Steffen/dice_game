@@ -692,7 +692,14 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	var magazin := Rect2(120, 640, 900, 150)
 	screen.set_apron_pit(magazin, 7.0)
 	screen.set_pit(TableScreen.PIT_SHOP_BOWL, Rect2(200, 300, 400, 80))
+	# Jeder Wett-Plot hat seinen EIGENEN Platz - drei Gruben stehen unabhängig offen.
+	for i in SideBetPanel.OFFER_COUNT:
+		screen.set_pit(TableScreen.side_bet_pit(i),
+			Rect2(900, 200 + 140 * i, 300, 120))
 	assert_true(screen.pit_open(TableScreen.PIT_SHOP_BOWL), "der Schacht steht offen")
+	for i in SideBetPanel.OFFER_COUNT:
+		assert_true(screen.pit_open(TableScreen.side_bet_pit(i)),
+			"und die Grube von Plot %d auch" % i)
 	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
 	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
 	# Der EINE Aufräum-Pfad: jeder Schacht zu, die Grube unberührt.

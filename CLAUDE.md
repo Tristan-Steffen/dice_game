@@ -54,7 +54,8 @@ Top-level `Node3D` (not in a subfolder). Owns exactly one `GameRun`, wires its s
 - **Endzustand zuerst** (`seat_hard`-Regel): jede Fahrt schreibt erst den fertigen Zustand und fährt dann den Weg dorthin; ein abgebrochener Tween darf nichts schulden.
 - **EIN idempotenter Schreiber je Körper-Ort**, mit Generations- und Lauf-Marken; jeder Abbruch läuft durch EINEN Aufräum-Pfad.
 - **ui/ fasst nie Körper an**: Fenster malen Fassungen und MELDEN Rects/Anker in Display-Pixeln (das `apron_bottom`-Muster); die Körper gehören `scene_root`.
-- **Ein Würfel wird nie zweimal gezeigt**, und alles reist als Licht über den gelegten Adern — nie frei über den Filz.
+- **Ein Würfel wird nie zweimal gezeigt.**
+- **Das Bewegungs-Gesetz liest sich nach URHEBER**: was der *Spieler zahlt*, fliegt als KÖRPER im ballistischen Bogen (der WURF, `scene_root`s `#region Der WURF`); was der *Tisch liefert*, reist als LICHT über die gelegten Adern; was er *präsentiert oder einzieht*, fährt per HEBEBÜHNE durch die Fläche. Umgesetzt ist der Wurf bisher für die Nebenwetten (Einsatz + Steuer) — Laden und Werkstatt zahlen noch Licht, ihr Umzug ist eine spätere Welle.
 - **UI-Wort vs. Code-Wort**: Energie/`charge`, Gravur/`Engraving`, Veredelung/`dope`, Pointer (die LED-Adern behalten „Leiterbahn"), Benchmark (nie „Blind"/„Ante").
 - **Sichtbar heißt bedienbar**: was bedient werden darf, hängt an Sichtbarkeit, nie an der Kamera-Station.
 

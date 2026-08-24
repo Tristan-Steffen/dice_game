@@ -107,6 +107,52 @@ func test_consolidate_never_colors_up_the_top_denomination() -> void:
 	var out := ChipStackView.consolidate({100: 50, 25: 0, 5: 0, 1: 0})
 	assert_eq(int(out[100]), 50, "Hunderter steigen nicht weiter auf")
 
+# --- Das RACK, ohne es zu bauen ----------------------------------------------
+# Der Wett-Tresen mißt Sitz und Loch, bevor der Stapel steht - darum ist die
+# Rechnung rein und liegt bei den Türmen.
+
+func test_a_pile_has_one_tower_per_denomination_column() -> void:
+	assert_eq(ChipStackView.pile_tower_count(0), 0, "nichts ist kein Turm")
+	assert_eq(ChipStackView.pile_tower_count(25), 1, "$25 = ein Turm")
+	assert_eq(ChipStackView.pile_tower_count(50), 1, "gleiche Stückelung stapelt")
+	assert_eq(ChipStackView.pile_tower_count(26), 2, "$25 + $1 = zwei Türme")
+	assert_eq(ChipStackView.pile_tower_count(34), 3, "$25 + $5 + 4x$1")
+
+## Ein voller Turm läuft über: mehr als COLUMN_CAP Chips einer Stückelung stehen in
+## zwei Spalten.
+func test_a_column_overflows_at_its_cap() -> void:
+	var over := ChipStackView.COLUMN_CAP + 1
+	assert_eq(ChipStackView.pile_tower_count(over), 2,
+		"%d x $1 passen nicht in eine Spalte" % over)
+
+## Der Fußabdruck wächst mit den Türmen und schrumpft nie.
+func test_the_pile_span_grows_with_its_towers() -> void:
+	# Ein Turm ist einen Chip breit - plus seinen dezenten Rack-Versatz.
+	var one := ChipStackView.pile_span(25)
+	var chip := ChipStackView.CHIP_RADIUS * 2.0
+	var jitter := ChipStackView.COLUMN_JITTER
+	assert_almost_eq(one.x, chip + jitter, jitter, "ein Turm ist einen Chip breit")
+	assert_almost_eq(one.y, chip + jitter, jitter)
+	var last := 0.0
+	for amount in [25, 26, 34, 64]:
+		var span := ChipStackView.pile_span(amount)
+		assert_gte(span.y, last - 0.0001, "$%d wird nie schmaler" % amount)
+		last = span.y
+
+## Der geworfene Einsatz landet als EIN ordentlicher Stapel: das i-te Stück setzt
+## genau auf dem schon liegenden auf, ein Chip je Schritt.
+func test_a_thrown_salvo_stacks_chip_on_chip() -> void:
+	assert_almost_eq(ChipStackView.stack_lift(0), 0.0, 0.0001,
+		"das erste Stück liegt auf der Fläche")
+	var last := ChipStackView.stack_lift(0)
+	for i in range(1, 8):
+		var lift := ChipStackView.stack_lift(i)
+		assert_almost_eq(lift - last, ChipStackView.CHIP_HEIGHT, 0.0001,
+			"Stück %d sitzt genau eine Chiphöhe über seinem Vorgänger" % i)
+		last = lift
+	assert_almost_eq(ChipStackView.stack_lift(-3), 0.0, 0.0001,
+		"ein unsinniger Index stapelt nicht nach unten")
+
 func test_overpay_is_minimal() -> void:
 	# Kein einzelner gezahlter Chip ist überflüssig: seine Rücknahme würde die
 	# Zahlung unter den Preis drücken (minimale Überzahlung).

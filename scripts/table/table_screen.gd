@@ -191,12 +191,22 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 5
+const MAX_PITS := 8
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
 const PIT_SECRET_SHELF := 3
 const PIT_SECRET_BOWL := 4
+## Der Wett-Tresen: je Angebots-Plot EIN eigener Schacht, denn drei Wetten können
+## gleichzeitig und UNABHÄNGIG geparkt stehen (eine parkt, während die nächste
+## auffährt) - drei Löcher, die einander nichts schulden.
+const PIT_SIDE_BET0 := 5
+const PIT_SIDE_BET1 := 6
+const PIT_SIDE_BET2 := 7
+
+## Der Löcher-Platz EINES Wett-Plots.
+static func side_bet_pit(index: int) -> int:
+	return PIT_SIDE_BET0 + clampi(index, 0, 2)
 var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()
 ## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.
@@ -2027,7 +2037,7 @@ func celebrate_side_bet_install(color: Color) -> float:
 	var wave := ScoreShockwave.new()
 	add_child(wave)
 	wave.setup(center, Color(color.r, color.g, color.b, 0.9), side_bet_window.size.x * 0.6, 0.6)
-	return side_bet_stake_comet(true, color)
+	return side_bet_stake_comet(color)
 
 ## Freischaltungs-Zeremonie eines Automaten: Stoßwelle am Automaten-Fenster.
 func celebrate_slot_bank_install(color: Color) -> void:
@@ -2651,7 +2661,7 @@ func money_comet(to_treasure: bool, color: Color) -> float:
 const SIDE_MONEY_COLOR := Color(2.0, 1.55, 0.35, 0.9)
 const SIDE_ENGRAVING_COLOR := Color(1.5, 0.7, 2.0, 0.9)
 
-## Pfad Schatz <-> Nebenwetten (Geld-Einsatz): Truhen-Unterkante in den Korridor,
+## Pfad Schatz <-> Nebenwetten (Geld-Gewinn): Truhen-Unterkante in den Korridor,
 ## über die Abzweigung zur Nebenwetten-Unterkante. Leer, falls die Adern fehlen.
 func _treasure_to_side_path() -> PackedVector2Array:
 	var trunk := treasure_strip.strip_path
@@ -2660,8 +2670,8 @@ func _treasure_to_side_path() -> PackedVector2Array:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[3], trunk[2], branch[1], branch[2]])
 
-## Pfad Hub <-> Nebenwetten (Gravur-Einsatz): Hub-Austritt über den Korridor und
-## die Abzweigung zur Nebenwetten-Unterkante.
+## Pfad Hub <-> Nebenwetten (Gravur- und Energie-Gewinn, Installation): Hub-Austritt
+## über den Korridor und die Abzweigung zur Nebenwetten-Unterkante.
 func _hub_to_side_path() -> PackedVector2Array:
 	var trunk := treasure_strip.strip_path
 	var branch := treasure_strip.branch_path
@@ -2669,10 +2679,11 @@ func _hub_to_side_path() -> PackedVector2Array:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[0], trunk[1], trunk[2], branch[1], branch[2]])
 
-## Einsatz-Komet ZUM Nebenwetten-Fenster (from_hub = Gravur-Einsatz vom Hub,
-## sonst Geld-Einsatz vom Schatz). Liefert die Laufzeit für die Ankunfts-Planung.
-func side_bet_stake_comet(from_hub: bool, color: Color) -> float:
-	var path := _hub_to_side_path() if from_hub else _treasure_to_side_path()
+## Komet vom Hub ZUM Nebenwetten-Fenster. Der Einsatz fliegt als KÖRPER, seit der
+## Tresen ihn schluckt - dies ist die Ader der Installations-Zeremonie.
+## Liefert die Laufzeit.
+func side_bet_stake_comet(color: Color) -> float:
+	var path := _hub_to_side_path()
 	if path.size() < 2:
 		return 0.0
 	var travel := _travel_time(path)
@@ -2694,29 +2705,24 @@ func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 ## Auszahlungs-Komet zum Hub, dann die Werkstatt-Ader ins Fenster.
 ## Liefert die Laufzeit.
 func side_bet_engraving_comet(slot_px: Vector2, color: Color) -> float:
-	var path := _hub_to_side_path()
-	if path.size() < 2 or workshop_window == null or not workshop_window.visible:
+	var path := _side_bet_workshop_path(slot_px)
+	if path.size() < 2:
 		return 0.0
-	path.reverse()
-	var tail := _route_via_strips(path[path.size() - 1], [workshop_hub_strip], slot_px)
-	for i in range(1, tail.size()):
-		path.append(tail[i])
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
-## Lässt das Einsatz-Licht am Fenster-Eintritt weiter "in den Setzen-Knopf
-## diffundieren": ein kurzer, gedämpfter Komet vom Ader-Eintritt zur Knopfmitte
-## (Screen-Pixel). Liefert die Laufzeit.
-func diffuse_into_side_bet(button_center_px: Vector2, color: Color) -> float:
-	var branch := treasure_strip.branch_path
-	if branch.size() < 3:
-		return 0.0
-	var entry := branch[branch.size() - 1]
-	var path := _orthogonal_path(entry, button_center_px)
-	var travel := maxf(0.18, _path_length(path) / PULSE_SPEED)
-	_pulse_along(path, travel, color)
-	return travel
+## Der Weg vom Nebenwetten-Fenster zu einem Platz an der Werkbank: die Schatz-Ader
+## in den Hub, dort auf die Werkstatt-Ader.
+func _side_bet_workshop_path(slot_px: Vector2) -> PackedVector2Array:
+	var path := _hub_to_side_path()
+	if path.size() < 2 or workshop_window == null or not workshop_window.visible:
+		return PackedVector2Array()
+	path.reverse()
+	var tail := _route_via_strips(path[path.size() - 1], [workshop_hub_strip], slot_px)
+	for i in range(1, tail.size()):
+		path.append(tail[i])
+	return path
 
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()

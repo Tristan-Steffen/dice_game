@@ -183,10 +183,16 @@ func _build() -> void:
 ## Ring und Beine hängen an der Zelle, teilen sich aber Mesh und Material über
 ## alle 25 Zellen - der Zustand sitzt allein auf der Dose (der Zellwurzel).
 func _add_cell_parts(cell: MeshInstance3D) -> void:
+	attach_cell_parts(cell, _crimp_mesh, _crimp_material, _leg_mesh, _leg_material)
+
+## Dieselbe Bauform, von außen benutzbar: wer einen Elko baut, schnitzt ihn nicht
+## nach, sondern hängt Ring und Beine hier an seine Dose.
+static func attach_cell_parts(cell: MeshInstance3D, crimp_mesh: Mesh,
+		crimp_material: Material, leg_mesh: Mesh, leg_material: Material) -> void:
 	var crimp := MeshInstance3D.new()
 	crimp.name = "Crimp"
-	crimp.mesh = _crimp_mesh
-	crimp.material_override = _crimp_material
+	crimp.mesh = crimp_mesh
+	crimp.material_override = crimp_material
 	crimp.position = Vector3(0.0, CAN_LENGTH * 0.5 - CRIMP_HEIGHT * 0.5 + CRIMP_PROUD, 0.0)
 	crimp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	cell.add_child(crimp)
@@ -196,13 +202,40 @@ func _add_cell_parts(cell: MeshInstance3D) -> void:
 	for side in 2:
 		var leg := MeshInstance3D.new()
 		leg.name = "Leg%d" % side
-		leg.mesh = _leg_mesh
-		leg.material_override = _leg_material
+		leg.mesh = leg_mesh
+		leg.material_override = leg_material
 		leg.position = Vector3((float(side) * 2.0 - 1.0) * LEG_SPREAD * 0.5,
 			CAN_LENGTH * 0.5 + LEG_REACH * 0.5, CRIMP_DIAMETER * 0.5 - LEG_DROP * 0.5)
 		leg.rotation = Vector3(tilt, 0.0, 0.0)
 		leg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		cell.add_child(leg)
+
+## EIN loser Elko in der Bauform der Bank - dieselbe Dose, derselbe Ring, dieselben
+## Beine, nur ohne Raster und ohne Platine. Für Körper außerhalb der Bank (der
+## Energie-Preis am Wett-Tresen). Eigene Ressourcen: die Bank verleiht ihre
+## geteilten nicht. Ursprung = Rasterpunkt auf der Standfläche, Dosenachse wie in
+## der Bank entlang +Z.
+static func build_loose_cell(lit: bool) -> MeshInstance3D:
+	var res := new_cell_resources()
+	var cell := MeshInstance3D.new()
+	cell.name = "Elko"
+	cell.mesh = res["can"]
+	cell.rotation = Vector3(PI * 0.5, 0.0, 0.0)
+	cell.position = Vector3(0.0, CRIMP_DIAMETER * 0.5, -LEG_REACH * 0.5)
+	cell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cell.material_override = res["lit"] if lit else res["empty"]
+	attach_cell_parts(cell, res["crimp"], res["crimp_material"], res["leg"],
+		res["leg_material"])
+	return cell
+
+## Fußabdruck eines losen Elkos (Breite × Länge samt Beinen) - wer ihn auf einen
+## Platz stellt, misst daran.
+static func loose_cell_size() -> Vector2:
+	return Vector2(CRIMP_DIAMETER, CAN_LENGTH + LEG_REACH)
+
+## Höhe eines liegenden Elkos über seiner Standfläche.
+static func loose_cell_height() -> float:
+	return CRIMP_DIAMETER
 
 func _apply_fill() -> void:
 	for i in _cells.size():
@@ -231,48 +264,66 @@ func _process(delta: float) -> void:
 func _ensure_resources() -> void:
 	if _can_mesh != null:
 		return
+	var res := new_cell_resources()
+	_can_mesh = res["can"]
+	_crimp_mesh = res["crimp"]
+	_leg_mesh = res["leg"]
+	_empty_material = res["empty"]
+	_locked_material = res["locked"]
+	_crimp_material = res["crimp_material"]
+	_leg_material = res["leg_material"]
+
+## Der EINE Bauplan eines Elkos: Meshes und Materialien, frisch. Die Bank hält sie
+## über ihre 25 Zellen, ein loser Elko bekommt seinen eigenen Satz.
+static func new_cell_resources() -> Dictionary:
 	# Wenige Segmente: 25 Zellen à 4 Körper, und bei Rasterhöhe von wenigen
 	# Pixeln sieht niemand die Facetten.
-	_can_mesh = CylinderMesh.new()
-	_can_mesh.top_radius = CAN_DIAMETER * 0.5
-	_can_mesh.bottom_radius = CAN_DIAMETER * 0.5
-	_can_mesh.height = CAN_LENGTH
-	_can_mesh.radial_segments = 12
-	_can_mesh.rings = 0
-	_crimp_mesh = CylinderMesh.new()
-	_crimp_mesh.top_radius = CRIMP_DIAMETER * 0.5
-	_crimp_mesh.bottom_radius = CRIMP_DIAMETER * 0.5
-	_crimp_mesh.height = CRIMP_HEIGHT
-	_crimp_mesh.radial_segments = 12
-	_crimp_mesh.rings = 0
-	_leg_mesh = CylinderMesh.new()
-	_leg_mesh.top_radius = LEG_RADIUS
-	_leg_mesh.bottom_radius = LEG_RADIUS
-	_leg_mesh.height = sqrt(LEG_REACH * LEG_REACH + LEG_DROP * LEG_DROP)
-	_leg_mesh.radial_segments = 6
-	_leg_mesh.rings = 0
+	var can := CylinderMesh.new()
+	can.top_radius = CAN_DIAMETER * 0.5
+	can.bottom_radius = CAN_DIAMETER * 0.5
+	can.height = CAN_LENGTH
+	can.radial_segments = 12
+	can.rings = 0
+	var crimp := CylinderMesh.new()
+	crimp.top_radius = CRIMP_DIAMETER * 0.5
+	crimp.bottom_radius = CRIMP_DIAMETER * 0.5
+	crimp.height = CRIMP_HEIGHT
+	crimp.radial_segments = 12
+	crimp.rings = 0
+	var leg := CylinderMesh.new()
+	leg.top_radius = LEG_RADIUS
+	leg.bottom_radius = LEG_RADIUS
+	leg.height = sqrt(LEG_REACH * LEG_REACH + LEG_DROP * LEG_DROP)
+	leg.radial_segments = 6
+	leg.rings = 0
 	# Erwacht und gesperrt bleiben BESCHATTET, damit die Rundung der Dose unter
 	# den Szenenlichtern liest; nur die geladene Dose ist unshaded.
-	_empty_material = StandardMaterial3D.new()
-	_empty_material.albedo_color = CELL_EMPTY_ALBEDO
-	_empty_material.metallic = 0.4
-	_empty_material.roughness = 0.25
-	_empty_material.emission_enabled = true
-	_empty_material.emission = CELL_EMPTY_EMISSION
-	_empty_material.emission_energy_multiplier = CELL_EMPTY_ENERGY
-	_locked_material = StandardMaterial3D.new()
-	_locked_material.albedo_color = CELL_LOCKED_ALBEDO
-	_locked_material.metallic = 0.5
-	_locked_material.roughness = 0.3
-	_locked_material.emission_enabled = true
-	_locked_material.emission = CELL_LOCKED_EMISSION
-	_crimp_material = StandardMaterial3D.new()
-	_crimp_material.albedo_color = CRIMP_ALBEDO
-	_crimp_material.metallic = 0.6
-	_crimp_material.roughness = 0.45
-	_leg_material = StandardMaterial3D.new()
-	_leg_material.albedo_color = LEG_ALBEDO
-	_leg_material.metallic = 0.9
-	_leg_material.roughness = 0.28
-	_leg_material.emission_enabled = true
-	_leg_material.emission = LEG_EMISSION
+	var empty := StandardMaterial3D.new()
+	empty.albedo_color = CELL_EMPTY_ALBEDO
+	empty.metallic = 0.4
+	empty.roughness = 0.25
+	empty.emission_enabled = true
+	empty.emission = CELL_EMPTY_EMISSION
+	empty.emission_energy_multiplier = CELL_EMPTY_ENERGY
+	var locked := StandardMaterial3D.new()
+	locked.albedo_color = CELL_LOCKED_ALBEDO
+	locked.metallic = 0.5
+	locked.roughness = 0.3
+	locked.emission_enabled = true
+	locked.emission = CELL_LOCKED_EMISSION
+	var crimp_material := StandardMaterial3D.new()
+	crimp_material.albedo_color = CRIMP_ALBEDO
+	crimp_material.metallic = 0.6
+	crimp_material.roughness = 0.45
+	var leg_material := StandardMaterial3D.new()
+	leg_material.albedo_color = LEG_ALBEDO
+	leg_material.metallic = 0.9
+	leg_material.roughness = 0.28
+	leg_material.emission_enabled = true
+	leg_material.emission = LEG_EMISSION
+	var lit := StandardMaterial3D.new()
+	lit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lit.albedo_color = CELL_STORM
+	return {"can": can, "crimp": crimp, "leg": leg, "empty": empty,
+		"locked": locked, "crimp_material": crimp_material,
+		"leg_material": leg_material, "lit": lit}

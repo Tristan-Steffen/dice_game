@@ -21,6 +21,13 @@ extends Node3D
 ## Drei Tischregeln wie in der Grube: nur EMISSION (die Bodenkacheln vertragen
 ## 16 Lichter), das Ruhelicht bleibt gedämpft, und gespiegelt wird nichts - ein
 ## Loch hat kein Spiegelbild.
+## Neben "zu" und "fährt" kennt er einen dritten Zustand: den PARK - Loch offen,
+## Plattform auf VOLLER Schachttiefe (so tief, wie die Fahrt überhaupt kommt), Ware
+## sichtbar darin (park_hard/run_park/run_rise/run_leave_park). Das ist ein
+## ENDZUSTAND, den der Wirt jederzeit hart schreiben darf.
+## Über der geparkten Grube liegt der SCHIRM: zwei fast durchsichtige Paneele, die
+## aus linker und rechter Wand herausfahren und sich in der Mitte treffen. Er wird
+## von draußen BESTELLT (order_cover) - eine Auslage ohne Bestellung baut keinen.
 
 ## Wandstärke und Dicke der Plattformplatte.
 const WALL := 0.10
@@ -82,9 +89,39 @@ const MOUTH_SHARE := 0.72
 ## man ein Stück weit hinein: näher gestellt sähe man die Ware im Schacht liegen,
 ## bevor sie einfährt.
 const CAVITY_SHARE := 1.05
+
 ## Luft unter der gesenkten Plattform, damit ihre Unterseite nicht auf der Sohle
 ## aufsetzt und die beiden im Tiefenpuffer kämpfen.
 const SOLE_CLEAR := 0.04
+
+## Der GRUBEN-SCHIRM. Er sitzt KNAPP unter der Schnittkante und ÜBER dem Lichtsaum
+## (GLOW_DROP), damit der Saum weiter die Tiefe trägt und der Schirm nur deckt.
+const COVER_DROP := 0.034
+const COVER_H := 0.010
+## Die Fuge, in der die beiden Hälften sich treffen - ohne sie wäre der Schirm eine
+## Scheibe, und man sähe ihm nicht an, dass er aus zwei Wänden kommt.
+const COVER_KERF := 0.010
+## Ein eigener kurzer Takt: der Schirm fährt NACH dem Absenken aus und VOR jeder
+## Fahrt wieder ein - nichts durchstößt ihn.
+const COVER_TIME := 0.24
+## Fast durchsichtig: die Ware in der Grube bleibt zu sehen, der Deckel liest sich
+## als Glas. Nur Emission, nichts gespiegelt - ein Loch hat kein Spiegelbild.
+const COVER_ALPHA := 0.13
+const COVER_EMISSION_ENERGY := 0.85
+
+## Die Aufschrift des Schirms: EINE Zeile, flach auf den Paneelen, in Tisch-
+## Leserichtung. Sie nennt, was im Gewinn-Fach liegt - und ohne Zeiger ist sie
+## unsichtbar, denn der Schirm ist ein Deckel, kein Schild.
+const COVER_FONT := 64
+## Anteil der Grube, den die Zeile höchstens einnimmt: längs (Welt-Z) ihre Breite,
+## quer (Welt-X) ihre Zeilenhöhe. Der kleinere der beiden Grade gewinnt.
+const COVER_TEXT_SHARE := 0.80
+const COVER_LINE_SHARE := 0.30
+## Und wieviele Zeilen sie höchstens umbricht: eine lange Gewinn-Zeile (der
+## Press-Schub nennt Limit UND Chance) schrumpfte einzeilig zur Unlesbarkeit.
+const COVER_LINES := 2
+const COVER_OUTLINE := 14
+const COVER_HOVER_TIME := 0.18
 
 ## Ein Schacht steht offen bzw. ist zu. GEMELDET nach draußen, weil das LOCH in der
 ## Anzeige den Shadern gehört und ein Körper nicht in sie greift.
@@ -114,6 +151,22 @@ static func take_cycle_time() -> float:
 static func take_out_time() -> float:
 	return SINK_TIME + PUSH_TIME
 
+## Der PARK-Zyklus endet UNTEN: gesenkt, ein Band-Schritt - und dort bleibt es;
+## zurück hebt nichts mehr, denn der Park IST die volle Schachttiefe. Zuletzt fährt
+## der Schirm aus. Der ehrliche Deckel (ohne bestellten Schirm ist die Fahrt kürzer).
+static func park_cycle_time() -> float:
+	return SINK_TIME + PUSH_TIME + COVER_TIME
+
+## Die AUFFAHRT aus dem Park kennt weder Senken noch Band-Schritt - nur der Schirm
+## muss zuerst fort, sonst stieße die Ware ihn durch.
+static func rise_cycle_time() -> float:
+	return COVER_TIME + LIFT_TIME + DIP_TIME
+
+## Der ABGANG aus dem Park: Schirm ein, ein Band-Schritt (die Ware steht schon auf
+## Schachttiefe), dann hebt die LEERE Platte.
+static func leave_park_time() -> float:
+	return COVER_TIME + PUSH_TIME + LIFT_TIME + DIP_TIME
+
 var _wall_material: StandardMaterial3D
 var _cavity_material: StandardMaterial3D
 var _glow_material: StandardMaterial3D
@@ -125,10 +178,32 @@ var _deck_top: MeshInstance3D
 var center := Vector3.ZERO
 var half := Vector2.ZERO
 var depth := 0.0
+## Wie weit die Maschine HÖCHSTENS hinter ihrer Öffnung Platz nehmen darf (0 = so
+## weit sie will). GEMELDET von draußen: ob nebenan ein zweites Loch offen steht,
+## weiß der Wirt, nicht der Schacht - und ein Hohlraum unter einem fremden Loch läse
+## sich dort als schwarzer Balken.
+var cavity_reach := 0.0
 
 var _platform: Node3D
+## Mit welcher Reichweite der stehende Körper gebaut wurde - sonst bliebe eine
+## geänderte Meldung unbeachtet.
+var _built_reach := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
+
+## Der SCHIRM, sofern bestellt: seine Zeile und der Akzent seiner Wette.
+var cover_text := ""
+var cover_tint := GLOW_COLOR
+var _cover_wanted := false
+var _cover: Node3D
+var _cover_left: Node3D
+var _cover_right: Node3D
+var _cover_label: Label3D
+var _cover_material: StandardMaterial3D
+## 0 = in der Wand, 1 = geschlossen. Und wieviel von der Aufschrift zu sehen ist.
+var _cover_share := 0.0
+var _hover_share := 0.0
+var _hover_tween: Tween
 
 func _init(shaft_name := "LiftShaft") -> void:
 	name = shaft_name
@@ -140,23 +215,37 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	var wanted := Vector2(maxf(half_extents.x, 0.01), maxf(half_extents.y, 0.01))
 	var travel := maxf(shaft_depth, 0.05)
 	if center.is_equal_approx(at) and half.is_equal_approx(wanted) \
-			and is_equal_approx(depth, travel) and _platform != null:
+			and is_equal_approx(depth, travel) and _platform != null \
+			and is_equal_approx(_built_reach, cavity_reach):
 		return
 	center = at
 	half = wanted
 	depth = travel
+	_built_reach = cavity_reach
 	global_position = center
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
+	# Der Neubau nimmt auch den Schirm mit - die Bestellung überlebt, der Körper nicht.
+	_cover = null
+	_cover_left = null
+	_cover_right = null
+	_cover_label = null
+	_cover_material = null
 	if _wall_material == null:
 		_build_materials()
 	_build_body()
 
+## Wie tief ein Hohlraum wirklich wird: sein Wunschmaß, aber nie weiter als die
+## gemeldete Reichweite.
+func cavity_span() -> float:
+	var wanted := depth * CAVITY_SHARE
+	return minf(wanted, cavity_reach) if cavity_reach > 0.0 else wanted
+
 ## Wie weit ein wartendes Stück HINTER der Rückwand steht: am Ende des Hohlraums,
 ## außerhalb des Blickwinkels durch das Öffnungsband.
 func waiting_offset() -> float:
-	return half.x + depth * CAVITY_SHARE
+	return half.x + cavity_span()
 
 ## Und wie weit ein abgehendes Stück VOR die Vorderwand fährt - der Spiegel davon.
 ## Ein Band, das einen Schritt weiterfährt: derselbe Weg für beide Fuhren.
@@ -168,6 +257,12 @@ func exit_offset() -> float:
 func drop() -> float:
 	return depth
 
+## Und wie tief sie im PARK stehen bleibt: GANZ unten, so tief, wie die Fahrt kommt.
+## Ein Maß, keine zweite Messung - der Schacht sagt schon, wo "ganz unten" ist, und
+## der Park ist genau dort. Was die Ware dann noch lesbar macht, ist der SCHIRM.
+func park_y() -> float:
+	return depth
+
 # --- Die Fahrt ------------------------------------------------------------------
 
 ## Der ganze Auftritt als EIN Tween: Loch auf und bündige LEERE Platte senken, Ware
@@ -176,10 +271,17 @@ func drop() -> float:
 ## FERTIGEN Plätze - der Endzustand steht längst, gefahren wird nur der Weg.
 ## Zwei getrennte Tweens (Platte hier, Ware dort) liefen auseinander, und die Ware
 ## steht auf der Platte.
-func run_cycle(bodies: Array, seats: Array, delay: float) -> Tween:
+## riders/rider_seats sind die MITFAHRER: Ware, die auf der Plattform stehen bleibt.
+## Sie sinkt und hebt mit ihr, der Band-Schritt rührt sie nicht an - ohne das
+## schwebte ein bleibender Körper über dem offenen Loch.
+func run_cycle(bodies: Array, seats: Array, delay: float,
+		riders: Array = [], rider_seats: Array = []) -> Tween:
 	settle_hard()
 	if bodies.is_empty() or bodies.size() != seats.size() or _platform == null:
 		return null
+	if riders.size() != rider_seats.size():
+		riders = []
+		rider_seats = []
 	var behind := waiting_offset()
 	# Wartestellung: hinter der Rückwand auf Schachttiefe - dort deckt das opake
 	# Display jedes Stück, bis es hereinschiebt.
@@ -190,14 +292,10 @@ func run_cycle(bodies: Array, seats: Array, delay: float) -> Tween:
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	_tween.tween_property(_platform, "position:y", -depth, SINK_TIME) \
-		.set_trans(Tween.TRANS_LINEAR)
-	for i in bodies.size():
-		var step := _tween if i == 0 else _tween.parallel()
-		step.tween_property(bodies[i], "global_position",
-			(seats[i] as Vector3) - Vector3.UP * depth, PUSH_TIME) \
-			.set_trans(Tween.TRANS_LINEAR)
-	_lift_and_seat(bodies, seats)
+	_together(riders, rider_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
+		Tween.EASE_IN_OUT)
+	_belt_step([], [], 0.0, bodies, seats)
+	_lift_and_seat(bodies + riders, seats + rider_seats)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -210,13 +308,17 @@ func run_cycle(bodies: Array, seats: Array, delay: float) -> Tween:
 ## on_swept meldet am Ende des Band-Schritts, dass die alte Ware draußen ist - dort
 ## gibt der Wirt ihre Körper frei.
 func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
-		new_seats: Array, delay: float, on_swept := Callable()) -> Tween:
+		new_seats: Array, delay: float, on_swept := Callable(),
+		riders: Array = [], rider_seats: Array = []) -> Tween:
 	settle_hard()
 	if _platform == null or old_bodies.size() != old_seats.size() \
 			or new_bodies.size() != new_seats.size():
 		return null
 	if old_bodies.is_empty() and new_bodies.is_empty():
 		return null
+	if riders.size() != rider_seats.size():
+		riders = []
+		rider_seats = []
 	var behind := waiting_offset()
 	var ahead := exit_offset()
 	# Wartestellung der NEUEN: hinter der Rückwand auf Schachttiefe - dort deckt das
@@ -228,17 +330,13 @@ func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	# Senken MIT der alten Ware: sie steht auf der Platte, sie fährt mit ihr.
-	if old_bodies.is_empty():
-		_tween.tween_property(_platform, "position:y", -depth, SINK_TIME) \
-			.set_trans(Tween.TRANS_LINEAR)
-	else:
-		_together(old_bodies, old_seats, -depth, SINK_TIME,
-			Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	# Senken MIT der alten Ware und den Mitfahrern: sie stehen auf der Platte.
+	_together(old_bodies + riders, old_seats + rider_seats, -depth, SINK_TIME,
+		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_belt_step(old_bodies, old_seats, ahead, new_bodies, new_seats)
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
-	_lift_and_seat(new_bodies, new_seats)
+	_lift_and_seat(new_bodies + riders, new_seats + rider_seats)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -246,18 +344,22 @@ func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
 ## bündig heben und das Loch schließen. Danach ist die Auslage leer - die Platte IST
 ## die Fläche, also darf sie nicht unten stehen bleiben.
 func run_exit(bodies: Array, seats: Array, delay: float,
-		on_swept := Callable()) -> Tween:
+		on_swept := Callable(), riders: Array = [], rider_seats: Array = []) -> Tween:
 	settle_hard()
 	if bodies.is_empty() or bodies.size() != seats.size() or _platform == null:
 		return null
+	if riders.size() != rider_seats.size():
+		riders = []
+		rider_seats = []
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	_together(bodies, seats, -depth, SINK_TIME, Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_together(bodies + riders, seats + rider_seats, -depth, SINK_TIME,
+		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_belt_step(bodies, seats, exit_offset(), [], [])
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
-	_lift_and_seat([], [])
+	_lift_and_seat(riders, rider_seats)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -286,6 +388,300 @@ func run_take(bodies: Array, seats: Array, delay: float,
 	_lift_and_seat([], [])
 	_tween.tween_callback(_shut)
 	return _tween
+
+## Der PARK-ZYKLUS: wie der Warenumschlag, nur endet er UNTEN. Loch auf, Platte und
+## alte Ware auf SCHACHTTIEFE senken, EIN Band-Schritt (die alte vorn hinaus, die neue
+## von hinten auf ihren Platz) - und dort bleibt es stehen: Loch OFFEN, die Ware
+## sichtbar am Grubenboden. Zuletzt fährt der SCHIRM aus beiden Wänden darüber. Das
+## ist ein ENDZUSTAND, kein Zwischenschritt.
+func run_park(old_bodies: Array, old_seats: Array, new_bodies: Array,
+		new_seats: Array, delay: float, on_swept := Callable()) -> Tween:
+	settle_hard()
+	if _platform == null or old_bodies.size() != old_seats.size() \
+			or new_bodies.size() != new_seats.size():
+		return null
+	if old_bodies.is_empty() and new_bodies.is_empty():
+		return null
+	var behind := waiting_offset()
+	for i in new_bodies.size():
+		var body: Node3D = new_bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -depth, 0.0)
+	_tween = create_tween()
+	_tween.tween_interval(maxf(delay, 0.0))
+	_tween.tween_callback(_open)
+	_together(old_bodies, old_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
+		Tween.EASE_IN_OUT)
+	_belt_step(old_bodies, old_seats, exit_offset(), new_bodies, new_seats)
+	if on_swept.is_valid():
+		_tween.tween_callback(on_swept)
+	_cover_step(0.0, 1.0)  # zuletzt schiebt sich der Schirm über die Grube
+	return _tween
+
+## Die AUFFAHRT aus dem Park: die Ware steht schon am Grubenboden, der Schirm fährt
+## ein, dann hebt sie - kein Senken, kein Band-Schritt -, und danach ist das Loch zu.
+func run_rise(bodies: Array, seats: Array, delay: float) -> Tween:
+	if _platform == null or bodies.size() != seats.size() or bodies.is_empty():
+		return null
+	park_hard()
+	for i in bodies.size():
+		var body: Node3D = bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (seats[i] as Vector3) - Vector3.UP * park_y()
+	_tween = create_tween()
+	_tween.tween_interval(maxf(delay, 0.0))
+	_cover_step(1.0, 0.0)  # erst der Deckel, dann die Ware - nichts durchstößt ihn
+	_lift_and_seat(bodies, seats)
+	_tween.tween_callback(_shut)
+	return _tween
+
+## Der ABGANG aus dem Park: der Schirm fährt ein, dann geht die Ware UNTEN vorn hinaus,
+## ohne je aufzutauchen (sie steht ja schon auf Schachttiefe); danach hebt die leere
+## Platte bündig und das Loch schließt.
+func run_leave_park(bodies: Array, seats: Array, delay: float,
+		on_swept := Callable(), riders: Array = [], rider_seats: Array = []) -> Tween:
+	if _platform == null or bodies.size() != seats.size() or bodies.is_empty():
+		return null
+	if riders.size() != rider_seats.size():
+		riders = []
+		rider_seats = []
+	park_hard()
+	for i in bodies.size():
+		var body: Node3D = bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (seats[i] as Vector3) - Vector3.UP * park_y()
+	_tween = create_tween()
+	_tween.tween_interval(maxf(delay, 0.0))
+	_cover_step(1.0, 0.0)
+	_belt_step(bodies, seats, exit_offset(), [], [])
+	if on_swept.is_valid():
+		_tween.tween_callback(on_swept)
+	_lift_and_seat(riders, rider_seats)
+	_tween.tween_callback(_shut)
+	return _tween
+
+## Der PARK-ZUSTAND, direkt hergestellt: Fahrt aus, Loch auf, Platte ganz unten - und
+## der bestellte Schirm hart mit darüber. Der Schreiber darf ihn jederzeit hart
+## schreiben (Endzustand zuerst) - nach einem Abbruch steht die geparkte Grube sofort
+## wieder, ohne Fahrt.
+func park_hard() -> void:
+	_kill()
+	visible = true
+	_set_platform(-park_y())
+	_cover_hard(1.0)
+	opened.emit(center, half)
+
+# --- Der GRUBEN-SCHIRM ----------------------------------------------------------
+# Zwei fast durchsichtige Paneele über der geparkten Grube. Sie fahren aus der linken
+# und der rechten Wand heraus und treffen sich in der Mitte - und weil der Schacht
+# seitlich KEINEN Hohlraum hat (die Hohlräume liegen vorn und hinten, und keiner darf
+# unter ein fremdes Loch reichen), parkt ein Paneel auf Länge NULL in seinem
+# Wandschlitz und rollt daraus hervor, statt in eine Tasche zu schieben.
+
+## Der Schirm wird BESTELLT - eine Auslage ohne Bestellung baut keinen. Der Schacht
+## kennt keine Wetten: WAS in der Grube liegt, meldet der Wirt als fertige Zeile.
+func order_cover(text: String, accent: Color) -> void:
+	var fresh := not _cover_wanted or _cover == null or not is_instance_valid(_cover)
+	var changed := text != cover_text or accent != cover_tint
+	_cover_wanted = true
+	cover_text = text
+	cover_tint = accent
+	if fresh:
+		_build_cover()
+	elif changed:
+		_write_cover()
+	_seat_cover(_cover_share)
+
+## Die Bestellung zurücknehmen - der Körper geht mit ihr.
+func drop_cover() -> void:
+	_cover_wanted = false
+	cover_text = ""
+	_stop(_hover_tween)
+	_hover_tween = null
+	_cover_share = 0.0
+	_hover_share = 0.0
+	if _cover != null and is_instance_valid(_cover):
+		remove_child(_cover)
+		_cover.queue_free()
+	_cover = null
+	_cover_left = null
+	_cover_right = null
+	_cover_label = null
+	_cover_material = null
+
+func has_cover() -> bool:
+	return _cover_wanted
+
+## Wie weit der Schirm heraus ist (0 = in der Wand, 1 = geschlossen).
+func cover_share() -> float:
+	return _cover_share
+
+## Und wieviel von seiner Aufschrift zu sehen ist - ohne Zeiger nichts.
+func cover_text_share() -> float:
+	return _hover_share * _cover_share
+
+## Der Zeiger liegt über der Grube: die Zeile blendet ein. GEFRAGT je Bild vom Wirt,
+## wie jeder andere Griff auf dem Tisch.
+func set_cover_hovered(on: bool) -> void:
+	if not _cover_wanted or is_equal_approx(_hover_share, 1.0 if on else 0.0):
+		return
+	_stop(_hover_tween)
+	_hover_tween = create_tween()
+	_hover_tween.tween_method(_set_hover_share, _hover_share, 1.0 if on else 0.0,
+		COVER_HOVER_TIME).set_trans(Tween.TRANS_SINE)
+
+func cover_hovered() -> bool:
+	return _hover_share > 0.5
+
+## Ein Schlag des Schirms im laufenden Fahrplan. Ohne Bestellung kostet er nichts -
+## die Zyklus-Deckel rechnen ihn trotzdem mit, sie sind Decken, keine Versprechen.
+func _cover_step(from: float, to: float) -> void:
+	if not _cover_wanted:
+		return
+	_tween.tween_method(_set_cover_share, from, to, COVER_TIME) \
+		.set_trans(Tween.TRANS_SINE)
+
+## Der harte Schreiber des Schirm-Zustands - jeder Abbruch und jeder Endzustand geht
+## durch ihn. Eingefahren nimmt er die Aufschrift mit: sie hinge sonst über nichts.
+func _cover_hard(share: float) -> void:
+	if share <= 0.001:
+		_stop(_hover_tween)
+		_hover_tween = null
+		_hover_share = 0.0
+	_seat_cover(share)
+
+func _set_cover_share(share: float) -> void:
+	_seat_cover(share)
+
+func _set_hover_share(share: float) -> void:
+	_hover_share = clampf(share, 0.0, 1.0)
+	_sync_cover_label()
+
+func _seat_cover(share: float) -> void:
+	# Ungebeten gibt es keinen Schirm - und darum auch keinen Zustand, der einen
+	# behauptet (Laden und Magazin fahren dieselbe Maschine).
+	_cover_share = clampf(share, 0.0, 1.0) if _cover_wanted else 0.0
+	if _cover == null or not is_instance_valid(_cover):
+		return
+	_cover.visible = _cover_share > 0.001
+	# Der Maßstab IST die Ausfahrt: bei 0 steckt das Paneel als Nullstrich in seinem
+	# Wandschlitz, bei 1 stößt es an die Mittelfuge.
+	var out := maxf(_cover_share, 0.0001)
+	if _cover_left != null and is_instance_valid(_cover_left):
+		_cover_left.scale.z = out
+	if _cover_right != null and is_instance_valid(_cover_right):
+		_cover_right.scale.z = out
+	_sync_cover_label()
+
+func _sync_cover_label() -> void:
+	if _cover_label == null or not is_instance_valid(_cover_label):
+		return
+	var seen := _hover_share * _cover_share
+	_cover_label.visible = seen > 0.004
+	_cover_label.modulate.a = seen
+	_cover_label.outline_modulate.a = seen
+
+## Der Körper des Schirms - je Wand ein Halter, dazwischen die eine Aufschrift.
+func _build_cover() -> void:
+	if _cover != null and is_instance_valid(_cover):
+		remove_child(_cover)
+		_cover.queue_free()
+	_cover = Node3D.new()
+	_cover.name = "Schirm"
+	_cover.visible = false
+	add_child(_cover)
+	_cover_material = _glass_material()
+	var reach := maxf(half.y - COVER_KERF * 0.5, 0.001)
+	_cover_left = _build_cover_wing("Links", -1.0, reach)
+	_cover_right = _build_cover_wing("Rechts", 1.0, reach)
+	_cover_label = Label3D.new()
+	_cover_label.name = "Aufschrift"
+	_cover_label.font_size = COVER_FONT
+	_cover_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cover_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Der Prepass schreibt Tiefe (die Ziffern-Lehre der Würfel), damit die Zeile über
+	# dem Glas und über der Ware sauber sortiert; die niedrige Schwelle läßt das
+	# Einblenden trotzdem WEICH laufen, statt es hart umzuschalten.
+	_cover_label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
+	_cover_label.alpha_scissor_threshold = 0.02
+	_cover_label.outline_size = COVER_OUTLINE
+	# Flach auf dem Schirm und in TISCH-Leserichtung: die Zeile läuft entlang Welt +Z
+	# (Bildschirm rechts), ihre Oberkante zeigt nach Welt +X (Bildschirm oben).
+	_cover_label.transform.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
+	_cover_label.position = Vector3(0.0, -COVER_DROP + COVER_H, 0.0)
+	_cover_label.visible = false
+	_cover.add_child(_cover_label)
+	_write_cover()
+
+## EIN Flügel: eine flache Platte, die im Wandschlitz beginnt und zur Mitte wächst.
+func _build_cover_wing(wing_name: String, dir: float, reach: float) -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "Fluegel%s" % wing_name
+	holder.position = Vector3(0.0, -COVER_DROP, dir * half.y)
+	holder.scale.z = 0.0001
+	_cover.add_child(holder)
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(half.x * 2.0, COVER_H, reach)
+	var pane := MeshInstance3D.new()
+	pane.name = "Scheibe"
+	pane.mesh = mesh
+	pane.material_override = _cover_material
+	pane.position = Vector3(0.0, 0.0, -dir * reach * 0.5)
+	pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	holder.add_child(pane)
+	return holder
+
+## Zeile und Akzent auf den bestehenden Körper schreiben - eine neue Wette baut
+## keinen neuen Schirm.
+func _write_cover() -> void:
+	if _cover_material != null:
+		_cover_material.albedo_color = Color(cover_tint.r * 0.5, cover_tint.g * 0.5,
+			cover_tint.b * 0.5, COVER_ALPHA)
+		_cover_material.emission = Color(cover_tint.r, cover_tint.g, cover_tint.b, 1.0)
+	if _cover_label == null or not is_instance_valid(_cover_label):
+		return
+	_cover_label.text = cover_text
+	var grade := _cover_font_scale(cover_text)
+	_cover_label.pixel_size = grade
+	# Der Umbruch läuft auf der Grubenbreite, in Schrift-Pixeln gemessen - so bricht
+	# die Zeile genau dort, wo der gewählte Grad es vorsieht.
+	_cover_label.width = (half.y * 2.0) * COVER_TEXT_SHARE / maxf(grade, 0.0001)
+	_cover_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_cover_label.modulate = Color(cover_tint.r * 1.5 + 0.3, cover_tint.g * 1.5 + 0.3,
+		cover_tint.b * 1.5 + 0.3, _hover_share * _cover_share)
+	_cover_label.outline_modulate = Color(0.03, 0.03, 0.05,
+		_hover_share * _cover_share)
+	_sync_cover_label()
+
+## Der Schriftgrad: die Zeile muß LÄNGS in die Grubenbreite (Welt-Z) und QUER in ihre
+## Tiefe (Welt-X) passen - der kleinere der beiden Grade gewinnt. Gewählt wird die
+## ZEILENZAHL, die den größten Grad erlaubt: kurze Gewinne stehen einzeilig groß, ein
+## langer bricht um, statt auf ein Fünftel zu schrumpfen.
+func _cover_font_scale(text: String) -> float:
+	var chars := maxf(float(text.length()), 1.0)
+	var best := 0.0
+	for lines in range(1, COVER_LINES + 1):
+		var per_line := ceilf(chars / float(lines))
+		var wide := (half.y * 2.0) * COVER_TEXT_SHARE \
+			/ maxf(per_line * float(COVER_FONT) * 0.6, 1.0)
+		var high := (half.x * 2.0) * COVER_LINE_SHARE \
+			/ (float(COVER_FONT) * float(lines))
+		best = maxf(best, minf(wide, high))
+	return maxf(best, 0.0002)
+
+## Das GLAS des Schirms: fast durchsichtig, nur ein Saum Emission - der Blick fällt
+## weiter auf die Ware darunter. Kein Tiefen-Schreiben, sonst verdeckte er sie.
+func _glass_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(cover_tint.r * 0.5, cover_tint.g * 0.5,
+		cover_tint.b * 0.5, COVER_ALPHA)
+	material.metallic = 0.0
+	material.roughness = 0.25
+	material.emission_enabled = true
+	material.emission = Color(cover_tint.r, cover_tint.g, cover_tint.b, 1.0)
+	material.emission_energy_multiplier = COVER_EMISSION_ENERGY
+	return material
 
 ## Der BAND-SCHRITT: auf Schachttiefe fahren alle Stücke um dasselbe Maß nach vorn -
 ## die abgehenden aus dem Schacht in den vorderen Hohlraum, die ankommenden aus dem
@@ -337,15 +733,22 @@ func settle_hard() -> void:
 func platform_y() -> float:
 	return _platform.position.y if _platform != null else 0.0
 
+## Fährt gerade eine Fahrt? Wer den Zustand von außen nachstellt, muss ihr aus dem
+## Weg gehen - sie schreibt ihn selbst.
+func riding() -> bool:
+	return _tween != null and _tween.is_valid() and _tween.is_running()
+
 ## Bündig ist die Platte von der Anzeige nicht zu unterscheiden - das Öffnen ist
-## deshalb nahtlos.
+## deshalb nahtlos. Ein Schirm hat hier nichts zu suchen: gleich fährt Ware.
 func _open() -> void:
 	visible = true
 	_set_platform(0.0)
+	_cover_hard(0.0)
 	opened.emit(center, half)
 
 func _shut() -> void:
 	_set_platform(0.0)
+	_cover_hard(0.0)
 	visible = false
 	closed.emit()
 
@@ -354,9 +757,12 @@ func _set_platform(y: float) -> void:
 		_platform.position.y = y
 
 func _kill() -> void:
-	if _tween != null and _tween.is_valid():
-		_tween.kill()
+	_stop(_tween)
 	_tween = null
+
+func _stop(tween: Tween) -> void:
+	if tween != null and tween.is_valid():
+		tween.kill()
 
 # --- Der Körper -----------------------------------------------------------------
 
@@ -389,7 +795,7 @@ func _build_body() -> void:
 	var span := Vector2(half.x * 2.0, half.y * 2.0)
 	var top := -WALL_SINK
 	var mouth := depth * MOUTH_SHARE
-	var cavity := depth * CAVITY_SHARE
+	var cavity := cavity_span()
 	var sole_y := top - depth - SOLE_CLEAR - DECK
 
 	# Zwei geschlossene Flanken; vorn und hinten steht je ein Sturz über einem
@@ -429,12 +835,21 @@ func _build_body() -> void:
 
 	_build_platform(span)
 
+	# Der Schirm gehört zum Körper, nicht zur Fahrt: eine überlebende Bestellung
+	# stellt ihn nach dem Neubau in genau seinem alten Zustand wieder hin.
+	if _cover_wanted:
+		_build_cover()
+		_seat_cover(_cover_share)
+
 ## Ein HOHLRAUM hinter einem Öffnungsband, gespiegelt über dir (+1 = hinten, der
 ## Eingang; -1 = vorn, der Ausgang). Stirnwand, zwei Flanken und eine Decke - durch
 ## das Band blickt man ein Stück weit hinein, und dort soll das Auge nichts finden.
+## Die Decke füllt das ganze Sturz-Band bis an die Schnittkante: bliebe darüber ein
+## Schlitz, sähe man von einem NACHBAR-Loch senkrecht in den dunklen Hohlraum.
 func _build_cavity(cavity_name: String, dir: float, span: Vector2, top: float,
 		mouth: float, cavity: float) -> void:
 	var mid := dir * (half.x + WALL + cavity * 0.5)
+	var lid := maxf(depth - mouth, 0.01)
 	_box("Cavity%sEnd" % cavity_name, Vector3(WALL, depth, span.y + WALL * 2.0),
 		Vector3(dir * (half.x + WALL * 1.5 + cavity), top - depth * 0.5, 0.0),
 		_cavity_material)
@@ -442,8 +857,8 @@ func _build_cavity(cavity_name: String, dir: float, span: Vector2, top: float,
 		Vector3(mid, top - depth * 0.5, -half.y - WALL * 0.5), _cavity_material)
 	_box("Cavity%sRight" % cavity_name, Vector3(cavity, depth, WALL),
 		Vector3(mid, top - depth * 0.5, half.y + WALL * 0.5), _cavity_material)
-	_box("Cavity%sLid" % cavity_name, Vector3(cavity, WALL, span.y + WALL * 2.0),
-		Vector3(mid, top - (depth - mouth) - WALL * 0.5, 0.0), _cavity_material)
+	_box("Cavity%sLid" % cavity_name, Vector3(cavity, lid, span.y + WALL * 2.0),
+		Vector3(mid, top - lid * 0.5, 0.0), _cavity_material)
 
 ## Die Plattform: eine Platte über die volle Schachtbreite. Ihr Ursprung liegt in
 ## der Glasebene, ihre DECKFLÄCHE also bündig - so ist "0" der bündige Stand und

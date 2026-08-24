@@ -68,10 +68,20 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_MAGAZIN, 0)
 	assert_gt(TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_MAGAZIN)
 	var slots := [TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL,
-		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL]
+		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
+		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
+		TableScreen.PIT_SIDE_BET2]
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	# Jeder Wett-Plot hat SEINEN Platz: drei Gruben können gleichzeitig offen stehen.
+	var seen: Array[int] = []
+	for i in SideBetPanel.OFFER_COUNT:
+		var slot := TableScreen.side_bet_pit(i)
+		assert_false(seen.has(slot), "Plot %d bekommt ein eigenes Loch" % i)
+		seen.append(slot)
+	assert_eq(seen, [TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
+		TableScreen.PIT_SIDE_BET2])
 	# Die Zonen einer Auslage liegen hintereinander - scene_root addiert sie auf
 	# ihren Sockel.
 	assert_eq(TableScreen.PIT_SHOP_SLITS + VitrineView.ZONE_BOWL,
@@ -430,3 +440,65 @@ func test_die_lichtfuge_und_der_kragen_sind_restlos_fort() -> void:
 	for gone: String in ["_play_shop_seams", "_play_secret_seam", "_seam_token",
 			"_secret_seam_token", "set_lift_seam", "hide_lift_seam"]:
 		assert_false(root.contains(gone), "scene_root taktet kein %s mehr" % gone)
+
+# --- Der PARK ist die VOLLE Tiefe, und die halbe Parkung ist restlos fort ---------
+
+func test_die_halbe_parkhoehe_ist_tot() -> void:
+	var shaft := (LiftShaftView as GDScript).get_script_constant_map()
+	assert_false(shaft.has("PARK_SHARE"),
+		"es gibt keinen Anteil mehr - der Park IST die Fahrstrecke")
+	var code: String = FileAccess.get_file_as_string(
+		"res://scripts/table/lift_shaft_view.gd")
+	assert_false(code.contains("PARK_SHARE"), "auch nicht als Wort")
+	# Die Restlogik der halben Parkung: ein Stück zurück heben bzw. vor dem Band-Schritt
+	# noch nachsenken. Beides ist bei voller Tiefe die Strecke NULL.
+	assert_false(code.contains("depth - park_y()"),
+		"kein Rest-Hub zwischen Parkhöhe und Sohle mehr")
+	for gone: String in ["res://scripts/scene_root.gd",
+			"res://test/integration/test_side_bet_counter.gd"]:
+		assert_false(FileAccess.get_file_as_string(gone).contains("PARK_SHARE"),
+			"%s kennt keinen Park-Anteil" % gone)
+
+func test_der_park_endet_auf_der_schachttiefe() -> void:
+	var shaft := LiftShaftView.new()
+	autofree(shaft)
+	shaft.depth = 2.4
+	assert_almost_eq(shaft.park_y(), shaft.depth, 0.0001,
+		"geparkt wird da, wo die Fahrt endet")
+	assert_almost_eq(shaft.park_y(), shaft.drop(), 0.0001, "EIN Maß, eine Frage")
+
+## Die Takte, ehrlich nachgerechnet: der Park hebt nichts mehr zurück, dafür fährt der
+## SCHIRM - und jede Fahrt aus dem Park beginnt damit, ihn einzuziehen.
+func test_die_takte_des_parkens_rechnen_den_schirm_mit() -> void:
+	assert_almost_eq(LiftShaftView.park_cycle_time(),
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.COVER_TIME,
+		0.0001, "senken, Band-Schritt, Schirm - kein Rest-Hub")
+	assert_almost_eq(LiftShaftView.rise_cycle_time(),
+		LiftShaftView.COVER_TIME + LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME,
+		0.0001, "Schirm ein, dann hebt die Ware")
+	assert_almost_eq(LiftShaftView.leave_park_time(),
+		LiftShaftView.COVER_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
+			+ LiftShaftView.DIP_TIME, 0.0001,
+		"Schirm ein, Band-Schritt, leere Platte herauf - kein Vor-Senken mehr")
+	assert_lt(LiftShaftView.leave_park_time(), LiftShaftView.swap_cycle_time(),
+		"und der Abgang aus dem Park bleibt unter dem Deckel der Abrechnung")
+
+## Der Schirm hat EINE Textquelle: die Gewinn-Beschriftung der Wette. Sie wird genau
+## einmal formuliert - der Setzen-Knopf und der Deckel lesen dieselbe Zeile.
+func test_die_gewinn_beschriftung_hat_genau_eine_quelle() -> void:
+	var panel: String = FileAccess.get_file_as_string(
+		"res://scripts/ui/side_bet_panel.gd")
+	assert_eq(panel.count("reward_label("), 1,
+		"das Fenster formuliert den Gewinn an EINER Stelle (prize_label)")
+	for foreign: String in ["res://scripts/scene_root.gd",
+			"res://scripts/table/lift_shaft_view.gd",
+			"res://scripts/table/bet_prize_view.gd"]:
+		var code: String = FileAccess.get_file_as_string(foreign)
+		assert_false(code.contains("reward_label"),
+			"%s formuliert keinen Gewinn - er bekommt ihn gemeldet" % foreign)
+	# Und die Maschine kennt keine Wetten: sie nimmt eine fertige Zeile entgegen.
+	var machine: String = FileAccess.get_file_as_string(
+		"res://scripts/table/lift_shaft_view.gd")
+	for foreign: String in ["SideBet", "side_bet"]:
+		assert_false(machine.contains(foreign),
+			"der Schacht weiß nichts von %s" % foreign)
