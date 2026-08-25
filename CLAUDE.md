@@ -61,5 +61,10 @@ Top-level `Node3D` (not in a subfolder). Owns exactly one `GameRun`, wires its s
 - **UI-Wort vs. Code-Wort**: Energie/`charge`, Gravur/`Engraving`, Veredelung/`dope`, Pointer (die LED-Adern behalten „Leiterbahn"), Benchmark (nie „Blind"/„Ante").
 - **Sichtbar heißt bedienbar**: was bedient werden darf, hängt an Sichtbarkeit, nie an der Kamera-Station.
 
+## Arbeitsweise (Spieler-Entscheidung 2026-08-25)
+- **Delegiert wird nur bei echten FEATURE-WELLEN** (neue Mechanik, mehrere Subsysteme, Umbau einer Grammatik) — dann Plan-Datei + Opus-5-Subagent wie gehabt. **Kleine Änderungen macht die Session SELBST**: Ein-/Zwei-Datei-Fixes, Konstanten, Farben/Maße, visuelle Tweaks, Bugs mit bekannter Wurzel. Kein Plan-Dokument, kein Agenten-Aufsatz für so etwas.
+- **Getestet wird EINMAL AM ENDE**, nicht nach jedem Schritt: ein Suiten-Pass, wenn die Änderung steht (plus Boot, falls `scene_root.gd` angefasst wurde). Kein Wiederholen der Läufe, die ein Subagent gerade grün gefahren hat — sein Log prüfen genügt (immer mit dem `Ignoring|Parse Error`-Grep, siehe unten); der eigene Vollpass gehört vor den Commit.
+- **Beweis-Aufwand nach Anlass**: Kennfarben-Aufnahmen, Pixel-A/B und Frame-Serien gehören zur Artefakt-Jagd (dort haben sie dreimal die echte Ursache statt einer Vermutung geliefert) — nicht zu Geschmacks-Änderungen.
+
 ## Testing
 Notizen und GUT-Eigenheiten: `test/CLAUDE.md`. Tests parsen `scene_root.gd` nie — nach Änderungen daran das Spiel einmal headless booten.
