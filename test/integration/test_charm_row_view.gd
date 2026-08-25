@@ -89,3 +89,29 @@ func test_flash_charm_tolerates_invalid_index():
 	row.flash_charm(-1)
 	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
 	assert_eq(row.charm_nodes.size(), 1)
+
+# --- Das echte Modell ---------------------------------------------------------
+
+## Der Ladethread legt Texturen an, der Hauptfaden auch - und der Texturspeicher
+## der Kopf-los-Attrappe ist nicht fadensicher. Kopflos darf darum KEIN Auftrag
+## laufen, sonst kippt irgendein fremder Test mit 'Parameter "t" is null'.
+func test_no_loader_thread_runs_without_a_renderer():
+	if CharmRowView.models_wanted():
+		pass_test("mit echtem Renderer lädt der Ladethread - hier nichts zu prüfen")
+		return
+	var path := Charm.horseshoe().model_path
+	assert_null(CharmRowView.cached_model_scene(path), "ungeladen - sonst prüft der Test nichts")
+	CharmRowView.request_model_scene(path)
+	assert_eq(CharmRowView.pending_model_loads(), 0, "kein Auftrag im Ladethread")
+
+## Kopflos zeigt die Reihe den Platzhalter (siehe CharmRowView.models_wanted).
+## EIN echtes Modell wird trotzdem geholt, sonst bliebe der ganze Ladeweg -
+## GLB, Geometrie, Hologramm-Auflage - in der Suite ungefahren.
+func test_a_real_model_loads_with_geometry_and_takes_the_hologram():
+	var scene := CharmRowView.model_scene(Charm.rabbits_foot().model_path)
+	assert_not_null(scene, "das GLB lädt")
+	var model: Node3D = autofree(scene.instantiate())
+	assert_gt(CharmThumb.merged_aabb(model).size.length(), 0.0, "es bringt Geometrie mit")
+	var materials: Array[ShaderMaterial] = []
+	CharmRowView.apply_hologram(model, materials)
+	assert_gt(materials.size(), 0, "jede Fläche trägt ihr Hologramm-Material")

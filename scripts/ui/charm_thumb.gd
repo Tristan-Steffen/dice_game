@@ -56,15 +56,17 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 
 	# Kaltes Modell blockiert nicht: der Ladethread holt es, _process montiert es.
 	var path := charm.model_path
-	if path == "" or not ResourceLoader.exists(path):
+	if path == "" or not CharmRowView.models_wanted() or not ResourceLoader.exists(path):
 		_mount_placeholder()
 	else:
-		var cached := CharmRowView.cached_model_scene(path)
-		if cached != null:
-			_mount_model(cached.instantiate() as Node3D)
+		CharmRowView.request_model_scene(path)
+		var scene := CharmRowView.cached_model_scene(path)
+		if scene != null:
+			_mount_model(scene.instantiate() as Node3D)
+		elif CharmRowView.model_failed(path):
+			_mount_placeholder()
 		else:
 			_pending_path = path
-			CharmRowView.request_model_scene(path)
 	set_process(_pending_path != "")
 
 func _process(_delta: float) -> void:

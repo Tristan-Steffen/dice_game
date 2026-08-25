@@ -185,7 +185,7 @@ func spot_global_position(i: int) -> Vector3:
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
 	var model: Node3D
-	if path == "" or not ResourceLoader.exists(path):
+	if path == "" or not models_wanted() or not ResourceLoader.exists(path):
 		model = placeholder_model(charm.id)
 	else:
 		model = model_scene(path).instantiate()
@@ -196,6 +196,17 @@ func _load_model(charm: Charm) -> Node3D:
 static var _model_scenes := {}   # Pfad -> PackedScene (Cache)
 static var _model_requests := {}  # Pfad -> true (Ladeauftrag läuft im Ladethread)
 static var _model_failures := {}  # Pfad -> true (Laden endgültig fehlgeschlagen)
+
+## Ein Charm-Modell lohnt nur mit ECHTEM Renderer: die Kopf-los-Attrappe zeigt
+## nichts an, und ihr Texturspeicher ist NICHT fadensicher - Ladethread und
+## Hauptfaden legen dort gleichzeitig Texturen an und greifen ins Leere
+## ('Parameter "t" is null', ein Engine-Fehler, der irgendeinen laufenden Test
+## kippt). Ohne Renderer steht darum der Platzhalter; wer ein echtes Modell
+## braucht, holt es blockierend über model_scene().
+static var _models_wanted := DisplayServer.get_name() != "headless"
+
+static func models_wanted() -> bool:
+	return _models_wanted
 
 ## Einzige Ladestelle der Charm-Modelle - CharmThumb greift hier mit ab.
 ## Blockiert; ein laufender Ladeauftrag wird zu Ende geholt statt doppelt geladen.
@@ -211,11 +222,18 @@ static func model_scene(path: String) -> PackedScene:
 static func cached_model_scene(path: String) -> PackedScene:
 	return _model_scenes.get(path)
 
+## Laufende Ladeaufträge - die Auskunft, mit der ein Test den zweiten Faden
+## ausschließt.
+static func pending_model_loads() -> int:
+	return _model_requests.size()
+
 static func model_failed(path: String) -> bool:
 	return _model_failures.has(path)
 
 ## Stößt das Laden im Ladethread an - der Hauptfaden blockiert nie.
 static func request_model_scene(path: String) -> void:
+	if not _models_wanted:
+		return
 	if _model_scenes.has(path) or _model_requests.has(path) or _model_failures.has(path):
 		return
 	if ResourceLoader.load_threaded_request(path) == OK:
