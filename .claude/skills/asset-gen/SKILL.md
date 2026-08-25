@@ -39,8 +39,12 @@ prüfbar, „schön“ ist es nicht. Die Auswahl unter den brauchbaren Kandidate
   Prompt gehört dort hinein, ✔ markiert die fertigen.
 - Ein Charm-Bild ist **Zwischenschritt**, kein Asset: es geht in Tripo (Bild→3D),
   das `.glb` ist das Ergebnis. Das Bild selbst nicht einchecken.
-- Generierläufe nach `%TEMP%` o. ä., nie ins Repo — jede Datei unter `assets/`
-  zieht in Godot eine `.import`-Datei nach sich.
+- **Jedes erzeugte Bild wird in `E:/Generated Images/<Projekt>/<Lauf>/` abgelegt**
+  (neben dem Obsidian-Vault, Lauf-Ordner mit Datum, z. B.
+  `E:/Generated Images/Fumble/gruben_wand_2026-08-25/`) — auch die verworfenen
+  Kandidaten, denn dort sucht der Nutzer sie später. Nie ins Repo generieren:
+  jede Datei unter `assets/` zieht in Godot eine `.import`-Datei nach sich; nur
+  der GEWINNER wird von dort nach `assets/` kopiert.
 
 ## Kosten
 

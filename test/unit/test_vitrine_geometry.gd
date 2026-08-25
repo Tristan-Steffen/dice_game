@@ -235,6 +235,17 @@ func test_der_schacht_ist_tiefer_als_das_hoechste_stueck() -> void:
 	assert_gte(LiftShaftView.CAVITY_SHARE, 1.0,
 		"der Hohlraum ist so tief wie der Schacht")
 
+## Wer KEINE Reichweite meldet, merkt vom Sicherheitsabstand nichts: Laden, Hinterzimmer,
+## Schlitzreihe und Magazin fahren dieselbe Maschine wie zuvor.
+func test_ohne_gemeldete_reichweite_bleibt_der_hohlraum_unveraendert() -> void:
+	var shaft: LiftShaftView = autofree(LiftShaftView.new())
+	shaft.depth = 2.0
+	assert_almost_eq(shaft.cavity_span(), 2.0 * LiftShaftView.CAVITY_SHARE, 0.0001,
+		"ohne Meldung nimmt der Hohlraum sein volles Wunschmaß")
+	shaft.cavity_reach = 0.4
+	assert_almost_eq(shaft.cavity_span(), 0.4 - LiftShaftView.REACH_CLEAR, 0.0001,
+		"gemeldet heißt eingehalten - und nie ganz bis an die Nachbarwand")
+
 func test_die_zonen_fahren_gleichzeitig() -> void:
 	# Regal und Schale starten im selben Augenblick und stehen im selben - in JEDER
 	# Zeremonie. Gemessen an derselben Stelle beider Fahrpläne, dem Deckel.
@@ -502,3 +513,36 @@ func test_die_gewinn_beschriftung_hat_genau_eine_quelle() -> void:
 	for foreign: String in ["SideBet", "side_bet"]:
 		assert_false(machine.contains(foreign),
 			"der Schacht weiß nichts von %s" % foreign)
+
+# --- Die WANDHAUT wird BESTELLT, und nur der Tresen bestellt ----------------------
+
+## Genau EIN Besteller, an genau EINER Stelle: die Sektion eines Wett-Plots. Laden,
+## Hinterzimmer, Schlitzreihe und Magazin fahren dieselbe Maschine ungehäutet.
+func test_die_wandhaut_hat_genau_einen_besteller() -> void:
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	assert_eq(root.count("order_skin("), 1,
+		"scene_root bestellt die Wandhaut an EINER Stelle (_bet_shaft_on)")
+	assert_eq(root.count("BET_PIT_SKIN"), 2,
+		"eine Quelle für die Textur - Deklaration und die eine Bestellung")
+	for foreign: String in ["res://scripts/table/vitrine_view.gd",
+			"res://scripts/table/pack_pit_view.gd",
+			"res://scripts/ui/shop_controller.gd",
+			"res://scripts/ui/secret_shop_view.gd",
+			"res://scripts/ui/pack_drawer_view.gd"]:
+		var code: String = FileAccess.get_file_as_string(foreign)
+		assert_false(code.contains("order_skin"),
+			"%s bestellt keine Haut - seine Bänder bleiben offen" % foreign)
+
+## Der Takt der Blenden liegt IN den bestehenden Schlägen: die Zyklus-Deckel bleiben
+## Zahl für Zahl dieselben, ein Öffnungsband kostet keine Zeit.
+func test_die_blenden_verlaengern_keinen_takt() -> void:
+	assert_almost_eq(LiftShaftView.cycle_time(),
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
+			+ LiftShaftView.DIP_TIME, 0.0001)
+	assert_almost_eq(LiftShaftView.park_cycle_time(),
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.COVER_TIME,
+		0.0001)
+	for takt: float in [LiftShaftView.SINK_TIME, LiftShaftView.LIFT_TIME,
+			LiftShaftView.COVER_TIME]:
+		assert_lte(LiftShaftView.SHUTTER_TIME, takt,
+			"eine Blende paßt in jeden Schlag, neben dem sie fährt")

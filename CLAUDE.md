@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The Godot binary lives outside the repo at `E:/Godot/Godot_v4.7-stable_win64_console.exe` (use the `_console` build so stdout/stderr are captured).
 
+**Erzeugte Bilder** (KI-Generierläufe, siehe Skill `asset-gen`) gehören nach `E:/Generated Images/<Projekt>/<Lauf>/` — nie ins Repo; nur der ausgewählte Gewinner wird nach `assets/` kopiert.
+
 ```bash
 # Run the full test suite (headless, GUT). Exit code is non-zero on failure.
 # --fixed-fps 60 koppelt die Frames von der Echtzeit ab (Delta fest 1/60), so

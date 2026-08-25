@@ -605,6 +605,10 @@ var _bet_leaving: Array[Node3D] = []
 ## Die HEBEBÜHNEN des Tresens: je Plot EINE eigene Sektion mit eigenem Platz in der
 ## Löcherliste. Drei Wetten parken, fahren auf und gehen ab, ohne einander zu stören.
 var bet_shafts: Array[LiftShaftView] = []
+## Die WANDHAUT, die NUR sie bestellen: dunkle Technik-Paneele mit haarfeinen
+## Leuchtlinien. Eine Wett-Grube bleibt offen stehen, also müssen ihre vier Seiten
+## gleich lesen - Laden, Hinterzimmer, Schlitzreihe und Magazin fahren ungehäutet.
+const BET_PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
 ## Laufende Nummer der Abrechnungs-Zeremonie - nur die jüngste räumt den Tresen.
 var _bet_settle := 0
 ## Ein AUFTRITT ist fällig, aber keiner schaut hin: der Tresen stellt still und
@@ -1779,11 +1783,11 @@ func _on_hub_level_changed(level: int) -> void:
 		run.last_hub_reward_die)
 	if charm_shop != null and charm_shop.visible:
 		charm_shop.refresh_after_hub_upgrade()
-	# Nebenwetten frisch installiert: Zeremonie + im Shop sofort die Wettannahme
-	# öffnen, damit sich der Kauf gleich auszahlt.
+	# Nebenwetten frisch installiert: Zeremonie + die Wettannahme sofort öffnen, damit
+	# sich der Kauf noch in DIESER Runde auszahlt.
 	if level == GameRun.HUB_SIDE_BETS_LEVEL and table_screen != null:
 		table_screen.celebrate_side_bet_install(CasinoStyle.GOLD_INTENSE)
-		if phase == Phase.SHOP:
+		if _side_bets_open_now():
 			_open_side_bet_betting()
 	# Ein frisch freigeschalteter Fumble-Automat feiert mit einer Stoßwelle.
 	if level in GameRun.HUB_SLOT_LEVELS and table_screen != null:
@@ -4133,17 +4137,6 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 	prize.seat_hard(target)
 	return prize
 
-## Der wirkliche Fußabdruck eines Tresen-Körpers in Welt-Maßen (x = Welt-X,
-## y = Welt-Z). Nichts schrumpft mehr auf seinen Platz, also mißt das LOCH an der
-## Ware - sonst ragte beim Senken etwas durch die Anzeige.
-func _bet_body_span(body: Node3D) -> Vector2:
-	if body is BetPrizeView:
-		return (body as BetPrizeView).natural_span()
-	if body is DataCellView:
-		return Vector2(DataCellView.HEIGHT, DataCellView.WIDTH) \
-			* PackDrawerView.CASSETTE_SCALE
-	return Vector2.ZERO
-
 ## Wie hoch ein Tresen-Körper über der Fläche steht - der Schacht muß tief genug
 ## sein, dass er beim Sinken ganz darin verschwindet.
 func _bet_body_height(body: Node3D) -> float:
@@ -4238,16 +4231,17 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 		return
 	var was_parked := _bet_parked.has(spot)
 	var park: Dictionary = _bet_parked.get(spot, {})
-	# Eine geparkte Grube behält Loch UND Tiefe: neu gemessen ließe sie die wartende
-	# Ware springen.
-	var field: Rect2 = park["field"] if was_parked else _bet_field(here)
+	# Das Loch IST der Setzen-Knopf - für jede Fahrt und für den Park dasselbe
+	# Rechteck. Eine geparkte Grube behält nur ihre TIEFE: neu gemessen ließe sie die
+	# wartende Ware springen.
+	var field := _bet_plot_field(spot)
 	var deep: float = float(park["depth"]) if was_parked else _bet_shaft_depth(here)
 	var shaft := _bet_shaft_on(spot, field, deep)
 	if shaft == null:
 		_release_bet_bodies(_bodies_of(outgoing))
 		_bet_parked.erase(spot)
 		_drop_bet_cover(spot)
-		return  # ohne gemessene Spur bleibt es beim harten Stand
+		return  # ohne gemeldeten Plot bleibt es beim harten Stand
 	# Der SCHIRM ist Teil des Park-Endzustands: nur eine parkende Grube bestellt ihn,
 	# und er trägt die EINE Gewinn-Zeile des Fensters (der Schacht kennt keine Wetten).
 	if to_pit:
@@ -4260,7 +4254,7 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 	for entry: Dictionary in entering + staying:
 		_seat_bet_body(entry["body"], (entry["target"] as Vector3) - Vector3.UP * drop)
 	if to_pit:
-		_bet_parked[spot] = {"depth": deep, "field": field}
+		_bet_parked[spot] = {"depth": deep}
 	else:
 		_bet_parked.erase(spot)
 	var out_bodies := _bodies_of(outgoing)
@@ -4269,7 +4263,7 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 		_release_bet_bodies(out_bodies)
 		if show:
 			if to_pit:
-				shaft.park_hard()
+				_park_bet_shaft(spot)
 			for entry: Dictionary in entering:
 				_appear_bet_body(entry["body"])
 		return
@@ -4297,7 +4291,7 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 	if tween == null:
 		_release_bet_bodies(out_bodies)
 		if to_pit and show:
-			shaft.park_hard()  # der Park ist ein Endzustand, er steht auch ohne Fahrt
+			_park_bet_shaft(spot)  # der Park ist ein Endzustand, er steht auch ohne Fahrt
 		return
 	tween.tween_callback(func() -> void:
 		for body: Node3D in in_bodies:
@@ -4328,30 +4322,20 @@ func _drop_bet_cover(spot: int) -> void:
 	if shaft != null and is_instance_valid(shaft):
 		shaft.drop_cover()
 
-## Der Grundriß EINES Eintrags: sein Plot, geweitet auf den echten Fußabdruck seines
-## Körpers AN SEINEM SITZ. Nichts schrumpft mehr und der Sitz liegt nicht mehr in der
-## Plot-Mitte, also muß das Loch die Ware dort decken, wo sie wirklich liegt.
-func _bet_plot_field(entry: Dictionary) -> Rect2:
+## Der Grundriß EINES Plots: sein Stellplatz, sonst nichts. Das Loch hat EXAKT die
+## Maße des Setzen-Knopfs (und seine Eckenrundung) - die Grubenkante IST die Form des
+## Knopfs, und der Plot trägt jeden Körper des Katalogs ganz.
+func _bet_plot_field(spot: int) -> Rect2:
 	var rects := _bet_rects()
-	var spot := int(entry.get("spot", -1))
-	if spot < 0 or spot >= rects.size() or table_screen == null:
+	if spot < 0 or spot >= rects.size():
 		return Rect2()
-	var rect: Rect2 = rects[spot]
-	var footprint := _bet_span_px(_bet_body_span(entry["body"]))
-	if footprint.x <= 0.0 or footprint.y <= 0.0:
-		return rect
-	var at := table_screen.world_to_pixel(entry["target"] as Vector3)
-	return rect.merge(Rect2(at - footprint * 0.5, footprint))
+	return rects[spot]
 
-## Die SPUR einer Fahrt: die Vereinigung der beteiligten Plots samt Überstand.
-func _bet_field(entries: Array) -> Rect2:
-	var field := Rect2()
-	for entry: Dictionary in entries:
-		var rect := _bet_plot_field(entry)
-		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-			continue
-		field = rect if field.size.x <= 0.0 else field.merge(rect)
-	return field
+## Die Eckenrundung dieses Lochs - gemeldet vom Fenster, das auch seine Fassung malt.
+## Hier wird nichts gerechnet: eine zweite Zahl wäre eine zweite Form.
+func _bet_plot_radius() -> float:
+	var panel := _side_bet_panel()
+	return panel.counter_plot_radius() if panel != null else 0.0
 
 ## Wie hoch EIN Eintrag über der Fläche aufragt. Ein geworfener Einsatz meldet sein
 ## Maß mit (ein Chip-Stapel ist kein Körper, den man messen könnte).
@@ -4400,17 +4384,33 @@ func _bet_shaft_on(spot: int, field: Rect2, deep: float) -> LiftShaftView:
 		shaft = LiftShaftView.new("BetShaft%d" % spot)
 		add_child(shaft)
 		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(slot, at, hole))
+			table_screen.set_lift_pit(slot, at, hole, _bet_plot_radius()))
 		shaft.closed.connect(func() -> void:
 			table_screen.clear_pit(slot))
 		bet_shafts[spot] = shaft
 	shaft.deck_skin = table_screen.display_skin()
+	shaft.order_skin(BET_PIT_SKIN)  # der EINE Besteller der Wandhaut
 	shaft.cavity_reach = _bet_cavity_reach()
 	var a := table_screen.pixel_to_world(field.position)
 	var b := table_screen.pixel_to_world(field.end)
 	shaft.setup(table_screen.pixel_to_world(field.get_center()),
 		Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5, deep)
 	return shaft
+
+## Der EINE Schreiber des PARK-Endzustands: die Sektion steht auf dem Loch ihres
+## Plots, ganz unten, Schirm darüber. Idempotent - dasselbe Feld schneidet nicht neu,
+## und eine laufende Fahrt schreibt ihren Zustand selbst.
+func _park_bet_shaft(spot: int) -> void:
+	var park: Dictionary = _bet_parked.get(spot, {})
+	if park.is_empty():
+		return
+	var shaft := _bet_shaft_on(spot, _bet_plot_field(spot), float(park["depth"]))
+	if shaft == null or shaft.riding():
+		return
+	# Ein Neuschnitt baut den Körper neu, seine Platte steht dann wieder bündig - und
+	# genau daran erkennt der Abgleich, dass der Park nachzustellen ist.
+	if not shaft.visible or not is_equal_approx(shaft.platform_y(), -shaft.park_y()):
+		shaft.park_hard()
 
 ## Der Abbruch der Maschine: jede Sektion bündig, jedes Loch zu - und was hinausfuhr,
 ## ist frei. Der EINE Aufräum-Pfad; die drei denkbaren Reste (offenes Loch, geparkte
@@ -4480,9 +4480,9 @@ func _sync_bet_counter() -> void:
 		var shaft := bet_shafts[spot]
 		if shaft == null or not is_instance_valid(shaft) or shaft.riding():
 			continue  # eine laufende Fahrt schreibt ihren Zustand selbst
-		if show and not shaft.visible:
-			shaft.park_hard()
-		elif not show and shaft.visible:
+		if show:
+			_park_bet_shaft(spot)
+		elif shaft.visible:
 			shaft.settle_hard()
 		# Der SCHIRM sagt, was unten liegt - aber nur, solange der Zeiger auf dem Plot
 		# steht. Gefragt je Bild, dieselbe Griff-Grammatik wie die Körper darüber.
@@ -4599,7 +4599,7 @@ func _take_bet_prices() -> void:
 	for spot: int in per_plot:
 		var entries: Array = per_plot[spot]
 		var bodies := _bodies_of(entries)
-		var shaft := _bet_shaft_on(spot, _bet_field(entries),
+		var shaft := _bet_shaft_on(spot, _bet_plot_field(spot),
 			_bet_shaft_depth(entries)) if watched else null
 		if shaft == null or shaft.run_take(bodies, _seats_of(entries), 0.0,
 				_release_bet_bodies.bind(bodies)) == null:
@@ -10295,6 +10295,14 @@ func _resolve_side_bets(cleared: bool) -> void:
 	var doubled := " (Quotenbonus ×2)" if run.side_bet_payout_factor() > 1 else ""
 	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben%s." \
 		% [won.size(), placed, ", ".join(names), doubled]
+
+## Darf eine frisch freigeschaltete Wettannahme SOFORT aufmachen? Gewettet wird vor
+## dem ersten Wurf, also überall dort, wo die laufende Runde noch nicht festgezurrt
+## ist - im Laden wie an jeder anderen Station. Nach dem Zurren wartet sie auf den
+## nächsten Rundenbeginn. Und über eine schon offene Auslage geht nichts: ihre
+## Angebote würden neu gewürfelt und die gesetzten Einsätze wären verwettet.
+func _side_bets_open_now() -> bool:
+	return not betting_open and (phase == Phase.SHOP or not round_committed)
 
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:

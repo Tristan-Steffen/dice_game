@@ -113,6 +113,21 @@ func test_the_seat_button_is_the_plot():
 		assert_almost_eq(seat.size.x, rects[i].size.x, 0.001)
 		assert_almost_eq(seat.size.y, rects[i].size.y, 0.001)
 
+## Und die GRUBE ist dieser Knopf, exakt: dasselbe Rechteck, dieselbe Eckenrundung.
+## Die gemeldete Rundung IST die der Fassung - eine zweite Zahl wäre eine zweite Form.
+func test_the_reported_pit_radius_is_the_frames_own_corner_radius():
+	panel.open_betting(_money_offers())
+	await wait_frames(2)
+	panel._on_bet_pressed(0)
+	await wait_frames(2)
+	var seat: Button = panel.bet_buttons[0]
+	var radius := panel.counter_plot_radius()
+	for state: String in ["normal", "disabled"]:
+		var box: StyleBoxFlat = seat.get_theme_stylebox(state)
+		assert_eq(float(box.corner_radius_top_left), radius,
+			"die Fassung rundet mit der gemeldeten Zahl (%s)" % state)
+	assert_gt(radius, 0.0, "eine Rundung, die man auch sieht")
+
 # --- Der SITZ auf dem Plot -------------------------------------------------------
 # Gewöhnlich steht der GEWINN mittig auf seinem Plot; nur der Steuer-Plot teilt sich
 # (Zählplatte links, Gewinn rechts daneben). Jeder rückt nur so weit ein, dass er den
@@ -538,8 +553,9 @@ func test_the_cavity_never_reaches_past_the_reported_room():
 	assert_gt(shaft.cavity_span(), 0.4, "ohne Meldung nimmt sie sich ihr Wunschmaß")
 	shaft.cavity_reach = 0.4
 	shaft.setup(Vector3.ZERO, Vector2(1.0, 3.0), 2.0)  # dieselben Maße, neue Meldung
-	assert_almost_eq(shaft.cavity_span(), 0.4, 0.0001, "gemeldet heißt eingehalten")
-	assert_almost_eq(shaft.waiting_offset(), 1.4, 0.0001,
+	assert_almost_eq(shaft.cavity_span(), 0.4 - LiftShaftView.REACH_CLEAR, 0.0001,
+		"gemeldet heißt eingehalten - und nie ganz ausgeschöpft")
+	assert_almost_eq(shaft.waiting_offset(), 1.4 - LiftShaftView.REACH_CLEAR, 0.0001,
 		"und die Ware wartet am neuen Ende, nicht dahinter")
 	for child in shaft.get_children():
 		if not (child is MeshInstance3D):
@@ -548,6 +564,30 @@ func test_the_cavity_never_reaches_past_the_reported_room():
 		assert_lte(absf(child.position.x) + box.size.x * 0.5,
 			1.0 + 0.4 + LiftShaftView.WALL * 2.0 + 0.0001,
 			"%s bleibt in der gemeldeten Reichweite" % child.name)
+
+## Und sie schöpft die Meldung NIE ganz aus. Die gemeldete Fuge endet an der WAND der
+## Nachbarin: wer sie voll nimmt, stellt seine Stirnwand exakt in deren Innenwand-Ebene,
+## und dann streiten beide im Tiefenpuffer und schneiden die Nachbargrube in flimmernde
+## schwarze Streifen. Gemessen wird an der Stirnwand, denn sie ist das äußerste Bauteil.
+func test_the_cavity_stops_short_of_the_neighbour_wall():
+	assert_gt(LiftShaftView.REACH_CLEAR, 0.0, "ein Haar Luft, sonst liegen zwei Flächen gleich")
+	assert_lt(LiftShaftView.REACH_CLEAR, LiftShaftView.WALL,
+		"aber weniger als eine Wandstärke - die Stirnwand endet IN der Nachbarwand")
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, 2.0)
+	var gap := 0.4
+	shaft.cavity_reach = gap
+	shaft.setup(Vector3.ZERO, Vector2(1.0, 3.0), 2.0)
+	# Der Plot der Nachbarin beginnt genau eine gemeldete Fuge weiter - zuzüglich der
+	# beiden Wände, die der Wirt schon abgezogen hat.
+	var neighbour := 1.0 + gap + LiftShaftView.WALL * 2.0
+	for child in shaft.get_children():
+		if not (child is MeshInstance3D) or not String(child.name).ends_with("End"):
+			continue
+		var box: BoxMesh = (child as MeshInstance3D).mesh
+		assert_almost_eq(absf(child.position.x) + box.size.x * 0.5,
+			neighbour - LiftShaftView.REACH_CLEAR, 0.0001,
+			"%s endet vor der Nachbarwand, nicht in ihrer Ebene" % child.name)
 
 ## Und nach OBEN ist die Maschine dicht: die Decke jedes Hohlraums füllt das ganze
 ## Sturz-Band bis an die Schnittkante. Ein Schlitz darüber wäre genau das Loch, durch
@@ -621,8 +661,9 @@ func test_the_cover_comes_out_of_both_side_walls_and_meets_in_the_middle():
 		var pane: MeshInstance3D = wing.get_node("Scheibe")
 		var mesh: BoxMesh = pane.mesh
 		var inner := absf(wing.position.z) - mesh.size.z
-		assert_almost_eq(inner, LiftShaftView.COVER_KERF * 0.5, 0.0001,
-			"%s endet an der Mittelfuge" % wing.name)
+		assert_almost_eq(inner, 0.0, 0.0001,
+			"%s stößt NAHTLOS an die Mitte - keine Fuge, keine Überdeckung"
+			% wing.name)
 		assert_almost_eq(mesh.size.x, shaft.half.x * 2.0, 0.0001,
 			"und deckt die Grube in voller Breite")
 
@@ -747,6 +788,49 @@ func test_the_cover_survives_a_remeasure():
 		assert_almost_eq(absf(wing.position.z), 2.2, 0.0001,
 			"die Hälften stehen in den NEUEN Wänden")
 
+## Die Zeile ist IMMER dasselbe helle Gold - der Akzent der Wette bleibt am Saum, und
+## im Einblenden liest zu keinem Zeitpunkt etwas Schwarzes.
+func test_the_cover_line_stays_gold_whatever_the_bet_pays():
+	var holes: Dictionary = {}
+	var tones: Array[Color] = []
+	for accent: Color in [Color.GOLD, CasinoStyle.BLUE, CasinoStyle.RED]:
+		var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+		shaft.order_cover("$30", accent)
+		shaft.park_hard()
+		var label: Label3D = shaft.get_node("Schirm/Aufschrift")
+		tones.append(Color(label.modulate.r, label.modulate.g, label.modulate.b))
+		var edge := label.outline_modulate
+		assert_gt(edge.r + edge.g + edge.b, 0.4,
+			"der Umriß ist dunkles GOLD, nicht Schwarz (%s)" % edge)
+		assert_gt(edge.r, edge.b, "und bleibt in der Gold-Familie")
+		shaft.settle_hard()
+	for tone in tones:
+		assert_eq(tone, tones[0], "eine Farbe für alle Wetten")
+	var gold := LiftShaftView.cover_text_color()
+	assert_eq(tones[0], Color(gold.r, gold.g, gold.b), "die Haus-Goldquelle")
+	assert_gt(gold.r, 1.0, "und sie leuchtet über der Ware")
+
+## Ein- und Ausblenden läuft REIN über Alpha: mitten im Fade tragen Zeile und Umriß
+## denselben Wert, und ihre Farben stehen unverändert.
+func test_the_cover_line_fades_on_alpha_alone():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+	shaft.order_cover("$30", CasinoStyle.BLUE)
+	shaft.park_hard()
+	var label: Label3D = shaft.get_node("Schirm/Aufschrift")
+	var gold := LiftShaftView.cover_text_color()
+	var edge := LiftShaftView.cover_outline_color()
+	shaft.set_cover_hovered(true)
+	await wait_seconds(LiftShaftView.COVER_HOVER_TIME * 0.5)
+	var seen := label.modulate.a
+	assert_gt(seen, 0.0, "mitten im Einblenden")
+	assert_lt(seen, 1.0)
+	assert_almost_eq(label.outline_modulate.a, seen, 0.0001,
+		"Zeile und Umriß blenden gemeinsam")
+	assert_almost_eq(label.modulate.r, gold.r, 0.0001, "die Farbe kippt dabei nicht")
+	assert_almost_eq(label.outline_modulate.r, edge.r, 0.0001)
+	assert_gt(label.outline_modulate.r, 0.1, "und ist nie schwarz")
+
 ## Der EINE Aufräum-Pfad nimmt ihn in jedem Schlag jedes Fahrplans mit.
 func test_every_abort_takes_the_cover_down():
 	for plan: String in ["parken", "auffahrt", "abgang_aus_park"]:
@@ -802,3 +886,253 @@ func test_a_rider_travels_with_the_platform_and_ends_on_its_seat():
 		"und steht am Ende wieder auf seinem Platz")
 	assert_almost_eq(rider.global_position.z, seat.z, 0.001,
 		"der Band-Schritt hat ihn nie angefaßt")
+
+# --- Die WANDHAUT und ihre BLENDEN -----------------------------------------------
+# Eine Wett-Grube bleibt offen stehen, also müssen ihre vier Seiten gleich lesen: die
+# Wandhaut liegt auf allen Wänden UND auf zwei Blenden, die die Öffnungsbänder
+# schließen. Bestellt wird sie wie der Schirm - wer nichts bestellt, fährt die nackte
+# Maschine mit offenen Bändern (Laden, Hinterzimmer, Schlitzreihe, Magazin).
+
+const SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
+
+func _shutter(shaft: LiftShaftView, back: bool) -> Node3D:
+	var blinds := shaft.get_node_or_null("Blenden")
+	if blinds == null:
+		return null
+	return blinds.get_node_or_null("Blende%s" % ("Hinten" if back else "Vorn"))
+
+func _wall_material(shaft: LiftShaftView) -> StandardMaterial3D:
+	var wall: MeshInstance3D = shaft.get_node("WallLeft")
+	return wall.material_override
+
+## Der Laden und das Magazin fahren dieselbe Maschine - und bekommen keine Haut, weil
+## sie keine bestellen. Ihre Öffnungsbänder stehen offen wie bisher.
+func test_a_shaft_without_an_order_wears_no_skin():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	assert_false(shaft.has_skin(), "ungebeten keine Haut")
+	assert_null(shaft.get_node_or_null("Blenden"), "und keine Blende davor")
+	var wall := _wall_material(shaft)
+	assert_null(wall.albedo_texture, "die Wand bleibt nackte Maschine")
+	assert_null(wall.emission_texture)
+	shaft.park_hard()
+	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001,
+		"ohne Blende behauptet auch niemand einen Zustand")
+	assert_almost_eq(shaft.shutter_open(false), 0.0, 0.0001)
+
+## Bestellt liegt sie auf ALLEN vier Wänden, beiden Stürzen und beiden Blenden - EIN
+## Material, damit kein Bauteil aus dem Maßstab fällt.
+func test_the_ordered_skin_dresses_every_wall_and_both_shutters():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	assert_true(shaft.has_skin())
+	var wall := _wall_material(shaft)
+	assert_eq(wall.albedo_texture, SKIN, "die Wand trägt die gemeldete Textur")
+	assert_eq(wall.emission_texture, SKIN, "und leuchtet aus derselben Map")
+	assert_eq(wall.emission_operator, BaseMaterial3D.EMISSION_OP_MULTIPLY,
+		"multipliziert - addiert läge ein Schleier über den Paneelen")
+	assert_true(wall.uv1_triplanar and wall.uv1_world_triplanar,
+		"Welt-Triplanar: der Maßstab ist ein Weltmaß, keine UV je Fläche")
+	assert_almost_eq(wall.uv1_scale.x, 1.0 / LiftShaftView.SKIN_TILE, 0.0001)
+	for part: String in ["WallLeft", "WallRight", "BackLintel", "FrontLintel"]:
+		var mesh: MeshInstance3D = shaft.get_node(part)
+		assert_eq(mesh.material_override, wall, "%s trägt dieselbe Haut" % part)
+	for back: bool in [true, false]:
+		var pane: MeshInstance3D = _shutter(shaft, back).get_node("Platte")
+		assert_eq(pane.material_override, wall,
+			"auch die Blende - sonst läse sie sich als Loch")
+
+## Geschlossen füllt eine Blende ihr Öffnungsband GENAU: bündig in der Ebene ihres
+## Sturzes, so breit wie er und so hoch wie das Band. Das ist der ganze Wunsch.
+func test_the_closed_shutter_fills_its_band_flush_with_the_lintel():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	var lintel: MeshInstance3D = shaft.get_node("BackLintel")
+	var lintel_box: BoxMesh = lintel.mesh
+	for back: bool in [true, false]:
+		var holder := _shutter(shaft, back)
+		var pane: MeshInstance3D = holder.get_node("Platte")
+		var box: BoxMesh = pane.mesh
+		var side := 1.0 if back else -1.0
+		assert_almost_eq(holder.position.x, side * (shaft.half.x + LiftShaftView.WALL * 0.5),
+			0.0001, "die Blende steht in der Ebene ihres Sturzes")
+		assert_almost_eq(box.size.x, LiftShaftView.WALL, 0.0001, "und ist so dick wie er")
+		assert_almost_eq(box.size.z, lintel_box.size.z, 0.0001, "und so breit")
+		assert_almost_eq(box.size.y, shaft.mouth_height(), 0.0001,
+			"sie füllt das ganze Öffnungsband")
+		assert_almost_eq(holder.position.y, -LiftShaftView.WALL_SINK - (shaft.depth
+			- shaft.mouth_height()), 0.0001, "und hängt an der Unterkante des Sturzes")
+		var top: float = holder.position.y + pane.position.y + box.size.y * 0.5
+		assert_lte(top, -LiftShaftView.WALL_SINK + 0.0001,
+			"über der Anzeige steht auch sie nicht")
+		assert_almost_eq(holder.scale.y, 1.0, 0.0001, "in Ruhe ist sie ZU")
+
+## park_hard schreibt beide Bänder blind, settle_hard ebenso - und beides idempotent.
+func test_park_hard_and_settle_hard_shut_both_bands():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	shaft.park_hard()
+	for back: bool in [true, false]:
+		assert_almost_eq(shaft.shutter_open(back), 0.0, 0.0001,
+			"die geparkte Grube steht auf allen vier Seiten geschlossen")
+		assert_almost_eq(_shutter(shaft, back).scale.y, 1.0, 0.0001)
+	shaft.park_hard()
+	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001, "idempotent")
+	shaft.settle_hard()
+	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001)
+	assert_almost_eq(shaft.shutter_open(false), 0.0, 0.0001)
+
+## Es öffnet nur, was der Schritt WIRKLICH benutzt: herein geht es hinten, hinaus vorn.
+func test_only_the_band_the_step_uses_ever_opens():
+	var plans: Array[String] = ["auftritt", "abgang", "kauf", "abgang_aus_park",
+		"auffahrt", "umschlag"]
+	for plan: String in plans:
+		var holes: Dictionary = {}
+		var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+		shaft.order_skin(SKIN)
+		var body := Node3D.new()
+		var other := Node3D.new()
+		add_child_autofree(body)
+		add_child_autofree(other)
+		var seat := Vector3(0.0, 0.0, 1.0)
+		var wants_back := plan in ["auftritt", "kauf", "umschlag"]
+		var wants_front := plan in ["abgang", "abgang_aus_park", "umschlag"]
+		match plan:
+			"auftritt":
+				shaft.run_cycle([body], [seat], 0.0)
+			"abgang":
+				shaft.run_exit([body], [seat], 0.0)
+			"kauf":
+				shaft.run_take([body], [seat], 0.0)
+			"abgang_aus_park":
+				shaft.run_leave_park([body], [seat], 0.0)
+			"auffahrt":
+				shaft.run_rise([body], [seat], 0.0)
+			"umschlag":
+				shaft.run_swap([other], [seat], [body], [seat], 0.0)
+		# Mitten im BAND-SCHRITT: was gebraucht wird, steht ganz offen; der Rest bleibt zu.
+		var lead := LiftShaftView.COVER_TIME if plan == "abgang_aus_park" \
+			else LiftShaftView.SINK_TIME
+		if plan == "auffahrt":
+			lead = LiftShaftView.COVER_TIME
+		await wait_seconds(lead + LiftShaftView.PUSH_TIME * 0.5)
+		assert_almost_eq(shaft.shutter_open(true), 1.0 if wants_back else 0.0, 0.02,
+			"%s: der EINGANG" % plan)
+		assert_almost_eq(shaft.shutter_open(false), 1.0 if wants_front else 0.0, 0.02,
+			"%s: der AUSGANG" % plan)
+		shaft.settle_hard()
+
+## Und am Ende jedes Fahrplans sind beide wieder blind - im HUB-Takt bzw. mit dem Schirm.
+func test_every_plan_shuts_its_bands_again():
+	for plan: String in ["auftritt", "abgang", "kauf", "parken", "abgang_aus_park"]:
+		var holes: Dictionary = {}
+		var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET2, PARK_DEPTH)
+		shaft.order_skin(SKIN)
+		shaft.order_cover("$30", Color.GOLD)
+		var body := Node3D.new()
+		add_child_autofree(body)
+		var seat := Vector3(0.0, 0.0, 1.0)
+		var span := LiftShaftView.cycle_time()
+		match plan:
+			"auftritt":
+				shaft.run_cycle([body], [seat], 0.0)
+			"abgang":
+				shaft.run_exit([body], [seat], 0.0)
+			"kauf":
+				shaft.run_take([body], [seat], 0.0)
+			"parken":
+				shaft.run_park([], [], [body], [seat], 0.0)
+				span = LiftShaftView.park_cycle_time()
+			"abgang_aus_park":
+				shaft.run_leave_park([body], [seat], 0.0)
+				span = LiftShaftView.leave_park_time()
+		await wait_seconds(span + 0.15)
+		assert_almost_eq(shaft.shutter_open(true), 0.0, 0.001,
+			"%s: der Eingang ist wieder blind" % plan)
+		assert_almost_eq(shaft.shutter_open(false), 0.0, 0.001,
+			"%s: der Ausgang ebenso" % plan)
+		shaft.settle_hard()
+
+## Der PARK schließt seine Blende IM Schirm-Takt: die Grube steht danach rundum zu.
+func test_the_park_shuts_its_band_together_with_the_cover():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	shaft.order_cover("$30", Color.GOLD)
+	var body := Node3D.new()
+	add_child_autofree(body)
+	shaft.run_park([], [], [body], [Vector3.ZERO], 0.0)
+	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
+	assert_almost_eq(shaft.shutter_open(true), 1.0, 0.02,
+		"während der Ware ist das Band auf")
+	await wait_seconds(LiftShaftView.park_cycle_time() + 0.15)
+	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.001, "danach ist es blind")
+	assert_almost_eq(shaft.cover_share(), 1.0, 0.001, "und der Schirm liegt")
+	assert_true(holes.has(TableScreen.PIT_SIDE_BET0), "über der offenen Grube")
+
+## Der EINE Aufräum-Pfad nimmt die Blenden in JEDEM Schlag JEDES Fahrplans mit - eine
+## offen gebliebene Blende wäre ein Loch in der Wand.
+func test_every_abort_shuts_the_bands():
+	for plan: String in ["auftritt", "parken", "abgang_aus_park", "kauf"]:
+		for beat: float in [0.1, 0.5, 0.9]:
+			var holes: Dictionary = {}
+			var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+			shaft.order_skin(SKIN)
+			var body := Node3D.new()
+			add_child_autofree(body)
+			match plan:
+				"auftritt":
+					shaft.run_cycle([body], [Vector3.ZERO], 0.0)
+				"parken":
+					shaft.run_park([], [], [body], [Vector3.ZERO], 0.0)
+				"abgang_aus_park":
+					shaft.run_leave_park([body], [Vector3.ZERO], 0.0)
+				"kauf":
+					shaft.run_take([body], [Vector3.ZERO], 0.0)
+			await wait_seconds(beat)
+			shaft.settle_hard()
+			assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001,
+				"%s bei %.2f: der Abbruch schließt den Eingang" % [plan, beat])
+			assert_almost_eq(shaft.shutter_open(false), 0.0, 0.0001,
+				"%s bei %.2f: und den Ausgang" % [plan, beat])
+			assert_almost_eq(_shutter(shaft, true).scale.y, 1.0, 0.0001)
+
+## Ihr Takt liegt IN den bestehenden Schlägen: ein Band kostet den Zyklus keine Zeit.
+func test_the_bands_cost_the_cycle_no_time():
+	assert_lte(LiftShaftView.SHUTTER_TIME, LiftShaftView.SINK_TIME,
+		"auf geht sie im Senk-Takt")
+	assert_lte(LiftShaftView.SHUTTER_TIME, LiftShaftView.LIFT_TIME,
+		"zu im Hub-Takt")
+	assert_lte(LiftShaftView.SHUTTER_TIME, LiftShaftView.COVER_TIME,
+		"und beim Parken im Schirm-Takt")
+
+## Die Bestellung überlebt einen Neuschnitt, ihr Körper nicht - und der Zustand steht
+## danach wieder genau so da.
+func test_the_skin_survives_a_remeasure():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	shaft.park_hard()
+	shaft.setup(Vector3.ZERO, Vector2(1.4, 2.6), PARK_DEPTH)  # neu geschnitten
+	assert_true(shaft.has_skin(), "die Bestellung überlebt")
+	assert_not_null(_shutter(shaft, true), "und ihr Körper steht neu")
+	var pane: MeshInstance3D = _shutter(shaft, true).get_node("Platte")
+	var box: BoxMesh = pane.mesh
+	assert_almost_eq(box.size.z, 2.6 * 2.0 + LiftShaftView.WALL * 2.0, 0.0001,
+		"auf dem NEUEN Maß")
+	assert_eq(_wall_material(shaft).albedo_texture, SKIN)
+
+## Zurückgenommen ist sie restlos fort: nackte Wand, offene Bänder.
+func test_dropping_the_skin_removes_the_shutters():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_skin(SKIN)
+	shaft.park_hard()
+	shaft.drop_skin()
+	assert_false(shaft.has_skin())
+	assert_null(shaft.get_node_or_null("Blenden"))
+	assert_null(_wall_material(shaft).albedo_texture)
+	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001)

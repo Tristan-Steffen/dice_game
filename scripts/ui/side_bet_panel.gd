@@ -32,6 +32,7 @@ const PLOT_HEIGHT_UNITS := 12.5   # zugleich die feste Höhe einer Angebots-Zeil
 const PLOT_GAP_UNITS := 2.0       # Fuge zwischen zwei Zeilen und zwischen Text und Plot
 const COUNTER_TOP_UNITS := 14.4   # gemessene Luft über der ersten Zeile: Titel und Anrede
 const MARGIN_UNITS := 3.0         # seitlicher Rand des Fensters
+const PLOT_RADIUS_UNITS := 0.7    # Eckenrundung der Fassung - und des Lochs darunter
 
 ## Der LEBENSZYKLUS - die Timeline des Spielers auf dem Tresen.
 ## OPEN  = die Wettannahme steht offen, ROUND = die Runde läuft. Beide tragen
@@ -359,6 +360,12 @@ func counter_local_rects() -> Array[Rect2]:
 		out.append(Rect2(Vector2(left, top + float(i) * pitch), plot))
 	return out
 
+## Die Eckenrundung des Stellplatzes in Display-Pixeln. EINE Quelle: die FASSUNG
+## rundet damit ihre Ecken, und dieselbe Zahl schneidet das Loch darunter - Grube und
+## Knopf sind eine Form, nicht zwei ähnliche.
+func counter_plot_radius() -> float:
+	return float(int(maxf(size.x, 200.0) / 100.0 * PLOT_RADIUS_UNITS))
+
 ## Dieselben Plätze in globalen Display-Pixeln - danach schneidet scene_root Loch
 ## und Sitze.
 func counter_rects() -> Array[Rect2]:
@@ -553,7 +560,7 @@ func _plot_box(accent: Color, u: float, strong := false) -> StyleBoxFlat:
 	box.draw_center = false
 	box.border_color = Color(accent.r, accent.g, accent.b, 0.85 if strong else 0.42)
 	box.set_border_width_all(maxi(1, int(u * (0.3 if strong else 0.18))))
-	box.set_corner_radius_all(int(u * 0.7))
+	box.set_corner_radius_all(int(counter_plot_radius()))
 	return box
 
 # --- Bausteine -----------------------------------------------------------------

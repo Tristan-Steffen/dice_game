@@ -986,14 +986,16 @@ func set_pit(slot: int, rect: Rect2, radius: float = 0.0) -> void:
 	_sync_pits()
 
 ## Der SCHACHT einer Hebebühne, in Weltmaßen genannt (dort steht sein Körper):
-## Mitte auf der Tischebene, halbe Ausdehnung in Welt-X/Welt-Z.
-func set_lift_pit(slot: int, at: Vector3, half_extents: Vector2) -> void:
+## Mitte auf der Tischebene, halbe Ausdehnung in Welt-X/Welt-Z. Der Eckenradius
+## kommt in Display-Pixeln von draußen - ein Loch trägt die Form seiner Fassung.
+func set_lift_pit(slot: int, at: Vector3, half_extents: Vector2,
+		radius: float = 0.0) -> void:
 	if half_extents.x <= 0.0 or half_extents.y <= 0.0:
 		clear_pit(slot)
 		return
 	var a := world_to_pixel(at - Vector3(half_extents.x, 0.0, half_extents.y))
 	var b := world_to_pixel(at + Vector3(half_extents.x, 0.0, half_extents.y))
-	set_pit(slot, Rect2(a, b - a).abs(), 0.0)
+	set_pit(slot, Rect2(a, b - a).abs(), radius)
 
 func clear_pit(slot: int) -> void:
 	set_pit(slot, Rect2(), 0.0)
@@ -1016,6 +1018,13 @@ func pit_rect(slot: int) -> Rect2:
 	if slot < 0 or slot >= MAX_PITS:
 		return Rect2()
 	return _pit_rects[slot]
+
+## Und mit welcher Eckenrundung es geschnitten ist (Display-Pixel).
+func pit_radius(slot: int) -> float:
+	_ensure_pits()
+	if slot < 0 or slot >= MAX_PITS:
+		return 0.0
+	return _pit_radii[slot]
 
 ## Der eine Schreiber beider Shader: Glas verwirft die Anzeige, der Filzboden den
 ## Grund dahinter. Sie lesen DIESELBE Liste, sonst stünde hinter einem Loch Filz.

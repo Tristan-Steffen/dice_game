@@ -28,6 +28,10 @@ extends Node3D
 ## Über der geparkten Grube liegt der SCHIRM: zwei fast durchsichtige Paneele, die
 ## aus linker und rechter Wand herausfahren und sich in der Mitte treffen. Er wird
 ## von draußen BESTELLT (order_cover) - eine Auslage ohne Bestellung baut keinen.
+## Ebenso bestellt wird die WANDHAUT (order_skin): eine gemeldete Textur auf allen
+## vier Wänden, beiden Stürzen und den BLENDEN vor den Öffnungsbändern. Geschlossen
+## liest die Maschine damit auf allen vier Seiten gleich; ein Band öffnet nur für
+## seinen Schritt, und nur das, welches der Schritt wirklich benutzt.
 
 ## Wandstärke und Dicke der Plattformplatte.
 const WALL := 0.10
@@ -89,6 +93,13 @@ const MOUTH_SHARE := 0.72
 ## man ein Stück weit hinein: näher gestellt sähe man die Ware im Schacht liegen,
 ## bevor sie einfährt.
 const CAVITY_SHARE := 1.05
+## Luft zwischen dem Ende eines Hohlraums und der gemeldeten Reichweite. Die
+## Reichweite endet an der WAND der Nachbarin, und wer sie ganz ausschöpft, stellt
+## seine Stirnwand GENAU in deren Innenwand-Ebene: zwei koplanare Flächen, die sich
+## im Tiefenpuffer streiten und die Nachbargrube in flimmernde Streifen schneiden.
+## Ein Viertel Wandstärke weniger, und die Stirnwand endet IN der Nachbarwand statt
+## in ihrer Ebene - sie bleibt gedeckt, und es entsteht kein Durchblick.
+const REACH_CLEAR := WALL * 0.25
 
 ## Luft unter der gesenkten Plattform, damit ihre Unterseite nicht auf der Sohle
 ## aufsetzt und die beiden im Tiefenpuffer kämpfen.
@@ -98,9 +109,6 @@ const SOLE_CLEAR := 0.04
 ## (GLOW_DROP), damit der Saum weiter die Tiefe trägt und der Schirm nur deckt.
 const COVER_DROP := 0.034
 const COVER_H := 0.010
-## Die Fuge, in der die beiden Hälften sich treffen - ohne sie wäre der Schirm eine
-## Scheibe, und man sähe ihm nicht an, dass er aus zwei Wänden kommt.
-const COVER_KERF := 0.010
 ## Ein eigener kurzer Takt: der Schirm fährt NACH dem Absenken aus und VOR jeder
 ## Fahrt wieder ein - nichts durchstößt ihn.
 const COVER_TIME := 0.24
@@ -122,6 +130,37 @@ const COVER_LINE_SHARE := 0.30
 const COVER_LINES := 2
 const COVER_OUTLINE := 14
 const COVER_HOVER_TIME := 0.18
+## Die Zeile trägt IMMER dasselbe helle Gold - der Akzent der Wette bleibt am Saum des
+## Schirms. Überhellt aus der Haus-Goldquelle, damit sie über der Ware leuchtet.
+const COVER_TEXT_GAIN := 1.6
+## Ihr Umriß ist ein DUNKLES Gold derselben Familie: er trägt den Kontrast über heller
+## Ware (dem Chip-Stapel), und im Einblenden liest zu keinem Zeitpunkt etwas Schwarzes.
+const COVER_OUTLINE_GAIN := 0.45
+
+## Die WANDHAUT und ihre BLENDEN. Die Haut ist eine gemeldete Textur; ihr WELTMASS ist
+## eine Kachel, und weil sie per Welt-Triplanar liegt, laufen ihre Leuchtlinien als
+## GLEICH HOHE Ringe um alle vier Wände - es gibt keine UV-Naht und keinen
+## Maßstabssprung zwischen Seitenwand, Sturz und Blende.
+## Die Map teilt eine Kachel in ~0,21/0,50/0,79: bei 2,0 stehen damit in der 2,0 tiefen
+## Grube genau DREI Bänder (1,5 streift die Wand, 4,0 läßt eine einzige unter der Kante
+## stehen und doppelt den Lichtsaum), und der Sprung der längs NICHT nahtlosen Map
+## fällt genau auf die Sohle.
+const SKIN_TILE := 2.0
+## Mit Haut bringt die Textur ihren eigenen Ton mit: der fast schwarze Grundton der
+## nackten Maschine würde sie ein zweites Mal abdunkeln.
+const SKIN_ALBEDO := Color(0.34, 0.35, 0.44)
+## Lesbar wird sie im dunklen Schacht nur über EMISSION aus derselben Map - multipliziert,
+## nicht addiert, sonst legte ein konstanter Schleier die Paneele flach. Der Ton bleibt
+## fast neutral-kühl, damit das Teal der Linien Teal bleibt; bei 0,9 verschwinden die
+## Paneele, bei 1,5 treten die Linien neben den Lichtsaum statt unter ihn.
+const SKIN_EMISSION := Color(0.55, 0.60, 0.72)
+const SKIN_EMISSION_ENERGY := 1.3
+## Die beiden Öffnungsbänder als Flaggen - ein Schritt nennt, welches er benutzt.
+const BAND_BACK := 1
+const BAND_FRONT := 2
+## Der Takt einer Blende liegt IN den bestehenden Schlägen (Senken, Hub, Schirm): er
+## muß unter den kürzesten von ihnen passen, dann kostet ein Band keine Zykluszeit.
+const SHUTTER_TIME := 0.22
 
 ## Ein Schacht steht offen bzw. ist zu. GEMELDET nach draußen, weil das LOCH in der
 ## Anzeige den Shadern gehört und ein Körper nicht in sie greift.
@@ -205,6 +244,16 @@ var _cover_share := 0.0
 var _hover_share := 0.0
 var _hover_tween: Tween
 
+## Die WANDHAUT, sofern bestellt, und die beiden Blenden, die sie mitträgt.
+var wall_skin: Texture2D = null
+var _skin_wanted := false
+var _shutters: Node3D
+var _shutter_back: Node3D
+var _shutter_front: Node3D
+## 0 = zu (das Band ist blind), 1 = ganz offen.
+var _back_open := 0.0
+var _front_open := 0.0
+
 func _init(shaft_name := "LiftShaft") -> void:
 	name = shaft_name
 	visible = false  # die Maschine existiert nur während eines Auftritts
@@ -232,15 +281,22 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	_cover_right = null
 	_cover_label = null
 	_cover_material = null
+	# Und die Blenden ebenso - die Bestellung der Wandhaut überlebt, ihr Körper nicht.
+	_shutters = null
+	_shutter_back = null
+	_shutter_front = null
 	if _wall_material == null:
 		_build_materials()
+		_write_skin()
 	_build_body()
 
 ## Wie tief ein Hohlraum wirklich wird: sein Wunschmaß, aber nie weiter als die
-## gemeldete Reichweite.
+## gemeldete Reichweite - und die schöpft er nie ganz aus (REACH_CLEAR).
 func cavity_span() -> float:
 	var wanted := depth * CAVITY_SHARE
-	return minf(wanted, cavity_reach) if cavity_reach > 0.0 else wanted
+	if cavity_reach <= 0.0:
+		return wanted
+	return minf(wanted, maxf(cavity_reach - REACH_CLEAR, 0.01))
 
 ## Wie weit ein wartendes Stück HINTER der Rückwand steht: am Ende des Hohlraums,
 ## außerhalb des Blickwinkels durch das Öffnungsband.
@@ -251,6 +307,11 @@ func waiting_offset() -> float:
 ## Ein Band, das einen Schritt weiterfährt: derselbe Weg für beide Fuhren.
 func exit_offset() -> float:
 	return waiting_offset()
+
+## Wie hoch ein Öffnungsband ist - darüber bleibt der Sturz stehen, und genau dieses
+## Maß füllt die Blende, wenn sie zu ist.
+func mouth_height() -> float:
+	return depth * MOUTH_SHARE
 
 ## Wie tief die Plattform fährt - dasselbe Maß, um das die Ware unter ihrem Platz
 ## startet.
@@ -294,8 +355,9 @@ func run_cycle(bodies: Array, seats: Array, delay: float,
 	_tween.tween_callback(_open)
 	_together(riders, rider_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
 		Tween.EASE_IN_OUT)
+	_shutter_step(BAND_BACK, 0.0, 1.0, true)  # nur der EINGANG wird gebraucht
 	_belt_step([], [], 0.0, bodies, seats)
-	_lift_and_seat(bodies + riders, seats + rider_seats)
+	_lift_and_seat(bodies + riders, seats + rider_seats, BAND_BACK)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -330,13 +392,15 @@ func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
+	var bands := _bands_of(new_bodies, old_bodies)
 	# Senken MIT der alten Ware und den Mitfahrern: sie stehen auf der Platte.
 	_together(old_bodies + riders, old_seats + rider_seats, -depth, SINK_TIME,
 		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_shutter_step(bands, 0.0, 1.0, true)
 	_belt_step(old_bodies, old_seats, ahead, new_bodies, new_seats)
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
-	_lift_and_seat(new_bodies + riders, new_seats + rider_seats)
+	_lift_and_seat(new_bodies + riders, new_seats + rider_seats, bands)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -356,10 +420,11 @@ func run_exit(bodies: Array, seats: Array, delay: float,
 	_tween.tween_callback(_open)
 	_together(bodies + riders, seats + rider_seats, -depth, SINK_TIME,
 		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_shutter_step(BAND_FRONT, 0.0, 1.0, true)  # es geht nur hinaus
 	_belt_step(bodies, seats, exit_offset(), [], [])
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
-	_lift_and_seat(riders, rider_seats)
+	_lift_and_seat(riders, rider_seats, BAND_FRONT)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -377,6 +442,7 @@ func run_take(bodies: Array, seats: Array, delay: float,
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
 	_together(bodies, seats, -depth, SINK_TIME, Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_shutter_step(BAND_BACK, 0.0, 1.0, true)  # Gekauftes reist nach hinten ab
 	var behind := waiting_offset()
 	for i in bodies.size():
 		var step := _tween if i == 0 else _tween.parallel()
@@ -385,7 +451,7 @@ func run_take(bodies: Array, seats: Array, delay: float,
 			.set_trans(Tween.TRANS_LINEAR)
 	if on_gone.is_valid():
 		_tween.tween_callback(on_gone)
-	_lift_and_seat([], [])
+	_lift_and_seat([], [], BAND_BACK)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -410,12 +476,18 @@ func run_park(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
+	var bands := _bands_of(new_bodies, old_bodies)
 	_together(old_bodies, old_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
 		Tween.EASE_IN_OUT)
+	_shutter_step(bands, 0.0, 1.0, true)
 	_belt_step(old_bodies, old_seats, exit_offset(), new_bodies, new_seats)
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
 	_cover_step(0.0, 1.0)  # zuletzt schiebt sich der Schirm über die Grube
+	# Im selben Schlag fallen die Bänder zu: die geparkte Grube steht auf allen vier
+	# Seiten geschlossen da. Ohne Schirm nimmt die Blende einen eigenen Schlag - er
+	# bleibt unter dem Deckel, den park_cycle_time ohnehin rechnet.
+	_shutter_step(bands, 1.0, 0.0, _cover_wanted)
 	return _tween
 
 ## Die AUFFAHRT aus dem Park: die Ware steht schon am Grubenboden, der Schirm fährt
@@ -431,6 +503,7 @@ func run_rise(bodies: Array, seats: Array, delay: float) -> Tween:
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_cover_step(1.0, 0.0)  # erst der Deckel, dann die Ware - nichts durchstößt ihn
+	# Kein Band wird gebraucht: die Ware steht schon in der Grube und fährt gerade herauf.
 	_lift_and_seat(bodies, seats)
 	_tween.tween_callback(_shut)
 	return _tween
@@ -453,10 +526,13 @@ func run_leave_park(bodies: Array, seats: Array, delay: float,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_cover_step(1.0, 0.0)
+	# Der AUSGANG öffnet im selben Schlag, in dem der Schirm einfährt - beides muß fort
+	# sein, bevor die Ware losfährt.
+	_shutter_step(BAND_FRONT, 0.0, 1.0, _cover_wanted)
 	_belt_step(bodies, seats, exit_offset(), [], [])
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
-	_lift_and_seat(riders, rider_seats)
+	_lift_and_seat(riders, rider_seats, BAND_FRONT)
 	_tween.tween_callback(_shut)
 	return _tween
 
@@ -469,7 +545,156 @@ func park_hard() -> void:
 	visible = true
 	_set_platform(-park_y())
 	_cover_hard(1.0)
+	_shutters_hard()  # eine geparkte Grube steht auf allen vier Seiten geschlossen
 	opened.emit(center, half)
+
+# --- Die WANDHAUT und ihre BLENDEN ----------------------------------------------
+# Die Haut wird BESTELLT wie der Schirm; wer nichts bestellt, fährt die nackte
+# Maschine mit ihren offenen Bändern (Laden, Hinterzimmer, Schlitzreihe, Magazin).
+# Mit Haut bekommt jedes Öffnungsband eine BLENDE in genau derselben Haut: geschlossen
+# liest die Wand durchgehend wie die Seitenwände, und das ist der ganze Zweck.
+
+## Die Haut BESTELLEN. Idempotent - dieselbe Textur schreibt nichts neu, und der
+## Zustand der Blenden überlebt.
+func order_skin(texture: Texture2D) -> void:
+	if texture == null:
+		drop_skin()
+		return
+	var fresh := not _skin_wanted or _shutters == null or not is_instance_valid(_shutters)
+	var changed := texture != wall_skin
+	_skin_wanted = true
+	wall_skin = texture
+	if changed:
+		_write_skin()
+	if fresh:
+		_build_shutters()
+	_seat_shutters(_back_open, _front_open)
+
+## Die Bestellung zurücknehmen: die Wände sind wieder nackt, die Bänder wieder offen.
+func drop_skin() -> void:
+	_skin_wanted = false
+	wall_skin = null
+	_back_open = 0.0
+	_front_open = 0.0
+	_drop_shutters()
+	_write_skin()
+
+func has_skin() -> bool:
+	return _skin_wanted
+
+## Wie weit ein Band offen steht (0 = blind, 1 = ganz auf).
+func shutter_open(back: bool) -> float:
+	return _back_open if back else _front_open
+
+## Die Haut auf das EINE Wandmaterial legen - Wände, Stürze und Blenden tragen sie
+## damit zugleich. Welt-Triplanar: der Maßstab ist ein WELTMASS, also laufen die
+## Leuchtlinien über die Boxkanten durch, statt je Fläche neu anzusetzen.
+func _write_skin() -> void:
+	if _wall_material == null:
+		return
+	if wall_skin == null:
+		_wall_material.albedo_texture = null
+		_wall_material.emission_texture = null
+		_wall_material.uv1_triplanar = false
+		_wall_material.uv1_world_triplanar = false
+		_wall_material.albedo_color = Color(WALL_ALBEDO.r, WALL_ALBEDO.g,
+			WALL_ALBEDO.b, 1.0)
+		_wall_material.emission = Color(WALL_EMISSION.r, WALL_EMISSION.g,
+			WALL_EMISSION.b, 1.0)
+		_wall_material.emission_energy_multiplier = WALL_EMISSION_ENERGY
+		return
+	_wall_material.albedo_texture = wall_skin
+	_wall_material.albedo_color = Color(SKIN_ALBEDO.r, SKIN_ALBEDO.g, SKIN_ALBEDO.b, 1.0)
+	_wall_material.emission_texture = wall_skin
+	# MULTIPLY, nicht ADD: addiert legte ein konstanter Schleier die Paneele flach.
+	_wall_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	_wall_material.emission = Color(SKIN_EMISSION.r, SKIN_EMISSION.g,
+		SKIN_EMISSION.b, 1.0)
+	_wall_material.emission_energy_multiplier = SKIN_EMISSION_ENERGY
+	_wall_material.uv1_triplanar = true
+	_wall_material.uv1_world_triplanar = true
+	_wall_material.uv1_scale = Vector3.ONE / SKIN_TILE
+
+## Der Körper beider Blenden. Ohne Schacht (Bestellung vor dem ersten setup) gibt es
+## nichts zu verkleiden - _build_body holt es nach.
+func _build_shutters() -> void:
+	_drop_shutters()
+	if _platform == null or half.x <= 0.0:
+		return
+	_shutters = Node3D.new()
+	_shutters.name = "Blenden"
+	add_child(_shutters)
+	var top := -WALL_SINK
+	var lintel := maxf(depth - mouth_height(), 0.01)
+	_shutter_back = _build_shutter("Hinten", 1.0, top, lintel)
+	_shutter_front = _build_shutter("Vorn", -1.0, top, lintel)
+
+## EINE Blende: eine Platte in der Wandhaut, bündig in der Ebene ihres Sturzes und
+## genau so breit wie er. Sie hängt am Sturz-Rand und rollt per scale.y in ihn hinein -
+## der Schacht hat oben keine Tasche, in die man sie schieben könnte (die Grammatik
+## des Schirms, nur senkrecht).
+func _build_shutter(band_name: String, dir: float, top: float,
+		lintel: float) -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "Blende%s" % band_name
+	holder.position = Vector3(dir * (half.x + WALL * 0.5), top - lintel, 0.0)
+	_shutters.add_child(holder)
+	var pane_h := maxf(depth - lintel, 0.001)
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(WALL, pane_h, half.y * 2.0 + WALL * 2.0)
+	var pane := MeshInstance3D.new()
+	pane.name = "Platte"
+	pane.mesh = mesh
+	pane.material_override = _wall_material
+	pane.position = Vector3(0.0, -pane_h * 0.5, 0.0)
+	pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	holder.add_child(pane)
+	return holder
+
+func _drop_shutters() -> void:
+	if _shutters != null and is_instance_valid(_shutters):
+		remove_child(_shutters)
+		_shutters.queue_free()
+	_shutters = null
+	_shutter_back = null
+	_shutter_front = null
+
+## Der harte Schreiber des Blenden-Zustands: BEIDE zu. Jeder Endzustand und jeder
+## Abbruch geht durch ihn - eine offen gebliebene Blende wäre ein Loch in der Wand.
+func _shutters_hard() -> void:
+	_seat_shutters(0.0, 0.0)
+
+func _seat_shutters(back_share: float, front_share: float) -> void:
+	# Ungebeten gibt es keine Blende - und darum auch keinen Zustand, der eine behauptet.
+	_back_open = clampf(back_share, 0.0, 1.0) if _skin_wanted else 0.0
+	_front_open = clampf(front_share, 0.0, 1.0) if _skin_wanted else 0.0
+	if _shutter_back != null and is_instance_valid(_shutter_back):
+		_shutter_back.scale.y = maxf(1.0 - _back_open, 0.0001)
+	if _shutter_front != null and is_instance_valid(_shutter_front):
+		_shutter_front.scale.y = maxf(1.0 - _front_open, 0.0001)
+
+## Welche Bänder ein Schritt wirklich benutzt: herein geht es hinten, hinaus vorn.
+func _bands_of(incoming: Array, outgoing: Array) -> int:
+	var bands := 0
+	if not incoming.is_empty():
+		bands |= BAND_BACK
+	if not outgoing.is_empty():
+		bands |= BAND_FRONT
+	return bands
+
+## Ein Schlag der Blenden im laufenden Fahrplan. beside heißt: NEBEN dem eben gesetzten
+## Takt (Senken, Hub, Schirm), also kostet das Band keine Zykluszeit; nur wo kein Takt
+## danebensteht, nimmt er einen eigenen - und der bleibt unter dem gerechneten Deckel.
+func _shutter_step(bands: int, from: float, to: float, beside: bool) -> void:
+	if not _skin_wanted or bands == 0 or _tween == null:
+		return
+	var back := (bands & BAND_BACK) != 0
+	var front := (bands & BAND_FRONT) != 0
+	var setter := func(share: float) -> void:
+		_seat_shutters(share if back else _back_open,
+			share if front else _front_open)
+	var step := _tween.parallel() if beside else _tween
+	step.tween_method(setter, from, to, SHUTTER_TIME).set_trans(Tween.TRANS_SINE)
 
 # --- Der GRUBEN-SCHIRM ----------------------------------------------------------
 # Zwei fast durchsichtige Paneele über der geparkten Grube. Sie fahren aus der linken
@@ -591,7 +816,10 @@ func _build_cover() -> void:
 	_cover.visible = false
 	add_child(_cover)
 	_cover_material = _glass_material()
-	var reach := maxf(half.y - COVER_KERF * 0.5, 0.001)
+	# Beide Hälften reichen bis GENAU zur Mitte: sie stoßen nahtlos, ohne Fuge und
+	# ohne Überdeckung - ein Spalt läse als dunkler Strich, eine Überlappung (das
+	# Glas schreibt keine Tiefe) als doppelt heller.
+	var reach := maxf(half.y, 0.001)
 	_cover_left = _build_cover_wing("Links", -1.0, reach)
 	_cover_right = _build_cover_wing("Rechts", 1.0, reach)
 	_cover_label = Label3D.new()
@@ -647,11 +875,24 @@ func _write_cover() -> void:
 	# die Zeile genau dort, wo der gewählte Grad es vorsieht.
 	_cover_label.width = (half.y * 2.0) * COVER_TEXT_SHARE / maxf(grade, 0.0001)
 	_cover_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_cover_label.modulate = Color(cover_tint.r * 1.5 + 0.3, cover_tint.g * 1.5 + 0.3,
-		cover_tint.b * 1.5 + 0.3, _hover_share * _cover_share)
-	_cover_label.outline_modulate = Color(0.03, 0.03, 0.05,
-		_hover_share * _cover_share)
+	var seen := _hover_share * _cover_share
+	var gold := cover_text_color()
+	var edge := cover_outline_color()
+	_cover_label.modulate = Color(gold.r, gold.g, gold.b, seen)
+	_cover_label.outline_modulate = Color(edge.r, edge.g, edge.b, seen)
 	_sync_cover_label()
+
+## Die EINE Farbe der Aufschrift, unabhängig von der Wette: das Haus-Gold, überhellt.
+static func cover_text_color() -> Color:
+	var gold := CasinoStyle.GOLD_INTENSE
+	return Color(gold.r * COVER_TEXT_GAIN, gold.g * COVER_TEXT_GAIN,
+		gold.b * COVER_TEXT_GAIN)
+
+## Und der EINE Ton ihres Umrisses: dasselbe Gold, dunkel - nie Schwarz.
+static func cover_outline_color() -> Color:
+	var dark := CasinoStyle.GOLD_DARK
+	return Color(dark.r * COVER_OUTLINE_GAIN, dark.g * COVER_OUTLINE_GAIN,
+		dark.b * COVER_OUTLINE_GAIN)
 
 ## Der Schriftgrad: die Zeile muß LÄNGS in die Grubenbreite (Welt-Z) und QUER in ihre
 ## Tiefe (Welt-X) passen - der kleinere der beiden Grade gewinnt. Gewählt wird die
@@ -706,8 +947,11 @@ func _belt_step(out_bodies: Array, out_seats: Array, ahead: float,
 
 ## Der Hub samt Setz-Dip - der Schluss jedes Fahrplans. Ohne Ware fährt die Platte
 ## allein herauf.
-func _lift_and_seat(bodies: Array, seats: Array) -> void:
+## shut nennt die Bänder, die dieser Fahrplan geöffnet hat: sie fallen IM Hub-Takt
+## wieder zu, also kosten sie nichts.
+func _lift_and_seat(bodies: Array, seats: Array, shut := 0) -> void:
 	_together(bodies, seats, 0.0, LIFT_TIME, Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_shutter_step(shut, 1.0, 0.0, true)
 	var dip := minf(DIP, depth * 0.5)
 	_together(bodies, seats, -dip, DIP_TIME * 0.5, Tween.TRANS_SINE, Tween.EASE_OUT)
 	_together(bodies, seats, 0.0, DIP_TIME * 0.5, Tween.TRANS_SINE, Tween.EASE_IN)
@@ -744,11 +988,13 @@ func _open() -> void:
 	visible = true
 	_set_platform(0.0)
 	_cover_hard(0.0)
+	_shutters_hard()  # jede Fahrt beginnt mit blinden Bändern
 	opened.emit(center, half)
 
 func _shut() -> void:
 	_set_platform(0.0)
 	_cover_hard(0.0)
+	_shutters_hard()
 	visible = false
 	closed.emit()
 
@@ -794,7 +1040,7 @@ func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D
 func _build_body() -> void:
 	var span := Vector2(half.x * 2.0, half.y * 2.0)
 	var top := -WALL_SINK
-	var mouth := depth * MOUTH_SHARE
+	var mouth := mouth_height()
 	var cavity := cavity_span()
 	var sole_y := top - depth - SOLE_CLEAR - DECK
 
@@ -835,11 +1081,14 @@ func _build_body() -> void:
 
 	_build_platform(span)
 
-	# Der Schirm gehört zum Körper, nicht zur Fahrt: eine überlebende Bestellung
-	# stellt ihn nach dem Neubau in genau seinem alten Zustand wieder hin.
+	# Schirm und Blenden gehören zum Körper, nicht zur Fahrt: eine überlebende
+	# Bestellung stellt sie nach dem Neubau in genau ihrem alten Zustand wieder hin.
 	if _cover_wanted:
 		_build_cover()
 		_seat_cover(_cover_share)
+	if _skin_wanted:
+		_build_shutters()
+		_seat_shutters(_back_open, _front_open)
 
 ## Ein HOHLRAUM hinter einem Öffnungsband, gespiegelt über dir (+1 = hinten, der
 ## Eingang; -1 = vorn, der Ausgang). Stirnwand, zwei Flanken und eine Decke - durch

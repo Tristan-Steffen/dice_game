@@ -722,3 +722,13 @@ func test_ein_schacht_wird_in_weltmassen_genannt():
 	screen.set_lift_pit(TableScreen.PIT_SECRET_BOWL, at, Vector2.ZERO)
 	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL),
 		"ohne Ausdehnung gibt es kein Loch")
+
+## Ein Schacht darf die Form seiner Fassung tragen: der Wett-Tresen meldet den Radius
+## seines Setzen-Knopfs mit, der Laden meldet keinen und bleibt eckig.
+func test_ein_schacht_traegt_den_gemeldeten_eckenradius():
+	var at := screen.pixel_to_world(Vector2(500, 400))
+	screen.set_lift_pit(TableScreen.PIT_SIDE_BET0, at, Vector2(3.0, 5.0), 12.0)
+	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SIDE_BET0), 12.0, 0.0001)
+	screen.set_lift_pit(TableScreen.PIT_SHOP_BOWL, at, Vector2(3.0, 5.0))
+	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SHOP_BOWL), 0.0, 0.0001,
+		"ohne Meldung bleibt das Loch eckig")
