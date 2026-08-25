@@ -470,29 +470,47 @@ func test_die_halbe_parkhoehe_ist_tot() -> void:
 		assert_false(FileAccess.get_file_as_string(gone).contains("PARK_SHARE"),
 			"%s kennt keinen Park-Anteil" % gone)
 
-func test_der_park_endet_auf_der_schachttiefe() -> void:
+func test_der_park_endet_auf_der_anzeigetiefe() -> void:
 	var shaft := LiftShaftView.new()
 	autofree(shaft)
 	shaft.depth = 2.4
 	assert_almost_eq(shaft.park_y(), shaft.depth, 0.0001,
-		"geparkt wird da, wo die Fahrt endet")
-	assert_almost_eq(shaft.park_y(), shaft.drop(), 0.0001, "EIN Maß, eine Frage")
+		"geparkt wird auf der ANZEIGE-Tiefe - das ist das Gruben-Bild")
+	assert_almost_eq(shaft.drop(), shaft.depth, 0.0001,
+		"ohne bestellte Tieffahrt fällt die Band-Ebene damit zusammen")
+	assert_almost_eq(shaft.park_rise(), 0.0, 0.0001, "und es gibt keinen Weg dazwischen")
 
-## Die Takte, ehrlich nachgerechnet: der Park hebt nichts mehr zurück, dafür fährt der
-## SCHIRM - und jede Fahrt aus dem Park beginnt damit, ihn einzuziehen.
+## Die Takte, ehrlich nachgerechnet: ohne Tieffahrt hebt der Park nichts mehr zurück,
+## dafür fährt der SCHIRM - und jede Fahrt aus dem Park beginnt damit, ihn einzuziehen.
 func test_die_takte_des_parkens_rechnen_den_schirm_mit() -> void:
-	assert_almost_eq(LiftShaftView.park_cycle_time(),
+	var shaft := LiftShaftView.new()
+	autofree(shaft)
+	shaft.depth = 2.4
+	assert_almost_eq(shaft.park_cycle_time(),
 		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.COVER_TIME,
 		0.0001, "senken, Band-Schritt, Schirm - kein Rest-Hub")
 	assert_almost_eq(LiftShaftView.rise_cycle_time(),
 		LiftShaftView.COVER_TIME + LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME,
 		0.0001, "Schirm ein, dann hebt die Ware")
-	assert_almost_eq(LiftShaftView.leave_park_time(),
+	assert_almost_eq(shaft.leave_park_time(),
 		LiftShaftView.COVER_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
 			+ LiftShaftView.DIP_TIME, 0.0001,
 		"Schirm ein, Band-Schritt, leere Platte herauf - kein Vor-Senken mehr")
-	assert_lt(LiftShaftView.leave_park_time(), LiftShaftView.swap_cycle_time(),
+	assert_lt(shaft.leave_park_time(), LiftShaftView.swap_cycle_time(),
 		"und der Abgang aus dem Park bleibt unter dem Deckel der Abrechnung")
+	# Mit Tieffahrt liegen Park und Band-Ebene auseinander: der Weg dazwischen ist ein
+	# eigener Schlag, und die beiden Deckel rechnen ihn ehrlich mit.
+	shaft.travel_share = 2.0
+	assert_almost_eq(shaft.park_cycle_time(),
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
+			+ LiftShaftView.COVER_TIME, 0.0001, "der Park hebt aus der Tiefe zurück")
+	assert_almost_eq(shaft.leave_park_time(),
+		LiftShaftView.COVER_TIME + LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
+			+ LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME, 0.0001,
+		"und der Abgang sinkt erst auf sie hinunter")
+	assert_almost_eq(LiftShaftView.rise_cycle_time(),
+		LiftShaftView.COVER_TIME + LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME,
+		0.0001, "die AUFFAHRT kennt nur den Parkstand und bleibt, wie sie war")
 
 ## Der Schirm hat EINE Textquelle: die Gewinn-Beschriftung der Wette. Sie wird genau
 ## einmal formuliert - der Setzen-Knopf und der Deckel lesen dieselbe Zeile.
@@ -533,13 +551,38 @@ func test_die_wandhaut_hat_genau_einen_besteller() -> void:
 		assert_false(code.contains("order_skin"),
 			"%s bestellt keine Haut - seine Bänder bleiben offen" % foreign)
 
+## Und die TIEFFAHRT ebenso: nur eine Grube, die OFFEN stehen bleibt, hat eine
+## Nachbarin, in deren Loch die wartende Ware erschiene. Alle anderen fahren flach.
+func test_die_tieffahrt_hat_genau_einen_besteller() -> void:
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	assert_eq(root.count("travel_share"), 1,
+		"scene_root bestellt die Tieffahrt an EINER Stelle (_bet_shaft_on)")
+	assert_eq(root.count("BET_PIT_DIVE"), 2,
+		"eine Quelle für das Maß - Deklaration und die eine Bestellung")
+	for foreign: String in ["res://scripts/table/vitrine_view.gd",
+			"res://scripts/table/pack_pit_view.gd",
+			"res://scripts/ui/shop_controller.gd",
+			"res://scripts/ui/secret_shop_view.gd",
+			"res://scripts/ui/pack_drawer_view.gd"]:
+		var code: String = FileAccess.get_file_as_string(foreign)
+		assert_false(code.contains("travel_share"),
+			"%s fährt flach - seine Grube steht nie offen" % foreign)
+	# Ungebeten ist die Fahrt genau die Anzeige-Tiefe: kein Laden merkt etwas davon.
+	var shaft := LiftShaftView.new()
+	autofree(shaft)
+	shaft.depth = VitrineView.shaft_depth()
+	assert_almost_eq(shaft.travel_share, 1.0, 0.0001)
+	assert_almost_eq(shaft.drop(), VitrineView.shaft_depth(), 0.0001)
+
 ## Der Takt der Blenden liegt IN den bestehenden Schlägen: die Zyklus-Deckel bleiben
 ## Zahl für Zahl dieselben, ein Öffnungsband kostet keine Zeit.
 func test_die_blenden_verlaengern_keinen_takt() -> void:
+	var shaft := LiftShaftView.new()
+	autofree(shaft)
 	assert_almost_eq(LiftShaftView.cycle_time(),
 		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
 			+ LiftShaftView.DIP_TIME, 0.0001)
-	assert_almost_eq(LiftShaftView.park_cycle_time(),
+	assert_almost_eq(shaft.park_cycle_time(),
 		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.COVER_TIME,
 		0.0001)
 	for takt: float in [LiftShaftView.SINK_TIME, LiftShaftView.LIFT_TIME,

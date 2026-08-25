@@ -416,7 +416,7 @@ func test_run_park_stays_down_at_the_full_depth():
 	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
 	assert_almost_eq(prize.global_position.y, -2.4, 0.05,
 		"unterwegs deckt das Display den Schacht")
-	await wait_seconds(LiftShaftView.park_cycle_time() + 0.2)
+	await wait_seconds(shaft.park_cycle_time() + 0.2)
 	assert_true(holes.has(TableScreen.PIT_SIDE_BET1), "das Loch bleibt offen")
 	assert_almost_eq(prize.global_position.y, -2.4, 0.01,
 		"und der Gewinn wartet ganz unten")
@@ -431,7 +431,7 @@ func test_run_park_ends_below_with_the_hole_open():
 	add_child_autofree(prize)
 	var seat := Vector3(0.0, 0.0, 1.0)
 	shaft.run_park([], [], [prize], [seat], 0.0)
-	await wait_seconds(LiftShaftView.park_cycle_time() + 0.1)
+	await wait_seconds(shaft.park_cycle_time() + 0.1)
 	assert_true(holes.has(TableScreen.PIT_SIDE_BET0), "das Loch BLEIBT offen")
 	assert_almost_eq(shaft.platform_y(), -PARK_Y, 0.001)
 	assert_almost_eq(prize.global_position.y, seat.y - PARK_Y, 0.01,
@@ -470,7 +470,7 @@ func test_run_leave_park_never_lets_the_ware_surface():
 		highest = maxf(highest, prize.global_position.y)
 	assert_lt(highest, -PARK_Y * 0.9,
 		"die Ware bleibt tief im Schacht (%.3f)" % highest)
-	await wait_seconds(LiftShaftView.leave_park_time() + 0.1)
+	await wait_seconds(shaft.leave_park_time() + 0.1)
 	assert_eq(swept.size(), 1, "der Band-Schritt meldet sie als draußen")
 	assert_false(holes.has(TableScreen.PIT_SIDE_BET2), "und das Loch ist zu")
 	assert_almost_eq(shaft.platform_y(), 0.0, 0.001, "die leere Platte steht bündig")
@@ -533,7 +533,7 @@ func test_three_sections_park_and_ride_independently():
 	for i in SideBetPanel.OFFER_COUNT:
 		assert_true(holes.has(TableScreen.side_bet_pit(i)),
 			"Plot %d hat sein eigenes offenes Loch" % i)
-	await wait_seconds(LiftShaftView.leave_park_time() + 0.2)
+	await wait_seconds(shafts[2].leave_park_time() + 0.2)
 	assert_true(holes.has(TableScreen.side_bet_pit(0)),
 		"die geparkte Grube steht weiter offen")
 	assert_false(holes.has(TableScreen.side_bet_pit(1)),
@@ -708,7 +708,7 @@ func test_run_park_extends_the_cover_last():
 	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
 	assert_almost_eq(shaft.cover_share(), 0.0, 0.001,
 		"solange die Ware fährt, ist der Schirm fort")
-	await wait_seconds(LiftShaftView.park_cycle_time() + 0.1)
+	await wait_seconds(shaft.park_cycle_time() + 0.1)
 	assert_almost_eq(shaft.cover_share(), 1.0, 0.001, "danach liegt er")
 	assert_true(holes.has(TableScreen.PIT_SIDE_BET0), "über der offenen Grube")
 
@@ -1045,10 +1045,10 @@ func test_every_plan_shuts_its_bands_again():
 				shaft.run_take([body], [seat], 0.0)
 			"parken":
 				shaft.run_park([], [], [body], [seat], 0.0)
-				span = LiftShaftView.park_cycle_time()
+				span = shaft.park_cycle_time()
 			"abgang_aus_park":
 				shaft.run_leave_park([body], [seat], 0.0)
-				span = LiftShaftView.leave_park_time()
+				span = shaft.leave_park_time()
 		await wait_seconds(span + 0.15)
 		assert_almost_eq(shaft.shutter_open(true), 0.0, 0.001,
 			"%s: der Eingang ist wieder blind" % plan)
@@ -1068,7 +1068,7 @@ func test_the_park_shuts_its_band_together_with_the_cover():
 	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
 	assert_almost_eq(shaft.shutter_open(true), 1.0, 0.02,
 		"während der Ware ist das Band auf")
-	await wait_seconds(LiftShaftView.park_cycle_time() + 0.15)
+	await wait_seconds(shaft.park_cycle_time() + 0.15)
 	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.001, "danach ist es blind")
 	assert_almost_eq(shaft.cover_share(), 1.0, 0.001, "und der Schirm liegt")
 	assert_true(holes.has(TableScreen.PIT_SIDE_BET0), "über der offenen Grube")
@@ -1136,3 +1136,206 @@ func test_dropping_the_skin_removes_the_shutters():
 	assert_null(shaft.get_node_or_null("Blenden"))
 	assert_null(_wall_material(shaft).albedo_texture)
 	assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001)
+
+# --- Die TIEFFAHRT ---------------------------------------------------------------
+# Eine Wett-Grube bleibt OFFEN stehen, also blickt man in die Nachbarin - und der
+# Hohlraum hinter dem Öffnungsband ist kürzer als ein Stück Ware, das darin wartet.
+# Also sinkt die Maschine zum Ein- und Ausfahren TIEFER, als sie aussieht: die
+# ANZEIGE-Tiefe (der Park) bleibt, die BAND-EBENE geht auf travel_share.
+
+func _deep_shaft(holes: Dictionary, share := 2.0) -> LiftShaftView:
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.travel_share = share
+	shaft.setup(Vector3.ZERO, Vector2(1.0, 3.0), PARK_DEPTH)  # dieselben Maße, neue Bestellung
+	return shaft
+
+## Die zwei Ebenen: der Park steht, wo er stand - gefahren wird doppelt so tief.
+func test_the_dive_moves_the_belt_but_never_the_park():
+	var holes: Dictionary = {}
+	var shaft := _deep_shaft(holes)
+	assert_almost_eq(shaft.park_y(), PARK_DEPTH, 0.0001,
+		"der Parkstand ist das sichtbare Gruben-Bild")
+	assert_almost_eq(shaft.drop(), PARK_DEPTH * 2.0, 0.0001, "die Band-Ebene liegt doppelt tief")
+	assert_almost_eq(shaft.park_rise(), PARK_DEPTH, 0.0001, "dazwischen liegt ein Weg")
+	shaft.park_hard()
+	assert_almost_eq(shaft.platform_y(), -PARK_DEPTH, 0.0001,
+		"und die Platte steht im Park genau so hoch wie ohne Tieffahrt")
+
+## Ohne Bestellung ändert sich GAR NICHTS: Laden, Hinterzimmer, Schlitzreihe und
+## Magazin fahren dieselbe Maschine, und ihre Geometrie ist Kasten für Kasten dieselbe.
+func test_an_unordered_shaft_is_byte_identical():
+	var holes: Dictionary = {}
+	var plain := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+	assert_almost_eq(plain.travel_share, 1.0, 0.0001, "ungebeten fährt keiner tief")
+	assert_almost_eq(plain.drop(), plain.park_y(), 0.0001, "Park und Band-Ebene sind EINS")
+	assert_almost_eq(plain.park_rise(), 0.0, 0.0001)
+	var boxes: Dictionary = {}
+	for child in plain.get_children():
+		if child is MeshInstance3D:
+			var mesh: BoxMesh = (child as MeshInstance3D).mesh
+			boxes[String(child.name)] = [mesh.size, child.position]
+	var again := _bet_shaft(holes, TableScreen.PIT_SIDE_BET2, PARK_DEPTH)
+	again.travel_share = 1.0
+	again.setup(Vector3.ZERO, Vector2(1.0, 3.0), PARK_DEPTH)
+	for child in again.get_children():
+		if not (child is MeshInstance3D):
+			continue
+		var entry: Array = boxes.get(String(child.name), [])
+		assert_false(entry.is_empty(), "%s steht in beiden" % child.name)
+		var mesh: BoxMesh = (child as MeshInstance3D).mesh
+		assert_true(mesh.size.is_equal_approx(entry[0] as Vector3),
+			"%s ist unverändert groß" % child.name)
+		assert_true(child.position.is_equal_approx(entry[1] as Vector3),
+			"%s steht unverändert" % child.name)
+
+## Der ganze Kasten zieht auf die Band-Ebene: Wände, Sturz, Hohlraum und Sohle. Das
+## Öffnungsband mißt weiter am STÜCK und sitzt ganz unten - oberhalb steht die Wand zu.
+func test_the_geometry_follows_the_belt_level():
+	var holes: Dictionary = {}
+	var shaft := _deep_shaft(holes)
+	var deep := PARK_DEPTH * 2.0
+	assert_almost_eq(shaft.mouth_height(), PARK_DEPTH * LiftShaftView.MOUTH_SHARE, 0.0001,
+		"das Band mißt am Stück, nicht an der Fahrt")
+	var wall: MeshInstance3D = shaft.get_node("WallLeft")
+	var wall_box: BoxMesh = wall.mesh
+	assert_almost_eq(wall_box.size.y, deep, 0.0001, "die Wand reicht bis zur Band-Ebene")
+	var lintel: MeshInstance3D = shaft.get_node("BackLintel")
+	var lintel_box: BoxMesh = lintel.mesh
+	assert_almost_eq(lintel_box.size.y, deep - shaft.mouth_height(), 0.0001,
+		"und der Sturz füllt alles darüber")
+	var sole: MeshInstance3D = shaft.get_node("Sole")
+	assert_lt(sole.position.y, -deep, "die Sohle liegt unter der Band-Ebene")
+	# Und die Blende deckt genau das Band, das nun ganz unten sitzt.
+	shaft.order_skin(SKIN)
+	var pane: MeshInstance3D = _shutter(shaft, true).get_node("Platte")
+	var pane_box: BoxMesh = pane.mesh
+	assert_almost_eq(pane_box.size.y, shaft.mouth_height(), 0.0001,
+		"die Blende ist genau das Öffnungsband hoch")
+
+## Die wartende Ware steht auf der BAND-EBENE - dort liegt sie unter der Sohle der
+## Nachbarin und kann in ihrem offenen Loch nicht mehr erscheinen.
+func test_the_waiting_ware_waits_on_the_belt_level():
+	var holes: Dictionary = {}
+	var shaft := _deep_shaft(holes)
+	var prize := Node3D.new()
+	add_child_autofree(prize)
+	var seat := Vector3(0.0, 0.0, 1.0)
+	shaft.run_park([], [], [prize], [seat], 0.0)
+	assert_almost_eq(prize.global_position.y, -PARK_DEPTH * 2.0, 0.0001,
+		"schon die Wartestellung liegt tief")
+	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
+	assert_lt(prize.global_position.y, -PARK_DEPTH * 1.5,
+		"und der Band-Schritt läuft dort unten")
+
+## Der PARK-Zyklus endet trotzdem auf dem Parkstand: aus der Tiefe hebt ein eigener
+## Schlag zurück, und der Deckel rechnet ihn mit.
+func test_run_park_lifts_back_onto_the_park_level():
+	var holes: Dictionary = {}
+	var shaft := _deep_shaft(holes)
+	assert_almost_eq(shaft.park_cycle_time(),
+		LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME
+			+ LiftShaftView.COVER_TIME, 0.0001,
+		"mit Tieffahrt kommt EIN Schlag dazu")
+	var prize := Node3D.new()
+	add_child_autofree(prize)
+	var seat := Vector3(0.0, 0.0, 1.0)
+	shaft.run_park([], [], [prize], [seat], 0.0)
+	await wait_seconds(shaft.park_cycle_time() + 0.15)
+	assert_true(holes.has(TableScreen.PIT_SIDE_BET0), "das Loch bleibt offen")
+	assert_almost_eq(shaft.platform_y(), -PARK_DEPTH, 0.01,
+		"die Platte steht auf dem Parkstand")
+	assert_almost_eq(prize.global_position.y, seat.y - PARK_DEPTH, 0.01,
+		"und der Gewinn auf ihr")
+
+## Und der ABGANG aus dem Park sinkt erst auf die Band-Ebene - das Öffnungsband sitzt
+## dort. Aufgetaucht ist die Ware dabei nie.
+func test_run_leave_park_dives_before_the_belt_step():
+	var holes: Dictionary = {}
+	var shaft := _deep_shaft(holes)
+	assert_almost_eq(shaft.leave_park_time(),
+		LiftShaftView.COVER_TIME + LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME
+			+ LiftShaftView.LIFT_TIME + LiftShaftView.DIP_TIME, 0.0001)
+	var prize := Node3D.new()
+	add_child_autofree(prize)
+	var seat := Vector3(0.0, 0.0, 1.0)
+	var swept: Array = []
+	shaft.run_leave_park([prize], [seat], 0.0, func() -> void: swept.append(prize))
+	var highest := -100.0
+	var deepest := 100.0
+	for step in 12:
+		await wait_seconds(shaft.leave_park_time() / 12.0)
+		highest = maxf(highest, prize.global_position.y)
+		deepest = minf(deepest, prize.global_position.y)
+	assert_lt(highest, seat.y - PARK_DEPTH * 0.9,
+		"die Ware taucht nie auf (%.3f)" % highest)
+	assert_lt(deepest, seat.y - PARK_DEPTH * 1.5,
+		"und geht auf der Band-Ebene hinaus (%.3f)" % deepest)
+	assert_eq(swept.size(), 1, "der Band-Schritt meldet sie als draußen")
+	assert_almost_eq(shaft.platform_y(), 0.0, 0.01, "die leere Platte steht bündig")
+
+## Jeder Abbruch mitten in der tiefen Fahrt schließt das Loch und setzt die Platte
+## bündig - der EINE Aufräum-Pfad kennt die zweite Ebene nicht einmal.
+func test_every_abort_in_the_dive_still_settles():
+	for plan: String in ["parken", "abgang_aus_park", "auftritt"]:
+		for beat: float in [0.1, 0.55, 1.0, 1.35]:
+			var holes: Dictionary = {}
+			var shaft := _deep_shaft(holes)
+			shaft.order_skin(SKIN)
+			shaft.order_cover("$30", Color.GOLD)
+			var body := Node3D.new()
+			add_child_autofree(body)
+			match plan:
+				"parken":
+					shaft.run_park([], [], [body], [Vector3.ZERO], 0.0)
+				"abgang_aus_park":
+					shaft.run_leave_park([body], [Vector3.ZERO], 0.0)
+				"auftritt":
+					shaft.run_cycle([body], [Vector3.ZERO], 0.0)
+			await wait_seconds(beat)
+			shaft.settle_hard()
+			assert_false(holes.has(TableScreen.PIT_SIDE_BET0),
+				"%s bei %.2f: das Loch ist zu" % [plan, beat])
+			assert_almost_eq(shaft.platform_y(), 0.0, 0.0001,
+				"%s bei %.2f: die Platte steht bündig" % [plan, beat])
+			assert_almost_eq(shaft.cover_share(), 0.0, 0.0001,
+				"%s bei %.2f: der Schirm ist fort" % [plan, beat])
+			assert_almost_eq(shaft.shutter_open(true), 0.0, 0.0001,
+				"%s bei %.2f: die Bänder sind blind" % [plan, beat])
+
+# --- Die FÜHRUNG der Schirm-Zeile ------------------------------------------------
+# Sie wird je Bild GEFRAGT, also wird sie auch je Bild GEFÜHRT. Ein Tween wäre der
+# falsche Träger: jede Frage startete ihn neu, jeder Neustart verwürfe den Rest - die
+# Zeile käme nie an und stünde als dunkle Zwischenstufe da.
+
+## Je Bild gefragt heißt: in COVER_HOVER_TIME voll da - und MONOTON dorthin.
+func test_the_hover_line_arrives_even_when_asked_every_frame():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_cover("2 Pakete", Color.GOLD)
+	shaft.park_hard()
+	var last := 0.0
+	for frame in 60:
+		shaft.set_cover_hovered(true)  # dieselbe Frage wie _sync_bet_counter je Bild
+		await wait_frames(1)
+		var seen := shaft.cover_text_share()
+		assert_gte(seen, last - 0.0001, "die Zeile läuft monoton auf (%.3f)" % seen)
+		last = seen
+	assert_almost_eq(last, 1.0, 0.0001, "und steht am Ende ganz da")
+	for frame in 60:
+		shaft.set_cover_hovered(false)
+		await wait_frames(1)
+	assert_almost_eq(shaft.cover_text_share(), 0.0, 0.0001, "ohne Zeiger schweigt sie")
+
+## Und der harte Park-Schreiber, den _sync_bet_counter je Bild führt, friert sie nicht
+## ein: er ist ein Endzustand des SCHIRMS, kein Eingriff in seine Aufschrift.
+func test_a_hard_park_does_not_freeze_the_fade():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_cover("2 Pakete", Color.GOLD)
+	shaft.park_hard()
+	for frame in 60:
+		shaft.set_cover_hovered(true)
+		shaft.park_hard()  # der EINE Schreiber des Park-Endzustands, je Bild
+		await wait_frames(1)
+	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.0001,
+		"der Park schreibt die Platte, nicht die Zeile")

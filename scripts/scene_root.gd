@@ -609,6 +609,10 @@ var bet_shafts: Array[LiftShaftView] = []
 ## Leuchtlinien. Eine Wett-Grube bleibt offen stehen, also müssen ihre vier Seiten
 ## gleich lesen - Laden, Hinterzimmer, Schlitzreihe und Magazin fahren ungehäutet.
 const BET_PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
+## Und die TIEFFAHRT, die ebenfalls nur sie bestellen: zum Ein- und Ausfahren sinkt
+## eine Wett-Grube doppelt so tief wie sie aussieht. Nur hier steht die Nachbargrube
+## offen, und nur hier ragte die wartende Ware aus dem kurzen Hohlraum in ihr Loch.
+const BET_PIT_DIVE := 2.0
 ## Laufende Nummer der Abrechnungs-Zeremonie - nur die jüngste räumt den Tresen.
 var _bet_settle := 0
 ## Ein AUFTRITT ist fällig, aber keiner schaut hin: der Tresen stellt still und
@@ -4273,7 +4277,7 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 	if to_pit:
 		# Der Gewinn kommt in Sicht und BLEIBT unten: die Grube steht offen.
 		tween = shaft.run_park(out_bodies, _seats_of(outgoing), in_bodies,
-			_seats_of(entering), 0.0, swept)
+			_seats_of(entering), 0.0, swept, _bodies_of(staying), _seats_of(staying))
 	elif was_parked and in_bodies.is_empty() and out_bodies.is_empty():
 		tween = shaft.run_rise(_bodies_of(staying), _seats_of(staying), 0.0)
 	elif was_parked and in_bodies.is_empty():
@@ -4391,6 +4395,7 @@ func _bet_shaft_on(spot: int, field: Rect2, deep: float) -> LiftShaftView:
 	shaft.deck_skin = table_screen.display_skin()
 	shaft.order_skin(BET_PIT_SKIN)  # der EINE Besteller der Wandhaut
 	shaft.cavity_reach = _bet_cavity_reach()
+	shaft.travel_share = BET_PIT_DIVE  # und der EINE Besteller der Tieffahrt
 	var a := table_screen.pixel_to_world(field.position)
 	var b := table_screen.pixel_to_world(field.end)
 	shaft.setup(table_screen.pixel_to_world(field.get_center()),
@@ -4478,16 +4483,19 @@ func _sync_bet_counter() -> void:
 		if spot < 0 or spot >= bet_shafts.size():
 			continue
 		var shaft := bet_shafts[spot]
-		if shaft == null or not is_instance_valid(shaft) or shaft.riding():
+		if shaft == null or not is_instance_valid(shaft):
+			continue
+		# Der SCHIRM sagt, was unten liegt - aber nur, solange der Zeiger auf dem Plot
+		# steht. Gefragt je Bild, dieselbe Griff-Grammatik wie die Körper darüber, und
+		# auch während einer Fahrt: eine Frage, die aussetzt, friert die Zeile ein.
+		shaft.set_cover_hovered(pixel.x >= 0.0 and spot < rects.size()
+			and rects[spot].has_point(pixel))
+		if shaft.riding():
 			continue  # eine laufende Fahrt schreibt ihren Zustand selbst
 		if show:
 			_park_bet_shaft(spot)
 		elif shaft.visible:
 			shaft.settle_hard()
-		# Der SCHIRM sagt, was unten liegt - aber nur, solange der Zeiger auf dem Plot
-		# steht. Gefragt je Bild, dieselbe Griff-Grammatik wie die Körper darüber.
-		shaft.set_cover_hovered(pixel.x >= 0.0 and spot < rects.size()
-			and rects[spot].has_point(pixel))
 
 ## Die Steuer EINER genommenen Hand: gebucht hat GameRun, hier springt je zahlender
 ## Wette EIN Chip vom Schatz auf ihre Zählplatte - so sieht der Spieler seine Kosten

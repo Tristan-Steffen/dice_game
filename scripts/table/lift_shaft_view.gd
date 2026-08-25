@@ -22,9 +22,11 @@ extends Node3D
 ## 16 Lichter), das Ruhelicht bleibt gedämpft, und gespiegelt wird nichts - ein
 ## Loch hat kein Spiegelbild.
 ## Neben "zu" und "fährt" kennt er einen dritten Zustand: den PARK - Loch offen,
-## Plattform auf VOLLER Schachttiefe (so tief, wie die Fahrt überhaupt kommt), Ware
-## sichtbar darin (park_hard/run_park/run_rise/run_leave_park). Das ist ein
-## ENDZUSTAND, den der Wirt jederzeit hart schreiben darf.
+## Plattform auf der ANZEIGE-Tiefe, Ware sichtbar darin (park_hard/run_park/run_rise/
+## run_leave_park). Das ist ein ENDZUSTAND, den der Wirt jederzeit hart schreiben darf.
+## Zum EIN- und AUSFAHREN darf er TIEFER sinken als der Park steht (travel_share): die
+## Band-Ebene liegt dann unter der Sohle der Nachbargrube, und wartende Ware kann in
+## deren offenem Loch nicht mehr erscheinen. Das Gruben-BILD bleibt davon unberührt.
 ## Über der geparkten Grube liegt der SCHIRM: zwei fast durchsichtige Paneele, die
 ## aus linker und rechter Wand herausfahren und sich in der Mitte treffen. Er wird
 ## von draußen BESTELLT (order_cover) - eine Auslage ohne Bestellung baut keinen.
@@ -190,21 +192,30 @@ static func take_cycle_time() -> float:
 static func take_out_time() -> float:
 	return SINK_TIME + PUSH_TIME
 
-## Der PARK-Zyklus endet UNTEN: gesenkt, ein Band-Schritt - und dort bleibt es;
-## zurück hebt nichts mehr, denn der Park IST die volle Schachttiefe. Zuletzt fährt
-## der Schirm aus. Der ehrliche Deckel (ohne bestellten Schirm ist die Fahrt kürzer).
-static func park_cycle_time() -> float:
-	return SINK_TIME + PUSH_TIME + COVER_TIME
+## Die drei PARK-Fahrpläne kennen ZWEI Ebenen - den Parkstand und die Band-Ebene -,
+## und ob die auseinanderliegen, weiß nur der einzelne Schacht. Ihre Deckel hängen
+## darum an ihm, nicht an der Klasse.
+## Der PARK-Zyklus: gesenkt auf die Band-Ebene, ein Band-Schritt, zurück auf den
+## Parkstand - und dort bleibt es; zuletzt fährt der Schirm aus. Fallen beide Ebenen
+## zusammen, entfällt der Hub. Ohne bestellten Schirm ist die Fahrt kürzer.
+func park_cycle_time() -> float:
+	return SINK_TIME + PUSH_TIME + _park_leg(LIFT_TIME) + COVER_TIME
 
 ## Die AUFFAHRT aus dem Park kennt weder Senken noch Band-Schritt - nur der Schirm
-## muss zuerst fort, sonst stieße die Ware ihn durch.
+## muss zuerst fort, sonst stieße die Ware ihn durch. Sie läuft vom Parkstand bündig
+## herauf und weiß von der Band-Ebene nichts.
 static func rise_cycle_time() -> float:
 	return COVER_TIME + LIFT_TIME + DIP_TIME
 
-## Der ABGANG aus dem Park: Schirm ein, ein Band-Schritt (die Ware steht schon auf
-## Schachttiefe), dann hebt die LEERE Platte.
-static func leave_park_time() -> float:
-	return COVER_TIME + PUSH_TIME + LIFT_TIME + DIP_TIME
+## Der ABGANG aus dem Park: Schirm ein, hinunter auf die Band-Ebene, ein Band-Schritt,
+## dann hebt die LEERE Platte.
+func leave_park_time() -> float:
+	return COVER_TIME + _park_leg(SINK_TIME) + PUSH_TIME + LIFT_TIME + DIP_TIME
+
+## Ein Schlag, den es nur mit Tieffahrt gibt: liegen Park und Band-Ebene aufeinander,
+## ist der Weg dazwischen null und der Schlag fällt aus.
+func _park_leg(beat: float) -> float:
+	return beat if park_rise() > 0.001 else 0.0
 
 var _wall_material: StandardMaterial3D
 var _cavity_material: StandardMaterial3D
@@ -222,11 +233,19 @@ var depth := 0.0
 ## weiß der Wirt, nicht der Schacht - und ein Hohlraum unter einem fremden Loch läse
 ## sich dort als schwarzer Balken.
 var cavity_reach := 0.0
+## Wieviel TIEFER als der Parkstand die Maschine zum EIN- und AUSFAHREN sinkt (1 = gar
+## nicht). GEMELDET von draußen wie cavity_reach: nur eine Grube, die OFFEN stehen
+## bleibt, hat eine Nachbarin, in deren Loch die wartende Ware sonst erscheint - der
+## Hohlraum ist kürzer als ein Stück, also ragt es hinaus. Auf doppelter Fahrt-Tiefe
+## liegt es unter der Sohle der Nachbarin. Die ANZEIGE-Tiefe (der Park) bleibt davon
+## unberührt: sie ist das sichtbare Gruben-Bild.
+var travel_share := 1.0
 
 var _platform: Node3D
-## Mit welcher Reichweite der stehende Körper gebaut wurde - sonst bliebe eine
-## geänderte Meldung unbeachtet.
+## Mit welcher Reichweite und welcher Fahrt-Tiefe der stehende Körper gebaut wurde -
+## sonst bliebe eine geänderte Meldung unbeachtet.
 var _built_reach := -1.0
+var _built_travel := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
 
@@ -239,10 +258,12 @@ var _cover_left: Node3D
 var _cover_right: Node3D
 var _cover_label: Label3D
 var _cover_material: StandardMaterial3D
-## 0 = in der Wand, 1 = geschlossen. Und wieviel von der Aufschrift zu sehen ist.
+## 0 = in der Wand, 1 = geschlossen. Und wieviel von der Aufschrift zu sehen ist -
+## dazu, wohin sie GEFÜHRT wird. Kein Tween: die Zeile wird je Bild gefragt, und ein
+## Tween, den jedes Bild neu startet, kommt nie an (er kriecht exponentiell).
 var _cover_share := 0.0
 var _hover_share := 0.0
-var _hover_tween: Tween
+var _hover_goal := 0.0
 
 ## Die WANDHAUT, sofern bestellt, und die beiden Blenden, die sie mitträgt.
 var wall_skin: Texture2D = null
@@ -257,6 +278,18 @@ var _front_open := 0.0
 func _init(shaft_name := "LiftShaft") -> void:
 	name = shaft_name
 	visible = false  # die Maschine existiert nur während eines Auftritts
+	set_process(false)  # nur die Schirm-Zeile braucht einen Takt, und nur unterwegs
+
+## Der EINZIGE Takt der Maschine: die Aufschrift des Schirms läuft je Bild ein Stück
+## auf ihr Ziel zu. Angekommen legt sie sich selbst still.
+func _process(delta: float) -> void:
+	if not _cover_wanted or is_equal_approx(_hover_share, _hover_goal):
+		set_process(false)
+		return
+	_set_hover_share(move_toward(_hover_share, _hover_goal,
+		delta / maxf(COVER_HOVER_TIME, 0.0001)))
+	if is_equal_approx(_hover_share, _hover_goal):
+		set_process(false)
 
 ## Einziger Eingang: Mitte auf dem Glas, halbe Ausdehnung in Welt-X/Welt-Z und die
 ## Fahrstrecke der Plattform. Idempotent - dieselben Maße bauen nicht neu.
@@ -265,12 +298,14 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	var travel := maxf(shaft_depth, 0.05)
 	if center.is_equal_approx(at) and half.is_equal_approx(wanted) \
 			and is_equal_approx(depth, travel) and _platform != null \
-			and is_equal_approx(_built_reach, cavity_reach):
+			and is_equal_approx(_built_reach, cavity_reach) \
+			and is_equal_approx(_built_travel, travel_share):
 		return
 	center = at
 	half = wanted
 	depth = travel
 	_built_reach = cavity_reach
+	_built_travel = travel_share
 	global_position = center
 	for child in get_children():
 		remove_child(child)
@@ -309,20 +344,25 @@ func exit_offset() -> float:
 	return waiting_offset()
 
 ## Wie hoch ein Öffnungsband ist - darüber bleibt der Sturz stehen, und genau dieses
-## Maß füllt die Blende, wenn sie zu ist.
+## Maß füllt die Blende, wenn sie zu ist. Es mißt am STÜCK (der Anzeige-Tiefe), sitzt
+## aber ganz unten an der Fahrt-Ebene: oberhalb steht die Wand geschlossen.
 func mouth_height() -> float:
 	return depth * MOUTH_SHARE
 
-## Wie tief die Plattform fährt - dasselbe Maß, um das die Ware unter ihrem Platz
-## startet.
+## Wie tief die Plattform zum EIN- und AUSFAHREN fährt: die BAND-EBENE. Dasselbe Maß,
+## um das die Ware unter ihrem Platz startet.
 func drop() -> float:
-	return depth
+	return depth * maxf(travel_share, 1.0)
 
-## Und wie tief sie im PARK stehen bleibt: GANZ unten, so tief, wie die Fahrt kommt.
-## Ein Maß, keine zweite Messung - der Schacht sagt schon, wo "ganz unten" ist, und
-## der Park ist genau dort. Was die Ware dann noch lesbar macht, ist der SCHIRM.
+## Und wie tief sie im PARK stehen bleibt: auf der ANZEIGE-Tiefe - das ist das
+## sichtbare Gruben-Bild, und es hängt nie an der Fahrt.
 func park_y() -> float:
 	return depth
+
+## Der Weg zwischen Band-Ebene und Parkstand. Ohne bestellte Tieffahrt ist er null,
+## dann fallen die beiden Ebenen zusammen wie eh und je.
+func park_rise() -> float:
+	return maxf(drop() - park_y(), 0.0)
 
 # --- Die Fahrt ------------------------------------------------------------------
 
@@ -344,16 +384,16 @@ func run_cycle(bodies: Array, seats: Array, delay: float,
 		riders = []
 		rider_seats = []
 	var behind := waiting_offset()
-	# Wartestellung: hinter der Rückwand auf Schachttiefe - dort deckt das opake
+	# Wartestellung: hinter der Rückwand auf der Band-Ebene - dort deckt das opake
 	# Display jedes Stück, bis es hereinschiebt.
 	for i in bodies.size():
 		var body: Node3D = bodies[i]
 		if body != null and is_instance_valid(body):
-			body.global_position = (seats[i] as Vector3) + Vector3(behind, -depth, 0.0)
+			body.global_position = (seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	_together(riders, rider_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
+	_together(riders, rider_seats, -drop(), SINK_TIME, Tween.TRANS_LINEAR,
 		Tween.EASE_IN_OUT)
 	_shutter_step(BAND_BACK, 0.0, 1.0, true)  # nur der EINGANG wird gebraucht
 	_belt_step([], [], 0.0, bodies, seats)
@@ -383,18 +423,18 @@ func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
 		rider_seats = []
 	var behind := waiting_offset()
 	var ahead := exit_offset()
-	# Wartestellung der NEUEN: hinter der Rückwand auf Schachttiefe - dort deckt das
+	# Wartestellung der NEUEN: hinter der Rückwand auf der Band-Ebene - dort deckt das
 	# opake Display jedes Stück, bis es hereinschiebt. Die alten stehen schon.
 	for i in new_bodies.size():
 		var body: Node3D = new_bodies[i]
 		if body != null and is_instance_valid(body):
-			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -depth, 0.0)
+			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
 	var bands := _bands_of(new_bodies, old_bodies)
 	# Senken MIT der alten Ware und den Mitfahrern: sie stehen auf der Platte.
-	_together(old_bodies + riders, old_seats + rider_seats, -depth, SINK_TIME,
+	_together(old_bodies + riders, old_seats + rider_seats, -drop(), SINK_TIME,
 		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_shutter_step(bands, 0.0, 1.0, true)
 	_belt_step(old_bodies, old_seats, ahead, new_bodies, new_seats)
@@ -418,7 +458,7 @@ func run_exit(bodies: Array, seats: Array, delay: float,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	_together(bodies + riders, seats + rider_seats, -depth, SINK_TIME,
+	_together(bodies + riders, seats + rider_seats, -drop(), SINK_TIME,
 		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_shutter_step(BAND_FRONT, 0.0, 1.0, true)  # es geht nur hinaus
 	_belt_step(bodies, seats, exit_offset(), [], [])
@@ -441,13 +481,13 @@ func run_take(bodies: Array, seats: Array, delay: float,
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
-	_together(bodies, seats, -depth, SINK_TIME, Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
+	_together(bodies, seats, -drop(), SINK_TIME, Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_shutter_step(BAND_BACK, 0.0, 1.0, true)  # Gekauftes reist nach hinten ab
 	var behind := waiting_offset()
 	for i in bodies.size():
 		var step := _tween if i == 0 else _tween.parallel()
 		step.tween_property(bodies[i], "global_position",
-			(seats[i] as Vector3) + Vector3(behind, -depth, 0.0), PUSH_TIME) \
+			(seats[i] as Vector3) + Vector3(behind, -drop(), 0.0), PUSH_TIME) \
 			.set_trans(Tween.TRANS_LINEAR)
 	if on_gone.is_valid():
 		_tween.tween_callback(on_gone)
@@ -456,33 +496,40 @@ func run_take(bodies: Array, seats: Array, delay: float,
 	return _tween
 
 ## Der PARK-ZYKLUS: wie der Warenumschlag, nur endet er UNTEN. Loch auf, Platte und
-## alte Ware auf SCHACHTTIEFE senken, EIN Band-Schritt (die alte vorn hinaus, die neue
-## von hinten auf ihren Platz) - und dort bleibt es stehen: Loch OFFEN, die Ware
-## sichtbar am Grubenboden. Zuletzt fährt der SCHIRM aus beiden Wänden darüber. Das
-## ist ein ENDZUSTAND, kein Zwischenschritt.
+## alte Ware auf die BAND-EBENE senken, EIN Band-Schritt (die alte vorn hinaus, die
+## neue von hinten auf ihren Platz), dann zurück auf den PARKSTAND - und dort bleibt
+## es stehen: Loch OFFEN, die Ware sichtbar am Grubenboden. Zuletzt fährt der SCHIRM
+## aus beiden Wänden darüber. Das ist ein ENDZUSTAND, kein Zwischenschritt.
 func run_park(old_bodies: Array, old_seats: Array, new_bodies: Array,
-		new_seats: Array, delay: float, on_swept := Callable()) -> Tween:
+		new_seats: Array, delay: float, on_swept := Callable(),
+		riders: Array = [], rider_seats: Array = []) -> Tween:
 	settle_hard()
 	if _platform == null or old_bodies.size() != old_seats.size() \
 			or new_bodies.size() != new_seats.size():
 		return null
 	if old_bodies.is_empty() and new_bodies.is_empty():
 		return null
+	if riders.size() != rider_seats.size():
+		riders = []
+		rider_seats = []
 	var behind := waiting_offset()
 	for i in new_bodies.size():
 		var body: Node3D = new_bodies[i]
 		if body != null and is_instance_valid(body):
-			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -depth, 0.0)
+			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
 	var bands := _bands_of(new_bodies, old_bodies)
-	_together(old_bodies, old_seats, -depth, SINK_TIME, Tween.TRANS_LINEAR,
-		Tween.EASE_IN_OUT)
+	_together(old_bodies + riders, old_seats + rider_seats, -drop(), SINK_TIME,
+		Tween.TRANS_LINEAR, Tween.EASE_IN_OUT)
 	_shutter_step(bands, 0.0, 1.0, true)
 	_belt_step(old_bodies, old_seats, exit_offset(), new_bodies, new_seats)
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
+	# Aus der Tiefe zurück auf den Parkstand: nur DA ist die Grube so tief, wie sie
+	# aussieht. Ohne Tieffahrt liegen beide Ebenen aufeinander, der Schlag entfällt.
+	_park_step(new_bodies + riders, new_seats + rider_seats)
 	_cover_step(0.0, 1.0)  # zuletzt schiebt sich der Schirm über die Grube
 	# Im selben Schlag fallen die Bänder zu: die geparkte Grube steht auf allen vier
 	# Seiten geschlossen da. Ohne Schirm nimmt die Blende einen eigenen Schlag - er
@@ -529,6 +576,9 @@ func run_leave_park(bodies: Array, seats: Array, delay: float,
 	# Der AUSGANG öffnet im selben Schlag, in dem der Schirm einfährt - beides muß fort
 	# sein, bevor die Ware losfährt.
 	_shutter_step(BAND_FRONT, 0.0, 1.0, _cover_wanted)
+	# Und hinaus geht es auf der BAND-EBENE: das Öffnungsband sitzt dort, nicht am
+	# Parkstand. Ohne Tieffahrt entfällt der Schlag.
+	_dive_step(bodies + riders, seats + rider_seats)
 	_belt_step(bodies, seats, exit_offset(), [], [])
 	if on_swept.is_valid():
 		_tween.tween_callback(on_swept)
@@ -625,7 +675,7 @@ func _build_shutters() -> void:
 	_shutters.name = "Blenden"
 	add_child(_shutters)
 	var top := -WALL_SINK
-	var lintel := maxf(depth - mouth_height(), 0.01)
+	var lintel := maxf(drop() - mouth_height(), 0.01)
 	_shutter_back = _build_shutter("Hinten", 1.0, top, lintel)
 	_shutter_front = _build_shutter("Vorn", -1.0, top, lintel)
 
@@ -639,7 +689,7 @@ func _build_shutter(band_name: String, dir: float, top: float,
 	holder.name = "Blende%s" % band_name
 	holder.position = Vector3(dir * (half.x + WALL * 0.5), top - lintel, 0.0)
 	_shutters.add_child(holder)
-	var pane_h := maxf(depth - lintel, 0.001)
+	var pane_h := maxf(drop() - lintel, 0.001)
 	var mesh := BoxMesh.new()
 	mesh.size = Vector3(WALL, pane_h, half.y * 2.0 + WALL * 2.0)
 	var pane := MeshInstance3D.new()
@@ -721,10 +771,10 @@ func order_cover(text: String, accent: Color) -> void:
 func drop_cover() -> void:
 	_cover_wanted = false
 	cover_text = ""
-	_stop(_hover_tween)
-	_hover_tween = null
+	set_process(false)
 	_cover_share = 0.0
 	_hover_share = 0.0
+	_hover_goal = 0.0
 	if _cover != null and is_instance_valid(_cover):
 		remove_child(_cover)
 		_cover.queue_free()
@@ -746,14 +796,15 @@ func cover_text_share() -> float:
 	return _hover_share * _cover_share
 
 ## Der Zeiger liegt über der Grube: die Zeile blendet ein. GEFRAGT je Bild vom Wirt,
-## wie jeder andere Griff auf dem Tisch.
+## wie jeder andere Griff auf dem Tisch - hier landet darum nur das ZIEL, geführt wird
+## je Bild (_process). Ein Tween wäre der falsche Träger: der Wirt fragt je Bild, jede
+## Frage startete ihn neu, und ein Neustart verwirft den Rest - die Zeile käme nie an.
 func set_cover_hovered(on: bool) -> void:
-	if not _cover_wanted or is_equal_approx(_hover_share, 1.0 if on else 0.0):
+	if not _cover_wanted:
 		return
-	_stop(_hover_tween)
-	_hover_tween = create_tween()
-	_hover_tween.tween_method(_set_hover_share, _hover_share, 1.0 if on else 0.0,
-		COVER_HOVER_TIME).set_trans(Tween.TRANS_SINE)
+	_hover_goal = 1.0 if on else 0.0
+	if not is_equal_approx(_hover_share, _hover_goal):
+		set_process(true)
 
 func cover_hovered() -> bool:
 	return _hover_share > 0.5
@@ -770,9 +821,9 @@ func _cover_step(from: float, to: float) -> void:
 ## durch ihn. Eingefahren nimmt er die Aufschrift mit: sie hinge sonst über nichts.
 func _cover_hard(share: float) -> void:
 	if share <= 0.001:
-		_stop(_hover_tween)
-		_hover_tween = null
+		set_process(false)
 		_hover_share = 0.0
+		_hover_goal = 0.0
 	_seat_cover(share)
 
 func _set_cover_share(share: float) -> void:
@@ -924,23 +975,39 @@ func _glass_material() -> StandardMaterial3D:
 	material.emission_energy_multiplier = COVER_EMISSION_ENERGY
 	return material
 
-## Der BAND-SCHRITT: auf Schachttiefe fahren alle Stücke um dasselbe Maß nach vorn -
+## Der Weg vom Band zurück auf den PARKSTAND (im Hub-Takt) und der hinunter (im
+## Senk-Takt). Beides gibt es nur mit Tieffahrt; sonst ist der Weg null und der Takt
+## wäre ein Stillstand.
+func _park_step(bodies: Array, seats: Array) -> void:
+	if park_rise() <= 0.001:
+		return
+	_together(bodies, seats, -park_y(), LIFT_TIME, Tween.TRANS_LINEAR,
+		Tween.EASE_IN_OUT)
+
+func _dive_step(bodies: Array, seats: Array) -> void:
+	if park_rise() <= 0.001:
+		return
+	_together(bodies, seats, -drop(), SINK_TIME, Tween.TRANS_LINEAR,
+		Tween.EASE_IN_OUT)
+
+## Der BAND-SCHRITT: auf der Band-Ebene fahren alle Stücke um dasselbe Maß nach vorn -
 ## die abgehenden aus dem Schacht in den vorderen Hohlraum, die ankommenden aus dem
 ## hinteren auf ihre Plätze. EIN Takt, eine Bewegung.
 func _belt_step(out_bodies: Array, out_seats: Array, ahead: float,
 		in_bodies: Array, in_seats: Array) -> void:
+	var deep := drop()
 	var first := true
 	for i in out_bodies.size():
 		var step := _tween if first else _tween.parallel()
 		first = false
 		step.tween_property(out_bodies[i], "global_position",
-			(out_seats[i] as Vector3) + Vector3(-ahead, -depth, 0.0), PUSH_TIME) \
+			(out_seats[i] as Vector3) + Vector3(-ahead, -deep, 0.0), PUSH_TIME) \
 			.set_trans(Tween.TRANS_LINEAR)
 	for i in in_bodies.size():
 		var step := _tween if first else _tween.parallel()
 		first = false
 		step.tween_property(in_bodies[i], "global_position",
-			(in_seats[i] as Vector3) - Vector3.UP * depth, PUSH_TIME) \
+			(in_seats[i] as Vector3) - Vector3.UP * deep, PUSH_TIME) \
 			.set_trans(Tween.TRANS_LINEAR)
 	if first:
 		_tween.tween_interval(PUSH_TIME)  # ein leeres Band fährt trotzdem seinen Takt
@@ -1042,15 +1109,19 @@ func _build_body() -> void:
 	var top := -WALL_SINK
 	var mouth := mouth_height()
 	var cavity := cavity_span()
-	var sole_y := top - depth - SOLE_CLEAR - DECK
+	# Der ganze Kasten reicht bis auf die BAND-EBENE: Öffnungsband, Hohlraum und Sohle
+	# sitzen dort, oberhalb steht die Wand geschlossen. Was man im Park sieht, deckt
+	# ohnehin die Platte.
+	var deep := drop()
+	var sole_y := top - deep - SOLE_CLEAR - DECK
 
 	# Zwei geschlossene Flanken; vorn und hinten steht je ein Sturz über einem
 	# Öffnungsband - hinten schiebt die Ware herein, vorn hinaus.
-	_box("WallLeft", Vector3(span.x, depth, WALL),
-		Vector3(0.0, top - depth * 0.5, -half.y - WALL * 0.5), _wall_material)
-	_box("WallRight", Vector3(span.x, depth, WALL),
-		Vector3(0.0, top - depth * 0.5, half.y + WALL * 0.5), _wall_material)
-	var lintel := maxf(depth - mouth, 0.01)
+	_box("WallLeft", Vector3(span.x, deep, WALL),
+		Vector3(0.0, top - deep * 0.5, -half.y - WALL * 0.5), _wall_material)
+	_box("WallRight", Vector3(span.x, deep, WALL),
+		Vector3(0.0, top - deep * 0.5, half.y + WALL * 0.5), _wall_material)
+	var lintel := maxf(deep - mouth, 0.01)
 	_box("BackLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
 		Vector3(half.x + WALL * 0.5, top - lintel * 0.5, 0.0), _wall_material)
 	_box("FrontLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
@@ -1098,14 +1169,15 @@ func _build_body() -> void:
 func _build_cavity(cavity_name: String, dir: float, span: Vector2, top: float,
 		mouth: float, cavity: float) -> void:
 	var mid := dir * (half.x + WALL + cavity * 0.5)
-	var lid := maxf(depth - mouth, 0.01)
-	_box("Cavity%sEnd" % cavity_name, Vector3(WALL, depth, span.y + WALL * 2.0),
-		Vector3(dir * (half.x + WALL * 1.5 + cavity), top - depth * 0.5, 0.0),
+	var deep := drop()
+	var lid := maxf(deep - mouth, 0.01)
+	_box("Cavity%sEnd" % cavity_name, Vector3(WALL, deep, span.y + WALL * 2.0),
+		Vector3(dir * (half.x + WALL * 1.5 + cavity), top - deep * 0.5, 0.0),
 		_cavity_material)
-	_box("Cavity%sLeft" % cavity_name, Vector3(cavity, depth, WALL),
-		Vector3(mid, top - depth * 0.5, -half.y - WALL * 0.5), _cavity_material)
-	_box("Cavity%sRight" % cavity_name, Vector3(cavity, depth, WALL),
-		Vector3(mid, top - depth * 0.5, half.y + WALL * 0.5), _cavity_material)
+	_box("Cavity%sLeft" % cavity_name, Vector3(cavity, deep, WALL),
+		Vector3(mid, top - deep * 0.5, -half.y - WALL * 0.5), _cavity_material)
+	_box("Cavity%sRight" % cavity_name, Vector3(cavity, deep, WALL),
+		Vector3(mid, top - deep * 0.5, half.y + WALL * 0.5), _cavity_material)
 	_box("Cavity%sLid" % cavity_name, Vector3(cavity, lid, span.y + WALL * 2.0),
 		Vector3(mid, top - lid * 0.5, 0.0), _cavity_material)
 
