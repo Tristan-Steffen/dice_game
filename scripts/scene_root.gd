@@ -594,9 +594,9 @@ var _bet_fulfilled: Array[SideBet] = []
 ## Und ihr Spiegel: Wetten, deren Bedingung GESCHEITERT ist - ihr Gewinn wird
 ## eingezogen. Dieselbe eine Quelle, derselbe Melder.
 var _bet_failed: Array[SideBet] = []
-## Die Körper, die gerade HINAUSFAHREN - freigegeben am Ende des Band-Schritts und
-## bei JEDEM Abbruch (_settle_bet_shafts).
-var _bet_leaving: Array[Node3D] = []
+## Die Körper, die gerade HINAUSFAHREN, je Plot geführt - freigegeben am Ende des
+## Band-Schritts und beim Settle IHRER Sektion, nie durch die Fahrt eines Nachbarn.
+var _bet_leaving: Dictionary = {}
 ## Die HEBEBÜHNEN des Tresens: je Plot EINE eigene Sektion mit eigenem Platz in der
 ## Löcherliste. Drei Wetten parken, fahren auf und gehen ab, ohne einander zu stören.
 var bet_shafts: Array[LiftShaftView] = []
@@ -4006,8 +4006,11 @@ func _write_bet_counter(grade := ShopController.GRADE_STAND,
 		swap := false) -> void:
 	if table_screen == null or not _bet_counter_laid_out():
 		return
-	# Jeder Schreiber räumt zuerst: jedes Loch zu, jede Abgangsware frei.
-	_settle_bet_shafts()
+	# Die Abgangsware, die schon VOR diesem Schreiber unterwegs war: nur sie räumt
+	# er beim Settle - was er selbst gleich auf die Reise schickt, fährt erst noch.
+	var stale: Dictionary = {}
+	for old_spot: int in _bet_leaving:
+		stale[old_spot] = (_bet_leaving[old_spot] as Array).duplicate()
 	var show := _bet_counter_visible()
 	var wanted := _bet_stock()
 	var watched := _bet_counter_watched()
@@ -4037,7 +4040,7 @@ func _write_bet_counter(grade := ShopController.GRADE_STAND,
 				and is_instance_valid(leaving):
 			_set_bet_hovered(leaving, false)  # der Griff sitzt am Körper, nicht am Ort
 			_bet_push(outgoing, spot, {"body": leaving, "spot": spot, "target": was_at})
-			_bet_leaving.append(leaving)
+			_bet_note_leaving(spot, leaving)
 		else:
 			_free_bet_body(leaving)
 	# Der gelandete EINSATZ gehört jetzt der Maschine: sie schluckt ihn in derselben
@@ -4051,7 +4054,7 @@ func _write_bet_counter(grade := ShopController.GRADE_STAND,
 			if not (rising and spot >= 0 and spot < plots.size()):
 				_free_bet_body(body)
 				continue
-			_bet_leaving.append(body)
+			_bet_note_leaving(spot, body)
 			_bet_push(outgoing, spot, {"body": body, "spot": spot,
 				"target": body.global_position, "height": float(stake["height"])})
 	_bet_swallow.clear()
@@ -4077,9 +4080,17 @@ func _write_bet_counter(grade := ShopController.GRADE_STAND,
 		else:
 			_bet_push(staying, spot, entry)
 	for spot in SideBetPanel.OFFER_COUNT:
+		var to_pit := bool(wanted.get(_bet_slot(spot, BET_ROLE_PRIZE),
+			{}).get("pit", false))
+		# Geräumt wird nur, was DIESER Schreiber anfasst: die laufende Fahrt eines
+		# unveränderten Nachbarn spielt zu Ende (ihr Endzustand steht längst) - sonst
+		# schluckte jeder zweite Klick die Schluck-Fahrt des ersten.
+		if rising and not entering.has(spot) and not outgoing.has(spot) \
+				and to_pit == _bet_parked.has(spot) and _bet_shaft_riding(spot):
+			continue
+		_settle_bet_shaft(spot, stale.get(spot, []) as Array)
 		_run_bet_plot(spot, entering.get(spot, []), outgoing.get(spot, []),
-			staying.get(spot, []), bool(wanted.get(_bet_slot(spot, BET_ROLE_PRIZE),
-				{}).get("pit", false)), rising, show)
+			staying.get(spot, []), to_pit, rising, show)
 
 ## Ein frisch gebauter Körper für einen Platz (null = unbekannte Bauform). Er liegt
 ## in ECHTER Größe da und darf über seinen Plot hinausragen - der Schacht mißt an ihm.
@@ -4163,9 +4174,23 @@ func _bodies_of(entries: Array) -> Array:
 	return out
 
 func _release_bet_bodies(bodies: Array) -> void:
-	for body: Node3D in bodies:
-		_bet_leaving.erase(body)
+	# Untypisiert: ein Band-Callback darf eine schon freigegebene Referenz reichen.
+	for body in bodies:
+		for spot: int in _bet_leaving:
+			(_bet_leaving[spot] as Array).erase(body)
 		_free_bet_body(body)
+
+## Merkt einen Abgangs-Körper unter seinem Plot.
+func _bet_note_leaving(spot: int, body: Node3D) -> void:
+	var list: Array = _bet_leaving.get(spot, [])
+	list.append(body)
+	_bet_leaving[spot] = list
+
+func _bet_shaft_riding(spot: int) -> bool:
+	if spot < 0 or spot >= bet_shafts.size():
+		return false
+	var shaft := bet_shafts[spot]
+	return shaft != null and is_instance_valid(shaft) and shaft.riding()
 
 ## Die SEKTION EINES Plots: seine eigene Hebebühne mit seinem eigenen Loch. Sie kennt
 ## sechs Wege - Auftritt nach oben, Auftritt in den PARK (Loch bleibt offen, die Ware
@@ -4400,7 +4425,20 @@ func _settle_bet_shafts() -> void:
 	for shaft in bet_shafts:
 		if shaft != null and is_instance_valid(shaft):
 			shaft.settle_hard()  # nimmt den Schirm mit zurück
-	_release_bet_bodies(_bet_leaving.duplicate())
+	var leaving: Array = []
+	for spot: int in _bet_leaving:
+		leaving.append_array(_bet_leaving[spot])
+	_release_bet_bodies(leaving)
+
+## Der Abbruch EINER Sektion: nur ihr Loch, nur ihre Abgangsware - die Fahrten der
+## Nachbarn gehen sie nichts an. leaving nennt, was freizugeben ist (der Schreiber
+## reicht hier nur die ALTE Ware, seine frisch geschluckte fährt erst noch).
+func _settle_bet_shaft(spot: int, leaving: Array = []) -> void:
+	if spot >= 0 and spot < bet_shafts.size():
+		var shaft := bet_shafts[spot]
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()  # nimmt den Schirm mit zurück
+	_release_bet_bodies(leaving.duplicate())
 
 ## Laufwechsel: der Tresen des alten Laufs liegt nirgends mehr - und was noch flog,
 ## fliegt nicht weiter.
@@ -4428,7 +4466,8 @@ func _drop_bet_bodies() -> void:
 	_settle_throws()
 
 ## Je Bild: die Körper stehen nur, solange der Tresen zu sehen ist, und der Griff
-## hebt an, was unter dem Zeiger liegt (die Magazin-Geste - gefragt, nie gemeldet).
+## hebt an, was OBEN unter dem Zeiger steht (die Magazin-Geste - gefragt, nie
+## gemeldet); geparkte Ware bleibt liegen, ihre Hover-Antwort ist der Schirm.
 ## Und die GEPARKTEN Gruben stehen, solange das Fenster steht: sie sind Möbel, nicht
 ## Zeremonie - ein fremder Aufräum-Pfad (Vorhangfall, Laufwechsel) schließt sie, und
 ## hier stehen sie beim nächsten Hinsehen wieder.
@@ -4451,7 +4490,10 @@ func _sync_bet_counter() -> void:
 		if body.visible != show:
 			body.visible = show
 		var spot := _bet_slot_spot(key)
-		_set_bet_hovered(body, pixel.x >= 0.0 and spot >= 0 and spot < rects.size()
+		# Was UNTEN wartet, hebt sich nicht: der Schirm ist die Hover-Antwort der
+		# geparkten Grube, der Griff gehört nur oben stehenden Körpern.
+		_set_bet_hovered(body, not _bet_parked.has(spot)
+			and pixel.x >= 0.0 and spot >= 0 and spot < rects.size()
 			and rects[spot].has_point(pixel))
 	for spot: int in _bet_parked:
 		if spot < 0 or spot >= bet_shafts.size():
@@ -4561,7 +4603,7 @@ func _take_bet_prices() -> void:
 		_set_bet_hovered(body, false)
 		_bet_push(per_plot, spot,
 			{"body": body, "spot": spot, "target": _bet_seats[key]})
-		_bet_leaving.append(body)
+		_bet_note_leaving(spot, body)
 	bet_bodies.clear()
 	_bet_keys.clear()
 	_bet_seats.clear()
