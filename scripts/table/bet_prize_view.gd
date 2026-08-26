@@ -1,14 +1,13 @@
 class_name BetPrizeView
 extends Node3D
 ## Der Körper eines Nebenwetten-GEWINNS, der keine Kassette ist:
-## ein Chip-Stapel (Geld), ein Stück Kondensator-Bank (Energie), eine geprägte
-## MARKE (Chipstufe, Press-Schub) oder die ZÄHLPLATTE einer Steuerwette, auf die
-## je Buchung ein Chip nachspringt. Rein per Code gebaut wie alles auf dem Tisch -
+## ein Chip-Stapel (Geld), ein Stück Kondensator-Bank (Energie) oder eine geprägte
+## MARKE (Chipstufe, Press-Schub). Rein per Code gebaut wie alles auf dem Tisch -
 ## kein .tscn, kein Panel darunter.
 ## Er ist reine ANZEIGE: keine Buchung hängt an ihm, er zeigt nur, was auf dem
 ## Tresen liegt.
 ## Er liegt in ECHTER Größe da - Chips in Schatz-Stückelung, Elkos im Bank-Maß,
-## Marke und Platte wie gebaut - und darf dabei über seinen Stellplatz hinausragen.
+## Marke wie gebaut - und darf dabei über seinen Stellplatz hinausragen.
 ## Nichts schrumpft mehr auf einen Platz; der SCHACHT mißt an ihm, nicht er am Loch.
 ## Drei Tischregeln: er steht FLOOR_CLEAR über der Fläche (sonst kämpfen Unterseite
 ## und Anzeige im Tiefenpuffer), er spiegelt nicht (ein Körper AUF dem Glas spiegelte
@@ -19,7 +18,6 @@ const KIND_NONE := ""
 const KIND_CHIPS := "chips"
 const KIND_CHARGE := "charge"
 const KIND_TOKEN := "token"
-const KIND_TALLY := "tally"
 
 ## Luft zwischen Unterseite und Anzeige - dasselbe Maß wie in einer Bucht.
 const FLOOR_CLEAR := VitrineView.FLOOR_CLEAR
@@ -37,16 +35,6 @@ const TOKEN_RIM := TOKEN_RADIUS * 0.18
 const TOKEN_FONT := 64
 const TOKEN_INK := Color(0.05, 0.045, 0.08)
 
-## Die ZÄHLPLATTE: dunkles Blech mit leuchtender Kante, auf dem die Steuer-Chips
-## auflaufen. Sie liegt leer da, solange nichts gebucht ist - das IST die Aussage.
-const PLATE_SIZE := Vector2(DataCellView.WIDTH * 1.15, DataCellView.WIDTH * 1.15)
-const PLATE_HEIGHT := DataCellView.DEPTH * 0.9
-const PLATE_RIM := DataCellView.WIDTH * 0.06
-const PLATE_ALBEDO := Color(0.075, 0.072, 0.105)
-## Anteil der Plattenbreite, den EIN Zähl-Chip einnimmt.
-const TALLY_CHIP_SHARE := 0.30
-
-const RIM_ENERGY := 1.25
 const TOKEN_ENERGY := 1.05
 
 ## Griff: der Körper hebt sich ein Stück und leuchtet auf - die Magazin-Geste.
@@ -110,11 +98,9 @@ static func span_for(build_kind: String, amount: int = 0) -> Vector2:
 				float(grid.x - 1) * CapacitorBankView.CELL_PITCH + cell.y)
 		KIND_TOKEN:
 			return Vector2(TOKEN_RADIUS * 2.0, TOKEN_RADIUS * 2.0)
-		KIND_TALLY:
-			return PLATE_SIZE
 	return Vector2.ZERO
 
-# --- Die vier Bauformen ---------------------------------------------------------
+# --- Die drei Bauformen ---------------------------------------------------------
 
 ## Geld: echte Stückelungen, dieselbe Börsen-Grammatik wie der Schatz. Kein Akzent -
 ## ein Chip trägt die Farbe seiner Stückelung, nicht die seiner Wette.
@@ -182,51 +168,6 @@ func setup_token(text: String, accent: Color) -> void:
 	_body.add_child(label)
 	_natural = span_for(KIND_TOKEN)
 	_natural_height = TOKEN_HEIGHT * 1.1
-
-## Die ZÄHLPLATTE einer Steuerwette: leer, bis die erste Hand gebucht ist.
-func setup_tally(accent: Color = CasinoStyle.GOLD_INTENSE) -> void:
-	_reset(KIND_TALLY)
-	var plate := _box("Platte", Vector3(PLATE_SIZE.x, PLATE_HEIGHT, PLATE_SIZE.y),
-		Vector3(0.0, PLATE_HEIGHT * 0.5, 0.0), _plate_material())
-	_body.add_child(plate)
-	var rim := _lit_material(accent, RIM_ENERGY)
-	var rim_y := PLATE_HEIGHT * 1.05
-	for side: float in [-1.0, 1.0]:
-		_body.add_child(_box("RandX", Vector3(PLATE_SIZE.x, PLATE_HEIGHT * 0.5, PLATE_RIM),
-			Vector3(0.0, rim_y, side * (PLATE_SIZE.y - PLATE_RIM) * 0.5), rim))
-		_body.add_child(_box("RandZ", Vector3(PLATE_RIM, PLATE_HEIGHT * 0.5, PLATE_SIZE.y),
-			Vector3(side * (PLATE_SIZE.x - PLATE_RIM) * 0.5, rim_y, 0.0), rim))
-	# Die Chips sind Zählmarken auf einer Platte, keine Börse: ein Chip mißt einen
-	# festen Anteil der Platte, sonst läge EINER quer über ihr. Der Maßstab sitzt auf
-	# einem HALTER - ChipStackView.pulse() fährt auf Vector3.ONE zurück und risse ihn
-	# sonst bei jeder Buchung fort.
-	var holder := Node3D.new()
-	holder.name = "Zaehlmarken"
-	holder.position.y = PLATE_HEIGHT
-	holder.scale = Vector3.ONE * (PLATE_SIZE.x * TALLY_CHIP_SHARE
-		/ (ChipStackView.CHIP_RADIUS * 2.0))
-	_body.add_child(holder)
-	_chips = ChipStackView.new()
-	_chips.name = "Chips"
-	holder.add_child(_chips)
-	_natural = span_for(KIND_TALLY)
-	_natural_height = PLATE_HEIGHT * 2.0
-
-## Eine Steuer-Buchung ist eingetroffen: der gezahlte Betrag läuft in echten
-## Stückelungen auf der Platte auf. Reine ANZEIGE - gebucht hat GameRun längst.
-func add_tally(amount: int) -> void:
-	if kind != KIND_TALLY or _chips == null or not is_instance_valid(_chips) \
-			or amount <= 0:
-		return
-	_chips.add_chips(ChipStackView.split_gain(amount))
-	_chips.show_wallet()
-	_chips.pulse()
-
-## Was auf der Zählplatte liegt (Anzeige-Summe, nie eine Buchung).
-func tally_total() -> int:
-	if _chips == null or not is_instance_valid(_chips):
-		return 0
-	return _chips.wallet_total()
 
 # --- Platz und echte Größe ------------------------------------------------------
 
@@ -335,18 +276,6 @@ func _cylinder(part_name: String, radius: float, height: float,
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return instance
 
-func _box(part_name: String, box_size: Vector3, at: Vector3,
-		material: Material) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = part_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return instance
-
 ## Ein leuchtendes Material, das Griff und Ausbruch mitnehmen (sie fassen die
 ## ganze Liste an).
 func _lit_material(color: Color, energy: float) -> StandardMaterial3D:
@@ -367,13 +296,6 @@ func _dark_material(color: Color) -> StandardMaterial3D:
 	material.albedo_color = Color(color.r * 0.10, color.g * 0.10, color.b * 0.10, 1.0)
 	material.metallic = 0.7
 	material.roughness = 0.28
-	return material
-
-func _plate_material() -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = PLATE_ALBEDO
-	material.metallic = 0.65
-	material.roughness = 0.35
 	return material
 
 func _kill(tween: Tween) -> void:

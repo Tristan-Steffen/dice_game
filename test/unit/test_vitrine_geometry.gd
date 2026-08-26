@@ -534,22 +534,26 @@ func test_die_gewinn_beschriftung_hat_genau_eine_quelle() -> void:
 
 # --- Die WANDHAUT wird BESTELLT, und nur der Tresen bestellt ----------------------
 
-## Genau EIN Besteller, an genau EINER Stelle: die Sektion eines Wett-Plots. Laden,
-## Hinterzimmer, Schlitzreihe und Magazin fahren dieselbe Maschine ungehäutet.
-func test_die_wandhaut_hat_genau_einen_besteller() -> void:
+## JEDE Grube des Tisches trägt dieselbe Wand, und die Textur hat EINE Quelle:
+## scene_root nennt sie, alle anderen bekommen sie GEMELDET.
+func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
-	assert_eq(root.count("order_skin("), 1,
-		"scene_root bestellt die Wandhaut an EINER Stelle (_bet_shaft_on)")
-	assert_eq(root.count("BET_PIT_SKIN"), 2,
-		"eine Quelle für die Textur - Deklaration und die eine Bestellung")
+	assert_true(root.contains("shop_vitrine.wall_skin = PIT_SKIN"),
+		"die Laden-Auslage trägt sie")
+	assert_true(root.contains("secret_vitrine.wall_skin = PIT_SKIN"),
+		"das Hinterzimmer trägt sie")
+	assert_true(root.contains("slit_shaft.order_skin(PIT_SKIN)"),
+		"die Kassetten-Schlitzreihe trägt sie")
+	assert_true(root.contains("pack_pit.wall_skin = PIT_SKIN"),
+		"die Magazin-Grube trägt sie")
+	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
+		"und die Sektion eines Wett-Plots ebenso")
 	for foreign: String in ["res://scripts/table/vitrine_view.gd",
 			"res://scripts/table/pack_pit_view.gd",
-			"res://scripts/ui/shop_controller.gd",
-			"res://scripts/ui/secret_shop_view.gd",
-			"res://scripts/ui/pack_drawer_view.gd"]:
+			"res://scripts/table/lift_shaft_view.gd"]:
 		var code: String = FileAccess.get_file_as_string(foreign)
-		assert_false(code.contains("order_skin"),
-			"%s bestellt keine Haut - seine Bänder bleiben offen" % foreign)
+		assert_false(code.contains("gruben_paneel"),
+			"%s greift nicht selbst nach der Textur - sie wird gemeldet" % foreign)
 
 ## Und die TIEFFAHRT ebenso: nur eine Grube, die OFFEN stehen bleibt, hat eine
 ## Nachbarin, in deren Loch die wartende Ware erschiene. Alle anderen fahren flach.

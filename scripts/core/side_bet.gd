@@ -52,9 +52,17 @@ var target_factor: float = 0.0
 var stake_kind: int = Stake.MONEY
 var stake: int = 0              # Geld-Einsatz (einmalig bzw. je Hand/Würfel)
 var stake_packs: int = 0           # nur Stake.PACKS: Anzahl geopferter Pakete
+## Und WELCHE Pakete: Sorte und Größe, beim Auslegen aus dem BESITZ des Spielers
+## gezogen (nie frei gewürfelt) - verzehrt wird genau, was der Knopf nennt.
+var stake_pack_type: String = Pack.TYPE_NUMBER
+var stake_pack_tier: int = Pack.TIER_NORMAL
 var stake_charge: int = 0          # nur Stake.CHARGE: Ladung (⚡)
 var payout_kind: int = Payout.PACKS
 var reward_packs: int = 1          # nur Payout.PACKS: Anzahl versiegelter Pakete
+## Sorte und Größe des GEWINNS, beim Auswürfeln der Auslage festgelegt (Regal-
+## Gewichte plus roll_tier): der Knopf nennt sie, die Abrechnung gewährt genau sie.
+var reward_pack_type: String = Pack.TYPE_NUMBER
+var reward_pack_tier: int = Pack.TIER_NORMAL
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var payout_charge: int = 0     # nur Payout.CHARGE: Gewinn in Ladung (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
@@ -228,21 +236,55 @@ static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
 	if bet.target_factor > 0.0:
 		bet.target = _nice_target(float(benchmark) * bet.target_factor)
 		bet.description = t["desc"] % bet.target
+	# Sorte und Größe des Paket-Gewinns stehen ab HIER fest - er wirbt mit dem, was er
+	# wirklich ausschüttet.
+	if bet.payout_kind == Payout.PACKS or bet.payout_kind == Payout.PACK:
+		bet.reward_pack_type = Pack.roll_engraving_type()
+		bet.reward_pack_tier = Pack.roll_tier()
 	return bet
+
+## Der Schlüssel der Inventar-Sicht: Sorte plus Größe. EINE Schreibweise, an der
+## GameRun.pack_stock und _name_stake_packs hängen.
+static func pack_stock_key(pack_type: String, pack_tier: int) -> String:
+	return "%s|%d" % [pack_type, pack_tier]
 
 ## Würfelt count verschiedene Wett-Angebote aus (ohne Zurücklegen). hub_level
 ## filtert die Auslage (jede Vorlage hat ihre Freischalt-Stufe), benchmark füllt
-## die skalierten Punktziele - beide werden HIER eingefroren.
-static func roll_offers(count: int, hub_level: int, benchmark: int) -> Array[SideBet]:
+## die skalierten Punktziele - beide werden HIER eingefroren. stock ist die
+## Inventar-Sicht des Magazins (GameRun.pack_stock, reine Daten): eine
+## Paket-Einsatz-Vorlage liegt nur aus, wenn der Spieler die genannte Ware WIRKLICH
+## besitzt - sonst rückt die nächste Vorlage nach.
+static func roll_offers(count: int, hub_level: int, benchmark: int,
+		stock: Dictionary = {}) -> Array[SideBet]:
 	var templates: Array = []
 	for t: Dictionary in TEMPLATES:
 		if int(t.get("unlock", UNLOCK_BASE)) <= hub_level:
 			templates.append(t)
 	templates.shuffle()
 	var bets: Array[SideBet] = []
-	for i in mini(count, templates.size()):
-		bets.append(_from_template(templates[i], benchmark))
+	for t: Dictionary in templates:
+		if bets.size() >= count:
+			break
+		var bet := _from_template(t, benchmark)
+		if bet.stake_kind == Stake.PACKS and not _name_stake_packs(bet, stock):
+			continue
+		bets.append(bet)
 	return bets
+
+## Sucht dem Paket-Einsatz seine konkrete Sorte und Größe aus dem BESITZ. false =
+## der Spieler hat nichts, was reicht; dann fällt die Vorlage aus der Auslage.
+static func _name_stake_packs(bet: SideBet, stock: Dictionary) -> bool:
+	var fits: Array[String] = []
+	for key: String in stock:
+		if int(stock[key]) >= bet.stake_packs:
+			fits.append(key)
+	if fits.is_empty():
+		return false
+	fits.sort()  # ohne feste Reihenfolge hinge der Griff an der Dictionary-Laune
+	var pick: String = fits.pick_random()
+	bet.stake_pack_type = pick.get_slice("|", 0)
+	bet.stake_pack_tier = int(pick.get_slice("|", 1))
+	return true
 
 ## Prüft die Wette gegen die Rundenbilanz (siehe scene_root._round_result).
 ## Eine nicht geräumte Runde (Game Over) und eine verfallene Wette verlieren immer.
@@ -420,12 +462,17 @@ func status_label(result: Dictionary) -> String:
 			return "Rückfall!" if bool(result.get("fallback_taken", false)) else "sauber"
 	return ""
 
-## Die bei Gewinn gutzuschreibenden Pakete - Sorte je nach Regal-Gewichten.
+## EIN Paket des benannten Gewinns - Sorte und Größe stehen seit dem Auswürfeln der
+## Auslage fest, der Knopf hat sie längst gedruckt.
+func reward_pack() -> Pack:
+	return Pack.tiered(Pack.by_type(reward_pack_type), reward_pack_tier)
+
+## Die bei Gewinn gutzuschreibenden Pakete - genau die benannte Sorte und Größe.
 ## Versiegelt, nie lose: die Presse an der Werkbank macht daraus Beute.
 func reward_list() -> Array[Pack]:
 	var result: Array[Pack] = []
 	for i in reward_packs:
-		result.append(Pack.roll_engraving_pack())
+		result.append(reward_pack())
 	return result
 
 ## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
@@ -437,14 +484,15 @@ func special_engraving() -> Engraving:
 			return engraving
 	return null
 
-## Einsatz-Etikett: Geld, geopferte Pakete, Ladung oder laufende Steuer.
+## Einsatz-Etikett: Geld, die BENANNTEN Pakete (Sorte + Größe aus dem Besitz gezogen),
+## Ladung oder laufende Steuer.
 ## factor = Deal-Aufschlag (Quotenpaket) - der Knopf muss den WIRKLICH fälligen
 ## Einsatz zeigen.
 func stake_label(factor: int = 1) -> String:
 	match stake_kind:
 		Stake.PACKS:
-			var count := stake_packs * factor
-			return "%d Paket%s" % [count, "" if count == 1 else "e"]
+			return Pack.amount_phrase(stake_pack_type, stake_pack_tier,
+				stake_packs * factor)
 		Stake.MONEY_PER_HAND:
 			return "$%d je Hand" % (stake * factor)
 		Stake.MONEY_PER_DIE:
@@ -453,8 +501,8 @@ func stake_label(factor: int = 1) -> String:
 			return "%d ⚡" % (stake_charge * factor)
 	return "$%d" % (stake * factor)
 
-## Gewinn-Etikett: Barbetrag oder Anzahl versiegelter Pakete (klar benannt, damit
-## der Knopf nicht "1×" wie einen Geld-Multiplikator zeigt). factor wie oben -
+## Gewinn-Etikett: Barbetrag oder die versiegelten Pakete beim NAMEN ("2 Große
+## Material-Pakete") - Sorte und Größe stehen seit dem Auswürfeln fest. factor wie oben -
 ## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt der Quotenbonus NICHT.
 ## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
 ## sonst verspricht er weniger, als die Abrechnung zahlt.
@@ -468,12 +516,11 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 			var special := special_engraving()
 			return "1 %s" % (special.display_name if special != null else special_id)
 		Payout.PACK:
-			return "1 Paket"
+			return Pack.amount_phrase(reward_pack_type, reward_pack_tier, 1)
 		Payout.COMBO_LEVEL:
 			return "+1 Stufe"
 		Payout.PRESS_BOOST:
 			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Pressung.
 			return "Nächste Pressung: Limit +%d, Chance +%d %%" % [PhantomPress.BOOST_CAP,
 				roundi(PhantomPress.BOOST_CHANCE * 100.0)]
-	var count := reward_packs * factor
-	return "%d Paket%s" % [count, "" if count == 1 else "e"]
+	return Pack.amount_phrase(reward_pack_type, reward_pack_tier, reward_packs * factor)

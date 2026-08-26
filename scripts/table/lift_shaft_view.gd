@@ -29,7 +29,8 @@ extends Node3D
 ## deren offenem Loch nicht mehr erscheinen. Das Gruben-BILD bleibt davon unberührt.
 ## Über der geparkten Grube liegt der SCHIRM: zwei fast durchsichtige Paneele, die
 ## aus linker und rechter Wand herausfahren und sich in der Mitte treffen. Er wird
-## von draußen BESTELLT (order_cover) - eine Auslage ohne Bestellung baut keinen.
+## von draußen BESTELLT (order_cover für die Gewinn-Zeile, order_cover_goal für die
+## STEHENDE Bedingungs-Zeile) - eine Auslage ohne Bestellung baut keinen.
 ## Ebenso bestellt wird die WANDHAUT (order_skin): eine gemeldete Textur auf allen
 ## vier Wänden, beiden Stürzen und den BLENDEN vor den Öffnungsbändern. Geschlossen
 ## liest die Maschine damit auf allen vier Seiten gleich; ein Band öffnet nur für
@@ -119,9 +120,10 @@ const COVER_TIME := 0.24
 const COVER_ALPHA := 0.13
 const COVER_EMISSION_ENERGY := 0.85
 
-## Die Aufschrift des Schirms: EINE Zeile, flach auf den Paneelen, in Tisch-
-## Leserichtung. Sie nennt, was im Gewinn-Fach liegt - und ohne Zeiger ist sie
-## unsichtbar, denn der Schirm ist ein Deckel, kein Schild.
+## Die Aufschrift des Schirms: EIN Label, flach auf den Paneelen, in Tisch-
+## Leserichtung, das ZWEI Zeilen trägt. Steht eine BEDINGUNG an, ist sie sichtbar,
+## sobald der Schirm ausgefahren ist; der Zeiger schaltet auf die GEWINN-Zeile um.
+## Ohne bestellte Bedingung bleibt die alte Regel: ohne Zeiger sagt der Deckel nichts.
 const COVER_FONT := 64
 ## Anteil der Grube, den die Zeile höchstens einnimmt: längs (Welt-Z) ihre Breite,
 ## quer (Welt-X) ihre Zeilenhöhe. Der kleinere der beiden Grade gewinnt.
@@ -138,6 +140,14 @@ const COVER_TEXT_GAIN := 1.6
 ## Ihr Umriß ist ein DUNKLES Gold derselben Familie: er trägt den Kontrast über heller
 ## Ware (dem Chip-Stapel), und im Einblenden liest zu keinem Zeitpunkt etwas Schwarzes.
 const COVER_OUTLINE_GAIN := 0.45
+## Die STEHENDE Bedingungs-Zeile trägt dagegen den GEMELDETEN Ton (grün/rot/neutral) -
+## sie sagt einen Zustand, kein Geld. Dieselbe Familie, nur überhellt bzw. gedunkelt.
+const COVER_GOAL_TEXT_GAIN := 1.35
+const COVER_GOAL_OUTLINE_GAIN := 0.30
+## Ihr AUFLEUCHTEN, wenn eine Steuer-Buchung als Meteor eintrifft: kurz heller, dann
+## zurück in den gemeldeten Ton.
+const COVER_FLASH_GAIN := 2.2
+const COVER_FLASH_TIME := 0.5
 
 ## Die WANDHAUT und ihre BLENDEN. Die Haut ist eine gemeldete Textur; ihr WELTMASS ist
 ## eine Kachel, und weil sie per Welt-Triplanar liegt, laufen ihre Leuchtlinien als
@@ -249,9 +259,16 @@ var _built_travel := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
 
-## Der SCHIRM, sofern bestellt: seine Zeile und der Akzent seiner Wette.
+## Der SCHIRM, sofern bestellt: seine Gewinn-Zeile und der Akzent seiner Wette.
 var cover_text := ""
 var cover_tint := GLOW_COLOR
+## Und die STEHENDE Zeile darunter (leer = keine): die Bedingung samt Live-Stand, im
+## gemeldeten Zustands-Ton. Der Schacht formuliert nichts, er bekommt sie fertig.
+var cover_goal := ""
+var cover_goal_tint := GLOW_COLOR
+## Welche der beiden zuletzt auf dem Label stand - der Wechsel am Hover-Schwellwert
+## schreibt Text, Grad und Ton neu, jedes andere Bild nur das Alpha.
+var _cover_shown := ""
 var _cover_wanted := false
 var _cover: Node3D
 var _cover_left: Node3D
@@ -264,6 +281,9 @@ var _cover_material: StandardMaterial3D
 var _cover_share := 0.0
 var _hover_share := 0.0
 var _hover_goal := 0.0
+## Das Aufleuchten der stehenden Zeile: 1 = frisch eingeschlagen, 0 = Ruhelicht.
+var _goal_flash := 0.0
+var _flash_tween: Tween
 
 ## Die WANDHAUT, sofern bestellt, und die beiden Blenden, die sie mitträgt.
 var wall_skin: Texture2D = null
@@ -767,14 +787,27 @@ func order_cover(text: String, accent: Color) -> void:
 		_write_cover()
 	_seat_cover(_cover_share)
 
+## Die STEHENDE Zeile bestellen: die Bedingung der Wette samt Live-Stand, im
+## gemeldeten Ton. Sie hängt NICHT am Zeiger - sie steht, sobald der Schirm steht;
+## leer heißt, es gibt keine. Idempotent, und sie baut nichts neu.
+func order_cover_goal(text: String, tint: Color) -> void:
+	if text == cover_goal and tint == cover_goal_tint:
+		return
+	cover_goal = text
+	cover_goal_tint = tint
+	_write_cover()
+
 ## Die Bestellung zurücknehmen - der Körper geht mit ihr.
 func drop_cover() -> void:
 	_cover_wanted = false
 	cover_text = ""
+	cover_goal = ""
+	_cover_shown = ""
 	set_process(false)
 	_cover_share = 0.0
 	_hover_share = 0.0
 	_hover_goal = 0.0
+	_kill_goal_flash()
 	if _cover != null and is_instance_valid(_cover):
 		remove_child(_cover)
 		_cover.queue_free()
@@ -791,9 +824,14 @@ func has_cover() -> bool:
 func cover_share() -> float:
 	return _cover_share
 
-## Und wieviel von seiner Aufschrift zu sehen ist - ohne Zeiger nichts.
+## Und wieviel von seiner Aufschrift zu sehen ist. Ohne stehende Zeile gilt die alte
+## Regel: ohne Zeiger nichts. MIT stehender Zeile ist der Hover-Weg der UMSCHALTER -
+## die Schrift steht links und rechts davon ganz da und geht am Schwellwert (0,5)
+## durch null, wo sie tauscht. EIN Label, EIN Fade, zwei Texte.
 func cover_text_share() -> float:
-	return _hover_share * _cover_share
+	if cover_goal == "":
+		return _hover_share * _cover_share
+	return _cover_share * clampf(absf(_hover_share - 0.5) * 2.0, 0.0, 1.0)
 
 ## Der Zeiger liegt über der Grube: die Zeile blendet ein. GEFRAGT je Bild vom Wirt,
 ## wie jeder andere Griff auf dem Tisch - hier landet darum nur das ZIEL, geführt wird
@@ -808,6 +846,26 @@ func set_cover_hovered(on: bool) -> void:
 
 func cover_hovered() -> bool:
 	return _hover_share > 0.5
+
+## Die STEHENDE Zeile leuchtet kurz auf - der Einschlag eines Steuer-Meteors. Ohne
+## bestellte Bedingung gibt es nichts zum Aufleuchten.
+func flash_cover_goal() -> void:
+	if not _cover_wanted or cover_goal == "":
+		return
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	_set_goal_flash(1.0)  # der Einschlag steht SOFORT, der Tween fährt nur zurück
+	_flash_tween = create_tween()
+	_flash_tween.tween_method(_set_goal_flash, 1.0, 0.0, COVER_FLASH_TIME) \
+		.set_trans(Tween.TRANS_SINE)
+
+## Wie hell die stehende Zeile gerade über ihrem Ruhelicht steht.
+func cover_goal_flash() -> float:
+	return _goal_flash
+
+func _set_goal_flash(value: float) -> void:
+	_goal_flash = clampf(value, 0.0, 1.0)
+	_sync_cover_label()
 
 ## Ein Schlag des Schirms im laufenden Fahrplan. Ohne Bestellung kostet er nichts -
 ## die Zyklus-Deckel rechnen ihn trotzdem mit, sie sind Decken, keine Versprechen.
@@ -824,7 +882,14 @@ func _cover_hard(share: float) -> void:
 		set_process(false)
 		_hover_share = 0.0
 		_hover_goal = 0.0
+		_kill_goal_flash()
 	_seat_cover(share)
+
+## Das Aufleuchten hart zurücknehmen - der EINE Aufräum-Pfad nimmt es mit.
+func _kill_goal_flash() -> void:
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	_goal_flash = 0.0
 
 func _set_cover_share(share: float) -> void:
 	_seat_cover(share)
@@ -852,10 +917,19 @@ func _seat_cover(share: float) -> void:
 func _sync_cover_label() -> void:
 	if _cover_label == null or not is_instance_valid(_cover_label):
 		return
-	var seen := _hover_share * _cover_share
+	if _cover_key() != _cover_shown:
+		_paint_cover_line()  # der Zeiger hat die Zeile getauscht
+	var seen := cover_text_share()
 	_cover_label.visible = seen > 0.004
-	_cover_label.modulate.a = seen
-	_cover_label.outline_modulate.a = seen
+	_paint_cover_colors(seen)
+
+## Welche Zeile gerade gilt: ohne Zeiger die Bedingung, mit Zeiger der Gewinn.
+func _cover_on_goal() -> bool:
+	return cover_goal != "" and not cover_hovered()
+
+func _cover_key() -> String:
+	return ("goal:" if _cover_on_goal() else "prize:") \
+		+ (cover_goal if _cover_on_goal() else cover_text)
 
 ## Der Körper des Schirms - je Wand ein Halter, dazwischen die eine Aufschrift.
 func _build_cover() -> void:
@@ -919,19 +993,38 @@ func _write_cover() -> void:
 		_cover_material.emission = Color(cover_tint.r, cover_tint.g, cover_tint.b, 1.0)
 	if _cover_label == null or not is_instance_valid(_cover_label):
 		return
-	_cover_label.text = cover_text
-	var grade := _cover_font_scale(cover_text)
+	_paint_cover_line()
+	_sync_cover_label()
+
+## Die geltende Zeile auf das Label schreiben: Text, Grad, Umbruch und Ton. Der Grad
+## ist gerechnet, und er gilt für BEIDE Texte - eine Bedingung ist länger als ein
+## Gewinn, also bricht sie eher um.
+func _paint_cover_line() -> void:
+	var goal := _cover_on_goal()
+	var line := cover_goal if goal else cover_text
+	_cover_shown = _cover_key()
+	_cover_label.text = line
+	var grade := _cover_font_scale(line)
 	_cover_label.pixel_size = grade
 	# Der Umbruch läuft auf der Grubenbreite, in Schrift-Pixeln gemessen - so bricht
 	# die Zeile genau dort, wo der gewählte Grad es vorsieht.
 	_cover_label.width = (half.y * 2.0) * COVER_TEXT_SHARE / maxf(grade, 0.0001)
 	_cover_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var seen := _hover_share * _cover_share
-	var gold := cover_text_color()
-	var edge := cover_outline_color()
-	_cover_label.modulate = Color(gold.r, gold.g, gold.b, seen)
+	_paint_cover_colors(cover_text_share())
+
+## Ton und Alpha der geltenden Zeile - je Bild, denn Alpha und Aufleuchten laufen
+## beide hier durch. Aufleuchten kann nur die STEHENDE Zeile: sie ist die Bedingung,
+## und ihr gilt die Meldung.
+func _paint_cover_colors(seen: float) -> void:
+	if _cover_label == null or not is_instance_valid(_cover_label):
+		return
+	var goal := _cover_on_goal()
+	var gain := 1.0 + (COVER_FLASH_GAIN - 1.0) * _goal_flash if goal else 1.0
+	var body := cover_goal_text_color(cover_goal_tint) if goal else cover_text_color()
+	var edge := cover_goal_outline_color(cover_goal_tint) if goal \
+		else cover_outline_color()
+	_cover_label.modulate = Color(body.r * gain, body.g * gain, body.b * gain, seen)
 	_cover_label.outline_modulate = Color(edge.r, edge.g, edge.b, seen)
-	_sync_cover_label()
 
 ## Die EINE Farbe der Aufschrift, unabhängig von der Wette: das Haus-Gold, überhellt.
 static func cover_text_color() -> Color:
@@ -944,6 +1037,16 @@ static func cover_outline_color() -> Color:
 	var dark := CasinoStyle.GOLD_DARK
 	return Color(dark.r * COVER_OUTLINE_GAIN, dark.g * COVER_OUTLINE_GAIN,
 		dark.b * COVER_OUTLINE_GAIN)
+
+## Die STEHENDE Zeile leuchtet dagegen im gemeldeten Ton - überhellt, damit sie über
+## der Ware steht, und ihr Umriß dunkel aus derselben Farbe statt aus Schwarz.
+static func cover_goal_text_color(tint: Color) -> Color:
+	return Color(tint.r * COVER_GOAL_TEXT_GAIN, tint.g * COVER_GOAL_TEXT_GAIN,
+		tint.b * COVER_GOAL_TEXT_GAIN)
+
+static func cover_goal_outline_color(tint: Color) -> Color:
+	return Color(tint.r * COVER_GOAL_OUTLINE_GAIN, tint.g * COVER_GOAL_OUTLINE_GAIN,
+		tint.b * COVER_GOAL_OUTLINE_GAIN)
 
 ## Der Schriftgrad: die Zeile muß LÄNGS in die Grubenbreite (Welt-Z) und QUER in ihre
 ## Tiefe (Welt-X) passen - der kleinere der beiden Grade gewinnt. Gewählt wird die

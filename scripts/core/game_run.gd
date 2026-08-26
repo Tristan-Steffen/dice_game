@@ -2101,12 +2101,42 @@ func reorder_pool(from_index: int, to_index: int) -> bool:
 	pool_changed.emit()
 	return true
 
+## Die Inventar-Sicht der Wett-Auslage: Sorte+Größe -> Anzahl, reine Daten. Nur
+## würfelbare Gravur-Pakete zählen - ein Fixinhalt oder Katalysator ist kein Einsatz.
+func pack_stock() -> Dictionary:
+	var out: Dictionary = {}
+	for pack in owned_packs:
+		if not Pack.tierable(pack):
+			continue
+		var key := SideBet.pack_stock_key(pack.type, pack.tier)
+		out[key] = int(out.get(key, 0)) + 1
+	return out
+
+## Welche Pakete ein Paket-Einsatz WIRKLICH verzehrt: die letzten passenden, typ- und
+## größengenau. EINE Auswahl - die Buchung nimmt sie, und die Wurf-Anker der Zeremonie
+## fragen dieselbe VOR der Buchung.
+func stake_packs_for(bet: SideBet) -> Array[Pack]:
+	var out: Array[Pack] = []
+	if bet.stake_kind != SideBet.Stake.PACKS:
+		return out
+	var wanted := side_bet_stake_packs(bet)
+	for i in range(owned_packs.size() - 1, -1, -1):
+		if out.size() >= wanted:
+			break
+		var pack := owned_packs[i]
+		if Pack.tierable(pack) and pack.type == bet.stake_pack_type \
+				and pack.tier == bet.stake_pack_tier:
+			out.append(pack)
+	return out
+
 ## Ob der Einsatz einer Wette bezahlbar ist. Steuerwetten sind immer platzierbar -
 ## sie kosten erst beim Nehmen (und reißen dort ab, siehe tax_side_bets).
 func can_place_side_bet(bet: SideBet) -> bool:
 	match bet.stake_kind:
 		SideBet.Stake.PACKS:
-			return owned_packs.size() >= side_bet_stake_packs(bet)
+			# Der Knopf NENNT seine Ware, also wird genau sie geprüft - die Werkstatt
+			# kann sie mitten in der Wettannahme verbraucht haben.
+			return stake_packs_for(bet).size() >= side_bet_stake_packs(bet)
 		SideBet.Stake.CHARGE:
 			return charge >= side_bet_stake_charge(bet)
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
@@ -2118,7 +2148,7 @@ func can_place_side_bet(bet: SideBet) -> bool:
 func place_side_bet(bet: SideBet) -> void:
 	match bet.stake_kind:
 		SideBet.Stake.PACKS:
-			_consume_packs(side_bet_stake_packs(bet))
+			_consume_packs(stake_packs_for(bet))
 		SideBet.Stake.CHARGE:
 			spend_charge(side_bet_stake_charge(bet))
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
@@ -2155,13 +2185,15 @@ func tax_side_bets(hand_dice: int) -> int:
 		side_bets_changed.emit()
 	return paid
 
-## Opfert n Pakete vom ENDE des Lagers (Einsatz einer Paket-Wette): dort landen
-## die Neuzugänge - was der Spieler nach vorn sortiert hat, bleibt ihm.
-func _consume_packs(count: int) -> void:
+## Opfert GENAU diese Pakete (Einsatz einer Paket-Wette). Welche es sind, sagt
+## stake_packs_for - hier wird nichts zweitgewählt.
+func _consume_packs(packs: Array[Pack]) -> void:
 	var removed := false
-	for i in mini(count, owned_packs.size()):
-		owned_packs.remove_at(owned_packs.size() - 1)
-		removed = true
+	for pack in packs:
+		var index := owned_packs.find(pack)
+		if index >= 0:
+			owned_packs.remove_at(index)
+			removed = true
 	if removed:
 		packs_changed.emit()
 
@@ -2197,7 +2229,7 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 		SideBet.Payout.PACK:
 			# null = volles Magazin: der Gewinn ist zu Geld zerfallen, und die
 			# Zeremonie schickt darum Geld statt einer Kassette los.
-			bet.awarded_pack = grant_pack(Pack.roll_engraving_pack())
+			bet.awarded_pack = grant_pack(bet.reward_pack())
 		SideBet.Payout.COMBO_LEVEL:
 			grant_combo_level(bet.target_combo)
 		SideBet.Payout.PRESS_BOOST:

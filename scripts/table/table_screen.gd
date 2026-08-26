@@ -2699,6 +2699,18 @@ func side_bet_stake_comet(color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
+## Komet vom SCHATZ zum Nebenwetten-Fenster: die laufende Steuer einer Steuerwette,
+## je Buchung einer. Die benannte AUSNAHME des Bewegungs-Gesetzes - was der Spieler
+## zahlt, fliegt sonst als Körper, aber die Kleinsteuer reist als Licht.
+## Liefert die Laufzeit.
+func side_bet_tax_comet(color: Color) -> float:
+	var path := _treasure_to_side_path()
+	if path.size() < 2:
+		return 0.0
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
 ## Auszahlungs-Komet VOM Nebenwetten-Fenster (to_hub = Gravur-Gewinn zum Hub,
 ## sonst Geld-Gewinn zum Schatz). Liefert die Laufzeit.
 func side_bet_payout_comet(to_hub: bool, color: Color) -> float:

@@ -50,6 +50,11 @@ const FLOOR_ALBEDO := Color(0.046, 0.042, 0.066)
 ## Ihr Produkt mit der Farbe bleibt weit unter Rune.IDLE_CEILING - was hier
 ## blühte, nähme der Ware die Show.
 const WALL_FIELD_ENERGY := 2.1
+## Grundhelligkeit UNTER der bestellten Wandhaut. Die Schacht-Gruben brauchen keine
+## (ihr Licht kommt allein aus der Map), aber diese Grube ist flach und wird fast von
+## oben gesehen - ihre schmalen Wände verschwänden sonst. Am Bild entschieden: bei
+## 0,0/0,6 bleibt die vordere Wand schwarz, bei 2,1 glüht sie.
+const SKIN_FIELD_ENERGY := 1.2
 const FLOOR_FIELD_ENERGY := 2.4
 const SEAM_ENERGY := 0.55
 ## Paneelbreite als Anteil der LÄNGSTEN Grubenkante: an der kurzen gemessen
@@ -74,6 +79,14 @@ const WALL_X_MINUS := 2
 const WALL_X_PLUS := 3
 const WALLS := [WALL_X_PLUS, WALL_X_MINUS, WALL_Z_PLUS, WALL_Z_MINUS]
 const WALL_NAMES := ["WallZMinus", "WallZPlus", "WallXMinus", "WallXPlus"]
+
+## Die WANDHAUT: von draußen GEMELDET wie überall (die Grube greift nicht in die
+## Szene). Idempotent - eine Meldung nach dem Aufbau zieht die Auskleidung nach.
+var wall_skin: Texture2D = null:
+	set(value):
+		wall_skin = value
+		if _wall_material != null:
+			_tune_lining()
 
 var _wall_material: ShaderMaterial
 var _floor_material: ShaderMaterial
@@ -171,6 +184,15 @@ func _tune_lining() -> void:
 		material.set_shader_parameter("emission_cap", EMISSION_CAP)
 	_wall_material.set_shader_parameter("base_color", WALL_ALBEDO)
 	_wall_material.set_shader_parameter("field_energy", WALL_FIELD_ENERGY)
+	# Die WANDHAUT, sofern bestellt - dieselben Werte wie in den Schacht-Gruben
+	# (LiftShaftView.SKIN_*), damit keine Vertiefung anders liest als die nächste.
+	_wall_material.set_shader_parameter("wall_tex", wall_skin)
+	_wall_material.set_shader_parameter("skin_on", 1.0 if wall_skin != null else 0.0)
+	_wall_material.set_shader_parameter("skin_tile", LiftShaftView.SKIN_TILE)
+	_wall_material.set_shader_parameter("skin_albedo", LiftShaftView.SKIN_ALBEDO)
+	_wall_material.set_shader_parameter("skin_emission", LiftShaftView.SKIN_EMISSION)
+	_wall_material.set_shader_parameter("skin_energy", LiftShaftView.SKIN_EMISSION_ENERGY)
+	_wall_material.set_shader_parameter("skin_field_energy", SKIN_FIELD_ENERGY)
 	_floor_material.set_shader_parameter("base_color", FLOOR_ALBEDO)
 	_floor_material.set_shader_parameter("field_energy", FLOOR_FIELD_ENERGY)
 

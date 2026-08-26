@@ -1,7 +1,7 @@
 extends GutTest
-## Die Körper des Wett-Tresens (BetPrizeView): Chip-Stapel, Elko-Feld, geprägte
-## Marke und Zählplatte. Sie sind reine ANZEIGE - hier wird geprüft, dass sie sich
-## bauen, auf ihren Platz passen und der Griff sie hebt.
+## Die Körper des Wett-Tresens (BetPrizeView): Chip-Stapel, Elko-Feld und geprägte
+## Marke. Sie sind reine ANZEIGE - hier wird geprüft, dass sie sich bauen, auf ihren
+## Platz passen und der Griff sie hebt.
 
 func _prize() -> BetPrizeView:
 	var prize := BetPrizeView.new()
@@ -37,25 +37,19 @@ func test_token_carries_its_engraving():
 	var label: Label3D = prize.get_node("Body/Aufschrift")
 	assert_eq(label.text, "LVL+1")
 
-func test_tally_starts_empty_and_grows_per_booking():
-	var prize := _prize()
-	prize.setup_tally()
-	assert_eq(prize.tally_total(), 0, "vor der ersten Hand liegt nichts auf der Platte")
-	prize.add_tally(3)
-	assert_eq(prize.tally_total(), 3)
-	prize.add_tally(3)
-	assert_eq(prize.tally_total(), 6, "jede Buchung legt nach")
-
-func test_tally_of_a_body_that_is_not_one_stays_silent():
-	var prize := _prize()
-	prize.setup_token("PRESSE", CasinoStyle.GOLD_INTENSE)
-	prize.add_tally(5)
-	assert_eq(prize.tally_total(), 0, "eine Marke zählt nichts")
+## Die ZÄHLPLATTE ist tot: die Steuer reist als Licht zum Fenster, nichts läuft mehr
+## auf dem Tresen auf. Ein Grep hält die Bauform samt ihrer Sonderwege fort.
+func test_the_tally_plate_is_gone_for_good():
+	var code := FileAccess.get_file_as_string("res://scripts/table/bet_prize_view.gd")
+	for dead in ["KIND_TALLY", "setup_tally", "add_tally", "tally_total", "PLATE_"]:
+		assert_false(code.contains(dead), "%s ist tot" % dead)
+	assert_eq(BetPrizeView.span_for("tally"), Vector2.ZERO,
+		"und die Bauform meldet keinen Platz mehr")
 
 ## Nichts schrumpft mehr auf seinen Platz: jeder Körper liegt in ECHTER Größe da und
 ## meldet sie, damit der Schacht an IHM messen kann.
 func test_every_build_reports_its_real_size():
-	for build in ["chips", "charge", "token", "tally"]:
+	for build in ["chips", "charge", "token"]:
 		var prize := _prize()
 		match build:
 			"chips":
@@ -64,8 +58,6 @@ func test_every_build_reports_its_real_size():
 				prize.setup_charge(12)
 			"token":
 				prize.setup_token("LVL+1", CasinoStyle.GOLD_INTENSE)
-			"tally":
-				prize.setup_tally()
 		assert_gt(prize.natural_span().x, 0.0, "%s meldet seine Tiefe" % build)
 		assert_gt(prize.natural_span().y, 0.0, "%s meldet seine Breite" % build)
 		assert_gt(prize.body_height(), BetPrizeView.FLOOR_CLEAR,
@@ -95,7 +87,7 @@ func test_seat_hard_keeps_the_origin_on_the_glass_point():
 
 func test_body_rests_clear_of_the_display():
 	var prize := _prize()
-	prize.setup_tally()
+	prize.setup_token("LVL+1", CasinoStyle.GOLD_INTENSE)
 	var body: Node3D = prize.get_node("Body")
 	assert_almost_eq(body.position.y, BetPrizeView.FLOOR_CLEAR, 0.0001,
 		"der Körper steht FLOOR_CLEAR über der Anzeige")
@@ -134,10 +126,6 @@ func test_the_static_span_is_the_one_the_body_reports():
 	token.setup_token("LVL+1", CasinoStyle.GOLD_INTENSE)
 	assert_true(token.natural_span().is_equal_approx(
 		BetPrizeView.span_for(BetPrizeView.KIND_TOKEN)))
-	var tally := _prize()
-	tally.setup_tally()
-	assert_true(tally.natural_span().is_equal_approx(
-		BetPrizeView.span_for(BetPrizeView.KIND_TALLY)))
 
 ## Der gerechnete Fußabdruck DECKT das wirklich gebaute Rack - das Loch lügt nicht
 ## über den Platz.

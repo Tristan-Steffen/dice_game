@@ -109,6 +109,17 @@ static func tier_adjective(pack_tier: int, amount: int = 1) -> String:
 	var table: Dictionary = TIER_ADJECTIVES if amount == 1 else TIER_ADJECTIVES_PLURAL
 	return String(table.get(pack_tier, ""))
 
+## Die EINE Formulierung einer Paket-MENGE: Zahl, Größe, Sorte ("2 Große
+## Material-Pakete", "1 Zahlen-Paket"). Namensquellen sind TYPE_NAMES und
+## tier_adjective - wer Ware in Worten nennt, nennt sie hier und nirgends sonst.
+static func amount_phrase(pack_type: String, pack_tier: int, amount: int) -> String:
+	var sort := "%s%s" % [String(TYPE_NAMES.get(pack_type, pack_type)),
+		"" if amount == 1 else "e"]
+	var adjective := tier_adjective(pack_tier, amount)
+	if adjective == "":
+		return "%d %s" % [amount, sort]
+	return "%d %s %s" % [amount, adjective, sort]
+
 static func tier_price_factor(pack_tier: int) -> float:
 	if pack_tier < 0 or pack_tier >= TIER_PRICE_FACTORS.size():
 		return 1.0
@@ -392,9 +403,11 @@ func press_sort() -> String:
 ## Presse (Multicast, Seltenheits-Gewichte), nicht an der Lizenz.
 ## Die GRÖSSE kommt von außen: der Laden würfelt sie, jede Prämie prägt Standard.
 static func roll_engraving_pack(pack_tier: int = TIER_NORMAL) -> Pack:
-	return tiered(_roll_engraving_sort(), pack_tier)
+	return tiered(by_type(roll_engraving_type()), pack_tier)
 
-static func _roll_engraving_sort() -> Pack:
+## Nur die SORTE, ohne ein Paket zu bauen - dieselben Regal-Gewichte. Der Wett-Tresen
+## würfelt sie beim Auslegen und NENNT seinen Gewinn danach beim Namen.
+static func roll_engraving_type() -> String:
 	var pool: Array[String] = []
 	var weights: Array[int] = []
 	for pack_type: String in SHELF_WEIGHTS:
@@ -407,5 +420,5 @@ static func _roll_engraving_sort() -> Pack:
 	for i in pool.size():
 		pick -= weights[i]
 		if pick < 0:
-			return by_type(pool[i])
-	return number_pack()
+			return pool[i]
+	return TYPE_NUMBER

@@ -27,6 +27,21 @@ uniform vec2 field_half = vec2(1.0);
 // Deckel der Emission: darueber laufen die drei Kanaele zu Weiss zusammen, und
 // aus einer Farbe wird eine helle Flaeche (die Kondensatorbank-Lehre).
 uniform float emission_cap = 1.45;
+// Die BESTELLTE WANDHAUT - dieselbe Textur wie in den Schacht-Gruben
+// (LiftShaftView.order_skin), damit keine Vertiefung des Tisches anders liest als
+// die naechste. Ohne Bestellung (skin_on = 0) bleibt die prozedurale Paneelwand.
+// Gekachelt wird in WELTMASS, also laufen die Leuchtlinien als gleich hohe Ringe
+// um die Grube, statt je Wand neu anzusetzen.
+uniform sampler2D wall_tex : source_color, filter_linear_mipmap, repeat_enable;
+uniform float skin_on = 0.0;
+uniform float skin_tile = 2.0;
+uniform vec3 skin_albedo : source_color = vec3(0.34, 0.35, 0.44);
+uniform vec3 skin_emission : source_color = vec3(0.55, 0.60, 0.72);
+uniform float skin_energy = 1.3;
+// Grundhelligkeit UNTER der Haut. Die Schacht-Gruben haben keine (ihr Licht kommt
+// allein aus der Map), aber diese Grube ist flach und wird fast von oben gesehen -
+// ein wenig Grundton haelt ihre schmalen Waende lesbar. Am Bild entschieden.
+uniform float skin_field_energy = 0.0;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -54,6 +69,10 @@ void vertex() {
 void fragment() {
 	vec3 field;
 	vec3 neon = vec3(0.0);
+	// Grundhelligkeit der Flaeche - die bestellte Haut setzt sie auf null, denn
+	// ihr Licht kommt allein aus der Map (die Lehre der Schacht-Gruben). Bliebe
+	// field_energy stehen, glaenzte dieselbe Textur hier doppelt so hell.
+	float energy = field_energy;
 	// Laengsrichtung der Wand und Tiefe darin.
 	float along = abs(world_normal.x) > 0.5 ? world_pos.z : world_pos.x;
 	float cell = along / max(panel_width, 0.05);
@@ -79,6 +98,15 @@ void fragment() {
 		field *= 1.0 + (pile - 0.5) * 0.30;
 		field *= trough;
 		field += seam_color * sheen * 0.030;
+	} else if (skin_on > 0.5) {
+		// WAND mit der bestellten HAUT: die Textur ersetzt Paneele, Fuge und Neon -
+		// sie bringt ihre eigenen Linien mit, zwei Muster uebereinander laesen sich
+		// als Rauschen. Der Tiefenverlauf bleibt, sonst laege die Wand flach.
+		vec3 tex = texture(wall_tex, vec2(along, world_pos.y) / max(skin_tile, 0.05)).rgb;
+		energy = skin_field_energy;
+		field = skin_albedo * tex * (1.0 - 0.62 * sink);
+		// Lesbar wird sie allein ueber Emission aus derselben Map, MULTIPLIZIERT.
+		neon = skin_emission * skin_energy * tex * (1.0 - 0.45 * sink);
 	} else {
 		// WAND, Metallpaneele: die Fugen laufen quer zur Wandrichtung, dazu eine
 		// gebuerstete Struktur und ein Tiefenverlauf (unten dunkler).
@@ -97,7 +125,7 @@ void fragment() {
 
 	// Der Deckel wirkt auf den GANZEN Ton, nicht je Kanal: gekappt wuerde aus
 	// Magenta ein Rosa.
-	vec3 lit = field * field_energy + neon;
+	vec3 lit = field * energy + neon;
 	float peak = max(max(lit.r, lit.g), lit.b);
 	lit *= min(1.0, emission_cap / max(peak, 0.0001));
 

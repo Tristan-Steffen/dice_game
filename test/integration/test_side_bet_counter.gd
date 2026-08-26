@@ -1,15 +1,19 @@
 extends GutTest
-## Der WETT-TRESEN des Nebenwetten-Fensters: DER SETZEN-KNOPF IST DER STELLPLATZ.
-## Das Fenster meldet nur Geometrie und die reine Regel der Timeline - Körper stellt
-## scene_root. Getestet wird darum, was das Fenster verspricht: ein Plot je Angebot,
-## rechts in SEINER Zeile, byte-stabile Rechtecke über Setzen, Fassung und Modi
-## hinweg, und die Regel, wer wann auf dem Tresen liegt.
+## Der WETT-TRESEN des Nebenwetten-Fensters: DER SETZEN-KNOPF IST DER STELLPLATZ, und
+## das Fenster ist NICHTS ALS die drei Knöpfe. Es meldet Geometrie und die reine Regel
+## der Timeline - Körper stellt scene_root. Getestet wird darum, was das Fenster
+## verspricht: ein Plot je Angebot, byte-stabile Rechtecke über Setzen, Fassung und
+## Modi hinweg, Bedingung und Handel AUF dem Knopf, der Melder an der Plot-Unterkante,
+## und die Regel, wer wann auf dem Tresen liegt.
 
 var panel: SideBetPanel
 var run: GameRun
 
-## Die echten Maße des Tisch-Fensters (cluster_rect).
-const WINDOW_SIZE := Vector2(996, 591)
+## Die Breite, aus der das Fenster geschnitten wird (cluster_rect) - die EINHEIT ist
+## ihr Hundertstel und bleibt es.
+const CLUSTER_WIDTH := 996.0
+## Und die echten Fenstermaße daraus: die Knopf-Spalte, 318,72 x 473,10 px.
+const WINDOW_SIZE := Vector2(318.72, 473.1)
 
 func before_each() -> void:
 	run = GameRun.new_run()
@@ -58,48 +62,67 @@ func test_plots_lie_inside_the_window_and_do_not_overlap():
 			assert_false(rects[i].intersects(rects[j]),
 				"Plätze %d und %d überlappen" % [i, j])
 
-## Die Plätze ziehen SENKRECHT durch, einer je Angebots-Zeile, und jeder steht am
-## rechten Zeilenrand - dort, wo früher der Kauf-Knopf saß.
-func test_plots_stand_at_the_right_edge_of_their_offer_rows():
+## Die Plätze ziehen SENKRECHT durch, einer je Angebot, und alle in EINER Spalte.
+func test_plots_stand_in_one_column():
 	var rects := panel.counter_local_rects()
-	var u := panel.size.x / 100.0
+	var u := panel.size.x / SideBetPanel.UNIT_DIV
 	for i in rects.size():
 		assert_almost_eq(rects[i].end.x, panel.size.x - u * SideBetPanel.MARGIN_UNITS,
-			0.001, "Platz %d steht rechts in seiner Zeile" % i)
+			0.001, "Platz %d endet am rechten Rand" % i)
 		assert_almost_eq(rects[i].position.x, rects[0].position.x, 0.001,
 			"alle Plätze stehen in einer Spalte")
 	for i in range(1, rects.size()):
 		assert_gt(rects[i].position.y, rects[i - 1].position.y,
 			"und untereinander in Angebots-Reihenfolge")
 
-## Der Text steht LINKS daneben und hat wirklich Platz: kein Plot frißt seine Zeile.
-func test_the_row_text_keeps_room_left_of_its_plot():
-	var rects := panel.counter_local_rects()
-	var u := panel.size.x / 100.0
-	var text := rects[0].position.x - u * (SideBetPanel.MARGIN_UNITS
-		+ SideBetPanel.PLOT_GAP_UNITS)
-	assert_gt(text, rects[0].size.x,
-		"die Zeile trägt mehr Text- als Plotbreite (%.1f px)" % text)
+## Das Fenster IST die Knopf-Spalte: Breite = Rand + Plot + Rand, Höhe = Rand + drei
+## Zeilen samt Fugen + Rand. Es meldet beides selbst, und scene_root schneidet danach.
+func test_the_window_is_nothing_but_the_button_column():
+	var units := SideBetPanel.preferred_units()
+	assert_almost_eq(units.x, SideBetPanel.MARGIN_UNITS * 2.0
+		+ SideBetPanel.PLOT_WIDTH_UNITS, 0.0001, "Rand, Plot, Rand - sonst nichts")
+	assert_almost_eq(units.x, SideBetPanel.UNIT_DIV, 0.0001,
+		"und die EINHEIT teilt genau durch sie")
+	assert_almost_eq(units.y, SideBetPanel.COUNTER_TOP_UNITS
+		+ SideBetPanel.PLOT_HEIGHT_UNITS * float(SideBetPanel.OFFER_COUNT)
+		+ SideBetPanel.PLOT_GAP_UNITS * float(SideBetPanel.OFFER_COUNT - 1)
+		+ SideBetPanel.MARGIN_UNITS, 0.0001, "und die Höhe trägt genau die drei Zeilen")
 
-## Der KOPF (Titel und Anrede) endet über der ersten Zeile - er verschiebt nichts,
-## und die gemessene Luft über der Zeile trägt ihn wirklich.
-func test_the_head_ends_above_the_first_row():
+## Und die EINHEIT bleibt PIXELGLEICH zur alten (ein Hundertstel der Kombi-Breite):
+## Plot, Fassung, Loch und Schrift behalten ihre Maße, allein das Fenster schrumpft.
+func test_the_unit_stays_pixel_identical_to_the_old_window():
+	var u := panel.size.x / SideBetPanel.UNIT_DIV
+	assert_almost_eq(u, CLUSTER_WIDTH / 100.0, 0.001, "u = 9,96 px wie zuvor")
+	var plot := panel.counter_plot_size()
+	assert_almost_eq(plot.x, u * SideBetPanel.PLOT_WIDTH_UNITS, 0.001,
+		"der Plot mißt weiter 258,96 px")
+	assert_almost_eq(plot.y, u * SideBetPanel.PLOT_HEIGHT_UNITS, 0.001,
+		"und 124,50 px - nichts klemmt ihn")
+
+## Links vom Plot steht NICHTS mehr: er reicht von Rand zu Rand, und über der ersten
+## Zeile bleibt ein RAND, kein Kopf.
+func test_no_room_is_left_beside_or_above_the_plots():
+	var u := panel.size.x / SideBetPanel.UNIT_DIV
 	var rects := panel.counter_local_rects()
+	assert_almost_eq(rects[0].position.x, u * SideBetPanel.MARGIN_UNITS, 0.001,
+		"der Plot beginnt am Fensterrand - keine Text-Spalte davor")
+	assert_almost_eq(rects[0].position.y, u * SideBetPanel.COUNTER_TOP_UNITS, 0.001)
+	assert_lte(SideBetPanel.COUNTER_TOP_UNITS, SideBetPanel.MARGIN_UNITS,
+		"die Luft oben ist nicht mehr als ein Rand")
+	assert_almost_eq(rects[SideBetPanel.OFFER_COUNT - 1].end.y,
+		panel.size.y - u * SideBetPanel.MARGIN_UNITS, 0.05,
+		"und unten schließt die letzte Zeile mit demselben Rand ab")
+
+## Im Fenster steht nichts als die drei Sitze - kein Kopf, keine Zeile, keine Anrede.
+func test_the_window_holds_nothing_but_its_three_seats():
 	panel.open_betting(_money_offers())
 	await wait_frames(2)
-	var content: Control = null
 	for child in panel.get_children():
-		if child is VBoxContainer:
-			content = child
-	assert_not_null(content, "die Seite steht")
-	var head := content.position.y
-	for child in content.get_children():
-		head += (child as Control).get_combined_minimum_size().y
-	head += content.get_theme_constant("separation") \
-		* maxf(content.get_child_count() - 1, 0)
-	assert_lt(head, rects[0].position.y,
-		"Titel und Anrede stehen über der ersten Zeile (%.1f < %.1f)"
-			% [head, rects[0].position.y])
+		assert_eq(String(child.name), "Tresen",
+			"außer dem Tresen hängt nichts im Fenster (%s)" % child.name)
+	var counter: Control = panel.get_node("Tresen")
+	assert_eq(counter.get_child_count(), SideBetPanel.OFFER_COUNT,
+		"und der Tresen trägt genau die drei Sitze")
 
 ## Der Plot IST das Rechteck des Sitzes - gemessen, nicht behauptet.
 func test_the_seat_button_is_the_plot():
@@ -128,60 +151,158 @@ func test_the_reported_pit_radius_is_the_frames_own_corner_radius():
 			"die Fassung rundet mit der gemeldeten Zahl (%s)" % state)
 	assert_gt(radius, 0.0, "eine Rundung, die man auch sieht")
 
+# --- Die AUFSCHRIFT des Knopfs ---------------------------------------------------
+# Vor der Annahme trägt der Sitz BEDINGUNG und HANDEL, danach ist er die Fassung und
+# trägt an der Plot-Unterkante seinen MELDER. Es gibt keinen dritten Ort für Text.
+
+func _block(index: int) -> Control:
+	return panel.bet_buttons[index].get_node("Angebot")
+
+func _note(index: int) -> Label:
+	return panel.bet_buttons[index].get_node("Melder")
+
+func test_the_open_seat_carries_condition_and_trade():
+	var offers := _money_offers()
+	panel.open_betting(offers)
+	await wait_frames(2)
+	assert_true(_block(0).visible, "das Angebot steht auf dem Knopf")
+	assert_false(_note(0).visible, "und noch kein Melder")
+	var goal: Label = _block(0).get_child(0)
+	var trade: Label = _block(0).get_child(1)
+	assert_eq(goal.text, offers[0].description, "oben die Bedingung")
+	assert_eq(trade.text, "%s → %s" % [offers[0].stake_label(), panel.prize_label(0)],
+		"darunter der Handel")
+
+## Die LÄNGSTE Bedingung des Katalogs (samt ihrem Handel) muß ungeschnitten auf den
+## Knopf - der Grad wird darum gemessen, nicht getippt. Geprüft wird jede Vorlage, und
+## zwar mit ihrem LÄNGSTEN Paket-Namen (Kolossal + Material, die längste Kombination
+## aus Pack.TIER_ADJECTIVES und TYPE_NAMES): seit die Pakete typisiert sind, wächst der
+## Handel mit der gewürfelten Sorte, und ein Zufallswurf wäre kein Beweis.
+func test_every_condition_of_the_catalogue_fits_its_button():
+	var font := panel.get_theme_default_font()
+	var inner := panel._seat_inner()
+	var smallest := 999
+	var worst := ""
+	for t: Dictionary in SideBet.TEMPLATES:
+		var bet := SideBet._from_template(t, 3225)
+		bet.stake_pack_type = Pack.TYPE_MATERIAL
+		bet.stake_pack_tier = Pack.TIER_KOLOSSAL
+		bet.reward_pack_type = Pack.TYPE_MATERIAL
+		bet.reward_pack_tier = Pack.TIER_KOLOSSAL
+		var bets: Array[SideBet] = [bet]
+		panel.open_betting(bets)
+		var goal: Label = panel._seat_goals[0]
+		var trade: Label = panel._seat_trades[0]
+		var gp := goal.get_theme_font_size("font_size")
+		var tp := trade.get_theme_font_size("font_size")
+		var block := ShopController.wrapped_height(font, goal.text, inner.x, gp, 0) \
+			+ ShopController.wrapped_height(font, trade.text, inner.x, tp, 0)
+		assert_lte(block, inner.y,
+			"%s: Bedingung und Handel passen ganz (%.1f von %.1f px)"
+				% [t["id"], block, inner.y])
+		if gp < smallest:
+			smallest = gp
+			worst = String(t["id"])
+	assert_gte(smallest, 12, "und keine schrumpft unter die Lesbarkeit (%s: %d px)"
+		% [worst, smallest])
+
+## Gesetzt wird der Sitz zur Fassung und tauscht sein Angebot gegen den MELDER:
+## Bedingung plus Live-Stand, an der Plot-UNTERKANTE - dort, wo ein oben stehender
+## Gewinn ihn am wenigsten deckt.
+func test_a_placed_seat_swaps_its_offer_for_the_meter_line():
+	var offers := _money_offers()  # index 2 = economist, sein Gewinn steht OBEN
+	panel.open_betting(offers)
+	await wait_frames(2)
+	panel._on_bet_pressed(2)
+	await wait_frames(2)
+	assert_false(_block(2).visible, "das Angebot ist fort")
+	assert_true(_note(2).visible, "und der Melder steht")
+	assert_true(_note(2).text.begins_with(offers[2].description),
+		"er nennt die Bedingung (%s)" % _note(2).text)
+	var seat: Button = panel.bet_buttons[2]
+	assert_almost_eq(_note(2).anchor_top, 1.0, 0.0001, "er hängt an der Unterkante")
+	assert_gt(_note(2).position.y, seat.size.y * 0.5,
+		"und liegt wirklich in der unteren Hälfte des Plots")
+	assert_lte(_note(2).position.y + _note(2).size.y, seat.size.y + 0.001,
+		"ohne aus der Fassung zu laufen")
+
+## Über einer OFFENEN Grube SCHWEIGT der Sitz: dort trägt der Schirm die Zeile, und
+## die gesenkte Plattform zeigt das Display des Plots ein zweites Mal (der
+## Mahjong-Deckel) - der Melder stünde doppelt. Kippt die Wette, schließt die Grube
+## und der Melder kommt zurück. Gefragt wird die EINE Regel (counter_lies), nicht eine
+## zweite Orts-Rechnung: sonst driften Körper und Melder auseinander.
+func test_a_parked_plot_keeps_its_seat_silent():
+	var offers := _offers(["two_pair", "economist", "big_hand"])
+	panel.open_betting(offers)
+	panel._on_bet_pressed(0)
+	panel._on_bet_pressed(1)
+	panel.set_lifecycle(SideBetPanel.STAGE_ROUND, _bets([]), _bets([]), _bets([]))
+	await wait_frames(2)
+	for i in [0, 1]:
+		assert_true(panel.plot_parked(i), "Plot %d wartet unten in der offenen Grube" % i)
+		assert_false(_note(i).visible, "also schweigt sein Sitz")
+	# Erfüllt heißt: der Gewinn steht oben, die Grube ist zu - und der Melder spricht.
+	panel.set_lifecycle(SideBetPanel.STAGE_ROUND, _bets([offers[0]]), _bets([]),
+		_bets([]))
+	await wait_frames(2)
+	assert_false(panel.plot_parked(0), "erfüllt heißt: die Grube schließt")
+	assert_true(_note(0).visible, "und der Melder kommt zurück")
+	assert_true(panel.plot_parked(1), "die Nachbarin wartet weiter")
+
+## Der BUG, den das behebt: eine grün startende Wette (und jede Steuerwette) parkt
+## seit dem letzten Umbau ebenfalls - ihr Sitz-Melder blieb aber stehen und die
+## gesenkte Plattform trug ihn als Display-Haut ein zweites Mal mit hinunter. Der
+## Melder schweigt jetzt GENAU DANN, wenn der Bestand LIE_PRIZE_PIT nennt.
+func test_the_seat_is_silent_exactly_where_the_stock_says_pit():
+	var offers := _offers(["table_fee", "economist", "two_pair"])
+	panel.open_betting(offers)
+	for i in SideBetPanel.OFFER_COUNT:
+		panel._on_bet_pressed(i)
+	for life: Array in [[_bets([]), _bets([])], [_bets([offers[2]]), _bets([])],
+			[_bets([]), _bets([offers[1]])]]:
+		panel.set_lifecycle(SideBetPanel.STAGE_ROUND, life[0], life[1], _bets([]))
+		await wait_frames(2)
+		var lies := panel.lies()
+		for i in SideBetPanel.OFFER_COUNT:
+			var pit: bool = (lies.get(i, []) as Array).has(SideBetPanel.LIE_PRIZE_PIT)
+			assert_eq(panel.plot_parked(i), pit,
+				"Plot %d: geparkt heißt genau LIE_PRIZE_PIT" % i)
+			assert_eq(_note(i).visible, not pit,
+				"Plot %d: der Melder steht genau dort, wo der Schirm es nicht tut" % i)
+
+## Sein TON kommt aus derselben EINEN Rechnung wie der Schirm: grün erfüllt, rot
+## gescheitert, sonst neutral - es gibt keine zweite Bedingungs-Auswertung.
+func test_the_meter_line_is_tinted_by_the_live_state():
+	var offers := _offers(["big_hand", "economist", "two_pair"])
+	offers[0].target = 100
+	panel.open_betting(offers)
+	panel._on_bet_pressed(0)
+	panel._on_bet_pressed(1)
+	panel.update_progress({"best_hand_score": 10, "dice_taken": 0})
+	assert_eq(panel.meter_tint(0), SideBetPanel.MUTED_COLOR, "noch offen")
+	panel.update_progress({"best_hand_score": 200, "dice_taken": 0})
+	assert_eq(panel.meter_tint(0), SideBetPanel.GREEN, "erfüllt")
+	panel.update_progress({"best_hand_score": 200, "dice_taken": 30})
+	assert_eq(panel.meter_tint(1), SideBetPanel.RED, "gescheitert")
+	assert_true(panel.meter_line(1).begins_with(offers[1].description))
+	assert_true(panel.meter_line(1).ends_with(offers[1].status_label(
+		{"best_hand_score": 200, "dice_taken": 30})), "Bedingung UND Stand")
+
 # --- Der SITZ auf dem Plot -------------------------------------------------------
-# Gewöhnlich steht der GEWINN mittig auf seinem Plot; nur der Steuer-Plot teilt sich
-# (Zählplatte links, Gewinn rechts daneben). Jeder rückt nur so weit ein, dass er den
-# Plot nicht verläßt.
+# Der GEWINN ist das Einzige, was dort je steht - vom Einsatz bleibt nichts und die
+# Zählplatte, die den Plot einst teilte, ist tot. Also steht er MITTIG, immer.
 
 func test_a_prize_stands_centred_on_its_plot():
 	var plot := Rect2(Vector2(100, 50), Vector2(260, 124))
-	for footprint: Vector2 in [Vector2(60, 60), Vector2(150, 70), Vector2.ZERO]:
-		assert_true(SideBetPanel.seat_in(plot, footprint).is_equal_approx(
-			plot.get_center()), "der Gewinn steht mittig (%s)" % footprint)
+	assert_true(SideBetPanel.seat_in(plot).is_equal_approx(plot.get_center()),
+		"der Gewinn steht mittig")
 
-func test_a_tax_plot_splits_plate_left_and_prize_right():
-	var plot := Rect2(Vector2(100, 50), Vector2(260, 124))
-	var plate := SideBetPanel.seat_in(plot, Vector2(46.7, 46.7), SideBetPanel.SEAT_LEFT)
-	var prize := SideBetPanel.seat_in(plot, Vector2(147.3, 69.0), SideBetPanel.SEAT_RIGHT)
-	assert_lt(plate.x, plot.get_center().x, "die Zählplatte steht links")
-	assert_gt(prize.x, plot.get_center().x, "ihr Gewinn rechts daneben")
-	assert_almost_eq(plate.y, plot.get_center().y, 0.001)
-	assert_almost_eq(prize.y, plot.get_center().y, 0.001)
-
-## Die GEMESSENEN Fußabdrücke des Katalogs passen wirklich nebeneinander in den Plot:
-## Platte 46,7 px und der breiteste Steuer-Gewinn (Würfelzoll, 147,3 px).
-func test_both_tax_bodies_fit_beside_each_other_without_touching():
-	var plot := Rect2(Vector2.ZERO, Vector2(258.96, 124.5))
-	var plate_span := Vector2(46.7, 46.7)
-	var prize_span := Vector2(147.3, 69.0)
-	var plate := SideBetPanel.seat_in(plot, plate_span, SideBetPanel.SEAT_LEFT)
-	var prize := SideBetPanel.seat_in(plot, prize_span, SideBetPanel.SEAT_RIGHT)
-	var plate_rect := Rect2(plate - plate_span * 0.5, plate_span)
-	var prize_rect := Rect2(prize - prize_span * 0.5, prize_span)
-	assert_gte(plate_rect.position.x, plot.position.x - 0.001, "die Platte bleibt drin")
-	assert_lte(prize_rect.end.x, plot.end.x + 0.001, "der Gewinn ebenso")
-	assert_gt(prize_rect.position.x, plate_rect.end.x,
-		"und zwischen beiden bleibt eine Fuge (%.1f px)"
-			% (prize_rect.position.x - plate_rect.end.x))
-
-## Was in den Plot paßt, verläßt ihn nicht - der Körper rückt lieber ein.
-func test_a_wide_body_is_pulled_back_into_its_plot():
-	var plot := Rect2(Vector2(100, 50), Vector2(260, 124))
-	var wide := Vector2(220, 60)
-	assert_almost_eq(SideBetPanel.seat_in(plot, wide, SideBetPanel.SEAT_RIGHT).x,
-		plot.end.x - wide.x * 0.5, 0.001, "bündig an der rechten Plotkante")
-	assert_almost_eq(SideBetPanel.seat_in(plot, wide, SideBetPanel.SEAT_LEFT).x,
-		plot.position.x + wide.x * 0.5, 0.001)
-
-## Was breiter ist als der ganze Plot, steht mittig und ragt nach BEIDEN Seiten
-## hinaus - alles andere wäre eine Lüge über den Platz.
-func test_a_body_wider_than_the_plot_stands_centred():
-	var plot := Rect2(Vector2(100, 50), Vector2(260, 124))
-	var huge := Vector2(320, 60)
-	for side: int in [SideBetPanel.SEAT_FULL, SideBetPanel.SEAT_LEFT,
-			SideBetPanel.SEAT_RIGHT]:
-		assert_true(SideBetPanel.seat_in(plot, huge, side)
-			.is_equal_approx(plot.get_center()))
+## Und die geteilte Plot-Seite ist restlos fort - kein Körper rückt mehr ein.
+func test_the_split_tax_plot_is_gone_for_good():
+	var code := FileAccess.get_file_as_string("res://scripts/ui/side_bet_panel.gd")
+	for dead in ["SEAT_LEFT", "SEAT_RIGHT", "SEAT_FULL", "PLOT_TALLY_SHARE",
+			"LIE_TALLY"]:
+		assert_false(code.contains(dead), "%s ist tot" % dead)
 
 # --- Byte-Stabilität ------------------------------------------------------------
 
@@ -245,20 +366,24 @@ func test_an_early_bet_parks_its_prize_in_the_pit():
 	assert_eq(lies.get(1), [SideBetPanel.LIE_PRIZE_PIT],
 		"der Gewinn wartet unten - vom Einsatz liegt nichts, kein zweiter Körper")
 
-## Eine grün startende Wette (sie kann nur noch scheitern) zeigt ihren Gewinn sofort
-## ausgefahren.
-func test_a_green_starting_bet_shows_its_prize_up():
+## Auch eine grün startende Wette (sie kann nur noch scheitern) läßt ihren Gewinn
+## UNTEN warten - oben sähe er aus wie schon gewonnen. Gehoben wird bei der Abrechnung.
+func test_a_green_starting_bet_keeps_its_prize_in_the_pit():
 	var offers := _money_offers()  # economist = FEW_DICE, startet ON_TRACK
 	var lies := _lies(SideBetPanel.STAGE_ROUND, offers, [false, false, true])
-	assert_eq(lies.get(2), [SideBetPanel.LIE_PRIZE_UP])
+	assert_eq(lies.get(2), [SideBetPanel.LIE_PRIZE_PIT])
+	var won := _lies(SideBetPanel.STAGE_WON, offers, [false, false, true],
+		[], [], [offers[2]])
+	assert_eq(won.get(2), [SideBetPanel.LIE_PRIZE_UP],
+		"erst die Abrechnung hebt ihn")
 
-## Die Steuerwette ist die AUSNAHME: ihr Plot trägt ZWEI Körper - die wachsende
-## Zählplatte und ihren Gewinn daneben.
-func test_a_tax_bet_carries_its_tally_and_its_prize():
+## Auch die Steuerwette trägt nur noch EINEN Körper: ihren Gewinn. Ihre Rechnung
+## entsteht erst während der Runde und reist als Licht, nicht als Platte auf dem Plot.
+func test_a_tax_bet_carries_nothing_but_its_prize():
 	var offers := _offers(["table_fee", "big_hand", "economist"])
 	var lies := _lies(SideBetPanel.STAGE_OPEN, offers, [true, false, false])
-	assert_eq(lies.get(0), [SideBetPanel.LIE_TALLY, SideBetPanel.LIE_PRIZE_UP],
-		"Zählplatte links, Gewinn oben daneben")
+	assert_eq(lies.get(0), [SideBetPanel.LIE_PRIZE_PIT],
+		"der Gewinn wartet in der Grube - sonst liegt nichts")
 
 ## OPEN und ROUND tragen byteweise dasselbe - die Runde nimmt dem Tresen nichts weg;
 ## die Stufe entscheidet nur, ab wann die Melder feuern.
@@ -285,9 +410,9 @@ func test_failure_takes_the_prize_away():
 	assert_eq(lies.size(), 1, "zwei Gewinne sind eingezogen")
 	assert_eq(lies.get(0), [SideBetPanel.LIE_PRIZE_PIT])
 
-## Eine zahlungsunfähige Steuerwette hat nichts mehr auf dem Tresen zu suchen -
-## Zählplatte UND Gewinn fahren hinaus.
-func test_a_voided_tax_bet_loses_plate_and_prize():
+## Eine zahlungsunfähige Steuerwette hat nichts mehr auf dem Tresen zu suchen: ihr
+## Gewinn verläßt die Grube unten wie jeder Verlierer.
+func test_a_voided_tax_bet_loses_its_prize():
 	var offers := _offers(["table_fee", "big_hand", "economist"])
 	offers[0].voided = true
 	assert_false(_lies(SideBetPanel.STAGE_ROUND, offers, [true, true, true]).has(0),
@@ -298,7 +423,7 @@ func test_the_settlement_keeps_only_the_won_prizes():
 	var offers := _offers(["table_fee", "big_hand", "economist"])
 	var lies := _lies(SideBetPanel.STAGE_WON, offers, [true, true, true],
 		[offers[1]], [], [offers[2]])
-	assert_eq(lies.size(), 1, "Zählplatte und Verlorenes sind fort")
+	assert_eq(lies.size(), 1, "das Verlorene ist fort")
 	assert_eq(lies.get(2), [SideBetPanel.LIE_PRIZE_UP])
 
 ## Ein schon aufgefahrener Gewinn bleibt in der Abrechnung stehen und fährt als
@@ -830,6 +955,133 @@ func test_the_cover_line_fades_on_alpha_alone():
 	assert_almost_eq(label.modulate.r, gold.r, 0.0001, "die Farbe kippt dabei nicht")
 	assert_almost_eq(label.outline_modulate.r, edge.r, 0.0001)
 	assert_gt(label.outline_modulate.r, 0.1, "und ist nie schwarz")
+
+# --- Die STEHENDE Bedingungs-Zeile und ihre Umschaltung --------------------------
+# Der Schirm trägt die Bedingung FEST (sichtbar ab Ausfahrt, ohne Zeiger, im
+# gemeldeten Zustands-Ton); der Zeiger schaltet auf die GEWINN-Zeile in Gold um.
+# EIN Label, EIN Fade, zwei Texte.
+
+const GOAL_LINE := "Nimm zwei Paare.  0 / 2"
+
+func _goal_shaft(holes: Dictionary, tint := SideBetPanel.GREEN) -> LiftShaftView:
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
+	shaft.order_cover("$30", Color.GOLD)
+	shaft.order_cover_goal(GOAL_LINE, tint)
+	shaft.park_hard()
+	return shaft
+
+## Sie steht OHNE Zeiger da, sobald der Schirm ausgefahren ist - und in ihrem Ton.
+func test_the_standing_goal_line_shows_without_the_pointer():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.001,
+		"die Bedingung braucht keinen Zeiger")
+	assert_false(shaft.cover_hovered())
+	var label: Label3D = shaft.get_node("Schirm/Aufschrift")
+	assert_eq(label.text, GOAL_LINE)
+	assert_gt(label.modulate.a, 0.99, "und sie ist wirklich zu sehen")
+	var lit := LiftShaftView.cover_goal_text_color(SideBetPanel.GREEN)
+	assert_almost_eq(label.modulate.g, lit.g, 0.0001, "im gemeldeten Zustands-Ton")
+	assert_gt(label.modulate.g, label.modulate.r, "grün heißt grün")
+	assert_gt(label.outline_modulate.r + label.outline_modulate.g
+		+ label.outline_modulate.b, 0.1, "und ihr Umriß ist nie schwarz")
+
+## Und ein eingefahrener Schirm trägt sie NICHT: sie hängt an der Ausfahrt.
+func test_the_standing_line_hangs_on_the_cover_being_out():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	shaft.settle_hard()
+	assert_almost_eq(shaft.cover_text_share(), 0.0, 0.0001,
+		"kein Text über einer geschlossenen Grube")
+
+## Der ZEIGER schaltet auf den GEWINN um - Gold wie eh -, und weg schaltet zurück.
+func test_the_pointer_switches_the_line_to_the_prize_and_back():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	var label: Label3D = shaft.get_node("Schirm/Aufschrift")
+	shaft.set_cover_hovered(true)
+	await wait_seconds(LiftShaftView.COVER_HOVER_TIME + 0.1)
+	assert_eq(label.text, "$30", "am Zeiger nennt er den Gewinn")
+	var gold := LiftShaftView.cover_text_color()
+	assert_almost_eq(label.modulate.r, gold.r, 0.0001, "und zwar in Gold")
+	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.001, "ganz da")
+	shaft.set_cover_hovered(false)
+	await wait_seconds(LiftShaftView.COVER_HOVER_TIME + 0.1)
+	assert_eq(label.text, GOAL_LINE, "Zeiger weg heißt Bedingung zurück")
+	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.001)
+
+## Der Wechsel läuft durch NULL: EIN Label kann nicht zwei Texte zugleich tragen,
+## also blendet der eine aus, tauscht am Schwellwert und der andere ein.
+func test_the_switch_runs_through_zero():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	shaft.set_cover_hovered(true)
+	await wait_seconds(LiftShaftView.COVER_HOVER_TIME * 0.5)
+	assert_lt(shaft.cover_text_share(), 0.35,
+		"mitten im Wechsel steht fast nichts da (%.3f)" % shaft.cover_text_share())
+	await wait_seconds(LiftShaftView.COVER_HOVER_TIME * 0.6)
+	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.01, "danach der Gewinn ganz")
+
+## Ohne stehende Zeile gilt die ALTE Regel unverändert: ohne Zeiger sagt der Deckel
+## nichts. Der Laden und das Magazin merken von der Umschaltung nichts.
+func test_without_a_goal_line_the_old_rule_holds():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+	shaft.order_cover("$30", Color.GOLD)
+	shaft.park_hard()
+	assert_eq(shaft.cover_goal, "", "ungebeten keine Bedingung")
+	assert_almost_eq(shaft.cover_text_share(), 0.0, 0.0001)
+
+## Sie wird NACHGESCHRIEBEN, ohne den Schirm neu zu bauen - der Live-Stand wandert
+## je Meldung hinein.
+func test_the_goal_line_is_rewritten_in_place():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	var cover := shaft.get_node_or_null("Schirm")
+	shaft.order_cover_goal("Nimm zwei Paare.  2 / 2", SideBetPanel.GREEN)
+	assert_eq(shaft.get_node_or_null("Schirm"), cover, "derselbe Körper, neue Zeile")
+	var label: Label3D = cover.get_node("Aufschrift")
+	assert_eq(label.text, "Nimm zwei Paare.  2 / 2")
+	assert_almost_eq(shaft.cover_share(), 1.0, 0.0001, "der Park merkt davon nichts")
+
+## Und sie LEUCHTET AUF, wenn ein Steuer-Meteor einschlägt: kurz heller, dann zurück
+## in den gemeldeten Ton. Ohne bestellte Bedingung gibt es nichts zum Aufleuchten.
+func test_the_goal_line_flares_when_a_tax_meteor_lands():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	var label: Label3D = shaft.get_node("Schirm/Aufschrift")
+	var rest := label.modulate.g
+	shaft.flash_cover_goal()
+	assert_almost_eq(shaft.cover_goal_flash(), 1.0, 0.001, "der Einschlag zündet")
+	assert_gt(label.modulate.g, rest * 1.5, "und die Bedingung leuchtet auf")
+	await wait_seconds(LiftShaftView.COVER_FLASH_TIME + 0.1)
+	assert_almost_eq(shaft.cover_goal_flash(), 0.0, 0.001, "danach ist es vorbei")
+	assert_almost_eq(label.modulate.g, rest, 0.001, "und der Ton steht wie zuvor")
+
+func test_a_cover_without_a_goal_line_never_flares():
+	var holes: Dictionary = {}
+	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET1, PARK_DEPTH)
+	shaft.order_cover("$30", Color.GOLD)
+	shaft.park_hard()
+	shaft.flash_cover_goal()
+	assert_almost_eq(shaft.cover_goal_flash(), 0.0, 0.0001)
+
+## Der EINE Aufräum-Pfad nimmt das Aufleuchten mit - ein eingefahrener Schirm trägt
+## keinen eingefrorenen Blitz.
+func test_settling_takes_the_flare_back():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	shaft.flash_cover_goal()
+	shaft.settle_hard()
+	assert_almost_eq(shaft.cover_goal_flash(), 0.0, 0.0001)
+
+## Und zurückgenommen ist sie mit dem Deckel fort.
+func test_dropping_the_cover_drops_the_goal_line():
+	var holes: Dictionary = {}
+	var shaft := _goal_shaft(holes)
+	shaft.drop_cover()
+	assert_eq(shaft.cover_goal, "")
+	assert_almost_eq(shaft.cover_text_share(), 0.0, 0.0001)
 
 ## Der EINE Aufräum-Pfad nimmt ihn in jedem Schlag jedes Fahrplans mit.
 func test_every_abort_takes_the_cover_down():

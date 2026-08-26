@@ -450,13 +450,57 @@ func test_a_secret_buy_checks_the_magazine_before_paying():
 		assert_false(run.buy_secret_offer(i), "volles Magazin sperrt versiegelte Ware")
 		assert_false(bool(run.secret_stock[i][GameRun.OFFER_SOLD]), "und der Platz bleibt")
 
-func test_pack_stakes_consume_from_the_end():
-	# Neuzugänge liegen hinten - der Einsatz frisst sie, nie die sortierten Lieblinge vorn.
-	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.dice_mod_pack()] as Array[Pack])
-	var front := run.owned_packs[0]
-	run._consume_packs(2)
-	assert_eq(run.owned_packs.size(), 1)
-	assert_eq(run.owned_packs[0], front, "vorn bleibt liegen, hinten wird geopfert")
+## Der Einsatz verzehrt GENAU die benannte Sorte und Größe - und von hinten, wo die
+## Neuzugänge liegen: was der Spieler nach vorn sortiert hat, bleibt ihm.
+func test_a_pack_stake_consumes_exactly_the_named_packs():
+	var packs: Array[Pack] = [Pack.material_pack(), Pack.number_pack(),
+		Pack.material_pack(), Pack.material_pack()]
+	run.grant_packs(packs)
+	var keep := run.owned_packs[0]
+	var spared := run.owned_packs[1]
+	var bet := SideBet.new()
+	bet.stake_kind = SideBet.Stake.PACKS
+	bet.stake_packs = 2
+	bet.stake_pack_type = Pack.TYPE_MATERIAL
+	bet.stake_pack_tier = Pack.TIER_NORMAL
+	assert_true(run.can_place_side_bet(bet), "drei Material-Pakete liegen da")
+	var doomed := run.stake_packs_for(bet)
+	assert_eq(doomed.size(), 2, "genau zwei werden geopfert")
+	run.place_side_bet(bet)
+	assert_eq(run.owned_packs.size(), 2)
+	assert_eq(run.owned_packs[0], keep, "vorn bleibt liegen")
+	assert_eq(run.owned_packs[1], spared, "und die falsche Sorte auch")
+	for pack in doomed:
+		assert_false(run.owned_packs.has(pack), "die gemerkten Kassetten sind fort")
+
+## Und ohne die BENANNTE Ware ist er unbezahlbar, egal wie voll das Magazin ist.
+func test_a_pack_stake_checks_the_named_type_not_the_shelf_size():
+	run.grant_packs([Pack.number_pack(), Pack.number_pack(),
+		Pack.number_pack()] as Array[Pack])
+	var bet := SideBet.new()
+	bet.stake_kind = SideBet.Stake.PACKS
+	bet.stake_packs = 1
+	bet.stake_pack_type = Pack.TYPE_MATERIAL
+	bet.stake_pack_tier = Pack.TIER_NORMAL
+	assert_false(run.can_place_side_bet(bet), "drei Zahlen-Pakete zahlen kein Material")
+	run.grant_packs([Pack.material_pack()] as Array[Pack])
+	assert_true(run.can_place_side_bet(bet), "eines genügt")
+	bet.stake_pack_tier = Pack.TIER_GROSS
+	assert_false(run.can_place_side_bet(bet), "und die GRÖSSE zählt mit")
+
+## Die Inventar-Sicht der Auslage: Sorte+Größe -> Anzahl, reine Daten. Fixinhalt und
+## Katalysator zählen nicht mit - ein Einsatz nimmt normale Regal-Ware.
+func test_the_pack_stock_counts_by_type_and_tier():
+	run.grant_packs([Pack.number_pack(),
+		Pack.roll_engraving_pack(Pack.TIER_GROSS)] as Array[Pack])
+	run.grant_packs([Pack.catalyst(Pack.CATALYST_TIMER)] as Array[Pack])
+	var stock := run.pack_stock()
+	var plain := 0
+	for key: String in stock:
+		plain += int(stock[key])
+	assert_eq(plain, 2, "der Katalysator zählt nicht als Einsatz-Ware")
+	assert_eq(int(stock.get(SideBet.pack_stock_key(Pack.TYPE_NUMBER,
+		Pack.TIER_NORMAL), 0)), 1)
 
 func test_the_exchange_replaces_the_chosen_slot_only():
 	run.stash_die(DieDefinition.fixed(6, "Immer 6"), 0)

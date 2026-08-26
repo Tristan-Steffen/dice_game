@@ -149,6 +149,16 @@ var deck_skin: Material = null:
 			if shaft != null and is_instance_valid(shaft):
 				shaft.deck_skin = value
 
+## Die WANDHAUT ihrer Schächte - ebenso von draußen gemeldet und an jede Zone
+## durchgereicht, damit jede Grube des Tisches dieselben Wände zeigt.
+var wall_skin: Texture2D = null:
+	set(value):
+		wall_skin = value
+		for zone: int in _shafts.keys():
+			var shaft: LiftShaftView = _shafts[zone]
+			if shaft != null and is_instance_valid(shaft):
+				shaft.order_skin(value)
+
 ## Was die höchste liegende Ware über der Tischfläche einnimmt: ein Würfel samt
 ## SILHOUETTE oder eine liegende Kassette. Daran misst sich der Weg durch die
 ## Fläche - tiefer muss nichts sinken, um verdeckt zu sein.
@@ -767,6 +777,7 @@ func _shaft_node(zone: int) -> LiftShaftView:
 			shaft_opened.emit(zone, at, hole))
 		shaft.closed.connect(func() -> void: shaft_closed.emit(zone))
 	shaft.deck_skin = deck_skin
+	shaft.order_skin(wall_skin)
 	return shaft
 
 ## Jede Maschine steht still, jedes Loch ist zu, und was hinausfuhr, ist frei. Der
