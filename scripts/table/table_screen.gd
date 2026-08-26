@@ -191,7 +191,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 8
+const MAX_PITS := 9
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -203,6 +203,11 @@ const PIT_SECRET_BOWL := 4
 const PIT_SIDE_BET0 := 5
 const PIT_SIDE_BET1 := 6
 const PIT_SIDE_BET2 := 7
+
+## Und die ABLAGE der Auszahlungs-Seite: EINE Plattform trägt die ganze gewonnene Ware
+## nebeneinander, also EIN Loch. Ein eigener Platz, weil die drei Wett-Gruben derweil
+## offen stehen dürfen.
+const PIT_PAYOUT := 8
 
 ## Der Löcher-Platz EINES Wett-Plots.
 static func side_bet_pit(index: int) -> int:
@@ -2722,28 +2727,11 @@ func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Gewinn einer Nebenwette bis in seinen Platz an der Werkbank: der
-## Auszahlungs-Komet zum Hub, dann die Werkstatt-Ader ins Fenster.
-## Liefert die Laufzeit.
-func side_bet_engraving_comet(slot_px: Vector2, color: Color) -> float:
-	var path := _side_bet_workshop_path(slot_px)
-	if path.size() < 2:
-		return 0.0
-	var travel := _travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
-
-## Der Weg vom Nebenwetten-Fenster zu einem Platz an der Werkbank: die Schatz-Ader
-## in den Hub, dort auf die Werkstatt-Ader.
-func _side_bet_workshop_path(slot_px: Vector2) -> PackedVector2Array:
-	var path := _hub_to_side_path()
-	if path.size() < 2 or workshop_window == null or not workshop_window.visible:
-		return PackedVector2Array()
-	path.reverse()
-	var tail := _route_via_strips(path[path.size() - 1], [workshop_hub_strip], slot_px)
-	for i in range(1, tail.size()):
-		path.append(tail[i])
-	return path
+## Wie lange dieser Komet unterwegs wäre - gefragt, ohne ihn zu schicken: die
+## Zeremonie muß ihren Deckel kennen, bevor der erste fliegt.
+func side_bet_payout_travel(to_hub: bool) -> float:
+	var path := _hub_to_side_path() if to_hub else _treasure_to_side_path()
+	return _travel_time(path) if path.size() >= 2 else 0.0
 
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()

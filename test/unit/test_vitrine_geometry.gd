@@ -70,10 +70,15 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	var slots := [TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL,
 		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
 		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
-		TableScreen.PIT_SIDE_BET2]
+		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT]
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	# Die Ablage der Auszahlungs-Seite ist EINE Plattform, also EIN Loch - und ein
+	# eigenes: die drei Wett-Gruben dürfen derweil offen stehen.
+	for i in SideBetPanel.OFFER_COUNT:
+		assert_ne(TableScreen.PIT_PAYOUT, TableScreen.side_bet_pit(i),
+			"die Ablage teilt keinen Platz mit dem Tresen")
 	# Jeder Wett-Plot hat SEINEN Platz: drei Gruben können gleichzeitig offen stehen.
 	var seen: Array[int] = []
 	for i in SideBetPanel.OFFER_COUNT:

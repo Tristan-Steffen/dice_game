@@ -450,18 +450,6 @@ func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
 	assert_eq(hub._roadmap_block, 0, "immer noch derselbe Block")
 	assert_eq(hub._roadmap_goals, [188, 250, 313] as Array[int], "aber neue Zahlen")
 
-func test_bonus_chips_flank_the_center_and_hold_the_payout_labels() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([300] as Array[int])
-	assert_eq(hub._chips.size(), 2, "zwei Bonus-Chips")
-	var lc: float = hub._chips[0].position.x + hub._chips[0].size.x * 0.5
-	var rc: float = hub._chips[1].position.x + hub._chips[1].size.x * 0.5
-	assert_lt(lc, hub._rim_center.x, "linker Chip links der Mitte")
-	assert_gt(rc, hub._rim_center.x, "rechter Chip rechts der Mitte")
-	assert_true(hub._chips[0].is_ancestor_of(hub.blind_payout_label), "Blind-Label lebt im linken Chip")
-	assert_true(hub._chips[1].is_ancestor_of(hub.die_payout_label), "Würfel-Label lebt im rechten Chip")
-
 func test_plaque_medallion_and_pips_track_level() -> void:
 	var hub := _hub()
 	hub.set_hub_level(3, "Lizenz", "Parkett", "Nebenwetten", 25)

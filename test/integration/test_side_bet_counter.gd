@@ -496,10 +496,18 @@ func _bet_shaft(holes: Dictionary, slot := TableScreen.PIT_SIDE_BET0,
 	return shaft
 
 func test_every_plot_uses_its_own_pit_slot():
-	assert_eq(TableScreen.PIT_SIDE_BET2, TableScreen.MAX_PITS - 1)
+	assert_lt(TableScreen.PIT_SIDE_BET2, TableScreen.MAX_PITS)
+	var seen: Array[int] = []
 	for i in SideBetPanel.OFFER_COUNT:
-		assert_ne(TableScreen.side_bet_pit(i), TableScreen.PIT_MAGAZIN,
-			"die Magazin-Grube bleibt Platz null")
+		var slot := TableScreen.side_bet_pit(i)
+		assert_ne(slot, TableScreen.PIT_MAGAZIN, "die Magazin-Grube bleibt Platz null")
+		assert_false(seen.has(slot), "Plot %d hat sein EIGENES Loch" % i)
+		seen.append(slot)
+		# Und die Ablage der Auszahlungs-Seite teilt keinen Platz mit dem Tresen:
+		# ihre Körper stehen, während die Wett-Gruben offen sein dürfen.
+		assert_ne(TableScreen.PIT_PAYOUT, slot,
+			"die Ablage liegt nicht auf Wett-Loch %d" % i)
+	assert_lt(TableScreen.PIT_PAYOUT, TableScreen.MAX_PITS)
 
 ## Der PARK ist ein ENDZUSTAND, den der Schreiber DIREKT herstellt: Loch offen,
 ## Plattform unten - ohne Fahrt. Und settle_hard nimmt ihn ebenso hart zurück.

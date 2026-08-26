@@ -58,9 +58,6 @@ var money_label: Label
 ## Ladungs-Börse (⚡ N/Deckel). Steht ab Lauf-Beginn da - vor der Entdeckung des
 ## Schwarzmarkts bewusst unerklärt.
 var charge_label: Label
-## Rundenbonus-Zeilen - leuchten beim Auszählen des Rundenendes golden auf.
-var blind_payout_label: Label
-var die_payout_label: Label
 ## Lizenz-Zeile + nächste Freischaltung als Plan + Aufstieg-Knopf.
 var hub_level_label: Label
 var hub_next_label: Label
@@ -94,9 +91,8 @@ var _rim_center := Vector2.ZERO
 var _rim_radius := 0.0
 ## Wieder-anwendbarer Stil für den Stufen-Re-Skin des Medaillons.
 var _medallion_style: StyleBoxFlat
-## Lizenz-Nabe (frei auf die Radmitte gesetzt) + die zwei Bonus-Chips.
+## Lizenz-Nabe (frei auf die Radmitte gesetzt).
 var _medallion_cluster: VBoxContainer
-var _chips: Array[Control] = []
 
 var info_page: Control  # Alias auf roadmap_stage (Rückwärts-Bezug)
 
@@ -881,7 +877,6 @@ func _build_rim_stage(u: float) -> void:
 	roadmap_stage.add_child(roadmap_row)
 
 	_build_medallion_cluster(u)
-	_build_bonus_chips(u)
 	_build_deal_tokens(u)
 	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über Nabe, Stationen, Marken
 
@@ -1022,54 +1017,6 @@ func _build_medallion_cluster(u: float) -> void:
 	upgrade_button.pressed.connect(func() -> void: hub_upgrade_requested.emit())
 	_medallion_cluster.add_child(upgrade_button)
 
-## Zwei runde Bonus-Chips (Blind / Würfel) - die Auszahl-Labels leben darin und
-## bleiben referenziert (scene_root lässt sie beim Zählen golden aufleuchten).
-func _build_bonus_chips(u: float) -> void:
-	_chips.clear()
-	blind_payout_label = _make_bonus_chip(u, "je Benchmark", "5$")
-	die_payout_label = _make_bonus_chip(u, "je Würfel", "1$")
-
-func _make_bonus_chip(u: float, caption: String, value: String) -> Label:
-	var d := u * 16.0
-	var chip := Panel.new()
-	chip.custom_minimum_size = Vector2(d, d)
-	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color("#191540e6")
-	box.border_color = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.7)
-	box.set_border_width_all(maxi(2, int(u * 0.3)))
-	box.set_corner_radius_all(int(d * 0.5))
-	box.shadow_color = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.16)
-	box.shadow_size = int(u * 0.8)
-	chip.add_theme_stylebox_override("panel", box)
-
-	var col := VBoxContainer.new()
-	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", int(u * 0.2))
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(col)
-	var cap := Label.new()
-	cap.text = caption
-	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cap.add_theme_font_size_override("font_size", int(u * 2.1))
-	cap.modulate = Color(TITLE_COLOR.r, TITLE_COLOR.g, TITLE_COLOR.b, 0.9)
-	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(cap)
-	var val := Label.new()
-	val.text = value
-	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	val.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	val.custom_minimum_size = Vector2(d * 0.82, 0)
-	val.add_theme_font_size_override("font_size", int(u * 3.4))
-	val.modulate = TEXT_COLOR
-	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(val)
-
-	roadmap_stage.add_child(chip)
-	_chips.append(chip)
-	return val
-
 ## Radgeometrie aus der Bühnengröße: Mitte etwas unter der geometrischen Mitte,
 ## Radius aus der kleineren Kante. false, solange die Bühne noch keine Größe hat.
 func _compute_rim_geometry() -> bool:
@@ -1086,19 +1033,13 @@ func _on_stage_resized() -> void:
 	_layout_rim()
 	_rebuild_roadmap()
 
-## Positioniert Nabe + Chips relativ zur Radmitte (die Stationen macht _rebuild_roadmap).
+## Positioniert die Nabe relativ zur Radmitte (die Stationen macht _rebuild_roadmap).
 func _layout_rim() -> void:
 	if _rim_radius <= 0.0:
 		return
 	if _medallion_cluster != null:
 		_medallion_cluster.reset_size()
 		_medallion_cluster.position = _rim_center - _medallion_cluster.size * 0.5
-	var offs := [Vector2(-0.62, 0.46), Vector2(0.62, 0.46)]
-	for i in mini(_chips.size(), offs.size()):
-		var chip: Control = _chips[i]
-		chip.reset_size()
-		var p := _rim_center + Vector2(offs[i].x, offs[i].y) * _rim_radius
-		chip.position = p - chip.size * 0.5
 	_layout_deal_tokens()
 
 func _make_h_spacer() -> Control:
