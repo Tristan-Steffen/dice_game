@@ -74,6 +74,19 @@ var voided: bool = false
 ## Was ein PACK-Gewinn tatsächlich ausgeschüttet hat (die Zeremonie liest die
 ## Sorte für ihren Farbton).
 var awarded_pack: Pack = null
+## ALLE bei der Abrechnung gewährten Pakete dieser Wette (auch die Gravur-Paket-
+## Mehrfachgewinne) - die Auszahlungs-Seite hält genau diese Kassetten bis zum
+## Kassieren zurück und zielt dann auf ihre uids.
+var awarded_packs: Array[Pack] = []
+## Und wie viele davon am vollen Magazin zu Geld zerfallen sind.
+var awarded_fizzled: int = 0
+
+## Merkt EIN gewährtes Paket (null = am vollen Magazin zerfallen, wird gezählt).
+func note_awarded(pack: Pack) -> void:
+	if pack != null:
+		awarded_packs.append(pack)
+	else:
+		awarded_fizzled += 1
 
 ## Vorlagen der Auslage (id -> Parameter). Fehlende Schlüssel = Standard
 ## (Geld-Einsatz, Gravur-Gewinn, unlock UNLOCK_BASE).

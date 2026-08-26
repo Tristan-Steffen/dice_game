@@ -816,6 +816,28 @@ func test_resolve_pack_payout_grants_packs_and_clears():
 	assert_eq(won[0].id, "full_house")
 	assert_eq(run.owned_packs.size(), before + win.reward_packs, "Pakete ausgeschüttet")
 	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
+	# JEDES gewährte Paket ist GEMERKT: die Auszahlungs-Seite hält genau diese
+	# Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
+	assert_eq(win.awarded_packs.size(), win.reward_packs,
+		"alle Gravur-Paket-Gewinne stehen in awarded_packs")
+	for pack: Pack in win.awarded_packs:
+		assert_gt(pack.pack_uid, 0, "und jeder trägt seine Magazin-uid")
+	assert_eq(win.awarded_fizzled, 0, "nichts zerfallen")
+
+func test_resolve_pack_payout_counts_fizzles_at_full_magazine():
+	run.money = 50
+	var win := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
+	run.place_side_bet(win)
+	while not run.packs_full():
+		run.grant_pack(Pack.roll_engraving_pack())
+	var money_before := run.money
+	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
+		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
+	run.resolve_side_bets(result)
+	assert_eq(win.awarded_packs.size(), 0, "volles Magazin: nichts gewährt")
+	assert_eq(win.awarded_fizzled, win.reward_packs, "jeder Zerfall ist gezählt")
+	assert_eq(run.money, money_before + win.reward_packs * GameRun.PACK_FIZZLE_MONEY,
+		"und zahlt sein Fizzle-Geld")
 
 func test_resolve_money_payout_adds_cash():
 	run.money = 50

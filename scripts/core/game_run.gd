@@ -2213,8 +2213,12 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 
 ## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
 ## Geld, Ware und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
-## verdoppelt er nicht.
+## verdoppelt er nicht. JEDES gewährte Paket wird in awarded_packs GEMERKT
+## (und jedes am vollen Magazin zerfallene gezählt): die Auszahlungs-Seite
+## hält die Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
 func _pay_side_bet(bet: SideBet, factor: int) -> void:
+	bet.awarded_packs.clear()
+	bet.awarded_fizzled = 0
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
 			# Quotenblatt hebt NUR das Bargeld - Ladung und Ware bleiben.
@@ -2226,10 +2230,12 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 		SideBet.Payout.SPECIAL:
 			# Wie beim Paket-Gewinn gemerkt: die Zeremonie zielt auf SEINE uid.
 			bet.awarded_pack = grant_engraving_pack(bet.special_engraving())
+			bet.note_awarded(bet.awarded_pack)
 		SideBet.Payout.PACK:
 			# null = volles Magazin: der Gewinn ist zu Geld zerfallen, und die
 			# Zeremonie schickt darum Geld statt einer Kassette los.
 			bet.awarded_pack = grant_pack(bet.reward_pack())
+			bet.note_awarded(bet.awarded_pack)
 		SideBet.Payout.COMBO_LEVEL:
 			grant_combo_level(bet.target_combo)
 		SideBet.Payout.PRESS_BOOST:
@@ -2238,7 +2244,7 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 		_:
 			for i in factor:
 				for pack in bet.reward_list():
-					grant_pack(pack)
+					bet.note_awarded(grant_pack(pack))
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 

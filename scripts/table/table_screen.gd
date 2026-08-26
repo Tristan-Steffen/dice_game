@@ -2727,12 +2727,6 @@ func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Wie lange dieser Komet unterwegs wäre - gefragt, ohne ihn zu schicken: die
-## Zeremonie muß ihren Deckel kennen, bevor der erste fliegt.
-func side_bet_payout_travel(to_hub: bool) -> float:
-	var path := _hub_to_side_path() if to_hub else _treasure_to_side_path()
-	return _travel_time(path) if path.size() >= 2 else 0.0
-
 func _build_pit_actions() -> void:
 	pit_actions_root = Control.new()
 	pit_actions_root.name = "PitActions"

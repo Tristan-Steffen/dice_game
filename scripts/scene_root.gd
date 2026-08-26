@@ -612,8 +612,6 @@ const PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
 ## eine Wett-Grube doppelt so tief wie sie aussieht. Nur hier steht die Nachbargrube
 ## offen, und nur hier ragte die wartende Ware aus dem kurzen Hohlraum in ihr Loch.
 const BET_PIT_DIVE := 2.0
-## Laufende Nummer der Abrechnungs-Zeremonie - nur die jüngste räumt den Tresen.
-var _bet_settle := 0
 ## Ein AUFTRITT ist fällig, aber keiner schaut hin: der Tresen stellt still und
 ## fährt ihn nach, sobald er wirklich zu sehen ist (die Grad-Regel der Läden).
 var _bet_pending_rise := false
@@ -2242,40 +2240,6 @@ func _fly_die_to_pool(from_px: Vector2) -> void:
 	var spread := _meteor_index
 	_meteor_index += 1
 	table_screen.tray_comet(from_px, target, SLOT_DIE_COLOR, spread)
-
-## Auszahlungs-Lichter gewonnener Wetten: je Wette EIN Abflug vom Nebenwetten-Fenster
-## zum HUB, leicht gestaffelt. Gebucht hat GameRun bereits - hier fliegt nur Licht.
-## lead = Vorlauf des Tresens: erst räumt das Haus ab, dann reist der Gewinn.
-## plan = je Wette {"money", "charge"}, gerechnet vor der Buchung (siehe
-## _bet_ledger_plan). Bei der ANKUNFT steigt der Gewinn-Körper auf dem Stellplatz der
-## Auszahlungs-Seite, und im selben Schlag tickt seine Zeile - die ZIEL-Lichter (Schatz,
-## Bank, Magazin) reisen erst beim Kassieren, wenn er wieder versunken ist.
-func _play_side_bet_payouts(won: Array[SideBet], lead := 0.0,
-		plan: Array[Dictionary] = []) -> void:
-	if table_screen == null or won.is_empty():
-		return
-	var launched := run
-	for i in won.size():
-		var bet: SideBet = won[i]
-		var entry: Dictionary = plan[i] if i < plan.size() else {}
-		var fire := func() -> void:
-			if run != launched:
-				return
-			var travel := table_screen.side_bet_payout_comet(true,
-				SideBetPanel.payout_accent(bet))
-			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-				if run != launched:
-					return
-				_ledger_money("bet_%d" % i, bet.display_name,
-					int(entry.get("money", 0)), bet.description)
-				_ledger_charge(int(entry.get("charge", 0)))
-				_raise_payout_body(i, bet))
-		var wait := lead + float(i) * MONEY_PULSE_GAP
-		if wait <= 0.0:
-			fire.call()
-		else:
-			get_tree().create_timer(wait).timeout.connect(fire)
-
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
@@ -4419,7 +4383,6 @@ func _drop_bet_bodies() -> void:
 	_bet_fulfilled.clear()
 	_bet_failed.clear()
 	_bet_stage = SideBetPanel.STAGE_NONE
-	_bet_settle += 1  # eine laufende Abrechnung räumt nichts mehr
 	for shaft in bet_shafts:
 		if shaft != null and is_instance_valid(shaft):
 			shaft.drop_cover()  # die Bestellung des alten Laufs gilt nicht mehr
@@ -4534,59 +4497,91 @@ func _flash_bet_condition(index: int) -> void:
 ## hinaus - was UNTEN wartete, verläßt seine Grube, ohne je aufzutauchen. Dann verläßt
 ## allein der gewonnene Preis den Tresen nach HINTEN: er reist zum Spieler.
 ## Nicht erwartet, Lauf- und Token-Marke - gebucht hat GameRun längst.
-func _play_bet_settlement(won: Array[SideBet]) -> void:
-	if not _bet_counter_laid_out():
-		return
-	_bet_settle += 1
-	var token := _bet_settle
-	var launched := run
-	_bet_won = won.duplicate()
-	_bet_stage = SideBetPanel.STAGE_WON
-	_write_bet_counter(ShopController.GRADE_RISE, true)
-	if bet_bodies.is_empty():
-		_bet_stage = SideBetPanel.STAGE_NONE
-		return
-	await get_tree().create_timer(LiftShaftView.swap_cycle_time()).timeout
-	if run != launched or token != _bet_settle:
-		return
-	_take_bet_prices()
-	_bet_stage = SideBetPanel.STAGE_NONE
+## Phase GELD der Wett-Abrechnung: je Geld-/⚡-Gewinn versinkt sein stehender Preis
+## im Tisch, der Meteor reist die Ader zum Hub, und die Ankunft tickt seine Zeile.
+## Nacheinander - gezählt wird EINE Wette nach der anderen; gebucht ist längst.
+func _play_bet_money_payouts() -> void:
+	for i in _payout_claims.size():
+		var claim: Dictionary = _payout_claims[i]
+		var bet: SideBet = claim["bet"]
+		if _payout_body_wanted(bet):
+			continue  # Ware zählt in der Karten-Phase danach
+		await _count_bet_payout(i, bet, claim, false)
+		if phase != Phase.PAYOUT:
+			return
 
-## Der Gewinn verläßt den Tresen: dieselbe Sektion-Fahrt wie ein Kauf im Laden -
-## durch die HINTERE Öffnung, denn Gewonnenes reist zum Spieler.
-func _take_bet_prices() -> void:
-	var per_plot: Dictionary = {}
-	for key: String in bet_bodies.keys():
-		var body: Node3D = bet_bodies[key]
-		if body == null or not is_instance_valid(body) or not _bet_seats.has(key):
+## Phase KARTEN: erst jetzt erscheinen Namen und Plattform der Seite, dann versinkt
+## je Ware-Gewinn seine Kassette (bzw. Marke) am Tresen, reist als Meteor zum Hub
+## und steigt dort in ihrer Zelle aus der Fläche - eine nach der anderen.
+func _play_bet_goods_payouts() -> void:
+	if payout_ledger != null:
+		payout_ledger.set_plots(_payout_pending_plots)
+	_payout_pending_plots = []
+	for i in _payout_claims.size():
+		var claim: Dictionary = _payout_claims[i]
+		var bet: SideBet = claim["bet"]
+		if not _payout_body_wanted(bet):
 			continue
-		var spot := _bet_slot_spot(key)
-		_set_bet_hovered(body, false)
-		_bet_push(per_plot, spot,
-			{"body": body, "spot": spot, "target": _bet_seats[key]})
-		_bet_note_leaving(spot, body)
-	bet_bodies.clear()
-	_bet_keys.clear()
-	_bet_seats.clear()
-	_bet_parked.clear()
-	for spot in SideBetPanel.OFFER_COUNT:
-		_drop_bet_cover(spot)  # nach der Abrechnung parkt nichts mehr
-	var watched := _bet_counter_watched()
-	for spot: int in per_plot:
-		var entries: Array = per_plot[spot]
-		var bodies := _bodies_of(entries)
-		var shaft := _bet_shaft_on(spot, _bet_plot_field(spot),
-			_bet_shaft_depth(entries)) if watched else null
-		if shaft == null or shaft.run_take(bodies, _seats_of(entries), 0.0,
-				_release_bet_bodies.bind(bodies)) == null:
-			_release_bet_bodies(bodies)
+		await _count_bet_payout(i, bet, claim, true)
+		if phase != Phase.PAYOUT:
+			return
 
-## Wie lange der Gewinn-Komet auf den Tresen wartet: bis das Haus abgeräumt hat.
-## Ohne Tresen (kein Fenster, nichts gestellt) wartet er nicht.
-func _bet_settlement_lead() -> float:
-	if not _bet_counter_watched() or bet_bodies.is_empty():
-		return 0.0
-	return LiftShaftView.swap_cycle_time()
+## Zählt EINE gewonnene Wette: ihr Preis versinkt am Tresen (die Kauf-Fahrt seiner
+## Sektion - Gewonnenes reist zum Spieler), der Meteor startet, sobald er unter der
+## Fläche ist, und die Ankunft tickt die Zeile; Ware steigt zugleich auf der Seite.
+func _count_bet_payout(index: int, bet: SideBet, claim: Dictionary,
+		goods: bool) -> void:
+	var launched := run
+	if _take_bet_prize(bet):
+		# Erst wenn der Preis unter der Fläche ist, reist sein Licht.
+		await get_tree().create_timer(LiftShaftView.SINK_TIME + 0.05).timeout
+		if run != launched or phase != Phase.PAYOUT:
+			return
+	var travel: float = table_screen.side_bet_payout_comet(true,
+		SideBetPanel.payout_accent(bet))
+	await get_tree().create_timer(maxf(travel, 0.05)).timeout
+	if run != launched or phase != Phase.PAYOUT:
+		return
+	_ledger_money("bet_%d" % index, bet.display_name, int(claim.get("money", 0)),
+		bet.description)
+	_ledger_charge(int(claim.get("charge", 0)))
+	if goods:
+		_raise_payout_body(index, bet)
+		await get_tree().create_timer(LiftShaftView.cycle_time()).timeout
+		if run != launched or phase != Phase.PAYOUT:
+			return
+	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION * 0.5).timeout
+
+## Nimmt den stehenden Preis EINER Wette vom Tresen (false = kein Körper da, der
+## Meteor fliegt sofort). Genommen ist genommen: die Wette verläßt die Gewinner-
+## Liste, damit kein späterer Schreiber ihren Preis wieder hinstellt.
+func _take_bet_prize(bet: SideBet) -> bool:
+	var panel := _side_bet_panel()
+	var spot := panel.offers.find(bet) if panel != null else -1
+	_bet_won.erase(bet)
+	if spot < 0:
+		return false
+	var key := _bet_slot(spot, BET_ROLE_PRIZE)
+	var body: Node3D = bet_bodies.get(key)
+	if body == null or not is_instance_valid(body) or not _bet_seats.has(key):
+		return false
+	var seat: Vector3 = _bet_seats[key]
+	_set_bet_hovered(body, false)
+	bet_bodies.erase(key)
+	_bet_keys.erase(key)
+	_bet_seats.erase(key)
+	_bet_parked.erase(spot)
+	_drop_bet_cover(spot)
+	_bet_note_leaving(spot, body)
+	var entries: Array = [{"body": body, "spot": spot, "target": seat}]
+	var bodies: Array = [body]
+	var shaft := _bet_shaft_on(spot, _bet_plot_field(spot),
+		_bet_shaft_depth(entries)) if _bet_counter_watched() else null
+	if shaft == null or shaft.run_take(bodies, [seat], 0.0,
+			_release_bet_bodies.bind(bodies)) == null:
+		_release_bet_bodies(bodies)
+		return false
+	return true
 
 ## Der FORTSCHRITTS-MELDER und sein Spiegel, gespeist allein aus der EINEN
 ## bestehenden Fortschritts-Rechnung - es gibt keine zweite Bedingungs-Auswertung.
@@ -4623,14 +4618,14 @@ func _note_bet_progress(stats: Dictionary) -> void:
 # sind reine ANZEIGE - jede Zahl steht längst in GameRun, keine Buchung hängt an ihnen.
 
 ## Ob der Gewinn dieser Wette als Körper auf der Ablage steht: Ware ja, Geld und ⚡
-## nein. Ein am vollen Magazin zu Geld zerfallener Paket-Gewinn stellt nichts.
+## nein. Ein am vollen Magazin GANZ zu Geld zerfallener Paket-Gewinn stellt nichts.
 func _payout_body_wanted(bet: SideBet) -> bool:
 	match bet.payout_kind:
-		SideBet.Payout.SPECIAL, SideBet.Payout.PACK:
-			return bet.awarded_pack != null
+		SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
+			return not bet.awarded_packs.is_empty()
 		SideBet.Payout.MONEY, SideBet.Payout.CHARGE:
 			return false
-	return true  # Marken und Gravur-Pakete: Ware
+	return true  # die Marken (LVL+1, Presse-Schub): Ware
 
 ## Die gemeldeten ZELLEN der Ablage (Display-Pixel). ui/ meldet, scene_root stellt.
 func _payout_cells() -> Array[Rect2]:
@@ -4783,16 +4778,27 @@ func _fly_payout_targets() -> void:
 	_payout_packs.clear()
 
 ## Das Licht EINER kassierten Wette. Ein Paket und sein Geld schließen einander nicht
-## aus: ein am vollen Magazin zerfallener Gewinn zahlt bar.
+## aus: ein am vollen Magazin zerfallener Gewinn zahlt bar. JEDES gewährte Paket
+## bekommt seinen eigenen Kometen auf seinen reservierten Magazin-Platz.
 func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 		hub_px: Vector2) -> void:
-	var pack: Pack = bet.awarded_pack
-	if pack != null and pack.pack_uid > 0 and workshop != null \
-			and is_instance_valid(workshop):
-		var tint: Color = PackIconRenderer.COLORS.get(pack.type, CasinoStyle.GOLD_INTENSE)
-		if pack.fixed_engraving != null:
-			tint = EngravingRenderer.SEAM_COLORS[int(pack.fixed_engraving.rarity)]
-		_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint)
+	if workshop != null and is_instance_valid(workshop):
+		var launched := run
+		for i in bet.awarded_packs.size():
+			var pack: Pack = bet.awarded_packs[i]
+			if pack == null or pack.pack_uid <= 0:
+				continue
+			var tint: Color = PackIconRenderer.COLORS.get(pack.type,
+				CasinoStyle.GOLD_INTENSE)
+			if pack.fixed_engraving != null:
+				tint = EngravingRenderer.SEAM_COLORS[int(pack.fixed_engraving.rarity)]
+			if i == 0:
+				_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint)
+			else:
+				get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(
+					func() -> void:
+						if run == launched and is_instance_valid(workshop):
+							_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint))
 	var charge := int(claim.get("charge", 0))
 	if charge > 0:
 		_play_hub_charge_volley(charge)
@@ -4816,10 +4822,10 @@ func _withhold_payout_packs(won: Array[SideBet]) -> void:
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	for bet in won:
-		var pack: Pack = bet.awarded_pack
-		if pack != null and pack.pack_uid > 0:
-			workshop.expect_pack_delivery(pack.pack_uid)
-			_payout_packs.append(pack.pack_uid)
+		for pack in bet.awarded_packs:
+			if pack != null and pack.pack_uid > 0:
+				workshop.expect_pack_delivery(pack.pack_uid)
+				_payout_packs.append(pack.pack_uid)
 
 func _free_payout_bodies(bodies: Array) -> void:
 	for body in bodies:
@@ -4845,6 +4851,7 @@ func _drop_payout_bodies() -> void:
 	if workshop != null and is_instance_valid(workshop):
 		_land_pending_packs(workshop, _payout_packs)
 	_payout_packs.clear()
+	_payout_pending_plots = []
 	_payout_depth = 0.0  # die nächste Ablage mißt ihre Tiefe neu
 	_settle_payout_shafts()
 
@@ -10381,9 +10388,9 @@ func _round_should_end() -> bool:
 ## eine Ladung (⚡). Was nicht mehr in die Börse passt, fällt zum alten Satz als
 ## Geld an. Die Auszahlung läuft als Tisch-Animation, bevor der Shop aufgeht; die
 ## Phase springt schon auf PAYOUT, damit derweil nichts anklickbar bleibt.
-## Wie lange die Auszahlungs-Seite nach der Wett-Abrechnung noch Zeilen bekommt
-## (gesetzt in _resolve_side_bets, je Runde neu).
-var _bet_payout_settle := 0.0
+## Die WAREN-Plots der Seite, gemerkt bei der Buchung und gesetzt erst in der
+## Karten-Phase - die Namen erscheinen, wenn die Karten gezählt werden.
+var _payout_pending_plots: Array[Dictionary] = []
 
 ## MELDET Geld an die Auszahlungs-Seite - immer NEBEN einer bestehenden Buchung,
 ## nie statt ihrer. Außerhalb der Auszahlung schweigt sie (Nehmen-Geld u. a.).
@@ -10402,13 +10409,23 @@ func _on_round_complete() -> void:
 	var stages := run.stages_cleared(hand_total)
 	if stages >= 1:
 		phase = Phase.PAYOUT
-		_bet_payout_settle = 0.0
 		# Der Hub wird zur Auszahlungs-Seite: leer aufschlagen, dann zählt sie mit.
 		_drop_payout_bodies()  # ein Rest der Vorrunde liegt hier nie
 		if payout_ledger != null:
 			payout_ledger.reset()
 			payout_ledger.set_round(run.round_number)
 			table_screen.hub.fade_page_in(payout_ledger)
+		# DER AUFDECK-SCHLAG ZUERST (Spieler-Entscheid 2026-08-26): jede noch offene
+		# Wette mit Reiß-Bedingung hebt ihren Gewinn als GEWONNEN aus der Grube,
+		# Verlierer sinken - und die Sieger BLEIBEN STEHEN. Gezählt (genommen, Meteor,
+		# Zeile) werden sie erst NACH dem Geld der Runde, in ihren eigenen Phasen.
+		# Gebucht ist trotzdem alles hier: Zinsen und Speicher-Raum rechnen auf dem
+		# Stand NACH den Wetten - was zuerst aufgedeckt ist, ist zuerst gebucht.
+		_resolve_side_bets(true)
+		if _bet_stage == SideBetPanel.STAGE_WON:
+			await get_tree().create_timer(LiftShaftView.swap_cycle_time()).timeout
+			if phase != Phase.PAYOUT:
+				return  # Spiel wurde während des Aufdeckens zurückgesetzt
 		var ids := run.charm_ids()
 		# Deal-Faktor auf die ganze Auszahlung; der Wartungsvertrag streicht die
 		# Würfel-Zeile ganz, die Sparprämie legt auf sie drauf (wie das Sparschwein).
@@ -10428,12 +10445,13 @@ func _on_round_complete() -> void:
 		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
 		# gebucht hier, gezeigt an seinem Dock-Platz.
 		_encore_packs = run.apply_encore(stages)
-		# Aufteilung VOR jeder Buchung: die Zeremonie plant daraus ihre Kometen und
-		# bucht sie einzeln bei Ankunft.
+		# Aufteilung VOR jeder Buchung DIESER Zählsequenz (die Wetten haben schon
+		# gezahlt, ihre ⚡ füllt die Börse zuerst): die Zeremonie plant daraus ihre
+		# Kometen und bucht sie einzeln bei Ankunft.
 		var split := run.charge_split(stages)
-		# Zinsen rechnen auf dem Stand VOR jeder Buchung und reisen mit dem
-		# Benchmark-Kometen - ein eigener Komet für ein paar Dollar wäre Zeremonie
-		# um ihrer selbst willen.
+		# Zinsen rechnen auf demselben Stand - Wett-Geld verzinst also mit - und
+		# reisen mit dem Benchmark-Kometen: ein eigener Komet für ein paar Dollar
+		# wäre Zeremonie um ihrer selbst willen.
 		var interest := run.interest_income()
 		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split)
 		if phase != Phase.PAYOUT:
@@ -10447,9 +10465,16 @@ func _on_round_complete() -> void:
 		if ids.has(Charm.OLD_PENNY):
 			run.old_penny_payouts += 1
 			_update_charm_badges()  # sein Chip zeigt ab jetzt die nächste Summe
-		# Nebenwetten gegen die geräumte Rundenbilanz auswerten (Gewinne landen
-		# als Gravuren im Inventar, sichtbar im Shop/an der Gravur-Station).
-		_resolve_side_bets(true)
+		# NACH dem Geld der Runde werden die Wett-Gewinne gezählt: erst die
+		# Geld-/⚡-Wetten (Preis versinkt, Meteor, Zeile), dann die KARTEN (Kassette
+		# versinkt, Meteor, Auftritt auf der Seite) - eine nach der anderen.
+		await _play_bet_money_payouts()
+		if phase != Phase.PAYOUT:
+			return
+		await _play_bet_goods_payouts()
+		if phase != Phase.PAYOUT:
+			return
+		_bet_stage = SideBetPanel.STAGE_NONE  # der Tresen ist abgerechnet und leer
 		# Kein Deal überlebt seine Runde: die Marken wischen an JEDEM Rundenende -
 		# NACH den Wetten, deren Quoten noch dazugehörten. Erst der sichtbare Wisch,
 		# dann die Buchung, sonst wären die Marken fort, bevor der Spieler das Ende
@@ -10466,10 +10491,6 @@ func _on_round_complete() -> void:
 		# Die Seite steht still, bis der Spieler kassiert. Gepollt statt auf ein
 		# Signal gewartet: ein Reset darf nicht auf etwas warten, das nie kommt.
 		if payout_ledger != null:
-			if _bet_payout_settle > 0.0:
-				await get_tree().create_timer(_bet_payout_settle).timeout
-				if phase != Phase.PAYOUT:
-					return
 			# Gezählt wird in der ÜBERSICHT, kassiert wird AM HUB: von dort steht die
 			# ganze Seite im Bild - aus der Übersicht liegt ihre Unterkante samt
 			# Summe und Knopf außerhalb des Bildes.
@@ -10569,28 +10590,21 @@ func _resolve_side_bets(cleared: bool) -> void:
 	# (prize_label - hier wird nichts formuliert) - und was beim Kassieren noch
 	# als Licht an sein Ziel reist.
 	var panel := _side_bet_panel()
-	var plots: Array[Dictionary] = []
+	_payout_pending_plots = []
 	for i in won.size():
 		var entry: Dictionary = plan[i] if i < plan.size() else {}
 		_payout_claims.append({"bet": won[i], "money": int(entry.get("money", 0)),
 			"charge": int(entry.get("charge", 0))})
 		if _payout_body_wanted(won[i]) and panel != null:
-			plots.append({"id": "bet_%d" % i,
+			_payout_pending_plots.append({"id": "bet_%d" % i,
 				"label": panel.prize_label(panel.offers.find(won[i]))})
-	if payout_ledger != null:
-		payout_ledger.set_plots(plots)
-	# Der Tresen räumt sich selbst ab; der Gewinn-Komet wartet, bis das Haus fertig
-	# ist. Der Vorlauf wird VOR der Zeremonie geholt - danach steht nichts mehr da.
-	var lead := _bet_settlement_lead()
-	_play_bet_settlement(won)  # nicht erwartet
-	_play_side_bet_payouts(won, lead, plan)
-	# Gemeldet wird bei der ANKUNFT, und der letzte fliegt erst nach dem Vorlauf: der
-	# Kassieren-Knopf wartet genau so lange, sonst kassiert der Spieler an der letzten
-	# Zeile - und am Auftritt ihres Körpers - vorbei.
-	if not won.is_empty():
-		_bet_payout_settle = lead + float(won.size() - 1) * MONEY_PULSE_GAP \
-			+ table_screen.side_bet_payout_travel(true) + LiftShaftView.cycle_time() \
-			+ PAYOUT_TEXT_HOLD_DURATION
+	# Der AUFDECK-Schlag: Sieger heben aus der Grube bzw. bleiben stehen, Verlierer
+	# sinken - GENOMMEN wird noch NICHTS. Die Preise stehen auf dem Tresen, bis ihre
+	# Zähl-Phase sie holt (_play_bet_money_payouts/_play_bet_goods_payouts, nach dem
+	# Geld-Zählen der Runde).
+	_bet_won = won.duplicate()
+	_bet_stage = SideBetPanel.STAGE_WON
+	_write_bet_counter(ShopController.GRADE_RISE, true)
 	if won.is_empty():
 		charm_shop.pending_bet_notice = "Nebenwetten: 0/%d gewonnen." % placed
 		return
@@ -10620,9 +10634,9 @@ func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
 				charge = clampi(minted, 0, room)
 				room -= charge
 				money = (minted - charge) * GameRun.CHARGE_OVERFLOW_MONEY
-			SideBet.Payout.SPECIAL, SideBet.Payout.PACK:
-				if bet.awarded_pack == null:
-					money = GameRun.PACK_FIZZLE_MONEY
+			SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
+				# Je am vollen Magazin zerfallenem Paket sein Fizzle-Geld.
+				money = bet.awarded_fizzled * GameRun.PACK_FIZZLE_MONEY
 		plan.append({"money": money, "charge": charge})
 	return plan
 
@@ -10653,7 +10667,6 @@ func _open_side_bet_betting() -> void:
 		_bet_won.clear()
 		_bet_fulfilled.clear()
 		_bet_failed.clear()
-		_bet_settle += 1
 		_bet_stage = SideBetPanel.STAGE_OPEN
 		_write_bet_counter()
 
