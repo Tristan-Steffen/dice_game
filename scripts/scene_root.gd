@@ -143,6 +143,16 @@ const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Und
 const SLOT_CHARM_COLOR := Color(1.6, 0.9, 2.0, 0.9)
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 
+## Das Fußmaß des abgebauten Hüllen-Projektors (ehemals DiceShell.PUCK_RADIUS):
+## es lebt allein als Layout-Zahl weiter und hält die Lücke zwischen Grube,
+## Schatz-Screen und Nebenwetten-Fenster stabil.
+const SHELL_FOOT_RADIUS := 1.4
+
+## Wuchs-Faktor des Wett-Tresens (Spieler-Entscheid 2026-08-27): die Fenster-
+## EINHEIT ist seine eigene Breite (SideBetPanel: size.x/UNIT_DIV), also wachsen
+## Plots, Fassungen, Löcher UND Schrift gemeinsam um dieses Maß.
+const WETTEN_ROOM := 1.3
+
 ## Platzierung: das gesetzte Stück fährt als Licht von seinem Hand-Chip in das
 ## Netz seines Würfels, und der Projektor darüber schluckt die Kraft.
 const ENGRAVE_TRAIL_TIME := 0.5
@@ -995,14 +1005,20 @@ func _setup_table_screen() -> void:
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 	table_screen.log_action_button.pressed.connect(_on_log_button_pressed)
 
-	# Nebenwetten-Fenster rechts von der Energie-Hülle; Unterkante bündig mit Grube
-	# und Kombinationen-Fenster. Es IST die Knopf-Spalte und meldet seine Maße selbst
-	# (SideBetPanel.preferred_units) - die Einheit bleibt das alte Hundertstel der
-	# Kombi-Breite, also behalten Plots, Fassungen, Löcher und Schrift ihre Pixelmaße.
+	# Wett-Tresen LINKS in der Lücke NEBEN der Grube, der Schatz rechts daneben
+	# (Tausch, Spieler-Entscheid 2026-08-27); Unterkante bündig mit Grube und
+	# Kombinationen-Fenster. Es IST die Knopf-Spalte und meldet seine Maße selbst
+	# (SideBetPanel.preferred_units); der Zuschnitt wächst um WETTEN_ROOM, und
+	# weil die Fenster-Einheit die eigene Breite ist, wachsen Plots, Löcher und
+	# Schrift gemeinsam mit - breitere Gruben UND größerer Text aus einer Zahl.
 	var shell_px := table_screen.world_to_pixel(dice_shell.global_position)
 	var pit_r := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var win_size := SideBetPanel.preferred_units() * (table_screen.cluster_rect.size.x / 100.0)
-	var win_pos := Vector2(shell_px.x + table_screen.size.x * 0.045, pit_r.end.y - win_size.y)
+	var win_size := SideBetPanel.preferred_units() \
+		* (table_screen.cluster_rect.size.x / 100.0) * WETTEN_ROOM
+	# Nie höher als die Grube — der Tresen ist ihr Beiwerk, kein Turm.
+	win_size.y = minf(win_size.y, pit_r.size.y)
+	var win_pos := Vector2(pit_r.end.x + table_screen.size.x * 0.005,
+		pit_r.end.y - win_size.y)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
 	# Wurf und Auszahlung hängen am Fenster (einmalig verdrahtet - es überlebt
@@ -1010,21 +1026,27 @@ func _setup_table_screen() -> void:
 	table_screen.side_bet_window.bet_selected.connect(_on_side_bet_selected)
 	table_screen.side_bet_window.bet_placed.connect(_on_side_bet_placed)
 
-	# Schatz-Screen unter der Energie-Hülle, in der Lücke zwischen Grube und
-	# Nebenwetten; die echten 3D-Chips werden mittig-oben darauf gestellt.
+	# Schatz-Screen RECHTS des Wett-Tresens; die echten 3D-Chips werden
+	# mittig-oben darauf gestellt. Die AUSSENKANTE der Fensterzeile bleibt die
+	# alte (Hüllen-Anker + 4,5 % Screen + UNGEWACHSENE Fensterbreite) - dahinter
+	# beginnen die Vorrats-Fächer, an die nichts heranrücken darf.
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
-	var gap_left := pit_r.end.x
-	var gap_right := side_r.position.x
+	var gap_left := side_r.end.x
+	var gap_right := shell_px.x + table_screen.size.x * 0.045 \
+		+ SideBetPanel.preferred_units().x * (table_screen.cluster_rect.size.x / 100.0)
 	var t_w := minf((gap_right - gap_left) * 0.9, table_screen.size.x * 0.15)
-	# Oberkante hergeleitet statt fest: der Projektor-Fuß der Hülle bekommt nach
-	# unten (Screen-Oberkante) genau so viel Luft wie nach oben (Grubenoberkante).
-	# Die Unterkante bleibt auf der gemeinsamen Linie mit Grube und Nebenwetten.
-	var puck_px := DiceShell.PUCK_RADIUS * ppw
+	# Oberkante hergeleitet statt fest, am ALTEN Hüllen-Anker vermessen: der
+	# Projektor ist abgebaut (2026-08-26), aber sein Fußmaß hält die Fensterlücke
+	# stabil - dieselbe Luft nach unten (Screen-Oberkante) wie nach oben
+	# (Grubenoberkante). Die Unterkante bleibt auf der gemeinsamen Linie mit
+	# Grube und Nebenwetten.
+	var puck_px := SHELL_FOOT_RADIUS * ppw
 	var puck_margin := maxf((shell_px.y - puck_px) - pit_r.position.y, 0.0)
 	var t_top := shell_px.y + puck_px + puck_margin
 	var t_size := Vector2(t_w, maxf(pit_r.end.y - t_top, t_w * 0.4))
-	# Waagerecht unter die Hülle, aber in der Lücke gehalten.
-	var t_cx := clampf(shell_px.x, gap_left + t_w * 0.5, gap_right - t_w * 0.5)
+	# Waagerecht mittig in seiner Lücke zwischen Wett-Tresen und Fächern.
+	var t_cx := clampf((gap_left + gap_right) * 0.5,
+		gap_left + t_w * 0.5, gap_right - t_w * 0.5)
 	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
 	table_screen.place_treasure_window(Rect2(t_pos, t_size))
 	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
@@ -4506,7 +4528,7 @@ func _play_bet_money_payouts() -> void:
 		var bet: SideBet = claim["bet"]
 		if _payout_body_wanted(bet):
 			continue  # Ware zählt in der Karten-Phase danach
-		await _count_bet_payout(i, bet, claim, false)
+		await _count_bet_payout(i, bet, claim)
 		if phase != Phase.PAYOUT:
 			return
 
@@ -4517,20 +4539,45 @@ func _play_bet_goods_payouts() -> void:
 	if payout_ledger != null:
 		payout_ledger.set_plots(_payout_pending_plots)
 	_payout_pending_plots = []
+	var goods: Array[int] = []
 	for i in _payout_claims.size():
+		if _payout_body_wanted(_payout_claims[i]["bet"]):
+			goods.append(i)
+	if goods.is_empty():
+		return
+	var launched := run
+	# ALLE ZUGLEICH (Spieler-Entscheid 2026-08-26): jede Karte versinkt in ihrer
+	# eigenen Sektion im selben Schlag, die Meteore fliegen gemeinsam, und die
+	# ganze Ware steigt in EINER Fahrt auf die eine Plattform der Seite.
+	var taken := false
+	for i in goods:
+		if _take_bet_prize(_payout_claims[i]["bet"]):
+			taken = true
+	if taken:
+		# Erst wenn die Preise unter der Fläche sind, reist ihr Licht.
+		await get_tree().create_timer(LiftShaftView.SINK_TIME + 0.05).timeout
+		if run != launched or phase != Phase.PAYOUT:
+			return
+	var travel := 0.05
+	for i in goods:
+		travel = maxf(travel, table_screen.side_bet_payout_comet(true,
+			SideBetPanel.payout_accent(_payout_claims[i]["bet"])))
+	await get_tree().create_timer(travel).timeout
+	if run != launched or phase != Phase.PAYOUT:
+		return
+	for i in goods:
 		var claim: Dictionary = _payout_claims[i]
 		var bet: SideBet = claim["bet"]
-		if not _payout_body_wanted(bet):
-			continue
-		await _count_bet_payout(i, bet, claim, true)
-		if phase != Phase.PAYOUT:
-			return
+		_ledger_money("bet_%d" % i, bet.display_name, int(claim.get("money", 0)),
+			bet.description)
+		_ledger_charge(int(claim.get("charge", 0)))
+	_raise_payout_batch(goods)
+	await get_tree().create_timer(LiftShaftView.cycle_time()).timeout
 
-## Zählt EINE gewonnene Wette: ihr Preis versinkt am Tresen (die Kauf-Fahrt seiner
+## Zählt EINE Geld-/⚡-Wette: ihr Preis versinkt am Tresen (die Kauf-Fahrt seiner
 ## Sektion - Gewonnenes reist zum Spieler), der Meteor startet, sobald er unter der
-## Fläche ist, und die Ankunft tickt die Zeile; Ware steigt zugleich auf der Seite.
-func _count_bet_payout(index: int, bet: SideBet, claim: Dictionary,
-		goods: bool) -> void:
+## Fläche ist, und die Ankunft tickt die Zeile.
+func _count_bet_payout(index: int, bet: SideBet, claim: Dictionary) -> void:
 	var launched := run
 	if _take_bet_prize(bet):
 		# Erst wenn der Preis unter der Fläche ist, reist sein Licht.
@@ -4545,11 +4592,6 @@ func _count_bet_payout(index: int, bet: SideBet, claim: Dictionary,
 	_ledger_money("bet_%d" % index, bet.display_name, int(claim.get("money", 0)),
 		bet.description)
 	_ledger_charge(int(claim.get("charge", 0)))
-	if goods:
-		_raise_payout_body(index, bet)
-		await get_tree().create_timer(LiftShaftView.cycle_time()).timeout
-		if run != launched or phase != Phase.PAYOUT:
-			return
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION * 0.5).timeout
 
 ## Nimmt den stehenden Preis EINER Wette vom Tresen (false = kein Körper da, der
@@ -4674,35 +4716,43 @@ func _payout_plot_radius() -> float:
 func _payout_shaft_depth(body: Node3D) -> float:
 	return maxf(VitrineView.shaft_depth(), _bet_body_height(body) * VitrineView.SHAFT_ROOM)
 
-## Der AUFTRITT: in SEINER Zelle steigt ein gleichwertiger Gewinn-Körper aus der
-## Fläche - dieselbe Bauform, die am Tresen stand (der dortige ist versunken). Die
-## schon stehende Ware FÄHRT MIT (riders): sie teilt sich die eine Plattform, und wer
-## über dem offenen Loch stehen bliebe, schwebte.
-## index ist der Gewinn-Index; SEINE Zelle nennt die Seite (nur Ware hat eine).
-func _raise_payout_body(index: int, bet: SideBet) -> void:
-	if run == null or bet == null or payout_ledger == null or not payout_ledger.visible:
+## Der AUFTRITT der GANZEN Ware in EINER Fahrt: je PLOT ein Körper in SEINER
+## Zelle - dieselbe Bauform, die am Tresen stand (die dortigen sind versunken),
+## bei gesammelten Paket-Plots mit der summierten Stückzahl aus der Plot-Spec -,
+## und die eine Plattform hebt alle zugleich. Mitfahrer braucht es nicht mehr:
+## es gibt nur diese eine Fahrt.
+func _raise_payout_batch(indices: Array[int]) -> void:
+	if run == null or payout_ledger == null or not payout_ledger.visible:
 		return
-	var slot := payout_ledger.plot_index("bet_%d" % index)
-	if slot < 0 or payout_bodies.has(slot) or slot >= _payout_cells().size():
+	var bodies: Array = []
+	var seats: Array = []
+	var deep := 0.0
+	for index in indices:
+		var claim: Dictionary = _payout_claims[index]
+		var plot_id: String = claim.get("plot", "")
+		if plot_id == "":
+			continue
+		var slot := payout_ledger.plot_index(plot_id)
+		if slot < 0 or payout_bodies.has(slot) or slot >= _payout_cells().size():
+			continue
+		var target := _payout_seat_at(slot)
+		var spec: Dictionary = _payout_plot_specs.get(plot_id,
+			_bet_price_spec(claim["bet"]))
+		var body := _spawn_bet_body(spec, target)
+		if body == null:
+			continue
+		payout_bodies[slot] = body
+		_payout_seats[slot] = target
+		bodies.append(body)
+		seats.append(target)
+		deep = maxf(deep, _payout_shaft_depth(body))
+	if bodies.is_empty():
 		return
-	var target := _payout_seat_at(slot)
-	var body := _spawn_bet_body(_bet_price_spec(bet), target)
-	if body == null:
-		return
-	var riders: Array = []
-	var rider_seats: Array = []
-	for seated: int in payout_bodies:
-		var other: Node3D = payout_bodies[seated]
-		if other != null and is_instance_valid(other):
-			riders.append(other)
-			rider_seats.append(_payout_seats.get(seated, other.global_position))
-	payout_bodies[slot] = body
-	_payout_seats[slot] = target
-	var shaft := _payout_shaft_on(_payout_shaft_depth(body))
-	if shaft == null or shaft.run_cycle([body], [target], 0.0, riders,
-			rider_seats) == null:
-		_seat_bet_body(body, target)  # ohne Sektion steht er einfach da
-		_appear_bet_body(body)
+	var shaft := _payout_shaft_on(deep)
+	if shaft == null or shaft.run_cycle(bodies, seats, 0.0) == null:
+		for i in bodies.size():
+			_seat_bet_body(bodies[i], seats[i])  # ohne Sektion steht sie einfach da
+			_appear_bet_body(bodies[i])
 
 ## Je Bild: die Ablage-Körper stehen, solange die Auszahlungs-Seite steht. Es gibt
 ## hier keinen Hover und kein Klickziel - sie sind Ausweis, nicht Ware.
@@ -4852,6 +4902,7 @@ func _drop_payout_bodies() -> void:
 		_land_pending_packs(workshop, _payout_packs)
 	_payout_packs.clear()
 	_payout_pending_plots = []
+	_payout_plot_specs.clear()
 	_payout_depth = 0.0  # die nächste Ablage mißt ihre Tiefe neu
 	_settle_payout_shafts()
 
@@ -7045,10 +7096,15 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# Blick ist, und hat keine leere Fläche, die etwas schlucken dürfte.
 	if not flying and _pit_forwards_pixel(pixel):
 		return true
+	# GEWETTET wird nur an der EIGENEN Station (Spieler-Entscheid 2026-08-26):
+	# aus der Übersicht fällt der Klick durch und wird zum Zoom auf den Tresen -
+	# erst ranfahren, dann setzen. Bewegungen laufen weiter über die ganze
+	# Fläche, damit der Knopf-Hover sauber bleibt.
+	var bets_focused := camera_rig.mode == CameraRig.Mode.SIDE_BETS
 	if TableScreen.window_takes_pixel(table_screen.side_bet_window,
 			_window_rect(table_screen.side_bet_window), pixel, is_click,
-			camera_rig.mode == CameraRig.Mode.SIDE_BETS, flying):
-		return true
+			bets_focused, flying):
+		return not is_click or bets_focused
 	if TableScreen.window_takes_pixel(table_screen.slot_bank_window,
 			_window_rect(table_screen.slot_bank_window), pixel, is_click,
 			camera_rig.mode == CameraRig.Mode.SLOTS, flying):
@@ -8422,44 +8478,67 @@ func _on_throw_button_pressed() -> void:
 		dice_shell.clear_ghosts()
 		return  # Spiel wurde während der Hüllen-Animation zurückgesetzt
 
-	# poured_out feuert im Berst-Moment der Hülle - erst dann starten die
-	# echten Würfel an der aktuellen Hüllenposition (kein Teleportieren).
+	# poured_out feuert im Berst-Moment des Wirbels - erst dann starten die
+	# echten Würfel. Die Berst-Stände werden VOR dem Abräumen geschnappt: Ort,
+	# Lage und Bewegung jedes Taumel-Würfels gehen auf seinen Wurf-Würfel über,
+	# der Wurf setzt die losgelassene Bewegung fort statt sie zu ersetzen.
 	dice_shell.play_release()
 	await dice_shell.poured_out
+	var burst := dice_shell.release_states()
 	dice_shell.clear_ghosts()
 	if phase != Phase.SHELL_ANIMATING:
 		return  # Spiel wurde während des Auskippens zurückgesetzt
 
-	var start_positions := _throw_start_positions()
+	var start_positions := _throw_start_positions(burst)
 	for k in thrown_indices.size():
 		var i: int = thrown_indices[k]
-		dice.start_transforms[i] = Transform3D(dice.start_transforms[i].basis, start_positions[k])
+		var basis := dice.start_transforms[i].basis
+		if k < burst.size():
+			basis = burst[k]["basis"]
+		dice.start_transforms[i] = Transform3D(basis, start_positions[k])
 	phase = Phase.ROLLING
-	dice.throw_slots(thrown_indices, throw_force, spin_strength, DicePit.PIT_CENTER)
+	dice.throw_slots(thrown_indices, throw_force, spin_strength, DicePit.PIT_CENTER, burst)
 	_refresh_ui()
 
-## Startpositionen der Wurf-Würfel: 3x2-Raster quer zur Flugrichtung am
-## Berst-Punkt der Hülle. Abstand > Würfelbreite - überschneidungsfrei,
-## sonst katapultiert die Physik-Depenetration die Würfel aus der Wurfbahn.
-## Das Rasterzentrum wird in den Grubep-Innenraum geklemmt: die Energiewände
-## sind 16 hoch - ein Berst-Punkt außerhalb des Rands spawnt sonst IN der Wand.
-func _throw_start_positions() -> Array[Vector3]:
+## Startpositionen der Wurf-Würfel: die BERST-STÄNDE des Wirbels - jeder echte
+## Würfel startet, wo sein Taumel-Würfel im Auskipp-Moment flog (burst =
+## release_states, VOR clear_ghosts geschnappt). Geklemmt in den Gruben-
+## Innenraum (die Energiewände sind 16 hoch - außerhalb spawnte er IN der
+## Wand), und überschneidungsfrei gehalten: zu nahe Starts katapultiert die
+## Physik-Depenetration aus der Wurfbahn, der spätere weicht nach oben aus.
+## Rückfall ohne Bahn-Stand: das alte 3x2-Raster am Wirbel-Zentrum.
+func _throw_start_positions(burst: Array[Dictionary]) -> Array[Vector3]:
 	var mouth := dice_shell.mouth_position()
+	var lim_x := DicePit.PIT_HALF_X - 2.3
+	var lim_z := DicePit.PIT_HALF_Z - 2.3
 	var center := mouth
-	var lim_x := DicePit.PIT_HALF_X - 4.6  # Rasterarm (2.3) + Würfel-/Wandrand
-	var lim_z := DicePit.PIT_HALF_Z - 4.6
-	center.x = clampf(center.x, DicePit.PIT_CENTER.x - lim_x, DicePit.PIT_CENTER.x + lim_x)
-	center.z = clampf(center.z, DicePit.PIT_CENTER.z - lim_z, DicePit.PIT_CENTER.z + lim_z)
+	center.x = clampf(center.x, DicePit.PIT_CENTER.x - lim_x - 2.3, DicePit.PIT_CENTER.x + lim_x - 2.3)
+	center.z = clampf(center.z, DicePit.PIT_CENTER.z - lim_z - 2.3, DicePit.PIT_CENTER.z + lim_z - 2.3)
 	var dir := DicePit.PIT_CENTER - center
 	dir.y = 0.0
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
 	var right := dir.cross(Vector3.UP).normalized()
 	var positions: Array[Vector3] = []
 	for i in dice.count():
-		var col := float(i % 3) - 1.0
-		var row := float(int(i / 3.0))
-		positions.append(center + right * col * 2.3 + Vector3.UP * row * 2.3
-			+ dir * randf_range(-0.3, 0.3))
+		var p: Vector3
+		if i < burst.size():
+			p = burst[i]["position"]
+		else:
+			var col := float(i % 3) - 1.0
+			var row := float(int(i / 3.0))
+			p = center + right * col * 2.3 + Vector3.UP * row * 2.3 \
+				+ dir * randf_range(-0.3, 0.3)
+		p.x = clampf(p.x, DicePit.PIT_CENTER.x - lim_x, DicePit.PIT_CENTER.x + lim_x)
+		p.z = clampf(p.z, DicePit.PIT_CENTER.z - lim_z, DicePit.PIT_CENTER.z + lim_z)
+		positions.append(p)
+	# Die Taumel-Würfel sind gleich groß wie die echten und kollidieren im
+	# Wirbel miteinander - Berst-Stände stehen also schon physisch frei. Der
+	# Schutz greift nur noch, wenn die Wand-Klemmung zwei zusammenschiebt;
+	# die alte 2,3er-Schwelle hob sonst halbe Schwärme sichtbar an.
+	for a in positions.size():
+		for b in range(a + 1, positions.size()):
+			if positions[a].distance_to(positions[b]) < 1.5:
+				positions[b].y += 1.5
 	return positions
 
 ## Zielposition eines geschützten Würfels am oberen Grubenrand: mittig
@@ -10391,6 +10470,18 @@ func _round_should_end() -> bool:
 ## Die WAREN-Plots der Seite, gemerkt bei der Buchung und gesetzt erst in der
 ## Karten-Phase - die Namen erscheinen, wenn die Karten gezählt werden.
 var _payout_pending_plots: Array[Dictionary] = []
+## Die Körper-Spezifikation je Plot (id -> _bet_price_spec, bei gesammelten
+## Paket-Plots mit SUMMIERTER Stückzahl) - der Ablage-Auftritt baut daraus.
+var _payout_plot_specs: Dictionary = {}
+
+## Der Sammel-Schlüssel der Ablage: PAKET-Gewinne GLEICHER Sorte und Größe stehen
+## als EINE Zeile mit summierter Stückzahl; alles andere (Sonderposten, Marken)
+## bleibt je Wette eigen - ein summierter Sonderposten löge über seinen Inhalt.
+func _payout_merge_key(bet: SideBet) -> String:
+	match bet.payout_kind:
+		SideBet.Payout.PACK, SideBet.Payout.PACKS:
+			return "%s|%d" % [bet.reward_pack_type, bet.reward_pack_tier]
+	return ""
 
 ## MELDET Geld an die Auszahlungs-Seite - immer NEBEN einer bestehenden Buchung,
 ## nie statt ihrer. Außerhalb der Auszahlung schweigt sie (Nehmen-Geld u. a.).
@@ -10587,17 +10678,41 @@ func _resolve_side_bets(cleared: bool) -> void:
 	_refresh_side_bet_panel()  # Wetten geleert -> Fenster zeigt "keine aktiv"
 	# Die STELLPLÄTZE der Seite: nur WARE stellt einen Körper (Geld und ⚡ sind
 	# Zeilen), je Stück mit seinem NAMEN aus der EINEN Formulierung des Fensters
-	# (prize_label - hier wird nichts formuliert) - und was beim Kassieren noch
-	# als Licht an sein Ziel reist.
+	# (prize_label - hier wird nichts formuliert). PAKET-Gewinne GLEICHER Sorte
+	# und Größe SAMMELN sich dabei in EINER Zeile mit summierter Stückzahl
+	# (Spieler-Wunsch 2026-08-26: "4 Große Zahlen-Pakete" statt zweimal "2 …");
+	# die Summe formuliert dieselbe Quelle, aus der prize_label liest
+	# (Pack.amount_phrase).
 	var panel := _side_bet_panel()
 	_payout_pending_plots = []
+	_payout_plot_specs.clear()
+	var pack_plots: Dictionary = {}  # Sammel-Schlüssel -> Plot-Eintrag
 	for i in won.size():
 		var entry: Dictionary = plan[i] if i < plan.size() else {}
-		_payout_claims.append({"bet": won[i], "money": int(entry.get("money", 0)),
-			"charge": int(entry.get("charge", 0))})
+		var claim := {"bet": won[i], "money": int(entry.get("money", 0)),
+			"charge": int(entry.get("charge", 0))}
 		if _payout_body_wanted(won[i]) and panel != null:
-			_payout_pending_plots.append({"id": "bet_%d" % i,
-				"label": panel.prize_label(panel.offers.find(won[i]))})
+			var bet: SideBet = won[i]
+			var spec := _bet_price_spec(bet)
+			var merge_key := _payout_merge_key(bet)
+			if merge_key != "" and pack_plots.has(merge_key):
+				var plot: Dictionary = pack_plots[merge_key]
+				var plot_id: String = plot["id"]
+				var total: int = int(_payout_plot_specs[plot_id].get("count", 1)) \
+					+ int(spec.get("count", 1))
+				_payout_plot_specs[plot_id]["count"] = total
+				plot["label"] = Pack.amount_phrase(bet.reward_pack_type,
+					bet.reward_pack_tier, total)
+				claim["plot"] = plot_id
+			else:
+				var plot := {"id": "bet_%d" % i,
+					"label": panel.prize_label(panel.offers.find(bet))}
+				_payout_pending_plots.append(plot)
+				_payout_plot_specs[plot["id"]] = spec
+				if merge_key != "":
+					pack_plots[merge_key] = plot
+				claim["plot"] = plot["id"]
+		_payout_claims.append(claim)
 	# Der AUFDECK-Schlag: Sieger heben aus der Grube bzw. bleiben stehen, Verlierer
 	# sinken - GENOMMEN wird noch NICHTS. Die Preise stehen auf dem Tresen, bis ihre
 	# Zähl-Phase sie holt (_play_bet_money_payouts/_play_bet_goods_payouts, nach dem

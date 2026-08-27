@@ -12,8 +12,8 @@ var run: GameRun
 ## Die Breite, aus der das Fenster geschnitten wird (cluster_rect) - die EINHEIT ist
 ## ihr Hundertstel und bleibt es.
 const CLUSTER_WIDTH := 996.0
-## Und die echten Fenstermaße daraus: die Knopf-Spalte, 318,72 x 473,10 px.
-const WINDOW_SIZE := Vector2(318.72, 473.1)
+## Und die echten Fenstermaße daraus: die Knopf-Spalte, 298,80 x 453,18 px.
+const WINDOW_SIZE := Vector2(298.8, 453.18)
 
 func before_each() -> void:
 	run = GameRun.new_run()

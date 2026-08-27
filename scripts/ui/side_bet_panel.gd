@@ -29,14 +29,13 @@ const OFFER_COUNT := 3
 const PLOT_WIDTH_UNITS := 26.0
 const PLOT_HEIGHT_UNITS := 12.5   # zugleich die feste Höhe einer Angebots-Zeile
 const PLOT_GAP_UNITS := 2.0       # Fuge zwischen zwei Zeilen
-const MARGIN_UNITS := 3.0         # seitlicher Rand des Fensters
-const COUNTER_TOP_UNITS := 3.0    # Luft über der ersten Zeile - ein Rand, kein Kopf
+const MARGIN_UNITS := 2.0         # seitlicher Rand = Fuge zwischen den Zeilen
+const COUNTER_TOP_UNITS := 2.0    # Luft über der ersten Zeile - ein Rand, kein Kopf
 const PLOT_RADIUS_UNITS := 0.7    # Eckenrundung der Fassung - und des Lochs darunter
 
-## Die EINHEIT des Fensters: seine Breite geteilt durch die Knopf-Spalte. Historisch
-## ein Hundertstel der Kombi-Breite, seit dem Rückbau auf die drei Knöpfe (2026-08-25)
-## ein Zweiunddreißigstel - pixelgleich zur alten Einheit, also behalten Plots,
-## Fassungen, Löcher und Schrift ihre Maße, während allein das Fenster schrumpft.
+## Die EINHEIT des Fensters: seine Breite geteilt durch die Knopf-Spalte.
+## Pixelgleich zur alten Einheit, also behalten Plots, Fassungen, Löcher
+## und Schrift ihre Maße, während allein das Fenster schrumpft.
 const UNIT_DIV := MARGIN_UNITS * 2.0 + PLOT_WIDTH_UNITS
 
 ## Die Maße des Fensters in EIGENEN Einheiten - die Knopf-Spalte und ihre Ränder.
@@ -58,7 +57,9 @@ const SEAT_PAD_Y_UNITS := 0.8
 ## Bedingung des Katalogs ragte sonst aus dem Knopf.
 const SEAT_STEPS: Array[float] = [2.4, 2.2, 2.0, 1.85, 1.7, 1.55, 1.4, 1.3, 1.2, 1.1,
 	1.0, 0.9, 0.8]
-## Der Handel steht eine Spur größer als die Bedingung: er ist der Preis.
+## Die Bedingung steht GROSS — sie sagt, was zu tun ist.
+const SEAT_GOAL_GAIN := 1.3
+## Der Handel steht eine Spur kleiner als die Bedingung: er ist der Preis.
 const SEAT_TRADE_GAIN := 1.15
 
 ## Die MELDER-Zeile der Fassung liegt an der Plot-UNTERKANTE: darüber steht der
@@ -319,7 +320,7 @@ func counter_local_rects() -> Array[Rect2]:
 	var u := _unit()
 	var plot := counter_plot_size()
 	var pitch := plot.y + u * PLOT_GAP_UNITS
-	var left := size.x - u * MARGIN_UNITS - plot.x
+	var left := (size.x - plot.x) * 0.5
 	var top := u * COUNTER_TOP_UNITS
 	for i in OFFER_COUNT:
 		out.append(Rect2(Vector2(left, top + float(i) * pitch), plot))
@@ -533,14 +534,14 @@ func _fit_seat(index: int, u: float, inner: Vector2) -> void:
 	var lead := goal.get_theme_constant("line_spacing")
 	var grade: float = SEAT_STEPS[SEAT_STEPS.size() - 1]
 	for step in SEAT_STEPS:
-		var goal_px := maxi(8, int(u * step))
+		var goal_px := maxi(8, int(u * step * SEAT_GOAL_GAIN))
 		var trade_px := maxi(8, int(u * step * SEAT_TRADE_GAIN))
 		var block := ShopController.wrapped_height(font, goal.text, inner.x, goal_px, lead) \
 			+ ShopController.wrapped_height(font, trade.text, inner.x, trade_px, lead) + gap
 		if block <= inner.y:
 			grade = step
 			break
-	goal.add_theme_font_size_override("font_size", maxi(8, int(u * grade)))
+	goal.add_theme_font_size_override("font_size", maxi(8, int(u * grade * SEAT_GOAL_GAIN)))
 	trade.add_theme_font_size_override("font_size",
 		maxi(8, int(u * grade * SEAT_TRADE_GAIN)))
 

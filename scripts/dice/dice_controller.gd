@@ -141,12 +141,17 @@ func count() -> int:
 	return bodies.size()
 
 ## Wirft genau die Slots bei indices Richtung target (Grubenmitte); alle
-## anderen (geschützten) bleiben mit ihrem alten Wert liegen.
-func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, target: Vector3 = Vector3.ZERO) -> void:
+## anderen (geschützten) bleiben mit ihrem alten Wert liegen. carry (je Wurf-
+## Ordinal, aus DiceShell.release_states) übergibt die Bewegung des Taumel-
+## Würfels: statt Bahn-Lösung und Zufalls-Drall setzt der Wurf dann Tempo und
+## Eigendrehung des Berst-Moments fort - ein steckender Slot wirft ohne carry
+## klassisch nach (_rethrow_slot).
+func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, target: Vector3 = Vector3.ZERO, carry: Array[Dictionary] = []) -> void:
 	_throw_force = throw_force
 	_spin_strength = spin_strength
 	_throw_target = target
 	var targets := _spread_targets(indices.size())
+	var carry_lands := _carry_landings(indices, carry, target)
 	for ordinal in indices.size():
 		var i: int = indices[ordinal]
 		roots[i].visible = true
@@ -168,14 +173,23 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 		# die Würfel unabhängig von der Becherposition sanft genug, dass die
 		# Grubenwände sie halten (voller throw_force schoss über die Wände hinaus).
 		var g_eff := 9.8 * body.gravity_scale
-		body.linear_velocity = _throw_velocity(
-			start_transform.origin, target + targets[ordinal], g_eff, throw_force,
-			THROW_FLIGHT_TIME + float(ordinal) * THROW_STAGGER)
-		body.apply_torque_impulse(Vector3(
-			randf_range(-spin_strength, spin_strength),
-			randf_range(-spin_strength, spin_strength),
-			randf_range(-spin_strength, spin_strength)
-		))
+		if ordinal < carry_lands.size():
+			# Übernommene Bewegung: Landepunkt und Fallzeit stammen aus dem Berst-
+			# Tempo, also reproduziert die Bahn-Lösung genau dieses Tempo (nur
+			# Klemmung und Entzerrung korrigieren) - und der Drall reist mit.
+			var land: Dictionary = carry_lands[ordinal]
+			body.linear_velocity = _throw_velocity(
+				start_transform.origin, land["to"], g_eff, throw_force, land["time"])
+			body.angular_velocity = carry[ordinal]["spin"]
+		else:
+			body.linear_velocity = _throw_velocity(
+				start_transform.origin, target + targets[ordinal], g_eff, throw_force,
+				THROW_FLIGHT_TIME + float(ordinal) * THROW_STAGGER)
+			body.apply_torque_impulse(Vector3(
+				randf_range(-spin_strength, spin_strength),
+				randf_range(-spin_strength, spin_strength),
+				randf_range(-spin_strength, spin_strength)
+			))
 	pit_contents_changed.emit()
 
 ## Flugzeit des Wurfbogens; je Würfel wächst sie um THROW_STAGGER, damit die
@@ -211,6 +225,52 @@ static func _spread_targets(count: int) -> Array[Vector3]:
 			randf_range(-SPREAD_JITTER_X, SPREAD_JITTER_X), 0.0,
 			center_z + randf_range(-jitter_z, jitter_z)))
 	return targets
+
+## Feld der übernommenen Landepunkte: weiter als die Zufalls-Streuung, denn
+## die Tangente soll ihrer Richtung folgen dürfen - gekappt wird erst klar
+## vor der Grubenwand (gemessen: das enge Streufeld fraß bis zu 10 Einheiten
+## Quer-Tempo in einem Schlag, genau der Bruch, der weg soll).
+const CARRY_HALF_X := 5.5
+const CARRY_HALF_Z := 12.5
+
+## Landepunkte und Fallzeiten der ÜBERNOMMENEN Würfe (je Wurf-Ordinal): die
+## Fallzeit löst sich aus dem Berst-Steigtempo unter Schwerkraft, der
+## Landepunkt ist der natürliche Auftreffpunkt der Tangente - ins Wurffeld
+## geklemmt und auf der langen Achse entzerrt (Mindestabstand wie zwischen
+## zwei Bahnen von _spread_targets). Ungeklemmt reproduziert _throw_velocity
+## damit exakt das Berst-Tempo: der Wurf setzt die losgelassene Bewegung fort.
+func _carry_landings(indices: Array[int], carry: Array[Dictionary], target: Vector3) -> Array[Dictionary]:
+	var lands: Array[Dictionary] = []
+	for k in mini(indices.size(), carry.size()):
+		var body := bodies[indices[k]]
+		var from := start_transforms[indices[k]].origin
+		var v: Vector3 = carry[k]["velocity"]
+		var g := maxf(9.8 * body.gravity_scale, 0.01)
+		var h := maxf(from.y - target.y, 0.5)
+		var t := (v.y + sqrt(v.y * v.y + 2.0 * g * h)) / g
+		lands.append({"time": t, "to": Vector3(
+			clampf(from.x + v.x * t, target.x - CARRY_HALF_X, target.x + CARRY_HALF_X),
+			target.y,
+			clampf(from.z + v.z * t, target.z - CARRY_HALF_Z, target.z + CARRY_HALF_Z))})
+	# Entzerren: sortiert nach z, vorwärts den Mindestabstand aufbauen, rückwärts
+	# über den Rand Geschobene wieder hereinholen - so bleibt jede Verschiebung
+	# minimal und kein Paar kann sich beim Aufschlag überlappen.
+	var gap := DIE_HALF_DIAGONAL * 2.0
+	var order: Array[int] = []
+	order.assign(range(lands.size()))
+	order.sort_custom(func(a: int, b: int) -> bool:
+		return lands[a]["to"].z < lands[b]["to"].z)
+	for j in range(1, order.size()):
+		var cur: Vector3 = lands[order[j]]["to"]
+		cur.z = maxf(cur.z, lands[order[j - 1]]["to"].z + gap)
+		lands[order[j]]["to"] = cur
+	for j in range(order.size() - 1, -1, -1):
+		var limit: float = target.z + CARRY_HALF_Z if j == order.size() - 1 \
+			else lands[order[j + 1]]["to"].z - gap
+		var cur: Vector3 = lands[order[j]]["to"]
+		cur.z = minf(cur.z, limit)
+		lands[order[j]]["to"] = cur
+	return lands
 
 ## Startgeschwindigkeit, die from nach genau flight_time auf to einschlagen
 ## lässt (Schwerkraft g); max_speed kappt Extremfälle (sehr weite Würfe landen

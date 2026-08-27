@@ -1,28 +1,35 @@
 extends GutTest
-## Energie-Ikosaeder (DiceShell): Facetten-Geometrie, Kollisionsplatten,
-## Taumel-Würfel-Aufnahme, Facetten-Blitz und das Auskipp-Signal.
+## Der Würfel-Wirbel (DiceShell): völlig unsichtbar - nur der Schwarm selbst
+## zeichnet -, jeder Taumel-Würfel auf seiner eigenen Bahn, der Griff nur am
+## vollen Schwarm und das Auskipp-Signal mit den Berst-Ständen.
 
 func _shell() -> DiceShell:
 	var shell := DiceShell.new()
 	add_child_autofree(shell)
 	return shell
 
-func test_huelle_hat_20_facetten_und_platten() -> void:
+func test_der_wirbel_ist_voellig_unsichtbar() -> void:
+	# Der Spieler mischt "in der Luft": kein Facetten-Mesh, kein Projektor,
+	# keine Platten, kein Lichtring - nur der Schwarm selbst zeichnet.
 	var shell := _shell()
-	var faces := 0
+	var meshes: Array[String] = []
+	for child in shell.get_children():
+		if child is MeshInstance3D:
+			meshes.append(String(child.name))
 	for child in shell.shell_root.get_children():
 		if child is MeshInstance3D:
-			faces += 1
-	assert_eq(faces, 20, "20 Dreiecks-Facetten")
-	assert_eq(shell.shell_body.get_child_count(), 20, "20 Kollisionsplatten")
-	assert_eq(shell.shell_body.collision_layer, DiceShell.GHOST_LAYER, "Platten auf dem privaten Layer")
+			meshes.append(String(child.name))
+	assert_eq(meshes, [] as Array[String], "nichts am Wirbel zeichnet")
+	assert_null(shell.get_node_or_null("ProjectorPuck"), "kein Projektor-Fuß")
+	assert_null(shell.shell_root.get_node_or_null("Plates"), "keine Platten mehr")
+	assert_null(shell.shell_root.get_node_or_null("OrbitRing"), "kein Ring mehr")
 
-func test_facetten_normalen_zeigen_nach_aussen() -> void:
+func test_heimat_platz_ist_der_ruettel_anker_ueber_der_grube() -> void:
+	# Ohne Sockel wartet die unsichtbare Hülle dort, wo gemischt wird - die
+	# gezogenen Würfel sammeln sich direkt über der Grube.
 	var shell := _shell()
-	for i in shell.face_normals.size():
-		var idx: Array = DiceShell.FACES[i]
-		var centroid := (DiceShell.VERTS[idx[0]] + DiceShell.VERTS[idx[1]] + DiceShell.VERTS[idx[2]]) / 3.0
-		assert_gt(shell.face_normals[i].dot(centroid.normalized()), 0.5, "Normale %d nach außen" % i)
+	assert_lt(shell.shell_root.position.distance_to(shell._pit_anchor()), 0.001,
+		"Heimat = Rüttel-Anker")
 
 func test_capture_die_baut_taumel_wuerfel_auf_privatem_layer() -> void:
 	var shell := _shell()
@@ -32,19 +39,43 @@ func test_capture_die_baut_taumel_wuerfel_auf_privatem_layer() -> void:
 	assert_true(shell.has_ghosts(), "Taumel-Würfel aufgenommen")
 	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
 	assert_false(body.freeze, "Taumel-Würfel ist ein aktiver Physik-Körper")
-	assert_eq(body.collision_layer, DiceShell.GHOST_LAYER, "Layer privat")
-	assert_eq(body.collision_mask, DiceShell.GHOST_LAYER, "Maske privat")
-	assert_true(body.contact_monitor, "Aufprall-Meldungen für den Facetten-Blitz")
+	assert_eq(body.collision_layer, 0, "kollisionsfrei - Rempler wären Rauschen")
+	assert_eq(body.collision_mask, 0, "und nichts in der Grube geht den Wirbel an")
+	assert_eq(body.gravity_scale, 0.0, "die Bahn trägt - keine Schwerkraft im Wirbel")
 	shell.clear_ghosts()
 	assert_false(shell.has_ghosts(), "clear_ghosts räumt ab")
 
-func test_flash_face_setzt_impact_und_klingt_ab() -> void:
+func test_die_choreographie_ist_deterministisch() -> void:
+	# Kein Würfel würfelt beim Mischen: zwei getrennte Wirbel bauen für dieselben
+	# Plätze exakt dieselben Bahnen, denselben Drall und dieselbe Bahnebene.
+	var a := _shell()
+	var b := _shell()
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	for i in 3:
+		a.capture_die(def, a.mouth_position())
+		b.capture_die(def, b.mouth_position())
+	for i in 3:
+		assert_eq(a._orbits[i], b._orbits[i], "Bahn %d ist Choreographie" % i)
+		var body_a: RigidBody3D = a.ghosts[i].get_node("RigidBody3D")
+		var body_b: RigidBody3D = b.ghosts[i].get_node("RigidBody3D")
+		assert_lt(body_a.angular_velocity.distance_to(body_b.angular_velocity),
+			0.0001, "Drall %d ist fest, kein Zufall" % i)
+	assert_eq(a.shell_root.basis, Basis.IDENTITY,
+		"jeder Schwarm beginnt auf derselben Bahnebene")
+
+func test_der_griff_lebt_nur_am_vollen_schwarm() -> void:
+	# Sichtbar heißt bedienbar: ohne taumelnde Würfel ist nichts zu sehen, also
+	# auch nichts zu packen - geworfen wird am Würfeln-Knopf.
 	var shell := _shell()
-	shell.flash_face(3, 1.0)
-	var material: ShaderMaterial = shell.face_materials[3]
-	assert_eq(float(material.get_shader_parameter("impact")), 1.0, "Blitz auf voller Stärke")
-	await wait_seconds(DiceShell.FLASH_DECAY + 0.1)
-	assert_lt(float(material.get_shader_parameter("impact")), 0.05, "Blitz klingt ab")
+	assert_eq(shell._click_zone.collision_layer, 0, "leer: Griff tot")
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	shell.capture_die(def, shell.mouth_position())
+	assert_eq(shell._click_zone.collision_layer, DiceShell.CLICK_LAYER,
+		"mit Würfeln: Griff scharf")
+	shell.clear_ghosts()
+	assert_eq(shell._click_zone.collision_layer, 0, "abgeräumt: Griff wieder tot")
 
 func test_play_release_feuert_poured_out_und_rematerialisiert() -> void:
 	var shell := _shell()
@@ -54,8 +85,6 @@ func test_play_release_feuert_poured_out_und_rematerialisiert() -> void:
 	await wait_seconds(DiceShell.RELEASE_BURST_TIME + 0.15)
 	assert_eq(fired.size(), 1, "poured_out feuert genau einmal im Berst-Moment")
 	await wait_seconds(DiceShell.RELEASE_RETURN_TIME + 0.15)
-	var material: ShaderMaterial = shell.face_materials[0]
-	assert_lt(float(material.get_shader_parameter("dissolve")), 0.05, "Hülle rematerialisiert")
 	assert_false(shell.releasing, "Auskippen abgeschlossen")
 	await wait_seconds(0.1)
 	assert_eq(shell.state, DiceShell.State.HOME, "Hülle wieder am Heimat-Platz")
@@ -140,49 +169,63 @@ func test_ziehen_kippt_die_huelle_quer_zur_zugrichtung() -> void:
 	var axis: Vector3 = shell.angular_velocity.normalized()
 	assert_gt(absf(axis.x), absf(axis.y), "Hülle kippt, statt nur zu kreiseln")
 
-func test_ruck_treibt_die_taumel_wuerfel_an() -> void:
-	# Jede Schlagumkehr wirft den Schwarm hoch und gibt ihm Drall - deshalb wird
-	# hier wirklich hin und her gezogen, nicht nur einmal gerissen.
+func test_jeder_wuerfel_kreist_auf_seiner_eigenen_bahn() -> void:
+	# Drei Würfel, drei Bahnen: gestaffelte Radien und Tempi (Goldener Schnitt),
+	# und nach einer Sekunde Führung liegt jeder im Bahn-Band seines Kessels.
 	var shell := _shell()
 	var def := DieDefinition.new()
 	def.faces = [1, 2, 3, 4, 5, 6]
-	shell.state = DiceShell.State.SHAKE
-	shell.shake_pos = shell._pit_anchor()
-	shell.capture_die(def, shell.mouth_position())
-	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
-	body.linear_velocity = Vector3.ZERO
-	body.angular_velocity = Vector3.ZERO
-	shell.set_grabbed(true)
-	for stroke in 4:
-		var side := 6.0 if stroke % 2 == 0 else -6.0
-		shell.drag_to(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z + side))
-		await wait_seconds(0.2)
-	assert_gt(body.angular_velocity.length(), 0.0, "der Schwarm bekommt Drall ab")
+	for i in 3:
+		shell.capture_die(def, shell.mouth_position())
+	assert_ne(shell._orbits[0]["radius"], shell._orbits[1]["radius"], "eigene Radien")
+	assert_ne(shell._orbits[0]["speed"], shell._orbits[1]["speed"], "eigene Tempi")
+	await wait_seconds(1.2)
+	for i in 3:
+		var body: RigidBody3D = shell.ghosts[i].get_node("RigidBody3D")
+		var dist := body.global_position.distance_to(shell.mouth_position())
+		assert_between(dist, DiceShell.ORBIT_RADIUS_MIN - 0.7,
+			DiceShell.ORBIT_RADIUS_MAX + 0.8, "Würfel %d kreist im Bahn-Band" % i)
 
-func test_platten_federn_haerter_als_grubenwaende() -> void:
+func test_die_bahn_holt_einen_ausreisser_zurueck() -> void:
+	# Die Feder auf den Bahn-Anker ersetzt Käfig und Platten: ein weit
+	# hinausgeworfener Würfel wird sichtbar zurückgeholt.
 	var shell := _shell()
-	var material: PhysicsMaterial = shell.shell_body.physics_material_override
-	assert_not_null(material, "Platten haben ein Physikmaterial")
-	assert_gt(material.bounce, DieBuilder.BOUNCE, "Hülle federt härter als die Grube")
 	var def := DieDefinition.new()
 	def.faces = [1, 2, 3, 4, 5, 6]
 	shell.capture_die(def, shell.mouth_position())
 	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
-	assert_gt(body.physics_material_override.bounce, DieBuilder.BOUNCE,
-		"auch der Taumel-Würfel selbst federt - beide Seiten geben Energie zurück")
+	body.global_position = shell.mouth_position() + Vector3.RIGHT * 8.0
+	body.linear_velocity = Vector3.RIGHT * 10.0
+	var start := body.global_position.distance_to(shell.mouth_position())
+	await wait_seconds(0.6)
+	assert_lt(body.global_position.distance_to(shell.mouth_position()), start,
+		"die Bahnführung zieht ihn zurück")
 
-func test_kaefig_wirft_zurueck_statt_zu_schlucken() -> void:
-	# In den Ikosaeder-Ecken fängt der Käfig den Würfel vor der Platte ab - dort
-	# muss er federn, sonst frisst er genau die Sprünge weg.
+func test_release_states_liefern_die_berst_staende_samt_bewegung() -> void:
+	# Die echten Wurf-Würfel ÜBERNEHMEN Ort, Lage und Bewegung des Berst-
+	# Moments: nichts friert ein, die Bahnführung reißt ab und die Tangente
+	# fliegt den Berst-Augenblick frei weiter.
 	var shell := _shell()
 	var def := DieDefinition.new()
 	def.faces = [1, 2, 3, 4, 5, 6]
-	shell.capture_die(def, shell.mouth_position())
-	var body: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
-	var out := Vector3.RIGHT
-	body.global_position = shell.mouth_position() + out * (DiceShell.NET_RADIUS + 0.3)
-	body.linear_velocity = out * 10.0
-	await wait_frames(2)
-	assert_lt(body.linear_velocity.dot(out), 0.0, "Käfig kehrt die Auswärtsbewegung um")
-	assert_lte(body.global_position.distance_to(shell.mouth_position()),
-		DiceShell.NET_RADIUS + 0.5, "Würfel bleibt in der Hülle")
+	for i in 2:
+		shell.capture_die(def, shell.mouth_position())
+	await wait_seconds(0.8)
+	shell.play_release()
+	var states := shell.release_states()
+	assert_eq(states.size(), 2, "je Taumel-Würfel ein Berst-Stand")
+	for i in 2:
+		var body: RigidBody3D = shell.ghosts[i].get_node("RigidBody3D")
+		assert_false(body.freeze, "kein Einfrieren - die Bewegung lebt weiter")
+		var pos: Vector3 = states[i]["position"]
+		var vel: Vector3 = states[i]["velocity"]
+		assert_lt(pos.distance_to(body.global_position), 0.001,
+			"Stand %d ist die echte Bahn-Position" % i)
+		assert_lt(vel.distance_to(body.linear_velocity), 0.001,
+			"Tempo %d ist das echte Bahn-Tempo" % i)
+	# Bahn-Abriss: während des Berst-Moments zieht keine Feder mehr zur Bahn.
+	var v0: Vector3 = states[0]["velocity"]
+	await wait_seconds(DiceShell.RELEASE_BURST_TIME * 0.6)
+	var body0: RigidBody3D = shell.ghosts[0].get_node("RigidBody3D")
+	assert_lt(body0.linear_velocity.distance_to(v0), 0.5,
+		"die Tangente fliegt unverändert weiter (keine Bahnführung mehr)")
