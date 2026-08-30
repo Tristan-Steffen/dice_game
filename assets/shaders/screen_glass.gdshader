@@ -46,7 +46,7 @@ uniform vec2 screen_px = vec2(1.0, 1.0);  // Display-Auflösung (UV -> Pixel)
 // Auslage auffährt. KEINE Fenster: sie fressen keinen der MAX_WINDOWS-Plätze,
 // und ein Null-Rechteck heißt "kein Loch". Geschrieben wird die Liste allein von
 // TableScreen (ein zweiter Schreiber ließe irgendwann ein Loch offen).
-const int MAX_PITS = 9;
+const int MAX_PITS = 10;
 uniform int pit_count = 0;
 uniform vec4 pit_rects[MAX_PITS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float pit_radii[MAX_PITS];  // Eckenradius in Pixeln

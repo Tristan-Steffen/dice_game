@@ -191,10 +191,13 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 9
+const MAX_PITS := 10
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
+## Die Schwarzmarkt-Bucht fährt JEDES Stück aus seiner EIGENEN Sektion, und sie kann
+## drei Körper führen (der erschöpfte Legenden-Topf schiebt eine Sonder-Kassette in
+## den Kartensitz-Platz) - drei Plätze, die alten Namen sind ihre Zonen 0 und 1.
 const PIT_SECRET_SHELF := 3
 const PIT_SECRET_BOWL := 4
 ## Der Wett-Tresen: je Angebots-Plot EIN eigener Schacht, denn drei Wetten können
@@ -208,6 +211,14 @@ const PIT_SIDE_BET2 := 7
 ## nebeneinander, also EIN Loch. Ein eigener Platz, weil die drei Wett-Gruben derweil
 ## offen stehen dürfen.
 const PIT_PAYOUT := 8
+
+## Die dritte Sektion des Schwarzmarkts - ans ENDE gehängt, damit Wett- und
+## Auszahlungs-Plätze ihre Nummern behalten.
+const PIT_SECRET_THIRD := 9
+
+## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
+static func secret_pits() -> Array[int]:
+	return [PIT_SECRET_SHELF, PIT_SECRET_BOWL, PIT_SECRET_THIRD]
 
 ## Der Löcher-Platz EINES Wett-Plots.
 static func side_bet_pit(index: int) -> int:

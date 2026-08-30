@@ -70,7 +70,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	var slots := [TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL,
 		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
 		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
-		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT]
+		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT,
+		TableScreen.PIT_SECRET_THIRD]
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -87,12 +88,19 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		seen.append(slot)
 	assert_eq(seen, [TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
 		TableScreen.PIT_SIDE_BET2])
-	# Die Zonen einer Auslage liegen hintereinander - scene_root addiert sie auf
-	# ihren Sockel.
-	assert_eq(TableScreen.PIT_SHOP_SLITS + VitrineView.ZONE_BOWL,
-		TableScreen.PIT_SHOP_BOWL)
-	assert_eq(TableScreen.PIT_SECRET_SHELF + VitrineView.ZONE_BOWL,
-		TableScreen.PIT_SECRET_BOWL)
+	# Der Schwarzmarkt fährt JEDES Stück aus seiner eigenen Sektion: drei Zonen,
+	# drei eigene Plätze - und der dritte hängt ans ENDE, damit Wett- und
+	# Auszahlungs-Plätze ihre Nummern behalten.
+	var secret := TableScreen.secret_pits()
+	assert_eq(secret.size(), 3, "drei Sektionen, drei Löcher")
+	assert_eq(secret, [TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
+		TableScreen.PIT_SECRET_THIRD])
+	assert_eq(TableScreen.PIT_SECRET_THIRD, TableScreen.MAX_PITS - 1,
+		"ans Ende gehängt")
+	for slot: int in secret:
+		assert_ne(slot, TableScreen.PIT_PAYOUT)
+		for i in SideBetPanel.OFFER_COUNT:
+			assert_ne(slot, TableScreen.side_bet_pit(i))
 
 # --- Die Plätze der Ware (reine Mathematik, keine Körper) ----------------------
 
@@ -269,6 +277,61 @@ func test_die_zone_haengt_am_platz_nicht_am_koerper() -> void:
 	assert_eq(VitrineView.zone_of_key(
 		VitrineView.slot_key(ShopController.KIND_DIE, 3)), VitrineView.ZONE_BOWL,
 		"und der Schlüssel trägt seine Gattung mit")
+
+# --- Der Schwarzmarkt: EINE Reihe, je Stück eine eigene Sektion ----------------
+
+func test_single_row_legt_beide_baender_auf_eine_tiefe() -> void:
+	# In single_row liegt ALLES auf center.x: nur EIN Schacht (ZONE_BOWL) geht auf,
+	# statt zweier überlappender Löcher an derselben Tiefe.
+	var bay := VitrineView.new()
+	bay.center = Vector3(-30.0, 0.0, 0.0)
+	bay.half = Vector2(9.0, 13.0)
+	bay.single_row = true
+	var bands: Vector2 = bay._band_depths()
+	assert_almost_eq(bands.x, bay.center.x, 0.0001, "das Regalband fällt auf die Mitte")
+	assert_almost_eq(bands.y, bay.center.x, 0.0001, "die Schale ebenso - EINE Tiefe")
+	bay.free()
+
+func test_single_row_gibt_jedem_platz_seine_eigene_zone() -> void:
+	var bay := VitrineView.new()
+	bay.single_row = true
+	# Die Zone IST der Offer-Index: je Stück ein eigenes Loch, gleich welcher Sorte.
+	assert_eq(bay._zone_of_key(
+		VitrineView.slot_key(ShopController.KIND_ENGRAVING_PACK, 1)), 1)
+	assert_eq(bay._zone_of_key(VitrineView.slot_key(ShopController.KIND_DIE, 2)), 2)
+	assert_eq(bay._zone_of_key(VitrineView.slot_key(ShopController.KIND_DIE, 0)), 0)
+	# Der Laden (kein single_row) liest weiter die statische Regel.
+	var shop := VitrineView.new()
+	assert_eq(shop._zone_of_key(
+		VitrineView.slot_key(ShopController.KIND_ENGRAVING_PACK, 1)), VitrineView.ZONE_SHELF)
+	assert_eq(shop._zone_of_key(
+		VitrineView.slot_key(ShopController.KIND_DIE, 2)), VitrineView.ZONE_BOWL)
+	bay.free()
+	shop.free()
+
+func test_die_einzel_loecher_einer_reihe_beruehren_sich_nie() -> void:
+	# Zwei Nachbar-Sektionen dürfen sich nicht überlappen, sonst lugte eine unter
+	# dem Stück daneben hervor: die halbe Spannweite bleibt unter der halben Teilung.
+	var bay := VitrineView.new()
+	bay.center = Vector3(-30.0, 0.0, 0.0)
+	bay.half = Vector2(9.0, 13.0)
+	bay.single_row = true
+	bay._row_pitch = 4.0
+	var margin := VitrineView.bowl_reach() * VitrineView.SHAFT_MARGIN_SHARE
+	var span: float = bay._section_span(9.0, 9.0, margin)
+	assert_lt(span, 2.0, "gedeckelt auf die halbe Teilung, minus Fuge")
+	assert_almost_eq(span,
+		2.0 * (1.0 - VitrineView.ROW_SHAFT_GAP_SHARE), 0.0001)
+	# Ein kleines Stück bekommt sein eigenes Maß, nicht den Deckel.
+	assert_almost_eq(bay._section_span(0.2, 9.0, margin), 0.2 + margin, 0.0001,
+		"das Loch deckt SEIN Stück, nicht die Reihe")
+	# Der Laden misst weiter an der Zonen-Reichweite.
+	var shop := VitrineView.new()
+	shop.center = Vector3.ZERO
+	shop.half = Vector2(9.0, 13.0)
+	assert_almost_eq(shop._section_span(0.2, 3.0, margin), 3.0 + margin, 0.0001)
+	bay.free()
+	shop.free()
 
 func test_eine_auslage_ohne_regal_stellt_ihren_block_mittig() -> void:
 	# Der Laden führt keine Regalware mehr: dann gehört die Tiefe der Schale

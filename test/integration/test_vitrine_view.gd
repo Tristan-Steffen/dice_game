@@ -646,3 +646,121 @@ func test_ein_laufwechsel_raeumt_die_auslage_hart() -> void:
 	bay.clear()
 	assert_eq(bay.items.size(), 0, "nichts liegt mehr darin")
 	assert_true(bay.half.x > 0.0, "der RAUM bleibt gestellt")
+
+# --- Der Schwarzmarkt: EINE Reihe, je Stück eine eigene Sektion ----------------
+
+## Eine single_row-Bucht mit einer Kassette (Slot 0) und einem Würfel (Slot 1) -
+## index-treu wie das Hinterzimmer meldet.
+func _mixed_row() -> Dictionary:
+	return _stock([Pack.roll_engraving_pack(), null], [null, _die()], [])
+
+func test_single_row_stellt_kassette_und_wuerfel_auf_gleiche_tiefe() -> void:
+	var row := VitrineView.new("RowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	row.present(_mixed_row())
+	await wait_frames(2)
+	assert_eq(row.items.size(), 2, "beide Bucht-Stücke liegen in der Reihe")
+	var cassette := row.spot_of(ShopController.KIND_ENGRAVING_PACK, 0)
+	var wuerfel := row.spot_of(ShopController.KIND_DIE, 1)
+	assert_almost_eq(cassette.x, wuerfel.x, 0.0001, "gleiche Tiefe - EINE Reihe")
+	assert_almost_eq(cassette.x, CENTER.x, 0.0001, "und sie liegt auf center.x")
+	assert_ne(cassette.z, wuerfel.z, "nebeneinander, kein Überlapp")
+
+func test_die_ware_liegt_nackt_auf_der_flaeche() -> void:
+	# Das farbige Podest ist 2026-08-30 gefallen: beide Sorten ruhen wieder direkt
+	# auf der Fläche, wie im Laden.
+	var row := VitrineView.new("BareRowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	row.present(_mixed_row())
+	await wait_frames(2)
+	assert_almost_eq(row.spot_of(ShopController.KIND_ENGRAVING_PACK, 0).y,
+		row.cell_y(), 0.0001, "die Kassette liegt auf der Fläche")
+	assert_almost_eq(row.spot_of(ShopController.KIND_DIE, 1).y,
+		row.lie_y(DieBuilder.HALF_EXTENT * VitrineView.DIE_SCALE), 0.0001,
+		"der Würfel ebenso")
+	for item in row.items:
+		assert_null((item["node"] as Node3D).get_node_or_null("Podest"),
+			"kein Sockel-Mesh mehr unter der Ware")
+
+func test_der_wuerfel_liegt_immer_ganz_rechts() -> void:
+	# Jeder Laden liest links nach rechts Charm, Paket, Würfel - in der Bucht heißt
+	# das: Kassetten zuerst, Würfel am größten z (Bildschirm-rechts).
+	var row := VitrineView.new("OrderRowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	# Der Würfel steht auf Slot 1, die Kassette auf Slot 2 - die AUSLAGE dreht das um.
+	row.present(_stock([null, null, Pack.roll_engraving_pack()], [null, _die(), null], []))
+	await wait_frames(2)
+	var cassette := row.spot_of(ShopController.KIND_ENGRAVING_PACK, 2)
+	var wuerfel := row.spot_of(ShopController.KIND_DIE, 1)
+	assert_gt(wuerfel.z, cassette.z, "der Würfel liegt rechts von der Kassette")
+	assert_almost_eq(cassette.x, wuerfel.x, 0.0001, "und beide auf EINER Tiefe")
+
+func test_jedes_stueck_faehrt_aus_seiner_eigenen_sektion() -> void:
+	# Zone = Offer-Index: je Stück ein eigener Schacht, und die Löcher berühren sich
+	# nicht. Gefahren wird trotzdem GLEICHZEITIG (ein Vorlauf für alle).
+	var row := VitrineView.new("ShaftRowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	var holes: Dictionary = {}
+	row.shaft_opened.connect(func(zone: int, at: Vector3, half_extents: Vector2) -> void:
+		holes[zone] = {"at": at, "half": half_extents})
+	row.present_graded(_mixed_row(), ShopController.GRADE_RISE)
+	await wait_frames(3)
+	assert_eq(holes.size(), 2, "je Stück ein eigenes Loch")
+	assert_true(holes.has(0) and holes.has(1), "und zwar auf seinem Offer-Index")
+	var a: Dictionary = holes[0]
+	var b: Dictionary = holes[1]
+	var gap := absf((a["at"] as Vector3).z - (b["at"] as Vector3).z)
+	assert_gt(gap, (a["half"] as Vector2).y + (b["half"] as Vector2).y,
+		"die Nachbar-Löcher überlappen nie")
+	row.settle()
+	assert_eq(row.leaving_count(), 0)
+
+func test_ein_kauf_verrueckt_die_uebrige_ware_nicht() -> void:
+	# Die Plätze rechnen über ALLE Bucht-Plätze (row_kinds, Verkauftes eingeschlossen):
+	# der Kauf lässt eine LÜCKE, der Würfel liegt, wo er per Plattform hochkam.
+	var row := VitrineView.new("StableRowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	var kinds := ["", ShopController.KIND_ENGRAVING_PACK, ShopController.KIND_DIE]
+	var full := _stock([null, Pack.roll_engraving_pack(), null], [null, null, _die()], [])
+	full[VitrineView.STOCK_ROW_KINDS] = kinds
+	row.present(full)
+	await wait_frames(2)
+	var wuerfel := row.spot_of(ShopController.KIND_DIE, 2)
+	assert_ne(wuerfel, Vector3.ZERO, "der Würfel liegt")
+	# Slot 1 verkauft: dieselben Sorten gemeldet, nur der Körper fehlt.
+	var after := _stock([null, null, null], [null, null, _die()], [])
+	after[VitrineView.STOCK_ROW_KINDS] = kinds
+	row.present(after)
+	await wait_frames(2)
+	assert_eq(row.items.size(), 1, "die Lücke bleibt eine Lücke")
+	assert_true(row.spot_of(ShopController.KIND_DIE, 2).is_equal_approx(wuerfel),
+		"und der Würfel liegt unverrückt, wo er hochkam")
+	row.settle()
+
+func test_der_kauf_faehrt_die_sektion_auch_in_einer_reihe() -> void:
+	# Der Sektions-Umbau darf den KAUF nicht brechen: der übrige Bestand bleibt liegen,
+	# das gekaufte Stück verläßt items, und kein Loch bleibt offen.
+	var row := VitrineView.new("BuyRowProbe")
+	row.single_row = true
+	add_child_autofree(row)
+	row.setup(CENTER, HALF)
+	row.present(_mixed_row())
+	await wait_frames(2)
+	assert_eq(row.items.size(), 2)
+	# Slot 0 (Kassette) verkauft: null an seinem Platz, der Würfel bleibt.
+	row.present(_stock([null, null], [null, _die()], []))
+	await wait_frames(2)
+	assert_eq(row.items.size(), 1, "der Würfel bleibt liegen")
+	assert_eq(String(row.items[0]["kind"]), ShopController.KIND_DIE)
+	row.settle()
+	assert_eq(row.leaving_count(), 0, "nach dem Aufräum-Pfad fährt nichts mehr hinaus")

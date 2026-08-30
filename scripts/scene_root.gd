@@ -60,9 +60,11 @@ const CAPACITOR_SLOT_TALL := 2.0
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Seitenverhältnis des Schwarzmarkt-Fensters. Früher schnitt die Glas-Ellipse
-## seine linke Kante zu; die ist fort, also steht das Maß jetzt AUTORISIERT da -
-## und zwar auf dem Wert, den die Ellipse ergab: klein und flach ist die ganze
-## Gestaltung dieses Fensters (Zoom und Schriftgrad sind darauf gelöst).
+## seine linke Kante zu; die ist fort, also steht das Maß jetzt AUTORISIERT da.
+## Es bindet weiter die Breite: seit der Schwarzmarkt in den vom TOPF-Rückbau
+## freigegebenen Filz hochwächst (Oberkante am kurzen Automaten-Fenster), skaliert
+## der ganze Inhalt bei GLEICHEM Verhältnis mit (~786×437 statt 452×251, u ~7,9
+## statt 4,5) - flach ist er nicht mehr, nur breiter als hoch.
 const SECRET_SHOP_ASPECT := 1.8
 ## Violett der legendären Rarität - die Signaturfarbe des Schwarzmarkts.
 const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
@@ -102,8 +104,8 @@ const HUB_HEIGHT_WORLD := 30.0
 ## Tischrand und bleibt bewusst - der Schwarzmarkt hängt daran.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
 ## Das Fenster füllt seit dem TOPF-Rückbau (vier Reihen, keine Topf-Anzeige) nur
-## noch diesen Anteil der Spalte; der Rest darunter bleibt leerer Filz. Der
-## Schwarzmarkt hängt an der VOLLEN Spalte und rückt darum NICHT nach.
+## noch diesen Anteil der Spalte. Den Rest darunter nimmt jetzt der Schwarzmarkt:
+## seine Oberkante folgt dem KURZEN Fenster (slots_rect), nicht der vollen Spalte.
 const SLOTS_HEIGHT_SHARE := 0.78
 
 ## Die MASSEINHEIT der Ecke bleibt an der Tray-Breite hängen: hinge sie an der
@@ -651,17 +653,13 @@ var _payout_leaving: Array = []
 ## Laufende Nummer der Ablage - nur die jüngste räumt sie ab.
 var _payout_gen := 0
 
-## Die HINTERZIMMER-AUSLAGE: dieselbe Miniatur am Schwarzmarkt-Fenster. Sie hängt
-## am FOKUS: sie deckt auf, wenn die Kamera das Hinterzimmer anfährt.
+## Die HINTERZIMMER-AUSLAGE: dieselbe Miniatur am Schwarzmarkt-Fenster. Sie steht,
+## sobald der Schwarzmarkt freigeschaltet ist - unabhängig von der Kamera.
 var secret_vitrine: VitrineView
 var _secret_curtain := false
 var _secret_gen := 0
 var _secret_swap := 0
 var _secret_grade := ShopController.GRADE_STAND
-## Dieselbe Zweiteilung wie im Laden: die Kamera fährt fort und die Maschine
-## schluckt im Abflug; jede Verdeckung bleibt der harte Weg.
-var _secret_leaving := false
-var _secret_exit := 0
 ## Wo die zuletzt gekaufte Hehlerware in die Fläche gesunken ist.
 var _secret_depart_px := Vector2(-1, -1)
 
@@ -1091,9 +1089,11 @@ func _setup_table_screen() -> void:
 	table_screen.slot_bank_window.coin_travel_time = table_screen.slot_pay_travel_time()
 
 	# Schwarzmarkt: direkt unter den Automaten in der Glas-Tasche, Unterkante
-	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster - auch vergittert
-	# anfassbar, denn der Freischalt-Knopf liegt IM Fenster.
-	var secret_rect := _secret_shop_rect(slots_column_rect, hub_r)
+	# bündig mit dem Hub. Oberkante folgt dem KURZEN Automaten-Fenster (slots_rect),
+	# nicht der vollen Spalte - so füllt er den Filz, den der TOPF-Rückbau freigab.
+	# Eigener Zoom wie jedes Tisch-Fenster - auch vergittert anfassbar, denn der
+	# Freischalt-Knopf liegt IM Fenster.
+	var secret_rect := _secret_shop_rect(slots_rect, hub_r)
 	table_screen.place_secret_shop_window(secret_rect)
 	secret_shop_click_zone = _screen_zoom_zone("SecretShopClickZone", secret_rect,
 		camera_rig.configure_secret_shop_target)
@@ -3056,7 +3056,8 @@ func _place_shop_vitrine() -> void:
 		# sich etwas rührt. GEMELDET, nicht je Bild erfragt.
 		shop_vitrine.dice_settled.connect(_on_vitrine_dice_settled)
 		shop_vitrine.dice_moving.connect(_clear_vitrine_nets)
-		_wire_shafts(shop_vitrine, TableScreen.PIT_SHOP_SLITS)
+		_wire_shafts(shop_vitrine,
+			[TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL] as Array[int])
 	# Die bündige Plattform IST die Anzeige: ihre Haut zeigt deren echtes Bild.
 	shop_vitrine.deck_skin = table_screen.display_skin()
 	shop_vitrine.wall_skin = PIT_SKIN
@@ -3073,16 +3074,16 @@ func _place_vitrine(bay: VitrineView, rect: Rect2, shown: bool) -> void:
 
 ## Die SCHÄCHTE einer Auslage: sie meldet, wann eines ihrer Löcher auf- und
 ## zugeht, geschnitten wird es von TableScreen (eine View greift nicht in die
-## Shader). Je Zone ein fester Platz in der Löcherliste. Die Ladenbucht führt keine
-## Regalware, ihre Regal-Zone bleibt also unbenutzt - deren Platz gehört der
-## Schlitzreihe, die scene_root selbst fährt.
-func _wire_shafts(bay: VitrineView, slot_base: int) -> void:
+## Shader). slots ist die EXPLIZITE Zone→Platz-Liste; eine Zone ohne Platz wird
+## still übergangen. Die Ladenbucht führt keine Regalware, ihre Regal-Zone bleibt
+## also unbenutzt - deren Platz gehört der Schlitzreihe, die scene_root selbst fährt.
+func _wire_shafts(bay: VitrineView, slots: Array[int]) -> void:
 	bay.shaft_opened.connect(func(zone: int, at: Vector3, hole: Vector2) -> void:
-		if table_screen != null:
-			table_screen.set_lift_pit(slot_base + zone, at, hole))
+		if table_screen != null and zone >= 0 and zone < slots.size():
+			table_screen.set_lift_pit(slots[zone], at, hole))
 	bay.shaft_closed.connect(func(zone: int) -> void:
-		if table_screen != null:
-			table_screen.clear_pit(slot_base + zone))
+		if table_screen != null and zone >= 0 and zone < slots.size():
+			table_screen.clear_pit(slots[zone]))
 
 ## Der EINE Aufräum-Pfad für die Löcher: nach jedem Auftritt, jedem Vorhangfall und
 ## jedem Laufwechsel ist JEDER Schacht zu. Ein offen gebliebenes Loch wäre der
@@ -5184,11 +5185,51 @@ func _sync_vitrine_hover() -> void:
 		_sync_vitrine_net_hover()
 	var market := _secret_window()
 	if market != null:
-		_paint_bay_hover(secret_vitrine, _secret_bay_rect(), market.vitrine_annotation,
-			func(data: Dictionary, anchor: Vector2) -> void:
-				market.show_bay_annotation(data, anchor),
-			func() -> void: market.hide_bay_annotation(),
-			market.bay_annotation_has_point)
+		# Der Zeiger auf der Charm-Karte schreibt ihren Text in DENSELBEN Fuß wie die
+		# Bucht-Ware; sonst greift die Bucht wie gehabt. GEFRAGT je Bild - der Zeiger
+		# liegt auf dem Tisch, mouse_entered erreicht die Karte im Fokus nicht sicher.
+		if _secret_charm_hovered(market):
+			market.hover_charm(true)
+			secret_vitrine.set_hovered("", -1)
+		else:
+			market.hover_charm(false)
+			_paint_bay_hover(secret_vitrine, _secret_bay_rect(), market.vitrine_annotation,
+				func(data: Dictionary, anchor: Vector2) -> void:
+					market.show_bay_annotation(data, anchor),
+				func() -> void: market.hide_bay_annotation(),
+				market.bay_annotation_has_point, market.foot_hover)
+		_sync_secret_plates(market)
+
+## Ob der Zeiger auf dem Charm-Sitz des Hinterzimmers liegt (leer = kein Charm,
+## abgedeckt oder weggezoomt). Gleiches Tor wie die Bucht: nur am Fokus, und nur
+## wenn der Tisch bedienbar ist.
+func _secret_charm_hovered(market: SecretShopView) -> bool:
+	if not _secret_curtain or not _table_operable():
+		return false
+	var seat := market.charm_seat_rect_px()
+	if seat.size.x <= 0.0:
+		return false
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	return pixel.x >= 0.0 and seat.has_point(pixel)
+
+## Die STEHENDEN Schilder der Hinterzimmer-Bucht (Seelen-Zeile plus ⚡-Preis, die
+## Laden-Grammatik "Hinsehen braucht keinen Zeiger"): je Bild gemeldet wie der
+## Griff, das Fenster baut nur bei Änderung um (Signatur). Unter dem Vorhang und
+## während einer Fahrt steht kein Schild - unter reisender Ware wäre es gelogen.
+func _sync_secret_plates(market: SecretShopView) -> void:
+	if secret_vitrine == null or not is_instance_valid(secret_vitrine) \
+			or run == null or not _secret_curtain \
+			or not secret_vitrine.bowl_settled():
+		market.set_bay_plates([])
+		return
+	var entries: Array = []
+	for kind: String in [ShopController.KIND_ENGRAVING_PACK, ShopController.KIND_DIE]:
+		for i in run.secret_stock.size():
+			var spot := secret_vitrine.spot_of(kind, i)
+			if spot != Vector3.ZERO:
+				entries.append({"kind": kind, "index": i,
+					"px": table_screen.world_to_pixel(spot)})
+	market.set_bay_plates(entries)
 
 ## Griff und (wo es eine gibt) Beschriftung EINER Auslage. Ein leeres Rechteck
 ## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Der LADEN greift
@@ -5197,7 +5238,8 @@ func _sync_vitrine_hover() -> void:
 ## Zeiger auf der stehenden Karte liegt - dort bleibt alles, wie es steht (ihre
 ## Schlüsselwörter sind Klickziele).
 func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
-		show := Callable(), hide := Callable(), holds := Callable()) -> void:
+		show := Callable(), hide := Callable(), holds := Callable(),
+		hold_hover := Callable()) -> void:
 	if bay == null or not is_instance_valid(bay):
 		return
 	if rect.size.x <= 0.0:
@@ -5207,6 +5249,10 @@ func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
 		return
 	var pixel := _screen_pixel(get_viewport().get_mouse_position())
 	if pixel.x >= 0.0 and holds.is_valid() and bool(holds.call(pixel)):
+		# Der Zeiger steht auf der gehaltenen Auskunft: nur sie selbst darf noch
+		# antworten (das Netz des Schwarzmarkt-Fußes hovert seine Zellen).
+		if hold_hover.is_valid():
+			hold_hover.call(pixel)
 		return
 	var item := _bay_item_at(bay, rect, pixel)
 	if item.is_empty():
@@ -5242,8 +5288,8 @@ func _shop_bay_rect() -> Rect2:
 		return Rect2()
 	return charm_shop.vitrine_pit_rect()
 
-## Dasselbe im Hinterzimmer - dort deckt der FOKUS auf (_sync_secret_curtain),
-## also trägt der Vorhang die Station schon in sich.
+## Dasselbe im Hinterzimmer: die Ware steht immer, also antwortet der Griff überall,
+## wo sie zu sehen ist. Nur der KAUF-Klick hängt an der Station (_forward_vitrine_mouse).
 func _secret_bay_rect() -> Rect2:
 	var market := _secret_window()
 	if market == null or not _secret_curtain or not _table_operable():
@@ -5263,6 +5309,12 @@ func _forward_vitrine_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
 	if _forward_bay_mouse(shop_vitrine, _shop_bay_rect(), event, pixel,
 			_buy_vitrine_item):
 		return true
+	# GEKAUFT wird nur an der eigenen Station (die Wett-Tresen-Regel, zweite benannte
+	# Ausnahme von "Sichtbar heißt bedienbar"): aus der Ferne fällt der Klick durch
+	# und wird zum Zoom. Bewegungen laufen weiter überall - Hover und Schilder auch.
+	if event is InputEventMouseButton \
+			and camera_rig.mode != CameraRig.Mode.SECRET_SHOP:
+		return false
 	var market := _secret_window()
 	return _forward_bay_mouse(secret_vitrine, _secret_bay_rect(), event, pixel,
 		_buy_secret_item,
@@ -5445,14 +5497,14 @@ func _forward_fach_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
 
 # --- Die Hinterzimmer-Auslage -----------------------------------------------
 # Dieselbe Miniatur wie im Laden, nur ohne Ausgabefach - dort geht jede Ware
-# versiegelt hinaus. Und aufgedeckt wird nach dem FOKUS statt nach einer Phase:
-# das Aufdecken IST der Eintritt ins Hinterzimmer.
+# versiegelt hinaus. Aufgedeckt wird nach der FREISCHALTUNG statt nach einer Phase
+# oder der Kamera: die Ware steht, sobald es sie gibt.
 
 ## Stellt die Auslage an das Schwarzmarkt-Fenster. Wie im Laden zwei Bilder
 ## Geduld - das Rechteck steht erst, wenn die Seite ausgelegt ist.
 func _sync_secret_vitrine() -> void:
-	if _secret_window() == null or _secret_leaving:
-		return  # die Maschine schluckt: der Abgleich stellt nichts nach
+	if _secret_window() == null:
+		return
 	_secret_gen += 1
 	var generation := _secret_gen
 	await get_tree().process_frame
@@ -5479,8 +5531,10 @@ func _place_secret_vitrine() -> void:
 		market.lexikon_requested.connect(open_lexikon)
 	if secret_vitrine == null or not is_instance_valid(secret_vitrine):
 		secret_vitrine = VitrineView.new("SecretVitrine")
+		# EINE Reihe auf gleicher Tiefe, aber je Stück eine eigene Sektion.
+		secret_vitrine.single_row = true
 		add_child(secret_vitrine)
-		_wire_shafts(secret_vitrine, TableScreen.PIT_SECRET_SHELF)
+		_wire_shafts(secret_vitrine, TableScreen.secret_pits())
 	secret_vitrine.deck_skin = table_screen.display_skin()
 	secret_vitrine.wall_skin = PIT_SKIN
 	_place_vitrine(secret_vitrine, rect, _secret_curtain)
@@ -5490,39 +5544,27 @@ func _set_secret_shown(shown: bool) -> void:
 	if secret_vitrine != null and is_instance_valid(secret_vitrine):
 		secret_vitrine.set_shown(shown)
 
-## Aufgedeckt wird nach dem FOKUS: die Ware kommt hervor, wenn die Kamera das
-## Hinterzimmer anfährt, und geht beim Verlassen. Vergittert bleibt sie fort -
-## dunkle Umrisse sind der bessere Köder als Platzhalter-Ware.
-## Dieselbe Zweiteilung wie im Laden: fährt nur die KAMERA fort, schluckt die
-## Maschine im Abflug; ist das Fenster fort oder der Lauf gewechselt, bleibt der
-## harte Sofort-Weg - und der ist zugleich der Abbruch.
+## Die Hehlerware steht IMMER auf dem Tisch, sobald sie freigeschaltet ist - die
+## Kamera-Bedingung ist 2026-08-30 gefallen. Fort ist sie nur, wenn das Fenster fort
+## ist, das Gitter noch steht oder der Lauf gewechselt hat; dann geht sie den harten
+## Weg. GEKAUFT wird trotzdem nur an der eigenen Station (_forward_vitrine_mouse).
 func _sync_secret_curtain() -> void:
 	var market := _secret_window()
-	var live := market != null and market.visible and run != null \
+	var want := market != null and market.visible and run != null \
 		and run.secret_shop_unlocked
-	var want := live and camera_rig.mode == CameraRig.Mode.SECRET_SHOP
-	if _secret_leaving and not want:
-		return
-	if want == _secret_curtain and not _secret_leaving:
+	if want == _secret_curtain:
 		return
 	_secret_curtain = want
 	if want:
-		if _secret_leaving:
-			_hide_secret_hard()
 		_set_secret_shown(true)
 		return
-	if not live:
-		_hide_secret_hard()
-		return
-	_play_secret_exit()  # die Kamera fliegt, die Maschine zieht ein
+	_hide_secret_hard()
 
-## Der harte Sofort-Weg des Hinterzimmers - und der Abbruch seiner Zeremonie.
+## Der harte Sofort-Weg des Hinterzimmers - und der Abbruch jeder Fahrt.
 func _hide_secret_hard() -> void:
-	_secret_leaving = false
-	_secret_exit += 1
 	var market := _secret_window()
 	if market != null:
-		market.hide_bay_annotation()
+		market.hide_bay_annotation(true)  # hart: keine Verweilzeit über dem Abbau
 	_set_secret_shown(false)
 	_close_lift_shafts()
 	# Dieselbe physische Regel wie im Laden: eine körperlich LEERE Bucht schuldet
@@ -5530,26 +5572,6 @@ func _hide_secret_hard() -> void:
 	_secret_grade = ShopController.grade_on_stand(_secret_grade,
 		secret_vitrine != null and is_instance_valid(secret_vitrine)
 			and secret_vitrine.body_count() > 0)
-
-## Die Schluck-Zeremonie des Hinterzimmers: dieselbe Maschine, derselbe Abflug.
-func _play_secret_exit() -> void:
-	_secret_exit += 1
-	var token := _secret_exit
-	var launched := run
-	var cap := 0.0
-	if secret_vitrine != null and is_instance_valid(secret_vitrine):
-		cap = secret_vitrine.exit_all()
-	if cap <= 0.0:
-		_hide_secret_hard()
-		return
-	_secret_leaving = true
-	var market := _secret_window()
-	if market != null:
-		market.hide_bay_annotation()
-	await get_tree().create_timer(cap).timeout
-	if token != _secret_exit or run != launched:
-		return
-	_hide_secret_hard()
 
 ## Die Auslage des Hinterzimmers stellen. Das Fenster fasst nie einen Körper an -
 ## es meldet, was liegt.
@@ -5567,9 +5589,6 @@ func _on_secret_vitrine_changed() -> void:
 	if market == null:
 		return
 	var grade := market.vitrine_grade()
-	if _secret_leaving:
-		_secret_grade = ShopController.louder_grade(_secret_grade, grade)
-		return
 	if not _secret_curtain:
 		_secret_grade = ShopController.louder_grade(_secret_grade, grade)
 		_sync_secret_stock()
