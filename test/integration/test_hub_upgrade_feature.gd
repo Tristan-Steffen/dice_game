@@ -73,19 +73,25 @@ func _screen() -> TableScreen:
 	ts.link_hub_to_treasure()
 	return ts
 
-func test_side_bet_installed_toggles_window_visibility() -> void:
+func test_side_bet_window_always_visible() -> void:
 	var ts := _screen()
+	# Das Fenster steht immer, auch vor der Freischaltung.
+	assert_true(ts.side_bet_window.visible, "Fenster immer sichtbar")
 	ts.set_side_bet_installed(false)
-	assert_false(ts.side_bet_window.visible, "vor Stufe 3: nicht installiert")
-	ts.set_side_bet_installed(true)
-	assert_true(ts.side_bet_window.visible, "ab Stufe 3: installiert")
+	assert_true(ts.side_bet_window.visible, "auch nach false bleibt es sichtbar")
 
-func test_side_bet_fork_follows_installation() -> void:
+func test_side_bet_lock_overlay() -> void:
 	var ts := _screen()
-	ts.set_side_bet_installed(true)
-	assert_true(ts.treasure_strip.branch_path.size() >= 2, "Fork zur Hardware vorhanden")
-	ts.set_side_bet_installed(false)
-	assert_eq(ts.treasure_strip.branch_path.size(), 0, "ohne Installation kein Fork")
+	var panel: SideBetPanel = ts.side_bet_window
+	panel.set_locked(true)
+	assert_true(panel.locked, "gesperrt")
+	panel.set_locked(false)
+	assert_false(panel.locked, "entsperrt")
+
+func test_side_bet_fork_always_present() -> void:
+	var ts := _screen()
+	# Der Fork liegt immer, weil das Fenster immer sichtbar ist.
+	assert_true(ts.treasure_strip.branch_path.size() >= 2, "Fork immer vorhanden")
 
 # --- Shop-Gating (ShopController) --------------------------------------------
 

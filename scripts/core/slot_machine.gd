@@ -4,13 +4,14 @@ extends RefCounted
 ## Gewinnen. Reine Logik/Daten - die UI (SlotBankView) spiegelt den Zustand,
 ## GameRun bucht die Gewinne.
 ##
-## Symbole sind AUSSCHLIESSLICH Ware: die drei Gravur-Sorten (Zahlen/Material/
-## Würfel-Gravur - dieselbe Dreiteilung wie Pakete und Schubladen), Charm, Würfel,
-## Fumble. Eine Gravur-Reihe zahlt versiegelte PAKETE, keine einzelnen Gravuren.
-## Geld gibt es hier nicht: der Automat setzt Energie in Ware um.
+## Symbole sind Ware und Energie: die drei Gravur-Sorten (Zahlen/Material/
+## Würfel-Gravur - dieselbe Dreiteilung wie Pakete und Schubladen), ⚡, der JOKER
+## (★, mischt sich in jede Sorte) und Fumble.
+## Eine Gravur-Reihe zahlt versiegelte PAKETE, keine einzelnen Gravuren.
+## Geld gibt es hier nicht: der Automat setzt Energie in Ware und Energie um.
 ##
-## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=3 Symbole; alle
-## drei gedreht ergeben eine 3×9-Wand. Symbole sind bloße Zeichen (kein Preis) -
+## Symbol-Wand: jeder Automat besitzt MACHINE_COLS=3 Spalten à ROWS=4 Symbole; alle
+## drei gedreht ergeben eine 4×9-Wand. Symbole sind bloße Zeichen (kein Preis) -
 ## Gewinne entstehen erst durch REIHEN: 3+ gleiche Symbole waagerecht nebeneinander
 ## (Reihen dürfen Automaten-Grenzen überschreiten). Länger = mehr UND größere
 ## Pakete (PACK_LADDER) - der Automat ist neben dem Laden die zweite Größenquelle.
@@ -22,7 +23,7 @@ extends RefCounted
 
 const MACHINE_COUNT := 3
 const MACHINE_COLS := 3
-const ROWS := 5
+const ROWS := 4
 const TOTAL_COLS := MACHINE_COUNT * MACHINE_COLS  # 9
 const MIN_RUN := 3          # ab so vielen gleichen nebeneinander zahlt eine Reihe
 const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
@@ -30,25 +31,33 @@ const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
 ## über den Gewinn, nicht über den Preis.
 const SPIN_CHARGES := [1, 1, 1]
 const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
+## Die vier auszahlenden Sorten - der Joker gehört NICHT dazu (er zahlt nie allein).
+const PAYOUT_KINDS := [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL,
+	SlotPrize.Kind.DICE_ENGRAVING, SlotPrize.Kind.CHARGE]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.
 const DIRECTIONS := [[1, 0], [0, 1], [1, 1], [1, -1]]
 
 ## DIE AUSZAHLUNGSLEITER einer Gravur-Reihe: die LÄNGE entscheidet Menge UND
-## Paketgröße - 3→1 Standard, 4→2 Standard, 5→1 Groß, 6→2 Groß, dann kolossal.
-## Sie gilt für alle drei Gravur-Sorten GLEICH: die Sortenschere steckt schon in
-## den Symbol-Gewichten (_symbol_table - viele Zahlen, kaum Würfel-Gravuren), eine
-## seltene Reihe ist also von sich aus seltener; sie obendrein schlechter zu zahlen
-## zählte die Knappheit doppelt. WELCHE Sorte fällt, sagt weiter das Symbol.
+## Paketgröße - 3→1 Standard, 4→1 Groß, 5→1 Kolossal, und ab da hebt jede weitere
+## Länge um EIN Kolossal (6→2, 7→3, … 9→5). Sie gilt für alle drei Gravur-Sorten
+## GLEICH: die Sortenschere steckt schon in den Symbol-Gewichten (_symbol_table -
+## viele Zahlen, kaum Würfel-Gravuren), eine seltene Reihe ist also von sich aus
+## seltener; sie obendrein schlechter zu zahlen zählte die Knappheit doppelt.
+## WELCHE Sorte fällt, sagt weiter das Symbol.
 const PACK_LADDER := {
 	3: {"count": 1, "tier": Pack.TIER_NORMAL},
-	4: {"count": 2, "tier": Pack.TIER_NORMAL},
-	5: {"count": 1, "tier": Pack.TIER_GROSS},
-	6: {"count": 2, "tier": Pack.TIER_GROSS},
+	4: {"count": 1, "tier": Pack.TIER_GROSS},
 }
-## Ab hier läuft die Leiter kolossal weiter: 7→1, 8→2, 9→3 (TOTAL_COLS ist die
+## Ab hier läuft die Leiter kolossal weiter: 5→1, 6→2, … 9→5 (TOTAL_COLS ist die
 ## Decke). Abgeleitet statt ausgeschrieben - die Fortsetzung ist eine Regel.
-const KOLOSSAL_FROM := 7
+const KOLOSSAL_FROM := 5
+
+## DIE AUSZAHLUNGSLEITER einer ⚡-Reihe: 3→1, 4→2, 5→3, ab 6 fest CHARGE_MAX (4).
+## Bewusst flach und bescheiden (Spieler-Entscheid) - ein Dreh kostet 1⚡, die
+## Mindestreihe zahlt ihn also genau zurück.
+const CHARGE_LADDER := {3: 1, 4: 2, 5: 3}
+const CHARGE_MAX := 4
 
 ## Aktuelle Wand: TOTAL_COLS Spalten, jede leer (ungedreht) oder ROWS Symbol-Kinds
 ## (SlotPrize.Kind als Symbol-Enum). Spalte c gehört Automat c / MACHINE_COLS.
@@ -80,9 +89,10 @@ func runs() -> Array:
 		return []
 	var out: Array = []
 	for direction in DIRECTIONS:
-		for seg in _line_segments(direction[0], direction[1]):
-			if seg["kind"] != SlotPrize.Kind.FUMBLE and seg["cells"].size() >= MIN_RUN:
-				out.append(_make_run(seg["kind"], seg["cells"], direction))
+		for kind: int in PAYOUT_KINDS:
+			for seg in _kind_segments(direction[0], direction[1], kind):
+				if seg.size() >= MIN_RUN:
+					out.append(_make_run(kind, seg, direction))
 	return out
 
 ## Zellen [col,row], die zu einer Fumble-Reihe (Länge ≥ min_len) gehören - in allen
@@ -95,6 +105,39 @@ func fumble_run_cells(min_len: int = 2) -> Array:
 				for cell in seg["cells"]:
 					out.append(cell)
 	return out
+
+## Ob Zelle [col,row] zur Sorte kind zählt - der JOKER (★) zählt zu JEDER Sorte.
+func _matches(col: int, row: int, kind: int) -> bool:
+	if not _in_bounds(col, row) or not _has_col(col):
+		return false
+	var c: int = cells[col][row]
+	return c == kind or c == SlotPrize.Kind.WILD
+
+## Maximale {kind ODER Joker}-Segmente entlang (dc,dr) - ein Segment zählt nur, wenn
+## es MINDESTENS EIN echtes kind trägt (reiner Joker-Streifen zahlt nicht). So
+## verlängert und vervollständigt der Joker Reihen jeder Sorte, ohne selbst eine zu
+## bilden. Ein Joker zwischen zwei Sorten gehört BEIDEN Suchen - er mischt mit allen.
+func _kind_segments(dc: int, dr: int, kind: int) -> Array:
+	var segs: Array = []
+	for row in ROWS:
+		for col in TOTAL_COLS:
+			if not _matches(col, row, kind):
+				continue
+			if _matches(col - dc, row - dr, kind):
+				continue  # kein Startpunkt - Vorgänger gehört zum selben Segment
+			var seg_cells: Array = []
+			var has_real := false
+			var nc := col
+			var nr := row
+			while _matches(nc, nr, kind):
+				seg_cells.append([nc, nr])
+				if cells[nc][nr] == kind:
+					has_real = true
+				nc += dc
+				nr += dr
+			if has_real:
+				segs.append(seg_cells)
+	return segs
 
 ## Maximale Segmente gleicher Symbol-Art entlang einer Richtung (dc,dr): je Segment
 ## {kind, cells}. Nur besetzte Zellen; ein Segment beginnt, wo die vorige Zelle in
@@ -128,13 +171,13 @@ func hit_count() -> int:
 	return runs().size()
 
 ## Summiert alle Reihen-Belohnungen zu einer Gesamtausschüttung (für die Topf-
-## Anzeige): je Gravur-Sorte die PAKETZAHL, dazu Charm-Raritäten und Würfel.
+## Anzeige): je Gravur-Sorte die PAKETZAHL, dazu die Energie-Summe und Würfel.
 ## "packs" gliedert dieselben Pakete zusätzlich nach GRÖSSE - eine bloße Zahl
 ## verschwiege den ganzen Unterschied zwischen einer 4er- und einer 6er-Reihe.
 func pot_summary() -> Dictionary:
 	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.DICE_ENGRAVING: 0}
 	var tiers := {}       # Symbol → {Größe → Paketzahl}
-	var charms: Array = []
+	var charge := 0
 	var dice := 0
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
@@ -147,14 +190,14 @@ func pot_summary() -> Dictionary:
 					if not tiers.has(symbol):
 						tiers[symbol] = {}
 					tiers[symbol][pack_tier] = int(tiers[symbol].get(pack_tier, 0)) + amount
-				"charm": charms.append(String(spec["rarity"]))
+				"charge": charge += int(spec["amount"])
 				"die": dice += 1
 	return {
 		"engravings": counts[SlotPrize.Kind.ENGRAVING],
 		"materials": counts[SlotPrize.Kind.MATERIAL],
 		"edges": counts[SlotPrize.Kind.DICE_ENGRAVING],
 		"packs": _pack_lines(tiers),
-		"charms": charms, "dice": dice,
+		"charge": charge, "dice": dice,
 	}
 
 ## Die Paketzeilen des Topfs, je Sorte und Größe eine: {symbol, tier, count}. Feste
@@ -233,8 +276,8 @@ func _run_specs(kind: int, length: int) -> Array:
 			var payout := pack_payout(length)
 			return [{"kind": "pack", "symbol": kind, "count": int(payout["count"]),
 				"tier": int(payout["tier"])}]
-		SlotPrize.Kind.CHARM:
-			return [{"kind": "charm", "rarity": _charm_rarity(length)}]
+		SlotPrize.Kind.CHARGE:
+			return [{"kind": "charge", "amount": charge_payout(length)}]
 		SlotPrize.Kind.DIE:
 			var specs: Array = [{"kind": "die"}]
 			if length >= 4:
@@ -249,15 +292,12 @@ static func pack_payout(length: int) -> Dictionary:
 		return {"count": length - KOLOSSAL_FROM + 1, "tier": Pack.TIER_KOLOSSAL}
 	return (PACK_LADDER.get(length, PACK_LADDER[MIN_RUN]) as Dictionary).duplicate()
 
-
-## Charm-Rarität GENAU nach Reihenlänge (immer nur ein Charm; die Länge bestimmt die
-## Rarität): 3→gewöhnlich, 4→ungewöhnlich, 5→selten, 6+→legendär.
-func _charm_rarity(length: int) -> String:
-	match length:
-		3: return Charm.RARITY_COMMON
-		4: return Charm.RARITY_UNCOMMON
-		5: return Charm.RARITY_RARE
-	return Charm.RARITY_LEGENDARY
+## Was eine ⚡-Reihe dieser Länge auswirft - der EINE Lesezugriff auf die Leiter
+## (Spiegel von pack_payout).
+static func charge_payout(length: int) -> int:
+	if length <= MIN_RUN:
+		return int(CHARGE_LADDER[MIN_RUN])
+	return int(CHARGE_LADDER.get(length, CHARGE_MAX))
 
 func _run_label(kind: int, length: int, specs: Array) -> String:
 	var sym := SlotPrize.symbol_for(kind)
@@ -267,8 +307,8 @@ func _run_label(kind: int, length: int, specs: Array) -> String:
 			var pack_tier := int(specs[0].get("tier", Pack.TIER_NORMAL))
 			return "%s ×%d → %d %s" % [sym, length, n,
 				SlotPrize.pack_name_tiered(kind, n, pack_tier)]
-		SlotPrize.Kind.CHARM:
-			return "%s ×%d → Charm" % [sym, length]
+		SlotPrize.Kind.CHARGE:
+			return "%s ×%d → %d⚡" % [sym, length, int(specs[0]["amount"])]
 		SlotPrize.Kind.DIE:
 			var n := specs.size()
 			return "%s ×%d → %d Würfel" % [sym, length, n]
@@ -309,19 +349,26 @@ func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool) -
 			return entry[0]
 	return SlotPrize.Kind.ENGRAVING
 
-## Symbol-Gewichte je Automat als [kind, weight]. Innerhalb eines Automaten gilt
-## die Häufigkeits-Idee des Ladens (viele Zahlen, mäßig Material, wenige Kanten);
-## höhere Automaten führen zusätzlich die seltenen Symbole (Charm/Würfel).
-## Fumble überall ähnlich häufig.
-func _symbol_table(machine: int) -> Array:
-	match machine:
-		0: return [[SlotPrize.Kind.ENGRAVING, 7], [SlotPrize.Kind.MATERIAL, 4],
-			[SlotPrize.Kind.DICE_ENGRAVING, 1], [SlotPrize.Kind.FUMBLE, 3]]
-		1: return [[SlotPrize.Kind.ENGRAVING, 6], [SlotPrize.Kind.MATERIAL, 4],
-			[SlotPrize.Kind.DICE_ENGRAVING, 2], [SlotPrize.Kind.CHARM, 2], [SlotPrize.Kind.FUMBLE, 3]]
-	return [[SlotPrize.Kind.ENGRAVING, 5], [SlotPrize.Kind.MATERIAL, 4],
-		[SlotPrize.Kind.DICE_ENGRAVING, 2], [SlotPrize.Kind.CHARM, 3], [SlotPrize.Kind.DIE, 2],
-		[SlotPrize.Kind.FUMBLE, 3]]
+## Symbol-Gewichte [kind, weight] - ALLE drei Automaten teilen EINE Tabelle (die
+## Tiers unterscheiden sich seit 2026-08-30 nur noch über die Zahl der Drehungen,
+## nicht über den Mix), gefittet auf die gewünschte Topf-Verteilung ~55/20/15/10
+## (Zahlen/Material/Runen/Energie; gemessen, weil Reihen sich aus Nachbarn
+## bilden und Übergewicht sich verstärkt - die Gewichte sind darum flacher als die
+## Zielquoten). Einen physischen Würfel wirft der Automat NICHT (Kind.DIE fehlt).
+## Fumble steuert die Bust-Rate und bleibt außen vor.
+const W_ZAHLEN := 5.7
+const W_MATERIAL := 4.0
+const W_GRAVUR := 3.6
+const W_ENERGIE := 3.1
+const W_FUMBLE := 2.2
+## Der Joker ist SELTEN - er vervollständigt Reihen und zählt für alle Sorten, ein
+## häufiger Joker verschöbe den Mix und machte fast jede Wand zum Gewinn.
+const W_JOKER := 1.0
+
+func _symbol_table(_machine: int) -> Array:
+	return [[SlotPrize.Kind.ENGRAVING, W_ZAHLEN], [SlotPrize.Kind.MATERIAL, W_MATERIAL],
+		[SlotPrize.Kind.DICE_ENGRAVING, W_GRAVUR], [SlotPrize.Kind.CHARGE, W_ENERGIE],
+		[SlotPrize.Kind.WILD, W_JOKER], [SlotPrize.Kind.FUMBLE, W_FUMBLE]]
 
 func _fallback_rng() -> RandomNumberGenerator:
 	if _rng == null:

@@ -1,22 +1,29 @@
 class_name SlotBankView
 extends Panel
 ## Tisch-Fenster links vom Hub (unter der Ablage): die drei Fumble-Automaten.
-## Symbol-Wand - jeder Automat zeigt 3×5 Symbole; alle drei ergeben eine 5×9-Wand.
+## Symbol-Wand - jeder Automat zeigt 3×4 Symbole; alle drei ergeben eine 4×9-Wand.
 ## Gewinne entstehen durch REIHEN (3+ gleiche waagerecht nebeneinander, über
 ## Automaten-Grenzen hinweg); drei Fumbles nebeneinander löschen den Topf. Auszahlen
 ## löst alle Reihen auf. Mutiert den Zustand nur über GameRun (spin_slot/
 ## redeem_slots); die Animation lebt hier.
+##
+## Die AUSZAHLUNG ist der PERLENZUG: je Gewinn-Reihe zündet ein Funke am
+## Reihenanfang und läuft die Neon-Linie ab; jede passierte Zelle erlischt und
+## schickt eine PERLE die Linie entlang zur Sammelstelle am Reihenende. Dort steht
+## dann der TOKEN, der den Gewinn NENNT, und mit seinem Abtritt fliegt das Licht -
+## gebucht wird beim Abflug, je Preis (prize_dispatched).
 
 ## Ein Automat ist ausgelaufen (machine, hat er gebustet) - scene_root spielt
-## Ton/Licht. cashed_out nach der Auszahlung (Zahl der Reihen).
+## Ton/Licht. cashed_out beim Auszahlen (Zahl der Reihen); die Preise reisen danach
+## EINZELN über prize_dispatched, je Reihe am Ende ihres Perlenzugs.
 signal spun_out(machine: int, fumbled: bool)
-signal cashed_out(multiplier: int)
+signal cashed_out(runs: int)
+## Ein Gewinn verläßt das Fenster (Startpunkt in Display-Pixeln); scene_root fliegt
+## ihn an sein Ziel. Erst hier wird er gebucht.
+signal prize_dispatched(prize: SlotPrize, from_px: Vector2)
 ## Einsatz ist bezahlt: scene_root schickt die Energie als Licht zum Automaten.
 ## Die Walze wartet auf ihre Ankunft (coin_travel_time).
 signal spin_paid(machine: int)
-## Ein Gewinn verlässt das Fenster (Startpunkt in Display-Pixeln); scene_root
-## fliegt ihn an sein Ziel. Erst hier wird er gebucht.
-signal prize_dispatched(prize: SlotPrize, from_px: Vector2)
 
 const TITLE_COLOR := Color("#ff6b5c")   # Fumble-Rot als Signatur
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
@@ -25,11 +32,16 @@ const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
 const CYAN := Color("#8be9fd")
-const ENGRAVING_GLOW := Color("#c77dff")
+## Der Würfel trägt Silber: Cyan gehört seit dem ⚡-Symbol der Energie.
+const DIE_COLOR := Color("#dfe6f5")
 const BAR_BG := Color("#100e20")
 ## Tier-Akzente der drei Automaten: Kupfer, Silber, Gold.
 const TIER_COLORS := [Color("#e08a4a"), Color("#c9d2e6"), Color("#ffd35e")]
 const READY_GLYPH := "·"
+
+## Der Rand, in dem der Inhalt steht - EINE Quelle für Aufbau und Plattform.
+const CONTENT_MARGIN_UNITS := 3.0
+const CONTENT_TOP_UNITS := 2.2
 
 ## Walzenfahrt: Symbolstreifen läuft von oben durchs Fenster, bremst über die
 ## letzten Zellen ab und rastet mit Überschwung ein. Die drei Spalten je Automat
@@ -41,7 +53,16 @@ const SPIN_BRAKE_TIME := 0.7
 const SETTLE_OVERSHOOT := 0.15
 const SETTLE_TIME := 0.15
 const COL_STAGGER := 0.18
-const REEL_SYMBOLS := ["◉", "◆", "▣", "✦", "⬢"]
+const REEL_SYMBOLS := ["◉", "◆", "▣", "⚡", "★"]
+
+## Der Takt des PERLENZUGS: Funkenlauf je Zelle, Perlen-Flug zur Sammelstelle,
+## Token-Auftritt, -Halt und -Abtritt, Luft zwischen zwei Reihen.
+const FUSE_CELL_TIME := 0.05
+const BEAD_TIME := 0.12
+const TOKEN_POP := 0.09
+const TOKEN_HOLD := 0.28
+const TOKEN_DEPART := 0.08
+const RUN_GAP := 0.06
 
 var run: GameRun
 
@@ -53,8 +74,6 @@ var _content: VBoxContainer
 ## Neon-Linien über den Walzen, die jede aktive Kombination verbinden (auf self,
 ## damit sie spaltenübergreifend über die Automaten-Lücken hinweg zeichnen).
 var _run_overlay: RunOverlay
-## Auszahlungs-Jubel am Sitzungsende: Gravur-Icons und Münzen ploppen auf.
-var _reveal: Control
 ## Je Automat MACHINE_COLS Spalten-Panels (geklammert, für die Streifen-Animation).
 var _reel_cols: Array = [[], [], []]
 ## Je Automat der Dreh-Knopf (oder null) - für die Bezahlbarkeits-Aktualisierung.
@@ -67,16 +86,21 @@ var _landed: Array = []
 var _spinning := false
 var _spinning_index := -1
 var _just_landed := -1  # nach dem Neuaufbau angestupste Walze
-## Gewinne, deren Licht noch nicht abgeflogen ist - je Eintrag {prize, node, run}.
-## Der Run hängt mit dran: ein Neustart mitten in der Auszahlung darf die Ware
-## nicht dem NEUEN Lauf gutschreiben.
-var _pending: Array[Dictionary] = []
-## Tweens der Auszahlungs-Anzeige; müssen sterben, BEVOR _reveal freigegeben wird
-## (sonst zielt ein laufender Tween auf eine freigegebene Instanz).
-var _reveal_tweens: Array[Tween] = []
-## Tweens der Walzenfahrt - dasselbe für die Symbolstreifen, die ein Neuaufbau
-## (_build) mitsamt ihren Spalten freigibt.
+## Tweens der Walzenfahrt - die Symbolstreifen, die ein Neuaufbau (_build)
+## mitsamt ihren Spalten freigibt.
 var _spin_tweens: Array[Tween] = []
+## Läuft der Perlenzug? Sperrt Dreh, Auszahlen und den Idle-Neuaufbau.
+var _paying := false
+var _payout_gen := 0
+## Preise der laufenden Auszahlung, je Eintrag {prize, run, from_px, gone}. Der Lauf
+## hängt mit dran: ein Neustart mitten in der Auszahlung darf die Ware nicht dem
+## NEUEN Lauf gutschreiben.
+var _pending: Array[Dictionary] = []
+## Tweens und Geister (Token) des Perlenzugs - der Abbruch räumt beide.
+var _payout_tweens: Array[Tween] = []
+var _payout_ghosts: Array = []
+var locked := true
+var _lock_overlay: Panel
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -90,24 +114,23 @@ func _reset_landed() -> void:
 		_landed.append([])
 
 ## scene_root nach Zustandswechseln (Hub-Aufstieg, Panel-Anzeige). Eine laufende
-## Auszahlung wird vorher zu Ende gebracht - sonst verlöre ein Neuaufbau Gewinne.
+## Auszahlung wird vorher hart zu Ende gebracht - sonst verlöre ein Neuaufbau Gewinne.
 func refresh() -> void:
 	finish_payout_now()
 	_build()
 
 ## Aufbau nur, wenn keine Dreh-/Auszahlungs-Animation läuft - für den WECHSEL auf
-## den Automaten, damit die Knopf-Bezahlbarkeit dem aktuellen Geldstand folgt (das
-## Geld kann sich seit dem letzten Aufbau geändert haben). Das Idle-Gate schützt
-## eine laufende Walze/Auszahlung, die ein Neuaufbau sonst abwürgen würde.
+## den Automaten, damit die Knopf-Bezahlbarkeit dem aktuellen Energiestand folgt.
+## Das Idle-Gate schützt eine laufende Walze bzw. einen laufenden Perlenzug.
 func refresh_if_idle() -> void:
-	if _spinning or not _pending.is_empty():
+	if _spinning or _paying:
 		return
 	_build()
 
 # --- Aufbau --------------------------------------------------------------------
 
 func _build() -> void:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := _unit()
 	_kill_spin_tweens()  # die alten Streifen gehen gleich weg, ihre Tweens dürfen nicht nachlaufen
 	if _content != null and is_instance_valid(_content):
 		remove_child(_content)
@@ -117,10 +140,10 @@ func _build() -> void:
 	_face_labels = [[], [], []]
 	_content = VBoxContainer.new()
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_content.offset_left = u * 3.0
-	_content.offset_right = -u * 3.0
-	_content.offset_top = u * 2.2
-	_content.offset_bottom = -u * 2.2
+	_content.offset_left = u * CONTENT_MARGIN_UNITS
+	_content.offset_right = -u * CONTENT_MARGIN_UNITS
+	_content.offset_top = u * CONTENT_TOP_UNITS
+	_content.offset_bottom = -u * CONTENT_TOP_UNITS
 	_content.add_theme_constant_override("separation", int(u * 1.6))
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
@@ -162,12 +185,15 @@ func _build() -> void:
 		_just_landed = -1
 		_pop_reel(idx, block)
 
+	_build_lock_overlay()
 	_update_overlay()
 
 ## Zeichnet je aktive Kombination eine Neon-Linie durch ihre Zellen. Läuft nach
 ## einem Layout-Frame (Label-Positionen stehen erst dann fest); während des Drehens
 ## und bei Bust bleibt das Overlay leer.
 func _update_overlay() -> void:
+	if _paying:
+		return  # die Linien gehören gerade der Zeremonie
 	# Warten, bis das Layout STEHT: verschachtelte Container setzen erst Größen, dann
 	# Positionen über mehrere Frames - erst wenn eine Referenzzelle zwei Frames lang
 	# dieselbe Mitte hat, sind die Positionen verlässlich.
@@ -183,11 +209,11 @@ func _update_overlay() -> void:
 		if here == last and here.y > 0.0:
 			break
 		last = here
-	if not is_instance_valid(_run_overlay):
+	if not is_instance_valid(_run_overlay) or _paying:
 		return
 	var lines: Array = []
 	if run != null and not _spinning and not run.slot_bank.busted:
-		var u := maxf(size.x, 200.0) / 100.0
+		var u := _unit()
 		for descriptor in run.slot_bank.runs():
 			var pts := PackedVector2Array()
 			for cell in descriptor["cells"]:
@@ -376,6 +402,9 @@ func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 	return button
 
 ## Topf-Ablage: die aufgelaufenen Gewinn-Reihen und der große Auszahlen-/Neustart-Knopf.
+## Der Fuß unter den Walzen: der Auszahlen-Knopf, die Legende und die Regel. Die
+## TOPF-Anzeige (Kopf, Reihenzahl, Chips) ist fort - der Topf liegt körperlich in
+## seiner Grube, sein Abbild im Fenster war doppelt.
 func _pot_tray(u: float) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", int(u * 0.7))
@@ -384,82 +413,11 @@ func _pot_tray(u: float) -> Control:
 	var busted := run != null and run.slot_bank.busted
 	var runs: Array = run.slot_bank.runs() if run != null else []
 
-	var header := HBoxContainer.new()
-	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var title := _label("TOPF", u * 3.0, MUTED_COLOR)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(title)
-	if runs.size() > 0 and not busted:
-		header.add_child(_label("%d Reihe%s" % [runs.size(), "" if runs.size() == 1 else "n"],
-			u * 2.8, GOLD))
-	box.add_child(header)
-
-	if busted:
-		box.add_child(_label("Fumble – der Topf ist verloren.", u * 3.0, RED))
-	elif runs.is_empty():
-		box.add_child(_label("keine Reihe – noch nichts im Topf.", u * 2.8, MUTED_COLOR))
-	else:
-		box.add_child(_pot_summary_chips(u))
-
 	box.add_child(_cash_out_button(u, busted, runs.size()))
 	box.add_child(_legend_row(u))
 	box.add_child(_label("3+ gleiche nebeneinander = Gewinn. 3 Fumble nebeneinander = Topf weg.",
 		u * 2.0, MUTED_COLOR))
 	return box
-
-## Aufsummierte Gesamtausschüttung des Topfs als wenige Chips (Pakete, Charms,
-## Würfel) statt jeder einzelnen Reihe.
-func _pot_summary_chips(u: float) -> Control:
-	var chips := HFlowContainer.new()
-	chips.add_theme_constant_override("h_separation", int(u * 1.2))
-	chips.add_theme_constant_override("v_separation", int(u * 0.6))
-	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var summary: Dictionary = run.slot_bank.pot_summary()
-	# Je Sorte UND Größe ein Chip: die Größe ist der Ertrag, nicht die Stückzahl.
-	for line: Dictionary in summary["packs"]:
-		var symbol := int(line["symbol"])
-		var count := int(line["count"])
-		chips.add_child(_summary_chip(_kind_color(symbol), "%s %d %s"
-			% [SlotPrize.symbol_for(symbol), count,
-				SlotPrize.pack_name_tiered(symbol, count, int(line["tier"]))], u))
-	var charms: Array = summary["charms"]
-	if not charms.is_empty():
-		chips.add_child(_summary_chip(_kind_color(SlotPrize.Kind.CHARM), "%s %s"
-			% [SlotPrize.symbol_for(SlotPrize.Kind.CHARM), _charm_chip_text(charms)], u))
-	var dice := int(summary["dice"])
-	if dice > 0:
-		chips.add_child(_summary_chip(CYAN, "%s %d Würfel"
-			% [SlotPrize.symbol_for(SlotPrize.Kind.DIE), dice], u))
-	return chips
-
-## Ein zusammengefasster Gewinn-Chip (Symbol-Farbe + Text).
-func _summary_chip(color: Color, text: String, u: float) -> Control:
-	var chip := Label.new()
-	chip.text = text
-	chip.add_theme_font_size_override("font_size", maxi(9, int(u * 2.8)))
-	chip.add_theme_color_override("font_color", TEXT_COLOR)
-	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var pad := StyleBoxFlat.new()
-	pad.bg_color = Color(color.r * 0.22, color.g * 0.22, color.b * 0.22, 0.9)
-	pad.border_color = color
-	pad.set_border_width_all(maxi(1, int(u * 0.2)))
-	pad.set_corner_radius_all(int(u * 1.2))
-	pad.set_content_margin_all(int(u * 0.7))
-	chip.add_theme_stylebox_override("normal", pad)
-	return chip
-
-func _charm_chip_text(charms: Array) -> String:
-	if charms.size() == 1:
-		return "%s Charm" % _rarity_adjective(String(charms[0]))
-	return "%d Charms" % charms.size()
-
-func _rarity_adjective(rarity: String) -> String:
-	match rarity:
-		Charm.RARITY_COMMON: return "gewöhnlicher"
-		Charm.RARITY_UNCOMMON: return "ungewöhnlicher"
-		Charm.RARITY_RARE: return "seltener"
-		Charm.RARITY_LEGENDARY: return "legendärer"
-	return ""
 
 ## Legende: was jedes Wand-Symbol bedeutet. Glyphen/Farben kommen aus SlotPrize/
 ## _kind_color, damit sie nie von der Wand abweichen.
@@ -470,10 +428,10 @@ func _legend_row(u: float) -> Control:
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var names := {
 		SlotPrize.Kind.ENGRAVING: "Zahlen", SlotPrize.Kind.MATERIAL: "Material",
-		SlotPrize.Kind.DICE_ENGRAVING: "Würfel", SlotPrize.Kind.CHARM: "Charm",
-		SlotPrize.Kind.DIE: "Würfel", SlotPrize.Kind.FUMBLE: "Fumble"}
+		SlotPrize.Kind.DICE_ENGRAVING: "Runen", SlotPrize.Kind.CHARGE: "Energie",
+		SlotPrize.Kind.WILD: "Joker", SlotPrize.Kind.FUMBLE: "Fumble"}
 	for kind in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING,
-			SlotPrize.Kind.CHARM, SlotPrize.Kind.DIE, SlotPrize.Kind.FUMBLE]:
+			SlotPrize.Kind.CHARGE, SlotPrize.Kind.WILD, SlotPrize.Kind.FUMBLE]:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
 		entry.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -518,13 +476,17 @@ func _cash_out_button(u: float, busted: bool, hits: int) -> Button:
 		_style_button(button, MUTED_COLOR)
 	return button
 
+## Die EINE Einheit des Fensters.
+func _unit() -> float:
+	return maxf(size.x, 200.0) / 100.0
+
 # --- Aktionen ------------------------------------------------------------------
 
 ## Einwurf und Dreh: die Energie geht sofort weg (ihr Licht macht sich auf den
 ## Weg), die Walze läuft erst an, wenn sie angekommen ist - der Einwurf IST der
 ## Startschuss, nicht bloß Beiwerk.
 func _on_spin_pressed(machine: int) -> void:
-	if _spinning or run == null or not run.can_spin_slot(machine):
+	if _spinning or _paying or run == null or not run.can_spin_slot(machine):
 		return
 	_spinning = true
 	_spinning_index = machine
@@ -639,7 +601,7 @@ func _on_reel_landed(machine: int, block: Array) -> void:
 	_build()
 
 func _on_cash_out_pressed() -> void:
-	if _spinning or run == null:
+	if _spinning or _paying or run == null:
 		return
 	# Bust ODER gedreht-ohne-Gewinn: die Wand verwerfen und neu drehbar machen.
 	if run.slot_bank.busted or (run.slot_bank.hit_count() < 1 and run.slot_bank.any_spun()):
@@ -649,13 +611,249 @@ func _on_cash_out_pressed() -> void:
 		return
 	if run.slot_bank.hit_count() < 1:
 		return
-	finish_payout_now()  # eine noch laufende Auszahlung zuerst zu Ende bringen
+	# Die Linien-Geometrie VOR dem Einlösen einfrieren - danach ist die Wand leer.
+	var plans := _payout_plans()
 	var result := run.redeem_slots()
-	_reset_landed()
-	cashed_out.emit(int(result["runs"].size()))
-	_build()
+	_assign_prizes(plans, result["prizes"])
+	cashed_out.emit((result["runs"] as Array).size())
 	_flash_win()
-	_play_payout_reveal(result["prizes"])
+	_paying = true
+	_payout_gen += 1
+	_play_payout(plans, _payout_gen)
+
+# --- Der PERLENZUG (die Auszahlung) ----------------------------------------------
+
+## Friert je Gewinn-Reihe die Zeremonie-Daten ein, BEVOR redeem_slots die Wand
+## leert: Linienpunkte (lokal), Zell-Labels, Farbe, Glyphe und die Token-Aufschrift.
+## Die Aufschrift ist der Gewinn-Teil des Reihen-Labels - EINE Textquelle
+## (SlotMachine._run_label), hier wird nichts zweitformuliert.
+func _payout_plans() -> Array:
+	var plans: Array = []
+	var u := _unit()
+	for descriptor in run.slot_bank.runs():
+		var labels: Array = []
+		var points := PackedVector2Array()
+		for cell in descriptor["cells"]:
+			var lbl := _label_for_cell(int(cell[0]), int(cell[1]))
+			if lbl == null or not is_instance_valid(lbl):
+				continue
+			labels.append(lbl)
+			points.append(lbl.get_global_rect().get_center() - global_position)
+		var kind := int(descriptor["kind"])
+		plans.append({
+			"kind": kind, "labels": labels, "points": points,
+			"color": _kind_color(kind), "glyph": SlotPrize.symbol_for(kind),
+			"caption": String(descriptor["label"]).get_slice("→", 1).strip_edges(),
+			"spec_count": (descriptor["specs"] as Array).size(),
+			"width": maxf(2.0, u * 1.1), "entries": [],
+		})
+	return plans
+
+## Ordnet die eingelösten Preise ihren Reihen zu (redeem_slots münzt sie in
+## Reihen-Reihenfolge, je Spec einen) und meldet sie als ausstehend an - samt dem
+## Lauf, der sie gewonnen hat, und ihrem Abflug-Pixel (der Sammelstelle).
+func _assign_prizes(plans: Array, prizes: Array) -> void:
+	var index := 0
+	for plan: Dictionary in plans:
+		var pts: PackedVector2Array = plan["points"]
+		var from_px := position + (pts[pts.size() - 1] if pts.size() > 0 else size * 0.5)
+		var entries: Array = []
+		for i in int(plan["spec_count"]):
+			if index >= prizes.size():
+				break
+			var entry := {"prize": prizes[index], "run": run, "from_px": from_px, "gone": false}
+			index += 1
+			entries.append(entry)
+			_pending.append(entry)
+		plan["entries"] = entries
+
+## Spielt die Reihen NACHEINANDER ab. Jeder await ist mit der Generation geguardet;
+## der Abbruch (finish_payout_now) bucht, was noch aussteht - kein Gewinn hängt je
+## an der Animation.
+func _play_payout(plans: Array, gen: int) -> void:
+	# Die eingefrorenen Linien gehören jetzt der Zeremonie (die Wand ist schon leer).
+	if is_instance_valid(_run_overlay):
+		var lines: Array = []
+		for plan: Dictionary in plans:
+			var pts: PackedVector2Array = plan["points"]
+			lines.append({"points": pts.duplicate() if pts.size() >= 2 else PackedVector2Array(),
+				"color": plan["color"], "width": plan["width"]})
+		_run_overlay.lines = lines
+		_run_overlay.queue_redraw()
+	for i in plans.size():
+		if gen != _payout_gen or not is_instance_valid(self):
+			return
+		await _burn_run(plans[i], i, gen)
+		if gen != _payout_gen or not is_instance_valid(self):
+			return
+		await get_tree().create_timer(RUN_GAP).timeout
+	if gen != _payout_gen or not is_instance_valid(self):
+		return
+	_paying = false
+	_pending.clear()
+	_reset_landed()
+	_build()
+
+## EINE Reihe: der Funke läuft die Linie ab (die Perlen schickt _burn_step), dann
+## steht der Token an der Sammelstelle und nennt den Gewinn.
+func _burn_run(plan: Dictionary, line_index: int, gen: int) -> void:
+	var points: PackedVector2Array = plan["points"]
+	if points.size() >= 2:
+		var burnt := {}
+		var fuse_time := FUSE_CELL_TIME * (points.size() - 1)
+		var fuse := create_tween()
+		_payout_tweens.append(fuse)
+		fuse.tween_method(_burn_step.bind(plan, line_index, burnt), 0.0, 1.0, fuse_time)
+		# Erst wenn Funke UND letzte Perle angekommen sind, tritt der Token auf.
+		await get_tree().create_timer(fuse_time + BEAD_TIME).timeout
+		if gen != _payout_gen or not is_instance_valid(self):
+			return
+	elif points.size() == 1:
+		_consume_cell(plan, 0, points[0])
+	_clear_line(line_index)
+	await _present_token(plan, gen)
+
+## Ein Bild des Funkenlaufs: die Linie hinter dem Funken ist fort, jede passierte
+## Zelle erlischt und schickt ihre Perle.
+func _burn_step(progress: float, plan: Dictionary, line_index: int, burnt: Dictionary) -> void:
+	if not is_instance_valid(self) or not is_instance_valid(_run_overlay):
+		return
+	var points: PackedVector2Array = plan["points"]
+	var last := points.size() - 1
+	if last < 1:
+		return
+	var head := progress * last
+	for i in points.size():
+		if float(i) <= head + 0.001 and not burnt.has(i):
+			burnt[i] = true
+			_consume_cell(plan, i, points[last])
+	var seg := mini(int(floor(head)), last - 1)
+	var spark := points[seg].lerp(points[seg + 1], head - float(seg))
+	var trimmed := PackedVector2Array([spark])
+	for i in range(seg + 1, points.size()):
+		trimmed.append(points[i])
+	if line_index < _run_overlay.lines.size():
+		_run_overlay.lines[line_index]["points"] = trimmed if trimmed.size() >= 2 			else PackedVector2Array()
+		_run_overlay.queue_redraw()
+
+## Zelle i ist verbraucht: ihr Wand-Label erlischt, und ihre Glyphen-PERLE gleitet
+## zur Sammelstelle (die Zellen einer Reihe sind kollinear - die Gerade IST die
+## Linie). Die letzte Zelle ist die Sammelstelle selbst und schickt nichts.
+func _consume_cell(plan: Dictionary, i: int, end: Vector2) -> void:
+	var labels: Array = plan["labels"]
+	if i < labels.size():
+		var lbl: Label = labels[i]
+		if is_instance_valid(lbl):
+			lbl.modulate = Color(lbl.modulate.r, lbl.modulate.g, lbl.modulate.b, 0.08)
+	var points: PackedVector2Array = plan["points"]
+	if i >= points.size() or points[i].distance_to(end) < 1.0:
+		return
+	if not is_instance_valid(_run_overlay):
+		return
+	var color: Color = plan["color"]
+	var bead := {"pos": points[i], "radius": float(plan["width"]) * 1.7, "color": color}
+	_run_overlay.beads.append(bead)
+	var from: Vector2 = points[i]
+	var slide := func(t: float) -> void:
+		if is_instance_valid(_run_overlay):
+			bead["pos"] = from.lerp(end, t)
+			_run_overlay.queue_redraw()
+	var drop := func() -> void:
+		if is_instance_valid(_run_overlay):
+			_run_overlay.beads.erase(bead)
+			_run_overlay.queue_redraw()
+	var glide := create_tween()
+	_payout_tweens.append(glide)
+	glide.tween_method(slide, 0.0, 1.0, BEAD_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	glide.tween_callback(drop)
+
+func _clear_line(line_index: int) -> void:
+	if is_instance_valid(_run_overlay) and line_index < _run_overlay.lines.size():
+		_run_overlay.lines[line_index]["points"] = PackedVector2Array()
+		_run_overlay.queue_redraw()
+
+## Die Sammelstelle: der TOKEN poppt auf, NENNT den Gewinn (Glyphe + Aufschrift im
+## Reihen-Akzent), hält kurz - und mit seinem Abtritt wird je Preis gebucht und
+## sein Licht geschickt.
+func _present_token(plan: Dictionary, gen: int) -> void:
+	var points: PackedVector2Array = plan["points"]
+	var at: Vector2 = points[points.size() - 1] if points.size() > 0 else size * 0.5
+	var u := _unit()
+	var color: Color = plan["color"]
+	var token := PanelContainer.new()
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(color.r * 0.2, color.g * 0.2, color.b * 0.2, 0.95)
+	box.border_color = color
+	box.set_border_width_all(maxi(2, int(u * 0.35)))
+	box.set_corner_radius_all(int(u * 1.2))
+	box.set_content_margin_all(int(u * 1.0))
+	token.add_theme_stylebox_override("panel", box)
+	token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	token.add_child(_label("%s %s" % [plan["glyph"], plan["caption"]], u * 2.6, TEXT_COLOR))
+	token.scale = Vector2.ZERO  # unsichtbar, bis er vermessen und gesetzt ist
+	token.z_index = 6
+	add_child(token)
+	_payout_ghosts.append(token)
+	await get_tree().process_frame  # ein Layout-Bild: erst dann kennt er sein Maß
+	if gen != _payout_gen or not is_instance_valid(token) or not is_instance_valid(self):
+		return
+	# Mittig auf der Sammelstelle, in die Fensterränder geklemmt (das Reihenende
+	# kann am Rand liegen).
+	token.position = Vector2(
+		clampf(at.x - token.size.x * 0.5, u, size.x - token.size.x - u),
+		clampf(at.y - token.size.y * 0.5, u, size.y - token.size.y - u))
+	token.pivot_offset = token.size * 0.5
+	var pop := create_tween()
+	_payout_tweens.append(pop)
+	pop.tween_property(token, "scale", Vector2.ONE, TOKEN_POP).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await get_tree().create_timer(TOKEN_POP + TOKEN_HOLD).timeout
+	if gen != _payout_gen or not is_instance_valid(self):
+		return
+	if is_instance_valid(token):
+		var out := create_tween()
+		_payout_tweens.append(out)
+		out.tween_property(token, "scale", Vector2.ZERO, TOKEN_DEPART).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		out.tween_callback(func() -> void:
+			if is_instance_valid(token):
+				_payout_ghosts.erase(token)
+				token.queue_free())
+	for entry: Dictionary in plan["entries"]:
+		_depart_entry(entry)
+
+## EIN Preis verläßt das Fenster: buchen (auf den Lauf, der ihn gewonnen hat),
+## dann sein Licht. Idempotent - Ungeduld darf keinen Gewinn kosten.
+func _depart_entry(entry: Dictionary) -> void:
+	if entry.get("gone", false):
+		return
+	entry["gone"] = true
+	var owner_run: GameRun = entry["run"]
+	if owner_run != null:
+		owner_run.book_slot_prize(entry["prize"])
+	prize_dispatched.emit(entry["prize"], entry["from_px"])
+
+## Bringt eine laufende Auszahlung sofort hart zu Ende (Neuaufbau, Laufwechsel,
+## Ungeduld): jeder ausstehende Preis wird gebucht und verschickt, Funke, Perlen
+## und Token sterben. Der EINE Aufräum-Pfad des Perlenzugs.
+func finish_payout_now() -> void:
+	_payout_gen += 1
+	for tween in _payout_tweens:
+		if tween != null and tween.is_valid():
+			tween.kill()
+	_payout_tweens.clear()
+	for ghost in _payout_ghosts:
+		if ghost != null and is_instance_valid(ghost):
+			ghost.queue_free()
+	_payout_ghosts.clear()
+	for entry in _pending:
+		_depart_entry(entry)
+	_pending.clear()
+	if is_instance_valid(_run_overlay):
+		_run_overlay.lines = []
+		_run_overlay.beads.clear()
+		_run_overlay.queue_redraw()
+	if _paying:
+		_paying = false
+		_reset_landed()  # die verbrauchte Wand darf den Abbruch nicht überleben
 
 # --- Animation ------------------------------------------------------------------
 
@@ -686,235 +884,53 @@ func _flash_win() -> void:
 	glow.tween_property(self, "modulate", Color(1.5, 1.35, 0.7), 0.12)
 	glow.tween_property(self, "modulate", Color.WHITE, 0.4)
 
-# --- Auszahlungs-Jubel -----------------------------------------------------------
-
-## Takt der Auszahlung: Aufploppen, gemeinsames Halten, dann einzeln abfliegen.
-const POP_STAGGER := 0.09
-const HOLD_TIME := 1.1
-const DEPART_STAGGER := 0.16
-
-## Zeigt am Sitzungsende, WAS gewonnen wurde: je Gewinn ein Token. Sie ploppen
-## gestaffelt auf, halten kurz - und fliegen dann EINZELN als Licht zu ihrem Ziel
-## (siehe _depart_token). Ein Token je Gewinn, damit Anzeige, Buchung und Licht
-## nie auseinanderlaufen.
-func _play_payout_reveal(prizes: Array) -> void:
-	var shown: Array[SlotPrize] = []
-	for prize: SlotPrize in prizes:
-		if _token_prize_is_empty(prize):
-			continue
-		shown.append(prize)
-	if shown.is_empty():
-		return
-
-	var u := maxf(size.x, 200.0) / 100.0
-	_clear_reveal()
-	_reveal = Control.new()
-	_reveal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_reveal.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_reveal)
-
-	var dim := ColorRect.new()
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.02, 0.01, 0.06, 0.35)
-	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_reveal.add_child(dim)
-
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_reveal.add_child(center)
-
-	var flow := HFlowContainer.new()
-	flow.alignment = FlowContainer.ALIGNMENT_CENTER
-	flow.add_theme_constant_override("h_separation", int(u * 1.6))
-	flow.add_theme_constant_override("v_separation", int(u * 1.2))
-	flow.custom_minimum_size = Vector2(size.x * 0.86, 0)
-	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	center.add_child(flow)
-
-	_pending.clear()
-	for prize in shown:
-		var token := _token_for(prize, u)
-		token.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
-		flow.add_child(token)
-		_pending.append({"prize": prize, "node": token, "run": run})
-
-	_animate_reveal()
-
-## Ein Token je Gewinn: Gravur-Sorten als Paket-Siegel, Charm und Würfel als Glyphe.
-func _token_for(prize: SlotPrize, u: float) -> Control:
-	match prize.kind:
-		SlotPrize.Kind.CHARM:
-			return _glyph_token("✦", _kind_color(SlotPrize.Kind.CHARM), prize.charm.display_name, u)
-		SlotPrize.Kind.DIE:
-			return _glyph_token("⬢", CYAN, "Würfel", u)
-	# Der Name kommt vom Paket selbst - Pack.tiered hat die Größe schon aufgedruckt.
-	var caption := prize.packs[0].display_name if not prize.packs.is_empty() else ""
-	return _pack_token(SlotPrize.pack_type_of(prize.kind), prize.packs.size(), u, caption)
-
-## Ein Gewinn ohne Ware (defensive Prüfung: Fumble hat keinen Token).
-func _token_prize_is_empty(prize: SlotPrize) -> bool:
-	match prize.kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			return prize.packs.is_empty()
-		SlotPrize.Kind.CHARM:
-			return prize.charm == null
-		SlotPrize.Kind.DIE:
-			return prize.die == null
-	return true
-
-## Pop-in gestaffelt (Pivot erst nach dem Layout), halten, dann fliegt jeder
-## Gewinn einzeln ab.
-func _animate_reveal() -> void:
-	await get_tree().process_frame
-	if not is_instance_valid(_reveal):
-		return
-	var last := 0.0
-	for i in _pending.size():
-		var token: Control = _pending[i]["node"]
-		if not is_instance_valid(token):
-			continue
-		token.pivot_offset = token.size / 2.0
-		var pop := _reveal_tween()
-		pop.tween_interval(i * POP_STAGGER)
-		pop.tween_property(token, "scale", Vector2.ONE, 0.42) \
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		last = i * POP_STAGGER
-	# Abflug in derselben Reihenfolge, in der sie aufgeploppt sind.
-	for i in _pending.size():
-		var depart := _reveal_tween()
-		depart.tween_interval(last + HOLD_TIME + i * DEPART_STAGGER)
-		depart.tween_callback(_depart_index.bind(i))
-	var done := _reveal_tween()
-	done.tween_interval(last + HOLD_TIME + _pending.size() * DEPART_STAGGER + 0.3)
-	done.tween_callback(_clear_reveal)
-
-## Ein Gewinn verlässt das Fenster: Token schrumpft weg, Gewinn wird gebucht und
-## als Licht auf die Reise geschickt (Startpunkt = Token-Mitte in Display-Pixeln).
-func _depart_index(index: int) -> void:
-	if index >= _pending.size():
-		return
-	var entry := _pending[index]
-	if entry.get("gone", false):
-		return
-	_pending[index]["gone"] = true
-	var prize: SlotPrize = entry["prize"]
-	var from_px := position + size * 0.5
-	var token: Control = entry["node"]
-	if is_instance_valid(token) and token.size.x > 0.0:
-		from_px = position + token.global_position - global_position + token.size * 0.5
-		var shrink := _reveal_tween()
-		shrink.tween_property(token, "scale", Vector2.ZERO, 0.18) \
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	var owner_run: GameRun = entry["run"]
-	if owner_run != null:
-		owner_run.book_slot_prize(prize)
-	prize_dispatched.emit(prize, from_px)
-
-## Bringt eine laufende Auszahlung sofort zu Ende (Fenster-Neuaufbau, Run-Wechsel,
-## zweite Auszahlung): jeder ausstehende Gewinn wird gebucht und verschickt -
-## Ungeduld darf keinen Gewinn kosten.
-func finish_payout_now() -> void:
-	for i in _pending.size():
-		_depart_index(i)
-	_clear_reveal()
-
-## Gibt die Anzeige frei - IMMER erst die Tweens killen, sonst zielt ein laufender
-## Tween auf die freigegebene Instanz.
-func _clear_reveal() -> void:
-	for tween in _reveal_tweens:
-		if tween != null and tween.is_valid():
-			tween.kill()
-	_reveal_tweens.clear()
-	_pending.clear()
-	if _reveal != null and is_instance_valid(_reveal):
-		_reveal.queue_free()
-	_reveal = null
-
 func _kill_spin_tweens() -> void:
 	for tween in _spin_tweens:
 		if tween != null and tween.is_valid():
 			tween.kill()
 	_spin_tweens.clear()
 
-func _reveal_tween() -> Tween:
-	var tween := create_tween()
-	_reveal_tweens.append(tween)
-	return tween
+# --- Sperre (Fenster vor Freischaltung) ----------------------------------------
 
-## Paket-Token: das Sorten-Siegel im Sortenrahmen, Anzahl-Plakette und Sortenname
-## (caption leer = der schlichte Sortenname ohne Größe).
-func _pack_token(pack_type: String, count: int, u: float, caption: String = "") -> Control:
-	var color: Color = PackIconRenderer.COLORS.get(pack_type, MUTED_COLOR)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", int(u * 0.5))
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+func set_locked(is_locked: bool) -> void:
+	locked = is_locked
+	if _lock_overlay != null and is_instance_valid(_lock_overlay):
+		_lock_overlay.visible = locked
+	if _content != null and is_instance_valid(_content):
+		_content.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
-	var frame := Panel.new()
-	frame.custom_minimum_size = Vector2(u * 11.5, u * 11.5)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var fbox := StyleBoxFlat.new()
-	fbox.bg_color = Color(color.r * 0.16, color.g * 0.16, color.b * 0.16, 0.95)
-	fbox.border_color = color
-	fbox.set_border_width_all(maxi(2, int(u * 0.5)))
-	fbox.set_corner_radius_all(int(u * 1.6))
-	frame.add_theme_stylebox_override("panel", fbox)
-
-	var icon := PackIconRenderer.for_type(pack_type)
-	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	icon.offset_left = u * 1.2
-	icon.offset_top = u * 1.2
-	icon.offset_right = -u * 1.2
-	icon.offset_bottom = -u * 1.2
-	frame.add_child(icon)
-
-	if count > 1:
-		var badge := _label("×%d" % count, u * 3.4, TEXT_COLOR)
-		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-		badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		badge.offset_right = -u * 0.8
-		badge.offset_bottom = -u * 0.4
-		var bg := StyleBoxFlat.new()
-		bg.bg_color = Color(0.05, 0.03, 0.12, 0.85)
-		badge.add_theme_stylebox_override("normal", bg)
-		frame.add_child(badge)
-	box.add_child(frame)
-
-	var text := caption if caption != "" else String(Pack.TYPE_NAMES.get(pack_type, "Paket"))
-	var name := _label(text, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
-	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name.custom_minimum_size = Vector2(u * 11.5, 0)
-	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(name)
-	return box
-
-## Einfaches Glyph-Token (Charm/Würfel): großes Symbol + Name.
-func _glyph_token(glyph: String, color: Color, caption: String, u: float) -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", int(u * 0.5))
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var frame := Panel.new()
-	frame.custom_minimum_size = Vector2(u * 11.5, u * 11.5)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var fbox := StyleBoxFlat.new()
-	fbox.bg_color = Color(color.r * 0.16, color.g * 0.16, color.b * 0.16, 0.95)
-	fbox.border_color = color
-	fbox.set_border_width_all(maxi(2, int(u * 0.5)))
-	fbox.set_corner_radius_all(int(u * 1.6))
-	frame.add_theme_stylebox_override("panel", fbox)
-	var glyph_label := _label(glyph, u * 6.2, Color(color.r * 1.3, color.g * 1.3, color.b * 1.3))
-	glyph_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	glyph_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	frame.add_child(glyph_label)
-	box.add_child(frame)
-	var caption_label := _label(caption, u * 1.9, Color(color.r * 1.2, color.g * 1.2, color.b * 1.2))
-	caption_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	caption_label.custom_minimum_size = Vector2(u * 11.5, 0)
-	caption_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(caption_label)
-	return box
+func _build_lock_overlay() -> void:
+	if _lock_overlay != null and is_instance_valid(_lock_overlay):
+		_lock_overlay.queue_free()
+	_lock_overlay = Panel.new()
+	_lock_overlay.name = "LockOverlay"
+	_lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
+	var u := _unit()
+	box.set_corner_radius_all(int(u * 1.2))
+	_lock_overlay.add_theme_stylebox_override("panel", box)
+	add_child(_lock_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lock_overlay.add_child(center)
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(col)
+	var title := _label("Ab Lizenzstufe %d" % GameRun.HUB_SLOT_LEVELS[0],
+		u * 4.6, TITLE_COLOR)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(title)
+	var name_lbl := _label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SLOT_LEVELS[0] - 1],
+		u * 3.4, MUTED_COLOR)
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(name_lbl)
+	_lock_overlay.visible = locked
+	if _content != null and is_instance_valid(_content):
+		_content.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
 # --- Bausteine -----------------------------------------------------------------
 
@@ -925,8 +941,9 @@ func _kind_color(kind: int) -> Color:
 		SlotPrize.Kind.ENGRAVING: return PackIconRenderer.COLORS[Pack.TYPE_NUMBER]
 		SlotPrize.Kind.MATERIAL: return PackIconRenderer.COLORS[Pack.TYPE_MATERIAL]
 		SlotPrize.Kind.DICE_ENGRAVING: return PackIconRenderer.DICE_ENGRAVING_COLOR
-		SlotPrize.Kind.CHARM: return ENGRAVING_GLOW
-		SlotPrize.Kind.DIE: return CYAN
+		SlotPrize.Kind.CHARGE: return CYAN
+		SlotPrize.Kind.DIE: return DIE_COLOR
+		SlotPrize.Kind.WILD: return GOLD
 	return RED  # Fumble
 
 func _label(text: String, font_size: float, color: Color) -> Label:
@@ -963,6 +980,9 @@ class RunOverlay:
 	extends Control
 	## Je Eintrag {points: PackedVector2Array, color: Color, width: float}.
 	var lines: Array = []
+	## Die PERLEN des Perlenzugs: je Eintrag {pos: Vector2, radius: float,
+	## color: Color} - unterwegs zur Sammelstelle ihrer Reihe.
+	var beads: Array = []
 
 	func _draw() -> void:
 		for line in lines:
@@ -975,3 +995,9 @@ class RunOverlay:
 			draw_polyline(pts, Color(col.r, col.g, col.b, 0.9), w, true)
 			for p in pts:
 				draw_circle(p, w * 0.9, Color(col.r, col.g, col.b, 0.85))
+		for bead in beads:
+			var c: Color = bead["color"]
+			var r: float = bead["radius"]
+			var at: Vector2 = bead["pos"]
+			draw_circle(at, r * 2.0, Color(c.r, c.g, c.b, 0.3))
+			draw_circle(at, r, Color(c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.95))

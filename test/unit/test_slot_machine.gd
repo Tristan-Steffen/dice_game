@@ -9,9 +9,10 @@ extends GutTest
 const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
 const E := SlotPrize.Kind.DICE_ENGRAVING
-const C := SlotPrize.Kind.CHARM
+const C := SlotPrize.Kind.CHARGE
 const D := SlotPrize.Kind.DIE
 const F := SlotPrize.Kind.FUMBLE
+const W := SlotPrize.Kind.WILD  # Joker
 
 func _bank() -> SlotMachine:
 	return SlotMachine.new()
@@ -65,7 +66,7 @@ func test_spin_fills_a_machine_block() -> void:
 	bank.fumble_chance = 0.0
 	var block := bank.spin(0)
 	assert_eq(block.size(), SlotMachine.MACHINE_COLS, "drei Spalten je Block")
-	assert_eq(block[0].size(), SlotMachine.ROWS, "fünf Symbole je Spalte")
+	assert_eq(block[0].size(), SlotMachine.ROWS, "vier Symbole je Spalte")
 	assert_false(bank.busted)
 
 func test_each_machine_spins_once() -> void:
@@ -107,10 +108,10 @@ func test_diagonal_down_right_pays() -> void:
 
 func test_diagonal_up_right_pays() -> void:
 	var bank := _neutral()
-	bank.cells[2][3] = D
-	bank.cells[3][2] = D
-	bank.cells[4][1] = D
-	var run: Variant = _find_run(bank, [1, -1], D)
+	bank.cells[2][3] = M
+	bank.cells[3][2] = M
+	bank.cells[4][1] = M
+	var run: Variant = _find_run(bank, [1, -1], M)
 	assert_not_null(run, "Diagonale ↗ erkannt")
 	assert_eq(int(run["length"]), 3)
 
@@ -127,10 +128,10 @@ func test_run_crosses_machine_boundary() -> void:
 ## Erwartete Auszahlung je Reihenlänge, ausgeschrieben - der Test darf die Regel
 ## nicht aus derselben Tabelle ableiten, die er prüft.
 const LADDER := {
-	3: [1, Pack.TIER_NORMAL], 4: [2, Pack.TIER_NORMAL],
-	5: [1, Pack.TIER_GROSS], 6: [2, Pack.TIER_GROSS],
-	7: [1, Pack.TIER_KOLOSSAL], 8: [2, Pack.TIER_KOLOSSAL],
-	9: [3, Pack.TIER_KOLOSSAL],
+	3: [1, Pack.TIER_NORMAL], 4: [1, Pack.TIER_GROSS],
+	5: [1, Pack.TIER_KOLOSSAL], 6: [2, Pack.TIER_KOLOSSAL],
+	7: [3, Pack.TIER_KOLOSSAL], 8: [4, Pack.TIER_KOLOSSAL],
+	9: [5, Pack.TIER_KOLOSSAL],
 }
 
 func _pack_spec(kind: int, length: int) -> Dictionary:
@@ -157,27 +158,25 @@ func test_the_ladder_is_uniform_across_the_engraving_sorts() -> void:
 			assert_eq(int(other["tier"]), int(numbers["tier"]),
 				"gleiche Größe bei Länge %d" % length)
 
-func test_the_ladder_trades_pieces_for_magazine_slots() -> void:
-	# Bewusste Delle: 6 (2× Groß = 6 Grundstücke) wirft mehr aus als 7 (1× Kolossal
-	# = 5) - dafür belegt die 7 nur EINEN Magazin-Platz. Der Test hält das fest,
-	# damit es eine Entscheidung bleibt und kein Versehen wird.
-	var six := SlotMachine.pack_payout(6)
-	var seven := SlotMachine.pack_payout(7)
-	var six_base := int(six["count"]) * PhantomPress.base_for(int(six["tier"]))
-	var seven_base := int(seven["count"]) * PhantomPress.base_for(int(seven["tier"]))
-	assert_gt(six_base, seven_base, "die 6er-Reihe wirft mehr Stücke aus")
-	assert_lt(int(seven["count"]), int(six["count"]), "dafür kostet sie mehr Magazin-Plätze")
+func test_the_ladder_grows_monotonically() -> void:
+	# Jede weitere Länge zahlt streng mehr - Stückzahl wie Gesamt-Grundstücke.
+	for length in range(SlotMachine.MIN_RUN, SlotMachine.TOTAL_COLS):
+		var here := SlotMachine.pack_payout(length)
+		var more := SlotMachine.pack_payout(length + 1)
+		var base_here := int(here["count"]) * PhantomPress.base_for(int(here["tier"]))
+		var base_more := int(more["count"]) * PhantomPress.base_for(int(more["tier"]))
+		assert_gt(base_more, base_here, "Länge %d wirft mehr aus als %d" % [length + 1, length])
 
 func test_minted_packs_carry_size_name_and_price() -> void:
-	var prize := SlotPrize.from_spec(_pack_spec(S, 6))
-	assert_eq(prize.packs.size(), 2, "6er-Reihe: zwei Pakete")
+	var prize := SlotPrize.from_spec(_pack_spec(S, 4))
+	assert_eq(prize.packs.size(), 1, "4er-Reihe: ein Großes Paket")
 	var plain := Pack.number_pack()
 	for pack: Pack in prize.packs:
 		assert_eq(pack.tier, Pack.TIER_GROSS, "die Größe steht am Paket")
 		assert_eq(pack.display_name, "Großes Zahlen-Paket", "und in der Aufschrift")
 		assert_gt(pack.price, plain.price, "der Preis skaliert mit")
 	var kolossal := SlotPrize.from_spec(_pack_spec(E, 9))
-	assert_eq(kolossal.packs.size(), 3, "9er-Reihe: drei Pakete")
+	assert_eq(kolossal.packs.size(), 5, "9er-Reihe: fünf Kolossale")
 	assert_eq(kolossal.packs[0].display_name, "Kolossales Runen-Paket")
 
 func test_pot_summary_keeps_the_three_kinds_apart() -> void:
@@ -199,18 +198,63 @@ func test_pot_summary_empty_when_no_runs() -> void:
 	assert_eq(int(summary["materials"]), 0)
 	assert_eq(int(summary["edges"]), 0)
 	assert_true((summary["packs"] as Array).is_empty())
-	assert_true((summary["charms"] as Array).is_empty())
+	assert_eq(int(summary["charge"]), 0)
 	assert_eq(int(summary["dice"]), 0)
 
 func test_pot_summary_reports_the_sizes() -> void:
 	# Die alten Gesamtzahlen bleiben; "packs" gliedert dieselben Pakete nach Größe.
-	var summary := _wall([_run_row(S, 5)]).pot_summary()
+	var summary := _wall([_run_row(S, 4)]).pot_summary()
 	assert_eq(int(summary["engravings"]), 1, "eine Kassette im Topf")
 	var lines: Array = summary["packs"]
 	assert_eq(lines.size(), 1, "eine Zeile je Sorte und Größe")
 	assert_eq(int(lines[0]["symbol"]), S)
 	assert_eq(int(lines[0]["tier"]), Pack.TIER_GROSS)
 	assert_eq(int(lines[0]["count"]), 1)
+
+# --- Die ⚡-Leiter: flach und bescheiden -----------------------------------------
+
+## Erwartete Energie je Reihenlänge, ausgeschrieben - der Test darf die Regel nicht
+## aus derselben Tabelle ableiten, die er prüft.
+const CHARGE_LADDER := {3: 1, 4: 2, 5: 3, 6: 4, 7: 4, 8: 4, 9: 4}
+
+func test_charge_ladder_at_every_length() -> void:
+	for length: int in CHARGE_LADDER:
+		assert_eq(SlotMachine.charge_payout(length), int(CHARGE_LADDER[length]),
+			"Energie bei Länge %d" % length)
+
+func test_the_shortest_charge_run_pays_the_spin_back() -> void:
+	# Ein Dreh kostet 1⚡, die Mindestreihe zahlt ihn genau zurück - das ist der
+	# ganze Entwurf der flachen Leiter.
+	assert_eq(SlotMachine.charge_payout(SlotMachine.MIN_RUN),
+		int(SlotMachine.SPIN_CHARGES[0]))
+
+func test_a_charge_run_mints_energy_not_a_charm() -> void:
+	var run: Variant = _find_run(_wall([_run_row(C, 5)]), [1, 0], C)
+	assert_not_null(run, "⚡-Reihe erkannt")
+	var spec: Dictionary = run["specs"][0]
+	assert_eq(String(spec["kind"]), "charge")
+	assert_eq(int(spec["amount"]), 3, "5er-Reihe → 3⚡")
+	assert_eq(String(run["label"]), "⚡ ×5 → 3⚡")
+	var prize := SlotPrize.from_spec(spec)
+	assert_eq(prize.kind, SlotPrize.Kind.CHARGE)
+	assert_eq(prize.charge, 3)
+	assert_true(prize.packs.is_empty(), "Energie ist keine Ware")
+
+func test_pot_summary_sums_the_charge() -> void:
+	var summary := _wall([_run_row(C, 4)]).pot_summary()
+	assert_eq(int(summary["charge"]), 2, "4er-Reihe → 2⚡ im Topf")
+	assert_true((summary["packs"] as Array).is_empty(), "und keine Ware")
+
+func test_the_wall_carries_only_ware_energy_and_fumble() -> void:
+	# Der Charm ist restlos fort; das seltene Symbol der höheren Automaten ist ⚡.
+	var allowed := [S, M, E, C, D, F, W]
+	var bank := _bank()
+	var seen := {}
+	for machine in SlotMachine.MACHINE_COUNT:
+		for entry in bank._symbol_table(machine):
+			assert_true(allowed.has(int(entry[0])), "nur bekannte Symbole auf der Wand")
+			seen[int(entry[0])] = true
+	assert_true(seen.has(C), "die Energie steht wirklich auf der Wand")
 
 func test_no_symbol_pays_money() -> void:
 	# Der Automat setzt Geld um, er druckt keines - keine Reihe darf Geld liefern.
@@ -293,16 +337,16 @@ func test_run_specs_resolve_by_symbol() -> void:
 func test_run_label_names_the_pack_kind() -> void:
 	var numbers: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
 	assert_eq(String(numbers["label"]), "◉ ×3 → 1 Zahlen-Paket")
-	var long_run: Variant = _find_run(_wall([[S, S, S, S, C, M, C, M, D]]), [1, 0], S)
-	assert_eq(String(long_run["label"]), "◉ ×4 → 2 Zahlen-Pakete", "Plural im Etikett")
+	var long_run: Variant = _find_run(_wall([_run_row(S, 6)]), [1, 0], S)
+	assert_eq(String(long_run["label"]), "◉ ×6 → 2 Kolossale Zahlen-Pakete", "Plural im Etikett")
 
 func test_run_label_names_the_pack_size() -> void:
-	# Die Größe ist der ganze Unterschied zwischen einer 4er- und einer 6er-Reihe -
-	# das Etikett muss sie nennen, im richtigen Numerus.
-	var gross: Variant = _find_run(_wall([_run_row(S, 5)]), [1, 0], S)
-	assert_eq(String(gross["label"]), "◉ ×5 → 1 Großes Zahlen-Paket")
+	# Die Größe ist der ganze Unterschied - das Etikett muss sie nennen, im richtigen
+	# Numerus: 4er → 1 Großes, längere → mehrere Kolossale.
+	var gross: Variant = _find_run(_wall([_run_row(S, 4)]), [1, 0], S)
+	assert_eq(String(gross["label"]), "◉ ×4 → 1 Großes Zahlen-Paket")
 	var kolossal: Variant = _find_run(_wall([_run_row(M, 8)]), [1, 0], M)
-	assert_eq(String(kolossal["label"]), "◆ ×8 → 2 Kolossale Material-Pakete")
+	assert_eq(String(kolossal["label"]), "◆ ×8 → 4 Kolossale Material-Pakete")
 
 ## Der Einsatz ist Energie und für alle drei Automaten gleich: die Stufe entscheidet
 ## über den Gewinn, nicht über den Preis.
@@ -310,3 +354,55 @@ func test_every_machine_costs_one_charge() -> void:
 	assert_eq(SlotMachine.SPIN_CHARGES.size(), SlotMachine.MACHINE_COUNT)
 	for i in SlotMachine.MACHINE_COUNT:
 		assert_eq(int(SlotMachine.SPIN_CHARGES[i]), 1, "jeder Dreh kostet 1 Energie")
+
+# --- Der JOKER (★): mischt sich in jede Sorte ------------------------------------
+
+func test_joker_completes_a_run() -> void:
+	# Zwei Zahlen und ein Joker daneben zahlen als 3er-Zahlen-Reihe.
+	var run: Variant = _find_run(_wall([[S, S, W, C, M, D, C, M, D]]), [1, 0], S)
+	assert_not_null(run, "der Joker vervollständigt die Zahlen-Reihe")
+	assert_eq(int(run["length"]), 3)
+	assert_eq(int(run["specs"][0]["count"]), 1, "und zahlt als Zahlen-Paket")
+
+func test_joker_extends_a_run_to_a_bigger_pack() -> void:
+	# Drei Zahlen plus ein Joker = 4er → ein Großes Paket (die Länge wächst mit).
+	var run: Variant = _find_run(_wall([[S, S, S, W, C, M, C, M, D]]), [1, 0], S)
+	assert_eq(int(run["length"]), 4, "der Joker verlängert die Reihe")
+	assert_eq(int(run["specs"][0]["tier"]), Pack.TIER_GROSS, "vier zahlt Groß")
+
+func test_a_lone_joker_between_two_kinds_pays_nothing() -> void:
+	# S W M: der Joker reicht zu keiner Seite für eine 3er-Reihe.
+	var bank := _wall([[S, W, M, C, F, C, F, C, F]])
+	assert_null(_find_run(bank, [1, 0], S), "kein waagerechter Zahlen-3er")
+	assert_null(_find_run(bank, [1, 0], M), "kein waagerechter Material-3er")
+
+func test_a_joker_meshes_with_every_kind_at_once() -> void:
+	# S S J M M: der Joker gehört BEIDEN Reihen - Zahlen 3er UND Material 3er.
+	var bank := _wall([[S, S, W, M, M, D, C, D, C]])
+	var s_run: Variant = _find_run(bank, [1, 0], S)
+	var m_run: Variant = _find_run(bank, [1, 0], M)
+	assert_not_null(s_run, "Zahlen-Reihe über den Joker")
+	assert_not_null(m_run, "und Material-Reihe über denselben Joker")
+	assert_eq(int(s_run["length"]), 3)
+	assert_eq(int(m_run["length"]), 3)
+
+func test_a_pure_joker_stretch_pays_nothing() -> void:
+	var bank := SlotMachine.new()
+	for c in SlotMachine.TOTAL_COLS:
+		var col: Array = []
+		for r in SlotMachine.ROWS:
+			col.append(W)
+		bank.cells[c] = col
+	bank.spun = [true, true, true]
+	assert_true(bank.runs().is_empty(), "reine Joker bilden keine Reihe")
+
+func test_a_joker_never_busts() -> void:
+	# F F J F F: der Joker BRICHT die Fumble-Reihe, statt sie zu vervollständigen.
+	var bank := _neutral()
+	bank.cells[0][0] = F
+	bank.cells[1][0] = F
+	bank.cells[2][0] = W
+	bank.cells[3][0] = F
+	bank.cells[4][0] = F
+	bank._detect_bust()
+	assert_false(bank.busted, "der Joker mischt NICHT mit Fumble")

@@ -82,12 +82,12 @@ func _wallet_value(counts: Dictionary) -> int:
 # --- consolidate (automatischer color-up ab >3 Türmen) -----------------------
 
 func test_consolidate_leaves_tidy_wallets_untouched() -> void:
-	# Alles unter der Grenze (3 Türme = 36 Chips) bleibt, wie es liegt.
+	# Alles unter der Grenze (3 Türme = 24 Chips) bleibt, wie es liegt.
 	var wallet := {100: 5, 25: 3, 5: 2, 1: 4}
 	assert_eq(ChipStackView.consolidate(wallet), wallet, "nichts über der Grenze -> unverändert")
 
 func test_consolidate_colors_up_an_overflowing_denomination() -> void:
-	# 37 Einser (>36) werten komplett auf: $37 = 1x$25 + 2x$5 + 2x$1.
+	# 37 Einser (>24) werten komplett auf: $37 = 1x$25 + 2x$5 + 2x$1.
 	var out := ChipStackView.consolidate({100: 0, 25: 0, 5: 0, 1: 37})
 	assert_eq(out, {100: 0, 25: 1, 5: 2, 1: 2})
 	assert_lte(out[1], ChipStackView.STACK_LIMIT * ChipStackView.COLUMN_CAP, "Einser wieder unter der Grenze")

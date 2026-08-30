@@ -1,18 +1,16 @@
 class_name ChipStackView
 extends Node3D
 ## Zeigt den Geldstand als echte Chip-Börse (_wallet: Anzahl je Stückelung) auf
-## dem Tisch. Zuwachs kommt in gierig gestückelten Chips herein; bei Zahlung
-## wird möglichst exakt bezahlt, sonst mit genau einem Chip zu viel, und das
-## Wechselgeld kommt aus dem Tisch zurück (siehe payment_plan). Wächst ein
-## Chip-Bestand über STACK_LIMIT Türme, wertet ihn show_wallet automatisch in
-## höhere Stückelungen auf (color up, siehe consolidate). Die
-## Türme (max. COLUMN_CAP Chips) stehen als Rack in Reihen, nach Stückelung
-## gruppiert. Nur der oberste Chip einer Spalte trägt die Wertziffer; ein aus
-## dem Index abgeleiteter Versatz lässt die Türme handgesetzt wirken.
+## dem Tisch. Zuwachs wird bodenschwer gestückelt (hohe Stückelungen gedeckelt,
+## siehe split_gain/GAIN_CAPS); Zahlung möglichst exakt (payment_plan). Kein
+## automatischer Color-up — der Spieler tauscht am Schlitz (exchange_values).
+## Türme (max. COLUMN_CAP) stehen als Rack in Reihen, nach Stückelung gruppiert.
+## Nur der oberste Chip einer Spalte trägt die Wertziffer; ein aus dem Index
+## abgeleiteter Versatz lässt die Türme handgesetzt wirken.
 
-## Stückelungen (absteigend für die gierige Zerlegung): Neon-Farbe (Geld-Licht-
-## puls/Ziffer) + satter Keramik-Körper + Akzentring + Rand-Punkt-Farbe. Werte
-## folgen der Casino-Konvention: $1 blau, $5 rot, $25 grün, $100 schwarz-gold.
+## Stückelungen (absteigend): Neon-Farbe (Geld-Lichtpuls/Ziffer) + satter
+## Keramik-Körper + Akzentring + Rand-Punkt-Farbe. Casino-Konvention:
+## $1 blau, $5 rot, $25 grün, $100 schwarz-gold.
 const DENOMINATIONS := [
 	{
 		"value": 100,
@@ -45,22 +43,25 @@ const SPOT_COLOR := Color(0.82, 0.79, 0.70)       # gedämpfte Creme-Rand-Punkte
 
 const CHIP_RADIUS := 0.9
 const CHIP_HEIGHT := 0.28
-const COLUMN_CAP := 12
-## Übersteigt eine Stückelung mehr als STACK_LIMIT Türme, wird sie automatisch
-## gierig in höhere Chips aufgewertet ("color up"), siehe consolidate.
+const COLUMN_CAP := 8
+## Color-up-Schwelle für consolidate (nur noch manueller Umtausch am Schlitz).
 const STACK_LIMIT := 3
 const COLUMN_SPACING := CHIP_RADIUS * 2.3         # Turmabstand in der Reihe
 const ROW_SPACING := CHIP_RADIUS * 2.15           # Abstand zwischen Reihen
-const ROW_LEN := 4                                # Türme je Reihe (Truhenbreite)
-const JITTER_XZ := CHIP_RADIUS * 0.05             # winziger Stapelversatz
+const ROW_LEN := 6                                # Türme je Reihe (Truhenbreite)
+const JITTER_XZ := CHIP_RADIUS * 0.09             # Stapelversatz (handgesetzt-Look)
 const COLUMN_JITTER := CHIP_RADIUS * 0.06         # dezenter Versatz ganzer Türme
 
-## Stückelungs-Werte, absteigend (Reihenfolge der gierigen Zerlegung/Anzeige).
+## Stückelungs-Werte, absteigend.
 const VALUES := [100, 25, 5, 1]
+
+## Bodenschwere Zerlegung: hohe Stückelungen werden pro Buchung auf diese Zahl
+## gedeckelt, der Rest fällt in kleinere Chips (mehr Stapel, mehr Haptik).
+const GAIN_CAPS := {100: 2, 25: 2}
 
 ## Prägung/Absorption: ein einzelner Chip steigt am Münzschlitz auf und hüpft im
 ## Bogen auf den Turm (Zuwachs) bzw. vom Turm in den Schlitz (Ausgabe).
-const MINT_TIME := 0.42
+const MINT_TIME := 0.30
 const MINT_HOP := CHIP_RADIUS * 2.6               # Bogenhöhe des Hüpfers
 
 ## Zwei Münzschlitze (lokaler XZ-Versatz vom Turm-Ursprung): links wird gezahlt
@@ -111,10 +112,8 @@ func wallet_total() -> int:
 		total += int(value) * int(_wallet[value])
 	return total
 
-## Zeigt die aktuelle Börse (Abgleich/Endzustand). Vorher wird color-up
-## angewandt: zu hohe Chip-Stapel wandern automatisch in höhere Stückelungen.
+## Zeigt die aktuelle Börse (Abgleich/Endzustand).
 func show_wallet() -> void:
-	_wallet = consolidate(_wallet)
 	_build_pile(_wallet)
 
 ## Zeigt einen beliebigen Chip-Bestand (Zwischenbild einer Animation).
@@ -134,12 +133,12 @@ static func pile_columns(counts: Dictionary) -> Array:
 			count -= height
 	return columns
 
-## Wie viele TÜRME ein Betrag im Rack belegt - daran mißt der Fußabdruck.
+## Wie viele TÜRME ein Betrag im Rack belegt — daran mißt der Fußabdruck.
 static func pile_tower_count(amount: int) -> int:
 	var counts := {100: 0, 25: 0, 5: 0, 1: 0}
 	for value in split_gain(maxi(amount, 0)):
 		counts[value] += 1
-	return pile_columns(consolidate(counts)).size()
+	return pile_columns(counts).size()
 
 ## Wie hoch das i-te GEWORFENE Stück über seiner Landefläche aufsetzt: genau auf dem
 ## schon liegenden Stapel, ein Chip je Schritt. Reine Rechnung - damit stapelt die
@@ -205,9 +204,25 @@ func build_ghost_tower(value: int, count: int) -> Node3D:
 
 # --- Stückelungs-Mathematik (rein statisch, testbar) ------------------------
 
-## Gieriger Zerlegung eines Zuwachses in Chip-Werte, höchster zuerst:
-## 26 -> [25, 1]; 130 -> [100, 25, 5]. So kommt jeder Gewinn herein und bleibt.
+## Bodenschwere Zerlegung eines Zuwachses: hohe Stückelungen werden pro Buchung
+## auf GAIN_CAPS gedeckelt, der Rest fällt in kleinere Chips. Höchste zuerst.
 static func split_gain(amount: int) -> Array[int]:
+	var values: Array[int] = []
+	var rest := maxi(0, amount)
+	for value in VALUES:
+		var cap: int = int(GAIN_CAPS.get(value, 0))
+		var count := 0
+		while rest >= value:
+			rest -= value
+			values.append(value)
+			count += 1
+			if cap > 0 and count >= cap:
+				break
+	return values
+
+## Gierige Zerlegung: möglichst wenige Chips, höchste zuerst. Für Umtausch
+## (exchange_values) und Konsolidierung, wo man AUFWERTEN will.
+static func split_greedy(amount: int) -> Array[int]:
 	var values: Array[int] = []
 	var rest := maxi(0, amount)
 	for value in VALUES:
@@ -248,26 +263,25 @@ static func payment_plan(wallet_counts: Dictionary, price: int) -> Dictionary:
 
 ## Color-up: übersteigt eine Stückelung (außer der höchsten) mehr als
 ## STACK_LIMIT Türme, wird ihr GANZER Bestand gierig in höhere Chips
-## aufgewertet - der Gesamtwert bleibt gleich. Aufsteigend abgearbeitet, damit
-## erzeugte höhere Chips ihrerseits weiter aufsteigen können (Kaskade). Die
-## höchste Stückelung ($100) bleibt: für sie gibt es kein Höher.
+## aufgewertet — der Gesamtwert bleibt gleich. Wird NICHT automatisch gerufen;
+## der Spieler tauscht am Schlitz (exchange_values).
 static func consolidate(counts: Dictionary) -> Dictionary:
 	var result := {100: 0, 25: 0, 5: 0, 1: 0}
 	for value in counts:
 		result[int(value)] += int(counts[value])
 	for value in [1, 5, 25]:
 		if result[value] > STACK_LIMIT * COLUMN_CAP:
-			var upgraded := split_gain(value * result[value])
+			var upgraded := split_greedy(value * result[value])
 			result[value] = 0
 			for v in upgraded:
 				result[v] += 1
 	return result
 
 ## Umtausch eines ganzen Turms (count Chips zu value) am Schlitz: liefert die
-## gierig aufgewerteten Chips - oder leer, wenn kein höherer Chip entsteht
+## gierig aufgewerteten Chips — oder leer, wenn kein höherer Chip entsteht
 ## (dann bleibt der Turm, wie er ist; nichts wird sinnlos geschluckt).
 static func exchange_values(value: int, count: int) -> Array[int]:
-	var result := split_gain(value * count)
+	var result := split_greedy(value * count)
 	if result.size() == count:  # gleiche Chipzahl = keine Aufwertung möglich
 		return [] as Array[int]
 	return result

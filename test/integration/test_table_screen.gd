@@ -554,12 +554,12 @@ func test_a_won_die_flies_a_free_arc_to_the_tray():
 	assert_true(first[first.size() - 1].is_equal_approx(to), "und landet auf dem Platz")
 	assert_gt(first[6].distance_to(second[6]), 1.0, "zwei Würfel fliegen nicht dieselbe Bahn")
 
-# --- Automaten ohne Freischaltung ----------------------------------------------
+# --- Automaten-Ader steht immer ------------------------------------------------
 
-func test_without_machines_no_strip_is_lit():
+func test_slot_strip_is_always_visible_after_placement():
 	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
 	screen.place_slot_bank_window(Rect2(Vector2(1500, 2100), Vector2(1000, 1100)))
-	assert_false(screen.slot_hub_strip.visible, "ohne freigeschaltete Automaten keine Ader")
+	assert_true(screen.slot_hub_strip.visible, "Ader steht ab Platzierung")
 
 func test_two_meteors_fling_in_different_directions():
 	_place_workbench_corner()

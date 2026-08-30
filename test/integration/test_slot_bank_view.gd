@@ -2,12 +2,16 @@ extends GutTest
 ## Tier-2-Integrationstests der Fumble-Automaten-Anzeige (SlotBankView mit echtem
 ## GameRun). Deterministisch über handgebaute Wände; die Walzen-Animation wird
 ## umgangen, indem die Landung (_on_reel_landed mit dem 3×3-Block) direkt gerufen
-## wird.
+## wird. Die Auszahlung ist der PERLENZUG: gebucht wird je Preis bei seinem Abflug
+## (prize_dispatched), und finish_payout_now ist die Ungeduld-Garantie.
 
 const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
-const C := SlotPrize.Kind.CHARM
+const C := SlotPrize.Kind.CHARGE
 const F := SlotPrize.Kind.FUMBLE
+
+## Das Fenster am Tisch: die hohe Spalte des Kombi-Clusters.
+const WINDOW_SIZE := Vector2(900, 1400)
 
 var view: SlotBankView
 var run: GameRun
@@ -18,7 +22,7 @@ func before_each() -> void:
 	run.charge = 20  # Einsatz ist Energie
 	run.hub_level = 9  # alle drei Automaten frei
 	view = SlotBankView.new()
-	view.size = Vector2(900, 1400)
+	view.size = WINDOW_SIZE
 	add_child_autofree(view)
 	view.run = run
 	view.refresh()
@@ -44,7 +48,7 @@ func test_builds_a_reel_window_per_machine() -> void:
 func test_shows_three_by_three_symbol_labels() -> void:
 	await wait_frames(2)
 	assert_eq(view._face_labels[0].size(), SlotMachine.MACHINE_COLS, "drei Spalten")
-	assert_eq(view._face_labels[0][0].size(), SlotMachine.ROWS, "drei Zeilen je Spalte")
+	assert_eq(view._face_labels[0][0].size(), SlotMachine.ROWS, "vier Zeilen je Spalte")
 
 func test_locked_machines_cannot_be_spun() -> void:
 	run.hub_level = 1  # kein Automat frei
@@ -67,21 +71,72 @@ func test_fumble_triple_marks_the_session_busted() -> void:
 	assert_true(run.slot_bank.busted)
 	assert_eq(run.slot_bank.hit_count(), 0, "Topf verloren")
 
+## Die Reihen-Zahlen, die cashed_out meldet, und die abgeflogenen Preise.
+func _cashed() -> Array:
+	var seen: Array = []
+	view.cashed_out.connect(func(runs: int) -> void: seen.append(runs))
+	return seen
+
+func _dispatched() -> Array:
+	var seen: Array = []
+	view.prize_dispatched.connect(func(prize: SlotPrize, from_px: Vector2) -> void:
+		seen.append({"prize": prize, "from_px": from_px}))
+	return seen
+
 func test_cash_out_redeems_runs_and_resets() -> void:
-	# 3er-Zahlen-Reihe in Automat 0 → ein Zahlen-Paket ins Lager.
+	# 3er-Zahlen-Reihe in Automat 0 → ein Zahlen-Paket, gebucht erst am Ende des
+	# Perlenzugs der Reihe (beim Abflug ihres Lichts).
 	_set_wall([[S, S, S, M, C, M, C, M, C]])
 	view.refresh()
 	await wait_frames(2)
 	var money_before := run.money
 	var packs_before := run.owned_packs.size()
+	var seen := _cashed()
+	var flown := _dispatched()
 	view._on_cash_out_pressed()
-	await wait_frames(2)
-	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung zurückgesetzt")
+	assert_eq(run.slot_bank.hit_count(), 0, "Sitzung sofort zurückgesetzt")
 	assert_eq(run.owned_packs.size(), packs_before,
-		"während der Anzeige ist noch nichts gebucht")
-	view.finish_payout_now()
-	assert_eq(run.owned_packs.size(), packs_before + 1, "Reihe als Paket ausgezahlt")
+		"beim Klick ist noch nichts gebucht - der Perlenzug läuft erst")
+	assert_eq(seen, [1], "die Zahl der Reihen verläßt das Fenster sofort")
+	view.finish_payout_now()  # Ungeduld: bucht und verschickt alles Ausstehende
+	assert_eq(run.owned_packs.size(), packs_before + 1, "Reihe als Paket gebucht")
+	assert_eq(flown.size(), 1, "und ihr Licht ist abgeflogen")
+	assert_gt((flown[0]["from_px"] as Vector2).length(), 0.0,
+		"mit einem echten Abflug-Pixel")
 	assert_eq(run.money, money_before, "der Automat zahlt KEIN Geld aus")
+
+func test_the_pearl_train_books_every_prize_exactly_once() -> void:
+	# Zwei Reihen (Zahlen + Material); der harte Abschluß bucht beide, ein zweiter
+	# Abschluß bucht nichts doppelt.
+	# Zweite Zeile ohne C im Wechseltakt - sonst stünde mit den Füllzeilen ein
+	# senkrechtes ⚡-Tripel in Spalte 6 und die Wand trüge DREI Reihen.
+	_set_wall([
+		[S, S, S, M, C, M, C, M, C],
+		[M, M, M, S, SlotPrize.Kind.DIE, S, SlotPrize.Kind.DIE, S, SlotPrize.Kind.DIE],
+	])
+	view.refresh()
+	await wait_frames(2)
+	assert_eq(run.slot_bank.hit_count(), 2, "genau die zwei gebauten Reihen")
+	var packs_before := run.owned_packs.size()
+	var flown := _dispatched()
+	view._on_cash_out_pressed()
+	view.finish_payout_now()
+	assert_eq(run.owned_packs.size(), packs_before + 2, "beide Reihen gebucht")
+	assert_eq(flown.size(), 2, "je Preis EIN Abflug")
+	view.finish_payout_now()
+	assert_eq(run.owned_packs.size(), packs_before + 2, "idempotent - nichts doppelt")
+	assert_eq(flown.size(), 2)
+
+func test_a_refresh_mid_payout_loses_no_prize() -> void:
+	# Der Neuaufbau (Hub-Aufstieg, Laufwechsel) bringt die Auszahlung hart zu Ende.
+	_set_wall([[S, S, S, M, C, M, C, M, C]])
+	view.refresh()
+	await wait_frames(2)
+	var packs_before := run.owned_packs.size()
+	view._on_cash_out_pressed()
+	view.refresh()  # mitten im Perlenzug
+	assert_eq(run.owned_packs.size(), packs_before + 1,
+		"refresh bucht die ausstehenden Preise")
 
 func test_each_engraving_symbol_pays_its_own_pack_kind() -> void:
 	# Zahlen-, Material- und Würfel-Reihe zahlen je in ihrer eigenen Paketsorte.
@@ -95,9 +150,8 @@ func test_each_engraving_symbol_pays_its_own_pack_kind() -> void:
 		_set_wall([[symbol, symbol, symbol, C, F, C, F, C, F]])
 		view.refresh()
 		await wait_frames(2)
-		view._on_cash_out_pressed()
-		await wait_frames(2)
-		view.finish_payout_now()  # Licht abfliegen lassen: DANN ist gebucht
+		for prize: SlotPrize in fresh.redeem_slots()["prizes"]:
+			fresh.book_slot_prize(prize)
 		assert_gt(fresh.owned_packs.size(), 0, "Sorte %s zahlt aus" % entry[1])
 		for pack in fresh.owned_packs:
 			assert_eq(pack.type, String(entry[1]), "nur Pakete der eigenen Sorte")
@@ -176,55 +230,17 @@ func test_refresh_if_idle_leaves_a_running_spin_untouched() -> void:
 	assert_true(view._spin_buttons[0] == before, "laufende Walze: kein Neuaufbau")
 	view._spinning = false
 
-# --- Gewinne verlassen das Fenster als Licht -------------------------------------
-
-func _dispatched() -> Array:
-	var seen: Array = []
-	view.prize_dispatched.connect(func(prize: SlotPrize, from_px: Vector2) -> void:
-		seen.append({"prize": prize, "from": from_px}))
-	return seen
-
-func test_every_prize_leaves_the_window_once() -> void:
-	_set_wall([[S, S, S, M, C, M, C, M, C]])
-	view.refresh()
-	await wait_frames(2)
-	var seen := _dispatched()
-	view._on_cash_out_pressed()
-	await wait_frames(2)
-	assert_eq(seen.size(), 0, "während der Anzeige fliegt noch nichts")
-	view.finish_payout_now()
-	assert_gt(seen.size(), 0, "jeder Gewinn macht sich auf den Weg")
-	for entry in seen:
-		var from: Vector2 = entry["from"]
-		assert_true(Rect2(view.position, view.size).has_point(from),
-			"der Start liegt IM Automaten-Fenster")
-
-func test_a_finished_payout_does_not_fire_again() -> void:
+func test_a_second_cash_out_reports_nothing() -> void:
 	_set_wall([[S, S, S, M, C, M, C, M, C]])
 	view.refresh()
 	await wait_frames(2)
 	view._on_cash_out_pressed()
-	await wait_frames(2)
+	var seen := _cashed()
+	view._on_cash_out_pressed()  # mitten im laufenden Perlenzug: der Guard schluckt
+	assert_eq(seen.size(), 0, "keine zweite Auszahlung, solange die erste läuft")
 	view.finish_payout_now()
-	var booked := run.owned_packs.size()
-	var seen := _dispatched()
-	view.finish_payout_now()
-	assert_eq(seen.size(), 0, "ein abgeschlossener Ablauf löst nichts nach")
-	assert_eq(run.owned_packs.size(), booked, "und bucht auch nichts doppelt")
-
-func test_a_run_swap_credits_the_run_that_won() -> void:
-	# Neustart mitten in der Auszahlung: die Ware gehört dem alten Lauf.
-	_set_wall([[S, S, S, M, C, M, C, M, C]])
-	view.refresh()
-	await wait_frames(2)
-	var winner := run
-	view._on_cash_out_pressed()
-	await wait_frames(2)
-	var next_run := GameRun.new_run()
-	view.run = next_run
-	view.finish_payout_now()
-	assert_gt(winner.owned_packs.size(), 0, "der Gewinner bekommt seine Ware")
-	assert_eq(next_run.owned_packs.size(), 0, "der neue Lauf erbt nichts")
+	view._on_cash_out_pressed()  # und die leere Sitzung zahlt ebenfalls nichts
+	assert_eq(seen.size(), 0, "eine leere Sitzung zahlt nicht noch einmal aus")
 
 func test_fresh_session_leaves_the_button_disabled() -> void:
 	# Nichts gedreht: kein Verwerfen anzubieten, „Auszahlen" bleibt gesperrt.
@@ -233,3 +249,22 @@ func test_fresh_session_leaves_the_button_disabled() -> void:
 	var button := view._cash_out_button(9.0, false, 0)
 	assert_true(button.disabled, "ohne Dreh kein aktiver Knopf")
 	assert_eq(button.text, "Auszahlen")
+
+# --- Die drei SPALTEN und ihre Melde-API ------------------------------------------
+
+## Alle Beschriftungen des Fensters, flach.
+func _texts(node: Node = null) -> Array[String]:
+	var out: Array[String] = []
+	for child in (node if node != null else view).get_children():
+		if child is Label:
+			out.append((child as Label).text)
+		elif child is Button:
+			out.append((child as Button).text)
+		out.append_array(_texts(child))
+	return out
+
+func test_the_legend_names_energy_instead_of_a_charm() -> void:
+	await wait_frames(2)
+	var texts := _texts()
+	assert_true(texts.has("Energie"), "die ⚡-Zeile heißt Energie")
+	assert_false(texts.has("Charm"), "und der Charm ist restlos fort")

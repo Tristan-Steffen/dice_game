@@ -113,13 +113,14 @@ func test_no_room_is_left_beside_or_above_the_plots():
 		panel.size.y - u * SideBetPanel.MARGIN_UNITS, 0.05,
 		"und unten schließt die letzte Zeile mit demselben Rand ab")
 
-## Im Fenster steht nichts als die drei Sitze - kein Kopf, keine Zeile, keine Anrede.
+## Im Fenster steht nichts als die drei Sitze plus das Sperr-Overlay.
 func test_the_window_holds_nothing_but_its_three_seats():
 	panel.open_betting(_money_offers())
 	await wait_frames(2)
+	var allowed := ["Tresen", "LockOverlay"]
 	for child in panel.get_children():
-		assert_eq(String(child.name), "Tresen",
-			"außer dem Tresen hängt nichts im Fenster (%s)" % child.name)
+		assert_has(allowed, String(child.name),
+			"außer Tresen und LockOverlay hängt nichts im Fenster (%s)" % child.name)
 	var counter: Control = panel.get_node("Tresen")
 	assert_eq(counter.get_child_count(), SideBetPanel.OFFER_COUNT,
 		"und der Tresen trägt genau die drei Sitze")

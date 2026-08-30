@@ -1,14 +1,14 @@
 class_name SlotPrize
 extends RefCounted
-## Ergebnis eines Fumble-Automaten: ein Gewinn (Pakete, Charm oder Würfel) oder
+## Ergebnis eines Fumble-Automaten: ein Gewinn (Pakete, Energie oder Würfel) oder
 ## das Namensgeber-Symbol „Fumble" (die Niete, löscht den Topf). Der Inhalt wird
 ## beim Drehen aufgelöst (Anzeige im Zwischenspeicher); GameRun bucht ihn beim
 ## Auszahlen - mit Multiplikator je Trefferzahl. Reine Daten, keine Nodes.
 ##
 ## Die drei Gravur-Sorten sind EIGENE Symbole (Zahlen/Material/Würfel) - dieselbe
-## Dreiteilung wie Pakete im Laden und Schubladen an der Werkbank. Der Automat
-## zahlt NUR in Ware; Geld verdient man an den Runden, nicht am Automaten.
-enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, CHARM, DIE }
+## Dreiteilung wie Pakete im Laden und Schubladen an der Werkbank. Geld verdient
+## man an den Runden, nicht am Automaten: ausgezahlt wird Ware oder Energie.
+enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, CHARGE, DIE, WILD }
 
 ## Paketsorte hinter einem Gravur-Symbol ("" = kein Gravur-Symbol).
 static func pack_type_of(kind_value: int) -> String:
@@ -35,16 +35,13 @@ static func pack_name_tiered(kind_value: int, count: int = 1,
 
 var kind: int = Kind.FUMBLE
 var packs: Array[Pack] = []      # Basis-Ausschüttung (vor Multiplikator)
-var charm: Charm = null
+var charge: int = 0              # Energie einer ⚡-Reihe
 var die: DieDefinition = null
 var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 
-## Löst eine Gewinn-Vorlage (SlotMachine.PRIZE_TABLES-Eintrag) in einen konkreten
+## Löst eine Gewinn-Vorlage (ein spec aus SlotMachine._run_specs) in einen konkreten
 ## Preis auf - Inhalt wird sofort gewürfelt, damit ihn der Zwischenspeicher zeigt.
-## owned_essences: die Seelen im Pool - ein Essenz-Charm fällt auch hier nur,
-## wenn sein Würfel wirklich existiert (Charm.offerable).
-static func from_spec(spec: Dictionary, hub_level: int = 1, owned_essences: Array[String] = [],
-		features: Dictionary = {}) -> SlotPrize:
+static func from_spec(spec: Dictionary, hub_level: int = 1) -> SlotPrize:
 	var p := SlotPrize.new()
 	match String(spec.get("kind", "pack")):
 		"pack":
@@ -56,10 +53,10 @@ static func from_spec(spec: Dictionary, hub_level: int = 1, owned_essences: Arra
 				# Pack.tiered ist der eine Schreibweg: Aufschrift und Preis kommen mit.
 				p.packs.append(Pack.tiered(Pack.by_type(pack_type), pack_tier))
 			p.label = "%d %s" % [count, pack_name_tiered(p.kind, count, pack_tier)]
-		"charm":
-			p.kind = Kind.CHARM
-			p.charm = _roll_charm(String(spec.get("rarity", Charm.RARITY_COMMON)), owned_essences, features)
-			p.label = p.charm.display_name if p.charm != null else "Charm"
+		"charge":
+			p.kind = Kind.CHARGE
+			p.charge = maxi(1, int(spec.get("amount", 1)))
+			p.label = "%d⚡" % p.charge
 		"die":
 			p.kind = Kind.DIE
 			p.die = _roll_die(hub_level)
@@ -74,26 +71,10 @@ static func symbol_for(kind_value: int) -> String:
 		Kind.ENGRAVING: return "◉"
 		Kind.MATERIAL: return "◆"
 		Kind.DICE_ENGRAVING: return "▣"
-		Kind.CHARM: return "✦"
+		Kind.CHARGE: return "⚡"
 		Kind.DIE: return "⬢"
+		Kind.WILD: return "★"
 	return "✖"   # Fumble
-
-## Zufälliger Charm GENAU der Rarität rarity_name, gewichtet. Fehlt diese Stufe,
-## eine Stufe tiefer, bis der Pool nicht leer ist.
-static func _roll_charm(rarity_name: String, owned_essences: Array[String] = [],
-		features: Dictionary = {}) -> Charm:
-	var order := [Charm.RARITY_COMMON, Charm.RARITY_UNCOMMON, Charm.RARITY_RARE, Charm.RARITY_LEGENDARY]
-	var offerable := Charm.offerable(Charm.all(), owned_essences, features)
-	var idx := maxi(0, order.find(rarity_name))
-	while idx >= 0:
-		var pool: Array[Charm] = []
-		for charm in offerable:
-			if charm.rarity == order[idx]:
-				pool.append(charm)
-		if not pool.is_empty():
-			return Charm.pick_weighted(pool)
-		idx -= 1
-	return Charm.pick_weighted(offerable)
 
 static func _roll_die(hub_level: int = 1) -> DieDefinition:
 	var offers := DiceOffer.roll_offers(1, [], [], hub_level)

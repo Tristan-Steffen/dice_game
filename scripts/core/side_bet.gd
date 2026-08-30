@@ -34,7 +34,7 @@ enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL, PRESS_BOOST }
 
 ## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
 ## die Nebenwetten überhaupt installiert, GameRun.HUB_SIDE_BETS_LEVEL).
-const UNLOCK_BASE := 4
+const UNLOCK_BASE := 2
 
 ## Eine "volle" Hand nutzt alle sechs Würfel der Grube.
 const FULL_HAND_DICE := 6

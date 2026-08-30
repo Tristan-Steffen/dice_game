@@ -98,9 +98,13 @@ const PIT_SCORE_HEIGHT_WORLD := 6.0  # höher: Platz für die Wertungs-Orbs
 const HUB_WIDTH_WORLD := 28.5
 const HUB_HEIGHT_WORLD := 30.0
 
-## Automaten-Fenster: Unterkante höher als der Hub. Der Versatz stammt vom
-## alten Tischrand und bleibt bewusst - das Layout soll nicht verrutschen.
+## Die Automaten-SPALTE: Unterkante höher als der Hub. Der Versatz stammt vom alten
+## Tischrand und bleibt bewusst - der Schwarzmarkt hängt daran.
 const SLOTS_BOTTOM_INSET_WORLD := 7.5
+## Das Fenster füllt seit dem TOPF-Rückbau (vier Reihen, keine Topf-Anzeige) nur
+## noch diesen Anteil der Spalte; der Rest darunter bleibt leerer Filz. Der
+## Schwarzmarkt hängt an der VOLLEN Spalte und rückt darum NICHT nach.
+const SLOTS_HEIGHT_SHARE := 0.78
 
 ## Die MASSEINHEIT der Ecke bleibt an der Tray-Breite hängen: hinge sie an der
 ## Werkbank-Breite, wüchse mit ihr die Schubladenhöhe und fräße den Höhengewinn.
@@ -138,9 +142,8 @@ const CLUSTER_SPILL_FACTOR := 2.6
 const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
 
 
-## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.CHARGE), Charm
-## violett wie im Regal, Würfel zyan wie das Würfel-Symbol der Walze.
-const SLOT_CHARM_COLOR := Color(1.6, 0.9, 2.0, 0.9)
+## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.CHARGE), Ware und
+## Würfel zyan - dieselbe Farbe trägt jede Lieferung zur Werkbank.
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 
 ## Das Fußmaß des abgebauten Hüllen-Projektors (ehemals DiceShell.PUCK_RADIUS):
@@ -276,7 +279,7 @@ const NET_FADE_TIME := 0.3
 
 ## Geld-Lichtanimation: Gutschriften schicken goldenes Licht Hub -> Chips,
 ## Käufe je bezahltem Chip einen Puls in dessen Farbe zurück zum Hub.
-const MONEY_PULSE_GAP := 0.12
+const MONEY_PULSE_GAP := 0.08
 const MONEY_PULSE_BOOST := 2.2  # Chip-Farbe -> überhelle Leiterbahn-Farbe
 
 ## Energiefeld-Blitz bei Wandkontakt (siehe _on_die_wall_contact).
@@ -1031,19 +1034,13 @@ func _setup_table_screen() -> void:
 	# alte (Hüllen-Anker + 4,5 % Screen + UNGEWACHSENE Fensterbreite) - dahinter
 	# beginnen die Vorrats-Fächer, an die nichts heranrücken darf.
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
-	var gap_left := side_r.end.x
+	var gap_left := side_r.end.x + table_screen.size.x * 0.005
 	var gap_right := shell_px.x + table_screen.size.x * 0.045 \
 		+ SideBetPanel.preferred_units().x * (table_screen.cluster_rect.size.x / 100.0)
-	var t_w := minf((gap_right - gap_left) * 0.9, table_screen.size.x * 0.15)
-	# Oberkante hergeleitet statt fest, am ALTEN Hüllen-Anker vermessen: der
-	# Projektor ist abgebaut (2026-08-26), aber sein Fußmaß hält die Fensterlücke
-	# stabil - dieselbe Luft nach unten (Screen-Oberkante) wie nach oben
-	# (Grubenoberkante). Die Unterkante bleibt auf der gemeinsamen Linie mit
-	# Grube und Nebenwetten.
-	var puck_px := SHELL_FOOT_RADIUS * ppw
-	var puck_margin := maxf((shell_px.y - puck_px) - pit_r.position.y, 0.0)
-	var t_top := shell_px.y + puck_px + puck_margin
-	var t_size := Vector2(t_w, maxf(pit_r.end.y - t_top, t_w * 0.4))
+	# Doppelt so breit wie der Wett-Tresen, gleiche Höhe und Oberkante.
+	var t_w := side_r.size.x * 2.0
+	var t_top := side_r.position.y
+	var t_size := Vector2(t_w, side_r.size.y)
 	# Waagerecht mittig in seiner Lücke zwischen Wett-Tresen und Fächern.
 	var t_cx := clampf((gap_left + gap_right) * 0.5,
 		gap_left + t_w * 0.5, gap_right - t_w * 0.5)
@@ -1079,9 +1076,12 @@ func _setup_table_screen() -> void:
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
 	# Pool-Tray gewandert, die linke Spalte also frei. Sichtbar erst ab Freischaltung.
 	var hub_r := Rect2(table_screen.hub.position, table_screen.hub.size)
-	var slots_rect := Rect2(
+	# Die volle Spalte: der Schwarzmarkt-Anker; das Fenster selbst ist kürzer.
+	var slots_column_rect := Rect2(
 		Vector2(table_screen.cluster_rect.position.x, hub_r.position.y),
 		Vector2(table_screen.cluster_rect.size.x, hub_r.size.y - SLOTS_BOTTOM_INSET_WORLD * ppw))
+	var slots_rect := Rect2(slots_column_rect.position,
+		Vector2(slots_column_rect.size.x, slots_column_rect.size.y * SLOTS_HEIGHT_SHARE))
 	table_screen.place_slot_bank_window(slots_rect)
 	slots_click_zone = _screen_zoom_zone("SlotsClickZone", slots_rect, camera_rig.configure_slots_target)
 	table_screen.slot_bank_window.cashed_out.connect(_on_slot_cashed_out)
@@ -1093,7 +1093,7 @@ func _setup_table_screen() -> void:
 	# Schwarzmarkt: direkt unter den Automaten in der Glas-Tasche, Unterkante
 	# bündig mit dem Hub. Eigener Zoom wie jedes Tisch-Fenster - auch vergittert
 	# anfassbar, denn der Freischalt-Knopf liegt IM Fenster.
-	var secret_rect := _secret_shop_rect(slots_rect, hub_r)
+	var secret_rect := _secret_shop_rect(slots_column_rect, hub_r)
 	table_screen.place_secret_shop_window(secret_rect)
 	secret_shop_click_zone = _screen_zoom_zone("SecretShopClickZone", secret_rect,
 		camera_rig.configure_secret_shop_target)
@@ -1856,9 +1856,12 @@ func _sync_hub_level_state() -> void:
 			run.hub_next_level_name(), run.hub_next_unlock(), run.hub_upgrade_price())
 		table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
 	if table_screen != null:
-		table_screen.set_side_bet_installed(run.side_bets_unlocked())
-		table_screen.set_slot_bank_installed(run.slots_unlocked() > 0)
+		table_screen.set_side_bet_installed(true)
+		if table_screen.side_bet_window != null:
+			table_screen.side_bet_window.set_locked(not run.side_bets_unlocked())
+		table_screen.set_slot_bank_installed(true)
 		if table_screen.slot_bank_window != null:
+			table_screen.slot_bank_window.set_locked(run.slots_unlocked() <= 0)
 			table_screen.slot_bank_window.refresh()
 
 ## Laufende Nummer der Meteore eines Pakets - sie steuert die Ausbruch-Richtung,
@@ -2201,13 +2204,6 @@ func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
 	return BetPrizeView.FLOOR_CLEAR + ChipStackView.CHIP_HEIGHT \
 		+ ChipStackView.stack_lift(mini(chips.size(), THROW_SALVO_CAP) - 1)
 
-## Automaten-Sitzung ausgezahlt: der Hub-Rahmen quittiert mit einem goldenen
-## Blitz; die Ware selbst fliegt einzeln (siehe _on_slot_prize_dispatched).
-func _on_slot_cashed_out(_multiplier: int) -> void:
-	_meteor_index = 0  # je Auszahlung ein frischer Fächer von Ausbruch-Richtungen
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-
 ## Einsatz bezahlt: die Energie fährt vom Hub die Automaten-Ader entlang - eine
 ## Etappe wie jede ⚡-Zahlung (Schwarzmarkt-Grammatik), nicht zwei wie das Geld.
 ## Erst nach ihrer Ankunft läuft die Walze an.
@@ -2215,24 +2211,6 @@ func _on_slot_spin_paid(_machine: int) -> void:
 	if table_screen == null:
 		return
 	table_screen.slot_pay_comet(CasinoStyle.CHARGE)
-
-## Ein Gewinn verlässt den Automaten: Pakete fliegen ins Lager an der Werkbank,
-## Charms die Automaten-Ader hinauf in den Hub, Würfel im Bogen auf die
-## Vorrats-Ablage. Gebucht hat ihn das Fenster beim Abflug.
-func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
-	if table_screen == null:
-		return
-	match prize.kind:
-		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
-			_fly_slot_packs(prize.packs, from_px)
-		SlotPrize.Kind.CHARM:
-			var travel := table_screen.slot_prize_comet(from_px, SLOT_CHARM_COLOR)
-			if travel > 0.0:
-				await get_tree().create_timer(travel).timeout
-			if table_screen != null and table_screen.hub != null:
-				table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-		SlotPrize.Kind.DIE:
-			_fly_die_to_pool(from_px)
 
 ## Gewonnene Pakete: je Paket ein Licht vom Automaten ins Werkstatt-Lager, dicht
 ## gestaffelt wie die Frankiermaschinen-Salve. Erst die letzte Ankunft jubelt.
@@ -4905,6 +4883,44 @@ func _drop_payout_bodies() -> void:
 	_payout_plot_specs.clear()
 	_payout_depth = 0.0  # die nächste Ablage mißt ihre Tiefe neu
 	_settle_payout_shafts()
+
+# --- Die Fumble-Automaten: das Gewinn-Licht --------------------------------------
+# Der Topf hat keinen Körper mehr: die Auszahlung ist der PERLENZUG im Fenster
+# (SlotBankView), und je Preis fliegt bei seinem Abflug ein Licht - gebucht hat ihn
+# das Fenster VOR der Emission, hier wird nur noch geflogen.
+
+## Auszahlung gestartet: frischer Meteor-Fächer und der Gold-Blitz am Hub.
+func _on_slot_cashed_out(_runs: int) -> void:
+	_meteor_index = 0  # je Auszahlung ein frischer Fächer von Ausbruch-Richtungen
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
+
+## Ein Gewinn verläßt den Automaten: Pakete ins Magazin an der Werkbank, ⚡ über
+## den Hub in die Kondensator-Bank, Würfel in die Vorrats-Ablage.
+func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
+	if table_screen == null:
+		return
+	match prize.kind:
+		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
+			_fly_slot_packs(prize.packs, from_px)
+		SlotPrize.Kind.CHARGE:
+			_fly_slot_charge(prize.charge, from_px)
+		SlotPrize.Kind.DIE:
+			_fly_die_to_pool(from_px)
+
+## Die gewonnene Energie reist die ZWEI Etappen jedes ⚡ im Spiel: die Automaten-Ader
+## in den Hub, dann die Hub-Cluster-Ader zur Kondensator-Bank. Die Automaten sind
+## die sechste ⚡-Quelle; gebucht ist längst, das hier ist reine Anzeige.
+func _fly_slot_charge(count: int, from_px: Vector2) -> void:
+	if count <= 0 or table_screen == null:
+		return
+	var launched := run
+	var travel := table_screen.slot_prize_comet(from_px, CasinoStyle.CHARGE)
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != launched:
+		return
+	_play_hub_charge_volley(count)
 
 ## Die Magazin-Plätze der Pakete, die dieser Einsatz gleich verzehrt - gefragt VOR
 ## der Buchung, denn danach steht dort nichts mehr. WELCHE es sind, sagt GameRun
@@ -10185,6 +10201,8 @@ func _connect_run() -> void:
 	_drop_slit_cells()  # die versiegelte Ware des alten Ladens liegt nirgends mehr
 	_drop_bet_bodies()  # und der Wett-Tresen des alten Laufs ebenso
 	_drop_payout_bodies()  # samt der Ablage seiner Auszahlungs-Seite
+	# (Einen laufenden Automaten-Perlenzug beendet _connect_run über refresh() -
+	# das Fenster bucht dabei hart auf den ALTEN Lauf.)
 	_hide_vitrine_hard()  # ein Abgang des alten Laufs endet hier, Loch und Ware fort
 	# Und das Hinterzimmer steht wieder vergittert da.
 	if secret_vitrine != null and is_instance_valid(secret_vitrine):
@@ -10224,22 +10242,19 @@ func _connect_run() -> void:
 	_sync_ausgabefach()  # und die Schale zeigt, was dieser Lauf hinterlegt hat
 
 ## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
-## gibt es erst mit der Lizenz - vorher steht dort nichts, und die Zoom-Zone ist
-## abgeschaltet (Ebene 0), damit weder Klick noch Rad ein Ziel finden. Ein
-## frischer Lauf nimmt es damit sofort wieder vom Tisch, OHNE Zeremonie; die
-## spielt nur den Übergang.
+## steht immer, vor der Lizenz als gesperrt markiert.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
 	if table_screen != null:
-		table_screen.set_secret_shop_installed(run.secret_shop_unlocked)
+		table_screen.set_secret_shop_installed(true)
 		if table_screen.secret_shop_window != null:
 			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked)
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
-		secret_shop_click_zone.collision_layer = 8 if run.secret_shop_unlocked else 0
+		secret_shop_click_zone.collision_layer = 8
 	# Die Bucht misst sich am eben gestellten Fenster - idempotent, generationssicher.
 	_sync_secret_vitrine()
 

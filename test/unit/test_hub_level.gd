@@ -53,13 +53,11 @@ func test_caps_at_max_level() -> void:
 	assert_eq(run.hub_upgrade_price(), 0, "keine weitere Stufe")
 	assert_false(run.can_upgrade_hub())
 
-func test_side_bets_unlock_at_level_four() -> void:
+func test_side_bets_unlock_at_level_two() -> void:
 	var run := _run(9999)
-	for i in 2:
-		run.upgrade_hub()  # -> 3
-	assert_false(run.side_bets_unlocked(), "Stufe 3: noch gesperrt")
-	run.upgrade_hub()  # 4
-	assert_true(run.side_bets_unlocked(), "Stufe 4 (Parkett): Nebenwetten frei")
+	assert_false(run.side_bets_unlocked(), "Stufe 1: noch gesperrt")
+	run.upgrade_hub()  # 2
+	assert_true(run.side_bets_unlocked(), "Stufe 2: Nebenwetten frei")
 
 func test_flipping_unlocks_at_level_two() -> void:
 	var run := _run(9999)
@@ -201,7 +199,7 @@ func test_cannot_spin_slot_without_charge() -> void:
 func test_redeem_books_run_prizes() -> void:
 	const M := SlotPrize.Kind.MATERIAL
 	const S := SlotPrize.Kind.ENGRAVING
-	const C := SlotPrize.Kind.CHARM
+	const C := SlotPrize.Kind.CHARGE
 	const D := SlotPrize.Kind.DIE
 	var run := _run(9999)
 	run.hub_level = 9  # alle drei frei

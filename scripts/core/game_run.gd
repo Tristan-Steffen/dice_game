@@ -158,7 +158,7 @@ const SHOP_SPECIAL_CHANCE := {8: 0.25, 9: 0.4, 10: 0.55}
 
 ## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
 const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern
-const HUB_SIDE_BETS_LEVEL := 4     # Nebenwetten installiert
+const HUB_SIDE_BETS_LEVEL := 2     # Nebenwetten installiert
 const HUB_RARITY_UNCOMMON_LEVEL := 6
 const HUB_CHEAP_FLIP_LEVEL := 8    # halbierte Blätter-Gebühr
 const HUB_RARITY_RARE_LEVEL := 9
@@ -2299,8 +2299,7 @@ func redeem_slots() -> Dictionary:
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			prizes.append(SlotPrize.from_spec(spec, hub_level, owned_essence_ids(),
-				charm_offer_features()))
+			prizes.append(SlotPrize.from_spec(spec, hub_level))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
 
@@ -2314,10 +2313,10 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 			for i in mult:
 				for pack in prize.packs:
 					grant_pack(pack.duplicate())  # sonst teilte der Multiplikator eine Resource
-		SlotPrize.Kind.CHARM:
-			if prize.charm != null:
-				for i in mult:
-					_grant_charm(prize.charm.duplicate())  # voller Dock nimmt nichts mehr
+		SlotPrize.Kind.CHARGE:
+			var overflow := add_charge(prize.charge * mult)
+			if overflow > 0:
+				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # voller Speicher zahlt bar
 		SlotPrize.Kind.DIE:
 			if prize.die != null:
 				for i in mult:

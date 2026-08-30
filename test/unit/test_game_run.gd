@@ -529,7 +529,7 @@ func test_the_exchange_ignores_slots_outside_the_pool():
 ## Wand mit einer 3er-Reihe des Symbols in der obersten Zeile; der Rest bildet in
 ## keiner Richtung eine Reihe.
 func _winning_wall(symbol: int) -> void:
-	var filler := [SlotPrize.Kind.CHARM, SlotPrize.Kind.FUMBLE]
+	var filler := [SlotPrize.Kind.CHARGE, SlotPrize.Kind.FUMBLE]
 	for c in SlotMachine.TOTAL_COLS:
 		var col: Array = []
 		for r in SlotMachine.ROWS:
@@ -615,14 +615,32 @@ func test_booking_a_won_die_takes_a_pool_slot():
 	assert_eq(_count_style("fixed_6"), 1, "der gewonnene Würfel ersetzt einen Pool-Platz")
 	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
 
-func test_booking_a_won_charm_puts_it_on_the_shelf():
-	var prize := SlotPrize.new()
-	prize.kind = SlotPrize.Kind.CHARM
-	prize.charm = Charm.rabbits_foot()
-	watch_signals(run)
+## Das ⚡-Symbol ersetzt den Charm: eine Reihe zahlt Energie in denselben Speicher
+## wie jede andere Quelle - und was nicht mehr hineinpaßt, zahlt bar.
+func test_booking_a_won_charge_fills_the_capacitor():
+	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 3})
+	assert_eq(prize.kind, SlotPrize.Kind.CHARGE)
+	assert_eq(prize.charge, 3)
+	assert_eq(prize.label, "3⚡", "der Zwischenspeicher nennt die Menge")
+	run.charge = 0
 	run.book_slot_prize(prize)
-	assert_eq(run.owned_charms.size(), 1)
-	assert_signal_emitted(run, "charms_changed")
+	assert_eq(run.charge, 3, "die Energie liegt in der Bank")
+
+func test_a_full_capacitor_pays_the_slot_charge_in_money():
+	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 4})
+	run.charge = run.charge_cap()
+	var money_before := run.money
+	run.book_slot_prize(prize)
+	assert_eq(run.charge, run.charge_cap(), "der Speicher bleibt voll")
+	assert_eq(run.money, money_before + 4 * GameRun.CHARGE_OVERFLOW_MONEY,
+		"der Überlauf zahlt bar - dieselbe Grammatik wie die ⚡-Wette")
+
+func test_the_multiplier_scales_the_won_charge():
+	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 2})
+	run.charge = 0
+	run._book_slot_prize(prize, 2)
+	assert_eq(run.charge, 4)
+
 
 # --- Rundenfortschritt -----------------------------------------------------------
 

@@ -819,22 +819,24 @@ func place_side_bet_window(rect: Rect2) -> void:
 	side_bet_window.visible = true
 	_sync_reflection_windows()
 
-## Spannt das Automaten-Fenster über rect auf (links vom Hub). Bleibt bis zur
-## ersten Freischaltung unsichtbar (set_slot_bank_installed).
+## Spannt das Automaten-Fenster über rect auf (links vom Hub).
 func place_slot_bank_window(rect: Rect2) -> void:
 	slot_bank_window.position = rect.position
 	slot_bank_window.size = rect.size
+	slot_bank_window.visible = true
 	slot_bank_window.refresh()
 	_link_slot_to_hub()
 	_sync_reflection_windows()
 
-## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten). Sichtbar
-## macht ihn scene_root beim Verdrahten (set_secret_shop_installed).
+## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten).
 func place_secret_shop_window(rect: Rect2) -> void:
 	secret_shop_window.position = rect.position
 	secret_shop_window.size = rect.size
+	secret_shop_window.visible = true
 	secret_shop_window.refresh()
 	_link_secret_shop_to_hub()
+	if secret_hub_strip != null:
+		secret_hub_strip.visible = true
 	_sync_reflection_windows()
 
 ## Ader Schwarzmarkt -> Hub: dieselbe gerade Waagerechte wie die Automaten-Ader,
@@ -852,27 +854,26 @@ func _link_secret_shop_to_hub() -> void:
 	secret_hub_strip.link_horizontal(secret_shop_window.position.x + secret_shop_window.size.x,
 		hub.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
-## Blendet den Schwarzmarkt ein/aus (Entdeckung bzw. frischer Lauf).
-func set_secret_shop_installed(installed: bool) -> void:
+## Stellt sicher, dass der Schwarzmarkt sichtbar ist (Sperre über set_locked).
+func set_secret_shop_installed(_installed: bool) -> void:
 	if secret_shop_window == null or secret_shop_window.size.x <= 0.0:
 		return  # noch nicht platziert
 	if secret_hub_strip != null:
-		secret_hub_strip.visible = installed  # ohne Laden liegt dort keine Ader
-	if secret_shop_window.visible == installed:
+		secret_hub_strip.visible = true
+	if secret_shop_window.visible:
 		return
-	secret_shop_window.visible = installed
-	if installed:
-		secret_shop_window.refresh()
+	secret_shop_window.visible = true
+	secret_shop_window.refresh()
 	_sync_reflection_windows()
 
-## Blendet das Automaten-Fenster ein/aus (erste Automaten-Stufe erreicht).
-func set_slot_bank_installed(installed: bool) -> void:
+## Stellt sicher, dass das Automaten-Fenster sichtbar ist (Sperre über set_locked).
+func set_slot_bank_installed(_installed: bool) -> void:
 	if slot_bank_window == null or slot_bank_window.size.x <= 0.0:
 		return  # noch nicht platziert
-	if slot_bank_window.visible == installed:
+	slot_hub_strip.visible = true
+	if slot_bank_window.visible:
 		return
-	slot_bank_window.visible = installed
-	slot_hub_strip.visible = installed  # ohne Automaten liegt dort keine Ader
+	slot_bank_window.visible = true
 	_sync_reflection_windows()
 
 ## Ader Automaten -> Hub: der spiegelbildliche Zwilling der Werkstatt-Ader, gerade
@@ -2029,17 +2030,15 @@ func link_hub_to_cluster() -> void:
 	led_strip.link_edges(hub.position.y, _hub_strip_exit_x(false),
 		cluster_rect.end.y, enter_x, _hub_strip_lane_y(), HUB_STRIP_WIDTH)
 
-## Installiert bzw. entfernt das Nebenwetten-Fenster (Hub-Stufe 3). Blendet das
-## Fenster ein/aus, synchronisiert die Glas-Spiegelung und die Schatz-Ader-
-## Abzweigung (Fork). place_side_bet_window muss zuvor Position/Größe gesetzt haben.
-func set_side_bet_installed(installed: bool) -> void:
+## Stellt sicher, dass das Nebenwetten-Fenster sichtbar ist (Sperre über set_locked).
+func set_side_bet_installed(_installed: bool) -> void:
 	if side_bet_window == null or side_bet_window.size.x <= 0.0:
 		return  # noch nicht platziert
-	if side_bet_window.visible == installed:
+	if side_bet_window.visible:
 		return
-	side_bet_window.visible = installed
+	side_bet_window.visible = true
 	_sync_reflection_windows()
-	link_hub_to_treasure()  # Fork zum Fenster erscheint/verschwindet mit der Sichtbarkeit
+	link_hub_to_treasure()
 
 ## Installations-Zeremonie (Hub-Stufe 3): Stoßwelle am frisch installierten
 ## Nebenwetten-Fenster + ein Komet vom Hub die Schatz-Ader entlang zur neuen
