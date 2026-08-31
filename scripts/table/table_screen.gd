@@ -153,6 +153,19 @@ var slot_bank_window: SlotBankView
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
+## Das Netz-Raster des Vorrats auf dem geschlossenen Gruben-Glas (Glas-Ansicht);
+## es liegt auf dem Pool-Loch und steht nur, solange die Ansicht offen ist. Es
+## wohnt in seinem EIGENEN SubViewport (siehe _build_content): nicht-HDR und
+## transparent, damit sein Alpha echt ist und seine Auflösung an der
+## Bildschirm-Pixeldichte des Gruben-Schirms hängt statt an dieser Anzeige.
+var deck_glass_window: DeckGlassView
+var deck_glass_viewport: SubViewport
+## Sein Rechteck auf der ANZEIGE (leer = die Ansicht steht nicht): daraus fällt die
+## Welt-Abbildung der Haut und die Umrechnung jedes weitergereichten Zeigers.
+var _deck_glass_rect := Rect2()
+var _deck_glass_skin: ShaderMaterial
+## Der NETZ-SCHIRM neben dem Ausgabefach: die Würfelnetze der offenen Neuzugänge.
+var fach_net_window: FachNetView
 ## Die vier Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Würfel +
 ## Sonderbestand), je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen,
 ## nicht als fremde Fenster daneben.
@@ -569,6 +582,29 @@ func _build_content() -> void:
 	workshop_window.visible = false
 	add_child(workshop_window)
 
+	# Glas-Ansicht: Sie zieht in einen EIGENEN, NICHT-HDR-SubViewport mit
+	# transparent_bg - dort trägt sie echtes Per-Pixel-Alpha (der HDR-Haupt-Viewport
+	# gibt keins her), und ihre Auflösung wird an der Bildschirm-Pixeldichte des
+	# Gruben-Schirms bemessen statt am fernen Ausschnitt dieser Anzeige. Sie wird
+	# darum NIE hier gezeichnet: das Loch der Grube schneidet die Anzeige ohnehin
+	# fort, gezeigt wird sie allein auf dem Haut-Quad des Schirms.
+	deck_glass_viewport = SubViewport.new()
+	deck_glass_viewport.name = "DeckGlassViewport"
+	deck_glass_viewport.transparent_bg = true
+	deck_glass_viewport.use_hdr_2d = false
+	deck_glass_viewport.disable_3d = true
+	deck_glass_viewport.gui_embed_subwindows = false
+	deck_glass_viewport.size = Vector2i(64, 64)
+	deck_glass_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(deck_glass_viewport)
+	deck_glass_window = DeckGlassView.new()
+	deck_glass_viewport.add_child(deck_glass_window)
+
+	# Info-Säule unter dem Ausgabefach: Position/Größe setzt scene_root über
+	# place_fach_net_window; leer heißt unsichtbar.
+	fach_net_window = FachNetView.new()
+	add_child(fach_net_window)
+
 	# Ader Hub -> Werkstatt (verlegt place_workshop_window).
 	workshop_hub_strip = LedStripView.new()
 	workshop_hub_strip.name = "WorkshopHubStrip"
@@ -861,6 +897,88 @@ func place_side_bet_window(rect: Rect2) -> void:
 	side_bet_window.visible = true
 	_sync_reflection_windows()
 
+## HINWEIS: das Filz-LOCH der Vorwelle (set_felt_hole samt felt_hole-Uniforms) ist
+## 2026-08-31 gestorben - der Schirm liest jetzt echtes Alpha statt Schwarz.
+
+## Spannt die Glas-Ansicht über rect auf (das Pool-Loch, in Display-Pixeln) bzw.
+## nimmt sie fort. resolution ist die ECHTE Pixelzahl ihres Viewports - sie kommt
+## von draußen, denn nur der Aufrufer kennt die Kamera, die den Schirm abbildet.
+func place_deck_glass_window(rect: Rect2, resolution: Vector2i) -> void:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		hide_deck_glass_window()
+		return
+	_deck_glass_rect = rect
+	var wanted := Vector2i(maxi(resolution.x, 16), maxi(resolution.y, 16))
+	if deck_glass_viewport.size != wanted:
+		deck_glass_viewport.size = wanted
+	deck_glass_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	deck_glass_window.position = Vector2.ZERO
+	deck_glass_window.size = Vector2(wanted)
+	deck_glass_window.visible = true
+	_sync_deck_glass_skin()
+
+func hide_deck_glass_window() -> void:
+	_deck_glass_rect = Rect2()
+	deck_glass_window.visible = false
+	deck_glass_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+## Das Rechteck der Glas-Ansicht auf der ANZEIGE (leer = sie steht nicht).
+func deck_glass_rect_px() -> Rect2:
+	return _deck_glass_rect
+
+## Ein Display-Pixel in die Pixel des Glas-Viewports (rect -> Viewport, reine
+## Streckung; außerhalb des Rechtecks kommt (-1,-1) zurück).
+func deck_glass_pixel(pixel: Vector2) -> Vector2:
+	if _deck_glass_rect.size.x <= 0.0 or not _deck_glass_rect.has_point(pixel):
+		return Vector2(-1, -1)
+	var t := (pixel - _deck_glass_rect.position) / _deck_glass_rect.size
+	return t * Vector2(deck_glass_viewport.size)
+
+## Reicht ein Mausereignis an das Raster weiter (true = verbraucht). pixel ist der
+## Display-Pixel unter dem Zeiger - umgerechnet wird hier, wo die Abbildung wohnt.
+func push_deck_glass_input(event: InputEventMouse, pixel: Vector2) -> bool:
+	var at := deck_glass_pixel(pixel)
+	if at.x < 0.0:
+		return false
+	var forwarded := event.duplicate() as InputEventMouse
+	forwarded.position = at
+	forwarded.global_position = at
+	if forwarded is InputEventMouseMotion:
+		(forwarded as InputEventMouseMotion).relative = Vector2.ZERO
+	deck_glass_viewport.push_input(forwarded)
+	return true
+
+## Die ANZEIGE-HAUT des Gruben-Schirms: dasselbe Weltpositions-Rezept wie
+## display_skin, nur zieht sie aus dem EIGENEN Viewport der Glas-Ansicht - und
+## seine Deckkraft ist echtes Alpha, kein Helligkeits-Key.
+func deck_glass_skin() -> ShaderMaterial:
+	if _deck_glass_skin == null:
+		_deck_glass_skin = ShaderMaterial.new()
+		_deck_glass_skin.shader = load("res://assets/shaders/display_skin_sheer.gdshader")
+	_sync_deck_glass_skin()
+	return _deck_glass_skin
+
+## Die Abbildung Weltpunkt -> Viewport-UV: das Glas-Rechteck deckt genau den
+## Weltausschnitt, den seine Display-Pixel decken (world_to_pixel rückwärts).
+func _sync_deck_glass_skin() -> void:
+	if _deck_glass_skin == null or _deck_glass_rect.size.x <= 0.0:
+		return
+	var a := pixel_to_world(_deck_glass_rect.position)
+	var b := pixel_to_world(_deck_glass_rect.end)
+	_deck_glass_skin.set_shader_parameter("screen_texture", deck_glass_viewport.get_texture())
+	_deck_glass_skin.set_shader_parameter("display_map",
+		Vector4(a.z, b.z - a.z, a.x, a.x - b.x))
+	_deck_glass_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
+
+## Spannt den Netz-Schirm über rect auf (neben dem Ausgabefach) bzw. nimmt ihn fort.
+func place_fach_net_window(rect: Rect2) -> void:
+	fach_net_window.position = rect.position
+	fach_net_window.size = rect.size
+	fach_net_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+
+func hide_fach_net_window() -> void:
+	fach_net_window.visible = false
+
 ## Spannt das Automaten-Fenster über rect auf (links vom Hub).
 func place_slot_bank_window(rect: Rect2) -> void:
 	slot_bank_window.position = rect.position
@@ -953,28 +1071,6 @@ func _link_workshop_to_hub() -> void:
 		return  # keine Höhen-Überlappung - keine gerade Ader möglich
 	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
 		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
-
-## Das AUSGABEFACH liegt RECHTS neben der Werkbank: eine Naht Abstand, oben bündig
-## mit ihrer Fensterkante. Alle drei Maße in den Einheiten des Fensters (u =
-## Breite/100), damit die Schale mit ihm wächst. Rechts liegt keine Ader - die
-## Werkstatt-Hub-Ader läuft durch die Lücke LINKS davon zum Hub.
-## Die Breite ist GEMESSEN, nicht geraten: bei 14 u fasste die Schale zwei Spalten
-## (8 Plätze), und seit der Laden bis zu sechs Einzelwürfel führt, quetschte sie.
-## 17 u tragen genau DREI Spalten (12 Plätze) und lassen rechts noch ~340 px Filz -
-## der Tisch ist an dieser Kante nicht knapp.
-const FACH_GAP_UNITS := 2.4
-const FACH_WIDTH_UNITS := 17.0
-const FACH_HEIGHT_UNITS := 26.0
-
-## Ihr Rechteck in Display-Pixeln (leer = es steht keine Werkbank).
-func ausgabefach_rect() -> Rect2:
-	if workshop_window == null or not workshop_window.visible \
-			or workshop_window.size.x <= 0.0:
-		return Rect2()
-	var u := workshop_window.size.x / 100.0
-	return Rect2(Vector2(workshop_window.position.x + workshop_window.size.x
-		+ u * FACH_GAP_UNITS, workshop_window.position.y),
-		Vector2(u * FACH_WIDTH_UNITS, u * FACH_HEIGHT_UNITS))
 
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:

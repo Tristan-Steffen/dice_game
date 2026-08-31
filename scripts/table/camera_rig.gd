@@ -115,14 +115,10 @@ var workshop_close_target := Vector3(-24, 0, 22)
 var workshop_close_half := Vector2(12.0, 10.0)
 ## Steht die Werkbank in der Nahsicht? Dort steht die Kamera zusätzlich STILL.
 var workshop_close: bool = false
-## Dritte Werkbank-Stufe: das schwebende Werkstück allein im Bild. Wie die
-## Nahsicht bleibt der Modus WORKSHOP - es ist derselbe Arbeitsplatz, nur am
-## Würfel. Die Kamera steht auch hier still: der Würfel füllt den Rahmen, und
-## der Spieler dreht IHN, nicht den Blick.
+## Steht die Nahsicht auf einem schwebenden WÜRFEL? Sie ist ein TEMPORÄRER Rahmen
+## wie frame_rect: kein Moduswechsel, keine Meldung - sonst bräche sie die Wahl ab,
+## die sie zeigt. Der Aufrufer merkt sich die Lage davor selbst (camera_pose).
 var die_focus: bool = false
-## Kam die Werkstück-Sicht aus der Nahsicht? Der Rückweg führt dorthin zurück,
-## wo der Griff begann.
-var die_focus_from_close: bool = false
 ## Titelziel + halbe Fenstermaße (x = entlang Welt-Z, y = entlang Welt-X).
 var title_target := Vector3(-26, 0, 0)
 var title_half := Vector2(14.25, 15.0)
@@ -460,23 +456,26 @@ func _fit_distance(half: Vector2, margin: float) -> float:
 func title_distance() -> float:
 	return _fit_distance(title_half, TITLE_MARGIN)
 
-## Abstand der Hub-Sicht - dieselbe Rechnung wie bei der weiten Werkbank, und aus
-## demselben Grund: der Blick ist geneigt, die untere Fensterkante steht näher und
-## bildet sich größer ab. Eine reine Höhenrechnung (_fit_distance) schnitte die
-## Fußzeile ab. Bildhöhe = dot(P−Ziel, up) / ((dot(P−Ziel, forward) + d) · tan),
-## nach d aufgelöst und über beide Kanten maximiert; waagerecht liegt das Fenster
-## parallel zur Bildebene, dort genügt die Breitenrechnung.
+## Abstand der Hub-Sicht: das höchste Fenster des Tisches, im geneigten Blick -
+## eine reine Höhenrechnung schnitte seine Fußzeile ab.
 func hub_distance() -> float:
-	var need := ZOOM_DISTANCE
+	return maxf(ZOOM_DISTANCE, tilted_fit_distance(hub_half, HUB_MARGIN))
+
+## Abstand, bei dem ein Rechteck im GENEIGTEN Zoomblick ganz im Bild steht - die
+## EINE Rechnung dafür. Waagerecht liegt es parallel zur Bildebene (reine
+## Breitenrechnung), senkrecht steht seine untere Kante näher an der Kamera und
+## bildet sich größer ab. margin > 1 läßt Luft, sein Kehrwert IST die Bildfüllung.
+func tilted_fit_distance(half: Vector2, margin: float) -> float:
+	var need := _fit_distance(Vector2(half.x, 0.0), margin)
 	var half_fov := tan(deg_to_rad(fov * 0.5))
 	if half_fov <= 0.0:
 		return need
 	var up := ZOOM_BASIS.y
 	var forward := -ZOOM_BASIS.z
 	for edge: Vector3 in [Vector3.RIGHT, Vector3.LEFT]:  # Bild-oben/-unten = Welt ±X
-		var to_edge := edge * hub_half.y
-		need = maxf(need, absf(to_edge.dot(up)) * HUB_MARGIN / half_fov - to_edge.dot(forward))
-	return maxf(need, _fit_distance(Vector2(hub_half.x, 0.0), HUB_MARGIN))
+		var to_edge := edge * half.y
+		need = maxf(need, absf(to_edge.dot(up)) * margin / half_fov - to_edge.dot(forward))
+	return need
 
 ## Beide Achsen getrennt gerechnet, weil sie bei der Werkbank fast gleichauf
 ## liegen und sonst mal die eine, mal die andere anschlägt. Diese beiden Zugaben
@@ -488,25 +487,11 @@ func workshop_close_distance() -> float:
 		_fit_distance(Vector2(0.0, workshop_close_half.y), WORKSHOP_CLOSE_MARGIN))
 
 ## Abstand der WEITEN Werkbank-Sicht: sie rahmt die ganze Ecke - Trays oben,
-## Fenster und Schürze darunter. Der Blick ist hier GENEIGT, also liegt die untere
-## Kante der Ecke näher an der Kamera und bildet sich größer ab als die obere:
-## eine reine Höhenrechnung (_fit_distance) schnitte genau die Buchten ab. Gelöst
-## wie in _workshop_close_origin - Bildhöhe = dot(P-Ziel, up) / ((dot(P-Ziel,
-## forward) + d) * tan), nach d aufgelöst und über beide Kanten maximiert. Der
-## alte feste Abstand bleibt Untergrenze: näher als früher kommt sie nie.
+## Fenster und Schürze darunter. Der alte feste Abstand bleibt Untergrenze: näher
+## als früher kommt sie nie.
 func workshop_wide_distance() -> float:
-	var need := ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS
-	var half_fov := tan(deg_to_rad(fov * 0.5))
-	if half_fov <= 0.0:
-		return need
-	var up := ZOOM_BASIS.y
-	var forward := -ZOOM_BASIS.z
-	for edge: Vector3 in [Vector3.RIGHT, Vector3.LEFT]:  # Bild-oben/-unten = Welt ±X
-		var to_edge := edge * workshop_wide_half.y
-		need = maxf(need, absf(to_edge.dot(up)) * WORKSHOP_WIDE_MARGIN / half_fov
-			- to_edge.dot(forward))
-	# Waagerecht liegt die Ecke parallel zur Bildebene - reine Breitenrechnung.
-	return maxf(need, _fit_distance(Vector2(workshop_wide_half.x, 0.0), WORKSHOP_WIDE_MARGIN))
+	return maxf(ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS,
+		tilted_fit_distance(workshop_wide_half, WORKSHOP_WIDE_MARGIN))
 
 ## Kamerastandort der Nahsicht. Die Ecke passt immer ganz ins Bild (Zugabe ≥ 1),
 ## füllt es aber fast nie genau aus - und wo die überschüssige Luft landet,
@@ -603,8 +588,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	if target_mode == Mode.HUB:
 		distance = hub_distance()
 	var target_origin := target_point - ZOOM_FORWARD * distance
-	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufen
-	die_focus = false
+	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufe
+	die_focus = false  # und die Würfel-Nahsicht
 	mode = target_mode
 	mode_changed.emit(mode)
 	anchor_basis = ZOOM_BASIS
@@ -619,7 +604,6 @@ func zoom_workshop_close() -> void:
 	if workshop_close or mode != Mode.WORKSHOP:
 		return
 	workshop_close = true
-	die_focus = false
 	var target_origin := _workshop_close_origin()
 	anchor_basis = WORKSHOP_CLOSE_BASIS
 	anchor_origin = target_origin
@@ -631,13 +615,11 @@ func zoom_workshop_close() -> void:
 	mode_changed.emit(mode)
 	_animate_to(target_origin, WORKSHOP_CLOSE_BASIS)
 
-## Aus Nahsicht oder Werkstück-Sicht zurück auf die ganze Werkbank-Ecke (eine
-## Stufe, nicht raus).
+## Aus der Nahsicht zurück auf die ganze Werkbank-Ecke (eine Stufe, nicht raus).
 func zoom_workshop_wide() -> void:
-	if not workshop_close and not die_focus:
+	if not workshop_close:
 		return
 	workshop_close = false
-	die_focus = false
 	var target_origin := workshop_target - ZOOM_FORWARD * workshop_wide_distance()
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
@@ -645,42 +627,67 @@ func zoom_workshop_wide() -> void:
 	mode_changed.emit(mode)  # siehe zoom_workshop_close
 	_animate_to(target_origin, ZOOM_BASIS)
 
-## Dritte Werkbank-Stufe: der schwebende Würfel allein. center ist seine
-## Weltmitte, half seine halbe Raumdiagonale - so passt er in JEDER Drehung ins
-## Bild, und der Ausschnitt springt beim Drehen nicht. Der Modus bleibt WORKSHOP:
-## Klickweiterleitung und Zeremonie gelten unverändert weiter.
-func zoom_die_focus(center: Vector3, half: float) -> void:
-	if die_focus or mode != Mode.WORKSHOP:
-		return
-	die_focus = true
-	die_focus_from_close = workshop_close
-	workshop_close = false
-	var distance := _fit_distance(Vector2(half, half), DIE_FOCUS_MARGIN)
-	var target_origin := center - ZOOM_FORWARD * distance
+## Ein TEMPORÄRER Rahmen: die Kamera fährt so nah heran, daß das Rechteck (Mitte
+## in Welt-XZ, half = halbe Bildbreite entlang Welt-Z und halbe Bildhöhe entlang
+## Welt-X) das Bild bis auf den Saum füllt. Sie MELDET keinen Wechsel und rührt
+## den Modus nicht an - die Station bleibt, wo sie war, und der Aufrufer merkt sich
+## ihre Lage selbst (camera_pose/restore_pose).
+func frame_rect(center: Vector3, half: Vector2, margin: float,
+		duration := ZOOM_DURATION) -> void:
+	var target_origin := center - ZOOM_FORWARD * tilted_fit_distance(half, margin)
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO
 	_applied_offset = Vector2.ZERO
 	_tilt_resume_time = -1.0
-	mode_changed.emit(mode)  # siehe zoom_workshop_close: die SICHT ändert sich
+	_animate_to(target_origin, ZOOM_BASIS, duration)
+
+## Die WERKSTÜCK-Sicht: der schwebende Würfel allein im Bild. center ist seine
+## Weltmitte, half seine halbe Raumdiagonale - so passt er in JEDER Drehung ins
+## Bild, und der Ausschnitt springt beim Drehen nicht. Wie frame_rect ein
+## TEMPORÄRER Rahmen: kein Moduswechsel, keine Meldung. Die Kamera steht still,
+## der Spieler dreht den WÜRFEL, nicht den Blick.
+func zoom_die_focus(center: Vector3, half: float) -> void:
+	if die_focus:
+		return
+	die_focus = true
+	var target_origin := center - ZOOM_FORWARD * _fit_distance(Vector2(half, half), DIE_FOCUS_MARGIN)
+	anchor_basis = ZOOM_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
 	_animate_to(target_origin, ZOOM_BASIS)
 
-## Eine Stufe zurück - dorthin, wo der Griff nach dem Würfel begann.
+## Der Fokus endet - die Fahrt zurück gehört dem Aufrufer (restore_pose).
 func zoom_die_focus_out() -> void:
-	if not die_focus:
-		return
-	if die_focus_from_close:
-		die_focus = false
-		workshop_close = false  # zoom_workshop_close verlangt die weite Lage
-		zoom_workshop_close()
-		return
-	zoom_workshop_wide()
+	die_focus = false
 
 ## Ruhelage des gegriffenen Würfels: die Dreiviertel-Ansicht aus DIE_FOCUS_POSE,
 ## in den Achsen der Werkstück-Kamera. Der Spieler dreht von hier aus weiter.
 static func die_focus_basis() -> Basis:
 	return ZOOM_BASIS * Basis.from_euler(Vector3(
 		deg_to_rad(DIE_FOCUS_POSE.x), deg_to_rad(DIE_FOCUS_POSE.y), deg_to_rad(DIE_FOCUS_POSE.z)))
+
+## Die gemerkte Lage: Anker-Ursprung, Anker-Achsen und ob die Freikamera stand.
+func camera_pose() -> Dictionary:
+	return {"origin": anchor_origin, "basis": anchor_basis, "free": free_camera}
+
+## Zurück an eine gemerkte Lage, ebenfalls ohne Moduswechsel; stand die Freikamera,
+## steigt sie am Ende der Fahrt an Ort und Stelle wieder ein.
+func restore_pose(pose: Dictionary, duration := ZOOM_DURATION) -> void:
+	if pose.is_empty():
+		return
+	var origin: Vector3 = pose.get("origin", anchor_origin)
+	var pose_basis: Basis = pose.get("basis", anchor_basis)
+	anchor_basis = pose_basis
+	anchor_origin = origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
+	_animate_to(origin, pose_basis, duration)
+	if bool(pose.get("free", false)) and active_tween != null:
+		active_tween.chain().tween_callback(begin_free)
 
 ## Verschiebt den Zoom-Blick auf target_point OHNE den Modus zu wechseln (z.B.
 ## von Charm zu Charm) - gleicher Winkel/Abstand, nur der Blickpunkt wandert.

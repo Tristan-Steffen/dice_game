@@ -1,8 +1,7 @@
 extends GutTest
 ## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt die Aufspannung
 ## als Projektor- und Netzzeile, versiegelte Pakete liegen als Kassetten im
-## Magazin statt als Karten im Fenster, und der Tausch aus dem Ausgabefach ist der
-## EINE Weg eines Würfels in den Vorrat.
+## Magazin statt als Karten im Fenster.
 
 var view: WorkshopView
 var run: GameRun
@@ -34,16 +33,10 @@ func test_tapping_a_cassette_only_ever_slots_it() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view._on_pack_pressed(run.owned_packs[0].pack_uid)
 	assert_eq(view.press_slot_uids().size(), 1, "sie steckt im Leser")
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "und das Fenster bleibt die Grundseite")
 
 func test_the_bench_has_no_floating_dice_of_its_own() -> void:
-	# Ohne Paket-Wahl schwebt über der Bank nur, was das Dossier zeigt.
-	assert_eq(view._phase, WorkshopView.Phase.STASH)
-	assert_null(view.inspected_die())
+	# Über der Bank schweben allein die Zwingen - eine zweite Seite gibt es nicht.
 	assert_true(view.clamps_on_bench())
-
-func test_the_stash_never_goes_back() -> void:
-	assert_false(view.go_back())
 
 # --- Netz-Hinweise --------------------------------------------------------------
 
@@ -81,16 +74,8 @@ func test_the_press_keeps_the_clamps_standing() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
 	view.start_press()
-	assert_eq(view._phase, WorkshopView.Phase.STASH)
 	assert_true(view.placing(), "die Beute liegt")
 	assert_true(view.clamps_on_bench())
-
-func test_the_dossier_takes_the_bench_from_the_clamps() -> void:
-	assert_true(view.clamps_on_bench(), "auf der Grundseite stehen sie")
-	assert_true(view.open_inspect(run.owned_pool[0]))
-	assert_false(view.clamps_on_bench(), "das Dossier gehört dem gezeigten Würfel")
-	view.close_inspect()
-	assert_true(view.clamps_on_bench(), "danach kommen sie zurück")
 
 func test_every_rebuild_reports_the_stages() -> void:
 	# scene_root hängt die echten Würfel daran - ohne die Meldung stünden sie über
@@ -98,11 +83,8 @@ func test_every_rebuild_reports_the_stages() -> void:
 	# Die Schläge in einem Array zählen: eine Lambda fängt lokale Zahlen als KOPIE.
 	var beats: Array = []
 	view.die_stages_changed.connect(func() -> void: beats.append(1))
-	view.open_inspect(run.owned_pool[0])
-	assert_gt(beats.size(), 0, "das Dossier meldet seine Bühne")
-	beats.clear()
-	view.close_inspect()
-	assert_gt(beats.size(), 0, "und das Ende meldet, dass keine mehr steht")
+	view.refresh()
+	assert_gt(beats.size(), 0, "jeder Neuaufbau meldet seine Bühnen")
 
 # --- Hinweiskarte in der linken Flanke -----------------------------------------
 
@@ -215,96 +197,12 @@ func test_the_worst_real_fach_hint_fits_the_screen_uncut() -> void:
 	assert_lt(view._info_title.get_theme_font_size("font_size"),
 		int(u * WorkshopView.INFO_TITLE), "die lange Kennung wird kleiner gesetzt")
 
-# --- Der Tausch aus dem Ausgabefach ---------------------------------------------
-# Ein gekaufter Würfel liegt in der Schale RECHTS der Bank; getippt nimmt er das
-# Fenster und fragt nach seinem Pool-Platz. Gebucht wird über GameRun, wie immer.
+# --- Der Neuzugang gehört dem VORRAT ---------------------------------------------
+# Getauscht wird am Vorrat (Ziehen aus dem Ausgabefach auf einen Pool-Sitz), und
+# angesehen wird ein Würfel auf dem PODEST am Fach - beides außerhalb des Fensters.
 
-func _stash() -> DieDefinition:
-	run.money = 500
-	run.stash_die(DieDefinition.fixed(6, "Sechser"), 0)
-	return run.pending_dice[0]
-
-func test_tapping_a_stashed_die_opens_the_picker_in_the_window() -> void:
-	_stash()
-	assert_true(view.open_exchange(0), "der Wähler nimmt das Fenster")
-	await wait_frames(2)
-	assert_true(view.exchanging())
-	assert_eq(view.exchange_index(), 0)
-	assert_not_null(view._pool_grid, "das 30er-Raster steht")
-	assert_eq(view._pool_grid.tiles.size(), run.owned_pool.size(),
-		"alle Plätze stehen zur Wahl")
-	assert_false(view._pool_grid.reorder_enabled, "hier wird gewählt, nicht umgelegt")
-
-func test_the_picker_names_the_incoming_die() -> void:
-	var stashed := _stash()
-	view.open_exchange(0)
-	await wait_frames(2)
-	var texts: Array[String] = []
-	for child in view._content.get_children():
-		if child is Label:
-			texts.append((child as Label).text)
-	var named := false
-	for text in texts:
-		if text.contains(stashed.display_name):
-			named = true
-	assert_true(named, "die Seite sagt, welcher Würfel einzieht")
-
-func test_confirming_writes_into_the_chosen_pool_instance() -> void:
-	var stashed := _stash()
-	var target: DieDefinition = run.owned_pool[3]
-	var identity := target.get_instance_id()
-	view.open_exchange(0)
-	await wait_frames(2)
-	view._on_exchange_slot_pressed(3)
-	await wait_frames(2)
-	assert_eq(run.owned_pool[3].get_instance_id(), identity, "dieselbe Instanz")
-	assert_eq(run.owned_pool[3].display_name, stashed.display_name, "mit dem neuen Inhalt")
-	assert_eq(run.pending_dice.size(), 0, "die Schale ist leer")
-	assert_false(view.exchanging(), "und die Seite fällt auf die Grundseite zurück")
-
-func test_cancelling_keeps_both_sides() -> void:
-	_stash()
-	var before := run.owned_pool[0].display_name
-	view.open_exchange(0)
-	await wait_frames(2)
-	assert_true(view.go_back(), "Rechtsklick ist der Schritt zurück im ABLAUF")
-	await wait_frames(2)
-	assert_false(view.exchanging())
-	assert_eq(run.pending_dice.size(), 1, "der Würfel bleibt in der Schale")
-	assert_eq(run.owned_pool[0].display_name, before, "und der Vorrat unberührt")
-
-func test_the_picker_stays_shut_after_the_signature() -> void:
-	# Dasselbe Zeitfenster wie fürs Gravieren: vor der Unterschrift und im Laden.
-	_stash()
-	view.editing_locked = true
-	assert_false(view.open_exchange(0), "unterschrieben wird nicht mehr eingesetzt")
-	view.editing_locked = false
-	assert_true(view.open_exchange(0))
-	await wait_frames(2)
-	view.editing_locked = true  # mitten in der Wahl zugeschlagen
-	await wait_frames(2)
-	assert_false(view.exchanging(), "die Seite fällt still auf die Grundseite zurück")
-
-func test_a_bad_index_opens_nothing() -> void:
-	assert_false(view.open_exchange(0), "ohne hinterlegten Würfel gibt es nichts zu tauschen")
-	_stash()
-	assert_false(view.open_exchange(5), "und keinen solchen Platz")
-
-func test_the_shelf_locks_while_the_picker_stands() -> void:
-	run.grant_pack(Pack.number_pack())
-	_stash()
-	assert_false(view.shelf_locked())
-	view.open_exchange(0)
-	await wait_frames(2)
-	assert_true(view.shelf_locked(), "niemand legt nebenher ein Paket ein")
-	assert_false(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER))
-	assert_false(view.can_press(), "und gepresst wird auch nicht")
-
-func test_the_apron_stands_through_the_picker() -> void:
-	# Die Schürze gehört der Bank, nicht einem Ablauf.
-	_stash()
-	await wait_frames(2)
-	view.open_exchange(0)
-	await wait_frames(2)
-	assert_not_null(view._drawer, "die Buchten stehen")
-	assert_not_null(view._band, "und das Konsolen-Band")
+func test_the_exchange_picker_is_gone() -> void:
+	assert_false(view.has_method("open_exchange"),
+		"der Tausch-Wähler ist tot - getauscht wird am Vorrat")
+	assert_false(view.has_method("close_exchange"))
+	assert_false(view.has_method("exchanging"))

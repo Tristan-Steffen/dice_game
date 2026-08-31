@@ -387,41 +387,8 @@ func _place_workbench_corner() -> void:
 	screen.place_hub(Vector2(2400, 2200), Vector2(1400, 1200))
 	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(900, 500)))
 
-# --- Das Ausgabefach rechts der Werkbank ----------------------------------------
-
-func test_the_out_tray_stands_right_of_the_bench_with_a_seam() -> void:
-	_place_workbench_corner()
-	var bench := Rect2(screen.workshop_window.position, screen.workshop_window.size)
-	var fach := screen.ausgabefach_rect()
-	assert_gt(fach.size.x, 0.0, "sie steht")
-	assert_gt(fach.position.x, bench.end.x, "rechts NEBEN dem Fenster, nicht darauf")
-	var u := bench.size.x / 100.0
-	assert_almost_eq(fach.position.x - bench.end.x, u * TableScreen.FACH_GAP_UNITS, 0.01,
-		"die Naht ist ein Maß des Fensters, kein geratener Abstand")
-	assert_almost_eq(fach.position.y, bench.position.y, 0.01, "oben bündig mit ihm")
-	assert_lt(fach.size.y, bench.size.y, "und niedriger als das Fenster selbst")
-
-func test_the_out_tray_keeps_clear_of_the_hub_workshop_lane() -> void:
-	# Licht und Fracht fahren die Ader zwischen Hub und Bank - dort darf keine
-	# Schale stehen. Sie liegt LINKS des Fensters, die Schale rechts davon.
-	_place_workbench_corner()
-	var fach := screen.ausgabefach_rect()
-	for point in screen.workshop_hub_strip.strip_path:
-		assert_false(fach.has_point(point), "die Ader läuft an der Schale vorbei")
-	assert_gt(fach.position.x, screen.workshop_hub_strip.strip_path[1].x,
-		"und zwar auf der anderen Seite des Fensters")
-
-func test_the_out_tray_grows_with_the_bench() -> void:
-	_place_workbench_corner()
-	var narrow := screen.ausgabefach_rect()
-	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(1800, 500)))
-	var wide := screen.ausgabefach_rect()
-	assert_gt(wide.size.x, narrow.size.x, "eine breitere Bank trägt eine größere Schale")
-	assert_almost_eq(wide.size.x / wide.size.y, narrow.size.x / narrow.size.y, 0.001,
-		"in denselben Verhältnissen")
-
-func test_without_a_bench_there_is_no_out_tray() -> void:
-	assert_eq(screen.ausgabefach_rect(), Rect2(), "kein Fenster, keine Schale")
+# Das Ausgabefach hängt seit 2026-08-31 am VORRAT, nicht mehr an dieser Ecke - seine
+# Geometrie steht in test_ausgabefach_view.gd.
 
 func test_pack_delivery_runs_along_the_hub_workshop_strip():
 	_place_workbench_corner()
@@ -732,3 +699,64 @@ func test_ein_schacht_traegt_den_gemeldeten_eckenradius():
 	screen.set_lift_pit(TableScreen.PIT_SHOP_BOWL, at, Vector2(3.0, 5.0))
 	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SHOP_BOWL), 0.0, 0.0001,
 		"ohne Meldung bleibt das Loch eckig")
+
+# --- Die GLAS-ANSICHT hat ihren EIGENEN Viewport ----------------------------------
+# Nicht-HDR und transparent: nur so traegt sie echtes Per-Pixel-Alpha, und ihre
+# Aufloesung haengt an der Bildschirm-Pixeldichte des Gruben-Schirms statt am fernen
+# Ausschnitt dieser Anzeige. Gezeigt wird sie allein auf dem Haut-Quad des Schirms.
+
+func test_das_raster_wohnt_in_einem_eigenen_transparenten_viewport():
+	assert_not_null(screen.deck_glass_viewport, "es gibt einen eigenen Viewport")
+	assert_true(screen.deck_glass_viewport.transparent_bg, "transparent: echtes Alpha")
+	assert_false(screen.deck_glass_viewport.use_hdr_2d, "und NICHT HDR")
+	assert_eq(screen.deck_glass_window.get_parent(), screen.deck_glass_viewport,
+		"das Raster haengt darin, nicht in der Anzeige")
+
+func test_der_glas_viewport_bekommt_die_gemeldete_aufloesung():
+	var rect := Rect2(Vector2(400, 300), Vector2(405, 337))
+	screen.place_deck_glass_window(rect, Vector2i(1215, 1011))
+	assert_eq(screen.deck_glass_viewport.size, Vector2i(1215, 1011))
+	assert_eq(screen.deck_glass_window.size, Vector2(1215, 1011),
+		"das Raster fuellt seinen Viewport ganz aus")
+	assert_eq(screen.deck_glass_rect_px(), rect, "und meldet sein Display-Rechteck")
+	assert_eq(screen.deck_glass_viewport.render_target_update_mode,
+		SubViewport.UPDATE_ALWAYS)
+
+func test_ein_display_pixel_wird_in_viewport_pixel_umgerechnet():
+	var rect := Rect2(Vector2(400, 300), Vector2(400, 300))
+	screen.place_deck_glass_window(rect, Vector2i(800, 600))
+	assert_eq(screen.deck_glass_pixel(Vector2(400, 300)), Vector2.ZERO, "linke obere Ecke")
+	assert_eq(screen.deck_glass_pixel(Vector2(600, 450)), Vector2(400, 300), "die Mitte")
+	assert_eq(screen.deck_glass_pixel(Vector2(10, 10)).x, -1.0, "ausserhalb: nichts")
+
+func test_geschlossen_rendert_der_glas_viewport_nicht_mehr():
+	screen.place_deck_glass_window(Rect2(Vector2(400, 300), Vector2(400, 300)),
+		Vector2i(800, 600))
+	screen.hide_deck_glass_window()
+	assert_eq(screen.deck_glass_rect_px(), Rect2(), "kein Rechteck mehr")
+	assert_false(screen.deck_glass_window.visible)
+	assert_eq(screen.deck_glass_viewport.render_target_update_mode,
+		SubViewport.UPDATE_DISABLED, "und er malt nicht ins Leere")
+
+func test_die_schirm_haut_bildet_genau_das_glas_rechteck_ab():
+	# Dieselbe Abbildung wie world_to_pixel, nur auf den Ausschnitt des Lochs.
+	var rect := Rect2(Vector2(400, 300), Vector2(405, 337))
+	screen.place_deck_glass_window(rect, Vector2i(1215, 1011))
+	var skin := screen.deck_glass_skin()
+	var map: Vector4 = skin.get_shader_parameter("display_map")
+	var a := screen.pixel_to_world(rect.position)
+	var b := screen.pixel_to_world(rect.end)
+	assert_almost_eq(map.x, a.z, 0.001, "z-Anfang")
+	assert_almost_eq(map.y, b.z - a.z, 0.001, "z-Spanne")
+	assert_almost_eq(map.z, a.x, 0.001, "x-Maximum")
+	assert_almost_eq(map.w, a.x - b.x, 0.001, "x-Spanne")
+	# Gegenprobe: die vier Ecken des Lochs liegen auf den vier Ecken der Textur.
+	for corner in [rect.position, rect.end]:
+		var world := screen.pixel_to_world(corner)
+		var uv := Vector2((world.z - map.x) / map.y, (map.z - world.x) / map.w)
+		assert_almost_eq(uv.x, 0.0 if corner == rect.position else 1.0, 0.001)
+		assert_almost_eq(uv.y, 0.0 if corner == rect.position else 1.0, 0.001)
+
+func test_das_filz_loch_der_vorwelle_ist_gestorben():
+	assert_false(screen.has_method("set_felt_hole"),
+	"der Schirm liest echtes Alpha - der Filz muss seinen Grund nicht mehr schwaerzen")

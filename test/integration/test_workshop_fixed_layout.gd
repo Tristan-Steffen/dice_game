@@ -643,44 +643,9 @@ func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	await wait_frames(2)
 	assert_eq(_drawer_rect(), empty, "voll")
 
-# --- (f) Auch der Tausch nimmt der Schürze nichts weg ------------------------------
-
-func test_the_apron_stands_through_the_whole_exchange_flow() -> void:
-	# Die Schürze gehört der Bank, nicht einem Ablauf: Fach, Schlitze und Blech
-	# stehen auf denselben Pixeln, während der Tausch-Wähler das Fenster füllt -
-	# nur anfassen lässt sich dann nichts.
-	run.grant_pack(Pack.number_pack())
-	run.stash_die(DieDefinition.fixed(6, "Sechser"), 0)
-	await wait_frames(2)
-	var fach := _drawer_rect()
-	var slits := _slit_rects()
-	var console := _console().get_global_rect()
-	var seat := _seat_rect()
-	assert_false(view.shelf_locked(), "vorher steht die Bank offen")
-
-	assert_true(view.open_exchange(0), "der Wähler nimmt das Fenster")
-	await wait_frames(2)
-	assert_eq(view._phase, WorkshopView.Phase.EXCHANGE)
-	assert_eq(_drawer_rect(), fach, "im Tausch: das Fach steht")
-	_assert_same_slits(slits, _slit_rects(), "im Tausch")
-	assert_eq(_console().get_global_rect(), console, "und das Blech steht still")
-	assert_eq(_seat_rect(), seat, "der Sitz ebenso")
-	assert_true(view.shelf_locked(), "aber das Fach ist zu")
-	assert_false(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER),
-		"kein Paket in eine laufende Wahl")
-
-	view._on_exchange_slot_pressed(0)
-	await wait_frames(2)
-	assert_eq(view._phase, WorkshopView.Phase.STASH)
-	assert_eq(_drawer_rect(), fach, "danach")
-	_assert_same_slits(slits, _slit_rects(), "danach")
-	assert_eq(_console().get_global_rect(), console)
-	assert_eq(_seat_rect(), seat)
-	assert_false(view.shelf_locked(), "und die Bank steht wieder offen")
-
 # --- (g) Die Bank ist IMMER bestückt ----------------------------------------------
-# Der Blick entscheidet nichts mehr: Netzzeile, Zwingen und Dossier stehen in
-# jedem Kamera-Modus. Nur die PHASE (Paket, Dossier) nimmt die Zeile weg.
+# Der Blick entscheidet nichts: Netzzeile und Zwingen stehen in jedem Kamera-Modus,
+# und seit dem Tod des Dossiers nimmt sie ihnen auch keine Seite mehr weg.
 
 func test_the_bench_is_furnished_without_any_camera() -> void:
 	await wait_frames(2)
@@ -688,24 +653,10 @@ func test_the_bench_is_furnished_without_any_camera() -> void:
 	assert_false(view._clamp_stage_hosts.is_empty(), "und je Zwinge eine Bühne")
 	assert_true(view.clamps_on_bench(), "die Aufspannung steht auf der Grundseite")
 
-func test_only_the_phase_takes_the_net_row_away() -> void:
+func test_the_bench_is_always_furnished() -> void:
+	# Es gibt keine zweite Seite mehr, die die Netzzeile wegnehmen könnte.
 	await wait_frames(2)
-	assert_true(view.open_inspect(run.owned_pool[0]))
-	await wait_frames(2)
-	assert_false(view.clamps_on_bench(), "das Dossier nimmt das Fenster")
-	view.close_inspect()
-	await wait_frames(2)
-	assert_true(view.clamps_on_bench(), "danach kommen sie zurück")
-
-func test_a_dossier_stands_until_it_is_closed() -> void:
-	# Es überdauert jeden Kamera-Ausflug - dieselbe Grammatik wie die Platzierung.
-	var die := run.owned_pool[3]
-	assert_true(view.open_inspect(die))
-	await wait_frames(2)
-	assert_eq(view.inspected_die(), die)
+	assert_true(view.clamps_on_bench())
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view.inspected_die(), die, "ein Neuaufbau nimmt sie ihm nicht")
-	view.close_inspect()
-	await wait_frames(2)
-	assert_null(view.inspected_die(), "erst das Schließen legt ihn zurück")
+	assert_true(view.clamps_on_bench(), "auch nach jedem Neuaufbau")

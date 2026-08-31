@@ -250,7 +250,6 @@ func test_the_press_leaves_the_base_page_standing() -> void:
 	view.start_press()
 	assert_not_null(view._drawer, "und sie stehen auch danach")
 	assert_true(view.placing(), "die Beute liegt in der Ablage")
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "die Presse hat keine eigene Seite mehr")
 
 ## Nachlegen ist erlaubt: eine liegende Ablage sperrt das Regal NICHT.
 func test_a_lying_pile_still_lets_the_shelf_be_used() -> void:
@@ -287,7 +286,6 @@ func test_a_stack_click_fills_the_next_free_slot() -> void:
 	assert_true(view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER))
 	assert_eq(view._selected_packs, [run.owned_packs[0].pack_uid] as Array[int],
 		"der Platz ist belegt")
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "geöffnet wird noch nichts")
 	assert_eq(run.owned_packs.size(), 1, "das Siegel bleibt ganz")
 	assert_false(view._press_slot_buttons[0].disabled, "der belegte Platz ist anfassbar")
 
@@ -342,7 +340,6 @@ func test_a_locked_round_bars_the_press() -> void:
 func test_pressing_yields_pieces_per_pack() -> void:
 	_select_number_packs(3)
 	view.start_press()
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "die Presse hat keine eigene Seite")
 	assert_gte(run.press_pieces.size(), 3, "je Paket mindestens ein Stück")
 	assert_true(run.owned_packs.is_empty(), "pressen ist bindend")
 	assert_true(view._selected_packs.is_empty(), "die Plätze sind leer geräumt")
@@ -848,7 +845,6 @@ func test_a_new_run_drops_a_running_press() -> void:
 	_select_number_packs(2)
 	view.start_press()
 	view.run = GameRun.new_run()
-	assert_eq(view._phase, WorkshopView.Phase.STASH, "die Pressung gehörte dem alten Lauf")
 	assert_true(view._selected_packs.is_empty())
 	assert_false(view.placing())
 
@@ -992,22 +988,6 @@ func test_a_delivery_during_the_press_still_finds_its_place() -> void:
 	assert_almost_eq(during.x, resting.x, 1.0, "derselbe Platz wie im Fach")
 	assert_almost_eq(during.y, resting.y, 1.0)
 	assert_ne(during, view.get_global_rect().get_center(), "und nicht die Fenstermitte")
-
-func test_a_delivery_during_the_dossier_lands_at_once() -> void:
-	# Die Schürze steht auch, während das Dossier das Fenster füllt: die Kassette
-	# erscheint und ploppt sofort, es gibt nichts mehr zu warten.
-	run.grant_pack(Pack.number_pack())
-	var uid := run.owned_packs[0].pack_uid
-	view.open_inspect(run.owned_pool[0])
-	await wait_frames(2)
-	assert_not_null(view._drawer, "das Dossier nimmt der Schürze nichts weg")
-	assert_true(view.shelf_locked(), "sie ist nur zu")
-	var popped: Array[int] = []
-	view.pack_landed.connect(func(landed: int) -> void: popped.append(landed))
-	view.expect_pack_delivery(uid)
-	view.deliver_pack(uid)
-	assert_true(view._queued_pops.is_empty(), "nichts wartet mehr auf sein Fach")
-	assert_eq(popped, [uid] as Array[int], "der Pluster geht sofort raus")
 
 func test_a_pop_during_the_placement_lands_at_once() -> void:
 	# Die Ablage nimmt der Schürze nichts weg - das Magazin steht auch mit Beute.

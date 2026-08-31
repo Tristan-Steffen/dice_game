@@ -4,8 +4,8 @@ extends Node3D
 ## (StasisEmitter) und wippt wie ein Tray-Würfel. Er IST die Ansicht - gezeigt
 ## wird direkt auf ihn, über die BILDSCHIRM-Projektion seiner Seiten- und
 ## Kantenmitten (kein Physik-Strahl: er trägt keine Kollisionsform). Genutzt vom
-## Werkstück der Gravur-Station und von den Paket-Würfeln, die zur Wahl über der
-## Werkbank stehen. Wer ihn heranholt, dreht ihn - siehe CameraRig.die_focus.
+## Werkstück der Gravur-Station, von der Aufspannung und vom PODEST am Ausgabefach.
+## Wer ihn heranholt, dreht ihn - siehe CameraRig.die_focus.
 
 ## Ergebnis von pick(): nichts getroffen bzw. der Kanten-Rahmen (er gewinnt, wenn
 ## eine Kantenmitte näher am Zeiger liegt als jede Seitenmitte).
@@ -220,6 +220,10 @@ func pick(camera: Camera3D, screen_pos: Vector2) -> int:
 		return PICK_FRAME
 	return int(face_pick[0])
 
+func _kill(tween: Tween) -> void:
+	if tween != null and tween.is_valid():
+		tween.kill()
+
 ## Maus-Delta -> Drehung um die BILD-Achsen: waagerecht um die Hochachse des
 ## Bildes, senkrecht um seine Querachse.
 func spin(relative: Vector2, camera: Camera3D) -> void:
@@ -241,7 +245,7 @@ func pose_to(target: Basis, time: float) -> void:
 		func(t: float) -> void: _apply_pose(from.slerp(target, t)),
 		0.0, 1.0, time).set_trans(Tween.TRANS_SINE)
 
-## Die Vitrinen-Lage der Tray-Würfel - dorthin legt sich der Würfel zurück.
+## Die Schwebe-Ruhelage der Tray-Würfel - dorthin legt sich der Würfel zurück.
 static func rest_pose() -> Basis:
 	return Basis(Vector3.UP, -PI / 2.0)
 
@@ -249,7 +253,3 @@ func _apply_pose(basis: Basis) -> void:
 	if die == null or not is_instance_valid(die):
 		return
 	die.global_basis = basis.scaled(Vector3.ONE * DiceTrayView.DIE_SCALE)
-
-func _kill(tween: Tween) -> void:
-	if tween != null and tween.is_valid():
-		tween.kill()

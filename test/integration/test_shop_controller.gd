@@ -1181,8 +1181,8 @@ func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 		assert_gt(int(price), 0)
 
 # --- Das Hinterlegen und der Tausch -------------------------------------------------
-# Der Laden BUCHT weiter; gewählt wird der Pool-Platz an der Werkbank (die Schale
-# rechts davon und der Wähler im Werkstatt-Fenster).
+# Der Laden BUCHT weiter; gewählt wird der Pool-Platz am VORRAT - der Neuzugang
+# wird aus dem Ausgabefach auf den Sitz gezogen, den er ersetzt.
 
 func _stash_one() -> DieDefinition:
 	run.money = 500
@@ -1218,8 +1218,7 @@ func test_a_bad_exchange_index_changes_nothing() -> void:
 	assert_eq(run.pending_dice.size(), 1, "beides bleibt unberührt")
 
 func test_the_shop_has_no_picker_of_its_own_any_more() -> void:
-	# Der Hub kauft, die Werkstatt nutzt: der Wähler ist ins Werkstatt-Fenster
-	# gezogen, der Laden kennt ihn nicht mehr.
+	# Der Hub kauft, der Vorrat nimmt auf: der Laden kennt keinen Wähler.
 	_stash_one()
 	await wait_frames(2)
 	assert_false(shop.has_method("open_pending_exchange"),

@@ -42,52 +42,47 @@ func test_add_money_accumulates_and_emits():
 	assert_signal_emit_count(run, "money_changed", 2)
 
 # --- Ein Würfel nimmt einen Pool-Platz ein --------------------------------------
-## Seit der Laden nur noch hinterlegt (stash_die), führt genau EIN Weg in einen
-## Pool-Platz: der Automaten-Würfel über _replace_pool_entry. Seine Regeln stehen
-## hier - sie gelten für jede künftige Quelle mit.
+## EIN Weg für JEDEN Würfel: er wird hinterlegt (stash_die) und erst der Tausch am
+## Vorrat gibt ihm einen Platz. Auch der Automaten-Gewinn geht ihn - still in den
+## Pool schreibt seit 2026-08-31 niemand mehr.
 
-## Gewinnt einen Würfel am Automaten (der lebende Weg in _replace_pool_entry).
+## Gewinnt einen Würfel am Automaten.
 func _win_die(def: DieDefinition) -> void:
 	var prize := SlotPrize.new()
 	prize.kind = SlotPrize.Kind.DIE
 	prize.die = def
 	run.book_slot_prize(prize)
 
+func test_a_won_die_waits_in_the_out_tray():
+	_win_die(DieDefinition.fixed(6, "Immer 6"))
+	assert_eq(run.pending_dice.size(), 1, "er liegt im Ausgabefach")
+	assert_eq(run.pending_dice[0].style_id, "fixed_6")
+	assert_eq(_count_style("fixed_6"), 0, "und NICHTS im Vorrat wurde still überschrieben")
+
 func test_a_won_die_stores_an_independent_copy():
 	var template := DieDefinition.fixed(6, "Immer 6")
 	_win_die(template)
-	for def in run.owned_pool:
-		if def.style_id == "fixed_6":
-			def.faces[0] = 1  # spätere Aufwertung des gewonnenen Würfels
+	run.pending_dice[0].faces[0] = 1  # spätere Aufwertung des gewonnenen Würfels
 	assert_eq(template.faces[0], 6, "die Vorlage des Gewinns bleibt unverändert")
-
-func test_a_won_die_prefers_replacing_normal_dice():
-	# Solange normale Würfel übrig sind, verdrängt ein Gewinn nie einen früher
-	# gewonnenen Spezialwürfel.
-	for i in GameRun.POOL_SIZE - 1:
-		_win_die(DieDefinition.fixed(6, "Immer 6"))
-	assert_eq(_count_style("fixed_6"), GameRun.POOL_SIZE - 1)
-	assert_eq(_count_style("normal"), 1)
 
 ## --- Ein Weg für alle Würfel-Anzeigen: pool_changed --------------------------
 ## Die Instanz wird NIE getauscht (become) - wer sie hält (Rundendeck, Trays,
 ## Raster, Dossier), zeigt den neuen Würfel sofort; das Signal löst nur das
 ## Neuzeichnen aus.
 
-func test_a_won_die_overwrites_the_instance_in_place():
+func test_the_exchange_overwrites_the_instance_in_place():
 	var kept := run.owned_pool.duplicate()
 	_win_die(DieDefinition.fixed(6, "Immer 6"))
+	assert_true(run.exchange_pending_die(0, 4))
 	for i in GameRun.POOL_SIZE:
 		assert_same(run.owned_pool[i], kept[i], "kein Instanz-Tausch im Pool")
-	var styles: Array[String] = []
-	for def in kept:
-		styles.append(def.style_id)
-	assert_true(styles.has("fixed_6"), "der gehaltene Würfel IST der gewonnene")
+	assert_eq(kept[4].style_id, "fixed_6", "der gehaltene Würfel IST der gewonnene")
 
-func test_a_won_die_emits_pool_changed():
+func test_a_won_die_emits_pending_dice_changed():
 	watch_signals(run)
 	_win_die(DieDefinition.fixed(6, "Immer 6"))
-	assert_signal_emit_count(run, "pool_changed", 1)
+	assert_signal_emit_count(run, "pending_dice_changed", 1)
+	assert_signal_emit_count(run, "pool_changed", 0)
 
 func test_the_exchange_emits_pool_changed():
 	run.stash_die(DieDefinition.fixed(3, "Drei"), 0)
@@ -551,6 +546,23 @@ func test_the_stashed_die_is_an_independent_copy():
 	run.owned_pool[3].faces[0] = 1
 	assert_eq(die.faces[0], 6, "die Auslage-Vorlage bleibt unverändert")
 
+func test_die_serie_reicht_immer_den_OBERSTEN_neuzugang_nach():
+	# Die SERIEN-Platzierung setzt einen nach dem anderen: nach jedem Tausch
+	# rutschen die pending-Indizes, offen liegt darum IMMER Index 0.
+	run.stash_die(DieDefinition.fixed(6, "Immer 6"), 0)
+	run.stash_die(DieDefinition.fixed(5, "Immer 5"), 0)
+	run.stash_die(DieDefinition.fixed(4, "Immer 4"), 0)
+	assert_eq(run.pending_dice.size(), 3, "drei Neuzugänge warten")
+	assert_true(run.exchange_pending_die(0, 2))
+	assert_eq(run.owned_pool[2].style_id, "fixed_6", "der erste sitzt")
+	assert_eq(run.pending_dice.size(), 2, "zwei stehen noch aus")
+	assert_eq(run.pending_dice[0].style_id, "fixed_5", "und der nächste ist Index 0")
+	assert_true(run.exchange_pending_die(0, 9))
+	assert_eq(run.owned_pool[9].style_id, "fixed_5")
+	assert_eq(run.pending_dice[0].style_id, "fixed_4", "der letzte rückt nach")
+	assert_true(run.exchange_pending_die(0, 11))
+	assert_true(run.pending_dice.is_empty(), "erst jetzt ist die Serie zu Ende")
+
 func test_the_exchange_ignores_slots_outside_the_pool():
 	run.stash_die(DieDefinition.fixed(6, "Immer 6"), 0)
 	assert_false(run.exchange_pending_die(0, GameRun.POOL_SIZE))
@@ -641,13 +653,14 @@ func test_a_slot_pack_is_a_plain_sealed_pack():
 	run.book_slot_prize(prize)
 	assert_eq(run.owned_packs.size(), 1, "versiegelt ins Lager")
 
-func test_booking_a_won_die_takes_a_pool_slot():
+func test_booking_a_won_die_lands_in_the_out_tray():
 	var prize := SlotPrize.new()
 	prize.kind = SlotPrize.Kind.DIE
 	prize.die = DieDefinition.fixed(6, "Immer 6")
 	run.book_slot_prize(prize)
-	assert_eq(_count_style("fixed_6"), 1, "der gewonnene Würfel ersetzt einen Pool-Platz")
-	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "der Pool bleibt gleich groß")
+	assert_eq(run.pending_dice.size(), 1, "der gewonnene Würfel wartet im Ausgabefach")
+	assert_eq(_count_style("fixed_6"), 0, "der Vorrat bleibt unberührt")
+	assert_eq(run.owned_pool.size(), GameRun.POOL_SIZE, "und gleich groß")
 
 ## Das ⚡-Symbol ersetzt den Charm: eine Reihe zahlt Energie in denselben Speicher
 ## wie jede andere Quelle - und was nicht mehr hineinpaßt, zahlt bar.

@@ -224,7 +224,9 @@ func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	elif def.style_id != "normal":
 		accent = GOLD
 	var border := GOLD if highlighted else accent
-	var bg := Color("#2c2757dd") if highlighted else Color("#221e46cc")
+	# Voll deckend: auf dem Gruben-Glas darf durch eine Kachel kein versenkter Würfel
+	# durchscheinen (die Fuge trägt das durchsichtige Glas, nicht die Kachel).
+	var bg := Color("#2c2757ff") if highlighted else Color("#221e46ff")
 	if souled:
 		var tinted := bg.lerp(glow, 0.16)
 		bg = Color(tinted.r, tinted.g, tinted.b, bg.a)
@@ -232,7 +234,7 @@ func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	var glow_alpha := SOUL_GLOW_ALPHA if souled else 0.0
 	tile.add_theme_color_override("font_color", GOLD if highlighted else TEXT_COLOR)
 	tile.add_theme_stylebox_override("normal", _box(bg, border, width_u, glow_alpha))
-	tile.add_theme_stylebox_override("hover", _box(Color("#2c2757dd"), GOLD))
+	tile.add_theme_stylebox_override("hover", _box(Color("#2c2757ff"), GOLD))
 	tile.add_theme_stylebox_override("pressed", _box(Color("#3a2f66"), GOLD))
 	tile.add_theme_stylebox_override("focus", _box(bg, border, width_u, glow_alpha))
 
@@ -258,7 +260,7 @@ func _empty_tile() -> Control:
 	cell.custom_minimum_size = _tile_size()
 	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color("#181534aa")
+	box.bg_color = Color("#181534ff")  # voll deckend wie die belegten Kacheln
 	box.border_color = Color("#282350")
 	box.set_border_width_all(maxi(1, int(u * 0.15)))
 	box.set_corner_radius_all(int(u * 0.7))

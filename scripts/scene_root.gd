@@ -548,13 +548,14 @@ var _clamp_shafts: Array[LiftShaftView] = []
 ## hoch, ein noch laufender Tween meldet dann nichts mehr zurück.
 var _clamp_gen := 0
 
-## Der Würfel des Dossiers: EIN Körper über der Bühne der Inspektions-Seite
-## (null = die Seite steht nicht). Sein Sitz im Tray bleibt derweil leer.
-var inspect_stage: FloatingDie
-## Der Würfel, dessen Dossier steht - nur sein WECHSEL füllt die Trays neu.
+## Der Würfel auf dem PODEST: EIN Körper im Kraftfeld am Fach-Platz (null = es steht
+## keiner). Sein Sitz im Tray bleibt derweil leer - siehe #region Das PODEST.
+var podium_stage: FloatingDie
+## Der gewählte Würfel - nur sein WECHSEL füllt die Trays neu, und er allein
+## entscheidet, welcher Sitz leer bleibt (DiceTrayView.seat_shows).
 var _inspected_die: DieDefinition
 ## Nur der ZULETZT angestoßene Aufbau läuft nach dem gewarteten Bild weiter.
-var _inspect_gen := 0
+var _podium_gen := 0
 
 ## Die physischen Datenzellen der Werkbank: je Magazin-Paket (uid) seine STEHENDE
 ## Kassette in der Grube und je belegtem Presse-Platz die, die darin steckt.
@@ -772,17 +773,28 @@ var ausgabefach: AusgabefachView
 ## Körper zurück, bis sein Liefer-Komet angekommen ist.
 var _fach_expecting := false
 
+## Der laufende TAUSCH: der Pool-Eintrag, dessen Sitz LEER bleibt, bis der alte
+## Würfel unten hinaus ist (der Eintrag selbst trägt schon den neuen Inhalt -
+## become überschreibt IN der Instanz), die beiden fahrenden Körper und die
+## Generations-Marke, an der jeder Abbruch hängt.
+var _exchange_hidden: DieDefinition = null
+var _exchange_body: Node3D = null
+var _exchange_ghost: Node3D = null
+var _exchange_gen := 0
+
 ## Die Kassette, die der Zeiger gerade aus der Grube zieht (0 = keine).
 var _hovered_pack_uid := 0
 
-## Der gerade herangeholte schwebende Paket-Würfel (null = keiner). Er allein
-## reagiert in der Nahsicht auf Ziehen und Klick.
-var focused_stage: FloatingDie
 ## Zieh-Geste an einem schwebenden Würfel: der gegriffene, und ob der Zeiger
 ## seither einen Weg zurückgelegt hat (dann war es keine Wahl mehr).
 var grabbed_stage: FloatingDie
 var grab_start := Vector2.ZERO
 var grab_moved := false
+
+## Der herangeholte Würfel der INSPEKTION (null = keiner) und die Kamera-Lage, aus
+## der heraus zugegriffen wurde - dorthin geht es beim Verlassen zurück.
+var focused_stage: FloatingDie
+var _die_focus_home: Dictionary = {}
 
 var phase: Phase = Phase.IDLE
 var has_rolled_current_hand: bool = false
@@ -918,6 +930,21 @@ var pit_drag_index: int = -1
 var pit_drag_start_pos: Vector2
 var pit_is_dragging: bool = false
 
+## Der TAUSCH aus dem Ausgabefach (-1 = keine Geste): dieselbe Teilung wie im Tray -
+## gezogen tauscht, getippt öffnet das Dossier des Neuzugangs.
+var fach_drag_index: int = -1
+var fach_drag_key: int = 0
+var fach_drag_start_pos: Vector2
+## Sein Platz in der Schale, gemerkt beim Anheben - danach hält die Schale ihn
+## zurück und nennt ihn nicht mehr.
+var fach_drag_home := Vector3.ZERO
+var fach_is_dragging: bool = false
+## Darf dieser Griff überhaupt tauschen? Einmal beim Drücken gefragt (Vorrat steht,
+## Bearbeitungs-Fenster offen, das Tray ist die lokale Bühne); sonst bleibt nur das
+## Dossier.
+var fach_drag_swaps: bool = false
+var fach_drag_ghost: Node3D
+
 ## Umsortieren der Tisch-Charms per Ziehen (gleiche Klick-oder-Drag-Logik).
 var charm_drag_index: int = -1
 var charm_drag_start_pos: Vector2
@@ -963,6 +990,9 @@ func _strip_table_rim() -> void:
 
 ## Baut die 6 Spielwürfel samt Audio und Wandkontakt-Handlern.
 func _setup_dice() -> void:
+	# Der Heimat-Ort des Vorrats steht schon in der Szene - und die Werkbank-Ecke
+	# samt Ausgabefach misst gleich an ihm, also gilt er ab hier.
+	_pool_tray_home = pool_tray_view.global_position
 	var roots: Array[Node3D] = []
 	var bodies: Array[RigidBody3D] = []
 	var face_displays: Array[DieFaceDisplay] = []
@@ -1238,20 +1268,16 @@ func _setup_table_screen() -> void:
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
 		# der Körper darunter hängen alle an DIESEM Streifen.
 		_sync_pack_pit(table_screen.workshop_window)
-	# Das AUSGABEFACH: die offene Schale rechts der Bank. Der Tisch misst ihr
-	# Rechteck an der Fensterkante, scene_root stellt den Körper darauf.
+	# Das AUSGABEFACH steht nicht mehr an der Bank, sondern an der BESTANDS-Station
+	# neben dem Vorrat - es hängt an der Pool-Geometrie, nicht an dieser Ecke. Die
+	# Oberkante der Bank ist trotzdem die Grenze, an der seine Info-Säule endet.
+	_bench_top_px = workshop_rect.position.y
 	_place_ausgabefach()
+	_setup_deck_glass()
 	# Klick, Zeiger und Kamera messen sich an Fenster PLUS Schürze.
 	var bench_rect := Rect2(workshop_rect.position, Vector2(workshop_rect.size.x,
 		hub_r.position.y + hub_r.size.y - workshop_rect.position.y))
-	# Die Klickzone nimmt die Schale MIT: sie gehört zur Bank, und ein Klick auf
-	# einen bezahlten Würfel soll dorthin fahren. Das Zoom-ZIEL bleibt die Ecke -
-	# es wird gleich darunter noch einmal gesetzt.
-	var zone_rect := bench_rect
-	var fach_rect := table_screen.ausgabefach_rect()
-	if fach_rect.size.x > 0.0:
-		zone_rect = zone_rect.merge(fach_rect)
-	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", zone_rect,
+	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", bench_rect,
 		camera_rig.configure_workshop_target)
 
 	# Der Zoom rahmt die GANZE Werkbank-Ecke - Trays oben, Fenster und Schürze
@@ -2333,21 +2359,25 @@ func _fly_slot_packs(packs: Array[Pack], from_px: Vector2) -> void:
 	if table_screen != null:
 		table_screen.celebrate_workshop_delivery(tint)
 
-## Gewonnener Würfel: Licht in die Vorrats-Ablage, in deren nächsten freien Platz
-## er beim Rundenstart auftaucht. Ohne Ablage (Fenster-UI-Rückfall) passiert nichts.
-func _fly_die_to_pool(from_px: Vector2) -> void:
-	if pool_tray_view == null or pool_tray_view.slot_roots.is_empty():
+## Gewonnener Würfel: er geht denselben EINEN Weg wie jeder andere - ins
+## AUSGABEFACH, wo er durch den Fachboden steigt. Gebucht hat das Automaten-Fenster
+## längst (stash_die vor der Emission); zur Schale führt keine Leiterbahn, also
+## fliegt das Licht ab dem Ader-Kopf als Meteor.
+func _fly_slot_die_to_fach(def: DieDefinition, from_px: Vector2) -> void:
+	if def == null or table_screen == null \
+			or ausgabefach == null or not is_instance_valid(ausgabefach):
 		return
-	# Steht der Vorrat als Träger im Pit (Kauf mitten in der Runde), gibt es keinen
-	# freien Sitz - dann trifft das Licht die Mitte des Pit-Glases.
-	var at := _pit_center()
-	if _pool_standing:
-		var slot := mini(maxi(run.owned_pool.size() - 1, 0), pool_tray_view.slot_roots.size() - 1)
-		at = pool_tray_view.slot_global_position(slot)
-	var target := table_screen.world_to_pixel(at)
+	var rect := _fach_rect_px()
+	if rect.size.x <= 0.0:
+		return  # keine Schale gemessen: er liegt trotzdem längst hinterlegt da
+	var launched := run
+	ausgabefach.expect_arrival(def)
 	var spread := _meteor_index
 	_meteor_index += 1
-	table_screen.tray_comet(from_px, target, SLOT_DIE_COLOR, spread)
+	var travel := table_screen.tray_comet(from_px, rect.get_center(), SLOT_DIE_COLOR, spread)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run == launched and is_instance_valid(ausgabefach):
+			ausgabefach.deliver(def))
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
@@ -2446,6 +2476,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_tray_drag_input(event)
 		return
 
+	if fach_drag_index != -1:
+		_handle_fach_drag_input(event)
+		return
+
 	if pit_drag_index != -1:
 		_handle_pit_drag_input(event)
 		return
@@ -2532,6 +2566,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			if title_view.visible:
 				title_view.go_back()
 			return
+		# Die Glas-Ansicht ist modal: Rechtsklick bricht sie ab, der Vorrat steigt
+		# unverändert - die Kamera bleibt, wo sie steht.
+		if _deck_glass:
+			_close_deck_glass()
+			return
 		# Im Lexikon geht Rechtsklick den Verweis-Weg zurück: Historie, dann
 		# Eintrag -> Index, und erst am Index klappt die Seite zu.
 		if lexikon_view != null and lexikon_view.visible \
@@ -2544,16 +2583,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if log_open:
 			_close_round_log()
 			return
-		# Aus der Würfel-Nahsicht führt Rechtsklick eine Stufe zurück an die Bank.
+		# Aus der Inspektion führt Rechtsklick EINE Stufe zurück aufs Podest: der
+		# Würfel legt sich in seine Schwebe-Ruhelage, abgewählt ist er noch nicht.
 		if camera_rig.die_focus:
 			_leave_die_focus()
 			return
-		# An der Werkbank geht Rechtsklick zuerst einen Schritt im ABLAUF zurück:
-		# vom Einsetzen zurück zur Würfel-Wahl. Erst wenn dort nichts mehr zurück
-		# liegt, bewegt er die Kamera.
-		if camera_rig.mode == CameraRig.Mode.WORKSHOP and table_screen != null \
-				and table_screen.workshop_window != null \
-				and table_screen.workshop_window.go_back():
+		# Steht ein Würfel auf dem Podest, wählt Rechtsklick ihn ab: er kehrt in
+		# seinen Sitz zurück, die Neuzugänge steigen wieder.
+		if podium_open():
+			_close_pool_podium()
 			return
 		# Die Grube ist während der Runde frei begehbar - der Spieler darf sich
 		# umsehen (auch bei liegender Auslage); nur das Bearbeiten der Würfel bleibt
@@ -2701,20 +2739,20 @@ func _clamp_stage_of(die: DieDefinition) -> FloatingDie:
 	return null
 
 # --- Schwebende Würfel in der Hand -----------------------------------------------
-# Ein schwebender Würfel IST die Ansicht: ein Klick holt ihn heran (dritte
-# Werkbank-Stufe), dort dreht ihn das Ziehen. Getroffen wird über die
-# Bildschirm-Projektion; die Würfel tragen keine Kollisionsform.
+# Ein schwebender Würfel IST die Ansicht: der ERSTE Tipp stellt ihn aufs Podest, der
+# ZWEITE holt ihn heran (die INSPEKTION), und dort dreht ihn das Ziehen. Getroffen
+# wird über die Bildschirm-Projektion; die Würfel tragen keine Kollisionsform.
 
-## Alle gerade schwebenden Würfel, die man anfassen darf - seit die Paket-Wahl
-## tot ist, ist das genau der Würfel des Dossiers.
+## Alle gerade schwebenden Würfel, die man anfassen darf - seit das Dossier tot ist,
+## ist das genau der Würfel auf dem PODEST.
 func _floating_stages() -> Array[FloatingDie]:
 	var stages: Array[FloatingDie] = []
-	if inspect_stage != null and is_instance_valid(inspect_stage):
-		stages.append(inspect_stage)
+	if podium_stage != null and is_instance_valid(podium_stage):
+		stages.append(podium_stage)
 	return stages
 
 ## Der schwebende Würfel unter dem Bildschirmpunkt (null = keiner). In der
-## Nahsicht kommt nur der herangeholte in Frage - die anderen stehen außerhalb.
+## Inspektion kommt nur der herangeholte in Frage - die anderen stehen außerhalb.
 func _stage_under(screen_pos: Vector2) -> FloatingDie:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
@@ -2746,8 +2784,9 @@ func _try_grab_floating_die(event: InputEvent) -> bool:
 	grab_moved = false
 	return true
 
-## Die Geste am gegriffenen Würfel: ziehen dreht (nur in der Sicht darauf),
-## loslassen ohne Weg holt ihn heran bzw. entscheidet.
+## Die Geste am gegriffenen Würfel: in der INSPEKTION dreht das Ziehen ihn, sonst
+## zählt nur der TIPP - er holt den Podest-Würfel heran. Ein Weg macht daraus nichts,
+## damit ein Verrutschen nichts auslöst.
 func _handle_floating_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
@@ -2766,33 +2805,40 @@ func _handle_floating_drag_input(event: InputEvent) -> void:
 	if not camera_rig.die_focus:
 		_focus_floating_die(stage)
 
-## Holt einen schwebenden Würfel heran (dritte Werkbank-Stufe) und legt ihn dabei
-## in die Dreiviertel-Ansicht - flach von oben wäre er bloß ein Quadrat.
+## Der ZWEITE Tipp holt den Podest-Würfel HERAN: super nah, die Kamera steht still,
+## und ab hier dreht ein Zug ihn. Es ist ein TEMPORÄRER Rahmen wie bei der
+## Glas-Ansicht - kein Moduswechsel, also wählt der eigene Zoom das Podest nicht ab.
 func _focus_floating_die(stage: FloatingDie) -> void:
 	if stage == null or not is_instance_valid(stage) or camera_rig.die_focus:
 		return
 	focused_stage = stage
+	_die_focus_home = camera_rig.camera_pose()
+	camera_rig.set_tilt_locked(true)
 	# Halbe Raumdiagonale: so passt der Würfel in JEDER Drehung ins Bild.
 	var half := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * sqrt(3.0)
 	camera_rig.zoom_die_focus(stage.center(), half)
 	stage.pose_to(CameraRig.die_focus_basis(), CameraRig.ZOOM_DURATION)
 
-## Legt den herangeholten Würfel zurück in die Vitrinen-Lage und fährt eine Stufe
-## zurück an die Bank: dort liest sich der Würfel wieder von oben.
+## Eine Stufe zurück aufs Podest: der Würfel legt sich in seine Schwebe-Ruhelage,
+## die Kamera an die gemerkte Station. Idempotent - Rechtsklick, Rad und der harte
+## Weg gehen alle hier durch, und ein vergessenes Zuhause fliegt nicht.
 func _leave_die_focus() -> void:
+	var stage := focused_stage
+	focused_stage = null
+	if stage != null and is_instance_valid(stage):
+		stage.pose_to(FloatingDie.rest_pose(), CameraRig.ZOOM_DURATION)
+	var home := _die_focus_home
+	_die_focus_home = {}
 	if not camera_rig.die_focus:
 		return
 	camera_rig.zoom_die_focus_out()
-	if focused_stage != null and is_instance_valid(focused_stage):
-		focused_stage.pose_to(FloatingDie.rest_pose(), CameraRig.ZOOM_DURATION)
-	focused_stage = null
+	camera_rig.release_tilt_immediately()
+	if not home.is_empty():
+		camera_rig.restore_pose(home)
 
-## Die Werkstatt hat ihre Bühnen neu gelegt: die schwebenden Würfel ziehen nach -
-## der Dossier-Würfel wie die Zwingen im Projektor-Streifen.
+## Die Werkstatt hat ihre Bühnen neu gelegt: die schwebenden Würfel ziehen nach.
 func _on_die_stages_changed() -> void:
-	_sync_inspected_die()  # der gezeigte Würfel fehlt in seinem Tray
 	_rebuild_clamp_stages()
-	_rebuild_inspect_stage()
 	_sync_data_cells()  # Regal-Stapel und Buchten hängen am selben Layout
 
 # --- Die Aufspannung: sie liegt im Pool und WANDERT per Plattform auf die Bank ----
@@ -3259,71 +3305,88 @@ func _clamp_bench_field(at: Vector3, others: Array[Vector3]) -> Dictionary:
 	return {"at": Vector3(at.x, 0.0, at.z),
 		"half": Vector2(maxf(half.x, 0.05), maxf(half.y, 0.05))}
 
-# --- Der Würfel des Dossiers -----------------------------------------------------
-# Wer über einen Würfel etwas wissen will, bekommt IHN - nicht sein Bild: der
-# getippte Tray-Würfel steht als echter Körper über der Inspektions-Seite, und
-# sein Sitz im Tray bleibt derweil leer.
+#region Das PODEST
+# Der TIPP auf einen Vorrats-Würfel stellt IHN aufs Fach (Spieler-Entscheid
+# 2026-08-31, das Werkstatt-Dossier ist damit gestorben): die Neuzugänge versinken
+# im Fachboden, ein KRAFTFELD-PROJEKTOR hält den Gewählten an ihrer Stelle, sein
+# Sitz im Tray bleibt LEER (_inspected_die -> DiceTrayView.seat_shows) und die
+# Info-Säule darunter zeigt IHN. Der ZWEITE Tipp auf den Schwebenden holt ihn heran
+# (die INSPEKTION, _focus_floating_die: super nah, Ziehen dreht ihn); Rechtsklick und
+# Rad-zurück gehen von dort EINE Stufe aufs Podest, erst der nächste wählt ab.
+# Wegzoomen wählt ebenfalls ab; ein Tipp auf einen ANDEREN Vorrats-Würfel wechselt.
 
-## Stellt ihn auf: einer, über der Bühne der Seite. Wechselt der gezeigte Würfel,
-## tritt der alte ab und der neue entsteht an seinem Platz - nie zwei zugleich.
-func _rebuild_inspect_stage() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return
-	_inspect_gen += 1
-	var generation := _inspect_gen
-	var def := workshop.inspected_die()
-	if inspect_stage != null and is_instance_valid(inspect_stage) and inspect_stage.def != def:
-		_free_stage(inspect_stage)
-		inspect_stage = null
+## Feldfarbe des Podest-Projektors - dieselbe wie am alten Dossier-Würfel.
+const PODIUM_EMITTER_TINT := PACK_EMITTER_TINT
+## Schwebehöhe über dem Fachboden: die POOL-Schwebehöhe (Spieler-Entscheid
+## 2026-09-01) - der Podest-Würfel schwebt wie ein Vorrats-Würfel auf seinem Puck,
+## er liegt nicht flach in der Schale.
+const PODIUM_HOVER := DiceTrayView.FLOAT_HEIGHT
+
+## Steht ein Würfel auf dem Podest?
+func podium_open() -> bool:
+	return _inspected_die != null
+
+## Der TIPP im Vorrats-Tray: derselbe Würfel wählt ab, ein anderer WECHSELT.
+func _toggle_pool_podium(def: DieDefinition) -> void:
 	if def == null:
 		return
-	# Der Platz steht erst nach dem Layout des Fensters fest - und ZWEI Bilder
-	# weit: die Spalte hängt zwischen zwei dehnbaren Leerzeilen, ihre Mitte steht
-	# also erst, wenn der Kasten die Restluft verteilt hat.
-	var launched := run
-	await get_tree().process_frame
-	if generation != _inspect_gen or run != launched or run == null \
-			or not is_instance_valid(workshop) or workshop.inspected_die() != def:
+	if _inspected_die == def:
+		_close_pool_podium()
 		return
-	await get_tree().process_frame
-	if generation != _inspect_gen or run != launched or run == null \
-			or not is_instance_valid(workshop) or workshop.inspected_die() != def:
-		return
-	var center := workshop.inspect_stage_center()
-	if center.x < 0.0:
-		return
-	var target := _bench_hover_target(center)
-	if inspect_stage != null and is_instance_valid(inspect_stage):
-		if not inspect_stage.stands_at(target):
-			inspect_stage.move_to(target, PACK_MOVE_TIME)
-		return
-	inspect_stage = _spawn_floating_die(def, PACK_EMITTER_TINT, target)
-	inspect_stage.land_at(target, 0.0)
-	inspect_stage.materialize()
+	_open_pool_podium(def)
 
-## Öffnet das Dossier eines Würfels (Tippen im Vorrats- oder Ablage-Tray). Es ist
-## reine Auskunft; gemustert wird an der Werkbank, also fährt die Kamera hin.
-func _open_die_dossier(def: DieDefinition) -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop) or def == null:
+## Endzustand zuerst: Sitz-Plan und Vorhang stehen, dann fährt der Körper.
+func _open_pool_podium(def: DieDefinition) -> void:
+	if run == null or def == null or ausgabefach == null \
+			or not is_instance_valid(ausgabefach):
 		return
-	if not workshop.open_inspect(def):
-		return
-	if camera_rig.mode != CameraRig.Mode.WORKSHOP:
-		camera_rig.zoom_to(CameraRig.Mode.WORKSHOP)
-
-## Der gezeigte Würfel hat gewechselt: die Trays lassen seinen Sitz leer und geben
-## den vorigen zurück. Nur der Wechsel - die Meldung läuft nach jedem Neuaufbau.
-func _sync_inspected_die() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	var shown: DieDefinition = null
-	if workshop != null and is_instance_valid(workshop):
-		shown = workshop.inspected_die()
-	if shown == _inspected_die:
-		return
-	_inspected_die = shown
+	_leave_die_focus()  # eine andere Wahl beendet die Inspektion der alten
+	_inspected_die = def
+	ausgabefach.set_curtain(true)  # die Neuzugänge sinken durch den Fachboden
 	_refresh_dice_trays()
+	_sync_fach_nets()
+	_rebuild_podium_stage()
+
+func _close_pool_podium() -> void:
+	if _inspected_die == null and podium_stage == null:
+		return
+	_settle_podium_hard()
+
+## Der EINE harte Aufräum-Pfad: Körper fort, Sitz wieder gefüllt, Vorhang auf.
+## Laufwechsel, Reset, Rechtsklick und Kamerawechsel gehen hier durch.
+func _settle_podium_hard() -> void:
+	if _inspected_die == null and podium_stage == null:
+		return
+	_podium_gen += 1
+	_inspected_die = null
+	_free_stage(podium_stage)
+	podium_stage = null
+	if ausgabefach != null and is_instance_valid(ausgabefach):
+		ausgabefach.set_curtain(false)  # sie steigen wieder herauf
+	_refresh_dice_trays()
+	_sync_fach_nets()
+
+## Der Projektor am Fach-Platz: EINER, nie zwei. Wechselt die Wahl, WANDERT derselbe
+## Körper (er ist ein Ding, er springt nicht); frisch entsteht er im Feld.
+func _rebuild_podium_stage() -> void:
+	var def := _inspected_die
+	if def == null or ausgabefach == null or not is_instance_valid(ausgabefach) \
+			or ausgabefach.half.x <= 0.0:
+		return
+	_podium_gen += 1
+	var spot := ausgabefach.open_spot()
+	var target := Vector3(spot.x, ausgabefach.floor_top_y() + PODIUM_HOVER, spot.z)
+	if podium_stage != null and is_instance_valid(podium_stage):
+		if podium_stage.def != def:
+			podium_stage.apply_definition(def)
+		if not podium_stage.stands_at(target):
+			podium_stage.move_to(target, PACK_MOVE_TIME)
+		podium_stage.materialize()
+		return
+	podium_stage = _spawn_floating_die(def, PODIUM_EMITTER_TINT, target, PODIUM_HOVER)
+	podium_stage.land_at(target, 0.0)
+	podium_stage.materialize()
+#endregion
 
 ## Zieht die Augenzahlen der Zwingen-Würfel nach (geteilte Instanzen: eine Gravur
 ## ändert den Würfel, nicht seinen Platz).
@@ -4269,8 +4332,11 @@ func _field_of(lo: Vector2, hi: Vector2) -> Dictionary:
 			(hi.y - lo.y) * 0.5 + TRAY_PIT_SEAM.y),
 	}
 
-## Die Sektion des Vorrats, gestellt und verdrahtet. FLACH (POOL_PARK_DEPTH) und OHNE
-## Schirm - der Vorrat ragt aus dem Pit, ein Glas darüber wäre durchstoßen.
+## Die Sektion des Vorrats, gestellt und verdrahtet - der EINE Schreiber ihrer
+## Konfiguration, und sie kennt ZWEI: für die RUNDE flach (POOL_PARK_DEPTH) und ohne
+## Schirm (der Vorrat ragt aus dem Pit, ein Glas darüber wäre durchstoßen), für die
+## GLAS-ANSICHT tief (_tray_shaft_depth) mit Schirm und Anzeige-Haut. _deck_glass ist
+## der einzige Entscheider - ohne ihn steht die Runden-Konfiguration unverändert da.
 func _pool_shaft_on(field: Dictionary) -> LiftShaftView:
 	if table_screen == null or field.is_empty():
 		return null
@@ -4283,7 +4349,13 @@ func _pool_shaft_on(field: Dictionary) -> LiftShaftView:
 			table_screen.clear_pit(TableScreen.PIT_POOL))
 	pool_shaft.deck_skin = table_screen.display_skin()
 	pool_shaft.order_skin(PIT_SKIN)
-	pool_shaft.setup(field["at"], field["half"], POOL_PARK_DEPTH)
+	if _deck_glass:
+		pool_shaft.order_cover("", DECK_GLASS_TINT)
+		pool_shaft.order_cover_skin(table_screen.deck_glass_skin())
+		pool_shaft.setup(field["at"], field["half"], _tray_shaft_depth())
+	else:
+		pool_shaft.drop_cover()  # nimmt die Anzeige-Haut mit
+		pool_shaft.setup(field["at"], field["half"], POOL_PARK_DEPTH)
 	return pool_shaft
 
 ## Die Maschine EINES Warteschlangen-Platzes - je Platz eine eigene, damit die
@@ -4320,7 +4392,10 @@ func _queue_shaft_for(slot: int) -> LiftShaftView:
 
 ## Die Bahn des SCHLUCKS: ein würfelgroßes Loch, das unter den Liegeplatz des
 ## gerade abgehenden Würfels wandert. Drei Bahnen, damit die Staffel überlappt.
-func _swallow_shaft_for(lane: int, at: Vector3) -> LiftShaftView:
+## Zuschnitt und Tiefe sind Parameter: derselbe Fahrweg zieht beim TAUSCH einen
+## SCHWEBENDEN Würfel an seinem Pool-Sitz ein (anderes Feld, tieferer Schacht).
+func _swallow_shaft_for(lane: int, at: Vector3, half := SWALLOW_HALF,
+		depth := 0.0) -> LiftShaftView:
 	if table_screen == null:
 		return null
 	while _swallow_shafts.size() < TableScreen.SWALLOW_PIT_COUNT:
@@ -4337,7 +4412,8 @@ func _swallow_shaft_for(lane: int, at: Vector3) -> LiftShaftView:
 		_swallow_shafts[lane] = shaft
 	shaft.deck_skin = table_screen.display_skin()
 	shaft.order_skin(PIT_SKIN)
-	shaft.setup(Vector3(at.x, 0.0, at.z), SWALLOW_HALF, _swallow_shaft_depth())
+	shaft.setup(Vector3(at.x, 0.0, at.z), half,
+		depth if depth > 0.0 else _swallow_shaft_depth())
 	return shaft
 
 # --- Der TRÄGER: Sitz-Plan, Park, Reihen-Vorrücken ------------------------------
@@ -4376,6 +4452,8 @@ func _wanted_carrier_shift() -> int:
 func _sync_carrier_shift() -> void:
 	if _pool_standing or pool_tray_view == null or _pool_parked_field.is_empty():
 		return
+	if _deck_glass:
+		return  # in der Glas-Ansicht ist der Vorrat kein Träger, nur abgesenkt
 	if pool_shaft == null or not is_instance_valid(pool_shaft) or pool_shaft.riding():
 		return
 	if _carrier_tween != null and _carrier_tween.is_valid() and _carrier_tween.is_running():
@@ -4444,14 +4522,10 @@ func _park_pool_shaft() -> void:
 		return
 	if not shaft.visible or not is_equal_approx(shaft.platform_y(), -shaft.park_y()):
 		shaft.park_hard()
+		# Die Glas-Ansicht führt keinen Träger: ihr Vorrat steht schlicht auf der Sohle.
+		if _deck_glass and pool_tray_view != null:
+			pool_tray_view.global_position = _pool_tray_home - Vector3.UP * shaft.park_y()
 	_sync_carrier_shift()
-
-## Die Mitte des Pit-Glases - das Ziel für Licht, das in den Vorrat will, solange
-## der unter dem Tisch steht.
-func _pit_center() -> Vector3:
-	if _pool_parked_field.is_empty():
-		return _pool_tray_home
-	return _pool_parked_field["at"]
 
 ## Die Belegung des geparkten Trägers: Platz i IST Deck-Eintrag i. Belegt ab dem
 ## Warteschlangen-Fenster, davor Lücken; ein Sitz, dessen Würfel gerade ABFÄHRT,
@@ -5095,7 +5169,309 @@ func _reset_tray_stage_hard() -> void:
 		_queue_dice_up[i] = false
 	_stage_queue_row_hard(false)
 	_reset_clamp_migration_hard()  # jede laufende Wander-Fahrt hart beenden
+	_settle_exchange_hard()  # und jeden laufenden Tausch aus dem Ausgabefach
+	_settle_deck_glass_hard()  # und eine offene Glas-Ansicht
+	_settle_podium_hard()  # und einen Würfel, der noch auf dem Podest schwebt
 	_stand_pool_tray_hard()
+#endregion
+
+#region Die GLAS-ANSICHT
+# Der TIPP auf einen Neuzugang im Ausgabefach fragt: WOHIN damit? Der Vorrat versinkt
+# per Plattform TIEF im Tisch (unter dem Glas darf nichts herausragen), der Gruben-
+# Schirm fährt darüber zu und trägt die ANZEIGE - und darauf liegt das Netz-Raster des
+# ganzen Vorrats, Sitz i = Zelle i. Ein Tipp darin bucht den Tausch, ein Zug legt um,
+# Rechtsklick und Wegzoomen brechen ab. Danach steht die RUNDEN-Konfiguration der
+# Maschine wieder unverändert da (flach, ohne Schirm) - ein Test nagelt das fest.
+
+## Der Akzent des Glases: das Teal der Maschine, keine Wett-Farbe.
+const DECK_GLASS_TINT := LiftShaftView.GLOW_COLOR
+
+## Wie eng die Ansicht gerahmt wird: der Kehrwert ist die Bildfüllung der KNAPPEREN
+## Kante (1,08 ≈ 93 %, Saum ~7 %); der geneigte Blick bildet die fernere Kante
+## kleiner ab, gemessen füllt der ganze Rahmen darum ~81 % der Bildhöhe.
+const DECK_GLASS_FRAME_MARGIN := 1.08
+
+## Zugabe auf die gemessene Bildschirm-Pixelzahl des Lochs (Texel je Bildschirmpixel
+## soll deutlich über 1 liegen, auch wenn der Spieler noch etwas näher kommt), und
+## die Deckel: das Vielfache des Display-Rechtecks und die längste Kante in Pixeln.
+const DECK_GLASS_OVERSAMPLE := 1.35
+const DECK_GLASS_MAX_SCALE := 6.0
+const DECK_GLASS_MAX_EDGE := 2048.0
+
+## Steht die Ansicht? Dieses Bit ist der EINE Schreiber, _deck_glass_pending der
+## Neuzugang, für den gefragt wird, und die Marke schützt jede Fahrt.
+var _deck_glass := false
+var _deck_glass_pending := -1
+var _deck_glass_gen := 0
+## Fährt der Vorrat schon wieder herauf? Der Abbruch kommt aus zwei Richtungen
+## (Rechtsklick UND Kamerawechsel), und zweimal schließen hieße zweimal fahren.
+var _deck_glass_closing := false
+## Die Kamera-Lage VOR dem Tipp ({} = keine gemerkt): dorthin kehrt sie beim
+## Schließen zurück. Wer selbst wegfährt, vergißt sie - er ist schon unterwegs.
+var _deck_glass_home: Dictionary = {}
+
+func deck_glass_open() -> bool:
+	return _deck_glass
+
+## Trägt das Pool-Tray seine STEHENDE Sitzordnung? In der Glas-Ansicht ist es bloß
+## abgesenkt - sein Sitz-Plan bleibt der des stehenden Vorrats, nicht der des Trägers.
+func _pool_seated_standing() -> bool:
+	return _pool_standing or _deck_glass
+
+func _deck_glass_window() -> DeckGlassView:
+	if table_screen == null or table_screen.deck_glass_window == null \
+			or not is_instance_valid(table_screen.deck_glass_window):
+		return null
+	return table_screen.deck_glass_window
+
+## Die zwei Gesten des Rasters, einmal verdrahtet: Tippen wählt, Ziehen legt um.
+func _setup_deck_glass() -> void:
+	var window := _deck_glass_window()
+	if window == null or window.cell_pressed.is_connected(_on_deck_glass_cell_pressed):
+		return
+	window.cell_pressed.connect(_on_deck_glass_cell_pressed)
+	window.cells_reordered.connect(_on_deck_glass_reordered)
+
+## Das Rechteck des Pool-Lochs in Display-Pixeln - genau darauf liegt das Raster.
+## Welt +X ist Bildschirm-oben, Welt +Z Bildschirm-rechts.
+func _deck_glass_rect() -> Rect2:
+	if table_screen == null:
+		return Rect2()
+	var field := _pool_parked_field if not _pool_parked_field.is_empty() else _pool_field()
+	if field.is_empty():
+		return Rect2()
+	var at: Vector3 = field["at"]
+	var half: Vector2 = field["half"]
+	var a := table_screen.world_to_pixel(Vector3(at.x + half.x, 0.0, at.z - half.y))
+	var b := table_screen.world_to_pixel(Vector3(at.x - half.x, 0.0, at.z + half.y))
+	return Rect2(a, b - a)
+
+## Der Rahmen der Ansicht in Welt-XZ: das Pool-Loch VEREINIGT mit dem Neuzugangs-
+## Bereich (Schale und Info-Säule) - gefragt wird nach einem Platz für den Würfel,
+## also müssen beide im Bild stehen. half = (halbe Bildbreite, halbe Bildhöhe).
+func _deck_glass_frame() -> Dictionary:
+	if table_screen == null:
+		return {}
+	var field := _pool_parked_field if not _pool_parked_field.is_empty() else _pool_field()
+	if field.is_empty():
+		return {}
+	var at: Vector3 = field["at"]
+	var half: Vector2 = field["half"]
+	var lo := Vector2(at.x - half.x, at.z - half.y)
+	var hi := Vector2(at.x + half.x, at.z + half.y)
+	if ausgabefach != null and is_instance_valid(ausgabefach) and ausgabefach.half.x > 0.0:
+		lo = lo.min(ausgabefach.bounds_min())
+		hi = hi.max(ausgabefach.bounds_max())
+	var column := _fach_net_rect()
+	if column.size.x > 0.0:
+		var a := table_screen.pixel_to_world(column.position)
+		var b := table_screen.pixel_to_world(column.end)
+		lo = lo.min(Vector2(minf(a.x, b.x), minf(a.z, b.z)))
+		hi = hi.max(Vector2(maxf(a.x, b.x), maxf(a.z, b.z)))
+	var middle := (lo + hi) * 0.5
+	return {"at": Vector3(middle.x, 0.0, middle.y),
+		"half": Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5)}
+
+## Die Kamera eng auf diesen Rahmen (kein Moduswechsel - die Station bleibt).
+func _frame_deck_glass() -> void:
+	var frame := _deck_glass_frame()
+	if frame.is_empty():
+		return
+	camera_rig.frame_rect(frame["at"], frame["half"], DECK_GLASS_FRAME_MARGIN)
+
+## Zurück an die gemerkte Station - idempotent, denn Wahl, Abbruch und der harte
+## Weg gehen alle hier durch.
+func _restore_deck_glass_camera() -> void:
+	camera_rig.release_tilt_immediately()
+	if _deck_glass_home.is_empty():
+		return
+	var home := _deck_glass_home
+	_deck_glass_home = {}
+	camera_rig.restore_pose(home)
+
+func _deck_glass_die() -> DieDefinition:
+	if run == null or _deck_glass_pending < 0 \
+			or _deck_glass_pending >= run.pending_dice.size():
+		return null
+	return run.pending_dice[_deck_glass_pending]
+
+## ÖFFNEN: der Vorrat sinkt TIEF und mit bestelltem Schirm, und erst wenn das Glas
+## GESCHLOSSEN steht, geht das Raster darauf auf. Fire-and-forget mit Lauf- und
+## Generationsmarke; jeder Abbruch landet hart.
+func _open_deck_glass(pending_index: int) -> void:
+	if _deck_glass or podium_open() or run == null or not _fach_swap_live():
+		return
+	if pending_index < 0 or pending_index >= run.pending_dice.size():
+		return
+	if pool_tray_view == null or table_screen == null:
+		return
+	var field := _pool_field()
+	if field.is_empty():
+		return
+	_deck_glass = true
+	_deck_glass_closing = false
+	_deck_glass_pending = pending_index
+	_deck_glass_gen += 1
+	var generation := _deck_glass_gen
+	var launched := run
+	# Die Ansicht ist eine eigene kleine Station: eng gerahmt und STILL, und die
+	# Lage davor wird gemerkt, denn dorthin geht es beim Schließen zurück.
+	_deck_glass_home = camera_rig.camera_pose()
+	camera_rig.set_tilt_locked(true)
+	_frame_deck_glass()
+	_pool_standing = false
+	_pool_parked_field = field
+	# Versenkt spiegelt der Vorrat nicht - sein Bild geisterte sonst über der Fläche.
+	ScreenReflection.set_reflective(pool_tray_view, false)
+	var shaft := _pool_shaft_on(field)
+	if shaft == null:
+		_settle_deck_glass_hard()
+		return
+	var tween := shaft.run_park([], [], [], [], 0.0, Callable(),
+		[pool_tray_view], [_pool_tray_home])
+	if tween != null:
+		await tween.finished
+		if generation != _deck_glass_gen or run != launched:
+			return
+	_seat_deck_glass_hard()
+	_show_deck_glass_window()
+
+## Der harte Endzustand der offenen Ansicht: Grube offen, Plattform ganz unten, Glas
+## darüber zu - und der Vorrat steht auf der Sohle.
+func _seat_deck_glass_hard() -> void:
+	if not _deck_glass or pool_tray_view == null:
+		return
+	var shaft := _pool_shaft_on(_pool_parked_field)
+	if shaft == null:
+		return
+	if not shaft.riding():
+		shaft.park_hard()
+	pool_tray_view.visible = true
+	pool_tray_view.global_position = _pool_tray_home - Vector3.UP * shaft.park_y()
+
+## Das Raster auf das geschlossene Glas legen (idempotent - der Abgleich nach einer
+## Buchung ruft denselben Weg).
+func _show_deck_glass_window() -> void:
+	var window := _deck_glass_window()
+	if window == null or run == null or not _deck_glass:
+		return
+	var rect := _deck_glass_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	table_screen.place_deck_glass_window(rect, _deck_glass_resolution(rect))
+	var die := _deck_glass_die()
+	var question := "Wohin mit %s?" % die.display_name if die != null else "Wohin damit?"
+	window.show_pool(question, run.owned_pool, pool_tray_view.columns)
+
+## Die Auflösung des Glas-Viewports: GEMESSEN an der stehenden Kamera. Die vier
+## Weltecken des Lochs werden projiziert, und der Viewport bekommt so viele Pixel,
+## daß auf jeden Bildschirmpixel mindestens ein Texel kommt (mal Zugabe). Das
+## Seitenverhältnis bleibt das des Display-Rechtecks - sonst zöge sich das Raster.
+func _deck_glass_resolution(rect: Rect2) -> Vector2i:
+	var span := _deck_glass_screen_span(rect)
+	if span.x <= 0.0:
+		return Vector2i(rect.size.round())
+	var factor := maxf(span.x / rect.size.x, span.y / rect.size.y) * DECK_GLASS_OVERSAMPLE
+	factor = clampf(factor, 1.0, DECK_GLASS_MAX_SCALE)
+	var wanted := (rect.size * factor).round()
+	var cap := maxf(wanted.x, wanted.y)
+	if cap > DECK_GLASS_MAX_EDGE:
+		wanted = (wanted * (DECK_GLASS_MAX_EDGE / cap)).round()
+	return Vector2i(wanted)
+
+## Der Bildschirm-Fußabdruck des Lochs unter der jetzigen Kamera (leer = kein Bild).
+func _deck_glass_screen_span(rect: Rect2) -> Vector2:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or table_screen == null or rect.size.x <= 0.0:
+		return Vector2.ZERO
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in [rect.position, Vector2(rect.end.x, rect.position.y),
+			rect.end, Vector2(rect.position.x, rect.end.y)]:
+		var world := table_screen.pixel_to_world(corner)
+		if camera.is_position_behind(world):
+			return Vector2.ZERO
+		var at := camera.unproject_position(world)
+		lo = lo.min(at)
+		hi = hi.max(at)
+	return hi - lo
+
+func _hide_deck_glass_window() -> void:
+	if table_screen != null:
+		table_screen.hide_deck_glass_window()
+
+## SCHLIESSEN - Wahl wie Abbruch gehen hier durch: Raster aus, Glas auf, der Vorrat
+## steigt. Endzustand zuerst: der Sitz-Plan steht (mit dem Neuen an seinem Platz),
+## gefahren wird bloß der Weg dorthin.
+func _close_deck_glass() -> void:
+	if not _deck_glass or _deck_glass_closing:
+		return
+	_deck_glass_closing = true
+	_deck_glass_gen += 1
+	var generation := _deck_glass_gen
+	var launched := run
+	_restore_deck_glass_camera()  # der Rückflug läuft neben der Auffahrt
+	_hide_deck_glass_window()
+	_deck_glass_pending = -1
+	if pool_shaft == null or not is_instance_valid(pool_shaft) or pool_tray_view == null:
+		_settle_deck_glass_hard()
+		return
+	_pool_standing = true
+	pool_tray_view.visible = true
+	pool_tray_view.global_position = _pool_tray_home - Vector3.UP * pool_shaft.park_y()
+	_refresh_dice_trays()
+	var rise := pool_shaft.run_rise([pool_tray_view], [_pool_tray_home], 0.0)
+	if rise != null:
+		await rise.finished
+		if generation != _deck_glass_gen or run != launched:
+			return
+	_settle_deck_glass_hard()
+
+## Der EINE harte Aufräum-Pfad: Fenster fort, Bestellung zurück, die Maschine wieder
+## in der RUNDEN-Konfiguration, der Vorrat steht. Laufwechsel, Rundenstart und jeder
+## Abbruch gehen hier durch - ein abgebrochener Tween schuldet nichts.
+func _settle_deck_glass_hard() -> void:
+	if not _deck_glass:
+		return
+	_deck_glass_gen += 1
+	_hide_deck_glass_window()
+	_restore_deck_glass_camera()
+	_deck_glass = false
+	_deck_glass_closing = false
+	_deck_glass_pending = -1
+	if pool_shaft != null and is_instance_valid(pool_shaft):
+		pool_shaft.settle_hard()
+	# _deck_glass steht schon auf false: der EINE Schreiber stellt damit die flache,
+	# schirmlose Runden-Konfiguration wieder her.
+	if not _pool_parked_field.is_empty():
+		_pool_shaft_on(_pool_parked_field)
+	_stand_pool_tray_hard()
+
+## Tipp auf ein Netz: DAS ist das Tausch-Ziel. Gebucht wird SOFORT (Buchung vor dem
+## Licht), dann fährt der Vorrat mit dem Neuen an seinem Platz herauf - der Alte kommt
+## schlicht nicht mehr mit, seine Instanz trägt per become längst den neuen Inhalt.
+## Liegen noch weitere Neuzugänge, SCHLIESST die Ansicht nicht: der nächste rückt per
+## Boden-Lieferung ins Fach nach, Kopf und Säule wechseln auf ihn (die SERIE).
+func _on_deck_glass_cell_pressed(index: int) -> void:
+	if not _deck_glass or run == null:
+		return
+	if index < 0 or index >= run.owned_pool.size():
+		return
+	if not run.exchange_pending_die(_deck_glass_pending, index):
+		return
+	if run.pending_dice.is_empty():
+		_close_deck_glass()
+		return
+	# Nach dem Tausch rutschen die pending-Indizes: offen liegt immer der OBERSTE.
+	_deck_glass_pending = 0
+	_show_deck_glass_window()
+	_sync_fach_nets()
+
+## Netz auf Netz gezogen: der Vorrat wird umgelegt, das Raster folgt über pool_changed.
+func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
+	if not _deck_glass or run == null or _dice_editing_locked():
+		return
+	run.reorder_pool(from_index, to_index)
 #endregion
 
 # --- Der WETT-TRESEN ------------------------------------------------------------
@@ -6235,7 +6611,9 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 		SlotPrize.Kind.CHARGE:
 			_fly_slot_charge(prize.charge, from_px)
 		SlotPrize.Kind.DIE:
-			_fly_die_to_pool(from_px)
+			# Gebucht hat das Fenster VOR der Emission - hinterlegt liegt er hinten.
+			if run != null and not run.pending_dice.is_empty():
+				_fly_slot_die_to_fach(run.pending_dice[run.pending_dice.size() - 1], from_px)
 
 ## Die gewonnene Energie reist die ZWEI Etappen jedes ⚡ im Spiel: die Automaten-Ader
 ## in den Hub, dann die Hub-Cluster-Ader zur Kondensator-Bank. Die Automaten sind
@@ -6702,26 +7080,95 @@ func _buy_single_die(index: int, depart: Vector2) -> void:
 		return  # nicht bezahlbar oder schon verkauft - es fliegt nichts
 	_deliver_die_to_fach(run.pending_dice[run.pending_dice.size() - 1], depart)
 
-# --- Das Ausgabefach an der Werkbank -------------------------------------------
-# Der Hub kauft, die Werkstatt nutzt: ein bezahlter Würfel wartet nicht mehr im
-# Laden, sondern LIEGT in der offenen Schale rechts der Bank, bis der Spieler
-# seinen Platz im Vorrat wählt. Gebucht wird weiter allein über GameRun.
+# --- Das Ausgabefach an der BESTANDS-Station ------------------------------------
+# Der Hub kauft, der Vorrat nimmt auf: ein bezahlter Würfel LIEGT in der offenen
+# Schale an der Bildschirm-rechten Kante des Pool-Trays, bis der Spieler ihn auf
+# einen Vorrats-Würfel ZIEHT. Ihr Platz liegt AUSSERHALB des Pool-Lochs - die
+# Neuzugänge stehen auch während der Runde sichtbar oben. Gebucht wird weiter
+# allein über GameRun.
 
-## Die Schale unter ihr gemessenes Rechteck stellen (idempotent).
+## Die Schale neben das Pool-Loch stellen (idempotent). Ihr Ort ist aus der POOL-
+## Geometrie gerechnet, nie an einer Fensterkante gemessen: Lochrand plus
+## Schachtwand plus Fuge, so berührt sie das offene Pit nie.
 func _place_ausgabefach() -> void:
-	if table_screen == null:
+	if table_screen == null or pool_tray_view == null:
 		return
-	var rect := table_screen.ausgabefach_rect()
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+	var field := _pool_field()
+	if field.is_empty():
 		return
 	if ausgabefach == null or not is_instance_valid(ausgabefach):
 		ausgabefach = AusgabefachView.new()
 		add_child(ausgabefach)
-	var a := table_screen.pixel_to_world(rect.position)
-	var b := table_screen.pixel_to_world(rect.end)
-	ausgabefach.setup(table_screen.pixel_to_world(rect.get_center()),
-		Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5)
+	var spot := AusgabefachView.spot_beside(field["at"], field["half"], LiftShaftView.WALL)
+	# Auf EINEN Platz getrimmt: darunter steht die Info-Säule, nicht der nächste Würfel.
+	ausgabefach.setup(spot, AusgabefachView.single_half())
 	_sync_ausgabefach()
+
+## Das Rechteck der Schale in Display-Pixeln, gerechnet aus ihrer WELT-Lage (leer =
+## es steht keine). Ziel jedes Liefer-Lichts, Fläche für Zeiger und Griff.
+func _fach_rect_px() -> Rect2:
+	if table_screen == null or ausgabefach == null or not is_instance_valid(ausgabefach) \
+			or ausgabefach.half.x <= 0.0 or ausgabefach.half.y <= 0.0:
+		return Rect2()
+	var lo := ausgabefach.bounds_min()  # (Welt-x, Welt-z)
+	var hi := ausgabefach.bounds_max()
+	# Welt +X ist Bildschirm-oben, Welt +Z Bildschirm-rechts.
+	var a := table_screen.world_to_pixel(Vector3(hi.x, 0.0, lo.y))
+	var b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
+	return Rect2(a, b - a)
+
+## Die INFO-SÄULE steht UNTER der Schale (Bildschirm-unten = Welt −X): über ihr
+## liegt der eine offene Neuzugang, darin steht, was er tut. Sie muß auf der
+## ANZEIGE liegen - reicht sie über die untere Display-Kante, wird sie an ihr
+## gekürzt; bleibt dann zu wenig übrig, steht sie gar nicht.
+const FACH_NET_GAP_SHARE := 0.25   # Fuge unter der Schale, als Anteil ihrer Breite
+const FACH_NET_WIDTH_SHARE := 1.9  # ihre Breite als Vielfaches der Schalenbreite
+const FACH_NET_MIN_FILL := 0.7     # bleibt weniger davon übrig, steht sie gar nicht
+
+## Oberkante der Werkbank in Display-Pixeln (0 = noch nicht gemessen): dort endet
+## der freie Filz neben dem Vorrat, und dort endet die Info-Säule.
+var _bench_top_px := 0.0
+
+## Ihr Rechteck in Display-Pixeln (leer = kein Platz oder keine Schale). Die HÖHE
+## meldet die Säule selbst - hier wird keine gerechnet.
+func _fach_net_rect() -> Rect2:
+	if table_screen == null:
+		return Rect2()
+	var fach := _fach_rect_px()
+	if fach.size.x <= 0.0 or fach.size.y <= 0.0:
+		return Rect2()
+	var top := fach.position.y + fach.size.y + fach.size.x * FACH_NET_GAP_SHARE
+	var wide := fach.size.x * FACH_NET_WIDTH_SHARE
+	var tall := FachNetView.height_for(wide)
+	# Unter dem Vorrat beginnt die Werkbank: bis dorthin, nicht bis zur Displaykante.
+	var floor_px := float(table_screen.size.y)
+	if _bench_top_px > 0.0:
+		floor_px = minf(floor_px, _bench_top_px)
+	var room := floor_px - top
+	if room < tall * FACH_NET_MIN_FILL:
+		return Rect2()
+	return Rect2(Vector2(fach.get_center().x - wide * 0.5, top),
+		Vector2(wide, minf(tall, room)))
+
+## Die Säule zeigt den EINEN Würfel, der über ihr steht: den Neuzugang der Schale -
+## oder, solange das PODEST steht, den gewählten Vorrats-Würfel. Leer heißt: sie
+## steht gar nicht. Je Bild gefragt, gebaut nur der Wechsel.
+func _sync_fach_nets() -> void:
+	if table_screen == null or table_screen.fach_net_window == null \
+			or not is_instance_valid(table_screen.fach_net_window):
+		return
+	var window := table_screen.fach_net_window
+	var rect := _fach_net_rect()
+	var shown: DieDefinition = _inspected_die
+	if shown == null and ausgabefach != null and is_instance_valid(ausgabefach) \
+			and not ausgabefach.items.is_empty():
+		shown = ausgabefach.items[0]["def"]
+	if shown == null or rect.size.x <= 0.0:
+		window.set_die(null)
+		table_screen.hide_fach_net_window()
+		return
+	table_screen.place_fach_net_window(rect)
+	window.set_die(shown)
 
 ## Die hinterlegten Würfel in die Schale stellen - EIN idempotenter Schreiber.
 ## Ein Würfel, der noch unterwegs ist, bekommt seinen Platz und wartet mit dem
@@ -6753,7 +7200,7 @@ func _deliver_die_to_fach(def: DieDefinition, depart: Vector2) -> void:
 	if run != launched or table_screen == null or not is_instance_valid(ausgabefach):
 		return
 	var travel := table_screen.pack_delivery_comet(from, SLOT_DIE_COLOR,
-		table_screen.ausgabefach_rect().get_center())
+		_fach_rect_px().get_center())
 	await get_tree().create_timer(maxf(travel, 0.01)).timeout
 	if run != launched or not is_instance_valid(ausgabefach):
 		return
@@ -6763,11 +7210,9 @@ func _deliver_die_to_fach(def: DieDefinition, depart: Vector2) -> void:
 ## Nahstufen, wo sie außerhalb des Rahmens liegt, oder während einer Fahrt). Sonst
 ## ist sie greifbar, wo sie zu sehen ist - auch aus der Freikamera.
 func _fach_rect() -> Rect2:
-	if table_screen == null or ausgabefach == null or not is_instance_valid(ausgabefach) \
-			or not _table_operable() \
-			or camera_rig.workshop_close or camera_rig.die_focus:
+	if not _table_operable() or camera_rig.workshop_close or camera_rig.die_focus:
 		return Rect2()
-	return table_screen.ausgabefach_rect()
+	return _fach_rect_px()
 
 ## Der Würfel unter dem Zeiger hebt sich, die Auskunft läuft über den EINEN
 ## Kanal der Bank (Hinweis-Schirm). Gefragt je Bild - der Zeiger liegt auf dem
@@ -6791,7 +7236,7 @@ func _sync_fach_hover() -> Dictionary:
 	return item
 
 ## Was ein Fach-Würfel auf dem Hinweis-Schirm sagt: Name, Seele und der eine
-## Satz, was ein Klick bedeutet. Gesperrt sagt er, warum jetzt nicht.
+## Satz, was die Geste bedeutet. Gesperrt sagt er, warum jetzt nicht.
 func _fach_hint(def: DieDefinition) -> Dictionary:
 	var essence := Essence.by_id(def.essence_id)
 	var title := def.display_name
@@ -6804,24 +7249,238 @@ func _fach_hint(def: DieDefinition) -> Dictionary:
 	if _dice_editing_locked():
 		body += "\nDie Runde ist unterschrieben - eingesetzt wird vor dem Wurf oder im Laden."
 		return {"title": title, "body": body, "tint": CasinoStyle.RED}
-	body += "\nKlicken: gegen einen Würfel aus dem Vorrat tauschen."
+	body += "\nAuf einen Vorrats-Würfel ziehen: tauschen. Tippen: Platz wählen."
 	return {"title": title, "body": body, "tint": CasinoStyle.CREAM}
 
-## Klick in der Schale (true = verbraucht): der getippte Würfel schlägt den
-## Tausch-Wähler IM Werkstatt-Fenster auf. Gebucht wird dort, nicht hier.
+## Druck in der Schale (true = verbraucht): er startet eine MÖGLICHE Zieh-Geste an
+## dem Würfel darunter - erst der Weg entscheidet zwischen Tausch und Dossier. Auf
+## leerem Fachboden fällt der Klick durch, damit die Navigation ihn bekommt.
 func _forward_fach_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
+	if _deck_glass or podium_open():
+		return false  # solange Glas oder Podest stehen, schweigt die Schale
 	var rect := _fach_rect()
 	if rect.size.x <= 0.0 or pixel.x < 0.0 or not rect.has_point(pixel):
 		return false
 	var button := event as InputEventMouseButton
-	if button == null or not button.pressed:
+	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return false
 	var item := ausgabefach.item_at(table_screen.pixel_to_world(pixel))
-	if not item.is_empty() and not _dice_editing_locked():
-		var workshop: WorkshopView = table_screen.workshop_window
-		if workshop != null and is_instance_valid(workshop):
-			workshop.open_exchange(int(item["index"]))
-	return true  # auch daneben schluckt die Schale den Klick (kein Zoom-Sprung)
+	if item.is_empty():
+		return false
+	fach_drag_index = int(item["index"])
+	fach_drag_key = int(item["key"])
+	fach_drag_start_pos = event.position
+	fach_is_dragging = false
+	fach_drag_swaps = _fach_swap_live()
+	# KEIN Tilt-Lock (Spieler-Entscheid 2026-08-31): die Kamera neigt beim Tausch-Zug
+	# weiter mit der Maus - der Ghost hängt an _mouse_on_plane und folgt je Bild.
+	return true
+
+## Darf jetzt getauscht werden? Dasselbe Fenster wie das Umlegen im Tray: der
+## Vorrat steht, die Runde ist noch nicht unterschrieben, und das Tray ist die
+## lokale Bühne (oder die Freikamera). Hover und Dossier antworten überall.
+func _fach_swap_live() -> bool:
+	if run == null or _dice_editing_locked() or not _pool_standing or podium_open():
+		return false
+	if _exchange_hidden != null:
+		return false  # ein Tausch fährt noch - er hat den Sitz
+	return _felt_pick_live(CameraRig.Mode.WORKSHOP) or _felt_pick_live(CameraRig.Mode.POOL)
+
+func _handle_fach_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_RIGHT:
+		if fach_is_dragging:
+			_snap_fach_ghost_home(fach_drag_ghost, fach_drag_home,
+				ausgabefach.die_at(fach_drag_index))
+			fach_drag_ghost = null
+		_end_fach_drag()
+		return
+	if event is InputEventMouseMotion:
+		# Erst der Weg macht die Geste - und nur, wo getauscht werden darf.
+		if not fach_is_dragging and fach_drag_swaps \
+				and event.position.distance_to(fach_drag_start_pos) > REORDER_DRAG_THRESHOLD:
+			fach_is_dragging = true
+			_begin_fach_drag()
+		if fach_is_dragging:
+			_update_fach_drag(event.position)
+		return
+	if event is InputEventMouseButton and not event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		if fach_is_dragging:
+			_finish_fach_drag(event.position)
+			return
+		# Nur getippt: die GLAS-ANSICHT geht auf - der Vorrat versinkt, und auf dem
+		# geschlossenen Glas steht die Frage, wohin der Neue soll.
+		var tapped := fach_drag_index
+		_end_fach_drag()
+		_open_deck_glass(tapped)
+
+## Der gegriffene Neuzugang verlässt die Schale: sein Körper wird eingezogen (ein
+## Würfel wird nie zweimal gezeigt), ein freier Ghost folgt ab jetzt der Maus.
+func _begin_fach_drag() -> void:
+	var def := ausgabefach.die_at(fach_drag_index)
+	if def == null:
+		fach_is_dragging = false
+		return
+	# Der Platz wird JETZT gemerkt: gleich hält die Schale den Würfel zurück, und
+	# dann steht sein Platz nicht mehr in ihrer Liste.
+	fach_drag_home = _fach_spot(fach_drag_key)
+	ausgabefach.set_hovered(0)
+	ausgabefach.expect_arrival(def)  # sein Platz bleibt, sein Körper geht
+	fach_drag_ghost = _spawn_deck_ghost(def)
+	fach_drag_ghost.global_position = fach_drag_home + Vector3.UP * REORDER_LIFT_HEIGHT
+
+## Der Weltpunkt eines liegenden Fach-Würfels (die Schale kennt ihn, wir fragen nur).
+func _fach_spot(key: int) -> Vector3:
+	for item in ausgabefach.items:
+		if int(item["key"]) == key:
+			return item["spot"]
+	return ausgabefach.global_position
+
+func _update_fach_drag(screen_pos: Vector2) -> void:
+	if fach_drag_ghost == null:
+		return
+	var hit: Variant = _mouse_on_plane(screen_pos,
+		pool_tray_view.global_position.y + DiceTrayView.FLOAT_HEIGHT + REORDER_LIFT_HEIGHT)
+	if hit != null:
+		fach_drag_ghost.global_position = hit
+
+## Loslassen: über einem belegten Pool-Sitz wird getauscht, sonst gleitet der
+## Neuzugang zurück in die Schale.
+func _finish_fach_drag(screen_pos: Vector2) -> void:
+	var seat := _pool_tray_slot_at(screen_pos)
+	var index := fach_drag_index
+	var home := fach_drag_home
+	var def := ausgabefach.die_at(index)
+	var ghost := fach_drag_ghost
+	fach_drag_ghost = null
+	var swaps := fach_drag_swaps
+	_end_fach_drag()
+	if not swaps or seat < 0 or not _exchange_into_seat(index, seat, ghost):
+		_snap_fach_ghost_home(ghost, home, def)
+
+func _end_fach_drag() -> void:
+	fach_drag_index = -1
+	fach_drag_key = 0
+	fach_is_dragging = false
+	fach_drag_swaps = false
+
+## Laufwechsel mitten in der Geste: der Ghost fällt, die Geste endet - gleiten
+## würde er auf einen Platz, den es nicht mehr gibt.
+func _drop_fach_drag_hard() -> void:
+	_drop_stage_body(fach_drag_ghost)
+	fach_drag_ghost = null
+	if fach_drag_index != -1:
+		_end_fach_drag()
+	_settle_exchange_hard()
+
+## Kein gültiges Ziel: der Ghost gleitet sichtbar in seinen Fach-Platz zurück und
+## übergibt dort HART an den Schalen-Körper - kein zweiter Auftritt. Ohne Ghost
+## steht der Körper sofort wieder: ein zurückgehaltener Würfel darf nie liegen
+## bleiben.
+func _snap_fach_ghost_home(ghost: Node3D, home: Vector3, def: DieDefinition) -> void:
+	var land := func() -> void:
+		_drop_stage_body(ghost)
+		if ausgabefach != null and is_instance_valid(ausgabefach):
+			if def != null:
+				ausgabefach.deliver(def)
+			ausgabefach.settle()
+	if ghost == null or not is_instance_valid(ghost):
+		land.call()
+		return
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(ghost, "global_position", home, DECK_SHIFT_DURATION)
+	tween.tween_callback(land)
+
+# --- Der TAUSCH: Neuzugang auf einen Pool-Sitz gezogen ---------------------------
+# Gebucht wird SOFORT (exchange_pending_die - Buchung vor dem Licht), erst danach
+# fährt die Zeremonie: der ALTE Würfel sinkt in einer würfelgroßen Sektion unter
+# seinem Sitz ein, der neue gleitet in den frei werdenden Platz. Kein Restwert -
+# tauschen ist nie "Verkaufen light".
+
+## true = gebucht und die Fahrt läuft. ghost ist der gezogene Körper; er wird
+## Eigentum der Zeremonie.
+func _exchange_into_seat(pending_index: int, seat: int, ghost: Node3D) -> bool:
+	if run == null or pool_tray_view == null or seat < 0 \
+			or seat >= pool_tray_view.slot_defs.size():
+		return false
+	var target: DieDefinition = pool_tray_view.slot_defs[seat]
+	if target == null:
+		return false
+	var pool_index := run.owned_pool.find(target)
+	if pool_index < 0:
+		return false
+	# Was versinkt, ist der ALTE Inhalt - nach become trägt die Instanz den neuen.
+	var leaving := target.instantiate()
+	var at := pool_tray_view.slot_global_position(seat)
+	# Der Sitz gilt ab JETZT als leer, sonst zeigte der pool_changed-Abgleich den
+	# neuen Würfel schon, während der alte noch fährt.
+	_exchange_hidden = target
+	if not run.exchange_pending_die(pending_index, pool_index):
+		_exchange_hidden = null
+		return false
+	_refresh_dice_trays()
+	_exchange_gen += 1
+	var generation := _exchange_gen
+	var launched := run
+	_exchange_ghost = ghost
+	if ghost != null and is_instance_valid(ghost):
+		var glide := create_tween()
+		glide.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		glide.tween_property(ghost, "global_position", at, DECK_SHIFT_DURATION)
+	_sink_exchanged_die(leaving, seat, at, generation, launched)
+	return true
+
+## Der alte Würfel geht dort hinaus, wo er SCHWEBTE: eine würfelgroße Sektion
+## öffnet unter seinem Sitz und zieht ihn ein (dieselbe Bahn wie der Schluck - im
+## Laden fährt dort nichts). Fällt sie aus, steht der Tausch sofort.
+func _sink_exchanged_die(def: DieDefinition, seat: int, at: Vector3,
+		generation: int, launched: GameRun) -> void:
+	var field := _clamp_pool_field(seat)
+	var body: Node3D = null
+	var tween: Tween = null
+	if not field.is_empty() and table_screen != null:
+		body = _spawn_deck_ghost(def)
+		body.global_position = at
+		# Unter der Fläche spiegelt er nicht - sein Bild geisterte sonst darüber.
+		ScreenReflection.set_reflective(body, false)
+		var shaft := _swallow_shaft_for(0, field["at"], field["half"], _tray_shaft_depth())
+		if shaft != null:
+			tween = shaft.run_exit([body], [at], 0.0)
+	_exchange_body = body
+	if tween == null:
+		_land_exchange(seat, generation, launched)
+		return
+	tween.finished.connect(func() -> void:
+		_land_exchange(seat, generation, launched))
+
+## Die Fahrt steht: der Sitz zeigt seinen neuen Inhalt, das Feld rastet ein.
+func _land_exchange(seat: int, generation: int, launched: GameRun) -> void:
+	if generation != _exchange_gen or run != launched:
+		return  # ein Abbruch hat längst hart aufgeräumt
+	_settle_exchange_hard()
+	if pool_tray_view != null and seat >= 0 and seat < pool_tray_view.slot_roots.size():
+		pool_tray_view.slot_emitter(seat).ripple()
+
+## Der EINE harte Aufräum-Pfad des Tauschs: beide Körper fort, die Sektion bündig,
+## der Sitz wieder sichtbar. Laufwechsel, Reset und die fertige Fahrt gehen hier
+## durch - ein abgebrochener Tween schuldet nichts.
+func _settle_exchange_hard() -> void:
+	_exchange_gen += 1
+	# Unsere Bahn ist die des SCHLUCKS - bündig gestellt wird sie nur, wenn dieser
+	# Tausch sie wirklich gefahren hat.
+	if _exchange_body != null and _swallow_shafts.size() > 0 \
+			and _swallow_shafts[0] != null and is_instance_valid(_swallow_shafts[0]):
+		_swallow_shafts[0].settle_hard()
+	_drop_stage_body(_exchange_body)
+	_exchange_body = null
+	_drop_stage_body(_exchange_ghost)
+	_exchange_ghost = null
+	if _exchange_hidden == null:
+		return
+	_exchange_hidden = null
+	_refresh_dice_trays()
 
 # --- Die Hinterzimmer-Auslage -----------------------------------------------
 # Dieselbe Miniatur wie im Laden, nur ohne Ausgabefach - dort geht jede Ware
@@ -6967,7 +7626,7 @@ func _on_secret_die_purchased(def: DieDefinition) -> void:
 	await get_tree().create_timer(VitrineView.take_out_time()).timeout
 	if run != launched or table_screen == null or not is_instance_valid(ausgabefach):
 		return
-	var rect := table_screen.ausgabefach_rect()
+	var rect := _fach_rect_px()
 	var target := rect.get_center() if rect.size.x > 0.0 else depart
 	var travel := table_screen.secret_delivery_comet(depart, target, SLOT_DIE_COLOR)
 	if travel > 0.0:
@@ -7335,7 +7994,7 @@ func _data_cell_lying_px() -> Vector2:
 ## bleibt folgenlos.
 func _clamp_stage_under(screen_pos: Vector2) -> FloatingDie:
 	var camera := get_viewport().get_camera_3d()
-	if camera == null or camera_rig.die_focus:
+	if camera == null:
 		return null
 	for stage in clamp_stages:
 		if stage == null or not is_instance_valid(stage) or not stage.visible:
@@ -7537,9 +8196,9 @@ func _fly_reward_die_to_fach(from_px: Vector2, def: DieDefinition) -> float:
 	if table_screen == null or def == null \
 			or ausgabefach == null or not is_instance_valid(ausgabefach):
 		return 0.0
-	var rect := table_screen.ausgabefach_rect()
+	var rect := _fach_rect_px()
 	if rect.size.x <= 0.0:
-		ausgabefach.deliver(def)  # kein Fenster gemessen: er steht einfach da
+		ausgabefach.deliver(def)  # keine Schale gemessen: er steht einfach da
 		return 0.0
 	var launched := run
 	var travel := table_screen.pack_delivery_comet(from_px, SLOT_DIE_COLOR, rect.get_center())
@@ -7814,8 +8473,8 @@ func _free_stage(stage: FloatingDie) -> void:
 	if grabbed_stage == stage:
 		grabbed_stage = null
 	if focused_stage == stage:
-		focused_stage = null
-		camera_rig.zoom_die_focus_out()
+		focused_stage = null  # der Sterbende bekommt keine Ruhelage mehr
+		_leave_die_focus()
 	stage.queue_free()
 
 ## Klick auf einen Warteschlangen-Würfel: startet einen POTENZIELLEN
@@ -7903,12 +8562,11 @@ func _handle_tray_drag_input(event: InputEvent) -> void:
 		if tray_is_dragging:
 			_finish_tray_drag(event.position)
 			return
-		# Nur getippt: sein Dossier geht auf der Werkbank auf - der Würfel selbst
-		# kommt dorthin, sein Sitz bleibt leer. Bearbeitet wird er weiterhin nur
-		# dort, wo er aufgespannt ist.
+		# Nur getippt: er steigt aufs PODEST am Fach - die Neuzugänge versinken, sein
+		# Sitz bleibt leer, und die Info-Säule zeigt IHN.
 		var tapped: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
 		_end_tray_drag()
-		_open_die_dossier(tapped)
+		_toggle_pool_podium(tapped)
 
 ## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
 func _pool_tray_slot_at(screen_pos: Vector2) -> int:
@@ -8382,6 +9040,11 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 		return true
 	if _forward_fach_mouse(event, pixel):
 		return true
+	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
+	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
+	if _deck_glass and pixel.x >= 0.0 and table_screen.push_deck_glass_input(event, pixel):
+		last_screen_pixel = Vector2(-1, -1)
+		return true
 	if pixel.x < 0.0 or not _screen_forwards_pixel(pixel, event is InputEventMouseButton):
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 		return false
@@ -8439,7 +9102,13 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# nichts mehr etwas an.
 	if camera_rig.mode == CameraRig.Mode.TITLE:
 		return hub != null and hub.get_rect().has_point(pixel)
+	# Die INSPEKTION ist ebenfalls modal: im Bild steht nur noch der Würfel, und was
+	# zufällig hinter ihm liegt, ist kein Klickziel.
+	if camera_rig.die_focus:
+		return false
 	var flying := camera_rig.is_animating
+	# Die GLAS-ANSICHT wird VOR dieser Kette bedient (_forward_screen_mouse reicht sie
+	# in ihren eigenen Viewport) - hier taucht sie darum nicht mehr auf.
 	# Das Gruben-Mobiliar meldet sich selbst: es steht nur, solange die Grube im
 	# Blick ist, und hat keine leere Fläche, die etwas schlucken dürfte.
 	if not flying and _pit_forwards_pixel(pixel):
@@ -8631,14 +9300,13 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		return
 
 	wheel_accum = 0.0
+	# Die Inspektion ist eine senkrechte Stufe: Rad zurück geht aufs Podest.
 	if camera_rig.die_focus:
 		if not up:
-			_leave_die_focus()  # eine Stufe zurück an die Bank
+			_leave_die_focus()
 		return
 	if camera_rig.workshop_close:
-		if up:
-			_zoom_wheel_in(event.position)  # über einem Würfel: das Werkstück
-		else:
+		if not up:
 			camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
 		return
 	if not camera_rig.free_camera:
@@ -8647,18 +9315,10 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 	camera_rig.free_zoom(1.0 if up else -1.0)
 
-## Rad hoch in den senkrechten Werkbank-Stufen: über einem schwebenden Würfel ist
-## die nächste Stufe der Würfel selbst. Sonst nichts - die seitliche Navigation
-## gehört der Freikamera.
-func _zoom_wheel_in(screen_pos: Vector2) -> void:
-	var stage := _stage_under(screen_pos)
-	if stage != null:
-		_focus_floating_die(stage)
-
 ## Ob WASD gerade greifen darf. Taub sind: jede laufende Zieh-Geste, der
-## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD und die beiden
-## Werkbank-Nahstufen - deren Rahmen ist randvoll, ein Fahren zöge nur die
-## Trays herein. Spielphasen sperren nichts, so freizügig wie das Rad.
+## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD, die Werkbank-
+## Nahsicht und die Würfel-Inspektion - deren Rahmen ist randvoll, ein Fahren zöge
+## nur die Trays herein. Spielphasen sperren nichts, so freizügig wie das Rad.
 func _free_camera_allowed() -> bool:
 	if camera_rig == null or log_open:
 		return false
@@ -8697,6 +9357,7 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
+	_sync_fach_nets()  # und der Netz-Schirm zeigt, was die Schale trägt
 
 ## Netz des überfahrenen Tray-Würfels auf dem Werkstatt-Schirm. Der Zeiger liegt
 ## auf dem Tisch, nicht im SubViewport - also wird je Frame gepickt, wie beim
@@ -9577,7 +10238,7 @@ func _refresh_deck_trays() -> void:
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
 	queue_tray_view.fill(queue_defs)  # leer, solange nicht aktiviert
 	_sync_queue_stage()  # und die Plätze fahren auf, was der Pool hergibt
-	if _pool_standing:
+	if _pool_seated_standing():
 		var seats := _tray_holes(_pool_tray_source())
 		pool_tray_view.ensure_capacity(seats.size())  # Lücken belegen ihren Platz mit
 		pool_tray_view.fill(seats)
@@ -9605,6 +10266,10 @@ func _pool_tray_source() -> Array[DieDefinition]:
 ## Tray wäre er ein zweiter Leib. REINE Anzeige: gezogen, geworfen und gewertet wird
 ## er wie jeder andere, und die Warteschlange (Grube) zeigt ihn weiter.
 func _tray_shows(def: DieDefinition) -> bool:
+	# Beim TAUSCH bleibt der Sitz leer, bis der alte Würfel unten hinaus ist - der
+	# Eintrag trägt schon den neuen Inhalt, aber gezeigt wird er erst danach.
+	if def != null and def == _exchange_hidden:
+		return false
 	var on_bench := run != null and run.is_clamped(def) and _clamp_on_bench.has(def)
 	return DiceTrayView.seat_shows(def, _inspected_die, on_bench)
 
@@ -9632,7 +10297,7 @@ func _on_clamped_changed() -> void:
 func _return_dice_to_pool_tray() -> void:
 	queue_tray_view.clear()
 	_sync_queue_stage()
-	if not _pool_standing:
+	if not _pool_seated_standing():
 		return  # der Vorrat fährt gerade erst herauf (siehe _play_tray_return)
 	pool_tray_view.ensure_capacity(run.owned_pool.size())
 	pool_tray_view.fill(_tray_holes(_pool_tray_source()))
@@ -11537,6 +12202,7 @@ func _connect_run() -> void:
 	if ausgabefach != null and is_instance_valid(ausgabefach):
 		ausgabefach.clear()
 	_fach_expecting = false
+	_drop_fach_drag_hard()  # ein Tausch des alten Laufs schuldet nichts mehr
 	_vitrine_depart_px = Vector2(-1, -1)
 	_vitrine_curtain = false
 	_vitrine_grade = ShopController.GRADE_STAND
@@ -12755,6 +13421,18 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
+	# Wer von der Glas-Ansicht wegfährt, hat abgebrochen gemeint: der Vorrat steigt
+	# unverändert wieder herauf - und die gemerkte Station wird VERGESSEN, sonst
+	# risse der Rückflug eine schon laufende Fahrt zurück. Der eigene enge Rahmen
+	# meldet keinen Wechsel und kommt hier gar nicht an.
+	if _deck_glass:
+		_deck_glass_home = {}
+		_close_deck_glass()
+	# Wer wegzoomt, hat abgewählt gemeint: der Würfel kehrt in seinen Sitz zurück.
+	# Auch hier wird das Zuhause VERGESSEN - der Spieler ist schon unterwegs. Der
+	# eigene Fokus-Rahmen meldet keinen Wechsel und kommt hier gar nicht an.
+	_die_focus_home = {}
+	_close_pool_podium()
 	_sync_screen_reflection()
 	# Wer mit offenem Lexikon wegfährt, hat es zugeklappt gemeint: hart zu, ohne
 	# Rückflug (der Spieler ist schon unterwegs). Hart und VOR der Laden-Logik
@@ -12819,10 +13497,15 @@ func _on_pool_changed() -> void:
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
 	_refresh_clamp_stage_faces()  # die Zwingen halten geteilte Instanzen
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
-	# Das Dossier hält eine GETEILTE Instanz - es muss den neuen Stand zeigen.
-	if table_screen != null and table_screen.workshop_window != null \
-			and table_screen.workshop_window.inspecting():
-		table_screen.workshop_window.refresh()
+	# Das Podest hält eine GETEILTE Instanz - Körper und Säule zeigen den neuen Stand.
+	if podium_stage != null and is_instance_valid(podium_stage) and _inspected_die != null:
+		podium_stage.apply_definition(_inspected_die)
+	if table_screen != null and table_screen.fach_net_window != null \
+			and is_instance_valid(table_screen.fach_net_window):
+		table_screen.fach_net_window.refresh()
+		_sync_fach_nets()
+	if _deck_glass:
+		_show_deck_glass_window()  # das Raster auf dem Glas folgt der Buchung
 
 ## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
 ## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der

@@ -143,12 +143,12 @@ func test_the_round_state_never_rewrites_a_soul():
 
 func test_replacing_a_pool_entry_is_the_only_way_a_soul_changes():
 	var run := _souled_run()
-	# Ein Platz ohne Seele - dorthin geht der Kauf (seelenlos zuerst).
 	run.owned_pool[5].essence_id = ""
 	var fresh := DieDefinition.standard()
 	fresh.essence_id = Essence.XENON
 	fresh.display_name = "Neuling"
-	run._replace_pool_entry(fresh)
+	run.stash_die(fresh, 0)
+	assert_true(run.exchange_pending_die(0, 5))
 	assert_eq(run.owned_pool[5].essence_id, Essence.XENON, "become() trägt die neue Seele ein")
 	assert_eq(run.owned_pool[5].display_name, "Neuling")
 
@@ -161,18 +161,20 @@ func test_the_exchange_replaces_the_whole_die():
 	assert_true(run.exchange_pending_die(0, 2))
 	assert_eq(run.owned_pool[2].essence_id, Essence.OZONE, "der Fach-Würfel bringt seine Seele mit")
 
-func test_a_purchase_protects_souls_until_no_soulless_slot_is_left():
-	# Solange ein seelenloser Platz frei ist, wird NIE eine Seele übermalt.
+func test_an_exchange_touches_exactly_the_chosen_slot():
+	# Kein Kauf greift mehr blind in den Pool: genau der GEWÄHLTE Platz wechselt
+	# seine Seele, jeder andere behält seine.
 	var run := _souled_run()
 	run.owned_pool[7].essence_id = ""
 	var before := _souls_of(run)
 	var fresh := DieDefinition.standard()
 	fresh.essence_id = Essence.PHOTON_GAS
-	run._replace_pool_entry(fresh)
+	run.stash_die(fresh, 0)
+	assert_true(run.exchange_pending_die(0, 7))
 	var after := _souls_of(run)
 	for i in before.size():
 		if i == 7:
-			assert_eq(after[i], Essence.PHOTON_GAS, "der leere Platz nimmt sie auf")
+			assert_eq(after[i], Essence.PHOTON_GAS, "der gewählte Platz nimmt sie auf")
 		else:
 			assert_eq(after[i], before[i], "Platz %d behält seine Seele" % i)
 

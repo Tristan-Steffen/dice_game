@@ -71,16 +71,6 @@ func test_the_pick_names_face_frame_or_nothing() -> void:
 	assert_eq(stage.pick(camera, corner), FloatingDie.PICK_FRAME, "an der Kante der Rahmen")
 	assert_eq(stage.pick(camera, center + Vector2(4000, 0)), FloatingDie.PICK_NONE)
 
-func test_turning_the_die_keeps_its_size() -> void:
-	# Die Skalierung steckt in der Basis - eine Drehung darf sie nicht fressen.
-	stage.land_at(TARGET, 0.0)
-	_look_at_stage()
-	await wait_frames(2)
-	var before := stage.die.global_basis.get_scale()
-	stage.spin(Vector2(120.0, 40.0), camera)
-	stage._apply_pose(CameraRig.die_focus_basis())
-	assert_almost_eq(stage.die.global_basis.get_scale(), before, Vector3.ONE * 0.001)
-
 ## Abtreten: ein Paket nimmt das Fenster, die Zwinge macht Platz. Sie wird NICHT
 ## freigegeben - derselbe Körper steht später wieder auf -, ist aber für jedes
 ## Zeigen taub, solange sie unsichtbar ist.
@@ -103,9 +93,3 @@ func test_materializing_brings_the_same_body_back() -> void:
 	stage.materialize()
 	assert_true(stage.visible, "er steht wieder da")
 	assert_same(stage.die, body, "und zwar als derselbe Körper")
-
-func test_the_rest_pose_is_the_tray_pose() -> void:
-	# Zurück an der Bank liest sich der Würfel wieder wie im Tray.
-	var tray_die := FloatingDie.build_ghost(_die())
-	add_child_autofree(tray_die)
-	assert_true(FloatingDie.rest_pose().is_equal_approx(tray_die.global_basis.orthonormalized()))

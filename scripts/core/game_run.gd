@@ -566,35 +566,6 @@ func exchange_pending_die(pending_index: int, pool_index: int) -> bool:
 	pending_dice_changed.emit()
 	return true
 
-## Überschreibt einen zufälligen Pool-Eintrag (bevorzugt "normal", damit frühere
-## Käufe nicht verdrängt werden) mit dem Inhalt von def. Der Eintrag wird IN
-## SEINER Instanz überschrieben (become), nie getauscht: Rundendeck, Trays und
-## Raster halten dieselbe Referenz und zeigen den neuen Würfel dadurch sofort.
-## EINZIGE Stelle, an der ein Kauf einen Pool-Platz übernimmt (Würfelkauf, Paket,
-## Automaten-Würfel). Vorrang hat ein normaler Würfel OHNE Seele: eine Essenz ist
-## angeboren und nicht wiederbeschaffbar - sie wird erst übermalt, wenn kein
-## seelenloser Platz mehr frei ist.
-func _replace_pool_entry(def: DieDefinition) -> DieDefinition:
-	var normal_indices: Array[int] = []
-	var soulless_indices: Array[int] = []
-	for i in owned_pool.size():
-		if owned_pool[i].style_id == "normal":
-			normal_indices.append(i)
-			if owned_pool[i].essence_id == "":
-				soulless_indices.append(i)
-
-	var target_index: int
-	if not soulless_indices.is_empty():
-		target_index = soulless_indices[randi() % soulless_indices.size()]
-	elif not normal_indices.is_empty():
-		target_index = normal_indices[randi() % normal_indices.size()]
-	else:
-		target_index = randi() % owned_pool.size()
-	var target := owned_pool[target_index]
-	target.become(def)
-	pool_changed.emit()
-	return target
-
 ## Kauft einen Charm - der Preis wird nur fällig, wenn der Dock ihn auch aufnimmt.
 func purchase_charm(charm: Charm, price: int) -> bool:
 	if charms_full():
@@ -2337,9 +2308,11 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 			if overflow > 0:
 				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # voller Speicher zahlt bar
 		SlotPrize.Kind.DIE:
+			# EIN Weg für jeden Würfel: auch der Automaten-Gewinn liegt erst im
+			# Ausgabefach, bis der Spieler ihm selbst einen Pool-Platz gibt.
 			if prize.die != null:
 				for i in mult:
-					_replace_pool_entry(prize.die)
+					stash_die(prize.die, 0)
 
 ## Ziel der Runde n (1-basiert) - EINZIGE Quelle der Ziel-Kurve; Rundenwechsel
 ## und Fahrplan lesen beide hier. Je Block verdoppelt sich der Zuwachs:

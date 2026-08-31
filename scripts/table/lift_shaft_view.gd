@@ -30,7 +30,10 @@ extends Node3D
 ## Über der geparkten Grube liegt der SCHIRM: zwei fast durchsichtige Paneele, die
 ## aus linker und rechter Wand herausfahren und sich in der Mitte treffen. Er wird
 ## von draußen BESTELLT (order_cover für die Gewinn-Zeile, order_cover_goal für die
-## STEHENDE Bedingungs-Zeile) - eine Auslage ohne Bestellung baut keinen.
+## STEHENDE Bedingungs-Zeile) - eine Auslage ohne Bestellung baut keinen. Bestellt
+## werden kann auch seine ANZEIGE-HAUT (order_cover_skin): dann trägt das
+## geschlossene Glas eine von draußen gemeldete Anzeige - fertiges Material samt
+## eigenem Alpha, der Schacht mischt sich nicht ein.
 ## Ebenso bestellt wird die WANDHAUT (order_skin): eine gemeldete Textur auf allen
 ## vier Wänden, beiden Stürzen und den BLENDEN vor den Öffnungsbändern. Geschlossen
 ## liest die Maschine damit auf allen vier Seiten gleich; ein Band öffnet nur für
@@ -83,6 +86,7 @@ var deck_skin: Material = null:
 	set(value):
 		deck_skin = value
 		_apply_deck_skin()
+
 ## Ihre Flanken sind Maschine, nicht Anzeige.
 const DECK_SIDE := Color(0.16, 0.17, 0.24)
 const DECK_EMISSION := Color(0.30, 0.34, 0.48)
@@ -261,6 +265,17 @@ var _built_travel := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
 
+## Trägt der GESCHLOSSENE Schirm die ANZEIGE? Bestellt wie er selbst: dann liegt ein
+## statisches Haut-Quad in Schirm-Ebene über dem Loch, in derselben gemeldeten Haut
+## wie die Plattform (deck_skin rechnet aus der Weltposition, also stimmt es dort von
+## selbst), nur HALBDURCHSICHTIG: was in der Grube liegt, schimmert darunter durch.
+## Nur bei ganz geschlossenem Glas sichtbar - halb ausgefahren schmierte es.
+var _cover_skin_wanted := false
+var _cover_skin: MeshInstance3D
+## Die BESTELLTE Haut des Schirms (null = keine): sie kommt fertig von draußen und
+## trägt ihr eigenes Per-Pixel-Alpha - der Schacht mischt sich nicht ein.
+var cover_skin: Material = null
+
 ## Der SCHIRM, sofern bestellt: seine Gewinn-Zeile und der Akzent seiner Wette.
 var cover_text := ""
 var cover_tint := GLOW_COLOR
@@ -340,6 +355,7 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	_cover_right = null
 	_cover_label = null
 	_cover_material = null
+	_cover_skin = null
 	# Und die Blenden ebenso - die Bestellung der Wandhaut überlebt, ihr Körper nicht.
 	_shutters = null
 	_shutter_back = null
@@ -830,6 +846,9 @@ func order_cover_goal(text: String, tint: Color) -> void:
 ## Die Bestellung zurücknehmen - der Körper geht mit ihr.
 func drop_cover() -> void:
 	_cover_wanted = false
+	_cover_skin_wanted = false  # die Anzeige-Haut gehört dem Schirm, nicht dem Schacht
+	cover_skin = null
+	_cover_skin = null
 	cover_text = ""
 	cover_goal = ""
 	_cover_shown = ""
@@ -849,6 +868,28 @@ func drop_cover() -> void:
 
 func has_cover() -> bool:
 	return _cover_wanted
+
+## Die ANZEIGE-HAUT des Schirms bestellen (null = abbestellen). Sie kommt FERTIG von
+## draußen (TableScreen.deck_glass_skin); ohne Meldung bleibt das Glas nackt.
+func order_cover_skin(material: Material) -> void:
+	var same := material == cover_skin and _cover_skin_wanted == (material != null)
+	cover_skin = material
+	_cover_skin_wanted = material != null
+	if same:
+		_seat_cover_skin()
+		return
+	if _cover_skin_wanted and _cover != null and is_instance_valid(_cover):
+		_build_cover_skin()
+	elif not _cover_skin_wanted:
+		_drop_cover_skin()
+	_seat_cover_skin()
+
+func has_cover_skin() -> bool:
+	return _cover_skin_wanted
+
+## Steht die Anzeige gerade wirklich auf dem Glas? Erst bei GESCHLOSSENEM Schirm.
+func cover_skin_shown() -> bool:
+	return _cover_skin != null and is_instance_valid(_cover_skin) and _cover_skin.visible
 
 ## Wie weit der Schirm heraus ist (0 = in der Wand, 1 = geschlossen).
 func cover_share() -> float:
@@ -942,7 +983,14 @@ func _seat_cover(share: float) -> void:
 		_cover_left.scale.z = out
 	if _cover_right != null and is_instance_valid(_cover_right):
 		_cover_right.scale.z = out
+	_seat_cover_skin()
 	_sync_cover_label()
+
+## Die Anzeige liegt auf dem GESCHLOSSENEN Glas und sonst nirgends.
+func _seat_cover_skin() -> void:
+	if _cover_skin == null or not is_instance_valid(_cover_skin):
+		return
+	_cover_skin.visible = _cover_skin_wanted and _cover_share > 0.999
 
 func _sync_cover_label() -> void:
 	if _cover_label == null or not is_instance_valid(_cover_label):
@@ -994,7 +1042,35 @@ func _build_cover() -> void:
 	_cover_label.position = Vector3(0.0, -COVER_DROP + COVER_H, 0.0)
 	_cover_label.visible = false
 	_cover.add_child(_cover_label)
+	if _cover_skin_wanted:
+		_build_cover_skin()
 	_write_cover()
+
+## Das Haut-Quad in Schirm-Ebene: so groß wie das Loch, in der gemeldeten Anzeige-Haut.
+## Es fährt NICHT mit den Flügeln - es liegt still und erscheint erst, wenn sie stehen.
+## Die Haut rechnet aus der Weltposition, also stimmt der Ausschnitt von selbst.
+func _build_cover_skin() -> void:
+	_drop_cover_skin()
+	if _cover == null or not is_instance_valid(_cover) or cover_skin == null:
+		return
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(half.x * 2.0, COVER_H * 0.4, half.y * 2.0)
+	_cover_skin = MeshInstance3D.new()
+	_cover_skin.name = "Anzeige"
+	_cover_skin.mesh = mesh
+	_cover_skin.material_override = cover_skin
+	# Über dem Glas, unter der Aufschrift - beide Ebenen bleiben getrennt.
+	_cover_skin.position = Vector3(0.0, -COVER_DROP + COVER_H * 0.7, 0.0)
+	_cover_skin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_cover_skin.visible = false
+	_cover.add_child(_cover_skin)
+
+func _drop_cover_skin() -> void:
+	if _cover_skin != null and is_instance_valid(_cover_skin):
+		if _cover_skin.get_parent() != null:
+			_cover_skin.get_parent().remove_child(_cover_skin)
+		_cover_skin.queue_free()
+	_cover_skin = null
 
 ## EIN Flügel: eine flache Platte, die im Wandschlitz beginnt und zur Mitte wächst.
 func _build_cover_wing(wing_name: String, dir: float, reach: float) -> Node3D:
@@ -1221,9 +1297,8 @@ func _build_materials() -> void:
 ## Die gemeldete Haut auf die Deckfläche legen. Idempotent, und ohne Haut bleibt
 ## die Platte Maschine wie ihre Flanken.
 func _apply_deck_skin() -> void:
-	if _deck_top == null or not is_instance_valid(_deck_top):
-		return
-	_deck_top.material_override = deck_skin if deck_skin != null else _deck_side_material
+	if _deck_top != null and is_instance_valid(_deck_top):
+		_deck_top.material_override = deck_skin if deck_skin != null else _deck_side_material
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()

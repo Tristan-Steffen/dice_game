@@ -101,14 +101,6 @@ const CHOICE_CELL := DieNetView.TRAY_TILE
 ## soll nach oben, unten und zu seiner Spalte hin genauso viel Luft haben wie zum
 ## rechten Fensterrand - eine Zahl, vier Abstände.
 const BODY_GAP := 2.4
-## Zeilenabstand der Dossier-Spalte und die LUFT zwischen der Bühne des Würfels
-## und seinem Netz. INSPECT_NET_GAP ist die GEMESSENE Luft von Bühnenkante zu
-## Netzkante - die zwei Zeilenabstände des Kastens liegen schon darin, der
-## Zwischenraum trägt nur den Rest. Gut das Doppelte des bloßen Zeilenabstands:
-## der Würfel soll über seinem Diagramm STEHEN, nicht darauf aufliegen.
-const INSPECT_LINE_GAP := 0.6
-const INSPECT_NET_GAP := 1.4
-
 ## Presse-Plätze: strukturell sechs (PhantomPress.BATCH_CAP), unabhängig davon,
 ## wie viele Zwingen die Lizenz gerade aufspannt.
 const BENCH_COLUMNS := PhantomPress.BATCH_CAP
@@ -268,22 +260,12 @@ var run: GameRun:
 		_pending_arrivals.clear()  # Lieferungen des alten Laufs verfallen
 		_queued_pops.clear()
 		_drop_press()  # ein Wurf, der noch auf der Bank kollert, gehört dem alten Lauf
-		_drop_inspect()  # und das Dossier eines Würfels, den es gleich nicht mehr gibt
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
 			run.clamped_changed.connect(refresh)  # die Netzzeile IST die Aufspannung
 			run.press_changed.connect(refresh)  # Hand und nasse Plaketten hängen daran
 		refresh()
-
-## Werkbank-Zustand. Weder die Pressung noch der Platzierungs-Schritt ist eine
-## Phase - die eine läuft in den Lesern der Grundseite, der andere hängt an der
-## offenen Beute (siehe placing) und übersteht damit jeden Neuaufbau.
-## INSPECT ist das Dossier eines Pool-Würfels: reine Auskunft, kein Werkzeug.
-## EXCHANGE ist der Tausch-Wähler des Ausgabefachs: ein gekaufter Würfel liegt in
-## der Schale rechts der Bank, und hier wählt der Spieler seinen Pool-Platz - der
-## EINE Weg jedes Würfels in den Vorrat.
-enum Phase { STASH, INSPECT, EXCHANGE }
 
 var _content: VBoxContainer
 ## Die Netze der Aufspannung, Reihenfolge = run.clamped_dice. Sie sind zugleich
@@ -355,7 +337,6 @@ var _multicast_body: RichTextLabel
 ## Neuaufbau des Bandes und erlischt erst mit dem nächsten Griff.
 var _multicast_peak := 0
 
-var _phase: Phase = Phase.STASH
 ## Für die Presse gewählte Pakete, als uids (Gravur-Pakete, höchstens BATCH_CAP) -
 ## uids, nicht Indizes: das Magazin darf unter der Vorwahl umsortiert werden.
 var _selected_packs: Array[int] = []
@@ -387,24 +368,12 @@ var _withheld: Dictionary = {}
 ## Die Sorten der geschluckten Pakete: sie halten Leser und Portal in ihrer Farbe,
 ## solange die Pressung läuft - die Vormerkung ist da längst abgeräumt.
 var _press_sorts: Array[String] = []
-## Der Würfel des Dossiers samt den Wirten seiner Bühne und seines Netzes.
-var _inspect_die: DieDefinition
-var _inspect_stage_host: Control
-var _inspect_net: Control
-## Der Platz im Ausgabefach, dessen Würfel gerade seinen Pool-Sitz sucht (-1 = keiner).
-var _exchange_index := -1
 ## Das Blech der Schlitzreihe (null = steht gerade nicht).
 var _console: Panel
 ## Der Knopf des Handlungs-Sitzes vor der Pressung.
 var _press_button: Button
 ## "Fertig" des Platzierungs-Schritts (null = steht gerade nicht).
 var _apply_button: Button
-## Würfel-Raster der Pool-Auswahl samt seinem Wirt und der zuletzt daraus
-## errechneten Maßeinheit.
-var _pool_grid: DiceGridView
-var _pool_host: Control
-var _pool_unit := 0.0
-
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
 	# NICHT beschnitten: Konsolen-Band und Regal-Leiste hängen absichtlich unter
@@ -831,19 +800,7 @@ func _refresh_content() -> void:
 	_free_own(_ablage_host)
 	_ablage_host = null
 	_ablage_chips.clear()
-	_inspect_stage_host = null
-	_inspect_net = null
 	_prune_selection()
-	# Ein Würfel, der nicht mehr im Pool steht, hat kein Dossier mehr - die Seite
-	# fällt still auf die Grundseite zurück, statt auf eine tote Def zu zeigen.
-	if _phase == Phase.INSPECT and (run == null or run.owned_pool.find(_inspect_die) < 0):
-		_phase = Phase.STASH
-		_inspect_die = null
-	# Und ein Tausch, dessen Würfel nicht mehr im Fach liegt (oder dessen Fenster
-	# die Unterschrift geschlossen hat), fällt ebenso still auf die Grundseite.
-	if _phase == Phase.EXCHANGE and (run == null or editing_locked
-			or _exchange_index >= run.pending_dice.size()):
-		_drop_exchange()
 	var u := maxf(size.x, 200.0) / 100.0
 	_free_own(_content)
 	_content = null  # queue_free wirkt erst am Bildende - sonst hängt hier ein Zombie
@@ -865,26 +822,15 @@ func _refresh_content() -> void:
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_content.offset_left = u * CONTENT_MARGIN_X
 	_content.offset_right = -u * CONTENT_MARGIN_X
-	# Die Dossier-Seite steht in einem GLEICHEN Rand ringsum: ihr Raster soll oben
-	# und unten so viel Luft haben wie zur Seite. Jede andere Seite behält den
-	# flacheren Zeilenrand - dort zählt jede Einheit für die Netze.
-	var margin_y := CONTENT_MARGIN_X if _phase == Phase.INSPECT else CONTENT_MARGIN_Y
-	_content.offset_top = u * margin_y
+	_content.offset_top = u * CONTENT_MARGIN_Y
 	# Das Fensterinnere gehört ganz dem Inhalt: die Schürze hängt vollständig
 	# darunter, es ragt nichts mehr herein.
-	_content.offset_bottom = -u * margin_y
+	_content.offset_bottom = -u * CONTENT_MARGIN_Y
 	_content.add_theme_constant_override("separation", int(u * CONTENT_GAP))
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
-	# Kein WERKSTATT-Titel: die Grundseite gehört der Aufspannung.
-	if _phase == Phase.INSPECT:
-		_build_inspect(u)
-		return
-	if _phase == Phase.EXCHANGE:
-		_build_exchange(u)
-		return
-
+	# Kein WERKSTATT-Titel: die Seite gehört der Aufspannung.
 	_build_clamp_row(u)
 	_content.add_child(_bottom_slack())
 
@@ -984,7 +930,7 @@ func clamp_cell(u: float) -> float:
 ## und Platzierung lassen sie STEHEN - sie sind die Ziele.
 ## Die KAMERA fragt hier nicht mit: die Bank ist aus jedem Blickwinkel bestückt.
 func clamps_on_bench() -> bool:
-	return _phase == Phase.STASH
+	return true
 
 ## Die Würfel der Aufspannung (ohne Lauf leer).
 func _clamped_dice() -> Array[DieDefinition]:
@@ -1036,10 +982,12 @@ func bench_rect() -> Rect2:
 	return rect
 
 ## Breite/Höhe des Fensters, bei dem die DOSSIER-Seite bündig aufgeht: links die
-## Würfelspalte (so breit wie ihr Netz), rechts das 30er-Raster, dessen Kacheln
-## die Inhaltshöhe genau füllen. Die Breite ist damit nicht mehr gesetzt, sondern
-## gelöst - die Seite mit dem größten Anspruch gibt sie vor, und Band und Buchten
-## darunter ziehen ohnehin mit.
+## Würfelspalte (so breit wie ihr Netz), rechts der Platz des 30er-Rasters. Die
+## Breite ist damit nicht mehr gesetzt, sondern gelöst - die Seite mit dem größten
+## Anspruch gibt sie vor, und Band und Buchten darunter ziehen ohnehin mit.
+## Das Raster selbst wohnt seit 2026-08-31 auf dem Gruben-GLAS; sein Platz bleibt
+## RESERVIERT, bis der Werkstatt-Umbau ihn neu vergibt - die gelöste Fensterbreite
+## ist die Grundlage der ganzen Werkbank-Ecke und wechselt nicht nebenbei.
 ## Alles außer der Fensterhöhe misst in u = Breite/100, die Gleichung schließt
 ## sich also über die Breite; die Höhe kürzt sich heraus, es bleibt ein reines
 ## Verhältnis.
@@ -1221,7 +1169,7 @@ func _seat_button(u: float) -> Button:
 ## dazu die eine Regel des Griffs: mindestens eine Kassette MIT Inhalt muss darin
 ## stecken.
 func can_press() -> bool:
-	return run != null and not editing_locked and not inspecting() and not exchanging() \
+	return run != null and not editing_locked \
 		and not pressing() and loot_slot_count() > 0 and run.press_allowed()
 
 ## Wie es um die Pressung steht, sagt NICHT der Knopf (sein Rechteck ist fest) -
@@ -1518,13 +1466,13 @@ func press_display_anchors() -> Array[Vector2]:
 func pressing() -> bool:
 	return not _withheld.is_empty()
 
-## Das Regal ist zu: unterschrieben, der Automat läuft - oder das Dossier bzw. der
-## Tausch hat die Bank. Niemand legt einem laufenden Automaten ein Paket nach.
+## Das Regal ist zu: unterschrieben oder der Automat läuft. Niemand legt einem
+## laufenden Automaten ein Paket nach.
 ## Eine LIEGENDE Ablage sperrt dagegen nichts mehr: nachpressen ist erlaubt, die
 ## Stücke legen sich dazu. Die Buchten STEHEN durch all das - sie fassen nur
 ## nichts an.
 func shelf_locked() -> bool:
-	return editing_locked or pressing() or inspecting() or exchanging()
+	return editing_locked or pressing()
 
 ## Legt GENAU dieses Paket in den nächsten freien Presse-Platz. false = kein
 ## solches Paket, kein Platz frei oder das Magazin ist zu.
@@ -2044,7 +1992,7 @@ func _glide_ablage(order: Array[int]) -> void:
 ## Gravuren liegt die letzte obenauf und trägt die Zahl). Was noch fliegt, fehlt -
 ## aufgedeckt wird bei der Landung.
 func _build_ablage() -> void:
-	if run == null or run.press_pieces.is_empty() or _phase != Phase.STASH:
+	if run == null or run.press_pieces.is_empty():
 		return
 	var host := Control.new()
 	host.name = "Ablage"
@@ -2363,44 +2311,6 @@ func _drop_press() -> void:
 	_held_id = ""
 	_clear_pair()
 
-## Die Würfel des Rasters: IMMER der ganze Besitz in Pool-Ordnung. Dossier wie
-## Tausch wählen einen BESITZ-Platz, keine Tray-Sitzordnung - gemustert wird, was
-## einem gehört, auch wenn es gerade in der Grube liegt.
-func _pool_defs() -> Array[DieDefinition]:
-	if run == null:
-		return [] as Array[DieDefinition]
-	return run.owned_pool
-
-## Kachel -> Pool-Platz. -1 für leere Kacheln und für Runden-Leihgaben
-## (Glücksknoten), die gar nicht im Pool stehen.
-func _pool_index_of(grid_index: int) -> int:
-	var defs := _pool_defs()
-	if run == null or grid_index < 0 or grid_index >= defs.size() or defs[grid_index] == null:
-		return -1
-	return run.owned_pool.find(defs[grid_index])
-
-## Kachel auf Kachel gezogen: der Würfel wird am Ziel EINGESETZT, die anderen
-## rücken auf - die Würfel selbst bleiben, was sie sind. Gesperrt, sobald die
-## Runde unterschrieben ist - dasselbe Zeitfenster wie fürs Gravieren.
-func _on_pool_slots_reordered(from_grid: int, to_grid: int) -> void:
-	if run == null or editing_locked:
-		return
-	var from_pool := _pool_index_of(from_grid)
-	var to_pool := _pool_index_of(to_grid)
-	if from_pool < 0 or to_pool < 0:
-		return
-	run.reorder_pool(from_pool, to_pool)
-
-## Der hervorgehobene Platz als Liste - das Raster nimmt nur getypte Arrays. Im
-## Dossier ist es der gezeigte Würfel, sonst keiner.
-func _highlighted_slots() -> Array[int]:
-	var chosen: Array[int] = []
-	if _phase == Phase.INSPECT:
-		var shown := _pool_defs().find(_inspect_die)
-		if shown >= 0:
-			chosen.append(shown)
-	return chosen
-
 ## Erklärzeile zur Netz-Zelle unter einem Display-Pixel ("" = keine). GEFRAGT
 ## statt gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als
 ## gui_input durch, und wer genau dort stehen bleibt, bekäme nie einen Text.
@@ -2414,282 +2324,7 @@ func net_hint_at(pixel: Vector2) -> String:
 		var face := net.face_at_pixel(pixel)
 		if face != -1:
 			return DieNetView.hint_for(net.def, face)
-	# Das Netz des Dossiers erklärt seine Zellen wie jedes andere.
-	if _inspect_net != null and is_instance_valid(_inspect_net) and _inspect_die != null:
-		var net_rect := _inspect_net.get_global_rect()
-		if net_rect.has_point(pixel):
-			return DieNetView.hint_for(_inspect_die,
-				DieNetView.face_at(pixel - net_rect.position, u * CHOICE_CELL))
-	# Das Pool-Raster nennt die Seele der überfahrenen Kachel. Nur solange es
-	# wirklich steht: danach hängt _pool_grid noch am freigegebenen Inhalt und
-	# träfe mit einem veralteten Rechteck.
-	if _pool_grid_open() and _pool_grid != null and is_instance_valid(_pool_grid):
-		return _pool_grid.hint_at(pixel)
 	return ""
-
-## Steht gerade ein 30er-Raster im Fenster? Im Dossier und im Tausch-Wähler.
-func _pool_grid_open() -> bool:
-	return _phase == Phase.INSPECT or _phase == Phase.EXCHANGE
-
-## Einen Schritt zurück im FLUSS (Rechtsklick, siehe scene_root): das Dossier und
-## der Tausch-Wähler schließen, bevor die Kamera einen Schritt zurückgeht. Der
-## Abbruch des Tauschs lässt BEIDE Seiten unberührt - der Würfel bleibt im Fach.
-## false = hier gibt es nichts zurückzugehen.
-func go_back() -> bool:
-	if _phase == Phase.INSPECT:
-		close_inspect()
-		return true
-	if _phase == Phase.EXCHANGE:
-		close_exchange()
-		return true
-	return false
-
-# --- Das Dossier (nur ansehen) --------------------------------------------------
-# Ein getippter Tray-Würfel kommt auf die Bank: links steht er selbst im
-# Stasis-Feld, darunter sein Netz mit Namen und Augensumme, rechts der Pool, aus
-# dem der nächste gewählt wird. Nichts davon verändert einen Würfel - graviert
-# wird auf den Netzen der Aufspannung, nirgends sonst.
-
-## Öffnet das Dossier eines Pool-Würfels. Von der Grundseite aus - ein Wurf,
-## offene Beute oder ein Paket haben die Bank - ODER aus einem offenen Dossier
-## heraus: dann WECHSELT es. Der Griff ins Tray ist damit derselbe Weg wie der
-## Griff ins Raster, und beide führen auf dieselbe Seite. false = jetzt nicht.
-func open_inspect(def: DieDefinition) -> bool:
-	if run == null or def == null or placing():
-		return false
-	if _phase != Phase.STASH and _phase != Phase.INSPECT:
-		return false
-	if def == _inspect_die:
-		return true  # er steht schon auf der Bühne
-	if run.owned_pool.find(def) < 0:
-		return false
-	_inspect_die = def
-	_phase = Phase.INSPECT
-	refresh()
-	return true
-
-func close_inspect() -> void:
-	if _phase != Phase.INSPECT:
-		return
-	_drop_inspect()
-	refresh()
-
-func inspecting() -> bool:
-	return _phase == Phase.INSPECT
-
-## Der gezeigte Würfel (null = die Seite steht nicht) - scene_root stellt seinen
-## ECHTEN Körper über die Bühne und lässt seinen Tray-Sitz leer.
-func inspected_die() -> DieDefinition:
-	return _inspect_die if _phase == Phase.INSPECT else null
-
-## Mitte der Dossier-Bühne in Display-Pixeln (x < 0 = sie steht gerade nicht).
-func inspect_stage_center() -> Vector2:
-	if _inspect_stage_host != null and is_instance_valid(_inspect_stage_host):
-		return _inspect_stage_host.get_global_rect().get_center()
-	return Vector2(-1, -1)
-
-func _drop_inspect() -> void:
-	if _phase == Phase.INSPECT:
-		_phase = Phase.STASH
-	_inspect_die = null
-
-## Klick auf eine Raster-Kachel: das Dossier wechselt auf diesen Würfel. Derselbe
-## Körper tritt ab und der neue entsteht an seinem Platz (scene_root).
-func inspect_slot(grid_index: int) -> void:
-	if _phase != Phase.INSPECT:
-		return
-	var pool_index := _pool_index_of(grid_index)
-	if pool_index < 0 or run.owned_pool[pool_index] == _inspect_die:
-		return
-	_inspect_die = run.owned_pool[pool_index]
-	refresh()
-
-func _build_inspect(u: float) -> void:
-	if _inspect_die == null:
-		return
-	var body := HBoxContainer.new()
-	body.name = "InspectBody"
-	body.add_theme_constant_override("separation", int(u * BODY_GAP))
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(body)
-	body.add_child(_inspect_side(u))
-	# Getippt wechselt das Dossier, GEZOGEN legt der Vorrat um - dieselbe Teilung
-	# wie im Pool-Tray. Seit die Paket-Platzierung tot ist, ist das Dossier die
-	# zweite Stelle, an der ein Würfel seinen Platz wechselt.
-	body.add_child(_pool_grid_host(true, inspect_slot))
-
-## Linke Spalte: die leere Bühne des schwebenden Würfels, darunter sein Netz mit
-## Namen und Augensumme - dieselbe Auskunft wie auf der Hover-Karte, nur groß.
-## Der ganze Block steht SENKRECHT MITTIG im Fenster (gleiche Restluft oben wie
-## unten): oben angeschlagen hing der schwebende Würfel über der Fensterkante,
-## und darunter stand ein leeres Drittel.
-func _inspect_side(u: float) -> Control:
-	var column := VBoxContainer.new()
-	column.name = "InspectSide"
-	column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	column.add_theme_constant_override("separation", int(u * INSPECT_LINE_GAP))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(_slack("InspectSlackTop"))
-
-	var span := DieNetView.net_size(u * CHOICE_CELL)
-	var stage := Control.new()
-	stage.name = "InspectStage"
-	stage.custom_minimum_size = Vector2(span.x, u * STAGE_HEIGHT)
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_inspect_stage_host = stage
-	column.add_child(stage)
-
-	var air := Control.new()
-	air.name = "InspectNetGap"
-	air.custom_minimum_size = Vector2(0,
-		maxf(u * (INSPECT_NET_GAP - INSPECT_LINE_GAP * 2.0), 0.0))
-	air.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(air)
-
-	var host := Control.new()
-	host.name = "InspectNet"
-	host.custom_minimum_size = span
-	host.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	host.add_child(DieNetView.build(_inspect_die, -1, u * CHOICE_CELL))
-	_inspect_net = host
-	column.add_child(host)
-
-	column.add_child(_inspect_line(_inspect_die.display_name, u * 2.6, GOLD, span.x))
-	column.add_child(_inspect_line("Augensumme %d" % DiceRowView.eye_total(_inspect_die),
-		u * 2.0, CasinoStyle.CREAM, span.x))
-	column.add_child(_slack("InspectSlackBottom"))
-	return column
-
-## Eine Zeile unter dem Netz, auf dessen Breite zentriert - so steht sie unter dem
-## Würfel und zieht die Spalte nicht auseinander.
-func _inspect_line(text: String, font_size: float, color: Color, width: float) -> Label:
-	var label := _label(text, font_size, color)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size = Vector2(width, 0)
-	return label
-
-# --- Der Tausch aus dem Ausgabefach --------------------------------------------
-# Ein gekaufter Würfel liegt in der Schale RECHTS der Bank, nicht mehr im Laden.
-# Getippt nimmt er das Fenster und fragt nach seinem Platz im Vorrat: dasselbe
-# 30er-Raster, in dem sonst gemustert und einsortiert wird.
-
-## Öffnet den Wähler für den Würfel auf Fach-Platz index. Nur solange die Bank
-## offen ist (nicht editing_locked), von der Grundseite aus oder aus einem
-## stehenden Wähler heraus - dann WECHSELT er. false = jetzt nicht.
-func open_exchange(index: int) -> bool:
-	if run == null or editing_locked or placing():
-		return false
-	if index < 0 or index >= run.pending_dice.size():
-		return false
-	if _phase != Phase.STASH and _phase != Phase.EXCHANGE:
-		return false
-	_exchange_index = index
-	_phase = Phase.EXCHANGE
-	refresh()
-	return true
-
-func close_exchange() -> void:
-	if _phase != Phase.EXCHANGE:
-		return
-	_drop_exchange()
-	refresh()
-
-func exchanging() -> bool:
-	return _phase == Phase.EXCHANGE
-
-func exchange_index() -> int:
-	return _exchange_index if _phase == Phase.EXCHANGE else -1
-
-func _drop_exchange() -> void:
-	if _phase == Phase.EXCHANGE:
-		_phase = Phase.STASH
-	_exchange_index = -1
-
-## Die Seite: eine Zeile, die den einziehenden Würfel nennt, darunter der ganze
-## Vorrat als Raster. Gewarnt wird NICHT - die Netze zeigen Materialien,
-## Veredelung, Runen und den Essenz-Chip, also sieht der Spieler selbst, welche
-## Seele er überschreibt. Das ist die Einwilligung; ein Dialog wäre Papier davor.
-func _build_exchange(u: float) -> void:
-	var incoming: DieDefinition = null
-	if run != null and _exchange_index >= 0 and _exchange_index < run.pending_dice.size():
-		incoming = run.pending_dice[_exchange_index]
-	if incoming == null:
-		return
-	_content.add_child(_label("WELCHEN WÜRFEL ERSETZEN?", u * 5.0, GOLD))
-	_content.add_child(_label(_exchange_line(incoming), u * 2.4, CasinoStyle.CREAM))
-	_content.add_child(_pool_grid_host(false, _on_exchange_slot_pressed))
-
-## Was einzieht: Name und Seele - dieselbe Auskunft wie auf der Hover-Karte.
-func _exchange_line(def: DieDefinition) -> String:
-	var essence := Essence.by_id(def.essence_id)
-	if essence == null:
-		return "%s zieht ein." % def.display_name
-	return "%s – %s zieht ein." % [def.display_name, essence.display_name]
-
-func _on_exchange_slot_pressed(grid_index: int) -> void:
-	if run == null or _phase != Phase.EXCHANGE:
-		return
-	var pool_index := _pool_index_of(grid_index)
-	if pool_index < 0:
-		return
-	if run.exchange_pending_die(_exchange_index, pool_index):
-		_drop_exchange()
-	refresh()
-
-## Das 30er-Raster in seinem Wirt: nackter Control, KEIN Container - ein Container
-## meldete das Mindestmaß des Rasters zurück, aus dem es seine Größe zieht, und
-## das Fenster wüchse mit.
-func _pool_grid_host(reorder: bool, on_pressed: Callable) -> Control:
-	_pool_host = Control.new()
-	_pool_host.name = "PoolHost"
-	_pool_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_pool_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_pool_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	_pool_unit = 0.0
-	_pool_grid = DiceGridView.new()
-	_pool_grid.name = "PoolGrid"
-	_pool_grid.reorder_enabled = reorder
-	_pool_grid.slot_pressed.connect(on_pressed)
-	if reorder:
-		_pool_grid.slots_reordered.connect(_on_pool_slots_reordered)
-	_pool_host.add_child(_pool_grid)
-	_pool_host.resized.connect(_fit_pool_grid)
-	_fit_pool_grid()
-	return _pool_host
-
-## Größtes Kachelmaß, das die 30 Plätze in den Wirt bringt; danach mittig gesetzt
-## (der nackte Wirt legt nichts aus). Das Raster FÜLLT seinen Bereich - die Luft
-## nach außen ist der Inhaltsrand des Fensters, nicht noch ein zweiter Rand
-## darin; genau darauf ist die Fensterbreite gelöst (dossier_aspect).
-func _fit_pool_grid() -> void:
-	if _pool_grid == null or not is_instance_valid(_pool_grid) \
-			or _pool_host == null or not is_instance_valid(_pool_host):
-		return
-	var pool := _pool_defs()
-	var rows := maxi(int(ceil(float(pool.size()) / float(POOL_COLUMNS))), 1)
-	var unit := maxf(size.x, 200.0) / 100.0  # Rückfall, solange der Wirt kein Maß hat
-	if _pool_host.size.x > 0.0:
-		unit = DiceGridView.unit_for(POOL_COLUMNS, rows, _pool_host.size)
-	if is_equal_approx(unit, _pool_unit) and _pool_grid.get_child_count() > 0:
-		return  # resized feuert während des Layouts mehrfach
-	_pool_unit = unit
-	_pool_grid.place(POOL_COLUMNS, unit, true)
-	_pool_grid.fill(pool)
-	_pool_grid.set_highlights(_highlighted_slots())  # der Neuaufbau darf sie nicht schlucken
-	_center_pool_grid.call_deferred()
-
-func _center_pool_grid() -> void:
-	if _pool_grid == null or not is_instance_valid(_pool_grid) \
-			or _pool_host == null or not is_instance_valid(_pool_host):
-		return
-	var span := _pool_grid.get_combined_minimum_size()
-	_pool_grid.size = span
-	_pool_grid.position = ((_pool_host.size - span) * 0.5).max(Vector2.ZERO)
 
 func _action_button(text: String, accent: Color, u: float, handler: Callable) -> Button:
 	var button := Button.new()

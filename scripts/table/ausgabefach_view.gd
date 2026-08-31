@@ -1,21 +1,50 @@
 class_name AusgabefachView
 extends Node3D
-## Das AUSGABEFACH: eine offene Schale rechts neben dem Werkstatt-Fenster, in der
-## die bezahlten, noch nicht eingesetzten Würfel LIEGEN (GameRun.pending_dice).
-## Sie steht an der Werkbank, nicht im Laden - der Hub kauft, die Werkstatt nutzt.
+## Das AUSGABEFACH: eine offene Schale an der Bildschirm-rechten Kante des Vorrats,
+## in der die bezahlten, noch nicht eingesetzten Würfel LIEGEN (GameRun.pending_dice).
+## Sie steht an der BESTANDS-Station, nicht im Laden - der Hub kauft, der Vorrat
+## nimmt auf, und getauscht wird per Zug auf einen Pool-Sitz.
 ## Kein Loch und kein Panel: ein echtes flaches Tablett mit niedrigem Rand auf der
-## Glasfläche. Sein Rechteck misst scene_root am Fensterrand und schiebt es herein
-## (setup); die Schale rechnet ihre Plätze allein daraus.
+## Glasfläche. Ihren Platz rechnet scene_root aus der Pool-Geometrie und schiebt ihn
+## herein (setup); die Schale rechnet ihre Plätze allein daraus.
 ## Der Körper hängt an der WÜRFEL-INSTANZ, nicht am Platz: fällt einer heraus,
 ## GLEITEN die übrigen weiter, statt fremde Meshes zu erben.
+## OFFEN liegt genau EIN Würfel (VISIBLE_CAP); was darüber hinaus hinterlegt ist,
+## wartet unter dem Fachboden und RÜCKT von unten nach, sobald der Platz frei wird.
 ## Kein mark_reflective: ein Körper AUF dem Glas spiegelt sich als grauer Schmier
 ## daneben (dieselbe Regel wie die Datenzellen).
 
 ## Feldmaß EINES Platzes (Weltmaß, an der Würfelkante gemessen): so viel Luft,
 ## dass zwei Nachbarn sich nicht berühren.
 const CELL := DiceTrayView.DIE_SCALE * 2.6
+## Wieviele Würfel OFFEN liegen: genau EINER. Die Schale mißt ihre Plätze weiter
+## selbst (capacity), der Deckel ist das Minimum aus beidem: was darüber hinaus
+## hinterlegt ist, wartet unter dem Fachboden und rückt von unten nach, sobald der
+## Platz frei wird - dieselbe Boden-Lieferung wie jede Ankunft.
+const VISIBLE_CAP := 1
 ## Die Würfel liegen in TRAY-Größe - dasselbe Maß wie überall sonst am Tisch.
 const DIE_SCALE := DiceTrayView.DIE_SCALE
+
+## Quer (Welt-Z) trägt die Schale genau EINE Spalte: halbe Ausdehnung so knapp, dass
+## fits() eine Spalte meldet - der übrige Filz bleibt frei für Späteres.
+const HALF_Z := 1.15
+
+## Die Halbmaße der Schale: quer wie längs derselbe knappe Platz, denn offen liegt
+## genau EIN Neuzugang - unter ihm steht die Info-Säule, nicht der nächste Würfel.
+static func single_half() -> Vector2:
+	return Vector2(HALF_Z, HALF_Z)
+## Und diese FUGE hält sie von der Wand des Pool-Lochs: sie berührt es nie, damit
+## die Neuzugänge auch bei versenktem Vorrat oben stehen bleiben. Großzügig, damit
+## die Info-Säule darunter in der Glas-Ansicht LUFT zum Raster behält.
+const POOL_GAP := 1.3
+
+## Ihr Platz neben einem Loch (reine Funktion): an dessen Bildschirm-rechter Kante
+## (Welt +Z), um Schachtwand plus Fuge zurückgesetzt, und BÜNDIG mit seiner
+## Bildschirm-OBEREN Kante (Welt +X) - unter der Schale steht die Info-Säule, und
+## die braucht die ganze Höhe neben dem Loch. at/half = Mitte und Halbmaße des
+## Lochs in Welt-XZ (half.y ist die Z-Halbe).
+static func spot_beside(at: Vector3, half: Vector2, wall: float) -> Vector3:
+	return Vector3(at.x + half.x - HALF_Z, 0.0, at.z + half.y + wall + POOL_GAP + HALF_Z)
 
 ## Der Rand der Schale: niedrig genug, dass der Blick bei 15° hineinfällt.
 const RIM := 0.30
@@ -66,6 +95,13 @@ var _hovered := 0
 ## Würfel, die noch unterwegs sind: ihr Platz steht, ihr Körper wartet auf seinen
 ## Kometen (Instanz-Id -> true).
 var _arriving: Dictionary = {}
+## Der Stand des letzten Abgleichs: was hinterlegt WAR und was davon offen LAG. Wer
+## darin schon wartete und jetzt offen liegt, RÜCKT NACH - er steigt durch den Boden,
+## statt aus dem Nichts zu erscheinen.
+var _known: Dictionary = {}
+var _shown: Dictionary = {}
+## Der VORHANG: solange er steht, liegt NICHTS offen - der Platz gehört dem PODEST.
+var _curtain := false
 
 ## Der Schlüssel eines Körpers: die WÜRFEL-Instanz. Ein Platz ist nur eine Reihe.
 static func body_key(def: Object) -> int:
@@ -129,6 +165,45 @@ func bounds_max() -> Vector2:
 func capacity() -> int:
 	var span := inner()
 	return fits(span.x) * fits(span.y)
+
+## Und wie viele davon OFFEN liegen: das Minimum aus gemessener Kapazität und Deckel.
+func visible_cap() -> int:
+	return mini(VISIBLE_CAP, capacity())
+
+## Wie viele Würfel gerade unter dem Fachboden warten.
+func waiting_count() -> int:
+	return maxi(_dice.size() - visible_cap(), 0)
+
+## Der VORHANG: gesetzt sinken die offenen Würfel durch den Fachboden, gelöst
+## steigen sie von dort wieder herauf - dieselbe Nachrück-Lieferung wie jede andere
+## Ankunft (_known/_shown tragen das ganz allein).
+func set_curtain(on: bool) -> void:
+	if on == _curtain:
+		return
+	_curtain = on
+	set_hovered(0)
+	_layout()
+
+func curtained() -> bool:
+	return _curtain
+
+## Die Oberkante des Fachbodens - darauf steht, was hier steht.
+func floor_top_y() -> float:
+	return center.y + FLOOR_LIFT + FLOOR_HEIGHT
+
+## Der Platz des EINEN offenen Würfels, auch wenn gerade keiner liegt (der Vorhang
+## steht): dieselbe Rechnung wie _layout, damit Podest und Schale nie auseinanderlaufen.
+func open_spot() -> Vector3:
+	if half.x <= 0.0 or half.y <= 0.0:
+		return global_position
+	var span := inner()
+	var grid := grid_for(span, 1)
+	var lanes := row_spots(grid.x, span.x, CELL)
+	var ranks := row_spots(maxi(grid.y, 1), span.y, CELL)
+	if lanes.is_empty() or ranks.is_empty():
+		return global_position
+	return Vector3(center.x - ranks[0],
+		floor_top_y() + DieBuilder.HALF_EXTENT * DIE_SCALE, center.z + lanes[0])
 
 ## Die Reihe stellen: je Würfel-Instanz ein Körper, in der Ordnung, in der sie
 ## hinterlegt wurden. EIN idempotenter Schreiber - was schon liegt, bleibt
@@ -238,7 +313,10 @@ func clear() -> void:
 	_arriving.clear()
 	_dice.clear()
 	items.clear()
+	_known.clear()
+	_shown.clear()
 	_hovered = 0
+	_curtain = false
 
 # --- Aufbau ---------------------------------------------------------------------
 
@@ -250,6 +328,7 @@ func _build_shell() -> void:
 	_bodies.clear()
 	_move_tweens.clear()
 	_hover_tweens.clear()
+	_shown.clear()  # kein Körper steht mehr, also ist nichts mehr offen gelegen
 	_hovered = 0
 	var floor_material := _metal(FLOOR_ALBEDO, FLOOR_EMISSION, FLOOR_ENERGY)
 	var rim_material := _metal(RIM_ALBEDO, RIM_EMISSION, RIM_ENERGY)
@@ -274,13 +353,17 @@ func _layout(arriving := 0) -> void:
 	if half.x <= 0.0 or half.y <= 0.0 or floor_plate == null:
 		return
 	var span := inner()
-	var grid := grid_for(span, _dice.size())
+	# Nur die OFFENEN Plätze werden ausgelegt - der Rest wartet unter dem Boden,
+	# und hinter dem Vorhang wartet jeder dort.
+	var open := 0 if _curtain else mini(_dice.size(), visible_cap())
+	var grid := grid_for(span, open)
 	var lanes := row_spots(grid.x, span.x, CELL)
 	var ranks := row_spots(maxi(grid.y, 1), span.y, CELL)
 	var wanted: Dictionary = {}
 	var lift := DieBuilder.HALF_EXTENT * DIE_SCALE
 	var rest_y := center.y + FLOOR_LIFT + FLOOR_HEIGHT + lift
-	for i in _dice.size():
+	var shown: Dictionary = {}
+	for i in open:
 		var def: DieDefinition = _dice[i]
 		var key := body_key(def)
 		# Die Reihen lesen wie ein Buch: HINTEN ist Welt-+X (Bildschirm-oben).
@@ -289,6 +372,7 @@ func _layout(arriving := 0) -> void:
 		if _arriving.has(key):
 			continue  # sein Platz steht, sein Körper wartet auf seinen Kometen
 		wanted[key] = true
+		shown[key] = true
 		var body: Node3D = _bodies.get(key)
 		var fresh := body == null or not is_instance_valid(body)
 		if fresh:
@@ -298,10 +382,15 @@ func _layout(arriving := 0) -> void:
 			"radius": lift * 2.0 * PICK_FACTOR})
 		if not fresh:
 			_glide(key, body, spot)
-		elif key == arriving:
+		elif key == arriving or (_known.has(key) and not _shown.has(key)):
+			# Entweder sein Komet ist eingetroffen, oder er wartete unten und rückt nach.
 			_arrive(key, body, spot)
 		else:
 			body.global_position = _rest_position(key, spot)
+	_known.clear()
+	for def: DieDefinition in _dice:
+		_known[body_key(def)] = true
+	_shown = shown
 	for key: int in _bodies.keys():
 		if not wanted.has(key):
 			_leave(_bodies[key])

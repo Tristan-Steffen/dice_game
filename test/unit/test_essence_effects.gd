@@ -437,16 +437,17 @@ func test_owned_essence_ids_lists_every_soul_once():
 	assert_true(ids.has(Essence.ARGON) and ids.has(Essence.NEON))
 
 func test_a_purchase_prefers_a_soulless_pool_slot():
-	# Eine Essenz ist angeboren und nicht wiederbeschaffbar - sie wird zuletzt
-	# übermalt.
+	# Eine Essenz ist angeboren und nicht wiederbeschaffbar - welcher Platz sie
+	# verliert, entscheidet seit 2026-08-31 der SPIELER am Ausgabefach.
 	var run := GameRun.new_run()
 	for die in run.owned_pool:
 		die.essence_id = Essence.NEON
 	run.owned_pool[7].essence_id = ""
 	var fresh := DieDefinition.standard()
 	fresh.display_name = "Neuling"
-	run._replace_pool_entry(fresh)
-	assert_eq(run.owned_pool[7].display_name, "Neuling", "der seelenlose Platz wird zuerst geräumt")
+	run.stash_die(fresh, 0)
+	assert_true(run.exchange_pending_die(0, 7))
+	assert_eq(run.owned_pool[7].display_name, "Neuling", "der gewählte Platz nimmt ihn auf")
 
 # --- Kohlendioxid: das Löschgas schluckt jeden Fumble ----------------------------
 

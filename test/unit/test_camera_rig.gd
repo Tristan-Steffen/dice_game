@@ -306,96 +306,6 @@ func test_leaving_the_workshop_drops_the_close_flag() -> void:
 				rig.show_title(true)
 		assert_false(rig.workshop_close, "%s verlässt die Nahsicht" % leave)
 
-# --- Werkstück-Sicht ---------------------------------------------------------
-# Dritte Werkbank-Stufe: der schwebende Gravur-Würfel allein im Bild. Der Modus
-# bleibt WORKSHOP (Klickweiterleitung und Zeremonie gelten weiter), die Kamera
-# steht still - gedreht wird der Würfel, nicht der Blick.
-
-const DIE_CENTER := Vector3(-27, 2.22, 22)
-const DIE_HALF := 0.6 * sqrt(3.0)  # halbe Raumdiagonale eines Tray-Würfels
-
-func test_the_die_view_moves_in_and_keeps_the_workshop_mode() -> void:
-	_aim_at_workshop()
-	var wide_distance := rig.anchor_origin.distance_to(WORKSHOP_CENTER)
-	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-	assert_true(rig.die_focus, "die Werkstück-Sicht steht")
-	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "derselbe Arbeitsplatz")
-	assert_lt(rig.anchor_origin.distance_to(DIE_CENTER), wide_distance,
-		"sie steht näher als die weite Werkbank")
-
-func test_the_die_stays_in_frame_in_every_rotation() -> void:
-	# Gerechnet wird mit der halben RAUMDIAGONALE: beim Drehen darf der Würfel
-	# nicht aus dem Bild wachsen.
-	_aim_at_workshop()
-	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-	var distance := rig.anchor_origin.distance_to(DIE_CENTER)
-	var half_h := tan(deg_to_rad(rig.fov * 0.5)) * distance
-	assert_gt(half_h, DIE_HALF, "der Würfel passt ganz ins Bild")
-	assert_almost_eq(half_h / DIE_HALF, CameraRig.DIE_FOCUS_MARGIN, 0.001,
-		"und ringsum bleibt die Zugabe als Luft stehen")
-
-func test_the_camera_stands_still_at_the_die() -> void:
-	_aim_at_workshop()
-	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-	rig.is_animating = false
-	var before := rig.global_transform
-	rig._process(0.1)
-	assert_eq(rig.global_transform, before, "kein Rundschauen an der Werkstück-Sicht")
-
-func test_stepping_back_returns_to_the_step_the_grab_started_from() -> void:
-	for from_close in [false, true]:
-		_aim_at_workshop()
-		if from_close:
-			rig.zoom_workshop_close()
-		rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-		assert_false(rig.workshop_close, "die Werkstück-Sicht ist keine Nahsicht")
-		rig.zoom_die_focus_out()
-		assert_false(rig.die_focus)
-		assert_eq(rig.workshop_close, from_close,
-			"der Rückweg endet dort, wo der Griff begann")
-		assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "eine Stufe zurück, nicht ganz raus")
-
-func test_leaving_the_workshop_drops_the_die_focus() -> void:
-	for leave in ["zoom_out", "pit", "title"]:
-		_aim_at_workshop()
-		rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-		match leave:
-			"zoom_out":
-				rig.zoom_out()
-			"pit":
-				rig.zoom_to(CameraRig.Mode.PIT)
-			"title":
-				rig.show_title(true)
-		assert_false(rig.die_focus, "%s verlässt die Werkstück-Sicht" % leave)
-
-func test_the_die_view_announces_itself_even_though_the_mode_is_unchanged() -> void:
-	_aim_at_workshop()
-	var seen: Array[int] = []
-	rig.mode_changed.connect(func(m: CameraRig.Mode) -> void: seen.append(int(m)))
-	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-	rig.zoom_die_focus_out()
-	assert_eq(seen, [int(CameraRig.Mode.WORKSHOP), int(CameraRig.Mode.WORKSHOP)] as Array[int],
-		"hin und zurück melden sich beide")
-
-func test_the_grabbed_die_starts_in_a_three_quarter_pose() -> void:
-	# Aus der Zoom-Basis heraus gedreht: von der Kamera aus sind DREI Seiten zu
-	# sehen, sonst wäre der Würfel bloß ein Quadrat.
-	var basis := CameraRig.die_focus_basis()
-	var forward := -CameraRig.ZOOM_BASIS.z  # Blickrichtung der Werkstück-Kamera
-	var facing := 0
-	for axis: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP,
-			Vector3.DOWN, Vector3(0, 0, 1), Vector3(0, 0, -1)]:
-		if (basis * axis).dot(-forward) > DieFaceDisplay.FACE_FRONT_MIN_DOT:
-			facing += 1
-	assert_eq(facing, 3, "drei Seiten liegen zur Kamera")
-
-func test_the_close_step_needs_the_workshop_mode() -> void:
-	rig.configure_workshop_close_target(CLOSE_CENTER, CLOSE_HALF)
-	rig.zoom_to(CameraRig.Mode.PIT)
-	rig.zoom_workshop_close()
-	assert_false(rig.workshop_close, "aus der Grube heraus gibt es keine Werkbank-Nahsicht")
-	assert_eq(rig.mode, CameraRig.Mode.PIT)
-
 # --- Freikamera (WASD + Mausrad) ---------------------------------------------
 # Zwei Systeme, die einander ausschließen: die Freikamera steht die ganze Zeit
 # auf OVERVIEW, parkt beim Loslassen dort, wo sie ist, und wird NUR von einer
@@ -557,9 +467,6 @@ func test_the_close_steps_stay_dead_to_the_free_camera() -> void:
 	assert_false(rig.begin_free(), "in der Nahsicht ist der Rahmen randvoll")
 	rig.zoom_workshop_wide()
 	rig.is_animating = false
-	rig.zoom_die_focus(DIE_CENTER, DIE_HALF)
-	rig.is_animating = false
-	assert_false(rig.begin_free(), "am Werkstück dreht der Spieler den Würfel, nicht den Blick")
 	rig.show_title(true)
 	assert_false(rig.begin_free(), "und im Titel-HUD steht die Kamera still")
 
@@ -600,3 +507,107 @@ func test_no_felt_grip_answers_during_a_flight() -> void:
 	rig.zoom_to(CameraRig.Mode.HUB)
 	assert_false(rig.felt_pick_live(CameraRig.Mode.HUB), "erst ankommen, dann greifen")
 
+# --- Der TEMPORÄRE Rahmen (die Glas-Ansicht) ---------------------------------
+# Ein Rechteck eng ins Bild rahmen, OHNE die Station zu wechseln - und danach
+# zurück an die gemerkte Lage.
+
+const FRAME_CENTER := Vector3(-24, 0, 20)
+const FRAME_HALF := Vector2(9.0, 12.0)  # halbe Bildbreite (Welt-Z) und -höhe (Welt-X)
+
+func test_the_frame_fills_the_image_by_the_inverse_of_its_margin() -> void:
+	get_viewport().size = Vector2i(1600, 900)
+	_stand_at(CameraRig.Mode.POOL)
+	rig.frame_rect(FRAME_CENTER, FRAME_HALF, 1.18)
+	var near_edge := FRAME_CENTER + Vector3.LEFT * FRAME_HALF.y  # −X = Bild-unten
+	var far_edge := FRAME_CENTER + Vector3.RIGHT * FRAME_HALF.y
+	assert_lte(absf(_frame_height(near_edge)), 1.0, "die nähere Kante steht im Bild")
+	assert_lte(absf(_frame_height(far_edge)), 1.0, "die fernere ebenso")
+	assert_gt(absf(_frame_height(near_edge)), 0.8,
+		"und sie füllt es zu ~85 % - der Kehrwert der Zugabe")
+
+func test_the_frame_keeps_the_station_and_says_nothing() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	var seen: Array[int] = []
+	rig.mode_changed.connect(func(m: CameraRig.Mode) -> void: seen.append(int(m)))
+	rig.frame_rect(FRAME_CENTER, FRAME_HALF, 1.18)
+	assert_eq(rig.mode, CameraRig.Mode.POOL, "die Station bleibt, wo sie war")
+	assert_eq(seen, [], "kein gemeldeter Wechsel - sonst bräche die Ansicht sich selbst ab")
+
+func test_the_remembered_pose_comes_back() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	var home := rig.camera_pose()
+	rig.frame_rect(FRAME_CENTER, FRAME_HALF, 1.18)
+	assert_ne(rig.anchor_origin, home["origin"] as Vector3, "der Rahmen steht woanders")
+	rig.restore_pose(home)
+	assert_almost_eq(rig.anchor_origin, home["origin"] as Vector3, Vector3.ONE * 0.001,
+		"und danach steht die Kamera wieder an ihrer Station")
+	assert_eq(rig.mode, CameraRig.Mode.POOL)
+
+func test_the_remembered_free_camera_is_noted() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	rig.begin_free()
+	var home := rig.camera_pose()
+	assert_true(bool(home["free"]), "die Freikamera stand - das merkt sich die Lage")
+	rig.frame_rect(FRAME_CENTER, FRAME_HALF, 1.18)
+	assert_false(rig.free_camera, "jede gerechnete Fahrt beendet sie")
+
+
+# --- Die INSPEKTION: der Würfel allein im Bild ------------------------------------
+# Ein TEMPORÄRER Rahmen wie frame_rect - kein Moduswechsel, keine Meldung, sonst
+# bräche der eigene Zoom die Podest-Wahl ab, die er zeigen soll.
+
+## Halbe Raumdiagonale eines Tray-Würfels - so paßt er in JEDER Drehung ins Bild.
+const DIE_HALF := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 1.7320508
+
+func test_the_die_focus_stands_close_enough_to_fill_half_the_image() -> void:
+	get_viewport().size = Vector2i(1600, 900)
+	_stand_at(CameraRig.Mode.POOL)
+	var die_at := Vector3(-20.0, 2.22, 12.0)
+	rig.zoom_die_focus(die_at, DIE_HALF)
+	assert_true(rig.die_focus, "die Nahsicht steht")
+	var distance := rig.anchor_origin.distance_to(die_at)
+	assert_almost_eq(distance, rig._fit_distance(Vector2(DIE_HALF, DIE_HALF),
+		CameraRig.DIE_FOCUS_MARGIN), 0.001, "der Abstand ist gerechnet, nicht gesetzt")
+	assert_lt(distance, CameraRig.ZOOM_DISTANCE,
+		"und er steht deutlich näher als jede Station")
+
+func test_the_die_focus_keeps_the_station_and_says_nothing() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	var seen: Array[int] = []
+	rig.mode_changed.connect(func(m: CameraRig.Mode) -> void: seen.append(int(m)))
+	rig.zoom_die_focus(Vector3(-20.0, 2.22, 12.0), DIE_HALF)
+	assert_eq(rig.mode, CameraRig.Mode.POOL, "die Station bleibt, wo sie war")
+	assert_eq(seen, [], "kein gemeldeter Wechsel - sonst wählte der eigene Zoom ab")
+
+func test_leaving_the_die_focus_returns_to_the_remembered_pose() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	var home := rig.camera_pose()
+	rig.zoom_die_focus(Vector3(-20.0, 2.22, 12.0), DIE_HALF)
+	assert_ne(rig.anchor_origin, home["origin"] as Vector3, "die Nahsicht steht woanders")
+	rig.zoom_die_focus_out()
+	rig.restore_pose(home)
+	assert_false(rig.die_focus, "der Fokus ist aus")
+	assert_almost_eq(rig.anchor_origin, home["origin"] as Vector3, Vector3.ONE * 0.001,
+		"und die Kamera steht wieder auf dem Podest-Blick")
+
+func test_a_station_flight_clears_the_die_focus() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	rig.zoom_die_focus(Vector3(-20.0, 2.22, 12.0), DIE_HALF)
+	rig.zoom_to(CameraRig.Mode.PIT)
+	assert_false(rig.die_focus, "jede gerechnete Stationsfahrt verläßt sie")
+	rig.zoom_die_focus(Vector3(-20.0, 2.22, 12.0), DIE_HALF)
+	rig.zoom_out()
+	assert_false(rig.die_focus, "und die Heimfahrt ebenso")
+
+func test_the_free_camera_is_dead_in_the_die_focus() -> void:
+	_stand_at(CameraRig.Mode.POOL)
+	rig.zoom_die_focus(Vector3(-20.0, 2.22, 12.0), DIE_HALF)
+	rig.is_animating = false
+	assert_false(rig.begin_free(), "der Rahmen ist randvoll - WASD zöge nur Fremdes herein")
+
+func test_the_die_focus_pose_shows_three_faces() -> void:
+	# Eine reine Draufsicht wäre ein Quadrat: die Ausgangslage ist gekippt.
+	var basis := CameraRig.die_focus_basis()
+	assert_almost_eq(basis.get_scale(), Vector3.ONE, Vector3.ONE * 0.001,
+		"eine reine Drehung, keine Skalierung")
+	assert_ne(basis, CameraRig.ZOOM_BASIS, "und sie ist gegen die Kamera verdreht")

@@ -116,27 +116,26 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 		hint = "%s  ·  %s" % [hint, rune_hint] if hint != "" else rune_hint
 	return hint
 
-## Seiten-Zelle im Look der Würfelseiten-Chips (DiceRowView).
-static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Label:
+## Größter Schriftgrad, der samt Saum noch IN eine Zelle der Kantenlänge cell paßt.
+## Gemessen: die Mindesthöhe eines Labels ist ~1,42 × Grad, der Saum kommt beidseits
+## dazu - ohne diesen Deckel klemmte eine kleine Zelle sich selbst hochkant.
+static func face_font_size(cell: float) -> int:
+	var outline := maxi(1, int(cell * 0.06))
+	return maxi(4, mini(int(cell * 0.5), int((cell - float(outline) * 2.0) / 1.5)))
+
+## Seiten-Zelle im Look der Würfelseiten-Chips (DiceRowView). Die PLATTE trägt das
+## Maß, die Ziffer liegt darin - so ist die Zelle bei JEDER Größe ein QUADRAT
+## (eine Zelle, die selbst ein Label ist, klemmt sich an ihrer Schrift hochkant).
+static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: float) -> Panel:
 	var value: int = def.faces[face_index] if face_index < def.faces.size() else 1
 	var material_id: String = def.materials[face_index] if face_index < def.materials.size() else ""
 	# Die Veredelung sättigt die Zelle - der Blick von weitem; die Plakette daneben
 	# ist die genaue Marke.
 	var fill := DieMaterial.tint_for(material_id, def.material_level(face_index))
-	var chip := Label.new()
-	chip.text = str(value)
+	var chip := Panel.new()
 	chip.position = pos
 	chip.size = Vector2(cell, cell)
-	chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	chip.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.5)))
-	chip.add_theme_color_override("font_color", CasinoStyle.INK)
-	# Saum in der Plattenfarbe: auf der Zelle unsichtbar, aber dort, wo eine
-	# Glyphenlinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
-	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
-	chip.add_theme_color_override("font_outline_color", fill)
-	chip.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
 	var has_essence := Essence.is_valid_id(def.essence_id)
@@ -144,7 +143,23 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	# Essenzglühen dick und farbig, sonst dezente Haarlinie.
 	box.set_border_width_all(maxi(2, int(cell * (0.1 if has_essence else 0.04))))
 	box.set_corner_radius_all(int(cell * 0.2))
-	chip.add_theme_stylebox_override("normal", box)
+	chip.add_theme_stylebox_override("panel", box)
+
+	var digit := Label.new()
+	digit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	digit.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	digit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	digit.clip_text = true
+	digit.add_theme_font_size_override("font_size", face_font_size(cell))
+	digit.add_theme_color_override("font_color", CasinoStyle.INK)
+	# Saum in der Plattenfarbe: auf der Zelle unsichtbar, aber dort, wo eine
+	# Glyphenlinie die Ziffer kreuzt, hält er sie frei. Dasselbe Trennband wie am
+	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
+	digit.add_theme_color_override("font_outline_color", fill)
+	digit.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
+	digit.text = str(value)
+	chip.add_child(digit)
+	digit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	return chip
 
 ## Essenz-Chip in der leeren oberen linken Kreuz-Ecke: eine auf die Spitze
@@ -180,13 +195,16 @@ static func cell_position(face_index: int, cell: float) -> Vector2:
 static func total_badge(def: DieDefinition, cell: float) -> Label:
 	var gap := cell * GAP_FACTOR
 	var badge := Label.new()
-	badge.text = str(DiceRowView.eye_total(def))
-	badge.position = Vector2(2.0 * (cell + gap), 0.0)
-	badge.size = Vector2(2.0 * cell + gap, cell)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.8)))
+	# Grad und clip_text VOR dem Maß - sonst klemmt die Theme-Schrift das Band hoch.
+	badge.add_theme_font_size_override("font_size", maxi(4, mini(int(cell * 0.8),
+		int(cell / 1.5))))
+	badge.clip_text = true
+	badge.text = str(DiceRowView.eye_total(def))
+	badge.position = Vector2(2.0 * (cell + gap), 0.0)
+	badge.size = Vector2(2.0 * cell + gap, cell)
 	return badge
 
 ## Kanten-Chip und Pointer-Pfeile einzeln, für denselben Zweck.
@@ -331,8 +349,12 @@ static func _pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 		arrow.dir = dir
 		var side := cell * 0.5
 		arrow.size = Vector2(side, side)
-		arrow.position = _cell_pos(face, cell) + Vector2(cell, cell) * 0.5 \
-			+ dir * cell * 0.5 - Vector2(side, side) * 0.5
+		# Ein Pfeil auf einer AUSSEN-Kante ragte sonst um ein Viertel Zelle über das
+		# Netz hinaus (das Netz wirkte zu hoch für seine Kachel) - er wird ins Netz
+		# geklemmt, damit das gebaute Rechteck nie über net_size steht.
+		arrow.position = (_cell_pos(face, cell) + Vector2(cell, cell) * 0.5
+			+ dir * cell * 0.5 - Vector2(side, side) * 0.5) \
+			.clamp(Vector2.ZERO, net_size(cell) - Vector2(side, side))
 		arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		arrows.append(arrow)
 	return arrows

@@ -100,7 +100,7 @@ func test_der_griff_findet_das_stueck_unter_dem_punkt() -> void:
 		"an der Kante liegt nichts")
 
 func test_die_auslage_bekommt_die_ganze_flaeche() -> void:
-	# Das Ausgabefach ist an die Werkbank gezogen - die Rinne rechts entfällt, und
+	# Das Ausgabefach steht am Vorrat - die Rinne rechts entfällt, und
 	# die Auslage steht mittig in der ganzen Fläche.
 	bay.present(_stock([], [_die(), _die(), _die()], []))
 	await wait_frames(2)

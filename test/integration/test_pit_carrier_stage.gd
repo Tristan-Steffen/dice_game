@@ -171,3 +171,86 @@ func test_der_wuerfel_nimmt_seine_gemerkte_seite_MIT() -> void:
 
 func test_eine_leere_reihe_mischt_sich_zu_nichts() -> void:
 	assert_eq(DiceTrayView.shuffle_row([]), [])
+
+# --- Die GLAS-ANSICHT: der Schirm trägt die ANZEIGE ----------------------------
+# Für die Glas-Ansicht bestellt der Vorrats-Schacht ZWEITENS eine Anzeige-Haut. Sie
+# kommt seit 2026-08-31 FERTIG von draußen (TableScreen.deck_glass_skin, aus dem
+# eigenen Viewport des Rasters) - der Schacht legt sie nur auf, er tönt nichts mehr.
+# Danach steht die RUNDEN-Konfiguration wieder unverändert da - flach, ohne Schirm.
+
+func _skinned_shaft() -> LiftShaftView:
+	var shaft := _shaft(true)
+	shaft.deck_skin = StandardMaterial3D.new()  # die Plattform-Haut, hier eine Attrappe
+	shaft.order_cover_skin(StandardMaterial3D.new())  # und die des Schirms
+	return shaft
+
+func test_die_anzeige_liegt_nur_auf_dem_GESCHLOSSENEN_glas() -> void:
+	var shaft := _skinned_shaft()
+	assert_true(shaft.has_cover_skin(), "die Haut ist bestellt")
+	assert_false(shaft.cover_skin_shown(), "eingefahren zeigt der Schirm nichts")
+	shaft.park_hard()
+	assert_almost_eq(shaft.cover_share(), 1.0, 0.0001, "geparkt liegt das Glas zu")
+	assert_true(shaft.cover_skin_shown(), "und trägt die Anzeige")
+	shaft.settle_hard()
+	assert_false(shaft.cover_skin_shown(), "bündig ist sie wieder fort")
+
+func test_plattform_und_schirm_tragen_ZWEI_gemeldete_haeute() -> void:
+	# Die Plattform zeigt die Anzeige, der Schirm sein eigenes Raster - zwei
+	# Meldungen, und der Schacht reicht beide UNVERÄNDERT durch.
+	var platform := ShaderMaterial.new()
+	platform.shader = load("res://assets/shaders/display_skin.gdshader")
+	var glass := ShaderMaterial.new()
+	glass.shader = load("res://assets/shaders/display_skin_sheer.gdshader")
+	glass.set_shader_parameter("display_map", Vector4(1.0, 2.0, 3.0, 4.0))
+	var shaft := _shaft(true)
+	shaft.deck_skin = platform
+	shaft.order_cover_skin(glass)
+	shaft.park_hard()
+	assert_eq(shaft._deck_top.material_override, platform,
+		"die Plattform trägt die gemeldete Haut unverändert")
+	assert_eq(shaft._cover_skin.material_override, glass,
+		"und der Schirm die SEINE - hier wird nichts zweitgetönt")
+	assert_eq(glass.get_shader_parameter("display_map"), Vector4(1.0, 2.0, 3.0, 4.0),
+		"die Abbildung ist die GEMELDETE")
+
+func test_ohne_gemeldete_haut_bleibt_das_glas_nackt() -> void:
+	var shaft := _shaft(true)  # keine Haut gemeldet (Probe, Test ohne Tisch)
+	shaft.order_cover_skin(null)
+	shaft.park_hard()
+	assert_false(shaft.has_cover_skin(), "nichts bestellt")
+	assert_false(shaft.cover_skin_shown(), "ohne Bild gibt es nichts zu zeigen")
+
+func test_der_park_faehrt_die_haut_mit_dem_glas_aus() -> void:
+	var shaft := _skinned_shaft()
+	var rider := Node3D.new()
+	add_child_autofree(rider)
+	var tween := shaft.run_park([], [], [], [], 0.0, Callable(), [rider], [Vector3.ZERO])
+	assert_not_null(tween)
+	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.5)
+	assert_false(shaft.cover_skin_shown(), "unterwegs schmiert nichts")
+	await wait_seconds(shaft.park_cycle_time())
+	assert_true(shaft.cover_skin_shown(), "am Ende steht die Anzeige auf dem Glas")
+
+func test_die_runden_konfiguration_kehrt_unveraendert_zurueck() -> void:
+	# Der EINE Schreiber baut aus derselben Maschine zwei Konfigurationen. Nach der
+	# Glas-Ansicht MUSS die flache, schirmlose der Runde wieder byte-gleich stehen.
+	var flat := DiceTrayView.FLOAT_HEIGHT
+	var reference := LiftShaftView.new("Flach")
+	add_child_autofree(reference)
+	reference.order_skin(PlaceholderTexture2D.new())
+	reference.setup(Vector3.ZERO, POOL_HALF, flat)
+
+	var shaft := _skinned_shaft()
+	shaft.park_hard()
+	shaft.settle_hard()
+	shaft.drop_cover()  # nimmt die Anzeige-Haut mit
+	shaft.setup(Vector3.ZERO, POOL_HALF, flat)
+
+	assert_false(shaft.has_cover(), "kein Schirm mehr")
+	assert_false(shaft.has_cover_skin(), "und keine Anzeige darauf")
+	assert_eq(shaft.has_cover(), reference.has_cover())
+	assert_almost_eq(shaft.depth, reference.depth, 0.0001, "flach wie zuvor")
+	assert_almost_eq(shaft.park_y(), reference.park_y(), 0.0001)
+	assert_almost_eq(shaft.mouth_height(), reference.mouth_height(), 0.0001)
+	assert_almost_eq(shaft.cover_share(), 0.0, 0.0001, "und nichts liegt darüber")
+	assert_false(shaft.visible, "die Maschine steht wieder fort")

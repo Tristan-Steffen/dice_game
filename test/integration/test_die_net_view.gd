@@ -9,12 +9,17 @@ func _def_with_materials() -> DieDefinition:
 	def.essence_id = Essence.NEON
 	return def
 
+## Eine Seiten-Zelle ist eine PLATTE mit ihrer Ziffer darin - so bleibt sie bei
+## jeder Größe quadratisch (ein Label als Zelle klemmt sich an seiner Schrift hoch).
 func _cells(net: Control) -> Array:
 	var cells := []
 	for child in net.get_children():
-		if child is Label:
+		if child is Panel and child.get_child_count() == 1 				and child.get_child(0) is Label:
 			cells.append(child)
 	return cells
+
+func _digit(cell: Control) -> String:
+	return (cell.get_child(0) as Label).text
 
 func test_net_zeigt_alle_sechs_seiten_im_kreuz() -> void:
 	var def := _def_with_materials()
@@ -25,7 +30,7 @@ func test_net_zeigt_alle_sechs_seiten_im_kreuz() -> void:
 	# Jede Zelle trägt den Wert ihres Face-Index laut NET_LAYOUT.
 	var texts := []
 	for cell in cells:
-		texts.append(cell.text)
+		texts.append(_digit(cell))
 	texts.sort()
 	assert_eq(texts, ["1", "2", "3", "4", "5", "6"], "alle Seitenwerte einmal")
 
@@ -37,7 +42,7 @@ func test_zellfarben_folgen_material_und_kanten() -> void:
 	var glow := Essence.glow_for(Essence.NEON)
 	var amber_cells := 0
 	for cell in _cells(net):
-		var box: StyleBoxFlat = cell.get_theme_stylebox("normal")
+		var box: StyleBoxFlat = cell.get_theme_stylebox("panel")
 		if box.bg_color == amber:
 			amber_cells += 1
 		assert_eq(box.border_color, glow, "das Essenzglühen färbt jeden Zellrahmen")
@@ -53,11 +58,13 @@ func test_gold_rahmen_markiert_oben_liegende_seite() -> void:
 	add_child_autofree(bare)
 	assert_eq(_up_frames(bare).size(), 0, "kein Rahmen ohne up_face")
 
-## Oben-Rahmen = ungedrehte Panels (der Kanten-Chip ist um 45° gedreht).
+## Oben-Rahmen = ungedrehte, LEERE Panels (der Kanten-Chip ist um 45° gedreht, und
+## eine Seiten-Zelle trägt ihre Ziffer als Kind).
 func _up_frames(net: Control) -> Array:
 	var frames := []
 	for child in net.get_children():
-		if child is Panel and is_equal_approx(child.rotation, 0.0):
+		if child is Panel and is_equal_approx(child.rotation, 0.0) \
+				and child.get_child_count() == 0:
 			frames.append(child)
 	return frames
 
@@ -79,7 +86,7 @@ func test_kanten_chip_traegt_die_kanten_materialfarbe() -> void:
 	var def := _def_with_materials()  # essence_id = Neon
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	# Der Kanten-Chip ist eine gedrehte Panel-Raute (kein Face-Cell-Label).
+	# Der Kanten-Chip ist eine GEDREHTE Raute - die Seiten-Zellen stehen gerade.
 	var chip: Panel = null
 	for child in net.get_children():
 		if child is Panel and not is_equal_approx(child.rotation, 0.0):
@@ -249,9 +256,9 @@ func test_der_vakuum_doppelriss_zeigt_zwei_linienzuege() -> void:
 
 # --- Sättigung im Netz --------------------------------------------------------------
 
-func _cell_for(net: Control, value: String) -> Label:
+func _cell_for(net: Control, value: String) -> Panel:
 	for cell in _cells(net):
-		if (cell as Label).text == value:
+		if _digit(cell) == value:
 			return cell
 	return null
 
@@ -260,10 +267,10 @@ func test_die_zellfuellung_folgt_der_veredelung() -> void:
 	def.dope(0)  # Bernstein veredelt
 	var net := DieNetView.build(def, -1, 40.0)
 	add_child_autofree(net)
-	var box: StyleBoxFlat = _cell_for(net, "1").get_theme_stylebox("normal")
+	var box: StyleBoxFlat = _cell_for(net, "1").get_theme_stylebox("panel")
 	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL),
 		"veredelte Seite: die Zelle wird satter")
-	var plain: StyleBoxFlat = _cell_for(net, "3").get_theme_stylebox("normal")
+	var plain: StyleBoxFlat = _cell_for(net, "3").get_theme_stylebox("panel")
 	assert_eq(plain.bg_color, DieMaterial.tint_for(DieMaterial.AMBER),
 		"dasselbe Material unveredelt bleibt exakt wie vorher")
 	assert_gt(box.bg_color.s, plain.bg_color.s, "und zwar SATTER, nicht nur anders")
@@ -275,3 +282,41 @@ func test_die_veredelungs_plakette_traegt_dieselbe_saettigung() -> void:
 	assert_eq(badges.size(), 1, "nur die veredelte Seite bekommt eine Plakette")
 	assert_eq((badges[0] as DieNetView.LevelBadge).tint,
 		DieMaterial.tint_for(DieMaterial.AMBER, DieMaterial.MAX_LEVEL))
+
+# --- Jede Seiten-Zelle ist ein QUADRAT --------------------------------------------
+# Vorher war die Zelle selbst ein Label: sein MINDESTMASS (Theme-Schrift, gesetzt
+# bevor der eigene Grad stand) klemmte sie hochkant - am echten Gruben-Glas gemessen
+# 12,82 breit gegen 23,00 hoch. Jetzt traegt eine Platte das Mass.
+
+func test_jede_seiten_zelle_ist_quadratisch() -> void:
+	var def := _def_with_materials()
+	for cell_size in [8.0, 12.82, 17.0, 24.0, 40.0]:
+		var net := DieNetView.build(def, -1, cell_size)
+		add_child_autofree(net)
+		await wait_frames(2)
+		var cells := _cells(net)
+		assert_eq(cells.size(), 6, "sechs Zellen bei %.2f" % cell_size)
+		for cell in cells:
+			assert_almost_eq(cell.size.x, cell_size, 0.01,
+				"Zellbreite bei %.2f" % cell_size)
+			assert_almost_eq(cell.size.y, cell_size, 0.01,
+				"Zellhoehe bei %.2f - eine Seiten-Zelle ist ein QUADRAT" % cell_size)
+
+func test_das_gebaute_netz_bleibt_in_seinem_gemeldeten_mass() -> void:
+	var def := _def_with_materials()
+	for cell_size in [12.82, 40.0]:
+		var net := DieNetView.build(def, -1, cell_size)
+		add_child_autofree(net)
+		await wait_frames(2)
+		var span := DieNetView.net_size(cell_size)
+		for child in net.get_children():
+			var control := child as Control
+			if control == null:
+				continue
+			assert_lte(control.position.y + control.size.y, span.y + 0.01,
+				"nichts steht unter dem Netz hinaus (Zelle %.2f)" % cell_size)
+
+func test_der_schriftgrad_der_ziffer_passt_in_ihre_zelle() -> void:
+	# Der Grad ist gedeckelt, damit die Ziffer nicht groesser wird als ihr Quadrat.
+	assert_lte(float(DieNetView.face_font_size(12.82)) * 1.5, 12.82 + 0.01)
+	assert_eq(DieNetView.face_font_size(40.0), 20, "sonst gilt die halbe Zelle")
