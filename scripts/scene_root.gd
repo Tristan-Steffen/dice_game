@@ -2900,8 +2900,18 @@ func _carry_over_clamp_stages(defs: Array[DieDefinition]) -> void:
 func _reset_clamp_locations() -> void:
 	_clamp_on_bench.clear()
 
-## Auslöser Pool -> Bank: der Spieler öffnet die Werkstatt ODER schließt den Laden
-## (was zuerst kommt - Spieler-Entscheid 2026-08-31). Idempotent: schon gewanderte
+## Der EINE Abgleich der Aufspann-Orte mit der Kamera (Spieler-Entscheid 2026-08-31):
+## in der Werkstatt gehören die Zwingen auf die BANK, überall sonst in den POOL.
+## Beide Wege sind idempotent und überspringen Fahrende; jede fertige Fahrt gleicht
+## erneut ab - wer die Werkstatt mitten in der Fahrt verläßt, kehrt also um, sobald
+## sein Bein steht.
+func _sync_clamp_migration() -> void:
+	if camera_rig != null and camera_rig.mode == CameraRig.Mode.WORKSHOP:
+		_migrate_clamps_to_bench()
+	else:
+		_ride_clamps_to_pool()
+
+## Pool -> Bank: der Spieler sieht die Werkstatt an. Idempotent: schon gewanderte
 ## oder gerade fahrende Zwingen sind ein No-op. Nur im stehenden Pool. Je noch im Pool
 ## liegender Zwinge eine gestaffelte Fahrt. Fire-and-forget.
 func _migrate_clamps_to_bench() -> void:
@@ -2971,6 +2981,10 @@ func _ride_clamp_to_bench(index: int, die: DieDefinition, seat: int,
 			pool_tray_view.set_slot_riding(seat, true)
 			var root := pool_tray_view.slot_roots[seat]
 			var emitter := pool_tray_view.slot_emitter(seat)
+			# Unterwegs unter die Fläche: nicht spiegeln (zurück gibt es die Marke am
+			# Sitz - _seat_clamp_pool_hard bzw. der harte Pfad).
+			ScreenReflection.set_reflective(root, false)
+			ScreenReflection.set_reflective(emitter, false)
 			var tween := shaft.run_exit([root, emitter],
 				[pool_tray_view.slot_home_position(seat, true),
 				pool_tray_view.slot_home_position(seat)], delay * CLAMP_MIGRATE_SPEED)
@@ -3005,6 +3019,7 @@ func _finish_clamp_pool_sink(index: int, die: DieDefinition, seat: int,
 		# die Werkstatt angesehen wird - _rebuild_clamp_stages zeigt Ort == BANK.
 		_clamp_riding.erase(die)
 		_rebuild_clamp_stages()
+		_sync_clamp_migration()  # wer die Werkstatt derweil verließ, kehrt um
 		return
 	var field := _clamp_bench_field(bench_at, bench_ats)
 	var shaft := _clamp_shaft_for(index, field, _tray_shaft_depth())
@@ -3029,13 +3044,134 @@ func _finish_clamp_pool_sink(index: int, die: DieDefinition, seat: int,
 			stage.set_process(true)
 			if generation == _clamp_gen and run == launched:
 				stage.land_at(bench_at, 0.0)  # Feld rastet ein, dann wippt er
-		_clamp_riding.erase(die))
+		_clamp_riding.erase(die)
+		if generation == _clamp_gen and run == launched:
+			_sync_clamp_migration())  # wer die Werkstatt derweil verließ, kehrt um
 
-## Auslöser Bank -> Pool: das Zurren der Runde. Endzustand zuerst - die Aufspannung
-## gehört wieder dem Pool (ihre Sitze füllen sich, der Träger nimmt sie gleich mit
-## hinab, siehe _sink_pool_tray). Jede laufende Fahrt wird hart beendet, die
-## Bank-Körper treten ab. Off-screen (die Kamera steht beim Zurren an der Grube),
-## darum ein Fade statt einer eigenen Rückfahrt.
+## Bank -> Pool als FAHRT: der Spieler verläßt die Werkstatt. Je Bank-Zwinge eine
+## gestaffelte Rückfahrt - Bein A senkt ihren FloatingDie an der Bank, Bein B hebt
+## ihren Tray-Slot am Pool-Sitz. Idempotent, Fahrende werden übersprungen.
+func _ride_clamps_to_pool() -> void:
+	if run == null or not _pool_standing or pool_tray_view == null or table_screen == null:
+		return
+	var defs := run.clamped_dice
+	var eligible: Array[int] = []  # Indizes in clamped_dice mit Ort == BANK
+	for i in defs.size():
+		var d: DieDefinition = defs[i]
+		if d != null and _clamp_on_bench.has(d) and not _clamp_riding.has(d):
+			eligible.append(i)
+	if eligible.is_empty():
+		return
+	# Alle Bank-Ruhepunkte vorab - der Nachbar-Zuschnitt der Löcher braucht sie.
+	var bench_ats: Array[Vector3] = []
+	for i in eligible:
+		bench_ats.append(_clamp_stage_rest(i))
+	var generation := _clamp_gen
+	var launched := run
+	for k in eligible.size():
+		var i: int = eligible[k]
+		_ride_clamp_to_pool(i, defs[i], bench_ats[k], bench_ats,
+			float(k) * CLAMP_MIGRATE_STAGGER, generation, launched)
+
+## Der Ruhe-Punkt einer Bank-Zwinge: der Würfel wippt, sein Feld nicht - also mißt
+## das Feld (Emitter plus Schwebehöhe). ZERO = kein Körper da.
+func _clamp_stage_rest(index: int) -> Vector3:
+	if index >= clamp_stages.size():
+		return Vector3.ZERO
+	var stage := clamp_stages[index]
+	if stage == null or not is_instance_valid(stage):
+		return Vector3.ZERO
+	return stage.emitter.global_position + Vector3.UP * stage.hover_height
+
+## Die Rückfahrt EINER Zwinge: Bein A senkt Würfel und Feld an der Bank durch ihr
+## Loch (run_exit). Ohne Körper (Bank nie gelegt, Karte verdeckt) entfällt Bein A.
+func _ride_clamp_to_pool(index: int, die: DieDefinition, bench_at: Vector3,
+		bench_ats: Array[Vector3], delay: float, generation: int,
+		launched: GameRun) -> void:
+	_clamp_riding[die] = true
+	var stage: FloatingDie = clamp_stages[index] if index < clamp_stages.size() else null
+	var sank := false
+	if stage != null and is_instance_valid(stage) and bench_at != Vector3.ZERO:
+		var field := _clamp_bench_field(bench_at, bench_ats)
+		var shaft := _clamp_shaft_for(index, field, _tray_shaft_depth())
+		if shaft != null:
+			stage.set_process(false)  # die Plattform führt ihn, das Wippen schweigt
+			var tween := shaft.run_exit([stage.die, stage.emitter],
+				[bench_at, bench_at - Vector3.UP * stage.hover_height],
+				delay * CLAMP_MIGRATE_SPEED)
+			if tween != null:
+				tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
+				sank = true
+				tween.finished.connect(func() -> void:
+					_finish_clamp_bench_sink(index, die, generation, launched))
+	if not sank:
+		_finish_clamp_bench_sink(index, die, generation, launched)
+
+## Bein A steht (die Bank-Zwinge ist unten hinaus): ihr Körper ist frei, der Ort
+## kippt auf POOL - dann hebt Bein B den Tray-Slot an seinem Sitz. Unter der Fläche
+## spiegelt er nicht (sonst geisterte sein Bild durch die Anzeige).
+func _finish_clamp_bench_sink(index: int, die: DieDefinition,
+		generation: int, launched: GameRun) -> void:
+	if index < clamp_stages.size() and clamp_stages[index] != null \
+			and is_instance_valid(clamp_stages[index]):
+		_free_stage(clamp_stages[index])
+		clamp_stages[index] = null
+	if generation != _clamp_gen or run != launched:
+		_clamp_riding.erase(die)
+		return
+	_clamp_on_bench.erase(die)  # ab jetzt liegt er im Pool
+	var seat := _pool_tray_source().find(die)
+	var risen := false
+	if _pool_standing and pool_tray_view != null and seat >= 0 \
+			and seat < pool_tray_view.slot_roots.size():
+		var root := pool_tray_view.slot_roots[seat]
+		var emitter := pool_tray_view.slot_emitter(seat)
+		pool_tray_view.set_slot_riding(seat, true)
+		ScreenReflection.set_reflective(root, false)
+		ScreenReflection.set_reflective(emitter, false)
+		root.global_position = pool_tray_view.slot_home_position(seat, true) \
+			- Vector3.UP * _tray_shaft_depth()
+		emitter.global_position = pool_tray_view.slot_home_position(seat) \
+			- Vector3.UP * _tray_shaft_depth()
+		_refresh_deck_trays()  # der Sitz gilt wieder als belegt; riding hält die Lage
+		var field := _clamp_pool_field(seat)
+		var shaft := _clamp_shaft_for(index, field, _tray_shaft_depth()) \
+			if not field.is_empty() else null
+		var tween: Tween = null
+		if shaft != null:
+			tween = shaft.run_cycle([root, emitter],
+				[pool_tray_view.slot_home_position(seat, true),
+				pool_tray_view.slot_home_position(seat)], 0.0)
+		if tween != null:
+			tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
+			risen = true
+			tween.finished.connect(func() -> void:
+				_seat_clamp_pool_hard(seat)
+				_clamp_riding.erase(die)
+				_sync_clamp_migration())
+	if not risen:
+		_seat_clamp_pool_hard(seat)
+		_refresh_deck_trays()
+		_clamp_riding.erase(die)
+		_sync_clamp_migration()
+
+## Der Sitz steht wieder: an seinem Platz, spiegelnd, dem Schwebe-Takt zurückgegeben.
+func _seat_clamp_pool_hard(seat: int) -> void:
+	if pool_tray_view == null or seat < 0 or seat >= pool_tray_view.slot_roots.size():
+		return
+	pool_tray_view.slot_roots[seat].global_position = \
+		pool_tray_view.slot_home_position(seat, true)
+	pool_tray_view.slot_emitter(seat).global_position = \
+		pool_tray_view.slot_home_position(seat)
+	pool_tray_view.set_slot_riding(seat, false)
+	ScreenReflection.set_reflective(pool_tray_view.slot_roots[seat], true)
+	ScreenReflection.set_reflective(pool_tray_view.slot_emitter(seat), true)
+
+## Bank -> Pool HART: das Zurren der Runde (Sicherheitsnetz - normal sind die Zwingen
+## längst zurückgefahren, der Spieler steht ja an der Grube). Endzustand zuerst - die
+## Aufspannung gehört wieder dem Pool (ihre Sitze füllen sich, der Träger nimmt sie
+## gleich mit hinab, siehe _sink_pool_tray). Jede laufende Fahrt wird hart beendet,
+## die Bank-Körper treten ab.
 func _migrate_clamps_to_pool() -> void:
 	if run == null:
 		return
@@ -3066,6 +3202,11 @@ func _reset_clamp_migration_hard() -> void:
 				pool_tray_view.slot_emitter(i).global_position = \
 					pool_tray_view.slot_home_position(i)
 				pool_tray_view.set_slot_riding(i, false)
+			# Die Fahrt-Marke der Spiegelung zurückgeben - nur solange der Vorrat
+			# STEHT (der versenkte Träger spiegelt als Ganzes nicht).
+			if _pool_standing:
+				ScreenReflection.set_reflective(pool_tray_view.slot_roots[i], true)
+				ScreenReflection.set_reflective(pool_tray_view.slot_emitter(i), true)
 	_clamp_riding.clear()
 
 ## Der Schacht EINER wandernden Zwinge - je Zwinge eine eigene, damit die vier
@@ -12637,10 +12778,10 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	if is_pit_focused and route_pending and phase == Phase.IDLE \
 			and (route_choice == null or not route_choice.visible):
 		_open_route_choice()
-	# Der Werkstatt-Blick holt die im Pool liegende Aufspannung per Plattform auf die
-	# Bank (Spieler-Entscheid 2026-08-31) - idempotent, schon Gewanderte sind No-op.
-	if new_mode == CameraRig.Mode.WORKSHOP:
-		_migrate_clamps_to_bench()
+	# Die Aufspannung folgt der Werkstatt-Kamera (Spieler-Entscheid 2026-08-31): der
+	# Werkstatt-Blick holt sie per Plattform auf die Bank, das VERLASSEN bringt sie
+	# an ihre Pool-Sitze zurück - derselbe Weg rückwärts.
+	_sync_clamp_migration()
 	# Übertaktet wird nur vor den Chips - und dort jederzeit.
 	_sync_combo_upgrade_buttons()
 	_update_gameplay_ui_visibility()
@@ -12710,9 +12851,6 @@ func _on_shop_closed() -> void:
 	if camera_rig.mode == CameraRig.Mode.HUB:
 		camera_rig.zoom_out()
 	_start_new_round()
-	# Auch der bloße Ladenschluss schickt die Aufspannung auf die Bank (Spieler-
-	# Entscheid 2026-08-31) - die Rückwanderung holt sie beim ersten Wurf zurück.
-	_migrate_clamps_to_bench()
 	# Erst NACH dem Rundenstart (der die Sperren zurücksetzt): ab hier steht der
 	# Knopf, bis die Runde festgezurrt ist.
 	shop_reopen_allowed = true
