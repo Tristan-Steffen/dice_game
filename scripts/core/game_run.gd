@@ -2101,6 +2101,25 @@ func reorder_pool(from_index: int, to_index: int) -> bool:
 	pool_changed.emit()
 	return true
 
+## Die GANZE Pool-Ordnung auf einmal setzen - der Kreislauf am Rundenende, wo der
+## Pit-Inhalt zum neuen Pool wird. order muß eine PERMUTATION derselben Instanzen
+## sein (dieselbe Identitäts-Regel wie reorder_pool); alles andere lässt den Pool
+## unberührt, statt ihn halb umzuschreiben.
+func reorder_pool_full(order: Array[DieDefinition]) -> bool:
+	if order.size() != owned_pool.size():
+		return false
+	var seen := {}
+	for die in order:
+		if die == null or seen.has(die.get_instance_id()):
+			return false
+		seen[die.get_instance_id()] = true
+	for die in owned_pool:
+		if not seen.has(die.get_instance_id()):
+			return false
+	owned_pool = order.duplicate()
+	pool_changed.emit()
+	return true
+
 ## Die Inventar-Sicht der Wett-Auslage: Sorte+Größe -> Anzahl, reine Daten. Nur
 ## würfelbare Gravur-Pakete zählen - ein Fixinhalt oder Katalysator ist kein Einsatz.
 func pack_stock() -> Dictionary:

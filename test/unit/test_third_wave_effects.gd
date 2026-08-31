@@ -341,9 +341,9 @@ func test_the_foxfire_lands_in_the_score():
 	assert_eq(_pair_score(_ids([Charm.MYCELIUM]), ctx),
 		(10 + 5 + EssenceEffects.FOXFIRE_PER_PAIR + 7 + 5) * 2)
 
-func test_the_discard_tray_poses_the_recorded_face():
-	# Jede Seite muss sich nach oben drehen lassen - sonst zeigte die Ablage eine
-	# andere Zahl, als das Fuchsfeuer zählt.
+func test_the_pit_ablage_poses_the_recorded_face():
+	# Jede Seite muss sich nach oben drehen lassen - sonst zeigte die liegende
+	# Ablage im Pit eine andere Zahl, als das Fuchsfeuer zählt.
 	for face in 6:
 		var basis := Basis(DiceTrayView.face_up_pose(face))
 		for axis: String in DiceController.AXIS_FACE_INDEX:
@@ -351,8 +351,9 @@ func test_the_discard_tray_poses_the_recorded_face():
 				continue
 			var up: Vector3 = basis * DiceController.AXIS_DIRECTIONS[axis]
 			assert_almost_eq(up.dot(Vector3.UP), 1.0, 0.0001, "Seite %d liegt oben" % face)
-			# Das Tray giert um -90°: die Ziffern-Oben-Richtung muss dort auf +X landen.
-			var text_up: Vector3 = Basis(Vector3.UP, -PI / 2.0) * (basis * DiceController.FACE_TEXT_UP[axis])
+			# Der Träger giert um -90°: die Ziffern-Oben-Richtung landet auf +X.
+			var text_up: Vector3 = Basis(Vector3.UP, DiceTrayView.YAW_REST) \
+				* (basis * DiceController.FACE_TEXT_UP[axis])
 			assert_almost_eq(text_up.dot(Vector3.RIGHT), 1.0, 0.0001, "Ziffer steht aufrecht")
 
 func test_the_resting_pose_is_the_unposed_one():

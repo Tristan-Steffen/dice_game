@@ -34,7 +34,9 @@ extends Node3D
 ## Ebenso bestellt wird die WANDHAUT (order_skin): eine gemeldete Textur auf allen
 ## vier Wänden, beiden Stürzen und den BLENDEN vor den Öffnungsbändern. Geschlossen
 ## liest die Maschine damit auf allen vier Seiten gleich; ein Band öffnet nur für
-## seinen Schritt, und nur das, welches der Schritt wirklich benutzt.
+## seinen Schritt, und nur das, welches der Schritt wirklich benutzt - oder im
+## STAND per run_band, dem einen Handgriff, der KEIN Fahrplan ist (eine Ablage-
+## Reihe schiebt in die geparkte Grube, die Plattform rührt sich nicht).
 
 ## Wandstärke und Dicke der Plattformplatte.
 const WALL := 0.10
@@ -294,6 +296,8 @@ var _shutter_front: Node3D
 ## 0 = zu (das Band ist blind), 1 = ganz offen.
 var _back_open := 0.0
 var _front_open := 0.0
+## Der eigene Tween des Bandes im STAND (run_band) - er gehört zu keinem Fahrplan.
+var _band_tween: Tween
 
 func _init(shaft_name := "LiftShaft") -> void:
 	name = shaft_name
@@ -527,11 +531,13 @@ func run_park(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	if _platform == null or old_bodies.size() != old_seats.size() \
 			or new_bodies.size() != new_seats.size():
 		return null
-	if old_bodies.is_empty() and new_bodies.is_empty():
-		return null
 	if riders.size() != rider_seats.size():
 		riders = []
 		rider_seats = []
+	# Ein Park NUR mit Mitfahrern ist ein voller Fahrplan: die Plattform nimmt ihre
+	# stehende Ware mit hinab und bleibt dort - der Band-Schritt fährt dann leer.
+	if old_bodies.is_empty() and new_bodies.is_empty() and riders.is_empty():
+		return null
 	var behind := waiting_offset()
 	for i in new_bodies.size():
 		var body: Node3D = new_bodies[i]
@@ -729,9 +735,33 @@ func _drop_shutters() -> void:
 	_shutter_back = null
 	_shutter_front = null
 
+## Die BLENDE im Stand fahren - der einzige Handgriff der Maschine, der KEIN
+## Fahrplan ist: die Plattform rührt sich nicht, nur das Band gibt den Weg frei
+## (eine Ablage-Reihe schiebt in die geparkte Grube). Ohne Wandhaut gibt es keine
+## Blende und darum nichts zu fahren.
+func run_band(bands: int, open: bool, time := SHUTTER_TIME) -> Tween:
+	if not _skin_wanted or bands == 0:
+		return null
+	_stop(_band_tween)
+	_band_tween = null
+	var back := (bands & BAND_BACK) != 0
+	var front := (bands & BAND_FRONT) != 0
+	var goal := 1.0 if open else 0.0
+	var setter := func(share: float) -> void:
+		_seat_shutters(share if back else _back_open, share if front else _front_open)
+	var from := _back_open if back else _front_open
+	if time <= 0.0 or is_equal_approx(from, goal):
+		setter.call(goal)
+		return null
+	_band_tween = create_tween()
+	_band_tween.tween_method(setter, from, goal, time).set_trans(Tween.TRANS_SINE)
+	return _band_tween
+
 ## Der harte Schreiber des Blenden-Zustands: BEIDE zu. Jeder Endzustand und jeder
 ## Abbruch geht durch ihn - eine offen gebliebene Blende wäre ein Loch in der Wand.
 func _shutters_hard() -> void:
+	_stop(_band_tween)  # ein offenes Band ist ein Zustand, kein Anspruch
+	_band_tween = null
 	_seat_shutters(0.0, 0.0)
 
 func _seat_shutters(back_share: float, front_share: float) -> void:

@@ -72,9 +72,36 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
 		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT,
 		TableScreen.PIT_SECRET_THIRD]
+	for i in TableScreen.QUEUE_PIT_COUNT:
+		slots.append(TableScreen.queue_pit(i))
+	slots.append(TableScreen.PIT_POOL)
+	for lane in TableScreen.SWALLOW_PIT_COUNT:
+		slots.append(TableScreen.swallow_pit(lane))
+	for i in TableScreen.CLAMP_PIT_COUNT:
+		slots.append(TableScreen.clamp_pit(i))
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	# Die Würfel-Hebebühnen hängen ans ENDE, damit kein bestehender Platz
+	# umnummeriert wird - und keine teilt ihr Loch mit einer anderen: die
+	# Warteschlange fährt je Platz eine eigene Maschine (Fahrten überlappen),
+	# der Schluck auf drei Bahnen, und die Aufspann-Wanderung je Zwinge eine.
+	assert_gt(TableScreen.PIT_QUEUE0, TableScreen.PIT_SECRET_THIRD)
+	assert_eq(TableScreen.PIT_QUEUE0, 10)
+	assert_eq(TableScreen.queue_pit(TableScreen.QUEUE_PIT_COUNT - 1) + 1,
+		TableScreen.PIT_POOL, "die Warteschlangen-Plätze liegen am Stück")
+	assert_eq(TableScreen.PIT_SWALLOW0, TableScreen.PIT_POOL + 1)
+	# Die vier Aufspann-Plätze hängen hinter den Schluck-Bahnen ans äußerste Ende.
+	assert_eq(TableScreen.PIT_CLAMP0,
+		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
+	assert_eq(TableScreen.clamp_pit(TableScreen.CLAMP_PIT_COUNT - 1),
+		TableScreen.MAX_PITS - 1)
+	# Jeder Warteschlangen-Platz, jede Schluck-Bahn und jede Zwinge hat SEIN Loch.
+	assert_eq(TableScreen.queue_pit(0), TableScreen.PIT_QUEUE0)
+	assert_eq(TableScreen.queue_pit(99), TableScreen.PIT_QUEUE0 + 5, "geklemmt")
+	assert_eq(TableScreen.swallow_pit(99), TableScreen.PIT_SWALLOW0 + 2, "geklemmt")
+	assert_eq(TableScreen.clamp_pit(0), TableScreen.PIT_CLAMP0)
+	assert_eq(TableScreen.clamp_pit(99), TableScreen.PIT_CLAMP0 + 3, "geklemmt")
 	# Die Ablage der Auszahlungs-Seite ist EINE Plattform, also EIN Loch - und ein
 	# eigenes: die drei Wett-Gruben dürfen derweil offen stehen.
 	for i in SideBetPanel.OFFER_COUNT:
@@ -95,8 +122,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(secret.size(), 3, "drei Sektionen, drei Löcher")
 	assert_eq(secret, [TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
 		TableScreen.PIT_SECRET_THIRD])
-	assert_eq(TableScreen.PIT_SECRET_THIRD, TableScreen.MAX_PITS - 1,
-		"ans Ende gehängt")
+	assert_gt(TableScreen.PIT_SECRET_THIRD, TableScreen.PIT_PAYOUT,
+		"hinter die Wett- und Auszahlungs-Plätze gehängt")
 	for slot: int in secret:
 		assert_ne(slot, TableScreen.PIT_PAYOUT)
 		for i in SideBetPanel.OFFER_COUNT:
@@ -661,3 +688,35 @@ func test_die_blenden_verlaengern_keinen_takt() -> void:
 			LiftShaftView.COVER_TIME]:
 		assert_lte(LiftShaftView.SHUTTER_TIME, takt,
 			"eine Blende paßt in jeden Schlag, neben dem sie fährt")
+
+# --- Der Rundenend-Takt der Wuerfel-Buehne --------------------------------------
+
+func test_das_rundenende_ist_ein_vier_schlag_in_dieser_reihenfolge() -> void:
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	var takt := root.find("func _play_tray_return")
+	assert_gt(takt, 0, "die Zeremonie steht im Koordinator")
+	var flush_at := root.find("_flush_ablage_tail(", takt)
+	var exit_at := root.find("await exit.finished", takt)
+	var order_at := root.find("_reorder_pool_from_pit()", takt)
+	var rise_at := root.find("run_rise", takt)
+	assert_gt(flush_at, takt, "erst fährt die letzte Ablage-Reihe ein")
+	assert_lt(flush_at, exit_at, "dann geht die Warteschlange ab")
+	assert_lt(exit_at, order_at, "dann IST der Pit-Inhalt der neue Pool")
+	assert_lt(order_at, rise_at, "und erst danach fährt der Träger herauf")
+
+func test_das_blinde_glas_und_der_tausch_dahinter_sind_tot() -> void:
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	var shaft: String = FileAccess.get_file_as_string("res://scripts/table/lift_shaft_view.gd")
+	for dead: String in ["KUHLE", "fade_cover_opacity", "set_cover_opacity",
+			"run_cover_hatch"]:
+		assert_false(root.contains(dead), "%s ist im Koordinator fort" % dead)
+		assert_false(shaft.contains(dead), "%s ist in der Maschine fort" % dead)
+
+func test_das_rundenstart_mischen_ist_gestorben() -> void:
+	# Spielregel 2026-08-30: gezogen wird in Pool-Reihenfolge; die EINZIGE Streuung
+	# ist die Ablage-Reihe beim Erscheinen.
+	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
+	assert_false(root.contains("round_pool_kinds.shuffle()"),
+		"der Stapel wird beim Zurren nicht mehr gemischt")
+	assert_true(root.contains("DiceTrayView.shuffle_row("),
+		"gemischt wird nur die erscheinende Ablage-Reihe")

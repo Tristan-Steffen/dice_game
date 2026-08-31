@@ -1,8 +1,12 @@
 extends Node3D
 ## Spielablauf-Koordinator: Rundenziele, Shop, Würfel-Pool und UI-Verdrahtung.
 ##
-## Kernregeln: Der Pool hat fest GameRun.POOL_SIZE Würfel; zu Rundenbeginn wird
-## er gemischt und verteilt sich auf Warteschlangen- und Pool-Tray. "Nehmen"
+## Kernregeln: Der Pool hat fest GameRun.POOL_SIZE Würfel und verteilt sich auf
+## Warteschlangen- und Pool-Tray. GEMISCHT wird NICHT mehr zu Rundenbeginn
+## (Spielregel 2026-08-30): gezogen wird in Pool-Reihenfolge, die EINZIGE Streuung
+## ist die Ablage-Reihe, die im Pit erscheint (je Reihe einmal), und am Rundenende
+## IST der Pit-Inhalt der neue Pool - in der Ordnung [Warteschlangen-Rest]
+## [ungezogener Rest][Ablage]. "Nehmen"
 ## wertet die AUSGEWÄHLTEN Würfel als Hand und legt alle 6 ab; die Auswahl
 ## schützt außerdem vor dem nächsten "Neu würfeln" (nur ungeschützte Slots
 ## bekommen frisch gezogene Würfel). Farkle: bringt ein Neu-Würfeln nicht
@@ -90,6 +94,43 @@ const PAYOUT_LABEL_GLOW_COLOR := Color(2.1, 1.7, 0.15)
 ## gleichmäßig zwischen Gruben-Südrand (X = -7.6) und Hub-Oberkante (X = -11),
 ## also X = -9.3. Y = 0 = Tischbildschirm-Oberfläche.
 const QUEUE_TRAY_PIT_POSITION := Vector3(-9.3, 0.0, 0.0)
+
+## Der Z-Versatz des GESTORBENEN Ablage-Trays (Welt 33 minus Welt 20,85). Es trug
+## dasselbe 5x6-Raster wie der Vorrat, und die Werkbank-Ecke maß an BEIDEN: die
+## Zahl hält ihr Rechteck, corner_unit und bench_left unverändert - der frei
+## gewordene Filz bleibt frei (Raum für Späteres).
+const DISCARD_TRAY_LEGACY_Z := 12.15
+
+## Der SAUM eines Hebebühnen-Lochs um das Slotraster: ein halber Platz ringsum.
+const TRAY_PIT_SEAM := DiceTrayView.SPACING * 0.5
+## Der ABLAGE-Abschnitt des Trägers trägt das Dunkelrot des toten Ablage-Trays; der
+## Vorrats-Abschnitt bleibt beim Tray-Blau seiner Pucks.
+const ABLAGE_TINT := Color(0.55, 0.08, 0.08)
+## Der Fußabdruck des SCHLUCK-Lochs: ein liegender Würfel plus einen schmalen Saum.
+const SWALLOW_HALF := Vector2.ONE * (DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 1.55)
+## Wie tief der VORRAT im Pit parkt (Spieler-Entscheid 2026-08-31): flach genug, dass
+## die schwebenden Würfel um ihre halbe Höhe AUS dem Pit ragen. Die Plattform parkt auf
+## -Tiefe, der Würfel schwebt FLOAT_HEIGHT darüber - Tiefe = FLOAT_HEIGHT setzt seine
+## Mitte auf die Fläche (halber Würfel oben heraus). Die liegende Ablage fährt dieselbe
+## Tiefe mit und bleibt darum um denselben Betrag TIEFER als der Vorrat. Kein Schirm mehr
+## darüber - die herausragenden Würfel durchstießen ihn.
+const POOL_PARK_DEPTH := DiceTrayView.FLOAT_HEIGHT
+## Die drei Takte der Träger-Bühne: der gezogene Würfel sinkt an seinem Sitz in die
+## Plattform, eine Ablage-Reihe schiebt von hinten ein, und der Träger rückt eine
+## Reihen-Teilung vor.
+const CARRIER_SINK_TIME := 0.34
+const ABLAGE_SLIDE_TIME := 0.55
+const CARRIER_SHIFT_TIME := 0.5
+## Die Warteschlangen-Fahrten laufen DOPPELT so schnell und dicht GESTAFFELT statt
+## nacheinander (Spieler-Entscheid 2026-08-30): je Platz eine eigene Maschine, der
+## Versatz ist der Abstand zweier Starts von links nach rechts - der Abgang vom
+## Träger taktet mit derselben Staffel.
+const QUEUE_RIDE_SPEED := 2.0
+const QUEUE_RIDE_STAGGER := 0.12
+## Und der SCHLUCK ebenso: doppelt schnell, links nach rechts gestaffelt über drei
+## Bahnen. Der Staffel-Versatz ist GERECHNET (Fahrtdauer durch Bahnenzahl), damit
+## Salve und Bahnen genau ineinandergreifen.
+const SWALLOW_SPEED := 2.0
 
 ## Die POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern
 ## (Marker3D unter $ScreenAnchors); nur die GRÖSSEN stehen hier als Weltmaß.
@@ -183,6 +224,11 @@ const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 const PACK_MOVE_TIME := 0.4
 ## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
 const CLAMP_MATERIALIZE_STAGGER := 0.07
+## Die WANDERUNG Pool<->Bank fährt je Zwinge eine eigene Plattform - doppelt schnell
+## (set_speed_scale) und dicht gestaffelt, damit die vier von links nach rechts
+## nacheinander durch die Fläche fahren.
+const CLAMP_MIGRATE_SPEED := 2.0
+const CLAMP_MIGRATE_STAGGER := 0.1
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
 ## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
@@ -410,7 +456,6 @@ var payout_ledger: PayoutLedgerView
 @onready var game_over_reset_button: Button = $UI/GameOverPanel/VBoxContainer/GameOverResetButton
 
 @onready var pool_tray_view: DiceTrayView = $PoolTrayView
-@onready var discard_tray_view: DiceTrayView = $DiscardTrayView
 @onready var queue_tray_view: DiceTrayView = $QueueTrayView
 @onready var dice_shell: DiceShell = $DiceShell
 
@@ -487,12 +532,21 @@ var _info_shown_tint: Color = CasinoStyle.CREAM
 ## Werkstatt-Fenster, je einer über seinem Netz und gleich unter dem oberen
 ## Fensterrand. Reihenfolge = run.clamped_dice; ein Platz ohne Würfel bleibt null.
 var clamp_stages: Array[FloatingDie] = []
-## Welche Zwingen-Würfel gerade STATT auf der Bank in der Grube liegen - nur der
-## Wechsel dieser Menge stellt die Bühnen neu (das Signal kommt bei jedem Wurf).
-var _clamp_pit_conflicts: Array[DieDefinition] = []
-## Stehen die Zwingen gerade im Pool-Tray statt auf der Bank - nur der WECHSEL
-## stellt Bühnen und Trays neu (Kamerawechsel und Unterschrift melden beide her).
-var _clamps_visiting := false
+## Der ORT je Aufspann-Würfel (Spieler-Entscheid 2026-08-31): er LIEGT im Pool, bis
+## er zur Bank WANDERT. Nur wer hier steht, ist auf der Bank - sein Pool-Sitz bleibt
+## dann leer; alle anderen aufgespannten Würfel liegen im Pool (ein Würfel wird nie
+## zweimal gezeigt). Geleert am Rundenstart (frische Aufspannung) und am Zurren
+## (Rückwanderung in den Pool).
+var _clamp_on_bench: Dictionary = {}  # DieDefinition -> true (steht auf der Bank)
+## Und wer gerade eine Wander-Fahrt fährt - guardt das Doppel-Auslösen (Werkstatt
+## UND Ladenschluss) und hält den Bühnen-Schreiber von der fahrenden Ware fern.
+var _clamp_riding: Dictionary = {}  # DieDefinition -> true (Fahrt unterwegs)
+## Je Zwinge ihr eigener Schacht - dieselbe Maschine trägt beide Beine der Fahrt
+## (Senken am Pool-Sitz, dann Heben an der Bank).
+var _clamp_shafts: Array[LiftShaftView] = []
+## Generationsmarke der Wander-Fahrten: ein Abbruch (Reset/Laufwechsel) zählt sie
+## hoch, ein noch laufender Tween meldet dann nichts mehr zurück.
+var _clamp_gen := 0
 
 ## Der Würfel des Dossiers: EIN Körper über der Bühne der Inspektions-Seite
 ## (null = die Seite steht nicht). Sein Sitz im Tray bleibt derweil leer.
@@ -630,6 +684,53 @@ const BET_PIT_DIVE := 2.0
 ## Ein AUFTRITT ist fällig, aber keiner schaut hin: der Tresen stellt still und
 ## fährt ihn nach, sobald er wirklich zu sehen ist (die Grad-Regel der Läden).
 var _bet_pending_rise := false
+
+## Die WÜRFEL-HEBEBÜHNEN (siehe die Region "Die WUERFEL-BUEHNE"): der Vorrat auf
+## seinem Platz, die Warteschlange mit EINER Maschine JE PLATZ (Fahrten dürfen
+## überlappen - eine Maschine ist ein Loch) und der SCHLUCK auf drei BAHNEN, damit
+## eine gestaffelte Salve überlappen kann. Jede Maschine hat ihren festen Platz in
+## der Löcherliste.
+var pool_shaft: LiftShaftView = null
+var _queue_shafts: Array[LiftShaftView] = []
+var _swallow_shafts: Array[LiftShaftView] = []
+## Steht das Pool-Tray oben auf dem Tisch? Ab dem Zurren der Runde ist es der TRÄGER
+## im offenen Pit - sichtbar, nur tiefer. EIN Schreiber, alle fragen ihn.
+var _pool_standing := true
+## Sein Heimat-Ort - gemerkt, bevor er das erste Mal fährt; die Fahrt schreibt an
+## global_position, gemessen wäre er danach falsch.
+var _pool_tray_home := Vector3.ZERO
+## Der eingefrorene Grundriß des offenen Pits ({at, half}). Neu gemessen ließe ein
+## Würfelkauf mitten in der Runde das Loch unter dem Träger springen.
+var _pool_parked_field: Dictionary = {}
+## Wieviele Reihen der Träger schon vorgerückt ist: eine je leer gezogener Pool-Reihe.
+## Das Loch steht fest, der Träger fährt darunter.
+var _carrier_shift := 0
+var _carrier_tween: Tween = null
+## Die Sitze, deren Würfel gerade ABFAHREN - der Schreiber zeigt sie weiter, bis ihre
+## Fahrt steht; sonst verschwände der Körper im Bild seines Aufbruchs.
+var _carrier_leaving: Dictionary = {}
+var _carrier_sinks: Array[Tween] = []
+## Die ABLAGE im Träger: je Eintrag {def, face, seat, body}, in Pit-Ordnung. Sie ist
+## am Rundenende der Schwanz des neuen Pools.
+var _ablage_seats: Array[Dictionary] = []
+## Was geschluckt ist, aber noch keine volle Reihe füllt (unsichtbar gepuffert).
+var _ablage_buffer: Array[Dictionary] = []
+## Wieviele Reihen gerade einfahren - das hintere Band schließt erst mit der letzten.
+var _ablage_entering := 0
+var _ablage_root: Node3D = null
+## Die Abgänge, die noch geschluckt werden wollen, und je Bahn der fahrende Körper
+## (null = die Bahn ist frei). Ein getöteter Tween meldet nie fertig - der harte
+## Pfad räumt die Körper selbst.
+var _swallow_queue: Array[Dictionary] = []
+var _swallow_bodies: Array[Node3D] = []
+## Die Lauf-/Generationsmarke der Bühnen-Zeremonien - jeder Abbruch dreht sie weiter.
+var _tray_stage_gen := 0
+## Die Warteschlangen-Bühne: steht die Reihe (alle Pucks) oben, und welcher Platz
+## zeigt gerade einen Würfel? Der Schreiber diffed gegen diese Belegung.
+var _queue_staged := false
+var _queue_dice_up: Array[bool] = []
+## Die Plätze, deren Einzel-Fahrt gerade läuft - für den harten Abbruch.
+var _queue_ride_slots: Dictionary = {}
 
 ## Die ABLAGE der Auszahlungs-Seite: die gewonnene Ware steht NEBENEINANDER auf EINER
 ## Plattform, in den Zellen, die die Seite meldet. Jedes Stück steigt bei der Ankunft
@@ -887,8 +988,6 @@ func _setup_dice() -> void:
 		bodies.append(body)
 		face_displays.append(faces)
 	dice = DiceController.new(roots, bodies, face_displays)
-	# Was in der Grube liegt, darf nicht zugleich auf der Werkbank stehen.
-	dice.pit_contents_changed.connect(_on_pit_contents_changed)
 
 	dice_audio = DiceAudio.new()
 	dice_audio.name = "DiceAudio"
@@ -924,7 +1023,7 @@ func _setup_table_screen() -> void:
 	add_child(screen_reflection)
 	table_screen.attach_to(screen_mesh, screen_reflection)
 	# JEDES Display-Fenster spiegelt - auch Trays samt Würfeln und die Hülle.
-	for prop: Node in [pool_tray_view, queue_tray_view, discard_tray_view, dice_shell]:
+	for prop: Node in [pool_tray_view, queue_tray_view, dice_shell]:
 		ScreenReflection.mark_reflective(prop)
 
 	# Screen-Elemente an ihre Editor-Anker setzen; den Kombi-Cluster ERST
@@ -1102,11 +1201,15 @@ func _setup_table_screen() -> void:
 	# Würfel-Trays und bündig mit deren Außenkanten. Hier werden gekaufte Pakete
 	# geöffnet. Alle drei Kanten leiten sich aus den echten Slot-Positionen ab,
 	# damit ein späterer Tray-Umzug das Fenster automatisch mitnimmt.
+	# Die zweite Spanne ist die des GESTORBENEN Ablage-Trays: dasselbe Raster, nur
+	# um DISCARD_TRAY_LEGACY_Z versetzt. Die Ecke ist damit EINGEFROREN - der frei
+	# gewordene Filz bleibt frei.
 	var tray_bounds := Rect2()
 	var first_slot := true
-	for tray: DiceTrayView in [pool_tray_view, discard_tray_view]:
-		for i in tray.slot_roots.size():
-			var slot_px := table_screen.world_to_pixel(tray.slot_global_position(i))
+	for shift: float in [0.0, DISCARD_TRAY_LEGACY_Z]:
+		for i in pool_tray_view.slot_roots.size():
+			var seat := pool_tray_view.slot_home_position(i) + Vector3(0.0, 0.0, shift)
+			var slot_px := table_screen.world_to_pixel(seat)
 			tray_bounds = Rect2(slot_px, Vector2.ZERO) if first_slot else tray_bounds.expand(slot_px)
 			first_slot = false
 	# Slot-Mitten -> Außenkante: je eine halbe Spaltenbreite nach außen.
@@ -1242,9 +1345,9 @@ func _setup_camera_targets() -> void:
 	# ersten Grubenzoom einer Runde, siehe _activate_queue).
 	queue_tray_view.position = QUEUE_TRAY_PIT_POSITION
 
-	camera_rig.configure_tray_targets(
-		pool_tray_view.global_position,
-		discard_tray_view.global_position)
+	_pool_tray_home = pool_tray_view.global_position
+	# Die POOL-Station rahmt Vorrat UND Pit - sie stehen auf demselben Platz.
+	camera_rig.configure_tray_targets(_pool_tray_home)
 	# Grubenziel auf Tisch-Screen-Höhe (0), etwas Richtung Charms (+X = oben)
 	# verschoben, damit die Charm-Konsolen mit im Blick sind.
 	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0, DicePit.PIT_CENTER.z))
@@ -2235,8 +2338,13 @@ func _fly_slot_packs(packs: Array[Pack], from_px: Vector2) -> void:
 func _fly_die_to_pool(from_px: Vector2) -> void:
 	if pool_tray_view == null or pool_tray_view.slot_roots.is_empty():
 		return
-	var slot := mini(maxi(run.owned_pool.size() - 1, 0), pool_tray_view.slot_roots.size() - 1)
-	var target := table_screen.world_to_pixel(pool_tray_view.slot_global_position(slot))
+	# Steht der Vorrat als Träger im Pit (Kauf mitten in der Runde), gibt es keinen
+	# freien Sitz - dann trifft das Licht die Mitte des Pit-Glases.
+	var at := _pit_center()
+	if _pool_standing:
+		var slot := mini(maxi(run.owned_pool.size() - 1, 0), pool_tray_view.slot_roots.size() - 1)
+		at = pool_tray_view.slot_global_position(slot)
+	var target := table_screen.world_to_pixel(at)
 	var spread := _meteor_index
 	_meteor_index += 1
 	table_screen.tray_comet(from_px, target, SLOT_DIE_COLOR, spread)
@@ -2488,9 +2596,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _dice_in_motion() and _try_start_pool_tray_drag(event.position):
 		return
 
-	if not _dice_in_motion() and _try_inspect_discard_die(event.position):
-		return
-
 	if _felt_pick_live(CameraRig.Mode.CHIPS) and _try_start_chip_drag(event.position):
 		return
 
@@ -2690,15 +2795,21 @@ func _on_die_stages_changed() -> void:
 	_rebuild_inspect_stage()
 	_sync_data_cells()  # Regal-Stapel und Buchten hängen am selben Layout
 
-# --- Die Aufspannung auf der Werkbank --------------------------------------------
-# Die vier Zwingen der Runde stehen als ECHTE Würfel über dem Werkstatt-Fenster
-# selbst - die ganze Runde lang, durch Spiel und Laden. Unter jedem liegt sein
-# Netz; Spalte UND Zeile nennt das Fenster (clamp_net_centers/clamp_projector_y).
+# --- Die Aufspannung: sie liegt im Pool und WANDERT per Plattform auf die Bank ----
+# Die vier Zwingen LIEGEN im Pool (Träger), bis der Spieler die Werkstatt öffnet
+# ODER den Laden schließt - dann fahren sie gestaffelt per Hebebühne auf die Bank
+# (zum Gravieren, _migrate_clamps_to_bench). Beim Zurren der Runde kehren sie in den
+# Pool zurück und versinken mit ihm (_migrate_clamps_to_pool). Während der Runde ist
+# die Bank LEER; ein aufgespannter Würfel ist ein gewöhnlicher Pool-Würfel. Wo ein
+# Würfel STEHT, sagt _clamp_on_bench (der EINE Ort-Zustand): der Bank-Körper ist ein
+# FloatingDie (Würfel+Feld), der Pool-Körper der Tray-Slot selbst - nie beide zugleich
+# sichtbar (ein Würfel wird nie zweimal gezeigt). Netz und Zeile nennt das Fenster
+# (clamp_net_centers/clamp_projector_y).
 
-## Stellt die Zwingen-Würfel auf: je Netzkachel einer, darüber im Streifen. Wer
-## schon steht, bleibt DERSELBE Körper und wandert nur (die Netzzeile rückt beim
-## Neuaufbau des Fensters). Ein Würfel, den die Station gerade als Werkstück
-## hält, tritt aus seinem Feld - ein Würfel wird nie zweimal gezeigt.
+## Der Steady-State-Schreiber der BANK: je aufgespanntem Würfel mit Ort == BANK ein
+## FloatingDie über seinem Netz, sonst keiner. Wer schon steht, bleibt DERSELBE Körper
+## und wandert nur (die Netzzeile rückt beim Neuaufbau des Fensters). Eine gerade
+## WANDERNDE Zwinge führt ihre eigene Bühne - der Schreiber faßt sie nicht an.
 func _rebuild_clamp_stages() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
@@ -2709,15 +2820,9 @@ func _rebuild_clamp_stages() -> void:
 	_carry_over_clamp_stages(defs)
 	if clamp_stages.is_empty():
 		return
-	# Ein Paket füllt das Fenster: es gibt keine Netzzeile, über der sie stehen
-	# könnten. Sie treten ab, statt an alten Plätzen über der Wahl zu hängen -
-	# freigegeben wird dabei NIE, es sind dieselben Körper wie danach.
+	# Ohne Netzzeile (Paket füllt das Fenster, Dossier, Tausch) gibt es keine Spalte,
+	# über der ein Zwingen-Würfel schweben dürfte - sie treten ab (dieselben Körper).
 	if not workshop.clamps_on_bench():
-		_hide_clamp_stages()
-		return
-	# Sie sind im Pool-Tray zu Gast: dieselben Körper treten ab und liegen derweil
-	# in ihren eigenen Sitzen - ein Würfel wird nie zweimal gezeigt.
-	if _clamps_visit_tray():
 		_hide_clamp_stages()
 		return
 
@@ -2733,75 +2838,37 @@ func _rebuild_clamp_stages() -> void:
 	if not is_instance_valid(workshop) or run != launched or run == null:
 		return
 	var centers := workshop.clamp_net_centers()
-	var in_pit: Array[DieDefinition] = []
-	if dice != null:
-		in_pit = dice.visible_slot_defs()
 	var fresh := 0
 	for i in mini(mini(clamp_stages.size(), centers.size()), defs.size()):
-		var target := _bench_hover_target(
-			Vector2(centers[i].x, workshop.clamp_projector_y()), CLAMP_HOVER)
+		# Eine fahrende Zwinge führt ihre eigene Bühne (siehe _ride_clamp_to_bench).
+		if _clamp_riding.has(defs[i]):
+			continue
 		var stage: FloatingDie = clamp_stages[i]
-		# Sein Körper liegt gerade in der Grube: die Zwinge bleibt leer, bis er
-		# von dort verschwindet - ein Würfel wird nie zweimal gezeigt.
-		if in_pit.has(defs[i]):
+		# Liegt der Würfel im Pool (nicht auf der Bank), steht auf der Bank kein Körper.
+		if not _clamp_on_bench.has(defs[i]):
 			if stage != null and is_instance_valid(stage) and stage.visible:
 				stage.dematerialize()
 			continue
+		var target := _bench_hover_target(
+			Vector2(centers[i].x, workshop.clamp_projector_y()), CLAMP_HOVER)
 		if stage != null and is_instance_valid(stage):
 			if stage.visible:
 				if not stage.stands_at(target):
 					stage.move_to(target, PACK_MOVE_TIME)
 				continue
-			# Zurück aus der Paket-Wahl: derselbe Körper geht an seinem Platz wieder
-			# auf - gestaffelt wie eine frische Aufspannung.
+			# Wieder auf die Bank (Wiedereintritt aus Dossier/Tausch): derselbe Körper
+			# geht an seinem Platz wieder auf - gestaffelt wie eine frische Aufspannung.
 			stage.land_at(target, 0.0)
 			stage.materialize(float(fresh) * CLAMP_MATERIALIZE_STAGGER)
 			fresh += 1
 			continue
 		stage = _spawn_floating_die(defs[i], CLAMP_EMITTER_TINT, target, CLAMP_HOVER)
 		stage.land_at(target, 0.0)
-		# Die neue Aufspannung ENTSTEHT in ihren Feldern, statt hart dazustehen -
-		# gestaffelt, damit die Zeile von links nach rechts aufgeht.
 		stage.materialize(float(fresh) * CLAMP_MATERIALIZE_STAGGER)
 		fresh += 1
 		clamp_stages[i] = stage
 
-## Der Grubenbestand hat gewechselt: eine Zwinge, deren Würfel jetzt dort liegt,
-## tritt von der Bank ab; wer aus der Grube verschwunden ist, geht wieder auf.
-## Verglichen wird in der Ordnung von clamped_dice, damit ein Neuwurf ohne
-## wirkliche Änderung keinen Aufbau anstößt.
-func _on_pit_contents_changed() -> void:
-	var conflicts: Array[DieDefinition] = []
-	if run != null and dice != null:
-		var in_pit := dice.visible_slot_defs()
-		for die in run.clamped_dice:
-			if in_pit.has(die):
-				conflicts.append(die)
-	if conflicts == _clamp_pit_conflicts:
-		return
-	_clamp_pit_conflicts = conflicts
-	_rebuild_clamp_stages()
-
-## Sind die Zwingen im Pool-Tray zu Gast? Nur in der Pool-Sicht und nur, solange
-## die Würfel bearbeitbar sind - mitten in der Runde bleiben ihre Sitze leer.
-func _clamps_visit_tray() -> bool:
-	return run != null and camera_rig != null \
-		and camera_rig.mode == CameraRig.Mode.POOL and not _dice_editing_locked()
-
-## Der Besuch hat gewechselt (Kamera oder Unterschrift): die Zwingen wandern
-## zwischen Bank und Tray. Nur der Wechsel - gemeldet wird nach jedem Schritt.
-func _sync_clamps_visit() -> void:
-	var visiting := _clamps_visit_tray()
-	if visiting == _clamps_visiting:
-		return
-	_clamps_visiting = visiting
-	_rebuild_clamp_stages()
-	if run == null:
-		return
-	_refresh_dice_trays()
-	_refresh_discard_tray()
-
-## Die Zwingen treten ab (ein Paket nimmt das Fenster): sie schrumpfen an Ort und
+## Die Zwingen treten ab (kein Netz, oder Ort == POOL): sie schrumpfen an Ort und
 ## Stelle und werden unsichtbar - damit sind sie zugleich für jedes Zeigen taub.
 func _hide_clamp_stages() -> void:
 	for stage in clamp_stages:
@@ -2822,6 +2889,234 @@ func _carry_over_clamp_stages(defs: Array[DieDefinition]) -> void:
 		if stage != null and not kept.has(stage):
 			_free_stage(stage)
 	clamp_stages = kept
+
+# --- Die WANDERUNG Pool <-> Bank (Hebebühne, gestaffelt) -------------------------
+# Je Zwinge EIN eigener Schacht; dieselbe Maschine trägt beide Beine der Fahrt
+# (Senken am Pool-Sitz, dann Heben an der Bank - und umgekehrt bei der Rückwanderung).
+# Der Ort-Zustand kippt erst, wenn das jeweilige Bein STEHT (Endzustand zuerst); der
+# EINE Aufräum-Pfad ist _reset_clamp_migration_hard.
+
+## Der Ort-Zustand kehrt zum POOL zurück: eine frische Aufspannung LIEGT im Pool.
+func _reset_clamp_locations() -> void:
+	_clamp_on_bench.clear()
+
+## Auslöser Pool -> Bank: der Spieler öffnet die Werkstatt ODER schließt den Laden
+## (was zuerst kommt - Spieler-Entscheid 2026-08-31). Idempotent: schon gewanderte
+## oder gerade fahrende Zwingen sind ein No-op. Nur im stehenden Pool. Je noch im Pool
+## liegender Zwinge eine gestaffelte Fahrt. Fire-and-forget.
+func _migrate_clamps_to_bench() -> void:
+	if run == null or not _pool_standing or pool_tray_view == null or table_screen == null:
+		return
+	var defs := run.clamped_dice
+	var eligible: Array[int] = []  # Indizes in clamped_dice mit Ort == POOL
+	for i in defs.size():
+		var d: DieDefinition = defs[i]
+		if d != null and not _clamp_on_bench.has(d) and not _clamp_riding.has(d):
+			eligible.append(i)
+	if eligible.is_empty():
+		return
+	# Fahrmarke SOFORT setzen - ein zweiter Trigger im selben Bild (Werkstatt UND
+	# Ladenschluss) sieht sie dann als fahrend und überspringt sie.
+	for i in eligible:
+		_clamp_riding[defs[i]] = true
+	var workshop: WorkshopView = table_screen.workshop_window
+	var bench_ready := workshop != null and is_instance_valid(workshop) \
+		and workshop.clamps_on_bench()
+	var launched := run
+	var generation := _clamp_gen
+	var centers: Array[Vector2] = []
+	var proj_y := 0.0
+	if bench_ready:
+		# Die Spalten stehen erst nach dem Layout des Fensters fest - zwei Bilder weit.
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if run != launched or generation != _clamp_gen or not is_instance_valid(workshop) \
+				or not _pool_standing or not workshop.clamps_on_bench():
+			for i in eligible:
+				_clamp_riding.erase(defs[i])
+			return
+		centers = workshop.clamp_net_centers()
+		proj_y = workshop.clamp_projector_y()
+	# Alle Bank-Weltpunkte vorab - der Nachbar-Zuschnitt der Löcher braucht sie.
+	var source := _pool_tray_source()
+	var bench_ats: Array[Vector3] = []
+	for i in eligible:
+		if bench_ready and i < centers.size():
+			bench_ats.append(_bench_hover_target(Vector2(centers[i].x, proj_y), CLAMP_HOVER))
+		else:
+			bench_ats.append(Vector3.ZERO)
+	for k in eligible.size():
+		var i: int = eligible[k]
+		var d: DieDefinition = defs[i]
+		var seat := source.find(d)
+		var has_bench: bool = bench_ready and i < centers.size()
+		_ride_clamp_to_bench(i, d, seat, bench_ats[k], has_bench, bench_ats,
+			float(k) * CLAMP_MIGRATE_STAGGER, generation, launched)
+
+## Die Fahrt EINER Zwinge Pool -> Bank: Bein A senkt ihren Tray-Slot am Pool-Sitz
+## durch ein Loch (der Slot fährt selbst, sichtbar bis unten), Bein B hebt ihren
+## FloatingDie an der Bank. Fällt Bein A aus (kein Sitz/kein Loch), kippt der Ort
+## sofort und Bein B läuft trotzdem.
+func _ride_clamp_to_bench(index: int, die: DieDefinition, seat: int,
+		bench_at: Vector3, has_bench: bool, bench_ats: Array[Vector3],
+		delay: float, generation: int, launched: GameRun) -> void:
+	_clamp_riding[die] = true
+	var sank := false
+	if seat >= 0 and seat < pool_tray_view.slot_roots.size() \
+			and pool_tray_view.slot_roots[seat].visible:
+		var field := _clamp_pool_field(seat)
+		var shaft := _clamp_shaft_for(index, field, _tray_shaft_depth()) \
+			if not field.is_empty() else null
+		if shaft != null:
+			pool_tray_view.set_slot_riding(seat, true)
+			var root := pool_tray_view.slot_roots[seat]
+			var emitter := pool_tray_view.slot_emitter(seat)
+			var tween := shaft.run_exit([root, emitter],
+				[pool_tray_view.slot_home_position(seat, true),
+				pool_tray_view.slot_home_position(seat)], delay * CLAMP_MIGRATE_SPEED)
+			if tween != null:
+				tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
+				sank = true
+				tween.finished.connect(func() -> void:
+					_finish_clamp_pool_sink(index, die, seat, bench_at, has_bench,
+						bench_ats, generation, launched))
+	if not sank:
+		_finish_clamp_pool_sink(index, die, seat, bench_at, has_bench, bench_ats,
+			generation, launched)
+
+## Bein A steht (der Tray-Slot ist unten hinaus): hart zurück auf den Sitz und
+## ausblenden, der Ort kippt auf BANK - dann startet Bein B (die Auffahrt an der Bank).
+func _finish_clamp_pool_sink(index: int, die: DieDefinition, seat: int,
+		bench_at: Vector3, has_bench: bool, bench_ats: Array[Vector3],
+		generation: int, launched: GameRun) -> void:
+	if seat >= 0 and pool_tray_view != null and seat < pool_tray_view.slot_roots.size():
+		pool_tray_view.slot_roots[seat].global_position = \
+			pool_tray_view.slot_home_position(seat, true)
+		pool_tray_view.slot_emitter(seat).global_position = \
+			pool_tray_view.slot_home_position(seat)
+		pool_tray_view.set_slot_riding(seat, false)
+	if generation != _clamp_gen or run != launched:
+		_clamp_riding.erase(die)
+		return
+	_clamp_on_bench[die] = true  # ab jetzt LEER im Pool
+	_refresh_deck_trays()  # der Schreiber bestätigt die Pool-Lücke
+	if not has_bench or bench_at == Vector3.ZERO:
+		# Keine Netzzeile (Werkstatt nicht offen): der Körper erscheint hart, sobald
+		# die Werkstatt angesehen wird - _rebuild_clamp_stages zeigt Ort == BANK.
+		_clamp_riding.erase(die)
+		_rebuild_clamp_stages()
+		return
+	var field := _clamp_bench_field(bench_at, bench_ats)
+	var shaft := _clamp_shaft_for(index, field, _tray_shaft_depth())
+	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, bench_at, CLAMP_HOVER)
+	while clamp_stages.size() <= index:
+		clamp_stages.append(null)
+	clamp_stages[index] = stage
+	stage.set_process(false)  # kein Eigen-Wippen, solange die Plattform ihn führt
+	var tween: Tween = null
+	if shaft != null:
+		tween = shaft.run_cycle([stage.die, stage.emitter],
+			[bench_at, bench_at - Vector3.UP * stage.hover_height], 0.0)
+	if tween == null:
+		stage.set_process(true)
+		stage.land_at(bench_at, 0.0)
+		stage.materialize()
+		_clamp_riding.erase(die)
+		return
+	tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
+	tween.finished.connect(func() -> void:
+		if is_instance_valid(stage):
+			stage.set_process(true)
+			if generation == _clamp_gen and run == launched:
+				stage.land_at(bench_at, 0.0)  # Feld rastet ein, dann wippt er
+		_clamp_riding.erase(die))
+
+## Auslöser Bank -> Pool: das Zurren der Runde. Endzustand zuerst - die Aufspannung
+## gehört wieder dem Pool (ihre Sitze füllen sich, der Träger nimmt sie gleich mit
+## hinab, siehe _sink_pool_tray). Jede laufende Fahrt wird hart beendet, die
+## Bank-Körper treten ab. Off-screen (die Kamera steht beim Zurren an der Grube),
+## darum ein Fade statt einer eigenen Rückfahrt.
+func _migrate_clamps_to_pool() -> void:
+	if run == null:
+		return
+	_reset_clamp_migration_hard()
+	# Die Bank-Körper treten ab: off-screen (Kamera an der Grube), also hart frei statt
+	# Fade - der Pool-Körper (Tray-Slot) übernimmt sofort wieder, kein zweiter Leib.
+	for i in clamp_stages.size():
+		if clamp_stages[i] != null and is_instance_valid(clamp_stages[i]):
+			_free_stage(clamp_stages[i])
+		clamp_stages[i] = null
+	_clamp_on_bench.clear()
+
+## Der EINE harte Aufräum-Pfad der Wanderung: alle Schächte bündig, jeder ridende
+## Pool-Sitz steht hart auf seinem Platz (ein Körper unter dem Tisch ist der
+## schlimmste Rest), die Fahrmarken gelöscht. Reset, Laufwechsel und Abbruch gehen
+## durch ihn. Er läßt den Ort-Zustand (_clamp_on_bench) unberührt - der ist Sache
+## von _reset_clamp_locations bzw. _migrate_clamps_to_pool.
+func _reset_clamp_migration_hard() -> void:
+	_clamp_gen += 1
+	for shaft in _clamp_shafts:
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()
+	if pool_tray_view != null:
+		for i in pool_tray_view.slot_roots.size():
+			if i < pool_tray_view.slot_riding.size() and pool_tray_view.slot_riding[i]:
+				pool_tray_view.slot_roots[i].global_position = \
+					pool_tray_view.slot_home_position(i, true)
+				pool_tray_view.slot_emitter(i).global_position = \
+					pool_tray_view.slot_home_position(i)
+				pool_tray_view.set_slot_riding(i, false)
+	_clamp_riding.clear()
+
+## Der Schacht EINER wandernden Zwinge - je Zwinge eine eigene, damit die vier
+## gestaffelten Fahrten überlappen dürfen (eine Maschine ist ein Loch). Idempotent an
+## SEINE aktuelle Stelle gestellt (Pool-Sitz oder Bank).
+func _clamp_shaft_for(index: int, field: Dictionary, depth: float) -> LiftShaftView:
+	if table_screen == null or field.is_empty():
+		return null
+	while _clamp_shafts.size() <= index:
+		_clamp_shafts.append(null)
+	var shaft := _clamp_shafts[index]
+	if shaft == null or not is_instance_valid(shaft):
+		shaft = LiftShaftView.new("ClampShaft%d" % index)
+		add_child(shaft)
+		var pit := TableScreen.clamp_pit(index)
+		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(pit, at, hole))
+		shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(pit))
+		_clamp_shafts[index] = shaft
+	shaft.deck_skin = table_screen.display_skin()
+	shaft.order_skin(PIT_SKIN)
+	shaft.setup(field["at"], field["half"], depth)
+	return shaft
+
+## Das Loch an einem Pool-Sitz: das Sitz-Feld, gegen Nachbar-Berührung zugeschnitten
+## (die Schwarzmarkt-Regel - Wand plus Fuge weichen auf beiden Achsen zurück, denn
+## zwei Zwingen können an waagerecht wie senkrecht benachbarten Sitzen liegen).
+func _clamp_pool_field(seat: int) -> Dictionary:
+	var field := _tray_span_field(pool_tray_view, [seat])
+	if field.is_empty():
+		return {}
+	var cut := LiftShaftView.WALL + 0.06
+	var h: Vector2 = (field["half"] as Vector2) - Vector2(cut, cut)
+	field["half"] = Vector2(maxf(h.x, 0.05), maxf(h.y, 0.05))
+	return field
+
+## Das Loch an einer Bank-Position: würfelgroß, aber nie so weit, daß es das der
+## Nachbar-Zwinge berührt.
+func _clamp_bench_field(at: Vector3, others: Array[Vector3]) -> Dictionary:
+	var half := SWALLOW_HALF
+	var cut := LiftShaftView.WALL + 0.06
+	for o: Vector3 in others:
+		var dz := absf(o.z - at.z)
+		if dz > 0.001:
+			half.y = minf(half.y, dz * 0.5 - cut)
+		var dx := absf(o.x - at.x)
+		if dx > 0.001:
+			half.x = minf(half.x, dx * 0.5 - cut)
+	return {"at": Vector3(at.x, 0.0, at.z),
+		"half": Vector2(maxf(half.x, 0.05), maxf(half.y, 0.05))}
 
 # --- Der Würfel des Dossiers -----------------------------------------------------
 # Wer über einen Würfel etwas wissen will, bekommt IHN - nicht sein Bild: der
@@ -2888,7 +3183,6 @@ func _sync_inspected_die() -> void:
 		return
 	_inspected_die = shown
 	_refresh_dice_trays()
-	_refresh_discard_tray()
 
 ## Zieht die Augenzahlen der Zwingen-Würfel nach (geteilte Instanzen: eine Gravur
 ## ändert den Würfel, nicht seinen Platz).
@@ -3768,6 +4062,899 @@ func _clear_thrown(bodies: Array) -> void:
 			continue
 		remove_child(body)
 		body.queue_free()
+#endregion
+
+#region Die WUERFEL-BUEHNE
+# Das PIT ist ein KREISLAUF. Mit dem Zurren der Runde sinkt das ganze Pool-Tray als
+# TRÄGER auf die Plattform und bleibt dort SICHTBAR stehen - ein ordentliches Raster
+# hinter fast durchsichtigem Glas. Jeder Deck-Eintrag hat EINEN festen Träger-Sitz
+# (Buch-Ordnung wie das Tray); gezogene Würfel hinterlassen LÜCKEN, nichts rückt
+# einzeln nach - und ist die vorderste Pool-Reihe leer, fährt der GANZE Träger eine
+# Reihen-Teilung vor: das Loch steht fest, der Träger bewegt sich darunter.
+# Abgelegte Würfel SCHLUCKT der Tisch an ihrem Liegeplatz in der Wurfgrube (eine
+# würfelgroße Sektion, PIT_SWALLOW) und sammelt sie unsichtbar; je voller Reihe
+# fahren sie EINMAL GEMISCHT von hinten in den Träger ein und LIEGEN dort mit der
+# gemerkten Seite oben, im roten Ablage-Abschnitt hinter dem Teiler.
+# Am Rundenende fährt der Träger schlicht herauf: sein Inhalt IST der neue Pool.
+# Die WARTESCHLANGE fährt je Würfel eine eigene Plattform-Fahrt auf.
+
+## Wie tief eine Würfel-Hebebühne fährt: der schwebende Würfel muß durch sein
+## Öffnungsband passen (Schwebehöhe plus halber Würfel), sonst streift er den Sturz.
+func _tray_shaft_depth() -> float:
+	var top := DiceTrayView.FLOAT_HEIGHT + DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
+	return maxf(VitrineView.shaft_depth(), top * VitrineView.SHAFT_ROOM)
+
+## Und wie tief der SCHLUCK: dort geht ein LIEGENDER Würfel durch, mehr nicht.
+func _swallow_shaft_depth() -> float:
+	var lying := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
+	return maxf(VitrineView.shaft_depth(), lying * VitrineView.SHAFT_ROOM)
+
+## Der Fußabdruck einer Platz-Spanne: ihr Slotraster plus einen halben Platz Saum.
+## Gerechnet aus den SITZEN, nie an Körpern gemessen - wer gerade fährt, steht
+## woanders.
+func _tray_span_field(tray: DiceTrayView, slots: Array) -> Dictionary:
+	if tray == null or slots.is_empty() or tray.slot_roots.is_empty():
+		return {}
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for i: int in slots:
+		if i < 0 or i >= tray.slot_roots.size():
+			continue
+		var at := tray.slot_home_position(i)
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	if lo.x > hi.x:
+		return {}
+	return _field_of(lo, hi)
+
+## Der Grundriß des Vorrats-Platzes - und damit des offenen PITs: das ganze
+## Slotraster des Trays plus Saum, gerechnet vom HEIMAT-Ort. Der Träger rückt
+## darunter vor, das Loch bleibt stehen.
+func _pool_field() -> Dictionary:
+	if pool_tray_view == null or pool_tray_view.slot_roots.is_empty():
+		return {}
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for i in pool_tray_view.slot_roots.size():
+		var at := _pool_tray_home + pool_tray_view.slot_offset(i)
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	return _field_of(lo, hi)
+
+func _field_of(lo: Vector2, hi: Vector2) -> Dictionary:
+	return {
+		"at": Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5),
+		"half": Vector2((hi.x - lo.x) * 0.5 + TRAY_PIT_SEAM.x,
+			(hi.y - lo.y) * 0.5 + TRAY_PIT_SEAM.y),
+	}
+
+## Die Sektion des Vorrats, gestellt und verdrahtet. FLACH (POOL_PARK_DEPTH) und OHNE
+## Schirm - der Vorrat ragt aus dem Pit, ein Glas darüber wäre durchstoßen.
+func _pool_shaft_on(field: Dictionary) -> LiftShaftView:
+	if table_screen == null or field.is_empty():
+		return null
+	if pool_shaft == null or not is_instance_valid(pool_shaft):
+		pool_shaft = LiftShaftView.new("PoolShaft")
+		add_child(pool_shaft)
+		pool_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_POOL, at, hole))
+		pool_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_POOL))
+	pool_shaft.deck_skin = table_screen.display_skin()
+	pool_shaft.order_skin(PIT_SKIN)
+	pool_shaft.setup(field["at"], field["half"], POOL_PARK_DEPTH)
+	return pool_shaft
+
+## Die Maschine EINES Warteschlangen-Platzes - je Platz eine eigene, damit die
+## gestaffelten Fahrten überlappen dürfen (eine Maschine ist ein Loch).
+func _queue_shaft_for(slot: int) -> LiftShaftView:
+	if table_screen == null or queue_tray_view == null \
+			or slot < 0 or slot >= queue_tray_view.slot_roots.size():
+		return null
+	var field := _tray_span_field(queue_tray_view, [slot])
+	if field.is_empty():
+		return null
+	# Nachbar-Löcher berühren sich NIE (die Schwarzmarkt-Regel): der volle Saum
+	# zweier Plätze stößt exakt aneinander, und die Wand einer Maschine ragt über
+	# ihr Loch hinaus - also weicht jedes Loch um Wand plus Fuge zurück. Puck
+	# (r 0,62) und Würfel (0,6) passen durch die verbleibenden 0,74.
+	field["half"] = (field["half"] as Vector2) \
+		- Vector2(0.0, LiftShaftView.WALL + 0.06)
+	while _queue_shafts.size() <= slot:
+		_queue_shafts.append(null)
+	var shaft := _queue_shafts[slot]
+	if shaft == null or not is_instance_valid(shaft):
+		shaft = LiftShaftView.new("QueueShaft%d" % slot)
+		add_child(shaft)
+		var pit := TableScreen.queue_pit(slot)
+		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(pit, at, hole))
+		shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(pit))
+		_queue_shafts[slot] = shaft
+	shaft.deck_skin = table_screen.display_skin()
+	shaft.order_skin(PIT_SKIN)
+	shaft.setup(field["at"], field["half"], _tray_shaft_depth())
+	return shaft
+
+## Die Bahn des SCHLUCKS: ein würfelgroßes Loch, das unter den Liegeplatz des
+## gerade abgehenden Würfels wandert. Drei Bahnen, damit die Staffel überlappt.
+func _swallow_shaft_for(lane: int, at: Vector3) -> LiftShaftView:
+	if table_screen == null:
+		return null
+	while _swallow_shafts.size() < TableScreen.SWALLOW_PIT_COUNT:
+		_swallow_shafts.append(null)
+	var shaft := _swallow_shafts[lane]
+	if shaft == null or not is_instance_valid(shaft):
+		shaft = LiftShaftView.new("SwallowShaft%d" % lane)
+		add_child(shaft)
+		var pit := TableScreen.swallow_pit(lane)
+		shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(pit, spot, hole))
+		shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(pit))
+		_swallow_shafts[lane] = shaft
+	shaft.deck_skin = table_screen.display_skin()
+	shaft.order_skin(PIT_SKIN)
+	shaft.setup(Vector3(at.x, 0.0, at.z), SWALLOW_HALF, _swallow_shaft_depth())
+	return shaft
+
+# --- Der TRÄGER: Sitz-Plan, Park, Reihen-Vorrücken ------------------------------
+
+## Der Heimat-Ort des Trägers, um die schon gefahrenen Reihen versetzt.
+func _carrier_home() -> Vector3:
+	return _pool_tray_home + Vector3(float(_carrier_shift) * DiceTrayView.SPACING.x, 0.0, 0.0)
+
+## Und derselbe Punkt auf der Grubensohle - dort steht er die ganze Runde.
+func _carrier_park() -> Vector3:
+	var at := _carrier_home()
+	if pool_shaft != null and is_instance_valid(pool_shaft):
+		at.y -= pool_shaft.park_y()
+	return at
+
+## Der WELT-Sitz eines Träger-Platzes (Pool-Sitz = Deck-Index, die Ablage hängt
+## dahinter). Gerechnet aus dem Raster, nie am fahrenden Körper gemessen.
+func _carrier_seat(seat: int) -> Vector3:
+	return _carrier_park() + pool_tray_view.slot_offset(seat)
+
+## Der erste Sitz der ABLAGE: gleich hinter dem letzten Pool-Sitz.
+func _ablage_base() -> int:
+	return round_pool_kinds.size()
+
+## Wieviele Träger-Reihen schon leer sind - alles vor dem Warteschlangen-Fenster ist
+## gezogen, und eine Reihe zählt erst, wenn sie GANZ leer ist.
+func _wanted_carrier_shift() -> int:
+	if pool_tray_view == null:
+		return 0
+	return DiceTrayView.rows_before(next_draw_index + _queue_display_capacity(),
+		pool_tray_view.columns)
+
+## Der EINE Schreiber des Träger-STANDES: je Bild gefragt, gefahren nur der
+## Unterschied - und nie, während die Maschine ihn selbst führt. Endzustand zuerst:
+## der Sitz-Plan gilt sofort, gefahren wird bloß der Weg dorthin.
+func _sync_carrier_shift() -> void:
+	if _pool_standing or pool_tray_view == null or _pool_parked_field.is_empty():
+		return
+	if pool_shaft == null or not is_instance_valid(pool_shaft) or pool_shaft.riding():
+		return
+	if _carrier_tween != null and _carrier_tween.is_valid() and _carrier_tween.is_running():
+		return
+	if not _carrier_leaving.is_empty():
+		return  # dort sitzt noch einer und fährt gerade ab - die Reihe ist nicht leer
+	var wanted := _wanted_carrier_shift()
+	if wanted == _carrier_shift:
+		return
+	_carrier_shift = wanted
+	_carrier_tween = create_tween()
+	_carrier_tween.tween_property(pool_tray_view, "global_position", _carrier_park(),
+		CARRIER_SHIFT_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+## Der harte Stand des Trägers - jeder Abbruch geht durch ihn.
+func _seat_carrier_hard() -> void:
+	_stop_stage_tween(_carrier_tween)
+	_carrier_tween = null
+	if pool_tray_view == null:
+		return
+	pool_tray_view.visible = true
+	pool_tray_view.global_position = _pool_tray_home if _pool_standing else _carrier_park()
+
+func _stop_stage_tween(tween: Tween) -> void:
+	if tween != null and tween.is_valid():
+		tween.kill()
+
+## Das Zurren der Runde senkt den Vorrat: das Pool-Tray fährt als bleibendes CARGO
+## der Plattform hinab und steht danach SICHTBAR im offenen Pit, der Schirm darüber.
+## Endzustand zuerst: das Stehen-Bit fällt, bevor die Fahrt läuft.
+func _sink_pool_tray() -> void:
+	if not _pool_standing or pool_tray_view == null or table_screen == null:
+		return
+	# Der Träger braucht seinen ganzen Sitz-Plan, bevor sein Loch daran gemessen wird.
+	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size(), 1))
+	var field := _pool_field()
+	if field.is_empty():
+		return
+	_pool_standing = false
+	_pool_parked_field = field
+	_carrier_shift = 0
+	_tray_stage_gen += 1
+	_refresh_deck_trays()  # ab hier trägt das Tray den Sitz-Plan, nicht die Aufreihung
+	_rebuild_clamp_stages()  # die aufgespannten Würfel sitzen jetzt im Träger
+	# Versenkt spiegelt der Vorrat nicht - sein Bild geisterte sonst über der Fläche.
+	ScreenReflection.set_reflective(pool_tray_view, false)
+	var shaft := _pool_shaft_on(field)
+	if shaft == null:
+		_seat_carrier_hard()
+		return
+	var tween := shaft.run_park([], [], [], [], 0.0, Callable(),
+		[pool_tray_view], [_carrier_home()])
+	if tween == null:
+		shaft.park_hard()
+		_seat_carrier_hard()
+
+## Der EINE Schreiber des PIT-Endzustands: die Grube steht offen auf dem Platz des
+## Vorrats, die Plattform auf Park-Tiefe, das Glas darüber. Je Bild gefragt - ein
+## fremder Aufräum-Pfad schließt sie, und hier steht sie beim nächsten Hinsehen
+## wieder. Eine laufende Fahrt schreibt ihren Zustand selbst.
+func _park_pool_shaft() -> void:
+	if _pool_standing or _pool_parked_field.is_empty():
+		return
+	var shaft := _pool_shaft_on(_pool_parked_field)
+	if shaft == null or shaft.riding():
+		return
+	if not shaft.visible or not is_equal_approx(shaft.platform_y(), -shaft.park_y()):
+		shaft.park_hard()
+	_sync_carrier_shift()
+
+## Die Mitte des Pit-Glases - das Ziel für Licht, das in den Vorrat will, solange
+## der unter dem Tisch steht.
+func _pit_center() -> Vector3:
+	if _pool_parked_field.is_empty():
+		return _pool_tray_home
+	return _pool_parked_field["at"]
+
+## Die Belegung des geparkten Trägers: Platz i IST Deck-Eintrag i. Belegt ab dem
+## Warteschlangen-Fenster, davor Lücken; ein Sitz, dessen Würfel gerade ABFÄHRT,
+## zeigt ihn weiter, bis seine Fahrt steht.
+func _carrier_seats() -> Array[DieDefinition]:
+	var seats: Array[DieDefinition] = []
+	var start := next_draw_index + _queue_display_capacity()
+	for d in round_pool_kinds.size():
+		var def: DieDefinition = round_pool_kinds[d]
+		if def == null or not _tray_shows(def):
+			seats.append(null)
+		elif d < start and not _carrier_leaving.has(d):
+			seats.append(null)
+		else:
+			seats.append(def)
+	return seats
+
+## Der ABGANG eines gezogenen Würfels vom Träger: er sinkt an SEINEM Sitz in die
+## Plattform - Träger-intern, das Loch steht ja offen. Gestaffelt, damit eine Fuhre
+## als Folge einzelner Züge liest.
+func _leave_carrier_seats(seats: Array) -> void:
+	if _pool_standing or pool_tray_view == null:
+		return
+	var generation := _tray_stage_gen
+	var launched := run
+	var step := 0
+	var deep := -DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
+	# Der Abgang TAKTET mit der Staffel, die ihn abholt: derselbe Versatz wie
+	# zwischen den Starts der Warteschlangen-Fahrten, links nach rechts.
+	var gap := QUEUE_RIDE_STAGGER
+	_carrier_sinks = _carrier_sinks.filter(func(t: Tween) -> bool:
+		return t != null and t.is_valid())
+	for seat: int in seats:
+		if seat < 0 or seat >= pool_tray_view.slot_roots.size():
+			continue
+		if not pool_tray_view.slot_roots[seat].visible:
+			continue
+		_carrier_leaving[seat] = true
+		pool_tray_view.set_slot_riding(seat, true)
+		var root := pool_tray_view.slot_roots[seat]
+		var tween := create_tween()
+		tween.tween_interval(float(step) * gap)
+		tween.tween_property(root, "position:y", deep, CARRIER_SINK_TIME) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		tween.tween_callback(func() -> void:
+			_finish_carrier_leave(seat, generation, launched))
+		_carrier_sinks.append(tween)
+		step += 1
+
+func _finish_carrier_leave(seat: int, generation: int, launched: GameRun) -> void:
+	if pool_tray_view == null or seat >= pool_tray_view.slot_roots.size():
+		return
+	_carrier_leaving.erase(seat)
+	pool_tray_view.set_slot_visible(seat, false)
+	pool_tray_view.slot_roots[seat].position.y = DiceTrayView.FLOAT_HEIGHT
+	pool_tray_view.set_slot_riding(seat, false)
+	if generation == _tray_stage_gen and run == launched:
+		_refresh_deck_trays()  # der Schreiber bestätigt die Lücke
+
+## Alle laufenden Abgänge hart beenden - ein getöteter Tween meldet nie fertig.
+func _reset_carrier_leaving() -> void:
+	for tween in _carrier_sinks:
+		_stop_stage_tween(tween)
+	_carrier_sinks.clear()
+	if pool_tray_view != null:
+		for seat: int in _carrier_leaving.keys():
+			if seat < pool_tray_view.slot_roots.size():
+				pool_tray_view.slot_roots[seat].position.y = DiceTrayView.FLOAT_HEIGHT
+				pool_tray_view.set_slot_riding(seat, false)
+	_carrier_leaving.clear()
+
+# --- Der SCHLUCK: der Tisch zieht den abgelegten Würfel an Ort und Stelle ein ----
+
+## Ein abgelegter Würfel verläßt den Tisch dort, wo er LIEGT: eine würfelgroße
+## Sektion öffnet unter ihm, senkt ihn ein und schließt wieder (Hebebühne, kein
+## Flug). Gebucht ist längst (discarded_this_round); gemerkt wird hier die Ablage-
+## ORDNUNG, aus der am Rundenende der neue Pool entsteht.
+## from[i] ist die WELT-Lage des echten Grubenkörpers (Transform3D) oder null - ein
+## Würfel ohne Körper (leerer Slot am Poolende) wandert nur in den Puffer, zu fahren
+## gibt es dort nichts. Geschluckt wird von LINKS nach RECHTS (Welt +Z), und der
+## Doppelgänger steht SOFORT in der Lage des Originals da - der Rufer versteckt es
+## im selben Bild, der Tausch ist unsichtbar.
+func _swallow_dice(defs: Array[DieDefinition], faces: Array[int], from: Array) -> void:
+	var items: Array[Dictionary] = []
+	for i in defs.size():
+		if defs[i] == null:
+			continue
+		items.append({
+			"def": defs[i],
+			"face": faces[i] if i < faces.size() else -1,
+			"at": from[i] if i < from.size() else null,
+		})
+	items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var az: float = (a["at"] as Transform3D).origin.z if a["at"] != null else INF
+		var bz: float = (b["at"] as Transform3D).origin.z if b["at"] != null else INF
+		return az < bz)
+	for item in items:
+		var entry := {"def": item["def"], "face": int(item["face"]), "landed": false}
+		_ablage_buffer.append(entry)
+		var pose: Variant = item["at"]
+		if pose == null or _pool_standing or table_screen == null:
+			entry["landed"] = true
+			continue
+		_swallow_queue.append({
+			"body": _swallow_die_body(item["def"], pose as Transform3D),
+			"seat": (pose as Transform3D).origin,
+			"entry": entry,
+		})
+	_pump_swallow()
+	_flush_ablage_rows()
+
+## Sind noch Schlucke unterwegs oder bestellt?
+func _swallow_busy() -> bool:
+	if not _swallow_queue.is_empty():
+		return true
+	for body in _swallow_bodies:
+		if body != null:
+			return true
+	return false
+
+## Die STAFFEL der Abgänge: drei Bahnen, jede ist eine Maschine mit eigenem Loch.
+## Ein Schub startet seine Fahrten dicht versetzt; danach hält die frei werdende
+## Bahn den Takt von selbst (der Versatz ist Fahrtdauer durch Bahnenzahl).
+func _pump_swallow() -> void:
+	while _swallow_bodies.size() < TableScreen.SWALLOW_PIT_COUNT:
+		_swallow_bodies.append(null)
+	var stagger := LiftShaftView.take_cycle_time() / SWALLOW_SPEED \
+		/ float(TableScreen.SWALLOW_PIT_COUNT)
+	var burst := 0
+	while not _swallow_queue.is_empty():
+		var lane := _swallow_bodies.find(null)
+		if lane == -1:
+			return  # alle Bahnen fahren - die nächste freie pumpt weiter
+		var item: Dictionary = _swallow_queue.pop_front()
+		var body: Node3D = item["body"]
+		var entry: Dictionary = item["entry"]
+		var shaft := _swallow_shaft_for(lane, item["seat"])
+		var tween: Tween = null
+		if shaft != null:
+			tween = shaft.run_take([body], [item["seat"]],
+				float(burst) * stagger * SWALLOW_SPEED)
+		if tween == null:
+			_drop_stage_body(body)
+			entry["landed"] = true
+			_flush_ablage_rows()
+			continue
+		tween.set_speed_scale(SWALLOW_SPEED)
+		burst += 1
+		_swallow_bodies[lane] = body
+		var generation := _tray_stage_gen
+		var launched := run
+		tween.finished.connect(func() -> void:
+			_swallow_bodies[lane] = null
+			_drop_stage_body(body)
+			if generation != _tray_stage_gen or run != launched:
+				return
+			entry["landed"] = true
+			_flush_ablage_rows()
+			_pump_swallow())
+
+## Der Wegwerf-Körper des Schlucks: derselbe Bau wie ein Grubenwürfel, aber ohne
+## Physik - gespawnt in der LAGE des Originals, damit der Tausch unsichtbar ist;
+## er geht so hinunter, wie er lag.
+func _swallow_die_body(def: DieDefinition, pose: Transform3D) -> Node3D:
+	var die := _lying_die_body(def, -1)
+	add_child(die)
+	die.global_transform = Transform3D(pose.basis.orthonormalized(), pose.origin)
+	die.scale = Vector3.ONE * DiceTrayView.DIE_SCALE
+	return die
+
+func _drop_stage_body(body: Node3D) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	body.get_parent().remove_child(body)
+	body.queue_free()
+
+# --- Die ABLAGE: Reihen erscheinen im Träger ------------------------------------
+
+## Volle Reihen erscheinen erst, wenn ihre Würfel wirklich UNTEN sind ("landed",
+## gesetzt von der Schluck-Fahrt) - ein noch fahrender Würfel stünde sonst doppelt
+## im Bild. Der Puffer hält die Schluck-ORDNUNG, gelandet wird auch quer dazu.
+func _flush_ablage_rows() -> void:
+	if pool_tray_view == null or _pool_standing:
+		return
+	var width := pool_tray_view.columns
+	while width > 0 and _row_landed(width):
+		var row: Array = _ablage_buffer.slice(0, width)
+		_ablage_buffer = _ablage_buffer.slice(width, _ablage_buffer.size())
+		_play_ablage_row(row)
+
+## Liegen die vordersten width Einträge des Puffers schon unten?
+func _row_landed(width: int) -> bool:
+	if _ablage_buffer.size() < width:
+		return false
+	for i in width:
+		if not _ablage_buffer[i]["landed"]:
+			return false
+	return true
+
+## Der Halter der Ablage - ein Kind des TRÄGERS, damit sie jede Fahrt mitmacht.
+func _ablage_stage() -> Node3D:
+	if _ablage_root == null or not is_instance_valid(_ablage_root):
+		_ablage_root = Node3D.new()
+		_ablage_root.name = "Ablage"
+		pool_tray_view.add_child(_ablage_root)
+	return _ablage_root
+
+## Ein LIEGENDER Würfel in Tray-Lage: die gemerkte Seite oben, die Ziffer aufrecht.
+func _lying_die_body(def: DieDefinition, face: int) -> Node3D:
+	var die := DieBuilder.build()
+	var pose := Quaternion(Vector3.UP, DiceTrayView.YAW_REST) * DiceTrayView.face_up_pose(face)
+	die.transform = Transform3D(Basis(pose).scaled(Vector3.ONE * DiceTrayView.DIE_SCALE),
+		Vector3.ZERO)
+	var body: RigidBody3D = die.get_node("RigidBody3D")
+	body.freeze = true
+	body.collision_layer = 0
+	body.collision_mask = 0
+	var display: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+	display.apply_definition(def)
+	display.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	return die
+
+## Eine volle Ablage-Reihe erscheint: EINMAL gemischt (die eine Reststreuung der
+## Runde), dann schiebt sie durch das hintere Öffnungsband auf ihre Träger-Sitze.
+## Endzustand zuerst - die Sitze stehen, bevor die Fahrt läuft.
+func _play_ablage_row(items: Array) -> void:
+	if items.is_empty() or pool_tray_view == null or _pool_standing:
+		return
+	var row := DiceTrayView.shuffle_row(items)
+	var lie := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
+	var behind := _ablage_entry_x()
+	var tween := create_tween()
+	tween.set_parallel(true)
+	for k in row.size():
+		var item: Dictionary = row[k]
+		var seat := _ablage_base() + _ablage_seats.size()
+		var body := _lying_die_body(item["def"], int(item["face"]))
+		_ablage_stage().add_child(body)
+		var home := pool_tray_view.slot_offset(seat) + Vector3.UP * lie
+		body.position = Vector3(behind, home.y, home.z)
+		_ablage_seats.append({"def": item["def"], "face": int(item["face"]),
+			"seat": seat, "body": body})
+		tween.tween_property(body, "position", home, ABLAGE_SLIDE_TIME) \
+			.set_trans(Tween.TRANS_LINEAR)
+	_ablage_entering += 1
+	if pool_shaft != null and is_instance_valid(pool_shaft):
+		pool_shaft.run_band(LiftShaftView.BAND_BACK, true)
+	var generation := _tray_stage_gen
+	var launched := run
+	tween.chain().tween_callback(func() -> void:
+		_ablage_entering = maxi(_ablage_entering - 1, 0)
+		if generation != _tray_stage_gen or run != launched:
+			return
+		if _ablage_entering == 0 and pool_shaft != null and is_instance_valid(pool_shaft):
+			pool_shaft.run_band(LiftShaftView.BAND_BACK, false))
+	_sync_ablage_decor()
+
+## Wo eine einfahrende Reihe wartet: im hinteren HOHLRAUM der Maschine, träger-lokal
+## gerechnet - dort ist es dunkel, und das Band gibt den Weg frei.
+func _ablage_entry_x() -> float:
+	if pool_shaft == null or not is_instance_valid(pool_shaft) or _pool_parked_field.is_empty():
+		return 0.0
+	var at: Vector3 = _pool_parked_field["at"]
+	var half: Vector2 = _pool_parked_field["half"]
+	var world := at.x + half.x + LiftShaftView.WALL + pool_shaft.cavity_span() * 0.6
+	return world - _carrier_home().x
+
+## Der Ablage-Abschnitt liest sich als eigener Block: je Reihe eine dunkelrote
+## Leuchtplatte unter den liegenden Würfeln, und davor der TEILER - ein heller Steg
+## quer über den Träger. Ganz neu gebaut, nie geflickt (höchstens sechs Platten).
+func _sync_ablage_decor() -> void:
+	if pool_tray_view == null:
+		return
+	var stage := _ablage_stage()
+	for child in stage.get_children():
+		if child.name.begins_with("Ablagestreifen") or child.name == "Teiler":
+			stage.remove_child(child)
+			child.queue_free()
+	if _ablage_seats.is_empty():
+		return
+	var width := maxi(pool_tray_view.columns, 1)
+	var base := _ablage_base()
+	var rows := int(ceil(float(_ablage_seats.size()) / float(width)))
+	var span := Vector3(DiceTrayView.SPACING.x * 0.86, 0.03,
+		float(width) * DiceTrayView.SPACING.y)
+	for r in rows:
+		var at := pool_tray_view.slot_offset(base + r * width)
+		_stage_plate("Ablagestreifen%d" % r, stage, span,
+			Vector3(at.x, 0.02, 0.0), ABLAGE_TINT, 1.4)
+	var edge := pool_tray_view.slot_offset(base).x + DiceTrayView.SPACING.x * 0.5
+	_stage_plate("Teiler", stage,
+		Vector3(DiceTrayView.SPACING.x * 0.12, 0.05, span.z),
+		Vector3(edge, 0.03, 0.0), LiftShaftView.GLOW_COLOR, 2.2)
+
+func _stage_plate(plate_name: String, parent: Node3D, span: Vector3, at: Vector3,
+		tint: Color, energy: float) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = span
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(tint.r * 0.4, tint.g * 0.4, tint.b * 0.4, 1.0)
+	material.metallic = 0.0
+	material.roughness = 0.5
+	material.emission_enabled = true
+	material.emission = Color(tint.r, tint.g, tint.b, 1.0)
+	material.emission_energy_multiplier = energy
+	var plate := MeshInstance3D.new()
+	plate.name = plate_name
+	plate.mesh = mesh
+	plate.material_override = material
+	plate.position = at
+	plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(plate)
+
+## Die Ablage fort - der EINE Aufräum-Pfad ihrer Körper.
+func _reset_ablage_hard() -> void:
+	_ablage_seats.clear()
+	_ablage_buffer.clear()
+	_ablage_entering = 0
+	if _ablage_root != null and is_instance_valid(_ablage_root):
+		_ablage_root.get_parent().remove_child(_ablage_root)
+		_ablage_root.queue_free()
+	_ablage_root = null
+
+# --- Die Warteschlange fährt je Würfel eine eigene Plattform auf ----------------
+
+## Der EINE Schreiber der Warteschlangen-Bühne. Er vergleicht die gewollte Belegung
+## mit der stehenden und fährt NUR den Unterschied: die Reihe tritt als Ganzes auf
+## (ein Auftritt), danach fährt je nachgerücktem Würfel eine EIGENE Sektion.
+## Endzustand zuerst, also startet ein Re-Sync mitten in der Fahrt nichts neu.
+func _sync_queue_stage(delay := 0.0) -> void:
+	if queue_tray_view == null or table_screen == null:
+		return
+	var count := queue_tray_view.slot_roots.size()
+	while _queue_dice_up.size() < count:
+		_queue_dice_up.append(false)
+	if not (queue_activated and _is_playing()):
+		if _queue_staged:
+			_lower_queue_row()
+		return
+	if not _queue_staged:
+		_raise_queue_row(delay)
+		return
+	var wanted: Array[bool] = []
+	for i in count:
+		wanted.append(queue_tray_view.slot_defs[i] != null)
+	var enter := DiceTrayView.stage_entering(wanted, _queue_dice_up)
+	for i in count:
+		# Den hat die Wurf-Zeremonie getragen - die Bühne holt ihn nicht nach.
+		if not wanted[i]:
+			_queue_dice_up[i] = false
+	if not enter.is_empty():
+		_run_queue_swap(enter, delay)
+
+## Der AUFTRITT der ganzen Reihe: je Platz fährt SEINE Maschine, dicht gestaffelt
+## von links nach rechts - EIN Auftritt in sechs Löchern.
+func _raise_queue_row(delay: float) -> void:
+	_stop_queue_rides()
+	_queue_staged = true
+	for i in queue_tray_view.slot_roots.size():
+		queue_tray_view.set_slot_staged(i, true)
+		_queue_dice_up[i] = queue_tray_view.slot_defs[i] != null
+		var bodies: Array = [queue_tray_view.slot_emitter(i)]
+		var seats: Array = [queue_tray_view.slot_home_position(i)]
+		if _queue_dice_up[i]:
+			bodies.append(queue_tray_view.slot_roots[i])
+			seats.append(queue_tray_view.slot_home_position(i, true))
+		_start_queue_ride(i, bodies, seats, [], [],
+			delay + float(i) * QUEUE_RIDE_STAGGER)
+
+## Das AUFFÜLLEN fährt je Würfel SEINE eigene Maschine: dicht gestaffelt von links
+## nach rechts, die Fahrten überlappen. Der Puck sinkt als MITFAHRER mit der Platte
+## und kommt beladen zurück. Endzustand zuerst: die Belegung steht sofort.
+func _run_queue_swap(enter: Array, delay: float) -> void:
+	for k in enter.size():
+		var i: int = enter[k]
+		_queue_dice_up[i] = true
+		queue_tray_view.set_slot_staged(i, true)  # der Puck steht, er ist längst oben
+		_seat_queue_body_below(i)
+		_start_queue_ride(i, [queue_tray_view.slot_roots[i]],
+			[queue_tray_view.slot_home_position(i, true)],
+			[queue_tray_view.slot_emitter(i)],
+			[queue_tray_view.slot_home_position(i)],
+			delay + float(k) * QUEUE_RIDE_STAGGER)
+
+## Ein Platz, der noch auf SEINE Fahrt wartet, hält seinen Würfel UNTER der Fläche:
+## oben stünde er, bevor die Plattform ihn gebracht hat - und sein Zwilling fährt
+## gerade erst vom Träger ab (ein Würfel wird nie zweimal gezeigt).
+func _seat_queue_body_below(index: int) -> void:
+	queue_tray_view.slot_roots[index].global_position = \
+		queue_tray_view.slot_home_position(index, true) \
+		- Vector3.UP * (_tray_shaft_depth() + DiceTrayView.FLOAT_HEIGHT)
+	_set_queue_slot_reflective(index, false)  # steht unter der Fläche - nicht spiegeln
+
+## EINE Einzel-Fahrt: doppelt schnell (set_speed_scale halbiert die GANZE Fahrt,
+## der Vorlauf reist im Tween mit und wird darum vorgeteilt). Fällt die Maschine
+## aus, steht der Platz sofort hart auf seinem Sitz.
+func _start_queue_ride(slot: int, bodies: Array, seats: Array, riders: Array,
+		rider_seats: Array, real_delay: float) -> void:
+	queue_tray_view.set_slot_riding(slot, true)
+	_set_queue_slot_reflective(slot, false)  # fährt unter der Fläche - nicht spiegeln
+	var shaft := _queue_shaft_for(slot)
+	var tween: Tween = null
+	if shaft != null:
+		tween = shaft.run_cycle(bodies, seats, real_delay * QUEUE_RIDE_SPEED,
+			riders, rider_seats)
+	if tween == null:
+		_seat_queue_body_hard(slot)
+		return
+	tween.set_speed_scale(QUEUE_RIDE_SPEED)
+	_queue_ride_slots[slot] = true
+	var generation := _tray_stage_gen
+	var launched := run
+	tween.finished.connect(func() -> void:
+		_queue_ride_slots.erase(slot)
+		if generation != _tray_stage_gen or run != launched:
+			return
+		queue_tray_view.set_slot_riding(slot, false)
+		_set_queue_slot_reflective(slot, true))  # oben angekommen - wieder spiegeln
+
+## Ein Warteschlangen-Platz spiegelt sich nur, wenn er ÜBER der Fläche steht - unter
+## dem Tisch geisterte sein Spiegelbild sonst als Reflexion durch die Anzeige
+## (Spieler-Entscheid 2026-08-31). Würfel UND Puck, denn beide fahren mit.
+func _set_queue_slot_reflective(index: int, on: bool) -> void:
+	if queue_tray_view == null or index < 0 \
+			or index >= queue_tray_view.slot_roots.size():
+		return
+	ScreenReflection.set_reflective(queue_tray_view.slot_roots[index], on)
+	ScreenReflection.set_reflective(queue_tray_view.slot_emitter(index), on)
+
+## Ein Platz, dessen Fahrt ausfällt oder abbricht, steht sofort auf seinem Sitz -
+## ein Würfel, der unter der Fläche vergessen wird, ist der schlimmste Rest. Der
+## Puck fährt bei Auftritt und Auffüllen mit, also sitzt auch er hart.
+func _seat_queue_body_hard(index: int) -> void:
+	if queue_tray_view == null or index < 0 \
+			or index >= queue_tray_view.slot_roots.size():
+		return
+	queue_tray_view.slot_roots[index].global_position = \
+		queue_tray_view.slot_home_position(index, true)
+	queue_tray_view.slot_emitter(index).global_position = \
+		queue_tray_view.slot_home_position(index)
+	queue_tray_view.set_slot_riding(index, false)
+	_set_queue_slot_reflective(index, true)  # steht auf seinem Sitz - wieder spiegeln
+
+## Alle laufenden Einzel-Fahrten abbrechen: ein getöteter Tween meldet nie fertig,
+## also settlet der Abbrecher jede beteiligte Maschine und setzt ihren Platz hart.
+func _stop_queue_rides() -> void:
+	for slot: int in _queue_ride_slots.keys():
+		if slot < _queue_shafts.size() and _queue_shafts[slot] != null \
+				and is_instance_valid(_queue_shafts[slot]):
+			_queue_shafts[slot].settle_hard()
+		_seat_queue_body_hard(slot)
+	_queue_ride_slots.clear()
+
+## Der ABGANG der Reihe: alles Stehende (Pucks und Restwürfel) geht per Plattform ab -
+## je Platz seine Maschine, dicht gestaffelt von links nach rechts. Zurück kommt der
+## Tween der LETZTEN Fahrt: wer auf ihn wartet, hat alle gesehen.
+func _lower_queue_row(delay := 0.0) -> Tween:
+	if not _queue_staged or queue_tray_view == null:
+		return null
+	_stop_queue_rides()
+	_queue_staged = false
+	var last: Tween = null
+	for i in queue_tray_view.slot_roots.size():
+		var bodies: Array = [queue_tray_view.slot_emitter(i)]
+		var seats: Array = [queue_tray_view.slot_home_position(i)]
+		if i < _queue_dice_up.size() and _queue_dice_up[i]:
+			bodies.append(queue_tray_view.slot_roots[i])
+			seats.append(queue_tray_view.slot_home_position(i, true))
+		_queue_dice_up[i] = false
+		_set_queue_slot_reflective(i, false)  # sinkt unter die Fläche - nicht spiegeln
+		var slot := i  # je Lambda sein eigener Wert
+		var shaft := _queue_shaft_for(i)
+		var tween: Tween = null
+		if shaft != null:
+			tween = shaft.run_exit(bodies, seats,
+				(delay + float(i) * QUEUE_RIDE_STAGGER) * QUEUE_RIDE_SPEED,
+				func() -> void: _sweep_queue_slot(slot))
+		if tween == null:
+			_seat_queue_body_hard(i)
+			queue_tray_view.set_slot_staged(i, false)
+			continue
+		tween.set_speed_scale(QUEUE_RIDE_SPEED)
+		queue_tray_view.set_slot_riding(i, true)
+		_queue_ride_slots[i] = true
+		tween.finished.connect(func() -> void:
+			_queue_ride_slots.erase(slot))
+		last = tween
+	return last
+
+## Der Sweep EINES abgehenden Platzes: seine Körper sind unten hinaus, er steht
+## wieder (unsichtbar) auf seinem Sitz und gehört dem Schwebe-Takt.
+func _sweep_queue_slot(slot: int) -> void:
+	if queue_tray_view == null or slot < 0 \
+			or slot >= queue_tray_view.slot_roots.size():
+		return
+	_seat_queue_body_hard(slot)
+	queue_tray_view.set_slot_staged(slot, false)
+
+## Der harte Schreiber der Reihe: jeder Platz steht (oder eben nicht), auf seinem
+## Sitz, ohne Fahrt. Jeder Abbruch geht durch ihn.
+func _stage_queue_row_hard(up: bool) -> void:
+	if queue_tray_view == null:
+		return
+	for i in queue_tray_view.slot_roots.size():
+		queue_tray_view.set_slot_riding(i, false)
+		queue_tray_view.slot_emitter(i).global_position = \
+			queue_tray_view.slot_home_position(i)
+		queue_tray_view.slot_roots[i].global_position = \
+			queue_tray_view.slot_home_position(i, true)
+		queue_tray_view.set_slot_staged(i, up)
+		_set_queue_slot_reflective(i, true)  # steht auf seinem Sitz über der Fläche
+
+## Die Warteschlange rückt IN der Fläche auf (das Gleiten der Ghosts): die Belegung
+## wandert mit, ihr Schwanz wird frei - dort fährt gleich je Würfel eine Plattform.
+func _shift_queue_occupancy(shift: int) -> void:
+	if shift <= 0:
+		return
+	var count := _queue_dice_up.size()
+	for i in count:
+		_queue_dice_up[i] = i + shift < count and _queue_dice_up[i + shift]
+
+## Welche Träger-Sitze ein Zug geleert hat: das Warteschlangen-Fenster ist um die
+## gezogenen Würfel weitergerückt, also verlassen genau diese Sitze den Vorrat.
+func _drawn_carrier_seats(before: int) -> Array[int]:
+	var seats: Array[int] = []
+	var window := _queue_display_capacity()
+	for d in range(before + window, next_draw_index + window):
+		if d >= 0 and d < round_pool_kinds.size():
+			seats.append(d)
+	return seats
+
+# --- Das Rundenende: der Pit-Inhalt IST der neue Pool ---------------------------
+
+## Erst wenn der letzte Schluck liegt, fährt die letzte TEIL-Reihe ein - sonst
+## erschiene im Pit ein Würfel, den der Tisch noch schluckt. Gewartet wird per
+## Polling mit Lauf-Wache: ein Reset darf nicht auf ein Signal warten, das nie kommt.
+func _flush_ablage_tail(generation: int, launched: GameRun) -> void:
+	while _swallow_busy():
+		await get_tree().process_frame
+		if generation != _tray_stage_gen or run != launched:
+			return
+	if not _ablage_buffer.is_empty():
+		var rest := _ablage_buffer.duplicate()
+		_ablage_buffer.clear()
+		_play_ablage_row(rest)
+	while _ablage_entering > 0:
+		await get_tree().process_frame
+		if generation != _tray_stage_gen or run != launched:
+			return
+
+## Der KREISLAUF: was im Pit steht, IST der neue Pool - [Warteschlangen-Rest]
+## [ungezogener Rest][Ablage], alles in Pit-Ordnung. Gemischt wurde nur jede
+## Ablage-Reihe, EINMAL, beim Erscheinen.
+func _reorder_pool_from_pit() -> void:
+	if run == null:
+		return
+	var order: Array[DieDefinition] = []
+	order.assign(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+	for item: Dictionary in _ablage_seats:
+		order.append(item["def"])
+	run.reorder_pool_full(order)
+
+## Das Rundenende ist ein VIER-Schlag: die letzte Ablage-Reihe fährt ein, die
+## Warteschlange geht ab, der Pit-Inhalt wird zum neuen Pool - und dann hebt die
+## Plattform den Träger schlicht herauf. Kein blindes Glas, kein Tausch dahinter.
+## Fire-and-forget mit Lauf- und Generationsmarke; jeder Abbruch landet hart.
+func _play_tray_return() -> void:
+	var generation := _tray_stage_gen
+	var launched := run
+	await _flush_ablage_tail(generation, launched)
+	if generation != _tray_stage_gen or run != launched:
+		return
+	var exit := _lower_queue_row()
+	if exit != null:
+		await exit.finished
+		if generation != _tray_stage_gen or run != launched:
+			return
+	if _pool_standing or pool_shaft == null or not is_instance_valid(pool_shaft):
+		_stand_pool_tray_hard()
+		return
+	_reorder_pool_from_pit()
+	# Der Träger steht ab hier auf seinem Heimat-Sitz und trägt den neuen Pool in
+	# BUCH-Ordnung: die Reihenfolge bleibt, nur das Raster normalisiert sich (die
+	# liegende Ablage steigt in den Schwebe-Stand). Dann hebt ihn die Plattform.
+	_reset_ablage_hard()
+	_reset_carrier_leaving()
+	_carrier_shift = 0
+	_stop_stage_tween(_carrier_tween)
+	_carrier_tween = null
+	_pool_standing = true
+	pool_tray_view.visible = true
+	pool_tray_view.global_position = _pool_tray_home - Vector3.UP * pool_shaft.park_y()
+	_refresh_dice_trays()
+	var rise := pool_shaft.run_rise([pool_tray_view], [_pool_tray_home], 0.0)
+	if rise == null:
+		_stand_pool_tray_hard()
+		return
+	await rise.finished
+	if generation != _tray_stage_gen or run != launched:
+		return
+	_stand_pool_tray_hard()
+
+## Der harte Endzustand des Vorrats: das Tray steht gefüllt auf seinem Platz, die
+## Grube ist zu, die Ablage fort.
+func _stand_pool_tray_hard() -> void:
+	_pool_standing = true
+	_pool_parked_field = {}
+	_carrier_shift = 0
+	_reset_ablage_hard()
+	_reset_carrier_leaving()
+	_seat_carrier_hard()
+	if pool_shaft != null and is_instance_valid(pool_shaft):
+		pool_shaft.settle_hard()
+	# Wieder oben: die Aufspannung liegt jetzt sichtbar im Pool (Ort == POOL), die Bank
+	# steht leer, bis der Spieler die Werkstatt öffnet oder den Laden schließt.
+	if run != null:
+		_refresh_dice_trays()
+		_rebuild_clamp_stages()
+	# Der Vorrat spiegelt wieder - NACH dem Auffüllen, damit neu gebaute Slots die
+	# Marke bekommen (ensure_capacity baut den Würfelkörper frisch).
+	if pool_tray_view != null:
+		ScreenReflection.set_reflective(pool_tray_view, true)
+
+## Der EINE harte Aufräum-Pfad der ganzen Bühne: Ablage fort, Puffer leer, alle drei
+## Maschinen bündig, alle Löcher zu, das Pool-Tray steht und die Warteschlange ist
+## fort. Laufwechsel, Rundenstart und jeder Abbruch gehen durch ihn.
+func _reset_tray_stage_hard() -> void:
+	_tray_stage_gen += 1
+	for item: Dictionary in _swallow_queue:
+		_drop_stage_body(item.get("body"))
+	_swallow_queue.clear()
+	for lane in _swallow_bodies.size():
+		_drop_stage_body(_swallow_bodies[lane])
+		_swallow_bodies[lane] = null
+	for shaft in _swallow_shafts + _queue_shafts:
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()
+	_stop_queue_rides()
+	_queue_staged = false
+	for i in _queue_dice_up.size():
+		_queue_dice_up[i] = false
+	_stage_queue_row_hard(false)
+	_reset_clamp_migration_hard()  # jede laufende Wander-Fahrt hart beenden
+	_stand_pool_tray_hard()
 #endregion
 
 # --- Der WETT-TRESEN ------------------------------------------------------------
@@ -6536,7 +7723,8 @@ func _handle_reorder_input(event: InputEvent) -> void:
 ## Erst der Weg entscheidet: gezogen wird umgelegt, bloß getippt geht das Dossier
 ## des Würfels auf.
 func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
-	if run == null or _dice_editing_locked():
+	# Und nur, solange das Tray überhaupt STEHT - versenkt gibt es nichts zu greifen.
+	if run == null or _dice_editing_locked() or not _pool_standing:
 		return false
 	# Nur dort, wo das Tray die lokale Bühne ist (und in der Freikamera): aus der
 	# ruhenden Übersicht muss der Druck zu den Zoom-Zonen durchfallen, sonst frisst
@@ -6580,22 +7768,6 @@ func _handle_tray_drag_input(event: InputEvent) -> void:
 		var tapped: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
 		_end_tray_drag()
 		_open_die_dossier(tapped)
-
-## Tippen auf einen Ablage-Würfel öffnet sein Dossier. In der Ablage wird nichts
-## umgelegt, es braucht also keine Zieh-Geste. Nur dort, wo das Tray die lokale
-## Bühne ist - aus der ruhenden Übersicht muss der Klick zur Zoom-Zone durchfallen.
-func _try_inspect_discard_die(screen_pos: Vector2) -> bool:
-	if run == null or (not _felt_pick_live(CameraRig.Mode.WORKSHOP)
-			and not _felt_pick_live(CameraRig.Mode.DISCARD)):
-		return false
-	var result := _ray_pick(screen_pos, DiceTrayView.SLOT_PICK_LAYER)
-	if result.is_empty():
-		return false
-	var index: int = discard_tray_view.find_slot_index(result.collider)
-	if index < 0 or index >= discard_tray_view.slot_defs.size():
-		return false
-	_open_die_dossier(discard_tray_view.slot_defs[index])
-	return true
 
 ## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
 func _pool_tray_slot_at(screen_pos: Vector2) -> int:
@@ -7243,8 +8415,6 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.PIT
 	elif collider == pool_tray_view.click_zone or collider == queue_tray_view.click_zone:
 		station = CameraRig.Mode.POOL
-	elif collider == discard_tray_view.click_zone:
-		station = CameraRig.Mode.DISCARD
 	elif collider == combos_click_zone:
 		station = CameraRig.Mode.COMBOS
 	elif collider == charms_click_zone:
@@ -7385,6 +8555,7 @@ func _process(delta: float) -> void:
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
+	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
 
 ## Netz des überfahrenen Tray-Würfels auf dem Werkstatt-Schirm. Der Zeiger liegt
 ## auf dem Tisch, nicht im SubViewport - also wird je Frame gepickt, wie beim
@@ -7806,12 +8977,10 @@ func _can_toggle_selection() -> bool:
 func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 	return round_committed and phase != Phase.SHOP
 
-## Zieht die Sperre der Werkbank nach (Unterschrift/erster Wurf) - und mit ihr den
-## Tray-Besuch der Zwingen, der an derselben Sperre hängt.
+## Zieht die Sperre der Werkbank nach (Unterschrift/erster Wurf).
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
-	_sync_clamps_visit()
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -8216,19 +9385,33 @@ func _draw_one() -> DieDefinition:
 	next_draw_index += 1
 	return def
 
-## Schickt einen gebrauchten Würfel ins Ablage-Tray (gemerkt für die Phönixfeder).
-## face ist die Seite, mit der er abgelegt wurde - das Tray zeigt genau sie, und
-## das Fuchsfeuer zählt ihre Augen.
+## Merkt einen gebrauchten Würfel für die Runde (Phönixfeder, Fuchsfeuer, Alkahest).
+## face ist die Seite, mit der er abgelegt wurde - das Fuchsfeuer zählt ihre Augen.
+## Diese Liste ist die EINE Wahrheit der Wertung; die ABLAGE im Pit führt dieselben
+## Würfel in ihrer eigenen (reihenweise gemischten) Ordnung.
 func _discard_kind(def: DieDefinition, face: int) -> void:
 	discarded_this_round.append(def)
 	discarded_faces_this_round.append(face)
-	if _tray_shows(def):
-		discard_tray_view.add_die(def, face)
 
-## Legt die ganze liegende Grube ab - je Würfel mit der Seite, die oben lag.
+## Legt die ganze liegende Grube ab - je Würfel mit der Seite, die oben lag; der
+## Tisch SCHLUCKT ihn an seinem Liegeplatz und er verschwindet aus der Grube (ein
+## Würfel wird nie zweimal gezeigt). Auch ein Würfel ohne Körper wandert mit: die
+## Ablage muss jeden abgelegten Würfel führen, sonst fehlt er im neuen Pool.
 func _discard_pit() -> void:
+	var defs: Array[DieDefinition] = []
+	var faces: Array[int] = []
+	var from: Array = []
 	for i in active_kinds.size():
-		_discard_kind(active_kinds[i], dice.face_indices[i] if i < dice.face_indices.size() else -1)
+		var face: int = dice.face_indices[i] if i < dice.face_indices.size() else -1
+		_discard_kind(active_kinds[i], face)
+		defs.append(active_kinds[i])
+		faces.append(face)
+		if i < dice.count() and dice.roots[i].visible:
+			from.append(dice.bodies[i].global_transform)
+			dice.roots[i].visible = false
+		else:
+			from.append(null)
+	_swallow_dice(defs, faces, from)
 
 ## Wie viele Warteschlangen-Würfel der nächste Wurf tatsächlich zieht: vor dem
 ## ersten Wurf HAND_SIZE, danach so viele, wie ungeschützte Slots neu geworfen
@@ -8252,9 +9435,17 @@ func _refresh_deck_trays() -> void:
 	queue_window_size = min(_queue_display_capacity(), _remaining_in_pool())
 	var queue_defs := round_pool_kinds.slice(next_draw_index, next_draw_index + queue_window_size)
 	queue_tray_view.fill(queue_defs)  # leer, solange nicht aktiviert
-	var seats := _tray_holes(_pool_tray_source())
-	pool_tray_view.ensure_capacity(seats.size())  # Lücken belegen ihren Platz mit
-	pool_tray_view.fill(seats)
+	_sync_queue_stage()  # und die Plätze fahren auf, was der Pool hergibt
+	if _pool_standing:
+		var seats := _tray_holes(_pool_tray_source())
+		pool_tray_view.ensure_capacity(seats.size())  # Lücken belegen ihren Platz mit
+		pool_tray_view.fill(seats)
+		return
+	# Geparkt trägt das Tray den SITZ-PLAN: Platz i IST Deck-Eintrag i, gezogene
+	# hinterlassen Lücken - nichts rückt einzeln nach, nur der ganze Träger.
+	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size(), 1))
+	pool_tray_view.fill(_carrier_seats())
+	_sync_carrier_shift()
 
 ## Die Belegung des Pool-Trays MIT allen Würfeln - auch denen, deren Körper
 ## gerade woanders steht. Im Laden ist die Runde vorbei und der ganze Vorrat
@@ -8267,26 +9458,14 @@ func _pool_tray_source() -> Array[DieDefinition]:
 	var pool_start := next_draw_index + _queue_display_capacity()
 	return round_pool_kinds.slice(pool_start, round_pool_kinds.size())
 
-## Zeigt ein Bank-Tray den Körper dieses Würfels? Ein aufgespannter steht auf der
-## Werkbank, ein gezeigter im Dossier - daneben im Tray wäre er ein zweiter Leib.
-## Die Regel selbst wohnt bei der Sitzordnung (DiceTrayView.seat_shows): im
-## Dossier sind die Zwingen von der Bank abgetreten, also füllen sich ihre Sitze.
-## REINE Anzeige: gezogen, geworfen und gewertet wird er wie jeder andere, und die
-## Warteschlange (Grube) zeigt ihn weiter.
+## Zeigt ein Bank-Tray den Körper dieses Würfels? Ein aufgespannter WÜRFEL LIEGT im
+## Pool, bis er zur Bank wandert; auf der Bank ist sein Sitz leer (der Ort-Zustand
+## _clamp_on_bench). Ein gezeigter Dossier-Würfel steht über der Seite - daneben im
+## Tray wäre er ein zweiter Leib. REINE Anzeige: gezogen, geworfen und gewertet wird
+## er wie jeder andere, und die Warteschlange (Grube) zeigt ihn weiter.
 func _tray_shows(def: DieDefinition) -> bool:
-	# Ein Würfel fehlt im Tray genau dann, wenn die Bank ihn beansprucht - die
-	# Werkbank selbst gibt darüber Auskunft (clamps_on_bench: nicht im Paket, nicht
-	# im Dossier). Der Sitz bleibt auch dann leer, wenn der Körper gerade in der
-	# Grube liegt: die Zwinge behält ihn, sie zeigt ihn nur nicht doppelt.
-	var clamped: Array[DieDefinition] = []
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if run != null and workshop != null and is_instance_valid(workshop) \
-			and workshop.clamps_on_bench():
-		clamped = run.clamped_dice
-	# In der Pool-Sicht sind die Zwingen zu Gast - außer bei dem, dessen Körper
-	# gerade in der Grube liegt: der Besuch gilt je Würfel.
-	var visiting := _clamps_visit_tray() and not _clamp_pit_conflicts.has(def)
-	return DiceTrayView.seat_shows(def, clamped, _inspected_die, visiting)
+	var on_bench := run != null and run.is_clamped(def) and _clamp_on_bench.has(def)
+	return DiceTrayView.seat_shows(def, _inspected_die, on_bench)
 
 ## Dieselbe Liste mit LÜCKEN statt Auslassungen: der Platz eines abwesenden
 ## Würfels bleibt leer, alle anderen behalten ihren Sitz. Nur so bleibt Platz i
@@ -8300,24 +9479,20 @@ func _tray_holes(defs: Array[DieDefinition]) -> Array[DieDefinition]:
 ## Die Aufspannung hat sich geändert (Rundenbeginn, Hub-Ausbau): die Trays
 ## verlieren die frisch eingespannten Würfel und bekommen heimgekehrte zurück.
 func _on_clamped_changed() -> void:
+	# Eine frische Aufspannung LIEGT im Pool: der Ort-Zustand fällt zurück und jede
+	# noch laufende Fahrt der alten Aufspannung wird hart beendet.
+	_reset_clamp_locations()
+	_reset_clamp_migration_hard()
+	_rebuild_clamp_stages()
 	_refresh_dice_trays()
-	_refresh_discard_tray()
 
-## Das Ablage-Tray neu füllen - es kennt nur add_die, hat also keine eigene
-## Quelle: die Runden-Ablage ist sie.
-func _refresh_discard_tray() -> void:
-	if phase == Phase.SHOP:
-		return  # dort ist die Ablage leer, der ganze Vorrat liegt im Pool-Tray
-	discard_tray_view.clear()
-	for i in discarded_this_round.size():
-		if _tray_shows(discarded_this_round[i]):
-			discard_tray_view.add_die(discarded_this_round[i], discarded_faces_this_round[i])
-
-## Shop-Eröffnung: der ganze Bestand ruht sichtbar im Pool-Tray, Warteschlange
-## und Ablage sind leer - die Runde ist vorbei, es wird nicht mehr gezogen.
+## Shop-Eröffnung: der ganze Bestand ruht sichtbar im Pool-Tray und die
+## Warteschlange ist leer - die Runde ist vorbei, es wird nicht mehr gezogen.
 func _return_dice_to_pool_tray() -> void:
 	queue_tray_view.clear()
-	discard_tray_view.clear()
+	_sync_queue_stage()
+	if not _pool_standing:
+		return  # der Vorrat fährt gerade erst herauf (siehe _play_tray_return)
 	pool_tray_view.ensure_capacity(run.owned_pool.size())
 	pool_tray_view.fill(_tray_holes(_pool_tray_source()))
 
@@ -8356,16 +9531,28 @@ func _animate_deck_shift(shift: int) -> void:
 	_cancel_deck_shift()
 	var old_cursor := next_draw_index - shift
 	queue_tray_view.clear()
-	pool_tray_view.clear()
+	# Der geparkte Träger rührt sich nicht: dort ist der Sitz FEST, und geleert wird
+	# ein Platz von seiner eigenen Abfahrt (_leave_carrier_seats).
+	if _pool_standing:
+		pool_tray_view.clear()
 	deck_shift_tween = create_tween()
 	deck_shift_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	deck_shift_tween.set_parallel(true)
+	var cap := _queue_display_capacity()
 	for deck_index in range(next_draw_index, round_pool_kinds.size()):
-		# Ein abwesender Würfel (aufgespannt, im Dossier) hat im Pool-Tray keinen
-		# Körper, der aufrücken könnte - nur eine Lücke. In der Warteschlange schon.
-		if deck_index - next_draw_index >= _queue_display_capacity() \
-				and not _tray_shows(round_pool_kinds[deck_index]):
+		var new_offset := deck_index - next_draw_index
+		var old_offset := deck_index - old_cursor
+		if new_offset >= cap:
+			# Bleibt im Pool-Bereich: ein abwesender Würfel (aufgespannt, im Dossier)
+			# hat keinen Körper, der aufrücken könnte, und im versenkten Vorrat rückt
+			# sichtbar gar nichts auf.
+			if not _pool_standing or not _tray_shows(round_pool_kinds[deck_index]):
+				continue
+		elif old_offset >= cap:
+			# Kommt NEU aus dem versenkten Vorrat in die Warteschlange - der fährt per
+			# Plattform hoch (_sync_queue_stage), nicht als Gleiter über den Tisch.
 			continue
+		# Ansonsten Umsortieren INNERHALB der Warteschlange: das gleitet an der Fläche.
 		var ghost := _spawn_deck_ghost(round_pool_kinds[deck_index])
 		ghost.global_position = _deck_slot_position(deck_index, old_cursor)
 		deck_shift_ghosts.append(ghost)
@@ -8419,26 +9606,20 @@ func _on_throw_button_pressed() -> void:
 		fly_positions.append(queue_tray_view.slot_global_position(i))
 		fly_defs.append(queue_tray_view.slot_defs[i])
 
-	# Ersetzte (ungeschützte) Würfel fliegen gleichzeitig Richtung Ablage-Tray.
-	var discard_from: Array[Vector3] = []
+	# Ersetzte (ungeschützte) Würfel schluckt der Tisch an ihrem Liegeplatz.
+	var discard_from: Array = []  # je Würfel seine WELT-Lage (Transform3D)
 	var discard_defs: Array[DieDefinition] = []
 	var discard_faces: Array[int] = []
-	var discard_to: Array[Vector3] = []
 	if has_rolled_current_hand:
-		var next_free := discard_tray_view.next_free_index
 		for i in dice.count():
 			# Nur was wirklich in der Grube liegt, wandert ab - leere Slots (Rest-
 			# Pool) haben keinen Würfel, den sie ablegen könnten.
 			if dice.selected[i] or not dice.roots[i].visible:
 				continue
-			if next_free >= discard_tray_view.slot_roots.size():
-				break
-			discard_from.append(dice.bodies[i].global_position)
+			discard_from.append(dice.bodies[i].global_transform)
 			discard_defs.append(active_kinds[i])
 			discard_faces.append(dice.face_indices[i])
-			discard_to.append(discard_tray_view.slot_global_position(next_free))
 			dice.roots[i].visible = false
-			next_free += 1
 
 	# Geschützte Würfel gleiten an den oberen Grubenrand, statt zwischen den
 	# frisch geworfenen unterzugehen.
@@ -8506,9 +9687,14 @@ func _on_throw_button_pressed() -> void:
 			full_reroll_stacks += 1
 		_update_charm_badges()
 	last_thrown_slots = thrown_indices.duplicate()
+	# Die Warteschlange rückt IN der Fläche auf, ihr Schwanz wird frei - und vom
+	# Träger fährt je gezogenem Würfel eine eigene Plattform ab. Beides VOR dem
+	# Gleiten: danach kennt der Schreiber die Lücken.
+	_shift_queue_occupancy(next_draw_index - cursor_before_draw)
+	_leave_carrier_seats(_drawn_carrier_seats(cursor_before_draw))
 	_animate_deck_shift(next_draw_index - cursor_before_draw)
 
-	await _play_shell_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_faces, discard_to, move_top_indices, move_top_targets)
+	await _play_shell_roll(fly_positions, fly_defs, discard_from, discard_defs, discard_faces, move_top_indices, move_top_targets)
 	if phase != Phase.SHELL_ANIMATING:
 		dice_shell.clear_ghosts()
 		return  # Spiel wurde während der Hüllen-Animation zurückgesetzt
@@ -8665,14 +9851,21 @@ func _cancel_lineup() -> void:
 
 ## Drei gleichzeitige Bewegungen beim Wurfstart: gezogene Würfel fliegen in
 ## die Energie-Hülle (und taumeln dort als Physik-Körper weiter, siehe
-## DiceShell.capture_die), ersetzte fliegen Richtung Ablage (erst bei der
-## Ankunft wirklich abgelegt), geschützte gleiten an den oberen Grubenrand.
-func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array[Vector3], discard_defs: Array[DieDefinition], discard_faces: Array[int], discard_to: Array[Vector3], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
+## DiceShell.capture_die), ersetzte SCHLUCKT der Tisch an ihrem Liegeplatz (die
+## Hebebühne), geschützte gleiten an den oberen Grubenrand.
+func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefinition], discard_from: Array, discard_defs: Array[DieDefinition], discard_faces: Array[int], move_top_indices: Array[int], move_top_targets: Array[Vector3]) -> void:
 	if fly_defs.is_empty() and discard_defs.is_empty() and move_top_indices.is_empty():
 		return
 
+	# Der Schluck läuft eigenständig (eigene Kette, eigener Aufräum-Pfad); gebucht
+	# wird unverändert erst bei der Ankunft der Hüllen-Fuhre.
+	_swallow_dice(discard_defs, discard_faces, discard_from)
+
 	var fly_tween := create_tween()
 	fly_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	# Ein Takt, den nichts füllt, dauert trotzdem seine Zeit - ein leerer Tween
+	# meldete sonst sofort fertig.
+	fly_tween.tween_interval(SHELL_FLY_DURATION)
 	fly_tween.set_parallel(true)
 
 	var fly_ghosts: Array[Node3D] = []
@@ -8684,13 +9877,6 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 		var target := mouth + Vector3(randf_range(-0.6, 0.6), randf_range(-0.4, 0.4), randf_range(-0.6, 0.6))
 		fly_tween.tween_property(ghost, "global_position", target, SHELL_FLY_DURATION)
 
-	var discard_ghosts: Array[Node3D] = []
-	for i in discard_defs.size():
-		var ghost := _spawn_deck_ghost(discard_defs[i])
-		ghost.global_position = discard_from[i]
-		discard_ghosts.append(ghost)
-		fly_tween.tween_property(ghost, "global_position", discard_to[i], SHELL_FLY_DURATION)
-
 	for k in move_top_indices.size():
 		var body := dice.bodies[move_top_indices[k]]
 		body.freeze = true
@@ -8701,8 +9887,7 @@ func _play_shell_roll(fly_positions: Array[Vector3], fly_defs: Array[DieDefiniti
 	for i in fly_ghosts.size():
 		dice_shell.capture_die(fly_defs[i], fly_ghosts[i].global_position)
 		fly_ghosts[i].queue_free()
-	for i in discard_ghosts.size():
-		discard_ghosts[i].queue_free()
+	for i in discard_defs.size():
 		_discard_kind(discard_defs[i], discard_faces[i])
 
 	if not fly_defs.is_empty():
@@ -10107,6 +11292,7 @@ func _reset_game() -> void:
 	_cancel_charm_drag()
 	_cancel_lineup()
 	_cleanup_take_animation()
+	_reset_tray_stage_hard()  # Ablage, Löcher und alle drei Maschinen des alten Laufs
 	dice_shell.reset_to_post()
 	hand_note = ""
 	last_throw_was_reroll = false
@@ -10427,7 +11613,7 @@ func _start_new_round() -> void:
 	round_pool_kinds = run.owned_pool.duplicate()
 
 	next_draw_index = 0
-	discard_tray_view.clear()
+	_reset_tray_stage_hard()
 	hand_total = 0
 	hand_note = ""
 	_refresh_round_hud()
@@ -10439,9 +11625,10 @@ func _start_new_round() -> void:
 	_start_new_hand()
 
 ## Zurren der Runde - Unterschrift oder, ohne Auslage, der erste Wurf. Beides
-## macht dasselbe und darf je Runde nur EINMAL passieren: die Werkbank schließt,
-## und der Stapel wird gemischt. Vorher lag er in der Pool-Reihenfolge, damit das
-## Anordnen sichtbar bleibt; ab hier ist die Zieh-Reihenfolge Zufall.
+## macht dasselbe und darf je Runde nur EINMAL passieren: die Werkbank schließt und
+## der Vorrat versinkt. GEMISCHT wird hier NICHT mehr (Spielregel 2026-08-30): der
+## Stapel zieht in Pool-Reihenfolge, und die einzige Streuung ist die Ablage-Reihe,
+## die im Pit erscheint.
 func _commit_round() -> void:
 	if round_committed:
 		return
@@ -10451,12 +11638,17 @@ func _commit_round() -> void:
 	_sync_shop_reopen_button()
 	run.lapse_press()  # ohne Anwenden verfällt der ganze Guss - ohne einen Cent
 	run.reset_press_cycle()  # und die nächste Werkstatt-Sitzung bekommt ihre Pressung
-	round_pool_kinds.shuffle()
-	# Zieh-Reihenfolge: jede Partition zieht ihre Gruppe stabil nach vorn - NACH
-	# dem Mischen, sonst mischte sie sich wieder auseinander.
+	# Zieh-Reihenfolge: die Partition zieht ihre Gruppe stabil nach vorn.
 	if CharmEffects.draws_essences_first(run.charm_ids()):
 		round_pool_kinds = _essences_first(round_pool_kinds)
 	_sync_editing_lock()
+	# Die Aufspannung kehrt aus der Bank in den Pool zurück, BEVOR der Träger sinkt -
+	# sie versinkt dann mit ihm (Endzustand zuerst, siehe _migrate_clamps_to_pool).
+	_migrate_clamps_to_pool()
+	# Ab hier ist der Vorrat der TRÄGER im offenen Pit: das Pool-Tray sinkt und
+	# steht dort sichtbar weiter. Vor dem Refresh, damit der ihn schon als Träger
+	# füllt. (Das Zurren ist der eine Moment - Unterschrift ODER erster Wurf.)
+	_sink_pool_tray()
 	_refresh_deck_trays()
 
 ## Sortiert beseelte Würfel stabil an den Anfang (Frische Ware) - die Seele ist
@@ -10560,13 +11752,18 @@ func _on_round_complete() -> void:
 		if run.unused_dice_pay():
 			per_die = roundi((MONEY_PER_UNUSED_DIE + CharmEffects.unused_die_bonus(ids)
 				+ run.deal_unused_die_bonus()) * factor)
+		# Die übrigen Würfel: die ungezogenen UND die ungewertet in der Grube
+		# liegenden (Beenden vor dem Nehmen) - EINMAL erfasst, dann geteilt.
+		var leftover_dice := _unused_die_entries()
 		# Knallgas: die Kettenreaktion im Stapel - je übrigem Würfel ein eigener
 		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
-		var per_die_row := _leftover_die_payouts(per_die, ids)
+		var per_die_row := _leftover_die_payouts(per_die, ids, leftover_dice)
 		# Schmuckkästchen: je übrigem Würfel 10% Chance auf eine Material-Gravur.
 		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
-		_jewelry_box_upgrades = run.apply_jewelry_box(
-			round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+		var leftover_defs: Array[DieDefinition] = []
+		for entry in leftover_dice:
+			leftover_defs.append(entry["def"])
+		_jewelry_box_upgrades = run.apply_jewelry_box(leftover_defs)
 		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
 		# gebucht hier, gezeigt an seinem Dock-Platz.
 		_encore_packs = run.apply_encore(stages)
@@ -10578,7 +11775,7 @@ func _on_round_complete() -> void:
 		# reisen mit dem Benchmark-Kometen: ein eigener Komet für ein paar Dollar
 		# wäre Zeremonie um ihrer selbst willen.
 		var interest := run.interest_income()
-		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split)
+		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split, leftover_dice)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
@@ -10651,7 +11848,9 @@ func _on_round_complete() -> void:
 		if table_screen != null:
 			table_screen.set_round_pulse(false)
 		_set_gameplay_ui_visible(false)
-		_return_dice_to_pool_tray()
+		# Die letzte Ablage-Reihe fährt ein, die Warteschlange geht ab, und dann
+		# hebt der Träger seinen Inhalt als NEUEN Pool heraus (_play_tray_return).
+		_play_tray_return()
 		# Kamera auf den Hub, dann den Shop öffnen.
 		camera_rig.zoom_to(CameraRig.Mode.HUB)
 		# Nebenwetten werden ZUGLEICH mit dem Shop verfügbar.
@@ -10900,7 +12099,7 @@ func _is_high_dice_hand(values: Array[int], scored: Array[int]) -> bool:
 ## ohne eigenes Aufblitzen). Drei Posten: Benchmark (einmal Geld), Überladung
 ## (je Stufe ⚡ bzw. Überlauf-Geld nach split), übrige Würfel.
 func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array[int], stages: int,
-		split: Dictionary) -> void:
+		split: Dictionary, leftover_dice: Array) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
@@ -10926,13 +12125,11 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 		stages, hub)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 
-	var remaining := _remaining_in_pool()
-	if remaining > 0:
+	if not leftover_dice.is_empty():
 		await get_tree().create_timer(PAYOUT_FLASH_DURATION).timeout
-		var die_entries := _unused_die_entries()
-		for i in remaining:
-			if i < die_entries.size():
-				_flash_die_tint(die_entries[i]["display"], die_entries[i]["tint"])
+		for i in leftover_dice.size():
+			_flash_die_tint(leftover_dice[i]["display"], leftover_dice[i]["tint"],
+				leftover_dice[i]["scale"])
 			var pay: int = per_die_row[i] if i < per_die_row.size() else 0
 			run.add_money(pay)
 			_ledger_money("dice", "Übrige Würfel", pay)
@@ -11339,14 +12536,18 @@ func _fly_deal_charge() -> void:
 
 ## Auszahlung je noch ungezogenem Würfel, in STAPEL-Reihenfolge: normal überall
 ## per_die, mit Knallgas wächst der Satz hinter jedem Knallgas-Würfel.
-func _leftover_die_payouts(per_die: int, ids: Array[String]) -> Array[int]:
+func _leftover_die_payouts(per_die: int, ids: Array[String], entries: Array) -> Array[int]:
 	var souls: Array[String] = []
-	for def in round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()):
-		souls.append(def.essence_id)
+	for entry in entries:
+		souls.append((entry["def"] as DieDefinition).essence_id)
 	return EssenceEffects.leftover_die_payouts(souls, per_die, ids)
 
-## Alle Anzeigen noch nicht gezogener Würfel (Warteschlange zuerst, dann
-## Pool) in Zieh-Reihenfolge.
+## Alle ÜBRIGEN Würfel der Runde (Zieh-Reihenfolge): die noch nicht gezogenen
+## (Warteschlange, dann Pool) UND die noch UNGEWERTET in der Grube liegenden. Die
+## Grubenwürfel zählen genau dann mit, wenn der Spieler die Runde per "Beenden"
+## beendet, ohne die Hand genommen zu haben - genommen wird die Grube geleert, hier
+## liegt also nichts Doppeltes. Jeder Eintrag trägt seine Def (Seele fürs Fuchsfeuer,
+## Schmuckkästchen), seine Anzeige (Blitz) und seinen Ton.
 func _unused_die_entries() -> Array:
 	var entries: Array = []
 	for tray in [queue_tray_view, pool_tray_view]:
@@ -11354,10 +12555,22 @@ func _unused_die_entries() -> Array:
 			if not tray.slot_roots[i].visible:
 				continue
 			var def: DieDefinition = tray.slot_defs[i]
-			entries.append({
-				"display": tray.slot_face_displays[i],
-				"tint": DiceController.KIND_TINTS.get(def.style_id, Color.WHITE),
-			})
+			var disp: DieFaceDisplay = tray.slot_face_displays[i]
+			entries.append({"def": def, "display": disp, "scale": disp.scale,
+				"tint": DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)})
+	# Die Grubenwürfel werden von LINKS nach RECHTS gezählt: der Tisch liest +Z als
+	# rechts (die Tray-Slots laufen so, siehe DiceTrayView), also aufsteigend nach z.
+	var pit: Array[int] = []
+	for i in dice.count():
+		if i < active_kinds.size() and dice.roots[i].visible:
+			pit.append(i)
+	pit.sort_custom(func(a: int, b: int) -> bool:
+		return dice.bodies[a].global_position.z < dice.bodies[b].global_position.z)
+	for i in pit:
+		var def: DieDefinition = active_kinds[i]
+		var disp: DieFaceDisplay = dice.face_displays[i]
+		entries.append({"def": def, "display": disp, "scale": disp.scale,
+			"tint": DiceController.KIND_TINTS.get(def.style_id, Color.WHITE)})
 	return entries
 
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
@@ -11424,10 +12637,12 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	if is_pit_focused and route_pending and phase == Phase.IDLE \
 			and (route_choice == null or not route_choice.visible):
 		_open_route_choice()
+	# Der Werkstatt-Blick holt die im Pool liegende Aufspannung per Plattform auf die
+	# Bank (Spieler-Entscheid 2026-08-31) - idempotent, schon Gewanderte sind No-op.
+	if new_mode == CameraRig.Mode.WORKSHOP:
+		_migrate_clamps_to_bench()
 	# Übertaktet wird nur vor den Chips - und dort jederzeit.
 	_sync_combo_upgrade_buttons()
-	# Die Pool-Sicht holt die Zwingen ins Tray, jede andere gibt sie der Bank zurück.
-	_sync_clamps_visit()
 	_update_gameplay_ui_visibility()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel
@@ -11460,7 +12675,6 @@ func _on_pool_changed() -> void:
 		_refresh_dice_trays()
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
-	discard_tray_view.refresh_faces()
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
 	_refresh_clamp_stage_faces()  # die Zwingen halten geteilte Instanzen
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
@@ -11496,6 +12710,9 @@ func _on_shop_closed() -> void:
 	if camera_rig.mode == CameraRig.Mode.HUB:
 		camera_rig.zoom_out()
 	_start_new_round()
+	# Auch der bloße Ladenschluss schickt die Aufspannung auf die Bank (Spieler-
+	# Entscheid 2026-08-31) - die Rückwanderung holt sie beim ersten Wurf zurück.
+	_migrate_clamps_to_bench()
 	# Erst NACH dem Rundenstart (der die Sperren zurücksetzt): ab hier steht der
 	# Knopf, bis die Runde festgezurrt ist.
 	shop_reopen_allowed = true
@@ -11812,7 +13029,6 @@ func _log_snapshot_live_pit() -> void:
 		"slots": slots,
 		"player_order": player_order.duplicate(),
 		"overrides": dice.value_overrides.duplicate(),
-		"discard_next": discard_tray_view.next_free_index,
 	}
 
 func _on_log_entry_selected(index: int) -> void:
@@ -11949,14 +13165,12 @@ func _log_fill_trays(state: Dictionary) -> void:
 	queue_defs.assign(state.get("queue_defs", []))
 	var pool_defs: Array[DieDefinition] = []
 	pool_defs.assign(state.get("pool_defs", []))
-	var discard_defs: Array[DieDefinition] = []
-	discard_defs.assign(state.get("discard_defs", []))
-	var discard_faces: Array[int] = []
-	discard_faces.assign(state.get("discard_faces", []))
 	queue_tray_view.ensure_capacity(_queue_capacity())
 	queue_tray_view.fill(queue_defs)
-	pool_tray_view.fill(pool_defs)
-	discard_tray_view.fill(discard_defs, discard_faces)
+	# Der geparkte Träger trägt seinen SITZ-PLAN, keine Aufreihung: ein Rückblick
+	# malt dort nichts um, sonst spränge der Vorrat mitten in der Runde.
+	if _pool_standing:
+		pool_tray_view.fill(pool_defs)
 
 ## Stellt die Grube eines Eintrags: aufgezeichnete Defs in die Slots, jede Seite
 ## nach oben gekippt, dann die Reihe wie nach dem Aufreihen - hart gesetzt, denn
@@ -12026,9 +13240,6 @@ func _close_round_log() -> void:
 	_set_throttled_combos(run.throttled_combos)
 	_set_spotlight_combo(run.spotlight_combo)
 	_refresh_deck_trays()
-	discard_tray_view.clear()
-	discard_tray_view.fill(discarded_this_round, discarded_faces_this_round)
-	discard_tray_view.next_free_index = discarded_this_round.size()
 	if table_screen != null:
 		table_screen.reset_pit_score()
 	_refresh_ui()

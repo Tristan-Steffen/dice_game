@@ -315,6 +315,40 @@ func test_stashed_packs_carry_unique_uids():
 		assert_false(seen.has(pack.pack_uid), "keine uid doppelt")
 		seen[pack.pack_uid] = true
 
+# --- Der KREISLAUF: die ganze Pool-Ordnung auf einmal -------------------------
+
+func test_reorder_pool_full_setzt_die_ganze_ordnung():
+	# Am Rundenende IST der Pit-Inhalt der neue Pool: [Warteschlange][Rest][Ablage].
+	var order: Array[DieDefinition] = []
+	order.assign(run.owned_pool.duplicate())
+	var tail: DieDefinition = order[order.size() - 1]
+	order.remove_at(order.size() - 1)
+	order.push_front(tail)
+	watch_signals(run)
+	assert_true(run.reorder_pool_full(order), "eine Permutation wird genommen")
+	assert_eq(run.owned_pool[0], tail, "der letzte steht jetzt vorn")
+	assert_eq(run.owned_pool.size(), order.size())
+	assert_signal_emitted(run, "pool_changed")
+
+func test_reorder_pool_full_verlangt_dieselben_instanzen():
+	var order: Array[DieDefinition] = []
+	order.assign(run.owned_pool.duplicate())
+	var before := run.owned_pool.duplicate()
+	order[0] = DieDefinition.standard()  # ein FREMDER Würfel
+	assert_false(run.reorder_pool_full(order), "keine Ersetzung durch die Hintertür")
+	assert_eq(run.owned_pool, before, "der Pool bleibt unberührt")
+
+func test_reorder_pool_full_weist_luecken_und_doppel_zurueck():
+	var before := run.owned_pool.duplicate()
+	var short: Array[DieDefinition] = []
+	short.assign(run.owned_pool.slice(0, run.owned_pool.size() - 1))
+	assert_false(run.reorder_pool_full(short), "ein fehlender Würfel ist keine Ordnung")
+	var doubled: Array[DieDefinition] = []
+	doubled.assign(run.owned_pool.duplicate())
+	doubled[1] = doubled[0]
+	assert_false(run.reorder_pool_full(doubled), "und keiner steht zweimal")
+	assert_eq(run.owned_pool, before)
+
 func test_pack_by_uid_finds_its_pack_and_survives_reorder():
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.material_pack())

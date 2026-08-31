@@ -7,7 +7,7 @@ extends Camera3D
 ## Das leichte Maus-Rundschauen läuft überall außer an den drei Stationen, deren
 ## Fenster das Bild füllt (Hub, Werkstatt, Titel) - dort verschöbe es nur.
 
-enum Mode { OVERVIEW, PIT, POOL, DISCARD, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
+enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
 
 signal mode_changed(new_mode: Mode)
 
@@ -93,7 +93,6 @@ const WORKSHOP_CLOSE_AIM := Vector2.ZERO
 ## echten Weltpositionen (configure_*_target), damit Editor-Verschiebungen den
 ## Zoom automatisch mitnehmen.
 var pool_target := Vector3(-23.75, 0.4, 12)
-var discard_target := Vector3(-26, 0.4, -12)
 var combos_target := Vector3(-8, 0, 0)
 var pit_target := Vector3.ZERO
 var charms_target := Vector3(24, 0, 0)
@@ -392,10 +391,10 @@ func release_tilt_immediately() -> void:
 	tilt_locked = false
 	_tilt_resume_time = -1.0
 
-## Tray-Blickpunkte aus den echten Weltpositionen (Editor bleibt die Quelle).
-func configure_tray_targets(pool: Vector3, discard: Vector3) -> void:
+## Der Tray-Blickpunkt aus der echten Weltposition (Editor bleibt die Quelle). Die
+## POOL-Station rahmt Vorrat UND Pit - sie stehen auf demselben Platz.
+func configure_tray_targets(pool: Vector3) -> void:
 	pool_target = pool
-	discard_target = discard
 
 func configure_combos_target(target: Vector3) -> void:
 	combos_target = target
@@ -564,8 +563,6 @@ func station_target(target_mode: Mode) -> Vector3:
 			return pit_target
 		Mode.POOL:
 			return pool_target
-		Mode.DISCARD:
-			return discard_target
 		Mode.COMBOS:
 			return combos_target
 		Mode.CHARMS:

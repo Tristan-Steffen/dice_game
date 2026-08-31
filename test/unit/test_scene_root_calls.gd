@@ -11,7 +11,6 @@ extends GutTest
 const HANDLES := {
 	"table_screen": "res://scripts/table/table_screen.gd",
 	"pool_tray_view": "res://scripts/dice/dice_tray_view.gd",
-	"discard_tray_view": "res://scripts/dice/dice_tray_view.gd",
 	"queue_tray_view": "res://scripts/dice/dice_tray_view.gd",
 	"camera_rig": "res://scripts/table/camera_rig.gd",
 	"dice": "res://scripts/dice/dice_controller.gd",

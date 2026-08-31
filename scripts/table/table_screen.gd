@@ -191,7 +191,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 10
+const MAX_PITS := 24
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -216,6 +216,26 @@ const PIT_PAYOUT := 8
 ## Auszahlungs-Plätze ihre Nummern behalten.
 const PIT_SECRET_THIRD := 9
 
+## Die WÜRFEL-Hebebühnen, hinten angehängt, damit kein bestehender Platz umnummeriert
+## wird. Die Warteschlange fährt je Platz eine EIGENE Maschine (sechs Fahrten dürfen
+## überlappen - eine Maschine ist ein Loch), der Vorrat hat seinen einen Platz (dessen
+## PARK-Zustand ist das offene PIT, in dem der Träger steht), und der SCHLUCK zieht
+## abgelegte Würfel an ihren Liegeplätzen ein - drei BAHNEN, damit eine gestaffelte
+## Salve überlappen kann; wer mehr schluckt, wartet auf die frei werdende Bahn.
+const PIT_QUEUE0 := 10
+const QUEUE_PIT_COUNT := 6
+const PIT_POOL := 16
+const PIT_SWALLOW0 := 17
+const SWALLOW_PIT_COUNT := 3
+
+## Die AUFSPANN-Wanderung: je Zwinge EIN eigener Schacht, denn die vier fahren
+## gestaffelt und ihre Fahrten überlappen (eine Maschine ist ein Loch). Derselbe
+## Schacht trägt beide Beine der Fahrt (Senken am Pool-Sitz, dann Heben an der Bank
+## - und umgekehrt bei der Rückwanderung). Hinten angehängt, damit kein Platz
+## umnummeriert wird.
+const PIT_CLAMP0 := 20
+const CLAMP_PIT_COUNT := 4
+
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
 	return [PIT_SECRET_SHELF, PIT_SECRET_BOWL, PIT_SECRET_THIRD]
@@ -223,6 +243,17 @@ static func secret_pits() -> Array[int]:
 ## Der Löcher-Platz EINES Wett-Plots.
 static func side_bet_pit(index: int) -> int:
 	return PIT_SIDE_BET0 + clampi(index, 0, 2)
+
+## Der Löcher-Platz EINES Warteschlangen-Platzes bzw. EINER Schluck-Bahn.
+static func queue_pit(index: int) -> int:
+	return PIT_QUEUE0 + clampi(index, 0, QUEUE_PIT_COUNT - 1)
+
+static func swallow_pit(lane: int) -> int:
+	return PIT_SWALLOW0 + clampi(lane, 0, SWALLOW_PIT_COUNT - 1)
+
+## Der Löcher-Platz EINER wandernden Zwinge.
+static func clamp_pit(index: int) -> int:
+	return PIT_CLAMP0 + clampi(index, 0, CLAMP_PIT_COUNT - 1)
 var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()
 ## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.

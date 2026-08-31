@@ -3,7 +3,6 @@
 [ext_resource type="PackedScene" path="res://scenes/dice_tray.tscn" id="1_w2g3p"]
 [ext_resource type="Script" uid="uid://cd6ynbwj0qefe" path="res://scripts/scene_root.gd" id="3_script"]
 [ext_resource type="PackedScene" uid="uid://dq8j5n2h1x3w" path="res://scenes/room.tscn" id="6_room"]
-[ext_resource type="PackedScene" path="res://scenes/dice_chip_tray.tscn" id="7_chiptray"]
 [ext_resource type="Script" uid="uid://b4wsxecr41nm6" path="res://scripts/table/camera_rig.gd" id="8_camerarig"]
 [ext_resource type="PackedScene" path="res://scenes/dice_queue_tray.tscn" id="13_queuetray"]
 [ext_resource type="PackedScene" path="res://scenes/dice_pool_tray.tscn" id="14_pooltray"]
@@ -32,10 +31,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.3, 0, 20.85)
-
-[node name="DiscardTrayView" parent="." unique_id=263660364 instance=ExtResource("7_chiptray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.3, 0, 33)
-tray_color = Color(0.55, 0.08, 0.08, 1)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.063042, 0, 20.779545)

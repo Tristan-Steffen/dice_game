@@ -63,66 +63,125 @@ func test_refresh_faces_survives_the_holes() -> void:
 	assert_null(tray.slot_defs[2])
 
 # --- Wer bekommt gar keinen Sitz (die eine Quelle der Regel) ---------------------
+# Der Ort-Zustand lebt in scene_root (_clamp_on_bench); die Sitzordnung kennt nur die
+# reine Regel: ein Würfel STEHT in seinem Sitz, es sei denn, er ist gerade auf der
+# Bank (on_bench) oder das Dossier zeigt ihn (inspected).
 
-func _seats(defs: Array[DieDefinition], clamped: Array[DieDefinition],
-		inspected: DieDefinition, visiting := false) -> Array[bool]:
-	var shown: Array[bool] = []
-	for def in defs:
-		shown.append(DiceTrayView.seat_shows(def, clamped, inspected, visiting))
-	return shown
+func _seat(def: DieDefinition, inspected: DieDefinition, on_bench := false) -> bool:
+	return DiceTrayView.seat_shows(def, inspected, on_bench)
 
-func test_a_clamped_die_leaves_its_seat_empty() -> void:
+func test_a_clamped_die_lies_in_the_pool_until_it_migrates() -> void:
+	# Aufgespannt heißt NICHT weg: der Würfel LIEGT im Pool, bis er zur Bank wandert.
 	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, null), [true, false, true, false],
-		"aufgespannt steht sein Körper auf der Werkbank")
+	assert_true(_seat(defs[1], null, false), "im Pool steht sein Körper im Sitz")
 
-func test_the_dossier_fills_the_clamp_holes_again() -> void:
-	# Im Dossier tritt die ganze Aufspannung von der Bank ab - ihre Würfel liegen
-	# derweil wieder in ihren eigenen Sitzen, und die EINE Lücke ist der gezeigte.
+func test_a_die_on_the_bench_leaves_its_seat_empty() -> void:
 	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, defs[0]), [false, true, true, true],
-		"nur der gezeigte Würfel fehlt")
+	assert_false(_seat(defs[1], null, true),
+		"auf der Bank steht sein Körper woanders - der Sitz bleibt leer")
 
-func test_an_inspected_clamp_is_the_hole_like_any_other() -> void:
+func test_the_inspected_die_is_the_hole() -> void:
 	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, defs[1]), [true, false, true, true],
-		"sein eigener Sitz bleibt leer, der zweite Zwingen-Sitz füllt sich")
-
-func test_closing_the_dossier_restores_the_clamp_holes() -> void:
-	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	var before := _seats(defs, clamped, null)
-	var during := _seats(defs, clamped, defs[2])
-	assert_ne(during, before)
-	assert_eq(_seats(defs, clamped, null), before, "danach steht die Ordnung wieder")
+	assert_false(_seat(defs[0], defs[0]), "der gezeigte Würfel fehlt im Tray")
+	assert_true(_seat(defs[1], defs[0]), "sein Nachbar steht")
 
 func test_an_empty_seat_stays_empty_in_every_case() -> void:
 	var defs := _dice(2)
-	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], null))
-	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], defs[0]))
-	assert_false(DiceTrayView.seat_shows(null, [] as Array[DieDefinition], null, true))
+	assert_false(DiceTrayView.seat_shows(null, null))
+	assert_false(DiceTrayView.seat_shows(null, defs[0]))
+	assert_false(DiceTrayView.seat_shows(null, null, true))
 
-# --- Der Besuch: in der Pool-Sicht liegen die Zwingen in ihren eigenen Sitzen ----
+# --- Die Platz-BÜHNE: was unter der Fläche liegt, zeigt gar nichts --------------
 
-func test_visiting_clamps_fill_their_own_seats() -> void:
-	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, null, true), [true, true, true, true],
-		"zu Gast steht jeder Würfel in seinem Sitz")
+func test_ein_abgesenkter_platz_zeigt_weder_puck_noch_wuerfel() -> void:
+	tray.fill(_dice(3))
+	assert_true(tray.slot_roots[0].visible)
+	assert_true(tray.slot_emitter(0).visible, "der Puck steht auf der Fläche")
+	tray.set_slot_staged(0, false)
+	assert_false(tray.slot_roots[0].visible, "der Würfel ist fort")
+	assert_false(tray.slot_emitter(0).visible, "und der Puck mit ihm")
+	tray.set_slot_staged(0, true)
+	assert_true(tray.slot_roots[0].visible, "zurück auf der Fläche steht wieder beides")
+	assert_true(tray.slot_emitter(0).visible)
 
-func test_the_visit_does_not_fill_the_dossier_hole() -> void:
-	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, defs[1], true), [true, false, true, true],
-		"der gezeigte Würfel fehlt auch im Besuch")
+func test_ein_leerer_platz_bleibt_leer_auch_wenn_er_auffaehrt() -> void:
+	tray.fill(_dice(1))
+	tray.set_slot_staged(2, false)
+	tray.set_slot_staged(2, true)
+	assert_false(tray.slot_roots[2].visible, "ohne Würfel kommt keiner zurück")
+	assert_true(tray.slot_emitter(2).visible, "der leere Puck steht trotzdem")
 
-func test_without_the_visit_the_clamp_holes_stand() -> void:
-	# Der neue Parameter ist voreingestellt: alte Aufrufer sehen die alte Regel.
-	var defs := _dice(4)
-	var clamped: Array[DieDefinition] = [defs[1], defs[3]]
-	assert_eq(_seats(defs, clamped, null, false), _seats(defs, clamped, null),
-		"ohne Besuch bleibt es bei den Lücken")
-	assert_eq(_seats(defs, clamped, null), [true, false, true, false])
+func test_ein_fahrender_platz_wird_vom_schwebe_takt_in_ruhe_gelassen() -> void:
+	tray.fill(_dice(2))
+	tray.set_slot_riding(0, true)
+	var parked := Vector3(1.0, 9.0, 2.0)
+	tray.slot_roots[0].global_position = parked
+	tray.slot_roots[1].global_position = parked
+	await wait_frames(3)
+	assert_eq(tray.slot_roots[0].global_position, parked,
+		"die Hebebühne führt ihn, nicht das Wippen")
+	assert_ne(tray.slot_roots[1].global_position, parked,
+		"der stehende Nachbar wippt weiter")
+
+# --- Der Sitz ist GERECHNET, nicht gemessen -------------------------------------
+
+func test_der_sitz_kommt_aus_dem_raster_und_nicht_vom_koerper() -> void:
+	for i in tray.slot_roots.size():
+		# Die Höhe wippt, der GRUNDRISS nicht - dort muss der Sitz stimmen.
+		var body := tray.slot_global_position(i)
+		assert_almost_eq(tray.slot_home_position(i).x, body.x, 0.0001, "Platz %d x" % i)
+		assert_almost_eq(tray.slot_home_position(i).z, body.z, 0.0001, "Platz %d z" % i)
+		assert_almost_eq(tray.slot_home_position(i).y, tray.global_position.y, 0.0001)
+		assert_almost_eq(tray.slot_home_position(i, true).y,
+			tray.global_position.y + DiceTrayView.FLOAT_HEIGHT, 0.0001)
+	# Ein fahrender Körper verschiebt den Sitz NICHT - sonst spränge das Loch.
+	var seat := tray.slot_home_position(3)
+	tray.slot_roots[3].global_position = Vector3(50.0, -9.0, 50.0)
+	assert_eq(tray.slot_home_position(3), seat)
+
+# --- Der Belegungs-DIFF der Bühne ----------------------------------------------
+
+func _bits(values: Array) -> Array[bool]:
+	var out: Array[bool] = []
+	out.assign(values)
+	return out
+
+func test_der_diff_faehrt_nur_die_neuen_plaetze() -> void:
+	assert_eq(DiceTrayView.stage_entering(_bits([true, true, true]),
+		_bits([true, false, false])), [1, 2] as Array[int])
+
+func test_wer_schon_steht_faehrt_nicht_noch_einmal() -> void:
+	assert_eq(DiceTrayView.stage_entering(_bits([true, true]),
+		_bits([true, true])), [] as Array[int])
+
+func test_ein_verlorener_wuerfel_loest_keine_fahrt_aus() -> void:
+	# Ihn trug die Wurf-Zeremonie fort - die Bühne holt ihn nicht nach.
+	assert_eq(DiceTrayView.stage_entering(_bits([false, false]),
+		_bits([true, true])), [] as Array[int])
+
+func test_eine_leere_belegung_faehrt_alles_auf() -> void:
+	assert_eq(DiceTrayView.stage_entering(_bits([true, true, true]),
+		_bits([])), [0, 1, 2] as Array[int])
+
+# --- Die WERKBANK-Geometrie ist EINGEFROREN ------------------------------------
+# Das Ablage-Tray ist tot, aber die Werkbank-Ecke maß an SEINER Spanne mit. Das
+# Raster war dasselbe, nur um 12,15 in Welt-Z versetzt (33 minus 20,85) - genau
+# diese zwei Spannen hält scene_root weiter, also bleibt jede abgeleitete Zahl.
+
+const LEGACY_Z := 12.15
+
+func test_die_beiden_tray_spannen_messen_wie_eh_und_je() -> void:
+	assert_eq(tray.rows, 5)
+	assert_eq(tray.columns, 6)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for shift: float in [0.0, LEGACY_Z]:
+		for i in tray.slot_roots.size():
+			var at := tray.slot_home_position(i) + Vector3(0.0, 0.0, shift)
+			lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+			hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	# Fünf Reihen à 1,8 in Welt-X, sechs Spalten plus der Versatz in Welt-Z.
+	assert_almost_eq(hi.x - lo.x, 7.2, 0.0001, "die Höhe der Ecke")
+	assert_almost_eq(hi.y - lo.y, 9.0 + LEGACY_Z, 0.0001, "und ihre Breite")
+	assert_almost_eq(lo.x, tray.global_position.x - 3.6, 0.0001)
+	assert_almost_eq(lo.y, tray.global_position.z - 4.5, 0.0001)

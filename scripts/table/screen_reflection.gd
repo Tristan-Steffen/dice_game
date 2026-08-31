@@ -65,7 +65,18 @@ func _mirrored(v: Vector3) -> Vector3:
 ## Markiert alle Sichtbestandteile eines Knotens als spiegelnd (zusätzlich
 ## zum normalen Layer - die Hauptkamera sieht sie unverändert).
 static func mark_reflective(root: Node) -> void:
+	set_reflective(root, true)
+
+## Schaltet die Spiegelung eines ganzen Knotens an oder aus. Ein im Tisch
+## VERSENKTER Körper (der geparkte Vorrat) darf sich nicht spiegeln - sein Bild
+## geisterte sonst über der Fläche.
+static func set_reflective(root: Node, on: bool) -> void:
+	var visuals: Array[Node] = []
 	if root is VisualInstance3D:
-		root.layers |= LAYER
-	for visual in root.find_children("*", "VisualInstance3D", true, false):
-		visual.layers |= LAYER
+		visuals.append(root)
+	visuals.append_array(root.find_children("*", "VisualInstance3D", true, false))
+	for visual: VisualInstance3D in visuals:
+		if on:
+			visual.layers |= LAYER
+		else:
+			visual.layers &= ~LAYER
