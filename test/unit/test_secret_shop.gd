@@ -384,22 +384,16 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 	assert_eq(run.owned_packs[0].fixed_engraving.id, engraving.id)
 	assert_eq(run.owned_packs[0].count, count, "ein Bündel ist EINE Karte mit n Stücken")
 
-## Ein Bündel ist eine Karte, aber es presst n Stücke - genau darin liegt sein Wert.
-func test_a_bundle_presses_every_piece_it_holds() -> void:
+## Ein Bündel ist eine Karte, aber sein Netz trägt n Zellen - darin liegt sein Wert.
+func test_a_bundle_carries_a_cell_per_piece() -> void:
 	var run := _discovered()
 	_force_engraving_slot(run)
 	run.charge = 99
-	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
 	assert_true(run.buy_secret_offer(1))
 	assert_eq(run.owned_packs.size(), 1, "eine Karte, nicht n Karten")
-	run.charge = 99
-	var slots: Array[int] = [0]
-	var result := run.open_press(slots)
-	var pieces: Array = result["pieces"]
-	assert_eq(pieces.size(), count, "je Stück im Bündel ein Beutestück")
-	for piece: Dictionary in pieces:
-		assert_eq(String(piece["id"]), engraving.id, "alle tragen dasselbe Icon")
+	assert_eq(StampNet.filled_count(run.owned_packs[0].stamp_net), count,
+		"je Stück im Bündel eine Netz-Zelle")
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()

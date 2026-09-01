@@ -20,15 +20,10 @@ signal pending_dice_changed
 signal charge_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
-## Die aufgespannten Würfel der Runde wurden neu gezogen.
-signal clamped_changed
-## Der Phantomwurf oder die noch nicht platzierte Beute hat sich geändert.
+## Die Serie der Werkbank hat sich geändert (Griff, Slots, verbrauchte Karten).
 signal press_changed
 
 const POOL_SIZE := 30
-## Zwingen der Werkbank - FEST, auf jeder Lizenzstufe gleich. Die Aufspannung ist
-## kein Ausbau-Versprechen, sondern die Arbeitsfläche der Runde.
-const CLAMP_COUNT := 4
 ## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
 ## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
 const CHARM_CAPACITY := 6
@@ -70,12 +65,10 @@ const WORK_HARDENING_GROWTH := 1
 const INTEREST_PER := 10
 const STAGE_CAP_LIMIT := 2
 const HIGH_VOLTAGE_STAGES := 3
-## Multicast-Klauseln: die beiden Boni sind quantitativ, der Winkeladvokat
-## verdoppelt sie also; der Malus bleibt unberührt, der Kurzschluss setzt absolut.
-const IGNITION_BOOST_CHANCE := 0.15
-const IGNITION_BLOCK_CHANCE := 0.2
-const CHAIN_DRIVER_CAP := 2
-const SHORT_CIRCUIT_CAP := 1
+## Serien-Klauseln: der Bonus ist quantitativ, der Winkeladvokat verdoppelt ihn
+## also; der Kurzschluss setzt absolut.
+const CHAIN_DRIVER_SLOTS := 1
+const SHORT_CIRCUIT_SLOTS := 1
 const CALIBRATION_FACTOR := 0.5
 ## Skalierung der Überladungs-Stufen: der Sicherungsfall schlägt das Netzbrummen.
 const FUSE_FAILURE_SCALE := 4.0
@@ -214,8 +207,8 @@ var owned_charms: Array[Charm] = []
 ## PACK_CAPACITY ist nur noch der Rückfall ohne gemessenes Feld (Tests, Kopflos).
 const PACK_CAPACITY := 20
 ## Zerfallswert eines Pakets, für das kein Platz mehr ist. Bewusst klein und flach:
-## ein Standard-Paket wirft im Schnitt zwei Stücke, und ein liegengebliebenes Stück
-## löst sich an der Presse für PhantomPress.FIZZLE_MONEY ($1) auf.
+## eine Standard-Karte trägt ein bis zwei Zellen - ihr Zerfall ist Trostgeld, kein
+## Ersatz.
 const PACK_FIZZLE_MONEY := 3
 var pack_capacity: int = PACK_CAPACITY
 var owned_packs: Array[Pack] = []
@@ -247,34 +240,16 @@ var combo_levels: Dictionary = {}
 ## Quelle.
 var free_overclocks: int = 0
 
-## Die aufgespannten Würfel dieser Runde (Referenzen in owned_pool). Sie stehen
-## die GANZE Runde, den Shop danach eingeschlossen; erst der nächste Rundenstart
-## zieht sechs neue. Anwenden ändert die Auswahl nicht.
-var clamped_dice: Array[DieDefinition] = []
-
-## Pressungen dieser Werkstatt-Sitzung: die erste ist frei, jede weitere kostet
-## eine Energie mehr. Zurückgesetzt wird erst bei der Unterschrift - EIN Bogen
-## über Laden und Vorrunde, nicht je Runde.
+## Pressungen dieser Werkstatt-Sitzung: eine ist frei, mehr gibt es nicht.
+## Zurückgesetzt wird erst bei der Unterschrift - EIN Bogen über Laden und
+## Vorrunde, nicht je Runde.
 var press_uses: int = 0
-## Prämie der Nebenwette Kettenreaktion: EINE Pressung bekommt mehr Kette. Sie
-## wird von open_press verbraucht und stirbt mit dem Lauf - ein Einmal-Schub.
+## Prämie der Nebenwette Kettenreaktion: die NÄCHSTE Serie bekommt einen Slot
+## mehr. Sie wird von apply_series verbraucht - ein Einmal-Schub.
 var press_boost_pending: bool = false
-## Gepresste Beute, die noch auf ihren Platz wartet - sie LIEGT auf der Werkbank
-## und darf sich stapeln: eine zweite Pressung legt dazu.
-var press_pieces: Array[Dictionary] = []
-## Das Journal des noch nassen Gusses: je Anwendung ein Eintrag mit dem Stück und
-## dem Zustand JEDER berührten Seite davor. Bis zum ANWENDEN lässt sich jede
-## Setzung wieder herausnehmen (unseat_press_piece); erst dann erkaltet der Guss
-## (apply_press_placements), und wer stattdessen die Runde unterschreibt, verliert
-## ihn ganz (lapse_press). INVARIANTE: zwischen Setzen und Anwenden wird nie
-## gewertet - die aufgespannten Würfel liegen still, also kann keine Wertungs-
-## Mutation (Knochen, Glas, Miasma) zwischen Journal und Def geraten. Nur darum
-## ist das exakte Zurückschreiben sicher.
-var press_journal: Array[Dictionary] = []
-## Laufende Nummer der Beutestücke: sie wird dem ORIGINAL-Stück aufgeprägt, bevor
-## das Journal seine Kopie zieht - so bleiben alle Einträge EINES Stücks (die
-## Zwinge doppelt seine Anwendung) als dasselbe Stück erkennbar.
-var press_piece_serial: int = 0
+## Dauerhaft erkaufte Serien-Slots (Taktgeber). Sie überleben die Serie, in der
+## die Kassette steckte, und sterben erst mit dem Lauf.
+var series_slot_bonus: int = 0
 
 # Zustand der Effektkatalog-Charms:
 var farkle_count: int = 0  # Zerbrochener Spiegel
@@ -317,7 +292,6 @@ static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
-	run.roll_clamped_dice()
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -726,6 +700,8 @@ func _tidy_key(pack: Pack) -> Array:
 	var content := pack.type
 	if pack.is_catalyst():
 		content = pack.catalyst_id
+	elif pack.is_operator():
+		content = pack.operator_id
 	elif pack.fixed_engraving != null:
 		content = pack.fixed_engraving.id
 	return [shelf_rank, content, pack.pack_uid]
@@ -762,99 +738,71 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 		packs_changed.emit()
 	return landed
 
-# --- Aufspannung: die Zwingen der Werkbank ------------------------------------
-
-## Wie viele Würfel aufgespannt werden: immer vier, auf jeder Lizenzstufe.
-func clamp_count() -> int:
-	return CLAMP_COUNT
-
-## Zieht clamp_count() VERSCHIEDENE Pool-Würfel, uniform. Bewusst nie "die
-## nächsten der Reihe": die Queue ist spielergeordnet und jede deterministische
-## Auswahl damit steuerbar. Die Ziehung darf Nieten enthalten.
-func roll_clamped_dice() -> void:
-	var indices: Array[int] = []
-	for i in owned_pool.size():
-		indices.append(i)
-	indices.shuffle()
-	clamped_dice.clear()
-	for k in mini(clamp_count(), indices.size()):
-		clamped_dice.append(owned_pool[indices[k]])
-	clamped_changed.emit()
-
-## Liegt dieses Würfel-EXEMPLAR in einer Zwinge? Verglichen wird die Instanz -
-## Pool-Einträge werden überschrieben und umgelegt, nie getauscht.
-func is_clamped(die: DieDefinition) -> bool:
-	return die != null and clamped_dice.has(die)
-
-# --- Die Presse ----------------------------------------------------------------
+# --- Die SERIENSCHALTUNG: Kassetten in Reihe, EINE Projektion -----------------
 
 ## Eine Pressung je Werkstatt-Sitzung, und sie kostet nichts. Zurück gibt sie erst
 ## die Unterschrift (reset_press_cycle).
 func press_allowed() -> bool:
 	return press_uses == 0
 
-## --- Die KATALYSATOREN eines Griffs -------------------------------------------
-## Eine Katalysator-Kassette wirft nichts aus; sie legt der EINEN Pressung, in der
-## sie steckt, ihre Terme bei. Additiv und stapelbar - die Klemmen bleiben die
-## einzigen Schiedsrichter, denn die Terme fahren IN multicast_chance/_cap hinein
-## und werden nie daneben zusammengerechnet.
+## --- Die SERIENLÄNGE ----------------------------------------------------------
+## Die Hub-Leiter der Werkstatt; sie sitzt an denselben
+## Sprossen (1 / 3 / 5 / 7 / 10). Ausbau heißt längere Schaltungen und komplexere
+## Kombos, nicht mehr Beute.
+const SERIES_LADDER := [
+	{"hub": 1, "slots": 2},
+	{"hub": 3, "slots": 3},
+	{"hub": 5, "slots": 4},
+	{"hub": 7, "slots": 5},
+	{"hub": 10, "slots": 6},
+]
+## Deckel: die sechs Leser plus zwei erkaufte Plätze.
+const SERIES_SLOT_CAP := 8
 
-const CATALYST_CHANCE_STEP := 0.2
-const CATALYST_CAP_STEP := 2
-const CATALYST_BASE_STEP := 1
+## Serienlänge dieses Laufs: Sockel der Lizenz, dauerhaft erkaufte Plätze
+## (Taktgeber), der Einmal-Schub der Nebenwette und die Klauseln. Der Kurzschluss
+## setzt ABSOLUT - er überschreibt, was alles andere zusammengetragen hat.
+func series_slots() -> int:
+	var slots := int(SERIES_LADDER[0]["slots"])
+	for step: Dictionary in SERIES_LADDER:
+		if hub_level >= int(step["hub"]):
+			slots = int(step["slots"])
+	slots += series_slot_bonus
+	if press_boost_pending:
+		slots += SeriesResolver.BOOST_SLOTS
+	if _clause_active(DealClause.CHAIN_DRIVER):
+		slots += CHAIN_DRIVER_SLOTS * deal_bonus_factor()
+	if _clause_active(DealClause.SHORT_CIRCUIT):
+		slots = SHORT_CIRCUIT_SLOTS
+	return clampi(slots, 1, SERIES_SLOT_CAP)
 
-## Was die Katalysatoren dieses Griffs zulegen: {chance, cap, base, free}.
+## --- Die KATALYSATOREN einer Serie --------------------------------------------
+## Eine Katalysator-Kassette prägt nichts; sie besetzt einen Serien-Slot als Preis
+## und legt der EINEN Serie, in der sie steckt, ihre Terme bei.
+
+const CATALYST_PROPELLANT_STEP := 1
+const CATALYST_TIMER_SLOTS := 1
+
+## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, matrix, free}.
 ## "free" heißt: dieser Griff verbraucht die Pressung der Sitzung NICHT. Ein
 ## Schalter, kein Zähler - eine zweite Erdungsklemme verpufft.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
-	var terms := {"chance": 0.0, "cap": 0, "base": 0, "free": false}
+	var terms := {"propellant": 0, "timer": 0, "matrix": false, "free": false}
 	for pack in packs:
 		if pack == null:
 			continue
 		match pack.catalyst_id:
 			Pack.CATALYST_PROPELLANT:
-				terms["chance"] = float(terms["chance"]) + CATALYST_CHANCE_STEP
+				terms["propellant"] = int(terms["propellant"]) + CATALYST_PROPELLANT_STEP
 			Pack.CATALYST_TIMER:
-				terms["cap"] = int(terms["cap"]) + CATALYST_CAP_STEP
+				terms["timer"] = int(terms["timer"]) + CATALYST_TIMER_SLOTS
 			Pack.CATALYST_MATRIX:
-				terms["base"] = int(terms["base"]) + CATALYST_BASE_STEP
+				terms["matrix"] = true
 			Pack.CATALYST_GROUND:
 				terms["free"] = true
 	return terms
 
-## --- Der Multicast: Chance und Limit der Kette --------------------------------
-## Die EINE Auflösung. Der Sockel kommt aus der Lizenzstufe (PhantomPress.
-## MULTICAST_LADDER), darauf legen Klausel und Wett-Schub; PhantomPress selbst
-## bleibt rein und bekommt beides als Parameter gereicht.
-
-## Zusammensetzung: Sockel der Lizenz, dann Boni, dann der Malus. Geklemmt, weil
-## ein Multicast, der IMMER zündet, keine Chance mehr wäre - dieselbe Begründung
-## wie bei der Pointer-Decke.
-func multicast_chance(catalyst_bonus: float = 0.0) -> float:
-	var chance := PhantomPress.base_chance(hub_level)
-	if _clause_active(DealClause.IGNITION_BOOST):
-		chance += IGNITION_BOOST_CHANCE * float(deal_bonus_factor())
-	if press_boost_pending:
-		chance += PhantomPress.BOOST_CHANCE
-	chance += catalyst_bonus  # Treibladungen: additiv wie jeder andere Bonus
-	if _clause_active(DealClause.IGNITION_BLOCK):
-		chance -= IGNITION_BLOCK_CHANCE
-	return clampf(chance, PhantomPress.MULTICAST_CHANCE_MIN, PhantomPress.MULTICAST_CHANCE_MAX)
-
-## Dieselbe Reihenfolge für die Decke - nur setzt der Kurzschluss ABSOLUT: er
-## überschreibt, was Lizenz, Klausel, Schub und Taktgeber zusammengetragen haben.
-func multicast_cap(catalyst_bonus: int = 0) -> int:
-	var cap := PhantomPress.base_cap(hub_level)
-	if _clause_active(DealClause.CHAIN_DRIVER):
-		cap += CHAIN_DRIVER_CAP * deal_bonus_factor()
-	if press_boost_pending:
-		cap += PhantomPress.BOOST_CAP
-	cap += catalyst_bonus
-	if _clause_active(DealClause.SHORT_CIRCUIT):
-		cap = SHORT_CIRCUIT_CAP
-	return maxi(cap, 1)
-
-## Die Prämie der Nebenwette: der nächsten Pressung mehr Kette. Sie stapelt sich
+## Die Prämie der Nebenwette: der nächsten Serie einen Slot mehr. Sie stapelt sich
 ## nicht - ein zweiter Gewinn erneuert dieselbe Vormerkung.
 func grant_press_boost() -> void:
 	press_boost_pending = true
@@ -865,110 +813,105 @@ func grant_press_boost() -> void:
 func reset_press_cycle() -> void:
 	press_uses = 0
 
-## Die Pakete auf diesen Plätzen, ohne Doppelte, gedeckelt.
-func _pressable_packs(pack_indices: Array[int]) -> Array[int]:
+## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
+## dritten.
+func extra_rune_slots() -> int:
+	return 1 if charm_ids().has(Charm.BELL_JAR) else 0
+
+## Die Karten dieser Serie in STECKREIHENFOLGE - uids, weil Magazin-Indizes beim
+## Umsortieren brechen. Doppelte fallen heraus, die Länge deckelt series_slots().
+func _series_indices(pack_uids: Array[int]) -> Array[int]:
 	var chosen: Array[int] = []
-	for index in pack_indices:
-		if index < 0 or index >= owned_packs.size() or chosen.has(index):
+	for uid in pack_uids:
+		var index := pack_index_of(uid)
+		if index < 0 or chosen.has(index):
 			continue
 		chosen.append(index)
-		if chosen.size() >= PhantomPress.BATCH_CAP:
+		if chosen.size() >= series_slots():
 			break
 	return chosen
 
-## Prägt einem Stück seine Nummer auf, bevor es in die Ablage geht - an ihr hängt
-## sein Platz auf dem Glas, und der muss jeden Neuaufbau überstehen.
-func _mint_press_piece(piece: Dictionary) -> Dictionary:
-	press_piece_serial += 1
-	piece["piece_uid"] = press_piece_serial
-	return piece
-
-## Die Ausbeute EINES Pakets, nach AUSLÖSUNGEN gruppiert: je Eintrag die Stücke
-## einer Multicast-Auslösung (so viele, wie die Paketgröße hergibt - die Zeremonie
-## legt eine Gruppe nach der anderen hin). Ein Fixinhalt ist von der Kette
-## ausgenommen: EINE Auslösung, die genau seinen Inhalt trägt, kein Mengen- und
-## kein Icon-Wurf.
-func _press_pack_groups(pack: Pack, rng: RandomNumberGenerator,
-		chance: float, cap: int, base_bonus: int = 0) -> Array:
-	if pack.fixed_engraving != null:
-		# Ein Bündel ist EINE Karte mit mehreren Stücken darin - gewürfelt wird
-		# hier nichts, weder die Menge noch das Icon. Die Doppelmatrize greift
-		# darum auch nicht: was fest liegt, wächst nicht.
-		var fixed: Array[Dictionary] = []
-		for i in maxi(pack.count, 1):
-			fixed.append(PhantomPress.piece(pack.press_sort(), pack.fixed_engraving.id))
-		return [fixed]
-	return PhantomPress.payout_groups(pack.press_sort(), pack.tier, rng, chance, cap,
-		base_bonus)
-
-## DIE PRESSUNG: ein Griff, dann je Paket seine Ausbeute. Atomar - prüfen,
-## würfeln, prägen, Pakete verbrauchen. Ist die Pressung der Sitzung verbraucht,
-## geschieht NICHTS. Die Beute LEGT SICH DAZU: eine zweite Pressung (Erdungsklemme)
-## räumt weder Ablage noch nassen Guss ab.
-## Liefert {"pieces", "readers", "reader_uids", "kept"}: readers[i] ist die
-## AUSLÖSUNGS-Folge von Leser i (je Auslösung die Nummern ihrer Stücke - die
-## Zeremonie fliegt sie eine nach der anderen), reader_uids[i] dieselben Nummern
-## flach; "kept" zählt die Zellen, die die Zwinge vor dem Ausbrennen bewahrt hat.
-## Ein KATALYSATOR-Platz liefert eine leere Folge: er gibt seine Terme in den
-## Griff und wirft selbst nichts aus.
-func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
-	var empty := {"pieces": [] as Array[Dictionary], "readers": [] as Array,
-		"reader_uids": [] as Array}
-	# Eine Pressung je Sitzung: ist sie verbraucht, presst kein Griff mehr - auch
-	# keiner mit Erdungsklemme.
-	if not press_allowed():
-		return empty
-	var chosen := _pressable_packs(pack_indices)
-	if chosen.is_empty():
-		return empty
-	# Der Griff zerfällt in Beute und Katalysatoren. Ein Griff aus lauter
-	# Katalysatoren presst NICHT: sie verstärken eine Pressung, sie sind keine.
+## Serie in Netze und Katalysatoren zerlegt: {"nets", "catalysts"}.
+func _series_parts(indices: Array[int]) -> Dictionary:
+	var nets: Array = []
 	var catalysts: Array[Pack] = []
-	var loot := 0
-	for index in chosen:
-		if owned_packs[index].is_catalyst():
-			catalysts.append(owned_packs[index])
+	for index in indices:
+		var pack := owned_packs[index]
+		if pack.is_catalyst():
+			catalysts.append(pack)
 		else:
-			loot += 1
-	if loot == 0:
-		return empty
-	var terms := catalyst_terms(catalysts)
-	var base_bonus := int(terms["base"])
+			nets.append(pack.stamp_net)
+	return {"nets": nets, "catalysts": catalysts}
+
+## VORSCHAU: was diese Serie auf diesem Würfel ergäbe. Mutiert nichts und ist
+## buchstäblich dieselbe Rechnung, die apply_series bucht.
+func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
+	var parts := _series_parts(_series_indices(pack_uids))
+	return SeriesResolver.resolve(parts["nets"], die,
+		catalyst_terms(parts["catalysts"]))
+
+## DER GRIFF: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
+## Karten verbrauchen. Ist die Pressung der Sitzung verbraucht oder steht keine
+## prägende Karte in der Reihe, geschieht NICHTS (leeres Dictionary).
+## second_die trägt die Doppelmatrize; ohne sie bleibt er unberührt.
+## Liefert {"projection", "second", "cards", "kept"}.
+func apply_series(pack_uids: Array[int], die: DieDefinition,
+		second_die: DieDefinition = null, rng: RandomNumberGenerator = null) -> Dictionary:
+	if die == null or not press_allowed():
+		return {}
+	var chosen := _series_indices(pack_uids)
+	if chosen.is_empty():
+		return {}
+	var parts := _series_parts(chosen)
+	var nets: Array = parts["nets"]
+	if nets.is_empty():
+		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
+	var terms := catalyst_terms(parts["catalysts"])
 	if not bool(terms["free"]):
 		press_uses += 1  # die Erdungsklemme bewahrt die Pressung der Sitzung
-	# Kette EINMAL für diesen Griff festlegen - jeder Leser wirft mit derselben.
-	# Der Wett-Schub gilt für genau diese Pressung und ist damit verbraucht.
-	var chance := multicast_chance(float(terms["chance"]))
-	var cap := multicast_cap(int(terms["cap"]))
-	press_boost_pending = false
-	var minted: Array[Dictionary] = []
-	var readers: Array = []
-	var reader_uids: Array = []
-	for k in chosen.size():
-		var triggers: Array = []
-		var flat: Array[int] = []
-		# Ein Katalysator-Leser bleibt LEER: er hat abgegeben, nicht ausgeworfen.
-		if not owned_packs[chosen[k]].is_catalyst():
-			for group in _press_pack_groups(owned_packs[chosen[k]], rng, chance, cap,
-					base_bonus):
-				var uids: Array[int] = []
-				for piece in group:
-					_mint_press_piece(piece)
-					minted.append(piece)
-					uids.append(int(piece["piece_uid"]))
-				triggers.append(uids)
-				flat.append_array(uids)
-		readers.append(triggers)
-		reader_uids.append(flat)
-	for piece in minted:
-		press_pieces.append(piece)
-	# Zwinge: je Zelle ein Wurf - eine Überlebende wirft ihre volle Beute ab und
-	# bleibt trotzdem im Regal. Gilt für JEDE gepresste Zelle, Fixinhalte und
-	# Katalysatoren eingeschlossen: ein Katalysator IST ein Paket, eine Regel.
+	press_boost_pending = false  # der Schub galt genau dieser Serie
+	var projection := SeriesResolver.resolve(nets, die, terms)
+	_project(die, projection)
+	var second: Dictionary = {}
+	if bool(terms["matrix"]) and second_die != null and second_die != die:
+		second = SeriesResolver.secondary(projection, second_die)
+		_project(second_die, second)
+	# Der Taktgeber ist der eine Katalysator, dessen Wirkung die Serie überlebt.
+	series_slot_bonus = mini(series_slot_bonus + int(terms["timer"]), SERIES_SLOT_CAP)
+	var kept := _consume_series_cards(chosen, rng)
+	packs_changed.emit()
+	press_changed.emit()
+	note_pool_changed()
+	return {"projection": projection, "second": second,
+		"cards": chosen.size(), "kept": kept}
+
+## Der EINE Schreibweg einer Projektion: über die vorhandenen DieDefinition-Wege,
+## damit Veredelung, Runen-Plätze und Einbrand-Regel gelten wie überall.
+func _project(die: DieDefinition, projection: Dictionary) -> void:
+	var extra := extra_rune_slots()
+	for face in SeriesResolver.FACES:
+		die.faces[face] = int(projection["faces_after"][face])
+		var material := String(projection["materials"][face])
+		if material != "":
+			die.set_face_material(face, material)
+		if bool(projection["doped"][face]):
+			die.dope(face)
+		var runes: Array = projection["runes"][face]
+		for slot in runes.size():
+			if String(runes[slot]) != "":
+				die.set_rune(face, String(runes[slot]), slot, extra)
+		var target := int(projection["pointers"][face])
+		if target >= 0:
+			die.pointers[face] = target
+
+## Karten verbrauchen: je Karte ein Überlebens-Wurf der Zwinge - eine Überlebende
+## hat trotzdem voll gewirkt und bleibt im Magazin. Gilt für JEDE Karte der Serie,
+## Fixinhalte und Katalysatoren eingeschlossen: eine Karte ist eine Karte.
+func _consume_series_cards(indices: Array[int], rng: RandomNumberGenerator) -> int:
 	var survive := CharmEffects.pack_survive_chance(charm_ids())
 	var kept := 0
 	var burned: Array[int] = []
-	for index in chosen:
+	for index in indices:
 		var roll := rng.randf() if rng != null else randf()
 		if survive > 0.0 and roll < survive:
 			kept += 1
@@ -977,309 +920,7 @@ func open_press(pack_indices: Array[int], rng: RandomNumberGenerator = null) -> 
 	burned.sort()
 	for k in range(burned.size() - 1, -1, -1):
 		owned_packs.remove_at(burned[k])
-	packs_changed.emit()
-	press_changed.emit()
-	return {"pieces": minted, "readers": readers,
-		"reader_uids": reader_uids, "kept": kept}
-
-## Darf ein Beutestück auf diesen Würfel? Die Bank sind die Zwingen - sonst keine.
-func press_target_allowed(die: DieDefinition) -> bool:
-	if die == null:
-		return false
-	return is_clamped(die)
-
-## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
-## dritten.
-func extra_rune_slots() -> int:
-	return 1 if charm_ids().has(Charm.BELL_JAR) else 0
-
-func _press_piece(index: int) -> Dictionary:
-	if index < 0 or index >= press_pieces.size():
-		return {}
-	return press_pieces[index]
-
-## Bucht EINE Anwendung ab. Ein Stück der Presse ist flach (applications 1), die
-## Zählung bleibt trotzdem stehen: eine künftige Leiter darf sie wieder füllen.
-func _consume_press_application(index: int) -> void:
-	var piece := _press_piece(index)
-	if piece.is_empty():
-		return
-	var left := int(piece.get("applications", 1)) - 1
-	if left > 0:
-		piece["applications"] = left
-	else:
-		press_pieces.remove_at(index)
-	press_changed.emit()
-
-## Zahl-Stück: die Stufe klettert die Leiter seiner Gravur. faces sind die vom
-## Spieler gewählten Seiten - Überdruck, Aufholen und Politur zielen selbst.
-func apply_press_number(index: int, die: DieDefinition, faces: Array[int] = []) -> bool:
-	var piece := _press_piece(index)
-	if piece.is_empty() or not press_target_allowed(die):
-		return false
-	var before := _snapshot_die(die)
-	var stufe := int(piece.get("stufe", 1))
-	match String(piece.get("id", "")):
-		Engraving.NOTCH:
-			if faces.is_empty():
-				return false
-			EtchingEffects.notch(die, faces[0], stufe)
-		Engraving.OVERPRESSURE:
-			EtchingEffects.overpressure(die, stufe)
-		Engraving.GROWTH:
-			EtchingEffects.growth(die, stufe)
-		Engraving.POLISH:
-			EtchingEffects.polish(die, stufe)
-		Engraving.CHISEL:
-			if faces.size() < 2:
-				return false
-			var targets: Array[int] = []
-			targets.assign(faces.slice(1))
-			EtchingEffects.chisel(die, faces[0], targets, stufe)
-		Engraving.GRINDSTONE:
-			if faces.size() < 2 or EtchingEffects.grindstone(die, faces[0], faces[1], stufe) <= 0:
-				return false
-		_:
-			return false
-	_journal_application(piece, die, before)
-	_consume_press_application(index)
-	note_pool_changed()
-	return true
-
-## Material-Stück: belegt eine Seite. Frische Farbe liegt immer unveredelt - die
-## Sättigung ist ein eigenes Stück (Sonderposten Veredelung).
-func apply_press_material(index: int, die: DieDefinition, face: int) -> bool:
-	var piece := _press_piece(index)
-	if piece.is_empty() or not press_target_allowed(die):
-		return false
-	if face < 0 or face >= die.materials.size():
-		return false
-	# Der Einbrand sperrt das Übermalen einer belegten Seite.
-	if die.materials[face] != "" and RuneEffects.protects_face_value(die.runes_on(face)):
-		return false
-	var before := _snapshot_die(die)
-	die.set_face_material(face, String(piece.get("id", "")))
-	_journal_application(piece, die, before)
-	_consume_press_application(index)
-	note_pool_changed()
-	return true
-
-## Runen-Stück: dieselbe Rune, Reihe-mal setzbar - jede Setzung eine Seite, nach
-## der normalen Ersetzungs-Regel.
-func apply_press_rune(index: int, die: DieDefinition, face: int, slot: int = 0) -> bool:
-	var piece := _press_piece(index)
-	if piece.is_empty() or not press_target_allowed(die):
-		return false
-	var rune_id := Engraving.rune_id_of(String(piece.get("id", "")))
-	if rune_id == "":
-		return false
-	var before := _snapshot_die(die)
-	if not die.set_rune(face, rune_id, slot, extra_rune_slots()):
-		return false
-	_journal_application(piece, die, before)
-	_consume_press_application(index)
-	note_pool_changed()
-	return true
-
-## Pointer-Stück: verdrahtet zwei benachbarte Seiten; Überschreiben erlaubt.
-func apply_press_pointer(index: int, die: DieDefinition, from_face: int, to_face: int) -> bool:
-	var piece := _press_piece(index)
-	if piece.is_empty() or not press_target_allowed(die):
-		return false
-	if String(piece.get("id", "")) != Engraving.POINTER or not die.can_point(from_face, to_face):
-		return false
-	var before := _snapshot_die(die)
-	die.pointers[from_face] = to_face
-	_journal_application(piece, die, before)
-	_consume_press_application(index)
-	note_pool_changed()
-	return true
-
-## Veredelungs-Stück: sättigt das Material einer Seite. dope() IST die Probe - eine
-## nackte oder schon veredelte Seite bewegt sich nicht und ist damit kein Ziel.
-func apply_press_doping(index: int, die: DieDefinition, face: int) -> bool:
-	var piece := _press_piece(index)
-	if piece.is_empty() or not press_target_allowed(die):
-		return false
-	if String(piece.get("id", "")) != Engraving.DOPING:
-		return false
-	var before := _snapshot_die(die)
-	if not die.dope(face):
-		return false
-	_journal_application(piece, die, before)
-	_consume_press_application(index)
-	note_pool_changed()
-	return true
-
-# --- Der nasse Guss: Setzungen bleiben bis zur Unterschrift vorläufig ----------
-
-## Zustand EINER Seite - alles, was ein Beutestück daran fassen kann.
-func _face_state(die: DieDefinition, face: int) -> Dictionary:
-	return {
-		"face": face,
-		"value": int(die.faces[face]) if face < die.faces.size() else 0,
-		"material": String(die.materials[face]) if face < die.materials.size() else "",
-		"level": int(die.levels[face]) if face < die.levels.size() else 0,
-		"rune": String(die.runes[face]) if face < die.runes.size() else "",
-		"second": String(die.second_runes[face]) if face < die.second_runes.size() else "",
-		"third": String(die.third_runes[face]) if face < die.third_runes.size() else "",
-		"pointer": int(die.pointers[face]) if face < die.pointers.size() else -1,
-	}
-
-## Alle sechs Seiten vor dem Stück. Bewusst der ganze Würfel: welche Seiten es
-## WIRKLICH berührt, sagt hinterher der Vergleich - kein Stück muss seine Ziele
-## selbst melden.
-func _snapshot_die(die: DieDefinition) -> Array[Dictionary]:
-	var states: Array[Dictionary] = []
-	if die == null:
-		return states
-	for face in 6:
-		states.append(_face_state(die, face))
-	return states
-
-## Schreibt die Anwendung ins Journal: gespeichert wird nur, was sich WIRKLICH
-## bewegt hat - eine Seite, die ein späteres Stück nicht angefasst hat, bleibt
-## beim Herausnehmen unangetastet. Das Stück reist als Kopie mit EINER Anwendung
-## mit; seine Nummer wird dem ORIGINAL aufgeprägt, bevor die Kopie sie erbt.
-func _journal_application(piece: Dictionary, die: DieDefinition,
-		before: Array[Dictionary]) -> void:
-	if die == null or before.is_empty():
-		return
-	var touched: Array[Dictionary] = []
-	for state in before:
-		if _face_state(die, int(state["face"])) != state:
-			touched.append(state)
-	if not piece.has("piece_uid"):
-		_mint_press_piece(piece)  # von Hand gelegte Stücke bekommen sie hier
-	var record := piece.duplicate()
-	record["applications"] = 1
-	press_journal.append({"piece": record, "die": die,
-		"die_id": die.get_instance_id(), "faces": touched})
-
-## Seiten-Schlüssel eines Eintrags ("Instanz:Seite") - die Schicht-Regel vergleicht
-## Seiten, nicht Würfel: zwei Stücke auf demselben Würfel stören einander nicht,
-## solange sie verschiedene Seiten fassen.
-func _journal_face_keys(entry: Dictionary) -> Array[String]:
-	var keys: Array[String] = []
-	var die_id := int(entry.get("die_id", 0))
-	for state in entry.get("faces", []):
-		keys.append("%d:%d" % [die_id, int(state["face"])])
-	return keys
-
-## Schicht-Regel: herausnehmbar ist ein Stück nur, solange KEIN später gesetztes
-## eine seiner Seiten berührt hat. Der jüngste Eintrag geht darum immer.
-func press_piece_reseatable(index: int) -> bool:
-	if index < 0 or index >= press_journal.size():
-		return false
-	var keys := _journal_face_keys(press_journal[index])
-	if keys.is_empty():
-		return true
-	for later in range(index + 1, press_journal.size()):
-		for key in _journal_face_keys(press_journal[later]):
-			if keys.has(key):
-				return false
-	return true
-
-## Je Seite dieses Würfels die JÜNGSTE Setzung, die sie berührt hat:
-## face -> {"index": i, "id": gravur, "wet": bool}. Das ist der ganze UI-Eingang
-## des nassen Gusses - die Netzzelle trägt ihre Plakette daran, und ein Klick
-## darauf nimmt genau diesen Eintrag heraus.
-func press_face_marks(die: DieDefinition) -> Dictionary:
-	var marks := {}
-	if die == null:
-		return marks
-	var die_id := die.get_instance_id()
-	for index in press_journal.size():
-		var entry: Dictionary = press_journal[index]
-		if int(entry.get("die_id", 0)) != die_id:
-			continue
-		var wet := press_piece_reseatable(index)
-		for state in entry.get("faces", []):
-			marks[int(state["face"])] = {"index": index,
-				"id": String(entry["piece"].get("id", "")), "wet": wet}
-	return marks
-
-## Journal-Eintrag, den ein Klick auf die Plakette dieser Seite meint (-1 = keiner).
-func press_mark_at(die: DieDefinition, face: int) -> int:
-	var mark: Dictionary = press_face_marks(die).get(face, {})
-	return int(mark.get("index", -1))
-
-## Schreibt die gemerkten Seiten zurück - über dieselben Schreibwege, die sie
-## gesetzt haben (die Veredelung hängt am Material-Exemplar, die Rune an der Schale).
-func _restore_face_states(die: DieDefinition, states: Array) -> void:
-	for state in states:
-		var face := int(state["face"])
-		if face < 0 or face >= 6:
-			continue
-		if face < die.faces.size():
-			die.faces[face] = int(state["value"])
-		die.set_face_material(face, String(state["material"]))
-		if int(state["level"]) >= DieMaterial.MAX_LEVEL:
-			die.dope(face)
-		var extra := extra_rune_slots()
-		die.set_rune(face, String(state["rune"]), 0, extra)
-		die.set_rune(face, String(state["second"]), 1, extra)
-		die.set_rune(face, String(state["third"]), 2, extra)
-		if face < die.pointers.size():
-			die.pointers[face] = int(state["pointer"])
-
-## Nimmt eine Setzung wieder heraus: die berührten Seiten stehen exakt wie davor,
-## das Stück liegt wieder im Vorrat. Geld wird dabei NIE erstattet.
-func unseat_press_piece(index: int) -> bool:
-	if not press_piece_reseatable(index):
-		return false
-	var entry := press_journal[index]
-	var die: DieDefinition = entry.get("die")
-	if die != null:
-		_restore_face_states(die, entry.get("faces", []))
-	press_journal.remove_at(index)
-	press_pieces.append(entry["piece"])
-	press_changed.emit()
-	note_pool_changed()
-	return true
-
-## Die Unterschrift: der Guss erkaltet, jede Setzung dieser Runde steht. Die
-## nassen Chips werden damit stumm - es gibt keinen Eintrag mehr, der sie trüge.
-func harden_press_journal() -> void:
-	if press_journal.is_empty():
-		return
-	press_journal.clear()
-	press_changed.emit()
-
-## Restwert der Hand beim FERTIG: je STÜCK eine Münze, nicht je offener Anwendung -
-## ein Stück ist eine Aufwertung, so oft es auch noch setzen dürfte.
-func press_cash_out_value() -> int:
-	return press_pieces.size() * PhantomPress.FIZZLE_MONEY
-
-## FERTIG: erst hier wird der Guss echt. Vorher ist keine Setzung endgültig. Was
-## noch in der Hand liegt, löst sich dabei in Geld auf: einzeln verkauft wird ein
-## Stück nie, nur die Reste der Hand im Moment des Abschlusses.
-## false = es gibt gar nichts abzuschließen.
-func apply_press_placements() -> bool:
-	if press_journal.is_empty() and press_pieces.is_empty():
-		return false
-	var cash := press_cash_out_value()
-	press_pieces.clear()
-	if cash > 0:
-		add_money(cash)
-	harden_press_journal()
-	press_changed.emit()
-	return true
-
-## DER VERFALL: die Runde ist unterschrieben (oder eine neue hat begonnen), ohne
-## dass angewendet wurde - die ganze Sitzung fällt zurück. Jede Setzung wird über
-## den geprüften Weg herausgenommen (jüngste zuerst, damit die Schicht-Regel immer
-## trägt), die Ablage verfällt, und Geld fließt KEINES: was nicht angewendet
-## wurde, hat nie gezahlt.
-func lapse_press() -> void:
-	if press_journal.is_empty() and press_pieces.is_empty():
-		return
-	while not press_journal.is_empty():
-		if not unseat_press_piece(press_journal.size() - 1):
-			press_journal.clear()  # Notbremse: ein Eintrag, der nicht zurückwill
-			break
-	press_pieces.clear()
-	press_changed.emit()
+	return kept
 
 # --- Übertakten (am Chip): Kombinationen ohne Stufen-Limit aufwerten ---------
 
@@ -1331,8 +972,6 @@ func grant_combo_level(combo_key: String) -> void:
 ## (unterschrieben wird VOR dem Rundenstart).
 func apply_round_start_charms() -> void:
 	roll_essence_round_state()
-	# Die Bank dieser Runde steht, bevor der Shop öffnet - das ist die Spannung.
-	roll_clamped_dice()
 	var ids := charm_ids()
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
@@ -2327,8 +1966,6 @@ static func goal_for_round(n: int) -> int:
 ## Die ERSTE Runde eines Laufs bekommt bewusst keine - der Spieler soll einmal
 ## würfeln, bevor das Haus ihm Konditionen anbietet.
 func advance_round() -> void:
-	# Was bis hierhin nicht angewendet wurde, verfällt - samt seinem Geld.
-	lapse_press()
 	round_number += 1
 	round_goal = goal_for_round(round_number)
 	roll_route_offers()

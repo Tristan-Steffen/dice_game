@@ -217,48 +217,55 @@ func test_the_clamp_chance_stacks_and_caps():
 	var four := _ids([Charm.CLAMP, Charm.CLAMP, Charm.CLAMP, Charm.CLAMP])
 	assert_almost_eq(CharmEffects.pack_survive_chance(four), CharmEffects.CLAMP_SURVIVE_CAP, 0.0001)
 
-## Sucht einen Seed mit dem gewünschten Ausgang. Die Ausbeute würfelt VOR der
-## Zwinge, der erste Wurf des Generators ist also nicht ihrer - der Ausgang lässt
-## sich nur an einer echten Pressung ablesen.
+## Sucht einen Seed mit dem gewünschten Ausgang - der Überlebens-Wurf liegt in der
+## Serie, also liest man ihn nur an einem echten Griff ab.
 func _press_seed(keeps: bool) -> RandomNumberGenerator:
 	for seed_value in 200:
 		var probe := GameRun.new_run()
 		probe.owned_charms.append(Charm.bench_clamp())
-		probe.grant_pack(Pack.material_pack())
-		if (int(probe.open_press(_d([0]), _rng(seed_value)).get("kept", 0)) > 0) == keeps:
+		var pack := probe.grant_pack(Pack.material_pack())
+		var result := probe.apply_series([pack.pack_uid] as Array[int],
+			probe.owned_pool[0], null, _rng(seed_value))
+		if (int(result.get("kept", 0)) > 0) == keeps:
 			return _rng(seed_value)
 	return _rng(0)
+
+func _press(rng: RandomNumberGenerator) -> Dictionary:
+	var uids: Array[int] = []
+	for pack in run.owned_packs:
+		uids.append(pack.pack_uid)
+	return run.apply_series(uids, run.owned_pool[0], null, rng)
 
 func test_a_surviving_cell_stays_in_the_shelf_and_still_pays():
 	run.owned_charms.append(Charm.bench_clamp())
 	run.grant_pack(Pack.material_pack())
-	var result := run.open_press(_d([0]), _press_seed(true))
-	assert_gt((result.get("pieces", []) as Array).size(), 0, "die volle Ausbeute fällt trotzdem")
+	var result := _press(_press_seed(true))
+	assert_false(SeriesResolver.is_empty(result["projection"]),
+		"die volle Projektion fällt trotzdem")
 	assert_eq(int(result.get("kept", 0)), 1)
 	assert_eq(run.owned_packs.size(), 1, "die Zelle liegt wieder im Regal")
 
 func test_a_burnt_cell_is_gone():
 	run.owned_charms.append(Charm.bench_clamp())
 	run.grant_pack(Pack.material_pack())
-	var result := run.open_press(_d([0]), _press_seed(false))
-	assert_gt((result.get("pieces", []) as Array).size(), 0)
+	var result := _press(_press_seed(false))
+	assert_false(SeriesResolver.is_empty(result["projection"]))
 	assert_eq(int(result.get("kept", 0)), 0)
 	assert_eq(run.owned_packs.size(), 0)
 
 func test_without_the_clamp_every_cell_burns():
 	run.grant_pack(Pack.material_pack())
-	var result := run.open_press(_d([0]), _press_seed(true))
+	var result := _press(_press_seed(true))
 	assert_eq(int(result.get("kept", 0)), 0, "ohne Zwinge überlebt nichts")
 	assert_eq(run.owned_packs.size(), 0)
 
-func test_a_survivor_can_be_pressed_again():
+func test_a_survivor_can_be_used_again():
 	run.owned_charms.append(Charm.bench_clamp())
 	run.grant_pack(Pack.material_pack())
-	run.open_press(_d([0]), _press_seed(true))
+	_press(_press_seed(true))
 	assert_eq(run.owned_packs.size(), 1)
 	run.reset_press_cycle()  # eine Pressung je Sitzung - die Unterschrift gibt sie zurück
-	var again := run.open_press(_d([0]), _rng(3))
-	assert_gt((again.get("pieces", []) as Array).size(), 0, "sie presst ein zweites Mal")
+	assert_false(_press(_rng(3)).is_empty(), "sie prägt ein zweites Mal")
 
 # --- Füllhorn: ab fünf geräumten Überladungs-Stufen ein Sonderposten ------------------
 

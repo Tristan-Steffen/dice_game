@@ -39,7 +39,8 @@ const VERTRAG := "vertrag"
 const NEBENWETTE := "nebenwette"
 const MAGAZIN := "magazin"
 const PRESSE := "presse"
-const MULTICAST := "multicast"
+const PRAEGENETZ := "praegenetz"
+const SERIE := "serie"
 const SCHWARZMARKT := "schwarzmarkt"
 const UEBERTAKTEN := "uebertakten"
 
@@ -47,7 +48,7 @@ const UEBERTAKTEN := "uebertakten"
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	BENCHMARK, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, MULTICAST, SCHWARZMARKT, UEBERTAKTEN]
+	PRESSE, PRAEGENETZ, SERIE, SCHWARZMARKT, UEBERTAKTEN]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -70,7 +71,10 @@ const EXTRA_SURFACES := {
 	"Fumbles": FUMBLE,
 	"Verträge": VERTRAG, "Klausel": VERTRAG, "Klauseln": VERTRAG,
 	"Nebenwetten": NEBENWETTE,
-	"Pressung": PRESSE,
+	"Pressung": PRESSE, "Griff": PRESSE,
+	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
+	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
+	"Operator": SERIE, "Operatoren": SERIE,
 	"übertakten": UEBERTAKTEN, "Übertaktung": UEBERTAKTEN, "Übertaktungen": UEBERTAKTEN,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
@@ -228,10 +232,13 @@ static func _build_concepts() -> void:
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
-		"Die Maschine der Werkstatt: versiegelte Pakete stecken in den Lesern und werden in einem Griff zu Gravuren gepresst - je Auslösung 1, 3 oder 5 Stück, so oft der Multicast nachlegt. Je Runde presst die Werkstatt genau einmal, und es kostet nichts - nur ein Griff mit Erdungsklemme verbraucht die Pressung nicht. Die Beute liegt auf dem Glas und wird von Hand gesetzt.",
+		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Griff projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Je Runde greift die Werkstatt genau einmal, und es kostet nichts; nur ein Griff mit Erdungsklemme verbraucht den Griff nicht.",
 		CAT_BEGRIFFE)
-	_add(MULTICAST, "Multicast",
-		"Die Kette der Presse. Jede Pressung zahlt zuerst den Sockel ihrer Paketgröße - Standard 1, Groß 3, Kolossal 5 Gravuren -, dann würfelt sie: jeder Treffer legt denselben Sockel noch einmal nach, bis zum ersten Fehlwurf oder bis zum Limit. Chance und Limit wachsen mit dem Ausbau des Casinos; Klauseln und Nebenwetten verschieben beide, nach oben wie nach unten. Ein Fixinhalt löst nie nach.",
+	_add(PRAEGENETZ, "Prägenetz",
+		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Paketgröße.",
+		CAT_BEGRIFFE)
+	_add(SERIE, "Serie",
+		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) rechnet auf der bis dahin aufgelaufenen Summe - die Reihenfolge ist darum die Entscheidung. Wie viele Slots die Reihe hat, wächst mit dem Ausbau des Casinos; Klauseln und der Taktgeber verschieben die Länge.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, freigeschaltet mit Lizenzstufe 5. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",

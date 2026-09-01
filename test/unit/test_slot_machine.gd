@@ -163,9 +163,11 @@ func test_the_ladder_grows_monotonically() -> void:
 	for length in range(SlotMachine.MIN_RUN, SlotMachine.TOTAL_COLS):
 		var here := SlotMachine.pack_payout(length)
 		var more := SlotMachine.pack_payout(length + 1)
-		var base_here := int(here["count"]) * PhantomPress.base_for(int(here["tier"]))
-		var base_more := int(more["count"]) * PhantomPress.base_for(int(more["tier"]))
-		assert_gt(base_more, base_here, "Länge %d wirft mehr aus als %d" % [length + 1, length])
+		# Wert einer Auszahlung: Menge mal Preisfaktor ihrer Größe - die Größe ist
+		# seit der Serienschaltung die Netz-Dichte, und die Preisleiter misst sie.
+		var value_here := float(here["count"]) * Pack.tier_price_factor(int(here["tier"]))
+		var value_more := float(more["count"]) * Pack.tier_price_factor(int(more["tier"]))
+		assert_gt(value_more, value_here, "Länge %d wirft mehr aus als %d" % [length + 1, length])
 
 func test_minted_packs_carry_size_name_and_price() -> void:
 	var prize := SlotPrize.from_spec(_pack_spec(S, 4))

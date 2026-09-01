@@ -127,8 +127,8 @@ static func copper() -> DieMaterial:
 	return m
 
 ## Kanonische Registrierung aller ERWERBBAREN Materialien - jede Ziehung, jede
-## Gravur und jeder Würfelkauf rollt aus dieser Liste. GENAU SECHS: sie sind die
-## sechs Seiten des Material-Phantomwürfels (PhantomPress.ICONS liest hier).
+## Gravur und jeder Würfelkauf rollt aus dieser Liste. GENAU SECHS: eine je Seite
+## eines Würfels, und genau so weit reicht ein Material-Prägenetz.
 static func all() -> Array[DieMaterial]:
 	return [ruby(), amber(), gold(), bone(), glass(), copper()]
 

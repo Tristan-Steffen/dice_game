@@ -1,25 +1,21 @@
 extends GutTest
-## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Ikonensätze).
+## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Sonderposten).
 
-func test_all_returns_etchings_materials_and_runes():
-	# 6 Zahl-Gravuren + Pointer + 6 Material-Gravuren + 6 Runen.
-	assert_eq(Engraving.all().size(), 20)
+func test_all_returns_specials_materials_and_runes():
+	# Pointer + Veredelung + 6 Material-Gravuren + 6 Runen.
+	assert_eq(Engraving.all().size(), 14)
 
-func test_the_number_set_is_exactly_six():
-	assert_eq(Engraving.NUMBER_IDS.size(), 6, "sechs Seiten, sechs Verben")
-	var number_ids: Array[String] = []
+## Die sechs Zahl-Verben sind mit der Serienschaltung gestorben: eine Zahl-Zelle
+## im Prägenetz ist ein nackter Bonus, kein Archetyp.
+func test_no_number_archetype_is_left():
 	for engraving in Engraving.all():
-		if engraving.category == Engraving.CATEGORY_NUMBER:
-			number_ids.append(engraving.id)
-	assert_eq(number_ids.size(), 6)
-	for id in Engraving.NUMBER_IDS:
-		assert_true(number_ids.has(id), "NUMBER_IDS nennt nur echte Archetypen: %s" % id)
+		assert_ne(engraving.category, Engraving.CATEGORY_NUMBER,
+			"toter Zahl-Archetyp lebt noch: %s" % engraving.id)
 
 func test_the_dead_archetypes_are_gone():
-	# Feile, Mittelung, Begradigung, Stanze und Blaupause sind ersatzlos
-	# gestorben - ihre Rollen stecken in den sechs Leitern.
 	var dead := ["file_down", "averaging", "straighten", "sandpaper", "punch",
-		"blueprint"]
+		"blueprint", "notch", "overpressure", "polish", "chisel", "grindstone",
+		"growth"]
 	for engraving in Engraving.all():
 		assert_false(dead.has(engraving.id), "toter Archetyp lebt noch: %s" % engraving.id)
 
@@ -58,12 +54,8 @@ func test_material_engravings_use_the_material_id():
 	assert_eq(material_ids.size(), DieMaterial.all().size(), "je Material genau ein Engraving")
 
 func test_factory_id_matches_constant():
-	assert_eq(Engraving.chisel().id, Engraving.CHISEL)
-	assert_eq(Engraving.notch().id, Engraving.NOTCH)
-	assert_eq(Engraving.overpressure().id, Engraving.OVERPRESSURE)
-	assert_eq(Engraving.growth().id, Engraving.GROWTH)
-	assert_eq(Engraving.polish().id, Engraving.POLISH)
-	assert_eq(Engraving.grindstone().id, Engraving.GRINDSTONE)
+	assert_eq(Engraving.pointer_engraving().id, Engraving.POINTER)
+	assert_eq(Engraving.doping().id, Engraving.DOPING)
 
 func test_by_id_finds_every_archetype():
 	for engraving in Engraving.all():
@@ -72,7 +64,7 @@ func test_by_id_finds_every_archetype():
 
 func test_the_specials_are_the_pointer_and_the_doping():
 	assert_eq(Engraving.SPECIAL_IDS, [Engraving.POINTER, Engraving.DOPING],
-		"beide liegen im Sonderbestand, auf keinem Ikonensatz")
+		"beide liegen im Sonderbestand, in keiner Wurftabelle")
 	for special in [Engraving.pointer_engraving(), Engraving.doping()]:
 		assert_eq(special.material_id(), "", "%s belegt kein Material" % special.id)
 

@@ -1,5 +1,5 @@
 extends GutTest
-## Tests der Paket-Datenklasse: ein Gravur-Paket ist EIN Phantomwürfel, und die
+## Tests der Paket-Datenklasse: ein Gravur-Paket trägt EIN Prägenetz, und die
 ## Sorte bildet auf eine Gravur-Kategorie ab. Würfel sind KEINE Paketware mehr.
 
 func test_engraving_packs_map_to_their_category() -> void:
@@ -14,10 +14,11 @@ func test_there_is_no_dice_pack_sort_any_more() -> void:
 	assert_eq(Pack.shelf_for_pack_type("dice"), Engraving.CATEGORY_NUMBER,
 		"eine unbekannte Sorte fällt auf die Zahlen zurück, sie bekommt kein Fach")
 
-func test_every_engraving_pack_is_exactly_one_phantom_die() -> void:
+func test_every_engraving_pack_carries_exactly_one_net() -> void:
 	for pack in Pack.all_engraving_packs():
-		assert_eq(pack.count, Pack.ENGRAVING_PACK_COUNT, "%s wirft genau einen" % pack.type)
-		assert_eq(pack.count, 1)
+		assert_eq(pack.count, Pack.ENGRAVING_PACK_COUNT, "%s trägt genau eins" % pack.type)
+		assert_eq(pack.stamp_net.size(), StampNet.FACES, "sechs Zellen, eine je Seite")
+		assert_gt(StampNet.filled_count(pack.stamp_net), 0, "und mindestens eine gefüllt")
 
 func test_the_mixed_pack_is_gone() -> void:
 	# Vielfalt ist jetzt der gemischte BATCH, keine eigene Sorte mehr.
@@ -64,7 +65,7 @@ func test_fixed_engraving_pack_carries_its_piece_sealed() -> void:
 	assert_eq(pack.fixed_engraving.id, DieMaterial.GOLD)
 
 func test_fixed_engraving_pack_sorts_every_category() -> void:
-	assert_eq(Pack.fixed_engraving_pack(Engraving.notch()).type, Pack.TYPE_NUMBER)
+	assert_eq(Pack.fixed_engraving_pack(Engraving.doping()).type, Pack.TYPE_MATERIAL)
 	assert_eq(Pack.fixed_engraving_pack(Engraving.pointer_engraving()).type, Pack.TYPE_DICE_MOD)
 	assert_eq(Pack.pack_type_for_category(Engraving.CATEGORY_DICE), Pack.TYPE_DICE_MOD)
 
@@ -99,6 +100,9 @@ func test_the_shop_special_is_a_single_at_the_flat_price() -> void:
 		if pack.is_catalyst():
 			assert_eq(pack.price, Pack.catalyst_price(pack.catalyst_id))
 			continue
+		if pack.is_operator():
+			assert_eq(pack.price, StampNet.operator_price(pack.operator_id))
+			continue
 		assert_not_null(pack.fixed_engraving)
 		assert_true(Engraving.is_special_id(pack.fixed_engraving.id),
 			"im Regal liegen nur Sonderposten: %s" % pack.fixed_engraving.id)
@@ -110,11 +114,18 @@ func test_both_specials_reach_the_shelf() -> void:
 	var seen := {}
 	for i in 400:
 		var pack := Pack.roll_special_pack()
-		seen[pack.catalyst_id if pack.is_catalyst() else pack.fixed_engraving.id] = true
+		var key := pack.fixed_engraving.id if pack.fixed_engraving != null else ""
+		if pack.is_catalyst():
+			key = pack.catalyst_id
+		elif pack.is_operator():
+			key = pack.operator_id
+		seen[key] = true
 	for special_id: String in Engraving.SPECIAL_IDS:
 		assert_true(seen.has(special_id), "%s liegt irgendwann aus" % special_id)
 	for catalyst_id in Pack.catalyst_ids():
 		assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
+	for op_id: String in StampNet.OPERATOR_IDS:
+		assert_true(seen.has(op_id), "%s liegt irgendwann aus" % op_id)
 
 # --- Die Katalysator-Kassetten -------------------------------------------------
 
@@ -132,7 +143,7 @@ func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
 		assert_true(pack.description.contains(Pack.catalyst_effect(id)),
 			"die Wirkung steht auf der Karte")
 		assert_true(pack.description.contains("verbraucht"),
-			"und dass sie mit ihrer Pressung verbraucht wird")
+			"und dass sie mit ihrem Griff verbraucht wird")
 
 func test_the_catalyst_prices_are_the_authored_ones() -> void:
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
@@ -158,15 +169,15 @@ func test_a_catalyst_carries_no_engraving() -> void:
 	assert_null(pack.fixed_engraving, "der Sonderbestand hat zwei Familien")
 	assert_ne(pack.catalyst_id, "")
 
-## Die Gewichtstabelle IST die Regel: 40 % Gravur, der Rest gleichmäßig auf die
-## vier Karten.
+## Die Gewichtstabelle IST die Regel: 30 % Gravur, der Rest gleichmäßig auf
+## Katalysatoren und Operatoren.
 func test_the_special_roll_weights_are_the_documented_table() -> void:
-	assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[Pack.SPECIAL_ENGRAVING]), 40)
+	assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[Pack.SPECIAL_ENGRAVING]), 30)
 	var rest := 0
-	for id in Pack.catalyst_ids():
-		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 15)
+	for id in Pack.catalyst_ids() + StampNet.OPERATOR_IDS:
+		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 10, "%s" % id)
 		rest += int(Pack.SPECIAL_ROLL_WEIGHTS[id])
-	assert_eq(rest, 60, "und zusammen genau der Rest")
+	assert_eq(rest, 70, "und zusammen genau der Rest")
 
 # --- Die drei Paketgrößen -------------------------------------------------------
 
@@ -189,18 +200,6 @@ func test_the_price_climbs_with_the_size() -> void:
 	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_GROSS).price, 24)
 	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_KOLOSSAL).price, 40)
 
-## Der Aufschlag liegt ÜBER dem Zuwachs an Stücken: gekauft wird Dichte, nicht
-## ein Rabatt auf die Beute.
-func test_the_price_factor_stays_above_the_piece_gain() -> void:
-	var base := PhantomPress.expected_pieces(Pack.TIER_NORMAL)
-	for tier in [Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
-		var pieces := PhantomPress.expected_pieces(tier) / base
-		assert_gt(Pack.tier_price_factor(tier), pieces,
-			"Größe %d kostet mehr, als sie an Stücken zulegt" % tier)
-		# ... und zwar gleichmäßig: der Aufschlag ist derselbe, nicht mal so, mal so.
-		assert_almost_eq(Pack.tier_price_factor(tier) / pieces, 1.15, 0.01,
-			"Größe %d trägt denselben Dichte-Aufschlag" % tier)
-
 func test_only_pressable_packs_carry_a_size() -> void:
 	var catalyst := Pack.catalyst(Pack.CATALYST_TIMER)
 	var before := catalyst.display_name
@@ -210,6 +209,9 @@ func test_only_pressable_packs_carry_a_size() -> void:
 	var fixed := Pack.fixed_engraving_pack(Engraving.pointer_engraving())
 	assert_false(Pack.tierable(fixed), "ein Fixinhalt würfelt nichts aus")
 	assert_eq(Pack.tiered(fixed, Pack.TIER_GROSS).tier, Pack.TIER_NORMAL)
+	var op := Pack.operator_pack(StampNet.OP_DOUBLER)
+	assert_false(Pack.tierable(op), "ein Operator trägt genau eine Zelle")
+	assert_eq(Pack.tiered(op, Pack.TIER_GROSS).tier, Pack.TIER_NORMAL)
 
 func test_the_size_weights_are_sixty_thirty_ten() -> void:
 	assert_eq(Pack.TIER_WEIGHTS, [0.6, 0.3, 0.1])
@@ -232,19 +234,11 @@ func test_the_shop_roll_carries_the_size_through() -> void:
 	assert_eq(Pack.roll_engraving_pack().tier, Pack.TIER_NORMAL,
 		"ohne Angabe prägt jede Quelle Standard")
 
-func test_the_multicast_line_reads_the_one_table() -> void:
-	assert_eq(Pack.multicast_line(Pack.TIER_NORMAL),
-		"1 Gravur je Auslösung, Multicast 50 %, max. ×3")
-	assert_eq(Pack.multicast_line(Pack.TIER_GROSS),
-		"3 Gravuren je Auslösung, Multicast 50 %, max. ×3")
-	assert_eq(Pack.multicast_line(Pack.TIER_KOLOSSAL),
-		"5 Gravuren je Auslösung, Multicast 50 %, max. ×3")
-
-## Chance und Decke kommen von außen - die Karte nennt, was die Presse JETZT kann.
-func test_the_multicast_line_takes_the_live_values() -> void:
-	assert_eq(Pack.multicast_line(Pack.TIER_GROSS, 0.75, 7),
-		"3 Gravuren je Auslösung, Multicast 75 %, max. ×7")
-	var run := GameRun.new_run()
-	run.hub_level = 10
-	assert_eq(Pack.multicast_line(Pack.TIER_NORMAL, run.multicast_chance(), run.multicast_cap()),
-		"1 Gravur je Auslösung, Multicast 75 %, max. ×7")
+## Die Netz-Zeile liest das Netz der KARTE, nie eine zweite Tabelle.
+func test_the_net_line_reads_the_card() -> void:
+	var pack := Pack.number_pack()
+	assert_eq(Pack.net_line(pack), StampNet.line(pack.stamp_net))
+	assert_eq(Pack.net_line(Pack.catalyst(Pack.CATALYST_GROUND)),
+		Pack.catalyst_effect(Pack.CATALYST_GROUND), "ein Katalysator nennt seine Wirkung")
+	assert_eq(Pack.net_line(Pack.operator_pack(StampNet.OP_MIRROR)),
+		StampNet.operator_name(StampNet.OP_MIRROR))

@@ -60,17 +60,14 @@ func test_face_writes_never_touch_the_essence():
 	def.pointers[0] = 2
 	assert_eq(def.essence_id, Essence.ARGON, "Material, Veredelung und Rune lassen die Seele in Ruhe")
 
-func test_etchings_never_touch_the_essence():
-	var def := DieDefinition.new()
+func test_a_projection_never_touches_the_essence():
+	var run := GameRun.new_run()
+	var def := run.owned_pool[0]
 	def.essence_id = Essence.KRYPTON
-	var target: Array[int] = [1]
-	EtchingEffects.notch(def, 0, 6)
-	EtchingEffects.overpressure(def, 6)
-	EtchingEffects.growth(def, 6)
-	EtchingEffects.polish(def, 6)
-	EtchingEffects.chisel(def, 0, target, 6)
-	EtchingEffects.grindstone(def, 0, 1, 6)
-	assert_eq(def.essence_id, Essence.KRYPTON, "Ätzungen ändern Augen, nie die Seele")
+	var pack := run.grant_pack(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL))
+	var uids: Array[int] = [pack.pack_uid]
+	run.apply_series(uids, def)
+	assert_eq(def.essence_id, Essence.KRYPTON, "Prägungen ändern Augen, nie die Seele")
 
 func test_instantiate_keeps_the_soul_but_shares_nothing():
 	var def := DieDefinition.new()

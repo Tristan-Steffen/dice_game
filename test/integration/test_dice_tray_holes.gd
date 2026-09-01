@@ -70,7 +70,7 @@ func test_refresh_faces_survives_the_holes() -> void:
 func _seat(def: DieDefinition, inspected: DieDefinition, on_bench := false) -> bool:
 	return DiceTrayView.seat_shows(def, inspected, on_bench)
 
-func test_a_clamped_die_lies_in_the_pool_until_it_migrates() -> void:
+func test_a_pool_die_lies_in_its_seat_until_it_migrates() -> void:
 	# Aufgespannt heißt NICHT weg: der Würfel LIEGT im Pool, bis er zur Bank wandert.
 	var defs := _dice(4)
 	assert_true(_seat(defs[1], null, false), "im Pool steht sein Körper im Sitz")

@@ -8,9 +8,9 @@ extends Resource
 
 enum Rarity { COMMON, UNCOMMON, RARE, EPIC, LEGENDARY }
 
-# categories: ZAHL verändert Augen (EtchingEffects), MATERIAL belegt eine Seite
-# (id = Material-id), WÜRFEL wirkt auf den ganzen Würfel (bislang nur die
-# Pointer - die Kanten sind als Ausbau-Slot gestrichen).
+# categories: ZAHL hebt Augen (nur noch als nackte Netz-Zelle, ohne Archetyp),
+# MATERIAL belegt eine Seite (id = Material-id), WÜRFEL wirkt auf den ganzen
+# Würfel (Pointer, Runen - die Kanten sind als Ausbau-Slot gestrichen).
 const CATEGORY_NUMBER := "number"
 const CATEGORY_MATERIAL := "material"
 const CATEGORY_DICE := "dice"
@@ -37,20 +37,23 @@ static func is_special_id(engraving_id: String) -> bool:
 ## Die drei käuflichen/ziehbaren Kategorien.
 const CATEGORIES := [CATEGORY_NUMBER, CATEGORY_MATERIAL, CATEGORY_DICE]
 
-# --- Zahl-Gravur-ids (Single Source of Truth) ---
-const NOTCH := "notch"
-const OVERPRESSURE := "overpressure"
-const POLISH := "polish"
-const CHISEL := "chisel"
-const GRINDSTONE := "grindstone"
-const GROWTH := "growth"
+## Es gibt KEINE Zahl-Gravuren mehr: Kerbe, Überdruck, Politur, Meißel,
+## Schleifstein und Aufholen sind mit der Serienschaltung gestorben - eine
+## Zahl-Zelle im Prägenetz ist ein nackter Bonus, kein Verb mit Leiter. Die
+## Kategorie bleibt als Regal- und Paketsorte bestehen.
 
-## Dieselben ids in FESTER Reihenfolge: sie sind die sechs Seiten des Zahlen-
-## Phantomwürfels (PhantomPress.ICONS liest hier).
-const NUMBER_IDS := [NOTCH, OVERPRESSURE, POLISH, CHISEL, GRINDSTONE, GROWTH]
-
-## Konvention: Textur-Dateiname = Gravur-id (chisel.jpg, ...).
+## Konvention: Textur-Dateiname = Gravur-id (gold.jpg, ...).
 const TEXTURE_DIR := "res://assets/textures/engravings/"
+
+## Seltenheit -> Akzentfarbe (das Charm.RARITY_COLORS-Muster; Erbe des
+## gestorbenen Lichtsaum-Siegels).
+const RARITY_COLORS := {
+	Rarity.COMMON: Color(0.78, 0.81, 0.88, 0.55),
+	Rarity.UNCOMMON: Color("#8be9fd"),
+	Rarity.RARE: Color("#ffd319"),
+	Rarity.EPIC: Color("#bd93f9"),
+	Rarity.LEGENDARY: Color("#ff79c6"),
+}
 
 @export var id: String = ""
 @export var display_name: String = ""
@@ -58,6 +61,9 @@ const TEXTURE_DIR := "res://assets/textures/engravings/"
 @export var category: String = CATEGORY_NUMBER
 @export var rarity: Rarity = Rarity.COMMON
 @export var texture_path: String = ""
+
+func rarity_color() -> Color:
+	return RARITY_COLORS.get(rarity, RARITY_COLORS[Rarity.COMMON])
 
 static func _make(engraving_id: String, name: String, desc: String, rarity: Rarity, category := CATEGORY_NUMBER) -> Engraving:
 	var engraving := Engraving.new()
@@ -69,79 +75,6 @@ static func _make(engraving_id: String, name: String, desc: String, rarity: Rari
 	engraving.texture_path = TEXTURE_DIR + engraving_id + ".jpg"
 	return engraving
 
-# --- Zahl-Gravuren: sechs Verben mit echter Leiter (siehe EtchingEffects). Die
-# Beschreibung nennt die Stufe 1; die Reihe in der Presse klettert die Leiter hoch.
-
-static func notch() -> Engraving:
-	return _make(NOTCH, "Kerbe", "+1 auf eine gewählte Seite.", Rarity.COMMON)
-
-static func overpressure() -> Engraving:
-	return _make(OVERPRESSURE, "Überdruck", "+2 auf die höchste Seite.", Rarity.UNCOMMON)
-
-static func polish() -> Engraving:
-	return _make(POLISH, "Politur", "+1 auf alle Seiten.", Rarity.UNCOMMON)
-
-static func chisel() -> Engraving:
-	return _make(CHISEL, "Meißel", "Kopiere eine gewählte Seite auf eine andere.", Rarity.EPIC)
-
-static func grindstone() -> Engraving:
-	return _make(GRINDSTONE, "Schleifstein", "Verschiebe 2 Augen von einer Seite auf eine andere.", Rarity.COMMON)
-
-static func growth() -> Engraving:
-	return _make(GROWTH, "Aufholen", "+2 auf die niedrigste Seite.", Rarity.UNCOMMON)
-
-## Was ein Beutestück auf SEINER Stufe tut ("" = diese Gravur hat keine Leiter,
-## dann gilt ihre description). Die Zahlen kommen aus den Leitern in
-## EtchingEffects - eine zweite Tabelle liefe davon weg. Bei Runen zählt die
-## Reihe Anwendungen statt Stärke; Materialien skalieren gar nicht.
-static func stufe_text(engraving_id: String, stufe: int) -> String:
-	if is_rune_id(engraving_id):
-		# Zuerst die WIRKUNG - eine Rune, die nur ihre Setzungen zählt, sagt nicht,
-		# was sie tut. Die Menge zählt Anwendungen statt Stärke und ist ungedeckelt.
-		var rune := Rune.by_id(rune_id_of(engraving_id))
-		var effect := rune.description if rune != null else ""
-		var runs := maxi(stufe, 1)
-		if runs <= 1:
-			return effect
-		return "%s\nSetzt die Rune %d× - eine Seite je Setzung." % [effect, runs]
-	var step := clampi(stufe, 1, EtchingEffects.MAX_STUFE)
-	match engraving_id:
-		NOTCH:
-			return "Stufe %d: +%d auf eine gewählte Seite." \
-				% [step, EtchingEffects.step_of(EtchingEffects.NOTCH_LADDER, step)]
-		OVERPRESSURE:
-			return "Stufe %d: +%d auf die höchste Seite." \
-				% [step, EtchingEffects.step_of(EtchingEffects.OVERPRESSURE_LADDER, step)]
-		POLISH:
-			return "Stufe %d: +%d auf alle Seiten." \
-				% [step, EtchingEffects.step_of(EtchingEffects.POLISH_LADDER, step)]
-		GROWTH:
-			return "Stufe %d: +%d auf die niedrigste Seite." \
-				% [step, EtchingEffects.step_of(EtchingEffects.GROWTH_LADDER, step)]
-		GRINDSTONE:
-			return "Stufe %d: %s" % [step, _grindstone_line(step)]
-		CHISEL:
-			return "Stufe %d: %s" % [step, _chisel_line(step)]
-	return ""
-
-static func _grindstone_line(stufe: int) -> String:
-	var moved := EtchingEffects.step_of(EtchingEffects.GRINDSTONE_LADDER, stufe)
-	if moved == EtchingEffects.GRINDSTONE_ALL:
-		return "verschiebt ALLE Augen über 1 von einer Seite auf eine andere."
-	return "verschiebt %d Augen von einer Seite auf eine andere." % moved
-
-static func _chisel_line(stufe: int) -> String:
-	var targets := EtchingEffects.chisel_target_count(stufe)
-	var line := "kopiert eine gewählte Seite auf eine andere."
-	if targets >= 5:
-		line = "kopiert eine gewählte Seite auf alle fünf anderen."
-	elif targets > 1:
-		line = "kopiert eine gewählte Seite auf %d andere." % targets
-	if stufe >= EtchingEffects.CHISEL_RUNE_STUFE:
-		return line + " Material und Rune wandern mit."
-	if stufe >= EtchingEffects.CHISEL_MATERIAL_STUFE:
-		return line + " Das Material wandert mit."
-	return line
 
 ## Runen-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
 ## darüber, die übrigen vier sind die begehrten Zeichen - Abguss und Kehrseite
@@ -197,10 +130,7 @@ const MATERIAL_RARITY := {
 ## Kanonische Registrierung aller Gravur-Archetypen; die Material-Gravuren
 ## kommen aus DieMaterial.all().
 static func all() -> Array[Engraving]:
-	var result: Array[Engraving] = [
-		notch(), overpressure(), polish(), chisel(), grindstone(), growth(),
-		pointer_engraving(), doping(),
-	]
+	var result: Array[Engraving] = [pointer_engraving(), doping()]
 	for material in DieMaterial.all():
 		result.append(material_engraving(material, MATERIAL_RARITY.get(material.id, Rarity.UNCOMMON)))
 	for rune in Rune.all():

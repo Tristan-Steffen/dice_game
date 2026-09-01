@@ -21,8 +21,7 @@ const DOUBLED := {
 	DealClause.CASH_DISCOUNT: "Ladenware 36% günstiger",
 	DealClause.GOLD_VEIN: "+20$ je geräumter Überladungs-Stufe",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite wächst dauerhaft um +2 Augen",
-	DealClause.CHAIN_DRIVER: "Multicast-Limit +4",
-	DealClause.IGNITION_BOOST: "Multicast-Chance +30 %",
+	DealClause.CHAIN_DRIVER: "Serienlänge +2",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

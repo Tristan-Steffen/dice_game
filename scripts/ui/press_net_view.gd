@@ -1,151 +1,303 @@
 class_name PressNetView
 extends Control
-## Ein Würfelnetz, in dem GEARBEITET wird: dasselbe aufgeklappte Kreuz wie
-## überall (DieNetView), aber jede Zelle ist ein Knopf. Hält die Werkbank ein
-## Beutestück in der Hand, leuchten die legalen Seiten und die übrigen dimmen;
-## ein Klick setzt. Oben links in einer Zelle sitzt die Plakette des nassen
-## Gusses - grün heißt "noch herausnehmbar", grau "überbaut".
+## Die EINE Netz-Anzeige der Werkstatt, in zwei Größen.
 ##
-## Reiner Renderer plus Ziel-Optik: WAS legal ist, sagt PressTargeting, GESETZT
-## wird über GameRun - dieses Netz meldet nur den Klick.
+## Als INSTANZ ist sie das SUMMEN-NETZ: das aufgeklappte Kreuz des Zielwürfels
+## (DieNetView-Grammatik), aber gezeichnet aus dem GEISTER-Würfel, den die
+## Projektion ergäbe. Eine Zelle, deren Augenzahl steigt, liest "3→7" in Grün;
+## Material, Runen, Veredelung und Pointer stehen schon im neuen Zustand, und eine
+## VERPUFFTE Zelle grault aus und nennt beim Überfahren ihren Grund.
+##
+## Als STATIK zeichnet sie das MINI-NETZ einer Kassette (stamp_net): dieselbe
+## Kreuzform, je Zelle die Glyphe ihrer StampNet-Sorte. Die Karte in der
+## Serien-Reihe trägt es, der Laden nennt daneben seine Zeile.
+##
+## Reine Anzeige: gerechnet hat SeriesResolver, gebucht GameRun.
 
-## Eine Seite wurde angeklickt (Ziel des gehaltenen Stücks).
-signal face_pressed(face_index: int)
-## Die Plakette einer nassen Setzung wurde angeklickt: sie soll heraus.
-signal mark_pressed(face_index: int)
-
-## Neutraler Rahmen einer Zelle ohne Werkzeug.
+## Neutraler Rahmen einer Zelle, die die Serie nicht anfaßt.
 const CHIP_BORDER := Color(0.72, 0.76, 0.8)
-## Legales Ziel: der Saum in Gold - er IST die Führung.
-const TARGET_BORDER := CasinoStyle.GOLD
-## Ungeeignete Zelle: Füllung und Ziffer dimmen aus.
+## Eine Zelle, die die Serie ÄNDERT: goldener Saum.
+const TOUCHED_BORDER := CasinoStyle.GOLD
+## Verpuffte Zelle: Füllung und Ziffer dimmen aus.
 const DIM_ALPHA := 0.30
 const DIM_NUMBER := Color(0.35, 0.35, 0.42)
 ## Vorschau: steigt grün (dasselbe Grün wie am liegenden Würfel), sinkt warm-rot.
 const PREVIEW_UP := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
-## Nasser Guss / überbaute Setzung.
-const WET := DieFaceDisplay.PREVIEW_NUMBER_COLOR
-const SET_TINT := Color(0.55, 0.58, 0.68)
-## Kantenlänge der Plakette relativ zur Zelle (obere LINKE Ecke - dort sitzt
-## weder eine Rune noch die Veredelungs-Plakette).
-const MARK_SIZE := 0.34
+## Was ein Beitrag der überfahrenen Karte NICHT ist, verblaßt (Hover-Highlight).
+const GHOST_ALPHA := 0.35
+## Die FALTUNG des Finales: die Zellen klappen NACHEINANDER zur Mitte.
+const FOLD_STAGGER := 0.09
+const FOLD_SHRINK := 0.22
 
+## Farben der Mini-Netz-Zellen: Wert-Zellen cyan, Operatoren amber - dieselbe
+## Trennung wie an den Kassetten der Serien-Reihe.
+const VALUE_TINT := Color("#8be9fd")
+const OPERATOR_TINT := Color("#ffb347")
+const EMPTY_CELL := Color("#12101f")
+const EMPTY_RIM := Color("#2c2740")
+
+## Klartext der Verpuff-Gründe - EINE Quelle, die Vorschau nennt sie beim Namen.
+const FIZZLE_TEXT := {
+	SeriesResolver.FIZZLE_NAKED: "verpufft: die Seite trägt kein Material",
+	SeriesResolver.FIZZLE_DOPED: "verpufft: die Seite ist schon veredelt",
+	SeriesResolver.FIZZLE_BURNED: "verpufft: Einbrand sperrt das Übermalen",
+	SeriesResolver.FIZZLE_POINTER: "verpufft: kein Nachbar dieser Seite",
+}
+
+## Der Zielwürfel (null = keiner gewählt) und die Projektion der Serie ({} = keine).
 var def: DieDefinition
 var cell := 8.0
-## Was gerade in der Hand liegt ("" = nichts) und auf welcher Stufe es wirkt.
-var held_id := ""
-var stufe := 1
-## Erster Klick eines gerichteten Paares (-1 = keiner).
-var first_face := -1
-## Seite -> {index, id, wet} des nassen Gusses (GameRun.press_face_marks).
-var marks: Dictionary = {}
-## Runde unterschrieben: nur noch Ablesen.
-var locked := false
+var projection: Dictionary = {}
+## Seiten, die die gerade ÜBERFAHRENE Karte beiträgt (leer = kein Hover): alles
+## andere verblaßt, damit man den Beitrag EINER Karte im Summen-Netz sieht.
+var highlight: Array[int] = []
+## Dauer des nächsten Zähl-Takts (0 = die Ziffern springen). Ein gesetzter Takt
+## gilt genau EINEN Aufbau - Zahlen ticken, sie springen nie.
+var tick_time := 0.0
 
-## Zellen nach physischem Seiten-Index und ihre Ruhefarben.
-var _chips: Array[Button] = []
-var _chip_fills: Array[Color] = []
-var _eligible: Array[bool] = []
-var _preview := false
+## Zellen nach physischem Seiten-Index - der Hover-Hinweis fragt sie ab.
+var _chips: Array[Panel] = []
+## Ihre Ziffern und Ruheplätze (die Faltung fährt sie zur Mitte) und alles, was
+## keine Zelle ist: Essenz-Chip, Runen, Plaketten, Pfeile - sie blenden dabei aus.
+var _labels: Array[Label] = []
+var _homes: Array[Vector2] = []
+var _extras: Array[Control] = []
+var _fizzles: Dictionary = {}  # Seite -> Grund
+## Der Zähl-Takt: was auf den Zellen STEHT, woher es lief und wohin.
+var _shown: Array[int] = []
+var _from: Array[int] = []
+var _goal: Array[int] = []
+var _before: Array[int] = []
+var _tick_left := 0.0
+var _tick_span := 0.0
+var _fold := 0.0
 
 func _init() -> void:
-	name = "PressNet"
+	name = "SeriesNet"
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_process(false)
 
-## Baut das Netz neu. cell = Zellkante in Pixeln; alles andere sind die Felder
-## oben, die der Aufrufer vorher setzt.
+## Baut das Summen-Netz neu. cell = Zellkante in Pixeln; alles andere sind die
+## Felder oben, die der Aufrufer vorher setzt.
 func build() -> void:
+	set_process(false)
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
 	_chips.clear()
-	_chip_fills.clear()
-	_preview = false
+	_labels.clear()
+	_homes.clear()
+	_extras.clear()
+	_fizzles.clear()
+	_fold = 0.0
+	var takt := tick_time
+	tick_time = 0.0  # ein Takt gilt genau einen Aufbau
 	custom_minimum_size = DieNetView.net_size(cell)
 	size = custom_minimum_size
 	if def == null:
+		_shown.clear()
 		return
-	_eligible = PressTargeting.eligible_faces(def, held_id, first_face)
-	_chips.resize(6)
-	_chip_fills.resize(6)
+	for entry: Dictionary in projection.get("fizzled", []):
+		_fizzles[int(entry.get("face", -1))] = String(entry.get("reason", ""))
+	var ghost := preview_die()
+	_before.clear()
+	_goal.clear()
 	for face in 6:
-		var chip := _face_chip(face)
+		_before.append(int(def.faces[face]))
+		_goal.append(int(ghost.faces[face]))
+	# TICKEN statt springen: die Ziffern laufen von ihrem letzten Stand zum neuen.
+	# Ohne Takt (oder ohne Vorstand) steht der Zielwert sofort da.
+	var ticking := takt > 0.0 and _shown.size() == 6
+	_from = _shown.duplicate() if ticking else _goal.duplicate()
+	_shown = _from.duplicate()
+	_chips.resize(6)
+	_labels.resize(6)
+	_homes.resize(6)
+	for face in 6:
+		var chip := _face_chip(face, ghost)
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
+		chip.pivot_offset = chip.size * 0.5  # die Faltung skaliert um die Zellmitte
 		_chips[face] = chip
+		_homes[face] = chip.position
 		add_child(chip)
+		_write_face(face)
 	# Essenz-Chip, Runen, Veredelungs-Plaketten und Pointer-Pfeile obendrauf - die
-	# Pfeile zuletzt, sie liegen über den Zellrändern.
-	add_child(DieNetView.edge_chip(def, cell))
-	for glyph in DieNetView.rune_glyphs(def, cell):
-		add_child(glyph)
-	for badge in DieNetView.level_badges(def, cell):
-		add_child(badge)
-	for arrow in DieNetView.pointer_arrows(def, cell):
-		add_child(arrow)
-	for face: int in marks:
-		add_child(_mark_badge(int(face), marks[face]))
+	# Pfeile zuletzt, sie liegen über den Zellrändern. Alle vom GEISTER: die
+	# Vorschau zeigt den Zustand NACH der Serie.
+	_add_extra(DieNetView.edge_chip(ghost, cell))
+	for glyph in DieNetView.rune_glyphs(ghost, cell):
+		_add_extra(glyph)
+	for badge in DieNetView.level_badges(ghost, cell):
+		_add_extra(badge)
+	for arrow in DieNetView.pointer_arrows(ghost, cell):
+		_add_extra(arrow)
+	if ticking:
+		_tick_span = takt
+		_tick_left = takt
+		set_process(true)
 
-## Eine Seiten-Zelle im Look der Netz-Zellen, nur anklickbar.
-func _face_chip(face: int) -> Button:
-	var material_id: String = def.materials[face] if face < def.materials.size() else ""
-	var fill := DieMaterial.tint_for(material_id, def.material_level(face))
-	_chip_fills[face] = fill
-	var chip := Button.new()
-	# Name mit Seiten-Index: Godot vergibt sonst @Button@N, und dann ist im Baum
-	# nicht mehr zu sehen, welche Zelle welche ist.
-	chip.name = "NetCell%d" % face
-	chip.text = str(def.faces[face])
-	chip.focus_mode = Control.FOCUS_NONE
-	chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.5)))
-	var usable := _cell_usable(face)
-	chip.disabled = not usable
-	chip.mouse_filter = Control.MOUSE_FILTER_STOP
-	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if usable \
-		else Control.CURSOR_ARROW
-	_style_chip(chip, fill, face)
-	chip.pressed.connect(func() -> void: face_pressed.emit(face))
-	chip.mouse_entered.connect(_show_preview.bind(face))
-	chip.mouse_exited.connect(_clear_preview)
-	return chip
+func _add_extra(node: Control) -> void:
+	_extras.append(node)
+	add_child(node)
 
-## Anklickbar ist eine Zelle nur mit Werkzeug in der Hand und offener Bank; die
-## erste Wahl eines Paares bleibt anklickbar (sie ist die Rücknahme).
-func _cell_usable(face: int) -> bool:
-	if locked or held_id == "":
+# --- Der ZÄHL-TAKT ---------------------------------------------------------------
+
+func _process(delta: float) -> void:
+	_tick_left = maxf(_tick_left - delta, 0.0)
+	var step := clampf(1.0 - _tick_left / maxf(_tick_span, 0.001), 0.0, 1.0)
+	for face in mini(_shown.size(), 6):
+		var value := int(roundf(lerpf(float(_from[face]), float(_goal[face]), step)))
+		if value == _shown[face]:
+			continue
+		_shown[face] = value
+		_write_face(face)
+	if _tick_left <= 0.0:
+		settle_ticks()
+
+## Endzustand zuerst: die Ziffern stehen auf ihrem Ziel, wo der Takt auch stand.
+func settle_ticks() -> void:
+	set_process(false)
+	_tick_left = 0.0
+	for face in mini(_shown.size(), 6):
+		if _shown[face] == _goal[face]:
+			continue
+		_shown[face] = _goal[face]
+		_write_face(face)
+
+## Es gibt keinen Stand mehr, von dem zu ticken wäre (anderer Würfel, neuer Lauf).
+func reset_ticks() -> void:
+	set_process(false)
+	_shown.clear()
+
+## Die Ziffer EINER Zelle: sie nennt den Stand, nicht das Ziel. Eine verpuffte
+## Zelle schweigt - dort steht der Grund, nicht die Rechnung.
+func _write_face(face: int) -> void:
+	if face < 0 or face >= _labels.size() or _fizzles.has(face):
+		return
+	var label: Label = _labels[face]
+	if label == null or not is_instance_valid(label):
+		return
+	var shown: int = _shown[face]
+	var before: int = _before[face]
+	label.text = "%d→%d" % [before, shown] if shown != before else str(before)
+
+# --- Die FALTUNG ------------------------------------------------------------------
+
+## Das Finale: die Zellen klappen NACHEINANDER zur Mitte und schrumpfen zum
+## Quadrat, alles andere blendet aus. build() stellt sie wieder auf.
+func fold(progress: float) -> void:
+	_fold = clampf(progress, 0.0, 1.0)
+	var middle := size * 0.5
+	var span := maxf(1.0 - 5.0 * FOLD_STAGGER, 0.01)
+	for face in _chips.size():
+		var chip: Panel = _chips[face]
+		if chip == null or not is_instance_valid(chip):
+			continue
+		var step := clampf((_fold - float(face) * FOLD_STAGGER) / span, 0.0, 1.0)
+		chip.position = _homes[face].lerp(middle - chip.size * 0.5, step)
+		chip.scale = Vector2.ONE.lerp(Vector2.ONE * FOLD_SHRINK, step)
+		chip.modulate = Color(1.0, 1.0, 1.0, 1.0 - step * 0.4)
+	for extra in _extras:
+		if is_instance_valid(extra):
+			extra.modulate = Color(1.0, 1.0, 1.0, 1.0 - _fold)
+
+## Der GEISTER-Würfel: der Zielwürfel, wie die Serie ihn zurückließe. Er geht durch
+## dieselben DieDefinition-Schreibwege wie die Buchung, damit Veredelung, Runen-
+## Plätze und Einbrand-Regel in der Vorschau genauso greifen.
+func preview_die() -> DieDefinition:
+	if def == null:
+		return null
+	var ghost := def.instantiate()
+	if projection.is_empty():
+		return ghost
+	for face in SeriesResolver.FACES:
+		ghost.faces[face] = int(projection["faces_after"][face])
+		var material := String(projection["materials"][face])
+		if material != "":
+			ghost.set_face_material(face, material)
+		if bool(projection["doped"][face]):
+			ghost.dope(face)
+		var runes: Array = projection["runes"][face]
+		for slot in runes.size():
+			if String(runes[slot]) != "":
+				ghost.set_rune(face, String(runes[slot]), slot, DieDefinition.MAX_RUNE_SLOTS)
+		var target := int(projection["pointers"][face])
+		if target >= 0:
+			ghost.pointers[face] = target
+	return ghost
+
+## Ändert die Serie diese Seite überhaupt?
+func touches(face: int) -> bool:
+	if projection.is_empty() or def == null:
 		return false
-	return _eligible[face] or face == first_face
+	if int(projection["bonus"][face]) != 0:
+		return true
+	if String(projection["materials"][face]) != "":
+		return true
+	if bool(projection["doped"][face]):
+		return true
+	if not Array(projection["runes"][face]).is_empty():
+		return true
+	return int(projection["pointers"][face]) >= 0
 
-func _style_chip(chip: Button, fill: Color, face: int) -> void:
-	var dim := held_id != "" and not _eligible[face] and face != first_face
-	var font := CasinoStyle.INK
+## Eine Seiten-Zelle: die PLATTE trägt das Maß, die Ziffer liegt darin (dieselbe
+## Regel wie im Würfelnetz - eine Zelle, die selbst ein Label ist, klemmt sich an
+## ihrer Schrift hochkant).
+func _face_chip(face: int, ghost: DieDefinition) -> Panel:
+	var fill := DieMaterial.tint_for(ghost.materials[face], ghost.material_level(face))
+	var before: int = def.faces[face]
+	var after: int = ghost.faces[face]
+	var faded := not highlight.is_empty() and not highlight.has(face)
+	var dim := _fizzles.has(face)
 	var border := CHIP_BORDER
 	var width := maxi(2, int(cell * 0.06))
-	if face == first_face:
-		font = DieFaceDisplay.SELECT_NUMBER_COLOR
-		border = DieFaceDisplay.SELECT_NUMBER_COLOR
-		width = maxi(2, int(cell * 0.12))
-	elif dim:
+	if dim:
 		fill = Color(fill.r, fill.g, fill.b, fill.a * DIM_ALPHA)
-		font = DIM_NUMBER
 		border = CHIP_BORDER.darkened(0.35)
-	elif held_id != "":
-		border = TARGET_BORDER
+	elif touches(face):
+		border = TOUCHED_BORDER
 		width = maxi(2, int(cell * 0.11))
-	elif Essence.is_valid_id(def.essence_id):
-		border = Essence.glow_for(def.essence_id)
+	elif Essence.is_valid_id(ghost.essence_id):
+		border = Essence.glow_for(ghost.essence_id)
 		width = maxi(2, int(cell * 0.1))
-	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
-		chip.add_theme_color_override(state, font)
-	chip.add_theme_color_override("font_outline_color", fill)
-	chip.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
-	var box := _chip_box(fill, border, width)
-	for state in ["normal", "disabled"]:
-		chip.add_theme_stylebox_override(state, box)
-	chip.add_theme_stylebox_override("hover", _chip_box(fill.lightened(0.15), border, width))
-	chip.add_theme_stylebox_override("pressed", _chip_box(fill.darkened(0.1), border, width))
-	chip.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	var chip := Panel.new()
+	# Name mit Seiten-Index: Godot vergibt sonst @Panel@N, und dann ist im Baum
+	# nicht mehr zu sehen, welche Zelle welche ist.
+	chip.name = "NetCell%d" % face
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_theme_stylebox_override("panel", _chip_box(fill, border, width))
+
+	var label := Label.new()
+	label.name = "Value"
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.clip_text = true
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var tint := CasinoStyle.INK
+	if dim:
+		tint = DIM_NUMBER
+		label.text = str(before)
+		label.add_theme_font_size_override("font_size", DieNetView.face_font_size(cell))
+	elif after != before:
+		tint = PREVIEW_UP if after > before else PREVIEW_DOWN
+		label.text = "%d→%d" % [before, after]
+		label.add_theme_font_size_override("font_size", maxi(6, int(cell * 0.28)))
+	else:
+		label.text = str(after)
+		label.add_theme_font_size_override("font_size", DieNetView.face_font_size(cell))
+	label.add_theme_color_override("font_color", tint)
+	label.add_theme_color_override("font_outline_color", fill)
+	label.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
+	chip.add_child(label)
+	if face < _labels.size():
+		_labels[face] = label  # der Zähl-Takt schreibt nur noch diese Zeile
+	if faded:
+		chip.modulate = Color(1.0, 1.0, 1.0, GHOST_ALPHA)
+	return chip
 
 func _chip_box(fill: Color, border: Color, width: int) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -155,71 +307,6 @@ func _chip_box(fill: Color, border: Color, width: int) -> StyleBoxFlat:
 	box.set_corner_radius_all(int(cell * 0.2))
 	return box
 
-## Die Plakette des nassen Gusses in der oberen linken Zellecke: grün noch
-## herausnehmbar (ein Klick holt das Stück zurück in die Hand), grau überbaut.
-func _mark_badge(face: int, mark: Dictionary) -> Button:
-	var wet := bool(mark.get("wet", false))
-	var tint: Color = WET if wet else SET_TINT
-	var side := cell * MARK_SIZE
-	var inset := cell * 0.04
-	var badge := Button.new()
-	badge.name = "PressMark%d" % face
-	badge.focus_mode = Control.FOCUS_NONE
-	badge.size = Vector2.ONE * side
-	badge.position = DieNetView.cell_position(face, cell) + Vector2.ONE * inset
-	badge.disabled = not wet or locked
-	badge.mouse_filter = Control.MOUSE_FILTER_STOP
-	badge.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if wet and not locked \
-		else Control.CURSOR_ARROW
-	var box := _chip_box(Color(tint.r, tint.g, tint.b, 0.9), CasinoStyle.INK,
-		maxi(1, int(cell * 0.03)))
-	for state in ["normal", "disabled"]:
-		badge.add_theme_stylebox_override(state, box)
-	badge.add_theme_stylebox_override("hover",
-		_chip_box(tint, CasinoStyle.INK, maxi(1, int(cell * 0.03))))
-	badge.add_theme_stylebox_override("pressed", box)
-	badge.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	badge.pressed.connect(func() -> void: mark_pressed.emit(face))
-	return badge
-
-# --- Vorschau ------------------------------------------------------------------
-
-## Überfahren: was die gehaltene Gravur hier täte, steht als "3→5" in den Zellen.
-func _show_preview(face: int) -> void:
-	if held_id == "" or def == null or locked:
-		return
-	if PressTargeting.needs_face(held_id) and not _eligible[face]:
-		return
-	var ghost := PressTargeting.ghost_after(def, held_id, stufe, face, first_face)
-	if ghost == null:
-		return
-	_preview = true
-	for i in 6:
-		var chip: Button = _chips[i]
-		if chip == null or not is_instance_valid(chip):
-			continue
-		var old_value: int = def.faces[i]
-		var new_value: int = ghost.faces[i]
-		if new_value == old_value:
-			continue
-		chip.text = "%d→%d" % [old_value, new_value]
-		chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.28)))
-		var tint: Color = PREVIEW_UP if new_value > old_value else PREVIEW_DOWN
-		for state in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
-			chip.add_theme_color_override(state, tint)
-
-func _clear_preview() -> void:
-	if not _preview or def == null:
-		return
-	_preview = false
-	for i in 6:
-		var chip: Button = _chips[i]
-		if chip == null or not is_instance_valid(chip):
-			continue
-		chip.text = str(def.faces[i])
-		chip.add_theme_font_size_override("font_size", maxi(8, int(cell * 0.5)))
-		_style_chip(chip, _chip_fills[i], i)
-
 ## Die Zelle unter einem Display-Pixel (-1 = keine, DieNetView.EDGE über dem
 ## Essenz-Chip) - dieselbe Geometrie wie jedes andere Netz.
 func face_at_pixel(pixel: Vector2) -> int:
@@ -227,3 +314,114 @@ func face_at_pixel(pixel: Vector2) -> int:
 	if not rect.has_point(pixel):
 		return -1
 	return DieNetView.face_at(pixel - rect.position, cell)
+
+## Erklärzeile zu einer Zelle: der Verpuff-Grund geht vor (er ist die einzige
+## Auskunft, die das Netz selbst gibt), sonst spricht der GEISTER-Würfel - dieselbe
+## eine Textquelle wie jedes andere Netz.
+func hint_for_face(face: int) -> String:
+	if _fizzles.has(face):
+		return String(FIZZLE_TEXT.get(String(_fizzles[face]), "verpufft"))
+	return DieNetView.hint_for(preview_die(), face)
+
+# --- Das MINI-NETZ einer Kassette ------------------------------------------------
+
+## Das Prägenetz einer Karte als Kreuz: je Zelle die Glyphe ihrer Sorte, leere
+## Zellen bleiben dunkel. Reine Anzeige, ohne Maus.
+static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT) -> Control:
+	var root := Control.new()
+	root.name = "StampNet"
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.custom_minimum_size = DieNetView.net_size(cell)
+	root.size = root.custom_minimum_size
+	for face in StampNet.FACES:
+		var chip := _stamp_cell(StampNet.cell_at(net, face), cell, accent)
+		chip.position = DieNetView.cell_position(face, cell)
+		chip.size = Vector2.ONE * cell
+		root.add_child(chip)
+	return root
+
+## EINE Zelle des Mini-Netzes. Die Sorte entscheidet Füllung und Zeichen: Zahl
+## "+n", Material seine Farbe, Rune ihr Linienzug (dieselbe Quelle wie am Würfel),
+## Operator seine Glyphe, Veredelung ihre Plakette, Pointer ein Pfeil.
+static func _stamp_cell(entry: Dictionary, cell: float, accent: Color) -> Panel:
+	var kind := StampNet.kind_of(entry)
+	var fill := EMPTY_CELL
+	var rim := EMPTY_RIM
+	var text := ""
+	var tint := accent
+	match kind:
+		StampNet.KIND_VALUE:
+			text = "+%d" % int(entry.get("value", 0))
+			rim = VALUE_TINT
+			tint = VALUE_TINT
+		StampNet.KIND_OPERATOR:
+			text = StampNet.operator_glyph(String(entry.get("id", "")))
+			rim = OPERATOR_TINT
+			tint = OPERATOR_TINT
+		StampNet.KIND_MATERIAL:
+			fill = DieMaterial.tint_for(String(entry.get("id", "")), 1)
+			rim = fill.lightened(0.3)
+		StampNet.KIND_DOPE:
+			rim = accent
+		StampNet.KIND_RUNE:
+			rim = accent
+		StampNet.KIND_POINTER:
+			text = "→%d" % (int(entry.get("to", 0)) + 1)
+			rim = DieNetView.POINTER_COLOR
+			tint = DieNetView.POINTER_COLOR
+	var chip := Panel.new()
+	chip.name = "StampCell"
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = rim
+	box.set_border_width_all(maxi(1, int(cell * 0.08)))
+	box.set_corner_radius_all(maxi(1, int(cell * 0.2)))
+	chip.add_theme_stylebox_override("panel", box)
+	if kind == StampNet.KIND_RUNE:
+		chip.add_child(_stamp_rune(String(entry.get("id", "")), cell))
+	elif kind == StampNet.KIND_DOPE:
+		chip.add_child(_stamp_dope(cell))
+	elif text != "":
+		chip.add_child(_stamp_label(text, cell, tint))
+	return chip
+
+static func _stamp_label(text: String, cell: float, tint: Color) -> Label:
+	var label := Label.new()
+	label.name = "CellMark"
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.clip_text = true
+	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	label.add_theme_font_size_override("font_size", maxi(6, int(cell * 0.44)))
+	label.add_theme_color_override("font_color", tint)
+	label.add_theme_color_override("font_outline_color", CasinoStyle.INK)
+	label.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.07)))
+	label.text = text
+	return label
+
+## Der Runen-Linienzug FÜLLT hier die Zelle (Platz 0 ist die ganze Kachel) - im
+## Mini-Netz gibt es keine Ziffer, die er umgehen müßte.
+static func _stamp_rune(rune_id: String, cell: float) -> Control:
+	var rune := Rune.by_id(rune_id)
+	var mark := DieNetView.RuneGlyph.new()
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mark.size = Vector2.ONE * cell
+	if rune == null:
+		return mark
+	mark.lines = Rune.glyph_lines(rune.glyph)
+	mark.weights = Rune.glyph_weights(rune.glyph)
+	mark.tint = rune.tint
+	mark.core = rune.core
+	return mark
+
+## Die Veredelungs-Zelle trägt die Plakette des Netzes, mittig und groß.
+static func _stamp_dope(cell: float) -> Control:
+	var badge := DieNetView.LevelBadge.new()
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.tint = Color("#9be7ff")
+	var side := cell * 0.62
+	badge.size = Vector2.ONE * side
+	badge.position = Vector2.ONE * (cell - side) * 0.5
+	return badge

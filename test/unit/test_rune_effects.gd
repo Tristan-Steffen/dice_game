@@ -268,7 +268,7 @@ func test_rune_id_of_rejects_everything_else():
 	assert_eq(Engraving.rune_id_of(Engraving.POINTER), "")
 	assert_eq(Engraving.rune_id_of(DieMaterial.GOLD), "")
 	assert_eq(Engraving.rune_id_of(Engraving.RUNE_PREFIX + "unobtainium"), "")
-	assert_false(Engraving.is_rune_id(Engraving.CHISEL))
+	assert_false(Engraving.is_rune_id(Engraving.DOPING))
 
 # --- Abguss: greift in den Vorrat, nicht in die Wertung ------------------------
 

@@ -1269,6 +1269,9 @@ func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
 			if pack.is_catalyst():
 				assert_eq(pack.price, Pack.catalyst_price(pack.catalyst_id))
 				continue
+			if pack.is_operator():
+				assert_eq(pack.price, StampNet.operator_price(pack.operator_id))
+				continue
 			assert_true(Engraving.is_special_id(pack.fixed_engraving.id))
 			assert_eq(pack.price, Pack.SPECIAL_PRICE)
 
@@ -1300,6 +1303,8 @@ func test_a_bowl_special_is_bought_sealed() -> void:
 	assert_eq(Pack.shelf_of(run.owned_packs[0]), Pack.SHELF_SPECIAL)
 	if special.is_catalyst():
 		assert_eq(run.owned_packs[0].catalyst_id, special.catalyst_id)
+	elif special.is_operator():
+		assert_eq(run.owned_packs[0].operator_id, special.operator_id)
 	else:
 		assert_eq(run.owned_packs[0].fixed_engraving.id, special.fixed_engraving.id)
 	assert_lt(run.money, before, "und sie ist bezahlt")
@@ -1357,7 +1362,10 @@ func test_the_flank_names_the_cassette_under_the_pointer() -> void:
 	assert_true(shop.slit_info.visible, "gegriffen heißt: die Flanke spricht")
 	assert_eq(shop.slit_info_name.text, pack.display_name,
 		"der dekorierte Name - das Größen-Adjektiv kommt gratis mit")
-	assert_eq(shop.slit_info_body.text, pack.description, "und seine eigene Beschreibung")
+	assert_true(shop.slit_info_body.text.begins_with(pack.description),
+		"seine eigene Beschreibung steht zuerst")
+	assert_true(shop.slit_info_body.text.contains(Pack.net_line(pack)),
+		"und darunter die Zeile seines Prägenetzes - im Laden liegt es offen")
 
 func test_the_flank_stands_right_of_the_row() -> void:
 	_lay_out_page()

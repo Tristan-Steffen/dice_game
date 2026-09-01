@@ -31,10 +31,9 @@ const TAG_SLOT := "automat"
 const TAG_CHARGE := "ladung"
 const TAG_THROTTLE := "drossel"
 const TAG_MONEY := "geld"
-## Alles, was an der Kette der Presse dreht - Chance wie Limit tragen dasselbe
-## Etikett, damit die Paarungsregel nie einen Multicast-Bonus gegen einen
-## Multicast-Malus auf EINE Karte legt.
-const TAG_MULTICAST := "multicast"
+## Alles, was an der Serienlänge der Presse dreht - Bonus wie Malus tragen
+## dasselbe Etikett, damit die Paarungsregel nie beide auf EINE Karte legt.
+const TAG_SERIES := "serie"
 
 # --- Klausel-ids (Single Source of Truth) --------------------------------------
 
@@ -59,7 +58,6 @@ const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
-const IGNITION_BOOST := "ignition_boost"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -84,7 +82,6 @@ const MAINS_HUM := "mains_hum"
 const DISCHARGE := "discharge"
 const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
-const IGNITION_BLOCK := "ignition_block"
 const SHORT_CIRCUIT := "short_circuit"
 
 # Malus, Stufe 3
@@ -115,7 +112,7 @@ const TAG_COLORS := {
 	TAG_CHARGE: "#7ef9ff",
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
-	TAG_MULTICAST: "#6effc7",
+	TAG_SERIES: "#6effc7",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
 
@@ -185,11 +182,10 @@ static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
 		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
 
-## Zwei Sprossen Kette obendrauf - billiger als Chance, weil die späten Glieder
-## nur zünden, wenn die frühen halten.
+## Ein Serien-Slot mehr: eine Karte mehr in der Schaltung dieser Runde.
 static func chain_driver() -> DealClause:
-	return _bonus(CHAIN_DRIVER, "Kettentreiber", "Multicast-Limit +2",
-		Scope.ROUND, Tier.ONE, [TAG_MULTICAST])
+	return _bonus(CHAIN_DRIVER, "Kettentreiber", "Serienlänge +1",
+		Scope.ROUND, Tier.ONE, [TAG_SERIES])
 
 static func high_voltage() -> DealClause:
 	return _bonus(HIGH_VOLTAGE, "Hochspannung", "+3 Überladungs-Stufen",
@@ -232,10 +228,6 @@ static func golden_handshake() -> DealClause:
 static func work_hardening() -> DealClause:
 	return _bonus(WORK_HARDENING, "Kaltverfestigung", "Jede ausgelöste Seite wächst dauerhaft um +1 Auge",
 		Scope.ROUND, Tier.TWO)
-
-static func ignition_boost() -> DealClause:
-	return _bonus(IGNITION_BOOST, "Zündverstärker", "Multicast-Chance +15 %",
-		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
 
 static func all_on_red() -> DealClause:
 	return _bonus(ALL_ON_RED, "Alles auf Rot", "Alles Geld dieser Runde dreifach",
@@ -311,14 +303,10 @@ static func rip_off() -> DealClause:
 	return _malus(RIP_OFF, "Abzocke", "Jeder gewertete Würfel kostet 1$",
 		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
 
-static func ignition_block() -> DealClause:
-	return _malus(IGNITION_BLOCK, "Zündhemmung", "Multicast-Chance −20 %",
-		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
-
-## Die Kette reißt: jedes Paket löst genau einmal aus, wie groß es auch ist.
+## Die Schaltung reißt: nur EINE Karte je Griff, wie voll das Magazin auch steht.
 static func short_circuit() -> DealClause:
-	return _malus(SHORT_CIRCUIT, "Kurzschluss", "Multicast-Limit ist 1",
-		Scope.ROUND, Tier.TWO, [TAG_MULTICAST])
+	return _malus(SHORT_CIRCUIT, "Kurzschluss", "Serienlänge ist 1",
+		Scope.ROUND, Tier.TWO, [TAG_SERIES])
 
 static func benchmark_shock() -> DealClause:
 	return _malus(BENCHMARK_SHOCK, "Benchmark-Schock", "Benchmark +250%",
@@ -372,12 +360,12 @@ static func all() -> Array[DealClause]:
 		cash_discount(), insurance_fraud(), seed_capital(), chain_driver(),
 		high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		golden_handshake(), work_hardening(), ignition_boost(),
+		golden_handshake(), work_hardening(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
 		benchmark_surcharge(), betting_tax(), empties(), deduction(),
 		service_fee(), inflation(), power_cut(),
 		benchmark_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
-		discharge(), heat_warning(), rip_off(), ignition_block(), short_circuit(),
+		discharge(), heat_warning(), rip_off(), short_circuit(),
 		benchmark_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
 		tilted_floor(), balanced_scales(),
@@ -447,9 +435,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		WORK_HARDENING:
 			return "Jede ausgelöste Seite wächst dauerhaft um +2 Augen"
 		CHAIN_DRIVER:
-			return "Multicast-Limit +4"
-		IGNITION_BOOST:
-			return "Multicast-Chance +30 %"
+			return "Serienlänge +2"
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

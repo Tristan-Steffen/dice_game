@@ -1,11 +1,11 @@
 extends GutTest
 ## Feste Plätze auf der Werkbank-Grundseite: nichts darf sich je verschieben.
-## Die Stabilität IST die Prüfung - gemessen werden das Magazin-Fach, die sechs
-## Leseschlitze und der Handlungs-Sitz, danach wird die Bank benutzt (Paket
-## einlegen, Fach leerlaufen lassen, in ein leeres Fach liefern) und jedes
+## Die Stabilität IST die Prüfung - gemessen werden das Magazin-Fach, die
+## Serien-Slots und der Handlungs-Sitz, danach wird die Bank benutzt (Karte
+## stecken, Fach leerlaufen lassen, in ein leeres Fach liefern) und jedes
 ## Rechteck muss auf denselben Pixeln liegen wie vorher. Die Plätze IN dem Fach
-## dürfen sich dabei ändern - die Reihe schließt sich hinter einem entnommenen
-## Paket, das ist Magazin-Ordnung, kein Reflow der Seite.
+## dürfen sich dabei ändern - die Reihe schließt sich hinter einer entnommenen
+## Kassette, das ist Magazin-Ordnung, kein Reflow der Seite.
 
 var view: WorkshopView
 var run: GameRun
@@ -14,7 +14,7 @@ func before_each() -> void:
 	run = GameRun.new_run()
 	view = WorkshopView.new()
 	# Dasselbe Seitenverhältnis wie die echte Werkbank - GELÖST, nicht gesetzt:
-	# die Breite ist die, bei der die Dossier-Seite bündig aufgeht.
+	# die Breite ist die, bei der die Grundseite bündig aufgeht.
 	view.size = Vector2(roundf(540.0 * WorkshopView.dossier_aspect()), 540)
 	add_child_autofree(view)
 	view.run = run
@@ -24,20 +24,20 @@ func _drawer_rect() -> Rect2:
 
 func _slit_rects() -> Array[Rect2]:
 	var rects: Array[Rect2] = []
-	for slit in view._press_slit_panels:
+	for slit in view._slit_panels:
 		rects.append(slit.get_global_rect())
 	return rects
 
 func _seat_rect() -> Rect2:
-	var seat: Control = view.get_node("PressBand/ActionSeat")
+	var seat: Control = view.get_node("SeriesBand/ActionSeat")
 	return seat.get_global_rect()
 
-func _multicast_rect() -> Rect2:
-	var screen: Control = view.get_node("PressBand/MulticastScreen")
+func _series_rect() -> Rect2:
+	var screen: Control = view.get_node("SeriesBand/SeriesScreen")
 	return screen.get_global_rect()
 
 func _console() -> Control:
-	return view.get_node("PressBand/PressConsole")
+	return view.get_node("SeriesBand/SeriesConsole")
 
 ## Die Schürzen-Linie, die scene_root am Tisch hereinschiebt: genau die Kette aus
 ## apron_units. Ein geratenes Maß ließe das Fach auf seine Mindesthöhe fallen.
@@ -51,13 +51,13 @@ func _row_names() -> Array[String]:
 	return names
 
 func _assert_same_slits(before: Array[Rect2], after: Array[Rect2], what: String) -> void:
-	assert_eq(after.size(), before.size(), "%s: dieselbe Zahl Schlitze" % what)
+	assert_eq(after.size(), before.size(), "%s: dieselbe Zahl Slots" % what)
 	for i in before.size():
-		assert_eq(after[i], before[i], "%s: Schlitz %d steht unverrückt" % [what, i])
+		assert_eq(after[i], before[i], "%s: Slot %d steht unverrückt" % [what, i])
 
-# --- (a) Ein Paket einlegen: nur der Inhalt des Fachs ändert sich ------------------
+# --- (a) Eine Karte stecken: nur der Inhalt des Fachs ändert sich ------------------
 
-func test_slotting_a_pack_moves_nothing_on_the_page() -> void:
+func test_slotting_a_card_moves_nothing_on_the_page() -> void:
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
@@ -65,19 +65,19 @@ func test_slotting_a_pack_moves_nothing_on_the_page() -> void:
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
-	var screen := _multicast_rect()
-	assert_false(view._press_button.visible, "vorher zeigt sich kein Knopf")
+	var screen := _series_rect()
+	assert_false(view._action_button.visible, "vorher zeigt sich kein Knopf")
 
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_true(view._press_button.visible, "der Knopf ist da")
+	assert_true(view._action_button.visible, "der Knopf ist da")
 	assert_eq(_seat_rect(), seat, "sein Sitz war schon vorher genau so hoch")
-	assert_eq(_multicast_rect(), screen, "und der Multicast-Schirm daneben ebenso")
+	assert_eq(_series_rect(), screen, "und der Serien-Schirm daneben ebenso")
 	assert_eq(_row_names(), rows, "dieselben Zeilen in derselben Ordnung")
 	assert_eq(_drawer_rect(), fach, "das Fach steht unverrückt")
-	_assert_same_slits(slits, _slit_rects(), "eingelegt")
+	_assert_same_slits(slits, _slit_rects(), "gesteckt")
 
-func test_taking_the_pack_back_out_moves_nothing_either() -> void:
+func test_taking_the_card_back_out_moves_nothing_either() -> void:
 	run.grant_pack(Pack.number_pack())
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
@@ -86,7 +86,7 @@ func test_taking_the_pack_back_out_moves_nothing_either() -> void:
 
 	view.clear_press_slot(0)
 	await wait_frames(2)
-	assert_false(view._press_button.visible, "ohne Paket geht er wieder")
+	assert_false(view._action_button.visible, "ohne Karte geht er wieder")
 	assert_eq(_drawer_rect(), fach, "zurückgenommen: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "zurückgenommen")
 
@@ -98,7 +98,7 @@ func test_an_emptied_magazine_keeps_its_drawer() -> void:
 	var fach := _drawer_rect()
 	var slits := _slit_rects()
 
-	view.slot_pack(run.owned_packs[0].pack_uid)  # das letzte Paket verlässt das Fach
+	view.slot_pack(run.owned_packs[0].pack_uid)  # die letzte Karte verlässt das Fach
 	await wait_frames(2)
 	assert_true(view.drawer_entries().is_empty(), "das Magazin ist leer")
 	assert_eq(_drawer_rect(), fach, "leergelaufen: das Fach steht weiter")
@@ -222,7 +222,7 @@ func test_the_pit_hangs_on_the_standing_drawer_rect() -> void:
 	assert_gt(pit.size.y, 0.0)
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_eq(view.shelf_pit_rect(), pit, "eingelegt: die Grube steht")
+	assert_eq(view.shelf_pit_rect(), pit, "gesteckt: die Grube steht")
 	view.clear_press_slot(0)
 	await wait_frames(2)
 	assert_eq(view.shelf_pit_rect(), pit, "zurückgenommen: die Grube steht")
@@ -248,7 +248,7 @@ func test_the_derived_pack_anchor_matches_the_measured_one() -> void:
 ## seiner linken, beide auf seiner Mittellinie.
 func test_seat_and_card_ride_the_console_band() -> void:
 	await wait_frames(2)
-	view.show_hover_info("Meißel", "Kopiert einen Seitenwert auf eine andere Seite.")
+	view.show_hover_info("Verdoppler", "Verdoppelt die aufgelaufene Summe dieser Seite.")
 	await wait_frames(2)
 	var console := _console().get_global_rect()
 	assert_gt(_seat_rect().position.x, console.end.x, "der Sitz steht in der rechten Flanke")
@@ -261,15 +261,15 @@ func test_seat_and_card_ride_the_console_band() -> void:
 	assert_lte(screen.end.y, _drawer_rect().position.y + 1.0,
 		"unter das Fach taucht er nie - dort liegen die Kassetten davor")
 
-# --- Der MULTICAST-SCHIRM: das Gegenstück zum Hinweis-Schirm ----------------------
+# --- Der SERIEN-SCHIRM: das Gegenstück zum Hinweis-Schirm -------------------------
 
 ## Rechte Flanke, in dieser Ordnung: Blech - Naht - Sitz - Naht - Schirm, und der
 ## endet bündig auf der Fensterkante. Nichts davon überlappt.
-func test_the_multicast_screen_takes_the_right_corner_behind_the_seat() -> void:
+func test_the_series_screen_takes_the_right_corner_behind_the_seat() -> void:
 	await wait_frames(2)
 	var console := _console().get_global_rect()
 	var seat := _seat_rect()
-	var screen := _multicast_rect()
+	var screen := _series_rect()
 	var window := view.get_global_rect()
 	var u := view.size.x / 100.0
 	assert_gt(seat.position.x, console.end.x, "der Sitz steht rechts vom Blech")
@@ -282,137 +282,23 @@ func test_the_multicast_screen_takes_the_right_corner_behind_the_seat() -> void:
 	assert_almost_eq(screen.size.y, view._info_screen.get_global_rect().size.y, 1.0,
 		"und ist so hoch wie sein Bruder links")
 
-## Der Sitz ist schmaler geworden - er muss seine breiteste Aufschrift trotzdem
-## ungeschnitten tragen, sonst hätte clip_text sie nur versteckt.
+## Der Sitz muss seine breiteste Aufschrift ungeschnitten tragen, sonst hätte
+## clip_text sie nur versteckt.
 func test_the_seat_still_carries_its_widest_label() -> void:
 	run.grant_pack(Pack.number_pack())
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
 	var u := view.size.x / 100.0
-	var button := view._press_button
+	var button := view._action_button
 	var font: Font = button.get_theme_font("font")
 	var px: int = button.get_theme_font_size("font_size")
-	var text := font.get_string_size("Pressen (6)", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var text := font.get_string_size("Griff (8)", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	assert_lte(text + u * 1.2, _seat_rect().size.x,
 		"die breiteste Aufschrift paßt samt Rand in den Sitz")
 
-func test_the_screen_stays_dark_until_a_cassette_is_slotted() -> void:
-	run.grant_pack(Pack.number_pack())
-	await wait_frames(2)
-	assert_eq(view.multicast_text(), "", "ohne Kassette sagt er nichts")
-	assert_false(view._multicast_body.visible)
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_true(view._multicast_body.visible, "eingelegt spricht er")
-	assert_true(view.multicast_text().contains("Standard ×1"),
-		"die Größe sagt, was EIN Schlag auswirft")
-	assert_true(view.multicast_text().contains("Multicast 50 %"),
-		"die Chance ist für alle dieselbe und steht für sich")
-	assert_true(view.multicast_text().contains("max. ×3"), "und nennt die Decke")
-
-## Chance und Decke sind LEBENDIG: der Schirm liest sie aus dem Lauf, also stehen
-## Lizenzstufe, wirkende Klausel und vorgemerkter Wett-Schub sofort darauf.
-func test_the_screen_prints_the_live_chance_and_limit() -> void:
-	run.grant_pack(Pack.number_pack())
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	run.hub_level = 10
-	await wait_frames(2)
-	assert_true(view.multicast_text().contains("Multicast 75 %"), "die Sprosse der Lizenz")
-	assert_true(view.multicast_text().contains("max. ×7"))
-	run.round_number = 1
-	run.sign_clauses([DealClause.CHAIN_DRIVER] as Array[String])
-	view.refresh()
-	await wait_frames(2)
-	assert_true(view.multicast_text().contains("max. ×9"), "der Kettentreiber steht drauf")
-
-## Je GRÖSSE eine Zeile, nie je Kassette - zwei Standard-Pakete sagen dasselbe wie
-## eins. Die Zeile nennt den Grundwurf, nicht die (flache) Chance.
-func test_one_line_per_distinct_size() -> void:
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.tiered(Pack.material_pack(), Pack.TIER_KOLOSSAL))
-	await wait_frames(2)
-	for pack in run.owned_packs:
-		view.slot_pack(pack.pack_uid)
-	await wait_frames(2)
-	var lines := view.multicast_lines()
-	assert_eq(lines.size(), 2, "zwei Größen, zwei Zeilen")
-	assert_eq(lines[0], "Standard ×1")
-	assert_eq(lines[1], "Kolossal ×5")
-
-## Der Schirm sagt die WAHRHEIT ÜBER DEN GRIFF: die Terme der eingelegten
-## Katalysatoren fahren durch dieselben Abfragen wie die Pressung selbst.
-func test_the_screen_composes_the_slotted_catalysts() -> void:
-	run.hub_level = 1
-	var bare_chance := roundi(run.multicast_chance() * 100.0)
-	var bare_cap := run.multicast_cap()
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
-	await wait_frames(2)
-	for pack in run.owned_packs:
-		view.slot_pack(pack.pack_uid)
-	await wait_frames(2)
-	var text := view.multicast_text()
-	assert_true(text.contains("Multicast %d %%" % (bare_chance + 20)),
-		"die Treibladung steht im Prozentsatz: %s" % text)
-	assert_true(text.contains("max. ×%d" % (bare_cap + 2)),
-		"und der Taktgeber im Limit: %s" % text)
-
-## Eine Doppelmatrize hebt den Grundwurf - die Größenzeilen nennen den WIRKSAMEN.
-func test_the_matrix_shows_in_the_size_lines() -> void:
-	run.grant_pack(Pack.tiered(Pack.material_pack(), Pack.TIER_GROSS))
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
-	await wait_frames(2)
-	for pack in run.owned_packs:
-		view.slot_pack(pack.pack_uid)
-	await wait_frames(2)
-	assert_eq(view.multicast_lines(), ["Groß ×4"] as Array[String],
-		"3 + 1, und der Katalysator selbst hat keine Zeile")
-
-## Ein Griff aus lauter Katalysatoren presst nicht - der Sitz sperrt, und der
-## Hinweis-Schirm sagt, warum.
-func test_a_catalysts_only_grip_locks_the_seat() -> void:
-	run.charge = 9
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
-	await wait_frames(2)
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_eq(view.loot_slot_count(), 0)
-	assert_false(view.can_press(), "Katalysatoren allein pressen nichts")
-	assert_true(view._press_button.disabled)
-	assert_true(String(view._press_button.get_meta("body", "")).contains("Inhalt"),
-		"und der Grund steht auf dem Hinweis-Schirm")
-	run.grant_pack(Pack.number_pack())
-	await wait_frames(2)
-	view.slot_pack(run.owned_packs[1].pack_uid)
-	await wait_frames(2)
-	assert_true(view.can_press(), "mit einer Kassette voll Inhalt geht es")
-
-## Eine verbrauchte Pressung sperrt den Sitz - und die Erdungsklemme holt sie
-## NICHT zurück.
-func test_a_spent_session_locks_the_seat() -> void:
-	run.press_uses = 1
-	run.grant_pack(Pack.number_pack())
-	await wait_frames(2)
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_false(view.can_press(), "die Pressung dieser Runde ist verbraucht")
-	assert_true(String(view._press_button.get_meta("body", "")).contains("verbraucht"),
-		"und der Grund steht auf dem Hinweis-Schirm")
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
-	await wait_frames(2)
-	view.slot_pack(run.owned_packs[1].pack_uid)
-	await wait_frames(2)
-	assert_false(view.can_press(), "die Klemme bewahrt, sie belebt nicht")
-	run.reset_press_cycle()
-	view.refresh()
-	await wait_frames(2)
-	assert_true(view.can_press(), "die Unterschrift gibt die Pressung zurück")
-
 ## Der Schirm rührt sich auch mit Katalysatoren keinen Byte weit.
-func test_the_multicast_rect_survives_a_catalyst() -> void:
-	var before := view.multicast_screen_rect()
+func test_the_series_rect_survives_a_catalyst() -> void:
+	var before := view.series_screen_rect()
 	var seat := _seat_rect()
 	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
 	run.grant_pack(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL))
@@ -420,90 +306,30 @@ func test_the_multicast_rect_survives_a_catalyst() -> void:
 	for pack in run.owned_packs:
 		view.slot_pack(pack.pack_uid)
 	await wait_frames(2)
-	assert_eq(view.multicast_screen_rect(), before)
+	assert_eq(view.series_screen_rect(), before)
 	assert_eq(_seat_rect(), seat, "und der Sitz behält sein Rechteck")
 
-func test_a_fixed_content_cassette_says_it_never_repeats() -> void:
-	run.grant_pack(Pack.fixed_engraving_pack(Engraving.pointer_engraving()))
-	await wait_frames(2)
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_true(view.multicast_lines().has("Fixinhalt ×1"))
-
-## Der Wurf schreibt seinen höchsten Schlag auf den Schirm - und ein Neuaufbau
-## des Bandes nimmt ihn ihm nicht.
-func test_the_peak_of_a_running_press_survives_a_rebuild() -> void:
-	run.grant_pack(Pack.number_pack())
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	view.start_press()
-	view.withhold_press_pieces([999])  # eine Pressung, die noch fliegt
-	view.flash_multicast(4)
-	await wait_frames(2)
-	assert_eq(view.multicast_text(), "×4!")
-	view.flash_multicast(2)
-	assert_eq(view.multicast_text(), "×4!", "ein kleinerer Schlag schreibt nicht zurück")
-	view.refresh()
-	await wait_frames(2)
-	assert_eq(view.multicast_text(), "×4!", "und der Neuaufbau liest ihn wieder")
-
-## Der Schirm ERKLÄRT sich nicht mehr - sein Text ist ein Verweis. Hovern sagt
-## darum nichts, und der Hinweis-Schirm bleibt frei für die anderen Sprecher.
-func test_hovering_the_multicast_screen_says_nothing() -> void:
-	run.grant_pack(Pack.number_pack())
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_true(view.chip_hint_at(_multicast_rect().get_center()).is_empty())
-
-## Statt dessen ist das Wort ein Lexikon-Verweis wie im Laden-Tooltip: gefärbt,
-## klickbar, und der Klick meldet die Eintrags-id nach draußen.
-func test_the_multicast_word_is_a_lexikon_reference() -> void:
-	run.grant_pack(Pack.number_pack())
-	view.slot_pack(run.owned_packs[0].pack_uid)
-	await wait_frames(2)
-	assert_true(Lexikon.has_entry(Lexikon.MULTICAST), "der Eintrag steht im Katalog")
-	assert_true(view._multicast_body.bbcode_enabled)
-	assert_true(view._multicast_body.text.contains("[url=%s]" % Lexikon.MULTICAST),
-		"das Wort trägt seinen Verweis")
-	assert_ne(view._multicast_body.mouse_filter, Control.MOUSE_FILTER_IGNORE,
-		"und ist damit anklickbar")
-	var seen: Array[String] = []
-	view.lexikon_requested.connect(func(id: String) -> void: seen.append(id))
-	view._multicast_body.meta_clicked.emit(Lexikon.MULTICAST)
-	assert_eq(seen, [Lexikon.MULTICAST] as Array[String])
-
 ## Nur die Klickbarkeit ist neu - das Rechteck rührt sich durch den ganzen
-## Presse-Zyklus keinen Byte weit.
-func test_the_multicast_rect_is_byte_stable_through_the_cycle() -> void:
-	var before := view.multicast_screen_rect()
+## Serien-Zyklus keinen Byte weit.
+func test_the_series_rect_is_byte_stable_through_the_cycle() -> void:
+	var before := view.series_screen_rect()
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
-	assert_eq(view.multicast_screen_rect(), before, "eine Kassette im Magazin")
+	assert_eq(view.series_screen_rect(), before, "eine Kassette im Magazin")
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_eq(view.multicast_screen_rect(), before, "eingesteckt")
-	view.flash_multicast(4)
+	assert_eq(view.series_screen_rect(), before, "gesteckt")
+	view.choose_target(0)
 	await wait_frames(2)
-	assert_eq(view.multicast_screen_rect(), before, "im Wurf")
-	run.hub_level = 10
-	view.refresh()
-	await wait_frames(2)
-	assert_eq(view.multicast_screen_rect(), before, "und mit längerem Text")
+	assert_eq(view.series_screen_rect(), before, "mit gewähltem Ziel")
 
-func test_the_growth_comes_out_of_the_slack_not_out_of_the_nets() -> void:
-	# Erst die Restluft, dann erst (und hier gar nicht) der Netz-Deckel.
-	var u := view.size.x / 100.0
-	var dice: Array[DieDefinition] = []
-	for i in 6:
-		dice.append(run.owned_pool[i])
-	run.clamped_dice = dice
-	run.clamped_changed.emit()
+## Der Zeiger auf dem Schirm sagt NICHTS - sein Text ist ein Verweis, und der
+## Hinweis-Schirm bleibt frei für die anderen Sprecher.
+func test_hovering_the_series_screen_says_nothing() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_gt(view._content.get_node("BenchSlack").size.y, 0.0,
-		"selbst bei sechs Netzen - mehr als die Aufspannung je stellt - bleibt Luft")
-	assert_gt(view.clamp_cell(u), 0.0)
-	assert_lte(view.clamp_cell(u), u * WorkshopView.CLAMP_CELL_MAX,
-		"der Netz-Deckel steht unverändert")
+	assert_true(view.chip_hint_at(_series_rect().get_center()).is_empty())
 
 func test_the_cell_scale_has_one_source() -> void:
 	run.grant_pack(Pack.number_pack())
@@ -523,6 +349,8 @@ func test_magazine_and_slit_are_cut_to_the_same_cassette() -> void:
 	var cap := view.data_cell_px * PackDrawerView.CASSETTE_SCALE
 	assert_gte(view.slit_size(u).x, cap.x, "und der Schlitz schluckt genau diese Kappe")
 	assert_gte(view.slit_size(u).y, cap.y)
+	assert_gte(view.card_size(u).x, view.slit_size(u).x,
+		"die Kassette steht senkrecht über ihrem Schlitz, nie schmaler")
 
 ## Die Menge drückt keine Karte klein - nie. Der gemessene Deckel ist genau so
 ## gewählt, dass eine randvolle Grube noch in voller Größe steht.
@@ -541,92 +369,58 @@ func test_the_magazine_never_squeezes_its_cards_by_count() -> void:
 		"die randvolle Grube steht in voller Größe")
 	assert_null(run.grant_pack(Pack.number_pack()), "und darüber hinaus kommt nichts")
 
-# --- (e) Der Wurf läuft IN der Seite: auch er verrückt nichts ----------------------
+# --- (e) Der GRIFF läuft IN der Seite: auch er verrückt nichts ---------------------
 
-func test_the_whole_press_cycle_never_reflows_the_page() -> void:
-	# Weder Pressung noch Platzierung haben eine eigene Seite - die eine läuft in
-	# den Anzeigefeldern, und ihre Beute LIEGT als Haufen über dem Zeilenfluss.
-	# Also stehen Fach, Schlitze, Zeilen und der Sitz durch den ganzen Kreis auf
-	# denselben Pixeln: vorher, mit liegender Beute und nach dem Fertig.
+func test_the_whole_grip_cycle_never_reflows_the_page() -> void:
+	# Die Zeremonie hat keine eigene Seite: sie läuft in der Reihe, und der
+	# SCHLITTEN fährt über allem - sein PARKPLATZ in der Säule rührt sich dabei
+	# nie. Also stehen Fach, Slots, Zeilen und Sitz durch den ganzen Kreis auf
+	# denselben Pixeln.
 	run.grant_pack(Pack.number_pack())
 	run.grant_pack(Pack.number_pack())
 	view.slot_pack(run.owned_packs[0].pack_uid)
+	view.choose_target(0)
 	await wait_frames(2)
 	var fach := _drawer_rect()
 	var slits := _slit_rects()
 	var rows := _row_names()
 	var seat := _seat_rect()
-	var screen := _multicast_rect()
-	var displays := view.press_display_anchors()
-	var strip := view.ablage_rect()
+	var screen := _series_rect()
+	var cards := view.press_display_anchors()
+	var net := view._net.get_global_rect()
+	var park := view.target_net_center()
 
-	view.start_press()
+	view.pull_lever()
 	await wait_frames(2)
-	assert_true(view.placing(), "die Beute liegt in der Ablage")
+	assert_true(view.burning(), "die Fahrt läuft")
 	assert_eq(_row_names(), rows, "dieselben Zeilen in derselben Ordnung")
 	assert_eq(_seat_rect(), seat, "derselbe Sitz, jetzt mit dem Fertig")
-	assert_eq(_multicast_rect(), screen, "der Multicast-Schirm steht durch den Wurf")
-	assert_null(view._press_button, "der Pressen-Knopf tritt ab")
-	assert_not_null(view._apply_button)
-	assert_eq(view._apply_button.get_global_rect(), seat, "und der Knopf füllt ihn genau")
-	assert_eq(_drawer_rect(), fach, "mit Beute: das Fach steht")
-	_assert_same_slits(slits, _slit_rects(), "mit Beute")
-	assert_eq(view.press_display_anchors(), displays, "und die Leser stehen still")
-	assert_eq(view.ablage_rect(), strip, "der Streifen hängt am Fenster, nicht am Inhalt")
-	assert_not_null(view._ablage_host, "der Haufen liegt da")
+	assert_eq(_series_rect(), screen, "der Serien-Schirm steht durch den Griff")
+	assert_eq(_drawer_rect(), fach, "in der Fahrt: das Fach steht")
+	_assert_same_slits(slits, _slit_rects(), "in der Fahrt")
+	assert_eq(view.press_display_anchors(), cards, "und die KARTENPLÄTZE stehen still")
+	assert_eq(view.target_net_center(), park, "der Parkplatz des Schlittens ebenso")
 
-	view.apply_placements()  # das Fertig führt zurück auf die Grundseite
+	view.skip_ceremony()
 	await wait_frames(2)
-	assert_false(view.placing())
+	assert_false(view.burning())
 	assert_eq(_row_names(), rows, "und nach dem Kreis steht wieder dieselbe Seite")
 	assert_eq(_seat_rect(), seat)
-	assert_eq(_multicast_rect(), screen, "auch der Schirm steht danach, wo er stand")
+	assert_eq(_series_rect(), screen)
 	assert_eq(_drawer_rect(), fach, "danach: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "danach")
-	assert_eq(view.press_display_anchors(), displays)
-	assert_eq(view.ablage_rect(), strip, "auch der leere Streifen steht, wo er stand")
-
-## Der Haufen ist ein AUFLIEGER: ob er leer ist oder dreißig Chips trägt, ändert
-## keinen Pixel der Grundseite.
-func test_a_full_pile_moves_nothing_on_the_page() -> void:
-	await wait_frames(2)
-	var fach := _drawer_rect()
-	var slits := _slit_rects()
-	var rows := _row_names()
-	var seat := _seat_rect()
-	var nets: Array[Rect2] = []
-	for net in view._clamp_nets:
-		nets.append(net.get_global_rect())
-
-	for i in 30:
-		run.press_piece_serial += 1
-		run.press_pieces.append({"sort": Engraving.CATEGORY_NUMBER, "id": Engraving.NOTCH,
-			"stufe": 1, "applications": 1, "piece_uid": run.press_piece_serial})
-	run.press_changed.emit()
-	await wait_frames(2)
-	assert_eq(view._ablage_chips.size(), 30, "dreißig Chips liegen da")
-	assert_eq(_row_names(), rows, "dieselben Zeilen")
-	assert_eq(_seat_rect(), seat)
-	assert_eq(_drawer_rect(), fach, "voller Haufen: das Fach steht")
-	_assert_same_slits(slits, _slit_rects(), "voller Haufen")
-	for i in nets.size():
-		assert_eq(view._clamp_nets[i].get_global_rect(), nets[i], "Netz %d steht unverrückt" % i)
-	var strip := view.ablage_rect()
-	for uid in view._ablage_chips:
-		assert_true(strip.has_point(view.ablage_spot(int(uid))),
-			"und jeder Chip bleibt im Streifen")
+	assert_eq(view.target_net_center(), park)
+	assert_eq(view._net.get_global_rect(), net, "und das Netz steht wieder geparkt")
 
 func test_the_console_stays_clear_of_the_drawer() -> void:
-	# Der gewachsene Leser darf das Fach nicht anschneiden - die Restluft über
+	# Die gewachsene Kassette darf das Fach nicht anschneiden - die Restluft über
 	# der Konsole ist die Reserve, und sie bleibt positiv.
 	var u := view.size.x / 100.0
-	var console := _console()
 	await wait_frames(2)
-	assert_gt(_drawer_rect().position.y, console.get_global_rect().end.y,
+	assert_gt(_drawer_rect().position.y, _console().get_global_rect().end.y,
 		"die Konsole endet über dem Fach")
-	assert_gt(view._content.get_node("BenchSlack").size.y, 0.0, "und darüber bleibt Luft")
-	assert_gt(view.socket_size(u).y, u * WorkshopView.SLIT_DISPLAY,
-		"ein Platz trägt sein Feld UND seinen Schlitz")
+	assert_gt(view.socket_size(u).y, view.card_size(u).y,
+		"ein Slot trägt seine Karte UND seinen Schlitz")
 
 func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	# Der Beweis in einem Bild: dasselbe Fach-Rechteck bei leerem, gemischtem und
@@ -643,20 +437,32 @@ func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	await wait_frames(2)
 	assert_eq(_drawer_rect(), empty, "voll")
 
-# --- (g) Die Bank ist IMMER bestückt ----------------------------------------------
-# Der Blick entscheidet nichts: Netzzeile und Zwingen stehen in jedem Kamera-Modus,
-# und seit dem Tod des Dossiers nimmt sie ihnen auch keine Seite mehr weg.
+# --- (f) Die Ziel-Säule steht in jedem Kamera-Modus --------------------------------
 
 func test_the_bench_is_furnished_without_any_camera() -> void:
 	await wait_frames(2)
-	assert_false(view._clamp_nets.is_empty(), "die Netzzeile steht")
-	assert_false(view._clamp_stage_hosts.is_empty(), "und je Zwinge eine Bühne")
-	assert_true(view.clamps_on_bench(), "die Aufspannung steht auf der Grundseite")
+	assert_not_null(view._net, "das Summen-Netz steht")
+	assert_not_null(view._stage_host, "und die Projektor-Bühne darüber")
+	assert_not_null(view._pool_grid, "und das Raster daneben")
+	assert_true(view.bench_open())
 
 func test_the_bench_is_always_furnished() -> void:
-	# Es gibt keine zweite Seite mehr, die die Netzzeile wegnehmen könnte.
 	await wait_frames(2)
-	assert_true(view.clamps_on_bench())
+	assert_true(view.bench_open())
 	view.refresh()
 	await wait_frames(2)
-	assert_true(view.clamps_on_bench(), "auch nach jedem Neuaufbau")
+	assert_true(view.bench_open(), "auch nach jedem Neuaufbau")
+
+## Die Reihe WÄCHST mit der Lizenz - und das Blech wächst mit ihr, nicht die Seite
+## darüber: der Zeilenfluss im Fenster bleibt derselbe.
+func test_a_longer_series_grows_the_console_not_the_page() -> void:
+	await wait_frames(2)
+	var rows := _row_names()
+	var window := view._content.get_global_rect()
+	var short_console := _console().get_global_rect().size.x
+	run.hub_level = 10
+	view.refresh()
+	await wait_frames(2)
+	assert_gt(_console().get_global_rect().size.x, short_console, "das Blech wächst")
+	assert_eq(_row_names(), rows, "die Seite darüber nicht")
+	assert_eq(view._content.get_global_rect(), window)

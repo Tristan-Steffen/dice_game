@@ -29,7 +29,7 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, CHARGE }
 ## Was der Gewinn ausschüttet. PRESS_BOOST ist ein Einmal-Schub auf die nächste
-## Pressung (mehr Multicast-Kette), kein Bestand.
+## Serie (ein Slot mehr), kein Bestand.
 enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL, PRESS_BOOST }
 
 ## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
@@ -118,7 +118,7 @@ const TEMPLATES := [
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"reward": 2, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Fumble."},
-	# Eine Straße IST eine Kette - der Gewinn verlängert die der Presse.
+	# Eine Straße IST eine Reihe - der Gewinn verlängert die der Presse.
 	{"id": "chain_reaction", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
 		"stake": 8, "payout": Payout.PRESS_BOOST, "name": "Kettenreaktion",
 		"desc": "Nimm eine Große Straße."},
@@ -533,7 +533,6 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 		Payout.COMBO_LEVEL:
 			return "+1 Stufe"
 		Payout.PRESS_BOOST:
-			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Pressung.
-			return "Nächste Pressung: Limit +%d, Chance +%d %%" % [PhantomPress.BOOST_CAP,
-				roundi(PhantomPress.BOOST_CHANCE * 100.0)]
+			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Serie.
+			return "Nächste Serie: +%d Slot" % SeriesResolver.BOOST_SLOTS
 	return Pack.amount_phrase(reward_pack_type, reward_pack_tier, reward_packs * factor)

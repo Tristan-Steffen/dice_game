@@ -1,7 +1,7 @@
 extends GutTest
-## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt die Aufspannung
-## als Projektor- und Netzzeile, versiegelte Pakete liegen als Kassetten im
-## Magazin statt als Karten im Fenster.
+## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt die ZIEL-SÄULE
+## (Projektor-Bühne über dem Summen-Netz) und daneben das Pool-Raster der Zielwahl;
+## versiegelte Pakete liegen als Kassetten im Magazin statt als Karten im Fenster.
 
 var view: WorkshopView
 var run: GameRun
@@ -13,69 +13,74 @@ func before_each() -> void:
 	add_child_autofree(view)
 	view.run = run
 
-# --- Die Grundseite gehört der Aufspannung --------------------------------------
+# --- Die Grundseite gehört der Zielwahl -----------------------------------------
 
 func test_packs_never_render_as_cards_in_the_window() -> void:
 	# Das Magazin ist der EINZIGE Ort versiegelter Ware - im Fenster stehen nur die
-	# Netze der Aufspannung und die Presse-Plätze.
+	# Ziel-Säule, das Pool-Raster und die Serien-Slots.
 	run.purchase_pack(Pack.number_pack(), 0)
 	run.purchase_pack(Pack.material_pack(), 0)
-	assert_eq(view._clamp_nets.size(), run.clamp_count(), "die Netzzeile steht")
-	assert_eq(view._press_slot_buttons.size(), PhantomPress.BATCH_CAP)
+	assert_not_null(view._net, "das Summen-Netz steht")
+	assert_eq(view._slot_buttons.size(), run.series_slots())
 	assert_eq(run.owned_packs.size(), 2, "und die Siegel bleiben ganz")
 
-func test_the_net_row_is_the_readout_of_the_clamped_dice() -> void:
-	assert_eq(view._clamp_nets.size(), run.clamped_dice.size())
+func test_the_pool_grid_is_the_readout_of_the_pool() -> void:
+	assert_not_null(view._pool_grid)
+	assert_eq(view._pool_grid.tiles.size(), run.owned_pool.size(),
+		"Sitz i = Zelle i, die Grammatik der Glas-Ansicht")
 
-## Es gibt keine Auspack-Zeremonie mehr: JEDE Kassette geht in einen Leser, und
-## ein Würfel wird nie versiegelt.
+## Es gibt keine Auspack-Zeremonie mehr: JEDE Kassette geht in einen Serien-Slot,
+## und ein Würfel wird nie versiegelt.
 func test_tapping_a_cassette_only_ever_slots_it() -> void:
 	run.purchase_pack(Pack.number_pack(), 0)
 	view._on_pack_pressed(run.owned_packs[0].pack_uid)
-	assert_eq(view.press_slot_uids().size(), 1, "sie steckt im Leser")
+	assert_eq(view.press_slot_uids().size(), 1, "sie steckt im Slot")
 
 func test_the_bench_has_no_floating_dice_of_its_own() -> void:
-	# Über der Bank schweben allein die Zwingen - eine zweite Seite gibt es nicht.
-	assert_true(view.clamps_on_bench())
+	# Über der Bank schwebt allein der Zielwürfel - eine zweite Seite gibt es nicht.
+	assert_true(view.bench_open())
 
 # --- Netz-Hinweise --------------------------------------------------------------
 
-func test_a_clamp_net_cell_explains_itself() -> void:
+func test_a_target_net_cell_explains_itself() -> void:
 	# Die Zeile gehört NICHT ins Fenster - scene_root schreibt sie auf den
 	# Hinweis-Schirm im Konsolen-Band.
+	view.choose_target(0)
 	await wait_frames(2)
-	run.clamped_dice[0].set_face_material(0, DieMaterial.GOLD)
+	run.owned_pool[0].set_face_material(0, DieMaterial.GOLD)
 	view.refresh()
 	await wait_frames(2)
-	var said := view.net_hint_at(_clamp_pixel(0, 0))
+	var said := view.net_hint_at(_net_pixel(0))
 	assert_true(said.contains(DieMaterial.by_id(DieMaterial.GOLD).display_name),
 		"die Zelle sagt, was auf ihr liegt: '%s'" % said)
 
 func test_a_bare_face_and_a_point_outside_say_nothing() -> void:
+	view.choose_target(0)
 	await wait_frames(2)
 	for face in 6:
-		run.clamped_dice[0].set_face_material(face, "")
+		run.owned_pool[0].set_face_material(face, "")
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view.net_hint_at(_clamp_pixel(0, 0)), "", "eine nackte Seite erklärt nichts")
+	assert_eq(view.net_hint_at(_net_pixel(0)), "", "eine nackte Seite erklärt nichts")
 	assert_eq(view.net_hint_at(Vector2(-50, -50)), "", "und außerhalb erst recht nicht")
 
-## Display-Pixel in der Mitte der Zelle face im Zwingen-Netz index.
-func _clamp_pixel(index: int, face: int) -> Vector2:
-	var net := view._clamp_nets[index]
+## Display-Pixel in der Mitte der Zelle face im Summen-Netz.
+func _net_pixel(face: int) -> Vector2:
+	var net := view._net
 	return net.get_global_rect().position \
 		+ DieNetView.cell_position(face, net.cell) + Vector2.ONE * net.cell * 0.5
 
-# --- Die Aufspannung steht durch alles -------------------------------------------
+# --- Die Ziel-Säule steht durch alles --------------------------------------------
 
-func test_the_press_keeps_the_clamps_standing() -> void:
-	# Die Pressung läuft UNTER der Netzzeile, und ihre Beute liegt darunter - die
-	# Zwingen bleiben stehen, sie sind die Ziele.
+func test_the_grip_keeps_the_target_column_standing() -> void:
+	# Die Zeremonie läuft in der Serien-Reihe UNTER dem Fenster - die Ziel-Säule
+	# bleibt stehen, sie ist das Ziel.
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
-	view.start_press()
-	assert_true(view.placing(), "die Beute liegt")
-	assert_true(view.clamps_on_bench())
+	view.choose_target(0)
+	view.pull_lever()
+	assert_true(view.bench_open())
+	assert_not_null(view._net, "und das Summen-Netz steht")
 
 func test_every_rebuild_reports_the_stages() -> void:
 	# scene_root hängt die echten Würfel daran - ohne die Meldung stünden sie über

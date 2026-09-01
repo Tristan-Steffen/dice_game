@@ -405,9 +405,14 @@ func _chip(pack: Pack, uid: int, spot: Vector2) -> Button:
 
 	var title := pack.display_name if pack.count <= 1 \
 		else "%d× %s" % [pack.count, pack.display_name]
+	# Der Deckel nennt das PRÄGENETZ mit: was die Karte prägt, ist ihr Inhalt.
+	var body := pack.description
+	var net := Pack.net_line(pack)
+	if net != "" and not body.contains(net):
+		body = "%s\n%s" % [body, net]
 	chip.set_meta("title", title)
-	chip.set_meta("body", pack.description)
-	chip.tooltip_text = "%s\n%s" % [title, pack.description]
+	chip.set_meta("body", body)
+	chip.tooltip_text = "%s\n%s" % [title, body]
 	if not _locked:
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	chip.pressed.connect(func() -> void: pack_pressed.emit(uid))

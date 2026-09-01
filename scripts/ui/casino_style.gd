@@ -121,7 +121,7 @@ static func style_body_label(label: Label, size: int = 15, color: Color = CREAM)
 	label.add_theme_constant_override("outline_size", 2)
 
 ## Dasselbe für einen RichTextLabel - überall dort, wo Schlüsselwörter im Text
-## Lexikon-Verweise tragen (Laden-Tooltip, Multicast-Schirm).
+## Lexikon-Verweise tragen (Laden-Tooltip, Serien-Schirm).
 static func style_rich_body(label: RichTextLabel, size: int = 15, color: Color = CREAM) -> void:
 	label.add_theme_font_size_override("normal_font_size", size)
 	label.add_theme_color_override("default_color", color)

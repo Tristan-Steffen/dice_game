@@ -6,10 +6,11 @@ extends Resource
 ## fahren gekauft ins Ausgabefach. ids sind Konstanten, damit Tippfehler
 ## Compilerfehler sind.
 ##
-## Ein Gravur-Paket ist GENAU EIN Phantomwürfel (PhantomPress): seine sechs
-## Seiten tragen die sechs Icons seiner Sorte, und benachbarte Leser mit demselben
-## Icon heben einander. Mehrere Pakete auf einmal zu öffnen ist die einzige
-## Schiene, auf der Beute stärker wird.
+## Jede Kassette trägt ein PRÄGENETZ (StampNet): sechs Zellen, eine je Würfelseite,
+## bei der ERZEUGUNG gewürfelt und ab da fix und sichtbar. Mehrere Kassetten in
+## Serie gesteckt summieren ihre Netze und projizieren sie in EINEM Akt auf einen
+## Würfel (SeriesResolver) - die Größe entscheidet, wie dicht und wie stark ein
+## Netz besetzt ist.
 
 ## Paketsorten - alle drei bilden auf Engraving-Kategorien ab (siehe
 ## engraving_category). Würfel werden NIE versiegelt: sie gehen als Ware direkt
@@ -20,14 +21,13 @@ const TYPE_MATERIAL := "material"
 ## Automaten.
 const TYPE_DICE_MOD := "dice_mod"
 
-## Ein Gravur-Paket = ein Phantomwürfel. Die Zahl steht als Konstante, damit
-## niemand sie an einer Fabrik wieder aufbläht.
+## Ein Gravur-Paket = ein Prägenetz. Die Zahl steht als Konstante, damit niemand
+## sie an einer Fabrik wieder aufbläht; > 1 heißt Bündel (ein Fixinhalt mehrfach).
 const ENGRAVING_PACK_COUNT := 1
 
 ## Die drei PAKETGRÖSSEN. Standard ist die unmarkierte Norm, Groß und Kolossal
-## stehen als Adjektiv im Namen. Größe zahlt sich allein an der Presse aus: sie
-## setzt den Grundwurf JE AUSLÖSUNG (PhantomPress.BASE_PIECES), sonst nichts - die
-## Multicast-Kette ist für jede Größe dieselbe.
+## stehen als Adjektiv im Namen. Die Größe entscheidet allein die WURFTABELLE des
+## Prägenetzes (StampNet): Dichte und Magnitude der Zellen, sonst nichts.
 const TIER_NORMAL := 0
 const TIER_GROSS := 1
 const TIER_KOLOSSAL := 2
@@ -38,15 +38,13 @@ const TIER_ADJECTIVES := {TIER_GROSS: "Großes", TIER_KOLOSSAL: "Kolossales"}
 ## Dieselben Adjektive im Plural ("2 Große Zahlen-Pakete"). Eigene Tabelle, denn
 ## ein abgeschnittenes "s" wäre eine Regel, die nur zufällig zweimal stimmt.
 const TIER_ADJECTIVES_PLURAL := {TIER_GROSS: "Große", TIER_KOLOSSAL: "Kolossale"}
-## Wie die Größe heißt, wo sie ALLEIN steht (Multicast-Schirm, Hinweiszeile).
+## Wie die Größe heißt, wo sie ALLEIN steht (Hinweiszeile, Netz-Auskunft).
 const TIER_LABELS := {TIER_NORMAL: "Standard", TIER_GROSS: "Groß",
 	TIER_KOLOSSAL: "Kolossal"}
 
-## Preisfaktoren der Größen. Die erwarteten Stücke stehen bei 1,94 / 5,81 / 9,69
-## (PhantomPress.expected_pieces), also 1 : 3 : 5 - die Preise liegen mit
-## 1,00 : 3,45 : 5,75 gleichmäßig 15 % darüber. Der Aufschlag ist der Preis der
-## DICHTE: dieselbe Beute aus weniger Magazin-Plätzen, weniger Lesern und weniger
-## Pressungen (und es gibt nur eine je Sitzung).
+## Preisfaktoren der Größen. Der Aufschlag ist der Preis der DICHTE: mehr Zellen
+## und höhere Werte auf EINER Karte, also aus einem Magazin-Platz und einem
+## Serien-Slot (und die Serie ist kurz).
 const TIER_PRICE_FACTORS := [1.0, 3.45, 5.75]
 ## Auslage-Gewichte der Größen: die Norm liegt meistens da, das Kolossale selten.
 const TIER_WEIGHTS := [0.6, 0.3, 0.1]
@@ -86,8 +84,15 @@ const TYPE_NAMES := {
 ## nicht nachwürfeln - er spielt in der Hand trotzdem mit.
 @export var fixed_engraving: Engraving = null
 ## KATALYSATOR-Kassette (CATALYST_*, "" = keine). Sie trägt gar keinen Inhalt: sie
-## verändert die EINE Pressung, in der sie steckt, und wird mit ihr verbraucht.
+## verändert die EINE Serie, in der sie steckt, und wird mit ihr verbraucht.
 @export var catalyst_id: String = ""
+## OPERATOR-Kassette (StampNet.OP_*, "" = keine). Ihr Netz trägt genau eine
+## Operator-Zelle; sie ist Sonderbestand, kein Regal-Paket.
+@export var operator_id: String = ""
+## Das PRÄGENETZ: sechs Zellen (StampNet), bei der Erzeugung gewürfelt und ab da
+## fix - es reist mit der Kassette und ist im Laden schon lesbar. Katalysatoren
+## tragen ein leeres Netz.
+@export var stamp_net: Array = []
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -96,6 +101,7 @@ static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pa
 	pack.count = amount
 	pack.price = cost
 	pack.description = desc
+	pack.stamp_net = StampNet.empty_net()
 	return pack
 
 ## --- Die Paketgröße ---------------------------------------------------------
@@ -125,19 +131,23 @@ static func tier_price_factor(pack_tier: int) -> float:
 		return 1.0
 	return float(TIER_PRICE_FACTORS[pack_tier])
 
-## Darf dieses Paket überhaupt eine Größe tragen? Ein Fixinhalt wirft genau seinen
-## Inhalt aus und ein Katalysator gar nichts - beide sind größenlos.
+## Darf dieses Paket überhaupt eine Größe tragen? Ein Fixinhalt trägt genau seinen
+## Inhalt, ein Katalysator gar keinen und ein Operator genau eine Zelle - alle drei
+## sind größenlos.
 static func tierable(pack: Pack) -> bool:
-	return pack != null and pack.fixed_engraving == null and pack.catalyst_id == ""
+	return pack != null and pack.fixed_engraving == null and pack.catalyst_id == "" \
+		and pack.operator_id == ""
 
-## Setzt einem Gravur-Paket seine Größe auf: Name UND Preis wachsen mit. Der eine
-## Weg - ein anderswo gesetztes tier bliebe ohne Aufschrift und ohne Preis.
-static func tiered(pack: Pack, pack_tier: int) -> Pack:
+## Setzt einem Gravur-Paket seine Größe auf: Name, Preis UND Prägenetz wachsen mit.
+## Der eine Weg - ein anderswo gesetztes tier bliebe ohne Aufschrift, ohne Preis
+## und mit dem Netz der kleinen Größe.
+static func tiered(pack: Pack, pack_tier: int, rng: RandomNumberGenerator = null) -> Pack:
 	if not tierable(pack) or pack_tier == TIER_NORMAL:
 		return pack
 	pack.tier = pack_tier
 	pack.display_name = "%s %s" % [tier_adjective(pack_tier), pack.display_name]
 	pack.price = int(roundf(float(pack.price) * tier_price_factor(pack_tier)))
+	pack.stamp_net = StampNet.roll(pack.engraving_category(), pack_tier, rng)
 	return pack
 
 ## Gewichteter Griff in die Größen-Tabelle (60 / 30 / 10 %).
@@ -150,55 +160,73 @@ static func roll_tier(rng: RandomNumberGenerator = null) -> int:
 			return i
 	return TIER_WEIGHTS.size() - 1
 
-## Was die Größe an der Presse bedeutet - eine Zeile für Laden und Werkbank: der
-## Grundwurf je Auslösung, dann die für alle Größen gleiche Kette. Chance und Decke
-## kommen von außen (GameRun.multicast_chance/_cap), damit die Karte die LEBENDEN
-## Zahlen nennt; ohne Lauf steht die unterste Sprosse da.
-static func multicast_line(pack_tier: int, chance := PhantomPress.MULTICAST_CHANCE,
-		cap := PhantomPress.MULTICAST_CAP) -> String:
-	return "%s je Auslösung, Multicast %d %%, max. ×%d" % [
-		pieces_word(PhantomPress.base_for(pack_tier)), roundi(chance * 100.0), cap]
+## Was auf dem Netz dieser Kassette steht - eine Zeile für Laden und Werkbank.
+static func net_line(pack: Pack) -> String:
+	if pack == null:
+		return ""
+	if pack.is_catalyst():
+		return catalyst_effect(pack.catalyst_id)
+	return StampNet.line(pack.stamp_net)
 
-## "1 Gravur" / "n Gravuren" - eine Quelle, damit Karte und Hover gleich sprechen.
-static func pieces_word(amount: int) -> String:
-	return "1 Gravur" if amount == 1 else "%d Gravuren" % amount
+static func number_pack(rng: RandomNumberGenerator = null) -> Pack:
+	var pack := _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, NUMBER_PRICE,
+		"Ein Prägenetz aus Zahl-Zellen, versiegelt.")
+	pack.stamp_net = StampNet.roll(Engraving.CATEGORY_NUMBER, TIER_NORMAL, rng)
+	return pack
 
-static func number_pack() -> Pack:
-	return _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, NUMBER_PRICE,
-		"Ein Phantomwurf auf die sechs Zahlen-Gravuren, versiegelt.")
+static func material_pack(rng: RandomNumberGenerator = null) -> Pack:
+	var pack := _make(TYPE_MATERIAL, ENGRAVING_PACK_COUNT, MATERIAL_PRICE,
+		"Ein Prägenetz aus Material-Zellen, versiegelt.")
+	pack.stamp_net = StampNet.roll(Engraving.CATEGORY_MATERIAL, TIER_NORMAL, rng)
+	return pack
 
-static func material_pack() -> Pack:
-	return _make(TYPE_MATERIAL, ENGRAVING_PACK_COUNT, MATERIAL_PRICE,
-		"Ein Phantomwurf auf die sechs Materialien, versiegelt.")
-
-static func dice_mod_pack() -> Pack:
-	return _make(TYPE_DICE_MOD, ENGRAVING_PACK_COUNT, DICE_MOD_PRICE,
-		"Ein Phantomwurf auf die sechs Runen, versiegelt.")
+static func dice_mod_pack(rng: RandomNumberGenerator = null) -> Pack:
+	var pack := _make(TYPE_DICE_MOD, ENGRAVING_PACK_COUNT, DICE_MOD_PRICE,
+		"Ein Prägenetz aus Runen-Zellen, versiegelt.")
+	pack.stamp_net = StampNet.roll(Engraving.CATEGORY_DICE, TIER_NORMAL, rng)
+	return pack
 
 ## Fester Goldpreis eines Sonderposten-Einzelstücks im normalen Regal - er hängt
 ## weder an der Sorte noch an der Lizenz. Bündel gibt es nur im Hinterzimmer.
 const SPECIAL_PRICE := 30
 
-## Fixinhalt-Paket: der Phantomwürfel liegt fest auf diesem Icon. amount > 1 legt
-## mehrere Kopien in DIESELBE Karte - ein Bündel ist eine Datenkarte, kein Stapel.
-## Preis 0 ist der Regelfall: so etwas wird gefunden oder abgegossen; nur der
-## Handel setzt einen.
+## Fixinhalt-Paket: sein Netz trägt genau diesen Inhalt, je Kopie eine Zelle auf
+## eigener Seite. amount > 1 legt mehrere Kopien in DIESELBE Karte - ein Bündel ist
+## eine Datenkarte, kein Stapel. Preis 0 ist der Regelfall: so etwas wird gefunden
+## oder abgegossen; nur der Handel setzt einen.
 static func fixed_engraving_pack(engraving: Engraving, amount := ENGRAVING_PACK_COUNT,
-		cost := 0) -> Pack:
+		cost := 0, rng: RandomNumberGenerator = null) -> Pack:
 	if engraving == null:
-		return number_pack()
+		return number_pack(rng)
 	var many := maxi(amount, 1)
 	var text := "%s, versiegelt." % engraving.display_name if many == 1 \
 		else "%d× %s auf EINER Karte, versiegelt." % [many, engraving.display_name]
 	var pack := _make(pack_type_for_category(engraving.category), many, cost, text)
 	pack.display_name = engraving.display_name
 	pack.fixed_engraving = engraving
+	pack.stamp_net = StampNet.fixed_net(engraving, many, rng)
+	return pack
+
+## --- Die OPERATOR-KASSETTEN ---------------------------------------------------
+## Sonderbestand mit genau EINER Operator-Zelle (StampNet.OPERATORS). Sie rechnen
+## nur im Zahl-Kanal und auf der bis dahin aufgelaufenen Summe - ihre Position in
+## der Serie IST ihre Stärke.
+
+static func operator_pack(op_id: String, rng: RandomNumberGenerator = null) -> Pack:
+	if not StampNet.is_operator_id(op_id):
+		return null
+	var pack := _make(TYPE_NUMBER, 1, StampNet.operator_price(op_id),
+		"%s. Wirkt an seiner Stelle in der Serie auf die aufgelaufene Summe." \
+			% StampNet.operator_effect(op_id))
+	pack.display_name = StampNet.operator_name(op_id)
+	pack.operator_id = op_id
+	pack.stamp_net = StampNet.operator_net(op_id, rng)
 	return pack
 
 ## --- Die KATALYSATOR-KASSETTEN ------------------------------------------------
-## Sonderbestand wie die Gravur-Sonderposten, aber ohne jeden Inhalt: eine solche
-## Kassette wirft nichts aus, sie verändert die EINE Pressung, in der sie steckt,
-## und brennt mit ihr aus. Ihr Preis ist der Leserplatz, den sie besetzt - deshalb
+## Sonderbestand wie die Gravur-Sonderposten, aber ohne jedes Netz: eine solche
+## Kassette prägt nichts, sie verändert die EINE Serie, in der sie steckt, und
+## brennt mit ihr aus. Ihr Preis ist der Serien-Slot, den sie besetzt - deshalb
 ## gibt es keinen eigenen Katalysator-Schacht.
 
 const CATALYST_PROPELLANT := "propellant"
@@ -211,18 +239,23 @@ const CATALYST_GROUND := "ground"
 ## steht (und die Reihenfolge, in der sie ausgewürfelt werden).
 const CATALYSTS := {
 	CATALYST_PROPELLANT: {"name": "Treibladung", "price": 14,
-		"effect": "Multicast-Chance +20 %"},
+		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
 	CATALYST_TIMER: {"name": "Taktgeber", "price": 14,
-		"effect": "Multicast-Limit +2"},
+		"effect": "Serienlänge dauerhaft +1",
+		"scope": "Wirkt für den ganzen Lauf und wird beim Griff verbraucht."},
 	CATALYST_MATRIX: {"name": "Doppelmatrize", "price": 18,
-		"effect": "+1 Grundstück je Auslösung"},
+		"effect": "Die Projektion trifft einen zweiten Würfel mit halbierten Zahl-Boni"},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
 		"effect": "Dieser Griff verbraucht die Pressung der Runde nicht"},
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,
-## Magazin und Hinterzimmer dieselbe Zusage geben.
-const CATALYST_SCOPE := "Wirkt auf die Pressung, in der sie steckt, und wird mit ihr verbraucht."
+## Magazin und Hinterzimmer dieselbe Zusage geben. Der Taktgeber schreibt ihn um:
+## seine Wirkung überlebt die Serie.
+const CATALYST_SCOPE := "Wirkt auf die Serie, in der sie steckt, und wird mit ihr verbraucht."
+
+static func catalyst_scope(id: String) -> String:
+	return String(Dictionary(CATALYSTS.get(id, {})).get("scope", CATALYST_SCOPE))
 
 static func catalyst_ids() -> Array[String]:
 	var ids: Array[String] = []
@@ -245,31 +278,36 @@ static func catalyst(id: String) -> Pack:
 	if not CATALYSTS.has(id):
 		return null
 	var pack := _make(TYPE_NUMBER, 1, catalyst_price(id),
-		"%s. %s" % [catalyst_effect(id), CATALYST_SCOPE])
+		"%s. %s" % [catalyst_effect(id), catalyst_scope(id)])
 	pack.display_name = catalyst_name(id)
 	pack.catalyst_id = id
 	return pack
 
-## Schlüssel des Sonderposten-Wurfs, der KEIN Katalysator ist.
+## Schlüssel des Sonderposten-Wurfs, der KEIN Katalysator und kein Operator ist.
 const SPECIAL_ENGRAVING := "engraving"
 
 ## Gewichte des Sonderposten-Platzes (Prozent). Die beiden Gravur-Sonderposten
-## bleiben mit 40 % die Schlagzeile, die vier Katalysatoren teilen sich den Rest
-## zu gleichen Teilen - EINE Tabelle, an der Wurf und Test hängen.
+## bleiben mit 30 % die Schlagzeile, Katalysatoren und Operatoren teilen sich den
+## Rest zu gleichen Teilen - EINE Tabelle, an der Wurf und Test hängen.
 const SPECIAL_ROLL_WEIGHTS := {
-	SPECIAL_ENGRAVING: 40,
-	CATALYST_PROPELLANT: 15,
-	CATALYST_TIMER: 15,
-	CATALYST_MATRIX: 15,
-	CATALYST_GROUND: 15,
+	SPECIAL_ENGRAVING: 30,
+	CATALYST_PROPELLANT: 10,
+	CATALYST_TIMER: 10,
+	CATALYST_MATRIX: 10,
+	CATALYST_GROUND: 10,
+	StampNet.OP_DOUBLER: 10,
+	StampNet.OP_MIRROR: 10,
+	StampNet.OP_COLLECTOR: 10,
 }
 
-## Sonderposten fürs normale Regal: welcher der BEIDEN Familien, entscheidet der
+## Sonderposten fürs normale Regal: welche der DREI Familien, entscheidet der
 ## Wurf - dass überhaupt einer ausliegt, entscheidet GameRun.shop_special_chance.
 static func roll_special_pack() -> Pack:
 	var key := _roll_special_key()
 	if key != SPECIAL_ENGRAVING:
 		var card := catalyst(key)
+		if card == null:
+			card = operator_pack(key)
 		if card != null:
 			return card
 	return roll_special_engraving_pack()
@@ -330,12 +368,12 @@ const SHELF_ORDER := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
 	Engraving.CATEGORY_DICE, SHELF_SPECIAL]
 
 ## Ein Fixinhalt-Paket mit Sonderposten gehört zum Sonderbestand, und die
-## Katalysatoren liegen als zweite Familie daneben; alles andere zählt zu seiner
-## Gravur-Sorte.
+## Katalysatoren wie die Operatoren liegen als weitere Familien daneben; alles
+## andere zählt zu seiner Gravur-Sorte.
 static func pack_belongs(pack: Pack, shelf: String) -> bool:
 	if pack == null:
 		return false
-	if pack.is_catalyst():
+	if pack.is_catalyst() or pack.is_operator():
 		return shelf == SHELF_SPECIAL
 	var fixed := pack.fixed_engraving
 	if fixed != null and Engraving.is_special_id(fixed.id):
@@ -388,22 +426,27 @@ func engraving_category() -> String:
 			return Engraving.CATEGORY_DICE
 	return ""
 
-## Eine Katalysator-Kassette? Sie kommt nie durch die Presse HERAUS - sie geht
-## hinein und verändert, was die anderen Leser auswerfen.
+## Eine Katalysator-Kassette? Sie prägt nichts - sie verändert die Serie, in der
+## sie steckt.
 func is_catalyst() -> bool:
 	return catalyst_id != ""
 
-## Sorte für die Presse: die Gravur-Kategorie, auf deren Ikonensatz der
-## Phantomwürfel dieses Pakets fällt.
+## Eine Operator-Kassette? Ihr Netz trägt genau eine Rechen-Zelle.
+func is_operator() -> bool:
+	return operator_id != ""
+
+## Sorte des Prägenetzes: die Gravur-Kategorie, aus deren Vorrat seine Zellen
+## gewürfelt wurden.
 func press_sort() -> String:
 	return engraving_category()
 
 ## Zufällige Gravur-Paketsorte für einen Auslage-Platz. Bewusst OHNE Hub-Stufe:
-## die Sorte entscheiden allein die Regal-Gewichte - stark wird Beute an der
-## Presse (Multicast, Seltenheits-Gewichte), nicht an der Lizenz.
+## die Sorte entscheiden allein die Regal-Gewichte - stark wird eine Kassette an
+## ihrem Netz (Größe, Seltenheits-Gewichte), nicht an der Lizenz.
 ## Die GRÖSSE kommt von außen: der Laden würfelt sie, jede Prämie prägt Standard.
-static func roll_engraving_pack(pack_tier: int = TIER_NORMAL) -> Pack:
-	return tiered(by_type(roll_engraving_type()), pack_tier)
+static func roll_engraving_pack(pack_tier: int = TIER_NORMAL,
+		rng: RandomNumberGenerator = null) -> Pack:
+	return tiered(by_type(roll_engraving_type()), pack_tier, rng)
 
 ## Nur die SORTE, ohne ein Paket zu bauen - dieselben Regal-Gewichte. Der Wett-Tresen
 ## würfelt sie beim Auslegen und NENNT seinen Gewinn danach beim Namen.

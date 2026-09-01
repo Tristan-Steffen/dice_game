@@ -291,11 +291,11 @@ func test_purchase_pack_deducts_and_stores_sealed():
 	assert_signal_emitted(run, "packs_changed")
 
 func test_a_pack_leaves_the_stock_only_through_the_press():
-	# Es gibt keinen zweiten Weg mehr, ein Paket zu öffnen - die Presse ist es.
+	# Es gibt keinen zweiten Weg mehr, ein Paket zu öffnen - die Serie ist es.
 	run.purchase_pack(Pack.number_pack(), 0)
 	assert_eq(run.owned_packs.size(), 1)
-	var grip: Array[int] = [0]
-	run.open_press(grip)
+	var uids: Array[int] = [run.owned_packs[0].pack_uid]
+	run.apply_series(uids, run.owned_pool[0], null, _seeded(4))
 	assert_eq(run.owned_packs.size(), 0, "die Pressung verbraucht es")
 
 # --- Das Magazin: uid, Ordnung, Deckel -------------------------------------------
@@ -1023,6 +1023,7 @@ func test_the_jewelry_box_never_touches_a_die():
 	# Sie füllt den Vorrat, nicht den Würfel - Seiten und Zustände bleiben, wie
 	# sie waren, egal wie oft sie zuschlägt.
 	run.owned_charms.append(Charm.jewelry_box())
+	run.pack_capacity = 500  # der Magazin-Deckel ist hier nicht das Thema
 	var many: Array[DieDefinition] = []
 	for i in 200:
 		var die := DieDefinition.standard()
@@ -1862,82 +1863,62 @@ func test_the_odds_bonus_spares_unique_goods():
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
 	assert_eq(run.owned_packs.size(), 1, "ein Sonderposten bleibt einer")
 
-# --- Der Multicast: Lizenzstufe, Klauseln, Wett-Schub ------------------------------
+# --- Die SERIENLÄNGE: Lizenzstufe, Klauseln, Wett-Schub ---------------------------
 
-func test_the_multicast_queries_read_the_licence_ladder():
-	for level in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+func test_the_series_ladder_hangs_on_the_licence():
+	# Dieselben Sprossen wie die Kondensator-Reihen; dazwischen bewegt sich nichts.
+	var want := {1: 2, 2: 2, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5, 9: 5, 10: 6}
+	for level: int in want:
 		run.hub_level = level
-		assert_almost_eq(run.multicast_chance(), PhantomPress.base_chance(level), 0.0001,
-			"Chance auf Stufe %d" % level)
-		assert_eq(run.multicast_cap(), PhantomPress.base_cap(level),
-			"Limit auf Stufe %d" % level)
+		assert_eq(run.series_slots(), int(want[level]), "Stufe %d" % level)
 
-func test_ignition_boost_lifts_the_chance():
-	run.hub_level = 1
-	_sign([DealClause.IGNITION_BOOST])
-	assert_almost_eq(run.multicast_chance(), 0.65, 0.0001)
-
-func test_the_shyster_doubles_the_quantitative_multicast_bonuses():
-	run.hub_level = 1
-	run.owned_charms.append(Charm.shyster())
-	_sign([DealClause.IGNITION_BOOST, DealClause.CHAIN_DRIVER])
-	assert_eq(run.deal_bonus_factor(), 2)
-	assert_almost_eq(run.multicast_chance(), 0.8, 0.0001, "+15 wird +30")
-	assert_eq(run.multicast_cap(), 3 + 4, "+2 wird +4")
-
-func test_the_chain_driver_lengthens_the_limit():
+func test_the_chain_driver_lengthens_the_series():
 	run.hub_level = 1
 	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.multicast_cap(), 5)
+	assert_eq(run.series_slots(), 3)
 
-func test_ignition_block_cuts_the_chance_and_is_never_doubled():
-	run.hub_level = 5
+func test_the_shyster_doubles_the_quantitative_series_bonus():
+	run.hub_level = 1
 	run.owned_charms.append(Charm.shyster())
-	_sign([DealClause.IGNITION_BLOCK])
-	assert_almost_eq(run.multicast_chance(), 0.42, 0.0001,
-		"der Malus bleibt einfach, auch beim Winkeladvokat")
+	_sign([DealClause.CHAIN_DRIVER])
+	assert_eq(run.deal_bonus_factor(), 2)
+	assert_eq(run.series_slots(), 4, "+1 wird +2")
 
-func test_the_short_circuit_overrides_the_limit_absolutely():
+func test_the_short_circuit_overrides_the_length_absolutely():
 	run.hub_level = 10
 	run.grant_press_boost()
 	_sign([DealClause.CHAIN_DRIVER, DealClause.SHORT_CIRCUIT])
-	assert_eq(run.multicast_cap(), 1, "Kurzschluss schlägt Leiter, Klausel und Schub")
+	assert_eq(run.series_slots(), 1, "Kurzschluss schlägt Leiter, Klausel und Schub")
 
-func test_the_chance_is_clamped_below_certainty():
-	# Ein Multicast, der IMMER zündet, wäre keine Chance mehr.
+func test_the_length_is_capped():
 	run.hub_level = 10
-	run.owned_charms.append(Charm.shyster())
-	run.grant_press_boost()
-	_sign([DealClause.IGNITION_BOOST])
-	assert_almost_eq(run.multicast_chance(), PhantomPress.MULTICAST_CHANCE_MAX, 0.0001)
-	assert_lt(run.multicast_chance(), 1.0)
+	run.series_slot_bonus = 99
+	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
 
-func test_the_press_boost_stacks_on_top_and_is_spent_by_one_press():
+func test_the_press_boost_stacks_on_top_and_is_spent_by_one_series():
 	run.hub_level = 1
 	run.grant_press_boost()
-	assert_almost_eq(run.multicast_chance(), 0.75, 0.0001)
-	assert_eq(run.multicast_cap(), 5)
-	run.grant_pack(Pack.number_pack())
-	run.open_press([0] as Array[int], _seeded(7))
-	assert_false(run.press_boost_pending, "ein Schub, eine Pressung")
-	assert_almost_eq(run.multicast_chance(), PhantomPress.base_chance(1), 0.0001)
-	assert_eq(run.multicast_cap(), PhantomPress.base_cap(1))
+	assert_eq(run.series_slots(), 2 + SeriesResolver.BOOST_SLOTS)
+	var pack := run.grant_pack(Pack.number_pack())
+	run.apply_series([pack.pack_uid] as Array[int], run.owned_pool[0], null, _seeded(7))
+	assert_false(run.press_boost_pending, "ein Schub, eine Serie")
+	assert_eq(run.series_slots(), 2)
 
 func test_a_fresh_run_carries_no_press_boost():
 	run.grant_press_boost()
 	assert_false(GameRun.new_run().press_boost_pending)
 
 ## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
-## sonst wären die Multicast-Klauseln tote Buchstaben.
+## sonst wären die Serien-Klauseln tote Buchstaben.
 func test_a_round_clause_still_reaches_the_shop_of_its_round():
+	run.hub_level = 1
 	_sign([DealClause.CHAIN_DRIVER], 3)
 	assert_eq(run.round_number, 3)
 	# Der Laden öffnet nach der Auszahlung, die Runde rückt erst beim Schließen vor.
-	assert_eq(run.multicast_cap(), PhantomPress.base_cap(run.hub_level) + GameRun.CHAIN_DRIVER_CAP,
+	assert_eq(run.series_slots(), 2 + GameRun.CHAIN_DRIVER_SLOTS,
 		"im Laden derselben Runde wirkt sie noch")
 	run.advance_round()
-	assert_eq(run.multicast_cap(), PhantomPress.base_cap(run.hub_level),
-		"in der nächsten Runde ist sie tot")
+	assert_eq(run.series_slots(), 2, "in der nächsten Runde ist sie tot")
 
 func test_the_chain_reaction_bet_grants_the_boost_once():
 	var bet := SideBet._from_template(_template("chain_reaction"))
@@ -1947,7 +1928,7 @@ func test_the_chain_reaction_bet_grants_the_boost_once():
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
-	assert_true(run.press_boost_pending, "der Gewinn merkt die nächste Pressung vor")
+	assert_true(run.press_boost_pending, "der Gewinn merkt die nächste Serie vor")
 
 func test_the_press_boost_is_no_doubled_good():
 	# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
@@ -1958,12 +1939,11 @@ func test_the_press_boost_is_no_doubled_good():
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
 	run.hub_level = 1
-	assert_almost_eq(run.multicast_chance(), 0.75, 0.0001, "EIN Schub, nicht zwei")
-	assert_eq(run.multicast_cap(), 5)
+	assert_eq(run.series_slots(), 2 + SeriesResolver.BOOST_SLOTS, "EIN Schub, nicht zwei")
 
 func test_the_chain_reaction_button_states_its_prize():
 	var bet := SideBet._from_template(_template("chain_reaction"))
-	assert_eq(bet.reward_label(), "Nächste Pressung: Limit +2, Chance +25 %")
+	assert_eq(bet.reward_label(), "Nächste Serie: +1 Slot")
 	assert_eq(bet.reward_label(2), bet.reward_label(), "der Quotenbonus rührt es nicht an")
 
 # --- Helfer -----------------------------------------------------------------------
