@@ -94,6 +94,34 @@ func test_das_raster_fuellt_seinen_bereich() -> void:
 	assert_almost_eq(grid.get_center().x, host.get_global_rect().get_center().x, 4.0)
 	assert_almost_eq(grid.get_center().y, host.get_global_rect().get_center().y, 4.0)
 
+func test_der_gesaeumte_sitz_ist_das_aktuelle_ziel() -> void:
+	# Im DAUER-Modus wählt der Zell-Tipp das Werkstatt-Ziel - und die Zelle trägt
+	# dessen Gold-Saum.
+	await wait_frames(2)
+	view.show_pool("Tippen wählt das Werkstatt-Ziel", run.owned_pool, 6, 7)
+	await wait_frames(2)
+	assert_eq(view.target_index(), 7)
+	assert_eq(view.grid()._highlights, [7], "genau diese Zelle ist gesäumt")
+
+func test_ein_gewechselter_saum_baut_das_teure_raster_NICHT_neu() -> void:
+	await wait_frames(2)
+	view.show_pool(view.title(), run.owned_pool, 6, 2)
+	await wait_frames(2)
+	var tile: Button = view.grid().tiles[2]
+	view.show_pool(view.title(), run.owned_pool, 6, 9)
+	await wait_frames(2)
+	assert_eq(view.grid().tiles[2], tile, "dieselben Kacheln, nur umgestylt")
+	assert_eq(view.grid()._highlights, [9], "der Saum ist umgezogen")
+
+func test_ohne_ziel_ist_keine_zelle_gesaeumt() -> void:
+	await wait_frames(2)
+	view.show_pool(view.title(), run.owned_pool, 6, 4)
+	await wait_frames(2)
+	view.show_pool(view.title(), run.owned_pool, 6, -1)
+	await wait_frames(2)
+	assert_eq(view.target_index(), -1)
+	assert_eq(view.grid()._highlights, [], "der Saum ist fort")
+
 func test_die_zellen_nennen_ihre_seele_im_tooltip() -> void:
 	# Die Kachel sagt es selbst - dieselbe Auskunft wie an jedem anderen Raster.
 	run.owned_pool[3].essence_id = Essence.NEON

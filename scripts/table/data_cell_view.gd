@@ -2,9 +2,13 @@ class_name DataCellView
 extends Node3D
 ## Die Datenzelle: ein versiegeltes Aufwertungs-Paket als physische Kassette auf
 ## dem Tisch. Dunkles Gehäuse mit Fensterausschnitt, dahinter ein Kern in der
-## Sortenfarbe, davor eine Glasscheibe, an der Unterkante goldene Kontaktfinnen
-## und auf dem Glas das Siegelzeichen der Sorte. Rein per Code gebaut wie
-## DieBuilder und CapacitorBankView - kein .tscn, kein GLB.
+## Sortenfarbe, davor eine Glasscheibe und darauf ihr PRÄGENETZ, an der Unterkante
+## goldene Kontaktfinnen. Rein per Code gebaut wie DieBuilder und CapacitorBankView
+## - kein .tscn, kein GLB.
+## Die FLÄCHE trägt seit 2026-09-02 das Netz (StampNetOven), die SORTE den Rahmen
+## und die GRÖSSE dessen Stärke; die drei Kern-Riegel und die Größen-Streifen der
+## Vorderseite sind damit gestorben. Die KAPPE bleibt unberührt - im Magazin steht
+## die Kassette, und von oben ist sie die ganze Auskunft.
 ## Drei Regeln des Tisches gelten auch hier: nur EMISSION, keine eigenen Lichter
 ## (die Bodenkacheln vertragen 16); im Ruhezustand bleibt das Leuchten UNTER der
 ## Bloom-Schwelle, der Ausbruch (flare) gibt den Kopfraum aus; und die Sortenfarbe
@@ -119,14 +123,6 @@ const TIER_STRIPE_PROUD := DEPTH * 0.05
 ## Ihr Licht: heller als die Kappe, aber unter der Grenze, ab der die drei Kanäle
 ## zu Weiß zusammenlaufen und aus zwei Streifen einer wird.
 const TIER_STRIPE_ENERGY := 1.45
-## Dieselbe Marke ein zweites Mal, auf der VORDERSEITE: in einer Verkaufs-Bucht
-## LIEGT die Kassette, ihre große Fläche zeigt nach oben und die Kappe zur Seite -
-## dann trägt der Kopfbalken die Größe, rechts neben dem Sortenzeichen wie auf der
-## Kappe. Sie steht bündig mit der Blende, damit sie die Liegehöhe nicht anhebt.
-const TIER_FACE_W := WIDTH * 0.055
-const TIER_FACE_H := TOP_BAR * 0.46
-const TIER_FACE_PITCH := WIDTH * 0.10
-const TIER_FACE_X := WIDTH * 0.16
 ## Das Kolossale trägt zusätzlich einen GOLDENEN Kragen - der Rahmen um die Karte,
 ## nicht die Blende davor: von oben ist er der Umriss, den man ohne Zoom liest.
 const TIER_COLLAR_GOLD := 0.62
@@ -197,12 +193,10 @@ const FIN_EMISSION_ENERGY := 0.30
 ## Anteil der Sortenfarbe im Albedo des Kerns: er ist ein Leuchtkörper, seine
 ## Farbe soll aus der Emission kommen, nicht aus dem Anstrich.
 const CORE_ALBEDO_SHARE := 0.22
-## Der Kern ist kein volles Feld, sondern DREI Riegel mit dunklen Fugen: eine
-## Platte hinter Glas liest sich flach, ein Bänkchen hat Tiefe.
-const CORE_BARS := 3
-const CORE_WIDTH_SHARE := 0.80
-const CORE_BAR_SHARE := 0.22
-const CORE_BAR_PITCH := 0.29
+## Der Kern ist die Hinterleuchtung des Netzes und liegt darum als EINE Platte
+## GENAU HINTER ihm - was von ihm zu sehen ist, sind die Fugen des Kreuzes und
+## sein Saum. Über das ganze Fenster gelegt fraß sein Leuchten das Netz.
+const CORE_NET_MARGIN := 1.10
 
 ## ×n-Marke über dem Stapel (Gold wie die Regal-Marke).
 const BADGE_FONT := 64
@@ -213,10 +207,30 @@ const BADGE_GAP := HEIGHT * 0.16
 ## die kleiner ist als eine Netzkachel - mehr Pixel wären Vorrat für nichts.
 const GLYPH_TEXTURE_SIZE := 128
 
+## Das PRÄGENETZ auf der Fläche: es füllt die Fensterbreite fast ganz aus (das
+## Kreuz ist breiter als hoch, gebunden ist es also quer) und liegt VOR der
+## Scheibe - dahinter fräße das Rauchglas seine Ziffern.
+const NET_WIDTH_SHARE := 0.98
+const NET_PROUD := 0.004
+## Beim versiegelten Stück rückt es hoch: darunter liegt das Siegelband.
+const NET_SEALED_LIFT := 0.16
+
+## Der RAHMEN trägt die Sorte: die Blende mischt so viel Sortenfarbe ins Chassis.
+const FRAME_TINT_SHARE := 0.62
+## ... und die GRÖSSE trägt seine Stärke und sein Glühen - je Stufe über Standard
+## breiter und heller. Die Blendenhöhe (BEZEL_RISE) bleibt fest: an ihr misst die
+## Liegehöhe der Kassette in jeder Auslage.
+const TIER_LIP_GAIN := 0.45
+const TIER_GLOW_GAIN := 0.55
+
 var sort: String = Engraving.CATEGORY_NUMBER
-## Paketgröße (Pack.TIER_*): sie zeichnet die Streifen auf der Kappe.
+## Paketgröße (Pack.TIER_*): sie zeichnet die Streifen auf der Kappe und die
+## Stärke des Rahmens.
 var tier: int = Pack.TIER_NORMAL
 var tint: Color = PackDrawerView.GOLD
+## Das Prägenetz, das die Fläche zeigt (Pack.stamp_net). Leer = leeres Kreuz in
+## der Sortenfarbe - so steht eine Kassette da, die ihr Paket noch nicht kennt.
+var stamp_net: Array = []
 
 ## Alles Gebaute hängt unter _body: die Zelle steht mit ihrem URSPRUNG auf dem
 ## Glas, und _body trägt die Verschiebung, die aus Stehen Liegen macht.
@@ -261,10 +275,14 @@ var _glass_material: StandardMaterial3D
 var _core_material: StandardMaterial3D
 var _edge_material: StandardMaterial3D
 var _fin_material: StandardMaterial3D
-var _glyph_material: StandardMaterial3D
+## Die Netz-Fläche und ihr EIGENER Ofen (nur für den abgedunkelten Zustand bzw.
+## als Rückfall, wenn der geteilte gerade fehlt).
+var _net_material: StandardMaterial3D
+var _net_oven: SubViewport
+var _drained: Array[bool] = []
 var _cap_material: StandardMaterial3D
-## Dasselbe gebackene Zeichen, nur dunkel getönt: auf der hellen Kappe muss es
-## Tinte sein, kein Leuchten. Eine zweite Backung wäre Vorrat für nichts.
+## Das gebackene Sortenzeichen auf der Kappe, dunkel getönt: dort muss es Tinte
+## sein, kein Leuchten. Die Fläche trägt es nicht mehr - dort liegt das Netz.
 var _cap_glyph_material: StandardMaterial3D
 var _band_material: StandardMaterial3D
 ## Die hellen Größen-Streifen und der (beim Kolossalen goldene) Kragen.
@@ -282,10 +300,12 @@ func _init() -> void:
 	name = "DataCell"
 
 ## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER) in ihrer
-## Paketgröße (Pack.TIER_*) - die Größe zeichnet nur die Kappe, nie den Körper.
-func setup(cell_sort: String, cell_tier: int = 0) -> void:
+## Paketgröße (Pack.TIER_*) mit dem Prägenetz ihres Pakets - die Größe zeichnet
+## Kappe und Rahmenstärke, nie den Körper.
+func setup(cell_sort: String, cell_tier: int = 0, net: Array = []) -> void:
 	sort = cell_sort
 	tier = maxi(cell_tier, 0)
+	stamp_net = net.duplicate() if not net.is_empty() else StampNet.empty_net()
 	tint = PackDrawerView.COLORS.get(sort, PackDrawerView.GOLD)
 	_build_materials()
 	_body = Node3D.new()
@@ -301,6 +321,87 @@ func setup(cell_sort: String, cell_tier: int = 0) -> void:
 ## Der Sonderbestand ist versiegelt: Band quer über das Fenster, kein Kern.
 func sealed() -> bool:
 	return sort == Pack.SHELF_SPECIAL
+
+# --- Das PRÄGENETZ auf der Fläche -------------------------------------------------
+
+## Der Ton dieser Karte: die Regal-Farbe ihrer Sorte - eine OPERATOR-Karte aber
+## amber, die eine Farbtrennung der Serie. Rahmen, Netz-Zellen und leeres Kreuz
+## lesen ihn.
+func net_accent() -> Color:
+	return PressNetView.OPERATOR_TINT if has_operator() else tint
+
+## Trägt das Netz einen Operator? Dann rechnet die Karte, statt zu prägen.
+func has_operator() -> bool:
+	for face in StampNet.FACES:
+		if StampNet.kind_of(StampNet.cell_at(stamp_net, face)) == StampNet.KIND_OPERATOR:
+			return true
+	return false
+
+## Maß der Netz-Fläche: quer in die Fensterbreite gesetzt, längs nach dem
+## Seitenverhältnis der Backung - so bleibt das Kreuz unverzerrt. Die SCHABLONE
+## der Serien-Zeremonie mißt sich an derselben Rechnung, darum steht sie statisch.
+static func net_span(cell_scale: float) -> Vector2:
+	var span := StampNetOven.span()
+	var width := opening_size().x * NET_WIDTH_SHARE * cell_scale
+	return Vector2(width, width * span.y / maxf(span.x, 1.0))
+
+func net_size() -> Vector2:
+	return net_span(1.0)
+
+## Rahmenstärke dieser Größe - die eine Größen-Marke der Fläche.
+func bezel_lip() -> float:
+	return BEZEL_LIP * (1.0 + TIER_LIP_GAIN * float(mini(tier, Pack.TIER_KOLOSSAL)))
+
+## Die genannten Seiten sind AUFGENOMMEN (Schablonen-Fahrt) und dunkeln ab. Der
+## Endzustand steht zuerst: die Textur wird neu gebacken, nicht animiert.
+## Idempotent - dieselbe Maske schreibt nichts.
+func set_net_drained(faces: Array) -> void:
+	var mask := _drain_mask(faces)
+	if mask == _drained:
+		return
+	_drained = mask
+	_apply_net_texture()
+
+func clear_net_drained() -> void:
+	set_net_drained([])
+
+func net_drained() -> Array:
+	return _drained.duplicate()
+
+func net_texture() -> Texture2D:
+	return _net_material.albedo_texture if _net_material != null else null
+
+static func _drain_mask(faces: Array) -> Array[bool]:
+	var mask: Array[bool] = []
+	for face in StampNet.FACES:
+		mask.append(face < faces.size() and bool(faces[face]))
+	if not mask.has(true):
+		mask.clear()  # nichts aufgenommen heißt: der geteilte Ruhestand
+	return mask
+
+## Der EINE Schreiber der Netz-Fläche: die Ruhe-Backung ist geteilt (das Netz steht
+## ab der Erzeugung fest), die abgedunkelte gehört dieser Kassette.
+func _apply_net_texture() -> void:
+	if _net_material == null:
+		return
+	if _drained.is_empty():
+		var shared := StampNetOven.texture(stamp_net, net_accent())
+		if shared != null:
+			_drop_net_oven()
+			_net_material.albedo_texture = shared
+			return
+	_drop_net_oven()
+	_net_oven = StampNetOven.bake(stamp_net, net_accent(), _drained)
+	add_child(_net_oven)
+	_net_material.albedo_texture = _net_oven.get_texture()
+
+func _drop_net_oven() -> void:
+	if _net_oven == null:
+		return
+	if is_instance_valid(_net_oven):
+		remove_child(_net_oven)
+		_net_oven.queue_free()
+	_net_oven = null
 
 ## Wie viele Kassetten der Stapel zeigt; darüber zählt nur noch die Marke.
 func set_count(n: int) -> void:
@@ -404,6 +505,15 @@ func raise_upright(time: float) -> void:
 func lay_over(time: float) -> void:
 	_tween_pose(0.0, time)
 
+## Die LAGE frei setzen (0 = liegend, 1 = stehend). Der SCHACHT der Werkstatt-Serie
+## stellt seine Karte DAZWISCHEN: aufrecht wäre ihre Fläche an der 15°-Kamera fast
+## kantig (sin 15° = 0,26), geneigt steht sie quer zur Blickachse und ihr Netz liest.
+func set_pose(blend: float, time := 0.0) -> void:
+	_tween_pose(clampf(blend, 0.0, 1.0), time)
+
+func pose() -> float:
+	return _pose_blend
+
 ## Das Einstecken: die Zelle fährt SENKRECHT in den Tisch, bis nur noch `show` der
 ## Höhe über dem Glas steht. Gemessen wird vom jetzigen Stand aus - die Tischfläche
 ## liegt nicht zwingend auf y = 0.
@@ -487,6 +597,20 @@ func stand_on_glass(at: Vector3) -> void:
 	_set_pose_blend(1.0)
 	set_socketed(false)
 	global_position = at
+
+## SCHACHT (Werkstatt-Serie): hart auf ihren Schacht-Platz - ganz über der Fläche,
+## in ihrer geneigten Schacht-Lage, und LEBEND (die Kopfkante brennt wie im alten
+## Leseschlitz). Das Gegenstück zu stand_in_pit für die Serien-Reihe; genannt wird
+## ihr GLASPUNKT, der Fuß steht am Schacht-Mund.
+func stand_in_shaft(glass_at: Vector3, pose_blend: float) -> void:
+	_kill(_glide_tween)
+	_kill(_pose_tween)
+	_show_share = 1.0  # vor der Lage: sie entscheidet über die Marke
+	_lying = pose_blend < 0.5
+	badge_on_face = _lying  # geneigt liest man sie von oben - neben ihr läge sie im Nachbarn
+	_set_pose_blend(clampf(pose_blend, 0.0, 1.0))
+	set_socketed(true)
+	global_position = glass_at
 
 ## FLÄCHE (Läden): hart auf ihren Platz in einer VERKAUFS-Auslage - sie LIEGT dort
 ## auf der Tischfläche, die große Fläche nach oben. Im Archiv steht die Kassette,
@@ -741,13 +865,17 @@ func _build_materials() -> void:
 	_shell_material.emission = SHELL_EMISSION
 	_shell_material.emission_energy_multiplier = SHELL_EMISSION_ENERGY
 
+	# Der Rahmen IST die Sortenmarke der Fläche, seit das Netz auf ihr liegt: er
+	# trägt ihre Farbe, und je Paketgröße glüht er stärker.
+	var frame := net_accent()
 	_bezel_material = StandardMaterial3D.new()
-	_bezel_material.albedo_color = CHASSIS_ALBEDO
+	_bezel_material.albedo_color = CHASSIS_ALBEDO.lerp(frame, FRAME_TINT_SHARE)
 	_bezel_material.metallic = 0.45
 	_bezel_material.roughness = 0.32
 	_bezel_material.emission_enabled = true
-	_bezel_material.emission = CHASSIS_EMISSION
-	_bezel_material.emission_energy_multiplier = CHASSIS_EMISSION_ENERGY
+	_bezel_material.emission = CHASSIS_EMISSION.lerp(frame, FRAME_TINT_SHARE)
+	_bezel_material.emission_energy_multiplier = (CHASSIS_EMISSION_ENERGY
+		* (1.0 + TIER_GLOW_GAIN * float(mini(tier, Pack.TIER_KOLOSSAL))))
 
 	_glass_material = StandardMaterial3D.new()
 	_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -768,13 +896,13 @@ func _build_materials() -> void:
 	_fin_material.emission = _scaled(PackDrawerView.GOLD, 1.0)
 	_fin_material.emission_energy_multiplier = FIN_EMISSION_ENERGY
 
-	_glyph_material = StandardMaterial3D.new()
-	_glyph_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_glyph_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_glyph_material.albedo_texture = _sort_glyph()
+	_net_material = StandardMaterial3D.new()
+	_net_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_net_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	# Vor der Scheibe gezeichnet: zwei alphagemischte Flächen sortiert der
 	# Compatibility-Renderer sonst nach Laune.
-	_glyph_material.render_priority = 2
+	_net_material.render_priority = 2
+	_apply_net_texture()
 
 	_cap_material = _lit_material(tint)
 	_cap_material.albedo_color = _scaled(tint, 0.55)  # satte Fläche, nicht nur Licht
@@ -783,8 +911,8 @@ func _build_materials() -> void:
 	_cap_glyph_material = StandardMaterial3D.new()
 	_cap_glyph_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_cap_glyph_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_cap_glyph_material.albedo_texture = _glyph_material.albedo_texture
-	_cap_glyph_material.albedo_color = CAP_INK  # dieselbe Backung, dunkel getönt
+	_cap_glyph_material.albedo_texture = _sort_glyph()
+	_cap_glyph_material.albedo_color = CAP_INK  # gebackenes Zeichen, dunkel getönt
 	_cap_glyph_material.render_priority = 3
 
 	_edge_material = _lit_material(tint)
@@ -864,26 +992,27 @@ func _build_cell() -> Node3D:
 	_add_box(cell, "BarFoot", Vector3(opening.x, FOOT_BAR, DEPTH),
 		Vector3(0.0, -(HEIGHT - FOOT_BAR) * 0.5, 0.0), _shell_material)
 
+	# Der KERN ist die Hinterleuchtung des Netzes: eine Platte in der Sortenfarbe,
+	# die durch die Fugen des Kreuzes scheint. Die drei Riegel von früher lägen
+	# unter dem Netz und stritten mit ihm.
 	if _core_material != null:
-		var bar := Vector3(opening.x * CORE_WIDTH_SHARE, opening.y * CORE_BAR_SHARE,
-			DEPTH * 0.30)
-		for i in CORE_BARS:
-			var step := float(i) - float(CORE_BARS - 1) * 0.5
-			_add_box(cell, "CoreBar%d" % i, bar,
-				Vector3(0.0, mid + step * opening.y * CORE_BAR_PITCH, DEPTH * 0.02),
-				_core_material)
+		var lit := net_size() * CORE_NET_MARGIN
+		_add_box(cell, "Core", Vector3(lit.x, lit.y, DEPTH * 0.30),
+			Vector3(0.0, mid + (opening.y * NET_SEALED_LIFT if sealed() else 0.0),
+				DEPTH * 0.02), _core_material)
 
 	# Die Blende steht vor der Gehäusefläche, die Scheibe liegt in ihrem Ring.
-	var lip_x := opening.x * 0.5 + BEZEL_LIP * 0.5
-	var lip_y := opening.y * 0.5 + BEZEL_LIP * 0.5
+	var lip := bezel_lip()
+	var lip_x := opening.x * 0.5 + lip * 0.5
+	var lip_y := opening.y * 0.5 + lip * 0.5
 	var lip_z := DEPTH * 0.5 + BEZEL_RISE * 0.5
-	_add_box(cell, "BezelLeft", Vector3(BEZEL_LIP, opening.y + BEZEL_LIP * 2.0, BEZEL_RISE),
+	_add_box(cell, "BezelLeft", Vector3(lip, opening.y + lip * 2.0, BEZEL_RISE),
 		Vector3(-lip_x, mid, lip_z), _bezel_material)
-	_add_box(cell, "BezelRight", Vector3(BEZEL_LIP, opening.y + BEZEL_LIP * 2.0, BEZEL_RISE),
+	_add_box(cell, "BezelRight", Vector3(lip, opening.y + lip * 2.0, BEZEL_RISE),
 		Vector3(lip_x, mid, lip_z), _bezel_material)
-	_add_box(cell, "BezelTop", Vector3(opening.x, BEZEL_LIP, BEZEL_RISE),
+	_add_box(cell, "BezelTop", Vector3(opening.x, lip, BEZEL_RISE),
 		Vector3(0.0, mid + lip_y, lip_z), _bezel_material)
-	_add_box(cell, "BezelFoot", Vector3(opening.x, BEZEL_LIP, BEZEL_RISE),
+	_add_box(cell, "BezelFoot", Vector3(opening.x, lip, BEZEL_RISE),
 		Vector3(0.0, mid - lip_y, lip_z), _bezel_material)
 
 	var glass := MeshInstance3D.new()
@@ -896,18 +1025,19 @@ func _build_cell() -> Node3D:
 	glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	cell.add_child(glass)
 
-	var glyph := MeshInstance3D.new()
-	glyph.name = "Glyph"
-	var plate := QuadMesh.new()
-	var glyph_side := minf(opening.x, opening.y) * (0.52 if sealed() else 0.68)
-	plate.size = Vector2(glyph_side, glyph_side)
-	glyph.mesh = plate
-	glyph.material_override = _glyph_material
-	# Beim versiegelten Stück rückt das Zeichen hoch: darunter liegt das Band.
-	glyph.position = Vector3(0.0, mid + (opening.y * 0.16 if sealed() else 0.0),
-		DEPTH * 0.5 + 0.004)
-	glyph.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	cell.add_child(glyph)
+	# Das PRÄGENETZ: die ganze Auskunft der Fläche, quer in die Fensterbreite
+	# gesetzt. Beim versiegelten Stück rückt es hoch - darunter liegt das Band.
+	var net_plate := MeshInstance3D.new()
+	net_plate.name = "StampNet"
+	var quad := QuadMesh.new()
+	quad.size = net_size()
+	net_plate.mesh = quad
+	net_plate.material_override = _net_material
+	net_plate.position = Vector3(0.0,
+		mid + (opening.y * NET_SEALED_LIFT if sealed() else 0.0),
+		DEPTH * 0.5 + NET_PROUD)
+	net_plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cell.add_child(net_plate)
 
 	if _band_material != null:
 		_add_box(cell, "Seal", Vector3(WIDTH * 1.04, HEIGHT * 0.16, DEPTH * 1.12),
@@ -941,15 +1071,6 @@ func _build_cell() -> Node3D:
 				Vector3(TIER_STRIPE_W, TIER_STRIPE_H, TIER_STRIPE_DEPTH),
 				Vector3(TIER_STRIPE_X + float(i) * TIER_STRIPE_PITCH,
 					cap_top + TIER_STRIPE_PROUD - TIER_STRIPE_H * 0.5, 0.0),
-				_tier_material)
-
-		# Und dieselben Streifen auf dem Kopfbalken der VORDERSEITE: liegt die
-		# Kassette in einer Bucht, ist das die Fläche, die man von oben sieht.
-		for i in mini(tier, Pack.TIER_KOLOSSAL):
-			_add_box(cell, "TierFace%d" % i,
-				Vector3(TIER_FACE_W, TIER_FACE_H, BEZEL_RISE),
-				Vector3(TIER_FACE_X + float(i) * TIER_FACE_PITCH,
-					(HEIGHT - TOP_BAR) * 0.5, DEPTH * 0.5 + BEZEL_RISE * 0.5),
 				_tier_material)
 
 	# Der Lichtsaum unter der Kappe - steckt die Zelle, steht mit ihr nur er über

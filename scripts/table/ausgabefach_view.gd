@@ -100,7 +100,8 @@ var _arriving: Dictionary = {}
 ## statt aus dem Nichts zu erscheinen.
 var _known: Dictionary = {}
 var _shown: Dictionary = {}
-## Der VORHANG: solange er steht, liegt NICHTS offen - der Platz gehört dem PODEST.
+## Der VORHANG: solange er steht, liegt NICHTS offen - der Platz gehört dem
+## Bench-PODEST der Werkstatt (die STATIONS-ZEILE, 2026-09-03).
 var _curtain := false
 
 ## Der Schlüssel eines Körpers: die WÜRFEL-Instanz. Ein Platz ist nur eine Reihe.

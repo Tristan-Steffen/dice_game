@@ -145,6 +145,19 @@ func test_an_empty_cell_stays_dark_and_bare() -> void:
 	add_child_autofree(mini)
 	assert_eq(mini.get_child(0).get_child_count(), 0, "eine leere Zelle trägt nichts")
 
+func test_eine_aufgenommene_zelle_verglimmt_und_behaelt_ihr_zeichen() -> void:
+	# Die Schablonen-Fahrt nimmt Zellen auf: EIN Ton auf Füllung, Saum und Zeichen.
+	var card := StampNet.empty_net()
+	card[0] = StampNet.value_cell(3)
+	card[1] = StampNet.value_cell(2)
+	var mini := PressNetView.stamp_net(card, 12.0, PressNetView.VALUE_TINT,
+		[true, false, false, false, false, false])
+	add_child_autofree(mini)
+	assert_eq((mini.get_child(0) as Panel).modulate, PressNetView.DRAINED_MODULATE)
+	assert_eq((mini.get_child(1) as Panel).modulate, Color.WHITE, "die andere steht")
+	assert_not_null(mini.get_child(0).get_node_or_null("CellMark"),
+		"aufgenommen heißt verglommen, nicht fort")
+
 func test_a_rune_cell_draws_the_same_figure_as_the_die() -> void:
 	var card := StampNet.empty_net()
 	card[1] = StampNet.rune_cell(Rune.AFTERGLOW)
@@ -193,14 +206,10 @@ func test_a_reset_drops_the_standing_reading() -> void:
 	_build()
 	assert_eq(_text(2), "%d→%d" % [die.faces[2], die.faces[2] + 4], "es springt")
 
-## Die FALTUNG fährt die Zellen zur Mitte, der Aufbau stellt sie zurück.
-func test_the_fold_collapses_the_cells_and_build_unfolds_them() -> void:
+## Die FALTUNG ist mit dem 2D-Schlitten gestorben: gefaltet wird die 3D-SCHABLONE,
+## das Summen-Netz bleibt stehen und zeigt am Ende den gebuchten Würfel.
+func test_the_net_no_longer_folds() -> void:
 	_build()
-	var home: Vector2 = _cell(0).position
-	net.fold(1.0)
-	assert_lt(_cell(0).position.distance_to(net.size * 0.5),
-		home.distance_to(net.size * 0.5), "die Zelle klappt zur Mitte")
-	assert_lt(_cell(0).scale.x, 1.0, "und schrumpft dabei")
-	_build()
-	assert_eq(_cell(0).position, home, "der Aufbau stellt sie zurück")
+	assert_false(net.has_method("fold"), "die Faltung wohnt jetzt in StencilView")
+	assert_eq(_cell(0).position, DieNetView.cell_position(0, net.cell))
 	assert_eq(_cell(0).scale, Vector2.ONE)

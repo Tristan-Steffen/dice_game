@@ -48,19 +48,20 @@ func test_in_der_auslage_liegt_alles_das_regal_hinten() -> void:
 		bay.lie_y(DieBuilder.HALF_EXTENT * VitrineView.DIE_SCALE), 0.0001,
 		"der Würfel ebenso")
 
-func test_die_liegende_kassette_zeigt_ihre_groesse_nach_oben() -> void:
-	# Von oben sieht man ihre große Fläche: Sortenzeichen in der Mitte, die
-	# Größen-Streifen auf dem Kopfbalken daneben - die Kappe zeigt zur Seite.
+func test_die_liegende_kassette_zeigt_ihr_netz_nach_oben() -> void:
+	# Von oben sieht man ihre große Fläche: darauf liegt das Prägenetz ihres
+	# Pakets, die Größe trägt der Rahmen - die Kappe zeigt zur Seite.
 	var big := Pack.tiered(Pack.roll_engraving_pack(), Pack.TIER_KOLOSSAL)
 	bay.present(_stock([big], [], []))
 	await wait_frames(2)
 	var cell: DataCellView = bay.item_at(
 		bay.spot_of(ShopController.KIND_ENGRAVING_PACK, 0))["cell"]
-	assert_not_null(cell.get_node_or_null("Body/Cell0/Glyph"),
-		"das Sortenzeichen liegt auf der Fläche")
-	for i in Pack.TIER_KOLOSSAL:
-		assert_not_null(cell.get_node_or_null("Body/Cell0/TierFace%d" % i),
-			"Streifen %d liegt mit nach oben" % i)
+	assert_not_null(cell.get_node_or_null("Body/Cell0/StampNet"),
+		"das Prägenetz liegt auf der Fläche")
+	assert_eq(cell.stamp_net, big.stamp_net, "und zwar SEINES, nicht irgendeins")
+	assert_not_null(cell.net_texture(), "gebacken ist es auch")
+	assert_gt(cell.bezel_lip(), DataCellView.BEZEL_LIP,
+		"die Größe steht in der Rahmenstärke")
 
 func test_ein_buendel_traegt_seine_zahl_auf_der_karte() -> void:
 	# Von oben gelesen gehört die Marke auf die Fläche, nicht neben die Karte.

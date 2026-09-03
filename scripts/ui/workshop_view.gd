@@ -1,33 +1,43 @@
 class_name WorkshopView
 extends Panel
-## Die Werkbank unter den Trays - das EINZIGE Fenster der Ecke. Seit der
-## SERIENSCHALTUNG (2026-09-01) liest sich ihre Grundseite von links nach rechts:
-## links die ZIEL-SÄULE (oben die Projektor-Bühne, auf der der gewählte Würfel
-## schwebt - scene_root stellt ihn auf -, darunter das SUMMEN-NETZ als
-## Live-Vorschau), rechts das POOL-RASTER, in dem der Zielwürfel gewählt wird
-## (Sitz i = Zelle i, die Grammatik der Glas-Ansicht).
+## Der STATIONS-STREIFEN rechts des Pools, auf Pool-Höhe (die STATIONS-ZEILE,
+## 2026-09-03). Er hat KEINEN Schirm-Hintergrund - seine Teile liegen auf dem
+## Filz - und liest seit der KORREKTUR-WELLE J in ZWEI ZEILEN plus Grube:
+##   Zeile 1:  [Fach-Würfel]   [SCHACHT-REIHE]   [Ergebnis-Podest-Würfel]
+##   Zeile 2:  [IST-NETZ]      [TOOLTIP-SCHIRM]  [SOLL-NETZ]
+##   Grube:    [MAGAZIN - linke Kante = linke Kante des IST-NETZES]
+## Die linke Spalte (Fach-Würfel und IST-NETZ) gehört scene_root; das Fenster trägt
+## die beiden rechten:
+##  - Zeile 1 links die SCHACHT-REIHE: je Serien-Slot ein Loch im erhabenen
+##    Konsolen-Blech, in dem die ECHTE Data-Cell aus dem Magazin aufsteigt und
+##    steht. Das Fenster malt nur die Münder und MELDET ihre Anker - die Körper
+##    gehören scene_root. Rechts das ERGEBNIS-PODEST.
+##  - Zeile 2 - das BAND - links der TOOLTIP-SCHIRM, GENAU so breit wie die
+##    Schacht-Reihe, rechts das SOLL-NETZ auf DERSELBEN Höhe. Das Soll-Netz steht
+##    IMMER da: ohne Ziel und ohne Karten als leeres Kreuz.
+##
+## Das PODEST des ZIELWÜRFELS steht NICHT im Fenster: er schwebt am Sitz des
+## Ausgabefachs, und seine Auskunft trägt die Info-Säule darunter (FachNetView,
+## beides Sache von scene_root).
 ##
 ## Alles darunter liegt in der SCHÜRZE, und sie beginnt UNTER der Fensterkante:
-## eine Naht, dann das Konsolen-Band (in seiner Mitte die SERIEN-SLOT-REIHE, in
-## seiner rechten Flanke der EINE Handlungs-Sitz - der GRIFF -, dahinter der
-## Serien-Schirm, in seiner linken die Hinweiskarte), dieselbe Naht noch einmal,
-## dann das MAGAZIN über die volle Fensterbreite: EIN eingelassenes Fach, in dem
-## jedes versiegelte Paket als eigene Kassette in Spieler-Ordnung liegt
-## (owned_packs); es endet auf der Unterkante des Hubs (scene_root misst das und
-## schiebt es als apron_bottom herein).
+## eine Naht, dann das KONSOLEN-BAND (nur noch der GRIFF, mittig unter der
+## Schacht-Reihe), dieselbe Naht noch einmal, dann das MAGAZIN; seine Unterkante
+## sitzt bündig mit der Pool-Unterkante (die gemeldete apron_bottom-Linie), seine
+## linke Kante auf der gemeldeten shelf_left-Linie (die linke Kante des Ist-Netzes).
 ##
 ## Die REIHE IST die Rechnung: getippt geht eine Kassette in den nächsten freien
-## Slot, gezogen sortiert sie um (Reihenfolge = Rechenreihenfolge), geklickt kommt
-## sie zurück ins Magazin. Ihre Zahl ist GameRun.series_slots() - die Reihe wächst
-## mit dem Hub, sie ist kein festes Sechser-Möbel.
+## Schacht, gezogen sortiert sie um (Reihenfolge = Rechenreihenfolge), geklickt
+## kommt sie zurück ins Magazin. Ihre Zahl ist GameRun.series_slots() - die Reihe
+## wächst mit dem Hub, sie ist kein festes Sechser-Möbel.
 ##
 ## Zustands-Mutation läuft ausschließlich über GameRun (resolve_series als
 ## Vorschau, apply_series als Griff); die Vorschau ist buchstäblich dieselbe
 ## Rechnung wie die Buchung.
 
 ## Der Zielwürfel wurde gewählt, gewechselt oder abgewählt (null = keiner) -
-## scene_root holt ihn per Hebebühne aus dem Pool auf die Projektor-Bühne und
-## fährt ihn denselben Weg zurück.
+## scene_root holt ihn per Hebebühne aus dem Pool auf das Podest und fährt ihn
+## denselben Weg zurück.
 signal target_chosen(die: DieDefinition)
 ## Der GRIFF ist durch: gebucht hat GameRun schon beim Auslösen, hier ist die
 ## Zeremonie zu Ende und scene_root läßt den Zielwürfel aufblitzen. Der Anker
@@ -39,15 +49,31 @@ signal die_stages_changed
 ## Ein Liefer-Licht ist auf seinem Magazin-Platz eingeschlagen - scene_root lässt
 ## den Körper dort aufleuchten (der Pluster lebt nicht mehr im 2D-Knopf).
 signal pack_landed(uid: int)
-## Eine Karte ist aus ihrem Serien-Slot zurück ins Magazin gegangen - die Zelle
+## Eine Karte ist aus ihrem Serien-Schacht zurück ins Magazin gegangen - die Zelle
 ## dieses Platzes fliegt heim auf ihren Platz. Gebucht ist da längst.
 signal pack_unslotted(slot_index: int, uid: int)
-## Der Griff beginnt: die gesteckten Zellen geben ihre Daten an die Reihe ab.
-## Gemeldet wird VOR dem Buchen, solange die Sockel noch stehen.
+## Der Griff beginnt: die Reihe gehört ab jetzt der Zeremonie. Gemeldet wird VOR
+## dem Buchen, solange die Sockel noch stehen.
 signal press_started
-## Ein Schlüsselwort auf dem Serien-Schirm wurde geklickt - scene_root schlägt das
-## Lexikon auf (dieselbe Verweis-Grammatik wie im Laden-Tooltip).
-signal lexikon_requested(entry_id: String)
+## DIE SCHABLONEN-FAHRT, im Takt gemeldet - GEFAHREN wird sie von scene_root, das
+## Fenster nennt nur Plätze in Display-Pixeln und Zeiten (ui/ faßt nie Körper an).
+## Die GEBURT liegt am Netz der Info-Säule des Ausgabefachs - wo das steht, weiß
+## scene_root, nicht dieses Fenster.
+signal stencil_launched(time: float)
+## Eine Etappe auf der Schiene über der Reihe.
+signal stencil_moved(to_px: Vector2, time: float)
+## Karte i ist AUFGENOMMEN: ihre Zellen dunkeln ab (faces), die Schablone tickt auf
+## den aufgelaufenen Stand (values) und schlägt zu, wenn ein Operator darin steckt.
+signal stencil_read(index: int, faces: Array, values: Array, operator: String,
+	time: float)
+## DER WÜRFEL WECHSELT DIE SEITE: er versinkt am Bench-Podest und steigt am
+## ERGEBNIS-Podest auf, während die Schablone ihre letzte Etappe fährt. time ist die
+## Zeit, die dafür bleibt - er soll STEHEN, wenn sich die Schablone in ihn faltet.
+signal die_handover(time: float)
+## Die Abfahrt zum ERGEBNIS-Podest - wo der Zielwürfel dann steht, weiß scene_root.
+signal stencil_landed(time: float)
+## Und die FALTUNG in ihn hinein.
+signal stencil_folded(time: float)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -56,26 +82,6 @@ const GOLD := Color("#ffd319")
 ## behalten ihre Sortenfarbe). Die Quelle ist das Netz, nicht dieses Fenster.
 const OPERATOR_TINT := PressNetView.OPERATOR_TINT
 
-## Spaltenzahl der Pool-Auswahl = Spaltenzahl der echten Trays (DiceTrayView),
-## damit das Raster wie das Tray darüber liest.
-const POOL_COLUMNS := 6
-## Maße des Hinweis-Schirms (Magazin-Kassette, Serien-Karte, Netz-Zelle).
-const INFO_TITLE := 2.4
-const INFO_BODY := 1.9
-## Innenrand des Schirms und der Abstand zwischen Titel und Wirkung. Nach außen
-## hat er keinen: links steht er auf der Fensterkante, rechts trennt ihn die
-## Naht des Handlungs-Sitzes (ACTION_GAP) vom Blech.
-const INFO_PAD := 0.9
-const INFO_LINE_GAP := 0.3
-## Schriftgrade der Wirkungszeile, absteigend: der Schirm hat eine feste Größe,
-## also nimmt der Text den ersten Grad, dessen Umbruch noch hineinpaßt.
-const INFO_BODY_STEPS := [1.9, 1.65, 1.4, 1.2, 1.05, 0.92, 0.8, 0.7, 0.62]
-## Auch der TITEL paßt sich ein - ein Würfelname samt Seelennamen bricht bei vollem
-## Grad auf drei Zeilen und schöbe die Wirkungszeile sonst aus dem Schirm.
-const INFO_TITLE_STEPS := [2.4, 2.05, 1.75, 1.5, 1.3, 1.15]
-## Höchster Anteil des Schirms, den die Kennung belegen darf.
-const INFO_TITLE_SHARE := 0.42
-
 ## Höhe der Bühne des schwebenden Zielwürfels (Breiteneinheiten u): Platz für den
 ## Würfel UND seine Stasis-Station, die durch die Parallaxe ein Stück unter ihm
 ## auf der Fläche steht.
@@ -83,124 +89,151 @@ const STAGE_HEIGHT := 9.3
 ## Zellgröße des Summen-Netzes: die Kachel, in der ein Würfel gezeigt wird, wenn
 ## man ÜBER ihn entscheidet.
 const CHOICE_CELL := DieNetView.TRAY_TILE
-## Fuge zwischen der Ziel-Säule links und dem 30er-Raster rechts. Sie ist der
-## SEITENRAND des Inhalts (CONTENT_MARGIN_X, per Test festgenagelt): das Raster
-## soll nach oben, unten und zu seiner Säule hin genauso viel Luft haben wie zum
-## rechten Fensterrand - eine Zahl, vier Abstände.
-const BODY_GAP := 2.4
-## Spaltenluft der Serien-Reihe und Maße EINER Karte (Einheiten u). Die Kassette
-## steht SENKRECHT im Slot: oben ihr Prägenetz, darunter ihr Name.
+
+## --- DIE STRASSE: zwei Stationen von links nach rechts --------------------------
+## Breite der Ergebnis-Spalte in u; die SCHACHT-REIHE bekommt, was links davon
+## bleibt (die Reihe ist damit die einzige Spalte, die mit der Serienlänge atmet -
+## die Ergebnis-Spalte rührt sich nie).
+const DIFF_WIDTH_UNITS := 28.0
+## Die Fuge zwischen Reihe und Ergebnis-Spalte.
+const STREET_GAP := 1.8
+## Kopfraum über dem Podest: der schwebende Würfel ragt über seinen Platz hinaus,
+## und in der Nahsicht sitzt die obere Fensterkante exakt am Bildrand - ohne diese
+## Luft schnitte der Rahmen ihm die Oberseite ab.
+const STAGE_HEAD_ROOM := 1.0
+## Luft zwischen Podest und Diff-Schirm darunter: der Würfel soll über seinem
+## Diagramm STEHEN, nicht darauf aufliegen.
+const STAGE_NET_GAP := 1.0
+## Höhe des BANDES (Zeile 2) in u - Tooltip links und Soll-Schirm rechts teilen sie.
+## Sie ist zugleich die Höhenregel der ganzen Seite: bench_aspect löst die
+## Fensterbreite so, daß beide Spalten der Zeile 1 samt Band senkrecht aufgehen.
+const DIFF_HEIGHT_UNITS := 24.0
+## Die Fuge zwischen der Schacht-Reihe (Zeile 1) und dem Band darunter.
+const ROW_BAND_GAP := 1.5
+
+## Ränder und Zeilenabstand des Fensterinhalts (Einheiten u).
+const CONTENT_MARGIN_X := 2.4
+const CONTENT_MARGIN_Y := 1.4
+const CONTENT_GAP := 1.0
+
+## --- Der SOLL-SCHIRM: das UI-SPIEGELBILD des linken Netzes (KORREKTUR-WELLE I) ---
+## Er trägt NUR das Ergebnis-Netz (der physische Ergebnis-Würfel steht über ihm auf
+## dem Ergebnis-Podest), auf BLANKEM Filz - ohne eigenen Hintergrund und ohne
+## Aufschlüsselungs-Zeilen. Das Netz zeigt den Würfel NACH dem Griff mit grünen
+## Deltas, GLEICH GROSS wie das linke Netz der Info-Säule (scene_root reicht das Maß
+## herüber, result_net_cell).
+const DIFF_PAD := 0.9
+## Anteil des Schirms, den das Netz nimmt, wenn scene_root kein Maß meldet (Tests):
+## fast der ganze Schirm, denn die Zeilen sind fort.
+const DIFF_NET_SHARE := 0.92
+
+## --- Die SCHACHT-REIHE ----------------------------------------------------------
+## Spaltenluft zwischen zwei Schacht-Mündern und der Rand des Blechs.
 const BENCH_GAP := 1.2
-const CARD_WIDTH := 4.8
-const CARD_HEIGHT := 8.0
-const CARD_PAD := 0.4
-## Anteil der Kartenhöhe, den das Mini-Netz nimmt - der Rest trägt den Namen.
-const CARD_NET_SHARE := 0.56
-const CARD_NAME_STEPS := [1.25, 1.1, 0.95, 0.82, 0.7]
-## Ein Leseschlitz ist ein LOCH, kein Ding: die Datenzelle STECKT senkrecht darin
-## und ragt nur mit ihrer Kopfkante heraus.
+const CONSOLE_PAD_X := 1.2
+const CONSOLE_PAD_Y := 0.9
+## Ein Schacht-Mund ist so breit, wie die Reihe hergibt - gedeckelt, damit eine
+## kurze Serie keine Riesenlöcher schneidet, und mit einem Boden, damit eine lange
+## Serie die Kassette nicht zerdrückt.
+const MOUTH_MAX_WIDTH := 11.0
+const MOUTH_MIN_WIDTH := 3.2
+## Höhe eines Mundes als Anteil seiner Breite: die Kassette liegt geneigt darüber,
+## ihre Fläche ist höher als breit (2 : 3).
+const MOUTH_ASPECT := 1.5
+## Die Kassette im Schacht steht in IHREM eigenen Maß (nicht im Magazin-Maß): erst
+## so mißt eine Netz-Zelle an der Werkstatt-Weitsicht genug Bildschirmpixel, um
+## ihre Ziffern zu lesen. Anteil der Mund-Breite, den ihre Fläche füllt.
+const SOCKET_FILL := 0.92
+## Die Reihe atmet: unter so vielen Slots bleibt der Mund beim Deckel stehen.
+const SOCKET_ROOM := 1.30
+
+## Der Schacht-MUND selbst: ein Loch, kein Ding - dunkle Fläche, Saum in der
+## Sortenfarbe der Karte, die darin steht.
 const SOCKET_BG := Color("#0b0a18dd")
 const SOCKET_RIM := Color("#3b356acc")
 const SOCKET_LIVE_RIM := Color("#8be9fdcc")
-## Der Schlitz muss die Zelle schlucken, und zwar in dem EINEN Maß, in dem sie
-## überall steht (PackDrawerView.CASSETTE_SCALE): ihre Kappe gibt Breite UND Tiefe
-## vor. Flach bleibt er trotzdem - ein Schlitz ist eine Kante, keine Bucht.
-const SOCKET_ROOM := 1.30
-const SLIT_HEIGHT := 1.6
-const SLIT_DISPLAY_GAP := 0.4
-## Die Slots liegen in einem erhabenen KONSOLEN-BLECH: dieselbe gemalte Tiefe wie
+## Die Münder liegen in einem erhabenen KONSOLEN-BLECH: dieselbe gemalte Tiefe wie
 ## die Magazin-Fassung (Lichtkante oben, Schattenkante unten), aber neutral - die
 ## Sortenfarbe gehört der Ware, nicht dem Gerät.
 const CONSOLE_BASE := Color("#2f2c3c")
 const CONSOLE_SHEEN := Color("#bab7cd")
 const CONSOLE_SHEEN_MIX := 0.44
 const CONSOLE_SHADOW := Color(0.0, 0.0, 0.0, 0.7)
-const CONSOLE_PAD_X := 1.2
-const CONSOLE_PAD_Y := 0.72
 const CONSOLE_EDGE := 0.33
 const CONSOLE_RADIUS := 0.9
-## Die Tasche eines Slots: Karte und Schlitz liegen IM Blech, also Schatten oben
-## und Licht unten - die Umkehrung der Konsolenkante.
+## Die Tasche eines Mundes: er liegt IM Blech, also Schatten oben und Licht unten -
+## die Umkehrung der Konsolenkante.
 const POCKET_BASE := Color("#14121f")
 const POCKET_SHEEN := Color(0.66, 0.64, 0.76, 0.5)
 const POCKET_SHADOW := Color(0.0, 0.0, 0.0, 0.75)
 const POCKET_BLEED := 0.26
 const POCKET_EDGE := 0.22
 const POCKET_RADIUS := 0.7
-## Kopfhöhe über der Projektor-Zeile: der schwebende Zielwürfel ragt über seine
-## Bühne hinaus, und in der Nahsicht sitzt die obere Fensterkante exakt am
-## Bildrand - ohne diese Luft schnitte der Rahmen ihm die Oberseite ab.
-const STAGE_HEAD_ROOM := 1.0
-## Luft zwischen der Projektor-Bühne und dem Netz darunter: der Würfel soll über
-## seinem Diagramm STEHEN, nicht darauf aufliegen.
-const STAGE_NET_GAP := 1.0
+
 ## Die NAHT der Schürze - zweimal dasselbe Maß: Fensterkante zu Konsolenband und
 ## Konsolenband zu Magazin.
 const CONSOLE_SHELF_GAP := 2.1
+## Höhe des Konsolen-Bandes in u: es trägt seit der KORREKTUR-WELLE J nur noch den
+## GRIFF - der Info-Text-Schirm ist ins Fenster gezogen (Zeile 2). Ein Streifen für
+## EINEN Knopf, mehr nicht.
+const BAND_HEIGHT_UNITS := 6.4
+
+## --- Der TOOLTIP-SCHIRM (KORREKTUR-WELLE J) -------------------------------------
+## Er steht DIREKT UNTER der Schacht-Reihe und ist GENAU so breit wie sie (Zeile 2,
+## links im BAND; rechts daneben das Soll-Netz). Er erklärt den GEWÄHLTEN Würfel
+## (Name, Seele im Essenz-Glühen, Wirkung); beim Hover über eine Magazin-Kassette
+## oder eine Netz-Zelle übersteuert DEREN Text. scene_root ist der EINE Schreiber
+## (set_info) - das Fenster hält nur die Fassung. Ränder/Grade in u.
+const INFO_MARGIN := 1.2
+const INFO_NAME_UNITS := 2.6
+const INFO_SOUL_UNITS := 2.2
+const INFO_GAP := 0.4
+const INFO_NAME_FONT := 0.62
+const INFO_SOUL_FONT := 0.6
+## Der Wirkungstext läuft um. Sein Grad ist GESETZT (u), nicht aus dem Rest-Block
+## gerechnet: der Schirm ist seit der Welle J so hoch wie das Band, und ein
+## Block-Anteil blähte die Schrift auf Überschriftgröße.
+const INFO_BODY_UNITS := 1.4
 ## Mindesthöhe des Magazin-Streifens (Einheiten u).
 const SHELF_MIN_HEIGHT := 6.0
-## Sollhöhe des Streifens (Einheiten u). Am Tisch ist sie der REST bis zur
-## Hub-Unterkante - scene_root rechnet daraus die Fensterhöhe (apron_units).
-const SHELF_STRIP_UNITS := 15.0
-## Ränder und Zeilenabstand des Fensterinhalts (Einheiten u).
-const CONTENT_MARGIN_X := 2.4
-const CONTENT_MARGIN_Y := 1.4
-const CONTENT_GAP := 1.0
+## Sollhöhe des Magazin-Streifens (Einheiten u). Die Schürze (Naht + Band + Naht +
+## Streifen) wird von scene_root aus der Pool-Höhe herausgerechnet, so dass die
+## MAGAZIN-Unterkante bündig mit der Pool-Unterkante sitzt (apron_span_units).
+const SHELF_STRIP_UNITS := 12.0
 
-## Der EINE Handlungs-Sitz rechts neben der Konsole: er trägt "Griff (n)" bzw.
-## "Fertig". EIN Maß für beide - der Sitz steht fest, nur seine Aufschrift
-## wechselt, und die Grundseite fließt nie um. Bemessen an der breitesten
-## Aufschrift ("Griff (8)", die volle Serienlänge) plus Rand; der Rest der rechten
-## Flanke gehört dem Serien-Schirm dahinter.
+## Der EINE Handlungs-Sitz im Band, MITTIG unter der Schacht-Reihe: er trägt
+## "Griff n/m" (gesteckt / Serienlänge - der Zähler wohnt seit dem Tod des
+## Serien-Schirms in der Aufschrift) bzw. "Fertig". EIN Maß für beide - der Sitz
+## steht fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
+## Bemessen an der breitesten Aufschrift ("Griff 8/8") plus Rand.
 const ACTION_WIDTH := 15.0
 const ACTION_HEIGHT := 4.0
-## Luft zwischen Konsolenblech und Sitz bzw. Sitz und Serien-Schirm.
-const ACTION_GAP := 1.6
 
-## DER SERIEN-SCHIRM in der rechten Ecke des Bandes, rechts neben dem Sitz: das
-## Gegenstück zum Hinweis-Schirm links. Er sagt, wie lang die Schaltung sein darf
-## und was die gesteckten Katalysatoren zulegen - dunkel, solange nichts steckt.
-const SERIES_MIN_WIDTH := 7.0
-## Schriftgrade des Kopfes und der Zeilen, absteigend. Der Kopf ist EIN Wort und
-## muss auf EINE Zeile.
-const SERIES_TITLE_STEPS := [1.7, 1.5, 1.3, 1.15, 1.0]
-const SERIES_BODY_STEPS := [1.5, 1.35, 1.2, 1.05, 0.95, 0.85, 0.75, 0.68, 0.6]
-## Sicherheitsabschlag auf die gemessene Höhe: die Schrift misst sich ohne den
-## Zeilenabstand des Labels, und ein halb abgeschnittener Fuß wäre die Folge.
-const SERIES_ROOM_SHARE := 0.9
-const SERIES_HEAD := "SERIE"
-
-## DIE DURCHLICHT-FAHRT - die Zeremonie des Griffs. Der Schlitten verläßt seinen
-## Parkplatz in der Ziel-Säule, fährt die Schiene über der Reihe ab und kehrt zum
-## Zielwürfel zurück. Klick überspringt jederzeit; bei sechs Karten ~4,5 s.
-## Das ENTLEEREN in Geister-Ziffern: die Vorschau tritt ab, die Rechnung beginnt
-## bei 0 (das Netz tickt dabei HINUNTER auf die nackten Augenzahlen).
-const SCAN_EMPTY_TIME := 0.3
-const SCAN_TO_RAIL_TIME := 0.42
+## DIE SCHABLONEN-FAHRT - die Zeremonie des Griffs. Die Schablone löst sich aus
+## dem Ist-Schirm links, fährt die Schiene über der Reihe ab und setzt sich rechts
+## in den Zielwürfel. Klick überspringt jederzeit; bei sechs Karten ~4 s.
+## Die GEBURT: das Ist-Netz dimmt kurz, die Schablone wächst an seiner Stelle - und
+## das Summen-Netz im Diff-Schirm ENTLEERT sich zugleich auf die nackten
+## Augenzahlen (die Vorschau tritt ab, die Rechnung beginnt bei 0).
+const STENCIL_BIRTH_TIME := 0.3
+const STENCIL_TO_RAIL_TIME := 0.42
 ## Der Takt EINER Karte, mit RAMPE: die letzte fährt in diesem Anteil der ersten.
 ## Ein Operator bekommt seinen Sondermoment obendrauf.
-const SCAN_STEP_TIME := 0.4
-const SCAN_STEP_RAMP := 0.55
-const SCAN_OPERATOR_EXTRA := 0.3
+const STENCIL_STEP_TIME := 0.4
+const STENCIL_STEP_RAMP := 0.55
+const STENCIL_OPERATOR_EXTRA := 0.3
 ## Wieviel eines Takts die FAHRT nimmt - der Rest ist das Ticken am Ort.
-const SCAN_MOVE_SHARE := 0.45
-const SCAN_LEAVE_TIME := 0.55
-const SCAN_FOLD_TIME := 0.8
-const SCAN_FLASH_TIME := 0.24
-## Anteil der Blechhöhe, den das Netz auf der SCHIENE einnimmt - dort fährt der
-## Schlitten klein, in der Säule steht er in voller Größe.
-const SCAN_RAIL_SHARE := 0.94
+const STENCIL_MOVE_SHARE := 0.45
+const STENCIL_LEAVE_TIME := 0.55
+const STENCIL_FOLD_TIME := 0.8
+## So dunkel steht das Netz der Info-Säule im Moment der Geburt - es hat seine
+## Schablone eben abgegeben (gedimmt wird von scene_root, dort steht die Säule).
+const BIRTH_DIM := 0.3
 ## Die SCHIENE selbst: ein Strich im oberen Rand des Blechs (er paßt in
-## CONSOLE_PAD_Y, also verrückt er nichts).
+## CONSOLE_PAD_Y, also verrückt er nichts). Die Schablone fährt darüber.
 const RAIL_TOP := 0.16
 const RAIL_HEIGHT := 0.34
 const RAIL_TINT := Color("#8be9fdaa")
-
-## EINSETZEN und Umlegen: die Kassette FÄHRT aus ihrem Leseschlitz hoch, sinkt
-## denselben Weg zurück und gleitet beim Umsortieren seitlich.
-const CARD_RISE_TIME := 0.32
-const CARD_SINK_TIME := 0.26
-const CARD_SLIDE_TIME := 0.22
 
 ## Wieviel Serien-Slots ohne Lauf angezeigt werden (kopfloser Aufbau, Tests).
 const FALLBACK_SLOTS := 2
@@ -219,31 +252,30 @@ var run: GameRun:
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
-			run.pool_changed.connect(refresh)  # Raster und Summen-Netz zeigen den Pool
+			run.pool_changed.connect(refresh)  # Ist-Schirm und Summen-Netz zeigen den Pool
 			run.press_changed.connect(refresh)  # der Griff der Sitzung hängt daran
 		refresh()
 
-var _content: VBoxContainer
-## Das EINE Summen-Netz - es gehört dem SCHLITTEN, nicht der Säule (null = der
-## Schlitten steht noch nicht).
+var _content: Control
+## Das EINE Summen-Netz des Fensters. Es überlebt jeden Neuaufbau (es ist kein Kind
+## des Inhalts): sein ZÄHL-Takt darf nicht daran zerbrechen, daß eine Kassette
+## umsortiert wird - nur so tickt es beim Griff von der Vorschau herunter.
 var _net: PressNetView
-## Der SCHLITTEN samt seinem Netz. Er überlebt jeden Neuaufbau des Fensters: seine
-## Fahrt darf nicht daran zerbrechen, dass eine Kassette umsortiert wird.
-var _scanner: SeriesScannerView
-## Sein PARKPLATZ in der Ziel-Säule: ein leerer Platz in Netzgröße. Er ist es, den
-## das Fenster als Netzmitte meldet - der Schlitten fährt, der Platz nie.
+## Sein PARKPLATZ im Soll-Schirm: ein leerer Platz in Netzgröße, auf den es je
+## Bild zurückgesetzt wird. Der Platz ist die gemeldete Netzmitte.
 var _net_host: Control
-## Die leere Projektor-Bühne über ihm: dort schwebt der echte Zielwürfel.
+## Der PLATZHALTER im Soll-Schirm: das leere Kreuz, das steht, solange kein Ziel
+## gewählt ist - das Soll-Netz ist NIE versteckt.
+var _empty_net: Control
+## Das leere ERGEBNIS-PODEST rechts: dorthin wechselt der fertige Würfel.
 var _stage_host: Control
-## Das Pool-Raster der Zielwahl.
-var _pool_grid: DiceGridView
-## Die Serien-Slots; jeder ist eine Kartentasche mit ihrem Leseschlitz.
+## Die Schacht-Münder; jeder ein Loch mit seinem Knopf darüber.
 var _slot_buttons: Array[Button] = []
-## Die gezeichneten Schlitze selbst - IHRE Mitte ist der Steckplatz der Zelle,
-## nicht die des Knopfes (der reicht bis über die Karte).
+## Die gezeichneten Münder selbst - IHRE Mitte ist der Steckplatz der Zelle, nicht
+## die des Knopfes (der spannt die ganze Tasche).
 var _slit_panels: Array[Panel] = []
-## Die Kartenplätze derselben Reihe (der HALTER, nicht die fahrende Karte darin)
-## und das Glühen der Karten.
+## Dieselbe Reihe als KARTEN-FLÄCHEN (heute deckungsgleich mit dem Mund: die Karte
+## liegt geneigt darüber) und das Glühen der Schächte.
 var _card_panels: Array[Control] = []
 var _portals: Array[PressPortalView] = []
 ## Das Magazin der Bank (null = gerade nicht gebaut).
@@ -257,6 +289,16 @@ var apron_bottom := 0.0:
 		if is_equal_approx(apron_bottom, value):
 			return
 		apron_bottom = value
+		refresh()
+## LINKE Kante des MAGAZINS in Fenster-Koordinaten (0 = die Fensterkante, negativ =
+## es ragt links über sie hinaus): scene_root meldet die linke Kante des IST-NETZES
+## herein (dasselbe apron_bottom-Muster). bench_rect deckt die Verbreiterung mit -
+## sonst fielen die Chip-Taps im linken Grubenteil durch (der Welle-H-Bug).
+var shelf_left := 0.0:
+	set(value):
+		if is_equal_approx(shelf_left, value):
+			return
+		shelf_left = value
 		refresh()
 ## Paket-uids, deren Liefer-Licht noch fährt (der Komet IST das Paket).
 var _pending_arrivals: Dictionary = {}
@@ -281,16 +323,17 @@ var data_cell_px := Vector2.ZERO:
 		data_cell_px = value
 		refresh()
 
-## Der Hinweis-Schirm am Konsolen-Band samt der Einheit, für die er gebaut wurde.
-var _info_screen: Panel
-var _info_title: Label
-var _info_body: Label
-var _info_tint: Color = CasinoStyle.CREAM
-
-## Der Serien-Schirm in der rechten Ecke desselben Bandes.
-var _series_screen: Panel
-var _series_title: Label
-var _series_body: RichTextLabel
+## Der SOLL-SCHIRM rechts - er trägt NUR noch das Ergebnis-Netz, ohne Hintergrund.
+var _diff_screen: Panel
+## Das Zellmaß des Ergebnis-Netzes in Display-Pixeln (0 = eigenes Maß rechnen). Es
+## kommt von scene_root aus dem gebauten Netz der Info-Säule - so stehen linkes und
+## rechtes Netz GLEICH GROSS.
+var result_net_cell := 0.0:
+	set(value):
+		if is_equal_approx(result_net_cell, value):
+			return
+		result_net_cell = value
+		refresh()
 
 ## DIE SERIE: die uids der gesteckten Karten in STECKREIHENFOLGE - sie SIND die
 ## Rechnung. uids, nicht Indizes: das Magazin darf darunter umsortiert werden.
@@ -299,14 +342,10 @@ var _series: Array[int] = []
 var _target_index := -1
 var _second_index := -1
 ## Die Karte unter dem Zeiger (-1 = keine): ihre Beitrags-Zellen leuchten im
-## Summen-Netz, alles andere verblaßt.
+## Summen-Netz, alles andere verblaßt - und ihre Diff-Zeile leuchtet mit.
 var _hover_slot := -1
 ## Der Slot, auf dem ein Zug begonnen hat (-1 = keiner).
 var _drag_from := -1
-## Karten, die beim nächsten Aufbau aus ihrem Schlitz HOCHFAHREN (uid -> true),
-## und Karten, die dabei seitlich gleiten (uid -> Weg in Pixeln).
-var _fresh_slots: Dictionary = {}
-var _slide_from: Dictionary = {}
 
 ## DIE LAUFENDE ZEREMONIE. _burning trägt die Kartendaten des Griffs (die Karten
 ## selbst sind da längst verbraucht), _burn_step, wie viele davon die Welle schon
@@ -320,69 +359,40 @@ var _burn_terms: Dictionary = {}
 var _burn_result: Dictionary = {}
 var _burn_anchor := Vector2.ZERO
 
-## Das Blech der Serien-Reihe (null = steht gerade nicht).
+## DAS ERGEBNIS DER LETZTEN BUCHUNG - es bleibt im Soll-Schirm STEHEN, bis ein
+## anderes Ziel gewählt oder abgewählt wird (siehe showing_result). _result_die ist
+## der Stand VOR dem Griff: erst der Vergleich mit der Projektion macht die grünen
+## Deltas.
+var _result_die: DieDefinition
+var _result_projection: Dictionary = {}
+
+## Das Blech der Schacht-Reihe (null = steht gerade nicht).
 var _console: Panel
 ## Der Knopf des Handlungs-Sitzes.
 var _action_button: Button
+## Die drei Zeilen des Info-Text-Schirms (null = Band steht gerade nicht) und der
+## zuletzt gesetzte Seelen-Ton (Farbwechsel bei gleichem Text sähe der Text-Vergleich
+## sonst nicht).
+var _info_name: Label
+var _info_soul: Label
+var _info_body: Label
+var _info_soul_tint := Color.WHITE
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
 	# NICHT beschnitten: Konsolen-Band und Magazin hängen absichtlich unter der
 	# Fensterkante heraus (die Schürze).
 	clip_contents = false
-	add_theme_stylebox_override("panel", TableScreen.window_style())
-	set_process(true)  # der geparkte Schlitten hält seinen Platz in der Säule
+	# KEIN Fenster-Hintergrund: die Teile des Streifens liegen auf dem Filz, das
+	# Rechteck lebt nur noch für Klick-Zone und Kamera weiter.
+	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	set_process(true)  # das Summen-Netz hält seinen Platz im Diff-Schirm
 	refresh()
 
-## Der Schlitten PARKT, solange er nicht fährt - er folgt damit jedem Neuaufbau
-## der Säule, ohne dass die Zeremonie ihn je zurückschreiben müßte.
+## Das Summen-Netz PARKT auf seinem Platz - es folgt damit jedem Neuaufbau des
+## Schirms, ohne daß irgendwer es zurückschreiben müßte.
 func _process(_delta: float) -> void:
-	_sync_scanner_park()
-
-## Der HINWEIS-SCHIRM in der linken Flanke des Konsolen-Bandes: ein eigenes
-## kleines Display neben der Reihe, auf dem steht, was gerade überfahren wird.
-## Er STEHT (dunkel und leer, wenn nichts unter dem Zeiger liegt), denn Text auf
-## blankem Filz ist Text im Nichts.
-## tint färbt die WIRKUNGSZEILE - rot ist die eine Auskunft, die der Schirm selbst
-## gibt: was gerade nicht zu haben ist.
-func show_hover_info(title: String, body: String, tint: Color = CasinoStyle.CREAM) -> void:
-	if _info_title == null or not is_instance_valid(_info_title):
-		return
-	_info_title.text = title
-	_info_title.visible = title != ""
-	_info_body.text = body
-	_info_body.visible = body != ""
-	_info_body.modulate = tint if tint == CasinoStyle.RED else Color.WHITE
-	_info_tint = tint
-	_fit_info_body()
-
-func clear_hover_info() -> void:
-	show_hover_info("", "")
-
-## Steht gerade ein Hinweis auf dem Schirm? (Der Schirm selbst steht immer.)
-func hover_info_visible() -> bool:
-	return _info_title != null and is_instance_valid(_info_title) \
-		and (_info_title.visible or _info_body.visible)
-
-## Breite des SCHIRMS: die ganze linke Flanke bis auf die Naht zum Blech. Links
-## endet er nicht früher als das Fenster darüber.
-func info_width() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	var flank := (size.x - console_size(u).x) * 0.5
-	return maxf(flank - u * ACTION_GAP, u * 14.0)
-
-## Sein Platz im Fenster: bündig mit dessen linker Kante, in der Höhe das Band -
-## dieselben zwei Nähte, die auch das Blech von Fenster und Magazin trennen.
-func info_screen_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
-	var top := size.y + u * CONSOLE_SHELF_GAP
-	return Rect2(Vector2(0.0, top),
-		Vector2(info_width(), maxf(shelf_top() - u * CONSOLE_SHELF_GAP - top, u * 6.0)))
-
-## Breite seines TEXTES: der Schirm abzüglich seines eigenen Randes.
-func _info_text_width() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	return maxf(info_width() - u * INFO_PAD * 2.0, u * 10.0)
+	_sync_sum_net_park()
 
 ## Wie hoch ein umbrochener Block WIRKLICH steht. Die nackte Schriftmessung
 ## unterschlägt zwei Dinge, und beide zusammen kosteten fast die Hälfte: sie
@@ -404,261 +414,8 @@ static func text_block_height(font: Font, text: String, width: float, px: int,
 		return 0.0
 	return float(lines) * font.get_height(px) + float(lines - 1) * float(spacing)
 
-## Der Schirm hat eine FESTE Größe, also passen sich BEIDE Zeilen ein: erst die
-## Kennung in ihren Anteil, dann die Auskunft in den Rest.
-func _fit_info_body() -> void:
-	if _info_body == null or not is_instance_valid(_info_body):
-		return
-	var u := maxf(size.x, 200.0) / 100.0
-	var width := _info_text_width()
-	var room := info_screen_rect().size.y - u * INFO_PAD * 2.0
-	room -= _fit_info_title(u, width, room)
-	var font := _info_body.get_theme_font("font")
-	var spacing := _info_body.get_theme_constant("line_spacing")
-	for step in INFO_BODY_STEPS:
-		var px := int(u * float(step))
-		_info_body.add_theme_font_size_override("font_size", px)
-		if font == null or px <= 0:
-			return
-		if text_block_height(font, _info_body.text, width, px, spacing) <= room:
-			return
-
-## Die Kennung zuerst: sie nimmt den ersten Grad, der in ihren Anteil paßt, und
-## meldet, wie viel Schirm sie samt Fuge verbraucht hat. EINE Zeile wird immer
-## genommen - kleiner als einzeilig wird eine Kennung nicht.
-func _fit_info_title(u: float, width: float, room: float) -> float:
-	if _info_title == null or not is_instance_valid(_info_title):
-		return 0.0
-	var font := _info_title.get_theme_font("font")
-	var spacing := _info_title.get_theme_constant("line_spacing")
-	var used := 0.0
-	for step in INFO_TITLE_STEPS:
-		var px := int(u * float(step))
-		_info_title.add_theme_font_size_override("font_size", px)
-		if font == null or px <= 0:
-			return 0.0
-		used = text_block_height(font, _info_title.text, width, px, spacing)
-		if used <= room * INFO_TITLE_SHARE \
-				or text_block_lines(font, _info_title.text, width, px) <= 1:
-			break
-	if not _info_title.visible:
-		return 0.0
-	return used + u * INFO_LINE_GAP
-
-## Baut den Schirm in die linke Flanke des Bandes - er gehört zum Band wie das
-## Blech und der Sitz und wird mit ihm neu gelegt.
-func _build_info_screen(band: Control, u: float) -> void:
-	var standing_title := _info_title_text()  # VOR dem Neubau: gleich sind die Zeilen fort
-	var standing_body := _info_body_text()
-	var rect := info_screen_rect()
-	var screen := Panel.new()
-	screen.name = "InfoScreen"
-	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
-	screen.position = rect.position - band.position
-	screen.size = rect.size
-	band.add_child(screen)
-	_info_screen = screen
-	var column := VBoxContainer.new()
-	column.name = "InfoText"
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.offset_left = u * INFO_PAD
-	column.offset_right = -u * INFO_PAD
-	column.offset_top = u * INFO_PAD
-	column.offset_bottom = -u * INFO_PAD
-	column.add_theme_constant_override("separation", int(u * INFO_LINE_GAP))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_child(column)
-	_info_title = _info_label(int(u * INFO_TITLE), CasinoStyle.GOLD)
-	column.add_child(_info_title)
-	_info_body = _info_label(int(u * INFO_BODY), CasinoStyle.CREAM)
-	column.add_child(_info_body)
-	show_hover_info(standing_title, standing_body, _info_tint)
-
-## Eine Zeile des Schirms: mittig, umbrechend, ohne Maus.
-func _info_label(px: int, tint: Color) -> Label:
-	var label := Label.new()
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size = Vector2(_info_text_width(), 0)
-	label.visible = false
-	if tint == CasinoStyle.GOLD:
-		CasinoStyle.style_score_label(label, px, tint)
-	else:
-		CasinoStyle.style_body_label(label, px, tint)
-	return label
-
-## --- Der SERIEN-SCHIRM ---------------------------------------------------------
-## Er steht in der rechten Ecke des Bandes und sagt zwei Sachen: wie lang die
-## Schaltung sein darf und was die gesteckten Katalysatoren zulegen.
-
-## Breite des Schirms: was von der rechten Flanke bleibt, wenn der Sitz mit seinen
-## beiden Nähten darin steht. Er endet bündig an der Fensterkante.
-func series_width() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	var flank := (size.x - console_size(u).x) * 0.5
-	return maxf(flank - u * (ACTION_WIDTH + ACTION_GAP * 2.0), u * SERIES_MIN_WIDTH)
-
-func series_screen_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
-	var top := size.y + u * CONSOLE_SHELF_GAP
-	var width := series_width()
-	return Rect2(Vector2(size.x - width, top),
-		Vector2(width, maxf(shelf_top() - u * CONSOLE_SHELF_GAP - top, u * 6.0)))
-
-## Die Zeilen, die auf dem Schirm stehen: die Länge der Schaltung und je
-## gestecktem Katalysator seine Wirkzeile - die Namensquelle ist Pack, hier wird
-## nichts zweitformuliert.
-func series_lines() -> Array[String]:
-	var lines: Array[String] = []
-	if run == null:
-		return lines
-	var cards := _slot_cards()
-	if cards.is_empty():
-		return lines
-	lines.append("%d / %d Slots" % [cards.size(), slot_count()])
-	var seen := {}
-	for card in cards:
-		var catalyst := String(card.get("catalyst", ""))
-		if catalyst == "" or seen.has(catalyst):
-			continue
-		seen[catalyst] = true
-		lines.append("%s: %s" % [Pack.catalyst_name(catalyst),
-			Pack.catalyst_effect(catalyst)])
-	if needs_second() and second_die() == null:
-		lines.append("Doppelmatrize: zweiten Würfel wählen")
-	return lines
-
-## Was gerade auf dem Schirm steht ("" = er ist dunkel).
-func series_text() -> String:
-	var lines := series_lines()
-	if lines.is_empty():
-		return ""
-	return "\n".join(lines)
-
-func _build_series_screen(band: Control, u: float) -> void:
-	var rect := series_screen_rect()
-	var screen := Panel.new()
-	screen.name = "SeriesScreen"
-	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
-	screen.position = rect.position - band.position
-	screen.size = rect.size
-	band.add_child(screen)
-	_series_screen = screen
-	var column := VBoxContainer.new()
-	column.name = "SeriesText"
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.offset_left = u * INFO_PAD
-	column.offset_right = -u * INFO_PAD
-	column.offset_top = u * INFO_PAD
-	column.offset_bottom = -u * INFO_PAD
-	column.add_theme_constant_override("separation", int(u * INFO_LINE_GAP))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_child(column)
-	_series_title = _series_label(int(u * float(SERIES_TITLE_STEPS[0])), CasinoStyle.GOLD)
-	_series_title.text = SERIES_HEAD
-	column.add_child(_series_title)
-	_series_body = _series_body_label(int(u * float(SERIES_BODY_STEPS[0])))
-	column.add_child(_series_body)
-	_fit_series_title()
-	_sync_series_screen()
-
-## Der Kopf ist EIN Wort: er nimmt den ersten Grad, bei dem er noch ohne Umbruch
-## in den Schirm paßt.
-func _fit_series_title() -> int:
-	var u := maxf(size.x, 200.0) / 100.0
-	var width := _series_text_width()
-	var font := _series_title.get_theme_font("font")
-	var px := int(u * float(SERIES_TITLE_STEPS[0]))
-	for step in SERIES_TITLE_STEPS:
-		px = int(u * float(step))
-		if font == null or px <= 0:
-			break
-		if font.get_string_size(SERIES_HEAD, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= width:
-			break
-	_series_title.add_theme_font_size_override("font_size", px)
-	return px
-
-func _series_label(px: int, tint: Color) -> Label:
-	var label := Label.new()
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size = Vector2(_series_text_width(), 0)
-	label.visible = false
-	if tint == CasinoStyle.GOLD:
-		CasinoStyle.style_score_label(label, px, tint)
-	else:
-		CasinoStyle.style_body_label(label, px, tint)
-	return label
-
-## Die Zeilen sind ein RichTextLabel, kein Label: Wörter darin sind Lexikon-
-## Verweise wie im Laden-Tooltip - gefärbt und klickbar. Darum STOP statt IGNORE.
-func _series_body_label(px: int) -> RichTextLabel:
-	var label := RichTextLabel.new()
-	label.bbcode_enabled = true
-	label.fit_content = true
-	label.scroll_active = false
-	label.mouse_filter = Control.MOUSE_FILTER_STOP
-	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	label.custom_minimum_size = Vector2(_series_text_width(), 0)
-	label.visible = false
-	CasinoStyle.style_rich_body(label, px, CasinoStyle.CREAM)
-	label.meta_clicked.connect(func(meta: Variant) -> void:
-		lexikon_requested.emit(String(meta)))
-	return label
-
-func _series_text_width() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	return maxf(series_width() - u * INFO_PAD * 2.0, u * 4.0)
-
-## Schreibt den Schirm neu. Der Schirm selbst STEHT immer - nur seine Zeilen
-## kommen und gehen, und sein Rechteck rührt sich dabei nie.
-func _sync_series_screen() -> void:
-	if _series_body == null or not is_instance_valid(_series_body):
-		return
-	var text := series_text()
-	_series_body.text = "[center]%s[/center]" % Lexikon.linkify(text)
-	_series_body.visible = text != ""
-	_series_title.visible = text != ""
-	_fit_series_body(text)
-
-## Derselbe Einpasser wie beim Hinweis-Schirm, nur an dessen viel schmalerem
-## Bruder gemessen. Gemessen wird der NACKTE Text, nicht der verlinkte - das
-## BBCode-Markup ist keine Schrift.
-func _fit_series_body(plain: String) -> void:
-	var u := maxf(size.x, 200.0) / 100.0
-	var width := _series_text_width()
-	var font := _series_body.get_theme_font("normal_font")
-	var room := (series_screen_rect().size.y - u * INFO_PAD * 2.0) * SERIES_ROOM_SHARE
-	if _series_title.visible and font != null:
-		room -= font.get_multiline_string_size(_series_title.text,
-			HORIZONTAL_ALIGNMENT_CENTER, width,
-			_series_title.get_theme_font_size("font_size")).y + u * INFO_LINE_GAP
-	for step in SERIES_BODY_STEPS:
-		var px := int(u * float(step))
-		if font == null or px <= 0:
-			_series_body.add_theme_font_size_override("normal_font_size", px)
-			return
-		var block := font.get_multiline_string_size(plain,
-			HORIZONTAL_ALIGNMENT_CENTER, width, px)
-		_series_body.add_theme_font_size_override("normal_font_size", px)
-		if block.y <= room:
-			return
-
-## Der stehende Text übersteht den Neuaufbau des Bandes.
-func _info_title_text() -> String:
-	return _info_title.text if _info_title != null and is_instance_valid(_info_title) else ""
-
-func _info_body_text() -> String:
-	return _info_body.text if _info_body != null and is_instance_valid(_info_body) else ""
-
-## Baut das Fenster neu und meldet danach, wo die Würfel-Bühne jetzt liegt - der
-## ECHTE Würfel darüber gehört scene_root, nicht diesem Fenster.
+## Baut das Fenster neu und meldet danach, wo das Podest jetzt liegt - der ECHTE
+## Würfel darüber gehört scene_root, nicht diesem Fenster.
 func refresh() -> void:
 	_refresh_content()
 	die_stages_changed.emit()
@@ -672,11 +429,15 @@ func _refresh_content() -> void:
 	_portals.clear()
 	_stage_host = null
 	_net_host = null
-	_pool_grid = null
+	_empty_net = null
+	_diff_screen = null
 	_free_own(_drawer)  # Band und Magazin hängen am Panel, nicht am Inhalt
 	_drawer = null
 	_free_own(_band)
 	_band = null
+	_info_name = null  # die Info-Zeilen hingen am Band
+	_info_soul = null
+	_info_body = null
 	_prune_series()
 	var u := maxf(size.x, 200.0) / 100.0
 	_free_own(_content)
@@ -689,43 +450,42 @@ func _refresh_content() -> void:
 	_build_series_band(u)
 	_build_drawer(u)
 
-	_content = VBoxContainer.new()
+	# Der Träger deckt das GANZE Fenster: seine Kinder liegen damit in
+	# Fenster-Koordinaten, genau so, wie street_rect & Co. sie melden (die Ränder
+	# stecken schon in street_rect - ein zweites Mal abgesetzt drifteten gemeldete
+	# und gestellte Plätze um einen Rand auseinander).
+	_content = Control.new()
+	_content.name = "Street"
 	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_content.offset_left = u * CONTENT_MARGIN_X
-	_content.offset_right = -u * CONTENT_MARGIN_X
-	_content.offset_top = u * CONTENT_MARGIN_Y
-	_content.offset_bottom = -u * CONTENT_MARGIN_Y
-	_content.add_theme_constant_override("separation", int(u * CONTENT_GAP))
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
-	# Kein WERKSTATT-Titel: die Seite gehört der Zielwahl.
-	_build_body(u)
-	_ensure_scanner(u)  # zuletzt: der Schlitten liegt über allem
+	_build_street(u)
+	_ensure_sum_net(u)  # zuletzt: das Netz liegt über allem
 
-## Der SCHLITTEN wird nie neu gebaut, nur neu ausgelegt - sonst risse jeder
-## Neuaufbau des Fensters die laufende Fahrt samt Zähl-Takt ab.
-func _ensure_scanner(u: float) -> void:
-	if _scanner == null or not is_instance_valid(_scanner):
-		_scanner = SeriesScannerView.new()
-		add_child(_scanner)
-	_net = _scanner.net
-	_scanner.lay(u * CHOICE_CELL)
-	move_child(_scanner, get_child_count() - 1)
+## Das SUMMEN-NETZ wird nie neu gebaut, nur neu ausgelegt - sonst risse jeder
+## Neuaufbau des Fensters seinen laufenden Zähl-Takt ab.
+func _ensure_sum_net(u: float) -> void:
+	if _net == null or not is_instance_valid(_net):
+		_net = PressNetView.new()
+		add_child(_net)
+	_net.cell = _diff_net_cell(u)
+	move_child(_net, get_child_count() - 1)
 	if not burning():
 		_refresh_preview_net()
-	_sync_scanner_park()
+	_sync_empty_net()
+	_sync_sum_net_park()
 
-## Sein Platz, solange er nicht fährt: die Mitte des Parkplatzes in der Säule.
-func _sync_scanner_park() -> void:
-	if _scanner == null or not is_instance_valid(_scanner) or _scanner.riding():
+## Sein Platz: die Mitte des Parkplatzes im Diff-Schirm.
+func _sync_sum_net_park() -> void:
+	if _net == null or not is_instance_valid(_net):
 		return
 	if _net_host == null or not is_instance_valid(_net_host):
 		return
 	var host := _net_host.get_global_rect()
 	if host.size.x <= 0.0:
 		return
-	_scanner.seat_at(host.get_center() - get_global_rect().position)
+	_net.position = host.get_center() - _net.size * 0.5 - get_global_rect().position
 
 ## Hängt ein eigenes Kind aus und gibt es frei; queue_free wirkt erst am
 ## Bildende, ein Neuaufbau träfe sonst auf seinen eigenen Vorgänger.
@@ -734,97 +494,159 @@ func _free_own(node: Node) -> void:
 		remove_child(node)
 		node.queue_free()
 
-# --- Grundseite: Ziel-Säule und Pool-Raster -------------------------------------
+# --- DIE STRASSE: Schacht-Reihe, Ergebnis-Spalte ---------------------------------
 
-## Der Kopfraum, dann die Zeile: links die Ziel-Säule, rechts das Raster.
-func _build_body(u: float) -> void:
-	var head := Control.new()
-	head.name = "StageHeadRoom"
-	head.custom_minimum_size = Vector2(0, u * STAGE_HEAD_ROOM)
-	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(head)
-	var row := HBoxContainer.new()
-	row.name = "BenchBody"
-	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", int(u * BODY_GAP))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_content.add_child(row)
-	row.add_child(_target_column(u))
-	row.add_child(_pool_column(u))
+## Der Innenraum des Fensters in Fenster-Koordinaten - die Straße liegt darin.
+func street_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	return Rect2(Vector2(u * CONTENT_MARGIN_X, u * CONTENT_MARGIN_Y),
+		Vector2(maxf(size.x - u * CONTENT_MARGIN_X * 2.0, 1.0),
+			maxf(size.y - u * CONTENT_MARGIN_Y * 2.0, 1.0)))
 
-## Die ZIEL-SÄULE: oben die leere Projektor-Bühne (über ihr schwebt der echte
-## Würfel im Stasis-Feld, scene_root stellt ihn auf), darunter das Summen-Netz.
-func _target_column(u: float) -> Control:
-	var column := VBoxContainer.new()
-	column.name = "TargetColumn"
-	column.add_theme_constant_override("separation", int(u * 0.4))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+## Die ERGEBNIS-SPALTE rechts: Ergebnis-Podest über dem Soll-Schirm, volle Höhe
+## der Straße.
+func result_column_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	var street := street_rect()
+	var width := u * DIFF_WIDTH_UNITS
+	return Rect2(Vector2(street.end.x - width, street.position.y),
+		Vector2(width, street.size.y))
 
+## Das BAND - die ZEILE 2 der Straße (KORREKTUR-WELLE J): es liegt am Fuß der
+## Straße und trägt links den Tooltip-Schirm, rechts das Soll-Netz. EINE Zeile,
+## also EIN Rechteck - beide bekommen daraus ihre Höhe.
+func band_row_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	var street := street_rect()
+	var height := minf(u * DIFF_HEIGHT_UNITS, street.size.y)
+	return Rect2(Vector2(street.position.x, street.end.y - height),
+		Vector2(street.size.x, height))
+
+## Der SOLL-SCHIRM: die rechte Hälfte des Bandes - unter dem Ergebnis-Podest, auf
+## derselben Zeile wie der Tooltip links.
+func diff_screen_rect() -> Rect2:
+	var column := result_column_rect()
+	var band := band_row_rect()
+	return Rect2(Vector2(column.position.x, band.position.y),
+		Vector2(column.size.x, band.size.y))
+
+## Das ERGEBNIS-PODEST: über dem Soll-Schirm, um die Fuge abgesetzt - dorthin
+## wechselt der Zielwürfel am Ende der Serie.
+func result_podium_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	var column := result_column_rect()
+	var diff := diff_screen_rect()
+	var bottom := diff.position.y - u * STAGE_NET_GAP
+	var top := maxf(column.position.y + u * STAGE_HEAD_ROOM, bottom - u * STAGE_HEIGHT)
+	return Rect2(Vector2(column.position.x, top),
+		Vector2(column.size.x, maxf(bottom - top, 1.0)))
+
+## Der Platz der SCHACHT-REIHE: die Straße links der Ergebnis-Spalte.
+func row_field_rect() -> Rect2:
+	var u := maxf(size.x, 200.0) / 100.0
+	var street := street_rect()
+	var right := result_column_rect().position.x - u * STREET_GAP
+	return Rect2(street.position,
+		Vector2(maxf(right - street.position.x, u * 10.0), street.size.y))
+
+func _build_street(u: float) -> void:
+	_build_shaft_row(u)
+	_build_info_screen(u)  # Zeile 2 links: der Tooltip unter der Reihe
+	_build_result_column(u)
+
+# --- Die ERGEBNIS-SPALTE: Ergebnis-Podest über dem SOLL-SCHIRM -------------------
+
+func _build_result_column(u: float) -> void:
 	var stage := Control.new()
-	stage.name = "TargetStage"
-	stage.custom_minimum_size = Vector2(DieNetView.net_size(u * CHOICE_CELL).x,
-		u * STAGE_HEIGHT)
+	stage.name = "ResultStage"
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(stage)
+	var podium := result_podium_rect()
+	stage.position = podium.position
+	stage.size = podium.size
+	_content.add_child(stage)
 	_stage_host = stage
+	_build_diff_screen(u)
 
-	var air := Control.new()
-	air.name = "TargetNetGap"
-	air.custom_minimum_size = Vector2(0, u * STAGE_NET_GAP)
-	air.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(air)
-
-	# Der PARKPLATZ des Schlittens: ein leerer Platz in Netzgröße. Das Netz selbst
-	# fährt, dieser Platz nie - er ist die gemeldete Netzmitte.
+## Der SOLL-SCHIRM: das UI-SPIEGELBILD des linken Netzes. Ohne eigenen Hintergrund
+## (blanker Filz), er trägt NUR das Ergebnis-Netz - der physische Ergebnis-Würfel
+## steht über ihm auf dem Podest, das Netz DIREKT darunter, gleich groß wie links.
+func _build_diff_screen(u: float) -> void:
+	var rect := diff_screen_rect()
+	var screen := Panel.new()
+	screen.name = "DiffScreen"
+	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_theme_stylebox_override("panel", StyleBoxEmpty.new())  # blanker Filz
+	screen.position = rect.position
+	screen.size = rect.size
+	_content.add_child(screen)
+	_diff_screen = screen
+	var pad := u * DIFF_PAD
+	# Der PARKPLATZ des Netzes: ein leerer Platz in Netzgröße, OBEN unter dem Podest
+	# (der Würfel schwebt darüber). Das Netz fährt, dieser Platz nie.
+	var cell := _diff_net_cell(u)
+	var span := DieNetView.net_size(cell)
 	var host := Control.new()
 	host.name = "TargetNet"
-	host.custom_minimum_size = DieNetView.net_size(u * CHOICE_CELL)
-	host.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.position = Vector2((rect.size.x - span.x) * 0.5, pad)
+	host.size = span
+	screen.add_child(host)
 	_net_host = host
-	column.add_child(host)
-	column.add_child(_slack("TargetSlack"))
-	return column
+	# Das SOLL-NETZ steht IMMER (KORREKTUR-WELLE J): ohne Ziel und ohne Karten malt
+	# PressNetView nichts, dann steht das leere Kreuz an seiner Stelle. Es hängt
+	# NEBEN dem Parkplatz, nicht darin - der bleibt ein leerer Platz.
+	_empty_net = _empty_net_cross(cell)
+	_empty_net.position = host.position
+	screen.add_child(_empty_net)
+	_sync_empty_net()
 
-## Das POOL-RASTER: Sitz i = Zelle i, die Grammatik der Glas-Ansicht - nur schlicht
-## im Fenster statt am Gruben-Glas. Ein Tipp wählt, derselbe Tipp wählt ab.
-func _pool_column(u: float) -> Control:
-	# Ein CenterContainer, kein nacktes Control: ein Raster ohne gesetzte Größe
-	# fiele sonst auf 0 zusammen und legte seine Kacheln übereinander.
-	var host := CenterContainer.new()
-	host.name = "PoolChoice"
-	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var defs := pool_defs()
-	var rows := maxi(ceili(float(defs.size()) / float(POOL_COLUMNS)), 1)
-	var avail := Vector2(maxf(size.x - u * (CONTENT_MARGIN_X * 2.0 + BODY_GAP)
-			- DieNetView.net_size(u * CHOICE_CELL).x, u * 20.0),
-		maxf(size.y - u * (CONTENT_MARGIN_Y * 2.0 + STAGE_HEAD_ROOM), u * 20.0))
-	var grid := DiceGridView.new()
-	grid.name = "PoolGrid"
-	grid.place(POOL_COLUMNS, DiceGridView.unit_for(POOL_COLUMNS, rows, avail), true)
-	grid.fill(defs)
-	grid.set_highlights(_chosen_indices())
-	grid.slot_pressed.connect(_on_pool_slot_pressed)
-	host.add_child(grid)
-	_pool_grid = grid
-	return host
+## Das LEERE Kreuz: sechs dunkle Zellen an den Netz-Plätzen, sonst nichts - der
+## Platzhalter des Soll-Netzes.
+func _empty_net_cross(cell: float) -> Control:
+	var cross := Control.new()
+	cross.name = "EmptyNet"
+	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cross.size = DieNetView.net_size(cell)
+	for face in 6:
+		var chip := Panel.new()
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.position = DieNetView.cell_position(face, cell)
+		chip.size = Vector2.ONE * cell
+		var box := StyleBoxFlat.new()
+		box.bg_color = PressNetView.EMPTY_CELL
+		box.border_color = PressNetView.EMPTY_RIM
+		box.set_border_width_all(maxi(1, int(cell * 0.08)))
+		box.set_corner_radius_all(maxi(2, int(cell * 0.16)))
+		chip.add_theme_stylebox_override("panel", box)
+		cross.add_child(chip)
+	return cross
 
-## Die Würfel des Vorrats (ohne Lauf leer) - das Raster IST der Pool.
+## Er steht genau dann, wenn das echte Netz nichts malt (kein Ziel gewählt).
+func _sync_empty_net() -> void:
+	if _empty_net == null or not is_instance_valid(_empty_net):
+		return
+	_empty_net.visible = preview_target() == null
+
+## Zellmaß des Ergebnis-Netzes: das von scene_root gemeldete Maß der Info-Säule
+## (GLEICH GROSS wie links), auf die Spaltenbreite gedeckelt (kein Überlauf in die
+## Schacht-Reihe; nach unten darf es auf den Filz ragen). Ohne Meldung - kopflos/
+## Tests - fast der ganze Schirm.
+func _diff_net_cell(u: float) -> float:
+	var rect := diff_screen_rect()
+	var pad := u * DIFF_PAD
+	var width_cell := maxf(rect.size.x - pad * 2.0, 1.0) / DieNetView.net_size(1.0).x
+	if result_net_cell > 0.0:
+		return minf(result_net_cell, width_cell)
+	return DieNetView.cell_for(Vector2(maxf(rect.size.x - pad * 2.0, 1.0),
+		maxf(rect.size.y * DIFF_NET_SHARE, 1.0)))
+
+# --- Die Würfel des Vorrats und die Zielwahl ---------------------------------------
+
+## Die Würfel des Vorrats (ohne Lauf leer) - daraus liest die Zielwahl ihren Index.
 func pool_defs() -> Array[DieDefinition]:
 	if run == null:
 		return [] as Array[DieDefinition]
 	return run.owned_pool
-
-## Die gewählten Plätze (Ziel zuerst) - das Raster hebt sie hervor.
-func _chosen_indices() -> Array[int]:
-	var chosen: Array[int] = []
-	if _target_index >= 0:
-		chosen.append(_target_index)
-	if _second_index >= 0:
-		chosen.append(_second_index)
-	return chosen
 
 ## Der gewählte Zielwürfel (null = keiner).
 func target_die() -> DieDefinition:
@@ -833,12 +655,11 @@ func target_die() -> DieDefinition:
 		return null
 	return defs[_target_index]
 
-## Der zweite Würfel der Doppelmatrize (null = keiner / keine gesteckt).
+## Der zweite Würfel der Doppelmatrize. DEAKTIVIERT diese Welle (das Podest trägt
+## nur EIN Ziel): apply_series bekommt immer null, die Zweitprojektion der
+## Matrix-Karte ist inert - eine Folge-Welle löst sie.
 func second_die() -> DieDefinition:
-	var defs := pool_defs()
-	if not needs_second() or _second_index < 0 or _second_index >= defs.size():
-		return null
-	return defs[_second_index]
+	return null
 
 func target_index() -> int:
 	return _target_index
@@ -846,49 +667,64 @@ func target_index() -> int:
 func second_index() -> int:
 	return _second_index
 
-## Steckt eine Doppelmatrize in der Reihe? Dann verlangt der Griff einen ZWEITEN
-## Würfel - die Zweitprojektion braucht ein Ziel.
+## Steckt eine Doppelmatrize in der Reihe? DEAKTIVIERT diese Welle - sie verlangt
+## keinen zweiten Würfel mehr (siehe second_die), also mahnt der Serien-Schirm
+## auch keinen an und der Griff steht ohne ihn bereit.
 func needs_second() -> bool:
-	for card in _slot_cards():
-		if String(card.get("catalyst", "")) == Pack.CATALYST_MATRIX:
-			return true
 	return false
 
-## Der Tipp im Raster: derselbe Platz wählt ab, ein anderer wechselt. Steckt eine
-## Doppelmatrize und steht das Ziel schon, wählt der nächste Tipp den ZWEITEN.
-func _on_pool_slot_pressed(index: int) -> void:
+## Die ZIELWAHL per Pool-Klick: scene_root meldet den angetippten physischen
+## Würfel. Derselbe wählt ab, ein anderer wechselt (die Bühnen-Fahrt räumt und
+## holt neu). null oder ein Würfel, den der Pool nicht kennt, wählt ab.
+func set_target_die(die: DieDefinition) -> void:
 	if editing_locked or burning():
 		return
-	if index == _target_index:
-		_target_index = -1
-		_second_index = -1
-		_announce_target()
-		return
-	if index == _second_index:
-		_second_index = -1
-		refresh()
-		return
-	if _target_index >= 0 and needs_second():
-		_second_index = index
-		refresh()
+	var index := pool_defs().find(die) if die != null else -1
+	if index < 0 or index == _target_index:
+		clear_target()
 		return
 	_target_index = index
 	_announce_target()
 
-## Wählt den Zielwürfel programmatisch (Tests, Debug) - am Tisch tippt der Spieler.
+## Wählt ab (kein Ziel mehr) - der Podest-Würfel fährt in seinen Pool-Sitz zurück.
+func clear_target() -> void:
+	if _target_index < 0 and _second_index < 0:
+		return
+	_target_index = -1
+	_second_index = -1
+	_announce_target()
+
+## Wählt den Zielwürfel programmatisch (Tests, Debug) - am Tisch tippt der Spieler
+## einen physischen Pool-Würfel an.
 func choose_target(index: int) -> void:
-	_on_pool_slot_pressed(index)
+	var defs := pool_defs()
+	set_target_die(defs[index] if index >= 0 and index < defs.size() else null)
 
 func _announce_target() -> void:
+	_drop_result()  # ein anderes Ziel hat kein Ergebnis
 	refresh()
 	target_chosen.emit(target_die())
 
 ## Der Zielwürfel, den das Summen-Netz zeigt: während der Zeremonie der Stand VOR
-## dem Griff (nur so kann das Netz von 0 hochticken), sonst der echte.
+## dem Griff (nur so kann das Netz von 0 hochticken), danach der ERGEBNIS-Stand
+## (auch der Stand davor - die grünen Deltas leben vom Vergleich), sonst der echte.
 func preview_target() -> DieDefinition:
 	if burning():
 		return _burn_die
+	if showing_result():
+		return _result_die
 	return target_die()
+
+## STEHT gerade das ERGEBNIS der letzten Buchung im Soll-Schirm? Es bleibt, bis ein
+## anderes Ziel gewählt oder abgewählt wird - und eine neu gesteckte Karte übernimmt
+## ihn sofort wieder als Vorschau.
+func showing_result() -> bool:
+	return not burning() and _result_die != null and _series.is_empty()
+
+## Das Ergebnis verfällt: eine neue Zielwahl (oder die Abwahl) räumt es fort.
+func _drop_result() -> void:
+	_result_die = null
+	_result_projection = {}
 
 ## DIE LIVE-VORSCHAU: was die gesteckte Serie auf dem Zielwürfel ergäbe. Sie ist
 ## buchstäblich dieselbe Rechnung, die der Griff bucht ({} = keine).
@@ -896,11 +732,25 @@ func preview_target() -> DieDefinition:
 func preview() -> Dictionary:
 	if burning():
 		return SeriesResolver.resolve(_burn_nets_so_far(), _burn_die, _burn_terms)
+	if showing_result():
+		return _result_projection
 	if run == null or target_die() == null or _series.is_empty():
 		return {}
 	return run.resolve_series(_series, target_die())
 
-## Die Seiten, die die überfahrene Karte beiträgt (leer = kein Hover).
+## Die Auflösung der GANZEN Serie - auch während der Fahrt, in der preview() nur die
+## schon erfaßten Karten zählt: das stehende Ergebnis merkt sich die volle Buchung.
+func _full_projection() -> Dictionary:
+	if not burning():
+		return preview()  # showing_result liefert dort die ganze Buchung
+	var nets: Array = []
+	for card in _burning:
+		if String(card.get("catalyst", "")) == "":
+			nets.append(card.get("net", []))
+	return SeriesResolver.resolve(nets, _burn_die, _burn_terms)
+
+## Die Seiten, die die überfahrene Karte beiträgt (leer = kein Hover). Sie liest die
+## gesteckten Karten - steht das Ergebnis, ist die Reihe leer und nichts leuchtet.
 func _highlight_faces() -> Array[int]:
 	var cards := _slot_cards()
 	if _hover_slot < 0 or _hover_slot >= cards.size():
@@ -912,23 +762,27 @@ func _highlight_faces() -> Array[int]:
 			faces.append(face)
 	return faces
 
-## Display-Pixel der Netz-Mitte (Vector2(-1,-1) = die Säule steht gerade nicht) -
-## dort stellt scene_root den echten Würfel darüber auf. Gemeldet wird der
-## PARKPLATZ, nie der fahrende Schlitten: sonst zöge die Fahrt den Würfel mit.
-func target_net_center() -> Vector2:
-	if _net_host == null or not is_instance_valid(_net_host):
+## Display-Pixel der ERGEBNIS-PODEST-Mitte (Vector2(-1,-1) = die Spalte steht
+## gerade nicht) - dorthin wechselt der fertige Würfel.
+func result_net_center() -> Vector2:
+	if _stage_host == null or not is_instance_valid(_stage_host):
 		return Vector2(-1, -1)
-	return _net_host.get_global_rect().get_center()
+	return _stage_host.get_global_rect().get_center()
 
-## Die ZEILE dazu: Bildschirm-Höhe des Projektors. Sie liegt im Fenster, ein Stück
-## unter seinem oberen Rand. Ohne Layout die Fenstermitte.
-func target_projector_y() -> float:
+func result_projector_y() -> float:
 	if _stage_host != null and is_instance_valid(_stage_host):
 		return _stage_host.get_global_rect().get_center().y
 	return get_global_rect().get_center().y
 
+## Display-Pixel des PARKPLATZES des Summen-Netzes im Soll-Schirm ((-1,-1) = er
+## steht gerade nicht). Der Schlitten fährt, dieser Platz nie.
+func sum_net_center() -> Vector2:
+	if _net_host == null or not is_instance_valid(_net_host):
+		return Vector2(-1, -1)
+	return _net_host.get_global_rect().get_center()
+
 ## Steht die Bank gerade so da, dass ein Würfel darüber schweben darf? Sie steht
-## IMMER - die Ziel-Säule ist Möbel, kein Ablauf. (Die KAMERA fragt hier nicht mit.)
+## IMMER - die Straße ist Möbel, kein Ablauf. (Die KAMERA fragt hier nicht mit.)
 func bench_open() -> bool:
 	return true
 
@@ -937,37 +791,47 @@ func bench_open() -> bool:
 func console_band_rect() -> Rect2:
 	var u := maxf(size.x, 200.0) / 100.0
 	return Rect2(Vector2(0.0, size.y + u * CONSOLE_SHELF_GAP),
-		Vector2(size.x, console_size(u).y))
+		Vector2(size.x, band_size(u).y))
 
-## Fenster PLUS Schürze in Display-Pixeln: alles, was zur Werkbank gehört.
+## Maße des Bandes: die volle Fensterbreite, feste Höhe.
+func band_size(u: float) -> Vector2:
+	return Vector2(maxf(size.x, u * 100.0), u * BAND_HEIGHT_UNITS)
+
+## Fenster PLUS Schürze in Display-Pixeln: alles, was zur Werkbank gehört - und
+## damit die EINE Weiterleitungs-Region. Sie streckt sich nach UNTEN bis zur
+## Schürzenlinie und nach LINKS bis zur Magazin-Kante: ragte die Grube darüber
+## hinaus, fiele jeder Chip-Tap dort durch (der Welle-H-Bug).
 func bench_rect() -> Rect2:
 	var rect := get_global_rect()
 	rect.size.y = maxf(rect.size.y, apron_bottom_y())
+	var left := shelf_rect().position.x
+	if left < 0.0:
+		rect.position.x += left
+		rect.size.x -= left
 	return rect
 
-## Breite/Höhe des Fensters, bei dem die GRUNDSEITE bündig aufgeht: links die
-## Ziel-Säule (so breit wie ihr Netz), rechts der Platz des 30er-Rasters. Die
-## Breite ist damit nicht gesetzt, sondern gelöst.
-## Alles außer der Fensterhöhe misst in u = Breite/100, die Gleichung schließt
-## sich also über die Breite; die Höhe kürzt sich heraus.
-static func dossier_aspect() -> float:
-	var rows := ceili(float(GameRun.POOL_SIZE) / float(POOL_COLUMNS))
-	var span := DiceGridView.detail_span(POOL_COLUMNS, rows)
-	var ratio := span.x / span.y
-	# Was die Breite VOR dem Raster verbraucht: beide Inhaltsränder, die
-	# Netzspalte und die Fuge dazwischen.
-	var used := CONTENT_MARGIN_X * 2.0 + DieNetView.net_size(CHOICE_CELL).x + BODY_GAP
-	# Oben und unten steht auf DIESER Seite derselbe Rand wie zur Seite.
-	return 100.0 * ratio / (100.0 - used + ratio * CONTENT_MARGIN_X * 2.0)
+## Das Seitenverhältnis (Breite/Höhe) der Werkbank - GELÖST, nicht gesetzt. Die
+## Grundseite ist die STRASSE, und sie trägt ZWEI Spalten über EINEM Band: rechts
+## Kopfraum, Podest, Fuge; links die höchstmögliche Schacht-Reihe (der Mund-Deckel)
+## und ihre Fuge - die HÖHERE der beiden gibt das Maß. Das Fenster ist per
+## u-Konvention 100u breit, darum ist die BREITE die Höhe mal diesem Verhältnis.
+static func bench_aspect() -> float:
+	var column := STAGE_HEAD_ROOM + STAGE_HEIGHT + STAGE_NET_GAP + DIFF_HEIGHT_UNITS
+	var row := MOUTH_MAX_WIDTH * MOUTH_ASPECT + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
+		+ DIFF_HEIGHT_UNITS
+	return 100.0 / (CONTENT_MARGIN_Y * 2.0 + maxf(column, row))
 
 ## Wie tief die Schürze unter der Fensterkante hängt, in Einheiten u: Naht, ganzes
-## Konsolen-Band, Naht, Magazin-Streifen. scene_root löst damit die Fensterhöhe
-## aus der Spanne bis zur Hub-Unterkante auf.
-## Das Band wird in ECHTEN u gemessen und zurückgerechnet: seit der Schlitz die
-## Kappe der Kassette schluckt, hängt seine Höhe an einem Weltmaß (data_cell_px).
+## Konsolen-Band, Naht, Magazin-Streifen - eine reine Konstante, kein Weltmaß.
+## scene_root darf sie über apron_bottom auf ein größeres Maß strecken.
 func apron_units() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	return CONSOLE_SHELF_GAP * 2.0 + console_size(u).y / u + SHELF_STRIP_UNITS
+	return apron_span_units()
+
+## Dieselbe Kette, statisch: scene_root löst daraus die Fensterhöhe, so dass
+## Fenster PLUS Schürze in die Pool-Höhe passen (die Magazin-Unterkante trifft
+## dann die Pool-Unterkante).
+static func apron_span_units() -> float:
+	return CONSOLE_SHELF_GAP * 2.0 + BAND_HEIGHT_UNITS + SHELF_STRIP_UNITS
 
 ## Unterkante der Schürze in Fenster-Koordinaten (siehe apron_bottom).
 func apron_bottom_y() -> float:
@@ -975,62 +839,66 @@ func apron_bottom_y() -> float:
 		return apron_bottom
 	return size.y + maxf(size.x, 200.0) / 100.0 * apron_units()
 
-# --- Die SERIEN-SLOT-REIHE -------------------------------------------------------
+# --- Die SCHACHT-REIHE -------------------------------------------------------------
 
-## Wie viele Slots die Reihe trägt: die Serienlänge des Laufs, mindestens so
+## Wie viele Schächte die Reihe trägt: die Serienlänge des Laufs, mindestens so
 ## viele, wie gerade stecken (eine geschrumpfte Leiter wirft keine Karte fort).
 func slot_count() -> int:
 	var slots := run.series_slots() if run != null else FALLBACK_SLOTS
 	return maxi(slots, _slot_cards().size())
 
-## Die Serien-Reihe als flache Leiste, eingelassen in ihr Konsolen-Blech. Ein
-## belegter Slot trägt seine Kassette samt Prägenetz; ein Klick nimmt sie zurück
-## ins Magazin, ein ZUG sortiert die Reihe um.
-## Das Blech steht MITTIG im Band, der Handlungs-Sitz in dessen rechter Flanke.
-func _build_series_band(u: float) -> void:
-	var band := Control.new()
-	band.name = "SeriesBand"
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(band)  # direktes Kind: das Band liegt auf der Fensterkante
-	_band = band
-	var rect := console_band_rect()
-	band.position = rect.position
-	band.size = rect.size
-	var console := _series_console(u)
-	band.add_child(console)
-	console.add_child(_series_rail(u))
-	_build_action_seat(band, u)
-	_build_info_screen(band, u)
-	_build_series_screen(band, u)
-	var row := HBoxContainer.new()
-	row.name = "SeriesSlots"
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = u * CONSOLE_PAD_X
-	row.offset_right = -u * CONSOLE_PAD_X
-	row.offset_top = u * CONSOLE_PAD_Y
-	row.offset_bottom = -u * CONSOLE_PAD_Y
-	row.add_theme_constant_override("separation", int(u * BENCH_GAP))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	console.add_child(row)
-	var cards := _slot_cards()
-	var slots := slot_count()
-	_portals.resize(slots)
-	for i in slots:
-		row.add_child(_series_slot(i, u, cards[i] if i < cards.size() else {}))
+## Breite EINES Schacht-Mundes: GELÖST aus dem Platz, den die Reihe hat - gedeckelt
+## nach oben (eine kurze Serie schneidet keine Riesenlöcher) und nach unten (eine
+## lange Serie zerdrückt die Kassette nicht).
+func mouth_width(u: float) -> float:
+	var columns := float(slot_count())
+	var room := row_field_rect().size.x - u * CONSOLE_PAD_X * 2.0
+	var solved := (room - (columns - 1.0) * u * BENCH_GAP) / maxf(columns, 1.0)
+	return clampf(solved, u * MOUTH_MIN_WIDTH, u * MOUTH_MAX_WIDTH)
 
-## Das Blech hinter der Reihe: erhabene Platte in neutralem Dunkelmetall. Es hängt
-## mittig im Band - der Sitz daneben darf es nicht verschieben.
-func _series_console(u: float) -> Panel:
+func mouth_size(u: float) -> Vector2:
+	var wide := mouth_width(u)
+	return Vector2(wide, wide * MOUTH_ASPECT)
+
+## Maße des Blechs: die Münder mit ihrer Luft dazwischen, plus Rand.
+func console_size(u: float) -> Vector2:
+	var mouth := mouth_size(u)
+	var columns := float(slot_count())
+	var row := columns * mouth.x + (columns - 1.0) * u * BENCH_GAP
+	return Vector2(row + u * CONSOLE_PAD_X * 2.0, mouth.y + u * CONSOLE_PAD_Y * 2.0)
+
+## Der Anzeige-Maßstab einer Kassette IM SCHACHT: sie steht dort in IHREM eigenen
+## Maß, nicht im Magazin-Maß - der Mund gibt es vor. scene_root skaliert die
+## Körper darauf (ui/ faßt nie einen an).
+func socket_cell_scale() -> float:
+	var u := maxf(size.x, 200.0) / 100.0
+	var wide := shelf_cell_px().x
+	if wide <= 0.0:
+		return PackDrawerView.CASSETTE_SCALE
+	return maxf(mouth_width(u) * SOCKET_FILL / wide, PackDrawerView.CASSETTE_SCALE)
+
+## Die Reihe als flache Leiste, eingelassen in ihr Konsolen-Blech. Ein belegter
+## Schacht trägt seine echte Kassette (scene_root stellt sie); ein Klick nimmt sie
+## zurück ins Magazin, ein ZUG sortiert die Reihe um.
+## Der Platz des KONSOLEN-BLECHS in Fenster-Koordinaten: mittig im Reihen-Feld und
+## OBEN (Zeile 1). Eine reine Funktion - der Tooltip darunter fragt sie ab und
+## bekommt daraus GENAU seine Kanten.
+func console_rect(u: float) -> Rect2:
+	var field := row_field_rect()
+	var span := console_size(u)
+	return Rect2(Vector2(field.position.x + (field.size.x - span.x) * 0.5,
+		field.position.y), span)
+
+func _build_shaft_row(u: float) -> void:
+	var plate := console_rect(u)
+	var span := plate.size
 	var console := Panel.new()
 	console.name = "SeriesConsole"
 	console.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var span := console_size(u)
-	console.anchor_left = 0.5
-	console.anchor_right = 0.5
-	console.anchor_bottom = 1.0
-	console.offset_left = -span.x * 0.5
-	console.offset_right = span.x * 0.5
+	# OBEN im Feld, nicht mittig: die Reihe liest auf DERSELBEN Zeile wie das Podest
+	# rechts, und der Tooltip darunter behält seinen eigenen Platz.
+	console.position = plate.position
+	console.size = span
 	_console = console
 	var radius := int(u * CONSOLE_RADIUS)
 	var box := StyleBoxFlat.new()
@@ -1045,10 +913,25 @@ func _series_console(u: float) -> Panel:
 		CONSOLE_BASE.lerp(CONSOLE_SHEEN, CONSOLE_SHEEN_MIX), edge, radius, true))
 	console.add_child(PackDrawerView.edge_band("ConsoleShade", CONSOLE_SHADOW,
 		edge, radius, false))
-	return console
+	_content.add_child(console)
+	console.add_child(_series_rail(u))
 
-## Die SCHIENE über der Reihe: der Weg des Schlittens, als Strich im oberen Rand
-## des Blechs. Sie liegt IN CONSOLE_PAD_Y - die Reihe rückt für sie nicht.
+	var cards := _slot_cards()
+	var slots := slot_count()
+	_portals.resize(slots)
+	var mouth := mouth_size(u)
+	var step := mouth.x + u * BENCH_GAP
+	var left := u * CONSOLE_PAD_X
+	for i in slots:
+		var card: Dictionary = cards[i] if i < cards.size() else {}
+		var seat := _shaft_mouth(i, u, card)
+		seat.position = Vector2(left + float(i) * step, u * CONSOLE_PAD_Y)
+		seat.size = mouth
+		console.add_child(seat)
+
+## Die SCHIENE über der Reihe: der Weg des Schlittens (und, ab Welle C, der
+## Schablone), als Strich im oberen Rand des Blechs. Sie liegt IN CONSOLE_PAD_Y -
+## die Reihe rückt für sie nicht.
 func _series_rail(u: float) -> Panel:
 	var rail := Panel.new()
 	rail.name = "ScanRail"
@@ -1064,14 +947,37 @@ func _series_rail(u: float) -> Panel:
 	rail.add_theme_stylebox_override("panel", box)
 	return rail
 
-## Maße des Blechs: die Slots mit ihrer Luft dazwischen, plus Rand.
-func console_size(u: float) -> Vector2:
-	var slot := socket_size(u)
-	var columns := float(slot_count())
-	var row := columns * slot.x + (columns - 1.0) * u * BENCH_GAP
-	return Vector2(row + u * CONSOLE_PAD_X * 2.0, slot.y + u * CONSOLE_PAD_Y * 2.0)
+## EIN SCHACHT-MUND: ein LOCH im Blech, in dem die echte Kassette steht. Der KNOPF
+## spannt ihn und fängt allein Klick und Zeiger - gezeichnet wird von seinen
+## Kindern, der Körper gehört scene_root.
+func _shaft_mouth(index: int, u: float, card: Dictionary) -> Button:
+	var slot := Button.new()
+	slot.name = "SeriesSlot"
+	slot.focus_mode = Control.FOCUS_NONE
+	slot.disabled = true
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		slot.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	slot.add_child(_slot_pocket(u))
+	var portal := PressPortalView.new()
+	portal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slot.add_child(portal)
+	portal.setup(String(card.get("sort", "")), _slot_tint(card))
+	if index < _portals.size():
+		_portals[index] = portal
+	var mouth := Panel.new()
+	mouth.name = "Slit"
+	mouth.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mouth.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mouth.add_theme_stylebox_override("panel", _mouth_box(_slot_tint(card), u))
+	slot.add_child(mouth)
 
-## Die Vertiefung, in der Karte und Schlitz eines Slots liegen.
+	_arm_slot(slot, index, card)
+	_slot_buttons.append(slot)
+	_slit_panels.append(mouth)
+	_card_panels.append(mouth)
+	return slot
+
+## Die Vertiefung, in der ein Mund liegt.
 func _slot_pocket(u: float) -> Panel:
 	var pocket := Panel.new()
 	pocket.name = "SlotPocket"
@@ -1092,42 +998,7 @@ func _slot_pocket(u: float) -> Panel:
 	pocket.add_child(PackDrawerView.edge_band("PocketLight", POCKET_SHEEN, edge, radius, false))
 	return pocket
 
-## Ein SERIEN-SLOT: seine Tasche im Blech, darin oben die senkrechte Kassette (das
-## Prägenetz und der Name) und darunter der Leseschlitz. Der KNOPF spannt alles und
-## fängt allein Klick und Zeiger - gezeichnet wird von seinen Kindern.
-func _series_slot(index: int, u: float, card: Dictionary) -> Button:
-	var slot := Button.new()
-	slot.name = "SeriesSlot"
-	slot.focus_mode = Control.FOCUS_NONE
-	slot.custom_minimum_size = socket_size(u)
-	slot.disabled = true
-	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
-		slot.add_theme_stylebox_override(state, StyleBoxEmpty.new())
-	slot.add_child(_slot_pocket(u))
-
-	var column := VBoxContainer.new()
-	column.name = "SlotColumn"
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.add_theme_constant_override("separation", int(u * SLIT_DISPLAY_GAP))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var seat := _slot_card(card, u, index)
-	column.add_child(seat)
-	var slit := Panel.new()
-	slit.name = "Slit"
-	slit.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slit.custom_minimum_size = slit_size(u)
-	slit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	slit.add_theme_stylebox_override("panel", _slit_box(_slot_tint(card), u))
-	column.add_child(slit)
-	slot.add_child(column)
-
-	_arm_slot(slot, index, card)
-	_slot_buttons.append(slot)
-	_slit_panels.append(slit)
-	_card_panels.append(seat)
-	return slot
-
-## Ein Klick auf den belegten Slot nimmt seine Karte zurück ins Magazin, ein ZUG
+## Ein Klick auf den belegten Schacht nimmt seine Karte zurück ins Magazin, ein ZUG
 ## legt sie an eine andere Stelle der Reihe - dieselbe Trennung wie im Vorrat:
 ## gezogen sortiert um, getippt handelt.
 func _arm_slot(slot: Button, index: int, card: Dictionary) -> void:
@@ -1135,131 +1006,22 @@ func _arm_slot(slot: Button, index: int, card: Dictionary) -> void:
 		return
 	slot.disabled = editing_locked
 	slot.tooltip_text = "%s\n%s" % [String(card.get("name", "")), String(card.get("body", ""))]
-	slot.set_meta("title", String(card.get("name", "")))
-	slot.set_meta("body", _card_hint_body(card))
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	slot.pressed.connect(clear_press_slot.bind(index))
 	slot.gui_input.connect(_on_slot_input.bind(index))
 
-## Die Auskunft einer gesteckten Karte: ihre Wirkzeile plus die Zeile ihres
-## Prägenetzes - die eine Textquelle ist Pack, hier wird nichts zweitformuliert.
-static func _card_hint_body(card: Dictionary) -> String:
-	var body := String(card.get("body", ""))
-	var line := String(card.get("line", ""))
-	if line == "" or body.contains(line):
-		return body
-	return "%s\n%s" % [body, line]
-
-## Der KARTENPLATZ eines Slots: er steht fest (an ihm messen die Anker), und die
-## Kassette darin FÄHRT - beim Einsetzen aus dem Leseschlitz hoch, beim Umlegen
-## seitlich. Beides ist reines Licht: der Platz schuldet nichts, wenn ein Tween
-## abbricht.
-func _slot_card(card: Dictionary, u: float, index: int) -> Control:
-	var span := card_size(u)
-	var seat := Control.new()
-	seat.name = "SlotCardSeat"
-	seat.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	seat.custom_minimum_size = span
-	var face := _card_face(card, u, index)
-	face.size = span
-	seat.add_child(face)
-	var uid := int(card.get("uid", 0))
-	var rise: bool = uid > 0 and bool(_fresh_slots.erase(uid))
-	var slide := float(_slide_from.get(uid, 0.0)) if uid > 0 else 0.0
-	if uid > 0:
-		_slide_from.erase(uid)
-	if rise:
-		# EINSETZEN: sie steigt aus ihrem Schlitz ins Bild und glüht dabei an.
-		seat.clip_contents = true
-		face.position = Vector2(0.0, span.y)
-		_glide_card(face, CARD_RISE_TIME)
-		var portal: PressPortalView = _portals[index] if index < _portals.size() else null
-		if portal != null and is_instance_valid(portal):
-			portal.charge()
-	elif not is_zero_approx(slide):
-		face.position = Vector2(slide, 0.0)
-		_glide_card(face, CARD_SLIDE_TIME)
-	return seat
-
-## Die Fahrt einer Karte auf ihren Platz. Der Tween hängt an der KARTE, nicht am
-## Fenster: ein Neuaufbau nimmt ihn mit sich.
-func _glide_card(face: Control, time: float) -> void:
-	var glide := face.create_tween()
-	glide.tween_property(face, "position", Vector2.ZERO, time) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-## Die KASSETTE selbst: senkrecht, oben ihr Mini-Netz, darunter ihr Name.
-## Ein leerer Slot bleibt dunkel - dort steht keine Karte, die etwas sagen könnte.
-## index < 0 = ein Abbild ohne Slot (das sinkende Rückwurf-Bild).
-func _card_face(card: Dictionary, u: float, index: int) -> Panel:
-	var span := card_size(u)
-	var tint := _slot_tint(card)
-	var field := Panel.new()
-	field.name = "SlotCard"
-	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	field.clip_contents = true
-	field.custom_minimum_size = span
-	field.add_theme_stylebox_override("panel", _card_box(tint, u))
-	var portal := PressPortalView.new()
-	portal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	field.add_child(portal)
-	portal.setup(String(card.get("sort", "")), tint)
-	if index >= 0 and index < _portals.size():
-		_portals[index] = portal
-	if card.is_empty():
-		return field
-	var pad := u * CARD_PAD
-	var net_room := Vector2(span.x - pad * 2.0, span.y * CARD_NET_SHARE)
-	var mini := PressNetView.stamp_net(card.get("net", []),
-		DieNetView.cell_for(net_room), tint)
-	mini.position = Vector2((span.x - mini.size.x) * 0.5, pad)
-	field.add_child(mini)
-	field.add_child(_card_name(String(card.get("name", "")), span,
-		pad + mini.size.y, tint, u))
-	return field
-
-## Der Name unter dem Netz: er paßt sich in die Karte ein, statt sie zu verbreitern.
-func _card_name(text: String, span: Vector2, top: float, tint: Color, u: float) -> Label:
-	var label := Label.new()
-	label.name = "CardName"
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = true
-	label.text = text
-	label.position = Vector2(u * CARD_PAD, top)
-	label.size = Vector2(span.x - u * CARD_PAD * 2.0, maxf(span.y - top - u * CARD_PAD, 1.0))
-	label.add_theme_color_override("font_color", tint)
-	label.add_theme_color_override("font_outline_color", CasinoStyle.INK)
-	label.add_theme_constant_override("outline_size", maxi(1, int(u * 0.16)))
-	var font := label.get_theme_font("font")
-	var spacing := label.get_theme_constant("line_spacing")
-	for step in CARD_NAME_STEPS:
-		var px := int(u * float(step))
-		label.add_theme_font_size_override("font_size", px)
-		if font == null or px <= 0:
-			break
-		if text_block_height(font, text, label.size.x, px, spacing) <= label.size.y:
-			break
-	return label
-
-## Maße einer Karte, eines ganzen Slots und des Schlitzes allein.
+## Maße der Reihe, die außen gefragt werden (Tests, Anker-Rechnungen).
 func card_size(u: float) -> Vector2:
-	return Vector2(maxf(u * CARD_WIDTH, slit_size(u).x), u * CARD_HEIGHT)
+	return mouth_size(u)
 
 func socket_size(u: float) -> Vector2:
-	var card := card_size(u)
-	return Vector2(card.x, card.y + u * SLIT_DISPLAY_GAP + slit_size(u).y)
+	return mouth_size(u)
 
-## Der Schlitz: so groß, dass die Kappe der Zelle hindurchgeht - in ihrem festen
-## Anzeigemaß, denn genau so steckt sie später darin. Bewusst flach.
 func slit_size(u: float) -> Vector2:
-	var cap := data_cell_px * PackDrawerView.CASSETTE_SCALE * SOCKET_ROOM
-	return Vector2(maxf(u * CARD_WIDTH, cap.x), maxf(u * SLIT_HEIGHT, cap.y))
+	return mouth_size(u)
 
-## Die Farbe eines Slots: leer der stumpfe Rand, belegt AMBER für Operatoren und
-## sonst die Sortenfarbe - eine Quelle für Schlitzrand und Kartenrahmen.
+## Die Farbe eines Schachts: leer der stumpfe Rand, belegt AMBER für Operatoren und
+## sonst die Sortenfarbe - eine Quelle für Saum und Glühen.
 func _slot_tint(card: Dictionary) -> Color:
 	if card.is_empty():
 		return SOCKET_RIM
@@ -1267,23 +1029,15 @@ func _slot_tint(card: Dictionary) -> Color:
 		return OPERATOR_TINT
 	return PackDrawerView.COLORS.get(String(card.get("sort", "")), SOCKET_LIVE_RIM)
 
-func _slit_box(rim: Color, u: float) -> StyleBoxFlat:
+func _mouth_box(rim: Color, u: float) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = SOCKET_BG
 	box.border_color = rim
 	box.set_border_width_all(maxi(1, int(u * 0.18)))
-	box.set_corner_radius_all(int(slit_size(u).y * 0.35))
+	box.set_corner_radius_all(int(u * POCKET_RADIUS))
 	return box
 
-func _card_box(rim: Color, u: float) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = SOCKET_BG
-	box.border_color = Color(rim.r, rim.g, rim.b, rim.a * 0.7)
-	box.set_border_width_all(maxi(1, int(u * 0.14)))
-	box.set_corner_radius_all(int(u * 0.4))
-	return box
-
-## Die Sorten der belegten Slots, in Reihenfolge - scene_root legt daran seine
+## Die Sorten der belegten Schächte, in Reihenfolge - scene_root legt daran seine
 ## Zellen ab.
 func press_slot_sorts() -> Array[String]:
 	var sorts: Array[String] = []
@@ -1292,15 +1046,15 @@ func press_slot_sorts() -> Array[String]:
 	return sorts
 
 ## Die uids derselben Reihe - scene_root übernimmt daran die Magazin-Körper in die
-## Schlitze und gibt sie beim Auswerfen an ihre Plätze zurück.
+## Schächte und gibt sie beim Auswerfen an ihre Plätze zurück.
 func press_slot_uids() -> Array[int]:
 	var uids: Array[int] = []
 	for card in _slot_cards():
 		uids.append(int(card.get("uid", 0)))
 	return uids
 
-## Display-Pixel der SCHLITZ-Mitten (leere eingeschlossen) - dort steckt die Zelle
-## eines belegten Slots. Nicht die Knopfmitte: der Knopf reicht bis über die Karte.
+## Display-Pixel der SCHACHT-MÜNDER (leere eingeschlossen) - dort steht die Zelle
+## eines belegten Schachts.
 func press_slot_anchors() -> Array[Vector2]:
 	var anchors: Array[Vector2] = []
 	for slit in _slit_panels:
@@ -1308,9 +1062,9 @@ func press_slot_anchors() -> Array[Vector2]:
 			anchors.append(slit.get_global_rect().get_center())
 	return anchors
 
-## Display-Pixel der KARTENPLÄTZE derselben Reihe (leere eingeschlossen) - sie
-## sind die Stützpunkte der Schiene, und der Platz steht still, während die
-## Kassette darin fährt.
+## Display-Pixel der KARTEN-FLÄCHEN derselben Reihe (leere eingeschlossen) - sie
+## sind die Stützpunkte der Schiene. Die Karte liegt geneigt über ihrem Mund, also
+## ist es heute derselbe Punkt; Welle C hängt ihre Schablone daran.
 func press_display_anchors() -> Array[Vector2]:
 	var anchors: Array[Vector2] = []
 	for field in _card_panels:
@@ -1322,8 +1076,8 @@ func press_display_anchors() -> Array[Vector2]:
 func shelf_locked() -> bool:
 	return editing_locked or burning()
 
-## Legt GENAU diese Karte in den nächsten freien Serien-Slot. false = keine solche
-## Karte, kein Platz frei oder das Magazin ist zu.
+## Legt GENAU diese Karte in den nächsten freien Serien-Schacht. false = keine
+## solche Karte, kein Platz frei oder das Magazin ist zu.
 func slot_pack(uid: int) -> bool:
 	if run == null or shelf_locked():
 		return false
@@ -1335,7 +1089,6 @@ func slot_pack(uid: int) -> bool:
 	if _series.has(uid) or _pending_arrivals.has(uid):
 		return false
 	_series.append(uid)
-	_fresh_slots[uid] = true  # sie FÄHRT beim nächsten Aufbau aus dem Schlitz hoch
 	refresh()
 	return true
 
@@ -1352,58 +1105,21 @@ func slot_pack_from_stack(stack_category: String) -> bool:
 		return slot_pack(pack.pack_uid)
 	return false
 
-## Nimmt eine Karte wieder aus ihrem Slot - sie liegt danach wieder auf ihrem
+## Nimmt eine Karte wieder aus ihrem Schacht - sie liegt danach wieder auf ihrem
 ## Magazin-Platz. Gemeldet wird VOR dem Neuaufbau: die Zelle dieses Platzes muss
 ## sich ausklinken, bevor die Sockel neu abgezählt werden.
 func clear_press_slot(index: int) -> void:
 	if index < 0 or index >= _series.size() or editing_locked or burning():
 		return
 	var uid := _series[index]
-	var before := _series.duplicate()
-	_sink_card(index)  # das Abbild fährt zurück in den Schlitz, solange sie noch steht
 	_series.remove_at(index)
-	_mark_slides(before)
 	pack_unslotted.emit(index, uid)
 	refresh()
 
-## Die zurückgeworfene Karte SINKT denselben Weg, den sie kam: ein Abbild von ihr
-## fährt in den Schlitz zurück und erlischt. Es hängt am Fenster, nicht am Band -
-## der Neuaufbau darf es nicht mitreißen -, und es räumt sich selbst weg.
-func _sink_card(index: int) -> void:
-	if index < 0 or index >= _card_panels.size():
-		return
-	var seat: Control = _card_panels[index]
-	var cards := _slot_cards()
-	if seat == null or not is_instance_valid(seat) or index >= cards.size():
-		return
-	var rect := seat.get_global_rect()
-	if rect.size.x <= 0.0:
-		return
-	var ghost := _card_face(cards[index], maxf(size.x, 200.0) / 100.0, -1)
-	ghost.size = rect.size
-	ghost.position = rect.position - get_global_rect().position
-	add_child(ghost)
-	var sink := ghost.create_tween()
-	sink.set_parallel(true)
-	sink.tween_property(ghost, "position:y", ghost.position.y + rect.size.y,
-		CARD_SINK_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	sink.tween_property(ghost, "modulate:a", 0.0, CARD_SINK_TIME)
-	sink.chain().tween_callback(ghost.queue_free)
-
-## Wie weit jede Karte seitlich gleitet: aus der Verschiebung ihres PLATZES
-## gerechnet, nicht gemessen - beim Umlegen ist das Blech noch gar nicht neu
-## gelegt, und ein Bild später wäre der Sprung längst zu sehen.
-func _mark_slides(before: Array[int]) -> void:
-	var u := maxf(size.x, 200.0) / 100.0
-	var step := socket_size(u).x + u * BENCH_GAP
-	for i in _series.size():
-		var was := before.find(_series[i])
-		if was >= 0 and was != i:
-			_slide_from[_series[i]] = float(was - i) * step
-
 ## UMSORTIEREN in der Reihe: die Karte wird an from herausgenommen und bei to
 ## eingesetzt, alles dazwischen rückt eine Stelle - dieselbe move-statt-swap-
-## Semantik wie reorder_pool. Die Reihenfolge IST die Rechenreihenfolge.
+## Semantik wie reorder_pool. Die Reihenfolge IST die Rechenreihenfolge; die
+## KÖRPER fahren um (scene_root, an den gemeldeten Ankern).
 func move_slot(from_index: int, to_index: int) -> void:
 	if editing_locked or burning():
 		return
@@ -1412,15 +1128,13 @@ func move_slot(from_index: int, to_index: int) -> void:
 	if to_index < 0 or to_index == from_index:
 		return
 	var uid := _series[from_index]
-	var before := _series.duplicate()
 	_series.remove_at(from_index)
 	_series.insert(mini(to_index, _series.size()), uid)
-	_mark_slides(before)
 	refresh()
 
-## Drücken merkt sich den Slot, Loslassen über einem ANDEREN legt die Karte dort
-## ein. Losgelassen über demselben Slot bleibt es ein Klick - dafür feuert der
-## Knopf ohnehin sein pressed, und die beiden Gesten können nie beide zünden.
+## Drücken merkt sich den Schacht, Loslassen über einem ANDEREN legt die Karte dort
+## ein. Losgelassen über demselben bleibt es ein Klick - dafür feuert der Knopf
+## ohnehin sein pressed, und die beiden Gesten können nie beide zünden.
 func _on_slot_input(event: InputEvent, index: int) -> void:
 	var click := event as InputEventMouseButton
 	if click == null or click.button_index != MOUSE_BUTTON_LEFT:
@@ -1433,8 +1147,8 @@ func _on_slot_input(event: InputEvent, index: int) -> void:
 		move_slot(_drag_from, target)
 	_drag_from = -1
 
-## Der Slot unter der globalen Position (-1 = keiner) - das Loslassen landet auf
-## dem Slot unter dem Zeiger, nicht auf dem, auf dem gedrückt wurde.
+## Der Schacht unter der globalen Position (-1 = keiner) - das Loslassen landet auf
+## dem Schacht unter dem Zeiger, nicht auf dem, auf dem gedrückt wurde.
 func slot_at(global_point: Vector2) -> int:
 	for i in _slot_buttons.size():
 		var slot := _slot_buttons[i]
@@ -1457,7 +1171,7 @@ func _slot_cards() -> Array[Dictionary]:
 			cards.append(card_data(uid, pack))
 	return cards
 
-## Die Anzeigedaten EINER Kassette - EINE Quelle für Slot, Schirm und Zeremonie.
+## Die Anzeigedaten EINER Kassette - EINE Quelle für Schacht, Schirm und Zeremonie.
 static func card_data(uid: int, pack: Pack) -> Dictionary:
 	return {"uid": uid, "name": pack.display_name, "sort": Pack.shelf_of(pack),
 		"net": pack.stamp_net, "operator": pack.operator_id,
@@ -1501,8 +1215,9 @@ func _prune_series() -> void:
 
 # --- Der GRIFF -------------------------------------------------------------------
 
-## Der EINE Handlungs-Sitz, rechts neben dem Blech. Sein Rechteck ist in JEDEM
-## Zustand dasselbe - der Sitz ist ein fester Platz, die Aufschrift wechselt darin.
+## Der EINE Handlungs-Sitz im Band, MITTIG unter der Schacht-Reihe. Sein Rechteck
+## ist in JEDEM Zustand dasselbe - der Sitz ist ein fester Platz, die Aufschrift
+## wechselt.
 func _build_action_seat(band: Control, u: float) -> void:
 	var seat := Control.new()
 	seat.name = "ActionSeat"
@@ -1519,16 +1234,18 @@ func _build_action_seat(band: Control, u: float) -> void:
 		# Danach trägt der SITZ das Maß allein: seine Größe fällt aus zwei
 		# Ankerabständen heraus und weicht um ein Bit von action_size ab.
 		button.custom_minimum_size = Vector2.ZERO
-	# Der Sitz rückt um den Serien-Schirm nach links: der steht in der Ecke.
-	var right := series_width() + u * ACTION_GAP
-	seat.anchor_left = 1.0
-	seat.anchor_right = 1.0
+	var middle := row_field_rect().get_center().x
 	seat.anchor_top = 0.5
 	seat.anchor_bottom = 0.5
-	seat.offset_left = -span.x - right
-	seat.offset_right = -right
+	seat.offset_left = middle - span.x * 0.5
+	seat.offset_right = middle + span.x * 0.5
 	seat.offset_top = -span.y * 0.5
 	seat.offset_bottom = span.y * 0.5
+
+## Die AUFSCHRIFT des Griffs: gesteckte Karten und Serienlänge - der Zähler wohnt
+## seit dem Tod des Serien-Schirms hier.
+func grip_label() -> String:
+	return "Griff %d/%d" % [_series.size(), slot_count()]
 
 ## Der Knopf auf dem Sitz. Zwei Zustände: der GRIFF und, solange die Serie sich
 ## entlädt, das Überspringen.
@@ -1537,16 +1254,13 @@ func _seat_button(u: float) -> Button:
 		_action_button = _seat_fit(_action_button_new("Fertig", GOLD, u,
 			skip_ceremony), u)
 		return _action_button
-	_action_button = _seat_fit(_action_button_new("Griff (%d)" % _series.size(),
-		GOLD, u, pull_lever), u)
+	_action_button = _seat_fit(_action_button_new(grip_label(), GOLD, u, pull_lever), u)
 	_action_button.disabled = not can_pull()
 	_action_button.visible = not _series.is_empty()
-	_seat_hint(_action_button)
 	return _action_button
 
 ## Darf jetzt gegriffen werden? Drei Bremsen: die eine Pressung der Sitzung, ein
-## gewählter Zielwürfel und mindestens eine Karte, die überhaupt prägt. Steckt
-## eine Doppelmatrize, will sie ihren zweiten Würfel.
+## gewählter Zielwürfel und mindestens eine Karte, die überhaupt prägt.
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
 		return false
@@ -1555,36 +1269,6 @@ func can_pull() -> bool:
 	if needs_second() and second_die() == null:
 		return false
 	return run.press_allowed()
-
-## Wie es um den Griff steht, sagt NICHT der Knopf (sein Rechteck ist fest) - das
-## sagt der Hinweis-Schirm, sobald der Zeiger ihn greift.
-func _seat_hint(button: Button) -> void:
-	if run == null:
-		return
-	button.set_meta("title", "Griff")
-	if target_die() == null:
-		button.set_meta("body", "Wähle im Raster den Würfel, auf den die Serie prägt.")
-		button.set_meta("tint", CasinoStyle.RED)
-		button.tooltip_text = String(button.get_meta("body", ""))
-		return
-	if stamping_card_count() <= 0:
-		button.set_meta("body",
-			"Katalysatoren verstärken eine Projektion - lege eine Karte mit Netz dazu.")
-		button.set_meta("tint", CasinoStyle.RED)
-		button.tooltip_text = String(button.get_meta("body", ""))
-		return
-	if needs_second() and second_die() == null:
-		button.set_meta("body", "Die Doppelmatrize braucht einen zweiten Würfel.")
-		button.set_meta("tint", CasinoStyle.RED)
-		button.tooltip_text = String(button.get_meta("body", ""))
-		return
-	var body := "Der Griff dieser Runde ist bereits verbraucht."
-	if run.press_allowed():
-		body = "Der eine Griff dieser Runde steht bereit."
-		if bool(GameRun.catalyst_terms(slotted_packs())["free"]):
-			body = "Die Erdungsklemme bewahrt den Griff - dieser verbraucht ihn nicht."
-	button.set_meta("body", body)
-	button.tooltip_text = body
 
 ## Zwingt einen Knopf auf das Sitzmaß: clip_text nimmt der Aufschrift das Recht,
 ## das Rechteck zu verbreitern.
@@ -1597,9 +1281,92 @@ func _seat_fit(button: Button, u: float) -> Button:
 func action_size(u: float) -> Vector2:
 	return Vector2(u * ACTION_WIDTH, u * ACTION_HEIGHT)
 
+## Das KONSOLEN-BAND unter der Fensterkante: es trägt nur noch den Handlungs-Sitz,
+## mittig unter der Schacht-Reihe. Ohne Hintergrund - es ist ein Platz, kein Möbel.
+func _build_series_band(u: float) -> void:
+	var band := Control.new()
+	band.name = "SeriesBand"
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(band)  # direktes Kind: das Band liegt auf der Fensterkante
+	_band = band
+	var rect := console_band_rect()
+	band.position = rect.position
+	band.size = rect.size
+	_build_action_seat(band, u)
+
+## Der Platz des TOOLTIP-SCHIRMS in Fenster-Koordinaten (KORREKTUR-WELLE J): die
+## LINKE Hälfte des Bandes, GENAU auf den Kanten der Schacht-Reihe darüber.
+func info_screen_rect(u: float) -> Rect2:
+	var console := console_rect(u)
+	var band := band_row_rect()
+	return Rect2(Vector2(console.position.x, band.position.y),
+		Vector2(console.size.x, band.size.y))
+
+## Der TOOLTIP-SCHIRM: eine kleine Fassung mit drei Zeilen - Name, Seele (im
+## Essenz-Glühen) und Wirkung (umbrechend). Gefüllt wird er von scene_root (set_info),
+## hier steht nur die leere Fassung.
+func _build_info_screen(u: float) -> void:
+	var rect := info_screen_rect(u)
+	var screen := Panel.new()
+	screen.name = "InfoScreen"
+	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
+	screen.position = rect.position
+	screen.size = rect.size
+	_content.add_child(screen)
+	var pad := u * INFO_MARGIN
+	var inner := maxf(rect.size.x - pad * 2.0, 1.0)
+	var name_h := u * INFO_NAME_UNITS
+	var soul_h := u * INFO_SOUL_UNITS
+	var top := pad
+	_info_name = _info_line(screen, "InfoName", Vector2(pad, top), Vector2(inner, name_h),
+		name_h * INFO_NAME_FONT, CasinoStyle.CREAM, false)
+	top += name_h + u * INFO_GAP
+	_info_soul = _info_line(screen, "InfoSoul", Vector2(pad, top), Vector2(inner, soul_h),
+		soul_h * INFO_SOUL_FONT, CasinoStyle.CREAM, false)
+	top += soul_h + u * INFO_GAP
+	var body_h := maxf(rect.size.y - top - pad, u * 3.0)
+	_info_body = _info_line(screen, "InfoBody", Vector2(pad, top), Vector2(inner, body_h),
+		u * INFO_BODY_UNITS, MUTED_COLOR, true)
+	_info_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_info_soul_tint = Color.WHITE
+
+## Eine Zeile des Info-Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst
+## klemmt die Mindestgröße die Zeile hoch.
+func _info_line(host: Control, line_name: String, at: Vector2, span: Vector2,
+		font_size: float, tint: Color, wrap: bool) -> Label:
+	var label := Label.new()
+	label.name = line_name
+	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
+	label.add_theme_color_override("font_color", tint)
+	if wrap:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.clip_text = true
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.add_child(label)
+	label.position = at
+	label.size = span
+	return label
+
+## Der EINE Schreiber des Info-Schirms (scene_root, je Bild): Name, Seele im
+## Essenz-Ton, Wirkung. Nur der WECHSEL schreibt (Text ODER Seelen-Ton).
+func set_info(die_name: String, soul: String, soul_tint: Color, body: String) -> void:
+	if _info_body == null or not is_instance_valid(_info_body):
+		return
+	if _info_name.text == die_name and _info_soul.text == soul \
+			and _info_body.text == body and _info_soul_tint == soul_tint:
+		return
+	_info_soul_tint = soul_tint
+	_info_name.text = die_name
+	_info_soul.text = soul
+	_info_soul.add_theme_color_override("font_color", soul_tint)
+	_info_body.text = body
+
 ## DER GRIFF: EINE atomare Buchung in GameRun, dann die Zeremonie. Gemeldet wird
 ## press_started VOR dem Buchen (die Dekompression der Zellen braucht sie noch in
-## ihren Schlitzen); series_applied kommt am ENDE der Zeremonie - gebucht ist da
+## ihren Schächten); series_applied kommt am ENDE der Zeremonie - gebucht ist da
 ## längst, es ist nur noch das Licht.
 func pull_lever() -> void:
 	if not can_pull():
@@ -1609,9 +1376,10 @@ func pull_lever() -> void:
 	var terms := GameRun.catalyst_terms(slotted_packs())
 	var anchor := hand_anchor_px()
 	press_started.emit()
-	var result := run.apply_series(_series.duplicate(), target_die(), second_die())
+	# Immer OHNE zweiten Würfel: die Doppelmatrize ist diese Welle deaktiviert.
+	var result := run.apply_series(_series.duplicate(), target_die(), null)
 	if result.is_empty():
-		refresh()  # der Griff war verbraucht: die Karten bleiben in ihren Slots
+		refresh()  # der Griff war verbraucht: die Karten bleiben in ihren Schächten
 		return
 	_series.clear()
 	_burning = cards
@@ -1624,9 +1392,7 @@ func pull_lever() -> void:
 	refresh()
 	# Das geparkte Netz ENTLEERT sich: die Vorschau tritt ab, die Rechnung beginnt
 	# bei 0 - die Ziffern ticken auf die nackten Augenzahlen hinunter.
-	_refresh_preview_net(SCAN_EMPTY_TIME)
-	if _scanner != null and is_instance_valid(_scanner):
-		_scanner.flare()
+	_refresh_preview_net(STENCIL_BIRTH_TIME)
 	_play_series_ceremony(_burn_gen)  # nicht erwartet: die Fahrt läuft für sich
 
 ## Läuft die Serie gerade durch?
@@ -1639,18 +1405,18 @@ func ceremony_time() -> float:
 	var beats := 0.0
 	for i in _burning.size():
 		beats += card_beat(i)
-	return SCAN_EMPTY_TIME + SCAN_TO_RAIL_TIME + beats + SCAN_LEAVE_TIME \
-		+ SCAN_FOLD_TIME + SCAN_FLASH_TIME
+	return STENCIL_BIRTH_TIME + STENCIL_TO_RAIL_TIME + beats + STENCIL_LEAVE_TIME \
+		+ STENCIL_FOLD_TIME
 
 ## Der Takt EINER Karte: die RAMPE macht die späteren schneller, ein Operator
 ## bekommt seinen Sondermoment obendrauf.
 func card_beat(index: int) -> float:
 	var count := maxi(_burning.size(), 1)
 	var share := 0.0 if count <= 1 else float(index) / float(count - 1)
-	var beat := SCAN_STEP_TIME * lerpf(1.0, SCAN_STEP_RAMP, share)
+	var beat := STENCIL_STEP_TIME * lerpf(1.0, STENCIL_STEP_RAMP, share)
 	if index >= 0 and index < _burning.size() \
 			and String(_burning[index].get("operator", "")) != "":
-		beat += SCAN_OPERATOR_EXTRA
+		beat += STENCIL_OPERATOR_EXTRA
 	return beat
 
 ## Die Netze der Karten, die die Welle SCHON erfaßt hat - daran tickt das
@@ -1663,42 +1429,43 @@ func _burn_nets_so_far() -> Array:
 		nets.append(_burning[i].get("net", []))
 	return nets
 
-## DIE DURCHLICHT-FAHRT: der Schlitten verläßt die Ziel-Säule, fährt die Schiene
-## über der Reihe ab und geht dabei durch jede stehende Karte HINDURCH - sie
-## flammt auf, ihre Zellen ticken auf dem Netz hoch, ein Operator schlägt
-## perkussiv zu. Nach der letzten Karte fährt er zum Zielwürfel und faltet sein
-## Netz über ihm zusammen; am Ende meldet er den Griff, und scene_root schlägt auf
-## den Körper.
+## DIE SCHABLONEN-FAHRT: die Schablone löst sich aus dem Ist-Netz links, fährt die
+## Schiene über der Reihe ab und hält an jeder Karte - die flammt auf, ihre Zellen
+## dunkeln ab und die aufgelaufene Summe tickt auf der Schablone hoch, ein Operator
+## schlägt perkussiv zu. Nach der letzten Karte fährt sie zum Zielwürfel und faltet
+## sich in ihn; am Ende meldet das Fenster den Griff, und scene_root räumt.
+## GEFAHREN wird sie von scene_root - hier steht nur der TAKT.
 func _play_series_ceremony(generation: int) -> void:
 	var launched := run
-	if not await _scan_wait(SCAN_EMPTY_TIME, generation, launched):
+	stencil_launched.emit(STENCIL_BIRTH_TIME)
+	if not await _scan_wait(STENCIL_BIRTH_TIME, generation, launched):
 		return
 	var cards := press_display_anchors()
 	var rail := _rail_seat_y()
-	var entry := Vector2(cards[0].x, rail) if not cards.is_empty() else _die_seat()
-	entry.x -= card_size(maxf(size.x, 200.0) / 100.0).x * 0.8  # der Reihenanfang
-	_scanner.ride_to(_scan_seat(entry), _rail_scale(), SCAN_TO_RAIL_TIME)
-	if not await _scan_wait(SCAN_TO_RAIL_TIME, generation, launched):
+	var entry := Vector2(cards[0].x, rail) if not cards.is_empty() else die_seat()
+	entry.x -= mouth_size(maxf(size.x, 200.0) / 100.0).x * 0.8  # der Reihenanfang
+	stencil_moved.emit(entry, STENCIL_TO_RAIL_TIME)
+	if not await _scan_wait(STENCIL_TO_RAIL_TIME, generation, launched):
 		return
 	for i in _burning.size():
 		var beat := card_beat(i)
-		var travel := beat * SCAN_MOVE_SHARE
+		var travel := beat * STENCIL_MOVE_SHARE
 		var seat := Vector2(cards[i].x, rail) if i < cards.size() else entry
-		_scanner.ride_to(_scan_seat(seat), _rail_scale(), travel)
+		stencil_moved.emit(seat, travel)
 		if not await _scan_wait(travel, generation, launched):
 			return
 		_read_card(i, beat - travel)
 		if not await _scan_wait(beat - travel, generation, launched):
 			return
-	# DIE ÜBERTRAGUNG: zurück zum Zielwürfel, Faltung, Entladung.
-	_scanner.ride_to(_scan_seat(_die_seat()), 1.0, SCAN_LEAVE_TIME)
-	if not await _scan_wait(SCAN_LEAVE_TIME, generation, launched):
+	# DAS EINSETZEN: hinüber zum ERGEBNIS-Podest, dann die Faltung in den Würfel.
+	# Der Würfel wechselt PARALLEL dazu die Seite - er soll dort stehen, wenn die
+	# Schablone ihn erreicht.
+	die_handover.emit(handover_time())
+	stencil_landed.emit(STENCIL_LEAVE_TIME)
+	if not await _scan_wait(STENCIL_LEAVE_TIME, generation, launched):
 		return
-	_scanner.fold(SCAN_FOLD_TIME)
-	if not await _scan_wait(SCAN_FOLD_TIME, generation, launched):
-		return
-	_scanner.flare()
-	if not await _scan_wait(SCAN_FLASH_TIME, generation, launched):
+	stencil_folded.emit(STENCIL_FOLD_TIME)
+	if not await _scan_wait(STENCIL_FOLD_TIME, generation, launched):
 		return
 	_end_ceremony()
 
@@ -1708,14 +1475,12 @@ func _play_series_ceremony(generation: int) -> void:
 func _scan_wait(time: float, generation: int, launched: GameRun) -> bool:
 	if generation != _burn_gen or run != launched or not is_inside_tree():
 		return false
-	if _scanner == null or not is_instance_valid(_scanner):
-		return false
 	await get_tree().create_timer(maxf(time, 0.0)).timeout
-	return generation == _burn_gen and run == launched and is_inside_tree() and burning() \
-		and _scanner != null and is_instance_valid(_scanner)
+	return generation == _burn_gen and run == launched and is_inside_tree() and burning()
 
-## Der Schlitten steht über Karte i: sie flammt auf, das Netz übernimmt ihre
-## Zellen (tickend), und ein Operator schlägt statt dessen zu.
+## Die Schablone steht über Karte i: der Schacht flammt auf, das Summen-Netz
+## übernimmt ihre Zellen (tickend) - und gemeldet wird, WELCHE Zellen die Karte
+## hergibt und wie der Stand danach aussieht.
 func _read_card(index: int, tick: float) -> void:
 	var card: Dictionary = _burning[index]
 	var operator := String(card.get("operator", ""))
@@ -1727,12 +1492,10 @@ func _read_card(index: int, tick: float) -> void:
 			portal.charge()
 	var before := preview()
 	_burn_step = index + 1
+	var after := preview()
 	_refresh_preview_net(maxf(tick, 0.01))
-	var faces := _moved_faces(before, preview(), card.get("net", []))
-	if operator != "":
-		_scanner.punch(StampNet.operator_glyph(operator), faces)
-	else:
-		_scanner.strike(faces)
+	stencil_read.emit(index, _moved_faces(before, after, card.get("net", [])),
+		after.get("bonus", []), operator, maxf(tick, 0.01))
 
 ## Welche Seiten diese Karte BEWEGT hat - der Vergleich zweier Zwischenstände. So
 ## bekommt jeder Operator seinen Einschlag, ohne dass die Anzeige seine Regel noch
@@ -1754,33 +1517,26 @@ static func _moved_faces(before: Dictionary, after: Dictionary, net: Array) -> A
 			faces.append(face)
 	return faces
 
-## Der Platz eines Schlitten-Sitzes in Fenster-Koordinaten (gemeldet wird in
-## Display-Pixeln, gefahren wird im Fenster).
-func _scan_seat(global_point: Vector2) -> Vector2:
-	return global_point - get_global_rect().position
-
-## Die Höhe der Schiene: die Mitte des Konsolen-Blechs - dort geht das Netz durch
-## die stehenden Karten hindurch.
+## Die Höhe der Schiene: die Mitte des Konsolen-Blechs - genau die Zeile, auf der
+## die Karten-Flächen liegen, also fährt die Schablone über sie hinweg.
 func _rail_seat_y() -> float:
 	if _console != null and is_instance_valid(_console) \
 			and _console.get_global_rect().size.y > 0.0:
 		return _console.get_global_rect().get_center().y
-	return console_band_rect().get_center().y + get_global_rect().position.y
+	return row_field_rect().get_center().y + get_global_rect().position.y
 
-## Der Platz des Würfels: über dem Netz-Parkplatz, auf der Projektor-Zeile.
-func _die_seat() -> Vector2:
-	var middle := target_net_center()
+## Der LANDEPLATZ der Schablone: das ERGEBNIS-Podest rechts - dorthin wechselt der
+## Würfel während der letzten Etappe, und dort faltet sie sich in ihn.
+func die_seat() -> Vector2:
+	var middle := result_net_center()
 	if middle.x < 0.0:
 		return get_global_rect().get_center()
-	return Vector2(middle.x, target_projector_y())
+	return Vector2(middle.x, result_projector_y())
 
-## Auf der SCHIENE fährt der Schlitten klein: sein Netz mißt sich dort an der Höhe
-## des Blechs. In der Säule steht es in voller Größe.
-func _rail_scale() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	var room := console_size(u).y * SCAN_RAIL_SHARE
-	return clampf(DieNetView.cell_for(Vector2(room * 4.0, room)) / (u * CHOICE_CELL),
-		0.2, 1.0)
+## Wieviel Zeit die ÜBERGABE hat: die letzte Etappe plus die Faltung. Länger darf
+## sie nicht dauern - sonst faltet sich die Schablone in ein leeres Podest.
+func handover_time() -> float:
+	return STENCIL_LEAVE_TIME + STENCIL_FOLD_TIME
 
 ## Klick auf den Sitz: die Fahrt springt ans Ende. Der Stand ist längst gebucht -
 ## übersprungen wird nur Licht.
@@ -1790,30 +1546,39 @@ func skip_ceremony() -> void:
 	_burn_step = _burning.size()
 	_end_ceremony()
 
-## Der EINE Aufräum-Pfad der Zeremonie: der Schlitten steht wieder geparkt in der
-## Säule, sein Netz zeigt ungefaltet den echten Würfel, die Reihe ist leer, und
-## der Griff wird gemeldet. Egal, wo die Fahrt abbrach.
+## Der EINE Aufräum-Pfad der Zeremonie: die Ziffern stehen auf ihrem Ziel, der
+## Ist-Schirm zeigt den GEBUCHTEN Würfel, der Soll-Schirm sein ERGEBNIS (grüne
+## Deltas, die stehen bleiben), die Reihe ist leer, das Netz steht auf seinem
+## Parkplatz - und ERST DANN wird der Griff gemeldet (scene_root tötet daraufhin die
+## Schablone, senkt die verbrauchten Karten ab und beendet eine noch laufende
+## Übergabe hart). Egal, wo die Fahrt abbrach.
 func _end_ceremony() -> void:
 	if not burning():
 		return
 	var result := _burn_result
 	var anchor := _burn_anchor
+	# Das ERGEBNIS bleibt stehen: Stand VOR dem Griff und die ganze Projektion - noch
+	# aus der laufenden Zeremonie geholt, sie ist die Quelle. Das Netz zeigt daraus
+	# die grünen Deltas.
+	_result_die = _burn_die
+	_result_projection = _full_projection()
 	_burn_gen += 1
 	_burning = []
 	_burn_step = -1
 	_burn_die = null
 	_burn_terms = {}
 	_burn_result = {}
-	if _scanner != null and is_instance_valid(_scanner):
-		_scanner.settle()
+	if _net != null and is_instance_valid(_net):
+		_net.settle_ticks()
 	refresh()
-	_sync_scanner_park()
+	_sync_sum_net_park()
 	series_applied.emit(result, anchor)
 
 ## Eine Serie gehört dem laufenden Spiel: beim Laufwechsel verfällt sie samt jeder
 ## Zeremonie, die noch liefe.
 func _drop_series() -> void:
 	_burn_gen += 1
+	_drop_result()  # das Ergebnis gehörte dem alten Lauf
 	_series.clear()
 	_burning = []
 	_burn_step = -1
@@ -1824,14 +1589,11 @@ func _drop_series() -> void:
 	_second_index = -1
 	_hover_slot = -1
 	_drag_from = -1
-	_fresh_slots.clear()
-	_slide_from.clear()
-	if _scanner != null and is_instance_valid(_scanner):
-		_scanner.settle()
-		_scanner.net.reset_ticks()  # der Stand des alten Laufs tickt nirgends hin
+	if _net != null and is_instance_valid(_net):
+		_net.reset_ticks()  # der Stand des alten Laufs tickt nirgends hin
 
 ## Nur das Netz neu, ohne die ganze Seite: die Fahrt tickt je Karte, und ein
-## voller Neuaufbau nähme den Slots ihr laufendes Glühen.
+## voller Neuaufbau nähme den Schächten ihr laufendes Glühen.
 ## tick > 0 = die Ziffern LAUFEN zu ihrem neuen Wert, statt zu springen.
 func _refresh_preview_net(tick: float = 0.0) -> void:
 	if _net == null or not is_instance_valid(_net):
@@ -1841,6 +1603,7 @@ func _refresh_preview_net(tick: float = 0.0) -> void:
 	_net.highlight = _highlight_faces()
 	_net.tick_time = tick
 	_net.build()
+	_sync_empty_net()
 
 ## Display-Pixel der Konsole (ohne sie die Fenstermitte) - dort sitzt die Reihe,
 ## und von dort geht das Licht des Griffs aus.
@@ -1867,22 +1630,28 @@ func _build_drawer(u: float) -> void:
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
-## Der Streifen des Magazins: AUSSERHALB des Fensters, auf der GANZEN Fensterbreite
-## (ganze Pixel, damit die Platz-Rechnung nicht driftet).
+## Der Streifen des Magazins: AUSSERHALB des Fensters, rechts bündig mit der
+## Fensterkante, links auf der gemeldeten shelf_left-Linie (KORREKTUR-WELLE J: die
+## linke Kante des Ist-Netzes). Ganze Pixel, damit die Platz-Rechnung nicht driftet.
 func shelf_strip_size() -> Vector2:
 	var u := maxf(size.x, 200.0) / 100.0
-	return Vector2(floorf(maxf(size.x, u * 20.0)),
+	return Vector2(floorf(maxf(size.x - shelf_left_x(), u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), u * SHELF_MIN_HEIGHT))
+
+## Die gemeldete Linkskante, auf das Fenster geklemmt: nach rechts rückt sie nie.
+func shelf_left_x() -> float:
+	return minf(shelf_left, 0.0)
 
 ## Oberkante des Magazins: eine Naht unter dem Konsolen-Band. Der Abstand zur
 ## Konsole ist gesetzt, die HÖHE folgt daraus.
 func shelf_top() -> float:
 	return console_band_rect().end.y + maxf(size.x, 200.0) / 100.0 * CONSOLE_SHELF_GAP
 
-## Der Platz des Magazins: unter dem Band, mittig auf der Fensterbreite.
+## Der Platz des Magazins: unter dem Konsolen-Band, rechts bündig mit der
+## Fensterkante, links auf shelf_left - Unterkante = Pool-Unterkante (apron_bottom).
 func shelf_rect() -> Rect2:
 	var strip := shelf_strip_size()
-	return Rect2(Vector2(roundf((size.x - strip.x) * 0.5), shelf_top()), strip)
+	return Rect2(Vector2(size.x - strip.x, shelf_top()), strip)
 
 ## Derselbe Platz in Display-Pixeln (der Streifen misst sich am Fenster).
 func shelf_rect_global() -> Rect2:
@@ -1932,16 +1701,8 @@ func _flush_queued_pops() -> void:
 		pack_landed.emit(uid)
 	_queued_pops.clear()
 
-## Eine dehnbare Leerzeile.
-func _slack(slack_name: String) -> Control:
-	var slack := Control.new()
-	slack.name = slack_name
-	slack.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	slack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return slack
-
 ## Je Paket {uid, pack, withheld} in Magazin-Ordnung (= run.owned_packs). Was in
-## einem Serien-Slot steckt, fehlt ganz; was noch als Licht fliegt, hält seinen
+## einem Serien-Schacht steckt, fehlt ganz; was noch als Licht fliegt, hält seinen
 ## Platz und bleibt bis zur Landung verdeckt.
 func drawer_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
@@ -1999,7 +1760,7 @@ func arrival_anchor_px(extra: int = 0) -> Vector2:
 	return PackDrawerView.anchor_in(shelf_pit_rect(), count + extra,
 		count + extra + 1, shelf_cell_px())
 
-## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Slot.
+## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht.
 func _on_pack_pressed(uid: int) -> void:
 	slot_pack(uid)
 
@@ -2018,52 +1779,20 @@ func _on_tidy_requested() -> void:
 
 # --- Auskunft --------------------------------------------------------------------
 
-## Name und Wirkung des Dings unter pixel ({} = keins): das Magazin spricht zuerst,
-## dann die Serien-Reihe, zuletzt der Handlungs-Sitz - alle schreiben auf denselben
-## Hinweis-Schirm. Nebenher stellt der Zeiger das HOVER-HIGHLIGHT: die überfahrene
-## Karte hebt ihre Beitrags-Zellen im Summen-Netz hervor.
-func chip_hint_at(pixel: Vector2) -> Dictionary:
+## Das HOVER-HIGHLIGHT je Bild: die überfahrene KARTE (Schacht) hebt ihre
+## Beitrags-Zellen im Summen-Netz hervor (die Kopplung Karte <-> Netz-Zellen bleibt,
+## die Diff-Zeilen sind fort). GEFRAGT statt gemeldet - der Zeiger liegt auf dem
+## Tisch, kein mouse_entered erreicht das Fenster.
+func sync_hover_at(pixel: Vector2) -> void:
 	_set_hover_slot(slot_at(pixel))
-	if _drawer != null and is_instance_valid(_drawer):
-		var hint := _drawer.hint_at(pixel)
-		if hint.has("stock"):
-			return _stock_hint()
-		if not hint.is_empty():
-			return hint
-	if _hover_slot >= 0 and _hover_slot < _slot_buttons.size():
-		var found := _meta_hint(_slot_buttons[_hover_slot], pixel)
-		if not found.is_empty():
-			return found
-	return _meta_hint(_action_button, pixel)
 
-## Nur der WECHSEL baut das Netz neu - chip_hint_at läuft je Bild.
+## Nur der WECHSEL baut das Netz neu - sync_hover_at läuft je Bild.
 func _set_hover_slot(index: int) -> void:
 	var wanted := index if index < _slot_cards().size() else -1
 	if wanted == _hover_slot:
 		return
 	_hover_slot = wanted
 	_refresh_preview_net()
-
-## Die Fach-Fläche nennt den BESTAND am Deckel. Live vom Lauf gefragt.
-func _stock_hint() -> Dictionary:
-	var capacity := run.pack_capacity if run != null else 0
-	if capacity <= 0:
-		return {"title": PackDrawerView.EMPTY_TITLE, "body": PackDrawerView.EMPTY_BODY}
-	var stock := run.owned_packs.size()
-	var free := maxi(capacity - stock, 0)
-	var body := PackDrawerView.EMPTY_BODY
-	if stock > 0:
-		body = PackDrawerView.FULL_BODY if free == 0 else PackDrawerView.STOCK_BODY % free
-	return {"title": PackDrawerView.STOCK_TITLE % [stock, capacity], "body": body}
-
-## Die Meta-Auskunft eines Knopfes, wenn der Zeiger auf ihm steht ({} = nicht).
-func _meta_hint(node: Control, pixel: Vector2) -> Dictionary:
-	if node == null or not is_instance_valid(node) or not node.visible \
-			or not node.has_meta("title") or not node.get_global_rect().has_point(pixel):
-		return {}
-	return {"title": String(node.get_meta("title", "")),
-		"body": String(node.get_meta("body", "")),
-		"tint": node.get_meta("tint", CasinoStyle.CREAM)}
 
 ## Erklärzeile zur Netz-Zelle unter einem Display-Pixel ("" = keine). GEFRAGT statt
 ## gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als gui_input

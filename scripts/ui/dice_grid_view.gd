@@ -99,8 +99,7 @@ static func detail_tile_size(unit: float) -> Vector2:
 	return DieNetView.net_size(unit * DETAIL_CELL) + Vector2.ONE * unit * TILE_PAD * 2.0
 
 ## Maße eines detaillierten Rasters columns×rows bei Einheit 1 - daraus folgt die
-## Einheit (unit_for) und, umgekehrt, das Seitenverhältnis eines Fensters, das
-## sein Raster bündig fassen soll (WorkshopView.dossier_aspect).
+## Einheit (unit_for), mit der ein Aufrufer sein Raster den Platz ausfüllen läßt.
 static func detail_span(column_count: int, row_count: int) -> Vector2:
 	var tile := detail_tile_size(1.0)
 	return Vector2(column_count * tile.x + (column_count - 1) * SEPARATION,

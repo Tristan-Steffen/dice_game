@@ -165,9 +165,11 @@ func ensure_capacity(capacity: int) -> void:
 
 ## Zeigt ein Tray den Körper dieses Würfels, oder steht der gerade WOANDERS? Die
 ## eine Quelle der Lücken-Regel (scene_root fragt sie für beide Trays). Ein
-## aufgespannter Würfel LIEGT im Pool, bis er zur Bank WANDERT - erst auf der Bank
-## (on_bench) bleibt sein Sitz leer. Und der gezeigte Dossier-Würfel steht über der
-## Seite; sein Sitz ist die andere Lücke.
+## Pool-Würfel LIEGT im Pool, bis er auf das PODEST der Werkstatt fährt - erst dort
+## (on_bench) bleibt sein Sitz leer. `inspected` trug die zweite Lücke des
+## Fach-Podests; seit der Bühnen-Straße (2026-09-03) gibt es nur EIN Podest, also
+## bekommt der Parameter immer null - er bleibt als Stelle für eine künftige
+## zweite Lücke stehen.
 static func seat_shows(def: DieDefinition, inspected: DieDefinition,
 		on_bench: bool = false) -> bool:
 	if def == null or def == inspected:

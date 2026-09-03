@@ -1,15 +1,16 @@
 class_name DeckGlassView
 extends Control
 ## Die GLAS-ANSICHT: das Netz-Raster des ganzen Vorrats, wie es auf dem
-## geschlossenen Gruben-Glas liegt. Sie geht auf, wenn im Ausgabefach ein Neuzugang
-## GETIPPT wird - der Vorrat versinkt darunter, das Glas fährt zu, und darauf steht
-## die Frage, wohin der Neue soll.
+## geschlossenen Gruben-Glas liegt. Sie ist ein DAUER-MODUS des Vorrats, den der
+## RASTER-UMSCHALTER am Grubenrand umlegt - und derselbe Weg, den der Tipp auf einen
+## Neuzugang im Ausgabefach fährt: der Vorrat versinkt darunter, das Glas fährt zu.
 ## Sitz i = Zelle i: das Raster liest in POOL-SPALTEN, also steht jede Kachel dort,
-## wo ihr Würfel gleich schweben wird - die räumliche Entsprechung ist der Sinn.
-## Bedienung wie am Pool-Tray: TIPPEN wählt das Tausch-Ziel, ZIEHEN legt um.
+## wo ihr Würfel schwebt - die räumliche Entsprechung ist der Sinn.
+## Bedienung wie am Pool-Tray: TIPPEN wählt (Tausch-Ziel, solange ein Neuzugang
+## wartet, sonst das Werkstatt-Ziel), ZIEHEN legt um.
 ## Das Fenster malt nur - gebucht wird draußen (scene_root -> GameRun).
 
-## Eine Kachel wurde getippt: dieser POOL-Platz ist das Tausch-Ziel.
+## Eine Kachel wurde getippt: dieser POOL-Platz ist gewählt.
 signal cell_pressed(index: int)
 ## Kachel auf Kachel gezogen: der Vorrat wird umgelegt.
 signal cells_reordered(from_index: int, to_index: int)
@@ -32,6 +33,8 @@ var _defs: Array[DieDefinition] = []
 ## Der INHALT des zuletzt gefüllten Rasters (siehe pool_signature).
 var _signature: Array = []
 var _title := ""
+## Der GESÄUMTE Sitz (-1 = keiner): das aktuelle Ziel der Werkstatt.
+var _target := -1
 
 func _init() -> void:
 	name = "DeckGlassWindow"
@@ -78,19 +81,27 @@ static func pool_signature(defs: Array[DieDefinition]) -> Array:
 			def.essence_id, def.style_id])
 	return out
 
-## Der ganze Inhalt in EINEM Aufruf: die Frage und der Vorrat in Buch-Ordnung.
-## Idempotent - dieselbe Belegung baut das teure Raster nicht neu.
-func show_pool(title: String, defs: Array[DieDefinition], columns: int) -> void:
+## Der ganze Inhalt in EINEM Aufruf: die Kopfzeile, der Vorrat in Buch-Ordnung und
+## der gesäumte Sitz. Idempotent - dieselbe Belegung baut das teure Raster nicht
+## neu, ein gewechselter Saum stylt bloß um.
+func show_pool(title: String, defs: Array[DieDefinition], columns: int,
+		target_index := -1) -> void:
 	var signature := pool_signature(defs)
 	var fresh := columns != _columns or signature != _signature
 	_title = title
 	_defs = defs.duplicate()
 	_signature = signature
 	_columns = maxi(columns, 1)
+	_target = target_index
 	_head.text = title
 	if fresh:
 		_unit = 0.0  # das Raster wird neu gefüllt, nicht nur vermessen
 	_relayout()
+	_grid.set_highlight(_target)
+
+## Der gesäumte Sitz (-1 = keiner).
+func target_index() -> int:
+	return _target
 
 func pool_size() -> int:
 	return _defs.size()
@@ -126,7 +137,7 @@ func _fit_grid() -> void:
 		return  # resized feuert während des Layouts mehrfach
 	_unit = unit
 	_grid.place(_columns, unit, true)
-	_grid.fill(_defs)
+	_grid.fill(_defs, _target)
 	_center_grid.call_deferred()
 
 func _center_grid() -> void:

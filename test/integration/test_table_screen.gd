@@ -386,23 +386,27 @@ func test_cluster_rect_covers_all_cells():
 func _place_workbench_corner() -> void:
 	screen.place_hub(Vector2(2400, 2200), Vector2(1400, 1200))
 	screen.place_workshop_window(Rect2(Vector2(3300, 2000), Vector2(900, 500)))
+	# Die Automaten-Ader (slot_hub_strip) trägt die generischen Routen-Tests, seit
+	# die Hub->Magazin-Ader (workshop_hub_strip) gefallen ist.
+	screen.place_slot_bank_window(Rect2(Vector2(1000, 2400), Vector2(900, 600)))
 
 # Das Ausgabefach hängt seit 2026-08-31 am VORRAT, nicht mehr an dieser Ecke - seine
 # Geometrie steht in test_ausgabefach_view.gd.
 
-func test_pack_delivery_runs_along_the_hub_workshop_strip():
+## KORREKTUR-WELLE I: die Hub->Magazin-Ader ist gefallen - eine Kassetten-Lieferung
+## fliegt als reiner Meteor-Bogen, keine Ader mehr.
+func test_pack_delivery_is_a_pure_meteor_now():
 	_place_workbench_corner()
-	var route := screen._route_via_strip(Vector2(2000, 2400),
-		screen.workshop_hub_strip, Vector2(3750, 2250))
-	assert_gt(route.size(), 2, "Route mit L-Anschlüssen, keine Luftlinie")
-	for point in screen.workshop_hub_strip.strip_path:
-		assert_true(route.has(point), "die Ader selbst liegt in der Route")
+	assert_false("workshop_hub_strip" in screen, "die Hub->Magazin-Ader ist fort")
+	var travel := screen.pack_delivery_comet(Vector2(2000, 2400), Color.WHITE,
+		Vector2(3750, 2250))
+	assert_gt(travel, 0.0, "der Liefer-Meteor bekommt eine echte Laufzeit")
 
 func test_every_route_leg_is_axis_parallel():
 	# Leiterbahn-Look: keine Diagonalen, sonst sieht der Komet aus wie ein Flug.
 	_place_workbench_corner()
-	var route := screen._route_via_strip(Vector2(2000, 2400),
-		screen.workshop_hub_strip, Vector2(3750, 2250))
+	var route := screen._route_via_strip(Vector2(500, 2700),
+		screen.slot_hub_strip, Vector2(2600, 2700))
 	for i in route.size() - 1:
 		var leg: Vector2 = route[i + 1] - route[i]
 		assert_true(is_zero_approx(leg.x) or is_zero_approx(leg.y),
@@ -410,11 +414,19 @@ func test_every_route_leg_is_axis_parallel():
 
 func test_route_starts_at_the_source_and_ends_at_the_target():
 	_place_workbench_corner()
-	var from := Vector2(2000, 2400)
-	var to := Vector2(3750, 2250)
-	var route := screen._route_via_strip(from, screen.workshop_hub_strip, to)
+	var from := Vector2(500, 2700)
+	var to := Vector2(2600, 2700)
+	var route := screen._route_via_strip(from, screen.slot_hub_strip, to)
 	assert_eq(route[0], from)
 	assert_eq(route[route.size() - 1], to)
+
+## Der Würfel ans Ausgabefach fliegt als reiner Meteor-Bogen (an die Schale reicht
+## keine Ader) - er bekommt eine echte Laufzeit.
+func test_the_fach_delivery_is_a_pure_arc():
+	_place_workbench_corner()
+	var travel := screen.fach_delivery_comet(Vector2(2000, 2400), Color.WHITE,
+		Vector2(3100, 1500))
+	assert_gt(travel, 0.0, "sie bekommt eine echte Laufzeit")
 
 func test_route_without_a_strip_falls_back_to_a_straight_line():
 	var route := screen._route_via_strip(Vector2(100, 100), null, Vector2(400, 400))
@@ -617,13 +629,13 @@ func test_no_underlight_layer_is_left_in_the_tree():
 		assert_ne(String(child.name), "Underlight", "das Förderwerk ist tot")
 
 func test_the_backroom_delivery_flies_at_comet_speed():
-	# Ohne verlegte Ader bleibt die gerade Verbindung (headless); die Reisezeit ist
-	# die der Kometen - sonst trüge die Routen-Zeitrechnung nicht, auf der jede
-	# Ankunft steht.
+	# KORREKTUR-WELLE I: die letzte Etappe ins Magazin ist ein reiner Meteor-Bogen
+	# (keine Hub->Magazin-Ader mehr). Er bekommt eine echte Reisezeit, und der Komet
+	# steht auf dem Tisch.
 	var before := screen.get_child_count()
 	var travel := screen.secret_delivery_comet(
 		Vector2(100, 100), Vector2(100, 400), Color.WHITE)
-	assert_almost_eq(travel, 300.0 / TableScreen.PULSE_SPEED, 0.0001)
+	assert_gt(travel, 0.0, "der Meteor bekommt eine echte Reisezeit")
 	assert_gt(screen.get_child_count(), before, "der Komet steht auf dem Tisch")
 
 # --- Die Ankunft am Magazin-Platz -----------------------------------------------

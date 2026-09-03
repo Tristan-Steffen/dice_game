@@ -26,9 +26,6 @@ const PREVIEW_UP := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
 ## Was ein Beitrag der überfahrenen Karte NICHT ist, verblaßt (Hover-Highlight).
 const GHOST_ALPHA := 0.35
-## Die FALTUNG des Finales: die Zellen klappen NACHEINANDER zur Mitte.
-const FOLD_STAGGER := 0.09
-const FOLD_SHRINK := 0.22
 
 ## Farben der Mini-Netz-Zellen: Wert-Zellen cyan, Operatoren amber - dieselbe
 ## Trennung wie an den Kassetten der Serien-Reihe.
@@ -36,6 +33,8 @@ const VALUE_TINT := Color("#8be9fd")
 const OPERATOR_TINT := Color("#ffb347")
 const EMPTY_CELL := Color("#12101f")
 const EMPTY_RIM := Color("#2c2740")
+## Eine von der Schablone AUFGENOMMENE Zelle: sie verglimmt, sie verschwindet nicht.
+const DRAINED_MODULATE := Color(0.34, 0.34, 0.40)
 
 ## Klartext der Verpuff-Gründe - EINE Quelle, die Vorschau nennt sie beim Namen.
 const FIZZLE_TEXT := {
@@ -58,11 +57,8 @@ var tick_time := 0.0
 
 ## Zellen nach physischem Seiten-Index - der Hover-Hinweis fragt sie ab.
 var _chips: Array[Panel] = []
-## Ihre Ziffern und Ruheplätze (die Faltung fährt sie zur Mitte) und alles, was
-## keine Zelle ist: Essenz-Chip, Runen, Plaketten, Pfeile - sie blenden dabei aus.
+## Ihre Ziffern (der Zähl-Takt schreibt nur sie).
 var _labels: Array[Label] = []
-var _homes: Array[Vector2] = []
-var _extras: Array[Control] = []
 var _fizzles: Dictionary = {}  # Seite -> Grund
 ## Der Zähl-Takt: was auf den Zellen STEHT, woher es lief und wohin.
 var _shown: Array[int] = []
@@ -71,7 +67,6 @@ var _goal: Array[int] = []
 var _before: Array[int] = []
 var _tick_left := 0.0
 var _tick_span := 0.0
-var _fold := 0.0
 
 func _init() -> void:
 	name = "SeriesNet"
@@ -87,10 +82,7 @@ func build() -> void:
 		child.queue_free()
 	_chips.clear()
 	_labels.clear()
-	_homes.clear()
-	_extras.clear()
 	_fizzles.clear()
-	_fold = 0.0
 	var takt := tick_time
 	tick_time = 0.0  # ein Takt gilt genau einen Aufbau
 	custom_minimum_size = DieNetView.net_size(cell)
@@ -113,34 +105,27 @@ func build() -> void:
 	_shown = _from.duplicate()
 	_chips.resize(6)
 	_labels.resize(6)
-	_homes.resize(6)
 	for face in 6:
 		var chip := _face_chip(face, ghost)
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
-		chip.pivot_offset = chip.size * 0.5  # die Faltung skaliert um die Zellmitte
 		_chips[face] = chip
-		_homes[face] = chip.position
 		add_child(chip)
 		_write_face(face)
 	# Essenz-Chip, Runen, Veredelungs-Plaketten und Pointer-Pfeile obendrauf - die
 	# Pfeile zuletzt, sie liegen über den Zellrändern. Alle vom GEISTER: die
 	# Vorschau zeigt den Zustand NACH der Serie.
-	_add_extra(DieNetView.edge_chip(ghost, cell))
+	add_child(DieNetView.edge_chip(ghost, cell))
 	for glyph in DieNetView.rune_glyphs(ghost, cell):
-		_add_extra(glyph)
+		add_child(glyph)
 	for badge in DieNetView.level_badges(ghost, cell):
-		_add_extra(badge)
+		add_child(badge)
 	for arrow in DieNetView.pointer_arrows(ghost, cell):
-		_add_extra(arrow)
+		add_child(arrow)
 	if ticking:
 		_tick_span = takt
 		_tick_left = takt
 		set_process(true)
-
-func _add_extra(node: Control) -> void:
-	_extras.append(node)
-	add_child(node)
 
 # --- Der ZÄHL-TAKT ---------------------------------------------------------------
 
@@ -182,26 +167,6 @@ func _write_face(face: int) -> void:
 	var shown: int = _shown[face]
 	var before: int = _before[face]
 	label.text = "%d→%d" % [before, shown] if shown != before else str(before)
-
-# --- Die FALTUNG ------------------------------------------------------------------
-
-## Das Finale: die Zellen klappen NACHEINANDER zur Mitte und schrumpfen zum
-## Quadrat, alles andere blendet aus. build() stellt sie wieder auf.
-func fold(progress: float) -> void:
-	_fold = clampf(progress, 0.0, 1.0)
-	var middle := size * 0.5
-	var span := maxf(1.0 - 5.0 * FOLD_STAGGER, 0.01)
-	for face in _chips.size():
-		var chip: Panel = _chips[face]
-		if chip == null or not is_instance_valid(chip):
-			continue
-		var step := clampf((_fold - float(face) * FOLD_STAGGER) / span, 0.0, 1.0)
-		chip.position = _homes[face].lerp(middle - chip.size * 0.5, step)
-		chip.scale = Vector2.ONE.lerp(Vector2.ONE * FOLD_SHRINK, step)
-		chip.modulate = Color(1.0, 1.0, 1.0, 1.0 - step * 0.4)
-	for extra in _extras:
-		if is_instance_valid(extra):
-			extra.modulate = Color(1.0, 1.0, 1.0, 1.0 - _fold)
 
 ## Der GEISTER-Würfel: der Zielwürfel, wie die Serie ihn zurückließe. Er geht durch
 ## dieselben DieDefinition-Schreibwege wie die Buchung, damit Veredelung, Runen-
@@ -326,15 +291,18 @@ func hint_for_face(face: int) -> String:
 # --- Das MINI-NETZ einer Kassette ------------------------------------------------
 
 ## Das Prägenetz einer Karte als Kreuz: je Zelle die Glyphe ihrer Sorte, leere
-## Zellen bleiben dunkel. Reine Anzeige, ohne Maus.
-static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT) -> Control:
+## Zellen bleiben dunkel. Reine Anzeige, ohne Maus. drained nennt die Seiten, die
+## eine Schablone schon AUFGENOMMEN hat - sie dunkeln ab.
+static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT,
+		drained: Array = []) -> Control:
 	var root := Control.new()
 	root.name = "StampNet"
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.custom_minimum_size = DieNetView.net_size(cell)
 	root.size = root.custom_minimum_size
 	for face in StampNet.FACES:
-		var chip := _stamp_cell(StampNet.cell_at(net, face), cell, accent)
+		var dim := face < drained.size() and bool(drained[face])
+		var chip := _stamp_cell(StampNet.cell_at(net, face), cell, accent, dim)
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
 		root.add_child(chip)
@@ -343,7 +311,8 @@ static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT) -> Co
 ## EINE Zelle des Mini-Netzes. Die Sorte entscheidet Füllung und Zeichen: Zahl
 ## "+n", Material seine Farbe, Rune ihr Linienzug (dieselbe Quelle wie am Würfel),
 ## Operator seine Glyphe, Veredelung ihre Plakette, Pointer ein Pfeil.
-static func _stamp_cell(entry: Dictionary, cell: float, accent: Color) -> Panel:
+static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
+		dim := false) -> Panel:
 	var kind := StampNet.kind_of(entry)
 	var fill := EMPTY_CELL
 	var rim := EMPTY_RIM
@@ -384,6 +353,10 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color) -> Panel:
 		chip.add_child(_stamp_dope(cell))
 	elif text != "":
 		chip.add_child(_stamp_label(text, cell, tint))
+	# AUFGENOMMEN: Füllung, Saum und Zeichen fallen zugleich - ein Ton, keine
+	# zweite Farbtabelle.
+	if dim:
+		chip.modulate = DRAINED_MODULATE
 	return chip
 
 static func _stamp_label(text: String, cell: float, tint: Color) -> Label:

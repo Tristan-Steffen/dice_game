@@ -180,8 +180,11 @@ func test_die_beiden_tray_spannen_messen_wie_eh_und_je() -> void:
 			var at := tray.slot_home_position(i) + Vector3(0.0, 0.0, shift)
 			lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
 			hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
-	# Fünf Reihen à 1,8 in Welt-X, sechs Spalten plus der Versatz in Welt-Z.
-	assert_almost_eq(hi.x - lo.x, 7.2, 0.0001, "die Höhe der Ecke")
-	assert_almost_eq(hi.y - lo.y, 9.0 + LEGACY_Z, 0.0001, "und ihre Breite")
-	assert_almost_eq(lo.x, tray.global_position.x - 3.6, 0.0001)
-	assert_almost_eq(lo.y, tray.global_position.z - 4.5, 0.0001)
+	# Fünf Reihen in Welt-X, sechs Spalten plus der Versatz in Welt-Z - alles aus
+	# SPACING gerechnet, damit ein Abstands-Tweak die Zahlen nicht einfriert.
+	var sx := DiceTrayView.SPACING.x
+	var sy := DiceTrayView.SPACING.y
+	assert_almost_eq(hi.x - lo.x, (tray.rows - 1) * sx, 0.0001, "die Höhe der Ecke")
+	assert_almost_eq(hi.y - lo.y, (tray.columns - 1) * sy + LEGACY_Z, 0.0001, "und ihre Breite")
+	assert_almost_eq(lo.x, tray.global_position.x - (tray.rows - 1) / 2.0 * sx, 0.0001)
+	assert_almost_eq(lo.y, tray.global_position.z - (tray.columns - 1) / 2.0 * sy, 0.0001)

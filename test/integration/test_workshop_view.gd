@@ -1,7 +1,8 @@
 extends GutTest
-## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt die ZIEL-SÄULE
-## (Projektor-Bühne über dem Summen-Netz) und daneben das Pool-Raster der Zielwahl;
-## versiegelte Pakete liegen als Kassetten im Magazin statt als Karten im Fenster.
+## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt allein die
+## ZIEL-SÄULE (der schwebende Zielwürfel über seinem Summen-Netz, mittig); gewählt
+## wird per Klick auf einen physischen Pool-Würfel (set_target_die), das alte
+## 2D-Raster ist tot. Versiegelte Pakete liegen als Kassetten im Magazin.
 
 var view: WorkshopView
 var run: GameRun
@@ -17,17 +18,18 @@ func before_each() -> void:
 
 func test_packs_never_render_as_cards_in_the_window() -> void:
 	# Das Magazin ist der EINZIGE Ort versiegelter Ware - im Fenster stehen nur die
-	# Ziel-Säule, das Pool-Raster und die Serien-Slots.
+	# Ziel-Säule und die Serien-Slots.
 	run.purchase_pack(Pack.number_pack(), 0)
 	run.purchase_pack(Pack.material_pack(), 0)
 	assert_not_null(view._net, "das Summen-Netz steht")
 	assert_eq(view._slot_buttons.size(), run.series_slots())
 	assert_eq(run.owned_packs.size(), 2, "und die Siegel bleiben ganz")
 
-func test_the_pool_grid_is_the_readout_of_the_pool() -> void:
-	assert_not_null(view._pool_grid)
-	assert_eq(view._pool_grid.tiles.size(), run.owned_pool.size(),
-		"Sitz i = Zelle i, die Grammatik der Glas-Ansicht")
+## Das 2D-Pool-Raster ist tot - gewählt wird ein physischer Pool-Würfel, den
+## scene_root über set_target_die meldet.
+func test_the_pool_grid_is_gone() -> void:
+	assert_false("_pool_grid" in view, "kein Raster mehr im Fenster")
+	assert_true(view.has_method("set_target_die"), "die Zielwahl kommt von außen")
 
 ## Es gibt keine Auspack-Zeremonie mehr: JEDE Kassette geht in einen Serien-Slot,
 ## und ein Würfel wird nie versiegelt.
@@ -43,8 +45,7 @@ func test_the_bench_has_no_floating_dice_of_its_own() -> void:
 # --- Netz-Hinweise --------------------------------------------------------------
 
 func test_a_target_net_cell_explains_itself() -> void:
-	# Die Zeile gehört NICHT ins Fenster - scene_root schreibt sie auf den
-	# Hinweis-Schirm im Konsolen-Band.
+	# Die Zeile wird GEFRAGT, nicht gemalt - das Fenster hat keinen Schirm dafür.
 	view.choose_target(0)
 	await wait_frames(2)
 	run.owned_pool[0].set_face_material(0, DieMaterial.GOLD)
@@ -91,116 +92,28 @@ func test_every_rebuild_reports_the_stages() -> void:
 	view.refresh()
 	assert_gt(beats.size(), 0, "jeder Neuaufbau meldet seine Bühnen")
 
-# --- Hinweiskarte in der linken Flanke -----------------------------------------
+# --- Der GRIFF trägt den Zähler in seiner Aufschrift ----------------------------
+# Der Serien-Schirm ist tot: wie voll die Reihe ist, sagt der Knopf selbst.
 
-func test_the_hover_card_shows_title_and_body_and_sits_in_the_left_flank() -> void:
-	view.show_hover_info("Meißel", "Kopiert einen Seitenwert auf eine andere Seite.")
+func test_the_grip_label_counts_the_series() -> void:
 	await wait_frames(2)
-	assert_true(view.hover_info_visible(), "der Schirm trägt einen Hinweis")
-	assert_eq(view._info_title.text, "Meißel")
-	assert_eq(view._info_body.text, "Kopiert einen Seitenwert auf eine andere Seite.")
-	var screen := view._info_screen.get_rect()
-	assert_eq(screen.position.x, 0.0, "bündig mit der linken Fensterkante")
-	assert_almost_eq(screen.size.x, view.info_width(), 1.0, "und füllt die Flanke")
-	assert_gte(screen.position.x, 0.0)
-	assert_lte(screen.end.y, view.shelf_top() + 1.0, "und nie unter die Buchten")
+	assert_eq(view.grip_label(), "Griff 0/%d" % run.series_slots(),
+		"leer steht der Zähler auf null")
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	await wait_frames(2)
+	assert_eq(view.grip_label(), "Griff 1/%d" % run.series_slots())
+	assert_eq(view._action_button.text, view.grip_label(),
+		"und der Knopf trägt genau diese Aufschrift")
 
-func test_the_hover_card_takes_a_body_without_a_title() -> void:
-	view.show_hover_info("", "Rubin II: +10 Mult")
+func test_the_running_ceremony_relabels_the_same_seat() -> void:
+	run.grant_pack(Pack.number_pack())
+	view.slot_pack(run.owned_packs[0].pack_uid)
+	view.choose_target(0)
 	await wait_frames(2)
-	assert_true(view.hover_info_visible(), "eine einzelne Zeile genügt")
-	assert_false(view._info_title.visible, "ohne Titel bleibt die Titelzeile weg")
-
-func test_clearing_hides_the_hover_card() -> void:
-	view.show_hover_info("Meißel", "Kopiert einen Seitenwert.")
-	view.clear_hover_info()
-	assert_false(view.hover_info_visible(), "leer heißt weg")
-	view.show_hover_info("", "")
-	assert_false(view.hover_info_visible(), "und zwei leere Texte räumen sie ebenso ab")
-
-## Der Schirm ist kein Kartenauftritt: er STEHT, auch wenn nichts unter dem
-## Zeiger liegt - Text auf blankem Filz wäre Text im Nichts.
-func test_the_info_screen_stands_even_without_a_hint() -> void:
+	view.pull_lever()
 	await wait_frames(2)
-	assert_not_null(view._info_screen, "der Schirm steht von Anfang an")
-	assert_true(view._info_screen.visible)
-	assert_false(view.hover_info_visible(), "aber er trägt noch nichts")
-	var standing := view._info_screen.get_rect()
-	view.show_hover_info("Rubin", "+4 Mult")
-	await wait_frames(2)
-	assert_true(view.hover_info_visible())
-	assert_eq(view._info_screen.get_rect(), standing, "und er rührt sich dabei nicht")
-	view.clear_hover_info()
-	await wait_frames(2)
-	assert_false(view.hover_info_visible(), "der Hinweis erlischt")
-	assert_eq(view._info_screen.get_rect(), standing, "der Schirm bleibt")
-
-## Der Schirm hat eine feste Größe, also paßt sich der TEXT ein: der längste Satz
-## des Spiels bleibt darin, ein kurzer behält den vollen Grad.
-func test_a_long_hint_shrinks_itself_into_the_screen() -> void:
-	await wait_frames(2)
-	var u := view.size.x / 100.0
-	var longest := ""
-	for engraving in Engraving.all():
-		if engraving.description.length() > longest.length():
-			longest = engraving.description
-	view.show_hover_info("Pointer", longest)
-	await wait_frames(2)
-	var small: int = view._info_body.get_theme_font_size("font_size")
-	assert_lt(small, int(u * WorkshopView.INFO_BODY), "der lange Satz wird kleiner gesetzt")
-	var font := view._info_body.get_theme_font("font")
-	var block := font.get_multiline_string_size(longest, HORIZONTAL_ALIGNMENT_CENTER,
-		view._info_text_width(), small)
-	assert_lte(block.y, view.info_screen_rect().size.y,
-		"und paßt damit in den Schirm")
-
-	view.show_hover_info("Rubin", "+4 Mult")
-	await wait_frames(2)
-	assert_eq(view._info_body.get_theme_font_size("font_size"), int(u * WorkshopView.INFO_BODY),
-		"ein kurzer Hinweis behält den vollen Grad")
-	assert_eq(view._info_title.get_theme_font_size("font_size"), int(u * WorkshopView.INFO_TITLE),
-		"und der kurze Titel ebenso")
-
-## Der schwerste ECHTE Inhalt des Schirms ist der Fach-Würfel: längster
-## Würfelname plus längster Seelenname als Kennung, längste Seelen-Beschreibung
-## als Auskunft. Beides zusammen paßt UNBESCHNITTEN - Titel wie Wirkung geben
-## dafür Grade her (früher paßte sich nur die Wirkung ein, und der dreizeilige
-## Titel schob sie aus dem Schirm).
-func test_the_worst_real_fach_hint_fits_the_screen_uncut() -> void:
-	await wait_frames(2)
-	var die_name := ""
-	for template: Dictionary in DiceOffer.TEMPLATES:
-		var candidate: String = template["name"]
-		if candidate.length() > die_name.length():
-			die_name = candidate
-	var soul_name := ""
-	var soul_text := ""
-	for essence in Essence.all():
-		if essence.display_name.length() > soul_name.length():
-			soul_name = essence.display_name
-		if essence.description.length() > soul_text.length():
-			soul_text = essence.description
-	var title := "%s – %s" % [die_name, soul_name]
-	# Die gesperrte Fassung ist die längere der beiden Klick-Zeilen (scene_root._fach_hint).
-	var body := "Augensumme 24.\n%s\n%s" % [soul_text,
-		"Die Runde ist unterschrieben - eingesetzt wird vor dem Wurf oder im Laden."]
-	view.show_hover_info(title, body)
-	await wait_frames(2)
-	var u := view.size.x / 100.0
-	var width := view._info_text_width()
-	var title_font := view._info_title.get_theme_font("font")
-	var body_font := view._info_body.get_theme_font("font")
-	var stacked := WorkshopView.text_block_height(title_font, title, width,
-		view._info_title.get_theme_font_size("font_size"),
-		view._info_title.get_theme_constant("line_spacing"))
-	stacked += u * WorkshopView.INFO_LINE_GAP
-	stacked += WorkshopView.text_block_height(body_font, body, width,
-		view._info_body.get_theme_font_size("font_size"),
-		view._info_body.get_theme_constant("line_spacing"))
-	var room: float = view.info_screen_rect().size.y - u * WorkshopView.INFO_PAD * 2.0
-	assert_lte(stacked, room, "Kennung und Auskunft stehen zusammen im Schirm")
-	assert_lt(view._info_title.get_theme_font_size("font_size"),
-		int(u * WorkshopView.INFO_TITLE), "die lange Kennung wird kleiner gesetzt")
+	assert_eq(view._action_button.text, "Fertig", "in der Fahrt heißt der Sitz Fertig")
 
 # --- Der Neuzugang gehört dem VORRAT ---------------------------------------------
 # Getauscht wird am Vorrat (Ziehen aus dem Ausgabefach auf einen Pool-Sitz), und

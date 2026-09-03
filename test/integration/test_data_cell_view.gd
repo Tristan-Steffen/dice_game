@@ -5,11 +5,11 @@ extends GutTest
 ## Leuchtzustände. Die Tween-Zeit selbst ist nie Gegenstand: geprüft werden
 ## Zielwerte.
 
-func _cell(sort: String) -> DataCellView:
+func _cell(sort: String, net: Array = [], tier := Pack.TIER_NORMAL) -> DataCellView:
 	var cell := DataCellView.new()
 	# Erst in den Baum, dann bauen: der Siegel-Ofen ist ein SubViewport.
 	add_child_autofree(cell)
-	cell.setup(sort)
+	cell.setup(sort, tier, net)
 	return cell
 
 func test_every_shelf_sort_builds() -> void:
@@ -35,16 +35,16 @@ func test_the_sealed_sort_shows_a_band_and_no_core() -> void:
 	assert_true(sealed.sealed())
 	assert_false(sealed.has_core(), "Fixinhalt: es gibt nichts zu sehen")
 	assert_true(sealed.has_band(), "stattdessen das Siegelband")
-	assert_null(sealed.get_node_or_null("Body/Cell0/CoreBar0"))
+	assert_null(sealed.get_node_or_null("Body/Cell0/Core"))
 	assert_not_null(sealed.get_node_or_null("Body/Cell0/Seal"))
 
-func test_an_open_sort_shows_its_core_bars_and_no_band() -> void:
+func test_an_open_sort_shows_its_core_and_no_band() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	assert_false(cell.sealed())
 	assert_true(cell.has_core())
 	assert_false(cell.has_band())
-	for i in DataCellView.CORE_BARS:
-		assert_not_null(cell.get_node_or_null("Body/Cell0/CoreBar%d" % i))
+	assert_not_null(cell.get_node_or_null("Body/Cell0/Core"),
+		"der Kern hinterleuchtet das Netz")
 	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
 
 func test_the_physical_stack_is_capped_and_the_badge_carries_the_rest() -> void:
@@ -485,3 +485,82 @@ func test_a_lying_cell_is_deliberately_not_mirrored() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	var glass: MeshInstance3D = cell.get_node("Body/Cell0/Glass")
 	assert_eq(glass.layers & ScreenReflection.LAYER, 0, "kein zweites ×n neben dem echten")
+
+# --- Das PRÄGENETZ auf der Fläche -------------------------------------------------
+# Die Karte trägt ihr Netz, der Rahmen ihre Sorte und dessen Stärke ihre Größe.
+
+func _number_net(amount := 2) -> Array:
+	var net := StampNet.empty_net()
+	net[0] = StampNet.value_cell(amount)
+	net[3] = StampNet.value_cell(amount)
+	return net
+
+func test_die_flaeche_traegt_das_praegenetz_ihres_pakets() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	var plate: MeshInstance3D = cell.get_node_or_null("Body/Cell0/StampNet")
+	assert_not_null(plate, "das Netz liegt auf der Karte")
+	assert_not_null(cell.net_texture(), "und ist gebacken")
+	var quad: QuadMesh = plate.mesh
+	assert_almost_eq(quad.size.x, cell.net_size().x, 0.0001)
+	assert_almost_eq(quad.size.y, cell.net_size().y, 0.0001)
+	var span := StampNetOven.span()
+	assert_almost_eq(quad.size.x / quad.size.y, span.x / span.y, 0.001,
+		"unverzerrt: Quad und Backung teilen ihr Seitenverhältnis")
+	assert_lt(quad.size.x, DataCellView.opening_size().x,
+		"und bleibt im Fensterausschnitt")
+
+func test_gleiche_netze_teilen_EINE_backung() -> void:
+	# Das Netz steht ab der Erzeugung fest - gebacken wird EINMAL, je Inhalt.
+	var first := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	var second := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	assert_eq(first.net_texture(), second.net_texture(), "dasselbe Bild, EIN Ofen")
+	var other := _cell(Engraving.CATEGORY_NUMBER, _number_net(5))
+	assert_ne(other.net_texture(), first.net_texture(), "ein anderes Netz backt neu")
+
+func test_der_aufgenommene_zustand_dunkelt_die_zellen_und_kehrt_zurueck() -> void:
+	# Die Schablonen-Fahrt nimmt Zellen auf: sie verglimmen, sie verschwinden nicht.
+	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	var resting := cell.net_texture()
+	cell.set_net_drained([true, false, false, false, false, false])
+	var drained := cell.net_texture()
+	assert_ne(drained, resting, "abgedunkelt ist ein anderes Bild")
+	assert_eq(cell.net_drained(), [true, false, false, false, false, false])
+	cell.set_net_drained([true, false, false, false, false, false])
+	assert_eq(cell.net_texture(), drained, "derselbe Ruf schreibt nichts (idempotent)")
+	cell.clear_net_drained()
+	assert_eq(cell.net_texture(), resting, "und der Ruhestand ist wieder der geteilte")
+	assert_true(cell.net_drained().is_empty())
+
+func test_eine_kassette_ohne_paket_zeigt_das_leere_kreuz_ihrer_sorte() -> void:
+	# Der Wett-Gewinn kennt Sorte und Größe, aber noch kein Netz.
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	assert_true(StampNet.is_blank(cell.stamp_net), "leer, nicht ungebaut")
+	assert_not_null(cell.get_node_or_null("Body/Cell0/StampNet"))
+	assert_not_null(cell.net_texture(), "das leere Kreuz steht trotzdem da")
+	assert_eq(cell.net_accent(), PackDrawerView.COLORS[Engraving.CATEGORY_MATERIAL],
+		"und trägt die Sortenfarbe")
+
+func test_eine_operator_karte_liest_amber() -> void:
+	# Die eine Farbtrennung der Serie: Wert cyan, Operator amber.
+	var net := StampNet.operator_net(StampNet.OP_DOUBLER)
+	var cell := _cell(Pack.SHELF_SPECIAL, net)
+	assert_true(cell.has_operator())
+	assert_eq(cell.net_accent(), PressNetView.OPERATOR_TINT)
+	var plain := _cell(Pack.SHELF_SPECIAL, _number_net())
+	assert_false(plain.has_operator())
+	assert_eq(plain.net_accent(), PackDrawerView.COLORS[Pack.SHELF_SPECIAL])
+
+func test_die_groesse_steht_in_der_rahmenstaerke_statt_in_streifen() -> void:
+	# Auf der Fläche liegt jetzt das Netz - die Größe trägt der Rahmen.
+	var normal := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_NORMAL)
+	var big := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_GROSS)
+	var huge := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_KOLOSSAL)
+	assert_almost_eq(normal.bezel_lip(), DataCellView.BEZEL_LIP, 0.0001)
+	assert_gt(big.bezel_lip(), normal.bezel_lip())
+	assert_gt(huge.bezel_lip(), big.bezel_lip())
+	assert_lt(huge.bezel_lip(), DataCellView.SIDE_BAR,
+		"aber nie breiter als der Seitenbalken, der ihn trägt")
+	assert_null(normal.get_node_or_null("Body/Cell0/TierFace0"),
+		"die Streifen der Vorderseite sind gestorben")
+	assert_not_null(huge.get_node_or_null("Body/Cell0/TierStripe0"),
+		"auf der KAPPE bleiben sie - von oben ist sie die ganze Auskunft")

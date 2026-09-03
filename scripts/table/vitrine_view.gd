@@ -740,7 +740,7 @@ func _spawn_cell(pack: Pack) -> DataCellView:
 	var cell := DataCellView.new()
 	cell.name = "VitrineCell"
 	add_child(cell)
-	cell.setup(Pack.shelf_of(pack), pack.tier)
+	cell.setup(Pack.shelf_of(pack), pack.tier, pack.stamp_net)
 	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
 	# aufrecht im Bild (Bildschirm-oben = Welt+X).
 	cell.rotation.y = -PI / 2.0

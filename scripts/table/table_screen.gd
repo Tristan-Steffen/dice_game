@@ -164,12 +164,9 @@ var deck_glass_viewport: SubViewport
 ## Welt-Abbildung der Haut und die Umrechnung jedes weitergereichten Zeigers.
 var _deck_glass_rect := Rect2()
 var _deck_glass_skin: ShaderMaterial
-## Der NETZ-SCHIRM neben dem Ausgabefach: die Würfelnetze der offenen Neuzugänge.
+## Die INFO-SÄULE unter dem Ausgabefach: Name, Seele, Wirkung und Netz dessen,
+## was über ihr steht (Neuzugang oder gewählter Zielwürfel).
 var fach_net_window: FachNetView
-## Die vier Vorrats-Schubladen unter der Werkbank (Zahlen/Material/Würfel +
-## Sonderbestand), je eine Ader zur Werkbank - sie sollen als ANGEBAUT lesen,
-## nicht als fremde Fenster daneben.
-var workshop_hub_strip: LedStripView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
 ## Ader Schwarzmarkt <-> Hub: der Zwilling der Automaten-Ader eine Etage tiefer -
@@ -248,6 +245,12 @@ const SWALLOW_PIT_COUNT := 3
 ## umnummeriert wird.
 const PIT_CLAMP0 := 20
 const CLAMP_PIT_COUNT := 4
+
+## Die SCHACHT-REIHE der Werkstatt-Serie: EIN Band-Schacht, der je Sitz seine
+## eigene Sektion schneidet - es fährt immer nur EINE Karte (ein Tipp steckt, ein
+## Klick wirft), also genügt EIN Platz. Er sitzt im brachliegenden Rest des alten
+## Zwingen-Blocks, damit kein bestehender Platz umnummeriert wird.
+const PIT_SERIES := PIT_CLAMP0 + 1
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -604,11 +607,6 @@ func _build_content() -> void:
 	# place_fach_net_window; leer heißt unsichtbar.
 	fach_net_window = FachNetView.new()
 	add_child(fach_net_window)
-
-	# Ader Hub -> Werkstatt (verlegt place_workshop_window).
-	workshop_hub_strip = LedStripView.new()
-	workshop_hub_strip.name = "WorkshopHubStrip"
-	add_child(workshop_hub_strip)
 
 	# Ader Automaten -> Hub (verlegt place_slot_bank_window).
 	slot_hub_strip = LedStripView.new()
@@ -970,7 +968,7 @@ func _sync_deck_glass_skin() -> void:
 		Vector4(a.z, b.z - a.z, a.x, a.x - b.x))
 	_deck_glass_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
 
-## Spannt den Netz-Schirm über rect auf (neben dem Ausgabefach) bzw. nimmt ihn fort.
+## Spannt die Info-Säule über rect auf (unter dem Ausgabefach) bzw. nimmt sie fort.
 func place_fach_net_window(rect: Rect2) -> void:
 	fach_net_window.position = rect.position
 	fach_net_window.size = rect.size
@@ -1056,21 +1054,7 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.size = rect.size
 	workshop_window.visible = true
 	workshop_window.refresh()
-	_link_workshop_to_hub()
 	_sync_reflection_windows()
-
-## Ader Hub -> Werkstatt: gerade waagerecht durch die Lücke, auf halber Höhe der
-## Überlappung beider Fenster (dort liegt nur Filz).
-func _link_workshop_to_hub() -> void:
-	if workshop_hub_strip == null or hub == null or hub.size.x <= 0.0 \
-			or workshop_window == null or not workshop_window.visible:
-		return
-	var top := maxf(hub.position.y, workshop_window.position.y)
-	var bottom := minf(hub.position.y + hub.size.y, workshop_window.position.y + workshop_window.size.y)
-	if bottom <= top:
-		return  # keine Höhen-Überlappung - keine gerade Ader möglich
-	workshop_hub_strip.link_horizontal(hub.position.x + hub.size.x,
-		workshop_window.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
@@ -1242,10 +1226,8 @@ func _sync_reflection_windows() -> void:
 			secret_shop_window.position.x + secret_shop_window.size.x,
 			secret_shop_window.position.y + secret_shop_window.size.y))
 		radii.append(10.0)
-	if workshop_window != null and workshop_window.visible:
-		rects.append(Vector4(workshop_window.position.x, workshop_window.position.y,
-			workshop_window.position.x + workshop_window.size.x, workshop_window.position.y + workshop_window.size.y))
-		radii.append(10.0)
+	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
+	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
@@ -2500,25 +2482,42 @@ func _border_route(rect: Rect2, from: Vector2, to: Vector2) -> PackedVector2Arra
 		path.append(_perimeter_point(rect, fposmod(t0 + dir * ahead, perim)))
 	return path
 
-## Liefer-Komet Laden -> Werkstatt: das gekaufte Paket FÄHRT als Licht die
-## Hub-Werkstatt-Ader entlang, statt im Lager zu erscheinen. Ziel ist der Stapel,
-## auf dem es landet (target); ohne Angabe die Fenstermitte. Liefert die Laufzeit.
+## Liefer-Komet ins MAGAZIN: das gekaufte oder gewonnene Paket fliegt als reiner
+## METEOR-BOGEN auf seinen Magazin-Platz (target); ohne Angabe die Fenstermitte.
+## Die Hub->Magazin-Ader ist gefallen - fire-and-forget, wie der Automaten-Würfel.
+## Liefert die Laufzeit.
 func pack_delivery_comet(from_px: Vector2, color: Color,
-		target := Vector2(-1, -1)) -> float:
+		target := Vector2(-1, -1), spread_index := 0) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
 	var to_px := workshop_window.position + workshop_window.size * 0.5
 	if target.x >= 0.0:
 		to_px = target
-	var path := _route_via_strip(from_px, workshop_hub_strip, to_px)
+	var path := _meteor_launch(from_px, to_px, spread_index)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
-## Hehlerware Hinterzimmer -> Werkbank: erst die Schwarzmarkt-Ader in den Hub,
-## dort auf die Werkstatt-Ader zum Ziel. Liefert die Laufzeit.
+## Liefer-Komet ins AUSGABEFACH: der gekaufte oder gewonnene Würfel fliegt als
+## reiner METEOR-BOGEN auf die Schale (an die Schale reicht keine Ader). Liefert die
+## Laufzeit.
+func fach_delivery_comet(from_px: Vector2, color: Color, to_px: Vector2,
+		spread_index := 0) -> float:
+	var path := _meteor_launch(from_px, to_px, spread_index)
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
+## Hehlerware Hinterzimmer -> Werkbank/Ausgabefach: die Schwarzmarkt-Ader in den
+## Hub, von dort als reiner METEOR-BOGEN aufs Ziel (Magazin-Platz oder Schale) - die
+## Hub->Magazin-Ader ist gefallen. Liefert die Laufzeit.
 func secret_delivery_comet(from_px: Vector2, to_px: Vector2, color: Color) -> float:
-	var path := _route_via_strips(from_px, [secret_hub_strip, workshop_hub_strip], to_px)
+	var launch := from_px
+	if secret_hub_strip != null and secret_hub_strip.strip_path.size() >= 2:
+		launch = secret_hub_strip.strip_path[secret_hub_strip.strip_path.size() - 1]
+	var path := _route_via_strips(from_px, [secret_hub_strip], launch)
+	for p in _meteor_launch(launch, to_px, 0):
+		path.append(p)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -2592,13 +2591,19 @@ func slot_prize_comet(from_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Gewonnenes Paket Automat -> Werkbank: Automaten-Ader in den Hub, Werkstatt-Ader
-## zur Werkbank. Liefert die Laufzeit.
+## Gewonnenes Paket Automat -> Werkbank: Automaten-Ader in den Hub, von dort als
+## reiner METEOR-BOGEN ins Magazin (die Hub->Magazin-Ader ist gefallen). Liefert die
+## Laufzeit.
 func slot_pack_comet(from_px: Vector2, color: Color) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
 	var to_px := workshop_window.position + workshop_window.size * 0.5
-	var path := _route_via_strips(from_px, [slot_hub_strip, workshop_hub_strip], to_px)
+	var launch := from_px
+	if slot_hub_strip != null and slot_hub_strip.strip_path.size() >= 2:
+		launch = slot_hub_strip.strip_path[slot_hub_strip.strip_path.size() - 1]
+	var path := _route_via_strips(from_px, [slot_hub_strip], launch)
+	for p in _meteor_launch(launch, to_px, 0):
+		path.append(p)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -2774,12 +2779,12 @@ func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF) -> floa
 	_pulse_along(path, travel, color)
 	return travel
 
-## Rundenende-Meteor bis in einen Platz der Werkbank: die Rundenende-Bahn bis zum
-## Hub, dann die Werkstatt-Ader ins Fenster. Liefert die Laufzeit.
+## Rundenende-Meteor bis in einen Platz der Werkbank: als reiner METEOR-BOGEN ins
+## Magazin (die Hub->Magazin-Ader ist gefallen). Liefert die Laufzeit.
 func charm_engraving_comet(from_px: Vector2, slot_px: Vector2, color: Color) -> float:
 	if workshop_window == null or not workshop_window.visible:
 		return 0.0
-	var path := _round_end_route(from_px, [workshop_hub_strip], slot_px)
+	var path := _meteor_launch(from_px, slot_px, 0)
 	var travel := _round_end_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel

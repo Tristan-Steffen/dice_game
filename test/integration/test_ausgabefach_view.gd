@@ -228,51 +228,65 @@ func test_ein_frisch_gestelltes_fach_laesst_niemanden_steigen() -> void:
 		var spot: Vector3 = item["spot"]
 		assert_almost_eq(body.global_position.y, spot.y, 0.01, "sein Platz steht sofort")
 
-# --- Der VORHANG: das PODEST nimmt dem Fach seinen Platz --------------------------
+# --- Der VORHANG ist ZURÜCK: das Bench-Podest der STATIONS-ZEILE steht am -------
+# Ausgabefach-Platz (2026-09-03) - waehlt der Spieler ein Ziel, gehoert der Platz
+# ihm, und der wartende Neuzugang sinkt unter den Fachboden.
 
-func test_der_vorhang_versenkt_die_neuzugaenge_im_fachboden() -> void:
+func test_ohne_vorhang_zeigt_die_schale_ihren_neuzugang() -> void:
 	fach.present(_dice(1))
 	await wait_frames(2)
-	assert_eq(fach.items.size(), 1, "vorher liegt einer offen")
-	fach.set_curtain(true)
-	assert_true(fach.curtained())
-	assert_eq(fach.items.size(), 0, "hinter dem Vorhang liegt nichts mehr offen")
+	assert_eq(fach.items.size(), 1, "der Neuzugang liegt offen")
+	assert_false(fach.curtained())
 
-func test_der_gehobene_vorhang_laesst_sie_wieder_STEIGEN() -> void:
-	# Kein Aufpoppen: sie kommen denselben Weg zurueck, den jede Ankunft nimmt.
+func test_der_vorhang_verdeckt_den_neuzugang() -> void:
+	fach.present(_dice(2))
+	await wait_frames(2)
+	assert_eq(fach.items.size(), 1, "vorher liegt der offene Neuzugang da")
+	fach.set_curtain(true)
+	await wait_frames(2)
+	assert_true(fach.curtained())
+	assert_eq(fach.items.size(), 0, "hinter dem Vorhang liegt nichts offen")
+
+func test_der_vorhang_gibt_den_neuzugang_wieder_frei() -> void:
+	fach.present(_dice(1))
+	fach.set_curtain(true)
+	await wait_frames(2)
+	assert_eq(fach.items.size(), 0)
+	fach.set_curtain(false)
+	await wait_frames(2)
+	assert_eq(fach.items.size(), 1, "gelöst steigt der Neuzugang wieder auf")
+
+func test_der_vorhang_ist_idempotent() -> void:
+	fach.present(_dice(1))
+	fach.set_curtain(true)
+	await wait_frames(2)
+	var body: Node3D = fach._bodies.values()[0] if not fach._bodies.is_empty() else null
+	fach.set_curtain(true)  # derselbe Zustand baut nichts neu
+	assert_true(fach.curtained())
+
+func test_der_offene_platz_bleibt_gerechnet_auch_hinter_dem_vorhang() -> void:
 	var dice := _dice(1)
 	fach.present(dice)
 	await wait_frames(2)
+	var lying: Vector3 = _spot_of(dice[0])
 	fach.set_curtain(true)
 	await wait_frames(2)
-	fach.set_curtain(false)
-	var rising := fach.item_at(_spot_of(dice[0]))
-	assert_false(rising.is_empty(), "er liegt wieder offen")
-	var body: Node3D = rising["node"]
-	var spot: Vector3 = rising["spot"]
-	assert_lt(body.global_position.y, spot.y - 0.1, "und startet unter dem Fachboden")
-	await wait_seconds(AusgabefachView.ARRIVE_TIME + 0.1)
-	assert_almost_eq(body.global_position.y, spot.y, 0.01, "dann liegt er oben")
+	assert_almost_eq(fach.open_spot(), lying, Vector3.ONE * 0.001,
+		"derselbe Platz, auch wenn der Vorhang ihn gerade verdeckt")
 
-func test_der_platz_des_podests_ist_eine_reine_rechnung() -> void:
-	# Er steht AUCH, wenn gerade keiner liegt - das Podest fragt ihn hinter dem Vorhang.
+func test_der_platz_der_schale_ist_eine_reine_rechnung() -> void:
+	# Er steht AUCH, wenn gerade keiner liegt - er ist gerechnet, nicht gemessen.
 	var dice := _dice(1)
 	fach.present(dice)
 	await wait_frames(2)
 	var lying: Vector3 = _spot_of(dice[0])
 	assert_almost_eq(fach.open_spot(), lying, Vector3.ONE * 0.001,
 		"derselbe Platz, den der liegende Wuerfel hat")
-	fach.set_curtain(true)
+	fach.clear()
 	assert_almost_eq(fach.open_spot(), lying, Vector3.ONE * 0.001,
-		"und er bleibt es hinter dem Vorhang")
+		"und er bleibt es in der leeren Schale")
 	assert_almost_eq(fach.floor_top_y(),
 		CENTER.y + AusgabefachView.FLOOR_LIFT + AusgabefachView.FLOOR_HEIGHT, 0.0001)
-
-func test_ein_laufwechsel_hebt_den_vorhang() -> void:
-	fach.present(_dice(1))
-	fach.set_curtain(true)
-	fach.clear()
-	assert_false(fach.curtained(), "die leere Schale haelt nichts mehr zurueck")
 
 func _spot_of(def: DieDefinition) -> Vector3:
 	for item in fach.items:
