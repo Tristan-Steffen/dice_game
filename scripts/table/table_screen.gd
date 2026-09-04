@@ -246,11 +246,6 @@ const SWALLOW_PIT_COUNT := 3
 const PIT_CLAMP0 := 20
 const CLAMP_PIT_COUNT := 4
 
-## Die SCHACHT-REIHE der Werkstatt-Serie: EIN Band-Schacht, der je Sitz seine
-## eigene Sektion schneidet - es fährt immer nur EINE Karte (ein Tipp steckt, ein
-## Klick wirft), also genügt EIN Platz. Er sitzt im brachliegenden Rest des alten
-## Zwingen-Blocks, damit kein bestehender Platz umnummeriert wird.
-const PIT_SERIES := PIT_CLAMP0 + 1
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:

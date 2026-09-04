@@ -222,26 +222,32 @@ const HANDOVER_SHARE := 0.85
 const PACK_PIT_DEPTH_ROOM := 1.3
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
-const DATA_CELL_RAISE_TIME := 0.22
 const DATA_CELL_PLUNGE_TIME := 0.28
-## Die LAGE einer Kassette im SERIEN-SCHACHT (0 = liegend, 1 = stehend). SENKRECHT
-## wäre ihre Netz-Fläche an der 15°-Weitsicht fast kantig (sie projizierte mit
-## sin 15° = 0,26 und keine Ziffer läse); bei diesem Blend steht sie QUER zur
-## Blickachse - eine Karte im Ständer, aufgerichtet zur Kamera hin.
-const SOCKET_POSE := 15.0 / 90.0
-## Luft, die das Schacht-Loch um den Grundriß seiner Karte herum bekommt.
-const SOCKET_SHAFT_ROOM := 1.15
+## DER TRAGE-BOGEN (Welle O): was der SPIELER bewegt, fliegt ÜBER dem Tisch.
+## Magazin -> Kerf und zurück ist ein Spieler-Zug, also reist die Kassette als
+## KÖRPER - erst aus ihrem Loch heraus (LIFT), dann im flachen Bogen, dann hinein.
+const DATA_CELL_LIFT_TIME := 0.18
+const CARRY_TIME := 0.45
+const CARRY_PEAK := DataCellView.HEIGHT * 1.2
+## Die zwei Sitze, auf denen ein Trage-Bogen endet - danach richtet sich sein
+## harter Endzustand.
+const CARRY_SEAT_SOCKET := "socket"
+const CARRY_SEAT_PIT := "pit"
 ## Die Dekompression beim Pressen: der Kern brennt aus, dann sinkt der Sliver den
 ## Rest des Weges und ist geschluckt.
 const DATA_CELL_DRAIN_STAGGER := 0.09
 const DATA_CELL_DRAIN_HOLD := 0.22
 const DATA_CELL_SINK_TIME := 0.30
-## Flughöhe der SCHABLONE über dem Glas: die Schacht-Karten liegen bei SOCKET_POSE
-## fast flach, sie fährt also ÜBER die Reihe hinweg statt durch sie hindurch.
-## GEMESSEN, nicht geschätzt: die Oberkante einer Karte steht bei ihrem größten
-## Anzeige-Maßstab knapp über 0,5 Kassettenhöhen - höher zöge die 15°-Parallaxe
-## die Schablone sichtbar von ihrer Karte weg.
-const STENCIL_HOVER := DataCellView.HEIGHT * 0.7
+## Die NEIGUNG der SCHABLONE: senkrecht wäre ihre Fläche an der 15°-Weitsicht fast
+## kantig (sie projizierte mit sin 15° = 0,26), bei diesem Blend steht sie quer zur
+## Blickachse.
+const STENCIL_POSE := 15.0 / 90.0
+## Flughöhe der SCHABLONE über dem Glas: aus dem Kerf ragen nur noch Kappe und
+## Lichtsaum, sie fährt also knapp über die Reihe hinweg. GERECHNET aus der Kappe:
+## SUNK_SHOW der Standhöhe im größten Anzeige-Maßstab plus Luft - höher zöge die
+## 15°-Parallaxe die Schablone sichtbar von ihrer Karte weg.
+const STENCIL_HOVER := DataCellView.STAND_HEIGHT * DataCellView.SUNK_SHOW \
+		* PackDrawerView.CASSETTE_SCALE + DataCellView.HEIGHT * 0.35
 ## Ihre Fläche mißt sich an der Netz-Fläche einer Schacht-Karte, eine Spur größer:
 ## sie ist der SAMMLER der Reihe, nicht eine weitere Karte.
 const STENCIL_SPAN_GAIN := 1.15
@@ -533,12 +539,9 @@ var _bench_gen := 0
 ## (Chip-Schalen-Regel).
 var shelf_cells: Dictionary = {}
 var socket_cells: Array[DataCellView] = []
-## Der EINE Schacht der Serien-Reihe (siehe _series_shaft_at) und die Karte, die
-## gerade darin auffährt (null = keine) samt ihrem Sitz - eine zweite Fahrt setzt
-## sie hart auf ihn.
-var _series_shaft: LiftShaftView
-var _socket_riding: DataCellView
-var _socket_riding_at := Vector3.ZERO
+## Die Kassetten, die gerade einen TRAGE-BOGEN fliegen: Körper -> {"to", "seat",
+## "uid"}. EIN Schreiber, EIN Aufräum-Pfad (_settle_carries).
+var _carrying: Dictionary = {}
 ## uid je Schlitz, parallel zu socket_cells: daran erkennt der Abgleich SEINE
 ## Zelle wieder und gibt sie beim Auswerfen an ihren Magazin-Platz zurück.
 var socket_uids: Array[int] = []
@@ -1264,10 +1267,10 @@ func _place_workshop_strip() -> Rect2:
 	if table_screen.workshop_window != null:
 		table_screen.workshop_window.unit_px = _workshop_unit(workshop_height)
 	table_screen.place_workshop_window(workshop_rect)
-	# Die Werkbank misst Regal und Buchten an der ECHTEN Größe einer liegenden
+	# Die Werkbank misst Magazin und Kerfe an der ECHTEN Kappe einer STEHENDEN
 	# Datenzelle - sie muss sie also kennen, bevor sie auslegt (wie beim Wurf).
 	if table_screen.workshop_window != null:
-		table_screen.workshop_window.data_cell_px = _data_cell_lying_px()
+		table_screen.workshop_window.data_cell_px = _data_cell_apparent_px()
 		# Das MAGAZIN spannt nur den STREIFEN und endet mit seiner Unterkante
 		# bündig an der POOL-Unterkante: scene_root schiebt die gemessene
 		# Pool-Höhe als apron_bottom herein (window-lokal, Fensteroberkante =
@@ -1334,7 +1337,7 @@ func _sync_workshop_strip() -> void:
 func _fit_workshop_rect(left: float, top: float, budget: float, slots: int) -> Rect2:
 	var u := _workshop_unit(budget)
 	var height := u * 100.0 / WorkshopView.bench_aspect()
-	var card := _data_cell_lying_px().x * PackDrawerView.CASSETTE_SCALE
+	var card := _data_cell_apparent_px().x * PackDrawerView.CASSETTE_SCALE
 	var width := WorkshopView.bench_width_for(slots, u, card)
 	# Der Tisch ist endlich: passt die gelöste Breite nicht mehr auf die Anzeige,
 	# wird gekappt - die Karten stehen dann enger, sie schrumpfen aber nicht.
@@ -2775,7 +2778,7 @@ func _on_stencil_launched(time: float) -> void:
 	# Sie mißt sich am Netz EINER Schacht-Karte - in derselben einen Kartengröße
 	# und derselben einen Ausrichtung wie die Netze, die sie liest.
 	stencil.setup(DataCellView.net_span(PackDrawerView.CASSETTE_SCALE) * STENCIL_SPAN_GAIN,
-		SOCKET_POSE, PressNetView.VALUE_TINT)
+		STENCIL_POSE, PressNetView.VALUE_TINT)
 	var birth := workshop.ist_net_center()
 	stencil.seat_at(_stencil_seat(birth if birth.x >= 0.0 else workshop.hand_anchor_px()))
 	stencil.emerge(time)
@@ -2852,7 +2855,7 @@ func _settle_stencil_ride(sink: bool) -> void:
 	var cells := socket_cells.duplicate()
 	socket_cells.clear()
 	socket_uids.clear()
-	_settle_socket_ride()  # eine noch laufende Schacht-Fahrt steht erst hart
+	_settle_carries()  # ein noch fliegender Trage-Bogen steht erst hart
 	for i in cells.size():
 		var cell: DataCellView = cells[i]
 		if cell == null or not is_instance_valid(cell):
@@ -3579,12 +3582,11 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	pack_pit.setup(table_screen.pixel_to_world(rect.get_center()), half,
 		_pack_pit_depth())
 
-## Die Tiefe der Magazin-Grube: das LIEGEMASS einer Kassette plus Luft - seit
-## 2026-09-04 liegt sie dort flach, eine stehende Rechnung grübe ein Loch, das
-## siebenmal so tief wäre wie ihr Inhalt. Sie ist zugleich die Strecke, die eine
-## ankommende Zelle steigt - darunter liegt sie ganz unter dem Boden.
+## Die Tiefe der Magazin-Grube: die STANDHÖHE einer Kassette plus Luft - dort steht
+## sie bis zur Kappe im Loch. Sie ist zugleich die Strecke, die eine ankommende
+## Zelle steigt - darunter liegt sie ganz unter dem Boden.
 func _pack_pit_depth() -> float:
-	return DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE) * PACK_PIT_DEPTH_ROOM
+	return DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
 
 # --- Die EINE Ankunft des Magazins ------------------------------------------
 # Wer auch immer liefert - Laden, Hub-Prämie, Charm, Nebenwette, Hinterzimmer -,
@@ -7936,7 +7938,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		elif cell.glass_position().distance_to(target) > 0.01:
 			cell.glide_to(target, DATA_CELL_SLIDE_TIME)
 		else:
-			cell.lie_in_pit(target)
+			cell.stand_in_pit(target)
 		# Die ×n-Marke heißt jetzt BÜNDEL: mehrere Stücke in EINER Karte.
 		cell.set_count(maxi(pack.count, 1))
 		cell.set_dimmed(workshop.shelf_locked())
@@ -7952,13 +7954,13 @@ func _show_shelf_cell(cell: DataCellView, uid: int, target: Vector3, fresh: int)
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
 		cell.rise_into_pit(target, _pack_pit_depth(), float(fresh) * DATA_CELL_STAGGER)
 		return
-	cell.lie_in_pit(target)
+	cell.stand_in_pit(target)
 	cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 
-## Die SCHACHT-REIHE: je belegtem Platz eine Zelle, geneigt in ihrem Schacht
-## stehend, die Netz-Fläche zur Kamera. Eine frisch gesteckte ist der KÖRPER ihres
-## Magazin-Platzes - er versinkt dort und STEIGT im Schacht wieder auf; gebucht war
-## die Vormerkung längst.
+## Die SCHACHT-REIHE: je belegtem Platz eine Zelle, STEHEND in ihrem Kerf - nur
+## Kappe und Lichtsaum über dem Blech. Eine frisch gesteckte ist der KÖRPER ihres
+## Magazin-Platzes; er fliegt im TRAGE-BOGEN herüber, gebucht war die Vormerkung
+## längst.
 func _sync_socket_cells(workshop: WorkshopView) -> void:
 	var sorts := workshop.press_slot_sorts()
 	var uids := workshop.press_slot_uids()
@@ -7996,7 +7998,7 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			if cell.glass_position().distance_to(target) > 0.01:
 				cell.glide_to(target, DATA_CELL_SLIDE_TIME)  # das Umlegen FÄHRT
 			else:
-				cell.stand_in_shaft(target, SOCKET_POSE)
+				cell.seat_hard(target)
 			continue
 		if workshop.burning():
 			continue  # während der Fahrt entsteht keine Karte neu - sie werden gelesen
@@ -8013,7 +8015,7 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 		cell.set_dimmed(workshop.shelf_locked())
 		socket_cells[i] = cell
 		socket_uids[i] = uid
-		_seat_data_cell(cell, target, scale)  # nicht erwartet: der Körper folgt der Buchung
+		_carry_data_cell(cell, target)  # nicht erwartet: der Körper folgt der Buchung
 
 ## Ein Paket ist aus seinem Schlitz zurück ins Magazin gegangen: seine Zelle
 ## fliegt heim auf ihren Platz und WIRD dort wieder die Magazin-Kassette.
@@ -8073,83 +8075,58 @@ func _spawn_data_cell(sort: String, tier: int, at: Vector3,
 	cell.global_position = at
 	return cell
 
-## Der Weg aus dem Magazin in den SCHACHT: die Kassette sinkt an ihrem Fach-Platz
-## ganz unter die Fläche, wird HART auf ihren Schacht-Platz geschrieben (Endzustand
-## zuerst) und STEIGT dort per Sektion herauf - die eine Ankunft der Serie. Oben
-## rastet sie mit einem Ausbruch ein.
-func _seat_data_cell(cell: DataCellView, target: Vector3, scale: float) -> void:
+## DER TRAGE-BOGEN aus dem Magazin in den KERF: die Kassette hebt sich aus ihrer
+## Grube, fliegt als KÖRPER über den Tisch und sinkt am Schacht-Mund in den Kerf.
+## Der ENDZUSTAND (seat_hard) steht vor dem Einsinken - ein abgebrochener Tween
+## schuldet nichts. Oben rastet sie mit einem Ausbruch ein.
+func _carry_data_cell(cell: DataCellView, target: Vector3) -> void:
 	var launched := run
 	cell.set_hovered(false)
-	cell.plunge(DataCellView.SUNK_GONE, DATA_CELL_PLUNGE_TIME)
+	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_SOCKET, "uid": 0}
+	cell.plunge(1.0, DATA_CELL_LIFT_TIME)  # ganz über das Glas, bevor sie fliegt
+	await get_tree().create_timer(DATA_CELL_LIFT_TIME).timeout
+	if run != launched or not _still_carrying(cell):
+		return
+	cell.arc_to(target, CARRY_TIME, CARRY_PEAK)
+	await get_tree().create_timer(CARRY_TIME).timeout
+	if run != launched or not _still_carrying(cell):
+		return
+	cell.seat_hard(target)  # Endzustand zuerst ...
+	cell.plunge(1.0, 0.0)   # ... dann der Weg dorthin: vom Mund in den Kerf
+	cell.plunge(DataCellView.SUNK_SHOW, DATA_CELL_PLUNGE_TIME)
 	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
+	if run != launched or not _still_carrying(cell):
 		return
-	cell.set_body_scale(scale)
-	cell.stand_in_shaft(target, SOCKET_POSE)  # Endzustand zuerst
-	_settle_socket_ride()  # es fährt immer nur EINE Karte
-	var shaft := _series_shaft_at(target, cell)
-	var tween: Tween = shaft.run_cycle([cell], [target], 0.0) if shaft != null else null
-	if tween == null:
-		cell.flare()
+	_carrying.erase(cell)
+	cell.flare()
+
+## Fliegt DIESER Körper noch unseren Bogen? Ein Aufräum-Pfad hat ihn sonst längst
+## hart gesetzt oder freigegeben.
+func _still_carrying(cell: DataCellView) -> bool:
+	return cell != null and is_instance_valid(cell) and _carrying.has(cell)
+
+## Der EINE harte Aufräum-Pfad der Trage-Bögen: jede fliegende Kassette steht hart
+## auf ihrem Ziel (Endzustand zuerst - sie schuldet nichts). Eine zweite Fahrt, ein
+## Laufwechsel und jeder Abbruch gehen hier durch.
+func _settle_carries() -> void:
+	if _carrying.is_empty():
 		return
-	_socket_riding = cell
-	_socket_riding_at = target
-	tween.finished.connect(func() -> void:
-		if _socket_riding == cell:
-			_socket_riding = null
-		if run == launched and is_instance_valid(cell):
-			cell.stand_in_shaft(target, SOCKET_POSE)
-			cell.flare())
+	var riding := _carrying.duplicate()
+	_carrying.clear()
+	for cell: DataCellView in riding:
+		if cell == null or not is_instance_valid(cell):
+			continue
+		var ride: Dictionary = riding[cell]
+		var target: Vector3 = ride.get("to", cell.glass_position())
+		if String(ride.get("seat", "")) == CARRY_SEAT_PIT:
+			cell.stand_in_pit(target)
+		else:
+			cell.seat_hard(target)
 
-## Der EINE Aufräum-Pfad der Schacht-Fahrt: die noch fahrende Karte steht hart auf
-## ihrem Sitz (Endzustand zuerst - sie schuldet nichts), der Schacht ist bündig und
-## sein Loch zu. Eine zweite Fahrt, ein Laufwechsel und jeder Abbruch gehen hier
-## durch - der Schacht ist EINER, und run_cycle würde die vorige Fahrt sonst
-## unter der Fläche stehen lassen.
-func _settle_socket_ride() -> void:
-	var riding := _socket_riding
-	_socket_riding = null
-	if _series_shaft != null and is_instance_valid(_series_shaft):
-		_series_shaft.settle_hard()
-	if riding != null and is_instance_valid(riding):
-		riding.stand_in_shaft(_socket_riding_at, SOCKET_POSE)
-		riding.flare()
-
-## Der EINE Schacht der SERIEN-REIHE: er fährt immer nur EINE Karte (ein Tipp
-## steckt, ein Klick wirft), also genügt eine Maschine mit EINEM Platz in der
-## Löcherliste. Je Fahrt wird er auf den Grundriß SEINER Karte umgeschnitten -
-## dieselbe Sektion-Grammatik wie der Kauf im Laden.
-func _series_shaft_at(at: Vector3, cell: DataCellView) -> LiftShaftView:
-	if table_screen == null or cell == null or not is_instance_valid(cell):
-		return null
-	if _series_shaft == null or not is_instance_valid(_series_shaft):
-		_series_shaft = LiftShaftView.new("SeriesShaft")
-		add_child(_series_shaft)
-		_series_shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(TableScreen.PIT_SERIES, spot, hole))
-		_series_shaft.closed.connect(func() -> void:
-			table_screen.clear_pit(TableScreen.PIT_SERIES))
-	_series_shaft.deck_skin = table_screen.display_skin()
-	_series_shaft.order_skin(PIT_SKIN)
-	_series_shaft.setup(Vector3(at.x, 0.0, at.z), _socket_field_half(cell),
-		_socket_shaft_depth(cell))
-	return _series_shaft
-
-## Der Grundriß EINER Schacht-Karte in Weltmaßen. Sie liegt seit der
-## Korrektur-Welle K QUER: ihre LANGSEITE läuft entlang Welt-Z (im Bild
-## waagerecht), ihre Breite (fast liegend) entlang Welt-X.
-func _socket_field_half(cell: DataCellView) -> Vector2:
-	return Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * 0.5 \
-		* cell.body_scale() * SOCKET_SHAFT_ROOM
-
-## Und wie tief: die Karte muß hochkant durch ihr Öffnungsband passen.
-func _socket_shaft_depth(cell: DataCellView) -> float:
-	return maxf(VitrineView.shaft_depth(),
-		DataCellView.STAND_HEIGHT * cell.body_scale() * VitrineView.SHAFT_ROOM)
-
-## Der Weg zurück ins Magazin: sie richtet sich in ihrem Schacht AUF, gleitet heim
-## auf SEINEN Platz und sinkt dort in die Grube - im Magazin STEHEN die Kassetten.
-## Der Anker wird erst NACH dem Neuaufbau geholt: das Fach hat sich eben neu gelegt.
+## DER TRAGE-BOGEN zurück ins Magazin: sie steigt aus ihrem Kerf, fliegt heim und
+## sinkt auf ihrem Fach-Platz in die Grube - beide Enden STEHEN, es wird nichts
+## umgelegt. Der Anker wird erst NACH dem Neuaufbau geholt: das Fach hat sich eben
+## neu gelegt.
 func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var launched := run
 	await get_tree().process_frame
@@ -8160,23 +8137,23 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 		_finish_cell_return(cell, uid, false)
 		return
 	cell.set_socketed(false)
-	cell.set_pose(0.0, DATA_CELL_RAISE_TIME)  # aus der Schacht-Lage flach ins Magazin
-	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
+	var target := _data_cell_seat(workshop.pack_anchor_px(uid))
+	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_PIT, "uid": uid}
+	cell.plunge(1.0, DATA_CELL_LIFT_TIME)  # aus dem Kerf heraus, ganz über das Glas
+	await get_tree().create_timer(DATA_CELL_LIFT_TIME).timeout
+	if run != launched or not _still_carrying(cell):
 		return
-	if not is_instance_valid(workshop):
-		_finish_cell_return(cell, uid, false)
+	cell.arc_to(target, CARRY_TIME, CARRY_PEAK)
+	await get_tree().create_timer(CARRY_TIME).timeout
+	if run != launched or not _still_carrying(cell):
 		return
-	cell.glide_to(_data_cell_seat(workshop.pack_anchor_px(uid)), DATA_CELL_SLIDE_TIME)
-	cell.set_body_scale(workshop.shelf_cell_scale(), DATA_CELL_SLIDE_TIME)  # zurück ins Fachmaß
-	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
-		return
-	cell.stand_measure = DataCellView.lying_over(1.0)  # sie sinkt liegend ein
+	cell.stand_in_pit(target)  # Endzustand zuerst ...
+	cell.plunge(1.0, 0.0)      # ... dann der Weg dorthin: in die Grube
 	cell.plunge(DataCellView.PIT_SHOW, DATA_CELL_PLUNGE_TIME)
 	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
-	if run != launched or cell == null or not is_instance_valid(cell):
+	if run != launched or not _still_carrying(cell):
 		return
+	_carrying.erase(cell)
 	_finish_cell_return(cell, uid, run != null and run.pack_by_uid(uid) != null)
 
 ## Angekommen: der Rückläufer WIRD wieder die Magazin-Kassette seines Pakets -
@@ -8218,6 +8195,7 @@ func _drain_data_cell(cell: DataCellView, delay: float) -> void:
 ## mehr ab.
 func _drop_data_cells() -> void:
 	_drop_stencil()  # eine Fahrt des alten Laufs schuldet nichts mehr
+	_settle_carries()  # und ein Trage-Bogen steht hart, bevor sein Körper fällt
 	for uid: int in shelf_cells:
 		_free_data_cell(shelf_cells[uid])
 	shelf_cells.clear()
@@ -8234,25 +8212,33 @@ func _drop_data_cells() -> void:
 	_pending_cell_pops.clear()
 	_rising_packs.clear()  # eine Fahrt des alten Laufs endet nirgends mehr
 	_hovered_pack_uid = 0
-	_socket_riding = null
-	if _series_shaft != null and is_instance_valid(_series_shaft):
-		_series_shaft.settle_hard()  # kein Schacht-Loch überlebt den Laufwechsel
+	_carrying.clear()  # kein Trage-Bogen überlebt den Laufwechsel
 
 func _free_data_cell(cell: DataCellView) -> void:
 	if cell == null or not is_instance_valid(cell):
 		return
-	if _socket_riding == cell:
-		_socket_riding = null  # die Fahrt gehört einem Körper, den es nicht mehr gibt
-		if _series_shaft != null and is_instance_valid(_series_shaft):
-			_series_shaft.settle_hard()
+	_carrying.erase(cell)  # der Bogen gehört einem Körper, den es nicht mehr gibt
 	remove_child(cell)
 	cell.queue_free()
 
+## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln: das, was aus Grube und
+## Kerf nach oben zeigt - ihre KAPPE. Seit der Welle P steht sie HOCHKANT (Fläche
+## nach Bild-links), also Kappentiefe breit × Kartenbreite tief. Die Kappe liegt in
+## der Glasebene, wird also wie die Werkbank selbst projiziert. Danach sind die
+## Magazin-Plätze und die Schacht-Münder geschnitten.
+func _data_cell_apparent_px() -> Vector2:
+	if table_screen == null:
+		return Vector2.ZERO
+	var origin := table_screen.world_to_pixel(Vector3.ZERO)
+	var wide := absf(table_screen.world_to_pixel(
+		Vector3(0.0, 0.0, DataCellView.CAP_DEPTH)).x - origin.x)
+	var deep := absf(table_screen.world_to_pixel(
+		Vector3(DataCellView.WIDTH, 0.0, 0.0)).y - origin.y)
+	return Vector2(wide, deep)
+
 ## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln: die große Kartenfläche
-## nach oben. QUER (Welle L) liegt ihre LANGSEITE waagerecht im Bild, ihre Breite
-## nach vorn. Danach sind die Stellplätze des Ladens geschnitten UND die Plätze des
-## Magazins - seit 2026-09-04 liegt die Karte auch dort flach, es gibt nur noch
-## diesen EINEN Fußabdruck.
+## nach oben. QUER liegt ihre LANGSEITE waagerecht im Bild, ihre Breite nach vorn.
+## Danach sind die Stellplätze der LÄDEN geschnitten - dort liegt die Ware.
 func _data_cell_lying_px() -> Vector2:
 	if table_screen == null:
 		return Vector2.ZERO
@@ -8268,7 +8254,8 @@ func _data_cell_lying_px() -> Vector2:
 ## bleibt folgenlos.
 func _bench_stage_under(screen_pos: Vector2) -> FloatingDie:
 	var camera := get_viewport().get_camera_3d()
-	if camera == null or bench_stage == null or not is_instance_valid(bench_stage) 			or not bench_stage.visible:
+	if camera == null or bench_stage == null or not is_instance_valid(bench_stage) \
+			or not bench_stage.visible:
 		return null
 	return bench_stage if bench_stage.under(camera, screen_pos) else null
 
@@ -9519,10 +9506,9 @@ func _process(delta: float) -> void:
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
-## Würfel in der Schale und stellt das Hover-Highlight der Serie (Karte <-> Netz-
-## Zellen). Gefragt je Bild - der Zeiger liegt auf dem Tisch, ein mouse_entered
-## erreicht das Fenster nie. Gesagt wird nichts mehr: die kleinen Schirme sind
-## gestorben, jedes Ding trägt seine Auskunft selbst.
+## Würfel in der Schale, stellt das Hover-Highlight der Serie (Karte <-> Netz-Zellen)
+## und schreibt die CAPTION unter dem Summen-Netz. Gefragt je Bild - der Zeiger liegt
+## auf dem Tisch, ein mouse_entered erreicht das Fenster nie.
 func _update_workshop_hover() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
@@ -9534,47 +9520,33 @@ func _update_workshop_hover() -> void:
 		_sync_pack_hover(0)
 		_sync_fach_hover()
 		workshop.sync_hover_at(Vector2(-1, -1))
-		_write_workshop_info(workshop, Vector2(-1, -1), 0)
+		_write_workshop_caption(workshop, Vector2(-1, -1))
 		return
 	var pixel := _screen_pixel(get_viewport().get_mouse_position())
 	var hover_uid := workshop.shelf_hover_uid_at(pixel)
 	_sync_pack_hover(hover_uid)
 	_sync_fach_hover()
 	workshop.sync_hover_at(pixel)
-	_write_workshop_info(workshop, pixel, hover_uid)
+	_write_workshop_caption(workshop, pixel)
 
-## Der EINE Schreiber des Info-Text-Schirms (je Bild): DEFAULT ist die Erklärung des
-## gewählten/gezeigten Würfels (Name, Seele im Essenz-Glühen, Wirkung); der HOVER
-## übersteuert - eine Netz-Zelle bzw. eine Magazin-Kassette zeigt DEREN Text. Nur der
-## Wechsel schreibt (set_info ist idempotent).
-func _write_workshop_info(workshop: WorkshopView, pixel: Vector2, hover_uid: int) -> void:
-	if pixel.x >= 0.0:
-		# Netz-Zelle schlägt Kassette schlägt Würfel.
-		var cell_hint := workshop.net_hint_at(pixel)
-		if cell_hint != "":
-			workshop.set_info("", "", CasinoStyle.CREAM, cell_hint)
-			return
-		# Eine ZELLE eines PRÄGENETZES erklärt sich selbst - das Material, die Rune,
-		# der Operator, der dort steht. Sie schlägt die Kassette als Ganzes.
-		var stamp := _stamp_cell_hint()
-		if stamp != "":
-			workshop.set_info("", "", CasinoStyle.CREAM, stamp)
-			return
-		if hover_uid > 0 and run != null:
-			var pack := run.pack_by_uid(hover_uid)
-			if pack != null:
-				workshop.set_info(pack.display_name, "", CasinoStyle.CREAM,
-					pack.description)
-				return
-	var die := _workshop_info_die(workshop)
-	if die == null:
-		workshop.set_info("", "", CasinoStyle.CREAM, "")
+## Der EINE Schreiber der CAPTION unter dem Summen-Netz (je Bild): eine NETZ-ZELLE
+## erklärt sich selbst, sonst nennt der Zeiger den NAMEN der überfahrenen Karte -
+## und liegt er nirgends, bleibt die Zeile leer. Nur der Wechsel schreibt
+## (set_caption ist idempotent).
+func _write_workshop_caption(workshop: WorkshopView, pixel: Vector2) -> void:
+	if pixel.x < 0.0:
+		workshop.set_caption("")
 		return
-	var essence := Essence.by_id(die.essence_id)
-	workshop.set_info(die.display_name,
-		essence.display_name if essence != null else "",
-		ShopController.soul_tint(die.essence_id),
-		essence.description if essence != null else "")
+	# Netz-Zelle im Fenster schlägt Zelle auf einem KÖRPER schlägt Kartenname.
+	var cell_hint := workshop.net_hint_at(pixel)
+	if cell_hint != "":
+		workshop.set_caption(cell_hint)
+		return
+	var stamp := _stamp_cell_hint()
+	if stamp != "":
+		workshop.set_caption(stamp)
+		return
+	workshop.set_caption(workshop.hover_pack_name())
 
 ## Die NETZ-ZELLE einer Kassette unter dem Zeiger, im Klartext ("" = keine).
 ## GEFRAGT werden die KÖRPER - sie schneiden den Zeigerstrahl selbst, das Fenster
@@ -9604,11 +9576,6 @@ func _cell_face_hint(cell: DataCellView, camera: Camera3D, screen: Vector2) -> S
 	if face < 0:
 		return ""
 	return StampNet.cell_hint(StampNet.cell_at(cell.stamp_net, face))
-
-## Der Würfel, den der Info-Schirm erklärt: der WERKSTATT-Zielwürfel und sonst
-## keiner - der Neuzugang gehört seit 2026-09-04 allein der Info-Säule am Fach.
-func _workshop_info_die(_workshop: WorkshopView) -> DieDefinition:
-	return _bench_die
 
 ## Die Kassette unter dem Zeiger zieht sich ein Stück aus der Grube, die vorige
 ## sinkt zurück. Nur der WECHSEL - set_hovered ist idempotent, aber ein Aufruf je

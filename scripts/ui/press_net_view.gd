@@ -436,3 +436,128 @@ static func _stamp_dope(cell: float) -> Control:
 	badge.size = Vector2.ONE * side
 	badge.position = Vector2.ONE * (cell - side) * 0.5
 	return badge
+# --- Das SUMMEN-NETZ einer ganzen Serie ------------------------------------------
+
+## Die REINE Summe der gesteckten Prägenetze als Kreuz, in derselben
+## KARTEN-Grammatik wie stamp_net - nur aus einer PROJEKTION statt aus einem Netz.
+## Zielunabhängig: gerechnet hat SeriesResolver OHNE Würfel, hier wird nur gemalt.
+static func sum_net(projection: Dictionary, cell: float) -> Control:
+	var root := Control.new()
+	root.name = "SeriesSum"
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.custom_minimum_size = DieNetView.net_size(cell)
+	root.size = root.custom_minimum_size
+	for face in StampNet.FACES:
+		var chip := _sum_cell(projection, face, cell)
+		chip.position = DieNetView.cell_position(face, cell)
+		chip.size = Vector2.ONE * cell
+		root.add_child(chip)
+	return root
+
+## EINE Zelle der Summe. Sie trägt MEHRERE Kanäle zugleich (anders als eine
+## Karten-Zelle): Material füllt sie, die Zahl steht darin, Runen sitzen als kleine
+## Glyphen in den unteren Ecken - und ein Pointer, den die Zahl verdrängt, färbt
+## wenigstens den Saum.
+static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
+	var material := _sum_string(projection, "materials", face)
+	var bonus := _sum_int(projection, "bonus", face, 0)
+	var pointer := _sum_int(projection, "pointers", face, -1)
+	var runes := _sum_runes(projection, face)
+	var fill := EMPTY_CELL
+	var rim := EMPTY_RIM
+	var text := ""
+	var tint := VALUE_TINT
+	if material != "":
+		var level := DieMaterial.MAX_LEVEL if _sum_flag(projection, "doped", face) else 1
+		fill = DieMaterial.tint_for(material, level)
+		rim = fill.lightened(0.3)
+	if bonus != 0:
+		text = "%+d" % bonus
+		if material == "":
+			rim = VALUE_TINT
+	elif pointer >= 0:
+		text = "→%d" % (pointer + 1)
+		tint = DieNetView.POINTER_COLOR
+	if pointer >= 0 and bonus != 0:
+		rim = DieNetView.POINTER_COLOR  # der Pfeil steht im Saum, die Zahl im Feld
+	var chip := Panel.new()
+	chip.name = "SumCell"
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = rim
+	box.set_border_width_all(maxi(1, int(cell * 0.08)))
+	box.set_corner_radius_all(maxi(1, int(cell * 0.2)))
+	chip.add_theme_stylebox_override("panel", box)
+	if text != "":
+		chip.add_child(_stamp_label(text, cell, tint))
+	for slot in mini(runes.size(), SUM_RUNE_CAP):
+		chip.add_child(_sum_rune(String(runes[slot]), cell, slot))
+	return chip
+
+## Bis so viele Runen zeigt eine Summen-Zelle; mehr passten in die Ecken nicht.
+const SUM_RUNE_CAP := 2
+## Kantenlänge einer Ecken-Glyphe, als Anteil der Zelle.
+const SUM_RUNE_SHARE := 0.42
+
+static func _sum_rune(rune_id: String, cell: float, slot: int) -> Control:
+	var side := cell * SUM_RUNE_SHARE
+	var mark := DieNetView.RuneGlyph.new()
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mark.size = Vector2.ONE * side
+	mark.position = Vector2(cell * 0.04 if slot == 0 else cell - side - cell * 0.04,
+		cell - side - cell * 0.04)
+	var rune := Rune.by_id(rune_id)
+	if rune == null:
+		return mark
+	mark.lines = Rune.glyph_lines(rune.glyph)
+	mark.weights = Rune.glyph_weights(rune.glyph)
+	mark.tint = rune.tint
+	mark.core = rune.core
+	return mark
+
+## Der Klartext einer Summen-Zelle ("" = sie trägt nichts): Material, Zahl, Runen
+## und Pointer nacheinander - dieselben Quellen wie jedes andere Netz.
+static func projection_hint(projection: Dictionary, face: int) -> String:
+	var parts: Array[String] = []
+	var material := _sum_string(projection, "materials", face)
+	if material != "":
+		var level := DieMaterial.MAX_LEVEL if _sum_flag(projection, "doped", face) else 1
+		var said := DieMaterial.face_hint(material, level)
+		if said != "":
+			parts.append(said)
+	var bonus := _sum_int(projection, "bonus", face, 0)
+	if bonus != 0:
+		parts.append("%+d Augen" % bonus)
+	for rune_id in _sum_runes(projection, face):
+		var rune_hint := Rune.hint(String(rune_id))
+		if rune_hint != "":
+			parts.append(rune_hint)
+	var pointer := _sum_int(projection, "pointers", face, -1)
+	if pointer >= 0:
+		parts.append("Pointer: auf Seite %d" % (pointer + 1))
+	return "  ·  ".join(parts)
+
+static func _sum_int(projection: Dictionary, key: String, face: int,
+		fallback: int) -> int:
+	var row: Array = projection.get(key, [])
+	return int(row[face]) if face >= 0 and face < row.size() else fallback
+
+static func _sum_string(projection: Dictionary, key: String, face: int) -> String:
+	var row: Array = projection.get(key, [])
+	return String(row[face]) if face >= 0 and face < row.size() else ""
+
+static func _sum_flag(projection: Dictionary, key: String, face: int) -> bool:
+	var row: Array = projection.get(key, [])
+	return face >= 0 and face < row.size() and bool(row[face])
+
+## Die Runen, die die Serie auf dieser Seite NEU legt (leere Plätze fallen weg).
+static func _sum_runes(projection: Dictionary, face: int) -> Array:
+	var rows: Array = projection.get("runes", [])
+	if face < 0 or face >= rows.size():
+		return []
+	var out: Array = []
+	for rune_id in Array(rows[face]):
+		if String(rune_id) != "":
+			out.append(String(rune_id))
+	return out

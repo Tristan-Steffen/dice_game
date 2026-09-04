@@ -238,7 +238,7 @@ static func _build_concepts() -> void:
 		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Paketgröße.",
 		CAT_BEGRIFFE)
 	_add(SERIE, "Serie",
-		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) rechnet auf der bis dahin aufgelaufenen Summe - die Reihenfolge ist darum die Entscheidung. Wie viele Slots die Reihe hat, wächst mit dem Ausbau des Casinos; Klauseln und der Taktgeber verschieben die Länge.",
+		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) rechnet auf der bis dahin aufgelaufenen Summe - die Reihenfolge ist darum die Entscheidung. Die Reihe hat von Anfang an SECHS Slots; Taktgeber, Klauseln und der Schub der Nebenwette verschieben die Länge.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, freigeschaltet mit Lizenzstufe 5. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",

@@ -746,20 +746,16 @@ func press_allowed() -> bool:
 	return press_uses == 0
 
 ## --- Die SERIENLÄNGE ----------------------------------------------------------
-## Die Hub-Leiter der Werkstatt; sie sitzt an denselben
-## Sprossen (1 / 3 / 5 / 7 / 10). Ausbau heißt längere Schaltungen und komplexere
-## Kombos, nicht mehr Beute.
+## SECHS Schächte ab Runde 1 (Spieler-Entscheid 2026-09-04): die Hub-Leiter der
+## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
+## über Taktgeber, Kettentreiber und den Schub der Nebenwette.
 const SERIES_LADDER := [
-	{"hub": 1, "slots": 2},
-	{"hub": 3, "slots": 3},
-	{"hub": 5, "slots": 4},
-	{"hub": 7, "slots": 5},
-	{"hub": 10, "slots": 6},
+	{"hub": 1, "slots": 6},
 ]
 ## Deckel: die sechs Leser plus zwei erkaufte Plätze.
 const SERIES_SLOT_CAP := 8
 
-## Serienlänge dieses Laufs: Sockel der Lizenz, dauerhaft erkaufte Plätze
+## Serienlänge dieses Laufs: der feste Sockel, dauerhaft erkaufte Plätze
 ## (Taktgeber), der Einmal-Schub der Nebenwette und die Klauseln. Der Kurzschluss
 ## setzt ABSOLUT - er überschreibt, was alles andere zusammengetragen hat.
 func series_slots() -> int:

@@ -113,12 +113,12 @@ func test_the_order_of_the_uids_is_the_order_of_the_series() -> void:
 
 func test_the_series_stops_at_the_slot_count() -> void:
 	var cards: Array[Pack] = []
-	for i in 4:
+	for i in 8:
 		cards.append(_card({0: StampNet.value_cell(1)}))
-	run.hub_level = 1  # zwei Slots
-	assert_eq(run.series_slots(), 2)
-	assert_eq(int(run.resolve_series(_uids(cards), _die())["bonus"][0]), 2,
-		"nur die ersten zwei Karten rechnen mit")
+	run.hub_level = 1
+	assert_eq(run.series_slots(), 6, "sechs Schächte ab Runde 1")
+	assert_eq(int(run.resolve_series(_uids(cards), _die())["bonus"][0]), 6,
+		"nur die ersten sechs Karten rechnen mit")
 
 func test_a_uid_listed_twice_counts_once() -> void:
 	var card := _card({0: StampNet.value_cell(3)})

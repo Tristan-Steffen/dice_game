@@ -1,8 +1,8 @@
 class_name PackDrawerView
 extends Control
 ## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze, in der jedes
-## versiegelte Paket als EIGENE Kassette FLACH LIEGT - Netz nach oben, wie Karten
-## auf dem Tisch. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
+## versiegelte Paket als EIGENE Kassette STEHT - versenkt bis zur Kappe, wie Akten
+## im Archiv. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
 ## was in ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach
 ## vorn. Eine Kassette SCHRUMPFT NIE - was nicht mehr in die Grube passt, kommt
 ## gar nicht erst herein: capacity_for misst den Deckel an der Grube, GameRun
@@ -47,19 +47,18 @@ const COLORS := {
 ## plus noch einmal 20 % (Spieler-Entscheide 2026-09-04: die Schrift blieb zu klein).
 const CASSETTE_SCALE := 2.184
 
-## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette (ihre ganze Kartenfläche:
-## Langseite × Breite) und die TIEFE eines Rangs. Seit die Karte flach liegt
-## (2026-09-04), lehnt sich nichts mehr über seinen Hintermann: der Rang braucht
-## nur noch das Kartenmaß plus einen Hauch Luft.
+## Greifluft quer zum Fußabdruck der HOCHKANTEN Kassette (ihre KAPPE: Kappentiefe ×
+## Kartenbreite) und die TIEFE eines Rangs. Seit der Welle P steht die Karte
+## hochkant und lehnt sich über niemanden mehr - der Rang rückt darum eng zusammen.
 const CELL_SPAN := 1.15
-const RANK_SPAN := 1.05
+const RANK_SPAN := 1.1
 ## Randluft im Platz.
 const SLOT_INSET := 0.12
-## Rückfall-Zellbreite (Einheiten u), solange niemand die Welt-Projektion gemeldet
-## hat; die Tiefe folgt dem Kartenformat der LIEGENDEN Kassette (Breite/Langseite).
-## Gemessen wird die LANGSEITE - die Kassette liegt überall QUER (Welle L).
+## Rückfall-Fußabdruck (Einheiten u), solange niemand die Welt-Projektion gemeldet
+## hat: CELL_FALLBACK ist das TIEFE Maß (die Kartenbreite), CELL_FALLBACK_DEPTH
+## sein Verhältnis zur schmalen Kappentiefe.
 const CELL_FALLBACK := 7.5
-const CELL_FALLBACK_DEPTH := 0.667
+const CELL_FALLBACK_DEPTH := 2.463
 
 ## Der gemalte RAHMEN um die Grube - Schatten oben, Licht unten, die Umkehrung
 ## der Konsolenkante. Die Fläche darin ist ein echtes Loch (screen_glass schneidet
@@ -88,8 +87,8 @@ const FULL_BODY := "Voll - jede weitere Prämie zerfällt zu Geld."
 
 ## Gemeinsame Maßeinheit der Werkbank (setzt WorkshopView über build).
 var u := 8.0
-## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln (Welt-Projektion ihrer
-## Kartenfläche: Langseite × Breite).
+## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln (Welt-Projektion ihrer
+## Kappe; hochkant seit der Welle P: Kappentiefe × Kartenbreite).
 var cell_px := Vector2.ZERO
 ## Der Streifen, in dem das Fach liegt (= die eigene Größe, von build gemerkt).
 var strip := Vector2.ZERO
@@ -345,8 +344,8 @@ func _fallback_cell() -> Vector2:
 	return fallback_cell(u)
 
 static func fallback_cell(unit: float) -> Vector2:
-	var wide := unit * CELL_FALLBACK * 2.0 / 3.0
-	return Vector2(wide, wide * CELL_FALLBACK_DEPTH)
+	var deep := unit * CELL_FALLBACK * 2.0 / 3.0
+	return Vector2(deep / CELL_FALLBACK_DEPTH, deep)
 
 ## Die FASSUNG der Grube: Schatten fällt von oben herein, das Licht fängt sich an
 ## der unteren Kante. Ihre Mitte wird nicht mehr gemalt - dort ist ein echtes Loch

@@ -29,31 +29,31 @@ func _valued_pack(face: int, amount: int) -> Pack:
 	pack.stamp_net[face] = StampNet.value_cell(amount)
 	return pack
 
-# --- Die Reihe wächst mit dem Hub ------------------------------------------------
+# --- Die Reihe IST die Serienlänge -----------------------------------------------
 
 func test_the_row_carries_exactly_the_series_slots() -> void:
 	await wait_frames(2)
 	assert_eq(view.slot_count(), run.series_slots(), "die Reihe IST die Serienlänge")
-	assert_eq(view._slot_buttons.size(), run.series_slots())
-	run.hub_level = 10
+	assert_eq(view._slot_buttons.size(), 6, "und die ist 6 ab Runde 1")
+	run.series_slot_bonus = 2
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view._slot_buttons.size(), run.series_slots(),
-		"die Lizenz verlängert die Schaltung, und die Reihe zieht nach")
-	assert_gt(run.series_slots(), 2, "Stufe 10 ist mehr als der Sockel")
+		"der Taktgeber verlängert die Schaltung, und die Reihe zieht nach")
+	assert_eq(run.series_slots(), 8, "zwei erkaufte Plätze über dem Sockel")
 
 func test_a_shrunken_ladder_never_drops_a_standing_card() -> void:
-	run.hub_level = 10
+	run.series_slot_bonus = 2
 	view.refresh()
-	var uids := _stock(4)
+	var uids := _stock(8)
 	for uid in uids:
 		view.slot_pack(uid)
 	await wait_frames(2)
-	run.hub_level = 1
+	run.series_slot_bonus = 0
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view.press_slot_uids().size(), 4, "die gesteckten Karten bleiben stecken")
-	assert_eq(view.slot_count(), 4, "und die Reihe trägt sie alle")
+	assert_eq(view.press_slot_uids().size(), 8, "die gesteckten Karten bleiben stecken")
+	assert_eq(view.slot_count(), 8, "und die Reihe trägt sie alle")
 
 # --- Stecken, zurückwerfen, umsortieren -------------------------------------------
 
@@ -93,7 +93,7 @@ func test_the_row_is_cap_and_reorder_is_move_not_swap() -> void:
 		"herausgenommen und eingesetzt - alles dazwischen rückt eine Stelle")
 
 func test_the_row_never_takes_more_than_its_slots() -> void:
-	var uids := _stock(5)
+	var uids := _stock(9)
 	for uid in uids:
 		view.slot_pack(uid)
 	assert_eq(view.press_slot_uids().size(), run.series_slots(),
@@ -464,16 +464,104 @@ func test_the_grip_label_counts_the_slots() -> void:
 	assert_true(view._action_button.visible, "gesteckt steht er da")
 	assert_eq(view._action_button.text, "Griff 1/%d" % run.series_slots())
 
-## Der SERIEN-Schirm ist tot (der Zähler steht in der Griff-Aufschrift), der
-## TOOLTIP-Schirm steht seit der KORREKTUR-WELLE J IM Fenster, unter der Reihe.
-func test_the_series_screen_is_gone_but_info_is_back() -> void:
+## Der SERIEN-Schirm ist tot (der Zähler steht in der Griff-Aufschrift), und an der
+## Stelle des dreizeiligen Tooltips steht seit der Welle O der SUMMEN-Schirm.
+func test_the_series_screen_is_gone_and_the_sum_screen_stands() -> void:
 	await wait_frames(2)
 	assert_false(view.has_method("series_text"), "kein Serien-Schirm mehr")
+	assert_false(view.has_method("set_info"), "und kein dreizeiliger Tooltip mehr")
 	assert_null(view.get_node_or_null("SeriesBand/SeriesScreen"))
-	assert_null(view.get_node_or_null("SeriesBand/InfoScreen"),
-		"und im Band steht er auch nicht mehr")
-	assert_not_null(view.get_node_or_null("Street/InfoScreen"),
-		"der Tooltip-Schirm steht in Zeile 2 der Straße")
+	assert_null(view.get_node_or_null("SeriesBand/SumScreen"),
+		"und im Band steht er auch nicht")
+	assert_not_null(view.get_node_or_null("Street/SumScreen"),
+		"der Summen-Schirm steht in Zeile 2 der Straße")
+	assert_not_null(view.get_node_or_null("Street/SumScreen/Caption"),
+		"mit EINER Zeile darunter")
+
+# --- WELLE O: der SUMMEN-SCHIRM ---------------------------------------------------
+# Zeile 2 trägt DREI Netze. Das mittlere zeigt die REINE Summe der gesteckten
+# Prägenetze (zielunabhängig) - und beim Hover das Netz DER einen Karte.
+
+func _sum_view() -> Control:
+	return view.get_node("Street/SumScreen/SumNet").get_child(0)
+
+## Ohne Karte steht dort dasselbe LEERE KREUZ wie links und rechts.
+func test_the_sum_screen_shows_the_empty_cross_without_a_card() -> void:
+	await wait_frames(2)
+	assert_eq(_sum_view().name, "EmptyNet", "leer heißt: sechs dunkle Zellen")
+	assert_eq(_sum_view().get_child_count(), 6)
+
+## Mit Karten die SUMME - in Steckreihenfolge und OHNE Zielwürfel: ein Verdoppler
+## NACH der Wert-Karte verdoppelt, DAVOR nicht (derselbe Kartensatz wie oben).
+func test_the_sum_screen_sums_the_slotted_nets_in_order() -> void:
+	var value := _valued_pack(0, 3)
+	var doubler := run.grant_pack(Pack.operator_pack(StampNet.OP_DOUBLER))
+	doubler.stamp_net = StampNet.empty_net()
+	doubler.stamp_net[0] = StampNet.operator_cell(StampNet.OP_DOUBLER)
+	view.slot_pack(value.pack_uid)
+	view.slot_pack(doubler.pack_uid)
+	await wait_frames(2)
+	assert_null(view.target_die(), "kein Ziel gewählt - die Summe steht trotzdem")
+	assert_eq(_sum_view().name, "SeriesSum", "der Schirm trägt die Summe")
+	assert_eq(int(view._sum_projection["bonus"][0]), 6, "Wert, dann Verdoppler")
+	view.move_slot(1, 0)
+	await wait_frames(2)
+	assert_eq(int(view._sum_projection["bonus"][0]), 3,
+		"Verdoppler zuerst verdoppelt nichts")
+
+## Der HOVER zeigt DIE EINE Karte statt der Summe - Schacht wie Magazin -, und
+## verläßt der Zeiger sie, steht die Summe wieder.
+func test_hovering_a_card_shows_its_own_net() -> void:
+	var slotted := _valued_pack(0, 3)
+	var spare := _valued_pack(1, 2)
+	view.slot_pack(slotted.pack_uid)
+	await wait_frames(2)
+	view.sync_hover_at(view._slot_buttons[0].get_global_rect().get_center())
+	assert_eq(_sum_view().name, "StampNet", "die Schacht-Karte zeigt ihr eigenes Netz")
+	assert_eq(view.hover_pack_name(), slotted.display_name)
+	view.sync_hover_at(view.pack_anchor_px(spare.pack_uid))
+	assert_eq(_sum_view().name, "StampNet", "und eine Magazin-Kassette ebenso")
+	assert_eq(view.hover_pack_name(), spare.display_name)
+	view.sync_hover_at(Vector2(-50, -50))
+	assert_eq(_sum_view().name, "SeriesSum", "weg vom Zeiger steht wieder die Summe")
+	assert_eq(view.hover_pack_name(), "", "und niemand wird genannt")
+
+## Die CAPTION ist EINE Zeile, sie schreibt nur beim WECHSEL, und der Schacht
+## schlägt das Magazin.
+func test_the_caption_writes_on_change_and_names_the_shaft_first() -> void:
+	var slotted := _valued_pack(0, 3)
+	var spare := _valued_pack(1, 2)
+	view.slot_pack(slotted.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.caption_text(), "", "sie startet leer")
+	view.set_caption("Zahlen-Paket")
+	assert_eq(view.caption_text(), "Zahlen-Paket")
+	view.set_caption("Zahlen-Paket")
+	assert_eq(view.caption_text(), "Zahlen-Paket", "derselbe Text ändert nichts")
+	view.set_caption("")
+	assert_eq(view.caption_text(), "", "und die leere Zeile räumt sie")
+	view.sync_hover_at(view._slot_buttons[0].get_global_rect().get_center())
+	view._hover_pack_uid = spare.pack_uid  # beides zugleich: der Schacht gewinnt
+	assert_eq(view.hover_pack_name(), slotted.display_name)
+
+## Und eine Zelle des Summen-Netzes erklärt sich selbst: Zahl und Material im
+## Klartext, aus denselben Quellen wie jedes andere Netz.
+func test_a_sum_cell_explains_itself() -> void:
+	var value := _valued_pack(0, 2)
+	var stuff := run.grant_pack(Pack.material_pack())
+	stuff.stamp_net = StampNet.empty_net()
+	stuff.stamp_net[1] = StampNet.material_cell(DieMaterial.RUBY)
+	view.slot_pack(value.pack_uid)
+	view.slot_pack(stuff.pack_uid)
+	await wait_frames(2)
+	var rect := _sum_view().get_global_rect()
+	var cell := view._sum_cell
+	var number := rect.position + DieNetView.cell_position(0, cell) + Vector2.ONE * cell * 0.5
+	assert_true(view.net_hint_at(number).contains("+2"),
+		"die Zahl-Zelle nennt ihren Zuschlag: %s" % view.net_hint_at(number))
+	var stone := rect.position + DieNetView.cell_position(1, cell) + Vector2.ONE * cell * 0.5
+	assert_true(view.net_hint_at(stone).contains(DieMaterial.by_id(DieMaterial.RUBY).display_name),
+		"die Material-Zelle nennt ihr Material: %s" % view.net_hint_at(stone))
 
 # --- Was scene_root an der Reihe abliest -------------------------------------------
 
@@ -585,7 +673,7 @@ func test_a_shaft_cassette_stands_at_the_one_card_size() -> void:
 	view.data_cell_px = Vector2(60, 16)
 	await wait_frames(2)
 	assert_almost_eq(view.card_span_px(), 60.0 * PackDrawerView.CASSETTE_SCALE,
-		0.001, "die Langseite der Karte in ihrer einen Größe")
+		0.001, "die KAPPENBREITE der Karte in ihrer einen Größe")
 	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
 		"und das Magazin stellt sie in genau derselben - Slot == Magazin")
 	assert_false(view.has_method("socket_cell_scale"),
@@ -601,7 +689,7 @@ func test_the_mouth_is_the_card_plus_its_gap() -> void:
 	await wait_frames(2)
 	var short := view.mouth_width(view.unit())
 	assert_almost_eq(short, view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
-		"die Kartenbreite plus Luft")
+		"die Kappenbreite plus Luft")
 	run.hub_level = 10
 	run.series_slot_bonus = 4
 	view.refresh()
@@ -647,6 +735,19 @@ func test_the_strip_grows_instead_of_shrinking_the_cards() -> void:
 	assert_gt(WorkshopView.bench_width_for(8, u, card), six)
 	assert_gte(WorkshopView.bench_width_for(1, u, card), u * 100.0,
 		"und schmaler als seine 100 u wird der Streifen nie")
+
+## WELLE O: die Reihe mißt jetzt an der KAPPE, nicht mehr an der Langseite - der
+## Streifen wird bei JEDER Serienlänge schmaler. Die Kappe ist die BREITE der
+## Karte, die alte Bezugsgröße war ihre LANGSEITE - also zwei Drittel davon.
+func test_the_kerf_row_is_narrower_than_the_lying_row_was() -> void:
+	var u := 5.0
+	var lying := 140.0  # die Langseite, an der die Welle L maß
+	var cap := lying * DataCellView.WIDTH / DataCellView.HEIGHT  # 93,3 px Kappe
+	for slots in [2, 6]:
+		var was := WorkshopView.bench_width_for(slots, u, lying)
+		var now := WorkshopView.bench_width_for(slots, u, cap)
+		assert_lt(now, was,
+			"%d Schächte: %.1f px statt %.1f px" % [slots, now, was])
 
 ## Und die Karte bleibt auch dann groß, wenn der TISCH den Streifen kappt: dann
 ## rückt die TEILUNG zusammen, nie der Mund selbst.

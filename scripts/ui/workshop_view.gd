@@ -4,7 +4,7 @@ extends Panel
 ## Schirm-Hintergrund - seine Teile liegen auf dem Filz - und liest in ZWEI ZEILEN
 ## plus Grube:
 ##   Zeile 1:  [ZIEL-PODEST]   [SCHACHT-REIHE]   [ERGEBNIS-PODEST]
-##   Zeile 2:  [IST-NETZ]      [TOOLTIP-SCHIRM]  [SOLL-NETZ]
+##   Zeile 2:  [IST-NETZ]      [SUMMEN-NETZ]     [SOLL-NETZ]
 ##   Grube:    [MAGAZIN über die volle Streifenbreite]
 ## Der Streifen liest damit GANZ AUS SICH SELBST: die linke Spalte ist das
 ## Spiegelbild der rechten, und das Ausgabefach am Pool hat mit ihm nichts mehr zu
@@ -13,9 +13,10 @@ extends Panel
 ##    Konsolen-Blech, in dem die ECHTE Data-Cell aus dem Magazin aufsteigt und
 ##    steht. Das Fenster malt nur die Münder und MELDET ihre Anker - die Körper
 ##    gehören scene_root, die beiden Podeste ebenso.
-##  - Zeile 2 - das BAND - IST-NETZ | TOOLTIP-SCHIRM | SOLL-NETZ. Beide Netze sind
+##  - Zeile 2 - das BAND - IST-NETZ | SUMMEN-NETZ | SOLL-NETZ. Alle drei sind
 ##    GLEICH GROSS (EIN Zellmaß, aus der engeren Spalte) und stehen IMMER da: ohne
-##    Ziel und ohne Karten als leeres Kreuz.
+##    Ziel und ohne Karten als leeres Kreuz. Das mittlere zeigt die REINE Summe der
+##    gesteckten Prägenetze; der Hover auf eine Karte zeigt DEREN Netz.
 ##
 ## Alles darunter liegt in der SCHÜRZE, und sie beginnt UNTER der Fensterkante:
 ## eine Naht, dann das KONSOLEN-BAND (nur noch der GRIFF, mittig unter der
@@ -131,18 +132,18 @@ const CONSOLE_PAD_X := 1.2
 const CONSOLE_PAD_Y := 0.9
 ## Seitenverhältnis der KASSETTE selbst (Höhe / Breite, 2 : 3).
 const CARD_ASPECT := 1.5
-## ... und das des MUNDES: die Karte liegt QUER im Schacht (um die Blickachse
-## gerollt, Langseite waagerecht), also ist das Loch BREITER als hoch - das
-## Verhältnis der Kassette gekippt.
-const MOUTH_ASPECT := 1.0 / CARD_ASPECT
-## HÖHENRESERVE der Reihe in u: an ihr hängt das Höhenbudget der ganzen Seite
-## (bench_aspect), und sie deckelt zugleich die Mundhöhe. Die BREITE des Mundes
-## deckelt sie NICHT - die kommt aus der festen Kartengröße (Welle L: die Reihe
-## paßt sich der Karte an, nie umgekehrt).
-const MOUTH_HEIGHT_UNITS := 16.5
-## Luft um die Karte im Loch: der Mund ist eine Spur größer als ihr Fußabdruck,
+## HÖHENRESERVE der Reihe in u: an ihr allein hängt das Höhenbudget der ganzen
+## Seite (bench_aspect). Seit die Karte HOCHKANT steht (Welle P), ist der Kerf
+## HOCH statt breit - gemessen 96,4 px = 21,2 u -, und die Reserve muß ihn samt
+## Pads tragen. Sie ist ein FIXPUNKT: sie steckt selbst in u (mehr Reserve, kleineres
+## u, also mehr u je Kerf-Pixel); auflösungsunabhängig, weil u und die Kartenpixel
+## beide mit der Anzeige skalieren.
+const ROW_HEIGHT_UNITS := 22.0
+## Luft um die KAPPE im Kerf: der Mund ist eine Spur größer als ihr Fußabdruck,
 ## sonst schlösse das Blech bündig an ihre Kante an.
 const MOUTH_ROOM := 1.09
+## Der BODEN der Mundhöhe in u: ein Kerf, der dünner wäre, verschwände im Blech.
+const MOUTH_MIN_HEIGHT_UNITS := 1.6
 ## Und der BODEN der Teilung, wenn der Tisch den Streifen gekappt hat: enger als
 ## so rücken die Münder nie zusammen, sonst deckten sich die Karten zu.
 const MOUTH_TIGHT := 0.62
@@ -178,25 +179,23 @@ const CONSOLE_SHELF_GAP := 2.1
 ## EINEN Knopf, mehr nicht.
 const BAND_HEIGHT_UNITS := 6.4
 
-## --- Der TOOLTIP-SCHIRM (KORREKTUR-WELLE J) -------------------------------------
+## --- Der SUMMEN-SCHIRM (WELLE O) -------------------------------------------------
 ## Er steht DIREKT UNTER der Schacht-Reihe und ist GENAU so breit wie sie (Zeile 2,
-## links im BAND; rechts daneben das Soll-Netz). Er erklärt den GEWÄHLTEN Würfel
-## (Name, Seele im Essenz-Glühen, Wirkung); beim Hover über eine Magazin-Kassette
-## oder eine Netz-Zelle übersteuert DEREN Text. scene_root ist der EINE Schreiber
-## (set_info) - das Fenster hält nur die Fassung. Ränder/Grade in u.
-## Die Grade sind 2026-09-04 rund verdreifacht worden: in einem 24 u hohen Schirm
-## stand die alte Schrift bei 1,3-1,6 u und war schlicht unlesbar.
+## zwischen Ist- und Soll-Netz). Er trägt das dritte NETZ der Zeile: die REINE
+## Summe aller gesteckten Prägenetze, zielunabhängig - und beim Hover statt dessen
+## das Prägenetz DER überfahrenen Karte (Schacht vor Magazin). Ohne beides steht
+## dort dasselbe leere Kreuz wie links und rechts. Der dreizeilige Text-Schirm ist
+## gestorben; darunter läuft nur noch EINE Zeile (die CAPTION), die scene_root
+## schreibt. Ränder/Grade in u.
 const INFO_MARGIN := 1.2
-const INFO_NAME_UNITS := 5.0
-const INFO_SOUL_UNITS := 4.0
-const INFO_GAP := 0.6
-const INFO_NAME_FONT := 0.8
-const INFO_SOUL_FONT := 0.8
-## Der Wirkungstext läuft um und PASST SICH EIN: der Schirm ist so breit wie die
-## Schacht-Reihe, also mal schmal (zwei Schächte) und mal sehr breit (acht) - ein
-## GESETZTER Grad wäre dort abgeschnitten und hier winzig. Genommen wird die größte
-## Stufe, die umgebrochen noch in den Restblock paßt.
-const INFO_BODY_STEPS := [3.4, 3.0, 2.6, 2.2, 1.9, 1.6, 1.4]
+## Die CAPTION unter dem Netz: Kartenname beim Karten-Hover, Zell-Klartext beim
+## Zell-Hover, sonst leer. EINE Zeile, geklippt.
+const CAPTION_UNITS := 3.0
+const CAPTION_GAP := 0.4
+## Ihr Grad PASST SICH EIN: der Schirm ist so breit wie die Schacht-Reihe, also mal
+## schmal (zwei Schächte) und mal sehr breit (acht). Genommen wird die größte Stufe,
+## die noch in die Restbreite paßt.
+const CAPTION_STEPS := [2.6, 2.2, 1.9, 1.6, 1.4, 1.2, 1.0]
 ## Absolute Mindesthöhe des Magazin-Streifens (Einheiten u) - der Boden unter dem
 ## gemessenen Kartenmaß (siehe shelf_min_height).
 const SHELF_MIN_HEIGHT := 6.0
@@ -348,8 +347,11 @@ var _series: Array[int] = []
 var _target_index := -1
 var _second_index := -1
 ## Die Karte unter dem Zeiger (-1 = keine): ihre Beitrags-Zellen leuchten im
-## Summen-Netz, alles andere verblaßt - und ihre Diff-Zeile leuchtet mit.
+## Soll-Netz auf, und der Summen-Schirm zeigt IHR Prägenetz.
 var _hover_slot := -1
+## Die MAGAZIN-Kassette unter dem Zeiger (0 = keine) - dieselbe Frage, andere
+## Auslage; der Schacht schlägt sie.
+var _hover_pack_uid := 0
 ## Der Slot, auf dem ein Zug begonnen hat (-1 = keiner).
 var _drag_from := -1
 
@@ -376,16 +378,21 @@ var _result_projection: Dictionary = {}
 var _console: Panel
 ## Der Knopf des Handlungs-Sitzes.
 var _action_button: Button
-## Die drei Zeilen des Info-Text-Schirms (null = Band steht gerade nicht) und der
-## zuletzt gesetzte Seelen-Ton (Farbwechsel bei gleichem Text sähe der Text-Vergleich
-## sonst nicht).
-var _info_name: Label
-var _info_soul: Label
-var _info_body: Label
-## Der Restblock des Wirkungstextes und die Einheit, in der seine Leiter mißt.
-var _info_body_span := Vector2.ZERO
-var _info_unit := 0.0
-var _info_soul_tint := Color.WHITE
+## Der SUMMEN-SCHIRM (null = steht gerade nicht): sein Netz-Platz, das darin
+## hängende Netz und die Caption darunter.
+var _sum_host: Control
+var _sum_net_view: Control
+var _caption: Label
+## Die Restbreite der Caption und die Einheit, in der ihre Leiter mißt.
+var _caption_span := Vector2.ZERO
+var _caption_unit := 0.0
+## Was das Summen-Netz gerade zeigt - Signatur (nur der WECHSEL baut neu), Quelle
+## ("card"/"sum"/"empty") und ihr Inhalt, damit die Zell-Frage sie beantworten kann.
+var _sum_signature := ""
+var _sum_mode := ""
+var _sum_source_net: Array = []
+var _sum_projection: Dictionary = {}
+var _sum_cell := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -447,9 +454,10 @@ func _refresh_content() -> void:
 	_drawer = null
 	_free_own(_band)
 	_band = null
-	_info_name = null  # die Info-Zeilen hingen am Band
-	_info_soul = null
-	_info_body = null
+	_sum_host = null  # der Summen-Schirm hing am Inhalt
+	_sum_net_view = null
+	_caption = null
+	_sum_signature = ""  # ein Neuaufbau baut das Netz frisch
 	_prune_series()
 	var u := unit()
 	_free_own(_content)
@@ -913,7 +921,7 @@ func bench_rect() -> Rect2:
 ## der Reihe selbst (bench_width_for) und ist mindestens diese 100 u.
 static func bench_aspect() -> float:
 	var column := STAGE_HEAD_ROOM + STAGE_HEIGHT + STAGE_NET_GAP + DIFF_HEIGHT_UNITS
-	var row := MOUTH_HEIGHT_UNITS + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
+	var row := ROW_HEIGHT_UNITS + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
 		+ DIFF_HEIGHT_UNITS
 	return 100.0 / (CONTENT_MARGIN_Y * 2.0 + maxf(column, row))
 
@@ -950,24 +958,28 @@ func slot_count() -> int:
 	var slots := run.series_slots() if run != null else FALLBACK_SLOTS
 	return maxi(slots, _slot_cards().size())
 
-## Die LANGSEITE einer Kassette in Fenster-Pixeln, in der EINEN Größe, die sie
-## überall hat. Sie ist die Bezugsgröße der ganzen Reihe (Welle L).
+## Die KAPPENTIEFE einer Kassette in Fenster-Pixeln, in der EINEN Größe, die sie
+## überall hat. Seit die Karte HOCHKANT steht (Welle P), ist die schmale Achse
+## ihres gemeldeten Fußabdrucks die Kappentiefe - und die ist die Bezugsgröße der
+## ganzen Reihe.
 func card_span_px() -> float:
 	return shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE
 
-## Breite EINES Schacht-Mundes: die Kartenbreite plus Luft. Nicht mehr aus dem
+## Breite EINES Schacht-Mundes: die Kappentiefe plus Luft. Nicht aus dem
 ## verfügbaren Platz gelöst - die Karte schrumpft nie, die REIHE wächst, und mit
 ## ihr der ganze Streifen (siehe bench_width_for).
 func mouth_width(_u: float) -> float:
 	return card_span_px() * MOUTH_ROOM
 
-## Die Mundhöhe folgt dem Kartenformat, bleibt aber in der Höhenreserve der Reihe:
-## die Karte SCHWEBT über ihrem Loch, ein knapper Mund liegt hinter ihr.
+## Der Mund ist ein HOCHKANTER KERF: der Fußabdruck der stehenden Karte
+## (Kappentiefe × Kartenbreite) plus Luft, mit einem u-Boden für die Höhe. Über ihm
+## stehen nur Kappe und Lichtsaum, der Rest der Karte steckt im Tisch.
 func mouth_size(u: float) -> Vector2:
-	var wide := mouth_width(u)
-	return Vector2(wide, minf(wide * MOUTH_ASPECT, u * MOUTH_HEIGHT_UNITS))
+	return Vector2(mouth_width(u),
+		maxf(shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE * MOUTH_ROOM,
+			u * MOUTH_MIN_HEIGHT_UNITS))
 
-## Die TEILUNG der Reihe: Kartenbreite plus Fuge. Hat der TISCH den Streifen
+## Die TEILUNG der Reihe: Kappentiefe plus Fuge. Hat der TISCH den Streifen
 ## gekappt (er ist endlich), schließt sich die FUGE, bis die Reihe wieder in ihr
 ## Feld paßt - die KARTE behält ihre Größe, notfalls rücken die Münder zusammen.
 func mouth_step(u: float) -> float:
@@ -992,8 +1004,8 @@ static func row_span(slots: int, u: float, mouth: float) -> float:
 	var columns := float(maxi(slots, 1))
 	return columns * mouth + (columns - 1.0) * u * MOUTH_GAP + u * CONSOLE_PAD_X * 2.0
 
-## Wie BREIT das Fenster sein muß, damit slots Kassetten in ihrer einen Größe
-## nebeneinander in die Reihe passen: die Reihe plus alles, was links und rechts
+## Wie BREIT das Fenster sein muß, damit slots KERFE nebeneinander in die Reihe
+## passen (card_px ist die KAPPENTIEFE): die Reihe plus alles, was links und rechts
 ## von ihr in u steht (Ränder plus ZWEIMAL Fuge und Podest-Spalte - wird die zweite
 ## vergessen, läuft die Reihe über ihr Feld hinaus). Die u-Konvention (100 u) bleibt
 ## der Boden - schmaler wird der Streifen nie.
@@ -1419,7 +1431,7 @@ func _build_series_band(u: float) -> void:
 	band.size = rect.size
 	_build_action_seat(band, u)
 
-## Der Platz des TOOLTIP-SCHIRMS in Fenster-Koordinaten: die MITTE des Bandes,
+## Der Platz des SUMMEN-SCHIRMS in Fenster-Koordinaten: die MITTE des Bandes,
 ## GENAU auf den Kanten der Schacht-Reihe darüber.
 func info_screen_rect(u: float) -> Rect2:
 	var console := console_rect(u)
@@ -1427,13 +1439,23 @@ func info_screen_rect(u: float) -> Rect2:
 	return Rect2(Vector2(console.position.x, band.position.y),
 		Vector2(console.size.x, band.size.y))
 
-## Der TOOLTIP-SCHIRM: eine kleine Fassung mit drei Zeilen - Name, Seele (im
-## Essenz-Glühen) und Wirkung (umbrechend). Gefüllt wird er von scene_root (set_info),
-## hier steht nur die leere Fassung.
+## Das Zellmaß des SUMMEN-NETZES: dasselbe wie links und rechts (die drei Netze
+## lesen als EINE Zeile) - nur wenn der Schirm schmaler ist als eine Podest-Spalte,
+## wird auf ihn gekappt, statt über seine Kante zu laufen.
+func sum_net_cell(u: float) -> float:
+	var rect := info_screen_rect(u)
+	var pad := u * INFO_MARGIN
+	var room := Vector2(maxf(rect.size.x - pad * 2.0, 1.0),
+		maxf(rect.size.y - u * (CAPTION_UNITS + CAPTION_GAP), 1.0))
+	return minf(net_cell(u), DieNetView.cell_for(room))
+
+## Der SUMMEN-SCHIRM: eine Fassung mit dem dritten NETZ der Zeile und EINER Zeile
+## darunter. Gefüllt wird die Zeile von scene_root (set_caption), das Netz vom
+## Fenster selbst (_refresh_sum_net).
 func _build_info_screen(u: float) -> void:
 	var rect := info_screen_rect(u)
 	var screen := Panel.new()
-	screen.name = "InfoScreen"
+	screen.name = "SumScreen"
 	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
 	screen.position = rect.position
@@ -1441,26 +1463,29 @@ func _build_info_screen(u: float) -> void:
 	_content.add_child(screen)
 	var pad := u * INFO_MARGIN
 	var inner := maxf(rect.size.x - pad * 2.0, 1.0)
-	var name_h := u * INFO_NAME_UNITS
-	var soul_h := u * INFO_SOUL_UNITS
-	var top := pad
-	_info_name = _info_line(screen, "InfoName", Vector2(pad, top), Vector2(inner, name_h),
-		name_h * INFO_NAME_FONT, CasinoStyle.CREAM, false)
-	top += name_h + u * INFO_GAP
-	_info_soul = _info_line(screen, "InfoSoul", Vector2(pad, top), Vector2(inner, soul_h),
-		soul_h * INFO_SOUL_FONT, CasinoStyle.CREAM, false)
-	top += soul_h + u * INFO_GAP
-	var body_h := maxf(rect.size.y - top - pad, u * 3.0)
-	_info_body_span = Vector2(inner, body_h)
-	_info_unit = u
-	_info_body = _info_line(screen, "InfoBody", Vector2(pad, top), _info_body_span,
-		u * float(INFO_BODY_STEPS[0]), MUTED_COLOR, true)
-	_info_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	_info_soul_tint = Color.WHITE
-	_fit_info_body()
+	var caption_h := u * CAPTION_UNITS
+	var span := DieNetView.net_size(sum_net_cell(u))
+	var host := Control.new()
+	host.name = "SumNet"
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.position = Vector2((rect.size.x - span.x) * 0.5,
+		maxf((rect.size.y - caption_h - u * CAPTION_GAP - span.y) * 0.5, 0.0))
+	host.size = span
+	screen.add_child(host)
+	_sum_host = host
+	_caption_span = Vector2(inner, caption_h)
+	_caption_unit = u
+	# Die Zeile steht DIREKT unter dem Netz, nicht am Schirmboden - sie gehört ihm.
+	_caption = _info_line(screen, "Caption",
+		Vector2(pad, minf(host.position.y + span.y + u * CAPTION_GAP,
+			maxf(rect.size.y - caption_h, 0.0))), _caption_span,
+		u * float(CAPTION_STEPS[0]), MUTED_COLOR, false)
+	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_sum_signature = ""
+	_refresh_sum_net()
 
-## Eine Zeile des Info-Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst
-## klemmt die Mindestgröße die Zeile hoch.
+## Eine Zeile des Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst klemmt
+## die Mindestgröße die Zeile hoch.
 func _info_line(host: Control, line_name: String, at: Vector2, span: Vector2,
 		font_size: float, tint: Color, wrap: bool) -> Label:
 	var label := Label.new()
@@ -1478,38 +1503,131 @@ func _info_line(host: Control, line_name: String, at: Vector2, span: Vector2,
 	label.size = span
 	return label
 
-## Der EINE Schreiber des Info-Schirms (scene_root, je Bild): Name, Seele im
-## Essenz-Ton, Wirkung. Nur der WECHSEL schreibt (Text ODER Seelen-Ton).
-func set_info(die_name: String, soul: String, soul_tint: Color, body: String) -> void:
-	if _info_body == null or not is_instance_valid(_info_body):
+## Der EINE Schreiber der CAPTION (scene_root, je Bild). Nur der WECHSEL schreibt.
+func set_caption(text: String) -> void:
+	if _caption == null or not is_instance_valid(_caption):
 		return
-	if _info_name.text == die_name and _info_soul.text == soul \
-			and _info_body.text == body and _info_soul_tint == soul_tint:
+	if _caption.text == text:
 		return
-	_info_soul_tint = soul_tint
-	_info_name.text = die_name
-	_info_soul.text = soul
-	_info_soul.add_theme_color_override("font_color", soul_tint)
-	_info_body.text = body
-	_fit_info_body()
+	_caption.text = text
+	_fit_caption()
 
-## Der Grad des Wirkungstextes: die größte Stufe, die umgebrochen noch in den
-## Restblock paßt (die Leiter des Ladens, hier im Fenster). Gerufen beim Aufbau
-## und bei jedem Textwechsel - der Block steht fest, der Text nicht.
-func _fit_info_body() -> void:
+func caption_text() -> String:
+	return _caption.text if _caption != null and is_instance_valid(_caption) else ""
+
+## Der Grad der Caption: die größte Stufe, die noch in die Restbreite paßt.
+func _fit_caption() -> void:
 	var font := ThemeDB.fallback_font
-	if font == null or _info_body == null or not is_instance_valid(_info_body) \
-			or _info_body_span.x <= 0.0:
+	if font == null or _caption == null or not is_instance_valid(_caption) \
+			or _caption_span.x <= 0.0:
 		return
-	var lead := _info_body.get_theme_constant("line_spacing")
-	var px := maxi(8, int(_info_unit * float(INFO_BODY_STEPS[INFO_BODY_STEPS.size() - 1])))
-	for step: float in INFO_BODY_STEPS:
-		var wanted := maxi(8, int(_info_unit * step))
-		if text_block_height(font, _info_body.text, _info_body_span.x, wanted, lead) \
-				<= _info_body_span.y:
+	var px := maxi(8, int(_caption_unit * float(CAPTION_STEPS[CAPTION_STEPS.size() - 1])))
+	for step: float in CAPTION_STEPS:
+		var wanted := maxi(8, int(_caption_unit * step))
+		if font.get_string_size(_caption.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+				wanted).x <= _caption_span.x:
 			px = wanted
 			break
-	_info_body.add_theme_font_size_override("font_size", px)
+	_caption.add_theme_font_size_override("font_size", px)
+
+# --- Das SUMMEN-NETZ ------------------------------------------------------------
+
+## Was der Schirm zeigt - EIN Entscheider: die überfahrene Karte (Schacht vor
+## Magazin) schlägt die SUMME der gesteckten Netze, und ohne beides steht das leere
+## Kreuz. Die Summe ist ZIELUNABHÄNGIG (SeriesResolver ohne Würfel).
+func _sum_view_source() -> Dictionary:
+	var cards := _slot_cards()
+	if _hover_slot >= 0 and _hover_slot < cards.size():
+		return {"mode": "card", "net": cards[_hover_slot].get("net", [])}
+	if _hover_pack_uid > 0 and run != null:
+		var pack := run.pack_by_uid(_hover_pack_uid)
+		if pack != null:
+			return {"mode": "card", "net": pack.stamp_net}
+	var nets := _sum_nets()
+	if nets.is_empty():
+		return {"mode": "empty"}
+	return {"mode": "sum",
+		"projection": SeriesResolver.resolve(nets, null, _sum_terms())}
+
+## Die Netze, die in die Summe gehen: während der Fahrt die schon erfaßten, sonst
+## die gesteckten Nicht-Katalysatoren in Steckreihenfolge.
+func _sum_nets() -> Array:
+	if burning():
+		return _burn_nets_so_far()
+	var nets: Array = []
+	for pack in slotted_packs():
+		if pack.is_catalyst():
+			continue
+		nets.append(pack.stamp_net)
+	return nets
+
+func _sum_terms() -> Dictionary:
+	if burning():
+		return _burn_terms
+	return GameRun.catalyst_terms(slotted_packs())
+
+## Die Signatur der Quelle - nur ihr WECHSEL baut das Netz neu (gefragt je Bild).
+func _sum_view_signature() -> String:
+	var cards := _slot_cards()
+	if _hover_slot >= 0 and _hover_slot < cards.size():
+		return "card:%d" % int(cards[_hover_slot].get("uid", 0))
+	if _hover_pack_uid > 0:
+		return "pack:%d" % _hover_pack_uid
+	return "sum:%s:%d:%d" % [str(_series), _burn_step, _burning.size()]
+
+func _refresh_sum_net() -> void:
+	if _sum_host == null or not is_instance_valid(_sum_host):
+		return
+	var signature := _sum_view_signature()
+	if signature == _sum_signature and _sum_net_view != null \
+			and is_instance_valid(_sum_net_view):
+		return
+	_sum_signature = signature
+	if _sum_net_view != null and is_instance_valid(_sum_net_view):
+		_sum_host.remove_child(_sum_net_view)
+		_sum_net_view.queue_free()
+	var source := _sum_view_source()
+	_sum_mode = String(source.get("mode", "empty"))
+	_sum_source_net = source.get("net", [])
+	_sum_projection = source.get("projection", {})
+	_sum_cell = sum_net_cell(unit())
+	match _sum_mode:
+		"card":
+			_sum_net_view = PressNetView.stamp_net(_sum_source_net, _sum_cell)
+		"sum":
+			_sum_net_view = PressNetView.sum_net(_sum_projection, _sum_cell)
+		_:
+			_sum_net_view = _empty_net_cross(_sum_cell)
+	_sum_host.add_child(_sum_net_view)
+
+## Der Klartext einer Zelle des SUMMEN-Netzes ("" = keine getroffen).
+func _sum_hint_at(pixel: Vector2) -> String:
+	if _sum_net_view == null or not is_instance_valid(_sum_net_view) \
+			or _sum_cell <= 0.0:
+		return ""
+	var rect := _sum_net_view.get_global_rect()
+	if not rect.has_point(pixel):
+		return ""
+	var face := DieNetView.face_at(pixel - rect.position, _sum_cell)
+	if face < 0:
+		return ""
+	if _sum_mode == "card":
+		return StampNet.cell_hint(StampNet.cell_at(_sum_source_net, face))
+	if _sum_mode == "sum":
+		return PressNetView.projection_hint(_sum_projection, face)
+	return ""
+
+## Der NAME der überfahrenen Karte ("" = keine) - Schacht vor Magazin, dieselbe
+## Reihenfolge wie beim Netz. scene_root schreibt ihn in die Caption.
+func hover_pack_name() -> String:
+	var cards := _slot_cards()
+	if _hover_slot >= 0 and _hover_slot < cards.size():
+		return String(cards[_hover_slot].get("name", ""))
+	if _hover_pack_uid > 0 and run != null:
+		var pack := run.pack_by_uid(_hover_pack_uid)
+		if pack != null:
+			return pack.display_name
+	return ""
 
 ## DER GRIFF: EINE atomare Buchung in GameRun, dann die Zeremonie. Gemeldet wird
 ## press_started VOR dem Buchen (die Dekompression der Zellen braucht sie noch in
@@ -1641,6 +1759,7 @@ func _read_card(index: int, tick: float) -> void:
 	_burn_step = index + 1
 	var after := preview()
 	_refresh_preview_net(maxf(tick, 0.01))
+	_refresh_sum_net()  # die Summe in der Mitte tickt mit der Fahrt
 	stencil_read.emit(index, _moved_faces(before, after, card.get("net", [])),
 		after.get("bonus", []), operator, maxf(tick, 0.01))
 
@@ -1735,6 +1854,7 @@ func _drop_series() -> void:
 	_target_index = -1
 	_second_index = -1
 	_hover_slot = -1
+	_hover_pack_uid = 0
 	_drag_from = -1
 	if _net != null and is_instance_valid(_net):
 		_net.reset_ticks()  # der Stand des alten Laufs tickt nirgends hin
@@ -1784,10 +1904,10 @@ func shelf_strip_size() -> Vector2:
 	return Vector2(floorf(maxf(size.x, u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), shelf_min_height()))
 
-## Die MINDESTTIEFE des Magazins: seit die Kassette dort FLACH LIEGT (2026-09-04),
-## ist es ihr eigener Fußabdruck plus Rangluft und die gemalte Fassung. Reicht die
-## Pool-Höhe dafür nicht, wächst der Streifen nach UNTEN in den freien Filz - die
-## Karte schrumpft nie, die Fassung paßt sich an (dieselbe Regel wie bei der
+## Die MINDESTTIEFE des Magazins: EIN Rang der STEHENDEN Kassette - ihr
+## Kappen-Fußabdruck plus Rangluft und die gemalte Fassung. Reicht die Pool-Höhe
+## dafür nicht, wächst der Streifen nach UNTEN in den freien Filz - die Karte
+## schrumpft nie, die Fassung paßt sich an (dieselbe Regel wie bei der
 ## Schacht-Reihe, die nach rechts wächst).
 func shelf_min_height() -> float:
 	var card := shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE * PackDrawerView.RANK_SPAN
@@ -1931,12 +2051,14 @@ func _on_tidy_requested() -> void:
 
 # --- Auskunft --------------------------------------------------------------------
 
-## Das HOVER-HIGHLIGHT je Bild: die überfahrene KARTE (Schacht) hebt ihre
-## Beitrags-Zellen im Summen-Netz hervor (die Kopplung Karte <-> Netz-Zellen bleibt,
-## die Diff-Zeilen sind fort). GEFRAGT statt gemeldet - der Zeiger liegt auf dem
-## Tisch, kein mouse_entered erreicht das Fenster.
+## Das HOVER-HIGHLIGHT je Bild: die überfahrene KARTE (Schacht ODER Magazin) hebt
+## ihre Beitrags-Zellen im Soll-Netz hervor und zeigt ihr eigenes Prägenetz im
+## Summen-Schirm. GEFRAGT statt gemeldet - der Zeiger liegt auf dem Tisch, kein
+## mouse_entered erreicht das Fenster.
 func sync_hover_at(pixel: Vector2) -> void:
+	_hover_pack_uid = shelf_hover_uid_at(pixel)
 	_set_hover_slot(slot_at(pixel))
+	_refresh_sum_net()  # nur der WECHSEL der Quelle baut neu
 
 ## Nur der WECHSEL baut das Netz neu - sync_hover_at läuft je Bild.
 func _set_hover_slot(index: int) -> void:
@@ -1950,6 +2072,9 @@ func _set_hover_slot(index: int) -> void:
 ## gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als gui_input
 ## durch, und wer genau dort stehen bleibt, bekäme nie einen Text.
 func net_hint_at(pixel: Vector2) -> String:
+	var summed := _sum_hint_at(pixel)  # das mittlere Netz liegt vor dem Soll-Netz
+	if summed != "":
+		return summed
 	if _net == null or not is_instance_valid(_net):
 		return ""
 	var face := _net.face_at_pixel(pixel)

@@ -7,8 +7,9 @@ extends Node3D
 ## - kein .tscn, kein GLB.
 ## Die FLÄCHE trägt seit 2026-09-02 das Netz (StampNetOven), die SORTE den Rahmen
 ## und die GRÖSSE dessen Stärke; die drei Kern-Riegel und die Größen-Streifen der
-## Vorderseite sind damit gestorben. Seit 2026-09-04 LIEGT die Kassette auch im
-## Magazin flach - von oben liest man dort ihr Netz, nicht mehr ihre Kappe.
+## Vorderseite sind damit gestorben. ROLL und YAW folgen der LAGE (Welle O/P):
+## LIEGEND ist sie quer (Läden, Wetten, Wurf), STEHEND kappe-oben und HOCHKANT -
+## die Fläche nach Bild-links, so steht sie im Magazin und im Serien-Schacht.
 ## Drei Regeln des Tisches gelten auch hier: nur EMISSION, keine eigenen Lichter
 ## (die Bodenkacheln vertragen 16); im Ruhezustand bleibt das Leuchten UNTER der
 ## Bloom-Schwelle, der Ausbruch (flare) gibt den Kopfraum aus; und die Sortenfarbe
@@ -32,11 +33,13 @@ const HEIGHT := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE * SIZE_FAC
 const UNIT := HEIGHT / 3.0
 const WIDTH := UNIT * 2.0
 const DEPTH := UNIT * 0.28
-## Die STANDHÖHE: quer gerollt (Welle L - die eine Ausrichtung) steht die Kassette
-## auf ihrer LANGSEITE, ihr aufrechtes Maß ist also ihre BREITE. Jede senkrechte
-## Rechnung mißt daran, nie an HEIGHT: das Einsinken, der Aufstieg, der Griff und
-## die Tiefe jeder Grube.
-const STAND_HEIGHT := WIDTH
+## Die STANDHÖHE: stehend ist die Kassette ungedreht und kappe-oben (Welle O), ihr
+## aufrechtes Maß ist also ihre HÖHE. Jede senkrechte Rechnung mißt daran - das
+## Einsinken, der Aufstieg, der Griff und die Tiefe jeder Grube.
+const STAND_HEIGHT := HEIGHT
+## Die Vierteldrehung der STEHENDEN Karte (Welle P): hochkant, Fläche nach
+## Bild-links. Liegend bleibt sie 0 - die Läden lesen ihre Fläche von oben.
+const STAND_YAW := -PI * 0.5
 
 ## Rahmenbreiten des Gehäuses. Sie sind so SCHMAL wie möglich (Spieler-Entscheid
 ## 2026-09-04): der Ausschnitt IST fast die ganze Karte, damit das Prägenetz darin
@@ -163,11 +166,6 @@ var hover_lift := HOVER_LIFT
 var badge_on_face := false
 ## Aufgehellt, aber deutlich unter dem Lese-Ausbruch: Greifen ist kein Lesen.
 const HOVER_ENERGY := 1.75
-## Das aufrechte Maß, an dem JEDE senkrechte Rechnung dieser Zelle mißt: Einsinken
-## und Griff-Hub. Normal ist es die STANDHÖHE; im flachen MAGAZIN liegt die Karte,
-## dort setzt ihr harter Schreiber (lie_in_pit) ihr Liegemaß - stehend gerechnet
-## versänke sie meterweit unter ihrem eigenen Grubenboden.
-var stand_measure := STAND_HEIGHT
 
 ## Auftauchen und Abtreten wie ein schwebender Würfel (FloatingDie): der Körper
 ## wächst an Ort und Stelle aus dem Nichts und schrumpft wieder hinein. Skaliert
@@ -278,6 +276,11 @@ var _hover_tween: Tween
 var _flare_tween: Tween
 var _scale_tween: Tween
 var _glide_tween: Tween
+## Die drei Stücke des Trage-Bogens (arc_to): Start, Ziel und die Höhe des Scheitels
+## über der Sehne.
+var _arc_from := Vector3.ZERO
+var _arc_to := Vector3.ZERO
+var _arc_hump := 0.0
 var _pose_tween: Tween
 var _body_scale_tween: Tween
 
@@ -486,6 +489,7 @@ func set_count(n: int) -> void:
 		cell.position = Vector3(step * STACK_STAGGER, 0.0, step * STACK_PITCH)
 		_body.add_child(cell)
 		_cells.append(cell)
+	_apply_cap_yaw(lerpf(0.0, STAND_YAW, _pose_blend))  # frische Kappen mitdrehen
 	_place_badge()
 
 func count() -> int:
@@ -572,9 +576,8 @@ func raise_upright(time: float) -> void:
 func lay_over(time: float) -> void:
 	_tween_pose(0.0, time)
 
-## Die LAGE frei setzen (0 = liegend, 1 = stehend). Der SCHACHT der Werkstatt-Serie
-## stellt seine Karte DAZWISCHEN: aufrecht wäre ihre Fläche an der 15°-Kamera fast
-## kantig (sin 15° = 0,26), geneigt steht sie quer zur Blickachse und ihr Netz liest.
+## Die LAGE frei setzen (0 = liegend, 1 = stehend); dazwischen mischen Kippung,
+## Roll und Yaw gemeinsam.
 func set_pose(blend: float, time := 0.0) -> void:
 	_tween_pose(clampf(blend, 0.0, 1.0), time)
 
@@ -633,26 +636,23 @@ func seat_hard(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
 	set_body_scale(PackDrawerView.CASSETTE_SCALE)
-	stand_measure = STAND_HEIGHT
 	_lying = false
 	_show_share = SUNK_SHOW  # vor der Lage: sie entscheidet über die Marke
 	_set_pose_blend(1.0)
 	set_socketed(true)
 	global_position = at - Vector3.UP * drop_for(SUNK_SHOW)
 
-## GRUBE (Magazin): hart auf ihren Magazin-Platz - sie LIEGT dort flach im Loch
-## (Spieler-Entscheid 2026-09-04: von oben soll ihr Netz lesen), ihre Blende bündig
-## unter der Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard - der eine
-## idempotente Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das Fach.
-## Genannt wird ihr GLASPUNKT, nicht ihre Einsinktiefe.
-func lie_in_pit(glass_at: Vector3) -> void:
+## GRUBE (Magazin): hart auf ihren Magazin-Platz - sie STEHT dort im Loch, Kappe
+## eine Spur unter der Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard -
+## der eine idempotente Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt
+## das Fach. Genannt wird ihr GLASPUNKT, nicht ihre Einsinktiefe.
+func stand_in_pit(glass_at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
-	stand_measure = lying_over(1.0)  # flach gerechnet: die Grube ist flach
-	_lying = true
-	badge_on_face = true  # neben ihr läge die Zahl im Nachbarplatz
+	_lying = false
+	badge_on_face = false  # stehend trägt die KAPPE die Zahl
 	_show_share = PIT_SHOW  # vor der Lage: sie entscheidet über die Marke
-	_set_pose_blend(0.0)
+	_set_pose_blend(1.0)
 	set_socketed(false)
 	global_position = glass_at - Vector3.UP * drop_for(PIT_SHOW)
 
@@ -663,27 +663,11 @@ func lie_in_pit(glass_at: Vector3) -> void:
 func stand_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
-	stand_measure = STAND_HEIGHT
 	_lying = false
 	_show_share = 1.0  # vor der Lage: sie entscheidet über die Marke
 	_set_pose_blend(1.0)
 	set_socketed(false)
 	global_position = at
-
-## SCHACHT (Werkstatt-Serie): hart auf ihren Schacht-Platz - ganz über der Fläche,
-## in ihrer geneigten Schacht-Lage, und LEBEND (die Kopfkante brennt wie im alten
-## Leseschlitz). Das Gegenstück zu stand_in_pit für die Serien-Reihe; genannt wird
-## ihr GLASPUNKT, der Fuß steht am Schacht-Mund.
-func stand_in_shaft(glass_at: Vector3, pose_blend: float) -> void:
-	_kill(_glide_tween)
-	_kill(_pose_tween)
-	stand_measure = STAND_HEIGHT
-	_show_share = 1.0  # vor der Lage: sie entscheidet über die Marke
-	_lying = pose_blend < 0.5
-	badge_on_face = _lying  # geneigt liest man sie von oben - neben ihr läge sie im Nachbarn
-	_set_pose_blend(clampf(pose_blend, 0.0, 1.0))
-	set_socketed(true)
-	global_position = glass_at
 
 ## FLÄCHE (Läden): hart auf ihren Platz in einer VERKAUFS-Auslage - sie LIEGT dort
 ## auf der Tischfläche, die große Fläche nach oben. Im Archiv steht die Kassette,
@@ -691,7 +675,6 @@ func stand_in_shaft(glass_at: Vector3, pose_blend: float) -> void:
 func lie_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
-	stand_measure = STAND_HEIGHT
 	_lying = true
 	_show_share = 1.0  # liegend steckt sie in nichts - die Marke bleibt sichtbar
 	_set_pose_blend(0.0)
@@ -706,20 +689,19 @@ static func lying_under(cell_scale: float) -> float:
 
 ## Und wie hoch sie über ihm steht. Ihr höchster Punkt ist die KAPPE, nicht die
 ## Blende: quer gerollt kragt sie zu beiden Seiten der Karte aus, und liegend zeigt
-## diese Auskragung nach OBEN. An dieser Zahl mißt die flache Magazin-Grube - mit
-## der bloßen Blende gerechnet ragten die Kappen als grüne Zungen aus dem Loch
-## (Sichtprobe 2026-09-04).
+## diese Auskragung nach OBEN. Daran mißt jede Auslage, in der sie LIEGT - die
+## Magazin-Grube rechnet seit der Welle O wieder stehend (STAND_HEIGHT).
 static func lying_over(cell_scale: float) -> float:
 	return (DEPTH * 0.5 + maxf(DEPTH * 0.5 + BEZEL_RISE, CAP_DEPTH * 0.5)) * cell_scale
 
 ## GRUBE (Magazin): die Ankunft im Loch - die Kassette steigt aus dem Grubenboden
-## auf ihre versenkte Liegehöhe. Der ENDZUSTAND steht zuerst (lie_in_pit,
+## auf ihre versenkte Standhöhe. Der ENDZUSTAND steht zuerst (stand_in_pit,
 ## byteweise derselbe) - gefahren wird nur der Weg dorthin, damit ein übersprungener
 ## oder abgeräumter Tween nichts schuldig bleibt. from_below ist die Grubentiefe:
 ## so tief startet sie, dass sie unter dem Boden liegt.
 func rise_into_pit(glass_at: Vector3, from_below: float, delay := 0.0,
 		time := RISE_TIME) -> void:
-	lie_in_pit(glass_at)
+	stand_in_pit(glass_at)
 	_start_rise(from_below, delay, time)
 
 ## FLÄCHE (Läden): die Kassette steigt DURCH die Tischfläche auf ihren Platz -
@@ -768,10 +750,10 @@ func rise_depth() -> float:
 static func sunk_drop(show: float) -> float:
 	return STAND_HEIGHT * (1.0 - show)
 
-## ... und als Instanz MIT dem Anzeige-Maßstab und dem gesetzten aufrechten Maß:
-## eine gewachsene Kassette hängt tiefer, eine LIEGENDE nur um ihre eigene Dicke.
+## ... und als Instanz MIT dem Anzeige-Maßstab: eine gewachsene Kassette hängt
+## tiefer, sonst ragte ihre Kappe über den Grubenrand.
 func drop_for(show: float) -> float:
-	return stand_measure * _body_scale * (1.0 - show)
+	return STAND_HEIGHT * _body_scale * (1.0 - show)
 
 ## Ihr GLASPUNKT (der Platz, auf dem sie steht) - der Abgleich vergleicht damit,
 ## nicht mit der eingesunkenen Position.
@@ -865,6 +847,33 @@ func glide_to(glass_target: Vector3, time: float) -> void:
 func gliding() -> bool:
 	return _glide_tween != null and _glide_tween.is_valid()
 
+## DER TRAGE-BOGEN: was der SPIELER bewegt, fliegt ÜBER dem Tisch. Die Kassette
+## reist als KÖRPER von ihrem Stand auf einen anderen GLASPUNKT - ganz über dem
+## Glas, ohne Drehung und ohne Lagewechsel (beide Enden stehen). XZ läuft gerade,
+## Y als Parabel mit dem Scheitel `peak` über dem höheren Ende; unter die Sehne
+## kommt sie nie, also nie unter das Glas.
+func arc_to(glass_target: Vector3, time: float, peak: float) -> void:
+	_kill(_glide_tween)
+	_arc_from = glass_position()  # der Bogen startet auf ihrem GLASPUNKT, nicht im Loch
+	_show_share = 1.0  # der ganze Körper steht über dem Glas
+	_place_badge()
+	_arc_to = glass_target
+	global_position = _arc_from  # sie hebt sich sofort aufs Glas, dann fliegt sie
+	var chord := (_arc_from.y + glass_target.y) * 0.5
+	_arc_hump = maxf(maxf(_arc_from.y, glass_target.y) + maxf(peak, 0.0) - chord, 0.0)
+	if time <= 0.0:
+		global_position = glass_target
+		return
+	_glide_tween = create_tween()
+	var fly := _glide_tween.tween_method(_set_arc_share, 0.0, 1.0, time)
+	fly.set_trans(Tween.TRANS_CUBIC)
+	fly.set_ease(Tween.EASE_IN_OUT)
+
+func _set_arc_share(share: float) -> void:
+	var seat := _arc_from.lerp(_arc_to, share)
+	seat.y += 4.0 * _arc_hump * share * (1.0 - share)
+	global_position = seat
+
 ## Ruhelicht dieser Zelle (gedimmt, überfahren oder normal) - Zielwert jedes
 ## Flare-Ausklangs.
 func rest_energy() -> float:
@@ -930,15 +939,31 @@ func _apply_pose() -> void:
 	# jeden Neuaufbau des Fachs. Er gilt in BEIDEN Lagen - im Archiv zieht man die
 	# stehende Akte heraus, in der Bucht hebt man die liegende Ware an; wie weit,
 	# sagt hover_lift, und das setzt der Wirt.
-	lift += stand_measure * hover_lift * _hover_share * _body_scale
+	lift += STAND_HEIGHT * hover_lift * _hover_share * _body_scale
 	# Der ROLL sitzt VOR der Kippung (in der Karten-Ebene): er dreht das Blatt in
-	# sich, nicht seine Neigung zur Kamera. Er steht FEST - eine Karte ist überall
-	# quer (Welle L), es gibt keine zweite Ausrichtung mehr.
-	var roll := PI * 0.5
+	# sich, nicht seine Neigung zur Kamera. Er FOLGT der Lage - liegend quer
+	# (Läden, Wetten, Wurf), stehend ungedreht und damit kappe-oben.
+	var roll := lerpf(PI * 0.5, 0.0, _pose_blend)
+	# Der YAW um die Hochachse folgt der Lage: STEHEND ist die Karte HOCHKANT -
+	# ihre Fläche zeigt nach Bild-links, von oben ist sie ein schmaler, tiefer
+	# Balken, und die Reihe steht Fläche an Fläche wie eine Kartei.
+	var yaw := lerpf(0.0, STAND_YAW, _pose_blend)
 	_body.transform = Transform3D(
-		Basis(Vector3.RIGHT, angle).scaled(Vector3.ONE * _body_scale)
-			* Basis(Vector3.BACK, roll),
+		Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, angle)
+			.scaled(Vector3.ONE * _body_scale) * Basis(Vector3.BACK, roll),
 		Vector3(0.0, lift, 0.0))
+	_apply_cap_yaw(yaw)
+
+## Kappen-Zeichen und Bündelzahl liegen flach auf der Kappe und drehen mit dem Yaw
+## mit - sie werden um ihn GEGEN-gedreht, damit sie von oben aufrecht lesen.
+func _apply_cap_yaw(yaw: float) -> void:
+	var back := Basis(Vector3.UP, -yaw) * Basis(Vector3.RIGHT, -PI * 0.5)
+	if _cap_badge != null:
+		_cap_badge.basis = back
+	for cell in _cells:
+		var glyph := cell.get_node_or_null("CapGlyph") as MeshInstance3D
+		if glyph != null:
+			glyph.basis = back
 
 func _build_materials() -> void:
 	_shell_material = StandardMaterial3D.new()

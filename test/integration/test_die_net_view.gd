@@ -14,7 +14,8 @@ func _def_with_materials() -> DieDefinition:
 func _cells(net: Control) -> Array:
 	var cells := []
 	for child in net.get_children():
-		if child is Panel and child.get_child_count() == 1 				and child.get_child(0) is Label:
+		if child is Panel and child.get_child_count() == 1 \
+				and child.get_child(0) is Label:
 			cells.append(child)
 	return cells
 

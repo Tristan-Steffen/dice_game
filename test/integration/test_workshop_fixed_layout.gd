@@ -40,6 +40,11 @@ func _console() -> Control:
 func _apron_line() -> float:
 	return view.size.y + view.size.x / 100.0 * view.apron_units()
 
+## Die UNTERKANTE des Magazins in Fenster-Koordinaten: die gemeldete Schürzen-Linie,
+## oder tiefer, wenn EIN Rang der hochkanten Karte mehr Tiefe braucht.
+func _shelf_line() -> float:
+	return maxf(view.apron_bottom, view.shelf_top() + view.shelf_min_height())
+
 func _row_names() -> Array[String]:
 	var names: Array[String] = []
 	for child in view._content.get_children():
@@ -175,15 +180,16 @@ func test_the_apron_chain_is_seam_band_seam_bays() -> void:
 		1.0, "und dieselbe Kette misst sich am Fenster nach")
 
 ## Das Fach liegt GANZ außerhalb, über die volle Fensterbreite, und endet auf
-## der gemeldeten Schürzen-Linie (am Tisch: der Unterkante des Hubs).
+## der gemeldeten Schürzen-Linie - es sei denn, EIN Rang der hochkanten Karte
+## braucht mehr Tiefe (Welle P), dann wächst es in den freien Filz.
 func test_the_drawer_lies_below_the_window_at_full_width() -> void:
 	view.apron_bottom = _apron_line()
 	await wait_frames(2)
 	var row := _drawer_rect()
 	var window := view.get_global_rect()
 	assert_gt(row.position.y, window.end.y, "das Fach liegt unter dem Fenster")
-	assert_almost_eq(row.end.y, window.position.y + view.apron_bottom, 1.0,
-		"und endet genau auf der gemeldeten Linie")
+	assert_almost_eq(row.end.y, window.position.y + _shelf_line(), 1.0,
+		"und endet auf der gemeldeten Linie, notfalls tiefer")
 	assert_lte(window.size.x - row.size.x, 2.0,
 		"es nimmt die volle Fensterbreite (bis auf die Pixel-Abrundung)")
 	assert_almost_eq(row.get_center().x, window.get_center().x, 1.0, "und steht mittig")
@@ -209,8 +215,8 @@ func test_the_drawer_height_falls_out_of_the_gap_below_the_console() -> void:
 	band.position += view.get_global_rect().position
 	var gap := _drawer_rect().position.y - band.end.y
 	assert_almost_eq(gap, u * WorkshopView.CONSOLE_SHELF_GAP, 1.0, "eine Naht unter dem Band")
-	assert_almost_eq(_drawer_rect().size.y, view.apron_bottom - view.shelf_top(), 1.0,
-		"der Rest ist Fachhöhe")
+	assert_almost_eq(_drawer_rect().size.y, _shelf_line() - view.shelf_top(), 1.0,
+		"der Rest ist Fachhöhe - mindestens EIN Rang tief")
 
 ## Fenster PLUS Schürze - daran messen sich Klick-Weiterleitung und Kamera.
 func test_the_bench_rect_covers_window_and_apron() -> void:
@@ -302,8 +308,8 @@ func test_the_seat_rides_the_console_band_below_the_row() -> void:
 	assert_almost_eq(seat.get_center().x,
 		view.row_field_rect().get_center().x + view.get_global_rect().position.x, 1.0,
 		"und mittig unter der Schacht-Reihe")
-	assert_null(view.get_node_or_null("SeriesBand/InfoScreen"),
-		"der Tooltip-Schirm ist mit der KORREKTUR-WELLE J aus dem Band ins Fenster")
+	assert_null(view.get_node_or_null("SeriesBand/SumScreen"),
+		"der Summen-Schirm steht im Fenster, nicht im Band")
 	assert_null(view.get_node_or_null("SeriesBand/SeriesScreen"),
 		"der Serien-Schirm bleibt gestorben")
 
@@ -367,11 +373,11 @@ func test_the_cell_scale_has_one_source() -> void:
 ## Das EINE Kassettenmaß: das Magazin trägt es, und der Leseschlitz ist darauf
 ## geschnitten - eine Karte wächst und schrumpft auf ihrem Weg nicht mehr.
 func test_magazine_and_slit_are_cut_to_the_same_cassette() -> void:
-	view.data_cell_px = Vector2(40, 16)
+	view.data_cell_px = Vector2(16, 40)
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
-		"die Karte liegt im festen Maß im Fach")
+		"die Karte steht im festen Maß im Fach")
 	var cap := view.data_cell_px * PackDrawerView.CASSETTE_SCALE
 	assert_gte(view.slit_size(u).x, cap.x, "und der Schlitz schluckt genau diese Kappe")
 	assert_gte(view.slit_size(u).y, cap.y)
@@ -444,13 +450,28 @@ func test_the_console_stays_clear_of_the_drawer() -> void:
 	await wait_frames(2)
 	assert_gt(_drawer_rect().position.y, _console().get_global_rect().end.y,
 		"die Reihe endet weit über dem Fach")
-	# KORREKTUR-WELLE K: die Karte LIEGT QUER im Schacht, also ist das Loch breiter
-	# als hoch - genau das Verhältnis der Kassette, gekippt.
-	assert_gt(view.mouth_size(u).x, view.mouth_size(u).y,
-		"ein Schacht-Mund ist breiter als hoch - die Karte liegt quer darin")
-	assert_almost_eq(view.mouth_size(u).x / view.mouth_size(u).y,
-		WorkshopView.CARD_ASPECT, 0.001,
-		"und zwar genau um das Kassetten-Verhältnis")
+	# WELLE P: die Karte steht HOCHKANT im Schacht - der Kerf ist darum schmal und
+	# TIEF, der Fußabdruck ihrer Kappe plus Luft in BEIDEN Achsen.
+	assert_lt(view.mouth_size(u).x, view.mouth_size(u).y,
+		"ein hochkanter Kerf ist tiefer als breit")
+	assert_almost_eq(view.mouth_size(u).x,
+		view.shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE * WorkshopView.MOUTH_ROOM,
+		0.001, "die Kappentiefe plus Luft")
+	assert_almost_eq(view.mouth_size(u).y,
+		maxf(view.shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE * WorkshopView.MOUTH_ROOM,
+			u * WorkshopView.MOUTH_MIN_HEIGHT_UNITS),
+		0.001, "und die Kartenbreite plus Luft, mit ihrem u-Boden")
+
+## Die HÖHENRESERVE der Reihe trägt den hochkanten Kerf samt seinen Pads - sonst
+## liefe das Blech in die Bandzeile darunter.
+func test_the_row_reserve_carries_the_upright_kerf() -> void:
+	await wait_frames(2)
+	var u := view.unit()
+	assert_lte(view.mouth_size(u).y, u * WorkshopView.ROW_HEIGHT_UNITS,
+		"der Kerf paßt in die Reserve")
+	var band := view.band_row_rect()
+	assert_lte(_console().get_rect().end.y, band.position.y + 0.5,
+		"und das Blech endet über der Band-Zeile")
 
 func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	# Der Beweis in einem Bild: dasselbe Fach-Rechteck bei leerem, gemischtem und
@@ -522,24 +543,24 @@ func test_the_bench_is_always_furnished() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "auch nach jedem Neuaufbau")
 
-## Die Reihe WÄCHST mit der Lizenz - und das Blech wächst mit ihr, nicht die
+## Die Reihe WÄCHST mit dem Taktgeber - und das Blech wächst mit ihr, nicht die
 ## Straße: der Soll-Schirm rührt sich keinen Byte weit.
 func test_a_longer_series_grows_the_console_not_the_page() -> void:
+	view.data_cell_px = Vector2(8, 20)  # kleine Karte: acht Kerfe passen ins Feld
 	await wait_frames(2)
 	var rows := _row_names()
 	var diff := view.diff_screen_rect()
 	var short_console := _console().get_global_rect().size.x
-	run.hub_level = 10
+	run.series_slot_bonus = 2
 	view.refresh()
 	await wait_frames(2)
 	assert_gt(_console().get_global_rect().size.x, short_console, "das Blech wächst")
 	assert_eq(_row_names(), rows, "dieselben Stationen in derselben Ordnung")
 	assert_eq(view.diff_screen_rect(), diff, "der Diff-Schirm rührt sich nicht")
 
-## Auch die lange Reihe (Stufe 10, acht Schächte) bleibt IN ihrem Feld zwischen den
-## beiden Schirmen - kein Mund läuft in eine Nachbar-Station.
+## Auch die volle Reihe (sechs Schächte ab Runde 1) bleibt IN ihrem Feld zwischen
+## den beiden Schirmen - kein Mund läuft in eine Nachbar-Station.
 func test_the_long_series_row_still_fits_between_the_screens() -> void:
-	run.hub_level = 10
 	# Auf die Reihe GELÖST, wie scene_root den Streifen stellt.
 	var u0 := view.size.x / 100.0
 	view.size.x = WorkshopView.bench_width_for(6, u0,
@@ -547,7 +568,7 @@ func test_the_long_series_row_still_fits_between_the_screens() -> void:
 	view.unit_px = u0
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view.slot_count(), 6, "Stufe 10 trägt sechs Slots")
+	assert_eq(view.slot_count(), 6, "der Sockel trägt sechs Slots")
 	var console := _console().get_rect()
 	var field := view.row_field_rect()
 	assert_gte(console.position.x, field.position.x - 0.5, "das Blech steht im Feld")
@@ -561,7 +582,6 @@ func test_the_long_series_row_still_fits_between_the_screens() -> void:
 ## wächst dafür mit (bench_width_for), genau wie scene_root ihn stellt. Die Karte
 ## schrumpft nie, also ist die Breite die Stellschraube, nicht ihr Maß.
 func test_eight_shafts_still_fit_the_row_field() -> void:
-	run.hub_level = 10
 	run.series_slot_bonus = 2
 	var u0 := view.size.x / 100.0
 	view.size.x = WorkshopView.bench_width_for(8, u0,
@@ -578,10 +598,10 @@ func test_eight_shafts_still_fit_the_row_field() -> void:
 		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
 		"und kein Mund schrumpft: die Karte hat EINE Größe (Welle L)")
 
-# --- Ein BAND aus Ist-Netz | Tooltip | Soll-Netz -----------------------------------
+# --- Ein BAND aus Ist-Netz | Summen-Netz | Soll-Netz -------------------------------
 
 func _info_screen() -> Control:
-	return view.get_node("Street/InfoScreen")
+	return view.get_node("Street/SumScreen")
 
 ## (1) Die GRUBE spannt nur noch den STREIFEN: der Überhang unter die fremde
 ## Info-Säule ist mit dem Umzug unter den Pool gestorben.
@@ -592,8 +612,8 @@ func test_the_magazine_spans_exactly_the_strip() -> void:
 	var window := view.get_global_rect()
 	assert_almost_eq(row.position.x, window.position.x, 1.0, "links bündig")
 	assert_almost_eq(row.end.x, window.end.x, 2.0, "rechts bündig")
-	assert_almost_eq(row.end.y, window.position.y + view.apron_bottom, 1.0,
-		"und ihre Unterkante bleibt die Pool-Unterkante")
+	assert_almost_eq(row.end.y, window.position.y + _shelf_line(), 1.0,
+		"und ihre Unterkante bleibt die Pool-Unterkante, solange EIN Rang hineinpaßt")
 	assert_null(view.get("shelf_left"), "die gemeldete Linkskante ist fort")
 
 ## (1, der FALLSTRICK) Die Grube liegt GANZ in der Weiterleitungs-Region: genau
@@ -631,9 +651,9 @@ func test_a_cassette_in_the_lower_pit_part_still_reaches_the_slot() -> void:
 	await wait_frames(2)
 	assert_true(view.press_slot_uids().has(uid), "und steckt die Kassette")
 
-## (2) Der TOOLTIP-SCHIRM steht DIREKT UNTER der Schacht-Reihe und ist GENAU so
+## (2) Der SUMMEN-SCHIRM steht DIREKT UNTER der Schacht-Reihe und ist GENAU so
 ## breit wie sie.
-func test_the_tooltip_sits_below_the_row_at_its_exact_width() -> void:
+func test_the_sum_screen_sits_below_the_row_at_its_exact_width() -> void:
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	var console := _console().get_global_rect()
@@ -644,9 +664,8 @@ func test_the_tooltip_sits_below_the_row_at_its_exact_width() -> void:
 	assert_almost_eq(info.size.y, u * WorkshopView.DIFF_HEIGHT_UNITS, 0.5,
 		"und ist so hoch wie das Band")
 
-## Auch mit acht Schächten: der Tooltip wächst mit der Reihe mit.
-func test_the_tooltip_follows_a_longer_row() -> void:
-	run.hub_level = 10
+## Auch mit acht Schächten: der Summen-Schirm wächst mit der Reihe mit.
+func test_the_sum_screen_follows_a_longer_row() -> void:
 	run.series_slot_bonus = 2
 	view.refresh()
 	await wait_frames(2)
@@ -656,8 +675,8 @@ func test_the_tooltip_follows_a_longer_row() -> void:
 	assert_almost_eq(info.position.x, console.position.x, 0.5)
 	assert_almost_eq(info.end.x, console.end.x, 0.5)
 
-## (3) Das SOLL-NETZ steht RECHTS neben dem Tooltip, auf DERSELBEN Zeile - ein BAND.
-func test_the_result_net_stands_beside_the_tooltip_in_one_band() -> void:
+## (3) Das SOLL-NETZ steht RECHTS neben dem Summen-Schirm, auf DERSELBEN Zeile.
+func test_the_result_net_stands_beside_the_sum_screen_in_one_band() -> void:
 	await wait_frames(2)
 	var info := _info_screen().get_global_rect()
 	var diff := view._diff_screen.get_global_rect()
@@ -699,9 +718,9 @@ func test_the_result_net_stands_empty_without_a_target() -> void:
 	assert_false(view._empty_net.visible,
 		"mit gewähltem Ziel tritt der Platzhalter hinter das echte Netz zurück")
 
-## (3) Das IST-NETZ steht LINKS neben dem Tooltip, auf DERSELBEN Zeile - und IMMER:
-## ohne Ziel als leeres Kreuz.
-func test_the_ist_net_stands_left_of_the_tooltip_in_one_band() -> void:
+## (3) Das IST-NETZ steht LINKS neben dem Summen-Schirm, auf DERSELBEN Zeile - und
+## IMMER: ohne Ziel als leeres Kreuz.
+func test_the_ist_net_stands_left_of_the_sum_screen_in_one_band() -> void:
 	await wait_frames(2)
 	var info := _info_screen().get_global_rect()
 	var ist: Control = view.get_node("Street/IstScreen")
@@ -735,7 +754,6 @@ func test_bench_width_counts_both_columns() -> void:
 ## Und die so gelöste Breite trägt die Reihe wirklich: bei acht Schächten bleibt
 ## das Blech im Feld ZWISCHEN den beiden Spalten.
 func test_the_solved_width_really_carries_the_row() -> void:
-	run.hub_level = 10
 	run.series_slot_bonus = 2
 	var u0 := view.size.x / 100.0
 	view.size.x = WorkshopView.bench_width_for(8, u0,

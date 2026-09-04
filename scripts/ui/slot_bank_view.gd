@@ -733,7 +733,8 @@ func _burn_step(progress: float, plan: Dictionary, line_index: int, burnt: Dicti
 	for i in range(seg + 1, points.size()):
 		trimmed.append(points[i])
 	if line_index < _run_overlay.lines.size():
-		_run_overlay.lines[line_index]["points"] = trimmed if trimmed.size() >= 2 			else PackedVector2Array()
+		_run_overlay.lines[line_index]["points"] = trimmed if trimmed.size() >= 2 \
+			else PackedVector2Array()
 		_run_overlay.queue_redraw()
 
 ## Zelle i ist verbraucht: ihr Wand-Label erlischt, und ihre Glyphen-PERLE gleitet

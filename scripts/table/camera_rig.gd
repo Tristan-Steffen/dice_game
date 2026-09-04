@@ -317,15 +317,12 @@ func felt_pick_live(station: int) -> bool:
 		return false
 	return free_camera or mode == station
 
-## Nur Hub, Werkstatt und Titel stehen STILL: ihr Fenster füllt das Bild, ein
-## Schwenk verschöbe es nur. Nahsicht und Werkstück-Sicht bleiben WORKSHOP und
-## stecken damit mit drin.
-## Feste Fassungen: ihr Fenster füllt das Bild, ein Schwenk schöbe es nur. Die
-## WERKSTATT gehört seit dem 2026-09-04 NICHT mehr dazu (Spieler-Entscheid) - sie
-## kippt mit der Maus wie jede andere Station, und WASD trägt von dort in die
-## Freikamera.
+## Hub, Titel und WERKSTATT stehen STILL: ihr Fenster füllt das Bild, ein Schwenk
+## verschöbe es nur. Das Rundschauen an der Werkstatt ist am 2026-09-04 wieder
+## gefallen (Spieler: es erschwert das Arbeiten) - Nahsicht und Werkstück-Sicht
+## bleiben WORKSHOP und stehen damit mit still. WASD bleibt: das ist Absicht.
 func _tilt_frozen_mode() -> bool:
-	return mode == Mode.HUB or mode == Mode.TITLE
+	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP
 
 func _process(delta: float) -> void:
 	if is_animating or tilt_locked or _tilt_frozen_mode():
