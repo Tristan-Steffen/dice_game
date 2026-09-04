@@ -1,32 +1,28 @@
 class_name WorkshopView
 extends Panel
-## Der STATIONS-STREIFEN rechts des Pools, auf Pool-Höhe (die STATIONS-ZEILE,
-## 2026-09-03). Er hat KEINEN Schirm-Hintergrund - seine Teile liegen auf dem
-## Filz - und liest seit der KORREKTUR-WELLE J in ZWEI ZEILEN plus Grube:
-##   Zeile 1:  [Fach-Würfel]   [SCHACHT-REIHE]   [Ergebnis-Podest-Würfel]
+## Der STATIONS-STREIFEN UNTER dem Pool (2026-09-04). Er hat KEINEN
+## Schirm-Hintergrund - seine Teile liegen auf dem Filz - und liest in ZWEI ZEILEN
+## plus Grube:
+##   Zeile 1:  [ZIEL-PODEST]   [SCHACHT-REIHE]   [ERGEBNIS-PODEST]
 ##   Zeile 2:  [IST-NETZ]      [TOOLTIP-SCHIRM]  [SOLL-NETZ]
-##   Grube:    [MAGAZIN - linke Kante = linke Kante des IST-NETZES]
-## Die linke Spalte (Fach-Würfel und IST-NETZ) gehört scene_root; das Fenster trägt
-## die beiden rechten:
-##  - Zeile 1 links die SCHACHT-REIHE: je Serien-Slot ein Loch im erhabenen
+##   Grube:    [MAGAZIN über die volle Streifenbreite]
+## Der Streifen liest damit GANZ AUS SICH SELBST: die linke Spalte ist das
+## Spiegelbild der rechten, und das Ausgabefach am Pool hat mit ihm nichts mehr zu
+## tun (seine Info-Säule zeigt nur noch den Neuzugang).
+##  - Zeile 1 in der Mitte die SCHACHT-REIHE: je Serien-Slot ein Loch im erhabenen
 ##    Konsolen-Blech, in dem die ECHTE Data-Cell aus dem Magazin aufsteigt und
 ##    steht. Das Fenster malt nur die Münder und MELDET ihre Anker - die Körper
-##    gehören scene_root. Rechts das ERGEBNIS-PODEST.
-##  - Zeile 2 - das BAND - links der TOOLTIP-SCHIRM, GENAU so breit wie die
-##    Schacht-Reihe, rechts das SOLL-NETZ auf DERSELBEN Höhe. Das Soll-Netz steht
-##    IMMER da: ohne Ziel und ohne Karten als leeres Kreuz.
-##
-## Das PODEST des ZIELWÜRFELS steht NICHT im Fenster: er schwebt am Sitz des
-## Ausgabefachs, und seine Auskunft trägt die Info-Säule darunter (FachNetView,
-## beides Sache von scene_root).
+##    gehören scene_root, die beiden Podeste ebenso.
+##  - Zeile 2 - das BAND - IST-NETZ | TOOLTIP-SCHIRM | SOLL-NETZ. Beide Netze sind
+##    GLEICH GROSS (EIN Zellmaß, aus der engeren Spalte) und stehen IMMER da: ohne
+##    Ziel und ohne Karten als leeres Kreuz.
 ##
 ## Alles darunter liegt in der SCHÜRZE, und sie beginnt UNTER der Fensterkante:
 ## eine Naht, dann das KONSOLEN-BAND (nur noch der GRIFF, mittig unter der
 ## Schacht-Reihe), dieselbe Naht noch einmal, dann das MAGAZIN; seine Unterkante
 ## sitzt bündig mit der Pool-Unterkante (die gemeldete apron_bottom-Linie) - es sei
 ## denn, die FLACH LIEGENDE Karte braucht mehr Tiefe, dann wächst der Streifen nach
-## unten in den freien Filz (shelf_min_height). Seine linke Kante liegt auf der
-## gemeldeten shelf_left-Linie (der linken Kante des Ist-Netzes).
+## unten in den freien Filz (shelf_min_height).
 ##
 ## Die REIHE IST die Rechnung: getippt geht eine Kassette in den nächsten freien
 ## Schacht, gezogen sortiert sie um (Reihenfolge = Rechenreihenfolge), geklickt
@@ -59,8 +55,7 @@ signal pack_unslotted(slot_index: int, uid: int)
 signal press_started
 ## DIE SCHABLONEN-FAHRT, im Takt gemeldet - GEFAHREN wird sie von scene_root, das
 ## Fenster nennt nur Plätze in Display-Pixeln und Zeiten (ui/ faßt nie Körper an).
-## Die GEBURT liegt am Netz der Info-Säule des Ausgabefachs - wo das steht, weiß
-## scene_root, nicht dieses Fenster.
+## Die GEBURT liegt am IST-NETZ der linken Spalte (ist_net_center).
 signal stencil_launched(time: float)
 ## Eine Etappe auf der Schiene über der Reihe.
 signal stencil_moved(to_px: Vector2, time: float)
@@ -92,12 +87,12 @@ const STAGE_HEIGHT := 9.3
 ## man ÜBER ihn entscheidet.
 const CHOICE_CELL := DieNetView.TRAY_TILE
 
-## --- DIE STRASSE: zwei Stationen von links nach rechts --------------------------
-## Breite der Ergebnis-Spalte in u; die SCHACHT-REIHE bekommt, was links davon
-## bleibt (die Reihe ist damit die einzige Spalte, die mit der Serienlänge atmet -
-## die Ergebnis-Spalte rührt sich nie).
+## --- DIE STRASSE: drei Stationen von links nach rechts ---------------------------
+## Breite der beiden Podest-Spalten in u (links Ziel, rechts Ergebnis - Spiegel-
+## bilder); die SCHACHT-REIHE bekommt, was dazwischen bleibt und ist damit die
+## einzige Spalte, die mit der Serienlänge atmet.
 const DIFF_WIDTH_UNITS := 28.0
-## Die Fuge zwischen Reihe und Ergebnis-Spalte.
+## Die Fuge zwischen einer Podest-Spalte und der Reihe - zweimal dasselbe Maß.
 const STREET_GAP := 1.8
 ## Kopfraum über dem Podest: der schwebende Würfel ragt über seinen Platz hinaus,
 ## und in der Nahsicht sitzt die obere Fensterkante exakt am Bildrand - ohne diese
@@ -118,15 +113,13 @@ const CONTENT_MARGIN_X := 2.4
 const CONTENT_MARGIN_Y := 1.4
 const CONTENT_GAP := 1.0
 
-## --- Der SOLL-SCHIRM: das UI-SPIEGELBILD des linken Netzes (KORREKTUR-WELLE I) ---
-## Er trägt NUR das Ergebnis-Netz (der physische Ergebnis-Würfel steht über ihm auf
-## dem Ergebnis-Podest), auf BLANKEM Filz - ohne eigenen Hintergrund und ohne
-## Aufschlüsselungs-Zeilen. Das Netz zeigt den Würfel NACH dem Griff mit grünen
-## Deltas, GLEICH GROSS wie das linke Netz der Info-Säule (scene_root reicht das Maß
-## herüber, result_net_cell).
+## --- Die beiden NETZ-SCHIRME: IST links, SOLL rechts -----------------------------
+## Beide tragen NUR ihr Netz (der physische Würfel steht über ihnen auf seinem
+## Podest), auf BLANKEM Filz - ohne eigenen Hintergrund und ohne Aufschlüsselungs-
+## Zeilen. Links steht der Würfel, WIE ER IST, rechts, was die Serie aus ihm macht
+## (grüne Deltas). Das Zellmaß rechnet das Fenster EINMAL für beide.
 const DIFF_PAD := 0.9
-## Anteil des Schirms, den das Netz nimmt, wenn scene_root kein Maß meldet (Tests):
-## fast der ganze Schirm, denn die Zeilen sind fort.
+## Anteil des Schirms, den ein Netz höchstens nimmt - der Rest bleibt Luft.
 const DIFF_NET_SHARE := 0.92
 
 ## --- Die SCHACHT-REIHE ----------------------------------------------------------
@@ -224,7 +217,7 @@ const ACTION_WIDTH := 15.0
 const ACTION_HEIGHT := 4.0
 
 ## DIE SCHABLONEN-FAHRT - die Zeremonie des Griffs. Die Schablone löst sich aus
-## dem Ist-Schirm links, fährt die Schiene über der Reihe ab und setzt sich rechts
+## dem IST-NETZ links, fährt die Schiene über der Reihe ab und setzt sich rechts
 ## in den Zielwürfel. Klick überspringt jederzeit; bei sechs Karten ~4 s.
 ## Die GEBURT: das Ist-Netz dimmt kurz, die Schablone wächst an seiner Stelle - und
 ## das Summen-Netz im Diff-Schirm ENTLEERT sich zugleich auf die nackten
@@ -240,8 +233,8 @@ const STENCIL_OPERATOR_EXTRA := 0.3
 const STENCIL_MOVE_SHARE := 0.45
 const STENCIL_LEAVE_TIME := 0.55
 const STENCIL_FOLD_TIME := 0.8
-## So dunkel steht das Netz der Info-Säule im Moment der Geburt - es hat seine
-## Schablone eben abgegeben (gedimmt wird von scene_root, dort steht die Säule).
+## So dunkel steht das IST-NETZ im Moment der Geburt - es hat seine Schablone eben
+## abgegeben (dim_ist_net).
 const BIRTH_DIM := 0.3
 ## Die SCHIENE selbst: ein Strich im oberen Rand des Blechs (er paßt in
 ## CONSOLE_PAD_Y, also verrückt er nichts). Die Schablone fährt darüber.
@@ -283,6 +276,11 @@ var _net_host: Control
 var _empty_net: Control
 ## Das leere ERGEBNIS-PODEST rechts: dorthin wechselt der fertige Würfel.
 var _stage_host: Control
+## Sein Spiegelbild links: das ZIEL-PODEST, auf das der Vorrats-Würfel fährt.
+var _target_stage_host: Control
+## Der IST-SCHIRM links und das Feld, in dem sein Netz sitzt.
+var _ist_screen: Panel
+var _ist_net_host: Control
 ## Die Schacht-Münder; jeder ein Loch mit seinem Knopf darüber.
 var _slot_buttons: Array[Button] = []
 ## Die gezeichneten Münder selbst - IHRE Mitte ist der Steckplatz der Zelle, nicht
@@ -303,16 +301,6 @@ var apron_bottom := 0.0:
 		if is_equal_approx(apron_bottom, value):
 			return
 		apron_bottom = value
-		refresh()
-## LINKE Kante des MAGAZINS in Fenster-Koordinaten (0 = die Fensterkante, negativ =
-## es ragt links über sie hinaus): scene_root meldet die linke Kante des IST-NETZES
-## herein (dasselbe apron_bottom-Muster). bench_rect deckt die Verbreiterung mit -
-## sonst fielen die Chip-Taps im linken Grubenteil durch (der Welle-H-Bug).
-var shelf_left := 0.0:
-	set(value):
-		if is_equal_approx(shelf_left, value):
-			return
-		shelf_left = value
 		refresh()
 ## Paket-uids, deren Liefer-Licht noch fährt (der Komet IST das Paket).
 var _pending_arrivals: Dictionary = {}
@@ -352,15 +340,6 @@ var unit_px := 0.0:
 
 ## Der SOLL-SCHIRM rechts - er trägt NUR noch das Ergebnis-Netz, ohne Hintergrund.
 var _diff_screen: Panel
-## Das Zellmaß des Ergebnis-Netzes in Display-Pixeln (0 = eigenes Maß rechnen). Es
-## kommt von scene_root aus dem gebauten Netz der Info-Säule - so stehen linkes und
-## rechtes Netz GLEICH GROSS.
-var result_net_cell := 0.0:
-	set(value):
-		if is_equal_approx(result_net_cell, value):
-			return
-		result_net_cell = value
-		refresh()
 
 ## DIE SERIE: die uids der gesteckten Karten in STECKREIHENFOLGE - sie SIND die
 ## Rechnung. uids, nicht Indizes: das Magazin darf darunter umsortiert werden.
@@ -458,6 +437,9 @@ func _refresh_content() -> void:
 	_card_panels.clear()
 	_portals.clear()
 	_stage_host = null
+	_target_stage_host = null
+	_ist_screen = null
+	_ist_net_host = null
 	_net_host = null
 	_empty_net = null
 	_diff_screen = null
@@ -499,7 +481,7 @@ func _ensure_sum_net(u: float) -> void:
 	if _net == null or not is_instance_valid(_net):
 		_net = PressNetView.new()
 		add_child(_net)
-	_net.cell = _diff_net_cell(u)
+	_net.cell = net_cell(u)
 	move_child(_net, get_child_count() - 1)
 	if not burning():
 		_refresh_preview_net()
@@ -542,6 +524,13 @@ func result_column_rect() -> Rect2:
 	return Rect2(Vector2(street.end.x - width, street.position.y),
 		Vector2(width, street.size.y))
 
+## Ihr SPIEGELBILD links: die ZIEL-SPALTE - Ziel-Podest über dem Ist-Schirm. Sie
+## macht den Streifen vom Ausgabefach unabhängig (2026-09-04).
+func bench_column_rect() -> Rect2:
+	var u := unit()
+	var street := street_rect()
+	return Rect2(street.position, Vector2(u * DIFF_WIDTH_UNITS, street.size.y))
+
 ## Das BAND - die ZEILE 2 der Straße (KORREKTUR-WELLE J): es liegt am Fuß der
 ## Straße und trägt links den Tooltip-Schirm, rechts das Soll-Netz. EINE Zeile,
 ## also EIN Rechteck - beide bekommen daraus ihre Höhe.
@@ -560,42 +549,94 @@ func diff_screen_rect() -> Rect2:
 	return Rect2(Vector2(column.position.x, band.position.y),
 		Vector2(column.size.x, band.size.y))
 
+## Der IST-SCHIRM: die linke Hälfte des Bandes, unter dem Ziel-Podest.
+func ist_screen_rect() -> Rect2:
+	var column := bench_column_rect()
+	var band := band_row_rect()
+	return Rect2(Vector2(column.position.x, band.position.y),
+		Vector2(column.size.x, band.size.y))
+
 ## Das ERGEBNIS-PODEST: über dem Soll-Schirm, um die Fuge abgesetzt - dorthin
 ## wechselt der Zielwürfel am Ende der Serie.
 func result_podium_rect() -> Rect2:
+	return _podium_over(result_column_rect(), diff_screen_rect())
+
+## Das ZIEL-PODEST: dasselbe eine Stockwerk über dem Ist-Schirm.
+func target_podium_rect() -> Rect2:
+	return _podium_over(bench_column_rect(), ist_screen_rect())
+
+## EINE Podest-Rechnung für beide Spalten: über dem Netz-Schirm, um die Fuge
+## abgesetzt, unter dem Kopfraum der Straße.
+func _podium_over(column: Rect2, screen: Rect2) -> Rect2:
 	var u := unit()
-	var column := result_column_rect()
-	var diff := diff_screen_rect()
-	var bottom := diff.position.y - u * STAGE_NET_GAP
+	var bottom := screen.position.y - u * STAGE_NET_GAP
 	var top := maxf(column.position.y + u * STAGE_HEAD_ROOM, bottom - u * STAGE_HEIGHT)
 	return Rect2(Vector2(column.position.x, top),
 		Vector2(column.size.x, maxf(bottom - top, 1.0)))
 
-## Der Platz der SCHACHT-REIHE: die Straße links der Ergebnis-Spalte.
+## Der Platz der SCHACHT-REIHE: die Straße ZWISCHEN den beiden Podest-Spalten.
 func row_field_rect() -> Rect2:
 	var u := unit()
 	var street := street_rect()
+	var left := bench_column_rect().end.x + u * STREET_GAP
 	var right := result_column_rect().position.x - u * STREET_GAP
-	return Rect2(street.position,
-		Vector2(maxf(right - street.position.x, u * 10.0), street.size.y))
+	return Rect2(Vector2(left, street.position.y),
+		Vector2(maxf(right - left, u * 10.0), street.size.y))
 
 func _build_street(u: float) -> void:
+	_build_bench_column(u)
 	_build_shaft_row(u)
-	_build_info_screen(u)  # Zeile 2 links: der Tooltip unter der Reihe
+	_build_info_screen(u)  # Zeile 2 mittig: der Tooltip unter der Reihe
 	_build_result_column(u)
 
 # --- Die ERGEBNIS-SPALTE: Ergebnis-Podest über dem SOLL-SCHIRM -------------------
 
 func _build_result_column(u: float) -> void:
+	_stage_host = _podium_host("ResultStage", result_podium_rect())
+	_build_diff_screen(u)
+
+## Die ZIEL-SPALTE links: Ziel-Podest über dem IST-SCHIRM - dasselbe Gerüst wie
+## rechts, nur zeigt ihr Netz den Würfel, WIE ER IST.
+func _build_bench_column(u: float) -> void:
+	_target_stage_host = _podium_host("TargetStage", target_podium_rect())
+	_build_ist_screen(u)
+
+## Der leere Platz eines Podests: das Fenster MELDET ihn, gestellt wird der Körper
+## von scene_root.
+func _podium_host(host_name: String, podium: Rect2) -> Control:
 	var stage := Control.new()
-	stage.name = "ResultStage"
+	stage.name = host_name
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var podium := result_podium_rect()
 	stage.position = podium.position
 	stage.size = podium.size
 	_content.add_child(stage)
-	_stage_host = stage
-	_build_diff_screen(u)
+	return stage
+
+## Der IST-SCHIRM: das Spiegelbild des Soll-Schirms, auf blankem Filz. Er trägt das
+## Netz des GEWÄHLTEN Zielwürfels; ohne Ziel steht dort dasselbe leere Kreuz wie
+## rechts - beide Spalten stehen IMMER.
+func _build_ist_screen(u: float) -> void:
+	var rect := ist_screen_rect()
+	var screen := Panel.new()
+	screen.name = "IstScreen"
+	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_theme_stylebox_override("panel", StyleBoxEmpty.new())  # blanker Filz
+	screen.position = rect.position
+	screen.size = rect.size
+	_content.add_child(screen)
+	_ist_screen = screen
+	var cell := net_cell(u)
+	var span := DieNetView.net_size(cell)
+	var host := Control.new()
+	host.name = "IstNet"
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.position = Vector2((rect.size.x - span.x) * 0.5, u * DIFF_PAD)
+	host.size = span
+	screen.add_child(host)
+	_ist_net_host = host
+	var die := target_die()
+	host.add_child(DieNetView.build(die, -1, cell) if die != null \
+		else _empty_net_cross(cell))
 
 ## Der SOLL-SCHIRM: das UI-SPIEGELBILD des linken Netzes. Ohne eigenen Hintergrund
 ## (blanker Filz), er trägt NUR das Ergebnis-Netz - der physische Ergebnis-Würfel
@@ -613,7 +654,7 @@ func _build_diff_screen(u: float) -> void:
 	var pad := u * DIFF_PAD
 	# Der PARKPLATZ des Netzes: ein leerer Platz in Netzgröße, OBEN unter dem Podest
 	# (der Würfel schwebt darüber). Das Netz fährt, dieser Platz nie.
-	var cell := _diff_net_cell(u)
+	var cell := net_cell(u)
 	var span := DieNetView.net_size(cell)
 	var host := Control.new()
 	host.name = "TargetNet"
@@ -657,18 +698,16 @@ func _sync_empty_net() -> void:
 		return
 	_empty_net.visible = preview_target() == null
 
-## Zellmaß des Ergebnis-Netzes: das von scene_root gemeldete Maß der Info-Säule
-## (GLEICH GROSS wie links), auf die Spaltenbreite gedeckelt (kein Überlauf in die
-## Schacht-Reihe; nach unten darf es auf den Filz ragen). Ohne Meldung - kopflos/
-## Tests - fast der ganze Schirm.
-func _diff_net_cell(u: float) -> float:
-	var rect := diff_screen_rect()
+## Das EINE Zellmaß beider Netze: seit die Spalten im selben Fenster liegen, rechnet
+## es das Fenster selbst - aus der ENGEREN der beiden, so daß Ist und Soll GLEICH
+## GROSS stehen (der Melde-Weg von aussen ist damit fort).
+func net_cell(u: float) -> float:
+	var ist := ist_screen_rect()
+	var diff := diff_screen_rect()
 	var pad := u * DIFF_PAD
-	var width_cell := maxf(rect.size.x - pad * 2.0, 1.0) / DieNetView.net_size(1.0).x
-	if result_net_cell > 0.0:
-		return minf(result_net_cell, width_cell)
-	return DieNetView.cell_for(Vector2(maxf(rect.size.x - pad * 2.0, 1.0),
-		maxf(rect.size.y * DIFF_NET_SHARE, 1.0)))
+	return DieNetView.cell_for(Vector2(
+		maxf(minf(ist.size.x, diff.size.x) - pad * 2.0, 1.0),
+		maxf(minf(ist.size.y, diff.size.y) * DIFF_NET_SHARE, 1.0)))
 
 # --- Die Würfel des Vorrats und die Zielwahl ---------------------------------------
 
@@ -804,6 +843,35 @@ func result_projector_y() -> float:
 		return _stage_host.get_global_rect().get_center().y
 	return get_global_rect().get_center().y
 
+## Display-Pixel der ZIEL-PODEST-Mitte ((-1,-1) = die Spalte steht gerade nicht) -
+## dorthin fährt der angetippte Vorrats-Würfel.
+func target_net_center() -> Vector2:
+	if _target_stage_host == null or not is_instance_valid(_target_stage_host):
+		return Vector2(-1, -1)
+	return _target_stage_host.get_global_rect().get_center()
+
+func target_projector_y() -> float:
+	if _target_stage_host != null and is_instance_valid(_target_stage_host):
+		return _target_stage_host.get_global_rect().get_center().y
+	return get_global_rect().get_center().y
+
+## Display-Pixel des IST-NETZES ((-1,-1) = es steht gerade nicht) - der GEBURTSORT
+## der Schablone.
+func ist_net_center() -> Vector2:
+	if _ist_net_host == null or not is_instance_valid(_ist_net_host):
+		return Vector2(-1, -1)
+	return _ist_net_host.get_global_rect().get_center()
+
+## Das IST-NETZ dunkelt kurz nach - es hat seine Schablone eben abgegeben.
+func dim_ist_net(time: float) -> void:
+	if _ist_screen == null or not is_instance_valid(_ist_screen):
+		return
+	_ist_screen.modulate = Color.WHITE  # Endzustand zuerst
+	var dim := create_tween()
+	dim.tween_property(_ist_screen, "modulate",
+		Color(BIRTH_DIM, BIRTH_DIM, BIRTH_DIM), maxf(time * 0.3, 0.01))
+	dim.tween_property(_ist_screen, "modulate", Color.WHITE, maxf(time * 0.7, 0.01))
+
 ## Display-Pixel des PARKPLATZES des Summen-Netzes im Soll-Schirm ((-1,-1) = er
 ## steht gerade nicht). Der Schlitten fährt, dieser Platz nie.
 func sum_net_center() -> Vector2:
@@ -830,23 +898,19 @@ func band_size(u: float) -> Vector2:
 ## Fenster PLUS Schürze in Display-Pixeln: alles, was zur Werkbank gehört - und
 ## damit die EINE Weiterleitungs-Region. Sie streckt sich nach UNTEN bis zur
 ## echten Magazin-Unterkante (die seit 2026-09-04 unter die Schürzenlinie reichen
-## darf) und nach LINKS bis zur Magazin-Kante: ragte die Grube darüber hinaus,
-## fiele jeder Chip-Tap dort durch (der Welle-H-Bug).
+## darf): ragte die Grube darüber hinaus, fiele jeder Chip-Tap dort durch (der
+## Welle-H-Bug, zweimal geheilt).
 func bench_rect() -> Rect2:
 	var rect := get_global_rect()
 	rect.size.y = maxf(rect.size.y, maxf(apron_bottom_y(), shelf_rect().end.y))
-	var left := shelf_rect().position.x
-	if left < 0.0:
-		rect.position.x += left
-		rect.size.x -= left
 	return rect
 
 ## Das Seitenverhältnis (Breite/Höhe) der Werkbank - GELÖST, nicht gesetzt. Die
-## Grundseite ist die STRASSE, und sie trägt ZWEI Spalten über EINEM Band: rechts
-## Kopfraum, Podest, Fuge; links die Höhenreserve der Schacht-Reihe und ihre Fuge -
-## die HÖHERE der beiden gibt das Maß. Es löst nur noch die HÖHE gegen die
-## Maßeinheit u; die BREITE kommt seit der Welle L aus der Reihe selbst
-## (bench_width_for) und ist mindestens diese 100 u.
+## Grundseite ist die STRASSE, und sie trägt DREI Spalten über EINEM Band: aussen
+## Kopfraum, Podest, Fuge (beide Podest-Spalten gleich hoch); in der Mitte die
+## Höhenreserve der Schacht-Reihe und ihre Fuge - die HÖHERE gibt das Maß. Es löst
+## nur noch die HÖHE gegen die Maßeinheit u; die BREITE kommt seit der Welle L aus
+## der Reihe selbst (bench_width_for) und ist mindestens diese 100 u.
 static func bench_aspect() -> float:
 	var column := STAGE_HEAD_ROOM + STAGE_HEIGHT + STAGE_NET_GAP + DIFF_HEIGHT_UNITS
 	var row := MOUTH_HEIGHT_UNITS + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
@@ -930,12 +994,13 @@ static func row_span(slots: int, u: float, mouth: float) -> float:
 
 ## Wie BREIT das Fenster sein muß, damit slots Kassetten in ihrer einen Größe
 ## nebeneinander in die Reihe passen: die Reihe plus alles, was links und rechts
-## von ihr in u steht (Ränder, Straßenfuge, Ergebnis-Spalte). Die u-Konvention
-## (100 u) bleibt der Boden - schmaler wird der Streifen nie.
+## von ihr in u steht (Ränder plus ZWEIMAL Fuge und Podest-Spalte - wird die zweite
+## vergessen, läuft die Reihe über ihr Feld hinaus). Die u-Konvention (100 u) bleibt
+## der Boden - schmaler wird der Streifen nie.
 static func bench_width_for(slots: int, u: float, card_px: float) -> float:
 	var row := row_span(slots, u, card_px * MOUTH_ROOM)
-	return maxf(u * 100.0,
-		row + u * (CONTENT_MARGIN_X * 2.0 + STREET_GAP + DIFF_WIDTH_UNITS))
+	return maxf(u * 100.0, row + u * (CONTENT_MARGIN_X * 2.0
+		+ (STREET_GAP + DIFF_WIDTH_UNITS) * 2.0))
 
 ## Die Reihe als flache Leiste, eingelassen in ihr Konsolen-Blech. Ein belegter
 ## Schacht trägt seine echte Kassette (scene_root stellt sie); ein Klick nimmt sie
@@ -1354,8 +1419,8 @@ func _build_series_band(u: float) -> void:
 	band.size = rect.size
 	_build_action_seat(band, u)
 
-## Der Platz des TOOLTIP-SCHIRMS in Fenster-Koordinaten (KORREKTUR-WELLE J): die
-## LINKE Hälfte des Bandes, GENAU auf den Kanten der Schacht-Reihe darüber.
+## Der Platz des TOOLTIP-SCHIRMS in Fenster-Koordinaten: die MITTE des Bandes,
+## GENAU auf den Kanten der Schacht-Reihe darüber.
 func info_screen_rect(u: float) -> Rect2:
 	var console := console_rect(u)
 	var band := band_row_rect()
@@ -1712,12 +1777,11 @@ func _build_drawer(u: float) -> void:
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
-## Der Streifen des Magazins: AUSSERHALB des Fensters, rechts bündig mit der
-## Fensterkante, links auf der gemeldeten shelf_left-Linie (KORREKTUR-WELLE J: die
-## linke Kante des Ist-Netzes). Ganze Pixel, damit die Platz-Rechnung nicht driftet.
+## Der Streifen des Magazins: AUSSERHALB des Fensters, über die volle Fensterbreite.
+## Ganze Pixel, damit die Platz-Rechnung nicht driftet.
 func shelf_strip_size() -> Vector2:
 	var u := unit()
-	return Vector2(floorf(maxf(size.x - shelf_left_x(), u * 20.0)),
+	return Vector2(floorf(maxf(size.x, u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), shelf_min_height()))
 
 ## Die MINDESTTIEFE des Magazins: seit die Kassette dort FLACH LIEGT (2026-09-04),
@@ -1730,17 +1794,13 @@ func shelf_min_height() -> float:
 	return maxf(card + PackDrawerView.rim_inset(shelf_unit()) * 2.0,
 		unit() * SHELF_MIN_HEIGHT)
 
-## Die gemeldete Linkskante, auf das Fenster geklemmt: nach rechts rückt sie nie.
-func shelf_left_x() -> float:
-	return minf(shelf_left, 0.0)
-
 ## Oberkante des Magazins: eine Naht unter dem Konsolen-Band. Der Abstand zur
 ## Konsole ist gesetzt, die HÖHE folgt daraus.
 func shelf_top() -> float:
 	return console_band_rect().end.y + unit() * CONSOLE_SHELF_GAP
 
-## Der Platz des Magazins: unter dem Konsolen-Band, rechts bündig mit der
-## Fensterkante, links auf shelf_left - Unterkante = Pool-Unterkante (apron_bottom).
+## Der Platz des Magazins: unter dem Konsolen-Band, über die volle Fensterbreite -
+## Unterkante = Pool-Unterkante (apron_bottom).
 func shelf_rect() -> Rect2:
 	var strip := shelf_strip_size()
 	return Rect2(Vector2(size.x - strip.x, shelf_top()), strip)

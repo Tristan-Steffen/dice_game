@@ -9,9 +9,7 @@ extends Control
 ## Ohne Zeiger und ohne Rahmen: sie steht, wann immer das Fach etwas trägt, und ist
 ## sonst gar nicht da (die Laden-Grammatik).
 ## Sie MELDET nichts und faßt nichts an - scene_root reicht ihr den Würfel herein
-## und schneidet ihr Rechteck unter der Schale zu (das apron_bottom-Muster). Ihr
-## gebautes Zellmaß (net_cell) gibt scene_root an das Ergebnis-Netz der Werkstatt
-## weiter, damit beide Netze GLEICH GROSS stehen.
+## und schneidet ihr Rechteck unter der Schale zu (das apron_bottom-Muster).
 
 ## Rand ringsum, in u (= Fensterbreite / UNIT_DIV).
 const UNIT_DIV := 100.0
@@ -27,9 +25,6 @@ static func height_for(width: float) -> float:
 	return u * MARGIN_UNITS * 2.0 + DieNetView.net_size(cell).y
 
 var _column: Control
-## Das gebaute Zellmaß des Netzes in Display-Pixeln (0 = steht gerade nicht) -
-## scene_root reicht es an das Ergebnis-Netz der Werkstatt weiter (GLEICH GROSS).
-var _cell := 0.0
 ## Der Würfel, aus dem die stehende Säule gebaut wurde - je Bild gefragt, gebaut
 ## nur der WECHSEL (der Zeiger gehört hier niemandem).
 var _signature := ""
@@ -49,7 +44,6 @@ func set_die(def: DieDefinition) -> void:
 		remove_child(_column)
 		_column.queue_free()
 	_column = null
-	_cell = 0.0
 	if def == null or size.x <= 0.0 or size.y <= 0.0:
 		return
 	_build_column(def)
@@ -62,21 +56,6 @@ func refresh() -> void:
 ## Steht die Säule? Der Beweis, daß sie zeigt, was die Schale trägt.
 func net_count() -> int:
 	return 1 if _column != null and is_instance_valid(_column) else 0
-
-## Das gebaute Zellmaß des Netzes (0 = steht gerade nicht) - die EINE Quelle, aus
-## der auch das rechte Ergebnis-Netz der Werkstatt seine Größe nimmt.
-func net_cell() -> float:
-	return _cell
-
-## Display-Pixel der Netz-Mitte ((-1,-1) = die Säule steht gerade nicht) - der
-## GEBURTSORT der Schablone: hier steht das Netz des Zielwürfels.
-func net_center_px() -> Vector2:
-	if _column == null or not is_instance_valid(_column) or not visible:
-		return Vector2(-1, -1)
-	var host := _column.get_node_or_null("NetzFeld") as Control
-	if host == null:
-		return Vector2(-1, -1)
-	return host.get_global_rect().get_center()
 
 ## EINE Säule: nur das Netz, DIREKT unter dem Würfel (oben in der Spalte, denn der
 ## Würfel schwebt über ihrer Oberkante) und mittig.
@@ -93,7 +72,6 @@ func _build_column(def: DieDefinition) -> void:
 	column.size = Vector2(inner, maxf(size.y - margin * 2.0, 1.0))
 
 	var cell := DieNetView.cell_for(Vector2(inner, column.size.y))
-	_cell = cell
 	var span := DieNetView.net_size(cell)
 	var host := Control.new()
 	host.name = "NetzFeld"

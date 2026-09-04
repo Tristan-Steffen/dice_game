@@ -202,9 +202,6 @@ const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
 ## über dem Glas, die freie Feldsäule darunter ist damit genau eine halbe
 ## Würfelhöhe - kürzer wäre kein Feld mehr, nur noch ein Sockel.
 const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
-## Schwebehöhe über dem FACHBODEN: das LINKE Podest ist der Sitz des Ausgabefachs,
-## und dort schwebt der Zielwürfel wie ein Vorrats-Würfel auf seinem Puck.
-const PODIUM_HOVER := DiceTrayView.FLOAT_HEIGHT
 ## Wechselt das Dossier den Würfel, WANDERT sein Körper - er verschwindet nicht.
 const PACK_MOVE_TIME := 0.4
 ## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
@@ -1224,11 +1221,10 @@ func _setup_table_screen() -> void:
 	# Slot-Mitten -> Außenkante, ringsum: je eine halbe Spaltenbreite Saum.
 	var slot_half := DiceTrayView.SPACING.y * ppw * 0.5
 	pool_bounds = pool_bounds.grow(slot_half)
+	_pool_seam_px = slot_half  # dieselbe Naht trennt den Streifen von der Reihe
 
-	# Das AUSGABEFACH zuerst: sein Platz ist eine reine Funktion der Pool-Geometrie
-	# (spot_beside), und das PODEST des Zielwürfels IST sein Sitz. Rechts davon -
-	# und rechts der INFO-SÄULE darunter, die breiter ist als die Schale - beginnt
-	# der STATIONS-STREIFEN.
+	# Das AUSGABEFACH steht für sich an der Bildschirm-rechten Pool-Kante; der
+	# STATIONS-STREIFEN liegt UNTER dem Pool und hat mit ihm nichts mehr zu tun.
 	_place_ausgabefach()
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
@@ -1241,6 +1237,9 @@ func _setup_table_screen() -> void:
 ## Gemessen in _setup_panels, gemerkt, damit eine Neuplatzierung nicht neu messen
 ## muss (der Pool steht fest, die Reihe wächst).
 var _pool_row_px := Rect2()
+## Die NAHT, um die die Pool-Reihe gewachsen ist (halbe Slot-Teilung) - dieselbe
+## trennt den Streifen von der Pool-Unterkante. EIN Maß, kein Streuwert.
+var _pool_seam_px := 0.0
 ## Serienlänge, für die der Streifen zuletzt gestellt wurde (-1 = noch nie). Wächst
 ## die Reihe, wächst der Streifen - je Bild gefragt, EIN Schreiber.
 var _strip_slots := -1
@@ -1251,14 +1250,11 @@ var _strip_slots := -1
 ## der Streifen (Welle L). Gibt die Ecke zurück, an der das Spill-Licht misst.
 func _place_workshop_strip() -> Rect2:
 	var pool_bounds := _pool_row_px
-	var fach_rect := _fach_rect_px()
-	var fach_net_span := _fach_net_span()
-	var workshop_left := pool_bounds.end.x
-	if fach_rect.size.x > 0.0:
-		workshop_left = fach_rect.end.x
-		if fach_net_span.y > 0.0:
-			workshop_left = maxf(workshop_left, fach_net_span.x + fach_net_span.y)
-	var workshop_top := pool_bounds.position.y
+	# UNTER dem Pool (2026-09-04): linke Kante bündig mit der Pool-Reihe, Oberkante
+	# eine Naht unter ihr. Die HÖHE bleibt das Pool-Budget, also bleiben Einheit und
+	# Schürzen-Kette unverändert.
+	var workshop_left := pool_bounds.position.x
+	var workshop_top := pool_bounds.end.y + _pool_seam_px
 	var workshop_height := pool_bounds.size.y
 	_strip_slots = _wanted_strip_slots()
 	var workshop_rect := _fit_workshop_rect(workshop_left, workshop_top,
@@ -1278,10 +1274,6 @@ func _place_workshop_strip() -> Rect2:
 		# Pool-Oberkante), die Magazin-HÖHE folgt daraus. _fit_workshop_rect hat
 		# das Fenster so verkürzt, dass Fenster + Schürze in die Pool-Höhe passen.
 		table_screen.workshop_window.apron_bottom = pool_bounds.size.y
-		# ... und die LINKE Kante des IST-NETZES als shelf_left (KORREKTUR-WELLE J):
-		# die Grube reicht bis unter die Info-Säule. bench_rect deckt das mit.
-		table_screen.workshop_window.shelf_left = (fach_net_span.x - workshop_rect.position.x) \
-			if fach_net_span.y > 0.0 else 0.0
 		# Die Hub->Magazin-Ader ist gefallen: Lieferungen fliegen als Meteor-Bogen.
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
 		# der Körper darunter hängen alle an DIESEM Streifen.
@@ -1290,23 +1282,16 @@ func _place_workshop_strip() -> Rect2:
 	# behält seine eigene Station.
 	var bench_rect := table_screen.workshop_window.bench_rect() \
 		if table_screen.workshop_window != null else workshop_rect
-	# Die Oberkante des Magazin-Streifens: bis dorthin reicht die Info-Säule.
-	if table_screen.workshop_window != null:
-		_bench_top_px = table_screen.workshop_window.get_global_rect().position.y \
-			+ table_screen.workshop_window.shelf_top()
+	# Die Oberkante des STREIFENS: bis dorthin reicht die Info-Säule am Fach.
+	_bench_top_px = workshop_rect.position.y
 	_free_own_child("WorkshopClickZone")  # eine Neuplatzierung ersetzt sie
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", bench_rect,
 		camera_rig.configure_workshop_target)
 
-	# Der Zoom rahmt die ganze Station - Schale, Info-Säule, Streifen und das
-	# Magazin darunter -, aber OHNE den Pool: der bleibt an seiner eigenen Station,
-	# der Pool-Tipp wählt weiter von dort (der Fach-Sitz ist der Nachbarplatz).
+	# Der Zoom rahmt den STREIFEN samt Magazin - sonst nichts: der Streifen liest
+	# ganz aus sich selbst, und der Pool bleibt an seiner eigenen Station (der
+	# Pool-Tipp wählt weiter von dort).
 	var corner := bench_rect
-	if fach_rect.size.x > 0.0:
-		corner = corner.merge(fach_rect)
-	var fach_column := _fach_net_rect()
-	if fach_column.size.x > 0.0:
-		corner = corner.merge(fach_column)
 	var corner_a := table_screen.pixel_to_world(corner.position)
 	var corner_b := table_screen.pixel_to_world(corner.end)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
@@ -1340,8 +1325,8 @@ func _sync_workshop_strip() -> void:
 		return
 	_setup_screen_spill_lights(_place_workshop_strip())
 
-## Das Rechteck des STATIONS-STREIFENS: linke Kante am Ausgabefach-Platz,
-## Oberkante bündig mit der Pool-Reihe. Die HÖHE hängt an der Pool-Reihe: Fenster
+## Das Rechteck des STATIONS-STREIFENS: linke Kante bündig mit der Pool-Reihe,
+## Oberkante eine Naht unter ihr. Die HÖHE hängt an der Pool-Reihe: Fenster
 ## PLUS Schürze (Naht + Band + Naht + Magazin) füllen zusammen deren Budget, so
 ## dass die Magazin-Unterkante die Pool-Unterkante trifft. Die BREITE kommt seit
 ## der Welle L aus der SCHACHT-REIHE: die Karte hat EINE Größe, also wächst der
@@ -2778,8 +2763,8 @@ func _flash_series_faces(projection: Dictionary) -> void:
 # Den TAKT gibt das Fenster (stencil_*), gefahren wird hier - ui/ faßt nie Körper
 # an. Der EINE Aufräum-Pfad ist _settle_stencil_ride.
 
-## GEBURT: die Schablone wächst am Netz der Info-Säule aus dem Nichts - dort steht
-## der Zielwürfel, und die Säule gibt sie mit einem kurzen Nachdunkeln ab.
+## GEBURT: die Schablone wächst am IST-NETZ der linken Spalte aus dem Nichts - dort
+## steht der Zielwürfel, und das Netz gibt sie mit einem kurzen Nachdunkeln ab.
 func _on_stencil_launched(time: float) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
@@ -2791,32 +2776,11 @@ func _on_stencil_launched(time: float) -> void:
 	# und derselben einen Ausrichtung wie die Netze, die sie liest.
 	stencil.setup(DataCellView.net_span(PackDrawerView.CASSETTE_SCALE) * STENCIL_SPAN_GAIN,
 		SOCKET_POSE, PressNetView.VALUE_TINT)
-	var birth := _fach_net_birth_px()
+	var birth := workshop.ist_net_center()
 	stencil.seat_at(_stencil_seat(birth if birth.x >= 0.0 else workshop.hand_anchor_px()))
 	stencil.emerge(time)
 	_stencil = stencil
-	_dim_fach_net(time)
-
-## Der GEBURTSORT: die Mitte des Netzes in der Info-Säule ((-1,-1) = sie steht nicht).
-func _fach_net_birth_px() -> Vector2:
-	if table_screen == null or table_screen.fach_net_window == null \
-			or not is_instance_valid(table_screen.fach_net_window):
-		return Vector2(-1, -1)
-	return table_screen.fach_net_window.net_center_px()
-
-## Die Säule dunkelt kurz nach - sie hat ihre Schablone eben abgegeben.
-func _dim_fach_net(time: float) -> void:
-	if table_screen == null or table_screen.fach_net_window == null \
-			or not is_instance_valid(table_screen.fach_net_window) \
-			or not table_screen.fach_net_window.visible:
-		return
-	var column := table_screen.fach_net_window
-	column.modulate = Color.WHITE  # Endzustand zuerst
-	var dim := create_tween()
-	var dark := WorkshopView.BIRTH_DIM
-	dim.tween_property(column, "modulate", Color(dark, dark, dark),
-		maxf(time * 0.3, 0.01))
-	dim.tween_property(column, "modulate", Color.WHITE, maxf(time * 0.7, 0.01))
+	workshop.dim_ist_net(time)
 
 ## Eine Etappe auf der Schiene.
 func _on_stencil_moved(to_px: Vector2, time: float) -> void:
@@ -3007,7 +2971,7 @@ func _leave_die_focus() -> void:
 ## Die Werkstatt hat ihre Bühne neu gelegt: der schwebende Würfel zieht nach.
 func _on_die_stages_changed() -> void:
 	_rebuild_bench_stage()
-	_rebuild_result_stage()  # das leere Ergebnis-Podest folgt demselben Layout
+	_rebuild_result_stage()  # die beiden leeren Pucks folgen demselben Layout
 	_sync_data_cells()  # Magazin-Kassetten und Schlitze hängen am selben Layout
 
 ## Der Spieler hat im Raster gewählt, gewechselt oder abgewählt: der Zielwürfel
@@ -3031,9 +2995,9 @@ func _choose_workshop_target(die: DieDefinition) -> void:
 # Abwahl fahren ihn von der Seite, auf der er steht, denselben Weg zurück. Wo er
 # steht, sagen _bench_die und _bench_side (der EINE Ort-Zustand): der Bühnen-Körper
 # ist ein FloatingDie (Würfel+Feld), der Pool-Körper der Tray-Slot selbst - nie
-# beide zugleich sichtbar. Das LINKE Podest IST der Sitz des Ausgabefachs
-# (_fach_podium_target, reine Fach-Rechnung), das rechte nennt das Fenster
-# (result_net_center/result_projector_y).
+# beide zugleich sichtbar. BEIDE Podeste nennt das FENSTER (target_net_center /
+# result_net_center samt ihren Projektor-Zeilen) - der Streifen liest ganz aus
+# sich selbst.
 
 ## Der Würfel, der auf das PODEST gehört (null = keiner): schlicht die Zielwahl des
 ## Fensters. Seit der BÜHNEN-STRASSE hängt sie NICHT mehr an der Kamera-Station -
@@ -3064,12 +3028,9 @@ func _rebuild_bench_stage() -> void:
 		return
 	if _bench_riding:
 		return
-	# Ein Körper des falschen Würfels ODER der falschen Schwebehöhe (die beiden
-	# Seiten schweben verschieden hoch) wird neu gestellt, nicht umgesetzt.
+	# Ein Körper des falschen Würfels wird neu gestellt, nicht umgesetzt.
 	if bench_stage != null and is_instance_valid(bench_stage) \
-			and (bench_stage.def != _bench_die \
-				or not is_equal_approx(bench_stage.hover_height,
-					_bench_hover_for(_bench_side))):
+			and bench_stage.def != _bench_die:
 		_free_stage(bench_stage)
 		bench_stage = null
 	if _bench_die == null:
@@ -3101,31 +3062,24 @@ func _rebuild_bench_stage() -> void:
 		bench_stage.materialize()
 		return
 	bench_stage = _spawn_floating_die(_bench_die, CLAMP_EMITTER_TINT, target,
-		_bench_hover_for(_bench_side))
+		CLAMP_HOVER)
 	bench_stage.land_at(target, 0.0)
 	bench_stage.materialize()
 
-## Der Weltpunkt SEINER Bühne: rechts das gemeldete Ergebnis-Podest des Fensters,
-## LINKS der Sitz des Ausgabefachs selbst - dort, wo die Neuzugänge liegen (ZERO =
-## der Platz steht gerade nicht).
+## Der Weltpunkt SEINER Bühne - beide Podeste meldet seit 2026-09-04 das FENSTER
+## (ZERO = der Platz steht gerade nicht).
 func _bench_stage_target(workshop: WorkshopView) -> Vector3:
 	if _bench_side == BENCH_RIGHT:
 		return _result_stage_target(workshop)
-	return _fach_podium_target()
+	return _bench_podium_target(workshop)
 
-## Das LINKE Podest IST der Fach-Sitz: dieselbe reine Rechnung, aus der die Schale
-## ihren offenen Platz stellt - Podest und Schale laufen so nie auseinander.
-func _fach_podium_target() -> Vector3:
-	if ausgabefach == null or not is_instance_valid(ausgabefach) \
-			or ausgabefach.half.x <= 0.0:
+## Der Weltpunkt des ZIEL-PODESTS in der linken Spalte (ZERO = sie steht nicht).
+func _bench_podium_target(workshop: WorkshopView) -> Vector3:
+	var center := workshop.target_net_center()
+	if center.x < 0.0:
 		return Vector3.ZERO
-	var spot := ausgabefach.open_spot()
-	return Vector3(spot.x, ausgabefach.floor_top_y() + PODIUM_HOVER, spot.z)
-
-## Die Schwebehöhe des Körpers auf SEINER Seite: links die Fach-Höhe (er schwebt
-## wie ein Vorrats-Würfel auf seinem Puck), rechts die Podest-Höhe des Fensters.
-func _bench_hover_for(side: int) -> float:
-	return CLAMP_HOVER if side == BENCH_RIGHT else PODIUM_HOVER
+	return _bench_hover_target(Vector2(center.x, workshop.target_projector_y()),
+		CLAMP_HOVER)
 
 ## Der Weltpunkt des ERGEBNIS-PODESTS (ZERO = die Spalte steht gerade nicht) - dort
 ## endet die Übergabe, und dorthin faltet sich die Schablone.
@@ -3136,28 +3090,39 @@ func _result_stage_target(workshop: WorkshopView) -> Vector3:
 	return _bench_hover_target(Vector2(center.x, workshop.result_projector_y()),
 		CLAMP_HOVER)
 
-## Das ERGEBNIS-PODEST (rechte Spalte): der LEERE Puck, der den Platz lesen läßt.
-## Steht der Würfel dort, weicht er - der Körper trägt seine eigene Station, und
-## zwei Pucks an einem Platz wären ein zweiter Leib. Idempotent: dieselbe
-## Zielposition baut nichts neu, sie folgt nur dem Layout des Fensters.
+## Die beiden LEEREN Pucks, die die Podest-Plätze lesen lassen (links Ziel, rechts
+## Ergebnis). Steht der Würfel auf einem, weicht der - der Körper trägt seine
+## eigene Station, und zwei Pucks an einem Platz wären ein zweiter Leib.
+## Idempotent: dieselbe Zielposition baut nichts neu, sie folgt nur dem Layout.
 var result_stage: StasisEmitter
+var target_stage: StasisEmitter
 
 func _rebuild_result_stage() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
-	var at := _result_stage_target(workshop)
+	result_stage = _seat_podium_puck(result_stage, "ResultStage",
+		_result_stage_target(workshop),
+		_bench_die == null or _bench_side != BENCH_RIGHT)
+	target_stage = _seat_podium_puck(target_stage, "TargetStage",
+		_bench_podium_target(workshop),
+		_bench_die == null or _bench_side != BENCH_LEFT)
+
+## EIN Schreiber für beide Pucks. Die Station steht auf der Fläche (Y=0) - der
+## Anker ist der Projektor, nicht ein schwebender Körper (_bench_hover_target).
+func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
+		shown: bool) -> StasisEmitter:
 	if at == Vector3.ZERO:
-		return
-	if result_stage == null or not is_instance_valid(result_stage):
-		result_stage = StasisEmitter.new()
-		add_child(result_stage)
-		result_stage.build(CLAMP_HOVER, DiceTrayView.DIE_SCALE, CLAMP_EMITTER_TINT)
-		ScreenReflection.mark_reflective(result_stage)
-	# Die Station steht auf der Fläche (Y=0) - der Anker ist der Projektor, nicht
-	# ein schwebender Körper (siehe _bench_hover_target).
-	result_stage.global_position = at - Vector3.UP * CLAMP_HOVER
-	result_stage.visible = _bench_die == null or _bench_side != BENCH_RIGHT
+		return puck
+	if puck == null or not is_instance_valid(puck):
+		puck = StasisEmitter.new()
+		puck.name = puck_name
+		add_child(puck)
+		puck.build(CLAMP_HOVER, DiceTrayView.DIE_SCALE, CLAMP_EMITTER_TINT)
+		ScreenReflection.mark_reflective(puck)
+	puck.global_position = at - Vector3.UP * CLAMP_HOVER
+	puck.visible = shown
+	return puck
 
 # --- Die FAHRT Pool <-> Bühne (Hebebühne) ----------------------------------------
 # EIN Schacht, zwei Beine: Senken am Pool-Sitz, dann Heben an der Bühne - und
@@ -3262,7 +3227,7 @@ func _finish_bench_pool_sink(die: DieDefinition, seat: int, bench_at: Vector3,
 		_sync_bench_migration()  # wer derweil umwählte, kehrt um
 		return
 	var shaft := _bench_shaft_at(_bench_field(bench_at), _tray_shaft_depth())
-	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, bench_at, PODIUM_HOVER)
+	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, bench_at, CLAMP_HOVER)
 	_free_stage(bench_stage)  # ein Rest der vorigen Wahl steht hier nie
 	bench_stage = stage
 	stage.set_process(false)  # kein Eigen-Wippen, solange die Plattform ihn führt
@@ -3395,8 +3360,7 @@ func _on_die_handover(time: float) -> void:
 	var leg := maxf(time * HANDOVER_SHARE, 0.02) * 0.5
 	_ride_bench_to_result(at, maxf(LiftShaftView.cycle_time() / leg, 0.1))
 
-## Bein A: der Würfel versinkt am Bench-Podest (der Vorhang des Ausgabefachs bleibt
-## unten - das Ziel ist ja noch gewählt). Fire-and-forget.
+## Bein A: der Würfel versinkt am ZIEL-Podest. Fire-and-forget.
 func _ride_bench_to_result(at: Vector3, speed: float) -> void:
 	_bench_riding = true
 	_bench_handover = true
@@ -5664,7 +5628,6 @@ func _on_deck_glass_cell_pressed(index: int) -> void:
 		_close_deck_glass()
 		return
 	_show_deck_glass_window()
-	_sync_fach_curtain()
 
 ## Netz auf Netz gezogen: der Vorrat wird umgelegt, das Raster folgt über pool_changed.
 func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
@@ -7393,21 +7356,19 @@ func _fach_rect_px() -> Rect2:
 	return Rect2(a, b - a)
 
 ## Die INFO-SÄULE steht UNTER der Schale (Bildschirm-unten = Welt −X): über ihr
-## schwebt der eine offene Neuzugang bzw. der gewählte Zielwürfel, darin steht,
-## was er ist und tut. Sie muß auf der ANZEIGE liegen - reicht sie unter den
-## Magazin-Streifen, wird sie an dessen Oberkante gekürzt; bleibt dann zu wenig
-## übrig, steht sie gar nicht.
+## liegt der eine offene NEUZUGANG, darin steht, was er ist und tut. Sie muß auf der
+## ANZEIGE liegen - reicht sie unter den Werkstatt-Streifen, wird sie an dessen
+## Oberkante gekürzt; bleibt dann zu wenig übrig, steht sie gar nicht.
 const FACH_NET_GAP_SHARE := 0.25   # Fuge unter der Schale, als Anteil ihrer Breite
 const FACH_NET_WIDTH_SHARE := 1.9  # ihre Breite als Vielfaches der Schalenbreite
 const FACH_NET_MIN_FILL := 0.7     # bleibt weniger davon übrig, steht sie gar nicht
 
-## Oberkante des Magazin-Streifens in Display-Pixeln (0 = noch nicht gemessen):
+## Oberkante des WERKSTATT-STREIFENS in Display-Pixeln (0 = noch nicht gemessen):
 ## dort endet der freie Filz unter dem Vorrat, und dort endet die Info-Säule.
 var _bench_top_px := 0.0
 
 ## Ihre SPALTE in Display-Pixeln (x, Breite) - eine reine Funktion der Schale, ohne
-## die Höhen-Frage. Der STATIONS-STREIFEN beginnt rechts davon, also muß sie
-## fragbar sein, BEVOR sein Rechteck steht.
+## die Höhen-Frage.
 func _fach_net_span() -> Vector2:
 	var fach := _fach_rect_px()
 	if fach.size.x <= 0.0:
@@ -7426,31 +7387,18 @@ func _fach_net_rect() -> Rect2:
 		return Rect2()
 	var top := fach.position.y + fach.size.y + fach.size.x * FACH_NET_GAP_SHARE
 	var tall := FachNetView.height_for(span.y)
-	# Unter dem Vorrat beginnt das Magazin: bis dorthin, nicht bis zur Displaykante.
+	# Unter dem Vorrat beginnt der Werkstatt-Streifen: bis dorthin, nicht bis zur
+	# Displaykante.
 	var floor_px := float(table_screen.size.y)
 	if _bench_top_px > 0.0:
 		floor_px = minf(floor_px, _bench_top_px)
-	# EIN BAND (KORREKTUR-WELLE J): Ist-Netz, Tooltip und Soll-Netz stehen auf
-	# DERSELBEN Zeile. Nach unten gerückt wird aber nur, solange die Säule dort noch
-	# GANZ hinpaßt - sonst bleibt sie an ihrem Platz unter der Schale.
-	var band := _workshop_band_top_px()
-	if band > top and floor_px - band >= tall:
-		top = band
 	var room := floor_px - top
 	if room < tall * FACH_NET_MIN_FILL:
 		return Rect2()
 	return Rect2(Vector2(span.x, top), Vector2(span.y, minf(tall, room)))
 
-## Oberkante der ZEILE 2 des Streifens in Display-Pixeln (0 = kein Fenster): dort
-## stehen Tooltip und Soll-Netz, und auf dieselbe Zeile stellt sich das Ist-Netz.
-func _workshop_band_top_px() -> float:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return 0.0
-	return workshop.get_global_rect().position.y + workshop.band_row_rect().position.y
-
-## Die Säule zeigt den EINEN Würfel, der über ihr steht: den gewählten Zielwürfel
-## (er schwebt am Fach-Sitz) oder sonst den Neuzugang der Schale. Leer heißt: sie
+## Die Säule zeigt AUSSCHLIESSLICH den Neuzugang der Schale (2026-09-04: der
+## Werkstatt-Zielwürfel hat sein eigenes Ist-Netz im Streifen). Leer heißt: sie
 ## steht gar nicht. Je Bild gefragt, gebaut nur der Wechsel.
 func _sync_fach_nets() -> void:
 	if table_screen == null or table_screen.fach_net_window == null \
@@ -7458,8 +7406,8 @@ func _sync_fach_nets() -> void:
 		return
 	var window := table_screen.fach_net_window
 	var rect := _fach_net_rect()
-	var shown: DieDefinition = _bench_die
-	if shown == null and ausgabefach != null and is_instance_valid(ausgabefach) \
+	var shown: DieDefinition = null
+	if ausgabefach != null and is_instance_valid(ausgabefach) \
 			and not ausgabefach.items.is_empty():
 		shown = ausgabefach.items[0]["def"]
 	if shown == null or rect.size.x <= 0.0:
@@ -7468,23 +7416,6 @@ func _sync_fach_nets() -> void:
 		return
 	table_screen.place_fach_net_window(rect)
 	window.set_die(shown)
-	# Das gebaute Zellmaß der Info-Säule geht an das Ergebnis-Netz der Werkstatt -
-	# so stehen linkes (Ist) und rechtes (Soll) Netz GLEICH GROSS.
-	var workshop: WorkshopView = table_screen.workshop_window
-	if workshop != null and is_instance_valid(workshop) and window.net_cell() > 0.0:
-		workshop.result_net_cell = window.net_cell()
-
-## Der VORHANG: solange ein Ziel gewählt ist oder eine Bühnen-Fahrt läuft
-## (`_bench_die` gesetzt oder `_bench_riding`), gehört das linke Podest dem
-## Zielwürfel - der Neuzugang sinkt unter den Fachboden und steigt wieder auf,
-## sobald das Ziel gelöst ist. Er fragt NICHT die Seite: steht der Würfel nach der
-## Übergabe rechts, bleibt der Vorhang unten, denn das Ziel steht weiter.
-## Je Bild gefragt, gebaut nur der Wechsel
-## (`AusgabefachView.set_curtain` selbst ist idempotent).
-func _sync_fach_curtain() -> void:
-	if ausgabefach == null or not is_instance_valid(ausgabefach):
-		return
-	ausgabefach.set_curtain(_bench_die != null or _bench_riding)
 
 ## Die hinterlegten Würfel in die Schale stellen - EIN idempotenter Schreiber.
 ## Ein Würfel, der noch unterwegs ist, bekommt seinen Platz und wartet mit dem
@@ -9583,8 +9514,7 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
-	_sync_fach_curtain()  # und der Vorhang sinkt/steigt mit der Zielwahl
-	_sync_fach_nets()  # und die Info-Säule zeigt, was über ihr steht
+	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
@@ -9675,15 +9605,10 @@ func _cell_face_hint(cell: DataCellView, camera: Camera3D, screen: Vector2) -> S
 		return ""
 	return StampNet.cell_hint(StampNet.cell_at(cell.stamp_net, face))
 
-## Der Würfel, den der Info-Schirm erklärt - derselbe, den die Info-Säule am Fach
-## zeigt: der gewählte Zielwürfel (er schwebt am Fach-Sitz) oder sonst der Neuzugang.
+## Der Würfel, den der Info-Schirm erklärt: der WERKSTATT-Zielwürfel und sonst
+## keiner - der Neuzugang gehört seit 2026-09-04 allein der Info-Säule am Fach.
 func _workshop_info_die(_workshop: WorkshopView) -> DieDefinition:
-	if _bench_die != null:
-		return _bench_die
-	if ausgabefach != null and is_instance_valid(ausgabefach) \
-			and not ausgabefach.items.is_empty():
-		return ausgabefach.items[0]["def"]
-	return null
+	return _bench_die
 
 ## Die Kassette unter dem Zeiger zieht sich ein Stück aus der Grube, die vorige
 ## sinkt zurück. Nur der WECHSEL - set_hovered ist idempotent, aber ein Aufruf je

@@ -228,51 +228,15 @@ func test_ein_frisch_gestelltes_fach_laesst_niemanden_steigen() -> void:
 		var spot: Vector3 = item["spot"]
 		assert_almost_eq(body.global_position.y, spot.y, 0.01, "sein Platz steht sofort")
 
-# --- Der VORHANG ist ZURÜCK: das Bench-Podest der STATIONS-ZEILE steht am -------
-# Ausgabefach-Platz (2026-09-03) - waehlt der Spieler ein Ziel, gehoert der Platz
-# ihm, und der wartende Neuzugang sinkt unter den Fachboden.
+# --- Der VORHANG ist TOT (2026-09-04): die Werkstatt hat ihr eigenes ZIEL-PODEST --
+# im Streifen unter dem Pool, also weicht die Schale niemandem mehr.
 
-func test_ohne_vorhang_zeigt_die_schale_ihren_neuzugang() -> void:
+func test_die_schale_zeigt_immer_ihren_neuzugang() -> void:
 	fach.present(_dice(1))
 	await wait_frames(2)
 	assert_eq(fach.items.size(), 1, "der Neuzugang liegt offen")
-	assert_false(fach.curtained())
-
-func test_der_vorhang_verdeckt_den_neuzugang() -> void:
-	fach.present(_dice(2))
-	await wait_frames(2)
-	assert_eq(fach.items.size(), 1, "vorher liegt der offene Neuzugang da")
-	fach.set_curtain(true)
-	await wait_frames(2)
-	assert_true(fach.curtained())
-	assert_eq(fach.items.size(), 0, "hinter dem Vorhang liegt nichts offen")
-
-func test_der_vorhang_gibt_den_neuzugang_wieder_frei() -> void:
-	fach.present(_dice(1))
-	fach.set_curtain(true)
-	await wait_frames(2)
-	assert_eq(fach.items.size(), 0)
-	fach.set_curtain(false)
-	await wait_frames(2)
-	assert_eq(fach.items.size(), 1, "gelöst steigt der Neuzugang wieder auf")
-
-func test_der_vorhang_ist_idempotent() -> void:
-	fach.present(_dice(1))
-	fach.set_curtain(true)
-	await wait_frames(2)
-	var body: Node3D = fach._bodies.values()[0] if not fach._bodies.is_empty() else null
-	fach.set_curtain(true)  # derselbe Zustand baut nichts neu
-	assert_true(fach.curtained())
-
-func test_der_offene_platz_bleibt_gerechnet_auch_hinter_dem_vorhang() -> void:
-	var dice := _dice(1)
-	fach.present(dice)
-	await wait_frames(2)
-	var lying: Vector3 = _spot_of(dice[0])
-	fach.set_curtain(true)
-	await wait_frames(2)
-	assert_almost_eq(fach.open_spot(), lying, Vector3.ONE * 0.001,
-		"derselbe Platz, auch wenn der Vorhang ihn gerade verdeckt")
+	assert_false(fach.has_method("set_curtain"), "kein Vorhang mehr")
+	assert_false(fach.has_method("curtained"))
 
 func test_der_platz_der_schale_ist_eine_reine_rechnung() -> void:
 	# Er steht AUCH, wenn gerade keiner liegt - er ist gerechnet, nicht gemessen.

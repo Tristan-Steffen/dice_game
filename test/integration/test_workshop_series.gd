@@ -489,18 +489,20 @@ func test_the_row_reports_sorts_places_and_cards() -> void:
 		"auch die leeren Schächte melden ihren Mund")
 	assert_eq(view.press_display_anchors().size(), view.slot_count())
 
-## Der Zielwürfel gehört scene_root, und sein Podest ist der Fach-Sitz - das
-## Fenster meldet ihn nicht mehr. Gemeldet wird allein das ERGEBNIS-Podest rechts.
-func test_the_window_reports_only_the_result_podium() -> void:
+## Die Körper gehören scene_root, die PLÄTZE meldet das Fenster - und seit dem
+## Umzug unter den Pool sind es BEIDE Podeste.
+func test_the_window_reports_both_podiums() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "die Straße ist Möbel, kein Ablauf")
-	assert_false(view.has_method("target_net_center"),
-		"das Bench-Podest meldet das Fenster nicht mehr")
+	assert_gt(view.target_net_center().x, 0.0, "das Ziel-Podest meldet seine Mitte")
+	assert_eq(view.target_projector_y(), view.target_net_center().y)
 	assert_gt(view.result_net_center().x, 0.0, "das Ergebnis-Podest meldet seine Mitte")
 	assert_eq(view.result_projector_y(), view.result_net_center().y,
 		"Zeile und Mitte sind derselbe Platz")
 	assert_lt(view.result_net_center().y, view.diff_screen_rect().position.y
 		+ view.get_global_rect().position.y, "und es steht ÜBER dem Soll-Schirm")
+	assert_lt(view.target_net_center().y, view.ist_screen_rect().position.y
+		+ view.get_global_rect().position.y, "links genauso über dem Ist-Schirm")
 
 # --- Der Zeiger hebt den Beitrag EINER Karte hervor --------------------------------
 
@@ -612,6 +614,12 @@ func test_the_mouth_is_the_card_plus_its_gap() -> void:
 func test_two_shafts_stand_a_real_gap_apart() -> void:
 	view.data_cell_px = Vector2(24, 8)  # kleine Karte: die Reihe paßt bequem
 	run.hub_level = 10
+	# Der Streifen wird auf die Reihe GELÖST, wie scene_root ihn stellt - sonst kappt
+	# ihn schon das Rückfallmaß und die Fuge schließt sich.
+	var u0 := view.size.x / 100.0
+	view.size.x = WorkshopView.bench_width_for(run.series_slots(), u0,
+		24.0 * PackDrawerView.CASSETTE_SCALE)
+	view.unit_px = u0
 	view.refresh()
 	await wait_frames(2)
 	var u := view.unit()
@@ -698,15 +706,14 @@ func test_the_breakdown_rows_are_dead() -> void:
 	assert_false(view.has_method("diff_rows"), "keine Aufschlüsselungs-Zeilen mehr")
 	assert_false(view.has_method("diff_row_slot_at"), "und kein Zeilen-Hover")
 
-## Das Ergebnis-Netz trägt das von scene_root gemeldete Zellmaß (GLEICH GROSS wie
-## die Info-Säule links).
-func test_the_result_net_takes_the_reported_cell() -> void:
+## Das Zellmaß rechnet das FENSTER, für beide Netze dasselbe - der Melde-Weg von
+## aussen ist mit dem Umzug unter den Pool gestorben.
+func test_the_window_computes_one_cell_for_both_nets() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
-	view.result_net_cell = 12.0
-	await wait_frames(2)
-	assert_almost_eq(view._net.cell, 12.0, 0.001,
-		"das rechte Netz übernimmt das Maß der Info-Säule")
+	assert_null(view.get("result_net_cell"), "nichts wird mehr hereingemeldet")
+	assert_almost_eq(view._net.cell, view.net_cell(view.unit()), 0.001,
+		"das Soll-Netz trägt das eine Zellmaß")
 
 ## OHNE Ziel rechnet der Soll-Schirm nichts - er hängt allein am gewählten
 ## Zielwürfel; der wartende Neuzugang wird von der Info-Säule am Fach gezeigt.

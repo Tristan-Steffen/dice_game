@@ -38,15 +38,11 @@ func test_die_saeule_traegt_nur_das_netz() -> void:
 	assert_almost_eq(net.position.y, 0.0, 1.0, "das Netz steht ganz oben, direkt unterm Würfel")
 	assert_lte(net.position.y + net.size.y, column.size.y + 1.0, "und bleibt in der Säule")
 
-## Das gebaute Zellmaß wird gemeldet - scene_root reicht es an das Ergebnis-Netz der
-## Werkstatt weiter (GLEICH GROSS).
-func test_die_saeule_meldet_ihr_zellmass() -> void:
-	view.set_die(DieDefinition.standard())
-	await wait_frames(2)
-	var net: Control = _column().get_node("NetzFeld")
-	assert_gt(view.net_cell(), 0.0, "sie nennt ihr Zellmaß")
-	assert_almost_eq(DieNetView.net_size(view.net_cell()).x, net.size.x, 1.0,
-		"und es paßt zum gebauten Netz")
+## Sie MELDET nichts mehr: das Zellmaß der Werkstatt-Netze rechnet der Streifen
+## seit 2026-09-04 selbst, und der Geburtsort der Schablone liegt dort.
+func test_die_saeule_meldet_nichts_mehr() -> void:
+	assert_false(view.has_method("net_cell"), "kein Zellmaß-Melder mehr")
+	assert_false(view.has_method("net_center_px"), "und kein Geburtsort")
 
 func test_leer_heisst_gar_nicht_da() -> void:
 	view.set_die(DieDefinition.standard())
@@ -54,7 +50,6 @@ func test_leer_heisst_gar_nicht_da() -> void:
 	view.set_die(null)
 	await wait_frames(2)
 	assert_eq(view.net_count(), 0, "kein Leerlauf-Rahmen")
-	assert_eq(view.net_cell(), 0.0, "und kein Maß gemeldet")
 
 func test_derselbe_stand_baut_nichts_neu() -> void:
 	var die := DieDefinition.standard()

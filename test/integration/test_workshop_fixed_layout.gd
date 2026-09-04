@@ -476,36 +476,44 @@ func test_the_bench_is_furnished_without_any_camera() -> void:
 	assert_not_null(view._diff_screen, "und der Diff-Schirm darunter")
 	assert_true(view.bench_open())
 
-## DIE STRASSE liest von LINKS nach RECHTS: Schacht-Reihe, Fuge, Ergebnis-Spalte -
-## zwei Stationen, die einander nie überlappen und zusammen die 100u füllen. Die
-## Bench-Spalte ist gestorben: der Zielwürfel schwebt am Ausgabefach.
+## DIE STRASSE liest von LINKS nach RECHTS: Ziel-Spalte, Fuge, Schacht-Reihe, Fuge,
+## Ergebnis-Spalte - DREI Stationen, die einander nie überlappen. Die beiden
+## Podest-Spalten sind SPIEGELBILDER (2026-09-04).
 func test_the_street_reads_left_to_right() -> void:
 	await wait_frames(2)
 	var u := view.size.x / 100.0
+	var bench := view.bench_column_rect()
 	var row := view.row_field_rect()
 	var column := view.result_column_rect()
-	assert_almost_eq(row.position.x, u * WorkshopView.CONTENT_MARGIN_X, 0.5,
-		"die Schacht-Reihe steht am linken Rand")
+	assert_almost_eq(bench.position.x, u * WorkshopView.CONTENT_MARGIN_X, 0.5,
+		"die Ziel-Spalte steht am linken Rand")
+	assert_almost_eq(row.position.x - bench.end.x, u * WorkshopView.STREET_GAP, 0.5,
+		"eine Fuge zur Schacht-Reihe")
 	assert_almost_eq(column.position.x - row.end.x, u * WorkshopView.STREET_GAP, 0.5,
-		"eine Fuge zur Ergebnis-Spalte")
+		"und dieselbe Fuge zur Ergebnis-Spalte")
+	assert_almost_eq(bench.size.x, column.size.x, 0.5, "beide Spalten sind gleich breit")
 	assert_almost_eq(column.end.x, view.size.x - u * WorkshopView.CONTENT_MARGIN_X, 0.5,
 		"die endet am rechten Rand")
 	assert_gt(row.size.x, 0.0, "und die Reihe bleibt")
 	assert_lt(view.result_podium_rect().end.y, view.diff_screen_rect().position.y + 0.5,
 		"das Ergebnis-Podest steht über dem Soll-Schirm")
+	assert_eq(view.target_podium_rect().size, view.result_podium_rect().size,
+		"und das Ziel-Podest ist sein Spiegelbild")
 	assert_almost_eq(view.diff_screen_rect().end.y, column.end.y, 0.5,
 		"und der Soll-Schirm sitzt am Fuß der Ergebnis-Spalte")
-	assert_false(view.has_method("bench_column_rect"),
-		"die Bench-Spalte gibt es nicht mehr")
-	assert_false(view.has_method("target_net_center"),
-		"und ihr Podest meldet das Fenster nicht mehr")
 
-## Nur EIN Podest meldet das Fenster noch: das Ergebnis rechts.
-func test_only_the_result_podium_is_reported() -> void:
+## BEIDE Podeste meldet jetzt das Fenster - der Streifen liest ganz aus sich selbst.
+func test_both_podiums_are_reported() -> void:
 	await wait_frames(2)
 	assert_gt(view.result_net_center().x, 0.0, "das Ergebnis-Podest meldet seine Mitte")
 	assert_eq(view.result_projector_y(), view.result_net_center().y,
 		"Zeile und Mitte sind derselbe Punkt")
+	assert_gt(view.target_net_center().x, 0.0, "das Ziel-Podest ebenso")
+	assert_eq(view.target_projector_y(), view.target_net_center().y)
+	assert_lt(view.target_net_center().x, view.result_net_center().x,
+		"und es steht LINKS vom Ergebnis")
+	assert_almost_eq(view.target_net_center().y, view.result_net_center().y, 0.5,
+		"beide auf derselben Zeile")
 
 func test_the_bench_is_always_furnished() -> void:
 	await wait_frames(2)
@@ -532,6 +540,11 @@ func test_a_longer_series_grows_the_console_not_the_page() -> void:
 ## beiden Schirmen - kein Mund läuft in eine Nachbar-Station.
 func test_the_long_series_row_still_fits_between_the_screens() -> void:
 	run.hub_level = 10
+	# Auf die Reihe GELÖST, wie scene_root den Streifen stellt.
+	var u0 := view.size.x / 100.0
+	view.size.x = WorkshopView.bench_width_for(6, u0,
+		view.shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE)
+	view.unit_px = u0
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view.slot_count(), 6, "Stufe 10 trägt sechs Slots")
@@ -565,58 +578,53 @@ func test_eight_shafts_still_fit_the_row_field() -> void:
 		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
 		"und kein Mund schrumpft: die Karte hat EINE Größe (Welle L)")
 
-# --- KORREKTUR-WELLE J: ein BAND aus Ist-Netz | Tooltip | Soll-Netz ----------------
-
-## Am Tisch meldet scene_root die linke Kante des IST-NETZES herein; hier steht ein
-## Maß dafür, das links über die Fensterkante hinausragt.
-const NET_OVERHANG := 300.0
+# --- Ein BAND aus Ist-Netz | Tooltip | Soll-Netz -----------------------------------
 
 func _info_screen() -> Control:
 	return view.get_node("Street/InfoScreen")
 
-## (1) Die GRUBE reicht wieder nach LINKS, bis auf die gemeldete Ist-Netz-Kante -
-## rechts und unten bleibt sie, wo sie war.
-func test_the_magazine_reaches_left_to_the_reported_net_edge() -> void:
+## (1) Die GRUBE spannt nur noch den STREIFEN: der Überhang unter die fremde
+## Info-Säule ist mit dem Umzug unter den Pool gestorben.
+func test_the_magazine_spans_exactly_the_strip() -> void:
 	view.apron_bottom = _apron_line()
-	view.shelf_left = -NET_OVERHANG
 	await wait_frames(2)
 	var row := _drawer_rect()
 	var window := view.get_global_rect()
-	assert_almost_eq(row.position.x, window.position.x - NET_OVERHANG, 1.0,
-		"die Grube beginnt auf der gemeldeten Ist-Netz-Kante")
-	assert_almost_eq(row.end.x, window.end.x, 2.0, "rechts bleibt sie bündig")
+	assert_almost_eq(row.position.x, window.position.x, 1.0, "links bündig")
+	assert_almost_eq(row.end.x, window.end.x, 2.0, "rechts bündig")
 	assert_almost_eq(row.end.y, window.position.y + view.apron_bottom, 1.0,
 		"und ihre Unterkante bleibt die Pool-Unterkante")
+	assert_null(view.get("shelf_left"), "die gemeldete Linkskante ist fort")
 
-## (1, der FALLSTRICK) Die verbreiterte Grube liegt GANZ in der Weiterleitungs-
-## Region: genau daran scheiterte die Welle H, weil bench_rect nur die HÖHE streckte.
-func test_the_bench_rect_covers_the_widened_magazine() -> void:
+## (1, der FALLSTRICK) Die Grube liegt GANZ in der Weiterleitungs-Region: genau
+## daran scheiterte die Welle H, weil bench_rect nur die HÖHE streckte.
+func test_the_bench_rect_covers_the_whole_magazine() -> void:
 	view.apron_bottom = _apron_line()
-	view.shelf_left = -NET_OVERHANG
 	await wait_frames(2)
 	var bench := view.bench_rect()
 	assert_true(bench.encloses(view.get_global_rect()), "das Fenster liegt darin")
 	assert_true(bench.encloses(_drawer_rect().grow(-1.0)),
 		"und das ganze Magazin ebenso: %s in %s" % [_drawer_rect(), bench])
 
-## (1, der eigentliche Beweis) Eine Kassette im NEU dazugekommenen LINKEN Grubenteil
-## wird über die ECHTE Weiterleitung gesteckt - dasselbe Prädikat, mit dem scene_root
+## (1, der eigentliche Beweis) Eine Kassette im UNTEREN Grubenteil - unterhalb der
+## Schürzenlinie, wo die liegende Karte den Streifen nach unten wachsen läßt - wird
+## über die ECHTE Weiterleitung gesteckt: dasselbe Prädikat, mit dem scene_root
 ## entscheidet, plus der Knopf-Pfad dahinter.
-func test_a_cassette_in_the_new_left_part_still_reaches_the_slot() -> void:
+func test_a_cassette_in_the_lower_pit_part_still_reaches_the_slot() -> void:
 	for i in 8:
 		run.grant_pack(Pack.number_pack())
-	# Am Tisch steht der Streifen mitten auf der Anzeige: die Weiterleitung wirft
-	# negative Display-Pixel ab, also darf das Fenster hier nicht auf x = 0 kleben.
-	view.position = Vector2(NET_OVERHANG + 40.0, 0.0)
-	view.apron_bottom = _apron_line()
-	view.shelf_left = -NET_OVERHANG
+	# Am Tisch steht der Streifen mitten auf der Anzeige, nicht auf x = 0.
+	view.position = Vector2(340.0, 0.0)
+	# Eine Schürzenlinie, die KÜRZER ist als die liegende Karte braucht: der Streifen
+	# wächst dann nach unten über sie hinaus (shelf_min_height).
+	view.apron_bottom = view.size.y + 1.0
 	await wait_frames(2)
+	assert_gt(_drawer_rect().end.y, view.get_global_rect().position.y + view.apron_bottom,
+		"das Magazin reicht unter die gemeldete Schürzenlinie")
 	var uid := run.owned_packs[0].pack_uid
 	var chip := view._drawer.pack_button(uid)
 	assert_not_null(chip, "die vorderste Kassette hat einen Chip-Knopf")
 	var px := chip.get_global_rect().get_center()
-	assert_lt(px.x, view.get_global_rect().position.x,
-		"sie liegt im NEUEN linken Grubenteil, links der Fensterkante")
 	assert_true(TableScreen.window_takes_pixel(view, view.bench_rect(), px, true, false),
 		"der Klick dort wird an das Fenster weitergereicht")
 	chip.pressed.emit()
@@ -661,16 +669,18 @@ func test_the_result_net_stands_beside_the_tooltip_in_one_band() -> void:
 	assert_lte(podium.end.y, view.band_row_rect().position.y + 0.5,
 		"das Ergebnis-Podest steht über dem Band")
 
-## (3) GLEICH GROSS wie das Ist-Netz: das gemeldete Zellmaß der Info-Säule gilt.
-func test_the_result_net_takes_the_reported_cell_of_the_left_net() -> void:
+## (3) IST und SOLL sind GLEICH GROSS - EIN Zellmaß, vom Fenster selbst gerechnet.
+func test_both_nets_share_one_cell_measure() -> void:
+	view.choose_target(0)
 	await wait_frames(2)
 	var u := view.size.x / 100.0
-	var wide := (view.diff_screen_rect().size.x - u * WorkshopView.DIFF_PAD * 2.0) \
-		/ DieNetView.net_size(1.0).x
-	view.result_net_cell = wide * 0.8  # ein Maß, das die Spalte nicht sprengt
-	await wait_frames(2)
-	assert_almost_eq(view._net.cell, wide * 0.8, 0.5,
-		"das Soll-Netz übernimmt das Zellmaß des Ist-Netzes")
+	assert_almost_eq(view._net.cell, view.net_cell(u), 0.001,
+		"das Soll-Netz trägt das eine Zellmaß")
+	var ist: Control = view.get_node("Street/IstScreen/IstNet")
+	assert_almost_eq(ist.size.x, DieNetView.net_size(view.net_cell(u)).x, 1.0,
+		"und das Ist-Netz steht in derselben Größe")
+	assert_null(view.get("result_net_cell"),
+		"gemeldet wird das Maß nicht mehr - das Fenster rechnet es")
 
 ## (3) Es steht IMMER: ohne Ziel und ohne Karten trägt der Soll-Schirm das LEERE
 ## Kreuz - versteckt wird es nie.
@@ -688,6 +698,56 @@ func test_the_result_net_stands_empty_without_a_target() -> void:
 	await wait_frames(2)
 	assert_false(view._empty_net.visible,
 		"mit gewähltem Ziel tritt der Platzhalter hinter das echte Netz zurück")
+
+## (3) Das IST-NETZ steht LINKS neben dem Tooltip, auf DERSELBEN Zeile - und IMMER:
+## ohne Ziel als leeres Kreuz.
+func test_the_ist_net_stands_left_of_the_tooltip_in_one_band() -> void:
+	await wait_frames(2)
+	var info := _info_screen().get_global_rect()
+	var ist: Control = view.get_node("Street/IstScreen")
+	assert_lte(ist.get_global_rect().end.x, info.position.x + 0.5,
+		"der Ist-Schirm steht links davon")
+	assert_almost_eq(ist.get_global_rect().position.y, info.position.y, 0.5,
+		"auf derselben Oberkante")
+	assert_almost_eq(ist.get_global_rect().size.y, info.size.y, 0.5,
+		"und in derselben Zeilenhöhe")
+	assert_true(ist.get_theme_stylebox("panel") is StyleBoxEmpty,
+		"auf blankem Filz wie der Soll-Schirm")
+	var cross: Control = view.get_node("Street/IstScreen/IstNet").get_child(0)
+	assert_eq(cross.name, "EmptyNet", "ohne Ziel steht das leere Kreuz")
+	assert_eq(cross.get_child_count(), 6, "sechs leere Zellen")
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_ne(String(view.get_node("Street/IstScreen/IstNet").get_child(0).name),
+		"EmptyNet", "mit Ziel steht dort sein echtes Netz")
+
+## bench_width_for zählt BEIDE Podest-Spalten - vergißt sie eine, läuft die
+## Schacht-Reihe über ihr Feld hinaus.
+func test_bench_width_counts_both_columns() -> void:
+	var u := 5.0
+	var card := 40.0
+	var row := WorkshopView.row_span(6, u, card * WorkshopView.MOUTH_ROOM)
+	assert_almost_eq(WorkshopView.bench_width_for(6, u, card),
+		row + u * (WorkshopView.CONTENT_MARGIN_X * 2.0
+			+ (WorkshopView.STREET_GAP + WorkshopView.DIFF_WIDTH_UNITS) * 2.0), 0.001,
+		"Reihe plus Ränder plus zweimal Fuge und Spalte")
+
+## Und die so gelöste Breite trägt die Reihe wirklich: bei acht Schächten bleibt
+## das Blech im Feld ZWISCHEN den beiden Spalten.
+func test_the_solved_width_really_carries_the_row() -> void:
+	run.hub_level = 10
+	run.series_slot_bonus = 2
+	var u0 := view.size.x / 100.0
+	view.size.x = WorkshopView.bench_width_for(8, u0,
+		view.shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE)
+	view.unit_px = u0
+	view.refresh()
+	await wait_frames(2)
+	assert_eq(view.slot_count(), 8)
+	var console := _console().get_rect()
+	var field := view.row_field_rect()
+	assert_gte(console.position.x, field.position.x - 0.5, "das Blech steht im Feld")
+	assert_lte(console.end.x, field.end.x + 0.5)
 
 ## (4) Der GRIFF behält seinen sichtbaren Platz im Streifen: im Konsolen-Band
 ## zwischen Fensterkante und Grube - nie unter dem Magazin.

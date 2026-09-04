@@ -100,10 +100,6 @@ var _arriving: Dictionary = {}
 ## statt aus dem Nichts zu erscheinen.
 var _known: Dictionary = {}
 var _shown: Dictionary = {}
-## Der VORHANG: solange er steht, liegt NICHTS offen - der Platz gehört dem
-## Bench-PODEST der Werkstatt (die STATIONS-ZEILE, 2026-09-03).
-var _curtain := false
-
 ## Der Schlüssel eines Körpers: die WÜRFEL-Instanz. Ein Platz ist nur eine Reihe.
 static func body_key(def: Object) -> int:
 	return def.get_instance_id() if def != null else 0
@@ -175,25 +171,12 @@ func visible_cap() -> int:
 func waiting_count() -> int:
 	return maxi(_dice.size() - visible_cap(), 0)
 
-## Der VORHANG: gesetzt sinken die offenen Würfel durch den Fachboden, gelöst
-## steigen sie von dort wieder herauf - dieselbe Nachrück-Lieferung wie jede andere
-## Ankunft (_known/_shown tragen das ganz allein).
-func set_curtain(on: bool) -> void:
-	if on == _curtain:
-		return
-	_curtain = on
-	set_hovered(0)
-	_layout()
-
-func curtained() -> bool:
-	return _curtain
-
 ## Die Oberkante des Fachbodens - darauf steht, was hier steht.
 func floor_top_y() -> float:
 	return center.y + FLOOR_LIFT + FLOOR_HEIGHT
 
-## Der Platz des EINEN offenen Würfels, auch wenn gerade keiner liegt (der Vorhang
-## steht): dieselbe Rechnung wie _layout, damit Podest und Schale nie auseinanderlaufen.
+## Der Platz des EINEN offenen Würfels, auch wenn gerade keiner liegt - er ist
+## GERECHNET, nicht gemessen.
 func open_spot() -> Vector3:
 	if half.x <= 0.0 or half.y <= 0.0:
 		return global_position
@@ -317,7 +300,6 @@ func clear() -> void:
 	_known.clear()
 	_shown.clear()
 	_hovered = 0
-	_curtain = false
 
 # --- Aufbau ---------------------------------------------------------------------
 
@@ -354,9 +336,8 @@ func _layout(arriving := 0) -> void:
 	if half.x <= 0.0 or half.y <= 0.0 or floor_plate == null:
 		return
 	var span := inner()
-	# Nur die OFFENEN Plätze werden ausgelegt - der Rest wartet unter dem Boden,
-	# und hinter dem Vorhang wartet jeder dort.
-	var open := 0 if _curtain else mini(_dice.size(), visible_cap())
+	# Nur die OFFENEN Plätze werden ausgelegt - der Rest wartet unter dem Boden.
+	var open := mini(_dice.size(), visible_cap())
 	var grid := grid_for(span, open)
 	var lanes := row_spots(grid.x, span.x, CELL)
 	var ranks := row_spots(maxi(grid.y, 1), span.y, CELL)
