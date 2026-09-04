@@ -7,17 +7,24 @@ extends GutTest
 ## dürfen sich dabei ändern - die Reihe schließt sich hinter einer entnommenen
 ## Kassette, das ist Magazin-Ordnung, kein Reflow der Seite.
 
+## Breite der Probeseite: der 100-u-Boden, damit unit() die Konvention bleibt.
+const PAGE_WIDTH := 560.0
+
 var view: WorkshopView
 var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
 	view = WorkshopView.new()
-	# Dasselbe Seitenverhältnis wie die echte Werkbank - GELÖST, nicht gesetzt:
-	# die Breite folgt aus der Höhe der zentrierten Ziel-Säule.
-	view.size = Vector2(roundf(540.0 * WorkshopView.bench_aspect()), 540)
+	view.size = Vector2(PAGE_WIDTH, 540)
 	add_child_autofree(view)
 	view.run = run
+	# Die HÖHE wird GELÖST wie am Tisch (WELLE S): Kerf und Netz sind feste Pixel,
+	# der Rest ist die u-Kette. u bleibt dabei die Konvention size.x/100.
+	var u := view.unit()
+	view.size.y = roundf(WorkshopView.bench_height_for(u, view.mouth_size(u).y,
+		view.net_span(u).y))
+	view.refresh()  # die neue Höhe will gebaut werden, sonst steht die alte Seite
 
 func _drawer_rect() -> Rect2:
 	return view._drawer.get_global_rect() if view._drawer != null else Rect2()
@@ -313,15 +320,14 @@ func test_the_seat_rides_the_console_band_below_the_row() -> void:
 	assert_null(view.get_node_or_null("SeriesBand/SeriesScreen"),
 		"der Serien-Schirm bleibt gestorben")
 
-## Der Streifen trägt KEINEN Schirm-Hintergrund mehr - er liegt auf dem Filz. Und
-## seit der KORREKTUR-WELLE I fällt auch der eigene Hintergrund des SOLL-SCHIRMS:
-## das Ergebnis-Netz steht auf blankem Filz, UI-gleich zur Info-Säule links.
+## Der Streifen trägt KEINEN Schirm-Hintergrund mehr - er liegt auf dem Filz, und
+## der NETZ-SCHIRM ebenso (Korrektur-Welle I).
 func test_the_strip_has_no_window_background() -> void:
 	await wait_frames(2)
 	assert_true(view.get_theme_stylebox("panel") is StyleBoxEmpty,
 		"das Fenster malt nichts")
-	assert_true(view._diff_screen.get_theme_stylebox("panel") is StyleBoxEmpty,
-		"der SOLL-SCHIRM steht auf blankem Filz")
+	assert_true(view._ist_screen.get_theme_stylebox("panel") is StyleBoxEmpty,
+		"der NETZ-SCHIRM steht auf blankem Filz")
 
 ## Der Sitz muss seine breiteste Aufschrift ungeschnitten tragen, sonst hätte
 ## clip_text sie nur versteckt.
@@ -370,19 +376,52 @@ func test_the_cell_scale_has_one_source() -> void:
 	assert_almost_eq(view.shelf_cell_scale(), view._drawer.cell_scale(), 0.001,
 		"eine Quelle, auch wenn das Fach gerade nicht steht")
 
-## Das EINE Kassettenmaß: das Magazin trägt es, und der Leseschlitz ist darauf
-## geschnitten - eine Karte wächst und schrumpft auf ihrem Weg nicht mehr.
+## Das EINE Kassettenmaß: das Magazin trägt es, und der SLOT ist auf die Kappe
+## geschnitten, die darüber steht - eine Karte wächst und schrumpft auf ihrem Weg
+## nicht mehr.
 func test_magazine_and_slit_are_cut_to_the_same_cassette() -> void:
 	view.data_cell_px = Vector2(16, 40)
+	view.data_cell_body_px = Vector2(6, 40)
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
 		"die Karte steht im festen Maß im Fach")
 	var cap := view.data_cell_px * PackDrawerView.CASSETTE_SCALE
-	assert_gte(view.slit_size(u).x, cap.x, "und der Schlitz schluckt genau diese Kappe")
-	assert_gte(view.slit_size(u).y, cap.y)
+	assert_gte(view.card_size(u).x, cap.x, "und der SLOT schluckt genau diese Kappe")
+	assert_gte(view.card_size(u).y, cap.y)
 	assert_gte(view.card_size(u).x, view.slit_size(u).x,
-		"die Kassette steht senkrecht über ihrem Schlitz, nie schmaler")
+		"der SCHLITZ darin ist schmaler - er mißt den steckenden Körper")
+
+## Der gemalte SCHLITZ hat die Proportion des Kartenteils, der hineinfährt, nicht
+## die der auskragenden Kappe - und er steht MITTIG im Slot.
+func test_the_painted_slit_measures_the_body_not_the_cap() -> void:
+	view.data_cell_px = Vector2(16, 40)
+	view.data_cell_body_px = Vector2(6, 40)
+	await wait_frames(2)
+	var u := view.unit()
+	var slot := view.card_size(u)
+	var slit := view.slit_size(u)
+	assert_lt(slit.x, slot.x * 0.6, "der Schlitz ist deutlich schmaler als der Slot")
+	assert_lte(slit.y, slot.y + 0.001, "und ragt auch längs nicht heraus")
+	assert_almost_eq(slit.y / slit.x, 40.0 / 6.0, 0.01,
+		"seine Proportion IST die des Körper-Fußabdrucks")
+	var seat: Control = view._slot_buttons[0]
+	var painted: Rect2 = view._slit_panels[0].get_global_rect()
+	assert_almost_eq(painted.get_center().x, seat.get_global_rect().get_center().x, 0.5,
+		"mittig im Slot")
+	assert_almost_eq(painted.get_center().y, seat.get_global_rect().get_center().y, 0.5)
+	assert_almost_eq(painted.size.x, slit.x, 0.5, "und im gemeldeten Schlitzmaß gemalt")
+
+## Ohne gemeldeten Körper-Fußabdruck trägt der Anteil - ein Schlitz bleibt ein
+## Schlitz, auch in einem Probefenster.
+func test_the_slit_falls_back_to_a_share_of_the_cap() -> void:
+	view.data_cell_px = Vector2(16, 40)
+	view.data_cell_body_px = Vector2.ZERO
+	await wait_frames(2)
+	var u := view.unit()
+	assert_almost_eq(view.body_span_px().x,
+		16.0 * WorkshopView.BODY_CAP_SHARE * PackDrawerView.CASSETTE_SCALE, 0.001)
+	assert_lt(view.slit_size(u).x, view.card_size(u).x * 0.6)
 
 ## Die Menge drückt keine Karte klein - nie. Der gemessene Deckel ist genau so
 ## gewählt, dass eine randvolle Grube noch in voller Größe steht. Seit der Welle L
@@ -421,7 +460,7 @@ func test_the_whole_grip_cycle_never_reflows_the_page() -> void:
 	var seat := _seat_rect()
 	var cards := view.press_display_anchors()
 	var net := view._net.get_global_rect()
-	var park := view.sum_net_center()
+	var park := view.ist_net_center()
 
 	view.pull_lever()
 	await wait_frames(2)
@@ -431,7 +470,7 @@ func test_the_whole_grip_cycle_never_reflows_the_page() -> void:
 	assert_eq(_drawer_rect(), fach, "in der Fahrt: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "in der Fahrt")
 	assert_eq(view.press_display_anchors(), cards, "und die KARTENPLÄTZE stehen still")
-	assert_eq(view.sum_net_center(), park, "der Parkplatz des Schlittens ebenso")
+	assert_eq(view.ist_net_center(), park, "der Parkplatz des Schlittens ebenso")
 
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -440,7 +479,7 @@ func test_the_whole_grip_cycle_never_reflows_the_page() -> void:
 	assert_eq(_seat_rect(), seat)
 	assert_eq(_drawer_rect(), fach, "danach: das Fach steht")
 	_assert_same_slits(slits, _slit_rects(), "danach")
-	assert_eq(view.sum_net_center(), park)
+	assert_eq(view.ist_net_center(), park)
 	assert_eq(view._net.get_global_rect(), net, "und das Netz steht wieder geparkt")
 
 func test_the_console_stays_clear_of_the_drawer() -> void:
@@ -462,13 +501,14 @@ func test_the_console_stays_clear_of_the_drawer() -> void:
 			u * WorkshopView.MOUTH_MIN_HEIGHT_UNITS),
 		0.001, "und die Kartenbreite plus Luft, mit ihrem u-Boden")
 
-## Die HÖHENRESERVE der Reihe trägt den hochkanten Kerf samt seinen Pads - sonst
-## liefe das Blech in die Bandzeile darunter.
-func test_the_row_reserve_carries_the_upright_kerf() -> void:
+## Das BLECH trägt den hochkanten Kerf SELBST - seit der WELLE S ist
+## ROW_HEIGHT_UNITS nur noch sein Boden, und die Seitenhöhe wird linear gelöst.
+func test_the_console_carries_the_upright_kerf() -> void:
 	await wait_frames(2)
 	var u := view.unit()
-	assert_lte(view.mouth_size(u).y, u * WorkshopView.ROW_HEIGHT_UNITS,
-		"der Kerf paßt in die Reserve")
+	assert_almost_eq(view.console_size(u).y,
+		view.mouth_size(u).y + u * WorkshopView.CONSOLE_PAD_Y * 2.0, 0.001,
+		"der Kerf plus die beiden Pads - keine zweite Höhen-Quelle")
 	var band := view.band_row_rect()
 	assert_lte(_console().get_rect().end.y, band.position.y + 0.5,
 		"und das Blech endet über der Band-Zeile")
@@ -492,49 +532,44 @@ func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 
 func test_the_bench_is_furnished_without_any_camera() -> void:
 	await wait_frames(2)
-	assert_not_null(view._net, "das Summen-Netz steht")
-	assert_not_null(view._stage_host, "und das Ergebnis-Podest darüber")
-	assert_not_null(view._diff_screen, "und der Diff-Schirm darunter")
+	assert_not_null(view._net, "das EINE Netz steht")
+	assert_not_null(view._target_stage_host, "und das Podest darüber")
+	assert_not_null(view._ist_screen, "und sein Schirm")
 	assert_true(view.bench_open())
 
-## DIE STRASSE liest von LINKS nach RECHTS: Ziel-Spalte, Fuge, Schacht-Reihe, Fuge,
-## Ergebnis-Spalte - DREI Stationen, die einander nie überlappen. Die beiden
-## Podest-Spalten sind SPIEGELBILDER (2026-09-04).
+## DIE STRASSE liest von LINKS nach RECHTS: Würfel-Spalte, Fuge, Schacht-Reihe -
+## ZWEI Felder, die einander nie überlappen (WELLE S: die dritte Spalte ist tot).
 func test_the_street_reads_left_to_right() -> void:
 	await wait_frames(2)
 	var u := view.size.x / 100.0
 	var bench := view.bench_column_rect()
 	var row := view.row_field_rect()
-	var column := view.result_column_rect()
 	assert_almost_eq(bench.position.x, u * WorkshopView.CONTENT_MARGIN_X, 0.5,
-		"die Ziel-Spalte steht am linken Rand")
+		"die Würfel-Spalte steht am linken Rand")
 	assert_almost_eq(row.position.x - bench.end.x, u * WorkshopView.STREET_GAP, 0.5,
 		"eine Fuge zur Schacht-Reihe")
-	assert_almost_eq(column.position.x - row.end.x, u * WorkshopView.STREET_GAP, 0.5,
-		"und dieselbe Fuge zur Ergebnis-Spalte")
-	assert_almost_eq(bench.size.x, column.size.x, 0.5, "beide Spalten sind gleich breit")
-	assert_almost_eq(column.end.x, view.size.x - u * WorkshopView.CONTENT_MARGIN_X, 0.5,
-		"die endet am rechten Rand")
-	assert_gt(row.size.x, 0.0, "und die Reihe bleibt")
-	assert_lt(view.result_podium_rect().end.y, view.diff_screen_rect().position.y + 0.5,
-		"das Ergebnis-Podest steht über dem Soll-Schirm")
-	assert_eq(view.target_podium_rect().size, view.result_podium_rect().size,
-		"und das Ziel-Podest ist sein Spiegelbild")
-	assert_almost_eq(view.diff_screen_rect().end.y, column.end.y, 0.5,
-		"und der Soll-Schirm sitzt am Fuß der Ergebnis-Spalte")
+	assert_almost_eq(row.end.x, view.size.x - u * WorkshopView.CONTENT_MARGIN_X, 0.5,
+		"und die Reihe bekommt den Rest bis zum rechten Rand")
+	assert_almost_eq(bench.size.x,
+		maxf(view.net_span(u).x + u * WorkshopView.DIFF_PAD * 2.0,
+			u * WorkshopView.DIFF_WIDTH_UNITS), 0.5,
+		"die Spaltenbreite folgt dem Netz")
+	assert_almost_eq(view.ist_screen_rect().end.y, bench.end.y, 0.5,
+		"der Netz-Schirm sitzt am Fuß der Spalte")
 
-## BEIDE Podeste meldet jetzt das Fenster - der Streifen liest ganz aus sich selbst.
-func test_both_podiums_are_reported() -> void:
+## Das EINE Podest meldet das Fenster, und es steht MITTIG auf der Zeilenhöhe der
+## Schacht-Reihe - um den gemessenen Neigungs-Versatz nach unten gerückt.
+func test_the_podium_sits_on_the_row_line() -> void:
 	await wait_frames(2)
-	assert_gt(view.result_net_center().x, 0.0, "das Ergebnis-Podest meldet seine Mitte")
-	assert_eq(view.result_projector_y(), view.result_net_center().y,
+	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
+	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Punkt")
-	assert_gt(view.target_net_center().x, 0.0, "das Ziel-Podest ebenso")
-	assert_eq(view.target_projector_y(), view.target_net_center().y)
-	assert_lt(view.target_net_center().x, view.result_net_center().x,
-		"und es steht LINKS vom Ergebnis")
-	assert_almost_eq(view.target_net_center().y, view.result_net_center().y, 0.5,
-		"beide auf derselben Zeile")
+	var u := view.unit()
+	assert_almost_eq(view.target_podium_rect().get_center().y,
+		view.console_rect(u).get_center().y + WorkshopView.BENCH_TILT_TRIM, 0.5,
+		"die Podest-Mitte liegt auf der Konsolen-Mitte plus dem Neigungs-Versatz")
+	assert_almost_eq(view.target_podium_rect().position.x,
+		view.bench_column_rect().position.x, 0.5, "und in der Würfel-Spalte")
 
 func test_the_bench_is_always_furnished() -> void:
 	await wait_frames(2)
@@ -549,17 +584,17 @@ func test_a_longer_series_grows_the_console_not_the_page() -> void:
 	view.data_cell_px = Vector2(8, 20)  # kleine Karte: acht Kerfe passen ins Feld
 	await wait_frames(2)
 	var rows := _row_names()
-	var diff := view.diff_screen_rect()
+	var screen := view.ist_screen_rect()
 	var short_console := _console().get_global_rect().size.x
 	run.series_slot_bonus = 2
 	view.refresh()
 	await wait_frames(2)
 	assert_gt(_console().get_global_rect().size.x, short_console, "das Blech wächst")
 	assert_eq(_row_names(), rows, "dieselben Stationen in derselben Ordnung")
-	assert_eq(view.diff_screen_rect(), diff, "der Diff-Schirm rührt sich nicht")
+	assert_eq(view.ist_screen_rect(), screen, "der Netz-Schirm rührt sich nicht")
 
-## Auch die volle Reihe (sechs Schächte ab Runde 1) bleibt IN ihrem Feld zwischen
-## den beiden Schirmen - kein Mund läuft in eine Nachbar-Station.
+## Auch die volle Reihe (sechs Schächte ab Runde 1) bleibt IN ihrem Feld neben der
+## Würfel-Spalte - kein Mund läuft in die Nachbar-Station.
 func test_the_long_series_row_still_fits_between_the_screens() -> void:
 	# Auf die Reihe GELÖST, wie scene_root den Streifen stellt.
 	var u0 := view.size.x / 100.0
@@ -661,8 +696,11 @@ func test_the_sum_screen_sits_below_the_row_at_its_exact_width() -> void:
 	assert_almost_eq(info.position.x, console.position.x, 0.5, "dieselbe linke Kante")
 	assert_almost_eq(info.end.x, console.end.x, 0.5, "und dieselbe rechte")
 	assert_gte(info.position.y, console.end.y - 0.5, "er steht UNTER der Reihe")
-	assert_almost_eq(info.size.y, u * WorkshopView.DIFF_HEIGHT_UNITS, 0.5,
+	assert_almost_eq(info.size.y, view.band_row_rect().size.y, 0.5,
 		"und ist so hoch wie das Band")
+	assert_almost_eq(view.band_row_rect().size.y,
+		view.net_span(u).y + u * WorkshopView.band_units(), 0.5,
+		"dessen Höhe das Netz plus die Fassung des Summen-Schirms ist")
 
 ## Auch mit acht Schächten: der Summen-Schirm wächst mit der Reihe mit.
 func test_the_sum_screen_follows_a_longer_row() -> void:
@@ -675,39 +713,50 @@ func test_the_sum_screen_follows_a_longer_row() -> void:
 	assert_almost_eq(info.position.x, console.position.x, 0.5)
 	assert_almost_eq(info.end.x, console.end.x, 0.5)
 
-## (3) Das SOLL-NETZ steht RECHTS neben dem Summen-Schirm, auf DERSELBEN Zeile.
-func test_the_result_net_stands_beside_the_sum_screen_in_one_band() -> void:
+## (3) Das EINE NETZ steht LINKS neben dem Summen-Schirm, auf DERSELBEN Zeile - und
+## IMMER: ohne Ziel als leeres Kreuz.
+func test_the_one_net_stands_left_of_the_sum_screen_in_one_band() -> void:
 	await wait_frames(2)
 	var info := _info_screen().get_global_rect()
-	var diff := view._diff_screen.get_global_rect()
-	assert_gte(diff.position.x, info.end.x - 0.5, "der Soll-Schirm steht rechts davon")
-	assert_almost_eq(diff.position.y, info.position.y, 0.5, "auf derselben Oberkante")
-	assert_almost_eq(diff.size.y, info.size.y, 0.5, "und in derselben Zeilenhöhe")
-	# Und das PODEST bleibt darüber in Zeile 1 - Würfel über Netz, wie links.
-	var podium := view.result_podium_rect()
-	assert_lte(podium.end.y, view.band_row_rect().position.y + 0.5,
-		"das Ergebnis-Podest steht über dem Band")
+	var screen: Control = view.get_node("Street/IstScreen")
+	assert_lte(screen.get_global_rect().end.x, info.position.x + 0.5,
+		"der Netz-Schirm steht links davon")
+	assert_almost_eq(screen.get_global_rect().position.y, info.position.y, 0.5,
+		"auf derselben Oberkante")
+	assert_almost_eq(screen.get_global_rect().size.y, info.size.y, 0.5,
+		"und in derselben Zeilenhöhe")
+	assert_true(screen.get_theme_stylebox("panel") is StyleBoxEmpty,
+		"auf blankem Filz")
+	# Und das PODEST steht darüber, mittig auf der Zeilenhöhe der Reihe.
+	assert_lte(view.target_podium_rect().end.y, view.band_row_rect().position.y + 0.5,
+		"das Podest steht über dem Band")
 
-## (3) IST und SOLL sind GLEICH GROSS - EIN Zellmaß, vom Fenster selbst gerechnet.
-func test_both_nets_share_one_cell_measure() -> void:
+## (3) Die Netz-ZELLE IST die gemeldete WÜRFELFLÄCHE (WELLE S), und der
+## Summen-Schirm teilt dasselbe Maß.
+func test_the_net_cell_is_the_reported_die_face() -> void:
+	view.die_face_px = 31.0
 	view.choose_target(0)
 	await wait_frames(2)
-	var u := view.size.x / 100.0
-	assert_almost_eq(view._net.cell, view.net_cell(u), 0.001,
-		"das Soll-Netz trägt das eine Zellmaß")
-	var ist: Control = view.get_node("Street/IstScreen/IstNet")
-	assert_almost_eq(ist.size.x, DieNetView.net_size(view.net_cell(u)).x, 1.0,
-		"und das Ist-Netz steht in derselben Größe")
-	assert_null(view.get("result_net_cell"),
-		"gemeldet wird das Maß nicht mehr - das Fenster rechnet es")
+	var u := view.unit()
+	assert_almost_eq(view.net_cell(u), 31.0, 0.001, "die Zelle IST die Würfelfläche")
+	assert_almost_eq(view._net.cell, 31.0, 0.001, "das Netz trägt sie")
+	assert_almost_eq(view.sum_net_cell(u), 31.0, 0.001, "und der Summen-Schirm auch")
+	assert_almost_eq(view.bench_column_rect().size.x,
+		maxf(DieNetView.net_size(31.0).x + u * WorkshopView.DIFF_PAD * 2.0,
+			u * WorkshopView.DIFF_WIDTH_UNITS), 0.5,
+		"die Spalte wächst mit dem Netz")
+	view.die_face_px = 0.0
+	await wait_frames(2)
+	assert_ne(view.net_cell(view.unit()), 31.0,
+		"ohne Meldung trägt wieder der kopflose Fit")
 
-## (3) Es steht IMMER: ohne Ziel und ohne Karten trägt der Soll-Schirm das LEERE
-## Kreuz - versteckt wird es nie.
-func test_the_result_net_stands_empty_without_a_target() -> void:
+## (3) Es steht IMMER: ohne Ziel und ohne Karten trägt der Schirm das LEERE Kreuz -
+## versteckt wird es nie.
+func test_the_one_net_stands_empty_without_a_target() -> void:
 	await wait_frames(2)
 	assert_null(view.target_die(), "kein Ziel gewählt")
 	assert_true(view.press_slot_uids().is_empty(), "und keine Karte gesteckt")
-	assert_true(view._diff_screen.visible, "der Soll-Schirm steht")
+	assert_true(view._ist_screen.visible, "der Netz-Schirm steht")
 	assert_not_null(view._empty_net, "und trägt das leere Kreuz")
 	assert_true(view._empty_net.visible, "sichtbar")
 	assert_eq(view._empty_net.get_child_count(), 6, "sechs leere Zellen")
@@ -718,41 +767,38 @@ func test_the_result_net_stands_empty_without_a_target() -> void:
 	assert_false(view._empty_net.visible,
 		"mit gewähltem Ziel tritt der Platzhalter hinter das echte Netz zurück")
 
-## (3) Das IST-NETZ steht LINKS neben dem Summen-Schirm, auf DERSELBEN Zeile - und
-## IMMER: ohne Ziel als leeres Kreuz.
-func test_the_ist_net_stands_left_of_the_sum_screen_in_one_band() -> void:
-	await wait_frames(2)
-	var info := _info_screen().get_global_rect()
-	var ist: Control = view.get_node("Street/IstScreen")
-	assert_lte(ist.get_global_rect().end.x, info.position.x + 0.5,
-		"der Ist-Schirm steht links davon")
-	assert_almost_eq(ist.get_global_rect().position.y, info.position.y, 0.5,
-		"auf derselben Oberkante")
-	assert_almost_eq(ist.get_global_rect().size.y, info.size.y, 0.5,
-		"und in derselben Zeilenhöhe")
-	assert_true(ist.get_theme_stylebox("panel") is StyleBoxEmpty,
-		"auf blankem Filz wie der Soll-Schirm")
-	var cross: Control = view.get_node("Street/IstScreen/IstNet").get_child(0)
-	assert_eq(cross.name, "EmptyNet", "ohne Ziel steht das leere Kreuz")
-	assert_eq(cross.get_child_count(), 6, "sechs leere Zellen")
-	view.choose_target(0)
-	await wait_frames(2)
-	assert_ne(String(view.get_node("Street/IstScreen/IstNet").get_child(0).name),
-		"EmptyNet", "mit Ziel steht dort sein echtes Netz")
-
-## bench_width_for zählt BEIDE Podest-Spalten - vergißt sie eine, läuft die
-## Schacht-Reihe über ihr Feld hinaus.
-func test_bench_width_counts_both_columns() -> void:
+## bench_width_for zählt EINE Spalte und EINE Fuge (WELLE S) - zählt es zwei,
+## bleibt rechts ein leeres Feld stehen.
+func test_bench_width_counts_one_column() -> void:
 	var u := 5.0
 	var card := 40.0
 	var row := WorkshopView.row_span(6, u, card * WorkshopView.MOUTH_ROOM)
 	assert_almost_eq(WorkshopView.bench_width_for(6, u, card),
-		row + u * (WorkshopView.CONTENT_MARGIN_X * 2.0
-			+ (WorkshopView.STREET_GAP + WorkshopView.DIFF_WIDTH_UNITS) * 2.0), 0.001,
-		"Reihe plus Ränder plus zweimal Fuge und Spalte")
+		row + u * (WorkshopView.CONTENT_MARGIN_X * 2.0 + WorkshopView.STREET_GAP
+			+ WorkshopView.DIFF_WIDTH_UNITS), 0.001,
+		"Reihe plus Ränder plus EINE Fuge und EINE Spalte")
+	var wide := WorkshopView.bench_width_for(6, u, card, 300.0)
+	assert_almost_eq(wide, row + 300.0 + u * (WorkshopView.DIFF_PAD * 2.0
+		+ WorkshopView.CONTENT_MARGIN_X * 2.0 + WorkshopView.STREET_GAP), 0.001,
+		"und ein gemeldetes Netz gibt die Spaltenbreite vor")
+
+## Die HÖHE wird LINEAR gelöst: Kerf und Netz sind WELTMASSE, nur der Rest hängt
+## an u - Fenster plus Schürze füllen dann genau das Budget.
+func test_the_solved_unit_carries_kerf_and_net_in_the_budget() -> void:
+	var budget := 337.5
+	var kerf := 96.41
+	var net := 125.28
+	var u := WorkshopView.unit_for(budget, kerf, net)
+	var height := WorkshopView.bench_height_for(u, kerf, net)
+	assert_almost_eq(height + u * WorkshopView.apron_span_units(), budget, 0.01,
+		"Fenster plus Schürze füllen die Pool-Höhe")
+	assert_almost_eq(height, kerf + net + u * WorkshopView.height_units(), 0.001,
+		"und die Fensterhöhe ist Kerf plus Netz plus die u-Kette")
+	assert_gt(WorkshopView.unit_for(budget, kerf * 0.5, net), u,
+		"eine flachere Karte gibt u mehr Raum")
 
 ## Und die so gelöste Breite trägt die Reihe wirklich: bei acht Schächten bleibt
-## das Blech im Feld ZWISCHEN den beiden Spalten.
+## das Blech in seinem Feld neben der Würfel-Spalte.
 func test_the_solved_width_really_carries_the_row() -> void:
 	run.series_slot_bonus = 2
 	var u0 := view.size.x / 100.0

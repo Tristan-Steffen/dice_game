@@ -4,15 +4,23 @@ extends GutTest
 ## physischen Pool-Würfel (set_target_die), und die Vorschau ist buchstäblich
 ## dieselbe Rechnung wie der Griff.
 
+## Breite der Probeseite: der 100-u-Boden, damit unit() die Konvention bleibt.
+const PAGE_WIDTH := 560.0
+
 var view: WorkshopView
 var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
 	view = WorkshopView.new()
-	view.size = Vector2(roundf(540.0 * WorkshopView.bench_aspect()), 540)
+	view.size = Vector2(PAGE_WIDTH, 540)
 	add_child_autofree(view)
 	view.run = run
+	# Die HÖHE wie am Tisch GELÖST (WELLE S): Kerf und Netz sind feste Pixel.
+	var u := view.unit()
+	view.size.y = roundf(WorkshopView.bench_height_for(u, view.mouth_size(u).y,
+		view.net_span(u).y))
+	view.refresh()  # die neue Höhe will gebaut werden, sonst steht die alte Seite
 
 ## Legt count Zahlen-Pakete ins Magazin und liefert ihre uids.
 func _stock(count: int) -> Array[int]:
@@ -231,15 +239,15 @@ func _record_stencil() -> Array:
 	view.stencil_folded.connect(func(_t: float) -> void: beats.append(["fold"]))
 	return beats
 
-## Es gibt genau EIN Summen-Netz, und es PARKT im Diff-Schirm: der Schirm hält nur
-## seinen Platz, das Netz selbst liegt genau darauf und fährt nie.
-func test_the_diff_screen_parks_the_one_sum_net() -> void:
+## Es gibt genau EIN Netz, und es PARKT im Netz-Schirm der Würfel-Spalte: der
+## Schirm hält nur seinen Platz, das Netz selbst liegt genau darauf und fährt nie.
+func test_the_net_screen_parks_the_one_net() -> void:
 	await wait_frames(2)
 	assert_eq(view._net_host.get_child_count(), 0, "der Parkplatz selbst ist leer")
 	assert_almost_eq(view._net.get_global_rect().get_center().x,
-		view.sum_net_center().x, 0.5, "das Netz steht auf der gemeldeten Mitte")
+		view.ist_net_center().x, 0.5, "das Netz steht auf der gemeldeten Mitte")
 	assert_almost_eq(view._net.get_global_rect().get_center().y,
-		view.sum_net_center().y, 0.5)
+		view.ist_net_center().y, 0.5)
 
 ## Der Griff GEBIERT die Schablone (den Ort nennt scene_root - dort steht die
 ## Info-Säule) und schickt sie dann auf die Schiene über der Reihe.
@@ -316,7 +324,7 @@ func test_an_aborted_ride_owes_nothing() -> void:
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	var park := view.sum_net_center()
+	var park := view.ist_net_center()
 	var seen: Array = []
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
@@ -329,7 +337,7 @@ func test_an_aborted_ride_owes_nothing() -> void:
 		"das Netz steht auf seinem Parkplatz")
 	assert_almost_eq(view._net.get_global_rect().get_center().y, park.y, 0.5)
 	assert_true(view.press_slot_uids().is_empty(), "die Reihe ist leer")
-	assert_true(view.showing_result(), "und der Soll-Schirm zeigt das ERGEBNIS")
+	assert_true(view.showing_result(), "und das Netz zeigt das ERGEBNIS")
 	assert_eq(view._net.preview_die().faces[0], run.owned_pool[0].faces[0],
 		"das Netz zeigt den gebuchten Stand")
 	assert_eq(seen.size(), 1, "der Griff ist genau einmal gemeldet")
@@ -342,7 +350,7 @@ func test_the_full_ride_lands_in_the_same_end_state() -> void:
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(1)
 	await wait_frames(2)
-	var park := view.sum_net_center()
+	var park := view.ist_net_center()
 	view.pull_lever()
 	var span := view.ceremony_time()
 	await wait_seconds(span + 0.35)
@@ -577,20 +585,18 @@ func test_the_row_reports_sorts_places_and_cards() -> void:
 		"auch die leeren Schächte melden ihren Mund")
 	assert_eq(view.press_display_anchors().size(), view.slot_count())
 
-## Die Körper gehören scene_root, die PLÄTZE meldet das Fenster - und seit dem
-## Umzug unter den Pool sind es BEIDE Podeste.
-func test_the_window_reports_both_podiums() -> void:
+## Die Körper gehören scene_root, den PLATZ meldet das Fenster - seit der WELLE S
+## ist es EIN Podest, und es steht auf der Zeilenhöhe der Schacht-Reihe.
+func test_the_window_reports_the_one_podium() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "die Straße ist Möbel, kein Ablauf")
-	assert_gt(view.target_net_center().x, 0.0, "das Ziel-Podest meldet seine Mitte")
-	assert_eq(view.target_projector_y(), view.target_net_center().y)
-	assert_gt(view.result_net_center().x, 0.0, "das Ergebnis-Podest meldet seine Mitte")
-	assert_eq(view.result_projector_y(), view.result_net_center().y,
+	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
+	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Platz")
-	assert_lt(view.result_net_center().y, view.diff_screen_rect().position.y
-		+ view.get_global_rect().position.y, "und es steht ÜBER dem Soll-Schirm")
 	assert_lt(view.target_net_center().y, view.ist_screen_rect().position.y
-		+ view.get_global_rect().position.y, "links genauso über dem Ist-Schirm")
+		+ view.get_global_rect().position.y, "es steht ÜBER dem Netz-Schirm")
+	assert_false(view.has_method("result_net_center"),
+		"und ein zweites Podest gibt es nicht mehr")
 
 # --- Der Zeiger hebt den Beitrag EINER Karte hervor --------------------------------
 
@@ -698,7 +704,8 @@ func test_the_mouth_is_the_card_plus_its_gap() -> void:
 	assert_almost_eq(view.mouth_width(view.unit()), short, 0.001,
 		"und sie zerdrückt die Karte NICHT - der Mund bleibt der Karte treu")
 
-## Und im Bild steht die Fuge auch: zwischen zwei Mündern klafft genau sie.
+## Und im Bild steht die Fuge auch: zwischen zwei SLOTS klafft eine halbe
+## Mundbreite - deutlich mehr, als das alte u-Maß hergab.
 func test_two_shafts_stand_a_real_gap_apart() -> void:
 	view.data_cell_px = Vector2(24, 8)  # kleine Karte: die Reihe paßt bequem
 	run.hub_level = 10
@@ -711,13 +718,35 @@ func test_two_shafts_stand_a_real_gap_apart() -> void:
 	view.refresh()
 	await wait_frames(2)
 	var u := view.unit()
-	assert_gt(view._slit_panels.size(), 1)
-	var first: Rect2 = view._slit_panels[0].get_global_rect()
-	var second: Rect2 = view._slit_panels[1].get_global_rect()
-	assert_almost_eq(second.position.x - first.end.x, u * WorkshopView.MOUTH_GAP, 0.5,
+	assert_gt(view._slot_buttons.size(), 1)
+	var first: Rect2 = view._slot_buttons[0].get_global_rect()
+	var second: Rect2 = view._slot_buttons[1].get_global_rect()
+	var gap: float = second.position.x - first.end.x
+	assert_almost_eq(gap, view.mouth_width(u) * WorkshopView.MOUTH_GAP_SHARE, 0.5,
 		"die Münder stehen nicht mehr bündig aneinander")
+	assert_gte(gap, view.mouth_width(u) * 0.5 - 0.5,
+		"und die Luft ist mindestens eine halbe Mundbreite")
 	assert_lte(view.console_size(u).x, view.row_field_rect().size.x + 0.5,
 		"und die Reihe bleibt trotzdem im Feld")
+
+## Der gemalte SCHLITZ ist der Kartenteil, der hineinfährt - schmaler als sein Slot
+## und mittig darin. Die KAPPE steht darüber, und der Knopf spannt sie.
+func test_the_slit_is_narrower_than_its_slot_and_sits_centred() -> void:
+	view.data_cell_px = Vector2(24, 8)
+	view.data_cell_body_px = Vector2(9, 8)
+	view.refresh()
+	await wait_frames(2)
+	var u := view.unit()
+	var slit := view.slit_size(u)
+	assert_lt(slit.x, view.mouth_size(u).x, "schmaler als der Slot")
+	assert_almost_eq(slit.x / slit.y, 9.0 / 8.0, 0.01,
+		"und in der Proportion des Körper-Fußabdrucks")
+	var seat: Rect2 = view._slot_buttons[0].get_global_rect()
+	var painted: Rect2 = view._slit_panels[0].get_global_rect()
+	assert_almost_eq(painted.get_center().x, seat.get_center().x, 0.5, "mittig im Slot")
+	assert_almost_eq(painted.get_center().y, seat.get_center().y, 0.5)
+	assert_almost_eq(painted.size.x, slit.x, 0.5)
+	assert_lt(painted.size.x, seat.size.x, "der Knopf bleibt der breitere Klickfang")
 
 ## (3) Der STREIFEN wächst mit der Reihe, statt die Karten zu schrumpfen: je Slot
 ## genau eine Kartenbreite plus eine Fuge mehr.
@@ -727,7 +756,7 @@ func test_the_strip_grows_instead_of_shrinking_the_cards() -> void:
 	var mouth := card * WorkshopView.MOUTH_ROOM
 	assert_almost_eq(WorkshopView.row_span(6, u, mouth)
 		- WorkshopView.row_span(2, u, mouth),
-		4.0 * (mouth + u * WorkshopView.MOUTH_GAP), 0.001,
+		4.0 * mouth * (1.0 + WorkshopView.MOUTH_GAP_SHARE), 0.001,
 		"je Karte eine Kartenbreite plus Fuge")
 	var six := WorkshopView.bench_width_for(6, u, card)
 	assert_gt(six, WorkshopView.bench_width_for(2, u, card),
@@ -758,7 +787,8 @@ func test_a_capped_strip_closes_the_gap_before_it_shrinks_a_card() -> void:
 	view.refresh()
 	await wait_frames(2)
 	var u := view.unit()
-	assert_lt(view.mouth_step(u), view.mouth_width(u) + u * WorkshopView.MOUTH_GAP,
+	assert_lt(view.mouth_step(u),
+		view.mouth_width(u) * (1.0 + WorkshopView.MOUTH_GAP_SHARE),
 		"die Fuge schließt sich")
 	assert_almost_eq(view.mouth_width(u),
 		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
@@ -792,33 +822,33 @@ func test_the_anchors_still_name_the_card_faces() -> void:
 	assert_almost_eq(mouths[0].y, view._rail_seat_y(), u * 0.5,
 		"und sie liegen auf der Zeile der Schiene")
 
-# --- DER SOLL-SCHIRM: das UI-Spiegelbild des linken Netzes (KORREKTUR-WELLE I) -----
-# Die Aufschlüsselungs-Zeilen sind tot - der Schirm trägt nur noch das Ergebnis-Netz
-# mit grünen Deltas, gleich groß wie das linke Netz der Info-Säule.
+# --- DER EINE NETZ-SCHIRM unter dem Podest (WELLE S) -------------------------------
+# Die Aufschlüsselungs-Zeilen sind tot, die dritte Spalte auch - der Schirm trägt
+# das EINE Netz: Vorschau, Ergebnis, grüne Deltas.
 
-## Der Soll-Schirm trägt keinen eigenen Hintergrund mehr (blanker Filz).
-func test_the_result_screen_has_no_background() -> void:
+## Er trägt keinen eigenen Hintergrund (blanker Filz).
+func test_the_net_screen_has_no_background() -> void:
 	await wait_frames(2)
-	assert_true(view._diff_screen.get_theme_stylebox("panel") is StyleBoxEmpty,
-		"der Soll-Schirm steht auf blankem Filz")
+	assert_true(view._ist_screen.get_theme_stylebox("panel") is StyleBoxEmpty,
+		"der Netz-Schirm steht auf blankem Filz")
 
 ## Die Diff-Zeilen sind restlos fort - weder Rechnung noch Zeilen-Hover.
 func test_the_breakdown_rows_are_dead() -> void:
 	assert_false(view.has_method("diff_rows"), "keine Aufschlüsselungs-Zeilen mehr")
 	assert_false(view.has_method("diff_row_slot_at"), "und kein Zeilen-Hover")
 
-## Das Zellmaß rechnet das FENSTER, für beide Netze dasselbe - der Melde-Weg von
-## aussen ist mit dem Umzug unter den Pool gestorben.
-func test_the_window_computes_one_cell_for_both_nets() -> void:
+## Das Zellmaß ist die gemeldete WÜRFELFLÄCHE, und Netz wie Summen-Schirm teilen es.
+func test_both_nets_share_the_die_face_cell() -> void:
+	view.die_face_px = 28.0
 	view.choose_target(0)
 	await wait_frames(2)
-	assert_null(view.get("result_net_cell"), "nichts wird mehr hereingemeldet")
-	assert_almost_eq(view._net.cell, view.net_cell(view.unit()), 0.001,
-		"das Soll-Netz trägt das eine Zellmaß")
+	assert_almost_eq(view._net.cell, 28.0, 0.001, "das Netz trägt die Würfelfläche")
+	assert_almost_eq(view.sum_net_cell(view.unit()), 28.0, 0.001,
+		"und der Summen-Schirm dasselbe Maß")
 
-## OHNE Ziel rechnet der Soll-Schirm nichts - er hängt allein am gewählten
+## OHNE Ziel rechnet der Netz-Schirm nichts - er hängt allein am gewählten
 ## Zielwürfel; der wartende Neuzugang wird von der Info-Säule am Fach gezeigt.
-func test_the_result_screen_hangs_on_the_target_alone() -> void:
+func test_the_net_screen_hangs_on_the_target_alone() -> void:
 	run.stash_die(DieDefinition.standard(), 0)  # stash_die hinterlegt eine eigene Kopie
 	await wait_frames(2)
 	assert_null(view.preview_target(), "ohne Ziel steht kein Würfel im Schirm")
@@ -830,57 +860,35 @@ func test_the_result_screen_hangs_on_the_target_alone() -> void:
 	await wait_frames(2)
 	assert_null(view.preview_target(), "abgewählt ist er wieder dunkel")
 
-# --- WELLE F: die FAHRT ZUM ERGEBNIS-PODEST ---------------------------------------
+# --- WELLE S: die FAHRT ENDET, WO SIE GEBOREN WURDE --------------------------------
 
-## Der LANDEPLATZ der Schablone ist das ERGEBNIS-Podest rechts, nicht das
-## Bench-Podest links - dorthin wechselt der Würfel, dort faltet sie sich in ihn.
-func test_the_stencil_lands_on_the_result_podium() -> void:
+## Die ÜBERGABE ist tot: die Schablone kehrt zum EINEN Netz zurück, der Würfel
+## wechselt keine Seite mehr, und das Fenster kennt den Takt nicht mehr.
+func test_the_handover_is_gone_and_the_stencil_comes_home() -> void:
 	await wait_frames(2)
-	var seat := view.die_seat()
-	var podium := view.result_podium_rect()
-	podium.position += view.get_global_rect().position
-	assert_true(podium.has_point(seat),
-		"der Landeplatz liegt IM Ergebnis-Podest: %s in %s" % [seat, podium])
-	assert_eq(seat, Vector2(view.result_net_center().x, view.result_projector_y()),
-		"und ist genau der gemeldete Platz")
-	assert_gt(seat.x, view.row_field_rect().get_center().x
-		+ view.get_global_rect().position.x, "er liegt rechts der Schacht-Reihe")
+	assert_false(view.has_signal("die_handover"), "kein Wechsel-Takt mehr")
+	assert_false(view.has_method("die_seat"), "und kein zweiter Landeplatz")
+	assert_false(view.has_method("handover_time"))
+	var net := view.ist_net_center()
+	assert_gt(net.x, 0.0, "der Geburtsort steht")
+	assert_lt(net.x, view.row_field_rect().get_center().x
+		+ view.get_global_rect().position.x, "und liegt LINKS der Schacht-Reihe")
 
-## Der Takt "Würfel wechselt" kommt GENAU EINMAL, und zwar VOR der letzten Etappe -
-## der Würfel soll stehen, bevor sich die Schablone faltet.
-func test_the_handover_beat_leads_the_last_leg() -> void:
+## Der Takt der letzten Etappe: Abfahrt, dann Faltung - dazwischen nichts.
+func test_the_last_leg_is_landing_then_folding() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
 	var beats := _record_stencil()
-	var handovers: Array[float] = []
-	view.die_handover.connect(func(time: float) -> void:
-		beats.append(["hand"])
-		handovers.append(time))
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
-	assert_eq(handovers.size(), 1, "genau einmal gemeldet")
-	assert_almost_eq(handovers[0], view.handover_time(), 0.001,
-		"mit der Zeit, die die letzte Etappe samt Faltung läßt")
-	assert_eq(String(beats[-3][0]), "hand", "erst der Wechsel")
-	assert_eq(String(beats[-2][0]), "land", "dann die Abfahrt zum Ergebnis-Podest")
-	assert_eq(String(beats[-1][0]), "fold", "und die Faltung hinein")
+	assert_eq(String(beats[-2][0]), "land", "erst die Abfahrt zum Podest")
+	assert_eq(String(beats[-1][0]), "fold", "dann die Faltung hinein")
 
-## Kein Ziel, kein Wechsel: ohne Griff meldet das Fenster nichts.
-func test_no_handover_without_a_grip() -> void:
-	var pack := _valued_pack(0, 2)
-	view.slot_pack(pack.pack_uid)
-	await wait_frames(2)
-	var handovers := 0
-	view.die_handover.connect(func(_t: float) -> void: handovers += 1)
-	view.pull_lever()  # ohne Ziel greift nichts
-	await wait_frames(2)
-	assert_eq(handovers, 0, "ohne Zielwürfel wechselt keiner die Seite")
-
-## Skip MITTEN in der Übergabe: das Ende ist genau einmal gemeldet, die Reihe leer,
+## Skip MITTEN in der Faltung: das Ende ist genau einmal gemeldet, die Reihe leer,
 ## und der Endstand ist derselbe wie bei der ausgefahrenen Fahrt.
-func test_a_skip_inside_the_handover_owes_nothing() -> void:
+func test_a_skip_inside_the_folding_owes_nothing() -> void:
 	var pack := _valued_pack(3, 4)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(2)
@@ -890,7 +898,6 @@ func test_a_skip_inside_the_handover_owes_nothing() -> void:
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
 	view.pull_lever()
-	# Bis kurz NACH dem Wechsel-Takt warten: die Übergabe läuft dann noch.
 	await wait_seconds(view.ceremony_time() - WorkshopView.STENCIL_FOLD_TIME * 0.5)
 	assert_true(view.burning(), "die Faltung läuft noch")
 	view.skip_ceremony()

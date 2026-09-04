@@ -537,7 +537,7 @@ func bay_annotation_has_point(px: Vector2) -> bool:
 ## Die STEHENDEN Schilder der Bucht - die Laden-Grammatik "Hinsehen braucht
 ## keinen Zeiger": unterm Würfel seine Seelen-Zeile plus ⚡-Preis, unter jeder
 ## versiegelten Kassette ihr ⚡-Preis (versiegelt wirbt nicht mit Inhalt; Sorte
-## und Größe trägt die Kappe). Volles Lager schreibt VOLL in Rot statt des
+## und Größe trägt die FARBE der Karte). Volles Lager schreibt VOLL in Rot statt des
 ## Preises. entries = [{kind, index, px}] mit GLOBALEN Display-Pixeln - die
 ## Plätze meldet scene_root, das Fenster fasst nie Körper an. Je Bild gerufen,
 ## gebaut nur bei Änderung (Signatur).
@@ -662,7 +662,7 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 			data["body"] = card_pack.description
 		_:
 			var engraving: Engraving = offer[GameRun.OFFER_ITEM]
-			# Die Bündelgröße steht auf der Kappe der Kassette - hier nennt sie die
+			# Die Bündelgröße steht auf der Fläche der Kassette - hier nennt sie die
 			# Beschriftung noch einmal, damit Zahl und Wirkung beieinander stehen.
 			var bundle := int(offer.get(GameRun.OFFER_COUNT, 1))
 			data["title"] = engraving.display_name
@@ -718,7 +718,7 @@ func _refresh_offers() -> void:
 
 ## Ein Auslage-Platz wird zur körperlichen Ware: der Essenzwürfel liegt offen, der
 ## Sonderbestand steht versiegelt als seine Kassette (das Bündel trägt sein ×n auf
-## der Kappe). Verkauft, vergeben oder Karte heißt: dieser Platz bleibt leer - die
+## seiner Fläche). Verkauft, vergeben oder Karte heißt: dieser Platz bleibt leer - die
 ## SORTE des Platzes bleibt trotzdem gemeldet (row_kinds), damit die Lücke ihren
 ## Ort behält.
 func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:

@@ -11,7 +11,7 @@ extends Control
 ## slit_anchors/slit_stock), aufgestellt wird alles von scene_root.
 ## DIE WARE TRÄGT IHRE AUSKUNFT SELBST: es gibt keinen Hinweis-Schirm mehr. Die
 ## Charm-Karte trägt ihren Effekttext an der Stelle ihres Modells (Hover-Tausch,
-## kein Reflow), die Kappe der Kassette ihre Sorte und
+## kein Reflow), die FARBE der Kassette ihre Sorte und deren INTENSITÄT ihre
 ## Größe, und unter jedem Würfel liegen sein Netz, seine Seelen-Zeile und sein
 ## Preis. Zwei Sprecher antworten zusätzlich auf den Zeiger, beide ohne eigenen
 ## Kasten: die FLANKE der Schlitzreihe (Name + Beschreibung der gegriffenen
@@ -251,7 +251,7 @@ var lock_button: Button
 
 ## Die KASSETTEN-PLÄTZE unter der Charm-Zeile: der Laden markiert die Stellplätze
 ## und meldet ihre Mitten, die Zellen stellt scene_root. NACKT - kein
-## Anzeigefeld, kein Preisschild: die Kappe trägt Sorte, Zeichen und Größe.
+## Anzeigefeld, kein Preisschild: die Karte trägt Sorte und Größe in ihrer Farbe.
 var slit_row: HBoxContainer
 var _slit_pads: Array[Panel] = []
 ## Je Platz sein Preisschild - es steht unter der liegenden Karte und ist leer,
@@ -706,7 +706,7 @@ func _seat_of(kind: String, index: int) -> int:
 	return -1
 
 # --- Die FLANKENAUSKUNFT der Schlitzreihe --------------------------------------
-# Die Kappe nennt Sorte und Größe, das Schild den Preis - was in der Kassette
+# Die Farbe nennt Sorte und Größe, das Schild den Preis - was in der Kassette
 # steckt, sagt die Flanke, und nur mit Zeiger. Der Platz ist der freie Streifen
 # RECHTS der mittigen Reihe.
 

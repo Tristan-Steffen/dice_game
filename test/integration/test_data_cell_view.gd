@@ -22,9 +22,10 @@ func test_every_shelf_sort_builds() -> void:
 
 func test_the_tint_comes_from_the_single_shelf_table() -> void:
 	for sort: String in Pack.SHELF_ORDER:
-		var cell := _cell(sort)
+		var cell := _cell(sort, [], Pack.TIER_KOLOSSAL)
 		var expected: Color = PackDrawerView.COLORS[sort]
 		assert_eq(cell.tint, expected, "%s trägt die Regal-Farbe" % sort)
+		# Kolossal ist die volle Sättigung - dort steht die Sortenfarbe unverändert.
 		var glow := cell.glow_color()
 		assert_almost_eq(glow.r, expected.r, 0.001)
 		assert_almost_eq(glow.g, expected.g, 0.001)
@@ -47,6 +48,42 @@ func test_an_open_sort_shows_its_core_and_no_band() -> void:
 		"der Kern hinterleuchtet das Netz")
 	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
 
+## Die Karte ist aus GETÖNTEM GLAS - der Körper in seiner Sortenfarbe, Kopfkante,
+## Blende, Kragen und Finnen dagegen massiv.
+func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	var shade := cell.tier_tint()
+	var shell: StandardMaterial3D = cell.get_node("Body/Cell0/Back").material_override
+	assert_eq(shell.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA, "der Körper ist Glas")
+	assert_almost_eq(shell.albedo_color.a, DataCellView.GLASS_BODY_ALPHA, 0.001)
+	assert_almost_eq(shell.albedo_color.r, shade.r, 0.001, "in der Sortenfarbe")
+	assert_almost_eq(shell.albedo_color.g, shade.g, 0.001)
+	assert_almost_eq(shell.albedo_color.b, shade.b, 0.001)
+	assert_lt(DataCellView.GLASS_BODY_EMISSION, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
+	assert_eq(cell.get_node("Body/Cell0/BarLeft").material_override, shell,
+		"die Gehäusebalken teilen dasselbe Glas")
+	for solid in ["EdgeStrip", "BezelLeft", "CollarLeft", "Fin0"]:
+		var part: StandardMaterial3D = cell.get_node("Body/Cell0/%s" % solid).material_override
+		assert_eq(part.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED,
+			"%s bleibt massiv" % solid)
+
+## Und darum liest das Netz auch von HINTEN: EINE Backung, beidseitig gezeigt, mit
+## einem durchscheinenden Kern dahinter und einer festen Zeichen-Reihenfolge.
+func test_the_net_reads_from_behind_through_the_body() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	var net: StandardMaterial3D = cell.get_node("Body/Cell0/StampNet").material_override
+	assert_eq(net.cull_mode, BaseMaterial3D.CULL_DISABLED,
+		"die Rückseite des Quads zeigt dieselbe Textur gespiegelt")
+	var core: StandardMaterial3D = cell.get_node("Body/Cell0/Core").material_override
+	assert_eq(core.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA)
+	assert_almost_eq(core.albedo_color.a, DataCellView.CORE_ALPHA, 0.001,
+		"die Hinterleuchtung blockt den Blick nicht mehr")
+	var shell: StandardMaterial3D = cell.get_node("Body/Cell0/Back").material_override
+	var pane: StandardMaterial3D = cell.get_node("Body/Cell0/Glass").material_override
+	assert_lt(shell.render_priority, core.render_priority, "Körper hinter Kern")
+	assert_lt(core.render_priority, pane.render_priority, "Kern hinter Scheibe")
+	assert_lt(pane.render_priority, net.render_priority, "Scheibe hinter Netz")
+
 func test_the_physical_stack_is_capped_and_the_badge_carries_the_rest() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
 	cell.set_count(3)
@@ -61,12 +98,16 @@ func test_the_physical_stack_is_capped_and_the_badge_carries_the_rest() -> void:
 	assert_eq(cell.badge_text(), "", "eine einzelne Zelle braucht keine Marke")
 
 func test_the_rest_glow_stays_under_the_bloom_threshold() -> void:
-	# Dieselbe Ruheregel wie bei den Runen: Ruhelicht ja, Ruhe-Bloom nein.
+	# Dieselbe Ruheregel wie bei den Runen: Ruhelicht ja, Ruhe-Bloom nein - und die
+	# Größen-Leiter dämpft nur, sie hebt nie über die Schwelle.
 	assert_lt(DataCellView.REST_ENERGY, Rune.IDLE_CEILING)
 	assert_gt(DataCellView.FLARE_ENERGY, Rune.IDLE_CEILING, "der Ausbruch SOLL blühen")
 	assert_lt(DataCellView.DIM_ENERGY, DataCellView.REST_ENERGY)
-	var cell := _cell(Engraving.CATEGORY_DICE)
-	assert_almost_eq(cell.glow_energy(), DataCellView.REST_ENERGY, 0.001)
+	for tier: int in [Pack.TIER_NORMAL, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+		var cell := _cell(Engraving.CATEGORY_DICE, [], tier)
+		assert_almost_eq(cell.glow_energy(),
+			DataCellView.REST_ENERGY * cell.tier_energy(), 0.001)
+		assert_lt(cell.glow_energy(), Rune.IDLE_CEILING, "Stufe %d bleibt darunter" % tier)
 
 func test_dimming_lowers_the_core_but_keeps_the_body() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
@@ -77,7 +118,7 @@ func test_dimming_lowers_the_core_but_keeps_the_body() -> void:
 	assert_eq(cell.stack_size(), 2, "gedimmt wird das Licht, nicht der Körper")
 	assert_true(cell.visible)
 	cell.set_dimmed(false)
-	assert_almost_eq(cell.glow_energy(), DataCellView.REST_ENERGY, 0.001)
+	assert_almost_eq(cell.glow_energy(), cell.rest_energy(), 0.001)
 
 func test_the_flare_peaks_and_returns_to_the_rest_cap() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
@@ -85,7 +126,7 @@ func test_the_flare_peaks_and_returns_to_the_rest_cap() -> void:
 	assert_almost_eq(cell.glow_energy(), DataCellView.FLARE_ENERGY, 0.001,
 		"der Lesemoment schlägt sofort aus")
 	await wait_seconds(DataCellView.FLARE_TIME + 0.15)
-	assert_almost_eq(cell.glow_energy(), DataCellView.REST_ENERGY, 0.001,
+	assert_almost_eq(cell.glow_energy(), cell.rest_energy(), 0.001,
 		"und klingt auf das Ruhelicht zurück")
 
 func test_a_dimmed_cell_flares_back_to_its_own_rest() -> void:
@@ -134,7 +175,10 @@ func test_every_cell_carries_its_edge_strip() -> void:
 	assert_lt(DataCellView.EDGE_STRIP_H, DataCellView.HEIGHT * 0.1, "ein Streifen, kein Balken")
 
 func test_the_edge_rests_below_the_bloom_and_burns_only_when_socketed() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	# Die volle Stufe (Kolossal) trägt die authored Energien - dort binden die
+	# beiden Deckel, und die kleineren Größen bleiben darunter.
+	var cell := _cell(Engraving.CATEGORY_NUMBER, [], Pack.TIER_KOLOSSAL)
+	assert_almost_eq(cell.tier_energy(), 1.0, 0.0001)
 	assert_lt(DataCellView.EDGE_REST_ENERGY, Rune.IDLE_CEILING, "im Regal kein Ruhe-Bloom")
 	assert_gt(DataCellView.EDGE_LIVE_ENERGY, DataCellView.EDGE_REST_ENERGY)
 	assert_lt(DataCellView.EDGE_LIVE_ENERGY, 1.5,
@@ -153,7 +197,7 @@ func test_a_locked_bench_darkens_the_edge_too() -> void:
 	assert_almost_eq(cell.edge_energy(), DataCellView.EDGE_DIM_ENERGY, 0.001,
 		"gesperrt verglimmt auch die Kante")
 	cell.set_dimmed(false)
-	assert_almost_eq(cell.edge_energy(), DataCellView.EDGE_LIVE_ENERGY, 0.001)
+	assert_almost_eq(cell.edge_energy(), cell.edge_rest_energy(), 0.001)
 
 func test_the_edge_is_pulled_along_by_a_flare_and_falls_back() -> void:
 	# Ein gesunkener Sliver zeigt keinen Kern mehr - ohne das Mitreißen bliebe der
@@ -161,9 +205,9 @@ func test_the_edge_is_pulled_along_by_a_flare_and_falls_back() -> void:
 	var cell := _cell(Engraving.CATEGORY_DICE)
 	cell.set_socketed(true)
 	cell.flare()
-	assert_gt(cell.edge_energy(), DataCellView.EDGE_LIVE_ENERGY, "sie reißt mit")
+	assert_gt(cell.edge_energy(), cell.edge_rest_energy(), "sie reißt mit")
 	await wait_seconds(DataCellView.FLARE_TIME + 0.15)
-	assert_almost_eq(cell.edge_energy(), DataCellView.EDGE_LIVE_ENERGY, 0.001)
+	assert_almost_eq(cell.edge_energy(), cell.edge_rest_energy(), 0.001)
 
 # --- Der Anzeige-Maßstab des Regals ------------------------------------------------
 # Die Bucht ist das untere Viertel der Bank; die Kassette wächst darin mit. REINE
@@ -199,8 +243,9 @@ func test_the_socket_stands_on_the_one_cassette_scale() -> void:
 
 func test_the_socket_pose_stands_upright_and_sinks_to_its_share() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	assert_gt(DataCellView.SUNK_SHOW, 0.0, "etwas muss überstehen")
-	assert_lt(DataCellView.SUNK_SHOW, 0.3, "aber sie STECKT, sie steht nicht daneben")
+	assert_gte(DataCellView.SUNK_SHOW, 0.7,
+		"drei Viertel stehen heraus - sonst läse die Karte im Kerf gar nicht")
+	assert_lt(DataCellView.SUNK_SHOW, 1.0, "aber sie STECKT, sie steht nicht daneben")
 	cell.seat_hard(Vector3(2.0, 0.0, -1.0))
 	assert_false(cell.lying(), "im Schlitz steht sie senkrecht")
 	assert_true(cell.sunk())
@@ -231,14 +276,18 @@ func test_a_plunge_without_time_lands_hard() -> void:
 	assert_almost_eq(cell.global_position.y, 0.0, 0.001, "und wieder ganz heraus")
 	assert_false(cell.sunk())
 
-func test_a_sunk_cell_shows_no_badge() -> void:
-	# Sie ist einzeln, und die Zahl stünde als einziges Stück Schrift aus dem Tisch.
+func test_a_sunk_cell_carries_its_badge_on_the_face() -> void:
+	# Seit dem Kappen-Tod steht die Zahl auf der FLÄCHE - dort ragt sie nirgends
+	# heraus und liest im Kerf, wo drei Viertel der Karte über dem Blech stehen.
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	cell.set_count(4)
 	var badge: Label3D = cell.get_node("Body/CountBadge")
 	assert_true(badge.visible)
 	cell.seat_hard(Vector3.ZERO)
-	assert_false(badge.visible)
+	assert_true(badge.visible, "sie steht weiter da")
+	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5,
+		"und zwar VOR der Kartenfläche")
+	assert_gt(badge.position.y, 0.0, "in der oberen Hälfte, über dem Blech")
 
 func test_a_glide_target_is_always_a_glass_point() -> void:
 	# Wie tief sie unter ihrem Platz hängt, weiß die Zelle selbst - der Aufrufer
@@ -354,32 +403,39 @@ func test_a_glide_without_time_seats_the_cell_hard() -> void:
 	assert_eq(cell.global_position, Vector3(3.0, 0.0, -2.0))
 	assert_false(cell.gliding())
 
-func test_the_glyph_comes_from_the_existing_seal_drawing() -> void:
-	# Kein zweites Zeichen: die Sorte findet ihren Pakettyp über die vorhandene
-	# Zuordnung zurück, der Sonderbestand fällt auf den Eckrahmen.
-	for pair: Array in [[Engraving.CATEGORY_NUMBER, Pack.TYPE_NUMBER],
-			[Engraving.CATEGORY_DICE, Pack.TYPE_DICE_MOD],
-			[Pack.SHELF_SPECIAL, ""]]:
-		var sort: String = pair[0]
-		_cell(sort)
-		var oven: SubViewport = DataCellView._glyph_ovens.get(sort)
-		assert_not_null(oven, "%s hat ihren Ofen" % sort)
-		if oven == null:
-			continue
-		var icon: PackIconRenderer = oven.get_child(0)
-		assert_eq(icon.pack_type, String(pair[1]))
+## Die SORTE sagt die FARBE (Welle R): das Zeichen auf der Kappe ist mit ihr
+## gestorben, vier Sorten liefern vier Töne aus der EINEN Farbquelle.
+func test_die_sorte_sagt_die_farbe() -> void:
+	var seen: Array[Color] = []
+	for sort: String in Pack.SHELF_ORDER:
+		var cell := _cell(sort, [], Pack.TIER_KOLOSSAL)
+		assert_eq(cell.tint, PackDrawerView.COLORS[sort] as Color,
+			"%s aus PackDrawerView.COLORS" % sort)
+		assert_false(seen.has(cell.tier_tint()), "%s hat einen eigenen Ton" % sort)
+		seen.append(cell.tier_tint())
+	assert_eq(seen.size(), Pack.SHELF_ORDER.size(), "vier Sorten, vier Töne")
+	# Die eine Farbtrennung der Serie: eine Operator-Karte rechnet und liest amber.
+	var op := _cell(Engraving.CATEGORY_NUMBER,
+		StampNet.operator_net(StampNet.OP_DOUBLER), Pack.TIER_KOLOSSAL)
+	assert_eq(op.tier_tint(), PressNetView.OPERATOR_TINT)
 
-func test_alle_kassetten_einer_sorte_teilen_EINE_backung() -> void:
-	# Ein eigener Ofen je Zelle kostete gemessene ~11,5 ms - das war der Ruck beim
-	# Bestücken einer Bucht und beim Aufbau des Magazins.
-	var sort := Engraving.CATEGORY_NUMBER
-	var first := _cell(sort)
-	var second := _cell(sort)
-	assert_null(first.get_node_or_null("GlyphOven"), "keine Zelle backt selbst")
-	assert_null(second.get_node_or_null("GlyphOven"))
-	var shared: Texture2D = DataCellView.glyph_texture(sort)
-	assert_not_null(shared, "die Sorte hat ihre eine Backung")
-	assert_eq(DataCellView.glyph_texture(sort), shared, "und behält sie")
+## Und die GRÖSSE ihre INTENSITÄT: derselbe Farbton, steigende Sättigung UND
+## steigendes Glühen - Standard blaß und schwach, Kolossal voll.
+func test_die_groesse_sagt_die_intensitaet() -> void:
+	var sort := Engraving.CATEGORY_MATERIAL
+	var base: Color = PackDrawerView.COLORS[sort]
+	var last_sat := -1.0
+	var last_gain := -1.0
+	for tier: int in [Pack.TIER_NORMAL, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]:
+		var cell := _cell(sort, [], tier)
+		var shade := cell.tier_tint()
+		assert_almost_eq(shade.h, base.h, 0.002, "Stufe %d: derselbe Farbton" % tier)
+		assert_gt(shade.s, last_sat, "Stufe %d: satter als die kleinere" % tier)
+		assert_gt(cell.tier_energy(), last_gain, "Stufe %d: heller" % tier)
+		assert_lte(cell.tier_energy(), 1.0, "aber nie über die authored Energie")
+		last_sat = shade.s
+		last_gain = cell.tier_energy()
+	assert_almost_eq(last_gain, 1.0, 0.0001, "das Kolossale bekommt sie ganz")
 
 # --- Der Stand im MAGAZIN (die Grube) ---------------------------------------------
 # Die Kassetten STEHEN in einem echten Loch im Tisch (Welle O), versenkt bis zur
@@ -451,30 +507,45 @@ func test_a_grown_cell_keeps_standing_on_its_glass_point() -> void:
 	assert_almost_eq(cell.glass_position().y, 0.0, 0.001,
 		"und beim Schrumpfen ebenso - der Glaspunkt bleibt")
 
-func test_a_bundle_in_the_pit_is_one_card_with_its_count_on_its_cap() -> void:
+## Ein Bündel ist stehend EINE Karte, und seine Zahl liegt WIE LIEGEND auf der
+## FLÄCHE - die Kappe, die sie früher trug, gibt es nicht mehr.
+func test_a_bundle_carries_its_count_on_the_face_standing_and_lying() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	var badge: Label3D = cell.get_node("Body/CountBadge")
 	cell.set_count(4)
 	assert_eq(cell.shown_cells(), 4, "liegend liegt der Stapel da")
-	assert_eq(cell.cap_badge_text(), "", "und die Zahl schwebt darüber")
+	assert_eq(cell.badge_text(), "×4")
+	cell.badge_on_face = true
+	cell.lie_on_glass(Vector3.ZERO)
+	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "liegend auf der Fläche")
 	cell.stand_in_pit(Vector3.ZERO)
 	assert_eq(cell.shown_cells(), 1, "in der Grube ist das Bündel EINE Karte")
-	assert_eq(cell.cap_badge_text(), "×4", "und ihre KAPPE trägt die Zahl")
-	assert_false((cell.get_node("Body/CountBadge") as Label3D).visible,
-		"die Schwebemarke bleibt der liegenden Lage - aus dem Loch ragt sie nicht")
+	assert_eq(cell.badge_text(), "×4", "und ihre FLÄCHE trägt die Zahl")
+	assert_true(badge.visible)
+	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "stehend ebenso")
 	cell.seat_hard(Vector3.ZERO)
-	assert_eq(cell.cap_badge_text(), "×4", "im Kerf ebenso")
+	assert_eq(cell.badge_text(), "×4", "im Kerf ebenso")
 	cell.set_count(1)
-	assert_eq(cell.cap_badge_text(), "", "ein Einzelstück zählt nichts")
+	assert_eq(cell.badge_text(), "", "ein Einzelstück zählt nichts")
 
-func test_every_cell_carries_its_sort_cap() -> void:
+func test_no_cell_carries_a_cap_any_more() -> void:
+	# Die KAPPE ist am 2026-09-04 gestorben: ihr Zeichen sagte nur die Sorte, und
+	# die sagt jetzt die Farbe. Über dem Blech steht nur noch die Kopfkante.
 	for sort: String in Pack.SHELF_ORDER:
-		var cell := _cell(sort)
-		assert_not_null(cell.get_node_or_null("Body/Cell0/Cap"), "%s hat seine Kappe" % sort)
-		assert_not_null(cell.get_node_or_null("Body/Cell0/CapGlyph"),
-			"%s trägt sein Zeichen darauf" % sort)
-	assert_gt(DataCellView.CAP_DEPTH, DataCellView.DEPTH,
-		"die Kappe kragt über die Dicke - sonst wäre sie ein Strich")
-	assert_lt(DataCellView.CAP_REST_ENERGY, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
+		var cell := _cell(sort, [], Pack.TIER_KOLOSSAL)
+		for gone in ["Cap", "CapGlyph", "TierStripe0", "TierStripe1"]:
+			assert_null(cell.get_node_or_null("Body/Cell0/%s" % gone),
+				"%s: kein %s mehr" % [sort, gone])
+		assert_null(cell.get_node_or_null("Body/CapBadge"))
+		assert_not_null(cell.get_node_or_null("Body/Cell0/EdgeStrip"),
+			"%s behält seine Kopfkante" % sort)
+	# Das GRIFFMASS überlebt als reine Rechnung: Reihe und Magazin teilen danach,
+	# und es ist byteweise das alte Kappenmaß - die Teilung bleibt dieselbe.
+	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.DEPTH,
+		"die Griff-Zelle ist breiter als die Karte dick - sonst fände der Zeiger sie nie")
+	assert_almost_eq(DataCellView.GRIP_DEPTH, DataCellView.DEPTH * 2.9, 0.000001)
+	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.FIN_DEPTH,
+		"und bleibt die Greifluft um den steckenden Körper")
 
 func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
@@ -494,7 +565,28 @@ func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void
 	cell.set_hovered(false)
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück")
-	assert_almost_eq(cell.glow_energy(), DataCellView.REST_ENERGY, 0.001)
+	assert_almost_eq(cell.glow_energy(), cell.rest_energy(), 0.001)
+
+## Im MAGAZIN zieht der Griff sie auf DREI VIERTEL über die Grubenkante - dort
+## setzt der Wirt PIT_HOVER_LIFT statt des kleinen Auslagen-Hubs.
+func test_the_magazine_grip_pulls_three_quarters_of_the_card_out() -> void:
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	cell.hover_lift = DataCellView.PIT_HOVER_LIFT
+	cell.stand_in_pit(Vector3.ZERO)
+	var body: Node3D = cell.get_node("Body")
+	var resting: float = body.position.y
+	assert_almost_eq(DataCellView.PIT_SHOW + DataCellView.PIT_HOVER_LIFT, 0.75, 0.001,
+		"gehoben stehen drei Viertel der Karte über der Kante")
+	assert_gt(DataCellView.PIT_HOVER_LIFT, DataCellView.HOVER_LIFT,
+		"und das ist mehr als der Hub einer Auslage")
+	cell.set_hovered(true)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y,
+		resting + DataCellView.STAND_HEIGHT * DataCellView.PIT_HOVER_LIFT, 0.01,
+		"gemessen an ihrer Standhöhe")
+	cell.set_hovered(false)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück in die Grube")
 
 func test_a_lying_cell_is_deliberately_not_mirrored() -> void:
 	# Dieselbe Regel wie beim Phantomwürfel: sie LIEGT auf dem Glas, ihr
@@ -568,7 +660,7 @@ func test_eine_operator_karte_liest_amber() -> void:
 	assert_eq(plain.net_accent(), PackDrawerView.COLORS[Pack.SHELF_SPECIAL])
 
 func test_die_groesse_steht_in_der_rahmenstaerke_statt_in_streifen() -> void:
-	# Auf der Fläche liegt jetzt das Netz - die Größe trägt der Rahmen.
+	# Die Größe sagt die INTENSITÄT; die Rahmenstärke bleibt der stille zweite Kanal.
 	var normal := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_NORMAL)
 	var big := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_GROSS)
 	var huge := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_KOLOSSAL)
@@ -577,10 +669,13 @@ func test_die_groesse_steht_in_der_rahmenstaerke_statt_in_streifen() -> void:
 	assert_gt(huge.bezel_lip(), big.bezel_lip())
 	assert_lt(huge.bezel_lip(), DataCellView.SIDE_BAR,
 		"aber nie breiter als der Seitenbalken, der ihn trägt")
-	assert_null(normal.get_node_or_null("Body/Cell0/TierFace0"),
-		"die Streifen der Vorderseite sind gestorben")
-	assert_not_null(huge.get_node_or_null("Body/Cell0/TierStripe0"),
-		"auf der KAPPE bleiben sie - von oben ist sie die ganze Auskunft")
+	# ... und beide Kanäle laufen gleich herum: stärker heißt satter und heller.
+	assert_gt(huge.tier_tint().s, normal.tier_tint().s)
+	assert_gt(huge.tier_energy(), normal.tier_energy())
+	var frame: StandardMaterial3D = huge.get_node("Body/Cell0/BezelLeft").material_override
+	var pale: StandardMaterial3D = normal.get_node("Body/Cell0/BezelLeft").material_override
+	assert_gt(frame.emission_energy_multiplier, pale.emission_energy_multiplier,
+		"der Rahmen des Kolossalen glüht stärker")
 
 # --- KORREKTUR-WELLE K: die Karte im SCHACHT liegt QUER ----------------------------
 
@@ -612,20 +707,22 @@ func test_liegend_quer_stehend_hochkant() -> void:
 	assert_gt(_quad(cell).size.y, _quad(cell).size.x,
 		"die EINE Backung bleibt hochkant - liegend liest sie darum aufrecht")
 
-## Kappen-Zeichen und Bündelzahl liegen flach auf der Kappe und werden gegen den
-## Yaw gedreht: von oben lesen sie in JEDER Lage aufrecht (Bildschirm-oben = lokal -Z).
-func test_die_kappen_auskunft_liest_stehend_aufrecht() -> void:
+## Die Bündelzahl schaut MIT der Fläche: sie ist ein Kind des Körpers und dreht mit
+## ihm, also steht sie stehend wie liegend richtig herum auf der Karte - und liest
+## von hinten durchs Glas gespiegelt mit.
+func test_die_marke_schaut_mit_der_flaeche() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
 	cell.set_count(3)
 	cell.stand_in_pit(Vector3.ZERO)
+	var badge: Node3D = cell.get_node("Body/CountBadge")
+	var plate: Node3D = cell.get_node("Body/Cell0/StampNet")
 	var into := cell.global_transform.affine_inverse()
-	for path in ["Body/Cell0/CapGlyph", "Body/CapBadge"]:
-		var part: Node3D = cell.get_node(path)
-		var local := into.basis * part.global_transform.basis
-		assert_almost_eq(local.z.normalized().y, 1.0, 0.001,
-			"%s: liegt flach auf der Kappe" % path)
-		assert_almost_eq(local.y.normalized().z, -1.0, 0.001,
-			"%s: und liest von oben aufrecht" % path)
+	var badge_normal := (into.basis * badge.global_transform.basis).z.normalized()
+	var plate_normal := (into.basis * plate.global_transform.basis).z.normalized()
+	assert_almost_eq(badge_normal.dot(plate_normal), 1.0, 0.001,
+		"sie schaut in dieselbe Richtung wie das Netz")
+	assert_gt(badge.position.y, 0.0, "in der oberen Hälfte der Karte")
+	assert_lt(badge.position.x, 0.0, "in der freien LINKEN Netz-Ecke")
 
 ## DER TRAGE-BOGEN: was der SPIELER bewegt, fliegt ÜBER dem Tisch. Er endet exakt
 ## auf dem genannten Glaspunkt und unterschreitet das Glas nie.

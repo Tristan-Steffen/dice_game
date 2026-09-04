@@ -1,7 +1,7 @@
 class_name PackDrawerView
 extends Control
 ## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze, in der jedes
-## versiegelte Paket als EIGENE Kassette STEHT - versenkt bis zur Kappe, wie Akten
+## versiegelte Paket als EIGENE Kassette STEHT - versenkt bis zur Kopfkante, wie Akten
 ## im Archiv. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
 ## was in ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach
 ## vorn. Eine Kassette SCHRUMPFT NIE - was nicht mehr in die Grube passt, kommt
@@ -47,8 +47,8 @@ const COLORS := {
 ## plus noch einmal 20 % (Spieler-Entscheide 2026-09-04: die Schrift blieb zu klein).
 const CASSETTE_SCALE := 2.184
 
-## Greifluft quer zum Fußabdruck der HOCHKANTEN Kassette (ihre KAPPE: Kappentiefe ×
-## Kartenbreite) und die TIEFE eines Rangs. Seit der Welle P steht die Karte
+## Greifluft quer zum Fußabdruck der HOCHKANTEN Kassette (ihre GRIFF-Zelle:
+## Grifftiefe × Kartenbreite) und die TIEFE eines Rangs. Seit der Welle P steht die Karte
 ## hochkant und lehnt sich über niemanden mehr - der Rang rückt darum eng zusammen.
 const CELL_SPAN := 1.15
 const RANK_SPAN := 1.1
@@ -56,7 +56,7 @@ const RANK_SPAN := 1.1
 const SLOT_INSET := 0.12
 ## Rückfall-Fußabdruck (Einheiten u), solange niemand die Welt-Projektion gemeldet
 ## hat: CELL_FALLBACK ist das TIEFE Maß (die Kartenbreite), CELL_FALLBACK_DEPTH
-## sein Verhältnis zur schmalen Kappentiefe.
+## sein Verhältnis zur schmalen Grifftiefe.
 const CELL_FALLBACK := 7.5
 const CELL_FALLBACK_DEPTH := 2.463
 
@@ -88,7 +88,7 @@ const FULL_BODY := "Voll - jede weitere Prämie zerfällt zu Geld."
 ## Gemeinsame Maßeinheit der Werkbank (setzt WorkshopView über build).
 var u := 8.0
 ## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln (Welt-Projektion ihrer
-## Kappe; hochkant seit der Welle P: Kappentiefe × Kartenbreite).
+## GRIFF-Zelle; hochkant seit der Welle P: Grifftiefe × Kartenbreite).
 var cell_px := Vector2.ZERO
 ## Der Streifen, in dem das Fach liegt (= die eigene Größe, von build gemerkt).
 var strip := Vector2.ZERO
@@ -213,7 +213,7 @@ static func _slot_in(grid: Dictionary, field_size: Vector2, cell: Vector2) -> Ve
 	return Vector2(field_size.x / columns, cell.y * RANK_SPAN * scale)
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft. Er ist
-## bewusst größer als die Kappe - in der Grube gäbe ein Knopf im Kappenmaß einen
+## bewusst größer als die Karte - in der Grube gäbe ein Knopf im Kartenmaß einen
 ## Streifen von wenigen Pixeln, und der Zeiger fände ihn nie.
 static func grip_for(field_size: Vector2, cell: Vector2, count: int) -> Vector2:
 	return _grip_in(grid_for(field_size, cell, count), field_size, cell)
